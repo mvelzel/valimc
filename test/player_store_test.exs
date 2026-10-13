@@ -1,6 +1,7 @@
 defmodule Valimc.PlayerStoreTest do
   use ExUnit.Case, async: false
   alias Valimc.PlayerStore, as: Store
+  alias Valimc.{Inventory, PlayerSnapshot}
   alias Valimc.TestClient, as: Client
   alias Valimc.Protocol.{Data, Wire}
   import ExUnit.CaptureLog
@@ -19,6 +20,7 @@ defmodule Valimc.PlayerStoreTest do
   end
 
   defp username, do: "Pose" <> Integer.to_string(System.unique_integer([:positive]))
+  defp snapshot, do: PlayerSnapshot.capture(pose(), Inventory.new())
   defp uuid, do: :crypto.strong_rand_bytes(16)
   defp pose, do: %{x: -17.25, y: 71.5, z: 32.75, yaw: 122.5, pitch: -31.25}
 
@@ -58,7 +60,7 @@ defmodule Valimc.PlayerStoreTest do
     Client.close(client)
     assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000
     wait_for_departure(name, uuid)
-    assert byte_size(File.read!(Store.path(base, uuid))) == 88
+    assert byte_size(File.read!(Store.path(base, uuid))) == 139
 
     {^uuid, second} = Client.login(name)
     assert second.pose == pose()
@@ -90,16 +92,16 @@ defmodule Valimc.PlayerStoreTest do
     try do
       assert {:error, :session_closing} = Store.open(uuid)
       {:ok, healthy, nil} = Store.open(uuid())
-      assert :ok = Store.close(healthy, pose())
+      assert :ok = Store.close(healthy, snapshot())
     after
       :sys.resume(writer)
     end
 
     ref = Process.monitor(writer)
-    assert :ok = Store.close(writer, pose())
+    assert :ok = Store.close(writer, snapshot())
     assert_receive {:DOWN, ^ref, :process, ^writer, :normal}
     {:ok, replacement, restored} = Store.open(uuid)
-    assert restored == pose()
+    assert restored.pose == pose()
     assert :ok = Store.close(replacement, restored)
   end
 
@@ -107,34 +109,35 @@ defmodule Valimc.PlayerStoreTest do
     uuid = uuid()
     {:ok, writer, nil} = Store.open(uuid)
     ref = Process.monitor(writer)
-    assert :ok = Store.close(writer, pose())
+    assert :ok = Store.close(writer, snapshot())
     assert_receive {:DOWN, ^ref, :process, ^writer, :normal}
     path = Store.path(base, uuid)
     valid = File.read!(path)
-    <<payload::binary-size(56), _::binary>> = valid
+    payload = binary_part(valid, 0, byte_size(valid) - 32)
     <<header::binary-size(24), _x::binary-size(8), rest::binary>> = payload
     <<magic::binary-size(7), _version, fields::binary>> = payload
-    future_version = magic <> <<2>> <> fields
+    future_version = magic <> <<3>> <> fields
     out_of_bounds = header <> <<30_000_000.0::float-64>> <> rest
     nan = header <> <<0x7FF8000000000000::64>> <> rest
 
     for invalid <- [
           "bad",
           valid <> "extra",
+          :binary.copy(<<0>>, PlayerSnapshot.max_bytes() + 1),
           payload <> <<0::256>>,
           future_version <> :crypto.hash(:sha256, future_version),
           out_of_bounds <> :crypto.hash(:sha256, out_of_bounds),
           nan <> :crypto.hash(:sha256, nan)
         ] do
       File.write!(path, invalid)
-      assert {:error, :invalid_pose_file} = Store.open(uuid)
+      assert {:error, :invalid_player_file} = Store.open(uuid)
       assert File.read!(path) == invalid
       wait_for_departure("", uuid)
     end
 
     other = uuid()
     File.write!(Store.path(base, other), valid)
-    assert {:error, :invalid_pose_file} = Store.open(other)
+    assert {:error, :invalid_player_file} = Store.open(other)
     assert File.read!(Store.path(base, other)) == valid
   end
 
@@ -145,7 +148,7 @@ defmodule Valimc.PlayerStoreTest do
     assert {:error, :eisdir} = Store.open(uuid)
     assert File.dir?(path)
     {:ok, healthy, nil} = Store.open(uuid())
-    assert :ok = Store.close(healthy, pose())
+    assert :ok = Store.close(healthy, snapshot())
   end
 
   test "periodic save acknowledges a complete checkpoint and write failure stays isolated", %{
@@ -154,9 +157,9 @@ defmodule Valimc.PlayerStoreTest do
     uuid = uuid()
     {:ok, writer, nil} = Store.open(uuid)
     ref = make_ref()
-    Store.checkpoint(writer, pose(), ref)
+    Store.checkpoint(writer, snapshot(), ref)
     assert_receive {:player_saved, ^ref, :ok}, 1000
-    assert byte_size(File.read!(Store.path(base, uuid))) == 88
+    assert byte_size(File.read!(Store.path(base, uuid))) == 139
 
     # Turn the directory into a file to force a real filesystem error.
     File.rm_rf!(base)
@@ -164,12 +167,12 @@ defmodule Valimc.PlayerStoreTest do
     ref = make_ref()
 
     assert capture_log(fn ->
-             Store.checkpoint(writer, pose(), ref)
+             Store.checkpoint(writer, snapshot(), ref)
              assert_receive {:player_saved, ^ref, {:error, _}}, 1000
-           end) =~ "Player pose save failed"
+           end) =~ "Player state save failed"
 
     File.rm!(base)
-    assert :ok = Store.close(writer, pose())
+    assert :ok = Store.close(writer, snapshot())
   end
 
   test "bad save rejects only that login; healthy listener and identity still work", %{base: base} do
@@ -191,7 +194,7 @@ defmodule Valimc.PlayerStoreTest do
              {id, body, _} = Client.read(bad)
              assert id == Data.id(:login, :clientbound, "login_disconnect")
              assert :binary.match(body, "Player save unavailable") != :nomatch
-           end) =~ "Player pose load failed"
+           end) =~ "Player state load failed"
 
     Client.close(bad)
     assert File.read!(path) == "broken"
@@ -246,7 +249,7 @@ defmodule Valimc.PlayerStoreTest do
              {body, _} = Client.await(bad, :play, "disconnect")
              assert :binary.match(body, "Player save failed") != :nomatch
              assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000
-           end) =~ "Player pose save failed"
+           end) =~ "Player state save failed"
 
     Client.close(bad)
     wait_for_departure(name, uuid)
@@ -346,7 +349,7 @@ defmodule Valimc.PlayerStoreTest do
     uuid = Valimc.Connection.offline_uuid(name)
     {:ok, writer, nil} = Store.open(uuid)
     ref = Process.monitor(writer)
-    assert :ok = Store.close(writer, pose())
+    assert :ok = Store.close(writer, snapshot())
     assert_receive {:DOWN, ^ref, :process, ^writer, :normal}
     path = Store.path(base, uuid)
     saved = File.read!(path)

@@ -91,6 +91,15 @@ not a connection packet fixture; reconnect must observe current owner state and
 region replacement must clear the old item while the session remains healthy.
 Stationary scene items are ephemeral and never authorize consuming inventory.
 
+Player persistence checks cover versioned pose/inventory encoding, exact supported
+patches/removals, selection, invalid/truncated/oversized files, read-only legacy
+migration, session authority reset and UUID writer leases. TCP scenarios assert
+reconnect/shutdown recovery, one immutable checkpoint while the writer is stalled,
+newer edits at final close and accepted inventory frames preceding malformed input.
+Actual Minecraft checks use keyboard selection/disconnect/rejoin and a full release
+restart; reversible corrupt-save fixtures must be backed up and restored exactly.
+Carried/grid fixture recovery is recorded separately from vanilla menu cleanup.
+
 ## Actual Minecraft computer use
 
 The normal macOS game runs as an unbundled `java` process, absent from computer

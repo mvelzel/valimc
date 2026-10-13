@@ -1,0 +1,111 @@
+defmodule Valimc.PlayerSnapshot do
+  @moduledoc "Bounded checksummed preview player state; v1 pose migration, not vanilla NBT."
+  alias Valimc.{Inventory, PlayerStore}
+  alias Valimc.Protocol.{ItemStack, ItemTypes}
+  @data_version 5023
+  @inventory_bytes 524_288
+  @max_bytes 56 + 4 + @inventory_bytes + 32
+
+  def max_bytes, do: @max_bytes
+
+  def capture(player, %Inventory{} = inventory),
+    do: %{pose: PlayerStore.pose(player), inventory: inventory}
+
+  def encode(<<_::128>> = uuid, %{pose: pose, inventory: inventory}) do
+    check(PlayerStore.valid_pose?(pose), :invalid_pose)
+    body = encode_inventory(inventory)
+
+    payload =
+      IO.iodata_to_binary([
+        <<"VMCPOSE", 2, uuid::binary-size(16), pose.x::float-64, pose.y::float-64,
+          pose.z::float-64, pose.yaw::float-32, pose.pitch::float-32, @data_version::32>>,
+        body
+      ])
+
+    {:ok, payload <> :crypto.hash(:sha256, payload)}
+  rescue
+    _error in [ArgumentError, MatchError, FunctionClauseError, KeyError] ->
+      {:error, :invalid_player_state}
+  catch
+    {:snapshot_error, reason} -> {:error, reason}
+    {:item_error, _} -> {:error, :invalid_inventory}
+  end
+
+  def encode(_, _), do: {:error, :invalid_player_state}
+
+  def decode(bytes, uuid) when is_binary(bytes) and byte_size(bytes) in 88..@max_bytes do
+    payload_bytes = byte_size(bytes) - 32
+    <<payload::binary-size(^payload_bytes), checksum::binary-size(32)>> = bytes
+    check(:crypto.hash(:sha256, payload) == checksum, :invalid_player_file)
+
+    case payload do
+      <<"VMCPOSE", 1, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
+        yaw::float-32, pitch::float-32>> ->
+        snapshot(%{x: x, y: y, z: z, yaw: yaw, pitch: pitch}, Inventory.new())
+
+      <<"VMCPOSE", 2, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
+        yaw::float-32, pitch::float-32, @data_version::32, body::binary>> ->
+        snapshot(%{x: x, y: y, z: z, yaw: yaw, pitch: pitch}, decode_inventory(body))
+
+      _ ->
+        {:error, :invalid_player_file}
+    end
+  rescue
+    _ -> {:error, :invalid_player_file}
+  catch
+    {:snapshot_error, _} -> {:error, :invalid_player_file}
+  end
+
+  def decode(_, _), do: {:error, :invalid_player_file}
+
+  defp snapshot(pose, inventory) do
+    check(PlayerStore.valid_pose?(pose), :invalid_player_file)
+    {:ok, %{pose: pose, inventory: inventory}}
+  end
+
+  defp encode_inventory(%Inventory{slots: slots, selected: selected} = inventory)
+       when is_map(slots) do
+    check(is_integer(selected) and selected in 0..8, :invalid_inventory)
+    check(map_size(slots) <= 46 and Map.get(slots, 0) == nil, :invalid_inventory)
+
+    check(
+      Enum.all?(slots, fn {slot, _} -> is_integer(slot) and slot in 0..45 end),
+      :invalid_inventory
+    )
+
+    stacks = Enum.map(1..45, &Inventory.get(inventory, &1)) ++ [inventory.carried]
+
+    {encoded, _size} =
+      Enum.map_reduce(stacks, 1, fn stack, size ->
+        check(
+          stack == nil or
+            match?(%ItemStack{components: c, removed: %MapSet{}} when is_map(c), stack),
+          :invalid_inventory
+        )
+
+        check(stack == nil or stack.item_id != ItemTypes.id("air"), :invalid_inventory)
+        bytes = ItemStack.encode(stack)
+        size = size + IO.iodata_length(bytes)
+        check(size <= @inventory_bytes, :inventory_byte_limit)
+        {bytes, size}
+      end)
+
+    [<<selected>>, encoded]
+  end
+
+  defp encode_inventory(_), do: throw({:snapshot_error, :invalid_inventory})
+
+  defp decode_inventory(<<selected, body::binary>>) when selected in 0..8 do
+    {slots, body} =
+      Enum.reduce(1..45, {%{}, body}, fn slot, {slots, bytes} ->
+        {:ok, stack, rest} = ItemStack.take(bytes)
+        {if(stack == nil, do: slots, else: Map.put(slots, slot, stack)), rest}
+      end)
+
+    {:ok, carried, <<>>} = ItemStack.take(body)
+    %Inventory{slots: slots, selected: selected, carried: carried}
+  end
+
+  defp check(true, _), do: :ok
+  defp check(false, reason), do: throw({:snapshot_error, reason})
+end

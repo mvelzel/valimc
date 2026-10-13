@@ -3,7 +3,7 @@ defmodule Valimc.Connection do
 
   @moduledoc "A socket-owning process per player, including their protocol and connection-local state."
   alias Valimc.Protocol.{Data, InventoryClick, ItemStack, ItemTypes, Packets, Wire}
-  alias Valimc.{Inventory, Metrics, Players, PlayerStore, World}
+  alias Valimc.{Inventory, Metrics, Players, PlayerSnapshot, PlayerStore, World}
   alias Valimc.World.ItemReplication
   import Bitwise
 
@@ -96,7 +96,13 @@ defmodule Valimc.Connection do
 
     if state.phase == :play and state.save_ref == nil do
       ref = make_ref()
-      PlayerStore.checkpoint(state.player_store, state.player, ref)
+
+      PlayerStore.checkpoint(
+        state.player_store,
+        PlayerSnapshot.capture(state.player, state.inventory),
+        ref
+      )
+
       Process.send_after(self(), {:save_deadline, ref}, 5000)
       {:noreply, %{state | save_ref: ref}}
     else
@@ -327,14 +333,22 @@ defmodule Valimc.Connection do
       {:error, reason} -> reject(state, reason)
     end
 
-    {store, player} =
+    {store, player, inventory} =
       case PlayerStore.open(player.uuid) do
-        {:ok, pid, pose} ->
-          {pid, Map.merge(player, pose || %{})}
+        {:ok, pid, nil} ->
+          {pid, player, state.inventory}
+
+        {:ok, pid, snapshot} ->
+          inventory = %{
+            snapshot.inventory
+            | infinite_materials: state.inventory.infinite_materials
+          }
+
+          {pid, Map.merge(player, snapshot.pose), inventory}
 
         {:error, reason} ->
           require Logger
-          Logger.warning("Player pose load failed: #{inspect(reason)}")
+          Logger.warning("Player state load failed: #{inspect(reason)}")
           reject(state, "Player save unavailable; please retry after storage is repaired")
       end
 
@@ -351,6 +365,7 @@ defmodule Valimc.Connection do
       | threshold: threshold,
         player: player,
         player_store: store,
+        inventory: inventory,
         store_monitor: Process.monitor(store),
         step: :ack
     }
@@ -496,6 +511,7 @@ defmodule Valimc.Connection do
       Packets.spawn_position(),
       Packets.commands(),
       Packets.inventory(state.inventory),
+      Packets.cursor(state.inventory.carried),
       Packets.held_slot(state.inventory.selected),
       Packets.teleport(state.player, state.teleport),
       Packets.packet("game_event", <<13, 0.0::float-32>>),
@@ -938,11 +954,11 @@ defmodule Valimc.Connection do
         end
 
       try do
-        PlayerStore.close(state.player_store, player)
+        PlayerStore.close(state.player_store, PlayerSnapshot.capture(player, state.inventory))
       catch
         :exit, _ ->
           require Logger
-          Logger.error("Player pose final save could not complete")
+          Logger.error("Player state final save could not complete")
       end
     end
   end

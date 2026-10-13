@@ -30,7 +30,7 @@ flowchart LR
 | Encoded chunk cache | Region process | Immutable binaries shared with callers |
 | Encoding computation | Supervised task | Immutable chunk snapshot and captured revision |
 | Region file | Region's writer process | Serialized atomic snapshot replacement |
-| Player pose file | Leased session writer | Validated fixed-size snapshot; UUID registration fences reconnects |
+| Player pose/inventory file | Leased session writer | Bounded checksummed snapshot; UUID registration fences reconnects |
 | Player menu inventory | Connection process | Sparse bounded 46-slot map, selected hotbar, cursor and 15-bit state ID |
 
 The admission process is outside the movement and block hot paths. Spatial ETS holds published snapshots; reading another player's snapshot does not grant permission to mutate their state. Independent sessions and region owners are scheduled across available BEAM schedulers.
@@ -51,22 +51,26 @@ Connections are temporary supervised children; losing one does not recreate ever
 
 Region writers are linked to their owners. Writers serialize snapshot replacement through a synchronized temporary file and rename. Periodic saves acknowledge their revision; newer edits retain the dirty flag. Graceful shutdown flushes dirty state. This is a snapshot store, not an Anvil implementation or a transaction log, and hard crashes may lose unsaved edits.
 
-Player pose writers are temporary supervised children registered by UUID, with
+Player state writers are temporary supervised children registered by UUID, with
 mutual monitoring of the connection and writer. Disk reads occur after startup
 so a slow file cannot block the dynamic supervisor. A connection sends at most
 one pending periodic checkpoint, with a five-second deadline, and flushes its
-latest accepted pose on disconnect/graceful shutdown. Connections trap supervisor
+latest accepted pose/inventory on disconnect/graceful shutdown. Connections trap supervisor
 shutdowns; writers remain alive until connection shutdown completes. Movement
 still updates owner-local state and ETS without per-packet disk messages.
 
 The UUID lease stays registered through writes and final close; a reconnect
 racing a closing lease is rejected rather than creating a stale competing
-writer. Files contain a version, UUID, XYZ, yaw/pitch and SHA-256 checksum in 88
-bytes. Loads read at most 89 bytes and validate length, identity, checksum and
-preview bounds. Corrupt/unreadable files reject only that identity and remain
-untouched. Save errors/timeouts disconnect their owner and are logged; killed
-connections and hard crashes can lose changes since the last checkpoint. This
-format has no inventory, dimensions or vanilla NBT compatibility yet.
+writer. Version 2 files include UUID, XYZ, yaw/pitch, data version 5023, selected
+hotbar, fixed-order supported slot/cursor stacks and SHA-256 checksum. A file is
+at most 524,380 bytes; reading admits at most that limit + 1 before decoding.
+The previous 88-byte version 1 pose is accepted read-only and migrates on the next
+save. Corrupt/unreadable files reject only that identity and remain untouched.
+Item serialization and file writes stay in the writer. Save errors/timeouts
+disconnect their owner and are logged; killed connections/hard crashes can lose
+state since the last checkpoint. Synced temporary-file replacement is not a
+transaction ledger or a parent-directory crash-durability guarantee. Dimensions,
+full player state, data fixing and vanilla NBT compatibility remain future work.
 
 Player inventories are pure bounded structs inside their connection. Creative
 slot writes, selected-hand lookup and hand swaps execute serially in that owner;
@@ -77,8 +81,11 @@ and never accepted as inventory contents. State mismatch triggers correction;
 it does not provide a second inventory authority. Aggregate encoded inventory
 data is capped at 512 KiB, below the packet limit, including the cursor. Rejected
 operations preserve the previous state. Empty slots remain sparse.
-Slot storage is separate from region simulation and does not yet persist or
-implement survival/menu transactions, drops or equipment replication.
+Slot storage is separate from region simulation. Supported slots/selection/cursor
+now persist with pose; permissions, gestures and menu state IDs reset on login.
+Virtual result 0 must remain empty and is never saved as a real item. Carried/grid
+retention is preview recovery, not vanilla disconnect/menu lifecycle behavior.
+Survival/menu transactions, drops and peer equipment replication remain incomplete.
 
 Item entity packet primitives use immutable versioned type/serializer/accessor
 facts and bounded pure encoders, including the current packed velocity format.

@@ -121,3 +121,21 @@ Screenshot access recovered through exposed Raise, while coordinate clicks still
 fail with `noWindowsAvailable`. Earlier mouse gesture gates remain pending.
 This validates ephemeral stationary ownership/replication; physics, persistence
 and inventory-drop/pickup transactions are still required.
+
+VMC-005c1, October 14: the updated release started at 00:24. The actual client
+loaded its 88-byte legacy pose without an inventory. Normal-handler fixtures
+prepared patched stone 7, helmet, shield, hotbar stone 23 and eggs 3; CUA keyboard
+3 selected the third hotbar slot. Ordinary-menu UI fixtures showed those contents.
+Actual disconnect/rejoin and a full graceful release restart at 00:27 restored
+the same contents/selection; owner/file reads confirmed exact NBT and removals.
+A carried stone 7/grid egg 3/pending-drag fixture survived a controlled graceful
+session close and actual rejoin. Its ordinary UI showed cursor/grid contents,
+while owner/file reads confirmed the gesture was reset. This is preview recovery,
+not a vanilla disconnect-drop or actual mouse-pickup pass.
+A backed-up checksum-corrupt file made actual join display the storage rejection;
+the corrupt bytes were preserved. Restoring the exact backup allowed actual join
+and recovered the exact fixture state. All fixture contents were cleared through
+normal close/creative handlers, keyboard 1 restored selection, preview UI was
+restored, and an empty version 2 checkpoint (139 bytes) was verified. Actual
+`/stats` remained healthy. All 111 tests, release/oracle and private log checks pass;
+the log has no codec/ERROR entries. Earlier mouse-validation gates remain pending.
