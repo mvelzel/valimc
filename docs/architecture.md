@@ -25,6 +25,8 @@ flowchart LR
 | Admission, names, lifecycle | Players process | One call at admission/ready; monitors at exit |
 | Spatial membership | Player process, cleanup by Players | Public ETS index; concurrent readers |
 | Block overrides and chunk revisions | Region process | Ordered calls within that region |
+| Stationary development items | Region process | Bounded creation and stack/removal CAS; owner incarnation and item revision |
+| Item replication publications | Region-owned protected ETS table | Compact cached packet views; readers neither allocate regions nor call owners |
 | Encoded chunk cache | Region process | Immutable binaries shared with callers |
 | Encoding computation | Supervised task | Immutable chunk snapshot and captured revision |
 | Region file | Region's writer process | Serialized atomic snapshot replacement |
@@ -80,10 +82,29 @@ implement survival/menu transactions, drops or equipment replication.
 
 Item entity packet primitives use immutable versioned type/serializer/accessor
 facts and bounded pure encoders, including the current packed velocity format.
-Metadata batches admit at most three supported fields, removals at most 4096
-IDs, and item patches retain the stack codec's byte limit. Graphical wire fixtures
-are not authoritative entity state. No item owners, simulation, transfer or pickup
-transactions exist yet; gameplay must not consume inventory into a packet alone.
+Metadata batches admit at most three supported fields and removals at most 4096 IDs.
+Each region also owns at most 256 ephemeral stationary development items with
+512 KiB of cached logical packet bytes. Their mutation handles include the region
+incarnation and item revision. CAS rejects stale updates/removals, and replacement
+owners have new incarnations. There is no global entity mutation coordinator or
+process per item. Owner loss destroys its protected ETS publication and loses
+these ephemeral items; they are deliberately absent from block snapshots.
+
+Observers sample publications in up to 64 subscribed regions and already-sent
+chunks, retaining at most 1024 item identities/revisions. Each 50 ms interval
+removes stale views first, then emits at most 64 additions/updates and 256 KiB of
+logical item packet bytes. Socket framing/compression overhead is additional.
+Round-robin scanning prevents continually changing low IDs from starving later
+changes. Spawn precedes metadata; accepted state is cached as shared immutable
+binaries. Pending changes stay in owner snapshots, rather than a connection
+packet queue. Chunk-square interest filtering and hard visibility caps are preview
+policies, not vanilla tracking-distance parity.
+
+This scene API does not consume inventory. Zero velocity/no gravity keep its
+scope independent of tick physics and region transfers. Creation timeout is an
+uncertain outcome and must not trigger a blind retry. Item persistence, a
+recoverable transfer ledger, inventory ownership, merging, pickup, despawn,
+collision and cross-region movement remain required gameplay foundations.
 
 ## Survival consistency still to implement
 

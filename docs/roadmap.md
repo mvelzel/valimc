@@ -1,6 +1,6 @@
 # Minecraft Java 26.3 implementation roadmap
 
-Updated: October 13, 2026. Target: vanilla survival compatibility, protocol 777.
+Updated: October 14, 2026. Target: vanilla survival compatibility, protocol 777.
 Runtime: Elixir 1.20.4 / OTP 29.1.1. Baseline: `4495775`.
 
 Vanilla defines exact behavior; Paper contributes compatibility edge cases;
@@ -30,9 +30,11 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Awaiting client-generated clone/fill validation | Owner permission and atomic limits pass 77 tests, actual Mojang algorithm/TCP, release and graphical fixture replication; actual creative middle-click uses a different packet path |
 | VMC-005b2d | Partially implemented | Fit-only connected menu return; world drops and disconnect cleanup remain |
 | [VMC-005b2d1](tickets/VMC-005b2d1.md) | Awaiting actual mouse-pickup validation | 86 tests, actual Mojang return/TCP, release and actual keyboard close/reopen/overflow retry pass; setup pickup used fixtures after CUA rejected coordinate clicks |
-| VMC-005b2d2 | Planned | Region-owned item entities and atomic drop handoff; close overflow, disconnected-player return and explicit drops |
+| VMC-005b2d2 | Partially implemented foundations | Item wire and stationary owner/replication exist; physics, durable inventory/world transfer, close overflow, disconnect cleanup and explicit drops remain |
 | [VMC-018a](tickets/VMC-018a.md) | Done — validated, local | 92 tests, 272 Mojang velocity/25 packet fixtures, release and actual item render/update/remove pass; gameplay ownership remains VMC-005b2d2 |
+| [VMC-018b](tickets/VMC-018b.md) | Done — stationary foundation validated, local | Region CAS/ETS ownership, bounded paced replication, late joins/visibility/owner loss; automated and actual Minecraft render/update/reconnect/remove/failure checks pass |
 | VMC-005c | Planned | Versioned inventory persistence and reconnect/restart recovery |
+| VMC-005c1 | Next implementable slice | Persist the supported preview inventory with bounded versioned decoding, legacy pose migration, leased writer fencing and reconnect/restart checks; required before recoverable gameplay drops |
 
 Only one implementation ticket is active; checkpoints awaiting client validation
 are parked so implementation can continue. Records retain acceptance criteria,

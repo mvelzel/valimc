@@ -4,6 +4,7 @@ defmodule Valimc.Connection do
   @moduledoc "A socket-owning process per player, including their protocol and connection-local state."
   alias Valimc.Protocol.{Data, InventoryClick, ItemStack, ItemTypes, Packets, Wire}
   alias Valimc.{Inventory, Metrics, Players, PlayerStore, World}
+  alias Valimc.World.ItemReplication
   import Bitwise
 
   def start_link(socket), do: GenServer.start_link(__MODULE__, socket)
@@ -47,6 +48,7 @@ defmodule Valimc.Connection do
        pending: [],
        batch_pending: false,
        peers: %{},
+       item_replication: ItemReplication.new(),
        outbound: [],
        # The preview explicitly advertises creative/infinite-material abilities.
        # This permission is owner state, never derived from incoming predictions.
@@ -173,6 +175,14 @@ defmodule Valimc.Connection do
                 | peers: Map.delete(acc.peers, pid)
               }
           end)
+
+        desired_items = World.visible_items(state.regions, state.chunks)
+
+        {item_replication, item_packets} =
+          ItemReplication.reconcile(state.item_replication, desired_items)
+
+        state =
+          emit_peer_packets(%{state | item_replication: item_replication}, item_packets, :buffer)
 
         packets = state.outbound |> Enum.reverse() |> List.flatten()
         send_packets(state, packets)

@@ -83,6 +83,14 @@ component-patch entry ordering is not canonical. Regenerated public entity facts
 must match the pinned extraction; temporary fixtures stay private. Graphical item
 fixtures establish rendering/update/removal only, not drop/pickup economy or physics.
 
+Region item checks additionally exercise the owner API, protected ETS publication,
+CAS races, stale incarnations, count/byte limits, round-robin replication pacing,
+loaded-chunk filtering, late observers, visibility changes and owner loss through
+actual TCP sessions. Graphical VMC-018b scenarios create through that region API,
+not a connection packet fixture; reconnect must observe current owner state and
+region replacement must clear the old item while the session remains healthy.
+Stationary scene items are ephemeral and never authorize consuming inventory.
+
 ## Actual Minecraft computer use
 
 The normal macOS game runs as an unbundled `java` process, absent from computer

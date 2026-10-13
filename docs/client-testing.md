@@ -107,3 +107,17 @@ render/update/remove successfully. Owner inventory remained empty, all fixture
 entities were cleaned up, and logs have no codec/ERROR entries. All 92 tests,
 release and Mojang's 272 velocity/25 complete packet cases pass. This completes
 the wire foundation; actual gameplay item ownership/drop/pickup remains future work.
+
+VMC-018b, October 14: production release restarted at 00:09 on localhost:25565.
+Actual 26.3 joined via CUA keyboard navigation. Region API admission created a
+stationary patched stone item; its ETS snapshot produced the visible item without
+connection packet injection. Stack CAS changed it to eggs; a stale revision was
+rejected. Actual disconnect/reconnect showed the current egg, then owner removal
+cleared it. A second stone disappeared after region termination/recreation; the
+new owner rejected the old incarnation and actual `/stats` remained responsive.
+Both fixtures are cleaned up and inventory remains empty. All 102 tests, release
+and full Mojang oracle pass; private logs contain no codec/ERROR entries.
+Screenshot access recovered through exposed Raise, while coordinate clicks still
+fail with `noWindowsAvailable`. Earlier mouse gesture gates remain pending.
+This validates ephemeral stationary ownership/replication; physics, persistence
+and inventory-drop/pickup transactions are still required.

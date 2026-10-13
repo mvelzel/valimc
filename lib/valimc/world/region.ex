@@ -2,7 +2,7 @@ defmodule Valimc.World.Region do
   use GenServer
 
   @moduledoc "One state owner per region. Bounded supervised encoders share results across players."
-  alias Valimc.World.{Chunk, Store}
+  alias Valimc.World.{Chunk, Items, Store}
   alias Valimc.Protocol.Packets
 
   def start_link(key),
@@ -19,11 +19,28 @@ defmodule Valimc.World.Region do
 
   def flush(pid), do: GenServer.call(pid, :flush, 15_000)
 
+  # Scene-only API: these ephemeral operations must never consume a player inventory.
+  def create_item({pid, epoch}, stack, position),
+    do: GenServer.call(pid, {:create_item, epoch, stack, position})
+
+  def replace_item({pid, epoch, id, revision}, stack),
+    do: GenServer.call(pid, {:replace_item, epoch, id, revision, stack})
+
+  def remove_item({pid, epoch, id, revision}),
+    do: GenServer.call(pid, {:remove_item, epoch, id, revision})
+
   @impl true
   def init(key) do
     Process.flag(:trap_exit, true)
     {:ok, store} = Store.start_link(key)
     edits = Store.load(store)
+    items = Items.new()
+    publication = :ets.new(:region_items, [:set, :protected, read_concurrency: true])
+    :ets.insert(publication, {:items, items.views})
+
+    Registry.update_value(Valimc.RegionRegistry, key, fn _ ->
+      %{items: publication, epoch: items.epoch}
+    end)
 
     by_chunk =
       Enum.reduce(edits, %{}, fn {{x, _, z} = pos, block}, acc ->
@@ -38,6 +55,8 @@ defmodule Valimc.World.Region do
     {:ok,
      %{
        key: key,
+       items: items,
+       item_publication: publication,
        store: store,
        edits: edits,
        by_chunk: by_chunk,
@@ -52,6 +71,20 @@ defmodule Valimc.World.Region do
   end
 
   @impl true
+  def handle_call({:create_item, epoch, stack, position}, _from, state) do
+    if epoch == state.items.epoch do
+      item_result(Items.create(state.items, state.key, stack, position), state)
+    else
+      {:reply, {:error, :stale_region}, state}
+    end
+  end
+
+  def handle_call({:replace_item, epoch, id, revision, stack}, _from, state),
+    do: item_result(Items.replace(state.items, epoch, id, revision, stack), state)
+
+  def handle_call({:remove_item, epoch, id, revision}, _from, state),
+    do: item_result(Items.remove(state.items, epoch, id, revision), state)
+
   def handle_call({:chunk, key}, from, state) do
     cond do
       Valimc.World.region_key(key) != state.key ->
@@ -105,6 +138,18 @@ defmodule Valimc.World.Region do
     result = Store.flush(state.store, state.edits)
     {:reply, result, %{state | dirty: result != :ok}}
   end
+
+  defp item_result({:ok, items, {epoch, id, revision}}, state) do
+    :ets.insert(state.item_publication, {:items, items.views})
+    {:reply, {:ok, {self(), epoch, id, revision}}, %{state | items: items}}
+  end
+
+  defp item_result({:ok, items}, state) do
+    :ets.insert(state.item_publication, {:items, items.views})
+    {:reply, :ok, %{state | items: items}}
+  end
+
+  defp item_result({:error, _} = error, state), do: {:reply, error, state}
 
   defp put_edit(edits, {_, y, _} = pos, block) do
     if block == Chunk.base(y), do: Map.delete(edits, pos), else: Map.put(edits, pos, block)
