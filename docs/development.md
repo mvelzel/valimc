@@ -1,0 +1,111 @@
+# Development and verification process
+
+Target: full vanilla Java **26.3 / protocol 777** compatibility. The current
+creative preview was committed at `4495775`. New ticket checkpoints use branch
+`codex/minecraft-implementation`. The roadmap is a backlog, not implemented parity.
+
+## One ticket, one verified checkpoint
+
+1. Pick the first ready ticket from `roadmap.md`, splitting large entries first.
+   Write a concrete before/after behavior, dependencies, ownership design,
+   acceptance criteria, regression tests, and actual-client scenario in its record.
+2. Establish vanilla behavior from the pinned version's classes/codecs, bytecode,
+   private decompiled source or differential scenarios. Check Paper's deliberate
+   changes. Read relevant Pumpkin/SteelMC/other implementations for design ideas
+   and omissions. Record sources and conclusions, not copied source text.
+3. Implement original Elixir code with explicit owners, ordering, bounded work,
+   and failure semantics. Avoid a new global coordinator on a gameplay hot path.
+4. Exercise positive behavior, invalid input, and relevant concurrency/durability
+   boundaries. Run the checks below once; repeat after edits, failures, or an
+   unresolved concern. Use temporary worlds and loopback listeners.
+5. Restart the local server gracefully and reconnect actual Minecraft 26.3 using
+   computer use. Exercise the changed behavior, inspect resulting screenshots,
+   and check client/server logs. Test reconnect/restart if persistence is involved.
+6. Record evidence and limitations, update roadmap/compatibility notes, review
+   the diff and public-tree audit, commit with the ticket ID, and push the branch.
+   Done means every required check and client scenario passed. A failed push
+   remains an unpublished local checkpoint until a normal retry succeeds.
+
+```sh
+mix format --check-formatted
+mix test
+python3 scripts/check_vanilla.py  # required for protocol/registry changes
+MIX_ENV=prod mix release --overwrite
+python3 scripts/audit_public_tree.py
+git diff --check
+git diff --stat
+# Stage explicit ticket paths, review git diff --cached, commit, then push.
+```
+
+The server runtime needs no JVM. Our Java 25+ development oracle checks actual
+Mojang packet codecs and network registry/tag dependency loading. This is valuable
+independent evidence, but cannot establish rendering, controls or survival parity.
+
+## Actual Minecraft computer use
+
+The normal macOS game runs as an unbundled `java` process, absent from computer
+use's app inventory. A tiny local macOS launcher invokes the existing official
+runtime's `libjli` inside a real app bundle; it does not modify Minecraft classes
+or the signed official runtime. Generate it with:
+
+```sh
+python3 scripts/prepare_minecraft_client.py
+```
+
+Use the separate Launcher installation **ValiMC computer-use test**, Minecraft
+26.3, with the printed Java executable path. Generated helper files and
+machine-specific paths stay in ignored `.local/`. The normal **Latest release**
+installation retains its original Java setting. Regenerate the helper if the
+official runtime moves or changes.
+
+```js
+var minecraft = await cua.getApp("local.valimc.minecraft-client");
+await minecraft.getAXStateAndScreenshot();
+// Derive coordinates from the current screenshot: the game canvas lacks AX controls.
+await minecraft.pressKey("t");
+await minecraft.typeText("/stats");
+await minecraft.pressKey("Return");
+await minecraft.getAXStateAndScreenshot();
+```
+
+Use localhost:25565 and a separate test world, for example:
+
+```sh
+VALIMC_WORLD=/tmp/valimc-client-test-world mix run --no-halt
+```
+
+Gracefully stop through a release command or a verified server PID, never an
+assumed PID. Closing Minecraft does not stop ValiMC. Do not change the user's
+resource packs/controls to hide defects or connect to unrelated saved servers.
+
+Baseline smoke for research/docs/workflow: capture title screen, open Multiplayer,
+join localhost, observe terrain, execute `/stats`, confirm the response. Feature
+scenarios add their changed behavior and relevant negatives. Keep optional
+screenshots under `.local/client-tests/<ticket>/` and sanitized results in the
+tracked ticket and `client-testing.md`. Never fabricate passes or treat attempted
+input as observed success. Raw client logs/captures are private by default.
+
+## Private vanilla inspection
+
+`prepare_vanilla.py` checks the pinned jar hash and extracts it to ignored
+`research/vanilla-bundle/`. `java_tool.py` compiles our original small harnesses to
+ignored `research/java-tools/`. For focused inspection use `javap -c -p`, with
+dumps under `research/disassembly/`. If bytecode is insufficient, keep a pinned,
+checksum verified decompiler under `research/tools/` and output under
+`research/decompiled/`. Record tool version, input hash, classes/methods and the
+behavioral conclusion. These operations do not start vanilla or accept its EULA;
+a differential vanilla server is a separate operation.
+
+Do not publish Mojang `.java`, assets, jars, extracted reports, upstream checkouts,
+local helpers or account information. Our public-tree audit checks tracked and
+candidate staged paths and rejects private reference directories and packaged
+binaries, including force-staged ignored files. Also review the staged diff.
+
+## Measurement
+
+Optimize measured bottlenecks. Record hardware, schedulers, view distance,
+gameplay/tick work, density, elapsed time, latency, disconnects, memory and revision.
+Compare implementations only with matched feature coverage. Independent regions
+do not prove boundary correctness. Consider native acceleration or clustering
+only after profiling and a defined consistency/failure model. Keep unrun checks,
+pending features and deliberate deviations explicit.

@@ -74,10 +74,10 @@ Missing: online authentication/encryption, Bedrock, survival rules, collision/an
 
 Fixed spatial regions currently support independent edits. Neighbor-coupled simulation, deterministic entity transfers, and multi-region transactions are specified as future work, not implemented. Saved snapshots can lose up to 30 seconds of edits after a hard crash. Idle regions remain resident until shutdown, within the configured region limit.
 
-See [the vanilla compatibility roadmap](docs/roadmap.md) for the remaining work and acceptance criteria.
+See [the tracked roadmap](docs/roadmap.md), [development and verification process](docs/development.md), and [agent instructions](AGENTS.md). Work proceeds one verified ticket/commit/push at a time, with actual Minecraft computer-use testing.
 
 ## References
 
-Eleven pinned source checkouts are downloaded under `research/sources/`: Pumpkin, SteelMC, Paper, Folia, Spigot, Minestom, Valence, FerrumC, MCProtocolLib, minecraft-data and node-minecraft-protocol. They are ignored by Git. `research/sources.lock.json` records exact commits; `python3 scripts/fetch_sources.py` recreates the checkouts.
+Nineteen pinned reference checkouts are downloaded under ignored `research/sources/`, including Pumpkin, SteelMC, Paper/Folia, Cuberite, Glowstone, MCHPRS, Feather, Go-MC, Flying Squid, MultiPaper and Dragonfly. [The survey](docs/research.md) records each one's useful subsystems and limitations. `research/sources.lock.json` records exact commits; `python3 scripts/fetch_sources.py` recreates them. Vanilla 26.3 defines exact compatibility; other implementations contribute evidence and design ideas.
 
 The Elixir implementation is original code informed by protocol behavior and architecture research. Upstream implementations have their own licenses; their source and license files are preserved in the reference checkouts. Protocol metadata records versioned wire facts. Mojang's implementation and assets are not bundled in the runtime.

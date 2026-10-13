@@ -2,10 +2,46 @@
   "researched_on": "2026-10-13",
   "repositories": [
     {
+      "name": "cuberite",
+      "url": "https://github.com/cuberite/cuberite.git",
+      "commit": "7fd3fa5c9345a3f1b949c0988c4849db00a68486",
+      "date": "2025-12-16T07:46:42+01:00",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "dragonfly",
+      "url": "https://github.com/df-mc/dragonfly.git",
+      "commit": "1793369709ceed934675d69e86ff6c828e4216c8",
+      "date": "2026-09-20T16:30:20Z",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "feather",
+      "url": "https://github.com/feather-rs/feather.git",
+      "commit": "4b152224ca8308c331a00e70dea97e98f6cab9bd",
+      "date": "2024-02-19T19:34:28-07:00",
+      "license_files": [
+        "LICENSE.md"
+      ]
+    },
+    {
       "name": "ferrumc",
       "url": "https://github.com/ferrumc-rs/ferrumc.git",
       "commit": "51830e99675deae1f6cdbb62bf5d32b3d25c1c76",
       "date": "2026-08-15T00:03:31+09:00",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "flying-squid",
+      "url": "https://github.com/PrismarineJS/flying-squid.git",
+      "commit": "fa022792d30e79f96c8c8dbf659fc61ae4177b4f",
+      "date": "2026-03-31T21:35:40-07:00",
       "license_files": [
         "LICENSE"
       ]
@@ -17,6 +53,33 @@
       "date": "2026-09-22T16:10:28+02:00",
       "license_files": [
         "PATCHES-LICENSE"
+      ]
+    },
+    {
+      "name": "glowstone",
+      "url": "https://github.com/GlowstoneMC/Glowstone.git",
+      "commit": "e9aeaa46330326f0d3917dce8f9bc4cdd1e434bd",
+      "date": "2026-05-18T16:39:34-04:00",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "go-mc",
+      "url": "https://github.com/Tnze/go-mc.git",
+      "commit": "539b4a3a7f030332eb58b8a946116ae7907630d2",
+      "date": "2024-12-24T11:20:05+08:00",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "mchprs",
+      "url": "https://github.com/MCHPR/MCHPRS.git",
+      "commit": "d492e433f2c7de5fd5c71f165cb60f0d912ebf04",
+      "date": "2026-09-28T14:29:54-04:00",
+      "license_files": [
+        "LICENSE"
       ]
     },
     {
@@ -51,6 +114,15 @@
       "date": "2026-10-10T22:18:36Z",
       "license_files": [
         "LICENSE"
+      ]
+    },
+    {
+      "name": "multipaper",
+      "url": "https://github.com/MultiPaper/MultiPaper.git",
+      "commit": "7af143b66299c68a50a7dce3997214ac5cb39c9a",
+      "date": "2025-05-22T03:19:54+09:00",
+      "license_files": [
+        "LICENSE.txt"
       ]
     },
     {

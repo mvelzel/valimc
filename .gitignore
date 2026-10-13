@@ -5,6 +5,10 @@
 /research/*.jar
 /research/generated/
 /research/java-tools/
+/research/decompiled/
+/research/disassembly/
+/research/tools/
+/research/vanilla/
 /research/logs/
 /world/
 /bench/results/

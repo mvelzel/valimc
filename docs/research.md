@@ -1,6 +1,6 @@
 # Source research — 2026-10-13
 
-All eleven checkouts are pinned in `research/sources.lock.json` and downloaded in `research/sources/`. This document records the ideas selected for the Elixir design.
+All nineteen checkouts are pinned in `research/sources.lock.json` and downloaded in ignored `research/sources/`. This is a subsystem-oriented survey; a repository's existence, activity, or benchmark is not evidence of vanilla 26.3 completeness. Its pinned README and the implementation paths below were inspected; benchmark claims were not independently reproduced.
 
 | Project | Evidence and useful idea | Elixir application |
 |---|---|---|
@@ -15,6 +15,25 @@ All eleven checkouts are pinned in `research/sources.lock.json` and downloaded i
 | [MCProtocolLib](https://github.com/GeyserMC/MCProtocolLib) | Typed packet layouts and explicit protocol states; checkout currently targets 26.2 | Comparative reference, while verifying 26.3 changes independently |
 | [minecraft-data](https://github.com/PrismarineJS/minecraft-data) | Versioned protocol and game data; 26.3 is listed as protocol 777, while full protocol data lags it | Pin protocol facts and validate current release data rather than reusing older packet layouts |
 | [node-minecraft-protocol](https://github.com/PrismarineJS/node-minecraft-protocol) | Example server and configuration/login state handling | Cross-check handshake/configuration flow and keep wire compatibility tests independent |
+| [Cuberite](https://github.com/cuberite/cuberite) | C++/Lua Java server; README targets 1.8–1.12.2; `src/WorldStorage/WSSAnvil.h` separates region-file and chunk storage operations | Storage/behavior engineering reference; verify modern NBT schemas and semantics independently |
+| [Glowstone](https://github.com/GlowstoneMC/Glowstone) | Ground-up Java/Bukkit implementation; project describes incomplete vanilla/survival coverage and older client targets | Compare subsystem/API boundaries and historical compatibility tests; no current-version authority |
+| [MCHPRS](https://github.com/MCHPR/MCHPRS) | Rust 1.20.4 creative redstone specialization; per-plot threads, graph compiler and tests in `crates/redpiler/`; compiled mode restricts edits and optimization can change results | Study dense circuit data/analysis and workload reduction after vanilla tick/order fixtures exist; acceleration needs equivalence checks |
+| [Feather](https://github.com/feather-rs/feather) | README says inactive, 1.16.5; `docs/architecture.md` separates reusable world/types, ECS logic and plugin hosting; warns incomplete features distort benchmarks | Historical lessons on dense owner-local entity data and honest workload comparisons, not a Rust ECS port |
+| [Go-MC](https://github.com/Tnze/go-mc) | Go protocol/client/server/NBT/region libraries; pinned README advertises 1.21 | Independent small codec/storage reference and useful test-client structure; verify 26.3 layouts against Mojang |
+| [Flying Squid](https://github.com/PrismarineJS/flying-squid) | JavaScript ground-up server; `docs/README.md` lists 1.8–1.21, world/movement/edit/Anvil support; modular Prismarine libraries in `package.json` | Study protocol/data separation and integration fixtures; event-loop architecture and feature list do not establish full survival parity |
+| [MultiPaper](https://github.com/MultiPaper/MultiPaper) | 1.20.1 Purpur fork/public beta; master grants chunk ticking ownership and routes readers to current owners | Later clustering reference for authoritative ownership vs replicated caches; no distributed master on the initial BEAM gameplay hot path |
+| [Dragonfly](https://github.com/df-mc/dragonfly) | Go Bedrock implementation; `server/world/tx.go` explicitly restricts mutations to owner transaction callbacks and orders deferred work | Strong ownership/transaction API inspiration for region mutation boundaries; Bedrock protocol/gameplay differences require separate verification |
+
+## Reference hierarchy and selected inspirations
+
+1. **Exact semantics: vanilla 26.3.** Pin its jar hash, inspect its actual codecs and relevant classes, and use differential fixtures/client observations. Decompile privately when `javap` cannot establish control flow. The implementations below can be incomplete or deliberately different.
+2. **Compatibility/edge cases: Paper.** Its vanilla-derived behavior and regression fixes are useful evidence; record when a patch intentionally changes a vanilla rule. Do not assume Paper-specific behavior is the vanilla specification.
+3. **Parallel ownership: Folia and Dragonfly.** Region constraints and owner transaction APIs are especially relevant to BEAM processes. Adopt explicit ordering/fencing/bounded handoffs, not the source language's locking/thread model. Inspect their actual boundary rules before changing ValiMC's region protocol.
+4. **Ground-up implementation structure: SteelMC and Pumpkin.** Study generation, protocol, inventories, pacing, persistence and tests, recording current omissions. Cross-check behavior with vanilla rather than choosing whichever rewrite is easier to port.
+5. **Targeted engineering: Cuberite, MCHPRS, Minestom, Go-MC and the Prismarine ecosystem.** Storage, dense redstone representations, scheduling partitions and independent codecs/tests are valuable. Older versions, specialized modes and missing vanilla features restrict what they can prove.
+6. **Historical/distributed tradeoffs: Feather, Glowstone, MultiPaper, Valence and FerrumC.** Learn from modularity, work bounds, ownership vs caches and incomplete-server measurements. Clustering and circuit compilation remain later experiments after semantics and failure recovery are tested.
+
+The resulting Elixir design keeps dense simulation state within its region owner, stable connection processes, immutable binary caches, ETS observations, bounded pure workers and supervised I/O. A process is an ownership/lifecycle boundary, not a replacement for every Rust component or Java object. Data locality, packet volume and serial dependencies still need measurement.
 
 SteelMC explicitly describes incomplete survival and emphasizes vanilla parity. Its published terrain benchmark is a specific generation workload; it does not establish overall server performance or predict this Elixir implementation's performance. [SteelMC introduction](https://steelmc.dev/blog/announcement/)
 
