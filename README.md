@@ -13,7 +13,7 @@ mix run --no-halt
 
 Connect with a vanilla **Java 26.3** client to `localhost:25565`. The default binds to `127.0.0.1` and uses offline identities. Runtime requires only Elixir/Erlang; there are no Hex dependencies, JVMs, Rust libraries or external services in the server.
 
-Creative player-menu edits preserve item identity/count and twelve scalar component types plus bounded custom NBT across main storage, armor, hotbar and offhand. Other unsupported structured patches restore the previous slot with a message. Inventory snapshots, hotbar selection, hand swapping and ordinary block placement from either hand are synchronized. Basic pickup/split/merge, shift transfer and number-key/offhand swap use authoritative slots; unsupported drag/drop/crafting interactions restore state. `/help`, `/stats` and `/spawn` support client validation and Tab completion. Block edits and player poses are checkpointed every 30 seconds. Poses also save on disconnect and graceful shutdown; reconnect restores position and view direction. Inventories are not saved.
+Creative player-menu edits preserve item identity/count and twelve scalar component types plus bounded custom NBT across main storage, armor, hotbar and offhand. Other unsupported structured patches restore the previous slot with a message. Inventory snapshots, hotbar selection, hand swapping and ordinary block placement from either hand are synchronized. Basic pickup/split/merge, shift transfer, number-key/offhand swap and left-even/right-one quick-craft use authoritative slots; unsupported creative-fill/drop/crafting interactions restore state. `/help`, `/stats` and `/spawn` support client validation and Tab completion. Block edits and player poses are checkpointed every 30 seconds. Poses also save on disconnect and graceful shutdown; reconnect restores position and view direction. Inventories are not saved.
 
 ```sh
 VALIMC_PORT=25566 VALIMC_WORLD=/tmp/valimc-world mix run --no-halt
@@ -75,7 +75,7 @@ Missing: online authentication/encryption, Bedrock, survival rules, collision/an
 
 Fixed spatial regions currently support independent edits. Neighbor-coupled simulation, deterministic entity transfers, and multi-region transactions are specified as future work, not implemented. Hard crashes can lose changes since the last 30-second checkpoint. Pose files use a bounded custom format under `world/players/`, not vanilla player NBT; storage errors/timeouts are explicit and can prevent a final save. Idle regions remain resident until shutdown, within the configured region limit.
 
-See [the tracked roadmap](docs/roadmap.md), [development and verification process](docs/development.md), and [agent instructions](AGENTS.md). Work proceeds one ticket at a time. Local checkpoints may precede actual Minecraft computer-use validation; pushing waits until the required checks pass.
+See [the tracked roadmap](docs/roadmap.md), [development and verification process](docs/development.md), and [agent instructions](AGENTS.md). Work proceeds one ticket at a time. Local checkpoints may precede actual Minecraft computer-use validation. Development and normal pushes use `main`; pending client gates remain explicit if the user requests publication before every gate passes.
 
 ## References
 

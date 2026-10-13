@@ -1,7 +1,6 @@
 # VMC-005a — Owner-local player inventory and synchronization
 
-Status: Awaiting client validation. Updated: October 13, 2026. Depends on tested VMC-004a code.
-VMC-003/004a remain queued for actual-client verification and unpushed.
+Status: Done. Updated: October 13, 2026. Depends on tested VMC-004a code.
 
 ## Scope and acceptance
 
@@ -23,7 +22,7 @@ Replace the nine-entry hotbar preview with a bounded session-owned player menu:
   offhand/swap and correction. Mojang decodes startup/full inventory packets,
   slot edits, cursor, selection, swap and resynchronization over real TCP.
 
-Actual-client scenario, queued while locked: join, inspect empty inventory,
+Actual-client scenario: join, inspect empty inventory,
 fill main storage/hotbar/offhand in creative, select another hotbar slot, swap
 hands with F, place ordinary blocks from both hands, attempt unsupported inventory
 click and verify resynchronization. Reconnect currently resets items: inventory
@@ -63,13 +62,18 @@ existing bug. Existing item/component facts are semantically unchanged.
 Mojang's stack fixture checks and full TCP oracle pass, including startup/menu
 packets, main storage/offhand/selection, hand swap, offhand placement and stale
 click snapshot/cursor restoration. Public-tree audit and exact-diff checks pass.
-Actual-client validation remains queued. Inventory clicks currently inspect only
-container/state headers and discard the predicted body without mutation; full
-bounded hashed-click decoding/transactions are VMC-005b. Drops, persistence,
-crafting and equipment replication remain separate work. No full inventory
-transaction/persistence compatibility or GUI pass is claimed.
+Actual 26.3 computer use passes: empty inventory on join/reconnect, creative
+main/hotbar/offhand edits, F hand swap, and block placement from both hands.
+Pressing 2 in the world selected the egg; owner state confirmed selected index 1.
+An ordinary-menu Q/drop attempt restored the 17 component-bearing stones with
+a message; reopening retained accepted slots. VMC-005b1 now supplies bounded
+click transactions, separately verified through an ordinary-menu UI fixture.
+That fixture changes the client's UI mode; server gameplay remains creative.
+The final 65 tests, full oracle and release pass. Drops, inventory persistence,
+crafting and equipment replication remain separate work; this foundation is Done.
 
 ## Checkpoint
 
 Planned subject: `VMC-005a: own and synchronize player inventory slots`.
-Local commit after automated checks; push deferred. Next: VMC-004b and VMC-005b.
+Checkpoint: `123d1d0`; graphical evidence completed before publication to `main`.
+Next lifecycle slices: VMC-005b2 and VMC-005c.

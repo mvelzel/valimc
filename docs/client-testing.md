@@ -40,3 +40,27 @@ fixture displayed the expected rejection. Rejoin restored XYZ -3.115 / 64.000 /
 worked and the client log had no codec errors. Deterministic connection tests
 separately cover the precise phase-transition boundary and failed configuration
 without overwriting a prior save. VMC-003's remaining gate is now complete.
+
+Publication validation, October 13, 2026: actual Minecraft 26.3 with the rebuilt
+SDL event-position adapter joined localhost after a release restart. Fixtures
+supplied component metadata and an ordinary-menu UI; all menu operations below
+were CUA actions, with server gameplay still the creative preview. Half pickup
+split 17 into 8/9, right placement wrote one and retained 8, merging recovered
+17, shift transfer and number 1 moved it between main/hotbar, F put it in offhand.
+Q/drop restored 17 with an explanatory message; reopen retained accepted slots.
+Owner reads confirmed counts, empty cursor, identical custom NBT and glint.
+Pressing 2 selected the egg (owner index 1). Creative pickup/trash cleared the
+first hotbar slot in both the screenshot and owner state. Scalar fixture counts,
+Stone tooltip, sword damage bar and unsupported-name restoration were also
+observed. VMC-004a, VMC-005a and VMC-005b1 now satisfy their client gates.
+
+VMC-005b2a passed 65 tests, production build and Mojang quick-craft TCP codecs.
+A normal-handler fixture rendered three stacks of 5 and cursor 2; a CUA click
+returned that remainder. Sustained multi-slot CUA gestures remain unverified:
+short/long drags and held-click/motion attempts produced endpoint pickup packets.
+The ticket remains pending that gate, even though the user explicitly requested
+publishing all checkpoints to main. Absolute menu targeting was fixed separately
+in the isolated SDL adapter; see mouse-testing.md. Final CUA `/stats` response:
+one player, four regions, ten schedulers, 78 MiB. Client logs have zero Network
+Protocol Error, DecoderException, EncoderException or ERROR entries; the private
+copy stays under `.local/client-tests/VMC-005b2a/`.

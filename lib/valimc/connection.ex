@@ -726,7 +726,7 @@ defmodule Valimc.Connection do
   end
 
   defp correct_creative_slot(state, slot) do
-    inventory = Inventory.advance(state.inventory)
+    inventory = state.inventory |> Inventory.cancel_drag() |> Inventory.advance()
 
     send_packets(state, [
       Packets.container_slot(inventory.state_id, slot, Inventory.get(inventory, slot))
@@ -736,7 +736,7 @@ defmodule Valimc.Connection do
   end
 
   defp resync_inventory(state) do
-    inventory = Inventory.advance(state.inventory)
+    inventory = state.inventory |> Inventory.cancel_drag() |> Inventory.advance()
     send_packets(state, [Packets.inventory(inventory), Packets.cursor(inventory.carried)])
     %{state | inventory: inventory}
   end

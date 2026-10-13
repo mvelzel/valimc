@@ -15,23 +15,23 @@ keep IDs stable and append suffixes rather than renumbering.
 |---|---|---|
 | [VMC-001](tickets/VMC-001.md) | Done — `4f948be`, pushed | Workflow and 19-source survey; baseline tests/oracle/release/audit and actual-client smoke pass |
 | [VMC-002](tickets/VMC-002.md) | Done — `b5a2c72`, pushed | Shared command catalog; oracle and actual-client completion, rejection and teleport pass |
-| [VMC-003](tickets/VMC-003.md) | Done — local, unpushed | Reconnect, mouse rotation, restart and spawn pass; phase-transition failure repaired in VMC-003a |
-| [VMC-003a](tickets/VMC-003a.md) | Done — local, unpushed | Preserve accepted state across rejected/exceptional frames; 60 tests, oracle, release and graphical recovery pass |
-| [VMC-004a](tickets/VMC-004a.md) | Awaiting client validation — `6dc5dd3`, unpushed | Bounded stack/scalar codecs and creative hotbar corrections; automated/oracle checks pass |
+| [VMC-003](tickets/VMC-003.md) | Done — validated | Reconnect, mouse rotation, restart and spawn pass; phase-transition failure repaired in VMC-003a |
+| [VMC-003a](tickets/VMC-003a.md) | Done — validated | Preserve accepted state across rejected/exceptional frames; 60 tests, oracle, release and graphical recovery pass |
+| [VMC-004a](tickets/VMC-004a.md) | Done — `6dc5dd3`, validated | Stack/scalar codecs, creative selection/placement/clearing, patched fixtures and rejection pass |
 | VMC-004b | Planned | Names/lore/NBT and compound or registry-backed component codecs |
-| [VMC-004b1](tickets/VMC-004b1.md) | Done — `2e75988`, unpushed | Bounded network NBT/custom data; 58 tests, Mojang codecs, release and actual-client positive/rejection/reconnect pass |
+| [VMC-004b1](tickets/VMC-004b1.md) | Done — `2e75988`, validated | Bounded network NBT/custom data; 58 tests, Mojang codecs, release and actual-client positive/rejection/reconnect pass |
 | VMC-004b2 | Planned | Validated text/name/lore and enchantment component schemas |
-| [VMC-005a](tickets/VMC-005a.md) | Awaiting client validation — `123d1d0`, unpushed | Owner-local 46-slot menu, selection/offhand/swap/resync; 41 tests and Mojang oracles pass |
+| [VMC-005a](tickets/VMC-005a.md) | Done — `123d1d0`, validated | Owner-local 46-slot menu; actual selection/offhand/swap/resync and automated/oracle checks pass |
 | VMC-005b | Planned | Hashed click codec, authoritative pickup/swap/shift/drag transactions |
-| [VMC-005b1](tickets/VMC-005b1.md) | Awaiting client validation — `67c34ad`, unpushed | 51 tests/oracle pass; actual half pickup passes, carried-item GUI placement awaits quick-craft support |
+| [VMC-005b1](tickets/VMC-005b1.md) | Done — `67c34ad`, validated | Actual half pickup/place/merge/shift/number/offhand/rejection pass; 65 tests/full oracle/release pass |
 | VMC-005b2 | Planned | Drag/collect, cursor return on close, crafting-slot constraints and drops |
-| VMC-005b2a | Next | Bounded quick-craft state machine and ordinary-client placement/drag verification |
+| [VMC-005b2a](tickets/VMC-005b2a.md) | Awaiting sustained client gesture validation | Bounded transactions pass 65 tests/oracle/release and graphical fixture replication; CUA sustained drag input remains pending |
 | VMC-005c | Planned | Versioned inventory persistence and reconnect/restart recovery |
 
 Only one implementation ticket is active; checkpoints awaiting client validation
 are parked so implementation can continue. Records retain acceptance criteria,
 checks, manual evidence and commit subject; Git history supplies checkpoint SHAs.
-Pushing a ticket does not declare a milestone or the whole server complete.
+Development and normal pushes now use `main`, as requested by the user. VMC-005b2a is being published as an explicitly requested checkpoint with its sustained-gesture gate pending. Pushing a ticket does not declare a milestone or the whole server complete.
 
 ## Existing foundation
 

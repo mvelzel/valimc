@@ -3,16 +3,17 @@ defmodule Valimc.Inventory do
   alias Valimc.Protocol.{ItemStack, ItemTypes}
   @max_encoded_bytes 524_288
   @equipment %{"head" => 5, "chest" => 6, "legs" => 7, "feet" => 8, "offhand" => 45}
-  defstruct slots: %{}, selected: 0, carried: nil, state_id: 0
+  defstruct slots: %{}, selected: 0, carried: nil, state_id: 0, drag: nil
   def new, do: %__MODULE__{}
   def get(inventory, slot), do: inventory.slots[slot]
   def contents(inventory), do: Enum.map(0..45, &get(inventory, &1))
   def advance(inventory), do: %{inventory | state_id: rem(inventory.state_id + 1, 32768)}
   def held(inventory, :main), do: get(inventory, 36 + inventory.selected)
   def held(inventory, :off), do: get(inventory, 45)
+  def cancel_drag(inventory), do: %{inventory | drag: nil}
 
   def creative(inventory, slot, stack) when is_integer(slot) and slot in 1..45,
-    do: inventory |> put(slot, stack) |> finish()
+    do: inventory |> cancel_drag() |> put(slot, stack) |> finish()
 
   def creative(_, _, _), do: {:error, :invalid_slot}
 
@@ -26,19 +27,31 @@ defmodule Valimc.Inventory do
     off = held(inventory, :off)
 
     inventory
+    |> cancel_drag()
     |> put(36 + inventory.selected, off)
     |> put(45, main)
     |> advance()
   end
 
-  def click(inventory, :pickup, slot, button) when slot in 5..45 and button in [0, 1] do
+  def click(inventory, :quick_craft, slot, button) when button in 0..7,
+    do: quick_craft(inventory, slot, Bitwise.band(button, 3), Bitwise.bsr(button, 2))
+
+  def click(_, :quick_craft, _, _), do: {:error, :unsupported_click}
+
+  # Vanilla consumes an interrupting click solely to reset the active gesture.
+  def click(%{drag: drag} = inventory, _, _, _) when drag != nil,
+    do: {:ok, inventory |> cancel_drag() |> advance()}
+
+  def click(inventory, action, slot, button), do: ordinary_click(inventory, action, slot, button)
+
+  defp ordinary_click(inventory, :pickup, slot, button) when slot in 5..45 and button in [0, 1] do
     if specialized_click?(get(inventory, slot)) or specialized_click?(inventory.carried),
       do: {:error, :unsupported_click},
       else: inventory |> pickup(slot, button) |> finish()
   end
 
-  def click(inventory, :swap, slot, button)
-      when slot in 5..45 and (button in 0..8 or button == 40) do
+  defp ordinary_click(inventory, :swap, slot, button)
+       when slot in 5..45 and (button in 0..8 or button == 40) do
     target = if button == 40, do: 45, else: 36 + button
     first = get(inventory, slot)
     second = get(inventory, target)
@@ -50,10 +63,69 @@ defmodule Valimc.Inventory do
     end
   end
 
-  def click(inventory, :quick_move, slot, button) when slot in 5..45 and button in [0, 1],
-    do: inventory |> quick_move(slot) |> finish()
+  defp ordinary_click(inventory, :quick_move, slot, button)
+       when slot in 5..45 and button in [0, 1],
+       do: inventory |> quick_move(slot) |> finish()
 
-  def click(_, _, _, _), do: {:error, :unsupported_click}
+  defp ordinary_click(_, _, _, _), do: {:error, :unsupported_click}
+
+  defp quick_craft(%{carried: nil} = inventory, _, _, _),
+    do: {:ok, inventory |> cancel_drag() |> advance()}
+
+  defp quick_craft(%{drag: nil} = inventory, _, 0, mode) do
+    if specialized_click?(inventory.carried),
+      do: {:error, :unsupported_click},
+      else: {:ok, advance(%{inventory | drag: %{mode: mode, slots: MapSet.new()}})}
+  end
+
+  defp quick_craft(%{drag: drag} = inventory, slot, 1, _) when drag != nil do
+    slots =
+      if drag_target?(inventory, slot) and inventory.carried.count > MapSet.size(drag.slots),
+        do: MapSet.put(drag.slots, slot),
+        else: drag.slots
+
+    {:ok, advance(%{inventory | drag: %{drag | slots: slots}})}
+  end
+
+  defp quick_craft(%{drag: drag} = inventory, _, 2, _) when drag != nil do
+    case Enum.sort(drag.slots) do
+      [slot] ->
+        ordinary_click(cancel_drag(inventory), :pickup, slot, drag.mode)
+
+      slots ->
+        cursor = inventory.carried
+        count = length(slots)
+        each = if drag.mode == 1, do: 1, else: div(cursor.count, max(count, 1))
+
+        {next, left} =
+          Enum.reduce(slots, {inventory, cursor.count}, fn slot, {next, left} ->
+            if drag_target?(inventory, slot) and cursor.count >= count do
+              present = get(inventory, slot)
+              existing = if present, do: present.count, else: 0
+              added = min(each, max(slot_limit(slot, cursor) - existing, 0))
+              {put(next, slot, sized(cursor, existing + added)), left - added}
+            else
+              {next, left}
+            end
+          end)
+
+        %{cancel_drag(next) | carried: sized(cursor, left)} |> finish()
+    end
+  end
+
+  defp quick_craft(inventory, _, _, _),
+    do: {:ok, inventory |> cancel_drag() |> advance()}
+
+  defp drag_target?(inventory, slot) when slot in 5..45 do
+    cursor = inventory.carried
+    present = get(inventory, slot)
+
+    can_place_type?(slot, cursor) and not specialized_click?(present) and
+      (present == nil or
+         (compatible?(present, cursor) and present.count <= ItemStack.max_stack_size(cursor)))
+  end
+
+  defp drag_target?(_, _), do: false
 
   def encoded_size(inventory),
     do:

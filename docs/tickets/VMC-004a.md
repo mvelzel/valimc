@@ -1,7 +1,6 @@
 # VMC-004a — Bounded item stacks and scalar component patches
 
-Status: Awaiting client validation. Updated: October 13, 2026. Depends on VMC-002.
-VMC-003 is parked awaiting client validation; this slice does not change storage.
+Status: Done. Updated: October 13, 2026. Depends on VMC-002.
 
 ## Scope and acceptance
 
@@ -23,7 +22,7 @@ pure versioned stack codecs and preserve accepted scalar component patches.
   ordinary, non-block, scalar, removal and mixed-patch cases. TCP oracle exercises
   metadata round trips and an unsupported-component correction.
 
-Actual-client scenario, pending while locked: select ordinary blocks/non-block
+Actual-client scenario: select ordinary blocks/non-block
 items in creative; place a block and clear its slot. Exercise a scalar-patched
 fixture through the session and inspect the client's tooltip/count; attempt an
 unsupported compound item and verify the previous slot and explanatory message.
@@ -78,11 +77,18 @@ NBT compound, unlike unbreakable's zero-byte unit.
 
 `scripts/check_vanilla.py` runs both oracle stages. Private fixtures/logs stay
 outside the public tree. Public-tree audit/self-tests and staged diff check pass.
-Actual-client scenario remains queued; no GUI pass claimed while the user's
-MacBook is locked. This slice and the overall VMC-004 subsystem are not Done.
+Actual 26.3 computer use now passes: creative Oak Log selection/placement;
+fixture stones with count 17 and glint, 16 eggs, and a damaged diamond sword
+rendered with their counts/damage bar. The Stone tooltip displayed correctly.
+An unsupported custom-name fixture restored the prior 17 stones with an
+explanatory message. Creative inventory-tab pickup and trash clearing removed
+the first hotbar stack; the owner confirmed slot 36 was empty. Fixture metadata
+was supplied through the normal creative packet handler; menu actions used CUA.
+The final 65 tests, full oracle and production build pass. VMC-004a is Done;
+structured components beyond VMC-004b1 and the parent subsystem remain incomplete.
 
 ## Checkpoint
 
 Planned subject: `VMC-004a: add bounded item codecs and creative slot corrections`.
-Branch: `codex/minecraft-implementation`. Commit locally after automated checks;
-push deferred until required manual validation. Next: VMC-005a or VMC-004b.
+Checkpoint: `6dc5dd3`; graphical evidence completed before publication to `main`.
+Next structured slice: VMC-004b2.

@@ -4,6 +4,53 @@ defmodule Valimc.InventoryClickConnectionTest do
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   defp name, do: "Click" <> Integer.to_string(System.unique_integer([:positive]))
 
+  defp click(client, action, slot, button) do
+    Client.send_packet(client, :play, "container_click", [
+      <<0, 0, slot::signed-16, button::signed-8>>,
+      Wire.varint(ItemTypes.input_id(action)),
+      <<0, 0>>
+    ])
+
+    {body, client} = Client.await(client, :play, "container_set_content")
+    client = Client.auto_reply(client, :play, "container_set_content", body)
+    {_, client} = Client.await(client, :play, "set_cursor_item")
+    client
+  end
+
+  test "quick-craft commits owned items and an unsupported mode cancels before the next pickup" do
+    {_, client} = Client.login(name())
+    on_exit(fn -> Client.close(client) end)
+    client = Client.load_world(client)
+
+    stone = %{
+      ItemStack.new("stone", 17)
+      | components: %{"minecraft:enchantment_glint_override" => true}
+    }
+
+    Client.send_packet(client, :play, "set_creative_mode_slot", [
+      <<36::16>>,
+      ItemStack.encode(stone, :untrusted)
+    ])
+
+    {_, client} = Client.await(client, :play, "container_set_slot")
+    client = click(client, "pickup", 36, 0)
+    client = click(client, "quick_craft", -999, 0)
+    client = click(client, "quick_craft", 9, 1)
+    client = click(client, "quick_craft", 10, 1)
+    assert client.inventory.carried == stone
+    assert Enum.at(client.inventory.items, 9) == nil
+    client = click(client, "quick_craft", -999, 2)
+    assert Enum.at(client.inventory.items, 9) == %{stone | count: 8}
+    assert Enum.at(client.inventory.items, 10) == %{stone | count: 8}
+    assert client.inventory.carried == %{stone | count: 1}
+    client = click(client, "quick_craft", -999, 0)
+    client = click(client, "quick_craft", -999, 8)
+    assert client.inventory.carried == %{stone | count: 1}
+    client = click(client, "pickup", 11, 0)
+    assert client.inventory.carried == nil
+    assert Enum.at(client.inventory.items, 11) == %{stone | count: 1}
+  end
+
   test "stale clicks use owned stacks; forged predictions cannot create items; malformed clicks stay isolated" do
     username = name()
     {_, client} = Client.login(username)
