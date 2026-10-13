@@ -37,7 +37,12 @@ defmodule Valimc.InventoryConnectionTest do
     {1, client} = slot(client, 9, stone)
     {2, client} = slot(client, 45, stone)
     # No client prediction, even a forged one, is accepted before click semantics land.
-    Client.send_packet(client, :play, "container_click", <<0, 0, 99>>)
+    Client.send_packet(client, :play, "container_click", [
+      <<0, 0, 9::signed-16, 0>>,
+      Wire.varint(ItemTypes.input_id("quick_craft")),
+      <<0, 0>>
+    ])
+
     client = snapshot(client)
     assert client.inventory.state_id == 3
     assert Enum.at(client.inventory.items, 9) == stone

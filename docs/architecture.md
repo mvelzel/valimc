@@ -69,8 +69,12 @@ format has no inventory, dimensions or vanilla NBT compatibility yet.
 Player inventories are pure bounded structs inside their connection. Creative
 slot writes, selected-hand lookup and hand swaps execute serially in that owner;
 network snapshots publish accepted state. Startup sends all 46 menu slots.
-Unsupported edits and currently unimplemented click predictions are corrected
-from owner state. Predicted hashes are never accepted as inventory contents.
+Supported basic clicks mutate that owner; unsupported edits/interactions are
+corrected from owner state. Predicted hashes are structurally decoded with bounds
+and never accepted as inventory contents. State mismatch triggers correction;
+it does not provide a second inventory authority. Aggregate encoded inventory
+data is capped at 512 KiB, below the packet limit, including the cursor. Rejected
+operations preserve the previous state. Empty slots remain sparse.
 Slot storage is separate from region simulation and does not yet persist or
 implement survival/menu transactions, drops or equipment replication.
 

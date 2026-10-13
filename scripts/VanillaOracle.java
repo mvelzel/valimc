@@ -296,17 +296,37 @@ public class VanillaOracle implements AutoCloseable {
       first.await(p -> p instanceof ClientboundBlockUpdatePacket b && b.getPos().equals(new BlockPos(3,64,0)) && b.getBlockState().is(Blocks.STONE));
       first.send(gameOut, new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK, new BlockPos(3,64,0), Direction.UP, 4));
       first.await(p -> p instanceof ClientboundBlockUpdatePacket b && b.getPos().equals(new BlockPos(3,64,0)) && b.getBlockState().isAir());
+      var predictions = new Int2ObjectOpenHashMap<HashedStack>();
+      predictions.put(9, HashedStack.create(stone, component -> 0x12345678));
+      var invented = new ItemStack(Items.DIAMOND, 99);
+      invented.remove(DataComponents.ITEM_NAME);
+      first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)9, (byte)0, ContainerInput.PICKUP,
+        predictions, HashedStack.create(invented, component -> 0x12345678)));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.items().size() == 46 &&
+        c.items().get(9).isEmpty() && ItemStack.matches(c.items().get(44), planks) &&
+        ItemStack.matches(c.items().get(45), stone) && ItemStack.matches(c.carriedItem(), eggs));
+      first.await(p -> p instanceof ClientboundSetCursorItemPacket c && ItemStack.matches(c.contents(), eggs));
+      first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)9, (byte)1, ContainerInput.PICKUP,
+        new Int2ObjectOpenHashMap<>(), HashedStack.EMPTY));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.items().get(9).getCount() == 1 && c.carriedItem().getCount() == 15);
       first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)9, (byte)0, ContainerInput.PICKUP,
         new Int2ObjectOpenHashMap<>(), HashedStack.EMPTY));
-      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.items().size() == 46 &&
-        ItemStack.matches(c.items().get(9), eggs) && ItemStack.matches(c.items().get(44), planks) &&
-        ItemStack.matches(c.items().get(45), stone) && c.carriedItem().isEmpty());
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.items().get(9), eggs) && c.carriedItem().isEmpty());
       first.await(p -> p instanceof ClientboundSetCursorItemPacket c && c.contents().isEmpty());
+      first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)9, (byte)0, ContainerInput.QUICK_MOVE,
+        new Int2ObjectOpenHashMap<>(), HashedStack.EMPTY));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.items().get(9).isEmpty() && ItemStack.matches(c.items().get(37), eggs));
+      first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)37, (byte)8, ContainerInput.SWAP,
+        new Int2ObjectOpenHashMap<>(), HashedStack.EMPTY));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.items().get(37), planks) && ItemStack.matches(c.items().get(44), eggs));
+      first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)37, (byte)40, ContainerInput.SWAP,
+        new Int2ObjectOpenHashMap<>(), HashedStack.EMPTY));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.items().get(37), stone) && ItemStack.matches(c.items().get(45), planks));
       first.send(gameOut, new ServerboundMovePlayerPacket.PosRot(1.5,64,0.5,90,0,true,false));
       second.await(p -> p instanceof ClientboundMoveEntityPacket.PosRot);
       first.send(gameOut, new ServerboundChatCommandPacket("stats"));
       first.await(p -> p instanceof ClientboundSystemChatPacket c && c.content().getString().contains("schedulers"));
-      System.out.println("PASS: Mojang 26.3 codecs validated compressed login, network registry/tag dependency loading, command graph/local completion, " + first.chunks + " chunks, full inventory/selection/hand swaps/resynchronization, creative scalar stacks/corrections, two-player visibility, movement, block placement/breaking and commands.");
+      System.out.println("PASS: Mojang 26.3 codecs validated compressed login, network registry/tag dependency loading, command graph/local completion, " + first.chunks + " chunks, inventory/selection/hand swaps, authoritative pickup/split/merge/shift/swap with forged predictions, creative scalar stacks/corrections, two-player visibility, movement, block placement/breaking and commands.");
       System.out.println(first.seen);
     }
   }

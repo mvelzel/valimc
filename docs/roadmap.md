@@ -18,8 +18,10 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-003](tickets/VMC-003.md) | Awaiting client validation — `5341f15`, unpushed | Player pose persistence; remaining client scenarios paused while MacBook is locked |
 | [VMC-004a](tickets/VMC-004a.md) | Awaiting client validation — `6dc5dd3`, unpushed | Bounded stack/scalar codecs and creative hotbar corrections; automated/oracle checks pass |
 | VMC-004b | Planned | Names/lore/NBT and compound or registry-backed component codecs |
-| [VMC-005a](tickets/VMC-005a.md) | Awaiting client validation; local checkpoint | Owner-local 46-slot menu, selection/offhand/swap/resync; 41 tests and Mojang oracles pass |
+| [VMC-005a](tickets/VMC-005a.md) | Awaiting client validation — `123d1d0`, unpushed | Owner-local 46-slot menu, selection/offhand/swap/resync; 41 tests and Mojang oracles pass |
 | VMC-005b | Planned | Hashed click codec, authoritative pickup/swap/shift/drag transactions |
+| [VMC-005b1](tickets/VMC-005b1.md) | Awaiting client validation; local checkpoint | Bounded predictions and basic pickup/split/merge/shift/swap; 51 tests and Mojang oracle pass |
+| VMC-005b2 | Planned | Drag/collect, cursor return on close, crafting-slot constraints and drops |
 | VMC-005c | Planned | Versioned inventory persistence and reconnect/restart recovery |
 
 Only one implementation ticket is active; checkpoints awaiting client validation
@@ -56,6 +58,8 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | VMC-005 | Authoritative inventory transactions | State IDs, slots, click/drag/shift/hotbar/drop, full inventory persistence and menus |
 | VMC-005a | Session inventory foundation | Full player slots, startup synchronization, creative writes and carried selection are owner-local |
 | VMC-005b | Inventory click transactions | Vanilla hashed prediction, authoritative click/drag/shift/hotbar/drop and corrections |
+| VMC-005b1 | Basic inventory clicks | Bounded prediction parsing; pickup/split/merge/shift/swap conserve authoritative state |
+| VMC-005b2 | Remaining click lifecycle | Drag, collection, close/return and item-entity drops match vanilla |
 | VMC-005c | Inventory persistence | Validated components/slots survive reconnect and graceful restart; corrupt state stays isolated |
 | VMC-006 | Play initialization and world defaults | Clocks, weather, difficulty and gamerules match the 26.3 packet/state model |
 | VMC-007 | Session authentication and encryption | Official online-mode join, AES/compression interoperability, invalid sessions rejected |

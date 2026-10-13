@@ -2,7 +2,7 @@ defmodule Valimc.Connection do
   use GenServer, restart: :temporary, shutdown: 15_000
 
   @moduledoc "A socket-owning process per player, including their protocol and connection-local state."
-  alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Packets, Wire}
+  alias Valimc.Protocol.{Data, InventoryClick, ItemStack, ItemTypes, Packets, Wire}
   alias Valimc.{Inventory, Metrics, Players, PlayerStore, World}
   import Bitwise
 
@@ -436,15 +436,7 @@ defmodule Valimc.Connection do
         creative_slot(state, payload)
 
       "container_click" ->
-        # Prediction hashes are never authoritative. VMC-005b adds transactions
-        # and the complete click codec; this slice restores the current snapshot.
-        {container, payload} = Wire.take_varint(payload)
-        {_reported_state, _prediction} = Wire.take_varint(payload)
-
-        if container != 0,
-          do: send_packets(state, [Packets.packet("container_close", Wire.varint(container))])
-
-        resync_inventory(state)
+        inventory_click(state, payload)
 
       "container_close" ->
         {_container, <<>>} = Wire.take_varint(payload)
@@ -737,6 +729,33 @@ defmodule Valimc.Connection do
     inventory = Inventory.advance(state.inventory)
     send_packets(state, [Packets.inventory(inventory), Packets.cursor(inventory.carried)])
     %{state | inventory: inventory}
+  end
+
+  defp inventory_click(state, payload) do
+    case InventoryClick.decode(payload) do
+      {:ok, %{container: 0} = click} ->
+        # The vanilla listener applies actions to current owner state even when
+        # the reported state ID is stale. Predictions only guide replication.
+        case Inventory.click(state.inventory, click.action, click.slot, click.button) do
+          {:ok, inventory} ->
+            send_packets(state, [Packets.inventory(inventory), Packets.cursor(inventory.carried)])
+            %{state | inventory: inventory}
+
+          {:error, _} ->
+            send_packets(state, [
+              Packets.chat("This inventory operation is not supported yet; state restored")
+            ])
+
+            resync_inventory(state)
+        end
+
+      {:ok, click} ->
+        send_packets(state, [Packets.packet("container_close", Wire.varint(click.container))])
+        resync_inventory(state)
+
+      {:error, _} ->
+        reject(state, "Malformed inventory click")
+    end
   end
 
   defp place_block(state, payload) do
