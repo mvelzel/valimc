@@ -48,7 +48,9 @@ defmodule Valimc.Connection do
        batch_pending: false,
        peers: %{},
        outbound: [],
-       inventory: Inventory.new(),
+       # The preview explicitly advertises creative/infinite-material abilities.
+       # This permission is owner state, never derived from incoming predictions.
+       inventory: Inventory.new(true),
        window: System.monotonic_time(:second),
        packets: 0,
        bytes: 0,

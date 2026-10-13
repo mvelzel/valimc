@@ -27,7 +27,7 @@ keep IDs stable and append suffixes rather than renumbering.
 | VMC-005b2 | Planned | Drag/collect, cursor return on close, crafting-slot constraints and drops |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Awaiting sustained client gesture validation | Bounded transactions pass 65 tests/oracle/release and graphical fixture replication; CUA sustained drag input remains pending |
 | [VMC-005b2b](tickets/VMC-005b2b.md) | Done — validated | Two-pass collection; 71 tests, actual Mojang algorithm/TCP, release and CUA double-click/caps/patch/rejection pass |
-| VMC-005b2c | Planned | Creative clone/fill permission rules |
+| [VMC-005b2c](tickets/VMC-005b2c.md) | Awaiting client-generated clone/fill validation | Owner permission and atomic limits pass 77 tests, actual Mojang algorithm/TCP, release and graphical fixture replication; actual creative middle-click uses a different packet path |
 | VMC-005b2d | Planned | Cursor return on close and drop ownership/item entities |
 | VMC-005c | Planned | Versioned inventory persistence and reconnect/restart recovery |
 

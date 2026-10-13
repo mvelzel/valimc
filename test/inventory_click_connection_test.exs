@@ -44,7 +44,7 @@ defmodule Valimc.InventoryClickConnectionTest do
     assert Enum.at(client.inventory.items, 10) == %{stone | count: 8}
     assert client.inventory.carried == %{stone | count: 1}
     client = click(client, "quick_craft", -999, 0)
-    client = click(client, "quick_craft", -999, 8)
+    client = click(client, "quick_craft", -999, 12)
     assert client.inventory.carried == %{stone | count: 1}
     client = click(client, "pickup", 11, 0)
     assert client.inventory.carried == nil
@@ -88,6 +88,54 @@ defmodule Valimc.InventoryClickConnectionTest do
     {body, peer} = Client.await(peer, :play, "container_set_content")
     peer = Client.auto_reply(peer, :play, "container_set_content", body)
     assert peer.inventory.carried == nil and Enum.all?(peer.inventory.items, &is_nil/1)
+  end
+
+  test "creative clone/fill use only owned items and revoked owner permission prevents duplication" do
+    username = name()
+    {_, client} = Client.login(username)
+    on_exit(fn -> Client.close(client) end)
+    client = Client.load_world(client)
+
+    eggs = %{
+      ItemStack.new("egg", 3)
+      | components: %{"minecraft:enchantment_glint_override" => true}
+    }
+
+    Client.send_packet(client, :play, "set_creative_mode_slot", [
+      <<36::16>>,
+      ItemStack.encode(eggs, :untrusted)
+    ])
+
+    {_, client} = Client.await(client, :play, "container_set_slot")
+    client = click(client, "clone", 36, 2)
+    assert client.inventory.carried == %{eggs | count: 16}
+    assert Enum.at(client.inventory.items, 36) == eggs
+    client = click(client, "quick_craft", -999, 8)
+    client = click(client, "quick_craft", 9, 9)
+    client = click(client, "quick_craft", 10, 9)
+    client = click(client, "quick_craft", -999, 10)
+    assert client.inventory.carried == nil
+    assert Enum.at(client.inventory.items, 9) == %{eggs | count: 16}
+    assert Enum.at(client.inventory.items, 10) == %{eggs | count: 16}
+    owner = Enum.find(Valimc.Players.all(), &(&1.name == username)).pid
+
+    :sys.replace_state(owner, fn s ->
+      %{s | inventory: %{s.inventory | infinite_materials: false}}
+    end)
+
+    client = click(client, "clone", 36, 2)
+    assert client.inventory.carried == nil
+    client = click(client, "pickup", 36, 0)
+    client = click(client, "quick_craft", -999, 8)
+    client = click(client, "quick_craft", 11, 9)
+    client = click(client, "quick_craft", 12, 9)
+    client = click(client, "quick_craft", -999, 10)
+    assert client.inventory.carried == eggs
+
+    assert Enum.at(client.inventory.items, 11) == nil and
+             Enum.at(client.inventory.items, 12) == nil
+
+    assert not :sys.get_state(owner).inventory.infinite_materials
   end
 
   test "stale clicks use owned stacks; forged predictions cannot create items; malformed clicks stay isolated" do

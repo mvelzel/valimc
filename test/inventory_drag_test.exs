@@ -72,7 +72,7 @@ defmodule Valimc.InventoryDragTest do
     assert changed.drag == nil
     assert Inventory.swap_hands(started).drag == nil
     assert click(Inventory.new(), -999, 0).drag == nil
-    assert Inventory.click(started, :quick_craft, -999, 8) == {:error, :unsupported_click}
+    assert Inventory.click(started, :quick_craft, -999, 12) == {:error, :unsupported_click}
   end
 
   test "patch multiplication cannot exceed the aggregate correction budget" do

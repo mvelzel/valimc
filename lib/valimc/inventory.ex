@@ -3,8 +3,16 @@ defmodule Valimc.Inventory do
   alias Valimc.Protocol.{ItemStack, ItemTypes}
   @max_encoded_bytes 524_288
   @equipment %{"head" => 5, "chest" => 6, "legs" => 7, "feet" => 8, "offhand" => 45}
-  defstruct slots: %{}, selected: 0, carried: nil, state_id: 0, drag: nil
-  def new, do: %__MODULE__{}
+  defstruct slots: %{},
+            selected: 0,
+            carried: nil,
+            state_id: 0,
+            drag: nil,
+            infinite_materials: false
+
+  def new(infinite_materials \\ false) when is_boolean(infinite_materials),
+    do: %__MODULE__{infinite_materials: infinite_materials}
+
   def get(inventory, slot), do: inventory.slots[slot]
   def contents(inventory), do: Enum.map(0..45, &get(inventory, &1))
   def advance(inventory), do: %{inventory | state_id: rem(inventory.state_id + 1, 32768)}
@@ -33,7 +41,7 @@ defmodule Valimc.Inventory do
     |> advance()
   end
 
-  def click(inventory, :quick_craft, slot, button) when button in 0..7,
+  def click(inventory, :quick_craft, slot, button) when button in 0..11,
     do: quick_craft(inventory, slot, Bitwise.band(button, 3), Bitwise.bsr(button, 2))
 
   def click(_, :quick_craft, _, _), do: {:error, :unsupported_click}
@@ -71,39 +79,61 @@ defmodule Valimc.Inventory do
        when slot in 0..45 and button in [0, 1],
        do: inventory |> collect(slot, button) |> finish()
 
+  defp ordinary_click(inventory, :clone, slot, _) when slot in 0..45 do
+    source = get(inventory, slot)
+
+    if inventory.infinite_materials and inventory.carried == nil and source != nil,
+      do: %{inventory | carried: sized(source, ItemStack.max_stack_size(source))} |> finish(),
+      else: finish(inventory)
+  end
+
   defp ordinary_click(_, _, _, _), do: {:error, :unsupported_click}
 
   defp quick_craft(%{carried: nil} = inventory, _, _, _),
     do: {:ok, inventory |> cancel_drag() |> advance()}
 
+  defp quick_craft(%{infinite_materials: false} = inventory, _, 0, 2),
+    do: {:ok, inventory |> cancel_drag() |> advance()}
+
   defp quick_craft(%{drag: nil} = inventory, _, 0, mode) do
-    if specialized_click?(inventory.carried),
+    if mode != 2 and specialized_click?(inventory.carried),
       do: {:error, :unsupported_click},
       else: {:ok, advance(%{inventory | drag: %{mode: mode, slots: MapSet.new()}})}
   end
 
   defp quick_craft(%{drag: drag} = inventory, slot, 1, _) when drag != nil do
     slots =
-      if drag_target?(inventory, slot) and inventory.carried.count > MapSet.size(drag.slots),
-        do: MapSet.put(drag.slots, slot),
-        else: drag.slots
+      if drag_target?(inventory, slot) and
+           (drag.mode == 2 or inventory.carried.count > MapSet.size(drag.slots)),
+         do: MapSet.put(drag.slots, slot),
+         else: drag.slots
 
     {:ok, advance(%{inventory | drag: %{drag | slots: slots}})}
   end
 
   defp quick_craft(%{drag: drag} = inventory, _, 2, _) when drag != nil do
     case Enum.sort(drag.slots) do
+      [_slot] when drag.mode == 2 ->
+        # Vanilla delegates a single target to PICKUP with button 2, a no-op.
+        cancel_drag(inventory) |> finish()
+
       [slot] ->
         ordinary_click(cancel_drag(inventory), :pickup, slot, drag.mode)
 
       slots ->
         cursor = inventory.carried
         count = length(slots)
-        each = if drag.mode == 1, do: 1, else: div(cursor.count, max(count, 1))
+
+        each =
+          case drag.mode do
+            0 -> div(cursor.count, max(count, 1))
+            1 -> 1
+            2 -> ItemStack.max_stack_size(cursor)
+          end
 
         {next, left} =
           Enum.reduce(slots, {inventory, cursor.count}, fn slot, {next, left} ->
-            if drag_target?(inventory, slot) and cursor.count >= count do
+            if drag_target?(inventory, slot) and (drag.mode == 2 or cursor.count >= count) do
               present = get(inventory, slot)
               existing = if present, do: present.count, else: 0
               added = min(each, max(slot_limit(slot, cursor) - existing, 0))
@@ -124,7 +154,9 @@ defmodule Valimc.Inventory do
     cursor = inventory.carried
     present = get(inventory, slot)
 
-    can_place_type?(slot, cursor) and not specialized_click?(present) and
+    allow_override = inventory.drag != nil and inventory.drag.mode == 2
+
+    can_place_type?(slot, cursor) and (allow_override or not specialized_click?(present)) and
       (present == nil or
          (compatible?(present, cursor) and present.count <= ItemStack.max_stack_size(cursor)))
   end
@@ -275,7 +307,7 @@ defmodule Valimc.Inventory do
   defp specialized_click?(stack),
     do: ItemTypes.item(stack.item_id)["inventory_click_override"] == true
 
-  defp sized(_, 0), do: nil
+  defp sized(_, count) when count <= 0, do: nil
   defp sized(stack, count), do: %{stack | count: count}
   defp can_place?(_, nil), do: true
 

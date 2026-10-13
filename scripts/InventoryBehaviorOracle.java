@@ -2,6 +2,7 @@ import net.minecraft.SharedConstants;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.player.Abilities;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.Slot;
@@ -48,6 +49,10 @@ public class InventoryBehaviorOracle {
     var field = Unsafe.class.getDeclaredField("theUnsafe");
     field.setAccessible(true);
     player = (Player)((Unsafe)field.get(null)).allocateInstance(ProbePlayer.class);
+    var abilities = new Abilities();
+    var abilitiesField = Player.class.getDeclaredField("abilities");
+    abilitiesField.setAccessible(true);
+    abilitiesField.set(player, abilities);
     var menu = new Menu();
     menu.setCarried(new ItemStack(Items.STONE, 50));
     menu.stone(9, 64); menu.stone(10, 7); menu.stone(11, 9);
@@ -75,6 +80,38 @@ public class InventoryBehaviorOracle {
     menu.expect(16, 0, 5, 1, 0, 5, 0, 9, 7, 45, 0);
     if (!Boolean.TRUE.equals(menu.getCarried().get(DataComponents.ENCHANTMENT_GLINT_OVERRIDE)))
       throw new AssertionError("Lost cursor component");
-    System.out.println("PASS: Mojang 26.3 collect behavior: two passes, both directions, caps, triggers, components and output exclusion.");
+    menu = new Menu(); menu.stone(9, 7);
+    menu.clicked(9, 2, ContainerInput.CLONE, player); menu.expect(0, 9, 7);
+    abilities.instabuild = true;
+    menu.clicked(9, 2, ContainerInput.CLONE, player); menu.expect(64, 9, 7);
+    menu.stone(10, 3); menu.clicked(10, 2, ContainerInput.CLONE, player); menu.expect(64, 10, 3);
+    menu = new Menu(); menu.setCarried(new ItemStack(Items.STONE, 1));
+    menu.clicked(-999, 8, ContainerInput.QUICK_CRAFT, player);
+    menu.clicked(9, 9, ContainerInput.QUICK_CRAFT, player);
+    menu.clicked(-999, 10, ContainerInput.QUICK_CRAFT, player); menu.expect(1, 9, 0);
+    menu = new Menu(); menu.setCarried(shiny.copyWithCount(1));
+    menu.contents.setItem(9, shiny.copyWithCount(63));
+    menu.clicked(-999, 8, ContainerInput.QUICK_CRAFT, player);
+    for (int slot : new int[]{9, 10}) menu.clicked(slot, 9, ContainerInput.QUICK_CRAFT, player);
+    menu.clicked(-999, 10, ContainerInput.QUICK_CRAFT, player); menu.expect(0, 9, 64, 10, 64);
+    if (!Boolean.TRUE.equals(menu.contents.getItem(10).get(DataComponents.ENCHANTMENT_GLINT_OVERRIDE)))
+      throw new AssertionError("Lost fill component");
+    menu = new Menu(); menu.setCarried(new ItemStack(Items.STONE, 1));
+    menu.stone(9,64); menu.stone(10,64);
+    menu.clicked(-999, 8, ContainerInput.QUICK_CRAFT, player);
+    for (int slot : new int[]{9, 10}) menu.clicked(slot, 9, ContainerInput.QUICK_CRAFT, player);
+    menu.clicked(-999, 10, ContainerInput.QUICK_CRAFT, player); menu.expect(1, 9, 64, 10, 64);
+    abilities.instabuild = false;
+    menu = new Menu(); menu.setCarried(new ItemStack(Items.EGG, 1));
+    menu.clicked(-999, 8, ContainerInput.QUICK_CRAFT, player);
+    for (int slot : new int[]{9, 10}) menu.clicked(slot, 9, ContainerInput.QUICK_CRAFT, player);
+    menu.clicked(-999, 10, ContainerInput.QUICK_CRAFT, player); menu.expect(1, 9, 0, 10, 0);
+    abilities.instabuild = true;
+    menu = new Menu(); menu.setCarried(new ItemStack(Items.STONE, 1));
+    menu.clicked(-999, 8, ContainerInput.QUICK_CRAFT, player);
+    abilities.instabuild = false;
+    for (int slot : new int[]{9, 10}) menu.clicked(slot, 9, ContainerInput.QUICK_CRAFT, player);
+    menu.clicked(-999, 10, ContainerInput.QUICK_CRAFT, player); menu.expect(0, 9, 64, 10, 64);
+    System.out.println("PASS: Mojang 26.3 collect/creative behavior: order, caps, triggers, components, output exclusion, clone/fill permissions and single-target fill no-op.");
   }
 }

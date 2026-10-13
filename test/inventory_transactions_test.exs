@@ -71,7 +71,7 @@ defmodule Valimc.InventoryTransactionsTest do
     assert Inventory.get(inv, 45) == stone
     assert Inventory.get(inv, 9) == nil and Inventory.get(inv, 36) == nil
     assert Inventory.click(inv, :pickup, -999, 0) == {:error, :unsupported_click}
-    assert Inventory.click(inv, :quick_craft, 9, 8) == {:error, :unsupported_click}
+    assert Inventory.click(inv, :quick_craft, 9, 12) == {:error, :unsupported_click}
   end
 
   test "specialized item clicks remain explicit instead of applying ordinary stacking semantics" do

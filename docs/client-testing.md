@@ -74,3 +74,15 @@ no codec errors. Fixtures populated accepted items and selected the ordinary UI;
 server gameplay remained creative. All 71 tests, release and full oracle pass,
 including a new harness invoking Mojang's actual collect algorithm. See the ticket
 for the harness's limited ordinary-slot scope and later inventory requirements.
+
+VMC-005b2c: normal-handler clone/fill fixtures displayed source 7 unchanged,
+cursor 64 and filled main slots 9/10 at 64; actual CUA placement accepted the
+clone. Denied fixtures after a trusted permission change preserved items and
+empty targets; actual CUA half pickup/placement preserved 3/4 and patches.
+Creative inventory-tab middle-click/placement also displayed a full clone, but
+client bytecode and empty owner cursor show that tab uses local clicks followed
+by creative-slot writes. It does not validate the ordinary server CLONE input.
+All 77 tests, release and full Mojang oracle pass, including start-time permission
+sampling. Generic-container CLONE and sustained creative-fill input remain pending;
+the ticket is parked and unpushed. Client log has no codec/ERROR entries. See
+`tickets/VMC-005b2c.md` for exact actions, fixture distinctions and remaining scope.
