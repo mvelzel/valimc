@@ -74,6 +74,15 @@ World/player lifecycle and equipment locks require their own tests. Temporary
 fixtures are not committed. Mojang also decodes Elixir text containing NUL and
 supplementary Unicode. TCP scenarios then exercise slot updates/corrections.
 
+Entity checks generate 272 packed-velocity fixtures, including a deterministic
+random sample and threshold/continuation/clamping boundaries. Elixir independently
+encodes them and 25 complete entity packets; Mojang decodes the results. Velocity,
+spawn, float32 angles, motion, pickup and removal must match exact bytes. Metadata
+compares typed accessor values and exact stack patches after decoding because
+component-patch entry ordering is not canonical. Regenerated public entity facts
+must match the pinned extraction; temporary fixtures stay private. Graphical item
+fixtures establish rendering/update/removal only, not drop/pickup economy or physics.
+
 ## Actual Minecraft computer use
 
 The normal macOS game runs as an unbundled `java` process, absent from computer

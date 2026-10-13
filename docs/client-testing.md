@@ -97,3 +97,13 @@ coordinate clicks failed with `noWindowsAvailable`; app rebinding/Raise/REPL
 reset did not repair them, while screenshots and keyboard input worked. Coupled
 actual mouse pickup remains pending. This ticket is parked/unpushed, and actual
 world drops remain unimplemented. Client log has no codec/ERROR entries.
+
+VMC-018a: actual Minecraft 26.3 rendered a private patched-stone item fixture,
+changed it to eggs after metadata update, and removed it after a removal packet.
+A second nonzero-velocity spawn, zero motion update and pickup-animation packet
+were accepted; the item disappeared before explicit cleanup. Transient animation
+timing and physics trajectories were not captured. Final bounded helpers repeated
+render/update/remove successfully. Owner inventory remained empty, all fixture
+entities were cleaned up, and logs have no codec/ERROR entries. All 92 tests,
+release and Mojang's 272 velocity/25 complete packet cases pass. This completes
+the wire foundation; actual gameplay item ownership/drop/pickup remains future work.

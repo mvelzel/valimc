@@ -78,6 +78,13 @@ operations preserve the previous state. Empty slots remain sparse.
 Slot storage is separate from region simulation and does not yet persist or
 implement survival/menu transactions, drops or equipment replication.
 
+Item entity packet primitives use immutable versioned type/serializer/accessor
+facts and bounded pure encoders, including the current packed velocity format.
+Metadata batches admit at most three supported fields, removals at most 4096
+IDs, and item patches retain the stack codec's byte limit. Graphical wire fixtures
+are not authoritative entity state. No item owners, simulation, transfer or pickup
+transactions exist yet; gameplay must not consume inventory into a packet alone.
+
 ## Survival consistency still to implement
 
 Fixed 8×8-chunk ownership is sufficient for this independent-edit preview. Redstone, fluids, explosions, entity AI and collision involve neighboring state. They must use an explicit boundary protocol before parallel survival ticks are enabled.

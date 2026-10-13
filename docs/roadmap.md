@@ -31,6 +31,7 @@ keep IDs stable and append suffixes rather than renumbering.
 | VMC-005b2d | Partially implemented | Fit-only connected menu return; world drops and disconnect cleanup remain |
 | [VMC-005b2d1](tickets/VMC-005b2d1.md) | Awaiting actual mouse-pickup validation | 86 tests, actual Mojang return/TCP, release and actual keyboard close/reopen/overflow retry pass; setup pickup used fixtures after CUA rejected coordinate clicks |
 | VMC-005b2d2 | Planned | Region-owned item entities and atomic drop handoff; close overflow, disconnected-player return and explicit drops |
+| [VMC-018a](tickets/VMC-018a.md) | Done — validated, local | 92 tests, 272 Mojang velocity/25 packet fixtures, release and actual item render/update/remove pass; gameplay ownership remains VMC-005b2d2 |
 | VMC-005c | Planned | Versioned inventory persistence and reconnect/restart recovery |
 
 Only one implementation ticket is active; checkpoints awaiting client validation

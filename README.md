@@ -71,6 +71,11 @@ python3 bench/load.py --players 512 --seconds 5 --scatter
 
 Implemented: Java 26.3 status/ping, offline login, zlib compression, vanilla core-pack registry negotiation, flat chunks, preview lighting, creative movement, nearby player visibility, plain system chat, ordinary block placement/breaking, custom region snapshots and player pose persistence.
 
+Item entity spawn/metadata/motion/pickup-animation/removal packet primitives also
+pass Mojang codec and graphical fixture checks. They are a foundation for world
+drops; region-owned item simulation and inventory-to-world transactions are still
+required before gameplay can use them.
+
 Missing: online authentication/encryption, Bedrock, survival rules, collision/anti-cheat, complete inventories and item components, crafting, combat, hunger, mobs/AI, redstone, fluids, block entities, vanilla terrain/structures, real light propagation, Anvil world import/export, complete player state persistence, plugin APIs and Java plugin compatibility. Known but unimplemented play packets are ignored; this is not full protocol parity. Default-item placement does not implement directional or functional block behavior.
 
 Fixed spatial regions currently support independent edits. Neighbor-coupled simulation, deterministic entity transfers, and multi-region transactions are specified as future work, not implemented. Hard crashes can lose changes since the last 30-second checkpoint. Pose files use a bounded custom format under `world/players/`, not vanilla player NBT; storage errors/timeouts are explicit and can prevent a final save. Idle regions remain resident until shutdown, within the configured region limit.

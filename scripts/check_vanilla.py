@@ -9,6 +9,11 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemOracle', 'generate', fixtures], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_items.exs', fixtures, encoded], cwd=root, check=True)
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemOracle', 'verify', encoded], cwd=root, check=True)
+    entity_fixtures = str(pathlib.Path(world) / 'entity-fixtures.json')
+    entity_encoded = str(pathlib.Path(world) / 'elixir-entities.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'EntityOracle', 'generate', entity_fixtures], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_entities.exs', entity_fixtures, entity_encoded], cwd=root, check=True)
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'EntityOracle', 'verify', entity_encoded], cwd=root, check=True)
     with socket.socket() as port_probe:
         port_probe.bind(('127.0.0.1', 0))
         port = port_probe.getsockname()[1]
