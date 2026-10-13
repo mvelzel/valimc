@@ -50,10 +50,16 @@ under `docs/tickets/` before changing behavior. Keep these records updated.
 - Record date, version, actions, observed results, checks, and limitations in the
   ticket. The codec oracle cannot replace a graphical client test. If computer use
   is unavailable, leave the ticket unverified and fix that prerequisite.
-- Review the exact diff and public-tree audit, update the roadmap, then make one
-  coherent commit per verified ticket and push it, as the user requested. Use a
-  `codex/` branch; do not merge or force-push without authorization. Report actual
-  commit/push outcomes; never claim a failed publication succeeded.
+- Review the exact diff and public-tree audit, update the roadmap, then make a
+  coherent local commit after automated checks. The user explicitly permits local
+  checkpoints before manual validation (October 13, 2026). Mark remaining GUI
+  checks pending and keep these commits unpushed until client validation passes.
+  Unpushed checkpoints may be amended after validation; never rewrite already
+  pushed commits without authorization. Use a `codex/` branch; do not merge or
+  force-push without authorization. Report actual commit/push outcomes.
+- Computer-use validation is paused while the user's MacBook is locked. Continue
+  independent code/research/automated work; resume GUI validation only after it
+  is unlocked. Do not mark a ticket Done while its required GUI checks remain.
 - Research/docs/workflow pieces use the baseline client smoke scenario. Feature
   pieces must exercise their changed behavior and relevant negative cases.
 - Benchmark only when performance/measurement changes. Preserve raw results,

@@ -1,9 +1,9 @@
 defmodule Valimc.Connection do
-  use GenServer, restart: :temporary
+  use GenServer, restart: :temporary, shutdown: 15_000
 
   @moduledoc "A socket-owning process per player, including their protocol and connection-local state."
   alias Valimc.Protocol.{Data, Packets, Wire}
-  alias Valimc.{Metrics, Players, World}
+  alias Valimc.{Metrics, Players, PlayerStore, World}
   import Bitwise
 
   def start_link(socket), do: GenServer.start_link(__MODULE__, socket)
@@ -27,6 +27,7 @@ defmodule Valimc.Connection do
 
   @impl true
   def init(socket) do
+    Process.flag(:trap_exit, true)
     Process.flag(:message_queue_data, :off_heap)
 
     {:ok,
@@ -38,6 +39,9 @@ defmodule Valimc.Connection do
        protocol: nil,
        buffer: <<>>,
        player: nil,
+       player_store: nil,
+       store_monitor: nil,
+       save_ref: nil,
        chunks: MapSet.new(),
        regions: MapSet.new(),
        pending: [],
@@ -83,6 +87,34 @@ defmodule Valimc.Connection do
   def handle_info(:drain, state), do: guard_connection(state, fn -> consume(state, 64) end)
   def handle_info({:tcp_closed, _}, state), do: {:stop, :normal, state}
   def handle_info({:tcp_error, _, _}, state), do: {:stop, :normal, state}
+
+  def handle_info(:save_player, state) do
+    Process.send_after(self(), :save_player, Valimc.config(:player_save_interval_ms))
+
+    if state.phase == :play and state.save_ref == nil do
+      ref = make_ref()
+      PlayerStore.checkpoint(state.player_store, state.player, ref)
+      Process.send_after(self(), {:save_deadline, ref}, 5000)
+      {:noreply, %{state | save_ref: ref}}
+    else
+      {:noreply, state}
+    end
+  end
+
+  def handle_info({:player_saved, ref, :ok}, %{save_ref: ref} = state),
+    do: {:noreply, %{state | save_ref: nil}}
+
+  def handle_info({:player_saved, ref, {:error, _}}, %{save_ref: ref} = state),
+    do: guard_connection(state, fn -> reject(state, "Player save failed") end)
+
+  def handle_info({:save_deadline, ref}, %{save_ref: ref} = state),
+    do: guard_connection(state, fn -> reject(state, "Player save timed out") end)
+
+  def handle_info({:save_deadline, _}, state), do: {:noreply, state}
+
+  def handle_info({:DOWN, ref, :process, _, _}, %{store_monitor: ref} = state),
+    do: guard_connection(state, fn -> reject(state, "Player storage stopped") end)
+
   def handle_info(:login_deadline, %{phase: :play} = state), do: {:noreply, state}
   def handle_info(:login_deadline, state), do: {:stop, :normal, state}
 
@@ -274,13 +306,33 @@ defmodule Valimc.Connection do
       {:error, reason} -> reject(state, reason)
     end
 
+    {store, player} =
+      case PlayerStore.open(player.uuid) do
+        {:ok, pid, pose} ->
+          {pid, Map.merge(player, pose || %{})}
+
+        {:error, reason} ->
+          require Logger
+          Logger.warning("Player pose load failed: #{inspect(reason)}")
+          reject(state, "Player save unavailable; please retry after storage is repaired")
+      end
+
+    Players.update(self(), player)
+
     threshold = Valimc.config(:compression_threshold)
 
     if threshold != nil,
       do:
         send_packets(state, [Packets.packet("login_compression", Wire.varint(threshold), :login)])
 
-    state = %{state | threshold: threshold, player: player, step: :ack}
+    state = %{
+      state
+      | threshold: threshold,
+        player: player,
+        player_store: store,
+        store_monitor: Process.monitor(store),
+        step: :ack
+    }
 
     send_packets(state, [
       Packets.packet(
@@ -423,20 +475,15 @@ defmodule Valimc.Connection do
       Enum.reduce(existing, state, fn player, acc -> event(acc, {:player_joined, player}) end)
 
     Process.send_after(self(), :publish_movement, 50)
+    Process.send_after(self(), :save_player, Valimc.config(:player_save_interval_ms))
     state
   end
 
   defp move(%{teleport_pending: true} = state, _), do: state
 
   defp move(state, changes) do
-    if Enum.any?(changes, fn {key, value} ->
-         if key in [:x, :z],
-           do: abs(value) > 29_999_984,
-           else: abs(value) > 1_000_000
-       end),
-       do: reject(state, "Position outside world bounds")
-
     player = Map.merge(state.player, changes)
+    if not PlayerStore.valid_pose?(player), do: reject(state, "Position outside world bounds")
     Players.update(self(), player)
     update_view(%{state | player: player})
   end
@@ -732,5 +779,25 @@ defmodule Valimc.Connection do
   end
 
   @impl true
-  def terminate(_reason, state), do: :gen_tcp.close(state.socket)
+  def terminate(_reason, state) do
+    :gen_tcp.close(state.socket)
+
+    if state.player_store && state.phase == :play do
+      # A later bad frame in the same TCP batch can roll back the callback state;
+      # the owner-published snapshot still holds the last accepted movement.
+      player =
+        case Players.get(self()) do
+          {:ok, latest} -> latest
+          :error -> state.player
+        end
+
+      try do
+        PlayerStore.close(state.player_store, player)
+      catch
+        :exit, _ ->
+          require Logger
+          Logger.error("Player pose final save could not complete")
+      end
+    end
+  end
 end

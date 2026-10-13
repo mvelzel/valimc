@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Build a local macOS app identity for the installed official Minecraft Java runtime.
 
-Development UI helper only. No game download, account handling, client modifications,
-LaunchServices bypass, or official-binary re-signing. Configure its executable in a
+Development UI helper only. No game download, account handling, Minecraft class edits,
+LaunchServices bypass, or official-binary re-signing. Optional SDL input experiments
+use a separate library; default launching uses the installed official libraries.
+Configure its executable in a
 separate Minecraft Launcher installation, then use normal computer-use app approval.
 """
 import argparse
@@ -18,6 +20,10 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--java-home", type=pathlib.Path,
                     help="Installed Minecraft runtime Home directory (defaults to java-runtime-epsilon)")
+parser.add_argument("--system-mouse", action="store_true",
+                    help="Test SDL3 system-scaled mouse input for macOS computer use")
+parser.add_argument("--sdl-library", type=pathlib.Path,
+                    help="Experimental SDL3 build with SDL_MAC_USE_GCMOUSE support; use Cocoa mouse events")
 args = parser.parse_args()
 if sys.platform != "darwin":
     raise SystemExit("This app-identity helper is for macOS. Other platforms use their native app/window selector.")
@@ -32,6 +38,21 @@ full_version = release.get("JAVA_RUNTIME_VERSION", version)
 if int(version.split(".")[0]) < 25:
     raise SystemExit("Minecraft 26.3 requires Java 25+")
 quote = lambda value: json.dumps(str(value), ensure_ascii=False)
+mouse_hint = ('  setenv("SDL_MOUSE_RELATIVE_SYSTEM_SCALE", "1", 0);\n'
+              if args.system_mouse else '')
+if args.sdl_library:
+    library = args.sdl_library.resolve()
+    if not library.is_file() or b"SDL_MAC_USE_GCMOUSE" not in library.read_bytes():
+        raise SystemExit("Experimental SDL library must support SDL_MAC_USE_GCMOUSE (SDL 3.6+ development)")
+    mouse_hint += f'''  setenv("SDL_MAC_USE_GCMOUSE", "0", 0);
+  char **overridden = calloc((size_t)argc + 2, sizeof(char *));
+  if (!overridden) return 1;
+  overridden[0] = argv[0];
+  overridden[1] = {quote('-Dorg.lwjgl.sdl.libname=' + str(library))};
+  for (int i = 1; i < argc; i++) overridden[i + 1] = argv[i];
+  argv = overridden;
+  argc++;
+'''
 base = ROOT / ".local"
 contents = base / "Minecraft Client.app/Contents"
 (contents / "MacOS").mkdir(parents=True, exist_ok=True)
@@ -64,6 +85,7 @@ int main(int argc, char **argv) {{
   init_fn init = (init_fn)dlsym(handle, "JLI_InitArgProcessing");
   if (!launch || !init) {{ fprintf(stderr, "Missing OpenJDK launcher entry point\\n"); return 1; }}
   setenv("JAVA_HOME", {quote(runtime)}, 1);
+{mouse_hint}  // SDL hints affect only this dedicated launcher process.
   init(0, 0);
   return launch(argc, argv, 0, NULL, 0, NULL, {quote(full_version)}, {quote(version)},
                 "java", "java", 0, 1, 0, 0);

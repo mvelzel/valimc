@@ -18,13 +18,22 @@ creative preview was committed at `4495775`. New ticket checkpoints use branch
 4. Exercise positive behavior, invalid input, and relevant concurrency/durability
    boundaries. Run the checks below once; repeat after edits, failures, or an
    unresolved concern. Use temporary worlds and loopback listeners.
-5. Restart the local server gracefully and reconnect actual Minecraft 26.3 using
+5. After automated checks, review the exact diff/public-tree audit and make a
+   local ticket checkpoint. The user permits committing before manual validation;
+   mark the GUI gates pending and keep this checkpoint unpushed.
+6. Restart the local server gracefully and reconnect actual Minecraft 26.3 using
    computer use. Exercise the changed behavior, inspect resulting screenshots,
    and check client/server logs. Test reconnect/restart if persistence is involved.
-6. Record evidence and limitations, update roadmap/compatibility notes, review
-   the diff and public-tree audit, commit with the ticket ID, and push the branch.
+7. Record evidence and limitations, update roadmap/compatibility notes, review
+   the diff and public-tree audit, amend the unpushed ticket checkpoint if needed,
+   and push the branch after required client checks pass.
    Done means every required check and client scenario passed. A failed push
    remains an unpublished local checkpoint until a normal retry succeeds.
+
+Computer-use validation is paused while the user's MacBook is locked. Continue
+independent implementation/research/automated checks during that pause, retaining
+pending client scenarios. Resume GUI validation after unlocking. Never amend an
+already pushed checkpoint or mark a ticket Done just because automated checks pass.
 
 ```sh
 mix format --check-formatted
@@ -74,6 +83,10 @@ The game can drop rapidly batched text input. Inspect the focused field before
 Return; retry via paste when needed. Menu clicks may only hover a button; use
 observed Tab/Shift+Tab focus and Return when that occurs. Attempted input is not
 evidence of the intended behavior.
+
+See `mouse-testing.md` for the bundled SDL's mouse limitations and the pending
+isolated Cocoa-backend experiment. Record the actual native input backend used
+in GUI tests; seeded pose fixtures do not prove mouse-generated rotation.
 
 Use localhost:25565 and a separate test world, for example:
 

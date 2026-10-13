@@ -91,6 +91,12 @@ defmodule Valimc.TestClient do
     client = send_packet(client, :configuration, "finish_configuration", <<>>)
     {_, client} = await(client, :play, "login")
     {body, client} = await(client, :play, "player_position")
+
+    {_,
+     <<x::float-64, y::float-64, z::float-64, _delta::binary-size(24), yaw::float-32,
+       pitch::float-32, _flags::32>>} = Wire.take_varint(body)
+
+    client = Map.put(client, :pose, %{x: x, y: y, z: z, yaw: yaw, pitch: pitch})
     client = auto_reply(client, :play, "player_position", body)
     {uuid, client}
   end

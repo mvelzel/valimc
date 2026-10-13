@@ -10,7 +10,7 @@ PRIVATE = (".local/", "_build/", "deps/", "world/", "logs/", "bench/results/",
            "research/sources/", "research/vanilla-bundle/", "research/generated/",
            "research/java-tools/", "research/decompiled/", "research/disassembly/",
            "research/tools/", "research/vanilla/", "research/logs/")
-BINARIES = {".jar", ".class", ".mca", ".mcr", ".etf"}
+BINARIES = {".jar", ".class", ".mca", ".mcr", ".etf", ".pose", ".dylib"}
 
 
 def violation(name, contents=None):
@@ -51,6 +51,8 @@ if __name__ == "__main__":
         assert violation("research/decompiled/Example.java")
         assert violation(".local/client-tests/VMC-001/shot.png")
         assert violation("server.jar")
+        assert violation("copied/player.pose")
+        assert violation("libSDL3.dylib")
         assert violation("copied/Example.java", b"package net.minecraft.world;\n")
         assert violation("scripts/Oracle.java", b"import net.minecraft.SharedConstants;\n") is None
         assert violation("priv/protocol/packets.json") is None

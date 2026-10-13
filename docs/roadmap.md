@@ -14,8 +14,8 @@ keep IDs stable and append suffixes rather than renumbering.
 | Ticket | Status | Outcome / next gate |
 |---|---|---|
 | [VMC-001](tickets/VMC-001.md) | Done — `4f948be`, pushed | Workflow and 19-source survey; baseline tests/oracle/release/audit and actual-client smoke pass |
-| [VMC-002](tickets/VMC-002.md) | Verified; publication pending | Shared command catalog; oracle and actual-client completion, rejection and teleport pass |
-| VMC-003 | Planned | Validated player pose survives reconnect and graceful restart |
+| [VMC-002](tickets/VMC-002.md) | Done — `b5a2c72`, pushed | Shared command catalog; oracle and actual-client completion, rejection and teleport pass |
+| [VMC-003](tickets/VMC-003.md) | In progress; local checkpoint | Player pose persistence; automated checks pass, remaining client validation and push pending |
 | VMC-004 | Planned | Versioned item/component codecs and synchronized creative slots |
 
 Only one implementation ticket is active. Records retain acceptance criteria,

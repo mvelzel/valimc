@@ -13,7 +13,7 @@ mix run --no-halt
 
 Connect with a vanilla **Java 26.3** client to `localhost:25565`. The default binds to `127.0.0.1` and uses offline identities. Runtime requires only Elixir/Erlang; there are no Hex dependencies, JVMs, Rust libraries or external services in the server.
 
-Creative inventory blocks with ordinary default item components can be placed and broken. `/help`, `/stats` and `/spawn` are advertised to the client for validation and Tab completion. Block edits are saved under `world/` every 30 seconds and on graceful shutdown. Player positions and inventories are not saved.
+Creative inventory blocks with ordinary default item components can be placed and broken. `/help`, `/stats` and `/spawn` are advertised to the client for validation and Tab completion. Block edits and player poses are checkpointed every 30 seconds. Poses also save on disconnect and graceful shutdown; reconnect restores position and view direction. Inventories are not saved.
 
 ```sh
 VALIMC_PORT=25566 VALIMC_WORLD=/tmp/valimc-world mix run --no-halt
@@ -33,6 +33,7 @@ Configuration lives in `config/config.exs`; `VALIMC_BIND`, `VALIMC_PORT` and `VA
 - Player processes publish their own latest positions to ETS. A spatial index lets each observer sample nearby players concurrently. Movement replication uses compact quantized snapshots and one socket batch per observer interval, avoiding a movement-message fan-out into player mailboxes.
 - A bounded `Task.Supervisor` runs chunk encoders. Regions combine duplicate requests, share immutable encoded binaries, and discard stale results after edits. Baseline terrain is an immutable shared binary; edited chunks use paletted sections.
 - Each region has a linked disk writer. Periodic saves run outside the region process and carry revision acknowledgments. A failed writer takes down its owner; later access recreates the region from the last saved snapshot.
+- Each connected identity leases its own short-lived pose writer. Reads and writes run outside socket owners, checkpoint queues are bounded, and UUID leases fence overlapping sessions. Corrupt saves preserve the file and reject only that login; write failures disconnect only their owner.
 - Supervisors restart dependent infrastructure with `rest_for_one`. A failed connection or listener has a limited failure scope. Connection counts, region counts, input sizes, rates, worker concurrency and slow-client mailboxes have explicit limits.
 
 See [architecture and consistency boundaries](docs/architecture.md), [source research](docs/research.md), and [measurements](docs/performance.md).
@@ -68,13 +69,13 @@ python3 bench/load.py --players 512 --seconds 5 --scatter
 
 ## Compatibility limits
 
-Implemented: Java 26.3 status/ping, offline login, zlib compression, vanilla core-pack registry negotiation, flat chunks, preview lighting, creative movement, nearby player visibility, plain system chat, ordinary block placement/breaking and custom region snapshot persistence.
+Implemented: Java 26.3 status/ping, offline login, zlib compression, vanilla core-pack registry negotiation, flat chunks, preview lighting, creative movement, nearby player visibility, plain system chat, ordinary block placement/breaking, custom region snapshots and player pose persistence.
 
-Missing: online authentication/encryption, Bedrock, survival rules, collision/anti-cheat, complete inventories and item components, crafting, combat, hunger, mobs/AI, redstone, fluids, block entities, vanilla terrain/structures, real light propagation, Anvil world import/export, player persistence, plugin APIs and Java plugin compatibility. Known but unimplemented play packets are ignored; this is not full protocol parity. Default-item placement does not implement directional or functional block behavior.
+Missing: online authentication/encryption, Bedrock, survival rules, collision/anti-cheat, complete inventories and item components, crafting, combat, hunger, mobs/AI, redstone, fluids, block entities, vanilla terrain/structures, real light propagation, Anvil world import/export, complete player state persistence, plugin APIs and Java plugin compatibility. Known but unimplemented play packets are ignored; this is not full protocol parity. Default-item placement does not implement directional or functional block behavior.
 
-Fixed spatial regions currently support independent edits. Neighbor-coupled simulation, deterministic entity transfers, and multi-region transactions are specified as future work, not implemented. Saved snapshots can lose up to 30 seconds of edits after a hard crash. Idle regions remain resident until shutdown, within the configured region limit.
+Fixed spatial regions currently support independent edits. Neighbor-coupled simulation, deterministic entity transfers, and multi-region transactions are specified as future work, not implemented. Hard crashes can lose changes since the last 30-second checkpoint. Pose files use a bounded custom format under `world/players/`, not vanilla player NBT; storage errors/timeouts are explicit and can prevent a final save. Idle regions remain resident until shutdown, within the configured region limit.
 
-See [the tracked roadmap](docs/roadmap.md), [development and verification process](docs/development.md), and [agent instructions](AGENTS.md). Work proceeds one verified ticket/commit/push at a time, with actual Minecraft computer-use testing.
+See [the tracked roadmap](docs/roadmap.md), [development and verification process](docs/development.md), and [agent instructions](AGENTS.md). Work proceeds one ticket at a time. Local checkpoints may precede actual Minecraft computer-use validation; pushing waits until the required checks pass.
 
 ## References
 
