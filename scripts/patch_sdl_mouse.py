@@ -57,21 +57,34 @@ changes = [
     }
 
 '''),
+    ("src/video/cocoa/SDL_cocoawindow.m",
+     "    // On macOS 26 if you move away from a space and then back, mouse motion events will have incorrect\n",
+     '''    // Remote absolute motion must not be overwritten by the physical desktop pointer.
+    if (SDL_GetHintBoolean("VALIMC_CUA_EVENT_POSITION", false)) {
+        SDL_SendMouseMotion(Cocoa_GetEventTimestamp([theEvent timestamp]), window,
+                            mouseID, false, x, y);
+        return;
+    }
+
+'''),
 ]
 
 # Preflight every target before writing, preserving unrelated local edits.
 pending = {}
-for relative, anchor, insertion in changes:
+legacy = {}
+for index, (relative, anchor, insertion) in enumerate(changes):
     original = git("show", f"HEAD:{relative}").decode()
     if original.count(anchor) != 1:
         raise SystemExit(f"Expected one insertion point: {relative}")
     patched = pending.get(source / relative, original).replace(anchor, insertion + anchor)
     target = source / relative
     pending[target] = patched
+    if index < 3:
+        legacy[target] = patched
 
 for target, patched in pending.items():
     original = git("show", f"HEAD:{target.relative_to(source)}").decode()
-    if target.read_text() not in (original, patched):
+    if target.read_text() not in (original, patched, legacy.get(target, original)):
         raise SystemExit(f"Preserving unexpected local edits: {target.relative_to(source)}")
 
 for target, patched in pending.items():

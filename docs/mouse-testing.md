@@ -84,7 +84,7 @@ python3 scripts/prepare_minecraft_client.py --sdl-library .local/sdl-mouse-build
 
 Use the same dedicated Launcher installation and restart the client. The adapter
 requires `VALIMC_CUA_EVENT_POSITION=1`; normal helper generation does not enable
-it. The final tested build SHA-256 is
+it. The initial relative-motion build SHA-256 was
 `fb36cc666bf8a606d72c9048e8201733ac49a93281b2458c8f5ac699095c1a06`.
 A read-only `lsof` check confirmed the isolated library was loaded. The source,
 license, binaries and raw client logs remain ignored; only our original patching
@@ -110,8 +110,25 @@ Actual 26.3 evidence, October 13, 2026:
 `drag` holds the primary mouse button and can mine blocks while rotating. Use a
 separate test world and account for that side effect; camera motion is now
 available, but exact physical mouse sensitivity is not certified. CUA clicks
-with a carried stack can also produce vanilla quick-craft packets; the current
-server rejects those until VMC-005b2. A restored inventory after that request is
-not a pass of the pending ordinary placement/drag scenario. No survival, full
-inventory lifecycle, or bundled-SDL mouse compatibility is inferred from these
-input tests.
+with a carried stack can also produce vanilla quick-craft packets. VMC-005b2a
+implements left-even/right-one transactions; other inventory lifecycle work
+remains incomplete. No survival, full inventory lifecycle, or bundled-SDL
+mouse compatibility is inferred from these input tests.
+
+Menu-motion follow-up: SDL's macOS 26 workaround overwrites absolute native
+event positions with the physical global pointer during movement, even after
+button targeting was fixed. The opt-in adapter now returns the event position
+before that fallback. Its rebuilt SHA-256 is
+`63324f64b8295ea3dcd23a6ec0cfb945ed55bd259cc7fd23f79ebc4f7ea74817`;
+`lsof` confirmed that the restarted dedicated client loaded it. The patcher
+accepts the exact previous adapter during upgrade, remains idempotent, and
+rejects/preserves unexpected edits; these checks and Python compilation pass.
+
+The updated client passed ordinary pickup/place/merge/shift/number/offhand and
+negative drop/reopen checks plus creative trash clearing. Menu pointer targeting
+now remains accurate after motion. However, short/long CUA drags and attempts
+combining held clicks with motion produced ordinary endpoint pickups rather
+than a sustained multi-slot quick-craft sequence. A graphical fixture result
+showed three stacks of 5 and a carried remainder of 2; that is separate evidence
+from client-generated drag input. Keep the sustained gesture gate pending in
+VMC-005b2a. Final `/stats`: one player, four regions, ten schedulers, 78 MiB.
