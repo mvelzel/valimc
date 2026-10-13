@@ -32,3 +32,11 @@ creative custom-NBT preservation, placement, deliberate depth rejection and
 reconnect. VMC-005b1's ordinary half pickup passes, but carried-item quick-craft
 and later GUI checks remain pending. These results distinguish injected fixture
 setup from actual computer-use actions and authoritative state checks.
+
+VMC-003a reproduced and fixed the configuration-to-play batch save failure.
+After rebuilding, actual client movement/rotation and a local valid-pose/bad-frame
+fixture displayed the expected rejection. Rejoin restored XYZ -3.115 / 64.000 /
+-0.211 and yaw/pitch 104.7 / 47.8; all fields matched the fixture exactly. `/stats`
+worked and the client log had no codec errors. Deterministic connection tests
+separately cover the precise phase-transition boundary and failed configuration
+without overwriting a prior save. VMC-003's remaining gate is now complete.

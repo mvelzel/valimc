@@ -196,6 +196,7 @@ defmodule Valimc.Connection do
       Metrics.add(:malformed_connections)
       {:stop, :normal, state}
   catch
+    {:disconnect, _reason, current} -> {:stop, :normal, current}
     {:disconnect, _reason} -> {:stop, :normal, state}
   end
 
@@ -213,6 +214,15 @@ defmodule Valimc.Connection do
   end
 
   defp consume(state, remaining) do
+    # Leave the exception boundary before recursing so the 64-packet drain does
+    # not grow a stack of guards. A failed frame retains earlier accepted state.
+    case guard_connection(state, fn -> consume_packet(state) end) do
+      {:continue, next} -> consume(next, remaining - 1)
+      result -> result
+    end
+  end
+
+  defp consume_packet(state) do
     case Wire.next_frame(state.buffer, Valimc.config(:max_packet_bytes), state.threshold) do
       :more ->
         :ok = :inet.setopts(state.socket, active: :once)
@@ -235,7 +245,7 @@ defmodule Valimc.Connection do
 
         Metrics.add(:packets_received)
         state = handle_packet(%{state | buffer: tail, packets: state.packets + 1}, id, payload)
-        consume(state, remaining - 1)
+        {:continue, state}
     end
   end
 
@@ -850,13 +860,13 @@ defmodule Valimc.Connection do
         :ok
 
       {:error, reason} ->
-        throw({:disconnect, reason})
+        throw({:disconnect, reason, state})
     end
   end
 
   defp reject(state, message) do
     Metrics.add(:connections_rejected)
-    if state.phase in [:handshake, :status], do: throw({:disconnect, message})
+    if state.phase in [:handshake, :status], do: throw({:disconnect, message, state})
 
     payload =
       if state.phase == :login,
@@ -871,7 +881,7 @@ defmodule Valimc.Connection do
       Packets.packet(name, payload, phase) |> Packets.frame(state.threshold)
     )
 
-    throw({:disconnect, message})
+    throw({:disconnect, message, state})
   end
 
   def offline_uuid(name) do
@@ -884,8 +894,7 @@ defmodule Valimc.Connection do
     :gen_tcp.close(state.socket)
 
     if state.player_store && state.phase == :play do
-      # A later bad frame in the same TCP batch can roll back the callback state;
-      # the owner-published snapshot still holds the last accepted movement.
+      # Read the latest owner publication for movement accepted before a failure.
       player =
         case Players.get(self()) do
           {:ok, latest} -> latest

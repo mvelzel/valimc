@@ -95,7 +95,7 @@ defmodule Valimc.TestClient do
     take_items(body, count - 1, [item | items])
   end
 
-  def login(name) do
+  def configure(name) do
     client = connect()
 
     send_packet(client, :handshake, "intention", [
@@ -115,6 +115,11 @@ defmodule Valimc.TestClient do
     {packs, client} = await(client, :configuration, "select_known_packs")
     client = send_packet(client, :configuration, "select_known_packs", packs)
     {_, client} = await(client, :configuration, "finish_configuration")
+    {uuid, client}
+  end
+
+  def login(name) do
+    {uuid, client} = configure(name)
     client = send_packet(client, :configuration, "finish_configuration", <<>>)
     {_, client} = await(client, :play, "login")
     {body, client} = await(client, :play, "player_position")

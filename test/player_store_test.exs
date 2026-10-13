@@ -23,7 +23,7 @@ defmodule Valimc.PlayerStoreTest do
   defp pose, do: %{x: -17.25, y: 71.5, z: 32.75, yaw: 122.5, pitch: -31.25}
 
   defp wait_for_departure(name, uuid, retries \\ 100) do
-    if Enum.any?(Valimc.Players.all(), &(&1.name == name)) or
+    if Enum.any?(:ets.tab2list(Valimc.Players), fn {_, player} -> player.name == name end) or
          Registry.lookup(Valimc.PlayerStoreRegistry, uuid) != [] do
       assert retries > 0
       Process.sleep(10)
@@ -278,6 +278,88 @@ defmodule Valimc.PlayerStoreTest do
     {^uuid, next} = Client.login(name)
     assert next.pose.x == -4.25
     assert next.pose.z == -2.5
+    Client.close(next)
+    wait_for_departure(name, uuid)
+  end
+
+  test "a failed phase-transition batch saves its earlier accepted play pose", %{base: base} do
+    for bad <- [:rejected_frame, :invalid_payload] do
+      name = username()
+      {uuid, client} = Client.configure(name)
+      [{pid, _}] = Enum.filter(:ets.tab2list(Valimc.Players), fn {_, p} -> p.name == name end)
+      state = :sys.get_state(pid)
+      assert state.phase == :configuration
+      assert state.step == :finish
+      ref = Process.monitor(pid)
+      target = pose()
+      confirm = <<1, 0.5::float-64, 64.0::float-64, 0.5::float-64, 0.0::float-32, 0.0::float-32>>
+
+      movement =
+        <<target.x::float-64, target.y::float-64, target.z::float-64, target.yaw::float-32,
+          target.pitch::float-32, 1>>
+
+      broken =
+        if bad == :rejected_frame,
+          do: <<128, 128, 128, 128, 128, 128>>,
+          else:
+            Wire.frame(
+              Data.id(:play, :serverbound, "move_player_pos_rot"),
+              <<>>,
+              client.threshold
+            )
+
+      batch =
+        IO.iodata_to_binary([
+          Wire.frame(
+            Data.id(:configuration, :serverbound, "finish_configuration"),
+            <<>>,
+            client.threshold
+          ),
+          Wire.frame(
+            Data.id(:play, :serverbound, "accept_teleportation"),
+            confirm,
+            client.threshold
+          ),
+          Wire.frame(
+            Data.id(:play, :serverbound, "move_player_pos_rot"),
+            movement,
+            client.threshold
+          ),
+          broken
+        ])
+
+      # Control the exact callback boundary; arbitrary TCP segmentation must not hide the bug.
+      send(pid, {:tcp, state.socket, batch})
+      assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 1000
+      Client.close(client)
+      wait_for_departure(name, uuid)
+      assert File.exists?(Store.path(base, uuid))
+      {^uuid, next} = Client.login(name)
+      assert next.pose == target
+      Client.close(next)
+      wait_for_departure(name, uuid)
+    end
+  end
+
+  test "a rejected configuration leaves an existing player save untouched", %{base: base} do
+    name = username()
+    uuid = Valimc.Connection.offline_uuid(name)
+    {:ok, writer, nil} = Store.open(uuid)
+    ref = Process.monitor(writer)
+    assert :ok = Store.close(writer, pose())
+    assert_receive {:DOWN, ^ref, :process, ^writer, :normal}
+    path = Store.path(base, uuid)
+    saved = File.read!(path)
+    {^uuid, client} = Client.configure(name)
+    [{pid, _}] = Enum.filter(:ets.tab2list(Valimc.Players), fn {_, p} -> p.name == name end)
+    ref = Process.monitor(pid)
+    Client.send_packet(client, :configuration, "finish_configuration", <<1>>)
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 1000
+    Client.close(client)
+    wait_for_departure(name, uuid)
+    assert File.read!(path) == saved
+    {^uuid, next} = Client.login(name)
+    assert next.pose == pose()
     Client.close(next)
     wait_for_departure(name, uuid)
   end
