@@ -52,11 +52,11 @@ defmodule Valimc.Protocol.ItemStackTest do
     encoded =
       IO.iodata_to_binary([
         prefix(1),
-        Wire.varint(ItemTypes.component_id("custom_data")),
+        Wire.varint(ItemTypes.component_id("custom_name")),
         <<2, 10, 0>>
       ])
 
-    assert ItemStack.decode(encoded, :untrusted) == {:unsupported, ["minecraft:custom_data"]}
+    assert ItemStack.decode(encoded, :untrusted) == {:unsupported, ["minecraft:custom_name"]}
     assert ItemStack.decode(encoded <> <<0>>, :untrusted) == {:error, :trailing_item_bytes}
     assert {:error, :unsupported_component} = ItemStack.decode(encoded, :trusted)
     huge = IO.iodata_to_binary([prefix(1), <<0>>, Wire.varint(65_537)])
@@ -102,6 +102,32 @@ defmodule Valimc.Protocol.ItemStackTest do
 
     for size <- 0..(byte_size(valid) - 1),
         do: assert(match?({:error, _}, ItemStack.decode(binary_part(valid, 0, size), :untrusted)))
+  end
+
+  test "custom-data NBT is preserved in both formats and requires a compound root" do
+    tag = {:compound, %{"unicode" => {:string, "Hello 😀" <> <<0>>}, "value" => {:int, 42}}}
+    stack = %{ItemStack.new("stone", 7) | components: %{"minecraft:custom_data" => tag}}
+
+    for mode <- [:trusted, :untrusted],
+        do: assert(ItemStack.decode(bytes(stack, mode), mode) == {:ok, stack})
+
+    scalar =
+      IO.iodata_to_binary([
+        prefix(1),
+        Wire.varint(ItemTypes.component_id("custom_data")),
+        <<1, 0>>
+      ])
+
+    assert ItemStack.decode(scalar, :untrusted) == {:error, :invalid_component_value}
+
+    bad =
+      IO.iodata_to_binary([
+        prefix(1),
+        Wire.varint(ItemTypes.component_id("custom_data")),
+        <<2, 10, 13>>
+      ])
+
+    assert ItemStack.decode(bad, :untrusted) == {:error, {:nbt, :unknown_nbt_tag}}
   end
 
   test "identifier input uses vanilla's default namespace" do

@@ -27,6 +27,8 @@ import net.minecraft.server.packs.repository.KnownPack;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.CustomData;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.HashedStack;
 import net.minecraft.world.inventory.ContainerInput;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -266,6 +268,8 @@ public class VanillaOracle implements AutoCloseable {
       first.await(p -> p instanceof ClientboundAddEntityPacket);
       var stone = new ItemStack(Blocks.STONE, 17);
       stone.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
+      var customData = new CompoundTag(); customData.putString("probe", "ValiMC \u0000😀é");
+      stone.set(DataComponents.CUSTOM_DATA, CustomData.of(customData));
       first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(36, stone));
       first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getContainerId() == 0 && s.getSlot() == 36 && ItemStack.matches(s.getItem(), stone));
       var unsupported = stone.copy();

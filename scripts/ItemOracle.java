@@ -9,9 +9,12 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.chat.ComponentSerialization;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Unit;
 import net.minecraft.world.item.*;
+import net.minecraft.world.item.component.CustomData;
+import net.minecraft.nbt.*;
 
 /** Independent Mojang-generated fixtures and semantic decoding of Elixir output. */
 public class ItemOracle {
@@ -50,6 +53,18 @@ public class ItemOracle {
     mixed.set(DataComponents.MAX_STACK_SIZE, 2);
     mixed.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, false);
     cases.put("mixed_patch", mixed);
+    var data = new CompoundTag();
+    data.putByte("byte", (byte)-128); data.putShort("short", (short)-32768);
+    data.putInt("int", Integer.MIN_VALUE); data.putLong("long", Long.MIN_VALUE);
+    data.putFloat("nan", Float.NaN); data.putDouble("infinity", Double.POSITIVE_INFINITY);
+    data.putByteArray("bytes", new byte[]{0, (byte)128, (byte)255});
+    data.putIntArray("ints", new int[]{-1, 7}); data.putLongArray("longs", new long[]{-1, 77});
+    data.putString("unicode", "Hello \u0000😀é");
+    var list = new ListTag(); list.add(StringTag.valueOf("one")); list.add(StringTag.valueOf("two"));
+    data.put("list", list); data.put("nested", new CompoundTag());
+    var custom = new ItemStack(Items.STONE, 7);
+    custom.set(DataComponents.CUSTOM_DATA, CustomData.of(data));
+    cases.put("all_nbt_custom_data", custom);
     return cases;
   }
   private static String encode(ItemStack stack, boolean untrusted) {
@@ -90,6 +105,14 @@ public class ItemOracle {
       }
       if (fixtures.size() != cases.size()) throw new AssertionError("Missing fixture");
       System.out.println("PASS: Mojang 26.3 decoded " + cases.size() + " Elixir stack cases in both ordinary and delimited formats.");
+      var textBuf = new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(
+        Files.readAllBytes(Path.of(args[1] + ".text.bin"))), registries);
+      try {
+        var text = ComponentSerialization.STREAM_CODEC.decode(textBuf);
+        if (textBuf.isReadable() || !text.getString().equals("ValiMC\u0000😀é"))
+          throw new AssertionError("Elixir text component differs");
+      } finally { textBuf.release(); }
+      System.out.println("PASS: Mojang decoded Elixir text with NUL and supplementary Unicode.");
     } else throw new IllegalArgumentException("generate/verify expected");
   }
 }

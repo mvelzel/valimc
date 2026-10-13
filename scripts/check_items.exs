@@ -30,4 +30,5 @@ encoded =
   end)
 
 File.write!(output, :json.encode(encoded))
+File.write!(output <> ".text.bin", Valimc.Protocol.Wire.text_component("ValiMC" <> <<0>> <> "😀é"))
 IO.puts("PASS: Elixir decoded and cross-converted #{length(fixtures)} Mojang stack cases")

@@ -60,7 +60,7 @@ defmodule Valimc.CreativeItemsTest do
       <<36::signed-16, 1>>,
       Wire.varint(ItemTypes.id("stone")),
       <<1, 0>>,
-      Wire.varint(ItemTypes.component_id("custom_data")),
+      Wire.varint(ItemTypes.component_id("custom_name")),
       <<2, 10, 0>>
     ])
 
@@ -80,6 +80,34 @@ defmodule Valimc.CreativeItemsTest do
     player = Enum.find(Valimc.Players.all(), &(&1.name == username))
     ref = Process.monitor(player.pid)
     Client.send_packet(bad, :play, "set_creative_mode_slot", <<36::16, 0, 99>>)
+    {body, _} = Client.await(bad, :play, "disconnect")
+    assert :binary.match(body, "invalid creative item") != :nomatch
+    assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000
+    Client.send_packet(healthy, :play, "chat_command", Wire.string("stats"))
+    {_, _} = Client.await(healthy, :play, "system_chat")
+    assert Process.alive?(Process.whereis(Valimc.Listener))
+  end
+
+  test "custom NBT depth exhaustion disconnects only the submitting session" do
+    username = name()
+    {_, bad} = Client.login(username)
+    on_exit(fn -> Client.close(bad) end)
+    {_, healthy} = Client.login(name())
+    on_exit(fn -> Client.close(healthy) end)
+    player = Enum.find(Valimc.Players.all(), &(&1.name == username))
+    ref = Process.monitor(player.pid)
+    # A syntactically complete chain exceeds the decoder's independent depth budget.
+    nbt = <<10>> <> :binary.copy(<<10, 0, 1, ?x>>, 33) <> :binary.copy(<<0>>, 34)
+
+    Client.send_packet(bad, :play, "set_creative_mode_slot", [
+      <<36::signed-16, 1>>,
+      Wire.varint(ItemTypes.id("stone")),
+      <<1, 0>>,
+      Wire.varint(ItemTypes.component_id("custom_data")),
+      Wire.varint(byte_size(nbt)),
+      nbt
+    ])
+
     {body, _} = Client.await(bad, :play, "disconnect")
     assert :binary.match(body, "invalid creative item") != :nomatch
     assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000

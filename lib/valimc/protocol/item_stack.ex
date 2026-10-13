@@ -1,10 +1,11 @@
 defmodule Valimc.Protocol.ItemStack do
   @moduledoc "Pure bounded 26.3 stacks. Unsupported structured patches never become accepted data."
-  alias Valimc.Protocol.{ItemTypes, Wire}
+  alias Valimc.Protocol.{ItemTypes, NBT, Wire}
   defstruct [:item_id, count: 1, components: %{}, removed: MapSet.new()]
 
   @max_bytes 65_536
   @codecs %{
+    "minecraft:custom_data" => :nbt_compound,
     "minecraft:max_stack_size" => {:varint, 1, 99},
     "minecraft:max_damage" => {:varint, 1, 2_147_483_647},
     "minecraft:damage" => {:varint, 0, 2_147_483_647},
@@ -187,6 +188,15 @@ defmodule Valimc.Protocol.ItemStack do
 
   defp read_component(:unit, rest), do: {:unit, rest}
   defp read_component(:nbt_unit, <<10, 0, rest::binary>>), do: {:unit, rest}
+
+  defp read_component(:nbt_compound, bytes) do
+    case NBT.take(bytes) do
+      {:ok, {:compound, _} = tag, rest} -> {tag, rest}
+      {:ok, _, _} -> throw({:item_error, :invalid_component_value})
+      {:error, reason} -> throw({:item_error, {:nbt, reason}})
+    end
+  end
+
   defp read_component(:bool, <<value, rest::binary>>) when value in [0, 1], do: {value == 1, rest}
 
   defp read_component(:identifier, bytes) do
@@ -212,6 +222,8 @@ defmodule Valimc.Protocol.ItemStack do
   defp valid_component?({:varint, min, max}, value), do: is_integer(value) and value in min..max
   defp valid_component?(:unit, value), do: value == :unit
   defp valid_component?(:nbt_unit, value), do: value == :unit
+  defp valid_component?(:nbt_compound, {:compound, _} = value), do: NBT.valid?(value)
+  defp valid_component?(:nbt_compound, _), do: false
   defp valid_component?(:bool, value), do: is_boolean(value)
   defp valid_component?(:fraction, value), do: is_float(value) and value >= 0.0 and value <= 1.0
 
@@ -223,6 +235,7 @@ defmodule Valimc.Protocol.ItemStack do
   defp encode_component({:varint, _, _}, value), do: Wire.varint(value)
   defp encode_component(:unit, :unit), do: <<>>
   defp encode_component(:nbt_unit, :unit), do: <<10, 0>>
+  defp encode_component(:nbt_compound, value), do: NBT.encode(value)
   defp encode_component(:bool, value), do: Wire.bool(value)
   defp encode_component(:identifier, value), do: Wire.string(value)
   defp encode_component(:fraction, value), do: <<value::float-32>>
