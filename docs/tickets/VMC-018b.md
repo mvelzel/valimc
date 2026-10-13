@@ -4,6 +4,11 @@ Status: Done — stationary foundation validated. Updated: October 14, 2026.
 Depends on VMC-018a.
 Foundation for VMC-005b2d2/035; these parents remain incomplete.
 
+Historical scope below describes the ephemeral VMC-018b checkpoint. VMC-019a now
+persists stationary items when world storage is enabled and recovers them after
+owner replacement; nil storage retains ephemeral behavior. Its separate record
+defines commit acknowledgments and remaining transfer/physics limits.
+
 ## Scope and acceptance
 
 Before: item packets can be sent as connection fixtures but have no world owner.

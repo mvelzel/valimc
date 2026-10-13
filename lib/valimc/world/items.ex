@@ -1,11 +1,62 @@
 defmodule Valimc.World.Items do
-  @moduledoc "Bounded ephemeral stationary scene items. Only the enclosing region mutates these."
+  @moduledoc "Bounded stationary scene items. Only the enclosing region mutates these."
   alias Valimc.Protocol.{EntityPackets, ItemStack, ItemTypes, Wire}
   defstruct epoch: nil, entries: %{}, views: %{}, bytes: 0
   @max_items 256
   @max_bytes 524_288
 
   def new, do: %__MODULE__{epoch: make_ref()}
+
+  def records(state) do
+    state.entries
+    |> Enum.map(fn {_, %{entity: entity, stack: stack}} ->
+      entity |> Map.take([:uuid, :x, :y, :z]) |> Map.put(:stack, stack)
+    end)
+    |> Enum.sort_by(& &1.uuid)
+  end
+
+  def restore(key, records) when is_list(records) do
+    prefix = Enum.take(records, @max_items + 1)
+
+    if length(prefix) > @max_items do
+      {:error, :invalid_item_file}
+    else
+      Enum.reduce_while(prefix, {:ok, new(), MapSet.new()}, fn
+        %{uuid: uuid, x: x, y: y, z: z, stack: stack}, {:ok, state, seen} ->
+          with true <-
+                 is_binary(uuid) and byte_size(uuid) == 16 and not MapSet.member?(seen, uuid),
+               true <- valid_position?({x, y, z}),
+               true <- Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == key,
+               {:ok, _} <- metadata(1, stack),
+               {:ok, next, _} <-
+                 build_entity(state, stack, {x, y, z}, System.unique_integer([:positive]), uuid) do
+            {:cont, {:ok, next, MapSet.put(seen, uuid)}}
+          else
+            _ -> {:halt, {:error, :invalid_item_file}}
+          end
+
+        _, _ ->
+          {:halt, {:error, :invalid_item_file}}
+      end)
+      |> case do
+        {:ok, state, _} -> {:ok, state}
+        error -> error
+      end
+    end
+  rescue
+    _ -> {:error, :invalid_item_file}
+  end
+
+  def restore(_, _), do: {:error, :invalid_item_file}
+
+  def find(state, <<_::128>> = uuid) do
+    case Enum.find(state.entries, fn {_, entry} -> entry.entity.uuid == uuid end) do
+      {id, entry} -> {:ok, {state.epoch, id, entry.revision}}
+      nil -> {:error, :missing_item}
+    end
+  end
+
+  def find(_, _), do: {:error, :invalid_item_uuid}
 
   def create(state, key, stack, {x, y, z} = position) do
     cond do
@@ -74,12 +125,12 @@ defmodule Valimc.World.Items do
     # Validate before allocating IDs/entropy. IDs share the VM-wide source used by players.
     with {:ok, _} <- metadata(1, stack) do
       id = System.unique_integer([:positive])
-      build_entity(state, stack, {x, y, z}, id)
+      build_entity(state, stack, {x, y, z}, id, :crypto.strong_rand_bytes(16))
     end
   end
 
-  defp build_entity(state, stack, {x, y, z}, id) when id in 1..2_147_483_647 do
-    entity = %{entity_id: id, uuid: :crypto.strong_rand_bytes(16), x: x, y: y, z: z}
+  defp build_entity(state, stack, {x, y, z}, id, uuid) when id in 1..2_147_483_647 do
+    entity = %{entity_id: id, uuid: uuid, x: x, y: y, z: z}
     spawn = binary_packet(EntityPackets.spawn_item(entity))
     {:ok, metadata} = metadata(id, stack)
     bytes = state.bytes + packet_bytes(spawn) + packet_bytes(metadata)
@@ -87,6 +138,7 @@ defmodule Valimc.World.Items do
     if bytes <= @max_bytes do
       view = %{
         entity_id: id,
+        uuid: uuid,
         epoch: state.epoch,
         revision: 1,
         chunk: Valimc.World.chunk_key(x, z),
@@ -109,7 +161,7 @@ defmodule Valimc.World.Items do
     end
   end
 
-  defp build_entity(_, _, _, _), do: {:error, :entity_id_exhausted}
+  defp build_entity(_, _, _, _, _), do: {:error, :entity_id_exhausted}
 
   defp metadata(id, %ItemStack{components: components, removed: %MapSet{}} = stack)
        when is_map(components) do
@@ -126,8 +178,10 @@ defmodule Valimc.World.Items do
   defp metadata(_, _), do: {:error, :invalid_item}
   defp binary_packet({id, payload}), do: {id, IO.iodata_to_binary(payload)}
 
-  defp valid_position?({x, y, z}),
+  def valid_position?({x, y, z}),
     do: coordinate?(x, 29_999_984) and coordinate?(z, 29_999_984) and coordinate?(y, 1_000_000)
+
+  def valid_position?(_), do: false
 
   defp coordinate?(value, bound), do: is_number(value) and abs(value) <= bound
 end

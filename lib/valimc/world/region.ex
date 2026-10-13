@@ -19,22 +19,36 @@ defmodule Valimc.World.Region do
 
   def flush(pid), do: GenServer.call(pid, :flush, 15_000)
 
-  # Scene-only API: these ephemeral operations must never consume a player inventory.
+  # Scene-only API: these operations must never consume a player inventory.
   def create_item({pid, epoch}, stack, position),
-    do: GenServer.call(pid, {:create_item, epoch, stack, position})
+    do: GenServer.call(pid, {:create_item, epoch, stack, position}, 6000)
 
   def replace_item({pid, epoch, id, revision}, stack),
-    do: GenServer.call(pid, {:replace_item, epoch, id, revision, stack})
+    do: GenServer.call(pid, {:replace_item, epoch, id, revision, stack}, 6000)
 
   def remove_item({pid, epoch, id, revision}),
-    do: GenServer.call(pid, {:remove_item, epoch, id, revision})
+    do: GenServer.call(pid, {:remove_item, epoch, id, revision}, 6000)
+
+  def find_item({pid, epoch}, uuid), do: GenServer.call(pid, {:find_item, epoch, uuid})
 
   @impl true
   def init(key) do
     Process.flag(:trap_exit, true)
     {:ok, store} = Store.start_link(key)
     edits = Store.load(store)
-    items = Items.new()
+
+    items =
+      case Store.load_items(store) do
+        {:ok, records} ->
+          case Items.restore(key, records) do
+            {:ok, items} -> items
+            {:error, reason} -> exit({:item_load_failed, reason})
+          end
+
+        {:error, reason} ->
+          exit({:item_load_failed, reason})
+      end
+
     publication = :ets.new(:region_items, [:set, :protected, read_concurrency: true])
     :ets.insert(publication, {:items, items.views})
 
@@ -57,6 +71,7 @@ defmodule Valimc.World.Region do
        key: key,
        items: items,
        item_publication: publication,
+       item_pending: nil,
        store: store,
        edits: edits,
        by_chunk: by_chunk,
@@ -71,19 +86,35 @@ defmodule Valimc.World.Region do
   end
 
   @impl true
-  def handle_call({:create_item, epoch, stack, position}, _from, state) do
-    if epoch == state.items.epoch do
-      item_result(Items.create(state.items, state.key, stack, position), state)
-    else
-      {:reply, {:error, :stale_region}, state}
-    end
+  def handle_call({:create_item, epoch, stack, position}, from, state) do
+    item_request(epoch, from, state, fn ->
+      Items.create(state.items, state.key, stack, position)
+    end)
   end
 
-  def handle_call({:replace_item, epoch, id, revision, stack}, _from, state),
-    do: item_result(Items.replace(state.items, epoch, id, revision, stack), state)
+  def handle_call({:replace_item, epoch, id, revision, stack}, from, state),
+    do:
+      item_request(epoch, from, state, fn ->
+        Items.replace(state.items, epoch, id, revision, stack)
+      end)
 
-  def handle_call({:remove_item, epoch, id, revision}, _from, state),
-    do: item_result(Items.remove(state.items, epoch, id, revision), state)
+  def handle_call({:remove_item, epoch, id, revision}, from, state),
+    do: item_request(epoch, from, state, fn -> Items.remove(state.items, epoch, id, revision) end)
+
+  def handle_call({:find_item, epoch, uuid}, _from, state) do
+    result =
+      if epoch == state.items.epoch,
+        do: Items.find(state.items, uuid),
+        else: {:error, :stale_region}
+
+    reply =
+      case result do
+        {:ok, {epoch, id, revision}} -> {:ok, {self(), epoch, id, revision}}
+        error -> error
+      end
+
+    {:reply, reply, state}
+  end
 
   def handle_call({:chunk, key}, from, state) do
     cond do
@@ -139,17 +170,32 @@ defmodule Valimc.World.Region do
     {:reply, result, %{state | dirty: result != :ok}}
   end
 
-  defp item_result({:ok, items, {epoch, id, revision}}, state) do
-    :ets.insert(state.item_publication, {:items, items.views})
-    {:reply, {:ok, {self(), epoch, id, revision}}, %{state | items: items}}
+  defp item_request(epoch, from, state, work) do
+    cond do
+      epoch != state.items.epoch -> {:reply, {:error, :stale_region}, state}
+      state.item_pending != nil -> {:reply, {:error, :item_storage_busy}, state}
+      true -> item_result(work.(), from, state)
+    end
   end
 
-  defp item_result({:ok, items}, state) do
-    :ets.insert(state.item_publication, {:items, items.views})
-    {:reply, :ok, %{state | items: items}}
+  defp item_result({:ok, items, {epoch, id, revision}}, from, state) do
+    reply = {:ok, {self(), epoch, id, revision}}
+
+    if items == state.items,
+      do: {:reply, reply, state},
+      else: commit_items(items, reply, from, state)
   end
 
-  defp item_result({:error, _} = error, state), do: {:reply, error, state}
+  defp item_result({:ok, items}, from, state), do: commit_items(items, :ok, from, state)
+  defp item_result({:error, _} = error, _from, state), do: {:reply, error, state}
+
+  defp commit_items(items, reply, from, state) do
+    token = make_ref()
+    timer = Process.send_after(self(), {:item_commit_deadline, token}, 5000)
+    Store.commit_items(state.store, items, self(), token)
+    pending = %{token: token, timer: timer, items: items, reply: reply, from: from}
+    {:noreply, %{state | item_pending: pending}}
+  end
 
   defp put_edit(edits, {_, y, _} = pos, block) do
     if block == Chunk.base(y), do: Map.delete(edits, pos), else: Map.put(edits, pos, block)
@@ -195,6 +241,34 @@ defmodule Valimc.World.Region do
   end
 
   @impl true
+  def handle_info(
+        {:items_saved, writer, token, :ok},
+        %{store: writer, item_pending: %{token: token} = pending} = state
+      ) do
+    Process.cancel_timer(pending.timer)
+    :ets.insert(state.item_publication, {:items, pending.items.views})
+    GenServer.reply(pending.from, pending.reply)
+    {:noreply, %{state | items: pending.items, item_pending: nil}}
+  end
+
+  def handle_info(
+        {:items_saved, writer, token, {:error, reason}},
+        %{store: writer, item_pending: %{token: token} = pending} = state
+      ) do
+    Process.cancel_timer(pending.timer)
+    GenServer.reply(pending.from, {:error, :item_commit_uncertain})
+    require Logger
+    Logger.error("Region item commit failed: #{inspect(reason)}")
+    {:stop, {:item_storage_failed, reason}, %{state | item_pending: nil}}
+  end
+
+  def handle_info({:items_saved, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info({:item_commit_deadline, token}, %{item_pending: %{token: token}} = state),
+    do: {:stop, :item_storage_timeout, state}
+
+  def handle_info({:item_commit_deadline, _}, state), do: {:noreply, state}
+
   def handle_info({:encoded, key, token, version, frame}, state) do
     case state.jobs[key] do
       %{token: ^token} = job ->
@@ -258,11 +332,23 @@ defmodule Valimc.World.Region do
 
   @impl true
   def terminate(reason, state) do
+    if state.item_pending do
+      Process.cancel_timer(state.item_pending.timer)
+      GenServer.reply(state.item_pending.from, {:error, :item_commit_uncertain})
+    end
+
     for {_, job} <- state.jobs,
         job.pid != nil and Process.whereis(Valimc.ChunkWorkers) != nil,
         do: Task.Supervisor.terminate_child(Valimc.ChunkWorkers, job.pid)
 
     if reason in [:normal, :shutdown] and state.dirty, do: Store.flush(state.store, state.edits)
-    if Process.alive?(state.store), do: GenServer.stop(state.store)
+
+    if Process.alive?(state.store) do
+      try do
+        GenServer.stop(state.store, :normal, 1000)
+      catch
+        :exit, _ -> Process.exit(state.store, :kill)
+      end
+    end
   end
 end

@@ -139,3 +139,16 @@ normal close/creative handlers, keyboard 1 restored selection, preview UI was
 restored, and an empty version 2 checkpoint (139 bytes) was verified. Actual
 `/stats` remained healthy. All 111 tests, release/oracle and private log checks pass;
 the log has no codec/ERROR entries. Earlier mouse-validation gates remain pending.
+
+VMC-019a, October 14: updated release started at 00:49. Actual CUA keyboard join
+rendered region-created patched stone 7, then eggs 3 after stack replacement.
+File assertions matched each accepted API result. Graceful region replacement
+recovered the same UUID/position/patches with a new runtime handle; the old epoch
+was rejected, and the egg remained visible. A full release restart at 00:53 and
+actual rejoin rendered that same item without reseeding; owner/file comparisons
+confirmed exact state. Removal produced an empty 55-byte item file and visible
+disappearance. Another full restart at 00:55/rejoin left it absent; UUID lookup
+returned missing and inventory remained empty. Client log has no protocol/codec/
+duplicate-entity/ERROR entries. All 122 tests, release/oracle and audit pass.
+Window observation needed rebinding/Raise once; one screenshot call returned slowly
+but succeeded. No mouse-input, trajectory, pickup or inventory-drop claim follows.

@@ -25,7 +25,7 @@ flowchart LR
 | Admission, names, lifecycle | Players process | One call at admission/ready; monitors at exit |
 | Spatial membership | Player process, cleanup by Players | Public ETS index; concurrent readers |
 | Block overrides and chunk revisions | Region process | Ordered calls within that region |
-| Stationary development items | Region process | Bounded creation and stack/removal CAS; owner incarnation and item revision |
+| Stationary development items | Region process | Bounded creation and stack/removal CAS; incarnation/revision plus writer acknowledgment |
 | Item replication publications | Region-owned protected ETS table | Compact cached packet views; readers neither allocate regions nor call owners |
 | Encoded chunk cache | Region process | Immutable binaries shared with callers |
 | Encoding computation | Supervised task | Immutable chunk snapshot and captured revision |
@@ -90,12 +90,33 @@ Survival/menu transactions, drops and peer equipment replication remain incomple
 Item entity packet primitives use immutable versioned type/serializer/accessor
 facts and bounded pure encoders, including the current packed velocity format.
 Metadata batches admit at most three supported fields and removals at most 4096 IDs.
-Each region also owns at most 256 ephemeral stationary development items with
+Each region also owns at most 256 stationary development items with
 512 KiB of cached logical packet bytes. Their mutation handles include the region
 incarnation and item revision. CAS rejects stale updates/removals, and replacement
 owners have new incarnations. There is no global entity mutation coordinator or
-process per item. Owner loss destroys its protected ETS publication and loses
-these ephemeral items; they are deliberately absent from block snapshots.
+process per item. Owner loss destroys its protected ETS publication. With world
+storage enabled, a replacement reads committed UUIDs/positions/stacks and rebuilds
+fresh runtime IDs, cached packets and incarnation/revision handles. Nil storage
+retains ephemeral behavior. IDs are reallocated rather than persisted; numeric IDs
+may coincide across separate VM lifetimes. UUIDs provide persistent identity.
+
+Item writes use the existing linked region writer and a separate checksummed
+`r.X.Z.items` file (version 1/data version 5023), at most 524,343 bytes. Reads admit
+at most that limit + 1 before parsing at most 256 records. Malformed records,
+duplicate UUIDs, wrong region/coordinates, unsupported/empty stacks, versions and
+checksums reject that region's load without overwriting its file. These are custom
+preview records, not vanilla entity NBT, data fixing or complete item state.
+
+A live region retains one immutable pending item proposal while the writer
+serializes/syncs/replaces the file. It continues handling block operations and
+ticks; further item mutations return busy. Publication/reply requires the matching
+writer/token acknowledgment. No-op replacement avoids disk work. Error, writer
+loss, a five-second deadline or shutdown before delivery of an acknowledgment can
+leave an uncertain commit outcome. The owner is fenced/stopped and the actual
+file is reloaded; it never writes an older item snapshot over a possible commit.
+Block snapshots cannot overwrite item files. UUID lookup obtains a fresh current
+handle. Synced replacement does not guarantee parent-directory/power-loss
+durability, an exactly-once create retry or an inventory/world transaction.
 
 Observers sample publications in up to 64 subscribed regions and already-sent
 chunks, retaining at most 1024 item identities/revisions. Each 50 ms interval
@@ -109,8 +130,8 @@ policies, not vanilla tracking-distance parity.
 
 This scene API does not consume inventory. Zero velocity/no gravity keep its
 scope independent of tick physics and region transfers. Creation timeout is an
-uncertain outcome and must not trigger a blind retry. Item persistence, a
-recoverable transfer ledger, inventory ownership, merging, pickup, despawn,
+uncertain outcome and must not trigger a blind retry. Complete entity persistence,
+a recoverable transfer ledger, inventory ownership, merging, pickup, despawn,
 collision and cross-region movement remain required gameplay foundations.
 
 ## Survival consistency still to implement

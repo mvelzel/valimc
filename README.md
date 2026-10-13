@@ -29,7 +29,7 @@ Configuration lives in `config/config.exs`; `VALIMC_BIND`, `VALIMC_PORT` and `VA
 ## Elixir architecture
 
 - A socket-owning process holds each player's protocol, inventory preview, input limits and replication state. `active: :once` TCP limits inbound buffering.
-- Region processes own mutable block state and bounded ephemeral stationary items. Item mutations check owner incarnations/revisions; observers sample protected ETS views and share cached packet binaries. Independent regions maintain their own 50 ms deadlines; survival simulation remains future work.
+- Region processes own mutable block state and bounded stationary items. Item mutations check owner incarnations/revisions and publish after writer acknowledgment; observers sample protected ETS views and share cached packet binaries. Independent regions maintain their own 50 ms deadlines; survival simulation remains future work.
 - Player processes publish their own latest positions to ETS. A spatial index lets each observer sample nearby players concurrently. Movement replication uses compact quantized snapshots and one socket batch per observer interval, avoiding a movement-message fan-out into player mailboxes.
 - A bounded `Task.Supervisor` runs chunk encoders. Regions combine duplicate requests, share immutable encoded binaries, and discard stale results after edits. Baseline terrain is an immutable shared binary; edited chunks use paletted sections.
 - Each region has a linked disk writer. Periodic saves run outside the region process and carry revision acknowledgments. A failed writer takes down its owner; later access recreates the region from the last saved snapshot.
@@ -73,8 +73,9 @@ Implemented: Java 26.3 status/ping, offline login, zlib compression, vanilla cor
 
 Item entity packet primitives pass Mojang codec and graphical checks. Region-owned
 stationary development items now replicate stack updates, visibility, reconnect
-and owner-loss removal through bounded snapshots. They have no gravity/physics,
-pickup or persistence. Gameplay drops still require a recoverable inventory-to-world
+and owner recovery through bounded snapshots. Stationary item UUIDs/positions/
+supported stacks now persist in bounded custom region files. They have no gravity/
+physics or pickup. Gameplay drops still require a recoverable inventory-to-world
 transaction; the development scene API never consumes player inventory.
 
 Missing: online authentication/encryption, Bedrock, survival rules, collision/anti-cheat, complete inventories and item components, crafting, combat, hunger, mobs/AI, redstone, fluids, block entities, vanilla terrain/structures, real light propagation, Anvil world import/export, complete player state persistence, plugin APIs and Java plugin compatibility. Known but unimplemented play packets are ignored; this is not full protocol parity. Default-item placement does not implement directional or functional block behavior.

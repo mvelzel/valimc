@@ -89,7 +89,14 @@ loaded-chunk filtering, late observers, visibility changes and owner loss throug
 actual TCP sessions. Graphical VMC-018b scenarios create through that region API,
 not a connection packet fixture; reconnect must observe current owner state and
 region replacement must clear the old item while the session remains healthy.
-Stationary scene items are ephemeral and never authorize consuming inventory.
+Stationary scene items never authorize consuming inventory. With storage enabled,
+VMC-019a writes bounded item records through the region writer before publication
+or reply. Tests exercise unpublished pending state, busy admission, writer loss,
+deadline/shutdown ambiguity, corrupt-file preservation and a committed proposal
+whose acknowledgment is withheld. Recovery must read the actual file and never
+overwrite it with the old owner snapshot. Actual Minecraft must observe region/
+release recovery without reseeding, then durable removal through another restart.
+Nil storage retains ephemeral test behavior. Item files/captures remain ignored.
 
 Player persistence checks cover versioned pose/inventory encoding, exact supported
 patches/removals, selection, invalid/truncated/oversized files, read-only legacy

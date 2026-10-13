@@ -143,7 +143,10 @@ defmodule Valimc.WorldItemsTest do
       |> Enum.map(fn {:ok, result} -> result end)
 
     assert Enum.count(results, &match?({:ok, _}, &1)) == 1
-    assert Enum.count(results, &(&1 == {:error, :stale_item})) == 31
+
+    assert Enum.count(results, &(&1 in [{:error, :stale_item}, {:error, :item_storage_busy}])) ==
+             31
+
     before = DynamicSupervisor.count_children(Valimc.RegionSupervisor).active
     assert World.item_snapshot({10000, 10000}) == %{}
     assert World.visible_items(MapSet.new([{10000, 10000}]), MapSet.new([{80000, 80000}])) == %{}

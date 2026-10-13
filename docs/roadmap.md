@@ -35,7 +35,8 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-018b](tickets/VMC-018b.md) | Done — stationary foundation validated, local | Region CAS/ETS ownership, bounded paced replication, late joins/visibility/owner loss; automated and actual Minecraft render/update/reconnect/remove/failure checks pass |
 | VMC-005c | Partially implemented | Supported preview inventories persist; full components/player state, vanilla disconnect lifecycle and NBT/data fixing remain |
 | [VMC-005c1](tickets/VMC-005c1.md) | Done — supported preview recovery validated, local | 111 tests, release/oracle and actual inventory/selection reconnect/restart, carried/grid recovery and corrupt-save rejection/repair pass |
-| VMC-019a | Next foundation for gameplay drops | Persist bounded region item records and define recovery/fencing before the inventory/world transfer ledger; physics and cross-region simulation remain required |
+| [VMC-019a](tickets/VMC-019a.md) | Done — stationary record recovery validated, local | 122 tests, release/oracle and actual region/full restart recovery plus durable removal pass; matching writer acknowledgment precedes publication/reply |
+| VMC-019b | Next foundation for gameplay drops | Durable player outbox/region transfer receipts, stable UUID idempotency and crash/retry reconciliation before inventory consumption; physics/cross-region simulation remain required |
 
 Only one implementation ticket is active; checkpoints awaiting client validation
 are parked so implementation can continue. Records retain acceptance criteria,
