@@ -26,6 +26,8 @@ import net.minecraft.tags.TagNetworkSerialization;
 import net.minecraft.server.packs.repository.KnownPack;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.*;
 import net.minecraft.world.phys.*;
@@ -251,7 +253,14 @@ public class VanillaOracle implements AutoCloseable {
     int port = args.length > 0 ? Integer.parseInt(args[0]) : 25565;
     try (var first = new VanillaOracle(port, "OracleOne"); var second = new VanillaOracle(port, "OracleTwo")) {
       first.await(p -> p instanceof ClientboundAddEntityPacket);
-      first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(36, new ItemStack(Blocks.STONE)));
+      var stone = new ItemStack(Blocks.STONE, 17);
+      stone.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
+      first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(36, stone));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getContainerId() == 0 && s.getSlot() == 36 && ItemStack.matches(s.getItem(), stone));
+      var unsupported = stone.copy();
+      unsupported.set(DataComponents.CUSTOM_NAME, Component.literal("Unsupported fixture"));
+      first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(36, unsupported));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot() == 36 && ItemStack.matches(s.getItem(), stone));
       first.send(gameOut, new ServerboundUseItemOnPacket(InteractionHand.MAIN_HAND,
         new BlockHitResult(new Vec3(2.5, 64, 0.5), Direction.UP, new BlockPos(2, 63, 0), false), 1));
       first.await(p -> p instanceof ClientboundBlockUpdatePacket b && b.getPos().equals(new BlockPos(2,64,0)) && b.getBlockState().is(Blocks.STONE));
@@ -262,7 +271,7 @@ public class VanillaOracle implements AutoCloseable {
       second.await(p -> p instanceof ClientboundMoveEntityPacket.PosRot);
       first.send(gameOut, new ServerboundChatCommandPacket("stats"));
       first.await(p -> p instanceof ClientboundSystemChatPacket c && c.content().getString().contains("schedulers"));
-      System.out.println("PASS: Mojang 26.3 codecs validated compressed login, network registry/tag dependency loading, command graph/local completion, " + first.chunks + " chunks, two-player visibility, movement, block placement/breaking and commands.");
+      System.out.println("PASS: Mojang 26.3 codecs validated compressed login, network registry/tag dependency loading, command graph/local completion, " + first.chunks + " chunks, creative scalar stacks/corrections, two-player visibility, movement, block placement/breaking and commands.");
       System.out.println(first.seen);
     }
   }

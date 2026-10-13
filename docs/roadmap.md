@@ -15,10 +15,13 @@ keep IDs stable and append suffixes rather than renumbering.
 |---|---|---|
 | [VMC-001](tickets/VMC-001.md) | Done — `4f948be`, pushed | Workflow and 19-source survey; baseline tests/oracle/release/audit and actual-client smoke pass |
 | [VMC-002](tickets/VMC-002.md) | Done — `b5a2c72`, pushed | Shared command catalog; oracle and actual-client completion, rejection and teleport pass |
-| [VMC-003](tickets/VMC-003.md) | In progress; local checkpoint | Player pose persistence; automated checks pass, remaining client validation and push pending |
-| VMC-004 | Planned | Versioned item/component codecs and synchronized creative slots |
+| [VMC-003](tickets/VMC-003.md) | Awaiting client validation — `5341f15`, unpushed | Player pose persistence; remaining client scenarios paused while MacBook is locked |
+| [VMC-004a](tickets/VMC-004a.md) | Awaiting client validation; local checkpoint | Bounded stack/scalar codecs and creative hotbar corrections; automated/oracle checks pass |
+| VMC-004b | Planned | Names/lore/NBT and compound or registry-backed component codecs |
+| VMC-005a | Planned | Session inventory ownership, slot synchronization and state IDs |
 
-Only one implementation ticket is active. Records retain acceptance criteria,
+Only one implementation ticket is active; checkpoints awaiting client validation
+are parked so implementation can continue. Records retain acceptance criteria,
 checks, manual evidence and commit subject; Git history supplies checkpoint SHAs.
 Pushing a ticket does not declare a milestone or the whole server complete.
 
@@ -46,7 +49,10 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | VMC-002 | Custom command graph | Official decoder and actual-client completion/execution agree with the command catalog |
 | VMC-003 | Player pose persistence | Reconnect and graceful restart restore validated pose; corrupt data and I/O failures stay isolated |
 | VMC-004 | Item-stack and component codecs | Mojang round trips, bounded malformed inputs; unsupported state never silently desynchronizes |
+| VMC-004a | Optional stacks and scalar components | Both trusted and untrusted encodings; corrected unsupported creative edits, precise item defaults |
+| VMC-004b | Structured components | Bounded NBT/text, collections, recursive items and registry holders; expanded vanilla oracle cases |
 | VMC-005 | Authoritative inventory transactions | State IDs, slots, click/drag/shift/hotbar/drop, full inventory persistence and menus |
+| VMC-005a | Session inventory foundation | Full player slots, startup synchronization, creative writes and carried selection are owner-local |
 | VMC-006 | Play initialization and world defaults | Clocks, weather, difficulty and gamerules match the 26.3 packet/state model |
 | VMC-007 | Session authentication and encryption | Official online-mode join, AES/compression interoperability, invalid sessions rejected |
 | VMC-008 | Registry/data-pack negotiation and reload | Features, tags, components, known packs and reconfiguration; no stale caches |

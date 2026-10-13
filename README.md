@@ -13,7 +13,7 @@ mix run --no-halt
 
 Connect with a vanilla **Java 26.3** client to `localhost:25565`. The default binds to `127.0.0.1` and uses offline identities. Runtime requires only Elixir/Erlang; there are no Hex dependencies, JVMs, Rust libraries or external services in the server.
 
-Creative inventory blocks with ordinary default item components can be placed and broken. `/help`, `/stats` and `/spawn` are advertised to the client for validation and Tab completion. Block edits and player poses are checkpointed every 30 seconds. Poses also save on disconnect and graceful shutdown; reconnect restores position and view direction. Inventories are not saved.
+Creative hotbar edits preserve item identity/count and twelve scalar component types; unsupported structured patches restore the previous slot with a message. Ordinary blocks can be placed and broken. `/help`, `/stats` and `/spawn` support client validation and Tab completion. Block edits and player poses are checkpointed every 30 seconds. Poses also save on disconnect and graceful shutdown; reconnect restores position and view direction. Inventories are not saved.
 
 ```sh
 VALIMC_PORT=25566 VALIMC_WORLD=/tmp/valimc-world mix run --no-halt

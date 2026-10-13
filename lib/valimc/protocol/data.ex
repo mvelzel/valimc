@@ -64,7 +64,7 @@ defmodule Valimc.Protocol.Data do
     do: Enum.find_index(@registries[registry], &(&1 == entry)) || raise("unknown registry entry")
 
   def block(name), do: Map.fetch!(@blocks["states"], name)
-  def item(name), do: Map.fetch!(@blocks["items"], name)
+  def item(name), do: Valimc.Protocol.ItemTypes.id(name)
   def item_block(id), do: @blocks["item_blocks"][Integer.to_string(id)]
   def player_type, do: @blocks["player_entity_type"]
   def global_block_bits, do: ceil(:math.log2(@blocks["state_count"]))

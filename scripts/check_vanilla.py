@@ -3,6 +3,11 @@
 import os, pathlib, socket, subprocess, sys, tempfile, time
 root = pathlib.Path(__file__).resolve().parent.parent
 with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
+    fixtures = str(pathlib.Path(world) / 'item-fixtures.json')
+    encoded = str(pathlib.Path(world) / 'elixir-items.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemOracle', 'generate', fixtures], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_items.exs', fixtures, encoded], cwd=root, check=True)
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemOracle', 'verify', encoded], cwd=root, check=True)
     with socket.socket() as port_probe:
         port_probe.bind(('127.0.0.1', 0))
         port = port_probe.getsockname()[1]

@@ -38,7 +38,11 @@ under `docs/tickets/` before changing behavior. Keep these records updated.
 
 ## Tickets, verification, and Git
 
-- Work on one ticket at a time. Split large backlog entries into reviewable slices
+- Implement one ticket at a time. Park automated-verified checkpoints that await
+  manual validation and proceed to the next implementable slice, as the user
+  explicitly requested (October 13, 2026). Keep each pending client scenario;
+  dependencies may use tested code without claiming that the ticket is Done.
+  Split large backlog entries into reviewable slices
   before implementation. Write acceptance criteria and a real-client scenario
   first. Never mark a partially implemented subsystem complete.
 - Run `mix format --check-formatted`, `mix test`, and a production release build.
@@ -60,6 +64,7 @@ under `docs/tickets/` before changing behavior. Keep these records updated.
 - Computer-use validation is paused while the user's MacBook is locked. Continue
   independent code/research/automated work; resume GUI validation only after it
   is unlocked. Do not mark a ticket Done while its required GUI checks remain.
+  A paused GUI gate must not halt the broader server implementation backlog.
 - Research/docs/workflow pieces use the baseline client smoke scenario. Feature
   pieces must exercise their changed behavior and relevant negative cases.
 - Benchmark only when performance/measurement changes. Preserve raw results,

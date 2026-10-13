@@ -1,9 +1,18 @@
 defmodule Valimc.Protocol.Packets do
   @moduledoc "Minecraft 26.3 clientbound packet payloads. All integers are network endian."
-  alias Valimc.Protocol.{Data, Wire}
+  alias Valimc.Protocol.{Data, ItemStack, Wire}
   import Bitwise
   def packet(name, payload, state \\ :play), do: {Data.id(state, :clientbound, name), payload}
   def frame({id, payload}, threshold), do: Wire.frame(id, payload, threshold)
+
+  def container_slot(state_id, slot, stack) do
+    packet("container_set_slot", [
+      Wire.varint(0),
+      Wire.varint(state_id),
+      <<slot::signed-16>>,
+      ItemStack.encode(stack)
+    ])
+  end
 
   def known_packs do
     packet(

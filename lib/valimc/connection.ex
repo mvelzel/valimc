@@ -2,7 +2,7 @@ defmodule Valimc.Connection do
   use GenServer, restart: :temporary, shutdown: 15_000
 
   @moduledoc "A socket-owning process per player, including their protocol and connection-local state."
-  alias Valimc.Protocol.{Data, Packets, Wire}
+  alias Valimc.Protocol.{Data, ItemStack, Packets, Wire}
   alias Valimc.{Metrics, Players, PlayerStore, World}
   import Bitwise
 
@@ -49,6 +49,7 @@ defmodule Valimc.Connection do
        peers: %{},
        outbound: [],
        hotbar: %{},
+       inventory_state_id: 0,
        selected: 0,
        window: System.monotonic_time(:second),
        packets: 0,
@@ -649,19 +650,33 @@ defmodule Valimc.Connection do
   end
 
   defp creative_slot(state, <<slot::signed-16, payload::binary>>) do
-    {count, payload} = Wire.take_varint(payload)
+    case ItemStack.decode(payload, :untrusted) do
+      {:ok, stack} when slot in 36..44 ->
+        state = %{state | hotbar: Map.put(state.hotbar, slot - 36, stack)}
+        correct_creative_slot(state, slot)
 
-    item =
-      if count == 0 do
-        nil
-      else
-        {id, payload} = Wire.take_varint(payload)
-        {added, payload} = Wire.take_varint(payload)
-        {removed, _payload} = Wire.take_varint(payload)
-        if added == 0 and removed == 0, do: Data.item_block(id), else: nil
-      end
+      {:ok, _} ->
+        state
 
-    if slot in 36..44, do: %{state | hotbar: Map.put(state.hotbar, slot - 36, item)}, else: state
+      {:unsupported, _names} when slot in 36..44 ->
+        send_packets(state, [
+          Packets.chat("This item's components are not supported yet; slot restored")
+        ])
+
+        correct_creative_slot(state, slot)
+
+      {:unsupported, _} ->
+        state
+
+      {:error, _} ->
+        reject(state, "Malformed or invalid creative item")
+    end
+  end
+
+  defp correct_creative_slot(state, slot) do
+    id = rem(state.inventory_state_id + 1, 32768)
+    send_packets(state, [Packets.container_slot(id, slot, state.hotbar[slot - 36])])
+    %{state | inventory_state_id: id}
   end
 
   defp place_block(state, payload) do
@@ -685,7 +700,8 @@ defmodule Valimc.Connection do
         _ -> reject(state, "Invalid block face")
       end
 
-    item = state.hotbar[state.selected]
+    stack = state.hotbar[state.selected]
+    item = if stack, do: Data.item_block(stack.item_id)
     if hand == 0 and item != nil and reachable?(state, target), do: World.set_block(target, item)
 
     updates =

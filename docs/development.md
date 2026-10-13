@@ -6,7 +6,7 @@ creative preview was committed at `4495775`. New ticket checkpoints use branch
 
 ## One ticket, one verified checkpoint
 
-1. Pick the first ready ticket from `roadmap.md`, splitting large entries first.
+1. Pick the first implementable ticket from `roadmap.md`, splitting large entries first.
    Write a concrete before/after behavior, dependencies, ownership design,
    acceptance criteria, regression tests, and actual-client scenario in its record.
 2. Establish vanilla behavior from the pinned version's classes/codecs, bytecode,
@@ -34,6 +34,12 @@ Computer-use validation is paused while the user's MacBook is locked. Continue
 independent implementation/research/automated checks during that pause, retaining
 pending client scenarios. Resume GUI validation after unlocking. Never amend an
 already pushed checkpoint or mark a ticket Done just because automated checks pass.
+Park tickets at `Awaiting client validation` after their automated checkpoint and
+continue the next implementation slice. Tested foundations can support dependent
+work while their GUI gates remain explicit. Only one ticket is being implemented
+at a time; the manual-validation queue can contain several tickets. Fix a known
+blocking defect before relying on that behavior. The user explicitly requested
+continued progress across tickets while computer use is paused.
 
 ```sh
 mix format --check-formatted
@@ -49,6 +55,10 @@ git diff --stat
 The server runtime needs no JVM. Our Java 25+ development oracle checks actual
 Mojang packet codecs and network registry/tag dependency loading. This is valuable
 independent evidence, but cannot establish rendering, controls or survival parity.
+Item checks generate eight stack fixtures with Mojang's codecs, decode and
+cross-convert them in Elixir, then ask Mojang to decode the resulting bytes and
+compare semantic equality in both ordinary and delimited formats. Temporary
+fixtures are not committed. TCP scenarios then exercise slot updates/corrections.
 
 ## Actual Minecraft computer use
 
