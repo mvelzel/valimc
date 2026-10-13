@@ -32,14 +32,18 @@ defmodule Valimc.World.ItemTransfers do
 
   def plan(_, _, _, _), do: {:error, :invalid_transfer}
 
-  def digest(key, %{source: <<_::128>> = source, sequence: sequence, records: records})
+  def digest(key, transfer) do
+    with {:ok, _bytes, digest} <- encode_request(key, transfer), do: {:ok, digest}
+  end
+
+  def encode_request(key, %{source: <<_::128>> = source, sequence: sequence, records: records})
       when is_integer(sequence) and sequence in 1..@max_sequence and is_list(records) do
     records = Enum.take(records, @max_batch + 1)
 
     if length(records) in 1..@max_batch do
       with {:ok, bytes} <-
              ItemRecords.encode(key, Enum.sort_by(records, fn %{uuid: uuid} -> uuid end)) do
-        {:ok, :crypto.hash(:sha256, [<<source::binary, sequence::64>>, bytes])}
+        {:ok, bytes, :crypto.hash(:sha256, [<<source::binary, sequence::64>>, bytes])}
       else
         _ -> {:error, :invalid_transfer}
       end
@@ -50,7 +54,7 @@ defmodule Valimc.World.ItemTransfers do
     _ -> {:error, :invalid_transfer}
   end
 
-  def digest(_, _), do: {:error, :invalid_transfer}
+  def encode_request(_, _), do: {:error, :invalid_transfer}
 
   defp add_items(items, key, records) do
     Enum.reduce_while(records, {:ok, items}, fn record, {:ok, current} ->

@@ -77,12 +77,15 @@ and owner recovery through bounded snapshots. Stationary item UUIDs/positions/
 supported stacks now persist in bounded custom region files. They have no gravity/
 physics or pickup. An internal region inbox now commits stable-UUID item batches
 and bounded per-source retry receipts together; retries after removal/restart do
-not recreate items. Gameplay drops still require the durable player outbox and
-session orchestration; internal fixture APIs never consume player inventory.
+not recreate items. A leased source API now conserves supported stacks and saves
+reduced inventory plus one outbox atomically, with stale-checkpoint fencing and
+destination receipt verification. Automatic recovery/session drop controls remain
+unimplemented; pending source intents reject login until recovered. Gameplay
+packets do not invoke these development APIs yet.
 
 Missing: online authentication/encryption, Bedrock, survival rules, collision/anti-cheat, complete inventories and item components, crafting, combat, hunger, mobs/AI, redstone, fluids, block entities, vanilla terrain/structures, real light propagation, Anvil world import/export, complete player state persistence, plugin APIs and Java plugin compatibility. Known but unimplemented play packets are ignored; this is not full protocol parity. Default-item placement does not implement directional or functional block behavior.
 
-Fixed spatial regions currently support independent edits. Neighbor-coupled simulation, deterministic entity transfers, and multi-region transactions are specified as future work, not implemented. Hard crashes can lose changes since the last 30-second checkpoint. Player `.pose` files use a bounded custom version 2 format under `world/players/`, with legacy pose migration; they are not vanilla player NBT. Storage errors/timeouts are explicit and can prevent a final save. Idle regions remain resident until shutdown, within the configured region limit.
+Fixed spatial regions currently support independent edits. Neighbor-coupled simulation, deterministic entity transfers, and multi-region transactions are specified as future work, not implemented. Hard crashes can lose changes since the last 30-second checkpoint. Player `.pose` files use bounded custom versions 2/3 under `world/players/`, with legacy pose migration and a version 3 transfer outbox; they are not vanilla player NBT. Storage errors/timeouts are explicit and can prevent a final save. Idle regions remain resident until shutdown, within the configured region limit.
 
 See [the tracked roadmap](docs/roadmap.md), [development and verification process](docs/development.md), and [agent instructions](AGENTS.md). Work proceeds one ticket at a time. Local checkpoints may precede actual Minecraft computer-use validation. Development and normal pushes use `main`; pending client gates remain explicit if the user requests publication before every gate passes.
 

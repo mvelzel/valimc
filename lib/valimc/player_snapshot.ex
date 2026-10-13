@@ -1,24 +1,39 @@
 defmodule Valimc.PlayerSnapshot do
-  @moduledoc "Bounded checksummed preview player state; v1 pose migration, not vanilla NBT."
+  @moduledoc "Bounded player state/outbox; legacy pose/inventory migration, not vanilla NBT."
   alias Valimc.{Inventory, PlayerStore}
   alias Valimc.Protocol.{ItemStack, ItemTypes}
+  alias Valimc.World.{ItemRecords, ItemTransfers}
   @data_version 5023
   @inventory_bytes 524_288
-  @max_bytes 56 + 4 + @inventory_bytes + 32
+  @outbox_bytes 55 + 5 * (40 + 65_536)
+  @max_sequence 18_446_744_073_709_551_615
+  @max_bytes 56 + 4 + 12 + @inventory_bytes + @outbox_bytes + 32
 
   def max_bytes, do: @max_bytes
 
   def capture(player, %Inventory{} = inventory),
     do: %{pose: PlayerStore.pose(player), inventory: inventory}
 
-  def encode(<<_::128>> = uuid, %{pose: pose, inventory: inventory}) do
+  def encode(<<_::128>> = uuid, %{pose: pose, inventory: inventory} = snapshot) do
     check(PlayerStore.valid_pose?(pose), :invalid_pose)
     body = encode_inventory(inventory)
+    sequence = Map.get(snapshot, :transfer_sequence, 0)
+    outbox = Map.get(snapshot, :outbox)
+    check(is_integer(sequence) and sequence in 0..@max_sequence, :invalid_transfer_sequence)
+
+    {version, journal} =
+      if sequence == 0 and outbox == nil do
+        {2, []}
+      else
+        bytes = encode_outbox(uuid, sequence, outbox)
+        {3, [<<sequence::64, byte_size(bytes)::32>>, bytes]}
+      end
 
     payload =
       IO.iodata_to_binary([
-        <<"VMCPOSE", 2, uuid::binary-size(16), pose.x::float-64, pose.y::float-64,
+        <<"VMCPOSE", version, uuid::binary-size(16), pose.x::float-64, pose.y::float-64,
           pose.z::float-64, pose.yaw::float-32, pose.pitch::float-32, @data_version::32>>,
+        journal,
         body
       ])
 
@@ -47,6 +62,19 @@ defmodule Valimc.PlayerSnapshot do
         yaw::float-32, pitch::float-32, @data_version::32, body::binary>> ->
         snapshot(%{x: x, y: y, z: z, yaw: yaw, pitch: pitch}, decode_inventory(body))
 
+      <<"VMCPOSE", 3, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
+        yaw::float-32, pitch::float-32, @data_version::32, sequence::64, length::32,
+        body::binary>> ->
+        check(sequence > 0 and length <= @outbox_bytes, :invalid_player_file)
+        <<outbox::binary-size(^length), body::binary>> = body
+
+        snapshot(
+          %{x: x, y: y, z: z, yaw: yaw, pitch: pitch},
+          decode_inventory(body),
+          sequence,
+          decode_outbox(uuid, sequence, outbox)
+        )
+
       _ ->
         {:error, :invalid_player_file}
     end
@@ -58,9 +86,43 @@ defmodule Valimc.PlayerSnapshot do
 
   def decode(_, _), do: {:error, :invalid_player_file}
 
-  defp snapshot(pose, inventory) do
+  defp snapshot(pose, inventory, sequence \\ 0, outbox \\ nil) do
     check(PlayerStore.valid_pose?(pose), :invalid_player_file)
-    {:ok, %{pose: pose, inventory: inventory}}
+    {:ok, %{pose: pose, inventory: inventory, transfer_sequence: sequence, outbox: outbox}}
+  end
+
+  def transfer_request(<<_::128>> = uuid, %{
+        transfer_sequence: sequence,
+        outbox: %{key: key, records: records}
+      }) do
+    request = %{source: uuid, sequence: sequence, records: records}
+    with {:ok, digest} <- ItemTransfers.digest(key, request), do: {:ok, key, request, digest}
+  end
+
+  def transfer_request(_, _), do: {:error, :no_pending_transfer}
+
+  defp encode_outbox(_uuid, _sequence, nil), do: <<>>
+
+  defp encode_outbox(uuid, sequence, %{key: key, records: records}) do
+    {:ok, bytes, _digest} =
+      ItemTransfers.encode_request(key, %{source: uuid, sequence: sequence, records: records})
+
+    check(byte_size(bytes) <= @outbox_bytes, :outbox_byte_limit)
+    bytes
+  end
+
+  defp decode_outbox(_uuid, _sequence, <<>>), do: nil
+
+  defp decode_outbox(
+         uuid,
+         sequence,
+         <<"VMCITEMS", 1, @data_version::32, rx::signed-32, rz::signed-32, _::binary>> = bytes
+       ) do
+    key = {rx, rz}
+    {:ok, %{records: records, receipts: receipts}} = ItemRecords.decode(bytes, key)
+    check(receipts == %{}, :invalid_player_file)
+    {:ok, _} = ItemTransfers.digest(key, %{source: uuid, sequence: sequence, records: records})
+    %{key: key, records: records}
   end
 
   defp encode_inventory(%Inventory{slots: slots, selected: selected} = inventory)
@@ -96,6 +158,8 @@ defmodule Valimc.PlayerSnapshot do
   defp encode_inventory(_), do: throw({:snapshot_error, :invalid_inventory})
 
   defp decode_inventory(<<selected, body::binary>>) when selected in 0..8 do
+    check(byte_size(body) + 1 <= @inventory_bytes, :invalid_player_file)
+
     {slots, body} =
       Enum.reduce(1..45, {%{}, body}, fn slot, {slots, bytes} ->
         {:ok, stack, rest} = ItemStack.take(bytes)

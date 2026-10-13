@@ -38,7 +38,8 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-019a](tickets/VMC-019a.md) | Done — stationary record recovery validated, local | 122 tests, release/oracle and actual region/full restart recovery plus durable removal pass; matching writer acknowledgment precedes publication/reply |
 | VMC-019b | In progress foundations | Durable player outbox/region receipts and crash/retry reconciliation before inventory consumption; physics/cross-region simulation remain required |
 | [VMC-019b1](tickets/VMC-019b1.md) | Done — destination retry foundation validated, local | 136 tests, release/oracle and actual fixture render/retry/removal/full restart/retry pass; player outbox and inventory consumption remain |
-| VMC-019b2 | Next | Durable player outbox/sequence and ordered writer fencing before session drop orchestration |
+| [VMC-019b2](tickets/VMC-019b2.md) | Done — source API recovery validated, local | 155 tests, release/oracle and actual pending-login preservation/API recovery/inventory+item restart pass; automatic reconciliation/drop controls remain |
+| VMC-019b3 | Next | Automatic recovery and session transfer orchestration before actual drop-control integration |
 
 Only one implementation ticket is active; checkpoints awaiting client validation
 are parked so implementation can continue. Records retain acceptance criteria,

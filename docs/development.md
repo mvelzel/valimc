@@ -116,6 +116,17 @@ Actual Minecraft checks use keyboard selection/disconnect/rejoin and a full rele
 restart; reversible corrupt-save fixtures must be backed up and restored exactly.
 Carried/grid fixture recovery is recorded separately from vanilla menu cleanup.
 
+Source-outbox tests (VMC-019b2) validate conservation, bounded version 3/legacy
+files, monotonically retained sequence, changing writer fences, foreign/stale
+requests, pending/close preservation, actual destination receipt proof (including
+ephemeral storage rejection), transfer write failures and lost prepare/complete
+replies/owner loss/reopen. Current login must preserve/reject pending state until
+automatic reconciliation exists. The real-client scenario uses an explicitly
+offline API fixture, checks pending-login rejection/file identity, completes
+source/destination recovery, observes retained inventory/item rendering and
+restart, then restores fixture inventory while preserving the advanced sequence.
+Never restore a pre-transfer source backup alone after the destination commits.
+
 ## Actual Minecraft computer use
 
 The normal macOS game runs as an unbundled `java` process, absent from computer

@@ -128,4 +128,78 @@ defmodule Valimc.PlayerSnapshotTest do
     assert {:ok, restored} = PlayerSnapshot.decode(bytes, uuid())
     assert restored.inventory == legal
   end
+
+  defp pending do
+    %{
+      pose: pose(),
+      inventory: inventory(),
+      transfer_sequence: 7,
+      outbox: %{
+        key: {0, 0},
+        records: [%{uuid: <<14::128>>, x: 0.5, y: 64.5, z: 0.5, stack: ItemStack.new("stone", 3)}]
+      }
+    }
+  end
+
+  test "version 3 preserves source sequence and one canonical outbox across recovery" do
+    state = pending()
+    assert {:ok, <<"VMCPOSE", 3, _::binary>> = bytes} = PlayerSnapshot.encode(uuid(), state)
+    assert {:ok, restored} = PlayerSnapshot.decode(bytes, uuid())
+    assert restored.transfer_sequence == 7 and restored.outbox == state.outbox
+    assert restored.inventory.slots == state.inventory.slots
+    assert not restored.inventory.infinite_materials and restored.inventory.drag == nil
+    assert {:ok, {0, 0}, request, digest} = PlayerSnapshot.transfer_request(uuid(), restored)
+    assert request.source == uuid() and request.sequence == 7
+    assert request.records == state.outbox.records and byte_size(digest) == 32
+    assert {:ok, ^bytes} = PlayerSnapshot.encode(uuid(), restored)
+    cleared = %{restored | outbox: nil}
+    assert {:ok, cleared_bytes} = PlayerSnapshot.encode(uuid(), cleared)
+    assert {:ok, ^cleared} = PlayerSnapshot.decode(cleared_bytes, uuid())
+    assert {:error, :no_pending_transfer} = PlayerSnapshot.transfer_request(uuid(), cleared)
+  end
+
+  test "outbox validation rejects unsupported, empty, wrong-region and excessive owned data" do
+    state = pending()
+    [record] = state.outbox.records
+
+    for bad <- [
+          %{state | transfer_sequence: 0},
+          %{state | transfer_sequence: -1},
+          %{state | transfer_sequence: 18_446_744_073_709_551_616},
+          %{state | outbox: %{state.outbox | key: {1, 0}}},
+          %{state | outbox: %{state.outbox | records: []}},
+          %{state | outbox: %{state.outbox | records: [record, record]}},
+          %{state | outbox: %{state.outbox | records: [%{record | stack: nil}]}},
+          %{state | outbox: %{state.outbox | records: [%{record | uuid: <<0>>}]}},
+          %{
+            state
+            | outbox: %{state.outbox | records: [%{record | stack: ItemStack.new("egg", 17)}]}
+          },
+          %{
+            state
+            | outbox: %{state.outbox | records: Enum.map(1..6, &%{record | uuid: <<&1::128>>})}
+          }
+        ],
+        do: assert(match?({:error, _}, PlayerSnapshot.encode(uuid(), bad)))
+  end
+
+  test "checksummed invalid modern journal fields cannot partially restore inventory" do
+    {:ok, bytes} = PlayerSnapshot.encode(uuid(), pending())
+    payload = binary_part(bytes, 0, byte_size(bytes) - 32)
+    <<header::binary-size(60), _seq::64, length::32, rest::binary>> = payload
+    <<outbox::binary-size(^length), inventory::binary>> = rest
+    <<outbox_prefix::binary-size(8), _version, outbox_rest::binary>> = outbox
+    invalid_outbox = outbox_prefix <> <<2>> <> outbox_rest
+
+    for corrupt <- [
+          seal(header <> <<0::64, length::32>> <> rest),
+          seal(header <> <<7::64, 327_936::32>> <> rest),
+          seal(header <> <<7::64, length + 1::32>> <> rest),
+          seal(header <> <<7::64, length::32>> <> invalid_outbox <> inventory),
+          seal(payload <> <<0>>),
+          seal(header <> <<7::64, 0::32>> <> :binary.copy(<<0>>, 524_289)),
+          :binary.copy(<<0>>, PlayerSnapshot.max_bytes() + 1)
+        ],
+        do: assert({:error, :invalid_player_file} == PlayerSnapshot.decode(corrupt, uuid()))
+  end
 end

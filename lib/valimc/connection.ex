@@ -41,6 +41,7 @@ defmodule Valimc.Connection do
        buffer: <<>>,
        player: nil,
        player_store: nil,
+       store_fence: nil,
        store_monitor: nil,
        save_ref: nil,
        chunks: MapSet.new(),
@@ -99,6 +100,7 @@ defmodule Valimc.Connection do
 
       PlayerStore.checkpoint(
         state.player_store,
+        state.store_fence,
         PlayerSnapshot.capture(state.player, state.inventory),
         ref
       )
@@ -333,18 +335,22 @@ defmodule Valimc.Connection do
       {:error, reason} -> reject(state, reason)
     end
 
-    {store, player, inventory} =
+    {store, fence, player, inventory} =
       case PlayerStore.open(player.uuid) do
-        {:ok, pid, nil} ->
-          {pid, player, state.inventory}
+        {:ok, pid, nil, fence} ->
+          {pid, fence, player, state.inventory}
 
-        {:ok, pid, snapshot} ->
+        {:ok, pid, %{outbox: outbox} = snapshot, fence} when outbox != nil ->
+          {:error, :transfer_pending} = PlayerStore.close(pid, fence, snapshot)
+          reject(state, "Pending item transfer needs recovery; please retry later")
+
+        {:ok, pid, snapshot, fence} ->
           inventory = %{
             snapshot.inventory
             | infinite_materials: state.inventory.infinite_materials
           }
 
-          {pid, Map.merge(player, snapshot.pose), inventory}
+          {pid, fence, Map.merge(player, snapshot.pose), inventory}
 
         {:error, reason} ->
           require Logger
@@ -365,6 +371,7 @@ defmodule Valimc.Connection do
       | threshold: threshold,
         player: player,
         player_store: store,
+        store_fence: fence,
         inventory: inventory,
         store_monitor: Process.monitor(store),
         step: :ack
@@ -954,7 +961,11 @@ defmodule Valimc.Connection do
         end
 
       try do
-        PlayerStore.close(state.player_store, PlayerSnapshot.capture(player, state.inventory))
+        PlayerStore.close(
+          state.player_store,
+          state.store_fence,
+          PlayerSnapshot.capture(player, state.inventory)
+        )
       catch
         :exit, _ ->
           require Logger

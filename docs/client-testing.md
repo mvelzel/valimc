@@ -167,3 +167,19 @@ duplicate-entity/ERROR entries. All 136 tests, release/oracle pass. Observation
 required fresh app binding/Raise initially. F3 was briefly inspected and restored;
 its reduced overlay provided no independent entity count. Entity counts come
 from owner/file assertions. No inventory-originated drop or mouse gesture claim.
+
+VMC-019b2, October 14: release 01:36:53, CUA offline source fixture prepared stone
+7 into retained 4 plus a pinned stone-3 outbox (309-byte version 3 player file).
+Actual localhost login at 01:38:06 displayed the recovery-required rejection;
+the file remained byte-identical and the writer lease was released. Offline source/
+destination APIs committed the item and verified its receipt before clearing the
+outbox. Actual join at 01:38:30 visibly showed HUD count 4 and the glint item model;
+owner/file checks confirmed world count 3, one entity, sequence 1/no pending intent.
+Full restart 01:38:44 and join 01:39:22 retained those results; exact destination
+retry left one entity. Removal visibly cleared it. Offline cleanup restored the
+original empty inventory while retaining sequence 1; final join 01:40:52 showed
+empty hands/hotbar and no item. The 151-byte source file and receipts remain valid,
+and retrying the removed intent cannot recreate it. Private client log has no
+protocol/codec/duplicate-entity/ERROR entries. All 155 tests/release/oracle pass.
+Observation again needed rebinding/Raise. This is API-source recovery evidence;
+automatic source recovery, actual Q/drag/menu-drop controls and physics remain.

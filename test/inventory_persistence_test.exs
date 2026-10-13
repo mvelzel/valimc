@@ -234,18 +234,24 @@ defmodule Valimc.InventoryPersistenceTest do
     base: base
   } do
     uuid = :crypto.strong_rand_bytes(16)
-    {:ok, writer, nil} = PlayerStore.open(uuid)
+    {:ok, writer, nil, writer_fence} = PlayerStore.open(uuid)
     pose = %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0}
     inv = %Inventory{slots: %{9 => ItemStack.new("stone", 7)}}
     snapshot = PlayerSnapshot.capture(pose, inv)
     ref = make_ref()
-    PlayerStore.checkpoint(writer, snapshot, ref)
+    PlayerStore.checkpoint(writer, writer_fence, snapshot, ref)
     assert_receive {:player_saved, ^ref, :ok}
     saved = File.read!(PlayerStore.path(base, uuid))
 
     task =
       Task.async(fn ->
-        PlayerStore.checkpoint(writer, PlayerSnapshot.capture(pose, Inventory.new()), make_ref())
+        PlayerStore.checkpoint(
+          writer,
+          writer_fence,
+          PlayerSnapshot.capture(pose, Inventory.new()),
+          make_ref()
+        )
+
         GenServer.call(writer, :load)
       end)
 
@@ -257,6 +263,7 @@ defmodule Valimc.InventoryPersistenceTest do
 
              PlayerStore.checkpoint(
                writer,
+               writer_fence,
                PlayerSnapshot.capture(pose, %{inv | selected: 9}),
                ref
              )
@@ -265,6 +272,6 @@ defmodule Valimc.InventoryPersistenceTest do
            end) =~ "Player state save failed"
 
     assert File.read!(PlayerStore.path(base, uuid)) == saved
-    assert :ok = PlayerStore.close(writer, snapshot)
+    assert :ok = PlayerStore.close(writer, writer_fence, snapshot)
   end
 end

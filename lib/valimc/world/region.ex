@@ -35,17 +35,20 @@ defmodule Valimc.World.Region do
   def apply_item_transfer({pid, epoch}, transfer),
     do: GenServer.call(pid, {:item_transfer, epoch, transfer}, 6000)
 
+  def item_transfer_receipt({pid, epoch}, source),
+    do: GenServer.call(pid, {:item_transfer_receipt, epoch, source}, 2000)
+
   @impl true
   def init(key) do
     Process.flag(:trap_exit, true)
     {:ok, store} = Store.start_link(key)
     edits = Store.load(store)
 
-    {items, receipts} =
+    {items, receipts, persistent} =
       case Store.load_items(store) do
-        {:ok, %{records: records, receipts: receipts}} ->
+        {:ok, %{records: records, receipts: receipts, persistent: persistent}} ->
           case Items.restore(key, records) do
-            {:ok, items} -> {items, receipts}
+            {:ok, items} -> {items, receipts, persistent}
             {:error, reason} -> exit({:item_load_failed, reason})
           end
 
@@ -75,6 +78,7 @@ defmodule Valimc.World.Region do
        key: key,
        items: items,
        item_receipts: receipts,
+       item_storage_enabled: persistent,
        item_publication: publication,
        item_pending: nil,
        store: store,
@@ -132,6 +136,19 @@ defmodule Valimc.World.Region do
       end
 
     {:reply, reply, state}
+  end
+
+  def handle_call({:item_transfer_receipt, epoch, source}, _from, state) do
+    result =
+      cond do
+        epoch != state.items.epoch -> {:error, :stale_region}
+        not state.item_storage_enabled -> {:error, :transfer_storage_disabled}
+        not (is_binary(source) and byte_size(source) == 16) -> {:error, :invalid_transfer_source}
+        state.item_receipts[source] == nil -> {:error, :missing_transfer_receipt}
+        true -> {:ok, {state.key, state.item_receipts[source]}}
+      end
+
+    {:reply, result, state}
   end
 
   def handle_call({:chunk, key}, from, state) do

@@ -52,8 +52,13 @@ defmodule Valimc.World.Store do
 
   def handle_call({:flush, edits}, _from, state), do: {:reply, write(state.blocks, edits), state}
 
-  def handle_call(:load_items, _from, state),
-    do: {:reply, read_items(state.items, state.key), state}
+  def handle_call(:load_items, _from, state) do
+    result =
+      with {:ok, data} <- read_items(state.items, state.key),
+           do: {:ok, Map.put(data, :persistent, state.items != nil)}
+
+    {:reply, result, state}
+  end
 
   @impl true
   def handle_cast({:snapshot, edits, owner, revision}, state) do

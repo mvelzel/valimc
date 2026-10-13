@@ -61,16 +61,44 @@ still updates owner-local state and ETS without per-packet disk messages.
 
 The UUID lease stays registered through writes and final close; a reconnect
 racing a closing lease is rejected rather than creating a stale competing
-writer. Version 2 files include UUID, XYZ, yaw/pitch, data version 5023, selected
+writer. Versions 2/3 include UUID, XYZ, yaw/pitch, data version 5023, selected
 hotbar, fixed-order supported slot/cursor stacks and SHA-256 checksum. A file is
-at most 524,380 bytes; reading admits at most that limit + 1 before decoding.
+at most 852,327 bytes; reading admits at most that limit + 1 before decoding.
 The previous 88-byte version 1 pose is accepted read-only and migrates on the next
 save. Corrupt/unreadable files reject only that identity and remain untouched.
 Item serialization and file writes stay in the writer. Save errors/timeouts
 disconnect their owner and are logged; killed connections/hard crashes can lose
 state since the last checkpoint. Synced temporary-file replacement is not a
-transaction ledger or a parent-directory crash-durability guarantee. Dimensions,
+complete world transaction ledger or a parent-directory crash-durability guarantee. Dimensions,
 full player state, data fixing and vanilla NBT compatibility remain future work.
+
+Version 3 adds an unsigned 64-bit source sequence and zero/one outbox, bounded at
+327,935 bytes: a pinned region and 1–5 stable-UUID supported item records. Inventory
+encoding keeps its independent 512 KiB limit. Legacy snapshots recover sequence
+zero/no outbox; no-sequence/no-outbox saves retain version 2. Source identity,
+sequence and canonical digest derive from the player file and immutable request.
+Source sequence never wraps and remains after the outbox is cleared.
+
+`PlayerStore.open` returns a session fence. Periodic checkpoints/final close must
+carry it; the writer owns journal fields and ignores supplied replacements for
+them. Its trusted asynchronous prepare API validates before/after inventories and
+component-aware conservation (before = after + batch), then syncs/replaces the
+reduced inventory and intent in one file. Only after that write does it return
+the new fence/snapshot. While an outbox exists, normal checkpoints/close cannot
+roll inventory back. Preparation and completion rotate the fence, so older
+snapshots stay invalid even after completion. Stale/pending close releases the
+lease without writing. Transfer write errors stop the writer with an uncertain
+outcome; recovery reloads the actual file, never an old rollback snapshot.
+
+Completion queries the destination's authoritative owner-fenced receipt and
+requires the exact region/source sequence/digest plus persistent item storage.
+A missing/conflicting/unavailable or ephemeral receipt cannot clear an outbox.
+Clearing preserves the depleted inventory and sequence. Owner loss/reopen uses a
+fresh fence. Nil source storage rejects durable transfer preparation. Source API
+requests are not exposed to clients; future session orchestration must bound
+pending requests and hold inventory mutation until acknowledged. Current login
+rejects a pending outbox without publishing inventory or overwriting the file;
+automatic reconciliation/session drop control is the next slice.
 
 Player inventories are pure bounded structs inside their connection. Creative
 slot writes, selected-hand lookup and hand swaps execute serially in that owner;
@@ -138,8 +166,8 @@ for no-receipt scene writes. Nil storage retains ephemeral in-memory behavior.
 
 This destination contract assumes a durable leased source that admits only one
 outbox, pins UUIDs/destination/sequence, and finishes recovery before advancing.
-The source outbox/checkpoint fencing/session integration are not implemented yet;
-clients cannot invoke this inbox and no inventory is consumed. Source receipts are
+The source outbox/checkpoint fencing API is implemented; automatic recovery and
+gameplay session integration remain. Clients cannot invoke the inbox. Source receipts are
 never evicted merely to make room. Safe source retirement and coordinated backup
 restoration require further fencing; source-cap exhaustion is an explicit rejection.
 
