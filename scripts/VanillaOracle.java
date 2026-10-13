@@ -26,6 +26,10 @@ import net.minecraft.tags.TagNetworkSerialization;
 import net.minecraft.server.packs.repository.KnownPack;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.network.HashedStack;
+import net.minecraft.world.inventory.ContainerInput;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.level.block.Blocks;
@@ -51,6 +55,7 @@ public class VanillaOracle implements AutoCloseable {
   private final Map<String, Integer> seen = new TreeMap<>();
   private int chunks;
   private int expectedChunks;
+  private ClientboundContainerSetContentPacket initialInventory;
 
   private VanillaOracle(int port, String name) throws Exception {
     socket = new Socket("127.0.0.1", port);
@@ -91,6 +96,10 @@ public class VanillaOracle implements AutoCloseable {
     }
     if (seen.getOrDefault("ClientboundRegistryDataPacket", 0) != RegistryDataLoader.SYNCHRONIZED_REGISTRIES.size()) throw new AssertionError("Missing registry");
     if (seen.getOrDefault("ClientboundCommandsPacket", 0) != 1) throw new AssertionError("Missing command graph");
+    if (initialInventory == null || initialInventory.containerId() != 0 || initialInventory.items().size() != 46 ||
+        initialInventory.items().stream().anyMatch(s -> !s.isEmpty()) || !initialInventory.carriedItem().isEmpty())
+      throw new AssertionError("Invalid initial player inventory");
+    if (seen.getOrDefault("ClientboundSetHeldSlotPacket", 0) != 1) throw new AssertionError("Missing initial selection");
   }
 
   /** Exercise the dependency loading that the graphical client's configuration collector performs. */
@@ -160,6 +169,7 @@ public class VanillaOracle implements AutoCloseable {
   private Object readGame() throws Exception {
     Object packet = read(gameIn);
     if (packet instanceof ClientboundCommandsPacket commands) validateCommands(commands);
+    if (packet instanceof ClientboundContainerSetContentPacket inventory && initialInventory == null) initialInventory = inventory;
     if (packet instanceof ClientboundPlayerPositionPacket teleport) {
       var change = teleport.change(); var pos = change.position();
       send(gameOut, new ServerboundAcceptTeleportationPacket(teleport.id(), pos.x, pos.y, pos.z, change.yRot(), change.xRot()));
@@ -214,7 +224,8 @@ public class VanillaOracle implements AutoCloseable {
     }
   }
   private void await(java.util.function.Predicate<Object> predicate) throws Exception {
-    for (int i = 0; i < 300; i++) if (predicate.test(readGame())) return;
+    long deadline = System.nanoTime() + 15_000_000_000L;
+    for (int i = 0; i < 300 && System.nanoTime() < deadline; i++) if (predicate.test(readGame())) return;
     throw new AssertionError("Expected packet not received");
   }
   private static int readVarInt(InputStream in) throws IOException {
@@ -267,11 +278,35 @@ public class VanillaOracle implements AutoCloseable {
       second.await(p -> p instanceof ClientboundBlockUpdatePacket b && b.getPos().equals(new BlockPos(2,64,0)) && b.getBlockState().is(Blocks.STONE));
       first.send(gameOut, new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK, new BlockPos(2,64,0), Direction.UP, 2));
       first.await(p -> p instanceof ClientboundBlockUpdatePacket b && b.getPos().equals(new BlockPos(2,64,0)) && b.getBlockState().isAir());
+      var eggs = new ItemStack(Items.EGG, 16);
+      var planks = new ItemStack(Blocks.OAK_PLANKS, 8);
+      first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(9, eggs));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot() == 9 && ItemStack.matches(s.getItem(), eggs));
+      first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(44, stone));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot() == 44 && ItemStack.matches(s.getItem(), stone));
+      first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(45, planks));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot() == 45 && ItemStack.matches(s.getItem(), planks));
+      first.send(gameOut, new ServerboundSetCarriedItemPacket(8));
+      first.await(p -> p instanceof ClientboundSetHeldSlotPacket s && s.slot() == 8);
+      first.send(gameOut, new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.SWAP_ITEM_WITH_OFFHAND, BlockPos.ZERO, Direction.DOWN, 0));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot() == 44 && ItemStack.matches(s.getItem(), planks));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot() == 45 && ItemStack.matches(s.getItem(), stone));
+      first.send(gameOut, new ServerboundUseItemOnPacket(InteractionHand.OFF_HAND,
+        new BlockHitResult(new Vec3(3.5,64,0.5), Direction.UP, new BlockPos(3,63,0), false), 3));
+      first.await(p -> p instanceof ClientboundBlockUpdatePacket b && b.getPos().equals(new BlockPos(3,64,0)) && b.getBlockState().is(Blocks.STONE));
+      first.send(gameOut, new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK, new BlockPos(3,64,0), Direction.UP, 4));
+      first.await(p -> p instanceof ClientboundBlockUpdatePacket b && b.getPos().equals(new BlockPos(3,64,0)) && b.getBlockState().isAir());
+      first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)9, (byte)0, ContainerInput.PICKUP,
+        new Int2ObjectOpenHashMap<>(), HashedStack.EMPTY));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.items().size() == 46 &&
+        ItemStack.matches(c.items().get(9), eggs) && ItemStack.matches(c.items().get(44), planks) &&
+        ItemStack.matches(c.items().get(45), stone) && c.carriedItem().isEmpty());
+      first.await(p -> p instanceof ClientboundSetCursorItemPacket c && c.contents().isEmpty());
       first.send(gameOut, new ServerboundMovePlayerPacket.PosRot(1.5,64,0.5,90,0,true,false));
       second.await(p -> p instanceof ClientboundMoveEntityPacket.PosRot);
       first.send(gameOut, new ServerboundChatCommandPacket("stats"));
       first.await(p -> p instanceof ClientboundSystemChatPacket c && c.content().getString().contains("schedulers"));
-      System.out.println("PASS: Mojang 26.3 codecs validated compressed login, network registry/tag dependency loading, command graph/local completion, " + first.chunks + " chunks, creative scalar stacks/corrections, two-player visibility, movement, block placement/breaking and commands.");
+      System.out.println("PASS: Mojang 26.3 codecs validated compressed login, network registry/tag dependency loading, command graph/local completion, " + first.chunks + " chunks, full inventory/selection/hand swaps/resynchronization, creative scalar stacks/corrections, two-player visibility, movement, block placement/breaking and commands.");
       System.out.println(first.seen);
     }
   }

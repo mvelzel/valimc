@@ -6,6 +6,7 @@ import net.minecraft.server.Bootstrap;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.data.registries.VanillaRegistries;
+import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 
 /** Extract versioned registry/default facts, never Minecraft implementation source. */
 public class ItemMetadata {
@@ -27,8 +28,13 @@ public class ItemMetadata {
     for (var type : BuiltInRegistries.DATA_COMPONENT_TYPE)
       components.put(BuiltInRegistries.DATA_COMPONENT_TYPE.getKey(type).toString(),
         BuiltInRegistries.DATA_COMPONENT_TYPE.getId(type));
-    var facts = Map.of("version", "26.3", "protocol", 777,
-      "items", items, "components", components);
+    Map<String, Integer> actions = new TreeMap<>();
+    for (var action : ServerboundPlayerActionPacket.Action.values())
+      actions.put(action.name().toLowerCase(Locale.ROOT), action.ordinal());
+    Map<String, Object> facts = new TreeMap<>();
+    facts.put("version", "26.3"); facts.put("protocol", 777);
+    facts.put("items", items); facts.put("components", components);
+    facts.put("player_actions", actions);
     Files.writeString(Path.of(args[0]), new GsonBuilder().setPrettyPrinting().create().toJson(facts) + "\n");
   }
 }

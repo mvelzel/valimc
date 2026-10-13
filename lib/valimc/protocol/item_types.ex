@@ -6,6 +6,7 @@ defmodule Valimc.Protocol.ItemTypes do
   @items @facts["items"]
   @by_id Map.new(@items, fn {name, facts} -> {facts["id"], Map.put(facts, "name", name)} end)
   @components @facts["components"]
+  @actions @facts["player_actions"]
   @component_names Map.new(@components, fn {name, id} -> {id, name} end)
 
   def item(id), do: @by_id[id]
@@ -13,6 +14,7 @@ defmodule Valimc.Protocol.ItemTypes do
   def component(id), do: @component_names[id]
   def component_id(name), do: @components[qualified(name)]
   def component_count, do: map_size(@components)
+  def action_id(name), do: Map.fetch!(@actions, name)
   defp qualified("minecraft:" <> _ = name), do: name
   defp qualified(name), do: "minecraft:" <> name
 end

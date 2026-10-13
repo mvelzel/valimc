@@ -29,6 +29,7 @@ flowchart LR
 | Encoding computation | Supervised task | Immutable chunk snapshot and captured revision |
 | Region file | Region's writer process | Serialized atomic snapshot replacement |
 | Player pose file | Leased session writer | Validated fixed-size snapshot; UUID registration fences reconnects |
+| Player menu inventory | Connection process | Sparse bounded 46-slot map, selected hotbar, cursor and 15-bit state ID |
 
 The admission process is outside the movement and block hot paths. Spatial ETS holds published snapshots; reading another player's snapshot does not grant permission to mutate their state. Independent sessions and region owners are scheduled across available BEAM schedulers.
 
@@ -64,6 +65,14 @@ preview bounds. Corrupt/unreadable files reject only that identity and remain
 untouched. Save errors/timeouts disconnect their owner and are logged; killed
 connections and hard crashes can lose changes since the last checkpoint. This
 format has no inventory, dimensions or vanilla NBT compatibility yet.
+
+Player inventories are pure bounded structs inside their connection. Creative
+slot writes, selected-hand lookup and hand swaps execute serially in that owner;
+network snapshots publish accepted state. Startup sends all 46 menu slots.
+Unsupported edits and currently unimplemented click predictions are corrected
+from owner state. Predicted hashes are never accepted as inventory contents.
+Slot storage is separate from region simulation and does not yet persist or
+implement survival/menu transactions, drops or equipment replication.
 
 ## Survival consistency still to implement
 

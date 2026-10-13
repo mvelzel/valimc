@@ -66,7 +66,7 @@ defmodule Valimc.CreativeItemsTest do
 
     {^stone, 2, client} = slot_reply(client, 36)
     player = Enum.find(Valimc.Players.all(), &(&1.name == username))
-    assert :sys.get_state(player.pid).hotbar[0] == stone
+    assert Valimc.Inventory.get(:sys.get_state(player.pid).inventory, 36) == stone
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
     {_, _} = Client.await(client, :play, "system_chat")
   end

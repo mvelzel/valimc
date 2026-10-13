@@ -2,8 +2,8 @@ defmodule Valimc.Connection do
   use GenServer, restart: :temporary, shutdown: 15_000
 
   @moduledoc "A socket-owning process per player, including their protocol and connection-local state."
-  alias Valimc.Protocol.{Data, ItemStack, Packets, Wire}
-  alias Valimc.{Metrics, Players, PlayerStore, World}
+  alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Packets, Wire}
+  alias Valimc.{Inventory, Metrics, Players, PlayerStore, World}
   import Bitwise
 
   def start_link(socket), do: GenServer.start_link(__MODULE__, socket)
@@ -48,9 +48,7 @@ defmodule Valimc.Connection do
        batch_pending: false,
        peers: %{},
        outbound: [],
-       hotbar: %{},
-       inventory_state_id: 0,
-       selected: 0,
+       inventory: Inventory.new(),
        window: System.monotonic_time(:second),
        packets: 0,
        bytes: 0,
@@ -424,11 +422,33 @@ defmodule Valimc.Connection do
 
       "set_carried_item" ->
         <<slot::signed-16>> = payload
-        if slot not in 0..8, do: reject(state, "Invalid hotbar slot")
-        %{state | selected: slot}
+
+        case Inventory.select(state.inventory, slot) do
+          {:ok, inventory} ->
+            send_packets(state, [Packets.held_slot(slot)])
+            %{state | inventory: inventory}
+
+          {:error, _} ->
+            reject(state, "Invalid hotbar slot")
+        end
 
       "set_creative_mode_slot" ->
         creative_slot(state, payload)
+
+      "container_click" ->
+        # Prediction hashes are never authoritative. VMC-005b adds transactions
+        # and the complete click codec; this slice restores the current snapshot.
+        {container, payload} = Wire.take_varint(payload)
+        {_reported_state, _prediction} = Wire.take_varint(payload)
+
+        if container != 0,
+          do: send_packets(state, [Packets.packet("container_close", Wire.varint(container))])
+
+        resync_inventory(state)
+
+      "container_close" ->
+        {_container, <<>>} = Wire.take_varint(payload)
+        resync_inventory(state)
 
       "use_item_on" ->
         place_block(state, payload)
@@ -461,6 +481,8 @@ defmodule Valimc.Connection do
       Packets.health(),
       Packets.spawn_position(),
       Packets.commands(),
+      Packets.inventory(state.inventory),
+      Packets.held_slot(state.inventory.selected),
       Packets.teleport(state.player, state.teleport),
       Packets.packet("game_event", <<13, 0.0::float-32>>),
       Packets.player_info(state.player),
@@ -637,7 +659,30 @@ defmodule Valimc.Connection do
     {action, payload} = Wire.take_varint(payload)
     {position, <<_face, payload::binary>>} = Wire.take_position(payload)
     {sequence, <<>>} = Wire.take_varint(payload)
-    if action in [0, 2] and reachable?(state, position), do: World.set_block(position, 0)
+
+    if action == ItemTypes.action_id("swap_item_with_offhand") do
+      inventory = Inventory.swap_hands(state.inventory)
+
+      send_packets(state, [
+        Packets.container_slot(
+          inventory.state_id,
+          36 + inventory.selected,
+          Inventory.held(inventory, :main)
+        ),
+        Packets.container_slot(inventory.state_id, 45, Inventory.held(inventory, :off))
+      ])
+
+      %{state | inventory: inventory}
+    else
+      break_block_action(state, action, position, sequence)
+    end
+  end
+
+  defp break_block_action(state, action, position, sequence) do
+    if action in [
+         ItemTypes.action_id("start_destroy_block"),
+         ItemTypes.action_id("stop_destroy_block")
+       ] and reachable?(state, position), do: World.set_block(position, 0)
 
     updates =
       if reachable?(state, position),
@@ -651,22 +696,27 @@ defmodule Valimc.Connection do
 
   defp creative_slot(state, <<slot::signed-16, payload::binary>>) do
     case ItemStack.decode(payload, :untrusted) do
-      {:ok, stack} when slot in 36..44 ->
-        state = %{state | hotbar: Map.put(state.hotbar, slot - 36, stack)}
-        correct_creative_slot(state, slot)
+      {:ok, stack} ->
+        case Inventory.creative(state.inventory, slot, stack) do
+          {:ok, inventory} ->
+            send_packets(state, [
+              Packets.container_slot(inventory.state_id, slot, Inventory.get(inventory, slot))
+            ])
 
-      {:ok, _} ->
-        state
+            %{state | inventory: inventory}
 
-      {:unsupported, _names} when slot in 36..44 ->
+          {:error, _} ->
+            send_packets(state, [Packets.chat("Creative slot is unavailable; inventory restored")])
+
+            resync_inventory(state)
+        end
+
+      {:unsupported, _names} ->
         send_packets(state, [
           Packets.chat("This item's components are not supported yet; slot restored")
         ])
 
-        correct_creative_slot(state, slot)
-
-      {:unsupported, _} ->
-        state
+        if slot in 1..45, do: correct_creative_slot(state, slot), else: resync_inventory(state)
 
       {:error, _} ->
         reject(state, "Malformed or invalid creative item")
@@ -674,9 +724,19 @@ defmodule Valimc.Connection do
   end
 
   defp correct_creative_slot(state, slot) do
-    id = rem(state.inventory_state_id + 1, 32768)
-    send_packets(state, [Packets.container_slot(id, slot, state.hotbar[slot - 36])])
-    %{state | inventory_state_id: id}
+    inventory = Inventory.advance(state.inventory)
+
+    send_packets(state, [
+      Packets.container_slot(inventory.state_id, slot, Inventory.get(inventory, slot))
+    ])
+
+    %{state | inventory: inventory}
+  end
+
+  defp resync_inventory(state) do
+    inventory = Inventory.advance(state.inventory)
+    send_packets(state, [Packets.inventory(inventory), Packets.cursor(inventory.carried)])
+    %{state | inventory: inventory}
   end
 
   defp place_block(state, payload) do
@@ -700,9 +760,15 @@ defmodule Valimc.Connection do
         _ -> reject(state, "Invalid block face")
       end
 
-    stack = state.hotbar[state.selected]
+    stack =
+      case hand do
+        0 -> Inventory.held(state.inventory, :main)
+        1 -> Inventory.held(state.inventory, :off)
+        _ -> reject(state, "Invalid interaction hand")
+      end
+
     item = if stack, do: Data.item_block(stack.item_id)
-    if hand == 0 and item != nil and reachable?(state, target), do: World.set_block(target, item)
+    if item != nil and reachable?(state, target), do: World.set_block(target, item)
 
     updates =
       if reachable?(state, target), do: [Packets.block(target, World.get_block(target))], else: []

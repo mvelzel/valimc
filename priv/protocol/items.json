@@ -123,8 +123,6 @@
     "minecraft:written_book_content": 57,
     "minecraft:zombie_nautilus/variant": 106
   },
-  "version": "26.3",
-  "protocol": 777,
   "items": {
     "minecraft:abandoned_camp_map": {
       "id": 1253,
@@ -6842,5 +6840,18 @@
       "id": 1363,
       "max_stack_size": 64
     }
-  }
+  },
+  "player_actions": {
+    "abort_destroy_block": 2,
+    "change_destroy_direction": 1,
+    "drop_all_items": 4,
+    "drop_item": 5,
+    "release_use_item": 6,
+    "stab": 8,
+    "start_destroy_block": 0,
+    "stop_destroy_block": 3,
+    "swap_item_with_offhand": 7
+  },
+  "protocol": 777,
+  "version": "26.3"
 }

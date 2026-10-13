@@ -1,6 +1,6 @@
 defmodule Valimc.TestClient do
   @moduledoc false
-  alias Valimc.Protocol.{Data, Wire}
+  alias Valimc.Protocol.{Data, ItemStack, Wire}
 
   def connect do
     {:ok, socket} =
@@ -66,7 +66,34 @@ defmodule Valimc.TestClient do
   def auto_reply(client, :play, "keep_alive", body),
     do: send_packet(client, :play, "keep_alive", body)
 
+  def auto_reply(client, :play, "container_set_content", body) do
+    {container, body} = Wire.take_varint(body)
+    {state_id, body} = Wire.take_varint(body)
+    {count, body} = Wire.take_varint(body)
+    {items, body} = take_items(body, count, [])
+    {:ok, carried, <<>>} = ItemStack.take(body)
+
+    Map.put(client, :inventory, %{
+      container: container,
+      state_id: state_id,
+      items: items,
+      carried: carried
+    })
+  end
+
+  def auto_reply(client, :play, "set_held_slot", body) do
+    {slot, <<>>} = Wire.take_varint(body)
+    Map.put(client, :selected, slot)
+  end
+
   def auto_reply(client, _, _, _), do: client
+
+  defp take_items(body, 0, items), do: {Enum.reverse(items), body}
+
+  defp take_items(body, count, items) do
+    {:ok, item, body} = ItemStack.take(body)
+    take_items(body, count - 1, [item | items])
+  end
 
   def login(name) do
     client = connect()

@@ -14,6 +14,19 @@ defmodule Valimc.Protocol.Packets do
     ])
   end
 
+  def inventory(inventory) do
+    packet("container_set_content", [
+      Wire.varint(0),
+      Wire.varint(inventory.state_id),
+      Wire.varint(46),
+      Enum.map(Valimc.Inventory.contents(inventory), &ItemStack.encode/1),
+      ItemStack.encode(inventory.carried)
+    ])
+  end
+
+  def held_slot(slot), do: packet("set_held_slot", Wire.varint(slot))
+  def cursor(stack), do: packet("set_cursor_item", ItemStack.encode(stack))
+
   def known_packs do
     packet(
       "select_known_packs",
