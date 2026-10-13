@@ -13,8 +13,8 @@ keep IDs stable and append suffixes rather than renumbering.
 
 | Ticket | Status | Outcome / next gate |
 |---|---|---|
-| [VMC-001](tickets/VMC-001.md) | Verified; publication pending | 17 tests/oracle/release/audit pass; regenerated helper and real-client restart/join/render/stats pass |
-| [VMC-002](tickets/VMC-002.md) | Ready after 001 | Advertise the actual custom commands; validate GUI completion/execution |
+| [VMC-001](tickets/VMC-001.md) | Done — `4f948be`, pushed | Workflow and 19-source survey; baseline tests/oracle/release/audit and actual-client smoke pass |
+| [VMC-002](tickets/VMC-002.md) | Verified; publication pending | Shared command catalog; oracle and actual-client completion, rejection and teleport pass |
 | VMC-003 | Planned | Validated player pose survives reconnect and graceful restart |
 | VMC-004 | Planned | Versioned item/component codecs and synchronized creative slots |
 

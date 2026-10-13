@@ -11,3 +11,14 @@ The previous oracle validated packet syntax using prebuilt vanilla registries. I
 The user confirmed that the flat world rendered after the fix. Computer use initially rejected the unbundled Java process. A local macOS app launcher using the existing official Java runtime made the game discoverable as `local.valimc.minecraft-client`. The separate Launcher installation is **ValiMC computer-use test**. Screenshot capture, mouse navigation through Multiplayer, localhost join/rendering, and keyboard `/stats` execution were then observed through computer use. The displayed response included one player, eight regions, ten schedulers and 63 MiB. This confirms these specific GUI scenarios; it does not establish all creative or survival mechanics. The test server uses `/tmp/valimc-client-test-world`.
 
 The repeatable setup and verification process are documented in `development.md`. Ticket records below will add fresh evidence for each checkpoint; private captures belong under `.local/client-tests/`.
+
+VMC-001: regenerated the local app helper, restarted Minecraft through the
+dedicated Launcher profile, rejoined localhost, observed terrain and `/stats`.
+Workflow/research checkpoint `4f948be` was pushed.
+
+VMC-002: the rebuilt production release advertised help/spawn/stats. Actual
+26.3 screenshots showed `/sta` Tab completion, stats execution, the three-command
+suggestion list, help output and rejection of `/stats extra` and `/missing`.
+F3 verified movement to X = -3.382 and `/spawn` returning to 0.500 / 64.000 /
+0.500. A dropped text-input attempt was retried with exact-field verification.
+See `tickets/VMC-002.md` for automated/oracle evidence and remaining scope.

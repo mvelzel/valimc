@@ -407,6 +407,7 @@ defmodule Valimc.Connection do
       Packets.abilities(),
       Packets.health(),
       Packets.spawn_position(),
+      Packets.commands(),
       Packets.teleport(state.player, state.teleport),
       Packets.packet("game_event", <<13, 0.0::float-32>>),
       Packets.player_info(state.player),
@@ -647,15 +648,17 @@ defmodule Valimc.Connection do
     state
   end
 
-  defp command(state, "help") do
+  defp command(state, input), do: execute_command(state, Valimc.Commands.resolve(input))
+
+  defp execute_command(state, :help) do
     send_packets(state, [
-      Packets.chat("/help · /stats · /spawn. Creative preview, no survival simulation yet.")
+      Packets.chat(Valimc.Commands.help_text())
     ])
 
     state
   end
 
-  defp command(state, "stats") do
+  defp execute_command(state, :stats) do
     stats = Metrics.snapshot()
 
     send_packets(state, [
@@ -667,7 +670,7 @@ defmodule Valimc.Connection do
     state
   end
 
-  defp command(state, "spawn") do
+  defp execute_command(state, :spawn) do
     player = %{state.player | x: 0.5, y: 64.0, z: 0.5}
     teleport = state.teleport + 1
     send_packets(state, [Packets.teleport(player, teleport)])
@@ -681,7 +684,7 @@ defmodule Valimc.Connection do
     })
   end
 
-  defp command(state, _) do
+  defp execute_command(state, :unknown) do
     send_packets(state, [Packets.chat("Unknown command. Use /help.")])
     state
   end

@@ -63,10 +63,17 @@ var minecraft = await cua.getApp("local.valimc.minecraft-client");
 await minecraft.getAXStateAndScreenshot();
 // Derive coordinates from the current screenshot: the game canvas lacks AX controls.
 await minecraft.pressKey("t");
-await minecraft.typeText("/stats");
+await minecraft.getAXStateAndScreenshot();
+await minecraft.paste("/stats", {format: "text"});
+await minecraft.getAXStateAndScreenshot(); // Verify exact field text before submitting.
 await minecraft.pressKey("Return");
 await minecraft.getAXStateAndScreenshot();
 ```
+
+The game can drop rapidly batched text input. Inspect the focused field before
+Return; retry via paste when needed. Menu clicks may only hover a button; use
+observed Tab/Shift+Tab focus and Return when that occurs. Attempted input is not
+evidence of the intended behavior.
 
 Use localhost:25565 and a separate test world, for example:
 

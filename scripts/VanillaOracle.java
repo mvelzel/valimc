@@ -29,6 +29,13 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.*;
 import net.minecraft.world.phys.*;
+import net.minecraft.commands.CommandBuildContext;
+import net.minecraft.world.flag.FeatureFlags;
+import net.minecraft.resources.Identifier;
+import com.mojang.brigadier.*;
+import com.mojang.brigadier.arguments.ArgumentType;
+import com.mojang.brigadier.builder.*;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
 
 /** A real TCP client using Mojang's 26.3 encoders and decoders as an independent oracle. */
 public class VanillaOracle implements AutoCloseable {
@@ -81,6 +88,7 @@ public class VanillaOracle implements AutoCloseable {
       }
     }
     if (seen.getOrDefault("ClientboundRegistryDataPacket", 0) != RegistryDataLoader.SYNCHRONIZED_REGISTRIES.size()) throw new AssertionError("Missing registry");
+    if (seen.getOrDefault("ClientboundCommandsPacket", 0) != 1) throw new AssertionError("Missing command graph");
   }
 
   /** Exercise the dependency loading that the graphical client's configuration collector performs. */
@@ -149,6 +157,7 @@ public class VanillaOracle implements AutoCloseable {
   }
   private Object readGame() throws Exception {
     Object packet = read(gameIn);
+    if (packet instanceof ClientboundCommandsPacket commands) validateCommands(commands);
     if (packet instanceof ClientboundPlayerPositionPacket teleport) {
       var change = teleport.change(); var pos = change.position();
       send(gameOut, new ServerboundAcceptTeleportationPacket(teleport.id(), pos.x, pos.y, pos.z, change.yRot(), change.xRot()));
@@ -171,6 +180,36 @@ public class VanillaOracle implements AutoCloseable {
       } finally { buffer.release(); }
     }
     return packet;
+  }
+
+  private static void validateCommands(ClientboundCommandsPacket packet) throws Exception {
+    var root = packet.getRoot(CommandBuildContext.simple(registries, FeatureFlags.DEFAULT_FLAGS),
+      new ClientboundCommandsPacket.NodeBuilder<Object>() {
+        public ArgumentBuilder<Object, ?> createLiteral(String name) { return LiteralArgumentBuilder.literal(name); }
+        public ArgumentBuilder<Object, ?> createArgument(String name, ArgumentType<?> type, Identifier suggestion) {
+          throw new AssertionError("Unexpected argument node in literal-only preview");
+        }
+        public ArgumentBuilder<Object, ?> configure(ArgumentBuilder<Object, ?> builder, boolean executable, boolean restricted) {
+          if (restricted) throw new AssertionError("Public preview command marked restricted");
+          return executable ? builder.executes(context -> 1) : builder;
+        }
+      });
+    var names = root.getChildren().stream().map(n -> n.getName()).sorted().toList();
+    if (!names.equals(List.of("help", "spawn", "stats"))) throw new AssertionError("Wrong command graph: " + names);
+    var dispatcher = new CommandDispatcher<Object>(root);
+    Object source = new Object();
+    for (String name : names) {
+      if (dispatcher.execute(name, source) != 1) throw new AssertionError("Non-executable command: " + name);
+    }
+    var suggestions = dispatcher.getCompletionSuggestions(dispatcher.parse("sta", source)).join()
+      .getList().stream().map(s -> s.getText()).toList();
+    if (!suggestions.equals(List.of("stats"))) throw new AssertionError("Wrong local completion: " + suggestions);
+    for (String invalid : List.of("stats extra", "stats ", "stats  ", "STATS", "missing", "stats\t")) {
+      try {
+        dispatcher.execute(invalid, source);
+        throw new AssertionError("Invalid command accepted by graph: " + invalid);
+      } catch (CommandSyntaxException expected) { }
+    }
   }
   private void await(java.util.function.Predicate<Object> predicate) throws Exception {
     for (int i = 0; i < 300; i++) if (predicate.test(readGame())) return;
@@ -223,7 +262,7 @@ public class VanillaOracle implements AutoCloseable {
       second.await(p -> p instanceof ClientboundMoveEntityPacket.PosRot);
       first.send(gameOut, new ServerboundChatCommandPacket("stats"));
       first.await(p -> p instanceof ClientboundSystemChatPacket c && c.content().getString().contains("schedulers"));
-      System.out.println("PASS: Mojang 26.3 codecs validated compressed login, network registry/tag dependency loading, " + first.chunks + " chunks, two-player visibility, movement, block placement/breaking and commands.");
+      System.out.println("PASS: Mojang 26.3 codecs validated compressed login, network registry/tag dependency loading, command graph/local completion, " + first.chunks + " chunks, two-player visibility, movement, block placement/breaking and commands.");
       System.out.println(first.seen);
     }
   }

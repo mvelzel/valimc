@@ -47,6 +47,34 @@ defmodule Valimc.ConnectionTest do
     {_body, _} = Client.await(second, :play, "system_chat")
   end
 
+  test "literal commands match Brigadier whitespace and reject arguments and unknown names" do
+    {_, client} = Client.login(name("Commands"))
+    on_exit(fn -> Client.close(client) end)
+    client = Client.load_world(client)
+
+    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
+    {body, client} = Client.await(client, :play, "system_chat")
+    assert :binary.match(body, "schedulers") != :nomatch
+
+    client =
+      Enum.reduce(
+        ["stats extra", "stats ", "stats  ", "STATS", "missing", "stats\t"],
+        client,
+        fn input, client ->
+          Client.send_packet(client, :play, "chat_command", Wire.string(input))
+          {body, client} = Client.await(client, :play, "system_chat")
+          assert :binary.match(body, "Unknown command") != :nomatch
+          client
+        end
+      )
+
+    Client.send_packet(client, :play, "chat_command", Wire.string("help"))
+    {body, _} = Client.await(client, :play, "system_chat")
+
+    for literal <- ["/help", "/stats", "/spawn"],
+        do: assert(:binary.match(body, literal) != :nomatch)
+  end
+
   test "malformed and wrong-version clients do not affect the listener" do
     bad = Client.connect()
     Client.send_raw(bad, <<128, 128, 128, 128, 16>>)
