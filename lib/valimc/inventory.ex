@@ -20,6 +20,53 @@ defmodule Valimc.Inventory do
   def held(inventory, :off), do: get(inventory, 45)
   def cancel_drag(inventory), do: %{inventory | drag: nil}
 
+  @doc "Plans connected-player menu cleanup; overflow requires a world-drop commit."
+  def close(inventory) do
+    returned = [inventory.carried | Enum.map(1..4, &get(inventory, &1))]
+    cleared = Enum.reduce(0..4, cancel_drag(inventory), &put(&2, &1, nil))
+
+    {next, drops} =
+      Enum.reduce(returned, {%{cleared | carried: nil}, []}, fn stack, {next, drops} ->
+        {next, remainder} = return_stack(next, stack)
+        {next, if(remainder, do: [remainder | drops], else: drops)}
+      end)
+
+    with {:ok, next} <- finish(next), do: {:ok, next, Enum.reverse(drops)}
+  end
+
+  defp return_stack(inventory, nil), do: {inventory, nil}
+
+  defp return_stack(inventory, stack) do
+    storage = Enum.to_list(36..44) ++ Enum.to_list(9..35)
+    merge_order = Enum.uniq([36 + inventory.selected, 45 | storage])
+
+    {next, left} =
+      Enum.reduce(merge_order, {inventory, stack.count}, fn slot, {next, left} ->
+        present = get(next, slot)
+
+        # Accepted damageable stacks have maximum 1. They cannot match a
+        # nonempty destination with remaining space, as in vanilla isStackable.
+        if left > 0 and present != nil and compatible?(present, stack) do
+          moved = min(left, max(ItemStack.max_stack_size(present) - present.count, 0))
+          {put(next, slot, sized(present, present.count + moved)), left - moved}
+        else
+          {next, left}
+        end
+      end)
+
+    {next, left} =
+      Enum.reduce(storage, {next, left}, fn slot, {next, left} ->
+        if left > 0 and get(next, slot) == nil do
+          moved = min(left, ItemStack.max_stack_size(stack))
+          {put(next, slot, sized(stack, moved)), left - moved}
+        else
+          {next, left}
+        end
+      end)
+
+    {next, sized(stack, left)}
+  end
+
   def creative(inventory, slot, stack) when is_integer(slot) and slot in 1..45,
     do: inventory |> cancel_drag() |> put(slot, stack) |> finish()
 

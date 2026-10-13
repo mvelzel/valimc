@@ -66,9 +66,11 @@ cross-convert them in Elixir, then ask Mojang to decode the resulting bytes and
 compare semantic equality in both ordinary and delimited formats. A focused
 inventory behavior harness also invokes Mojang's actual menu methods to verify
 collect ordering, direction, triggers, caps, ordinary-slot component preservation,
-creative clone/fill permissions and start-time fill authorization.
-It uses a constructor-free test player only within that development harness;
-world/player lifecycle and equipment locks require their own tests. Temporary
+creative clone/fill permissions, start-time fill authorization and the actual
+inventory-return method's selected/offhand/storage order and overflow effects.
+It uses a constructor-free test player only within that development harness.
+The return harness captures requested drops without simulating item entities.
+World/player lifecycle and equipment locks require their own tests. Temporary
 fixtures are not committed. Mojang also decodes Elixir text containing NUL and
 supplementary Unicode. TCP scenarios then exercise slot updates/corrections.
 

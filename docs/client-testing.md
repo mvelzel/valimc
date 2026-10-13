@@ -86,3 +86,14 @@ All 77 tests, release and full Mojang oracle pass, including start-time permissi
 sampling. Generic-container CLONE and sustained creative-fill input remain pending;
 the ticket is parked and unpushed. Client log has no codec/ERROR entries. See
 `tickets/VMC-005b2c.md` for exact actions, fixture distinctions and remaining scope.
+
+VMC-005b2d1: actual CUA keyboard close/reopen returned cursor 7 to hotbar,
+merged cursor 17 through selected/offhand/storage priority, and returned grid
+eggs 3. Full storage retained selected 63/cursor 10/grid 3 with a limitation
+message; after a capacity fixture, actual close/reopen returned 1/9/3 and cleared
+cursor/grid. Owner counts and custom NBT agree with screenshots. All 86 tests,
+release and full oracle pass. Pickup setup used normal-handler fixtures because
+coordinate clicks failed with `noWindowsAvailable`; app rebinding/Raise/REPL
+reset did not repair them, while screenshots and keyboard input worked. Coupled
+actual mouse pickup remains pending. This ticket is parked/unpushed, and actual
+world drops remain unimplemented. Client log has no codec/ERROR entries.

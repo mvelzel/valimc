@@ -3,6 +3,10 @@ import net.minecraft.server.Bootstrap;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.player.Abilities;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.EntityEquipment;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.util.Prediction;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.Slot;
@@ -21,8 +25,19 @@ public class InventoryBehaviorOracle {
   private static final class ProbePlayer extends Player {
     private ProbePlayer() { super(null, null); }
     public GameType gameMode() { return GameType.CREATIVE; }
+    public ItemEntity drop(ItemStack stack, boolean random, Prediction prediction) {
+      dropped.add(stack.copy());
+      return null;
+    }
   }
   private static Player player;
+  private static final java.util.List<ItemStack> dropped = new java.util.ArrayList<>();
+
+  private static void expectInventory(Inventory inventory, int... counts) {
+    for (int i = 0; i < counts.length; i += 2)
+      if (inventory.getItem(counts[i]).getCount() != counts[i + 1])
+        throw new AssertionError("Wrong returned count at inventory index " + counts[i]);
+  }
   private static final class Menu extends AbstractContainerMenu {
     final SimpleContainer contents = new SimpleContainer(46);
     Menu() {
@@ -113,5 +128,44 @@ public class InventoryBehaviorOracle {
     for (int slot : new int[]{9, 10}) menu.clicked(slot, 9, ContainerInput.QUICK_CRAFT, player);
     menu.clicked(-999, 10, ContainerInput.QUICK_CRAFT, player); menu.expect(0, 9, 64, 10, 64);
     System.out.println("PASS: Mojang 26.3 collect/creative behavior: order, caps, triggers, components, output exclusion, clone/fill permissions and single-target fill no-op.");
+
+    var inventory = new Inventory(player, new EntityEquipment());
+    inventory.setSelectedSlot(2);
+    for (int slot : new int[]{2, 40, 0, 9}) inventory.setItem(slot, shiny.copyWithCount(60));
+    var returning = shiny.copyWithCount(17);
+    inventory.placeItemBackInInventory(returning, false, Prediction.SERVER_ONLY);
+    expectInventory(inventory, 2,64, 40,64, 0,64, 9,64, 1,1);
+    if (!returning.isEmpty() || !ItemStack.matches(inventory.getItem(1), shiny.copyWithCount(1)))
+      throw new AssertionError("Lost returned components or cursor");
+    inventory = new Inventory(player, new EntityEquipment());
+    inventory.setSelectedSlot(7);
+    inventory.setItem(0, new ItemStack(Items.STONE, 7));
+    inventory.setItem(40, new ItemStack(Items.STONE, 8));
+    inventory.placeItemBackInInventory(shiny.copyWithCount(9), false, Prediction.SERVER_ONLY);
+    expectInventory(inventory, 0,7, 40,8, 1,9, 7,0);
+    inventory = new Inventory(player, new EntityEquipment());
+    inventory.setItem(0, new ItemStack(Items.EGG,15));
+    inventory.setItem(40, new ItemStack(Items.EGG,14));
+    inventory.placeItemBackInInventory(new ItemStack(Items.EGG,16), false, Prediction.SERVER_ONLY);
+    expectInventory(inventory, 0,16, 40,16, 1,13);
+    for (boolean infinite : new boolean[]{false, true}) {
+      abilities.instabuild = infinite;
+      inventory = new Inventory(player, new EntityEquipment());
+      for (int i = 0; i < 36; i++) inventory.setItem(i, shiny.copyWithCount(64));
+      inventory.setItem(0, shiny.copyWithCount(63));
+      dropped.clear();
+      inventory.placeItemBackInInventory(shiny.copyWithCount(10), false, Prediction.SERVER_ONLY);
+      expectInventory(inventory, 0,64, 40,0);
+      if (dropped.size() != 1 || !ItemStack.matches(dropped.getFirst(), shiny.copyWithCount(9)))
+        throw new AssertionError("Wrong return overflow effect");
+    }
+    inventory = new Inventory(player, new EntityEquipment());
+    var sword = new ItemStack(Items.IRON_SWORD);
+    sword.set(DataComponents.DAMAGE,17);
+    inventory.setItem(0, sword.copy());
+    inventory.placeItemBackInInventory(sword.copy(), false, Prediction.SERVER_ONLY);
+    expectInventory(inventory, 0,1, 1,1);
+    if (!ItemStack.matches(inventory.getItem(1), sword)) throw new AssertionError("Lost returned damage");
+    System.out.println("PASS: Mojang 26.3 inventory return: selected/offhand/storage order, caps, component identity, nonstackable damage and overflow in both permission modes. Drop effects captured; no item entity simulated.");
   }
 }

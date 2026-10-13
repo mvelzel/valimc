@@ -452,7 +452,7 @@ defmodule Valimc.Connection do
 
       "container_close" ->
         {_container, <<>>} = Wire.take_varint(payload)
-        resync_inventory(state)
+        inventory_close(state)
 
       "use_item_on" ->
         place_block(state, payload)
@@ -741,6 +741,30 @@ defmodule Valimc.Connection do
     inventory = state.inventory |> Inventory.cancel_drag() |> Inventory.advance()
     send_packets(state, [Packets.inventory(inventory), Packets.cursor(inventory.carried)])
     %{state | inventory: inventory}
+  end
+
+  defp inventory_close(state) do
+    case Inventory.close(state.inventory) do
+      {:ok, inventory, []} ->
+        send_packets(state, [Packets.inventory(inventory), Packets.cursor(nil)])
+        %{state | inventory: inventory}
+
+      {:ok, _inventory, [_ | _]} ->
+        send_packets(state, [
+          Packets.chat(
+            "Menu return needs world drops, which are not supported yet; inventory restored"
+          )
+        ])
+
+        resync_inventory(state)
+
+      {:error, _} ->
+        send_packets(state, [
+          Packets.chat("Menu return exceeds inventory limits; inventory restored")
+        ])
+
+        resync_inventory(state)
+    end
   end
 
   defp inventory_click(state, payload) do
