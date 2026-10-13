@@ -27,7 +27,7 @@ defmodule Valimc.ItemRecordsTest do
   test "file recovery preserves UUID, position and patched stacks with fresh runtime identities" do
     records = [record()]
     assert {:ok, bytes} = ItemRecords.encode({-1, -1}, records)
-    assert {:ok, ^records} = ItemRecords.decode(bytes, {-1, -1})
+    assert ItemRecords.decode(bytes, {-1, -1}) == {:ok, %{records: records, receipts: %{}}}
     assert {:ok, first} = Items.restore({-1, -1}, records)
     assert {:ok, second} = Items.restore({-1, -1}, records)
     assert first.epoch != second.epoch
@@ -38,7 +38,8 @@ defmodule Valimc.ItemRecordsTest do
     assert {:error, :missing_item} = Items.find(second, <<0::128>>)
     assert {:error, :invalid_item_uuid} = Items.find(second, <<0>>)
     assert {:ok, empty} = ItemRecords.encode({-1, -1}, [])
-    assert byte_size(empty) == 55 and ItemRecords.decode(empty, {-1, -1}) == {:ok, []}
+    assert byte_size(empty) == 55
+    assert ItemRecords.decode(empty, {-1, -1}) == {:ok, %{records: [], receipts: %{}}}
   end
 
   test "malformed and checksummed invalid records never partially load" do
@@ -110,10 +111,58 @@ defmodule Valimc.ItemRecordsTest do
     assert {:error, :invalid_item_file} = Items.restore({-1, -1}, records)
     legal = Enum.take(records, 8)
     assert {:ok, bytes} = ItemRecords.encode({-1, -1}, legal)
-    assert {:ok, ^legal} = ItemRecords.decode(bytes, {-1, -1})
+    assert {:ok, %{records: ^legal, receipts: %{}}} = ItemRecords.decode(bytes, {-1, -1})
     many = for n <- 1..257, do: %{record() | uuid: <<n::128>>}
     assert {:error, :invalid_item_records} = ItemRecords.encode({-1, -1}, many)
     assert {:error, :invalid_item_file} = Items.restore({-1, -1}, many)
     assert {:ok, _} = ItemRecords.encode({-1, -1}, Enum.take(many, 256))
+  end
+
+  test "version 2 stores bounded receipts and version 1 loads an empty inbox" do
+    source = <<19::128>>
+    receipt = %{sequence: 18_446_744_073_709_551_615, digest: <<23::256>>}
+    receipts = %{source => receipt}
+
+    assert {:ok, <<"VMCITEMS", 2, _::binary>> = bytes} =
+             ItemRecords.encode({-1, -1}, [record()], receipts)
+
+    assert {:ok, %{records: [restored], receipts: ^receipts}} =
+             ItemRecords.decode(bytes, {-1, -1})
+
+    assert restored == record()
+    assert {:ok, old} = ItemRecords.encode({-1, -1}, [record()])
+    assert ItemRecords.decode(old, {-1, -1}) == {:ok, %{records: [record()], receipts: %{}}}
+    all = Map.new(1..4096, &{<<&1::128>>, receipt})
+    assert {:ok, full} = ItemRecords.encode({-1, -1}, [], all)
+    assert byte_size(full) == 57 + 4096 * 56
+    assert {:ok, %{records: [], receipts: ^all}} = ItemRecords.decode(full, {-1, -1})
+
+    for bad <- [
+          %{source => %{receipt | sequence: 0}},
+          %{source => %{receipt | sequence: 18_446_744_073_709_551_616}},
+          %{source => %{receipt | digest: <<0>>}},
+          %{<<0>> => receipt},
+          Map.put(all, <<4097::128>>, receipt),
+          []
+        ],
+        do: assert({:error, :invalid_item_records} == ItemRecords.encode({-1, -1}, [], bad))
+  end
+
+  test "invalid duplicate truncated and oversized receipts reject the entire file" do
+    receipt = <<19::128, 1::64, 23::256>>
+    zero = <<19::128, 0::64, 23::256>>
+
+    for body <- [
+          <<4097::16>>,
+          <<1::16>>,
+          <<1::16>> <> zero,
+          <<2::16>> <> receipt <> receipt,
+          <<1::16>> <> binary_part(receipt, 0, byte_size(receipt) - 1),
+          <<1::16>> <> receipt <> <<0>>
+        ] do
+      assert {:error, :invalid_item_file} = ItemRecords.decode(file(0, body, 2), {-1, -1})
+    end
+
+    assert {:error, :invalid_item_file} = ItemRecords.decode(file(0, <<>>, 3), {-1, -1})
   end
 end

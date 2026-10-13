@@ -17,6 +17,8 @@ defmodule Valimc.Application do
        max_children: Valimc.config(:max_connections)},
       {Task.Supervisor,
        name: Valimc.ChunkWorkers, max_children: max(System.schedulers_online(), 1)},
+      {Task.Supervisor,
+       name: Valimc.ItemWorkers, max_children: max(System.schedulers_online(), 1)},
       {DynamicSupervisor,
        strategy: :one_for_one,
        name: Valimc.RegionSupervisor,

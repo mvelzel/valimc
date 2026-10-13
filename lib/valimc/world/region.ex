@@ -2,7 +2,7 @@ defmodule Valimc.World.Region do
   use GenServer
 
   @moduledoc "One state owner per region. Bounded supervised encoders share results across players."
-  alias Valimc.World.{Chunk, Items, Store}
+  alias Valimc.World.{Chunk, Items, ItemTransfers, Store}
   alias Valimc.Protocol.Packets
 
   def start_link(key),
@@ -31,17 +31,21 @@ defmodule Valimc.World.Region do
 
   def find_item({pid, epoch}, uuid), do: GenServer.call(pid, {:find_item, epoch, uuid})
 
+  # Internal inbox only; source persistence/lease fencing must precede gameplay use.
+  def apply_item_transfer({pid, epoch}, transfer),
+    do: GenServer.call(pid, {:item_transfer, epoch, transfer}, 6000)
+
   @impl true
   def init(key) do
     Process.flag(:trap_exit, true)
     {:ok, store} = Store.start_link(key)
     edits = Store.load(store)
 
-    items =
+    {items, receipts} =
       case Store.load_items(store) do
-        {:ok, records} ->
+        {:ok, %{records: records, receipts: receipts}} ->
           case Items.restore(key, records) do
-            {:ok, items} -> items
+            {:ok, items} -> {items, receipts}
             {:error, reason} -> exit({:item_load_failed, reason})
           end
 
@@ -70,6 +74,7 @@ defmodule Valimc.World.Region do
      %{
        key: key,
        items: items,
+       item_receipts: receipts,
        item_publication: publication,
        item_pending: nil,
        store: store,
@@ -100,6 +105,19 @@ defmodule Valimc.World.Region do
 
   def handle_call({:remove_item, epoch, id, revision}, from, state),
     do: item_request(epoch, from, state, fn -> Items.remove(state.items, epoch, id, revision) end)
+
+  def handle_call({:item_transfer, epoch, transfer}, from, state) do
+    cond do
+      epoch != state.items.epoch ->
+        {:reply, {:error, :stale_region}, state}
+
+      state.item_pending != nil ->
+        {:reply, {:error, :item_storage_busy}, state}
+
+      true ->
+        plan_transfer(transfer, from, state)
+    end
+  end
 
   def handle_call({:find_item, epoch, uuid}, _from, state) do
     result =
@@ -189,12 +207,56 @@ defmodule Valimc.World.Region do
   defp item_result({:ok, items}, from, state), do: commit_items(items, :ok, from, state)
   defp item_result({:error, _} = error, _from, state), do: {:reply, error, state}
 
-  defp commit_items(items, reply, from, state) do
+  defp commit_items(items, reply, from, state),
+    do: commit_items(items, reply, from, state, state.item_receipts)
+
+  defp commit_items(items, reply, from, state, receipts) do
     token = make_ref()
     timer = Process.send_after(self(), {:item_commit_deadline, token}, 5000)
-    Store.commit_items(state.store, items, self(), token)
-    pending = %{token: token, timer: timer, items: items, reply: reply, from: from}
+    Store.commit_items(state.store, items, receipts, self(), token)
+
+    pending = %{
+      phase: :writing,
+      token: token,
+      timer: timer,
+      items: items,
+      receipts: receipts,
+      reply: reply,
+      from: from
+    }
+
     {:noreply, %{state | item_pending: pending}}
+  end
+
+  defp plan_transfer(transfer, from, state) do
+    owner = self()
+    token = make_ref()
+    items = state.items
+    receipts = state.item_receipts
+    key = state.key
+
+    case Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
+           result = ItemTransfers.plan(items, receipts, key, transfer)
+           send(owner, {:item_transfer_plan, self(), token, result})
+         end) do
+      {:ok, worker} ->
+        pending = %{
+          phase: :planning,
+          token: token,
+          from: from,
+          worker: worker,
+          monitor: Process.monitor(worker),
+          timer: Process.send_after(self(), {:item_commit_deadline, token}, 5000)
+        }
+
+        {:noreply, %{state | item_pending: pending}}
+
+      {:error, :max_children} ->
+        {:reply, {:error, :item_workers_busy}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, {:item_worker_failed, reason}}, state}
+    end
   end
 
   defp put_edit(edits, {_, y, _} = pos, block) do
@@ -242,18 +304,56 @@ defmodule Valimc.World.Region do
 
   @impl true
   def handle_info(
+        {:item_transfer_plan, worker, token, result},
+        %{item_pending: %{phase: :planning, worker: worker, token: token} = pending} = state
+      ) do
+    Process.demonitor(pending.monitor, [:flush])
+
+    case result do
+      {:ok, items, receipts, :applied} ->
+        Store.commit_items(state.store, items, receipts, self(), token)
+
+        writing =
+          pending
+          |> Map.drop([:worker, :monitor])
+          |> Map.merge(%{
+            phase: :writing,
+            items: items,
+            receipts: receipts,
+            reply: {:ok, :applied}
+          })
+
+        {:noreply, %{state | item_pending: writing}}
+
+      {:ok, _, _, :already_applied} ->
+        Process.cancel_timer(pending.timer)
+        GenServer.reply(pending.from, {:ok, :already_applied})
+        {:noreply, %{state | item_pending: nil}}
+
+      {:error, _} = error ->
+        Process.cancel_timer(pending.timer)
+        GenServer.reply(pending.from, error)
+        {:noreply, %{state | item_pending: nil}}
+    end
+  end
+
+  def handle_info({:item_transfer_plan, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info(
         {:items_saved, writer, token, :ok},
-        %{store: writer, item_pending: %{token: token} = pending} = state
+        %{store: writer, item_pending: %{phase: :writing, token: token} = pending} = state
       ) do
     Process.cancel_timer(pending.timer)
     :ets.insert(state.item_publication, {:items, pending.items.views})
     GenServer.reply(pending.from, pending.reply)
-    {:noreply, %{state | items: pending.items, item_pending: nil}}
+
+    {:noreply,
+     %{state | items: pending.items, item_receipts: pending.receipts, item_pending: nil}}
   end
 
   def handle_info(
         {:items_saved, writer, token, {:error, reason}},
-        %{store: writer, item_pending: %{token: token} = pending} = state
+        %{store: writer, item_pending: %{phase: :writing, token: token} = pending} = state
       ) do
     Process.cancel_timer(pending.timer)
     GenServer.reply(pending.from, {:error, :item_commit_uncertain})
@@ -296,6 +396,15 @@ defmodule Valimc.World.Region do
       else: {:noreply, state}
   end
 
+  def handle_info(
+        {:DOWN, ref, :process, worker, _},
+        %{item_pending: %{phase: :planning, monitor: ref, worker: worker} = pending} = state
+      ) do
+    Process.cancel_timer(pending.timer)
+    GenServer.reply(pending.from, {:error, :item_plan_failed})
+    {:noreply, %{state | item_pending: nil}}
+  end
+
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
     case Enum.find(state.jobs, fn {_, job} -> job.monitor == ref end) do
       {key, job} ->
@@ -335,6 +444,9 @@ defmodule Valimc.World.Region do
     if state.item_pending do
       Process.cancel_timer(state.item_pending.timer)
       GenServer.reply(state.item_pending.from, {:error, :item_commit_uncertain})
+
+      if state.item_pending.phase == :planning and Process.whereis(Valimc.ItemWorkers) != nil,
+        do: Task.Supervisor.terminate_child(Valimc.ItemWorkers, state.item_pending.worker)
     end
 
     for {_, job} <- state.jobs,

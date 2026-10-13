@@ -101,7 +101,8 @@ retains ephemeral behavior. IDs are reallocated rather than persisted; numeric I
 may coincide across separate VM lifetimes. UUIDs provide persistent identity.
 
 Item writes use the existing linked region writer and a separate checksummed
-`r.X.Z.items` file (version 1/data version 5023), at most 524,343 bytes. Reads admit
+`r.X.Z.items` file (versions 1/2, data version 5023), at most 753,721 bytes. Version
+1 contains items only; version 2 adds bounded retry receipts. Reads admit
 at most that limit + 1 before parsing at most 256 records. Malformed records,
 duplicate UUIDs, wrong region/coordinates, unsupported/empty stacks, versions and
 checksums reject that region's load without overwriting its file. These are custom
@@ -116,7 +117,31 @@ leave an uncertain commit outcome. The owner is fenced/stopped and the actual
 file is reloaded; it never writes an older item snapshot over a possible commit.
 Block snapshots cannot overwrite item files. UUID lookup obtains a fresh current
 handle. Synced replacement does not guarantee parent-directory/power-loss
-durability, an exactly-once create retry or an inventory/world transaction.
+durability or an inventory/world transaction. The ordinary scene create API still
+has an uncertain retry outcome.
+
+The internal item inbox admits 1–5 stable-UUID records and one positive unsigned
+64-bit sequence from a trusted source UUID. A separate supervised `ItemWorkers`
+pool, bounded by scheduler count, prepares pure plans from immutable owner state.
+Each region retains one planning/writing operation with a shared five-second
+deadline. Worker saturation rejects rather than queues. Worker/token/monitor
+fencing discards stale results; no disk proposal exists until planning succeeds.
+The owner continues ticks and block operations while preparation/storage runs.
+
+Each region retains at most 4096 source sequence/digest receipts. Equal sequence
+and canonical digest acknowledges an exact retry without disk work or entity
+recreation. Conflicting equal sequences and older sequences reject. A new batch
+and its advancing receipt commit in one item file replacement; removal/replacement
+keeps the receipt. The file admits at most 524,288 bytes of item payload and 4096
+fixed 56-byte receipts. Version 1 loads with an empty receipt map and is retained
+for no-receipt scene writes. Nil storage retains ephemeral in-memory behavior.
+
+This destination contract assumes a durable leased source that admits only one
+outbox, pins UUIDs/destination/sequence, and finishes recovery before advancing.
+The source outbox/checkpoint fencing/session integration are not implemented yet;
+clients cannot invoke this inbox and no inventory is consumed. Source receipts are
+never evicted merely to make room. Safe source retirement and coordinated backup
+restoration require further fencing; source-cap exhaustion is an explicit rejection.
 
 Observers sample publications in up to 64 subscribed regions and already-sent
 chunks, retaining at most 1024 item identities/revisions. Each 50 ms interval
@@ -131,7 +156,7 @@ policies, not vanilla tracking-distance parity.
 This scene API does not consume inventory. Zero velocity/no gravity keep its
 scope independent of tick physics and region transfers. Creation timeout is an
 uncertain outcome and must not trigger a blind retry. Complete entity persistence,
-a recoverable transfer ledger, inventory ownership, merging, pickup, despawn,
+a complete recoverable transfer ledger, inventory ownership, merging, pickup, despawn,
 collision and cross-region movement remain required gameplay foundations.
 
 ## Survival consistency still to implement

@@ -98,6 +98,15 @@ overwrite it with the old owner snapshot. Actual Minecraft must observe region/
 release recovery without reseeding, then durable removal through another restart.
 Nil storage retains ephemeral test behavior. Item files/captures remain ignored.
 
+VMC-019b1 inbox tests also cover canonical exact/conflicting/stale retries, retained
+receipts after removal/recovery, multi-item atomic admission, count/byte/source
+limits, version 1 migration, receipt corruption, bounded CPU worker saturation/loss/
+deadline and physical commit with withheld acknowledgment. Actual Minecraft must
+render the internal fixture, retain one entity on retry, then remain clear after
+removal/retry and full restart/retry. This is destination evidence, not a player
+outbox or actual Q/drop-control test. Fixture source UUIDs are separate from real
+player sequence history. Never purge receipts to bypass a capacity failure.
+
 Player persistence checks cover versioned pose/inventory encoding, exact supported
 patches/removals, selection, invalid/truncated/oversized files, read-only legacy
 migration, session authority reset and UUID writer leases. TCP scenarios assert

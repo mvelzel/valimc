@@ -12,8 +12,8 @@ defmodule Valimc.World.Store do
   def flush(pid, edits), do: GenServer.call(pid, {:flush, edits}, 15_000)
   def load_items(pid), do: GenServer.call(pid, :load_items)
 
-  def commit_items(pid, items, owner, token),
-    do: GenServer.cast(pid, {:items, Items.records(items), owner, token})
+  def commit_items(pid, items, receipts, owner, token),
+    do: GenServer.cast(pid, {:items, Items.records(items), receipts, owner, token})
 
   def item_path(nil, _), do: nil
   def item_path(base, {rx, rz}), do: Path.join(base, "r.#{rx}.#{rz}.items")
@@ -72,23 +72,23 @@ defmodule Valimc.World.Store do
     {:noreply, state}
   end
 
-  def handle_cast({:items, records, owner, token}, state) do
+  def handle_cast({:items, records, receipts, owner, token}, state) do
     result =
-      with {:ok, bytes} <- ItemRecords.encode(state.key, records),
+      with {:ok, bytes} <- ItemRecords.encode(state.key, records, receipts),
            do: write_items(state.items, bytes)
 
     send(owner, {:items_saved, self(), token, result})
     {:noreply, state}
   end
 
-  defp read_items(nil, _key), do: {:ok, []}
+  defp read_items(nil, _key), do: {:ok, %{records: [], receipts: %{}}}
 
   defp read_items(path, key) do
     case File.open(path, [:read, :binary], fn io ->
            IO.binread(io, ItemRecords.max_bytes() + 1)
          end) do
       {:ok, bytes} when is_binary(bytes) -> ItemRecords.decode(bytes, key)
-      {:error, :enoent} -> {:ok, []}
+      {:error, :enoent} -> {:ok, %{records: [], receipts: %{}}}
       {:ok, :eof} -> {:error, :invalid_item_file}
       {:ok, {:error, reason}} -> {:error, reason}
       {:error, reason} -> {:error, reason}

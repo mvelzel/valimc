@@ -36,7 +36,9 @@ keep IDs stable and append suffixes rather than renumbering.
 | VMC-005c | Partially implemented | Supported preview inventories persist; full components/player state, vanilla disconnect lifecycle and NBT/data fixing remain |
 | [VMC-005c1](tickets/VMC-005c1.md) | Done — supported preview recovery validated, local | 111 tests, release/oracle and actual inventory/selection reconnect/restart, carried/grid recovery and corrupt-save rejection/repair pass |
 | [VMC-019a](tickets/VMC-019a.md) | Done — stationary record recovery validated, local | 122 tests, release/oracle and actual region/full restart recovery plus durable removal pass; matching writer acknowledgment precedes publication/reply |
-| VMC-019b | Next foundation for gameplay drops | Durable player outbox/region transfer receipts, stable UUID idempotency and crash/retry reconciliation before inventory consumption; physics/cross-region simulation remain required |
+| VMC-019b | In progress foundations | Durable player outbox/region receipts and crash/retry reconciliation before inventory consumption; physics/cross-region simulation remain required |
+| [VMC-019b1](tickets/VMC-019b1.md) | Done — destination retry foundation validated, local | 136 tests, release/oracle and actual fixture render/retry/removal/full restart/retry pass; player outbox and inventory consumption remain |
+| VMC-019b2 | Next | Durable player outbox/sequence and ordered writer fencing before session drop orchestration |
 
 Only one implementation ticket is active; checkpoints awaiting client validation
 are parked so implementation can continue. Records retain acceptance criteria,

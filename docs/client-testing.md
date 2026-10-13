@@ -152,3 +152,18 @@ returned missing and inventory remained empty. Client log has no protocol/codec/
 duplicate-entity/ERROR entries. All 122 tests, release/oracle and audit pass.
 Window observation needed rebinding/Raise once; one screenshot call returned slowly
 but succeeded. No mouse-input, trajectory, pickup or inventory-drop claim follows.
+
+VMC-019b1, October 14: release restart 01:14:49 and actual CUA keyboard localhost
+join rendered a patched stone-7 inbox fixture at the existing camera. Its version
+2 item file contained one stable-UUID record and one separate fixture-source
+receipt (185 bytes). Exact retry left one authoritative entity/file unchanged;
+the rendered stack remained visible. Removal/retry left no item, preserving the
+receipt in a 113-byte file. Conflicting stack-8 retry rejected without creation.
+Full restart at 01:16:41 and actual rejoin showed no item; retry again returned
+already-applied with zero records/views and the exact receipt/file unchanged.
+Another conflicting retry left the observed world clear. Inventory stayed empty.
+The 01:17:03 localhost join is in the private client log, with no protocol/codec/
+duplicate-entity/ERROR entries. All 136 tests, release/oracle pass. Observation
+required fresh app binding/Raise initially. F3 was briefly inspected and restored;
+its reduced overlay provided no independent entity count. Entity counts come
+from owner/file assertions. No inventory-originated drop or mouse gesture claim.

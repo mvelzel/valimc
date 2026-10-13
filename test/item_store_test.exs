@@ -34,7 +34,7 @@ defmodule Valimc.ItemStoreTest do
 
   defp wait_pending(pid, retries \\ 100) do
     case :sys.get_state(pid).item_pending do
-      nil ->
+      pending when pending == nil or pending.phase == :planning ->
         assert(retries > 0)
         Process.sleep(1)
         wait_pending(pid, retries - 1)
@@ -195,7 +195,7 @@ defmodule Valimc.ItemStoreTest do
     wait_pending(ctx.pid)
     :sys.suspend(ctx.pid)
     :sys.resume(writer)
-    assert {:ok, [%{stack: stack}]} = Store.load_items(writer)
+    assert {:ok, %{records: [%{stack: stack}]}} = Store.load_items(writer)
     assert stack == ItemStack.new("egg", 3)
     owner = replace_owner(ctx, :shutdown)
     assert {:error, :item_commit_uncertain} = Task.await(task)
@@ -234,7 +234,208 @@ defmodule Valimc.ItemStoreTest do
     Store.snapshot(writer, %{}, self(), 31)
     assert_receive {:saved, 31, :ok}
     assert File.read!(path) == bytes
-    assert {:ok, [%{stack: stack}]} = ItemRecords.decode(bytes, ctx.key)
+    assert {:ok, %{records: [%{stack: stack}]}} = ItemRecords.decode(bytes, ctx.key)
     assert stack == ItemStack.new("egg", 3)
+  end
+
+  defp transfer(ctx, sequence \\ 1) do
+    {x, y, z} = ctx.position
+    record = %{uuid: <<sequence::128>>, x: x, y: y, z: z, stack: ItemStack.new("stone", 7)}
+    %{source: <<99::128>>, sequence: sequence, records: [record]}
+  end
+
+  test "transfer receipt survives removal and restart without recreating an item", ctx do
+    request = transfer(ctx)
+    assert {:ok, :applied} = Region.apply_item_transfer(ctx.owner, request)
+    assert {:ok, :already_applied} = Region.apply_item_transfer(ctx.owner, request)
+    assert map_size(World.item_snapshot(ctx.key)) == 1
+    {:ok, handle} = Region.find_item(ctx.owner, hd(request.records).uuid)
+    assert :ok = Region.remove_item(handle)
+    path = Store.item_path(ctx.base, ctx.key)
+    bytes = File.read!(path)
+    assert {:ok, %{records: [], receipts: receipts}} = ItemRecords.decode(bytes, ctx.key)
+    assert receipts[request.source].sequence == 1
+    owner = replace_owner(ctx)
+    assert {:ok, :already_applied} = Region.apply_item_transfer(owner, request)
+    assert World.item_snapshot(ctx.key) == %{} and File.read!(path) == bytes
+    assert :sys.get_state(elem(owner, 0)).item_receipts == receipts
+
+    assert {:error, :stale_region} =
+             Region.apply_item_transfer({elem(owner, 0), elem(ctx.owner, 1)}, request)
+  end
+
+  test "scene updates and block snapshots retain the inbox receipt", ctx do
+    request = transfer(ctx)
+    assert {:ok, :applied} = Region.apply_item_transfer(ctx.owner, request)
+    {:ok, handle} = Region.find_item(ctx.owner, hd(request.records).uuid)
+    assert {:ok, _} = Region.replace_item(handle, ItemStack.new("egg", 3))
+    writer = :sys.get_state(ctx.pid).store
+    Store.snapshot(writer, %{}, self(), 51)
+    assert_receive {:saved, 51, :ok}
+    owner = replace_owner(ctx, :shutdown)
+    assert {:ok, :already_applied} = Region.apply_item_transfer(owner, request)
+    assert map_size(World.item_snapshot(ctx.key)) == 1
+    assert [entry] = Map.values(:sys.get_state(elem(owner, 0)).items.entries)
+    assert entry.stack == ItemStack.new("egg", 3)
+  end
+
+  test "a stalled transfer publishes neither items nor receipts before its acknowledgment", ctx do
+    writer = :sys.get_state(ctx.pid).store
+    :sys.suspend(writer)
+    request = transfer(ctx)
+
+    try do
+      task = Task.async(fn -> Region.apply_item_transfer(ctx.owner, request) end)
+      pending = wait_pending(ctx.pid)
+      assert Task.yield(task, 10) == nil
+      assert :sys.get_state(ctx.pid).item_receipts == %{}
+      assert World.item_snapshot(ctx.key) == %{}
+      assert {:error, :item_storage_busy} = Region.apply_item_transfer(ctx.owner, request)
+      send(ctx.pid, {:items_saved, self(), pending.token, :ok})
+      assert :sys.get_state(ctx.pid).item_receipts == %{}
+      :sys.resume(writer)
+      assert {:ok, :applied} = Task.await(task)
+      assert :sys.get_state(ctx.pid).item_receipts[request.source].sequence == 1
+      :sys.suspend(writer)
+      assert {:ok, :already_applied} = Region.apply_item_transfer(ctx.owner, request)
+      assert {:message_queue_len, 0} = Process.info(writer, :message_queue_len)
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+    end
+  end
+
+  test "physical transfer commit with a withheld reply recovers one item and its receipt", ctx do
+    writer = :sys.get_state(ctx.pid).store
+    :sys.suspend(writer)
+    request = transfer(ctx)
+    task = Task.async(fn -> Region.apply_item_transfer(ctx.owner, request) end)
+    wait_pending(ctx.pid)
+    :sys.suspend(ctx.pid)
+    :sys.resume(writer)
+    assert {:ok, %{records: records, receipts: receipts}} = Store.load_items(writer)
+    assert records == request.records and receipts[request.source].sequence == 1
+    owner = replace_owner(ctx, :shutdown)
+    assert {:error, :item_commit_uncertain} = Task.await(task)
+    assert {:ok, :already_applied} = Region.apply_item_transfer(owner, request)
+    assert map_size(World.item_snapshot(ctx.key)) == 1
+  end
+
+  test "writer loss before transfer commit leaves neither records nor receipts", ctx do
+    writer = :sys.get_state(ctx.pid).store
+    :sys.suspend(writer)
+    request = transfer(ctx)
+    task = Task.async(fn -> Region.apply_item_transfer(ctx.owner, request) end)
+    wait_pending(ctx.pid)
+    ref = Process.monitor(ctx.pid)
+
+    capture_log(fn ->
+      Process.exit(writer, :kill)
+      assert {:error, :item_commit_uncertain} = Task.await(task)
+      assert_receive {:DOWN, ^ref, :process, _, {:store_failed, :killed}}, 1500
+    end)
+
+    {:ok, owner} = World.item_owner(ctx.key)
+    assert :sys.get_state(elem(owner, 0)).item_receipts == %{}
+    assert World.item_snapshot(ctx.key) == %{}
+    assert {:ok, :applied} = Region.apply_item_transfer(owner, request)
+    assert map_size(World.item_snapshot(ctx.key)) == 1
+  end
+
+  test "saturated CPU workers reject without queuing or changing authoritative state", ctx do
+    workers =
+      for _ <- 1..System.schedulers_online() do
+        {:ok, worker} =
+          Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
+            receive do
+              :finish -> :ok
+            end
+          end)
+
+        worker
+      end
+
+    try do
+      assert {:error, :item_workers_busy} = Region.apply_item_transfer(ctx.owner, transfer(ctx))
+      assert :sys.get_state(ctx.pid).item_pending == nil
+      assert World.item_snapshot(ctx.key) == %{}
+      assert not File.exists?(Store.item_path(ctx.base, ctx.key))
+      {x, _, z} = ctx.position
+      assert :ok = World.set_block({floor(x), 64, floor(z)}, 1)
+    after
+      for worker <- workers, do: Task.Supervisor.terminate_child(Valimc.ItemWorkers, worker)
+    end
+
+    assert {:ok, :applied} = Region.apply_item_transfer(ctx.owner, transfer(ctx))
+  end
+
+  # Install a controlled blocked pure job so failure/deadline delivery is deterministic.
+  # No proposal has been sent to the disk writer at this boundary.
+  defp blocked_plan(ctx) do
+    {:ok, worker} =
+      Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
+        receive do
+          :finish -> :ok
+        end
+      end)
+
+    caller =
+      Task.async(fn ->
+        receive do
+          {:plan_reply, result} -> result
+        end
+      end)
+
+    token = make_ref()
+
+    :sys.replace_state(ctx.pid, fn state ->
+      pending = %{
+        phase: :planning,
+        worker: worker,
+        monitor: Process.monitor(worker),
+        token: token,
+        from: {caller.pid, :plan_reply},
+        timer: Process.send_after(self(), {:item_commit_deadline, token}, 5000)
+      }
+
+      %{state | item_pending: pending}
+    end)
+
+    {worker, caller, token}
+  end
+
+  test "pure worker loss clears admission and stale results cannot create an item", ctx do
+    {worker, caller, token} = blocked_plan(ctx)
+    {x, _, z} = ctx.position
+    assert :ok = World.set_block({floor(x), 64, floor(z)}, 1)
+    assert {:error, :item_storage_busy} = Region.apply_item_transfer(ctx.owner, transfer(ctx))
+    Process.exit(worker, :kill)
+    assert {:error, :item_plan_failed} = Task.await(caller)
+    assert :sys.get_state(ctx.pid).item_pending == nil
+
+    result =
+      Valimc.World.ItemTransfers.plan(Valimc.World.Items.new(), %{}, ctx.key, transfer(ctx))
+
+    send(ctx.pid, {:item_transfer_plan, worker, token, result})
+    assert :sys.get_state(ctx.pid).item_receipts == %{}
+    assert World.item_snapshot(ctx.key) == %{}
+    assert not File.exists?(Store.item_path(ctx.base, ctx.key))
+    assert {:ok, :applied} = Region.apply_item_transfer(ctx.owner, transfer(ctx))
+  end
+
+  test "planning deadline fences the owner and terminates its bounded CPU job", ctx do
+    {worker, caller, token} = blocked_plan(ctx)
+    ref = Process.monitor(ctx.pid)
+
+    capture_log(fn ->
+      send(ctx.pid, {:item_commit_deadline, token})
+      assert {:error, :item_commit_uncertain} = Task.await(caller)
+      assert_receive {:DOWN, ^ref, :process, _, :item_storage_timeout}, 1500
+    end)
+
+    refute Process.alive?(worker)
+    {:ok, owner} = World.item_owner(ctx.key)
+    assert :sys.get_state(elem(owner, 0)).item_receipts == %{}
+    assert World.item_snapshot(ctx.key) == %{}
+    assert {:ok, :applied} = Region.apply_item_transfer(owner, transfer(ctx))
   end
 end

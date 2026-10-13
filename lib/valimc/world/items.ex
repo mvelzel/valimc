@@ -69,6 +69,29 @@ defmodule Valimc.World.Items do
 
   def create(_, _, _, _), do: {:error, :invalid_item_position}
 
+  @doc "Creates a stable-UUID inbox record; the caller commits its receipt atomically."
+  def create_record(state, key, %{uuid: <<_::128>> = uuid, x: x, y: y, z: z, stack: stack}) do
+    cond do
+      not valid_position?({x, y, z}) ->
+        {:error, :invalid_item_position}
+
+      Valimc.World.region_key(Valimc.World.chunk_key(x, z)) != key ->
+        {:error, :wrong_region}
+
+      match?({:ok, _}, find(state, uuid)) ->
+        {:error, :duplicate_item_uuid}
+
+      map_size(state.entries) >= @max_items ->
+        {:error, :item_count_limit}
+
+      true ->
+        with {:ok, _} <- metadata(1, stack),
+             do: build_entity(state, stack, {x, y, z}, System.unique_integer([:positive]), uuid)
+    end
+  end
+
+  def create_record(_, _, _), do: {:error, :invalid_item}
+
   def replace(state, epoch, id, revision, stack) do
     with {:ok, entry} <- current(state, epoch, id, revision),
          {:ok, metadata} <- metadata(id, stack) do
