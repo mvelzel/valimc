@@ -22,3 +22,13 @@ suggestion list, help output and rejection of `/stats extra` and `/missing`.
 F3 verified movement to X = -3.382 and `/spawn` returning to 0.500 / 64.000 /
 0.500. A dropped text-input attempt was retried with exact-field verification.
 See `tickets/VMC-002.md` for automated/oracle evidence and remaining scope.
+
+Locked-session validation resumed after the user's authorization. The opt-in
+SDL event-position adapter provides camera rotation and targeted inventory
+clicks. The pinned build, reproduction commands and observed angles are in
+`mouse-testing.md`. VMC-003's reconnect/restart/spawn GUI scenarios pass; a fresh
+phase-transition batch failure remains a code follow-up. VMC-004b1 passed
+creative custom-NBT preservation, placement, deliberate depth rejection and
+reconnect. VMC-005b1's ordinary half pickup passes, but carried-item quick-craft
+and later GUI checks remain pending. These results distinguish injected fixture
+setup from actual computer-use actions and authoritative state checks.

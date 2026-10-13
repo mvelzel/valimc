@@ -61,10 +61,11 @@ under `docs/tickets/` before changing behavior. Keep these records updated.
   Unpushed checkpoints may be amended after validation; never rewrite already
   pushed commits without authorization. Use a `codex/` branch; do not merge or
   force-push without authorization. Report actual commit/push outcomes.
-- Computer-use validation is paused while the user's MacBook is locked. Continue
-  independent code/research/automated work; resume GUI validation only after it
-  is unlocked. Do not mark a ticket Done while its required GUI checks remain.
-  A paused GUI gate must not halt the broader server implementation backlog.
+- The user enabled and authorized computer use while locked (October 13, 2026).
+  Try the enabled computer-use session even if the physical MacBook is locked.
+  If access is unavailable, continue independent code/research/automated work and
+  retain the pending client scenarios. Do not mark a ticket Done while required
+  GUI checks remain. A paused GUI gate must not halt the broader backlog.
 - Research/docs/workflow pieces use the baseline client smoke scenario. Feature
   pieces must exercise their changed behavior and relevant negative cases.
 - Benchmark only when performance/measurement changes. Preserve raw results,

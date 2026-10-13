@@ -30,9 +30,10 @@ creative preview was committed at `4495775`. New ticket checkpoints use branch
    Done means every required check and client scenario passed. A failed push
    remains an unpublished local checkpoint until a normal retry succeeds.
 
-Computer-use validation is paused while the user's MacBook is locked. Continue
-independent implementation/research/automated checks during that pause, retaining
-pending client scenarios. Resume GUI validation after unlocking. Never amend an
+The user enabled and authorized locked-session computer use on October 13, 2026;
+Launcher and actual Minecraft access were observed while locked. Try the enabled
+session. If access is unavailable, continue independent implementation/research/
+automated checks and retain pending client scenarios. Never amend an
 already pushed checkpoint or mark a ticket Done just because automated checks pass.
 Park tickets at `Awaiting client validation` after their automated checkpoint and
 continue the next implementation slice. Tested foundations can support dependent
@@ -55,10 +56,11 @@ git diff --stat
 The server runtime needs no JVM. Our Java 25+ development oracle checks actual
 Mojang packet codecs and network registry/tag dependency loading. This is valuable
 independent evidence, but cannot establish rendering, controls or survival parity.
-Item checks generate eight stack fixtures with Mojang's codecs, decode and
+Item checks generate nine stack fixtures with Mojang's codecs, decode and
 cross-convert them in Elixir, then ask Mojang to decode the resulting bytes and
 compare semantic equality in both ordinary and delimited formats. Temporary
-fixtures are not committed. TCP scenarios then exercise slot updates/corrections.
+fixtures are not committed. Mojang also decodes Elixir text containing NUL and
+supplementary Unicode. TCP scenarios then exercise slot updates/corrections.
 
 ## Actual Minecraft computer use
 
@@ -94,8 +96,8 @@ Return; retry via paste when needed. Menu clicks may only hover a button; use
 observed Tab/Shift+Tab focus and Return when that occurs. Attempted input is not
 evidence of the intended behavior.
 
-See `mouse-testing.md` for the bundled SDL's mouse limitations and the pending
-isolated Cocoa-backend experiment. Record the actual native input backend used
+See `mouse-testing.md` for the bundled SDL's mouse limitations and the isolated
+Cocoa event-position adapter. Record the actual native input backend used
 in GUI tests; seeded pose fixtures do not prove mouse-generated rotation.
 
 Use localhost:25565 and a separate test world, for example:

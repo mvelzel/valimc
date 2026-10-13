@@ -24,7 +24,11 @@ parser.add_argument("--system-mouse", action="store_true",
                     help="Test SDL3 system-scaled mouse input for macOS computer use")
 parser.add_argument("--sdl-library", type=pathlib.Path,
                     help="Experimental SDL3 build with SDL_MAC_USE_GCMOUSE support; use Cocoa mouse events")
+parser.add_argument("--event-position-mouse", action="store_true",
+                    help="Enable the isolated Cocoa event-position adapter in a locally patched SDL")
 args = parser.parse_args()
+if args.event_position_mouse and not args.sdl_library:
+    raise SystemExit("--event-position-mouse requires --sdl-library")
 if sys.platform != "darwin":
     raise SystemExit("This app-identity helper is for macOS. Other platforms use their native app/window selector.")
 runtime = args.java_home or (pathlib.Path.home() / "Library/Application Support/minecraft/runtime/"
@@ -44,6 +48,10 @@ if args.sdl_library:
     library = args.sdl_library.resolve()
     if not library.is_file() or b"SDL_MAC_USE_GCMOUSE" not in library.read_bytes():
         raise SystemExit("Experimental SDL library must support SDL_MAC_USE_GCMOUSE (SDL 3.6+ development)")
+    if args.event_position_mouse:
+        if b"VALIMC_CUA_EVENT_POSITION" not in library.read_bytes():
+            raise SystemExit("SDL library does not contain the local event-position adapter")
+        mouse_hint += '  setenv("VALIMC_CUA_EVENT_POSITION", "1", 1);\n'
     mouse_hint += f'''  setenv("SDL_MAC_USE_GCMOUSE", "0", 0);
   char **overridden = calloc((size_t)argc + 2, sizeof(char *));
   if (!overridden) return 1;

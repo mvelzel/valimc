@@ -15,15 +15,16 @@ keep IDs stable and append suffixes rather than renumbering.
 |---|---|---|
 | [VMC-001](tickets/VMC-001.md) | Done — `4f948be`, pushed | Workflow and 19-source survey; baseline tests/oracle/release/audit and actual-client smoke pass |
 | [VMC-002](tickets/VMC-002.md) | Done — `b5a2c72`, pushed | Shared command catalog; oracle and actual-client completion, rejection and teleport pass |
-| [VMC-003](tickets/VMC-003.md) | Awaiting client validation — `5341f15`, unpushed | Player pose persistence; remaining client scenarios paused while MacBook is locked |
+| [VMC-003](tickets/VMC-003.md) | Awaiting failure-boundary follow-up — `5341f15`, unpushed | Reconnect, mouse rotation, restart and spawn client scenarios pass; fresh phase-transition batch regression pending |
 | [VMC-004a](tickets/VMC-004a.md) | Awaiting client validation — `6dc5dd3`, unpushed | Bounded stack/scalar codecs and creative hotbar corrections; automated/oracle checks pass |
 | VMC-004b | Planned | Names/lore/NBT and compound or registry-backed component codecs |
 | [VMC-004b1](tickets/VMC-004b1.md) | Done — local, unpushed | Bounded network NBT/custom data; 58 tests, Mojang codecs, release and actual-client positive/rejection/reconnect pass |
 | VMC-004b2 | Planned | Validated text/name/lore and enchantment component schemas |
 | [VMC-005a](tickets/VMC-005a.md) | Awaiting client validation — `123d1d0`, unpushed | Owner-local 46-slot menu, selection/offhand/swap/resync; 41 tests and Mojang oracles pass |
 | VMC-005b | Planned | Hashed click codec, authoritative pickup/swap/shift/drag transactions |
-| [VMC-005b1](tickets/VMC-005b1.md) | Awaiting client validation — `67c34ad`, unpushed | Bounded predictions and basic pickup/split/merge/shift/swap; 51 tests and Mojang oracle pass |
+| [VMC-005b1](tickets/VMC-005b1.md) | Awaiting client validation — `67c34ad`, unpushed | 51 tests/oracle pass; actual half pickup passes, carried-item GUI placement awaits quick-craft support |
 | VMC-005b2 | Planned | Drag/collect, cursor return on close, crafting-slot constraints and drops |
+| VMC-005b2a | Next | Bounded quick-craft state machine and ordinary-client placement/drag verification |
 | VMC-005c | Planned | Versioned inventory persistence and reconnect/restart recovery |
 
 Only one implementation ticket is active; checkpoints awaiting client validation
