@@ -1,8 +1,10 @@
 # Development and verification process
 
 Target: full vanilla Java **26.3 / protocol 777** compatibility. The current
-creative preview was committed at `4495775`. New ticket checkpoints use branch
-`codex/minecraft-implementation`. The roadmap is a backlog, not implemented parity.
+creative preview was committed at `4495775`. The user requested direct commits
+and normal pushes to `main` on October 13, 2026, superseding the initial
+`codex/minecraft-implementation` branch workflow. No PR is required. The roadmap
+is a backlog, not implemented parity.
 
 ## One ticket, one verified checkpoint
 
@@ -26,7 +28,10 @@ creative preview was committed at `4495775`. New ticket checkpoints use branch
    and check client/server logs. Test reconnect/restart if persistence is involved.
 7. Record evidence and limitations, update roadmap/compatibility notes, review
    the diff and public-tree audit, amend the unpushed ticket checkpoint if needed,
-   and push the branch after required client checks pass.
+   and push `main` after required client checks pass. An explicit user request
+   to publish checkpoints can override withholding a push; it does not turn
+   pending tests into passes. The October 13 request to push all work includes
+   VMC-005b2a's automated-verified checkpoint with its gesture gate still pending.
    Done means every required check and client scenario passed. A failed push
    remains an unpublished local checkpoint until a normal retry succeeds.
 

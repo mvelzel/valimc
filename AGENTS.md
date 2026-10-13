@@ -57,10 +57,14 @@ under `docs/tickets/` before changing behavior. Keep these records updated.
 - Review the exact diff and public-tree audit, update the roadmap, then make a
   coherent local commit after automated checks. The user explicitly permits local
   checkpoints before manual validation (October 13, 2026). Mark remaining GUI
-  checks pending and keep these commits unpushed until client validation passes.
+  checks pending and keep these commits unpushed until client validation passes,
+  unless the user explicitly requests publishing the checkpoints. The current
+  request to push all work to `main` includes VMC-005b2a's automated-verified
+  checkpoint; retain its outstanding sustained-gesture gate without marking Done.
   Unpushed checkpoints may be amended after validation; never rewrite already
-  pushed commits without authorization. Use a `codex/` branch; do not merge or
-  force-push without authorization. Report actual commit/push outcomes.
+  pushed commits without authorization. The user explicitly requested direct
+  commits and normal pushes to `main` (October 13, 2026); no review branch or PR
+  is required. Do not force-push without authorization. Report actual outcomes.
 - The user enabled and authorized computer use while locked (October 13, 2026).
   Try the enabled computer-use session even if the physical MacBook is locked.
   If access is unavailable, continue independent code/research/automated work and
