@@ -1,0 +1,56 @@
+# Ownership, concurrency and consistency
+
+The BEAM is useful here because many players, sockets, regions and background jobs can progress independently. Actor ownership defines where mutations are serialized; it does not make shared gameplay rules automatically independent.
+
+```mermaid
+flowchart LR
+  TCP[TCP acceptors] --> P[Player connection processes]
+  P --> PI[(Player snapshots and spatial ETS index)]
+  PI --> P
+  P --> R[Region owners]
+  R --> E[Bounded chunk encoder tasks]
+  E --> R
+  R --> S[Per-region snapshot writers]
+  S --> D[(Region files)]
+  R --> V[Spatial block subscriptions]
+  V --> P
+```
+
+## Owners
+
+| State | Owner | Access |
+|---|---|---|
+| Socket and protocol phase | Connection process | Sequential packet handling; bounded TCP input |
+| Authoritative preview player state | Connection process | Actor-local state, published ETS snapshot |
+| Admission, names, lifecycle | Players process | One call at admission/ready; monitors at exit |
+| Spatial membership | Player process, cleanup by Players | Public ETS index; concurrent readers |
+| Block overrides and chunk revisions | Region process | Ordered calls within that region |
+| Encoded chunk cache | Region process | Immutable binaries shared with callers |
+| Encoding computation | Supervised task | Immutable chunk snapshot and captured revision |
+| Region file | Region's writer process | Serialized atomic snapshot replacement |
+
+The admission process is outside the movement and block hot paths. Spatial ETS holds published snapshots; reading another player's snapshot does not grant permission to mutate their state. Independent sessions and region owners are scheduled across available BEAM schedulers.
+
+## Replication and pressure
+
+Observers sample nearby player IDs from the spatial index every 50 ms, fetch one current snapshot at a time, compare compact quantized views, and batch changes into one socket write. These observations are eventually consistent. They are suitable for network replication; future collision and combat need region-authoritative simulation snapshots instead.
+
+Moving entities therefore do not enqueue an event for every visible recipient. Dense visibility still requires roughly quadratic packet output: every player can see every other player. Concurrency cannot remove that protocol/bandwidth cost. Interest management limits the scope to nearby regions and the configured view radius.
+
+Reliable block/chat/lifecycle messages retain a mailbox limit. Slow sockets have send timeouts. Clients acknowledge bounded chunk batches before receiving another batch. Packet parsing yields after 64 frames and rejects oversized frames, decompression overruns and excess packet/decoded-byte rates.
+
+Chunk tasks are limited to the scheduler count. A region holds at most one encoding job for a requested chunk and combines its waiters. Edits increase a chunk revision and invalidate its cache. A result from an older revision is discarded and re-encoded. Tasks do not block the region owner while computing.
+
+## Failure and storage
+
+Connections are temporary supervised children; losing one does not recreate every connection. Region owners are recreated lazily after failure. The root supervisor restarts dependent children after an infrastructure owner dies; restarting the listener preserves existing socket owners.
+
+Region writers are linked to their owners. Writers serialize snapshot replacement through a synchronized temporary file and rename. Periodic saves acknowledge their revision; newer edits retain the dirty flag. Graceful shutdown flushes dirty state. This is a snapshot store, not an Anvil implementation or a transaction log, and hard crashes may lose unsaved edits.
+
+## Survival consistency still to implement
+
+Fixed 8×8-chunk ownership is sufficient for this independent-edit preview. Redstone, fluids, explosions, entity AI and collision involve neighboring state. They must use an explicit boundary protocol before parallel survival ticks are enabled.
+
+The intended progression is deterministic region ticks over owned state, buffered boundary events assigned to a logical tick, and immutable neighbor snapshots. Entity transfer should use a monitored handoff with a transfer epoch, source fencing, destination acknowledgment and rollback; a connection process stays stable through that transfer. Operations requiring atomic writes across regions need a defined coordinator/order and failure recovery. These mechanisms currently remain design work.
+
+Region ticks have absolute deadlines and avoid an unbounded catch-up queue. There is currently no meaningful survival TPS benchmark because the simulation callbacks do not yet run survival mechanics.

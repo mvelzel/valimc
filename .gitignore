@@ -1,0 +1,16 @@
+/_build/
+/deps/
+/research/sources/
+/research/vanilla-bundle/
+/research/*.jar
+/research/generated/
+/research/java-tools/
+/research/logs/
+/world/
+/bench/results/
+/test-support/node_modules/
+erl_crash.dump
+.DS_Store
+/logs/
+__pycache__/
+/.local/

@@ -1,0 +1,24 @@
+import Config
+
+config :valimc,
+  ip: {127, 0, 0, 1},
+  port: 25565,
+  acceptors: 8,
+  max_connections: 2048,
+  max_players: 512,
+  max_regions: 1024,
+  view_distance: 3,
+  region_size: 8,
+  world_path: "world",
+  motd: "ValiMC · Elixir/OTP · 26.3 development server",
+  max_packet_bytes: 2_097_152,
+  max_mailbox: 256,
+  packets_per_second: 400,
+  bytes_per_second: 4_194_304,
+  compression_threshold: 256,
+  login_timeout_ms: 15_000,
+  keepalive_interval_ms: 10_000,
+  keepalive_timeout_ms: 30_000
+
+config :logger, :console, format: "$time $metadata[$level] $message\n"
+import_config "#{config_env()}.exs"

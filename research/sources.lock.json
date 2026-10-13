@@ -1,0 +1,100 @@
+{
+  "researched_on": "2026-10-13",
+  "repositories": [
+    {
+      "name": "ferrumc",
+      "url": "https://github.com/ferrumc-rs/ferrumc.git",
+      "commit": "51830e99675deae1f6cdbb62bf5d32b3d25c1c76",
+      "date": "2026-08-15T00:03:31+09:00",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "folia",
+      "url": "https://github.com/PaperMC/Folia.git",
+      "commit": "acf6733ddebcb4b1cd07360d11370c530b8125a2",
+      "date": "2026-09-22T16:10:28+02:00",
+      "license_files": [
+        "PATCHES-LICENSE"
+      ]
+    },
+    {
+      "name": "mcprotocollib",
+      "url": "https://github.com/GeyserMC/MCProtocolLib.git",
+      "commit": "76480d6d6f299c68ecbeafc7a75ce0daaf816fba",
+      "date": "2026-10-12T10:19:05Z",
+      "license_files": [
+        "LICENSE.txt"
+      ]
+    },
+    {
+      "name": "minecraft-data",
+      "url": "https://github.com/PrismarineJS/minecraft-data.git",
+      "commit": "dd01127457231e7da629d645b3c6738068018eb0",
+      "date": "2026-10-11T21:34:42Z",
+      "license_files": []
+    },
+    {
+      "name": "minecraft-protocol",
+      "url": "https://github.com/PrismarineJS/node-minecraft-protocol.git",
+      "commit": "1c83189272348b9e12076465a748a5ecdd14acce",
+      "date": "2026-10-03T11:19:41-07:00",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "minestom",
+      "url": "https://github.com/Minestom/Minestom.git",
+      "commit": "dd2ddbc72d09f1f6b1ff6778104030c00e780231",
+      "date": "2026-10-10T22:18:36Z",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "paper",
+      "url": "https://github.com/PaperMC/Paper.git",
+      "commit": "a2d844f71e275a91656448d5a0eb1142359230b9",
+      "date": "2026-10-13T14:02:24+01:00",
+      "license_files": [
+        "LICENSE.md"
+      ]
+    },
+    {
+      "name": "pumpkin",
+      "url": "https://github.com/Pumpkin-MC/Pumpkin.git",
+      "commit": "b0c48b2d7688bbfa09956adf530b8bc56dcc0c56",
+      "date": "2026-10-12T00:09:47+02:00",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "spigot",
+      "url": "https://hub.spigotmc.org/stash/scm/spigot/spigot.git",
+      "commit": "bed90fca391bc35f0dbbcdc7ce5d7bb28e533681",
+      "date": "2026-10-04T13:39:39+11:00",
+      "license_files": []
+    },
+    {
+      "name": "steelmc",
+      "url": "https://github.com/Steel-Foundation/SteelMC.git",
+      "commit": "f6fb4e49778ccffc5c13c3b87c1c2600dd9435aa",
+      "date": "2026-10-11T21:03:59+02:00",
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "name": "valence",
+      "url": "https://github.com/valence-rs/valence.git",
+      "commit": "c4177cab47ae109c848a431756d5d7c0207c05ed",
+      "date": "2026-06-15T01:25:49-04:00",
+      "license_files": [
+        "LICENSE.txt"
+      ]
+    }
+  ]
+}
