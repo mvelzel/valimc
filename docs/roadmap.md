@@ -20,18 +20,23 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-004a](tickets/VMC-004a.md) | Done — `6dc5dd3`, validated | Stack/scalar codecs, creative selection/placement/clearing, patched fixtures and rejection pass |
 | VMC-004b | Planned | Names/lore/NBT and compound or registry-backed component codecs |
 | [VMC-004b1](tickets/VMC-004b1.md) | Done — `2e75988`, validated | Bounded network NBT/custom data; 58 tests, Mojang codecs, release and actual-client positive/rejection/reconnect pass |
-| VMC-004b2 | Planned | Validated text/name/lore and enchantment component schemas |
+| VMC-004b2 | Planned | Text/name/lore, enchantments and equal-default patch normalization |
 | [VMC-005a](tickets/VMC-005a.md) | Done — `123d1d0`, validated | Owner-local 46-slot menu; actual selection/offhand/swap/resync and automated/oracle checks pass |
 | VMC-005b | Planned | Hashed click codec, authoritative pickup/swap/shift/drag transactions |
 | [VMC-005b1](tickets/VMC-005b1.md) | Done — `67c34ad`, validated | Actual half pickup/place/merge/shift/number/offhand/rejection pass; 65 tests/full oracle/release pass |
 | VMC-005b2 | Planned | Drag/collect, cursor return on close, crafting-slot constraints and drops |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Awaiting sustained client gesture validation | Bounded transactions pass 65 tests/oracle/release and graphical fixture replication; CUA sustained drag input remains pending |
+| [VMC-005b2b](tickets/VMC-005b2b.md) | Done — validated | Two-pass collection; 71 tests, actual Mojang algorithm/TCP, release and CUA double-click/caps/patch/rejection pass |
+| VMC-005b2c | Planned | Creative clone/fill permission rules |
+| VMC-005b2d | Planned | Cursor return on close and drop ownership/item entities |
 | VMC-005c | Planned | Versioned inventory persistence and reconnect/restart recovery |
 
 Only one implementation ticket is active; checkpoints awaiting client validation
 are parked so implementation can continue. Records retain acceptance criteria,
 checks, manual evidence and commit subject; Git history supplies checkpoint SHAs.
-Development and normal pushes now use `main`, as requested by the user. VMC-005b2a is being published as an explicitly requested checkpoint with its sustained-gesture gate pending. Pushing a ticket does not declare a milestone or the whole server complete.
+Development and normal pushes use `main`, as requested by the user. VMC-005b2a
+was published at `fe194c1` with its sustained-gesture gate pending. Pushing a
+ticket does not declare a milestone or the whole server complete.
 
 ## Existing foundation
 
@@ -60,7 +65,7 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | VMC-004a | Optional stacks and scalar components | Both trusted and untrusted encodings; corrected unsupported creative edits, precise item defaults |
 | VMC-004b | Structured components | Bounded NBT/text, collections, recursive items and registry holders; expanded vanilla oracle cases |
 | VMC-004b1 | Network NBT/custom data | Modified UTF-8, all tag payloads and dense arrays; bounded independent oracle round trips |
-| VMC-004b2 | Text and enchantments | Versioned schema validation and registry holder codecs, tooltip/client preservation |
+| VMC-004b2 | Text, enchantments and effective components | Versioned schema validation, registry holders, equal-default patch normalization and tooltip/client preservation |
 | VMC-005 | Authoritative inventory transactions | State IDs, slots, click/drag/shift/hotbar/drop, full inventory persistence and menus |
 | VMC-005a | Session inventory foundation | Full player slots, startup synchronization, creative writes and carried selection are owner-local |
 | VMC-005b | Inventory click transactions | Vanilla hashed prediction, authoritative click/drag/shift/hotbar/drop and corrections |

@@ -51,6 +51,45 @@ defmodule Valimc.InventoryClickConnectionTest do
     assert Enum.at(client.inventory.items, 11) == %{stone | count: 1}
   end
 
+  test "collection prioritizes partial owned stacks, corrects invalid buttons and leaves peers alone" do
+    {_, client} = Client.login(name())
+    on_exit(fn -> Client.close(client) end)
+    client = Client.load_world(client)
+    {_, peer} = Client.login(name())
+    on_exit(fn -> Client.close(peer) end)
+    peer = Client.load_world(peer)
+
+    shiny = %{
+      ItemStack.new("stone")
+      | components: %{"minecraft:enchantment_glint_override" => true}
+    }
+
+    client =
+      Enum.reduce([{9, 64}, {10, 7}, {11, 9}, {36, 50}], client, fn {slot, count}, client ->
+        Client.send_packet(client, :play, "set_creative_mode_slot", [
+          <<slot::16>>,
+          ItemStack.encode(%{shiny | count: count}, :untrusted)
+        ])
+
+        {_, client} = Client.await(client, :play, "container_set_slot")
+        client
+      end)
+
+    client = click(client, "pickup", 36, 0)
+    client = click(client, "pickup_all", 36, 0)
+    assert client.inventory.carried == %{shiny | count: 64}
+    assert Enum.at(client.inventory.items, 9) == %{shiny | count: 64}
+    assert Enum.at(client.inventory.items, 10) == nil
+    assert Enum.at(client.inventory.items, 11) == %{shiny | count: 2}
+    old = client.inventory.items
+    client = click(client, "pickup_all", 36, 2)
+    assert client.inventory.items == old and client.inventory.carried == %{shiny | count: 64}
+    Client.send_packet(peer, :play, "container_close", <<0>>)
+    {body, peer} = Client.await(peer, :play, "container_set_content")
+    peer = Client.auto_reply(peer, :play, "container_set_content", body)
+    assert peer.inventory.carried == nil and Enum.all?(peer.inventory.items, &is_nil/1)
+  end
+
   test "stale clicks use owned stacks; forged predictions cannot create items; malformed clicks stay isolated" do
     username = name()
     {_, client} = Client.login(username)

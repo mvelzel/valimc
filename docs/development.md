@@ -63,7 +63,11 @@ Mojang packet codecs and network registry/tag dependency loading. This is valuab
 independent evidence, but cannot establish rendering, controls or survival parity.
 Item checks generate nine stack fixtures with Mojang's codecs, decode and
 cross-convert them in Elixir, then ask Mojang to decode the resulting bytes and
-compare semantic equality in both ordinary and delimited formats. Temporary
+compare semantic equality in both ordinary and delimited formats. A focused
+inventory behavior harness also invokes Mojang's actual collect method to verify
+pass ordering, direction, triggers, caps and ordinary-slot component preservation.
+It uses a constructor-free test player only within that development harness;
+world/player lifecycle and equipment locks require their own tests. Temporary
 fixtures are not committed. Mojang also decodes Elixir text containing NUL and
 supplementary Unicode. TCP scenarios then exercise slot updates/corrections.
 

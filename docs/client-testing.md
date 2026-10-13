@@ -64,3 +64,13 @@ in the isolated SDL adapter; see mouse-testing.md. Final CUA `/stats` response:
 one player, four regions, ten schedulers, 78 MiB. Client logs have zero Network
 Protocol Error, DecoderException, EncoderException or ERROR entries; the private
 copy stays under `.local/client-tests/VMC-005b2a/`.
+
+VMC-005b2b: actual 26.3 CUA double-clicks collected patched stone 50 to cursor
+64 by consuming partial 7 and 7 of 9, retaining the full source 64 and incompatible
+plain 7. Placement retained glint/custom NBT. Eggs 8 collected to 16 with 2
+remaining from source 10. Q/drop correction and reopen preserved both results.
+Owner reads confirmed counts/patches and empty final cursor; client logs contain
+no codec errors. Fixtures populated accepted items and selected the ordinary UI;
+server gameplay remained creative. All 71 tests, release and full oracle pass,
+including a new harness invoking Mojang's actual collect algorithm. See the ticket
+for the harness's limited ordinary-slot scope and later inventory requirements.

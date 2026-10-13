@@ -67,6 +67,10 @@ defmodule Valimc.Inventory do
        when slot in 5..45 and button in [0, 1],
        do: inventory |> quick_move(slot) |> finish()
 
+  defp ordinary_click(inventory, :pickup_all, slot, button)
+       when slot in 0..45 and button in [0, 1],
+       do: inventory |> collect(slot, button) |> finish()
+
   defp ordinary_click(_, _, _, _), do: {:error, :unsupported_click}
 
   defp quick_craft(%{carried: nil} = inventory, _, _, _),
@@ -209,6 +213,36 @@ defmodule Valimc.Inventory do
       {inventory, left} = transfer(inventory, stack, stack.count, targets, :merge)
       {inventory, left} = transfer(inventory, stack, left, targets, :empty)
       put(inventory, slot, sized(stack, left))
+    end
+  end
+
+  defp collect(%{carried: nil} = inventory, _, _), do: inventory
+
+  defp collect(inventory, slot, button) do
+    if get(inventory, slot) != nil do
+      inventory
+    else
+      targets = if button == 0, do: 1..45, else: 45..1//-1
+
+      Enum.reduce([:partial, :all], inventory, fn pass, inventory ->
+        Enum.reduce(targets, inventory, fn slot, inventory ->
+          cursor = inventory.carried
+          present = get(inventory, slot)
+          maximum = ItemStack.max_stack_size(cursor)
+
+          if present != nil and cursor.count < maximum and compatible?(present, cursor) and
+               (pass == :all or present.count != ItemStack.max_stack_size(present)) do
+            moved = min(present.count, maximum - cursor.count)
+
+            %{
+              put(inventory, slot, sized(present, present.count - moved))
+              | carried: sized(cursor, cursor.count + moved)
+            }
+          else
+            inventory
+          end
+        end)
+      end)
     end
   end
 

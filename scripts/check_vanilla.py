@@ -3,6 +3,7 @@
 import os, pathlib, socket, subprocess, sys, tempfile, time
 root = pathlib.Path(__file__).resolve().parent.parent
 with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'InventoryBehaviorOracle'], cwd=root, check=True)
     fixtures = str(pathlib.Path(world) / 'item-fixtures.json')
     encoded = str(pathlib.Path(world) / 'elixir-items.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemOracle', 'generate', fixtures], cwd=root, check=True)

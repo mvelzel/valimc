@@ -342,11 +342,15 @@ public class VanillaOracle implements AutoCloseable {
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.carriedItem().getCount() == 1 &&
         c.items().get(9).getCount() == 5 && c.items().get(10).getCount() == 5 && c.items().get(11).getCount() == 5 &&
         c.items().get(9).is(Items.EGG) && c.items().get(44).isEmpty());
+      first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)12, (byte)0, ContainerInput.PICKUP_ALL,
+        predictions, HashedStack.create(invented, component -> 0x12345678)));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.carriedItem(), eggs) &&
+        c.items().get(9).isEmpty() && c.items().get(10).isEmpty() && c.items().get(11).isEmpty());
       first.send(gameOut, new ServerboundMovePlayerPacket.PosRot(1.5,64,0.5,90,0,true,false));
       second.await(p -> p instanceof ClientboundMoveEntityPacket.PosRot);
       first.send(gameOut, new ServerboundChatCommandPacket("stats"));
       first.await(p -> p instanceof ClientboundSystemChatPacket c && c.content().getString().contains("schedulers"));
-      System.out.println("PASS: Mojang 26.3 codecs validated compressed login, network registry/tag dependency loading, command graph/local completion, " + first.chunks + " chunks, inventory/selection/hand swaps, authoritative pickup/split/merge/shift/swap/quick-craft with forged predictions, creative scalar stacks/corrections, two-player visibility, movement, block placement/breaking and commands.");
+      System.out.println("PASS: Mojang 26.3 codecs validated compressed login, network registry/tag dependency loading, command graph/local completion, " + first.chunks + " chunks, inventory/selection/hand swaps, authoritative pickup/split/merge/shift/swap/quick-craft/collect with forged predictions, creative scalar stacks/corrections, two-player visibility, movement, block placement/breaking and commands.");
       System.out.println(first.seen);
     }
   }
