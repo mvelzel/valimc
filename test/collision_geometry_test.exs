@@ -86,7 +86,7 @@ defmodule Valimc.CollisionGeometryTest do
     assert Shape.from_facts!(good) == shape("stone")
 
     for bad <- [
-          Map.put(good, "sizes", [17, 1, 1]),
+          Map.put(good, "sizes", [33, 1, 1]),
           Map.put(good, "bits", "ff"),
           Map.put(good, "bits", ""),
           Map.put(good, "bits", "00"),

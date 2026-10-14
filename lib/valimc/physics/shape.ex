@@ -7,10 +7,10 @@ defmodule Valimc.Physics.Shape do
   defstruct axes: {{0.0}, {0.0}, {0.0}}, sizes: {0, 0, 0}, bits: <<>>, boxes: []
 
   def from_facts!(%{"axes" => axes, "sizes" => sizes, "bits" => hex, "boxes" => boxes}) do
-    check(is_list(sizes) and length(sizes) == 3 and Enum.all?(sizes, &(&1 in 0..16)))
+    check(is_list(sizes) and length(sizes) == 3 and Enum.all?(sizes, &(&1 in 0..32)))
     [nx, ny, nz] = sizes
     cells = nx * ny * nz
-    check(cells <= 4096 and (cells > 0 or sizes == [0, 0, 0]))
+    check(cells <= 32_768 and (cells > 0 or sizes == [0, 0, 0]))
     check(is_list(axes) and length(axes) == 3)
     check(is_binary(hex) and byte_size(hex) == 2 * div(cells + 7, 8))
     bits = Base.decode16!(hex, case: :lower)
