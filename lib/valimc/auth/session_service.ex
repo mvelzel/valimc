@@ -1,19 +1,23 @@
 defmodule Valimc.Auth.SessionService do
   @moduledoc "Mojang session verification foundation; invoke only in bounded cold workers."
-  alias Valimc.Auth.{HTTP, Profile}
-  @endpoint "https://sessionserver.mojang.com/session/minecraft/hasJoined"
+  alias Valimc.Auth.{HTTP, Profile, Discovery, DiscoveryDocument}
 
-  def url(name, digest) do
+  def url(name, digest, endpoint) do
     if Profile.valid_name?(name) and is_binary(digest) and
-         Regex.match?(~r/\A-?[0-9a-f]{1,40}\z/, digest) do
-      {:ok, @endpoint <> "?" <> URI.encode_query(%{"username" => name, "serverId" => digest})}
+         Regex.match?(~r/\A-?[0-9a-f]{1,40}\z/, digest) and
+         DiscoveryDocument.valid_endpoint?(endpoint) do
+      uri = URI.parse(endpoint)
+      query = URI.encode_query(%{"username" => name, "serverId" => digest})
+      query = if uri.query in [nil, ""], do: query, else: uri.query <> "&" <> query
+      {:ok, URI.to_string(%{uri | query: query})}
     else
       {:error, :invalid_session_request}
     end
   end
 
   def lookup(name, digest, deadline) do
-    with {:ok, url} <- url(name, digest),
+    with {:ok, endpoint} <- Discovery.endpoint(deadline),
+         {:ok, url} <- url(name, digest, endpoint),
          {:ok, status, body} <- HTTP.get(url, deadline) do
       response(status, body, name)
     end

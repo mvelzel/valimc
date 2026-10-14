@@ -170,6 +170,16 @@ preview configuration/world. Synthetic controlled providers establish fencing,
 deadlines and failure isolation; they do not authenticate a real account. Native
 profile probes also decode login/player-info bodies with exact values/signatures.
 
+Discovery probes run native authlib routing/refresh against synthetic documents and
+a recording executor, without external requests or real-day waits. Unit tests cover
+startup subscriptions, late results, cached/unavailable publications and isolated
+owner failure. Real-client validation must distinguish retained cached routing
+after refresh failure from a successful offline document, which rejects new joins.
+Verify an admitted player keeps responding after owner restart, then cold-start
+real discovery again and restore the fresh preview state. Reference manifests and
+logs remain ignored; the codec oracle explicitly disables online mode so inherited
+environment settings cannot accidentally trigger account verification.
+
 Entity checks generate 272 packed-velocity fixtures, including a deterministic
 random sample and threshold/continuation/clamping boundaries. Elixir independently
 encodes them and 25 complete entity packets; Mojang decodes the results. Velocity,

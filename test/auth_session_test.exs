@@ -114,7 +114,8 @@ defmodule Valimc.AuthSessionTest do
   end
 
   test "session query is fixed-origin and failures never return an offline profile" do
-    assert {:ok, url} = SessionService.url("OracleOne", "-123abc")
+    endpoint = "https://sessionserver.mojang.com/session/minecraft/hasJoined"
+    assert {:ok, url} = SessionService.url("OracleOne", "-123abc", endpoint)
     assert URI.parse(url).host == "sessionserver.mojang.com"
 
     assert URI.decode_query(URI.parse(url).query) == %{
@@ -128,7 +129,7 @@ defmodule Valimc.AuthSessionTest do
           {"OracleOne", "a&ip=evil"},
           {"OracleOne", String.duplicate("a", 41)}
         ] do
-      assert {:error, :invalid_session_request} = SessionService.url(name, digest)
+      assert {:error, :invalid_session_request} = SessionService.url(name, digest, endpoint)
     end
 
     assert {:error, :unverified_session} = SessionService.response(204, "", "OracleOne")

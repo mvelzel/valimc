@@ -59,7 +59,14 @@ verification before player admission and leases the authenticated UUID. Returned
 properties are revalidated and serialized into login/player-info packets. Failure
 never falls back to an offline profile. The default remains offline. Actual licensed-client login, skin, inventory,
 reconnect/restart, outage rejection and preview cleanup pass in VMC-007c2.
-Service discovery refresh remains VMC-007c3.
+Discovery routing uses an independently supervised cold owner and one linked
+HTTPS worker. Protected ETS publishes a route/owner/readiness observation; cached
+lookups bypass the owner, and initial authentication workers subscribe through a
+Registry within their own deadlines. The native first-attempt, cached failure,
+24-hour refresh and capped initial backoff rules are preserved. A successful
+offline document clears routing; malformed/failing refresh retains the last valid
+publication. Owner recovery affects pending discovery work and leaves admitted
+play connections intact. Offline startup performs no discovery request.
 
 ## World clocks
 
