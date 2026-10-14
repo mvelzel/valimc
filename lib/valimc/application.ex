@@ -28,6 +28,7 @@ defmodule Valimc.Application do
        name: Valimc.TransferWorkers, max_children: max(System.schedulers_online() * 4, 1)},
       {Valimc.LoginKeys, []},
       {Valimc.KeyExchange, []},
+      {Valimc.Auth.SessionJobs, []},
       {DynamicSupervisor,
        strategy: :one_for_one,
        name: Valimc.ConnectionSupervisor,

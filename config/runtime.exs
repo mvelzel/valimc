@@ -1,5 +1,12 @@
 import Config
 
+case System.get_env("VALIMC_ONLINE_MODE") do
+  nil -> :ok
+  "true" -> config :valimc, online_mode: true
+  "false" -> config :valimc, online_mode: false
+  _ -> raise "VALIMC_ONLINE_MODE must be true or false"
+end
+
 case System.get_env("VALIMC_ENCRYPTION") do
   nil -> :ok
   "true" -> config :valimc, encrypt_login: true

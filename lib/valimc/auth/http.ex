@@ -96,8 +96,17 @@ defmodule Valimc.Auth.HTTP do
 
       {{:http_header, _, _, name, value}, state} ->
         name = String.downcase(name)
-        if Map.has_key?(acc, name), do: throw(:https_duplicate_header)
-        headers(state, budget, Map.put(acc, name, String.trim(value)))
+
+        if name in ["content-length", "transfer-encoding", "content-encoding"] do
+          if Map.has_key?(acc, name), do: throw(:https_duplicate_header)
+          value = String.trim(value)
+          value = if name == "content-length", do: value, else: String.downcase(value)
+          headers(state, budget, Map.put(acc, name, value))
+        else
+          # Repeated informational headers are legal and do not determine framing.
+          # Their bytes still consume the cumulative header budget.
+          headers(state, budget, acc)
+        end
 
       _ ->
         throw(:https_headers)

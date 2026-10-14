@@ -31,8 +31,9 @@ keep IDs stable and append suffixes rather than renumbering.
 | VMC-006 | Partially implemented | Core clocks, Overworld weather and difficulty synchronize/persist; complete gamerules, administration and dependent survival effects remain |
 | [VMC-007a](tickets/VMC-007a.md) | Done — encrypted client validated, local | Native crypto probes plus VMC-007b actual encrypted login/render/input/reconnect/restart pass; online identities remain |
 | [VMC-007b](tickets/VMC-007b.md) | Done — encrypted transport validated, local | 287 tests/release/full native plaintext+encrypted suites and actual CUA login/render/stats/input/reconnect/restart pass; online identity verification remains |
-| [VMC-007c](tickets/VMC-007c.md) | Planned, split | Verified online UUID/properties, bounded HTTPS jobs and connection admission; signed chat remains separate |
+| [VMC-007c](tickets/VMC-007c.md) | Partially implemented | Real online identities/admission validated; service discovery refresh and signed chat remain |
 | [VMC-007c1](tickets/VMC-007c1.md) | Done — foundation smoke validated, local | 298 tests/release/full oracle, 32 native profiles and CUA baseline/reconnect pass; online integration remains VMC-007c2 |
+| [VMC-007c2](tickets/VMC-007c2.md) | Done — real account validated, local | 307 tests/release/full native suites/64 profile codecs and actual account/skin/input/reconnect/restart/outage/cleanup pass |
 | [VMC-005a](tickets/VMC-005a.md) | Done — `123d1d0`, validated | Owner-local 46-slot menu; actual selection/offhand/swap/resync and automated/oracle checks pass |
 | VMC-005b | Planned | Hashed click codec, authoritative pickup/swap/shift/drag transactions |
 | [VMC-005b1](tickets/VMC-005b1.md) | Done — `67c34ad`, validated | Actual half pickup/place/merge/shift/number/offhand/rejection pass; 65 tests/full oracle/release pass |

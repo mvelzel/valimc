@@ -52,9 +52,14 @@ The HTTPS authentication foundation uses a passive TLS socket owned by a cold
 worker. Certificate and hostname verification use system roots; blocking I/O
 never belongs in simulation/socket owners. HTTP headers use OTP's decoder, with
 bounded application reads for declared, chunked and close-delimited bodies.
-Worker death closes its socket. Bounded authentication admission, result fencing
-and authenticated UUID/property publication remain VMC-007c2; the foundation is
-not invoked by current player login.
+Worker death closes its socket. VMC-007c2 adds a separate capped authentication
+pool before connection supervision, owner/worker monitors, absolute deadlines and
+result fencing. Online mode always requests encrypted transport, waits for HTTPS
+verification before player admission and leases the authenticated UUID. Returned
+properties are revalidated and serialized into login/player-info packets. Failure
+never falls back to an offline profile. The default remains offline. Actual licensed-client login, skin, inventory,
+reconnect/restart, outage rejection and preview cleanup pass in VMC-007c2.
+Service discovery refresh remains VMC-007c3.
 
 ## World clocks
 

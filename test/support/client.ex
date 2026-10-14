@@ -139,7 +139,10 @@ defmodule Valimc.TestClient do
     client = %{client | threshold: threshold}
     {body, client} = await(client, :login, "login_finished")
     <<uuid::binary-size(16), body::binary>> = body
-    {^name, <<0, _session_id::binary-size(16)>>} = Wire.take_string(body)
+    {^name, body} = Wire.take_string(body)
+    {count, body} = Wire.take_varint(body)
+    {properties, <<_session_id::binary-size(16)>>} = take_properties(body, count, [])
+    client = Map.put(client, :properties, properties)
 
     client =
       if Map.get(client, :login_ack_sent, false),
@@ -150,6 +153,15 @@ defmodule Valimc.TestClient do
     client = send_packet(client, :configuration, "select_known_packs", packs)
     {_, client} = await(client, :configuration, "finish_configuration")
     {uuid, client}
+  end
+
+  defp take_properties(body, 0, values), do: {Enum.reverse(values), body}
+
+  defp take_properties(body, count, values) when count in 1..16 do
+    {name, body} = Wire.take_string(body)
+    {value, <<signed, body::binary>>} = Wire.take_string(body)
+    {signature, body} = if signed == 1, do: Wire.take_string(body), else: {nil, body}
+    take_properties(body, count - 1, [%{name: name, value: value, signature: signature} | values])
   end
 
   def login(name), do: login_session(begin_login(name), name)

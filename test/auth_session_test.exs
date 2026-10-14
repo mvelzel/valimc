@@ -253,6 +253,15 @@ defmodule Valimc.AuthSessionTest do
     end
   end
 
+  test "repeated informational headers and case-insensitive framing tokens are accepted" do
+    response =
+      "HTTP/1.1 200 OK\r\nX-Minecraft-Request-Id: first\r\nx-minecraft-request-id: second\r\nTransfer-Encoding: Chunked\r\nContent-Encoding: Identity\r\n\r\n2\r\n{}\r\n0\r\n\r\n"
+
+    {url, roots, server} = tls_server(fn socket -> :ssl.send(socket, response) end)
+    assert {:ok, 200, "{}"} = HTTP.get(url, deadline(), roots)
+    assert_receive {:tls_request, ^server, _}
+  end
+
   test "abrupt worker death closes its passive TLS socket without orphan requests" do
     parent = self()
 

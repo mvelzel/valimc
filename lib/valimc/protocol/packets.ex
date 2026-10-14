@@ -136,8 +136,22 @@ defmodule Valimc.Protocol.Packets do
       <<0x1D, 1>>,
       player.uuid,
       Wire.string(player.name),
-      <<0, 1, 1, 0>>
+      properties(Map.get(player, :properties, [])),
+      <<1, 1, 0>>
     ])
+  end
+
+  def properties(values) when is_list(values) and length(values) <= 16 do
+    [
+      Wire.varint(length(values)),
+      Enum.map(values, fn property ->
+        [
+          Wire.string(property.name),
+          Wire.string(property.value),
+          if(property.signature == nil, do: <<0>>, else: [<<1>>, Wire.string(property.signature)])
+        ]
+      end)
+    ]
   end
 
   def remove_info({_, uuid, _, _, _, _, _}), do: packet("player_info_remove", [<<1>>, uuid])

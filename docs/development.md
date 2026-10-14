@@ -161,6 +161,15 @@ enforce its body option before accumulation. A killed worker must close its TLS
 socket. Foundation client smoke verifies the release includes working SSL and
 retains the ordinary preview; it cannot establish authenticated online login.
 
+Online-mode validation uses `VALIMC_ONLINE_MODE=true` and a separate ignored
+world. Capture fresh preview state first; authenticated and offline UUID saves
+must remain separate. Verify the existing official client joins through the real
+service, then inventory/selection, reconnect, restart and an explicit trusted
+outage rejection with no player lease. Restore the real service and normal
+preview configuration/world. Synthetic controlled providers establish fencing,
+deadlines and failure isolation; they do not authenticate a real account. Native
+profile probes also decode login/player-info bodies with exact values/signatures.
+
 Entity checks generate 272 packed-velocity fixtures, including a deterministic
 random sample and threshold/continuation/clamping boundaries. Elixir independently
 encodes them and 25 complete entity packets; Mojang decodes the results. Velocity,

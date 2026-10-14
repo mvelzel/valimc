@@ -55,11 +55,14 @@ defmodule Valimc.Connection do
        protocol: nil,
        buffer: <<>>,
        cipher: nil,
-       encryption_requested: Valimc.config(:encrypt_login),
+       encryption_requested: Valimc.config(:encrypt_login) or Valimc.config(:online_mode),
+       online_mode: Valimc.config(:online_mode),
        login_name: nil,
        key_challenge: nil,
        key_pair: nil,
+       key_public: nil,
        key_job: nil,
+       auth_job: nil,
        player: nil,
        player_store: nil,
        store_fence: nil,
@@ -144,8 +147,31 @@ defmodule Valimc.Connection do
               step: nil
           }
 
-          state = start_player_login(state, state.login_name)
-          consume(state, 64)
+          if state.online_mode do
+            digest = Encryption.server_hash(secret, state.key_public)
+            token = make_ref()
+
+            case Valimc.Auth.SessionJobs.start(self(), token, state.login_name, digest) do
+              {:ok, job} ->
+                timeout = max(job.deadline - System.monotonic_time(:millisecond), 0)
+                timer = Process.send_after(self(), {:session_deadline, token}, timeout)
+                Valimc.Auth.SessionJobs.activate(job)
+
+                {:noreply,
+                 %{
+                   state
+                   | step: :auth_job,
+                     auth_job: Map.put(job, :timer, timer),
+                     key_public: nil
+                 }}
+
+              _ ->
+                reject(state, "Authentication busy; please retry")
+            end
+          else
+            state = start_player_login(%{state | key_public: nil}, state.login_name)
+            consume(state, 64)
+          end
 
         _ ->
           reject(state, "Invalid login encryption response")
@@ -154,6 +180,52 @@ defmodule Valimc.Connection do
   end
 
   def handle_info({:key_verified, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:session_verified, worker, token, result},
+        %{auth_job: %{pid: worker, token: token} = job} = state
+      ) do
+    Process.cancel_timer(job.timer)
+    Process.demonitor(job.monitor, [:flush])
+    Valimc.Auth.SessionJobs.cancel(job)
+    state = %{state | auth_job: nil}
+
+    guard_connection(state, fn ->
+      if System.monotonic_time(:millisecond) >= job.deadline,
+        do: reject(state, "Authentication timed out")
+
+      case result do
+        {:ok, profile} ->
+          if not Valimc.Auth.Profile.valid?(profile, state.login_name),
+            do: reject(state, "Invalid authentication profile")
+
+          state = start_player_login(%{state | step: nil}, state.login_name, profile)
+          consume(state, 64)
+
+        {:error, :unverified_session} ->
+          reject(state, "Failed to verify username")
+
+        _ ->
+          reject(state, "Authentication servers unavailable; please retry")
+      end
+    end)
+  end
+
+  def handle_info({:session_verified, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info({:session_deadline, token}, %{auth_job: %{token: token} = job} = state) do
+    if System.monotonic_time(:millisecond) >= job.deadline,
+      do: guard_connection(state, fn -> reject(state, "Authentication timed out") end),
+      else: {:noreply, state}
+  end
+
+  def handle_info({:session_deadline, _}, state), do: {:noreply, state}
+
+  def handle_info({:DOWN, ref, :process, _, _}, %{auth_job: %{monitor: ref}} = state),
+    do:
+      guard_connection(state, fn ->
+        reject(state, "Authentication servers unavailable; please retry")
+      end)
 
   def handle_info({:key_deadline, token}, %{key_job: %{token: token} = job} = state) do
     if System.monotonic_time(:millisecond) >= job.deadline,
@@ -469,7 +541,8 @@ defmodule Valimc.Connection do
       else: %{state | window: now, packets: 0, bytes: 0, logical_bytes: 0}
   end
 
-  defp consume(%{step: :key_job} = state, _), do: {:noreply, %{state | active: false}}
+  defp consume(%{step: step} = state, _) when step in [:key_job, :auth_job],
+    do: {:noreply, %{state | active: false}}
 
   defp consume(state, 0) do
     send(self(), :drain)
@@ -524,7 +597,12 @@ defmodule Valimc.Connection do
     send_packets(state, [
       Packets.packet(
         "login_finished",
-        [state.player.uuid, Wire.string(state.player.name), <<0>>, :crypto.strong_rand_bytes(16)],
+        [
+          state.player.uuid,
+          Wire.string(state.player.name),
+          Packets.properties(state.player.properties),
+          :crypto.strong_rand_bytes(16)
+        ],
         :login
       )
     ])
@@ -673,8 +751,16 @@ defmodule Valimc.Connection do
     if state.encryption_requested do
       pair = Valimc.LoginKeys.pair()
       challenge = Encryption.challenge()
-      send_packets(state, [Encryption.hello(pair, challenge, false)])
-      %{state | step: :key, login_name: name, key_pair: pair, key_challenge: challenge}
+      send_packets(state, [Encryption.hello(pair, challenge, state.online_mode)])
+
+      %{
+        state
+        | step: :key,
+          login_name: name,
+          key_pair: pair,
+          key_public: pair.encoded,
+          key_challenge: challenge
+      }
     else
       start_player_login(state, name)
     end
@@ -822,11 +908,12 @@ defmodule Valimc.Connection do
 
   defp handle_packet(state, _, _), do: reject(state, "Unexpected protocol state")
 
-  defp start_player_login(state, name) do
+  defp start_player_login(state, name, profile \\ nil) do
     player = %{
       pid: self(),
       name: name,
-      uuid: offline_uuid(name),
+      uuid: if(profile, do: profile.uuid, else: offline_uuid(name)),
+      properties: if(profile, do: profile.properties, else: []),
       entity_id: System.unique_integer([:positive]),
       x: 0.5,
       y: 64.0,
@@ -1566,6 +1653,12 @@ defmodule Valimc.Connection do
       Process.demonitor(state.key_job.monitor, [:flush])
 
       Valimc.KeyExchange.cancel(state.key_job)
+    end
+
+    if state.auth_job do
+      Process.cancel_timer(state.auth_job.timer)
+      Process.demonitor(state.auth_job.monitor, [:flush])
+      Valimc.Auth.SessionJobs.cancel(state.auth_job)
     end
 
     if state.recovery do

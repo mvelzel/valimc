@@ -23,6 +23,25 @@ defmodule Valimc.Auth.Profile do
 
   def decode(_, _), do: {:error, :invalid_session_profile}
 
+  def valid?(%{name: name, uuid: uuid, properties: values}, requested_name)
+      when is_binary(uuid) and byte_size(uuid) == 16 and is_list(values) and length(values) <= 16 do
+    name == requested_name and valid_name?(name) and
+      Enum.all?(values, fn
+        %{name: key, value: value, signature: signature} ->
+          text?(key, 64) and text?(value, 32_767) and
+            (signature == nil or text?(signature, 32_767))
+
+        _ ->
+          false
+      end) and
+      Enum.reduce(values, 0, fn p, count ->
+        count + byte_size(p.name) + byte_size(p.value) +
+          if(p.signature, do: byte_size(p.signature), else: 0)
+      end) <= HTTP.max_body()
+  end
+
+  def valid?(_, _), do: false
+
   defp uuid(id) when is_binary(id) do
     if Regex.match?(
          ~r/\A(?:[a-fA-F0-9]{32}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})\z/,
