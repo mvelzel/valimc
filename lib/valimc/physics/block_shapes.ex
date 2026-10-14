@@ -59,6 +59,14 @@ defmodule Valimc.Physics.BlockShapes do
   unless length(@scaffolding["states"]) == 32 and map_size(@scaffolding_states) == 32,
     do: raise("Incomplete scaffolding catalog")
 
+  @powder_snow @facts["powder_snow"]
+  @powder_falling Valimc.Physics.Shape.from_facts!(@powder_snow["falling"])
+  @powder_full Valimc.Physics.Shape.from_facts!(@powder_snow["full"])
+  @powder_state @powder_snow["state"]
+  unless is_integer(@powder_state) and @powder_state in 0..(tuple_size(@states) - 1) and
+           elem(@states, @powder_state) == "minecraft:powder_snow",
+         do: raise("Invalid powder snow state facts")
+
   def state_count, do: tuple_size(@states)
   def shape_count, do: tuple_size(@shapes)
   def grids, do: @shapes
@@ -96,11 +104,34 @@ defmodule Valimc.Physics.BlockShapes do
         {:context_required, "minecraft:scaffolding"} ->
           {:ok, scaffolding(id, elem(position, 1), context)}
 
+        {:context_required, "minecraft:powder_snow"} ->
+          {:ok, powder_snow(elem(position, 1), context)}
+
         result ->
           result
       end
     else
       {:error, :invalid_context}
+    end
+  end
+
+  defp powder_snow(y, context) do
+    cond do
+      context.placement or not context.entity_present ->
+        %Valimc.Physics.Shape{}
+
+      context.fall_distance > 2.5 ->
+        @powder_falling
+
+      context.falling_block ->
+        @powder_full
+
+      context.powder_snow_walkable and not context.descending and
+          Valimc.Physics.CollisionContext.above?(context, 1.0, y, false) ->
+        @powder_full
+
+      true ->
+        %Valimc.Physics.Shape{}
     end
   end
 

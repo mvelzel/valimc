@@ -5,6 +5,8 @@ import net.minecraft.core.Direction.Axis;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.ScaffoldingBlock;
+import net.minecraft.world.level.block.PowderSnowBlock;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.phys.shapes.*;
 import java.nio.file.*;
@@ -88,6 +90,9 @@ public class CollisionMetadata {
     scaffolding.add("unstable_bottom",geometry(scaffoldingField("SHAPE_UNSTABLE_BOTTOM")));
     scaffolding.addProperty("below_height",scaffoldingField("SHAPE_BELOW_BLOCK").max(Axis.Y));
     result.add("scaffolding",scaffolding);
+    var powder=new JsonObject();powder.addProperty("state",Block.getId(Blocks.POWDER_SNOW.defaultBlockState()));
+    powder.add("full",geometry(Shapes.block()));
+    powder.add("falling",geometry(powderSnowField()));result.add("powder_snow",powder);
     Files.createDirectories(Path.of(args[0]).getParent());Files.writeString(Path.of(args[0]),gson.toJson(result)+"\n");
     System.out.println("Cached collision facts: "+states+" states, "+dynamic+" contextual states, "+shapes.size()+" grids, "+runs.size()+" runs; max "+maxCells+" cells / "+maxBoxes+" boxes.");
     System.out.println("Position-only collision facts: "+positionStates.size()+" states / "+positionShapes.size()+" base grids.");
@@ -95,5 +100,9 @@ public class CollisionMetadata {
   }
   public static VoxelShape scaffoldingField(String name) throws Exception {
     var field=ScaffoldingBlock.class.getDeclaredField(name);field.setAccessible(true);return (VoxelShape)field.get(null);
+  }
+  public static VoxelShape powderSnowField() throws Exception {
+    var field=PowderSnowBlock.class.getDeclaredField("FALLING_COLLISION_SHAPE");field.setAccessible(true);
+    return (VoxelShape)field.get(null);
   }
 }

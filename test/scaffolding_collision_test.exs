@@ -7,15 +7,16 @@ defmodule Valimc.ScaffoldingCollisionTest do
   test "explicit empty context resolves all scaffolding states without guessing other families" do
     context = CollisionContext.empty()
     results = Enum.map(0..(BlockShapes.state_count() - 1), &BlockShapes.fetch(&1, @pos, context))
-    assert Enum.count(results, &match?({:ok, %Shape{}}, &1)) == 35_608
-    assert Enum.count(results, &match?({:context_required, _}, &1)) == 115
+    assert Enum.count(results, &match?({:ok, %Shape{}}, &1)) == 35_609
+    assert Enum.count(results, &match?({:context_required, _}, &1)) == 114
     assert {:context_required, "minecraft:scaffolding"} = BlockShapes.fetch(24063, @pos)
     {:ok, stable} = BlockShapes.fetch(24063, @pos, context)
 
     for id <- 24063..24094,
         do: assert(BlockShapes.fetch(id, @pos, context) == {:ok, stable})
 
-    assert BlockShapes.fetch(30519, @pos, context) == {:context_required, "minecraft:powder_snow"}
+    assert {:ok, powder_snow} = BlockShapes.fetch(30519, @pos, context)
+    assert Shape.empty?(powder_snow)
     assert BlockShapes.fetch(35_723, @pos, context) == {:error, :unknown_block_state}
     assert CollisionContext.above?(context, 1.0, 64, true)
     refute CollisionContext.above?(context, 1.0, 64, false)
