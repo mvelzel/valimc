@@ -6,6 +6,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.ScaffoldingBlock;
 import net.minecraft.world.level.block.PowderSnowBlock;
+import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.phys.shapes.*;
@@ -42,12 +43,16 @@ public class CollisionMetadata {
     var cacheField=BlockBehaviour.BlockStateBase.class.getDeclaredField("cache");cacheField.setAccessible(true);
     var shapes=new JsonArray();var shapeIds=new LinkedHashMap<String,Integer>();var runs=new JsonArray();
     var positionShapes=new JsonArray();var positionIds=new LinkedHashMap<String,Integer>();var positionStates=new JsonArray();
-    var scaffoldingStates=new JsonArray();
+    var scaffoldingStates=new JsonArray();var shulkerStates=new JsonArray();
     var positionNames=Set.of("minecraft:bamboo","minecraft:pointed_dripstone","minecraft:sulfur_spike");
     var maxOffset=BlockBehaviour.class.getDeclaredMethod("getMaxHorizontalOffset");maxOffset.setAccessible(true);
     JsonElement previous=null;int runStart=0,runLength=0,dynamic=0,states=0,maxCells=0,maxBoxes=0;
     for(var state:Block.BLOCK_STATE_REGISTRY) {
       int id=Block.getId(state);if(id!=states++)throw new AssertionError("Non-contiguous block state registry");
+      if(state.getBlock() instanceof ShulkerBoxBlock) {
+        var entry=new JsonArray();entry.add(id);entry.add(state.getValue(ShulkerBoxBlock.FACING).getName());
+        shulkerStates.add(entry);
+      }
       if(state.getBlock() instanceof ScaffoldingBlock) {
         var entry=new JsonArray();entry.add(id);entry.add(state.getValue(ScaffoldingBlock.DISTANCE));
         entry.add(state.getValue(ScaffoldingBlock.BOTTOM));scaffoldingStates.add(entry);
@@ -93,6 +98,9 @@ public class CollisionMetadata {
     var powder=new JsonObject();powder.addProperty("state",Block.getId(Blocks.POWDER_SNOW.defaultBlockState()));
     powder.add("full",geometry(Shapes.block()));
     powder.add("falling",geometry(powderSnowField()));result.add("powder_snow",powder);
+    if(shulkerStates.size()!=102)throw new AssertionError("Wrong shulker state coverage");
+    var shulker=new JsonObject();shulker.add("states",shulkerStates);shulker.add("full",geometry(Shapes.block()));
+    result.add("shulker_box",shulker);
     Files.createDirectories(Path.of(args[0]).getParent());Files.writeString(Path.of(args[0]),gson.toJson(result)+"\n");
     System.out.println("Cached collision facts: "+states+" states, "+dynamic+" contextual states, "+shapes.size()+" grids, "+runs.size()+" runs; max "+maxCells+" cells / "+maxBoxes+" boxes.");
     System.out.println("Position-only collision facts: "+positionStates.size()+" states / "+positionShapes.size()+" base grids.");

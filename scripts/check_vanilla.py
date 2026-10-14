@@ -19,6 +19,9 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     powder_cases = str(pathlib.Path(world) / 'powder-snow-collisions.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'PowderSnowCollisionOracle', powder_cases], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_powder_snow_collisions.exs', powder_cases], cwd=root, check=True)
+    shulker_cases = str(pathlib.Path(world) / 'shulker-collisions.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'ShulkerCollisionOracle', collision_facts, shulker_cases], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_shulker_collisions.exs', shulker_cases], cwd=root, check=True)
     attribute_facts = str(pathlib.Path(world) / 'attributes.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'AttributeMetadata', attribute_facts], cwd=root, check=True)
     if json.loads(pathlib.Path(attribute_facts).read_text()) != json.loads((root/'priv/protocol/attributes.json').read_text()):

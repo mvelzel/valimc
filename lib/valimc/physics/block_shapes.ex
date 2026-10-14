@@ -67,6 +67,20 @@ defmodule Valimc.Physics.BlockShapes do
            elem(@states, @powder_state) == "minecraft:powder_snow",
          do: raise("Invalid powder snow state facts")
 
+  @shulker @facts["shulker_box"]
+  @shulker_full Valimc.Physics.Shape.from_facts!(@shulker["full"])
+  @shulker_states Map.new(@shulker["states"], fn [id, direction] ->
+                    unless is_integer(id) and id in 0..(tuple_size(@states) - 1) and
+                             is_binary(elem(@states, id)) and
+                             String.ends_with?(elem(@states, id), "shulker_box") and
+                             direction in ["down", "up", "north", "south", "west", "east"],
+                           do: raise("Invalid shulker state facts")
+
+                    {id, direction}
+                  end)
+  unless length(@shulker["states"]) == 102 and map_size(@shulker_states) == 102,
+    do: raise("Incomplete shulker catalog")
+
   def state_count, do: tuple_size(@states)
   def shape_count, do: tuple_size(@shapes)
   def grids, do: @shapes
@@ -112,6 +126,24 @@ defmodule Valimc.Physics.BlockShapes do
       end
     else
       {:error, :invalid_context}
+    end
+  end
+
+  def fetch(id, position, context, block_entity) do
+    if Valimc.Physics.BlockEntityContext.valid?(block_entity) do
+      case {fetch(id, position, context), Map.get(@shulker_states, id), block_entity.kind} do
+        {{:context_required, _}, direction, :shulker} when is_binary(direction) ->
+          {:ok, Valimc.Physics.ShulkerShape.shape(direction, block_entity, @shulker_full)}
+
+        {{:context_required, _}, direction, kind}
+        when is_binary(direction) and kind in [:absent, :other] ->
+          {:ok, @shulker_full}
+
+        {result, _, _} ->
+          result
+      end
+    else
+      {:error, :invalid_block_entity_context}
     end
   end
 
