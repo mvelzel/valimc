@@ -35,7 +35,8 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-007c1](tickets/VMC-007c1.md) | Done — foundation smoke validated, pushed | 298 tests/release/full oracle, 32 native profiles and CUA baseline/reconnect pass; online integration remains VMC-007c2 |
 | [VMC-007c2](tickets/VMC-007c2.md) | Done — real account validated, pushed | 307 tests/release/full native suites/64 profile codecs and actual account/skin/input/reconnect/restart/outage/cleanup pass |
 | [VMC-016b1](tickets/VMC-016b1.md) | Done — `6fa96ae`, pushed | 338 tests/release/full native oracle and actual four-mode UI/abilities/restart, spectator inventory corrections, non-creative world restrictions and creative placement/breaking pass |
-| [VMC-018c1](tickets/VMC-018c1.md) | Done — default interaction ranges validated | 346 tests/release/full native oracle; 4,348 box distances/117 hit boundaries and actual creative range, distant rejection, restart and shorter survival targeting pass |
+| [VMC-018c1](tickets/VMC-018c1.md) | Done — `166633f`, pushed | 346 tests/release/full native oracle; 4,348 box distances/117 hit boundaries and actual creative range, distant rejection, restart and shorter survival targeting pass |
+| [VMC-014a](tickets/VMC-014a.md) | Done — cached geometry validated | 352 tests/release/full native oracle; 104,394 exact clipping cases and actual stone/slab/stair/fence contacts pass; dynamic contexts and movement enforcement remain |
 | [VMC-016a](tickets/VMC-016a.md) | Done — creative flight validated, pushed | 326 tests/release/full oracle, native ability matrix and actual double-Space/hover/reconnect/restart/flight-off/cleanup pass; full mode transitions remain |
 | [VMC-007c3](tickets/VMC-007c3.md) | Done — discovery/recovery validated, pushed | 317 tests/release/full oracle, 31 native discovery facts and actual cached reconnect/offline rejection/owner recovery/restart/cleanup pass |
 | [VMC-005a](tickets/VMC-005a.md) | Done — `123d1d0`, validated | Owner-local 46-slot menu; actual selection/offhand/swap/resync and automated/oracle checks pass |
@@ -127,6 +128,9 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | VMC-012 | Region boundary protocol and entity transfer | Tick-tagged inputs/snapshots, epochs/fencing, no duplicated or lost entities |
 | VMC-013 | Chunk/entity tickets and unload lifecycle | Loaded dependency guarantees, bounded resident memory, safe save/unload |
 | VMC-014 | Block shapes and movement validation | Vanilla collision/step/swim/climb/teleport fixtures, reconciliation under latency |
+| [VMC-014a](tickets/VMC-014a.md) | Cached block collision geometry | Complete cached state catalog, explicit dynamic contexts, native grid clipping and actual client contact fixtures |
+| VMC-014b | Contextual shapes and bounded owner queries | Entity/world-dependent geometry, fenced region reads and boundary consistency |
+| VMC-014c | Movement and pose reconciliation | Native pose dimensions/eye heights, collision/step validation and actual client corrections |
 | VMC-015 | Gravity, velocity and grounded state | Authoritative fall distance, acceleration, knockback and prediction agreement |
 | VMC-016 | Game modes and abilities | Survival/creative/adventure/spectator interaction and UI rules |
 | [VMC-016a](tickets/VMC-016a.md) | Owned abilities and persistent creative flight | Native matrix/codecs, permission-gated client flight, journal/reconnect/restart and actual double-Space |
@@ -198,6 +202,7 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | VMC-058 | Supervised Elixir extension API | Versioned contracts, explicit authorized mutations, bounded callbacks and isolation |
 | VMC-059 | Measured performance optimization | Matched feature coverage/workloads against vanilla, Paper/Folia and relevant rewrites |
 | VMC-060 | Release and compatibility certification | Every block/item/entity/menu/mechanic/command/gamerule has a tested coverage status |
+| [VMC-061](tickets/VMC-061.md) | Concise docs and targeted retrieval — deferred | Short README, focused evidence, selective agent entry point and quick roadmap updates; requested October 14, not active |
 
 ## Milestone gates and concurrency constraints
 
