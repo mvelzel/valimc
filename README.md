@@ -24,7 +24,7 @@ Valimc.Metrics.snapshot()
 System.stop()
 ```
 
-Game time and the registered Overworld/End clocks now advance and synchronize using the 26.3 time packet. Clock state saves separately; day/night, pause, reconnect and restart have actual-client coverage. Weather, full gamerules and vanilla time commands remain future work.
+Game time and the registered Overworld/End clocks now advance and synchronize using the 26.3 time packet. Clock state saves separately; day/night, pause, reconnect and restart have actual-client coverage. Overworld rain/thunder timers, intensity ramps and weather-cycle control also advance and persist, with actual-client transition/recovery coverage. Lightning, snow/ice, full gamerules and vanilla time/weather commands remain future work.
 
 Configuration lives in `config/config.exs`; `VALIMC_BIND`, `VALIMC_PORT` and `VALIMC_WORLD` override runtime settings. Public hosting requires authentication and encryption to be implemented first.
 

@@ -1,7 +1,7 @@
 defmodule Valimc.World.Clock do
   use GenServer
   alias Valimc.Protocol.Packets
-  alias Valimc.World.{ClockRecord, ClockState, ClockStore}
+  alias Valimc.World.{ClockRecord, ClockState, ClockStore, Weather, WeatherReplication}
 
   @moduledoc "World clock ownership and immutable time replication, independent of region gameplay."
   def start_link(opts \\ []) do
@@ -23,6 +23,11 @@ defmodule Valimc.World.Clock do
   def initial do
     [{:network, version, _periodic, latest}] = :ets.lookup(__MODULE__, :network)
     {version, latest}
+  end
+
+  def weather do
+    [{:weather, view}] = :ets.lookup(__MODULE__, :weather)
+    view
   end
 
   @impl true
@@ -85,6 +90,14 @@ defmodule Valimc.World.Clock do
       error ->
         {:reply, error, state}
     end
+  end
+
+  defp change(data, {:advance_weather, value}) when is_boolean(value),
+    do: {:ok, %{data | weather: %{data.weather | advance_weather: value}}}
+
+  defp change(data, {:weather, kind, duration}) do
+    with {:ok, weather} <- Weather.configure(data.weather, kind, duration),
+         do: {:ok, %{data | weather: weather}}
   end
 
   defp change(data, {:advance_time, value}) when is_boolean(value),
@@ -191,7 +204,14 @@ defmodule Valimc.World.Clock do
         {version, periodic}
       end
 
-    :ets.insert(state.table, {:network, version, periodic, latest})
+    previous =
+      case :ets.lookup(state.table, :weather) do
+        [{:weather, view}] -> view
+        [] -> nil
+      end
+
+    view = WeatherReplication.cache(state.data.weather, previous)
+    :ets.insert(state.table, [{:network, version, periodic, latest}, {:weather, view}])
   end
 
   defp schedule_tick(%{tick_interval: nil} = state), do: state

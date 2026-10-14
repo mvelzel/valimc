@@ -16,7 +16,7 @@ defmodule Valimc.Connection do
     World
   }
 
-  alias Valimc.World.ItemReplication
+  alias Valimc.World.{ItemReplication, WeatherReplication}
   import Bitwise
 
   defguardp inventory_pending(state)
@@ -69,6 +69,7 @@ defmodule Valimc.Connection do
        peers: %{},
        item_replication: ItemReplication.new(),
        clock_version: nil,
+       weather_view: nil,
        outbound: [],
        # The preview explicitly advertises creative/infinite-material abilities.
        # This permission is owner state, never derived from incoming predictions.
@@ -360,6 +361,11 @@ defmodule Valimc.Connection do
           else
             state
           end
+
+        {weather_view, weather_packets} =
+          WeatherReplication.reconcile(state.weather_view, Valimc.World.Clock.weather())
+
+        state = emit_peer_packets(%{state | weather_view: weather_view}, weather_packets, :buffer)
 
         packets = state.outbound |> Enum.reverse() |> List.flatten()
         send_packets(state, packets)
@@ -785,7 +791,11 @@ defmodule Valimc.Connection do
     state = %{state | phase: :play, step: nil, player: %{state.player | ready: true}}
 
     {clock_version, clock_packet} = Valimc.World.Clock.initial()
-    state = %{state | clock_version: clock_version}
+
+    {weather_view, weather_packets} =
+      WeatherReplication.reconcile(nil, Valimc.World.Clock.weather())
+
+    state = %{state | clock_version: clock_version, weather_view: weather_view}
 
     send_packets(state, [
       Packets.login(state.player),
@@ -804,6 +814,8 @@ defmodule Valimc.Connection do
         "Welcome to ValiMC. This is a creative protocol preview; survival is being built. /help"
       )
     ])
+
+    send_packets(state, weather_packets)
 
     existing = Players.ready(self())
     state = update_view(state)

@@ -103,6 +103,17 @@ it. Actual Minecraft uses explicit trusted host controls to observe day/night/da
 continued commands, independent pause, reconnect/full restart and resumed clocks.
 Keep fixtures/logs private, restore normal controls and retain game-time progress.
 
+The weather oracle invokes the actual private ServerLevel weather method through
+an isolated constructor-free probe with captured packet effects; no gameplay
+server/world starts. Its 480 traces cover 50,400 ticks of timer/flag/random/intensity
+state and exact event ordering. Tests add clock-record migration, native load
+preparation, host controls, observer coalescing/bounds and actual TCP transitions.
+Actual Minecraft checks rain/storm/clear and intermediate intensity, automatic
+expiration, frozen timers with continued ramps/commands, reconnect/full restart
+and normal-control cleanup. UI-synchronized host fixtures may watch a real hotbar
+selection to capture a short transition; that is explicit fixture setup, not an
+implemented weather command. Keep their context and client logs private.
+
 A focused
 inventory behavior harness also invokes Mojang's actual menu methods to verify
 collect ordering, direction, triggers, caps, ordinary-slot component preservation,

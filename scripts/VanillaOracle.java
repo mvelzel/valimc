@@ -171,6 +171,7 @@ public class VanillaOracle implements AutoCloseable {
   }
   private ClientboundSetTimePacket lastTime;
   private int timePacketsSeen;
+  private boolean rainInitialized, thunderInitialized;
   private Object readGame() throws Exception {
     Object packet = read(gameIn);
     if (packet instanceof ClientboundSetTimePacket time) {
@@ -183,6 +184,13 @@ public class VanillaOracle implements AutoCloseable {
       lastTime=time; timePacketsSeen++;
     }
 
+    if (packet instanceof ClientboundGameEventPacket weather) {
+      if (weather.getEvent()==ClientboundGameEventPacket.RAIN_LEVEL_CHANGE || weather.getEvent()==ClientboundGameEventPacket.THUNDER_LEVEL_CHANGE) {
+        if (weather.getParam()!=0f) throw new AssertionError("Unexpected fresh-world weather intensity");
+        if (weather.getEvent()==ClientboundGameEventPacket.RAIN_LEVEL_CHANGE) rainInitialized=true;
+        else thunderInitialized=true;
+      }
+    }
     if (packet instanceof ClientboundCommandsPacket commands) validateCommands(commands);
     if (packet instanceof ClientboundContainerSetContentPacket inventory && initialInventory == null) initialInventory = inventory;
     if (packet instanceof ClientboundPlayerPositionPacket teleport) {
@@ -280,6 +288,8 @@ public class VanillaOracle implements AutoCloseable {
     try (var first = new VanillaOracle(port, "OracleOne"); var second = new VanillaOracle(port, "OracleTwo")) {
       first.await(p -> p instanceof ClientboundAddEntityPacket);
       if (first.lastTime==null || second.lastTime==null) throw new AssertionError("Missing initial clock synchronization");
+      if (!first.rainInitialized || !first.thunderInitialized || !second.rainInitialized || !second.thunderInitialized)
+        throw new AssertionError("Missing initial weather intensity synchronization");
       long initialClockTime=first.lastTime.gameTime();
       first.await(p -> p instanceof ClientboundSetTimePacket t && t.gameTime()>initialClockTime);
       System.out.println("PASS: Mojang decoded initial/periodic 26.3 registered clocks, all holders and 20-tick cadence.");
