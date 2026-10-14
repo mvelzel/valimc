@@ -28,11 +28,12 @@ Game time and the registered Overworld/End clocks now advance and synchronize us
 
 World difficulty and its lock now persist and synchronize at login and after trusted host changes. The native dedicated-server default is Easy. Difficulty-dependent gameplay and client administration remain future work.
 
-Configuration lives in `config/config.exs`; `VALIMC_BIND`, `VALIMC_PORT` and `VALIMC_WORLD` override runtime settings. Public hosting requires authentication and encryption to be implemented first.
+Configuration lives in `config/config.exs`; `VALIMC_BIND`, `VALIMC_PORT` and `VALIMC_WORLD` override runtime settings. `VALIMC_ENCRYPTION=true` enables native RSA key exchange and continuous AES-CFB8 transport for offline testing. It retains offline identities and does not authenticate accounts. Public hosting requires online authentication to be implemented first.
 
 ## Elixir architecture
 
 - A socket-owning process holds each player's protocol, inventory preview, input limits and replication state. `active: :once` TCP limits inbound buffering.
+- A bounded cold-path RSA pool verifies login challenges before player admission. Each socket owner advances its own read/write cipher streams; gameplay does not call the pool.
 - Region processes own mutable block state and bounded stationary items. Item mutations check owner incarnations/revisions and publish after writer acknowledgment; observers sample protected ETS views and share cached packet binaries. Independent regions maintain their own 50 ms deadlines; survival simulation remains future work.
 - Player processes publish their own latest positions to ETS. A spatial index lets each observer sample nearby players concurrently. Movement replication uses compact quantized snapshots and one socket batch per observer interval, avoiding a movement-message fan-out into player mailboxes.
 - A bounded `Task.Supervisor` runs chunk encoders. Regions combine duplicate requests, share immutable encoded binaries, and discard stale results after edits. Baseline terrain is an immutable shared binary; edited chunks use paletted sections.
@@ -108,7 +109,7 @@ client API recovery/reconnect/restart/removal checks pass. Connected creative dr
 and vanilla throttle checks; automated/oracle and actual Q/held Ctrl+Q, stalled
 burst/reconnect/restart checks pass. Earlier mouse gesture gates remain pending.
 
-Missing: online authentication/encryption, Bedrock, survival rules, collision/anti-cheat, complete inventories and item components, crafting, combat, hunger, mobs/AI, redstone, fluids, block entities, vanilla terrain/structures, real light propagation, Anvil world import/export, complete player state persistence, plugin APIs and Java plugin compatibility. Known but unimplemented play packets are ignored; this is not full protocol parity. Default-item placement does not implement directional or functional block behavior.
+Missing: online authentication, Bedrock, survival rules, collision/anti-cheat, complete inventories and item components, crafting, combat, hunger, mobs/AI, redstone, fluids, block entities, vanilla terrain/structures, real light propagation, Anvil world import/export, complete player state persistence, plugin APIs and Java plugin compatibility. Known but unimplemented play packets are ignored; this is not full protocol parity. Default-item placement does not implement directional or functional block behavior.
 
 Fixed spatial regions currently support independent edits. Neighbor-coupled simulation, deterministic entity transfers, and multi-region transactions are specified as future work, not implemented. Hard crashes can lose changes since the last 30-second checkpoint. Player `.pose` files use bounded custom versions 2/3 under `world/players/`, with legacy pose migration and a version 3 transfer outbox; they are not vanilla player NBT. Storage errors/timeouts are explicit and can prevent a final save. Idle regions remain resident until shutdown, within the configured region limit.
 

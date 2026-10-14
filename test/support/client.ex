@@ -1,6 +1,6 @@
 defmodule Valimc.TestClient do
   @moduledoc false
-  alias Valimc.Protocol.{Data, ItemStack, Wire}
+  alias Valimc.Protocol.{Data, Encryption, ItemStack, Wire}
 
   def connect do
     {:ok, socket} =
@@ -21,6 +21,18 @@ defmodule Valimc.TestClient do
       send_raw(client, Wire.frame(Data.id(phase, :serverbound, name), payload, client.threshold))
 
   def send_raw(client, bytes) do
+    bytes = IO.iodata_to_binary(bytes)
+
+    bytes =
+      case Map.get(client, :cipher) do
+        nil ->
+          bytes
+
+        cipher ->
+          {:ok, encrypted} = Encryption.encrypt(cipher, bytes)
+          encrypted
+      end
+
     :ok = :gen_tcp.send(client.socket, bytes)
     client
   end
@@ -32,6 +44,17 @@ defmodule Valimc.TestClient do
 
       :more ->
         {:ok, bytes} = :gen_tcp.recv(client.socket, 0, 5000)
+
+        bytes =
+          case Map.get(client, :cipher) do
+            nil ->
+              bytes
+
+            cipher ->
+              {:ok, decrypted} = Encryption.decrypt(cipher, bytes)
+              decrypted
+          end
+
         read(%{client | buffer: client.buffer <> bytes})
 
       error ->
@@ -117,7 +140,12 @@ defmodule Valimc.TestClient do
     {body, client} = await(client, :login, "login_finished")
     <<uuid::binary-size(16), body::binary>> = body
     {^name, <<0, _session_id::binary-size(16)>>} = Wire.take_string(body)
-    client = send_packet(client, :login, "login_acknowledged", <<>>)
+
+    client =
+      if Map.get(client, :login_ack_sent, false),
+        do: client,
+        else: send_packet(client, :login, "login_acknowledged", <<>>)
+
     {packs, client} = await(client, :configuration, "select_known_packs")
     client = send_packet(client, :configuration, "select_known_packs", packs)
     {_, client} = await(client, :configuration, "finish_configuration")

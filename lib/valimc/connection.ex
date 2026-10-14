@@ -2,7 +2,7 @@ defmodule Valimc.Connection do
   use GenServer, restart: :temporary, shutdown: 15_000
 
   @moduledoc "A socket-owning process per player, including their protocol and connection-local state."
-  alias Valimc.Protocol.{Data, InventoryClick, ItemStack, ItemTypes, Packets, Wire}
+  alias Valimc.Protocol.{Data, Encryption, InventoryClick, ItemStack, ItemTypes, Packets, Wire}
 
   alias Valimc.{
     CreativeInput,
@@ -54,6 +54,12 @@ defmodule Valimc.Connection do
        threshold: nil,
        protocol: nil,
        buffer: <<>>,
+       cipher: nil,
+       encryption_requested: Valimc.config(:encrypt_login),
+       login_name: nil,
+       key_challenge: nil,
+       key_pair: nil,
+       key_job: nil,
        player: nil,
        player_store: nil,
        store_fence: nil,
@@ -105,6 +111,7 @@ defmodule Valimc.Connection do
       if byte_size(state.buffer) + byte_size(data) > Valimc.config(:max_packet_bytes) + 5,
         do: reject(state, "Receive buffer exceeded")
 
+      data = crypt_bytes(state.cipher, :decrypt, data)
       consume(%{state | buffer: state.buffer <> data, bytes: bytes, active: false}, 64)
     end)
   end
@@ -112,6 +119,52 @@ defmodule Valimc.Connection do
   def handle_info(:drain, state), do: guard_connection(state, fn -> consume(state, 64) end)
   def handle_info({:tcp_closed, _}, state), do: {:stop, :normal, state}
   def handle_info({:tcp_error, _, _}, state), do: {:stop, :normal, state}
+
+  def handle_info(
+        {:key_verified, worker, token, result},
+        %{key_job: %{pid: worker, token: token} = job} = state
+      ) do
+    Process.cancel_timer(job.timer)
+    Process.demonitor(job.monitor, [:flush])
+    Valimc.KeyExchange.cancel(job)
+    state = %{state | key_job: nil}
+
+    guard_connection(state, fn ->
+      if System.monotonic_time(:millisecond) >= job.deadline,
+        do: reject(state, "Login encryption timed out")
+
+      case result do
+        {:ok, secret} ->
+          {:ok, cipher} = Encryption.new(secret)
+          # This tail followed the plaintext key frame and has never been decrypted.
+          state = %{
+            state
+            | cipher: cipher,
+              buffer: crypt_bytes(cipher, :decrypt, state.buffer),
+              step: nil
+          }
+
+          state = start_player_login(state, state.login_name)
+          consume(state, 64)
+
+        _ ->
+          reject(state, "Invalid login encryption response")
+      end
+    end)
+  end
+
+  def handle_info({:key_verified, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info({:key_deadline, token}, %{key_job: %{token: token} = job} = state) do
+    if System.monotonic_time(:millisecond) >= job.deadline,
+      do: guard_connection(state, fn -> reject(state, "Login encryption timed out") end),
+      else: {:noreply, state}
+  end
+
+  def handle_info({:key_deadline, _}, state), do: {:noreply, state}
+
+  def handle_info({:DOWN, ref, :process, _, _}, %{key_job: %{monitor: ref}} = state),
+    do: guard_connection(state, fn -> reject(state, "Login encryption unavailable") end)
 
   def handle_info(:save_player, state) do
     Process.send_after(self(), :save_player, Valimc.config(:player_save_interval_ms))
@@ -416,6 +469,8 @@ defmodule Valimc.Connection do
       else: %{state | window: now, packets: 0, bytes: 0, logical_bytes: 0}
   end
 
+  defp consume(%{step: :key_job} = state, _), do: {:noreply, %{state | active: false}}
+
   defp consume(state, 0) do
     send(self(), :drain)
     {:noreply, state}
@@ -615,63 +670,30 @@ defmodule Valimc.Connection do
     if not Regex.match?(~r/\A[A-Za-z0-9_]{1,16}\z/, name),
       do: reject(state, "Invalid player name")
 
-    player = %{
-      pid: self(),
-      name: name,
-      uuid: offline_uuid(name),
-      entity_id: System.unique_integer([:positive]),
-      x: 0.5,
-      y: 64.0,
-      z: 0.5,
-      yaw: 0.0,
-      pitch: 0.0,
-      ready: false
-    }
-
-    case Players.join(player) do
-      :ok -> :ok
-      {:error, reason} -> reject(state, reason)
-    end
-
-    {store, fence, player, inventory, pending} =
-      case PlayerStore.open(player.uuid) do
-        {:ok, pid, nil, fence} ->
-          {pid, fence, player, state.inventory, nil}
-
-        {:ok, pid, snapshot, fence} ->
-          inventory = %{
-            snapshot.inventory
-            | infinite_materials: state.inventory.infinite_materials
-          }
-
-          pending =
-            if snapshot.outbox != nil, do: Map.take(snapshot, [:outbox, :transfer_sequence])
-
-          {pid, fence, Map.merge(player, snapshot.pose), inventory, pending}
-
-        {:error, reason} ->
-          require Logger
-          Logger.warning("Player state load failed: #{inspect(reason)}")
-          reject(state, "Player save unavailable; please retry after storage is repaired")
-      end
-
-    Players.update(self(), player)
-
-    state = %{
-      state
-      | player: player,
-        player_store: store,
-        store_fence: fence,
-        inventory: inventory,
-        store_monitor: Process.monitor(store)
-    }
-
-    if pending do
-      recovery = new_recovery(:login, :delivery, pending)
-
-      deliver_recovery(%{state | step: :recover, recovery: recovery})
+    if state.encryption_requested do
+      pair = Valimc.LoginKeys.pair()
+      challenge = Encryption.challenge()
+      send_packets(state, [Encryption.hello(pair, challenge, false)])
+      %{state | step: :key, login_name: name, key_pair: pair, key_challenge: challenge}
     else
-      reconcile_login(state)
+      start_player_login(state, name)
+    end
+  end
+
+  defp handle_packet(%{phase: :login, step: :key} = state, 1, payload) do
+    if byte_size(payload) > 266, do: reject(state, "Invalid login encryption response")
+    token = make_ref()
+
+    case Valimc.KeyExchange.start(self(), token, state.key_pair, state.key_challenge, payload) do
+      {:ok, job} ->
+        timeout = max(job.deadline - System.monotonic_time(:millisecond), 0)
+        job = Map.put(job, :timer, Process.send_after(self(), {:key_deadline, token}, timeout))
+        Valimc.KeyExchange.activate(job)
+
+        %{state | step: :key_job, key_job: job, key_pair: nil, key_challenge: nil}
+
+      _ ->
+        reject(state, "Server busy; please retry")
     end
   end
 
@@ -799,6 +821,67 @@ defmodule Valimc.Connection do
   end
 
   defp handle_packet(state, _, _), do: reject(state, "Unexpected protocol state")
+
+  defp start_player_login(state, name) do
+    player = %{
+      pid: self(),
+      name: name,
+      uuid: offline_uuid(name),
+      entity_id: System.unique_integer([:positive]),
+      x: 0.5,
+      y: 64.0,
+      z: 0.5,
+      yaw: 0.0,
+      pitch: 0.0,
+      ready: false
+    }
+
+    case Players.join(player) do
+      :ok -> :ok
+      {:error, reason} -> reject(state, reason)
+    end
+
+    {store, fence, player, inventory, pending} =
+      case PlayerStore.open(player.uuid) do
+        {:ok, pid, nil, fence} ->
+          {pid, fence, player, state.inventory, nil}
+
+        {:ok, pid, snapshot, fence} ->
+          inventory = %{
+            snapshot.inventory
+            | infinite_materials: state.inventory.infinite_materials
+          }
+
+          pending =
+            if snapshot.outbox != nil, do: Map.take(snapshot, [:outbox, :transfer_sequence])
+
+          {pid, fence, Map.merge(player, snapshot.pose), inventory, pending}
+
+        {:error, reason} ->
+          require Logger
+          Logger.warning("Player state load failed: #{inspect(reason)}")
+          reject(state, "Player save unavailable; please retry after storage is repaired")
+      end
+
+    Players.update(self(), player)
+
+    state = %{
+      state
+      | player: player,
+        player_store: store,
+        store_fence: fence,
+        inventory: inventory,
+        store_monitor: Process.monitor(store)
+    }
+
+    if pending do
+      recovery = new_recovery(:login, :delivery, pending)
+
+      deliver_recovery(%{state | step: :recover, recovery: recovery})
+    else
+      reconcile_login(state)
+    end
+  end
 
   defp enter_world(state) do
     state = %{state | phase: :play, step: nil, player: %{state.player | ready: true}}
@@ -1407,15 +1490,49 @@ defmodule Valimc.Connection do
   defp send_frames(_state, []), do: :ok
 
   defp send_frames(state, frames) do
-    case :gen_tcp.send(state.socket, frames) do
+    size = IO.iodata_length(frames)
+
+    if size > Valimc.config(:max_write_batch_bytes),
+      do: throw({:disconnect, :write_batch_too_large, state})
+
+    bytes =
+      if state.cipher,
+        do: crypt_bytes(state.cipher, :encrypt, IO.iodata_to_binary(frames)),
+        else: frames
+
+    case :gen_tcp.send(state.socket, bytes) do
       :ok ->
-        Metrics.add(:bytes_sent, IO.iodata_length(frames))
+        Metrics.add(:bytes_sent, size)
         Metrics.add(:packets_sent, length(frames))
         :ok
 
       {:error, reason} ->
         throw({:disconnect, reason, state})
     end
+  end
+
+  defp crypt_bytes(nil, _, bytes), do: bytes
+
+  defp crypt_bytes(cipher, direction, bytes) do
+    size = Encryption.max_chunk()
+
+    chunks =
+      Stream.unfold(bytes, fn
+        <<>> ->
+          nil
+
+        remaining ->
+          count = min(byte_size(remaining), size)
+          <<part::binary-size(^count), tail::binary>> = remaining
+          {part, tail}
+      end)
+
+    chunks
+    |> Enum.map(fn chunk ->
+      {:ok, transformed} = apply(Encryption, direction, [cipher, chunk])
+      transformed
+    end)
+    |> IO.iodata_to_binary()
   end
 
   defp reject(state, message) do
@@ -1430,10 +1547,7 @@ defmodule Valimc.Connection do
     phase = if state.phase in [:login, :configuration, :play], do: state.phase, else: :login
     name = if phase == :login, do: "login_disconnect", else: "disconnect"
 
-    :gen_tcp.send(
-      state.socket,
-      Packets.packet(name, payload, phase) |> Packets.frame(state.threshold)
-    )
+    send_packets(state, [Packets.packet(name, payload, phase)])
 
     throw({:disconnect, message, state})
   end
@@ -1446,6 +1560,13 @@ defmodule Valimc.Connection do
   @impl true
   def terminate(_reason, state) do
     :gen_tcp.close(state.socket)
+
+    if state.key_job do
+      Process.cancel_timer(state.key_job.timer)
+      Process.demonitor(state.key_job.monitor, [:flush])
+
+      Valimc.KeyExchange.cancel(state.key_job)
+    end
 
     if state.recovery do
       Process.cancel_timer(state.recovery.timer)

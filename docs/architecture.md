@@ -21,6 +21,9 @@ flowchart LR
 | State | Owner | Access |
 |---|---|---|
 | Socket and protocol phase | Connection process | Sequential packet handling; bounded TCP input |
+| Continuous AES read/write contexts | Connection process | Separate mutable resources; never reused across owners or frame boundaries |
+| Server RSA key | LoginKeys owner | Generated on startup; immutable protected ETS publication |
+| RSA proof computation | Bounded KeyExchange workers | Cold-path admission, owner/worker monitors and absolute deadlines |
 | Authoritative preview player state | Connection process | Actor-local state, published ETS snapshot |
 | Admission, names, lifecycle | Players process | One call at admission/ready; monitors at exit |
 | Spatial membership | Player process, cleanup by Players | Public ETS index; concurrent readers |
@@ -34,6 +37,16 @@ flowchart LR
 | Player menu inventory | Connection process | Sparse bounded 46-slot map, selected hotbar, cursor and 15-bit state ID |
 
 The admission process is outside the movement and block hot paths. Spatial ETS holds published snapshots; reading another player's snapshot does not grant permission to mutate their state. Independent sessions and region owners are scheduled across available BEAM schedulers.
+
+Encrypted offline login holds the connection before player admission while a
+bounded worker verifies the secret/challenge. TCP reads pause during that job;
+any raw tail following the plaintext key frame stays bounded and is decrypted
+exactly once after the socket owner creates its cipher. Later reads decrypt only
+new bytes. Output batches are sized before cipher advancement and written once;
+an error closes the stream rather than rewinding it. Late/dead workers cannot
+acquire a player lease. Key/pool services precede connection supervision in the
+rest-for-one tree; their loss closes dependent sessions. Online identity
+verification is a separate future admission gate, not implied by encryption.
 
 ## World clocks
 

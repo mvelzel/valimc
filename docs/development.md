@@ -138,9 +138,18 @@ The encryption probe passes synthetic public keys/hello bodies, hashes and AES
 streams to Mojang's actual crypto/login classes. Mojang returns RSA key-response
 bodies for Elixir verification. Key fixtures remain temporary; private key
 inspection is redacted. Cipher resources mutate in place and must stay with their
-socket owner; reject cross-process/oversize calls before advancement. Primitive
-tests do not establish integrated encrypted login or authenticated identities:
-the actual encrypted-client scenario remains a gate after transport integration.
+socket owner; reject cross-process/oversize calls before advancement. The full TCP
+oracle now runs in separate fresh worlds for plaintext and encrypted transport,
+using Mojang's actual key and stream classes. Read exact positive-length frame
+bodies: JDK 25 CipherInputStream may block on readNBytes' zero-length probe.
+TCP tests cover coalesced/fragmented transitions, pool limits, replay/deadline
+fencing and infrastructure failure. Actual CUA validation enables
+`VALIMC_ENCRYPTION=true`, checks rendering, `/stats`, hotbar/inventory input,
+reconnect and full restart, then restores normal configuration. Capture fresh
+player state first; compare inventory contents/selection without the session-local
+menu state ID. Never send raw fixture packets from an RPC process into an encrypted
+socket: trusted fixture writes must advance the cipher inside its socket owner.
+These transport checks pass in VMC-007b; authenticated identities remain VMC-007c.
 
 Entity checks generate 272 packed-velocity fixtures, including a deterministic
 random sample and threshold/continuation/clamping boundaries. Elixir independently

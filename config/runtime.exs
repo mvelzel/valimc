@@ -1,5 +1,12 @@
 import Config
 
+case System.get_env("VALIMC_ENCRYPTION") do
+  nil -> :ok
+  "true" -> config :valimc, encrypt_login: true
+  "false" -> config :valimc, encrypt_login: false
+  _ -> raise "VALIMC_ENCRYPTION must be true or false"
+end
+
 if port = System.get_env("VALIMC_PORT") do
   config :valimc, port: String.to_integer(port)
 end

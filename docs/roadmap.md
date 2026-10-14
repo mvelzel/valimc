@@ -29,8 +29,8 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-006b](tickets/VMC-006b.md) | Done — weather cycle validated, local | 270 tests/release/full oracle; 480 native traces/50,400 ticks, migration and actual rain/storm/fade/automatic expiry, frozen-cycle /stats, reconnect/restart and cleanup pass |
 | [VMC-006c](tickets/VMC-006c.md) | Done — difficulty state validated, local | 275 tests/release/full oracle; native default/64 lock-force cases/eight codecs and actual four labels, lock controls, /stats, reconnect/restart and cleanup pass |
 | VMC-006 | Partially implemented | Core clocks, Overworld weather and difficulty synchronize/persist; complete gamerules, administration and dependent survival effects remain |
-| [VMC-007a](tickets/VMC-007a.md) | Awaiting integrated encrypted-client validation | 279 tests/release/full oracle; 32 native RSA/DER/hello/hash/AES cases pass; TCP integration and online identities require VMC-007b/c |
-| [VMC-007b](tickets/VMC-007b.md) | Planned — next slice | Bounded key-exchange jobs, owner-local continuous encrypted framing and real-client validation; online identity verification remains VMC-007c |
+| [VMC-007a](tickets/VMC-007a.md) | Done — encrypted client validated, local | Native crypto probes plus VMC-007b actual encrypted login/render/input/reconnect/restart pass; online identities remain |
+| [VMC-007b](tickets/VMC-007b.md) | Done — encrypted transport validated, local | 287 tests/release/full native plaintext+encrypted suites and actual CUA login/render/stats/input/reconnect/restart pass; online identity verification remains |
 | [VMC-005a](tickets/VMC-005a.md) | Done — `123d1d0`, validated | Owner-local 46-slot menu; actual selection/offhand/swap/resync and automated/oracle checks pass |
 | VMC-005b | Planned | Hashed click codec, authoritative pickup/swap/shift/drag transactions |
 | [VMC-005b1](tickets/VMC-005b1.md) | Done — `67c34ad`, validated | Actual half pickup/place/merge/shift/number/offhand/rejection pass; 65 tests/full oracle/release pass |

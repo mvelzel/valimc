@@ -1,6 +1,6 @@
 # VMC-007a — Native encryption primitives and login codecs
 
-Status: Automated checkpoint — awaiting encrypted-login integration/client validation.
+Status: Done — integrated encrypted client validated, local.
 Updated: October 14, 2026.
 Parent VMC-007 requires encrypted transport and verified online identities;
 this foundation alone does not provide either to a running connection.
@@ -77,8 +77,10 @@ streams byte by byte and verifies its RSA response. Generated private keys and
 fixtures stay in temporary ignored paths; the full oracle removes its temporary
 directory. It starts no vanilla gameplay world/server and accepts no EULA.
 
-The current live server remains plaintext/offline. No integrated encryption or
-online-authentication pass is claimed. Required actual Minecraft encrypted-login
-scenario remains pending on VMC-007b; keep this checkpoint local/unverified.
-Continue with the transport slice using the tested primitives, then validate
-this foundation and transport together through the actual graphical client.
+October 14: VMC-007b integrated these primitives into socket ownership and passed
+287 tests, release and full native plaintext/encrypted TCP suites. Its actual
+Minecraft 26.3 CUA scenario passed encrypted login, rendering, `/stats`, hotbar/
+inventory input, reconnect and full restart with saved state retained. See
+[VMC-007b](VMC-007b.md) for actions, evidence and cleanup. This completes the
+foundation's client gate. Default preview remains plaintext/offline; online
+authentication still requires VMC-007c.

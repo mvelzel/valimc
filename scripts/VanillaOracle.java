@@ -2,6 +2,10 @@ import java.io.*;
 import java.net.*;
 import java.util.*;
 import java.util.zip.*;
+import javax.crypto.Cipher;
+import javax.crypto.CipherInputStream;
+import javax.crypto.CipherOutputStream;
+import net.minecraft.util.Crypt;
 import com.mojang.serialization.Lifecycle;
 import io.netty.buffer.*;
 import net.minecraft.SharedConstants;
@@ -52,8 +56,9 @@ public class VanillaOracle implements AutoCloseable {
   private static ProtocolInfo<?> gameIn;
   private static ProtocolInfo<?> gameOut;
   private final Socket socket;
-  private final InputStream input;
-  private final OutputStream output;
+  private InputStream input;
+  private OutputStream output;
+  private boolean encrypted;
   private int threshold = -1;
   private final Map<String, Integer> seen = new TreeMap<>();
   private int chunks;
@@ -70,6 +75,15 @@ public class VanillaOracle implements AutoCloseable {
     Object login;
     do {
       login = read(LoginProtocols.CLIENTBOUND);
+      if (login instanceof ClientboundHelloPacket hello) {
+        if (hello.shouldAuthenticate() || !hello.getServerId().isEmpty() || hello.getChallenge().length!=4)
+          throw new AssertionError("Unexpected offline encryption challenge");
+        var secret=Crypt.generateSecretKey();
+        send(LoginProtocols.SERVERBOUND,new ServerboundKeyPacket(secret,hello.getPublicKey(),hello.getChallenge()));
+        input=new CipherInputStream(input,Crypt.getCipher(Cipher.DECRYPT_MODE,secret));
+        output=new CipherOutputStream(output,Crypt.getCipher(Cipher.ENCRYPT_MODE,secret));
+        encrypted=true;
+      }
       if (login instanceof ClientboundLoginCompressionPacket compression) threshold = compression.getCompressionThreshold();
     } while (!(login instanceof ClientboundLoginFinishedPacket));
     send(LoginProtocols.SERVERBOUND, ServerboundLoginAcknowledgedPacket.INSTANCE);
@@ -147,8 +161,14 @@ public class VanillaOracle implements AutoCloseable {
   private Object read(ProtocolInfo<?> info) throws Exception {
     int length = readVarInt(input);
     if (length < 1 || length > 2097152) throw new AssertionError("Invalid frame length");
-    byte[] data = input.readNBytes(length);
-    if (data.length != length) throw new EOFException();
+    // CipherInputStream may block even for a zero-length read. Stop exactly at
+    // the frame boundary rather than allowing readNBytes to probe once more.
+    byte[] data = new byte[length];
+    for (int offset=0; offset<length;) {
+      int read=input.read(data,offset,length-offset);
+      if(read<0)throw new EOFException();
+      offset+=read;
+    }
     if (threshold >= 0) {
       var bytes = new ByteArrayInputStream(data);
       int uncompressed = readVarInt(bytes);
@@ -292,6 +312,10 @@ public class VanillaOracle implements AutoCloseable {
     });
     int port = args.length > 0 ? Integer.parseInt(args[0]) : 25565;
     try (var first = new VanillaOracle(port, "OracleOne"); var second = new VanillaOracle(port, "OracleTwo")) {
+      boolean expectedEncryption=args.length>1 && args[1].equals("encrypted");
+      if (first.encrypted!=expectedEncryption || second.encrypted!=expectedEncryption)
+        throw new AssertionError("Transport encryption mode mismatch");
+      System.out.println("PASS: actual Mojang TCP login/configuration/play codecs over "+(expectedEncryption?"continuous AES-CFB8":"plaintext")+" transport.");
       first.await(p -> p instanceof ClientboundAddEntityPacket);
       if (first.lastTime==null || second.lastTime==null) throw new AssertionError("Missing initial clock synchronization");
       if (!first.difficultyInitialized || !second.difficultyInitialized) throw new AssertionError("Missing initial difficulty synchronization");

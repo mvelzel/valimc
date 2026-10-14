@@ -53,31 +53,33 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'EntityOracle', 'generate', entity_fixtures], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_entities.exs', entity_fixtures, entity_encoded], cwd=root, check=True)
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'EntityOracle', 'verify', entity_encoded], cwd=root, check=True)
-    with socket.socket() as port_probe:
-        port_probe.bind(('127.0.0.1', 0))
-        port = port_probe.getsockname()[1]
-    env = dict(os.environ, VALIMC_PORT=str(port), VALIMC_WORLD=world)
-    log_path = pathlib.Path(world) / 'server.log'
-    with log_path.open('w') as log:
-        server = subprocess.Popen(['mix', 'run', '--no-halt'], cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT)
-        try:
-            for _ in range(200):
-                if server.poll() is not None:
-                    raise RuntimeError(log_path.read_text())
-                if 'listening on' in log_path.read_text():
-                    break
-                time.sleep(0.05)
-            else:
-                raise RuntimeError('Server startup timeout')
-            result = subprocess.run([sys.executable, 'scripts/java_tool.py', 'VanillaOracle', str(port)], cwd=root)
-            if result.returncode:
-                print(log_path.read_text(), file=sys.stderr)
-            exit_code = result.returncode
-        finally:
-            server.terminate()
+    for mode, encrypted in [('plain', False), ('encrypted', True)]:
+        with socket.socket() as port_probe:
+            port_probe.bind(('127.0.0.1', 0))
+            port = port_probe.getsockname()[1]
+        env = dict(os.environ, VALIMC_PORT=str(port), VALIMC_WORLD=str(pathlib.Path(world)/mode), VALIMC_ENCRYPTION=str(encrypted).lower())
+        log_path = pathlib.Path(world) / (mode+'-server.log')
+        with log_path.open('w') as log:
+            server = subprocess.Popen(['mix', 'run', '--no-halt'], cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT)
             try:
-                server.wait(timeout=20)
-            except subprocess.TimeoutExpired:
-                server.kill()
-                server.wait()
-sys.exit(exit_code)
+                for _ in range(200):
+                    if server.poll() is not None:
+                        raise RuntimeError(log_path.read_text())
+                    if 'listening on' in log_path.read_text():
+                        break
+                    time.sleep(0.05)
+                else:
+                    raise RuntimeError('Server startup timeout')
+                result = subprocess.run([sys.executable, 'scripts/java_tool.py', 'VanillaOracle', str(port), mode], cwd=root)
+                if result.returncode:
+                    print(log_path.read_text(), file=sys.stderr)
+                if result.returncode:
+                    sys.exit(result.returncode)
+            finally:
+                server.terminate()
+                try:
+                    server.wait(timeout=20)
+                except subprocess.TimeoutExpired:
+                    server.kill()
+                    server.wait()
+sys.exit(0)
