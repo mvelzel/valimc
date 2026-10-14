@@ -923,40 +923,51 @@ defmodule Valimc.Connection do
         resync_inventory(state)
 
       {:ok, inventory, stack} ->
-        # Standing preview eye height minus vanilla's float32 0.3 offset.
-        # This entity remains stationary until authoritative item physics exists.
-        record = %{
+        start_inventory_transfer(state, inventory, [stack])
+
+      {:error, _} ->
+        resync_inventory(state)
+    end
+  end
+
+  defp start_inventory_transfer(%{recovery: recovery, save_ref: save_ref} = state, _, _)
+       when recovery != nil or save_ref != nil,
+       do: resync_inventory(state)
+
+  defp start_inventory_transfer(state, inventory, stacks) do
+    # Standing preview eye height minus vanilla's float32 0.3 offset.
+    # These entities remain stationary until authoritative item physics exists.
+    records =
+      Enum.map(stacks, fn stack ->
+        %{
           uuid: :crypto.strong_rand_bytes(16),
           x: state.player.x,
           y: state.player.y + 1.3199999928474426,
           z: state.player.z,
           stack: stack
         }
+      end)
 
-        key = World.region_key(World.chunk_key(record.x, record.z))
-        ref = make_ref()
+    key = World.region_key(World.chunk_key(state.player.x, state.player.z))
+    ref = make_ref()
 
-        recovery = %{
-          new_recovery(:play, :prepare, nil)
-          | ref: ref,
-            plan: %{key: key, records: [record], inventory: inventory}
-        }
+    recovery = %{
+      new_recovery(:play, :prepare, nil)
+      | ref: ref,
+        plan: %{key: key, records: records, inventory: inventory}
+    }
 
-        PlayerStore.prepare_transfer(
-          state.player_store,
-          state.store_fence,
-          PlayerSnapshot.capture(state.player, state.inventory),
-          PlayerSnapshot.capture(state.player, inventory),
-          key,
-          [record],
-          ref
-        )
+    PlayerStore.prepare_transfer(
+      state.player_store,
+      state.store_fence,
+      PlayerSnapshot.capture(state.player, state.inventory),
+      PlayerSnapshot.capture(state.player, inventory),
+      key,
+      records,
+      ref
+    )
 
-        resync_inventory(%{state | recovery: recovery})
-
-      {:error, _} ->
-        resync_inventory(state)
-    end
+    resync_inventory(%{state | recovery: recovery})
   end
 
   defp break_block_action(state, action, position, sequence) do
@@ -1058,10 +1069,13 @@ defmodule Valimc.Connection do
       {:ok, %{container: 0} = click} ->
         # The vanilla listener applies actions to current owner state even when
         # the reported state ID is stale. Predictions only guide replication.
-        case Inventory.click(state.inventory, click.action, click.slot, click.button) do
-          {:ok, inventory} ->
+        case Inventory.plan_click(state.inventory, click.action, click.slot, click.button) do
+          {:ok, inventory, []} ->
             send_packets(state, [Packets.inventory(inventory), Packets.cursor(inventory.carried)])
             %{state | inventory: inventory}
+
+          {:ok, inventory, [_ | _] = stacks} ->
+            start_inventory_transfer(state, inventory, stacks)
 
           {:error, _} ->
             send_packets(state, [

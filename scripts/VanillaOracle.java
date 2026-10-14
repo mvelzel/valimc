@@ -391,6 +391,33 @@ public class VanillaOracle implements AutoCloseable {
       first.send(gameOut, new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.DROP_ITEM, BlockPos.ZERO, Direction.DOWN, 0));
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.items().get(44).isEmpty());
       System.out.println("PASS: Mojang 26.3 Q/Ctrl+Q action codecs, authoritative depleted inventory, exact patched item metadata and empty-hand correction.");
+      first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(9, stone.copyWithCount(7)));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot() == 9 && s.getItem().getCount() == 7);
+      first.send(gameOut, new ServerboundContainerClickPacket(0, 32767, (short)9, (byte)0, ContainerInput.THROW,
+        predictions, HashedStack.create(invented, component -> 0x12345678)));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.items().get(9), stone.copyWithCount(6)));
+      second.await(p -> p instanceof ClientboundSetEntityDataPacket d && d.packedItems().stream().anyMatch(v -> v.value() instanceof ItemStack s && ItemStack.matches(s, stone.copyWithCount(1))));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.items().get(9), stone.copyWithCount(6)));
+      first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)9, (byte)0, ContainerInput.PICKUP,
+        new Int2ObjectOpenHashMap<>(), HashedStack.EMPTY));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.items().get(9).isEmpty() && ItemStack.matches(c.carriedItem(), stone.copyWithCount(6)));
+      first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)45, (byte)1, ContainerInput.THROW,
+        new Int2ObjectOpenHashMap<>(), HashedStack.EMPTY));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.carriedItem(), stone.copyWithCount(6)) && ItemStack.matches(c.items().get(45), planks));
+      first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)-999, (byte)1, ContainerInput.PICKUP,
+        predictions, HashedStack.create(invented, component -> 0x12345678)));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.carriedItem(), stone.copyWithCount(5)));
+      second.await(p -> p instanceof ClientboundSetEntityDataPacket d && d.packedItems().stream().anyMatch(v -> v.value() instanceof ItemStack s && ItemStack.matches(s, stone.copyWithCount(1))));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.carriedItem(), stone.copyWithCount(5)));
+      first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)-999, (byte)0, ContainerInput.QUICK_MOVE,
+        new Int2ObjectOpenHashMap<>(), HashedStack.EMPTY));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.carriedItem().isEmpty());
+      second.await(p -> p instanceof ClientboundSetEntityDataPacket d && d.packedItems().stream().anyMatch(v -> v.value() instanceof ItemStack s && ItemStack.matches(s, stone.copyWithCount(5))));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.carriedItem().isEmpty());
+      first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)-999, (byte)0, ContainerInput.PICKUP,
+        new Int2ObjectOpenHashMap<>(), HashedStack.EMPTY));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.carriedItem().isEmpty());
+      System.out.println("PASS: Mojang 26.3 ordinary menu THROW and outside cursor drop codecs, forged predictions, depleted inventory/cursor and exact world stack patches.");
       System.out.println("PASS: Mojang 26.3 codecs validated compressed login, network registry/tag dependency loading, command graph/local completion, " + first.chunks + " chunks, inventory/selection/hand swaps, authoritative pickup/split/merge/shift/swap/quick-craft/collect/clone/fill with forged predictions, menu-close return, creative scalar stacks/corrections, two-player visibility, movement, block placement/breaking and commands.");
       System.out.println(first.seen);
     }

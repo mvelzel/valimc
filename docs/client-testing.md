@@ -215,3 +215,18 @@ purging receipts. Final join 02:36:04 visibly confirmed empty hands/world. Priva
 client log has zero protocol/codec/duplicate-entity/ERROR entries. All 170 tests,
 release and Mojang behavior/TCP oracle pass. Item physics/pickups and other drop
 paths remain separate compatibility gaps; earlier mouse-validation gates persist.
+
+VMC-019b3c, October 14: all 181 tests/release/full Mojang behavior+codec oracle
+pass. Updated release 02:52:28, actual CUA join 02:53:04. In-world Q changed
+HUD 2→1 and rendered one patched item, source sequence 8→9/no outbox; this is a
+baseline check of the refactored transfer helper. A vanilla game-mode UI fixture
+opened the ordinary inventory through actual E. Prepared contents appeared,
+but actual menu Q changed no slot/cursor/source state. A visible pointer does
+not establish the client's hovered slot or packet path. Native outside right
+click and the earlier Game Menu left click both failed with `noWindowsAvailable`.
+Actual pickup, slot throw and outside cursor drop gates remain pending; no
+fixture or oracle result substitutes for those actions. Cleanup removed only the
+one baseline UUID and restored empty inventory/pose while retaining sequence 9/
+receipts. Actual rejoin 02:57:45 and E confirmed empty state and creative UI.
+Private client log has zero protocol/codec/duplicate-entity/ERROR entries. The
+checkpoint remains local, the GUI gate is parked, and the broader backlog continues.

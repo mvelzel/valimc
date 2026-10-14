@@ -123,6 +123,14 @@ snapshot ID. Source failures with no commit restore old counts; uncertain commit
 disconnect into journal recovery. These drops use stationary preview entities;
 vanilla physics/pickups and menu/creative/disconnect drops remain incomplete.
 
+Ordinary menu clicks now produce an owner-local inventory plus zero/one drop
+effects. No-effect plans publish immediately; effectful THROW/outside cursor
+plans enter that same source prepare/delivery/clear path. A carried stack blocks
+slot THROW and active quick-craft consumes an interrupting drop solely to reset
+the gesture. The current normal menu never replenishes a crafting result; recipe
+output loops, creative slot -1 creation, close overflow and disconnect cleanup
+remain separate work. Required actual menu mouse input is still a validation gate.
+
 Player inventories are pure bounded structs inside their connection. Creative
 slot writes, selected-hand lookup and hand swaps execute serially in that owner;
 network snapshots publish accepted state. Startup sends all 46 menu slots.

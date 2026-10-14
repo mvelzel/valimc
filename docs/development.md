@@ -149,6 +149,18 @@ Actual Minecraft must generate Q/Ctrl+Q, render the stationary preview items,
 retain counts across reconnect/restart and correct selection/swap during a
 stalled transfer. Preserve source counters/receipts when cleaning fixtures.
 
+VMC-019b3c adds effect-aware ordinary menu click plans. Mojang's actual methods
+verify slot THROW, outside PICKUP/QUICK_MOVE, signed nonzero throw buttons,
+cursor/empty no-ops and quick-craft interruption in both permission modes. TCP
+tests also forge predictions, stall source/destination, gate repeated clicks/
+close/swap, reject effectful clicks during normal saves and recover depleted
+cursors after disconnect or malformed input. The official-codec oracle decodes
+exact cursor/slot changes and component-preserving item metadata. Actual client
+coverage must use the ordinary inventory screen; creative tabs send different
+drop/add packets. A development-only UI game-mode fixture does not implement
+survival rules. Actual pickup/outside-click gates remain pending when CUA rejects
+mouse actions; fixture cursor setup or codec tests cannot replace those gestures.
+
 ## Actual Minecraft computer use
 
 The normal macOS game runs as an unbundled `java` process, absent from computer

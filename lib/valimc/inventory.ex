@@ -106,6 +106,44 @@ defmodule Valimc.Inventory do
     |> advance()
   end
 
+  @doc "Plans a click and zero/one world-drop effects; the caller owns durable commit."
+  def plan_click(%{drag: drag} = inventory, action, slot, button)
+      when drag != nil and action != :quick_craft do
+    with {:ok, next} <- click(inventory, action, slot, button), do: {:ok, next, []}
+  end
+
+  def plan_click(inventory, action, -999, button)
+      when action in [:pickup, :quick_move] and button in [0, 1] do
+    stack = inventory.carried
+
+    if stack do
+      count = if button == 0, do: stack.count, else: 1
+      next = %{inventory | carried: sized(stack, stack.count - count)}
+      with {:ok, next} <- finish(next), do: {:ok, next, [sized(stack, count)]}
+    else
+      with {:ok, next} <- finish(inventory), do: {:ok, next, []}
+    end
+  end
+
+  def plan_click(inventory, :throw, slot, button)
+      when (slot in 0..45 or slot in [-1, -999]) and button in -128..127 do
+    stack = if slot >= 0 and inventory.carried == nil, do: get(inventory, slot)
+
+    if stack do
+      # Vanilla treats every nonzero button as all; only button 1 repeats a
+      # replenishing crafting result. This preview keeps result slot 0 empty.
+      count = if button == 0, do: 1, else: stack.count
+      next = put(inventory, slot, sized(stack, stack.count - count))
+      with {:ok, next} <- finish(next), do: {:ok, next, [sized(stack, count)]}
+    else
+      with {:ok, next} <- finish(inventory), do: {:ok, next, []}
+    end
+  end
+
+  def plan_click(inventory, action, slot, button) do
+    with {:ok, next} <- click(inventory, action, slot, button), do: {:ok, next, []}
+  end
+
   def click(inventory, :quick_craft, slot, button) when button in 0..11,
     do: quick_craft(inventory, slot, Bitwise.band(button, 3), Bitwise.bsr(button, 2))
 

@@ -82,6 +82,18 @@ defmodule Valimc.KeyboardDropTest do
     client
   end
 
+  defp menu_click(client, action, slot, button, predictions \\ <<0, 0>>) do
+    Client.send_packet(client, :play, "container_click", [
+      <<0>>,
+      Wire.varint(32767),
+      <<slot::signed-16, button::signed-8>>,
+      Wire.varint(ItemTypes.input_id(action)),
+      predictions
+    ])
+  end
+
+  defp owned(ctx, predicate), do: await_state(ctx, &predicate.(&1.inventory))
+
   defp saved(ctx) do
     {:ok, snapshot} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
     snapshot
@@ -308,7 +320,214 @@ defmodule Valimc.KeyboardDropTest do
     client = barrier(client)
     {_, state} = await_state(ctx, &(&1.recovery == nil))
     assert state.inventory.slots[43] == ctx.stone and records(ctx) == []
+    menu_click(client, "pickup", 43, 0)
+    owned(ctx, &(&1.carried == ctx.stone))
+    menu_click(client, "pickup", -999, 0)
+    {_, client} = Client.await(client, :play, "system_chat")
+    client = barrier(client)
+    {_, state} = await_state(ctx, &(&1.recovery == nil))
+    assert state.inventory.carried == ctx.stone and state.inventory.slots[43] == nil
+    assert records(ctx) == [] and saved(ctx).transfer_sequence == 0
     Client.close(client)
     departed(ctx)
+  end
+
+  test "ordinary menu slot and cursor drops ignore forged observations and conserve exact patches",
+       ctx do
+    client = login(ctx)
+    # Predict an empty source and an invented stone-99 cursor; ownership remains seven.
+    predicted = [<<1, 43::signed-16, 0, 1>>, Wire.varint(ctx.stone.item_id), <<99, 0, 0>>]
+    menu_click(client, "throw", 43, 0, predicted)
+    {_, state} = completed(ctx, 1)
+    assert state.inventory.slots[43] == %{ctx.stone | count: 6}
+    menu_click(client, "pickup", 43, 0)
+    owned(ctx, &(&1.carried == %{ctx.stone | count: 6}))
+    menu_click(client, "throw", 45, 1)
+    client = barrier(client)
+    assert saved(ctx).transfer_sequence == 1
+
+    assert :sys.get_state(Enum.find(Players.all(), &(&1.name == ctx.name)).pid).inventory.slots[
+             45
+           ].count == 3
+
+    menu_click(client, "pickup", -999, 1)
+    {_, state} = completed(ctx, 2)
+    assert state.inventory.carried == %{ctx.stone | count: 5}
+    menu_click(client, "quick_move", -999, 0)
+    {_, state} = completed(ctx, 3)
+    assert state.inventory.carried == nil and state.inventory.slots[43] == nil
+    assert Enum.sort(Enum.map(records(ctx), & &1.stack.count)) == [1, 1, 5]
+
+    assert Enum.all?(
+             records(ctx),
+             &(&1.stack.components == ctx.stone.components and
+                 &1.stack.removed == ctx.stone.removed)
+           )
+
+    menu_click(client, "pickup", -999, 0)
+    menu_click(client, "throw", -1, 1)
+    client = barrier(client)
+    assert saved(ctx).transfer_sequence == 3 and length(records(ctx)) == 3
+    menu_click(client, "throw", 45, 2)
+    {_, state} = completed(ctx, 4)
+    assert state.inventory.slots == %{} and length(records(ctx)) == 4
+    Client.close(client)
+    departed(ctx)
+    second = login(ctx)
+    assert second.inventory.carried == nil and Enum.all?(second.inventory.items, &is_nil/1)
+    assert length(records(ctx)) == 4
+    Client.close(second)
+    departed(ctx)
+  end
+
+  test "stalled cursor prepare preserves ownership and gates repeated outside/close/swap inputs",
+       ctx do
+    client = login(ctx)
+    menu_click(client, "pickup", 43, 0)
+    {pid, state} = owned(ctx, &(&1.carried == ctx.stone))
+    :sys.suspend(state.player_store)
+
+    try do
+      menu_click(client, "pickup", -999, 1)
+      await_state(ctx, &(&1.recovery != nil && &1.recovery.stage == :prepare))
+      menu_click(client, "pickup", -999, 0)
+      menu_click(client, "throw", 45, 1)
+      action(client, "swap_item_with_offhand")
+      Client.send_packet(client, :play, "container_close", <<0>>)
+      client = barrier(client)
+      pending = :sys.get_state(pid)
+      assert pending.inventory.carried == ctx.stone and pending.inventory.slots[45].count == 3
+      assert pending.recovery.plan.inventory.carried == %{ctx.stone | count: 6}
+      assert records(ctx) == []
+      :sys.resume(state.player_store)
+      {^pid, done} = completed(ctx, 1)
+      assert done.inventory.carried == %{ctx.stone | count: 6}
+      assert [record] = records(ctx)
+      assert record.stack == %{ctx.stone | count: 1}
+      Client.close(client)
+    after
+      if Process.alive?(state.player_store), do: :sys.resume(state.player_store)
+      Client.close(client)
+      departed(ctx)
+    end
+  end
+
+  test "cursor delivery interrupted by disconnect retains depleted cursor on automatic login recovery",
+       ctx do
+    client = login(ctx)
+    menu_click(client, "pickup", 43, 0)
+    owned(ctx, &(&1.carried == ctx.stone))
+    {:ok, {region, _}} = World.item_owner(ctx.key)
+    writer = :sys.get_state(region).store
+    :sys.suspend(writer)
+
+    try do
+      menu_click(client, "pickup", -999, 1)
+
+      await_state(
+        ctx,
+        &(&1.recovery != nil && &1.recovery.stage == :delivery &&
+            :sys.get_state(region).item_pending != nil)
+      )
+
+      assert saved(ctx).inventory.carried == %{ctx.stone | count: 6}
+      Client.close(client)
+      departed(ctx)
+      :sys.resume(writer)
+      second = login(ctx)
+      completed(ctx, 1)
+      assert second.inventory.carried == %{ctx.stone | count: 6}
+      assert [record] = records(ctx)
+      assert record.stack == %{ctx.stone | count: 1}
+      Client.close(second)
+      departed(ctx)
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+      Client.close(client)
+      departed(ctx)
+    end
+  end
+
+  test "a pending normal save rejects effectful cursor consumption and accepts it after acknowledgment",
+       ctx do
+    client = login(ctx)
+    menu_click(client, "pickup", 43, 0)
+    {pid, state} = owned(ctx, &(&1.carried == ctx.stone))
+    :sys.suspend(state.player_store)
+
+    try do
+      send(pid, :save_player)
+      await_state(ctx, &(&1.save_ref != nil))
+      menu_click(client, "pickup", -999, 0)
+      client = barrier(client)
+      assert :sys.get_state(pid).inventory.carried == ctx.stone
+      assert :sys.get_state(pid).recovery == nil and records(ctx) == []
+      :sys.resume(state.player_store)
+      await_state(ctx, &(&1.save_ref == nil))
+      menu_click(client, "pickup", -999, 0)
+      {_, done} = completed(ctx, 1)
+      assert done.inventory.carried == nil and hd(records(ctx)).stack == ctx.stone
+      Client.close(client)
+    after
+      if Process.alive?(state.player_store), do: :sys.resume(state.player_store)
+      Client.close(client)
+      departed(ctx)
+    end
+  end
+
+  test "failed cursor source prepare retains the prior file without creating an entity", ctx do
+    client = login(ctx)
+    menu_click(client, "pickup", 43, 0)
+    {_, state} = owned(ctx, &(&1.carried == ctx.stone))
+    original = File.read!(ctx.path)
+    File.write!(Path.join(ctx.base, "blocked"), "not a directory")
+
+    :sys.replace_state(
+      state.player_store,
+      &%{&1 | path: Path.join(ctx.base, "blocked/player.pose")}
+    )
+
+    capture_log(fn ->
+      menu_click(client, "pickup", -999, 0)
+      {_, _} = Client.await(client, :play, "disconnect")
+      departed(ctx)
+    end)
+
+    assert File.read!(ctx.path) == original and records(ctx) == []
+    Client.close(client)
+  end
+
+  test "malformed observations still disconnect during delivery and journal recovery remains safe",
+       ctx do
+    client = login(ctx)
+    {:ok, {region, _}} = World.item_owner(ctx.key)
+    writer = :sys.get_state(region).store
+    :sys.suspend(writer)
+
+    try do
+      menu_click(client, "throw", 43, 1)
+
+      await_state(
+        ctx,
+        &(&1.recovery != nil && &1.recovery.stage == :delivery &&
+            :sys.get_state(region).item_pending != nil)
+      )
+
+      menu_click(client, "pickup", -999, 0, <<1>>)
+      {_, _} = Client.await(client, :play, "disconnect")
+      Client.close(client)
+      departed(ctx)
+      :sys.resume(writer)
+      second = login(ctx)
+      completed(ctx, 1)
+      assert Enum.at(second.inventory.items, 43) == nil
+      assert hd(records(ctx)).stack == ctx.stone and length(records(ctx)) == 1
+      Client.close(second)
+      departed(ctx)
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+      Client.close(client)
+      departed(ctx)
+    end
   end
 end

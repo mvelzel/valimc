@@ -42,8 +42,8 @@ keep IDs stable and append suffixes rather than renumbering.
 | VMC-019b3 | Partially implemented | Automatic recovery and connected Q/Ctrl+Q work; menu/creative drop paths and lifecycle remain |
 | [VMC-019b3a](tickets/VMC-019b3a.md) | Done — automatic login recovery validated, local | 163 tests, release/oracle and actual automatic pending recovery/restart/removed-item retry pass; connected drop controls remain |
 | [VMC-019b3b](tickets/VMC-019b3b.md) | Done — keyboard drops validated, local | 170 tests, release/oracle and actual Q/held Ctrl+Q, empty/selected slot, frozen corrections, reconnect/restart pass; stationary physics gap remains |
-| VMC-019b3c | Next | Menu throw/outside-click consumption through the same durable path |
-| VMC-019b3d | Planned | Authorized creative slot -1 creation with durable retry/failure semantics |
+| [VMC-019b3c](tickets/VMC-019b3c.md) | Awaiting client-generated menu input | 181 tests, release and Mojang behavior/TCP oracle pass; ordinary THROW/cursor effects use the durable journal; CUA mouse gate remains |
+| VMC-019b3d | Next | Authorized creative slot -1 creation with durable retry/failure semantics |
 
 Only one implementation ticket is active; checkpoints awaiting client validation
 are parked so implementation can continue. Records retain acceptance criteria,

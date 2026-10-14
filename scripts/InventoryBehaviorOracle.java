@@ -26,7 +26,7 @@ public class InventoryBehaviorOracle {
     private ProbePlayer() { super(null, null); }
     public GameType gameMode() { return GameType.CREATIVE; }
     public ItemEntity drop(ItemStack stack, boolean random, Prediction prediction) {
-      dropped.add(stack.copy());
+      if (!stack.isEmpty()) dropped.add(stack.copy());
       return null;
     }
   }
@@ -184,5 +184,43 @@ public class InventoryBehaviorOracle {
         throw new AssertionError("Empty selected stack dropped an item");
     }
     System.out.println("PASS: Mojang 26.3 selected-hand single/all/empty drop counts and component identity in both permission modes; item physics remains separate.");
+
+    for (boolean infinite : new boolean[]{false, true}) {
+      abilities.instabuild = infinite;
+      for (int button : new int[]{0, 1, 2, -1, -128, 127}) {
+        menu = new Menu(); menu.contents.setItem(9, shiny.copyWithCount(7)); dropped.clear();
+        menu.clicked(9, button, ContainerInput.THROW, player);
+        int count = button == 0 ? 1 : 7;
+        menu.expect(0, 9, 7-count);
+        if (dropped.size() != 1 || !ItemStack.matches(dropped.getFirst(), shiny.copyWithCount(count)))
+          throw new AssertionError("Wrong THROW count/patch for button " + button);
+      }
+      for (var type : new ContainerInput[]{ContainerInput.PICKUP, ContainerInput.QUICK_MOVE}) {
+        for (int button : new int[]{0, 1}) {
+          menu = new Menu(); menu.setCarried(shiny.copyWithCount(7)); dropped.clear();
+          menu.clicked(-999, button, type, player);
+          int count = button == 0 ? 7 : 1;
+          menu.expect(7-count);
+          if (dropped.size() != 1 || !ItemStack.matches(dropped.getFirst(), shiny.copyWithCount(count)))
+            throw new AssertionError("Wrong outside cursor count/patch");
+        }
+      }
+      menu = new Menu(); menu.setCarried(shiny.copyWithCount(7)); menu.stone(9, 8); dropped.clear();
+      menu.clicked(9, 1, ContainerInput.THROW, player); menu.expect(7, 9, 8);
+      menu.clicked(-999, 2, ContainerInput.PICKUP, player); menu.expect(7, 9, 8);
+      if (!dropped.isEmpty()) throw new AssertionError("Cursor blocks THROW; outside button 2 is a no-op");
+      menu.setCarried(ItemStack.EMPTY);
+      for (int slot : new int[]{-999, -1, 0, 10}) menu.clicked(slot, 1, ContainerInput.THROW, player);
+      menu.clicked(-999, 0, ContainerInput.PICKUP, player);
+      if (!dropped.isEmpty()) throw new AssertionError("Empty/negative drop created an item");
+      menu = new Menu(); menu.setCarried(shiny.copyWithCount(7)); dropped.clear();
+      menu.clicked(-999, 0, ContainerInput.QUICK_CRAFT, player);
+      menu.clicked(-999, 0, ContainerInput.PICKUP, player); menu.expect(7);
+      if (!dropped.isEmpty()) throw new AssertionError("Interrupting quick craft dropped the cursor");
+      menu.clicked(-999, 0, ContainerInput.PICKUP, player); menu.expect(0);
+      if (dropped.size()!=1 || !ItemStack.matches(dropped.getFirst(),shiny.copyWithCount(7)))
+        throw new AssertionError("Retry after quick-craft reset did not drop");
+    }
+    System.out.println("PASS: Mojang 26.3 ordinary menu THROW/outside PICKUP+QUICK_MOVE counts, nonstandard buttons, patches, empty/cursor/negative no-ops and quick-craft interruption.");
   }
 }
