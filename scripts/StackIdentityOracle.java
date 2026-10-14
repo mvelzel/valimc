@@ -19,7 +19,7 @@ public class StackIdentityOracle {
   private static final Set<String> SUPPORTED = Set.of("custom_data", "max_stack_size",
     "max_damage", "damage", "repair_cost", "rarity", "unbreakable", "creative_slot_lock",
     "intangible_projectile", "enchantment_glint_override", "item_model", "tooltip_style",
-    "minimum_attack_charge");
+    "minimum_attack_charge", "custom_name", "item_name", "lore");
 
   @SuppressWarnings("unchecked")
   private static <T> byte[] value(DataComponentType<T> type, Object value) {

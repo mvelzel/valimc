@@ -27,7 +27,7 @@ public class ItemMetadata {
   private static final Set<String> SUPPORTED = Set.of("custom_data", "max_stack_size",
     "max_damage", "damage", "repair_cost", "rarity", "unbreakable", "creative_slot_lock",
     "intangible_projectile", "enchantment_glint_override", "item_model", "tooltip_style",
-    "minimum_attack_charge");
+    "minimum_attack_charge", "custom_name", "item_name", "lore");
   @SuppressWarnings("unchecked")
   private static <T> String encodeDefault(DataComponentType<T> type, Object value,
       RegistryAccess.Frozen registries) {
@@ -68,8 +68,9 @@ public class ItemMetadata {
         if (name.getNamespace().equals("minecraft") && SUPPORTED.contains(name.getPath()))
           encoded.put(name.toString(), encodeDefault(type, item.components().get(type), registries));
       }
-      defaults.put(Integer.toString(BuiltInRegistries.ITEM.getId(item)),
-        Map.of("present",present,"values",encoded));
+      var prototype = new LinkedHashMap<String,Object>();
+      prototype.put("values",encoded);prototype.put("present",present);
+      defaults.put(Integer.toString(BuiltInRegistries.ITEM.getId(item)),prototype);
     }
     Map<String, Integer> components = new TreeMap<>();
     for (var type : BuiltInRegistries.DATA_COMPONENT_TYPE)
@@ -86,9 +87,11 @@ public class ItemMetadata {
     for (var input : ContainerInput.values()) inputs.put(input.name().toLowerCase(Locale.ROOT), input.id());
     facts.put("container_inputs", inputs);
     Files.writeString(Path.of(args[0]), new GsonBuilder().setPrettyPrinting().create().toJson(facts) + "\n");
-    if (args.length > 1) Files.writeString(Path.of(args[1]),
-      new GsonBuilder().setPrettyPrinting().create().toJson(Map.of("version","26.3",
-        "protocol",777,"data_version",5023,
-        "server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c","items",defaults)) + "\n");
+    if (args.length > 1) {
+      var extracted = new LinkedHashMap<String,Object>();
+      extracted.put("version","26.3");extracted.put("data_version",5023);extracted.put("items",defaults);
+      extracted.put("protocol",777);extracted.put("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
+      Files.writeString(Path.of(args[1]),new GsonBuilder().setPrettyPrinting().create().toJson(extracted)+"\n");
+    }
   }
 }

@@ -16,13 +16,39 @@ defmodule Valimc.Protocol.ItemTypes do
   @external_resource @defaults_path
   @defaults :json.decode(File.read!(@defaults_path))["items"]
             |> Map.new(fn {id, facts} ->
+              values =
+                Map.new(facts["values"], fn {name, bytes} ->
+                  {name, Base.decode16!(bytes, case: :lower)}
+                end)
+
+              identities =
+                Map.new(values, fn {name, bytes} ->
+                  key =
+                    case name do
+                      name when name in ["minecraft:custom_name", "minecraft:item_name"] ->
+                        {tag, <<>>} = Valimc.Protocol.TextComponent.take(bytes)
+                        Valimc.Protocol.TextComponent.identity_key(tag)
+
+                      "minecraft:lore" ->
+                        {lines, <<>>} = Valimc.Protocol.TextComponent.take_lore(bytes)
+                        Valimc.Protocol.TextComponent.lore_key(lines)
+
+                      "minecraft:custom_data" ->
+                        {:ok, tag} = Valimc.Protocol.NBT.decode(bytes)
+                        Valimc.Protocol.NBT.identity_key(tag)
+
+                      _ ->
+                        bytes
+                    end
+
+                  {name, key}
+                end)
+
               {String.to_integer(id),
                %{
                  present: MapSet.new(facts["present"]),
-                 values:
-                   Map.new(facts["values"], fn {name, bytes} ->
-                     {name, Base.decode16!(bytes, case: :lower)}
-                   end)
+                 values: values,
+                 identities: identities
                }}
             end)
 

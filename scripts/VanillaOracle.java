@@ -273,7 +273,10 @@ public class VanillaOracle implements AutoCloseable {
       first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(36, stone));
       first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getContainerId() == 0 && s.getSlot() == 36 && ItemStack.matches(s.getItem(), stone));
       var unsupported = stone.copy();
-      unsupported.set(DataComponents.CUSTOM_NAME, Component.literal("Unsupported fixture"));
+      var unsupportedName = new net.minecraft.nbt.CompoundTag();
+      unsupportedName.putString("selector", "@p");
+      unsupported.set(DataComponents.CUSTOM_NAME, net.minecraft.network.chat.ComponentSerialization.CODEC
+        .parse(net.minecraft.nbt.NbtOps.INSTANCE, unsupportedName).getOrThrow());
       first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(36, unsupported));
       first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot() == 36 && ItemStack.matches(s.getItem(), stone));
       first.send(gameOut, new ServerboundUseItemOnPacket(InteractionHand.MAIN_HAND,

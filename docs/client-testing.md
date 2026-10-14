@@ -297,3 +297,21 @@ empty inventory/pose and creative UI. The 151-byte file/normal save interval rem
 valid. Private client log has no protocol/codec/duplicate-entity/ERROR entries.
 Keyboard creative controls pass; outside mouse input, a GUI throttle-denial burst,
 uncommitted queue persistence and item physics/pickup are not claimed.
+
+VMC-004b2b, October 14, 06:12–06:27: actual E rendered colored/bold Unicode names
+and styled/translated lore. Equivalent names/lore closed into 64+9 from 63+10;
+changed style/content stayed separate. Actual Q/held Ctrl+Q produced exact 1/6
+named/lore items and source sequences 23/24. Third-person/backward movement
+rendered the overlapping stationary models. Reconnect/full release restart retained
+UUIDs/declarations; a second full restart retained the named slot-13 tooltip.
+Normal owner-path selector/event fixtures restored the prior stack with a visible
+message. Root-sequence item_name/keybind displayed `OTP Space`, translated fallback
+arguments displayed `Concurrency: Elixir / OTP`. A final native legacy-dispatch
+regression was fixed; the rebuilt release displayed `Space` for malformed
+translation plus valid keybind, while an explicit malformed translatable type
+disconnected with the expected message. All 236 tests/full oracle/release pass.
+Cleanup removed only pinned records and restored empty inventory/pose, retaining
+sequence 24 and receipts 24/20. Final rejoin/E confirmed creative inventory empty;
+client log contains no protocol/decoder/duplicate-entity/ERROR entries. Coordinate
+click still reports `noWindowsAvailable`; this does not validate older mouse gates.
+See [ticket evidence](tickets/VMC-004b2b.md).

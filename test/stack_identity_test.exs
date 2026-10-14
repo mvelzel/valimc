@@ -129,7 +129,7 @@ defmodule Valimc.StackIdentityTest do
     assert catch_throw(
              ItemStack.identity_key(%{sword | components: %{"minecraft:custom_name" => "bad"}})
            ) ==
-             {:item_error, :unsupported_component}
+             {:item_error, :invalid_component_value}
 
     invalid = {:compound, %{"too_deep" => {:list, {:byte, Enum.to_list(1..2000)}}}}
 

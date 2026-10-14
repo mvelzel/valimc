@@ -1,11 +1,14 @@
 defmodule Valimc.Protocol.ItemStack do
   @moduledoc "Pure bounded 26.3 stacks. Unsupported structured patches never become accepted data."
-  alias Valimc.Protocol.{ItemTypes, NBT, Wire}
+  alias Valimc.Protocol.{ItemTypes, NBT, TextComponent, Wire}
   defstruct [:item_id, count: 1, components: %{}, removed: MapSet.new()]
 
   @max_bytes 65_536
   @codecs %{
     "minecraft:custom_data" => :nbt_compound,
+    "minecraft:custom_name" => :text,
+    "minecraft:item_name" => :text,
+    "minecraft:lore" => :lore,
     "minecraft:max_stack_size" => {:varint, 1, 99},
     "minecraft:max_damage" => {:varint, 1, 2_147_483_647},
     "minecraft:damage" => {:varint, 0, 2_147_483_647},
@@ -31,14 +34,9 @@ defmodule Valimc.Protocol.ItemStack do
     added =
       stack.components
       |> Enum.map(fn {name, value} ->
-        bytes =
-          if name == "minecraft:custom_data",
-            do: NBT.identity_key(value),
-            else: encode_component(Map.fetch!(@codecs, name), value) |> IO.iodata_to_binary()
-
-        {name, bytes}
+        {name, component_key(Map.fetch!(@codecs, name), value)}
       end)
-      |> Enum.reject(fn {name, bytes} -> defaults.values[name] == bytes end)
+      |> Enum.reject(fn {name, key} -> defaults.identities[name] == key end)
       |> Enum.sort()
 
     removed = stack.removed |> Enum.filter(&MapSet.member?(defaults.present, &1)) |> Enum.sort()
@@ -93,6 +91,7 @@ defmodule Valimc.Protocol.ItemStack do
     MatchError -> {:error, :malformed_item}
   catch
     {:item_error, reason} -> {:error, reason}
+    {:text_error, reason} -> {:error, {:text, reason}}
   end
 
   def encode(stack, mode \\ :trusted)
@@ -217,6 +216,8 @@ defmodule Valimc.Protocol.ItemStack do
 
   defp read_component(:unit, rest), do: {:unit, rest}
   defp read_component(:nbt_unit, <<10, 0, rest::binary>>), do: {:unit, rest}
+  defp read_component(:text, bytes), do: TextComponent.take(bytes)
+  defp read_component(:lore, bytes), do: TextComponent.take_lore(bytes)
 
   defp read_component(:nbt_compound, bytes) do
     case NBT.take(bytes) do
@@ -253,6 +254,8 @@ defmodule Valimc.Protocol.ItemStack do
   defp valid_component?(:nbt_unit, value), do: value == :unit
   defp valid_component?(:nbt_compound, {:compound, _} = value), do: NBT.valid?(value)
   defp valid_component?(:nbt_compound, _), do: false
+  defp valid_component?(:text, value), do: TextComponent.valid?(value)
+  defp valid_component?(:lore, value), do: TextComponent.valid_lore?(value)
   defp valid_component?(:bool, value), do: is_boolean(value)
   defp valid_component?(:fraction, value), do: is_float(value) and value >= 0.0 and value <= 1.0
 
@@ -265,9 +268,15 @@ defmodule Valimc.Protocol.ItemStack do
   defp encode_component(:unit, :unit), do: <<>>
   defp encode_component(:nbt_unit, :unit), do: <<10, 0>>
   defp encode_component(:nbt_compound, value), do: NBT.encode(value)
+  defp encode_component(:text, value), do: TextComponent.encode(value)
+  defp encode_component(:lore, value), do: TextComponent.encode_lore(value)
   defp encode_component(:bool, value), do: Wire.bool(value)
   defp encode_component(:identifier, value), do: Wire.string(value)
   defp encode_component(:fraction, value), do: <<value::float-32>>
+  defp component_key(:nbt_compound, value), do: NBT.identity_key(value)
+  defp component_key(:text, value), do: TextComponent.identity_key(value)
+  defp component_key(:lore, value), do: TextComponent.lore_key(value)
+  defp component_key(codec, value), do: encode_component(codec, value) |> IO.iodata_to_binary()
   defp check(true, _), do: :ok
   defp check(false, reason), do: throw({:item_error, reason})
 end
