@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
 """Start an isolated Elixir server, run the official-codec TCP oracle, then clean up."""
-import os, pathlib, socket, subprocess, sys, tempfile, time
+import os, pathlib, socket, subprocess, sys, tempfile, time, json
 root = pathlib.Path(__file__).resolve().parent.parent
 with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
+    item_facts = str(pathlib.Path(world) / 'items.json')
+    defaults = str(pathlib.Path(world) / 'defaults.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemMetadata', item_facts, defaults], cwd=root, check=True)
+    for actual, committed in [(item_facts, 'items.json'), (defaults, 'item_defaults.json')]:
+        if json.loads(pathlib.Path(actual).read_text()) != json.loads((root/'priv/protocol'/committed).read_text()):
+            raise RuntimeError('Pinned item facts differ: '+committed)
+    identity = str(pathlib.Path(world) / 'identity.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'StackIdentityOracle', identity], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_stack_identity.exs', identity], cwd=root, check=True)
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'InventoryBehaviorOracle'], cwd=root, check=True)
     fixtures = str(pathlib.Path(world) / 'item-fixtures.json')
     encoded = str(pathlib.Path(world) / 'elixir-items.json')

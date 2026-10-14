@@ -25,6 +25,6 @@ facts={'states':{n:state('minecraft:'+n) for n in names},
 for name,data in [('packets',packets),('blocks',facts)]:
     (out/(name+'.json')).write_text(json.dumps(data,indent=2)+'\n')
 subprocess.run([sys.executable,'scripts/java_tool.py','ProtocolMetadata','priv/protocol/registries.json','priv/protocol/tags.json'],cwd=root,check=True)
-subprocess.run([sys.executable,'scripts/java_tool.py','ItemMetadata','priv/protocol/items.json'],cwd=root,check=True)
+subprocess.run([sys.executable,'scripts/java_tool.py','ItemMetadata','priv/protocol/items.json','priv/protocol/item_defaults.json'],cwd=root,check=True)
 subprocess.run([sys.executable,'scripts/java_tool.py','EntityMetadata','priv/protocol/entities.json'],cwd=root,check=True)
 print('Regenerated official 26.3 protocol facts')

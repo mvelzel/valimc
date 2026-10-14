@@ -92,6 +92,12 @@ cleanup journals whole cursor/grid stacks even with free storage, completes afte
 socket exit and permits fenced reconnect recovery; automated and actual offline
 drop/disconnect/rejoin/restart/pending replay/orphan-save cleanup checks pass.
 
+Supported stack comparisons now use effective prototype components: redundant
+defaults and absent removals merge, while changed values or removal of present
+defaults remain distinct. NBT comparison follows Mojang's numeric/list equality.
+Raw codec/save/journal bytes are preserved. Automated checks, 11,797 Mojang
+identity pairs and actual merges/distinct-component controls/overflow/recovery pass.
+
 A separate internal creative-creation source API retains inventory and journals
 one authorized new stack through the same durable recovery. Automated and actual
 client API recovery/reconnect/restart/removal checks pass. Connected creative drops now preserve bounded paired command order with permission

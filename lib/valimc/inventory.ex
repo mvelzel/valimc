@@ -407,10 +407,7 @@ defmodule Valimc.Inventory do
     end)
   end
 
-  defp compatible?(first, second),
-    do:
-      first.item_id == second.item_id and first.components == second.components and
-        first.removed == second.removed
+  defp compatible?(first, second), do: ItemStack.same_item?(first, second)
 
   defp specialized_click?(nil), do: false
 

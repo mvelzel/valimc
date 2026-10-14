@@ -4,6 +4,10 @@ import com.google.gson.*;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.component.DataComponentType;
+import net.minecraft.core.RegistryAccess;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import io.netty.buffer.Unpooled;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
@@ -20,6 +24,20 @@ import net.minecraft.core.registries.Registries;
 
 /** Extract versioned registry/default facts, never Minecraft implementation source. */
 public class ItemMetadata {
+  private static final Set<String> SUPPORTED = Set.of("custom_data", "max_stack_size",
+    "max_damage", "damage", "repair_cost", "rarity", "unbreakable", "creative_slot_lock",
+    "intangible_projectile", "enchantment_glint_override", "item_model", "tooltip_style",
+    "minimum_attack_charge");
+  @SuppressWarnings("unchecked")
+  private static <T> String encodeDefault(DataComponentType<T> type, Object value,
+      RegistryAccess.Frozen registries) {
+    var buf = new RegistryFriendlyByteBuf(Unpooled.buffer(), registries);
+    try {
+      type.streamCodec().encode(buf, (T)value);
+      var bytes = new byte[buf.readableBytes()]; buf.readBytes(bytes);
+      return HexFormat.of().formatHex(bytes);
+    } finally { buf.release(); }
+  }
   public static void main(String[] args) throws Exception {
     SharedConstants.tryDetectVersion();
     Bootstrap.bootStrap();
@@ -27,6 +45,8 @@ public class ItemMetadata {
     BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(lookup).forEach(p -> p.apply());
     var playerType = BuiltInRegistries.ENTITY_TYPE.getOrThrow(ResourceKey.create(Registries.ENTITY_TYPE, Identifier.parse("minecraft:player")));
     Map<String, Object> items = new TreeMap<>();
+    Map<String, Object> defaults = new TreeMap<>();
+    var registries = RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY).freeze();
     for (var item : BuiltInRegistries.ITEM) {
       Map<String, Object> facts = new TreeMap<>();
       facts.put("id", BuiltInRegistries.ITEM.getId(item));
@@ -40,6 +60,16 @@ public class ItemMetadata {
           item.getClass().getMethod("overrideOtherStackedOnMe", ItemStack.class, ItemStack.class, Slot.class, ClickAction.class, Player.class, SlotAccess.class).getDeclaringClass() != Item.class)
         facts.put("inventory_click_override", true);
       items.put(BuiltInRegistries.ITEM.getKey(item).toString(), facts);
+      var present = new TreeSet<String>();
+      var encoded = new TreeMap<String,String>();
+      for (var type : item.components().keySet()) {
+        var name = BuiltInRegistries.DATA_COMPONENT_TYPE.getKey(type);
+        present.add(name.toString());
+        if (name.getNamespace().equals("minecraft") && SUPPORTED.contains(name.getPath()))
+          encoded.put(name.toString(), encodeDefault(type, item.components().get(type), registries));
+      }
+      defaults.put(Integer.toString(BuiltInRegistries.ITEM.getId(item)),
+        Map.of("present",present,"values",encoded));
     }
     Map<String, Integer> components = new TreeMap<>();
     for (var type : BuiltInRegistries.DATA_COMPONENT_TYPE)
@@ -56,5 +86,9 @@ public class ItemMetadata {
     for (var input : ContainerInput.values()) inputs.put(input.name().toLowerCase(Locale.ROOT), input.id());
     facts.put("container_inputs", inputs);
     Files.writeString(Path.of(args[0]), new GsonBuilder().setPrettyPrinting().create().toJson(facts) + "\n");
+    if (args.length > 1) Files.writeString(Path.of(args[1]),
+      new GsonBuilder().setPrettyPrinting().create().toJson(Map.of("version","26.3",
+        "protocol",777,"data_version",5023,
+        "server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c","items",defaults)) + "\n");
   }
 }

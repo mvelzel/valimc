@@ -197,6 +197,29 @@ public class InventoryBehaviorOracle {
     if (!ItemStack.matches(inventory.getItem(1), sword)) throw new AssertionError("Lost returned damage");
     System.out.println("PASS: Mojang 26.3 inventory return: selected/offhand/storage order, caps, component identity, nonstackable damage and overflow in both permission modes. Drop effects captured; no item entity simulated.");
 
+    var redundant = new ItemStack(Items.STONE,10);
+    redundant.set(DataComponents.MAX_STACK_SIZE,64);
+    redundant.set(DataComponents.RARITY,net.minecraft.world.item.Rarity.COMMON);
+    redundant.set(DataComponents.REPAIR_COST,0);
+    redundant.remove(DataComponents.UNBREAKABLE);
+    inventory = new Inventory(player,new EntityEquipment()); inventory.setSelectedSlot(2);
+    inventory.setItem(2,new ItemStack(Items.STONE,63));
+    inventory.placeItemBackInInventory(redundant.copy(),false,Prediction.SERVER_ONLY);
+    expectInventory(inventory,2,64,0,9);
+    for (int variant=0;variant<3;variant++) {
+      var different=new ItemStack(Items.STONE,10);
+      if (variant==0) different.set(DataComponents.MAX_STACK_SIZE,32);
+      if (variant==1) different.remove(DataComponents.REPAIR_COST);
+      if (variant==2) different.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE,true);
+      inventory=new Inventory(player,new EntityEquipment()); inventory.setSelectedSlot(2);
+      inventory.setItem(2,new ItemStack(Items.STONE,63));
+      inventory.placeItemBackInInventory(different.copy(),false,Prediction.SERVER_ONLY);
+      expectInventory(inventory,2,63,0,10);
+      if (!ItemStack.matches(inventory.getItem(0),different))
+        throw new AssertionError("Lost distinct effective return components");
+    }
+    System.out.println("PASS: Mojang effective return identity: redundant defaults merge 63+10 into 64+9; changed cap, absent repair cost and glint remain 63+10.");
+
     for (boolean infinite : new boolean[]{false, true}) {
       abilities.instabuild = infinite;
       inventory = new Inventory(player, new EntityEquipment());

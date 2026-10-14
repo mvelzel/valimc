@@ -20,7 +20,8 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-004a](tickets/VMC-004a.md) | Done — `6dc5dd3`, validated | Stack/scalar codecs, creative selection/placement/clearing, patched fixtures and rejection pass |
 | VMC-004b | Planned | Names/lore/NBT and compound or registry-backed component codecs |
 | [VMC-004b1](tickets/VMC-004b1.md) | Done — `2e75988`, validated | Bounded network NBT/custom data; 58 tests, Mojang codecs, release and actual-client positive/rejection/reconnect pass |
-| VMC-004b2 | Planned | Text/name/lore, enchantments and equal-default patch normalization |
+| VMC-004b2 | Partially implemented | Supported effective comparison exists; text/name/lore, enchantments and further component coverage remain |
+| [VMC-004b2a](tickets/VMC-004b2a.md) | Done — effective identity validated, local | 226 tests/release/full oracle, 11,797 Mojang pairs and actual default/NBT merges, three distinct-component controls, overflow/reconnect/restart pass; raw journals preserved |
 | [VMC-005a](tickets/VMC-005a.md) | Done — `123d1d0`, validated | Owner-local 46-slot menu; actual selection/offhand/swap/resync and automated/oracle checks pass |
 | VMC-005b | Planned | Hashed click codec, authoritative pickup/swap/shift/drag transactions |
 | [VMC-005b1](tickets/VMC-005b1.md) | Done — `67c34ad`, validated | Actual half pickup/place/merge/shift/number/offhand/rejection pass; 65 tests/full oracle/release pass |

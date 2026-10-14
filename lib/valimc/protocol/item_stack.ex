@@ -23,6 +23,35 @@ defmodule Valimc.Protocol.ItemStack do
   def new(name, count \\ 1), do: %__MODULE__{item_id: ItemTypes.id(name), count: count}
   def supported_components, do: Map.keys(@codecs)
 
+  @doc "Count-independent effective identity; raw codec/journal patches remain unchanged."
+  def identity_key(%__MODULE__{} = stack) do
+    validate!(stack)
+    defaults = ItemTypes.defaults(stack.item_id)
+
+    added =
+      stack.components
+      |> Enum.map(fn {name, value} ->
+        bytes =
+          if name == "minecraft:custom_data",
+            do: NBT.identity_key(value),
+            else: encode_component(Map.fetch!(@codecs, name), value) |> IO.iodata_to_binary()
+
+        {name, bytes}
+      end)
+      |> Enum.reject(fn {name, bytes} -> defaults.values[name] == bytes end)
+      |> Enum.sort()
+
+    removed = stack.removed |> Enum.filter(&MapSet.member?(defaults.present, &1)) |> Enum.sort()
+    {stack.item_id, added, removed}
+  end
+
+  def same_item?(%__MODULE__{item_id: id} = a, %__MODULE__{item_id: id} = b),
+    do: identity_key(a) == identity_key(b)
+
+  def same_item?(nil, nil), do: true
+
+  def same_item?(_, _), do: false
+
   def decode(bytes, mode \\ :trusted) do
     case take(bytes, mode) do
       {:ok, stack, <<>>} -> {:ok, stack}

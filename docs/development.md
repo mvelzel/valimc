@@ -64,6 +64,13 @@ independent evidence, but cannot establish rendering, controls or survival parit
 Item checks generate nine stack fixtures with Mojang's codecs, decode and
 cross-convert them in Elixir, then ask Mojang to decode the resulting bytes and
 compare semantic equality in both ordinary and delimited formats. A focused
+raw-patch identity harness compares 11,797 pairs against Mojang's actual decoder
+and equality method across every item prototype, default additions, removals,
+glint and NBT numeric/list equality. The oracle re-extracts and compares prototype
+presence/supported defaults with public facts. Semantic keys must not alter raw
+stack encoding or historical transfer receipt digests; regression tests retain
+exact-intent retries across serialization.
+A focused
 inventory behavior harness also invokes Mojang's actual menu methods to verify
 collect ordering, direction, triggers, caps, ordinary-slot component preservation,
 creative clone/fill permissions, start-time fill authorization and the actual

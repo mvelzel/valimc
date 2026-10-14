@@ -65,6 +65,33 @@ defmodule Valimc.Protocol.NBT do
   def float(value), do: {:float, <<value::float-32>>}
   def double(value), do: {:double, <<value::float-64>>}
 
+  @doc "Typed NBT comparison bytes: Mojang NaN equality, cached numeric zero and empty-list equality."
+  def identity_key({type, value} = tag) do
+    # Enforce the byte/node/depth budget before recursively visiting an input tree.
+    encode(tag)
+    encode({type, identity_value(type, value)}) |> IO.iodata_to_binary()
+  end
+
+  defp identity_value(:float, <<_sign::1, 255::8, mantissa::23>>) when mantissa != 0,
+    do: <<0x7FC00000::32>>
+
+  defp identity_value(:double, <<_sign::1, 2047::11, mantissa::52>>) when mantissa != 0,
+    do: <<0x7FF8000000000000::64>>
+
+  defp identity_value(:float, <<_sign::1, 0::31>>), do: <<0::32>>
+  defp identity_value(:double, <<_sign::1, 0::63>>), do: <<0::64>>
+
+  defp identity_value(:compound, values),
+    do:
+      Map.new(values, fn {name, {type, value}} -> {name, {type, identity_value(type, value)}} end)
+
+  defp identity_value(:list, {_type, []}), do: {:end, []}
+
+  defp identity_value(:list, {type, values}),
+    do: {type, Enum.map(values, &identity_value(type, &1))}
+
+  defp identity_value(_, value), do: value
+
   defp read(type, bytes, budget, depth) do
     budget = node(budget, depth)
 

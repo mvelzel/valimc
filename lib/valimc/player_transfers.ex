@@ -95,7 +95,7 @@ defmodule Valimc.PlayerTransfers do
         counts
 
       %ItemStack{} = stack, counts ->
-        key = IO.iodata_to_binary(ItemStack.encode(%{stack | count: 1}))
+        key = ItemStack.identity_key(stack)
         Map.update(counts, key, stack.count, &(&1 + stack.count))
     end)
   end
