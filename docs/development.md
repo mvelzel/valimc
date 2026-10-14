@@ -64,7 +64,7 @@ independent evidence, but cannot establish rendering, controls or survival parit
 Item checks generate nine stack fixtures with Mojang's codecs, decode and
 cross-convert them in Elixir, then ask Mojang to decode the resulting bytes and
 compare semantic equality in both ordinary and delimited formats. A focused
-raw-patch identity harness compares 15,113 pairs against Mojang's actual decoder
+raw-patch identity harness compares 16,772 pairs against Mojang's actual decoder
 and equality method across every item prototype, default additions, removals,
 glint and NBT numeric/list equality. The oracle re-extracts and compares prototype
 presence/supported defaults with public facts. Semantic keys must not alter raw
@@ -75,6 +75,12 @@ style presence, color/font aliases, translations, mixed-list wrappers, numeric
 arguments and non-finite numeric styles. It checks lore counts 0/1/256/257 with
 Mojang, then Mojang decodes 100 Elixir name/lore cases in both stack formats.
 Text keys are separate from retained declarations and exact transfer digests.
+The enchantment harness probes all 43 negotiated holder IDs, 193 decode cases and
+16,471 equality pairs. Mojang decodes 181 Elixir maps/stacks in both formats.
+Network zero-level presence, overwritten duplicate levels and empty defaults are
+explicit cases; saved-data level constraints are distinct. A 1,024 raw-entry cap
+bounds noncanonical repeated input; unique core-pack maps have at most 43 entries.
+The TCP oracle separately sends active Unbreaking III and stored Sharpness V.
 A focused
 inventory behavior harness also invokes Mojang's actual menu methods to verify
 collect ordering, direction, triggers, caps, ordinary-slot component preservation,

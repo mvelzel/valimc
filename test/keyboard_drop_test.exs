@@ -30,6 +30,10 @@ defmodule Valimc.KeyboardDropTest do
     File.write!(path, bytes)
 
     on_exit(fn ->
+      # Closing cursor delivery outlives its socket; stop it before deleting its world.
+      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
+          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
+
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 

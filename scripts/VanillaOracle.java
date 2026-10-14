@@ -8,6 +8,7 @@ import net.minecraft.SharedConstants;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.core.*;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.network.*;
 import net.minecraft.network.protocol.*;
@@ -279,6 +280,27 @@ public class VanillaOracle implements AutoCloseable {
         .parse(net.minecraft.nbt.NbtOps.INSTANCE, unsupportedName).getOrThrow());
       first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(36, unsupported));
       first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot() == 36 && ItemStack.matches(s.getItem(), stone));
+      var enchantmentRegistry = registries.lookupOrThrow(Registries.ENCHANTMENT);
+      var enchanted = new net.minecraft.world.item.enchantment.ItemEnchantments.Mutable(
+        net.minecraft.world.item.enchantment.ItemEnchantments.EMPTY);
+      enchanted.set(enchantmentRegistry.getOrThrow(ResourceKey.create(Registries.ENCHANTMENT,
+        net.minecraft.resources.Identifier.parse("minecraft:unbreaking"))), 3);
+      var enchantedStone = stone.copy(); enchantedStone.set(DataComponents.ENCHANTMENTS, enchanted.toImmutable());
+      first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(36, enchantedStone));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot() == 36 && ItemStack.matches(s.getItem(), enchantedStone));
+      var stored = new net.minecraft.world.item.enchantment.ItemEnchantments.Mutable(
+        net.minecraft.world.item.enchantment.ItemEnchantments.EMPTY);
+      stored.set(enchantmentRegistry.getOrThrow(ResourceKey.create(Registries.ENCHANTMENT,
+        net.minecraft.resources.Identifier.parse("minecraft:sharpness"))), 5);
+      var enchantedBook = new ItemStack(Items.ENCHANTED_BOOK);
+      enchantedBook.set(DataComponents.STORED_ENCHANTMENTS, stored.toImmutable());
+      first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(13, enchantedBook));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot() == 13 && ItemStack.matches(s.getItem(), enchantedBook));
+      first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(13, ItemStack.EMPTY));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot() == 13 && s.getItem().isEmpty());
+      first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(36, stone));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot() == 36 && ItemStack.matches(s.getItem(), stone));
+      System.out.println("PASS: Mojang 26.3 negotiated enchantment holder IDs, active Unbreaking III and stored Sharpness V accepted through ordinary creative packets.");
       first.send(gameOut, new ServerboundUseItemOnPacket(InteractionHand.MAIN_HAND,
         new BlockHitResult(new Vec3(2.5, 64, 0.5), Direction.UP, new BlockPos(2, 63, 0), false), 1));
       first.await(p -> p instanceof ClientboundBlockUpdatePacket b && b.getPos().equals(new BlockPos(2,64,0)) && b.getBlockState().is(Blocks.STONE));

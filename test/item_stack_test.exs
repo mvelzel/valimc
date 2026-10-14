@@ -52,11 +52,13 @@ defmodule Valimc.Protocol.ItemStackTest do
     encoded =
       IO.iodata_to_binary([
         prefix(1),
-        Wire.varint(ItemTypes.component_id("enchantments")),
+        Wire.varint(ItemTypes.component_id("attribute_modifiers")),
         <<2, 10, 0>>
       ])
 
-    assert ItemStack.decode(encoded, :untrusted) == {:unsupported, ["minecraft:enchantments"]}
+    assert ItemStack.decode(encoded, :untrusted) ==
+             {:unsupported, ["minecraft:attribute_modifiers"]}
+
     assert ItemStack.decode(encoded <> <<0>>, :untrusted) == {:error, :trailing_item_bytes}
     assert {:error, :unsupported_component} = ItemStack.decode(encoded, :trusted)
     huge = IO.iodata_to_binary([prefix(1), <<0>>, Wire.varint(65_537)])

@@ -60,7 +60,7 @@ defmodule Valimc.CreativeItemsTest do
       <<36::signed-16, 1>>,
       Wire.varint(ItemTypes.id("stone")),
       <<1, 0>>,
-      Wire.varint(ItemTypes.component_id("enchantments")),
+      Wire.varint(ItemTypes.component_id("attribute_modifiers")),
       <<2, 10, 0>>
     ])
 

@@ -20,9 +20,10 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-004a](tickets/VMC-004a.md) | Done — `6dc5dd3`, validated | Stack/scalar codecs, creative selection/placement/clearing, patched fixtures and rejection pass |
 | VMC-004b | Planned | Names/lore/NBT and compound or registry-backed component codecs |
 | [VMC-004b1](tickets/VMC-004b1.md) | Done — `2e75988`, validated | Bounded network NBT/custom data; 58 tests, Mojang codecs, release and actual-client positive/rejection/reconnect pass |
-| VMC-004b2 | Partially implemented | Effective comparison and bounded names/lore exist; remaining text branches/events, enchantments and further components remain |
+| VMC-004b2 | Partially implemented | Effective comparison, bounded names/lore and enchantment data exist; remaining text branches/events and further components remain |
 | [VMC-004b2a](tickets/VMC-004b2a.md) | Done — effective identity validated, local | 226 tests/release/full oracle, 11,797 Mojang pairs and actual default/NBT merges, three distinct-component controls, overflow/reconnect/restart pass; raw journals preserved |
 | [VMC-004b2b](tickets/VMC-004b2b.md) | Done — names/lore validated, local | 236 tests/release/full oracle; 15,113 stack pairs, 5,050 text pairs, 100 native name/lore round trips and actual tooltip/merge/drop/recovery/correction controls pass |
+| [VMC-004b2c](tickets/VMC-004b2c.md) | Done — enchantment data validated, local | 245 tests/release/full oracle; native maps/defaults and actual tool/book tooltip, merge controls, active/stored drops, recovery and invalid input pass; gameplay effects remain |
 | [VMC-005a](tickets/VMC-005a.md) | Done — `123d1d0`, validated | Owner-local 46-slot menu; actual selection/offhand/swap/resync and automated/oracle checks pass |
 | VMC-005b | Planned | Hashed click codec, authoritative pickup/swap/shift/drag transactions |
 | [VMC-005b1](tickets/VMC-005b1.md) | Done — `67c34ad`, validated | Actual half pickup/place/merge/shift/number/offhand/rejection pass; 65 tests/full oracle/release pass |

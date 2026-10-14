@@ -315,3 +315,19 @@ sequence 24 and receipts 24/20. Final rejoin/E confirmed creative inventory empt
 client log contains no protocol/decoder/duplicate-entity/ERROR entries. Coordinate
 click still reports `noWindowsAvailable`; this does not validate older mouse gates.
 See [ticket evidence](tickets/VMC-004b2b.md).
+
+VMC-004b2c, October 14, 06:43–07:06: actual E showed enchanted pickaxe
+Efficiency V/Fortune II/Unbreaking III and stored-book Sharpness V/Unbreaking III/
+red Curse of Binding, with glint. Actual close merged equal reversed-order and
+empty-default maps into 64+9, while differing levels/component kinds stayed 63+10.
+Q/held Ctrl+Q committed active enchantment items 1/6 at sequences 25/26; reconnect
+and full restart preserved UUIDs/maps and book/tool inventory. Actual E displayed
+the persisted book tooltip. Invalid-level/holder fixtures disconnected with the
+expected message, preserving accepted state and a healthy listener. A separate
+actual Q committed the stored book once at sequence 27 into the neighboring
+region; its glint model and exact stored map/UUID survived full restart 07:04:23.
+Cleanup removed only three pinned records and restored empty inventory/pose,
+retaining sequence 27 and receipts 26/27; final actual rejoin/E confirmed empty
+creative inventory. All 245 tests/full oracle/release pass; private client log has
+no protocol/decoder/encoder/duplicate/ERROR entries. Enchantment gameplay effects
+and earlier mouse gates remain open. See [ticket](tickets/VMC-004b2c.md).
