@@ -12,7 +12,7 @@ tools = root / 'research/java-tools'
 tools.mkdir(exist_ok=True)
 name = sys.argv[1]
 sources = [str(root / 'scripts' / (name + '.java'))]
-if name == 'PositionCollisionOracle':
+if name in ('PositionCollisionOracle', 'ScaffoldingCollisionOracle'):
     sources.append(str(root / 'scripts' / 'CollisionMetadata.java'))
 compiled = subprocess.run([java_home + '/bin/javac', '-cp', classpath, '-d', str(tools), *sources])
 if compiled.returncode:

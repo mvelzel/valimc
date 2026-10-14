@@ -4,6 +4,7 @@ import net.minecraft.server.Bootstrap;
 import net.minecraft.core.Direction.Axis;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.ScaffoldingBlock;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.phys.shapes.*;
 import java.nio.file.*;
@@ -39,11 +40,16 @@ public class CollisionMetadata {
     var cacheField=BlockBehaviour.BlockStateBase.class.getDeclaredField("cache");cacheField.setAccessible(true);
     var shapes=new JsonArray();var shapeIds=new LinkedHashMap<String,Integer>();var runs=new JsonArray();
     var positionShapes=new JsonArray();var positionIds=new LinkedHashMap<String,Integer>();var positionStates=new JsonArray();
+    var scaffoldingStates=new JsonArray();
     var positionNames=Set.of("minecraft:bamboo","minecraft:pointed_dripstone","minecraft:sulfur_spike");
     var maxOffset=BlockBehaviour.class.getDeclaredMethod("getMaxHorizontalOffset");maxOffset.setAccessible(true);
     JsonElement previous=null;int runStart=0,runLength=0,dynamic=0,states=0,maxCells=0,maxBoxes=0;
     for(var state:Block.BLOCK_STATE_REGISTRY) {
       int id=Block.getId(state);if(id!=states++)throw new AssertionError("Non-contiguous block state registry");
+      if(state.getBlock() instanceof ScaffoldingBlock) {
+        var entry=new JsonArray();entry.add(id);entry.add(state.getValue(ScaffoldingBlock.DISTANCE));
+        entry.add(state.getValue(ScaffoldingBlock.BOTTOM));scaffoldingStates.add(entry);
+      }
       var cache=cacheField.get(state);JsonElement value;
       if(cache==null) {
         String blockName=BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
@@ -76,8 +82,18 @@ public class CollisionMetadata {
     result.addProperty("state_count",states);result.add("runs",runs);result.add("shapes",shapes);
     if(positionStates.size()!=52)throw new AssertionError("Wrong position-only state coverage");
     result.add("position_shapes",positionShapes);result.add("position_states",positionStates);
+    if(scaffoldingStates.size()!=32)throw new AssertionError("Wrong scaffolding state coverage");
+    var scaffolding=new JsonObject();scaffolding.add("states",scaffoldingStates);
+    scaffolding.add("stable",geometry(scaffoldingField("SHAPE_STABLE")));
+    scaffolding.add("unstable_bottom",geometry(scaffoldingField("SHAPE_UNSTABLE_BOTTOM")));
+    scaffolding.addProperty("below_height",scaffoldingField("SHAPE_BELOW_BLOCK").max(Axis.Y));
+    result.add("scaffolding",scaffolding);
     Files.createDirectories(Path.of(args[0]).getParent());Files.writeString(Path.of(args[0]),gson.toJson(result)+"\n");
     System.out.println("Cached collision facts: "+states+" states, "+dynamic+" contextual states, "+shapes.size()+" grids, "+runs.size()+" runs; max "+maxCells+" cells / "+maxBoxes+" boxes.");
     System.out.println("Position-only collision facts: "+positionStates.size()+" states / "+positionShapes.size()+" base grids.");
+    System.out.println("Scaffolding collision facts: "+scaffoldingStates.size()+" states.");
+  }
+  public static VoxelShape scaffoldingField(String name) throws Exception {
+    var field=ScaffoldingBlock.class.getDeclaredField(name);field.setAccessible(true);return (VoxelShape)field.get(null);
   }
 }

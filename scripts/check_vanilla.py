@@ -13,6 +13,9 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     position_cases = str(pathlib.Path(world) / 'position-collisions.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'PositionCollisionOracle', collision_facts, position_cases], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_position_collisions.exs', position_cases], cwd=root, check=True)
+    scaffolding_cases = str(pathlib.Path(world) / 'scaffolding-collisions.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'ScaffoldingCollisionOracle', collision_facts, scaffolding_cases], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_scaffolding_collisions.exs', scaffolding_cases], cwd=root, check=True)
     attribute_facts = str(pathlib.Path(world) / 'attributes.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'AttributeMetadata', attribute_facts], cwd=root, check=True)
     if json.loads(pathlib.Path(attribute_facts).read_text()) != json.loads((root/'priv/protocol/attributes.json').read_text()):

@@ -41,6 +41,24 @@ defmodule Valimc.Physics.BlockShapes do
                    end)
   unless map_size(@position_states) == 52, do: raise("Incomplete position-dependent catalog")
 
+  @scaffolding @facts["scaffolding"]
+  @scaffolding_stable Valimc.Physics.Shape.from_facts!(@scaffolding["stable"])
+  @scaffolding_bottom Valimc.Physics.Shape.from_facts!(@scaffolding["unstable_bottom"])
+  @below_height @scaffolding["below_height"]
+  unless is_number(@below_height) and abs(@below_height) <= 16.0,
+    do: raise("Invalid scaffolding query height")
+
+  @scaffolding_states Map.new(@scaffolding["states"], fn [id, distance, bottom] ->
+                        unless is_integer(id) and id in 0..(tuple_size(@states) - 1) and
+                                 elem(@states, id) == "minecraft:scaffolding" and
+                                 is_integer(distance) and distance in 0..7 and is_boolean(bottom),
+                               do: raise("Invalid scaffolding state facts")
+
+                        {id, {distance, bottom}}
+                      end)
+  unless length(@scaffolding["states"]) == 32 and map_size(@scaffolding_states) == 32,
+    do: raise("Incomplete scaffolding catalog")
+
   def state_count, do: tuple_size(@states)
   def shape_count, do: tuple_size(@shapes)
   def grids, do: @shapes
@@ -69,6 +87,39 @@ defmodule Valimc.Physics.BlockShapes do
       end
     else
       {:error, :invalid_position}
+    end
+  end
+
+  def fetch(id, position, context) do
+    if Valimc.Physics.CollisionContext.valid?(context) do
+      case fetch(id, position) do
+        {:context_required, "minecraft:scaffolding"} ->
+          {:ok, scaffolding(id, elem(position, 1), context)}
+
+        result ->
+          result
+      end
+    else
+      {:error, :invalid_context}
+    end
+  end
+
+  defp scaffolding(id, y, context) do
+    {distance, bottom} = Map.fetch!(@scaffolding_states, id)
+
+    cond do
+      context.placement ->
+        %Valimc.Physics.Shape{}
+
+      Valimc.Physics.CollisionContext.above?(context, 1.0, y, true) and not context.descending ->
+        @scaffolding_stable
+
+      distance != 0 and bottom and
+          Valimc.Physics.CollisionContext.above?(context, @below_height, y, true) ->
+        @scaffolding_bottom
+
+      true ->
+        %Valimc.Physics.Shape{}
     end
   end
 end
