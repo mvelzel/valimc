@@ -188,6 +188,14 @@ All four actual-client UI checks and full restart are required; record permissio
 mouse checks separately when CUA cannot emit them. Keep live transition/collision,
 spectator peer visibility and non-creative gameplay dependencies explicit.
 
+Interaction-range probes re-extract builtin attribute facts, compare mode-selected
+native packet bodies and decode the Elixir output. Geometry cases use Mojang's
+actual block-box distance, strict reach equality and translated float32 hit bounds,
+including NaN/infinity. Remote rejected TCP actions must not allocate regions.
+Actual-client tests distinguish five-block creative targeting from 4.5-block
+non-creative targeting, then verify reconnect/restart. The current standing eye
+height is explicit; other poses and general attributes require separate coverage.
+
 Ability probes invoke native GameType transitions and both ability codecs for
 all modes/initial flags, including speed preservation and all 256 client bytes.
 Only the flying bit may change under the owner permission. TCP tests also cover

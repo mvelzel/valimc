@@ -34,7 +34,8 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-007c](tickets/VMC-007c.md) | Partially implemented | Real online identities/admission and discovery validated; signed chat, proxy policy and duplicate-session behavior remain |
 | [VMC-007c1](tickets/VMC-007c1.md) | Done — foundation smoke validated, pushed | 298 tests/release/full oracle, 32 native profiles and CUA baseline/reconnect pass; online integration remains VMC-007c2 |
 | [VMC-007c2](tickets/VMC-007c2.md) | Done — real account validated, pushed | 307 tests/release/full native suites/64 profile codecs and actual account/skin/input/reconnect/restart/outage/cleanup pass |
-| [VMC-016b1](tickets/VMC-016b1.md) | Done — mode initialization validated | 338 tests/release/full native oracle and actual four-mode UI/abilities/restart, spectator inventory corrections, non-creative world restrictions and creative placement/breaking pass |
+| [VMC-016b1](tickets/VMC-016b1.md) | Done — `6fa96ae`, pushed | 338 tests/release/full native oracle and actual four-mode UI/abilities/restart, spectator inventory corrections, non-creative world restrictions and creative placement/breaking pass |
+| [VMC-018c1](tickets/VMC-018c1.md) | Done — default interaction ranges validated | 346 tests/release/full native oracle; 4,348 box distances/117 hit boundaries and actual creative range, distant rejection, restart and shorter survival targeting pass |
 | [VMC-016a](tickets/VMC-016a.md) | Done — creative flight validated, pushed | 326 tests/release/full oracle, native ability matrix and actual double-Space/hover/reconnect/restart/flight-off/cleanup pass; full mode transitions remain |
 | [VMC-007c3](tickets/VMC-007c3.md) | Done — discovery/recovery validated, pushed | 317 tests/release/full oracle, 31 native discovery facts and actual cached reconnect/offline rejection/owner recovery/restart/cleanup pass |
 | [VMC-005a](tickets/VMC-005a.md) | Done — `123d1d0`, validated | Owner-local 46-slot menu; actual selection/offhand/swap/resync and automated/oracle checks pass |
@@ -134,6 +135,7 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | VMC-016b2 | Live mode transitions and spectator visibility | Collision-aware flight, attributes, peer metadata, camera and item-use lifecycle |
 | VMC-017 | Health, damage, death and respawn | Causes/cooldowns/drops, spawn points, persistent lifecycle |
 | VMC-018 | Entity metadata, attributes and passengers | Current serializers, equipment, visibility transitions, spawn/change/despawn |
+| [VMC-018c1](tickets/VMC-018c1.md) | Default player interaction ranges | Native attributes/codecs, strict block-box reach/hit bounds and actual client targeting |
 | VMC-019 | Durable simulation recovery | No duplicate acknowledged transactions after player/region failures or restart |
 
 ### C — Vanilla worlds and storage

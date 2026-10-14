@@ -155,6 +155,25 @@ defmodule Valimc.Protocol.Packets do
   defp previous_mode(nil), do: <<0>>
   defp previous_mode(mode), do: Wire.varint(Valimc.GameMode.id(mode) + 1)
 
+  def interaction_attributes(player) do
+    attributes = Valimc.PlayerInteraction.attributes(player.game_mode.current)
+
+    packet("update_attributes", [
+      Wire.varint(player.entity_id),
+      Wire.varint(length(attributes)),
+      Enum.map(attributes, fn {id, base, modifiers} ->
+        [
+          Wire.varint(id),
+          <<base::float-64>>,
+          Wire.varint(length(modifiers)),
+          Enum.map(modifiers, fn {name, amount, operation} ->
+            [Wire.string(name), <<amount::float-64, operation>>]
+          end)
+        ]
+      end)
+    ])
+  end
+
   def properties(values) when is_list(values) and length(values) <= 16 do
     [
       Wire.varint(length(values)),

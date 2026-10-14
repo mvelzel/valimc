@@ -1027,6 +1027,7 @@ defmodule Valimc.Connection do
       Packets.teleport(state.player, state.teleport),
       Packets.packet("game_event", <<13, 0.0::float-32>>),
       Packets.player_info(state.player),
+      Packets.interaction_attributes(state.player),
       Packets.chat(
         "Welcome to ValiMC. Development preview (#{state.player.game_mode.current}); survival is being built. /help"
       )
@@ -1195,7 +1196,11 @@ defmodule Valimc.Connection do
     p = state.player
 
     World.Chunk.valid_y?(y) and
-      (x + 0.5 - p.x) ** 2 + (y + 0.5 - (p.y + 1.62)) ** 2 + (z + 0.5 - p.z) ** 2 <= 36
+      Valimc.PlayerInteraction.within_block?(
+        p.game_mode.current,
+        Valimc.PlayerInteraction.standing_eye(p),
+        {x, y, z}
+      )
   end
 
   defp break_block(state, payload) do
@@ -1532,7 +1537,7 @@ defmodule Valimc.Connection do
     {hand, payload} = Wire.take_varint(payload)
     {position, payload} = Wire.take_position(payload)
 
-    {face, <<_cursor::binary-size(12), _inside, _border, payload::binary>>} =
+    {face, <<cursor::binary-size(12), _inside, _border, payload::binary>>} =
       Wire.take_varint(payload)
 
     {sequence, <<>>} = Wire.take_varint(payload)
@@ -1558,12 +1563,20 @@ defmodule Valimc.Connection do
 
     item = if stack, do: Data.item_block(stack.item_id)
 
+    allowed =
+      Valimc.PlayerInteraction.valid_hit?(position, cursor) and reachable?(state, position)
+
     if not inventory_pending(state) and state.player.game_mode.current == :creative and
-         item != nil and reachable?(state, target),
+         item != nil and allowed and World.Chunk.valid_y?(elem(target, 1)),
        do: World.set_block(target, item)
 
     updates =
-      if reachable?(state, target), do: [Packets.block(target, World.get_block(target))], else: []
+      if allowed and World.Chunk.valid_y?(elem(target, 1)),
+        do: [
+          Packets.block(position, World.get_block(position)),
+          Packets.block(target, World.get_block(target))
+        ],
+        else: []
 
     send_packets(state, [Packets.ack(sequence) | updates])
 

@@ -3,6 +3,15 @@
 import os, pathlib, socket, subprocess, sys, tempfile, time, json
 root = pathlib.Path(__file__).resolve().parent.parent
 with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
+    attribute_facts = str(pathlib.Path(world) / 'attributes.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'AttributeMetadata', attribute_facts], cwd=root, check=True)
+    if json.loads(pathlib.Path(attribute_facts).read_text()) != json.loads((root/'priv/protocol/attributes.json').read_text()):
+        raise RuntimeError('Pinned builtin attribute facts differ')
+    ranges = str(pathlib.Path(world) / 'ranges.json')
+    ranges_encoded = str(pathlib.Path(world) / 'ranges-elixir.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'InteractionRangeOracle', ranges], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_interaction_ranges.exs', ranges, ranges_encoded], cwd=root, check=True)
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'InteractionRangeOracle', 'verify', ranges_encoded], cwd=root, check=True)
     modes = str(pathlib.Path(world) / 'modes.json')
     modes_encoded = str(pathlib.Path(world) / 'modes-elixir.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'GameModeOracle', modes], cwd=root, check=True)

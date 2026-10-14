@@ -382,3 +382,16 @@ confirmed the surrounding 600 blocks, slots/cursor, source 54 and nil outbox.
 Final `/stats` responded; client paused in creative. Earlier rejected input is not
 counted as a pass. 338 tests/release/full native oracle pass. Live transitions and
 survival gameplay remain separate work. [Mode initialization evidence](tickets/VMC-016b1.md).
+
+October 14, VMC-018c1, 16:03–16:14 CEST: actual creative right click placed against
+a target 4.75 blocks away; left clicks broke the near placement and original
+target. Moving to 6.0415 left it untargeted and unchanged after mouse controls.
+Reconnect/full restart retained pose/inventory and reinitialized creative range;
+actual placement succeeded at 4.5342. Saved survival rejoined at 4.75 without a
+target outline or placement; moving to 4.1082 produced the preview correction
+with unchanged blocks/count seven. Final creative join and `/stats` responded;
+client paused at spawn. Source 54/nil outbox retained; test inventory was replaced
+under the user's disposable-fixture authorization. 346 tests/release/full native
+oracle, 4,348 box distances and 117 hit boundaries pass. General attributes,
+other eye heights, combat and survival placement remain work.
+[Interaction range evidence](tickets/VMC-018c1.md).

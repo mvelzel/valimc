@@ -1,0 +1,282 @@
+{
+  "minecraft:air_drag_modifier": {
+    "id": 0,
+    "default": 1.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 2048.0
+  },
+  "minecraft:armor": {
+    "id": 1,
+    "default": 0.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 30.0
+  },
+  "minecraft:armor_toughness": {
+    "id": 2,
+    "default": 0.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 20.0
+  },
+  "minecraft:attack_damage": {
+    "id": 3,
+    "default": 2.0,
+    "syncable": false,
+    "min": 0.0,
+    "max": 2048.0
+  },
+  "minecraft:attack_knockback": {
+    "id": 4,
+    "default": 0.0,
+    "syncable": false,
+    "min": 0.0,
+    "max": 5.0
+  },
+  "minecraft:attack_speed": {
+    "id": 5,
+    "default": 4.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 1024.0
+  },
+  "minecraft:below_name_distance": {
+    "id": 6,
+    "default": 10.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 512.0
+  },
+  "minecraft:block_break_speed": {
+    "id": 7,
+    "default": 1.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 1024.0
+  },
+  "minecraft:block_interaction_range": {
+    "id": 8,
+    "default": 4.5,
+    "syncable": true,
+    "min": 0.0,
+    "max": 64.0
+  },
+  "minecraft:bounciness": {
+    "id": 9,
+    "default": 0.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 1.0
+  },
+  "minecraft:burning_time": {
+    "id": 10,
+    "default": 1.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 1024.0
+  },
+  "minecraft:camera_distance": {
+    "id": 11,
+    "default": 4.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 32.0
+  },
+  "minecraft:explosion_knockback_resistance": {
+    "id": 12,
+    "default": 0.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 1.0
+  },
+  "minecraft:entity_interaction_range": {
+    "id": 13,
+    "default": 3.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 64.0
+  },
+  "minecraft:fall_damage_multiplier": {
+    "id": 14,
+    "default": 1.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 100.0
+  },
+  "minecraft:flying_speed": {
+    "id": 15,
+    "default": 0.4,
+    "syncable": true,
+    "min": 0.0,
+    "max": 1024.0
+  },
+  "minecraft:follow_range": {
+    "id": 16,
+    "default": 32.0,
+    "syncable": false,
+    "min": 0.0,
+    "max": 2048.0
+  },
+  "minecraft:friction_modifier": {
+    "id": 17,
+    "default": 1.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 2048.0
+  },
+  "minecraft:gravity": {
+    "id": 18,
+    "default": 0.08,
+    "syncable": true,
+    "min": -1.0,
+    "max": 1.0
+  },
+  "minecraft:jump_strength": {
+    "id": 19,
+    "default": 0.41999998688697815,
+    "syncable": true,
+    "min": 0.0,
+    "max": 32.0
+  },
+  "minecraft:knockback_resistance": {
+    "id": 20,
+    "default": 0.0,
+    "syncable": false,
+    "min": -2.0,
+    "max": 1.0
+  },
+  "minecraft:luck": {
+    "id": 21,
+    "default": 0.0,
+    "syncable": true,
+    "min": -1024.0,
+    "max": 1024.0
+  },
+  "minecraft:max_absorption": {
+    "id": 22,
+    "default": 0.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 2048.0
+  },
+  "minecraft:max_health": {
+    "id": 23,
+    "default": 20.0,
+    "syncable": true,
+    "min": 1.0,
+    "max": 1024.0
+  },
+  "minecraft:mining_efficiency": {
+    "id": 24,
+    "default": 0.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 1024.0
+  },
+  "minecraft:movement_efficiency": {
+    "id": 25,
+    "default": 0.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 1.0
+  },
+  "minecraft:movement_speed": {
+    "id": 26,
+    "default": 0.7,
+    "syncable": true,
+    "min": 0.0,
+    "max": 1024.0
+  },
+  "minecraft:name_tag_distance": {
+    "id": 27,
+    "default": 64.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 512.0
+  },
+  "minecraft:oxygen_bonus": {
+    "id": 28,
+    "default": 0.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 1024.0
+  },
+  "minecraft:safe_fall_distance": {
+    "id": 29,
+    "default": 3.0,
+    "syncable": true,
+    "min": -1024.0,
+    "max": 1024.0
+  },
+  "minecraft:scale": {
+    "id": 30,
+    "default": 1.0,
+    "syncable": true,
+    "min": 0.0625,
+    "max": 16.0
+  },
+  "minecraft:sneaking_speed": {
+    "id": 31,
+    "default": 0.3,
+    "syncable": true,
+    "min": 0.0,
+    "max": 1.0
+  },
+  "minecraft:spawn_reinforcements": {
+    "id": 32,
+    "default": 0.0,
+    "syncable": false,
+    "min": 0.0,
+    "max": 1.0
+  },
+  "minecraft:step_height": {
+    "id": 33,
+    "default": 0.6,
+    "syncable": true,
+    "min": 0.0,
+    "max": 10.0
+  },
+  "minecraft:submerged_mining_speed": {
+    "id": 34,
+    "default": 0.2,
+    "syncable": true,
+    "min": 0.0,
+    "max": 20.0
+  },
+  "minecraft:sweeping_damage_ratio": {
+    "id": 35,
+    "default": 0.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 1.0
+  },
+  "minecraft:tempt_range": {
+    "id": 36,
+    "default": 10.0,
+    "syncable": false,
+    "min": 0.0,
+    "max": 2048.0
+  },
+  "minecraft:water_movement_efficiency": {
+    "id": 37,
+    "default": 0.0,
+    "syncable": true,
+    "min": 0.0,
+    "max": 1.0
+  },
+  "minecraft:waypoint_transmit_range": {
+    "id": 38,
+    "default": 0.0,
+    "syncable": false,
+    "min": 0.0,
+    "max": 6.0E7
+  },
+  "minecraft:waypoint_receive_range": {
+    "id": 39,
+    "default": 0.0,
+    "syncable": false,
+    "min": 0.0,
+    "max": 6.0E7
+  }
+}

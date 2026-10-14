@@ -195,9 +195,11 @@ public class VanillaOracle implements AutoCloseable {
   private boolean difficultyInitialized;
   private ClientboundPlayerAbilitiesPacket abilities;
   private int abilitiesPackets;
+  private ClientboundUpdateAttributesPacket interactionAttributes;
   private Object readGame() throws Exception {
     Object packet = read(gameIn);
     if (packet instanceof ClientboundPlayerAbilitiesPacket current) { abilities=current; abilitiesPackets++; }
+    if (packet instanceof ClientboundUpdateAttributesPacket current) { interactionAttributes=current; }
     if (packet instanceof ClientboundChangeDifficultyPacket difficulty) {
       if (difficulty.difficulty()!=net.minecraft.world.Difficulty.EASY || difficulty.locked())
         throw new AssertionError("Unexpected default world difficulty");
@@ -325,6 +327,14 @@ public class VanillaOracle implements AutoCloseable {
         first.abilities.getFlyingSpeed()!=0.05f || first.abilities.getWalkingSpeed()!=0.1f)
         throw new AssertionError("Unexpected initial creative abilities");
       int abilityCount=first.abilitiesPackets;
+      if(first.interactionAttributes==null || first.interactionAttributes.getValues().size()!=2)
+        throw new AssertionError("Missing player interaction attributes");
+      for(var a:first.interactionAttributes.getValues()) {
+        var instance=new net.minecraft.world.entity.ai.attributes.AttributeInstance(a.attribute(),v -> {});
+        instance.setBaseValue(a.base());for(var modifier:a.modifiers())instance.addTransientModifier(modifier);
+        if(instance.getValue()!=5.0)throw new AssertionError("Incorrect creative interaction range");
+      }
+      System.out.println("PASS: native TCP player interaction attribute holders/bases/modifiers initialize both creative ranges to five.");
       var flightRequest=new net.minecraft.world.entity.player.Abilities();
       for(boolean flying:new boolean[]{true,false}) {
         flightRequest.flying=flying;
