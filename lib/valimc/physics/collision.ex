@@ -19,4 +19,32 @@ defmodule Valimc.Physics.Collision do
   end
 
   def clip(_, _, _, _), do: raise(ArgumentError, "invalid collision query")
+
+  @doc "Resolve a bounded displacement; supplied colliders must belong to one caller-owned observation."
+  def move(box, shapes, {dx, dy, dz} = requested) when is_list(shapes) do
+    shapes = Enum.take(shapes, @max_shapes + 1)
+
+    unless length(shapes) <= @max_shapes and Box.valid?(box) and
+             Enum.all?(Tuple.to_list(requested), &(is_number(&1) and abs(&1) <= 64.0)),
+           do: raise(ArgumentError, "invalid or unbounded movement query")
+
+    requested = {dx * 1.0, dy * 1.0, dz * 1.0}
+
+    if shapes == [] do
+      requested
+    else
+      axes =
+        if abs(dx) < abs(dz), do: [{:y, 1}, {:z, 2}, {:x, 0}], else: [{:y, 1}, {:x, 0}, {:z, 2}]
+
+      Enum.reduce(axes, {0.0, 0.0, 0.0}, fn {axis, index}, actual ->
+        delta = elem(requested, index)
+
+        if delta == 0.0,
+          do: actual,
+          else: put_elem(actual, index, clip(axis, Box.move(box, actual), shapes, delta))
+      end)
+    end
+  end
+
+  def move(_, _, _), do: raise(ArgumentError, "invalid movement query")
 end
