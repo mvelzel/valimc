@@ -7,6 +7,7 @@ defmodule Valimc.Application do
 
     children = [
       Valimc.Metrics,
+      {Valimc.World.Clock, []},
       {Registry, keys: :unique, name: Valimc.RegionRegistry},
       {Registry, keys: :duplicate, name: Valimc.VisibilityRegistry},
       Valimc.Players,

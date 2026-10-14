@@ -93,6 +93,16 @@ checks exact saved item records, then reconnect/full restart restores controls
 without reseeding. Unknown-ID/truncation owner fixtures must preserve accepted
 state; TCP tests separately verify peer isolation. Cleanup retains advanced source
 counters/receipts and restores only fixture inventory/pose/entities.
+The world-clock oracle invokes Mojang's actual clock tick arithmetic for 3,600
+fraction/rate/pause/global-stop/long-boundary cases and decodes every Elixir network
+value. The full native TCP oracle checks both registered holders, fresh login
+and periodic 20-tick updates. ExUnit additionally stalls the linked writer, checks
+one immutable pending save/newer dirty state, injects stale timers/replies, and
+reloads a physical-commit/withheld-ack fixture without writing older memory over
+it. Actual Minecraft uses explicit trusted host controls to observe day/night/day,
+continued commands, independent pause, reconnect/full restart and resumed clocks.
+Keep fixtures/logs private, restore normal controls and retain game-time progress.
+
 A focused
 inventory behavior harness also invokes Mojang's actual menu methods to verify
 collect ordering, direction, triggers, caps, ordinary-slot component preservation,

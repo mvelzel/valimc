@@ -35,6 +35,30 @@ flowchart LR
 
 The admission process is outside the movement and block hot paths. Spatial ETS holds published snapshots; reading another player's snapshot does not grant permission to mutate their state. Independent sessions and region owners are scheduled across available BEAM schedulers.
 
+## World clocks
+
+One supervised owner holds game time, the two pinned core-pack clocks and the
+advance-time control. It owns no region gameplay, player inventory or entity
+mutation. Clock totals/fractions/rates use the native float32 tick boundaries;
+paused clocks stop independently, and global advance-time stops both clocks while
+game time continues. A fenced 50 ms timer advances one delivered game tick; lag
+never becomes an unbounded catch-up queue or offline time advancement. Coupled
+region simulation phases and their relationship to game time remain VMC-011 work.
+
+Protected ETS holds one atomic publication with a current login packet and a
+20-tick periodic packet/version. Connections read it concurrently during their
+existing replication callback; controls publish a new version immediately. No
+clock tick is sent to every session. The cached packet is an immutable binary.
+
+A linked writer reads at most 257 bytes and validates the fixed registered-clock
+schema, version/data version and checksum. The 88-byte current snapshot uses a
+unique synchronized temporary file and atomic replacement. The ticking owner
+admits only one immutable checkpoint, fences acknowledgments/deadlines and keeps
+newer state dirty. An uncertain save stops/fences the owner and writer before
+reload, without flushing older memory over the possible commit. Normal shutdown
+flushes the latest state. These are custom preview files; vanilla saved-data NBT,
+full gamerules/time markers, idle pause and data-pack clock changes remain work.
+
 ## Replication and pressure
 
 Observers sample nearby player IDs from the spatial index every 50 ms, fetch one current snapshot at a time, compare compact quantized views, and batch changes into one socket write. These observations are eventually consistent. They are suitable for network replication; future collision and combat need region-authoritative simulation snapshots instead.

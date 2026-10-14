@@ -169,8 +169,20 @@ public class VanillaOracle implements AutoCloseable {
       throw failure;
     } finally { buffer.release(); }
   }
+  private ClientboundSetTimePacket lastTime;
+  private int timePacketsSeen;
   private Object readGame() throws Exception {
     Object packet = read(gameIn);
+    if (packet instanceof ClientboundSetTimePacket time) {
+      if (time.clockUpdates().size()!=2 || time.gameTime()<0) throw new AssertionError("Invalid core clock map");
+      for (var state:time.clockUpdates().values())
+        if (state.totalTicks()!=time.gameTime() || state.partialTick()!=0f || state.rate()!=1f)
+          throw new AssertionError("Default clock differs from actual delivered game ticks");
+      if (timePacketsSeen>=2 && time.gameTime()-lastTime.gameTime()!=20)
+        throw new AssertionError("Clock synchronization did not advance 20 delivered ticks");
+      lastTime=time; timePacketsSeen++;
+    }
+
     if (packet instanceof ClientboundCommandsPacket commands) validateCommands(commands);
     if (packet instanceof ClientboundContainerSetContentPacket inventory && initialInventory == null) initialInventory = inventory;
     if (packet instanceof ClientboundPlayerPositionPacket teleport) {
@@ -267,6 +279,11 @@ public class VanillaOracle implements AutoCloseable {
     int port = args.length > 0 ? Integer.parseInt(args[0]) : 25565;
     try (var first = new VanillaOracle(port, "OracleOne"); var second = new VanillaOracle(port, "OracleTwo")) {
       first.await(p -> p instanceof ClientboundAddEntityPacket);
+      if (first.lastTime==null || second.lastTime==null) throw new AssertionError("Missing initial clock synchronization");
+      long initialClockTime=first.lastTime.gameTime();
+      first.await(p -> p instanceof ClientboundSetTimePacket t && t.gameTime()>initialClockTime);
+      System.out.println("PASS: Mojang decoded initial/periodic 26.3 registered clocks, all holders and 20-tick cadence.");
+
       var stone = new ItemStack(Blocks.STONE, 17);
       stone.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true);
       var customData = new CompoundTag(); customData.putString("probe", "ValiMC \u0000😀é");

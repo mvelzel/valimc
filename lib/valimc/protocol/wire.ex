@@ -8,6 +8,10 @@ defmodule Valimc.Protocol.Wire do
   defp encode_varint(n) when n < 128, do: <<n>>
   defp encode_varint(n), do: <<(n &&& 127) ||| 128>> <> encode_varint(n >>> 7)
 
+  def varlong(n)
+      when is_integer(n) and n >= -9_223_372_036_854_775_808 and n <= 18_446_744_073_709_551_615,
+      do: encode_varint(n &&& 0xFFFFFFFFFFFFFFFF)
+
   def read_varint(binary), do: decode_varint(binary, 0, 0)
   defp decode_varint(<<>>, _, _), do: :more
 

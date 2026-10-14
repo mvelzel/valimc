@@ -68,6 +68,7 @@ defmodule Valimc.Connection do
        batch_pending: false,
        peers: %{},
        item_replication: ItemReplication.new(),
+       clock_version: nil,
        outbound: [],
        # The preview explicitly advertises creative/infinite-material abilities.
        # This permission is owner state, never derived from incoming predictions.
@@ -350,6 +351,15 @@ defmodule Valimc.Connection do
 
         state =
           emit_peer_packets(%{state | item_replication: item_replication}, item_packets, :buffer)
+
+        {version, clock_packet} = Valimc.World.Clock.publication()
+
+        state =
+          if version != state.clock_version do
+            %{state | clock_version: version, outbound: [clock_packet | state.outbound]}
+          else
+            state
+          end
 
         packets = state.outbound |> Enum.reverse() |> List.flatten()
         send_packets(state, packets)
@@ -774,8 +784,12 @@ defmodule Valimc.Connection do
   defp enter_world(state) do
     state = %{state | phase: :play, step: nil, player: %{state.player | ready: true}}
 
+    {clock_version, clock_packet} = Valimc.World.Clock.initial()
+    state = %{state | clock_version: clock_version}
+
     send_packets(state, [
       Packets.login(state.player),
+      clock_packet,
       Packets.abilities(),
       Packets.health(),
       Packets.spawn_position(),

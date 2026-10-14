@@ -2,6 +2,27 @@ defmodule Valimc.Protocol.Packets do
   @moduledoc "Minecraft 26.3 clientbound packet payloads. All integers are network endian."
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   import Bitwise
+
+  def time(data) do
+    entries =
+      Enum.sort_by(data.clocks, fn {name, _} ->
+        Data.registry_id("minecraft:world_clock", name)
+      end)
+
+    body = [
+      <<data.game_time::signed-64>>,
+      Wire.varint(length(entries)),
+      Enum.map(entries, fn {name, clock} ->
+        [
+          Wire.varint(Data.registry_id("minecraft:world_clock", name)),
+          Valimc.World.ClockState.network(clock, data.advance_time)
+        ]
+      end)
+    ]
+
+    packet("set_time", IO.iodata_to_binary(body))
+  end
+
   def packet(name, payload, state \\ :play), do: {Data.id(state, :clientbound, name), payload}
   def frame({id, payload}, threshold), do: Wire.frame(id, payload, threshold)
 
