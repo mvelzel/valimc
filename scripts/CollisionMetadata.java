@@ -8,6 +8,7 @@ import net.minecraft.world.level.block.ScaffoldingBlock;
 import net.minecraft.world.level.block.PowderSnowBlock;
 import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.piston.*;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.phys.shapes.*;
 import java.nio.file.*;
@@ -44,11 +45,17 @@ public class CollisionMetadata {
     var shapes=new JsonArray();var shapeIds=new LinkedHashMap<String,Integer>();var runs=new JsonArray();
     var positionShapes=new JsonArray();var positionIds=new LinkedHashMap<String,Integer>();var positionStates=new JsonArray();
     var scaffoldingStates=new JsonArray();var shulkerStates=new JsonArray();
+    var movingStates=new JsonArray();var pistonBases=new JsonArray();
     var positionNames=Set.of("minecraft:bamboo","minecraft:pointed_dripstone","minecraft:sulfur_spike");
     var maxOffset=BlockBehaviour.class.getDeclaredMethod("getMaxHorizontalOffset");maxOffset.setAccessible(true);
     JsonElement previous=null;int runStart=0,runLength=0,dynamic=0,states=0,maxCells=0,maxBoxes=0;
     for(var state:Block.BLOCK_STATE_REGISTRY) {
       int id=Block.getId(state);if(id!=states++)throw new AssertionError("Non-contiguous block state registry");
+      if(state.getBlock() instanceof MovingPistonBlock)movingStates.add(id);
+      if(state.getBlock() instanceof PistonBaseBlock) {
+        var entry=new JsonArray();entry.add(id);entry.add(Block.getId(state.setValue(PistonBaseBlock.EXTENDED,true)));
+        pistonBases.add(entry);
+      }
       if(state.getBlock() instanceof ShulkerBoxBlock) {
         var entry=new JsonArray();entry.add(id);entry.add(state.getValue(ShulkerBoxBlock.FACING).getName());
         shulkerStates.add(entry);
@@ -101,6 +108,14 @@ public class CollisionMetadata {
     if(shulkerStates.size()!=102)throw new AssertionError("Wrong shulker state coverage");
     var shulker=new JsonObject();shulker.add("states",shulkerStates);shulker.add("full",geometry(Shapes.block()));
     result.add("shulker_box",shulker);
+    if(movingStates.size()!=12||pistonBases.size()!=24)throw new AssertionError("Wrong piston state coverage");
+    var piston=new JsonObject();piston.add("moving",movingStates);piston.add("bases",pistonBases);var heads=new JsonArray();
+    for(var dir:net.minecraft.core.Direction.values())for(boolean shortHead:new boolean[]{false,true}) {
+      var entry=new JsonArray();entry.add(dir.getName());entry.add(shortHead);
+      entry.add(Block.getId(Blocks.PISTON_HEAD.defaultBlockState().setValue(PistonHeadBlock.FACING,dir).setValue(PistonHeadBlock.SHORT,shortHead)));
+      heads.add(entry);
+    }
+    piston.add("heads",heads);result.add("piston",piston);
     Files.createDirectories(Path.of(args[0]).getParent());Files.writeString(Path.of(args[0]),gson.toJson(result)+"\n");
     System.out.println("Cached collision facts: "+states+" states, "+dynamic+" contextual states, "+shapes.size()+" grids, "+runs.size()+" runs; max "+maxCells+" cells / "+maxBoxes+" boxes.");
     System.out.println("Position-only collision facts: "+positionStates.size()+" states / "+positionShapes.size()+" base grids.");

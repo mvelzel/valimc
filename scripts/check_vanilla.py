@@ -25,6 +25,9 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     union_cases = str(pathlib.Path(world) / 'voxel-unions.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'VoxelUnionOracle', union_cases], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_voxel_unions.exs', union_cases], cwd=root, check=True)
+    piston_cases = str(pathlib.Path(world) / 'piston-collisions.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'PistonCollisionOracle', collision_facts, piston_cases], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_piston_collisions.exs', piston_cases], cwd=root, check=True)
     attribute_facts = str(pathlib.Path(world) / 'attributes.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'AttributeMetadata', attribute_facts], cwd=root, check=True)
     if json.loads(pathlib.Path(attribute_facts).read_text()) != json.loads((root/'priv/protocol/attributes.json').read_text()):

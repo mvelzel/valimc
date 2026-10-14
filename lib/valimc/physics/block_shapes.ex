@@ -81,6 +81,15 @@ defmodule Valimc.Physics.BlockShapes do
   unless length(@shulker["states"]) == 102 and map_size(@shulker_states) == 102,
     do: raise("Incomplete shulker catalog")
 
+  @moving_states @facts["piston"]["moving"]
+  unless is_list(@moving_states) and length(@moving_states) == 12 and
+           MapSet.size(MapSet.new(@moving_states)) == 12 and
+           Enum.all?(@moving_states, fn id ->
+             is_integer(id) and id in 0..(tuple_size(@states) - 1) and
+               elem(@states, id) == "minecraft:moving_piston"
+           end),
+         do: raise("Incomplete moving-piston catalog")
+
   def state_count, do: tuple_size(@states)
   def shape_count, do: tuple_size(@shapes)
   def grids, do: @shapes
@@ -136,8 +145,15 @@ defmodule Valimc.Physics.BlockShapes do
           {:ok, Valimc.Physics.ShulkerShape.shape(direction, block_entity, @shulker_full)}
 
         {{:context_required, _}, direction, kind}
-        when is_binary(direction) and kind in [:absent, :other] ->
+        when is_binary(direction) and kind in [:absent, :other, :piston] ->
           {:ok, @shulker_full}
+
+        {{:context_required, "minecraft:moving_piston"}, _, :piston} ->
+          Valimc.Physics.PistonShape.fetch(block_entity.piston, position, context)
+
+        {{:context_required, "minecraft:moving_piston"}, _, kind}
+        when kind in [:absent, :other, :shulker] ->
+          {:ok, %Valimc.Physics.Shape{}}
 
         {result, _, _} ->
           result

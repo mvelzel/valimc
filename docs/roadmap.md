@@ -41,7 +41,8 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-014b2](tickets/VMC-014b2.md) | Done — pushed `275929e` | 361 tests/release/full native oracle; all 32 scaffolding states, 9,408 contexts/56,448 exact clips and six actual landing/descent contacts pass; movement enforcement remains future work |
 | [VMC-014b3](tickets/VMC-014b3.md) | Done — pushed `f9d0e95` | 366 tests/release/full native suite, 7,062 native contexts/42,372 clips and actual bare/leather/descent/diamond contacts pass |
 | [VMC-014b4](tickets/VMC-014b4.md) | Done — pushed `1602207` | 371 tests/release/full native suite, 10,710 native snapshots/64,260 clips and actual closed/open/Space/closed contacts, commands and reconnect pass |
-| [VMC-014b5a](tickets/VMC-014b5a.md) | Done — client contacts verified | 376 tests/release/full native suite; 1,959 native operations/70,524 exact clips and actual stone/slab seam traversal/reconnect/restart pass; piston integration remains |
+| [VMC-014b5a](tickets/VMC-014b5a.md) | Done — pushed `8ab458b` | 376 tests/release/full native suite; 1,959 native operations/70,524 exact clips and actual stone/slab seam traversal/reconnect/restart pass; piston integration remains |
+| [VMC-014b5b](tickets/VMC-014b5b.md) | Done — validated | 382 tests/release/full native suite; 19,981 native snapshots/119,886 clips and four exact client piston contacts, commands, cleanup and reconnect pass; ticking/pushing remain |
 | [VMC-016a](tickets/VMC-016a.md) | Done — creative flight validated, pushed | 326 tests/release/full oracle, native ability matrix and actual double-Space/hover/reconnect/restart/flight-off/cleanup pass; full mode transitions remain |
 | [VMC-007c3](tickets/VMC-007c3.md) | Done — discovery/recovery validated, pushed | 317 tests/release/full oracle, 31 native discovery facts and actual cached reconnect/offline rejection/owner recovery/restart/cleanup pass |
 | [VMC-005a](tickets/VMC-005a.md) | Done — `123d1d0`, validated | Owner-local 46-slot menu; actual selection/offhand/swap/resync and automated/oracle checks pass |
@@ -141,6 +142,7 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | [VMC-014b4](tickets/VMC-014b4.md) | Shulker-box snapshots | Native lid geometry; unavailable vs confirmed block-entity observations |
 | VMC-014b5 | Moving-piston snapshots | Native movement state/shape unions and query direction context |
 | [VMC-014b5a](tickets/VMC-014b5a.md) | Voxel unions | Native coordinate merging/optimization and bounded pure grid operations |
+| [VMC-014b5b](tickets/VMC-014b5b.md) | Moving-piston geometry | Native displacement, source heads/base unions and query movement exclusion |
 | VMC-014c | Movement and pose reconciliation | Native pose dimensions/eye heights, collision/step validation and actual client corrections |
 | VMC-015 | Gravity, velocity and grounded state | Authoritative fall distance, acceleration, knockback and prediction agreement |
 | VMC-016 | Game modes and abilities | Survival/creative/adventure/spectator interaction and UI rules |

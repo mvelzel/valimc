@@ -8,9 +8,17 @@ defmodule Valimc.Physics.CollisionContext do
             entity_present: false,
             fall_distance: 0.0,
             falling_block: false,
-            powder_snow_walkable: false
+            powder_snow_walkable: false,
+            piston_movement: nil
 
   def empty, do: %__MODULE__{}
+
+  def with_piston_movement(context, direction) do
+    unless valid?(context) and movement?(direction),
+      do: raise(ArgumentError, "invalid movement exclusion")
+
+    %{context | piston_movement: direction}
+  end
 
   def entity(bottom, descending \\ false, placement \\ false)
 
@@ -52,7 +60,7 @@ defmodule Valimc.Physics.CollisionContext do
   def with_entity(_, _, _, _), do: raise(ArgumentError, "invalid entity collision facts")
 
   def valid?(%__MODULE__{kind: :empty, bottom: bottom, descending: false, placement: false} = c),
-    do: is_float(bottom) and bottom == 0.0 and absent_entity?(c)
+    do: is_float(bottom) and bottom == 0.0 and absent_entity?(c) and movement?(c.piston_movement)
 
   def valid?(
         %__MODULE__{
@@ -64,9 +72,10 @@ defmodule Valimc.Physics.CollisionContext do
       ),
       do:
         is_number(bottom) and abs(bottom) <= 60_000_000 and is_boolean(descending) and
-          is_boolean(placement) and valid_entity?(c)
+          is_boolean(placement) and valid_entity?(c) and movement?(c.piston_movement)
 
   def valid?(_), do: false
+  defp movement?(dir), do: dir in [nil, :down, :up, :north, :south, :west, :east]
 
   defp absent_entity?(c),
     do:
