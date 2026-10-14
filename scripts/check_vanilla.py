@@ -40,6 +40,9 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     block_collisions = str(pathlib.Path(world) / 'block-collisions.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'BlockCollisionOracle', block_collisions], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_block_collisions.exs', block_collisions], cwd=root, check=True)
+    chunk_heights = str(pathlib.Path(world) / 'chunk-heights.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'ChunkHeightOracle', chunk_heights], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_chunk_heights.exs', chunk_heights], cwd=root, check=True)
     attribute_facts = str(pathlib.Path(world) / 'attributes.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'AttributeMetadata', attribute_facts], cwd=root, check=True)
     if json.loads(pathlib.Path(attribute_facts).read_text()) != json.loads((root/'priv/protocol/attributes.json').read_text()):

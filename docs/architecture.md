@@ -320,6 +320,11 @@ collision and cross-region movement remain required gameplay foundations.
 
 ## Survival consistency still to implement
 
+The [live collider query](tickets/VMC-014b6d.md) uses bounded supervised tasks and
+concurrent request collections against existing owners. Each region's batches
+share one revision; returned fences remain observations. Geometry runs outside
+region owners. Consumers must bound pending jobs and validate authority separately.
+
 Fixed 8×8-chunk ownership is sufficient for this independent-edit preview. Redstone, fluids, explosions, entity AI and collision involve neighboring state. They must use an explicit boundary protocol before parallel survival ticks are enabled.
 
 The intended progression is deterministic region ticks over owned state, buffered boundary events assigned to a logical tick, and immutable neighbor snapshots. Entity transfer should use a monitored handoff with a transfer epoch, source fencing, destination acknowledgment and rollback; a connection process stays stable through that transfer. Operations requiring atomic writes across regions need a defined coordinator/order and failure recovery. These mechanisms currently remain design work.

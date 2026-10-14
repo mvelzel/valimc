@@ -8,6 +8,7 @@ defmodule Valimc.World.Chunk do
 
   def base(y) do
     cond do
+      not valid_y?(y) -> Data.block("air")
       y == -64 -> Data.block("bedrock")
       y < 60 -> Data.block("stone")
       y < 63 -> Data.block("dirt")
@@ -16,7 +17,8 @@ defmodule Valimc.World.Chunk do
     end
   end
 
-  def block_at(edits, {_, y, _} = position), do: Map.get(edits, position, base(y))
+  def block_at(edits, {_, y, _} = position),
+    do: if(valid_y?(y), do: Map.get(edits, position, base(y)), else: Data.block("air"))
 
   def load! do
     {_id, payload} = encode_full({0, 0}, %{})

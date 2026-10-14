@@ -261,7 +261,7 @@ defmodule Valimc.World.Region do
 
   defp valid_block_positions?([{x, y, z} | rest], count)
        when count < 128 and is_integer(x) and is_integer(y) and is_integer(z) do
-    abs(x) < 30_000_000 and abs(z) < 30_000_000 and Chunk.valid_y?(y) and
+    abs(x) < 30_000_000 and abs(z) < 30_000_000 and abs(y) <= 1_000_000 and
       valid_block_positions?(rest, count + 1)
   end
 

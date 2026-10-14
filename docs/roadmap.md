@@ -47,7 +47,8 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-014b6a](tickets/VMC-014b6a.md) | Done — pushed `aa15c80` | 395 tests/release; owner/revision bounds and failure isolation, actual queried wall/removal/stale rejection/crossing/reconnect pass; cross-region commits remain |
 | [VMC-014b6b](tickets/VMC-014b6b.md) | Done — pushed `3badc60` | 400 tests/release/full native suite; 133 native scans/142,892 state decisions and actual queried fence/stone contacts, cleanup/reconnect pass; final collider intersection remains |
 | [VMC-014b6c1](tickets/VMC-014b6c1.md) | Done — pushed `2d19316` | 405 tests/release/full native suite; 68,956 native intersections/19,926 boxes and actual stair/fence empty-space/contact checks, cleanup/reconnect pass; collection remains |
-| [VMC-014b6c2](tickets/VMC-014b6c2.md) | Done — validated | 413 tests/release/full native suite; 25,631 native ordered collections and actual stair/fence contacts, explicit rejection, cleanup/reconnect pass; live admission/commit fencing remain |
+| [VMC-014b6c2](tickets/VMC-014b6c2.md) | Done — pushed `43dd29a` | 413 tests/release/full native suite; 25,631 native ordered collections and actual stair/fence contacts, explicit rejection, cleanup/reconnect pass; live admission/commit fencing remain |
+| [VMC-014b6d](tickets/VMC-014b6d.md) | Done — validated | 421 tests/release/full native suite; 300 native height probes and actual cross-region wall/removal, failure isolation, below-bedrock contact, cleanup/reconnect pass; commit fencing remains |
 | [VMC-016a](tickets/VMC-016a.md) | Done — creative flight validated, pushed | 326 tests/release/full oracle, native ability matrix and actual double-Space/hover/reconnect/restart/flight-off/cleanup pass; full mode transitions remain |
 | [VMC-007c3](tickets/VMC-007c3.md) | Done — discovery/recovery validated, pushed | 317 tests/release/full oracle, 31 native discovery facts and actual cached reconnect/offline rejection/owner recovery/restart/cleanup pass |
 | [VMC-005a](tickets/VMC-005a.md) | Done — `123d1d0`, validated | Owner-local 46-slot menu; actual selection/offhand/swap/resync and automated/oracle checks pass |
@@ -153,6 +154,7 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | VMC-014b6c | Collider intersection and collection | Native strict/full-shape and voxel epsilon overlap; preserve missing context and snapshot fences |
 | [VMC-014b6c1](tickets/VMC-014b6c1.md) | Voxel intersection | Native overlap-only coordinate mappings and occupied-grid AND |
 | [VMC-014b6c2](tickets/VMC-014b6c2.md) | Supplied-observation collider collection | Ordered candidate filtering, strict full-block shortcut, explicit missing states/contexts and retained observation fences |
+| [VMC-014b6d](tickets/VMC-014b6d.md) | Live collider observations | Bounded concurrent existing-owner queries, consistent per-region batches, height bounds and cancellation |
 | VMC-014c | Movement and pose reconciliation | Native pose dimensions/eye heights, collision/step validation and actual client corrections |
 | [VMC-014c1](tickets/VMC-014c1.md) | Axis-ordered clipping | Native supplied-shape movement, horizontal ties, corners and slides |
 | VMC-015 | Gravity, velocity and grounded state | Authoritative fall distance, acceleration, knockback and prediction agreement |

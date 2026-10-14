@@ -29,6 +29,8 @@ defmodule Valimc.Application do
        max_children: Valimc.config(:max_regions)},
       {Task.Supervisor,
        name: Valimc.TransferWorkers, max_children: max(System.schedulers_online() * 4, 1)},
+      {Task.Supervisor,
+       name: Valimc.CollisionWorkers, max_children: max(System.schedulers_online(), 1)},
       {Valimc.LoginKeys, []},
       {Valimc.KeyExchange, []},
       {Valimc.Auth.DiscoverySupervisor, []},

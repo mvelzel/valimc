@@ -57,6 +57,17 @@ defmodule Valimc.World do
 
   def item_owner(key), do: owner(key)
 
+  @doc "Find an existing incarnation without loading or starting a region."
+  def existing_owner(key) do
+    case Registry.lookup(Valimc.RegionRegistry, key) do
+      [{pid, %{epoch: epoch}}] ->
+        if Process.alive?(pid), do: {:ok, {pid, epoch}}, else: {:error, :region_unavailable}
+
+      _ ->
+        {:error, :region_unavailable}
+    end
+  end
+
   def owner(key) do
     with {:ok, pid} <- region(key),
          [{^pid, %{epoch: epoch}}] <- Registry.lookup(Valimc.RegionRegistry, key) do
