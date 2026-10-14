@@ -64,6 +64,7 @@ defmodule Valimc.EnchantmentConnectionTest do
       username = name()
       {_, bad} = Client.login(username)
       on_exit(fn -> Client.close(bad) end)
+      bad = Client.load_world(bad)
       player = Enum.find(Valimc.Players.all(), &(&1.name == username))
       ref = Process.monitor(player.pid)
 

@@ -64,7 +64,7 @@ independent evidence, but cannot establish rendering, controls or survival parit
 Item checks generate nine stack fixtures with Mojang's codecs, decode and
 cross-convert them in Elixir, then ask Mojang to decode the resulting bytes and
 compare semantic equality in both ordinary and delimited formats. A focused
-raw-patch identity harness compares 16,772 pairs against Mojang's actual decoder
+raw-patch identity harness compares 18,430 pairs against Mojang's actual decoder
 and equality method across every item prototype, default additions, removals,
 glint and NBT numeric/list equality. The oracle re-extracts and compares prototype
 presence/supported defaults with public facts. Semantic keys must not alter raw
@@ -81,6 +81,18 @@ Network zero-level presence, overwritten duplicate levels and empty defaults are
 explicit cases; saved-data level constraints are distinct. A 1,024 raw-entry cap
 bounds noncanonical repeated input; unique core-pack maps have at most 43 entries.
 The TCP oracle separately sends active Unbreaking III and stored Sharpness V.
+The tooltip harness probes all 122 component IDs, 264 raw cases, shows results and
+32,896 native equality pairs; Mojang decodes 256 Elixir values/stacks in both
+formats. Sets ignore duplicate/order differences, but membership still matters
+under hide-all. A shared immutable component index prepares default keys without
+an ItemTypes/value-codec compilation cycle. The 1,024 raw-entry guard also bounds
+noncanonical repeated tooltip IDs. Actual Minecraft E checks visible, selective,
+whole-hide and reset rendering while retaining names/lore/enchantments/glint.
+Actual close checks equal/default merging and differing control identity; Q/Ctrl+Q
+checks exact saved item records, then reconnect/full restart restores controls
+without reseeding. Unknown-ID/truncation owner fixtures must preserve accepted
+state; TCP tests separately verify peer isolation. Cleanup retains advanced source
+counters/receipts and restores only fixture inventory/pose/entities.
 A focused
 inventory behavior harness also invokes Mojang's actual menu methods to verify
 collect ordering, direction, triggers, caps, ordinary-slot component preservation,

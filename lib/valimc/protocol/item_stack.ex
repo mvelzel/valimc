@@ -1,6 +1,6 @@
 defmodule Valimc.Protocol.ItemStack do
   @moduledoc "Pure bounded 26.3 stacks. Unsupported structured patches never become accepted data."
-  alias Valimc.Protocol.{Enchantments, ItemTypes, NBT, TextComponent, Wire}
+  alias Valimc.Protocol.{Enchantments, ItemTypes, NBT, TextComponent, TooltipDisplay, Wire}
   defstruct [:item_id, count: 1, components: %{}, removed: MapSet.new()]
 
   @max_bytes 65_536
@@ -11,6 +11,7 @@ defmodule Valimc.Protocol.ItemStack do
     "minecraft:lore" => :lore,
     "minecraft:enchantments" => :enchantments,
     "minecraft:stored_enchantments" => :enchantments,
+    "minecraft:tooltip_display" => :tooltip,
     "minecraft:max_stack_size" => {:varint, 1, 99},
     "minecraft:max_damage" => {:varint, 1, 2_147_483_647},
     "minecraft:damage" => {:varint, 0, 2_147_483_647},
@@ -95,6 +96,7 @@ defmodule Valimc.Protocol.ItemStack do
     {:item_error, reason} -> {:error, reason}
     {:text_error, reason} -> {:error, {:text, reason}}
     {:enchantment_error, reason} -> {:error, {:enchantments, reason}}
+    {:tooltip_error, reason} -> {:error, {:tooltip, reason}}
   end
 
   def encode(stack, mode \\ :trusted)
@@ -222,6 +224,7 @@ defmodule Valimc.Protocol.ItemStack do
   defp read_component(:text, bytes), do: TextComponent.take(bytes)
   defp read_component(:lore, bytes), do: TextComponent.take_lore(bytes)
   defp read_component(:enchantments, bytes), do: Enchantments.take(bytes)
+  defp read_component(:tooltip, bytes), do: TooltipDisplay.take(bytes)
 
   defp read_component(:nbt_compound, bytes) do
     case NBT.take(bytes) do
@@ -261,6 +264,7 @@ defmodule Valimc.Protocol.ItemStack do
   defp valid_component?(:text, value), do: TextComponent.valid?(value)
   defp valid_component?(:lore, value), do: TextComponent.valid_lore?(value)
   defp valid_component?(:enchantments, value), do: Enchantments.valid?(value)
+  defp valid_component?(:tooltip, value), do: TooltipDisplay.valid?(value)
   defp valid_component?(:bool, value), do: is_boolean(value)
   defp valid_component?(:fraction, value), do: is_float(value) and value >= 0.0 and value <= 1.0
 
@@ -276,12 +280,14 @@ defmodule Valimc.Protocol.ItemStack do
   defp encode_component(:text, value), do: TextComponent.encode(value)
   defp encode_component(:lore, value), do: TextComponent.encode_lore(value)
   defp encode_component(:enchantments, value), do: Enchantments.encode(value)
+  defp encode_component(:tooltip, value), do: TooltipDisplay.encode(value)
   defp encode_component(:bool, value), do: Wire.bool(value)
   defp encode_component(:identifier, value), do: Wire.string(value)
   defp encode_component(:fraction, value), do: <<value::float-32>>
   defp component_key(:nbt_compound, value), do: NBT.identity_key(value)
   defp component_key(:text, value), do: TextComponent.identity_key(value)
   defp component_key(:lore, value), do: TextComponent.lore_key(value)
+  defp component_key(:tooltip, value), do: TooltipDisplay.identity_key(value)
   defp component_key(codec, value), do: encode_component(codec, value) |> IO.iodata_to_binary()
   defp check(true, _), do: :ok
   defp check(false, reason), do: throw({:item_error, reason})

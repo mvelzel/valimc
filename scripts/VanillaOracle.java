@@ -301,6 +301,14 @@ public class VanillaOracle implements AutoCloseable {
       first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(36, stone));
       first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot() == 36 && ItemStack.matches(s.getItem(), stone));
       System.out.println("PASS: Mojang 26.3 negotiated enchantment holder IDs, active Unbreaking III and stored Sharpness V accepted through ordinary creative packets.");
+      var hiddenStone = stone.copy();
+      hiddenStone.set(DataComponents.TOOLTIP_DISPLAY, net.minecraft.world.item.component.TooltipDisplay.DEFAULT
+        .withHidden(DataComponents.CUSTOM_DATA, true).withHidden(DataComponents.ENCHANTMENTS, true));
+      first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(13, hiddenStone));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot() == 13 && ItemStack.matches(s.getItem(), hiddenStone));
+      first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(13, ItemStack.EMPTY));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot() == 13 && s.getItem().isEmpty());
+      System.out.println("PASS: Mojang 26.3 tooltip component controls retained through ordinary creative packets without deleting underlying data.");
       first.send(gameOut, new ServerboundUseItemOnPacket(InteractionHand.MAIN_HAND,
         new BlockHitResult(new Vec3(2.5, 64, 0.5), Direction.UP, new BlockPos(2, 63, 0), false), 1));
       first.await(p -> p instanceof ClientboundBlockUpdatePacket b && b.getPos().equals(new BlockPos(2,64,0)) && b.getBlockState().is(Blocks.STONE));
