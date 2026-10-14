@@ -134,6 +134,14 @@ forced override, continued commands, reconnect and full restart. Use trusted hos
 fixtures, restore the original authoritative setting and retain player state.
 Those controls do not establish operator permissions or survival effects.
 
+The encryption probe passes synthetic public keys/hello bodies, hashes and AES
+streams to Mojang's actual crypto/login classes. Mojang returns RSA key-response
+bodies for Elixir verification. Key fixtures remain temporary; private key
+inspection is redacted. Cipher resources mutate in place and must stay with their
+socket owner; reject cross-process/oversize calls before advancement. Primitive
+tests do not establish integrated encrypted login or authenticated identities:
+the actual encrypted-client scenario remains a gate after transport integration.
+
 Entity checks generate 272 packed-velocity fixtures, including a deterministic
 random sample and threshold/continuation/clamping boundaries. Elixir independently
 encodes them and 25 complete entity packets; Mojang decodes the results. Velocity,
