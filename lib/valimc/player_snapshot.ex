@@ -7,15 +7,24 @@ defmodule Valimc.PlayerSnapshot do
   @inventory_bytes 524_288
   @outbox_bytes 55 + 5 * (40 + 65_536)
   @max_sequence 18_446_744_073_709_551_615
-  @max_bytes 56 + 4 + 1 + 12 + @inventory_bytes + @outbox_bytes + 32
+  @max_bytes 56 + 4 + 3 + 12 + @inventory_bytes + @outbox_bytes + 32
 
   def max_bytes, do: @max_bytes
 
   def capture(player, %Inventory{} = inventory) do
     snapshot = %{pose: PlayerStore.pose(player), inventory: inventory}
 
+    snapshot =
+      case player do
+        %{abilities: %Valimc.PlayerAbilities{flying: flying}} ->
+          Map.put(snapshot, :flying, flying)
+
+        _ ->
+          snapshot
+      end
+
     case player do
-      %{abilities: %Valimc.PlayerAbilities{flying: flying}} -> Map.put(snapshot, :flying, flying)
+      %{game_mode: %Valimc.GameMode{} = mode} -> Map.put(snapshot, :game_mode, mode)
       _ -> snapshot
     end
   end
@@ -28,17 +37,33 @@ defmodule Valimc.PlayerSnapshot do
     check(is_integer(sequence) and sequence in 0..@max_sequence, :invalid_transfer_sequence)
 
     {version, journal} =
-      if Map.has_key?(snapshot, :flying) do
-        check(is_boolean(snapshot.flying), :invalid_flight_state)
+      if Map.has_key?(snapshot, :game_mode) do
+        {:ok, mode_bytes} = Valimc.GameMode.encode(snapshot.game_mode)
+        check(is_boolean(Map.get(snapshot, :flying)), :invalid_flight_state)
         bytes = encode_outbox(uuid, sequence, outbox)
         check(sequence > 0 or outbox == nil, :invalid_transfer_sequence)
-        {4, [<<if(snapshot.flying, do: 1, else: 0), sequence::64, byte_size(bytes)::32>>, bytes]}
+
+        {5,
+         [
+           mode_bytes,
+           <<if(snapshot.flying, do: 1, else: 0), sequence::64, byte_size(bytes)::32>>,
+           bytes
+         ]}
       else
-        if sequence == 0 and outbox == nil do
-          {2, []}
-        else
+        if Map.has_key?(snapshot, :flying) do
+          check(is_boolean(snapshot.flying), :invalid_flight_state)
           bytes = encode_outbox(uuid, sequence, outbox)
-          {3, [<<sequence::64, byte_size(bytes)::32>>, bytes]}
+          check(sequence > 0 or outbox == nil, :invalid_transfer_sequence)
+
+          {4,
+           [<<if(snapshot.flying, do: 1, else: 0), sequence::64, byte_size(bytes)::32>>, bytes]}
+        else
+          if sequence == 0 and outbox == nil do
+            {2, []}
+          else
+            bytes = encode_outbox(uuid, sequence, outbox)
+            {3, [<<sequence::64, byte_size(bytes)::32>>, bytes]}
+          end
         end
       end
 
@@ -104,6 +129,24 @@ defmodule Valimc.PlayerSnapshot do
           )
 
         {:ok, Map.put(snapshot, :flying, flying == 1)}
+
+      <<"VMCPOSE", 5, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
+        yaw::float-32, pitch::float-32, @data_version::32, mode::binary-size(2), flying,
+        sequence::64, length::32, body::binary>> ->
+        {:ok, mode} = Valimc.GameMode.decode(mode)
+        check(flying in 0..1 and length <= @outbox_bytes, :invalid_player_file)
+        check(sequence > 0 or length == 0, :invalid_player_file)
+        <<outbox::binary-size(^length), body::binary>> = body
+
+        {:ok, snapshot} =
+          snapshot(
+            %{x: x, y: y, z: z, yaw: yaw, pitch: pitch},
+            decode_inventory(body),
+            sequence,
+            decode_outbox(uuid, sequence, outbox)
+          )
+
+        {:ok, Map.merge(snapshot, %{game_mode: mode, flying: flying == 1})}
 
       _ ->
         {:error, :invalid_player_file}

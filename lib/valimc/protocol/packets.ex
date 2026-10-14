@@ -90,7 +90,10 @@ defmodule Valimc.Protocol.Packets do
       <<0, 1, 0>>,
       Wire.varint(Data.registry_id("minecraft:dimension_type", "minecraft:overworld")),
       Wire.string("minecraft:overworld"),
-      <<0::64, 1, 0, 0, 1, 0, 0>>,
+      <<0::64>>,
+      Wire.varint(Valimc.GameMode.id(Map.get(player, :game_mode, %Valimc.GameMode{}).current)),
+      previous_mode(Map.get(player, :game_mode, %Valimc.GameMode{}).previous),
+      <<0, 1, 0, 0>>,
       Wire.varint(63),
       <<0, 0>>
     ])
@@ -144,9 +147,13 @@ defmodule Valimc.Protocol.Packets do
       player.uuid,
       Wire.string(player.name),
       properties(Map.get(player, :properties, [])),
-      <<1, 1, 0>>
+      Wire.varint(Valimc.GameMode.id(Map.get(player, :game_mode, %Valimc.GameMode{}).current)),
+      <<1, 0>>
     ])
   end
+
+  defp previous_mode(nil), do: <<0>>
+  defp previous_mode(mode), do: Wire.varint(Valimc.GameMode.id(mode) + 1)
 
   def properties(values) when is_list(values) and length(values) <= 16 do
     [

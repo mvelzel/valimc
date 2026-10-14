@@ -2,6 +2,9 @@ defmodule Valimc.Application do
   use Application
   @impl true
   def start(_type, _args) do
+    if not Valimc.GameMode.valid?(Valimc.config(:default_game_mode)),
+      do: raise("Invalid default game mode")
+
     Valimc.Protocol.Data.load!()
     Valimc.World.Chunk.load!()
 

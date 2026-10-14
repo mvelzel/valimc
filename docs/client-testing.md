@@ -368,3 +368,17 @@ flight or item fixture was used. Exact generated app path recovered window acces
 keyboard focus operated menus while coordinate clicks failed. Native matrix/codecs,
 326 tests/release/full oracle pass; full modes/survival and prior mouse gates remain.
 [Flight validation evidence](tickets/VMC-016a.md).
+
+
+October 14, VMC-016b1: actual creative/survival/adventure/spectator joins rendered
+native catalog/HUD/ordinary inventory/head-preview differences with mode-derived
+abilities. Adventure /stats, spectator Q/F no-mutation and full spectator restart
+passed. Cleanup restored creative and retained the user's newer position/selection
+and unchanged item contents/source 54. At 15:37–15:45 CEST coordinate input worked:
+actual survival/adventure placement/held-mining and spectator world actions
+retained blocks/items, spectator left/right pickup and Shift-click corrected to
+unchanged slots/cursor, and creative placement/breaking succeeded. Owner comparisons
+confirmed the surrounding 600 blocks, slots/cursor, source 54 and nil outbox.
+Final `/stats` responded; client paused in creative. Earlier rejected input is not
+counted as a pass. 338 tests/release/full native oracle pass. Live transitions and
+survival gameplay remain separate work. [Mode initialization evidence](tickets/VMC-016b1.md).

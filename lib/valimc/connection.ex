@@ -6,6 +6,7 @@ defmodule Valimc.Connection do
 
   alias Valimc.{
     CreativeInput,
+    GameMode,
     Inventory,
     Metrics,
     Players,
@@ -82,9 +83,8 @@ defmodule Valimc.Connection do
        weather_view: nil,
        difficulty_view: nil,
        outbound: [],
-       # The preview explicitly advertises creative/infinite-material abilities.
-       # This permission is owner state, never derived from incoming predictions.
-       inventory: Inventory.new(true),
+       # Admission derives permissions from the server-selected or saved mode.
+       inventory: Inventory.new(),
        window: System.monotonic_time(:second),
        packets: 0,
        bytes: 0,
@@ -863,6 +863,11 @@ defmodule Valimc.Connection do
         Players.update(self(), player)
         %{state | player: player}
 
+      "change_game_mode" ->
+        {_requested_id, <<>>} = Wire.take_varint(payload)
+        # All current network sessions are unprivileged; operators are VMC-010.
+        state
+
       "player_action" ->
         break_block(state, payload)
 
@@ -916,6 +921,8 @@ defmodule Valimc.Connection do
   defp handle_packet(state, _, _), do: reject(state, "Unexpected protocol state")
 
   defp start_player_login(state, name, profile \\ nil) do
+    mode = GameMode.new(Valimc.config(:default_game_mode))
+
     player = %{
       pid: self(),
       name: name,
@@ -927,7 +934,8 @@ defmodule Valimc.Connection do
       z: 0.5,
       yaw: 0.0,
       pitch: 0.0,
-      abilities: PlayerAbilities.for_mode(:creative),
+      game_mode: mode,
+      abilities: GameMode.abilities(mode, false),
       ready: false
     }
 
@@ -939,12 +947,16 @@ defmodule Valimc.Connection do
     {store, fence, player, inventory, pending} =
       case PlayerStore.open(player.uuid) do
         {:ok, pid, nil, fence} ->
-          {pid, fence, player, state.inventory, nil}
+          {pid, fence, player,
+           %{state.inventory | infinite_materials: player.abilities.infinite_materials}, nil}
 
         {:ok, pid, snapshot, fence} ->
+          mode = Map.get(snapshot, :game_mode, player.game_mode)
+          abilities = GameMode.abilities(mode, Map.get(snapshot, :flying, false))
+
           inventory = %{
             snapshot.inventory
-            | infinite_materials: state.inventory.infinite_materials
+            | infinite_materials: abilities.infinite_materials
           }
 
           pending =
@@ -952,7 +964,8 @@ defmodule Valimc.Connection do
 
           player = %{
             Map.merge(player, snapshot.pose)
-            | abilities: %{player.abilities | flying: Map.get(snapshot, :flying, false)}
+            | game_mode: mode,
+              abilities: abilities
           }
 
           {pid, fence, player, inventory, pending}
@@ -1015,7 +1028,7 @@ defmodule Valimc.Connection do
       Packets.packet("game_event", <<13, 0.0::float-32>>),
       Packets.player_info(state.player),
       Packets.chat(
-        "Welcome to ValiMC. This is a creative protocol preview; survival is being built. /help"
+        "Welcome to ValiMC. Development preview (#{state.player.game_mode.current}); survival is being built. /help"
       )
     ])
 
@@ -1192,6 +1205,14 @@ defmodule Valimc.Connection do
     if face not in 0..5, do: reject(state, "Invalid action face")
 
     cond do
+      state.player.game_mode.current == :spectator and
+          action in [
+            ItemTypes.action_id("drop_item"),
+            ItemTypes.action_id("drop_all_items"),
+            ItemTypes.action_id("swap_item_with_offhand")
+          ] ->
+        state
+
       action in [ItemTypes.action_id("drop_item"), ItemTypes.action_id("drop_all_items")] ->
         drop_selected(state, action == ItemTypes.action_id("drop_all_items"))
 
@@ -1278,7 +1299,8 @@ defmodule Valimc.Connection do
     if action in [
          ItemTypes.action_id("start_destroy_block"),
          ItemTypes.action_id("stop_destroy_block")
-       ] and reachable?(state, position), do: World.set_block(position, 0)
+       ] and state.player.game_mode.current == :creative and reachable?(state, position),
+       do: World.set_block(position, 0)
 
     updates =
       if reachable?(state, position),
@@ -1475,6 +1497,9 @@ defmodule Valimc.Connection do
       {:ok, %{container: 0}} when inventory_pending(state) ->
         resync_inventory(state)
 
+      {:ok, %{container: 0}} when state.player.game_mode.current == :spectator ->
+        resync_inventory(state)
+
       {:ok, %{container: 0} = click} ->
         # The vanilla listener applies actions to current owner state even when
         # the reported state ID is stale. Predictions only guide replication.
@@ -1533,14 +1558,18 @@ defmodule Valimc.Connection do
 
     item = if stack, do: Data.item_block(stack.item_id)
 
-    if not inventory_pending(state) and item != nil and reachable?(state, target),
-      do: World.set_block(target, item)
+    if not inventory_pending(state) and state.player.game_mode.current == :creative and
+         item != nil and reachable?(state, target),
+       do: World.set_block(target, item)
 
     updates =
       if reachable?(state, target), do: [Packets.block(target, World.get_block(target))], else: []
 
     send_packets(state, [Packets.ack(sequence) | updates])
-    if inventory_pending(state), do: resync_inventory(state), else: state
+
+    if inventory_pending(state) or state.player.game_mode.current != :creative,
+      do: resync_inventory(state),
+      else: state
   end
 
   defp command(state, input), do: execute_command(state, Valimc.Commands.resolve(input))

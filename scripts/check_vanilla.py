@@ -3,6 +3,11 @@
 import os, pathlib, socket, subprocess, sys, tempfile, time, json
 root = pathlib.Path(__file__).resolve().parent.parent
 with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
+    modes = str(pathlib.Path(world) / 'modes.json')
+    modes_encoded = str(pathlib.Path(world) / 'modes-elixir.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'GameModeOracle', modes], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_game_modes.exs', modes, modes_encoded], cwd=root, check=True)
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'GameModeOracle', 'verify', modes_encoded], cwd=root, check=True)
     abilities = str(pathlib.Path(world) / 'abilities.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'AbilitiesOracle', abilities], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_abilities.exs', abilities], cwd=root, check=True)
@@ -68,7 +73,7 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
         with socket.socket() as port_probe:
             port_probe.bind(('127.0.0.1', 0))
             port = port_probe.getsockname()[1]
-        env = dict(os.environ, VALIMC_PORT=str(port), VALIMC_WORLD=str(pathlib.Path(world)/mode), VALIMC_ENCRYPTION=str(encrypted).lower(), VALIMC_ONLINE_MODE='false')
+        env = dict(os.environ, VALIMC_PORT=str(port), VALIMC_WORLD=str(pathlib.Path(world)/mode), VALIMC_ENCRYPTION=str(encrypted).lower(), VALIMC_ONLINE_MODE='false', VALIMC_GAME_MODE='creative')
         log_path = pathlib.Path(world) / (mode+'-server.log')
         with log_path.open('w') as log:
             server = subprocess.Popen(['mix', 'run', '--no-halt'], cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT)

@@ -46,7 +46,13 @@ defmodule Valimc.MenuOverflowTest do
     {:ok, seed_bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(pose, seed_inventory))
 
     {:ok, bytes} =
-      PlayerSnapshot.encode(uuid, Map.put(PlayerSnapshot.capture(pose, original), :flying, false))
+      PlayerSnapshot.encode(
+        uuid,
+        Map.merge(PlayerSnapshot.capture(pose, original), %{
+          flying: false,
+          game_mode: %Valimc.GameMode{}
+        })
+      )
 
     path = PlayerStore.path(base, uuid)
     File.mkdir_p!(Path.dirname(path))

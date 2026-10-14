@@ -51,6 +51,13 @@ under `docs/tickets/` before changing behavior. Keep these records updated.
 - Manually test every completed piece through actual Minecraft 26.3 with computer
   use. On this Mac use the `ValiMC computer-use test` Launcher installation and
   app ID `local.valimc.minecraft-client`. Use `mcp__cua_repl` for UI actions.
+- The user treats this development client and test world as disposable fixtures
+  (October 14, 2026). Change or reset builds, items, pose and selection as needed;
+  concurrent user experimentation does not require preserving those changes.
+  This permission concerns the test game/world, not accounts, launcher credentials
+  or unrelated resources. Keep journal/counter/receipt consistency within each
+  test dataset; reset the whole dataset when starting over rather than rolling
+  back one side of a committed transfer or fabricating recovery evidence.
 - Record date, version, actions, observed results, checks, and limitations in the
   ticket. The codec oracle cannot replace a graphical client test. If computer use
   is unavailable, leave the ticket unverified and fix that prerequisite.

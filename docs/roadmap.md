@@ -21,21 +21,22 @@ keep IDs stable and append suffixes rather than renumbering.
 | VMC-004b | Planned | Names/lore/NBT and compound or registry-backed component codecs |
 | [VMC-004b1](tickets/VMC-004b1.md) | Done — `2e75988`, validated | Bounded network NBT/custom data; 58 tests, Mojang codecs, release and actual-client positive/rejection/reconnect pass |
 | VMC-004b2 | Partially implemented | Effective comparison, bounded names/lore and enchantment data exist; remaining text branches/events and further components remain |
-| [VMC-004b2a](tickets/VMC-004b2a.md) | Done — effective identity validated, local | 226 tests/release/full oracle, 11,797 Mojang pairs and actual default/NBT merges, three distinct-component controls, overflow/reconnect/restart pass; raw journals preserved |
-| [VMC-004b2b](tickets/VMC-004b2b.md) | Done — names/lore validated, local | 236 tests/release/full oracle; 15,113 stack pairs, 5,050 text pairs, 100 native name/lore round trips and actual tooltip/merge/drop/recovery/correction controls pass |
-| [VMC-004b2c](tickets/VMC-004b2c.md) | Done — enchantment data validated, local | 245 tests/release/full oracle; native maps/defaults and actual tool/book tooltip, merge controls, active/stored drops, recovery and invalid input pass; gameplay effects remain |
-| [VMC-004b2d](tickets/VMC-004b2d.md) | Done — tooltip controls validated, local | 254 tests/release/full oracle; all 122 types and native equality/round trips pass; actual selective/all/reset tooltips, merge controls, Q/Ctrl+Q, recovery and malformed-input preservation pass |
-| [VMC-006a](tickets/VMC-006a.md) | Done — core clocks validated, local | 263 tests/release/full oracle; 3,600 native clock cases and actual day/night/day, command response, independent pause, reconnect/restart and resumed clocks pass |
-| [VMC-006b](tickets/VMC-006b.md) | Done — weather cycle validated, local | 270 tests/release/full oracle; 480 native traces/50,400 ticks, migration and actual rain/storm/fade/automatic expiry, frozen-cycle /stats, reconnect/restart and cleanup pass |
-| [VMC-006c](tickets/VMC-006c.md) | Done — difficulty state validated, local | 275 tests/release/full oracle; native default/64 lock-force cases/eight codecs and actual four labels, lock controls, /stats, reconnect/restart and cleanup pass |
+| [VMC-004b2a](tickets/VMC-004b2a.md) | Done — effective identity validated, pushed | 226 tests/release/full oracle, 11,797 Mojang pairs and actual default/NBT merges, three distinct-component controls, overflow/reconnect/restart pass; raw journals preserved |
+| [VMC-004b2b](tickets/VMC-004b2b.md) | Done — names/lore validated, pushed | 236 tests/release/full oracle; 15,113 stack pairs, 5,050 text pairs, 100 native name/lore round trips and actual tooltip/merge/drop/recovery/correction controls pass |
+| [VMC-004b2c](tickets/VMC-004b2c.md) | Done — enchantment data validated, pushed | 245 tests/release/full oracle; native maps/defaults and actual tool/book tooltip, merge controls, active/stored drops, recovery and invalid input pass; gameplay effects remain |
+| [VMC-004b2d](tickets/VMC-004b2d.md) | Done — tooltip controls validated, pushed | 254 tests/release/full oracle; all 122 types and native equality/round trips pass; actual selective/all/reset tooltips, merge controls, Q/Ctrl+Q, recovery and malformed-input preservation pass |
+| [VMC-006a](tickets/VMC-006a.md) | Done — core clocks validated, pushed | 263 tests/release/full oracle; 3,600 native clock cases and actual day/night/day, command response, independent pause, reconnect/restart and resumed clocks pass |
+| [VMC-006b](tickets/VMC-006b.md) | Done — weather cycle validated, pushed | 270 tests/release/full oracle; 480 native traces/50,400 ticks, migration and actual rain/storm/fade/automatic expiry, frozen-cycle /stats, reconnect/restart and cleanup pass |
+| [VMC-006c](tickets/VMC-006c.md) | Done — difficulty state validated, pushed | 275 tests/release/full oracle; native default/64 lock-force cases/eight codecs and actual four labels, lock controls, /stats, reconnect/restart and cleanup pass |
 | VMC-006 | Partially implemented | Core clocks, Overworld weather and difficulty synchronize/persist; complete gamerules, administration and dependent survival effects remain |
-| [VMC-007a](tickets/VMC-007a.md) | Done — encrypted client validated, local | Native crypto probes plus VMC-007b actual encrypted login/render/input/reconnect/restart pass; online identities remain |
-| [VMC-007b](tickets/VMC-007b.md) | Done — encrypted transport validated, local | 287 tests/release/full native plaintext+encrypted suites and actual CUA login/render/stats/input/reconnect/restart pass; online identity verification remains |
+| [VMC-007a](tickets/VMC-007a.md) | Done — encrypted client validated, pushed | Native crypto probes plus VMC-007b actual encrypted login/render/input/reconnect/restart pass; online identities remain |
+| [VMC-007b](tickets/VMC-007b.md) | Done — encrypted transport validated, pushed | 287 tests/release/full native plaintext+encrypted suites and actual CUA login/render/stats/input/reconnect/restart pass; online identity verification remains |
 | [VMC-007c](tickets/VMC-007c.md) | Partially implemented | Real online identities/admission and discovery validated; signed chat, proxy policy and duplicate-session behavior remain |
-| [VMC-007c1](tickets/VMC-007c1.md) | Done — foundation smoke validated, local | 298 tests/release/full oracle, 32 native profiles and CUA baseline/reconnect pass; online integration remains VMC-007c2 |
-| [VMC-007c2](tickets/VMC-007c2.md) | Done — real account validated, local | 307 tests/release/full native suites/64 profile codecs and actual account/skin/input/reconnect/restart/outage/cleanup pass |
-| [VMC-016a](tickets/VMC-016a.md) | Done — creative flight validated, local | 326 tests/release/full oracle, native ability matrix and actual double-Space/hover/reconnect/restart/flight-off/cleanup pass; full mode transitions remain |
-| [VMC-007c3](tickets/VMC-007c3.md) | Done — discovery/recovery validated, local | 317 tests/release/full oracle, 31 native discovery facts and actual cached reconnect/offline rejection/owner recovery/restart/cleanup pass |
+| [VMC-007c1](tickets/VMC-007c1.md) | Done — foundation smoke validated, pushed | 298 tests/release/full oracle, 32 native profiles and CUA baseline/reconnect pass; online integration remains VMC-007c2 |
+| [VMC-007c2](tickets/VMC-007c2.md) | Done — real account validated, pushed | 307 tests/release/full native suites/64 profile codecs and actual account/skin/input/reconnect/restart/outage/cleanup pass |
+| [VMC-016b1](tickets/VMC-016b1.md) | Done — mode initialization validated | 338 tests/release/full native oracle and actual four-mode UI/abilities/restart, spectator inventory corrections, non-creative world restrictions and creative placement/breaking pass |
+| [VMC-016a](tickets/VMC-016a.md) | Done — creative flight validated, pushed | 326 tests/release/full oracle, native ability matrix and actual double-Space/hover/reconnect/restart/flight-off/cleanup pass; full mode transitions remain |
+| [VMC-007c3](tickets/VMC-007c3.md) | Done — discovery/recovery validated, pushed | 317 tests/release/full oracle, 31 native discovery facts and actual cached reconnect/offline rejection/owner recovery/restart/cleanup pass |
 | [VMC-005a](tickets/VMC-005a.md) | Done — `123d1d0`, validated | Owner-local 46-slot menu; actual selection/offhand/swap/resync and automated/oracle checks pass |
 | VMC-005b | Planned | Hashed click codec, authoritative pickup/swap/shift/drag transactions |
 | [VMC-005b1](tickets/VMC-005b1.md) | Done — `67c34ad`, validated | Actual half pickup/place/merge/shift/number/offhand/rejection pass; 65 tests/full oracle/release pass |
@@ -44,25 +45,25 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-005b2b](tickets/VMC-005b2b.md) | Done — validated | Two-pass collection; 71 tests, actual Mojang algorithm/TCP, release and CUA double-click/caps/patch/rejection pass |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Awaiting client-generated clone/fill validation | Owner permission and atomic limits pass 77 tests, actual Mojang algorithm/TCP, release and graphical fixture replication; actual creative middle-click uses a different packet path |
 | VMC-005b2d | Partially implemented | Actual pickup/return and connected overflow/disconnect cleanup validated; item physics and other removal/transfer lifecycle remain |
-| [VMC-005b2d1](tickets/VMC-005b2d1.md) | Done — actual mouse pickup/return validated, local | Current 275-test/oracle/release baseline; actual patched pickup/empty-hotbar return and selected/offhand/storage/grid order pass; earlier overflow rejection superseded by durable drops |
+| [VMC-005b2d1](tickets/VMC-005b2d1.md) | Done — actual mouse pickup/return validated, pushed | Current 275-test/oracle/release baseline; actual patched pickup/empty-hotbar return and selected/offhand/storage/grid order pass; earlier overflow rejection superseded by durable drops |
 | VMC-005b2d2 | Partially implemented | Stationary items, durable Q/menu effects, close overflow and disconnect disposal exist; menu mouse gates, physics and other removal/transfer lifecycle remain |
-| [VMC-005b2d2a](tickets/VMC-005b2d2a.md) | Done — connected close overflow validated, local | 187 tests, release/oracle and actual close/repeat/reconnect/restart, disabled-source correction and stalled retry pass |
-| [VMC-005b2d2b](tickets/VMC-005b2d2b.md) | Done — disconnected cleanup validated, local | 216 tests/release/Mojang oracle and actual offline drop, disconnect/rejoin/restart, pending-intent takeover/replay and orphan cleanup pass; other removal/transfer/physics remain |
-| [VMC-018a](tickets/VMC-018a.md) | Done — validated, local | 92 tests, 272 Mojang velocity/25 packet fixtures, release and actual item render/update/remove pass; gameplay ownership remains VMC-005b2d2 |
-| [VMC-018b](tickets/VMC-018b.md) | Done — stationary foundation validated, local | Region CAS/ETS ownership, bounded paced replication, late joins/visibility/owner loss; automated and actual Minecraft render/update/reconnect/remove/failure checks pass |
+| [VMC-005b2d2a](tickets/VMC-005b2d2a.md) | Done — connected close overflow validated, pushed | 187 tests, release/oracle and actual close/repeat/reconnect/restart, disabled-source correction and stalled retry pass |
+| [VMC-005b2d2b](tickets/VMC-005b2d2b.md) | Done — disconnected cleanup validated, pushed | 216 tests/release/Mojang oracle and actual offline drop, disconnect/rejoin/restart, pending-intent takeover/replay and orphan cleanup pass; other removal/transfer/physics remain |
+| [VMC-018a](tickets/VMC-018a.md) | Done — validated, pushed | 92 tests, 272 Mojang velocity/25 packet fixtures, release and actual item render/update/remove pass; gameplay ownership remains VMC-005b2d2 |
+| [VMC-018b](tickets/VMC-018b.md) | Done — stationary foundation validated, pushed | Region CAS/ETS ownership, bounded paced replication, late joins/visibility/owner loss; automated and actual Minecraft render/update/reconnect/remove/failure checks pass |
 | VMC-005c | Partially implemented | Supported preview inventories and journaled disconnect cleanup persist; full components/player state, other lifecycles and vanilla NBT/data fixing remain |
-| [VMC-005c1](tickets/VMC-005c1.md) | Done — supported preview recovery validated, local | 111 tests, release/oracle and actual inventory/selection reconnect/restart, carried/grid recovery and corrupt-save rejection/repair pass |
-| [VMC-019a](tickets/VMC-019a.md) | Done — stationary record recovery validated, local | 122 tests, release/oracle and actual region/full restart recovery plus durable removal pass; matching writer acknowledgment precedes publication/reply |
+| [VMC-005c1](tickets/VMC-005c1.md) | Done — supported preview recovery validated, pushed | 111 tests, release/oracle and actual inventory/selection reconnect/restart, carried/grid recovery and corrupt-save rejection/repair pass |
+| [VMC-019a](tickets/VMC-019a.md) | Done — stationary record recovery validated, pushed | 122 tests, release/oracle and actual region/full restart recovery plus durable removal pass; matching writer acknowledgment precedes publication/reply |
 | VMC-019b | In progress foundations | Durable player outbox/region receipts and crash/retry reconciliation before inventory consumption; physics/cross-region simulation remain required |
-| [VMC-019b1](tickets/VMC-019b1.md) | Done — destination retry foundation validated, local | 136 tests, release/oracle and actual fixture render/retry/removal/full restart/retry pass; gameplay integration remains |
-| [VMC-019b2](tickets/VMC-019b2.md) | Done — source API recovery validated, local | 155 tests, release/oracle and actual pending-login preservation/API recovery/inventory+item restart pass; connected drop controls remain |
+| [VMC-019b1](tickets/VMC-019b1.md) | Done — destination retry foundation validated, pushed | 136 tests, release/oracle and actual fixture render/retry/removal/full restart/retry pass; gameplay integration remains |
+| [VMC-019b2](tickets/VMC-019b2.md) | Done — source API recovery validated, pushed | 155 tests, release/oracle and actual pending-login preservation/API recovery/inventory+item restart pass; connected drop controls remain |
 | VMC-019b3 | Partially implemented | Automatic recovery and connected world/menu/creative drops validated; complete simulation physics and other lifecycle behavior remain |
-| [VMC-019b3a](tickets/VMC-019b3a.md) | Done — automatic login recovery validated, local | 163 tests, release/oracle and actual automatic pending recovery/restart/removed-item retry pass; connected drop controls remain |
-| [VMC-019b3b](tickets/VMC-019b3b.md) | Done — keyboard drops validated, local | 170 tests, release/oracle and actual Q/held Ctrl+Q, empty/selected slot, frozen corrections, reconnect/restart pass; stationary physics gap remains |
-| [VMC-019b3c](tickets/VMC-019b3c.md) | Done — actual menu drops validated, local | Current 275-test/oracle/release baseline; actual menu Q/Control-Q, pickup/right/left outside drops, empty no-ops, stall correction and exact reconnect/restart recovery pass; cleanup retains source/receipt 34 |
+| [VMC-019b3a](tickets/VMC-019b3a.md) | Done — automatic login recovery validated, pushed | 163 tests, release/oracle and actual automatic pending recovery/restart/removed-item retry pass; connected drop controls remain |
+| [VMC-019b3b](tickets/VMC-019b3b.md) | Done — keyboard drops validated, pushed | 170 tests, release/oracle and actual Q/held Ctrl+Q, empty/selected slot, frozen corrections, reconnect/restart pass; stationary physics gap remains |
+| [VMC-019b3c](tickets/VMC-019b3c.md) | Done — actual menu drops validated, pushed | Current 275-test/oracle/release baseline; actual menu Q/Control-Q, pickup/right/left outside drops, empty no-ops, stall correction and exact reconnect/restart recovery pass; cleanup retains source/receipt 34 |
 | VMC-019b3d | Connected preview validated | Authorized creation and ordered keyboard pairs work; simulation tick clock, physics and complete item/game-mode behavior remain |
-| [VMC-019b3d1](tickets/VMC-019b3d1.md) | Done — creative source API recovery validated, local | 194 tests/release/oracle and actual retained inventory/item recovery, reconnect/restart/removal/retry pass; creative controls remain VMC-019b3d2 |
-| [VMC-019b3d2](tickets/VMC-019b3d2.md) | Done — creative keyboard drops validated, local | 207 tests/release/Mojang oracle and actual Q/held Ctrl+Q, empty, stalled burst, reconnect/restart/removal pass; earlier mouse gates remain |
+| [VMC-019b3d1](tickets/VMC-019b3d1.md) | Done — creative source API recovery validated, pushed | 194 tests/release/oracle and actual retained inventory/item recovery, reconnect/restart/removal/retry pass; creative controls remain VMC-019b3d2 |
+| [VMC-019b3d2](tickets/VMC-019b3d2.md) | Done — creative keyboard drops validated, pushed | 207 tests/release/Mojang oracle and actual Q/held Ctrl+Q, empty, stalled burst, reconnect/restart/removal pass; earlier mouse gates remain |
 
 Only one implementation ticket is active; checkpoints awaiting client validation
 are parked so implementation can continue. Records retain acceptance criteria,
@@ -70,6 +71,11 @@ checks, manual evidence and commit subject; Git history supplies checkpoint SHAs
 Development and normal pushes use `main`, as requested by the user. VMC-005b2a
 was published at `fe194c1` with its sustained-gesture gate pending. Pushing a
 ticket does not declare a milestone or the whole server complete.
+
+Publication: normal push to `main` through `61e6677` completed October 14.
+VMC-005b2c remains published with its client clone/fill gate pending; publication
+does not mark it Done. The latest user instruction retains the AGENTS.md workflow
+for subsequent checkpoints.
 
 ## Existing foundation
 
@@ -124,6 +130,8 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | VMC-016 | Game modes and abilities | Survival/creative/adventure/spectator interaction and UI rules |
 | [VMC-016a](tickets/VMC-016a.md) | Owned abilities and persistent creative flight | Native matrix/codecs, permission-gated client flight, journal/reconnect/restart and actual double-Space |
 | VMC-016b | Mode transitions and interaction permissions | Persistent modes, client UI/peer transitions, spectator restrictions and survival/adventure gates |
+| [VMC-016b1](tickets/VMC-016b1.md) | Saved mode and login foundations | All four native modes initialize consistently; persisted identity and existing interaction gates |
+| VMC-016b2 | Live mode transitions and spectator visibility | Collision-aware flight, attributes, peer metadata, camera and item-use lifecycle |
 | VMC-017 | Health, damage, death and respawn | Causes/cooldowns/drops, spawn points, persistent lifecycle |
 | VMC-018 | Entity metadata, attributes and passengers | Current serializers, equipment, visibility transitions, spawn/change/despawn |
 | VMC-019 | Durable simulation recovery | No duplicate acknowledged transactions after player/region failures or restart |

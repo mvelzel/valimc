@@ -180,6 +180,14 @@ real discovery again and restore the fresh preview state. Reference manifests an
 logs remain ignored; the codec oracle explicitly disables online mode so inherited
 environment settings cannot accidentally trigger account verification.
 
+Mode initialization probes construct the pinned native dimension registry and compare
+all 20 current/optional-previous login bodies, then decode Elixir player-info modes.
+Unknown network IDs have native survival fallback; saved IDs are validated strictly.
+Version 5 journals retain mode identity, while permissions are rederived at admission.
+All four actual-client UI checks and full restart are required; record permission
+mouse checks separately when CUA cannot emit them. Keep live transition/collision,
+spectator peer visibility and non-creative gameplay dependencies explicit.
+
 Ability probes invoke native GameType transitions and both ability codecs for
 all modes/initial flags, including speed preservation and all 256 client bytes.
 Only the flying bit may change under the owner permission. TCP tests also cover
@@ -368,7 +376,19 @@ Baseline smoke for research/docs/workflow: capture title screen, open Multiplaye
 join localhost, observe terrain, execute `/stats`, confirm the response. Feature
 scenarios add their changed behavior and relevant negatives. Keep optional
 screenshots under `.local/client-tests/<ticket>/` and sanitized results in the
-tracked ticket and `client-testing.md`. Never fabricate passes or treat attempted
+tracked ticket and `client-testing.md`.
+
+The user authorized treating the development Minecraft client and test world as
+disposable fixtures on October 14, 2026. Freely change or reset builds, inventory,
+pose and selection for validation, including changes from their experimentation.
+Account/launcher credentials and unrelated resources are outside this permission.
+Within one test dataset, retain source counters/outboxes and destination receipts
+when checking recovery or conservation. A fresh test may reset the complete
+dataset; restoring only a pre-transfer source after destination commit would
+invalidate the evidence. Earlier instructions to preserve user builds/items are
+superseded by this authorization.
+
+Never fabricate passes or treat attempted
 input as observed success. Raw client logs/captures are private by default.
 
 ## Private vanilla inspection

@@ -1,5 +1,14 @@
 import Config
 
+case System.get_env("VALIMC_GAME_MODE") do
+  nil -> :ok
+  "survival" -> config :valimc, default_game_mode: :survival
+  "creative" -> config :valimc, default_game_mode: :creative
+  "adventure" -> config :valimc, default_game_mode: :adventure
+  "spectator" -> config :valimc, default_game_mode: :spectator
+  _ -> raise "VALIMC_GAME_MODE must be survival, creative, adventure or spectator"
+end
+
 case System.get_env("VALIMC_ONLINE_MODE") do
   nil -> :ok
   "true" -> config :valimc, online_mode: true
