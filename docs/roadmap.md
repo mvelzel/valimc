@@ -1,6 +1,6 @@
 # Minecraft Java 26.3 implementation roadmap
 
-Updated: October 14, 2026. Target: vanilla survival compatibility, protocol 777.
+Updated: October 15, 2026. Target: vanilla survival compatibility, protocol 777.
 Runtime: Elixir 1.20.4 / OTP 29.1.1. Baseline: `4495775`.
 
 Vanilla defines exact behavior; Paper contributes compatibility edge cases;
@@ -43,7 +43,8 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-014b4](tickets/VMC-014b4.md) | Done — pushed `1602207` | 371 tests/release/full native suite, 10,710 native snapshots/64,260 clips and actual closed/open/Space/closed contacts, commands and reconnect pass |
 | [VMC-014b5a](tickets/VMC-014b5a.md) | Done — pushed `8ab458b` | 376 tests/release/full native suite; 1,959 native operations/70,524 exact clips and actual stone/slab seam traversal/reconnect/restart pass; piston integration remains |
 | [VMC-014b5b](tickets/VMC-014b5b.md) | Done — pushed `8ce66f3` | 382 tests/release/full native suite; 19,981 native snapshots/119,886 clips and four exact client piston contacts, commands, cleanup and reconnect pass; ticking/pushing remain |
-| [VMC-014c1](tickets/VMC-014c1.md) | Done — validated | 387 tests/release/full native suite, 41,113 exact native vectors and actual diagonal corner/slide, cleanup and reconnect pass; world collection/reconciliation remain |
+| [VMC-014c1](tickets/VMC-014c1.md) | Done — pushed `fda96d1` | 387 tests/release/full native suite, 41,113 exact native vectors and actual diagonal corner/slide, cleanup and reconnect pass; world collection/reconciliation remain |
+| [VMC-014b6a](tickets/VMC-014b6a.md) | Done — validated | 395 tests/release; owner/revision bounds and failure isolation, actual queried wall/removal/stale rejection/crossing/reconnect pass; cross-region commits remain |
 | [VMC-016a](tickets/VMC-016a.md) | Done — creative flight validated, pushed | 326 tests/release/full oracle, native ability matrix and actual double-Space/hover/reconnect/restart/flight-off/cleanup pass; full mode transitions remain |
 | [VMC-007c3](tickets/VMC-007c3.md) | Done — discovery/recovery validated, pushed | 317 tests/release/full oracle, 31 native discovery facts and actual cached reconnect/offline rejection/owner recovery/restart/cleanup pass |
 | [VMC-005a](tickets/VMC-005a.md) | Done — `123d1d0`, validated | Owner-local 46-slot menu; actual selection/offhand/swap/resync and automated/oracle checks pass |
@@ -144,6 +145,7 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | VMC-014b5 | Moving-piston snapshots | Native movement state/shape unions and query direction context |
 | [VMC-014b5a](tickets/VMC-014b5a.md) | Voxel unions | Native coordinate merging/optimization and bounded pure grid operations |
 | [VMC-014b5b](tickets/VMC-014b5b.md) | Moving-piston geometry | Native displacement, source heads/base unions and query movement exclusion |
+| [VMC-014b6a](tickets/VMC-014b6a.md) | Region block observations | Bounded state batches, owner incarnation and optimistic revision checks |
 | VMC-014c | Movement and pose reconciliation | Native pose dimensions/eye heights, collision/step validation and actual client corrections |
 | [VMC-014c1](tickets/VMC-014c1.md) | Axis-ordered clipping | Native supplied-shape movement, horizontal ties, corners and slides |
 | VMC-015 | Gravity, velocity and grounded state | Authoritative fall distance, acceleration, knockback and prediction agreement |

@@ -55,7 +55,9 @@ defmodule Valimc.World do
     GenServer.call(pid, {:set_block, position, block})
   end
 
-  def item_owner(key) do
+  def item_owner(key), do: owner(key)
+
+  def owner(key) do
     with {:ok, pid} <- region(key),
          [{^pid, %{epoch: epoch}}] <- Registry.lookup(Valimc.RegionRegistry, key) do
       {:ok, {pid, epoch}}

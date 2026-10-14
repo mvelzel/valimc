@@ -19,6 +19,23 @@ defmodule Valimc.World.Region do
 
   def flush(pid), do: GenServer.call(pid, :flush, 15_000)
 
+  @doc "Read one owner-local block revision; this observation does not authorize later mutations."
+  def observe_blocks(owner, positions, expected_revision \\ :any)
+
+  def observe_blocks({pid, epoch}, positions, expected_revision)
+      when is_pid(pid) and is_reference(epoch) do
+    if valid_block_query?(positions, expected_revision) do
+      GenServer.call(pid, {:observe_blocks, epoch, positions, expected_revision}, 250)
+    else
+      {:error, :invalid_block_query}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :block_query_timeout}
+    :exit, _ -> {:error, :region_unavailable}
+  end
+
+  def observe_blocks(_, _, _), do: {:error, :invalid_block_query}
+
   # Scene-only API: these operations must never consume a player inventory.
   def create_item({pid, epoch}, stack, position),
     do: GenServer.call(pid, {:create_item, epoch, stack, position}, 6000)
@@ -174,6 +191,36 @@ defmodule Valimc.World.Region do
   def handle_call({:get_block, position}, _from, state),
     do: {:reply, Chunk.block_at(state.edits, position), state}
 
+  def handle_call({:observe_blocks, epoch, positions, expected_revision}, _from, state) do
+    result =
+      cond do
+        not valid_block_query?(positions, expected_revision) ->
+          {:error, :invalid_block_query}
+
+        epoch != state.items.epoch ->
+          {:error, :stale_owner}
+
+        expected_revision != :any and expected_revision != state.revision ->
+          {:error, :stale_revision}
+
+        Enum.any?(positions, fn {x, _, z} ->
+          Valimc.World.region_key(Valimc.World.chunk_key(x, z)) != state.key
+        end) ->
+          {:error, :wrong_region}
+
+        true ->
+          {:ok,
+           %{
+             owner: {self(), state.items.epoch},
+             region: state.key,
+             revision: state.revision,
+             blocks: Map.new(positions, &{&1, Chunk.block_at(state.edits, &1)})
+           }}
+      end
+
+    {:reply, result, state}
+  end
+
   def handle_call({:set_block, {x, y, z} = position, block}, _from, state) do
     key = Valimc.World.chunk_key(x, z)
 
@@ -204,6 +251,21 @@ defmodule Valimc.World.Region do
     result = Store.flush(state.store, state.edits)
     {:reply, result, %{state | dirty: result != :ok}}
   end
+
+  defp valid_block_query?(positions, revision),
+    do:
+      (revision == :any or (is_integer(revision) and revision >= 0)) and
+        valid_block_positions?(positions, 0)
+
+  defp valid_block_positions?([], _), do: true
+
+  defp valid_block_positions?([{x, y, z} | rest], count)
+       when count < 128 and is_integer(x) and is_integer(y) and is_integer(z) do
+    abs(x) < 30_000_000 and abs(z) < 30_000_000 and Chunk.valid_y?(y) and
+      valid_block_positions?(rest, count + 1)
+  end
+
+  defp valid_block_positions?(_, _), do: false
 
   defp item_request(epoch, from, state, work) do
     cond do
