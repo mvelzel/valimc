@@ -1,14 +1,18 @@
 defmodule Valimc.Physics.VoxelOps do
-  @moduledoc "Bounded pure unions of block-local voxel grids; no owner/world access."
+  @moduledoc "Bounded pure voxel operations; no owner/world access."
   import Bitwise
   alias Valimc.Physics.{Box, Shape}
   @epsilon 1.0e-7
   @max_axis 32
   @max_cells 32_768
   @max_boxes 64
+  @max_intersection_cells 262_144
 
-  def box({_, _, _, _, _, _} = bounds) do
-    unless Enum.all?(Tuple.to_list(bounds), &coordinate?/1) and Box.valid?(bounds),
+  def box(bounds), do: make_box(bounds, 16.0)
+  def world_box(bounds), do: make_box(bounds, 60_000_000.0)
+
+  defp make_box({_, _, _, _, _, _} = bounds, bound) do
+    unless Enum.all?(Tuple.to_list(bounds), &coordinate?(&1, bound)) and Box.valid?(bounds),
       do: invalid!()
 
     {x0, y0, z0, x1, y1, z1} = bounds
@@ -56,7 +60,69 @@ defmodule Valimc.Physics.VoxelOps do
     end
   end
 
-  def box(_), do: invalid!()
+  defp make_box(_, _), do: invalid!()
+
+  def intersects?(%Shape{} = left, %Shape{} = right) do
+    validate!(left, 60_000_000.0)
+    validate!(right, 60_000_000.0)
+
+    if Shape.empty?(left) or Shape.empty?(right) do
+      false
+    else
+      maps =
+        for axis <- 0..2, do: intersection_axis(elem(left.axes, axis), elem(right.axes, axis))
+
+      [nx, ny, nz] = Enum.map(maps, &max(length(&1) - 1, 0))
+      if nx * ny * nz > @max_intersection_cells, do: invalid!()
+      maps = maps |> Enum.map(&List.to_tuple/1) |> List.to_tuple()
+
+      Enum.any?(indices(nx), fn x ->
+        Enum.any?(indices(ny), fn y ->
+          Enum.any?(indices(nz), fn z ->
+            mapped_full?(left, maps, x, y, z, 1) and mapped_full?(right, maps, x, y, z, 2)
+          end)
+        end)
+      end)
+    end
+  end
+
+  def intersects?(_, _), do: invalid!()
+
+  defp intersection_axis(a, b) when a == b,
+    do: a |> Tuple.to_list() |> Enum.with_index() |> Enum.map(fn {v, i} -> {v, i, i} end)
+
+  defp intersection_axis(a, b),
+    do: merge_intersection(Tuple.to_list(a), Tuple.to_list(b), -1, -1, [])
+
+  defp merge_intersection([], [], _, _, acc), do: Enum.reverse(acc)
+
+  defp merge_intersection(a, b, ia, ib, acc) do
+    {v, a, b, ia, ib, skip} =
+      case {a, b} do
+        {[], [v | tail]} ->
+          {v, [], tail, ia, ib + 1, true}
+
+        {[v | tail], []} ->
+          {v, tail, [], ia + 1, ib, true}
+
+        {[va | ta], [vb | tb]} ->
+          if va < vb + @epsilon,
+            do: {va, ta, b, ia + 1, ib, ib < 0},
+            else: {vb, a, tb, ia, ib + 1, ia < 0}
+      end
+
+    acc =
+      if skip do
+        acc
+      else
+        case acc do
+          [{previous, _, _} | tail] when previous >= v - @epsilon -> [{previous, ia, ib} | tail]
+          _ -> [{v, ia, ib} | acc]
+        end
+      end
+
+    merge_intersection(a, b, ia, ib, acc)
+  end
 
   def union(%Shape{} = left, %Shape{} = right) do
     validate!(left)
@@ -153,7 +219,7 @@ defmodule Valimc.Physics.VoxelOps do
 
     x >= 0 and y >= 0 and z >= 0 and x < elem(g.sizes, 0) and y < elem(g.sizes, 1) and
       z < elem(g.sizes, 2) and
-      MapSet.member?(g.filled, index(g.sizes, x, y, z))
+      full?(g, index(g.sizes, x, y, z))
   end
 
   defp optimize_grid(g) do
@@ -235,7 +301,10 @@ defmodule Valimc.Physics.VoxelOps do
     %{axes: shape.axes, sizes: shape.sizes, filled: filled}
   end
 
-  defp full?(shape, i), do: (:binary.at(shape.bits, div(i, 8)) &&& 1 <<< rem(i, 8)) != 0
+  defp full?(%Shape{} = shape, i),
+    do: (:binary.at(shape.bits, div(i, 8)) &&& 1 <<< rem(i, 8)) != 0
+
+  defp full?(%{filled: filled}, i), do: MapSet.member?(filled, i)
 
   defp to_shape(%{filled: filled} = g) do
     if MapSet.size(filled) == 0 do
@@ -258,7 +327,7 @@ defmodule Valimc.Physics.VoxelOps do
     end
   end
 
-  defp validate!(shape) do
+  defp validate!(shape, bound \\ 16.0) do
     bound!(shape.sizes)
 
     unless is_tuple(shape.axes) and tuple_size(shape.axes) == 3 and is_binary(shape.bits) and
@@ -274,7 +343,7 @@ defmodule Valimc.Physics.VoxelOps do
       unless is_tuple(coordinates) and tuple_size(coordinates) == elem(shape.sizes, axis) + 1,
         do: invalid!()
 
-      unless Enum.all?(Tuple.to_list(coordinates), &coordinate?/1), do: invalid!()
+      unless Enum.all?(Tuple.to_list(coordinates), &coordinate?(&1, bound)), do: invalid!()
     end
 
     boxes = Enum.take(shape.boxes, @max_boxes + 1)
@@ -282,16 +351,18 @@ defmodule Valimc.Physics.VoxelOps do
 
     for box <- boxes do
       unless is_tuple(box) and tuple_size(box) == 6 and
-               Enum.all?(Tuple.to_list(box), &coordinate?/1),
+               Enum.all?(Tuple.to_list(box), &coordinate?(&1, bound)),
              do: invalid!()
     end
 
-    Shape.from_facts!(%{
+    facts = %{
       "axes" => shape.axes |> Tuple.to_list() |> Enum.map(&Tuple.to_list/1),
       "sizes" => Tuple.to_list(shape.sizes),
       "bits" => Base.encode16(shape.bits, case: :lower),
       "boxes" => Enum.map(boxes, &Tuple.to_list/1)
-    })
+    }
+
+    if bound == 16.0, do: Shape.from_facts!(facts), else: Shape.from_world_facts!(facts)
 
     :ok
   rescue
@@ -308,7 +379,7 @@ defmodule Valimc.Physics.VoxelOps do
 
   defp bound!(_), do: invalid!()
 
-  defp coordinate?(n), do: is_number(n) and n >= -16.0 and n <= 16.0
+  defp coordinate?(n, bound), do: is_number(n) and n >= -bound and n <= bound
   defp indices(0), do: []
   defp indices(n), do: 0..(n - 1)
   defp inside?(value, {lo, hi}), do: value >= lo and value < hi

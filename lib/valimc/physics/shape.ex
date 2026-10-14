@@ -6,7 +6,11 @@ defmodule Valimc.Physics.Shape do
   @axes [:x, :y, :z]
   defstruct axes: {{0.0}, {0.0}, {0.0}}, sizes: {0, 0, 0}, bits: <<>>, boxes: []
 
-  def from_facts!(%{"axes" => axes, "sizes" => sizes, "bits" => hex, "boxes" => boxes}) do
+  def from_facts!(facts), do: decode_facts!(facts, 16.0)
+  @doc false
+  def from_world_facts!(facts), do: decode_facts!(facts, 60_000_000.0)
+
+  defp decode_facts!(%{"axes" => axes, "sizes" => sizes, "bits" => hex, "boxes" => boxes}, bound) do
     check(is_list(sizes) and length(sizes) == 3 and Enum.all?(sizes, &(&1 in 0..32)))
     [nx, ny, nz] = sizes
     cells = nx * ny * nz
@@ -25,7 +29,7 @@ defmodule Valimc.Physics.Shape do
         check(is_list(values) and length(values) == 6)
         box = List.to_tuple(values)
         check(Box.valid?(box))
-        check(Enum.all?(values, &(abs(&1) <= 16.0)))
+        check(Enum.all?(values, &(abs(&1) <= bound)))
         box
       end)
 
@@ -37,7 +41,7 @@ defmodule Valimc.Physics.Shape do
     coords =
       Enum.zip_with(axes, sizes, fn values, size ->
         check(is_list(values) and length(values) == size + 1)
-        check(Enum.all?(values, &(is_number(&1) and abs(&1) <= 16.0)))
+        check(Enum.all?(values, &(is_number(&1) and abs(&1) <= bound)))
         check(values |> Enum.chunk_every(2, 1, :discard) |> Enum.all?(fn [a, b] -> a < b end))
         List.to_tuple(values)
       end)
@@ -52,7 +56,7 @@ defmodule Valimc.Physics.Shape do
     _ -> raise ArgumentError, "invalid collision grid facts"
   end
 
-  def from_facts!(_), do: raise(ArgumentError, "invalid collision grid facts")
+  defp decode_facts!(_, _), do: raise(ArgumentError, "invalid collision grid facts")
   def empty?(%__MODULE__{bits: bits}), do: bits == <<>>
 
   def move(%__MODULE__{} = shape, {x, y, z} = offset) do

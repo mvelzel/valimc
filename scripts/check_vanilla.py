@@ -34,6 +34,9 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     block_scans = str(pathlib.Path(world) / 'block-scans.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'BlockScanOracle', block_scans], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_block_scans.exs', block_scans], cwd=root, check=True)
+    intersections = str(pathlib.Path(world) / 'voxel-intersections.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'VoxelIntersectionOracle', intersections], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_voxel_intersections.exs', intersections], cwd=root, check=True)
     attribute_facts = str(pathlib.Path(world) / 'attributes.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'AttributeMetadata', attribute_facts], cwd=root, check=True)
     if json.loads(pathlib.Path(attribute_facts).read_text()) != json.loads((root/'priv/protocol/attributes.json').read_text()):
