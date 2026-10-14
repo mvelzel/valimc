@@ -161,6 +161,17 @@ drop/add packets. A development-only UI game-mode fixture does not implement
 survival rules. Actual pickup/outside-click gates remain pending when CUA rejects
 mouse actions; fixture cursor setup or codec tests cannot replace those gestures.
 
+VMC-005b2d2a integrates connected close overflow as a conserved multi-item plan.
+Tests stall prepare/destination publication, gate repeated close/click/swap, admit
+after normal-save acknowledgment, preserve disabled/failed storage and recover
+disconnects. A destination with only four free item slots must reject all five
+remainders; releasing capacity permits the pinned retry without partial publication.
+Mojang's actual return method and official TCP codecs verify the partial merge,
+five remainder identities/damage and cleared cursor/grid. Actual E/Escape close
+with prepared fixture contents is the changed action; original mouse pickup stays
+a separate parent gate. Test repeat/reconnect/restart, disabled-source correction,
+repair/retry and stalled close, then clean UUIDs without regressing counters/receipts.
+
 ## Actual Minecraft computer use
 
 The normal macOS game runs as an unbundled `java` process, absent from computer

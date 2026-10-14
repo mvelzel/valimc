@@ -230,3 +230,25 @@ one baseline UUID and restored empty inventory/pose while retaining sequence 9/
 receipts. Actual rejoin 02:57:45 and E confirmed empty state and creative UI.
 Private client log has zero protocol/codec/duplicate-entity/ERROR entries. The
 checkpoint remains local, the GUI gate is parked, and the broader backlog continues.
+
+VMC-005b2d2a, October 14: release 03:17:44 and actual localhost join 03:18:14.
+An offline writer fixture supplied full storage/offhand, selected patched stone
+63, cursor 10 and four grid stacks. Ordinary UI used the development game-mode
+event; server permissions remained creative. Actual E close/reopen showed
+selected 64 and cleared cursor/grid; backward movement exposed overlapping
+stationary overflow models. Owner/file checks confirmed five exact stable records
+(stone 9, eggs 3, dirt 4, damaged sword 1, diamond 1), sequence 10/no outbox.
+Repeat close, actual reconnect 03:21:48 and restart 03:22:20/rejoin 03:22:58 retained
+the same contents/UUIDs. A second fixture at sequence 10/rejoin 03:27:31 tested
+disabled source storage: actual Escape close displayed rejection, and E reopen
+retained selected 63/cursor 10/grid. After path repair, a seven-second source stall
+plus actual Escape/E/Escape/E retained that old menu and one pinned plan; resume
+corrected to 64/empty cursor/grid and committed the second five-record batch once.
+Another actual close created nothing. Owner/file checks found ten records/36 items
+across the separately seeded scenarios, sequence 11/no outbox. Durable removal of
+only those UUIDs visibly cleared the world. Normal writer cleanup preserved source
+sequence/receipts and restored original inventory/pose; actual rejoin 03:30:12/E
+confirmed empty state and creative UI. Private log has zero protocol/codec/
+duplicate-entity/ERROR entries. All 187 tests/release/Mojang oracle pass. This
+completes connected close overflow; actual mouse pickup/menu-drop gates and item
+physics/pickup/disconnect cleanup remain separate work.

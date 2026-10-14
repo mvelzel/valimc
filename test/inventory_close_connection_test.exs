@@ -79,7 +79,7 @@ defmodule Valimc.InventoryCloseConnectionTest do
     assert Enum.all?(peer.inventory.items, &is_nil/1) and peer.inventory.carried == nil
   end
 
-  test "overflow rejects the entire plan; freeing capacity permits a retry without duplication" do
+  test "storage-disabled overflow preserves the entire plan; freeing capacity permits a fit-only retry" do
     username = name()
     {_, client} = Client.login(username)
     on_exit(fn -> Client.close(client) end)
@@ -103,7 +103,7 @@ defmodule Valimc.InventoryCloseConnectionTest do
     old = client.inventory
     Client.send_packet(client, :play, "container_close", <<0>>)
     {body, client} = Client.await(client, :play, "system_chat")
-    assert :binary.match(body, "world drops") != :nomatch
+    assert :binary.match(body, "could not be prepared") != :nomatch
     client = snapshot(client)
     assert client.inventory.items == old.items and client.inventory.carried == old.carried
     assert :sys.get_state(owner).inventory.drag == nil

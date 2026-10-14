@@ -171,6 +171,27 @@ public class InventoryBehaviorOracle {
     for (boolean infinite : new boolean[]{false, true}) {
       abilities.instabuild = infinite;
       inventory = new Inventory(player, new EntityEquipment());
+      inventory.setSelectedSlot(2);
+      for (int i=0; i<36; i++) inventory.setItem(i, shiny.copyWithCount(64));
+      inventory.setItem(2, shiny.copyWithCount(63));
+      inventory.setItem(40, shiny.copyWithCount(64));
+      dropped.clear();
+      var returned = new ItemStack[]{shiny.copyWithCount(10), new ItemStack(Items.EGG,3),
+        new ItemStack(Items.DIRT,4), sword.copy(), new ItemStack(Items.DIAMOND)};
+      for (var stack : returned) inventory.placeItemBackInInventory(stack.copy(),false,Prediction.SERVER_ONLY);
+      expectInventory(inventory,2,64,40,64);
+      var expected = new ItemStack[]{shiny.copyWithCount(9),returned[1],returned[2],returned[3],returned[4]};
+      if (dropped.size()!=5) throw new AssertionError("Wrong close remainder count");
+      for (int i=0; i<5; i++) if (!ItemStack.matches(dropped.get(i),expected[i]))
+        throw new AssertionError("Wrong ordered close remainder/patch at " + i);
+      for (int i=0; i<36; i++) if (!ItemStack.matches(inventory.getItem(i),shiny.copyWithCount(64)))
+        throw new AssertionError("Partial return changed full storage");
+    }
+    System.out.println("PASS: Mojang 26.3 ordered cursor/grid return sequence: partial merge and five exact overflow stacks in both permission modes; effects captured without entity simulation.");
+
+    for (boolean infinite : new boolean[]{false, true}) {
+      abilities.instabuild = infinite;
+      inventory = new Inventory(player, new EntityEquipment());
       inventory.setSelectedSlot(8);
       inventory.setItem(8, shiny.copyWithCount(7));
       inventory.setItem(40, new ItemStack(Items.EGG, 3));

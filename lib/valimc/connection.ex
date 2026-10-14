@@ -1043,14 +1043,8 @@ defmodule Valimc.Connection do
         send_packets(state, [Packets.inventory(inventory), Packets.cursor(nil)])
         %{state | inventory: inventory}
 
-      {:ok, _inventory, [_ | _]} ->
-        send_packets(state, [
-          Packets.chat(
-            "Menu return needs world drops, which are not supported yet; inventory restored"
-          )
-        ])
-
-        resync_inventory(state)
+      {:ok, inventory, [_ | _] = stacks} ->
+        start_inventory_transfer(state, inventory, stacks)
 
       {:error, _} ->
         send_packets(state, [

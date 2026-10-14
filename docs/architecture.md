@@ -128,8 +128,16 @@ effects. No-effect plans publish immediately; effectful THROW/outside cursor
 plans enter that same source prepare/delivery/clear path. A carried stack blocks
 slot THROW and active quick-craft consumes an interrupting drop solely to reset
 the gesture. The current normal menu never replenishes a crafting result; recipe
-output loops, creative slot -1 creation, close overflow and disconnect cleanup
+output loops, creative slot -1 creation and disconnect cleanup
 remain separate work. Required actual menu mouse input is still a validation gate.
+
+Connected menu close now routes its overflowing return plan through the same
+journal. Cursor then grid cleanup yields up to five pinned item records; partial
+inventory merges commit with the complete outbox before publication. One region
+batch/receipt commits all remainders. Capacity failure retains the intent rather
+than publishing a prefix or rolling back counts. Busy normal saves and no-commit
+source rejection retain the original cursor/grid/slots for a fresh close attempt.
+This does not implement disconnected/removed-player disposition or item physics.
 
 Player inventories are pure bounded structs inside their connection. Creative
 slot writes, selected-hand lookup and hand swaps execute serially in that owner;

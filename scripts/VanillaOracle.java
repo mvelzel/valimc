@@ -418,6 +418,38 @@ public class VanillaOracle implements AutoCloseable {
         new Int2ObjectOpenHashMap<>(), HashedStack.EMPTY));
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.carriedItem().isEmpty());
       System.out.println("PASS: Mojang 26.3 ordinary menu THROW and outside cursor drop codecs, forged predictions, depleted inventory/cursor and exact world stack patches.");
+      for (int slot=9; slot<=44; slot++) {
+        first.send(gameOut,new ServerboundSetCreativeModeSlotPacket(slot,stone.copyWithCount(64)));
+        final int expectedSlot=slot;
+        first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot()==expectedSlot && ItemStack.matches(s.getItem(),stone.copyWithCount(64)));
+      }
+      first.send(gameOut,new ServerboundSetCreativeModeSlotPacket(44,stone.copyWithCount(63)));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot()==44 && s.getItem().getCount()==63);
+      first.send(gameOut,new ServerboundSetCreativeModeSlotPacket(45,stone.copyWithCount(10)));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot()==45 && s.getItem().getCount()==10);
+      first.send(gameOut,new ServerboundContainerClickPacket(0,0,(short)45,(byte)0,ContainerInput.PICKUP,new Int2ObjectOpenHashMap<>(),HashedStack.EMPTY));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.items().get(45).isEmpty() && ItemStack.matches(c.carriedItem(),stone.copyWithCount(10)));
+      var grid = new ItemStack[]{new ItemStack(Items.EGG,3),new ItemStack(Items.DIRT,4),new ItemStack(Items.IRON_SWORD),new ItemStack(Items.DIAMOND)};
+      grid[2].set(DataComponents.DAMAGE,17);
+      for (int i=0; i<4; i++) {
+        first.send(gameOut,new ServerboundSetCreativeModeSlotPacket(i+1,grid[i]));
+        final int expectedSlot=i+1; final ItemStack expectedStack=grid[i];
+        first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot()==expectedSlot && ItemStack.matches(s.getItem(),expectedStack));
+      }
+      first.send(gameOut,new ServerboundContainerClosePacket(99));
+      java.util.function.Predicate<Object> returnedMenu = p -> p instanceof ClientboundContainerSetContentPacket c && c.carriedItem().isEmpty() && c.items().get(1).isEmpty() && c.items().get(2).isEmpty() && c.items().get(3).isEmpty() && c.items().get(4).isEmpty() && ItemStack.matches(c.items().get(44),stone.copyWithCount(64));
+      first.await(returnedMenu);
+      var wanted = new java.util.ArrayList<ItemStack>(); wanted.add(stone.copyWithCount(9)); wanted.addAll(java.util.Arrays.asList(grid));
+      second.await(p -> {
+        if (p instanceof ClientboundSetEntityDataPacket d) for (var value : d.packedItems()) {
+          if (value.value() instanceof ItemStack stack) wanted.removeIf(expected -> ItemStack.matches(stack,expected));
+        }
+        return wanted.isEmpty();
+      });
+      first.await(returnedMenu);
+      first.send(gameOut,new ServerboundContainerClosePacket(0));
+      first.await(returnedMenu);
+      System.out.println("PASS: Mojang 26.3 connected close partial merge, cleared cursor/grid, exact patched/damaged five-item overflow batch and repeated close contents.");
       System.out.println("PASS: Mojang 26.3 codecs validated compressed login, network registry/tag dependency loading, command graph/local completion, " + first.chunks + " chunks, inventory/selection/hand swaps, authoritative pickup/split/merge/shift/swap/quick-craft/collect/clone/fill with forged predictions, menu-close return, creative scalar stacks/corrections, two-player visibility, movement, block placement/breaking and commands.");
       System.out.println(first.seen);
     }
