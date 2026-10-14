@@ -48,6 +48,14 @@ acquire a player lease. Key/pool services precede connection supervision in the
 rest-for-one tree; their loss closes dependent sessions. Online identity
 verification is a separate future admission gate, not implied by encryption.
 
+The HTTPS authentication foundation uses a passive TLS socket owned by a cold
+worker. Certificate and hostname verification use system roots; blocking I/O
+never belongs in simulation/socket owners. HTTP headers use OTP's decoder, with
+bounded application reads for declared, chunked and close-delimited bodies.
+Worker death closes its socket. Bounded authentication admission, result fencing
+and authenticated UUID/property publication remain VMC-007c2; the foundation is
+not invoked by current player login.
+
 ## World clocks
 
 One supervised owner holds game time, the two pinned core-pack clocks, the

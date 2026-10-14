@@ -151,6 +151,16 @@ menu state ID. Never send raw fixture packets from an RPC process into an encryp
 socket: trusted fixture writes must advance the cipher inside its socket owner.
 These transport checks pass in VMC-007b; authenticated identities remain VMC-007c.
 
+The session-profile probe uses authlib's native ObjectMapper/response/GameProfile
+on synthetic data, then compares UUID, requested name and every opaque property
+value/signature. Runtime verified HTTPS uses worker-owned passive SSL and OTP's
+HTTP header parser. Regression fixtures generate in-memory CA/leaf certificates
+and exercise actual TLS success before testing framing/size failure. Check all
+three body framings while reading: OTP httpc's close-delimited path does not
+enforce its body option before accumulation. A killed worker must close its TLS
+socket. Foundation client smoke verifies the release includes working SSL and
+retains the ordinary preview; it cannot establish authenticated online login.
+
 Entity checks generate 272 packed-velocity fixtures, including a deterministic
 random sample and threshold/continuation/clamping boundaries. Elixir independently
 encodes them and 25 complete entity packets; Mojang decodes the results. Velocity,

@@ -14,6 +14,6 @@ defmodule Valimc.MixProject do
   end
 
   def application do
-    [extra_applications: [:logger, :crypto], mod: {Valimc.Application, []}]
+    [extra_applications: [:logger, :crypto, :ssl], mod: {Valimc.Application, []}]
   end
 end

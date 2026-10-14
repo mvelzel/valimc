@@ -46,8 +46,10 @@ deadlines and fencing before enabling online mode; no global gameplay process.
 Mojang 26.3 jar SHA-1 `33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c`:
 `Crypt`, `ClientboundHelloPacket`, `ServerboundKeyPacket`; private bytecode in
 `research/disassembly/VMC007-crypto.txt`. The installed OTP 29.1.1 crypto supports
-RSA and AES-CFB8; public_key/SSL/inets are absent from this installation and need
-resolution before HTTPS authentication. This foundation needs no new dependency.
+RSA and AES-CFB8. Early no-start Mix probes appeared to lack public_key/SSL/inets;
+VMC-007c1 confirmed they are installed and were pruned because they were undeclared.
+Declaring SSL resolves that HTTPS prerequisite. This crypto foundation itself
+needs no new dependency.
 See [OTP crypto documentation](https://www.erlang.org/doc/apps/crypto/crypto.html).
 
 Pumpkin `b0c48b2d7688`, Java `login/encryption_response.rs`, consumes its pending

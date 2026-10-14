@@ -3,6 +3,9 @@
 import os, pathlib, socket, subprocess, sys, tempfile, time, json
 root = pathlib.Path(__file__).resolve().parent.parent
 with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
+    auth_fixtures = str(pathlib.Path(world) / 'auth-profiles.jsonl')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'AuthProfileOracle', auth_fixtures], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_auth.exs', auth_fixtures], cwd=root, check=True)
     item_facts = str(pathlib.Path(world) / 'items.json')
     defaults = str(pathlib.Path(world) / 'defaults.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemMetadata', item_facts, defaults], cwd=root, check=True)
