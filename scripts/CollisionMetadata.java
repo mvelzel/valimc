@@ -45,12 +45,13 @@ public class CollisionMetadata {
     var shapes=new JsonArray();var shapeIds=new LinkedHashMap<String,Integer>();var runs=new JsonArray();
     var positionShapes=new JsonArray();var positionIds=new LinkedHashMap<String,Integer>();var positionStates=new JsonArray();
     var scaffoldingStates=new JsonArray();var shulkerStates=new JsonArray();
-    var movingStates=new JsonArray();var pistonBases=new JsonArray();
+    var movingStates=new JsonArray();var pistonBases=new JsonArray();var largeStates=new JsonArray();
     var positionNames=Set.of("minecraft:bamboo","minecraft:pointed_dripstone","minecraft:sulfur_spike");
     var maxOffset=BlockBehaviour.class.getDeclaredMethod("getMaxHorizontalOffset");maxOffset.setAccessible(true);
     JsonElement previous=null;int runStart=0,runLength=0,dynamic=0,states=0,maxCells=0,maxBoxes=0;
     for(var state:Block.BLOCK_STATE_REGISTRY) {
       int id=Block.getId(state);if(id!=states++)throw new AssertionError("Non-contiguous block state registry");
+      if(state.hasLargeCollisionShape())largeStates.add(id);
       if(state.getBlock() instanceof MovingPistonBlock)movingStates.add(id);
       if(state.getBlock() instanceof PistonBaseBlock) {
         var entry=new JsonArray();entry.add(id);entry.add(Block.getId(state.setValue(PistonBaseBlock.EXTENDED,true)));
@@ -94,6 +95,7 @@ public class CollisionMetadata {
     var result=new JsonObject();result.addProperty("version","26.3");result.addProperty("data_version",5023);
     result.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
     result.addProperty("state_count",states);result.add("runs",runs);result.add("shapes",shapes);
+    result.add("large_collision_states",largeStates);
     if(positionStates.size()!=52)throw new AssertionError("Wrong position-only state coverage");
     result.add("position_shapes",positionShapes);result.add("position_states",positionStates);
     if(scaffoldingStates.size()!=32)throw new AssertionError("Wrong scaffolding state coverage");
