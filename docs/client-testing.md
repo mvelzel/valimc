@@ -331,3 +331,19 @@ retaining sequence 27 and receipts 26/27; final actual rejoin/E confirmed empty
 creative inventory. All 245 tests/full oracle/release pass; private client log has
 no protocol/decoder/encoder/duplicate/ERROR entries. Enchantment gameplay effects
 and earlier mouse gates remain open. See [ticket](tickets/VMC-004b2c.md).
+
+October 14, 09:47–09:53, VMC-006c: actual World Options displayed all four
+difficulty labels and both lock icons. Locked Normal ignored a non-forced change;
+forced Hard retained the lock. `/stats`, reconnect and full restart passed.
+Cleanup restored native Easy/unlocked and preserved the joined player state.
+The protocol oracle checks the actual dedicated-server default and native
+lock/force methods; [difficulty evidence](tickets/VMC-006c.md) distinguishes
+this state foundation from later survival effects and client administration.
+
+October 14, following VMC-006c cleanup: native coordinate clicks reached the
+client again. A harmless Cancel click succeeded, then actual ordinary-menu
+left pickup / close / reopen returned seven patched stone to an empty hotbar.
+A second actual pickup checked selected/offhand/storage merging and grid cleanup.
+The VMC-005b2d1 pickup gate is complete; source counter 29 and original player
+state were retained. [Mouse validation evidence](tickets/VMC-005b2d1.md).
+Other clone/fill/drop/sustained-gesture gates require their own scenarios.
