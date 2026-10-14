@@ -80,7 +80,8 @@ defmodule Valimc.CollisionGeometryTest do
       "axes" => [[0.0, 1.0], [0.0, 1.0], [0.0, 1.0]],
       "sizes" => [1, 1, 1],
       "bits" => "01",
-      "boxes" => [[0.0, 0.0, 0.0, 1.0, 1.0, 1.0]]
+      "boxes" => [[0.0, 0.0, 0.0, 1.0, 1.0, 1.0]],
+      "full_block" => true
     }
 
     assert Shape.from_facts!(good) == shape("stone")

@@ -37,7 +37,7 @@ public class CollisionMetadata {
       boxes.add(values);
     }
     result.add("axes",coords);result.add("sizes",sizes);result.addProperty("bits",HexFormat.of().formatHex(bits));
-    result.add("boxes",boxes);return result;
+    result.add("boxes",boxes);result.addProperty("full_block",shape==Shapes.block());return result;
   }
   public static void main(String[] args) throws Exception {
     SharedConstants.tryDetectVersion();Bootstrap.bootStrap();

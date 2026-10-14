@@ -66,6 +66,8 @@ actual contact fixtures and evidence limits are in [VMC-014a](tickets/VMC-014a.m
 and [VMC-014b1](tickets/VMC-014b1.md). [VMC-014b2](tickets/VMC-014b2.md) checks
 scaffolding contexts and exact clipping against native methods, plus actual
 landing/descent contacts in the graphical client.
+The [collector differential](tickets/VMC-014b6c2.md) compares native `BlockCollisions`
+order/geometry; separate regressions check retained input fences and explicit errors.
 Item checks generate nine stack fixtures with Mojang's codecs, decode and
 cross-convert them in Elixir, then ask Mojang to decode the resulting bytes and
 compare semantic equality in both ordinary and delimited formats. A focused

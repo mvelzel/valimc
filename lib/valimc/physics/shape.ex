@@ -4,13 +4,22 @@ defmodule Valimc.Physics.Shape do
   alias Valimc.Physics.Box
   @epsilon 1.0e-7
   @axes [:x, :y, :z]
-  defstruct axes: {{0.0}, {0.0}, {0.0}}, sizes: {0, 0, 0}, bits: <<>>, boxes: []
+  defstruct axes: {{0.0}, {0.0}, {0.0}},
+            sizes: {0, 0, 0},
+            bits: <<>>,
+            boxes: [],
+            full_block: false
 
   def from_facts!(facts), do: decode_facts!(facts, 16.0)
   @doc false
   def from_world_facts!(facts), do: decode_facts!(facts, 60_000_000.0)
 
-  defp decode_facts!(%{"axes" => axes, "sizes" => sizes, "bits" => hex, "boxes" => boxes}, bound) do
+  defp decode_facts!(
+         %{"axes" => axes, "sizes" => sizes, "bits" => hex, "boxes" => boxes} = facts,
+         bound
+       ) do
+    full = Map.get(facts, "full_block", false)
+    check(is_boolean(full))
     check(is_list(sizes) and length(sizes) == 3 and Enum.all?(sizes, &(&1 in 0..32)))
     [nx, ny, nz] = sizes
     cells = nx * ny * nz
@@ -46,11 +55,21 @@ defmodule Valimc.Physics.Shape do
         List.to_tuple(values)
       end)
 
+    axes = List.to_tuple(coords)
+    sizes = List.to_tuple(sizes)
+
+    check(
+      not full or
+        (axes == {{0.0, 1.0}, {0.0, 1.0}, {0.0, 1.0}} and sizes == {1, 1, 1} and bits == <<1>> and
+           boxes == [{0.0, 0.0, 0.0, 1.0, 1.0, 1.0}])
+    )
+
     %__MODULE__{
-      axes: List.to_tuple(coords),
-      sizes: List.to_tuple(sizes),
+      axes: axes,
+      sizes: sizes,
       bits: bits,
-      boxes: boxes
+      boxes: boxes,
+      full_block: full
     }
   rescue
     _ -> raise ArgumentError, "invalid collision grid facts"
@@ -66,7 +85,8 @@ defmodule Valimc.Physics.Shape do
       do: shape,
       else: %{
         shape
-        | axes:
+        | full_block: false,
+          axes:
             shape.axes
             |> Tuple.to_list()
             |> Enum.zip_with([x, y, z], fn values, delta ->

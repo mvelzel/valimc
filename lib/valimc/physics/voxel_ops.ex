@@ -323,7 +323,10 @@ defmodule Valimc.Physics.VoxelOps do
           <<value>>
         end
 
-      %Shape{axes: g.axes, sizes: g.sizes, bits: bytes, boxes: boxes(g)}
+      full =
+        g.axes == {{0.0, 1.0}, {0.0, 1.0}, {0.0, 1.0}} and g.sizes == {1, 1, 1} and bytes == <<1>>
+
+      %Shape{axes: g.axes, sizes: g.sizes, bits: bytes, boxes: boxes(g), full_block: full}
     end
   end
 
@@ -359,7 +362,8 @@ defmodule Valimc.Physics.VoxelOps do
       "axes" => shape.axes |> Tuple.to_list() |> Enum.map(&Tuple.to_list/1),
       "sizes" => Tuple.to_list(shape.sizes),
       "bits" => Base.encode16(shape.bits, case: :lower),
-      "boxes" => Enum.map(boxes, &Tuple.to_list/1)
+      "boxes" => Enum.map(boxes, &Tuple.to_list/1),
+      "full_block" => shape.full_block
     }
 
     if bound == 16.0, do: Shape.from_facts!(facts), else: Shape.from_world_facts!(facts)
