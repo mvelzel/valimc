@@ -138,6 +138,17 @@ repeats after item removal with a same-sequence/depleted-inventory pending fixtu
 representing an uncommitted source clear. This deliberately retains sequence and
 inventory ownership; restoring a pre-transfer inventory/counter remains prohibited.
 
+VMC-019b3b routes in-world keyboard drops through source prepare/delivery/clear.
+Tests stall both writers, attempt inventory mutations and placement, advance
+movement, inject stale replies, reject drops during periodic saves, and recover
+disconnect/deadline outcomes after possible delivery. Disabled/failed source
+storage must not create an item. Mojang's selected-stack method verifies single/
+all/empty counts and supported component identity; the codec TCP oracle sends
+the actual drop actions and decodes depleted contents and exact item metadata.
+Actual Minecraft must generate Q/Ctrl+Q, render the stationary preview items,
+retain counts across reconnect/restart and correct selection/swap during a
+stalled transfer. Preserve source counters/receipts when cleaning fixtures.
+
 ## Actual Minecraft computer use
 
 The normal macOS game runs as an unbundled `java` process, absent from computer

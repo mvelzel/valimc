@@ -375,6 +375,22 @@ public class VanillaOracle implements AutoCloseable {
       second.await(p -> p instanceof ClientboundMoveEntityPacket.PosRot);
       first.send(gameOut, new ServerboundChatCommandPacket("stats"));
       first.await(p -> p instanceof ClientboundSystemChatPacket c && c.content().getString().contains("schedulers"));
+      first.send(gameOut, new ServerboundSetCreativeModeSlotPacket(44, stone.copyWithCount(7)));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot() == 44 && s.getItem().getCount() == 7);
+      first.send(gameOut, new ServerboundSetCarriedItemPacket(8));
+      first.await(p -> p instanceof ClientboundSetHeldSlotPacket s && s.slot() == 8);
+      first.send(gameOut, new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.DROP_ITEM, BlockPos.ZERO, Direction.DOWN, 0));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.items().get(44), stone.copyWithCount(6)));
+      second.await(p -> p instanceof ClientboundSetEntityDataPacket d && d.packedItems().stream().anyMatch(v -> v.value() instanceof ItemStack s && ItemStack.matches(s, stone.copyWithCount(1))));
+      // Source completion sends a second inventory update; wait for it before the next action.
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.items().get(44), stone.copyWithCount(6)));
+      first.send(gameOut, new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.DROP_ALL_ITEMS, BlockPos.ZERO, Direction.DOWN, 0));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.items().get(44).isEmpty());
+      second.await(p -> p instanceof ClientboundSetEntityDataPacket d && d.packedItems().stream().anyMatch(v -> v.value() instanceof ItemStack s && ItemStack.matches(s, stone.copyWithCount(6))));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.items().get(44).isEmpty());
+      first.send(gameOut, new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.DROP_ITEM, BlockPos.ZERO, Direction.DOWN, 0));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.items().get(44).isEmpty());
+      System.out.println("PASS: Mojang 26.3 Q/Ctrl+Q action codecs, authoritative depleted inventory, exact patched item metadata and empty-hand correction.");
       System.out.println("PASS: Mojang 26.3 codecs validated compressed login, network registry/tag dependency loading, command graph/local completion, " + first.chunks + " chunks, inventory/selection/hand swaps, authoritative pickup/split/merge/shift/swap/quick-craft/collect/clone/fill with forged predictions, menu-close return, creative scalar stacks/corrections, two-player visibility, movement, block placement/breaking and commands.");
       System.out.println(first.seen);
     }

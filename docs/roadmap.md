@@ -39,9 +39,11 @@ keep IDs stable and append suffixes rather than renumbering.
 | VMC-019b | In progress foundations | Durable player outbox/region receipts and crash/retry reconciliation before inventory consumption; physics/cross-region simulation remain required |
 | [VMC-019b1](tickets/VMC-019b1.md) | Done — destination retry foundation validated, local | 136 tests, release/oracle and actual fixture render/retry/removal/full restart/retry pass; gameplay integration remains |
 | [VMC-019b2](tickets/VMC-019b2.md) | Done — source API recovery validated, local | 155 tests, release/oracle and actual pending-login preservation/API recovery/inventory+item restart pass; connected drop controls remain |
-| VMC-019b3 | In progress foundations | Automatic recovery and connected-session transfer orchestration/drop-control integration |
+| VMC-019b3 | Partially implemented | Automatic recovery and connected Q/Ctrl+Q work; menu/creative drop paths and lifecycle remain |
 | [VMC-019b3a](tickets/VMC-019b3a.md) | Done — automatic login recovery validated, local | 163 tests, release/oracle and actual automatic pending recovery/restart/removed-item retry pass; connected drop controls remain |
-| VMC-019b3b | Next | Connected-session transfer gating and actual keyboard drop controls |
+| [VMC-019b3b](tickets/VMC-019b3b.md) | Done — keyboard drops validated, local | 170 tests, release/oracle and actual Q/held Ctrl+Q, empty/selected slot, frozen corrections, reconnect/restart pass; stationary physics gap remains |
+| VMC-019b3c | Next | Menu throw/outside-click consumption through the same durable path |
+| VMC-019b3d | Planned | Authorized creative slot -1 creation with durable retry/failure semantics |
 
 Only one implementation ticket is active; checkpoints awaiting client validation
 are parked so implementation can continue. Records retain acceptance criteria,

@@ -51,4 +51,28 @@ defmodule Valimc.InventoryTest do
     for slot <- [-1, 9, 32767],
         do: assert(Inventory.select(inv, slot) == {:error, :invalid_selection})
   end
+
+  test "selected drop plans preserve supported identity and conserve one/all counts" do
+    stack = %{
+      ItemStack.new("stone", 7)
+      | components: %{"minecraft:enchantment_glint_override" => true},
+        removed: MapSet.new(["minecraft:rarity"])
+    }
+
+    inventory = %Inventory{
+      selected: 8,
+      slots: %{44 => stack, 45 => ItemStack.new("egg", 3)},
+      carried: ItemStack.new("stone", 2),
+      drag: %{mode: 0, slots: MapSet.new()}
+    }
+
+    assert {:ok, next, one} = Inventory.drop_selected(inventory, false)
+    assert one == %{stack | count: 1}
+    assert next.slots[44] == %{stack | count: 6}
+    assert next.slots[45] == inventory.slots[45] and next.carried == inventory.carried
+    assert next.drag == nil and next.state_id == 1 and inventory.slots[44] == stack
+    assert {:ok, empty, all} = Inventory.drop_selected(next, true)
+    assert all == %{stack | count: 6} and empty.slots[44] == nil
+    assert {:ok, ^empty, nil} = Inventory.drop_selected(empty, false)
+  end
 end

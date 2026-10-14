@@ -112,7 +112,16 @@ and publishes depleted inventory with session-derived creative permission.
 Socket callbacks perform no destination I/O. Unrelated sessions remain responsive.
 Failure/disconnect/deadline cancels jobs/timers and preserves the actual source;
 destination commit can still be uncertain and a later login deduplicates it.
-Connected gameplay transfer admission/drop controls remain the next slice.
+Connected Q/Ctrl+Q now starts the same loop with an asynchronous source prepare.
+One pinned selected-stack plan freezes inventory mutations until prepare,
+delivery and clear finish. Counts publish only after source prepare; periodic
+saves skip active transfers. A pending normal checkpoint rejects/corrects a new
+drop. Selection, swaps, creative writes, clicks, close and placement are parsed
+and corrected while frozen; movement/chat/keepalive continue. Completion retains
+the latest pose and advances the current menu ID rather than restoring an old
+snapshot ID. Source failures with no commit restore old counts; uncertain commits
+disconnect into journal recovery. These drops use stationary preview entities;
+vanilla physics/pickups and menu/creative/disconnect drops remain incomplete.
 
 Player inventories are pure bounded structs inside their connection. Creative
 slot writes, selected-hand lookup and hand swaps execute serially in that owner;
@@ -180,8 +189,8 @@ for no-receipt scene writes. Nil storage retains ephemeral in-memory behavior.
 
 This destination contract assumes a durable leased source that admits only one
 outbox, pins UUIDs/destination/sequence, and finishes recovery before advancing.
-The source outbox/fencing and automatic login recovery are implemented; connected
-gameplay transfer integration remains. Clients cannot invoke the inbox. Source receipts are
+The source outbox/fencing, automatic login recovery and connected keyboard-drop
+integration are implemented. Clients cannot invoke the inbox directly. Source receipts are
 never evicted merely to make room. Safe source retirement and coordinated backup
 restoration require further fencing; source-cap exhaustion is an explicit rejection.
 

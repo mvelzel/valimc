@@ -96,7 +96,7 @@ defmodule Valimc.Connection do
   def handle_info(:save_player, state) do
     Process.send_after(self(), :save_player, Valimc.config(:player_save_interval_ms))
 
-    if state.phase == :play and state.save_ref == nil do
+    if state.phase == :play and state.save_ref == nil and state.recovery == nil do
       ref = make_ref()
 
       PlayerStore.checkpoint(
@@ -147,6 +147,44 @@ defmodule Valimc.Connection do
 
   def handle_info(
         {:player_transfer_saved, ref, {:ok, fence, snapshot}},
+        %{recovery: %{stage: :prepare, ref: ref, plan: plan} = recovery} = state
+      ) do
+    guard_connection(state, fn ->
+      if snapshot.outbox != %{key: plan.key, records: plan.records} or
+           snapshot.inventory.slots != plan.inventory.slots or
+           snapshot.inventory.carried != plan.inventory.carried or
+           snapshot.inventory.selected != plan.inventory.selected,
+         do: reject(state, "Inventory transfer returned inconsistent state")
+
+      recovery = %{
+        recovery
+        | stage: :delivery,
+          intent: Map.take(snapshot, [:outbox, :transfer_sequence]),
+          ref: nil
+      }
+
+      state = %{state | recovery: recovery, store_fence: fence}
+      state = resync_inventory(%{state | inventory: recovered_inventory(state, snapshot)})
+      {:noreply, deliver_recovery(state)}
+    end)
+  end
+
+  def handle_info(
+        {:player_transfer_saved, ref, {:error, reason}},
+        %{recovery: %{stage: :prepare, ref: ref} = recovery} = state
+      ) do
+    guard_connection(state, fn ->
+      if reason == :player_commit_uncertain,
+        do: reject(state, "Inventory transfer commit is uncertain; reconnect to recover")
+
+      Process.cancel_timer(recovery.timer)
+      send_packets(state, [Packets.chat("Item drop could not be prepared; inventory restored")])
+      {:noreply, resync_inventory(%{state | recovery: nil})}
+    end)
+  end
+
+  def handle_info(
+        {:player_transfer_saved, ref, {:ok, fence, snapshot}},
         %{recovery: %{stage: :complete, ref: ref} = recovery} = state
       ) do
     guard_connection(state, fn ->
@@ -154,9 +192,11 @@ defmodule Valimc.Connection do
         do: reject(state, "Inventory recovery returned inconsistent state")
 
       Process.cancel_timer(recovery.timer)
-      inventory = %{snapshot.inventory | infinite_materials: state.inventory.infinite_materials}
+      inventory = recovered_inventory(state, snapshot)
       state = %{state | recovery: nil, store_fence: fence, inventory: inventory}
-      {:noreply, finish_login(state)}
+
+      {:noreply,
+       if(recovery.mode == :login, do: finish_login(state), else: resync_inventory(state))}
     end)
   end
 
@@ -372,6 +412,33 @@ defmodule Valimc.Connection do
     end
   end
 
+  defp recovered_inventory(state, snapshot) do
+    %{
+      snapshot.inventory
+      | infinite_materials: state.inventory.infinite_materials,
+        state_id: state.inventory.state_id,
+        drag: nil
+    }
+  end
+
+  defp new_recovery(mode, stage, intent) do
+    id = make_ref()
+
+    %{
+      id: id,
+      mode: mode,
+      stage: stage,
+      intent: intent,
+      plan: nil,
+      job: nil,
+      ref: nil,
+      retry_timer: nil,
+      retry_token: nil,
+      attempts: 0,
+      timer: Process.send_after(self(), {:recovery_deadline, id}, 10_000)
+    }
+  end
+
   defp recovery_failure(state, result) do
     if TransferDelivery.retryable?(result) and state.recovery.attempts < 20 do
       token = make_ref()
@@ -497,19 +564,7 @@ defmodule Valimc.Connection do
     }
 
     if pending do
-      id = make_ref()
-
-      recovery = %{
-        id: id,
-        intent: pending,
-        stage: :delivery,
-        job: nil,
-        ref: nil,
-        retry_timer: nil,
-        retry_token: nil,
-        attempts: 0,
-        timer: Process.send_after(self(), {:recovery_deadline, id}, 10_000)
-      }
+      recovery = new_recovery(:login, :delivery, pending)
 
       deliver_recovery(%{state | step: :recover, recovery: recovery})
     else
@@ -598,8 +653,13 @@ defmodule Valimc.Connection do
 
         case Inventory.select(state.inventory, slot) do
           {:ok, inventory} ->
-            send_packets(state, [Packets.held_slot(slot)])
-            %{state | inventory: inventory}
+            if state.recovery do
+              send_packets(state, [Packets.held_slot(state.inventory.selected)])
+              resync_inventory(state)
+            else
+              send_packets(state, [Packets.held_slot(slot)])
+              %{state | inventory: inventory}
+            end
 
           {:error, _} ->
             reject(state, "Invalid hotbar slot")
@@ -823,24 +883,79 @@ defmodule Valimc.Connection do
 
   defp break_block(state, payload) do
     {action, payload} = Wire.take_varint(payload)
-    {position, <<_face, payload::binary>>} = Wire.take_position(payload)
+    {position, <<face, payload::binary>>} = Wire.take_position(payload)
     {sequence, <<>>} = Wire.take_varint(payload)
+    if face not in 0..5, do: reject(state, "Invalid action face")
 
-    if action == ItemTypes.action_id("swap_item_with_offhand") do
-      inventory = Inventory.swap_hands(state.inventory)
+    cond do
+      action in [ItemTypes.action_id("drop_item"), ItemTypes.action_id("drop_all_items")] ->
+        drop_selected(state, action == ItemTypes.action_id("drop_all_items"))
 
-      send_packets(state, [
-        Packets.container_slot(
-          inventory.state_id,
-          36 + inventory.selected,
-          Inventory.held(inventory, :main)
-        ),
-        Packets.container_slot(inventory.state_id, 45, Inventory.held(inventory, :off))
-      ])
+      action == ItemTypes.action_id("swap_item_with_offhand") and state.recovery != nil ->
+        resync_inventory(state)
 
-      %{state | inventory: inventory}
-    else
-      break_block_action(state, action, position, sequence)
+      action == ItemTypes.action_id("swap_item_with_offhand") ->
+        inventory = Inventory.swap_hands(state.inventory)
+
+        send_packets(state, [
+          Packets.container_slot(
+            inventory.state_id,
+            36 + inventory.selected,
+            Inventory.held(inventory, :main)
+          ),
+          Packets.container_slot(inventory.state_id, 45, Inventory.held(inventory, :off))
+        ])
+
+        %{state | inventory: inventory}
+
+      true ->
+        break_block_action(state, action, position, sequence)
+    end
+  end
+
+  defp drop_selected(%{recovery: recovery, save_ref: save_ref} = state, _)
+       when recovery != nil or save_ref != nil,
+       do: resync_inventory(state)
+
+  defp drop_selected(state, all) do
+    case Inventory.drop_selected(state.inventory, all) do
+      {:ok, _inventory, nil} ->
+        resync_inventory(state)
+
+      {:ok, inventory, stack} ->
+        # Standing preview eye height minus vanilla's float32 0.3 offset.
+        # This entity remains stationary until authoritative item physics exists.
+        record = %{
+          uuid: :crypto.strong_rand_bytes(16),
+          x: state.player.x,
+          y: state.player.y + 1.3199999928474426,
+          z: state.player.z,
+          stack: stack
+        }
+
+        key = World.region_key(World.chunk_key(record.x, record.z))
+        ref = make_ref()
+
+        recovery = %{
+          new_recovery(:play, :prepare, nil)
+          | ref: ref,
+            plan: %{key: key, records: [record], inventory: inventory}
+        }
+
+        PlayerStore.prepare_transfer(
+          state.player_store,
+          state.store_fence,
+          PlayerSnapshot.capture(state.player, state.inventory),
+          PlayerSnapshot.capture(state.player, inventory),
+          key,
+          [record],
+          ref
+        )
+
+        resync_inventory(%{state | recovery: recovery})
+
+      {:error, _} ->
+        resync_inventory(state)
     end
   end
 
@@ -862,6 +977,9 @@ defmodule Valimc.Connection do
 
   defp creative_slot(state, <<slot::signed-16, payload::binary>>) do
     case ItemStack.decode(payload, :untrusted) do
+      {:ok, _stack} when state.recovery != nil ->
+        resync_inventory(state)
+
       {:ok, stack} ->
         case Inventory.creative(state.inventory, slot, stack) do
           {:ok, inventory} ->
@@ -905,6 +1023,9 @@ defmodule Valimc.Connection do
     %{state | inventory: inventory}
   end
 
+  defp inventory_close(%{recovery: recovery} = state) when recovery != nil,
+    do: resync_inventory(state)
+
   defp inventory_close(state) do
     case Inventory.close(state.inventory) do
       {:ok, inventory, []} ->
@@ -931,6 +1052,9 @@ defmodule Valimc.Connection do
 
   defp inventory_click(state, payload) do
     case InventoryClick.decode(payload) do
+      {:ok, %{container: 0}} when state.recovery != nil ->
+        resync_inventory(state)
+
       {:ok, %{container: 0} = click} ->
         # The vanilla listener applies actions to current owner state even when
         # the reported state ID is stale. Predictions only guide replication.
@@ -985,13 +1109,15 @@ defmodule Valimc.Connection do
       end
 
     item = if stack, do: Data.item_block(stack.item_id)
-    if item != nil and reachable?(state, target), do: World.set_block(target, item)
+
+    if state.recovery == nil and item != nil and reachable?(state, target),
+      do: World.set_block(target, item)
 
     updates =
       if reachable?(state, target), do: [Packets.block(target, World.get_block(target))], else: []
 
     send_packets(state, [Packets.ack(sequence) | updates])
-    state
+    if state.recovery, do: resync_inventory(state), else: state
   end
 
   defp command(state, input), do: execute_command(state, Valimc.Commands.resolve(input))

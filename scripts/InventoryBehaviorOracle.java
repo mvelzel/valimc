@@ -167,5 +167,22 @@ public class InventoryBehaviorOracle {
     expectInventory(inventory, 0,1, 1,1);
     if (!ItemStack.matches(inventory.getItem(1), sword)) throw new AssertionError("Lost returned damage");
     System.out.println("PASS: Mojang 26.3 inventory return: selected/offhand/storage order, caps, component identity, nonstackable damage and overflow in both permission modes. Drop effects captured; no item entity simulated.");
+
+    for (boolean infinite : new boolean[]{false, true}) {
+      abilities.instabuild = infinite;
+      inventory = new Inventory(player, new EntityEquipment());
+      inventory.setSelectedSlot(8);
+      inventory.setItem(8, shiny.copyWithCount(7));
+      inventory.setItem(40, new ItemStack(Items.EGG, 3));
+      var one = inventory.removeFromSelected(false);
+      if (!ItemStack.matches(one, shiny.copyWithCount(1))) throw new AssertionError("Wrong single drop");
+      expectInventory(inventory, 8,6, 40,3);
+      var all = inventory.removeFromSelected(true);
+      if (!ItemStack.matches(all, shiny.copyWithCount(6))) throw new AssertionError("Wrong whole-stack drop");
+      expectInventory(inventory, 8,0, 40,3);
+      if (!inventory.removeFromSelected(false).isEmpty() || !inventory.removeFromSelected(true).isEmpty())
+        throw new AssertionError("Empty selected stack dropped an item");
+    }
+    System.out.println("PASS: Mojang 26.3 selected-hand single/all/empty drop counts and component identity in both permission modes; item physics remains separate.");
   }
 }

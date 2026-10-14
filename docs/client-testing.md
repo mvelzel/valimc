@@ -197,3 +197,21 @@ sequence 2 and restored empty inventory; final join 02:13:48 visibly confirmed i
 The 151-byte player file/receipts remain valid. Private client log has no protocol/
 codec/duplicate-entity/ERROR entries. All 163 tests/release/oracle pass. Observation
 needed rebinding/Raise initially. These fixtures do not prove Q controls or physics.
+
+VMC-019b3b, October 14: release 02:28:20 and actual join 02:28:34. Q changed
+stone HUD 7→6 and rendered an exact patched item. Instant Control+Q behaved as
+another single drop (HUD 5); a 250 ms held chord generated the whole-stack drop,
+emptying the slot and creating count 5. Vanilla's tick queries currently held
+Control keys after consuming the click; the instant chord did not qualify that
+gate. Empty Q, hotbar key 2/egg Q, and actual selection/F corrections while source
+prepare was stalled pass. The first fixed-time stall did not capture pending
+input; the successful repeat started its hold on actual drop arrival. After
+completion F worked normally. Six item UUIDs across two regions contain 10 items,
+plus offhand 3 conserves the 13-item fixture; source sequence 8/outbox nil.
+Reconnect 02:33:55 and full restart 02:34:20/rejoin 02:34:49 retained exact records,
+HUD/rendering and no duplicate. Only fixture UUIDs were removed; ordinary writer
+cleanup restored original empty inventory/pose without regressing counters or
+purging receipts. Final join 02:36:04 visibly confirmed empty hands/world. Private
+client log has zero protocol/codec/duplicate-entity/ERROR entries. All 170 tests,
+release and Mojang behavior/TCP oracle pass. Item physics/pickups and other drop
+paths remain separate compatibility gaps; earlier mouse-validation gates persist.

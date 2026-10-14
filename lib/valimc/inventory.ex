@@ -20,6 +20,24 @@ defmodule Valimc.Inventory do
   def held(inventory, :off), do: get(inventory, 45)
   def cancel_drag(inventory), do: %{inventory | drag: nil}
 
+  @doc "Plans a selected-hand drop without publishing or creating a world entity."
+  def drop_selected(inventory, all) when is_boolean(all) do
+    case held(inventory, :main) do
+      nil ->
+        {:ok, cancel_drag(inventory), nil}
+
+      stack ->
+        count = if all, do: stack.count, else: 1
+
+        next =
+          inventory
+          |> cancel_drag()
+          |> put(36 + inventory.selected, sized(stack, stack.count - count))
+
+        with {:ok, next} <- finish(next), do: {:ok, next, sized(stack, count)}
+    end
+  end
+
   @doc "Plans connected-player menu cleanup; overflow requires a world-drop commit."
   def close(inventory) do
     returned = [inventory.carried | Enum.map(1..4, &get(inventory, &1))]
