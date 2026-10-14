@@ -193,8 +193,11 @@ public class VanillaOracle implements AutoCloseable {
   private int timePacketsSeen;
   private boolean rainInitialized, thunderInitialized;
   private boolean difficultyInitialized;
+  private ClientboundPlayerAbilitiesPacket abilities;
+  private int abilitiesPackets;
   private Object readGame() throws Exception {
     Object packet = read(gameIn);
+    if (packet instanceof ClientboundPlayerAbilitiesPacket current) { abilities=current; abilitiesPackets++; }
     if (packet instanceof ClientboundChangeDifficultyPacket difficulty) {
       if (difficulty.difficulty()!=net.minecraft.world.Difficulty.EASY || difficulty.locked())
         throw new AssertionError("Unexpected default world difficulty");
@@ -317,6 +320,20 @@ public class VanillaOracle implements AutoCloseable {
         throw new AssertionError("Transport encryption mode mismatch");
       System.out.println("PASS: actual Mojang TCP login/configuration/play codecs over "+(expectedEncryption?"continuous AES-CFB8":"plaintext")+" transport.");
       first.await(p -> p instanceof ClientboundAddEntityPacket);
+      if(first.abilities==null || !first.abilities.canFly() || first.abilities.isFlying() ||
+        !first.abilities.canInstabuild() || !first.abilities.isInvulnerable() ||
+        first.abilities.getFlyingSpeed()!=0.05f || first.abilities.getWalkingSpeed()!=0.1f)
+        throw new AssertionError("Unexpected initial creative abilities");
+      int abilityCount=first.abilitiesPackets;
+      var flightRequest=new net.minecraft.world.entity.player.Abilities();
+      for(boolean flying:new boolean[]{true,false}) {
+        flightRequest.flying=flying;
+        first.send(gameOut,new ServerboundPlayerAbilitiesPacket(flightRequest));
+        first.send(gameOut,new ServerboundChatCommandPacket("stats"));
+        first.await(p -> p instanceof ClientboundSystemChatPacket c && c.content().getString().contains(" schedulers"));
+        if(first.abilitiesPackets!=abilityCount) throw new AssertionError("Flight request unexpectedly echoed");
+      }
+      System.out.println("PASS: native creative initialization and actual flight requests without ability echoes.");
       if (first.lastTime==null || second.lastTime==null) throw new AssertionError("Missing initial clock synchronization");
       if (!first.difficultyInitialized || !second.difficultyInitialized) throw new AssertionError("Missing initial difficulty synchronization");
       if (!first.rainInitialized || !first.thunderInitialized || !second.rainInitialized || !second.thunderInitialized)

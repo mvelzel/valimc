@@ -180,6 +180,14 @@ real discovery again and restore the fresh preview state. Reference manifests an
 logs remain ignored; the codec oracle explicitly disables online mode so inherited
 environment settings cannot accidentally trigger account verification.
 
+Ability probes invoke native GameType transitions and both ability codecs for
+all modes/initial flags, including speed preservation and all 256 client bytes.
+Only the flying bit may change under the owner permission. TCP tests also cover
+no echoes, denial, malformed-following-accepted input, newer flight during transfer
+completion and pending-disconnect recovery. Version 4 saves flight only; disk
+never grants ability permissions. Actual double-Space must generate both toggles,
+then hovering/reconnect/full restart and cleanup retain exact player state.
+
 Entity checks generate 272 packed-velocity fixtures, including a deterministic
 random sample and threshold/continuation/clamping boundaries. Elixir independently
 encodes them and 25 complete entity packets; Mojang decodes the results. Velocity,
@@ -331,6 +339,11 @@ await minecraft.getAXStateAndScreenshot(); // Verify exact field text before sub
 await minecraft.pressKey("Return");
 await minecraft.getAXStateAndScreenshot();
 ```
+
+If the test bundle ID returns `cgWindowNotFound`, retry the exact generated
+`.local/Minecraft Client.app` path through `cua.getApp`. Refresh the binding after
+session changes. Keyboard focus (Tab/Shift+Tab, inspect, Return) can operate menus
+when coordinate clicks fail; record that limitation and keep mouse gates pending.
 
 The game can drop rapidly batched text input. Inspect the focused field before
 Return; retry via paste when needed. Menu clicks may only hover a button; use

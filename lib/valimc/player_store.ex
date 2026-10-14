@@ -150,6 +150,11 @@ defmodule Valimc.PlayerStore do
 
     next = if next && valid_pose?(snapshot.pose), do: %{next | pose: snapshot.pose}, else: next
 
+    next =
+      if next && is_boolean(Map.get(snapshot, :flying)),
+        do: Map.put(next, :flying, snapshot.flying),
+        else: next
+
     with :ok <- save(state, next),
          {:ok, state} <- prepare_closing(%{state | snapshot: next}) do
       if pending?(state) do

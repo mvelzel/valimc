@@ -114,7 +114,14 @@ defmodule Valimc.Protocol.Packets do
     ])
   end
 
-  def abilities, do: packet("player_abilities", <<0x0D, 0.05::float-32, 0.1::float-32>>)
+  def abilities(abilities \\ Valimc.PlayerAbilities.for_mode(:creative)) do
+    packet(
+      "player_abilities",
+      <<Valimc.PlayerAbilities.flags(abilities), abilities.flying_speed::float-32,
+        abilities.walking_speed::float-32>>
+    )
+  end
+
   def health, do: packet("set_health", [<<20.0::float-32>>, Wire.varint(20), <<5.0::float-32>>])
 
   def difficulty(%{level: level, locked: locked})

@@ -9,6 +9,7 @@ defmodule Valimc.Connection do
     Inventory,
     Metrics,
     Players,
+    PlayerAbilities,
     PlayerSnapshot,
     PlayerStore,
     PlayerTransfers,
@@ -856,6 +857,12 @@ defmodule Valimc.Connection do
         send(self(), :send_chunks)
         %{state | batch_pending: false}
 
+      "player_abilities" ->
+        {:ok, abilities} = PlayerAbilities.request_flight(state.player.abilities, payload)
+        player = %{state.player | abilities: abilities}
+        Players.update(self(), player)
+        %{state | player: player}
+
       "player_action" ->
         break_block(state, payload)
 
@@ -920,6 +927,7 @@ defmodule Valimc.Connection do
       z: 0.5,
       yaw: 0.0,
       pitch: 0.0,
+      abilities: PlayerAbilities.for_mode(:creative),
       ready: false
     }
 
@@ -942,7 +950,12 @@ defmodule Valimc.Connection do
           pending =
             if snapshot.outbox != nil, do: Map.take(snapshot, [:outbox, :transfer_sequence])
 
-          {pid, fence, Map.merge(player, snapshot.pose), inventory, pending}
+          player = %{
+            Map.merge(player, snapshot.pose)
+            | abilities: %{player.abilities | flying: Map.get(snapshot, :flying, false)}
+          }
+
+          {pid, fence, player, inventory, pending}
 
         {:error, reason} ->
           require Logger
@@ -991,7 +1004,7 @@ defmodule Valimc.Connection do
       Packets.login(state.player),
       clock_packet,
       difficulty_packet,
-      Packets.abilities(),
+      Packets.abilities(state.player.abilities),
       Packets.health(),
       Packets.spawn_position(),
       Packets.commands(),

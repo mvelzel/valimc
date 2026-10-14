@@ -44,7 +44,10 @@ defmodule Valimc.MenuOverflowTest do
     # Transient menu contents belong to this live session; login now cleans orphans.
     seed_inventory = %{original | slots: Map.drop(original.slots, [1, 2, 3, 4]), carried: nil}
     {:ok, seed_bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(pose, seed_inventory))
-    {:ok, bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(pose, original))
+
+    {:ok, bytes} =
+      PlayerSnapshot.encode(uuid, Map.put(PlayerSnapshot.capture(pose, original), :flying, false))
+
     path = PlayerStore.path(base, uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, seed_bytes)

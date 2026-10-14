@@ -34,6 +34,7 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-007c](tickets/VMC-007c.md) | Partially implemented | Real online identities/admission and discovery validated; signed chat, proxy policy and duplicate-session behavior remain |
 | [VMC-007c1](tickets/VMC-007c1.md) | Done — foundation smoke validated, local | 298 tests/release/full oracle, 32 native profiles and CUA baseline/reconnect pass; online integration remains VMC-007c2 |
 | [VMC-007c2](tickets/VMC-007c2.md) | Done — real account validated, local | 307 tests/release/full native suites/64 profile codecs and actual account/skin/input/reconnect/restart/outage/cleanup pass |
+| [VMC-016a](tickets/VMC-016a.md) | Done — creative flight validated, local | 326 tests/release/full oracle, native ability matrix and actual double-Space/hover/reconnect/restart/flight-off/cleanup pass; full mode transitions remain |
 | [VMC-007c3](tickets/VMC-007c3.md) | Done — discovery/recovery validated, local | 317 tests/release/full oracle, 31 native discovery facts and actual cached reconnect/offline rejection/owner recovery/restart/cleanup pass |
 | [VMC-005a](tickets/VMC-005a.md) | Done — `123d1d0`, validated | Owner-local 46-slot menu; actual selection/offhand/swap/resync and automated/oracle checks pass |
 | VMC-005b | Planned | Hashed click codec, authoritative pickup/swap/shift/drag transactions |
@@ -77,8 +78,9 @@ vanilla core-pack registries/tags, flat chunk streaming, creative movement,
 nearby entity replication, simple creative block edits, custom block snapshots
 and `/help`, `/stats`, `/spawn`. Region tick deadlines contain no survival
 simulation. The initial 17 tests, Mojang oracle and limited load benchmarks cover
-this preview only. Authentication, physics, item components, Anvil, generation,
-lighting, AI, redstone, fluids and full survival remain unimplemented.
+this preview only. Online authentication and supported inventory components now exist. Complete
+authentication policy, physics, remaining components, Anvil, generation, lighting,
+AI, redstone, fluids and full survival remain unimplemented.
 
 ## Ordered backlog
 
@@ -120,6 +122,8 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | VMC-014 | Block shapes and movement validation | Vanilla collision/step/swim/climb/teleport fixtures, reconciliation under latency |
 | VMC-015 | Gravity, velocity and grounded state | Authoritative fall distance, acceleration, knockback and prediction agreement |
 | VMC-016 | Game modes and abilities | Survival/creative/adventure/spectator interaction and UI rules |
+| [VMC-016a](tickets/VMC-016a.md) | Owned abilities and persistent creative flight | Native matrix/codecs, permission-gated client flight, journal/reconnect/restart and actual double-Space |
+| VMC-016b | Mode transitions and interaction permissions | Persistent modes, client UI/peer transitions, spectator restrictions and survival/adventure gates |
 | VMC-017 | Health, damage, death and respawn | Causes/cooldowns/drops, spawn points, persistent lifecycle |
 | VMC-018 | Entity metadata, attributes and passengers | Current serializers, equipment, visibility transitions, spawn/change/despawn |
 | VMC-019 | Durable simulation recovery | No duplicate acknowledged transactions after player/region failures or restart |

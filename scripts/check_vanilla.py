@@ -3,6 +3,9 @@
 import os, pathlib, socket, subprocess, sys, tempfile, time, json
 root = pathlib.Path(__file__).resolve().parent.parent
 with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
+    abilities = str(pathlib.Path(world) / 'abilities.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'AbilitiesOracle', abilities], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_abilities.exs', abilities], cwd=root, check=True)
     discovery_fixtures = str(pathlib.Path(world) / 'discovery.jsonl')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'DiscoveryOracle', discovery_fixtures], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_discovery.exs', discovery_fixtures], cwd=root, check=True)

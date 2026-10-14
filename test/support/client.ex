@@ -109,6 +109,10 @@ defmodule Valimc.TestClient do
     Map.put(client, :selected, slot)
   end
 
+  def auto_reply(client, :play, "player_abilities", <<flags, fly::float-32, walk::float-32>>) do
+    Map.put(client, :abilities, %{flags: flags, flying_speed: fly, walking_speed: walk})
+  end
+
   def auto_reply(client, _, _, _), do: client
 
   defp take_items(body, 0, items), do: {Enum.reverse(items), body}

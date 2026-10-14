@@ -357,3 +357,14 @@ one in its source slot. Cleanup removed only five pinned records and restored th
 original player pose/inventory/creative UI, retaining source/receipt **34**.
 Client log has no ERROR/DecoderException entries. Stationary item physics remains
 unimplemented. [Completed menu-drop evidence](tickets/VMC-019b3c.md).
+
+
+October 14, VMC-016a: actual double-Space enabled flight, held Space ascended, and
+hovering plus /stats remained responsive. Normal reconnect and full production
+restart retained exact pose/flight/inventory/selection. Actual double-Space disabled
+flight, returned to the original ground pose and persisted through another rejoin.
+Source sequence 54/nil outbox and every supported item value stayed intact. No
+flight or item fixture was used. Exact generated app path recovered window access;
+keyboard focus operated menus while coordinate clicks failed. Native matrix/codecs,
+326 tests/release/full oracle pass; full modes/survival and prior mouse gates remain.
+[Flight validation evidence](tickets/VMC-016a.md).
