@@ -347,3 +347,13 @@ A second actual pickup checked selected/offhand/storage merging and grid cleanup
 The VMC-005b2d1 pickup gate is complete; source counter 29 and original player
 state were retained. [Mouse validation evidence](tickets/VMC-005b2d1.md).
 Other clone/fill/drop/sustained-gesture gates require their own scenarios.
+
+October 14, **10:11–10:23**, VMC-019b3c: actual ordinary-menu Q/Control-Q and
+pickup/right/left outside clicks produced four exact patched records 1/1/6/6;
+empty-cursor clicks were no-ops. Normal reconnect/full restart restored their
+UUIDs/counts/patches. During a 4.5-second destination-writer stall, actual Q then
+Control-Q corrected the repeat and committed one additional item while retaining
+one in its source slot. Cleanup removed only five pinned records and restored the
+original player pose/inventory/creative UI, retaining source/receipt **34**.
+Client log has no ERROR/DecoderException entries. Stationary item physics remains
+unimplemented. [Completed menu-drop evidence](tickets/VMC-019b3c.md).

@@ -1,6 +1,6 @@
 # VMC-005b2a — Bounded quick-craft transactions
 
-Status: Awaiting sustained client gesture validation. Updated: October 13, 2026.
+Status: Awaiting sustained client gesture validation. Updated: October 14, 2026.
 Depends on VMC-005b1. Publishing this checkpoint with the explicit request to
 push all work to `main`; the pending gesture gate is not marked Done.
 
@@ -29,6 +29,17 @@ and merge; left drag across several slots; shift, number-key and offhand swaps;
 unsupported operation followed by reopen. Inspect counts and authoritative cursor.
 Use the isolated SDL event-position adapter; record fixtures separately from UI
 input. Run formatting, ExUnit, release, vanilla oracle and public-tree audit.
+
+## October 14 bounded retry
+
+Ordinary-menu mouse pickup now works. A fresh 17-item glint fixture was actually
+picked up, then CUA `drag([565,653],[780,653])` crossed four visible cells. The
+observed result was one stack of 17 in slot 21, empty cursor and nil drag state,
+consistent with a one-target gesture. It does not pass sustained multi-slot
+distribution. The gate remains pending; no further gesture retries were made
+in that session. Cleanup restored the fresh original pose/inventory/creative UI
+and verified physical source 34/nil outbox. Private context:
+`/tmp/valimc-vmc005b2a-mouse.etf`. Continue independent implementation.
 
 ## References and design
 

@@ -1,7 +1,7 @@
 # VMC-019b3c — Durable ordinary-menu throws and outside cursor drops
 
-Status: Awaiting client-generated menu input. Updated: October 14, 2026.
-Depends on VMC-019b3b. Automated checkpoint; required GUI scenarios remain.
+Status: Done — actual menu drops validated, local. Updated: October 14, 2026.
+Depends on VMC-019b3b. Original checkpoint and completed GUI evidence follow.
 
 ## Scope and acceptance
 
@@ -120,3 +120,47 @@ October 14, Elixir 1.20.4 / OTP 29.1.1:
 
 Subject: `VMC-019b3c: commit ordinary menu drops through the durable source journal`.
 Branch: `main`; earlier client mouse gates remain pending before push.
+
+## October 14 mouse-gate completion
+
+Actual Minecraft 26.3 / CUA, **10:11–10:23 CEST**, release code `6770915`:
+a fresh private host fixture prepared two seven-item glint-patched stone stacks,
+ordinary menu UI and explicit non-infinite test-owner/client abilities. Server
+game-mode gameplay remains unimplemented; these were fixture controls. Actual
+mouse positioning and Q over slot 9 reduced 7→6 and committed one item at sequence
+30; held Control+Q emptied it and committed six at 31. Actual left pickup of slot
+10 followed by right outside click reduced cursor 7→6 and committed one at 32;
+left outside click emptied the cursor and committed six at 33. No menu transaction
+packet was injected. Empty-cursor right/left outside clicks changed nothing.
+
+Owner/disk reads confirm four stable UUIDs with counts **1/1/6/6**, exact patches,
+empty slots/cursor and cleared outbox. CUA F5 observed the overlapping stationary
+glint item models. They still have no gravity, displacement or pickup. Normal
+disconnect/rejoin rendered them without reseeding and retained exact records.
+A complete release restart at **10:18:11 CEST**, followed by actual CUA rejoin,
+restored all UUIDs/counts/patches and source 33 from physical storage.
+
+A fresh two-item source and destination-writer fixture checked corrections.
+The writer was paused before actual input; a bounded host watcher detected the
+first accepted drop and resumed it after 4.5 seconds (**10:20:01.551–10:20:06.053**).
+Actual menu Q followed by held Control+Q showed the remaining one item rather
+than consuming it again. After resume exactly one additional item committed at
+sequence 34, with nil outbox/recovery and source slot 9 still one. Five records
+then contained **1/1/1/6/6**. This is real client input; the watcher only controls
+fixture I/O timing, and has exited.
+
+Cleanup removed only those five pinned UUIDs through current region handles and
+restored the fresh original pose/inventory, selected index 1 and creative UI.
+At **10:23:51 CEST** the physical player snapshot matched the baseline, source
+sequence **34**/nil outbox remained, and the destination receipt still read 34.
+Original region item records were unchanged. CUA E showed the original creative
+inventory with no fixture cursor. Private context/helper stay in `/tmp`, including
+`/tmp/valimc-vmc019b3c-mouse.etf`. Private client log
+`.local/client-tests/VMC-019b3c/mouse-latest.log` has zero ERROR/DecoderException
+entries; no gameplay repair was needed.
+
+Current code baseline format, **275 tests** (seed 266521), production release and
+full Mojang oracle pass at `6770915`. This follow-up changes verification records
+only; audit/exact diff checks pass. The original pending statements above describe
+the earlier failed mouse session. Physics, pickup/merge/age, full menus, recipes,
+special equipment/component behavior and the wider survival server remain work.
