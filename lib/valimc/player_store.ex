@@ -35,6 +35,10 @@ defmodule Valimc.PlayerStore do
   def prepare_transfer(pid, fence, before, after_snapshot, key, records, ref),
     do: GenServer.cast(pid, {:prepare, self(), fence, before, after_snapshot, key, records, ref})
 
+  # This is a trusted leased-owner operation, never a client-provided privilege.
+  def prepare_creative_drop(pid, fence, snapshot, key, record, ref),
+    do: GenServer.cast(pid, {:prepare_creative_drop, self(), fence, snapshot, key, record, ref})
+
   def complete_transfer(pid, fence, ref),
     do: GenServer.cast(pid, {:complete, self(), fence, ref})
 
@@ -113,25 +117,18 @@ defmodule Valimc.PlayerStore do
         {:prepare, owner, fence, before, after_snapshot, key, records, ref},
         %{owner: owner} = state
       ) do
-    result =
-      with :ok <- source_guard(state, fence),
-           false <- pending?(state),
-           {:ok, next} <-
-             PlayerTransfers.prepare(
-               state.uuid,
-               sequence(state),
-               before,
-               after_snapshot,
-               key,
-               records
-             ),
-           do: {:ok, next}
+    prepare_plan(state, fence, ref, fn ->
+      PlayerTransfers.prepare(state.uuid, sequence(state), before, after_snapshot, key, records)
+    end)
+  end
 
-    case result do
-      {:ok, next} -> commit_transfer(state, next, ref)
-      true -> transfer_reply(state, ref, {:error, :transfer_pending})
-      error -> transfer_reply(state, ref, error)
-    end
+  def handle_cast(
+        {:prepare_creative_drop, owner, fence, snapshot, key, record, ref},
+        %{owner: owner} = state
+      ) do
+    prepare_plan(state, fence, ref, fn ->
+      PlayerTransfers.prepare_creative_drop(state.uuid, sequence(state), snapshot, key, record)
+    end)
   end
 
   def handle_cast({:complete, owner, fence, ref}, %{owner: owner} = state) do
@@ -163,6 +160,19 @@ defmodule Valimc.PlayerStore do
   defp source_guard(state, fence) do
     with :ok <- lease_guard(state, fence) do
       if state.path == nil, do: {:error, :transfer_storage_disabled}, else: :ok
+    end
+  end
+
+  defp prepare_plan(state, fence, ref, plan) do
+    result =
+      with :ok <- source_guard(state, fence),
+           false <- pending?(state),
+           do: plan.()
+
+    case result do
+      {:ok, next} -> commit_transfer(state, next, ref)
+      true -> transfer_reply(state, ref, {:error, :transfer_pending})
+      error -> transfer_reply(state, ref, error)
     end
   end
 

@@ -45,7 +45,9 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-019b3a](tickets/VMC-019b3a.md) | Done — automatic login recovery validated, local | 163 tests, release/oracle and actual automatic pending recovery/restart/removed-item retry pass; connected drop controls remain |
 | [VMC-019b3b](tickets/VMC-019b3b.md) | Done — keyboard drops validated, local | 170 tests, release/oracle and actual Q/held Ctrl+Q, empty/selected slot, frozen corrections, reconnect/restart pass; stationary physics gap remains |
 | [VMC-019b3c](tickets/VMC-019b3c.md) | Awaiting client-generated menu input | 181 tests, release and Mojang behavior/TCP oracle pass; ordinary THROW/cursor effects use the durable journal; CUA mouse gate remains |
-| VMC-019b3d | Next | Authorized creative slot -1 creation with durable retry/failure semantics |
+| VMC-019b3d | In progress, split | Authorized creative creation journal, then paired packet ordering and drop throttling |
+| [VMC-019b3d1](tickets/VMC-019b3d1.md) | Done — creative source API recovery validated, local | 194 tests/release/oracle and actual retained inventory/item recovery, reconnect/restart/removal/retry pass; creative controls remain VMC-019b3d2 |
+| VMC-019b3d2 | Next | Actual creative negative-slot drop controls, paired inventory writes, permission and vanilla throttle |
 
 Only one implementation ticket is active; checkpoints awaiting client validation
 are parked so implementation can continue. Records retain acceptance criteria,

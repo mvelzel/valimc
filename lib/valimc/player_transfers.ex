@@ -1,5 +1,5 @@
 defmodule Valimc.PlayerTransfers do
-  @moduledoc "Pure source plans: supported inventory ownership must equal retained plus transferred stacks."
+  @moduledoc "Conserved source plans and explicit, separately authorized creative creation."
   alias Valimc.{Inventory, PlayerSnapshot}
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.ItemTransfers
@@ -34,6 +34,36 @@ defmodule Valimc.PlayerTransfers do
   end
 
   def prepare(_, _, _, _, _, _), do: {:error, :transfer_sequence_exhausted}
+
+  @doc "Creates one new record without consuming inventory; permission comes from its trusted owner."
+  def prepare_creative_drop(uuid, sequence, snapshot, key, record)
+      when is_integer(sequence) and sequence >= 0 and sequence < @max_sequence do
+    with %{inventory: %Inventory{infinite_materials: true}} <- snapshot,
+         %{stack: %ItemStack{}} <- record,
+         {:ok, _} <- PlayerSnapshot.encode(uuid, strip_journal(snapshot)),
+         {:ok, _, _} <-
+           ItemTransfers.encode_request(key, %{
+             source: uuid,
+             sequence: sequence + 1,
+             records: [record]
+           }) do
+      {:ok,
+       snapshot
+       |> strip_journal()
+       |> Map.merge(%{
+         transfer_sequence: sequence + 1,
+         outbox: %{key: key, records: [record]}
+       })}
+    else
+      %{inventory: %Inventory{}} -> {:error, :creative_drop_not_authorized}
+      {:error, _} = error -> error
+      _ -> {:error, :invalid_transfer_plan}
+    end
+  rescue
+    _ -> {:error, :invalid_transfer_plan}
+  end
+
+  def prepare_creative_drop(_, _, _, _, _), do: {:error, :transfer_sequence_exhausted}
 
   defp strip_journal(%{pose: _, inventory: _} = snapshot),
     do: Map.take(snapshot, [:pose, :inventory])

@@ -94,6 +94,169 @@ defmodule Valimc.PlayerOutboxTest do
     assert_receive {:DOWN, ^monitor, :process, _, :killed}, 1000
   end
 
+  defp creative(snapshot),
+    do: %{snapshot | inventory: %{snapshot.inventory | infinite_materials: true}}
+
+  defp create(ctx, snapshot, record, fence \\ nil) do
+    ref = make_ref()
+
+    PlayerStore.prepare_creative_drop(
+      ctx.writer,
+      fence || ctx.fence,
+      snapshot,
+      ctx.key,
+      record,
+      ref
+    )
+
+    assert_receive {:player_transfer_saved, ^ref, result}, 1500
+    result
+  end
+
+  test "creative source guards reject foreign, unauthorized, invalid, stale and disabled creation",
+       ctx do
+    ref = make_ref()
+    PlayerStore.checkpoint(ctx.writer, ctx.fence, ctx.before, ref)
+    assert_receive {:player_saved, ^ref, :ok}
+    original = File.read!(PlayerStore.path(ctx.base, ctx.uuid))
+    [record] = ctx.records
+    authorized = creative(ctx.before)
+    assert {:error, :creative_drop_not_authorized} = create(ctx, ctx.before, record)
+    assert {:error, :invalid_transfer_plan} = create(ctx, authorized, [record])
+    assert {:error, :stale_player_snapshot} = create(ctx, authorized, record, make_ref())
+
+    task =
+      Task.async(fn ->
+        PlayerStore.prepare_creative_drop(
+          ctx.writer,
+          ctx.fence,
+          authorized,
+          ctx.key,
+          record,
+          make_ref()
+        )
+      end)
+
+    Task.await(task)
+    assert {:ok, loaded, _} = GenServer.call(ctx.writer, :load)
+    assert loaded.outbox == nil and loaded.transfer_sequence == 0
+    assert File.read!(PlayerStore.path(ctx.base, ctx.uuid)) == original
+    assert World.item_snapshot(ctx.key) == %{}
+    :sys.replace_state(ctx.writer, &%{&1 | path: nil})
+    assert {:error, :transfer_storage_disabled} = create(ctx, authorized, record)
+    assert File.read!(PlayerStore.path(ctx.base, ctx.uuid)) == original
+  end
+
+  test "created records use the same fences, receipt proof and removed-item retry protection",
+       ctx do
+    [record] = ctx.records
+    assert {:ok, fence, pending} = create(ctx, creative(ctx.before), record)
+    assert fence != ctx.fence and pending.inventory == creative(ctx.before).inventory
+    assert pending.transfer_sequence == 1
+    assert {:ok, stored} = saved(ctx)
+    assert stored.outbox == pending.outbox and stored.inventory == ctx.before.inventory
+    assert {:error, :stale_player_snapshot} = create(ctx, creative(ctx.before), record)
+    assert {:error, :transfer_pending} = create(ctx, creative(ctx.before), record, fence)
+    assert {:error, :transfer_not_applied} = complete(ctx, fence)
+    assert {:ok, :applied} = deliver(ctx, pending)
+    {:ok, key, request, _} = PlayerSnapshot.transfer_request(ctx.uuid, pending)
+    {:ok, owner} = World.item_owner(key)
+    {:ok, handle} = Region.find_item(owner, record.uuid)
+    assert :ok = Region.remove_item(handle)
+    assert {:ok, next_fence, cleared} = complete(ctx, fence)
+    assert cleared.inventory == pending.inventory and cleared.transfer_sequence == 1
+    assert cleared.outbox == nil
+    assert :ok = PlayerStore.close(ctx.writer, next_fence, ctx.before)
+    :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, elem(owner, 0))
+    {:ok, owner} = World.item_owner(key)
+    assert {:ok, :already_applied} = Region.apply_item_transfer(owner, request)
+    assert World.item_snapshot(key) == %{}
+    assert {:ok, stored} = saved(ctx)
+    assert stored.transfer_sequence == 1 and stored.inventory == ctx.before.inventory
+  end
+
+  test "a lost creation acknowledgment recovers pinned records without persisted permission",
+       ctx do
+    [record] = ctx.records
+    ref = make_ref()
+
+    PlayerStore.prepare_creative_drop(
+      ctx.writer,
+      ctx.fence,
+      creative(ctx.before),
+      ctx.key,
+      record,
+      ref
+    )
+
+    {:ok, committed, committed_fence} = GenServer.call(ctx.writer, :load)
+    kill_writer(ctx)
+    assert_receive {:player_transfer_saved, ^ref, {:ok, ^committed_fence, ^committed}}
+    {:ok, writer, recovered, fence} = PlayerStore.open(ctx.uuid)
+    next = %{ctx | writer: writer, fence: fence}
+    assert recovered.outbox.records == [record] and recovered.inventory == ctx.before.inventory
+    refute recovered.inventory.infinite_materials
+    assert {:error, :transfer_pending} = create(next, creative(ctx.before), record)
+    assert {:ok, :applied} = deliver(next, recovered)
+    assert {:ok, :already_applied} = deliver(next, recovered)
+    assert {:ok, _, cleared} = complete(next, fence)
+    assert cleared.outbox == nil and map_size(World.item_snapshot(ctx.key)) == 1
+  end
+
+  test "failed creative prepare preserves old inventory/file and publishes no destination", ctx do
+    ref = make_ref()
+    PlayerStore.checkpoint(ctx.writer, ctx.fence, ctx.before, ref)
+    assert_receive {:player_saved, ^ref, :ok}
+    path = PlayerStore.path(ctx.base, ctx.uuid)
+    original = File.read!(path)
+    File.write!(Path.join(ctx.base, "blocked"), "not a directory")
+    :sys.replace_state(ctx.writer, &%{&1 | path: Path.join(ctx.base, "blocked/player.pose")})
+    [record] = ctx.records
+
+    capture_log(fn ->
+      assert {:error, :player_commit_uncertain} = create(ctx, creative(ctx.before), record)
+    end)
+
+    assert File.read!(path) == original and World.item_snapshot(ctx.key) == %{}
+  end
+
+  test "automatic login reconciles a creative creation while retaining exact supported inventory",
+       ctx do
+    name = "Create" <> Integer.to_string(System.unique_integer([:positive]))
+    uuid = Valimc.Connection.offline_uuid(name)
+    {:ok, writer, nil, fence} = PlayerStore.open(uuid)
+    [record] = ctx.records
+    pose = %{ctx.before.pose | x: record.x, z: record.z}
+
+    stone = %{
+      ItemStack.new("stone", 7)
+      | components: %{"minecraft:custom_data" => {:compound, %{"created" => {:int, 1}}}}
+    }
+
+    snapshot = PlayerSnapshot.capture(pose, %Inventory{slots: %{36 => stone}})
+    record = %{record | uuid: :crypto.strong_rand_bytes(16), stack: %{stone | count: 3}}
+    next = %{ctx | uuid: uuid, writer: writer, fence: fence}
+    assert {:ok, fence, pending} = create(next, creative(snapshot), record)
+    assert {:error, :transfer_pending} = PlayerStore.close(writer, fence, snapshot)
+    {^uuid, client} = Client.login(name)
+
+    try do
+      assert client.inventory.items == Inventory.contents(snapshot.inventory)
+      assert World.item_snapshot(ctx.key) |> map_size() == 1
+      assert {:ok, stored} = saved(next)
+      assert stored.inventory == snapshot.inventory
+      assert stored.transfer_sequence == 1 and stored.outbox == nil
+      assert {:ok, :already_applied} = deliver(next, pending)
+      {:ok, owner} = World.item_owner(ctx.key)
+      {:ok, handle} = Region.find_item(owner, record.uuid)
+      :ok = Region.remove_item(handle)
+      assert {:ok, :already_applied} = deliver(next, pending)
+      assert World.item_snapshot(ctx.key) == %{}
+    after
+      Client.close(client)
+    end
+  end
+
   test "prepare/complete fence old saves and retain the sequence in ordinary checkpoints", ctx do
     {prepared_fence, snapshot} = prepare(ctx)
     assert prepared_fence != ctx.fence

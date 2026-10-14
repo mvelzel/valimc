@@ -252,3 +252,23 @@ confirmed empty state and creative UI. Private log has zero protocol/codec/
 duplicate-entity/ERROR entries. All 187 tests/release/Mojang oracle pass. This
 completes connected close overflow; actual mouse pickup/menu-drop gates and item
 physics/pickup/disconnect cleanup remain separate work.
+
+VMC-019b3d1, October 14: updated release 03:41:45. An offline leased-owner fixture
+checkpointed patched/glint stone 7, then the explicit authorized creation API
+prepared a separate stone-3 record while retaining all seven, sequence 11→12.
+Ordinary conservation rejected that same creation; stored privileges decoded
+false and the item remained unpublished before login. Actual CUA join 03:42:31
+automatically delivered/cleared the intent, visibly retaining HUD 7 and rendering
+the glint item. Owner/file assertions matched one exact UUID/XYZ/patch/count 3,
+retained inventory and sequence 12/no outbox/job. Actual reconnect 03:43:14 and
+full release restart 03:43:29/rejoin 03:43:56 retained those exact results without
+reseeding. Destination retry remained already-applied. Removal of only the fixture
+UUID visibly cleared it, and retry left it absent with the receipt intact. Normal
+writer cleanup restored original inventory/pose without regressing counters;
+actual rejoin 03:44:51/E showed empty hands/slots/world and creative UI. The
+151-byte source file and sequence-12 receipt remain valid. Private log has zero
+protocol/codec/duplicate-entity/ERROR entries. All 194 tests/release/oracle pass.
+App rebinding/Raise restored idle keyboard routing; the first ineffective input
+batch did not count. This validates internal API creation/recovery; actual creative
+drop controls, paired slot writes and throttle are VMC-019b3d2. Earlier mouse gates
+and stationary item physics/pickup remain outstanding.

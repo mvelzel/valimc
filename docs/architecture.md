@@ -98,6 +98,16 @@ fresh fence. Nil source storage rejects durable transfer preparation. Source API
 requests are not exposed to clients; future session orchestration must bound
 pending requests and hold inventory mutation until acknowledged.
 
+`prepare_creative_drop` is a distinct trusted leased-owner API for one nonempty
+record. It requires live infinite-material permission and retains the entire
+inventory while journaling the authorized creation with the same sequence/outbox.
+It has the same persistent-source/pending/fence and receipt-proof guards; there
+is no general conservation bypass. Saved privileges still reset on decode, and
+automatic login recovery delivers the already authorized intent without minting
+again. Actual creative packet ordering/throttling is not integrated yet: a client
+can pair a negative-slot drop with a slot write, which requires its own ordering
+contract rather than the consumed-inventory mutation gate above.
+
 Login now retains the UUID lease while automatically reconciling a pending
 outbox. Destination calls run in `TransferWorkers`, bounded at four times the
 online scheduler count, separate from CPU preparation. Each session owns at most

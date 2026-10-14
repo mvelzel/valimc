@@ -172,6 +172,15 @@ with prepared fixture contents is the changed action; original mouse pickup stay
 a separate parent gate. Test repeat/reconnect/restart, disabled-source correction,
 repair/retry and stalled close, then clean UUIDs without regressing counters/receipts.
 
+VMC-019b3d1 adds a separate trusted-owner creation source API. Tests retain all
+owned contents, keep ordinary conservation mandatory, reject unauthorized/foreign/
+stale/invalid/disabled/pending requests, fence failed writes, recover lost replies,
+and reconcile the creation automatically at login. The graphical scenario uses
+an offline source API fixture, then actual reconnect/restart observes retained
+inventory plus the one pinned item. Remove/retry must stay removed; cleanup
+retains counters/receipts. This is source/recovery evidence. Actual creative drop
+controls, paired creative slot writes, and tick throttling remain VMC-019b3d2.
+
 ## Actual Minecraft computer use
 
 The normal macOS game runs as an unbundled `java` process, absent from computer

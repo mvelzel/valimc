@@ -16,6 +16,70 @@ defmodule Valimc.PlayerTransfersTest do
   defp record(n, item), do: %{uuid: <<n::128>>, x: 0.5, y: 64.5, z: 0.5, stack: item}
   defp capture(inv), do: PlayerSnapshot.capture(pose(), inv)
 
+  test "creative creation retains every owned stack without weakening ordinary conservation" do
+    inv = %Inventory{
+      infinite_materials: true,
+      selected: 2,
+      slots: %{1 => stack(2), 38 => stack(7), 45 => ItemStack.new("egg", 3)},
+      carried: stack(4)
+    }
+
+    snapshot = capture(inv)
+    created = record(2, stack(3))
+
+    assert {:error, :item_conservation_failed} =
+             PlayerTransfers.prepare(<<1::128>>, 8, snapshot, snapshot, {0, 0}, [created])
+
+    assert {:ok, next} =
+             PlayerTransfers.prepare_creative_drop(<<1::128>>, 8, snapshot, {0, 0}, created)
+
+    assert next.inventory == inv and next.pose == snapshot.pose
+    assert next.transfer_sequence == 9 and next.outbox.records == [created]
+    assert {:ok, bytes} = PlayerSnapshot.encode(<<1::128>>, next)
+    assert {:ok, restored} = PlayerSnapshot.decode(bytes, <<1::128>>)
+    assert restored.outbox == next.outbox and restored.inventory.slots == inv.slots
+    assert restored.inventory.carried == inv.carried and restored.inventory.selected == 2
+    refute restored.inventory.infinite_materials
+  end
+
+  test "creative creation requires live permission and exactly one valid bounded nonempty record" do
+    snapshot = capture(Inventory.new())
+    uuid = <<1::128>>
+    created = record(2, stack(3))
+
+    assert {:error, :creative_drop_not_authorized} =
+             PlayerTransfers.prepare_creative_drop(uuid, 0, snapshot, {0, 0}, created)
+
+    authorized = %{snapshot | inventory: %{snapshot.inventory | infinite_materials: true}}
+
+    for invalid <- [nil, [], [created], [created, created], %{created | stack: nil}] do
+      assert {:error, _} =
+               PlayerTransfers.prepare_creative_drop(uuid, 0, authorized, {0, 0}, invalid)
+    end
+
+    for invalid <- [
+          %{created | uuid: <<0>>},
+          %{created | x: 128.5},
+          %{created | stack: %{stack(3) | count: 65}},
+          %{
+            created
+            | stack: %{stack(3) | components: %{"minecraft:custom_name" => "unsupported"}}
+          }
+        ] do
+      assert {:error, _} =
+               PlayerTransfers.prepare_creative_drop(uuid, 0, authorized, {0, 0}, invalid)
+    end
+
+    assert {:error, :transfer_sequence_exhausted} =
+             PlayerTransfers.prepare_creative_drop(
+               uuid,
+               18_446_744_073_709_551_615,
+               authorized,
+               {0, 0},
+               created
+             )
+  end
+
   test "source plans conserve component-aware owned stacks and advance the source sequence" do
     before = capture(%Inventory{slots: %{36 => stack(7)}})
     after_state = capture(%Inventory{slots: %{36 => stack(4)}})
