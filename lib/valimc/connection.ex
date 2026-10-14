@@ -70,6 +70,7 @@ defmodule Valimc.Connection do
        item_replication: ItemReplication.new(),
        clock_version: nil,
        weather_view: nil,
+       difficulty_view: nil,
        outbound: [],
        # The preview explicitly advertises creative/infinite-material abilities.
        # This permission is owner state, never derived from incoming predictions.
@@ -366,6 +367,18 @@ defmodule Valimc.Connection do
           WeatherReplication.reconcile(state.weather_view, Valimc.World.Clock.weather())
 
         state = emit_peer_packets(%{state | weather_view: weather_view}, weather_packets, :buffer)
+
+        {difficulty, difficulty_packet} = Valimc.World.Clock.difficulty()
+
+        state =
+          if state.difficulty_view != difficulty,
+            do:
+              emit_peer_packets(
+                %{state | difficulty_view: difficulty},
+                [difficulty_packet],
+                :buffer
+              ),
+            else: state
 
         packets = state.outbound |> Enum.reverse() |> List.flatten()
         send_packets(state, packets)
@@ -795,11 +808,19 @@ defmodule Valimc.Connection do
     {weather_view, weather_packets} =
       WeatherReplication.reconcile(nil, Valimc.World.Clock.weather())
 
-    state = %{state | clock_version: clock_version, weather_view: weather_view}
+    {difficulty, difficulty_packet} = Valimc.World.Clock.difficulty()
+
+    state = %{
+      state
+      | clock_version: clock_version,
+        weather_view: weather_view,
+        difficulty_view: difficulty
+    }
 
     send_packets(state, [
       Packets.login(state.player),
       clock_packet,
+      difficulty_packet,
       Packets.abilities(),
       Packets.health(),
       Packets.spawn_position(),

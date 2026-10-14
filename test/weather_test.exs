@@ -123,7 +123,7 @@ defmodule Valimc.WeatherTest do
     }
 
     assert {:ok, bytes} = ClockRecord.encode(%{loaded | weather: weather})
-    assert <<"VMCLOCK", 2, _::binary>> = bytes
+    assert <<"VMCLOCK", 3, _::binary>> = bytes
     assert {:ok, recovered} = ClockRecord.decode(bytes)
     assert recovered.weather == Weather.prepare(weather)
     assert recovered.clocks == loaded.clocks

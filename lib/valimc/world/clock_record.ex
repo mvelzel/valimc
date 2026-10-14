@@ -1,7 +1,7 @@
 defmodule Valimc.World.ClockRecord do
   @moduledoc "Small checksummed world clock snapshots; private preview format, not vanilla saved-data NBT."
   alias Valimc.Protocol.Data
-  alias Valimc.World.{ClockState, Weather}
+  alias Valimc.World.{ClockState, Difficulty, Weather}
   @names Data.registries()["minecraft:world_clock"]
   @max_bytes 256
   def names, do: @names
@@ -12,13 +12,21 @@ defmodule Valimc.World.ClockRecord do
       game_time: 0,
       advance_time: true,
       clocks: Map.new(@names, &{&1, %ClockState{}}),
-      weather: Weather.new()
+      weather: Weather.new(),
+      difficulty: %Difficulty{}
     }
 
-  def valid?(%{game_time: time, advance_time: advance, clocks: clocks, weather: weather}) do
+  def valid?(%{
+        game_time: time,
+        advance_time: advance,
+        clocks: clocks,
+        weather: weather,
+        difficulty: difficulty
+      }) do
     is_integer(time) and time in -9_223_372_036_854_775_808..9_223_372_036_854_775_807 and
       is_boolean(advance) and is_map(clocks) and Enum.sort(Map.keys(clocks)) == Enum.sort(@names) and
-      Enum.all?(clocks, fn {_, clock} -> ClockState.valid?(clock) end) and Weather.valid?(weather)
+      Enum.all?(clocks, fn {_, clock} -> ClockState.valid?(clock) end) and Weather.valid?(weather) and
+      Difficulty.valid?(difficulty)
   end
 
   def valid?(_), do: false
@@ -49,10 +57,11 @@ defmodule Valimc.World.ClockRecord do
 
       body =
         IO.iodata_to_binary([
-          <<"VMCLOCK", 2, 5023::32, data.game_time::signed-64,
+          <<"VMCLOCK", 3, 5023::32, data.game_time::signed-64,
             if(data.advance_time, do: 1, else: 0), length(@names)>>,
           entries,
-          weather_bytes(data.weather)
+          weather_bytes(data.weather),
+          <<data.difficulty.level, if(data.difficulty.locked, do: 1, else: 0)>>
         ])
 
       {:ok, body <> :crypto.hash(:sha256, body)}
@@ -66,7 +75,7 @@ defmodule Valimc.World.ClockRecord do
     <<body::binary-size(^body_size), checksum::binary-size(32)>> = bytes
     true = checksum == :crypto.hash(:sha256, body)
     <<"VMCLOCK", version, 5023::32, time::signed-64, advance, count, entries::binary>> = body
-    true = version in [1, 2]
+    true = version in [1, 2, 3]
     true = advance in [0, 1] and count == length(@names)
 
     {clocks, weather_bytes} =
@@ -82,8 +91,16 @@ defmodule Valimc.World.ClockRecord do
          }), tail}
       end)
 
-    weather = read_weather(version, weather_bytes)
-    data = %{game_time: time, advance_time: advance == 1, clocks: clocks, weather: weather}
+    {weather, difficulty} = read_environment(version, weather_bytes)
+
+    data = %{
+      game_time: time,
+      advance_time: advance == 1,
+      clocks: clocks,
+      weather: weather,
+      difficulty: difficulty
+    }
+
     true = valid?(data)
     {:ok, data}
   rescue
@@ -97,6 +114,14 @@ defmodule Valimc.World.ClockRecord do
       weather.thunder_time::signed-32, if(weather.raining, do: 1, else: 0),
       if(weather.thundering, do: 1, else: 0), if(weather.advance_weather, do: 1, else: 0),
       weather.random_seed::64>>
+  end
+
+  defp read_environment(version, bytes) when version in [1, 2],
+    do: {read_weather(version, bytes), %Difficulty{}}
+
+  defp read_environment(3, <<weather::binary-size(23), level, locked>>) do
+    true = locked in [0, 1]
+    {read_weather(2, weather), %Difficulty{level: level, locked: locked == 1}}
   end
 
   defp read_weather(1, <<>>), do: Weather.new()

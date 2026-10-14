@@ -116,6 +116,11 @@ defmodule Valimc.Protocol.Packets do
 
   def abilities, do: packet("player_abilities", <<0x0D, 0.05::float-32, 0.1::float-32>>)
   def health, do: packet("set_health", [<<20.0::float-32>>, Wire.varint(20), <<5.0::float-32>>])
+
+  def difficulty(%{level: level, locked: locked})
+      when is_integer(level) and level in 0..3 and is_boolean(locked),
+      do: packet("change_difficulty", <<level, if(locked, do: 1, else: 0)>>)
+
   def commands, do: packet("commands", Valimc.Commands.graph_payload())
   def center({x, z}), do: packet("set_chunk_cache_center", [Wire.varint(x), Wire.varint(z)])
   def unload({x, z}), do: packet("forget_level_chunk", <<z::signed-32, x::signed-32>>)

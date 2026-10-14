@@ -38,7 +38,7 @@ The admission process is outside the movement and block hot paths. Spatial ETS h
 ## World clocks
 
 One supervised owner holds game time, the two pinned core-pack clocks, the
-advance-time control and shared Overworld weather. It owns no region gameplay,
+advance-time control, shared Overworld weather and world difficulty/lock. It owns no region gameplay,
 player inventory or entity mutation. Clock totals/fractions/rates use the native float32 tick boundaries;
 paused clocks stop independently, and global advance-time stops both clocks while
 game time continues. A fenced 50 ms timer advances one delivered game tick; lag
@@ -51,21 +51,28 @@ existing replication callback; controls publish a new version immediately. No
 clock tick is sent to every session. The cached packet is an immutable binary.
 
 A linked writer reads at most 257 bytes and validates the fixed registered-clock
-schema, version/data version and checksum. The 111-byte current snapshot uses a
+schema, version/data version and checksum. The 113-byte current snapshot uses a
 unique synchronized temporary file and atomic replacement. The ticking owner
 admits only one immutable checkpoint, fences acknowledgments/deadlines and keeps
 newer state dirty. An uncertain save stops/fences the owner and writer before
 reload, without flushing older memory over the possible commit. Normal shutdown
 flushes the latest state. These are custom preview files; vanilla saved-data NBT,
 full gamerules/time markers, idle pause and data-pack clock changes remain work.
-Version 1 clock-only records load without losing clock values and migrate to
-version 2 with weather on save. Timers, flags, cycle control and the owned legacy
+Versions 1 (clocks) and 2 (clocks/weather) load without losing existing values and
+migrate to version 3 with difficulty/lock on save. Timers, flags, cycle control and the owned legacy
 48-bit random stream persist; transient intensity reloads follow vanilla weather
 preparation. Weather timers advance independently of the daylight control.
 Disabling weather cycling freezes timers/flags while intensity still approaches
 its targets. Observers reconcile shared views with at most five game events;
 coalescing UI snapshots never skips authoritative weather ticks. Lightning,
 snow/ice, biome precipitation and region environmental gameplay remain work.
+
+Difficulty defaults to Easy/unlocked, matching the pinned dedicated server.
+Trusted host controls respect the lock unless explicitly forced; changing the
+lock and forced changes publish current state. Sessions read a cached packet
+concurrently and emit it only when the observed level/lock changes, including at
+login. Client administration is not authorized yet. Hardcore, regional difficulty
+and difficulty-dependent damage/hunger/spawning effects remain separate work.
 
 ## Replication and pressure
 

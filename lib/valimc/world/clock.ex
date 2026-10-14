@@ -1,7 +1,15 @@
 defmodule Valimc.World.Clock do
   use GenServer
   alias Valimc.Protocol.Packets
-  alias Valimc.World.{ClockRecord, ClockState, ClockStore, Weather, WeatherReplication}
+
+  alias Valimc.World.{
+    ClockRecord,
+    ClockState,
+    ClockStore,
+    Difficulty,
+    Weather,
+    WeatherReplication
+  }
 
   @moduledoc "World clock ownership and immutable time replication, independent of region gameplay."
   def start_link(opts \\ []) do
@@ -27,6 +35,11 @@ defmodule Valimc.World.Clock do
 
   def weather do
     [{:weather, view}] = :ets.lookup(__MODULE__, :weather)
+    view
+  end
+
+  def difficulty do
+    [{:difficulty, view}] = :ets.lookup(__MODULE__, :difficulty)
     view
   end
 
@@ -82,6 +95,9 @@ defmodule Valimc.World.Clock do
 
   def handle_call({:configure, operation}, _, state) do
     case change(state.data, operation) do
+      {:ok, data} when data == state.data ->
+        {:reply, :ok, state}
+
       {:ok, data} ->
         next = %{state | data: data, revision: state.revision + 1, dirty: true}
         publish(next)
@@ -90,6 +106,18 @@ defmodule Valimc.World.Clock do
       error ->
         {:reply, error, state}
     end
+  end
+
+  defp change(data, {:difficulty, level}), do: change(data, {:difficulty, level, false})
+
+  defp change(data, {:difficulty, level, force}) do
+    with {:ok, difficulty} <- Difficulty.change(data.difficulty, level, force),
+         do: {:ok, %{data | difficulty: difficulty}}
+  end
+
+  defp change(data, {:difficulty_locked, locked}) do
+    with {:ok, difficulty} <- Difficulty.lock(data.difficulty, locked),
+         do: {:ok, %{data | difficulty: difficulty}}
   end
 
   defp change(data, {:advance_weather, value}) when is_boolean(value),
@@ -211,7 +239,20 @@ defmodule Valimc.World.Clock do
       end
 
     view = WeatherReplication.cache(state.data.weather, previous)
-    :ets.insert(state.table, [{:network, version, periodic, latest}, {:weather, view}])
+
+    previous_difficulty =
+      case :ets.lookup(state.table, :difficulty) do
+        [{:difficulty, cached}] -> cached
+        [] -> nil
+      end
+
+    difficulty = Difficulty.cache(state.data.difficulty, previous_difficulty)
+
+    :ets.insert(state.table, [
+      {:network, version, periodic, latest},
+      {:weather, view},
+      {:difficulty, difficulty}
+    ])
   end
 
   defp schedule_tick(%{tick_interval: nil} = state), do: state

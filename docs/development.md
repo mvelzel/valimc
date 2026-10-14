@@ -125,6 +125,15 @@ World/player lifecycle and equipment locks require their own tests. Temporary
 fixtures are not committed. Mojang also decodes Elixir text containing NUL and
 supplementary Unicode. TCP scenarios then exercise slot updates/corrections.
 
+The difficulty probe checks the actual dedicated-server default, all 64 native
+lock/force combinations and all eight level/lock packet bodies. TCP checks verify
+login, two observers, retained reconnect state, rejected peer mutation and no
+unchanged-state packet repetition. Actual Minecraft World Options checks all four
+labels and both lock icons after reopening the screen, ignored non-forced changes,
+forced override, continued commands, reconnect and full restart. Use trusted host
+fixtures, restore the original authoritative setting and retain player state.
+Those controls do not establish operator permissions or survival effects.
+
 Entity checks generate 272 packed-velocity fixtures, including a deterministic
 random sample and threshold/continuation/clamping boundaries. Elixir independently
 encodes them and 25 complete entity packets; Mojang decodes the results. Velocity,

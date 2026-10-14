@@ -475,7 +475,14 @@ defmodule Valimc.KeyboardDropTest do
       assert done.inventory.carried == nil and hd(records(ctx)).stack == ctx.stone
       Client.close(client)
     after
-      if Process.alive?(state.player_store), do: :sys.resume(state.player_store)
+      # Normal disconnect may finish the writer between the alive check and
+      # cleanup. A writer that has already exited needs no resume.
+      try do
+        :sys.resume(state.player_store)
+      catch
+        :exit, {reason, _} when reason in [:normal, :noproc] -> :ok
+      end
+
       Client.close(client)
       departed(ctx)
     end

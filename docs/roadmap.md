@@ -27,6 +27,8 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-004b2d](tickets/VMC-004b2d.md) | Done — tooltip controls validated, local | 254 tests/release/full oracle; all 122 types and native equality/round trips pass; actual selective/all/reset tooltips, merge controls, Q/Ctrl+Q, recovery and malformed-input preservation pass |
 | [VMC-006a](tickets/VMC-006a.md) | Done — core clocks validated, local | 263 tests/release/full oracle; 3,600 native clock cases and actual day/night/day, command response, independent pause, reconnect/restart and resumed clocks pass |
 | [VMC-006b](tickets/VMC-006b.md) | Done — weather cycle validated, local | 270 tests/release/full oracle; 480 native traces/50,400 ticks, migration and actual rain/storm/fade/automatic expiry, frozen-cycle /stats, reconnect/restart and cleanup pass |
+| [VMC-006c](tickets/VMC-006c.md) | Done — difficulty state validated, local | 275 tests/release/full oracle; native default/64 lock-force cases/eight codecs and actual four labels, lock controls, /stats, reconnect/restart and cleanup pass |
+| VMC-006 | Partially implemented | Core clocks, Overworld weather and difficulty synchronize/persist; complete gamerules, administration and dependent survival effects remain |
 | [VMC-005a](tickets/VMC-005a.md) | Done — `123d1d0`, validated | Owner-local 46-slot menu; actual selection/offhand/swap/resync and automated/oracle checks pass |
 | VMC-005b | Planned | Hashed click codec, authoritative pickup/swap/shift/drag transactions |
 | [VMC-005b1](tickets/VMC-005b1.md) | Done — `67c34ad`, validated | Actual half pickup/place/merge/shift/number/offhand/rejection pass; 65 tests/full oracle/release pass |
