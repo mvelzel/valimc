@@ -23,6 +23,8 @@ defmodule Valimc.Application do
        strategy: :one_for_one,
        name: Valimc.RegionSupervisor,
        max_children: Valimc.config(:max_regions)},
+      {Task.Supervisor,
+       name: Valimc.TransferWorkers, max_children: max(System.schedulers_online() * 4, 1)},
       {DynamicSupervisor,
        strategy: :one_for_one,
        name: Valimc.ConnectionSupervisor,

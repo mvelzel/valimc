@@ -127,6 +127,17 @@ source/destination recovery, observes retained inventory/item rendering and
 restart, then restores fixture inventory while preserving the advanced sequence.
 Never restore a pre-transfer source backup alone after the destination commits.
 
+VMC-019b3a adds automatic pre-login recovery. Tests stall region storage, saturate
+the bounded I/O pool, kill a submitted worker, force a deadline/disconnect, inject
+stale replies/timers and reject corrupt/ephemeral/conflicting/superseded targets.
+The source file/UUID lease must remain intact while login is unpublished, and
+unrelated sessions must respond. Already-delivered/removed intents must clear
+without another entity. The real client starts from a prepared offline fixture,
+recovers through actual login without manual delivery, survives restart, then
+repeats after item removal with a same-sequence/depleted-inventory pending fixture
+representing an uncommitted source clear. This deliberately retains sequence and
+inventory ownership; restoring a pre-transfer inventory/counter remains prohibited.
+
 ## Actual Minecraft computer use
 
 The normal macOS game runs as an unbundled `java` process, absent from computer

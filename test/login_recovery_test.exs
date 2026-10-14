@@ -1,0 +1,326 @@
+defmodule Valimc.LoginRecoveryTest do
+  use ExUnit.Case, async: false
+  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, PlayerTransfers, World}
+  alias Valimc.World.{Region, Store}
+  alias Valimc.Protocol.{Data, ItemStack, Wire}
+  alias Valimc.TestClient, as: Client
+  import ExUnit.CaptureLog
+
+  setup do
+    nonce = System.unique_integer([:positive])
+    base = Path.join(System.tmp_dir!(), "valimc-login-recovery-#{nonce}")
+    old = Valimc.config(:world_path)
+    Application.put_env(:valimc, :world_path, base)
+    key = {400 + rem(nonce, 10_000), 400}
+
+    on_exit(fn ->
+      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+
+      Application.put_env(:valimc, :world_path, old)
+      File.rm_rf!(base)
+    end)
+
+    %{base: base, key: key}
+  end
+
+  defp seed(ctx) do
+    name = "Recover" <> Integer.to_string(System.unique_integer([:positive]))
+    uuid = Valimc.Connection.offline_uuid(name)
+    pose = %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0}
+    before = PlayerSnapshot.capture(pose, %Inventory{slots: %{36 => ItemStack.new("stone", 7)}})
+    kept = PlayerSnapshot.capture(pose, %Inventory{slots: %{36 => ItemStack.new("stone", 4)}})
+    {rx, rz} = ctx.key
+
+    records = [
+      %{
+        uuid: :crypto.strong_rand_bytes(16),
+        x: rx * 128 + 0.5,
+        y: 64.5,
+        z: rz * 128 + 0.5,
+        stack: ItemStack.new("stone", 3)
+      }
+    ]
+
+    {:ok, pending} = PlayerTransfers.prepare(uuid, 0, before, kept, ctx.key, records)
+    {:ok, bytes} = PlayerSnapshot.encode(uuid, pending)
+    path = PlayerStore.path(ctx.base, uuid)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, bytes)
+    %{name: name, uuid: uuid, pending: pending, path: path, bytes: bytes}
+  end
+
+  defp await_state(name, predicate, attempts \\ 400) do
+    found = Enum.find(:ets.tab2list(Valimc.Players), fn {_, p} -> p.name == name end)
+    state = if found, do: :sys.get_state(elem(found, 0))
+
+    if state && predicate.(state) do
+      {elem(found, 0), state}
+    else
+      assert attempts > 0
+      Process.sleep(2)
+      await_state(name, predicate, attempts - 1)
+    end
+  end
+
+  defp departed(fixture, attempts \\ 200) do
+    if Registry.lookup(Valimc.PlayerStoreRegistry, fixture.uuid) != [] or
+         Enum.any?(:ets.tab2list(Valimc.Players), fn {_, p} -> p.name == fixture.name end) do
+      assert attempts > 0
+      Process.sleep(2)
+      departed(fixture, attempts - 1)
+    end
+  end
+
+  defp finish(client, fixture) do
+    {uuid, client} = Client.login_session(client, fixture.name)
+    assert uuid == fixture.uuid
+    client = Client.load_world(client)
+    assert Enum.at(client.inventory.items, 36) == ItemStack.new("stone", 4)
+    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(fixture.path), uuid)
+    assert saved.outbox == nil and saved.transfer_sequence == 1
+    player = Enum.find(Valimc.Players.all(), &(&1.name == fixture.name))
+    state = :sys.get_state(player.pid)
+    assert state.recovery == nil and state.inventory.infinite_materials
+    Client.close(client)
+    departed(fixture)
+  end
+
+  test "already committed and removed destinations recover without another entity", ctx do
+    for removed <- [false, true] do
+      fixture = seed(ctx)
+      {:ok, _, request, _} = PlayerSnapshot.transfer_request(fixture.uuid, fixture.pending)
+      {:ok, owner} = World.item_owner(ctx.key)
+      assert {:ok, :applied} = Region.apply_item_transfer(owner, request)
+
+      if removed do
+        {:ok, handle} = Region.find_item(owner, hd(request.records).uuid)
+        assert :ok = Region.remove_item(handle)
+      end
+
+      count = map_size(World.item_snapshot(ctx.key))
+      finish(Client.begin_login(fixture.name), fixture)
+      assert map_size(World.item_snapshot(ctx.key)) == count
+    end
+  end
+
+  test "stalled delivery leaves login unpublished and sockets/other identities responsive", ctx do
+    fixture = seed(ctx)
+    {:ok, {region, _}} = World.item_owner(ctx.key)
+    writer = :sys.get_state(region).store
+    :sys.suspend(writer)
+    client = Client.begin_login(fixture.name)
+
+    try do
+      {pid, state} =
+        await_state(
+          fixture.name,
+          &(&1.recovery != nil and :sys.get_state(region).item_pending != nil)
+        )
+
+      assert state.phase == :login and state.step == :recover
+      assert not Enum.any?(Valimc.Players.all(), &(&1.name == fixture.name))
+      assert File.read!(fixture.path) == fixture.bytes
+      assert World.item_snapshot(ctx.key) == %{}
+      job = state.recovery.job
+      send(pid, {:transfer_delivered, self(), job.token, {:ok, :applied}})
+      send(pid, {:retry_recovery, state.recovery.id, make_ref()})
+      send(pid, {:recovery_deadline, make_ref()})
+      send(pid, {:player_transfer_saved, make_ref(), {:error, :bad}})
+      assert :sys.get_state(pid).recovery.job.pid == job.pid
+      assert {:error, :session_closing} = PlayerStore.open(fixture.uuid)
+      name = "Healthy" <> Integer.to_string(System.unique_integer([:positive]))
+      {healthy_uuid, healthy} = Client.login(name)
+      Client.send_packet(healthy, :play, "chat_command", Wire.string("stats"))
+      {_, _} = Client.await(healthy, :play, "system_chat")
+      Client.close(healthy)
+      departed(%{name: name, uuid: healthy_uuid})
+      :sys.resume(writer)
+      finish(client, fixture)
+      assert map_size(World.item_snapshot(ctx.key)) == 1
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+      Client.close(client)
+      departed(fixture)
+    end
+  end
+
+  test "worker loss after submission retries the identical uncertain delivery", ctx do
+    fixture = seed(ctx)
+    {:ok, {region, _}} = World.item_owner(ctx.key)
+    writer = :sys.get_state(region).store
+    :sys.suspend(writer)
+    client = Client.begin_login(fixture.name)
+
+    try do
+      {pid, state} =
+        await_state(
+          fixture.name,
+          &(&1.recovery != nil and :sys.get_state(region).item_pending != nil)
+        )
+
+      job = state.recovery.job
+      Process.exit(job.pid, :kill)
+      {^pid, _} = await_state(fixture.name, &(&1.recovery.attempts > 0))
+      :sys.resume(writer)
+      finish(client, fixture)
+      assert map_size(World.item_snapshot(ctx.key)) == 1
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+      Client.close(client)
+      departed(fixture)
+    end
+  end
+
+  test "pool saturation backs off without queued jobs and succeeds after admission frees", ctx do
+    fixture = seed(ctx)
+
+    workers =
+      for _ <- 1..(System.schedulers_online() * 4) do
+        {:ok, worker} =
+          Task.Supervisor.start_child(Valimc.TransferWorkers, fn ->
+            receive do
+              :done -> :ok
+            end
+          end)
+
+        worker
+      end
+
+    client = Client.begin_login(fixture.name)
+
+    try do
+      {_, state} =
+        await_state(fixture.name, &(&1.recovery != nil and &1.recovery.stage == :retry))
+
+      assert state.recovery.job == nil and is_reference(state.recovery.retry_timer)
+      assert Task.Supervisor.children(Valimc.TransferWorkers) |> length() == length(workers)
+      assert File.read!(fixture.path) == fixture.bytes
+      for worker <- workers, do: Task.Supervisor.terminate_child(Valimc.TransferWorkers, worker)
+      finish(client, fixture)
+    after
+      for worker <- workers,
+          Process.alive?(worker),
+          do: Task.Supervisor.terminate_child(Valimc.TransferWorkers, worker)
+
+      Client.close(client)
+      departed(fixture)
+    end
+  end
+
+  test "deadline cancels jobs and preserves pending source even if region later commits", ctx do
+    fixture = seed(ctx)
+    {:ok, {region, _}} = World.item_owner(ctx.key)
+    writer = :sys.get_state(region).store
+    :sys.suspend(writer)
+    client = Client.begin_login(fixture.name)
+
+    try do
+      {pid, state} =
+        await_state(
+          fixture.name,
+          &(&1.recovery != nil and :sys.get_state(region).item_pending != nil)
+        )
+
+      job = state.recovery.job
+      send(pid, {:recovery_deadline, state.recovery.id})
+      {id, body, _} = Client.read(client)
+      assert id == Data.id(:login, :clientbound, "login_disconnect")
+      assert :binary.match(body, "Inventory recovery is still pending") != :nomatch
+      departed(fixture)
+      refute Process.alive?(job.pid)
+      assert File.read!(fixture.path) == fixture.bytes
+      :sys.resume(writer)
+      finish(Client.begin_login(fixture.name), fixture)
+      assert map_size(World.item_snapshot(ctx.key)) == 1
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+      Client.close(client)
+      departed(fixture)
+    end
+  end
+
+  test "corrupt and ephemeral destinations fail closed without losing source inventory", ctx do
+    for kind <- [:corrupt, :ephemeral] do
+      fixture = seed(ctx)
+
+      if kind == :corrupt do
+        File.write!(Store.item_path(ctx.base, ctx.key), "bad-destination")
+      else
+        File.rm!(Store.item_path(ctx.base, ctx.key))
+        Application.put_env(:valimc, :world_path, nil)
+        {:ok, _} = World.item_owner(ctx.key)
+        Application.put_env(:valimc, :world_path, ctx.base)
+      end
+
+      client = Client.begin_login(fixture.name)
+
+      capture_log(fn ->
+        {id, body, _} = Client.read(client)
+        assert id == Data.id(:login, :clientbound, "login_disconnect")
+        assert :binary.match(body, "Inventory recovery could not complete") != :nomatch
+      end)
+
+      Client.close(client)
+      departed(fixture)
+      assert File.read!(fixture.path) == fixture.bytes
+      assert World.item_snapshot(ctx.key) == %{}
+    end
+  end
+
+  test "disconnect during uncertain delivery releases the lease and later login deduplicates",
+       ctx do
+    fixture = seed(ctx)
+    {:ok, {region, _}} = World.item_owner(ctx.key)
+    writer = :sys.get_state(region).store
+    :sys.suspend(writer)
+    client = Client.begin_login(fixture.name)
+
+    try do
+      {_, state} =
+        await_state(
+          fixture.name,
+          &(&1.recovery != nil and :sys.get_state(region).item_pending != nil)
+        )
+
+      job = state.recovery.job
+      Client.close(client)
+      departed(fixture)
+      refute Process.alive?(job.pid)
+      assert File.read!(fixture.path) == fixture.bytes
+      :sys.resume(writer)
+      finish(Client.begin_login(fixture.name), fixture)
+      assert map_size(World.item_snapshot(ctx.key)) == 1
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+      Client.close(client)
+      departed(fixture)
+    end
+  end
+
+  test "conflicting and superseded receipts cannot clear an inconsistent pending source", ctx do
+    for sequence <- [1, 2] do
+      fixture = seed(ctx)
+      {:ok, _, request, _} = PlayerSnapshot.transfer_request(fixture.uuid, fixture.pending)
+      [record] = request.records
+      {:ok, owner} = World.item_owner(ctx.key)
+
+      modified = %{
+        request
+        | sequence: sequence,
+          records: [%{record | stack: ItemStack.new("stone", 2)}]
+      }
+
+      assert {:ok, :applied} = Region.apply_item_transfer(owner, modified)
+      count = map_size(World.item_snapshot(ctx.key))
+      client = Client.begin_login(fixture.name)
+      {id, body, _} = Client.read(client)
+      assert id == Data.id(:login, :clientbound, "login_disconnect")
+      assert :binary.match(body, "Inventory recovery could not complete") != :nomatch
+      Client.close(client)
+      departed(fixture)
+      assert File.read!(fixture.path) == fixture.bytes
+      assert map_size(World.item_snapshot(ctx.key)) == count
+    end
+  end
+end

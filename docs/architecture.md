@@ -96,9 +96,23 @@ A missing/conflicting/unavailable or ephemeral receipt cannot clear an outbox.
 Clearing preserves the depleted inventory and sequence. Owner loss/reopen uses a
 fresh fence. Nil source storage rejects durable transfer preparation. Source API
 requests are not exposed to clients; future session orchestration must bound
-pending requests and hold inventory mutation until acknowledged. Current login
-rejects a pending outbox without publishing inventory or overwriting the file;
-automatic reconciliation/session drop control is the next slice.
+pending requests and hold inventory mutation until acknowledged.
+
+Login now retains the UUID lease while automatically reconciling a pending
+outbox. Destination calls run in `TransferWorkers`, bounded at four times the
+online scheduler count, separate from CPU preparation. Each session owns at most
+one job, one retry timer and one ten-second overall deadline. Busy/restarting/
+capacity outcomes and uncertain worker loss retry the same pinned UUIDs/sequence
+with 50–500 ms backoff, at most twenty retries. Saturation never queues a job.
+Results carry worker/token/monitor fences; retry/deadline messages are fenced too.
+An ephemeral destination rejects before delivery, and conflicting/stale intents
+cannot clear the source. A successful delivery requests source clear through the
+leased writer; only its matching completion starts compressed login/configuration
+and publishes depleted inventory with session-derived creative permission.
+Socket callbacks perform no destination I/O. Unrelated sessions remain responsive.
+Failure/disconnect/deadline cancels jobs/timers and preserves the actual source;
+destination commit can still be uncertain and a later login deduplicates it.
+Connected gameplay transfer admission/drop controls remain the next slice.
 
 Player inventories are pure bounded structs inside their connection. Creative
 slot writes, selected-hand lookup and hand swaps execute serially in that owner;
@@ -166,8 +180,8 @@ for no-receipt scene writes. Nil storage retains ephemeral in-memory behavior.
 
 This destination contract assumes a durable leased source that admits only one
 outbox, pins UUIDs/destination/sequence, and finishes recovery before advancing.
-The source outbox/checkpoint fencing API is implemented; automatic recovery and
-gameplay session integration remain. Clients cannot invoke the inbox. Source receipts are
+The source outbox/fencing and automatic login recovery are implemented; connected
+gameplay transfer integration remains. Clients cannot invoke the inbox. Source receipts are
 never evicted merely to make room. Safe source retirement and coordinated backup
 restoration require further fencing; source-cap exhaustion is an explicit rejection.
 

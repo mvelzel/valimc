@@ -183,3 +183,17 @@ and retrying the removed intent cannot recreate it. Private client log has no
 protocol/codec/duplicate-entity/ERROR entries. All 155 tests/release/oracle pass.
 Observation again needed rebinding/Raise. This is API-source recovery evidence;
 automatic source recovery, actual Q/drag/menu-drop controls and physics remain.
+
+VMC-019b3a, October 14: release 02:09:36, offline prepare created source sequence
+2 with retained stone 4 plus pending stone 3. Actual CUA localhost join 02:09:55
+automatically delivered/cleared it without a manual delivery call; HUD showed 4
+and the glint entity rendered. Source/file/owner checks confirmed one exact record,
+stack 3, no outbox and sequence 2. Restart 02:10:22 and rejoin 02:10:50 retained
+those results; exact retry did not create another entity. After visible removal,
+actual Disconnect allowed a same-sequence/depleted-inventory pending fixture to
+model a lost source clear. Actual join 02:12:35 cleared it automatically and left
+the world empty, HUD 4, no outbox and no remaining I/O job. Cleanup retained
+sequence 2 and restored empty inventory; final join 02:13:48 visibly confirmed it.
+The 151-byte player file/receipts remain valid. Private client log has no protocol/
+codec/duplicate-entity/ERROR entries. All 163 tests/release/oracle pass. Observation
+needed rebinding/Raise initially. These fixtures do not prove Q controls or physics.

@@ -95,7 +95,7 @@ defmodule Valimc.TestClient do
     take_items(body, count - 1, [item | items])
   end
 
-  def configure(name) do
+  def begin_login(name) do
     client = connect()
 
     send_packet(client, :handshake, "intention", [
@@ -105,6 +105,12 @@ defmodule Valimc.TestClient do
     ])
 
     send_packet(client, :login, "hello", [Wire.string(name), <<0::128>>])
+    client
+  end
+
+  def configure(name), do: configure_session(begin_login(name), name)
+
+  def configure_session(client, name) do
     {_compression_id, body, client} = read(client)
     {threshold, <<>>} = Wire.take_varint(body)
     client = %{client | threshold: threshold}
@@ -118,8 +124,10 @@ defmodule Valimc.TestClient do
     {uuid, client}
   end
 
-  def login(name) do
-    {uuid, client} = configure(name)
+  def login(name), do: login_session(begin_login(name), name)
+
+  def login_session(client, name) do
+    {uuid, client} = configure_session(client, name)
     client = send_packet(client, :configuration, "finish_configuration", <<>>)
     {_, client} = await(client, :play, "login")
     {body, client} = await(client, :play, "player_position")

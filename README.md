@@ -79,9 +79,10 @@ physics or pickup. An internal region inbox now commits stable-UUID item batches
 and bounded per-source retry receipts together; retries after removal/restart do
 not recreate items. A leased source API now conserves supported stacks and saves
 reduced inventory plus one outbox atomically, with stale-checkpoint fencing and
-destination receipt verification. Automatic recovery/session drop controls remain
-unimplemented; pending source intents reject login until recovered. Gameplay
-packets do not invoke these development APIs yet.
+destination receipt verification. Pending source intents now recover automatically
+through bounded asynchronous jobs before login publishes inventory. Conflicts or
+unavailable storage preserve the intent and reject that login. Connected-session
+drop controls remain unimplemented; gameplay packets do not invoke drop APIs yet.
 
 Missing: online authentication/encryption, Bedrock, survival rules, collision/anti-cheat, complete inventories and item components, crafting, combat, hunger, mobs/AI, redstone, fluids, block entities, vanilla terrain/structures, real light propagation, Anvil world import/export, complete player state persistence, plugin APIs and Java plugin compatibility. Known but unimplemented play packets are ignored; this is not full protocol parity. Default-item placement does not implement directional or functional block behavior.
 

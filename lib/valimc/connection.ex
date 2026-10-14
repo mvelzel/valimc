@@ -3,7 +3,7 @@ defmodule Valimc.Connection do
 
   @moduledoc "A socket-owning process per player, including their protocol and connection-local state."
   alias Valimc.Protocol.{Data, InventoryClick, ItemStack, ItemTypes, Packets, Wire}
-  alias Valimc.{Inventory, Metrics, Players, PlayerSnapshot, PlayerStore, World}
+  alias Valimc.{Inventory, Metrics, Players, PlayerSnapshot, PlayerStore, TransferDelivery, World}
   alias Valimc.World.ItemReplication
   import Bitwise
 
@@ -44,6 +44,7 @@ defmodule Valimc.Connection do
        store_fence: nil,
        store_monitor: nil,
        save_ref: nil,
+       recovery: nil,
        chunks: MapSet.new(),
        regions: MapSet.new(),
        pending: [],
@@ -122,6 +123,79 @@ defmodule Valimc.Connection do
     do: guard_connection(state, fn -> reject(state, "Player save timed out") end)
 
   def handle_info({:save_deadline, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:transfer_delivered, worker, token, result},
+        %{recovery: %{stage: :delivery, job: %{pid: worker, token: token} = job} = recovery} =
+          state
+      ) do
+    Process.demonitor(job.monitor, [:flush])
+    state = %{state | recovery: %{recovery | job: nil}}
+
+    guard_connection(state, fn ->
+      if result in [{:ok, :applied}, {:ok, :already_applied}] do
+        ref = make_ref()
+        PlayerStore.complete_transfer(state.player_store, state.store_fence, ref)
+        {:noreply, %{state | recovery: %{state.recovery | stage: :complete, ref: ref}}}
+      else
+        {:noreply, recovery_failure(state, result)}
+      end
+    end)
+  end
+
+  def handle_info({:transfer_delivered, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:player_transfer_saved, ref, {:ok, fence, snapshot}},
+        %{recovery: %{stage: :complete, ref: ref} = recovery} = state
+      ) do
+    guard_connection(state, fn ->
+      if snapshot.outbox != nil or snapshot.transfer_sequence != recovery.intent.transfer_sequence,
+        do: reject(state, "Inventory recovery returned inconsistent state")
+
+      Process.cancel_timer(recovery.timer)
+      inventory = %{snapshot.inventory | infinite_materials: state.inventory.infinite_materials}
+      state = %{state | recovery: nil, store_fence: fence, inventory: inventory}
+      {:noreply, finish_login(state)}
+    end)
+  end
+
+  def handle_info(
+        {:player_transfer_saved, ref, {:error, _} = error},
+        %{recovery: %{stage: :complete, ref: ref}} = state
+      ),
+      do: guard_connection(state, fn -> {:noreply, recovery_failure(state, error)} end)
+
+  def handle_info({:player_transfer_saved, _, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:retry_recovery, id, token},
+        %{recovery: %{id: id, stage: :retry, retry_token: token} = recovery} = state
+      ) do
+    state = %{state | recovery: %{recovery | retry_timer: nil}}
+    guard_connection(state, fn -> {:noreply, deliver_recovery(state)} end)
+  end
+
+  def handle_info({:retry_recovery, _, _}, state), do: {:noreply, state}
+
+  def handle_info({:recovery_deadline, id}, %{recovery: %{id: id}} = state),
+    do:
+      guard_connection(state, fn ->
+        reject(state, "Inventory recovery is still pending; please retry later")
+      end)
+
+  def handle_info({:recovery_deadline, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:DOWN, monitor, :process, worker, _},
+        %{recovery: %{stage: :delivery, job: %{pid: worker, monitor: monitor}} = recovery} = state
+      ) do
+    state = %{state | recovery: %{recovery | job: nil}}
+
+    guard_connection(state, fn ->
+      {:noreply, recovery_failure(state, {:error, :region_restarting})}
+    end)
+  end
 
   def handle_info({:DOWN, ref, :process, _, _}, %{store_monitor: ref} = state),
     do: guard_connection(state, fn -> reject(state, "Player storage stopped") end)
@@ -269,6 +343,60 @@ defmodule Valimc.Connection do
     end
   end
 
+  defp finish_login(state) do
+    threshold = Valimc.config(:compression_threshold)
+
+    if threshold != nil,
+      do:
+        send_packets(state, [Packets.packet("login_compression", Wire.varint(threshold), :login)])
+
+    state = %{state | threshold: threshold, step: :ack}
+
+    send_packets(state, [
+      Packets.packet(
+        "login_finished",
+        [state.player.uuid, Wire.string(state.player.name), <<0>>, :crypto.strong_rand_bytes(16)],
+        :login
+      )
+    ])
+
+    state
+  end
+
+  defp deliver_recovery(state) do
+    token = make_ref()
+
+    case TransferDelivery.start(self(), token, state.player.uuid, state.recovery.intent) do
+      {:ok, job} -> %{state | recovery: %{state.recovery | stage: :delivery, job: job}}
+      error -> recovery_failure(state, error)
+    end
+  end
+
+  defp recovery_failure(state, result) do
+    if TransferDelivery.retryable?(result) and state.recovery.attempts < 20 do
+      token = make_ref()
+      delay = min(50 * (state.recovery.attempts + 1), 500)
+      timer = Process.send_after(self(), {:retry_recovery, state.recovery.id, token}, delay)
+
+      recovery = %{
+        state.recovery
+        | stage: :retry,
+          attempts: state.recovery.attempts + 1,
+          retry_timer: timer,
+          retry_token: token,
+          job: nil,
+          ref: nil
+      }
+
+      %{state | recovery: recovery}
+    else
+      reject(
+        state,
+        "Inventory recovery could not complete; please retry after the server is repaired"
+      )
+    end
+  end
+
   defp handle_packet(%{phase: :handshake} = state, 0, payload) do
     {version, payload} = Wire.take_varint(payload)
     {_host, payload} = Wire.take_string(payload, 255)
@@ -335,14 +463,10 @@ defmodule Valimc.Connection do
       {:error, reason} -> reject(state, reason)
     end
 
-    {store, fence, player, inventory} =
+    {store, fence, player, inventory, pending} =
       case PlayerStore.open(player.uuid) do
         {:ok, pid, nil, fence} ->
-          {pid, fence, player, state.inventory}
-
-        {:ok, pid, %{outbox: outbox} = snapshot, fence} when outbox != nil ->
-          {:error, :transfer_pending} = PlayerStore.close(pid, fence, snapshot)
-          reject(state, "Pending item transfer needs recovery; please retry later")
+          {pid, fence, player, state.inventory, nil}
 
         {:ok, pid, snapshot, fence} ->
           inventory = %{
@@ -350,7 +474,10 @@ defmodule Valimc.Connection do
             | infinite_materials: state.inventory.infinite_materials
           }
 
-          {pid, fence, Map.merge(player, snapshot.pose), inventory}
+          pending =
+            if snapshot.outbox != nil, do: Map.take(snapshot, [:outbox, :transfer_sequence])
+
+          {pid, fence, Map.merge(player, snapshot.pose), inventory, pending}
 
         {:error, reason} ->
           require Logger
@@ -360,32 +487,34 @@ defmodule Valimc.Connection do
 
     Players.update(self(), player)
 
-    threshold = Valimc.config(:compression_threshold)
-
-    if threshold != nil,
-      do:
-        send_packets(state, [Packets.packet("login_compression", Wire.varint(threshold), :login)])
-
     state = %{
       state
-      | threshold: threshold,
-        player: player,
+      | player: player,
         player_store: store,
         store_fence: fence,
         inventory: inventory,
-        store_monitor: Process.monitor(store),
-        step: :ack
+        store_monitor: Process.monitor(store)
     }
 
-    send_packets(state, [
-      Packets.packet(
-        "login_finished",
-        [player.uuid, Wire.string(name), <<0>>, :crypto.strong_rand_bytes(16)],
-        :login
-      )
-    ])
+    if pending do
+      id = make_ref()
 
-    state
+      recovery = %{
+        id: id,
+        intent: pending,
+        stage: :delivery,
+        job: nil,
+        ref: nil,
+        retry_timer: nil,
+        retry_token: nil,
+        attempts: 0,
+        timer: Process.send_after(self(), {:recovery_deadline, id}, 10_000)
+      }
+
+      deliver_recovery(%{state | step: :recover, recovery: recovery})
+    else
+      finish_login(state)
+    end
   end
 
   defp handle_packet(%{phase: :login, step: :ack} = state, 3, <<>>) do
@@ -951,6 +1080,14 @@ defmodule Valimc.Connection do
   @impl true
   def terminate(_reason, state) do
     :gen_tcp.close(state.socket)
+
+    if state.recovery do
+      Process.cancel_timer(state.recovery.timer)
+      if state.recovery.retry_timer, do: Process.cancel_timer(state.recovery.retry_timer)
+
+      if state.recovery.job && Process.whereis(Valimc.TransferWorkers) != nil,
+        do: Task.Supervisor.terminate_child(Valimc.TransferWorkers, state.recovery.job.pid)
+    end
 
     if state.player_store && state.phase == :play do
       # Read the latest owner publication for movement accepted before a failure.

@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerOutboxTest do
   use ExUnit.Case, async: false
   alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, PlayerTransfers, World}
-  alias Valimc.Protocol.{Data, ItemStack, Wire}
+  alias Valimc.Protocol.ItemStack
   alias Valimc.World.Region
   alias Valimc.TestClient, as: Client
   import ExUnit.CaptureLog
@@ -324,7 +324,7 @@ defmodule Valimc.PlayerOutboxTest do
     assert saved(ctx) == {:ok, pending}
   end
 
-  test "pending login rejects without publishing inventory or overwriting its recoverable file",
+  test "pending login automatically delivers and clears its source before inventory publication",
        ctx do
     name = "Outbox" <> Integer.to_string(System.unique_integer([:positive]))
     uuid = Valimc.Connection.offline_uuid(name)
@@ -333,21 +333,16 @@ defmodule Valimc.PlayerOutboxTest do
     path = PlayerStore.path(ctx.base, uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
-    client = Client.connect()
-
-    Client.send_packet(client, :handshake, "intention", [
-      Wire.varint(777),
-      Wire.string("localhost"),
-      <<25565::16, 2>>
-    ])
-
-    Client.send_packet(client, :login, "hello", [Wire.string(name), <<0::128>>])
-    {id, message, _} = Client.read(client)
-    assert id == Data.id(:login, :clientbound, "login_disconnect")
-    assert :binary.match(message, "Pending item transfer needs recovery") != :nomatch
-    assert File.read!(path) == bytes and Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == []
-    assert not Enum.any?(Valimc.Players.all(), &(&1.name == name))
+    {^uuid, client} = Client.login(name)
+    client = Client.load_world(client)
+    assert Enum.at(client.inventory.items, 36) == ItemStack.new("stone", 4)
+    assert {:ok, recovered} = PlayerSnapshot.decode(File.read!(path), uuid)
+    assert recovered.outbox == nil and recovered.transfer_sequence == 1
+    assert map_size(World.item_snapshot(ctx.key)) == 1
+    player = Enum.find(Valimc.Players.all(), &(&1.name == name))
+    monitor = Process.monitor(player.pid)
     Client.close(client)
+    assert_receive {:DOWN, ^monitor, :process, _, :normal}, 1000
     assert Process.alive?(Process.whereis(Valimc.Listener))
   end
 

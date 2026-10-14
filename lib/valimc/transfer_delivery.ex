@@ -1,0 +1,57 @@
+defmodule Valimc.TransferDelivery do
+  @moduledoc "Bounded destination I/O jobs; source inventory/leases remain with their owners."
+  alias Valimc.World
+  alias Valimc.World.Region
+
+  def start(owner, token, uuid, intent) do
+    case Task.Supervisor.start_child(Valimc.TransferWorkers, fn ->
+           result = deliver(uuid, intent)
+           send(owner, {:transfer_delivered, self(), token, result})
+         end) do
+      {:ok, worker} -> {:ok, %{pid: worker, monitor: Process.monitor(worker), token: token}}
+      {:error, :max_children} -> {:error, :transfer_workers_busy}
+      {:error, _} -> {:error, :region_restarting}
+    end
+  end
+
+  def retryable?({:error, reason}),
+    do:
+      reason in [
+        :transfer_workers_busy,
+        :item_workers_busy,
+        :item_storage_busy,
+        :region_restarting,
+        :stale_region,
+        :item_commit_uncertain,
+        :max_children,
+        :item_count_limit,
+        :item_byte_limit,
+        :transfer_source_limit,
+        :transfer_destination_unavailable,
+        :transfer_not_applied
+      ]
+
+  def retryable?(_), do: false
+
+  defp deliver(uuid, %{transfer_sequence: sequence, outbox: %{key: key, records: records}}) do
+    request = %{source: uuid, sequence: sequence, records: records}
+
+    with {:ok, owner} <- World.item_owner(key),
+         :ok <- persistent_destination(owner, uuid) do
+      Region.apply_item_transfer(owner, request)
+    end
+  rescue
+    _ -> {:error, :invalid_transfer}
+  catch
+    # The region may commit before the job sees its reply. Retry only the pinned intent.
+    :exit, _ -> {:error, :region_restarting}
+  end
+
+  defp persistent_destination(owner, uuid) do
+    case Region.item_transfer_receipt(owner, uuid) do
+      {:ok, _} -> :ok
+      {:error, :missing_transfer_receipt} -> :ok
+      error -> error
+    end
+  end
+end
