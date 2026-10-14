@@ -23,6 +23,24 @@ defmodule Valimc.Physics.BlockShapes do
             reversed |> Enum.reverse() |> List.flatten() |> List.to_tuple()
           end)
 
+  @position_shapes @facts["position_shapes"]
+                   |> Enum.map(&Valimc.Physics.Shape.from_facts!/1)
+                   |> List.to_tuple()
+  @position_states Map.new(@facts["position_states"], fn [id, shape, limit] ->
+                     unless is_integer(id) and id in 0..(tuple_size(@states) - 1) and
+                              elem(@states, id) in [
+                                "minecraft:bamboo",
+                                "minecraft:pointed_dripstone",
+                                "minecraft:sulfur_spike"
+                              ] and is_integer(shape) and
+                              shape in 0..(tuple_size(@position_shapes) - 1) and
+                              is_number(limit) and limit > 0 and limit <= 0.25,
+                            do: raise("Invalid position-dependent shape")
+
+                     {id, {shape, limit}}
+                   end)
+  unless map_size(@position_states) == 52, do: raise("Incomplete position-dependent catalog")
+
   def state_count, do: tuple_size(@states)
   def shape_count, do: tuple_size(@shapes)
   def grids, do: @shapes
@@ -36,4 +54,21 @@ defmodule Valimc.Physics.BlockShapes do
   end
 
   def fetch(_), do: {:error, :unknown_block_state}
+
+  # Shapes are block-local, including native position offsets. Translate to world
+  # coordinates only after the caller has obtained authoritative block state.
+  def fetch(id, position) do
+    if Valimc.Physics.BlockOffset.valid_position?(position) do
+      case {fetch(id), Map.get(@position_states, id)} do
+        {{:context_required, _}, {index, limit}} ->
+          offset = Valimc.Physics.BlockOffset.horizontal(position, limit)
+          {:ok, Valimc.Physics.Shape.move(elem(@position_shapes, index), offset)}
+
+        {result, _} ->
+          result
+      end
+    else
+      {:error, :invalid_position}
+    end
+  end
 end

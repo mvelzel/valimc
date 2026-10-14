@@ -62,7 +62,8 @@ The server runtime needs no JVM. Our Java 25+ development oracle checks actual
 Mojang packet codecs and network registry/tag dependency loading. This is valuable
 independent evidence, but cannot establish rendering, controls or survival parity.
 Collision checks regenerate cached geometry and compare native voxel clipping;
-actual contact fixtures and the limits of that evidence are in [VMC-014a](tickets/VMC-014a.md).
+actual contact fixtures and evidence limits are in [VMC-014a](tickets/VMC-014a.md)
+and [VMC-014b1](tickets/VMC-014b1.md).
 Item checks generate nine stack fixtures with Mojang's codecs, decode and
 cross-convert them in Elixir, then ask Mojang to decode the resulting bytes and
 compare semantic equality in both ordinary and delimited formats. A focused

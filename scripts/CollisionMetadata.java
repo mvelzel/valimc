@@ -38,11 +38,26 @@ public class CollisionMetadata {
     SharedConstants.tryDetectVersion();Bootstrap.bootStrap();
     var cacheField=BlockBehaviour.BlockStateBase.class.getDeclaredField("cache");cacheField.setAccessible(true);
     var shapes=new JsonArray();var shapeIds=new LinkedHashMap<String,Integer>();var runs=new JsonArray();
+    var positionShapes=new JsonArray();var positionIds=new LinkedHashMap<String,Integer>();var positionStates=new JsonArray();
+    var positionNames=Set.of("minecraft:bamboo","minecraft:pointed_dripstone","minecraft:sulfur_spike");
+    var maxOffset=BlockBehaviour.class.getDeclaredMethod("getMaxHorizontalOffset");maxOffset.setAccessible(true);
     JsonElement previous=null;int runStart=0,runLength=0,dynamic=0,states=0,maxCells=0,maxBoxes=0;
     for(var state:Block.BLOCK_STATE_REGISTRY) {
       int id=Block.getId(state);if(id!=states++)throw new AssertionError("Non-contiguous block state registry");
       var cache=cacheField.get(state);JsonElement value;
-      if(cache==null) {value=new JsonPrimitive(BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());dynamic++;}
+      if(cache==null) {
+        String blockName=BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+        value=new JsonPrimitive(blockName);dynamic++;
+        if(positionNames.contains(blockName)) {
+          var origin=net.minecraft.core.BlockPos.ZERO;var offset=state.getOffset(origin);
+          if(offset.y!=0.0)throw new AssertionError("Unexpected vertical offset");
+          var base=state.getCollisionShape(net.minecraft.world.level.EmptyBlockGetter.INSTANCE,origin).move(-offset.x,-offset.y,-offset.z);
+          var fact=geometry(base);String key=gson.toJson(fact);Integer index=positionIds.get(key);
+          if(index==null){index=positionShapes.size();positionIds.put(key,index);positionShapes.add(fact);}
+          var entry=new JsonArray();entry.add(id);entry.add(index);entry.add(((Float)maxOffset.invoke(state.getBlock())).doubleValue());
+          positionStates.add(entry);
+        }
+      }
       else {
         var f=cache.getClass().getDeclaredField("collisionShape");f.setAccessible(true);
         var shape=geometry((VoxelShape)f.get(cache));String key=gson.toJson(shape);
@@ -59,7 +74,10 @@ public class CollisionMetadata {
     var result=new JsonObject();result.addProperty("version","26.3");result.addProperty("data_version",5023);
     result.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
     result.addProperty("state_count",states);result.add("runs",runs);result.add("shapes",shapes);
+    if(positionStates.size()!=52)throw new AssertionError("Wrong position-only state coverage");
+    result.add("position_shapes",positionShapes);result.add("position_states",positionStates);
     Files.createDirectories(Path.of(args[0]).getParent());Files.writeString(Path.of(args[0]),gson.toJson(result)+"\n");
     System.out.println("Cached collision facts: "+states+" states, "+dynamic+" contextual states, "+shapes.size()+" grids, "+runs.size()+" runs; max "+maxCells+" cells / "+maxBoxes+" boxes.");
+    System.out.println("Position-only collision facts: "+positionStates.size()+" states / "+positionShapes.size()+" base grids.");
   }
 }

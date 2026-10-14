@@ -11,7 +11,10 @@ java_home = find_java_home()
 tools = root / 'research/java-tools'
 tools.mkdir(exist_ok=True)
 name = sys.argv[1]
-compiled = subprocess.run([java_home + '/bin/javac', '-cp', classpath, '-d', str(tools), str(root / 'scripts' / (name + '.java'))])
+sources = [str(root / 'scripts' / (name + '.java'))]
+if name == 'PositionCollisionOracle':
+    sources.append(str(root / 'scripts' / 'CollisionMetadata.java'))
+compiled = subprocess.run([java_home + '/bin/javac', '-cp', classpath, '-d', str(tools), *sources])
 if compiled.returncode:
     sys.exit(compiled.returncode)
 sys.exit(subprocess.run([java_home + '/bin/java', '-cp', str(tools) + os.pathsep + classpath, name, *sys.argv[2:]]).returncode)

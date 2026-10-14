@@ -10,6 +10,9 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
         raise RuntimeError('Pinned cached collision geometry differs')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'CollisionOracle', collision_facts, collision_cases], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_collisions.exs', collision_cases], cwd=root, check=True)
+    position_cases = str(pathlib.Path(world) / 'position-collisions.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'PositionCollisionOracle', collision_facts, position_cases], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_position_collisions.exs', position_cases], cwd=root, check=True)
     attribute_facts = str(pathlib.Path(world) / 'attributes.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'AttributeMetadata', attribute_facts], cwd=root, check=True)
     if json.loads(pathlib.Path(attribute_facts).read_text()) != json.loads((root/'priv/protocol/attributes.json').read_text()):
