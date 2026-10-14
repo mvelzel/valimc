@@ -1,5 +1,6 @@
 import net.minecraft.SharedConstants;
 import net.minecraft.server.Bootstrap;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.player.Abilities;
@@ -33,6 +34,19 @@ public class InventoryBehaviorOracle {
   private static Player player;
   private static final java.util.List<ItemStack> dropped = new java.util.ArrayList<>();
 
+  // Constructor-free server player for the actual menu-disconnect branch only.
+  // No world/server runs; capture requested effects, never pretend to simulate them.
+  private static final class DisconnectedPlayer extends ServerPlayer {
+    private DisconnectedPlayer() { super(null, null, null, null); }
+    public boolean hasDisconnected() { return true; }
+    public ItemEntity drop(ItemStack stack, boolean random, Prediction prediction) {
+      if (random || prediction != Prediction.SERVER_ONLY)
+        throw new AssertionError("Wrong disconnect drop prediction/scatter");
+      if (!stack.isEmpty()) dropped.add(stack.copy());
+      return null;
+    }
+  }
+
   private static void expectInventory(Inventory inventory, int... counts) {
     for (int i = 0; i < counts.length; i += 2)
       if (inventory.getItem(counts[i]).getCount() != counts[i + 1])
@@ -49,6 +63,7 @@ public class InventoryBehaviorOracle {
     public boolean canTakeItemForPickAll(ItemStack cursor, Slot slot) { return slot.index != 0; }
     void stone(int slot, int count) { contents.setItem(slot, new ItemStack(Items.STONE, count)); }
     void collect(int trigger, int direction) { clicked(trigger, direction, ContainerInput.PICKUP_ALL, player); }
+    void clearGrid(Player owner, SimpleContainer grid) { clearContainer(owner, grid); }
     void expect(int cursor, int... slotCounts) {
       if (getCarried().getCount() != cursor) throw new AssertionError("Wrong cursor count");
       for (int i = 0; i < slotCounts.length; i += 2)
@@ -202,6 +217,35 @@ public class InventoryBehaviorOracle {
         throw new AssertionError("Partial return changed full storage");
     }
     System.out.println("PASS: Mojang 26.3 ordered cursor/grid return sequence: partial merge and five exact overflow stacks in both permission modes; effects captured without entity simulation.");
+
+    for (boolean infinite : new boolean[]{false, true}) {
+      var disconnected = (DisconnectedPlayer)((Unsafe)field.get(null)).allocateInstance(DisconnectedPlayer.class);
+      var disconnectedAbilities = new Abilities();
+      disconnectedAbilities.instabuild = infinite;
+      abilitiesField.set(disconnected, disconnectedAbilities);
+      var owned = new Inventory(disconnected, new EntityEquipment());
+      var inventoryField = Player.class.getDeclaredField("inventory");
+      inventoryField.setAccessible(true);
+      inventoryField.set(disconnected, owned);
+      owned.setSelectedSlot(2);
+      owned.setItem(2, shiny.copyWithCount(63));
+      owned.setItem(40, new ItemStack(Items.EGG,3));
+      var whole = new ItemStack[]{shiny.copyWithCount(10), new ItemStack(Items.EGG,3),
+        new ItemStack(Items.DIRT,4), sword.copy(), new ItemStack(Items.DIAMOND)};
+      var grid = new SimpleContainer(4);
+      for (int i=0; i<4; i++) grid.setItem(i,whole[i+1].copy());
+      menu = new Menu(); menu.setCarried(whole[0].copy()); dropped.clear();
+      menu.removed(disconnected);
+      menu.clearGrid(disconnected,grid);
+      if (!menu.getCarried().isEmpty() || !grid.isEmpty() || dropped.size()!=5)
+        throw new AssertionError("Disconnected menu was not completely disposed");
+      for (int i=0; i<5; i++) if (!ItemStack.matches(dropped.get(i),whole[i]))
+        throw new AssertionError("Wrong whole disconnected stack/patch/order at " + i);
+      expectInventory(owned,2,63,40,3);
+      for (int i=0; i<36; i++) if (i!=2 && !owned.getItem(i).isEmpty())
+        throw new AssertionError("Disconnect merged into free storage");
+    }
+    System.out.println("PASS: Mojang 26.3 disconnected menu removal/clearContainer: cursor then four whole grid stacks, unchanged free storage/offhand and exact patches in both permission modes; requested effects only.");
 
     for (boolean infinite : new boolean[]{false, true}) {
       abilities.instabuild = infinite;

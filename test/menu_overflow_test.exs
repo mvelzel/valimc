@@ -41,10 +41,13 @@ defmodule Valimc.MenuOverflowTest do
 
     original = %Inventory{slots: slots, selected: 2, carried: %{stone | count: 10}}
     {:ok, after_inventory, drops} = Inventory.close(original)
+    # Transient menu contents belong to this live session; login now cleans orphans.
+    seed_inventory = %{original | slots: Map.drop(original.slots, [1, 2, 3, 4]), carried: nil}
+    {:ok, seed_bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(pose, seed_inventory))
     {:ok, bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(pose, original))
     path = PlayerStore.path(base, uuid)
     File.mkdir_p!(Path.dirname(path))
-    File.write!(path, bytes)
+    File.write!(path, seed_bytes)
 
     on_exit(fn ->
       for {pid, p} <- :ets.tab2list(Players),
@@ -71,14 +74,27 @@ defmodule Valimc.MenuOverflowTest do
       original: original,
       after_inventory: after_inventory,
       drops: drops,
-      bytes: bytes
+      bytes: bytes,
+      seed_bytes: seed_bytes
     }
   end
 
-  defp login(ctx) do
+  defp login(ctx, seed \\ false) do
+    if seed, do: File.write!(ctx.path, ctx.seed_bytes)
     {uuid, client} = Client.login(ctx.name)
     assert uuid == ctx.uuid
-    Client.load_world(client)
+    client = Client.load_world(client)
+
+    if seed do
+      {pid, state} = await_state(ctx, &(&1.phase == :play))
+      inventory = %{ctx.original | infinite_materials: state.inventory.infinite_materials}
+      :sys.replace_state(pid, &%{&1 | inventory: inventory})
+      # This is administrative setup through the trusted leased owner, not a click.
+      send(pid, :save_player)
+      await_state(ctx, &(&1.save_ref == nil && saved(ctx).inventory.carried == inventory.carried))
+    end
+
+    client
   end
 
   defp await_state(ctx, predicate, attempts \\ 1000) do
@@ -95,7 +111,9 @@ defmodule Valimc.MenuOverflowTest do
   end
 
   defp departed(ctx, attempts \\ 1000) do
-    if Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) != [] or
+    if Enum.any?(Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid), fn {_, v} ->
+         v != :closing
+       end) or
          Enum.any?(:ets.tab2list(Players), fn {_, p} -> p.uuid == ctx.uuid end) do
       assert attempts > 0
       Process.sleep(2)
@@ -137,7 +155,7 @@ defmodule Valimc.MenuOverflowTest do
 
   test "partial return and five exact overflow stacks commit once and survive reconnect/region reload",
        ctx do
-    client = login(ctx)
+    client = login(ctx, true)
     close_menu(client)
     {_, state} = completed(ctx)
     verify_return(ctx, state.inventory)
@@ -165,7 +183,7 @@ defmodule Valimc.MenuOverflowTest do
 
   test "stalled source does not publish partial merges and gates repeat close/click/swap while movement stays live",
        ctx do
-    client = login(ctx)
+    client = login(ctx, true)
     {pid, state} = await_state(ctx, &(&1.recovery == nil))
     :sys.suspend(state.player_store)
 
@@ -220,7 +238,7 @@ defmodule Valimc.MenuOverflowTest do
 
   test "destination stalls expose no partial batch; disconnect recovery delivers the same five UUIDs",
        ctx do
-    client = login(ctx)
+    client = login(ctx, true)
     {:ok, {region, _}} = World.item_owner(ctx.key)
     writer = :sys.get_state(region).store
     :sys.suspend(writer)
@@ -262,7 +280,7 @@ defmodule Valimc.MenuOverflowTest do
   test "disabled storage and failed source writes cannot publish partial returns or world records",
        ctx do
     for failure <- [:disabled, :write_failure] do
-      client = login(ctx)
+      client = login(ctx, true)
       {pid, state} = await_state(ctx, &(&1.recovery == nil))
 
       if failure == :disabled do
@@ -297,7 +315,7 @@ defmodule Valimc.MenuOverflowTest do
 
   test "normal-save admission preserves the entire overflow plan until a fresh close retries",
        ctx do
-    client = login(ctx)
+    client = login(ctx, true)
     {pid, state} = await_state(ctx, &(&1.recovery == nil))
     :sys.suspend(state.player_store)
 
@@ -339,7 +357,7 @@ defmodule Valimc.MenuOverflowTest do
     item_path = Store.item_path(ctx.base, ctx.key)
     File.mkdir_p!(Path.dirname(item_path))
     File.write!(item_path, bytes)
-    client = login(ctx)
+    client = login(ctx, true)
     close_menu(client)
 
     {_, pending} =

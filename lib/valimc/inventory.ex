@@ -52,6 +52,13 @@ defmodule Valimc.Inventory do
     with {:ok, next} <- finish(next), do: {:ok, next, Enum.reverse(drops)}
   end
 
+  @doc "Plans disconnected-player cleanup: whole cursor/grid stacks drop without storage merges."
+  def disconnect(inventory) do
+    drops = [inventory.carried | Enum.map(1..4, &get(inventory, &1))] |> Enum.reject(&is_nil/1)
+    next = Enum.reduce(0..4, cancel_drag(inventory), &put(&2, &1, nil))
+    with {:ok, next} <- finish(%{next | carried: nil}), do: {:ok, next, drops}
+  end
+
   defp return_stack(inventory, nil), do: {inventory, nil}
 
   defp return_stack(inventory, stack) do

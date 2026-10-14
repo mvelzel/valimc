@@ -12,6 +12,8 @@ defmodule Valimc.TransferDelivery do
       {:error, :max_children} -> {:error, :transfer_workers_busy}
       {:error, _} -> {:error, :region_restarting}
     end
+  catch
+    :exit, _ -> {:error, :region_restarting}
   end
 
   def retryable?({:error, reason}),

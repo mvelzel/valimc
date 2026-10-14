@@ -11,6 +11,7 @@ defmodule Valimc.Connection do
     Players,
     PlayerSnapshot,
     PlayerStore,
+    PlayerTransfers,
     TransferDelivery,
     World
   }
@@ -193,7 +194,12 @@ defmodule Valimc.Connection do
 
       state = %{state | recovery: recovery, store_fence: fence}
       state = %{state | inventory: recovered_inventory(state, snapshot)}
-      state = if creative_pending?(state), do: state, else: resync_inventory(state)
+
+      state =
+        if recovery.mode == :login or creative_pending?(state),
+          do: state,
+          else: resync_inventory(state)
+
       {:noreply, deliver_recovery(state)}
     end)
   end
@@ -205,6 +211,13 @@ defmodule Valimc.Connection do
     guard_connection(state, fn ->
       if reason == :player_commit_uncertain,
         do: reject(state, "Inventory transfer commit is uncertain; reconnect to recover")
+
+      if recovery.mode == :login,
+        do:
+          reject(
+            state,
+            "Disconnected inventory cleanup could not be prepared; please retry later"
+          )
 
       Process.cancel_timer(recovery.timer)
       send_packets(state, [Packets.chat("Item drop could not be prepared; inventory restored")])
@@ -226,7 +239,7 @@ defmodule Valimc.Connection do
 
       {:noreply,
        if(recovery.mode == :login,
-         do: finish_login(state),
+         do: reconcile_login(state),
          else: state |> drain_creative() |> sync_creative_result()
        )}
     end)
@@ -435,6 +448,35 @@ defmodule Valimc.Connection do
     state
   end
 
+  defp reconcile_login(state) do
+    before = PlayerSnapshot.capture(state.player, state.inventory)
+    {:ok, after_snapshot, key, records} = PlayerTransfers.plan_disconnect(before)
+
+    if records == [] do
+      finish_login(state)
+    else
+      ref = make_ref()
+
+      recovery = %{
+        new_recovery(:login, :prepare, nil)
+        | ref: ref,
+          plan: %{key: key, records: records, inventory: after_snapshot.inventory}
+      }
+
+      PlayerStore.prepare_transfer(
+        state.player_store,
+        state.store_fence,
+        before,
+        after_snapshot,
+        key,
+        records,
+        ref
+      )
+
+      %{state | step: :recover, recovery: recovery}
+    end
+  end
+
   defp deliver_recovery(state) do
     token = make_ref()
 
@@ -600,7 +642,7 @@ defmodule Valimc.Connection do
 
       deliver_recovery(%{state | step: :recover, recovery: recovery})
     else
-      finish_login(state)
+      reconcile_login(state)
     end
   end
 
@@ -1375,7 +1417,7 @@ defmodule Valimc.Connection do
         end
 
       try do
-        PlayerStore.close(
+        PlayerStore.close_session(
           state.player_store,
           state.store_fence,
           PlayerSnapshot.capture(player, state.inventory)

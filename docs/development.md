@@ -114,7 +114,12 @@ reconnect/shutdown recovery, one immutable checkpoint while the writer is stalle
 newer edits at final close and accepted inventory frames preceding malformed input.
 Actual Minecraft checks use keyboard selection/disconnect/rejoin and a full release
 restart; reversible corrupt-save fixtures must be backed up and restored exactly.
-Carried/grid fixture recovery is recorded separately from vanilla menu cleanup.
+Disconnected cursor/grid cleanup now drops whole stacks through the durable
+journal, even with free storage. Tests distinguish raw administrative fixtures
+from live session termination, and old/unclean carried/grid saves are disposed
+before login publishes inventory. Verify offline delivery before reconnect,
+closing-writer takeover, exact pinned UUIDs after recovery and unchanged main/
+offhand contents. Fixtures cannot establish actual mouse pickup/drag behavior.
 
 Source-outbox tests (VMC-019b2) validate conservation, bounded version 3/legacy
 files, monotonically retained sequence, changing writer fences, foreign/stale

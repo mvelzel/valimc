@@ -19,6 +19,36 @@ defmodule Valimc.InventoryCloseTest do
     }
   end
 
+  test "disconnect drops whole cursor/grid stacks in order despite free storage and merge space" do
+    for permission <- [false, true] do
+      sword = %{ItemStack.new("iron_sword") | components: %{"minecraft:damage" => 17}}
+
+      inv = %Inventory{
+        infinite_materials: permission,
+        selected: 2,
+        carried: shiny(10),
+        drag: %{mode: 0, slots: MapSet.new([9])},
+        slots: %{
+          0 => ItemStack.new("gold_ingot"),
+          1 => ItemStack.new("egg", 3),
+          2 => ItemStack.new("dirt", 4),
+          3 => sword,
+          4 => shiny(1),
+          38 => shiny(63),
+          45 => ItemStack.new("egg", 3)
+        }
+      }
+
+      {:ok, returned, []} = Inventory.close(inv)
+      assert returned.slots[38] == shiny(64) and returned.slots[45].count == 6
+      {:ok, next, drops} = Inventory.disconnect(inv)
+      assert drops == [inv.carried | Enum.map(1..4, &inv.slots[&1])]
+      assert next.slots == Map.take(inv.slots, [38, 45])
+      assert next.selected == 2 and next.carried == nil and next.drag == nil
+      assert {:ok, _, []} = Inventory.disconnect(next)
+    end
+  end
+
   test "return merges selected, offhand, then hotbar/main before using empty storage" do
     inv = %{
       Inventory.new(true)

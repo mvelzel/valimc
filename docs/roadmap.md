@@ -28,14 +28,14 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Awaiting sustained client gesture validation | Bounded transactions pass 65 tests/oracle/release and graphical fixture replication; CUA sustained drag input remains pending |
 | [VMC-005b2b](tickets/VMC-005b2b.md) | Done — validated | Two-pass collection; 71 tests, actual Mojang algorithm/TCP, release and CUA double-click/caps/patch/rejection pass |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Awaiting client-generated clone/fill validation | Owner permission and atomic limits pass 77 tests, actual Mojang algorithm/TCP, release and graphical fixture replication; actual creative middle-click uses a different packet path |
-| VMC-005b2d | Partially implemented | Connected close overflow validated; parent pickup gate, item physics and disconnect cleanup remain |
+| VMC-005b2d | Partially implemented | Connected overflow/disconnect cleanup validated; parent pickup gate, item physics and other removal/transfer lifecycle remain |
 | [VMC-005b2d1](tickets/VMC-005b2d1.md) | Awaiting actual mouse-pickup validation | 86 tests, actual Mojang return/TCP, release and actual keyboard close/reopen/overflow retry pass; setup pickup used fixtures after CUA rejected coordinate clicks |
-| VMC-005b2d2 | Partially implemented | Stationary items, durable Q/menu effects and validated close overflow exist; menu mouse gates, physics and disconnect cleanup remain |
+| VMC-005b2d2 | Partially implemented | Stationary items, durable Q/menu effects, close overflow and disconnect disposal exist; menu mouse gates, physics and other removal/transfer lifecycle remain |
 | [VMC-005b2d2a](tickets/VMC-005b2d2a.md) | Done — connected close overflow validated, local | 187 tests, release/oracle and actual close/repeat/reconnect/restart, disabled-source correction and stalled retry pass |
-| VMC-005b2d2b | Next | Durable disconnected/removed-player cursor/grid disposition and recovery |
+| [VMC-005b2d2b](tickets/VMC-005b2d2b.md) | Done — disconnected cleanup validated, local | 216 tests/release/Mojang oracle and actual offline drop, disconnect/rejoin/restart, pending-intent takeover/replay and orphan cleanup pass; other removal/transfer/physics remain |
 | [VMC-018a](tickets/VMC-018a.md) | Done — validated, local | 92 tests, 272 Mojang velocity/25 packet fixtures, release and actual item render/update/remove pass; gameplay ownership remains VMC-005b2d2 |
 | [VMC-018b](tickets/VMC-018b.md) | Done — stationary foundation validated, local | Region CAS/ETS ownership, bounded paced replication, late joins/visibility/owner loss; automated and actual Minecraft render/update/reconnect/remove/failure checks pass |
-| VMC-005c | Partially implemented | Supported preview inventories persist; full components/player state, vanilla disconnect lifecycle and NBT/data fixing remain |
+| VMC-005c | Partially implemented | Supported preview inventories and journaled disconnect cleanup persist; full components/player state, other lifecycles and vanilla NBT/data fixing remain |
 | [VMC-005c1](tickets/VMC-005c1.md) | Done — supported preview recovery validated, local | 111 tests, release/oracle and actual inventory/selection reconnect/restart, carried/grid recovery and corrupt-save rejection/repair pass |
 | [VMC-019a](tickets/VMC-019a.md) | Done — stationary record recovery validated, local | 122 tests, release/oracle and actual region/full restart recovery plus durable removal pass; matching writer acknowledgment precedes publication/reply |
 | VMC-019b | In progress foundations | Durable player outbox/region receipts and crash/retry reconciliation before inventory consumption; physics/cross-region simulation remain required |

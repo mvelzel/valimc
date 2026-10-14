@@ -1,6 +1,7 @@
 defmodule Valimc.InventoryPersistenceTest do
   use ExUnit.Case, async: false
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players}
+  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players, World}
+  alias Valimc.World.Items
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
   import ExUnit.CaptureLog
@@ -75,8 +76,23 @@ defmodule Valimc.InventoryPersistenceTest do
     departed(uuid)
   end
 
-  test "accepted inventory, cursor and selection survive reconnect/shutdown; drag and authority reset" do
+  test "owned storage survives reconnect/shutdown while cursor/grid drop once; drag and authority reset",
+       %{base: base} do
     username = name()
+    uuid = Valimc.Connection.offline_uuid(username)
+    key = {60_000 + rem(System.unique_integer([:positive]), 10_000), 400}
+    {rx, rz} = key
+    pose = %{x: rx * 128 + 64.5, y: 64.0, z: rz * 128 + 64.5, yaw: 0.0, pitch: 0.0}
+    {:ok, bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(pose, Inventory.new()))
+    path = PlayerStore.path(base, uuid)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, bytes)
+
+    on_exit(fn ->
+      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+    end)
+
     {uuid, client} = login(username)
 
     stone = %{
@@ -105,12 +121,22 @@ defmodule Valimc.InventoryPersistenceTest do
     assert original.drag != nil and original.carried == stone
     close(client, username, uuid)
 
+    expected = %{original | slots: Map.drop(original.slots, [1]), carried: nil}
+    {:ok, {region, _}} = World.item_owner(key)
+    records = Items.records(:sys.get_state(region).items)
+
+    assert Enum.map(records, & &1.stack) |> MapSet.new() ==
+             MapSet.new([stone, ItemStack.new("egg", 3)])
+
+    {:ok, saved} = PlayerSnapshot.decode(File.read!(path), uuid)
+    assert saved.transfer_sequence == 1 and saved.outbox == nil
+
     {^uuid, second} = login(username)
     state = :sys.get_state(player(username).pid)
-    assert state.inventory.slots == original.slots and state.inventory.carried == stone
+    assert state.inventory.slots == expected.slots and state.inventory.carried == nil
     assert state.inventory.selected == 2 and second.selected == 2
-    assert second.inventory.carried == stone
-    assert second.inventory.items == Inventory.contents(original)
+    assert second.inventory.carried == nil
+    assert second.inventory.items == Inventory.contents(expected)
     assert state.inventory.drag == nil and state.inventory.state_id == 0
     assert state.inventory.infinite_materials
     pid = player(username).pid
@@ -119,8 +145,10 @@ defmodule Valimc.InventoryPersistenceTest do
     departed(uuid)
     {^uuid, third} = login(username)
 
-    assert third.inventory.items == Inventory.contents(original) and
-             third.inventory.carried == stone
+    assert third.inventory.items == Inventory.contents(expected) and
+             third.inventory.carried == nil
+
+    assert Items.records(:sys.get_state(region).items) == records
 
     close(third, username, uuid)
     other = name()

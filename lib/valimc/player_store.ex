@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerStore do
   use GenServer, restart: :temporary, shutdown: 15_000
   require Logger
-  alias Valimc.{Metrics, PlayerSnapshot, PlayerTransfers, World}
+  alias Valimc.{Metrics, PlayerSnapshot, PlayerTransfers, TransferDelivery, World}
   alias Valimc.World.Region
 
   @moduledoc "A leased per-session player-state writer; serialization/I/O are outside socket owners."
@@ -21,8 +21,21 @@ defmodule Valimc.PlayerStore do
           {:error, reason} -> {:error, reason}
         end
 
-      {:error, {:already_started, _}} ->
-        {:error, :session_closing}
+      {:error, {:already_started, pid}} ->
+        case Registry.lookup(Valimc.PlayerStoreRegistry, uuid) do
+          [{^pid, :closing}] ->
+            try do
+              case GenServer.call(pid, :load) do
+                {:ok, snapshot, fence} -> {:ok, pid, snapshot, fence}
+                error -> error
+              end
+            catch
+              :exit, _ -> {:error, :session_closing}
+            end
+
+          _ ->
+            {:error, :session_closing}
+        end
 
       {:error, reason} ->
         {:error, reason}
@@ -43,6 +56,10 @@ defmodule Valimc.PlayerStore do
     do: GenServer.cast(pid, {:complete, self(), fence, ref})
 
   def close(pid, fence, snapshot), do: GenServer.call(pid, {:close, fence, snapshot}, 5000)
+
+  def close_session(pid, fence, snapshot),
+    do: GenServer.call(pid, {:close_session, fence, snapshot}, 5000)
+
   def pose(player), do: Map.take(player, @keys)
 
   def valid_pose?(pose) when is_map(pose) do
@@ -72,11 +89,33 @@ defmodule Valimc.PlayerStore do
        path: path(Valimc.config(:world_path), uuid),
        loaded: false,
        snapshot: nil,
-       fence: make_ref()
+       fence: make_ref(),
+       closing: nil
      }}
   end
 
   @impl true
+  def handle_call(:load, {owner, _}, %{closing: closing} = state) when closing != nil do
+    # A destination may already have committed when its canceled job loses the reply.
+    # The new session replays the same journal, with a new source lease.
+    cancel_closing(closing)
+    Process.demonitor(state.monitor, [:flush])
+    Registry.update_value(Valimc.PlayerStoreRegistry, state.uuid, fn _ -> nil end)
+    {:ok, bytes} = PlayerSnapshot.encode(state.uuid, state.snapshot)
+    {:ok, snapshot} = PlayerSnapshot.decode(bytes, state.uuid)
+
+    state = %{
+      state
+      | owner: owner,
+        monitor: Process.monitor(owner),
+        fence: make_ref(),
+        closing: nil,
+        snapshot: snapshot
+    }
+
+    {:reply, {:ok, snapshot, state.fence}, state}
+  end
+
   def handle_call(:load, {owner, _}, %{owner: owner, loaded: false} = state) do
     case load(state.path, state.uuid) do
       {:ok, snapshot} ->
@@ -95,6 +134,34 @@ defmodule Valimc.PlayerStore do
       with {:ok, next} <- checkpoint_snapshot(state, fence, snapshot), do: save(state, next)
 
     {:stop, :normal, result, state}
+  end
+
+  def handle_call(
+        {:close_session, fence, snapshot},
+        {owner, _},
+        %{owner: owner, closing: nil} = state
+      ) do
+    # Preserve the newest accepted raw contents first. A failed cleanup prepare must
+    # leave a recoverable source rather than only an older periodic checkpoint.
+    next =
+      if fence == state.fence and not pending?(state),
+        do: Map.merge(snapshot, %{transfer_sequence: sequence(state), outbox: nil}),
+        else: state.snapshot
+
+    next = if next && valid_pose?(snapshot.pose), do: %{next | pose: snapshot.pose}, else: next
+
+    with :ok <- save(state, next),
+         {:ok, state} <- prepare_closing(%{state | snapshot: next}) do
+      if pending?(state) do
+        Registry.update_value(Valimc.PlayerStoreRegistry, state.uuid, fn _ -> :closing end)
+        send(self(), {:deliver_close, state.closing.id})
+        {:reply, :ok, state}
+      else
+        {:stop, :normal, :ok, state}
+      end
+    else
+      {:error, _} = error -> {:stop, :normal, error, state}
+    end
   end
 
   def handle_call(_, _from, state), do: {:reply, {:error, :not_owner}, state}
@@ -143,8 +210,161 @@ defmodule Valimc.PlayerStore do
   def handle_cast(_, state), do: {:noreply, state}
 
   @impl true
+  def handle_info(
+        {:deliver_close, id},
+        %{closing: %{id: id, job: nil, retry_timer: nil} = closing} = state
+      ) do
+    case TransferDelivery.start(self(), make_ref(), state.uuid, state.snapshot) do
+      {:ok, job} -> {:noreply, %{state | closing: %{closing | job: job}}}
+      error -> closing_failure(state, error)
+    end
+  end
+
+  def handle_info(
+        {:transfer_delivered, worker, token, result},
+        %{closing: %{job: %{pid: worker, token: token} = job}} = state
+      ) do
+    Process.demonitor(job.monitor, [:flush])
+    state = %{state | closing: %{state.closing | job: nil}}
+
+    if result in [{:ok, :applied}, {:ok, :already_applied}] do
+      with :ok <- destination_proof(state),
+           next = %{state.snapshot | outbox: nil},
+           :ok <- save(state, next) do
+        cancel_closing(state.closing)
+
+        case prepare_closing(%{state | snapshot: next, closing: nil, fence: make_ref()}) do
+          {:ok, %{closing: nil} = state} ->
+            {:stop, :normal, state}
+
+          {:ok, state} ->
+            send(self(), {:deliver_close, state.closing.id})
+            {:noreply, state}
+
+          {:error, reason} ->
+            {:stop, :normal, state |> close_error(reason)}
+        end
+      else
+        error -> closing_failure(state, error)
+      end
+    else
+      closing_failure(state, result)
+    end
+  end
+
+  def handle_info(
+        {:retry_close, id, token},
+        %{closing: %{id: id, retry_token: token} = closing} = state
+      ) do
+    send(self(), {:deliver_close, id})
+    {:noreply, %{state | closing: %{closing | retry_timer: nil, retry_token: nil}}}
+  end
+
+  def handle_info({:close_deadline, id}, %{closing: %{id: id}} = state),
+    do: {:stop, :normal, close_error(state, :transfer_deadline)}
+
+  def handle_info(
+        {:DOWN, ref, :process, worker, _},
+        %{closing: %{job: %{pid: worker, monitor: ref}} = closing} = state
+      ),
+      do: closing_failure(%{state | closing: %{closing | job: nil}}, {:error, :region_restarting})
+
+  def handle_info(
+        {:DOWN, ref, :process, owner, _},
+        %{monitor: ref, owner: owner, closing: closing} = state
+      )
+      when closing != nil,
+      do: {:noreply, state}
+
   def handle_info({:DOWN, ref, :process, owner, _}, %{monitor: ref, owner: owner} = state),
     do: {:stop, :normal, state}
+
+  def handle_info(_, state), do: {:noreply, state}
+
+  @impl true
+  def terminate(_, state), do: cancel_closing(state.closing)
+
+  defp prepare_closing(state) do
+    if pending?(state) do
+      {:ok, start_closing(state)}
+    else
+      with {:ok, after_snapshot, key, records} <- PlayerTransfers.plan_disconnect(state.snapshot) do
+        if records == [] do
+          {:ok, %{state | snapshot: after_snapshot}}
+        else
+          with :ok <- source_guard(state, state.fence),
+               {:ok, next} <-
+                 PlayerTransfers.prepare(
+                   state.uuid,
+                   sequence(state),
+                   state.snapshot,
+                   after_snapshot,
+                   key,
+                   records
+                 ),
+               :ok <- save(state, next),
+               do: {:ok, start_closing(%{state | snapshot: next, fence: make_ref()})}
+        end
+      end
+    end
+  end
+
+  defp start_closing(state) do
+    id = make_ref()
+
+    closing = %{
+      id: id,
+      job: nil,
+      attempts: 0,
+      retry_token: nil,
+      retry_timer: nil,
+      timer: Process.send_after(self(), {:close_deadline, id}, 10_000)
+    }
+
+    %{state | closing: closing}
+  end
+
+  defp closing_failure(state, result) do
+    if TransferDelivery.retryable?(result) and state.closing.attempts < 20 do
+      closing = state.closing
+      token = make_ref()
+      delay = min(50 * (closing.attempts + 1), 500)
+      timer = Process.send_after(self(), {:retry_close, closing.id, token}, delay)
+
+      {:noreply,
+       %{
+         state
+         | closing: %{
+             closing
+             | attempts: closing.attempts + 1,
+               job: nil,
+               retry_token: token,
+               retry_timer: timer
+           }
+       }}
+    else
+      {:stop, :normal, close_error(state, result)}
+    end
+  end
+
+  defp close_error(state, reason) do
+    Logger.warning("Disconnected inventory cleanup remains recoverable: #{inspect(reason)}")
+    state
+  end
+
+  defp cancel_closing(nil), do: :ok
+
+  defp cancel_closing(closing) do
+    Process.cancel_timer(closing.timer)
+    if closing.retry_timer, do: Process.cancel_timer(closing.retry_timer)
+
+    if closing.job do
+      Process.demonitor(closing.job.monitor, [:flush])
+
+      if Process.whereis(Valimc.TransferWorkers),
+        do: Task.Supervisor.terminate_child(Valimc.TransferWorkers, closing.job.pid)
+    end
+  end
 
   defp sequence(state), do: if(state.snapshot, do: state.snapshot.transfer_sequence, else: 0)
   defp pending?(state), do: state.snapshot != nil and state.snapshot.outbox != nil

@@ -60,7 +60,9 @@ defmodule Valimc.KeyboardDropTest do
   end
 
   defp departed(ctx, attempts \\ 1000) do
-    if Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) != [] or
+    if Enum.any?(Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid), fn {_, v} ->
+         v != :closing
+       end) or
          Enum.any?(:ets.tab2list(Players), fn {_, p} -> p.name == ctx.name end) do
       assert attempts > 0
       Process.sleep(2)
@@ -412,7 +414,7 @@ defmodule Valimc.KeyboardDropTest do
     end
   end
 
-  test "cursor delivery interrupted by disconnect retains depleted cursor on automatic login recovery",
+  test "disconnect completes the pending cursor intent then drops its remainder once",
        ctx do
     client = login(ctx)
     menu_click(client, "pickup", 43, 0)
@@ -435,10 +437,10 @@ defmodule Valimc.KeyboardDropTest do
       departed(ctx)
       :sys.resume(writer)
       second = login(ctx)
-      completed(ctx, 1)
-      assert second.inventory.carried == %{ctx.stone | count: 6}
-      assert [record] = records(ctx)
-      assert record.stack == %{ctx.stone | count: 1}
+      completed(ctx, 2)
+      assert second.inventory.carried == nil
+      assert Enum.sort(Enum.map(records(ctx), & &1.stack.count)) == [1, 6]
+      assert Enum.all?(records(ctx), &(&1.stack == %{ctx.stone | count: &1.stack.count}))
       Client.close(second)
       departed(ctx)
     after
