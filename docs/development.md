@@ -181,6 +181,17 @@ inventory plus the one pinned item. Remove/retry must stay removed; cleanup
 retains counters/receipts. This is source/recovery evidence. Actual creative drop
 controls, paired creative slot writes, and tick throttling remain VMC-019b3d2.
 
+VMC-019b3d2 adds connected negative-slot creation and a bounded connection-local
+FIFO for following creative commands. Tests cover paired frame order, throttle,
+count/byte rejection, source/destination stalls, normal checkpoint independence,
+permission revocation and committed-only recovery after disconnect. Mojang's
+actual TickThrottler and official creative packet codecs validate independent
+boundaries. Actual creative-screen Q/whole-stack or outside drop must produce a
+creation request and its separate source-slot update; in-world Q uses a different
+path and cannot pass this gate. Deferred commands are unacknowledged input, not a
+persistent journal. Clean only pinned UUIDs, retain source counters/receipts, and
+record controls that could not be emitted instead of substituting a fixture.
+
 ## Actual Minecraft computer use
 
 The normal macOS game runs as an unbundled `java` process, absent from computer

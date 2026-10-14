@@ -272,3 +272,28 @@ App rebinding/Raise restored idle keyboard routing; the first ineffective input
 batch did not count. This validates internal API creation/recovery; actual creative
 drop controls, paired slot writes and throttle are VMC-019b3d2. Earlier mouse gates
 and stationary item physics/pickup remain outstanding.
+
+VMC-019b3d2, October 14: initial release 04:03:28/join 04:03:41. An offline fixture
+seeded patched stone 7 in storage/hotbar and eggs 3 offhand; actual E hovered Stone
+in creative slot 13. Actual Q changed 7→6 and held Control+Q (250 ms) emptied six.
+Source sequences 13/14, exact records 1/6 and the charged creative counter identify
+the negative-slot path plus independent writes. Empty Q created nothing; E/backward
+movement rendered glint models. Prediction timing was refined to suppress old
+snapshots/intermediate acknowledgments and passed 207 tests/full oracle/release.
+Fixed release 04:11:13 retained those items; a same-sequence slot-7 reseed prepared
+the stall scenario. Its first attempt collided with a periodic checkpoint and
+timed out, with one server final-save error; it is not a pass. Resume preserved
+sequence 14/count 7 and no outbox/new item. An isolated retry temporarily moved the
+next login's periodic save outside the test window, then restored 30 seconds.
+Rejoin 04:14:00/E and two actual Q presses during a seven-second source stall
+predicted five, while the three-second owner read retained seven and queued
+slot 6/pinned create-1/slot 5. Resume completed both once, sequence 16/count 5.
+Actual held Ctrl+Q then emptied five (sequence 17); empty Q again created nothing.
+Five exact UUIDs contain 14 items across separately seeded scenarios. Reconnect
+04:17:57 and full restart 04:18:23/rejoin 04:19:23 retained inventory/records without
+duplicates or reseeding. Removal visibly cleared only those UUIDs. Normal writer
+cleanup retained sequence 17 and receipts 14/17; rejoin 04:21:14/E confirmed original
+empty inventory/pose and creative UI. The 151-byte file/normal save interval remain
+valid. Private client log has no protocol/codec/duplicate-entity/ERROR entries.
+Keyboard creative controls pass; outside mouse input, a GUI throttle-denial burst,
+uncommitted queue persistence and item physics/pickup are not claimed.

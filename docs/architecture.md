@@ -104,9 +104,19 @@ inventory while journaling the authorized creation with the same sequence/outbox
 It has the same persistent-source/pending/fence and receipt-proof guards; there
 is no general conservation bypass. Saved privileges still reset on decode, and
 automatic login recovery delivers the already authorized intent without minting
-again. Actual creative packet ordering/throttling is not integrated yet: a client
-can pair a negative-slot drop with a slot write, which requires its own ordering
-contract rather than the consumed-inventory mutation gate above.
+again. Connected negative-slot packets now use it with a bounded FIFO for paired
+creative commands: at most 160 commands/512 KiB including encoded payload and
+fixed entry costs, 64 executions per callback and one scheduled continuation. The next
+creation starts only after the prior outbox clears. Following slot writes retain
+arrival order; independent writes remain immediate during immutable normal saves.
+The pure connection counter charges 20 below 1480 and lazily decays one per 50 ms
+preview tick, including empty requests. It needs an authoritative simulation tick
+clock when that exists. Queue admission is deferred, unacknowledged input; it is
+not persisted and stops at disconnect. Accepted edits follow existing preview
+checkpoint/final-close durability. Old snapshots/intermediate slot acknowledgments
+are suppressed during queued creative work so accepted client predictions remain
+responsive; the final result publishes when idle. Actual creative Q/held Ctrl+Q,
+stalled bursts and recovery pass. Other mouse gestures remain separate gates.
 
 Login now retains the UUID lease while automatically reconciling a pending
 outbox. Destination calls run in `TransferWorkers`, bounded at four times the
@@ -138,7 +148,7 @@ effects. No-effect plans publish immediately; effectful THROW/outside cursor
 plans enter that same source prepare/delivery/clear path. A carried stack blocks
 slot THROW and active quick-craft consumes an interrupting drop solely to reset
 the gesture. The current normal menu never replenishes a crafting result; recipe
-output loops, creative slot -1 creation and disconnect cleanup
+output loops, actual creative-input validation and disconnect cleanup
 remain separate work. Required actual menu mouse input is still a validation gate.
 
 Connected menu close now routes its overflowing return plan through the same

@@ -59,6 +59,20 @@ public class InventoryBehaviorOracle {
   public static void main(String[] args) throws Exception {
     SharedConstants.tryDetectVersion();
     Bootstrap.bootStrap();
+    var throttle = new net.minecraft.util.TickThrottler(20, 1480);
+    for (int i=0; i<74; i++) {
+      if (!throttle.isUnderThreshold()) throw new AssertionError("Early creative throttle");
+      throttle.increment();
+    }
+    if (throttle.isUnderThreshold()) throw new AssertionError("Accepted threshold 1480");
+    throttle.tick();
+    if (!throttle.isUnderThreshold()) throw new AssertionError("Rejected 1479");
+    throttle.increment();
+    for (int i=0; i<19; i++) throttle.tick();
+    if (throttle.isUnderThreshold()) throw new AssertionError("Accepted 1499 minus 19 ticks");
+    throttle.tick();
+    if (!throttle.isUnderThreshold()) throw new AssertionError("Rejected 1499 minus 20 ticks");
+    System.out.println("PASS: Mojang creative throttle: 74 initial requests, strict 1480, one-tick readmission and 1499 boundary.");
     var lookup = VanillaRegistries.createWorldLookup();
     BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(lookup).forEach(p -> p.apply());
     var field = Unsafe.class.getDeclaredField("theUnsafe");

@@ -418,6 +418,20 @@ public class VanillaOracle implements AutoCloseable {
         new Int2ObjectOpenHashMap<>(), HashedStack.EMPTY));
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.carriedItem().isEmpty());
       System.out.println("PASS: Mojang 26.3 ordinary menu THROW and outside cursor drop codecs, forged predictions, depleted inventory/cursor and exact world stack patches.");
+      var creativeSource = new ItemStack(Items.EGG,4);
+      creativeSource.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE,true);
+      first.send(gameOut,new ServerboundSetCreativeModeSlotPacket(36,creativeSource));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot()==36 && ItemStack.matches(s.getItem(),creativeSource));
+      var creativeDrop = creativeSource.copyWithCount(2);
+      first.send(gameOut,new ServerboundSetCreativeModeSlotPacket(-32768,creativeDrop));
+      first.send(gameOut,new ServerboundSetCreativeModeSlotPacket(36,creativeDrop));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot()==36 && ItemStack.matches(s.getItem(),creativeDrop));
+      second.await(p -> p instanceof ClientboundSetEntityDataPacket d && d.packedItems().stream().anyMatch(v -> v.value() instanceof ItemStack s && ItemStack.matches(s,creativeDrop)));
+      first.send(gameOut,new ServerboundSetCreativeModeSlotPacket(-1,ItemStack.EMPTY));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.items().get(36),creativeDrop));
+      first.send(gameOut,new ServerboundSetCreativeModeSlotPacket(0,creativeSource));
+      first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.items().get(36),creativeDrop));
+      System.out.println("PASS: Mojang 26.3 creative negative-slot creation codecs, independent paired slot write, exact glint item metadata and empty/invalid-slot correction.");
       for (int slot=9; slot<=44; slot++) {
         first.send(gameOut,new ServerboundSetCreativeModeSlotPacket(slot,stone.copyWithCount(64)));
         final int expectedSlot=slot;

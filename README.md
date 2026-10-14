@@ -13,7 +13,7 @@ mix run --no-halt
 
 Connect with a vanilla **Java 26.3** client to `localhost:25565`. The default binds to `127.0.0.1` and uses offline identities. Runtime requires only Elixir/Erlang; there are no Hex dependencies, JVMs, Rust libraries or external services in the server.
 
-Creative player-menu edits preserve item identity/count and twelve scalar component types plus bounded custom NBT across main storage, armor, hotbar and offhand. Other unsupported structured patches restore the previous slot with a message. Inventory snapshots, hotbar selection, hand swapping and ordinary block placement from either hand are synchronized. Basic pickup/split/merge, shift transfer, number-key/offhand swap, quick-craft and double-click collection use authoritative slots; creative clone/fill require owner permission. Connected menu close returns what fits and commits overflow as a durable item batch; automated and actual close/retry/reconnect/restart checks pass. Sustained multi-slot client input remains a validation gate. In-world Q/Ctrl+Q controls use durable inventory transfers into stationary preview items; actual keyboard, stalled-transfer and restart checks pass. Ordinary menu THROW/outside cursor drops pass automated checks and await actual menu input; creative drop paths and crafting interactions still restore state. `/help`, `/stats` and `/spawn` support client validation and Tab completion. Block edits and combined player pose/inventory snapshots are checkpointed every 30 seconds. Player state also saves on disconnect and graceful shutdown; reconnect restores position, view direction, supported inventory contents and selection. Carried/grid items at disconnect are retained as preview recovery state until vanilla disconnect cleanup is implemented.
+Creative player-menu edits preserve item identity/count and twelve scalar component types plus bounded custom NBT across main storage, armor, hotbar and offhand. Other unsupported structured patches restore the previous slot with a message. Inventory snapshots, hotbar selection, hand swapping and ordinary block placement from either hand are synchronized. Basic pickup/split/merge, shift transfer, number-key/offhand swap, quick-craft and double-click collection use authoritative slots; creative clone/fill require owner permission. Connected menu close returns what fits and commits overflow as a durable item batch; automated and actual close/retry/reconnect/restart checks pass. Sustained multi-slot client input remains a validation gate. In-world Q/Ctrl+Q controls use durable inventory transfers into stationary preview items; actual keyboard, stalled-transfer and restart checks pass. Ordinary menu THROW/outside cursor drops pass automated checks and await actual menu input; creative Q/Ctrl+Q preserves ordered paired slot writes with permission/throttle checks; actual keyboard, stalled burst and recovery checks pass; crafting interactions still restore state. `/help`, `/stats` and `/spawn` support client validation and Tab completion. Block edits and combined player pose/inventory snapshots are checkpointed every 30 seconds. Player state also saves on disconnect and graceful shutdown; reconnect restores position, view direction, supported inventory contents and selection. Carried/grid items at disconnect are retained as preview recovery state until vanilla disconnect cleanup is implemented.
 
 ```sh
 VALIMC_PORT=25566 VALIMC_WORLD=/tmp/valimc-world mix run --no-halt
@@ -87,13 +87,14 @@ in-flight transfer, inventory mutation corrections and live movement/chat. Actua
 keyboard controls, stalled corrections and reconnect/restart pass. Ordinary menu
 THROW/outside cursor effects now use that path; their required GUI scenarios remain
 pending. Connected close overflow now commits partial return plus up to five
-remainders in one batch; actual close/retry/reconnect/restart checks pass. Creative drops and disconnect
-cleanup remain unimplemented.
+remainders in one batch; actual close/retry/reconnect/restart checks pass. Disconnected menu
+cleanup remains outstanding.
 
 A separate internal creative-creation source API retains inventory and journals
 one authorized new stack through the same durable recovery. Automated and actual
-client API recovery/reconnect/restart/removal checks pass. Creative drop packet ordering
-and throttling remain unimplemented.
+client API recovery/reconnect/restart/removal checks pass. Connected creative drops now preserve bounded paired command order with permission
+and vanilla throttle checks; automated/oracle and actual Q/held Ctrl+Q, stalled
+burst/reconnect/restart checks pass. Earlier mouse gesture gates remain pending.
 
 Missing: online authentication/encryption, Bedrock, survival rules, collision/anti-cheat, complete inventories and item components, crafting, combat, hunger, mobs/AI, redstone, fluids, block entities, vanilla terrain/structures, real light propagation, Anvil world import/export, complete player state persistence, plugin APIs and Java plugin compatibility. Known but unimplemented play packets are ignored; this is not full protocol parity. Default-item placement does not implement directional or functional block behavior.
 

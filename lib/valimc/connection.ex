@@ -3,9 +3,23 @@ defmodule Valimc.Connection do
 
   @moduledoc "A socket-owning process per player, including their protocol and connection-local state."
   alias Valimc.Protocol.{Data, InventoryClick, ItemStack, ItemTypes, Packets, Wire}
-  alias Valimc.{Inventory, Metrics, Players, PlayerSnapshot, PlayerStore, TransferDelivery, World}
+
+  alias Valimc.{
+    CreativeInput,
+    Inventory,
+    Metrics,
+    Players,
+    PlayerSnapshot,
+    PlayerStore,
+    TransferDelivery,
+    World
+  }
+
   alias Valimc.World.ItemReplication
   import Bitwise
+
+  defguardp inventory_pending(state)
+            when state.recovery != nil or state.creative_input.queued > 0
 
   def start_link(socket), do: GenServer.start_link(__MODULE__, socket)
 
@@ -45,6 +59,8 @@ defmodule Valimc.Connection do
        store_monitor: nil,
        save_ref: nil,
        recovery: nil,
+       creative_input: CreativeInput.new(creative_tick()),
+       creative_drain_scheduled: false,
        chunks: MapSet.new(),
        regions: MapSet.new(),
        pending: [],
@@ -96,7 +112,7 @@ defmodule Valimc.Connection do
   def handle_info(:save_player, state) do
     Process.send_after(self(), :save_player, Valimc.config(:player_save_interval_ms))
 
-    if state.phase == :play and state.save_ref == nil and state.recovery == nil do
+    if state.phase == :play and state.save_ref == nil and not inventory_pending(state) do
       ref = make_ref()
 
       PlayerStore.checkpoint(
@@ -114,7 +130,19 @@ defmodule Valimc.Connection do
   end
 
   def handle_info({:player_saved, ref, :ok}, %{save_ref: ref} = state),
-    do: {:noreply, %{state | save_ref: nil}}
+    do: guard_connection(state, fn -> {:noreply, drain_creative(%{state | save_ref: nil})} end)
+
+  def handle_info(:drain_creative, %{creative_drain_scheduled: true} = state),
+    do:
+      guard_connection(state, fn ->
+        {:noreply,
+         state
+         |> Map.put(:creative_drain_scheduled, false)
+         |> drain_creative()
+         |> sync_creative_result()}
+      end)
+
+  def handle_info(:drain_creative, state), do: {:noreply, state}
 
   def handle_info({:player_saved, ref, {:error, _}}, %{save_ref: ref} = state),
     do: guard_connection(state, fn -> reject(state, "Player save failed") end)
@@ -164,7 +192,8 @@ defmodule Valimc.Connection do
       }
 
       state = %{state | recovery: recovery, store_fence: fence}
-      state = resync_inventory(%{state | inventory: recovered_inventory(state, snapshot)})
+      state = %{state | inventory: recovered_inventory(state, snapshot)}
+      state = if creative_pending?(state), do: state, else: resync_inventory(state)
       {:noreply, deliver_recovery(state)}
     end)
   end
@@ -179,7 +208,7 @@ defmodule Valimc.Connection do
 
       Process.cancel_timer(recovery.timer)
       send_packets(state, [Packets.chat("Item drop could not be prepared; inventory restored")])
-      {:noreply, resync_inventory(%{state | recovery: nil})}
+      {:noreply, state |> Map.put(:recovery, nil) |> drain_creative() |> sync_creative_result()}
     end)
   end
 
@@ -196,7 +225,10 @@ defmodule Valimc.Connection do
       state = %{state | recovery: nil, store_fence: fence, inventory: inventory}
 
       {:noreply,
-       if(recovery.mode == :login, do: finish_login(state), else: resync_inventory(state))}
+       if(recovery.mode == :login,
+         do: finish_login(state),
+         else: state |> drain_creative() |> sync_creative_result()
+       )}
     end)
   end
 
@@ -653,7 +685,7 @@ defmodule Valimc.Connection do
 
         case Inventory.select(state.inventory, slot) do
           {:ok, inventory} ->
-            if state.recovery do
+            if inventory_pending(state) do
               send_packets(state, [Packets.held_slot(state.inventory.selected)])
               resync_inventory(state)
             else
@@ -891,7 +923,7 @@ defmodule Valimc.Connection do
       action in [ItemTypes.action_id("drop_item"), ItemTypes.action_id("drop_all_items")] ->
         drop_selected(state, action == ItemTypes.action_id("drop_all_items"))
 
-      action == ItemTypes.action_id("swap_item_with_offhand") and state.recovery != nil ->
+      action == ItemTypes.action_id("swap_item_with_offhand") and inventory_pending(state) ->
         resync_inventory(state)
 
       action == ItemTypes.action_id("swap_item_with_offhand") ->
@@ -913,8 +945,8 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp drop_selected(%{recovery: recovery, save_ref: save_ref} = state, _)
-       when recovery != nil or save_ref != nil,
+  defp drop_selected(state, _)
+       when inventory_pending(state) or state.save_ref != nil,
        do: resync_inventory(state)
 
   defp drop_selected(state, all) do
@@ -930,8 +962,8 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp start_inventory_transfer(%{recovery: recovery, save_ref: save_ref} = state, _, _)
-       when recovery != nil or save_ref != nil,
+  defp start_inventory_transfer(state, _, _)
+       when inventory_pending(state) or state.save_ref != nil,
        do: resync_inventory(state)
 
   defp start_inventory_transfer(state, inventory, stacks) do
@@ -988,21 +1020,23 @@ defmodule Valimc.Connection do
 
   defp creative_slot(state, <<slot::signed-16, payload::binary>>) do
     case ItemStack.decode(payload, :untrusted) do
-      {:ok, _stack} when state.recovery != nil ->
-        resync_inventory(state)
-
       {:ok, stack} ->
-        case Inventory.creative(state.inventory, slot, stack) do
-          {:ok, inventory} ->
-            send_packets(state, [
-              Packets.container_slot(inventory.state_id, slot, Inventory.get(inventory, slot))
-            ])
+        cond do
+          not state.inventory.infinite_materials ->
+            resync_inventory(state)
 
-            %{state | inventory: inventory}
+          state.recovery != nil and not creative_pending?(state) ->
+            resync_inventory(state)
 
-          {:error, _} ->
-            send_packets(state, [Packets.chat("Creative slot is unavailable; inventory restored")])
+          slot < 0 ->
+            creative_drop(state, stack, byte_size(payload) + 2)
 
+          slot in 1..45 ->
+            if state.recovery == nil and state.creative_input.queued == 0,
+              do: write_creative_slot(state, slot, stack),
+              else: enqueue_creative(state, {:slot, slot, stack}, byte_size(payload) + 2)
+
+          true ->
             resync_inventory(state)
         end
 
@@ -1015,6 +1049,115 @@ defmodule Valimc.Connection do
 
       {:error, _} ->
         reject(state, "Malformed or invalid creative item")
+    end
+  end
+
+  defp creative_tick, do: Integer.floor_div(System.monotonic_time(:millisecond), 50)
+
+  defp creative_pending?(%{recovery: %{mode: :play, plan: %{kind: :creative_creation}}}),
+    do: true
+
+  defp creative_pending?(_), do: false
+
+  # Do not overwrite valid client predictions with an earlier creative snapshot
+  # while their following slot updates are still deferred.
+  defp sync_creative_result(state) do
+    if creative_pending?(state) or state.creative_input.queued > 0,
+      do: state,
+      else: resync_inventory(state)
+  end
+
+  defp creative_drop(state, stack, bytes) do
+    {result, input} = CreativeInput.charge(state.creative_input, creative_tick())
+    state = %{state | creative_input: input}
+
+    if result == :ok and stack != nil do
+      key = World.region_key(World.chunk_key(state.player.x, state.player.z))
+
+      record = %{
+        uuid: :crypto.strong_rand_bytes(16),
+        x: state.player.x,
+        y: state.player.y + 1.3199999928474426,
+        z: state.player.z,
+        stack: stack
+      }
+
+      enqueue_creative(state, {:create, key, record}, bytes)
+    else
+      resync_inventory(state)
+    end
+  end
+
+  defp enqueue_creative(state, command, bytes) do
+    case CreativeInput.push(state.creative_input, command, bytes) do
+      {:ok, input} ->
+        drain_creative(%{state | creative_input: input})
+
+      {:error, _} ->
+        send_packets(state, [Packets.chat("Creative input queue is full; inventory restored")])
+        resync_inventory(state)
+    end
+  end
+
+  defp drain_creative(state), do: drain_creative(state, 64)
+  defp drain_creative(state, _) when state.recovery != nil or state.save_ref != nil, do: state
+  defp drain_creative(state, _) when state.creative_input.queued == 0, do: state
+
+  defp drain_creative(state, _) when not state.inventory.infinite_materials,
+    do: resync_inventory(%{state | creative_input: CreativeInput.clear(state.creative_input)})
+
+  defp drain_creative(state, 0) do
+    if not state.creative_drain_scheduled, do: send(self(), :drain_creative)
+    %{state | creative_drain_scheduled: true}
+  end
+
+  defp drain_creative(state, budget) do
+    {:ok, command, input} = CreativeInput.pop(state.creative_input)
+    state = %{state | creative_input: input}
+
+    case command do
+      {:slot, slot, stack} ->
+        state
+        |> write_creative_slot(slot, stack, state.creative_input.queued == 0)
+        |> drain_creative(budget - 1)
+
+      {:create, key, record} ->
+        ref = make_ref()
+
+        recovery = %{
+          new_recovery(:play, :prepare, nil)
+          | ref: ref,
+            plan: %{
+              kind: :creative_creation,
+              key: key,
+              records: [record],
+              inventory: state.inventory
+            }
+        }
+
+        PlayerStore.prepare_creative_drop(
+          state.player_store,
+          state.store_fence,
+          PlayerSnapshot.capture(state.player, state.inventory),
+          key,
+          record,
+          ref
+        )
+
+        %{state | recovery: recovery, inventory: Inventory.cancel_drag(state.inventory)}
+    end
+  end
+
+  defp write_creative_slot(state, slot, stack, publish \\ true) do
+    case Inventory.creative(state.inventory, slot, stack) do
+      {:ok, inventory} ->
+        if publish,
+          do: send_packets(state, [Packets.container_slot(inventory.state_id, slot, stack)])
+
+        %{state | inventory: inventory}
+
+      {:error, _} ->
+        resync_inventory(state)
     end
   end
 
@@ -1034,7 +1177,7 @@ defmodule Valimc.Connection do
     %{state | inventory: inventory}
   end
 
-  defp inventory_close(%{recovery: recovery} = state) when recovery != nil,
+  defp inventory_close(state) when inventory_pending(state),
     do: resync_inventory(state)
 
   defp inventory_close(state) do
@@ -1057,7 +1200,7 @@ defmodule Valimc.Connection do
 
   defp inventory_click(state, payload) do
     case InventoryClick.decode(payload) do
-      {:ok, %{container: 0}} when state.recovery != nil ->
+      {:ok, %{container: 0}} when inventory_pending(state) ->
         resync_inventory(state)
 
       {:ok, %{container: 0} = click} ->
@@ -1118,14 +1261,14 @@ defmodule Valimc.Connection do
 
     item = if stack, do: Data.item_block(stack.item_id)
 
-    if state.recovery == nil and item != nil and reachable?(state, target),
+    if not inventory_pending(state) and item != nil and reachable?(state, target),
       do: World.set_block(target, item)
 
     updates =
       if reachable?(state, target), do: [Packets.block(target, World.get_block(target))], else: []
 
     send_packets(state, [Packets.ack(sequence) | updates])
-    if state.recovery, do: resync_inventory(state), else: state
+    if inventory_pending(state), do: resync_inventory(state), else: state
   end
 
   defp command(state, input), do: execute_command(state, Valimc.Commands.resolve(input))
