@@ -68,6 +68,8 @@ scaffolding contexts and exact clipping against native methods, plus actual
 landing/descent contacts in the graphical client.
 The [collector differential](tickets/VMC-014b6c2.md) compares native `BlockCollisions`
 order/geometry; separate regressions check retained input fences and explicit errors.
+The [step differential](tickets/VMC-014c2.md) invokes native `Entity.collide`
+through controlled collider providers; client checks separately compare contacts.
 Item checks generate nine stack fixtures with Mojang's codecs, decode and
 cross-convert them in Elixir, then ask Mojang to decode the resulting bytes and
 compare semantic equality in both ordinary and delimited formats. A focused
