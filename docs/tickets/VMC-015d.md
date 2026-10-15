@@ -68,6 +68,13 @@ affected voxel/flow tests pass. Evidence: `.local/fluid-support-{native,check,te
 Input/swim forces and live composition remain open; live block entities still need
 their future authoritative resource observations rather than invented defaults.
 
+Vertical controls now match 4,000 native normalization/jump cases and actual sink
+primitives. `LivingEntity.aiStep` runs through the jump branch and stops at travel;
+ground-jump power is separately covered by the existing jump oracle. The pinned
+client's `LocalPlayer.aiStep` puts sinking before normalization. Three affected
+tests pass. Evidence: `.local/fluid-input-{native,check,tests}.log`. Horizontal swim
+intent, pose/effects and live composition remain open.
+
 Client gate: actual water/lava entry/exit, shallow/deep and waterlogged boundaries,
 swim/sink, wall/surface escape, flight, saved velocity and dry impulse regression.
 Damage/oxygen, effects/complete swimming attributes and propagation need explicit
