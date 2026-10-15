@@ -51,6 +51,20 @@ under `docs/tickets/` before changing behavior. Keep these records updated.
 - Manually test every completed piece through actual Minecraft 26.3 with computer
   use. On this Mac use the `ValiMC computer-use test` Launcher installation and
   app ID `local.valimc.minecraft-client`. Use `mcp__cua_repl` for UI actions.
+- Always delegate actual Minecraft client validation to a dedicated testing
+  subagent (user instruction, October 15, 2026). Only that agent drives the UI;
+  the primary agent continues independent implementation, research and automated
+  checks. Keep a queue of pending scenarios rather than waiting on client tests.
+  Hand off the ticket, exact release/checkpoint, dataset, scenarios and evidence
+  paths. Coordinate server restarts and fixture changes; do not replace a release
+  under test. The tester reports actions, results, logs and limitations; the
+  primary reviews that evidence before marking Done or publishing. A failure
+  becomes a concrete fix/retest task; it does not silently pass or halt unrelated
+  backlog work. Keep commits separable so validated work can publish while later
+  checkpoints remain pending.
+- Prefer keyboard navigation during client tests to avoid moving the user's
+  desktop cursor. Use mouse actions when the scenario requires them; the current
+  macOS CUA interface exposes no separate virtual pointer.
 - The user treats this development client and test world as disposable fixtures
   (October 14, 2026). Change or reset builds, items, pose and selection as needed;
   concurrent user experimentation does not require preserving those changes.

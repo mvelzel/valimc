@@ -23,9 +23,12 @@ is a backlog, not implemented parity.
 5. After automated checks, review the exact diff/public-tree audit and make a
    local ticket checkpoint. The user permits committing before manual validation;
    mark the GUI gates pending and keep this checkpoint unpushed.
-6. Restart the local server gracefully and reconnect actual Minecraft 26.3 using
-   computer use. Exercise the changed behavior, inspect resulting screenshots,
-   and check client/server logs. Test reconnect/restart if persistence is involved.
+6. Hand actual Minecraft 26.3 validation to one dedicated client-testing subagent.
+   Give it the ticket/scenarios, exact release/checkpoint, dataset and evidence
+   paths. It owns computer use, exercises the changed behavior, inspects screenshots
+   and client/server logs, and tests reconnect/restart when relevant. Coordinate
+   restarts/fixtures and keep its release unchanged. The primary continues the next
+   implementable slice and automated checks while retaining the pending GUI queue.
 7. Record evidence and limitations, update roadmap/compatibility notes, review
    the diff and public-tree audit, amend the unpushed ticket checkpoint if needed,
    and push `main` after required client checks pass. An explicit user request
@@ -34,6 +37,11 @@ is a backlog, not implemented parity.
    VMC-005b2a's automated-verified checkpoint with its gesture gate still pending.
    Done means every required check and client scenario passed. A failed push
    remains an unpublished local checkpoint until a normal retry succeeds.
+
+Client testing is always delegated, as requested October 15, 2026. Use one UI
+driver to avoid interference. Review the tester's evidence before closing a
+ticket; failures become explicit fix/retest work. Keep ticket commits separable
+so publishing validated work does not publish later unvalidated checkpoints.
 
 The user enabled and authorized locked-session computer use on October 13, 2026;
 Launcher and actual Minecraft access were observed while locked. Try the enabled
