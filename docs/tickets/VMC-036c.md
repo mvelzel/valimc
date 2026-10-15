@@ -65,7 +65,7 @@ Final soup replaces the held stack with its bowl even with full storage; creativ
 keeps the consumed item without another bowl. Patched container extras can merge
 into storage. World overflow rejects the whole meal pending a conversion outbox.
 
-Thirty-eight affected tests pass, including twelve real TCP scenarios covering
+Thirty-eight affected tests pass, including eleven real TCP scenarios covering
 native duration/repeated requests/stale ticks, both hands, cancellation, current
 components, eligibility, creative, full storage, atomic reconnect, blocked saves,
 deferred completion, death and unsupported effects/overflow. Evidence:
@@ -73,6 +73,14 @@ deferred completion, death and unsupported effects/overflow. Evidence:
 actual-client verification remain pending. Specialized effects/listeners, world
 overflow, peer held-equipment rendering, use slowing, sounds/particles, vibration
 and statistics are follow-ups; this is not full consumable or survival parity.
+
+Block verification: 762 full tests pass (seed327342), after correcting two peer
+recreation assertions to include the new living-use metadata; the focused peer
+regressions pass15 tests. Frozen `7d715999757747bee2fd644a7b0d5a52d9be7dac`
+has589 verified blobs in `.local/consumable-validation-checkpoint` and a successful
+production build. Full native integration is still running on that frozen tree.
+Logs `.local/consumable-block-full-tests-final.log`,
+`.local/item-use-peer-regressions.log`, `.local/consumable-validation-production.log`.
 
 Client scenario: eat from both hands; visible use animation, stack reduction and
 food recovery; full-food negative and always-edible positive; interrupt mid-use,
