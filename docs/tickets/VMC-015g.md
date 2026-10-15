@@ -55,3 +55,17 @@ segments; `handleMovePlayer` does not directly apply these callbacks. Live desig
 needs bounded transient accepted-path history plus the scratch step, current source
 fences, native axis-dependent segment order and teleport retirement. One last
 `known_movement` vector cannot preserve a whole tick's crossed-block effects.
+
+Context checkpoint: `StuckContact` matches 1,680 actual native single-path scenes,
+including last ordered contact, powder shape/feet selection, prior fall reset,
+pose, flight/spectator and weaving. `Box` swept contact matches 788 native cases
+and 12 strict segment entries; traversal still matches all 1,809 traces. Twenty-one
+affected tests pass, including crossed-web endpoints and web-reset→powder geometry.
+Evidence: `.local/{stuck-contact,swept-contact}-{native,check}.log`,
+`.local/stuck-contact-tests.log`. Native scenes supply immutable blocks/healthy bare
+players; queued damage/freezing and owner lifecycle are excluded. Next: a shared
+visited set across tick paths, axis-dependent ordering and owner integration.
+Native `checkInsideBlocks(List, collector)` retains one hit-position set until the
+whole batch finishes. Each movement has a 16-step budget shared by its axis
+segments, with destination fallback when exhausted; this is not a 16-movement
+queue cap. The current contact oracle uses linear single-movement records.

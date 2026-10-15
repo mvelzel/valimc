@@ -3,7 +3,6 @@ defmodule Valimc.Physics.BodySweep do
   alias Valimc.Physics.Box
   @tiny_square 9.999999439624929e-11
   @epsilon 9.999999747378752e-6
-  @clip_epsilon 1.0e-7
   @max_float 1.7976931348623157e308
 
   @doc "The supplied destination body is already deflated for native inside-block checks."
@@ -93,7 +92,9 @@ defmodule Valimc.Physics.BodySweep do
       grid = put_elem(grid, axis, elem(grid, axis) + elem(data.signs, axis))
       times = put_elem(times, axis, elem(times, axis) + elem(data.intervals, axis))
 
-      case clip(grid, data.start, data.endpoint) do
+      cube = join(grid, tuple(fn i -> elem(grid, i) + 1.0 end))
+
+      case Box.clip(cube, data.start, data.endpoint) do
         nil ->
           walk(ctx, data, grid, times, step, steps + 1)
 
@@ -166,37 +167,6 @@ defmodule Valimc.Physics.BodySweep do
           if ctx.count >= ctx.stop, do: {:halt, {:stopped, ctx}}, else: {:cont, {:ok, ctx}}
       end
     end)
-  end
-
-  # Entry faces use the native strict segment/plane tests, including ties and
-  # recomputed endpoint deltas at remote coordinates.
-  defp clip(grid, start, endpoint) do
-    delta = subtract(endpoint, start)
-
-    t =
-      Enum.reduce(0..2, nil, fn axis, best ->
-        d = elem(delta, axis)
-
-        if abs(d) > @clip_epsilon do
-          plane = elem(grid, axis) + if(d < 0, do: 1.0, else: 0.0)
-          t = (plane - elem(start, axis)) / d
-
-          valid =
-            t > 0 and t < (best || 1.0) and
-              Enum.all?(0..2, fn i ->
-                p = elem(start, i) + t * elem(delta, i)
-
-                i == axis or
-                  (p > elem(grid, i) - @clip_epsilon and p < elem(grid, i) + 1.0 + @clip_epsilon)
-              end)
-
-          if valid, do: t, else: best
-        else
-          best
-        end
-      end)
-
-    if t, do: tuple(fn i -> elem(start, i) + t * elem(delta, i) end)
   end
 
   defp corner({x, y, z}) do
