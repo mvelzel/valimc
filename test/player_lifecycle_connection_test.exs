@@ -95,6 +95,8 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     assert body ==
              IO.iodata_to_binary(elem(Packets.respawn(next.player, next.player.last_death), 1))
 
+    # An unmodified client waits on this notification even after receiving chunks.
+    {<<13, 0::32>>, client} = Client.await(client, :play, "game_event")
     {<<20.0::float-32, _::binary>>, client} = Client.await(client, :play, "set_health")
     {position, client} = Client.await(client, :play, "player_position")
     client = Client.auto_reply(client, :play, "player_position", position)

@@ -150,6 +150,8 @@ defmodule Valimc.Protocol.Packets do
     packet("set_health", [<<health.value::float-32>>, Wire.varint(20), <<5.0::float-32>>])
   end
 
+  def level_load_start, do: packet("game_event", <<13, 0.0::float-32>>)
+
   def damage_event(entity_id, source \\ :fall) do
     life_entity_id!(entity_id)
 

@@ -18,6 +18,9 @@ packets =
 
     packet =
       case String.split(name, "_") do
+        ["level", "load", "start"] ->
+          Packets.level_load_start()
+
         ["respawn", mode, previous, location] ->
           mode = %GameMode{
             current: GameMode.from_id(String.to_integer(mode)),

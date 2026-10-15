@@ -1249,6 +1249,7 @@ defmodule Valimc.Connection do
       state,
       [
         Packets.respawn(player, player.last_death),
+        Packets.level_load_start(),
         clock_packet,
         difficulty_packet,
         Packets.abilities(player.abilities),
@@ -1739,7 +1740,7 @@ defmodule Valimc.Connection do
       Packets.cursor(state.inventory.carried),
       Packets.held_slot(state.inventory.selected),
       Packets.teleport(state.player, state.teleport),
-      Packets.packet("game_event", <<13, 0.0::float-32>>),
+      Packets.level_load_start(),
       Packets.player_info(state.player),
       Packets.interaction_attributes(state.player),
       Packets.player_environment(state.player),
