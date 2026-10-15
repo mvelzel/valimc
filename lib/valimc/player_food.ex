@@ -27,9 +27,11 @@ defmodule Valimc.PlayerFood do
       do: %{food | exhaustion: min(40.0, f32(food.exhaustion + f32(amount)))}
 
   def eat(%__MODULE__{} = food, nutrition, saturation)
-      when is_integer(nutrition) and nutrition in 0..1_000_000 and is_number(saturation) and
+      when is_integer(nutrition) and nutrition in 0..2_147_483_647 and is_number(saturation) and
              saturation >= 0 and saturation <= @float_max do
-    level = min(20, food.level + nutrition)
+    total = food.level + nutrition
+    # Native int addition wraps negative at the maximum nutrition component value.
+    level = if total > 2_147_483_647, do: 0, else: min(20, total)
     # Saturation is the absolute food component value, not the legacy modifier.
     %{food | level: level, saturation: min(level * 1.0, f32(food.saturation + f32(saturation)))}
   end

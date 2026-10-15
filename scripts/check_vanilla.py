@@ -237,6 +237,12 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_auth.exs', auth_fixtures, auth_encoded], cwd=root, check=True)
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'AuthProfileOracle', 'verify', auth_encoded], cwd=root, check=True)
     item_facts = str(pathlib.Path(world) / 'items.json')
+    food_facts = str(pathlib.Path(world) / 'food-items.json')
+    food_components = str(pathlib.Path(world) / 'food-components.json')
+    food_encoded = str(pathlib.Path(world) / 'food-encoded.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemFoodOracle', 'generate', food_facts, food_components], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_item_food.exs', food_facts, food_components, food_encoded], cwd=root, check=True)
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemFoodOracle', 'verify', food_encoded], cwd=root, check=True)
     defaults = str(pathlib.Path(world) / 'defaults.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemMetadata', item_facts, defaults], cwd=root, check=True)
     for actual, committed in [(item_facts, 'items.json'), (defaults, 'item_defaults.json')]:

@@ -1,6 +1,6 @@
 # VMC-036c — Consumable item use
 
-Status: Next survival slice. October 16, 2026.
+Status: Native facts/food codecs verified; live use in progress. October 16, 2026.
 Depends on owned food, hand/inventory authority and the admitted player clock.
 
 Acceptance: unmodified-client use starts the native held-item animation and
@@ -24,6 +24,23 @@ Pinned 26.3 jar SHA1 `33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c`:
 float32 seconds×20; food eligibility delegates to `Player.canEat`; completion
 notifies component listeners/effects before consuming one item. Creative abilities
 and remainder conversion require their own actual native observations.
+
+Foundation: original `ItemFoodOracle` extracts 50 stock consumable records,
+including 44 foods, durations, remainders and additional component listeners.
+It verifies 60 bidirectional food-patched stacks in ordinary/delimited formats,
+64 actual `Consumable.canConsume` gates, eight duration boundaries and twelve
+actual remainder conversions. Specialized effects/listeners remain explicit;
+honey/potions/suspicious stew cannot silently become plain food. Raw evidence:
+`.local/item-food-{native,check,verify}.log`, `.local/item-food-{facts,cases}.json`.
+
+The food component now has a bounded codec and effective default identity;
+44 new default identity values preserve existing item data. Native equality
+passes 18,474 raw-patch cases; 49 affected tests pass, including malformed food,
+signed-zero identity, component removal/override and journal round trips. The
+expanded native meal matrix passes 315 cases, including maximum-nutrition int
+overflow. Logs `.local/food-stack-identity-{native,check}.log`,
+`.local/item-food-affected-tests.log`, `.local/item-meal-{native,check}.log`.
+This foundation does not start eating or complete the graphical gate.
 
 Client scenario: eat from both hands; visible use animation, stack reduction and
 food recovery; full-food negative and always-edible positive; interrupt mid-use,

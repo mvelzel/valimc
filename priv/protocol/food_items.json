@@ -1,0 +1,811 @@
+{
+  "version": "26.3",
+  "protocol": 777,
+  "server_sha1": "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c",
+  "items": {
+    "minecraft:apple": {
+      "item_id": 1007,
+      "food": {
+        "nutrition": 4,
+        "saturation": 2.4000000953674316,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:mushroom_stew": {
+      "item_id": 1061,
+      "food": {
+        "nutrition": 6,
+        "saturation": 7.200000286102295,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "remainder": {
+        "item_id": 1006,
+        "count": 1
+      },
+      "other_listeners": []
+    },
+    "minecraft:bread": {
+      "item_id": 1067,
+      "food": {
+        "nutrition": 5,
+        "saturation": 6.0,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:porkchop": {
+      "item_id": 1097,
+      "food": {
+        "nutrition": 3,
+        "saturation": 1.8000000715255737,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:cooked_porkchop": {
+      "item_id": 1098,
+      "food": {
+        "nutrition": 8,
+        "saturation": 12.800000190734863,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:golden_apple": {
+      "item_id": 1100,
+      "food": {
+        "nutrition": 4,
+        "saturation": 9.600000381469727,
+        "can_always_eat": true
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 1
+      },
+      "other_listeners": []
+    },
+    "minecraft:enchanted_golden_apple": {
+      "item_id": 1101,
+      "food": {
+        "nutrition": 4,
+        "saturation": 9.600000381469727,
+        "can_always_eat": true
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 1
+      },
+      "other_listeners": []
+    },
+    "minecraft:milk_bucket": {
+      "item_id": 1134,
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "drink",
+        "sound": "minecraft:entity.generic.drink",
+        "particles": false,
+        "effects": 1
+      },
+      "remainder": {
+        "item_id": 1128,
+        "count": 1
+      },
+      "other_listeners": []
+    },
+    "minecraft:pufferfish_bucket": {
+      "item_id": 1135,
+      "food": {
+        "nutrition": 1,
+        "saturation": 0.20000000298023224,
+        "can_always_eat": false
+      },
+      "other_listeners": []
+    },
+    "minecraft:salmon_bucket": {
+      "item_id": 1136,
+      "food": {
+        "nutrition": 2,
+        "saturation": 0.4000000059604645,
+        "can_always_eat": false
+      },
+      "other_listeners": []
+    },
+    "minecraft:cod_bucket": {
+      "item_id": 1137,
+      "food": {
+        "nutrition": 2,
+        "saturation": 0.4000000059604645,
+        "can_always_eat": false
+      },
+      "other_listeners": []
+    },
+    "minecraft:tropical_fish_bucket": {
+      "item_id": 1138,
+      "food": {
+        "nutrition": 1,
+        "saturation": 0.20000000298023224,
+        "can_always_eat": false
+      },
+      "other_listeners": []
+    },
+    "minecraft:cod": {
+      "item_id": 1190,
+      "food": {
+        "nutrition": 2,
+        "saturation": 0.4000000059604645,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:salmon": {
+      "item_id": 1191,
+      "food": {
+        "nutrition": 2,
+        "saturation": 0.4000000059604645,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:tropical_fish": {
+      "item_id": 1192,
+      "food": {
+        "nutrition": 1,
+        "saturation": 0.20000000298023224,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:pufferfish": {
+      "item_id": 1193,
+      "food": {
+        "nutrition": 1,
+        "saturation": 0.20000000298023224,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 1
+      },
+      "other_listeners": []
+    },
+    "minecraft:cooked_cod": {
+      "item_id": 1194,
+      "food": {
+        "nutrition": 5,
+        "saturation": 6.0,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:cooked_salmon": {
+      "item_id": 1195,
+      "food": {
+        "nutrition": 6,
+        "saturation": 9.600000381469727,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:cookie": {
+      "item_id": 1236,
+      "food": {
+        "nutrition": 2,
+        "saturation": 0.4000000059604645,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:melon_slice": {
+      "item_id": 1256,
+      "food": {
+        "nutrition": 2,
+        "saturation": 1.2000000476837158,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:dried_kelp": {
+      "item_id": 1257,
+      "food": {
+        "nutrition": 1,
+        "saturation": 0.6000000238418579,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 0.800000011920929,
+        "ticks": 16,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:beef": {
+      "item_id": 1260,
+      "food": {
+        "nutrition": 3,
+        "saturation": 1.8000000715255737,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:cooked_beef": {
+      "item_id": 1261,
+      "food": {
+        "nutrition": 8,
+        "saturation": 12.800000190734863,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:chicken": {
+      "item_id": 1262,
+      "food": {
+        "nutrition": 2,
+        "saturation": 1.2000000476837158,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 1
+      },
+      "other_listeners": []
+    },
+    "minecraft:cooked_chicken": {
+      "item_id": 1263,
+      "food": {
+        "nutrition": 6,
+        "saturation": 7.200000286102295,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:rotten_flesh": {
+      "item_id": 1264,
+      "food": {
+        "nutrition": 4,
+        "saturation": 0.800000011920929,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 1
+      },
+      "other_listeners": []
+    },
+    "minecraft:potion": {
+      "item_id": 1271,
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "drink",
+        "sound": "minecraft:entity.generic.drink",
+        "particles": false,
+        "effects": 0
+      },
+      "remainder": {
+        "item_id": 1270,
+        "count": 1
+      },
+      "other_listeners": [
+        "minecraft:potion_contents"
+      ]
+    },
+    "minecraft:spider_eye": {
+      "item_id": 1272,
+      "food": {
+        "nutrition": 2,
+        "saturation": 3.200000047683716,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 1
+      },
+      "other_listeners": []
+    },
+    "minecraft:carrot": {
+      "item_id": 1378,
+      "food": {
+        "nutrition": 3,
+        "saturation": 3.6000001430511475,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:potato": {
+      "item_id": 1379,
+      "food": {
+        "nutrition": 1,
+        "saturation": 0.6000000238418579,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:baked_potato": {
+      "item_id": 1380,
+      "food": {
+        "nutrition": 5,
+        "saturation": 6.0,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:poisonous_potato": {
+      "item_id": 1381,
+      "food": {
+        "nutrition": 2,
+        "saturation": 1.2000000476837158,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 1
+      },
+      "other_listeners": []
+    },
+    "minecraft:golden_carrot": {
+      "item_id": 1383,
+      "food": {
+        "nutrition": 6,
+        "saturation": 14.40000057220459,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:pumpkin_pie": {
+      "item_id": 1392,
+      "food": {
+        "nutrition": 8,
+        "saturation": 4.800000190734863,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:rabbit": {
+      "item_id": 1400,
+      "food": {
+        "nutrition": 3,
+        "saturation": 1.8000000715255737,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:cooked_rabbit": {
+      "item_id": 1401,
+      "food": {
+        "nutrition": 5,
+        "saturation": 6.0,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:rabbit_stew": {
+      "item_id": 1402,
+      "food": {
+        "nutrition": 10,
+        "saturation": 12.0,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "remainder": {
+        "item_id": 1006,
+        "count": 1
+      },
+      "other_listeners": []
+    },
+    "minecraft:mutton": {
+      "item_id": 1415,
+      "food": {
+        "nutrition": 2,
+        "saturation": 1.2000000476837158,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:cooked_mutton": {
+      "item_id": 1416,
+      "food": {
+        "nutrition": 6,
+        "saturation": 9.600000381469727,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:chorus_fruit": {
+      "item_id": 1434,
+      "food": {
+        "nutrition": 4,
+        "saturation": 2.4000000953674316,
+        "can_always_eat": true
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 1
+      },
+      "other_listeners": []
+    },
+    "minecraft:beetroot": {
+      "item_id": 1438,
+      "food": {
+        "nutrition": 1,
+        "saturation": 1.2000000476837158,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:beetroot_soup": {
+      "item_id": 1440,
+      "food": {
+        "nutrition": 6,
+        "saturation": 7.200000286102295,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "remainder": {
+        "item_id": 1006,
+        "count": 1
+      },
+      "other_listeners": []
+    },
+    "minecraft:splash_potion": {
+      "item_id": 1442,
+      "other_listeners": [
+        "minecraft:potion_contents"
+      ]
+    },
+    "minecraft:tipped_arrow": {
+      "item_id": 1444,
+      "other_listeners": [
+        "minecraft:potion_contents"
+      ]
+    },
+    "minecraft:lingering_potion": {
+      "item_id": 1445,
+      "other_listeners": [
+        "minecraft:potion_contents"
+      ]
+    },
+    "minecraft:suspicious_stew": {
+      "item_id": 1492,
+      "food": {
+        "nutrition": 6,
+        "saturation": 7.200000286102295,
+        "can_always_eat": true
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "remainder": {
+        "item_id": 1006,
+        "count": 1
+      },
+      "other_listeners": [
+        "minecraft:suspicious_stew_effects"
+      ]
+    },
+    "minecraft:sweet_berries": {
+      "item_id": 1525,
+      "food": {
+        "nutrition": 2,
+        "saturation": 0.4000000059604645,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:glow_berries": {
+      "item_id": 1526,
+      "food": {
+        "nutrition": 2,
+        "saturation": 0.4000000059604645,
+        "can_always_eat": false
+      },
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "eat",
+        "sound": "minecraft:entity.generic.eat",
+        "particles": true,
+        "effects": 0
+      },
+      "other_listeners": []
+    },
+    "minecraft:honey_bottle": {
+      "item_id": 1533,
+      "food": {
+        "nutrition": 6,
+        "saturation": 1.2000000476837158,
+        "can_always_eat": true
+      },
+      "consumable": {
+        "seconds": 2.0,
+        "ticks": 40,
+        "animation": "drink",
+        "sound": "minecraft:item.honey_bottle.drink",
+        "particles": false,
+        "effects": 1
+      },
+      "remainder": {
+        "item_id": 1270,
+        "count": 1
+      },
+      "other_listeners": []
+    },
+    "minecraft:ominous_bottle": {
+      "item_id": 1657,
+      "consumable": {
+        "seconds": 1.600000023841858,
+        "ticks": 32,
+        "animation": "drink",
+        "sound": "minecraft:entity.generic.drink",
+        "particles": false,
+        "effects": 1
+      },
+      "other_listeners": [
+        "minecraft:ominous_bottle_amplifier"
+      ]
+    }
+  }
+}

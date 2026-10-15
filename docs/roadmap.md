@@ -73,7 +73,8 @@ indexes validated tickets. None imply full parity.
    [Movement exhaustion](tickets/VMC-036b.md) passes 91 affected tests and native
    travel/mode/jump probes; accepted sprint/swim/jump food costs are implemented,
    with graphical validation pending. Sprint eligibility, other action costs and
-   [consuming items](tickets/VMC-036c.md) are subsequent slices.
+   [Consuming items](tickets/VMC-036c.md) has native facts/food codecs, 18,474
+   identity cases and49 affected tests; live item use is the next slice.
    [Idle food clock work](tickets/VMC-036a1.md) addresses the measured 512-player
    memory increase; native/83 affected checks pass, but repeated loads show no
    whole-workload memory improvement. Allocation profiling remains open; continue

@@ -85,7 +85,7 @@ public class PlayerFoodOracle {
       var food=food(20,5,initial,0);food.addExhaustion(amount);var c=new JsonObject();c.addProperty("initial",(double)initial);c.addProperty("amount",(double)amount);c.add("next",state(food));additions.add(c);
     }
     var meals=new JsonArray();
-    for(int level:new int[]{0,17,20})for(float saturation:new float[]{0,.1f,20})for(int nutrition:new int[]{0,1,4,20})for(float increase:new float[]{0,.1f,6,20}){
+    for(int level:new int[]{0,17,20})for(float saturation:new float[]{0,.1f,20})for(int nutrition:new int[]{0,1,4,20,Integer.MAX_VALUE-20,Integer.MAX_VALUE-19,Integer.MAX_VALUE})for(float increase:new float[]{0,.1f,6,20,Float.MAX_VALUE}){
       var food=food(level,saturation,0,0);var c=state(food);c.addProperty("nutrition",nutrition);c.addProperty("increase",(double)increase);food.eat(new FoodProperties(nutrition,increase,false));c.add("next",state(food));meals.add(c);
     }
     var defaults=new JsonObject();new FoodData().addAdditionalSaveData((ValueOutput)Proxy.newProxyInstance(ValueOutput.class.getClassLoader(),new Class<?>[]{ValueOutput.class},(proxy,method,a)->{
