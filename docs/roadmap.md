@@ -92,6 +92,11 @@ indexes validated tickets. None imply full parity.
    [Geometry admission](tickets/VMC-011a8.md) is complete within measured preview
    scope (`8871985`); prepared samples retain owner fencing and bounded work.
 
+3. **[VMC-029a](tickets/VMC-029a.md): survival mining.** Native hardness/progress
+   matches1,286,028 rates and1,386 actual tick/crack prefixes. Tool facts, owned
+   start/abort/stop, atomic destruction/drops and durability are next; live survival
+   mining remains absent. Client checks above continue independently.
+
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 [VMC-003c](tickets/VMC-003c.md)'s direct local test-client lifecycle is complete:
 automatic join, small window, readable Auto UI, muted launch and owned shutdown.

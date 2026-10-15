@@ -1,0 +1,44 @@
+# VMC-029a — Survival mining
+
+Status: Native mining foundation verified; live mining pending. October 16, 2026.
+
+Acceptance: survival players can mine with native tool speed, break progress,
+harvest permission, drops and durability. Handle start/abort/stop acknowledgements,
+range, changed tools/blocks, modes, loading, disconnect and concurrent miners.
+Only the block owner commits destruction and drops; item/tool consequences need
+explicit conservation and recovery. Bound pending work per player and coalesce
+crack replication. No process per block or global mining timer.
+
+Start with native block hardness/progress and its float32/tick boundaries, then
+tool facts, fenced owner mining, atomic destruction/drops and durability. Kernel
+probes with supplied player speed/harvest permission do not establish tool/effect
+or complete live mining parity. Creative destruction remains a separate path.
+
+Reference: pinned Mojang 26.3 `BlockBehaviour.getDestroyProgress`,
+`BlockStateBase.getDestroySpeed`, `Player.getDestroySpeed/hasCorrectToolForDrops`
+and `ServerPlayerGameMode.handleBlockBreakAction/tick/destroyBlock`. Jar SHA1
+`33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c`. Reference dumps stay ignored.
+
+Foundation: original `MiningOracle` extracts all35,723 hardness/harvest flags in
+46 compact property groups. Native comparisons pass1,286,028 rates, including
+wrong-tool divisors, zero hardness, signed zero, subnormals and float overflow;
+1,386 actual `ServerPlayerGameMode.incrementDestroyProgress` prefixes verify
+elapsed+1 multiplication, crack casts and duplicate-notification suppression.
+Two boundary regressions pass. Nonfinite Java results use explicit bounded
+markers in Elixir. Immutable binary lookup replaces per-block objects. Logs
+`.local/mining-{native,check,tests}.log`; raw cases stay ignored. The probe supplies
+player speed/harvest permission and controls crack delivery; no loot/world/player
+effects or live mining are established. Full-block/client checks remain pending.
+
+Inspiration: pinned SteelMC `f6fb4e49778ccffc5c13c3b87c1c2600dd9435aa`,
+`steel-core/src/player/game_mode/block_breaking.rs`, separates start/abort/delayed
+completion and sends cracks only when their stage changes. Retain bounded local
+attempt state on the player owner, with fenced block-owner commits. Native 26.3
+controls exact arithmetic: Steel's zero-hardness shortcut returns1, whereas the
+native method returns infinity or NaN depending on supplied speed. Do not copy
+that shortcut into the kernel or treat the rewrite as a completeness oracle.
+
+Client scenario: punch dirt/stone, compare correct/wrong tools, interrupt and
+resume, switch tools, move out of reach and let a second miner finish. Inspect
+world changes, stack/drop conservation, tool damage, reconnect and failed writes.
+Delegate graphical checks on a frozen release; retain partial scope honestly.

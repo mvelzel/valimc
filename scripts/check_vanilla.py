@@ -18,6 +18,11 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     if json.loads(pathlib.Path(landing_blocks).read_text()) != json.loads((root/'priv/physics/landing_blocks.json').read_text()):
         raise RuntimeError('Pinned landing damage facts differ')
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_landing.exs', landing_cases], cwd=root, check=True)
+    mining_facts = str(pathlib.Path(world) / 'mining-blocks.json')
+    mining_cases = str(pathlib.Path(world) / 'mining-cases.json')
+    mining_ticks = str(pathlib.Path(world) / 'mining-ticks.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'MiningOracle', mining_facts, mining_cases, mining_ticks], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_mining.exs', mining_facts, mining_cases, mining_ticks], cwd=root, check=True)
     damage_protection = str(pathlib.Path(world) / 'damage-protection.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'DamageProtectionOracle', damage_protection], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_damage_protection.exs', damage_protection], cwd=root, check=True)
