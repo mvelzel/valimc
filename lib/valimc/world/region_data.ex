@@ -11,6 +11,8 @@ defmodule Valimc.World.RegionData do
     :item_publication,
     :item_pending,
     :store,
+    :store_lease,
+    :store_monitor,
     :edits,
     :by_chunk,
     :cache,
@@ -23,7 +25,8 @@ defmodule Valimc.World.RegionData do
   ]
 
   def load(key) do
-    {:ok, store} = Store.start_link(key)
+    {:ok, store, store_lease} = Store.open(key)
+    store_monitor = Process.monitor(store)
     edits = Store.load(store)
 
     {items, receipts, persistent} =
@@ -57,6 +60,8 @@ defmodule Valimc.World.RegionData do
       item_publication: publication,
       item_pending: nil,
       store: store,
+      store_lease: store_lease,
+      store_monitor: store_monitor,
       edits: edits,
       by_chunk: by_chunk,
       cache: %{},
@@ -252,7 +257,7 @@ defmodule Valimc.World.RegionData do
   end
 
   def handle_call(:flush, _from, state) do
-    result = Store.flush(state.store, state.edits)
+    result = Store.flush(state.store, state.store_lease, state.edits)
     {:reply, result, %{state | dirty: result != :ok}}
   end
 
@@ -281,7 +286,15 @@ defmodule Valimc.World.RegionData do
   defp commit_items(items, reply, from, state, receipts) do
     token = make_ref()
     timer = send_after(state, {:item_commit_deadline, token}, 5000)
-    Store.commit_items(state.store, items, receipts, {self(), state.items.epoch}, token)
+
+    Store.commit_items(
+      state.store,
+      state.store_lease,
+      items,
+      receipts,
+      {self(), state.items.epoch},
+      token
+    )
 
     pending = %{
       phase: :writing,
@@ -380,7 +393,14 @@ defmodule Valimc.World.RegionData do
 
     case result do
       {:ok, items, receipts, :applied} ->
-        Store.commit_items(state.store, items, receipts, {self(), state.items.epoch}, token)
+        Store.commit_items(
+          state.store,
+          state.store_lease,
+          items,
+          receipts,
+          {self(), state.items.epoch},
+          token
+        )
 
         writing =
           pending
@@ -474,6 +494,12 @@ defmodule Valimc.World.RegionData do
     {:noreply, %{state | item_pending: nil}}
   end
 
+  def handle_info(
+        {:DOWN, ref, :process, writer, reason},
+        %{store: writer, store_monitor: ref} = state
+      ),
+      do: {:stop, {:store_failed, reason}, state}
+
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
     case Enum.find(state.jobs, fn {_, job} -> job.monitor == ref end) do
       {key, job} ->
@@ -489,7 +515,14 @@ defmodule Valimc.World.RegionData do
     saving = state.dirty and not state.saving
 
     if saving,
-      do: Store.snapshot(state.store, state.edits, {self(), state.items.epoch}, state.revision)
+      do:
+        Store.snapshot(
+          state.store,
+          state.store_lease,
+          state.edits,
+          {self(), state.items.epoch},
+          state.revision
+        )
 
     Process.cancel_timer(state.save_timer)
     timer = send_after(state, :save, 30_000)
@@ -537,11 +570,14 @@ defmodule Valimc.World.RegionData do
         job.pid != nil and Process.whereis(Valimc.ChunkWorkers) != nil,
         do: Task.Supervisor.terminate_child(Valimc.ChunkWorkers, job.pid)
 
-    if reason in [:normal, :shutdown] and state.dirty, do: Store.flush(state.store, state.edits)
+    if reason in [:normal, :shutdown] and state.dirty,
+      do: Store.flush(state.store, state.store_lease, state.edits)
+
+    Process.demonitor(state.store_monitor, [:flush])
 
     if Process.alive?(state.store) do
       try do
-        GenServer.stop(state.store, :normal, 1000)
+        Store.close(state.store, state.store_lease)
       catch
         :exit, _ -> Process.exit(state.store, :kill)
       end

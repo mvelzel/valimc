@@ -286,7 +286,15 @@ defmodule Valimc.ItemStoreTest do
     path = Store.item_path(ctx.base, ctx.key)
     bytes = File.read!(path)
     writer = :sys.get_state(ctx.pid).resource.store
-    Store.snapshot(writer, %{}, {self(), elem(ctx.owner, 1)}, 31)
+
+    Store.snapshot(
+      writer,
+      :sys.get_state(ctx.pid).resource.store_lease,
+      %{},
+      {self(), elem(ctx.owner, 1)},
+      31
+    )
+
     assert_receive {:resource, _, {:saved, ^writer, 31, :ok}}
     assert File.read!(path) == bytes
     assert {:ok, %{records: [%{stack: stack}]}} = ItemRecords.decode(bytes, ctx.key)
@@ -325,7 +333,15 @@ defmodule Valimc.ItemStoreTest do
     {:ok, handle} = Region.find_item(ctx.owner, hd(request.records).uuid)
     assert {:ok, _} = Region.replace_item(handle, ItemStack.new("egg", 3))
     writer = :sys.get_state(ctx.pid).resource.store
-    Store.snapshot(writer, %{}, {self(), elem(ctx.owner, 1)}, 51)
+
+    Store.snapshot(
+      writer,
+      :sys.get_state(ctx.pid).resource.store_lease,
+      %{},
+      {self(), elem(ctx.owner, 1)},
+      51
+    )
+
     assert_receive {:resource, _, {:saved, ^writer, 51, :ok}}
     owner = replace_owner(ctx, :shutdown)
     assert {:ok, :already_applied} = Region.apply_item_transfer(owner, request)

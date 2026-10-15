@@ -119,9 +119,6 @@ defmodule Valimc.World.Region do
   def handle_info({:DOWN, _, :process, _, _} = message, state),
     do: RegionData.handle_info(message, state.resource) |> wrap(state)
 
-  def handle_info({:EXIT, writer, reason}, %{resource: %{store: writer}} = state),
-    do: {:stop, {:store_failed, reason}, state}
-
   # Untagged/stale callbacks never select a resource or change its data.
   def handle_info(_, state), do: {:noreply, state}
 
