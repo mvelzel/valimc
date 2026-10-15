@@ -1,6 +1,6 @@
 # VMC-029a — Survival mining
 
-Status: Native mining foundation verified; live mining pending. October 16, 2026.
+Status: Native mining arithmetic and stock tools verified; live mining pending. October 16, 2026.
 
 Acceptance: survival players can mine with native tool speed, break progress,
 harvest permission, drops and durability. Handle start/abort/stop acknowledgements,
@@ -13,6 +13,22 @@ Start with native block hardness/progress and its float32/tick boundaries, then
 tool facts, fenced owner mining, atomic destruction/drops and durability. Kernel
 probes with supplied player speed/harvest permission do not establish tool/effect
 or complete live mining parity. Creative destruction remains a separate path.
+
+Stock tools: original `MiningToolOracle` binds native block tags and inspects all
+1,658 item method declarations. The 32 default profiles match 1,143,136 actual
+state speed/harvest pairs, all item destruction permissions and 3,316 removed-tool
+controls. Ordered speed and harvest rules are independent: iron retains speed6
+on obsidian but cannot harvest it. Native swords have maximum-float bamboo speed
+and forbid creative destruction; removed tools lose both rules. The debug stick
+always forbids destruction; its privileged block interaction remains separate.
+Four affected boundary tests pass. Facts include base durability cost, without
+claiming actual wear/loot behavior. Logs `.local/mining-tool-{native,check,tests}.log`;
+raw cases and native dumps stay ignored. `Item/ItemStack` tool methods and
+`Tool.getMiningSpeed/isCorrectForDrops` use the same pinned jar below.
+
+Next: player speed modifiers and owned mining attempts, then block-owner
+destruction/drops and durability. Attributes, effects, underwater/airborne
+penalties and the live client scenario remain pending.
 
 Reference: pinned Mojang 26.3 `BlockBehaviour.getDestroyProgress`,
 `BlockStateBase.getDestroySpeed`, `Player.getDestroySpeed/hasCorrectToolForDrops`
