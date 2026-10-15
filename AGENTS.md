@@ -54,13 +54,14 @@ Keep README small; put feature evidence in its ticket. Use `rg` to retrieve deta
   Use medium reasoning with a focused fresh handoff (`reasoning_effort: "medium"`,
   `fork_turns: "none"`). Only it drives CUA; the primary continues independent work.
   Hand off exact checkpoint/release, dataset, scenarios and evidence paths.
-  Coordinate restarts and fixtures; never replace a release under test. Review its
-  report before Done or publication; failures become fix/retest tasks.
-- The tester owns visual verification. Report PASS/FAIL per scenario, actions,
-  failure reasons and limits; the primary reviews that report. Routine saved
-  screenshots, image hashes and duplicate primary visual checks are not required.
-  Use CUA visual observations as needed; save images only for useful failure
-  diagnosis or when explicitly requested.
+  Coordinate restarts and fixtures; never replace a release under test.
+- The tester owns actual-client verification and reports PASS/FAIL per scenario,
+  checked actions and limits. Failures include reproduction steps, expected versus
+  observed behavior, exact checkpoint/dataset and diagnostic logs/traces sufficient
+  to debug and retest. The primary reviews the report before Done/publication and
+  turns failures into fix/retest tasks; do not duplicate visual verification.
+  Use CUA observations as needed. Routine saved screenshots and image hashes are
+  unnecessary; save images only for useful failure diagnosis or when requested.
 - Launch Java 26.3 directly with `scripts/minecraft_client.py --evidence
   .local/client-tests/TICKET/run-01` in a tracked terminal session with native macOS
   GUI access (`tty: true`, `sandbox_permissions: "require_escalated"`). It joins only

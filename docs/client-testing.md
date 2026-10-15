@@ -39,7 +39,9 @@ codecs cannot stand in for the graphical action. Do not connect to unrelated ser
 
 The tester owns visual verification and reports date/version, PASS/FAIL per
 scenario, actual actions, failure reasons and limits. The primary reviews the
-report before Done/publication. Routine saved screenshots, image hashes and
+report before Done/publication. Failures include reproduction steps, expected
+versus observed behavior, exact checkpoint/dataset and relevant diagnostic logs
+or traces for debugging and retesting. Routine saved screenshots, image hashes and
 duplicate primary visual checks are unnecessary. Use CUA visual observations as
 needed; save images only for useful failure diagnosis or when requested.
 Useful raw logs/captures stay ignored; concise results go in
