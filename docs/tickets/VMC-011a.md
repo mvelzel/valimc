@@ -1,6 +1,6 @@
 # VMC-011a — Authoritative simulation ownership and tick order
 
-Status: In progress — admission/routing validated; live player poses next. October 15, 2026.
+Status: In progress — player poses validated; live movement reconciliation next. October 15, 2026.
 
 The pose/movement math is usable, but region read revisions and ETS publications
 do not themselves authorize coupled gameplay. Player owners must decide/commit
@@ -44,3 +44,7 @@ need explicit ordered mutation protocols; domain handoffs remain an option, not
 an upstream architecture requirement. Rechecking revisions or expiring read leases
 cannot establish cross-owner mutation atomicity. Live movement enforcement,
 gravity and coupled simulation remain unimplemented until their own checks pass.
+
+Live block-based pose selection/metadata/eye height is validated in
+[VMC-014c3b2b2](VMC-014c3b2b2.md), including actual low-ceiling retention,
+reconnect and standing recovery. Movement collision enforcement is the next slice.

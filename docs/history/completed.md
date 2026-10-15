@@ -72,3 +72,4 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-011a5](../tickets/VMC-011a5.md) | Cold-load/file-I/O isolation; actual client responsive during stall |
 | [VMC-011a6](../tickets/VMC-011a6.md) | Independently supervised writers/leases; no live handoff claim |
 | [VMC-011a7](../tickets/VMC-011a7.md) | Cold admission/protected ETS routes; actual directory recovery |
+| [VMC-014c3b2b2](../tickets/VMC-014c3b2b2.md) | `b65e6ec`; live block-based selected poses, metadata and eye height |

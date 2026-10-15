@@ -11,11 +11,12 @@ indexes validated tickets. None imply full parity.
 
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Player processes own their simulation state; bounded workers sample geometry.
-   Coupled effects need explicit ordering. Owner/timer, client-tick admission, block batches,
-   [resource separation](tickets/VMC-011a4.md), [cold-load isolation](tickets/VMC-011a5.md) and
-   [writer leases](tickets/VMC-011a6.md) are validated. Next:
-   [cold admission/ETS routing](tickets/VMC-011a7.md) is validated. Next:
-   [live player poses](tickets/VMC-014c3b2b2.md) await actual-client checks.
+   Coupled effects need explicit ordering. Owner/timer, client-tick admission and
+   block batches are validated, as are [resource separation](tickets/VMC-011a4.md),
+   [cold-load isolation](tickets/VMC-011a5.md), [writer leases](tickets/VMC-011a6.md),
+   [cold admission/ETS routing](tickets/VMC-011a7.md) and
+   [live player poses](tickets/VMC-014c3b2b2.md).
+   Next: live movement reconciliation with bounded player jobs/corrections.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 
@@ -25,13 +26,13 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-014c3b2b2](tickets/VMC-014c3b2b2.md) | Live pose/low-ceiling recovery, interaction/reconnect | Local checkpoint |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
-native integration, including plaintext/encrypted TCP. Pose selection awaits client
-checks; live movement collision enforcement remains unimplemented.
+native integration, including plaintext/encrypted TCP. Live pose selection
+(`b65e6ec`) passes 113 affected tests, native codecs/TCP and actual-client checks;
+live movement collision enforcement remains unimplemented.
 Retain [VMC-018c2](tickets/VMC-018c2.md)'s unreproduced item visibility finding for the next item work.
 
 ## Retrieve and update
