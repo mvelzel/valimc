@@ -116,7 +116,7 @@ defmodule Valimc.PlayerKineticsTest do
     assert elem(suppressed.velocity, 1) < 0
   end
 
-  test "missing geometry fails and fluid contact cannot manufacture an air step" do
+  test "missing geometry fails and fluid contact selects water drag instead of air" do
     p = player()
     f = frame()
 
@@ -125,13 +125,63 @@ defmodule Valimc.PlayerKineticsTest do
 
     p = %{p | motion: %{p.motion | velocity: {0.2, 0.4, 0.0}}}
     {:ok, result} = PlayerKinetics.tick(p, :standing, frame(%{{4, 64, 4} => 89}))
-    refute result.supported
-    assert result.velocity == p.motion.velocity
+    assert result.supported and result.water
+    assert result.velocity == {0.1600000023841858, 0.3150000047683716, 0.0}
   end
 
   test "player dead zone is horizontal magnitude rather than independent axes" do
     assert PlayerKinetics.normalize({0.0029, 0.0029, 0.0029}) == {0.0029, 0.0, 0.0029}
     assert PlayerKinetics.normalize({0.002, 0.003, 0.002}) == {0.0, 0.003, 0.0}
     assert {:error, :invalid_velocity} = PlayerKinetics.jump({65.0, 0.0, 0.0}, 1.0, false, 0.0)
+  end
+
+  test "stationary fluid input evolves velocity/fall while accepted position stays anchored" do
+    pool = for x <- 3..5, y <- 64..66, z <- 3..5, into: %{}, do: {{x, y, z}, 89}
+    f = frame(pool)
+    p = player()
+    p = %{p | motion: %{p.motion | fall_distance: 7.0}, input: %{p.input | buttons: 16}}
+    {:ok, floating} = PlayerKinetics.tick(p, :standing, f)
+    assert elem(floating.velocity, 1) > 0.026 and elem(floating.velocity, 1) < 0.028
+    assert PlayerKinetics.apply_result(p.motion, floating).fall_distance == 0.0
+    assert p.y == 64.0 and floating.water and not floating.settled
+
+    {:ok, sinking} =
+      PlayerKinetics.tick(%{p | y: 64.2, input: %{p.input | buttons: 32}}, :standing, f)
+
+    assert elem(sinking.velocity, 1) < -0.036
+
+    lava = frame(Map.new(pool, fn {pos, _} -> {pos, 105} end))
+    {:ok, in_lava} = PlayerKinetics.tick(%{p | input: %{p.input | buttons: 0}}, :standing, lava)
+    assert in_lava.lava and not in_lava.water
+    assert in_lava.velocity == {0.0, -0.02, 0.0}
+    assert PlayerKinetics.apply_result(p.motion, in_lava).fall_distance == 3.5
+
+    flying = %{p | abilities: %{p.abilities | flying: true}, input: %{p.input | buttons: 48}}
+    {:ok, flight} = PlayerKinetics.tick(flying, :standing, f)
+    assert flight.velocity == {0.0, 0.0, 0.0}
+  end
+
+  test "fluid body rise does not become an ordinary ground jump" do
+    p = player()
+    p = %{p | motion: %{p.motion | on_ground: true}}
+    target = %{p | y: 64.04}
+    {:ok, body} = PlayerPose.geometry(:standing, {p.x, p.y, p.z})
+    pool = for x <- 3..5, y <- 64..66, z <- 3..5, into: %{}, do: {{x, y, z}, 89}
+    {:ok, result} = PlayerKinetics.packet(p, target, {0.0, 0.04, 0.0}, 0, body.box, frame(pool))
+    assert result.velocity == {0.0, 0.0, 0.0} and result.water
+
+    refute PlayerKinetics.signature(p) ==
+             PlayerKinetics.signature(%{p | input: %{p.input | buttons: 16}})
+  end
+
+  test "fluid wall escape is fenced by complete collision and liquid observations" do
+    p = player()
+    p = %{p | y: 64.5, motion: %{p.motion | velocity: {0.6, 0.0, 0.0}}}
+    changes = %{{4, 64, 4} => 89, {5, 64, 4} => 1, {5, 65, 4} => 1}
+    {:ok, escape} = PlayerKinetics.tick(p, :standing, frame(changes))
+    assert elem(escape.velocity, 1) == 0.30000001192092896
+    {:ok, blocked} = PlayerKinetics.tick(p, :standing, frame(Map.put(changes, {4, 65, 4}, 96)))
+    assert elem(blocked.velocity, 1) < 0.0
+    assert p.x == 4.5 and p.y == 64.5
   end
 end

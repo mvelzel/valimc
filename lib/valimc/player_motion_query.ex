@@ -161,6 +161,18 @@ defmodule Valimc.PlayerMotionQuery do
     end
   end
 
+  @doc false
+  def free_box?(box, frame, context, position) do
+    with {:ok, shapes} <- shapes(box, frame, context, position) do
+      if shapes == [] do
+        with {:ok, fluid} <- Valimc.Physics.FluidContact.any_liquid?(frame, box),
+             do: {:ok, not fluid}
+      else
+        {:ok, false}
+      end
+    end
+  end
+
   defp context(player, bottom),
     do:
       CollisionContext.entity(bottom, (player.input.shared_flags &&& 2) != 0)

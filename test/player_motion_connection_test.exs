@@ -166,6 +166,35 @@ defmodule Valimc.PlayerMotionConnectionTest do
     assert state(pid).player.motion.fall_distance == 0.0
   end
 
+  for {kind, fluid, lifted_velocity} <- [{:water, 89, 0.01}, {:lava, 105, -0.005}] do
+    test "live #{kind} ticks consume input without inventing accepted position", ctx do
+      {client, pid} = login(hd(ctx.names))
+      {x, z} = {floor(ctx.pos.x), floor(ctx.pos.z)}
+
+      for px <- (x - 1)..(x + 1),
+          py <- 64..66,
+          pz <- (z - 1)..(z + 1),
+          do: :ok = World.set_block({px, py, pz}, unquote(fluid))
+
+      anchor = %{ctx.pos | y: 64.2}
+      _client = Client.teleport(client, pid, anchor)
+      assert :ok = Connection.set_velocity(pid, {0.3, -0.1, 0.0})
+
+      wait(fn ->
+        {vx, vy, _} = state(pid).player.motion.velocity
+        abs(vx) < 0.25 and vy > -0.1 and vy < 0
+      end)
+
+      assert state(pid).player.y == anchor.y
+      Client.send_packet(client, :play, "player_input", <<16>>)
+      wait(fn -> elem(state(pid).player.motion.velocity, 1) > unquote(lifted_velocity) end)
+      assert state(pid).player.y == anchor.y
+      Client.send_packet(client, :play, "player_input", <<32>>)
+      wait(fn -> elem(state(pid).player.motion.velocity, 1) < -0.02 end)
+      assert state(pid).player.y == anchor.y
+    end
+  end
+
   test "new impulses retire stalled geometry and expired/invalid calls cannot replace velocity",
        ctx do
     {_client, pid} = login(hd(ctx.names))

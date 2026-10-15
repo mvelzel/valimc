@@ -31,8 +31,9 @@ indexes validated tickets. None imply full parity.
    scope (`18aad55`): direct airborne/ground reconnect, landing, jump and flight.
    [Fluid travel](tickets/VMC-015d.md) is in progress: complete material facts/body
    depths validated (`01c4627`); local native water/lava kernels (`0ae6ef3`).
-   Current math now matches native flow/player cases. Active block-entity faces,
-   input/swim forces and live composition on the same lane are next.
+   Current, contextual support and vertical input match native cases. [Default
+   live composition](tickets/VMC-015d1.md) has targeted checks passing; client and
+   integration gates are next, followed by swimming pose/steering.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
@@ -51,6 +52,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
+| [VMC-015d1](tickets/VMC-015d1.md) | Default water/lava current/input/travel, escape, flight and dry regression | Local checkpoint pending |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

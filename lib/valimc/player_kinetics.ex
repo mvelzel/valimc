@@ -9,6 +9,10 @@ defmodule Valimc.PlayerKinetics do
     Box,
     CollisionContext,
     CollisionResponse,
+    FluidContact,
+    FluidControls,
+    FluidCurrents,
+    FluidMotion,
     MotionBlocks,
     PlayerPose
   }
@@ -41,11 +45,19 @@ defmodule Valimc.PlayerKinetics do
     motion = Map.get(player, :motion, %PlayerMotion{})
 
     {motion.velocity, motion.physical_ground, motion.on_ground,
-     (player.input.shared_flags &&& 8) != 0, Map.get(player, :yaw, 0.0)}
+     (player.input.shared_flags &&& 8) != 0, player.input.buttons,
+     Valimc.PlayerInput.loaded?(player.input), Map.get(player, :yaw, 0.0)}
   end
 
-  def apply_result(motion, result),
-    do: struct!(motion, Map.take(result, [:velocity, :physical_ground, :settled]))
+  def apply_result(motion, result) do
+    motion = struct!(motion, Map.take(result, [:velocity, :physical_ground, :settled]))
+
+    cond do
+      Map.get(result, :water, false) -> %{motion | fall_distance: 0.0}
+      Map.get(result, :lava, false) -> %{motion | fall_distance: motion.fall_distance * 0.5}
+      true -> motion
+    end
+  end
 
   def query_box(box, player, jumping \\ false) do
     v = velocity(player)
@@ -57,13 +69,22 @@ defmodule Valimc.PlayerKinetics do
                  jump(v, 1.0, (player.input.shared_flags &&& 8) != 0, Map.get(player, :yaw, 0.0)),
                else: {:ok, v}
              ),
-           true <- valid_velocity?(jump_v) do
+           true <- valid_velocity?(jump_v),
+           {vx, vy, vz} = v,
+           escape = {2 * vx, vy + 0.6000000238418579, 2 * vz},
+           true <- Enum.all?(Tuple.to_list(escape), &(abs(&1) <= 64)) do
+        # An escape checks a second, damped horizontal displacement. Currents
+        # contribute at most .021 per axis, vertical input .04; .125 encloses
+        # both displacements. Frame admission is bounded independently of each
+        # individual collision scan; source/worker/batch limits still apply.
         {:ok,
          box
          |> Box.expand_towards(v)
          |> union(Box.expand_towards(box, jump_v))
          |> Box.expand_towards({0.0, 0.6, 0.0})
-         |> Box.expand_towards({0.0, -@below, 0.0})}
+         |> Box.expand_towards({0.0, -@below, 0.0})
+         |> union(Box.expand_towards(box, escape))
+         |> inflate(0.125)}
       else
         _ -> {:error, :kinetic_query_limit}
       end
@@ -77,7 +98,8 @@ defmodule Valimc.PlayerKinetics do
 
     with {:ok, geometry} <- PlayerPose.geometry(:standing, point(player)),
          {:ok, query} <- query_box(geometry.box, %{player | motion: motion}),
-         {:ok, _} <- Valimc.Physics.BlockScan.plan(query),
+         {:ok, _} <-
+           Valimc.Physics.BlockScan.plan(query, Valimc.Physics.CollisionQuery.frame_cell_limit()),
          do: true,
          else: (_ -> false)
   end
@@ -95,90 +117,162 @@ defmodule Valimc.PlayerKinetics do
     moved_box = Box.move(box, actual)
 
     with {:ok, before} <- material(frame, box, point(player), context(player, player.y)),
-         {:ok, velocity} <- packet_jump(player, requested, flags, before),
+         {:ok, depths} <- FluidContact.sample(frame, box),
+         {:ok, velocity} <- packet_jump(player, requested, flags, before, depths),
          {:ok, after_move} <- material(frame, moved_box, moved, context(player, elem(moved, 1))),
+         {:ok, after_fluid} <- FluidContact.sample(frame, moved_box),
          {:ok, result} <- response(velocity, requested, actual, after_move, player) do
       {:ok,
        Map.merge(result, %{
          physical_ground: after_move.support != nil,
-         settled: false
+         settled: false,
+         water: after_fluid.water > 0
        })}
     end
   end
 
-  @doc "One dry-player scratch step. It never advances the accepted player position."
+  @doc "One bounded player scratch step; it never advances the accepted player position."
   def tick(player, pose, frame) do
     motion = Map.get(player, :motion, %PlayerMotion{})
+    player = Map.put_new(player, :motion, motion)
     position = point(player)
 
     with {:ok, geometry} <- PlayerPose.geometry(pose, position),
          {:ok, before} <- material(frame, geometry.box, position, context(player, player.y)),
-         {:ok, dry} <- dry_body(frame, geometry.box) do
-      if dry do
-        velocity = normalize(motion.velocity)
-        spectator = player.game_mode.current == :spectator
+         {:ok, currents} <-
+           FluidCurrents.sample(frame, geometry.box, motion.velocity, not player.abilities.flying),
+         fluid =
+           not player.abilities.flying and (currents.depths.water > 0 or currents.depths.lava > 0),
+         {:ok, velocity} <- tick_input(player, currents, fluid) do
+      spectator = player.game_mode.current == :spectator
 
-        with {:ok, actual} <-
-               PlayerMotionQuery.displacement(
-                 geometry.box,
-                 velocity,
-                 position,
-                 frame,
-                 context(player, player.y),
-                 spectator
-               ),
-             moved = add(position, actual),
-             {:ok, after_move} <-
-               material(
-                 frame,
-                 Box.move(geometry.box, actual),
-                 moved,
-                 context(player, elem(moved, 1))
-               ),
-             {:ok, result} <- response(velocity, velocity, actual, after_move, player),
-             {:ok, next} <-
-               air(
-                 result.velocity,
-                 elem(velocity, 1),
-                 %AirMotion{on_ground: motion.physical_ground, friction: before.below.friction},
-                 player.abilities.flying
-               ),
-             true <- valid_velocity?(next) do
-          grounded = elem(actual, 1) != elem(velocity, 1) and elem(velocity, 1) < 0
+      with {:ok, actual} <-
+             PlayerMotionQuery.displacement(
+               geometry.box,
+               velocity,
+               position,
+               frame,
+               context(player, player.y),
+               spectator
+             ),
+           moved = add(position, actual),
+           {:ok, after_move} <-
+             material(
+               frame,
+               Box.move(geometry.box, actual),
+               moved,
+               context(player, elem(moved, 1))
+             ),
+           {:ok, result} <- response(velocity, velocity, actual, after_move, player),
+           {:ok, next} <-
+             travel(
+               player,
+               velocity,
+               result,
+               actual,
+               geometry.box,
+               frame,
+               before,
+               currents.depths,
+               fluid
+             ),
+           true <- valid_velocity?(next) do
+        grounded = elem(actual, 1) != elem(velocity, 1) and elem(velocity, 1) < 0
 
-          {:ok,
-           %{
-             velocity: next,
-             physical_ground: grounded,
-             settled: next == motion.velocity and (grounded or player.abilities.flying),
-             bounced: result.bounced,
-             supported: true
-           }}
-        else
-          false -> {:error, :kinetic_velocity_limit}
-          error -> error
-        end
-      else
-        # Fluid travel is a separate missing simulation mechanic. Do not
-        # manufacture an air step or reject an otherwise valid client move.
         {:ok,
          %{
-           velocity: motion.velocity,
-           physical_ground: before.support != nil,
-           settled: true,
-           bounced: false,
-           supported: false
+           velocity: next,
+           physical_ground: grounded,
+           settled:
+             not fluid and next == motion.velocity and (grounded or player.abilities.flying),
+           bounced: result.bounced,
+           supported: true,
+           water: currents.depths.water > 0,
+           lava: currents.depths.lava > 0
          }}
+      else
+        false -> {:error, :kinetic_velocity_limit}
+        error -> error
       end
     end
   end
+
+  defp tick_input(_, currents, false), do: {:ok, normalize(currents.velocity)}
+
+  defp tick_input(player, currents, true) do
+    with {:ok, result} <-
+           FluidControls.step(currents.velocity, %FluidControls{
+             water: currents.depths.water,
+             lava: currents.depths.lava,
+             on_ground: player.motion.physical_ground,
+             jump:
+               Valimc.PlayerInput.loaded?(player.input) and
+                 Valimc.PlayerInput.pressed?(player.input, :jump),
+             shift:
+               Valimc.PlayerInput.loaded?(player.input) and
+                 Valimc.PlayerInput.pressed?(player.input, :shift)
+           }),
+         do: {:ok, result.velocity}
+  end
+
+  defp travel(player, velocity, result, _actual, _box, _frame, before, _depths, false),
+    do:
+      air(
+        result.velocity,
+        elem(velocity, 1),
+        %AirMotion{on_ground: player.motion.physical_ground, friction: before.below.friction},
+        player.abilities.flying
+      )
+
+  defp travel(player, velocity, result, actual, box, frame, _before, depths, true) do
+    {_, y, _} = point(player)
+
+    horizontal =
+      abs(elem(velocity, 0) - elem(actual, 0)) >= @epsilon or
+        abs(elem(velocity, 2) - elem(actual, 2)) >= @epsilon
+
+    with {:ok, step} <-
+           FluidMotion.prepare(result.velocity, %FluidMotion{
+             kind: if(depths.water > 0, do: :water, else: :lava),
+             falling: elem(velocity, 1) <= 0,
+             on_ground: player.motion.physical_ground,
+             sprint: (player.input.shared_flags &&& 8) != 0,
+             horizontal_collision: horizontal,
+             shallow: depths.lava <= 0.4,
+             old_y: y,
+             new_y: y + elem(actual, 1)
+           }),
+         {:ok, free} <-
+           escape_free(
+             step.escape_query,
+             Box.move(box, actual),
+             frame,
+             player,
+             y + elem(actual, 1)
+           ),
+         do: {:ok, FluidMotion.finish(step, free)}
+  end
+
+  defp escape_free(nil, _, _, _, _), do: {:ok, false}
+
+  defp escape_free(offset, box, frame, player, bottom),
+    do:
+      PlayerMotionQuery.free_box?(
+        Box.move(box, offset),
+        frame,
+        context(player, bottom),
+        point(player)
+      )
+
+  defp inflate({a, b, c, d, e, f}, margin),
+    do: Box.new({a - margin, b - margin, c - margin, d + margin, e + margin, f + margin})
 
   def normalize({x, y, z}) do
     {x, z} = if x * x + z * z < 9.0e-6, do: {0.0, 0.0}, else: {x, z}
     {x + 0.0, if(abs(y) < 0.003, do: 0.0, else: y) + 0.0, z + 0.0}
   end
 
-  defp packet_jump(player, {_, dy, _}, flags, material) do
+  defp packet_jump(player, {_, dy, _}, flags, material, depths) do
     motion = Map.get(player, :motion, %PlayerMotion{})
 
     if jumping?(player, {0.0, dy, 0.0}, flags) do
@@ -187,12 +281,24 @@ defmodule Valimc.PlayerKinetics do
           do: material.below.jump_factor,
           else: material.feet.jump_factor
 
-      jump(
-        motion.velocity,
-        factor,
-        (player.input.shared_flags &&& 8) != 0,
-        Map.get(player, :yaw, 0.0)
-      )
+      with {:ok, control} <-
+             FluidControls.step(motion.velocity, %FluidControls{
+               water: depths.water,
+               lava: depths.lava,
+               on_ground: true,
+               jump: true,
+               flying: player.abilities.flying
+             }) do
+        if control.ground_jump,
+          do:
+            jump(
+              motion.velocity,
+              factor,
+              (player.input.shared_flags &&& 8) != 0,
+              Map.get(player, :yaw, 0.0)
+            ),
+          else: {:ok, motion.velocity}
+      end
     else
       {:ok, motion.velocity}
     end
@@ -259,21 +365,6 @@ defmodule Valimc.PlayerKinetics do
       {:ok, id} -> MotionBlocks.fetch(id)
       :error -> {:error, :incomplete_kinetic_frame}
     end
-  end
-
-  defp dry_body(frame, {a, b, c, d, e, f}) do
-    positions =
-      for x <- floor(a + @epsilon)..floor(d - @epsilon),
-          y <- floor(b + @epsilon)..floor(e - @epsilon),
-          z <- floor(c + @epsilon)..floor(f - @epsilon),
-          do: {x, y, z}
-
-    Enum.reduce_while(positions, {:ok, true}, fn pos, {:ok, dry} ->
-      case fact(frame, pos) do
-        {:ok, f} -> {:cont, {:ok, dry and f.fluid_empty}}
-        error -> {:halt, error}
-      end
-    end)
   end
 
   defp context(player, bottom),

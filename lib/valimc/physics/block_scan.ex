@@ -13,7 +13,9 @@ defmodule Valimc.Physics.BlockScan do
            Enum.all?(@large, &(is_integer(&1) and &1 >= 0 and &1 < @state_count)),
          do: raise("Invalid protruding collision state catalog")
 
-  def plan(box) do
+  def plan(box, limit \\ @max_cells)
+
+  def plan(box, limit) when limit in [@max_cells, 1024] do
     if Box.valid?(box) do
       {x0, y0, z0, x1, y1, z1} = box
       lo = {floor(x0 - @epsilon) - 1, floor(y0 - @epsilon) - 1, floor(z0 - @epsilon) - 1}
@@ -22,7 +24,7 @@ defmodule Valimc.Physics.BlockScan do
       {x, y, z} = hi
       volume = (x - a + 1) * (y - b + 1) * (z - c + 1)
 
-      if volume > @max_cells do
+      if volume > limit do
         {:error, :block_scan_limit}
       else
         positions =
@@ -39,6 +41,8 @@ defmodule Valimc.Physics.BlockScan do
       {:error, :invalid_box}
     end
   end
+
+  def plan(_, _), do: {:error, :block_scan_limit}
 
   def eligible(_id, 3), do: {:ok, false}
 

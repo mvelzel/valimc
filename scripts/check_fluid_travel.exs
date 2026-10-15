@@ -1,4 +1,6 @@
 alias Valimc.Physics.FluidMotion
+alias Valimc.{PlayerInput, PlayerKinetics, PlayerMotion}
+alias Valimc.Physics.{BlockScan, Box, CollisionQuery, PlayerPose}
 [path] = System.argv()
 data = path |> File.read!() |> :json.decode()
 fields = Map.keys(Map.from_struct(%FluidMotion{})) -- [:kind, :falling]
@@ -28,6 +30,31 @@ check = fn c ->
   unless bits.(actual) == bits.(expected),
     do: raise("Native fluid travel mismatch #{inspect(c)} #{inspect(actual)}")
 
+  # The native escape also samples a prospective translated body. Prove the
+  # live acquired frame contains every collision candidate for these fixtures.
+  if abs(c["old_y"]) <= 1_000_000 do
+    {:ok, geometry} = PlayerPose.geometry(:standing, {0.5, c["old_y"], 0.5})
+    player = %{motion: %PlayerMotion{velocity: initial}, input: %PlayerInput{}, yaw: 0.0}
+    {:ok, envelope} = PlayerKinetics.query_box(geometry.box, player)
+    {:ok, acquired} = BlockScan.plan(envelope, CollisionQuery.frame_cell_limit())
+    positions = MapSet.new(acquired, &elem(&1, 0))
+    {:ok, movement} = BlockScan.plan(Box.expand_towards(geometry.box, initial))
+
+    escape =
+      if query do
+        moved =
+          Box.move(geometry.box, {elem(initial, 0), c["new_y"] - c["old_y"], elem(initial, 2)})
+
+        {:ok, escaped} = BlockScan.plan(Box.move(moved, query))
+        escaped
+      else
+        []
+      end
+
+    unless Enum.all?(movement ++ escape, &MapSet.member?(positions, elem(&1, 0))),
+      do: raise("Native fluid movement/escape outside acquired frame #{inspect(c)}")
+  end
+
   actual
 end
 
@@ -42,4 +69,6 @@ for trace <- data["traces"] do
   end)
 end
 
-IO.puts("PASS: #{length(data["cases"])} native fluid travel cases and 3x200 transition traces.")
+IO.puts(
+  "PASS: #{length(data["cases"])} native fluid travel cases, 3x200 transition traces and live frame coverage within player Y bounds."
+)

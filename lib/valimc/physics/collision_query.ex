@@ -10,6 +10,9 @@ defmodule Valimc.Physics.CollisionQuery do
   # Each player owns at most one job; allow its cancelled predecessor to retire.
   # Owner observation waits yield to BEAM, whose schedulers bound CPU execution.
   def worker_limit, do: Valimc.config(:max_players) * 2
+  # A frame encloses accepted movement, scratch travel and a possible fluid
+  # escape. Individual collision scans retain their smaller 512-cell limit.
+  def frame_cell_limit, do: 1024
 
   @doc "Start one query. Consume its Task result/monitor or cancel with Task.shutdown/2."
   def start(box, context \\ CollisionContext.empty()),
@@ -34,7 +37,7 @@ defmodule Valimc.Physics.CollisionQuery do
 
   defp prepare(box, context, finish, verify, admit) do
     with true <- CollisionContext.valid?(context),
-         {:ok, plan} <- BlockScan.plan(box),
+         {:ok, plan} <- BlockScan.plan(box, if(verify, do: frame_cell_limit(), else: 512)),
          true <-
            Enum.all?(plan, fn {{x, y, z}, _} ->
              abs(x) < 30_000_000 and abs(z) < 30_000_000 and abs(y) <= 1_000_000

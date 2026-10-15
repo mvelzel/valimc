@@ -37,6 +37,13 @@ defmodule Valimc.Physics.FluidContactTest do
              FluidContact.sample(frame(%{{0, 64, 0} => 15180}), @box)
   end
 
+  test "escape rejects even shallow liquid cells above their actual surface" do
+    box = {0.2, 64.8, 0.2, 0.8, 66.6, 0.8}
+    f = frame(%{{0, 64, 0} => 96}, box)
+    assert {:ok, %{water: 0.0, lava: 0.0}} == FluidContact.sample(f, box)
+    assert {:ok, true} == FluidContact.any_liquid?(f, box)
+  end
+
   test "missing body or above observation cannot silently become dry" do
     f = frame(%{{0, 64, 0} => 89})
 

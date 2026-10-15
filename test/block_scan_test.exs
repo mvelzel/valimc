@@ -46,4 +46,13 @@ defmodule Valimc.BlockScanTest do
     for type <- [-1, 4, :bad, nil],
         do: assert(BlockScan.eligible(1, type) == {:error, :invalid_boundary_type})
   end
+
+  test "combined simulation frames have a distinct bounded envelope" do
+    box = {0.2, 0.2, 0.2, 6.8, 5.8, 5.8}
+    assert {:error, :block_scan_limit} == BlockScan.plan(box)
+    assert {:ok, positions} = BlockScan.plan(box, 1024)
+    assert length(positions) < 1024
+    assert {:error, :block_scan_limit} == BlockScan.plan({0.2, 0.2, 0.2, 10.8, 10.8, 10.8}, 1024)
+    assert {:error, :block_scan_limit} == BlockScan.plan(box, 2048)
+  end
 end

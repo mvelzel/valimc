@@ -38,14 +38,31 @@ defmodule Valimc.Physics.FluidContact do
 
   def contacts(_, _), do: {:error, :invalid_fluid_frame}
 
+  @doc "Native escape test: any nonempty fluid cell, regardless of its surface height."
+  def any_liquid?(%Frame{states: states}, box) when is_map(states) and map_size(states) <= 2048 do
+    with {:ok, positions} <- positions(box, 0.0) do
+      Enum.reduce_while(positions, {:ok, false}, fn p, _ ->
+        case at(states, p) do
+          {:ok, %{kind: :empty}} -> {:cont, {:ok, false}}
+          {:ok, _} -> {:halt, {:ok, true}}
+          error -> {:halt, error}
+        end
+      end)
+    end
+  end
+
+  def any_liquid?(_, _), do: {:error, :invalid_fluid_frame}
+
   @doc "Native body scan order, bounded independently of the supplied frame."
-  def positions(box) do
+  def positions(box), do: positions(box, @inset)
+
+  defp positions(box, inset) do
     if Box.valid?(box) do
       {a, b, c, d, e, f} = box
 
-      if d - a > 2 * @inset and e - b > 2 * @inset and f - c > 2 * @inset do
-        {x0, y0, z0} = {floor(a + @inset), floor(b + @inset), floor(c + @inset)}
-        {x1, y1, z1} = {ceil(d - @inset) - 1, ceil(e - @inset) - 1, ceil(f - @inset) - 1}
+      if d - a > 2 * inset and e - b > 2 * inset and f - c > 2 * inset do
+        {x0, y0, z0} = {floor(a + inset), floor(b + inset), floor(c + inset)}
+        {x1, y1, z1} = {ceil(d - inset) - 1, ceil(e - inset) - 1, ceil(f - inset) - 1}
 
         if (x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1) <= @max_cells,
           do: {:ok, for(x <- x0..x1, y <- y0..y1, z <- z0..z1, do: {x, y, z})},
