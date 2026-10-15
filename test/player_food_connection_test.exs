@@ -154,11 +154,15 @@ defmodule Valimc.PlayerFoodConnectionTest do
     seed(ctx, food, 10.0)
     {client, pid} = login(ctx, 10.0, food)
     stale = tick(pid)
-    before = state(pid).player
+    fields = [:food, :food_phase, :health]
+    before = Map.take(state(pid).player, fields)
+    before_tick = state(pid).simulation_clock.tick
     for _ <- 1..20, do: send(pid, {:player_tick, stale})
-    assert state(pid).player == before
+    assert Map.take(state(pid).player, fields) == before
+    assert state(pid).simulation_clock.tick == before_tick
     send(pid, {:player_tick, state(pid).simulation_clock.token})
-    assert state(pid).player == before
+    assert Map.take(state(pid).player, fields) == before
+    assert state(pid).simulation_clock.tick == before_tick
     ticks(pid, 8)
     assert state(pid).player.health.value == 10.0
     tick(pid)

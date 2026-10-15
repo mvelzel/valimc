@@ -66,6 +66,17 @@ Logs: `.local/player-food-owner-affected-tests.log`, `.local/food-survival-rules
 `.local/starvation-{protection,life}-*.log`. Actual client validation remains pending.
 Accepted movement/action exhaustion and consuming items remain subsequent work.
 
+Block:724 full tests pass (`.local/food-block-full-tests-final.log`, seed327342)
+and a separate production release builds. The first full run exposed shared-spawn
+item interference in two death fixtures; they now use an isolated region/dataset.
+A replay assertion also compared asynchronous pose fields; it now checks only the
+food/health/body phase and admitted tick. The same full-suite seed passes after
+those fixture corrections. Frozen runtime `95a9d36` contains567 verified blobs,
+no mismatches; later edits affect tests/evidence only. Manifest/build logs:
+`.local/food-validation-checkpoint.json`, `.local/food-validation-production.log`.
+Full native integration is running; matched preview measurements follow it.
+The existing GUI server remains unchanged.
+
 Client scenario: seed a damaged survival body and observe actual hearts recover
 with full food; low food prevents healing, exhaustion spends saturation then food,
 and a hungry body shows depleted drumsticks. Reconnect retains the state. Check

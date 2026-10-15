@@ -68,7 +68,8 @@ indexes validated tickets. None imply full parity.
    boundary/mode/loading/defense/codecs; actual-client validation remains pending.
    [Hunger/regeneration](tickets/VMC-036a.md) passes131 affected tests and native
    food/peaceful/defense/codecs. Owned clock, journal, rules and HUD are implemented;
-   broader block checks and graphical validation remain pending. Movement/action
+   724 full tests and a separate production build pass; full native integration
+   and graphical validation remain pending. Movement/action
    exhaustion and consuming items are subsequent slices.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
