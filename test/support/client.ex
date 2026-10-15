@@ -116,6 +116,16 @@ defmodule Valimc.TestClient do
   def auto_reply(client, :play, "update_attributes", body),
     do: Map.put(client, :attributes_body, body)
 
+  def auto_reply(client, :play, "set_entity_data", body) do
+    case Wire.take_varint(body) do
+      {id, <<0, 0, flags, _::binary>>} ->
+        Map.update(client, :entity_flags, %{id => flags}, &Map.put(&1, id, flags))
+
+      _ ->
+        client
+    end
+  end
+
   def auto_reply(client, _, _, _), do: client
 
   defp take_items(body, 0, items), do: {Enum.reverse(items), body}

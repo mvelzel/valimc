@@ -16,6 +16,8 @@ Connect with a vanilla **Java 26.3** client to `localhost:25565`. The default bi
 Creative flight toggles now update the socket owner and survive reconnect/graceful restart with pose and inventory. Only flight can be requested by a client; permissions and speeds remain server-owned. Saved current/previous game modes now initialize abilities, inventory permissions and client UI consistently. The default remains creative; live mode transitions and non-creative gameplay remain future work. Spectator menu/drop/swap mutations are denied. The existing instant-break/free-placement path is creative-only; survival and adventure world actions currently restore state until their gameplay rules exist.
 
 Login now synchronizes native block/entity interaction ranges and creative modifiers.
+Connection owners retain native player input and replicate Shift/sprint flags to
+self and peers. Collision-selected poses and sprint attributes remain future work.
 Preview block checks use nearest-box distance, the native verification buffer and
 validated hit coordinates. Other player poses, ray obstruction and general
 attribute effects/persistence remain future work.

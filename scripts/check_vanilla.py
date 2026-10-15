@@ -3,6 +3,9 @@
 import os, pathlib, socket, subprocess, sys, tempfile, time, json
 root = pathlib.Path(__file__).resolve().parent.parent
 with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
+    input_cases = str(pathlib.Path(world) / 'player-input.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'PlayerInputOracle', input_cases], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_player_input.exs', input_cases], cwd=root, check=True)
     collision_facts = str(pathlib.Path(world) / 'collision-shapes.json')
     collision_cases = str(pathlib.Path(world) / 'collisions.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'CollisionMetadata', collision_facts], cwd=root, check=True)

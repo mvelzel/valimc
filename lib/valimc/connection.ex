@@ -11,6 +11,7 @@ defmodule Valimc.Connection do
     Metrics,
     Players,
     PlayerAbilities,
+    PlayerInput,
     PlayerSnapshot,
     PlayerStore,
     PlayerTransfers,
@@ -78,6 +79,7 @@ defmodule Valimc.Connection do
        pending: [],
        batch_pending: false,
        peers: %{},
+       player_flags_view: 0,
        item_replication: ItemReplication.new(),
        clock_version: nil,
        weather_view: nil,
@@ -447,6 +449,16 @@ defmodule Valimc.Connection do
     guard_connection(state, fn ->
       if state.phase == :play do
         Process.send_after(self(), :publish_movement, 50)
+
+        state = update_player_input(state, PlayerInput.tick(state.player.input))
+
+        state =
+          if state.player_flags_view != state.player.input.shared_flags do
+            state = emit_peer_packets(state, [Packets.player_flags(state.player)], :buffer)
+            %{state | player_flags_view: state.player.input.shared_flags}
+          else
+            state
+          end
 
         nearby = Players.nearby(state.regions)
 
@@ -863,6 +875,18 @@ defmodule Valimc.Connection do
         Players.update(self(), player)
         %{state | player: player}
 
+      "player_input" ->
+        {:ok, input} = PlayerInput.receive_input(state.player.input, payload)
+        update_player_input(state, input)
+
+      "player_command" ->
+        {:ok, input} = PlayerInput.receive_command(state.player.input, payload)
+        update_player_input(state, input)
+
+      "player_loaded" ->
+        <<>> = payload
+        update_player_input(state, PlayerInput.loaded(state.player.input))
+
       "change_game_mode" ->
         {_requested_id, <<>>} = Wire.take_varint(payload)
         # All current network sessions are unprivileged; operators are VMC-010.
@@ -936,6 +960,7 @@ defmodule Valimc.Connection do
       pitch: 0.0,
       game_mode: mode,
       abilities: GameMode.abilities(mode, false),
+      input: %PlayerInput{},
       ready: false
     }
 
@@ -1044,6 +1069,16 @@ defmodule Valimc.Connection do
     Process.send_after(self(), :publish_movement, 50)
     Process.send_after(self(), :save_player, Valimc.config(:player_save_interval_ms))
     state
+  end
+
+  defp update_player_input(state, input) do
+    if input == state.player.input do
+      state
+    else
+      player = %{state.player | input: input}
+      Players.update(self(), player)
+      %{state | player: player}
+    end
   end
 
   defp move(%{teleport_pending: true} = state, _), do: state
@@ -1157,9 +1192,18 @@ defmodule Valimc.Connection do
 
         packets =
           case state.peers[player.pid] do
-            nil -> [Packets.player_info(player), Packets.add_entity(player)]
-            ^view -> []
-            previous -> List.wrap(Packets.move_entity(player, previous))
+            nil ->
+              [
+                Packets.player_info(player),
+                Packets.add_entity(player),
+                Packets.player_flags(player)
+              ]
+
+            ^view ->
+              []
+
+            previous ->
+              List.wrap(Packets.move_entity(player, previous))
           end
 
         if packets == [] do

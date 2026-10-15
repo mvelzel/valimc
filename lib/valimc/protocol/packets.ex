@@ -1,6 +1,6 @@
 defmodule Valimc.Protocol.Packets do
   @moduledoc "Minecraft 26.3 clientbound packet payloads. All integers are network endian."
-  alias Valimc.Protocol.{Data, ItemStack, Wire}
+  alias Valimc.Protocol.{Data, EntityPackets, ItemStack, Wire}
   import Bitwise
 
   def time(data) do
@@ -187,10 +187,10 @@ defmodule Valimc.Protocol.Packets do
     ]
   end
 
-  def remove_info({_, uuid, _, _, _, _, _}), do: packet("player_info_remove", [<<1>>, uuid])
+  def remove_info({_, uuid, _, _, _, _, _, _}), do: packet("player_info_remove", [<<1>>, uuid])
   def remove_info(player), do: packet("player_info_remove", [<<1>>, player.uuid])
 
-  def remove_entity({id, _, _, _, _, _, _}),
+  def remove_entity({id, _, _, _, _, _, _, _}),
     do: packet("remove_entities", [<<1>>, Wire.varint(id)])
 
   def remove_entity(player), do: packet("remove_entities", [<<1>>, Wire.varint(player.entity_id)])
@@ -208,21 +208,39 @@ defmodule Valimc.Protocol.Packets do
   def view(player),
     do:
       {player.entity_id, player.uuid, round(player.x * 4096), round(player.y * 4096),
-       round(player.z * 4096), angle(player.yaw), angle(player.pitch)}
+       round(player.z * 4096), angle(player.yaw), angle(player.pitch), shared_flags(player)}
 
-  def move_entity(player, {_, _, x, y, z, _, _}) do
+  def player_flags(player),
+    do: EntityPackets.metadata(player.entity_id, shared_flags: shared_flags(player))
+
+  defp shared_flags(player), do: Map.get(player, :input, %Valimc.PlayerInput{}).shared_flags
+
+  def move_entity(player, {_, _, x, y, z, yaw, pitch, flags}) do
     dx = round(player.x * 4096) - x
     dy = round(player.y * 4096) - y
     dz = round(player.z * 4096) - z
 
-    if Enum.all?([dx, dy, dz], &(&1 >= -32768 and &1 <= 32767)) do
-      packet("move_entity_pos_rot", [
-        Wire.varint(player.entity_id),
-        <<1, dx::signed-16, dy::signed-16, dz::signed-16, angle(player.yaw), angle(player.pitch)>>
-      ])
-    else
-      # Respawn tracking for large creative-mode teleports avoids guessing new PositionPath encodings.
-      [remove_entity(player), add_entity(player)]
+    cond do
+      not Enum.all?([dx, dy, dz], &(&1 >= -32768 and &1 <= 32767)) ->
+        # Recreated entities need metadata even when their old flags did not change.
+        [remove_entity(player), add_entity(player), player_flags(player)]
+
+      true ->
+        movement =
+          if {dx, dy, dz, angle(player.yaw), angle(player.pitch)} == {0, 0, 0, yaw, pitch} do
+            []
+          else
+            [
+              packet("move_entity_pos_rot", [
+                Wire.varint(player.entity_id),
+                <<1, dx::signed-16, dy::signed-16, dz::signed-16, angle(player.yaw),
+                  angle(player.pitch)>>
+              ])
+            ]
+          end
+
+        metadata = if shared_flags(player) == flags, do: [], else: [player_flags(player)]
+        movement ++ metadata
     end
   end
 

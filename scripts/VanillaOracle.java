@@ -62,6 +62,7 @@ public class VanillaOracle implements AutoCloseable {
   private int threshold = -1;
   private final Map<String, Integer> seen = new TreeMap<>();
   private int chunks;
+  private int playerId;
   private int expectedChunks;
   private ClientboundContainerSetContentPacket initialInventory;
 
@@ -198,6 +199,7 @@ public class VanillaOracle implements AutoCloseable {
   private ClientboundUpdateAttributesPacket interactionAttributes;
   private Object readGame() throws Exception {
     Object packet = read(gameIn);
+    if (packet instanceof ClientboundLoginPacket login) playerId=login.playerId();
     if (packet instanceof ClientboundPlayerAbilitiesPacket current) { abilities=current; abilitiesPackets++; }
     if (packet instanceof ClientboundUpdateAttributesPacket current) { interactionAttributes=current; }
     if (packet instanceof ClientboundChangeDifficultyPacket difficulty) {
@@ -296,6 +298,18 @@ public class VanillaOracle implements AutoCloseable {
   }
   @Override public void close() throws IOException { socket.close(); }
 
+  private static boolean flags(Object packet,int id,int flags) {
+    return packet instanceof ClientboundSetEntityDataPacket p && p.id()==id &&
+      p.packedItems().stream().anyMatch(v -> v.id()==0 && v.value().equals((byte)flags));
+  }
+  private void playerCommand(int declaredId,ServerboundPlayerCommandPacket.Action action) throws Exception {
+    var b=new FriendlyByteBuf(Unpooled.buffer());
+    try {
+      b.writeVarInt(declaredId);b.writeEnum(action);b.writeVarInt(0);
+      send(gameOut,ServerboundPlayerCommandPacket.STREAM_CODEC.decode(b));
+    } finally {b.release();}
+  }
+
   @SuppressWarnings({"rawtypes", "unchecked"})
   public static void main(String[] args) throws Exception {
     SharedConstants.tryDetectVersion(); Bootstrap.bootStrap();
@@ -344,6 +358,20 @@ public class VanillaOracle implements AutoCloseable {
         if(first.abilitiesPackets!=abilityCount) throw new AssertionError("Flight request unexpectedly echoed");
       }
       System.out.println("PASS: native creative initialization and actual flight requests without ability echoes.");
+      first.send(gameOut,new ServerboundPlayerLoadedPacket());
+      first.send(gameOut,new ServerboundPlayerInputPacket(new net.minecraft.world.entity.player.Input(false,false,false,false,false,true,true)));
+      first.await(p -> flags(p,first.playerId,2));
+      second.await(p -> flags(p,first.playerId,2));
+      first.playerCommand(second.playerId,ServerboundPlayerCommandPacket.Action.START_SPRINTING);
+      first.await(p -> flags(p,first.playerId,10));
+      second.await(p -> flags(p,first.playerId,10));
+      first.send(gameOut,new ServerboundPlayerInputPacket(new net.minecraft.world.entity.player.Input(false,false,false,false,false,false,true)));
+      first.await(p -> flags(p,first.playerId,8));
+      second.await(p -> flags(p,first.playerId,8));
+      first.playerCommand(-1,ServerboundPlayerCommandPacket.Action.STOP_SPRINTING);
+      first.await(p -> flags(p,first.playerId,0));
+      second.await(p -> flags(p,first.playerId,0));
+      System.out.println("PASS: native player input/command/load codecs and independent Shift/sprint metadata for self and peer.");
       if (first.lastTime==null || second.lastTime==null) throw new AssertionError("Missing initial clock synchronization");
       if (!first.difficultyInitialized || !second.difficultyInitialized) throw new AssertionError("Missing initial difficulty synchronization");
       if (!first.rainInitialized || !first.thunderInitialized || !second.rainInitialized || !second.thunderInitialized)
