@@ -1,6 +1,6 @@
 # VMC-036b — Movement exhaustion
 
-Status: Native travel/jump foundations verified; owner composition pending. October 16, 2026.
+Status: Live owner composition automated-verified; graphical gate pending. October 16, 2026.
 Depends on [owned food](VMC-036a.md) and fenced accepted movement.
 
 Acceptance: accepted survival sprint/swim travel and grounded jumps add native
@@ -26,9 +26,25 @@ The listener invokes that callback on grounded-to-airborne upward movement; the
 owner will bind it after acceptance rather than copy vanilla's pre-validation
 ordering. World contacts/acceptance and stats persistence are excluded. Four
 focused boundary tests pass. Logs `.local/movement-food-{native,check,tests}.log`.
-Next: bind both requests to fresh accepted owner movement and current abilities.
 Bubble columns still count as eye-water for travel even though they restore air.
-This is not live food depletion or a GUI pass.
+
+Live: the existing movement worker resolves water/eye/climbing predicates from
+its fenced frame and returns separate jump/travel requests. The owner checks
+deadline/signature/owners before committing them to its current food state, with
+the current ability gate. Jump precedes travel, preserving float32 addition order.
+Ordinary walking/immune requests take a cheap zero path. No extra query, worker,
+timer or global call. Eye-water and air-draining submersion share one sample.
+
+Ninety-one affected tests pass, including12 focused TCP scenarios: sprint food/HUD
+depletion and reconnect, actual selected swimming/underwater/body-water/bubbles,
+walking/scratch/held-jump negatives, accepted jumps, creative/spectator immunity,
+ladder removal, speed/collision corrections and retired geometry. A blocked frame
+retains socket ordering before stop-sprinting, and food ticks during a blocked
+frame are retained at commit. The first blocked test incorrectly expected a later
+wire command to overtake pending movement; the fixture now verifies wire order.
+Raw `.local/movement-food-owner-affected-tests-complete.log` (seed550802).
+GUI validation and matched preview measurements remain pending. Sprint eligibility,
+mining/combat exhaustion, effects and consuming items remain subsequent work.
 
 Client scenario: actual survival sprint laps and swimming drain saturation then
 drumsticks; ordinary walking and creative flight are negatives. Reconnect retains

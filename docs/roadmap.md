@@ -70,8 +70,10 @@ indexes validated tickets. None imply full parity.
    food/peaceful/defense/codecs. Owned clock, journal, rules and HUD are implemented;
    724 full tests and a separate production build pass; full native integration
    and graphical validation remain pending. Movement/action
-   [Movement exhaustion](tickets/VMC-036b.md) has native travel/mode/jump foundations;
-   accepted owner/action wiring and consuming items are subsequent slices.
+   [Movement exhaustion](tickets/VMC-036b.md) passes91 affected tests and native
+   travel/mode/jump probes; accepted sprint/swim/jump food costs are implemented,
+   with graphical validation pending. Sprint eligibility, other action costs and
+   consuming items are subsequent slices.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
@@ -96,6 +98,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 | [VMC-017b2](tickets/VMC-017b2.md) | Actual bubbles/drain/recovery, gear, reconnect and fatal drowning | Local air checkpoint |
 | [VMC-017b3](tickets/VMC-017b3.md) | Actual void damage/modes, reconnect and fatal respawn | Local void checkpoint |
 | [VMC-036a](tickets/VMC-036a.md) | Actual hunger HUD/healing/starvation, reconnect and respawn | Local food checkpoint |
+| [VMC-036b](tickets/VMC-036b.md) | Actual sprint/swim/jump depletion and negatives, reconnect | Local movement-food checkpoint |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

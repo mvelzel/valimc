@@ -9,6 +9,8 @@ defmodule Valimc.PlayerMotionQuery do
     Collision,
     CollisionContext,
     CollisionQuery,
+    ClimbContact,
+    MovementFood,
     MovementValidation,
     PlayerPose,
     PoseFit,
@@ -149,7 +151,7 @@ defmodule Valimc.PlayerMotionQuery do
              observations
            ),
          {:ok, powder} <- Valimc.PlayerEnvironment.sample(blocks, after_move.geometry.box),
-         {:ok, submerged} <- Valimc.PlayerAir.submerged?(blocks, after_move.geometry),
+         {:ok, air} <- Valimc.PlayerAir.contact(blocks, after_move.geometry),
          {:ok, packet} <- Valimc.PlayerKinetics.packet(player, target, actual, flags, box, blocks),
          {:ok, landing} <- Valimc.PlayerLanding.sample(player, target, flags, box, blocks),
          accepted_motion =
@@ -166,7 +168,9 @@ defmodule Valimc.PlayerMotionQuery do
              :motion,
              Valimc.PlayerKinetics.apply_result(%{accepted_motion | swimming: swimming}, packet)
            ),
-         {:ok, tick} <- Valimc.PlayerKinetics.tick(candidate, after_move.pose, blocks) do
+         {:ok, tick} <- Valimc.PlayerKinetics.tick(candidate, after_move.pose, blocks),
+         {:ok, exhaustion} <-
+           food_requests(player, candidate, requested, flags, air, tick, blocks) do
       {:ok,
        %{
          accepted: not rejected,
@@ -174,11 +178,54 @@ defmodule Valimc.PlayerMotionQuery do
          swimming: swimming,
          moved: moved,
          powder_snow: powder,
-         submerged: submerged,
+         submerged: air.submerged,
+         exhaustion: exhaustion,
          kinetics: %{packet: packet, tick: tick},
          landing: landing,
          fences: blocks.fences
        }}
+    end
+  end
+
+  defp food_requests(%{abilities: %{invulnerable: true}}, _, _, _, _, _, _),
+    do: {:ok, %{jump: 0.0, travel: 0.0}}
+
+  defp food_requests(player, candidate, movement, flags, air, tick, blocks) do
+    sprinting = (player.input.shared_flags &&& 8) != 0
+    grounded = (flags &&& 1) != 0
+    fluid = candidate.motion.swimming or air.water or tick.water
+
+    climb =
+      if sprinting and grounded and not fluid do
+        ClimbContact.sample(
+          blocks,
+          {floor(candidate.x), floor(candidate.y), floor(candidate.z)},
+          candidate.abilities.flying,
+          candidate.game_mode.current == :spectator,
+          false
+        )
+      else
+        {:ok, %{climbing: false}}
+      end
+
+    with {:ok, contact} <- climb do
+      travel =
+        MovementFood.amount(movement, %{
+          passenger: false,
+          swimming: candidate.motion.swimming,
+          underwater: air.water,
+          water: tick.water,
+          climbing: contact.climbing,
+          grounded: grounded,
+          sprinting: sprinting
+        })
+
+      jump =
+        if Valimc.PlayerKinetics.jumping?(player, movement, flags),
+          do: MovementFood.jump(sprinting),
+          else: 0.0
+
+      {:ok, %{jump: jump, travel: travel}}
     end
   end
 

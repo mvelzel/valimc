@@ -588,6 +588,7 @@ defmodule Valimc.Connection do
                fences: fences,
                powder_snow: powder,
                submerged: submerged,
+               exhaustion: exhaustion,
                kinetics: kinetics,
                landing: landing
              }} ->
@@ -627,6 +628,7 @@ defmodule Valimc.Connection do
 
                 next =
                   next
+                  |> apply_movement_exhaustion(exhaustion)
                   |> apply_kinetic_tick(kinetics.tick, kinetics.packet.bounced)
                   |> observe_environment(powder, submerged)
                   |> monitor_pose_sources(fences)
@@ -1096,6 +1098,20 @@ defmodule Valimc.Connection do
   end
 
   defp apply_void_damage(state), do: state
+
+  defp apply_movement_exhaustion(%{player: %{abilities: %{invulnerable: true}}} = state, _),
+    do: state
+
+  defp apply_movement_exhaustion(state, %{jump: jump, travel: travel})
+       when jump == 0 and travel == 0,
+       do: state
+
+  defp apply_movement_exhaustion(state, %{jump: jump, travel: travel}) do
+    food = state.player.food |> PlayerFood.exhaust(jump) |> PlayerFood.exhaust(travel)
+    player = %{state.player | food: food}
+    if food != state.player.food, do: Players.update(self(), player)
+    %{state | player: player}
+  end
 
   defp tick_food(%{life_stage: :alive} = state) do
     {difficulty, regeneration} = World.Clock.survival()

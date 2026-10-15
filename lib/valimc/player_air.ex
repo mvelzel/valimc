@@ -11,10 +11,10 @@ defmodule Valimc.PlayerAir do
   def bubble_states, do: @bubble_states
   def supply(player), do: Map.get(player, :air_supply, @maximum)
 
-  def submerged?(frame, %{box: box, eye: {x, y, z} = eye}) do
+  def contact(frame, %{box: box, eye: {x, y, z} = eye}) do
     with {:ok, eyes} <- FluidContact.eyes(frame, box, eye),
          {:ok, state} <- Map.fetch(frame.states, {floor(x), floor(y), floor(z)}) do
-      {:ok, eyes.water and state not in @bubble_states}
+      {:ok, %{water: eyes.water, submerged: eyes.water and state not in @bubble_states}}
     else
       :error -> {:error, :incomplete_air_frame}
       error -> error
