@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """Build a local macOS app identity for the installed official Minecraft Java runtime.
 
-Development UI helper only. No game download, account handling, Minecraft class edits,
-LaunchServices bypass, or official-binary re-signing. Optional SDL input experiments
-use a separate library; default launching uses the installed official libraries.
-Configure its executable in a
-separate Minecraft Launcher installation, then use normal computer-use app approval.
+Development UI helper only. The dedicated installation always uses our local
+SDL backend. No game download, account handling or Minecraft class edits.
 """
 import argparse
 import json
@@ -20,15 +17,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--java-home", type=pathlib.Path,
                     help="Installed Minecraft runtime Home directory (defaults to java-runtime-epsilon)")
-parser.add_argument("--system-mouse", action="store_true",
-                    help="Test SDL3 system-scaled mouse input for macOS computer use")
-parser.add_argument("--sdl-library", type=pathlib.Path,
-                    help="Experimental SDL3 build with SDL_MAC_USE_GCMOUSE support; use Cocoa mouse events")
-parser.add_argument("--event-position-mouse", action="store_true",
-                    help="Enable the isolated Cocoa event-position adapter in a locally patched SDL")
 args = parser.parse_args()
-if args.event_position_mouse and not args.sdl_library:
-    raise SystemExit("--event-position-mouse requires --sdl-library")
 if sys.platform != "darwin":
     raise SystemExit("This app-identity helper is for macOS. Other platforms use their native app/window selector.")
 runtime = args.java_home or (pathlib.Path.home() / "Library/Application Support/minecraft/runtime/"
@@ -42,17 +31,12 @@ full_version = release.get("JAVA_RUNTIME_VERSION", version)
 if int(version.split(".")[0]) < 25:
     raise SystemExit("Minecraft 26.3 requires Java 25+")
 quote = lambda value: json.dumps(str(value), ensure_ascii=False)
-mouse_hint = ('  setenv("SDL_MOUSE_RELATIVE_SYSTEM_SCALE", "1", 0);\n'
-              if args.system_mouse else '')
-if args.sdl_library:
-    library = args.sdl_library.resolve()
-    if not library.is_file() or b"SDL_MAC_USE_GCMOUSE" not in library.read_bytes():
-        raise SystemExit("Experimental SDL library must support SDL_MAC_USE_GCMOUSE (SDL 3.6+ development)")
-    if args.event_position_mouse:
-        if b"VALIMC_CUA_EVENT_POSITION" not in library.read_bytes():
-            raise SystemExit("SDL library does not contain the local event-position adapter")
-        mouse_hint += '  setenv("VALIMC_CUA_EVENT_POSITION", "1", 1);\n'
-    mouse_hint += f'''  setenv("SDL_MAC_USE_GCMOUSE", "0", 0);
+library = (ROOT / ".local/sdl-mouse-build/libSDL3.dylib").resolve()
+if not library.is_file() or b"ValiMC internal-pointer backend" not in library.read_bytes():
+    raise SystemExit("Build the dedicated SDL backend with scripts/patch_sdl_mouse.py first")
+mouse_setup = f'''  setenv("SDL_MAC_USE_GCMOUSE", "0", 1);
+  setenv("SDL_MOUSE_AUTO_CAPTURE", "0", 1);
+  setenv("SDL_MOUSE_FOCUS_CLICKTHROUGH", "1", 1);
   char **overridden = calloc((size_t)argc + 2, sizeof(char *));
   if (!overridden) return 1;
   overridden[0] = argv[0];
@@ -93,7 +77,7 @@ int main(int argc, char **argv) {{
   init_fn init = (init_fn)dlsym(handle, "JLI_InitArgProcessing");
   if (!launch || !init) {{ fprintf(stderr, "Missing OpenJDK launcher entry point\\n"); return 1; }}
   setenv("JAVA_HOME", {quote(runtime)}, 1);
-{mouse_hint}  // SDL hints affect only this dedicated launcher process.
+{mouse_setup}  // SDL setup affects only this dedicated launcher process.
   init(0, 0);
   return launch(argc, argv, 0, NULL, 0, NULL, {quote(full_version)}, {quote(version)},
                 "java", "java", 0, 1, 0, 0);

@@ -1,46 +1,39 @@
 #!/usr/bin/env python3
-"""Apply an opt-in remote-pointer adapter to the pinned, private SDL checkout.
+"""Prepare the dedicated Minecraft SDL backend with an internal-only pointer.
 
-This changes only the dedicated GUI test input backend, never server behavior or
-Minecraft classes. SDL's upstream source and license stay in the ignored checkout.
+Pinned upstream source/license and native build products stay ignored. This
+changes input handling only; Minecraft classes and server code stay intact.
 """
-import argparse
 import pathlib
 import subprocess
 
-REVISION = "ab5541ec5d4377dcc20a701897437f07ba71566f"
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("--source", type=pathlib.Path, default=ROOT / "research/tools/SDL")
-args = parser.parse_args()
-source = args.source.resolve()
-
-def git(*arguments):
-    return subprocess.check_output(["git", "-C", str(source), *arguments])
-
-if git("rev-parse", "HEAD").decode().strip() != REVISION:
-    raise SystemExit("Preserving SDL checkout: revision does not match the pinned experiment")
-
-changes = [
-    ("src/video/cocoa/SDL_cocoamouse.m",
-     "            Cocoa_ReconcileButtonState(event);\n",
-     '''            // Remote events supply their own ordered button transitions via the window listener.
-            if (!SDL_GetHintBoolean("VALIMC_CUA_EVENT_POSITION", false))
-'''),
+SOURCE = ROOT / "research/tools/SDL"
+REVISION = "ab5541ec5d4377dcc20a701897437f07ba71566f"
+HEADER = "src/video/cocoa/SDL_cocoacua.h"
+CHANGES = [
+    ("src/video/cocoa/SDL_cocoamouse.m", "#if 0\n#define DEBUG_COCOAMOUSE",
+     '#include "SDL_cocoacua.h"\n\n#if 0\n#define DEBUG_COCOAMOUSE'),
+    ("src/video/cocoa/SDL_cocoawindow.m", "#if 0\n#define DEBUG_COCOAWINDOW",
+     '#include "SDL_cocoacua.h"\n\n#if 0\n#define DEBUG_COCOAWINDOW'),
+    ("src/video/cocoa/SDL_cocoamouse.m", "    mouse->internal = data;\n",
+     '    SDL_Log("ValiMC internal-pointer backend");\n    mouse->internal = data;\n'),
+    ("src/video/cocoa/SDL_cocoamouse.m", "            Cocoa_ReconcileButtonState(event);\n",
+     '            // Button transitions come from window events, not the desktop mouse.\n'),
     ("src/video/cocoa/SDL_cocoawindow.m",
      "    // GCMouse handles button events directly, skip NSEvent path to avoid duplicates\n",
-     '''    // Move before the button-down transition; otherwise a click can become a drag.
-    if (SDL_GetHintBoolean("VALIMC_CUA_EVENT_POSITION", false) && down && !mouse->relative_mode) {
+     '''    // Position must precede button-down, or a click can become a drag.
+    if (down && !mouse->relative_mode) {
         const NSPoint point = [theEvent locationInWindow];
         SDL_SendMouseMotion(Cocoa_GetEventTimestamp([theEvent timestamp]), window,
                             SDL_DEFAULT_MOUSE_ID, false, point.x, window->h - point.y);
     }
 
+    // GCMouse handles button events directly, skip NSEvent path to avoid duplicates
 '''),
-    ("src/video/cocoa/SDL_cocoamouse.m",
-     "    deltaX = [event deltaX];\n    deltaY = [event deltaY];\n",
-     '''    // Local remote-input experiment: zero-delta synthetic events carry absolute positions.
-    if (SDL_GetHintBoolean("VALIMC_CUA_EVENT_POSITION", false) && mouse->focus && [event window]) {
+    ("src/video/cocoa/SDL_cocoamouse.m", "    deltaX = [event deltaX];\n    deltaY = [event deltaY];\n",
+     '''    // Absolute event positions drive the game's relative camera input.
+    if (mouse->focus && [event window]) {
         static NSPoint previous;
         static SDL_Window *previousWindow;
         const NSPoint point = [event locationInWindow];
@@ -53,40 +46,62 @@ changes = [
         previous = point;
         SDL_SendMouseMotion(Cocoa_GetEventTimestamp([event timestamp]), mouse->focus,
                             mouseID, true, deltaX, deltaY);
-        return;
     }
+    return;
 
+    deltaX = [event deltaX];
+    deltaY = [event deltaY];
 '''),
     ("src/video/cocoa/SDL_cocoawindow.m",
      "    // On macOS 26 if you move away from a space and then back, mouse motion events will have incorrect\n",
-     '''    // Remote absolute motion must not be overwritten by the physical desktop pointer.
-    if (SDL_GetHintBoolean("VALIMC_CUA_EVENT_POSITION", false)) {
-        SDL_SendMouseMotion(Cocoa_GetEventTimestamp([theEvent timestamp]), window,
-                            mouseID, false, x, y);
-        return;
-    }
+     '''    SDL_SendMouseMotion(Cocoa_GetEventTimestamp([theEvent timestamp]), window,
+                        mouseID, false, x, y);
+    return; // Keep event coordinates instead of polling the desktop pointer.
 
+    // On macOS 26 if you move away from a space and then back, mouse motion events will have incorrect
 '''),
 ]
 
-# Preflight every target before writing, preserving unrelated local edits.
-pending = {}
-legacy = {}
-for index, (relative, anchor, insertion) in enumerate(changes):
-    original = git("show", f"HEAD:{relative}").decode()
-    if original.count(anchor) != 1:
-        raise SystemExit(f"Expected one insertion point: {relative}")
-    patched = pending.get(source / relative, original).replace(anchor, insertion + anchor)
-    target = source / relative
-    pending[target] = patched
-    if index < 3:
-        legacy[target] = patched
+# Keep game state changes local; these entry points must not alter desktop state.
+for name, signature, body in [
+    ("SDL_cocoamouse.m", "static bool Cocoa_ShowCursor(SDL_Cursor *cursor)", "    return true;\n"),
+    ("SDL_cocoamouse.m", "static bool Cocoa_SetRelativeMouseMode(bool enabled)",
+     '''    SDL_Window *logicalWindow = SDL_GetMouse()->focus;
+    if (logicalWindow) {
+        Cocoa_HandleMouseWarp(logicalWindow->x + logicalWindow->w / 2.0,
+                              logicalWindow->y + logicalWindow->h / 2.0);
+    }
+    return true;
+'''),
+    ("SDL_cocoawindow.m", "static void Cocoa_UpdateClipCursor(SDL_Window *window)", "    return;\n"),
+    ("SDL_cocoawindow.m", "static NSCursor *Cocoa_GetDesiredCursor(void)", "    return [NSCursor arrowCursor];\n"),
+]:
+    anchor = signature + "\n{\n"
+    CHANGES.append(("src/video/cocoa/" + name, anchor, anchor + body))
 
-for target, patched in pending.items():
-    original = git("show", f"HEAD:{target.relative_to(source)}").decode()
-    if target.read_text() not in (original, patched, legacy.get(target, original)):
-        raise SystemExit(f"Preserving unexpected local edits: {target.relative_to(source)}")
 
-for target, patched in pending.items():
-    target.write_text(patched)
-print("Prepared opt-in VALIMC_CUA_EVENT_POSITION adapter; rebuild isolated SDL before launching")
+def main():
+    def git(*arguments):
+        return subprocess.check_output(["git", "-C", str(SOURCE), *arguments])
+
+    if git("rev-parse", "HEAD").decode().strip() != REVISION:
+        raise SystemExit("Preserving SDL checkout: unexpected upstream revision")
+    originals = {name: git("show", f"HEAD:{name}").decode() for name in {c[0] for c in CHANGES}}
+    patched = dict(originals)
+    for name, anchor, replacement in CHANGES:
+        if patched[name].count(anchor) != 1:
+            raise SystemExit(f"Expected one SDL insertion point: {name}: {anchor!r}")
+        patched[name] = patched[name].replace(anchor, replacement, 1)
+    for name, text in patched.items():
+        if (SOURCE / name).read_text() not in (originals[name], text):
+            raise SystemExit(f"Preserving unexpected SDL edits: {name}")
+    header = (ROOT / "scripts/native/valimc_cua.h").read_text()
+    if (SOURCE / HEADER).exists() and (SOURCE / HEADER).read_text() != header:
+        raise SystemExit("Preserving unexpected SDL adapter header")
+    for name, text in {**patched, HEADER: header}.items():
+        (SOURCE / name).write_text(text)
+    print("Prepared internal-pointer SDL backend; rebuild the dedicated client library")
+
+
+if __name__ == "__main__":
+    main()

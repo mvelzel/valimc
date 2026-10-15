@@ -383,8 +383,8 @@ Return; retry via paste when needed. Menu clicks may only hover a button; use
 observed Tab/Shift+Tab focus and Return when that occurs. Attempted input is not
 evidence of the intended behavior.
 
-See `mouse-testing.md` for the bundled SDL's mouse limitations and the isolated
-Cocoa event-position adapter. Record the actual native input backend used
+See `mouse-testing.md` for the dedicated internal-pointer SDL backend and its
+observed focus limitation. Record the actual native input backend used
 in GUI tests; seeded pose fixtures do not prove mouse-generated rotation.
 
 Use localhost:25565 and a separate test world, for example:

@@ -62,12 +62,10 @@ under `docs/tickets/` before changing behavior. Keep these records updated.
   becomes a concrete fix/retest task; it does not silently pass or halt unrelated
   backlog work. Keep commits separable so validated work can publish while later
   checkpoints remain pending.
-- Prefer keyboard navigation during client tests to avoid moving the user's
-  desktop cursor. Use mouse actions when the scenario requires them; the current
-  macOS CUA interface exposes no separate virtual pointer.
-  Keyboard actions can still trigger Minecraft/SDL cursor warps. Our custom SDL
-  adapter translates incoming events but does not yet isolate outgoing OS cursor
-  capture/warps; do not claim virtual-pointer isolation is impossible.
+- The dedicated Minecraft client uses our internal-pointer SDL backend. Keep
+  this tool simple: no mouse opt-ins/outs, fallback modes, backward compatibility,
+  desktop-coordinate diagnostics or cursor-position unit tests (user instruction,
+  October 15, 2026). Validate it by using the actual client; see VMC-003b.
 - The user treats this development client and test world as disposable fixtures
   (October 14, 2026). Change or reset builds, items, pose and selection as needed;
   concurrent user experimentation does not require preserving those changes.

@@ -17,6 +17,7 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-002](tickets/VMC-002.md) | Done — `b5a2c72`, pushed | Shared command catalog; oracle and actual-client completion, rejection and teleport pass |
 | [VMC-003](tickets/VMC-003.md) | Done — validated | Reconnect, mouse rotation, restart and spawn pass; phase-transition failure repaired in VMC-003a |
 | [VMC-003a](tickets/VMC-003a.md) | Done — validated | Preserve accepted state across rejected/exceptional frames; 60 tests, oracle, release and graphical recovery pass |
+| [VMC-003b](tickets/VMC-003b.md) | Done — client validated | Default internal-pointer backend; actual menus/inventory/camera/reconnect pass; keyboard focus remains a limitation |
 | [VMC-004a](tickets/VMC-004a.md) | Done — `6dc5dd3`, validated | Stack/scalar codecs, creative selection/placement/clearing, patched fixtures and rejection pass |
 | VMC-004b | Planned | Names/lore/NBT and compound or registry-backed component codecs |
 | [VMC-004b1](tickets/VMC-004b1.md) | Done — `2e75988`, validated | Bounded network NBT/custom data; 58 tests, Mojang codecs, release and actual-client positive/rejection/reconnect pass |
