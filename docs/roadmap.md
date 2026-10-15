@@ -61,6 +61,7 @@ indexes validated tickets. None imply full parity.
    20,800 native cases; actual geared falls/reconnect remain pending.
    [Freezing damage](tickets/VMC-017b1.md) passes 75 affected tests and native
    eligibility/protection/codecs; its graphical gate is pending.
+   [Air supply/drowning](tickets/VMC-017b2.md) is the next independent slice.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
