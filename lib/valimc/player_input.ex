@@ -16,6 +16,15 @@ defmodule Valimc.PlayerInput do
   def loaded(%__MODULE__{} = input), do: %{input | load_ticks: 0}
   def tick(%__MODULE__{} = input), do: %{input | load_ticks: max(0, input.load_ticks - 1)}
 
+  @doc "Native world-space reported intent; this observation does not authorize displacement."
+  def move_intent(%__MODULE__{buttons: buttons}, yaw) when buttons in 0..127 do
+    x = flag(buttons, 4) - flag(buttons, 8)
+    z = flag(buttons, 1) - flag(buttons, 2)
+    Valimc.Physics.RelativeMotion.vector({x, 0.0, z}, 1.0, yaw)
+  end
+
+  def move_intent(_, _), do: {:error, :invalid_relative_motion}
+
   def decode(<<buttons>>), do: {:ok, buttons &&& 127}
   def decode(_), do: {:error, :invalid_player_input}
 
@@ -61,4 +70,5 @@ defmodule Valimc.PlayerInput do
   defp set_flag(flags, bit, false), do: flags &&& bnot(bit)
   defp signed(value) when value >= 0x80000000, do: value - 0x100000000
   defp signed(value), do: value
+  defp flag(buttons, bit), do: if((buttons &&& bit) != 0, do: 1, else: 0)
 end

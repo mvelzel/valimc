@@ -41,6 +41,8 @@ indexes validated tickets. None imply full parity.
    [Climbing](tickets/VMC-015e.md) has native motion kernels, complete material
    facts and contextual contact checked; live dry/water composition passes 61
    affected tests and bounded native frame checks. Frozen client validation is next.
+   [Relative input](tickets/VMC-015f.md) now has native direction/acceleration/rate
+   kernels; resolve server input ownership before live composition.
    Effects/survival consequences remain open.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
