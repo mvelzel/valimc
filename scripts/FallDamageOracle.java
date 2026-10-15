@@ -27,7 +27,7 @@ public class FallDamageOracle {
   }
   public static void main(String[] args)throws Exception{
     SharedConstants.tryDetectVersion();Bootstrap.bootStrap();var field=sun.misc.Unsafe.class.getDeclaredField("theUnsafe");field.setAccessible(true);var u=(sun.misc.Unsafe)field.get(null);var p=(Probe)u.allocateInstance(Probe.class);var cases=new JsonArray();
-    for(double safe:new double[]{-1024,0,3,4.5,1024})for(double distance:new double[]{0,2.999998,2.999999,3,3.5,3.999998,3.999999,4,4.000001,5,20,100,60000000})
+    for(double safe:new double[]{-1024,0,3,4.5,1024})for(double distance:new double[]{0,2.999998,2.999999,3,3.5,3.999998,3.999999,4,4.000001,5,20,100,60000000,60000002.5})
       for(float material:new float[]{0,.2f,.5f,1,4})for(double multiplier:new double[]{0,.1,1,100})for(boolean immune:new boolean[]{false,true}){
         p.safe=safe;p.multiplier=multiplier;p.immune=immune;var c=new JsonObject();c.addProperty("distance",distance);c.addProperty("safe",safe);c.addProperty("material",(double)material);c.addProperty("multiplier",multiplier);c.addProperty("immune",immune);c.addProperty("damage",p.calculate(distance,material));cases.add(c);
       }

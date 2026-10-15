@@ -586,7 +586,8 @@ defmodule Valimc.Connection do
                swimming: swimming,
                fences: fences,
                powder_snow: powder,
-               kinetics: kinetics
+               kinetics: kinetics,
+               landing: landing
              }} ->
               if Enum.all?(fences, fn {key, %{owner: owner}} ->
                    World.existing_owner(key) == {:ok, owner}
@@ -628,8 +629,13 @@ defmodule Valimc.Connection do
                   |> observe_environment(powder)
                   |> monitor_pose_sources(fences)
                   |> update_view()
+                  |> apply_landing(landing)
 
-                {:noreply, %{next | pose_checked: pose_signature(next)}}
+                {:noreply,
+                 if(next.life_stage == :alive,
+                   do: %{next | pose_checked: pose_signature(next)},
+                   else: next
+                 )}
               else
                 {:noreply, correct_motion(state, :movement_source_corrections)}
               end
@@ -1042,7 +1048,26 @@ defmodule Valimc.Connection do
     }
   end
 
-  defp apply_fall_damage(state, selected) do
+  defp apply_landing(state, nil), do: state
+
+  defp apply_landing(state, call) do
+    {:ok, amount} =
+      Valimc.Physics.FallDamage.calculate(
+        call.distance,
+        call.multiplier,
+        %Valimc.Physics.FallDamage{}
+      )
+
+    if amount > 0 do
+      {:ok, selected} = PlayerHealth.hurt_window(state.player.health, amount)
+      {_, state} = apply_fall_damage(state, selected, call.source)
+      state
+    else
+      state
+    end
+  end
+
+  defp apply_fall_damage(state, selected, source \\ :fall) do
     cond do
       state.life_stage != :alive or not selected.accepted ->
         {:ignored, state}
@@ -1078,7 +1103,7 @@ defmodule Valimc.Connection do
         Players.update(self(), state.player)
 
         if selected.notify do
-          packet = Packets.fall_damage(state.player.entity_id)
+          packet = Packets.fall_damage(state.player.entity_id, source)
           send_packets(state, [packet])
           broadcast_player_packet(state, packet)
         end
@@ -1088,14 +1113,21 @@ defmodule Valimc.Connection do
           Packets.player_health(state.player)
         ])
 
-        state = if health.value <= 0, do: death_notice(state, true), else: state
+        state = if health.value <= 0, do: death_notice(state, true, source), else: state
         send(self(), :drain)
         {if(health.value <= 0, do: :dead, else: :hurt), continue_life(state)}
     end
   end
 
-  defp death_notice(state, fall) do
-    message = state.player.name <> if(fall, do: " hit the ground too hard", else: " died")
+  defp death_notice(state, fall, source \\ :fall) do
+    reason =
+      cond do
+        not fall -> " died"
+        source == :stalagmite -> " was impaled on a stalagmite"
+        true -> " hit the ground too hard"
+      end
+
+    message = state.player.name <> reason
 
     send_packets(state, [
       Packets.player_pose(state.player),
@@ -1746,13 +1778,14 @@ defmodule Valimc.Connection do
     Players.update(self(), rotated)
     state = %{state | player: rotated}
 
-    if Map.has_key?(changes, :x) do
+    if Map.has_key?(changes, :x) or ((flags &&& 1) != 0 and PlayerMotion.distance(player) > 0) do
       %{first: first, packets: count} = state.motion_window
+      position = Map.take(player, [:x, :y, :z])
 
       distance =
         Enum.sum(
           for axis <- [:x, :y, :z],
-              do: :math.pow(Map.fetch!(changes, axis) - Map.fetch!(first, axis), 2)
+              do: :math.pow(Map.fetch!(position, axis) - Map.fetch!(first, axis), 2)
         )
 
       allowance = 100.0 * if(count > 5, do: 1, else: count)
@@ -1763,7 +1796,7 @@ defmodule Valimc.Connection do
         correct_motion(state, :movement_speed_corrections)
       else
         input = %{
-          position: Map.take(changes, [:x, :y, :z]),
+          position: position,
           flags: flags,
           deadline: System.monotonic_time(:millisecond) + 250,
           token: make_ref(),

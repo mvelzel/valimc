@@ -119,7 +119,7 @@ public class PlayerKineticsOracle {
         c.add("states",entries);c.add("position",vector(position));var bounds=new JsonArray();
         for(double n:new double[]{body.minX,body.minY,body.minZ,body.maxX,body.maxY,body.maxZ})bounds.add(n);
         c.add("box",bounds);c.add("support",normal.mainSupportingBlockPos.map(PlayerKineticsOracle::pos).orElse(null));
-        c.add("below",pos(below));support.add(c);
+        c.add("below",pos(below));c.add("landing",pos(normal.getOnPosLegacy()));support.add(c);
       }
     var result=new JsonObject();result.add("jumps",jumps);result.add("air",air);result.add("normalization",normalization);result.add("support",support);
     Files.writeString(Path.of(args[0]),new Gson().toJson(result));System.out.println("PASS: "+jumps.size()+" native jumps, "+air.size()+" player travel branches, "+normalization.size()+" native player dead zones and "+support.size()+" supporting-block selections.");

@@ -150,12 +150,15 @@ defmodule Valimc.Protocol.Packets do
     packet("set_health", [<<health.value::float-32>>, Wire.varint(20), <<5.0::float-32>>])
   end
 
-  def fall_damage(entity_id) do
+  def fall_damage(entity_id, source \\ :fall) do
     life_entity_id!(entity_id)
+    unless source in [:fall, :stalagmite], do: raise(ArgumentError, "invalid landing source")
 
     packet("damage_event", [
       Wire.varint(entity_id),
-      Wire.varint(Data.registry_id("minecraft:damage_type", "minecraft:fall")),
+      Wire.varint(
+        Data.registry_id("minecraft:damage_type", "minecraft:" <> Atom.to_string(source))
+      ),
       <<0, 0, 0>>
     ])
   end

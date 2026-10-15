@@ -9,6 +9,10 @@ defmodule Valimc.PlayerLifePacketsTest do
     {128, rest} = Wire.take_varint(payload(packet))
     {type, <<0, 0, 0>>} = Wire.take_varint(rest)
     assert type == Data.registry_id("minecraft:damage_type", "minecraft:fall")
+    {128, rest} = Wire.take_varint(payload(Packets.fall_damage(128, :stalagmite)))
+    {type, <<0, 0, 0>>} = Wire.take_varint(rest)
+    assert type == Data.registry_id("minecraft:damage_type", "minecraft:stalagmite")
+    assert_raise ArgumentError, fn -> apply(Packets, :fall_damage, [128, :bad]) end
     assert payload(Packets.death_animation(128)) == <<128::signed-32, 3>>
 
     for id <- [0, -1, 2_147_483_648, :bad] do

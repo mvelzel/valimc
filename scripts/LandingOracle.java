@@ -10,20 +10,23 @@ import net.minecraft.server.Bootstrap;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.util.RandomSource;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.world.damagesource.*;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.*;
 import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.*;
+import net.minecraft.world.phys.Vec3;
 
 /** Observes actual fallOn damage calls; block mutations, sound and health are excluded. */
 public class LandingOracle {
   private static class ProbeLevel extends ServerLevel {
-    DamageSources sources; RandomSource random;
+    DamageSources sources; RandomSource random; BlockState block;
     private ProbeLevel(){super(null,null,null,null,null,null,false,0L,List.of(),false);}
     public DamageSources damageSources(){return sources;}
     public RandomSource getRandom(){return random;}
+    public BlockState getBlockState(BlockPos position){return block;}
     public void broadcastEntityEvent(Entity entity,byte event){}
   }
   private static class ProbeEntity extends Entity {
@@ -67,26 +70,36 @@ public class LandingOracle {
     var entity=(ProbeEntity)unsafe.allocateInstance(ProbeEntity.class);entity.world=world;
     entity.fall=(DamageSource)unsafe.allocateInstance(DamageSource.class);entity.stalagmite=(DamageSource)unsafe.allocateInstance(DamageSource.class);
     field(DamageSources.class,"fall").set(world.sources,entity.fall);field(DamageSources.class,"stalagmite").set(world.sources,entity.stalagmite);
+    field(Entity.class,"position").set(entity,new Vec3(.5,65.5,.5));entity.mainSupportingBlockPos=Optional.of(new BlockPos(0,63,0));
+    var tags=JsonParser.parseString(Files.readString(Path.of("priv/protocol/tags.json"))).getAsJsonObject().getAsJsonObject("minecraft:block");
+    var bindTags=Holder.Reference.class.getDeclaredMethod("bindTags",Collection.class);bindTags.setAccessible(true);
+    for(var tag:List.of(BlockTags.FENCES,BlockTags.WALLS))for(var id:tags.getAsJsonArray(tag.location().toString())){
+      var block=net.minecraft.core.registries.BuiltInRegistries.BLOCK.byId(id.getAsInt());
+      bindTags.invoke(block.builtInRegistryHolder(),List.of(tag));
+    }
     var gson=new Gson();var properties=new JsonArray();var indexes=new LinkedHashMap<String,Integer>();
     var states=new ByteArrayOutputStream();var cases=new JsonArray();int observed=0;
     for(var state:Block.BLOCK_STATE_REGISTRY){
       if(Block.getId(state)!=states.size())throw new AssertionError("Non-contiguous states");
       var facts=new JsonArray();facts.add(spec(entity,state,false));facts.add(spec(entity,state,true));observed+=6;
+      world.block=state;boolean holds=entity.getOnPosLegacy().getY()==63;
       var key=gson.toJson(facts);Integer index=indexes.get(key);
       if(index==null){index=properties.size();indexes.put(key,index);properties.add(facts);}
-      if(index>255)throw new AssertionError("Too many landing rules");states.write(index);
+      if(index>127)throw new AssertionError("Too many landing rules");states.write(index|(holds?128:0));
       for(boolean shift:new boolean[]{false,true}){
         var c=new JsonObject();c.addProperty("id",Block.getId(state));c.addProperty("shift",shift);c.addProperty("distance",8);
+        c.addProperty("holds_y",holds);
         c.add("call",entity.observe(state,8,shift));cases.add(c);observed++;
       }
     }
     // Independent thresholds and remote distances for each distinct rule/shift.
     var representatives=new HashSet<Integer>();var packed=states.toByteArray();
     for(var state:Block.BLOCK_STATE_REGISTRY){
-      int index=packed[Block.getId(state)]&255;
+      int index=packed[Block.getId(state)]&127;
       if(!representatives.add(index))continue;
       for(boolean shift:new boolean[]{false,true})for(double distance:new double[]{0,2.999999,3.999998,4,6,19.25,60000000}){
         var c=new JsonObject();c.addProperty("id",Block.getId(state));c.addProperty("shift",shift);c.addProperty("distance",distance);
+        c.addProperty("holds_y",(packed[Block.getId(state)]&128)!=0);
         c.add("call",entity.observe(state,distance,shift));cases.add(c);observed++;
       }
     }

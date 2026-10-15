@@ -1,5 +1,6 @@
 defmodule Valimc.Physics.LandingBlocks do
   @moduledoc "Immutable native landing damage calls; geometry and health remain player-owned."
+  import Bitwise
   @path Path.expand("../../../priv/physics/landing_blocks.json", __DIR__)
   @external_resource @path
   @facts :json.decode(File.read!(@path))
@@ -35,16 +36,19 @@ defmodule Valimc.Physics.LandingBlocks do
               |> List.to_tuple()
   @states Base.decode16!(@facts["states"], case: :lower)
   unless tuple_size(@properties) == 6 and byte_size(@states) == @count and
-           Enum.all?(:binary.bin_to_list(@states), &(&1 < tuple_size(@properties))),
+           Enum.all?(:binary.bin_to_list(@states), &((&1 &&& 127) < tuple_size(@properties))),
          do: raise("Incomplete landing block catalog")
 
   def state_count, do: @count
+
+  def support_holds_y?(id) when is_integer(id) and id >= 0 and id < @count,
+    do: (:binary.at(@states, id) &&& 128) != 0
 
   @doc "Observe the native block callback, including blocks that emit no damage call."
   def call(id, distance, shift)
       when is_integer(id) and id >= 0 and id < @count and is_number(distance) and
              distance >= 0 and distance <= 60_000_000 and is_boolean(shift) do
-    rule = @properties |> elem(:binary.at(@states, id)) |> elem(if(shift, do: 1, else: 0))
+    rule = @properties |> elem(:binary.at(@states, id) &&& 127) |> elem(if(shift, do: 1, else: 0))
 
     {:ok,
      if rule do

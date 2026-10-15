@@ -83,6 +83,17 @@ Enum.each(data["support"], fn c ->
       raise(
         "Native support mismatch #{inspect(c)} #{inspect(result.below_position)} #{inspect(support)}"
       )
+
+  {:ok, landing} =
+    Valimc.PlayerLanding.material(
+      frame,
+      box,
+      {x, y, z},
+      CollisionContext.entity(y, false) |> CollisionContext.with_entity(0.0, false, false)
+    )
+
+  unless Tuple.to_list(landing.position) == c["landing"],
+    do: raise("Native landing material position differs #{inspect({c, landing})}")
 end)
 
 IO.puts(

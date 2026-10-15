@@ -1,7 +1,8 @@
 # VMC-017a — Owned health and fall damage
 
-Status: Owned health/login/save validated (`18028cd`). Fall damage and
-death/respawn remain in progress. October 15, 2026.
+Status: Owned health/login/save validated (`18028cd`). Live death/respawn and
+accepted landing damage pass automated checks; graphical gates remain pending.
+October 15, 2026.
 
 Acceptance: player-owned finite health, persistent save/reconnect, current health
 packets and fall damage from authoritative accepted landing distance. Preserve
@@ -20,7 +21,8 @@ Client gate: survival falls below/at/above the threshold, visible health loss,
 protected water/web/slime/honey landing, creative flight immunity, damaged
 reconnect, fatal landing/death UI and respawn. Verify inventory consistency and
 repeat damage/cooldown negatives. Helpers alone do not complete this ticket.
-Next: [death/respawn lifecycle](VMC-017a1.md), then fenced landing damage and its full client gate.
+Current gates: [death/respawn lifecycle](VMC-017a1.md) and
+[accepted landing damage](VMC-017a2.md). Those tickets own current evidence.
 
 Calculation checkpoint: original `Physics.FallDamage` matches 2,600 actual native
 `calculateFallDamage` cases, including epsilon/floor thresholds, float32 material
@@ -68,9 +70,6 @@ Evidence: `.local/player-life-{native,check,verify,tests}.log` and
 `.local/player-life-login-{native,check,verify}.log`. These primitives are unwired
 and remain local pending lifecycle/client validation.
 
-Next slice: fence pending movement when health reaches zero; retain dead health
-and inventory while conserved death drops drain through bounded existing outbox
-batches. Reconnect must resume pending delivery before publishing inventory;
-respawn requests must wait for cleanup and reject living players. Then reset
-motion/input/health, synchronize the client world and verify fatal UI/respawn,
-reconnect and inventory conservation before enabling landing damage.
+The owner death/respawn and accepted landing implementations are now local
+checkpoints in the child tickets above. Do not reimplement them. Actual-client
+verification and subsequent defenses/attributes/effects remain open.

@@ -150,6 +150,7 @@ defmodule Valimc.PlayerMotionQuery do
            ),
          {:ok, powder} <- Valimc.PlayerEnvironment.sample(blocks, after_move.geometry.box),
          {:ok, packet} <- Valimc.PlayerKinetics.packet(player, target, actual, flags, box, blocks),
+         {:ok, landing} <- Valimc.PlayerLanding.sample(player, target, flags, box, blocks),
          accepted_motion =
            Valimc.PlayerMotion.accept(
              Map.get(player, :motion, %Valimc.PlayerMotion{}),
@@ -173,6 +174,7 @@ defmodule Valimc.PlayerMotionQuery do
          moved: moved,
          powder_snow: powder,
          kinetics: %{packet: packet, tick: tick},
+         landing: landing,
          fences: blocks.fences
        }}
     end

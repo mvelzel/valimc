@@ -9,6 +9,9 @@ unless MapSet.size(coverage) == 2 * LandingBlocks.state_count(),
 for c <- cases do
   {:ok, actual} = LandingBlocks.call(c["id"], c["distance"], c["shift"])
 
+  unless LandingBlocks.support_holds_y?(c["id"]) == c["holds_y"],
+    do: raise("Native legacy supporting-block rule differs #{c["id"]}")
+
   encoded =
     if actual,
       do: Map.new(actual, fn {key, value} -> {Atom.to_string(key), value} end)

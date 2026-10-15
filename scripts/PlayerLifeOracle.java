@@ -21,7 +21,7 @@ import net.minecraft.world.level.dimension.*;
 public class PlayerLifeOracle {
   private static RegistryAccess.Frozen access;
   private static Holder<DimensionType> overworld;
-  private static Holder<DamageType> fall;
+  private static Holder<DamageType> fall,stalagmite;
   private static class Probe extends Player {
     private Probe(){super(null,null);}
     public GameType gameMode(){return GameType.SURVIVAL;}
@@ -53,6 +53,7 @@ public class PlayerLifeOracle {
     for(int id:new int[]{1,127,128,Integer.MAX_VALUE}){
       player.setId(id);
       result.put("fall_"+id,new ClientboundDamageEventPacket(id,fall,-1,-1,Optional.empty()));
+      result.put("stalagmite_"+id,new ClientboundDamageEventPacket(id,stalagmite,-1,-1,Optional.empty()));
       result.put("death_animation_"+id,new ClientboundEntityEventPacket(player,(byte)3));
       for(var message:List.of("fell","ValiMCTest hit the ground too hard","fall \u0000😀é"))
         result.put("death_"+id+"_"+message,new ClientboundPlayerCombatKillPacket(id,Component.literal(message)));
@@ -63,7 +64,7 @@ public class PlayerLifeOracle {
     SharedConstants.tryDetectVersion();Bootstrap.bootStrap();var lookup=VanillaRegistries.createWorldLookup();
     var dimensions=registry(Registries.DIMENSION_TYPE,lookup);var damage=registry(Registries.DAMAGE_TYPE,lookup);
     access=new RegistryAccess.ImmutableRegistryAccess(List.of(dimensions,damage)).freeze();
-    overworld=dimensions.getOrThrow(BuiltinDimensionTypes.OVERWORLD);fall=damage.getOrThrow(DamageTypes.FALL);
+    overworld=dimensions.getOrThrow(BuiltinDimensionTypes.OVERWORLD);fall=damage.getOrThrow(DamageTypes.FALL);stalagmite=damage.getOrThrow(DamageTypes.STALAGMITE);
     var packets=packets();
     if(args[0].equals("verify")){
       var rows=JsonParser.parseString(Files.readString(Path.of(args[1]))).getAsJsonArray();
