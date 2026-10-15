@@ -1,6 +1,6 @@
 defmodule Valimc.Physics.FluidContact do
   @moduledoc "Bounded fluid depths from the same immutable, fenced frame as player geometry."
-  alias Valimc.Physics.{BlockCollisions.Frame, Box, FluidBlocks}
+  alias Valimc.Physics.{BlockCollisions.Frame, Box, FluidBlocks, FluidBoundaries}
   @inset 0.001
   @max_cells 512
 
@@ -12,6 +12,32 @@ defmodule Valimc.Physics.FluidContact do
        end)}
     end
   end
+
+  @doc "Native eye contact, including source fluid beneath a sturdy downward face."
+  def eyes(frame, box, {x, y, z})
+      when is_number(x) and abs(x) <= 30_000_000 and is_number(y) and abs(y) <= 1_000_128 and
+             is_number(z) and abs(z) <= 30_000_000 do
+    with {:ok, contacts} <- contacts(frame, box) do
+      column = {floor(x), floor(z)}
+
+      Enum.reduce_while(contacts, {:ok, %{water: false, lava: false}}, fn
+        %{position: {px, py, pz} = pos, fluid: fluid}, {:ok, eyes}
+        when {px, pz} == column and y >= py ->
+          case camera_height(frame, pos, fluid) do
+            {:ok, height} ->
+              {:cont, {:ok, Map.update!(eyes, fluid.kind, &(&1 or y <= py + height))}}
+
+            error ->
+              {:halt, error}
+          end
+
+        _, result ->
+          {:cont, result}
+      end)
+    end
+  end
+
+  def eyes(_, _, _), do: {:error, :invalid_fluid_eye}
 
   @doc "Ordered nonempty contacts for current accumulation; all dependencies retain frame fences."
   def contacts(%Frame{states: states}, box) when is_map(states) and map_size(states) <= 2048 do
@@ -81,6 +107,13 @@ defmodule Valimc.Physics.FluidContact do
     with {:ok, above} <- at(states, {x, y + 1, z}),
          do: {:ok, if(above.kind == fluid.kind, do: 1.0, else: fluid.height)}
   end
+
+  defp camera_height(frame, {x, y, z} = pos, %{source: true} = fluid) do
+    with {:ok, sturdy} <- FluidBoundaries.sturdy?(frame, {x, y + 1, z}, 0),
+         do: if(sturdy, do: {:ok, 1.0}, else: surface(frame.states, pos, fluid))
+  end
+
+  defp camera_height(frame, pos, fluid), do: surface(frame.states, pos, fluid)
 
   defp at(states, p) do
     case Map.fetch(states, p) do

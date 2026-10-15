@@ -1,6 +1,6 @@
 defmodule Valimc.Physics.FluidContactTest do
   use ExUnit.Case, async: true
-  alias Valimc.Physics.{BlockCollisions.Frame, BlockScan, FluidContact}
+  alias Valimc.Physics.{BlockCollisions.Frame, BlockEntityContext, BlockScan, FluidContact}
   @box {0.2, 64.0, 0.2, 0.8, 65.8, 0.8}
 
   test "same fluid above fills the surface, other fluid does not" do
@@ -35,6 +35,49 @@ defmodule Valimc.Physics.FluidContactTest do
 
     assert {:ok, %{water: 0.0, lava: 0.0}} ==
              FluidContact.sample(frame(%{{0, 64, 0} => 15180}), @box)
+  end
+
+  test "eye surface is inclusive and source fluid extends under sturdy cover" do
+    water = frame(%{{0, 64, 0} => 89})
+    surface = 64.0 + 0.8888888955116272
+
+    assert {:ok, %{water: true, lava: false}} ==
+             FluidContact.eyes(water, @box, {0.5, surface, 0.5})
+
+    assert {:ok, %{water: false, lava: false}} ==
+             FluidContact.eyes(water, @box, {0.5, 64.99, 0.5})
+
+    covered = frame(%{{0, 64, 0} => 89, {0, 65, 0} => 1})
+
+    assert {:ok, %{water: true, lava: false}} ==
+             FluidContact.eyes(covered, @box, {0.5, 64.99, 0.5})
+
+    flowing = frame(%{{0, 64, 0} => 90, {0, 65, 0} => 1})
+
+    assert {:ok, %{water: false, lava: false}} ==
+             FluidContact.eyes(flowing, @box, {0.5, 64.99, 0.5})
+  end
+
+  test "eye contact keeps contextual cover unresolved and scans the actual body column" do
+    covered = frame(%{{0, 64, 0} => 89, {0, 65, 0} => 16849})
+
+    assert {:error, :incomplete_fluid_block_entity} ==
+             FluidContact.eyes(covered, @box, {0.5, 64.99, 0.5})
+
+    unknown = %{covered | entities: %{{0, 65, 0} => BlockEntityContext.shulker(0.0, 0.5)}}
+
+    assert {:error, :unresolved_fluid_support} ==
+             FluidContact.eyes(unknown, @box, {0.5, 64.99, 0.5})
+
+    absent = %{covered | entities: %{{0, 65, 0} => BlockEntityContext.absent()}}
+
+    assert {:ok, %{water: true, lava: false}} ==
+             FluidContact.eyes(absent, @box, {0.5, 64.99, 0.5})
+
+    assert {:ok, %{water: false, lava: false}} ==
+             FluidContact.eyes(covered, @box, {1.0, 64.5, 0.5})
+
+    assert {:error, :invalid_fluid_eye} == FluidContact.eyes(covered, @box, nil)
   end
 
   test "escape rejects even shallow liquid cells above their actual surface" do

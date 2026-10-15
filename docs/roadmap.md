@@ -33,7 +33,9 @@ indexes validated tickets. None imply full parity.
    depths validated (`01c4627`); local native water/lava kernels (`0ae6ef3`).
    Current, contextual support and vertical input match native cases. [Default
    live composition](tickets/VMC-015d1.md) has targeted checks passing; client and
-   integration gates are next, followed by swimming pose/steering.
+   integration gates are running. [Swimming state/geometry](tickets/VMC-015d2.md)
+   follows with native eye-contact and transition kernels checked; live wiring and
+   client validation remain.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
