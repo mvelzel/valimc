@@ -54,7 +54,9 @@ public class RelativeMotionOracle {
       c.add("vector",vec((Vec3)vector.invoke(null,input,speed,yaw)));c.add("initial",vec(initial));c.add("velocity",vec(p.getDeltaMovement()));vectors.add(c);
     }
     for(int buttons=0;buttons<128;buttons++)for(float yaw:yaws){
+      server.xxa=.25f;server.yya=.75f;server.zza=-.5f;server.setJumping(true);
       server.setYRot(yaw);server.setLastClientInput(new Input((buttons&1)!=0,(buttons&2)!=0,(buttons&4)!=0,(buttons&8)!=0,(buttons&16)!=0,(buttons&32)!=0,(buttons&64)!=0));
+      if(server.xxa!=.25f||server.yya!=.75f||server.zza!=-.5f||!server.isJumping())throw new AssertionError("Reported input rewrote simulation controls");
       var c=new JsonObject();c.addProperty("buttons",buttons);c.addProperty("yaw",(double)yaw);c.add("intent",vec(server.getLastClientMoveIntent()));intents.add(c);
     }
     for(boolean ground:new boolean[]{false,true})for(boolean flying:new boolean[]{false,true})for(boolean sprint:new boolean[]{false,true})
@@ -73,6 +75,6 @@ public class RelativeMotionOracle {
         }
     var result=new JsonObject();result.add("vectors",vectors);result.add("intents",intents);result.add("rates",rates);
     Files.writeString(Path.of(args[0]),new Gson().toJson(result));
-    System.out.println("PASS: "+vectors.size()+" native vector/acceleration cases, "+intents.size()+" actual server input intents and "+rates.size()+" dry/water/lava rate contexts.");
+    System.out.println("PASS: "+vectors.size()+" native vector/acceleration cases, "+intents.size()+" actual server input intents/control preservation and "+rates.size()+" dry/water/lava rate contexts.");
   }
 }

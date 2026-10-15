@@ -4,7 +4,8 @@ Status: In progress. October 15, 2026.
 
 Acceptance: native direction cancellation/normalization and yaw rotation; float
 acceleration rates for grounded/airborne/flight/water/lava contexts. Compose input
-before climbing/collision with explicit ownership, frame bounds and input ordering.
+before climbing/collision where that entity's simulation owns it, with explicit
+frame bounds and input ordering.
 Keep reported displacement distinct from simulation and avoid replaying stale input.
 
 Reference: pinned Mojang 26.3 `Entity.getInputVector/moveRelative`,
@@ -26,6 +27,15 @@ Cases cross the tiny-input threshold, diagonals, opposing keys, large/wrapped ya
 float ground-friction threshold, sprint/flight and water efficiency rounding.
 Ten affected tests pass. Evidence: `.local/relative-motion-{native,check,tests}.log`.
 
-Live composition remains open. These helpers are not yet called by player travel;
-native `getLastClientMoveIntent` is an observation, not proof that the server
-replays those directions as acceleration. Resolve that ownership before wiring.
+Input boundary: `ServerGamePacketListenerImpl.handlePlayerInput` stores
+`lastClientInput` and, once loaded, updates Shift; it does not assign simulated
+axes/jumping. Native `setLastClientInput` preserves those fields in all 1,408
+intent cases. `Player`/`Avatar` do not override inherited `applyInput`, which only
+decays supplied axes. The pinned server jar's intent consumers are player
+advancement predicates and old/new minecart behavior, not ordinary walking.
+Private references: `.local/input-{ServerPacket,Avatar}.javap`,
+`.local/gravity-{ServerPlayer,LivingEntity,Player}.javap`.
+
+Therefore ordinary player travel must not blindly replay reported directions.
+Keep these kernels for simulation-owned entity/vehicle input and future prediction;
+live ownership/integration and the corresponding client gates remain open.
