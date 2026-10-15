@@ -44,7 +44,8 @@ indexes validated tickets. None imply full parity.
    [Relative input](tickets/VMC-015f.md) now has native direction/acceleration/rate
    kernels; native reported intent preserves simulated controls. Entity/vehicle
    ownership remains open. [Slowing blocks](tickets/VMC-015g.md) have native
-   contact/consumption kernels; ordered live contacts are next.
+   contact/consumption kernels and native-verified bounded ordered traversal;
+   contextual live contacts are next.
    Effects/survival consequences remain open.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
