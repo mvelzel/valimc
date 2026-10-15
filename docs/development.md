@@ -48,6 +48,9 @@ primary works independently and reviews the tester's PASS/FAIL report, checked
 actions, failure reasons and limits. The tester owns visual verification; routine
 saved screenshots, image hashes and duplicate primary visual checks are unnecessary.
 See [client testing](client-testing.md) and [pointer backend](mouse-testing.md).
+Keep graphical test worlds at noon: pause `minecraft:overworld`, set its ticks to
+6000 through `Valimc.World.Clock.configure/1`, then `flush/0`. Retain this fixture
+after cleanup; use cycling time only for tests that need it.
 
 Test worlds are disposable; preserve journal/counter/receipt consistency within a
 dataset. Never restore only a source inventory/counter after destination commit.
