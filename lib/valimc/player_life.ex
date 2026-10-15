@@ -18,6 +18,7 @@ defmodule Valimc.PlayerLife do
           Map.get(player, :last_death) || {floor(player.x), floor(player.y), floor(player.z)},
         input: %PlayerInput{load_ticks: player.input.load_ticks},
         motion: %PlayerMotion{settled: true},
+        environment: PlayerEnvironment.tick(player.environment, false),
         pose: :dying
     }
   end

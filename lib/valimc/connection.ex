@@ -109,7 +109,7 @@ defmodule Valimc.Connection do
       case PlayerHealth.hurt_window(state.player.health, amount) do
         {:ok, selected} ->
           try do
-            {result, next} = apply_fall_damage(state, selected)
+            {result, next} = apply_damage(state, selected, :fall)
             {:reply, {:ok, result}, next}
           catch
             {:disconnect, _, current} -> {:stop, :normal, {:error, :disconnected}, current}
@@ -713,7 +713,12 @@ defmodule Valimc.Connection do
               |> observe_environment(powder)
               |> monitor_pose_sources(fences)
 
-            {:noreply, %{state | pose_checked: pose_signature(state)}}
+            state =
+              if state.life_stage == :alive,
+                do: %{state | pose_checked: pose_signature(state)},
+                else: state
+
+            {:noreply, state}
           else
             {:noreply, state}
           end
@@ -787,7 +792,13 @@ defmodule Valimc.Connection do
           Process.send_after(self(), {:player_tick, next.token}, delay)
           Metrics.add(:player_ticks)
           if late > 0, do: Metrics.add(:player_tick_lateness_ms, late)
-          player = %{state.player | health: PlayerHealth.tick(state.player.health)}
+
+          player = %{
+            state.player
+            | health: PlayerHealth.tick(state.player.health),
+              environment:
+                PlayerEnvironment.tick(state.player.environment, state.life_stage == :alive)
+          }
 
           if state.player.health.death_ticks < 20 and player.health.death_ticks == 20,
             do: broadcast_player_packet(state, Packets.remove_entity(player))
@@ -1060,24 +1071,27 @@ defmodule Valimc.Connection do
 
     if amount > 0 do
       {:ok, selected} = PlayerHealth.hurt_window(state.player.health, amount)
-      {_, state} = apply_fall_damage(state, selected, call.source)
+      {_, state} = apply_damage(state, selected, call.source)
       state
     else
       state
     end
   end
 
-  defp apply_fall_damage(state, selected, source \\ :fall) do
+  defp apply_damage(state, selected, source) do
     cond do
       state.life_stage != :alive or not selected.accepted ->
         {:ignored, state}
 
-      state.player.abilities.may_fly or state.player.abilities.invulnerable or
+      (source in [:fall, :stalagmite] and state.player.abilities.may_fly) or
+        state.player.abilities.invulnerable or
           not PlayerInput.loaded?(state.player.input) ->
         {:immune, state}
 
       true ->
-        {:ok, damage} = Valimc.PlayerFallProtection.damage(state.inventory, selected.damage)
+        {:ok, damage} =
+          Valimc.PlayerDamageProtection.damage(state.inventory, source, selected.damage)
+
         {:ok, health} = PlayerHealth.reduce(selected.state, damage)
         player = %{state.player | health: health}
         state = %{state | player: player}
@@ -1104,7 +1118,7 @@ defmodule Valimc.Connection do
         Players.update(self(), state.player)
 
         if selected.notify do
-          packet = Packets.fall_damage(state.player.entity_id, source)
+          packet = Packets.damage_event(state.player.entity_id, source)
           send_packets(state, [packet])
           broadcast_player_packet(state, packet)
         end
@@ -1120,10 +1134,11 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp death_notice(state, fall, source \\ :fall) do
+  defp death_notice(state, announce, source \\ :fall) do
     reason =
       cond do
-        not fall -> " died"
+        not announce -> " died"
+        source == :freeze -> " froze to death"
         source == :stalagmite -> " was impaled on a stalagmite"
         true -> " hit the ground too hard"
       end
@@ -1137,7 +1152,7 @@ defmodule Valimc.Connection do
     ])
 
     broadcast_player_packet(state, Packets.death_animation(state.player.entity_id))
-    if fall, do: Players.broadcast({:chat, message})
+    if announce, do: Players.broadcast({:chat, message})
     state
   end
 
@@ -2028,14 +2043,17 @@ defmodule Valimc.Connection do
 
   defp observe_environment(state, powder) do
     previous = state.player.environment
+    allowed = PlayerEnvironment.can_freeze?(state.player, state.inventory)
 
     environment =
       PlayerEnvironment.observe(
         previous,
         powder,
         state.simulation_due,
-        not PlayerEnvironment.can_freeze?(state.player, state.inventory)
+        not allowed
       )
+
+    {damage_due, environment} = PlayerEnvironment.consume_damage(environment, allowed)
 
     player = %{state.player | environment: environment}
 
@@ -2045,7 +2063,15 @@ defmodule Valimc.Connection do
     end
 
     Players.update(self(), player)
-    %{state | player: player, simulation_due: false}
+    state = %{state | player: player, simulation_due: false}
+
+    if damage_due do
+      {:ok, selected} = PlayerHealth.hurt_window(player.health, 1.0)
+      {_, state} = apply_damage(state, selected, :freeze)
+      state
+    else
+      state
+    end
   end
 
   defp monitor_pose_sources(state, fences) do

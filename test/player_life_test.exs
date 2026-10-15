@@ -13,7 +13,7 @@ defmodule Valimc.PlayerLifeTest do
       abilities: Valimc.PlayerAbilities.for_mode(:survival),
       input: %Valimc.PlayerInput{buttons: 33, shared_flags: 2, load_ticks: 0},
       motion: %Valimc.PlayerMotion{fall_distance: 15.0, velocity: {0.1, -2.0, 0.2}},
-      environment: %Valimc.PlayerEnvironment{frozen_ticks: 77},
+      environment: %Valimc.PlayerEnvironment{frozen_ticks: 77, damage_phase: 39, damage_due: true},
       health: %PlayerHealth{value: 0.0, hurt_ticks: 10, cooldown: 20},
       pose: :crouching,
       last_death: {1, 2, 3}
@@ -25,9 +25,11 @@ defmodule Valimc.PlayerLifeTest do
     assert dead.last_death == {-4, 64, 17} and dead.pose == :dying
     assert dead.input.buttons == 0 and dead.input.shared_flags == 0
     assert dead.motion.velocity == {0.0, 0.0, 0.0} and dead.motion.fall_distance == 0
+    assert dead.environment.damage_phase == 0 and not dead.environment.damage_due
     alive = PlayerLife.respawn(dead)
     assert alive.health == %PlayerHealth{} and alive.pose == :standing
     assert alive.last_death == dead.last_death and alive.environment.frozen_ticks == 0
+    assert alive.environment.damage_phase == 0 and not alive.environment.damage_due
     assert alive.input.load_ticks == 60 and {alive.x, alive.y, alive.z} == {0.5, 64.0, 0.5}
 
     assert PlayerLife.die(%{alive | health: %{alive.health | value: 0.0}}).last_death ==

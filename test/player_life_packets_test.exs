@@ -4,19 +4,22 @@ defmodule Valimc.PlayerLifePacketsTest do
   defp payload({_, body}), do: IO.iodata_to_binary(body)
 
   test "fall events have no attacker/source position, and death uses a fixed-width entity ID" do
-    packet = Packets.fall_damage(128)
+    packet = Packets.damage_event(128)
     assert elem(packet, 0) == Data.id(:play, :clientbound, "damage_event")
     {128, rest} = Wire.take_varint(payload(packet))
     {type, <<0, 0, 0>>} = Wire.take_varint(rest)
     assert type == Data.registry_id("minecraft:damage_type", "minecraft:fall")
-    {128, rest} = Wire.take_varint(payload(Packets.fall_damage(128, :stalagmite)))
+    {128, rest} = Wire.take_varint(payload(Packets.damage_event(128, :stalagmite)))
     {type, <<0, 0, 0>>} = Wire.take_varint(rest)
     assert type == Data.registry_id("minecraft:damage_type", "minecraft:stalagmite")
-    assert_raise ArgumentError, fn -> apply(Packets, :fall_damage, [128, :bad]) end
+    assert_raise ArgumentError, fn -> apply(Packets, :damage_event, [128, :bad]) end
+    {128, rest} = Wire.take_varint(payload(Packets.damage_event(128, :freeze)))
+    {type, <<0, 0, 0>>} = Wire.take_varint(rest)
+    assert type == Data.registry_id("minecraft:damage_type", "minecraft:freeze")
     assert payload(Packets.death_animation(128)) == <<128::signed-32, 3>>
 
     for id <- [0, -1, 2_147_483_648, :bad] do
-      assert_raise ArgumentError, fn -> Packets.fall_damage(id) end
+      assert_raise ArgumentError, fn -> Packets.damage_event(id) end
       assert_raise ArgumentError, fn -> Packets.death_animation(id) end
       assert_raise ArgumentError, fn -> Packets.death(id, "fell") end
     end

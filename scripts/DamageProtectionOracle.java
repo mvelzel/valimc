@@ -25,7 +25,7 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.phys.Vec3;
 
 /** Actual native worn-enchantment and armor/magic damage path, with no health/world mutation. */
-public class FallProtectionOracle {
+public class DamageProtectionOracle {
   private static class ProbeServer extends DedicatedServer {
     ReloadableServerRegistries.Holder registries;
     private ProbeServer(){super(null,null,null,null,Optional.empty(),null,null,null,null,null);}
@@ -89,7 +89,7 @@ public class FallProtectionOracle {
     var names=JsonParser.parseString(Files.readString(Path.of("priv/protocol/registries.json"))).getAsJsonObject().getAsJsonArray("minecraft:damage_type");
     var bindTags=Holder.Reference.class.getDeclaredMethod("bindTags",Collection.class);bindTags.setAccessible(true);
     var cases=new JsonArray();
-    for(var type:List.of(DamageTypes.FALL,DamageTypes.STALAGMITE)){
+    for(var type:List.of(DamageTypes.FALL,DamageTypes.STALAGMITE,DamageTypes.FREEZE)){
       var holder=lookup.lookupOrThrow(Registries.DAMAGE_TYPE).getOrThrow(type);int id=-1;
       for(int i=0;i<names.size();i++)if(names.get(i).getAsString().equals(type.identifier().toString()))id=i;
       if(id<0)throw new AssertionError(type);var keys=new ArrayList<TagKey<DamageType>>();
@@ -108,6 +108,6 @@ public class FallProtectionOracle {
       }
     }
     Files.writeString(Path.of(args[0]),new Gson().toJson(cases));
-    System.out.println("PASS: "+cases.size()+" native equipment/protection/armor-bypass/magic damage cases; both landing sources, all "+registry.size()+" enchantments, levels0/1/4/255, stored and hand negatives, stacked caps. Effects/health/world mutation excluded.");
+    System.out.println("PASS: "+cases.size()+" native equipment/protection/armor-bypass/magic damage cases; fall/stalagmite/freeze, all "+registry.size()+" enchantments, levels0/1/4/255, stored and hand negatives, stacked caps. Effects/health/world mutation excluded.");
   }
 }
