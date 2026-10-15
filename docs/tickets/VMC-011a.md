@@ -1,10 +1,10 @@
 # VMC-011a — Authoritative simulation ownership and tick order
 
-Status: In progress — resource/loading/writer separation validated; admission directory next. October 15, 2026.
+Status: In progress — admission/routing validated; live player poses next. October 15, 2026.
 
 The pose/movement math is usable, but region read revisions and ETS publications
-cannot authorize coupled gameplay. Resolve this before publishing live selected
-poses or adding gravity. Reprioritize implementation as the evidence warrants.
+do not themselves authorize coupled gameplay. Player owners must decide/commit
+their state. Reprioritize implementation as the evidence warrants.
 Preserve the vanilla player experience; region/chunk/tick internals may freely
 use BEAM concurrency and measured performance. Paper and other servers inform
 design without imposing compatibility contracts (user clarification, October 15).
@@ -16,8 +16,9 @@ an owner callback. These suggest ownership constraints, not a Java/Go port.
 
 Acceptance/design decisions to implement:
 
-- Connection processes retain transport/input; a simulation owner holds each
-  entity's authoritative pose, velocity, collision state and logical tick.
+- Each player process owns transport/input and its authoritative simulation state;
+  bounded workers perform geometry work. Separate lifecycles when gameplay needs it,
+  rather than duplicating player state merely to add another process.
 - Define admission/input ordering, simulation, commit and immutable publication
   phases. Bound per-tick work and input queues; specify overload behavior.
 - Choose and test independent domains, coupled neighbors and boundary transfer
@@ -29,19 +30,17 @@ Acceptance/design decisions to implement:
   test independent domains under concurrency and deterministic owner-local traces.
   Delegate actual contact/reconciliation tests and retain explicit parity limits.
 
-Working direction: separate cold ownership/topology admission from hot simulation
-domains. Nearby coupled sections must share an ordered mutation boundary; distant
-domains can tick independently on BEAM schedulers. Keep transport processes stable
-and reuse immutable geometry/jobs. Do not infer independence from fixed storage
-region coordinates. A revision recheck or expiring read lease alone cannot make
-multi-owner gameplay atomic.
+Current direction (October 15): stable player processes own selected poses;
+block owners supply immutable geometry frames. Gather a bounded read set, compute,
+then recheck every source epoch/revision. Changed player inputs/environment discard
+late results. Commit in the player owner and replicate at its publication phase.
+This is sampled tick geometry, not an atomic transaction spanning player/block
+owners; world changes schedule another fit. Source loss/errors retain the last
+selected pose, never an invented empty world. No global gameplay coordinator.
 
-Before simulation integration, settle quiescent merge/split/transfer, epochs and
-owner-loss behavior; distinguish protocol input ordering from runtime tick policy.
-Owner-local tick identity and client-tick admission are validated. Block commits
-provide a bounded local boundary; coupled domains still need implementation.
-No slice declares live movement authority until integrated owners and actual
-reconciliation pass.
-Resource/owner separation, cold-load isolation and supervised writer leases are
-validated. Cold admission/ETS routing is next; topology/handoff stages remain
-unimplemented authority.
+Region merges/splits are not prerequisites for independent pose selection. Future
+coupled effects (piston pushes, collisions with solid entities, durable transfers)
+need explicit ordered mutation protocols; domain handoffs remain an option, not
+an upstream architecture requirement. Rechecking revisions or expiring read leases
+cannot establish cross-owner mutation atomicity. Live movement enforcement,
+gravity and coupled simulation remain unimplemented until their own checks pass.
