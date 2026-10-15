@@ -35,10 +35,9 @@ defmodule Valimc.TransferDelivery do
 
   def retryable?(_), do: false
 
-  defp deliver(uuid, %{transfer_sequence: sequence, outbox: %{key: key, records: records}}) do
-    request = %{source: uuid, sequence: sequence, records: records}
-
-    with {:ok, owner} <- World.item_owner(key),
+  defp deliver(uuid, intent) do
+    with {:ok, key, request, _digest} <- Valimc.PlayerSnapshot.transfer_request(uuid, intent),
+         {:ok, owner} <- World.item_owner(key),
          :ok <- persistent_destination(owner, uuid) do
       Region.apply_item_transfer(owner, request)
     end

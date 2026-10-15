@@ -1,11 +1,11 @@
 defmodule Valimc.PlayerSnapshot do
   @moduledoc "Bounded player state/outbox; legacy pose/inventory migration, not vanilla NBT."
-  alias Valimc.{Inventory, PlayerFood, PlayerHealth, PlayerStore}
+  alias Valimc.{Inventory, PlayerFood, PlayerHealth, PlayerMiningIntent, PlayerStore}
   alias Valimc.Protocol.{ItemStack, ItemTypes}
   alias Valimc.World.{ItemRecords, ItemTransfers}
   @data_version 5023
   @inventory_bytes 524_288
-  @outbox_bytes 55 + 5 * (40 + 65_536)
+  @outbox_bytes max(55 + 5 * (40 + 65_536), PlayerMiningIntent.max_bytes())
   @max_sequence 18_446_744_073_709_551_615
   @max_bytes 56 + 4 + 3 + 8 + 4 + 24 + 12 + 8 + 13 + 2 + 11 + @inventory_bytes + @outbox_bytes +
                32
@@ -192,6 +192,22 @@ defmodule Valimc.PlayerSnapshot do
         {version, journal}
       end
 
+    version =
+      case outbox do
+        %{kind: :mining} ->
+          check(version == 12, :invalid_mining_snapshot)
+
+          check(
+            PlayerMiningIntent.matches_inventory?(outbox, inventory),
+            :invalid_mining_snapshot
+          )
+
+          13
+
+        _ ->
+          version
+      end
+
     payload =
       IO.iodata_to_binary([
         <<"VMCPOSE", version, uuid::binary-size(16), pose.x::float-64, pose.y::float-64,
@@ -257,7 +273,7 @@ defmodule Valimc.PlayerSnapshot do
 
       <<"VMCPOSE", version, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
         yaw::float-32, pitch::float-32, @data_version::32, rest::binary>>
-      when version in [5, 6, 7, 8, 9, 10, 11, 12] ->
+      when version in [5, 6, 7, 8, 9, 10, 11, 12, 13] ->
         {food, rest} =
           if version >= 12 do
             <<level, saturation::float-32, exhaustion::float-32, timer::16, rest::binary>> = rest
@@ -346,8 +362,17 @@ defmodule Valimc.PlayerSnapshot do
             %{x: x, y: y, z: z, yaw: yaw, pitch: pitch},
             decode_inventory(body),
             sequence,
-            decode_outbox(uuid, sequence, outbox)
+            if(version == 13,
+              do: decode_mining_outbox(uuid, sequence, outbox),
+              else: decode_outbox(uuid, sequence, outbox)
+            )
           )
+
+        check(
+          version != 13 or
+            PlayerMiningIntent.matches_inventory?(snapshot.outbox, snapshot.inventory),
+          :invalid_player_file
+        )
 
         {:ok,
          snapshot
@@ -376,6 +401,8 @@ defmodule Valimc.PlayerSnapshot do
     {:ok, %{pose: pose, inventory: inventory, transfer_sequence: sequence, outbox: outbox}}
   end
 
+  def transfer_request(_uuid, %{outbox: %{kind: _}}), do: {:error, :wrong_transfer_kind}
+
   def transfer_request(<<_::128>> = uuid, %{
         transfer_sequence: sequence,
         outbox: %{key: key, records: records}
@@ -388,12 +415,25 @@ defmodule Valimc.PlayerSnapshot do
 
   defp encode_outbox(_uuid, _sequence, nil), do: <<>>
 
+  defp encode_outbox(uuid, sequence, %{kind: :mining} = intent) do
+    {:ok, bytes} = PlayerMiningIntent.encode(uuid, sequence, intent)
+    bytes
+  end
+
+  defp encode_outbox(_uuid, _sequence, %{kind: _}),
+    do: throw({:snapshot_error, :invalid_transfer_kind})
+
   defp encode_outbox(uuid, sequence, %{key: key, records: records}) do
     {:ok, bytes, _digest} =
       ItemTransfers.encode_request(key, %{source: uuid, sequence: sequence, records: records})
 
     check(byte_size(bytes) <= @outbox_bytes, :outbox_byte_limit)
     bytes
+  end
+
+  defp decode_mining_outbox(uuid, sequence, bytes) do
+    {:ok, intent} = PlayerMiningIntent.decode(uuid, sequence, bytes)
+    intent
   end
 
   defp decode_outbox(_uuid, _sequence, <<>>), do: nil
