@@ -1,8 +1,8 @@
 # Current work
 
 Target: full vanilla Java 26.3 player experience (protocol 777), Elixir 1.20.4 / OTP 29.1.1.
-Server internals may freely use BEAM strengths; upstream servers inform design,
-without imposing their implementation or compatibility contracts.
+Compatibility policy update: **Done**, `4c449d9` (October 15). [AGENTS.md](../AGENTS.md)
+preserves vanilla gameplay/client interoperability and permits BEAM-native internals.
 This queue is editable. [Compatibility](compatibility.md) describes the preview;
 [backlog](backlog.md) covers remaining features; [completed](history/completed.md)
 indexes validated tickets. None imply full parity.

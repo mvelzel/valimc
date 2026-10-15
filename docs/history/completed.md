@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [Compatibility policy](../../AGENTS.md) | Done October 15, 2026; `4c449d9`: vanilla gameplay/client interoperability, BEAM-native internals |
 | [VMC-001](../tickets/VMC-001.md) | 4f948be |
 | [VMC-002](../tickets/VMC-002.md) | b5a2c72 |
 | [VMC-003](../tickets/VMC-003.md) | Validated |
