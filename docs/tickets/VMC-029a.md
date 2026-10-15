@@ -40,7 +40,7 @@ Six affected tests and existing mining/tool native regressions pass. Logs
 `.local/player-mining-{native,check,tests,arithmetic-regression}.log` and
 `.local/mining-tool-refactor-{native,check}.log`.
 
-Next: owned mining attempts, then block-owner destruction/drops and durability.
+Next: [atomic block/drop persistence](VMC-029a1.md), owned mining attempts and durability.
 Status effects/arbitrary attribute patches and the live client scenario remain
 pending; current stock gear/contact composition needs no global gameplay owner.
 
