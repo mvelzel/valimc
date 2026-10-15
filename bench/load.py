@@ -11,6 +11,11 @@ def implementation_hash():
     files=sorted(list((ROOT/'lib').rglob('*.ex'))+list((ROOT/'config').glob('*.exs'))+list((ROOT/'priv').rglob('*.json')))
     for path in files: digest.update(str(path.relative_to(ROOT)).encode()+b'\0'+path.read_bytes())
     return digest.hexdigest()
+def base_revision():
+    top=subprocess.run(['git','rev-parse','--show-toplevel'],cwd=ROOT,text=True,capture_output=True)
+    if top.returncode or pathlib.Path(top.stdout.strip()).resolve()!=ROOT.resolve():
+        return None
+    return subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
 def vi(n):
     n &= 0xffffffff
     out = bytearray()
@@ -159,7 +164,7 @@ async def benchmark(port,metrics,args):
                 'reconciliation_ms':round((time.perf_counter()-reconcile_start)*1000,2),
                 'driver_sha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),
                 'server_driver_sha256':hashlib.sha256((ROOT/'bench/server.exs').read_bytes()).hexdigest(),
-                'base_revision':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
+                'base_revision':base_revision(),
                 'duration_seconds':round(send_duration,3),
                 'login_p50_ms':round(latencies[len(latencies)//2],2),
                 'login_p95_ms':round(latencies[min(len(latencies)-1,int(len(latencies)*.95))],2),

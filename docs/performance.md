@@ -43,6 +43,9 @@ python3 bench/load.py --players 512 --seconds 5 --scatter --output bench/results
 
 Run scenarios sequentially on an otherwise quiet machine. The driver starts an isolated server on a free port with a temporary world, reports metrics, and shuts it down. Longer runs up to 60 seconds are supported. Any disconnected clients make the benchmark fail instead of silently counting the surviving clients as a successful result.
 
+Archived sources report a null Git revision rather than borrowing a parent
+checkout's revision. Retain their frozen manifest alongside the implementation hash.
+
 Add `--fluid` for static source-water pools and loaded sprint input. The driver
 requires every participant's observed swimming flag/pose before and after the
 interval. Positions remain scripted; this measures the fluid geometry/simulation
