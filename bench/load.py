@@ -72,6 +72,10 @@ class Client:
             elif name=='disconnect': raise RuntimeError('Configuration rejected')
         self.task = asyncio.create_task(self.pump())
         await asyncio.wait_for(self.loaded.wait(),10)
+        if self.args.fluid:
+            await self.send('play','player_loaded')
+            await self.send('play','player_command',vi(0)+vi(1)+vi(0))
+            await self.send('play','player_input',bytes([65]))
         self.login_ms=(time.perf_counter()-started)*1000
         return self
     async def pump(self):
@@ -111,6 +115,13 @@ async def benchmark(port,metrics,args):
     clients=await asyncio.gather(*(join(i) for i in range(args.players)))
     await asyncio.sleep(0.15)
     loaded=json.loads(metrics.read_text())
+    if args.fluid:
+        ready_start=time.perf_counter()
+        while loaded.get('swimming_players',0)!=len(clients) and time.perf_counter()-ready_start<2:
+            await asyncio.sleep(.02)
+            loaded=json.loads(metrics.read_text())
+        if loaded.get('swimming_players',0)!=len(clients):
+            raise RuntimeError('Not all benchmark players entered observed swimming simulation')
     started=time.perf_counter(); moves=0
     try:
         for step in range(args.seconds*20):
@@ -128,6 +139,7 @@ async def benchmark(port,metrics,args):
                 x=(c.index*128+64.5 if args.scatter else .5)+math.sin((args.seconds*20-1)/8)*.2
                 z=64.5 if args.scatter else .5
                 if not p or abs(p['x']-x)>1e-6 or p['y']!=64 or p['z']!=z: return False
+                if args.fluid and (not p.get('swimming') or p.get('pose')!='swimming'): return False
             return True
         while not reconciled(after) and time.perf_counter()-reconcile_start<2:
             await asyncio.sleep(.02)
@@ -139,6 +151,7 @@ async def benchmark(port,metrics,args):
                 'stable_implementation':fingerprint_before==fingerprint_after,
                 'elixir':'1.20.4','erlang_otp':'29.1.1','minecraft':'26.3','view_distance':1,
                 'scenario':'spread' if args.scatter else 'dense','clients':len(clients),
+                'fluid_swimming':args.fluid,
                 'disconnected':sum(c.error is not None for c in clients),'movement_packets_sent':moves,
                 'client_tick_end_packets_sent':moves,
                 'movement_corrections':sum(max(c.teleports-1,0) for c in clients),
@@ -152,6 +165,8 @@ async def benchmark(port,metrics,args):
                 'login_p95_ms':round(latencies[min(len(latencies)-1,int(len(latencies)*.95))],2),
                 'server_before':before,'server_loaded':loaded,'server_after':after,
                 'scope':'Separate Python loopback TCP clients, nine chunks each, authoritative creative movement/pose and geometry, final accepted-position verification. Spread players use saved spawn fixtures. No survival/AI/redstone workload.'}
+        if args.fluid:
+            result['scope']+=' Static 3x3x3 source-water pools, loaded forward/sprint intent and every final swimming flag/pose verified. Horizontal positions are scripted; no client prediction, propagation, oxygen/damage or survival capacity claim.'
         print(json.dumps(result,indent=2))
         if args.output:
             path=pathlib.Path(args.output);path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(result,indent=2)+'\n')
@@ -166,13 +181,14 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--players',type=int,default=128);parser.add_argument('--seconds',type=int,default=5)
     parser.add_argument('--scatter',action='store_true');parser.add_argument('--output')
+    parser.add_argument('--fluid',action='store_true',help='Static source water with loaded sprint input and verified swimming state')
     args=parser.parse_args()
     if not 1<=args.players<=512 or not 1<=args.seconds<=60: parser.error('Use 1–512 players and 1–60 seconds')
     with tempfile.TemporaryDirectory(prefix='valimc-load-') as temp:
         metrics=pathlib.Path(temp)/'metrics.json'
         with socket.socket() as probe:
             probe.bind(('127.0.0.1',0));port=probe.getsockname()[1]
-        env=dict(os.environ,MIX_ENV='test',VALIMC_PORT=str(port),VALIMC_WORLD=temp,VALIMC_METRICS_FILE=str(metrics),VALIMC_BENCH_SCATTER=str(args.scatter).lower(),VALIMC_BENCH_PLAYERS=str(args.players))
+        env=dict(os.environ,MIX_ENV='test',VALIMC_PORT=str(port),VALIMC_WORLD=temp,VALIMC_METRICS_FILE=str(metrics),VALIMC_BENCH_SCATTER=str(args.scatter).lower(),VALIMC_BENCH_PLAYERS=str(args.players),VALIMC_BENCH_FLUID=str(args.fluid).lower())
         log_path=pathlib.Path(temp)/'server.log'
         with log_path.open('w') as log:
             server=subprocess.Popen(['mix','run','bench/server.exs'],cwd=ROOT,env=env,stdin=subprocess.PIPE,stdout=log,stderr=subprocess.STDOUT)
