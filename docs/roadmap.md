@@ -67,7 +67,8 @@ indexes validated tickets. None imply full parity.
    respawn are validated and complete within scope (`0b2ad043`).
    [Air supply/drowning](tickets/VMC-017b2.md) passes 94 affected tests and native
    air/equipment/protection/codecs, 700 full tests, full native TCP/build and matched
-   preview loads; actual-client validation remains pending.
+   preview loads; actual exposure/recovery, defenses, damaged reconnect and fatal
+   respawn are validated and complete within owned-air scope (`7337af64`).
    [Void damage](tickets/VMC-017b3.md) passes 67 affected tests and native
    boundary/mode/loading/defense/codecs; actual-client validation remains pending.
    [Hunger/regeneration](tickets/VMC-036a.md) passes131 affected tests and native
@@ -114,7 +115,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
-| [VMC-017b2](tickets/VMC-017b2.md) | Actual bubbles/drain/recovery, gear, reconnect and fatal drowning | Local air checkpoint |
 | [VMC-017b3](tickets/VMC-017b3.md) | Actual void damage/modes, reconnect and fatal respawn | Local void checkpoint |
 | [VMC-036a](tickets/VMC-036a.md) | Actual hunger HUD/healing/starvation, reconnect and respawn | Local food checkpoint |
 | [VMC-036b](tickets/VMC-036b.md) | Actual sprint/swim/jump depletion and negatives, reconnect | Local movement-food checkpoint |
