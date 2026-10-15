@@ -241,6 +241,37 @@ defmodule Valimc.PlayerMotionConnectionTest do
     refute state(pid).teleport_pending
   end
 
+  test "live slowing contacts reset falls, refresh material and stop reapplying in flight", ctx do
+    {client, pid} = login(hd(ctx.names))
+    {x, z} = {floor(ctx.pos.x), floor(ctx.pos.z)}
+    for y <- 65..68, do: :ok = World.set_block({x, y, z}, 2362)
+    client = Client.teleport(client, pid, %{ctx.pos | y: 67.2})
+    move(client, %{ctx.pos | y: 66.2}, 0)
+
+    wait(fn ->
+      s = state(pid)
+
+      s.player.y == 66.2 and s.player.motion.fall_distance == 0.0 and
+        elem(s.player.motion.stuck_multiplier, 0) == 0.25
+    end)
+
+    assert :ok = Connection.set_velocity(pid, {0.4, -1.0, 0.0})
+    wait(fn -> state(pid).player.motion.velocity == {0.0, -0.0784000015258789, 0.0} end)
+    for y <- 65..68, do: :ok = World.set_block({x, y, z}, 24298)
+    wait(fn -> elem(state(pid).player.motion.stuck_multiplier, 0) == 0.800000011920929 end)
+    Client.send_packet(client, :play, "player_abilities", <<2>>)
+    wait(fn -> state(pid).player.abilities.flying end)
+    wait(fn -> state(pid).player.motion.stuck_multiplier == {0.0, 0.0, 0.0} end)
+    Client.send_packet(client, :play, "player_abilities", <<0>>)
+    wait(fn -> not state(pid).player.abilities.flying end)
+    wait(fn -> elem(state(pid).player.motion.stuck_multiplier, 0) == 0.800000011920929 end)
+    _client = Client.teleport(client, pid, %{ctx.pos | x: ctx.pos.x + 3})
+    wait(fn -> state(pid).player.motion.settled end)
+    assert state(pid).player.motion.paths.count == 0
+    assert state(pid).player.motion.stuck_multiplier == {0.0, 0.0, 0.0}
+    refute state(pid).teleport_pending
+  end
+
   test "new impulses retire stalled geometry and expired/invalid calls cannot replace velocity",
        ctx do
     {_client, pid} = login(hd(ctx.names))
@@ -265,13 +296,16 @@ defmodule Valimc.PlayerMotionConnectionTest do
               velocity: {63.0, 63.0, 63.0},
               physical_ground: false,
               settled: false,
-              bounced: true
+              bounced: true,
+              stuck_multiplier: {0.25, 0.05000000074505806, 0.25},
+              paths: %Valimc.Physics.MovementPaths{}
             }
           }}}
       )
 
       Process.sleep(30)
       assert state(pid).player.motion.velocity == {0.2, 0.5, 0.0}
+      assert state(pid).player.motion.stuck_multiplier == {0.0, 0.0, 0.0}
 
       assert {:error, :invalid_or_expired_velocity} =
                Connection.set_velocity(pid, {65.0, 0.0, 0.0})
@@ -467,6 +501,14 @@ defmodule Valimc.PlayerMotionConnectionTest do
           physical_ground: true,
           settled: true,
           known_movement: {4.0, 2.0, 0.0},
+          paths:
+            Valimc.Physics.MovementPaths.record(
+              %Valimc.Physics.MovementPaths{},
+              {ctx.pos.x, 68.0, ctx.pos.z},
+              {0.1, 0.0, 0.0},
+              {0.1, 0.0, 0.0}
+            ),
+          stuck_multiplier: {0.25, 0.05000000074505806, 0.25},
           fall_distance: 1.5
         },
         environment: %Valimc.PlayerEnvironment{frozen_ticks: 27}
@@ -485,6 +527,8 @@ defmodule Valimc.PlayerMotionConnectionTest do
     assert abs(x - 0.3) < 0.0001 and abs(y + 0.8) < 0.0001 and z == 0.0
     assert current.player.motion.velocity == {0.3, -0.8, 0.0}
     assert current.player.motion.known_movement == {0.0, 0.0, 0.0}
+    assert current.player.motion.paths.count == 0
+    assert current.player.motion.stuck_multiplier == {0.0, 0.0, 0.0}
     refute current.player.motion.physical_ground or current.player.motion.settled
     assert current.player.motion.fall_distance == 1.5
     assert current.player.environment.frozen_ticks == 27

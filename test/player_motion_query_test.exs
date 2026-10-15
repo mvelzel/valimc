@@ -118,4 +118,56 @@ defmodule Valimc.PlayerMotionQueryTest do
     assert {:ok, %{accepted: true}} = query(heavy, %{y: 64.89999997615814})
     refute Valimc.PlayerPoseQuery.signature(light) == Valimc.PlayerPoseQuery.signature(heavy)
   end
+
+  test "pending slow motion clips physical travel while validation keeps the requested anchor", %{
+    player: p
+  } do
+    p =
+      Map.put(p, :motion, %Valimc.PlayerMotion{
+        velocity: {0.4, -0.1, 0.0},
+        stuck_multiplier: {0.25, 0.05000000074505806, 0.25}
+      })
+
+    assert {:ok, %{accepted: true, moved: {x, _, _}, kinetics: %{packet: packet}}} =
+             query(p, %{x: p.x + 0.4})
+
+    assert abs(x - (p.x + 0.1)) < 1.0e-9
+    assert packet.velocity == {0.0, 0.0, 0.0}
+    assert packet.stuck_multiplier == {0.0, 0.0, 0.0}
+    assert packet.paths.count == 1
+
+    assert {:ok, %{accepted: false}} =
+             query(%{p | game_mode: GameMode.new(:survival)}, %{x: p.x + 0.4})
+
+    # Powder can enlarge the supplied vertical displacement beyond the target box.
+    snow = %{
+      p
+      | y: 67.0,
+        motion: %{p.motion | stuck_multiplier: {0.8999999761581421, 1.5, 0.8999999761581421}}
+    }
+
+    assert {:ok, %{accepted: true, moved: {_, 65.5, _}}} = query(snow, %{y: 66.0})
+  end
+
+  test "retained paths sample crossed material, fit the frame and remain owned until a tick commits",
+       %{player: p} do
+    paths =
+      Valimc.Physics.MovementPaths.record(
+        %Valimc.Physics.MovementPaths{},
+        {p.x - 3, p.y, p.z},
+        {3.0, 0.0, 0.0},
+        {3.0, 0.0, 0.0}
+      )
+
+    :ok = World.set_block({floor(p.x) - 2, 64, floor(p.z)}, 2362)
+    p = Map.put(p, :motion, %Valimc.PlayerMotion{paths: paths})
+
+    assert {:ok, %{accepted: true, kinetics: %{packet: packet, tick: tick}}} =
+             query(p, %{x: p.x + 0.2})
+
+    assert packet.paths.count == 2 and tick.paths.count == 0
+    assert elem(tick.stuck_multiplier, 0) == 0.25 and tick.reset_fall
+    assert p.motion.paths == paths
+    assert {:error, :block_scan_limit} = PlayerMotionQuery.start(p, %{p | z: p.z + 64})
+  end
 end

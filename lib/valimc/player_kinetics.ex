@@ -16,7 +16,10 @@ defmodule Valimc.PlayerKinetics do
     FluidCurrents,
     FluidMotion,
     MotionBlocks,
+    MovementPaths,
     PlayerPose,
+    StuckContact,
+    StuckMotion,
     SwimSteering
   }
 
@@ -48,13 +51,18 @@ defmodule Valimc.PlayerKinetics do
     motion = Map.get(player, :motion, %PlayerMotion{})
     sprint = (player.input.shared_flags &&& 8) != 0
 
-    {motion.velocity, motion.physical_ground, motion.on_ground, motion.swimming, sprint,
-     player.input.buttons, Valimc.PlayerInput.loaded?(player.input), Map.get(player, :yaw, 0.0),
+    {motion.velocity, motion.physical_ground, motion.on_ground, motion.swimming, motion.paths,
+     motion.stuck_multiplier, sprint, player.input.buttons,
+     Valimc.PlayerInput.loaded?(player.input), Map.get(player, :yaw, 0.0),
      if(motion.swimming or sprint, do: Map.get(player, :pitch, 0.0))}
   end
 
   def apply_result(motion, result) do
-    motion = struct!(motion, Map.take(result, [:velocity, :physical_ground, :settled]))
+    motion =
+      struct!(
+        motion,
+        Map.take(result, [:velocity, :physical_ground, :settled, :paths, :stuck_multiplier])
+      )
 
     cond do
       Map.get(result, :water, false) or Map.get(result, :reset_fall, false) ->
@@ -79,6 +87,8 @@ defmodule Valimc.PlayerKinetics do
                else: {:ok, v}
              ),
            true <- valid_velocity?(jump_v),
+           {:ok, scaled} <- prepare_move(player, v, v),
+           {:ok, scaled_jump} <- prepare_move(player, jump_v, jump_v),
            {vx, vy, vz} = v,
            escape = {2 * vx, vy + 0.6000000238418579, 2 * vz},
            true <- Enum.all?(Tuple.to_list(escape), &(abs(&1) <= 64)) do
@@ -88,20 +98,46 @@ defmodule Valimc.PlayerKinetics do
         # pitch blend (at most .085 beyond the original velocity hull).
         # Frame admission is bounded independently of each
         # individual collision scan; source/worker/batch limits still apply.
-        {:ok,
-         box
-         |> Box.expand_towards(v)
-         |> union(Box.expand_towards(box, jump_v))
-         |> Box.expand_towards({0.0, 0.6, 0.0})
-         |> Box.expand_towards({0.0, -@below, 0.0})
-         |> union(Box.expand_towards(box, escape))
-         |> inflate(if(swimming_candidate?(player), do: 0.25, else: 0.125))}
+        box
+        |> Box.expand_towards(v)
+        |> union(Box.expand_towards(box, jump_v))
+        |> union(Box.expand_towards(box, scaled.requested))
+        |> union(Box.expand_towards(box, scaled_jump.requested))
+        |> Box.expand_towards({0.0, 0.6, 0.0})
+        |> Box.expand_towards({0.0, -@below, 0.0})
+        |> union(Box.expand_towards(box, escape))
+        |> inflate(if(swimming_candidate?(player), do: 0.25, else: 0.125))
+        |> then(&MovementPaths.enclose(Map.get(player, :motion, %PlayerMotion{}).paths, &1))
       else
         _ -> {:error, :kinetic_query_limit}
       end
     else
       {:error, :kinetic_query_limit}
     end
+  end
+
+  @doc "Consume the preceding block effect before collision, independently of the accepted anchor."
+  def prepare_move(player, requested, velocity) do
+    motion = Map.get(player, :motion, %PlayerMotion{})
+
+    if player.game_mode.current == :spectator do
+      {:ok, %{requested: requested, velocity: velocity, multiplier: motion.stuck_multiplier}}
+    else
+      with {:ok, step} <- StuckMotion.prepare(requested, velocity, motion.stuck_multiplier),
+           true <- valid_velocity?(step.requested),
+           do: {:ok, step},
+           else: (
+             false -> {:error, :kinetic_query_limit}
+             error -> error
+           )
+    end
+  end
+
+  @doc false
+  def physical_position(player, actual, requested) do
+    if player.game_mode.current == :spectator or MovementPaths.records?(actual, requested),
+      do: add(point(player), actual),
+      else: point(player)
   end
 
   def admissible?(player, velocity) do
@@ -124,20 +160,23 @@ defmodule Valimc.PlayerKinetics do
   @doc "Apply accepted packet collision/jump math before a possible logical server tick."
   def packet(player, destination, actual, flags, box, frame) do
     requested = subtract(point(destination), point(player))
-    moved = add(point(player), actual)
-    moved_box = Box.move(box, actual)
 
     with {:ok, before} <- material(frame, box, point(player), context(player, player.y)),
          {:ok, depths} <- FluidContact.sample(frame, box),
          {:ok, velocity} <- packet_jump(player, requested, flags, before, depths),
+         {:ok, step} <- prepare_move(player, requested, velocity),
+         moved = physical_position(player, actual, step.requested),
+         moved_box = Box.move(box, subtract(moved, point(player))),
          {:ok, after_move} <- material(frame, moved_box, moved, context(player, elem(moved, 1))),
          {:ok, after_fluid} <- FluidContact.sample(frame, moved_box),
-         {:ok, result} <- response(velocity, requested, actual, after_move, player) do
+         {:ok, result} <- response(step.velocity, step.requested, actual, after_move, player) do
       {:ok,
        Map.merge(result, %{
          physical_ground: after_move.support != nil,
          settled: false,
-         water: after_fluid.water > 0
+         water: after_fluid.water > 0,
+         stuck_multiplier: step.multiplier,
+         paths: record_path(player, point(player), actual, step.requested)
        })}
     end
   end
@@ -167,28 +206,29 @@ defmodule Valimc.PlayerKinetics do
 
       spectator = player.game_mode.current == :spectator
 
-      with {:ok, actual} <-
+      with {:ok, step} <- prepare_move(player, velocity, velocity),
+           {:ok, actual} <-
              PlayerMotionQuery.displacement(
                geometry.box,
-               velocity,
+               step.requested,
                position,
                frame,
                context(player, player.y),
                spectator
              ),
-           moved = add(position, actual),
+           moved = physical_position(player, actual, step.requested),
            {:ok, after_move} <-
              material(
                frame,
-               Box.move(geometry.box, actual),
+               Box.move(geometry.box, subtract(moved, position)),
                moved,
                context(player, elem(moved, 1))
              ),
-           {:ok, result} <- response(velocity, velocity, actual, after_move, player),
+           {:ok, result} <- response(step.velocity, step.requested, actual, after_move, player),
            {:ok, next} <-
              travel(
                player,
-               velocity,
+               {velocity, step.requested},
                result,
                actual,
                geometry.box,
@@ -197,26 +237,50 @@ defmodule Valimc.PlayerKinetics do
                currents.depths,
                fluid
              ),
-           true <- valid_velocity?(next) do
-        grounded = elem(actual, 1) != elem(velocity, 1) and elem(velocity, 1) < 0
+           true <- valid_velocity?(next),
+           paths = record_path(player, position, actual, step.requested),
+           {:ok, contact} <-
+             StuckContact.sample_paths(
+               frame,
+               MovementPaths.collect(paths, position, moved),
+               context(player, elem(moved, 1)),
+               %StuckContact{
+                 pose: pose,
+                 feet: moved,
+                 flying: player.abilities.flying,
+                 spectator: spectator
+               }
+             ) do
+        grounded = elem(actual, 1) != elem(step.requested, 1) and elem(step.requested, 1) < 0
 
         {:ok,
          %{
            velocity: next,
            physical_ground: grounded,
            settled:
-             not fluid and next == motion.velocity and (grounded or player.abilities.flying),
+             not fluid and contact.last == nil and next == motion.velocity and
+               (grounded or player.abilities.flying),
            bounced: result.bounced,
            supported: true,
            water: currents.depths.water > 0,
            lava: currents.depths.lava > 0,
-           reset_fall: climb.reset_fall
+           reset_fall: climb.reset_fall or contact.reset_fall,
+           stuck_multiplier: contact.multiplier || step.multiplier,
+           paths: %MovementPaths{}
          }}
       else
         false -> {:error, :kinetic_velocity_limit}
         error -> error
       end
     end
+  end
+
+  defp record_path(player, from, actual, requested) do
+    paths = Map.get(player, :motion, %PlayerMotion{}).paths
+
+    if player.game_mode.current == :spectator,
+      do: paths,
+      else: MovementPaths.record(paths, from, actual, requested)
   end
 
   defp prepare_climb(_, velocity, _, true),
@@ -298,15 +362,20 @@ defmodule Valimc.PlayerKinetics do
          do: {:ok, result.velocity}
   end
 
-  defp travel(player, velocity, result, actual, _box, frame, before, _depths, false) do
-    horizontal = horizontal_collision?(velocity, actual)
+  defp travel(player, {velocity, requested}, result, actual, _box, frame, before, _depths, false) do
+    horizontal = horizontal_collision?(requested, actual)
 
     jump =
       Valimc.PlayerInput.loaded?(player.input) and
         Valimc.PlayerInput.pressed?(player.input, :jump)
 
     with {:ok, climbing} <-
-           climbable?(frame, player, add(point(player), actual), horizontal or jump),
+           climbable?(
+             frame,
+             player,
+             physical_position(player, actual, requested),
+             horizontal or jump
+           ),
          {:ok, resolved} <- ClimbMotion.finish(result.velocity, climbing, horizontal, jump) do
       air(
         resolved,
@@ -317,13 +386,14 @@ defmodule Valimc.PlayerKinetics do
     end
   end
 
-  defp travel(player, velocity, result, actual, box, frame, _before, depths, true) do
+  defp travel(player, {velocity, requested}, result, actual, box, frame, _before, depths, true) do
     {_, y, _} = point(player)
+    moved = physical_position(player, actual, requested)
 
-    horizontal = horizontal_collision?(velocity, actual)
+    horizontal = horizontal_collision?(requested, actual)
 
     with {:ok, climbing} <-
-           climbable?(frame, player, add(point(player), actual), horizontal and depths.water > 0),
+           climbable?(frame, player, moved, horizontal and depths.water > 0),
          {:ok, step} <-
            FluidMotion.prepare(result.velocity, %FluidMotion{
              kind: if(depths.water > 0, do: :water, else: :lava),
@@ -334,15 +404,15 @@ defmodule Valimc.PlayerKinetics do
              climbable: climbing,
              shallow: depths.lava <= 0.4,
              old_y: y,
-             new_y: y + elem(actual, 1)
+             new_y: elem(moved, 1)
            }),
          {:ok, free} <-
            escape_free(
              step.escape_query,
-             Box.move(box, actual),
+             Box.move(box, subtract(moved, point(player))),
              frame,
              player,
-             y + elem(actual, 1)
+             elem(moved, 1)
            ),
          do: {:ok, FluidMotion.finish(step, free)}
   end

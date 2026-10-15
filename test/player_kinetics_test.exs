@@ -38,6 +38,77 @@ defmodule Valimc.PlayerKineticsTest do
     f
   end
 
+  test "block contact sets the next move's multiplier and consumption clears velocity once" do
+    p = player()
+    p = %{p | motion: %{p.motion | fall_distance: 7.0}}
+    web = frame(%{{4, 64, 4} => 2362})
+    {:ok, contact} = PlayerKinetics.tick(p, :standing, web)
+    assert contact.stuck_multiplier == {0.25, 0.05000000074505806, 0.25}
+    assert contact.reset_fall and not contact.settled
+    motion = PlayerKinetics.apply_result(p.motion, contact)
+    assert motion.fall_distance == 0.0 and motion.paths.count == 0
+    moving = %{p | motion: %{motion | velocity: {0.4, -0.2, 0.0}}}
+    {:ok, step} = PlayerKinetics.prepare_move(moving, {0.4, -0.2, 0.0}, moving.motion.velocity)
+    assert step.requested == {0.1, -0.010000000149011612, 0.0}
+    assert step.velocity == {0.0, 0.0, 0.0} and step.multiplier == {0.0, 0.0, 0.0}
+    {:ok, inside} = PlayerKinetics.tick(moving, :standing, web)
+    assert inside.velocity == {0.0, -0.0784000015258789, 0.0}
+    assert inside.stuck_multiplier == contact.stuck_multiplier
+    {:ok, escaped} = PlayerKinetics.tick(%{moving | x: 7.5}, :standing, web)
+    assert escaped.stuck_multiplier == {0.0, 0.0, 0.0}
+    assert p.x == 4.5 and p.motion.fall_distance == 7.0
+  end
+
+  test "packet paths are observed after travel, including crossed blocks outside the final body" do
+    p = %{player() | x: 2.5}
+    f = frame(%{{3, 64, 4} => 2362})
+    {:ok, body} = PlayerPose.geometry(:standing, {p.x, p.y, p.z})
+    target = %{p | x: 5.5}
+    {:ok, packet} = PlayerKinetics.packet(p, target, {3.0, 0.0, 0.0}, 1, body.box, f)
+    assert packet.paths.count == 1 and packet.stuck_multiplier == {0.0, 0.0, 0.0}
+    candidate = %{target | motion: PlayerKinetics.apply_result(p.motion, packet)}
+    {:ok, tick} = PlayerKinetics.tick(candidate, :standing, f)
+    assert tick.reset_fall and elem(tick.stuck_multiplier, 0) == 0.25
+    assert tick.paths.count == 0 and candidate.motion.paths.count == 1
+    refute PlayerKinetics.signature(target) == PlayerKinetics.signature(candidate)
+
+    {:ok, query} = PlayerKinetics.query_box(body.box, candidate)
+    assert elem(query, 0) <= 2.2 and elem(query, 3) >= 5.8
+    incomplete = %{f | states: Map.delete(f.states, {3, 64, 4})}
+
+    assert {:error, :incomplete_stuck_frame} =
+             PlayerKinetics.tick(candidate, :standing, incomplete)
+  end
+
+  test "powder expansion is admitted, flight suppresses new contact and spectator bypasses consumption" do
+    p = player()
+
+    p = %{
+      p
+      | y: 65.2,
+        motion: %{
+          p.motion
+          | stuck_multiplier: {0.8999999761581421, 1.5, 0.8999999761581421},
+            velocity: {0.0, -2.0, 0.0}
+        }
+    }
+
+    {:ok, geometry} = PlayerPose.geometry(:standing, {p.x, p.y, p.z})
+    {:ok, query} = PlayerKinetics.query_box(geometry.box, p)
+    assert elem(query, 1) < 62.2
+    powder = %{p | y: 64.0, motion: %PlayerMotion{fall_distance: 2.0}}
+    {:ok, snow} = PlayerKinetics.tick(powder, :standing, frame(%{{4, 64, 4} => 30519}))
+    assert snow.stuck_multiplier == p.motion.stuck_multiplier and snow.reset_fall
+    flying = %{p | abilities: %{p.abilities | flying: true}}
+    {:ok, flight} = PlayerKinetics.tick(flying, :standing, frame(%{{4, 65, 4} => 2362}))
+    assert flight.stuck_multiplier == {0.0, 0.0, 0.0} and not flight.reset_fall
+    assert elem(flight.velocity, 1) == -1.2
+    spectator = %{p | game_mode: GameMode.new(:spectator)}
+    {:ok, bypass} = PlayerKinetics.prepare_move(spectator, {0.0, -2.0, 0.0}, p.motion.velocity)
+    assert bypass.requested == p.motion.velocity and bypass.velocity == p.motion.velocity
+    assert bypass.multiplier == p.motion.stuck_multiplier
+  end
+
   test "floor fixed point evolves only kinetic fields, never accepted displacement/fall" do
     p = player()
     p = %{p | motion: %{p.motion | fall_distance: 2.75, known_movement: {0.1, 0.0, 0.0}}}

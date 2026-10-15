@@ -28,6 +28,12 @@ defmodule Valimc.PlayerMotionQuery do
     context = context(player, player.y)
 
     with true <- Enum.all?(Tuple.to_list(requested), &(abs(&1) <= 64)),
+         {:ok, step} <-
+           Valimc.PlayerKinetics.prepare_move(
+             player,
+             requested,
+             Valimc.PlayerKinetics.velocity(player)
+           ),
          {:ok, standing} <- PlayerPose.geometry(:standing, position),
          {:ok, destination} <- PlayerPose.geometry(:standing, point(target)),
          {:ok, kinetic_box} <-
@@ -39,6 +45,7 @@ defmodule Valimc.PlayerMotionQuery do
       query =
         standing.box
         |> Box.expand_towards(requested)
+        |> Valimc.PlayerKinetics.union(Box.expand_towards(standing.box, step.requested))
         |> Box.expand_towards({0, 0.6, 0})
         |> Box.expand_towards({0, -@support, 0})
         |> Valimc.PlayerKinetics.union(kinetic_box)
@@ -86,10 +93,16 @@ defmodule Valimc.PlayerMotionQuery do
              observations
            ),
          box = before.geometry.box,
+         {:ok, step} <-
+           Valimc.PlayerKinetics.prepare_move(
+             player,
+             requested,
+             Valimc.PlayerKinetics.velocity(player)
+           ),
          {:ok, actual} <-
-           displacement(box, requested, position, blocks, context, intent.spectator),
-         moved = add(position, actual),
-         moved_box = Box.move(box, actual),
+           displacement(box, step.requested, position, blocks, context, intent.spectator),
+         moved = Valimc.PlayerKinetics.physical_position(player, actual, step.requested),
+         moved_box = Box.move(box, subtract(moved, position)),
          # Match native translation order, including cancellation at remote coordinates.
          target_box = moved_box |> Box.move(subtract(destination, moved)) |> deflate(),
          {:ok, wrongly} <-
@@ -209,5 +222,4 @@ defmodule Valimc.PlayerMotionQuery do
 
   defp point(p), do: {p.x, p.y, p.z}
   defp subtract({x, y, z}, {a, b, c}), do: {x - a, y - b, z - c}
-  defp add({x, y, z}, {a, b, c}), do: {x + a, y + b, z + c}
 end

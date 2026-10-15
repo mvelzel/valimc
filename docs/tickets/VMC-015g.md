@@ -1,6 +1,6 @@
 # VMC-015g — Slowing block contacts
 
-Status: In progress. October 15, 2026.
+Status: Live composition automated-verified; frozen client gate pending. October 15, 2026.
 
 Acceptance: native player cobweb/weaving, berry bush and powder-snow contact
 selection; reset fall on contact and retain the last ordered multiplier until its
@@ -79,3 +79,23 @@ Evidence: `.local/stuck-path-{native,check,tests}.log`, original
 coalescing its oldest two into a linear path; a final-position gap may add one.
 Next: player-owned transient history, multiplier consumption and live composition;
 the feature and graphical gates remain open.
+
+Live checkpoint: player-owned `MovementPaths` uses an Erlang queue capped at 100,
+matching 45 actual native coalescing/final-gap cases. Packets record admitted
+physical travel; effects are selected after logical travel. A pending multiplier
+scales the next move before collision and clears velocity once. Tick commit clears
+history; observations do not. Worker signatures include both fields. Rejected
+packets preserve committed history; explicit teleport/reconnect retire transient
+state. Existing frame/source/worker/deadline bounds remain; admission encloses
+retained paths and powder's vertical expansion. No new owner or timer.
+
+Seventy-four affected tests pass: crossed endpoints, contact ordering/reset,
+material changes, packet validation, powder expansion, flight/spectator, stale
+results and transient snapshot exclusion. Native `Entity.move`'s tiny blocked-move
+guard also controls physical positions; `Player.travel` flight damping retains
+pre-travel Y, independently of consumed velocity. The 3,456 batch and 1,680
+single-path contact checks still pass. Evidence:
+`.local/stuck-live-{tests,query-tests,native-check}.log`,
+`.local/movement-path-{native,check,tests}.log`. Weaving has a native-verified kernel;
+live status-effect ownership and damage remain future work. Next: frozen actual
+client scenarios, full block integration/build and comparable loads.
