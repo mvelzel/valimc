@@ -1,7 +1,7 @@
 # VMC-017a — Owned health and fall damage
 
-Status: Owned health/login/save automated-verified; client gate pending. Fall
-damage and death/respawn remain in progress. October 15, 2026.
+Status: Owned health/login/save validated (`18028cd`). Fall damage and
+death/respawn remain in progress. October 15, 2026.
 
 Acceptance: player-owned finite health, persistent save/reconnect, current health
 packets and fall damage from authoritative accepted landing distance. Preserve
@@ -20,7 +20,7 @@ Client gate: survival falls below/at/above the threshold, visible health loss,
 protected water/web/slime/honey landing, creative flight immunity, damaged
 reconnect, fatal landing/death UI and respawn. Verify inventory consistency and
 repeat damage/cooldown negatives. Helpers alone do not complete this ticket.
-Next: native fall calculation, owned health/protocol/save state and fatal lifecycle.
+Next: death/respawn lifecycle, then fenced landing damage and its full client gate.
 
 Calculation checkpoint: original `Physics.FallDamage` matches 2,600 actual native
 `calculateFallDamage` cases, including epsilon/floor thresholds, float32 material
@@ -49,6 +49,11 @@ the death lifecycle. Seventy-five affected tests pass, including two TCP session
 at health7.25 with exact inventory retention, legacy migration, pending-teleport
 timer progression and stale/early tick rejection. Tests synchronize initial packet
 checks with the socket owner. Evidence: `.local/player-health-live-tests.log`.
-Next client checkpoint: visually verify survival hearts from seeded health7.25,
-normal movement/inventory and a fresh direct reconnect. This validates health/save
-plumbing only; damage, death/respawn and their full acceptance scenarios remain open.
+Frozen `18028cd`, `.local/health-live-checkpoint` (520 verified blobs), passed actual
+Java 26.3 checks at 21:24–21:28 CEST: seeded health7.25 displayed four filled hearts,
+dry movement/jump and `/stats`, real seven-stone hotbar move, durable snapshot and
+fresh direct reconnect with the same health/inventory. Both clients stopped/waited;
+leased cleanup restored a safe preview state. Tester report reviewed:
+`.local/client-tests/VMC-017a/health-report.md`. The health/login/save checkpoint is
+complete; fall damage, regeneration, peer health, hurt events and death/respawn
+remain unimplemented and are not covered by this gate.

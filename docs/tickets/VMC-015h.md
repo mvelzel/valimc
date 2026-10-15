@@ -1,6 +1,6 @@
 # VMC-015h — Sneaking at edges
 
-Status: Live composition automated-verified; frozen client gate pending. October 15, 2026.
+Status: Validated and published (`6ca22ef`), complete within scope. October 15, 2026.
 
 Acceptance: native Shift edge protection for grounded and near-ground players,
 separate X/Z/diagonal backoff, exact support-query geometry and native 0.05 steps.
@@ -24,21 +24,19 @@ and mover exclusions. The callback consumes supplied support facts; native block
 sampling/entity collisions are outside this oracle. Three affected tests pass,
 including 64-block backoff within 4,096 queries and missing-fact propagation.
 Evidence: `.local/sneak-edge-{native,check,tests}.log`; original
-`scripts/SneakEdgesOracle.java`. No live wiring or graphical result yet.
+`scripts/SneakEdgesOracle.java`.
 Live checkpoint: packet and scratch movement apply backoff after consuming slowing
 and before collision. Support checks reuse the worker's single fenced block frame;
 each local scan retains existing geometry limits. Native query dependencies fit
 admitted packet/tick frames across all 23,040 cases. Seventy-two affected tests pass:
 slowing-before-edge order, missing facts, packet path recording, flight/upward
 exclusions and a real TCP survival rejection followed by released-Shift recovery.
-The frozen slowing runtime stays unchanged. Evidence:
-`.local/sneak-live-tests.log`, `.local/sneak-edge-check.log`.
-Next: freeze this checkpoint and delegate its actual ledge/corner/slab client gate.
+Evidence: `.local/sneak-live-tests.log`, `.local/sneak-edge-check.log`.
 
-Frozen `6ca22ef`, `.local/sneak-live-checkpoint`, built and launched successfully.
-Client gate pending October 15, ~21:00 CEST: CUA reports locked Mac/automatic unlock
-failure, including inventory refresh. Direct run-01 joined, but no graphical
-scenario or fixture mutation occurred. Owned client stopped/waited, zero players,
-same runtime and paused noon retained. Report reviewed:
-`.local/client-tests/VMC-015h/report.md`. Resume fresh run-02 when GUI access returns;
-do not recreate the release or repeat completed slowing validation.
+Frozen `6ca22ef`, `.local/sneak-live-checkpoint` (510 verified blobs), passed actual
+Java 26.3 checks at 21:17–21:23 CEST: raised ledge/diagonal corner/raised half-slab
+holds, release falls, traversable near-ground half-block drop, actual jump and
+creative flight exclusions, plus dry/web/ladder regressions. All 51 fixture cells
+restored; owned client stopped/waited and zero players confirmed. Tester report
+reviewed: `.local/client-tests/VMC-015h/report.md`. This completes the stated edge
+behavior gate; complete survival/forces and damage remain separate work.

@@ -7,11 +7,11 @@ Completed tickets establish their stated scope, not subsystem/full-server parity
 | Area | Implemented preview | Still missing |
 |---|---|---|
 | Protocol/login | Status, compression, registries/tags, encryption, optional real online identity | Full packet behavior, signed chat, complete session/proxy policy |
-| Players | Nearby replication, saved pose/flight/modes/fall/freeze, powder freezing/thaw, input/Shift/sprint flags, selected pose/eye height, bounded block-based movement corrections, default ranges | Live mode transitions, gravity/forces, complete attributes/effects, combat/health/hunger/death |
+| Players | Nearby replication, saved pose/flight/modes/fall/freeze/health, hurt timers, powder freezing/thaw, input/Shift/sprint flags, selected pose/eye height, bounded block-based movement corrections, default ranges | Live mode transitions, complete forces/attributes/effects, damage/combat/hunger/death |
 | World | Flat chunks, simple creative edits, clocks/weather/difficulty, custom snapshots | Anvil/NBT worlds, generation/biomes/structures, real lighting, full gamerules, functional/oriented blocks |
 | Inventory | Supported components, authoritative preview clicks/swaps/drops, durable cleanup/recovery | Full components/text, crafting, containers/equipment/gameplay rules; pending gesture gates |
 | Items | Durable stationary scene entities, bounded replication and transfer retries | Gravity, merging, pickup, despawn and complete entity lifecycle |
-| Physics | Native shapes/clipping/steps, live pose/movement/fall reconciliation, default dry/fluid velocity, swimming/climbing/slowing contacts, supplied entity/border fitting | Complete forces/effects and dynamic contexts, solid entities/moving borders, coupled ownership/transfers; sneaking client gate |
+| Physics | Native shapes/clipping/steps, live pose/movement/fall reconciliation, default dry/fluid velocity, swimming/climbing/slowing contacts, sneaking edge protection, supplied entity/border fitting | Complete forces/effects and dynamic contexts, solid entities/moving borders, coupled ownership/transfers |
 | Simulation | Bounded region/player owners and tick deadlines, fenced powder contact/freezing | Full survival ticks, mobs/AI, redstone, fluid propagation, explosions and coupled mechanics |
 | Extensions | Original Elixir runtime | Extension API, Java plugins and Bedrock compatibility |
 

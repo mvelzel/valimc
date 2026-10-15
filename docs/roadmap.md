@@ -47,13 +47,13 @@ indexes validated tickets. None imply full parity.
    and published (`bc4eb1e`):
    actual client, 622 tests, full native integration/build and controlled 512/128
    water loads. Weaving status ownership and damage remain follow-ups.
-   [Sneaking at edges](tickets/VMC-015h.md)'s live composition passes affected
-   tests and native query/frame traces; its frozen client gate is next.
+   [Sneaking at edges](tickets/VMC-015h.md) is validated and published (`6ca22ef`):
+   native query/frame traces, affected tests and actual ledges/corners/slabs/exclusions.
    Effects/survival consequences remain open.
    [Owned health/fall damage](tickets/VMC-017a.md) has native calculation, health/
-   cooldown, codec and journal foundations. Owner/login/timer composition passes
-   75 affected tests; its health/reconnect client check is next. Fatal lifecycle
-   is required before publishing live damage.
+   cooldown, codec and journal foundations. Owner/login/timer composition is
+   validated (`18028cd`): 75 affected tests and actual hearts/inventory/reconnect.
+   Death/respawn lifecycle and fenced landing damage are next; no live damage yet.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
@@ -72,8 +72,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
-| [VMC-015h](tickets/VMC-015h.md) | Actual Shift ledges/corners/slab and exclusions; client run in progress | `6ca22ef`, `.local/sneak-live-checkpoint` |
-| [VMC-017a](tickets/VMC-017a.md) | Owned health7.25/visible hearts, inventory and direct reconnect | Freeze owner checkpoint after sneaking client run |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection
