@@ -38,9 +38,9 @@ indexes validated tickets. None imply full parity.
    and [pitch steering](tickets/VMC-015d3.md) are validated (`3c99728`): actual
    tunnel/crawl/peer/pitch/flight/reconnect, 587 tests, full native integration,
    production release and active-water 512/128-player loads.
-   [Climbing](tickets/VMC-015e.md) has native motion kernels, complete material
-   facts and contextual contact checked; live dry/water composition passes 61
-   affected tests and bounded native frame checks. Frozen client validation is next.
+   [Climbing](tickets/VMC-015e.md) is validated (`f83e8e7`): actual ladder/vine/
+   scaffolding/trapdoor/wet/flight/reconnect, 600 tests, full native integration,
+   production build and controlled 512/128-player water loads.
    [Relative input](tickets/VMC-015f.md) now has native direction/acceleration/rate
    kernels; native reported intent preserves simulated controls. Entity/vehicle
    ownership remains open. [Slowing blocks](tickets/VMC-015g.md) have native
@@ -62,7 +62,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-015e](tickets/VMC-015e.md) | Ladder/vine/scaffolding, Shift, trapdoors, wet contact, flight/reconnect | Local live climbing checkpoint |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 

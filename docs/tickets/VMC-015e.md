@@ -1,6 +1,6 @@
 # VMC-015e — Player climbing
 
-Status: In progress. October 15, 2026.
+Status: Done within climbing scope. October 15, 2026. Validated `f83e8e7`.
 
 Acceptance: complete climbable/scaffolding/trapdoor/ladder facts and fenced feet/
 below observations select native climbing, including matching open trapdoors over
@@ -48,6 +48,35 @@ motion cases also enclose movement and feet/below lookups in acquired frames acr
 standing/crouching/swimming and fractional heights. Evidence:
 `.local/climb-live-targeted.log`, `.local/climb-live-frame-check.log`.
 
-Next: frozen client gate and coherent-block integration/build checks. Live gliding,
-powder-snow walking boost, horizontal input acceleration and survival consequences
+Limits: live gliding, powder-snow walking boost, entity/vehicle input and survival consequences
 remain separate work; supplied gliding contact is native-verified only.
+
+Integration checkpoint `f83e8e7`: 600 full tests and separate production release
+pass; full native integration, including plaintext/encrypted TCP, passes. Evidence:
+`.local/climb-block-{full-tests,full-native,production}.log`.
+First frozen 512-player spread-water load failed: all final positions/swimming
+states matched and no disconnects, but
+773 corrections (264 worker deadlines, 509 late results). Native integration and
+the real graphical client were active on the same host. After integration ended,
+controlled previous `3c99728` and climbing `f83e8e7` runs both passed 512 players /
+51,200 moves / 5.143s with zero corrections/disconnects and all final positions/
+swimming states verified. Climbing 128-player dense / 12,800 moves / 5.522s also
+passes. The failure did not recur; these runs do not establish its cause or full
+server capacity. Static pools/scripted positions exclude survival and propagation.
+Raw:
+`bench/results/climbing-512-spread-water-failed-concurrent-native.json`,
+`bench/results/climbing-{control-3c99728-512,512-spread,128-dense}-water.json`.
+`.local/climbing-block-load-provenance.json` verifies all 477 frozen source blobs
+and records hashes/revisions; driver enclosing checkout revision differs from source.
+
+Dedicated actual Java client gate PASS, October 15, 19:47–19:59 CEST, unchanged
+PID77944, dataset `/tmp/valimc-live-motion-client-20261015`. Actual W climbs ladder/
+vine and release descends; Shift holds ladder but descends scaffolding. Dry open
+matching trapdoor holds/passes, wrong-facing falls, closed blocks ascent; dry IDs
+8785/8789 avoid the initial waterlogged fixture mistake. Wet ladder, actual flight
+toggle/exclusion, saved grounded contact/fresh direct reconnect, swimming and dry
+jump/walk regressions pass without unexpected corrections/disconnects. Numerical
+isolated branch parity comes from native/targeted tests, not these functional
+observations. Report reviewed: `.local/client-tests/VMC-015e/report.md`.
+All 162 fixture cells restored/reobserved; inventory unchanged, safe dry state,
+zero players and both owned clients stopped. Requested paused noon retained.
