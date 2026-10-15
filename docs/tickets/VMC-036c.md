@@ -78,9 +78,12 @@ Block verification: 762 full tests pass (seed327342), after correcting two peer
 recreation assertions to include the new living-use metadata; the focused peer
 regressions pass15 tests. Frozen `7d715999757747bee2fd644a7b0d5a52d9be7dac`
 has589 verified blobs in `.local/consumable-validation-checkpoint` and a successful
-production build. Full native integration is still running on that frozen tree.
+production build. Full native integration finished successfully on that frozen
+tree, including both plaintext/encrypted TCP sessions. Equipment's subsequent
+767-test/build/native-TCP block is recorded in [VMC-018d](VMC-018d.md).
 Logs `.local/consumable-block-full-tests-final.log`,
-`.local/item-use-peer-regressions.log`, `.local/consumable-validation-production.log`.
+`.local/item-use-peer-regressions.log`, `.local/consumable-validation-production.log`,
+`.local/consumable-validation-full-native.log`.
 
 Client scenario: eat from both hands; visible use animation, stack reduction and
 food recovery; full-food negative and always-edible positive; interrupt mid-use,
