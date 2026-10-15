@@ -37,12 +37,7 @@ defmodule Valimc.Physics.PoseFit do
       {:error, {:missing_fit, pose}} when map_size(fits) < 3 ->
         with {:ok, geometry} <- PlayerPose.geometry(pose, position),
              {:ok, blocks} <-
-               BlockCollisions.collect(
-                 geometry.fit_box,
-                 observations.blocks,
-                 context,
-                 observations.block_entities
-               ),
+               blocks(geometry.fit_box, observations, context),
              {:ok, clear} <- clear?(blocks.colliders, geometry.fit_box, position, observations) do
           resolve(
             current,
@@ -59,6 +54,16 @@ defmodule Valimc.Physics.PoseFit do
         error
     end
   end
+
+  defp blocks(box, %{blocks: %BlockCollisions.Frame{} = frame, block_entities: entities}, context)
+       when frame.entities == entities,
+       do: BlockCollisions.collect_frame(box, frame, context)
+
+  defp blocks(_, %{blocks: %BlockCollisions.Frame{}}, _),
+    do: {:error, :invalid_block_entity_context}
+
+  defp blocks(box, observations, context),
+    do: BlockCollisions.collect(box, observations.blocks, context, observations.block_entities)
 
   defp clear?([_ | _], _, _, _), do: {:ok, false}
 

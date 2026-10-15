@@ -14,14 +14,36 @@ defmodule Valimc.Physics.BlockCollisions do
   @max_observations 16
   @max_colliders 128
 
+  defmodule Frame do
+    @moduledoc false
+    @enforce_keys [:states, :fences, :entities]
+    defstruct [:states, :fences, :entities]
+    @opaque t :: %__MODULE__{states: map(), fences: map(), entities: map()}
+  end
+
+  @doc "Validate one immutable block sample for repeated geometry queries; its fences still need checking."
+  def prepare(observed, entities \\ %{}) do
+    with {:ok, states, fences} <- observations(observed, %{}, %{}, %{}, 0),
+         :ok <- entities(entities, states),
+         do: {:ok, %Frame{states: states, fences: fences, entities: entities}}
+  end
+
   def collect(box, observations, context \\ CollisionContext.empty(), entities \\ %{}) do
     with true <- CollisionContext.valid?(context),
          {:ok, positions} <- BlockScan.plan(box),
-         {:ok, states, fences} <- observations(observations, %{}, %{}, %{}, 0),
-         :ok <- entities(entities, states),
+         {:ok, frame} <- prepare(observations, entities),
          {:ok, colliders} <-
-           resolve(positions, states, context, entities, box, VoxelOps.world_box(box), [], 0) do
-      {:ok, %{colliders: colliders, fences: fences}}
+           resolve(
+             positions,
+             frame.states,
+             context,
+             frame.entities,
+             box,
+             VoxelOps.world_box(box),
+             [],
+             0
+           ) do
+      {:ok, %{colliders: colliders, fences: frame.fences}}
     else
       false -> {:error, :invalid_context}
       {:error, _} = error -> error
@@ -29,6 +51,30 @@ defmodule Valimc.Physics.BlockCollisions do
   rescue
     ArgumentError -> {:error, :collision_geometry_limit}
   end
+
+  @doc "Query a frame returned by prepare/2; dynamic geometry is resolved for this context every time."
+  def collect_frame(
+        box,
+        %Frame{states: states, fences: fences, entities: entities} = frame,
+        context
+      )
+      when map_size(frame) == 4 and is_map(states) and map_size(states) <= 2048 and
+             is_map(fences) and map_size(fences) <= 16 and is_map(entities) and
+             map_size(entities) <= 512 do
+    with true <- CollisionContext.valid?(context),
+         {:ok, positions} <- BlockScan.plan(box),
+         {:ok, colliders} <-
+           resolve(positions, states, context, entities, box, VoxelOps.world_box(box), [], 0) do
+      {:ok, %{colliders: colliders, fences: fences}}
+    else
+      false -> {:error, :invalid_context}
+      error -> error
+    end
+  rescue
+    ArgumentError -> {:error, :collision_geometry_limit}
+  end
+
+  def collect_frame(_, _, _), do: {:error, :invalid_block_frame}
 
   defp observations([], states, fences, _, _), do: {:ok, states, fences}
 

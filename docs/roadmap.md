@@ -19,8 +19,8 @@ indexes validated tickets. None imply full parity.
    [Live block-based movement](tickets/VMC-014c4.md) is validated and complete
    within its scope (`d10f566`); gravity/coupled effects remain.
 2. **[VMC-011a8](tickets/VMC-011a8.md): larger-load geometry admission.**
-   Profile the retained 512-player deadline failure; preserve the passing 128-player
-   workloads, fencing and actual-client behavior.
+   Prepared plans/samples and a player-budget worker bound pass the original
+   512-player workload. Repeat longer/frozen loads and delegate the client gate.
 3. **VMC-015: gravity, velocity and grounded state.** Establish native player
    simulation behavior before adding forces, fall distance and damage.
 

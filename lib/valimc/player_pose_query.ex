@@ -1,7 +1,15 @@
 defmodule Valimc.PlayerPoseQuery do
   @moduledoc "Bounded pose geometry work; the player process alone commits selected poses."
   import Bitwise
-  alias Valimc.Physics.{BorderSnapshot, CollisionContext, CollisionQuery, PlayerPose, PoseFit}
+
+  alias Valimc.Physics.{
+    BlockCollisions,
+    BorderSnapshot,
+    CollisionContext,
+    CollisionQuery,
+    PlayerPose,
+    PoseFit
+  }
 
   def signature(player) do
     {player.x, player.y, player.z, Map.get(player, :pose, :standing),
@@ -29,13 +37,15 @@ defmodule Valimc.PlayerPoseQuery do
     # Missing block-entity facts remain errors; they never become empty space.
     with {:ok, geometry} <- PlayerPose.geometry(:standing, position) do
       CollisionQuery.start_frame(geometry.fit_box, context, fn blocks ->
-        PoseFit.select(current, intent, position, context, %{
-          blocks: blocks,
-          block_entities: %{},
-          entities: [],
-          border: %BorderSnapshot{},
-          subject: subject
-        })
+        with {:ok, frame} <- BlockCollisions.prepare(blocks) do
+          PoseFit.select(current, intent, position, context, %{
+            blocks: frame,
+            block_entities: %{},
+            entities: [],
+            border: %BorderSnapshot{},
+            subject: subject
+          })
+        end
       end)
     end
   end

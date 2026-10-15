@@ -7,21 +7,30 @@ defmodule Valimc.Physics.CollisionQuery do
   @max_regions 16
   @max_batches 16
 
-  # Jobs spend part of their budget awaiting owner observations. BEAM schedules
-  # their pure geometry on available schedulers; waiting jobs need bounded room.
-  def worker_limit, do: max(System.schedulers_online() * 4, 1)
+  # Each player owns at most one job; allow its cancelled predecessor to retire.
+  # Owner observation waits yield to BEAM, whose schedulers bound CPU execution.
+  def worker_limit, do: Valimc.config(:max_players) * 2
 
   @doc "Start one query. Consume its Task result/monitor or cancel with Task.shutdown/2."
   def start(box, context \\ CollisionContext.empty()),
-    do: prepare(box, context, &BlockCollisions.collect(box, &1, context), false, false)
+    do:
+      prepare(box, context, &BlockCollisions.collect(box, &1, context), false, false)
+      |> launch_prepared()
 
   @doc "Run bounded geometry work on a sampled frame, then recheck every source revision."
   def start_frame(box, context, finish) when is_function(finish, 1),
-    do: prepare(box, context, finish, true, false)
+    do: prepare(box, context, finish, true, false) |> launch_prepared()
 
   @doc "Authoritative movement may request cold admission; a loading source still fails closed."
   def start_movement_frame(box, context, finish) when is_function(finish, 1),
+    do: prepare_movement_frame(box, context, finish) |> launch_prepared()
+
+  @doc "Prepare bounded geometry once; invoking the returned function resolves fresh owners and starts a job."
+  def prepare_movement_frame(box, context, finish) when is_function(finish, 1),
     do: prepare(box, context, finish, true, true)
+
+  defp launch_prepared({:ok, start}), do: start.()
+  defp launch_prepared(error), do: error
 
   defp prepare(box, context, finish, verify, admit) do
     with true <- CollisionContext.valid?(context),
@@ -40,7 +49,7 @@ defmodule Valimc.Physics.CollisionQuery do
          true <-
            Enum.sum(Enum.map(groups, fn {_, positions} -> div(length(positions) + 127, 128) end)) <=
              @max_batches do
-      launch(groups, finish, verify, admit)
+      {:ok, fn -> launch(groups, finish, verify, admit) end}
     else
       false -> {:error, :invalid_collision_query}
       {:error, _} = error -> error

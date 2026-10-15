@@ -324,4 +324,48 @@ defmodule Valimc.PlayerMotionConnectionTest do
       if Process.alive?(owner), do: :sys.resume(owner)
     end
   end
+
+  test "an authoritative mode change invalidates geometry prepared while admission waits", ctx do
+    {client, pid} = login(hd(ctx.names))
+    :ok = World.set_block({floor(ctx.pos.x) + 1, 64, floor(ctx.pos.z)}, 1)
+    wait(fn -> state(pid).pose_job == nil end)
+
+    holders =
+      for _ <- 1..Valimc.Physics.CollisionQuery.worker_limit() do
+        {:ok, holder} =
+          Task.Supervisor.start_child(Valimc.CollisionWorkers, fn ->
+            receive do
+              :stop -> :ok
+            end
+          end)
+
+        holder
+      end
+
+    try do
+      move(client, %{ctx.pos | x: ctx.pos.x + 0.5})
+      wait(fn -> state(pid).motion_pending && state(pid).motion_pending.prepared end)
+      # Model a server-owned transition; queued client input cannot change permissions.
+      :sys.replace_state(pid, fn s ->
+        %{
+          s
+          | player: %{
+              s.player
+              | game_mode: Valimc.GameMode.new(:spectator),
+                abilities: Valimc.PlayerAbilities.for_mode(:spectator)
+            },
+            inventory: %{s.inventory | infinite_materials: false}
+        }
+      end)
+
+      for holder <- holders, do: Task.Supervisor.terminate_child(Valimc.CollisionWorkers, holder)
+      wait(fn -> state(pid).player.x == ctx.pos.x + 0.5 end)
+      refute state(pid).teleport_pending
+      assert state(pid).player.game_mode.current == :spectator
+    after
+      for holder <- holders,
+          Process.alive?(holder),
+          do: Task.Supervisor.terminate_child(Valimc.CollisionWorkers, holder)
+    end
+  end
 end

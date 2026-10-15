@@ -127,16 +127,25 @@ try do
 
     expected_fences = Map.new(observations, &{&1.region, Map.take(&1, [:owner, :revision])})
 
-    case BlockCollisions.collect(box, observations, context, supplied_entities) do
-      {:ok, %{colliders: ^expected, fences: ^expected_fences}} ->
-        :ok
+    {:ok, frame} = BlockCollisions.prepare(observations, supplied_entities)
 
-      actual ->
-        raise "Native block collection differs at #{index}: #{inspect(c)} actual #{inspect(actual)}"
+    for actual <- [
+          BlockCollisions.collect(box, observations, context, supplied_entities),
+          BlockCollisions.collect_frame(box, frame, context)
+        ] do
+      case actual do
+        {:ok, %{colliders: ^expected, fences: ^expected_fences}} ->
+          :ok
+
+        actual ->
+          raise "Native block collection differs at #{index}: #{inspect(c)} actual #{inspect(actual)}"
+      end
     end
   end
 after
   for {_, {pid, _}} <- owners, do: send(pid, :stop)
 end
 
-IO.puts("PASS: #{length(cases)} native ordered collider cases and retained observation fences.")
+IO.puts(
+  "PASS: #{length(cases)} native ordered collider cases through raw/prepared samples, retaining fences."
+)

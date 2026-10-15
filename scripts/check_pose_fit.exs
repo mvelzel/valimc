@@ -1,4 +1,12 @@
-alias Valimc.Physics.{BlockScan, BorderSnapshot, CollisionContext, PlayerPose, PoseFit}
+alias Valimc.Physics.{
+  BlockCollisions,
+  BlockScan,
+  BorderSnapshot,
+  CollisionContext,
+  PlayerPose,
+  PoseFit
+}
+
 import Bitwise
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()
@@ -90,11 +98,25 @@ try do
          raise(
            "Native composed pose mismatch at #{index}: #{inspect(c)} actual #{inspect(result)}"
          )
+
+    {:ok, frame} = BlockCollisions.prepare(blocks)
+
+    {:ok, prepared} =
+      PoseFit.select(
+        String.to_existing_atom(c["current"]),
+        struct!(PlayerPose, intent),
+        position,
+        CollisionContext.empty(),
+        %{observations | blocks: frame}
+      )
+
+    if prepared != result,
+      do: raise("Native prepared pose mismatch at #{index}: #{inspect(prepared)}")
   end
 after
   for {_, {pid, _}} <- owners, do: send(pid, :stop)
 end
 
 IO.puts(
-  "PASS: #{length(cases)} native composed occupancy, ordered pose fits and retained fences."
+  "PASS: #{length(cases)} native raw/prepared occupancy, ordered pose fits and retained fences."
 )

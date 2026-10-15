@@ -289,4 +289,34 @@ defmodule Valimc.CollisionQueryTest do
     send(worker, :computed)
     assert await(replaced) == {:error, {:region, {-402, -402}, :region_unavailable}}
   end
+
+  test "prepared movement retains geometry plans, never owner incarnations or block facts", %{
+    origin: n
+  } do
+    key = {-401, -401}
+    pos = {n + 5, 64, n + 5}
+    box = {n + 5.2, 64, n + 5.2, n + 5.8, 65.8, n + 5.8}
+    context = CollisionContext.empty()
+
+    {:ok, start} =
+      CollisionQuery.prepare_movement_frame(
+        box,
+        context,
+        &Valimc.Physics.BlockCollisions.collect(box, &1, context)
+      )
+
+    :ok = World.set_block(pos, 1)
+    {:ok, task} = start.()
+    assert {:ok, first} = await(task)
+    assert [%{position: ^pos, state: 1}] = first.colliders
+    {:ok, {old, _}} = World.existing_owner(key)
+    :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, old)
+    {:ok, replacement} = World.owner(key)
+    refute elem(replacement, 0) == old
+    :ok = World.set_block(pos, 0)
+    {:ok, task} = start.()
+    assert {:ok, %{colliders: [], fences: fences}} = await(task)
+    assert fences[key].owner == replacement
+    assert first.fences[key].owner != replacement
+  end
 end

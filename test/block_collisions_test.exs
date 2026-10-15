@@ -180,4 +180,28 @@ defmodule Valimc.BlockCollisionsTest do
       VoxelOps.intersects?(%{VoxelOps.box({0, 0, 0, 0.5, 1, 1}) | full_block: true}, stone)
     end
   end
+
+  test "a validated sample reuses states and fences but resolves each dynamic context afresh" do
+    obs = observations(@box, %{{0, 0, 0} => 30519})
+    {:ok, frame} = BlockCollisions.prepare(obs)
+    empty = CollisionContext.empty()
+    falling = CollisionContext.entity(0.2) |> CollisionContext.with_entity(3.0, false, false)
+    assert {:ok, %{colliders: []}} = BlockCollisions.collect_frame(@box, frame, empty)
+
+    assert {:ok, %{colliders: [collider], fences: fences}} =
+             BlockCollisions.collect_frame(@box, frame, falling)
+
+    assert collider.shape.boxes == [{0.0, 0.0, 0.0, 1.0, 0.8999999761581421, 1.0}]
+    assert fences == Map.new(obs, &{&1.region, Map.take(&1, [:owner, :revision])})
+    assert {:ok, %{colliders: []}} = BlockCollisions.collect_frame(@box, frame, empty)
+
+    assert BlockCollisions.collect_frame(@box, frame, falling) ==
+             BlockCollisions.collect(@box, obs, falling)
+
+    assert {:error, {:missing_block, _}} =
+             BlockCollisions.collect_frame(Box.move(@box, {4, 0, 0}), frame, empty)
+
+    assert {:error, :invalid_context} = BlockCollisions.collect_frame(@box, frame, :bad)
+    assert {:error, :invalid_block_frame} = BlockCollisions.collect_frame(@box, nil, empty)
+  end
 end

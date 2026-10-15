@@ -1304,7 +1304,8 @@ defmodule Valimc.Connection do
           position: Map.take(changes, [:x, :y, :z]),
           deadline: System.monotonic_time(:millisecond) + 250,
           token: make_ref(),
-          retry: nil
+          retry: nil,
+          prepared: nil
         }
 
         state
@@ -1341,7 +1342,34 @@ defmodule Valimc.Connection do
     if remaining <= 0 do
       correct_motion(state, :movement_admission_timeout_corrections)
     else
-      case PlayerMotionQuery.start(state.player, input.position) do
+      signature = motion_signature(state)
+
+      prepared =
+        case input.prepared do
+          %{signature: ^signature, start: start} -> {:ok, start}
+          _ -> PlayerMotionQuery.prepare(state.player, input.position)
+        end
+
+      case prepared do
+        {:ok, start} ->
+          input = %{input | prepared: %{signature: signature, start: start}}
+          admit_motion(%{state | motion_pending: input}, input, signature, start)
+
+        {:error, _} ->
+          correct_motion(state, :movement_geometry_corrections)
+      end
+    end
+  end
+
+  defp start_motion(state), do: state
+
+  defp admit_motion(state, input, signature, start) do
+    remaining = input.deadline - System.monotonic_time(:millisecond)
+
+    if remaining <= 0 do
+      correct_motion(state, :movement_admission_timeout_corrections)
+    else
+      case start.() do
         {:ok, task} ->
           if input.retry, do: Process.cancel_timer(input.retry)
           Metrics.add(:movement_jobs_started)
@@ -1355,7 +1383,7 @@ defmodule Valimc.Connection do
                 task: task,
                 timer: timer,
                 input: input,
-                signature: motion_signature(state)
+                signature: signature
               }
           }
 
@@ -1375,8 +1403,6 @@ defmodule Valimc.Connection do
       end
     end
   end
-
-  defp start_motion(state), do: state
 
   defp cancel_pose_job(state) do
     if state.pose_job do

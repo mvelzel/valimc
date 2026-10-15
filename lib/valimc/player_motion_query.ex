@@ -19,6 +19,10 @@ defmodule Valimc.PlayerMotionQuery do
   @support 0.001
 
   def start(player, target) do
+    with {:ok, start} <- prepare(player, target), do: start.()
+  end
+
+  def prepare(player, target) do
     position = point(player)
     requested = subtract(point(target), position)
     context = context(player, player.y)
@@ -32,7 +36,7 @@ defmodule Valimc.PlayerMotionQuery do
         |> Box.expand_towards({0, 0.6, 0})
         |> Box.expand_towards({0, -@support, 0})
 
-      CollisionQuery.start_movement_frame(query, context, &resolve(player, target, &1))
+      CollisionQuery.prepare_movement_frame(query, context, &resolve(player, target, &1))
     else
       false -> {:error, :movement_query_limit}
       error -> error
@@ -40,6 +44,10 @@ defmodule Valimc.PlayerMotionQuery do
   end
 
   defp resolve(player, target, blocks) do
+    with {:ok, frame} <- BlockCollisions.prepare(blocks), do: resolve_frame(player, target, frame)
+  end
+
+  defp resolve_frame(player, target, blocks) do
     position = point(player)
     destination = point(target)
     requested = subtract(destination, position)
@@ -92,7 +100,7 @@ defmodule Valimc.PlayerMotionQuery do
          accepted: not rejected,
          pose: after_move.pose,
          moved: moved,
-         fences: Map.new(blocks, &{&1.region, %{owner: &1.owner, revision: &1.revision}})
+         fences: blocks.fences
        }}
     end
   end
@@ -122,7 +130,7 @@ defmodule Valimc.PlayerMotionQuery do
   end
 
   defp shapes(box, blocks, context, {x, _, z}) do
-    with {:ok, result} <- BlockCollisions.collect(box, blocks, context),
+    with {:ok, result} <- BlockCollisions.collect_frame(box, blocks, context),
          {:ok, border} <- BorderSnapshot.colliders(%BorderSnapshot{}, {x, z}, box) do
       {:ok, Enum.map(result.colliders, & &1.shape) ++ border}
     end

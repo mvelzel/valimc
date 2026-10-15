@@ -6,6 +6,11 @@ PACKETS = json.loads((ROOT / 'priv/protocol/packets.json').read_text())
 NAMES = {phase:{v['protocol_id']:k[10:] for k,v in directions.get('clientbound',{}).items()} for phase,directions in PACKETS.items()}
 def packet_id(phase, direction, name):
     return PACKETS[phase][direction]['minecraft:' + name]['protocol_id']
+def implementation_hash():
+    digest=hashlib.sha256()
+    files=sorted(list((ROOT/'lib').rglob('*.ex'))+list((ROOT/'config').glob('*.exs'))+list((ROOT/'priv').rglob('*.json')))
+    for path in files: digest.update(str(path.relative_to(ROOT)).encode()+b'\0'+path.read_bytes())
+    return digest.hexdigest()
 def vi(n):
     n &= 0xffffffff
     out = bytearray()
@@ -98,6 +103,7 @@ class Client:
         await self.writer.wait_closed()
 
 async def benchmark(port,metrics,args):
+    fingerprint_before=implementation_hash()
     before=json.loads(metrics.read_text())
     semaphore=asyncio.Semaphore(16)
     async def join(i):
@@ -127,11 +133,10 @@ async def benchmark(port,metrics,args):
             await asyncio.sleep(.02)
             after=json.loads(metrics.read_text())
         latencies=sorted(c.login_ms for c in clients)
-        digest=hashlib.sha256()
-        files=sorted(list((ROOT/'lib').rglob('*.ex'))+list((ROOT/'config').glob('*.exs'))+list((ROOT/'priv').rglob('*.json')))
-        for path in files: digest.update(str(path.relative_to(ROOT)).encode()+b'\0'+path.read_bytes())
+        fingerprint_after=implementation_hash()
         result={'measured_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                'platform':platform.platform(),'implementation_sha256':digest.hexdigest(),
+                'platform':platform.platform(),'implementation_sha256':fingerprint_after,
+                'stable_implementation':fingerprint_before==fingerprint_after,
                 'elixir':'1.20.4','erlang_otp':'29.1.1','minecraft':'26.3','view_distance':1,
                 'scenario':'spread' if args.scatter else 'dense','clients':len(clients),
                 'disconnected':sum(c.error is not None for c in clients),'movement_packets_sent':moves,
@@ -151,6 +156,7 @@ async def benchmark(port,metrics,args):
         if args.output:
             path=pathlib.Path(args.output);path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(result,indent=2)+'\n')
         if result['disconnected']: raise RuntimeError('Load disconnected clients')
+        if not result['stable_implementation']: raise RuntimeError('Source changed during benchmark')
         if result['movement_corrections'] or not result['final_positions_verified']:
             raise RuntimeError('Movement was corrected or failed authoritative reconciliation')
     finally:
