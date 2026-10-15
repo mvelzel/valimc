@@ -68,3 +68,4 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-011a2](../tickets/VMC-011a2.md) | Client-tick position admission |
 | [VMC-011a3](../tickets/VMC-011a3.md) | Owner-fenced block batches/shared section updates |
 | [VMC-011a4](../tickets/VMC-011a4.md) | Resource data/lifecycle separation; topology still pending |
+| [VMC-011a5](../tickets/VMC-011a5.md) | Cold-load/file-I/O isolation; actual client responsive during stall |
