@@ -8,24 +8,64 @@ defmodule Valimc.PlayerTransfers do
   @doc "Pins a disconnected cleanup batch; callers must commit it before any delivery."
   def plan_disconnect(%{pose: pose, inventory: inventory} = snapshot) do
     with {:ok, next, stacks} <- Inventory.disconnect(inventory) do
-      records =
-        Enum.map(stacks, fn stack ->
-          %{
-            uuid: :crypto.strong_rand_bytes(16),
-            x: pose.x,
-            y: pose.y + 1.3199999928474426,
-            z: pose.z,
-            stack: stack
-          }
-        end)
-
-      key = World.region_key(World.chunk_key(pose.x, pose.z))
-      {:ok, %{snapshot | inventory: next}, key, records}
+      drop_plan(snapshot, pose, next, stacks)
     end
   end
 
-  def prepare(uuid, sequence, before, after_snapshot, key, records)
-      when is_integer(sequence) and sequence >= 0 and sequence < @max_sequence do
+  def plan_cleanup(%{health: %{value: health}} = snapshot) when health <= 0,
+    do: plan_death(snapshot)
+
+  def plan_cleanup(snapshot), do: plan_disconnect(snapshot)
+
+  def plan_death(%{pose: pose, inventory: inventory, health: %{value: health}} = snapshot)
+      when health <= 0 do
+    with {:ok, next, stacks, _destroyed} <- Inventory.death_batch(inventory),
+         do: drop_plan(snapshot, pose, next, stacks)
+  end
+
+  def plan_death(_), do: {:error, :player_not_dead}
+
+  defp drop_plan(snapshot, pose, next, stacks) do
+    records =
+      Enum.map(stacks, fn stack ->
+        %{
+          uuid: :crypto.strong_rand_bytes(16),
+          x: pose.x,
+          y: pose.y + 1.3199999928474426,
+          z: pose.z,
+          stack: stack
+        }
+      end)
+
+    key = World.region_key(World.chunk_key(pose.x, pose.z))
+    {:ok, %{snapshot | inventory: next}, key, records}
+  end
+
+  def prepare(uuid, sequence, before, after_snapshot, key, records),
+    do: prepare_conserved(uuid, sequence, before, after_snapshot, key, records, [])
+
+  def prepare_death(
+        uuid,
+        sequence,
+        %{health: %{value: health}} = before,
+        after_snapshot,
+        key,
+        records
+      )
+      when health <= 0 do
+    with {:ok, inventory, stacks, destroyed} <- Inventory.death_batch(before.inventory),
+         true <- strip_journal(after_snapshot) == %{strip_journal(before) | inventory: inventory},
+         true <- is_list(records) and Enum.map(records, & &1.stack) == stacks,
+         do: prepare_conserved(uuid, sequence, before, after_snapshot, key, records, destroyed),
+         else: (_ -> {:error, :invalid_death_plan})
+  rescue
+    _ -> {:error, :invalid_death_plan}
+  end
+
+  def prepare_death(_, _, _, _, _, _), do: {:error, :player_not_dead}
+
+  defp prepare_conserved(uuid, sequence, before, after_snapshot, key, records, destroyed)
+       when is_integer(sequence) and sequence >= 0 and sequence < @max_sequence do
     with {:ok, _} <- PlayerSnapshot.encode(uuid, strip_journal(before)),
          {:ok, _} <- PlayerSnapshot.encode(uuid, strip_journal(after_snapshot)),
          {:ok, _, _} <-
@@ -36,7 +76,7 @@ defmodule Valimc.PlayerTransfers do
            }),
          true <-
            totals(owned(before.inventory)) ==
-             totals(owned(after_snapshot.inventory) ++ Enum.map(records, & &1.stack)) do
+             totals(owned(after_snapshot.inventory) ++ Enum.map(records, & &1.stack) ++ destroyed) do
       {:ok,
        after_snapshot
        |> strip_journal()
@@ -52,7 +92,7 @@ defmodule Valimc.PlayerTransfers do
     _ -> {:error, :invalid_transfer_plan}
   end
 
-  def prepare(_, _, _, _, _, _), do: {:error, :transfer_sequence_exhausted}
+  defp prepare_conserved(_, _, _, _, _, _, _), do: {:error, :transfer_sequence_exhausted}
 
   @doc "Creates one new record without consuming inventory; permission comes from its trusted owner."
   def prepare_creative_drop(uuid, sequence, snapshot, key, record)

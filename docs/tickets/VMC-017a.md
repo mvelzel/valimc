@@ -20,7 +20,7 @@ Client gate: survival falls below/at/above the threshold, visible health loss,
 protected water/web/slime/honey landing, creative flight immunity, damaged
 reconnect, fatal landing/death UI and respawn. Verify inventory consistency and
 repeat damage/cooldown negatives. Helpers alone do not complete this ticket.
-Next: death/respawn lifecycle, then fenced landing damage and its full client gate.
+Next: [death/respawn lifecycle](VMC-017a1.md), then fenced landing damage and its full client gate.
 
 Calculation checkpoint: original `Physics.FallDamage` matches 2,600 actual native
 `calculateFallDamage` cases, including epsilon/floor thresholds, float32 material

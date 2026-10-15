@@ -48,6 +48,13 @@ defmodule Valimc.PlayerStore do
   def prepare_transfer(pid, fence, before, after_snapshot, key, records, ref),
     do: GenServer.cast(pid, {:prepare, self(), fence, before, after_snapshot, key, records, ref})
 
+  def prepare_death(pid, fence, before, after_snapshot, key, records, ref),
+    do:
+      GenServer.cast(
+        pid,
+        {:prepare_death, self(), fence, before, after_snapshot, key, records, ref}
+      )
+
   # This is a trusted leased-owner operation, never a client-provided privilege.
   def prepare_creative_drop(pid, fence, snapshot, key, record, ref),
     do: GenServer.cast(pid, {:prepare_creative_drop, self(), fence, snapshot, key, record, ref})
@@ -204,6 +211,22 @@ defmodule Valimc.PlayerStore do
   end
 
   def handle_cast(
+        {:prepare_death, owner, fence, before, after_snapshot, key, records, ref},
+        %{owner: owner} = state
+      ) do
+    prepare_plan(state, fence, ref, fn ->
+      PlayerTransfers.prepare_death(
+        state.uuid,
+        sequence(state),
+        before,
+        after_snapshot,
+        key,
+        records
+      )
+    end)
+  end
+
+  def handle_cast(
         {:prepare_creative_drop, owner, fence, snapshot, key, record, ref},
         %{owner: owner} = state
       ) do
@@ -302,13 +325,18 @@ defmodule Valimc.PlayerStore do
     if pending?(state) do
       {:ok, start_closing(state)}
     else
-      with {:ok, after_snapshot, key, records} <- PlayerTransfers.plan_disconnect(state.snapshot) do
+      with {:ok, after_snapshot, key, records} <- PlayerTransfers.plan_cleanup(state.snapshot) do
         if records == [] do
-          {:ok, %{state | snapshot: after_snapshot}}
+          with :ok <- save(state, after_snapshot), do: {:ok, %{state | snapshot: after_snapshot}}
         else
+          prepare =
+            if match?(%{health: %{value: health}} when health <= 0, state.snapshot),
+              do: &PlayerTransfers.prepare_death/6,
+              else: &PlayerTransfers.prepare/6
+
           with :ok <- source_guard(state, state.fence),
                {:ok, next} <-
-                 PlayerTransfers.prepare(
+                 prepare.(
                    state.uuid,
                    sequence(state),
                    state.snapshot,

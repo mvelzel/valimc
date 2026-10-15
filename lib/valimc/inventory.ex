@@ -59,6 +59,48 @@ defmodule Valimc.Inventory do
     with {:ok, next} <- finish(%{next | carried: nil}), do: {:ok, next, drops}
   end
 
+  @death_slots Enum.to_list(36..44) ++
+                 Enum.to_list(9..35) ++ [45, 8, 7, 6, 5, :carried, 1, 2, 3, 4]
+  @doc "Plan at most five death drops; native equipment-drop prevention excludes cursor/grid items."
+  def death_batch(%__MODULE__{} = inventory) do
+    {next, destroyed} =
+      Enum.reduce(5..45, {cancel_drag(inventory), []}, fn slot, {next, destroyed} ->
+        case get(next, slot) do
+          %ItemStack{components: components} = stack ->
+            if Map.has_key?(
+                 Map.get(components, "minecraft:enchantments", %{}),
+                 "minecraft:vanishing_curse"
+               ),
+               do: {put(next, slot, nil), [stack | destroyed]},
+               else: {next, destroyed}
+
+          _ ->
+            {next, destroyed}
+        end
+      end)
+
+    drops =
+      @death_slots
+      |> Enum.map(fn slot ->
+        {slot, if(slot == :carried, do: next.carried, else: get(next, slot))}
+      end)
+      |> Enum.reject(fn {_, stack} -> stack == nil end)
+      |> Enum.take(5)
+
+    next =
+      Enum.reduce(drops, next, fn
+        {:carried, _}, next -> %{next | carried: nil}
+        {slot, _}, next -> put(next, slot, nil)
+      end)
+
+    if drops == [] and destroyed == [] do
+      {:ok, next, [], []}
+    else
+      with {:ok, next} <- finish(next),
+           do: {:ok, next, Enum.map(drops, &elem(&1, 1)), Enum.reverse(destroyed)}
+    end
+  end
+
   defp return_stack(inventory, nil), do: {inventory, nil}
 
   defp return_stack(inventory, stack) do
