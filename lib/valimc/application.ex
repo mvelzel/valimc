@@ -23,6 +23,7 @@ defmodule Valimc.Application do
        name: Valimc.ChunkWorkers, max_children: max(System.schedulers_online(), 1)},
       {Task.Supervisor,
        name: Valimc.ItemWorkers, max_children: max(System.schedulers_online(), 1)},
+      {Valimc.World.Directory, []},
       {Registry, keys: :unique, name: Valimc.RegionStoreRegistry},
       {DynamicSupervisor,
        strategy: :one_for_one,

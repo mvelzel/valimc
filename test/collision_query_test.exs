@@ -31,7 +31,30 @@ defmodule Valimc.CollisionQueryTest do
       end)
 
     assert_receive {:ready, ^pid}
-    on_exit(fn -> Process.exit(pid, :kill) end)
+    # Private observation fixture, installed by the directory's ETS owner. This
+    # intentionally supplies fake query responses, not gameplay authority.
+    :sys.replace_state(Valimc.World.Directory, fn state ->
+      :ets.insert(
+        Valimc.RegionRoutes,
+        {key, pid, make_ref(), make_ref(), %{epoch: epoch, items: nil}}
+      )
+
+      state
+    end)
+
+    on_exit(fn ->
+      :sys.replace_state(Valimc.World.Directory, fn state ->
+        case :ets.lookup(Valimc.RegionRoutes, key) do
+          [{^key, ^pid, _, _, _}] -> :ets.delete(Valimc.RegionRoutes, key)
+          _ -> :ok
+        end
+
+        state
+      end)
+
+      Process.exit(pid, :kill)
+    end)
+
     {pid, epoch}
   end
 

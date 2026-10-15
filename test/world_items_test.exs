@@ -104,7 +104,7 @@ defmodule Valimc.WorldItemsTest do
     {:ok, {^pid, ^epoch, id, 1} = handle} =
       Region.create_item(owner, ItemStack.new("stone"), {28160, 64, 28160})
 
-    [{^pid, %{items: table}}] = Registry.lookup(Valimc.RegionRegistry, key)
+    {^pid, _, %{items: table}} = Valimc.World.Directory.lookup(key)
     assert_raise ArgumentError, fn -> :ets.insert(table, {:items, %{}}) end
     :sys.suspend(pid)
 

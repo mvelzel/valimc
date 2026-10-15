@@ -3,14 +3,16 @@ defmodule Valimc.World.Region do
   @moduledoc "Simulation lifecycle owner; storage resources remain separate from its tick state."
   alias Valimc.World.{BlockBatch, RegionData, TickClock}
 
-  def start_link(key),
+  def start_link({key, token}),
     do:
-      GenServer.start_link(__MODULE__, key, name: {:via, Registry, {Valimc.RegionRegistry, key}})
+      GenServer.start_link(__MODULE__, {key, token},
+        name: {:via, Registry, {Valimc.RegionRegistry, key}}
+      )
 
-  def child_spec(key),
+  def child_spec({key, token}),
     do: %{
       id: {__MODULE__, key},
-      start: {__MODULE__, :start_link, [key]},
+      start: {__MODULE__, :start_link, [{key, token}]},
       restart: :temporary,
       shutdown: 20_000
     }
@@ -66,22 +68,27 @@ defmodule Valimc.World.Region do
     do: GenServer.call(pid, {:item_transfer_receipt, epoch, source}, 2000)
 
   @impl true
-  def init(key) do
+  def init({key, token}) do
     Process.flag(:trap_exit, true)
-    {:ok, %{key: key, resource: nil}, {:continue, :load}}
+    {:ok, %{key: key, admission: token, resource: nil}, {:continue, :load}}
   end
 
   @impl true
-  def handle_continue(:load, %{key: key}) do
+  def handle_continue(:load, %{key: key, admission: token}) do
     resource = RegionData.load(key)
 
-    Registry.update_value(Valimc.RegionRegistry, key, fn _ ->
-      %{items: resource.item_publication, epoch: resource.items.epoch}
-    end)
+    case Valimc.World.Directory.publish(key, token, %{
+           items: resource.item_publication,
+           epoch: resource.items.epoch
+         }) do
+      :ok ->
+        clock = TickClock.new(resource.items.epoch, System.monotonic_time(:millisecond))
+        timer = Process.send_after(self(), {:tick, clock.token}, 50)
+        {:noreply, %{resource: resource, tick_clock: clock, tick_timer: timer}}
 
-    clock = TickClock.new(resource.items.epoch, System.monotonic_time(:millisecond))
-    timer = Process.send_after(self(), {:tick, clock.token}, 50)
-    {:noreply, %{resource: resource, tick_clock: clock, tick_timer: timer}}
+      {:error, reason} ->
+        {:stop, reason, %{resource: resource}}
+    end
   end
 
   @impl true

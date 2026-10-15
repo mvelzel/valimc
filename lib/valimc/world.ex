@@ -1,6 +1,6 @@
 defmodule Valimc.World do
   @moduledoc "Region ownership and spatial topics. There is no global world mutation process."
-  alias Valimc.World.Region
+  alias Valimc.World.Directory
   def chunk_key(x, z), do: {Integer.floor_div(floor(x), 16), Integer.floor_div(floor(z), 16)}
 
   def region_key({cx, cz}) do
@@ -12,31 +12,27 @@ defmodule Valimc.World do
   defp region(_key, 0), do: {:error, :region_restarting}
 
   defp region(key, attempts) do
-    case Registry.lookup(Valimc.RegionRegistry, key) do
-      [{pid, _}] ->
+    case Directory.lookup(key) do
+      {pid, _, _} ->
         if Process.alive?(pid) do
           {:ok, pid}
         else
-          Process.sleep(1)
-          region(key, attempts - 1)
+          admit_region(key, attempts)
         end
 
-      [] ->
-        case DynamicSupervisor.start_child(Valimc.RegionSupervisor, {Region, key}) do
-          {:ok, pid} ->
-            {:ok, pid}
+      nil ->
+        admit_region(key, attempts)
+    end
+  end
 
-          {:error, {:already_started, pid}} ->
-            if Process.alive?(pid) do
-              {:ok, pid}
-            else
-              Process.sleep(1)
-              region(key, attempts - 1)
-            end
+  defp admit_region(key, attempts) do
+    case Directory.admit(key) do
+      {:error, :region_restarting} ->
+        Process.sleep(1)
+        region(key, attempts - 1)
 
-          error ->
-            error
-        end
+      result ->
+        result
     end
   end
 
@@ -59,8 +55,8 @@ defmodule Valimc.World do
 
   @doc "Find an existing incarnation without loading or starting a region."
   def existing_owner(key) do
-    case Registry.lookup(Valimc.RegionRegistry, key) do
-      [{pid, %{epoch: epoch}}] ->
+    case Directory.lookup(key) do
+      {pid, _, %{epoch: epoch}} ->
         if Process.alive?(pid), do: {:ok, {pid, epoch}}, else: {:error, :region_unavailable}
 
       _ ->
@@ -70,9 +66,9 @@ defmodule Valimc.World do
 
   def owner(key) do
     with {:ok, pid} <- region(key) do
-      case Registry.lookup(Valimc.RegionRegistry, key) do
-        [{^pid, %{epoch: epoch}}] -> {:ok, {pid, epoch}}
-        [{^pid, _}] -> GenServer.call(pid, :owner)
+      case Directory.lookup(key) do
+        {^pid, _, %{epoch: epoch}} -> {:ok, {pid, epoch}}
+        {^pid, _, :loading} -> GenServer.call(pid, :owner)
         _ -> {:error, :region_restarting}
       end
     else
@@ -85,8 +81,8 @@ defmodule Valimc.World do
 
   # Publication reads never allocate regions, enqueue messages or confer authority.
   def item_snapshot(key) do
-    case Registry.lookup(Valimc.RegionRegistry, key) do
-      [{_, %{items: table}}] ->
+    case Directory.lookup(key) do
+      {_, _, %{items: table}} ->
         case :ets.lookup(table, :items) do
           [{:items, views}] -> views
           [] -> %{}
