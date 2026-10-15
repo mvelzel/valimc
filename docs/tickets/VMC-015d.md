@@ -32,6 +32,17 @@ Evidence: `.local/fluid-{blocks,contact}-{native,check,tests}.log` and native ca
 No live fluid travel/current/eye-camera parity is claimed; those and the client
 scenarios remain open.
 
+Post-collision kernel checkpoint: `FluidMotion` keeps water/shallow-lava/deep-lava
+drag and gravity distinct, including sprint, water efficiency, Dolphin's Grace,
+climbing and the native bounded surface-escape query. The caller must resolve
+that query against collision/fluid observations before applying the escape boost.
+Four affected tests pass. `FluidTravelOracle` invokes actual `Player.travel` with
+supplied contact/post-collision vectors and zero relative input: all 2,736 cases
+and three 200-step water/lava transitions match bit-for-bit, including remote-Y
+arithmetic. Logs/cases: `.local/fluid-travel-{native,check,tests}.log`. Current,
+input/swim forces and live composition remain open; this is not a full physics
+or world-collision oracle. Both new native probes are in the integration runner.
+
 Client gate: actual water/lava entry/exit, shallow/deep and waterlogged boundaries,
 swim/sink, wall/surface escape, flight, saved velocity and dry impulse regression.
 Damage/oxygen, effects/complete swimming attributes and propagation need explicit
