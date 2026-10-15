@@ -12,6 +12,12 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     fall_damage = str(pathlib.Path(world) / 'fall-damage.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'FallDamageOracle', fall_damage], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_fall_damage.exs', fall_damage], cwd=root, check=True)
+    landing_blocks = str(pathlib.Path(world) / 'landing-blocks.json')
+    landing_cases = str(pathlib.Path(world) / 'landing-cases.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'LandingOracle', landing_blocks, landing_cases], cwd=root, check=True)
+    if json.loads(pathlib.Path(landing_blocks).read_text()) != json.loads((root/'priv/physics/landing_blocks.json').read_text()):
+        raise RuntimeError('Pinned landing damage facts differ')
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_landing.exs', landing_cases], cwd=root, check=True)
     health_cases = str(pathlib.Path(world) / 'player-health.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'PlayerHealthOracle', health_cases], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_player_health.exs', health_cases], cwd=root, check=True)

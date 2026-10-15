@@ -3,7 +3,8 @@ defmodule Valimc.Physics.FallDamage do
   defstruct safe_distance: 3.0, attribute_multiplier: 1.0, immune: false
 
   def calculate(distance, material, %__MODULE__{} = facts) do
-    if bounded?(distance, 0, 60_000_000) and bounded?(material, 0, 4) and
+    # Native pointed dripstone adds 2.5 before calculating a bounded owner fall.
+    if bounded?(distance, 0, 60_000_003) and bounded?(material, 0, 4) and
          bounded?(facts.safe_distance, -1024, 1024) and
          bounded?(facts.attribute_multiplier, 0, 100) and is_boolean(facts.immune) do
       <<rounded::float-32>> = <<material::float-32>>

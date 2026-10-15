@@ -55,7 +55,8 @@ indexes validated tickets. None imply full parity.
    validated (`18028cd`): 75 affected tests and actual hearts/inventory/reconnect.
    [Death/respawn](tickets/VMC-017a1.md) owner composition passes 92 affected tests
    and native codecs locally; its actual death/respawn/reconnect gate is next.
-   Automatic landing damage remains unwired.
+   [Automatic landing damage](tickets/VMC-017a2.md) is next; native material
+   rules match 71,530 cases across all states and live landing damage remains unwired.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
