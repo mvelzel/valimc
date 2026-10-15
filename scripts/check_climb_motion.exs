@@ -36,6 +36,7 @@ for c <- cases do
     {:ok, body} = PlayerPose.geometry(pose, point)
 
     player = %{
+      game_mode: Valimc.GameMode.new(:creative),
       motion: %Valimc.PlayerMotion{velocity: List.to_tuple(c["initial"])},
       input: %Valimc.PlayerInput{}
     }

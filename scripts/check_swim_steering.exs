@@ -23,6 +23,7 @@ for c <- cases do
     do: raise("Native swim steering mismatch #{inspect(c)} #{inspect(actual)}")
 
   player = %{
+    game_mode: Valimc.GameMode.new(:creative),
     motion: %Valimc.PlayerMotion{velocity: List.to_tuple(c["initial"]), swimming: c["swimming"]},
     input: %Valimc.PlayerInput{shared_flags: 8}
   }

@@ -34,7 +34,14 @@ check = fn c ->
   # live acquired frame contains every collision candidate for these fixtures.
   if abs(c["old_y"]) <= 1_000_000 do
     {:ok, geometry} = PlayerPose.geometry(:standing, {0.5, c["old_y"], 0.5})
-    player = %{motion: %PlayerMotion{velocity: initial}, input: %PlayerInput{}, yaw: 0.0}
+
+    player = %{
+      motion: %PlayerMotion{velocity: initial},
+      input: %PlayerInput{},
+      yaw: 0.0,
+      game_mode: Valimc.GameMode.new(:creative)
+    }
+
     {:ok, envelope} = PlayerKinetics.query_box(geometry.box, player)
     {:ok, acquired} = BlockScan.plan(envelope, CollisionQuery.frame_cell_limit())
     positions = MapSet.new(acquired, &elem(&1, 0))
