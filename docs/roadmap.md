@@ -51,6 +51,9 @@ indexes validated tickets. None imply full parity.
    [Sneaking at edges](tickets/VMC-015h.md)'s live composition passes affected
    tests and native query/frame traces; its frozen client gate is next.
    Effects/survival consequences remain open.
+   [Owned health/fall damage](tickets/VMC-017a.md) begins the survival consequence
+   path while graphical access is unavailable; fatal lifecycle is required before
+   publishing live damage.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
@@ -69,7 +72,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
-| [VMC-015h](tickets/VMC-015h.md) | Actual Shift ledges/corners/slab and exclusions | Local live checkpoint; freeze next |
+| [VMC-015h](tickets/VMC-015h.md) | Actual Shift ledges/corners/slab and exclusions; CUA locked | `6ca22ef`, `.local/sneak-live-checkpoint` |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection
