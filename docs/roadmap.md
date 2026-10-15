@@ -63,6 +63,7 @@ indexes validated tickets. None imply full parity.
    eligibility/protection/codecs; its graphical gate is pending.
    [Air supply/drowning](tickets/VMC-017b2.md) passes 94 affected tests and native
    air/equipment/protection/codecs; actual-client validation remains pending.
+   [Void damage](tickets/VMC-017b3.md) is the next independent slice.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
