@@ -42,6 +42,17 @@ overflow. Logs `.local/food-stack-identity-{native,check}.log`,
 `.local/item-food-affected-tests.log`, `.local/item-meal-{native,check}.log`.
 This foundation does not start eating or complete the graphical gate.
 
+Active-use foundation: 30 native request codecs, 28 living-flag codecs, four
+completion-event codecs and 32 actual `LivingEntity.updatingUsingItem` prefixes
+match the bounded request decoder and transient owner timer. The native probe
+controls completion/stop callbacks and excludes world effects. Same item type
+refreshes the active stack even if count/components change. A changed main-hand
+selection and hand swap explicitly stop use; off-hand use survives selection.
+Native stop clears the active bit but retains the off-hand bit. Four affected
+tests pass. Evidence `.local/item-use-{native,check,verify,tests}.log`; source
+`LivingEntity.startUsingItem/stopUsingItem`, `ServerPlayer.completeUsingItem`,
+`ServerGamePacketListenerImpl.handleSetCarriedItem/handlePlayerAction`.
+
 Client scenario: eat from both hands; visible use animation, stack reduction and
 food recovery; full-food negative and always-edible positive; interrupt mid-use,
 change held stack, reconnect and test a container remainder with a full inventory.

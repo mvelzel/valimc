@@ -69,6 +69,7 @@ defmodule Valimc.Protocol.EntityPackets do
   defp metadata_value({name, value})
        when name in [
               :shared_flags,
+              :living_flags,
               :no_gravity,
               :item_stack,
               :pose,
@@ -80,7 +81,7 @@ defmodule Valimc.Protocol.EntityPackets do
 
     payload =
       case name do
-        :shared_flags ->
+        name when name in [:shared_flags, :living_flags] ->
           check(is_integer(value) and value in 0..255, "invalid shared flags")
           <<value>>
 

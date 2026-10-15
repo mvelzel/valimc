@@ -16,6 +16,10 @@
       "index": 8,
       "serializer": 7
     },
+    "living_flags": {
+      "index": 8,
+      "serializer": 0
+    },
     "no_gravity": {
       "index": 5,
       "serializer": 8

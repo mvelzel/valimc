@@ -42,6 +42,7 @@ public class EntityMetadata {
     fields.put("pose", accessor(Entity.class, "DATA_POSE"));
     fields.put("frozen_ticks", accessor(Entity.class, "DATA_TICKS_FROZEN"));
     fields.put("health", accessor(LivingEntity.class, "DATA_HEALTH_ID"));
+    fields.put("living_flags", accessor(LivingEntity.class, "DATA_LIVING_ENTITY_FLAGS"));
     var facts = new TreeMap<String,Object>();
     facts.put("version", "26.3"); facts.put("protocol", 777);
     facts.put("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");

@@ -187,6 +187,11 @@ defmodule Valimc.Protocol.Packets do
     packet("entity_event", <<entity_id::signed-32, 3>>)
   end
 
+  def use_item_finished(entity_id) do
+    life_entity_id!(entity_id)
+    packet("entity_event", <<entity_id::signed-32, 9>>)
+  end
+
   defp life_entity_id!(entity_id) do
     unless is_integer(entity_id) and entity_id in 1..2_147_483_647,
       do: raise(ArgumentError, "invalid entity ID")
@@ -287,6 +292,9 @@ defmodule Valimc.Protocol.Packets do
 
   def player_health(player),
     do: EntityPackets.metadata(player.entity_id, health: player_health_value(player))
+
+  def player_use(player),
+    do: EntityPackets.metadata(player.entity_id, living_flags: Map.get(player, :use_flags, 0))
 
   defp player_health_value(player), do: Map.get(player, :health, %Valimc.PlayerHealth{}).value
 
