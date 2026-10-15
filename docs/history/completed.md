@@ -5,6 +5,8 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-017a3](../tickets/VMC-017a3.md) | `0b2ad043`: actual fall enchantments, negatives, cap and reconnect; reviewed October16 |
+| [VMC-017b1](../tickets/VMC-017b1.md) | `0b2ad043`: actual periodic freezing, defenses, immunity, reconnect and fatal respawn; reviewed October16 |
 | [Compatibility policy](../../AGENTS.md) | Done October 15, 2026; `4c449d9`: vanilla gameplay/client interoperability, BEAM-native internals |
 | [VMC-001](../tickets/VMC-001.md) | 4f948be |
 | [VMC-002](../tickets/VMC-002.md) | b5a2c72 |

@@ -59,9 +59,10 @@ indexes validated tickets. None imply full parity.
    71,530 native material cases and native support/codecs. Actual client checks
    exposed a premature bed-bounce impulse; a69-test/native-verified fix awaits retest.
    [Fall enchantment defenses](tickets/VMC-017a3.md) pass 41 affected tests and
-   20,800 native cases; actual geared falls/reconnect remain pending.
+   20,800 native cases; actual geared falls, negatives and reconnect passed (`0b2ad043`).
    [Freezing damage](tickets/VMC-017b1.md) passes 75 affected tests and native
-   eligibility/protection/codecs; its graphical gate is pending.
+   eligibility/protection/codecs; actual exposure, defenses, reconnect and fatal
+   respawn are validated and complete within scope (`0b2ad043`).
    [Air supply/drowning](tickets/VMC-017b2.md) passes 94 affected tests and native
    air/equipment/protection/codecs, 700 full tests, full native TCP/build and matched
    preview loads; actual-client validation remains pending.
@@ -103,9 +104,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
-| [VMC-017a2](tickets/VMC-017a2.md) | Actual survival falls/materials, damaged reconnect and fatal landing/respawn | Frozen `0b2ad043` |
-| [VMC-017a3](tickets/VMC-017a3.md) | Actual worn protection, hand/stored negatives, gear/health reconnect | Frozen `0b2ad043` |
-| [VMC-017b1](tickets/VMC-017b1.md) | Actual periodic freezing, immunity, reconnect and fatal respawn | Frozen `0b2ad043` |
+| [VMC-017a2](tickets/VMC-017a2.md) | Bed landing FAIL: retest corrected bounce; creative flight not established | `0b2ad043` failed bed; corrected release pending |
 | [VMC-017b2](tickets/VMC-017b2.md) | Actual bubbles/drain/recovery, gear, reconnect and fatal drowning | Local air checkpoint |
 | [VMC-017b3](tickets/VMC-017b3.md) | Actual void damage/modes, reconnect and fatal respawn | Local void checkpoint |
 | [VMC-036a](tickets/VMC-036a.md) | Actual hunger HUD/healing/starvation, reconnect and respawn | Local food checkpoint |
