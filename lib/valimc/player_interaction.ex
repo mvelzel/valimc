@@ -1,5 +1,5 @@
 defmodule Valimc.PlayerInteraction do
-  @moduledoc "Default mode-derived ranges and pure geometry for the standing preview."
+  @moduledoc "Default mode-derived ranges and pure geometry using the selected player pose."
   @path Path.expand("../../priv/protocol/attributes.json", __DIR__)
   @external_resource @path
   @facts JSON.decode!(File.read!(@path))
@@ -24,6 +24,13 @@ defmodule Valimc.PlayerInteraction do
   end
 
   def standing_eye(%{x: x, y: y, z: z}), do: {x, y + @standing_eye_height, z}
+
+  def eye(%{x: x, y: y, z: z} = player) do
+    {:ok, geometry} =
+      Valimc.Physics.PlayerPose.geometry(Map.get(player, :pose, :standing), {x, y, z})
+
+    geometry.eye
+  end
 
   def block_distance_squared({ex, ey, ez}, {x, y, z}) do
     dx = max(max(x - ex, ex - (x + 1)), 0.0)

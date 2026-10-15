@@ -66,7 +66,8 @@ defmodule Valimc.Protocol.EntityPackets do
     Packets.packet("remove_entities", [Wire.varint(length(ids)), Enum.map(ids, &Wire.varint/1)])
   end
 
-  defp metadata_value({name, value}) when name in [:shared_flags, :no_gravity, :item_stack] do
+  defp metadata_value({name, value})
+       when name in [:shared_flags, :no_gravity, :item_stack, :pose] do
     fact = EntityTypes.field(name)
 
     payload =
@@ -81,6 +82,10 @@ defmodule Valimc.Protocol.EntityPackets do
 
         :item_stack ->
           stack_bytes(value)
+
+        :pose ->
+          check(match?({:ok, _}, Valimc.Physics.PlayerPose.dimensions(value)), "invalid pose")
+          Wire.varint(Valimc.Physics.PlayerPose.id(value))
       end
 
     {fact["index"], [<<fact["index"]>>, Wire.varint(fact["serializer"]), payload]}

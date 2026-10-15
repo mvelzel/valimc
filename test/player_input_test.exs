@@ -100,10 +100,11 @@ defmodule Valimc.PlayerInputTest do
   test "tracking recreation initializes unchanged metadata and tuple removal stays valid" do
     player = put_in(player().input.shared_flags, 10)
     previous = Packets.view(player)
-    assert [removed, added, flags] = Packets.move_entity(%{player | z: 10.0}, previous)
+    assert [removed, added, flags, pose] = Packets.move_entity(%{player | z: 10.0}, previous)
     assert removed == Packets.remove_entity(previous)
     assert elem(added, 0) == Data.id(:play, :clientbound, "add_entity")
     assert metadata(flags) == {300, 10}
+    assert pose == Packets.player_pose(player)
     assert Packets.remove_info(player) == Packets.remove_info(previous)
   end
 

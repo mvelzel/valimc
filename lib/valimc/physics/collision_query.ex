@@ -8,7 +8,14 @@ defmodule Valimc.Physics.CollisionQuery do
   @max_batches 16
 
   @doc "Start one query. Consume its Task result/monitor or cancel with Task.shutdown/2."
-  def start(box, context \\ CollisionContext.empty()) do
+  def start(box, context \\ CollisionContext.empty()),
+    do: prepare(box, context, &BlockCollisions.collect(box, &1, context), false)
+
+  @doc "Run bounded geometry work on a sampled frame, then recheck every source revision."
+  def start_frame(box, context, finish) when is_function(finish, 1),
+    do: prepare(box, context, finish, true)
+
+  defp prepare(box, context, finish, verify) do
     with true <- CollisionContext.valid?(context),
          {:ok, plan} <- BlockScan.plan(box),
          true <-
@@ -25,14 +32,14 @@ defmodule Valimc.Physics.CollisionQuery do
          true <-
            Enum.sum(Enum.map(groups, fn {_, positions} -> div(length(positions) + 127, 128) end)) <=
              @max_batches do
-      launch(box, context, groups)
+      launch(groups, finish, verify)
     else
       false -> {:error, :invalid_collision_query}
       {:error, _} = error -> error
     end
   end
 
-  defp launch(box, context, groups) do
+  defp launch(groups, finish, verify) do
     caller = self()
     deadline = now() + @timeout
 
@@ -43,7 +50,8 @@ defmodule Valimc.Physics.CollisionQuery do
        try do
          with {:ok, requests} <- request(groups),
               {:ok, observations} <- gather(requests, [], deadline, monitor, caller),
-              {:ok, result} <- BlockCollisions.collect(box, observations, context) do
+              {:ok, result} <- finish.(observations),
+              :ok <- verify_frame(verify, observations, deadline, monitor, caller) do
            if now() < deadline, do: {:ok, result}, else: {:error, :collision_query_timeout}
          end
        after
@@ -54,6 +62,32 @@ defmodule Valimc.Physics.CollisionQuery do
     RuntimeError -> {:error, :collision_workers_busy}
   catch
     :exit, _ -> {:error, :collision_workers_unavailable}
+  end
+
+  defp verify_frame(false, _, _, _, _), do: :ok
+
+  defp verify_frame(true, observations, deadline, monitor, caller) do
+    observations
+    |> Enum.uniq_by(& &1.region)
+    |> Enum.reduce_while({:ok, :gen_server.reqids_new()}, fn observation, {:ok, requests} ->
+      %{region: key, owner: owner, revision: revision} = observation
+
+      if World.existing_owner(key) == {:ok, owner} do
+        {:cont, {:ok, enqueue(requests, key, owner, [[]], revision)}}
+      else
+        {:halt, {:error, {:region, key, :region_unavailable}}}
+      end
+    end)
+    |> case do
+      {:ok, requests} ->
+        case gather(requests, [], deadline, monitor, caller) do
+          {:ok, _} -> :ok
+          error -> error
+        end
+
+      error ->
+        error
+    end
   end
 
   defp request(groups) do

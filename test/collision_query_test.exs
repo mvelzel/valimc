@@ -256,4 +256,37 @@ defmodule Valimc.CollisionQueryTest do
 
     assert {:error, {:context_required, _, "minecraft:shulker_box"}} = await(task)
   end
+
+  test "sampled geometry rechecks every source after computation", %{origin: n} do
+    parent = self()
+    box = {n - 0.3, 64.0, n - 0.3, n + 0.3, 65.8, n + 0.3}
+
+    finish = fn observations ->
+      send(parent, {:sampled, self(), observations})
+
+      receive do
+        :computed -> {:ok, :selected}
+      end
+    end
+
+    {:ok, unchanged} = CollisionQuery.start_frame(box, CollisionContext.empty(), finish)
+    assert_receive {:sampled, worker, observations}
+    assert MapSet.size(MapSet.new(observations, & &1.region)) == 4
+    send(worker, :computed)
+    assert await(unchanged) == {:ok, :selected}
+
+    {:ok, changed} = CollisionQuery.start_frame(box, CollisionContext.empty(), finish)
+    assert_receive {:sampled, worker, _}
+    :ok = World.set_block({n - 1, 64, n - 1}, 1)
+    send(worker, :computed)
+    assert await(changed) == {:error, {:region, {-402, -402}, :stale_revision}}
+
+    {:ok, replaced} = CollisionQuery.start_frame(box, CollisionContext.empty(), finish)
+    assert_receive {:sampled, worker, _}
+    {:ok, {owner, _}} = World.existing_owner({-402, -402})
+    DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, owner)
+    assert {:ok, _} = World.owner({-402, -402})
+    send(worker, :computed)
+    assert await(replaced) == {:error, {:region, {-402, -402}, :region_unavailable}}
+  end
 end

@@ -37,6 +37,7 @@ public class EntityMetadata {
     fields.put("shared_flags", accessor(Entity.class, "DATA_SHARED_FLAGS_ID"));
     fields.put("no_gravity", accessor(Entity.class, "DATA_NO_GRAVITY"));
     fields.put("item_stack", accessor(ItemEntity.class, "DATA_ITEM"));
+    fields.put("pose", accessor(Entity.class, "DATA_POSE"));
     var facts = new TreeMap<String,Object>();
     facts.put("version", "26.3"); facts.put("protocol", 777);
     facts.put("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");

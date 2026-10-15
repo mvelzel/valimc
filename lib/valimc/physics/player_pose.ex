@@ -30,6 +30,9 @@ defmodule Valimc.Physics.PlayerPose do
     do: raise("Invalid native player pose catalog")
 
   @dimensions Map.new(Enum.zip(@poses, @facts))
+  @ids Map.new(Enum.zip(@poses, @facts), fn {pose, fact} -> {pose, fact["id"]} end)
+
+  def id(pose), do: Map.fetch!(@ids, pose)
 
   def dimensions(pose) do
     case Map.fetch(@dimensions, pose) do

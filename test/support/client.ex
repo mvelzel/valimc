@@ -121,6 +121,9 @@ defmodule Valimc.TestClient do
       {id, <<0, 0, flags, _::binary>>} ->
         Map.update(client, :entity_flags, %{id => flags}, &Map.put(&1, id, flags))
 
+      {id, <<6, 20, pose, 255>>} ->
+        Map.update(client, :entity_poses, %{id => pose}, &Map.put(&1, id, pose))
+
       _ ->
         client
     end

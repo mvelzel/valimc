@@ -101,6 +101,9 @@ public class EntityOracle {
     cases.put("metadata_empty_stack",new ClientboundSetEntityDataPacket(ID,List.of(value(item,ItemStack.EMPTY))));
     cases.put("metadata_empty",new ClientboundSetEntityDataPacket(ID,List.of()));
     cases.put("metadata_clear_flags",new ClientboundSetEntityDataPacket(ID,List.of(value(flags,(byte)0),value(gravity,false))));
+    var pose = accessor(Entity.class,"DATA_POSE");
+    for (var selected : Pose.values())
+      cases.put("pose_"+selected.getSerializedName(),new ClientboundSetEntityDataPacket(ID,List.of(value(pose,selected))));
     cases.put("pickup",new ClientboundTakeItemEntityPacket(ID,COLLECTOR,7));
     cases.put("remove",new ClientboundRemoveEntitiesPacket(ID,COLLECTOR));
     cases.put("remove_empty",new ClientboundRemoveEntitiesPacket());

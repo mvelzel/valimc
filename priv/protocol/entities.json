@@ -8,6 +8,10 @@
       "index": 5,
       "serializer": 8
     },
+    "pose": {
+      "index": 6,
+      "serializer": 20
+    },
     "shared_flags": {
       "index": 0,
       "serializer": 0

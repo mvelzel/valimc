@@ -1,6 +1,7 @@
 alias Valimc.Protocol.{EntityPackets, ItemStack, PackedVelocity, Wire}
 [input, output] = System.argv()
 fixtures = :json.decode(File.read!(input))
+Code.ensure_loaded!(Valimc.Physics.PlayerPose)
 
 velocities =
   Enum.map(fixtures["velocities"], fn fixture ->
@@ -73,6 +74,9 @@ packets =
 
         "metadata_clear_flags" ->
           EntityPackets.metadata(300, shared_flags: 0, no_gravity: false)
+
+        "pose_" <> pose ->
+          EntityPackets.metadata(300, pose: String.to_existing_atom(pose))
 
         "pickup" ->
           EntityPackets.pickup(300, 301, 7)

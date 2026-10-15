@@ -21,6 +21,7 @@ defmodule Valimc.Connection do
     Players,
     PlayerAbilities,
     PlayerInput,
+    PlayerPoseQuery,
     PlayerSnapshot,
     PlayerStore,
     PlayerTransfers,
@@ -90,6 +91,10 @@ defmodule Valimc.Connection do
        batch_pending: false,
        peers: %{},
        player_flags_view: 0,
+       pose_job: nil,
+       pose_checked: nil,
+       pose_generation: 0,
+       pose_sources: %{},
        item_replication: ItemReplication.new(),
        clock_version: nil,
        weather_view: nil,
@@ -423,8 +428,57 @@ defmodule Valimc.Connection do
     end)
   end
 
+  def handle_info({ref, result}, %{pose_job: %{task: %Task{ref: ref}} = job} = state) do
+    Process.demonitor(ref, [:flush])
+
+    guard_connection(state, fn ->
+      state = %{state | pose_job: nil}
+
+      case result do
+        {:ok, %{pose: pose, fences: fences}} ->
+          if System.monotonic_time(:millisecond) < job.deadline and
+               pose_signature(state) == job.signature and
+               Enum.all?(fences, fn {key, %{owner: owner}} ->
+                 World.existing_owner(key) == {:ok, owner}
+               end) do
+            player = %{state.player | pose: pose}
+
+            if pose != state.player.pose do
+              Players.update(self(), player)
+              send_packets(state, [Packets.player_pose(player)])
+            end
+
+            state = monitor_pose_sources(%{state | player: player}, fences)
+            {:noreply, %{state | pose_checked: pose_signature(state)}}
+          else
+            {:noreply, state}
+          end
+
+        {:error, _} ->
+          {:noreply, state}
+      end
+    end)
+  end
+
+  def handle_info({:DOWN, ref, :process, _, _}, %{pose_job: %{task: %Task{ref: ref}}} = state),
+    do: {:noreply, %{state | pose_job: nil}}
+
   def handle_info({:DOWN, ref, :process, _, _}, %{store_monitor: ref} = state),
     do: guard_connection(state, fn -> reject(state, "Player storage stopped") end)
+
+  def handle_info({:DOWN, ref, :process, _, _}, state) do
+    if Map.has_key?(state.pose_sources, ref) do
+      {:noreply,
+       %{
+         state
+         | pose_sources: Map.delete(state.pose_sources, ref),
+           pose_generation: state.pose_generation + 1,
+           pose_checked: nil
+       }}
+    else
+      {:noreply, state}
+    end
+  end
 
   def handle_info(:login_deadline, %{phase: :play} = state), do: {:noreply, state}
   def handle_info(:login_deadline, state), do: {:stop, :normal, state}
@@ -460,7 +514,7 @@ defmodule Valimc.Connection do
       if state.phase == :play do
         Process.send_after(self(), :publish_movement, 50)
 
-        state = update_player_input(state, PlayerInput.tick(state.player.input))
+        state = update_player_input(state, PlayerInput.tick(state.player.input)) |> sample_pose()
 
         state =
           if state.player_flags_view != state.player.input.shared_flags do
@@ -979,6 +1033,7 @@ defmodule Valimc.Connection do
       game_mode: mode,
       abilities: GameMode.abilities(mode, false),
       input: %PlayerInput{},
+      pose: :standing,
       ready: false
     }
 
@@ -1115,6 +1170,52 @@ defmodule Valimc.Connection do
     update_view(%{state | player: player})
   end
 
+  defp pose_signature(state),
+    do: {PlayerPoseQuery.signature(state.player), state.pose_generation}
+
+  defp sample_pose(%{pose_job: nil, teleport_pending: false} = state) do
+    signature = pose_signature(state)
+
+    if PlayerInput.loaded?(state.player.input) and signature != state.pose_checked do
+      deadline = System.monotonic_time(:millisecond) + 250
+
+      case PlayerPoseQuery.start(state.player) do
+        {:ok, task} ->
+          %{state | pose_job: %{task: task, signature: signature, deadline: deadline}}
+
+        {:error, _} ->
+          state
+      end
+    else
+      state
+    end
+  end
+
+  defp sample_pose(state), do: state
+
+  defp monitor_pose_sources(state, fences) do
+    owners = MapSet.new(fences, fn {_, %{owner: owner}} -> owner end)
+
+    retained =
+      Map.filter(state.pose_sources, fn {ref, owner} ->
+        if MapSet.member?(owners, owner) do
+          true
+        else
+          Process.demonitor(ref, [:flush])
+          false
+        end
+      end)
+
+    existing = MapSet.new(Map.values(retained))
+
+    sources =
+      Enum.reduce(MapSet.difference(owners, existing), retained, fn {pid, _} = owner, acc ->
+        Map.put(acc, Process.monitor(pid), owner)
+      end)
+
+    %{state | pose_sources: sources}
+  end
+
   defp update_view(state) do
     center = World.chunk_key(state.player.x, state.player.z)
 
@@ -1193,13 +1294,13 @@ defmodule Valimc.Connection do
     if MapSet.member?(state.chunks, World.chunk_key(x, z)),
       do: send_packets(state, [Packets.block(pos, block)])
 
-    state
+    %{state | pose_generation: state.pose_generation + 1}
   end
 
   defp event(%{phase: :play} = state, {:block_batch, updates}) do
     frames = for {chunk, frame} <- updates, MapSet.member?(state.chunks, chunk), do: frame
     send_frames(state, frames)
-    state
+    %{state | pose_generation: state.pose_generation + 1}
   end
 
   defp event(%{phase: :play} = state, {:player_joined, player}), do: track_peer(state, player)
@@ -1227,7 +1328,8 @@ defmodule Valimc.Connection do
               [
                 Packets.player_info(player),
                 Packets.add_entity(player),
-                Packets.player_flags(player)
+                Packets.player_flags(player),
+                Packets.player_pose(player)
               ]
 
             ^view ->
@@ -1273,7 +1375,7 @@ defmodule Valimc.Connection do
     World.Chunk.valid_y?(y) and
       Valimc.PlayerInteraction.within_block?(
         p.game_mode.current,
-        Valimc.PlayerInteraction.standing_eye(p),
+        Valimc.PlayerInteraction.eye(p),
         {x, y, z}
       )
   end
@@ -1777,6 +1879,11 @@ defmodule Valimc.Connection do
   @impl true
   def terminate(_reason, state) do
     :gen_tcp.close(state.socket)
+
+    if state.pose_job do
+      Process.exit(state.pose_job.task.pid, :kill)
+      Process.demonitor(state.pose_job.task.ref, [:flush])
+    end
 
     if state.key_job do
       Process.cancel_timer(state.key_job.timer)

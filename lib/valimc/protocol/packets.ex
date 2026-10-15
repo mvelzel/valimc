@@ -187,10 +187,10 @@ defmodule Valimc.Protocol.Packets do
     ]
   end
 
-  def remove_info({_, uuid, _, _, _, _, _, _}), do: packet("player_info_remove", [<<1>>, uuid])
+  def remove_info({_, uuid, _, _, _, _, _, _, _}), do: packet("player_info_remove", [<<1>>, uuid])
   def remove_info(player), do: packet("player_info_remove", [<<1>>, player.uuid])
 
-  def remove_entity({id, _, _, _, _, _, _, _}),
+  def remove_entity({id, _, _, _, _, _, _, _, _}),
     do: packet("remove_entities", [<<1>>, Wire.varint(id)])
 
   def remove_entity(player), do: packet("remove_entities", [<<1>>, Wire.varint(player.entity_id)])
@@ -208,14 +208,18 @@ defmodule Valimc.Protocol.Packets do
   def view(player),
     do:
       {player.entity_id, player.uuid, round(player.x * 4096), round(player.y * 4096),
-       round(player.z * 4096), angle(player.yaw), angle(player.pitch), shared_flags(player)}
+       round(player.z * 4096), angle(player.yaw), angle(player.pitch), shared_flags(player),
+       Map.get(player, :pose, :standing)}
 
   def player_flags(player),
     do: EntityPackets.metadata(player.entity_id, shared_flags: shared_flags(player))
 
+  def player_pose(player),
+    do: EntityPackets.metadata(player.entity_id, pose: Map.get(player, :pose, :standing))
+
   defp shared_flags(player), do: Map.get(player, :input, %Valimc.PlayerInput{}).shared_flags
 
-  def move_entity(player, {_, _, x, y, z, yaw, pitch, flags}) do
+  def move_entity(player, {_, _, x, y, z, yaw, pitch, flags, pose}) do
     dx = round(player.x * 4096) - x
     dy = round(player.y * 4096) - y
     dz = round(player.z * 4096) - z
@@ -223,7 +227,7 @@ defmodule Valimc.Protocol.Packets do
     cond do
       not Enum.all?([dx, dy, dz], &(&1 >= -32768 and &1 <= 32767)) ->
         # Recreated entities need metadata even when their old flags did not change.
-        [remove_entity(player), add_entity(player), player_flags(player)]
+        [remove_entity(player), add_entity(player), player_flags(player), player_pose(player)]
 
       true ->
         movement =
@@ -240,7 +244,11 @@ defmodule Valimc.Protocol.Packets do
           end
 
         metadata = if shared_flags(player) == flags, do: [], else: [player_flags(player)]
-        movement ++ metadata
+
+        pose_update =
+          if Map.get(player, :pose, :standing) == pose, do: [], else: [player_pose(player)]
+
+        movement ++ metadata ++ pose_update
     end
   end
 
