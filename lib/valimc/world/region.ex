@@ -2,7 +2,7 @@ defmodule Valimc.World.Region do
   use GenServer
 
   @moduledoc "One state owner per region. Bounded supervised encoders share results across players."
-  alias Valimc.World.{Chunk, Items, ItemTransfers, Store}
+  alias Valimc.World.{Chunk, Items, ItemTransfers, Store, TickClock}
   alias Valimc.Protocol.Packets
 
   def start_link(key),
@@ -87,7 +87,8 @@ defmodule Valimc.World.Region do
       end)
 
     now = System.monotonic_time(:millisecond)
-    Process.send_after(self(), :tick, 50)
+    clock = TickClock.new(items.epoch, now)
+    tick_timer = Process.send_after(self(), {:tick, clock.token}, 50)
     Process.send_after(self(), :save, 30_000)
 
     {:ok,
@@ -107,7 +108,8 @@ defmodule Valimc.World.Region do
        revision: 0,
        dirty: false,
        saving: false,
-       next_tick: now + 50
+       tick_clock: clock,
+       tick_timer: tick_timer
      }}
   end
 
@@ -495,14 +497,24 @@ defmodule Valimc.World.Region do
     end
   end
 
-  def handle_info(:tick, state) do
+  def handle_info({:tick, token}, state) do
     now = System.monotonic_time(:millisecond)
-    Valimc.Metrics.add(:region_ticks)
-    Valimc.Metrics.add(:region_late_milliseconds, max(now - state.next_tick, 0))
-    deadline = max(state.next_tick + 50, now + 1)
-    Process.send_after(self(), :tick, deadline - now)
-    {:noreply, %{state | next_tick: deadline}}
+
+    case TickClock.advance(state.tick_clock, token, now) do
+      :stale ->
+        {:noreply, state}
+
+      {:early, clock, delay} ->
+        {:noreply, schedule_tick(state, clock, delay)}
+
+      {:ok, clock, late, delay} ->
+        Valimc.Metrics.add(:region_ticks)
+        Valimc.Metrics.add(:region_late_milliseconds, late)
+        {:noreply, schedule_tick(state, clock, delay)}
+    end
   end
+
+  def handle_info(:tick, state), do: {:noreply, state}
 
   def handle_info(:save, state) do
     saving = state.dirty and not state.saving
@@ -517,6 +529,12 @@ defmodule Valimc.World.Region do
 
   def handle_info({:EXIT, pid, reason}, %{store: pid} = state),
     do: {:stop, {:store_failed, reason}, state}
+
+  defp schedule_tick(state, clock, delay) do
+    Process.cancel_timer(state.tick_timer)
+    timer = Process.send_after(self(), {:tick, clock.token}, delay)
+    %{state | tick_clock: clock, tick_timer: timer}
+  end
 
   @impl true
   def terminate(reason, state) do

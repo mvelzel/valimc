@@ -1,10 +1,13 @@
 # VMC-011a — Authoritative simulation ownership and tick order
 
-Status: Planned — next architecture prerequisite. October 15, 2026.
+Status: In progress — VMC-011a1 fences existing region timers. October 15, 2026.
 
 The pose/movement math is usable, but region read revisions and ETS publications
 cannot authorize coupled gameplay. Resolve this before publishing live selected
 poses or adding gravity. Reprioritize implementation as the evidence warrants.
+Paper-compatible behavior is accepted; runtime region/chunk/tick organization
+should prioritize BEAM concurrency and measured performance, not vanilla internals
+(user clarification, October 15).
 
 Reference: pinned Folia README and its official [region logic](https://docs.papermc.io/folia/reference/region-logic/)
 reviewed October 15: it groups nearby chunks and prevents ownership expansion
@@ -33,7 +36,8 @@ and reuse immutable geometry/jobs. Do not infer independence from fixed storage
 region coordinates. A revision recheck or expiring read lease alone cannot make
 multi-owner gameplay atomic.
 
-Before implementation, settle quiescent merge/split/transfer, epochs and owner-loss
-behavior, then verify native tick/input ordering. The first slice should exercise
-domain partition and tick admission deterministically; it must not declare live
-movement authority until integrated owners and actual reconciliation pass.
+Before simulation integration, settle quiescent merge/split/transfer, epochs and
+owner-loss behavior; distinguish protocol input ordering from runtime tick policy.
+Owner-local tick identity is validated; next distinguish client-tick admission,
+then implement domain partition/admission. No slice declares live movement
+authority until integrated owners and actual reconciliation pass.

@@ -8,8 +8,9 @@ needed details. Feature-specific evidence belongs in `tickets/VMC-*.md`, not her
 
 1. Define behavior, dependencies, ownership, acceptance criteria and a real-client
    scenario in the ticket. Use [the template](tickets/TEMPLATE.md).
-2. Establish semantics from pinned vanilla methods/codecs or actual client behavior.
-   Other servers inform design; record their revisions and deliberate differences.
+2. Establish protocol/gameplay semantics from pinned vanilla, Paper and actual
+   clients. Paper-compatible differences are acceptable; choose runtime internals
+   for BEAM concurrency/performance. Record reference revisions and tradeoffs.
 3. Implement original bounded Elixir code. Test changed behavior and failure boundaries.
 4. Run changed-file formatting, affected tests and relevant native probes. For example:
 

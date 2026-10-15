@@ -9,7 +9,8 @@ indexes validated tickets. None imply full parity.
 
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Resolve coupled state ownership before enforcing movement or publishing selected
-   poses from the tested fitting primitives.
+   poses. Owner/tick timer fencing is validated; next is client-tick admission,
+   then coupled domain ownership. Paper-compatible runtime choices are accepted.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 

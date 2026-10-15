@@ -1,7 +1,8 @@
 # ValiMC development
 
-Target full vanilla Minecraft Java **26.3 / protocol 777** compatibility in
-Elixir/OTP. The current server is a creative flat-world preview.
+Target full Minecraft Java **26.3 / protocol 777** gameplay compatibility in
+Elixir/OTP, accepting Paper-compatible differences. The current server is a
+creative flat-world preview.
 
 ## Start selectively
 
@@ -13,9 +14,11 @@ Keep README small; put feature evidence in its ticket. Use `rg` to retrieve deta
 
 ## Correctness and sources
 
-- Pinned Mojang 26.3 codecs/bytecode/private decompiled source and actual vanilla
-  behavior define compatibility. Paper helps with edge cases; distinguish deliberate
-  changes. Pumpkin, SteelMC and other rewrites provide incomplete design examples.
+- Use pinned Mojang 26.3 codecs/behavior for protocol/gameplay and Paper as the
+  production behavior reference. Paper-compatible differences are acceptable.
+  Region/chunk layout, tick scheduling and other runtime internals need no 1:1
+  vanilla parity: prioritize measured performance and BEAM concurrency. Pumpkin,
+  SteelMC and other rewrites also inform design; verify their incomplete behavior.
 - Record revisions/classes and conclusions in the ticket; see
   [research](docs/research.md) and `research/sources.lock.json`. Implement original
   Elixir code, preserve upstream licenses and keep reference sources separate.

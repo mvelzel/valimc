@@ -64,3 +64,4 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-027a](../tickets/VMC-027a.md) | 56b7a6c; stationary supplied border |
 | [VMC-014c3b2b1](../tickets/VMC-014c3b2b1.md) | 228d596; composed supplied fit |
 | [VMC-061](../tickets/VMC-061.md) | Concise docs and selective retrieval |
+| [VMC-011a1](../tickets/VMC-011a1.md) | Owner/timer fencing; no simulation parity claim |
