@@ -264,7 +264,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     wait(fn -> state(pid).pose_job == nil end)
 
     holders =
-      for _ <- 1..System.schedulers_online() do
+      for _ <- 1..Valimc.Physics.CollisionQuery.worker_limit() do
         {:ok, holder} =
           Task.Supervisor.start_child(Valimc.CollisionWorkers, fn ->
             receive do
@@ -277,10 +277,11 @@ defmodule Valimc.PlayerMotionConnectionTest do
 
     try do
       move(client, %{ctx.pos | x: ctx.pos.x + 0.1})
-      wait(fn -> state(pid).motion_pending != nil end)
+      input = wait(fn -> state(pid).motion_pending end)
       assert state(pid).motion_job == nil
       assert state(pid).player.x == ctx.pos.x
       client = correction(client, pid, ctx.pos)
+      send(pid, {:retry_motion, input.token})
       for holder <- holders, do: Task.Supervisor.terminate_child(Valimc.CollisionWorkers, holder)
       move(client, %{ctx.pos | x: ctx.pos.x + 0.2})
       wait(fn -> state(pid).player.x == ctx.pos.x + 0.2 end)

@@ -209,7 +209,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
     wait(fn -> state(pid).pose_job == nil end)
 
     holders =
-      for _ <- 1..System.schedulers_online() do
+      for _ <- 1..Valimc.Physics.CollisionQuery.worker_limit() do
         {:ok, holder} =
           Task.Supervisor.start_child(Valimc.CollisionWorkers, fn ->
             receive do

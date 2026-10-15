@@ -16,7 +16,17 @@ These historical runs predate client-tick admission. The current driver sends a
 count. New samples therefore have a different packet workload; retain that context
 when comparing them with the October 13 numbers.
 
-The spread scenario joins everybody at spawn before moving them apart. It ends with 515 resident region owners and 4,617 encoded chunks. The dense scenario reuses nine encoded spawn chunks across 128 clients and produces roughly 1.6 million outbound packets over the complete measured run. Dense visibility therefore has a substantial replication/bandwidth cost even with compact peer views, batching and concurrent observers.
+The driver also now verifies every final authoritative position and fails on any
+movement correction. Spread players start at saved spawn fixtures. Current runs
+include sampled movement/pose geometry, so they are not comparable to the old
+unvalidated-movement timings. [VMC-014c4](tickets/VMC-014c4.md) records the admission
+finding, fix and 128-player checks; raw development samples remain ignored.
+
+The historical spread scenario joined everybody at spawn before moving them apart.
+It ended with 515 resident region owners and 4,617 encoded chunks. The dense run
+reused nine encoded spawn chunks across 128 clients and produced roughly 1.6
+million outbound packets. Dense visibility has substantial replication/bandwidth
+cost even with compact peer views, batching and concurrent observers.
 
 ## What the numbers measure
 

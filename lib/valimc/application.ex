@@ -36,7 +36,7 @@ defmodule Valimc.Application do
       {Task.Supervisor,
        name: Valimc.TransferWorkers, max_children: max(System.schedulers_online() * 4, 1)},
       {Task.Supervisor,
-       name: Valimc.CollisionWorkers, max_children: max(System.schedulers_online(), 1)},
+       name: Valimc.CollisionWorkers, max_children: Valimc.Physics.CollisionQuery.worker_limit()},
       {Valimc.LoginKeys, []},
       {Valimc.KeyExchange, []},
       {Valimc.Auth.DiscoverySupervisor, []},

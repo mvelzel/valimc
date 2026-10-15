@@ -7,6 +7,10 @@ defmodule Valimc.Physics.CollisionQuery do
   @max_regions 16
   @max_batches 16
 
+  # Jobs spend part of their budget awaiting owner observations. BEAM schedules
+  # their pure geometry on available schedulers; waiting jobs need bounded room.
+  def worker_limit, do: max(System.schedulers_online() * 4, 1)
+
   @doc "Start one query. Consume its Task result/monitor or cancel with Task.shutdown/2."
   def start(box, context \\ CollisionContext.empty()),
     do: prepare(box, context, &BlockCollisions.collect(box, &1, context), false, false)

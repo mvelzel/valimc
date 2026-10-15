@@ -220,7 +220,7 @@ defmodule Valimc.CollisionQueryTest do
   end
 
   test "pool capacity rejects excess admission and becomes usable after release", %{origin: n} do
-    limit = max(System.schedulers_online(), 1)
+    limit = CollisionQuery.worker_limit()
 
     holders =
       for _ <- 1..limit do

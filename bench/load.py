@@ -32,6 +32,7 @@ class Client:
     def __init__(self, index, args):
         self.index = index; self.args = args; self.threshold = None
         self.chunks = 0; self.loaded = asyncio.Event(); self.received = 0; self.error = None
+        self.teleports = 0
     async def send(self, phase, name, payload=b''):
         raw = vi(packet_id(phase,'serverbound',name)) + payload
         if self.threshold is None: body = raw
@@ -73,6 +74,7 @@ class Client:
             while True:
                 name,body=await self.read('play')
                 if name=='player_position':
+                    self.teleports += 1
                     pid,offset=decode_vi(body)
                     pos=body[offset:offset+24]; rotation=body[offset+48:offset+56]
                     await self.send('play','accept_teleportation',vi(pid)+pos+rotation)
@@ -112,9 +114,21 @@ async def benchmark(port,metrics,args):
             moves+=len(active)
             await asyncio.sleep(max(0,0.05-(time.perf_counter()-tick)))
         after=json.loads(metrics.read_text())
+        send_duration=time.perf_counter()-started
+        reconcile_start=time.perf_counter()
+        def reconciled(sample):
+            for c in clients:
+                p=sample.get('accepted_positions',{}).get('Bench'+str(c.index))
+                x=(c.index*128+64.5 if args.scatter else .5)+math.sin((args.seconds*20-1)/8)*.2
+                z=64.5 if args.scatter else .5
+                if not p or abs(p['x']-x)>1e-6 or p['y']!=64 or p['z']!=z: return False
+            return True
+        while not reconciled(after) and time.perf_counter()-reconcile_start<2:
+            await asyncio.sleep(.02)
+            after=json.loads(metrics.read_text())
         latencies=sorted(c.login_ms for c in clients)
         digest=hashlib.sha256()
-        files=sorted(list((ROOT/'lib').rglob('*.ex'))+list((ROOT/'config').glob('*.exs'))+list((ROOT/'priv/protocol').glob('*.json')))
+        files=sorted(list((ROOT/'lib').rglob('*.ex'))+list((ROOT/'config').glob('*.exs'))+list((ROOT/'priv').rglob('*.json')))
         for path in files: digest.update(str(path.relative_to(ROOT)).encode()+b'\0'+path.read_bytes())
         result={'measured_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 'platform':platform.platform(),'implementation_sha256':digest.hexdigest(),
@@ -122,16 +136,23 @@ async def benchmark(port,metrics,args):
                 'scenario':'spread' if args.scatter else 'dense','clients':len(clients),
                 'disconnected':sum(c.error is not None for c in clients),'movement_packets_sent':moves,
                 'client_tick_end_packets_sent':moves,
+                'movement_corrections':sum(max(c.teleports-1,0) for c in clients),
+                'final_positions_verified':reconciled(after),
+                'reconciliation_ms':round((time.perf_counter()-reconcile_start)*1000,2),
                 'driver_sha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),
-                'duration_seconds':round(time.perf_counter()-started,3),
+                'server_driver_sha256':hashlib.sha256((ROOT/'bench/server.exs').read_bytes()).hexdigest(),
+                'base_revision':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
+                'duration_seconds':round(send_duration,3),
                 'login_p50_ms':round(latencies[len(latencies)//2],2),
                 'login_p95_ms':round(latencies[min(len(latencies)-1,int(len(latencies)*.95))],2),
                 'server_before':before,'server_loaded':loaded,'server_after':after,
-                'scope':'Separate Python load generator, loopback TCP, 9 flat spawn chunks, creative movement; no survival/AI/redstone workload.'}
+                'scope':'Separate Python loopback TCP clients, nine chunks each, authoritative creative movement/pose and geometry, final accepted-position verification. Spread players use saved spawn fixtures. No survival/AI/redstone workload.'}
         print(json.dumps(result,indent=2))
         if args.output:
             path=pathlib.Path(args.output);path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(result,indent=2)+'\n')
         if result['disconnected']: raise RuntimeError('Load disconnected clients')
+        if result['movement_corrections'] or not result['final_positions_verified']:
+            raise RuntimeError('Movement was corrected or failed authoritative reconciliation')
     finally:
         await asyncio.gather(*(c.close() for c in clients),return_exceptions=True)
 
@@ -145,7 +166,7 @@ def main():
         metrics=pathlib.Path(temp)/'metrics.json'
         with socket.socket() as probe:
             probe.bind(('127.0.0.1',0));port=probe.getsockname()[1]
-        env=dict(os.environ,MIX_ENV='test',VALIMC_PORT=str(port),VALIMC_WORLD=temp,VALIMC_METRICS_FILE=str(metrics))
+        env=dict(os.environ,MIX_ENV='test',VALIMC_PORT=str(port),VALIMC_WORLD=temp,VALIMC_METRICS_FILE=str(metrics),VALIMC_BENCH_SCATTER=str(args.scatter).lower(),VALIMC_BENCH_PLAYERS=str(args.players))
         log_path=pathlib.Path(temp)/'server.log'
         with log_path.open('w') as log:
             server=subprocess.Popen(['mix','run','bench/server.exs'],cwd=ROOT,env=env,stdin=subprocess.PIPE,stdout=log,stderr=subprocess.STDOUT)

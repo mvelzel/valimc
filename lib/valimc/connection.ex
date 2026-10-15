@@ -461,7 +461,7 @@ defmodule Valimc.Connection do
 
       cond do
         System.monotonic_time(:millisecond) >= job.input.deadline ->
-          {:noreply, correct_motion(state)}
+          {:noreply, correct_motion(state, :movement_late_result_corrections)}
 
         motion_signature(state) != job.signature ->
           {:noreply, start_motion(state)}
@@ -489,23 +489,45 @@ defmodule Valimc.Connection do
                 send(self(), :drain)
                 {:noreply, next |> monitor_pose_sources(fences) |> update_view()}
               else
-                {:noreply, correct_motion(state)}
+                {:noreply, correct_motion(state, :movement_source_corrections)}
               end
 
-            _ ->
-              {:noreply, correct_motion(state)}
+            {:ok, %{accepted: false}} ->
+              {:noreply, correct_motion(state, :movement_collision_corrections)}
+
+            {:error, reason} ->
+              metric =
+                if reason == :collision_query_timeout,
+                  do: :movement_query_timeout_corrections,
+                  else: :movement_geometry_corrections
+
+              {:noreply, correct_motion(state, metric)}
           end
       end
     end)
   end
 
   def handle_info({:motion_deadline, ref}, %{motion_job: %{task: %Task{ref: ref}}} = state),
-    do: guard_connection(state, fn -> {:noreply, correct_motion(state)} end)
+    do:
+      guard_connection(state, fn ->
+        {:noreply, correct_motion(state, :movement_worker_deadline_corrections)}
+      end)
 
   def handle_info({:motion_deadline, _}, state), do: {:noreply, state}
 
+  def handle_info({:retry_motion, token}, %{motion_pending: %{token: token} = input} = state),
+    do:
+      guard_connection(state, fn ->
+        {:noreply, start_motion(%{state | motion_pending: %{input | retry: nil}})}
+      end)
+
+  def handle_info({:retry_motion, _}, state), do: {:noreply, state}
+
   def handle_info({:DOWN, ref, :process, _, _}, %{motion_job: %{task: %Task{ref: ref}}} = state),
-    do: guard_connection(state, fn -> {:noreply, correct_motion(state)} end)
+    do:
+      guard_connection(state, fn ->
+        {:noreply, correct_motion(state, :movement_geometry_corrections)}
+      end)
 
   def handle_info({ref, result}, %{pose_job: %{task: %Task{ref: ref}} = job} = state) do
     Process.demonitor(ref, [:flush])
@@ -1276,11 +1298,13 @@ defmodule Valimc.Connection do
       allowance = 100.0 * if(count > 5, do: 1, else: count)
 
       if distance > allowance do
-        correct_motion(state)
+        correct_motion(state, :movement_speed_corrections)
       else
         input = %{
           position: Map.take(changes, [:x, :y, :z]),
-          deadline: System.monotonic_time(:millisecond) + 250
+          deadline: System.monotonic_time(:millisecond) + 250,
+          token: make_ref(),
+          retry: nil
         }
 
         state
@@ -1315,15 +1339,19 @@ defmodule Valimc.Connection do
     remaining = input.deadline - System.monotonic_time(:millisecond)
 
     if remaining <= 0 do
-      correct_motion(state)
+      correct_motion(state, :movement_admission_timeout_corrections)
     else
       case PlayerMotionQuery.start(state.player, input.position) do
         {:ok, task} ->
+          if input.retry, do: Process.cancel_timer(input.retry)
+          Metrics.add(:movement_jobs_started)
+          Metrics.add(:movement_admission_wait_ms, 250 - remaining)
           timer = Process.send_after(self(), {:motion_deadline, task.ref}, remaining)
 
           %{
             state
-            | motion_job: %{
+            | motion_pending: %{input | retry: nil},
+              motion_job: %{
                 task: task,
                 timer: timer,
                 input: input,
@@ -1333,10 +1361,17 @@ defmodule Valimc.Connection do
 
         {:error, reason}
         when reason in [:collision_workers_busy, :collision_workers_unavailable] ->
-          state
+          Metrics.add(:movement_pool_busy)
+
+          if input.retry do
+            state
+          else
+            timer = Process.send_after(self(), {:retry_motion, input.token}, 5)
+            %{state | motion_pending: %{input | retry: timer}}
+          end
 
         {:error, _} ->
-          correct_motion(state)
+          correct_motion(state, :movement_geometry_corrections)
       end
     end
   end
@@ -1352,10 +1387,16 @@ defmodule Valimc.Connection do
     %{state | pose_job: nil}
   end
 
-  defp correct_motion(state), do: relocate(state, state.player)
+  defp correct_motion(state, metric) do
+    Metrics.add(metric)
+    relocate(state, state.player)
+  end
 
   defp relocate(state, player) do
     state = cancel_pose_job(state)
+
+    if state.motion_pending && state.motion_pending.retry,
+      do: Process.cancel_timer(state.motion_pending.retry)
 
     if state.motion_job do
       Process.cancel_timer(state.motion_job.timer)
@@ -2080,6 +2121,9 @@ defmodule Valimc.Connection do
   @impl true
   def terminate(_reason, state) do
     :gen_tcp.close(state.socket)
+
+    if state.motion_pending && state.motion_pending.retry,
+      do: Process.cancel_timer(state.motion_pending.retry)
 
     if state.pose_job do
       Process.exit(state.pose_job.task.pid, :kill)
