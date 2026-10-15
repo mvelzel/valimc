@@ -5,9 +5,9 @@ Status: In progress — owner timers/client frames/block commits validated; reso
 The pose/movement math is usable, but region read revisions and ETS publications
 cannot authorize coupled gameplay. Resolve this before publishing live selected
 poses or adding gravity. Reprioritize implementation as the evidence warrants.
-Paper-compatible behavior is accepted; runtime region/chunk/tick organization
-should prioritize BEAM concurrency and measured performance, not vanilla internals
-(user clarification, October 15).
+Preserve the vanilla player experience; region/chunk/tick internals may freely
+use BEAM concurrency and measured performance. Paper and other servers inform
+design without imposing compatibility contracts (user clarification, October 15).
 
 Reference: pinned Folia README and its official [region logic](https://docs.papermc.io/folia/reference/region-logic/)
 reviewed October 15: it groups nearby chunks and prevents ownership expansion
