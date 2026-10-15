@@ -1,6 +1,6 @@
 # VMC-015d — Player fluid travel
 
-Status: In progress; material facts first. October 15, 2026. Not Done.
+Status: In progress; current/input observations and live composition pending. October 15, 2026.
 Follows [dry travel](VMC-015b1.md) and [saved velocity](VMC-015b2.md).
 
 Replace the current fluid exclusion with bounded water/lava observations and
@@ -32,7 +32,13 @@ Evidence: `.local/fluid-{blocks,contact}-{native,check,tests}.log` and native ca
 No live fluid travel/current/eye-camera parity is claimed; those and the client
 scenarios remain open.
 
-Post-collision kernel checkpoint: `FluidMotion` keeps water/shallow-lava/deep-lava
+Baseline on exact frozen `01c4627` passed actual render/walk/jump/stats, with
+three original F2 hashes reviewed. Owned client stopped; safe v8 player state,
+inventory/journal and all existing region edits/items/receipts conserved. Evidence:
+`.local/client-tests/VMC-015d-baseline/report.md`. This covers startup/dry regression
+for unused catalog/contact modules, not live fluids.
+
+Local post-collision checkpoint `0ae6ef3`: `FluidMotion` keeps water/shallow-lava/deep-lava
 drag and gravity distinct, including sprint, water efficiency, Dolphin's Grace,
 climbing and the native bounded surface-escape query. The caller must resolve
 that query against collision/fluid observations before applying the escape boost.
@@ -41,7 +47,8 @@ supplied contact/post-collision vectors and zero relative input: all 2,736 cases
 and three 200-step water/lava transitions match bit-for-bit, including remote-Y
 arithmetic. Logs/cases: `.local/fluid-travel-{native,check,tests}.log`. Current,
 input/swim forces and live composition remain open; this is not a full physics
-or world-collision oracle. Both new native probes are in the integration runner.
+or world-collision oracle. The new native probes are in the integration runner;
+the kernel checkpoint remains unpublished until its live/client gate.
 
 Client gate: actual water/lava entry/exit, shallow/deep and waterlogged boundaries,
 swim/sink, wall/surface escape, flight, saved velocity and dry impulse regression.

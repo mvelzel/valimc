@@ -29,8 +29,9 @@ indexes validated tickets. None imply full parity.
    eliminating duplicate pose observations.
    [Saved velocity](tickets/VMC-015b2.md) is validated and complete within its
    scope (`18aad55`): direct airborne/ground reconnect, landing, jump and flight.
-   [Fluid travel](tickets/VMC-015d.md) is in progress: complete material facts,
-   then bounded contact/current observations and water/lava velocity on the same lane.
+   [Fluid travel](tickets/VMC-015d.md) is in progress: complete material facts/body
+   depths validated (`01c4627`); local native water/lava kernels (`0ae6ef3`).
+   Current/input observations and live composition on the same lane are next.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
