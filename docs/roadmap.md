@@ -39,7 +39,8 @@ indexes validated tickets. None imply full parity.
    tunnel/crawl/peer/pitch/flight/reconnect, 587 tests, full native integration,
    production release and active-water 512/128-player loads.
    [Climbing](tickets/VMC-015e.md) has native motion kernels, complete material
-   facts and contextual contact checked; live wiring is next.
+   facts and contextual contact checked; live dry/water composition passes 61
+   affected tests and bounded native frame checks. Frozen client validation is next.
    Effects/survival consequences remain open.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
@@ -57,6 +58,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
+| [VMC-015e](tickets/VMC-015e.md) | Ladder/vine/scaffolding, Shift, trapdoors, wet contact, flight/reconnect | Local live climbing checkpoint |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 

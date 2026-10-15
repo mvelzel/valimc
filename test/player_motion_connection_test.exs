@@ -195,6 +195,52 @@ defmodule Valimc.PlayerMotionConnectionTest do
     end
   end
 
+  test "live climbing consumes jump and Shift while source changes resume falling", ctx do
+    {client, pid} = login(hd(ctx.names))
+    {x, z} = {floor(ctx.pos.x), floor(ctx.pos.z)}
+    for y <- 65..68, do: :ok = World.set_block({x, y, z}, 7308)
+    anchor = %{ctx.pos | y: 66.2}
+    client = Client.teleport(client, pid, anchor)
+    assert :ok = Connection.set_velocity(pid, {0.0, -2.0, 0.0})
+    wait(fn -> abs(elem(state(pid).player.motion.velocity, 1) + 0.22540001) < 1.0e-8 end)
+    Client.send_packet(client, :play, "player_input", <<16>>)
+
+    wait(fn ->
+      abs(elem(state(pid).player.motion.velocity, 1) - 0.11760000228881837) < 1.0e-12
+    end)
+
+    Client.send_packet(client, :play, "player_input", <<32>>)
+    wait(fn -> state(pid).player.motion.velocity == {0.0, -0.0784000015258789, 0.0} end)
+    assert state(pid).player.y == anchor.y
+    refute state(pid).teleport_pending
+
+    # Retiring the source contact must not leave a cached climbing/Shift hold.
+    :ok = World.set_block({x, 66, z}, 0)
+    wait(fn -> elem(state(pid).player.motion.velocity, 1) < -0.3 end)
+    assert state(pid).player.y == anchor.y
+    refute state(pid).teleport_pending
+  end
+
+  test "climbing resets accepted falls on a fresh logical tick and excludes flight", ctx do
+    {client, pid} = login(hd(ctx.names))
+    {x, z} = {floor(ctx.pos.x), floor(ctx.pos.z)}
+    for y <- 65..68, do: :ok = World.set_block({x, y, z}, 7308)
+    client = Client.teleport(client, pid, %{ctx.pos | y: 67.2})
+    move(client, %{ctx.pos | y: 66.2}, 0)
+    wait(fn -> state(pid).player.y == 66.2 and state(pid).player.motion.fall_distance == 0.0 end)
+    Client.send_packet(client, :play, "player_abilities", <<2>>)
+    wait(fn -> state(pid).player.abilities.flying end)
+    assert :ok = Connection.set_velocity(pid, {0.6, -1.0, 0.0})
+
+    wait(fn ->
+      {vx, vy, _} = state(pid).player.motion.velocity
+      vx < 0.6 and vx > 0.15 and vy < -0.15
+    end)
+
+    assert state(pid).player.y == 66.2
+    refute state(pid).teleport_pending
+  end
+
   test "new impulses retire stalled geometry and expired/invalid calls cannot replace velocity",
        ctx do
     {_client, pid} = login(hd(ctx.names))

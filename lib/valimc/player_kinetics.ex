@@ -7,6 +7,8 @@ defmodule Valimc.PlayerKinetics do
     AirMotion,
     BlockCollisions,
     Box,
+    ClimbContact,
+    ClimbMotion,
     CollisionContext,
     CollisionResponse,
     FluidContact,
@@ -55,9 +57,14 @@ defmodule Valimc.PlayerKinetics do
     motion = struct!(motion, Map.take(result, [:velocity, :physical_ground, :settled]))
 
     cond do
-      Map.get(result, :water, false) -> %{motion | fall_distance: 0.0}
-      Map.get(result, :lava, false) -> %{motion | fall_distance: motion.fall_distance * 0.5}
-      true -> motion
+      Map.get(result, :water, false) or Map.get(result, :reset_fall, false) ->
+        %{motion | fall_distance: 0.0}
+
+      Map.get(result, :lava, false) ->
+        %{motion | fall_distance: motion.fall_distance * 0.5}
+
+      true ->
+        motion
     end
   end
 
@@ -148,7 +155,16 @@ defmodule Valimc.PlayerKinetics do
          fluid =
            not player.abilities.flying and (currents.depths.water > 0 or currents.depths.lava > 0),
          {:ok, controlled} <- tick_input(player, currents, fluid),
-         {:ok, velocity} <- steer(player, controlled, frame) do
+         {:ok, steered} <- steer(player, controlled, frame),
+         {:ok, climb} <- prepare_climb(player, steered, frame, fluid) do
+      velocity = climb.velocity
+      # Native dry climbing clears fall distance before collision contexts are
+      # constructed. This is scratch state; only the owner commits on its tick.
+      player =
+        if climb.reset_fall,
+          do: %{player | motion: %{player.motion | fall_distance: 0.0}},
+          else: player
+
       spectator = player.game_mode.current == :spectator
 
       with {:ok, actual} <-
@@ -193,13 +209,45 @@ defmodule Valimc.PlayerKinetics do
            bounced: result.bounced,
            supported: true,
            water: currents.depths.water > 0,
-           lava: currents.depths.lava > 0
+           lava: currents.depths.lava > 0,
+           reset_fall: climb.reset_fall
          }}
       else
         false -> {:error, :kinetic_velocity_limit}
         error -> error
       end
     end
+  end
+
+  defp prepare_climb(_, velocity, _, true),
+    do: {:ok, %{velocity: velocity, reset_fall: false}}
+
+  defp prepare_climb(player, velocity, frame, false) do
+    with {:ok, contact} <- climb_contact(frame, player, point(player)),
+         do:
+           ClimbMotion.prepare(
+             velocity,
+             contact.climbing,
+             (player.input.shared_flags &&& 2) != 0,
+             contact.scaffolding
+           )
+  end
+
+  defp climb_contact(frame, player, {x, y, z}) do
+    # Fall-flying ownership is a later slice; current sessions cannot glide.
+    ClimbContact.sample(
+      frame,
+      {floor(x), floor(y), floor(z)},
+      player.abilities.flying,
+      player.game_mode.current == :spectator,
+      false
+    )
+  end
+
+  defp climbable?(_, _, _, false), do: {:ok, false}
+
+  defp climbable?(frame, player, position, true) do
+    with {:ok, contact} <- climb_contact(frame, player, position), do: {:ok, contact.climbing}
   end
 
   defp swimming_candidate?(player),
@@ -250,29 +298,40 @@ defmodule Valimc.PlayerKinetics do
          do: {:ok, result.velocity}
   end
 
-  defp travel(player, velocity, result, _actual, _box, _frame, before, _depths, false),
-    do:
+  defp travel(player, velocity, result, actual, _box, frame, before, _depths, false) do
+    horizontal = horizontal_collision?(velocity, actual)
+
+    jump =
+      Valimc.PlayerInput.loaded?(player.input) and
+        Valimc.PlayerInput.pressed?(player.input, :jump)
+
+    with {:ok, climbing} <-
+           climbable?(frame, player, add(point(player), actual), horizontal or jump),
+         {:ok, resolved} <- ClimbMotion.finish(result.velocity, climbing, horizontal, jump) do
       air(
-        result.velocity,
+        resolved,
         elem(velocity, 1),
         %AirMotion{on_ground: player.motion.physical_ground, friction: before.below.friction},
         player.abilities.flying
       )
+    end
+  end
 
   defp travel(player, velocity, result, actual, box, frame, _before, depths, true) do
     {_, y, _} = point(player)
 
-    horizontal =
-      abs(elem(velocity, 0) - elem(actual, 0)) >= @epsilon or
-        abs(elem(velocity, 2) - elem(actual, 2)) >= @epsilon
+    horizontal = horizontal_collision?(velocity, actual)
 
-    with {:ok, step} <-
+    with {:ok, climbing} <-
+           climbable?(frame, player, add(point(player), actual), horizontal and depths.water > 0),
+         {:ok, step} <-
            FluidMotion.prepare(result.velocity, %FluidMotion{
              kind: if(depths.water > 0, do: :water, else: :lava),
              falling: elem(velocity, 1) <= 0,
              on_ground: player.motion.physical_ground,
              sprint: (player.input.shared_flags &&& 8) != 0,
              horizontal_collision: horizontal,
+             climbable: climbing,
              shallow: depths.lava <= 0.4,
              old_y: y,
              new_y: y + elem(actual, 1)
@@ -287,6 +346,11 @@ defmodule Valimc.PlayerKinetics do
            ),
          do: {:ok, FluidMotion.finish(step, free)}
   end
+
+  defp horizontal_collision?(velocity, actual),
+    do:
+      abs(elem(velocity, 0) - elem(actual, 0)) >= @epsilon or
+        abs(elem(velocity, 2) - elem(actual, 2)) >= @epsilon
 
   defp escape_free(nil, _, _, _, _), do: {:ok, false}
 

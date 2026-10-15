@@ -213,4 +213,104 @@ defmodule Valimc.PlayerKineticsTest do
     dry = %{p | motion: %PlayerMotion{}, input: %{p.input | shared_flags: 0}}
     assert PlayerKinetics.signature(dry) == PlayerKinetics.signature(%{dry | pitch: 90.0})
   end
+
+  test "dry climbing caps before collision and resets fall only on the logical tick" do
+    p = player()
+    p = %{p | y: 65.2, motion: %{p.motion | velocity: {0.7, -2.0, 0.0}, fall_distance: 5.0}}
+    f = frame(%{{4, 65, 4} => 7308})
+    {:ok, result} = PlayerKinetics.tick(p, :standing, f)
+    assert_in_delta elem(result.velocity, 0), 0.15000000596046448 * 0.91, 1.0e-8
+    assert_in_delta elem(result.velocity, 1), -0.225400010, 1.0e-8
+    assert result.reset_fall
+    assert PlayerKinetics.apply_result(p.motion, result).fall_distance == 0.0
+    assert p.x == 4.5 and p.y == 65.2 and p.motion.fall_distance == 5.0
+
+    {:ok, body} = PlayerPose.geometry(:standing, {p.x, p.y, p.z})
+    {:ok, packet} = PlayerKinetics.packet(p, p, {0.0, 0.0, 0.0}, 0, body.box, f)
+    assert PlayerKinetics.apply_result(p.motion, packet).fall_distance == 5.0
+  end
+
+  test "Shift holds ladders but preserves scaffolding descent before air drag" do
+    p = player()
+
+    p = %{
+      p
+      | y: 65.2,
+        motion: %{p.motion | velocity: {0.0, -2.0, 0.0}},
+        input: %{p.input | shared_flags: 2, buttons: 32}
+    }
+
+    {:ok, ladder} = PlayerKinetics.tick(p, :crouching, frame(%{{4, 65, 4} => 7308}))
+    assert ladder.velocity == {0.0, -0.0784000015258789, 0.0}
+    {:ok, scaffold} = PlayerKinetics.tick(p, :crouching, frame(%{{4, 65, 4} => 24064}))
+    assert_in_delta elem(scaffold.velocity, 1), -0.225400010, 1.0e-8
+    assert ladder.reset_fall and scaffold.reset_fall
+  end
+
+  test "climb fall reset precedes contextual powder snow collision" do
+    p = player()
+
+    p = %{
+      p
+      | x: 4.8,
+        y: 66.05,
+        motion: %{p.motion | velocity: {0.0, -2.0, 0.0}, fall_distance: 5.0}
+    }
+
+    changes = %{{4, 66, 4} => 7308, {5, 65, 4} => 30519}
+    {:ok, result} = PlayerKinetics.tick(p, :standing, frame(changes))
+    refute result.physical_ground
+    assert_in_delta elem(result.velocity, 1), -0.225400010, 1.0e-8
+    assert result.reset_fall
+  end
+
+  test "jump climbing boost samples feet after collision instead of the starting ladder" do
+    p = player()
+
+    p = %{
+      p
+      | y: 65.2,
+        motion: %{p.motion | velocity: {0.0, -0.15, 0.0}},
+        input: %{p.input | buttons: 16}
+    }
+
+    f = frame(%{{4, 65, 4} => 7308})
+    {:ok, climbing} = PlayerKinetics.tick(p, :standing, f)
+    assert_in_delta elem(climbing.velocity, 1), 0.11760000228881837, 1.0e-12
+    {:ok, left_ladder} = PlayerKinetics.tick(%{p | y: 65.01}, :standing, f)
+    assert_in_delta elem(left_ladder.velocity, 1), -0.22540000438690186, 1.0e-12
+    assert climbing.reset_fall and left_ladder.reset_fall
+  end
+
+  test "waterlogged ladder applies the water collision boost without dry clamps" do
+    p = player()
+    p = %{p | y: 64.2, motion: %{p.motion | velocity: {0.6, 0.0, 0.0}}}
+    f = frame(%{{4, 64, 4} => 7307, {5, 64, 4} => 1, {5, 65, 4} => 1})
+    {:ok, result} = PlayerKinetics.tick(p, :standing, f)
+    assert result.water
+    refute result.reset_fall
+    assert_in_delta elem(result.velocity, 1), 0.1550000023841858, 1.0e-12
+    assert elem(result.velocity, 0) == 0.0
+    assert p.x == 4.5 and p.y == 64.2
+  end
+
+  test "flight and spectator exclude live climb caps and fall reset" do
+    p = player()
+    p = %{p | y: 65.2, motion: %{p.motion | velocity: {0.7, -2.0, 0.0}, fall_distance: 5.0}}
+    f = frame(%{{4, 65, 4} => 7308})
+
+    for excluded <- [
+          %{p | abilities: %{p.abilities | flying: true}},
+          %{
+            p
+            | game_mode: GameMode.new(:spectator),
+              abilities: PlayerAbilities.for_mode(:spectator)
+          }
+        ] do
+      {:ok, result} = PlayerKinetics.tick(excluded, :standing, f)
+      refute result.reset_fall
+      assert elem(result.velocity, 0) > 0.6
+      assert PlayerKinetics.apply_result(p.motion, result).fall_distance == 5.0
+    end
+  end
 end
