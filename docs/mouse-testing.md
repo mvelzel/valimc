@@ -1,5 +1,21 @@
 # Minecraft mouse input investigation
 
+October 15 source audit: the adapter translates incoming event coordinates but
+does not isolate the desktop pointer. Native `InputConstants.grabMouse` and
+`releaseMouse` call `SDL_WarpMouseInWindow`. The pinned Cocoa backend still calls
+`CGWarpMouseCursorPosition`, and focus/clip paths call
+`CGDisplayMoveCursorToPoint`; relative mode also changes OS mouse association and
+cursor visibility. Our patch leaves those paths enabled. This was incomplete
+isolation, with no experiment establishing that a virtual pointer cannot work.
+It identifies concrete coupling paths, not the cause of every reported movement.
+
+Next isolation experiment must separate activation, keyboard menu transitions,
+within-menu clicks and camera recapture, recording outgoing warp/capture calls
+and actual desktop coordinates. CUA screenshots alone cannot certify physical
+cursor isolation. Keyboard-first reduces mouse actions but is not a guarantee.
+The existing backend passed the delegated 26.3 keyboard/reconnect/command/log
+baseline in VMC-014c3a; an isolated backend has not been built or validated.
+
 October 13, 2026. Java 26.3, Microsoft OpenJDK 25.0.1, macOS, computer-use app
 `local.valimc.minecraft-client`. Part of VMC-003's verification prerequisite.
 
