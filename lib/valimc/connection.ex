@@ -24,6 +24,7 @@ defmodule Valimc.Connection do
     Players,
     PlayerAbilities,
     PlayerEnvironment,
+    PlayerEquipment,
     PlayerFood,
     PlayerHealth,
     PlayerInput,
@@ -188,6 +189,7 @@ defmodule Valimc.Connection do
        batch_pending: false,
        peers: %{},
        player_flags_view: 0,
+       equipment_source: nil,
        pose_job: nil,
        pose_checked: nil,
        pose_generation: 0,
@@ -842,7 +844,7 @@ defmodule Valimc.Connection do
         Process.send_after(self(), :publish_movement, 50)
 
         state =
-          update_player_input(state, PlayerInput.tick(state.player.input))
+          update_player_input(publish_equipment(state), PlayerInput.tick(state.player.input))
           |> start_motion()
           |> sample_pose()
 
@@ -1148,6 +1150,7 @@ defmodule Valimc.Connection do
   defp begin_item_use(%{player: %{game_mode: %{current: :spectator}}} = state, _), do: state
 
   defp begin_item_use(state, hand) do
+    state = publish_equipment(state)
     stack = Inventory.held(state.inventory, hand)
     props = if stack, do: FoodItems.properties(stack)
 
@@ -1170,7 +1173,30 @@ defmodule Valimc.Connection do
     state = %{state | player: player}
     packet = Packets.player_use(player)
     send_packets(state, [packet])
-    broadcast_player_packet(state, packet)
+
+    for pid <- Players.nearby(state.regions),
+        pid != self(),
+        do: deliver(pid, {:player_use_packet, self(), player.entity_id, packet})
+
+    state
+  end
+
+  defp publish_equipment(state) do
+    source = {state.inventory.selected, state.inventory.slots}
+
+    if source == state.equipment_source do
+      state
+    else
+      equipment = PlayerEquipment.capture(state.inventory)
+
+      if PlayerEquipment.changes(equipment, state.player.equipment) == [] do
+        %{state | equipment_source: source}
+      else
+        player = %{state.player | equipment: equipment}
+        Players.update(self(), player)
+        %{state | player: player, equipment_source: source}
+      end
+    end
   end
 
   defp stop_item_use(%{active_use: nil} = state), do: state
@@ -1219,7 +1245,7 @@ defmodule Valimc.Connection do
           state = %{state | player: player, inventory: inventory, save_ref: ref, use_save: ref}
           Players.update(self(), player)
           if notify, do: send_packets(state, [Packets.use_item_finished(player.entity_id)])
-          state = stop_item_use(state)
+          state = state |> publish_equipment() |> stop_item_use()
 
           send_packets(state, [
             Packets.health(player.health, food),
@@ -1877,6 +1903,7 @@ defmodule Valimc.Connection do
       air_supply: Valimc.PlayerAir.maximum(),
       food: %PlayerFood{},
       use_flags: 0,
+      equipment: %{},
       health: %PlayerHealth{},
       last_death: nil,
       pose: :standing,
@@ -1962,6 +1989,8 @@ defmodule Valimc.Connection do
   end
 
   defp enter_world(state) do
+    state = publish_equipment(state)
+
     state = %{
       state
       | phase: :play,
@@ -2493,6 +2522,19 @@ defmodule Valimc.Connection do
     state
   end
 
+  defp event(%{phase: :play} = state, {:player_use_packet, pid, entity, packet}) do
+    case {Map.get(state.peers, pid), Players.get(pid)} do
+      {view, {:ok, %{entity_id: ^entity} = player}} when is_tuple(view) ->
+        # Native use starts by refreshing equipment. Sample the current owner
+        # publication before sending the animation flag, within this peer view.
+        state = track_peer(state, player)
+        event(state, {:player_packet, pid, entity, packet})
+
+      _ ->
+        state
+    end
+  end
+
   defp event(%{phase: :play} = state, {:player_respawned, pid, entity}) do
     case Players.get(pid) do
       {:ok, %{entity_id: ^entity} = player} ->
@@ -2529,14 +2571,15 @@ defmodule Valimc.Connection do
               body =
                 if player.health.value <= 0 and player.health.death_ticks >= 20,
                   do: [],
-                  else: [
-                    Packets.add_entity(player),
-                    Packets.player_flags(player),
-                    Packets.player_pose(player),
-                    Packets.player_environment(player),
-                    Packets.player_use(player),
-                    Packets.player_health(player)
-                  ]
+                  else:
+                    [
+                      Packets.add_entity(player),
+                      Packets.player_flags(player),
+                      Packets.player_pose(player),
+                      Packets.player_environment(player),
+                      Packets.player_use(player),
+                      Packets.player_health(player)
+                    ] ++ Packets.player_equipment(player)
 
               [Packets.player_info(player) | body]
 

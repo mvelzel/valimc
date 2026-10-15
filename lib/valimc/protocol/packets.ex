@@ -257,12 +257,12 @@ defmodule Valimc.Protocol.Packets do
     ]
   end
 
-  def remove_info({_, uuid, _, _, _, _, _, _, _, _, _}),
+  def remove_info({_, uuid, _, _, _, _, _, _, _, _, _, _}),
     do: packet("player_info_remove", [<<1>>, uuid])
 
   def remove_info(player), do: packet("player_info_remove", [<<1>>, player.uuid])
 
-  def remove_entity({id, _, _, _, _, _, _, _, _, _, _}),
+  def remove_entity({id, _, _, _, _, _, _, _, _, _, _, _}),
     do: packet("remove_entities", [<<1>>, Wire.varint(id)])
 
   def remove_entity(player), do: packet("remove_entities", [<<1>>, Wire.varint(player.entity_id)])
@@ -282,7 +282,7 @@ defmodule Valimc.Protocol.Packets do
       {player.entity_id, player.uuid, round(player.x * 4096), round(player.y * 4096),
        round(player.z * 4096), angle(player.yaw), angle(player.pitch), shared_flags(player),
        Map.get(player, :pose, :standing), Valimc.PlayerEnvironment.frozen(player),
-       player_health_value(player)}
+       player_health_value(player), Map.get(player, :equipment, %{})}
 
   def player_flags(player),
     do: EntityPackets.metadata(player.entity_id, shared_flags: shared_flags(player))
@@ -295,6 +295,13 @@ defmodule Valimc.Protocol.Packets do
 
   def player_use(player),
     do: EntityPackets.metadata(player.entity_id, living_flags: Map.get(player, :use_flags, 0))
+
+  def player_equipment(player, previous \\ %{}) do
+    case Valimc.PlayerEquipment.changes(Map.get(player, :equipment, %{}), previous) do
+      [] -> []
+      changes -> [EntityPackets.equipment(player.entity_id, changes)]
+    end
+  end
 
   defp player_health_value(player), do: Map.get(player, :health, %Valimc.PlayerHealth{}).value
 
@@ -318,7 +325,7 @@ defmodule Valimc.Protocol.Packets do
     if Map.get(player, :motion, %Valimc.PlayerMotion{}).swimming, do: flags ||| 16, else: flags
   end
 
-  def move_entity(player, {_, _, x, y, z, yaw, pitch, flags, pose, frozen, health}) do
+  def move_entity(player, {_, _, x, y, z, yaw, pitch, flags, pose, frozen, health, equipment}) do
     dx = round(player.x * 4096) - x
     dy = round(player.y * 4096) - y
     dz = round(player.z * 4096) - z
@@ -334,7 +341,7 @@ defmodule Valimc.Protocol.Packets do
           player_environment(player),
           player_use(player),
           player_health(player)
-        ]
+        ] ++ player_equipment(player)
 
       true ->
         movement =
@@ -363,7 +370,9 @@ defmodule Valimc.Protocol.Packets do
         health_update =
           if player_health_value(player) == health, do: [], else: [player_health(player)]
 
-        movement ++ metadata ++ pose_update ++ environment ++ health_update
+        movement ++
+          metadata ++
+          pose_update ++ environment ++ health_update ++ player_equipment(player, equipment)
     end
   end
 

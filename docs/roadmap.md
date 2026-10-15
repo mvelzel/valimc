@@ -77,6 +77,9 @@ indexes validated tickets. None imply full parity.
    identity cases and49 affected tests. Live plain-food use now passes38 affected
    tests: owner-clock timing, both hands, interruption, remainders and atomic
    food/inventory saves. Specialized effects/overflow and the client gate remain.
+   [Player equipment](tickets/VMC-018d.md) passes128 native packet cases and39
+   affected tests; live held/worn replication and animation ordering are implemented,
+   with graphical validation pending.
    [Idle food clock work](tickets/VMC-036a1.md) addresses the measured 512-player
    memory increase; native/83 affected checks pass, but repeated loads show no
    whole-workload memory improvement. Allocation profiling remains open; continue
@@ -107,6 +110,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 | [VMC-036a](tickets/VMC-036a.md) | Actual hunger HUD/healing/starvation, reconnect and respawn | Local food checkpoint |
 | [VMC-036b](tickets/VMC-036b.md) | Actual sprint/swim/jump depletion and negatives, reconnect | Local movement-food checkpoint |
 | [VMC-036c](tickets/VMC-036c.md) | Actual eating animation, hands, interruptions, nutrition and bowl/reconnect | Local consumable checkpoint |
+| [VMC-018d](tickets/VMC-018d.md) | Actual peer hands/armor, use animation, clears and tracking recreation | Local equipment checkpoint |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

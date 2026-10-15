@@ -149,7 +149,21 @@ defmodule Valimc.TestClient do
     take_metadata(client, id, rest)
   end
 
+  def auto_reply(client, :play, "set_equipment", body) do
+    {id, rest} = Wire.take_varint(body)
+    take_equipment(client, id, rest)
+  end
+
   def auto_reply(client, _, _, _), do: client
+
+  defp take_equipment(client, id, <<flags, rest::binary>>) do
+    {:ok, stack, rest} = ItemStack.take(rest)
+    slot = Bitwise.band(flags, 127)
+    equipment = Map.get(client, :equipment, %{})
+    slots = Map.put(Map.get(equipment, id, %{}), slot, stack)
+    client = Map.put(client, :equipment, Map.put(equipment, id, slots))
+    if flags >= 128, do: take_equipment(client, id, rest), else: client
+  end
 
   defp take_metadata(client, id, <<0, 0, flags, rest::binary>>),
     do: put_metadata(client, id, :entity_flags, flags, rest)

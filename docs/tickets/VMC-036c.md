@@ -71,7 +71,7 @@ components, eligibility, creative, full storage, atomic reconnect, blocked saves
 deferred completion, death and unsupported effects/overflow. Evidence:
 `.local/live-item-use-{compile,affected-tests}.log`. Full block checks/build and
 actual-client verification remain pending. Specialized effects/listeners, world
-overflow, peer held-equipment rendering, use slowing, sounds/particles, vibration
+overflow, [peer equipment's client gate](VMC-018d.md), use slowing, sounds/particles, vibration
 and statistics are follow-ups; this is not full consumable or survival parity.
 
 Block verification: 762 full tests pass (seed327342), after correcting two peer

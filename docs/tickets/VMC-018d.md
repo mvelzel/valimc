@@ -1,6 +1,6 @@
 # VMC-018d — Player equipment replication
 
-Status: Native codec foundation verified; live replication pending. October 16, 2026.
+Status: Live replication automated-verified; graphical gate pending. October 16, 2026.
 
 Acceptance: nearby unmodified clients see both held hands and four worn armor
 slots, including count/component changes, hotbar selection, swaps, consumption,
@@ -19,6 +19,21 @@ batches of one through eight entries. One boundary regression rejects invalid,
 empty, duplicate and oversized equipment batches. Evidence:
 `.local/equipment-{native,check,verify,packet-tests}.log`. These checks do not
 publish live equipment or replace the graphical gate.
+
+Live checkpoint: each player publishes six committed inventory observations only
+when selected/storage slots change. Existing peer views retain the rendered
+equipment and emit one bounded delta batch, including clears; unchanged and
+effective-default patches emit nothing. Spawn/recreation initialize current gear.
+Use-animation delivery refreshes the peer view first, ensuring its held item is
+sent before the active flag. Respawn clears gear; reconnect derives it from the
+durable inventory. No global equipment owner or extra timer was added.
+
+Thirty-nine affected tests pass, including two real TCP peer scenarios for initial
+hands/armor, selection, patched counts, removal, reconnect and off-hand soup→bowl
+with equipment-before-animation ordering. Pure boundaries cover all six slots,
+effective identity, clearing and tracking recreation. Evidence
+`.local/player-equipment-{compile,affected-tests}.log`. Actual peer rendering is
+still pending; native packet equality alone does not complete the client gate.
 
 Client scenario: a second local peer changes held bread/bowl, swaps hands, equips
 and removes armor, changes item components and reconnects. Observe third-person
