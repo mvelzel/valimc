@@ -14,11 +14,12 @@ Keep README small; put feature evidence in its ticket. Use `rg` to retrieve deta
 
 ## Correctness and sources
 
-- Preserve vanilla gameplay and client interoperability. Use pinned Mojang 26.3
-  codecs/behavior for reference; Paper, Pumpkin, SteelMC and other servers are
-  inspirations, not compatibility contracts. Freely redesign region/chunk layout,
-  scheduling and other internals for measured performance and BEAM concurrency
-  wherever the vanilla player experience is preserved. Verify incomplete examples.
+- Compatibility means vanilla gameplay and unmodified-client interoperability;
+  it does not require matching upstream internals or plugin APIs. Use pinned Mojang
+  26.3 codecs/behavior as the correctness reference. Paper, Pumpkin, SteelMC and
+  other servers are inspirations, not compatibility contracts; verify incomplete
+  examples. Freely redesign ownership, regions/chunks, ticks and scheduling around
+  Elixir/OTP for measured performance while preserving the vanilla player experience.
 - Record revisions/classes and conclusions in the ticket; see
   [research](docs/research.md) and `research/sources.lock.json`. Implement original
   Elixir code, preserve upstream licenses and keep reference sources separate.
@@ -31,11 +32,12 @@ Keep README small; put feature evidence in its ticket. Use `rg` to retrieve deta
 - Processes represent ownership, lifecycle or blocking I/O, never individual blocks
   or a copied Java/Rust threading/ECS model. Use pinned asdf Elixir/Erlang and prefer
   the standard library. Follow the user's pnpm-only policy for JavaScript tools.
-- Keep connection/session state per socket, mutable simulation with region/domain
-  owners, observations in ETS and pure work in bounded pools. Share immutable
-  binaries and batch replication. No global gameplay process on the hot path.
-- Define tick order, boundaries, transfers, fencing and recovery before parallel
-  coupled gameplay. Published observations are not gameplay authority.
+- Keep connection/session state per socket; choose simulation ownership boundaries
+  to suit gameplay and BEAM concurrency, without prescribing an upstream region or
+  tick model. Use ETS for observations, bounded pools for pure work, shared immutable
+  binaries and batched replication. No global gameplay process on the hot path.
+- Define consistency, ordering, transfers, fencing and recovery where gameplay
+  crosses owners. Published observations are not gameplay authority.
 - Bound mailboxes, queues, packets/decompression, rates, tasks, regions and socket
   writes. Keep CPU jobs and disk I/O outside sensitive owners.
 
