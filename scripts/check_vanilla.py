@@ -21,6 +21,15 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     if json.loads(pathlib.Path(motion_blocks).read_text()) != json.loads((root/'priv/physics/motion_blocks.json').read_text()):
         raise RuntimeError('Pinned block motion facts differ')
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_motion_blocks.exs', motion_block_cases], cwd=root, check=True)
+    fluid_blocks = str(pathlib.Path(world) / 'fluid-blocks.json')
+    fluid_block_cases = str(pathlib.Path(world) / 'fluid-block-cases.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'FluidMetadata', fluid_blocks, fluid_block_cases], cwd=root, check=True)
+    if json.loads(pathlib.Path(fluid_blocks).read_text()) != json.loads((root/'priv/physics/fluid_blocks.json').read_text()):
+        raise RuntimeError('Pinned block fluid facts differ')
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_fluid_blocks.exs', fluid_block_cases], cwd=root, check=True)
+    fluid_contacts = str(pathlib.Path(world) / 'fluid-contacts.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'FluidContactOracle', fluid_contacts], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_fluid_contact.exs', fluid_contacts], cwd=root, check=True)
     player_kinetics = str(pathlib.Path(world) / 'player-kinetics.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'PlayerKineticsOracle', player_kinetics], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_player_kinetics.exs', player_kinetics], cwd=root, check=True)

@@ -29,6 +29,8 @@ indexes validated tickets. None imply full parity.
    eliminating duplicate pose observations.
    [Saved velocity](tickets/VMC-015b2.md) has targeted/native checks passing;
    its airborne reconnect client gate is next.
+   [Fluid travel](tickets/VMC-015d.md) is in progress: complete material facts,
+   then bounded contact/current observations and water/lava velocity on the same lane.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.

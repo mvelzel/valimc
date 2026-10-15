@@ -1,0 +1,29 @@
+alias Valimc.Physics.{BlockCollisions.Frame, BlockScan, FluidContact}
+[path] = System.argv()
+cases = path |> File.read!() |> :json.decode()
+bits = fn n -> <<n::float-64>> end
+
+Enum.each(cases, fn c ->
+  box = List.to_tuple(c["box"])
+  {:ok, plan} = BlockScan.plan(box)
+  states = Map.new(plan, fn {p, _} -> {p, 0} end)
+  supplied = Map.new(c["states"], &{List.to_tuple(&1["position"]), &1["state"]})
+  frame = %Frame{states: Map.merge(states, supplied), fences: %{}, entities: %{}}
+  {:ok, actual} = FluidContact.sample(frame, box)
+
+  for key <- [:water, :lava] do
+    if bits.(actual[key]) != bits.(c[Atom.to_string(key)]),
+      do: raise("Native fluid depth mismatch #{inspect(c)} #{inspect(actual)}")
+  end
+
+  # Every actual fluid cell also needs the cell above. The existing collision
+  # scan already covers both, without expanding the bounded query envelope.
+  {:ok, body} = FluidContact.positions(box)
+
+  for {x, y, z} = p <- body do
+    unless Map.has_key?(states, p) and Map.has_key?(states, {x, y + 1, z}),
+      do: raise("Fluid dependency outside geometry frame #{inspect(p)}")
+  end
+end)
+
+IO.puts("PASS: #{length(cases)} native fluid depths and existing-frame dependency coverage.")

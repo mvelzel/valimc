@@ -1,0 +1,39 @@
+defmodule Valimc.Physics.FluidBlocks do
+  @moduledoc "Complete pinned scalar fluid facts; surface/flow observations remain contextual."
+  @path Path.expand("../../../priv/physics/fluid_blocks.json", __DIR__)
+  @external_resource @path
+  @facts JSON.decode!(File.read!(@path))
+  @count 35_723
+  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
+           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+           @facts["state_count"] == @count,
+         do: raise("Wrong fluid block catalog version")
+
+  @properties Enum.map(@facts["properties"], fn f ->
+                unless map_size(f) == 5 and f["kind"] in 0..2 and
+                         is_integer(f["amount"]) and f["amount"] in 0..8 and
+                         is_float(f["height"]) and f["height"] >= 0 and f["height"] <= 1 and
+                         is_boolean(f["source"]) and is_boolean(f["falling"]),
+                       do: raise("Invalid fluid properties")
+
+                %{
+                  kind: elem({:empty, :water, :lava}, f["kind"]),
+                  amount: f["amount"],
+                  height: f["height"],
+                  source: f["source"],
+                  falling: f["falling"]
+                }
+              end)
+              |> List.to_tuple()
+  @states Base.decode16!(@facts["states"], case: :lower)
+  unless tuple_size(@properties) == 20 and byte_size(@states) == @count and
+           Enum.all?(:binary.bin_to_list(@states), &(&1 < tuple_size(@properties))),
+         do: raise("Invalid fluid block indexes")
+
+  def count, do: @count
+
+  def fetch(id) when is_integer(id) and id >= 0 and id < @count,
+    do: {:ok, elem(@properties, :binary.at(@states, id))}
+
+  def fetch(_), do: {:error, :unknown_block_state}
+end
