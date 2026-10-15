@@ -1,6 +1,6 @@
 # VMC-036b — Movement exhaustion
 
-Status: Live owner composition automated-verified; graphical gate pending. October 16, 2026.
+Status: Validated and complete within accepted movement-exhaustion scope. October 16, 2026.
 Depends on [owned food](VMC-036a.md) and fenced accepted movement.
 
 Acceptance: accepted survival sprint/swim travel and grounded jumps add native
@@ -58,10 +58,33 @@ verified; zero corrections/disconnects. Login tails vary; the memory increase
 motivates [idle food work](VMC-036a1.md). No survival capacity/speed claim.
 Raw `.local/food-load-*.json/.log` and `.local/food-load-revisions.json`.
 
-GUI validation remains pending. Sprint eligibility,
+Sprint eligibility,
 mining/combat exhaustion, effects and consuming items remain subsequent work.
 
 Client scenario: actual survival sprint laps and swimming drain saturation then
 drumsticks; ordinary walking and creative flight are negatives. Reconnect retains
 the depleted state. Include grounded jump versus airborne held jump, correction
 and stale-frame negatives. Sprint eligibility/consumables remain distinct slices.
+
+October16 actual-client evidence — reviewed and accepted: immutable7337af6/
+PID74315 release, disposable `/tmp/valimc-consumable-client-20261016`, Java26.3/
+protocol777, five fresh small direct SDL/CUA clients. Actual W/Shift+W accepted
+14.31m with exhaustion3.95 unchanged; Ctrl+W10sec accepted56.96m, saturation1→0
+then food20→19/HUD9.5drumsticks. Grounded Space350ms added0.05 once; held-airborne
+input/accepted ascent/descent added no further jump cost. Fresh direct reconnect
+retained exact food19/sat0/ex3.536013126/timer0 and actual depleted HUD. Actual
+Ctrl+W swimming in a bounded water corridor set swimmingtrue and spent exhaustion
+through food19, underwater/bubble/HUD view; armed air watcher prevented drowning.
+Fixed-x/z underwater Space cycles added four0.05 grounded jumps plus0.0956
+vertical travel; dry-eye/body-water repetition added only four0.05 jumps, zero
+vertical travel. Creative actual sprint/jump17.94m and spectator flight45.70m
+horizontal/9.37m vertical retained exact food/exhaustion; invulnerable abilities
+and released input0/flags0 traced. Sprint-jump0.2 is a CUA input-composition limit
+(native callback covered); climbing/creative-flight and independent body-water
+horizontal GUI assertions remain limits. No eligibility/stale/correction GUI claim.
+All wrappers stopped/waited/zeroPlayers, temporary1000-cell pool restored exactly,
+safe survival20HP/air300/food19/sat0/ex.673300385/timer0/empty snapshot; source10/
+outboxnil/lastdeath unchanged. All29 prior item ID/stack/components unchanged,
+counts17/8/4 and receipts10/6/9; initial difficulty1/unlocked/regenfalse unchanged.
+No gameplay failure/release restart. Full actions, native-control limitation,
+traces, conservation and cleanup: `.local/client-tests/VMC-036b/report.md`.

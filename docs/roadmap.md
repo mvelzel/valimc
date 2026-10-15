@@ -79,7 +79,8 @@ indexes validated tickets. None imply full parity.
    starvation/respawn are validated within owned-clock scope (`7337af64`).
    [Movement exhaustion](tickets/VMC-036b.md) passes 91 affected tests and native
    travel/mode/jump probes; accepted sprint/swim/jump food costs are implemented,
-   with graphical validation pending. Sprint eligibility, other action costs and
+   with actual sprint/swim/jump costs, walking/crouching/mode negatives and
+   depleted reconnect validated (`7337af64`). Sprint eligibility/other action costs remain.
    [Consuming items](tickets/VMC-036c.md) has native facts/food codecs, 18,474
    identity cases and49 affected tests. Live plain-food use now passes38 affected
    tests: owner-clock timing, both hands, interruption, remainders and atomic
@@ -118,7 +119,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
-| [VMC-036b](tickets/VMC-036b.md) | Actual sprint/swim/jump depletion and negatives, reconnect | Local movement-food checkpoint |
 | [VMC-036c](tickets/VMC-036c.md) | Actual eating animation, hands, interruptions, nutrition and bowl/reconnect | Local consumable checkpoint |
 | [VMC-018d](tickets/VMC-018d.md) | Actual peer hands/armor, use animation, clears and tracking recreation | Local equipment checkpoint |
 
