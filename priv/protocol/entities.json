@@ -1,5 +1,9 @@
 {
   "fields": {
+    "frozen_ticks": {
+      "index": 7,
+      "serializer": 1
+    },
     "item_stack": {
       "index": 8,
       "serializer": 7

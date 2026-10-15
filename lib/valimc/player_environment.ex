@@ -1,0 +1,69 @@
+defmodule Valimc.PlayerEnvironment do
+  @moduledoc "Player-owned freeze state; contact comes from complete fenced body samples."
+  alias Valimc.Physics.{BlockCollisions, BlockShapes, Box}
+  @tags Path.expand("../../priv/protocol/tags.json", __DIR__)
+  @external_resource @tags
+  @immune :json.decode(File.read!(@tags))["minecraft:item"]["minecraft:freeze_immune_wearables"]
+          |> MapSet.new()
+  @epsilon 9.999999747378752e-6
+  defstruct powder_snow: false, frozen_ticks: 0
+
+  def valid_ticks?(value), do: is_integer(value) and value in 0..140
+  def frozen(player), do: Map.get(player, :environment, %__MODULE__{}).frozen_ticks
+  def active?(%__MODULE__{} = env), do: env.powder_snow or env.frozen_ticks > 0
+
+  def freeze_effect(ticks, allowed) when ticks in 0..140 and is_boolean(allowed),
+    do: if(allowed, do: min(140, ticks + 1), else: ticks)
+
+  def can_freeze?(player, inventory) do
+    player.game_mode.current != :spectator and
+      not Enum.any?(5..8, fn slot ->
+        case inventory.slots[slot] do
+          nil -> false
+          stack -> MapSet.member?(@immune, stack.item_id)
+        end
+      end)
+  end
+
+  def observe(%__MODULE__{} = env, powder, due, immune)
+      when is_boolean(powder) and is_boolean(due) and is_boolean(immune) do
+    next =
+      if due do
+        if powder and not immune,
+          do: freeze_effect(env.frozen_ticks, true),
+          else: max(0, env.frozen_ticks - 2)
+      else
+        env.frozen_ticks
+      end
+
+    %{env | powder_snow: powder, frozen_ticks: next}
+  end
+
+  def sample(%BlockCollisions.Frame{states: states}, box) do
+    if Box.valid?(box) do
+      {a, b, c, d, e, f} = box
+      {x0, y0, z0} = {floor(a + @epsilon), floor(b + @epsilon), floor(c + @epsilon)}
+      {x1, y1, z1} = {floor(d - @epsilon), floor(e - @epsilon), floor(f - @epsilon)}
+      count = (x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1)
+
+      if a + @epsilon < d - @epsilon and b + @epsilon < e - @epsilon and
+           c + @epsilon < f - @epsilon and count in 1..512 do
+        positions = for x <- x0..x1, y <- y0..y1, z <- z0..z1, do: {x, y, z}
+
+        if Enum.all?(positions, &Map.has_key?(states, &1)) do
+          {:ok,
+           Enum.any?(positions, fn pos ->
+             BlockShapes.fetch(Map.fetch!(states, pos)) ==
+               {:context_required, "minecraft:powder_snow"}
+           end)}
+        else
+          {:error, :incomplete_environment_frame}
+        end
+      else
+        {:error, :environment_body_limit}
+      end
+    else
+      {:error, :invalid_environment_body}
+    end
+  end
+end

@@ -141,8 +141,9 @@ defmodule Valimc.PlayerPoseConnectionTest do
     assert Packets.move_entity(p, view) == []
     assert [packet] = Packets.move_entity(%{p | pose: :standing}, view)
     assert packet == Packets.player_pose(%{p | pose: :standing})
-    assert [_, _, _, pose] = Packets.move_entity(%{p | x: p.x + 10}, view)
+    assert [_, _, _, pose, frozen] = Packets.move_entity(%{p | x: p.x + 10}, view)
     assert pose == Packets.player_pose(p)
+    assert frozen == Packets.player_environment(p)
   end
 
   test "stalled source cannot apply stale intent or block an independent player", ctx do

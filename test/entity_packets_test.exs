@@ -100,6 +100,10 @@ defmodule Valimc.EntityPacketsTest do
   end
 
   test "invalid helper inputs cannot encode malformed or oversized entity state" do
+    for ticks <- [-1, 141, 1.0, nil] do
+      assert_raise ArgumentError, fn -> EntityPackets.metadata(300, frozen_ticks: ticks) end
+    end
+
     for id <- [-1, 0, 2_147_483_648, :item] do
       assert_raise ArgumentError, fn -> EntityPackets.motion(id, {0, 0, 0}) end
     end

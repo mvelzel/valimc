@@ -342,6 +342,7 @@ defmodule Valimc.DisconnectedInventoryTest do
     stale =
       Map.merge(stale, %{
         fall_distance: 2.75,
+        frozen_ticks: 19,
         game_mode: Valimc.GameMode.new(:creative),
         flying: false
       })
@@ -352,6 +353,7 @@ defmodule Valimc.DisconnectedInventoryTest do
       assert saved(ctx).inventory.carried.count == 10
       assert saved(ctx).pose.x == stale.pose.x
       assert saved(ctx).fall_distance == 2.75
+      assert saved(ctx).frozen_ticks == 19
       :sys.resume(disk)
       idle(ctx)
       final = records(owner)
@@ -360,6 +362,7 @@ defmodule Valimc.DisconnectedInventoryTest do
       verify(%{ctx | pose: stale.pose}, saved(ctx), cleanup)
       assert saved(ctx).transfer_sequence == 2
       assert saved(ctx).fall_distance == 2.75
+      assert saved(ctx).frozen_ticks == 19
     after
       if Process.alive?(disk), do: :sys.resume(disk)
     end

@@ -102,6 +102,9 @@ public class EntityOracle {
     cases.put("metadata_empty",new ClientboundSetEntityDataPacket(ID,List.of()));
     cases.put("metadata_clear_flags",new ClientboundSetEntityDataPacket(ID,List.of(value(flags,(byte)0),value(gravity,false))));
     var pose = accessor(Entity.class,"DATA_POSE");
+    var frozen = accessor(Entity.class,"DATA_TICKS_FROZEN");
+    for(int ticks:new int[]{0,1,2,127,128,139,140})
+      cases.put("frozen_"+ticks,new ClientboundSetEntityDataPacket(ID,List.of(value(frozen,ticks))));
     for (var selected : Pose.values())
       cases.put("pose_"+selected.getSerializedName(),new ClientboundSetEntityDataPacket(ID,List.of(value(pose,selected))));
     cases.put("pickup",new ClientboundTakeItemEntityPacket(ID,COLLECTOR,7));

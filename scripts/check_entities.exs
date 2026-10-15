@@ -78,6 +78,9 @@ packets =
         "pose_" <> pose ->
           EntityPackets.metadata(300, pose: String.to_existing_atom(pose))
 
+        "frozen_" <> ticks ->
+          EntityPackets.metadata(300, frozen_ticks: String.to_integer(ticks))
+
         "pickup" ->
           EntityPackets.pickup(300, 301, 7)
 

@@ -1,5 +1,5 @@
 defmodule Valimc.Protocol.EntityPackets do
-  @moduledoc "Bounded item-entity packet primitives; authoritative world ownership is separate."
+  @moduledoc "Bounded entity packet primitives; authoritative simulation ownership is separate."
   import Bitwise
   alias Valimc.Protocol.{EntityTypes, ItemStack, Packets, PackedVelocity, Wire}
   @max_entity_id 2_147_483_647
@@ -67,7 +67,7 @@ defmodule Valimc.Protocol.EntityPackets do
   end
 
   defp metadata_value({name, value})
-       when name in [:shared_flags, :no_gravity, :item_stack, :pose] do
+       when name in [:shared_flags, :no_gravity, :item_stack, :pose, :frozen_ticks] do
     fact = EntityTypes.field(name)
 
     payload =
@@ -86,6 +86,10 @@ defmodule Valimc.Protocol.EntityPackets do
         :pose ->
           check(match?({:ok, _}, Valimc.Physics.PlayerPose.dimensions(value)), "invalid pose")
           Wire.varint(Valimc.Physics.PlayerPose.id(value))
+
+        :frozen_ticks ->
+          check(Valimc.PlayerEnvironment.valid_ticks?(value), "invalid frozen ticks")
+          Wire.varint(value)
       end
 
     {fact["index"], [<<fact["index"]>>, Wire.varint(fact["serializer"]), payload]}

@@ -22,8 +22,9 @@ indexes validated tickets. None imply full parity.
    [Accepted-move fall accounting](tickets/VMC-015a.md) is validated (`84f5fb0`),
    including real jump/drop/powder-snow, flight and reconnect.
    [Gravity/drag](tickets/VMC-015b.md)'s pure kernel matches native cases/traces;
-   compose owner ticks and environmental behavior next. Retain the stale freezing
-   overlay after leaving powder until reconnect.
+   compose live velocity next. [Environment ticks](tickets/VMC-015c.md) share the
+   geometry lane and fix the stale powder freezing state; automated checks pass,
+   actual-client thaw/reconnect validation is next.
    [Geometry admission](tickets/VMC-011a8.md) is complete within measured preview
    scope (`8871985`); prepared samples retain owner fencing and bounded work.
 
@@ -37,6 +38,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
+| [VMC-015c](tickets/VMC-015c.md) | Powder contact/thaw, reconnect and baseline movement | Local checkpoint pending |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

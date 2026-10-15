@@ -94,12 +94,14 @@ defmodule Valimc.PlayerMotionQuery do
              destination,
              context(player, target.y),
              observations
-           ) do
+           ),
+         {:ok, powder} <- Valimc.PlayerEnvironment.sample(blocks, after_move.geometry.box) do
       {:ok,
        %{
          accepted: not rejected,
          pose: after_move.pose,
          moved: moved,
+         powder_snow: powder,
          fences: blocks.fences
        }}
     end

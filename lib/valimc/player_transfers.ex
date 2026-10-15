@@ -85,7 +85,8 @@ defmodule Valimc.PlayerTransfers do
   def prepare_creative_drop(_, _, _, _, _), do: {:error, :transfer_sequence_exhausted}
 
   defp strip_journal(%{pose: _, inventory: _} = snapshot),
-    do: Map.take(snapshot, [:pose, :inventory, :flying, :game_mode, :fall_distance])
+    do:
+      Map.take(snapshot, [:pose, :inventory, :flying, :game_mode, :fall_distance, :frozen_ticks])
 
   defp owned(%Inventory{} = inventory), do: Inventory.contents(inventory) ++ [inventory.carried]
 

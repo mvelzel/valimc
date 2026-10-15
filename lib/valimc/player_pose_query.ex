@@ -38,13 +38,16 @@ defmodule Valimc.PlayerPoseQuery do
     with {:ok, geometry} <- PlayerPose.geometry(:standing, position) do
       CollisionQuery.start_frame(geometry.fit_box, context, fn blocks ->
         with {:ok, frame} <- BlockCollisions.prepare(blocks) do
-          PoseFit.select(current, intent, position, context, %{
-            blocks: frame,
-            block_entities: %{},
-            entities: [],
-            border: %BorderSnapshot{},
-            subject: subject
-          })
+          with {:ok, result} <-
+                 PoseFit.select(current, intent, position, context, %{
+                   blocks: frame,
+                   block_entities: %{},
+                   entities: [],
+                   border: %BorderSnapshot{},
+                   subject: subject
+                 }),
+               {:ok, powder} <- Valimc.PlayerEnvironment.sample(frame, result.geometry.box),
+               do: {:ok, Map.put(result, :powder_snow, powder)}
         end
       end)
     end

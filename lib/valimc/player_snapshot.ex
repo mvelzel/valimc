@@ -7,7 +7,7 @@ defmodule Valimc.PlayerSnapshot do
   @inventory_bytes 524_288
   @outbox_bytes 55 + 5 * (40 + 65_536)
   @max_sequence 18_446_744_073_709_551_615
-  @max_bytes 56 + 4 + 3 + 8 + 12 + @inventory_bytes + @outbox_bytes + 32
+  @max_bytes 56 + 4 + 3 + 8 + 4 + 12 + @inventory_bytes + @outbox_bytes + 32
 
   def max_bytes, do: @max_bytes
 
@@ -17,6 +17,11 @@ defmodule Valimc.PlayerSnapshot do
     snapshot =
       if Map.has_key?(player, :motion),
         do: Map.put(snapshot, :fall_distance, player.motion.fall_distance),
+        else: snapshot
+
+    snapshot =
+      if Map.has_key?(player, :environment),
+        do: Map.put(snapshot, :frozen_ticks, player.environment.frozen_ticks),
         else: snapshot
 
     snapshot =
@@ -80,6 +85,18 @@ defmodule Valimc.PlayerSnapshot do
         )
 
         {6, [<<snapshot.fall_distance::float-64>>, journal]}
+      else
+        {version, journal}
+      end
+
+    {version, journal} =
+      if Map.has_key?(snapshot, :frozen_ticks) do
+        check(
+          version == 6 and Valimc.PlayerEnvironment.valid_ticks?(snapshot.frozen_ticks),
+          :invalid_frozen_ticks
+        )
+
+        {7, [<<snapshot.frozen_ticks::32>>, journal]}
       else
         {version, journal}
       end
@@ -149,9 +166,18 @@ defmodule Valimc.PlayerSnapshot do
 
       <<"VMCPOSE", version, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
         yaw::float-32, pitch::float-32, @data_version::32, rest::binary>>
-      when version in [5, 6] ->
+      when version in [5, 6, 7] ->
+        {environment, rest} =
+          if version == 7 do
+            <<frozen::32, rest::binary>> = rest
+            check(Valimc.PlayerEnvironment.valid_ticks?(frozen), :invalid_player_file)
+            {%{frozen_ticks: frozen}, rest}
+          else
+            {%{}, rest}
+          end
+
         {fall, rest} =
-          if version == 6 do
+          if version >= 6 do
             <<distance::float-64, rest::binary>> = rest
             check(Valimc.PlayerMotion.valid_distance?(distance), :invalid_player_file)
             {%{fall_distance: distance}, rest}
@@ -173,7 +199,11 @@ defmodule Valimc.PlayerSnapshot do
             decode_outbox(uuid, sequence, outbox)
           )
 
-        {:ok, snapshot |> Map.merge(%{game_mode: mode, flying: flying == 1}) |> Map.merge(fall)}
+        {:ok,
+         snapshot
+         |> Map.merge(%{game_mode: mode, flying: flying == 1})
+         |> Map.merge(fall)
+         |> Map.merge(environment)}
 
       _ ->
         {:error, :invalid_player_file}

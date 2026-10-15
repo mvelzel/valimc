@@ -6,6 +6,32 @@ defmodule Valimc.PlayerSnapshotTest do
   defp uuid, do: <<27::128>>
   defp seal(payload), do: payload <> :crypto.hash(:sha256, payload)
 
+  test "freeze state shares the bounded checksummed player snapshot" do
+    player =
+      Map.merge(pose(), %{
+        game_mode: Valimc.GameMode.new(:creative),
+        abilities: Valimc.PlayerAbilities.for_mode(:creative),
+        motion: %Valimc.PlayerMotion{fall_distance: 3.25},
+        environment: %Valimc.PlayerEnvironment{frozen_ticks: 88}
+      })
+
+    original = PlayerSnapshot.capture(player, %Inventory{})
+    assert {:ok, <<"VMCPOSE", 7, _::binary>> = bytes} = PlayerSnapshot.encode(uuid(), original)
+    assert {:ok, decoded} = PlayerSnapshot.decode(bytes, uuid())
+    assert decoded.frozen_ticks == 88 and decoded.fall_distance == 3.25
+    size = byte_size(bytes) - 32
+    <<payload::binary-size(^size), _::binary-size(32)>> = bytes
+    <<header::binary-size(60), _frozen::32, rest::binary>> = payload
+
+    for value <- [141, 0xFFFFFFFF] do
+      invalid = seal(<<header::binary, value::32, rest::binary>>)
+      assert {:error, :invalid_player_file} = PlayerSnapshot.decode(invalid, uuid())
+
+      assert {:error, :invalid_frozen_ticks} =
+               PlayerSnapshot.encode(uuid(), %{original | frozen_ticks: value})
+    end
+  end
+
   test "fall distance persists with inventory/journal state and rejects invalid sealed values" do
     player =
       Map.merge(pose(), %{

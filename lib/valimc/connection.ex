@@ -20,6 +20,7 @@ defmodule Valimc.Connection do
     Metrics,
     Players,
     PlayerAbilities,
+    PlayerEnvironment,
     PlayerInput,
     PlayerMotion,
     PlayerMotionQuery,
@@ -30,6 +31,8 @@ defmodule Valimc.Connection do
     TransferDelivery,
     World
   }
+
+  alias Valimc.World.TickClock
 
   alias Valimc.World.{ItemReplication, WeatherReplication}
   import Bitwise
@@ -120,6 +123,8 @@ defmodule Valimc.Connection do
        motion_job: nil,
        motion_pending: nil,
        motion_window: nil,
+       simulation_clock: nil,
+       simulation_due: false,
        item_replication: ItemReplication.new(),
        clock_version: nil,
        weather_view: nil,
@@ -469,7 +474,7 @@ defmodule Valimc.Connection do
 
         true ->
           case result do
-            {:ok, %{accepted: true, pose: pose, fences: fences}} ->
+            {:ok, %{accepted: true, pose: pose, fences: fences, powder_snow: powder}} ->
               if Enum.all?(fences, fn {key, %{owner: owner}} ->
                    World.existing_owner(key) == {:ok, owner}
                  end) do
@@ -492,8 +497,6 @@ defmodule Valimc.Connection do
                 if pose != state.player.pose,
                   do: send_packets(state, [Packets.player_pose(player)])
 
-                Players.update(self(), player)
-
                 next = %{
                   state
                   | player: player,
@@ -502,7 +505,12 @@ defmodule Valimc.Connection do
                 }
 
                 send(self(), :drain)
-                {:noreply, next |> monitor_pose_sources(fences) |> update_view()}
+
+                {:noreply,
+                 next
+                 |> observe_environment(powder)
+                 |> monitor_pose_sources(fences)
+                 |> update_view()}
               else
                 {:noreply, correct_motion(state, :movement_source_corrections)}
               end
@@ -551,7 +559,7 @@ defmodule Valimc.Connection do
       state = %{state | pose_job: nil}
 
       case result do
-        {:ok, %{pose: pose, fences: fences}} ->
+        {:ok, %{pose: pose, fences: fences, powder_snow: powder}} ->
           if System.monotonic_time(:millisecond) < job.deadline and
                pose_signature(state) == job.signature and
                Enum.all?(fences, fn {key, %{owner: owner}} ->
@@ -560,11 +568,14 @@ defmodule Valimc.Connection do
             player = %{state.player | pose: pose}
 
             if pose != state.player.pose do
-              Players.update(self(), player)
               send_packets(state, [Packets.player_pose(player)])
             end
 
-            state = monitor_pose_sources(%{state | player: player}, fences)
+            state =
+              %{state | player: player}
+              |> observe_environment(powder)
+              |> monitor_pose_sources(fences)
+
             {:noreply, %{state | pose_checked: pose_signature(state)}}
           else
             {:noreply, state}
@@ -628,6 +639,31 @@ defmodule Valimc.Connection do
       end
     end)
   end
+
+  def handle_info(
+        {:player_tick, token},
+        %{phase: :play, simulation_clock: %TickClock{} = clock} = state
+      ) do
+    guard_connection(state, fn ->
+      case TickClock.advance(clock, token, System.monotonic_time(:millisecond)) do
+        {:ok, next, late, delay} ->
+          Process.send_after(self(), {:player_tick, next.token}, delay)
+          Metrics.add(:player_ticks)
+          if late > 0, do: Metrics.add(:player_tick_lateness_ms, late)
+          state = %{state | simulation_clock: next, simulation_due: true}
+          {:noreply, state |> start_motion() |> sample_pose()}
+
+        {:early, next, delay} ->
+          Process.send_after(self(), {:player_tick, next.token}, delay)
+          {:noreply, %{state | simulation_clock: next}}
+
+        :stale ->
+          {:noreply, state}
+      end
+    end)
+  end
+
+  def handle_info({:player_tick, _}, state), do: {:noreply, state}
 
   def handle_info(:publish_movement, state) do
     guard_connection(state, fn ->
@@ -1171,6 +1207,7 @@ defmodule Valimc.Connection do
       abilities: GameMode.abilities(mode, false),
       input: %PlayerInput{},
       motion: %PlayerMotion{},
+      environment: %PlayerEnvironment{},
       pose: :standing,
       ready: false
     }
@@ -1206,7 +1243,8 @@ defmodule Valimc.Connection do
                 PlayerMotion.flight(
                   %PlayerMotion{fall_distance: Map.get(snapshot, :fall_distance, 0.0)},
                   abilities.flying
-                )
+                ),
+              environment: %PlayerEnvironment{frozen_ticks: Map.get(snapshot, :frozen_ticks, 0)}
           }
 
           {pid, fence, player, inventory, pending}
@@ -1269,6 +1307,7 @@ defmodule Valimc.Connection do
       Packets.packet("game_event", <<13, 0.0::float-32>>),
       Packets.player_info(state.player),
       Packets.interaction_attributes(state.player),
+      Packets.player_environment(state.player),
       Packets.chat(
         "Welcome to ValiMC. Development preview (#{state.player.game_mode.current}); survival is being built. /help"
       )
@@ -1282,6 +1321,9 @@ defmodule Valimc.Connection do
     state =
       Enum.reduce(existing, state, fn player, acc -> event(acc, {:player_joined, player}) end)
 
+    clock = TickClock.new(make_ref(), System.monotonic_time(:millisecond))
+    Process.send_after(self(), {:player_tick, clock.token}, 50)
+    state = %{state | simulation_clock: clock}
     Process.send_after(self(), :publish_movement, 50)
     Process.send_after(self(), :save_player, Valimc.config(:player_save_interval_ms))
     state
@@ -1488,8 +1530,9 @@ defmodule Valimc.Connection do
 
   defp sample_pose(%{pose_job: nil, motion_pending: nil, teleport_pending: false} = state) do
     signature = pose_signature(state)
+    active = state.simulation_due and PlayerEnvironment.active?(state.player.environment)
 
-    if PlayerInput.loaded?(state.player.input) and signature != state.pose_checked do
+    if PlayerInput.loaded?(state.player.input) and (signature != state.pose_checked or active) do
       deadline = System.monotonic_time(:millisecond) + 250
 
       case PlayerPoseQuery.start(state.player) do
@@ -1505,6 +1548,28 @@ defmodule Valimc.Connection do
   end
 
   defp sample_pose(state), do: state
+
+  defp observe_environment(state, powder) do
+    previous = state.player.environment
+
+    environment =
+      PlayerEnvironment.observe(
+        previous,
+        powder,
+        state.simulation_due,
+        not PlayerEnvironment.can_freeze?(state.player, state.inventory)
+      )
+
+    player = %{state.player | environment: environment}
+
+    if environment.frozen_ticks != previous.frozen_ticks or
+         (previous.powder_snow and not powder) do
+      send_packets(state, [Packets.player_environment(player)])
+    end
+
+    Players.update(self(), player)
+    %{state | player: player, simulation_due: false}
+  end
 
   defp monitor_pose_sources(state, fences) do
     owners = MapSet.new(fences, fn {_, %{owner: owner}} -> owner end)
@@ -1642,7 +1707,8 @@ defmodule Valimc.Connection do
                 Packets.player_info(player),
                 Packets.add_entity(player),
                 Packets.player_flags(player),
-                Packets.player_pose(player)
+                Packets.player_pose(player),
+                Packets.player_environment(player)
               ]
 
             ^view ->

@@ -56,6 +56,18 @@ defmodule Valimc.PlayerMotionConnectionTest do
 
   defp state(pid), do: :sys.get_state(pid)
 
+  defp await_frozen(client, entity, predicate) do
+    value = get_in(client, [:entity_frozen, entity])
+
+    if is_integer(value) and predicate.(value) do
+      client
+    else
+      {id, body, client} = Client.read(client)
+      name = Data.name(:play, :clientbound, id)
+      await_frozen(Client.auto_reply(client, :play, name, body), entity, predicate)
+    end
+  end
+
   defp wait(fun, left \\ 400) do
     if result = fun.(),
       do: result,
@@ -76,6 +88,79 @@ defmodule Valimc.PlayerMotionConnectionTest do
       ),
       Wire.frame(Data.id(:play, :serverbound, "client_tick_end"), <<>>, client.threshold)
     ])
+  end
+
+  test "stationary server ticks freeze, replicate to a peer and thaw after relocation", ctx do
+    [first, second] = ctx.names
+    {client, pid} = login(first)
+    uuid = Connection.offline_uuid(second)
+    path = PlayerStore.path(Valimc.config(:world_path), uuid)
+
+    {:ok, bytes} =
+      PlayerSnapshot.encode(
+        uuid,
+        PlayerSnapshot.capture(%{ctx.pos | x: ctx.pos.x + 2}, Inventory.new())
+      )
+
+    File.write!(path, bytes)
+    {peer, _} = login(second)
+    entity = state(pid).player.entity_id
+    :ok = World.set_block({floor(ctx.pos.x), 64, floor(ctx.pos.z)}, 30519)
+    wait(fn -> state(pid).player.environment.frozen_ticks >= 4 end)
+    client = await_frozen(client, entity, &(&1 >= 4))
+    peer = await_frozen(peer, entity, &(&1 >= 4))
+    assert state(pid).player.y == 64.0
+
+    # A legal creative armor write changes immunity, not the contact sample.
+    Client.send_packet(client, :play, "set_creative_mode_slot", [
+      <<5::signed-16>>,
+      ItemStack.encode(ItemStack.new("leather_helmet"))
+    ])
+
+    wait(fn -> state(pid).inventory.slots[5] != nil end)
+    wait(fn -> state(pid).player.environment.frozen_ticks == 0 end)
+    assert state(pid).player.environment.powder_snow
+    client = await_frozen(client, entity, &(&1 == 0))
+
+    Client.send_packet(client, :play, "set_creative_mode_slot", [
+      <<5::signed-16>>,
+      ItemStack.encode(nil)
+    ])
+
+    wait(fn -> state(pid).player.environment.frozen_ticks >= 4 end)
+    client = await_frozen(client, entity, &(&1 >= 4))
+    peer = await_frozen(peer, entity, &(&1 >= 4))
+
+    client = Client.teleport(client, pid, %{ctx.pos | x: ctx.pos.x + 2})
+    wait(fn -> state(pid).player.environment.frozen_ticks == 0 end)
+    _client = await_frozen(client, entity, &(&1 == 0))
+    _peer = await_frozen(peer, entity, &(&1 == 0))
+    refute state(pid).player.environment.powder_snow
+  end
+
+  test "stalled environment reads preserve effects until a fresh source can answer", ctx do
+    {client, pid} = login(hd(ctx.names))
+    :ok = World.set_block({floor(ctx.pos.x), 64, floor(ctx.pos.z)}, 30519)
+    wait(fn -> state(pid).player.environment.frozen_ticks >= 3 end)
+    {:ok, {owner, _}} = World.existing_owner(ctx.key)
+    :sys.suspend(owner)
+
+    try do
+      job = wait(fn -> state(pid).pose_job end)
+      before = state(pid).player.environment.frozen_ticks
+      Process.sleep(80)
+      assert state(pid).player.environment.frozen_ticks == before
+      client = Client.teleport(client, pid, %{ctx.pos | x: ctx.pos.x + 2})
+      send(pid, {job.task.ref, {:ok, %{pose: :standing, powder_snow: true, fences: %{}}}})
+      assert state(pid).player.environment.frozen_ticks == before
+      :sys.resume(owner)
+      wait(fn -> state(pid).player.environment.frozen_ticks == 0 end)
+      assert Process.alive?(pid)
+      move(client, %{ctx.pos | x: ctx.pos.x + 2.2})
+      wait(fn -> state(pid).player.x == ctx.pos.x + 2.2 end)
+    after
+      if Process.alive?(owner), do: :sys.resume(owner)
+    end
   end
 
   test "only accepted displacement accrues falls; reports and tick boundaries retain their meaning",
