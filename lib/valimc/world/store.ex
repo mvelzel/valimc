@@ -1,6 +1,6 @@
 defmodule Valimc.World.Store do
   use GenServer, restart: :temporary
-  alias Valimc.World.{ItemRecords, Items}
+  alias Valimc.World.{Chunk, ItemRecords, Items, MiningRecord}
 
   @moduledoc "Independently supervised resource I/O with one monitored owner and fenced writes."
   def start_link({key, owner}),
@@ -51,8 +51,15 @@ defmodule Valimc.World.Store do
     do:
       GenServer.cast(pid, {:items, lease, Items.records(items), receipts, {owner, epoch}, token})
 
+  def commit_mining(pid, lease, %{items: items} = proposal, owner, token) do
+    proposal = proposal |> Map.delete(:items) |> Map.put(:records, Items.records(items))
+    GenServer.cast(pid, {:mining, lease, proposal, owner, token})
+  end
+
   def item_path(nil, _), do: nil
   def item_path(base, {rx, rz}), do: Path.join(base, "r.#{rx}.#{rz}.items")
+  def mining_path(nil, _), do: nil
+  def mining_path(base, {rx, rz}), do: Path.join(base, "r.#{rx}.#{rz}.mining")
   @impl true
   def init({{rx, rz} = key, owner}) do
     path =
@@ -65,6 +72,8 @@ defmodule Valimc.World.Store do
      %{
        blocks: path,
        items: item_path(Valimc.config(:world_path), key),
+       mining: mining_path(Valimc.config(:world_path), key),
+       recovered: false,
        key: key,
        owner: owner,
        monitor: Process.monitor(owner),
@@ -73,8 +82,7 @@ defmodule Valimc.World.Store do
   end
 
   @impl true
-  def handle_call(:claim, {owner, _}, %{owner: owner} = state),
-    do: {:reply, {:ok, state.lease}, state}
+  def handle_call(:claim, {owner, _}, %{owner: owner} = state), do: claim_ready(state)
 
   def handle_call(:claim, {owner, _}, state) do
     if Process.alive?(state.owner) do
@@ -82,30 +90,12 @@ defmodule Valimc.World.Store do
     else
       Process.demonitor(state.monitor, [:flush])
       next = %{state | owner: owner, monitor: Process.monitor(owner), lease: make_ref()}
-      {:reply, {:ok, next.lease}, next}
+      claim_ready(next)
     end
   end
 
-  def handle_call(:load, _from, %{blocks: path} = state) do
-    edits =
-      case path && File.read(path, [:raw]) do
-        {:ok, data} ->
-          {:valimc_region, 1, edits} = :erlang.binary_to_term(data, [:safe])
-          true = is_map(edits)
-          edits
-
-        {:error, :enoent} ->
-          %{}
-
-        nil ->
-          %{}
-
-        {:error, reason} ->
-          raise File.Error, reason: reason, action: "read region", path: path
-      end
-
-    {:reply, edits, state}
-  end
+  def handle_call(:load, _from, %{blocks: path} = state),
+    do: {:reply, read_blocks(path), state}
 
   def handle_call({:flush, lease, edits}, _from, %{lease: lease} = state),
     do: {:reply, write(state.blocks, edits), state}
@@ -154,6 +144,28 @@ defmodule Valimc.World.Store do
     {:noreply, state}
   end
 
+  def handle_cast({:mining, lease, proposal, {owner, epoch}, token}, %{lease: lease} = state) do
+    case mining_proposal(state.key, proposal) do
+      {:ok, journal, item_bytes} ->
+        result =
+          with :ok <- write_atomic(state.mining, journal),
+               :ok <- write(state.blocks, proposal.edits),
+               :ok <- write_atomic(state.items, item_bytes),
+               do: remove_mining(state.mining)
+
+        send(owner, {:resource, epoch, {:mining_saved, self(), token, result}})
+
+        case result do
+          :ok -> {:noreply, state}
+          {:error, reason} -> {:stop, {:mining_storage_failed, reason}, state}
+        end
+
+      {:error, _} = error ->
+        send(owner, {:resource, epoch, {:mining_saved, self(), token, error}})
+        {:noreply, state}
+    end
+  end
+
   def handle_cast({:snapshot, _, _, {owner, epoch}, revision}, state) do
     send(owner, {:resource, epoch, {:saved, self(), revision, {:error, :stale_store_lease}}})
     {:noreply, state}
@@ -161,6 +173,11 @@ defmodule Valimc.World.Store do
 
   def handle_cast({:items, _, _, _, {owner, epoch}, token}, state) do
     send(owner, {:resource, epoch, {:items_saved, self(), token, {:error, :stale_store_lease}}})
+    {:noreply, state}
+  end
+
+  def handle_cast({:mining, _, _, {owner, epoch}, token}, state) do
+    send(owner, {:resource, epoch, {:mining_saved, self(), token, {:error, :stale_store_lease}}})
     {:noreply, state}
   end
 
@@ -187,9 +204,108 @@ defmodule Valimc.World.Store do
     end
   end
 
-  defp write_items(nil, _bytes), do: :ok
+  defp claim_ready(state) do
+    case recover_mining(state) do
+      :ok ->
+        {:reply, {:ok, state.lease}, %{state | recovered: true}}
 
-  defp write_items(path, bytes) do
+      {:error, reason} ->
+        {:stop, {:mining_recovery_failed, reason}, {:error, {:mining_recovery_failed, reason}},
+         state}
+    end
+  end
+
+  defp mining_proposal(key, %{
+         edits: edits,
+         changes: changes,
+         records: records,
+         receipts: receipts
+       })
+       when is_map(edits) and map_size(edits) <= 131_072 and is_map(changes) do
+    with {:ok, item_bytes} <- ItemRecords.encode(key, records, receipts),
+         {:ok, journal} <- MiningRecord.encode(key, changes, item_bytes),
+         true <- Enum.all?(changes, fn {pos, block} -> Chunk.block_at(edits, pos) == block end) do
+      {:ok, journal, item_bytes}
+    else
+      _ -> {:error, :invalid_mining_proposal}
+    end
+  end
+
+  defp mining_proposal(_, _), do: {:error, :invalid_mining_proposal}
+
+  defp recover_mining(%{recovered: true}), do: :ok
+  defp recover_mining(%{mining: nil}), do: :ok
+
+  defp recover_mining(state) do
+    case read_mining(state.mining, state.key) do
+      {:ok, nil} ->
+        :ok
+
+      {:ok, proposal} ->
+        edits =
+          Enum.reduce(proposal.edits, read_blocks(state.blocks), fn {{_, y, _} = pos, block},
+                                                                    acc ->
+            if block == Chunk.base(y), do: Map.delete(acc, pos), else: Map.put(acc, pos, block)
+          end)
+
+        with true <- map_size(edits) <= 131_072,
+             :ok <- write(state.blocks, edits),
+             :ok <- write_atomic(state.items, proposal.item_bytes) do
+          remove_mining(state.mining)
+        else
+          false -> {:error, :region_edit_limit}
+          error -> error
+        end
+
+      error ->
+        error
+    end
+  rescue
+    error in [File.Error, MatchError, ArgumentError] ->
+      {:error, {:invalid_region_file, Exception.message(error)}}
+  end
+
+  defp read_mining(path, key) do
+    case File.open(path, [:read, :raw, :binary], &:file.read(&1, MiningRecord.max_bytes() + 1)) do
+      {:ok, {:ok, bytes}} -> MiningRecord.decode(bytes, key)
+      {:error, :enoent} -> {:ok, nil}
+      {:ok, :eof} -> {:error, :invalid_mining_record}
+      {:ok, {:error, reason}} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp read_blocks(path) do
+    case path && File.read(path, [:raw]) do
+      {:ok, data} ->
+        {:valimc_region, 1, edits} = :erlang.binary_to_term(data, [:safe])
+        true = is_map(edits)
+        edits
+
+      {:error, :enoent} ->
+        %{}
+
+      nil ->
+        %{}
+
+      {:error, reason} ->
+        raise File.Error, reason: reason, action: "read region", path: path
+    end
+  end
+
+  defp remove_mining(nil), do: :ok
+
+  defp remove_mining(path) do
+    case File.rm(path) do
+      {:error, :enoent} -> :ok
+      result -> result
+    end
+  end
+
+  defp write_items(path, bytes), do: write_atomic(path, bytes)
+  defp write_atomic(nil, _bytes), do: :ok
+
+  defp write_atomic(path, bytes) do
     with :ok <- File.mkdir_p(Path.dirname(path)),
          :ok <- File.write(path <> ".tmp", bytes, [:binary, :sync]),
          :ok <- File.rename(path <> ".tmp", path),
