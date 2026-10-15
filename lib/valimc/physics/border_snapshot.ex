@@ -66,10 +66,19 @@ defmodule Valimc.Physics.BorderSnapshot do
   def distance(_, _), do: {:error, :invalid_border_query}
 
   def no_collision?(border, subject, box) do
+    with {:ok, shapes} <- colliders(border, subject, box), do: {:ok, shapes == []}
+  end
+
+  def colliders(border, subject, box) do
     with true <- query?(box) and (is_nil(subject) or match?({_, _}, subject)),
          {:ok, bounds} <- bounds(border),
          {:ok, close} <- close?(bounds, subject, box) do
-      {:ok, not close or not intersects?(bounds, box)}
+      if close do
+        shape = outside(bounds)
+        {:ok, if(VoxelOps.intersects?(shape, VoxelOps.world_box(box)), do: [shape], else: [])}
+      else
+        {:ok, []}
+      end
     else
       false -> {:error, :invalid_border_query}
       error -> error
@@ -87,16 +96,14 @@ defmodule Valimc.Physics.BorderSnapshot do
     end
   end
 
-  defp intersects?({a, c, b, d}, box) do
-    query = VoxelOps.world_box(box)
+  defp outside({a, c, b, d}) do
     x0 = floor(a) * 1.0
     x1 = ceil(b) * 1.0
     z0 = floor(c) * 1.0
     z1 = ceil(d) * 1.0
 
     if x0 == x1 or z0 == z1 do
-      universe = VoxelOps.world_box({-@extent, -@extent, -@extent, @extent, @extent, @extent})
-      VoxelOps.intersects?(universe, query)
+      VoxelOps.world_box({-@extent, -@extent, -@extent, @extent, @extent, @extent})
     else
       # Keep the union's internal planes: four independent half-space tests
       # differ from native voxel merging at epsilon-sized corner intersections.
@@ -109,14 +116,12 @@ defmodule Valimc.Physics.BorderSnapshot do
             x != 1 or z != 1,
             do: {elem(xs, x), -@extent, elem(zs, z), elem(xs, x + 1), @extent, elem(zs, z + 1)}
 
-      outside = %Shape{
+      %Shape{
         axes: {xs, {-@extent, @extent}, zs},
         sizes: {3, 1, 3},
         bits: <<239, 1>>,
         boxes: boxes
       }
-
-      VoxelOps.intersects?(outside, query)
     end
   end
 

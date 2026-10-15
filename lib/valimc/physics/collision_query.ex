@@ -9,13 +9,17 @@ defmodule Valimc.Physics.CollisionQuery do
 
   @doc "Start one query. Consume its Task result/monitor or cancel with Task.shutdown/2."
   def start(box, context \\ CollisionContext.empty()),
-    do: prepare(box, context, &BlockCollisions.collect(box, &1, context), false)
+    do: prepare(box, context, &BlockCollisions.collect(box, &1, context), false, false)
 
   @doc "Run bounded geometry work on a sampled frame, then recheck every source revision."
   def start_frame(box, context, finish) when is_function(finish, 1),
-    do: prepare(box, context, finish, true)
+    do: prepare(box, context, finish, true, false)
 
-  defp prepare(box, context, finish, verify) do
+  @doc "Authoritative movement may request cold admission; a loading source still fails closed."
+  def start_movement_frame(box, context, finish) when is_function(finish, 1),
+    do: prepare(box, context, finish, true, true)
+
+  defp prepare(box, context, finish, verify, admit) do
     with true <- CollisionContext.valid?(context),
          {:ok, plan} <- BlockScan.plan(box),
          true <-
@@ -32,14 +36,14 @@ defmodule Valimc.Physics.CollisionQuery do
          true <-
            Enum.sum(Enum.map(groups, fn {_, positions} -> div(length(positions) + 127, 128) end)) <=
              @max_batches do
-      launch(groups, finish, verify)
+      launch(groups, finish, verify, admit)
     else
       false -> {:error, :invalid_collision_query}
       {:error, _} = error -> error
     end
   end
 
-  defp launch(groups, finish, verify) do
+  defp launch(groups, finish, verify, admit) do
     caller = self()
     deadline = now() + @timeout
 
@@ -48,7 +52,7 @@ defmodule Valimc.Physics.CollisionQuery do
        monitor = Process.monitor(caller)
 
        try do
-         with {:ok, requests} <- request(groups),
+         with {:ok, requests} <- request(groups, admit),
               {:ok, observations} <- gather(requests, [], deadline, monitor, caller),
               {:ok, result} <- finish.(observations),
               :ok <- verify_frame(verify, observations, deadline, monitor, caller) do
@@ -90,10 +94,10 @@ defmodule Valimc.Physics.CollisionQuery do
     end
   end
 
-  defp request(groups) do
+  defp request(groups, admit) do
     # Resolve all incarnations before enqueueing any reads; never call World.owner/1 here.
     Enum.reduce_while(groups, {:ok, []}, fn {key, positions}, {:ok, owners} ->
-      case World.existing_owner(key) do
+      case source(key, admit) do
         {:ok, owner} -> {:cont, {:ok, [{key, owner, Enum.chunk_every(positions, 128)} | owners]}}
         {:error, reason} -> {:halt, {:error, {:region, key, reason}}}
       end
@@ -107,6 +111,18 @@ defmodule Valimc.Physics.CollisionQuery do
 
       error ->
         error
+    end
+  end
+
+  defp source(key, admit) do
+    case World.existing_owner(key) do
+      {:error, _} when admit ->
+        # Disk loading stays in its resource owner. Never await World.owner/1
+        # here: the player deadline can cancel this worker even during admission.
+        with {:ok, _} <- World.region(key), do: World.existing_owner(key)
+
+      result ->
+        result
     end
   end
 
