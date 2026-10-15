@@ -36,7 +36,8 @@ indexes validated tickets. None imply full parity.
    lava/current/input/flight/reconnect, 578 tests, full native integration,
    production release and frozen preview loads. [Swimming state/geometry](tickets/VMC-015d2.md)
    has live pose/flag ownership and 65 affected tests passing; frozen client
-   validation is next. Steering/effects and survival consequences remain open.
+   validation awaits CUA access (Mac locked). [Pitch steering](tickets/VMC-015d3.md)
+   has native kernel proof; live wiring follows. Effects/survival consequences remain open.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
