@@ -4,26 +4,39 @@ defmodule Valimc.Physics.FluidContact do
   @inset 0.001
   @max_cells 512
 
-  def sample(%Frame{states: states}, box) when is_map(states) and map_size(states) <= 2048 do
+  def sample(frame, box) do
+    with {:ok, contacts} <- contacts(frame, box) do
+      {:ok,
+       Enum.reduce(contacts, %{water: 0.0, lava: 0.0}, fn c, depths ->
+         Map.update!(depths, c.fluid.kind, &max(&1, c.depth))
+       end)}
+    end
+  end
+
+  @doc "Ordered nonempty contacts for current accumulation; all dependencies retain frame fences."
+  def contacts(%Frame{states: states}, box) when is_map(states) and map_size(states) <= 2048 do
     with {:ok, positions} <- positions(box) do
-      Enum.reduce_while(positions, {:ok, %{water: 0.0, lava: 0.0}}, fn {_, y, _} = p,
-                                                                       {:ok, depths} ->
+      Enum.reduce_while(positions, {:ok, []}, fn {_, y, _} = p, {:ok, contacts} ->
         with {:ok, fluid} <- at(states, p),
              {:ok, surface} <- surface(states, p, fluid) do
           next =
             if fluid.kind != :empty and y + surface >= elem(box, 1) + @inset,
-              do: Map.update!(depths, fluid.kind, &max(&1, y + surface - elem(box, 1))),
-              else: depths
+              do: [%{position: p, fluid: fluid, depth: y + surface - elem(box, 1)} | contacts],
+              else: contacts
 
           {:cont, {:ok, next}}
         else
           error -> {:halt, error}
         end
       end)
+      |> case do
+        {:ok, contacts} -> {:ok, Enum.reverse(contacts)}
+        error -> error
+      end
     end
   end
 
-  def sample(_, _), do: {:error, :invalid_fluid_frame}
+  def contacts(_, _), do: {:error, :invalid_fluid_frame}
 
   @doc "Native body scan order, bounded independently of the supplied frame."
   def positions(box) do

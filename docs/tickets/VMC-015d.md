@@ -50,6 +50,16 @@ input/swim forces and live composition remain open; this is not a full physics
 or world-collision oracle. The new native probes are in the integration runner;
 the kernel checkpoint remains unpublished until its live/client gate.
 
+Current checkpoint: all 35,723 native flow barriers/support classifications match
+(41 compact property sets; 114 block-entity-dependent states stay explicit).
+`FluidFlow` matches 13,312 native vectors; `FluidCurrents` matches 12,288 actual
+`EntityFluidInteraction` player depth/current results, including shallow weighting,
+minimum push, mixed fluids, fast lava and unaffected players. Required native cells
+fit the existing frame. Eleven affected flow/contact tests pass; the refactored
+contact scan still matches 6,120 native depths. Evidence: `.local/fluid-{boundaries,flow,currents}-{native,check}.log`
+and `.local/fluid-flow-tests.log`. Current support for active shulker/piston block
+entities, input/swim forces and live composition remain open; missing context fails.
+
 Client gate: actual water/lava entry/exit, shallow/deep and waterlogged boundaries,
 swim/sink, wall/surface escape, flight, saved velocity and dry impulse regression.
 Damage/oxygen, effects/complete swimming attributes and propagation need explicit
