@@ -1,6 +1,6 @@
 # VMC-015g — Slowing block contacts
 
-Status: Default live contacts client-validated; full integration/load gates pending. October 15, 2026.
+Status: Default live contacts validated/published; weaving lifecycle and damage remain follow-ups. October 15, 2026.
 
 Acceptance: native player cobweb/weaving, berry bush and powder-snow contact
 selection; reset fall on contact and retain the last ordered multiplier until its
@@ -111,3 +111,16 @@ separate production build succeeds. Initial full native run exposed missing game
 mode in three probe fixtures; targeted repair passes 3,360 swim, 2,736 fluid and
 1,920 climb/frame cases. Full native rerun uses immutable `bc4eb1e` (same live
 implementation; fixture repair only), `.local/stuck-block-checkpoint.json`.
+
+Published through `bc4eb1e`. Full native integration passes, including plaintext
+and encrypted TCP (`.local/stuck-block-frozen-native.log`); 622 tests and production
+build logs are `.local/stuck-block-{full-tests,production}.log`.
+Controlled static-water loads pass on that frozen source: 512 spread players /
+51,200 moves in 5.113s and 128 dense / 12,800 in 5.525s, zero corrections/disconnects,
+all positions/swimming states verified. Previous `59de8fc` control: 512 / 51,200 /
+5.153s, likewise clean. Raw results: `bench/results/slowing-*.json`; manifests,
+hashes and exact source mapping: `.local/slowing-block-load-provenance.json`.
+Native integration and GUI clients were closed before these runs. Scripted static
+pools do not establish survival capacity or fastest-server status. Default contact
+work needs no repeated gate; future status-effect ownership must supply weaving,
+and health/damage remain VMC-017/VMC-037 work.

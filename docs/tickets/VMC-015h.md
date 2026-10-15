@@ -34,3 +34,11 @@ exclusions and a real TCP survival rejection followed by released-Shift recovery
 The frozen slowing runtime stays unchanged. Evidence:
 `.local/sneak-live-tests.log`, `.local/sneak-edge-check.log`.
 Next: freeze this checkpoint and delegate its actual ledge/corner/slab client gate.
+
+Frozen `6ca22ef`, `.local/sneak-live-checkpoint`, built and launched successfully.
+Client gate pending October 15, ~21:00 CEST: CUA reports locked Mac/automatic unlock
+failure, including inventory refresh. Direct run-01 joined, but no graphical
+scenario or fixture mutation occurred. Owned client stopped/waited, zero players,
+same runtime and paused noon retained. Report reviewed:
+`.local/client-tests/VMC-015h/report.md`. Resume fresh run-02 when GUI access returns;
+do not recreate the release or repeat completed slowing validation.

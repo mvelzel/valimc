@@ -11,7 +11,7 @@ Completed tickets establish their stated scope, not subsystem/full-server parity
 | World | Flat chunks, simple creative edits, clocks/weather/difficulty, custom snapshots | Anvil/NBT worlds, generation/biomes/structures, real lighting, full gamerules, functional/oriented blocks |
 | Inventory | Supported components, authoritative preview clicks/swaps/drops, durable cleanup/recovery | Full components/text, crafting, containers/equipment/gameplay rules; pending gesture gates |
 | Items | Durable stationary scene entities, bounded replication and transfer retries | Gravity, merging, pickup, despawn and complete entity lifecycle |
-| Physics | Native shapes/clipping/steps, live pose/movement/fall reconciliation, default dry/fluid velocity, swimming and climbing, supplied entity/border fitting | Complete forces/effects and dynamic contexts, solid entities/moving borders, coupled ownership/transfers |
+| Physics | Native shapes/clipping/steps, live pose/movement/fall reconciliation, default dry/fluid velocity, swimming/climbing/slowing contacts, supplied entity/border fitting | Complete forces/effects and dynamic contexts, solid entities/moving borders, coupled ownership/transfers; sneaking client gate |
 | Simulation | Bounded region/player owners and tick deadlines, fenced powder contact/freezing | Full survival ticks, mobs/AI, redstone, fluid propagation, explosions and coupled mechanics |
 | Extensions | Original Elixir runtime | Extension API, Java plugins and Bedrock compatibility |
 

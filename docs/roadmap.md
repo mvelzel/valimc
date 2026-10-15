@@ -43,11 +43,10 @@ indexes validated tickets. None imply full parity.
    production build and controlled 512/128-player water loads.
    [Relative input](tickets/VMC-015f.md) now has native direction/acceleration/rate
    kernels; native reported intent preserves simulated controls. Entity/vehicle
-   ownership remains open. [Slowing blocks](tickets/VMC-015g.md) have native
-   contact/consumption kernels and native-verified bounded ordered traversal;
-   contextual single-path and tick-batch ordering match native scenes. Bounded
-   player-owned history/live composition pass actual-client scenarios, 622 tests
-   and production build; coherent-block native/load gates are next.
+   ownership remains open. [Slowing contacts](tickets/VMC-015g.md) are validated
+   and published (`bc4eb1e`):
+   actual client, 622 tests, full native integration/build and controlled 512/128
+   water loads. Weaving status ownership and damage remain follow-ups.
    [Sneaking at edges](tickets/VMC-015h.md)'s live composition passes affected
    tests and native query/frame traces; its frozen client gate is next.
    Effects/survival consequences remain open.

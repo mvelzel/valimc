@@ -47,7 +47,8 @@ Add `--fluid` for static source-water pools and loaded sprint input. The driver
 requires every participant's observed swimming flag/pose before and after the
 interval. Positions remain scripted; this measures the fluid geometry/simulation
 path, not client prediction, propagation or survival. Keep this workload separate
-from dry results. [VMC-015d3](tickets/VMC-015d3.md) records its verification.
+from dry results. [VMC-015d3](tickets/VMC-015d3.md) records its verification;
+[VMC-015g](tickets/VMC-015g.md) records the controlled slowing-pipeline comparison.
 
 The next useful performance work is sustained tests with larger view distances, adversarial input, edits during encoding, generation without a shared flat baseline, and finally matched vanilla survival workloads. Comparing the same behaviors, seed, dimensions, client positions and hardware is required before making claims against Paper/Folia, Pumpkin or SteelMC.
 
