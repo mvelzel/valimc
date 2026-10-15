@@ -1,6 +1,6 @@
 # VMC-015a — Player movement observations and fall distance
 
-Status: Automated checks pass; actual-client gate pending. October 15, 2026.
+Status: Done within accepted-move fall-state scope. October 15, 2026. `84f5fb0`.
 Depends on VMC-014c4 and VMC-011a8.
 
 Track accepted displacement, client ground/contact flags and fall distance in the
@@ -46,6 +46,18 @@ sealed negative/NaN/excessive distance cases are covered. Evidence and commands:
 `.local/player-fall-checkpoint-tests.log`, `.local/player-fall-native.log`,
 `.local/player-fall-native-tcp.log`, `.local/player-fall-checkpoint-commands.txt`.
 
-Next gate: frozen actual-client drop/jump/powder-snow, flight, relocation/reconnect
-and cleanup. Dry-block geometry uses accepted distance; live water/environment
-resets, health/damage and forces remain explicit following work under VMC-015.
+Actual Java 26.3 client, October 15, 14:43–14:47 CEST, frozen `84f5fb0`: jump,
+eight-block drop and actual ledge walk-off accrue distance on descent and reset
+at floor contact. Both powder drops captured accepted contact at
+64.89999997615814 after distance exceeded 2.5, then normal sinking to the floor;
+these transient contacts are traced real-client packets, not claimed still frames.
+Actual flight keeps distance zero; `/spawn`, reconnect and walking pass. No
+corrections/disconnects; 424 jobs, 36 ms aggregate admission wait; fresh logs clean.
+Primary reviewed the report, trace transitions, image hashes and powder/ledge
+images. Thirteen F2 captures and bounded traces: `.local/client-tests/VMC-015a/`.
+Whole dataset restored consistently, source fall distance zero, zero players.
+
+Remaining physics: live water/environment resets, health/damage and forces under
+VMC-015. A freezing overlay persisted after leaving powder until reconnect;
+retain this observed environment/freezing defect for the next simulation slice.
+Nonzero midair reconnect persistence has automated coverage, not a graphical claim.

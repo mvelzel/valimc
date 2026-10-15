@@ -75,3 +75,4 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-014c3b2b2](../tickets/VMC-014c3b2b2.md) | `b65e6ec`; live block-based selected poses, metadata and eye height |
 | [VMC-014c4](../tickets/VMC-014c4.md) | `d10f566`; bounded live block/step/pose movement, corrections/teleport fencing and actual flight/reconnect |
 | [VMC-011a8](../tickets/VMC-011a8.md) | `8871985`; prepared geometry/player-budget admission, frozen load positions and actual-client retest |
+| [VMC-015a](../tickets/VMC-015a.md) | `84f5fb0`; accepted fall context/persistence, actual jump/drop/powder contact and flight |
