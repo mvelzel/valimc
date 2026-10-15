@@ -96,7 +96,8 @@ indexes validated tickets. None imply full parity.
 
 3. **[VMC-029a](tickets/VMC-029a.md): survival mining.** Native hardness/progress
    matches1,286,028 rates and1,386 actual tick/crack prefixes. Stock tools match
-   1,143,136 native state pairs; player speed modifiers, owned start/abort/stop,
+   1,143,136 native state pairs; gear and eye/ground player speed also match native
+   contexts. Owned start/abort/stop,
    atomic destruction/drops and durability are next; live survival
    mining remains absent. Client checks above continue independently.
 

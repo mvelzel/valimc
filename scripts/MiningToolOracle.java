@@ -42,7 +42,7 @@ public class MiningToolOracle {
   }
   private static void uint16(ByteArrayOutputStream bytes,int value){if(value<0||value>65535)throw new AssertionError("Registry exceeds uint16");bytes.write(value>>>8);bytes.write(value);}
   private static String hex(ByteArrayOutputStream bytes){return HexFormat.of().formatHex(bytes.toByteArray());}
-  public static void main(String[] args)throws Exception{
+  static HolderLookup.Provider initialize()throws Exception{
     SharedConstants.tryDetectVersion();Bootstrap.bootStrap();var lookup=VanillaRegistries.createWorldLookup();
     BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(lookup).forEach(p->p.apply());
     try(var resources=new MultiPackResourceManager(PackType.SERVER_DATA,List.of(ServerPacksSource.createVanillaPackSource().fullResources()))){
@@ -52,6 +52,10 @@ public class MiningToolOracle {
       var bind=Holder.Reference.class.getDeclaredMethod("bindTags",Collection.class);bind.setAccessible(true);
       for(var block:BuiltInRegistries.BLOCK)bind.invoke(block.builtInRegistryHolder(),memberships.getOrDefault(block.builtInRegistryHolder(),List.of()));
     }
+    return lookup;
+  }
+  public static void main(String[] args)throws Exception{
+    initialize();
     var unsafeField=sun.misc.Unsafe.class.getDeclaredField("theUnsafe");unsafeField.setAccessible(true);
     var player=(Probe)((sun.misc.Unsafe)unsafeField.get(null)).allocateInstance(Probe.class);player.abilities=new Abilities();
     var profiles=new JsonArray();var indexes=new LinkedHashMap<String,Integer>();var representatives=new ArrayList<ItemStack>();var items=new ByteArrayOutputStream();

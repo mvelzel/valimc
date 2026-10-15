@@ -1,6 +1,7 @@
 # VMC-029a — Survival mining
 
-Status: Native mining arithmetic and stock tools verified; live mining pending. October 16, 2026.
+Status: Native mining arithmetic, stock tools and player speed verified; live mining
+pending. October 16, 2026.
 
 Acceptance: survival players can mine with native tool speed, break progress,
 harvest permission, drops and durability. Handle start/abort/stop acknowledgements,
@@ -26,9 +27,22 @@ claiming actual wear/loot behavior. Logs `.local/mining-tool-{native,check,tests
 raw cases and native dumps stay ignored. `Item/ItemStack` tool methods and
 `Tool.getMiningSpeed/isCorrectForDrops` use the same pinned jar below.
 
-Next: player speed modifiers and owned mining attempts, then block-owner
-destruction/drops and durability. Attributes, effects, underwater/airborne
-penalties and the live client scenario remain pending.
+Player speed: actual `Player.getDestroySpeed/hasCorrectToolForDrops` matches8,112
+equipment attribute cases, 64,896 geared speed contexts and338 stock speed/harvest/
+composed-rate contexts. All Efficiency/Aqua Affinity levels0..255, direct/stored
+enchantments and six slots are checked. Efficiency only boosts a fast selected
+main-hand tool and caps at1,024; head-only Aqua Affinity scales native submerged
+speed up to20. Eye-water and airborne penalties preserve float32 ordering,
+including overflow to infinite speed. All13,264 stock item/slot modifier controls
+are zero. The probe explicitly applies native equipment modifiers and disables
+status effects; it does not exercise automatic equipment refresh or a live world.
+Six affected tests and existing mining/tool native regressions pass. Logs
+`.local/player-mining-{native,check,tests,arithmetic-regression}.log` and
+`.local/mining-tool-refactor-{native,check}.log`.
+
+Next: owned mining attempts, then block-owner destruction/drops and durability.
+Status effects/arbitrary attribute patches and the live client scenario remain
+pending; current stock gear/contact composition needs no global gameplay owner.
 
 Reference: pinned Mojang 26.3 `BlockBehaviour.getDestroyProgress`,
 `BlockStateBase.getDestroySpeed`, `Player.getDestroySpeed/hasCorrectToolForDrops`

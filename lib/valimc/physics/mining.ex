@@ -36,6 +36,10 @@ defmodule Valimc.Physics.Mining do
     do: elem(property(id), 1)
 
   @doc "Actual native rate with supplied destroy speed/harvest permission; nonfinite results are explicit."
+  def rate(id, :infinity, correct)
+      when is_integer(id) and id >= 0 and id < @count and is_boolean(correct),
+      do: {:ok, if(hardness(id) == -1, do: 0.0, else: :infinity)}
+
   def rate(id, speed, correct)
       when is_integer(id) and id >= 0 and id < @count and
              is_number(speed) and speed >= 0 and speed <= @float_max and is_boolean(correct) do
