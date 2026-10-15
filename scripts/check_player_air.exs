@@ -4,6 +4,9 @@ alias Valimc.Protocol.ItemStack
 data = path |> File.read!() |> JSON.decode!()
 unless data["maximum"] == PlayerAir.maximum(), do: raise("Native air maximum changed")
 
+unless data["bubble_states"] == PlayerAir.bubble_states(),
+  do: raise("Native bubble-column states changed")
+
 for c <- data["cases"] do
   unless PlayerAir.decrease(c["air"], c["oxygen"], c["draw"]) == c["decrease"] and
            PlayerAir.increase(c["air"]) == c["increase"] and

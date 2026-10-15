@@ -6,6 +6,45 @@ defmodule Valimc.PlayerSnapshotTest do
   defp uuid, do: <<27::128>>
   defp seal(payload), do: payload <> :crypto.hash(:sha256, payload)
 
+  test "air shares the health/inventory journal checksum; v10 remains readable" do
+    snapshot = %{
+      pose: pose(),
+      inventory: %Inventory{},
+      game_mode: Valimc.GameMode.new(:survival),
+      flying: false,
+      fall_distance: 0.0,
+      frozen_ticks: 0,
+      velocity: {0.0, 0.0, 0.0},
+      health: %Valimc.PlayerHealth{},
+      last_death: nil,
+      air_supply: -19
+    }
+
+    assert {:ok, <<"VMCPOSE", 11, _::binary>> = bytes} = PlayerSnapshot.encode(uuid(), snapshot)
+    assert {:ok, restored} = PlayerSnapshot.decode(bytes, uuid())
+    assert restored.air_supply == -19 and restored.health.value == 20.0
+    assert restored.transfer_sequence == 0 and restored.outbox == nil
+    assert {:ok, ^bytes} = PlayerSnapshot.encode(uuid(), restored)
+    legacy = Map.delete(snapshot, :air_supply)
+    assert {:ok, <<"VMCPOSE", 10, _::binary>> = old} = PlayerSnapshot.encode(uuid(), legacy)
+    assert byte_size(bytes) == byte_size(old) + 2
+    assert {:ok, decoded} = PlayerSnapshot.decode(old, uuid())
+    assert Map.get(decoded, :air_supply, Valimc.PlayerAir.maximum()) == 300
+
+    for air <- [-21, 301, 0.5, nil] do
+      assert {:error, :invalid_air_supply} =
+               PlayerSnapshot.encode(uuid(), %{snapshot | air_supply: air})
+    end
+
+    payload = binary_part(bytes, 0, byte_size(bytes) - 32)
+    <<header::binary-size(60), _air::signed-16, rest::binary>> = payload
+
+    for air <- [-21, 301] do
+      assert {:error, :invalid_player_file} =
+               PlayerSnapshot.decode(seal(header <> <<air::signed-16>> <> rest), uuid())
+    end
+  end
+
   test "health and saved hurt timers share the velocity/inventory/outbox checksum" do
     state =
       Map.merge(pending(), %{

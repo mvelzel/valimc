@@ -21,7 +21,7 @@ import net.minecraft.world.level.dimension.*;
 public class PlayerLifeOracle {
   private static RegistryAccess.Frozen access;
   private static Holder<DimensionType> overworld;
-  private static Holder<DamageType> fall,stalagmite,freeze;
+  private static Holder<DamageType> fall,stalagmite,freeze,drown;
   private static class Probe extends Player {
     private Probe(){super(null,null);}
     public GameType gameMode(){return GameType.SURVIVAL;}
@@ -56,6 +56,8 @@ public class PlayerLifeOracle {
       result.put("fall_"+id,new ClientboundDamageEventPacket(id,fall,-1,-1,Optional.empty()));
       result.put("stalagmite_"+id,new ClientboundDamageEventPacket(id,stalagmite,-1,-1,Optional.empty()));
       result.put("freeze_"+id,new ClientboundDamageEventPacket(id,freeze,-1,-1,Optional.empty()));
+      result.put("drown_"+id,new ClientboundDamageEventPacket(id,drown,-1,-1,Optional.empty()));
+      result.put("drowning_bubbles_"+id,new ClientboundEntityEventPacket(player,(byte)67));
       result.put("death_animation_"+id,new ClientboundEntityEventPacket(player,(byte)3));
       for(var message:List.of("fell","ValiMCTest hit the ground too hard","fall \u0000😀é"))
         result.put("death_"+id+"_"+message,new ClientboundPlayerCombatKillPacket(id,Component.literal(message)));
@@ -67,6 +69,7 @@ public class PlayerLifeOracle {
     var dimensions=registry(Registries.DIMENSION_TYPE,lookup);var damage=registry(Registries.DAMAGE_TYPE,lookup);
     access=new RegistryAccess.ImmutableRegistryAccess(List.of(dimensions,damage)).freeze();
     overworld=dimensions.getOrThrow(BuiltinDimensionTypes.OVERWORLD);fall=damage.getOrThrow(DamageTypes.FALL);stalagmite=damage.getOrThrow(DamageTypes.STALAGMITE);freeze=damage.getOrThrow(DamageTypes.FREEZE);
+    drown=damage.getOrThrow(DamageTypes.DROWN);
     var packets=packets();
     if(args[0].equals("verify")){
       var rows=JsonParser.parseString(Files.readString(Path.of(args[1]))).getAsJsonArray();

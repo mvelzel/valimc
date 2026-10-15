@@ -155,7 +155,7 @@ defmodule Valimc.Protocol.Packets do
   def damage_event(entity_id, source \\ :fall) do
     life_entity_id!(entity_id)
 
-    unless source in [:fall, :stalagmite, :freeze],
+    unless source in [:fall, :stalagmite, :freeze, :drown],
       do: raise(ArgumentError, "invalid damage source")
 
     packet("damage_event", [
@@ -287,8 +287,17 @@ defmodule Valimc.Protocol.Packets do
   def player_environment(player),
     do:
       EntityPackets.metadata(player.entity_id,
-        frozen_ticks: Valimc.PlayerEnvironment.frozen(player)
+        frozen_ticks: Valimc.PlayerEnvironment.frozen(player),
+        air_supply: Valimc.PlayerAir.supply(player)
       )
+
+  def player_air(player),
+    do: EntityPackets.metadata(player.entity_id, air_supply: Valimc.PlayerAir.supply(player))
+
+  def drowning_bubbles(entity_id) do
+    life_entity_id!(entity_id)
+    packet("entity_event", <<entity_id::signed-32, 67>>)
+  end
 
   def shared_flags(player) do
     flags = Map.get(player, :input, %Valimc.PlayerInput{}).shared_flags &&& bnot(16)

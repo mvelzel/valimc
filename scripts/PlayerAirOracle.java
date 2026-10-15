@@ -17,6 +17,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.*;
 import net.minecraft.world.item.enchantment.*;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.block.*;
 
 /** Original air primitive observations; baseTick world/effect ordering is a separate reference. */
 public class PlayerAirOracle {
@@ -68,9 +69,10 @@ public class PlayerAirOracle {
     for(var item:BuiltInRegistries.ITEM)for(var slot:EquipmentSlot.values())new ItemStack(item).forEachModifier(slot,(attribute,modifier)->{
       if(attribute==Attributes.OXYGEN_BONUS&&modifier.amount()!=0)throw new AssertionError("Nonzero default oxygen modifier");
     });
-    var result=new JsonObject();result.addProperty("maximum",p.getMaxAirSupply());result.add("cases",cases);result.add("equipment",equipment);
+    var bubbles=new JsonArray();for(var state:Block.BLOCK_STATE_REGISTRY)if(state.is(Blocks.BUBBLE_COLUMN))bubbles.add(Block.getId(state));
+    var result=new JsonObject();result.addProperty("maximum",p.getMaxAirSupply());result.add("cases",cases);result.add("equipment",equipment);result.add("bubble_states",bubbles);
     if(p.getMaxAirSupply()!=300)throw new AssertionError("Changed native maximum");
     Files.writeString(Path.of(args[0]),new Gson().toJson(result));
-    System.out.println("PASS: "+cases.size()+" actual native air primitives and "+equipment.size()+" oxygen enchantment/slot cases; default maximum="+p.getMaxAirSupply()+"; world/effect composition excluded.");
+    System.out.println("PASS: "+cases.size()+" actual native air primitives and "+equipment.size()+" oxygen enchantment/slot cases; default maximum="+p.getMaxAirSupply()+", bubble states="+bubbles+"; world/effect composition excluded.");
   }
 }

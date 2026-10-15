@@ -50,6 +50,7 @@ defmodule Valimc.PlayerPoseQuery do
                    subject: subject
                  }),
                {:ok, powder} <- Valimc.PlayerEnvironment.sample(frame, result.geometry.box),
+               {:ok, submerged} <- Valimc.PlayerAir.submerged?(frame, result.geometry),
                candidate =
                  Map.put(player, :motion, %{
                    Map.get(player, :motion, %Valimc.PlayerMotion{})
@@ -60,6 +61,7 @@ defmodule Valimc.PlayerPoseQuery do
                  {:ok,
                   result
                   |> Map.put(:powder_snow, powder)
+                  |> Map.put(:submerged, submerged)
                   |> Map.put(:kinetics, kinetics)
                   |> Map.put(:swimming, swimming)}
         end

@@ -7,7 +7,7 @@ defmodule Valimc.PlayerSnapshot do
   @inventory_bytes 524_288
   @outbox_bytes 55 + 5 * (40 + 65_536)
   @max_sequence 18_446_744_073_709_551_615
-  @max_bytes 56 + 4 + 3 + 8 + 4 + 24 + 12 + 8 + 13 + @inventory_bytes + @outbox_bytes + 32
+  @max_bytes 56 + 4 + 3 + 8 + 4 + 24 + 12 + 8 + 13 + 2 + @inventory_bytes + @outbox_bytes + 32
 
   def max_bytes, do: @max_bytes
 
@@ -49,6 +49,11 @@ defmodule Valimc.PlayerSnapshot do
         _ ->
           snapshot
       end
+
+    snapshot =
+      if Map.has_key?(player, :air_supply),
+        do: Map.put(snapshot, :air_supply, player.air_supply),
+        else: snapshot
 
     case player do
       %{game_mode: %Valimc.GameMode{} = mode} -> Map.put(snapshot, :game_mode, mode)
@@ -159,6 +164,14 @@ defmodule Valimc.PlayerSnapshot do
         {version, journal}
       end
 
+    {version, journal} =
+      if Map.has_key?(snapshot, :air_supply) do
+        check(version == 10 and Valimc.PlayerAir.valid?(snapshot.air_supply), :invalid_air_supply)
+        {11, [<<snapshot.air_supply::signed-16>>, journal]}
+      else
+        {version, journal}
+      end
+
     payload =
       IO.iodata_to_binary([
         <<"VMCPOSE", version, uuid::binary-size(16), pose.x::float-64, pose.y::float-64,
@@ -224,7 +237,16 @@ defmodule Valimc.PlayerSnapshot do
 
       <<"VMCPOSE", version, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
         yaw::float-32, pitch::float-32, @data_version::32, rest::binary>>
-      when version in [5, 6, 7, 8, 9, 10] ->
+      when version in [5, 6, 7, 8, 9, 10, 11] ->
+        {air, rest} =
+          if version >= 11 do
+            <<supply::signed-16, rest::binary>> = rest
+            check(Valimc.PlayerAir.valid?(supply), :invalid_player_file)
+            {%{air_supply: supply}, rest}
+          else
+            {%{}, rest}
+          end
+
         {life, rest} =
           if version >= 10 do
             {location, rest} =
@@ -297,7 +319,8 @@ defmodule Valimc.PlayerSnapshot do
          |> Map.merge(environment)
          |> Map.merge(velocity)
          |> Map.merge(health)
-         |> Map.merge(life)}
+         |> Map.merge(life)
+         |> Map.merge(air)}
 
       _ ->
         {:error, :invalid_player_file}

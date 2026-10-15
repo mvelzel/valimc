@@ -81,6 +81,9 @@ packets =
         "frozen_" <> ticks ->
           EntityPackets.metadata(300, frozen_ticks: String.to_integer(ticks))
 
+        "air_" <> supply ->
+          EntityPackets.metadata(300, air_supply: String.to_integer(supply))
+
         "health_metadata_" <> points ->
           EntityPackets.metadata(300, health: String.to_float(points))
 

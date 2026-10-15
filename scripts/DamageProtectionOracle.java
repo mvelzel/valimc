@@ -46,7 +46,7 @@ public class DamageProtectionOracle {
     public RandomSource getRandom(){return RandomSource.create(1);}
     public boolean hasEffect(Holder<MobEffect> effect){return false;}
     public int getArmorValue(){return 30;}
-    protected void hurtArmor(DamageSource source,float amount){throw new AssertionError("Landing must bypass armor wear");}
+    protected void hurtArmor(DamageSource source,float amount){throw new AssertionError("Environmental source must bypass armor wear");}
     float armor(DamageSource source,float amount){return getDamageAfterArmorAbsorb(source,amount);}
     float magic(DamageSource source,float amount){return getDamageAfterMagicAbsorb(source,amount);}
   }
@@ -70,7 +70,7 @@ public class DamageProtectionOracle {
   private static void observe(JsonArray cases,Probe p,JsonArray gear,String source,DamageSource damage){
     float protection=EnchantmentHelper.getDamageProtection(p.world,p,damage);
     for(float amount:new float[]{.1f,1,5,100,Float.MAX_VALUE}){
-      float armored=p.armor(damage,amount);if(armored!=amount)throw new AssertionError("Unexpected landing armor reduction");
+      float armored=p.armor(damage,amount);if(armored!=amount)throw new AssertionError("Unexpected environmental armor reduction");
       var c=new JsonObject();c.add("gear",gear);c.addProperty("source",source);c.addProperty("amount",(double)amount);c.addProperty("protection",(double)protection);c.addProperty("damage",(double)p.magic(damage,armored));cases.add(c);
     }
   }
@@ -89,7 +89,7 @@ public class DamageProtectionOracle {
     var names=JsonParser.parseString(Files.readString(Path.of("priv/protocol/registries.json"))).getAsJsonObject().getAsJsonArray("minecraft:damage_type");
     var bindTags=Holder.Reference.class.getDeclaredMethod("bindTags",Collection.class);bindTags.setAccessible(true);
     var cases=new JsonArray();
-    for(var type:List.of(DamageTypes.FALL,DamageTypes.STALAGMITE,DamageTypes.FREEZE)){
+    for(var type:List.of(DamageTypes.FALL,DamageTypes.STALAGMITE,DamageTypes.FREEZE,DamageTypes.DROWN)){
       var holder=lookup.lookupOrThrow(Registries.DAMAGE_TYPE).getOrThrow(type);int id=-1;
       for(int i=0;i<names.size();i++)if(names.get(i).getAsString().equals(type.identifier().toString()))id=i;
       if(id<0)throw new AssertionError(type);var keys=new ArrayList<TagKey<DamageType>>();
@@ -108,6 +108,6 @@ public class DamageProtectionOracle {
       }
     }
     Files.writeString(Path.of(args[0]),new Gson().toJson(cases));
-    System.out.println("PASS: "+cases.size()+" native equipment/protection/armor-bypass/magic damage cases; fall/stalagmite/freeze, all "+registry.size()+" enchantments, levels0/1/4/255, stored and hand negatives, stacked caps. Effects/health/world mutation excluded.");
+    System.out.println("PASS: "+cases.size()+" native equipment/protection/armor-bypass/magic damage cases; fall/stalagmite/freeze/drown, all "+registry.size()+" enchantments, levels0/1/4/255, stored and hand negatives, stacked caps. Effects/health/world mutation excluded.");
   }
 }

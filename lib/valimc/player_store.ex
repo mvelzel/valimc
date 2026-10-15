@@ -171,6 +171,7 @@ defmodule Valimc.PlayerStore do
               :fall_distance,
               :game_mode,
               :frozen_ticks,
+              :air_supply,
               :velocity,
               :health,
               :last_death

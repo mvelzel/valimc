@@ -30,11 +30,14 @@ packets =
 
           Packets.respawn(%{game_mode: mode}, Enum.at(positions, String.to_integer(location)))
 
-        [source, id] when source in ["fall", "stalagmite", "freeze"] ->
+        [source, id] when source in ["fall", "stalagmite", "freeze", "drown"] ->
           Packets.damage_event(String.to_integer(id), String.to_existing_atom(source))
 
         ["death", "animation", id] ->
           Packets.death_animation(String.to_integer(id))
+
+        ["drowning", "bubbles", id] ->
+          Packets.drowning_bubbles(String.to_integer(id))
 
         ["death", id, message] ->
           Packets.death(String.to_integer(id), message)

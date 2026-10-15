@@ -54,6 +54,7 @@ defmodule Valimc.MenuOverflowTest do
           velocity: {0.0, 0.0, 0.0},
           health: %Valimc.PlayerHealth{},
           last_death: nil,
+          air_supply: 300,
           flying: false,
           game_mode: %Valimc.GameMode{}
         })

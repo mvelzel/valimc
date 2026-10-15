@@ -23,9 +23,9 @@ for c <- cases do
 
   unless PlayerDamageProtection.points(inventory, source) == c["protection"] and
            damage == c["damage"],
-         do: raise("Native fall protection differs #{inspect({c, damage})}")
+         do: raise("Native environmental protection differs #{inspect({c, damage})}")
 end
 
 IO.puts(
-  "PASS: #{length(cases)} native worn protection/armor-bypass/magic damage cases for fall, stalagmite and freezing."
+  "PASS: #{length(cases)} native worn protection/armor-bypass/magic damage cases for fall, stalagmite, freezing and drowning."
 )

@@ -1,5 +1,9 @@
 {
   "fields": {
+    "air_supply": {
+      "index": 1,
+      "serializer": 1
+    },
     "frozen_ticks": {
       "index": 7,
       "serializer": 1

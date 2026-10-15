@@ -145,26 +145,30 @@ defmodule Valimc.TestClient do
     do: Map.put(client, :attributes_body, body)
 
   def auto_reply(client, :play, "set_entity_data", body) do
-    case Wire.take_varint(body) do
-      {id, <<0, 0, flags, _::binary>>} ->
-        Map.update(client, :entity_flags, %{id => flags}, &Map.put(&1, id, flags))
-
-      {id, <<6, 20, pose, 255>>} ->
-        Map.update(client, :entity_poses, %{id => pose}, &Map.put(&1, id, pose))
-
-      {id, <<7, 1, rest::binary>>} ->
-        {ticks, <<255>>} = Wire.take_varint(rest)
-        Map.update(client, :entity_frozen, %{id => ticks}, &Map.put(&1, id, ticks))
-
-      {id, <<9, 3, health::float-32, 255>>} ->
-        Map.update(client, :entity_health, %{id => health}, &Map.put(&1, id, health))
-
-      _ ->
-        client
-    end
+    {id, rest} = Wire.take_varint(body)
+    take_metadata(client, id, rest)
   end
 
   def auto_reply(client, _, _, _), do: client
+
+  defp take_metadata(client, id, <<0, 0, flags, rest::binary>>),
+    do: put_metadata(client, id, :entity_flags, flags, rest)
+
+  defp take_metadata(client, id, <<6, 20, pose, rest::binary>>),
+    do: put_metadata(client, id, :entity_poses, pose, rest)
+
+  defp take_metadata(client, id, <<index, 1, rest::binary>>) when index in [1, 7] do
+    {value, rest} = Wire.take_varint(rest)
+    put_metadata(client, id, if(index == 1, do: :entity_air, else: :entity_frozen), value, rest)
+  end
+
+  defp take_metadata(client, id, <<9, 3, health::float-32, rest::binary>>),
+    do: put_metadata(client, id, :entity_health, health, rest)
+
+  defp take_metadata(client, _id, _rest), do: client
+
+  defp put_metadata(client, id, key, value, rest),
+    do: take_metadata(Map.update(client, key, %{id => value}, &Map.put(&1, id, value)), id, rest)
 
   defp take_items(body, 0, items), do: {Enum.reverse(items), body}
 

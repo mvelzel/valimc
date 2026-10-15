@@ -149,6 +149,7 @@ defmodule Valimc.PlayerMotionQuery do
              observations
            ),
          {:ok, powder} <- Valimc.PlayerEnvironment.sample(blocks, after_move.geometry.box),
+         {:ok, submerged} <- Valimc.PlayerAir.submerged?(blocks, after_move.geometry),
          {:ok, packet} <- Valimc.PlayerKinetics.packet(player, target, actual, flags, box, blocks),
          {:ok, landing} <- Valimc.PlayerLanding.sample(player, target, flags, box, blocks),
          accepted_motion =
@@ -173,6 +174,7 @@ defmodule Valimc.PlayerMotionQuery do
          swimming: swimming,
          moved: moved,
          powder_snow: powder,
+         submerged: submerged,
          kinetics: %{packet: packet, tick: tick},
          landing: landing,
          fences: blocks.fences

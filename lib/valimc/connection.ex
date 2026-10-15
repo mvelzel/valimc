@@ -586,6 +586,7 @@ defmodule Valimc.Connection do
                swimming: swimming,
                fences: fences,
                powder_snow: powder,
+               submerged: submerged,
                kinetics: kinetics,
                landing: landing
              }} ->
@@ -626,7 +627,7 @@ defmodule Valimc.Connection do
                 next =
                   next
                   |> apply_kinetic_tick(kinetics.tick, kinetics.packet.bounced)
-                  |> observe_environment(powder)
+                  |> observe_environment(powder, submerged)
                   |> monitor_pose_sources(fences)
                   |> update_view()
                   |> apply_landing(landing)
@@ -690,6 +691,7 @@ defmodule Valimc.Connection do
            swimming: swimming,
            fences: fences,
            powder_snow: powder,
+           submerged: submerged,
            kinetics: kinetics
          }} ->
           if System.monotonic_time(:millisecond) < job.deadline and
@@ -710,7 +712,7 @@ defmodule Valimc.Connection do
             state =
               %{state | player: player}
               |> apply_kinetic_tick(kinetics, false)
-              |> observe_environment(powder)
+              |> observe_environment(powder, submerged)
               |> monitor_pose_sources(fences)
 
             state =
@@ -1139,6 +1141,7 @@ defmodule Valimc.Connection do
       cond do
         not announce -> " died"
         source == :freeze -> " froze to death"
+        source == :drown -> " drowned"
         source == :stalagmite -> " was impaled on a stalagmite"
         true -> " hit the ground too hard"
       end
@@ -1623,6 +1626,7 @@ defmodule Valimc.Connection do
       input: %PlayerInput{},
       motion: %PlayerMotion{},
       environment: %PlayerEnvironment{},
+      air_supply: Valimc.PlayerAir.maximum(),
       health: %PlayerHealth{},
       last_death: nil,
       pose: :standing,
@@ -1671,7 +1675,8 @@ defmodule Valimc.Connection do
                   },
                   abilities.flying
                 ),
-              environment: %PlayerEnvironment{frozen_ticks: Map.get(snapshot, :frozen_ticks, 0)}
+              environment: %PlayerEnvironment{frozen_ticks: Map.get(snapshot, :frozen_ticks, 0)},
+              air_supply: Map.get(snapshot, :air_supply, Valimc.PlayerAir.maximum())
           }
 
           player = if health.value <= 0, do: PlayerLife.dead(player), else: player
@@ -1994,7 +1999,9 @@ defmodule Valimc.Connection do
 
     active =
       state.simulation_due and
-        (PlayerEnvironment.active?(state.player.environment) or not state.player.motion.settled)
+        (PlayerEnvironment.active?(state.player.environment) or
+           Valimc.PlayerAir.supply(state.player) < Valimc.PlayerAir.maximum() or
+           not state.player.motion.settled)
 
     if PlayerInput.loaded?(state.player.input) and (signature != state.pose_checked or active) do
       deadline = System.monotonic_time(:millisecond) + 250
@@ -2042,7 +2049,8 @@ defmodule Valimc.Connection do
     state
   end
 
-  defp observe_environment(state, powder) do
+  defp observe_environment(state, powder, submerged) do
+    due = state.simulation_due
     previous = state.player.environment
     allowed = PlayerEnvironment.can_freeze?(state.player, state.inventory)
 
@@ -2065,10 +2073,47 @@ defmodule Valimc.Connection do
 
     Players.update(self(), player)
     state = %{state | player: player, simulation_due: false}
+    state = if due, do: observe_air(state, submerged), else: state
 
     if damage_due do
-      {:ok, selected} = PlayerHealth.hurt_window(player.health, 1.0)
+      {:ok, selected} = PlayerHealth.hurt_window(state.player.health, 1.0)
       {_, state} = apply_damage(state, selected, :freeze)
+      state
+    else
+      state
+    end
+  end
+
+  defp observe_air(state, submerged) do
+    previous = Valimc.PlayerAir.supply(state.player)
+    oxygen = Valimc.PlayerAir.oxygen_bonus(state.inventory)
+    draw = if oxygen > 0 and submerged, do: :rand.uniform_real(), else: 0.0
+
+    {air, damage} =
+      Valimc.PlayerAir.tick(
+        previous,
+        submerged,
+        state.player.abilities.invulnerable,
+        oxygen,
+        draw
+      )
+
+    player = %{state.player | air_supply: air}
+    state = %{state | player: player}
+
+    if air != previous do
+      packet = Packets.player_air(player)
+      send_packets(state, [packet])
+      broadcast_player_packet(state, packet)
+      Players.update(self(), player)
+    end
+
+    if damage > 0 do
+      bubbles = Packets.drowning_bubbles(player.entity_id)
+      send_packets(state, [bubbles])
+      broadcast_player_packet(state, bubbles)
+      {:ok, selected} = PlayerHealth.hurt_window(player.health, damage)
+      {_, state} = apply_damage(state, selected, :drown)
       state
     else
       state

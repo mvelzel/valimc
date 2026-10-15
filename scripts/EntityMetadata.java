@@ -36,6 +36,7 @@ public class EntityMetadata {
         serializers.put(field.getName().toLowerCase(Locale.ROOT), EntityDataSerializers.getSerializedId((EntityDataSerializer<?>)field.get(null)));
     var fields = new TreeMap<String,Object>();
     fields.put("shared_flags", accessor(Entity.class, "DATA_SHARED_FLAGS_ID"));
+    fields.put("air_supply", accessor(Entity.class, "DATA_AIR_SUPPLY_ID"));
     fields.put("no_gravity", accessor(Entity.class, "DATA_NO_GRAVITY"));
     fields.put("item_stack", accessor(ItemEntity.class, "DATA_ITEM"));
     fields.put("pose", accessor(Entity.class, "DATA_POSE"));

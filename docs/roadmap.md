@@ -61,7 +61,8 @@ indexes validated tickets. None imply full parity.
    20,800 native cases; actual geared falls/reconnect remain pending.
    [Freezing damage](tickets/VMC-017b1.md) passes 75 affected tests and native
    eligibility/protection/codecs; its graphical gate is pending.
-   [Air supply/drowning](tickets/VMC-017b2.md) is the next independent slice.
+   [Air supply/drowning](tickets/VMC-017b2.md) passes 94 affected tests and native
+   air/equipment/protection/codecs; actual-client validation remains pending.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
@@ -80,9 +81,10 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
-| [VMC-017a2](tickets/VMC-017a2.md) | Actual survival falls/materials, damaged reconnect and fatal landing/respawn | Local `687fc7e` |
-| [VMC-017a3](tickets/VMC-017a3.md) | Actual worn protection, hand/stored negatives, gear/health reconnect | Local fall-defense checkpoint |
-| [VMC-017b1](tickets/VMC-017b1.md) | Actual periodic freezing, immunity, reconnect and fatal respawn | Local freezing checkpoint |
+| [VMC-017a2](tickets/VMC-017a2.md) | Actual survival falls/materials, damaged reconnect and fatal landing/respawn | Frozen `0b2ad043` |
+| [VMC-017a3](tickets/VMC-017a3.md) | Actual worn protection, hand/stored negatives, gear/health reconnect | Frozen `0b2ad043` |
+| [VMC-017b1](tickets/VMC-017b1.md) | Actual periodic freezing, immunity, reconnect and fatal respawn | Frozen `0b2ad043` |
+| [VMC-017b2](tickets/VMC-017b2.md) | Actual bubbles/drain/recovery, gear, reconnect and fatal drowning | Local air checkpoint |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

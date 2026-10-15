@@ -133,6 +133,7 @@ defmodule Valimc.PlayerTransfers do
         :game_mode,
         :fall_distance,
         :frozen_ticks,
+        :air_supply,
         :velocity,
         :health,
         :last_death

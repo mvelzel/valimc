@@ -38,6 +38,7 @@ defmodule Valimc.PlayerLife do
         environment: %PlayerEnvironment{},
         pose: :standing
     }
+    |> Map.put(:air_supply, Valimc.PlayerAir.maximum())
   end
 
   def die(player),
