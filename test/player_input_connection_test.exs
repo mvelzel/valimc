@@ -64,6 +64,8 @@ defmodule Valimc.PlayerInputConnectionTest do
 
     receiver = await_flags(receiver, player.entity_id, 10)
 
+    Client.send_packet(sender, :play, "client_tick_end", <<>>)
+
     Client.send_packet(
       sender,
       :play,
@@ -72,6 +74,8 @@ defmodule Valimc.PlayerInputConnectionTest do
     )
 
     {_removed, receiver} = Client.await(receiver, :play, "remove_entities")
+
+    Client.send_packet(sender, :play, "client_tick_end", <<>>)
 
     Client.send_packet(
       sender,

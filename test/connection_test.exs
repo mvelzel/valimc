@@ -118,11 +118,14 @@ defmodule Valimc.ConnectionTest do
 
     frames =
       for n <- 1..20 do
-        Wire.frame(
-          Data.id(:play, :serverbound, "move_player_pos"),
-          <<0.5 + n * 0.015::float-64, 64.0::float-64, 0.5::float-64, 1>>,
-          sender.threshold
-        )
+        [
+          Wire.frame(
+            Data.id(:play, :serverbound, "move_player_pos"),
+            <<0.5 + n * 0.015::float-64, 64.0::float-64, 0.5::float-64, 1>>,
+            sender.threshold
+          ),
+          Wire.frame(Data.id(:play, :serverbound, "client_tick_end"), <<>>, sender.threshold)
+        ]
       end
 
     Client.send_raw(sender, frames)

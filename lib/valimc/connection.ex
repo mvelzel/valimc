@@ -2,7 +2,16 @@ defmodule Valimc.Connection do
   use GenServer, restart: :temporary, shutdown: 15_000
 
   @moduledoc "A socket-owning process per player, including their protocol and connection-local state."
-  alias Valimc.Protocol.{Data, Encryption, InventoryClick, ItemStack, ItemTypes, Packets, Wire}
+  alias Valimc.Protocol.{
+    ClientTick,
+    Data,
+    Encryption,
+    InventoryClick,
+    ItemStack,
+    ItemTypes,
+    Packets,
+    Wire
+  }
 
   alias Valimc.{
     CreativeInput,
@@ -67,6 +76,7 @@ defmodule Valimc.Connection do
        key_job: nil,
        auth_job: nil,
        player: nil,
+       client_tick: %ClientTick{},
        player_store: nil,
        store_fence: nil,
        store_monitor: nil,
@@ -851,17 +861,25 @@ defmodule Valimc.Connection do
 
       "move_player_pos" ->
         <<x::float-64, y::float-64, z::float-64, _flags>> = payload
-        move(state, %{x: x, y: y, z: z})
+        move(admit_position(state), %{x: x, y: y, z: z})
 
       "move_player_pos_rot" ->
         <<x::float-64, y::float-64, z::float-64, yaw::float-32, pitch::float-32, _flags>> =
           payload
 
-        move(state, %{x: x, y: y, z: z, yaw: yaw, pitch: pitch})
+        move(admit_position(state), %{x: x, y: y, z: z, yaw: yaw, pitch: pitch})
 
       "move_player_rot" ->
         <<yaw::float-32, pitch::float-32, _flags>> = payload
         move(state, %{yaw: yaw, pitch: pitch})
+
+      "move_player_status_only" ->
+        <<_flags>> = payload
+        state
+
+      "client_tick_end" ->
+        <<>> = payload
+        %{state | client_tick: ClientTick.finish(state.client_tick)}
 
       "chunk_batch_received" ->
         <<desired::float-32>> = payload
@@ -1078,6 +1096,13 @@ defmodule Valimc.Connection do
       player = %{state.player | input: input}
       Players.update(self(), player)
       %{state | player: player}
+    end
+  end
+
+  defp admit_position(state) do
+    case ClientTick.position(state.client_tick) do
+      {:ok, frame} -> %{state | client_tick: frame}
+      {:error, :duplicate_position} -> reject(state, "Invalid player movement")
     end
   end
 

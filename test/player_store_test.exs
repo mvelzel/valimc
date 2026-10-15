@@ -272,6 +272,7 @@ defmodule Valimc.PlayerStoreTest do
 
     Client.send_raw(client, [
       Wire.frame(id, body, client.threshold),
+      Wire.frame(Data.id(:play, :serverbound, "client_tick_end"), <<>>, client.threshold),
       Wire.frame(id, bad, client.threshold)
     ])
 

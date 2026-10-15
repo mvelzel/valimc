@@ -87,7 +87,9 @@ class Client:
     async def move(self, step):
         x=(self.index*128+64.5 if self.args.scatter else 0.5)+math.sin(step/8)*0.2
         z=64.5 if self.args.scatter else 0.5
-        try: await self.send('play','move_player_pos',struct.pack('>dddB',x,64,z,1))
+        try:
+            await self.send('play','move_player_pos',struct.pack('>dddB',x,64,z,1))
+            await self.send('play','client_tick_end')
         except ConnectionError as error: self.error=type(error).__name__
     async def close(self):
         self.task.cancel(); self.writer.close()
@@ -119,6 +121,8 @@ async def benchmark(port,metrics,args):
                 'elixir':'1.20.4','erlang_otp':'29.1.1','minecraft':'26.3','view_distance':1,
                 'scenario':'spread' if args.scatter else 'dense','clients':len(clients),
                 'disconnected':sum(c.error is not None for c in clients),'movement_packets_sent':moves,
+                'client_tick_end_packets_sent':moves,
+                'driver_sha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),
                 'duration_seconds':round(time.perf_counter()-started,3),
                 'login_p50_ms':round(latencies[len(latencies)//2],2),
                 'login_p95_ms':round(latencies[min(len(latencies)-1,int(len(latencies)*.95))],2),

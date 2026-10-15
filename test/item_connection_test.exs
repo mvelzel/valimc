@@ -27,6 +27,8 @@ defmodule Valimc.ItemConnectionTest do
   end
 
   defp move(client, x, z) do
+    Client.send_packet(client, :play, "client_tick_end", <<>>)
+
     Client.send_packet(
       client,
       :play,

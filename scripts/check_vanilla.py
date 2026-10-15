@@ -3,6 +3,9 @@
 import os, pathlib, socket, subprocess, sys, tempfile, time, json
 root = pathlib.Path(__file__).resolve().parent.parent
 with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
+    tick_cases = str(pathlib.Path(world) / 'client-ticks.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'ClientTickOracle', tick_cases], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_client_tick.exs', tick_cases], cwd=root, check=True)
     input_cases = str(pathlib.Path(world) / 'player-input.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'PlayerInputOracle', input_cases], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_player_input.exs', input_cases], cwd=root, check=True)

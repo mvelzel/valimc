@@ -11,6 +11,11 @@ A separate Python process opens real loopback TCP connections, completes compres
 
 Raw samples include timestamps, counters, scheduler/process counts and an implementation SHA-256 fingerprint: [dense 128](benchmarks/dense-128.json), [spread 512](benchmarks/spread-512.json). The final fingerprint for both is `4e525f4b138dcd203e9e20822d2674465610e2a5808d0fa6a5fc3a81988e65ef`. Library code, configuration and protocol facts are included in that fingerprint.
 
+These historical runs predate client-tick admission. The current driver sends a
+`client_tick_end` after every position and records its own hash and delimiter
+count. New samples therefore have a different packet workload; retain that context
+when comparing them with the October 13 numbers.
+
 The spread scenario joins everybody at spawn before moving them apart. It ends with 515 resident region owners and 4,617 encoded chunks. The dense scenario reuses nine encoded spawn chunks across 128 clients and produces roughly 1.6 million outbound packets over the complete measured run. Dense visibility therefore has a substantial replication/bandwidth cost even with compact peer views, batching and concurrent observers.
 
 ## What the numbers measure
