@@ -248,6 +248,11 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemUseOracle', 'generate', use_cases], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_item_use.exs', use_cases, use_encoded], cwd=root, check=True)
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemUseOracle', 'verify', use_encoded], cwd=root, check=True)
+    equipment_cases = str(pathlib.Path(world) / 'equipment-cases.json')
+    equipment_encoded = str(pathlib.Path(world) / 'equipment-encoded.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'EquipmentOracle', 'generate', equipment_cases], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_equipment.exs', equipment_cases, equipment_encoded], cwd=root, check=True)
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'EquipmentOracle', 'verify', equipment_encoded], cwd=root, check=True)
     defaults = str(pathlib.Path(world) / 'defaults.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemMetadata', item_facts, defaults], cwd=root, check=True)
     for actual, committed in [(item_facts, 'items.json'), (defaults, 'item_defaults.json')]:

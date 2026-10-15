@@ -48,6 +48,28 @@ defmodule Valimc.Protocol.EntityPackets do
     Packets.packet("set_entity_motion", [Wire.varint(id), PackedVelocity.encode(velocity)])
   end
 
+  def equipment(id, changes) do
+    entity_id!(id)
+    changes = bounded_list!(changes, 8, "invalid equipment batch")
+    check(changes != [], "empty equipment batch")
+
+    slots =
+      Enum.map(changes, fn
+        {slot, stack} when is_integer(slot) and slot in 0..7 -> {slot, ItemStack.encode(stack)}
+        _ -> raise ArgumentError, "invalid equipment slot"
+      end)
+
+    check(Enum.uniq_by(slots, &elem(&1, 0)) == slots, "duplicate equipment slot")
+    last = length(slots) - 1
+
+    body =
+      Enum.with_index(slots, fn {slot, bytes}, index ->
+        [<<if(index < last, do: slot ||| 128, else: slot)>>, bytes]
+      end)
+
+    Packets.packet("set_equipment", [Wire.varint(id), body])
+  end
+
   def pickup(item_id, collector_id, count) do
     entity_id!(item_id)
     entity_id!(collector_id)
