@@ -24,8 +24,9 @@ indexes validated tickets. None imply full parity.
    [Gravity/drag](tickets/VMC-015b.md)'s pure air/collision kernels and complete
    block motion facts match native cases/traces (`1da26e93`, baseline client smoke
    passed). [Live default velocity](tickets/VMC-015b1.md) now composes them on the
-   bounded player tick/geometry lane; affected tests/native probes pass, client and
-   block integration gates are next.
+   bounded player tick/geometry lane. Client and block integration pass on
+   `768e574`; a 512-player late-result finding needs measured observation reuse
+   and client regression before publication.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.

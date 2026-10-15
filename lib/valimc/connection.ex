@@ -539,12 +539,14 @@ defmodule Valimc.Connection do
 
                 send(self(), :drain)
 
-                {:noreply,
-                 next
-                 |> apply_kinetic_tick(kinetics.tick, kinetics.packet.bounced)
-                 |> observe_environment(powder)
-                 |> monitor_pose_sources(fences)
-                 |> update_view()}
+                next =
+                  next
+                  |> apply_kinetic_tick(kinetics.tick, kinetics.packet.bounced)
+                  |> observe_environment(powder)
+                  |> monitor_pose_sources(fences)
+                  |> update_view()
+
+                {:noreply, %{next | pose_checked: pose_signature(next)}}
               else
                 {:noreply, correct_motion(state, :movement_source_corrections)}
               end
