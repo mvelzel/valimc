@@ -157,6 +157,9 @@ defmodule Valimc.TestClient do
   defp take_metadata(client, id, <<6, 20, pose, rest::binary>>),
     do: put_metadata(client, id, :entity_poses, pose, rest)
 
+  defp take_metadata(client, id, <<8, 0, flags, rest::binary>>),
+    do: put_metadata(client, id, :entity_use, flags, rest)
+
   defp take_metadata(client, id, <<index, 1, rest::binary>>) when index in [1, 7] do
     {value, rest} = Wire.take_varint(rest)
     put_metadata(client, id, if(index == 1, do: :entity_air, else: :entity_frozen), value, rest)

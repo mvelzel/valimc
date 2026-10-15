@@ -40,6 +40,7 @@ defmodule Valimc.PlayerLife do
     }
     |> Map.put(:air_supply, Valimc.PlayerAir.maximum())
     |> Map.put(:food, %Valimc.PlayerFood{})
+    |> Map.put(:use_flags, 0)
   end
 
   def die(player),

@@ -20,6 +20,37 @@ defmodule Valimc.Inventory do
   def held(inventory, :off), do: get(inventory, 45)
   def cancel_drag(inventory), do: %{inventory | drag: nil}
 
+  @doc "Plan one consumed item and its remainder; overflow still requires durable world delivery."
+  def consume_hand(inventory, hand, replacement) when hand in [:main, :off] do
+    case held(inventory, hand) do
+      nil ->
+        {:error, :empty_hand}
+
+      stack ->
+        remaining =
+          if inventory.infinite_materials, do: stack, else: sized(stack, stack.count - 1)
+
+        {held, extras} =
+          Valimc.FoodItems.remainder(
+            remaining,
+            stack.count,
+            inventory.infinite_materials,
+            replacement
+          )
+
+        slot = if hand == :main, do: 36 + inventory.selected, else: 45
+        next = inventory |> cancel_drag() |> put(slot, held)
+
+        {next, drops} =
+          Enum.reduce(extras, {next, []}, fn extra, {next, drops} ->
+            {next, left} = return_stack(next, extra)
+            {next, if(left, do: [left | drops], else: drops)}
+          end)
+
+        with {:ok, next} <- finish(next), do: {:ok, next, Enum.reverse(drops)}
+    end
+  end
+
   @doc "Plans a selected-hand drop without publishing or creating a world entity."
   def drop_selected(inventory, all) when is_boolean(all) do
     case held(inventory, :main) do

@@ -11,11 +11,13 @@ defmodule Valimc.Connection do
     ItemStack,
     ItemTypes,
     Packets,
+    UseItem,
     Wire
   }
 
   alias Valimc.{
     CreativeInput,
+    FoodItems,
     GameMode,
     Inventory,
     Metrics,
@@ -33,6 +35,7 @@ defmodule Valimc.Connection do
     PlayerSnapshot,
     PlayerStore,
     PlayerTransfers,
+    PlayerUse,
     TransferDelivery,
     World
   }
@@ -43,7 +46,7 @@ defmodule Valimc.Connection do
   import Bitwise
 
   defguardp inventory_pending(state)
-            when state.recovery != nil or state.creative_input.queued > 0
+            when state.recovery != nil or state.creative_input.queued > 0 or state.use_save != nil
 
   def start_link(socket), do: GenServer.start_link(__MODULE__, socket)
 
@@ -171,6 +174,8 @@ defmodule Valimc.Connection do
        store_fence: nil,
        store_monitor: nil,
        save_ref: nil,
+       use_save: nil,
+       active_use: nil,
        life_save: nil,
        life_stage: :alive,
        respawn_requested: false,
@@ -404,7 +409,7 @@ defmodule Valimc.Connection do
   def handle_info({:player_saved, ref, :ok}, %{save_ref: ref} = state),
     do:
       guard_connection(state, fn ->
-        {:noreply, %{state | save_ref: nil} |> drain_creative() |> continue_life()}
+        {:noreply, %{state | save_ref: nil, use_save: nil} |> drain_creative() |> continue_life()}
       end)
 
   def handle_info(:drain_creative, %{creative_drain_scheduled: true} = state),
@@ -812,7 +817,12 @@ defmodule Valimc.Connection do
           state = %{state | player: player, simulation_clock: next, simulation_due: true}
 
           {:noreply,
-           state |> apply_void_damage() |> tick_food() |> start_motion() |> sample_pose()}
+           state
+           |> apply_void_damage()
+           |> tick_item_use()
+           |> tick_food()
+           |> start_motion()
+           |> sample_pose()}
 
         {:early, next, delay} ->
           Process.send_after(self(), {:player_tick, next.token}, delay)
@@ -1100,6 +1110,135 @@ defmodule Valimc.Connection do
 
   defp apply_void_damage(state), do: state
 
+  defp use_item(state, payload) do
+    case UseItem.decode(payload) do
+      {:ok, request} ->
+        if PlayerInput.loaded?(state.player.input) do
+          send_packets(state, [Packets.ack(request.sequence)])
+          # Native requests supply wrapped viewing angles before attempting use.
+          player = %{
+            state.player
+            | yaw: wrap_angle(request.yaw),
+              pitch: wrap_angle(request.pitch)
+          }
+
+          Players.update(self(), player)
+          begin_item_use(%{state | player: player}, request.hand)
+        else
+          state
+        end
+
+      {:error, _} ->
+        reject(state, "Invalid item use request")
+    end
+  end
+
+  defp wrap_angle(value) do
+    value = :math.fmod(value, 360.0)
+
+    cond do
+      value >= 180.0 -> value - 360.0
+      value < -180.0 -> value + 360.0
+      true -> value
+    end
+  end
+
+  defp begin_item_use(state, _) when inventory_pending(state), do: resync_inventory(state)
+  defp begin_item_use(%{active_use: %PlayerUse{}} = state, _), do: state
+  defp begin_item_use(%{player: %{game_mode: %{current: :spectator}}} = state, _), do: state
+
+  defp begin_item_use(state, hand) do
+    stack = Inventory.held(state.inventory, hand)
+    props = if stack, do: FoodItems.properties(stack)
+
+    if props && FoodItems.plain?(props) &&
+         FoodItems.eligible?(props, state.player.food, state.player.abilities) do
+      use = PlayerUse.new(stack, hand, props)
+      state = %{state | active_use: use}
+
+      if use.remaining == 0,
+        do: complete_item_use(state, false),
+        else: publish_item_use(state, PlayerUse.start_flags(state.player.use_flags, hand))
+    else
+      resync_inventory(state)
+    end
+  end
+
+  defp publish_item_use(state, flags) do
+    player = %{state.player | use_flags: flags}
+    Players.update(self(), player)
+    state = %{state | player: player}
+    packet = Packets.player_use(player)
+    send_packets(state, [packet])
+    broadcast_player_packet(state, packet)
+  end
+
+  defp stop_item_use(%{active_use: nil} = state), do: state
+
+  defp stop_item_use(state),
+    do: publish_item_use(%{state | active_use: nil}, PlayerUse.stop_flags(state.player.use_flags))
+
+  defp tick_item_use(%{life_stage: :alive, active_use: %PlayerUse{} = use} = state) do
+    case PlayerUse.tick(use, Inventory.held(state.inventory, use.hand)) do
+      {:using, next} -> %{state | active_use: next}
+      {:finish, next} -> complete_item_use(%{state | active_use: next}, true)
+      {:cancel, _} -> stop_item_use(state)
+    end
+  end
+
+  defp tick_item_use(state), do: state
+
+  defp complete_item_use(state, _) when inventory_pending(state) or state.save_ref != nil,
+    do: state
+
+  defp complete_item_use(state, notify) do
+    use = state.active_use
+    stack = Inventory.held(state.inventory, use.hand)
+    props = FoodItems.properties(stack)
+
+    if FoodItems.plain?(props) do
+      case Inventory.consume_hand(state.inventory, use.hand, props.remainder) do
+        {:ok, inventory, []} ->
+          food =
+            if props.food,
+              do: PlayerFood.eat(state.player.food, props.food.nutrition, props.food.saturation),
+              else: state.player.food
+
+          player = %{state.player | food: food}
+          # One atomic checkpoint owns both changes. No world item escapes this lane.
+          ref = make_ref()
+
+          PlayerStore.checkpoint(
+            state.player_store,
+            state.store_fence,
+            PlayerSnapshot.capture(player, inventory),
+            ref
+          )
+
+          Process.send_after(self(), {:save_deadline, ref}, 5000)
+          state = %{state | player: player, inventory: inventory, save_ref: ref, use_save: ref}
+          Players.update(self(), player)
+          if notify, do: send_packets(state, [Packets.use_item_finished(player.entity_id)])
+          state = stop_item_use(state)
+
+          send_packets(state, [
+            Packets.health(player.health, food),
+            Packets.inventory(inventory),
+            Packets.cursor(inventory.carried)
+          ])
+
+          state
+
+        _ ->
+          # Patched stackable containers need an explicit conversion outbox before
+          # overflowing into the world. Reject the whole meal until that exists.
+          state |> stop_item_use() |> resync_inventory()
+      end
+    else
+      state |> stop_item_use() |> resync_inventory()
+    end
+  end
+
   defp apply_movement_exhaustion(%{player: %{abilities: %{invulnerable: true}}} = state, _),
     do: state
 
@@ -1193,8 +1332,8 @@ defmodule Valimc.Connection do
 
         state =
           if health.value <= 0 do
-            state = state |> cancel_pose_job() |> cancel_motion_job()
-            player = PlayerLife.die(player)
+            state = state |> cancel_pose_job() |> cancel_motion_job() |> stop_item_use()
+            player = PlayerLife.die(%{player | use_flags: state.player.use_flags})
 
             %{
               state
@@ -1330,6 +1469,7 @@ defmodule Valimc.Connection do
       | player: player,
         inventory: inventory,
         life_stage: :alive,
+        active_use: nil,
         respawn_requested: false,
         food_tick_origin: state.simulation_clock.tick,
         client_tick: %ClientTick{},
@@ -1354,6 +1494,7 @@ defmodule Valimc.Connection do
         Packets.abilities(player.abilities),
         Packets.health(player.health, player.food),
         Packets.player_health(player),
+        Packets.player_use(player),
         Packets.player_pose(player),
         Packets.player_environment(player),
         Packets.spawn_position(),
@@ -1548,6 +1689,7 @@ defmodule Valimc.Connection do
                "set_creative_mode_slot",
                "container_click",
                "container_close",
+               "use_item",
                "use_item_on"
              ] ->
         state
@@ -1664,6 +1806,13 @@ defmodule Valimc.Connection do
               resync_inventory(state)
             else
               send_packets(state, [Packets.held_slot(slot)])
+
+              state =
+                if slot != state.inventory.selected and
+                     match?(%PlayerUse{hand: :main}, state.active_use),
+                   do: stop_item_use(state),
+                   else: state
+
               %{state | inventory: inventory}
             end
 
@@ -1683,6 +1832,9 @@ defmodule Valimc.Connection do
 
       "use_item_on" ->
         place_block(state, payload)
+
+      "use_item" ->
+        use_item(state, payload)
 
       "chat" ->
         {message, _metadata} = Wire.take_string(payload, 256)
@@ -1724,6 +1876,7 @@ defmodule Valimc.Connection do
       environment: %PlayerEnvironment{},
       air_supply: Valimc.PlayerAir.maximum(),
       food: %PlayerFood{},
+      use_flags: 0,
       health: %PlayerHealth{},
       last_death: nil,
       pose: :standing,
@@ -1849,6 +2002,7 @@ defmodule Valimc.Connection do
       Packets.player_environment(state.player),
       Packets.player_pose(state.player),
       Packets.player_health(state.player),
+      Packets.player_use(state.player),
       Packets.chat(
         "Welcome to ValiMC. Development preview (#{state.player.game_mode.current}); survival is being built. /help"
       )
@@ -2380,6 +2534,7 @@ defmodule Valimc.Connection do
                     Packets.player_flags(player),
                     Packets.player_pose(player),
                     Packets.player_environment(player),
+                    Packets.player_use(player),
                     Packets.player_health(player)
                   ]
 
@@ -2440,6 +2595,9 @@ defmodule Valimc.Connection do
     if face not in 0..5, do: reject(state, "Invalid action face")
 
     cond do
+      action == ItemTypes.action_id("release_use_item") ->
+        stop_item_use(state)
+
       state.player.game_mode.current == :spectator and
           action in [
             ItemTypes.action_id("drop_item"),
@@ -2455,6 +2613,7 @@ defmodule Valimc.Connection do
         resync_inventory(state)
 
       action == ItemTypes.action_id("swap_item_with_offhand") ->
+        state = stop_item_use(state)
         inventory = Inventory.swap_hands(state.inventory)
 
         send_packets(state, [

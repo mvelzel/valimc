@@ -1,6 +1,6 @@
 # VMC-036c — Consumable item use
 
-Status: Native facts/food codecs verified; live use in progress. October 16, 2026.
+Status: Live plain-food use automated-verified; graphical gate pending. October 16, 2026.
 Depends on owned food, hand/inventory authority and the admitted player clock.
 
 Acceptance: unmodified-client use starts the native held-item animation and
@@ -52,6 +52,27 @@ Native stop clears the active bit but retains the off-hand bit. Four affected
 tests pass. Evidence `.local/item-use-{native,check,verify,tests}.log`; source
 `LivingEntity.startUsingItem/stopUsingItem`, `ServerPlayer.completeUsingItem`,
 `ServerGamePacketListenerImpl.handleSetCarriedItem/handlePlayerAction`.
+
+Live checkpoint: existing admitted player ticks advance one transient use counter.
+Requests acknowledge native sequences and wrapped angles; loading, spectator,
+full-food and active-use gates apply. Both hands publish living-use flags. Completion
+sends native event9 before the authoritative inventory, uses the latest same-type
+stack's food properties, and checkpoints food/inventory together. No new owner,
+task or periodic timer is added. A busy writer defers completion; consumption acknowledgements
+never overwrite subsequent food ticks. Inventory transfers wait for that checkpoint.
+Release, main-hand selection, swaps, changed item types, death and reconnect cancel.
+Final soup replaces the held stack with its bowl even with full storage; creative
+keeps the consumed item without another bowl. Patched container extras can merge
+into storage. World overflow rejects the whole meal pending a conversion outbox.
+
+Thirty-eight affected tests pass, including twelve real TCP scenarios covering
+native duration/repeated requests/stale ticks, both hands, cancellation, current
+components, eligibility, creative, full storage, atomic reconnect, blocked saves,
+deferred completion, death and unsupported effects/overflow. Evidence:
+`.local/live-item-use-{compile,affected-tests}.log`. Full block checks/build and
+actual-client verification remain pending. Specialized effects/listeners, world
+overflow, peer held-equipment rendering, use slowing, sounds/particles, vibration
+and statistics are follow-ups; this is not full consumable or survival parity.
 
 Client scenario: eat from both hands; visible use animation, stack reduction and
 food recovery; full-food negative and always-edible positive; interrupt mid-use,

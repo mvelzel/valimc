@@ -332,6 +332,7 @@ defmodule Valimc.Protocol.Packets do
           player_flags(player),
           player_pose(player),
           player_environment(player),
+          player_use(player),
           player_health(player)
         ]
 

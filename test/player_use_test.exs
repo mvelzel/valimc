@@ -5,7 +5,7 @@ defmodule Valimc.PlayerUseTest do
 
   test "use requests reject malformed hands, sequences, nonfinite angles and trailing bytes" do
     body = <<0, 0, 0::float-32, 90::float-32>>
-    assert {:ok, %{hand: :main, sequence: 0, yaw: 0.0, pitch: 90.0}} = UseItem.decode(body)
+    assert {:ok, %{hand: :main, sequence: 0, yaw: +0.0, pitch: 90.0}} = UseItem.decode(body)
 
     for bytes <- [
           <<>>,
