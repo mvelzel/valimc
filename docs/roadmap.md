@@ -48,6 +48,8 @@ indexes validated tickets. None imply full parity.
    contextual single-path and tick-batch ordering match native scenes. Bounded
    player-owned history/live composition pass affected tests; frozen client and
    coherent-block integration gates are next.
+   [Sneaking at edges](tickets/VMC-015h.md)'s bounded kernel matches native query
+   traces; live composition is the next independent movement slice.
    Effects/survival consequences remain open.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
