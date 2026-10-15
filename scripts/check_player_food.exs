@@ -1,0 +1,66 @@
+alias Valimc.{PlayerFood, PlayerHealth}
+[path] = System.argv()
+data = path |> File.read!() |> JSON.decode!()
+
+food = fn row ->
+  %PlayerFood{
+    level: row["level"],
+    saturation: row["saturation"],
+    exhaustion: row["exhaustion"],
+    timer: row["timer"]
+  }
+end
+
+check = fn actual, expected ->
+  unless actual == food.(expected) and PlayerFood.valid?(actual),
+    do: raise("Native food mismatch #{inspect({actual, expected})}")
+end
+
+check.(%PlayerFood{}, data["missing"])
+
+unless data["defaults"] == %{
+         "foodLevel" => 20,
+         "foodSaturationLevel" => 5.0,
+         "foodExhaustionLevel" => 0.0,
+         "foodTickTimer" => 0
+       },
+       do: raise("Native food defaults changed")
+
+for c <- data["ticks"] do
+  {next, effects} =
+    PlayerFood.tick(
+      food.(c),
+      %PlayerHealth{value: c["health"]},
+      c["difficulty"],
+      c["regeneration"]
+    )
+
+  check.(next, c["next"])
+
+  unless effects == %{heal: c["heal"], damage: c["damage"]},
+    do: raise("Native food effects differ #{inspect({c, effects})}")
+end
+
+for c <- data["peaceful"] do
+  {next, heal} =
+    PlayerFood.peaceful(
+      food.(c),
+      %PlayerHealth{value: c["health"]},
+      c["difficulty"],
+      c["regeneration"],
+      c["tick"]
+    )
+
+  check.(next, c["next"])
+  unless heal == c["heal"], do: raise("Native peaceful heal differs #{inspect(c)}")
+end
+
+for c <- data["exhaustion"],
+    do: check.(PlayerFood.exhaust(%PlayerFood{exhaustion: c["initial"]}, c["amount"]), c["next"])
+
+for c <- data["meals"],
+    do: check.(PlayerFood.eat(food.(c), c["nutrition"], c["increase"]), c["next"])
+
+IO.puts(
+  "PASS: #{length(data["ticks"])} native food ticks, #{length(data["peaceful"])} peaceful prefixes, #{length(data["exhaustion"])} exhaustion and #{length(data["meals"])} meal transitions plus defaults."
+)

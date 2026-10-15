@@ -66,6 +66,8 @@ indexes validated tickets. None imply full parity.
    preview loads; actual-client validation remains pending.
    [Void damage](tickets/VMC-017b3.md) passes 67 affected tests and native
    boundary/mode/loading/defense/codecs; actual-client validation remains pending.
+   [Hunger/regeneration](tickets/VMC-036a.md) is the next independent slice:
+   native food/peaceful arithmetic first, then owned clock, save and HUD composition.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
