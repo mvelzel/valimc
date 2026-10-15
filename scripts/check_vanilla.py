@@ -76,6 +76,13 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     relative_motion = str(pathlib.Path(world) / 'relative-motion.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'RelativeMotionOracle', relative_motion], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_relative_motion.exs', relative_motion], cwd=root, check=True)
+    stuck_motion = str(pathlib.Path(world) / 'stuck-motion.json')
+    stuck_blocks = str(pathlib.Path(world) / 'stuck-blocks.json')
+    stuck_lookups = str(pathlib.Path(world) / 'stuck-lookups.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'StuckMotionOracle', stuck_motion, stuck_blocks, stuck_lookups], cwd=root, check=True)
+    if json.loads(pathlib.Path(stuck_blocks).read_text()) != json.loads((root/'priv/physics/stuck_blocks.json').read_text()):
+        raise RuntimeError('Pinned slowing block facts differ')
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_stuck_motion.exs', stuck_motion, stuck_lookups], cwd=root, check=True)
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'PlayerKineticsOracle', player_kinetics], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_player_kinetics.exs', player_kinetics], cwd=root, check=True)
     motion_save = str(pathlib.Path(world) / 'player-motion-save.json')
