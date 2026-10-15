@@ -29,7 +29,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-014c4](tickets/VMC-014c4.md) | Walking, wall/step/flight/tunnel and teleport regression | Live movement checkpoint |
+| [VMC-014c4](tickets/VMC-014c4.md) | Admission-fix client retest; flight/reconnect | `d10f566`, `.local/live-motion-retry-checkpoint` |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 
