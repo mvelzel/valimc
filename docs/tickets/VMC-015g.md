@@ -31,3 +31,15 @@ Next: bounded ordered/swept contact selection, pending-multiplier ownership,
 collision/frame composition and a frozen client gate. Powder's 1.5 vertical
 factor must be included in query admission. Do not replace last-contact ordering
 with component-wise minima or clear unrelated movement on a mere observation.
+
+Original `BodySweepOracle` records 864 actual ordered
+`BlockGetter.forEachBlockIntersectedBetween` traces: standing/crouching/swimming,
+tiny-motion threshold, axis ties, negative/remote positions and visitor early stop.
+Evidence: `.local/body-sweep-{native.log,cases.json}`. This is the next traversal
+oracle, not an implemented Elixir detector or live graphical result.
+
+Compiled foundation baseline PASS on frozen `59de8fc`, October 15, 20:03–20:05:
+direct actual join/render/daylight, dry walk/jump/crouch and brief ladder regression.
+Report reviewed: `.local/client-tests/VMC-015fg-kernels/report.md`. Slowing helpers
+remain unwired; the feature gate stays open. Owned client stopped, fixtures restored,
+safe dry pose, unchanged inventory/journal, zero players and paused noon retained.

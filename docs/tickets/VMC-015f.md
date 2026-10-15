@@ -39,3 +39,9 @@ Private references: `.local/input-{ServerPacket,Avatar}.javap`,
 Therefore ordinary player travel must not blindly replay reported directions.
 Keep these kernels for simulation-owned entity/vehicle input and future prediction;
 live ownership/integration and the corresponding client gates remain open.
+
+Foundation baseline PASS on frozen `59de8fc`, October 15, 20:03–20:05 CEST:
+actual direct join/render, recovered daytime, walk/jump/crouch and ladder regression.
+Dedicated report reviewed: `.local/client-tests/VMC-015fg-kernels/report.md`.
+This checks compiled integration, not live input acceleration. Client stopped,
+fixtures restored, inventory/journal unchanged and zero players.
