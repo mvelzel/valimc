@@ -102,7 +102,7 @@ def main():
             (run / "natives" / name).mkdir(parents=True)
         (run / "game/options.txt").write_text(
             "fullscreen:false\nonboardAccessibility:false\nskipMultiplayerWarning:true\ntutorialStep:none\n"
-            "pauseOnLostFocus:false\nrenderDistance:4\nsimulationDistance:5\nmaxFps:60\nguiScale:2\n")
+            "pauseOnLostFocus:false\nrenderDistance:4\nsimulationDistance:5\nmaxFps:60\nguiScale:0\n")
 
         def stop(_signum, _frame):
             raise KeyboardInterrupt

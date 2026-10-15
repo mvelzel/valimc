@@ -31,4 +31,6 @@ access outside the shell sandbox. Failed evidence stays in `.local/client-tests/
 Two subsequent direct launches joined, rendered, accepted movement/pointer input
 and shut down cleanly using native GUI access. The helper now omits custom
 resolution arguments and explicitly disables fullscreen, preserving Minecraft's
-default small window. One final default-size launch/capture/shutdown check remains.
+default small window. The default-size cycle passed; the forced UI scale 2 made
+Retina HUD/menu elements too small. Use native Auto (0); a final readable-UI
+launch/capture/shutdown check remains.
