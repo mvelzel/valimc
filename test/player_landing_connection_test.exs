@@ -275,6 +275,91 @@ defmodule Valimc.PlayerLandingConnectionTest do
     assert state(pid).player.motion.fall_distance == 0.0
   end
 
+  test "worn Feather Falling reduces an actual landing without gear wear and survives reconnect",
+       ctx do
+    boots = %{
+      ItemStack.new("iron_boots")
+      | components: %{"minecraft:enchantments" => %{"minecraft:feather_falling" => 4}}
+    }
+
+    seed(ctx, inventory: %Inventory{slots: %{8 => boots, 36 => ItemStack.new("stone", 7)}})
+    {client, pid} = login(ctx)
+    fall(client, pid, 64.0)
+    assert state(pid).player.health.value == 17.399999618530273
+    assert state(pid).inventory.slots[8] == boots
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    {:ok, snapshot} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert snapshot.health.value == 17.399999618530273
+    assert snapshot.inventory.slots[8] == boots and snapshot.transfer_sequence == 0
+    {second, owner} = login(ctx)
+    assert state(owner).player.health.value == snapshot.health.value
+    assert Enum.at(second.inventory.items, 8) == boots
+    assert Enum.at(second.inventory.items, 36) == ItemStack.new("stone", 7)
+  end
+
+  for {slot, component} <- [{8, "minecraft:stored_enchantments"}, {36, "minecraft:enchantments"}] do
+    test "slot #{slot}/#{component} does not protect an accepted survival fall", ctx do
+      boots = %{
+        ItemStack.new("iron_boots")
+        | components: %{unquote(component) => %{"minecraft:feather_falling" => 255}}
+      }
+
+      seed(ctx, inventory: %Inventory{slots: %{unquote(slot) => boots}})
+      {client, pid} = login(ctx)
+      fall(client, pid, 64.0)
+      assert state(pid).player.health.value == 15.0
+      assert state(pid).inventory.slots[unquote(slot)] == boots
+    end
+  end
+
+  test "cooldown selects raw damage before capped defenses and preserves the almost-fatal float boundary",
+       ctx do
+    gear =
+      for {slot, item} <- [
+            {5, "iron_helmet"},
+            {6, "iron_chestplate"},
+            {7, "iron_leggings"},
+            {8, "iron_boots"}
+          ],
+          into: %{} do
+        enchantments = %{"minecraft:protection" => 4}
+
+        enchantments =
+          if slot == 8,
+            do: Map.put(enchantments, "minecraft:feather_falling", 4),
+            else: enchantments
+
+        {slot, %{ItemStack.new(item) | components: %{"minecraft:enchantments" => enchantments}}}
+      end
+
+    seed(ctx, y: 64.0, inventory: %Inventory{slots: gear})
+    {_, pid} = login(ctx)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | simulation_clock: %{
+            state.simulation_clock
+            | deadline: System.monotonic_time(:millisecond) + 10_000
+          }
+      }
+    end)
+
+    assert {:ok, :hurt} = Connection.fall_damage(pid, 100)
+    assert state(pid).player.health.value == 0.0000019073486328125
+    assert state(pid).player.health.last_hurt == 100.0
+    assert state(pid).inventory.slots == gear
+    assert {:ok, :ignored} = Connection.fall_damage(pid, 100)
+    assert state(pid).player.health.value == 0.0000019073486328125
+    assert {:ok, :dead} = Connection.fall_damage(pid, 101)
+    wait(fn -> state(pid).life_stage == :dead end)
+    {:ok, snapshot} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert snapshot.health.value == 0.0 and snapshot.inventory.slots == %{}
+    assert snapshot.transfer_sequence == 1 and snapshot.outbox == nil
+    assert map_size(World.item_snapshot(ctx.key)) == 4
+  end
+
   test "a fatal accepted landing runs durable multi-batch death and actual respawn protocol",
        ctx do
     inventory = %Inventory{slots: Map.new(36..43, &{&1, ItemStack.new("stone", &1 - 35)})}

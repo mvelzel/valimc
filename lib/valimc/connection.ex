@@ -1077,7 +1077,8 @@ defmodule Valimc.Connection do
         {:immune, state}
 
       true ->
-        {:ok, health} = PlayerHealth.reduce(selected.state, selected.damage)
+        {:ok, damage} = Valimc.PlayerFallProtection.damage(state.inventory, selected.damage)
+        {:ok, health} = PlayerHealth.reduce(selected.state, damage)
         player = %{state.player | health: health}
         state = %{state | player: player}
 

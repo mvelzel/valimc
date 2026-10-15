@@ -71,5 +71,6 @@ Evidence: `.local/player-life-{native,check,verify,tests}.log` and
 and remain local pending lifecycle/client validation.
 
 The owner death/respawn and accepted landing implementations are now local
-checkpoints in the child tickets above. Do not reimplement them. Actual-client
-verification and subsequent defenses/attributes/effects remain open.
+checkpoints in the child tickets above. Do not reimplement them. Worn fall
+enchantment defenses are also implemented locally in [VMC-017a3](VMC-017a3.md).
+Actual-client verification, further attributes and effects remain open.

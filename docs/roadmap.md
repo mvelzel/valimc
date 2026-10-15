@@ -57,6 +57,8 @@ indexes validated tickets. None imply full parity.
    and native codecs locally; its actual death/respawn/reconnect gate is next.
    [Automatic landing damage](tickets/VMC-017a2.md) passes 93 affected tests,
    71,530 native material cases and native support/codecs; its graphical gate is pending.
+   [Fall enchantment defenses](tickets/VMC-017a3.md) pass 41 affected tests and
+   20,800 native cases; actual geared falls/reconnect remain pending.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
@@ -75,8 +77,9 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
-| [VMC-017a1](tickets/VMC-017a1.md) | Actual trusted damage/death, multi-batch drops, respawn and dead reconnect | Freeze local owner checkpoint |
-| [VMC-017a2](tickets/VMC-017a2.md) | Actual survival falls/materials, damaged reconnect and fatal landing/respawn | Local accepted-landing checkpoint |
+| [VMC-017a1](tickets/VMC-017a1.md) | Actual trusted damage/death, multi-batch drops, respawn and dead reconnect | Frozen `30ff295` |
+| [VMC-017a2](tickets/VMC-017a2.md) | Actual survival falls/materials, damaged reconnect and fatal landing/respawn | Local `687fc7e` |
+| [VMC-017a3](tickets/VMC-017a3.md) | Actual worn protection, hand/stored negatives, gear/health reconnect | Local fall-defense checkpoint |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection
