@@ -1,6 +1,6 @@
 # VMC-015b — Gravity and air drag
 
-Status: Pure kernel verified; live integration pending. October 15, 2026.
+Status: Pure air/collision kernels verified; live integration pending. October 15, 2026.
 Follows VMC-015a. Not Done.
 
 Build the pure velocity update from pinned native behavior, then compose it with
@@ -46,6 +46,29 @@ the accepted position. Evolve velocity against a scratch body, then retain the
 accepted client anchor rather than advancing it twice. The packet handler applies
 `jumpFromGround` on ground→air/upward input before collision movement. Native
 `Entity.restituteMovementAfterCollisions` resolves velocity before air drag;
-its bounce/gravity/partial-collision math still needs a probe and implementation.
+the verified `CollisionResponse` supplies its bounce/gravity/partial-collision math.
 Keep these observations separate from implemented behavior. Private references:
 `.local/{movement-handler,gravity-Entity,gravity-Player}.javap`.
+
+Collision checkpoint: floor/ceiling/wall response, suppressed/low-speed bounce,
+block restitution and partial-step gravity/drag compensation. Native finite guards
+retain the entire prior velocity when a candidate is nonfinite, while still
+emitting its bounce notification. The pure result keeps that effect explicit for
+the eventual owner. Invalid facts fail. `MotionBlocks` stores complete pinned
+friction/speed/jump/restitution/fluid/suppression facts in eight property sets and
+one 17,862-byte immutable binary. Unknown states fail; suppression uses pinned tags.
+
+Checks: nine affected tests pass. `CollisionResponseOracle` invokes the actual
+native restitution/setter; 42,336 bit-exact cases include 2,088 rejected nonfinite
+candidates. Three 200-step native `travelInAir` traces retain actual restitution
+and clipping against supplied floor/ceiling geometry (stone, ice, slime). Input,
+world effects and AI are controlled. Traces retain pre-move ground friction and
+native horizontal collision tolerance. `BlockMotionMetadata` produces dense native
+observations independently of the packed catalog; every one of 35,723 compiled
+state lookups matches. Logs/fixtures: `.local/collision-response-*` and
+`.local/block-motion-*`. The full native driver includes both probes for the next
+coherent-block check; it was not rerun for this arithmetic-only checkpoint.
+
+Before publication, delegate baseline join/walk/jump/flight/spawn smoke on this
+frozen checkpoint. This code is not yet on the live force path; keep the composed
+feature gate and this ticket open.
