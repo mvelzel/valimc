@@ -14,7 +14,7 @@ defmodule Valimc.PlayerPoseQuery do
   def signature(player) do
     {player.x, player.y, player.z, Map.get(player, :pose, :standing),
      (player.input.shared_flags &&& 2) != 0, player.abilities.flying,
-     player.game_mode.current == :spectator}
+     player.game_mode.current == :spectator, Valimc.PlayerMotion.distance(player)}
   end
 
   def start(player) do
@@ -31,7 +31,7 @@ defmodule Valimc.PlayerPoseQuery do
 
     context =
       CollisionContext.entity(player.y, shift)
-      |> CollisionContext.with_entity(0.0, false, false)
+      |> CollisionContext.with_entity(Valimc.PlayerMotion.distance(player), false, false)
 
     # Standing encloses every pose currently produced by this preview's input.
     # Missing block-entity facts remain errors; they never become empty space.

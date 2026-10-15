@@ -107,4 +107,15 @@ defmodule Valimc.PlayerMotionQueryTest do
     assert {:ok, %{accepted: true}} = query(p, %{x: p.x + 0.2})
     assert {:error, :movement_query_limit} = PlayerMotionQuery.start(p, %{p | x: p.x + 65})
   end
+
+  test "accepted fall context changes powder-snow collision instead of caching zero", %{player: p} do
+    :ok = World.set_block({floor(p.x), 64, floor(p.z)}, 30519)
+    p = %{p | y: 67.0}
+    light = Map.put(p, :motion, %Valimc.PlayerMotion{fall_distance: 2.5})
+    heavy = Map.put(p, :motion, %Valimc.PlayerMotion{fall_distance: 2.5000000000000004})
+    assert {:ok, %{accepted: true}} = query(light, %{y: 64.5})
+    assert {:ok, %{accepted: false}} = query(heavy, %{y: 64.5})
+    assert {:ok, %{accepted: true}} = query(heavy, %{y: 64.89999997615814})
+    refute Valimc.PlayerPoseQuery.signature(light) == Valimc.PlayerPoseQuery.signature(heavy)
+  end
 end

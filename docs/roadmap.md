@@ -18,8 +18,10 @@ indexes validated tickets. None imply full parity.
    [live player poses](tickets/VMC-014c3b2b2.md).
    [Live block-based movement](tickets/VMC-014c4.md) is validated and complete
    within its scope (`d10f566`); gravity/coupled effects remain.
-2. **VMC-015: gravity, velocity and grounded state.** Native player simulation and
-   accepted-move fall accounting are being established before forces and damage.
+2. **VMC-015: gravity, velocity and grounded state.**
+   [Accepted-move fall accounting](tickets/VMC-015a.md) passes automated/native
+   checks; delegate its actual-client drop/powder-snow gate while advancing forces
+   and environmental behavior.
    [Geometry admission](tickets/VMC-011a8.md) is complete within measured preview
    scope (`8871985`); prepared samples retain owner fencing and bounded work.
 
@@ -33,6 +35,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
+| [VMC-015a](tickets/VMC-015a.md) | Drop/jump/powder snow, flight and reconnect | Local checkpoint pending |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

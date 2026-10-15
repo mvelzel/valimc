@@ -67,15 +67,100 @@ defmodule Valimc.PlayerMotionConnectionTest do
         )
   end
 
-  defp move(client, p) do
+  defp move(client, p, flags \\ 1) do
     Client.send_raw(client, [
       Wire.frame(
         Data.id(:play, :serverbound, "move_player_pos"),
-        <<p.x::float-64, p.y::float-64, p.z::float-64, 1>>,
+        <<p.x::float-64, p.y::float-64, p.z::float-64, flags>>,
         client.threshold
       ),
       Wire.frame(Data.id(:play, :serverbound, "client_tick_end"), <<>>, client.threshold)
     ])
+  end
+
+  test "only accepted displacement accrues falls; reports and tick boundaries retain their meaning",
+       ctx do
+    {client, pid} = login(hd(ctx.names))
+    top = %{ctx.pos | y: 68.0}
+    :ok = Connection.teleport(pid, top)
+    client = correction(client, pid, top)
+    down = %{top | y: 67.0}
+    move(client, down, 2)
+    wait(fn -> state(pid).player.y == down.y end)
+    motion = state(pid).player.motion
+    assert motion.fall_distance == 1.0
+    assert motion.known_movement == {0.0, -1.0, 0.0}
+    refute motion.on_ground
+    assert motion.horizontal_collision
+
+    # A rejected floor entry cannot erase an already accepted fall.
+    move(client, %{top | y: 63.0}, 1)
+    client = correction(client, pid, down)
+    assert state(pid).player.motion.fall_distance == 1.0
+    Client.send_packet(client, :play, "client_tick_end", <<>>)
+    wait(fn -> state(pid).player.motion.known_movement == {0.0, 0.0, 0.0} end)
+
+    # This is a client report even while airborne, not proof of solid support.
+    Client.send_packet(client, :play, "move_player_status_only", <<3>>)
+    wait(fn -> state(pid).player.motion.on_ground end)
+    assert state(pid).player.y == 67.0
+    assert state(pid).player.motion.fall_distance == 0.0
+
+    move(client, %{top | y: 66.5}, 0)
+    wait(fn -> state(pid).player.motion.fall_distance == 0.5 end)
+    Client.send_packet(client, :play, "move_player_rot", <<12.0::float-32, 0.0::float-32, 0>>)
+    wait(fn -> state(pid).player.yaw == 12.0 end)
+    assert state(pid).player.motion.fall_distance == 0.5
+    move(client, %{top | y: 66.6}, 0)
+    wait(fn -> state(pid).player.y == 66.6 end)
+    assert state(pid).player.motion.fall_distance == 0.0
+    move(client, %{top | y: 66.4}, 0)
+    wait(fn -> state(pid).player.y == 66.4 end)
+    assert state(pid).player.motion.fall_distance > 0.0
+    Client.send_packet(client, :play, "player_abilities", <<2>>)
+    wait(fn -> state(pid).player.abilities.flying end)
+    assert state(pid).player.motion.fall_distance == 0.0
+  end
+
+  test "pending geometry cannot accrue a fall, and relocation retires its context", ctx do
+    {client, pid} = login(hd(ctx.names))
+    top = %{ctx.pos | y: 68.0}
+    :ok = Connection.teleport(pid, top)
+    client = correction(client, pid, top)
+    move(client, %{top | y: 67.0}, 0)
+    wait(fn -> state(pid).player.y == 67.0 end)
+    {:ok, {owner, _}} = World.existing_owner(ctx.key)
+    :sys.suspend(owner)
+
+    try do
+      move(client, %{top | y: 66.0}, 0)
+      wait(fn -> state(pid).motion_job end)
+      assert state(pid).player.motion.fall_distance == 1.0
+      :ok = Connection.teleport(pid, top)
+      assert state(pid).player.motion.fall_distance == 0.0
+      _client = correction(client, pid, top)
+      assert state(pid).player.y == 68.0
+    after
+      if Process.alive?(owner), do: :sys.resume(owner)
+    end
+  end
+
+  test "disconnect and reconnect retain a midair fall without retaining old movement", ctx do
+    name = hd(ctx.names)
+    {client, pid} = login(name)
+    top = %{ctx.pos | y: 69.0}
+    :ok = Connection.teleport(pid, top)
+    client = correction(client, pid, top)
+    move(client, %{top | y: 67.75}, 0)
+    wait(fn -> state(pid).player.y == 67.75 end)
+    assert state(pid).player.motion.fall_distance == 1.25
+    Client.close(client)
+    wait(fn -> not Process.alive?(pid) end)
+    uuid = Connection.offline_uuid(name)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == [] end)
+    {_client, replacement} = login(name)
+    assert state(replacement).player.motion.fall_distance == 1.25
+    assert state(replacement).player.motion.known_movement == {0.0, 0.0, 0.0}
   end
 
   defp correction(client, pid, expected) do

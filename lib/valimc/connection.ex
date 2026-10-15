@@ -21,6 +21,7 @@ defmodule Valimc.Connection do
     Players,
     PlayerAbilities,
     PlayerInput,
+    PlayerMotion,
     PlayerMotionQuery,
     PlayerPoseQuery,
     PlayerSnapshot,
@@ -473,6 +474,20 @@ defmodule Valimc.Connection do
                    World.existing_owner(key) == {:ok, owner}
                  end) do
                 player = state.player |> Map.merge(job.input.position) |> Map.put(:pose, pose)
+
+                movement =
+                  {player.x - state.player.x, player.y - state.player.y,
+                   player.z - state.player.z}
+
+                motion =
+                  PlayerMotion.accept(
+                    state.player.motion,
+                    movement,
+                    job.input.flags,
+                    player.abilities.flying
+                  )
+
+                player = %{player | motion: motion}
 
                 if pose != state.player.pose,
                   do: send_packets(state, [Packets.player_pose(player)])
@@ -1028,26 +1043,28 @@ defmodule Valimc.Connection do
         end
 
       "move_player_pos" ->
-        <<x::float-64, y::float-64, z::float-64, _flags>> = payload
-        move(admit_position(state), %{x: x, y: y, z: z})
+        <<x::float-64, y::float-64, z::float-64, flags>> = payload
+        move(admit_position(state), %{x: x, y: y, z: z}, flags)
 
       "move_player_pos_rot" ->
-        <<x::float-64, y::float-64, z::float-64, yaw::float-32, pitch::float-32, _flags>> =
+        <<x::float-64, y::float-64, z::float-64, yaw::float-32, pitch::float-32, flags>> =
           payload
 
-        move(admit_position(state), %{x: x, y: y, z: z, yaw: yaw, pitch: pitch})
+        move(admit_position(state), %{x: x, y: y, z: z, yaw: yaw, pitch: pitch}, flags)
 
       "move_player_rot" ->
-        <<yaw::float-32, pitch::float-32, _flags>> = payload
-        move(state, %{yaw: yaw, pitch: pitch})
+        <<yaw::float-32, pitch::float-32, flags>> = payload
+        move(state, %{yaw: yaw, pitch: pitch}, flags)
 
       "move_player_status_only" ->
-        <<_flags>> = payload
-        count_motion_packet(state)
+        <<flags>> = payload
+        move(state, %{}, flags)
 
       "client_tick_end" ->
         <<>> = payload
-        %{state | client_tick: ClientTick.finish(state.client_tick)}
+        player = %{state.player | motion: PlayerMotion.finish_tick(state.player.motion)}
+        Players.update(self(), player)
+        %{state | client_tick: ClientTick.finish(state.client_tick), player: player}
 
       "chunk_batch_received" ->
         <<desired::float-32>> = payload
@@ -1057,7 +1074,13 @@ defmodule Valimc.Connection do
 
       "player_abilities" ->
         {:ok, abilities} = PlayerAbilities.request_flight(state.player.abilities, payload)
-        player = %{state.player | abilities: abilities}
+
+        player = %{
+          state.player
+          | abilities: abilities,
+            motion: PlayerMotion.flight(state.player.motion, abilities.flying)
+        }
+
         Players.update(self(), player)
         %{state | player: player}
 
@@ -1147,6 +1170,7 @@ defmodule Valimc.Connection do
       game_mode: mode,
       abilities: GameMode.abilities(mode, false),
       input: %PlayerInput{},
+      motion: %PlayerMotion{},
       pose: :standing,
       ready: false
     }
@@ -1177,7 +1201,12 @@ defmodule Valimc.Connection do
           player = %{
             Map.merge(player, snapshot.pose)
             | game_mode: mode,
-              abilities: abilities
+              abilities: abilities,
+              motion:
+                PlayerMotion.flight(
+                  %PlayerMotion{fall_distance: Map.get(snapshot, :fall_distance, 0.0)},
+                  abilities.flying
+                )
           }
 
           {pid, fence, player, inventory, pending}
@@ -1275,9 +1304,9 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp move(%{teleport_pending: true} = state, _), do: state
+  defp move(%{teleport_pending: true} = state, _, _), do: state
 
-  defp move(state, changes) do
+  defp move(state, changes, flags) do
     player = Map.merge(state.player, changes)
     if not PlayerStore.valid_pose?(player), do: reject(state, "Position outside world bounds")
     state = count_motion_packet(state)
@@ -1302,6 +1331,7 @@ defmodule Valimc.Connection do
       else
         input = %{
           position: Map.take(changes, [:x, :y, :z]),
+          flags: flags,
           deadline: System.monotonic_time(:millisecond) + 250,
           token: make_ref(),
           retry: nil,
@@ -1314,11 +1344,14 @@ defmodule Valimc.Connection do
         |> start_motion()
       end
     else
-      state
+      motion =
+        PlayerMotion.accept(state.player.motion, {0.0, 0.0, 0.0}, flags, player.abilities.flying)
+
+      player = %{state.player | motion: motion}
+      Players.update(self(), player)
+      %{state | player: player}
     end
   end
-
-  defp count_motion_packet(%{teleport_pending: true} = state), do: state
 
   defp count_motion_packet(state) do
     tick = Integer.floor_div(System.monotonic_time(:millisecond), 50)
@@ -1415,11 +1448,13 @@ defmodule Valimc.Connection do
 
   defp correct_motion(state, metric) do
     Metrics.add(metric)
-    relocate(state, state.player)
+    player = %{state.player | motion: PlayerMotion.corrected(state.player.motion)}
+    relocate(state, player, false)
   end
 
-  defp relocate(state, player) do
+  defp relocate(state, player, reset_motion \\ true) do
     state = cancel_pose_job(state)
+    player = if reset_motion, do: %{player | motion: %PlayerMotion{}}, else: player
 
     if state.motion_pending && state.motion_pending.retry,
       do: Process.cancel_timer(state.motion_pending.retry)

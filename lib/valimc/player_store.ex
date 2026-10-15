@@ -155,6 +155,11 @@ defmodule Valimc.PlayerStore do
         do: Map.put(next, :flying, snapshot.flying),
         else: next
 
+    next =
+      if next && Valimc.PlayerMotion.valid_distance?(Map.get(snapshot, :fall_distance)),
+        do: Map.merge(next, Map.take(snapshot, [:fall_distance, :game_mode])),
+        else: next
+
     with :ok <- save(state, next),
          {:ok, state} <- prepare_closing(%{state | snapshot: next}) do
       if pending?(state) do

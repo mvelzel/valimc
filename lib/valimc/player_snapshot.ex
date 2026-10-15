@@ -7,12 +7,17 @@ defmodule Valimc.PlayerSnapshot do
   @inventory_bytes 524_288
   @outbox_bytes 55 + 5 * (40 + 65_536)
   @max_sequence 18_446_744_073_709_551_615
-  @max_bytes 56 + 4 + 3 + 12 + @inventory_bytes + @outbox_bytes + 32
+  @max_bytes 56 + 4 + 3 + 8 + 12 + @inventory_bytes + @outbox_bytes + 32
 
   def max_bytes, do: @max_bytes
 
   def capture(player, %Inventory{} = inventory) do
     snapshot = %{pose: PlayerStore.pose(player), inventory: inventory}
+
+    snapshot =
+      if Map.has_key?(player, :motion),
+        do: Map.put(snapshot, :fall_distance, player.motion.fall_distance),
+        else: snapshot
 
     snapshot =
       case player do
@@ -65,6 +70,18 @@ defmodule Valimc.PlayerSnapshot do
             {3, [<<sequence::64, byte_size(bytes)::32>>, bytes]}
           end
         end
+      end
+
+    {version, journal} =
+      if Map.has_key?(snapshot, :fall_distance) do
+        check(
+          version == 5 and Valimc.PlayerMotion.valid_distance?(snapshot.fall_distance),
+          :invalid_fall_distance
+        )
+
+        {6, [<<snapshot.fall_distance::float-64>>, journal]}
+      else
+        {version, journal}
       end
 
     payload =
@@ -130,9 +147,19 @@ defmodule Valimc.PlayerSnapshot do
 
         {:ok, Map.put(snapshot, :flying, flying == 1)}
 
-      <<"VMCPOSE", 5, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
-        yaw::float-32, pitch::float-32, @data_version::32, mode::binary-size(2), flying,
-        sequence::64, length::32, body::binary>> ->
+      <<"VMCPOSE", version, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
+        yaw::float-32, pitch::float-32, @data_version::32, rest::binary>>
+      when version in [5, 6] ->
+        {fall, rest} =
+          if version == 6 do
+            <<distance::float-64, rest::binary>> = rest
+            check(Valimc.PlayerMotion.valid_distance?(distance), :invalid_player_file)
+            {%{fall_distance: distance}, rest}
+          else
+            {%{}, rest}
+          end
+
+        <<mode::binary-size(2), flying, sequence::64, length::32, body::binary>> = rest
         {:ok, mode} = Valimc.GameMode.decode(mode)
         check(flying in 0..1 and length <= @outbox_bytes, :invalid_player_file)
         check(sequence > 0 or length == 0, :invalid_player_file)
@@ -146,7 +173,7 @@ defmodule Valimc.PlayerSnapshot do
             decode_outbox(uuid, sequence, outbox)
           )
 
-        {:ok, Map.merge(snapshot, %{game_mode: mode, flying: flying == 1})}
+        {:ok, snapshot |> Map.merge(%{game_mode: mode, flying: flying == 1}) |> Map.merge(fall)}
 
       _ ->
         {:error, :invalid_player_file}

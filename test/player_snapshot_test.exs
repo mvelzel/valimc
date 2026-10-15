@@ -6,6 +6,37 @@ defmodule Valimc.PlayerSnapshotTest do
   defp uuid, do: <<27::128>>
   defp seal(payload), do: payload <> :crypto.hash(:sha256, payload)
 
+  test "fall distance persists with inventory/journal state and rejects invalid sealed values" do
+    player =
+      Map.merge(pose(), %{
+        game_mode: Valimc.GameMode.new(:creative),
+        abilities: Valimc.PlayerAbilities.for_mode(:creative),
+        motion: %Valimc.PlayerMotion{fall_distance: 3.25}
+      })
+
+    original = PlayerSnapshot.capture(player, %Inventory{})
+    assert {:ok, <<"VMCPOSE", 6, _::binary>> = bytes} = PlayerSnapshot.encode(uuid(), original)
+    assert {:ok, decoded} = PlayerSnapshot.decode(bytes, uuid())
+    assert decoded.fall_distance == 3.25
+    assert decoded.game_mode == original.game_mode
+    assert decoded.transfer_sequence == 0 and decoded.outbox == nil
+
+    size = byte_size(bytes) - 32
+    <<payload::binary-size(^size), _::binary-size(32)>> = bytes
+    <<header::binary-size(60), _distance::binary-size(8), rest::binary>> = payload
+
+    for distance <- [-1.0, 60_000_001.0] do
+      invalid = seal(<<header::binary, distance::float-64, rest::binary>>)
+      assert {:error, :invalid_player_file} = PlayerSnapshot.decode(invalid, uuid())
+
+      assert {:error, :invalid_fall_distance} =
+               PlayerSnapshot.encode(uuid(), %{original | fall_distance: distance})
+    end
+
+    nan = seal(<<header::binary, 0x7FF8000000000000::64, rest::binary>>)
+    assert {:error, :invalid_player_file} = PlayerSnapshot.decode(nan, uuid())
+  end
+
   defp legacy(id \\ uuid()) do
     p = pose()
 

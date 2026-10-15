@@ -139,7 +139,7 @@ defmodule Valimc.PlayerMotionQuery do
   defp context(player, bottom),
     do:
       CollisionContext.entity(bottom, (player.input.shared_flags &&& 2) != 0)
-      |> CollisionContext.with_entity(0.0, false, false)
+      |> CollisionContext.with_entity(Valimc.PlayerMotion.distance(player), false, false)
 
   defp deflate({a, b, c, d, e, f}),
     do:
