@@ -18,36 +18,44 @@ defmodule Valimc.PlayerMotionQuery do
   @epsilon 9.999999747378752e-6
   @support 0.001
 
-  def start(player, target) do
-    with {:ok, start} <- prepare(player, target), do: start.()
+  def start(player, target, flags \\ 0) do
+    with {:ok, start} <- prepare(player, target, flags), do: start.()
   end
 
-  def prepare(player, target) do
+  def prepare(player, target, flags \\ 0) do
     position = point(player)
     requested = subtract(point(target), position)
     context = context(player, player.y)
 
     with true <- Enum.all?(Tuple.to_list(requested), &(abs(&1) <= 64)),
          {:ok, standing} <- PlayerPose.geometry(:standing, position),
-         {:ok, _} <- PlayerPose.geometry(:standing, point(target)) do
+         {:ok, destination} <- PlayerPose.geometry(:standing, point(target)),
+         {:ok, kinetic_box} <-
+           Valimc.PlayerKinetics.query_box(
+             destination.box,
+             player,
+             Valimc.PlayerKinetics.jumping?(player, requested, flags)
+           ) do
       query =
         standing.box
         |> Box.expand_towards(requested)
         |> Box.expand_towards({0, 0.6, 0})
         |> Box.expand_towards({0, -@support, 0})
+        |> Valimc.PlayerKinetics.union(kinetic_box)
 
-      CollisionQuery.prepare_movement_frame(query, context, &resolve(player, target, &1))
+      CollisionQuery.prepare_movement_frame(query, context, &resolve(player, target, flags, &1))
     else
       false -> {:error, :movement_query_limit}
       error -> error
     end
   end
 
-  defp resolve(player, target, blocks) do
-    with {:ok, frame} <- BlockCollisions.prepare(blocks), do: resolve_frame(player, target, frame)
+  defp resolve(player, target, flags, blocks) do
+    with {:ok, frame} <- BlockCollisions.prepare(blocks),
+         do: resolve_frame(player, target, flags, frame)
   end
 
-  defp resolve_frame(player, target, blocks) do
+  defp resolve_frame(player, target, flags, blocks) do
     position = point(player)
     destination = point(target)
     requested = subtract(destination, position)
@@ -95,21 +103,36 @@ defmodule Valimc.PlayerMotionQuery do
              context(player, target.y),
              observations
            ),
-         {:ok, powder} <- Valimc.PlayerEnvironment.sample(blocks, after_move.geometry.box) do
+         {:ok, powder} <- Valimc.PlayerEnvironment.sample(blocks, after_move.geometry.box),
+         {:ok, packet} <- Valimc.PlayerKinetics.packet(player, target, actual, flags, box, blocks),
+         accepted_motion =
+           Valimc.PlayerMotion.accept(
+             Map.get(player, :motion, %Valimc.PlayerMotion{}),
+             requested,
+             flags,
+             player.abilities.flying
+           ),
+         candidate =
+           player
+           |> Map.merge(Map.take(target, [:x, :y, :z]))
+           |> Map.put(:motion, Valimc.PlayerKinetics.apply_result(accepted_motion, packet)),
+         {:ok, tick} <- Valimc.PlayerKinetics.tick(candidate, after_move.pose, blocks) do
       {:ok,
        %{
          accepted: not rejected,
          pose: after_move.pose,
          moved: moved,
          powder_snow: powder,
+         kinetics: %{packet: packet, tick: tick},
          fences: blocks.fences
        }}
     end
   end
 
-  defp displacement(_, requested, _, _, _, true), do: {:ok, requested}
+  @doc false
+  def displacement(_, requested, _, _, _, true), do: {:ok, requested}
 
-  defp displacement(box, requested, position, blocks, context, false) do
+  def displacement(box, requested, position, blocks, context, false) do
     sweep = Box.expand_towards(box, requested)
     support = Box.expand_towards(box, {0, -@support, 0})
 

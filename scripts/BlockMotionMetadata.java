@@ -7,6 +7,7 @@ import net.minecraft.server.Bootstrap;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.FenceGateBlock;
 
 /** Extracts scalar block motion facts; no implementation or world state is exported. */
 public class BlockMotionMetadata {
@@ -15,6 +16,10 @@ public class BlockMotionMetadata {
     var tags=JsonParser.parseString(Files.readString(Path.of("priv/protocol/tags.json"))).getAsJsonObject();
     var suppresses=new HashSet<Integer>();
     for(var id:tags.getAsJsonObject("minecraft:block").getAsJsonArray("minecraft:suppresses_bounce"))suppresses.add(id.getAsInt());
+    var supportY=new HashSet<Integer>();
+    // Movement's 0.500001f offset is above the native fence-only <=0.5 branch.
+    for(String tag:List.of("minecraft:walls"))
+      for(var id:tags.getAsJsonObject("minecraft:block").getAsJsonArray(tag))supportY.add(id.getAsInt());
     var properties=new JsonArray();var indexes=new LinkedHashMap<String,Integer>();var packed=new ByteArrayOutputStream();var cases=new JsonArray();
     int states=0,pending=0;
     for(var state:Block.BLOCK_STATE_REGISTRY){
@@ -24,6 +29,7 @@ public class BlockMotionMetadata {
       facts.addProperty("jump_factor",(double)block.getJumpFactor());facts.addProperty("bounciness",(double)block.getBounceRestitution());
       facts.addProperty("suppresses_bounce",suppresses.contains(BuiltInRegistries.BLOCK.getId(block)));
       facts.addProperty("fluid_empty",state.getFluidState().isEmpty());
+      facts.addProperty("support_holds_y",block instanceof FenceGateBlock||supportY.contains(BuiltInRegistries.BLOCK.getId(block)));
       var c=new JsonObject();c.addProperty("id",Block.getId(state));c.add("properties",facts);cases.add(c);
       String key=gson.toJson(facts);Integer index=indexes.get(key);
       if(index==null){index=properties.size();indexes.put(key,index);properties.add(facts);}

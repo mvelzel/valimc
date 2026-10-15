@@ -11,7 +11,8 @@ defmodule Valimc.Physics.MotionBlocks do
          do: raise("Wrong motion block catalog version")
 
   @properties Enum.map(@facts["properties"], fn f ->
-                unless map_size(f) == 6 and is_boolean(f["suppresses_bounce"]) and
+                unless map_size(f) == 7 and is_boolean(f["suppresses_bounce"]) and
+                         is_boolean(f["support_holds_y"]) and
                          is_boolean(f["fluid_empty"]) and
                          Enum.all?(["friction", "bounciness"], fn k ->
                            is_number(f[k]) and f[k] >= 0 and f[k] <= 1
@@ -27,12 +28,13 @@ defmodule Valimc.Physics.MotionBlocks do
                   jump_factor: f["jump_factor"],
                   bounciness: f["bounciness"],
                   suppresses_bounce: f["suppresses_bounce"],
-                  fluid_empty: f["fluid_empty"]
+                  fluid_empty: f["fluid_empty"],
+                  support_holds_y: f["support_holds_y"]
                 }
               end)
               |> List.to_tuple()
   @states Base.decode16!(@facts["states"], case: :lower)
-  unless tuple_size(@properties) == 8 and byte_size(@states) == div(@count + 1, 2) and
+  unless tuple_size(@properties) == 10 and byte_size(@states) == div(@count + 1, 2) and
            (rem(@count, 2) == 0 or (:binary.last(@states) &&& 15) == 0) and
            Enum.all?(0..(@count - 1), fn id ->
              byte = :binary.at(@states, div(id, 2))

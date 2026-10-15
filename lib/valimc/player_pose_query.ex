@@ -14,7 +14,8 @@ defmodule Valimc.PlayerPoseQuery do
   def signature(player) do
     {player.x, player.y, player.z, Map.get(player, :pose, :standing),
      (player.input.shared_flags &&& 2) != 0, player.abilities.flying,
-     player.game_mode.current == :spectator, Valimc.PlayerMotion.distance(player)}
+     player.game_mode.current == :spectator, Valimc.PlayerMotion.distance(player),
+     Valimc.PlayerKinetics.signature(player)}
   end
 
   def start(player) do
@@ -35,8 +36,9 @@ defmodule Valimc.PlayerPoseQuery do
 
     # Standing encloses every pose currently produced by this preview's input.
     # Missing block-entity facts remain errors; they never become empty space.
-    with {:ok, geometry} <- PlayerPose.geometry(:standing, position) do
-      CollisionQuery.start_frame(geometry.fit_box, context, fn blocks ->
+    with {:ok, geometry} <- PlayerPose.geometry(:standing, position),
+         {:ok, query} <- Valimc.PlayerKinetics.query_box(geometry.box, player) do
+      CollisionQuery.start_frame(query, context, fn blocks ->
         with {:ok, frame} <- BlockCollisions.prepare(blocks) do
           with {:ok, result} <-
                  PoseFit.select(current, intent, position, context, %{
@@ -47,7 +49,8 @@ defmodule Valimc.PlayerPoseQuery do
                    subject: subject
                  }),
                {:ok, powder} <- Valimc.PlayerEnvironment.sample(frame, result.geometry.box),
-               do: {:ok, Map.put(result, :powder_snow, powder)}
+               {:ok, kinetics} <- Valimc.PlayerKinetics.tick(player, result.pose, frame),
+               do: {:ok, result |> Map.put(:powder_snow, powder) |> Map.put(:kinetics, kinetics)}
         end
       end)
     end

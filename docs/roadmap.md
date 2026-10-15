@@ -23,7 +23,9 @@ indexes validated tickets. None imply full parity.
    including real jump/drop/powder-snow, flight and reconnect.
    [Gravity/drag](tickets/VMC-015b.md)'s pure air/collision kernels and complete
    block motion facts match native cases/traces (`1da26e93`, baseline client smoke
-   passed); compose live velocity next.
+   passed). [Live default velocity](tickets/VMC-015b1.md) now composes them on the
+   bounded player tick/geometry lane; affected tests/native probes pass, client and
+   block integration gates are next.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
@@ -40,6 +42,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
+| [VMC-015b1](tickets/VMC-015b1.md) | Live impulses/contact/bounce and baseline movement | Local checkpoint pending |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

@@ -78,3 +78,7 @@ Evidence: `.local/client-tests/VMC-015b-kernel/`; exact probe commands:
 `.local/collision-kernel-commands.txt`. Window binding required a refresh before
 successful SDL clicks. This code is not yet on the live force path; the composed
 feature gate and this ticket remain open.
+
+Live default dry-travel implementation and its pending client/integration gates:
+[VMC-015b1](VMC-015b1.md). Fluid/effect travel, complete forces and velocity
+persistence remain follow-ups; this parent stays open.

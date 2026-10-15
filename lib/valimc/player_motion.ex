@@ -3,6 +3,9 @@ defmodule Valimc.PlayerMotion do
   import Bitwise
 
   defstruct fall_distance: 0.0,
+            velocity: {0.0, 0.0, 0.0},
+            physical_ground: false,
+            settled: false,
             known_movement: {0.0, 0.0, 0.0},
             on_ground: false,
             horizontal_collision: false,

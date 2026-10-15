@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerMotionConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.{Connection, Inventory, Players, PlayerSnapshot, PlayerStore, World}
-  alias Valimc.Protocol.{Data, ItemStack, Wire}
+  alias Valimc.Protocol.{Data, ItemStack, PackedVelocity, Wire}
   alias Valimc.TestClient, as: Client
 
   setup do
@@ -88,6 +88,136 @@ defmodule Valimc.PlayerMotionConnectionTest do
       ),
       Wire.frame(Data.id(:play, :serverbound, "client_tick_end"), <<>>, client.threshold)
     ])
+  end
+
+  test "server impulse replicates to self/peer while scratch gravity preserves accepted position",
+       ctx do
+    [first, second] = ctx.names
+    {client, pid} = login(first)
+    uuid = Connection.offline_uuid(second)
+
+    {:ok, bytes} =
+      PlayerSnapshot.encode(
+        uuid,
+        PlayerSnapshot.capture(%{ctx.pos | x: ctx.pos.x + 2}, Inventory.new())
+      )
+
+    File.write!(PlayerStore.path(Valimc.config(:world_path), uuid), bytes)
+    {peer, peer_pid} = login(second)
+    wait(fn -> Map.has_key?(state(peer_pid).peers, pid) end)
+    top = %{ctx.pos | y: 68.0}
+    client = Client.teleport(client, pid, top)
+    wait(fn -> elem(state(pid).player.motion.velocity, 1) < -0.1 end)
+    assert state(pid).player.y == 68.0
+    assert state(pid).player.motion.fall_distance == 0.0
+    assert state(pid).player.motion.known_movement == {0.0, 0.0, 0.0}
+
+    assert :ok = Connection.set_velocity(pid, {0.7, 0.8, -0.2})
+    entity = state(pid).player.entity_id
+
+    for endpoint <- [client, peer] do
+      {body, _} = Client.await(endpoint, :play, "set_entity_motion")
+      assert {^entity, payload} = Wire.take_varint(body)
+      assert {:ok, {x, y, z}} = PackedVelocity.decode(payload)
+      assert abs(x - 0.7) < 0.0001 and abs(y - 0.8) < 0.0001 and abs(z + 0.2) < 0.0001
+    end
+
+    wait(fn -> elem(state(pid).player.motion.velocity, 1) < 0.7 end)
+    assert state(pid).player.y == 68.0
+    assert state(pid).player.x == top.x
+    assert state(pid).player.motion.fall_distance == 0.0
+  end
+
+  test "movement speed budget includes current server velocity, then rejects a forged large move",
+       ctx do
+    {client, pid} = login(hd(ctx.names))
+    top = %{ctx.pos | y: 68.0}
+    client = Client.teleport(client, pid, top)
+    assert :ok = Connection.set_velocity(pid, {12.0, 0.0, 0.0})
+    moved = %{top | x: top.x + 12.0}
+    move(client, moved, 0)
+
+    wait(fn ->
+      current = state(pid)
+
+      refute current.teleport_pending,
+             inspect({current.player.motion, Valimc.Metrics.snapshot()})
+
+      current.player.x == moved.x
+    end)
+
+    refute state(pid).teleport_pending
+    move(client, %{top | x: top.x + 35.0}, 0)
+    _client = correction(client, pid, moved)
+    assert state(pid).player.x == moved.x
+  end
+
+  test "accepted jump changes velocity without manufacturing accepted height on later ticks",
+       ctx do
+    {client, pid} = login(hd(ctx.names))
+    move(client, ctx.pos, 1)
+    wait(fn -> state(pid).player.motion.on_ground end)
+    jump = %{ctx.pos | y: 64.42}
+    move(client, jump, 0)
+    wait(fn -> state(pid).player.y == jump.y end)
+    assert elem(state(pid).player.motion.velocity, 1) > 0.1
+    Process.sleep(100)
+    assert state(pid).player.y == jump.y
+    assert state(pid).player.motion.fall_distance == 0.0
+  end
+
+  test "new impulses retire stalled geometry and expired/invalid calls cannot replace velocity",
+       ctx do
+    {_client, pid} = login(hd(ctx.names))
+    {:ok, {owner, _}} = World.existing_owner(ctx.key)
+    :sys.suspend(owner)
+
+    try do
+      assert :ok = Connection.set_velocity(pid, {0.4, 0.8, 0.0})
+      job = wait(fn -> state(pid).pose_job end)
+      assert :ok = Connection.set_velocity(pid, {0.2, 0.5, 0.0})
+      refute Process.alive?(job.task.pid)
+
+      send(
+        pid,
+        {job.task.ref,
+         {:ok,
+          %{
+            pose: :standing,
+            powder_snow: false,
+            fences: %{},
+            kinetics: %{
+              velocity: {63.0, 63.0, 63.0},
+              physical_ground: false,
+              settled: false,
+              bounced: true
+            }
+          }}}
+      )
+
+      Process.sleep(30)
+      assert state(pid).player.motion.velocity == {0.2, 0.5, 0.0}
+
+      assert {:error, :invalid_or_expired_velocity} =
+               Connection.set_velocity(pid, {65.0, 0.0, 0.0})
+
+      # Finite values must also fit the existing bounded geometry plan.
+      assert {:error, :invalid_or_expired_velocity} =
+               Connection.set_velocity(pid, {64.0, 0.0, 0.0})
+
+      assert {:error, :invalid_or_expired_velocity} =
+               GenServer.call(
+                 pid,
+                 {:set_velocity, {1.0, 1.0, 1.0}, System.monotonic_time(:millisecond) - 1}
+               )
+
+      assert state(pid).player.motion.velocity == {0.2, 0.5, 0.0}
+      :sys.resume(owner)
+      wait(fn -> elem(state(pid).player.motion.velocity, 1) < 0.5 end)
+      assert Process.alive?(pid)
+    after
+      if Process.alive?(owner), do: :sys.resume(owner)
+    end
   end
 
   test "stationary server ticks freeze, replicate to a peer and thaw after relocation", ctx do

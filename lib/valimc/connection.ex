@@ -22,6 +22,7 @@ defmodule Valimc.Connection do
     PlayerAbilities,
     PlayerEnvironment,
     PlayerInput,
+    PlayerKinetics,
     PlayerMotion,
     PlayerMotionQuery,
     PlayerPoseQuery,
@@ -48,6 +49,12 @@ defmodule Valimc.Connection do
     GenServer.call(pid, {:teleport, destination, deadline}, 1500)
   end
 
+  @doc "Set a bounded server-authorized velocity without replacing the accepted position."
+  def set_velocity(pid, velocity) do
+    deadline = System.monotonic_time(:millisecond) + 1000
+    GenServer.call(pid, {:set_velocity, velocity, deadline}, 1500)
+  end
+
   @impl true
   def handle_call({:teleport, destination, deadline}, _, %{phase: :play} = state) do
     if System.monotonic_time(:millisecond) < deadline and is_map(destination) and
@@ -61,6 +68,24 @@ defmodule Valimc.Connection do
   end
 
   def handle_call({:teleport, _, _}, _, state), do: {:reply, {:error, :not_playing}, state}
+
+  def handle_call({:set_velocity, velocity, deadline}, _, %{phase: :play} = state) do
+    if System.monotonic_time(:millisecond) < deadline and PlayerKinetics.valid_velocity?(velocity) and
+         PlayerKinetics.admissible?(state.player, velocity) do
+      state = state |> cancel_pose_job() |> cancel_motion_job()
+      velocity = velocity |> Tuple.to_list() |> Enum.map(&(&1 * 1.0)) |> List.to_tuple()
+      motion = %{state.player.motion | velocity: velocity, settled: false}
+      player = %{state.player | motion: motion}
+      Players.update(self(), player)
+      state = %{state | player: player, pose_checked: nil}
+      state = send_velocity(state, velocity)
+      {:reply, :ok, state |> start_motion() |> sample_pose()}
+    else
+      {:reply, {:error, :invalid_or_expired_velocity}, state}
+    end
+  end
+
+  def handle_call({:set_velocity, _, _}, _, state), do: {:reply, {:error, :not_playing}, state}
 
   def deliver(pid, event) do
     case Process.info(pid, :message_queue_len) do
@@ -474,7 +499,14 @@ defmodule Valimc.Connection do
 
         true ->
           case result do
-            {:ok, %{accepted: true, pose: pose, fences: fences, powder_snow: powder}} ->
+            {:ok,
+             %{
+               accepted: true,
+               pose: pose,
+               fences: fences,
+               powder_snow: powder,
+               kinetics: kinetics
+             }} ->
               if Enum.all?(fences, fn {key, %{owner: owner}} ->
                    World.existing_owner(key) == {:ok, owner}
                  end) do
@@ -492,6 +524,7 @@ defmodule Valimc.Connection do
                     player.abilities.flying
                   )
 
+                motion = PlayerKinetics.apply_result(motion, kinetics.packet)
                 player = %{player | motion: motion}
 
                 if pose != state.player.pose,
@@ -508,6 +541,7 @@ defmodule Valimc.Connection do
 
                 {:noreply,
                  next
+                 |> apply_kinetic_tick(kinetics.tick, kinetics.packet.bounced)
                  |> observe_environment(powder)
                  |> monitor_pose_sources(fences)
                  |> update_view()}
@@ -559,7 +593,7 @@ defmodule Valimc.Connection do
       state = %{state | pose_job: nil}
 
       case result do
-        {:ok, %{pose: pose, fences: fences, powder_snow: powder}} ->
+        {:ok, %{pose: pose, fences: fences, powder_snow: powder, kinetics: kinetics}} ->
           if System.monotonic_time(:millisecond) < job.deadline and
                pose_signature(state) == job.signature and
                Enum.all?(fences, fn {key, %{owner: owner}} ->
@@ -573,6 +607,7 @@ defmodule Valimc.Connection do
 
             state =
               %{state | player: player}
+              |> apply_kinetic_tick(kinetics, false)
               |> observe_environment(powder)
               |> monitor_pose_sources(fences)
 
@@ -1368,7 +1403,9 @@ defmodule Valimc.Connection do
 
       allowance = 100.0 * if(count > 5, do: 1, else: count)
 
-      if distance > allowance do
+      {vx, vy, vz} = state.player.motion.velocity
+
+      if distance - (vx * vx + vy * vy + vz * vz) > allowance do
         correct_motion(state, :movement_speed_corrections)
       else
         input = %{
@@ -1422,7 +1459,7 @@ defmodule Valimc.Connection do
       prepared =
         case input.prepared do
           %{signature: ^signature, start: start} -> {:ok, start}
-          _ -> PlayerMotionQuery.prepare(state.player, input.position)
+          _ -> PlayerMotionQuery.prepare(state.player, input.position, input.flags)
         end
 
       case prepared do
@@ -1488,6 +1525,19 @@ defmodule Valimc.Connection do
     %{state | pose_job: nil}
   end
 
+  defp cancel_motion_job(state) do
+    if state.motion_job do
+      Process.cancel_timer(state.motion_job.timer)
+      Process.exit(state.motion_job.task.pid, :kill)
+      Process.demonitor(state.motion_job.task.ref, [:flush])
+    end
+
+    input = state.motion_pending
+    if input && input.retry, do: Process.cancel_timer(input.retry)
+    input = if input, do: %{input | retry: nil, prepared: nil}
+    %{state | motion_job: nil, motion_pending: input}
+  end
+
   defp correct_motion(state, metric) do
     Metrics.add(metric)
     player = %{state.player | motion: PlayerMotion.corrected(state.player.motion)}
@@ -1530,7 +1580,10 @@ defmodule Valimc.Connection do
 
   defp sample_pose(%{pose_job: nil, motion_pending: nil, teleport_pending: false} = state) do
     signature = pose_signature(state)
-    active = state.simulation_due and PlayerEnvironment.active?(state.player.environment)
+
+    active =
+      state.simulation_due and
+        (PlayerEnvironment.active?(state.player.environment) or not state.player.motion.settled)
 
     if PlayerInput.loaded?(state.player.input) and (signature != state.pose_checked or active) do
       deadline = System.monotonic_time(:millisecond) + 250
@@ -1548,6 +1601,31 @@ defmodule Valimc.Connection do
   end
 
   defp sample_pose(state), do: state
+
+  defp apply_kinetic_tick(state, result, packet_bounce) do
+    {player, bounced} =
+      if state.simulation_due do
+        Metrics.add(:player_physics_ticks)
+        motion = PlayerKinetics.apply_result(state.player.motion, result)
+        {%{state.player | motion: motion}, packet_bounce or result.bounced}
+      else
+        {state.player, packet_bounce}
+      end
+
+    state = %{state | player: player}
+    if bounced, do: send_velocity(state, player.motion.velocity), else: state
+  end
+
+  defp send_velocity(state, velocity) do
+    packet = Valimc.Protocol.EntityPackets.motion(state.player.entity_id, velocity)
+    send_packets(state, [packet])
+
+    for pid <- Players.nearby(state.regions),
+        pid != self(),
+        do: deliver(pid, {:player_velocity, self(), state.player.entity_id, packet})
+
+    state
+  end
 
   defp observe_environment(state, powder) do
     previous = state.player.environment
@@ -1682,6 +1760,15 @@ defmodule Valimc.Connection do
   end
 
   defp event(%{phase: :play} = state, {:player_joined, player}), do: track_peer(state, player)
+
+  defp event(%{phase: :play} = state, {:player_velocity, pid, entity, packet}) do
+    case Map.get(state.peers, pid) do
+      view when is_tuple(view) and elem(view, 0) == entity -> send_packets(state, [packet])
+      _ -> :ok
+    end
+
+    state
+  end
 
   defp event(%{phase: :play} = state, {:player_left, player}) do
     if Map.has_key?(state.peers, player.pid),
