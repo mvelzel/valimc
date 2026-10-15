@@ -1,6 +1,10 @@
 defmodule Valimc.Physics.MiningTools do
   @moduledoc "Pinned stock tool rules; player attributes, effects and loot belong to their owners."
   alias Valimc.Protocol.{ItemStack, ItemTypes}
+  @tags Path.expand("../../../priv/protocol/tags.json", __DIR__)
+  @external_resource @tags
+  @fire :json.decode(File.read!(@tags))["minecraft:block"]["minecraft:fire"] |> MapSet.new()
+  @shears ItemTypes.id("shears")
   @path Path.expand("../../../priv/physics/mining_tools.json", __DIR__)
   @external_resource @path
   @facts :json.decode(File.read!(@path))
@@ -78,6 +82,17 @@ defmodule Valimc.Physics.MiningTools do
       nil -> 0
       p -> p.damage
     end
+  end
+
+  @doc "Stock server mining callbacks: ordinary tools skip zero hardness; shears skip fire."
+  def damage_per_block(stack, state) when is_integer(state) and state >= 0 and state < @count do
+    skip =
+      case stack do
+        %ItemStack{item_id: @shears} -> MapSet.member?(@fire, block_id(state))
+        _ -> Valimc.Physics.Mining.hardness(state) == 0
+      end
+
+    if skip, do: 0, else: damage_per_block(stack)
   end
 
   @doc "Native permission to destroy; debug-stick block interaction is a separate action."

@@ -100,7 +100,8 @@ indexes validated tickets. None imply full parity.
 3. **[VMC-029a](tickets/VMC-029a.md): survival mining.** Native hardness/progress
    matches1,286,028 rates and1,386 actual tick/crack prefixes. Stock tools match
    1,143,136 native state pairs; gear and eye/ground player speed also match native
-   contexts. [Atomic block/drop persistence](tickets/VMC-029a1.md) has a bounded
+   contexts. [Stock durability](tickets/VMC-029a2.md) matches39,704 actual callbacks,
+   including Unbreaking and final-use breaks. [Atomic block/drop persistence](tickets/VMC-029a1.md) has a bounded
    proposal codec, writer recovery and fenced region commits, with99 affected
    checks passing. Player intent/wear/loot and live start/abort/stop are next.
    Live survival mining remains absent. Client checks above continue independently.

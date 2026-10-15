@@ -40,7 +40,13 @@ Six affected tests and existing mining/tool native regressions pass. Logs
 `.local/player-mining-{native,check,tests,arithmetic-regression}.log` and
 `.local/mining-tool-refactor-{native,check}.log`.
 
-Next: [atomic block/drop persistence](VMC-029a1.md), owned mining attempts and durability.
+Stock [mining durability](VMC-029a2.md) now matches39,704 actual native callbacks,
+including shears/zero hardness, removed components, direct/stored Unbreaking,
+break payloads and custom integer boundaries. Six affected checks pass; source
+intent/wear compensation and live composition remain pending.
+
+Next: [atomic block/drop persistence](VMC-029a1.md) source intent and compensation,
+native loot planning and owned mining attempts.
 Status effects/arbitrary attribute patches and the live client scenario remain
 pending; current stock gear/contact composition needs no global gameplay owner.
 
