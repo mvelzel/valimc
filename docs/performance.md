@@ -34,3 +34,7 @@ python3 bench/load.py --players 512 --seconds 5 --scatter --output bench/results
 Run scenarios sequentially on an otherwise quiet machine. The driver starts an isolated server on a free port with a temporary world, reports metrics, and shuts it down. Longer runs up to 60 seconds are supported. Any disconnected clients make the benchmark fail instead of silently counting the surviving clients as a successful result.
 
 The next useful performance work is sustained tests with larger view distances, adversarial input, edits during encoding, generation without a shared flat baseline, and finally matched vanilla survival workloads. Comparing the same behaviors, seed, dimensions, client positions and hardware is required before making claims against Paper/Folia, Pumpkin or SteelMC.
+
+[Owner-local block batches](tickets/VMC-011a3.md) now have a separate bounded
+commit/replication microbenchmark in `bench/block_batch.exs`. Its local subscriber
+workload measures batching, not network rendering or survival capacity.

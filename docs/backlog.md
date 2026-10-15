@@ -38,6 +38,7 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 |---|---|---|
 | VMC-011 | Deterministic region ticks | Explicit tick phases/order; reproducible traces across scheduler counts |
 | [VMC-011a](tickets/VMC-011a.md) | Authoritative ownership and phases | Connection/simulation separation, bounded owner-local work and explicit neighbor/transfer ordering |
+| [VMC-011a3](tickets/VMC-011a3.md) | Owner-fenced block commits | Bounded atomic owner-local edits, shared native section updates and loaded-chunk filtering |
 | VMC-012 | Region boundary protocol and entity transfer | Tick-tagged inputs/snapshots, epochs/fencing, no duplicated or lost entities |
 | VMC-013 | Chunk/entity tickets and unload lifecycle | Loaded dependency guarantees, bounded resident memory, safe save/unload |
 | VMC-014 | Block shapes and movement validation | Vanilla collision/step/swim/climb/teleport fixtures, reconciliation under latency |

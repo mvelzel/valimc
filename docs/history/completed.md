@@ -66,3 +66,4 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-061](../tickets/VMC-061.md) | Concise docs and selective retrieval |
 | [VMC-011a1](../tickets/VMC-011a1.md) | Owner/timer fencing; no simulation parity claim |
 | [VMC-011a2](../tickets/VMC-011a2.md) | Client-tick position admission |
+| [VMC-011a3](../tickets/VMC-011a3.md) | Owner-fenced block batches/shared section updates |

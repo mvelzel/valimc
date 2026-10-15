@@ -2,7 +2,7 @@ defmodule Valimc.World.Region do
   use GenServer
 
   @moduledoc "One state owner per region. Bounded supervised encoders share results across players."
-  alias Valimc.World.{Chunk, Items, ItemTransfers, Store, TickClock}
+  alias Valimc.World.{BlockBatch, Chunk, Items, ItemTransfers, Store, TickClock}
   alias Valimc.Protocol.Packets
 
   def start_link(key),
@@ -35,6 +35,18 @@ defmodule Valimc.World.Region do
   end
 
   def observe_blocks(_, _, _), do: {:error, :invalid_block_query}
+
+  @doc "Commit a prepared owner-local block batch at an exact observed revision. No cross-owner atomicity."
+  def set_blocks({pid, epoch}, revision, edits)
+      when is_pid(pid) and is_reference(epoch) and is_integer(revision) and revision >= 0 do
+    with {:ok, batch} <- BlockBatch.prepare(edits),
+         do: GenServer.call(pid, {:set_blocks, epoch, revision, batch}, 1000)
+  catch
+    :exit, {:timeout, _} -> {:error, :block_commit_uncertain}
+    :exit, _ -> {:error, :region_unavailable}
+  end
+
+  def set_blocks(_, _, _), do: {:error, :invalid_block_batch}
 
   # Scene-only API: these operations must never consume a player inventory.
   def create_item({pid, epoch}, stack, position),
@@ -221,6 +233,53 @@ defmodule Valimc.World.Region do
       end
 
     {:reply, result, state}
+  end
+
+  def handle_call({:set_blocks, epoch, revision, %BlockBatch{} = batch}, _from, state) do
+    cond do
+      epoch != state.items.epoch ->
+        {:reply, {:error, :stale_owner}, state}
+
+      batch.region != state.key ->
+        {:reply, {:error, :wrong_region}, state}
+
+      revision != state.revision ->
+        {:reply, {:error, :stale_revision}, state}
+
+      true ->
+        edits =
+          Enum.reduce(batch.edits, state.edits, fn {pos, block}, acc ->
+            put_edit(acc, pos, block)
+          end)
+
+        if map_size(edits) > 131_072 do
+          {:reply, {:error, :region_edit_limit}, state}
+        else
+          by_chunk =
+            Enum.reduce(batch.edits, state.by_chunk, fn {{x, _, z} = pos, block}, acc ->
+              key = Valimc.World.chunk_key(x, z)
+              Map.put(acc, key, put_edit(Map.get(acc, key, %{}), pos, block))
+            end)
+
+          versions =
+            Enum.reduce(batch.chunks, state.versions, &Map.update(&2, &1, 1, fn n -> n + 1 end))
+
+          Valimc.World.publish(state.key, {:block_batch, batch.frames})
+          Valimc.Metrics.add(:block_edits, map_size(batch.edits))
+
+          next = %{
+            state
+            | edits: edits,
+              by_chunk: by_chunk,
+              versions: versions,
+              cache: Map.drop(state.cache, batch.chunks),
+              dirty: true,
+              revision: state.revision + 1
+          }
+
+          {:reply, {:ok, next.revision}, next}
+        end
+    end
   end
 
   def handle_call({:set_block, {x, y, z} = position, block}, _from, state) do

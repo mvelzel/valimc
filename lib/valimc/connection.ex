@@ -1196,6 +1196,12 @@ defmodule Valimc.Connection do
     state
   end
 
+  defp event(%{phase: :play} = state, {:block_batch, updates}) do
+    frames = for {chunk, frame} <- updates, MapSet.member?(state.chunks, chunk), do: frame
+    send_frames(state, frames)
+    state
+  end
+
   defp event(%{phase: :play} = state, {:player_joined, player}), do: track_peer(state, player)
 
   defp event(%{phase: :play} = state, {:player_left, player}) do

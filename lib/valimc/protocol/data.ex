@@ -68,4 +68,5 @@ defmodule Valimc.Protocol.Data do
   def item_block(id), do: @blocks["item_blocks"][Integer.to_string(id)]
   def player_type, do: @blocks["player_entity_type"]
   def global_block_bits, do: ceil(:math.log2(@blocks["state_count"]))
+  def block_state_count, do: @blocks["state_count"]
 end
