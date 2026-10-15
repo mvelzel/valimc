@@ -15,7 +15,7 @@ defmodule Valimc.PlayerSnapshotTest do
         environment: %Valimc.PlayerEnvironment{frozen_ticks: 88}
       })
 
-    original = PlayerSnapshot.capture(player, %Inventory{})
+    original = PlayerSnapshot.capture(player, %Inventory{}) |> Map.delete(:velocity)
     assert {:ok, <<"VMCPOSE", 7, _::binary>> = bytes} = PlayerSnapshot.encode(uuid(), original)
     assert {:ok, decoded} = PlayerSnapshot.decode(bytes, uuid())
     assert decoded.frozen_ticks == 88 and decoded.fall_distance == 3.25
@@ -40,7 +40,7 @@ defmodule Valimc.PlayerSnapshotTest do
         motion: %Valimc.PlayerMotion{fall_distance: 3.25}
       })
 
-    original = PlayerSnapshot.capture(player, %Inventory{})
+    original = PlayerSnapshot.capture(player, %Inventory{}) |> Map.delete(:velocity)
     assert {:ok, <<"VMCPOSE", 6, _::binary>> = bytes} = PlayerSnapshot.encode(uuid(), original)
     assert {:ok, decoded} = PlayerSnapshot.decode(bytes, uuid())
     assert decoded.fall_distance == 3.25
@@ -70,6 +70,84 @@ defmodule Valimc.PlayerSnapshotTest do
       <<"VMCPOSE", 1, id::binary-size(16), p.x::float-64, p.y::float-64, p.z::float-64,
         p.yaw::float-32, p.pitch::float-32>>
     )
+  end
+
+  test "velocity is atomic with fall, freeze and the pending transfer journal" do
+    state =
+      Map.merge(pending(), %{
+        game_mode: Valimc.GameMode.new(:creative),
+        flying: false,
+        fall_distance: 3.25,
+        frozen_ticks: 88,
+        velocity: {0.3, -1.2, 12.0}
+      })
+
+    assert {:ok, <<"VMCPOSE", 8, _::binary>> = bytes} = PlayerSnapshot.encode(uuid(), state)
+    assert byte_size(bytes) <= PlayerSnapshot.max_bytes()
+    assert {:ok, restored} = PlayerSnapshot.decode(bytes, uuid())
+    assert restored.pose == state.pose and restored.velocity == state.velocity
+    assert restored.fall_distance == 3.25 and restored.frozen_ticks == 88
+    assert restored.outbox == state.outbox and restored.transfer_sequence == 7
+    assert restored.inventory.slots == state.inventory.slots
+    assert {:ok, {0, 0}, request, _} = PlayerSnapshot.transfer_request(uuid(), restored)
+    assert request.records == state.outbox.records and request.sequence == 7
+    assert {:ok, ^bytes} = PlayerSnapshot.encode(uuid(), restored)
+    size = byte_size(bytes) - 32
+    <<payload::binary-size(^size), _::binary-size(32)>> = bytes
+    <<header::binary-size(60), _velocity::binary-size(24), rest::binary>> = payload
+
+    for component <- [65.0, -65.0] do
+      assert {:error, :invalid_velocity} =
+               PlayerSnapshot.encode(uuid(), %{state | velocity: {component, 0.0, 0.0}})
+
+      assert {:error, :invalid_player_file} =
+               PlayerSnapshot.decode(
+                 seal(
+                   <<header::binary, component::float-64, 0.0::float-64, 0.0::float-64,
+                     rest::binary>>
+                 ),
+                 uuid()
+               )
+    end
+
+    for component <- [0x7FF8000000000000, 0x7FF0000000000000, 0xFFF0000000000000] do
+      assert {:error, :invalid_player_file} =
+               PlayerSnapshot.decode(
+                 seal(
+                   <<header::binary, component::64, 0.0::float-64, 0.0::float-64, rest::binary>>
+                 ),
+                 uuid()
+               )
+    end
+  end
+
+  test "capture includes server velocity and old fall-only fixtures remain migratable" do
+    player =
+      Map.merge(pose(), %{
+        game_mode: Valimc.GameMode.new(:creative),
+        abilities: Valimc.PlayerAbilities.for_mode(:creative),
+        motion: %Valimc.PlayerMotion{velocity: {1.0, 2.0, 3.0}, fall_distance: 2.0}
+      })
+
+    snapshot = PlayerSnapshot.capture(player, %Inventory{})
+    assert snapshot.velocity == {1.0, 2.0, 3.0}
+    assert {:ok, <<"VMCPOSE", 8, _::binary>> = bytes} = PlayerSnapshot.encode(uuid(), snapshot)
+    assert {:ok, decoded} = PlayerSnapshot.decode(bytes, uuid())
+    assert decoded.velocity == snapshot.velocity and decoded.frozen_ticks == 0
+
+    for version <- [6, 7] do
+      old =
+        snapshot
+        |> Map.delete(:velocity)
+        |> then(&if(version == 7, do: Map.put(&1, :frozen_ticks, 17), else: &1))
+
+      assert {:ok, <<"VMCPOSE", ^version, _::binary>> = legacy} =
+               PlayerSnapshot.encode(uuid(), old)
+
+      assert {:ok, restored} = PlayerSnapshot.decode(legacy, uuid())
+      refute Map.has_key?(restored, :velocity)
+      assert restored.fall_distance == 2.0
+    end
   end
 
   defp inventory do

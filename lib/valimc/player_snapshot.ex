@@ -7,7 +7,7 @@ defmodule Valimc.PlayerSnapshot do
   @inventory_bytes 524_288
   @outbox_bytes 55 + 5 * (40 + 65_536)
   @max_sequence 18_446_744_073_709_551_615
-  @max_bytes 56 + 4 + 3 + 8 + 4 + 12 + @inventory_bytes + @outbox_bytes + 32
+  @max_bytes 56 + 4 + 3 + 8 + 4 + 24 + 12 + @inventory_bytes + @outbox_bytes + 32
 
   def max_bytes, do: @max_bytes
 
@@ -16,7 +16,11 @@ defmodule Valimc.PlayerSnapshot do
 
     snapshot =
       if Map.has_key?(player, :motion),
-        do: Map.put(snapshot, :fall_distance, player.motion.fall_distance),
+        do:
+          Map.merge(snapshot, %{
+            fall_distance: player.motion.fall_distance,
+            velocity: player.motion.velocity
+          }),
         else: snapshot
 
     snapshot =
@@ -101,6 +105,20 @@ defmodule Valimc.PlayerSnapshot do
         {version, journal}
       end
 
+    {version, journal} =
+      if Map.has_key?(snapshot, :velocity) do
+        check(
+          version in [6, 7] and Valimc.PlayerKinetics.valid_velocity?(snapshot.velocity),
+          :invalid_velocity
+        )
+
+        {vx, vy, vz} = snapshot.velocity
+        journal = if version == 6, do: [<<0::32>>, journal], else: journal
+        {8, [<<vx::float-64, vy::float-64, vz::float-64>>, journal]}
+      else
+        {version, journal}
+      end
+
     payload =
       IO.iodata_to_binary([
         <<"VMCPOSE", version, uuid::binary-size(16), pose.x::float-64, pose.y::float-64,
@@ -166,9 +184,18 @@ defmodule Valimc.PlayerSnapshot do
 
       <<"VMCPOSE", version, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
         yaw::float-32, pitch::float-32, @data_version::32, rest::binary>>
-      when version in [5, 6, 7] ->
+      when version in [5, 6, 7, 8] ->
+        {velocity, rest} =
+          if version == 8 do
+            <<vx::float-64, vy::float-64, vz::float-64, rest::binary>> = rest
+            check(Valimc.PlayerKinetics.valid_velocity?({vx, vy, vz}), :invalid_player_file)
+            {%{velocity: {vx, vy, vz}}, rest}
+          else
+            {%{}, rest}
+          end
+
         {environment, rest} =
-          if version == 7 do
+          if version >= 7 do
             <<frozen::32, rest::binary>> = rest
             check(Valimc.PlayerEnvironment.valid_ticks?(frozen), :invalid_player_file)
             {%{frozen_ticks: frozen}, rest}
@@ -203,7 +230,8 @@ defmodule Valimc.PlayerSnapshot do
          snapshot
          |> Map.merge(%{game_mode: mode, flying: flying == 1})
          |> Map.merge(fall)
-         |> Map.merge(environment)}
+         |> Map.merge(environment)
+         |> Map.merge(velocity)}
 
       _ ->
         {:error, :invalid_player_file}

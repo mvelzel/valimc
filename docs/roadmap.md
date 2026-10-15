@@ -27,6 +27,8 @@ indexes validated tickets. None imply full parity.
    bounded player tick/geometry lane. Client and block integration pass on
    `768e574`; a 512-player late-result finding needs measured observation reuse
    and client regression before publication.
+   [Saved velocity](tickets/VMC-015b2.md) has targeted/native checks passing;
+   its airborne reconnect client gate is next.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
@@ -44,6 +46,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 | [VMC-015b1](tickets/VMC-015b1.md) | Live impulses/contact/bounce and baseline movement | Local checkpoint pending |
+| [VMC-015b2](tickets/VMC-015b2.md) | Airborne reconnect with saved velocity | Local checkpoint pending |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

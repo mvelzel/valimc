@@ -157,7 +157,11 @@ defmodule Valimc.PlayerStore do
 
     next =
       if next && Valimc.PlayerMotion.valid_distance?(Map.get(snapshot, :fall_distance)),
-        do: Map.merge(next, Map.take(snapshot, [:fall_distance, :game_mode, :frozen_ticks])),
+        do:
+          Map.merge(
+            next,
+            Map.take(snapshot, [:fall_distance, :game_mode, :frozen_ticks, :velocity])
+          ),
         else: next
 
     with :ok <- save(state, next),

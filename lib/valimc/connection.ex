@@ -77,7 +77,7 @@ defmodule Valimc.Connection do
       motion = %{state.player.motion | velocity: velocity, settled: false}
       player = %{state.player | motion: motion}
       Players.update(self(), player)
-      state = %{state | player: player, pose_checked: nil}
+      state = %{state | player: player, pose_checked: nil, login_velocity_pending: false}
       state = send_velocity(state, velocity)
       {:reply, :ok, state |> start_motion() |> sample_pose()}
     else
@@ -164,6 +164,7 @@ defmodule Valimc.Connection do
        keepalive: nil,
        teleport: 1,
        teleport_pending: true,
+       login_velocity_pending: false,
        center: nil,
        active: false
      }}
@@ -1105,7 +1106,16 @@ defmodule Valimc.Connection do
         if abs(x - state.player.x) + abs(y - state.player.y) + abs(z - state.player.z) > 0.01,
           do: reject(state, "Invalid teleport position")
 
-        %{state | teleport_pending: false, motion_window: nil}
+        resume = state.teleport_pending and state.login_velocity_pending
+
+        state = %{
+          state
+          | teleport_pending: false,
+            motion_window: nil,
+            login_velocity_pending: false
+        }
+
+        if resume, do: send_velocity(state, state.player.motion.velocity), else: state
 
       "keep_alive" ->
         <<id::signed-64>> = payload
@@ -1264,6 +1274,9 @@ defmodule Valimc.Connection do
           mode = Map.get(snapshot, :game_mode, player.game_mode)
           abilities = GameMode.abilities(mode, Map.get(snapshot, :flying, false))
 
+          {:ok, velocity} =
+            PlayerKinetics.restore_velocity(Map.get(snapshot, :velocity, {0.0, 0.0, 0.0}))
+
           inventory = %{
             snapshot.inventory
             | infinite_materials: abilities.infinite_materials
@@ -1278,7 +1291,10 @@ defmodule Valimc.Connection do
               abilities: abilities,
               motion:
                 PlayerMotion.flight(
-                  %PlayerMotion{fall_distance: Map.get(snapshot, :fall_distance, 0.0)},
+                  %PlayerMotion{
+                    fall_distance: Map.get(snapshot, :fall_distance, 0.0),
+                    velocity: velocity
+                  },
                   abilities.flying
                 ),
               environment: %PlayerEnvironment{frozen_ticks: Map.get(snapshot, :frozen_ticks, 0)}
@@ -1313,7 +1329,13 @@ defmodule Valimc.Connection do
   end
 
   defp enter_world(state) do
-    state = %{state | phase: :play, step: nil, player: %{state.player | ready: true}}
+    state = %{
+      state
+      | phase: :play,
+        step: nil,
+        player: %{state.player | ready: true},
+        login_velocity_pending: state.player.motion.velocity != {0.0, 0.0, 0.0}
+    }
 
     {clock_version, clock_packet} = Valimc.World.Clock.initial()
 
@@ -1569,6 +1591,7 @@ defmodule Valimc.Connection do
       | player: player,
         teleport: teleport,
         teleport_pending: true,
+        login_velocity_pending: false,
         motion_job: nil,
         motion_pending: nil,
         motion_window: nil,

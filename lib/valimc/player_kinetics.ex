@@ -24,6 +24,19 @@ defmodule Valimc.PlayerKinetics do
 
   def valid_velocity?(_), do: false
 
+  @doc "Native saved Motion load bound, independent for each component."
+  def restore_velocity(velocity) do
+    if valid_velocity?(velocity) do
+      {:ok,
+       velocity
+       |> Tuple.to_list()
+       |> Enum.map(&if(abs(&1) > 10.0, do: 0.0, else: &1 * 1.0))
+       |> List.to_tuple()}
+    else
+      {:error, :invalid_velocity}
+    end
+  end
+
   def signature(player) do
     motion = Map.get(player, :motion, %PlayerMotion{})
 

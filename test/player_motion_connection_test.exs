@@ -378,6 +378,68 @@ defmodule Valimc.PlayerMotionConnectionTest do
     assert state(replacement).player.motion.known_movement == {0.0, 0.0, 0.0}
   end
 
+  test "login restores native-clamped velocity after its teleport without stale observations",
+       ctx do
+    name = hd(ctx.names)
+    uuid = Connection.offline_uuid(name)
+
+    player =
+      Map.merge(%{ctx.pos | y: 68.0}, %{
+        game_mode: Valimc.GameMode.new(:creative),
+        abilities: Valimc.PlayerAbilities.for_mode(:creative),
+        motion: %Valimc.PlayerMotion{
+          velocity: {0.3, -0.8, 12.0},
+          physical_ground: true,
+          settled: true,
+          known_movement: {4.0, 2.0, 0.0},
+          fall_distance: 1.5
+        },
+        environment: %Valimc.PlayerEnvironment{frozen_ticks: 27}
+      })
+
+    {:ok, bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(player, Inventory.new()))
+    File.write!(PlayerStore.path(Valimc.config(:world_path), uuid), bytes)
+    {^uuid, client} = Client.login(name)
+    on_exit(fn -> Client.close(client) end)
+    {body, _client} = Client.await(client, :play, "set_entity_motion")
+    pid = Enum.find(Players.all(), &(&1.name == name)).pid
+    current = state(pid)
+    assert {id, payload} = Wire.take_varint(body)
+    assert id == current.player.entity_id
+    assert {:ok, {x, y, z}} = PackedVelocity.decode(payload)
+    assert abs(x - 0.3) < 0.0001 and abs(y + 0.8) < 0.0001 and z == 0.0
+    assert current.player.motion.velocity == {0.3, -0.8, 0.0}
+    assert current.player.motion.known_movement == {0.0, 0.0, 0.0}
+    refute current.player.motion.physical_ground or current.player.motion.settled
+    assert current.player.motion.fall_distance == 1.5
+    assert current.player.environment.frozen_ticks == 27
+    refute current.teleport_pending or current.login_velocity_pending
+  end
+
+  test "disconnect commits the live impulse before reconnect restores it", ctx do
+    name = hd(ctx.names)
+    {uuid, client} = Client.login(name)
+    pid = Enum.find(Players.all(), &(&1.name == name)).pid
+    # An unloaded client has not started simulation; socket exit still saves its impulse.
+    assert :ok = Connection.set_velocity(pid, {0.25, 0.75, -0.5})
+    Client.close(client)
+
+    wait(fn ->
+      not Process.alive?(pid) and Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == []
+    end)
+
+    {:ok, saved} =
+      PlayerSnapshot.decode(File.read!(PlayerStore.path(Valimc.config(:world_path), uuid)), uuid)
+
+    assert saved.velocity == {0.25, 0.75, -0.5}
+    {^uuid, second} = Client.login(name)
+    on_exit(fn -> Client.close(second) end)
+    {body, _} = Client.await(second, :play, "set_entity_motion")
+    {_entity, payload} = Wire.take_varint(body)
+    assert {:ok, {x, y, z}} = PackedVelocity.decode(payload)
+    assert abs(x - 0.25) < 0.0001 and abs(y - 0.75) < 0.0001 and abs(z + 0.5) < 0.0001
+  end
+
   defp correction(client, pid, expected) do
     {body, client} = Client.await(client, :play, "player_position")
     assert state(pid).teleport_pending

@@ -86,7 +86,15 @@ defmodule Valimc.PlayerTransfers do
 
   defp strip_journal(%{pose: _, inventory: _} = snapshot),
     do:
-      Map.take(snapshot, [:pose, :inventory, :flying, :game_mode, :fall_distance, :frozen_ticks])
+      Map.take(snapshot, [
+        :pose,
+        :inventory,
+        :flying,
+        :game_mode,
+        :fall_distance,
+        :frozen_ticks,
+        :velocity
+      ])
 
   defp owned(%Inventory{} = inventory), do: Inventory.contents(inventory) ++ [inventory.carried]
 

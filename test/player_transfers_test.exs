@@ -24,7 +24,15 @@ defmodule Valimc.PlayerTransfersTest do
       carried: stack(4)
     }
 
-    snapshot = capture(inv)
+    snapshot =
+      Map.merge(capture(inv), %{
+        game_mode: Valimc.GameMode.new(:creative),
+        flying: false,
+        fall_distance: 1.0,
+        frozen_ticks: 17,
+        velocity: {0.2, -0.7, 0.3}
+      })
+
     created = record(2, stack(3))
 
     assert {:error, :item_conservation_failed} =
@@ -34,11 +42,13 @@ defmodule Valimc.PlayerTransfersTest do
              PlayerTransfers.prepare_creative_drop(<<1::128>>, 8, snapshot, {0, 0}, created)
 
     assert next.inventory == inv and next.pose == snapshot.pose
+    assert next.velocity == snapshot.velocity
     assert next.transfer_sequence == 9 and next.outbox.records == [created]
     assert {:ok, bytes} = PlayerSnapshot.encode(<<1::128>>, next)
     assert {:ok, restored} = PlayerSnapshot.decode(bytes, <<1::128>>)
     assert restored.outbox == next.outbox and restored.inventory.slots == inv.slots
     assert restored.inventory.carried == inv.carried and restored.inventory.selected == 2
+    assert restored.velocity == snapshot.velocity
     refute restored.inventory.infinite_materials
   end
 
