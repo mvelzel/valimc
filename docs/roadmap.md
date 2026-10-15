@@ -54,6 +54,7 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-014c3a](tickets/VMC-014c3a.md) | Done — validated | 439 tests/release/full native suite; actual Shift/sprint/release, peer flags and dedicated keyboard-only reconnect/commands/fresh-log checks pass |
 | [VMC-014c3b1](tickets/VMC-014c3b1.md) | Done — client validated | Native geometry/65,536 selections and actual standing/crouch retention/exit/reconnect pass; live authority remains |
 | [VMC-014c3b2a](tickets/VMC-014c3b2a.md) | Awaiting client validation | 449 tests/isolated release and 6,048 native entity-collider cases pass; live authority remains |
+| [VMC-027a](tickets/VMC-027a.md) | Awaiting client validation | Five targeted tests/4,860 native border cases pass; stationary supplied geometry only |
 | [VMC-016a](tickets/VMC-016a.md) | Done — creative flight validated, pushed | 326 tests/release/full oracle, native ability matrix and actual double-Space/hover/reconnect/restart/flight-off/cleanup pass; full mode transitions remain |
 | [VMC-007c3](tickets/VMC-007c3.md) | Done — discovery/recovery validated, pushed | 317 tests/release/full oracle, 31 native discovery facts and actual cached reconnect/offline rejection/owner recovery/restart/cleanup pass |
 | [VMC-005a](tickets/VMC-005a.md) | Done — `123d1d0`, validated | Owner-local 46-slot menu; actual selection/offhand/swap/resync and automated/oracle checks pass |
@@ -191,6 +192,7 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | VMC-025 | Structures and decorations | Seed/order parity for structures, features, ores and bounded generation dependencies |
 | VMC-026 | Nether, End and portals | Dimension lifecycle, coordinates/tickets, beds/anchors, entity/player transitions |
 | VMC-027 | World border and spawn search | Vanilla height/build limits and positive/negative/unloaded-boundary outcomes |
+| [VMC-027a](tickets/VMC-027a.md) | Supplied stationary border geometry | Native bounds/containment/proximity and collision planes; live synchronization/resizing remain |
 | VMC-028 | Generation/data-pack configuration | Registry reload/version upgrade with deterministic generation caches |
 
 ### D — Blocks, items and survival economy
