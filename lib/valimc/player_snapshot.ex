@@ -1,13 +1,14 @@
 defmodule Valimc.PlayerSnapshot do
   @moduledoc "Bounded player state/outbox; legacy pose/inventory migration, not vanilla NBT."
-  alias Valimc.{Inventory, PlayerHealth, PlayerStore}
+  alias Valimc.{Inventory, PlayerFood, PlayerHealth, PlayerStore}
   alias Valimc.Protocol.{ItemStack, ItemTypes}
   alias Valimc.World.{ItemRecords, ItemTransfers}
   @data_version 5023
   @inventory_bytes 524_288
   @outbox_bytes 55 + 5 * (40 + 65_536)
   @max_sequence 18_446_744_073_709_551_615
-  @max_bytes 56 + 4 + 3 + 8 + 4 + 24 + 12 + 8 + 13 + 2 + @inventory_bytes + @outbox_bytes + 32
+  @max_bytes 56 + 4 + 3 + 8 + 4 + 24 + 12 + 8 + 13 + 2 + 11 + @inventory_bytes + @outbox_bytes +
+               32
 
   def max_bytes, do: @max_bytes
 
@@ -53,6 +54,11 @@ defmodule Valimc.PlayerSnapshot do
     snapshot =
       if Map.has_key?(player, :air_supply),
         do: Map.put(snapshot, :air_supply, player.air_supply),
+        else: snapshot
+
+    snapshot =
+      if Map.has_key?(player, :food),
+        do: Map.put(snapshot, :food, player.food),
         else: snapshot
 
     case player do
@@ -172,6 +178,20 @@ defmodule Valimc.PlayerSnapshot do
         {version, journal}
       end
 
+    {version, journal} =
+      if Map.has_key?(snapshot, :food) do
+        check(version == 11 and PlayerFood.valid?(snapshot.food), :invalid_food)
+        food = snapshot.food
+
+        {12,
+         [
+           <<food.level, food.saturation::float-32, food.exhaustion::float-32, food.timer::16>>,
+           journal
+         ]}
+      else
+        {version, journal}
+      end
+
     payload =
       IO.iodata_to_binary([
         <<"VMCPOSE", version, uuid::binary-size(16), pose.x::float-64, pose.y::float-64,
@@ -237,7 +257,24 @@ defmodule Valimc.PlayerSnapshot do
 
       <<"VMCPOSE", version, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
         yaw::float-32, pitch::float-32, @data_version::32, rest::binary>>
-      when version in [5, 6, 7, 8, 9, 10, 11] ->
+      when version in [5, 6, 7, 8, 9, 10, 11, 12] ->
+        {food, rest} =
+          if version >= 12 do
+            <<level, saturation::float-32, exhaustion::float-32, timer::16, rest::binary>> = rest
+
+            food = %PlayerFood{
+              level: level,
+              saturation: saturation,
+              exhaustion: exhaustion,
+              timer: timer
+            }
+
+            check(PlayerFood.valid?(food), :invalid_player_file)
+            {%{food: food}, rest}
+          else
+            {%{}, rest}
+          end
+
         {air, rest} =
           if version >= 11 do
             <<supply::signed-16, rest::binary>> = rest
@@ -320,7 +357,8 @@ defmodule Valimc.PlayerSnapshot do
          |> Map.merge(velocity)
          |> Map.merge(health)
          |> Map.merge(life)
-         |> Map.merge(air)}
+         |> Map.merge(air)
+         |> Map.merge(food)}
 
       _ ->
         {:error, :invalid_player_file}

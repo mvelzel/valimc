@@ -28,6 +28,7 @@ defmodule Valimc.PlayerLifeTest do
     assert dead.environment.damage_phase == 0 and not dead.environment.damage_due
     alive = PlayerLife.respawn(dead)
     assert alive.health == %PlayerHealth{} and alive.pose == :standing
+    assert alive.food == %Valimc.PlayerFood{}
     assert alive.last_death == dead.last_death and alive.environment.frozen_ticks == 0
     assert alive.environment.damage_phase == 0 and not alive.environment.damage_due
     assert alive.input.load_ticks == 60 and {alive.x, alive.y, alive.z} == {0.5, 64.0, 0.5}

@@ -1140,7 +1140,7 @@ defmodule Valimc.Connection do
         end
 
         send_packets(state, [
-          Packets.health(state.player.health),
+          Packets.health(state.player.health, state.player.food),
           Packets.player_health(state.player)
         ])
 
@@ -1271,7 +1271,7 @@ defmodule Valimc.Connection do
         clock_packet,
         difficulty_packet,
         Packets.abilities(player.abilities),
-        Packets.health(player.health),
+        Packets.health(player.health, player.food),
         Packets.player_health(player),
         Packets.player_pose(player),
         Packets.player_environment(player),
@@ -1642,6 +1642,7 @@ defmodule Valimc.Connection do
       motion: %PlayerMotion{},
       environment: %PlayerEnvironment{},
       air_supply: Valimc.PlayerAir.maximum(),
+      food: %Valimc.PlayerFood{},
       health: %PlayerHealth{},
       last_death: nil,
       pose: :standing,
@@ -1691,7 +1692,8 @@ defmodule Valimc.Connection do
                   abilities.flying
                 ),
               environment: %PlayerEnvironment{frozen_ticks: Map.get(snapshot, :frozen_ticks, 0)},
-              air_supply: Map.get(snapshot, :air_supply, Valimc.PlayerAir.maximum())
+              air_supply: Map.get(snapshot, :air_supply, Valimc.PlayerAir.maximum()),
+              food: Map.get(snapshot, :food, %Valimc.PlayerFood{})
           }
 
           player = if health.value <= 0, do: PlayerLife.dead(player), else: player
@@ -1753,7 +1755,7 @@ defmodule Valimc.Connection do
       clock_packet,
       difficulty_packet,
       Packets.abilities(state.player.abilities),
-      Packets.health(state.player.health),
+      Packets.health(state.player.health, state.player.food),
       Packets.spawn_position(),
       Packets.commands(),
       Packets.inventory(state.inventory),

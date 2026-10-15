@@ -55,6 +55,7 @@ defmodule Valimc.MenuOverflowTest do
           health: %Valimc.PlayerHealth{},
           last_death: nil,
           air_supply: 300,
+          food: %Valimc.PlayerFood{},
           flying: false,
           game_mode: %Valimc.GameMode{}
         })

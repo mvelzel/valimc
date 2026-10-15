@@ -145,9 +145,15 @@ defmodule Valimc.Protocol.Packets do
     )
   end
 
-  def health(health \\ %Valimc.PlayerHealth{}) do
-    unless Valimc.PlayerHealth.valid?(health), do: raise(ArgumentError, "invalid health")
-    packet("set_health", [<<health.value::float-32>>, Wire.varint(20), <<5.0::float-32>>])
+  def health(health \\ %Valimc.PlayerHealth{}, food \\ %Valimc.PlayerFood{}) do
+    unless Valimc.PlayerHealth.valid?(health) and Valimc.PlayerFood.valid?(food),
+      do: raise(ArgumentError, "invalid health/food")
+
+    packet("set_health", [
+      <<health.value::float-32>>,
+      Wire.varint(food.level),
+      <<food.saturation::float-32>>
+    ])
   end
 
   def level_load_start, do: packet("game_event", <<13, 0.0::float-32>>)

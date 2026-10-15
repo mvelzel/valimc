@@ -6,6 +6,56 @@ defmodule Valimc.PlayerSnapshotTest do
   defp uuid, do: <<27::128>>
   defp seal(payload), do: payload <> :crypto.hash(:sha256, payload)
 
+  test "food clock and float state share the inventory journal; v11 remains readable" do
+    legacy = %{
+      pose: pose(),
+      inventory: %Inventory{},
+      game_mode: Valimc.GameMode.new(:survival),
+      flying: false,
+      fall_distance: 0.0,
+      frozen_ticks: 0,
+      velocity: {0.0, 0.0, 0.0},
+      health: %Valimc.PlayerHealth{},
+      last_death: nil,
+      air_supply: 17
+    }
+
+    food = %Valimc.PlayerFood{level: 18, saturation: 20.5, exhaustion: 39.5, timer: 79}
+    snapshot = Map.put(legacy, :food, food)
+    assert {:ok, <<"VMCPOSE", 12, _::binary>> = bytes} = PlayerSnapshot.encode(uuid(), snapshot)
+    assert {:ok, restored} = PlayerSnapshot.decode(bytes, uuid())
+    assert restored.food == food and restored.air_supply == 17
+    assert restored.transfer_sequence == 0 and restored.outbox == nil
+    assert {:ok, ^bytes} = PlayerSnapshot.encode(uuid(), restored)
+    assert {:ok, <<"VMCPOSE", 11, _::binary>> = old} = PlayerSnapshot.encode(uuid(), legacy)
+    assert byte_size(bytes) == byte_size(old) + 11
+    assert {:ok, decoded} = PlayerSnapshot.decode(old, uuid())
+    assert Valimc.PlayerFood.state(decoded) == %Valimc.PlayerFood{}
+
+    for invalid <- [
+          %{food | level: 21},
+          %{food | saturation: 21.5},
+          %{food | exhaustion: -1.0},
+          %{food | timer: 81},
+          nil
+        ] do
+      assert {:error, :invalid_food} = PlayerSnapshot.encode(uuid(), %{snapshot | food: invalid})
+    end
+
+    payload = binary_part(bytes, 0, byte_size(bytes) - 32)
+    <<header::binary-size(60), _food::binary-size(11), rest::binary>> = payload
+
+    for invalid <- [
+          <<21, 5.0::float-32, 0.0::float-32, 0::16>>,
+          <<20, 0x7FC00000::32, 0.0::float-32, 0::16>>,
+          <<20, 5.0::float-32, -1.0::float-32, 0::16>>,
+          <<20, 5.0::float-32, 0.0::float-32, 81::16>>
+        ] do
+      assert {:error, :invalid_player_file} =
+               PlayerSnapshot.decode(seal(header <> invalid <> rest), uuid())
+    end
+  end
+
   test "air shares the health/inventory journal checksum; v10 remains readable" do
     snapshot = %{
       pose: pose(),

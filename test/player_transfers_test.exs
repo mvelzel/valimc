@@ -31,7 +31,10 @@ defmodule Valimc.PlayerTransfersTest do
         fall_distance: 1.0,
         frozen_ticks: 17,
         velocity: {0.2, -0.7, 0.3},
-        health: %{value: 7.25, hurt_ticks: 7, death_ticks: 0}
+        health: %{value: 7.25, hurt_ticks: 7, death_ticks: 0},
+        last_death: nil,
+        air_supply: 17,
+        food: %Valimc.PlayerFood{level: 7, saturation: 0.0, exhaustion: 3.5, timer: 79}
       })
 
     created = record(2, stack(3))
@@ -45,6 +48,7 @@ defmodule Valimc.PlayerTransfersTest do
     assert next.inventory == inv and next.pose == snapshot.pose
     assert next.velocity == snapshot.velocity
     assert next.health == snapshot.health
+    assert next.food == snapshot.food
     assert next.transfer_sequence == 9 and next.outbox.records == [created]
     assert {:ok, bytes} = PlayerSnapshot.encode(<<1::128>>, next)
     assert {:ok, restored} = PlayerSnapshot.decode(bytes, <<1::128>>)
@@ -52,6 +56,7 @@ defmodule Valimc.PlayerTransfersTest do
     assert restored.inventory.carried == inv.carried and restored.inventory.selected == 2
     assert restored.velocity == snapshot.velocity
     assert restored.health == snapshot.health
+    assert restored.food == snapshot.food and restored.air_supply == snapshot.air_supply
     refute restored.inventory.infinite_materials
   end
 

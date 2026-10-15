@@ -39,6 +39,7 @@ defmodule Valimc.PlayerLife do
         pose: :standing
     }
     |> Map.put(:air_supply, Valimc.PlayerAir.maximum())
+    |> Map.put(:food, %Valimc.PlayerFood{})
   end
 
   def die(player),

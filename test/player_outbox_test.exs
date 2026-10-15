@@ -347,20 +347,29 @@ defmodule Valimc.PlayerOutboxTest do
     assert File.read!(PlayerStore.path(ctx.base, ctx.uuid)) == bytes
   end
 
-  test "pending disconnect keeps the latest health without restoring spent inventory", ctx do
+  test "pending disconnect keeps latest health/food without restoring spent inventory", ctx do
     fields = %{
       game_mode: Valimc.GameMode.new(:survival),
       flying: false,
       fall_distance: 0.0,
       frozen_ticks: 0,
       velocity: {0.0, 0.0, 0.0},
-      health: %{value: 17.0, hurt_ticks: 0, death_ticks: 0}
+      health: %{value: 17.0, hurt_ticks: 0, death_ticks: 0},
+      last_death: nil,
+      air_supply: 300,
+      food: %Valimc.PlayerFood{}
     }
 
     ctx = %{ctx | before: Map.merge(ctx.before, fields), after: Map.merge(ctx.after, fields)}
     {fence, pending} = prepare(ctx)
     assert pending.health == fields.health
-    latest = %{ctx.before | health: %{value: 6.25, hurt_ticks: 7, death_ticks: 0}}
+
+    latest = %{
+      ctx.before
+      | health: %{value: 6.25, hurt_ticks: 7, death_ticks: 0},
+        food: %Valimc.PlayerFood{level: 3, saturation: 0.0, exhaustion: 3.5, timer: 79}
+    }
+
     {:ok, {region, _} = owner} = World.item_owner(ctx.key)
     :sys.suspend(region)
 
@@ -370,9 +379,11 @@ defmodule Valimc.PlayerOutboxTest do
         assert {:ok, stored} = saved(ctx)
         assert stored.health == latest.health and stored.inventory == ctx.after.inventory
         assert stored.outbox == pending.outbox and stored.transfer_sequence == 1
+        assert stored.food == latest.food
         assert {:ok, writer, recovered, recovered_fence} = PlayerStore.open(ctx.uuid)
         assert writer == ctx.writer and recovered.health == latest.health
         assert recovered.outbox == pending.outbox and recovered.inventory == ctx.after.inventory
+        assert recovered.food == latest.food
         {recovered, recovered_fence}
       after
         :sys.resume(region)
@@ -383,6 +394,7 @@ defmodule Valimc.PlayerOutboxTest do
     assert disposition in [:applied, :already_applied]
     assert {:ok, next_fence, cleared} = complete(ctx, recovered_fence)
     assert cleared.health == latest.health and cleared.outbox == nil
+    assert cleared.food == latest.food
 
     assert cleared.inventory == ctx.after.inventory and
              map_size(World.item_snapshot(ctx.key)) == 1

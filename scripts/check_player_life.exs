@@ -21,6 +21,15 @@ packets =
         ["level", "load", "start"] ->
           Packets.level_load_start()
 
+        ["health", health, food, saturation] ->
+          Packets.health(
+            %Valimc.PlayerHealth{value: String.to_float(health)},
+            %Valimc.PlayerFood{
+              level: String.to_integer(food),
+              saturation: String.to_float(saturation)
+            }
+          )
+
         ["respawn", mode, previous, location] ->
           mode = %GameMode{
             current: GameMode.from_id(String.to_integer(mode)),

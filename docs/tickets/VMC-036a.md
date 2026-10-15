@@ -32,6 +32,17 @@ bounded state permits that native value. Five boundary tests pass. Raw evidence:
 `.local/player-food-{native,check,tests}.log`, `.local/player-food-cases.json`.
 No live hunger or GUI claim at this foundation checkpoint.
 
+Journal/HUD checkpoint: snapshot v12 stores food, saturation, exhaustion and timer
+in11 bytes under the shared checksum. Versions1..11 default to a fresh food state;
+invalid/nonfinite data is rejected. Login/damage replicate actual food and
+saturation, reconnect retains them, and respawn resets them. Transfer preparation
+and pending-close field merging retain current food without restoring spent items.
+Seventy affected tests pass, including a real TCP saved-food/damage/reconnect/
+death/respawn scenario. The expanded lifecycle oracle matches241 bidirectional
+packets, including80 health/food/saturation combinations, plus eight command
+boundaries. Raw `.local/player-food-journal-tests.log`, `.local/player-food-life-*.log`.
+Owner ticking, gameplay exhaustion and graphical validation remain open.
+
 Client scenario: seed a damaged survival body and observe actual hearts recover
 with full food; low food prevents healing, exhaustion spends saturation then food,
 and a hungry body shows depleted drumsticks. Reconnect retains the state. Check
