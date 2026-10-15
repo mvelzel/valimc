@@ -1,6 +1,6 @@
 # VMC-036a — Owned hunger and regeneration
 
-Status: Live clock/journal/HUD automated-verified; graphical gate pending. October 15, 2026.
+Status: Validated and complete within owned food-clock scope. October 16, 2026.
 Depends on owned health, the admitted player clock and durable player snapshots.
 
 Acceptance: food, saturation, exhaustion and the regeneration timer belong to
@@ -85,3 +85,25 @@ with full food; low food prevents healing, exhaustion spends saturation then foo
 and a hungry body shows depleted drumsticks. Reconnect retains the state. Check
 disabled regeneration and difficulty-specific starvation, including a fatal hard
 case followed by actual Respawn. Delegate on a frozen release after prior gates.
+
+October16 actual-client evidence — reviewed and accepted: immutable7337af6
+release/PID74315, disposable `/tmp/valimc-consumable-client-20261016`, Java26.3/
+protocol777, nine fresh small direct SDL/CUA clients. Legitimate disconnected
+leases seeded supported survival bodies; actual owner clock spent saturation2→0
+before food10→8 at exhaustion20→4 (four-drumstick HUD), fast timer9→0 healing
+from8HP with saturation and native fractional/exhaustion changes, ordinary
+79→0 healing8→9 atfood18/sat0 then food17/noheal. Rulefalse held8HP with full
+food/sat5. Easy11→10HP and normal2→1HP held through repeated80tick windows,
+with actual five-heart/half-heart and empty hunger HUD. Fresh direct reconnect
+restored exact HP10/food0/sat0/ex0/timer22 at load_ticks60, actual HUD/E.
+Peaceful food10/HP10/sat.5 recovered to20/20 with native phase/saturation changes
+and full HUD. Hard2→1→0 showed actual “starved to death”; actual Respawn rendered
+full10hearts/fullfood/E-empty, owner20HP/food20/sat5/ex0/timer0/air300.
+Exactly one conserved stone3 record20162/source10 transfer, no repeated delivery;
+all prior28 ID/stack/components unchanged, final17/8/4=29 records, receipts
+latest10/6/9 and outboxnil. All JVMs stopped/waited; zeroPlayers and safe fresh-body
+snapshot, difficulty1/unlocked and natural_regenerationfalse restored. No host
+damage or release restart. Protection/stale/stalled/effect negatives remain native/
+automated coverage; movement exhaustion is a later slice. Full factual report,
+seeds, timer/cadence traces, reconnect and conservation proof:
+`.local/client-tests/VMC-036a/report.md`.
