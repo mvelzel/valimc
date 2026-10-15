@@ -14,7 +14,7 @@ import net.minecraft.world.entity.player.*;
 import net.minecraft.world.food.FoodData;
 import net.minecraft.world.level.GameType;
 
-/** Native travel requests and separate actual ability gates; actions/world contact excluded. */
+/** Native travel, ability gates and jump callbacks; owner/world contacts excluded. */
 public class MovementFoodOracle {
   private static class ProbeLevel extends ServerLevel {
     private ProbeLevel(){super(null,null,null,null,null,null,false,0,null,false);}
@@ -32,6 +32,8 @@ public class MovementFoodOracle {
     public boolean isSprinting(){return (flags&64)!=0;}
     public boolean isCrouching(){return (flags&128)!=0;}
     public boolean isFallFlying(){return false;}
+    protected float getJumpPower(){return 0;}
+    public void awardStat(Identifier stat){}
     public void awardStat(Identifier stat,int amount){}
     public void causeFoodExhaustion(float amount){exhaustion+=amount;}
   }
@@ -61,8 +63,13 @@ public class MovementFoodOracle {
       var food=new FoodData();foodField.set(p,food);cause.invoke(p,amount);
       var c=new JsonObject();c.addProperty("mode",mode.getName());c.addProperty("amount",(double)amount);c.addProperty("exhaustion",(double)exhaustionField.getFloat(food));gates.add(c);
     }
-    var result=new JsonObject();result.add("movement",cases);result.add("gates",gates);
+    var jumps=new JsonArray();
+    for(boolean sprinting:new boolean[]{false,true}){
+      p.flags=sprinting?64:0;p.exhaustion=0;p.jumpFromGround();
+      var c=new JsonObject();c.addProperty("sprinting",sprinting);c.addProperty("exhaustion",(double)p.exhaustion);jumps.add(c);
+    }
+    var result=new JsonObject();result.add("movement",cases);result.add("gates",gates);result.add("jumps",jumps);
     Files.writeString(Path.of(args[0]),new Gson().toJson(result));
-    System.out.println("PASS: "+cases.size()+" native movement exhaustion requests and "+gates.size()+" real Player ability gates; action/world composition excluded.");
+    System.out.println("PASS: "+cases.size()+" native travel requests, "+gates.size()+" real Player ability gates and "+jumps.size()+" ServerPlayer jump callbacks (physics/stats controlled); owner/world composition excluded.");
   }
 }

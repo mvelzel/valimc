@@ -36,6 +36,12 @@ for c <- data["gates"] do
     do: raise("Native exhaustion ability gate differs #{inspect(c)}")
 end
 
+for c <- data["jumps"],
+    do:
+      unless(MovementFood.jump(c["sprinting"]) == c["exhaustion"],
+        do: raise("Native jump exhaustion differs #{inspect(c)}")
+      )
+
 IO.puts(
-  "PASS: #{length(cases)} native movement exhaustion requests and #{length(data["gates"])} actual Player ability gates; owner composition remains separate."
+  "PASS: #{length(cases)} native travel requests, #{length(data["gates"])} Player ability gates and #{length(data["jumps"])} ServerPlayer jump callbacks; owner composition remains separate."
 )

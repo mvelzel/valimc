@@ -70,7 +70,7 @@ indexes validated tickets. None imply full parity.
    food/peaceful/defense/codecs. Owned clock, journal, rules and HUD are implemented;
    724 full tests and a separate production build pass; full native integration
    and graphical validation remain pending. Movement/action
-   [Movement exhaustion](tickets/VMC-036b.md) has native travel/mode foundations;
+   [Movement exhaustion](tickets/VMC-036b.md) has native travel/mode/jump foundations;
    accepted owner/action wiring and consuming items are subsequent slices.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete

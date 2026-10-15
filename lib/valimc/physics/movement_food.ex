@@ -1,6 +1,8 @@
 defmodule Valimc.Physics.MovementFood do
   @moduledoc "Native travel exhaustion requests; the owner supplies accepted deltas and contact predicates."
 
+  def jump(sprinting) when is_boolean(sprinting), do: f32(if(sprinting, do: 0.2, else: 0.05))
+
   def amount({x, y, z}, contact)
       when is_number(x) and abs(x) <= 60_000_000 and is_number(y) and abs(y) <= 2_000_000 and
              is_number(z) and abs(z) <= 60_000_000 do

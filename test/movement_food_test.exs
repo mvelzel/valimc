@@ -52,4 +52,9 @@ defmodule Valimc.MovementFoodTest do
     assert_raise FunctionClauseError, fn -> MovementFood.amount({60_000_001, 0, 0}, c) end
     assert_raise FunctionClauseError, fn -> MovementFood.amount({0, 2_000_001, 0}, c) end
   end
+
+  test "ground jump callbacks request native constants before ability gating" do
+    assert MovementFood.jump(true) == 0.20000000298023224
+    assert MovementFood.jump(false) == 0.05000000074505806
+  end
 end
