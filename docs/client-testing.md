@@ -10,11 +10,13 @@ Launch a fresh client directly into the test server:
 /usr/bin/python3 scripts/minecraft_client.py --evidence .local/client-tests/TICKET/run-01
 ```
 
-Run this in a tracked `exec_command` session with `tty: true`. The helper uses the
+Run this in a tracked `exec_command` session with `tty: true` and native macOS GUI
+access (`sandbox_permissions: "require_escalated"` on this host). The helper uses the
 installed official jars/assets, dedicated SDL wrapper and fixed loopback Quick
 Play address. It creates a fresh game directory and uses the offline test identity
 `ValiMCTest`; the local test server must use offline mode. Account files and normal
 client settings are untouched. Console/game logs and fingerprints stay in the run.
+Keep the default small windowed size; do not maximize or enter fullscreen.
 
 After testing, Ctrl-C the owning terminal session with `write_stdin` and wait for
 its completion; the helper terminates/waits for its own JVM. Confirm zero server

@@ -19,7 +19,7 @@ SDL = ROOT / ".local/sdl-mouse-build/libSDL3.dylib"
 VERSION = "26.3"
 TARGET = "127.0.0.1:25565"
 PLAYER = "ValiMCTest"
-FEATURES = {"has_custom_resolution": True, "has_quick_plays_support": True,
+FEATURES = {"has_quick_plays_support": True,
             "is_quick_play_multiplayer": True}
 
 
@@ -53,7 +53,7 @@ def command(run):
         "game_directory": str(run / "game"), "assets_root": str(INSTALLED / "assets"),
         "assets_index_name": data["assetIndex"]["id"], "auth_uuid": offline_uuid.hex,
         "auth_access_token": "0", "clientid": str(uuid.UUID(int=0)), "auth_xuid": "0",
-        "version_type": "release", "resolution_width": "1280", "resolution_height": "720",
+        "version_type": "release",
         "quickPlayPath": str(run / "quickplay.json"), "quickPlayMultiplayer": TARGET,
         "natives_directory": str(run / "natives"), "launcher_name": "ValiMC-test",
         "launcher_version": "1", "classpath": os.pathsep.join(map(str, libraries + [jar])),
@@ -101,7 +101,7 @@ def main():
         for name in ["java", "jna", "lwjgl", "netty"]:
             (run / "natives" / name).mkdir(parents=True)
         (run / "game/options.txt").write_text(
-            "onboardAccessibility:false\nskipMultiplayerWarning:true\ntutorialStep:none\n"
+            "fullscreen:false\nonboardAccessibility:false\nskipMultiplayerWarning:true\ntutorialStep:none\n"
             "pauseOnLostFocus:false\nrenderDistance:4\nsimulationDistance:5\nmaxFps:60\nguiScale:2\n")
 
         def stop(_signum, _frame):

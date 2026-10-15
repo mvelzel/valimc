@@ -57,11 +57,13 @@ Keep README small; put feature evidence in its ticket. Use `rg` to retrieve deta
   Coordinate restarts and fixtures; never replace a release under test. Review its
   report before Done or publication; failures become fix/retest tasks.
 - Launch Java 26.3 directly with `scripts/minecraft_client.py --evidence
-  .local/client-tests/TICKET/run-01` in a tracked terminal session. It joins only
+  .local/client-tests/TICKET/run-01` in a tracked terminal session with native macOS
+  GUI access (`tty: true`, `sandbox_permissions: "require_escalated"`). It joins only
   local ValiMC using Quick Play, a fresh game directory and the dedicated SDL app
   `local.valimc.minecraft-client`. Test through `mcp__cua_repl`, then Ctrl-C/wait
   for that session to shut down its JVM. Reconnect means a fresh launch; never use
-  the Launcher, saved-server list or manual connection menus. Try even while the
+  the Launcher, saved-server list or manual connection menus. Keep the default
+  small windowed size; do not maximize. Try even while the
   Mac is locked; access is authorized. Unavailable CUA leaves the gate pending,
   not the backlog halted. Repair the prerequisite while independent work continues.
 - The dedicated SDL pointer backend is mandatory: no modes, fallbacks, backward

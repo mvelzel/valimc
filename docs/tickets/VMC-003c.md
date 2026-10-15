@@ -27,3 +27,8 @@ First run exited during SDL initialization before joining; no GUI input occurred
 Its owned JVM is gone and the server has zero players. A rejected simulation-
 distance value was corrected to the native minimum 5; retry needs native GUI
 access outside the shell sandbox. Failed evidence stays in `.local/client-tests/VMC-003c/run-01/`.
+
+Two subsequent direct launches joined, rendered, accepted movement/pointer input
+and shut down cleanly using native GUI access. The helper now omits custom
+resolution arguments and explicitly disables fullscreen, preserving Minecraft's
+default small window. One final default-size launch/capture/shutdown check remains.
