@@ -48,6 +48,14 @@ defmodule Valimc.World.Region do
 
   def set_blocks(_, _, _), do: {:error, :invalid_block_batch}
 
+  @doc "Reserve currently owned blocks for a short mining commit; the token is invalid after mutation/restart."
+  def reserve_mining({pid, epoch}, positions),
+    do: GenServer.call(pid, {:reserve_mining, epoch, positions}, 250)
+
+  @doc "Internal inbox: the caller must have durably prepared and fenced the player's mining intent."
+  def apply_mining_transfer({pid, epoch}, transfer),
+    do: GenServer.call(pid, {:mining_transfer, epoch, transfer}, 6000)
+
   # Scene-only API: these operations must never consume a player inventory.
   def create_item({pid, epoch}, stack, position),
     do: GenServer.call(pid, {:create_item, epoch, stack, position}, 6000)

@@ -99,8 +99,8 @@ indexes validated tickets. None imply full parity.
    matches1,286,028 rates and1,386 actual tick/crack prefixes. Stock tools match
    1,143,136 native state pairs; gear and eye/ground player speed also match native
    contexts. [Atomic block/drop persistence](tickets/VMC-029a1.md) has a bounded
-   proposal codec and writer recovery, with75 affected storage checks passing.
-   Region commit/publication, owned start/abort/stop and durability are next.
+   proposal codec, writer recovery and fenced region commits, with99 affected
+   checks passing. Player intent/wear/loot and live start/abort/stop are next.
    Live survival mining remains absent. Client checks above continue independently.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.

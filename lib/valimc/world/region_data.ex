@@ -1,6 +1,15 @@
 defmodule Valimc.World.RegionData do
   @moduledoc "One storage resource's data and operations, executed by its owning process."
-  alias Valimc.World.{BlockBatch, Chunk, Items, ItemTransfers, Store}
+  alias Valimc.World.{
+    BlockBatch,
+    Chunk,
+    Items,
+    ItemTransfers,
+    MiningPermits,
+    MiningTransfers,
+    Store
+  }
+
   alias Valimc.Protocol.Packets
 
   defstruct [
@@ -10,6 +19,7 @@ defmodule Valimc.World.RegionData do
     :item_storage_enabled,
     :item_publication,
     :item_pending,
+    :mining_permits,
     :store,
     :store_lease,
     :store_monitor,
@@ -59,6 +69,7 @@ defmodule Valimc.World.RegionData do
       item_storage_enabled: persistent,
       item_publication: publication,
       item_pending: nil,
+      mining_permits: %MiningPermits{},
       store: store,
       store_lease: store_lease,
       store_monitor: store_monitor,
@@ -99,6 +110,49 @@ defmodule Valimc.World.RegionData do
 
       true ->
         plan_transfer(transfer, from, state)
+    end
+  end
+
+  def handle_call({:reserve_mining, epoch, positions}, _from, state) do
+    cond do
+      epoch != state.items.epoch ->
+        {:reply, {:error, :stale_owner}, state}
+
+      not valid_block_query?(positions, :any) or positions == [] ->
+        {:reply, {:error, :invalid_mining_reservation}, state}
+
+      not Enum.all?(positions, fn {x, y, z} ->
+        Chunk.valid_y?(y) and Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == state.key
+      end) ->
+        {:reply, {:error, :wrong_region}, state}
+
+      mining_writing?(state) ->
+        {:reply, {:error, :mining_storage_busy}, state}
+
+      true ->
+        blocks = Map.new(positions, &{&1, Chunk.block_at(state.edits, &1)})
+
+        case MiningPermits.reserve(
+               state.mining_permits,
+               blocks,
+               System.monotonic_time(:millisecond)
+             ) do
+          {:ok, permits, token} ->
+            {:reply, {:ok, %{permit: token, expected: blocks}},
+             %{state | mining_permits: permits}}
+
+          error ->
+            {:reply, error, state}
+        end
+    end
+  end
+
+  def handle_call({:mining_transfer, epoch, transfer}, from, state) do
+    cond do
+      epoch != state.items.epoch -> {:reply, {:error, :stale_region}, state}
+      not state.item_storage_enabled -> {:reply, {:error, :transfer_storage_disabled}, state}
+      state.item_pending != nil -> {:reply, {:error, :item_storage_busy}, state}
+      true -> plan_mining(transfer, from, state)
     end
   end
 
@@ -194,38 +248,17 @@ defmodule Valimc.World.RegionData do
       revision != state.revision ->
         {:reply, {:error, :stale_revision}, state}
 
+      mining_writing?(state) ->
+        {:reply, {:error, :mining_storage_busy}, state}
+
       true ->
-        edits =
-          Enum.reduce(batch.edits, state.edits, fn {pos, block}, acc ->
-            put_edit(acc, pos, block)
-          end)
+        case block_proposal(state, batch) do
+          {:ok, proposal} ->
+            next = publish_blocks(state, batch, proposal, true)
+            {:reply, {:ok, next.revision}, next}
 
-        if map_size(edits) > 131_072 do
-          {:reply, {:error, :region_edit_limit}, state}
-        else
-          by_chunk =
-            Enum.reduce(batch.edits, state.by_chunk, fn {{x, _, z} = pos, block}, acc ->
-              key = Valimc.World.chunk_key(x, z)
-              Map.put(acc, key, put_edit(Map.get(acc, key, %{}), pos, block))
-            end)
-
-          versions =
-            Enum.reduce(batch.chunks, state.versions, &Map.update(&2, &1, 1, fn n -> n + 1 end))
-
-          Valimc.World.publish(state.key, {:block_batch, batch.frames})
-          Valimc.Metrics.add(:block_edits, map_size(batch.edits))
-
-          next = %{
-            state
-            | edits: edits,
-              by_chunk: by_chunk,
-              versions: versions,
-              cache: Map.drop(state.cache, batch.chunks),
-              dirty: true,
-              revision: state.revision + 1
-          }
-
-          {:reply, {:ok, next.revision}, next}
+          error ->
+            {:reply, error, state}
         end
     end
   end
@@ -233,28 +266,36 @@ defmodule Valimc.World.RegionData do
   def handle_call({:set_block, {x, y, z} = position, block}, _from, state) do
     key = Valimc.World.chunk_key(x, z)
 
-    if Valimc.World.region_key(key) == state.key and Chunk.valid_y?(y) and block >= 0 and
-         block < 65536 and
-         (map_size(state.edits) < 131_072 or Map.has_key?(state.edits, position)) do
-      edits = put_edit(state.edits, position, block)
-      local = put_edit(Map.get(state.by_chunk, key, %{}), position, block)
-      Valimc.World.publish(state.key, {:block, position, block})
-      Valimc.Metrics.add(:block_edits)
-
-      {:reply, :ok,
-       %{
-         state
-         | edits: edits,
-           by_chunk: Map.put(state.by_chunk, key, local),
-           dirty: true,
-           revision: state.revision + 1,
-           cache: Map.delete(state.cache, key),
-           versions: Map.update(state.versions, key, 1, &(&1 + 1))
-       }}
+    if mining_writing?(state) do
+      {:reply, {:error, :mining_storage_busy}, state}
     else
-      {:reply, {:error, :invalid_block}, state}
+      if Valimc.World.region_key(key) == state.key and Chunk.valid_y?(y) and block >= 0 and
+           block < 65536 and
+           (map_size(state.edits) < 131_072 or Map.has_key?(state.edits, position)) do
+        edits = put_edit(state.edits, position, block)
+        local = put_edit(Map.get(state.by_chunk, key, %{}), position, block)
+        Valimc.World.publish(state.key, {:block, position, block})
+        Valimc.Metrics.add(:block_edits)
+
+        {:reply, :ok,
+         %{
+           state
+           | edits: edits,
+             mining_permits: MiningPermits.invalidate(state.mining_permits, %{position => block}),
+             by_chunk: Map.put(state.by_chunk, key, local),
+             dirty: true,
+             revision: state.revision + 1,
+             cache: Map.delete(state.cache, key),
+             versions: Map.update(state.versions, key, 1, &(&1 + 1))
+         }}
+      else
+        {:reply, {:error, :invalid_block}, state}
+      end
     end
   end
+
+  def handle_call(:flush, _from, %{item_pending: %{kind: :mining, phase: :writing}} = state),
+    do: {:reply, {:error, :mining_storage_busy}, state}
 
   def handle_call(:flush, _from, state) do
     result = Store.flush(state.store, state.store_lease, state.edits)
@@ -323,6 +364,7 @@ defmodule Valimc.World.RegionData do
          end) do
       {:ok, worker} ->
         pending = %{
+          kind: :item_transfer,
           phase: :planning,
           token: token,
           from: from,
@@ -339,6 +381,167 @@ defmodule Valimc.World.RegionData do
       {:error, reason} ->
         {:reply, {:error, {:item_worker_failed, reason}}, state}
     end
+  end
+
+  defp mining_writing?(state),
+    do: match?(%{kind: :mining, phase: :writing}, state.item_pending)
+
+  defp permit_matches?(state, %{permit: token, expected: expected}) do
+    MiningPermits.lookup(state.mining_permits, token, System.monotonic_time(:millisecond)) ==
+      {:ok, expected}
+  end
+
+  defp permit_matches?(_, _), do: false
+
+  defp plan_mining(transfer, from, state) do
+    owner = self()
+    epoch = state.items.epoch
+    token = make_ref()
+    items = state.items
+    receipts = state.item_receipts
+    key = state.key
+    eligible = permit_matches?(state, transfer)
+
+    case Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
+           result =
+             with {:ok, plan} <- MiningTransfers.plan(items, receipts, key, transfer, eligible) do
+               if plan.result == :applied do
+                 changes = Map.new(plan.expected, fn {pos, _} -> {pos, 0} end)
+
+                 with {:ok, batch} <- BlockBatch.prepare(changes),
+                      do: {:ok, Map.put(plan, :batch, batch)}
+               else
+                 {:ok, plan}
+               end
+             end
+
+           send(owner, {:resource, epoch, {:mining_plan, self(), token, result}})
+         end) do
+      {:ok, worker} ->
+        pending = %{
+          kind: :mining,
+          phase: :planning,
+          token: token,
+          from: from,
+          worker: worker,
+          monitor: Process.monitor(worker),
+          timer: send_after(state, {:item_commit_deadline, token}, 5000)
+        }
+
+        {:noreply, %{state | item_pending: pending}}
+
+      {:error, :max_children} ->
+        {:reply, {:error, :item_workers_busy}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, {:item_worker_failed, reason}}, state}
+    end
+  end
+
+  defp block_proposal(state, batch) do
+    edits =
+      Enum.reduce(batch.edits, state.edits, fn {pos, block}, acc -> put_edit(acc, pos, block) end)
+
+    if map_size(edits) > 131_072 do
+      {:error, :region_edit_limit}
+    else
+      by_chunk =
+        Enum.reduce(batch.edits, state.by_chunk, fn {{x, _, z} = pos, block}, acc ->
+          key = Valimc.World.chunk_key(x, z)
+          Map.put(acc, key, put_edit(Map.get(acc, key, %{}), pos, block))
+        end)
+
+      versions =
+        Enum.reduce(batch.chunks, state.versions, &Map.update(&2, &1, 1, fn n -> n + 1 end))
+
+      {:ok, %{edits: edits, by_chunk: by_chunk, versions: versions, revision: state.revision + 1}}
+    end
+  end
+
+  defp publish_blocks(state, batch, proposal, dirty) do
+    Valimc.World.publish(state.key, {:block_batch, batch.frames})
+    Valimc.Metrics.add(:block_edits, map_size(batch.edits))
+
+    state
+    |> struct!(proposal)
+    |> Map.merge(%{
+      cache: Map.drop(state.cache, batch.chunks),
+      dirty: dirty,
+      mining_permits: MiningPermits.invalidate(state.mining_permits, batch.edits)
+    })
+  end
+
+  defp commit_mining(plan, pending, state) do
+    cond do
+      plan.result in [:already_applied, :already_rejected] ->
+        GenServer.reply(pending.from, {:ok, plan.result})
+        {:noreply, %{state | item_pending: nil}}
+
+      plan.result == :rejected ->
+        commit_rejected_mining(plan, pending.from, state)
+
+      not permit_matches?(state, plan) ->
+        commit_rejected_mining(
+          MiningTransfers.reject(plan, state.items, state.item_receipts),
+          pending.from,
+          state
+        )
+
+      true ->
+        case block_proposal(state, plan.batch) do
+          {:ok, proposal} ->
+            token = make_ref()
+
+            Store.commit_mining(
+              state.store,
+              state.store_lease,
+              %{
+                edits: proposal.edits,
+                changes: plan.batch.edits,
+                items: plan.items,
+                receipts: plan.receipts
+              },
+              {self(), state.items.epoch},
+              token
+            )
+
+            writing = %{
+              kind: :mining,
+              phase: :writing,
+              token: token,
+              timer: send_after(state, {:item_commit_deadline, token}, 5000),
+              from: pending.from,
+              batch: plan.batch,
+              proposal: proposal,
+              items: plan.items,
+              receipts: plan.receipts
+            }
+
+            {:noreply, %{state | item_pending: writing}}
+
+          {:error, _} ->
+            commit_rejected_mining(
+              MiningTransfers.reject(plan, state.items, state.item_receipts),
+              pending.from,
+              state
+            )
+        end
+    end
+  end
+
+  defp commit_rejected_mining(plan, from, state) do
+    permits = MiningPermits.remove(state.mining_permits, plan.permit)
+
+    {:noreply, next} =
+      commit_items(
+        state.items,
+        {:ok, :rejected},
+        from,
+        %{state | mining_permits: permits},
+        plan.receipts
+      )
+
+    {:noreply, %{next | item_pending: Map.put(next.item_pending, :kind, :mining)}}
   end
 
   defp put_edit(edits, {_, y, _} = pos, block) do
@@ -387,7 +590,10 @@ defmodule Valimc.World.RegionData do
 
   def handle_info(
         {:item_transfer_plan, worker, token, result},
-        %{item_pending: %{phase: :planning, worker: worker, token: token} = pending} = state
+        %{
+          item_pending:
+            %{kind: :item_transfer, phase: :planning, worker: worker, token: token} = pending
+        } = state
       ) do
     Process.demonitor(pending.monitor, [:flush])
 
@@ -429,9 +635,59 @@ defmodule Valimc.World.RegionData do
   def handle_info({:item_transfer_plan, _, _, _}, state), do: {:noreply, state}
 
   def handle_info(
+        {:mining_plan, worker, token, result},
+        %{
+          item_pending: %{kind: :mining, phase: :planning, worker: worker, token: token} = pending
+        } = state
+      ) do
+    Process.demonitor(pending.monitor, [:flush])
+    Process.cancel_timer(pending.timer)
+
+    case result do
+      {:ok, plan} ->
+        commit_mining(plan, pending, state)
+
+      {:error, _} = error ->
+        GenServer.reply(pending.from, error)
+        {:noreply, %{state | item_pending: nil}}
+    end
+  end
+
+  def handle_info({:mining_plan, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:mining_saved, writer, token, :ok},
+        %{
+          store: writer,
+          item_pending: %{kind: :mining, phase: :writing, token: token, batch: batch} = pending
+        } = state
+      ) do
+    Process.cancel_timer(pending.timer)
+    next = publish_blocks(state, batch, pending.proposal, false)
+    :ets.insert(state.item_publication, {:items, pending.items.views})
+    GenServer.reply(pending.from, {:ok, :applied})
+    {:noreply, %{next | items: pending.items, item_receipts: pending.receipts, item_pending: nil}}
+  end
+
+  def handle_info(
+        {:mining_saved, writer, token, {:error, reason}},
+        %{
+          store: writer,
+          item_pending: %{kind: :mining, phase: :writing, token: token, batch: _} = pending
+        } = state
+      ) do
+    Process.cancel_timer(pending.timer)
+    GenServer.reply(pending.from, {:error, :mining_commit_uncertain})
+    {:stop, {:mining_storage_failed, reason}, %{state | item_pending: nil}}
+  end
+
+  def handle_info({:mining_saved, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info(
         {:items_saved, writer, token, :ok},
         %{store: writer, item_pending: %{phase: :writing, token: token} = pending} = state
-      ) do
+      )
+      when not is_map_key(pending, :batch) do
     Process.cancel_timer(pending.timer)
     :ets.insert(state.item_publication, {:items, pending.items.views})
     GenServer.reply(pending.from, pending.reply)
@@ -443,7 +699,8 @@ defmodule Valimc.World.RegionData do
   def handle_info(
         {:items_saved, writer, token, {:error, reason}},
         %{store: writer, item_pending: %{phase: :writing, token: token} = pending} = state
-      ) do
+      )
+      when not is_map_key(pending, :batch) do
     Process.cancel_timer(pending.timer)
     GenServer.reply(pending.from, {:error, :item_commit_uncertain})
     require Logger
@@ -512,7 +769,7 @@ defmodule Valimc.World.RegionData do
   end
 
   def handle_info(:save, state) do
-    saving = state.dirty and not state.saving
+    saving = state.dirty and not state.saving and not mining_writing?(state)
 
     if saving,
       do:
@@ -570,8 +827,16 @@ defmodule Valimc.World.RegionData do
         job.pid != nil and Process.whereis(Valimc.ChunkWorkers) != nil,
         do: Task.Supervisor.terminate_child(Valimc.ChunkWorkers, job.pid)
 
-    if reason in [:normal, :shutdown] and state.dirty,
-      do: Store.flush(state.store, state.store_lease, state.edits)
+    if reason in [:normal, :shutdown] and state.dirty do
+      # A queued atomic write must never be followed by the old pre-commit snapshot.
+      edits =
+        case state.item_pending do
+          %{kind: :mining, phase: :writing, proposal: proposal} -> proposal.edits
+          _ -> state.edits
+        end
+
+      Store.flush(state.store, state.store_lease, edits)
+    end
 
     Process.demonitor(state.store_monitor, [:flush])
 
