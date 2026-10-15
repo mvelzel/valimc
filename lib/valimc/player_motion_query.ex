@@ -134,7 +134,10 @@ defmodule Valimc.PlayerMotionQuery do
          candidate =
            player
            |> Map.merge(Map.take(target, [:x, :y, :z]))
-           |> Map.put(:motion, Valimc.PlayerKinetics.apply_result(accepted_motion, packet)),
+           |> Map.put(
+             :motion,
+             Valimc.PlayerKinetics.apply_result(%{accepted_motion | swimming: swimming}, packet)
+           ),
          {:ok, tick} <- Valimc.PlayerKinetics.tick(candidate, after_move.pose, blocks) do
       {:ok,
        %{

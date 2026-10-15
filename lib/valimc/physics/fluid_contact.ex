@@ -4,6 +4,11 @@ defmodule Valimc.Physics.FluidContact do
   @inset 0.001
   @max_cells 512
 
+  def fluid_at(%Frame{states: states}, pos) when is_map(states) and map_size(states) <= 2048,
+    do: at(states, pos)
+
+  def fluid_at(_, _), do: {:error, :invalid_fluid_frame}
+
   def sample(frame, box) do
     with {:ok, contacts} <- contacts(frame, box) do
       {:ok,

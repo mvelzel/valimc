@@ -50,7 +50,12 @@ defmodule Valimc.PlayerPoseQuery do
                    subject: subject
                  }),
                {:ok, powder} <- Valimc.PlayerEnvironment.sample(frame, result.geometry.box),
-               {:ok, kinetics} <- Valimc.PlayerKinetics.tick(player, result.pose, frame),
+               candidate =
+                 Map.put(player, :motion, %{
+                   Map.get(player, :motion, %Valimc.PlayerMotion{})
+                   | swimming: swimming
+                 }),
+               {:ok, kinetics} <- Valimc.PlayerKinetics.tick(candidate, result.pose, frame),
                do:
                  {:ok,
                   result

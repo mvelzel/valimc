@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerSwimming do
   @moduledoc "Swimming intent from a fenced geometry frame; the connection owns the committed flag."
   import Bitwise
-  alias Valimc.Physics.{FluidBlocks, FluidContact, PlayerPose, Swimming}
+  alias Valimc.Physics.{FluidContact, PlayerPose, Swimming}
 
   def sample(player, pose, {x, y, z} = position, frame) do
     previous = Map.get(player, :motion, %Valimc.PlayerMotion{}).swimming
@@ -19,8 +19,7 @@ defmodule Valimc.PlayerSwimming do
       true ->
         feet = {floor(x), floor(y), floor(z)}
 
-        with {:ok, id} <- Map.fetch(frame.states, feet),
-             {:ok, fluid} <- FluidBlocks.fetch(id) do
+        with {:ok, fluid} <- FluidContact.fluid_at(frame, feet) do
           if fluid.kind == :water do
             with {:ok, geometry} <- PlayerPose.geometry(pose, position),
                  {:ok, eyes} <- FluidContact.eyes(frame, geometry.box, geometry.eye),
@@ -28,9 +27,6 @@ defmodule Valimc.PlayerSwimming do
           else
             {:ok, false}
           end
-        else
-          :error -> {:error, :incomplete_fluid_frame}
-          error -> error
         end
     end
   end

@@ -184,4 +184,33 @@ defmodule Valimc.PlayerKineticsTest do
     assert elem(blocked.velocity, 1) < 0.0
     assert p.x == 4.5 and p.y == 64.5
   end
+
+  test "swim pitch uses observed surface/jump conditions without moving the accepted anchor" do
+    p = player()
+    p = %{p | y: 64.6, motion: %{p.motion | swimming: true}, input: %{p.input | shared_flags: 8}}
+    p = Map.put(p, :pitch, -90.0)
+    shallow = for x <- 3..5, z <- 3..5, into: %{}, do: {{x, 64, z}, 89}
+    {:ok, surface} = PlayerKinetics.tick(p, :swimming, frame(shallow))
+    assert surface.velocity == {0.0, 0.0, 0.0}
+    deep = Map.put(shallow, {4, 65, 4}, 89)
+    {:ok, rising} = PlayerKinetics.tick(p, :swimming, frame(deep))
+    assert elem(rising.velocity, 1) > 0.048 and elem(rising.velocity, 1) < 0.049
+
+    {:ok, jumping} =
+      PlayerKinetics.tick(%{p | input: %{p.input | buttons: 16}}, :swimming, frame(shallow))
+
+    assert elem(jumping.velocity, 1) > 0.078 and elem(jumping.velocity, 1) < 0.079
+    {:ok, diving} = PlayerKinetics.tick(%{p | pitch: 90.0}, :swimming, frame(shallow))
+    assert elem(diving.velocity, 1) < -0.068
+
+    {:ok, flying} =
+      PlayerKinetics.tick(%{p | abilities: %{p.abilities | flying: true}}, :swimming, frame(deep))
+
+    assert flying.velocity == {0.0, 0.0, 0.0}
+    assert p.y == 64.6 and p.motion.velocity == {0.0, 0.0, 0.0}
+
+    refute PlayerKinetics.signature(p) == PlayerKinetics.signature(%{p | pitch: 90.0})
+    dry = %{p | motion: %PlayerMotion{}, input: %{p.input | shared_flags: 0}}
+    assert PlayerKinetics.signature(dry) == PlayerKinetics.signature(%{dry | pitch: 90.0})
+  end
 end

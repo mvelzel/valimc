@@ -14,7 +14,8 @@ defmodule Valimc.PlayerKinetics do
     FluidCurrents,
     FluidMotion,
     MotionBlocks,
-    PlayerPose
+    PlayerPose,
+    SwimSteering
   }
 
   @sin_scale 10_430.378350470453
@@ -43,10 +44,11 @@ defmodule Valimc.PlayerKinetics do
 
   def signature(player) do
     motion = Map.get(player, :motion, %PlayerMotion{})
+    sprint = (player.input.shared_flags &&& 8) != 0
 
-    {motion.velocity, motion.physical_ground, motion.on_ground, motion.swimming,
-     (player.input.shared_flags &&& 8) != 0, player.input.buttons,
-     Valimc.PlayerInput.loaded?(player.input), Map.get(player, :yaw, 0.0)}
+    {motion.velocity, motion.physical_ground, motion.on_ground, motion.swimming, sprint,
+     player.input.buttons, Valimc.PlayerInput.loaded?(player.input), Map.get(player, :yaw, 0.0),
+     if(motion.swimming or sprint, do: Map.get(player, :pitch, 0.0))}
   end
 
   def apply_result(motion, result) do
@@ -75,7 +77,9 @@ defmodule Valimc.PlayerKinetics do
            true <- Enum.all?(Tuple.to_list(escape), &(abs(&1) <= 64)) do
         # An escape checks a second, damped horizontal displacement. Currents
         # contribute at most .021 per axis, vertical input .04; .125 encloses
-        # both displacements. Frame admission is bounded independently of each
+        # both displacements. Potential swimmers also enclose the pre-travel
+        # pitch blend (at most .085 beyond the original velocity hull).
+        # Frame admission is bounded independently of each
         # individual collision scan; source/worker/batch limits still apply.
         {:ok,
          box
@@ -84,7 +88,7 @@ defmodule Valimc.PlayerKinetics do
          |> Box.expand_towards({0.0, 0.6, 0.0})
          |> Box.expand_towards({0.0, -@below, 0.0})
          |> union(Box.expand_towards(box, escape))
-         |> inflate(0.125)}
+         |> inflate(if(swimming_candidate?(player), do: 0.25, else: 0.125))}
       else
         _ -> {:error, :kinetic_query_limit}
       end
@@ -143,7 +147,8 @@ defmodule Valimc.PlayerKinetics do
            FluidCurrents.sample(frame, geometry.box, motion.velocity, not player.abilities.flying),
          fluid =
            not player.abilities.flying and (currents.depths.water > 0 or currents.depths.lava > 0),
-         {:ok, velocity} <- tick_input(player, currents, fluid) do
+         {:ok, controlled} <- tick_input(player, currents, fluid),
+         {:ok, velocity} <- steer(player, controlled, frame) do
       spectator = player.game_mode.current == :spectator
 
       with {:ok, actual} <-
@@ -195,6 +200,36 @@ defmodule Valimc.PlayerKinetics do
         error -> error
       end
     end
+  end
+
+  defp swimming_candidate?(player),
+    do:
+      Map.get(player, :motion, %PlayerMotion{}).swimming or (player.input.shared_flags &&& 8) != 0
+
+  defp steer(player, velocity, frame) do
+    if player.motion.swimming and not player.abilities.flying and
+         player.game_mode.current != :spectator do
+      jump =
+        Valimc.PlayerInput.loaded?(player.input) and
+          Valimc.PlayerInput.pressed?(player.input, :jump)
+
+      with {:ok, look} <- SwimSteering.look_y(Map.get(player, :pitch, 0.0)),
+           {:ok, above} <- steering_above(frame, player, look, jump),
+           do: SwimSteering.step(velocity, look, true, jump, above, false)
+    else
+      {:ok, velocity}
+    end
+  end
+
+  defp steering_above(_, _, look, jump) when look <= 0 or jump, do: {:ok, false}
+
+  defp steering_above(frame, player, _, _) do
+    with {:ok, fluid} <-
+           FluidContact.fluid_at(
+             frame,
+             {floor(player.x), floor(player.y + 1.0 - 0.1), floor(player.z)}
+           ),
+         do: {:ok, fluid.kind != :empty}
   end
 
   defp tick_input(_, currents, false), do: {:ok, normalize(currents.velocity)}

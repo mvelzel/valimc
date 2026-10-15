@@ -37,7 +37,8 @@ indexes validated tickets. None imply full parity.
    production release and frozen preview loads. [Swimming state/geometry](tickets/VMC-015d2.md)
    has live pose/flag ownership and 65 affected tests passing; frozen client
    validation awaits CUA access (Mac locked). [Pitch steering](tickets/VMC-015d3.md)
-   has native kernel proof; live wiring follows. Effects/survival consequences remain open.
+   has live wiring, native/frame proofs and 64 affected tests passing; client/load
+   gates remain. Effects/survival consequences remain open.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
@@ -57,6 +58,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 | [VMC-015d2](tickets/VMC-015d2.md) | Actual swimming entry/tunnel/exit, crawl distinction, flight and peer flags | Live checkpoint in progress |
+| [VMC-015d3](tickets/VMC-015d3.md) | Actual camera steering/surface/flight; frozen fluid loads | Targeted checks pass |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection
