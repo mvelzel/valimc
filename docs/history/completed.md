@@ -92,3 +92,4 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-015d3](../tickets/VMC-015d3.md) | `3c99728`; vertical camera steering, actual mouse input and frozen active-water 512/128-player loads |
 | [VMC-017a2](../tickets/VMC-017a2.md) | `7337af64`; accepted landing/material damage, fatal lifecycle and corrected actual bed/slime bounce/velocity retests |
 | [VMC-017b2](../tickets/VMC-017b2.md) | `7337af64`; actual bubbles/air, surface/bubble recovery, equipment defenses, damaged reconnect and fatal drowning/respawn; effects remain separate |
+| [VMC-017b3](../tickets/VMC-017b3.md) | `7337af64`; actual accepted void falls, armor/mode bypass, damaged reconnect and fatal survival/creative respawn; boundary/loading remain native-covered |
