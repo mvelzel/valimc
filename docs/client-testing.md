@@ -37,9 +37,13 @@ Baseline smoke for docs/research/workflow: join localhost, observe terrain, exec
 negative cases and relevant recovery. Attempted input, host fixtures and native
 codecs cannot stand in for the graphical action. Do not connect to unrelated servers.
 
-The tester reports date/version, fingerprints, actual actions, observed state,
-logs and limitations. The primary reviews evidence before Done/publication. Raw
-logs/captures stay ignored; concise results go in the ticket. Current gates are
+The tester owns visual verification and reports date/version, PASS/FAIL per
+scenario, actual actions, failure reasons and limits. The primary reviews the
+report before Done/publication. Routine saved screenshots, image hashes and
+duplicate primary visual checks are unnecessary. Use CUA visual observations as
+needed; save images only for useful failure diagnosis or when requested.
+Useful raw logs/captures stay ignored; concise results go in
+the ticket. Current gates are
 listed once in [the roadmap](roadmap.md); completed evidence is in individual tickets.
 
 ## Input and fixtures

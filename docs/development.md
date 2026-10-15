@@ -23,8 +23,8 @@ needed details. Feature-specific evidence belongs in `tickets/VMC-*.md`, not her
 
 5. Review diff and public-tree audit; make a local checkpoint with GUI gates pending.
    Delegate actual client validation and continue the next independent slice.
-6. Review its evidence, fix/retest failures, update the queue/ticket and publish the
-   validated checkpoint. Never infer a graphical pass from a codec or fixture.
+6. Review its verification report, fix/retest failures, update the queue/ticket
+   and publish the validated checkpoint. Never infer a graphical pass from a codec or fixture.
 
 After a larger coherent block, run broader integration once and fix failures:
 
@@ -44,7 +44,9 @@ Docs-only edits need relevant link/retrieval checks and baseline client smoke.
 
 Give the dedicated tester ticket/checkpoint, immutable release, dataset, scenarios
 and private evidence paths. It owns CUA and coordinated restarts/fixtures. The
-primary works independently and reviews actions, observed results, logs and limits.
+primary works independently and reviews the tester's PASS/FAIL report, checked
+actions, failure reasons and limits. The tester owns visual verification; routine
+saved screenshots, image hashes and duplicate primary visual checks are unnecessary.
 See [client testing](client-testing.md) and [pointer backend](mouse-testing.md).
 
 Test worlds are disposable; preserve journal/counter/receipt consistency within a
