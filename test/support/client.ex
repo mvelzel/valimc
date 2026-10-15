@@ -16,6 +16,34 @@ defmodule Valimc.TestClient do
 
   def close(client), do: :gen_tcp.close(client.socket)
 
+  def await_position(pid, expected, attempts \\ 200) do
+    player = :sys.get_state(pid).player
+
+    if Map.take(player, Map.keys(expected)) == expected do
+      player
+    else
+      if attempts == 0, do: raise("Player did not reach #{inspect(expected)}")
+      Process.sleep(5)
+      await_position(pid, expected, attempts - 1)
+    end
+  end
+
+  def teleport(client, pid, pose) do
+    :ok = Valimc.Connection.teleport(pid, pose)
+    {body, client} = await(client, :play, "player_position")
+    client = auto_reply(client, :play, "player_position", body)
+    await_teleport_ack(pid, 200)
+    client
+  end
+
+  defp await_teleport_ack(pid, attempts) do
+    if :sys.get_state(pid).teleport_pending do
+      if attempts == 0, do: raise("Teleport was not acknowledged")
+      Process.sleep(5)
+      await_teleport_ack(pid, attempts - 1)
+    end
+  end
+
   def send_packet(client, phase, name, payload),
     do:
       send_raw(client, Wire.frame(Data.id(phase, :serverbound, name), payload, client.threshold))

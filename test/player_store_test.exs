@@ -33,29 +33,13 @@ defmodule Valimc.PlayerStoreTest do
     end
   end
 
-  defp move(client, pose) do
-    Client.send_packet(client, :play, "move_player_pos_rot", <<
-      pose.x::float-64,
-      pose.y::float-64,
-      pose.z::float-64,
-      pose.yaw::float-32,
-      pose.pitch::float-32,
-      1
-    >>)
-
-    # A response to the next command is a socket-owner processing barrier.
-    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, client} = Client.await(client, :play, "system_chat")
-    client
-  end
-
   test "reconnect and supervised shutdown restore pose; new identities use spawn", %{base: base} do
     name = username()
     {uuid, client} = Client.login(name)
     client = Client.load_world(client)
     assert client.pose == %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0}
-    client = move(client, pose())
     player = Enum.find(Valimc.Players.all(), &(&1.name == name))
+    client = Client.teleport(client, player.pid, pose())
     ref = Process.monitor(player.pid)
     Client.close(client)
     assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000
@@ -66,8 +50,8 @@ defmodule Valimc.PlayerStoreTest do
     assert second.pose == pose()
     second = Client.load_world(second)
     next = %{pose() | x: -19.5, yaw: -80.0}
-    move(second, next)
     player = Enum.find(Valimc.Players.all(), &(&1.name == name))
+    Client.teleport(second, player.pid, next)
     assert :ok = DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
     Client.close(second)
     wait_for_departure(name, uuid)
@@ -272,6 +256,11 @@ defmodule Valimc.PlayerStoreTest do
 
     Client.send_raw(client, [
       Wire.frame(id, body, client.threshold),
+      Wire.frame(
+        Data.id(:play, :serverbound, "move_player_rot"),
+        <<83.0::float-32, 0.0::float-32, 1>>,
+        client.threshold
+      ),
       Wire.frame(Data.id(:play, :serverbound, "client_tick_end"), <<>>, client.threshold),
       Wire.frame(id, bad, client.threshold)
     ])
@@ -280,13 +269,13 @@ defmodule Valimc.PlayerStoreTest do
     Client.close(client)
     wait_for_departure(name, uuid)
     {^uuid, next} = Client.login(name)
-    assert next.pose.x == -4.25
-    assert next.pose.z == -2.5
+    assert next.pose.x == -4.25 and next.pose.z == -2.5
+    assert next.pose.yaw == 83.0
     Client.close(next)
     wait_for_departure(name, uuid)
   end
 
-  test "a failed phase-transition batch saves its earlier accepted play pose", %{base: base} do
+  test "a failed phase-transition batch saves its earlier committed play rotation", %{base: base} do
     for bad <- [:rejected_frame, :invalid_payload] do
       name = username()
       {uuid, client} = Client.configure(name)
@@ -295,7 +284,7 @@ defmodule Valimc.PlayerStoreTest do
       assert state.phase == :configuration
       assert state.step == :finish
       ref = Process.monitor(pid)
-      target = pose()
+      target = %{pose() | x: 0.5, y: 64.0, z: 0.5}
       confirm = <<1, 0.5::float-64, 64.0::float-64, 0.5::float-64, 0.0::float-32, 0.0::float-32>>
 
       movement =

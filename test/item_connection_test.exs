@@ -26,21 +26,12 @@ defmodule Valimc.ItemConnectionTest do
     client
   end
 
-  defp move(client, x, z) do
-    Client.send_packet(client, :play, "client_tick_end", <<>>)
-
-    Client.send_packet(
-      client,
-      :play,
-      "move_player_pos",
-      <<x::float-64, 64.0::float-64, z::float-64, 1>>
-    )
-  end
-
   test "world items replicate current stacks to late joiners, visibility changes and owner loss" do
-    {_, client} = Client.login(name())
+    username = name()
+    {_, client} = Client.login(username)
     on_exit(fn -> Client.close(client) end)
     client = Client.load_world(client)
+    player = Enum.find(Valimc.Players.all(), &(&1.name == username))
     key = {0, 0}
     {:ok, {pid, epoch} = owner} = World.item_owner(key)
     stone = ItemStack.new("stone", 7)
@@ -56,8 +47,12 @@ defmodule Valimc.ItemConnectionTest do
     on_exit(fn -> Client.close(late) end)
     {_, late} = await_entity(late, "add_entity", id)
     _late = assert_stack(late, id, egg)
-    client = move(client, 160.5, 160.5) |> await_removal(id)
-    client = move(client, 0.5, 0.5)
+
+    client =
+      Client.teleport(client, player.pid, %{x: 160.5, y: 64.0, z: 160.5, yaw: 0.0, pitch: 0.0})
+      |> await_removal(id)
+
+    client = Client.teleport(client, player.pid, %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0})
     {_, client} = await_entity(client, "add_entity", id)
     client = assert_stack(client, id, egg)
     assert :ok = Region.remove_item(second)

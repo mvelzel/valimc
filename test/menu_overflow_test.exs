@@ -222,6 +222,7 @@ defmodule Valimc.MenuOverflowTest do
       )
 
       client = barrier(client)
+      Client.await_position(pid, %{x: ctx.pose.x + 1})
       frozen = :sys.get_state(pid)
 
       assert frozen.inventory.slots == ctx.original.slots and

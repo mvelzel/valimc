@@ -55,34 +55,15 @@ defmodule Valimc.PlayerInputConnectionTest do
     {receiver, _} = login("Later")
     assert receiver.entity_flags[player.entity_id] == 10
 
-    Client.send_packet(
-      sender,
-      :play,
-      "move_player_pos",
-      <<10.0::float-64, 64.0::float-64, 0.5::float-64, 1>>
-    )
+    sender = relocate(sender, player, 10.0)
 
     receiver = await_flags(receiver, player.entity_id, 10)
 
-    Client.send_packet(sender, :play, "client_tick_end", <<>>)
-
-    Client.send_packet(
-      sender,
-      :play,
-      "move_player_pos",
-      <<1024.5::float-64, 64.0::float-64, 0.5::float-64, 1>>
-    )
+    sender = relocate(sender, player, 1024.5)
 
     {_removed, receiver} = Client.await(receiver, :play, "remove_entities")
 
-    Client.send_packet(sender, :play, "client_tick_end", <<>>)
-
-    Client.send_packet(
-      sender,
-      :play,
-      "move_player_pos",
-      <<0.5::float-64, 64.0::float-64, 0.5::float-64, 1>>
-    )
+    sender = relocate(sender, player, 0.5)
 
     _receiver = await_flags(receiver, player.entity_id, 10)
 
@@ -146,6 +127,12 @@ defmodule Valimc.PlayerInputConnectionTest do
   end
 
   defp current(player), do: :sys.get_state(player.pid).player
+
+  defp relocate(client, player, x) do
+    :ok = Valimc.Connection.teleport(player.pid, %{x: x, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0})
+    {body, client} = Client.await(client, :play, "player_position")
+    client |> Client.auto_reply(:play, "player_position", body) |> barrier()
+  end
 
   defp command(action, id \\ 300),
     do: IO.iodata_to_binary([Wire.varint(id), Wire.varint(action), <<0>>])

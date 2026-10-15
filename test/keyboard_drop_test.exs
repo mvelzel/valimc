@@ -193,6 +193,7 @@ defmodule Valimc.KeyboardDropTest do
       )
 
       client = barrier(client)
+      Client.await_position(pid, %{x: ctx.pose.x + 1})
       send(pid, :save_player)
       frozen = :sys.get_state(pid)
       assert client.selected == 7

@@ -169,6 +169,7 @@ defmodule Valimc.CreativeDropTest do
 
       Client.send_packet(client, :play, "container_close", <<0>>)
       client = barrier(client)
+      Client.await_position(pid, %{x: ctx.pose.x + 1})
       assert :sys.get_state(pid).player.x == ctx.pose.x + 1
       assert records(ctx) == [] and saved(ctx).transfer_sequence == 0
       {_, peer} = Client.login("Peer" <> Integer.to_string(System.unique_integer([:positive])))

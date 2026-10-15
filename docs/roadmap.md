@@ -16,9 +16,10 @@ indexes validated tickets. None imply full parity.
    [cold-load isolation](tickets/VMC-011a5.md), [writer leases](tickets/VMC-011a6.md),
    [cold admission/ETS routing](tickets/VMC-011a7.md) and
    [live player poses](tickets/VMC-014c3b2b2.md).
-   Next: live movement reconciliation with bounded player jobs/corrections.
+   Live movement reconciliation now awaits actual-client validation.
 2. **[VMC-014c4](tickets/VMC-014c4.md): live movement reconciliation.** Native
-   post-move predicates pass; integrate bounded player jobs/corrections next.
+   predicates, sampled geometry and bounded player jobs/corrections are implemented;
+   validate normal movement in the actual client, then address findings.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 
@@ -28,13 +29,14 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
+| [VMC-014c4](tickets/VMC-014c4.md) | Walking, wall/step/flight/tunnel and teleport regression | Live movement checkpoint |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection
 (`b65e6ec`) passes 113 affected tests, native codecs/TCP and actual-client checks;
-live movement collision enforcement remains unimplemented.
+live movement collision enforcement is implemented with its client gate pending.
 Retain [VMC-018c2](tickets/VMC-018c2.md)'s unreproduced item visibility finding for the next item work.
 
 ## Retrieve and update

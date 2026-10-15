@@ -610,6 +610,25 @@ public class VanillaOracle implements AutoCloseable {
       first.send(gameOut,new ServerboundContainerClosePacket(0));
       first.await(returnedMenu);
       System.out.println("PASS: Mojang 26.3 connected close partial merge, cleared cursor/grid, exact patched/damaged five-item overflow batch and repeated close contents.");
+      first.send(gameOut,new ServerboundSetCreativeModeSlotPacket(36,stone.copyWithCount(1)));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot()==36 && s.getItem().getCount()==1);
+      first.send(gameOut,new ServerboundSetCarriedItemPacket(0));
+      first.await(p -> p instanceof ClientboundSetHeldSlotPacket s && s.slot()==0);
+      first.send(gameOut,new ServerboundUseItemOnPacket(InteractionHand.MAIN_HAND,
+        new BlockHitResult(new Vec3(2.5,64,.5),Direction.UP,new BlockPos(2,63,0),false),900));
+      first.await(p -> p instanceof ClientboundBlockUpdatePacket b && b.getPos().equals(new BlockPos(2,64,0)) && b.getBlockState().is(Blocks.STONE));
+      first.send(gameOut,ServerboundClientTickEndPacket.INSTANCE);
+      first.send(gameOut,new ServerboundMovePlayerPacket.Pos(2.1,64,.5,true,false));
+      first.await(p -> p instanceof ClientboundPlayerPositionPacket t && t.change().position().equals(new Vec3(1.5,64,.5)));
+      first.send(gameOut,ServerboundClientTickEndPacket.INSTANCE);
+      first.send(gameOut,new ServerboundMovePlayerPacket.Pos(1001.5,64,.5,true,false));
+      first.await(p -> p instanceof ClientboundPlayerPositionPacket t && t.change().position().equals(new Vec3(1.5,64,.5)));
+      first.send(gameOut,ServerboundClientTickEndPacket.INSTANCE);
+      first.send(gameOut,new ServerboundMovePlayerPacket.Pos(1.5,64,.7,true,false));
+      second.await(p -> p instanceof ClientboundMoveEntityPacket.PosRot);
+      first.send(gameOut,new ServerboundChatCommandPacket("spawn"));
+      first.await(p -> p instanceof ClientboundPlayerPositionPacket t && t.change().position().equals(new Vec3(.5,64,.5)));
+      System.out.println("PASS: native TCP forged creative wall entry/large delta corrections, acknowledgment, resumed walking and spawn teleport.");
       System.out.println("PASS: Mojang 26.3 codecs validated compressed login, network registry/tag dependency loading, command graph/local completion, " + first.chunks + " chunks, inventory/selection/hand swaps, authoritative pickup/split/merge/shift/swap/quick-craft/collect/clone/fill with forged predictions, menu-close return, creative scalar stacks/corrections, two-player visibility, movement, block placement/breaking and commands.");
       System.out.println(first.seen);
     }
