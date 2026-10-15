@@ -37,6 +37,15 @@ composition. Keep velocity generation and owner/source fences with results;
 accepted client positions and server corrections remain authoritative. Reuse one
 bounded per-player geometry lane with explicit input priority and late-tick policy,
 rather than adding an independent stream of overlapping queries. Delegate the
-composed client gate after implementation; retain the observed powder freezing
-reset defect as environment work. The frozen VMC-015a server is still the client
-baseline; this kernel checkpoint is local and has no live gameplay claim.
+composed client gate after implementation. VMC-015c fixes the observed freezing
+reset defect. Frozen `91caf387` client checks retain ordinary movement/flight as
+the baseline alongside this unused kernel; they do not validate live forces.
+
+Composition boundary: native connection `tickPlayer` runs `doTick` and restores
+the accepted position. Evolve velocity against a scratch body, then retain the
+accepted client anchor rather than advancing it twice. The packet handler applies
+`jumpFromGround` on ground→air/upward input before collision movement. Native
+`Entity.restituteMovementAfterCollisions` resolves velocity before air drag;
+its bounce/gravity/partial-collision math still needs a probe and implementation.
+Keep these observations separate from implemented behavior. Private references:
+`.local/{movement-handler,gravity-Entity,gravity-Player}.javap`.
