@@ -28,3 +28,13 @@ fall reset. Two focused boundary tests pass. Evidence:
 and collisions with zero relative input and stops before air drag; it does not
 prove material selection, live movement, powder-snow boost or GUI behavior.
 Complete/contextual block facts and live composition are next.
+
+Material/contact checkpoint: all 35,723 states match pinned climbable/glide-through,
+scaffolding and ladder/trapdoor facts (15 property sets, shared byte lookup).
+The bounded detector matches 36,443 actual native player contacts: all states plus
+representative below/direction/flight/spectator/gliding contexts. Open trapdoors
+require matching ladders below; missing observations fail. Native queries fit the
+existing standing frame. Five contact/motion tests pass. Evidence:
+`.local/climb-{blocks,contact}-{native,check}.log`, `.local/climb-contact-tests.log`.
+These modules are not yet on the live movement path; integration/client gate
+remains open. Completed swimming validation is recorded in VMC-015d2/d3.

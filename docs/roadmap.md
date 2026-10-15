@@ -38,8 +38,9 @@ indexes validated tickets. None imply full parity.
    and [pitch steering](tickets/VMC-015d3.md) are validated (`3c99728`): actual
    tunnel/crawl/peer/pitch/flight/reconnect, 587 tests, full native integration,
    production release and active-water 512/128-player loads.
-   [Climbing](tickets/VMC-015e.md) has native motion kernels checked, with material
-   facts and live wiring next. Effects/survival consequences remain open.
+   [Climbing](tickets/VMC-015e.md) has native motion kernels, complete material
+   facts and contextual contact checked; live wiring is next.
+   Effects/survival consequences remain open.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.

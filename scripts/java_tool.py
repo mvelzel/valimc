@@ -16,6 +16,8 @@ if name in ('FluidFlowOracle', 'FluidCurrentOracle'):
     sources.append(str(root / 'scripts' / 'FluidBoundaryMetadata.java'))
 if name == 'FluidSupportOracle':
     sources.append(str(root / 'scripts' / 'CollisionMetadata.java'))
+if name == 'ClimbContactOracle':
+    sources.append(str(root / 'scripts' / 'ClimbMetadata.java'))
 if name in ('PositionCollisionOracle', 'ScaffoldingCollisionOracle', 'PowderSnowCollisionOracle', 'ShulkerCollisionOracle', 'VoxelUnionOracle', 'PistonCollisionOracle', 'MovementCollisionOracle', 'VoxelIntersectionOracle', 'BlockCollisionOracle', 'StepMovementOracle', 'EntityCollisionOracle', 'ServerMovementOracle'):
     sources.append(str(root / 'scripts' / 'CollisionMetadata.java'))
 compiled = subprocess.run([java_home + '/bin/javac', '-cp', classpath, '-d', str(tools), *sources])
