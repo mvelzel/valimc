@@ -20,8 +20,9 @@ indexes validated tickets. None imply full parity.
    within its scope (`d10f566`); gravity/coupled effects remain.
 2. **VMC-015: gravity, velocity and grounded state.**
    [Accepted-move fall accounting](tickets/VMC-015a.md) is validated (`84f5fb0`),
-   including real jump/drop/powder-snow, flight and reconnect. Advance velocity
-   integration and environmental behavior; retain the observed stale freezing
+   including real jump/drop/powder-snow, flight and reconnect.
+   [Gravity/drag](tickets/VMC-015b.md)'s pure kernel matches native cases/traces;
+   compose owner ticks and environmental behavior next. Retain the stale freezing
    overlay after leaving powder until reconnect.
    [Geometry admission](tickets/VMC-011a8.md) is complete within measured preview
    scope (`8871985`); prepared samples retain owner fencing and bounded work.
