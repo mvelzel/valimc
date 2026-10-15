@@ -268,12 +268,15 @@ defmodule Valimc.AuthSessionTest do
 
     {url, roots, server} =
       tls_server(fn socket ->
-        send(parent, {:remote_closed, :ssl.recv(socket, 0, 1000)})
+        receive do
+          :check_closed -> send(parent, {:remote_closed, :ssl.recv(socket, 0, 1000)})
+        end
       end)
 
     worker = spawn(fn -> HTTP.get(url, deadline(), roots) end)
-    assert_receive {:tls_request, ^server, _}, 1000
+    assert_receive {:tls_request, ^server, _}, 2000
     Process.exit(worker, :kill)
+    send(server, :check_closed)
     assert_receive {:remote_closed, {:error, :closed}}, 1000
   end
 end
