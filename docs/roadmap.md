@@ -8,6 +8,9 @@ Pumpkin, SteelMC and other implementations contribute subsystem/design ideas.
 See `research.md`, `development.md` and root `AGENTS.md`. Unchecked entries are
 not implemented. Split large entries into bounded sub-tickets before starting;
 keep IDs stable and append suffixes rather than renumbering.
+This is a working backlog, not a fixed implementation order. Current next focus:
+complete fitting validation, then authoritative ownership/tick ordering before
+using observations to enforce movement or publish selected poses.
 
 ## Current board
 
@@ -55,6 +58,7 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-014c3b1](tickets/VMC-014c3b1.md) | Done — client validated | Native geometry/65,536 selections and actual standing/crouch retention/exit/reconnect pass; live authority remains |
 | [VMC-014c3b2a](tickets/VMC-014c3b2a.md) | Awaiting client validation | 449 tests/isolated release and 6,048 native entity-collider cases pass; live authority remains |
 | [VMC-027a](tickets/VMC-027a.md) | Awaiting client validation | Five targeted tests/4,860 native border cases pass; stationary supplied geometry only |
+| [VMC-014c3b2b1](tickets/VMC-014c3b2b1.md) | Awaiting client validation | Four targeted tests/3,072 native compositions pass; fitting block has 458 tests/release; live authority remains |
 | [VMC-016a](tickets/VMC-016a.md) | Done — creative flight validated, pushed | 326 tests/release/full oracle, native ability matrix and actual double-Space/hover/reconnect/restart/flight-off/cleanup pass; full mode transitions remain |
 | [VMC-007c3](tickets/VMC-007c3.md) | Done — discovery/recovery validated, pushed | 317 tests/release/full oracle, 31 native discovery facts and actual cached reconnect/offline rejection/owner recovery/restart/cleanup pass |
 | [VMC-005a](tickets/VMC-005a.md) | Done — `123d1d0`, validated | Owner-local 46-slot menu; actual selection/offhand/swap/resync and automated/oracle checks pass |
@@ -143,6 +147,7 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | ID | Slice | Acceptance gate |
 |---|---|---|
 | VMC-011 | Deterministic region ticks | Explicit tick phases/order; reproducible traces across scheduler counts |
+| [VMC-011a](tickets/VMC-011a.md) | Authoritative ownership and phases | Connection/simulation separation, bounded owner-local work and explicit neighbor/transfer ordering |
 | VMC-012 | Region boundary protocol and entity transfer | Tick-tagged inputs/snapshots, epochs/fencing, no duplicated or lost entities |
 | VMC-013 | Chunk/entity tickets and unload lifecycle | Loaded dependency guarantees, bounded resident memory, safe save/unload |
 | VMC-014 | Block shapes and movement validation | Vanilla collision/step/swim/climb/teleport fixtures, reconciliation under latency |
@@ -167,8 +172,11 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | [VMC-014c3a](tickets/VMC-014c3a.md) | Input and shared flags | Native input/command/load semantics, bounded self/peer replication and actual held-key checks |
 | VMC-014c3b | Pose selection and dimensions | Native pose precedence, fit checks and eye heights; separate intent from selected collision pose |
 | [VMC-014c3b1](tickets/VMC-014c3b1.md) | Supplied-fit pose primitives | Native dimensions/boxes, precedence, fit-query order and explicit missing observations |
-| VMC-014c3b2 | Live pose fitting and replication | Bounded entity/block observations, fencing and metadata; update interactions only after authoritative selection |
+| VMC-014c3b2 | Live pose fitting and replication | Entity/block/border observations, fencing and metadata; update interactions only after authoritative selection |
 | [VMC-014c3b2a](tickets/VMC-014c3b2a.md) | Entity collider collection | Native lookup margins/predicates and bounded complete supplied observations |
+| VMC-014c3b2b | Live fitting and publication | Complete occupancy, owner-fenced reads, bounded connection jobs and selected-pose metadata |
+| [VMC-014c3b2b1](tickets/VMC-014c3b2b1.md) | Supplied pose fitting | Compose block/entity/border predicates, lazy native selection and retained observation fences |
+| VMC-014c3b2b2 | Live selection and publication | Consistent owner reads/commit fencing, bounded connection jobs and selected-pose metadata |
 | VMC-015 | Gravity, velocity and grounded state | Authoritative fall distance, acceleration, knockback and prediction agreement |
 | VMC-016 | Game modes and abilities | Survival/creative/adventure/spectator interaction and UI rules |
 | [VMC-016a](tickets/VMC-016a.md) | Owned abilities and persistent creative flight | Native matrix/codecs, permission-gated client flight, journal/reconnect/restart and actual double-Space |

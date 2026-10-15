@@ -33,6 +33,7 @@ lie beyond every accepted query. Five targeted regressions, formatting, Python
 compilation and 4,860 actual native border cases pass. Private fixtures/logs are
 `.local/vmc027a-*`; includes two native initialization packets for client fixtures.
 No runtime packet encoder/owner/resizing was added. Full checks/build are deferred
-to the larger fitting block under the user's updated workflow: its 458 tests and
-isolated `.local/pose-fit-build/rel/valimc` release now pass; the full native oracle
-is running. Client gate queued.
+to the larger fitting block under the user's updated workflow: its 458 tests,
+isolated `.local/pose-fit-build/rel/valimc` release and full native suite now pass,
+including plaintext/encrypted TCP. Private integration logs:
+`.local/pose-fit-block-*`. Client gate queued.
