@@ -17,14 +17,15 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.storage.*;
 
-/** Actual health setter and living save/load prefixes; unrelated world/equipment/effects are excluded. */
+/** Actual health/save/load, cooldown and player ability-gate prefixes; world/defenses/events excluded. */
 public class PlayerHealthOracle {
   private static final RuntimeException STOP=new RuntimeException("health prefix complete");
   private static class Probe extends Player {
     double maximum;
     Float damage;
+    GameType mode;
     private Probe(){super(null,null);}
-    public GameType gameMode(){return GameType.SURVIVAL;}
+    public GameType gameMode(){return mode==null?GameType.SURVIVAL:mode;}
     public ServerLevel level(){return null;}
     public double getAttributeValue(Holder<Attribute> type){if(type==Attributes.MAX_HEALTH)return maximum;throw new AssertionError(type);}
     public void onSyncedDataUpdated(EntityDataAccessor<?> key){}
@@ -52,9 +53,11 @@ public class PlayerHealthOracle {
     void loadHealth(ValueInput input){super.readAdditionalSaveData(input);}
   }
   private static class Source extends DamageSource {
-    boolean bypass;
-    Source(boolean bypass){super((Holder<DamageType>)null);this.bypass=bypass;}
-    public boolean is(TagKey<DamageType> tag){return bypass&&tag==DamageTypeTags.BYPASSES_COOLDOWN;}
+    boolean bypass, bypassAbilities;
+    Source(boolean bypass){this(bypass,false);}
+    Source(boolean bypass,boolean bypassAbilities){super((Holder<DamageType>)null);this.bypass=bypass;this.bypassAbilities=bypassAbilities;}
+    public boolean is(TagKey<DamageType> tag){return (bypass&&tag==DamageTypeTags.BYPASSES_COOLDOWN)||(bypassAbilities&&tag==DamageTypeTags.BYPASSES_INVULNERABILITY);}
+    public boolean scalesWithDifficulty(){return false;}
   }
   private static Field field(Class<?> type,String name)throws Exception{var f=type.getDeclaredField(name);f.setAccessible(true);return f;}
   public static void main(String[] args)throws Throwable{
@@ -92,7 +95,15 @@ public class PlayerHealthOracle {
       try{if((boolean)hurt.invoke(p,(ServerLevel)null,new Source(bypass),amount))throw new AssertionError("Missing hurt boundary");}catch(RuntimeException e){if(e!=STOP)throw e;accepted=true;}
       var c=new JsonObject();c.addProperty("cooldown",cooldown);c.addProperty("last",(double)last);c.addProperty("amount",(double)amount);c.addProperty("bypass",bypass);c.addProperty("health",(double)health);c.addProperty("accepted",accepted);c.addProperty("damage",p.damage==null?0:(double)p.damage);c.addProperty("next_cooldown",p.damageCooldownTime);c.addProperty("next_hurt",p.hurtTime);c.addProperty("next_last",(double)p.last());windows.add(c);
     }
-    var result=new JsonObject();result.add("health",cases);result.add("windows",windows);
-    Files.writeString(Path.of(args[0]),new Gson().toJson(result));System.out.println("PASS: "+cases.size()+" actual health setter/save/load cases and "+windows.size()+" native cooldown prefixes (defenses/events/death excluded).");
+    var modeWindows=new JsonArray();
+    var playerHurt=MethodHandles.privateLookupIn(Player.class,MethodHandles.lookup()).findSpecial(Player.class,"hurtServer",MethodType.methodType(boolean.class,ServerLevel.class,DamageSource.class,float.class),Player.class);
+    for(var mode:GameType.values())for(boolean bypassAbilities:new boolean[]{false,true})for(int cooldown:new int[]{0,11,20})for(float health:new float[]{0,20}){
+      p.mode=mode;var abilities=new net.minecraft.world.entity.player.Abilities();mode.updatePlayerAbilities(abilities);field(Player.class,"abilities").set(p,abilities);
+      p.setHealth(health);p.window(cooldown,2);boolean accepted=false;
+      try{if((boolean)playerHurt.invoke(p,(ServerLevel)null,new Source(false,bypassAbilities),4))throw new AssertionError("Missing player hurt boundary");}catch(RuntimeException e){if(e!=STOP)throw e;accepted=true;}
+      var c=new JsonObject();c.addProperty("mode",mode.getName());c.addProperty("bypass_abilities",bypassAbilities);c.addProperty("health",health);c.addProperty("cooldown",cooldown);c.addProperty("accepted",accepted);c.addProperty("damage",p.damage==null?0:(double)p.damage);modeWindows.add(c);
+    }
+    var result=new JsonObject();result.add("health",cases);result.add("windows",windows);result.add("mode_windows",modeWindows);
+    Files.writeString(Path.of(args[0]),new Gson().toJson(result));System.out.println("PASS: "+cases.size()+" actual health/save/load cases, "+windows.size()+" cooldown prefixes and "+modeWindows.size()+" player ability/window prefixes (world/defenses/events/death excluded).");
   }
 }

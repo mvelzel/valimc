@@ -1,4 +1,4 @@
-alias Valimc.PlayerHealth
+alias Valimc.{GameMode, PlayerHealth}
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()
 
@@ -59,6 +59,25 @@ for c <- cases["windows"] do
          do: raise("Native hurt window mismatch #{inspect({c, result})}")
 end
 
+for c <- cases["mode_windows"] do
+  mode = GameMode.new(String.to_existing_atom(c["mode"]))
+  immune = GameMode.abilities(mode, false).invulnerable and not c["bypass_abilities"]
+
+  state = %PlayerHealth{
+    value: c["health"],
+    cooldown: c["cooldown"],
+    last_hurt: 2.0,
+    hurt_ticks: 7
+  }
+
+  {:ok, result} = PlayerHealth.hurt_window(state, 4.0)
+  accepted = not immune and result.accepted
+  damage = if accepted, do: result.damage, else: 0.0
+
+  unless accepted == c["accepted"] and damage == c["damage"],
+    do: raise("Native player ability/window mismatch #{inspect({c, accepted, damage})}")
+end
+
 IO.puts(
-  "PASS: #{length(cases["health"])} native health saves/defaults and #{length(cases["windows"])} cooldown prefixes."
+  "PASS: #{length(cases["health"])} native health saves/defaults, #{length(cases["windows"])} cooldown prefixes and #{length(cases["mode_windows"])} player ability/window prefixes."
 )

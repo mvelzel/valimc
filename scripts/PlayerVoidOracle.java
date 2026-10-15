@@ -9,13 +9,18 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.network.ServerGamePacketListenerImpl;
+import net.minecraft.tags.TagKey;
 import net.minecraft.world.damagesource.*;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.phys.Vec3;
 
-/** Execute the native boundary and living callback; health/mode/defenses are deliberately excluded. */
+/** Native boundary/callback and ServerPlayer load immunity; full health/world tick excluded. */
 public class PlayerVoidOracle {
   private static class ProbeLevel extends ServerLevel {
     int minimum;
@@ -31,6 +36,12 @@ public class PlayerVoidOracle {
     public boolean hurtServer(ServerLevel level,DamageSource damage,float value){
       calls++;amount=value;source=damage.typeHolder().unwrapKey().orElseThrow().identifier().toString();return true;
     }
+  }
+  private static class ServerProbe extends ServerPlayer {
+    GameType mode;
+    private ServerProbe(){super(null,null,null,null);}
+    public GameType gameMode(){return mode;}
+    public ItemStack getItemBySlot(EquipmentSlot slot){return ItemStack.EMPTY;}
   }
   private static Field field(Class<?> owner,String name)throws Exception{var f=owner.getDeclaredField(name);f.setAccessible(true);return f;}
   public static void main(String[] args)throws Exception{
@@ -48,7 +59,24 @@ public class PlayerVoidOracle {
         p.checkBelowWorld();p.checkBelowWorld();var c=new JsonObject();c.addProperty("minimum",minimum);c.addProperty("y",y);c.addProperty("calls",p.calls);c.addProperty("amount",p.amount);c.addProperty("source",p.source);cases.add(c);
       }
     }
-    Files.writeString(Path.of(args[0]),new Gson().toJson(cases));
-    System.out.println("PASS: "+cases.size()+" native below-world threshold/callback cases with repeat checks; health, immunity and defenses excluded.");
+    var holder=damage.getOrThrow(DamageTypes.FELL_OUT_OF_WORLD);
+    var names=JsonParser.parseString(Files.readString(Path.of("priv/protocol/registries.json"))).getAsJsonObject().getAsJsonArray("minecraft:damage_type");
+    int id=-1;for(int i=0;i<names.size();i++)if(names.get(i).getAsString().equals("minecraft:out_of_world"))id=i;
+    if(id<0)throw new AssertionError("Missing void source");
+    var tags=JsonParser.parseString(Files.readString(Path.of("priv/protocol/tags.json"))).getAsJsonObject().getAsJsonObject("minecraft:damage_type");
+    var keys=new ArrayList<TagKey<DamageType>>();for(var e:tags.entrySet())for(var value:e.getValue().getAsJsonArray())if(value.getAsInt()==id)keys.add(TagKey.create(Registries.DAMAGE_TYPE,net.minecraft.resources.Identifier.parse(e.getKey())));
+    var bind=Holder.Reference.class.getDeclaredMethod("bindTags",Collection.class);bind.setAccessible(true);bind.invoke(holder,keys);
+    var sp=(ServerProbe)unsafe.allocateInstance(ServerProbe.class);var sourceDamage=new DamageSource(holder);var loading=new JsonArray();
+    var restart=ServerGamePacketListenerImpl.class.getDeclaredMethod("restartClientLoadTimerAfterRespawn");restart.setAccessible(true);
+    var mark=ServerGamePacketListenerImpl.class.getDeclaredMethod("markClientLoaded");mark.setAccessible(true);
+    for(var mode:GameType.values())for(int ticks=0;ticks<=64;ticks++){
+      sp.mode=mode;var abilities=new net.minecraft.world.entity.player.Abilities();mode.updatePlayerAbilities(abilities);field(Player.class,"abilities").set(sp,abilities);
+      var listener=(ServerGamePacketListenerImpl)unsafe.allocateInstance(ServerGamePacketListenerImpl.class);restart.invoke(listener);for(int n=0;n<ticks;n++)listener.tickClientLoadTimeout();sp.connection=listener;
+      var c=new JsonObject();c.addProperty("mode",mode.getName());c.addProperty("ticks",ticks);c.addProperty("loaded",listener.hasClientLoaded());c.addProperty("immune",sp.isInvulnerableTo(null,sourceDamage));
+      mark.invoke(listener);c.addProperty("marked_immune",sp.isInvulnerableTo(null,sourceDamage));loading.add(c);
+    }
+    var result=new JsonObject();result.add("boundaries",cases);result.add("loading",loading);
+    Files.writeString(Path.of(args[0]),new Gson().toJson(result));
+    System.out.println("PASS: "+cases.size()+" native below-world threshold/callback cases and "+loading.size()+" actual ServerPlayer void loading-immunity cases; full health/world tick excluded.");
   }
 }

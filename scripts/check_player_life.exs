@@ -33,6 +33,9 @@ packets =
         [source, id] when source in ["fall", "stalagmite", "freeze", "drown"] ->
           Packets.damage_event(String.to_integer(id), String.to_existing_atom(source))
 
+        ["void", id] ->
+          Packets.damage_event(String.to_integer(id), :out_of_world)
+
         ["death", "animation", id] ->
           Packets.death_animation(String.to_integer(id))
 

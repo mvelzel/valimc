@@ -4,6 +4,7 @@ defmodule Valimc.World.Chunk do
   alias Valimc.Protocol.{Data, Packets, Wire}
   @min_y -64
   @max_y 319
+  def min_y, do: @min_y
   def valid_y?(y), do: y >= @min_y and y <= @max_y
 
   def base(y) do

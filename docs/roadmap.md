@@ -64,7 +64,8 @@ indexes validated tickets. None imply full parity.
    [Air supply/drowning](tickets/VMC-017b2.md) passes 94 affected tests and native
    air/equipment/protection/codecs, 700 full tests, full native TCP/build and matched
    preview loads; actual-client validation remains pending.
-   [Void damage](tickets/VMC-017b3.md) is the next independent slice.
+   [Void damage](tickets/VMC-017b3.md) passes 67 affected tests and native
+   boundary/mode/loading/defense/codecs; actual-client validation remains pending.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
@@ -87,6 +88,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 | [VMC-017a3](tickets/VMC-017a3.md) | Actual worn protection, hand/stored negatives, gear/health reconnect | Frozen `0b2ad043` |
 | [VMC-017b1](tickets/VMC-017b1.md) | Actual periodic freezing, immunity, reconnect and fatal respawn | Frozen `0b2ad043` |
 | [VMC-017b2](tickets/VMC-017b2.md) | Actual bubbles/drain/recovery, gear, reconnect and fatal drowning | Local air checkpoint |
+| [VMC-017b3](tickets/VMC-017b3.md) | Actual void damage/modes, reconnect and fatal respawn | Local void checkpoint |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

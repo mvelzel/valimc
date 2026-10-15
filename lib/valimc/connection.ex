@@ -806,7 +806,7 @@ defmodule Valimc.Connection do
             do: broadcast_player_packet(state, Packets.remove_entity(player))
 
           state = %{state | player: player, simulation_clock: next, simulation_due: true}
-          {:noreply, state |> start_motion() |> sample_pose()}
+          {:noreply, state |> apply_void_damage() |> start_motion() |> sample_pose()}
 
         {:early, next, delay} ->
           Process.send_after(self(), {:player_tick, next.token}, delay)
@@ -1080,13 +1080,27 @@ defmodule Valimc.Connection do
     end
   end
 
+  defp apply_void_damage(%{life_stage: :alive} = state) do
+    amount = Valimc.PlayerVoid.damage(state.player.y, Valimc.World.Chunk.min_y())
+
+    if amount > 0 do
+      {:ok, selected} = PlayerHealth.hurt_window(state.player.health, amount)
+      {_, state} = apply_damage(state, selected, :out_of_world)
+      state
+    else
+      state
+    end
+  end
+
+  defp apply_void_damage(state), do: state
+
   defp apply_damage(state, selected, source) do
     cond do
       state.life_stage != :alive or not selected.accepted ->
         {:ignored, state}
 
       (source in [:fall, :stalagmite] and state.player.abilities.may_fly) or
-        state.player.abilities.invulnerable or
+        (source != :out_of_world and state.player.abilities.invulnerable) or
           not PlayerInput.loaded?(state.player.input) ->
         {:immune, state}
 
@@ -1142,6 +1156,7 @@ defmodule Valimc.Connection do
         not announce -> " died"
         source == :freeze -> " froze to death"
         source == :drown -> " drowned"
+        source == :out_of_world -> " fell out of the world"
         source == :stalagmite -> " was impaled on a stalagmite"
         true -> " hit the ground too hard"
       end
