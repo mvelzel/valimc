@@ -81,3 +81,8 @@ Record this automation limitation explicitly: reproduce left-even and right-one
 multi-slot gestures through actual client mouse input before marking Done.
 No full inventory parity or performance claim. Cursor return/collection/drop
 remain separate work. Checkpoint subject: `VMC-005b2a: commit bounded inventory drags`.
+
+October 15 bounded retry: actual pickup36 then drag across9..12 generated only
+endpoint pickup12, no quick-craft packets. Gate remains pending; right/middle
+held motion is unavailable in the documented CUA API. Complete state restored,
+logs clean. `.local/client-tests/VMC-005b2a/retry-20261015/report.md`.

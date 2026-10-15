@@ -11,10 +11,10 @@ indexes validated tickets. None imply full parity.
 
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Resolve coupled state ownership before enforcing movement or publishing selected
-   poses. Owner/timer, client-tick admission and block batches are validated.
-   [Resource/owner separation](tickets/VMC-011a4.md) passes targeted checks;
-   client validation remains before coupled domains and transfers.
-   [Cold-load isolation](tickets/VMC-011a5.md) also passes targeted checks.
+   poses. Owner/timer, client-tick admission, block batches and
+   [resource separation](tickets/VMC-011a4.md) are validated.
+   [Cold-load isolation](tickets/VMC-011a5.md) awaits client validation;
+   [writer leases](tickets/VMC-011a6.md) are in progress before domain handoffs.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 
@@ -24,13 +24,12 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-011a4](tickets/VMC-011a4.md) | Edits/batches/durable scene items/reconnect | Local dev checkpoint |
 | [VMC-011a5](tickets/VMC-011a5.md) | Active client during unrelated cold I/O; reconnect | Local dev checkpoint |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 
-The latest coherent block passes 472 tests, production build and full native
-integration, including plaintext/encrypted TCP. Live pose authority remains unimplemented.
+The resource/loading block (`0f1ed73`) passes 476 tests, production build and full
+native integration, including plaintext/encrypted TCP. Live pose authority remains unimplemented.
 
 ## Retrieve and update
 

@@ -67,3 +67,4 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-011a1](../tickets/VMC-011a1.md) | Owner/timer fencing; no simulation parity claim |
 | [VMC-011a2](../tickets/VMC-011a2.md) | Client-tick position admission |
 | [VMC-011a3](../tickets/VMC-011a3.md) | Owner-fenced block batches/shared section updates |
+| [VMC-011a4](../tickets/VMC-011a4.md) | Resource data/lifecycle separation; topology still pending |

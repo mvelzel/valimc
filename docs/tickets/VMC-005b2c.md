@@ -96,3 +96,9 @@ October 13, 2026, pinned Elixir 1.20.4 / OTP 29.1.1:
 No new performance claim. Cursor return/drop, persistence, recipes, specialized
 item interactions and full game-mode transitions remain separate backlog slices.
 Checkpoint subject: `VMC-005b2c: gate creative cloning and fill by owner permission`.
+
+October 15 bounded retry: instabuild switches the player screen to creative;
+ordinary middle-click without permission emits no server request. Neither proves
+server CLONE. A real generic creative container (VMC-032) and held type-2 motion
+remain required. State restored/logs clean; gate pending. Evidence:
+`.local/client-tests/VMC-005b2c/retry-20261015/report.md`.
