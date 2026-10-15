@@ -51,6 +51,7 @@ defmodule Valimc.MenuOverflowTest do
         Map.merge(PlayerSnapshot.capture(pose, original), %{
           fall_distance: 0.0,
           frozen_ticks: 0,
+          velocity: {0.0, 0.0, 0.0},
           flying: false,
           game_mode: %Valimc.GameMode{}
         })

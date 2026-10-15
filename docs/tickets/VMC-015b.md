@@ -1,6 +1,6 @@
 # VMC-015b — Gravity and air drag
 
-Status: Pure air/collision kernels verified; live integration pending. October 15, 2026.
+Status: Default dry live travel validated; full forces incomplete. October 15, 2026.
 Follows VMC-015a. Not Done.
 
 Build the pure velocity update from pinned native behavior, then compose it with
@@ -31,15 +31,6 @@ levitation. Commands: `mix test test/air_motion_test.exs`,
 `python3 scripts/java_tool.py AirMotionOracle .local/air-motion-native.json`,
 `mix run --no-start scripts/check_air_motion.exs .local/air-motion-native.json`.
 Logs: `.local/air-motion-{tests,native,check}.log`; raw fixtures stay ignored.
-
-Next: define the player tick/input boundary and scratch simulation position before
-composition. Keep velocity generation and owner/source fences with results;
-accepted client positions and server corrections remain authoritative. Reuse one
-bounded per-player geometry lane with explicit input priority and late-tick policy,
-rather than adding an independent stream of overlapping queries. Delegate the
-composed client gate after implementation. VMC-015c fixes the observed freezing
-reset defect. Frozen `91caf387` client checks retain ordinary movement/flight as
-the baseline alongside this unused kernel; they do not validate live forces.
 
 Composition boundary: native connection `tickPlayer` runs `doTick` and restores
 the accepted position. Evolve velocity against a scratch body, then retain the
@@ -79,6 +70,6 @@ Evidence: `.local/client-tests/VMC-015b-kernel/`; exact probe commands:
 successful SDL clicks. This code is not yet on the live force path; the composed
 feature gate and this ticket remain open.
 
-Live default dry-travel implementation and its pending client/integration gates:
-[VMC-015b1](VMC-015b1.md). Fluid/effect travel, complete forces and velocity
-persistence remain follow-ups; this parent stays open.
+Live default dry travel is complete within [VMC-015b1](VMC-015b1.md)'s tested scope
+(`6691f43`). [Saved velocity](VMC-015b2.md) awaits its client gate. Fluid/effect
+travel and complete forces remain follow-ups; this parent stays open.

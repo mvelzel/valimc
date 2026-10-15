@@ -77,3 +77,4 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-011a8](../tickets/VMC-011a8.md) | `8871985`; prepared geometry/player-budget admission, frozen load positions and actual-client retest |
 | [VMC-015a](../tickets/VMC-015a.md) | `84f5fb0`; accepted fall context/persistence, actual jump/drop/powder contact and flight |
 | [VMC-015c](../tickets/VMC-015c.md) | `91caf387`; bounded player environment ticks, saved/replicated freezing and actual powder thaw/reconnect |
+| [VMC-015b1](../tickets/VMC-015b1.md) | `6691f43`; live default dry velocity, actual impulses/contact/bounce and frozen-load observation reuse |

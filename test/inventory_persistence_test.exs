@@ -255,7 +255,7 @@ defmodule Valimc.InventoryPersistenceTest do
     assert client.pose.x == -3.25 and client.pose.yaw == 90.0
     assert client.inventory.items == List.duplicate(nil, 46)
     close(client, username, uuid)
-    assert <<"VMCPOSE", 7, _::binary>> = File.read!(path)
+    assert <<"VMCPOSE", 8, _::binary>> = File.read!(path)
   end
 
   test "foreign writers and invalid snapshots cannot overwrite a valid saved inventory", %{
