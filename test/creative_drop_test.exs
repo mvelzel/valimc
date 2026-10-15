@@ -72,7 +72,7 @@ defmodule Valimc.CreativeDropTest do
 
   defp records(ctx) do
     {:ok, {pid, _}} = World.item_owner(ctx.key)
-    Items.records(:sys.get_state(pid).items)
+    Items.records(:sys.get_state(pid).resource.items)
   end
 
   defp frame(client, slot, stack),
@@ -138,7 +138,7 @@ defmodule Valimc.CreativeDropTest do
     client = login(ctx)
     {pid, initial} = wait(ctx, &(&1.recovery == nil))
     {:ok, {region, _}} = World.item_owner(ctx.key)
-    destination = :sys.get_state(region).store
+    destination = :sys.get_state(region).resource.store
     :sys.suspend(initial.player_store)
     :sys.suspend(destination)
 
@@ -179,7 +179,7 @@ defmodule Valimc.CreativeDropTest do
       wait(
         ctx,
         &(&1.recovery != nil && &1.recovery.stage == :delivery &&
-            :sys.get_state(region).item_pending != nil)
+            :sys.get_state(region).resource.item_pending != nil)
       )
 
       assert saved(ctx).outbox != nil and World.item_snapshot(ctx.key) == %{}
@@ -205,7 +205,7 @@ defmodule Valimc.CreativeDropTest do
     client = login(ctx)
     {_, initial} = wait(ctx, &(&1.recovery == nil))
     {:ok, {region, _}} = World.item_owner(ctx.key)
-    destination = :sys.get_state(region).store
+    destination = :sys.get_state(region).resource.store
     :sys.suspend(destination)
 
     try do
@@ -214,7 +214,7 @@ defmodule Valimc.CreativeDropTest do
       wait(
         ctx,
         &(&1.recovery != nil && &1.recovery.stage == :delivery && &1.creative_input.queued == 1 &&
-            :sys.get_state(region).item_pending != nil)
+            :sys.get_state(region).resource.item_pending != nil)
       )
 
       client = barrier(client)
@@ -378,7 +378,7 @@ defmodule Valimc.CreativeDropTest do
        ctx do
     client = login(ctx)
     {:ok, {region, _}} = World.item_owner(ctx.key)
-    destination = :sys.get_state(region).store
+    destination = :sys.get_state(region).resource.store
     :sys.suspend(destination)
 
     try do
@@ -391,7 +391,7 @@ defmodule Valimc.CreativeDropTest do
       wait(
         ctx,
         &(&1.recovery != nil && &1.recovery.stage == :delivery && &1.creative_input.queued == 2 &&
-            :sys.get_state(region).item_pending != nil)
+            :sys.get_state(region).resource.item_pending != nil)
       )
 
       pinned = saved(ctx).outbox.records

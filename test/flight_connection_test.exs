@@ -148,7 +148,7 @@ defmodule Valimc.FlightConnectionTest do
        ctx do
     client = login(ctx) |> toggle(2) |> barrier()
     {:ok, {region, _}} = World.item_owner(ctx.key)
-    writer = :sys.get_state(region).store
+    writer = :sys.get_state(region).resource.store
     :sys.suspend(writer)
 
     try do
@@ -183,7 +183,7 @@ defmodule Valimc.FlightConnectionTest do
   test "disconnect preserves newer flight while keeping a pending transfer fenced", ctx do
     client = login(ctx)
     {:ok, {region, _}} = World.item_owner(ctx.key)
-    writer = :sys.get_state(region).store
+    writer = :sys.get_state(region).resource.store
     :sys.suspend(writer)
 
     try do

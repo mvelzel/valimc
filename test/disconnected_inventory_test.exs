@@ -98,7 +98,7 @@ defmodule Valimc.DisconnectedInventoryTest do
     pid
   end
 
-  defp records(pid), do: Items.records(:sys.get_state(pid).items)
+  defp records(pid), do: Items.records(:sys.get_state(pid).resource.items)
 
   defp verify(ctx, snapshot, records) do
     assert snapshot.inventory.slots == Map.take(ctx.inventory.slots, [38, 45])
@@ -159,7 +159,7 @@ defmodule Valimc.DisconnectedInventoryTest do
   test "reconnect adopts a closing writer, fences old messages and replays its exact journal",
        ctx do
     owner = region(ctx)
-    disk = :sys.get_state(owner).store
+    disk = :sys.get_state(owner).resource.store
     :sys.suspend(disk)
     parent = self()
 
@@ -176,7 +176,7 @@ defmodule Valimc.DisconnectedInventoryTest do
       closing =
         wait(fn ->
           state = :sys.get_state(writer)
-          if state.closing.job && :sys.get_state(owner).item_pending, do: state
+          if state.closing.job && :sys.get_state(owner).resource.item_pending, do: state
         end)
 
       assert not Process.alive?(old_owner) and Process.alive?(writer)
@@ -202,7 +202,7 @@ defmodule Valimc.DisconnectedInventoryTest do
       assert :sys.get_state(writer).snapshot.outbox == pending.outbox
       assert :sys.get_state(writer).closing == nil
       :sys.resume(disk)
-      wait(fn -> :sys.get_state(owner).item_pending == nil end)
+      wait(fn -> :sys.get_state(owner).resource.item_pending == nil end)
       {:ok, _, request, _} = PlayerSnapshot.transfer_request(ctx.uuid, adopted)
       {:ok, handle} = World.item_owner(ctx.key)
       assert {:ok, :already_applied} = Region.apply_item_transfer(handle, request)
@@ -224,7 +224,7 @@ defmodule Valimc.DisconnectedInventoryTest do
        ctx do
     seed(ctx, ctx.snapshot)
     owner = region(ctx)
-    disk = :sys.get_state(owner).store
+    disk = :sys.get_state(owner).resource.store
     :sys.suspend(disk)
     client = Client.begin_login(ctx.name)
 
@@ -237,7 +237,7 @@ defmodule Valimc.DisconnectedInventoryTest do
             s = :sys.get_state(elem(p, 0))
 
             if s.recovery && s.recovery.stage == :delivery &&
-                 :sys.get_state(owner).item_pending,
+                 :sys.get_state(owner).resource.item_pending,
                do: s
           end
         end)
@@ -316,7 +316,7 @@ defmodule Valimc.DisconnectedInventoryTest do
   test "an unobserved creative prepare commits first; a stale close cannot restore older owned contents",
        ctx do
     owner = region(ctx)
-    disk = :sys.get_state(owner).store
+    disk = :sys.get_state(owner).resource.store
     :sys.suspend(disk)
     {:ok, writer, nil, fence} = PlayerStore.open(ctx.uuid)
 
@@ -395,7 +395,7 @@ defmodule Valimc.DisconnectedInventoryTest do
   test "closing deadline leaves a pinned source journal recoverable after writer/region replacement",
        ctx do
     owner = region(ctx)
-    disk = :sys.get_state(owner).store
+    disk = :sys.get_state(owner).resource.store
     :sys.suspend(disk)
     {:ok, writer, nil, fence} = PlayerStore.open(ctx.uuid)
 
@@ -405,7 +405,7 @@ defmodule Valimc.DisconnectedInventoryTest do
       closing =
         wait(fn ->
           s = :sys.get_state(writer)
-          if s.closing.job && :sys.get_state(owner).item_pending, do: s.closing
+          if s.closing.job && :sys.get_state(owner).resource.item_pending, do: s.closing
         end)
 
       intent = saved(ctx)
@@ -418,7 +418,7 @@ defmodule Valimc.DisconnectedInventoryTest do
 
       assert File.read!(ctx.path) == bytes
       :sys.resume(disk)
-      wait(fn -> :sys.get_state(owner).item_pending == nil end)
+      wait(fn -> :sys.get_state(owner).resource.item_pending == nil end)
       :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, owner)
       {_, client} = Client.login(ctx.name)
       client = Client.load_world(client)

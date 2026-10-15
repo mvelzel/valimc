@@ -6,14 +6,14 @@ defmodule Valimc.World.Store do
   def start_link(key), do: GenServer.start_link(__MODULE__, key)
   def load(pid), do: GenServer.call(pid, :load)
 
-  def snapshot(pid, edits, owner, revision),
-    do: GenServer.cast(pid, {:snapshot, edits, owner, revision})
+  def snapshot(pid, edits, {owner, epoch}, revision),
+    do: GenServer.cast(pid, {:snapshot, edits, {owner, epoch}, revision})
 
   def flush(pid, edits), do: GenServer.call(pid, {:flush, edits}, 15_000)
   def load_items(pid), do: GenServer.call(pid, :load_items)
 
-  def commit_items(pid, items, receipts, owner, token),
-    do: GenServer.cast(pid, {:items, Items.records(items), receipts, owner, token})
+  def commit_items(pid, items, receipts, {owner, epoch}, token),
+    do: GenServer.cast(pid, {:items, Items.records(items), receipts, {owner, epoch}, token})
 
   def item_path(nil, _), do: nil
   def item_path(base, {rx, rz}), do: Path.join(base, "r.#{rx}.#{rz}.items")
@@ -61,7 +61,7 @@ defmodule Valimc.World.Store do
   end
 
   @impl true
-  def handle_cast({:snapshot, edits, owner, revision}, state) do
+  def handle_cast({:snapshot, edits, {owner, epoch}, revision}, state) do
     result = write(state.blocks, edits)
 
     case result do
@@ -73,16 +73,16 @@ defmodule Valimc.World.Store do
         Logger.error("Region save failed: #{inspect(reason)}")
     end
 
-    send(owner, {:saved, revision, result})
+    send(owner, {:resource, epoch, {:saved, self(), revision, result}})
     {:noreply, state}
   end
 
-  def handle_cast({:items, records, receipts, owner, token}, state) do
+  def handle_cast({:items, records, receipts, {owner, epoch}, token}, state) do
     result =
       with {:ok, bytes} <- ItemRecords.encode(state.key, records, receipts),
            do: write_items(state.items, bytes)
 
-    send(owner, {:items_saved, self(), token, result})
+    send(owner, {:resource, epoch, {:items_saved, self(), token, result}})
     {:noreply, state}
   end
 

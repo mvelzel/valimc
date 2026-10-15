@@ -107,7 +107,7 @@ defmodule Valimc.KeyboardDropTest do
 
   defp records(ctx) do
     {:ok, {pid, _}} = World.item_owner(ctx.key)
-    Items.records(:sys.get_state(pid).items)
+    Items.records(:sys.get_state(pid).resource.items)
   end
 
   defp completed(ctx, sequence) do
@@ -153,7 +153,7 @@ defmodule Valimc.KeyboardDropTest do
     {pid, state} = await_state(ctx, &(&1.recovery == nil))
     source = state.player_store
     {:ok, {region, _}} = World.item_owner(ctx.key)
-    destination = :sys.get_state(region).store
+    destination = :sys.get_state(region).resource.store
     :sys.suspend(source)
     :sys.suspend(destination)
 
@@ -207,7 +207,7 @@ defmodule Valimc.KeyboardDropTest do
         await_state(
           ctx,
           &(&1.recovery != nil && &1.recovery.stage == :delivery &&
-              :sys.get_state(region).item_pending != nil)
+              :sys.get_state(region).resource.item_pending != nil)
         )
 
       assert prepared.inventory.slots[43] == %{ctx.stone | count: 6}
@@ -245,7 +245,7 @@ defmodule Valimc.KeyboardDropTest do
       client = login(ctx)
       {pid, _} = await_state(ctx, &(&1.recovery == nil))
       {:ok, {region, _}} = World.item_owner(ctx.key)
-      destination = :sys.get_state(region).store
+      destination = :sys.get_state(region).resource.store
       :sys.suspend(destination)
       action(client, "drop_item")
 
@@ -253,7 +253,7 @@ defmodule Valimc.KeyboardDropTest do
         await_state(
           ctx,
           &(&1.recovery != nil && &1.recovery.stage == :delivery &&
-              :sys.get_state(region).item_pending != nil)
+              :sys.get_state(region).resource.item_pending != nil)
         )
 
       sequence = pending.recovery.intent.transfer_sequence
@@ -424,7 +424,7 @@ defmodule Valimc.KeyboardDropTest do
     menu_click(client, "pickup", 43, 0)
     owned(ctx, &(&1.carried == ctx.stone))
     {:ok, {region, _}} = World.item_owner(ctx.key)
-    writer = :sys.get_state(region).store
+    writer = :sys.get_state(region).resource.store
     :sys.suspend(writer)
 
     try do
@@ -433,7 +433,7 @@ defmodule Valimc.KeyboardDropTest do
       await_state(
         ctx,
         &(&1.recovery != nil && &1.recovery.stage == :delivery &&
-            :sys.get_state(region).item_pending != nil)
+            :sys.get_state(region).resource.item_pending != nil)
       )
 
       assert saved(ctx).inventory.carried == %{ctx.stone | count: 6}
@@ -514,7 +514,7 @@ defmodule Valimc.KeyboardDropTest do
        ctx do
     client = login(ctx)
     {:ok, {region, _}} = World.item_owner(ctx.key)
-    writer = :sys.get_state(region).store
+    writer = :sys.get_state(region).resource.store
     :sys.suspend(writer)
 
     try do
@@ -523,7 +523,7 @@ defmodule Valimc.KeyboardDropTest do
       await_state(
         ctx,
         &(&1.recovery != nil && &1.recovery.stage == :delivery &&
-            :sys.get_state(region).item_pending != nil)
+            :sys.get_state(region).resource.item_pending != nil)
       )
 
       menu_click(client, "pickup", -999, 0, <<1>>)

@@ -10,8 +10,8 @@ indexes validated tickets. None imply full parity.
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Resolve coupled state ownership before enforcing movement or publishing selected
    poses. Owner/timer, client-tick admission and block batches are validated.
-   Next: [resource/owner separation](tickets/VMC-011a4.md)
-   before coupled domains and transfers.
+   [Resource/owner separation](tickets/VMC-011a4.md) passes targeted checks;
+   client validation remains before coupled domains and transfers.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 
@@ -21,6 +21,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
+| [VMC-011a4](tickets/VMC-011a4.md) | Edits/batches/durable scene items/reconnect | Local dev checkpoint |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 

@@ -80,15 +80,7 @@ record = %{
   source_sha256: :crypto.hash(:sha256, File.read!(__ENV__.file)) |> Base.encode16(case: :lower),
   implementation_sha256:
     Map.new(
-      [
-        "lib/valimc/world/block_batch.ex",
-        "lib/valimc/world/region.ex",
-        "lib/valimc/protocol/data.ex",
-        "lib/valimc/protocol/packets.ex",
-        "lib/valimc/protocol/wire.ex",
-        "priv/protocol/blocks.json",
-        "priv/protocol/packets.json"
-      ],
+      Path.wildcard("lib/**/*.ex") ++ ["priv/protocol/blocks.json", "priv/protocol/packets.json"],
       fn path ->
         {path, :crypto.hash(:sha256, File.read!(path)) |> Base.encode16(case: :lower)}
       end

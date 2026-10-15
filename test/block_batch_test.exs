@@ -46,7 +46,7 @@ defmodule Valimc.BlockBatchTest do
         ],
         do: World.chunk(key)
 
-    before = :sys.get_state(pid)
+    before = :sys.get_state(pid).resource
     World.subscribe(MapSet.new([{400, 401}]), MapSet.new())
     assert {:ok, revision} = Region.set_blocks(owner, before.revision, changes)
     assert revision == before.revision + 1
@@ -54,7 +54,7 @@ defmodule Valimc.BlockBatchTest do
     assert {:ok, %{blocks: ^changes, revision: ^revision}} =
              Region.observe_blocks(owner, Map.keys(changes), revision)
 
-    after_commit = :sys.get_state(pid)
+    after_commit = :sys.get_state(pid).resource
     assert map_size(after_commit.cache) == 1
 
     assert after_commit.versions == %{
@@ -90,12 +90,14 @@ defmodule Valimc.BlockBatchTest do
       |> Enum.group_by(fn {{x, _, z}, _} -> World.chunk_key(x, z) end)
       |> Map.new(fn {key, entries} -> {key, Map.new(entries)} end)
 
-    state = :sys.replace_state(pid, &%{&1 | edits: full, by_chunk: by_chunk})
+    state =
+      :sys.replace_state(pid, &%{&1 | resource: %{&1.resource | edits: full, by_chunk: by_chunk}}).resource
+
     added = {x, 72, z}
     assert {:error, :region_edit_limit} = Region.set_blocks(owner, state.revision, %{added => 1})
     assert mutation_state(pid) == mutation_state(state)
     assert {:ok, _} = Region.set_blocks(owner, state.revision, %{{x, 64, z} => 0, added => 1})
-    after_commit = :sys.get_state(pid)
+    after_commit = :sys.get_state(pid).resource
     assert map_size(after_commit.edits) == 131_072
     assert after_commit.edits[added] == 1 and not Map.has_key?(after_commit.edits, {x, 64, z})
   end
@@ -153,7 +155,7 @@ defmodule Valimc.BlockBatchTest do
     owner
   end
 
-  defp mutation_state(pid) when is_pid(pid), do: mutation_state(:sys.get_state(pid))
+  defp mutation_state(pid) when is_pid(pid), do: mutation_state(:sys.get_state(pid).resource)
 
   defp mutation_state(state),
     do: Map.take(state, [:edits, :by_chunk, :cache, :versions, :revision, :dirty])

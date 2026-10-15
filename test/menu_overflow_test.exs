@@ -137,7 +137,7 @@ defmodule Valimc.MenuOverflowTest do
 
   defp records(ctx) do
     {:ok, {pid, _}} = World.item_owner(ctx.key)
-    Items.records(:sys.get_state(pid).items)
+    Items.records(:sys.get_state(pid).resource.items)
   end
 
   defp completed(ctx) do
@@ -249,7 +249,7 @@ defmodule Valimc.MenuOverflowTest do
        ctx do
     client = login(ctx, true)
     {:ok, {region, _}} = World.item_owner(ctx.key)
-    writer = :sys.get_state(region).store
+    writer = :sys.get_state(region).resource.store
     :sys.suspend(writer)
 
     try do
@@ -259,7 +259,7 @@ defmodule Valimc.MenuOverflowTest do
         await_state(
           ctx,
           &(&1.recovery != nil && &1.recovery.stage == :delivery &&
-              :sys.get_state(region).item_pending != nil)
+              :sys.get_state(region).resource.item_pending != nil)
         )
 
       snapshot = saved(ctx)

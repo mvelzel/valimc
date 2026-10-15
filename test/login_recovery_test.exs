@@ -107,7 +107,7 @@ defmodule Valimc.LoginRecoveryTest do
   test "stalled delivery leaves login unpublished and sockets/other identities responsive", ctx do
     fixture = seed(ctx)
     {:ok, {region, _}} = World.item_owner(ctx.key)
-    writer = :sys.get_state(region).store
+    writer = :sys.get_state(region).resource.store
     :sys.suspend(writer)
     client = Client.begin_login(fixture.name)
 
@@ -115,7 +115,7 @@ defmodule Valimc.LoginRecoveryTest do
       {pid, state} =
         await_state(
           fixture.name,
-          &(&1.recovery != nil and :sys.get_state(region).item_pending != nil)
+          &(&1.recovery != nil and :sys.get_state(region).resource.item_pending != nil)
         )
 
       assert state.phase == :login and state.step == :recover
@@ -148,7 +148,7 @@ defmodule Valimc.LoginRecoveryTest do
   test "worker loss after submission retries the identical uncertain delivery", ctx do
     fixture = seed(ctx)
     {:ok, {region, _}} = World.item_owner(ctx.key)
-    writer = :sys.get_state(region).store
+    writer = :sys.get_state(region).resource.store
     :sys.suspend(writer)
     client = Client.begin_login(fixture.name)
 
@@ -156,7 +156,7 @@ defmodule Valimc.LoginRecoveryTest do
       {pid, state} =
         await_state(
           fixture.name,
-          &(&1.recovery != nil and :sys.get_state(region).item_pending != nil)
+          &(&1.recovery != nil and :sys.get_state(region).resource.item_pending != nil)
         )
 
       job = state.recovery.job
@@ -211,7 +211,7 @@ defmodule Valimc.LoginRecoveryTest do
   test "deadline cancels jobs and preserves pending source even if region later commits", ctx do
     fixture = seed(ctx)
     {:ok, {region, _}} = World.item_owner(ctx.key)
-    writer = :sys.get_state(region).store
+    writer = :sys.get_state(region).resource.store
     :sys.suspend(writer)
     client = Client.begin_login(fixture.name)
 
@@ -219,7 +219,7 @@ defmodule Valimc.LoginRecoveryTest do
       {pid, state} =
         await_state(
           fixture.name,
-          &(&1.recovery != nil and :sys.get_state(region).item_pending != nil)
+          &(&1.recovery != nil and :sys.get_state(region).resource.item_pending != nil)
         )
 
       job = state.recovery.job
@@ -272,7 +272,7 @@ defmodule Valimc.LoginRecoveryTest do
        ctx do
     fixture = seed(ctx)
     {:ok, {region, _}} = World.item_owner(ctx.key)
-    writer = :sys.get_state(region).store
+    writer = :sys.get_state(region).resource.store
     :sys.suspend(writer)
     client = Client.begin_login(fixture.name)
 
@@ -280,7 +280,7 @@ defmodule Valimc.LoginRecoveryTest do
       {_, state} =
         await_state(
           fixture.name,
-          &(&1.recovery != nil and :sys.get_state(region).item_pending != nil)
+          &(&1.recovery != nil and :sys.get_state(region).resource.item_pending != nil)
         )
 
       job = state.recovery.job
