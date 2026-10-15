@@ -1,9 +1,25 @@
 # Actual Minecraft validation
 
-Use Minecraft **Java 26.3 / protocol 777**, Launcher installation
-**ValiMC computer-use test**, app ID `local.valimc.minecraft-client`.
+Use Minecraft **Java 26.3 / protocol 777**, app ID `local.valimc.minecraft-client`.
 One dedicated testing subagent drives `mcp__cua_repl`; the primary continues work.
 Read the tool's current documentation, not copied API snippets.
+
+Launch a fresh client directly into the test server:
+
+```sh
+/usr/bin/python3 scripts/minecraft_client.py --evidence .local/client-tests/TICKET/run-01
+```
+
+Run this in a tracked `exec_command` session with `tty: true`. The helper uses the
+installed official jars/assets, dedicated SDL wrapper and fixed loopback Quick
+Play address. It creates a fresh game directory and uses the offline test identity
+`ValiMCTest`; the local test server must use offline mode. Account files and normal
+client settings are untouched. Console/game logs and fingerprints stay in the run.
+
+After testing, Ctrl-C the owning terminal session with `write_stdin` and wait for
+its completion; the helper terminates/waits for its own JVM. Confirm zero server
+players. Reconnect tests stop the process and launch again with `run-02`, retaining
+the server dataset. Never use the Launcher or navigate connection/server menus.
 
 ## Handoff and evidence
 
@@ -36,5 +52,5 @@ Keep account/launcher credentials and unrelated resources intact. Preserve sourc
 journal/counters and destination receipts within a dataset; reset the whole dataset
 rather than rolling back one committed side. See [workflow](development.md).
 
-The generated helper is `.local/Minecraft Client.app`; rebuild/setup instructions
+The generated Java wrapper is `.local/Minecraft Client.app`; rebuild instructions
 are in [mouse testing](mouse-testing.md). Normal Launcher profiles stay unchanged.

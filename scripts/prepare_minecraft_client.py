@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build a local macOS app identity for the installed official Minecraft Java runtime.
 
-Development UI helper only. The dedicated installation always uses our local
+Development UI helper only. The dedicated direct client always uses our local
 SDL backend. No game download, account handling or Minecraft class edits.
 """
 import argparse
@@ -88,6 +88,6 @@ temporary = contents / "MacOS/java.build"
 subprocess.run(["clang", "-O2", "-Wall", "-Wextra", str(source), "-o", str(temporary)], check=True)
 os.replace(temporary, executable)
 subprocess.run([str(executable), "-version"], check=True)
-print("Java executable for the separate ValiMC computer-use test installation:")
+print("Java executable for scripts/minecraft_client.py:")
 print(executable)
 print("Computer-use app ID: local.valimc.minecraft-client")

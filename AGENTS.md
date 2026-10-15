@@ -56,10 +56,14 @@ Keep README small; put feature evidence in its ticket. Use `rg` to retrieve deta
   Hand off exact checkpoint/release, dataset, scenarios and evidence paths.
   Coordinate restarts and fixtures; never replace a release under test. Review its
   report before Done or publication; failures become fix/retest tasks.
-- Use `mcp__cua_repl`, app `local.valimc.minecraft-client`, Launcher installation
-  **ValiMC computer-use test**, Java 26.3. Try even while the Mac is locked; access
-  is authorized. Unavailable CUA leaves the gate pending, not the backlog halted.
-  Repair the access prerequisite while independent work continues.
+- Launch Java 26.3 directly with `scripts/minecraft_client.py --evidence
+  .local/client-tests/TICKET/run-01` in a tracked terminal session. It joins only
+  local ValiMC using Quick Play, a fresh game directory and the dedicated SDL app
+  `local.valimc.minecraft-client`. Test through `mcp__cua_repl`, then Ctrl-C/wait
+  for that session to shut down its JVM. Reconnect means a fresh launch; never use
+  the Launcher, saved-server list or manual connection menus. Try even while the
+  Mac is locked; access is authorized. Unavailable CUA leaves the gate pending,
+  not the backlog halted. Repair the prerequisite while independent work continues.
 - The dedicated SDL pointer backend is mandatory: no modes, fallbacks, backward
   compatibility, desktop-coordinate diagnostics or cursor-position unit tests.
   Validate actual use; keyboard input can still activate the window.

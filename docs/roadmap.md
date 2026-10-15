@@ -9,7 +9,10 @@ indexes validated tickets. None imply full parity.
 
 ## Priority
 
-1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
+1. **[VMC-003c](tickets/VMC-003c.md): direct test-client lifecycle.** Launch
+   directly into local ValiMC, validate, then shut down the owned JVM. Actual
+   two-launch validation precedes resuming the saved-velocity client gate.
+2. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Player processes own their simulation state; bounded workers sample geometry.
    Coupled effects need explicit ordering. Owner/timer, client-tick admission and
    block batches are validated, as are [resource separation](tickets/VMC-011a4.md),
@@ -18,7 +21,7 @@ indexes validated tickets. None imply full parity.
    [live player poses](tickets/VMC-014c3b2b2.md).
    [Live block-based movement](tickets/VMC-014c4.md) is validated and complete
    within its scope (`d10f566`); gravity/coupled effects remain.
-2. **VMC-015: gravity, velocity and grounded state.**
+3. **VMC-015: gravity, velocity and grounded state.**
    [Accepted-move fall accounting](tickets/VMC-015a.md) is validated (`84f5fb0`),
    including real jump/drop/powder-snow, flight and reconnect.
    [Gravity/drag](tickets/VMC-015b.md)'s pure air/collision kernels and complete
@@ -45,6 +48,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
+| [VMC-003c](tickets/VMC-003c.md) | Direct join/test/shutdown, then fresh direct launch | Local checkpoint pending |
 | [VMC-015b2](tickets/VMC-015b2.md) | Airborne reconnect with saved velocity | Local `18aad55` |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full

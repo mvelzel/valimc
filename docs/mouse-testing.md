@@ -1,7 +1,7 @@
 # Minecraft computer-use client
 
-Use the Launcher installation **ValiMC computer-use test**, Java 26.3, app ID
-`local.valimc.minecraft-client`. One dedicated testing subagent owns CUA.
+Launch Java 26.3 with `scripts/minecraft_client.py`; see [client testing](client-testing.md).
+App ID `local.valimc.minecraft-client`; one dedicated testing subagent owns CUA.
 
 Its local SDL backend consumes event positions for menu targeting and camera
 deltas. Desktop cursor warps, association, visibility changes and confinement are
@@ -21,13 +21,14 @@ cmake --build .local/sdl-mouse-build --parallel 8
 python3 scripts/prepare_minecraft_client.py
 ```
 
-Restart the dedicated installation after rebuilding. Startup prints
+Start a new direct client after rebuilding. Startup prints
 `ValiMC internal-pointer backend`. Never overwrite its library during a test.
 
 ## Use and verification
 
 Use `mcp__cua_repl` for every UI action. The tester checks ordinary menu clicks,
-inventory pickup/place, opposite camera drags, commands, reconnect and fresh logs.
+inventory pickup/place, opposite camera drags, commands and fresh logs. Reconnect
+by stopping the owned process and launching a fresh direct client, never a menu.
 Camera `drag` holds a button and can mine blocks; use the disposable test world.
 Do not add desktop-position diagnostics, cursor assertions or compatibility modes.
 Keyboard input can still activate Minecraft; this backend isolates pointer
