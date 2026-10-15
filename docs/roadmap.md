@@ -46,10 +46,10 @@ indexes validated tickets. None imply full parity.
    ownership remains open. [Slowing blocks](tickets/VMC-015g.md) have native
    contact/consumption kernels and native-verified bounded ordered traversal;
    contextual single-path and tick-batch ordering match native scenes. Bounded
-   player-owned history/live composition pass affected tests; frozen client and
-   coherent-block integration gates are next.
-   [Sneaking at edges](tickets/VMC-015h.md)'s bounded kernel matches native query
-   traces; live composition is the next independent movement slice.
+   player-owned history/live composition pass actual-client scenarios, 622 tests
+   and production build; coherent-block native/load gates are next.
+   [Sneaking at edges](tickets/VMC-015h.md)'s live composition passes affected
+   tests and native query/frame traces; its frozen client gate is next.
    Effects/survival consequences remain open.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
@@ -69,7 +69,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
-| [VMC-015g](tickets/VMC-015g.md) | Live slowing contacts, lifecycle and regressions | Local live checkpoint; freeze next |
+| [VMC-015h](tickets/VMC-015h.md) | Actual Shift ledges/corners/slab and exclusions | Local live checkpoint; freeze next |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

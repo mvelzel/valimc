@@ -109,6 +109,49 @@ defmodule Valimc.PlayerKineticsTest do
     assert bypass.multiplier == p.motion.stuck_multiplier
   end
 
+  test "edge backoff follows slowing consumption and uses one fenced support frame" do
+    p = player()
+    p = %{p | input: %{p.input | shared_flags: 2}, motion: %{p.motion | on_ground: true}}
+    {:ok, body} = PlayerPose.geometry(:crouching, {p.x, p.y, p.z})
+    removed = for x <- 5..9, z <- 0..9, into: %{}, do: {{x, 63, z}, 0}
+    f = frame(removed)
+
+    {:ok, guarded} =
+      PlayerKinetics.prepare_collision(p, {1.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, body.box, f, true)
+
+    assert elem(guarded.requested, 0) < 0.8 and elem(guarded.requested, 0) > 0.7
+    assert guarded.velocity == {1.0, 0.0, 0.0}
+    stuck = %{p | motion: %{p.motion | stuck_multiplier: {0.25, 0.05000000074505806, 0.25}}}
+
+    {:ok, slowed} =
+      PlayerKinetics.prepare_collision(stuck, {1.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, body.box, f, true)
+
+    assert slowed.requested == {0.25, 0.0, 0.0} and slowed.velocity == {0.0, 0.0, 0.0}
+    missing = %{f | states: Map.delete(f.states, {4, 63, 4})}
+
+    assert {:error, {:missing_block, _}} =
+             PlayerKinetics.prepare_collision(
+               p,
+               {0.1, 0.0, 0.0},
+               {0.1, 0.0, 0.0},
+               body.box,
+               missing,
+               true
+             )
+
+    {:ok, upward} =
+      PlayerKinetics.prepare_collision(
+        p,
+        {1.0, 0.01, 0.0},
+        {1.0, 0.01, 0.0},
+        body.box,
+        missing,
+        true
+      )
+
+    assert upward.requested == {1.0, 0.01, 0.0}
+  end
+
   test "floor fixed point evolves only kinetic fields, never accepted displacement/fall" do
     p = player()
     p = %{p | motion: %{p.motion | fall_distance: 2.75, known_movement: {0.1, 0.0, 0.0}}}

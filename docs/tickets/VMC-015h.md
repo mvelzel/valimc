@@ -1,6 +1,6 @@
 # VMC-015h — Sneaking at edges
 
-Status: In progress. October 15, 2026.
+Status: Live composition automated-verified; frozen client gate pending. October 15, 2026.
 
 Acceptance: native Shift edge protection for grounded and near-ground players,
 separate X/Z/diagonal backoff, exact support-query geometry and native 0.05 steps.
@@ -25,6 +25,12 @@ sampling/entity collisions are outside this oracle. Three affected tests pass,
 including 64-block backoff within 4,096 queries and missing-fact propagation.
 Evidence: `.local/sneak-edge-{native,check,tests}.log`; original
 `scripts/SneakEdgesOracle.java`. No live wiring or graphical result yet.
-Next: sample bounded support geometry once per worker, compose after slowing and
-before collision, then a frozen client gate. Runtime under slowing validation stays
-unchanged while this work proceeds.
+Live checkpoint: packet and scratch movement apply backoff after consuming slowing
+and before collision. Support checks reuse the worker's single fenced block frame;
+each local scan retains existing geometry limits. Native query dependencies fit
+admitted packet/tick frames across all 23,040 cases. Seventy-two affected tests pass:
+slowing-before-edge order, missing facts, packet path recording, flight/upward
+exclusions and a real TCP survival rejection followed by released-Shift recovery.
+The frozen slowing runtime stays unchanged. Evidence:
+`.local/sneak-live-tests.log`, `.local/sneak-edge-check.log`.
+Next: freeze this checkpoint and delegate its actual ledge/corner/slab client gate.

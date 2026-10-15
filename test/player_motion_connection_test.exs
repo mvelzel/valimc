@@ -241,6 +241,37 @@ defmodule Valimc.PlayerMotionConnectionTest do
     refute state(pid).teleport_pending
   end
 
+  test "Shift ledge validation rejects unsupported travel and release retires the guard", ctx do
+    name = hd(ctx.names)
+    uuid = Connection.offline_uuid(name)
+
+    p =
+      Map.merge(ctx.pos, %{
+        game_mode: Valimc.GameMode.new(:survival),
+        abilities: Valimc.PlayerAbilities.for_mode(:survival)
+      })
+
+    {:ok, bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(p, Inventory.new()))
+    File.write!(PlayerStore.path(Valimc.config(:world_path), uuid), bytes)
+
+    for x <- (floor(p.x) + 1)..(floor(p.x) + 4),
+        z <- (floor(p.z) - 2)..(floor(p.z) + 2),
+        do: :ok = World.set_block({x, 63, z}, 0)
+
+    {client, pid} = login(name)
+    Client.send_packet(client, :play, "player_input", <<32>>)
+    wait(fn -> state(pid).player.pose == :crouching end)
+    move(client, %{ctx.pos | x: p.x + 2.0})
+    client = correction(client, pid, ctx.pos)
+    assert state(pid).player.motion.paths.count == 0
+    Client.send_packet(client, :play, "player_input", <<0>>)
+    wait(fn -> state(pid).player.input.shared_flags == 0 end)
+    move(client, %{ctx.pos | x: p.x + 2.0})
+    wait(fn -> state(pid).player.x == p.x + 2.0 end)
+    refute state(pid).teleport_pending
+    _client = Client.teleport(client, pid, ctx.pos)
+  end
+
   test "live slowing contacts reset falls, refresh material and stop reapplying in flight", ctx do
     {client, pid} = login(hd(ctx.names))
     {x, z} = {floor(ctx.pos.x), floor(ctx.pos.z)}

@@ -18,6 +18,7 @@ defmodule Valimc.PlayerKinetics do
     MotionBlocks,
     MovementPaths,
     PlayerPose,
+    SneakEdges,
     StuckContact,
     StuckMotion,
     SwimSteering
@@ -140,6 +141,31 @@ defmodule Valimc.PlayerKinetics do
       else: point(player)
   end
 
+  @doc false
+  def prepare_collision(player, requested, velocity, box, frame, on_ground) do
+    with {:ok, step} <- prepare_move(player, requested, velocity),
+         {:ok, edge} <-
+           SneakEdges.step(
+             box,
+             step.requested,
+             %SneakEdges{
+               flying: player.abilities.flying or player.game_mode.current == :spectator,
+               shift: (player.input.shared_flags &&& 2) != 0,
+               on_ground: on_ground,
+               fall_distance: PlayerMotion.distance(player)
+             },
+             fn query ->
+               PlayerMotionQuery.support_free?(
+                 query,
+                 frame,
+                 context(player, player.y),
+                 point(player)
+               )
+             end
+           ),
+         do: {:ok, %{step | requested: edge.requested}}
+  end
+
   def admissible?(player, velocity) do
     motion = %{player.motion | velocity: velocity}
 
@@ -164,7 +190,15 @@ defmodule Valimc.PlayerKinetics do
     with {:ok, before} <- material(frame, box, point(player), context(player, player.y)),
          {:ok, depths} <- FluidContact.sample(frame, box),
          {:ok, velocity} <- packet_jump(player, requested, flags, before, depths),
-         {:ok, step} <- prepare_move(player, requested, velocity),
+         {:ok, step} <-
+           prepare_collision(
+             player,
+             requested,
+             velocity,
+             box,
+             frame,
+             Map.get(player, :motion, %PlayerMotion{}).on_ground
+           ),
          moved = physical_position(player, actual, step.requested),
          moved_box = Box.move(box, subtract(moved, point(player))),
          {:ok, after_move} <- material(frame, moved_box, moved, context(player, elem(moved, 1))),
@@ -206,7 +240,15 @@ defmodule Valimc.PlayerKinetics do
 
       spectator = player.game_mode.current == :spectator
 
-      with {:ok, step} <- prepare_move(player, velocity, velocity),
+      with {:ok, step} <-
+             prepare_collision(
+               player,
+               velocity,
+               velocity,
+               geometry.box,
+               frame,
+               motion.physical_ground
+             ),
            {:ok, actual} <-
              PlayerMotionQuery.displacement(
                geometry.box,

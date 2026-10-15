@@ -23,9 +23,19 @@ defmodule Valimc.PlayerMotionQuery do
   end
 
   def prepare(player, target, flags \\ 0) do
+    with {:ok, query} <- query_box(player, target, flags),
+         do:
+           CollisionQuery.prepare_movement_frame(
+             query,
+             context(player, player.y),
+             &resolve(player, target, flags, &1)
+           )
+  end
+
+  @doc false
+  def query_box(player, target, flags \\ 0) do
     position = point(player)
     requested = subtract(point(target), position)
-    context = context(player, player.y)
 
     with true <- Enum.all?(Tuple.to_list(requested), &(abs(&1) <= 64)),
          {:ok, step} <-
@@ -50,7 +60,7 @@ defmodule Valimc.PlayerMotionQuery do
         |> Box.expand_towards({0, -@support, 0})
         |> Valimc.PlayerKinetics.union(kinetic_box)
 
-      CollisionQuery.prepare_movement_frame(query, context, &resolve(player, target, flags, &1))
+      {:ok, query}
     else
       false -> {:error, :movement_query_limit}
       error -> error
@@ -94,10 +104,13 @@ defmodule Valimc.PlayerMotionQuery do
            ),
          box = before.geometry.box,
          {:ok, step} <-
-           Valimc.PlayerKinetics.prepare_move(
+           Valimc.PlayerKinetics.prepare_collision(
              player,
              requested,
-             Valimc.PlayerKinetics.velocity(player)
+             Valimc.PlayerKinetics.velocity(player),
+             box,
+             blocks,
+             Map.get(player, :motion, %Valimc.PlayerMotion{}).on_ground
            ),
          {:ok, actual} <-
            displacement(box, step.requested, position, blocks, context, intent.spectator),
@@ -195,6 +208,11 @@ defmodule Valimc.PlayerMotionQuery do
          {:ok, border} <- BorderSnapshot.colliders(%BorderSnapshot{}, {x, z}, box) do
       {:ok, Enum.map(result.colliders, & &1.shape) ++ border}
     end
+  end
+
+  @doc false
+  def support_free?(box, frame, context, position) do
+    with {:ok, shapes} <- shapes(box, frame, context, position), do: {:ok, shapes == []}
   end
 
   @doc false

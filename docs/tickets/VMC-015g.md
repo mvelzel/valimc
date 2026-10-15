@@ -1,6 +1,6 @@
 # VMC-015g — Slowing block contacts
 
-Status: Live composition automated-verified; frozen client gate pending. October 15, 2026.
+Status: Default live contacts client-validated; full integration/load gates pending. October 15, 2026.
 
 Acceptance: native player cobweb/weaving, berry bush and powder-snow contact
 selection; reset fall on contact and retain the last ordered multiplier until its
@@ -99,3 +99,15 @@ single-path contact checks still pass. Evidence:
 `.local/movement-path-{native,check,tests}.log`. Weaving has a native-verified kernel;
 live status-effect ownership and damage remain future work. Next: frozen actual
 client scenarios, full block integration/build and comparable loads.
+
+Client PASS on frozen `4ad8d0f`, October 15, 20:47–20:55 CEST. Report reviewed:
+`.local/client-tests/VMC-015g/report.md`. Actual web/bush entry/exit (all bush ages),
+complete four-high slowed web fall/landing, fall resets, powder feet versus body
+contact, flight escape and fresh reconnect pass. Dry walk/jump/crouch, water,
+ladder and dedicated SDL pointer use pass. All 162 fixture cells restored, both
+owned clients stopped, zero players, safe dry state and paused noon retained.
+Weaving/damage remain excluded from graphical coverage. Full suite: 622 tests;
+separate production build succeeds. Initial full native run exposed missing game
+mode in three probe fixtures; targeted repair passes 3,360 swim, 2,736 fluid and
+1,920 climb/frame cases. Full native rerun uses immutable `bc4eb1e` (same live
+implementation; fixture repair only), `.local/stuck-block-checkpoint.json`.

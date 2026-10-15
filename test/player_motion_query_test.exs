@@ -170,4 +170,25 @@ defmodule Valimc.PlayerMotionQueryTest do
     assert p.motion.paths == paths
     assert {:error, :block_scan_limit} = PlayerMotionQuery.start(p, %{p | z: p.z + 64})
   end
+
+  test "Shift protects a ledge before collision and flight/upward travel bypass it", %{player: p} do
+    for x <- (floor(p.x) + 1)..(floor(p.x) + 4),
+        z <- (floor(p.z) - 2)..(floor(p.z) + 2),
+        do: :ok = World.set_block({x, 63, z}, 0)
+
+    shifted = %{p | input: %{p.input | shared_flags: 2}}
+    shifted = Map.put(shifted, :motion, %Valimc.PlayerMotion{on_ground: true})
+
+    {:ok, %{accepted: true, moved: {x, _, _}, kinetics: %{packet: packet}}} =
+      query(shifted, %{x: p.x + 1.0})
+
+    assert x < p.x + 0.8 and x > p.x + 0.7
+    [path] = :queue.to_list(packet.paths.queue)
+    assert elem(path.axis, 0) < 0.8
+    assert {:ok, %{moved: {_, y, _}}} = query(shifted, %{x: p.x + 1.0, y: 64.1})
+    assert y == 64.1
+    flying = %{shifted | abilities: %{shifted.abilities | flying: true}}
+    {:ok, %{moved: {x, _, _}}} = query(flying, %{x: p.x + 1.0})
+    assert x == p.x + 1.0
+  end
 end
