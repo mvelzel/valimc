@@ -22,6 +22,7 @@ defmodule Valimc.Connection do
     Players,
     PlayerAbilities,
     PlayerEnvironment,
+    PlayerFood,
     PlayerHealth,
     PlayerInput,
     PlayerKinetics,
@@ -806,7 +807,9 @@ defmodule Valimc.Connection do
             do: broadcast_player_packet(state, Packets.remove_entity(player))
 
           state = %{state | player: player, simulation_clock: next, simulation_due: true}
-          {:noreply, state |> apply_void_damage() |> start_motion() |> sample_pose()}
+
+          {:noreply,
+           state |> apply_void_damage() |> tick_food() |> start_motion() |> sample_pose()}
 
         {:early, next, delay} ->
           Process.send_after(self(), {:player_tick, next.token}, delay)
@@ -1094,6 +1097,53 @@ defmodule Valimc.Connection do
 
   defp apply_void_damage(state), do: state
 
+  defp tick_food(%{life_stage: :alive} = state) do
+    {difficulty, regeneration} = World.Clock.survival()
+    before = state.player
+    phase = rem(before.food_phase + 1, 20)
+
+    {food, peaceful_heal} =
+      PlayerFood.peaceful(before.food, before.health, difficulty, regeneration, phase)
+
+    health = heal(before.health, peaceful_heal)
+    {food, effect} = PlayerFood.tick(food, health, difficulty, regeneration)
+    health = heal(health, effect.heal)
+    player = %{before | food: food, food_phase: phase, health: health}
+    state = %{state | player: player}
+
+    if before.food != food or before.health != health, do: Players.update(self(), player)
+
+    # Native replication observes health, food and whether saturation crossed zero.
+    if before.health.value != health.value or before.food.level != food.level or
+         before.food.saturation == 0 != (food.saturation == 0),
+       do: send_packets(state, [Packets.health(health, food)])
+
+    if before.health.value != health.value do
+      packet = Packets.player_health(player)
+      send_packets(state, [packet])
+      broadcast_player_packet(state, packet)
+    end
+
+    if effect.damage > 0 do
+      {:ok, selected} = PlayerHealth.hurt_window(health, effect.damage)
+      {_, state} = apply_damage(state, selected, :starve)
+      state
+    else
+      state
+    end
+  end
+
+  defp tick_food(state), do: state
+
+  defp heal(health, amount) do
+    if health.value > 0 and amount > 0 do
+      {:ok, next} = PlayerHealth.set(health, health.value + amount)
+      next
+    else
+      health
+    end
+  end
+
   defp apply_damage(state, selected, source) do
     cond do
       state.life_stage != :alive or not selected.accepted ->
@@ -1157,6 +1207,7 @@ defmodule Valimc.Connection do
         source == :freeze -> " froze to death"
         source == :drown -> " drowned"
         source == :out_of_world -> " fell out of the world"
+        source == :starve -> " starved to death"
         source == :stalagmite -> " was impaled on a stalagmite"
         true -> " hit the ground too hard"
       end
@@ -1642,7 +1693,8 @@ defmodule Valimc.Connection do
       motion: %PlayerMotion{},
       environment: %PlayerEnvironment{},
       air_supply: Valimc.PlayerAir.maximum(),
-      food: %Valimc.PlayerFood{},
+      food: %PlayerFood{},
+      food_phase: 0,
       health: %PlayerHealth{},
       last_death: nil,
       pose: :standing,
@@ -1693,7 +1745,7 @@ defmodule Valimc.Connection do
                 ),
               environment: %PlayerEnvironment{frozen_ticks: Map.get(snapshot, :frozen_ticks, 0)},
               air_supply: Map.get(snapshot, :air_supply, Valimc.PlayerAir.maximum()),
-              food: Map.get(snapshot, :food, %Valimc.PlayerFood{})
+              food: Map.get(snapshot, :food, %PlayerFood{})
           }
 
           player = if health.value <= 0, do: PlayerLife.dead(player), else: player

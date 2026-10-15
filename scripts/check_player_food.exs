@@ -1,6 +1,7 @@
 alias Valimc.{PlayerFood, PlayerHealth}
 [path] = System.argv()
 data = path |> File.read!() |> JSON.decode!()
+unless data["default_regeneration"], do: raise("Native regeneration default changed")
 
 food = fn row ->
   %PlayerFood{

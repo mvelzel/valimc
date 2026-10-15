@@ -43,6 +43,11 @@ defmodule Valimc.World.Clock do
     view
   end
 
+  def survival do
+    [{:survival, view}] = :ets.lookup(__MODULE__, :survival)
+    view
+  end
+
   @impl true
   def init(opts) do
     Process.flag(:trap_exit, true)
@@ -119,6 +124,9 @@ defmodule Valimc.World.Clock do
     with {:ok, difficulty} <- Difficulty.lock(data.difficulty, locked),
          do: {:ok, %{data | difficulty: difficulty}}
   end
+
+  defp change(data, {:natural_regeneration, value}) when is_boolean(value),
+    do: {:ok, %{data | natural_regeneration: value}}
 
   defp change(data, {:advance_weather, value}) when is_boolean(value),
     do: {:ok, %{data | weather: %{data.weather | advance_weather: value}}}
@@ -251,7 +259,8 @@ defmodule Valimc.World.Clock do
     :ets.insert(state.table, [
       {:network, version, periodic, latest},
       {:weather, view},
-      {:difficulty, difficulty}
+      {:difficulty, difficulty},
+      {:survival, {state.data.difficulty.level, state.data.natural_regeneration}}
     ])
   end
 

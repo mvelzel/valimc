@@ -1,6 +1,6 @@
 # VMC-036a — Owned hunger and regeneration
 
-Status: Native transitions verified; owner composition in progress. October 15, 2026.
+Status: Live clock/journal/HUD automated-verified; graphical gate pending. October 15, 2026.
 Depends on owned health, the admitted player clock and durable player snapshots.
 
 Acceptance: food, saturation, exhaustion and the regeneration timer belong to
@@ -41,7 +41,30 @@ Seventy affected tests pass, including a real TCP saved-food/damage/reconnect/
 death/respawn scenario. The expanded lifecycle oracle matches241 bidirectional
 packets, including80 health/food/saturation combinations, plus eight command
 boundaries. Raw `.local/player-food-journal-tests.log`, `.local/player-food-life-*.log`.
-Owner ticking, gameplay exhaustion and graphical validation remain open.
+At that checkpoint owner ticking remained open; the next checkpoint completes it below.
+
+Live clock: admitted owner ticks advance food once, after void consequences.
+Food and health observations are published together; health/food/zero-saturation
+changes replicate without per-tick packets. Peaceful body phase is transient and
+resets on reconnect/respawn. The world record v4 stores natural regeneration;
+v1..3 retain the native true default. Difficulty and rule publish as one ETS pair,
+so a stalled world owner cannot block food ticks. Dead/sealing bodies stop food.
+Starvation uses ordinary loading/mode/cooldown rules and the durable death lane.
+Native damage probes verify that starvation bypasses armor/effects despite worn
+Protection points:62,400 source/gear cases and245 bidirectional health/lifecycle
+packets pass. Food arithmetic/default probes remain verified.
+
+The131 affected tests pass, including eight food TCP scenarios covering exact
+fast/ordinary healing, exhaustion, stale/early ticks, peaceful fractional recovery,
+disabled regeneration, published settings under a stalled world owner, difficulty
+floors, protection bypass/shared cooldown, damaged reconnect and fatal hard-mode
+starvation with two durable batches and fresh food on respawn. Other damage tests
+use an explicit no-regeneration fixture; production defaults remain native true.
+Two initial test failures found a ready-publication race in fixture lookup and an
+expected health value that omitted worn fall protection; both fixtures were fixed.
+Logs: `.local/player-food-owner-affected-tests.log`, `.local/food-survival-rules-tests.log`,
+`.local/starvation-{protection,life}-*.log`. Actual client validation remains pending.
+Accepted movement/action exhaustion and consuming items remain subsequent work.
 
 Client scenario: seed a damaged survival body and observe actual hearts recover
 with full food; low food prevents healing, exhaustion spends saturation then food,

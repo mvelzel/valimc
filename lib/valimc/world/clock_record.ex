@@ -13,7 +13,8 @@ defmodule Valimc.World.ClockRecord do
       advance_time: true,
       clocks: Map.new(@names, &{&1, %ClockState{}}),
       weather: Weather.new(),
-      difficulty: %Difficulty{}
+      difficulty: %Difficulty{},
+      natural_regeneration: true
     }
 
   def valid?(%{
@@ -21,12 +22,13 @@ defmodule Valimc.World.ClockRecord do
         advance_time: advance,
         clocks: clocks,
         weather: weather,
-        difficulty: difficulty
+        difficulty: difficulty,
+        natural_regeneration: regeneration
       }) do
     is_integer(time) and time in -9_223_372_036_854_775_808..9_223_372_036_854_775_807 and
       is_boolean(advance) and is_map(clocks) and Enum.sort(Map.keys(clocks)) == Enum.sort(@names) and
       Enum.all?(clocks, fn {_, clock} -> ClockState.valid?(clock) end) and Weather.valid?(weather) and
-      Difficulty.valid?(difficulty)
+      Difficulty.valid?(difficulty) and is_boolean(regeneration)
   end
 
   def valid?(_), do: false
@@ -57,11 +59,12 @@ defmodule Valimc.World.ClockRecord do
 
       body =
         IO.iodata_to_binary([
-          <<"VMCLOCK", 3, 5023::32, data.game_time::signed-64,
+          <<"VMCLOCK", 4, 5023::32, data.game_time::signed-64,
             if(data.advance_time, do: 1, else: 0), length(@names)>>,
           entries,
           weather_bytes(data.weather),
-          <<data.difficulty.level, if(data.difficulty.locked, do: 1, else: 0)>>
+          <<data.difficulty.level, if(data.difficulty.locked, do: 1, else: 0),
+            if(data.natural_regeneration, do: 1, else: 0)>>
         ])
 
       {:ok, body <> :crypto.hash(:sha256, body)}
@@ -75,7 +78,7 @@ defmodule Valimc.World.ClockRecord do
     <<body::binary-size(^body_size), checksum::binary-size(32)>> = bytes
     true = checksum == :crypto.hash(:sha256, body)
     <<"VMCLOCK", version, 5023::32, time::signed-64, advance, count, entries::binary>> = body
-    true = version in [1, 2, 3]
+    true = version in [1, 2, 3, 4]
     true = advance in [0, 1] and count == length(@names)
 
     {clocks, weather_bytes} =
@@ -91,14 +94,24 @@ defmodule Valimc.World.ClockRecord do
          }), tail}
       end)
 
-    {weather, difficulty} = read_environment(version, weather_bytes)
+    {regeneration, weather_bytes} =
+      if version >= 4 do
+        <<environment::binary-size(25), regeneration>> = weather_bytes
+        true = regeneration in [0, 1]
+        {regeneration == 1, environment}
+      else
+        {true, weather_bytes}
+      end
+
+    {weather, difficulty} = read_environment(min(version, 3), weather_bytes)
 
     data = %{
       game_time: time,
       advance_time: advance == 1,
       clocks: clocks,
       weather: weather,
-      difficulty: difficulty
+      difficulty: difficulty,
+      natural_regeneration: regeneration
     }
 
     true = valid?(data)

@@ -57,7 +57,7 @@ public class PlayerFoodOracle {
     SharedConstants.tryDetectVersion();Bootstrap.bootStrap();
     var unsafe=(sun.misc.Unsafe)field(sun.misc.Unsafe.class,"theUnsafe").get(null);
     var p=(Probe)unsafe.allocateInstance(Probe.class);p.world=(ProbeLevel)unsafe.allocateInstance(ProbeLevel.class);
-    p.world.rules=new GameRules(FeatureFlagSet.of());
+    p.world.rules=new GameRules(FeatureFlagSet.of());boolean defaultRegeneration=p.world.rules.get(GameRules.NATURAL_HEALTH_REGENERATION);
     var lookup=VanillaRegistries.createWorldLookup();var source=lookup.lookupOrThrow(Registries.DAMAGE_TYPE);
     var damage=new MappedRegistry<DamageType>(Registries.DAMAGE_TYPE,Lifecycle.stable());
     for(var id:source.listElementIds().toList())damage.register(id,source.getOrThrow(id).value(),RegistrationInfo.BUILT_IN);
@@ -96,7 +96,7 @@ public class PlayerFoodOracle {
       if(!Set.of("getIntOr","getFloatOr").contains(method.getName()))throw new AssertionError(method);return a[1];
     });
     var missing=food(0,0,40,79);missing.readAdditionalSaveData(empty);
-    var result=new JsonObject();result.add("defaults",defaults);result.add("missing",state(missing));result.add("ticks",ticks);result.add("peaceful",peaceful);result.add("exhaustion",additions);result.add("meals",meals);
+    var result=new JsonObject();result.addProperty("default_regeneration",defaultRegeneration);result.add("defaults",defaults);result.add("missing",state(missing));result.add("ticks",ticks);result.add("peaceful",peaceful);result.add("exhaustion",additions);result.add("meals",meals);
     Files.writeString(Path.of(args[0]),new Gson().toJson(result));
     System.out.println("PASS: "+ticks.size()+" native food ticks, "+peaceful.size()+" peaceful prefixes, "+additions.size()+" exhaustion and "+meals.size()+" meal transitions plus save/load defaults; health/damage callbacks controlled.");
   }

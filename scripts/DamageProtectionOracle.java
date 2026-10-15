@@ -89,7 +89,7 @@ public class DamageProtectionOracle {
     var names=JsonParser.parseString(Files.readString(Path.of("priv/protocol/registries.json"))).getAsJsonObject().getAsJsonArray("minecraft:damage_type");
     var bindTags=Holder.Reference.class.getDeclaredMethod("bindTags",Collection.class);bindTags.setAccessible(true);
     var cases=new JsonArray();
-    for(var type:List.of(DamageTypes.FALL,DamageTypes.STALAGMITE,DamageTypes.FREEZE,DamageTypes.DROWN,DamageTypes.FELL_OUT_OF_WORLD)){
+    for(var type:List.of(DamageTypes.FALL,DamageTypes.STALAGMITE,DamageTypes.FREEZE,DamageTypes.DROWN,DamageTypes.FELL_OUT_OF_WORLD,DamageTypes.STARVE)){
       var holder=lookup.lookupOrThrow(Registries.DAMAGE_TYPE).getOrThrow(type);int id=-1;
       for(int i=0;i<names.size();i++)if(names.get(i).getAsString().equals(type.identifier().toString()))id=i;
       if(id<0)throw new AssertionError(type);var keys=new ArrayList<TagKey<DamageType>>();
@@ -108,6 +108,6 @@ public class DamageProtectionOracle {
       }
     }
     Files.writeString(Path.of(args[0]),new Gson().toJson(cases));
-    System.out.println("PASS: "+cases.size()+" native equipment/protection/armor-bypass/magic damage cases; fall/stalagmite/freeze/drown/void, all "+registry.size()+" enchantments, levels0/1/4/255, stored and hand negatives, stacked caps. Effects/health/world mutation excluded.");
+    System.out.println("PASS: "+cases.size()+" native equipment/protection/armor-bypass/magic damage cases; fall/stalagmite/freeze/drown/void/starve, all "+registry.size()+" enchantments, levels0/1/4/255, stored and hand negatives, stacked caps. Effects/health/world mutation excluded.");
   }
 }

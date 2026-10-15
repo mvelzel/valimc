@@ -161,7 +161,7 @@ defmodule Valimc.Protocol.Packets do
   def damage_event(entity_id, source \\ :fall) do
     life_entity_id!(entity_id)
 
-    unless source in [:fall, :stalagmite, :freeze, :drown, :out_of_world],
+    unless source in [:fall, :stalagmite, :freeze, :drown, :out_of_world, :starve],
       do: raise(ArgumentError, "invalid damage source")
 
     packet("damage_event", [

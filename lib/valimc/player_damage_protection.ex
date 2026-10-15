@@ -7,7 +7,7 @@ defmodule Valimc.PlayerDamageProtection do
   def points(%Inventory{}, :out_of_world), do: 0
 
   def points(%Inventory{slots: slots}, source)
-      when source in [:fall, :stalagmite, :freeze, :drown] do
+      when source in [:fall, :stalagmite, :freeze, :drown, :starve] do
     # Every pinned item has empty default enchantments. Native slot matching
     # applies both fall effects to all four player armor slots, including patched gear.
     feather = if source in [:fall, :stalagmite], do: 3, else: 0
@@ -27,6 +27,10 @@ defmodule Valimc.PlayerDamageProtection do
   end
 
   @doc "Apply native float32 protection after cooldown selection; these sources bypass armor/wear."
+  def damage(%Inventory{}, :starve, amount)
+      when is_number(amount) and amount >= 0 and amount <= @float_max,
+      do: {:ok, f32(amount)}
+
   def damage(%Inventory{} = inventory, source, amount)
       when source in [:fall, :stalagmite, :freeze, :drown, :out_of_world] and is_number(amount) and
              amount >= 0 and

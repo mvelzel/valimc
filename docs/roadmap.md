@@ -66,8 +66,10 @@ indexes validated tickets. None imply full parity.
    preview loads; actual-client validation remains pending.
    [Void damage](tickets/VMC-017b3.md) passes 67 affected tests and native
    boundary/mode/loading/defense/codecs; actual-client validation remains pending.
-   [Hunger/regeneration](tickets/VMC-036a.md) is the next independent slice:
-   native food/peaceful arithmetic first, then owned clock, save and HUD composition.
+   [Hunger/regeneration](tickets/VMC-036a.md) passes131 affected tests and native
+   food/peaceful/defense/codecs. Owned clock, journal, rules and HUD are implemented;
+   broader block checks and graphical validation remain pending. Movement/action
+   exhaustion and consuming items are subsequent slices.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
@@ -91,6 +93,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 | [VMC-017b1](tickets/VMC-017b1.md) | Actual periodic freezing, immunity, reconnect and fatal respawn | Frozen `0b2ad043` |
 | [VMC-017b2](tickets/VMC-017b2.md) | Actual bubbles/drain/recovery, gear, reconnect and fatal drowning | Local air checkpoint |
 | [VMC-017b3](tickets/VMC-017b3.md) | Actual void damage/modes, reconnect and fatal respawn | Local void checkpoint |
+| [VMC-036a](tickets/VMC-036a.md) | Actual hunger HUD/healing/starvation, reconnect and respawn | Local food checkpoint |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

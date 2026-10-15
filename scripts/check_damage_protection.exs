@@ -27,5 +27,5 @@ for c <- cases do
 end
 
 IO.puts(
-  "PASS: #{length(cases)} native worn protection/armor-bypass/magic damage cases, including void."
+  "PASS: #{length(cases)} native worn protection/armor-bypass/magic damage cases, including void/starvation."
 )
