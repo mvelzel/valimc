@@ -1,9 +1,9 @@
 # VMC-015d — Player fluid travel
 
-Status: In progress; [default live composition](VMC-015d1.md) is awaiting validation. October 15, 2026.
+Status: In progress; [default live composition](VMC-015d1.md) is validated (`2e66935`). October 15, 2026.
 Follows [dry travel](VMC-015b1.md) and [saved velocity](VMC-015b2.md).
 
-Replace the current fluid exclusion with bounded water/lava observations and
+Build bounded water/lava observations and
 native travel math on the existing player geometry lane. Keep accepted position
 separate from scratch motion. Flow propagation belongs to VMC-031.
 
@@ -80,3 +80,10 @@ Client gate: actual water/lava entry/exit, shallow/deep and waterlogged boundari
 swim/sink, wall/surface escape, flight, saved velocity and dry impulse regression.
 Damage/oxygen, effects/complete swimming attributes and propagation need explicit
 follow-ups. A scalar catalog or arithmetic-only probe cannot close this ticket.
+
+Default live travel is now complete within [VMC-015d1](VMC-015d1.md)'s scope:
+actual water/lava movement, current, vertical controls, flight exclusion and
+in-water reconnect passed; full suite/native/build and frozen preview loads pass.
+The preceding checkpoint notes record incremental proofs, not current exclusions.
+[Swimming state/geometry](VMC-015d2.md) is next; steering, effects/attributes,
+waterlogged client coverage, damage/oxygen and propagation remain open.

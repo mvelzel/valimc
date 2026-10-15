@@ -32,10 +32,11 @@ indexes validated tickets. None imply full parity.
    [Fluid travel](tickets/VMC-015d.md) is in progress: complete material facts/body
    depths validated (`01c4627`); local native water/lava kernels (`0ae6ef3`).
    Current, contextual support and vertical input match native cases. [Default
-   live composition](tickets/VMC-015d1.md) has targeted checks passing; client and
-   integration gates are running. [Swimming state/geometry](tickets/VMC-015d2.md)
-   follows with native eye-contact and transition kernels checked; live wiring and
-   client validation remain.
+   live composition](tickets/VMC-015d1.md) is validated (`2e66935`): actual water/
+   lava/current/input/flight/reconnect, 578 tests, full native integration,
+   production release and frozen preview loads. [Swimming state/geometry](tickets/VMC-015d2.md)
+   follows with native eye-contact and transition kernels checked; live/client
+   validation remains.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
@@ -54,7 +55,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
-| [VMC-015d1](tickets/VMC-015d1.md) | Default water/lava current/input/travel, escape, flight and dry regression | Local checkpoint pending |
+| [VMC-015d2](tickets/VMC-015d2.md) | Actual swimming entry/tunnel/exit, crawl distinction, flight and peer flags | Live checkpoint in progress |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection
