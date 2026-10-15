@@ -27,8 +27,8 @@ indexes validated tickets. None imply full parity.
    bounded player tick/geometry lane; validated and complete within its scope
    (`6691f43`), including frozen loads and actual-client regression after
    eliminating duplicate pose observations.
-   [Saved velocity](tickets/VMC-015b2.md) has targeted/native checks passing;
-   its airborne reconnect client gate is next.
+   [Saved velocity](tickets/VMC-015b2.md) is validated and complete within its
+   scope (`18aad55`): direct airborne/ground reconnect, landing, jump and flight.
    [Fluid travel](tickets/VMC-015d.md) is in progress: complete material facts,
    then bounded contact/current observations and water/lava velocity on the same lane.
    [Environment ticks](tickets/VMC-015c.md) share the
@@ -49,7 +49,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
-| [VMC-015b2](tickets/VMC-015b2.md) | Airborne reconnect with saved velocity | Local `18aad55` |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection
