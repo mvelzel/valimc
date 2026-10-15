@@ -51,10 +51,11 @@ Keep README small; put feature evidence in its ticket. Use `rg` to retrieve deta
   block; fix integration failures. Do not repeat broad checks for every commit
   (user instruction, October 15, 2026). Use meaningful boundary regressions.
 - Always delegate actual Minecraft validation to one dedicated testing subagent.
-  Only it drives CUA; the primary continues independent work. Hand off exact
-  checkpoint/release, dataset, scenarios and evidence paths. Coordinate restarts
-  and fixtures; never replace a release under test. Review its report before Done
-  or publication; failures become fix/retest tasks.
+  Use medium reasoning with a focused fresh handoff (`reasoning_effort: "medium"`,
+  `fork_turns: "none"`). Only it drives CUA; the primary continues independent work.
+  Hand off exact checkpoint/release, dataset, scenarios and evidence paths.
+  Coordinate restarts and fixtures; never replace a release under test. Review its
+  report before Done or publication; failures become fix/retest tasks.
 - Use `mcp__cua_repl`, app `local.valimc.minecraft-client`, Launcher installation
   **ValiMC computer-use test**, Java 26.3. Try even while the Mac is locked; access
   is authorized. Unavailable CUA leaves the gate pending, not the backlog halted.
