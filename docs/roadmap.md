@@ -35,10 +35,9 @@ indexes validated tickets. None imply full parity.
    live composition](tickets/VMC-015d1.md) is validated (`2e66935`): actual water/
    lava/current/input/flight/reconnect, 578 tests, full native integration,
    production release and frozen preview loads. [Swimming state/geometry](tickets/VMC-015d2.md)
-   has live pose/flag ownership and 65 affected tests passing; frozen client
-   validation has resumed on frozen `3c99728`. [Pitch steering](tickets/VMC-015d3.md)
-   has native/frame proofs, active-water 512/128-player loads, 587 tests and a
-   production release passing; full native integration/client gates remain.
+   and [pitch steering](tickets/VMC-015d3.md) are validated (`3c99728`): actual
+   tunnel/crawl/peer/pitch/flight/reconnect, 587 tests, full native integration,
+   production release and active-water 512/128-player loads.
    [Climbing](tickets/VMC-015e.md) has native motion kernels checked, with material
    facts and live wiring next. Effects/survival consequences remain open.
    [Environment ticks](tickets/VMC-015c.md) share the
@@ -59,8 +58,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
-| [VMC-015d2](tickets/VMC-015d2.md) | Actual swimming entry/tunnel/exit, crawl distinction, flight and peer flags | Frozen `3c99728`, running |
-| [VMC-015d3](tickets/VMC-015d3.md) | Actual camera steering/surface/flight | Frozen `3c99728`, running |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

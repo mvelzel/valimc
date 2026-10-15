@@ -85,5 +85,8 @@ Default live travel is now complete within [VMC-015d1](VMC-015d1.md)'s scope:
 actual water/lava movement, current, vertical controls, flight exclusion and
 in-water reconnect passed; full suite/native/build and frozen preview loads pass.
 The preceding checkpoint notes record incremental proofs, not current exclusions.
-[Swimming state/geometry](VMC-015d2.md) is next; steering, effects/attributes,
-waterlogged client coverage, damage/oxygen and propagation remain open.
+[Swimming state/geometry](VMC-015d2.md) and [vertical pitch steering](VMC-015d3.md)
+are validated (`3c99728`), including actual mouse control/tunnel/peer/reconnect,
+full integration and active-water loads. Relative horizontal acceleration,
+effects/attributes, waterlogged client coverage, damage/oxygen and propagation
+remain open. [Climbing](VMC-015e.md) is the next active movement slice.
