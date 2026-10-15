@@ -22,3 +22,8 @@ client gate is inferred from argument construction or a native oracle.
 Motivation: a saved-row click after a screenshot-size change selected an unverified
 server during VMC-015b2. That ground reconnect is invalid; its feature gate stays
 open. The new workflow removes server-menu selection entirely.
+
+First run exited during SDL initialization before joining; no GUI input occurred.
+Its owned JVM is gone and the server has zero players. A rejected simulation-
+distance value was corrected to the native minimum 5; retry needs native GUI
+access outside the shell sandbox. Failed evidence stays in `.local/client-tests/VMC-003c/run-01/`.
