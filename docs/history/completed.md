@@ -17,6 +17,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-015g default contacts](../tickets/VMC-015g.md) | `bc4eb1e`: player-owned slowing/history/consumption; native/full tests/build, actual client and controlled loads validated; status-effect ownership/damage remain |
 | [VMC-015h](../tickets/VMC-015h.md) | `6ca22ef`: sneaking ledges/corners/slabs, jump/flight exclusions and composition; native/affected tests and actual client validated |
 | [VMC-017a health/login/save](../tickets/VMC-017a.md) | `18028cd`: owned health/timers, snapshot/journal retention and actual hearts/inventory/reconnect validated; fall damage/death/respawn remain |
+| [VMC-017a1](../tickets/VMC-017a1.md) | `0b2ad043`: actual death/drops/respawn/dead reconnect; durable bounded cleanup, 687 full tests and production build; automatic falls/freezing retain separate gates |
 | [VMC-004a](../tickets/VMC-004a.md) | 6dc5dd3 |
 | [VMC-004b1](../tickets/VMC-004b1.md) | 2e75988 |
 | [VMC-004b2a](../tickets/VMC-004b2a.md) | Validated |

@@ -53,8 +53,8 @@ indexes validated tickets. None imply full parity.
    [Owned health/fall damage](tickets/VMC-017a.md) has native calculation, health/
    cooldown, codec and journal foundations. Owner/login/timer composition is
    validated (`18028cd`): 75 affected tests and actual hearts/inventory/reconnect.
-   [Death/respawn](tickets/VMC-017a1.md) owner composition passes 92 affected tests
-   and native codecs locally; its actual death/respawn/reconnect gate is next.
+   [Death/respawn](tickets/VMC-017a1.md) is validated and complete within scope
+   (`0b2ad043`): actual death/drops/respawn/dead reconnect, 687 full tests and build.
    [Automatic landing damage](tickets/VMC-017a2.md) passes 93 affected tests,
    71,530 native material cases and native support/codecs; its graphical gate is pending.
    [Fall enchantment defenses](tickets/VMC-017a3.md) pass 41 affected tests and
@@ -80,7 +80,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
-| [VMC-017a1](tickets/VMC-017a1.md) | Retest corrected respawn loading and dead reconnect; run04 verified death/drops | Local corrected checkpoint |
 | [VMC-017a2](tickets/VMC-017a2.md) | Actual survival falls/materials, damaged reconnect and fatal landing/respawn | Local `687fc7e` |
 | [VMC-017a3](tickets/VMC-017a3.md) | Actual worn protection, hand/stored negatives, gear/health reconnect | Local fall-defense checkpoint |
 | [VMC-017b1](tickets/VMC-017b1.md) | Actual periodic freezing, immunity, reconnect and fatal respawn | Local freezing checkpoint |
