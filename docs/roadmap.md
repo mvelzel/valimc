@@ -52,6 +52,7 @@ keep IDs stable and append suffixes rather than renumbering.
 | [VMC-014b6d](tickets/VMC-014b6d.md) | Done — pushed `95db9a5` | 421 tests/release/full native suite; 300 native height probes and actual cross-region wall/removal, failure isolation, below-bedrock contact, cleanup/reconnect pass; commit fencing remains |
 | [VMC-014c2](tickets/VMC-014c2.md) | Done — validated | 428 tests/release/full native suite; 26,722 native steps/5,320 height sets and actual slab/stair/low-ceiling, cleanup/reconnect/restart pass; authority remains |
 | [VMC-014c3a](tickets/VMC-014c3a.md) | Done — validated | 439 tests/release/full native suite; actual Shift/sprint/release, peer flags and dedicated keyboard-only reconnect/commands/fresh-log checks pass |
+| [VMC-014c3b1](tickets/VMC-014c3b1.md) | Done — client validated | Native geometry/65,536 selections and actual standing/crouch retention/exit/reconnect pass; live authority remains |
 | [VMC-016a](tickets/VMC-016a.md) | Done — creative flight validated, pushed | 326 tests/release/full oracle, native ability matrix and actual double-Space/hover/reconnect/restart/flight-off/cleanup pass; full mode transitions remain |
 | [VMC-007c3](tickets/VMC-007c3.md) | Done — discovery/recovery validated, pushed | 317 tests/release/full oracle, 31 native discovery facts and actual cached reconnect/offline rejection/owner recovery/restart/cleanup pass |
 | [VMC-005a](tickets/VMC-005a.md) | Done — `123d1d0`, validated | Owner-local 46-slot menu; actual selection/offhand/swap/resync and automated/oracle checks pass |
@@ -163,6 +164,8 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | [VMC-014c2](tickets/VMC-014c2.md) | Step-up selection | Native float32 height candidates, lowered start/query box and first improving movement |
 | [VMC-014c3a](tickets/VMC-014c3a.md) | Input and shared flags | Native input/command/load semantics, bounded self/peer replication and actual held-key checks |
 | VMC-014c3b | Pose selection and dimensions | Native pose precedence, fit checks and eye heights; separate intent from selected collision pose |
+| [VMC-014c3b1](tickets/VMC-014c3b1.md) | Supplied-fit pose primitives | Native dimensions/boxes, precedence, fit-query order and explicit missing observations |
+| VMC-014c3b2 | Live pose fitting and replication | Bounded entity/block observations, fencing and metadata; update interactions only after authoritative selection |
 | VMC-015 | Gravity, velocity and grounded state | Authoritative fall distance, acceleration, knockback and prediction agreement |
 | VMC-016 | Game modes and abilities | Survival/creative/adventure/spectator interaction and UI rules |
 | [VMC-016a](tickets/VMC-016a.md) | Owned abilities and persistent creative flight | Native matrix/codecs, permission-gated client flight, journal/reconnect/restart and actual double-Space |
