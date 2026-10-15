@@ -120,6 +120,37 @@ defmodule Valimc.PlayerLandingConnectionTest do
     :ok
   end
 
+  test "forecast bed restitution does not impulse self before the accepted landing", ctx do
+    seed(ctx, y: 64.44045513047197, distance: 7.559544861316681)
+    assert :ok = World.set_block({floor(ctx.pose.x), 63, floor(ctx.pose.z)}, 2257)
+    {client, pid} = login(ctx)
+    assert :ok = Connection.set_velocity(pid, {0.0, -1.026, 0.0})
+    {_, client} = Client.await(client, :play, "set_entity_motion")
+    wait(fn -> elem(state(pid).player.motion.velocity, 1) > 0 end)
+    assert state(pid).player.y == 64.44045513047197
+    assert state(pid).player.health.value == 20.0
+    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
+    client = without_bounce_impulse(client)
+    move(client, pid, 63.5625, 1)
+    wait(fn -> state(pid).player.y == 63.5625 end)
+    assert state(pid).player.health.value == 19.0
+    assert state(pid).player.motion.fall_distance == 0.0
+    Client.send_packet(client, :play, "move_player_status_only", <<1>>)
+    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
+    {_, _client} = Client.await(client, :play, "system_chat")
+    assert state(pid).player.health.value == 19.0
+  end
+
+  defp without_bounce_impulse(client) do
+    {id, body, client} = Client.read(client)
+    name = Data.name(:play, :clientbound, id)
+    refute name == "set_entity_motion", "predicted bounce must not become an early self impulse"
+
+    if name == "system_chat",
+      do: client,
+      else: without_bounce_impulse(Client.auto_reply(client, :play, name, body))
+  end
+
   for {distance, damage} <- [{3.5, 0.0}, {4.0, 1.0}, {8.0, 5.0}] do
     test "accepted #{distance}-block fall applies #{damage} damage once and retains it on reconnect",
          ctx do

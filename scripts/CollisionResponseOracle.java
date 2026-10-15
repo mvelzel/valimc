@@ -94,13 +94,14 @@ public class CollisionResponseOracle {
             var movement=new Vec3(.2,y,-.3);double movedY=y*fraction;
             player.suppress=(flags&16)!=0;player.bounce=bounce;player.gravity=gravity;player.drag=drag;
             player.verticalCollision=vertical;player.verticalCollisionBelow=below;
-            player.syncPosition=false;player.events=0;player.rejected=false;player.setDeltaMovement(movement);
+            player.syncPosition=false;player.syncVelocity=false;player.events=0;player.rejected=false;player.setDeltaMovement(movement);
             try{method.invoke(player,block.defaultBlockState(),x,z,new Vec3(0,movedY,0));}
             catch(InvocationTargetException error){throw error.getCause();}
             var output=player.getDeltaMovement();
             if(!output.isFinite())throw new AssertionError("Native retained nonfinite velocity");
             if(player.rejected)rejected++;
             if(player.syncPosition!=(player.events==1))throw new AssertionError("Bounce event/sync differs");
+            if(player.syncVelocity)throw new AssertionError("Restitution must not request controlling-client velocity sync");
             var c=new JsonObject();c.add("movement",vector(movement));c.addProperty("moved_y",movedY);
             c.addProperty("x_collision",x);c.addProperty("z_collision",z);
             c.addProperty("vertical_collision",vertical);c.addProperty("below",below);

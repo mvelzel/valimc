@@ -35,6 +35,14 @@ effective identity, clearing and tracking recreation. Evidence
 `.local/player-equipment-{compile,affected-tests}.log`. Actual peer rendering is
 still pending; native packet equality alone does not complete the client gate.
 
+Block checks: 767 full tests (seed327342), separate production build and both
+plaintext/encrypted native TCP transports pass on frozen
+`19555bc2cfaacaaf6dbdba09f49d7c36075fdcce` (596 blobs/no mismatches).
+Logs `.local/equipment-block-full-tests.log`, `.local/equipment-validation-production.log`,
+`.local/equipment-native-tcp-final.log`. The initial isolated TCP attempt timed
+out compiling the fresh dev tree; explicit dev compilation followed by the same
+driver passed. These checks exclude the subsequent bed-bounce fix.
+
 Client scenario: a second local peer changes held bread/bowl, swaps hands, equips
 and removes armor, changes item components and reconnects. Observe third-person
 use animation with the correct item; clearing/recreated entities must not retain

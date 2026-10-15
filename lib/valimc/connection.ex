@@ -2312,7 +2312,15 @@ defmodule Valimc.Connection do
       end
 
     state = %{state | player: player}
-    if bounced, do: send_velocity(state, player.motion.velocity), else: state
+    # Native restitution marks syncPosition, not syncVelocity. The controlling
+    # client already simulates contact; a forecast impulse here bounces it before
+    # reaching the block and can suppress the actual landing packet/damage.
+    if bounced do
+      packet = Valimc.Protocol.EntityPackets.motion(player.entity_id, player.motion.velocity)
+      broadcast_player_packet(state, packet)
+    else
+      state
+    end
   end
 
   defp send_velocity(state, velocity) do
