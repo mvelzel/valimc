@@ -45,9 +45,12 @@ under `docs/tickets/` before changing behavior. Keep these records updated.
   Split large backlog entries into reviewable slices
   before implementation. Write acceptance criteria and a real-client scenario
   first. Never mark a partially implemented subsystem complete.
-- Run `mix format --check-formatted`, `mix test`, and a production release build.
-  Add meaningful behavior/failure-boundary regression tests. Protocol changes also
-  require `python3 scripts/check_vanilla.py` with Mojang's 26.3 codecs/registry loader.
+- For individual commits, check changed-file formatting and run only the affected
+  tests and verifications, including relevant native codec/behavior probes. Add
+  meaningful behavior/failure-boundary regressions. Run the full test suite,
+  complete native oracle and production release build after a larger coherent
+  block of work, then fix any integration failures. Do not repeat these broad
+  checks for every commit (user instruction, October 15, 2026).
 - Manually test every completed piece through actual Minecraft 26.3 with computer
   use. On this Mac use the `ValiMC computer-use test` Launcher installation and
   app ID `local.valimc.minecraft-client`. Use `mcp__cua_repl` for UI actions.

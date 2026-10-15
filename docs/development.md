@@ -18,8 +18,11 @@ is a backlog, not implemented parity.
 3. Implement original Elixir code with explicit owners, ordering, bounded work,
    and failure semantics. Avoid a new global coordinator on a gameplay hot path.
 4. Exercise positive behavior, invalid input, and relevant concurrency/durability
-   boundaries. Run the checks below once; repeat after edits, failures, or an
-   unresolved concern. Use temporary worlds and loopback listeners.
+   boundaries. Individual commits need changed-file formatting, affected tests
+   and focused native probes. Run the full suite/native oracle and production
+   build after a larger coherent block, then fix integration failures. This
+   supersedes the earlier per-ticket full-check requirement (October 15, 2026).
+   Use temporary worlds and loopback listeners.
 5. After automated checks, review the exact diff/public-tree audit and make a
    local ticket checkpoint. The user permits committing before manual validation;
    mark the GUI gates pending and keep this checkpoint unpushed.
@@ -56,14 +59,19 @@ blocking defect before relying on that behavior. The user explicitly requested
 continued progress across tickets while computer use is paused.
 
 ```sh
-mix format --check-formatted
-mix test
-python3 scripts/check_vanilla.py  # required for protocol/registry changes
-MIX_ENV=prod mix release --overwrite
+# Individual commit: substitute the changed paths and affected tests/probes.
+mix format --check-formatted lib/valimc/changed.ex test/changed_test.exs
+mix test test/changed_test.exs
 python3 scripts/audit_public_tree.py
 git diff --check
 git diff --stat
 # Stage explicit ticket paths, review git diff --cached, commit, then push.
+
+# Larger coherent block, rather than every commit:
+mix format --check-formatted
+mix test
+python3 scripts/check_vanilla.py
+MIX_ENV=prod mix release --overwrite
 ```
 
 The server runtime needs no JVM. Our Java 25+ development oracle checks actual
