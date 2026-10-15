@@ -17,6 +17,8 @@ indexes validated tickets. None imply full parity.
    [cold admission/ETS routing](tickets/VMC-011a7.md) and
    [live player poses](tickets/VMC-014c3b2b2.md).
    Next: live movement reconciliation with bounded player jobs/corrections.
+2. **[VMC-014c4](tickets/VMC-014c4.md): live movement reconciliation.** Native
+   post-move predicates pass; integrate bounded player jobs/corrections next.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 
