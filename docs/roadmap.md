@@ -18,11 +18,10 @@ indexes validated tickets. None imply full parity.
    [live player poses](tickets/VMC-014c3b2b2.md).
    [Live block-based movement](tickets/VMC-014c4.md) is validated and complete
    within its scope (`d10f566`); gravity/coupled effects remain.
-2. **[VMC-011a8](tickets/VMC-011a8.md): larger-load geometry admission.**
-   Prepared plans/samples and a player-budget worker bound pass the original
-   512-player workload. Repeat longer/frozen loads and delegate the client gate.
-3. **VMC-015: gravity, velocity and grounded state.** Establish native player
-   simulation behavior before adding forces, fall distance and damage.
+2. **VMC-015: gravity, velocity and grounded state.** Native player simulation and
+   accepted-move fall accounting are being established before forces and damage.
+   [Geometry admission](tickets/VMC-011a8.md) is complete within measured preview
+   scope (`8871985`); prepared samples retain owner fencing and bounded work.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 
@@ -40,7 +39,9 @@ native integration, including plaintext/encrypted TCP. Live pose selection
 (`b65e6ec`) passes 113 affected tests, native codecs/TCP and actual-client checks;
 live movement (`d10f566`) passes its client gate, 109 affected tests and both native
 TCP transports. The larger block passes 505 tests, full native integration and a
-production build. The 128-player checks pass; 512-player admission needs work.
+production build. The admission block passes 508 tests, native integration and a
+production build; frozen 512-player and 128-player layouts pass, with client
+movement/flight/reconnect retested. See VMC-011a8 for workload and host-load limits.
 Retain [VMC-018c2](tickets/VMC-018c2.md)'s unreproduced item visibility finding for the next item work.
 
 ## Retrieve and update
