@@ -13,8 +13,9 @@ indexes validated tickets. None imply full parity.
    Resolve coupled state ownership before enforcing movement or publishing selected
    poses. Owner/timer, client-tick admission, block batches and
    [resource separation](tickets/VMC-011a4.md) are validated.
-   [Cold-load isolation](tickets/VMC-011a5.md) is validated;
-   [writer leases](tickets/VMC-011a6.md) await client validation before domain handoffs.
+   [cold-load isolation](tickets/VMC-011a5.md) and
+   [writer leases](tickets/VMC-011a6.md) are validated. Next:
+   [cold admission/ETS routing](tickets/VMC-011a7.md), then fenced domain handoffs.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 
@@ -24,7 +25,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-011a6](tickets/VMC-011a6.md) | Durable item/owner replacement/reconnect | `55ef764` dev snapshot |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 

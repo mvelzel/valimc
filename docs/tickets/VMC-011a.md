@@ -1,6 +1,6 @@
 # VMC-011a — Authoritative simulation ownership and tick order
 
-Status: In progress — resource/loading separation validated; writer leases await client. October 15, 2026.
+Status: In progress — resource/loading/writer separation validated; admission directory next. October 15, 2026.
 
 The pose/movement math is usable, but region read revisions and ETS publications
 cannot authorize coupled gameplay. Resolve this before publishing live selected
@@ -42,6 +42,6 @@ Owner-local tick identity and client-tick admission are validated. Block commits
 provide a bounded local boundary; coupled domains still need implementation.
 No slice declares live movement authority until integrated owners and actual
 reconciliation pass.
-Resource/owner separation and cold-load isolation are validated. Independently
-supervised, fenced writers await their client gate. Their topology/handoff
-stages remain unimplemented authority.
+Resource/owner separation, cold-load isolation and supervised writer leases are
+validated. Cold admission/ETS routing is next; topology/handoff stages remain
+unimplemented authority.
