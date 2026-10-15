@@ -68,14 +68,16 @@ indexes validated tickets. None imply full parity.
    boundary/mode/loading/defense/codecs; actual-client validation remains pending.
    [Hunger/regeneration](tickets/VMC-036a.md) passes131 affected tests and native
    food/peaceful/defense/codecs. Owned clock, journal, rules and HUD are implemented;
-   full native integration,740 full tests and production builds pass; graphical
+   full native integration, 740 full tests and production builds pass; graphical
    validation remains pending. Movement/action
-   [Movement exhaustion](tickets/VMC-036b.md) passes91 affected tests and native
+   [Movement exhaustion](tickets/VMC-036b.md) passes 91 affected tests and native
    travel/mode/jump probes; accepted sprint/swim/jump food costs are implemented,
    with graphical validation pending. Sprint eligibility, other action costs and
-   consuming items are subsequent slices.
-   [Idle food clock work](tickets/VMC-036a1.md) addresses the measured512-player
-   memory increase; native/83 affected checks pass, repeated measurements are next.
+   [consuming items](tickets/VMC-036c.md) are subsequent slices.
+   [Idle food clock work](tickets/VMC-036a1.md) addresses the measured 512-player
+   memory increase; native/83 affected checks pass, but repeated loads show no
+   whole-workload memory improvement. Allocation profiling remains open; continue
+   consumable facts/use independently.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.

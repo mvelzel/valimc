@@ -76,9 +76,9 @@ no mismatches; later edits affect tests/evidence only. Manifest/build logs:
 `.local/food-validation-checkpoint.json`, `.local/food-validation-production.log`.
 Full native integration on `95a9d36` passes, including both plaintext/encrypted TCP:
 `.local/food-validation-full-native.log`. The newer movement checkpoint `c36d01f`
-also passes740 full tests, both native TCP transports and its production build;
+also passes 740 full tests, both native TCP transports and its production build;
 see [movement exhaustion](VMC-036b.md). The GUI server remains unchanged.
-The matched512-player memory increase is tracked in [idle food work](VMC-036a1.md).
+The matched 512-player memory increase is tracked in [idle food work](VMC-036a1.md).
 
 Client scenario: seed a damaged survival body and observe actual hearts recover
 with full food; low food prevents healing, exhaustion spends saturation then food,

@@ -17,9 +17,9 @@ callbacks and `FoodConstants`. Private `.local/food-ServerPlayer.javap`.
 Swimming/underwater distance uses three axes; body-only water and grounded sprint
 use horizontal distance. Native precedence matters when predicates overlap.
 
-`MovementFood` matches3,584 actual `ServerPlayer.checkMovementStatistics`
-exhaustion requests across256 overlapping predicates and14 movement/rounding
-boundaries. Another24 actual `Player.causeFoodExhaustion` executions verify all
+`MovementFood` matches 3,584 actual `ServerPlayer.checkMovementStatistics`
+exhaustion requests across 256 overlapping predicates and 14 movement/rounding
+boundaries. Another 24 actual `Player.causeFoodExhaustion` executions verify all
 mode ability gates and saturation of added exhaustion. Two actual ServerPlayer
 jump callbacks (zero jump power/no-op stats) request0.2 sprinting or0.05 otherwise.
 The listener invokes that callback on grounded-to-airborne upward movement; the
@@ -35,7 +35,7 @@ the current ability gate. Jump precedes travel, preserving float32 addition orde
 Ordinary walking/immune requests take a cheap zero path. No extra query, worker,
 timer or global call. Eye-water and air-draining submersion share one sample.
 
-Ninety-one affected tests pass, including12 focused TCP scenarios: sprint food/HUD
+Ninety-one affected tests pass, including 12 focused TCP scenarios: sprint food/HUD
 depletion and reconnect, actual selected swimming/underwater/body-water/bubbles,
 walking/scratch/held-jump negatives, accepted jumps, creative/spectator immunity,
 ladder removal, speed/collision corrections and retired geometry. A blocked frame
@@ -43,7 +43,7 @@ retains socket ordering before stop-sprinting, and food ticks during a blocked
 frame are retained at commit. The first blocked test incorrectly expected a later
 wire command to overtake pending movement; the fixture now verifies wire order.
 Raw `.local/movement-food-owner-affected-tests-complete.log` (seed550802).
-Block checkpoint `c36d01f` passes740 full tests, a separate production build and
+Block checkpoint `c36d01f` passes 740 full tests, a separate production build and
 both plaintext/encrypted native TCP integration. The prior food checkpoint's full
 native run also passes; only changed movement/air sampling needed targeted checks
 plus TCP here. Frozen manifest: `.local/movement-food-validation-checkpoint.json`,
