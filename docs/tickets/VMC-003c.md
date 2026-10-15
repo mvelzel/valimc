@@ -1,6 +1,6 @@
 # VMC-003c — Direct test-client lifecycle
 
-Status: Implementation checkpoint; actual client gate pending. October 15, 2026.
+Status: Done (`44f2fd9`); primary reviewed actual-client evidence October 15, 2026.
 
 Every validation launches the dedicated vanilla client directly into the fixed
 local ValiMC endpoint, tests it, then shuts that process down. Reconnect means a
@@ -23,14 +23,19 @@ Motivation: a saved-row click after a screenshot-size change selected an unverif
 server during VMC-015b2. That ground reconnect is invalid; its feature gate stays
 open. The new workflow removes server-menu selection entirely.
 
-First run exited during SDL initialization before joining; no GUI input occurred.
-Its owned JVM is gone and the server has zero players. A rejected simulation-
-distance value was corrected to the native minimum 5; retry needs native GUI
-access outside the shell sandbox. Failed evidence stays in `.local/client-tests/VMC-003c/run-01/`.
+Checks: helper syntax/installed-metadata argument construction pass. Actual runs
+02/03 automatically joined the frozen `18aad55` server, rendered, accepted movement,
+showed `/stats` and switched inventory tabs through SDL. Each owned shutdown left
+no JVM and zero local players. No connection-menu input was used.
 
-Two subsequent direct launches joined, rendered, accepted movement/pointer input
-and shut down cleanly using native GUI access. The helper now omits custom
-resolution arguments and explicitly disables fullscreen, preserving Minecraft's
-default small window. The default-size cycle passed; the forced UI scale 2 made
-Retina HUD/menu elements too small. Use native Auto (0); a final readable-UI
-launch/capture/shutdown check remains.
+Runs 04–06 verified the default small window (1708×960 Retina render pixels),
+readable native Auto UI scale and owned shutdown. Run 06 started with master
+volume 0 before joining or GUI input; the setting remained 0 after exit. The helper
+writes these launch settings; sound menus are unnecessary. Auditory output was not
+independently measured. Empty inventory prevented an owned-stack gesture check.
+
+Evidence: `.local/client-tests/VMC-003c/report.md`, per-run logs, manifests, original
+F2 images and SHA-256 indexes. First run's pre-join SDL abort remains recorded;
+corrected simulation distance 5 plus native GUI access passed subsequent runs.
+Run 05 opened Options before the launch-only sound clarification; no sound-setting
+input occurred. This lifecycle gate does not close saved-velocity/gameplay gates.

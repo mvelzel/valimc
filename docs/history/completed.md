@@ -11,6 +11,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-003](../tickets/VMC-003.md) | Validated |
 | [VMC-003a](../tickets/VMC-003a.md) | Validated |
 | [VMC-003b](../tickets/VMC-003b.md) | Validated |
+| [VMC-003c](../tickets/VMC-003c.md) | `44f2fd9`: direct local launch/test/shutdown, default small window, Auto UI and muted launch |
 | [VMC-004a](../tickets/VMC-004a.md) | 6dc5dd3 |
 | [VMC-004b1](../tickets/VMC-004b1.md) | 2e75988 |
 | [VMC-004b2a](../tickets/VMC-004b2a.md) | Validated |
