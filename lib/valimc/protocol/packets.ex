@@ -225,7 +225,10 @@ defmodule Valimc.Protocol.Packets do
         frozen_ticks: Valimc.PlayerEnvironment.frozen(player)
       )
 
-  defp shared_flags(player), do: Map.get(player, :input, %Valimc.PlayerInput{}).shared_flags
+  def shared_flags(player) do
+    flags = Map.get(player, :input, %Valimc.PlayerInput{}).shared_flags &&& bnot(16)
+    if Map.get(player, :motion, %Valimc.PlayerMotion{}).swimming, do: flags ||| 16, else: flags
+  end
 
   def move_entity(player, {_, _, x, y, z, yaw, pitch, flags, pose, frozen}) do
     dx = round(player.x * 4096) - x

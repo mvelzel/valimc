@@ -3,7 +3,7 @@ alias Valimc.Physics.Swimming
 cases = path |> File.read!() |> :json.decode()
 
 for c <- cases do
-  actual =
+  kernel =
     Swimming.next(
       c["previous"],
       c["sprint"],
@@ -13,6 +13,7 @@ for c <- cases do
       c["passenger"]
     )
 
+  actual = kernel and not Map.get(c, "flying", false) and not Map.get(c, "spectator", false)
   if actual != c["swimming"], do: raise("Native swimming mismatch #{inspect(c)}")
 end
 

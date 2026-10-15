@@ -40,8 +40,9 @@ defmodule Valimc.PlayerPoseQuery do
          {:ok, query} <- Valimc.PlayerKinetics.query_box(geometry.box, player) do
       CollisionQuery.start_frame(query, context, fn blocks ->
         with {:ok, frame} <- BlockCollisions.prepare(blocks) do
-          with {:ok, result} <-
-                 PoseFit.select(current, intent, position, context, %{
+          with {:ok, swimming} <- Valimc.PlayerSwimming.sample(player, current, position, frame),
+               {:ok, result} <-
+                 PoseFit.select(current, %{intent | swimming: swimming}, position, context, %{
                    blocks: frame,
                    block_entities: %{},
                    entities: [],
@@ -50,7 +51,12 @@ defmodule Valimc.PlayerPoseQuery do
                  }),
                {:ok, powder} <- Valimc.PlayerEnvironment.sample(frame, result.geometry.box),
                {:ok, kinetics} <- Valimc.PlayerKinetics.tick(player, result.pose, frame),
-               do: {:ok, result |> Map.put(:powder_snow, powder) |> Map.put(:kinetics, kinetics)}
+               do:
+                 {:ok,
+                  result
+                  |> Map.put(:powder_snow, powder)
+                  |> Map.put(:kinetics, kinetics)
+                  |> Map.put(:swimming, swimming)}
         end
       end)
     end

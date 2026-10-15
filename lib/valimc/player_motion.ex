@@ -6,6 +6,7 @@ defmodule Valimc.PlayerMotion do
             velocity: {0.0, 0.0, 0.0},
             physical_ground: false,
             settled: false,
+            swimming: false,
             known_movement: {0.0, 0.0, 0.0},
             on_ground: false,
             horizontal_collision: false,
@@ -49,7 +50,7 @@ defmodule Valimc.PlayerMotion do
   def finish_tick(%__MODULE__{} = motion),
     do: %{motion | known_movement: {0.0, 0.0, 0.0}}
 
-  def flight(%__MODULE__{} = motion, true), do: %{motion | fall_distance: 0.0}
+  def flight(%__MODULE__{} = motion, true), do: %{motion | fall_distance: 0.0, swimming: false}
   def flight(%__MODULE__{} = motion, false), do: motion
 
   def corrected(%__MODULE__{} = motion),

@@ -504,6 +504,7 @@ defmodule Valimc.Connection do
              %{
                accepted: true,
                pose: pose,
+               swimming: swimming,
                fences: fences,
                powder_snow: powder,
                kinetics: kinetics
@@ -525,7 +526,9 @@ defmodule Valimc.Connection do
                     player.abilities.flying
                   )
 
-                motion = PlayerKinetics.apply_result(motion, kinetics.packet)
+                motion =
+                  PlayerKinetics.apply_result(%{motion | swimming: swimming}, kinetics.packet)
+
                 player = %{player | motion: motion}
 
                 if pose != state.player.pose,
@@ -596,13 +599,24 @@ defmodule Valimc.Connection do
       state = %{state | pose_job: nil}
 
       case result do
-        {:ok, %{pose: pose, fences: fences, powder_snow: powder, kinetics: kinetics}} ->
+        {:ok,
+         %{
+           pose: pose,
+           swimming: swimming,
+           fences: fences,
+           powder_snow: powder,
+           kinetics: kinetics
+         }} ->
           if System.monotonic_time(:millisecond) < job.deadline and
                pose_signature(state) == job.signature and
                Enum.all?(fences, fn {key, %{owner: owner}} ->
                  World.existing_owner(key) == {:ok, owner}
                end) do
-            player = %{state.player | pose: pose}
+            player = %{
+              state.player
+              | pose: pose,
+                motion: %{state.player.motion | swimming: swimming}
+            }
 
             if pose != state.player.pose do
               send_packets(state, [Packets.player_pose(player)])
@@ -714,9 +728,9 @@ defmodule Valimc.Connection do
           |> sample_pose()
 
         state =
-          if state.player_flags_view != state.player.input.shared_flags do
+          if state.player_flags_view != Packets.shared_flags(state.player) do
             state = emit_peer_packets(state, [Packets.player_flags(state.player)], :buffer)
-            %{state | player_flags_view: state.player.input.shared_flags}
+            %{state | player_flags_view: Packets.shared_flags(state.player)}
           else
             state
           end

@@ -44,7 +44,7 @@ defmodule Valimc.PlayerKinetics do
   def signature(player) do
     motion = Map.get(player, :motion, %PlayerMotion{})
 
-    {motion.velocity, motion.physical_ground, motion.on_ground,
+    {motion.velocity, motion.physical_ground, motion.on_ground, motion.swimming,
      (player.input.shared_flags &&& 8) != 0, player.input.buttons,
      Valimc.PlayerInput.loaded?(player.input), Map.get(player, :yaw, 0.0)}
   end

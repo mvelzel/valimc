@@ -35,8 +35,8 @@ indexes validated tickets. None imply full parity.
    live composition](tickets/VMC-015d1.md) is validated (`2e66935`): actual water/
    lava/current/input/flight/reconnect, 578 tests, full native integration,
    production release and frozen preview loads. [Swimming state/geometry](tickets/VMC-015d2.md)
-   follows with native eye-contact and transition kernels checked; live/client
-   validation remains.
+   has live pose/flag ownership and 65 affected tests passing; frozen client
+   validation is next. Steering/effects and survival consequences remain open.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.

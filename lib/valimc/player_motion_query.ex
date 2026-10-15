@@ -75,7 +75,16 @@ defmodule Valimc.PlayerMotionQuery do
       subject: player.entity_id
     }
 
-    with {:ok, before} <- PoseFit.select(player.pose, intent, position, context, observations),
+    with {:ok, swimming_before} <-
+           Valimc.PlayerSwimming.sample(player, player.pose, position, blocks),
+         {:ok, before} <-
+           PoseFit.select(
+             player.pose,
+             %{intent | swimming: swimming_before},
+             position,
+             context,
+             observations
+           ),
          box = before.geometry.box,
          {:ok, actual} <-
            displacement(box, requested, position, blocks, context, intent.spectator),
@@ -95,10 +104,20 @@ defmodule Valimc.PlayerMotionQuery do
              old_shapes == [],
              new_collision
            ),
+         {:ok, swimming} <-
+           Valimc.PlayerSwimming.sample(
+             Map.put(player, :motion, %{
+               Map.get(player, :motion, %Valimc.PlayerMotion{})
+               | swimming: swimming_before
+             }),
+             before.pose,
+             destination,
+             blocks
+           ),
          {:ok, after_move} <-
            PoseFit.select(
              before.pose,
-             intent,
+             %{intent | swimming: swimming},
              destination,
              context(player, target.y),
              observations
@@ -121,6 +140,7 @@ defmodule Valimc.PlayerMotionQuery do
        %{
          accepted: not rejected,
          pose: after_move.pose,
+         swimming: swimming,
          moved: moved,
          powder_snow: powder,
          kinetics: %{packet: packet, tick: tick},
