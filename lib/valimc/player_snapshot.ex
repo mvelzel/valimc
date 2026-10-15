@@ -1,13 +1,13 @@
 defmodule Valimc.PlayerSnapshot do
   @moduledoc "Bounded player state/outbox; legacy pose/inventory migration, not vanilla NBT."
-  alias Valimc.{Inventory, PlayerStore}
+  alias Valimc.{Inventory, PlayerHealth, PlayerStore}
   alias Valimc.Protocol.{ItemStack, ItemTypes}
   alias Valimc.World.{ItemRecords, ItemTransfers}
   @data_version 5023
   @inventory_bytes 524_288
   @outbox_bytes 55 + 5 * (40 + 65_536)
   @max_sequence 18_446_744_073_709_551_615
-  @max_bytes 56 + 4 + 3 + 8 + 4 + 24 + 12 + @inventory_bytes + @outbox_bytes + 32
+  @max_bytes 56 + 4 + 3 + 8 + 4 + 24 + 12 + 8 + @inventory_bytes + @outbox_bytes + 32
 
   def max_bytes, do: @max_bytes
 
@@ -27,6 +27,14 @@ defmodule Valimc.PlayerSnapshot do
       if Map.has_key?(player, :environment),
         do: Map.put(snapshot, :frozen_ticks, player.environment.frozen_ticks),
         else: snapshot
+
+    snapshot =
+      if Map.has_key?(player, :health) do
+        {:ok, health} = PlayerHealth.saved(player.health)
+        Map.put(snapshot, :health, health)
+      else
+        snapshot
+      end
 
     snapshot =
       case player do
@@ -119,6 +127,15 @@ defmodule Valimc.PlayerSnapshot do
         {version, journal}
       end
 
+    {version, journal} =
+      if Map.has_key?(snapshot, :health) do
+        check(version == 8 and PlayerHealth.valid_saved?(snapshot.health), :invalid_health)
+        health = snapshot.health
+        {9, [<<health.value::float-32, health.hurt_ticks::16, health.death_ticks::16>>, journal]}
+      else
+        {version, journal}
+      end
+
     payload =
       IO.iodata_to_binary([
         <<"VMCPOSE", version, uuid::binary-size(16), pose.x::float-64, pose.y::float-64,
@@ -184,9 +201,19 @@ defmodule Valimc.PlayerSnapshot do
 
       <<"VMCPOSE", version, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
         yaw::float-32, pitch::float-32, @data_version::32, rest::binary>>
-      when version in [5, 6, 7, 8] ->
+      when version in [5, 6, 7, 8, 9] ->
+        {health, rest} =
+          if version >= 9 do
+            <<value::float-32, hurt::16, death::16, rest::binary>> = rest
+            health = %{value: value, hurt_ticks: hurt, death_ticks: death}
+            check(PlayerHealth.valid_saved?(health), :invalid_player_file)
+            {%{health: health}, rest}
+          else
+            {%{}, rest}
+          end
+
         {velocity, rest} =
-          if version == 8 do
+          if version >= 8 do
             <<vx::float-64, vy::float-64, vz::float-64, rest::binary>> = rest
             check(Valimc.PlayerKinetics.valid_velocity?({vx, vy, vz}), :invalid_player_file)
             {%{velocity: {vx, vy, vz}}, rest}
@@ -231,7 +258,8 @@ defmodule Valimc.PlayerSnapshot do
          |> Map.merge(%{game_mode: mode, flying: flying == 1})
          |> Map.merge(fall)
          |> Map.merge(environment)
-         |> Map.merge(velocity)}
+         |> Map.merge(velocity)
+         |> Map.merge(health)}
 
       _ ->
         {:error, :invalid_player_file}

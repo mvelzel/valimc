@@ -93,7 +93,8 @@ defmodule Valimc.PlayerTransfers do
         :game_mode,
         :fall_distance,
         :frozen_ticks,
-        :velocity
+        :velocity,
+        :health
       ])
 
   defp owned(%Inventory{} = inventory), do: Inventory.contents(inventory) ++ [inventory.carried]

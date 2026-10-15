@@ -4,6 +4,10 @@
       "index": 7,
       "serializer": 1
     },
+    "health": {
+      "index": 9,
+      "serializer": 3
+    },
     "item_stack": {
       "index": 8,
       "serializer": 7

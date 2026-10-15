@@ -67,7 +67,7 @@ defmodule Valimc.Protocol.EntityPackets do
   end
 
   defp metadata_value({name, value})
-       when name in [:shared_flags, :no_gravity, :item_stack, :pose, :frozen_ticks] do
+       when name in [:shared_flags, :no_gravity, :item_stack, :pose, :frozen_ticks, :health] do
     fact = EntityTypes.field(name)
 
     payload =
@@ -90,6 +90,10 @@ defmodule Valimc.Protocol.EntityPackets do
         :frozen_ticks ->
           check(Valimc.PlayerEnvironment.valid_ticks?(value), "invalid frozen ticks")
           Wire.varint(value)
+
+        :health ->
+          check(is_number(value) and value >= 0 and value <= 1024, "invalid health")
+          <<value::float-32>>
       end
 
     {fact["index"], [<<fact["index"]>>, Wire.varint(fact["serializer"]), payload]}

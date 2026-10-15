@@ -125,7 +125,10 @@ defmodule Valimc.Protocol.Packets do
     )
   end
 
-  def health, do: packet("set_health", [<<20.0::float-32>>, Wire.varint(20), <<5.0::float-32>>])
+  def health(health \\ %Valimc.PlayerHealth{}) do
+    unless Valimc.PlayerHealth.valid?(health), do: raise(ArgumentError, "invalid health")
+    packet("set_health", [<<health.value::float-32>>, Wire.varint(20), <<5.0::float-32>>])
+  end
 
   def difficulty(%{level: level, locked: locked})
       when is_integer(level) and level in 0..3 and is_boolean(locked),

@@ -6,6 +6,67 @@ defmodule Valimc.PlayerSnapshotTest do
   defp uuid, do: <<27::128>>
   defp seal(payload), do: payload <> :crypto.hash(:sha256, payload)
 
+  test "health and saved hurt timers share the velocity/inventory/outbox checksum" do
+    state =
+      Map.merge(pending(), %{
+        game_mode: Valimc.GameMode.new(:survival),
+        flying: false,
+        fall_distance: 3.25,
+        frozen_ticks: 88,
+        velocity: {0.3, -1.2, 12.0},
+        health: %{value: 7.25, hurt_ticks: 7, death_ticks: 11}
+      })
+
+    assert {:ok, <<"VMCPOSE", 9, _::binary>> = bytes} = PlayerSnapshot.encode(uuid(), state)
+    assert byte_size(bytes) <= PlayerSnapshot.max_bytes()
+    assert {:ok, restored} = PlayerSnapshot.decode(bytes, uuid())
+    assert restored.health == state.health
+    assert restored.velocity == state.velocity and restored.outbox == state.outbox
+    assert restored.transfer_sequence == 7 and restored.inventory.slots == state.inventory.slots
+    assert {:ok, ^bytes} = PlayerSnapshot.encode(uuid(), restored)
+    assert {:ok, {0, 0}, request, _} = PlayerSnapshot.transfer_request(uuid(), restored)
+    assert request.sequence == 7 and request.records == state.outbox.records
+
+    payload = binary_part(bytes, 0, byte_size(bytes) - 32)
+    <<header::binary-size(60), _health::binary-size(8), rest::binary>> = payload
+
+    for health <- [
+          state.health |> Map.put(:value, -1.0),
+          %{state.health | value: 1025.0},
+          %{state.health | hurt_ticks: 32768},
+          %{state.health | death_ticks: -1}
+        ] do
+      assert {:error, :invalid_health} = PlayerSnapshot.encode(uuid(), %{state | health: health})
+    end
+
+    for fields <- [
+          <<-1.0::float-32, 7::16, 11::16>>,
+          <<1025.0::float-32, 7::16, 11::16>>,
+          <<0x7FC00000::32, 7::16, 11::16>>,
+          <<0x7F800000::32, 7::16, 11::16>>,
+          <<7.25::float-32, 32768::16, 11::16>>,
+          <<7.25::float-32, 7::16, 65535::16>>
+        ] do
+      assert {:error, :invalid_player_file} =
+               PlayerSnapshot.decode(seal(header <> fields <> rest), uuid())
+    end
+
+    player =
+      Map.merge(pose(), %{
+        game_mode: state.game_mode,
+        abilities: Valimc.PlayerAbilities.for_mode(:survival),
+        motion: %Valimc.PlayerMotion{},
+        environment: %Valimc.PlayerEnvironment{},
+        health: %Valimc.PlayerHealth{value: 7.25, hurt_ticks: 7, cooldown: 17, last_hurt: 5.0}
+      })
+
+    assert PlayerSnapshot.capture(player, %Inventory{}).health == %{
+             value: 7.25,
+             hurt_ticks: 7,
+             death_ticks: 0
+           }
+  end
+
   test "freeze state shares the bounded checksummed player snapshot" do
     player =
       Map.merge(pose(), %{

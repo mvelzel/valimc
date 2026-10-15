@@ -160,7 +160,7 @@ defmodule Valimc.PlayerStore do
         do:
           Map.merge(
             next,
-            Map.take(snapshot, [:fall_distance, :game_mode, :frozen_ticks, :velocity])
+            Map.take(snapshot, [:fall_distance, :game_mode, :frozen_ticks, :velocity, :health])
           ),
         else: next
 

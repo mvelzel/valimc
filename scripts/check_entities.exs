@@ -1,4 +1,4 @@
-alias Valimc.Protocol.{EntityPackets, ItemStack, PackedVelocity, Wire}
+alias Valimc.Protocol.{EntityPackets, ItemStack, PackedVelocity, Packets, Wire}
 [input, output] = System.argv()
 fixtures = :json.decode(File.read!(input))
 Code.ensure_loaded!(Valimc.Physics.PlayerPose)
@@ -80,6 +80,18 @@ packets =
 
         "frozen_" <> ticks ->
           EntityPackets.metadata(300, frozen_ticks: String.to_integer(ticks))
+
+        "health_metadata_" <> points ->
+          EntityPackets.metadata(300, health: String.to_float(points))
+
+        "health_" <> points ->
+          {:ok, health} =
+            Valimc.PlayerHealth.set(
+              %Valimc.PlayerHealth{maximum: 1024.0},
+              String.to_float(points)
+            )
+
+          Packets.health(health)
 
         "pickup" ->
           EntityPackets.pickup(300, 301, 7)

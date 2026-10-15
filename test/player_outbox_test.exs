@@ -347,6 +347,49 @@ defmodule Valimc.PlayerOutboxTest do
     assert File.read!(PlayerStore.path(ctx.base, ctx.uuid)) == bytes
   end
 
+  test "pending disconnect keeps the latest health without restoring spent inventory", ctx do
+    fields = %{
+      game_mode: Valimc.GameMode.new(:survival),
+      flying: false,
+      fall_distance: 0.0,
+      frozen_ticks: 0,
+      velocity: {0.0, 0.0, 0.0},
+      health: %{value: 17.0, hurt_ticks: 0, death_ticks: 0}
+    }
+
+    ctx = %{ctx | before: Map.merge(ctx.before, fields), after: Map.merge(ctx.after, fields)}
+    {fence, pending} = prepare(ctx)
+    assert pending.health == fields.health
+    latest = %{ctx.before | health: %{value: 6.25, hurt_ticks: 7, death_ticks: 0}}
+    {:ok, {region, _} = owner} = World.item_owner(ctx.key)
+    :sys.suspend(region)
+
+    {recovered, recovered_fence} =
+      try do
+        assert :ok = PlayerStore.close_session(ctx.writer, fence, latest)
+        assert {:ok, stored} = saved(ctx)
+        assert stored.health == latest.health and stored.inventory == ctx.after.inventory
+        assert stored.outbox == pending.outbox and stored.transfer_sequence == 1
+        assert {:ok, writer, recovered, recovered_fence} = PlayerStore.open(ctx.uuid)
+        assert writer == ctx.writer and recovered.health == latest.health
+        assert recovered.outbox == pending.outbox and recovered.inventory == ctx.after.inventory
+        {recovered, recovered_fence}
+      after
+        :sys.resume(region)
+      end
+
+    {:ok, _, request, _} = PlayerSnapshot.transfer_request(ctx.uuid, recovered)
+    assert {:ok, disposition} = Region.apply_item_transfer(owner, request)
+    assert disposition in [:applied, :already_applied]
+    assert {:ok, next_fence, cleared} = complete(ctx, recovered_fence)
+    assert cleared.health == latest.health and cleared.outbox == nil
+
+    assert cleared.inventory == ctx.after.inventory and
+             map_size(World.item_snapshot(ctx.key)) == 1
+
+    assert :ok = PlayerStore.close(ctx.writer, next_fence, cleared)
+  end
+
   test "destination receipt must match the exact source sequence and batch", ctx do
     {fence, pending} = prepare(ctx)
     {:ok, key, request, _} = PlayerSnapshot.transfer_request(ctx.uuid, pending)

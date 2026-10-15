@@ -121,7 +121,9 @@ defmodule Valimc.EntityPacketsTest do
     end
 
     for changes <- [
-          [health: 20],
+          [health: 1025],
+          [health: -1],
+          [health: :bad],
           [shared_flags: -1],
           [shared_flags: 256],
           [no_gravity: 1],

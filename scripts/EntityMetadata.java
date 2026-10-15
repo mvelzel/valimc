@@ -9,6 +9,7 @@ import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializer;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
 
 /** Original extraction of versioned IDs and accessor facts, not implementation source. */
@@ -39,6 +40,7 @@ public class EntityMetadata {
     fields.put("item_stack", accessor(ItemEntity.class, "DATA_ITEM"));
     fields.put("pose", accessor(Entity.class, "DATA_POSE"));
     fields.put("frozen_ticks", accessor(Entity.class, "DATA_TICKS_FROZEN"));
+    fields.put("health", accessor(LivingEntity.class, "DATA_HEALTH_ID"));
     var facts = new TreeMap<String,Object>();
     facts.put("version", "26.3"); facts.put("protocol", 777);
     facts.put("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");

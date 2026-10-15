@@ -103,6 +103,11 @@ public class EntityOracle {
     cases.put("metadata_clear_flags",new ClientboundSetEntityDataPacket(ID,List.of(value(flags,(byte)0),value(gravity,false))));
     var pose = accessor(Entity.class,"DATA_POSE");
     var frozen = accessor(Entity.class,"DATA_TICKS_FROZEN");
+    var health = accessor(LivingEntity.class,"DATA_HEALTH_ID");
+    for(float points:new float[]{0,Float.MIN_VALUE,.1f,7.25f,20,1024}){
+      cases.put("health_"+Float.toString(points),new ClientboundSetHealthPacket(points,20,5));
+      cases.put("health_metadata_"+Float.toString(points),new ClientboundSetEntityDataPacket(ID,List.of(value(health,points))));
+    }
     for(int ticks:new int[]{0,1,2,127,128,139,140})
       cases.put("frozen_"+ticks,new ClientboundSetEntityDataPacket(ID,List.of(value(frozen,ticks))));
     for (var selected : Pose.values())

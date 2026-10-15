@@ -28,3 +28,16 @@ saturation. Two affected tests pass. Attribute limits come from the existing pin
 `priv/protocol/attributes.json`. Evidence: `.local/fall-damage-{native,check,tests}.log`;
 original `scripts/FallDamageOracle.java`. This helper is unwired: login still sends
 fixed health20, and no damage, health persistence or fatal lifecycle is claimed.
+
+Health foundation checkpoint: `PlayerHealth` matches 40 native setter/save/load
+cases and 336 actual `LivingEntity.hurtServer` cooldown prefixes (blocking,
+armor/absorption, events and death excluded). Stronger protected hits select only
+the increase before defenses. Health metadata is accessor9/float serializer3;
+native codecs verify health updates and metadata among 62 packets and 272 packed
+velocities. Snapshot v9 stores float32 health plus saved hurt/death timers alongside
+velocity, inventory and the transfer journal; older versions remain readable.
+Cooldown/last-hit state is transient. Transfer preparation and pending disconnect
+retain health without restoring spent items; 42 affected tests pass. Evidence:
+`.local/player-health-{native,check,tests}.log`, `.local/health-entity-{native,check,verify}.log`.
+Owner/login wiring, timer progression and fatal lifecycle remain next; live damage
+is not enabled, and this foundation does not complete the client gate.
