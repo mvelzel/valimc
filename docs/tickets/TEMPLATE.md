@@ -1,26 +1,19 @@
-# VMC-NNN — Concrete behavior
+# VMC-ID — Concrete behavior
 
-Status: Planned / In progress / Done. Updated: YYYY-MM-DD.
+Status: Planned / In progress / Awaiting client validation / Done. Date.
+Depends on: relevant tickets only.
 
-## Scope and acceptance
+Before/after behavior and explicit scope limits.
 
-Describe before/after behavior, dependencies, supported cases, limitations, and
-observable acceptance criteria before implementation.
+Acceptance:
 
-## References and design
+- Native behavior and meaningful positive/failure boundaries.
+- Ownership, work bounds, ordering/fencing/recovery when relevant.
+- Actual-client scenario, including relevant negative/recovery cases.
 
-Record vanilla version/hash/classes, upstream commits/paths inspected, and
-behavioral conclusions. Explain owner, work bounds, ordering, persistence, and
-failure scope. Do not copy private reference source into this record.
+Reference: pinned revisions/hash/classes/methods and design conclusions.
 
-## Verification
-
-List automated commands/results and meaningful negative/concurrency scenarios.
-Record actual Minecraft version, computer-use steps, GUI results and log review.
-Optional captures stay private under `.local/client-tests/VMC-NNN/`. Unrun checks
-remain explicitly pending.
-
-## Checkpoint
-
-Record commit subject and branch; Git history supplies the SHA. Record actual
-push outcome and next ticket. Done requires all acceptance and verification gates.
+Checks: exact targeted commands/results; broader integration only at a coherent block.
+Client: checkpoint/release, dataset, date/version/actions/observations/limits;
+private evidence paths. A pending or failed action is not a pass.
+Next gate/fix: concrete remaining work. Git records the commit SHA.

@@ -1,6 +1,6 @@
 # VMC-014c3b2a — Player entity-collision observations
 
-Status: Automated-verified; client scenario pending. October 15, 2026.
+Status: Done — client validated. October 15, 2026.
 Depends on VMC-014c3b1.
 
 Add the bounded pure entity-collider collector needed by player pose fitting.
@@ -39,5 +39,12 @@ Checks: format, 449 tests and isolated production release
 `.local/entity-fit-build/rel/valimc` pass. Native `EntityGetter`/`Entity` methods
 match all 6,048 threshold, predicate, overlap-margin, ordering and shape fixtures;
 the probe confirms `Player` inherits the default collision predicate.
-Private cases/logs: `.local/vmc014c3b2a-*`. Actual-client scenario remains queued
-after VMC-014c3b1; keep unpublished until it passes.
+Private cases/logs: `.local/vmc014c3b2a-*`.
+
+Dedicated tester: actual item and loopback player rendered; W/S crossed both at
+feet y64. Ten sampled AABB overlaps produced no colliders; solid positive controls
+selected the same boxes. Commands, committed item removal/peer cleanup, actual
+reconnect and fresh logs passed, preserving source counter/outbox/receipts.
+Evidence: `.local/client-tests/VMC-014c3b2a/`, including release hashes and traces.
+The first sampler missed its gesture and is excluded. These are non-solid entity
+contacts/pure predictions, not live pose enforcement or implemented solid mobs.

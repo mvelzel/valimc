@@ -25,3 +25,15 @@ Acceptance/design decisions to implement:
 - Integrate the smallest actual movement/pose path using existing native fixtures;
   test independent domains under concurrency and deterministic owner-local traces.
   Delegate actual contact/reconciliation tests and retain explicit parity limits.
+
+Working direction: separate cold ownership/topology admission from hot simulation
+domains. Nearby coupled sections must share an ordered mutation boundary; distant
+domains can tick independently on BEAM schedulers. Keep transport processes stable
+and reuse immutable geometry/jobs. Do not infer independence from fixed storage
+region coordinates. A revision recheck or expiring read lease alone cannot make
+multi-owner gameplay atomic.
+
+Before implementation, settle quiescent merge/split/transfer, epochs and owner-loss
+behavior, then verify native tick/input ordering. The first slice should exercise
+domain partition and tick admission deterministically; it must not declare live
+movement authority until integrated owners and actual reconciliation pass.

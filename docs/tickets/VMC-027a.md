@@ -1,6 +1,6 @@
 # VMC-027a — Supplied world-border collision geometry
 
-Status: Targeted checks pass; client scenario pending. October 15, 2026.
+Status: Done within supplied stationary-border scope. October 15, 2026.
 Prerequisite for live pose fitting.
 
 Provide pure native border bounds, containment and collision predicates from a
@@ -36,4 +36,12 @@ No runtime packet encoder/owner/resizing was added. Full checks/build are deferr
 to the larger fitting block under the user's updated workflow: its 458 tests,
 isolated `.local/pose-fit-build/rel/valimc` release and full native suite now pass,
 including plaintext/encrypted TCP. Private integration logs:
-`.local/pose-fit-block-*`. Client gate queued.
+`.local/pose-fit-block-*`.
+
+Dedicated Java 26.3 client passed on frozen grouped checkpoint `228d596`:
+diameter-8 fractional border contact at z=3.699999988079071 matches the rounded
+plane; the supplied predicate accepts contact and rejects +.001z. Outside movement
+matches the native proximity gate. Restoring the default diameter permits crossing;
+cleanup, reconnect, terrain and `/stats` pass with no fresh client warnings/errors.
+Report: `.local/client-tests/VMC-027a/report.md`. No moving-border, damage, runtime
+border synchronization or authoritative movement claim.

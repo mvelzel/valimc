@@ -1,102 +1,78 @@
-# ValiMC development instructions
+# ValiMC development
 
-Build a Minecraft Java 26.3 (protocol 777) survival server in Elixir/OTP. This is
-currently a creative flat-world preview, not a finished survival implementation.
-Read `README.md`, `docs/roadmap.md`, `docs/development.md`, and the active ticket
-under `docs/tickets/` before changing behavior. Keep these records updated.
+Target full vanilla Minecraft Java **26.3 / protocol 777** compatibility in
+Elixir/OTP. The current server is a creative flat-world preview.
 
-## Behavior and research
+## Start selectively
 
-- Mojang's pinned 26.3 implementation and actual vanilla-client behavior define
-  compatibility. Use its codecs, bytecode, or private decompiled source as needed.
-  An alternative server's implementation is not proof of correctness.
-- Paper is a useful compatibility/edge-case reference; distinguish its deliberate
-  behavior changes from vanilla. Pumpkin, SteelMC, and other servers provide
-  architectural ideas and have incomplete feature coverage.
-- Consult `docs/research.md` and `research/sources.lock.json`. Record source
-  revisions/classes and design conclusions in tickets. Preserve upstream licenses;
-  implement original Elixir code rather than copying reference sources.
-- Keep upstream checkouts, Mojang jars, dumps, decompiled source, decompiler tools,
-  client logs/captures and test worlds in ignored paths. Run
-  `python3 scripts/audit_public_tree.py` before every commit/push.
+Read the short [roadmap](docs/roadmap.md), the active ticket and only its relevant
+code/references. Consult [development](docs/development.md) for workflow changes;
+do not load the whole backlog, completed index or unrelated tickets.
+The roadmap is editable planning, not a fixed implementation order.
+Keep README small; put feature evidence in its ticket. Use `rg` to retrieve details.
 
-## BEAM architecture
+## Correctness and sources
 
-- Use processes for ownership, independent lifecycle, supervision, or blocking
-  I/O; do not create one per block or copy Rust ECS/Java threading arrangements.
-- Keep socket/session state per connection, mutable simulation inside region
-  owners, published observations in ETS, and pure CPU jobs in bounded worker pools.
-  Share immutable binaries and batch network replication.
-- Define tick order, boundaries, transfers, fencing, and recovery before
-  parallelizing coupled gameplay. Eventually consistent replication is not
-  authoritative gameplay state. No global gameplay GenServer on the hot path.
-- Bound mailboxes, queues, packet/decompression sizes, rates, tasks, loaded
-  regions, and socket writes. Keep CPU work and disk I/O out of sensitive owners.
-- Use the pinned asdf Elixir/Erlang versions. Prefer the standard library until a
-  dependency has a concrete purpose. For any JavaScript tooling follow the user's
-  pnpm-only instructions; never create a repository-local pnpm store.
+- Pinned Mojang 26.3 codecs/bytecode/private decompiled source and actual vanilla
+  behavior define compatibility. Paper helps with edge cases; distinguish deliberate
+  changes. Pumpkin, SteelMC and other rewrites provide incomplete design examples.
+- Record revisions/classes and conclusions in the ticket; see
+  [research](docs/research.md) and `research/sources.lock.json`. Implement original
+  Elixir code, preserve upstream licenses and keep reference sources separate.
+- Jars, decompilers/source/dumps, upstream checkouts, logs/captures and test worlds
+  stay ignored. Run `/usr/bin/python3 scripts/audit_public_tree.py` before every
+  commit/push; review the exact diff too.
 
-## Tickets, verification, and Git
+## BEAM ownership
 
-- Implement one ticket at a time. Park automated-verified checkpoints that await
-  manual validation and proceed to the next implementable slice, as the user
-  explicitly requested (October 13, 2026). Keep each pending client scenario;
-  dependencies may use tested code without claiming that the ticket is Done.
-  Split large backlog entries into reviewable slices
-  before implementation. Write acceptance criteria and a real-client scenario
-  first. Never mark a partially implemented subsystem complete.
-- For individual commits, check changed-file formatting and run only the affected
-  tests and verifications, including relevant native codec/behavior probes. Add
-  meaningful behavior/failure-boundary regressions. Run the full test suite,
-  complete native oracle and production release build after a larger coherent
-  block of work, then fix any integration failures. Do not repeat these broad
-  checks for every commit (user instruction, October 15, 2026).
-- Manually test every completed piece through actual Minecraft 26.3 with computer
-  use. On this Mac use the `ValiMC computer-use test` Launcher installation and
-  app ID `local.valimc.minecraft-client`. Use `mcp__cua_repl` for UI actions.
-- Always delegate actual Minecraft client validation to a dedicated testing
-  subagent (user instruction, October 15, 2026). Only that agent drives the UI;
-  the primary agent continues independent implementation, research and automated
-  checks. Keep a queue of pending scenarios rather than waiting on client tests.
-  Hand off the ticket, exact release/checkpoint, dataset, scenarios and evidence
-  paths. Coordinate server restarts and fixture changes; do not replace a release
-  under test. The tester reports actions, results, logs and limitations; the
-  primary reviews that evidence before marking Done or publishing. A failure
-  becomes a concrete fix/retest task; it does not silently pass or halt unrelated
-  backlog work. Keep commits separable so validated work can publish while later
-  checkpoints remain pending.
-- The dedicated Minecraft client uses our internal-pointer SDL backend. Keep
-  this tool simple: no mouse opt-ins/outs, fallback modes, backward compatibility,
-  desktop-coordinate diagnostics or cursor-position unit tests (user instruction,
-  October 15, 2026). Validate it by using the actual client; see VMC-003b.
-- The user treats this development client and test world as disposable fixtures
-  (October 14, 2026). Change or reset builds, items, pose and selection as needed;
-  concurrent user experimentation does not require preserving those changes.
-  This permission concerns the test game/world, not accounts, launcher credentials
-  or unrelated resources. Keep journal/counter/receipt consistency within each
-  test dataset; reset the whole dataset when starting over rather than rolling
-  back one side of a committed transfer or fabricating recovery evidence.
-- Record date, version, actions, observed results, checks, and limitations in the
-  ticket. The codec oracle cannot replace a graphical client test. If computer use
-  is unavailable, leave the ticket unverified and fix that prerequisite.
-- Review the exact diff and public-tree audit, update the roadmap, then make a
-  coherent local commit after automated checks. The user explicitly permits local
-  checkpoints before manual validation (October 13, 2026). Mark remaining GUI
-  checks pending and keep these commits unpushed until client validation passes,
-  unless the user explicitly requests publishing the checkpoints. The current
-  request to push all work to `main` includes VMC-005b2a's automated-verified
-  checkpoint; retain its outstanding sustained-gesture gate without marking Done.
-  Unpushed checkpoints may be amended after validation; never rewrite already
-  pushed commits without authorization. The user explicitly requested direct
-  commits and normal pushes to `main` (October 13, 2026); no review branch or PR
-  is required. Do not force-push without authorization. Report actual outcomes.
-- The user enabled and authorized computer use while locked (October 13, 2026).
-  Try the enabled computer-use session even if the physical MacBook is locked.
-  If access is unavailable, continue independent code/research/automated work and
-  retain the pending client scenarios. Do not mark a ticket Done while required
-  GUI checks remain. A paused GUI gate must not halt the broader backlog.
-- Research/docs/workflow pieces use the baseline client smoke scenario. Feature
-  pieces must exercise their changed behavior and relevant negative cases.
-- Benchmark only when performance/measurement changes. Preserve raw results,
-  workload, fingerprint/revision and comparable feature coverage. Never infer
-  fastest-server status from empty worlds or unequal workloads.
+- Processes represent ownership, lifecycle or blocking I/O, never individual blocks
+  or a copied Java/Rust threading/ECS model. Use pinned asdf Elixir/Erlang and prefer
+  the standard library. Follow the user's pnpm-only policy for JavaScript tools.
+- Keep connection/session state per socket, mutable simulation with region/domain
+  owners, observations in ETS and pure work in bounded pools. Share immutable
+  binaries and batch replication. No global gameplay process on the hot path.
+- Define tick order, boundaries, transfers, fencing and recovery before parallel
+  coupled gameplay. Published observations are not gameplay authority.
+- Bound mailboxes, queues, packets/decompression, rates, tasks, regions and socket
+  writes. Keep CPU jobs and disk I/O outside sensitive owners.
+
+## Work and verification
+
+- Implement one slice at a time with acceptance criteria and a client scenario
+  first. Park automated-verified work awaiting GUI checks; continue independent
+  work. Tested dependencies may be used without calling their tickets Done.
+- Per commit, run changed-file formatting and affected tests/native probes only.
+  Run full tests/native integration and a production build after a larger coherent
+  block; fix integration failures. Do not repeat broad checks for every commit
+  (user instruction, October 15, 2026). Use meaningful boundary regressions.
+- Always delegate actual Minecraft validation to one dedicated testing subagent.
+  Only it drives CUA; the primary continues independent work. Hand off exact
+  checkpoint/release, dataset, scenarios and evidence paths. Coordinate restarts
+  and fixtures; never replace a release under test. Review its report before Done
+  or publication; failures become fix/retest tasks.
+- Use `mcp__cua_repl`, app `local.valimc.minecraft-client`, Launcher installation
+  **ValiMC computer-use test**, Java 26.3. Try even while the Mac is locked; access
+  is authorized. Unavailable CUA leaves the gate pending, not the backlog halted.
+  Repair the access prerequisite while independent work continues.
+- The dedicated SDL pointer backend is mandatory: no modes, fallbacks, backward
+  compatibility, desktop-coordinate diagnostics or cursor-position unit tests.
+  Validate actual use; keyboard input can still activate the window.
+- The test client/world are disposable, including user builds/items/pose. Accounts,
+  credentials and unrelated resources are not. Preserve journal/counter/receipt
+  consistency; reset the whole dataset rather than one side of a committed transfer.
+- Record date/version/actions/results/checks/limits in the ticket; raw evidence
+  stays ignored. Native oracles cannot replace graphical tests. Docs/research use
+  baseline smoke; feature tests exercise changed behavior and relevant negatives.
+
+## Git and performance
+
+Review diff/audit, update the ticket/current queue, then commit coherent local
+checkpoints. Keep pending client work unpushed unless explicitly authorized;
+publication never changes an unfinished gate to Done. Existing published pending
+inventory gestures retain their gates. Amend only unpushed commits. Use direct
+commits and normal pushes to `main`; no PR is required. Never force-push without
+permission. Publish validated prefixes while later checkpoints remain local.
+
+Benchmark when performance/measurement changes. Retain raw workload/results,
+revision and comparable feature coverage; empty-world or unequal workloads cannot
+establish fastest-server status. See [measurements](docs/performance.md).
