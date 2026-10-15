@@ -59,6 +59,7 @@ indexes validated tickets. None imply full parity.
    71,530 native material cases and native support/codecs; its graphical gate is pending.
    [Fall enchantment defenses](tickets/VMC-017a3.md) pass 41 affected tests and
    20,800 native cases; actual geared falls/reconnect remain pending.
+   [Freezing damage](tickets/VMC-017b1.md) is the next independent implementation slice.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.
