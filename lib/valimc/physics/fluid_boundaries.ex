@@ -1,7 +1,15 @@
 defmodule Valimc.Physics.FluidBoundaries do
   @moduledoc "Pinned flow barriers and support faces; block-entity-dependent faces remain explicit."
   import Bitwise
-  alias Valimc.Physics.{BlockCollisions.Frame, BlockEntityContext}
+
+  alias Valimc.Physics.{
+    BlockCollisions.Frame,
+    BlockEntityContext,
+    BlockShapes,
+    CollisionContext,
+    VoxelOps
+  }
+
   @path Path.expand("../../../priv/physics/fluid_boundaries.json", __DIR__)
   @external_resource @path
   @facts JSON.decode!(File.read!(@path))
@@ -47,19 +55,31 @@ defmodule Valimc.Physics.FluidBoundaries do
   def sturdy?(%Frame{} = frame, pos, direction) when direction in 0..5 do
     with {:ok, id} <- at(frame, pos),
          {:ok, facts} <- fetch(id),
-         {:ok, faces} <- faces(frame, pos, facts),
-         do: {:ok, (faces &&& 1 <<< direction) != 0}
+         do: sturdy(frame, pos, id, facts, direction)
   end
 
   def sturdy?(_, _, _), do: {:error, :invalid_fluid_face}
 
-  defp faces(_, _, %{context: :none, faces: mask}), do: {:ok, mask}
+  defp sturdy(_, _, _, %{context: :none, faces: mask}, direction),
+    do: {:ok, (mask &&& 1 <<< direction) != 0}
 
-  defp faces(%Frame{entities: entities}, pos, %{context: kind}) do
+  defp sturdy(%Frame{entities: entities}, pos, id, %{context: kind} = facts, direction) do
     case Map.get(entities, pos, BlockEntityContext.unavailable()) do
-      %{kind: :unavailable} -> {:error, :incomplete_fluid_block_entity}
-      %{kind: entity} when entity != kind -> {:ok, if(kind == :shulker, do: 63, else: 0)}
-      _ -> {:error, :unresolved_fluid_support}
+      %{kind: :unavailable} ->
+        {:error, :incomplete_fluid_block_entity}
+
+      %{kind: entity} when entity != kind ->
+        {:ok, kind == :shulker}
+
+      %BlockEntityContext{kind: :shulker, closed: closed} when is_boolean(closed) ->
+        {:ok, closed or direction == bxor(facts.facing, 1)}
+
+      %BlockEntityContext{kind: :piston} = entity ->
+        with {:ok, shape} <- BlockShapes.fetch(id, pos, CollisionContext.empty(), entity),
+             do: {:ok, VoxelOps.face_full?(shape, direction)}
+
+      _ ->
+        {:error, :unresolved_fluid_support}
     end
   end
 

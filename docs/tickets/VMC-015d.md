@@ -58,7 +58,15 @@ minimum push, mixed fluids, fast lava and unaffected players. Required native ce
 fit the existing frame. Eleven affected flow/contact tests pass; the refactored
 contact scan still matches 6,120 native depths. Evidence: `.local/fluid-{boundaries,flow,currents}-{native,check}.log`
 and `.local/fluid-flow-tests.log`. Current support for active shulker/piston block
-entities, input/swim forces and live composition remain open; missing context fails.
+entities was pending there; missing context fails.
+
+Contextual support now matches 486 native support grids and 4,680 active shulker/
+piston cases. FULL support requires native face equivalence, including interior
+slices, rather than covering a face with oversized geometry. Shulker closed status
+is explicit and independent of progress; unknown status still fails. Eighteen
+affected voxel/flow tests pass. Evidence: `.local/fluid-support-{native,check,tests}.log`.
+Input/swim forces and live composition remain open; live block entities still need
+their future authoritative resource observations rather than invented defaults.
 
 Client gate: actual water/lava entry/exit, shallow/deep and waterlogged boundaries,
 swim/sink, wall/surface escape, flight, saved velocity and dry impulse regression.

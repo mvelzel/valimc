@@ -33,6 +33,9 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     if json.loads(pathlib.Path(fluid_boundaries).read_text()) != json.loads((root/'priv/physics/fluid_boundaries.json').read_text()):
         raise RuntimeError('Pinned fluid boundary facts differ')
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_fluid_boundaries.exs', fluid_boundary_cases], cwd=root, check=True)
+    fluid_support = str(pathlib.Path(world) / 'fluid-support.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'FluidSupportOracle', fluid_support], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_fluid_support.exs', fluid_support], cwd=root, check=True)
     fluid_flows = str(pathlib.Path(world) / 'fluid-flows.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'FluidFlowOracle', fluid_flows], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_fluid_flow.exs', fluid_flows], cwd=root, check=True)

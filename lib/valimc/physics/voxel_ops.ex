@@ -88,6 +88,69 @@ defmodule Valimc.Physics.VoxelOps do
 
   def intersects?(_, _), do: invalid!()
 
+  @doc "Native FULL support test on one block-local face, including interior slices of moving shapes."
+  def face_full?(%Shape{} = shape, direction) when direction in 0..5 do
+    validate!(shape)
+
+    if Shape.empty?(shape) do
+      false
+    else
+      {axis, positive} =
+        elem({{1, false}, {1, true}, {2, false}, {2, true}, {0, false}, {0, true}}, direction)
+
+      coordinates = elem(shape.axes, axis)
+
+      cube_like =
+        tuple_size(coordinates) == 2 and abs(elem(coordinates, 0)) <= @epsilon and
+          abs(elem(coordinates, 1) - 1.0) <= @epsilon
+
+      source = grid(shape)
+
+      face =
+        if cube_like,
+          do: source,
+          else: face_slice(source, axis, if(positive, do: 0.9999999, else: 1.0e-7))
+
+      unit = grid(box({0.0, 0.0, 0.0, 1.0, 1.0, 1.0}))
+      maps = for a <- 0..2, do: merge_axis(elem(unit.axes, a), elem(face.axes, a))
+      sizes = maps |> Enum.map(&(length(&1) - 1)) |> List.to_tuple()
+      bound!(sizes)
+      maps = maps |> Enum.map(&List.to_tuple/1) |> List.to_tuple()
+
+      not Enum.any?(indices(elem(sizes, 0)), fn x ->
+        Enum.any?(indices(elem(sizes, 1)), fn y ->
+          Enum.any?(indices(elem(sizes, 2)), fn z ->
+            mapped_full?(unit, maps, x, y, z, 1) != mapped_full?(face, maps, x, y, z, 2)
+          end)
+        end)
+      end)
+    end
+  end
+
+  def face_full?(_, _), do: invalid!()
+
+  defp face_slice(source, axis, value) do
+    coordinates = elem(source.axes, axis)
+    slice = Enum.count(Tuple.to_list(coordinates), &(&1 <= value)) - 1
+    sizes = put_elem(source.sizes, axis, 1)
+    axes = put_elem(source.axes, axis, {0.0, 1.0})
+
+    filled =
+      for x <- indices(elem(sizes, 0)),
+          y <- indices(elem(sizes, 1)),
+          z <- indices(elem(sizes, 2)),
+          original = put_elem({x, y, z}, axis, slice),
+          slice >= 0 and slice < elem(source.sizes, axis) and
+            full?(
+              source,
+              index(source.sizes, elem(original, 0), elem(original, 1), elem(original, 2))
+            ),
+          into: MapSet.new(),
+          do: index(sizes, x, y, z)
+
+    %{axes: axes, sizes: sizes, filled: filled}
+  end
+
   defp intersection_axis(a, b) when a == b,
     do: a |> Tuple.to_list() |> Enum.with_index() |> Enum.map(fn {v, i} -> {v, i, i} end)
 

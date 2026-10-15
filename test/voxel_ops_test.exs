@@ -2,6 +2,16 @@ defmodule Valimc.VoxelOpsTest do
   use ExUnit.Case, async: true
   alias Valimc.Physics.{Box, Collision, Shape, VoxelOps}
 
+  test "FULL support requires native face equality, not merely covering the unit face" do
+    expanded = VoxelOps.box({-1.0e-7, 0.0, 0.0, 1.5, 1.0, 1.0})
+    refute VoxelOps.face_full?(expanded, 0)
+    refute VoxelOps.face_full?(expanded, 1)
+    assert VoxelOps.face_full?(expanded, 4)
+    assert VoxelOps.face_full?(expanded, 5)
+    refute VoxelOps.face_full?(%Shape{}, 0)
+    assert_raise ArgumentError, fn -> VoxelOps.face_full?(expanded, 6) end
+  end
+
   test "box construction retains dyadic cells, float bounds and native minimum extent" do
     half = VoxelOps.box({0.0, 0.0, 0.0, 0.5, 1.0, 1.0})
     assert half.sizes == {2, 1, 1}

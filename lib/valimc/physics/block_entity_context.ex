@@ -1,6 +1,6 @@
 defmodule Valimc.Physics.BlockEntityContext do
   @moduledoc "Pure block-entity observations; owners must fence these with the block state."
-  defstruct kind: :unavailable, progress_old: 0.0, progress: 0.0, piston: nil
+  defstruct kind: :unavailable, progress_old: 0.0, progress: 0.0, piston: nil, closed: nil
 
   def unavailable, do: %__MODULE__{}
   def absent, do: %__MODULE__{kind: :absent}
@@ -23,15 +23,38 @@ defmodule Valimc.Physics.BlockEntityContext do
 
   def shulker(_, _), do: raise(ArgumentError, "invalid shulker progress")
 
-  def valid?(%__MODULE__{kind: :shulker, progress_old: old, progress: current, piston: nil}),
-    do: progress?(old) and progress?(current)
+  def shulker(old, current, closed) when is_boolean(closed),
+    do: %{shulker(old, current) | closed: closed}
 
-  def valid?(%__MODULE__{kind: :piston, progress_old: old, progress: current, piston: piston}),
-    do:
-      is_float(old) and old == 0.0 and is_float(current) and current == 0.0 and
-        Valimc.Physics.PistonSnapshot.valid?(piston)
+  def shulker(_, _, _), do: raise(ArgumentError, "invalid shulker status")
 
-  def valid?(%__MODULE__{kind: kind, progress_old: old, progress: current, piston: nil})
+  def valid?(%__MODULE__{
+        kind: :shulker,
+        progress_old: old,
+        progress: current,
+        piston: nil,
+        closed: closed
+      }),
+      do: progress?(old) and progress?(current) and (closed == nil or is_boolean(closed))
+
+  def valid?(%__MODULE__{
+        kind: :piston,
+        progress_old: old,
+        progress: current,
+        piston: piston,
+        closed: nil
+      }),
+      do:
+        is_float(old) and old == 0.0 and is_float(current) and current == 0.0 and
+          Valimc.Physics.PistonSnapshot.valid?(piston)
+
+  def valid?(%__MODULE__{
+        kind: kind,
+        progress_old: old,
+        progress: current,
+        piston: nil,
+        closed: nil
+      })
       when kind in [:unavailable, :absent, :other],
       do: is_float(old) and old == 0.0 and is_float(current) and current == 0.0
 

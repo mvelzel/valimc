@@ -13,6 +13,24 @@ defmodule Valimc.Physics.FluidFlowTest do
   alias Valimc.Protocol.{Data, ItemTypes}
   @box {0.2, 64.7, 0.2, 0.8, 66.5, 0.8}
 
+  test "shulker animation status controls support independently of lid progress" do
+    shulker = Data.item_block(ItemTypes.id("shulker_box"))
+    f = frame(%{{0, 64, 0} => shulker})
+    closed = BlockEntityContext.shulker(0.5, 0.5, true)
+    open = BlockEntityContext.shulker(0.0, 0.0, false)
+
+    assert {:ok, true} ==
+             FluidBoundaries.sturdy?(%{f | entities: %{{0, 64, 0} => closed}}, {0, 64, 0}, 1)
+
+    assert {:ok, false} ==
+             FluidBoundaries.sturdy?(%{f | entities: %{{0, 64, 0} => open}}, {0, 64, 0}, 1)
+
+    assert {:ok, true} ==
+             FluidBoundaries.sturdy?(%{f | entities: %{{0, 64, 0} => open}}, {0, 64, 0}, 0)
+
+    refute BlockEntityContext.valid?(%{closed | closed: :unknown})
+  end
+
   test "a lower neighboring fluid level pulls horizontally; a different fluid does not" do
     assert {:ok, {1.0, 0.0, 0.0}} ==
              FluidFlow.sample(frame(%{{0, 64, 0} => 89, {1, 64, 0} => 96}), {0, 64, 0})
