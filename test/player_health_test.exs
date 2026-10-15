@@ -47,4 +47,18 @@ defmodule Valimc.PlayerHealthTest do
     assert {:error, :invalid_health} = PlayerHealth.reduce(state, -1)
     assert {:error, :invalid_health} = PlayerHealth.set(%{state | value: 21.0}, 10)
   end
+
+  test "logical ticks saturate hurt/cooldown without mutating health or death lifecycle" do
+    state = %PlayerHealth{
+      value: 7.25,
+      hurt_ticks: 1,
+      death_ticks: 11,
+      cooldown: 2,
+      last_hurt: 5.0
+    }
+
+    assert PlayerHealth.tick(state) == %{state | hurt_ticks: 0, cooldown: 1}
+    settled = %{state | hurt_ticks: 0, cooldown: 0}
+    assert state |> PlayerHealth.tick() |> PlayerHealth.tick() |> PlayerHealth.tick() == settled
+  end
 end

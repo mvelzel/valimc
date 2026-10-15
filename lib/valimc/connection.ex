@@ -21,6 +21,7 @@ defmodule Valimc.Connection do
     Players,
     PlayerAbilities,
     PlayerEnvironment,
+    PlayerHealth,
     PlayerInput,
     PlayerKinetics,
     PlayerMotion,
@@ -702,7 +703,8 @@ defmodule Valimc.Connection do
           Process.send_after(self(), {:player_tick, next.token}, delay)
           Metrics.add(:player_ticks)
           if late > 0, do: Metrics.add(:player_tick_lateness_ms, late)
-          state = %{state | simulation_clock: next, simulation_due: true}
+          player = %{state.player | health: PlayerHealth.tick(state.player.health)}
+          state = %{state | player: player, simulation_clock: next, simulation_due: true}
           {:noreply, state |> start_motion() |> sample_pose()}
 
         {:early, next, delay} ->
@@ -1269,6 +1271,7 @@ defmodule Valimc.Connection do
       input: %PlayerInput{},
       motion: %PlayerMotion{},
       environment: %PlayerEnvironment{},
+      health: %PlayerHealth{},
       pose: :standing,
       ready: false
     }
@@ -1291,6 +1294,8 @@ defmodule Valimc.Connection do
           {:ok, velocity} =
             PlayerKinetics.restore_velocity(Map.get(snapshot, :velocity, {0.0, 0.0, 0.0}))
 
+          {:ok, health} = PlayerHealth.restore(Map.get(snapshot, :health))
+
           inventory = %{
             snapshot.inventory
             | infinite_materials: abilities.infinite_materials
@@ -1303,6 +1308,7 @@ defmodule Valimc.Connection do
             Map.merge(player, snapshot.pose)
             | game_mode: mode,
               abilities: abilities,
+              health: health,
               motion:
                 PlayerMotion.flight(
                   %PlayerMotion{
@@ -1370,7 +1376,7 @@ defmodule Valimc.Connection do
       clock_packet,
       difficulty_packet,
       Packets.abilities(state.player.abilities),
-      Packets.health(),
+      Packets.health(state.player.health),
       Packets.spawn_position(),
       Packets.commands(),
       Packets.inventory(state.inventory),

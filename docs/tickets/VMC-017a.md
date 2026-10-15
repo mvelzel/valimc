@@ -1,6 +1,7 @@
 # VMC-017a — Owned health and fall damage
 
-Status: In progress. October 15, 2026.
+Status: Owned health/login/save automated-verified; client gate pending. Fall
+damage and death/respawn remain in progress. October 15, 2026.
 
 Acceptance: player-owned finite health, persistent save/reconnect, current health
 packets and fall damage from authoritative accepted landing distance. Preserve
@@ -26,8 +27,7 @@ Calculation checkpoint: original `Physics.FallDamage` matches 2,600 actual nativ
 factors, safe-fall and multiplier attribute limits, immunity and positive int
 saturation. Two affected tests pass. Attribute limits come from the existing pinned
 `priv/protocol/attributes.json`. Evidence: `.local/fall-damage-{native,check,tests}.log`;
-original `scripts/FallDamageOracle.java`. This helper is unwired: login still sends
-fixed health20, and no damage, health persistence or fatal lifecycle is claimed.
+original `scripts/FallDamageOracle.java`. The fall calculation remains unwired.
 
 Health foundation checkpoint: `PlayerHealth` matches 40 native setter/save/load
 cases and 336 actual `LivingEntity.hurtServer` cooldown prefixes (blocking,
@@ -39,5 +39,16 @@ velocity, inventory and the transfer journal; older versions remain readable.
 Cooldown/last-hit state is transient. Transfer preparation and pending disconnect
 retain health without restoring spent items; 42 affected tests pass. Evidence:
 `.local/player-health-{native,check,tests}.log`, `.local/health-entity-{native,check,verify}.log`.
-Owner/login wiring, timer progression and fatal lifecycle remain next; live damage
-is not enabled, and this foundation does not complete the client gate.
+This foundation alone did not enable live damage or complete the client gate.
+
+Owner checkpoint: login restores snapshot health (legacy/new players default to
+max health), sends it through `set_health`, and captures it on saves/disconnect.
+Hurt/cooldown decrement once per admitted owner tick, independent of the geometry
+lane, following `LivingEntity.baseTick` and `ServerPlayer.tick`. Death timers await
+the death lifecycle. Seventy-five affected tests pass, including two TCP sessions
+at health7.25 with exact inventory retention, legacy migration, pending-teleport
+timer progression and stale/early tick rejection. Tests synchronize initial packet
+checks with the socket owner. Evidence: `.local/player-health-live-tests.log`.
+Next client checkpoint: visually verify survival hearts from seeded health7.25,
+normal movement/inventory and a fresh direct reconnect. This validates health/save
+plumbing only; damage, death/respawn and their full acceptance scenarios remain open.

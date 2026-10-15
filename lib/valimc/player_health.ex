@@ -13,6 +13,10 @@ defmodule Valimc.PlayerHealth do
 
   def valid?(_), do: false
 
+  @doc "Advance hurt/cooldown once on the player owner's admitted logical tick."
+  def tick(%__MODULE__{} = state),
+    do: %{state | hurt_ticks: max(0, state.hurt_ticks - 1), cooldown: max(0, state.cooldown - 1)}
+
   def set(%__MODULE__{} = state, value) do
     if valid?(state) and bounded?(value, -@float_max, @float_max),
       do: {:ok, %{state | value: clamp(f32(value), 0.0, f32(state.maximum))}},
