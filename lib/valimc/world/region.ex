@@ -68,6 +68,11 @@ defmodule Valimc.World.Region do
   @impl true
   def init(key) do
     Process.flag(:trap_exit, true)
+    {:ok, %{key: key, resource: nil}, {:continue, :load}}
+  end
+
+  @impl true
+  def handle_continue(:load, %{key: key}) do
     resource = RegionData.load(key)
 
     Registry.update_value(Valimc.RegionRegistry, key, fn _ ->
@@ -76,10 +81,13 @@ defmodule Valimc.World.Region do
 
     clock = TickClock.new(resource.items.epoch, System.monotonic_time(:millisecond))
     timer = Process.send_after(self(), {:tick, clock.token}, 50)
-    {:ok, %{resource: resource, tick_clock: clock, tick_timer: timer}}
+    {:noreply, %{resource: resource, tick_clock: clock, tick_timer: timer}}
   end
 
   @impl true
+  def handle_call(:owner, _from, state),
+    do: {:reply, {:ok, {self(), state.resource.items.epoch}}, state}
+
   def handle_call(message, from, state),
     do: RegionData.handle_call(message, from, state.resource) |> wrap(state)
 
@@ -128,5 +136,6 @@ defmodule Valimc.World.Region do
   defp wrap({:stop, reason, resource}, state), do: {:stop, reason, %{state | resource: resource}}
 
   @impl true
+  def terminate(_reason, %{resource: nil}), do: :ok
   def terminate(reason, state), do: RegionData.terminate(reason, state.resource)
 end

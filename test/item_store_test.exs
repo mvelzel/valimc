@@ -266,7 +266,8 @@ defmodule Valimc.ItemStoreTest do
     File.write!(path, corrupt)
 
     capture_log(fn ->
-      assert {:error, {:item_load_failed, :invalid_item_file}} = World.item_owner(ctx.key)
+      assert {:error, reason} = World.item_owner(ctx.key)
+      assert reason in [{:item_load_failed, :invalid_item_file}, :region_restarting]
     end)
 
     assert World.item_snapshot(ctx.key) == %{} and File.read!(path) == corrupt

@@ -69,14 +69,18 @@ defmodule Valimc.World do
   end
 
   def owner(key) do
-    with {:ok, pid} <- region(key),
-         [{^pid, %{epoch: epoch}}] <- Registry.lookup(Valimc.RegionRegistry, key) do
-      {:ok, {pid, epoch}}
+    with {:ok, pid} <- region(key) do
+      case Registry.lookup(Valimc.RegionRegistry, key) do
+        [{^pid, %{epoch: epoch}}] -> {:ok, {pid, epoch}}
+        [{^pid, _}] -> GenServer.call(pid, :owner)
+        _ -> {:error, :region_restarting}
+      end
     else
-      [] -> {:error, :region_restarting}
       {:error, _} = error -> error
-      _ -> {:error, :region_restarting}
     end
+  catch
+    :exit, {:noproc, {GenServer, :call, _}} -> {:error, :region_restarting}
+    :exit, {reason, {GenServer, :call, _}} -> {:error, reason}
   end
 
   # Publication reads never allocate regions, enqueue messages or confer authority.

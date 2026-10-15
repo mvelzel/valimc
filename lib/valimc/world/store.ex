@@ -31,7 +31,7 @@ defmodule Valimc.World.Store do
   @impl true
   def handle_call(:load, _from, %{blocks: path} = state) do
     edits =
-      case path && File.read(path) do
+      case path && File.read(path, [:raw]) do
         {:ok, data} ->
           {:valimc_region, 1, edits} = :erlang.binary_to_term(data, [:safe])
           true = is_map(edits)
@@ -89,10 +89,10 @@ defmodule Valimc.World.Store do
   defp read_items(nil, _key), do: {:ok, %{records: [], receipts: %{}}}
 
   defp read_items(path, key) do
-    case File.open(path, [:read, :binary], fn io ->
-           IO.binread(io, ItemRecords.max_bytes() + 1)
+    case File.open(path, [:read, :raw, :binary], fn io ->
+           :file.read(io, ItemRecords.max_bytes() + 1)
          end) do
-      {:ok, bytes} when is_binary(bytes) -> ItemRecords.decode(bytes, key)
+      {:ok, {:ok, bytes}} -> ItemRecords.decode(bytes, key)
       {:error, :enoent} -> {:ok, %{records: [], receipts: %{}}}
       {:ok, :eof} -> {:error, :invalid_item_file}
       {:ok, {:error, reason}} -> {:error, reason}
