@@ -53,7 +53,8 @@ indexes validated tickets. None imply full parity.
    [Owned health/fall damage](tickets/VMC-017a.md) has native calculation, health/
    cooldown, codec and journal foundations. Owner/login/timer composition is
    validated (`18028cd`): 75 affected tests and actual hearts/inventory/reconnect.
-   Death/respawn lifecycle and fenced landing damage are next; no live damage yet.
+   Death/respawn codecs pass native checks locally; owned lifecycle and fenced
+   landing damage are next. No live damage yet.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
    within freezing scope (`91caf387`), including actual thaw/reconnect and flight.

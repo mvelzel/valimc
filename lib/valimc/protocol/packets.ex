@@ -88,16 +88,36 @@ defmodule Valimc.Protocol.Packets do
       Wire.varint(d),
       Wire.varint(d),
       <<0, 1, 0>>,
+      spawn_info(player, nil),
+      <<0, 0>>
+    ])
+  end
+
+  def respawn(player, last_death \\ nil),
+    do: packet("respawn", [spawn_info(player, last_death), <<0>>])
+
+  defp spawn_info(player, last_death) do
+    [
       Wire.varint(Data.registry_id("minecraft:dimension_type", "minecraft:overworld")),
       Wire.string("minecraft:overworld"),
       <<0::64>>,
       Wire.varint(Valimc.GameMode.id(Map.get(player, :game_mode, %Valimc.GameMode{}).current)),
       previous_mode(Map.get(player, :game_mode, %Valimc.GameMode{}).previous),
-      <<0, 1, 0, 0>>,
-      Wire.varint(63),
-      <<0, 0>>
-    ])
+      <<0, 1>>,
+      death_location(last_death),
+      <<0>>,
+      Wire.varint(63)
+    ]
   end
+
+  defp death_location(nil), do: <<0>>
+
+  defp death_location({x, y, z} = position)
+       when is_integer(x) and abs(x) <= 29_999_984 and is_integer(z) and abs(z) <= 29_999_984 and
+              is_integer(y) and y in -2048..2047,
+       do: [<<1>>, Wire.string("minecraft:overworld"), Wire.position(position)]
+
+  defp death_location(_), do: raise(ArgumentError, "invalid death location")
 
   def teleport(player, teleport_id) do
     %{x: x, y: y, z: z, yaw: yaw, pitch: pitch} = player
@@ -128,6 +148,35 @@ defmodule Valimc.Protocol.Packets do
   def health(health \\ %Valimc.PlayerHealth{}) do
     unless Valimc.PlayerHealth.valid?(health), do: raise(ArgumentError, "invalid health")
     packet("set_health", [<<health.value::float-32>>, Wire.varint(20), <<5.0::float-32>>])
+  end
+
+  def fall_damage(entity_id) do
+    life_entity_id!(entity_id)
+
+    packet("damage_event", [
+      Wire.varint(entity_id),
+      Wire.varint(Data.registry_id("minecraft:damage_type", "minecraft:fall")),
+      <<0, 0, 0>>
+    ])
+  end
+
+  def death(entity_id, message) do
+    life_entity_id!(entity_id)
+
+    unless is_binary(message) and byte_size(message) <= 1024 and String.valid?(message),
+      do: raise(ArgumentError, "invalid death message")
+
+    packet("player_combat_kill", [Wire.varint(entity_id), Wire.text_component(message)])
+  end
+
+  def death_animation(entity_id) do
+    life_entity_id!(entity_id)
+    packet("entity_event", <<entity_id::signed-32, 3>>)
+  end
+
+  defp life_entity_id!(entity_id) do
+    unless is_integer(entity_id) and entity_id in 1..2_147_483_647,
+      do: raise(ArgumentError, "invalid entity ID")
   end
 
   def difficulty(%{level: level, locked: locked})

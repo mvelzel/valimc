@@ -57,3 +57,19 @@ leased cleanup restored a safe preview state. Tester report reviewed:
 `.local/client-tests/VMC-017a/health-report.md`. The health/login/save checkpoint is
 complete; fall damage, regeneration, peer health, hurt events and death/respawn
 remain unimplemented and are not covered by this gate.
+
+Local protocol checkpoint: 100 native round trips cover fall damage events,
+death animation/messages and overworld respawn across current/previous modes and
+death positions. Eight client-command enum boundaries and malformed/trailing
+request tests pass; requests are parsed without gameplay authorization. The shared
+spawn payload retains all 20 native login mode cases; 22 affected tests pass.
+Evidence: `.local/player-life-{native,check,verify,tests}.log` and
+`.local/player-life-login-{native,check,verify}.log`. These primitives are unwired
+and remain local pending lifecycle/client validation.
+
+Next slice: fence pending movement when health reaches zero; retain dead health
+and inventory while conserved death drops drain through bounded existing outbox
+batches. Reconnect must resume pending delivery before publishing inventory;
+respawn requests must wait for cleanup and reject living players. Then reset
+motion/input/health, synchronize the client world and verify fatal UI/respawn,
+reconnect and inventory conservation before enabling landing damage.
