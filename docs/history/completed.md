@@ -90,3 +90,4 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-015d1](../tickets/VMC-015d1.md) | `2e66935`; live default water/lava travel/current/input, actual flight/exit/reconnect, full integration and frozen loads |
 | [VMC-015d2](../tickets/VMC-015d2.md) | `3c99728`; swimming flag/geometry, tunnel/crawl/peer/flight/reconnect and native/full integration validated |
 | [VMC-015d3](../tickets/VMC-015d3.md) | `3c99728`; vertical camera steering, actual mouse input and frozen active-water 512/128-player loads |
+| [VMC-017a2](../tickets/VMC-017a2.md) | `7337af64`; accepted landing/material damage, fatal lifecycle and corrected actual bed/slime bounce/velocity retests |

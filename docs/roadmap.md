@@ -57,7 +57,9 @@ indexes validated tickets. None imply full parity.
    (`0b2ad043`): actual death/drops/respawn/dead reconnect, 687 full tests and build.
    [Automatic landing damage](tickets/VMC-017a2.md) passes 93 affected tests,
    71,530 native material cases and native support/codecs. Actual client checks
-   exposed a premature bed-bounce impulse; a69-test/native-verified fix awaits retest.
+   exposed a premature bed-bounce impulse; the69-test/native-verified fix passes
+   actual bed/slime, ordinary fall, explicit impulse and saved-velocity retests
+   (`7337af64`). Accepted-landing scope is validated and complete.
    [Fall enchantment defenses](tickets/VMC-017a3.md) pass 41 affected tests and
    20,800 native cases; actual geared falls, negatives and reconnect passed (`0b2ad043`).
    [Freezing damage](tickets/VMC-017b1.md) passes 75 affected tests and native
@@ -110,7 +112,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
-| [VMC-017a2](tickets/VMC-017a2.md) | Bed landing FAIL: retest corrected bounce; creative flight not established | `0b2ad043` failed bed; corrected release pending |
 | [VMC-017b2](tickets/VMC-017b2.md) | Actual bubbles/drain/recovery, gear, reconnect and fatal drowning | Local air checkpoint |
 | [VMC-017b3](tickets/VMC-017b3.md) | Actual void damage/modes, reconnect and fatal respawn | Local void checkpoint |
 | [VMC-036a](tickets/VMC-036a.md) | Actual hunger HUD/healing/starvation, reconnect and respawn | Local food checkpoint |
