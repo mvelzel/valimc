@@ -69,6 +69,12 @@ state lookups matches. Logs/fixtures: `.local/collision-response-*` and
 `.local/block-motion-*`. The full native driver includes both probes for the next
 coherent-block check; it was not rerun for this arithmetic-only checkpoint.
 
-Before publication, delegate baseline join/walk/jump/flight/spawn smoke on this
-frozen checkpoint. This code is not yet on the live force path; keep the composed
-feature gate and this ticket open.
+Baseline GUI gate passed on frozen `1da26e93`, October 15, 16:01–16:05 CEST.
+Dedicated tester; root reviewed report, owner traces, original screenshots and
+all eight hashes. Actual SDL join/render/stats/walk, jump 64→65.2522→64, flight
+to 73.6179/descent/landing, spawn and reconnect/walk pass. Fresh logs are clean;
+all four regions/source journal are clean with zero players and original oak.
+Evidence: `.local/client-tests/VMC-015b-kernel/`; exact probe commands:
+`.local/collision-kernel-commands.txt`. Window binding required a refresh before
+successful SDL clicks. This code is not yet on the live force path; the composed
+feature gate and this ticket remain open.
