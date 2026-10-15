@@ -19,13 +19,13 @@ import net.minecraft.world.phys.*;
 
 /** Actual ordered Entity.checkInsideBlocks callbacks in a supplied immutable block scene. */
 public class StuckContactOracle {
-  private static class ProbeLevel extends ServerLevel {
+  static class ProbeLevel extends ServerLevel {
     Map<BlockPos,BlockState> blocks;Map<BlockPos,BlockState> observed;BlockPos visiting;RandomSource random;
     private ProbeLevel(){super(null,null,null,null,null,null,false,0L,List.of(),false);}
     public BlockState getBlockState(BlockPos pos){visiting=pos.immutable();var s=blocks.getOrDefault(visiting,Blocks.AIR.defaultBlockState());observed.put(visiting,s);return s;}
     public RandomSource getRandom(){return random;}
   }
-  private static class Probe extends Player {
+  static class Probe extends Player {
     ProbeLevel world;EntityDimensions dimensions;Vec3 feet;boolean spectator,weaving;BlockPos lastPos;BlockState lastState;
     private Probe(){super(null,null);}
     public GameType gameMode(){return spectator?GameType.SPECTATOR:GameType.CREATIVE;}
@@ -45,9 +45,9 @@ public class StuckContactOracle {
     Vec3 multiplier(){return stuckSpeedMultiplier;}
     void clear(){stuckSpeedMultiplier=null;lastPos=null;lastState=null;}
   }
-  private static Field field(Class<?> owner,String name)throws Exception{var f=owner.getDeclaredField(name);f.setAccessible(true);return f;}
-  private static JsonArray vec(Vec3 v){var a=new JsonArray();a.add(v.x);a.add(v.y);a.add(v.z);return a;}
-  private static JsonArray pos(BlockPos p){var a=new JsonArray();a.add(p.getX());a.add(p.getY());a.add(p.getZ());return a;}
+  static Field field(Class<?> owner,String name)throws Exception{var f=owner.getDeclaredField(name);f.setAccessible(true);return f;}
+  static JsonArray vec(Vec3 v){var a=new JsonArray();a.add(v.x);a.add(v.y);a.add(v.z);return a;}
+  static JsonArray pos(BlockPos p){var a=new JsonArray();a.add(p.getX());a.add(p.getY());a.add(p.getZ());return a;}
   public static void main(String[] args)throws Exception{
     SharedConstants.tryDetectVersion();Bootstrap.bootStrap();var u=(sun.misc.Unsafe)field(sun.misc.Unsafe.class,"theUnsafe").get(null);
     var p=(Probe)u.allocateInstance(Probe.class);var world=(ProbeLevel)u.allocateInstance(ProbeLevel.class);p.world=world;world.random=RandomSource.create(15017);

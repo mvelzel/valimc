@@ -38,6 +38,25 @@ defmodule Valimc.Physics.StuckContactTest do
     assert ordered.multiplier == {0.8999999761581421, 1.5, 0.8999999761581421}
   end
 
+  test "one hit-position set spans the tick rather than reapplying a revisited web" do
+    points = [{0.5, 64.0, 0.5}, {1.5, 64.0, 0.5}, {2.5, 64.0, 0.5}, {1.5, 64.0, 0.5}]
+
+    paths =
+      Enum.chunk_every(points, 2, 1, :discard)
+      |> Enum.map(fn [from, to] -> %{from: from, to: to, axis: nil} end)
+
+    f = frame(%{{1, 64, 0} => 2362, {2, 64, 0} => 24298})
+    facts = %StuckContact{feet: List.last(points)}
+    {:ok, effect} = StuckContact.sample_paths(f, paths, context(64.0), facts)
+    assert effect.last.kind == :berry_bush
+    assert effect.multiplier == {0.800000011920929, 0.75, 0.800000011920929}
+    {:ok, next_tick} = StuckContact.sample(f, facts.feet, facts.feet, context(64.0), facts)
+    assert next_tick.last.kind == :cobweb
+
+    assert {:error, :invalid_stuck_frame} =
+             StuckContact.sample_paths(f, List.duplicate(hd(paths), 102), context(64.0), facts)
+  end
+
   test "missing observations fail, while flight/spectator cannot create an effect" do
     from = {0.5, 64.0, 0.5}
     to = {3.5, 64.0, 0.5}

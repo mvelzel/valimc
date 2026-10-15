@@ -63,9 +63,19 @@ and 12 strict segment entries; traversal still matches all 1,809 traces. Twenty-
 affected tests pass, including crossed-web endpoints and web-reset→powder geometry.
 Evidence: `.local/{stuck-contact,swept-contact}-{native,check}.log`,
 `.local/stuck-contact-tests.log`. Native scenes supply immutable blocks/healthy bare
-players; queued damage/freezing and owner lifecycle are excluded. Next: a shared
-visited set across tick paths, axis-dependent ordering and owner integration.
+players; queued damage/freezing and owner lifecycle are excluded.
 Native `checkInsideBlocks(List, collector)` retains one hit-position set until the
 whole batch finishes. Each movement has a 16-step budget shared by its axis
 segments, with destination fallback when exhausted; this is not a 16-movement
-queue cap. The current contact oracle uses linear single-movement records.
+queue cap.
+
+Batch checkpoint: 3,456 actual native multi-path scenes match shared hit-position
+deduplication, requested-vector axis order and the step-budget destination fallback.
+The earlier 1,680 single-path scenes still pass; 22 affected tests pass. A regression
+covers web → bush → the same web: the bush wins until the next tick. Each sample
+accepts at most 101 paths and 4,096 visits; incomplete geometry fails explicitly.
+Evidence: `.local/stuck-path-{native,check,tests}.log`, original
+`scripts/StuckPathsOracle.java`. Native movement history retains 100 records by
+coalescing its oldest two into a linear path; a final-position gap may add one.
+Next: player-owned transient history, multiplier consumption and live composition;
+the feature and graphical gates remain open.

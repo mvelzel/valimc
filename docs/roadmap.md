@@ -45,8 +45,8 @@ indexes validated tickets. None imply full parity.
    kernels; native reported intent preserves simulated controls. Entity/vehicle
    ownership remains open. [Slowing blocks](tickets/VMC-015g.md) have native
    contact/consumption kernels and native-verified bounded ordered traversal;
-   contextual single-path contacts match native scenes; tick path ordering and
-   live ownership are next.
+   contextual single-path and tick-batch ordering match native scenes; bounded
+   player-owned path history and live composition are next.
    Effects/survival consequences remain open.
    [Environment ticks](tickets/VMC-015c.md) share the
    geometry lane and fix the stale powder freezing state; validated and complete
