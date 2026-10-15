@@ -3,6 +3,7 @@ defmodule Valimc.Connection do
 
   @moduledoc "A socket-owning process per player, including their protocol and connection-local state."
   alias Valimc.Protocol.{
+    ClientCommand,
     ClientTick,
     Data,
     Encryption,
@@ -24,6 +25,7 @@ defmodule Valimc.Connection do
     PlayerHealth,
     PlayerInput,
     PlayerKinetics,
+    PlayerLife,
     PlayerMotion,
     PlayerMotionQuery,
     PlayerPoseQuery,
@@ -56,8 +58,18 @@ defmodule Valimc.Connection do
     GenServer.call(pid, {:set_velocity, velocity, deadline}, 1500)
   end
 
+  @doc "Apply server-authorized fall damage on its player owner; landing validation is separate."
+  def fall_damage(pid, amount) do
+    deadline = System.monotonic_time(:millisecond) + 1000
+    GenServer.call(pid, {:fall_damage, amount, deadline}, 1500)
+  end
+
   @impl true
-  def handle_call({:teleport, destination, deadline}, _, %{phase: :play} = state) do
+  def handle_call(
+        {:teleport, destination, deadline},
+        _,
+        %{phase: :play, life_stage: :alive} = state
+      ) do
     if System.monotonic_time(:millisecond) < deadline and is_map(destination) and
          map_size(destination) == 5 and
          Enum.all?([:x, :y, :z, :yaw, :pitch], &Map.has_key?(destination, &1)) and
@@ -70,7 +82,11 @@ defmodule Valimc.Connection do
 
   def handle_call({:teleport, _, _}, _, state), do: {:reply, {:error, :not_playing}, state}
 
-  def handle_call({:set_velocity, velocity, deadline}, _, %{phase: :play} = state) do
+  def handle_call(
+        {:set_velocity, velocity, deadline},
+        _,
+        %{phase: :play, life_stage: :alive} = state
+      ) do
     if System.monotonic_time(:millisecond) < deadline and PlayerKinetics.valid_velocity?(velocity) and
          PlayerKinetics.admissible?(state.player, velocity) do
       state = state |> cancel_pose_job() |> cancel_motion_job()
@@ -87,6 +103,27 @@ defmodule Valimc.Connection do
   end
 
   def handle_call({:set_velocity, _, _}, _, state), do: {:reply, {:error, :not_playing}, state}
+
+  def handle_call({:fall_damage, amount, deadline}, _, %{phase: :play} = state) do
+    if System.monotonic_time(:millisecond) < deadline do
+      case PlayerHealth.hurt_window(state.player.health, amount) do
+        {:ok, selected} ->
+          try do
+            {result, next} = apply_fall_damage(state, selected)
+            {:reply, {:ok, result}, next}
+          catch
+            {:disconnect, _, current} -> {:stop, :normal, {:error, :disconnected}, current}
+          end
+
+        error ->
+          {:reply, error, state}
+      end
+    else
+      {:reply, {:error, :expired_damage}, state}
+    end
+  end
+
+  def handle_call({:fall_damage, _, _}, _, state), do: {:reply, {:error, :not_playing}, state}
 
   def deliver(pid, event) do
     case Process.info(pid, :message_queue_len) do
@@ -133,6 +170,9 @@ defmodule Valimc.Connection do
        store_fence: nil,
        store_monitor: nil,
        save_ref: nil,
+       life_save: nil,
+       life_stage: :alive,
+       respawn_requested: false,
        recovery: nil,
        creative_input: CreativeInput.new(creative_tick()),
        creative_drain_scheduled: false,
@@ -333,8 +373,37 @@ defmodule Valimc.Connection do
     end
   end
 
+  def handle_info({:player_saved, ref, :ok}, %{life_save: %{ref: ref} = save} = state) do
+    guard_connection(state, fn ->
+      state = %{state | life_save: if(save.kind == :respawn, do: save, else: nil), save_ref: nil}
+
+      state =
+        case save.kind do
+          :death_mark ->
+            continue_life(%{state | life_stage: :dropping})
+
+          :death_done ->
+            state = %{
+              state
+              | inventory: recovered_inventory(state, save.snapshot),
+                life_stage: :dead
+            }
+
+            if state.phase == :login, do: finish_login(state), else: continue_life(state)
+
+          :respawn ->
+            finish_respawn(state, save.player)
+        end
+
+      {:noreply, state}
+    end)
+  end
+
   def handle_info({:player_saved, ref, :ok}, %{save_ref: ref} = state),
-    do: guard_connection(state, fn -> {:noreply, drain_creative(%{state | save_ref: nil})} end)
+    do:
+      guard_connection(state, fn ->
+        {:noreply, %{state | save_ref: nil} |> drain_creative() |> continue_life()}
+      end)
 
   def handle_info(:drain_creative, %{creative_drain_scheduled: true} = state),
     do:
@@ -399,7 +468,7 @@ defmodule Valimc.Connection do
       state = %{state | inventory: recovered_inventory(state, snapshot)}
 
       state =
-        if recovery.mode == :login or creative_pending?(state),
+        if recovery.mode == :login or state.life_stage != :alive or creative_pending?(state),
           do: state,
           else: resync_inventory(state)
 
@@ -415,6 +484,9 @@ defmodule Valimc.Connection do
       if reason == :player_commit_uncertain,
         do: reject(state, "Inventory transfer commit is uncertain; reconnect to recover")
 
+      if recovery.mode == :death,
+        do: reject(state, "Death inventory cleanup could not be committed; reconnect to recover")
+
       if recovery.mode == :login,
         do:
           reject(
@@ -424,7 +496,13 @@ defmodule Valimc.Connection do
 
       Process.cancel_timer(recovery.timer)
       send_packets(state, [Packets.chat("Item drop could not be prepared; inventory restored")])
-      {:noreply, state |> Map.put(:recovery, nil) |> drain_creative() |> sync_creative_result()}
+
+      {:noreply,
+       state
+       |> Map.put(:recovery, nil)
+       |> drain_creative()
+       |> sync_creative_result()
+       |> continue_life()}
     end)
   end
 
@@ -443,7 +521,7 @@ defmodule Valimc.Connection do
       {:noreply,
        if(recovery.mode == :login,
          do: reconcile_login(state),
-         else: state |> drain_creative() |> sync_creative_result()
+         else: state |> drain_creative() |> sync_creative_result() |> continue_life()
        )}
     end)
   end
@@ -704,6 +782,10 @@ defmodule Valimc.Connection do
           Metrics.add(:player_ticks)
           if late > 0, do: Metrics.add(:player_tick_lateness_ms, late)
           player = %{state.player | health: PlayerHealth.tick(state.player.health)}
+
+          if state.player.health.death_ticks < 20 and player.health.death_ticks == 20,
+            do: broadcast_player_packet(state, Packets.remove_entity(player))
+
           state = %{state | player: player, simulation_clock: next, simulation_due: true}
           {:noreply, state |> start_motion() |> sample_pose()}
 
@@ -908,10 +990,12 @@ defmodule Valimc.Connection do
 
   defp reconcile_login(state) do
     before = PlayerSnapshot.capture(state.player, state.inventory)
-    {:ok, after_snapshot, key, records} = PlayerTransfers.plan_disconnect(before)
+    {:ok, after_snapshot, key, records} = PlayerTransfers.plan_cleanup(before)
 
     if records == [] do
-      finish_login(state)
+      if state.player.health.value <= 0,
+        do: checkpoint_life(state, :death_done, after_snapshot),
+        else: finish_login(state)
     else
       ref = make_ref()
 
@@ -921,7 +1005,12 @@ defmodule Valimc.Connection do
           plan: %{key: key, records: records, inventory: after_snapshot.inventory}
       }
 
-      PlayerStore.prepare_transfer(
+      prepare =
+        if state.player.health.value <= 0,
+          do: &PlayerStore.prepare_death/7,
+          else: &PlayerStore.prepare_transfer/7
+
+      prepare.(
         state.player_store,
         state.store_fence,
         before,
@@ -951,6 +1040,189 @@ defmodule Valimc.Connection do
         state_id: state.inventory.state_id,
         drag: nil
     }
+  end
+
+  defp apply_fall_damage(state, selected) do
+    cond do
+      state.life_stage != :alive or not selected.accepted ->
+        {:ignored, state}
+
+      state.player.abilities.may_fly or state.player.abilities.invulnerable or
+          not PlayerInput.loaded?(state.player.input) ->
+        {:immune, state}
+
+      true ->
+        {:ok, health} = PlayerHealth.reduce(selected.state, selected.damage)
+        player = %{state.player | health: health}
+        state = %{state | player: player}
+
+        state =
+          if health.value <= 0 do
+            state = state |> cancel_pose_job() |> cancel_motion_job()
+            player = PlayerLife.die(player)
+
+            %{
+              state
+              | player: player,
+                motion_pending: nil,
+                motion_window: nil,
+                pose_checked: nil,
+                pose_generation: state.pose_generation + 1,
+                life_stage: :sealing_death,
+                creative_input: CreativeInput.clear(state.creative_input)
+            }
+          else
+            state
+          end
+
+        Players.update(self(), state.player)
+
+        if selected.notify do
+          packet = Packets.fall_damage(state.player.entity_id)
+          send_packets(state, [packet])
+          broadcast_player_packet(state, packet)
+        end
+
+        send_packets(state, [
+          Packets.health(state.player.health),
+          Packets.player_health(state.player)
+        ])
+
+        state = if health.value <= 0, do: death_notice(state, true), else: state
+        send(self(), :drain)
+        {if(health.value <= 0, do: :dead, else: :hurt), continue_life(state)}
+    end
+  end
+
+  defp death_notice(state, fall) do
+    message = state.player.name <> if(fall, do: " hit the ground too hard", else: " died")
+
+    send_packets(state, [
+      Packets.player_pose(state.player),
+      Packets.death(state.player.entity_id, message),
+      Packets.death_animation(state.player.entity_id)
+    ])
+
+    broadcast_player_packet(state, Packets.death_animation(state.player.entity_id))
+    if fall, do: Players.broadcast({:chat, message})
+    state
+  end
+
+  defp checkpoint_life(state, kind, snapshot, player \\ nil) do
+    ref = make_ref()
+    PlayerStore.checkpoint(state.player_store, state.store_fence, snapshot, ref)
+    Process.send_after(self(), {:save_deadline, ref}, 5000)
+
+    %{
+      state
+      | save_ref: ref,
+        life_save: %{kind: kind, ref: ref, snapshot: snapshot, player: player}
+    }
+  end
+
+  defp continue_life(%{save_ref: ref} = state) when ref != nil, do: state
+  defp continue_life(%{recovery: recovery} = state) when recovery != nil, do: state
+
+  defp continue_life(%{life_stage: :sealing_death, phase: :play} = state),
+    do: checkpoint_life(state, :death_mark, PlayerSnapshot.capture(state.player, state.inventory))
+
+  defp continue_life(%{life_stage: :dropping, phase: :play} = state) do
+    before = PlayerSnapshot.capture(state.player, state.inventory)
+    {:ok, after_snapshot, key, records} = PlayerTransfers.plan_death(before)
+
+    if records == [] do
+      checkpoint_life(state, :death_done, after_snapshot)
+    else
+      ref = make_ref()
+
+      recovery = %{
+        new_recovery(:death, :prepare, nil)
+        | ref: ref,
+          plan: %{key: key, records: records, inventory: after_snapshot.inventory}
+      }
+
+      PlayerStore.prepare_death(
+        state.player_store,
+        state.store_fence,
+        before,
+        after_snapshot,
+        key,
+        records,
+        ref
+      )
+
+      %{state | recovery: recovery}
+    end
+  end
+
+  defp continue_life(%{life_stage: :dead, respawn_requested: true} = state) do
+    player = PlayerLife.respawn(state.player)
+    snapshot = PlayerSnapshot.capture(player, Inventory.new(player.abilities.infinite_materials))
+    checkpoint_life(%{state | life_stage: :respawning}, :respawn, snapshot, player)
+  end
+
+  defp continue_life(state), do: state
+
+  defp finish_respawn(state, player) do
+    old_entities = Enum.map(state.peers, fn {_, view} -> Packets.remove_entity(view) end)
+    old_items = Map.keys(state.item_replication.tracked)
+
+    old_items =
+      if old_items == [], do: [], else: [Valimc.Protocol.EntityPackets.remove(old_items)]
+
+    send_packets(state, Enum.map(state.chunks, &Packets.unload/1) ++ old_entities ++ old_items)
+    {clock_version, clock_packet} = Valimc.World.Clock.initial()
+    {difficulty, difficulty_packet} = Valimc.World.Clock.difficulty()
+
+    {weather_view, weather_packets} =
+      WeatherReplication.reconcile(nil, Valimc.World.Clock.weather())
+
+    inventory = Inventory.new(player.abilities.infinite_materials)
+
+    state = %{
+      state
+      | player: player,
+        inventory: inventory,
+        life_stage: :alive,
+        respawn_requested: false,
+        client_tick: %ClientTick{},
+        center: nil,
+        chunks: MapSet.new(),
+        pending: [],
+        batch_pending: false,
+        peers: %{},
+        item_replication: ItemReplication.new(),
+        clock_version: clock_version,
+        difficulty_view: difficulty,
+        weather_view: weather_view
+    }
+
+    send_packets(
+      state,
+      [
+        Packets.respawn(player, player.last_death),
+        clock_packet,
+        difficulty_packet,
+        Packets.abilities(player.abilities),
+        Packets.health(player.health),
+        Packets.player_health(player),
+        Packets.player_pose(player),
+        Packets.player_environment(player),
+        Packets.spawn_position(),
+        Packets.interaction_attributes(player),
+        Packets.inventory(inventory),
+        Packets.cursor(nil),
+        Packets.held_slot(0)
+      ] ++ weather_packets
+    )
+
+    state = relocate(state, player)
+
+    for pid <- Players.nearby(state.regions),
+        pid != self(),
+        do: deliver(pid, {:player_respawned, self(), player.entity_id})
+
+    %{state | life_save: nil}
   end
 
   defp new_recovery(mode, stage, intent) do
@@ -1113,6 +1385,37 @@ defmodule Valimc.Connection do
 
   defp handle_packet(%{phase: :play} = state, id, payload) do
     case Data.name(:play, :serverbound, id) do
+      name
+      when state.life_stage != :alive and
+             name in [
+               "move_player_pos",
+               "move_player_pos_rot",
+               "move_player_rot",
+               "move_player_status_only",
+               "player_abilities",
+               "player_input",
+               "player_command",
+               "player_action",
+               "set_carried_item",
+               "set_creative_mode_slot",
+               "container_click",
+               "container_close",
+               "use_item_on"
+             ] ->
+        state
+
+      "client_command" ->
+        case ClientCommand.decode(payload) do
+          {:ok, :respawn} when state.life_stage in [:sealing_death, :dropping, :dead] ->
+            continue_life(%{state | respawn_requested: true})
+
+          {:ok, _} ->
+            state
+
+          {:error, _} ->
+            reject(state, "Invalid client lifecycle request")
+        end
+
       "accept_teleportation" ->
         {id, <<x::float-64, y::float-64, z::float-64, _yaw::float-32, _pitch::float-32>>} =
           Wire.take_varint(payload)
@@ -1272,6 +1575,7 @@ defmodule Valimc.Connection do
       motion: %PlayerMotion{},
       environment: %PlayerEnvironment{},
       health: %PlayerHealth{},
+      last_death: nil,
       pose: :standing,
       ready: false
     }
@@ -1309,6 +1613,7 @@ defmodule Valimc.Connection do
             | game_mode: mode,
               abilities: abilities,
               health: health,
+              last_death: Map.get(snapshot, :last_death),
               motion:
                 PlayerMotion.flight(
                   %PlayerMotion{
@@ -1319,6 +1624,8 @@ defmodule Valimc.Connection do
                 ),
               environment: %PlayerEnvironment{frozen_ticks: Map.get(snapshot, :frozen_ticks, 0)}
           }
+
+          player = if health.value <= 0, do: PlayerLife.dead(player), else: player
 
           {pid, fence, player, inventory, pending}
 
@@ -1333,6 +1640,7 @@ defmodule Valimc.Connection do
     state = %{
       state
       | player: player,
+        life_stage: if(player.health.value <= 0, do: :sealing_death, else: :alive),
         player_store: store,
         store_fence: fence,
         inventory: inventory,
@@ -1387,6 +1695,8 @@ defmodule Valimc.Connection do
       Packets.player_info(state.player),
       Packets.interaction_attributes(state.player),
       Packets.player_environment(state.player),
+      Packets.player_pose(state.player),
+      Packets.player_health(state.player),
       Packets.chat(
         "Welcome to ValiMC. Development preview (#{state.player.game_mode.current}); survival is being built. /help"
       )
@@ -1405,7 +1715,7 @@ defmodule Valimc.Connection do
     state = %{state | simulation_clock: clock}
     Process.send_after(self(), :publish_movement, 50)
     Process.send_after(self(), :save_player, Valimc.config(:player_save_interval_ms))
-    state
+    if state.player.health.value <= 0, do: death_notice(state, false), else: state
   end
 
   defp update_player_input(state, input) do
@@ -1491,7 +1801,10 @@ defmodule Valimc.Connection do
   defp motion_signature(state),
     do: {pose_signature(state), state.player.game_mode.current}
 
-  defp start_motion(%{motion_job: nil, teleport_pending: false, motion_pending: input} = state)
+  defp start_motion(
+         %{life_stage: :alive, motion_job: nil, teleport_pending: false, motion_pending: input} =
+           state
+       )
        when input != nil do
     remaining = input.deadline - System.monotonic_time(:millisecond)
 
@@ -1623,7 +1936,10 @@ defmodule Valimc.Connection do
   defp pose_signature(state),
     do: {PlayerPoseQuery.signature(state.player), state.pose_generation}
 
-  defp sample_pose(%{pose_job: nil, motion_pending: nil, teleport_pending: false} = state) do
+  defp sample_pose(
+         %{life_stage: :alive, pose_job: nil, motion_pending: nil, teleport_pending: false} =
+           state
+       ) do
     signature = pose_signature(state)
 
     active =
@@ -1665,9 +1981,13 @@ defmodule Valimc.Connection do
     packet = Valimc.Protocol.EntityPackets.motion(state.player.entity_id, velocity)
     send_packets(state, [packet])
 
+    broadcast_player_packet(state, packet)
+  end
+
+  defp broadcast_player_packet(state, packet) do
     for pid <- Players.nearby(state.regions),
         pid != self(),
-        do: deliver(pid, {:player_velocity, self(), state.player.entity_id, packet})
+        do: deliver(pid, {:player_packet, self(), state.player.entity_id, packet})
 
     state
   end
@@ -1806,13 +2126,26 @@ defmodule Valimc.Connection do
 
   defp event(%{phase: :play} = state, {:player_joined, player}), do: track_peer(state, player)
 
-  defp event(%{phase: :play} = state, {:player_velocity, pid, entity, packet}) do
+  defp event(%{phase: :play} = state, {:player_packet, pid, entity, packet}) do
     case Map.get(state.peers, pid) do
       view when is_tuple(view) and elem(view, 0) == entity -> send_packets(state, [packet])
       _ -> :ok
     end
 
     state
+  end
+
+  defp event(%{phase: :play} = state, {:player_respawned, pid, entity}) do
+    case Players.get(pid) do
+      {:ok, %{entity_id: ^entity} = player} ->
+        if Map.has_key?(state.peers, pid),
+          do: send_packets(state, [Packets.remove_entity(player)])
+
+        track_peer(%{state | peers: Map.delete(state.peers, pid)}, player)
+
+      _ ->
+        state
+    end
   end
 
   defp event(%{phase: :play} = state, {:player_left, player}) do
@@ -1835,13 +2168,18 @@ defmodule Valimc.Connection do
         packets =
           case state.peers[player.pid] do
             nil ->
-              [
-                Packets.player_info(player),
-                Packets.add_entity(player),
-                Packets.player_flags(player),
-                Packets.player_pose(player),
-                Packets.player_environment(player)
-              ]
+              body =
+                if player.health.value <= 0 and player.health.death_ticks >= 20,
+                  do: [],
+                  else: [
+                    Packets.add_entity(player),
+                    Packets.player_flags(player),
+                    Packets.player_pose(player),
+                    Packets.player_environment(player),
+                    Packets.player_health(player)
+                  ]
+
+              [Packets.player_info(player) | body]
 
             ^view ->
               []
@@ -2048,6 +2386,8 @@ defmodule Valimc.Connection do
 
   # Do not overwrite valid client predictions with an earlier creative snapshot
   # while their following slot updates are still deferred.
+  defp sync_creative_result(%{life_stage: stage} = state) when stage != :alive, do: state
+
   defp sync_creative_result(state) do
     if creative_pending?(state) or state.creative_input.queued > 0,
       do: state,
@@ -2296,7 +2636,9 @@ defmodule Valimc.Connection do
   end
 
   defp execute_command(state, :spawn) do
-    relocate(state, %{state.player | x: 0.5, y: 64.0, z: 0.5})
+    if state.life_stage == :alive,
+      do: relocate(state, %{state.player | x: 0.5, y: 64.0, z: 0.5}),
+      else: state
   end
 
   defp execute_command(state, :unknown) do
@@ -2418,17 +2760,26 @@ defmodule Valimc.Connection do
 
     if state.player_store && state.phase == :play do
       # Read the latest owner publication for movement accepted before a failure.
-      player =
-        case Players.get(self()) do
-          {:ok, latest} -> latest
-          :error -> state.player
+      snapshot =
+        case state.life_save do
+          %{kind: :respawn, snapshot: snapshot} ->
+            snapshot
+
+          _ ->
+            player =
+              case Players.get(self()) do
+                {:ok, latest} -> latest
+                :error -> state.player
+              end
+
+            PlayerSnapshot.capture(player, state.inventory)
         end
 
       try do
         PlayerStore.close_session(
           state.player_store,
           state.store_fence,
-          PlayerSnapshot.capture(player, state.inventory)
+          snapshot
         )
       catch
         :exit, _ ->

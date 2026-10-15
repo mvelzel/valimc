@@ -7,7 +7,7 @@ defmodule Valimc.PlayerSnapshot do
   @inventory_bytes 524_288
   @outbox_bytes 55 + 5 * (40 + 65_536)
   @max_sequence 18_446_744_073_709_551_615
-  @max_bytes 56 + 4 + 3 + 8 + 4 + 24 + 12 + 8 + @inventory_bytes + @outbox_bytes + 32
+  @max_bytes 56 + 4 + 3 + 8 + 4 + 24 + 12 + 8 + 13 + @inventory_bytes + @outbox_bytes + 32
 
   def max_bytes, do: @max_bytes
 
@@ -35,6 +35,11 @@ defmodule Valimc.PlayerSnapshot do
       else
         snapshot
       end
+
+    snapshot =
+      if Map.has_key?(player, :last_death),
+        do: Map.put(snapshot, :last_death, player.last_death),
+        else: snapshot
 
     snapshot =
       case player do
@@ -136,6 +141,24 @@ defmodule Valimc.PlayerSnapshot do
         {version, journal}
       end
 
+    {version, journal} =
+      if Map.has_key?(snapshot, :last_death) do
+        check(
+          version == 9 and Valimc.PlayerLife.valid_location?(snapshot.last_death),
+          :invalid_last_death
+        )
+
+        location =
+          case snapshot.last_death do
+            nil -> <<0>>
+            {x, y, z} -> <<1, x::signed-32, y::signed-32, z::signed-32>>
+          end
+
+        {10, [location, journal]}
+      else
+        {version, journal}
+      end
+
     payload =
       IO.iodata_to_binary([
         <<"VMCPOSE", version, uuid::binary-size(16), pose.x::float-64, pose.y::float-64,
@@ -201,7 +224,21 @@ defmodule Valimc.PlayerSnapshot do
 
       <<"VMCPOSE", version, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
         yaw::float-32, pitch::float-32, @data_version::32, rest::binary>>
-      when version in [5, 6, 7, 8, 9] ->
+      when version in [5, 6, 7, 8, 9, 10] ->
+        {life, rest} =
+          if version >= 10 do
+            {location, rest} =
+              case rest do
+                <<0, rest::binary>> -> {nil, rest}
+                <<1, x::signed-32, y::signed-32, z::signed-32, rest::binary>> -> {{x, y, z}, rest}
+              end
+
+            check(Valimc.PlayerLife.valid_location?(location), :invalid_player_file)
+            {%{last_death: location}, rest}
+          else
+            {%{}, rest}
+          end
+
         {health, rest} =
           if version >= 9 do
             <<value::float-32, hurt::16, death::16, rest::binary>> = rest
@@ -259,7 +296,8 @@ defmodule Valimc.PlayerSnapshot do
          |> Map.merge(fall)
          |> Map.merge(environment)
          |> Map.merge(velocity)
-         |> Map.merge(health)}
+         |> Map.merge(health)
+         |> Map.merge(life)}
 
       _ ->
         {:error, :invalid_player_file}

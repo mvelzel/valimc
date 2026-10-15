@@ -101,7 +101,7 @@ defmodule Valimc.PlayerInputTest do
     player = put_in(player().input.shared_flags, 10)
     previous = Packets.view(player)
 
-    assert [removed, added, flags, pose, environment] =
+    assert [removed, added, flags, pose, environment, health] =
              Packets.move_entity(%{player | z: 10.0}, previous)
 
     assert removed == Packets.remove_entity(previous)
@@ -109,6 +109,7 @@ defmodule Valimc.PlayerInputTest do
     assert metadata(flags) == {300, 10}
     assert pose == Packets.player_pose(player)
     assert environment == Packets.player_environment(player)
+    assert health == Packets.player_health(player)
     assert Packets.remove_info(player) == Packets.remove_info(previous)
   end
 

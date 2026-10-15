@@ -41,7 +41,7 @@ public class PlayerLifeOracle {
   }
   private static Map<String,Object> packets()throws Exception{
     var result=new LinkedHashMap<String,Object>();
-    var positions=Arrays.asList(null,new BlockPos(0,64,0),new BlockPos(-17,-64,42),new BlockPos(29999984,319,-29999984));
+    var positions=Arrays.asList(null,new BlockPos(0,64,0),new BlockPos(-17,-64,42),new BlockPos(29999984,319,-29999984),new BlockPos(1,1000000,-1),new BlockPos(-1,-1000000,1));
     for(var mode:GameType.values())for(int previous=-1;previous<4;previous++)for(int i=0;i<positions.size();i++){
       var prior=previous<0?Optional.<GameType>empty():Optional.of(GameType.byId(previous));
       var death=Optional.ofNullable(positions.get(i)).map(p->GlobalPos.of(Level.OVERWORLD,p));

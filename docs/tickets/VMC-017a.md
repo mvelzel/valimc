@@ -55,8 +55,9 @@ dry movement/jump and `/stats`, real seven-stone hotbar move, durable snapshot a
 fresh direct reconnect with the same health/inventory. Both clients stopped/waited;
 leased cleanup restored a safe preview state. Tester report reviewed:
 `.local/client-tests/VMC-017a/health-report.md`. The health/login/save checkpoint is
-complete; fall damage, regeneration, peer health, hurt events and death/respawn
-remain unimplemented and are not covered by this gate.
+complete; automatic landing damage, regeneration and the subsequent live lifecycle
+are not covered by this health-only gate. See [VMC-017a1](VMC-017a1.md) for current
+peer health, trusted damage and death/respawn progress.
 
 Local protocol checkpoint: 100 native round trips cover fall damage events,
 death animation/messages and overworld respawn across current/previous modes and

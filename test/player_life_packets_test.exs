@@ -21,7 +21,7 @@ defmodule Valimc.PlayerLifePacketsTest do
       assert_raise ArgumentError, fn -> Packets.death(1, message) end
     end
 
-    for location <- [:bad, {0, 2048, 0}, {30_000_000, 64, 0}, {0.5, 64, 0}] do
+    for location <- [:bad, {0, 1_000_001, 0}, {30_000_000, 64, 0}, {0.5, 64, 0}] do
       assert_raise ArgumentError, fn -> Packets.respawn(%{}, location) end
     end
   end

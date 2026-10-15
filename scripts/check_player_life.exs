@@ -2,7 +2,15 @@ alias Valimc.GameMode
 alias Valimc.Protocol.{ClientCommand, Packets, Wire}
 [input, output] = System.argv()
 cases = input |> File.read!() |> JSON.decode!()
-positions = [nil, {0, 64, 0}, {-17, -64, 42}, {29_999_984, 319, -29_999_984}]
+
+positions = [
+  nil,
+  {0, 64, 0},
+  {-17, -64, 42},
+  {29_999_984, 319, -29_999_984},
+  {1, 1_000_000, -1},
+  {-1, -1_000_000, 1}
+]
 
 packets =
   for c <- cases["packets"] do

@@ -156,6 +156,9 @@ defmodule Valimc.TestClient do
         {ticks, <<255>>} = Wire.take_varint(rest)
         Map.update(client, :entity_frozen, %{id => ticks}, &Map.put(&1, id, ticks))
 
+      {id, <<9, 3, health::float-32, 255>>} ->
+        Map.update(client, :entity_health, %{id => health}, &Map.put(&1, id, health))
+
       _ ->
         client
     end
