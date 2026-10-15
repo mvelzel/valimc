@@ -6,14 +6,14 @@ defmodule Valimc.PlayerLanding do
   @legacy_offset 0.20000000298023224
 
   def sample(player, target, flags, box, frame) do
-    ground = (flags &&& 1) != 0
-    dy = target.y - player.y
-    moved_box = Box.move(box, {target.x - player.x, dy, target.z - player.z})
+    if (flags &&& 1) != 0 and not player.abilities.flying and
+         (PlayerMotion.distance(player) > 0 or target.y < player.y) do
+      dy = target.y - player.y
+      moved_box = Box.move(box, {target.x - player.x, dy, target.z - player.z})
 
-    if ground and not player.abilities.flying and (PlayerMotion.distance(player) > 0 or dy < 0) do
       with {:ok, fluid} <- FluidContact.sample(frame, moved_box) do
         {_, landed} =
-          PlayerMotion.fall_step(PlayerMotion.distance(player), dy, ground, fluid.water > 0)
+          PlayerMotion.fall_step(PlayerMotion.distance(player), dy, true, fluid.water > 0)
 
         if fluid.water == 0 do
           shift = (player.input.shared_flags &&& 2) != 0

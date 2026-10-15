@@ -48,13 +48,22 @@ defmodule Valimc.PlayerMotionConnectionTest do
     {_, client} = Client.login(name)
     on_exit(fn -> Client.close(client) end)
     client = Client.load_world(client)
-    pid = Enum.find(Players.all(), &(&1.name == name)).pid
+    pid = owner(name)
     Client.send_packet(client, :play, "player_loaded", <<>>)
     wait(fn -> not state(pid).teleport_pending end)
     {client, pid}
   end
 
   defp state(pid), do: :sys.get_state(pid)
+
+  defp owner(name) do
+    wait(fn ->
+      case Enum.find(Players.all(), &(&1.name == name)) do
+        nil -> nil
+        player -> player.pid
+      end
+    end)
+  end
 
   defp await_frozen(client, entity, predicate) do
     value = get_in(client, [:entity_frozen, entity])
@@ -550,7 +559,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     {^uuid, client} = Client.login(name)
     on_exit(fn -> Client.close(client) end)
     {body, _client} = Client.await(client, :play, "set_entity_motion")
-    pid = Enum.find(Players.all(), &(&1.name == name)).pid
+    pid = owner(name)
     current = state(pid)
     assert {id, payload} = Wire.take_varint(body)
     assert id == current.player.entity_id
@@ -569,7 +578,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
   test "disconnect commits the live impulse before reconnect restores it", ctx do
     name = hd(ctx.names)
     {uuid, client} = Client.login(name)
-    pid = Enum.find(Players.all(), &(&1.name == name)).pid
+    pid = owner(name)
     # An unloaded client has not started simulation; socket exit still saves its impulse.
     assert :ok = Connection.set_velocity(pid, {0.25, 0.75, -0.5})
     Client.close(client)
