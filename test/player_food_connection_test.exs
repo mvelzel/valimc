@@ -154,7 +154,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
     seed(ctx, food, 10.0)
     {client, pid} = login(ctx, 10.0, food)
     stale = tick(pid)
-    fields = [:food, :food_phase, :health]
+    fields = [:food, :health]
     before = Map.take(state(pid).player, fields)
     before_tick = state(pid).simulation_clock.tick
     for _ <- 1..20, do: send(pid, {:player_tick, stale})
@@ -179,7 +179,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
     assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.food == saved_food and saved.health.value == expected
     {_client, owner} = login(ctx, expected, saved_food)
-    assert state(owner).player.food == saved_food and state(owner).player.food_phase == 0
+    assert state(owner).player.food == saved_food and state(owner).food_tick_origin == 0
   end
 
   test "ordinary recovery, rule changes and stalled world owner use the published settings",
@@ -231,7 +231,8 @@ defmodule Valimc.PlayerFoodConnectionTest do
     assert state(pid).player.food.level == 1 and state(pid).player.health.value == 10.0
     ticks(pid, 10)
     assert state(pid).player.food == %PlayerFood{level: 2, saturation: 20.5}
-    assert state(pid).player.health.value == 11.0 and state(pid).player.food_phase == 0
+    assert state(pid).player.health.value == 11.0
+    assert rem(state(pid).simulation_clock.tick - state(pid).food_tick_origin, 20) == 0
     :ok = Valimc.World.Clock.configure({:natural_regeneration, false})
     ticks(pid, 20)
     assert state(pid).player.health.value == 11.0
@@ -294,7 +295,8 @@ defmodule Valimc.PlayerFoodConnectionTest do
     {_, client} = Client.await(client, :play, "respawn")
     {body, _client} = Client.await(client, :play, "set_health")
     assert_health(body, 20.0, %PlayerFood{})
-    assert state(pid).player.food == %PlayerFood{} and state(pid).player.food_phase == 0
+    assert state(pid).player.food == %PlayerFood{}
+    assert state(pid).food_tick_origin == state(pid).simulation_clock.tick
     assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.food == %PlayerFood{} and saved.health.value == 20.0
     assert saved.transfer_sequence == 2 and saved.outbox == nil and saved.inventory.slots == %{}
@@ -308,6 +310,22 @@ defmodule Valimc.PlayerFoodConnectionTest do
     tick(pid)
     assert state(pid).player.health.value == 1.0 and state(pid).player.health.cooldown == 0
     assert state(pid).player.food.timer == 0 and state(pid).life_stage == :alive
+  end
+
+  test "healthy idle food retains the body boundary across a world setting change", ctx do
+    food = %PlayerFood{saturation: 0.0}
+    seed(ctx, food, 20.0)
+    {_client, pid} = login(ctx, 20.0, food)
+    ticks(pid, 19)
+    assert state(pid).player.food == food and state(pid).food_tick_origin == 0
+    :ok = Valimc.World.Clock.configure({:difficulty, 0, true})
+    tick(pid)
+    assert state(pid).player.food == %PlayerFood{saturation: 1.0}
+    ticks(pid, 19)
+    assert state(pid).player.food == %PlayerFood{saturation: 1.0}
+    :ok = Valimc.World.Clock.configure({:natural_regeneration, false})
+    tick(pid)
+    assert state(pid).player.food == %PlayerFood{saturation: 1.0}
   end
 
   defp assert_health(<<health::float-32, rest::binary>>, expected, food) do

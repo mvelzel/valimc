@@ -74,4 +74,18 @@ defmodule Valimc.PlayerFoodTest do
         ],
         do: refute(PlayerFood.valid?(Map.put(%PlayerFood{}, key, value)))
   end
+
+  test "idle eligibility preserves peaceful boundaries and never skips pending consequences" do
+    health = %PlayerHealth{}
+    for phase <- 1..19, do: assert(PlayerFood.idle?(%PlayerFood{}, health, phase))
+    refute PlayerFood.idle?(%PlayerFood{}, health, 0)
+    refute PlayerFood.idle?(%PlayerFood{level: 19}, health, 10)
+    assert PlayerFood.idle?(%PlayerFood{level: 19}, health, 9)
+
+    for food <- [%PlayerFood{level: 0}, %PlayerFood{exhaustion: 4.125}, %PlayerFood{timer: 1}],
+        do: refute(PlayerFood.idle?(food, health, 1))
+
+    refute PlayerFood.idle?(%PlayerFood{}, %PlayerHealth{value: 19.0}, 1)
+    assert PlayerFood.idle?(%PlayerFood{exhaustion: 4.0}, health, 1)
+  end
 end

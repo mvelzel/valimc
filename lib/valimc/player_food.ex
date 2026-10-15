@@ -16,6 +16,12 @@ defmodule Valimc.PlayerFood do
   def enough?(%__MODULE__{level: level}), do: level > 6
   def needs?(%__MODULE__{level: level}), do: level < 20
 
+  @doc "Rule-independent no-op outside peaceful recovery boundaries; phase comes from the body clock."
+  def idle?(%__MODULE__{} = food, %PlayerHealth{} = health, phase) when phase in 0..19,
+    do:
+      health.value == health.maximum and food.level > 0 and food.exhaustion <= 4.0 and
+        food.timer == 0 and phase != 0 and (food.level == 20 or phase != 10)
+
   def exhaust(%__MODULE__{} = food, amount)
       when is_number(amount) and amount >= 0 and amount <= @float_max,
       do: %{food | exhaustion: min(40.0, f32(food.exhaustion + f32(amount)))}

@@ -38,6 +38,12 @@ for c <- data["ticks"] do
 
   check.(next, c["next"])
 
+  for phase <- [0, 1, 9, 10, 19],
+      PlayerFood.idle?(food.(c), %PlayerHealth{value: c["health"]}, phase) do
+    unless next == food.(c) and effects == %{heal: 0.0, damage: 0.0},
+      do: raise("Idle food skipped a native transition #{inspect(c)}")
+  end
+
   unless effects == %{heal: c["heal"], damage: c["damage"]},
     do: raise("Native food effects differ #{inspect({c, effects})}")
 end
@@ -53,6 +59,12 @@ for c <- data["peaceful"] do
     )
 
   check.(next, c["next"])
+
+  if PlayerFood.idle?(food.(c), %PlayerHealth{value: c["health"]}, rem(c["tick"], 20)) do
+    unless next == food.(c) and heal == 0.0,
+      do: raise("Idle food skipped peaceful recovery #{inspect(c)}")
+  end
+
   unless heal == c["heal"], do: raise("Native peaceful heal differs #{inspect(c)}")
 end
 

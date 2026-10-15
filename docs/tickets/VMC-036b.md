@@ -43,7 +43,22 @@ retains socket ordering before stop-sprinting, and food ticks during a blocked
 frame are retained at commit. The first blocked test incorrectly expected a later
 wire command to overtake pending movement; the fixture now verifies wire order.
 Raw `.local/movement-food-owner-affected-tests-complete.log` (seed550802).
-GUI validation and matched preview measurements remain pending. Sprint eligibility,
+Block checkpoint `c36d01f` passes740 full tests, a separate production build and
+both plaintext/encrypted native TCP integration. The prior food checkpoint's full
+native run also passes; only changed movement/air sampling needed targeted checks
+plus TCP here. Frozen manifest: `.local/movement-food-validation-checkpoint.json`,
+573 blobs/no mismatches. Logs `.local/movement-food-block-full-tests.log`,
+`.local/movement-food-native-tcp.log`, `.local/movement-food-validation-production.log`.
+
+Six matched creative-water loads (ten schedulers), `ebb2874`→`c36d01f`: spread512
+5.146→5.125s, login p95 153.43→73.55ms, final265.76→318.59MiB; dense128
+5.593→5.751s, 132.64→66.39ms, 123.88→125.44MiB. Reverse spread order gave before
+5.121s/77.19ms/253.87MiB, after5.122s/190.17ms/318.54MiB. Every position/swim flag
+verified; zero corrections/disconnects. Login tails vary; the memory increase
+motivates [idle food work](VMC-036a1.md). No survival capacity/speed claim.
+Raw `.local/food-load-*.json/.log` and `.local/food-load-revisions.json`.
+
+GUI validation remains pending. Sprint eligibility,
 mining/combat exhaustion, effects and consuming items remain subsequent work.
 
 Client scenario: actual survival sprint laps and swimming drain saturation then

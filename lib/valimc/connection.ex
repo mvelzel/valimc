@@ -191,6 +191,7 @@ defmodule Valimc.Connection do
        motion_pending: nil,
        motion_window: nil,
        simulation_clock: nil,
+       food_tick_origin: 0,
        simulation_due: false,
        item_replication: ItemReplication.new(),
        clock_version: nil,
@@ -1114,9 +1115,18 @@ defmodule Valimc.Connection do
   end
 
   defp tick_food(%{life_stage: :alive} = state) do
+    phase = rem(state.simulation_clock.tick - state.food_tick_origin, 20)
+
+    if PlayerFood.idle?(state.player.food, state.player.health, phase),
+      do: state,
+      else: advance_food(state, phase)
+  end
+
+  defp tick_food(state), do: state
+
+  defp advance_food(state, phase) do
     {difficulty, regeneration} = World.Clock.survival()
     before = state.player
-    phase = rem(before.food_phase + 1, 20)
 
     {food, peaceful_heal} =
       PlayerFood.peaceful(before.food, before.health, difficulty, regeneration, phase)
@@ -1124,10 +1134,15 @@ defmodule Valimc.Connection do
     health = heal(before.health, peaceful_heal)
     {food, effect} = PlayerFood.tick(food, health, difficulty, regeneration)
     health = heal(health, effect.heal)
-    player = %{before | food: food, food_phase: phase, health: health}
-    state = %{state | player: player}
 
-    if before.food != food or before.health != health, do: Players.update(self(), player)
+    state =
+      if before.food != food or before.health != health do
+        player = %{before | food: food, health: health}
+        Players.update(self(), player)
+        %{state | player: player}
+      else
+        state
+      end
 
     # Native replication observes health, food and whether saturation crossed zero.
     if before.health.value != health.value or before.food.level != food.level or
@@ -1135,7 +1150,7 @@ defmodule Valimc.Connection do
        do: send_packets(state, [Packets.health(health, food)])
 
     if before.health.value != health.value do
-      packet = Packets.player_health(player)
+      packet = Packets.player_health(state.player)
       send_packets(state, [packet])
       broadcast_player_packet(state, packet)
     end
@@ -1148,8 +1163,6 @@ defmodule Valimc.Connection do
       state
     end
   end
-
-  defp tick_food(state), do: state
 
   defp heal(health, amount) do
     if health.value > 0 and amount > 0 do
@@ -1318,6 +1331,7 @@ defmodule Valimc.Connection do
         inventory: inventory,
         life_stage: :alive,
         respawn_requested: false,
+        food_tick_origin: state.simulation_clock.tick,
         client_tick: %ClientTick{},
         center: nil,
         chunks: MapSet.new(),
@@ -1710,7 +1724,6 @@ defmodule Valimc.Connection do
       environment: %PlayerEnvironment{},
       air_supply: Valimc.PlayerAir.maximum(),
       food: %PlayerFood{},
-      food_phase: 0,
       health: %PlayerHealth{},
       last_death: nil,
       pose: :standing,
