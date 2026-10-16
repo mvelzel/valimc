@@ -24,7 +24,7 @@ public class FluidTravelOracle {
     public FluidState getFluidState(BlockPos pos){return Fluids.EMPTY.defaultFluidState();}
   }
   private static class ProbePlayer extends Player {
-    ProbeLevel world; Abilities abilities; boolean water,sprint,ground,dolphin,climb,free,shallow;
+    ProbeLevel world; Abilities abilities; boolean water,sprint,ground,dolphin,climb,free,shallow,slow;
     double efficiency,gravity,dy; Vec3 resolved,escape;
     private ProbePlayer(){super(null,null);}
     public ServerLevel level(){return world;}
@@ -41,13 +41,14 @@ public class FluidTravelOracle {
     public boolean isVehicle(){return false;}
     public double getFluidHeight(TagKey<Fluid> tag){return shallow?.4:1;}
     public double getFluidJumpThreshold(){return .4;}
-    public boolean hasEffect(Holder<MobEffect> effect){return effect==MobEffects.DOLPHINS_GRACE&&dolphin;}
+    public boolean hasEffect(Holder<MobEffect> effect){return effect==MobEffects.DOLPHINS_GRACE&&dolphin||effect==MobEffects.SLOW_FALLING&&slow;}
+    public boolean isNoGravity(){return false;}
     public double getAttributeValue(Holder<Attribute> attribute){
       if(attribute==Attributes.WATER_MOVEMENT_EFFICIENCY)return efficiency;
+      if(attribute==Attributes.GRAVITY)return gravity;
       throw new AssertionError("Unexpected attribute "+attribute);
     }
     public float getSpeed(){return .1f;}
-    protected double getEffectiveGravity(){return gravity;}
     public void move(MoverType type,Vec3 requested){
       setDeltaMovement(resolved);
       try{POSITION.set(this,new Vec3(0,getY()+dy,0));}catch(Exception e){throw new RuntimeException(e);}
@@ -60,6 +61,7 @@ public class FluidTravelOracle {
     var c=new JsonObject();c.addProperty("kind",p.water?"water":"lava");c.add("initial",vec(initial));c.add("resolved",vec(resolved));
     c.addProperty("on_ground",p.ground);c.addProperty("sprint",p.sprint);c.addProperty("dolphins_grace",p.dolphin);
     c.addProperty("water_efficiency",p.efficiency);c.addProperty("gravity",p.gravity);c.addProperty("horizontal_collision",p.horizontalCollision);
+    c.addProperty("slow_falling",p.slow);
     c.addProperty("climbable",p.climb);c.addProperty("shallow",p.shallow);c.addProperty("old_y",oldY);c.addProperty("new_y",p.getY());c.addProperty("free",p.free);
     c.add("escape_query",p.escape==null?JsonNull.INSTANCE:vec(p.escape));c.add("velocity",vec(p.getDeltaMovement()));return c;
   }
@@ -71,15 +73,22 @@ public class FluidTravelOracle {
     var cases=new JsonArray();
     for(boolean water:new boolean[]{false,true})for(boolean sprint:new boolean[]{false,true})for(boolean shallow:new boolean[]{false,true})
       for(double gravity:new double[]{0,.08,-.08})for(double efficiency:new double[]{0,.3,1})for(boolean ground:new boolean[]{false,true})
-        for(boolean dolphin:new boolean[]{false,true})for(double y:new double[]{-1,-.003,0,.002,.00375,.00625,.01,.3,1}){
+        for(boolean dolphin:new boolean[]{false,true})for(boolean slow:new boolean[]{false,true})for(double y:new double[]{-1,-.003,0,.002,.00375,.00625,.01,.3,1}){
           p.water=water;p.sprint=sprint;p.shallow=shallow;p.gravity=gravity;p.efficiency=efficiency;p.ground=ground;p.dolphin=dolphin;
-          p.horizontalCollision=false;p.climb=false;p.free=false;var v=new Vec3(.2,y,-.3);cases.add(run(p,v,v,64,y));
+          p.slow=slow;p.horizontalCollision=false;p.climb=false;p.free=false;var v=new Vec3(.2,y,-.3);cases.add(run(p,v,v,64,y));
         }
     for(boolean water:new boolean[]{false,true})for(boolean climb:new boolean[]{false,true})for(boolean free:new boolean[]{false,true})
       for(boolean shallow:new boolean[]{false,true})for(double y:new double[]{-1,0,.3})for(double oldY:new double[]{0,64,30000000}){
-        p.water=water;p.sprint=false;p.shallow=shallow;p.gravity=.08;p.efficiency=0;p.ground=false;p.dolphin=false;
+        p.water=water;p.sprint=false;p.shallow=shallow;p.gravity=.08;p.slow=true;p.efficiency=0;p.ground=false;p.dolphin=false;
         p.horizontalCollision=true;p.climb=climb;p.free=free;
         cases.add(run(p,new Vec3(.2,y,-.3),new Vec3(0,y,-.3),oldY,y*.5));
+      }
+    // Fluid gravity is captured before a collision can reverse vertical motion.
+    for(boolean water:new boolean[]{false,true})for(double initialY:new double[]{-1,.3})
+      for(double resolvedY:new double[]{-.2,0,.2}){
+        p.water=water;p.slow=true;p.sprint=false;p.shallow=true;p.gravity=.08;p.efficiency=0;
+        p.ground=false;p.dolphin=false;p.horizontalCollision=false;p.climb=false;p.free=false;
+        cases.add(run(p,new Vec3(.2,initialY,-.3),new Vec3(.2,resolvedY,-.3),64,0));
       }
     // Repeated transitions invoke native Player.travel each tick, retaining its result.
     var traces=new JsonArray();
@@ -87,7 +96,7 @@ public class FluidTravelOracle {
       var steps=new JsonArray();Vec3 v=new Vec3(.2,.3,-.1);
       for(int tick=0;tick<200;tick++){
         p.water=mode==0||(mode==2&&tick%40<20);p.shallow=mode==1||tick%20<10;p.sprint=tick%30<10;
-        p.gravity=.08;p.efficiency=0;p.ground=false;p.dolphin=false;p.horizontalCollision=false;p.climb=false;p.free=false;
+        p.gravity=.08;p.slow=tick%40<20;p.efficiency=0;p.ground=false;p.dolphin=false;p.horizontalCollision=false;p.climb=false;p.free=false;
         var c=run(p,v,v,64,v.y);steps.add(c);v=p.getDeltaMovement();
       }
       traces.add(steps);

@@ -35,3 +35,15 @@ invalid inputs and existing dry/fluid kernels. No owner/admission calls it yet.
 Raw `.local/gravity-effect-{native,elixir,targeted}.log`; native dump/bytecode stay
 ignored. Next compose gravity at each native dry/fluid selection point and fence
 geometry/fall authority before adding supported drink admission.
+
+Composed native travel proof: AirMotionOracle now uses real effective-gravity
+selection and Slow Falling presence, rather than supplying the selected gravity.
+25,926 bit-exact dry cases and two200-tick traces pass, with Levitation absent/
+0/1/3/255, Slow Falling, friction/drag/gravity and controlled collisions. Six sign
+reversals verify air gravity reads post-collision vertical motion. FluidTravelOracle
+likewise retains real selection:5,340 water/lava cases and three200-tick traces
+match, including12 sign reversals that instead use pre-move vertical motion.
+Fluid escape queries and existing acquired-frame bounds still pass. No runtime
+admission was added. Raw `.local/travel-effects-{air,fluid}-{native,elixir}.log`.
+These controls do not simulate dynamic collisions/worlds or real input; live owner
+composition and GUI remain required.

@@ -10,10 +10,17 @@ check = fn c ->
   initial = List.to_tuple(c["initial"])
   resolved = List.to_tuple(c["resolved"])
 
+  {:ok, gravity} =
+    Valimc.PlayerTravelEffects.gravity(c["gravity"], elem(initial, 1), c["slow_falling"])
+
   facts =
     fields
     |> Map.new(&{&1, Map.fetch!(c, Atom.to_string(&1))})
-    |> Map.merge(%{kind: String.to_existing_atom(c["kind"]), falling: elem(initial, 1) <= 0})
+    |> Map.merge(%{
+      kind: String.to_existing_atom(c["kind"]),
+      falling: elem(initial, 1) <= 0,
+      gravity: gravity
+    })
     |> then(&struct!(FluidMotion, &1))
 
   {:ok, result} = FluidMotion.prepare(resolved, facts)

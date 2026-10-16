@@ -13,6 +13,11 @@ Enum.each(cases, fn c ->
     end)
     |> Map.update!(:levitation, fn value -> if value < 0, do: nil, else: value end)
 
+  {:ok, gravity} =
+    Valimc.PlayerTravelEffects.gravity(c["gravity"], Enum.at(c["movement"], 1), c["slow_falling"])
+
+  facts = Map.put(facts, :gravity, gravity)
+
   {:ok, result} = AirMotion.step(List.to_tuple(c["movement"]), struct!(AirMotion, facts))
   actual = bits.(result)
   expected = bits.(List.to_tuple(c["velocity"]))
@@ -21,10 +26,13 @@ end)
 
 Enum.each(data["traces"], fn trace ->
   Enum.reduce(trace["steps"], List.to_tuple(trace["initial"]), fn step, previous ->
+    {:ok, gravity} =
+      Valimc.PlayerTravelEffects.gravity(step["gravity"], elem(previous, 1), step["slow_falling"])
+
     facts = %AirMotion{
       on_ground: step["ground"],
       friction: trace["friction"],
-      gravity: step["gravity"],
+      gravity: gravity,
       levitation: if(step["levitation"] < 0, do: nil, else: step["levitation"])
     }
 

@@ -65,7 +65,8 @@ affected checks pass. Owned ground-jump/fall/geometry composition is implemented
 frozen production/client verification follows.
 **Implementing:** [Slow Falling/Levitation](tickets/VMC-037m.md):512 native hook
 contexts/96 gravity selections/24 pre-travel resets and10 affected checks pass.
-Live dry/fluid/owner composition remains unsupported.
+25,926 dry/5,340 fluid cases and accumulated traces match native selection.
+Live owner composition remains unsupported.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
