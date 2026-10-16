@@ -1,6 +1,6 @@
 # VMC-033h — Bounded bulk result dropping
 
-Status: Implemented; production/client checks pending. October16,2026.
+Status: Done within ordinary bulk-result scope. October16,2026; `f1db8f0`.
 Parent: VMC-033; precedes remainder composition.
 
 Acceptance: actual Ctrl+Q on an ordinary player/table result repeats the native
@@ -39,4 +39,20 @@ changed-recipe cases. Bounded Elixir plans match effective components, exact cou
 visible/physical storage and ordered drops. Full native integration now includes
 this probe. Raw `.local/{bulk-crafting-final-targeted,crafting-bulk-native,
 crafting-bulk-check}.log`; facts `.local/crafting-bulk-native.json`. Formatting and
-changed Python syntax pass. No actual-client/Done claim yet.
+changed Python syntax pass.
+
+Frozen `f1db8f0` production and three actual-client scenarios passed: player/table
+Ctrl-Q17 logs each, wrong cursor, real Escape before the first prepared batch
+committed, and fresh reconnects. Cancellation committed exactly five crafts and
+returned12 logs. Two induced writer-pause/save-timeout attempts were recovered;
+their two legitimate log17 cleanup records remain. The final bounded observer
+captured uncommitted five-record prepare and actual close, then resumed the writer
+without changing production deadlines. Report `.local/client-tests/VMC-033h/report.md`.
+All722 frozen blobs rehashed; `.local/bulk-crafting-proof.json` pins evidence.
+Original snapshot/90 scene cells restored except sequence84/nil; all78 prior and
+41 new records retained, receipts84/6/9/68, all clients stopped.
+
+Menus/recipe counts passed. Near-camera overlapping dropped-item planes prevented
+confirming natural item appearance or counting individual entities visually;
+authoritative records establish exact counts. [VMC-018c3](VMC-018c3.md) tracks this
+separate observation; no rendering diagnosis or regression claim.

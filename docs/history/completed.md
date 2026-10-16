@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-033h](../tickets/VMC-033h.md) | `f1db8f0`: bounded ordinary bulk crafting,47 targeted/3,392 native traces, production and actual both grids/refusal/close cancellation/reconnect; separate item rendering observation retained |
 | [VMC-033f4](../tickets/VMC-033f4.md) | `8fe1adf`: live owned table menus,947 full tests/full native TCP/production and actual recipes/refusals/removal/relocation/disconnect/two-batch overflow/reconnect; ordinary VMC-033f scope complete |
 | [VMC-033f3](../tickets/VMC-033f3.md) | `738852b`: table placement/mining,49 affected/native checks, production and actual both-mode/both-hand consumption, isolated wear/drop, refusal and reconnect |
 | [VMC-004b2e](../tickets/VMC-004b2e.md) | `c8a8a13`: teleport-confirmed chunk readiness,32 affected checks, three fresh actual joins,933 full tests/full native TCP/production |
