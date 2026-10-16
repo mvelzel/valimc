@@ -404,4 +404,79 @@ defmodule Valimc.PlayerCraftingConnectionTest do
     {:ok, {pid, _}} = Valimc.World.item_owner(ctx.key)
     Valimc.World.Items.records(:sys.get_state(pid).resource.items)
   end
+
+  test "pickup remainders commit with their carried output and survive disconnect cleanup", ctx do
+    full = Map.new(9..44, &{&1, ItemStack.new("bedrock", 64)})
+
+    seed(
+      ctx,
+      Map.merge(full, %{
+        36 => ItemStack.new("honey_bottle", 2),
+        45 => ItemStack.new("bedrock", 64)
+      })
+    )
+
+    {client, owner} = login(ctx)
+    client = client |> click(36) |> click(1) |> click(45) |> click(36) |> click(0)
+    wait(fn -> :sys.get_state(owner).recovery == nil end)
+    client = inventory_until(client, &(&1.carried == ItemStack.new("sugar", 3)))
+    assert :sys.get_state(owner).inventory.slots[1] == ItemStack.new("honey_bottle")
+    assert Enum.map(records(ctx), & &1.stack) == [ItemStack.new("glass_bottle")]
+    assert saved(ctx).transfer_sequence == 1
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    {_fresh, fresh_pid} = login(ctx)
+    assert :sys.get_state(fresh_pid).inventory.slots == full
+    assert :sys.get_state(fresh_pid).inventory.carried == nil
+
+    assert Enum.sort(Enum.map(records(ctx), & &1.stack)) ==
+             Enum.sort([
+               ItemStack.new("glass_bottle"),
+               ItemStack.new("honey_bottle"),
+               ItemStack.new("sugar", 3)
+             ])
+
+    assert saved(ctx).transfer_sequence == 2 and saved(ctx).outbox == nil
+  end
+
+  test "bulk bottle conversion continues four-record batches then closes its final physical bottle",
+       ctx do
+    full = Map.new(9..44, &{&1, ItemStack.new("bedrock", 64)})
+
+    seed(
+      ctx,
+      Map.merge(full, %{
+        36 => ItemStack.new("honey_bottle", 6),
+        45 => ItemStack.new("bedrock", 64)
+      })
+    )
+
+    {client, owner} = login(ctx)
+    client = client |> click(36) |> click(1) |> click(45) |> click(36) |> click(0, 1, "throw")
+
+    wait(fn ->
+      state = :sys.get_state(owner)
+
+      state.recovery == nil and state.crafting_repeat == nil and
+        state.inventory.slots[1] == ItemStack.new("glass_bottle")
+    end)
+
+    assert saved(ctx).transfer_sequence == 3 and saved(ctx).outbox == nil
+    assert Enum.count(records(ctx), &(&1.stack == ItemStack.new("sugar", 3))) == 6
+    assert Enum.count(records(ctx), &(&1.stack == ItemStack.new("glass_bottle"))) == 5
+    Client.send_packet(client, :play, "container_close", <<0>>)
+
+    wait(fn ->
+      state = :sys.get_state(owner)
+      state.recovery == nil and not state.table_closing and state.inventory.slots == full
+    end)
+
+    assert saved(ctx).transfer_sequence == 4 and saved(ctx).outbox == nil
+    assert Enum.count(records(ctx), &(&1.stack == ItemStack.new("glass_bottle"))) == 6
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    {_fresh, fresh_pid} = login(ctx)
+    assert :sys.get_state(fresh_pid).inventory.slots == full
+    assert length(records(ctx)) == 12 and saved(ctx).transfer_sequence == 4
+  end
 end

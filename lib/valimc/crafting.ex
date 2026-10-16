@@ -4,11 +4,24 @@ defmodule Valimc.Crafting do
   @path Path.expand("../../priv/crafting/recipes.json", __DIR__)
   @external_resource @path
   @facts JSON.decode!(File.read!(@path))
+  @remainder_path Path.expand("../../priv/crafting/remainders.json", __DIR__)
+  @external_resource @remainder_path
+  @remainder_facts JSON.decode!(File.read!(@remainder_path))
   unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
            @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c",
          do: raise("Wrong player crafting catalog version")
 
-  @recipes Enum.map(@facts["recipes"], fn row ->
+  unless Map.take(@remainder_facts, ["version", "data_version", "server_sha1"]) ==
+           Map.take(@facts, ["version", "data_version", "server_sha1"]) and
+           length(@remainder_facts["recipes"]) == 3 and
+           @remainder_facts["remainders"] == %{"1134" => 1128, "1533" => 1270},
+         do: raise("Wrong crafting remainder catalog")
+
+  @remainders Map.new(@remainder_facts["remainders"], fn {id, output} ->
+                {String.to_integer(id), %ItemStack{item_id: output}}
+              end)
+
+  @recipes Enum.map(@facts["recipes"] ++ @remainder_facts["recipes"], fn row ->
              %{
                "name" => name,
                "width" => w,
@@ -76,8 +89,8 @@ defmodule Valimc.Crafting do
              {name, rules, result, needed}
            end)
            |> List.to_tuple()
-  unless tuple_size(@recipes) == 1180 and
-           MapSet.size(MapSet.new(Enum.map(Tuple.to_list(@recipes), &elem(&1, 0)))) == 1180,
+  unless tuple_size(@recipes) == 1183 and
+           MapSet.size(MapSet.new(Enum.map(Tuple.to_list(@recipes), &elem(&1, 0)))) == 1183,
          do: raise("Incomplete or duplicate player crafting recipes")
 
   @index @recipes
@@ -115,6 +128,8 @@ defmodule Valimc.Crafting do
   end
 
   def result(_), do: {:error, :invalid_crafting_grid}
+
+  def remainder(%ItemStack{item_id: id}), do: Map.get(@remainders, id)
 
   defp item_ids(grid) do
     Enum.reduce_while(grid, {:ok, []}, fn

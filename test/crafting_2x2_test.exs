@@ -45,11 +45,12 @@ defmodule Valimc.Crafting2x2Test do
              {:ok, ItemStack.new("flint_and_steel")}
   end
 
-  test "special recipes and remainders never fall back to a plain output" do
+  test "special recipes stay excluded while bottled honey selects its remainder recipe" do
     assert Crafting.result([ItemStack.new("paper"), ItemStack.new("gunpowder"), nil, nil]) ==
              :none
 
-    assert Crafting.result([ItemStack.new("honey_bottle"), nil, nil, nil]) == :none
+    assert Crafting.result([ItemStack.new("honey_bottle"), nil, nil, nil]) ==
+             {:ok, ItemStack.new("sugar", 3)}
 
     assert Crafting.result([
              ItemStack.new("bowl"),

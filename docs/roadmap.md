@@ -195,6 +195,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
+| [VMC-033g](tickets/VMC-033g.md) | Actual three recipes/remainders/overflow/reconnect; coherent integration | Targeted/native-verified local checkpoint |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 

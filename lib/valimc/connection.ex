@@ -3790,10 +3790,15 @@ defmodule Valimc.Connection do
     crafting = if click.slot == 0, do: {click.action, click.button}
     next = start_inventory_transfer(state, inventory, stacks, crafting)
 
-    if crafting == {:throw, 1} and length(stacks) == 5 and next.recovery != nil do
+    original = Inventory.crafting_result(state.inventory)
+    remaining = Inventory.crafting_result(inventory)
+    repeats = crafting == {:throw, 1} or crafting in [{:quick_move, 0}, {:quick_move, 1}]
+
+    if repeats and original != nil and remaining != nil and
+         ItemStack.same_item?(remaining, original) and next.recovery != nil do
       %{
         next
-        | crafting_repeat: %{click: click, output: Inventory.crafting_result(state.inventory)}
+        | crafting_repeat: %{click: click, output: original}
       }
     else
       next
@@ -3821,8 +3826,16 @@ defmodule Valimc.Connection do
         resync_inventory(state)
 
       repeat.click.container == 0 and state.table_menu == nil ->
-        {:ok, inventory, stacks} = Inventory.plan_click(state.inventory, :throw, 0, 1)
-        start_click_transfer(state, inventory, stacks, repeat.click)
+        case Inventory.plan_click(state.inventory, repeat.click.action, 0, repeat.click.button) do
+          {:ok, inventory, [_ | _] = stacks} ->
+            start_click_transfer(state, inventory, stacks, repeat.click)
+
+          {:ok, inventory, []} ->
+            resync_inventory(%{state | inventory: inventory})
+
+          {:error, _} ->
+            resync_inventory(state)
+        end
 
       state.table_menu != nil and repeat.click.container == state.table_menu.id ->
         request_table(state, :click, state.table_menu.position, repeat.click)

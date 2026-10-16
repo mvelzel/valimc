@@ -252,7 +252,43 @@ defmodule Valimc.Inventory do
   def plan_click(inventory, :quick_move, 0, button) when button in [0, 1] do
     case crafting_result(inventory) do
       nil -> finish_crafting(inventory, [])
-      result -> quick_move_crafting(inventory, result, 99)
+      result -> quick_move_crafting(inventory, result, 99, [])
+    end
+  end
+
+  def plan_click(inventory, :pickup, 0, button) when button in [0, 1] do
+    result = crafting_result(inventory)
+    cursor = inventory.carried
+
+    cond do
+      result == nil ->
+        finish_crafting(inventory, [])
+
+      specialized_click?(cursor) or (cursor != nil and specialized_click?(result)) ->
+        {:error, :unsupported_click}
+
+      cursor == nil or
+          (compatible?(cursor, result) and
+             cursor.count + result.count <= ItemStack.max_stack_size(cursor)) ->
+        {next, drops} = consume_crafting_inputs(inventory)
+        carried = if cursor, do: sized(cursor, cursor.count + result.count), else: result
+        finish_crafting(%{next | carried: carried}, drops)
+
+      true ->
+        finish_crafting(inventory, [])
+    end
+  end
+
+  def plan_click(inventory, :swap, 0, button) when button in 0..8 or button == 40 do
+    target = if button == 40, do: 45, else: 36 + button
+
+    case {crafting_result(inventory), get(inventory, target)} do
+      {%ItemStack{} = result, nil} ->
+        {next, drops} = inventory |> put(target, result) |> consume_crafting_inputs()
+        finish_crafting(next, drops)
+
+      _ ->
+        finish_crafting(inventory, [])
     end
   end
 
@@ -275,7 +311,8 @@ defmodule Valimc.Inventory do
         drop_crafting(inventory, result, 5, [])
 
       {nil, %ItemStack{} = result, _} ->
-        finish_crafting(consume_crafting_inputs(inventory), [result])
+        {next, drops} = consume_crafting_inputs(inventory)
+        finish_crafting(next, drops ++ [result])
 
       _ ->
         finish_crafting(inventory, [])
@@ -312,47 +349,15 @@ defmodule Valimc.Inventory do
   def click(inventory, action, slot, button), do: ordinary_click(inventory, action, slot, button)
 
   defp ordinary_click(inventory, :pickup, 0, button) when button in [0, 1] do
-    result = crafting_result(inventory)
-    cursor = inventory.carried
-
-    cond do
-      result == nil ->
-        finish(inventory)
-
-      specialized_click?(cursor) or (cursor != nil and specialized_click?(result)) ->
-        {:error, :unsupported_click}
-
-      cursor == nil or
-          (compatible?(cursor, result) and
-             cursor.count + result.count <= ItemStack.max_stack_size(cursor)) ->
-        next = consume_crafting_inputs(inventory)
-
-        carried = if cursor, do: sized(cursor, cursor.count + result.count), else: result
-        finish(%{next | carried: carried})
-
-      true ->
-        finish(inventory)
-    end
+    without_drops(plan_click(inventory, :pickup, 0, button))
   end
 
   defp ordinary_click(inventory, :quick_move, 0, button) when button in [0, 1] do
-    case plan_click(inventory, :quick_move, 0, button) do
-      {:ok, next, []} -> {:ok, next}
-      {:ok, _, [_ | _]} -> {:error, :world_drop_required}
-      error -> error
-    end
+    without_drops(plan_click(inventory, :quick_move, 0, button))
   end
 
   defp ordinary_click(inventory, :swap, 0, button) when button in 0..8 or button == 40 do
-    target = if button == 40, do: 45, else: 36 + button
-
-    case {crafting_result(inventory), get(inventory, target)} do
-      {%ItemStack{} = result, nil} ->
-        inventory |> consume_crafting_inputs() |> put(target, result) |> finish()
-
-      _ ->
-        finish(inventory)
-    end
+    without_drops(plan_click(inventory, :swap, 0, button))
   end
 
   defp ordinary_click(inventory, :clone, 0, _) do
@@ -599,32 +604,61 @@ defmodule Valimc.Inventory do
   defp consume_crafting_inputs(inventory) do
     inputs = if inventory.table_inputs, do: Enum.map(0..8, &{:table, &1}), else: 1..4
 
-    Enum.reduce(inputs, inventory, fn slot, next ->
+    Enum.reduce(inputs, {inventory, []}, fn slot, {next, drops} ->
       case get(next, slot) do
-        nil -> next
-        stack -> put(next, slot, sized(stack, stack.count - 1))
+        nil ->
+          {next, drops}
+
+        stack ->
+          remaining = sized(stack, stack.count - 1)
+          next = put(next, slot, remaining)
+
+          case {Valimc.Crafting.remainder(stack), remaining} do
+            {nil, _} ->
+              {next, drops}
+
+            {remainder, nil} ->
+              {put(next, slot, remainder), drops}
+
+            {remainder, _} ->
+              {next, overflow} = return_stack(next, remainder)
+
+              if overflow && not inventory.infinite_materials,
+                do: {next, drops ++ [overflow]},
+                else: {next, drops}
+          end
       end
     end)
   end
+
+  defp without_drops({:ok, next, []}), do: {:ok, next}
+  defp without_drops({:ok, _, [_ | _]}), do: {:error, :world_drop_required}
+  defp without_drops(error), do: error
 
   defp finish_crafting(inventory, stacks) do
     with {:ok, next} <- finish(inventory), do: {:ok, next, stacks}
   end
 
-  defp drop_crafting(inventory, _, 0, drops), do: finish_crafting(inventory, Enum.reverse(drops))
+  defp drop_crafting(inventory, _, 0, drops), do: finish_crafting(inventory, drops)
 
   defp drop_crafting(inventory, original, budget, drops) do
     result = crafting_result(inventory)
 
-    if result != nil and compatible?(result, original),
-      do:
-        drop_crafting(consume_crafting_inputs(inventory), original, budget - 1, [result | drops]),
-      else: finish_crafting(inventory, Enum.reverse(drops))
+    if result != nil and compatible?(result, original) do
+      {next, remainders} = consume_crafting_inputs(inventory)
+      batch = remainders ++ [result]
+
+      if length(batch) <= budget,
+        do: drop_crafting(next, original, budget - length(batch), drops ++ batch),
+        else: finish_crafting(inventory, drops)
+    else
+      finish_crafting(inventory, drops)
+    end
   end
 
-  defp quick_move_crafting(inventory, _, 0), do: finish_crafting(inventory, [])
+  defp quick_move_crafting(inventory, _, 0, drops), do: finish_crafting(inventory, drops)
 
-  defp quick_move_crafting(inventory, original, remaining) do
+  defp quick_move_crafting(inventory, original, remaining, drops) do
     result = crafting_result(inventory)
 
     if result != nil and compatible?(result, original) do
@@ -632,13 +666,20 @@ defmodule Valimc.Inventory do
       {next, left} = transfer(inventory, result, result.count, targets, :merge)
       {next, left} = transfer(next, result, left, targets, :empty)
 
-      cond do
-        left == result.count -> finish_crafting(inventory, [])
-        left > 0 -> finish_crafting(consume_crafting_inputs(next), [sized(result, left)])
-        true -> quick_move_crafting(consume_crafting_inputs(next), original, remaining - 1)
+      if left == result.count do
+        finish_crafting(inventory, drops)
+      else
+        {next, remainders} = consume_crafting_inputs(next)
+        batch = remainders ++ if(left > 0, do: [sized(result, left)], else: [])
+
+        cond do
+          length(drops) + length(batch) > 5 -> finish_crafting(inventory, drops)
+          left > 0 -> finish_crafting(next, drops ++ batch)
+          true -> quick_move_crafting(next, original, remaining - 1, drops ++ batch)
+        end
       end
     else
-      finish_crafting(inventory, [])
+      finish_crafting(inventory, drops)
     end
   end
 

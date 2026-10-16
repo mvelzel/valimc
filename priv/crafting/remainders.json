@@ -1,0 +1,82 @@
+{
+  "version": "26.3",
+  "data_version": 5023,
+  "server_sha1": "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c",
+  "recipes": [
+    {
+      "width": 3,
+      "height": 3,
+      "ingredients": [
+        [
+          1134
+        ],
+        [
+          1134
+        ],
+        [
+          1134
+        ],
+        [
+          1217
+        ],
+        [
+          1148,
+          1149,
+          1150
+        ],
+        [
+          1217
+        ],
+        [
+          1066
+        ],
+        [
+          1066
+        ],
+        [
+          1066
+        ]
+      ],
+      "result": 1218,
+      "count": 1,
+      "name": "minecraft:cake"
+    },
+    {
+      "width": 2,
+      "height": 2,
+      "ingredients": [
+        [
+          1533
+        ],
+        [
+          1533
+        ],
+        [
+          1533
+        ],
+        [
+          1533
+        ]
+      ],
+      "result": 832,
+      "count": 1,
+      "name": "minecraft:honey_block"
+    },
+    {
+      "width": 0,
+      "height": 0,
+      "ingredients": [
+        [
+          1533
+        ]
+      ],
+      "result": 1217,
+      "count": 3,
+      "name": "minecraft:sugar_from_honey_bottle"
+    }
+  ],
+  "remainders": {
+    "1134": 1128,
+    "1533": 1270
+  }
+}

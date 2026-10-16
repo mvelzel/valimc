@@ -95,7 +95,7 @@ defmodule Valimc.Crafting3x3Test do
              {:ok, ItemStack.new("iron_block")}
   end
 
-  test "native special shadows and remainders stay excluded; grid bounds remain explicit" do
+  test "native special shadows stay excluded, cake selects and grid bounds remain explicit" do
     assert Crafting.result(grid([nil, "brick", nil, "brick", nil, "brick", nil, "brick", nil])) ==
              :none
 
@@ -115,7 +115,7 @@ defmodule Valimc.Crafting3x3Test do
                "wheat",
                "wheat"
              ])
-           ) == :none
+           ) == {:ok, ItemStack.new("cake")}
 
     assert Crafting.result(List.duplicate(nil, 9)) == :none
 
