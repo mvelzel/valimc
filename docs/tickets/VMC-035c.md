@@ -37,3 +37,10 @@ gain. Reuse the player's monotone sequence/receipt lane. A bounded expiring regi
 permit fences the item UUID/generation/stack, accepted contact and source player.
 Recovery first checks the receipt; an expired/missing permit may reject only when
 withdrawal was not committed. Never grant inventory from a published item view.
+
+Withdrawal-plan checkpoint: canonical≤131,164-byte requests pin source/sequence,
+permit, item UUID/generation and exact before/remainder stacks. Pure region plans
+retain typed applied/rejected receipts with item removal/replacement; retries work
+after codec restoration, including competing players and a superseded birth.
+26 affected checks pass(seed905945), `.local/pickup-withdrawal-targeted.log`.
+No live permits, player intent codec or durable runtime composition yet.
