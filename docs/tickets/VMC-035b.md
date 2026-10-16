@@ -1,6 +1,7 @@
 # VMC-035b — Item merging
 
-Status: In progress; automatic motion remains VMC-035a6's separate gate.
+Status: Done within same-owner merging scope (`0505bc1`).
+Cross-owner merging remains [VMC-035b1](VMC-035b1.md).
 
 Acceptance: nearby compatible item entities combine with conserved counts and
 components, native recipient selection, age/delay and stack limits. Full,
@@ -61,3 +62,22 @@ merge jobs; runtime/disk UUIDs and stacks agree. Use run02 (run01 measured an ea
 count threshold): `.local/item-merge-bench-02.log` and matching ignored datasets.
 These are local workloads without sockets/pickup/cross-owner merging, not a server
 comparison. Actual graphical/live integration gates remain pending.
+
+Acceptance October16:1,076 full tests(seed44844), production and native kernels
+pass. The full native run's TCP stage exposed an obsolete expectation of a
+separate6-item entity; automatic merging may publish7 directly. The repaired probe
+tracks native spawn/metadata/removal and exact component totals through all drop
+gestures/cleanup. Both plaintext and continuous AES-CFB8 TCP retests pass against
+the unchanged frozen0505bc1 runtime. Preserve the original failed trace at
+`.local/item-merging-full-native.log`; successful remaining stages are
+`.local/item-merging-tcp-retest-01.log`. Other checks: `-full-tests.log`,
+`-production.log`.783 frozen source blobs rehashed unchanged.
+
+Actual26.3/protocol777 scenarios pass: repeated natural Q and menu whole-stack
+merge, exact larger recipient, unlike named components remain separate, nearby
+full64 and63+2 refusals, distant compatible negative, inventory SDL gestures and
+fresh QuickPlay reconnect. Final disk/live UUIDs, stacks and receipts agree. Tester
+restored original player except sequence18/nil outbox and stopped every client;
+module hashes unchanged. `.local/client-tests/VMC-035b/report.md`. Ctrl-Q host input
+was not used as a whole-stack verdict. Scope excludes cross-owner merging, pickups,
+server-restart GUI, multiplayer contention and custom99 GUI.

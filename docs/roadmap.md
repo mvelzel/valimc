@@ -29,8 +29,9 @@ boundary/recovery/reconnect checks. [Automatic simulation](tickets/VMC-035a6.md)
 is validated within cadence/player-launch scope (`e839fff`):1,064 full tests,
 native TCP/production and actual standing/crouching/whole-stack/fall/crossing/
 support-wake/water/reconnect checks.
-[Item merging](tickets/VMC-035b.md) has local native-verified pair kernels, durable
-same-owner commits and automatic discovery; graphical merging follows.
+[Same-owner item merging](tickets/VMC-035b.md) is validated (`0505bc1`):1,076 full
+tests, production/native kernels, both TCP transports and actual merging/component/
+capacity/range/reconnect checks. [Cross-owner merging](tickets/VMC-035b1.md) follows.
 
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Player processes own their simulation state; bounded workers sample geometry.
@@ -213,7 +214,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-035b](tickets/VMC-035b.md) | Actual automatic merge/component/limit/refusal/reconnect checks | Local same-owner checkpoints |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 

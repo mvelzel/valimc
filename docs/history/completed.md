@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-035b](../tickets/VMC-035b.md) | `0505bc1`:1,076 full tests/production/native kernels, both TCP transports after scene-probe update and actual automatic same-owner merge/components/limits/range/reconnect; cross-owner merging remains open |
 | [VMC-035a6](../tickets/VMC-035a6.md) | `e839fff`:1,064 full tests/native TCP/production and actual natural launch/crouch/whole-stack/landing/crossing/support wake/water/reconnect; automatic owner-local cadence |
 | [VMC-035a5](../tickets/VMC-035a5.md) | `19434e0`:85 affected checks,1045 full tests/native TCP/production and actual east/recovery/reconnect/west handoffs; one stack, retained receipt histories, bounded asynchronous delivery |
 | [VMC-035a4](../tickets/VMC-035a4.md) | `c49fdb1`:61 affected fault/recovery/TCP checks, bounded coalesced saves and actual paused-writer movement/periodic save/critical replacement/reconnect |

@@ -31,6 +31,7 @@ import net.minecraft.tags.TagNetworkSerialization;
 import net.minecraft.server.packs.repository.KnownPack;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.nbt.CompoundTag;
@@ -72,6 +73,7 @@ public class VanillaOracle implements AutoCloseable {
   private int playerId;
   private int expectedChunks;
   private ClientboundContainerSetContentPacket initialInventory;
+  private final Map<Integer,ItemStack> observedItems = new HashMap<>();
 
   private VanillaOracle(int port, String name) throws Exception {
     socket = new Socket("127.0.0.1", port);
@@ -206,6 +208,13 @@ public class VanillaOracle implements AutoCloseable {
   private ClientboundUpdateAttributesPacket interactionAttributes;
   private Object readGame() throws Exception {
     Object packet = read(gameIn);
+    if (packet instanceof ClientboundAddEntityPacket spawn && spawn.getType()==EntityTypes.ITEM)
+      observedItems.put(spawn.getId(),ItemStack.EMPTY);
+    if (packet instanceof ClientboundSetEntityDataPacket data && observedItems.containsKey(data.id()))
+      for (var value:data.packedItems()) if (value.value() instanceof ItemStack stack)
+        observedItems.put(data.id(),stack.copy());
+    if (packet instanceof ClientboundRemoveEntitiesPacket removed)
+      for (int id:removed.entityIds()) observedItems.remove(id);
     if (packet instanceof ClientboundLoginPacket login) playerId=login.playerId();
     if (packet instanceof ClientboundPlayerAbilitiesPacket current) { abilities=current; abilitiesPackets++; }
     if (packet instanceof ClientboundUpdateAttributesPacket current) { interactionAttributes=current; }
@@ -290,6 +299,13 @@ public class VanillaOracle implements AutoCloseable {
     long deadline = System.nanoTime() + 15_000_000_000L;
     for (int i = 0; i < 300 && System.nanoTime() < deadline; i++) if (predicate.test(readGame())) return;
     throw new AssertionError("Expected packet not received");
+  }
+  private int itemCount(ItemStack expected) {
+    return observedItems.values().stream().filter(s -> ItemStack.isSameItemSameComponents(s,expected))
+      .mapToInt(ItemStack::getCount).sum();
+  }
+  private void awaitItemCount(ItemStack expected,int total) throws Exception {
+    await(p -> itemCount(expected)==total);
   }
   private static int readVarInt(InputStream in) throws IOException {
     int value = 0;
@@ -549,12 +565,14 @@ public class VanillaOracle implements AutoCloseable {
       first.await(p -> p instanceof ClientboundSetHeldSlotPacket s && s.slot() == 8);
       first.send(gameOut, new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.DROP_ITEM, BlockPos.ZERO, Direction.DOWN, 0));
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.items().get(44), stone.copyWithCount(6)));
-      second.await(p -> p instanceof ClientboundSetEntityDataPacket d && d.packedItems().stream().anyMatch(v -> v.value() instanceof ItemStack s && ItemStack.matches(s, stone.copyWithCount(1))));
+      second.awaitItemCount(stone,1);
       // Source completion sends a second inventory update; wait for it before the next action.
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.items().get(44), stone.copyWithCount(6)));
       first.send(gameOut, new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.DROP_ALL_ITEMS, BlockPos.ZERO, Direction.DOWN, 0));
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.items().get(44).isEmpty());
-      second.await(p -> p instanceof ClientboundSetEntityDataPacket d && d.packedItems().stream().anyMatch(v -> v.value() instanceof ItemStack s && ItemStack.matches(s, stone.copyWithCount(6))));
+      // A new drop may merge before this observer's next publication. Validate
+      // the whole visible scene rather than requiring its intermediate entity.
+      second.awaitItemCount(stone,7);
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.items().get(44).isEmpty());
       first.send(gameOut, new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.DROP_ITEM, BlockPos.ZERO, Direction.DOWN, 0));
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.items().get(44).isEmpty());
@@ -564,7 +582,7 @@ public class VanillaOracle implements AutoCloseable {
       first.send(gameOut, new ServerboundContainerClickPacket(0, 32767, (short)9, (byte)0, ContainerInput.THROW,
         predictions, HashedStack.create(invented, component -> 0x12345678)));
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.items().get(9), stone.copyWithCount(6)));
-      second.await(p -> p instanceof ClientboundSetEntityDataPacket d && d.packedItems().stream().anyMatch(v -> v.value() instanceof ItemStack s && ItemStack.matches(s, stone.copyWithCount(1))));
+      second.awaitItemCount(stone,8);
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.items().get(9), stone.copyWithCount(6)));
       first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)9, (byte)0, ContainerInput.PICKUP,
         new Int2ObjectOpenHashMap<>(), HashedStack.EMPTY));
@@ -575,12 +593,12 @@ public class VanillaOracle implements AutoCloseable {
       first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)-999, (byte)1, ContainerInput.PICKUP,
         predictions, HashedStack.create(invented, component -> 0x12345678)));
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.carriedItem(), stone.copyWithCount(5)));
-      second.await(p -> p instanceof ClientboundSetEntityDataPacket d && d.packedItems().stream().anyMatch(v -> v.value() instanceof ItemStack s && ItemStack.matches(s, stone.copyWithCount(1))));
+      second.awaitItemCount(stone,9);
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.carriedItem(), stone.copyWithCount(5)));
       first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)-999, (byte)0, ContainerInput.QUICK_MOVE,
         new Int2ObjectOpenHashMap<>(), HashedStack.EMPTY));
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.carriedItem().isEmpty());
-      second.await(p -> p instanceof ClientboundSetEntityDataPacket d && d.packedItems().stream().anyMatch(v -> v.value() instanceof ItemStack s && ItemStack.matches(s, stone.copyWithCount(5))));
+      second.awaitItemCount(stone,14);
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && c.carriedItem().isEmpty());
       first.send(gameOut, new ServerboundContainerClickPacket(0, 0, (short)-999, (byte)0, ContainerInput.PICKUP,
         new Int2ObjectOpenHashMap<>(), HashedStack.EMPTY));
@@ -594,7 +612,7 @@ public class VanillaOracle implements AutoCloseable {
       first.send(gameOut,new ServerboundSetCreativeModeSlotPacket(-32768,creativeDrop));
       first.send(gameOut,new ServerboundSetCreativeModeSlotPacket(36,creativeDrop));
       first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot()==36 && ItemStack.matches(s.getItem(),creativeDrop));
-      second.await(p -> p instanceof ClientboundSetEntityDataPacket d && d.packedItems().stream().anyMatch(v -> v.value() instanceof ItemStack s && ItemStack.matches(s,creativeDrop)));
+      second.awaitItemCount(creativeDrop,2);
       first.send(gameOut,new ServerboundSetCreativeModeSlotPacket(-1,ItemStack.EMPTY));
       first.await(p -> p instanceof ClientboundContainerSetContentPacket c && ItemStack.matches(c.items().get(36),creativeDrop));
       first.send(gameOut,new ServerboundSetCreativeModeSlotPacket(0,creativeSource));
@@ -621,13 +639,7 @@ public class VanillaOracle implements AutoCloseable {
       first.send(gameOut,new ServerboundContainerClosePacket(99));
       java.util.function.Predicate<Object> returnedMenu = p -> p instanceof ClientboundContainerSetContentPacket c && c.carriedItem().isEmpty() && c.items().get(1).isEmpty() && c.items().get(2).isEmpty() && c.items().get(3).isEmpty() && c.items().get(4).isEmpty() && ItemStack.matches(c.items().get(44),stone.copyWithCount(64));
       first.await(returnedMenu);
-      var wanted = new java.util.ArrayList<ItemStack>(); wanted.add(stone.copyWithCount(9)); wanted.addAll(java.util.Arrays.asList(grid));
-      second.await(p -> {
-        if (p instanceof ClientboundSetEntityDataPacket d) for (var value : d.packedItems()) {
-          if (value.value() instanceof ItemStack stack) wanted.removeIf(expected -> ItemStack.matches(stack,expected));
-        }
-        return wanted.isEmpty();
-      });
+      second.await(p -> second.itemCount(stone)==23 && Arrays.stream(grid).allMatch(s -> second.itemCount(s)==s.getCount()));
       // The close response above and peer drops establish completion. Do not
       // require another unsolicited duplicate before testing a repeated close.
       first.send(gameOut,new ServerboundContainerClosePacket(0));
