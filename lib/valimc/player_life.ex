@@ -44,6 +44,7 @@ defmodule Valimc.PlayerLife do
     }
     |> Map.put(:air_supply, Valimc.PlayerAir.maximum())
     |> Map.put(:fire_ticks, 0)
+    |> Map.put(:effects, %{})
     |> Map.put(:food, %Valimc.PlayerFood{})
     |> Map.put(:use_flags, 0)
     |> Map.put(:equipment, %{})

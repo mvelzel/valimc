@@ -6,6 +6,7 @@ defmodule Valimc.Connection do
     ClientCommand,
     ClientTick,
     Data,
+    EffectTypes,
     Encryption,
     InventoryClick,
     ItemStack,
@@ -26,6 +27,7 @@ defmodule Valimc.Connection do
     PlayerAbilities,
     PlayerEnvironment,
     PlayerEquipment,
+    PlayerEffects,
     PlayerFood,
     PlayerHealth,
     PlayerInput,
@@ -42,6 +44,7 @@ defmodule Valimc.Connection do
     PlayerPoseQuery,
     PlayerSnapshot,
     PlayerStore,
+    PlayerStatusImmunity,
     PlayerTransfers,
     PlayerUse,
     TableAccess,
@@ -55,6 +58,7 @@ defmodule Valimc.Connection do
   alias Valimc.World.{ItemReplication, WeatherReplication}
   import Bitwise
   @basic_mining Enum.map(~w(stone dirt grass_block cobblestone oak_planks glass), &Data.block/1)
+  @fire_resistance EffectTypes.id("fire_resistance")
   @slab_tags Path.expand("../../priv/protocol/tags.json", __DIR__)
   @external_resource @slab_tags
   @slab_blocks :json.decode(File.read!(@slab_tags))["minecraft:block"]["minecraft:slabs"]
@@ -86,6 +90,18 @@ defmodule Valimc.Connection do
   def fall_damage(pid, amount) do
     deadline = System.monotonic_time(:millisecond) + 1000
     GenServer.call(pid, {:fall_damage, amount, deadline}, 1500)
+  end
+
+  @doc "Apply a supported effect on its player owner; duration state is bounded and server-authorized."
+  def add_effect(pid, effect_id, incoming) do
+    deadline = System.monotonic_time(:millisecond) + 1000
+    GenServer.call(pid, {:effect, effect_id, incoming, deadline}, 1500)
+  end
+
+  @doc "Remove a supported effect on its player owner."
+  def remove_effect(pid, effect_id) do
+    deadline = System.monotonic_time(:millisecond) + 1000
+    GenServer.call(pid, {:effect, effect_id, :remove, deadline}, 1500)
   end
 
   @impl true
@@ -148,6 +164,49 @@ defmodule Valimc.Connection do
   end
 
   def handle_call({:fall_damage, _, _}, _, state), do: {:reply, {:error, :not_playing}, state}
+
+  def handle_call(
+        {:effect, id, incoming, deadline},
+        _,
+        %{phase: :play, life_stage: :alive} = state
+      ) do
+    if System.monotonic_time(:millisecond) < deadline and id == @fire_resistance do
+      result =
+        if incoming == :remove,
+          do: PlayerEffects.remove(state.player.effects, id),
+          else: PlayerEffects.add(state.player.effects, id, incoming)
+
+      case result do
+        {:ok, effects, changed} ->
+          new = not Map.has_key?(state.player.effects, id)
+          player = %{state.player | effects: effects}
+          next = %{state | player: player}
+
+          try do
+            if changed do
+              packet =
+                if incoming == :remove,
+                  do: Packets.remove_effect(player.entity_id, id),
+                  else: Packets.update_effect(player.entity_id, id, hd(effects[id]), new)
+
+              send_packets(next, [packet])
+            end
+
+            Players.update(self(), player)
+            {:reply, {:ok, changed}, next}
+          catch
+            {:disconnect, _, current} -> {:stop, :normal, {:error, :disconnected}, current}
+          end
+
+        error ->
+          {:reply, error, state}
+      end
+    else
+      {:reply, {:error, :invalid_or_expired_effect}, state}
+    end
+  end
+
+  def handle_call({:effect, _, _, _}, _, state), do: {:reply, {:error, :not_playing}, state}
 
   def deliver(pid, event) do
     case Process.info(pid, :message_queue_len) do
@@ -996,6 +1055,7 @@ defmodule Valimc.Connection do
 
           state = %{state | player: player, simulation_clock: next, simulation_due: true}
           state = tick_burning(state)
+          state = tick_effects(state)
 
           {:noreply,
            state
@@ -1544,6 +1604,9 @@ defmodule Valimc.Connection do
         {:immune, state}
 
       Valimc.PlayerEnchantmentImmunity.immune?(state.inventory, source) ->
+        {:immune, state}
+
+      PlayerStatusImmunity.immune?(state.player.effects, source) ->
         {:immune, state}
 
       Valimc.PlayerDamageProtection.wears_armor?(source) and inventory_pending(state) ->
@@ -2147,6 +2210,7 @@ defmodule Valimc.Connection do
       environment: %PlayerEnvironment{},
       air_supply: Valimc.PlayerAir.maximum(),
       fire_ticks: 0,
+      effects: %{},
       food: %PlayerFood{},
       use_flags: 0,
       equipment: %{},
@@ -2201,10 +2265,14 @@ defmodule Valimc.Connection do
               environment: %PlayerEnvironment{frozen_ticks: Map.get(snapshot, :frozen_ticks, 0)},
               air_supply: Map.get(snapshot, :air_supply, Valimc.PlayerAir.maximum()),
               fire_ticks: Map.get(snapshot, :fire_ticks, 0),
+              effects: Map.get(snapshot, :effects, %{}),
               food: Map.get(snapshot, :food, %PlayerFood{})
           }
 
           player = if health.value <= 0, do: PlayerLife.dead(player), else: player
+
+          unless Enum.all?(player.effects, fn {id, _} -> id == @fire_resistance end),
+            do: reject(state, "Saved status effect is not implemented in this preview")
 
           {pid, fence, player, inventory, pending}
 
@@ -2287,6 +2355,13 @@ defmodule Valimc.Connection do
     ])
 
     send_packets(state, weather_packets)
+
+    send_packets(
+      state,
+      Enum.map(state.player.effects, fn {id, [rung | _]} ->
+        Packets.update_effect(state.player.entity_id, id, rung, false)
+      end)
+    )
 
     existing = Players.ready(self())
     state = update_view(state)
@@ -2617,9 +2692,30 @@ defmodule Valimc.Connection do
       state
       | player: player,
         pose_checked: if(burning_before and not burning_now, do: nil, else: state.pose_checked),
-        fire_damage_due: burning.ticks > 0 and (state.fire_damage_due or burning.damage > 0)
+        fire_damage_due:
+          burning.ticks > 0 and
+            not PlayerStatusImmunity.immune?(state.player.effects, :on_fire) and
+            (state.fire_damage_due or burning.damage > 0)
     }
   end
+
+  defp tick_effects(%{life_stage: :alive, player: %{effects: effects}} = state)
+       when map_size(effects) > 0 do
+    {:ok, effects, events} = PlayerEffects.tick(effects)
+    player = %{state.player | effects: effects}
+    next = %{state | player: player}
+
+    packets =
+      Enum.map(events, fn
+        {:update, id, rung, _reapply} -> Packets.update_effect(player.entity_id, id, rung, false)
+        {:remove, id} -> Packets.remove_effect(player.entity_id, id)
+      end)
+
+    send_packets(next, packets)
+    next
+  end
+
+  defp tick_effects(state), do: state
 
   defp observe_burning(%{life_stage: stage} = state, _, _, _) when stage != :alive,
     do: %{state | fire_damage_due: false}

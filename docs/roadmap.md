@@ -13,8 +13,10 @@ Current: **[owned status effects](tickets/VMC-037a.md)**. Duration/refresh and p
 foundations are **Done within kernel scope**:50,433 native traces,40 effect IDs,
 61,600 packets and actual baseline at `9fce29f`. Local bounded map/source-immunity
 kernels match129/306 native cases and9 affected tests. Optional v18 effect persistence
-passes62 affected recovery/boundary checks. Client baseline is pending; next is live
-ownership/clock and Fire Resistance. Keep pending work local.
+passes62 affected recovery/boundary checks. Live
+[ownership/clock and Fire Resistance](tickets/VMC-037a1.md) passes34 affected tests
+and129 native callback traces; full rerun/build/native and GUI are pending.
+Keep pending work local.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

@@ -19,7 +19,8 @@ public class PlayerEffectMapOracle {
     public boolean canBeAffected(MobEffectInstance effect){return true;}
     public boolean isDeadOrDying(){return false;}
     void advance(){tickCount++;tickEffects();}
-    void event(String kind,MobEffectInstance effect,boolean reset){var row=new JsonArray();row.add(kind);row.add(BuiltInRegistries.MOB_EFFECT.getId(effect.getEffect().value()));row.add(reset);events.add(row);}
+    void event(String kind,MobEffectInstance effect,boolean reset){var row=new JsonArray();row.add(kind);row.add(BuiltInRegistries.MOB_EFFECT.getId(effect.getEffect().value()));row.add(reset);
+      var rung=new JsonArray();rung.add(effect.getDuration());rung.add(effect.getAmplifier());rung.add(effect.isAmbient());rung.add(effect.isVisible());rung.add(effect.showIcon());row.add(kind.equals("remove")?JsonNull.INSTANCE:rung);events.add(row);}
     protected void onEffectAdded(MobEffectInstance effect,Entity source){event("add",effect,false);}
     protected void onEffectUpdated(MobEffectInstance effect,boolean reset,Entity source){event("update",effect,reset);}
     protected void onEffectsRemoved(Collection<MobEffectInstance> removed){for(var effect:removed)event("remove",effect,false);}
@@ -53,7 +54,9 @@ public class PlayerEffectMapOracle {
     targeted.add(operation(body,"add",11,601,0,7));targeted.add(operation(body,"add",11,1,1,0));
     targeted.add(operation(body,"add",12,0,0,7));
     for(int i=0;i<4;i++)targeted.add(operation(body,"tick",0,0,0,0));
-    targeted.add(operation(body,"remove",11,0,0,0));targeted.add(operation(body,"remove",11,0,0,0));rows.add(targeted);
+    targeted.add(operation(body,"remove",11,0,0,0));targeted.add(operation(body,"remove",11,0,0,0));
+    targeted.add(operation(body,"add",11,20,0,7));targeted.add(operation(body,"add",11,2,1,7));targeted.add(operation(body,"add",11,100,2,7));
+    for(int i=0;i<100;i++)targeted.add(operation(body,"tick",0,0,0,0));rows.add(targeted);
     var random=new Random(263037);for(int trace=0;trace<128;trace++){
       body.getActiveEffectsMap().clear();var ops=new JsonArray();
       for(int step=0;step<64;step++){

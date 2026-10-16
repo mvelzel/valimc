@@ -108,18 +108,18 @@ defmodule Valimc.PlayerEffects do
         |> Enum.sort()
         |> Enum.reduce({%{}, []}, fn id, {next, events} ->
           {:ok, state, remains, promoted} = StatusEffect.tick(effects[id])
-          events = if promoted, do: [{:update, id, true} | events], else: events
+          events = if promoted, do: [{:update, id, hd(state), true} | events], else: events
 
           if remains do
             # Native periodically refreshes the controlling client's duration.
             events =
               if rem(elem(hd(state), 0), 600) == 0,
-                do: [{:update, id, false} | events],
+                do: [{:update, id, hd(state), false} | events],
                 else: events
 
             {Map.put(next, id, state), events}
           else
-            {next, [{:remove, id, false} | events]}
+            {next, [{:remove, id} | events]}
           end
         end)
 

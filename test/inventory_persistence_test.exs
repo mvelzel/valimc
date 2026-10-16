@@ -256,12 +256,13 @@ defmodule Valimc.InventoryPersistenceTest do
     assert client.inventory.items == List.duplicate(nil, 46)
     close(client, username, uuid)
 
-    assert <<"VMCPOSE", 17, _::binary-size(52), 12, 0::signed-32, _::binary>> =
+    assert <<"VMCPOSE", 18, _::binary-size(52), 17, 0, 12, 0::signed-32, _::binary>> =
              bytes = File.read!(path)
 
     assert {:ok, saved} = PlayerSnapshot.decode(bytes, uuid)
     assert saved.air_supply == 300 and saved.health.value == 20.0
     assert saved.fire_ticks == 0
+    assert saved.effects == %{}
     assert saved.food == %Valimc.PlayerFood{}
   end
 

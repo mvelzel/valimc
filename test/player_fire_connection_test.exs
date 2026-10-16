@@ -64,6 +64,7 @@ defmodule Valimc.PlayerFireConnectionTest do
         last_death: nil,
         air_supply: 300,
         fire_ticks: Keyword.get(opts, :fire, 0),
+        effects: Keyword.get(opts, :effects, %{}),
         food: %Valimc.PlayerFood{level: 5, saturation: 0.0}
       })
 
@@ -91,10 +92,22 @@ defmodule Valimc.PlayerFireConnectionTest do
     end)
   end
 
-  defp login(ctx) do
+  defp login(ctx, expected_effect \\ nil) do
     {_, client} = Client.login(ctx.name)
     pid = wait(fn -> Enum.find(Players.all(), &(&1.name == ctx.name)) end).pid
     park(pid)
+
+    client =
+      if expected_effect do
+        {fields, client} = effect_packet(client)
+        {entity, id, ticks, level, flags} = fields
+        assert entity == state(pid).player.entity_id
+        assert {id, ticks, level, flags} == expected_effect
+        client
+      else
+        client
+      end
+
     client = Client.load_world(client)
     Client.send_packet(client, :play, "player_loaded", <<>>)
 
@@ -104,6 +117,16 @@ defmodule Valimc.PlayerFireConnectionTest do
 
     on_exit(fn -> Client.close(client) end)
     {client, pid}
+  end
+
+  defp effect_packet(client) do
+    {body, client} = Client.await(client, :play, "update_mob_effect")
+    {entity, rest} = Wire.take_varint(body)
+    {id, rest} = Wire.take_varint(rest)
+    {level, rest} = Wire.take_varint(rest)
+    {ticks, <<flags>>} = Wire.take_varint(rest)
+    ticks = if ticks >= 2_147_483_648, do: ticks - 4_294_967_296, else: ticks
+    {{entity, id, ticks, level, flags}, client}
   end
 
   defp tick(pid, geometry \\ true) do
@@ -130,6 +153,154 @@ defmodule Valimc.PlayerFireConnectionTest do
         end)
 
     before.simulation_clock.token
+  end
+
+  test "owned effect grants retain suppressed refresh, admission and packet lifecycle", ctx do
+    seed(ctx, fire: -20, material: "air")
+    {client, pid} = login(ctx)
+    {:ok, weak} = Valimc.StatusEffect.new(601, 0)
+    {:ok, strong} = Valimc.StatusEffect.new(2, 2)
+    {:ok, infinite} = Valimc.StatusEffect.new(-1, 0)
+    entity = state(pid).player.entity_id
+    assert {:ok, true} = Connection.add_effect(pid, 11, weak)
+    assert {{^entity, 11, 601, 0, 14}, client} = effect_packet(client)
+    assert {:ok, true} = Connection.add_effect(pid, 11, strong)
+    assert {{^entity, 11, 2, 2, 6}, client} = effect_packet(client)
+    assert {:ok, false} = Connection.add_effect(pid, 11, infinite)
+
+    assert state(pid).player.effects[11] == [
+             {2, 2, false, true, true},
+             {-1, 0, false, true, true}
+           ]
+
+    tick(pid)
+    tick(pid)
+    assert {{^entity, 11, -1, 0, 6}, client} = effect_packet(client)
+    assert {:ok, true} = Connection.remove_effect(pid, 11)
+    {body, _client} = Client.await(client, :play, "remove_mob_effect")
+    assert {^entity, <<11>>} = Wire.take_varint(body)
+    assert {:ok, false} = Connection.remove_effect(pid, 11)
+    assert state(pid).player.effects == %{}
+    assert {:error, :invalid_player_effects} = Connection.add_effect(pid, 11, [])
+    assert {:error, :invalid_or_expired_effect} = Connection.add_effect(pid, 12, weak)
+
+    assert {:error, :invalid_or_expired_effect} =
+             GenServer.call(pid, {:effect, 11, weak, System.monotonic_time(:millisecond) - 1})
+
+    assert state(pid).player.effects == %{}
+  end
+
+  test "Fire Resistance blocks fire contact and armor wear before cooldown but cactus still hurts",
+       ctx do
+    helmet = ItemStack.new("iron_helmet")
+    effects = %{11 => [{-1, 0, false, true, true}]}
+    seed(ctx, effects: effects, inventory: %Inventory{slots: %{5 => helmet}})
+    {client, pid} = login(ctx, {11, -1, 0, 6})
+    tick(pid)
+    assert state(pid).player.fire_ticks == 300
+    assert state(pid).player.health.value == 20.0 and state(pid).player.health.cooldown == 0
+    assert state(pid).inventory.slots[5] == helmet
+
+    for id <- [4931, 5443, 24235, 24267] do
+      for y <- [64, 65], do: :ok = World.set_block({floor(ctx.pose.x), y, floor(ctx.pose.z)}, id)
+      tick(pid)
+      assert state(pid).player.health.value == 20.0 and state(pid).player.health.cooldown == 0
+      assert state(pid).inventory.slots[5] == helmet
+    end
+
+    material(ctx, "air")
+    :ok = World.set_block({floor(ctx.pose.x), 63, floor(ctx.pose.z)}, 16826)
+
+    :sys.replace_state(pid, fn s ->
+      %{s | player: %{s.player | motion: %{s.player.motion | physical_ground: true}}}
+    end)
+
+    tick(pid)
+    assert state(pid).player.health.value == 20.0 and state(pid).player.health.cooldown == 0
+    assert state(pid).inventory.slots[5] == helmet
+    :ok = World.set_block({floor(ctx.pose.x), 64, floor(ctx.pose.z)}, 8599)
+    tick(pid)
+    assert state(pid).player.health.value < 20.0
+    assert state(pid).inventory.slots[5].components["minecraft:damage"] == 1
+    {body, _client} = Client.await(client, :play, "damage_event")
+    {_entity, rest} = Wire.take_varint(body)
+    {type, _} = Wire.take_varint(rest)
+    assert type == Data.registry_id("minecraft:damage_type", "minecraft:cactus")
+  end
+
+  test "tick-start resistance cancels pending burning before expiry; fresh contacts use the expired map",
+       ctx do
+    effects = %{11 => [{-1, 0, false, true, true}]}
+    seed(ctx, fire: 20, material: "air", effects: effects)
+    {client, pid} = login(ctx, {11, -1, 0, 6})
+    assert {:ok, true} = Connection.remove_effect(pid, 11)
+    assert {:ok, one_tick} = Valimc.StatusEffect.new(1, 0)
+    assert {:ok, true} = Connection.add_effect(pid, 11, one_tick)
+    {_fields, client} = effect_packet(client)
+
+    :sys.replace_state(pid, fn s ->
+      %{s | fire_damage_due: true, player: %{s.player | fire_ticks: 20}}
+    end)
+
+    tick(pid)
+    assert state(pid).player.effects == %{} and not state(pid).fire_damage_due
+    assert state(pid).player.health.value == 20.0 and state(pid).player.health.cooldown == 0
+    {body, client} = Client.await(client, :play, "remove_mob_effect")
+    {_entity, <<11>>} = Wire.take_varint(body)
+    :sys.replace_state(pid, fn s -> %{s | player: %{s.player | fire_ticks: 20}} end)
+    tick(pid)
+    assert state(pid).player.health.value == 19.0
+
+    assert {:ok, true} = Connection.add_effect(pid, 11, one_tick)
+    {_fields, _client} = effect_packet(client)
+
+    :sys.replace_state(pid, fn s ->
+      %{s | player: %{s.player | health: %PlayerHealth{}, fire_ticks: -20}}
+    end)
+
+    material(ctx, "fire")
+    tick(pid)
+    assert state(pid).player.effects == %{} and state(pid).player.health.value < 20.0
+  end
+
+  test "suppressed durations survive real reconnect and ordinary death-respawn clears the owned effect",
+       ctx do
+    effects = %{11 => [{-1, 0, false, true, true}]}
+
+    seed(ctx,
+      effects: effects,
+      material: "air",
+      health: 0.5,
+      inventory: %Inventory{slots: %{5 => ItemStack.new("iron_helmet")}}
+    )
+
+    {client, pid} = login(ctx, {11, -1, 0, 6})
+    {:ok, strong} = Valimc.StatusEffect.new(3, 1)
+    assert {:ok, true} = Connection.add_effect(pid, 11, strong)
+    {_fields, client} = effect_packet(client)
+    tick(pid)
+    Client.close(client)
+    wait(fn -> not Process.alive?(pid) end)
+    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.effects == %{11 => [{2, 1, false, true, true}, {-1, 0, false, true, true}]}
+    assert saved.transfer_sequence == 0 and saved.outbox == nil
+    {client, pid} = login(ctx, {11, 2, 1, 6})
+    assert state(pid).player.effects == saved.effects
+    tick(pid)
+    tick(pid)
+    {_fields, client} = effect_packet(client)
+    assert state(pid).player.effects == effects
+    :ok = World.set_block({floor(ctx.pose.x), 64, floor(ctx.pose.z)}, 8599)
+    tick(pid, false)
+    wait(fn -> state(pid).life_stage == :dead end)
+    {:ok, dead} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert dead.effects == effects and dead.transfer_sequence == 1 and dead.outbox == nil
+    assert {:error, :not_playing} = Connection.add_effect(pid, 11, strong)
+    Client.send_packet(client, :play, "client_command", <<0>>)
+    {_, _client} = Client.await(client, :play, "respawn")
+    assert state(pid).player.effects == %{} and state(pid).player.health.value == 20.0
+    {:ok, alive} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert alive.effects == %{} and alive.transfer_sequence == 1 and alive.outbox == nil
   end
 
   test "contact hazards require an admitted tick and retain distinct source packets, wear and no ignition",

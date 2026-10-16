@@ -27,18 +27,24 @@ for trace <- facts["traces"] do
 
           {:ok, next, changed} = PlayerEffects.add(previous, id, incoming)
           kind = if Map.has_key?(previous, id), do: "update", else: "add"
-          events = if changed, do: [[kind, id, kind == "update"]], else: []
+
+          events =
+            if changed, do: [[kind, id, kind == "update", Tuple.to_list(hd(next[id]))]], else: []
+
           {next, changed, events}
 
         "remove" ->
           {:ok, next, changed} = PlayerEffects.remove(previous, id)
-          {next, changed, if(changed, do: [["remove", id, false]], else: [])}
+          {next, changed, if(changed, do: [["remove", id, false, :null]], else: [])}
 
         "tick" ->
           {:ok, next, events} = PlayerEffects.tick(previous)
 
           {next, nil,
-           Enum.map(events, fn {kind, id, reset} -> [Atom.to_string(kind), id, reset] end)}
+           Enum.map(events, fn
+             {:update, id, rung, reset} -> ["update", id, reset, Tuple.to_list(rung)]
+             {:remove, id} -> ["remove", id, false, :null]
+           end)}
       end
 
     expected =

@@ -12,13 +12,23 @@ defmodule Valimc.PlayerEffectsTest do
     {:ok, effects, true} = PlayerEffects.add(effects, 12, ended)
 
     assert {:ok, %{11 => [{600, 0, false, true, true}]} = effects,
-            [{:update, 11, true}, {:update, 11, false}, {:remove, 12, false}]} =
+            [
+              {:update, 11, {600, 0, false, true, true}, true},
+              {:update, 11, {600, 0, false, true, true}, false},
+              {:remove, 12}
+            ]} =
              PlayerEffects.tick(effects)
 
     assert {:ok, %{}, true} = PlayerEffects.remove(effects, 11)
     assert {:ok, %{}, false} = PlayerEffects.remove(%{}, 11)
     {:ok, infinite} = StatusEffect.new(-1, 0)
     assert {:ok, %{11 => ^infinite}, []} = PlayerEffects.tick(%{11 => infinite})
+  end
+
+  test "expired suppressed promotion carries its update value even when removed in the same tick" do
+    ended = {0, 0, false, true, true}
+    effects = %{11 => [{1, 2, false, true, true}, ended]}
+    assert {:ok, %{}, [{:update, 11, ^ended, true}, {:remove, 11}]} = PlayerEffects.tick(effects)
   end
 
   test "only bounded catalog IDs and canonical suppression chains enter the map" do
