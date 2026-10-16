@@ -18,7 +18,7 @@ if name == 'FluidSupportOracle':
     sources.append(str(root / 'scripts' / 'CollisionMetadata.java'))
 if name == 'ClimbContactOracle':
     sources.append(str(root / 'scripts' / 'ClimbMetadata.java'))
-if name in ('FireGeometryOracle', 'RainContactOracle'):
+if name in ('BlockHazardOracle', 'FireGeometryOracle', 'RainContactOracle'):
     sources.append(str(root / 'scripts' / 'FireContactOracle.java'))
 if name == 'StuckPathsOracle':
     sources.append(str(root / 'scripts' / 'StuckContactOracle.java'))

@@ -1,8 +1,8 @@
 # VMC-017b4c — Rain exposure and column observations
 
-Status: Live rain extinction and independent chunk heightmaps implemented locally;
-targeted/native checks pass. Production/full integration and graphical gates remain.
-Foundation checkpoint `6875995`.
+Status: Implemented, frozen `7423e59`;1,238 full tests(seed937151), production and
+all five required graphical scenarios pass. Full native integration remains running;
+keep local until its terminal result. Foundation checkpoint `6875995`.
 
 Acceptance: native rain extinguishes outdoor burning, roofs shield players and
 removing the roof restores exposure. Use fenced column observations in the existing
@@ -77,6 +77,20 @@ from actual native update traces; `.local/chunk-heightmaps-native-final.log`.
 roof removal/rain-after-ignition, high-altitude snow, fatal-before-rain ordering,
 existing fire/motion/pose/weather regressions; `.local/rain-live-targeted-initial.log`.
 
-Next: freeze/build, full integration and dedicated actual outdoor/roof/glass/
-removal/clear/reconnect checks. Keep pending work local. Full lighting, weathering
-world blocks, other biome generation/modifiers and status effects remain separate.
+October16 client **PASS**, frozen `7423e59`: actual natural ignition and walking
+under stone/glass, outdoor rain extinction, stationary trusted roof removal/addition,
+clear-weather exit burning, actual water entry, positive saved2299 burning reconnect
+and a fresh cleared reconnect. Roofs/teleports were trusted fixtures; longer counters
+followed observed natural ignition. One normal-health latency death was expected;
+later trusted1024 health prevented inspection deaths. No ordinary health-HUD parity
+claim from that reservoir. Snow at1024 and lava GUI were not repeated; native/owned
+tests retain their separate scope. Three clients stopped; full snapshot restored
+preserving newest sequence40/nil outbox and matching receipts, regions/clock flushed,
+zero players/connections and clear weather. Report reviewed:
+`.local/client-tests/VMC-017b4c/report.md`; server log has no unexpected gameplay error.
+Logs: `.local/rain-live-{full-tests,production,full-native}.log`.
+
+Next: accept terminal full native integration/both TCP and retain matched preview
+measurements before publication. Full lighting, world-block weathering, other biome
+generation/modifiers and status effects remain separate. Client gate is complete;
+do not redo it unless a relevant runtime change or failure requires it.
