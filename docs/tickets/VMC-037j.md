@@ -104,3 +104,8 @@ checks pass(seed825783); full suite rerun follows. These are test-only correctio
 the immutable production runtime under graphical verification stays unchanged.
 Raw `.local/absorption-live-{production,native-tcp,full-tests}.log`,
 `.local/absorption-full-integration-fixes-targeted.log`.
+
+Full rerun at test-only checkpointb97c5ca passes1,368 tests; runtime/config/data
+files are identical to the immutable958c8ee release. Raw
+`.local/absorption-live-full-tests-fixed.log`. New stock-food research is outside
+that full run. Production/TCP remain at958c8ee; graphical verification continues.

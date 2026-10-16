@@ -1,0 +1,214 @@
+{
+  "version": "26.3",
+  "protocol": 777,
+  "server_sha1": "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c",
+  "items": [
+    {
+      "item": "minecraft:golden_apple",
+      "item_id": 1100,
+      "callbacks": [
+        {
+          "probability": 1.0,
+          "effects": [
+            {
+              "id": 9,
+              "rung": [
+                100,
+                1,
+                false,
+                true,
+                true
+              ]
+            },
+            {
+              "id": 21,
+              "rung": [
+                2400,
+                0,
+                false,
+                true,
+                true
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "item": "minecraft:enchanted_golden_apple",
+      "item_id": 1101,
+      "callbacks": [
+        {
+          "probability": 1.0,
+          "effects": [
+            {
+              "id": 9,
+              "rung": [
+                400,
+                1,
+                false,
+                true,
+                true
+              ]
+            },
+            {
+              "id": 10,
+              "rung": [
+                6000,
+                0,
+                false,
+                true,
+                true
+              ]
+            },
+            {
+              "id": 11,
+              "rung": [
+                6000,
+                0,
+                false,
+                true,
+                true
+              ]
+            },
+            {
+              "id": 21,
+              "rung": [
+                2400,
+                3,
+                false,
+                true,
+                true
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "item": "minecraft:pufferfish",
+      "item_id": 1193,
+      "callbacks": [
+        {
+          "probability": 1.0,
+          "effects": [
+            {
+              "id": 18,
+              "rung": [
+                1200,
+                1,
+                false,
+                true,
+                true
+              ]
+            },
+            {
+              "id": 16,
+              "rung": [
+                300,
+                2,
+                false,
+                true,
+                true
+              ]
+            },
+            {
+              "id": 8,
+              "rung": [
+                300,
+                0,
+                false,
+                true,
+                true
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "item": "minecraft:chicken",
+      "item_id": 1262,
+      "callbacks": [
+        {
+          "probability": 0.30000001192092896,
+          "effects": [
+            {
+              "id": 16,
+              "rung": [
+                600,
+                0,
+                false,
+                true,
+                true
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "item": "minecraft:rotten_flesh",
+      "item_id": 1264,
+      "callbacks": [
+        {
+          "probability": 0.800000011920929,
+          "effects": [
+            {
+              "id": 16,
+              "rung": [
+                600,
+                0,
+                false,
+                true,
+                true
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "item": "minecraft:spider_eye",
+      "item_id": 1272,
+      "callbacks": [
+        {
+          "probability": 1.0,
+          "effects": [
+            {
+              "id": 18,
+              "rung": [
+                100,
+                0,
+                false,
+                true,
+                true
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "item": "minecraft:poisonous_potato",
+      "item_id": 1381,
+      "callbacks": [
+        {
+          "probability": 0.6000000238418579,
+          "effects": [
+            {
+              "id": 18,
+              "rung": [
+                100,
+                0,
+                false,
+                true,
+                true
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

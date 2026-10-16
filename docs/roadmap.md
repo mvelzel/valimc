@@ -42,16 +42,17 @@ lifecycle stays [open](tickets/VMC-037g1.md); negative-dose drinks are refused w
 **Done within scope:** [Hunger](tickets/VMC-037h.md), runtime `085ac9f`:10,240 native
 callbacks/150 instance ticks,11,520 food compositions,77 affected checks,
 production/both TCP transports and actual stationary drain, milk, hidden promotion/
-expiry, creative/unsupported negatives and reconnect. Publication follows separately.
+expiry, creative/unsupported negatives and reconnect; published through085ac9f.
 **Final integration:** [Instant Saturation drinks](tickets/VMC-037i.md), `7b65f32`:
 98,304 native callbacks,69 affected/1,354 full tests, production/both TCP transports
 and all five actual-client groups pass. Full native integration runs before publication.
 **Implementing:** [Absorption](tickets/VMC-037j.md): native pool/effect lifecycle,
 40,392 damage/food contexts, durable v19 and269 packets pass. Owned drinking,
 damage/milk/expiry/promotion/depletion/reconnect and self/peer replication pass128
-affected checks; production/TCP/client gates follow.
-**Next:** [stock food status callbacks](tickets/VMC-036e.md): native chance/group
-semantics for golden apples and ordinary harmful foods, then owned completion.
+affected checks. Frozen958c8ee production/TCP and1,368 full tests pass; dedicated
+client verification is finishing, with larger native integration next.
+**Next:** [stock food status callbacks](tickets/VMC-036e.md): seven stock records,
+112 native callback boundaries and11 affected checks pass; live admission follows.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
