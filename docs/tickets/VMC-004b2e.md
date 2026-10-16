@@ -1,6 +1,6 @@
 # VMC-004b2e — Initial chunk-stream readiness
 
-Status: Targeted-verified; native/client block checks pending. October16,2026.
+Status: Done within readiness scope (`c8a8a13`). October16,2026.
 
 Observed in VMC-033f2 run02 on `6ec31a9`: a fresh26.3 client intermittently
 disconnects while loading with an outbound-protocol encoder error for chunk
@@ -32,3 +32,29 @@ chunk batch (`.local/initial-stream-before.log`) and passes the fixed owner.
 32 affected login/recovery/lifecycle/inventory/mode/crafting checks pass
 (seed702816; `.local/initial-stream-targeted.log`). A cold-start fixture needed
 to await player publication rather than assuming it followed the welcome frame.
+
+October16 actual26.3/protocol777 readiness PASS on frozen production checkpoint
+`c8a8a139b5ca7c40e65f7298bca6f6f972928f91` (710 Git blobs verified;
+live Connection/Inventory/Packets paths and loaded MD5 match frozen prod BEAMs).
+Exactly three planned fresh direct QuickPlay launches rendered the flat world;
+all three E inventories retained saved bundle1/string1/oak_planks8/leather1 in
+physical36–39 with empty grid/result/cursor, matching RPC. Each had accepted
+teleport readiness and nonempty chunks. Run01 also exercised W and `/spawn`,
+then continued rendering with readiness confirmed; run03 used the dedicated SDL
+empty-slot click. No fresh log had the outbound-protocol encoder exception.
+Earlier VMC-033f2 failed attempt remains recorded; no retries were needed here.
+
+All three wrappers/JVMs stopped before next launch; final zero players. Full
+original saved snapshot restored through lease with source61/nil preserved;
+all61 complete region records and all receipt maps remained term-exact, four
+regions flushed. Server/dataset unchanged beyond the restored disposable player
+fixture. Evidence `.local/client-tests/VMC-004b2e/report.md`, run01–03 logs and
+restore.log; dataset `/tmp/valimc-table-block-client-20261016` (12-file clone).
+Sole tester used default small dedicated SDL client and CUA. This closes the
+scoped readiness/retained-inventory baseline only; no live3x3/table/reach claim.
+Primary accepted the report. Frozen710 source blobs were independently rehashed
+after validation. The coherent foundation block passes933 full tests (seed141105),
+full native integration including plaintext and continuous AES-CFB8 TCP, and a
+production release. Evidence `.local/table-block-{full-tests,full-native,production}.log`
+and `.local/table-foundation-block-proof.json`. This closes VMC-033f2's initial
+join gate; the historical failed attempt remains available.

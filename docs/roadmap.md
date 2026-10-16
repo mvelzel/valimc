@@ -9,9 +9,9 @@ indexes validated tickets. None imply full parity.
 
 ## Priority
 
-Initial join prerequisite: [VMC-004b2e](tickets/VMC-004b2e.md) fixes an observed
-client encoder race before publishing the pending table kernel. Table composition
-continues after readiness validation; its feature baseline already passed.
+[Initial join readiness](tickets/VMC-004b2e.md), the table kernel and table blocks
+are validated. Current work: [live owned table menus](tickets/VMC-033f4.md),
+including authoritative access and bounded durable close continuation.
 
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Player processes own their simulation state; bounded workers sample geometry.
@@ -174,10 +174,12 @@ continues after readiness validation; its feature baseline already passed.
    checks and restart/TCP recovery; actual connected/disconnected cleanup and fresh
    reconnect passed (`7d1a97f`). This foundation is complete; table clicks follow.
    [Table click plans](tickets/VMC-033f2.md) pass134 affected checks,11,990 native
-   traces and2,398 native packet decodes; player baseline is pending before live
-   block/menu composition.
+   traces and2,398 native packet decodes; actual player crafting/reconnect,
+   933 full tests, full native TCP and production passed (`6ec31a9`/`c8a8a13`).
+   This kernel foundation is complete; live menu composition follows.
    [Table blocks](tickets/VMC-033f3.md) pass49 affected tests and native placement,
-   consumption and mining checks; actual placement/mining is next.
+   consumption/mining checks, production and actual both-mode/both-hand placement,
+   mining/wear/drop/refusal/reconnect (`738852b`). This block slice is complete.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 [VMC-003c](tickets/VMC-003c.md)'s direct local test-client lifecycle is complete:
@@ -189,9 +191,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-033f2](tickets/VMC-033f2.md) | Feature baseline passed; initial join repair retest | `6ec31a9`, local |
-| [VMC-004b2e](tickets/VMC-004b2e.md) | Repeated actual joins; coherent block integration | Local readiness fix next |
-| [VMC-033f3](tickets/VMC-033f3.md) | Actual table placement/mining/reconnect | Local block support |
+| [VMC-033f4](tickets/VMC-033f4.md) | Live table implementation/verification in progress | Local composition |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 

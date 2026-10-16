@@ -23,6 +23,7 @@ explicitly; do not silently put extra stacks outside `Inventory.contents`.
 The [owned input/cleanup foundation](VMC-033f1.md) is the first checkpoint.
 Then implement [table click plans](VMC-033f2.md) before live block/menu ownership.
 The [table block slice](VMC-033f3.md) admits verified placement/mining first.
+Then [live menus](VMC-033f4.md) compose access, clicks and bounded close recovery.
 Table close can overflow nine inputs plus a cursor, beyond the five-record
 transfer batch. Define bounded continuation/recovery before enabling that path;
 do not widen generic transfer budgets or hide transient stacks from persistence.
