@@ -2,6 +2,40 @@ defmodule Valimc.World.ItemMerges do
   @moduledoc "Atomic bounded same-owner merge plans; persist the result before publication."
   alias Valimc.{ItemMotionState, Physics.ItemMerge, World.Items}
 
+  @doc "Discover at most32 disjoint owned pairs off the owner; input is already bounded to256 items."
+  def candidates(items) do
+    items.entries
+    |> Enum.sort_by(fn {_, entry} -> entry.entity.uuid end)
+    |> Enum.filter(fn {_, entry} -> ItemMerge.eligible?(input(entry)) end)
+    |> Enum.group_by(fn {_, entry} -> Valimc.Protocol.ItemStack.identity_key(entry.stack) end)
+    |> Map.values()
+    |> Enum.reduce_while([], fn group, pairs ->
+      pairs = discover(group, pairs)
+      if length(pairs) == 32, do: {:halt, pairs}, else: {:cont, pairs}
+    end)
+    |> Enum.reverse()
+  end
+
+  defp discover(_, pairs) when length(pairs) == 32, do: pairs
+  defp discover([], pairs), do: pairs
+
+  defp discover([{id, entry} | rest], pairs) do
+    maximum = Valimc.Protocol.ItemStack.max_stack_size(entry.stack)
+
+    case Enum.find(rest, fn {_, other} ->
+           entry.stack.count + other.stack.count <= maximum and
+             ItemMerge.near?(point(entry), point(other))
+         end) do
+      nil ->
+        discover(rest, pairs)
+
+      {other_id, other} ->
+        pair = %{a: {id, entry.revision}, b: {other_id, other.revision}}
+
+        discover(Enum.reject(rest, fn {candidate, _} -> candidate == other_id end), [pair | pairs])
+    end
+  end
+
   def plan(items, epoch, pairs) when is_list(pairs) do
     pairs = Enum.take(pairs, 33)
 

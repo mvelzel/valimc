@@ -35,9 +35,9 @@ rows =
             %{
               uuid: <<index * 10000 + n * 1000 + id::128>>,
               stack: ItemStack.new("stone", 3),
-              x: rx * 128 + 4.5 + rem(id - 1, 16) * 0.5,
+              x: rx * 128 + 4.5 + rem(id - 1, 16) * 2.0,
               y: if(mode == :moving, do: 68.0, else: 64.0),
-              z: rz * 128 + 4.5 + div(id - 1, 16) * 0.5,
+              z: rz * 128 + 4.5 + div(id - 1, 16) * 2.0,
               motion: %ItemMotionState{
                 velocity: if(mode == :moving, do: {0.1, 0.0, 0.0}, else: {0.0, 0.0, 0.0}),
                 no_gravity: mode == :moving,
@@ -92,7 +92,8 @@ rows =
       timeouts: metric.(:item_simulation_timeouts),
       refused: metric.(:item_simulation_refusals),
       busy: metric.(:item_simulation_busy),
-      item_snapshot_saves: metric.(:item_snapshot_saves)
+      item_snapshot_saves: metric.(:item_snapshot_saves),
+      merge_jobs: metric.(:item_merge_jobs)
     }
 
     for {pid, _} <- regions do
@@ -106,7 +107,7 @@ rows =
 IO.puts(
   :json.encode(%{
     scope:
-      "owned automatic item cadence, fenced geometry, counter clocks, sleep and periodic disk saves; no sockets, player launch, merge/pickup or cross-owner workload",
+      "owned automatic cadence and merge discovery with2-block item spacing, fenced geometry, counter clocks, sleep and periodic saves; no positive merge, sockets, player launch, pickup or cross-owner workload",
     runtime: %{
       elixir: System.version(),
       otp: System.otp_release(),

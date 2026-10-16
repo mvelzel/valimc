@@ -145,4 +145,28 @@ defmodule Valimc.ItemMergesTest do
     assert {:ok, %{motion: %{pickup_delay: 40}}} =
              ItemMerge.pair(%{input | motion: %{input.motion | pickup_delay: 40}}, input)
   end
+
+  test "discovery bounds disjoint cohorts and converges a full owner without losing counts" do
+    {:ok, items} = Items.restore({0, 0}, for(n <- 1..256, do: record(n, 1)))
+    first = ItemMerges.candidates(items)
+    assert length(first) == 32
+    assert length(Enum.uniq(Enum.flat_map(first, fn p -> [elem(p.a, 0), elem(p.b, 0)] end))) == 64
+
+    final =
+      Enum.reduce_while(1..20, items, fn _, current ->
+        case ItemMerges.candidates(current) do
+          [] ->
+            {:halt, current}
+
+          candidates ->
+            {:ok, next, _} = ItemMerges.plan(current, current.epoch, candidates)
+            {:cont, next}
+        end
+      end)
+
+    counts = Enum.map(Items.records(final), & &1.stack.count)
+    assert Enum.sum(counts) == 256 and Enum.all?(counts, &(&1 in 1..64))
+    assert length(counts) < 256
+    assert ItemMerges.candidates(final) == []
+  end
 end

@@ -4,12 +4,14 @@ defmodule Valimc.ItemMergeRegionTest do
   alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
   alias Valimc.World.{ItemLedger, Items, Region, Store}
 
-  setup do
+  setup tags do
     n = System.unique_integer([:positive])
     key = {41000 + rem(n, 10000), 900}
     base = Path.join(System.tmp_dir!(), "valimc-item-merge-#{n}")
     File.mkdir_p!(base)
     previous = Valimc.config(:world_path)
+    previous_simulation = Valimc.config(:item_simulation)
+    Application.put_env(:valimc, :item_simulation, Map.get(tags, :simulation, false))
     Application.put_env(:valimc, :world_path, base)
 
     records =
@@ -43,6 +45,7 @@ defmodule Valimc.ItemMergeRegionTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, previous)
+      Application.put_env(:valimc, :item_simulation, previous_simulation)
       File.rm_rf!(base)
     end)
 
@@ -169,5 +172,46 @@ defmodule Valimc.ItemMergeRegionTest do
     after
       for pid <- blocked, do: Task.Supervisor.terminate_child(Valimc.ItemWorkers, pid)
     end
+  end
+
+  @tag simulation: true
+  test "automatic merging sleeps after convergence and wakes for a new compatible birth", ctx do
+    wait(fn ->
+      map_size(state(ctx.owner).items.entries) == 1 and state(ctx.owner).item_pending == nil
+    end)
+
+    assert [survivor] = Items.records(state(ctx.owner).items)
+    assert survivor.stack.count == 5
+
+    named = %{
+      ItemStack.new("stone")
+      | components: %{"minecraft:custom_name" => {:string, "separate"}}
+    }
+
+    assert {:ok, _} = Region.create_item(ctx.owner, named, {survivor.x, survivor.y, survivor.z})
+    Process.sleep(450)
+    jobs = Map.get(Valimc.Metrics.snapshot(), :item_merge_jobs, 0)
+    age = hd(Items.records(state(ctx.owner).items)).motion.age
+    Process.sleep(450)
+    assert Map.get(Valimc.Metrics.snapshot(), :item_merge_jobs, 0) == jobs
+    assert map_size(state(ctx.owner).items.entries) == 2
+    assert hd(Items.records(state(ctx.owner).items)).motion.age > age
+
+    assert {:ok, _} =
+             Region.create_item(
+               ctx.owner,
+               ItemStack.new("stone", 2),
+               {survivor.x, survivor.y, survivor.z}
+             )
+
+    wait(fn ->
+      Enum.any?(
+        Items.records(state(ctx.owner).items),
+        &(&1.uuid == survivor.uuid and &1.stack.count == 7)
+      ) and state(ctx.owner).item_pending == nil
+    end)
+
+    assert map_size(state(ctx.owner).items.entries) == 2
+    assert disk(ctx).receipts == ctx.receipts
   end
 end

@@ -27,6 +27,8 @@ defmodule Valimc.World.RegionData do
     :item_handoff,
     :item_simulation,
     :item_simulation_enabled,
+    :item_merge_stamp,
+    :item_merge_next,
     :item_resting,
     :item_motion_generation,
     :item_saved_generation,
@@ -86,6 +88,8 @@ defmodule Valimc.World.RegionData do
       item_handoff: nil,
       item_simulation: nil,
       item_simulation_enabled: Valimc.config(:item_simulation),
+      item_merge_stamp: nil,
+      item_merge_next: nil,
       item_resting: %{},
       item_motion_generation: 0,
       item_saved_generation: 0,
@@ -116,7 +120,8 @@ defmodule Valimc.World.RegionData do
       state = %{state | item_resting: Map.take(state.item_resting, Map.keys(items.entries))}
 
       if expired == [] do
-        start_item_simulation(state, now)
+        state = start_item_simulation(state, now)
+        if state.item_simulation == nil, do: start_item_merging(state, now), else: state
       else
         items =
           Enum.reduce(expired, items, fn {epoch, id, revision}, acc ->
@@ -126,6 +131,30 @@ defmodule Valimc.World.RegionData do
 
         {:noreply, state} = commit_items(items, :ok, nil, state)
         state
+      end
+    else
+      state
+    end
+  end
+
+  defp start_item_merging(state, now) do
+    if state.item_storage_enabled and map_size(state.items.entries) >= 2 and
+         (state.item_merge_next == nil or now >= state.item_merge_next) do
+      stamp = Map.new(state.items.entries, fn {id, entry} -> {id, entry.physical_revision} end)
+      state = %{state | item_merge_next: now + 200}
+
+      if stamp == state.item_merge_stamp do
+        state
+      else
+        case plan_item_change(:item_merge_auto, {nil, now + 250}, nil, state) do
+          {:noreply, next} ->
+            Valimc.Metrics.add(:item_merge_jobs)
+            %{next | item_merge_stamp: stamp}
+
+          {:reply, _, next} ->
+            Valimc.Metrics.add(:item_merge_busy)
+            next
+        end
       end
     else
       state
@@ -738,6 +767,7 @@ defmodule Valimc.World.RegionData do
             case kind do
               :item_handoff_out -> elem(request, 2)
               :item_merge -> elem(request, 1)
+              :item_merge_auto -> elem(request, 1)
               _ -> nil
             end
         }
@@ -779,6 +809,17 @@ defmodule Valimc.World.RegionData do
   end
 
   defp item_plan(:item_merge, items, receipts, _key, {pairs, _deadline}) do
+    merge_plan(items, receipts, pairs)
+  end
+
+  defp item_plan(:item_merge_auto, items, receipts, _key, _) do
+    case ItemMerges.candidates(items) do
+      [] -> {:reply, {:ok, []}}
+      pairs -> merge_plan(items, receipts, pairs)
+    end
+  end
+
+  defp merge_plan(items, receipts, pairs) do
     case ItemMerges.plan(items, items.epoch, pairs) do
       {:ok, ^items, changes} -> {:reply, {:ok, changes}}
       {:ok, next, changes} -> {:write, next, receipts, {:ok, changes}}
@@ -1024,7 +1065,8 @@ defmodule Valimc.World.RegionData do
              :item_handoff_in,
              :item_handoff_out,
              :item_handoff_clear,
-             :item_merge
+             :item_merge,
+             :item_merge_auto
            ] do
     Process.demonitor(pending.monitor, [:flush])
 
@@ -1563,7 +1605,7 @@ defmodule Valimc.World.RegionData do
         {:reply, _, next} -> {:noreply, next}
       end
     else
-      {:noreply, state}
+      {:noreply, start_item_merging(state, System.monotonic_time(:millisecond))}
     end
   end
 
@@ -1600,6 +1642,11 @@ defmodule Valimc.World.RegionData do
 
   defp item_plan_failed(state, pending) do
     state = %{state | item_pending: nil}
+
+    state =
+      if Map.get(pending, :kind) == :item_merge_auto,
+        do: %{state | item_merge_stamp: nil},
+        else: state
 
     state =
       if Map.get(pending, :kind) == :item_handoff_clear,

@@ -27,8 +27,8 @@ actual movement with paused I/O, periodic saves, critical replacement and reconn
 checks,1045 full tests/build, full native integration/both TCP transports and actual
 boundary/recovery/reconnect checks. [Automatic simulation](tickets/VMC-035a6.md)
 has local tested cadence/launch checkpoints; natural graphical scenarios follow.
-[Item merging](tickets/VMC-035b.md) starts with native pair decisions and bounded
-same-owner plans while automatic motion completes its separate client gate.
+[Item merging](tickets/VMC-035b.md) has local native-verified pair kernels, durable
+same-owner commits and automatic discovery; graphical merging follows.
 
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Player processes own their simulation state; bounded workers sample geometry.
@@ -211,7 +211,8 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-035a6](tickets/VMC-035a6.md) | Natural player launch/fall/landing, automatic crossing/support wakeup and reconnect | Local cadence/launch checkpoints |
+| [VMC-035a6](tickets/VMC-035a6.md) | Client passed; broader native integration running | `e839fff` frozen release |
+| [VMC-035b](tickets/VMC-035b.md) | Actual automatic merge/component/limit/refusal/reconnect checks | Local same-owner checkpoints |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 
