@@ -73,6 +73,24 @@ defmodule Valimc.PlayerPlacementTransfersTest do
   defp seal(payload), do: payload <> :crypto.hash(:sha256, payload)
   defp persisted(state), do: %{state | inventory: %{state.inventory | state_id: 0, drag: nil}}
 
+  test "table inputs survive typed placement consume/refund and v15 validation" do
+    {state, intent} = source()
+    cells = List.to_tuple([ItemStack.new("oak_planks", 3) | List.duplicate(nil, 8)])
+    state = put_in(state.inventory.table_inputs, cells)
+    assert {:ok, pending} = PlayerPlacementTransfers.prepare(@uuid, 9, state, intent)
+    assert pending.inventory.table_inputs == cells
+    assert {:ok, <<"VMCPOSE", 15, _::binary>> = bytes} = PlayerSnapshot.encode(@uuid, pending)
+    assert {:ok, restored} = PlayerSnapshot.decode(bytes, @uuid)
+    assert restored == persisted(pending)
+    assert {:ok, refunded} = PlayerPlacementTransfers.resolve(restored, :rejected)
+
+    assert refunded.inventory.table_inputs == cells and
+             refunded.inventory.slots == state.inventory.slots
+
+    assert {:error, :invalid_placement_snapshot} =
+             PlayerSnapshot.encode(@uuid, put_in(pending.inventory.selected, 0))
+  end
+
   test "both hands consume one exact item in the complete v14 journal, including depletion" do
     for hand <- [:main, :off], count <- [1, 2, 64] do
       {state, intent} = source(hand, count)

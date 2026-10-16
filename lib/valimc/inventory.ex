@@ -4,6 +4,7 @@ defmodule Valimc.Inventory do
   @max_encoded_bytes 524_288
   @equipment %{"head" => 5, "chest" => 6, "legs" => 7, "feet" => 8, "offhand" => 45}
   defstruct slots: %{},
+            table_inputs: nil,
             selected: 0,
             carried: nil,
             state_id: 0,
@@ -14,7 +15,14 @@ defmodule Valimc.Inventory do
     do: %__MODULE__{infinite_materials: infinite_materials}
 
   def get(inventory, slot), do: inventory.slots[slot]
-  def contents(inventory), do: Enum.map(0..45, &get(inventory, &1))
+  @doc "All owned physical slots; a table's nine transient inputs follow player slots."
+  def contents(inventory),
+    do: Enum.map(0..45, &get(inventory, &1)) ++ table_contents(inventory)
+
+  def table_contents(%{table_inputs: nil}), do: []
+
+  def table_contents(%{table_inputs: cells}) when is_tuple(cells) and tuple_size(cells) == 9,
+    do: Tuple.to_list(cells)
 
   def crafting_result(inventory) do
     case Valimc.Crafting.result(Enum.map(1..4, &get(inventory, &1))) do
@@ -80,25 +88,55 @@ defmodule Valimc.Inventory do
     end
   end
 
-  @doc "Plans connected-player menu cleanup; overflow requires a world-drop commit."
+  @doc "Plans a connected cleanup batch; commit its at most five drops before continuing."
   def close(inventory) do
-    returned = [inventory.carried | Enum.map(1..4, &get(inventory, &1))]
-    cleared = Enum.reduce(0..4, cancel_drag(inventory), &put(&2, &1, nil))
-
-    {next, drops} =
-      Enum.reduce(returned, {%{cleared | carried: nil}, []}, fn stack, {next, drops} ->
-        {next, remainder} = return_stack(next, stack)
-        {next, if(remainder, do: [remainder | drops], else: drops)}
-      end)
-
-    with {:ok, next} <- finish(next), do: {:ok, next, Enum.reverse(drops)}
+    cleanup_batch(inventory, :connected)
   end
 
-  @doc "Plans disconnected-player cleanup: whole cursor/grid stacks drop without storage merges."
-  def disconnect(inventory) do
-    drops = [inventory.carried | Enum.map(1..4, &get(inventory, &1))] |> Enum.reject(&is_nil/1)
-    next = Enum.reduce(0..4, cancel_drag(inventory), &put(&2, &1, nil))
-    with {:ok, next} <- finish(%{next | carried: nil}), do: {:ok, next, drops}
+  @doc "Plans at most five whole cursor/grid drops; disconnected cleanup never merges storage."
+  def disconnect(inventory), do: cleanup_batch(inventory, :disconnected)
+
+  defp transient_slots(inventory),
+    do:
+      [:carried, 1, 2, 3, 4] ++
+        if(inventory.table_inputs, do: Enum.map(0..8, &{:table, &1}), else: [])
+
+  defp owned_stack(inventory, :carried), do: inventory.carried
+  defp owned_stack(inventory, {:table, index}), do: elem(inventory.table_inputs, index)
+  defp owned_stack(inventory, slot), do: get(inventory, slot)
+
+  defp put_owned(inventory, :carried, stack), do: %{inventory | carried: stack}
+
+  defp put_owned(inventory, {:table, index}, stack),
+    do: %{inventory | table_inputs: put_elem(inventory.table_inputs, index, stack)}
+
+  defp put_owned(inventory, slot, stack), do: put(inventory, slot, stack)
+
+  defp clear_empty_table(inventory) do
+    if Enum.all?(table_contents(inventory), &is_nil/1),
+      do: %{inventory | table_inputs: nil},
+      else: inventory
+  end
+
+  defp cleanup_batch(inventory, mode) do
+    {next, drops, _count} =
+      Enum.reduce_while(transient_slots(inventory), {cancel_drag(inventory), [], 0}, fn
+        _, {_, _, 5} = result ->
+          {:halt, result}
+
+        slot, {next, drops, count} ->
+          stack = owned_stack(next, slot)
+          next = put_owned(next, slot, nil)
+
+          {next, remainder} =
+            if mode == :connected, do: return_stack(next, stack), else: {next, stack}
+
+          {:cont,
+           if(remainder, do: {next, [remainder | drops], count + 1}, else: {next, drops, count})}
+      end)
+
+    with {:ok, next} <- next |> put(0, nil) |> clear_empty_table() |> finish(),
+         do: {:ok, next, Enum.reverse(drops)}
   end
 
   @death_slots Enum.to_list(36..44) ++
@@ -122,18 +160,16 @@ defmodule Valimc.Inventory do
       end)
 
     drops =
-      @death_slots
+      (@death_slots ++ if(next.table_inputs, do: Enum.map(0..8, &{:table, &1}), else: []))
       |> Enum.map(fn slot ->
-        {slot, if(slot == :carried, do: next.carried, else: get(next, slot))}
+        {slot, owned_stack(next, slot)}
       end)
       |> Enum.reject(fn {_, stack} -> stack == nil end)
       |> Enum.take(5)
 
     next =
-      Enum.reduce(drops, next, fn
-        {:carried, _}, next -> %{next | carried: nil}
-        {slot, _}, next -> put(next, slot, nil)
-      end)
+      Enum.reduce(drops, next, fn {slot, _}, next -> put_owned(next, slot, nil) end)
+      |> clear_empty_table()
 
     if drops == [] and destroyed == [] do
       {:ok, next, [], []}
@@ -439,7 +475,7 @@ defmodule Valimc.Inventory do
   def encoded_size(inventory),
     do:
       Enum.reduce(
-        display_contents(inventory),
+        display_contents(inventory) ++ table_contents(inventory),
         IO.iodata_length(ItemStack.encode(inventory.carried)),
         fn stack, size -> size + IO.iodata_length(ItemStack.encode(stack)) end
       )

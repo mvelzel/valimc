@@ -166,6 +166,8 @@ indexes validated tickets. None imply full parity.
    cleanup/reconnect passed (`7779eaf`). This foundation is complete.
    The [owned3×3 table menu](tickets/VMC-033f.md) follows. Bulk result dropping
    remains separate.
+   Its [owned input/cleanup foundation](tickets/VMC-033f1.md) passes affected/native
+   checks and restart/TCP recovery; existing-player client regression is pending.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 [VMC-003c](tickets/VMC-003c.md)'s direct local test-client lifecycle is complete:
@@ -177,6 +179,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
+| [VMC-033f1](tickets/VMC-033f1.md) | Owned-table storage baseline regression | Local checkpoint; frozen runtime next |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 

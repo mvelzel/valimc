@@ -20,6 +20,7 @@ wrong/full cursor and removed/out-of-range table refuse or close correctly.
 Ownership work first: separate table inputs from the physical player slots and
 map menu addresses at the protocol boundary. Extend snapshot/cleanup accounting
 explicitly; do not silently put extra stacks outside `Inventory.contents`.
+The [owned input/cleanup foundation](VMC-033f1.md) is the first checkpoint.
 Table close can overflow nine inputs plus a cursor, beyond the five-record
 transfer batch. Define bounded continuation/recovery before enabling that path;
 do not widen generic transfer budgets or hide transient stacks from persistence.

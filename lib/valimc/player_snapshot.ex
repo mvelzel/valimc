@@ -16,7 +16,7 @@ defmodule Valimc.PlayerSnapshot do
   @outbox_bytes max(55 + 5 * (40 + 65_536), PlayerMiningIntent.max_bytes())
   @max_sequence 18_446_744_073_709_551_615
   @max_bytes 56 + 4 + 3 + 8 + 4 + 24 + 12 + 8 + 13 + 2 + 11 + @inventory_bytes + @outbox_bytes +
-               32
+               32 + 1
 
   def max_bytes, do: @max_bytes
 
@@ -77,7 +77,7 @@ defmodule Valimc.PlayerSnapshot do
 
   def encode(<<_::128>> = uuid, %{pose: pose, inventory: inventory} = snapshot) do
     check(PlayerStore.valid_pose?(pose), :invalid_pose)
-    body = encode_inventory(inventory)
+    {body, table_body} = encode_inventory(inventory)
     sequence = Map.get(snapshot, :transfer_sequence, 0)
     outbox = Map.get(snapshot, :outbox)
     check(is_integer(sequence) and sequence in 0..@max_sequence, :invalid_transfer_sequence)
@@ -226,6 +226,11 @@ defmodule Valimc.PlayerSnapshot do
           version
       end
 
+    {version, journal} =
+      if inventory.table_inputs == nil,
+        do: {version, journal},
+        else: {15, [<<version>>, table_body, journal]}
+
     payload =
       IO.iodata_to_binary([
         <<"VMCPOSE", version, uuid::binary-size(16), pose.x::float-64, pose.y::float-64,
@@ -250,6 +255,30 @@ defmodule Valimc.PlayerSnapshot do
     <<payload::binary-size(^payload_bytes), checksum::binary-size(32)>> = bytes
     check(:crypto.hash(:sha256, payload) == checksum, :invalid_player_file)
 
+    {payload, table_inputs, table_bytes} =
+      case payload do
+        <<"VMCPOSE", 15, header::binary-size(52), base, rest::binary>> when base in 2..14 ->
+          {cells, body} = take_stacks(rest, 9)
+          table_bytes = byte_size(rest) - byte_size(body)
+          {<<"VMCPOSE", base, header::binary, body::binary>>, List.to_tuple(cells), table_bytes}
+
+        _ ->
+          {payload, nil, 0}
+      end
+
+    case decode_payload(payload, uuid, table_bytes) do
+      {:ok, snapshot} -> {:ok, put_in(snapshot.inventory.table_inputs, table_inputs)}
+      error -> error
+    end
+  rescue
+    _ -> {:error, :invalid_player_file}
+  catch
+    {:snapshot_error, _} -> {:error, :invalid_player_file}
+  end
+
+  def decode(_, _), do: {:error, :invalid_player_file}
+
+  defp decode_payload(payload, uuid, table_bytes) do
     case payload do
       <<"VMCPOSE", 1, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
         yaw::float-32, pitch::float-32>> ->
@@ -257,7 +286,10 @@ defmodule Valimc.PlayerSnapshot do
 
       <<"VMCPOSE", 2, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
         yaw::float-32, pitch::float-32, @data_version::32, body::binary>> ->
-        snapshot(%{x: x, y: y, z: z, yaw: yaw, pitch: pitch}, decode_inventory(body))
+        snapshot(
+          %{x: x, y: y, z: z, yaw: yaw, pitch: pitch},
+          decode_inventory(body, table_bytes)
+        )
 
       <<"VMCPOSE", 3, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
         yaw::float-32, pitch::float-32, @data_version::32, sequence::64, length::32,
@@ -267,7 +299,7 @@ defmodule Valimc.PlayerSnapshot do
 
         snapshot(
           %{x: x, y: y, z: z, yaw: yaw, pitch: pitch},
-          decode_inventory(body),
+          decode_inventory(body, table_bytes),
           sequence,
           decode_outbox(uuid, sequence, outbox)
         )
@@ -282,7 +314,7 @@ defmodule Valimc.PlayerSnapshot do
         {:ok, snapshot} =
           snapshot(
             %{x: x, y: y, z: z, yaw: yaw, pitch: pitch},
-            decode_inventory(body),
+            decode_inventory(body, table_bytes),
             sequence,
             decode_outbox(uuid, sequence, outbox)
           )
@@ -294,7 +326,8 @@ defmodule Valimc.PlayerSnapshot do
       when version in [5, 6, 7, 8, 9, 10, 11, 12, 13, 14] ->
         {food, rest} =
           if version >= 12 do
-            <<level, saturation::float-32, exhaustion::float-32, timer::16, rest::binary>> = rest
+            <<level, saturation::float-32, exhaustion::float-32, timer::16, rest::binary>> =
+              rest
 
             food = %PlayerFood{
               level: level,
@@ -322,8 +355,11 @@ defmodule Valimc.PlayerSnapshot do
           if version >= 10 do
             {location, rest} =
               case rest do
-                <<0, rest::binary>> -> {nil, rest}
-                <<1, x::signed-32, y::signed-32, z::signed-32, rest::binary>> -> {{x, y, z}, rest}
+                <<0, rest::binary>> ->
+                  {nil, rest}
+
+                <<1, x::signed-32, y::signed-32, z::signed-32, rest::binary>> ->
+                  {{x, y, z}, rest}
               end
 
             check(Valimc.PlayerLife.valid_location?(location), :invalid_player_file)
@@ -378,7 +414,7 @@ defmodule Valimc.PlayerSnapshot do
         {:ok, snapshot} =
           snapshot(
             %{x: x, y: y, z: z, yaw: yaw, pitch: pitch},
-            decode_inventory(body),
+            decode_inventory(body, table_bytes),
             sequence,
             case version do
               14 -> decode_placement_outbox(uuid, sequence, outbox)
@@ -413,13 +449,7 @@ defmodule Valimc.PlayerSnapshot do
       _ ->
         {:error, :invalid_player_file}
     end
-  rescue
-    _ -> {:error, :invalid_player_file}
-  catch
-    {:snapshot_error, _} -> {:error, :invalid_player_file}
   end
-
-  def decode(_, _), do: {:error, :invalid_player_file}
 
   defp snapshot(pose, inventory, sequence \\ 0, outbox \\ nil) do
     check(PlayerStore.valid_pose?(pose), :invalid_player_file)
@@ -496,29 +526,31 @@ defmodule Valimc.PlayerSnapshot do
     )
 
     stacks = Enum.map(1..45, &Inventory.get(inventory, &1)) ++ [inventory.carried]
-
-    {encoded, _size} =
-      Enum.map_reduce(stacks, 1, fn stack, size ->
-        check(
-          stack == nil or
-            match?(%ItemStack{components: c, removed: %MapSet{}} when is_map(c), stack),
-          :invalid_inventory
-        )
-
-        check(stack == nil or stack.item_id != ItemTypes.id("air"), :invalid_inventory)
-        bytes = ItemStack.encode(stack)
-        size = size + IO.iodata_length(bytes)
-        check(size <= @inventory_bytes, :inventory_byte_limit)
-        {bytes, size}
-      end)
-
-    [<<selected>>, encoded]
+    {encoded, size} = encode_stacks(stacks, 1)
+    {table, _size} = encode_stacks(Inventory.table_contents(inventory), size)
+    {[<<selected>>, encoded], table}
   end
 
   defp encode_inventory(_), do: throw({:snapshot_error, :invalid_inventory})
 
-  defp decode_inventory(<<selected, body::binary>>) when selected in 0..8 do
-    check(byte_size(body) + 1 <= @inventory_bytes, :invalid_player_file)
+  defp encode_stacks(stacks, size) do
+    Enum.map_reduce(stacks, size, fn stack, size ->
+      check(
+        stack == nil or
+          match?(%ItemStack{components: c, removed: %MapSet{}} when is_map(c), stack),
+        :invalid_inventory
+      )
+
+      check(stack == nil or stack.item_id != ItemTypes.id("air"), :invalid_inventory)
+      bytes = ItemStack.encode(stack)
+      size = size + IO.iodata_length(bytes)
+      check(size <= @inventory_bytes, :inventory_byte_limit)
+      {bytes, size}
+    end)
+  end
+
+  defp decode_inventory(<<selected, body::binary>>, extra_bytes) when selected in 0..8 do
+    check(byte_size(body) + 1 + extra_bytes <= @inventory_bytes, :invalid_player_file)
 
     {slots, body} =
       Enum.reduce(1..45, {%{}, body}, fn slot, {slots, bytes} ->
@@ -528,6 +560,16 @@ defmodule Valimc.PlayerSnapshot do
 
     {:ok, carried, <<>>} = ItemStack.take(body)
     %Inventory{slots: slots, selected: selected, carried: carried}
+  end
+
+  defp take_stacks(bytes, count) do
+    {stacks, rest} =
+      Enum.map_reduce(1..count, bytes, fn _, bytes ->
+        {:ok, stack, rest} = ItemStack.take(bytes)
+        {stack, rest}
+      end)
+
+    {stacks, rest}
   end
 
   defp check(true, _), do: :ok

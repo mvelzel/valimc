@@ -1132,6 +1132,8 @@ defmodule Valimc.Connection do
     {:ok, after_snapshot, key, records} = PlayerTransfers.plan_cleanup(before)
 
     if records == [] do
+      state = %{state | inventory: recovered_inventory(state, after_snapshot)}
+
       if state.player.health.value <= 0,
         do: checkpoint_life(state, :death_done, after_snapshot),
         else: finish_login(state)
