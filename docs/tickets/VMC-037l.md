@@ -1,7 +1,8 @@
 # VMC-037l — Jump Boost
 
-Status: Owned Jump Boost implemented locally;139 affected checks and native
-power/jump/fall/packet probes pass. Frozen production/client gates remain.
+Status: Owned06c64d2 passes139 affected checks, native power/jump/fall/packets,
+production/both TCP transports and actual-client acceptance. Larger movement-effect
+integration remains before publication/Done.
 
 Acceptance: stock/custom Jump Boost drinks change owned ground-jump power and safe
 fall distance with native arithmetic, including material factors, hidden promotion,
@@ -51,3 +52,26 @@ boosted query bounds and accepted eight-block falls at amps0/1/255 (4/3/0 damage
 removal before landing restoring5. Other movement/collision/consumption checks pass.
 Raw `.local/jump-boost-{live-targeted-fixed,kinetics-native,kinetics-elixir,entity-native,entity-elixir,entity-decode}.log`.
 Actual-client jump/landing acceptance and frozen production/TCP follow; no Done claim.
+
+Actual26.3 client PASS on immutable06c64d2; primary reviewed the dedicated report
+once. Actual cancellation/main/offhand stock drinks, jumps and walking pass;
+read-only samples corroborate floor64 peaks65.252203 ordinary/65.836132 I/
+66.516794 II. Actual walk-off eight-block falls on verified grass spend4HP withI,
+then5 unbuffed after milk, then3 withII:20→16→11→8. Only the initial actual healing
+drink restored inherited1HP; no health fixtures or healing masked falls. Actual
+low ceiling clips head at64.2, genuine II→I promotion restores weaker jump, natural
+expiry/milk restore ordinary behavior, mixed actual NightVision15 refuses whole.
+Creative retains the stock dose; actual movement under a trusted flying fixture
+stays controlled (the failed double-Space attempt is not flight-toggle evidence).
+Fresh direct reconnect retains bottle/head3402→3285 and boosted jump; actual milk
+then restores ordinary height. Honey-specific and separate sprint trials were not
+run; native material/sprint probes and actual low-ceiling contact bound the scope.
+
+Both wrappers/JVMs and server69734 stopped; four regions+clock flush:ok, zero
+connections/players and1,008 frozen blobs unchanged. Whole final dataset
+`/tmp/valimc-jump-boost-live-client-20261016`: survival/flyingfalse,8HP, effects{}/
+pool0, bottle36/bucket37, food11/saturation0.2/exhaustion2.09999871254, source61/
+outboxnil and destination{2,2}receipt61/items{}. Receipt history remains. Raw report, cleanup and hashes:
+`.local/client-tests/VMC-037l/report.md`, `.local/jump-boost-live-cleanup.log`,
+`.local/jump-boost-publication-proof.json`. No remaining graphical gate; final
+movement-effect integration follows without retesting this immutable client release.

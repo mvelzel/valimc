@@ -1,7 +1,7 @@
 # VMC-037m — Slow Falling and Levitation travel
 
-Status: Native gravity/fall-reset foundation verified; live admission and travel
-composition remain unsupported.
+Status: Owned Slow Falling/Levitation implemented locally;179 affected checks
+and native gravity/dry/fluid composition pass. Frozen integration/client gates follow.
 
 Acceptance: current effect heads select native dry/fluid gravity and Levitation
 travel, reset fall distance at the correct owner boundary and invalidate stale
@@ -47,3 +47,21 @@ Fluid escape queries and existing acquired-frame bounds still pass. No runtime
 admission was added. Raw `.local/travel-effects-{air,fluid}-{native,elixir}.log`.
 These controls do not simulate dynamic collisions/worlds or real input; live owner
 composition and GUI remain required.
+
+Owned composition admits both effects through existing potion callbacks. Active
+Slow Falling presence/Levitation head enter geometry signatures; duration-only
+updates do not. The player clock resets fall distance before requesting geometry,
+so worker observations and commits share one context. Pure scratch ticks preserve
+the same reset intent. Dry gravity reads post-collision body velocity; fluid gravity
+reads pre-move velocity. Levitation affects dry vertical travel and adds no fluid
+lift; creative flight keeps its existing vertical override. No new owner/timer,
+snapshot version or periodic action. Trusted travel reads active heads directly;
+it does not rescan every hidden chain on each physics step.
+
+179 affected checks pass(seed in `.local/travel-effects-live-targeted-final.log`):
+dry descent/ascent, fluid/flight exclusions, owned fall reset, current-head fencing,
+both-hand actual TCP stock/custom drinks, cancellation, remaining-duration fresh
+reconnect, promotion/expiry/milk and whole unsupported mixes; previous jumps,
+accepted landings, movement, geometry and consumption checks also pass. Native
+selection/composition proofs above remain unchanged. Frozen larger integration and
+dedicated actual-client descent/ascent/fall acceptance follow. No Done claim yet.

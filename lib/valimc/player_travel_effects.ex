@@ -26,6 +26,15 @@ defmodule Valimc.PlayerTravelEffects do
     end
   end
 
+  @doc "Reset before acquiring travel geometry so observations and commits use one fall context."
+  def reset_fall(player) do
+    {slow, levitation} = signature(Map.get(player, :effects, %{}))
+
+    if slow or levitation != nil,
+      do: %{player | motion: %{player.motion | fall_distance: 0.0}},
+      else: player
+  end
+
   def gravity(base, velocity_y, slow)
       when is_number(base) and base >= -1 and base <= 1 and
              is_number(velocity_y) and abs(velocity_y) <= 64 and is_boolean(slow),

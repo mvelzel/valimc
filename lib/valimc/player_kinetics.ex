@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerKinetics do
   @moduledoc "Player-owned server velocity, separate from accepted client displacement."
   import Bitwise
-  alias Valimc.{PlayerJumpBoost, PlayerMotion, PlayerMotionQuery}
+  alias Valimc.{PlayerJumpBoost, PlayerMotion, PlayerMotionQuery, PlayerTravelEffects}
 
   alias Valimc.Physics.{
     AirMotion,
@@ -57,7 +57,8 @@ defmodule Valimc.PlayerKinetics do
      motion.known_movement, motion.stuck_multiplier, sprint, player.input.buttons,
      Valimc.PlayerInput.loaded?(player.input), Map.get(player, :yaw, 0.0),
      if(motion.swimming or sprint, do: Map.get(player, :pitch, 0.0)),
-     PlayerJumpBoost.level(Map.get(player, :effects, %{}))}
+     PlayerJumpBoost.level(Map.get(player, :effects, %{})),
+     PlayerTravelEffects.signature(Map.get(player, :effects, %{}))}
   end
 
   def apply_result(motion, result) do
@@ -227,6 +228,13 @@ defmodule Valimc.PlayerKinetics do
   def tick(player, pose, frame) do
     motion = Map.get(player, :motion, %PlayerMotion{})
     player = Map.put_new(player, :motion, motion)
+    {slow, levitation} = PlayerTravelEffects.signature(Map.get(player, :effects, %{}))
+    reset_fall = slow or levitation != nil
+
+    # Native aiStep resets before travel/collision observations, independently
+    # of rising/falling. Only the owner applies this scratch result.
+    player = PlayerTravelEffects.reset_fall(player)
+
     position = point(player)
 
     with {:ok, geometry} <- PlayerPose.geometry(pose, position),
@@ -333,7 +341,7 @@ defmodule Valimc.PlayerKinetics do
            water: currents.depths.water > 0,
            lava: currents.depths.lava > 0,
            fire_contacts: fire_contacts,
-           reset_fall: climb.reset_fall or contact.reset_fall,
+           reset_fall: reset_fall or climb.reset_fall or contact.reset_fall,
            stuck_multiplier: contact.multiplier || step.multiplier,
            paths: %MovementPaths{}
          }}
@@ -434,6 +442,9 @@ defmodule Valimc.PlayerKinetics do
   defp travel(player, {velocity, requested}, result, actual, _box, frame, before, _depths, false) do
     horizontal = horizontal_collision?(requested, actual)
 
+    {slow, levitation} = PlayerTravelEffects.signature(Map.get(player, :effects, %{}))
+    {:ok, gravity} = PlayerTravelEffects.gravity(0.08, elem(result.velocity, 1), slow)
+
     jump =
       Valimc.PlayerInput.loaded?(player.input) and
         Valimc.PlayerInput.pressed?(player.input, :jump)
@@ -449,7 +460,12 @@ defmodule Valimc.PlayerKinetics do
       air(
         resolved,
         elem(velocity, 1),
-        %AirMotion{on_ground: player.motion.physical_ground, friction: before.below.friction},
+        %AirMotion{
+          on_ground: player.motion.physical_ground,
+          friction: before.below.friction,
+          gravity: gravity,
+          levitation: levitation
+        },
         player.abilities.flying
       )
     end
@@ -460,12 +476,15 @@ defmodule Valimc.PlayerKinetics do
     moved = physical_position(player, actual, requested)
 
     horizontal = horizontal_collision?(requested, actual)
+    {slow, _levitation} = PlayerTravelEffects.signature(Map.get(player, :effects, %{}))
+    {:ok, gravity} = PlayerTravelEffects.gravity(0.08, elem(velocity, 1), slow)
 
     with {:ok, climbing} <-
            climbable?(frame, player, moved, horizontal and depths.water > 0),
          {:ok, step} <-
            FluidMotion.prepare(result.velocity, %FluidMotion{
              kind: if(depths.water > 0, do: :water, else: :lava),
+             gravity: gravity,
              falling: elem(velocity, 1) <= 0,
              on_ground: player.motion.physical_ground,
              sprint: (player.input.shared_flags &&& 8) != 0,

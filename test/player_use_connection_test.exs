@@ -338,6 +338,104 @@ defmodule Valimc.PlayerUseConnectionTest do
     assert state(pid).player.health.value == 20.0 and state(pid).player.food == food
   end
 
+  for name <- ["slow_falling", "levitation"], hand <- [:main, :off] do
+    test "#{name} #{hand} consumption cancels, checkpoints and retains remaining duration across reconnect",
+         ctx do
+      food = %PlayerFood{}
+      id = Valimc.Protocol.EffectTypes.id(unquote(name))
+      duration = if unquote(name) == "slow_falling", do: 1800, else: 300
+
+      drink =
+        if unquote(name) == "slow_falling",
+          do: potion("slow_falling"),
+          else: custom_potion([{id, [{duration, 2, false, true, true}]}])
+
+      amp = if unquote(name) == "slow_falling", do: 0, else: 2
+      slot = if unquote(hand) == :main, do: 36, else: 45
+      seed(ctx, food, 17.0, inventory: %Inventory{slots: %{slot => drink}})
+      {client, pid} = login(ctx, 17.0, food)
+      client = use_hand(client, pid, unquote(hand))
+      ticks(pid, 8)
+      action(client, "release_use_item")
+      wait(fn -> state(pid).active_use == nil end)
+      assert state(pid).player.effects == %{} and state(pid).inventory.slots[slot] == drink
+      client = use_hand(client, pid, unquote(hand), 2)
+      ticks(pid, 32)
+      {{_, ^id, ^amp, ^duration, 14}, client} = effect_packet(client)
+      wait(fn -> state(pid).use_save == nil end)
+      ticks(pid, 5)
+      assert state(pid).player.effects == %{id => [{duration - 5, amp, false, true, true}]}
+      assert state(pid).player.health.value == 17.0 and state(pid).player.food == food
+      Client.close(client)
+      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+      {_client, restored} = login(ctx, 17.0, food)
+      assert state(restored).player.effects == %{id => [{duration - 5, amp, false, true, true}]}
+      assert state(restored).inventory.slots == %{slot => ItemStack.new("glass_bottle")}
+      assert state(restored).active_use == nil
+    end
+  end
+
+  test "travel effect promotion/removal changes only active physics and clears owned fall before geometry",
+       ctx do
+    food = %PlayerFood{}
+    id = Valimc.Protocol.EffectTypes.id("levitation")
+
+    seed(ctx, food, 17.0,
+      effects: %{id => [{1, 3, false, true, true}, {3, 0, false, true, true}]}
+    )
+
+    {_client, pid} = login(ctx, 17.0, food)
+
+    :sys.replace_state(pid, fn s ->
+      %{s | player: %{s.player | motion: %{s.player.motion | fall_distance: 20.0}}}
+    end)
+
+    tick(pid)
+    assert state(pid).player.motion.fall_distance == 0.0
+    assert state(pid).player.effects == %{id => [{2, 0, false, true, true}]}
+    ticks(pid, 2)
+    assert state(pid).player.effects == %{}
+    assert state(pid).player.health.value == 17.0 and state(pid).player.food == food
+  end
+
+  test "actual milk removes both travel effects and unsupported mixes still refuse the whole drink",
+       ctx do
+    food = %PlayerFood{}
+    slow = Valimc.Protocol.EffectTypes.id("slow_falling")
+    levitation = Valimc.Protocol.EffectTypes.id("levitation")
+    night = Valimc.Protocol.EffectTypes.id("night_vision")
+
+    effects = %{
+      slow => [{300, 0, false, true, true}],
+      levitation => [{300, 2, false, true, true}]
+    }
+
+    mixed =
+      custom_potion([
+        {slow, effects[slow]},
+        {levitation, effects[levitation]},
+        {night, [{300, 0, false, true, true}]}
+      ])
+
+    seed(ctx, food, 17.0,
+      effects: effects,
+      inventory: %Inventory{slots: %{36 => ItemStack.new("milk_bucket"), 45 => mixed}}
+    )
+
+    {client, pid} = login(ctx, 17.0, food)
+    client = use_hand(client, pid)
+    ticks(pid, 32)
+
+    assert state(pid).player.effects == %{} and
+             state(pid).inventory.slots[36] == ItemStack.new("bucket")
+
+    wait(fn -> state(pid).use_save == nil end)
+    _client = use_hand(client, pid, :off, 2)
+    ticks(pid, 32)
+    assert state(pid).player.effects == %{} and state(pid).inventory.slots[45] == mixed
+    assert state(pid).use_save == nil
+  end
+
   defp quiet_attributes_until_stats(client) do
     {id, body, client} = Client.read(client)
     name = Data.name(:play, :clientbound, id)

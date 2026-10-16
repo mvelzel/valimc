@@ -59,6 +59,46 @@ defmodule Valimc.PlayerKineticsTest do
     assert velocity == {0.0, 2.0, 0.0}
   end
 
+  test "travel effects reset owned fall state and select native dry gravity/Levitation" do
+    slow = Valimc.Protocol.EffectTypes.id("slow_falling")
+    levitation = Valimc.Protocol.EffectTypes.id("levitation")
+    p = %{player() | y: 68.0}
+    p = %{p | motion: %{p.motion | fall_distance: 20.0, velocity: {0.0, -0.2, 0.0}}}
+    falling = Map.put(p, :effects, %{slow => [{200, 0, false, true, true}]})
+    {:ok, result} = PlayerKinetics.tick(falling, :standing, frame())
+    assert elem(result.velocity, 1) == -0.20580000400543214
+
+    assert result.reset_fall and
+             PlayerKinetics.apply_result(p.motion, result).fall_distance == 0.0
+
+    assert p.motion.fall_distance == 20.0
+    rising = %{p | motion: %{p.motion | velocity: {0.0, 0.0, 0.0}}}
+    rising = Map.put(rising, :effects, %{levitation => [{200, 3, false, true, true}]})
+    {:ok, result} = PlayerKinetics.tick(rising, :standing, frame())
+    assert elem(result.velocity, 1) == 0.03920000076293946 and result.reset_fall
+    refute PlayerKinetics.signature(falling) == PlayerKinetics.signature(rising)
+    flying = %{rising | abilities: %{rising.abilities | flying: true}}
+    {:ok, result} = PlayerKinetics.tick(flying, :standing, frame())
+    assert elem(result.velocity, 1) == 0.0
+  end
+
+  test "Slow Falling fluid gravity uses pre-collision motion and Levitation adds no fluid lift" do
+    slow = Valimc.Protocol.EffectTypes.id("slow_falling")
+    levitation = Valimc.Protocol.EffectTypes.id("levitation")
+    pool = for x <- 0..9, y <- 64..69, z <- 0..9, into: %{}, do: {{x, y, z}, 89}
+    f = frame(pool)
+    p = %{player() | y: 67.0}
+    p = %{p | motion: %{p.motion | velocity: {0.2, -1.0, -0.3}, fall_distance: 9.0}}
+    slow_player = Map.put(p, :effects, %{slow => [{200, 0, false, true, true}]})
+    {:ok, slowed} = PlayerKinetics.tick(slow_player, :standing, f)
+    assert slowed.water and slowed.reset_fall
+    assert slowed.velocity == {0.1600000023841858, -0.8006250119209289, -0.24000000357627868}
+    {:ok, plain} = PlayerKinetics.tick(p, :standing, f)
+    lifted = Map.put(p, :effects, %{levitation => [{200, 255, false, true, true}]})
+    {:ok, lifted} = PlayerKinetics.tick(lifted, :standing, f)
+    assert lifted.velocity == plain.velocity and lifted.reset_fall
+  end
+
   test "block contact sets the next move's multiplier and consumption clears velocity once" do
     p = player()
     p = %{p | motion: %{p.motion | fall_distance: 7.0}}

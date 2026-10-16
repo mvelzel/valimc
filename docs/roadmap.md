@@ -62,11 +62,12 @@ and all five client groups pass at8cceaae; final full native integration remains
 **Implementing:** [Jump Boost](tickets/VMC-037l.md):257 native attributes,1,285
 material powers/10,280 fall calculations,1,320 complete jumps,257 packets and139
 affected checks pass. Owned ground-jump/fall/geometry composition is implemented;
-frozen production/client verification follows.
+production/both TCP and actual client acceptance pass at06c64d2; larger movement
+integration remains.
 **Implementing:** [Slow Falling/Levitation](tickets/VMC-037m.md):512 native hook
-contexts/96 gravity selections/24 pre-travel resets and10 affected checks pass.
-25,926 dry/5,340 fluid cases and accumulated traces match native selection.
-Live owner composition remains unsupported.
+contexts/96 gravity selections/24 pre-travel resets,25,926 dry/5,340 fluid cases
+and179 affected checks pass. Owned travel/fall reset/fencing is implemented;
+frozen larger integration and dedicated actual-client gate follow.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

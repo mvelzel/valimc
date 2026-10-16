@@ -71,7 +71,10 @@ defmodule Valimc.Connection do
   @periodic_effects Enum.sort(Enum.map(~w(regeneration hunger poison wither), &EffectTypes.id/1))
   @instant_effects Enum.map(~w(instant_health instant_damage saturation), &EffectTypes.id/1)
   @live_effects [@fire_resistance, @resistance, @absorption, EffectTypes.id("water_breathing")] ++
-                  Enum.map(~w(speed slowness nausea jump_boost), &EffectTypes.id/1) ++
+                  Enum.map(
+                    ~w(speed slowness nausea jump_boost slow_falling levitation),
+                    &EffectTypes.id/1
+                  ) ++
                   @periodic_effects
   @use_item_packet Data.id(:play, :serverbound, "use_item")
   @slab_tags Path.expand("../../priv/protocol/tags.json", __DIR__)
@@ -1100,6 +1103,7 @@ defmodule Valimc.Connection do
            |> apply_void_damage()
            |> tick_item_use()
            |> tick_food()
+           |> reset_effect_fall()
            |> tick_mining()
            |> continue_table_close()
            |> continue_crafting_repeat()
@@ -2958,6 +2962,14 @@ defmodule Valimc.Connection do
   end
 
   defp tick_effects(state), do: state
+
+  defp reset_effect_fall(%{life_stage: :alive} = state) do
+    player = Valimc.PlayerTravelEffects.reset_fall(state.player)
+    if player.motion != state.player.motion, do: Players.update(self(), player)
+    %{state | player: player}
+  end
+
+  defp reset_effect_fall(state), do: state
 
   defp apply_effect_action(state, :none), do: state
 
