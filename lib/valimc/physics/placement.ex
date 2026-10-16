@@ -13,6 +13,7 @@ defmodule Valimc.Physics.Placement do
   @replace Base.decode16!(@facts["replaceability"], case: :lower)
   @plain Map.new(@facts["plain"], fn {item, state} -> {String.to_integer(item), state} end)
   @slabs Map.new(@facts["slabs"], fn row -> {row["item"], List.to_tuple(row["states"])} end)
+  @pillars Map.new(@facts["pillars"], fn row -> {row["item"], List.to_tuple(row["states"])} end)
   @slab_states @facts["slabs"]
                |> Enum.flat_map(fn row ->
                  Enum.with_index(row["states"], fn state, index ->
@@ -22,7 +23,7 @@ defmodule Valimc.Physics.Placement do
                |> Map.new()
   unless byte_size(@replace) == @count and
            Enum.all?(:binary.bin_to_list(@replace), &(&1 in 0..3)) and
-           map_size(@plain) == 183 and map_size(@slabs) == 101 and
+           map_size(@plain) == 183 and map_size(@slabs) == 101 and map_size(@pillars) == 60 and
            map_size(@slab_states) == 606 and
            Enum.all?(@slabs, fn {_item, states} -> tuple_size(states) == 6 end) and
            Enum.all?(@plain, fn {_item, state} ->
@@ -30,6 +31,13 @@ defmodule Valimc.Physics.Placement do
            end) and
            Enum.all?(@slab_states, fn {state, _} ->
              is_integer(state) and state in 0..(@count - 1) and :binary.at(@replace, state) == 3
+           end) and
+           Enum.all?(@pillars, fn {_item, states} ->
+             tuple_size(states) == 3 and
+               Enum.all?(Tuple.to_list(states), fn state ->
+                 is_integer(state) and state in 0..(@count - 1) and
+                   :binary.at(@replace, state) == 1
+               end)
            end),
          do: raise("Invalid placement facts")
 
@@ -44,7 +52,7 @@ defmodule Valimc.Physics.Placement do
              is_integer(face) and face in 0..5 and is_integer(x) and is_integer(y) and
              is_integer(z) and x in -33_554_432..33_554_431 and y in -2048..2047 and
              z in -33_554_432..33_554_431 and is_number(cy) do
-    if Map.has_key?(@plain, item) or Map.has_key?(@slabs, item) do
+    if supported_item?(item) do
       # Native hit coordinates are translated to double before relative height is tested.
       upper = y + cy - y > 0.5
 
@@ -69,7 +77,8 @@ defmodule Valimc.Physics.Placement do
   def adjacent(%{position: position, face: face}) when face in 0..5,
     do: offset(position, face)
 
-  def supported_item?(item), do: Map.has_key?(@plain, item) or Map.has_key?(@slabs, item)
+  def supported_item?(item),
+    do: Map.has_key?(@plain, item) or Map.has_key?(@slabs, item) or Map.has_key?(@pillars, item)
 
   defp replaceable(state, item, face, upper, clicked) do
     case :binary.at(@replace, state) do
@@ -110,7 +119,20 @@ defmodule Valimc.Physics.Placement do
         end
 
       :error ->
-        Map.fetch!(@plain, item)
+        case Map.fetch(@pillars, item) do
+          {:ok, states} ->
+            axis =
+              cond do
+                face < 2 -> 1
+                face < 4 -> 2
+                true -> 0
+              end
+
+            elem(states, axis)
+
+          :error ->
+            Map.fetch!(@plain, item)
+        end
     end
   end
 

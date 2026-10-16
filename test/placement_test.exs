@@ -111,9 +111,25 @@ defmodule Valimc.PlacementTest do
       assert state == Data.item_block(item(name))
     end
 
-    for name <- ~w(sand oak_log chest oak_stairs redstone_block) do
+    for name <- ~w(sand chest oak_stairs redstone_block) do
       refute Placement.supported_item?(item(name))
       assert {:error, :unsupported_item} = Placement.candidate(item(name), 0, 0, request())
+    end
+  end
+
+  test "pillar axes follow every clicked face through liquid replacement and solid adjacency" do
+    for {name, axes} <- [{"oak_log", {139, 140, 141}}, {"stripped_spruce_log", {177, 178, 179}}],
+        {face, axis} <- [{0, 1}, {1, 1}, {2, 2}, {3, 2}, {4, 0}, {5, 0}] do
+      assert Placement.supported_item?(item(name))
+      state = elem(axes, axis)
+
+      assert {:ok, %{state: ^state, position: {0, 64, 0}, replace_clicked: true}} =
+               Placement.candidate(item(name), 89, 1, request(face))
+
+      assert {:ok, %{state: ^state, replace_clicked: false}} =
+               Placement.candidate(item(name), 1, 0, request(face))
+
+      assert {:error, :occupied} = Placement.candidate(item(name), 1, 1, request(face))
     end
   end
 end

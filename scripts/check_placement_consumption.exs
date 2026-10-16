@@ -6,6 +6,11 @@ facts = "priv/physics/placement.json" |> File.read!() |> JSON.decode!()
 states = Map.new(facts["plain"], fn {item, state} -> {String.to_integer(item), state} end)
 
 states =
+  Enum.reduce(facts["pillars"], states, fn pillar, states ->
+    Map.put(states, pillar["item"], Enum.at(pillar["states"], 1))
+  end)
+
+states =
   Enum.reduce(facts["slabs"], states, fn slab, states ->
     Map.put(states, slab["item"], Enum.at(slab["states"], 3))
   end)
@@ -51,8 +56,8 @@ for row <- rows do
   end
 end
 
-unless length(rows) == 2840, do: raise("Missing native placement consumption cases")
+unless length(rows) == 3440, do: raise("Missing native placement consumption cases")
 
 IO.puts(
-  "PASS: 2,840 native survival/creative consumption cases; 1,420 canonical source-intent round trips."
+  "PASS: 3,440 native survival/creative consumption cases; 1,720 canonical source-intent round trips."
 )

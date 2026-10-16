@@ -397,6 +397,46 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     end)
   end
 
+  test "pillar packets preserve all axes and both creative hand counts", c do
+    pillars(c, :creative)
+  end
+
+  test "pillar packets consume and persist both survival hands without changing axes", c do
+    pillars(c, :survival)
+  end
+
+  defp pillars(c, mode) do
+    seed(c, mode, %{
+      36 => ItemStack.new("oak_log", 3),
+      45 => ItemStack.new("stripped_spruce_log", 3)
+    })
+
+    {client, pid} = login(c)
+    cases = [{0, 0, 140}, {1, 1, 178}, {2, 0, 141}, {3, 1, 179}, {4, 0, 139}, {5, 1, 177}]
+
+    Enum.reduce(Enum.with_index(cases, 1), client, fn {{face, hand, expected}, seq}, client ->
+      :ok = World.set_block(c.target, 0)
+      send_place(client, c.target, face, 0.5, hand, seq)
+      client = ack(client, seq)
+      assert World.get_block(c.target) == expected
+      remaining = if mode == :survival, do: 3 - div(seq + 1, 2), else: 3
+      slot = if hand == 0, do: 36, else: 45
+      stack = :sys.get_state(pid).inventory.slots[slot]
+      if remaining == 0, do: assert(stack == nil), else: assert(stack.count == remaining)
+      assert saved(c).transfer_sequence == if(mode == :survival, do: seq, else: 0)
+      assert saved(c).outbox == nil
+      client
+    end)
+
+    slots = :sys.get_state(pid).inventory.slots
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == [] end)
+    {_fresh, pid} = login(c)
+    assert :sys.get_state(pid).inventory.slots == slots
+    assert World.get_block(c.target) == 177
+    assert saved(c).transfer_sequence == if(mode == :survival, do: 6, else: 0)
+  end
+
   test "an accepted command retains its original held item before a later selection", c do
     seed(c)
     {client, pid} = login(c)

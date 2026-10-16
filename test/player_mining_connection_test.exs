@@ -470,7 +470,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
     assert worn.components["minecraft:damage"] == 1
 
     for {name, sequence} <-
-          Enum.with_index(~w(bedrock diamond_ore oak_log chest), 3) do
+          Enum.with_index(~w(bedrock diamond_ore oak_stairs chest), 3) do
       block = Data.item_block(Data.item(name))
       :ok = World.set_block(ctx.target, block)
       action(client, "start_destroy_block", ctx.target, sequence)
@@ -537,5 +537,45 @@ defmodule Valimc.PlayerMiningConnectionTest do
     assert saved(ctx).transfer_sequence == 6 and saved(ctx).outbox == nil
     assert state(pid).inventory.slots[36].components["minecraft:damage"] == 4
     assert state(pid).inventory.slots[37].components["minecraft:damage"] == 2
+  end
+
+  test "live pillar mining handles horizontal logs and deepslate with native tool and loot rules",
+       ctx do
+    enchant = fn name ->
+      %{
+        ItemStack.new(name)
+        | components: %{"minecraft:enchantments" => %{"minecraft:efficiency" => 10}}
+      }
+    end
+
+    seed(ctx, %{36 => enchant.("diamond_axe"), 37 => enchant.("diamond_pickaxe")})
+    {client, pid} = login(ctx)
+
+    for {{block, slot}, sequence} <-
+          Enum.with_index([{139, 0}, {140, 0}, {141, 0}, {33773, 1}], 1) do
+      Client.send_packet(client, :play, "set_carried_item", <<slot::signed-16>>)
+      wait(fn -> state(pid).inventory.selected == slot end)
+      :ok = World.set_block(ctx.target, block)
+      action(client, "start_destroy_block", ctx.target, sequence * 2 - 1)
+      await_ack(client, sequence * 2 - 1)
+      action(client, "stop_destroy_block", ctx.target, sequence * 2)
+      await_ack(client, sequence * 2)
+      wait(fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
+      assert saved(ctx).transfer_sequence == sequence and saved(ctx).outbox == nil
+    end
+
+    assert Enum.sort_by(drops(ctx), & &1.item_id) ==
+             Enum.sort_by(
+               [
+                 ItemStack.new("oak_log"),
+                 ItemStack.new("oak_log"),
+                 ItemStack.new("oak_log"),
+                 ItemStack.new("cobbled_deepslate")
+               ],
+               & &1.item_id
+             )
+
+    assert state(pid).inventory.slots[36].components["minecraft:damage"] == 3
+    assert state(pid).inventory.slots[37].components["minecraft:damage"] == 1
   end
 end

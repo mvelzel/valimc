@@ -59,7 +59,7 @@ defmodule Valimc.Physics.MiningLootTest do
     end
 
     for name <-
-          ~w(bedrock melon gilded_blackstone glowstone sea_lantern oak_log chest diamond_ore) do
+          ~w(bedrock melon gilded_blackstone glowstone sea_lantern oak_stairs chest diamond_ore) do
       refute MiningLoot.ordinary_mining?(Data.item_block(Data.item(name)))
     end
 
@@ -68,5 +68,23 @@ defmodule Valimc.Physics.MiningLootTest do
 
     assert {:ok, [books]} = MiningLoot.drops(Data.item_block(Data.item("bookshelf")), nil, true)
     assert books == ItemStack.new("book", 3)
+  end
+
+  test "pillar axes retain native self drops and deepslate's independent Silk Touch branch" do
+    silk = %{
+      ItemStack.new("diamond_pickaxe")
+      | components: %{"minecraft:enchantments" => %{"minecraft:silk_touch" => 1}}
+    }
+
+    for state <- [139, 140, 141] do
+      assert MiningLoot.ordinary_mining?(state)
+      assert MiningLoot.drops(state, nil, true) == {:ok, [ItemStack.new("oak_log")]}
+    end
+
+    for state <- [33773, 33774, 33775] do
+      assert MiningLoot.ordinary_mining?(state)
+      assert MiningLoot.drops(state, nil, true) == {:ok, [ItemStack.new("cobbled_deepslate")]}
+      assert MiningLoot.drops(state, silk, true) == {:ok, [ItemStack.new("deepslate")]}
+    end
   end
 end

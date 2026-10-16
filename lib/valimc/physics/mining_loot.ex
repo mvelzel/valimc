@@ -56,15 +56,19 @@ defmodule Valimc.Physics.MiningLoot do
     do: raise("Duplicate state loot overrides")
 
   @ordinary MapSet.new(@facts["ordinary_mining"])
+  @pillars MapSet.new(@facts["pillar_mining"])
+  @simple MapSet.union(@ordinary, @pillars)
   unless MapSet.size(@ordinary) == 178 and length(@facts["ordinary_mining"]) == 178 and
-           Enum.all?(@ordinary, fn state ->
+           MapSet.size(@pillars) == 180 and length(@facts["pillar_mining"]) == 180 and
+           MapSet.disjoint?(@ordinary, @pillars) and
+           Enum.all?(@simple, fn state ->
              is_integer(state) and state in 0..(@count - 1) and Mining.hardness(state) >= 0 and
                elem(@blocks, MiningTools.block_id(state)) != 0
            end),
          do: raise("Invalid ordinary mining admission")
 
-  @doc "Finite, deterministic ordinary cubes with native-verified base destruction callbacks."
-  def ordinary_mining?(state), do: MapSet.member?(@ordinary, state)
+  @doc "Finite, deterministic cubes/pillars with native-verified base destruction callbacks."
+  def ordinary_mining?(state), do: MapSet.member?(@simple, state)
 
   @doc "Use the original tool before wear, including a tool that breaks on this operation."
   def drops(state, tool, harvest)

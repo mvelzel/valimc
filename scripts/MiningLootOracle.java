@@ -154,7 +154,7 @@ public class MiningLootOracle {
   }
   public static void main(String[] args)throws Exception{
     var base=MiningToolOracle.initialize();var gson=new Gson();var profiles=new JsonArray();profiles.add(JsonNull.INSTANCE);
-    var indexes=new LinkedHashMap<String,Integer>();var blocks=new JsonArray();var overrides=new JsonArray();var cases=new JsonArray();var ordinaryMining=new JsonArray();int supported=0,states=0;
+    var indexes=new LinkedHashMap<String,Integer>();var blocks=new JsonArray();var overrides=new JsonArray();var cases=new JsonArray();var ordinaryMining=new JsonArray();var pillarMining=new JsonArray();int supported=0,states=0;
     var field=sun.misc.Unsafe.class.getDeclaredField("theUnsafe");field.setAccessible(true);var unsafe=(sun.misc.Unsafe)field.get(null);
     try(var resources=new MultiPackResourceManager(PackType.SERVER_DATA,List.of(ServerPacksSource.createVanillaPackSource().fullResources()))){
       var loaded=RegistryDataLoader.load(resources,base.listRegistries().toList(),RegistryDataLoader.RELOADABLE_REGISTRIES,Runnable::run).join();
@@ -174,8 +174,8 @@ public class MiningLootOracle {
         if(BuiltInRegistries.BLOCK.getId(block)!=blocks.size())throw new AssertionError("Non-contiguous blocks");
         boolean slab=block.builtInRegistryHolder().is(BlockTags.SLABS);
         if(slab&&!(block instanceof SlabBlock))throw new AssertionError("Non-slab in native slab tag: "+block);
-        boolean ordinary=ordinaryCube(block);if(slab||ordinary)simpleCallbacks(block);
-        if(!baseDrops(block)){if(slab)throw new AssertionError("Specialized tagged slab drops: "+block);blocks.add(0);continue;}
+        boolean ordinary=ordinaryCube(block),pillar=block.getClass()==RotatedPillarBlock.class;if(slab||ordinary||pillar)simpleCallbacks(block);
+        if(!baseDrops(block)){if(slab||pillar)throw new AssertionError("Specialized admitted block drops: "+block);blocks.add(0);continue;}
         var choices=new LinkedHashMap<BlockState,Profile>();
         try{
           JsonObject table=null;
@@ -186,8 +186,9 @@ public class MiningLootOracle {
             }
           }
           for(var state:block.getStateDefinition().getPossibleStates())choices.put(state,table==null?new Profile(List.of(),List.of()):new Profile(evaluate(table,false,state),evaluate(table,true,state)));
-        }catch(Unsupported unsupported){if(slab)throw new AssertionError("Unsupported tagged slab loot: "+block);blocks.add(0);continue;}
+        }catch(Unsupported unsupported){if(slab||pillar)throw new AssertionError("Unsupported admitted block loot: "+block);blocks.add(0);continue;}
         if(ordinary&&block.defaultBlockState().getDestroySpeed(net.minecraft.world.level.EmptyBlockGetter.INSTANCE,BlockPos.ZERO)>=0)ordinaryMining.add(Block.getId(block.defaultBlockState()));
+        if(pillar)for(var state:block.getStateDefinition().getPossibleStates())pillarMining.add(Block.getId(state));
         var frequencies=new LinkedHashMap<Profile,Integer>();for(var profile:choices.values())frequencies.merge(profile,1,Integer::sum);
         Profile baseProfile=null;int frequency=0;for(var entry:frequencies.entrySet())if(entry.getValue()>frequency){baseProfile=entry.getKey();frequency=entry.getValue();}
         int baseIndex=index(baseProfile,profiles,indexes,gson);blocks.add(baseIndex);supported++;
@@ -208,7 +209,8 @@ public class MiningLootOracle {
     }
     var result=new JsonObject();result.addProperty("version","26.3");result.addProperty("data_version",5023);result.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
     if(ordinaryMining.size()!=178)throw new AssertionError("Changed deterministic ordinary mining admission");
-    result.addProperty("state_count",Block.BLOCK_STATE_REGISTRY.size());result.addProperty("block_count",blocks.size());result.addProperty("supported_blocks",supported);result.add("profiles",profiles);result.add("block_profiles",blocks);result.add("state_profiles",overrides);result.add("ordinary_mining",ordinaryMining);
+    if(pillarMining.size()!=180)throw new AssertionError("Changed deterministic pillar mining admission");
+    result.addProperty("state_count",Block.BLOCK_STATE_REGISTRY.size());result.addProperty("block_count",blocks.size());result.addProperty("supported_blocks",supported);result.add("profiles",profiles);result.add("block_profiles",blocks);result.add("state_profiles",overrides);result.add("ordinary_mining",ordinaryMining);result.add("pillar_mining",pillarMining);
     Files.writeString(Path.of(args[0]),gson.toJson(result)+"\n");Files.writeString(Path.of(args[1]),gson.toJson(cases)+"\n");
     System.out.println("PASS: "+supported+" deterministic block families, "+states+" actual native state/tool drop contexts, "+ordinaryMining.size()+" finite ordinary states with verified base destruction; random/context/function rules excluded.");
   }

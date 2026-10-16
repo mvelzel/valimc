@@ -66,6 +66,18 @@ public class PlacementOracle {
       row.add("states",states);slabs.add(row);slabItems.add(block.asItem());
     }
     if(slabs.size()!=101)throw new AssertionError("Changed slab tag");
+    var pillars=new JsonArray();var pillarItems=new ArrayList<Item>();
+    for(var block:BuiltInRegistries.BLOCK)if(block.getClass()==RotatedPillarBlock.class){
+      if(owner(block.getClass(),"getStateForPlacement",BlockPlaceContext.class)!=RotatedPillarBlock.class||owner(block.getClass(),"canBeReplaced",BlockState.class,BlockPlaceContext.class)!=BlockBehaviour.class||block.asItem().getClass()!=BlockItem.class||block.getStateDefinition().getPossibleStates().size()!=3)throw new AssertionError("Specialized pillar placement: "+block);
+      var row=new JsonObject();row.addProperty("item",BuiltInRegistries.ITEM.getId(block.asItem()));var states=new JsonArray();
+      for(var axis:List.of(Direction.Axis.X,Direction.Axis.Y,Direction.Axis.Z)){
+        var state=block.defaultBlockState().setValue(RotatedPillarBlock.AXIS,axis);
+        if(state.canBeReplaced()||!state.isCollisionShapeFullBlock(net.minecraft.world.level.EmptyBlockGetter.INSTANCE,BlockPos.ZERO))throw new AssertionError("Non-full pillar: "+state);
+        states.add(Block.getId(state));
+      }
+      row.add("states",states);pillars.add(row);pillarItems.add(block.asItem());
+    }
+    if(pillars.size()!=60)throw new AssertionError("Changed ordinary pillar placement catalog");
     var flags=new ByteArrayOutputStream();var unsupported=new TreeSet<String>();var cases=new JsonArray();
     for(var state:Block.BLOCK_STATE_REGISTRY){
       if(Block.getId(state)!=flags.size())throw new AssertionError("Noncontiguous states");
@@ -88,7 +100,7 @@ public class PlacementOracle {
       observe(cases,level,item,Blocks.STONE.defaultBlockState(),clicked,face,y,new BlockPos(29999984,319,-29999984));
     }
     // Every admitted held block against solid, replaceable, liquid and different slab states.
-    var allItems=new ArrayList<Item>(slabItems);for(var id:plain.keySet())allItems.add(BuiltInRegistries.ITEM.byId(Integer.parseInt(id)));
+    var allItems=new ArrayList<Item>(slabItems);allItems.addAll(pillarItems);for(var id:plain.keySet())allItems.add(BuiltInRegistries.ITEM.byId(Integer.parseInt(id)));
     for(var item:allItems)for(var state:fixtures)for(var face:List.of(Direction.UP,Direction.DOWN,Direction.NORTH)){
       observe(cases,level,item,state,Blocks.AIR.defaultBlockState(),face,.5,BlockPos.ZERO);
       observe(cases,level,item,Blocks.STONE.defaultBlockState(),state,face,.5,BlockPos.ZERO);
@@ -96,11 +108,13 @@ public class PlacementOracle {
     // Ordinary cubes also exercise the three other horizontal directions at both cursor halves.
     var ordinaryFixtures=new ArrayList<BlockState>();
     for(var block:List.of(Blocks.AIR,Blocks.STONE,Blocks.WATER,Blocks.LAVA,Blocks.SHORT_GRASS,Blocks.SNOW,Blocks.OAK_SLAB))ordinaryFixtures.addAll(block.getStateDefinition().getPossibleStates());
-    for(var id:plain.keySet())for(var state:ordinaryFixtures)for(var face:List.of(Direction.SOUTH,Direction.WEST,Direction.EAST))for(double y:new double[]{.25,.75}){
-      var item=BuiltInRegistries.ITEM.byId(Integer.parseInt(id));
+    var cubeItems=new ArrayList<Item>(pillarItems);for(var id:plain.keySet())cubeItems.add(BuiltInRegistries.ITEM.byId(Integer.parseInt(id)));
+    for(var item:cubeItems)for(var state:ordinaryFixtures)for(var face:List.of(Direction.SOUTH,Direction.WEST,Direction.EAST))for(double y:new double[]{.25,.75}){
       observe(cases,level,item,state,Blocks.AIR.defaultBlockState(),face,y,BlockPos.ZERO);
       observe(cases,level,item,Blocks.STONE.defaultBlockState(),state,face,y,BlockPos.ZERO);
     }
+    for(var item:pillarItems)for(var state:((BlockItem)item).getBlock().getStateDefinition().getPossibleStates())for(var face:Direction.values())for(double y:new double[]{.25,.75})
+      observe(cases,level,item,state,Blocks.AIR.defaultBlockState(),face,y,new BlockPos(-29999984,-64,29999984));
     var packets=new JsonArray();
     for(var hand:InteractionHand.values())for(var face:Direction.values())for(var pos:List.of(BlockPos.ZERO,new BlockPos(-33554432,-2048,33554431),new BlockPos(33554431,2047,-33554432)))for(int sequence:new int[]{0,127,128,Integer.MAX_VALUE})for(boolean inside:new boolean[]{false,true})for(boolean border:new boolean[]{false,true}){
       var hit=new BlockHitResult(new Vec3(pos.getX()+.25,pos.getY()+.5,pos.getZ()+.75),face,pos,inside,border);
@@ -120,7 +134,7 @@ public class PlacementOracle {
         var row=new JsonObject();row.addProperty("wire",HexFormat.of().formatHex(raw));nonfinite.add(row);
       }finally{buffer.release();}
     }
-    var facts=new JsonObject();facts.addProperty("version","26.3");facts.addProperty("data_version",5023);facts.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");facts.addProperty("state_count",flags.size());facts.addProperty("replaceability",HexFormat.of().formatHex(flags.toByteArray()));facts.add("plain",plain);facts.add("slabs",slabs);
+    var facts=new JsonObject();facts.addProperty("version","26.3");facts.addProperty("data_version",5023);facts.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");facts.addProperty("state_count",flags.size());facts.addProperty("replaceability",HexFormat.of().formatHex(flags.toByteArray()));facts.add("plain",plain);facts.add("slabs",slabs);facts.add("pillars",pillars);
     var observed=new JsonObject();observed.add("contexts",cases);observed.add("packets",packets);observed.add("nonfinite",nonfinite);observed.add("unsupported_replacement",new Gson().toJsonTree(unsupported));
     Files.writeString(Path.of(args[0]),new Gson().toJson(facts)+"\n");Files.writeString(Path.of(args[1]),new Gson().toJson(observed));
     System.out.println("PASS: "+cases.size()+" actual placement contexts, "+packets.size()+" native use-on packets and "+nonfinite.size()+" acknowledgeable nonfinite hits, 101 slab families; specialized replacement excluded: "+unsupported);
