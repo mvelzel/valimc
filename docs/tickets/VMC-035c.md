@@ -1,6 +1,6 @@
 # VMC-035c — Item pickup
 
-Status: In progress; same-owner merging retains its separate client gate.
+Status: In progress. Pickup foundations are local; live composition/GUI gate open.
 
 Acceptance: eligible nearby world items enter the authoritative player inventory
 with native slot priority, component identity, partial capacity and creative
@@ -77,3 +77,14 @@ save/reopen. Recovery fixtures write a complete pure region commit after the
 source intent and before lazy region load; they do not exercise live admission.
 No world item is restored after a failed recipient save. Contact permits, live
 inbox/delivery, disconnect composition and automatic collection remain open.
+
+Contact/permit checkpoint: pinned26.3 `Player.aiStep` expands an unmounted body
+by(1,0.5,1); `ItemEntity.playerTouch` checks delay/target before insertion. The pure
+query matches5,832 actual native AABB boundaries, including adjacent doubles near
+world edges. `.local/item-pickup-contact-native{.json,.log,-check.log}`.19 affected
+checks pass(seed806605), `.local/pickup-permits-targeted.log`. Grants require an
+already committed receipt slot, one per source,≤128 per owner,250ms lifetime.
+Consumption rechecks owned position, exact stack, generation, delay and contact;
+counter-only revisions do not invalidate contact. These are inactive kernels;
+region admission/withdrawal/delivery and the automatic player lane follow. Mounted
+pickup and persistent exclusive targets remain outside this initial composition.

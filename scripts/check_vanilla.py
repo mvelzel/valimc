@@ -390,6 +390,9 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     item_pickup = str(pathlib.Path(world) / 'item-pickup.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemPickupOracle', item_pickup], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_item_pickup.exs', item_pickup], cwd=root, check=True)
+    pickup_contact = str(pathlib.Path(world) / 'pickup-contact.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemPickupContactOracle', pickup_contact], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_item_pickup_contact.exs', pickup_contact], cwd=root, check=True)
     for mode, encrypted in [('plain', False), ('encrypted', True)]:
         with socket.socket() as port_probe:
             port_probe.bind(('127.0.0.1', 0))
