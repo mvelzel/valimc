@@ -50,7 +50,15 @@ through registered `java_tool.py` invocations and their Elixir checkers; raw
 Next: durable velocity/delay records and ordered owner commits, bounded active-item
 geometry work, replication, resting/support wakeups and cross-owner handoff. Retain
 source retry receipts after moves/pickups so old deliveries cannot recreate items.
-Live composition and this checkpoint's baseline client gate remain pending.
+Live composition remains pending. Frozen `f31f178` baseline client smoke passed:
+actual flat-world join/render, walking/SDL look, log→four planks/returning two logs,
+fresh reconnect with exact inventory/pose and `/stats`. Three owned launches
+stopped; original full snapshot restored, source0/nil, zero edits/items/receipts,
+four owners flushed. Module MD5s unchanged;736 tracked blobs rehashed. Frozen
+compile and eight targeted tests pass; no broad suite/build rerun was needed for
+these unreachable kernels. Report `.local/client-tests/VMC-035a/report.md`;
+proof `.local/item-motion-kernel-proof.json`. This validates the foundation's
+baseline only; live launch/landing/pickup and full item behavior remain open.
 
 Inspiration: pinned Pumpkin `b0c48b2` (`entity/item.rs`) protects coupled merge
 updates with ordered reservations; Steel `f6fb4e4` (`item_entity.rs`) keeps item
