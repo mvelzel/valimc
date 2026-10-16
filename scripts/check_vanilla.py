@@ -276,6 +276,9 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     resistance = str(pathlib.Path(world) / 'resistance.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'ResistanceOracle', resistance], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_resistance.exs', resistance], cwd=root, check=True)
+    movement_effects = str(pathlib.Path(world) / 'movement-effects.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'MovementEffectOracle', movement_effects], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_movement_effects.exs', movement_effects], cwd=root, check=True)
     for source_matrix in ['environment', 'hazards', 'effects']:
         resisted = str(pathlib.Path(world) / ('resisted-' + source_matrix + '.json'))
         subprocess.run([sys.executable, 'scripts/java_tool.py', 'DamageProtectionOracle', resisted, source_matrix, '1'], cwd=root, check=True)

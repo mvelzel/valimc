@@ -28,8 +28,11 @@ drinks/timing/defenses/death/promotion/reconnect. Milk/honey add658 native cases
 negatives/reconnect. Retrieve tickets for scope and source/receipt53 evidence.
 **Implementing:** [Resistance](tickets/VMC-037e.md),135,150 native contexts,
 116,320 composed gear/source cases and106 affected checks. Owned damage/drinks
-and admitted environmental ordering are implemented locally; production/native
-TCP and its client gate follow. Turtle Master still needs Slowness.
+and admitted environmental ordering pass1,321 full tests/production and both native
+TCP transports at `d9e1b8a`; actual-client validation is running. Turtle Master
+still needs Slowness.
+Next: [Speed/Slowness](tickets/VMC-037f.md),132,098 native attribute contexts and
+seven affected checks pass. Live attributes/drinks/Turtle Master follow separately.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

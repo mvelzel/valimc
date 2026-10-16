@@ -62,3 +62,10 @@ new Resistance admission never partially applies that potion. Evidence:
 `.local/resistance-live-targeted-final.log`. Baseline82 owner checks also pass;
 the first added-test compile attempt had a helper arity error, fixed before tests.
 Full combat, statistics/other attributes and complete Turtle Master stay open.
+
+Frozen `d9e1b8a` passes1,321 full tests and a production release, plus both native
+plaintext/continuous AES-CFB8 TCP integrations. Logs:
+`.local/resistance-live-{full-tests,production,native-tcp}.log`.
+Actual-client validation owns that immutable951-blob release and whole source/
+receipt53 dataset `/tmp/valimc-resistance-live-client-20261016`. The client gate
+remains pending; full native integration of the preceding block passed at5b123b1.
