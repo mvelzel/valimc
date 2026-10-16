@@ -1,7 +1,7 @@
 # VMC-037l — Jump Boost
 
-Status: Native scalar foundation verified; live motion/packet admission remains
-unimplemented.
+Status: Owned Jump Boost implemented locally;139 affected checks and native
+power/jump/fall/packet probes pass. Frozen production/client gates remain.
 
 Acceptance: stock/custom Jump Boost drinks change owned ground-jump power and safe
 fall distance with native arithmetic, including material factors, hidden promotion,
@@ -33,3 +33,21 @@ including hidden promotion, float rounding, high amplifier and invalid inputs.
 This is not live Jump Boost yet: packet/ground-jump preparation, geometry fencing,
 fall authority and graphical validation follow. Raw `.local/jump-boost-{native,elixir,targeted}.log`;
 reference bytecode/jar and raw observations remain ignored.
+
+Owned composition admits Jump Boost7 on the existing potion/effect path. Packet
+ground jumps and their query hull include the active bonus; amplifier changes
+fence prepared geometry, duration-only changes do not. Accepted landings derive
+the current safe distance before armor/health processing. Cached self attributes
+update only on active amplifier changes, including login, milk, promotion, expiry
+and Respawn. No new simulation owner or clock; existing frame/admission caps stay.
+
+Native EntityOracle adds257 safe-fall packets; complete Elixir/native byte and
+decode checks pass597 packets/272 velocities. Native PlayerKineticsOracle now runs
+the actual Jump Boost callback in1,320 complete jump/sprint/yaw/material cases;
+all bit-exact outputs match, retaining24 air branches/245 dead zones/480 support
+cases.139 affected checks pass(seed909864), including both-hand actual TCP Leaping,
+cancellation, attribute/init/reconnect/milk, genuine hidden promotion/expiry,
+boosted query bounds and accepted eight-block falls at amps0/1/255 (4/3/0 damage),
+removal before landing restoring5. Other movement/collision/consumption checks pass.
+Raw `.local/jump-boost-{live-targeted-fixed,kinetics-native,kinetics-elixir,entity-native,entity-elixir,entity-decode}.log`.
+Actual-client jump/landing acceptance and frozen production/TCP follow; no Done claim.

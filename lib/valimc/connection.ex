@@ -71,7 +71,7 @@ defmodule Valimc.Connection do
   @periodic_effects Enum.sort(Enum.map(~w(regeneration hunger poison wither), &EffectTypes.id/1))
   @instant_effects Enum.map(~w(instant_health instant_damage saturation), &EffectTypes.id/1)
   @live_effects [@fire_resistance, @resistance, @absorption, EffectTypes.id("water_breathing")] ++
-                  Enum.map(~w(speed slowness nausea), &EffectTypes.id/1) ++
+                  Enum.map(~w(speed slowness nausea jump_boost), &EffectTypes.id/1) ++
                   @periodic_effects
   @use_item_packet Data.id(:play, :serverbound, "use_item")
   @slab_tags Path.expand("../../priv/protocol/tags.json", __DIR__)
@@ -214,7 +214,9 @@ defmodule Valimc.Connection do
             end
 
             Players.update(self(), player)
-            {:reply, {:ok, changed}, next |> publish_movement_speed() |> publish_absorption()}
+
+            {:reply, {:ok, changed},
+             next |> publish_movement_speed() |> publish_absorption() |> publish_jump_boost()}
           catch
             {:disconnect, _, current} -> {:stop, :normal, {:error, :disconnected}, current}
           end
@@ -314,6 +316,7 @@ defmodule Valimc.Connection do
        simulation_clock: nil,
        movement_speed_view: nil,
        absorption_view: nil,
+       jump_boost_view: nil,
        food_tick_origin: 0,
        simulation_due: false,
        air_policy: :none,
@@ -1371,11 +1374,13 @@ defmodule Valimc.Connection do
   defp apply_landing(state, nil), do: state
 
   defp apply_landing(state, call) do
+    {:ok, jump} = Valimc.PlayerJumpBoost.derive(state.player.effects)
+
     {:ok, amount} =
       Valimc.Physics.FallDamage.calculate(
         call.distance,
         call.multiplier,
-        %Valimc.Physics.FallDamage{}
+        %Valimc.Physics.FallDamage{safe_distance: jump.safe_distance}
       )
 
     if amount > 0 do
@@ -1638,6 +1643,7 @@ defmodule Valimc.Connection do
             |> stop_item_use()
             |> publish_movement_speed()
             |> publish_absorption()
+            |> publish_jump_boost()
 
           send_packets(state, [
             Packets.health(state.player.health, state.player.food),
@@ -1920,6 +1926,7 @@ defmodule Valimc.Connection do
         environment_effects: %{},
         movement_speed_view: nil,
         absorption_view: nil,
+        jump_boost_view: nil,
         fire_damage_due: false,
         fire_contacts_active: false,
         active_use: nil,
@@ -1960,7 +1967,12 @@ defmodule Valimc.Connection do
       ] ++ weather_packets
     )
 
-    state = state |> publish_movement_speed() |> publish_absorption() |> relocate(player)
+    state =
+      state
+      |> publish_movement_speed()
+      |> publish_absorption()
+      |> publish_jump_boost()
+      |> relocate(player)
 
     for pid <- Players.nearby(state.regions),
         pid != self(),
@@ -2490,7 +2502,7 @@ defmodule Valimc.Connection do
       end)
     )
 
-    state = state |> publish_movement_speed() |> publish_absorption()
+    state = state |> publish_movement_speed() |> publish_absorption() |> publish_jump_boost()
     existing = Players.ready(self())
     state = update_view(state)
 
@@ -2524,6 +2536,18 @@ defmodule Valimc.Connection do
       {:ok, derived} = PlayerMovementSpeed.derive(state.player.effects, sprint)
       send_packets(state, [Packets.movement_attributes(state.player, derived.attribute)])
       %{state | movement_speed_view: signature}
+    end
+  end
+
+  defp publish_jump_boost(state) do
+    level = Valimc.PlayerJumpBoost.level(state.player.effects)
+
+    if level == state.jump_boost_view do
+      state
+    else
+      {:ok, derived} = Valimc.PlayerJumpBoost.derive(state.player.effects)
+      send_packets(state, [Packets.jump_attributes(state.player, derived.attribute)])
+      %{state | jump_boost_view: level}
     end
   end
 
@@ -2930,7 +2954,7 @@ defmodule Valimc.Connection do
       end)
 
     send_packets(next, packets)
-    next |> publish_movement_speed() |> publish_absorption()
+    next |> publish_movement_speed() |> publish_absorption() |> publish_jump_boost()
   end
 
   defp tick_effects(state), do: state

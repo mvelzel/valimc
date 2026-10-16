@@ -270,6 +270,74 @@ defmodule Valimc.PlayerUseConnectionTest do
     client
   end
 
+  defp jump_attribute(client, pid, modifiers) do
+    if Map.get(client, :attributes, %{})[{state(pid).player.entity_id, 29}] == {3.0, modifiers} do
+      client
+    else
+      {body, client} = Client.await(client, :play, "update_attributes")
+      jump_attribute(Client.auto_reply(client, :play, "update_attributes", body), pid, modifiers)
+    end
+  end
+
+  for hand <- [:main, :off] do
+    test "stock Leaping #{hand} cancels, replicates safer fall and reconnects before actual milk clears it",
+         ctx do
+      food = %PlayerFood{}
+      drink = potion("leaping")
+      slot = if unquote(hand) == :main, do: 36, else: 45
+      milk_slot = if slot == 36, do: 45, else: 36
+      milk_hand = if unquote(hand) == :main, do: :off, else: :main
+
+      seed(ctx, food, 20.0,
+        inventory: %Inventory{slots: %{slot => drink, milk_slot => ItemStack.new("milk_bucket")}}
+      )
+
+      {client, pid} = login(ctx, 20.0, food)
+      client = use_hand(client, pid, unquote(hand))
+      ticks(pid, 8)
+      action(client, "release_use_item")
+      wait(fn -> state(pid).active_use == nil end)
+      assert state(pid).player.effects == %{} and state(pid).inventory.slots[slot] == drink
+      client = use_hand(client, pid, unquote(hand), 2)
+      ticks(pid, 32)
+      id = Valimc.Protocol.EffectTypes.id("jump_boost")
+      assert state(pid).player.effects == %{id => [{3600, 0, false, true, true}]}
+      client = jump_attribute(client, pid, [{"minecraft:effect.jump_boost", 1.0, 0}])
+      wait(fn -> state(pid).use_save == nil end)
+      Client.close(client)
+      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+      {client, restored} = login(ctx, 20.0, food)
+      assert state(restored).player.effects == %{id => [{3600, 0, false, true, true}]}
+      assert state(restored).inventory.slots[slot] == ItemStack.new("glass_bottle")
+      client = jump_attribute(client, restored, [{"minecraft:effect.jump_boost", 1.0, 0}])
+      client = use_hand(client, restored, milk_hand, 3)
+      ticks(restored, 32)
+      assert state(restored).player.effects == %{}
+      _client = jump_attribute(client, restored, [])
+      assert state(restored).inventory.slots[milk_slot] == ItemStack.new("bucket")
+    end
+  end
+
+  test "Jump Boost hidden promotion and expiry replicate only the active safe-fall modifier",
+       ctx do
+    food = %PlayerFood{}
+    id = Valimc.Protocol.EffectTypes.id("jump_boost")
+
+    seed(ctx, food, 20.0,
+      effects: %{id => [{1, 1, false, true, true}, {3, 0, false, true, true}]}
+    )
+
+    {client, pid} = login(ctx, 20.0, food)
+    client = jump_attribute(client, pid, [{"minecraft:effect.jump_boost", 2.0, 0}])
+    tick(pid)
+    assert state(pid).player.effects == %{id => [{2, 0, false, true, true}]}
+    client = jump_attribute(client, pid, [{"minecraft:effect.jump_boost", 1.0, 0}])
+    ticks(pid, 2)
+    assert state(pid).player.effects == %{}
+    _client = jump_attribute(client, pid, [])
+    assert state(pid).player.health.value == 20.0 and state(pid).player.food == food
+  end
+
   defp quiet_attributes_until_stats(client) do
     {id, body, client} = Client.read(client)
     name = Data.name(:play, :clientbound, id)

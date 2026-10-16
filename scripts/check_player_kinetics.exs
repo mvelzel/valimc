@@ -6,7 +6,13 @@ bits = fn t -> for n <- Tuple.to_list(t), do: <<n::float-64>> end
 
 Enum.each(data["jumps"], fn c ->
   {:ok, result} =
-    PlayerKinetics.jump(List.to_tuple(c["initial"]), c["factor"], c["sprint"], c["yaw"])
+    PlayerKinetics.jump(
+      List.to_tuple(c["initial"]),
+      c["factor"],
+      c["sprint"],
+      c["yaw"],
+      c["amplifier"]
+    )
 
   if bits.(result) != bits.(List.to_tuple(c["velocity"])),
     do: raise("Jump mismatch #{inspect(c)} #{inspect(result)}")

@@ -1,7 +1,8 @@
 # VMC-036e — Stock food status callbacks
 
-Status: Owned stock callbacks implemented locally;86 affected checks pass. Frozen
-production/native TCP and dedicated client gates follow before publication/Done.
+Status: Owned9246b50 passes86 affected checks, production/native TCP and all five
+actual-client groups. Larger8cceaae food/Nausea block passes1,386 full tests; full
+native integration is pending before publication/Done.
 
 Acceptance: stock foods with supported status effects (including golden apples,
 rotten flesh, raw chicken and poisonous potato) apply their complete native callback
@@ -61,3 +62,22 @@ exact single-draw advancement, atomic pending saves, fresh reconnect and pufferf
 whole refusal before nutrition/RNG. Tests seed only the owning process's RNG;
 runtime has no testing strategy/override. Native callback foundation is unchanged.
 Raw `.local/stock-food-live-targeted.log`. Graphical acceptance remains pending.
+
+Actual26.3 client PASS on immutable9246b50; primary reviewed the dedicated report
+once. Main/offhand golden apples cancel cleanly and eat at full food, granting
+RegenerationII/AbsorptionI and two gold hearts. Enchanted apples visibly grant all
+four buffs/eight gold hearts; creative retains the exact stock stack. Actual flesh,
+chicken and poisonous potato meals show both seeded chance branches with nutrition;
+spider eye shows Poison/damage. Pufferfish is refused whole at this older admission
+checkpoint. Fresh direct reconnect retains accepted apple2/food14/saturation9.6/
+pool4 without replay, with duration decreasing2158→1899. No post-acceptance fixtures.
+Chance samples use documented owner RNG seeds, not statistical distribution proof.
+
+Both wrappers/JVMs and server63778 stopped; five regions+clock flush:ok, zero
+connections/players and all1,000 frozen blobs unchanged. Whole final dataset
+`/tmp/valimc-stock-food-live-client-20261016`: survival,16HP from actual Poison,
+apple2/food14/saturation9.600000381469727, pool4/Absorption1600ticks, source61/
+outboxnil and region{2,2}receipt61. No health or journal resets. Private report,
+fixtures/traces, cleanup and hashes: `.local/client-tests/VMC-036e/report.md`,
+`.local/stock-food-live-cleanup.log`, `.local/stock-food-publication-proof.json`.
+No remaining graphical gate; larger native integration continues at8cceaae.

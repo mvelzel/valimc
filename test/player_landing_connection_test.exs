@@ -75,6 +75,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
         environment: %Valimc.PlayerEnvironment{},
         game_mode: Valimc.GameMode.new(mode),
         abilities: Valimc.PlayerAbilities.for_mode(mode),
+        effects: Keyword.get(opts, :effects, %{}),
         last_death: nil
       })
 
@@ -118,6 +119,32 @@ defmodule Valimc.PlayerLandingConnectionTest do
     wait(fn -> state(pid).player.y == target and state(pid).motion_job == nil end)
     if target != bottom, do: fall(client, pid, bottom)
     :ok
+  end
+
+  for {amplifier, damage} <- [{0, 4.0}, {1, 3.0}, {255, 0.0}] do
+    test "Jump Boost #{amplifier} increases safe distance on an accepted eight-block landing",
+         ctx do
+      id = Valimc.Protocol.EffectTypes.id("jump_boost")
+      seed(ctx, y: 72.0, effects: %{id => [{1200, unquote(amplifier), false, true, true}]})
+      {client, pid} = login(ctx)
+      fall(client, pid, 64.0)
+      assert state(pid).player.health.value == 20.0 - unquote(damage)
+      assert state(pid).player.motion.fall_distance == 0.0
+      Client.close(client)
+      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+      assert saved.health.value == 20.0 - unquote(damage)
+      assert [{_, unquote(amplifier), false, true, true}] = saved.effects[id]
+    end
+  end
+
+  test "removing Jump Boost before an accepted landing restores ordinary fall cost", ctx do
+    id = Valimc.Protocol.EffectTypes.id("jump_boost")
+    seed(ctx, y: 72.0, effects: %{id => [{1200, 255, false, true, true}]})
+    {client, pid} = login(ctx)
+    assert {:ok, true} = Connection.remove_effect(pid, id)
+    fall(client, pid, 64.0)
+    assert state(pid).player.health.value == 15.0
   end
 
   test "forecast bed restitution does not impulse self before the accepted landing", ctx do

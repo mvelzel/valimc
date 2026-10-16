@@ -38,6 +38,27 @@ defmodule Valimc.PlayerKineticsTest do
     f
   end
 
+  test "Jump Boost changes packet power, bounds the jump query and fences only amplifier changes" do
+    id = Valimc.Protocol.EffectTypes.id("jump_boost")
+    p = Map.put(player(), :effects, %{id => [{300, 1, false, true, true}]})
+    p = %{p | motion: %{p.motion | on_ground: true}}
+    {:ok, body} = PlayerPose.geometry(:standing, {p.x, p.y, p.z})
+
+    {:ok, result} =
+      PlayerKinetics.packet(p, %{p | y: 64.5}, {0.0, 0.5, 0.0}, 0, body.box, frame())
+
+    assert result.velocity == {0.0, 0.6200000047683716, 0.0}
+    shorter = %{p | effects: %{id => [{299, 1, false, true, true}]}}
+    assert PlayerKinetics.signature(p) == PlayerKinetics.signature(shorter)
+    high = %{p | effects: %{id => [{300, 255, false, true, true}]}}
+    refute PlayerKinetics.signature(p) == PlayerKinetics.signature(high)
+    {:ok, ordinary} = PlayerKinetics.query_box(body.box, p, true)
+    {:ok, expanded} = PlayerKinetics.query_box(body.box, high, true)
+    assert elem(expanded, 4) > 91.0 and elem(expanded, 4) > elem(ordinary, 4) + 25
+    assert {:ok, velocity} = PlayerKinetics.jump({0.0, 2.0, 0.0}, 1, false, 0, 0)
+    assert velocity == {0.0, 2.0, 0.0}
+  end
+
   test "block contact sets the next move's multiplier and consumption clears velocity once" do
     p = player()
     p = %{p | motion: %{p.motion | fall_distance: 7.0}}

@@ -84,6 +84,19 @@ packets =
         "air_" <> supply ->
           EntityPackets.metadata(300, air_supply: String.to_integer(supply))
 
+        "jump_safe_distance_" <> amp ->
+          amp = String.to_integer(amp)
+
+          effects =
+            if amp < 0,
+              do: %{},
+              else: %{
+                Valimc.Protocol.EffectTypes.id("jump_boost") => [{200, amp, false, true, true}]
+              }
+
+          {:ok, derived} = Valimc.PlayerJumpBoost.derive(effects)
+          Packets.jump_attributes(base, derived.attribute)
+
         "absorption_maximum_" <> amp ->
           amp = String.to_integer(amp)
 

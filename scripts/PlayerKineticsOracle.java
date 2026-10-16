@@ -44,6 +44,7 @@ public class PlayerKineticsOracle {
   }
   private static class ProbePlayer extends Player {
     ProbeLevel world; Abilities abilities; boolean sprint,ground; float factor,yaw;
+    MobEffectInstance jumpBoost;
     private ProbePlayer(){super(null,null);}
     public GameType gameMode(){return GameType.CREATIVE;}
     public ServerLevel level(){return world;}
@@ -57,7 +58,7 @@ public class PlayerKineticsOracle {
     public boolean onGround(){return ground;}
     public BlockPos getBlockPosBelowThatAffectsMyMovement(){return BlockPos.ZERO;}
     protected float getBlockJumpFactor(){return factor;}
-    public float getJumpBoostPower(){return 0;}
+    public boolean hasEffect(Holder<MobEffect> type){return type==MobEffects.JUMP_BOOST&&jumpBoost!=null;}
     public double getAttributeValue(Holder<Attribute> attribute){
       if(attribute==Attributes.JUMP_STRENGTH)return (double).42f;
       if(attribute==Attributes.FRICTION_MODIFIER||attribute==Attributes.AIR_DRAG_MODIFIER)return 1;
@@ -67,7 +68,7 @@ public class PlayerKineticsOracle {
     protected float getFlyingSpeed(){return 0;}
     public boolean onClimbable(){return false;}
     protected double getEffectiveGravity(){return .08;}
-    public MobEffectInstance getEffect(Holder<MobEffect> type){return null;}
+    public MobEffectInstance getEffect(Holder<MobEffect> type){return type==MobEffects.JUMP_BOOST?jumpBoost:null;}
     public boolean shouldDiscardFriction(){return false;}
     protected boolean omnidirectionalAirMover(){return false;}
     public void move(MoverType type,Vec3 requested){}
@@ -81,10 +82,13 @@ public class PlayerKineticsOracle {
     var p=(ProbePlayer)unsafe.allocateInstance(ProbePlayer.class);p.world=(ProbeLevel)unsafe.allocateInstance(ProbeLevel.class);
     p.abilities=new Abilities();var jumps=new JsonArray();var air=new JsonArray();
     for(var initial:List.of(Vec3.ZERO,new Vec3(.2,-1,-.3),new Vec3(-.2,.8,.3)))
+      for(int amplifier:new int[]{-1,0,1,7,255})
       for(float factor:new float[]{0,.00001f,.5f,1})for(boolean sprint:new boolean[]{false,true})
         for(float yaw:new float[]{0,12.345f,45,90,-90,180,-180,359,-359,1000000,-1000000}){
+          p.jumpBoost=amplifier<0?null:new MobEffectInstance(MobEffects.JUMP_BOOST,200,amplifier);
           p.factor=factor;p.sprint=sprint;p.yaw=yaw;p.setDeltaMovement(initial);p.jumpFromGround();
           var c=new JsonObject();c.add("initial",vector(initial));c.addProperty("factor",(double)factor);
+          c.addProperty("amplifier",amplifier);
           c.addProperty("sprint",sprint);c.addProperty("yaw",(double)yaw);c.add("velocity",vector(p.getDeltaMovement()));jumps.add(c);
         }
     for(var initial:List.of(Vec3.ZERO,new Vec3(.2,-1,-.3),new Vec3(-.2,.8,.3)))

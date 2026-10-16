@@ -119,6 +119,8 @@ public class EntityOracle {
       var attributes=new AttributeMap(Player.createAttributes().build());
       if(amp>=0)MobEffects.ABSORPTION.value().addAttributeModifiers(attributes,amp);
       cases.put("absorption_maximum_"+amp,new ClientboundUpdateAttributesPacket(ID,List.of(attributes.getInstance(Attributes.MAX_ABSORPTION))));
+      if(amp>=0)MobEffects.JUMP_BOOST.value().addAttributeModifiers(attributes,amp);
+      cases.put("jump_safe_distance_"+amp,new ClientboundUpdateAttributesPacket(ID,List.of(attributes.getInstance(Attributes.SAFE_FALL_DISTANCE))));
     }
     for(float points:new float[]{0,Float.MIN_VALUE,.1f,7.25f,20,1024}){
       cases.put("health_"+Float.toString(points),new ClientboundSetHealthPacket(points,20,5));

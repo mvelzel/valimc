@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerKinetics do
   @moduledoc "Player-owned server velocity, separate from accepted client displacement."
   import Bitwise
-  alias Valimc.{PlayerMotion, PlayerMotionQuery}
+  alias Valimc.{PlayerJumpBoost, PlayerMotion, PlayerMotionQuery}
 
   alias Valimc.Physics.{
     AirMotion,
@@ -56,7 +56,8 @@ defmodule Valimc.PlayerKinetics do
     {motion.velocity, motion.physical_ground, motion.on_ground, motion.swimming, motion.paths,
      motion.known_movement, motion.stuck_multiplier, sprint, player.input.buttons,
      Valimc.PlayerInput.loaded?(player.input), Map.get(player, :yaw, 0.0),
-     if(motion.swimming or sprint, do: Map.get(player, :pitch, 0.0))}
+     if(motion.swimming or sprint, do: Map.get(player, :pitch, 0.0)),
+     PlayerJumpBoost.level(Map.get(player, :effects, %{}))}
   end
 
   def apply_result(motion, result) do
@@ -85,7 +86,13 @@ defmodule Valimc.PlayerKinetics do
       with {:ok, jump_v} <-
              if(jumping,
                do:
-                 jump(v, 1.0, (player.input.shared_flags &&& 8) != 0, Map.get(player, :yaw, 0.0)),
+                 jump(
+                   v,
+                   1.0,
+                   (player.input.shared_flags &&& 8) != 0,
+                   Map.get(player, :yaw, 0.0),
+                   PlayerJumpBoost.level(Map.get(player, :effects, %{}))
+                 ),
                else: {:ok, v}
              ),
            true <- valid_velocity?(jump_v),
@@ -526,7 +533,8 @@ defmodule Valimc.PlayerKinetics do
               motion.velocity,
               factor,
               (player.input.shared_flags &&& 8) != 0,
-              Map.get(player, :yaw, 0.0)
+              Map.get(player, :yaw, 0.0),
+              PlayerJumpBoost.level(Map.get(player, :effects, %{}))
             ),
           else: {:ok, motion.velocity}
       end
@@ -610,11 +618,14 @@ defmodule Valimc.PlayerKinetics do
   defp subtract({x, y, z}, {a, b, c}), do: {x - a, y - b, z - c}
   defp add({x, y, z}, {a, b, c}), do: {x + a, y + b, z + c}
 
-  def jump({x, y, z} = velocity, factor, sprint, yaw)
+  def jump(velocity, factor, sprint, yaw, amplifier \\ -1)
+
+  def jump({x, y, z} = velocity, factor, sprint, yaw, amplifier)
       when is_number(factor) and factor >= 0 and factor <= 4 and is_boolean(sprint) and
-             is_number(yaw) and abs(yaw) <= 1_000_000 do
+             is_number(yaw) and abs(yaw) <= 1_000_000 and
+             is_integer(amplifier) and amplifier >= -1 and amplifier <= 255 do
     if valid_velocity?(velocity) do
-      power = f32(f32(0.42) * f32(factor))
+      {:ok, power} = PlayerJumpBoost.power(factor, amplifier)
 
       cond do
         power <= @epsilon ->
@@ -634,7 +645,7 @@ defmodule Valimc.PlayerKinetics do
     end
   end
 
-  def jump(_, _, _, _), do: {:error, :invalid_velocity}
+  def jump(_, _, _, _, _), do: {:error, :invalid_velocity}
 
   def air(resolved, old_y, facts, flying) when is_boolean(flying) do
     with {:ok, {x, y, z}} <- AirMotion.step(resolved, facts),

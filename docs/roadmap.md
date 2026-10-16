@@ -53,14 +53,16 @@ affected checks. Frozen958c8ee production/TCP,1,368 full tests and all five dedi
 pass; final native integration is running before publication.
 **Implementing:** [stock food status callbacks](tickets/VMC-036e.md): seven stock
 records/112 native callback boundaries and86 affected checks pass. Owned meals
-apply complete supported groups with one local RNG draw; frozen client gate follows.
+apply complete supported groups with one local RNG draw. Production/native TCP
+and all five client groups pass at9246b50; larger native integration remains.
 **Implementing:** [Nausea/complete pufferfish](tickets/VMC-037k.md):256 native
 no-action hook contexts/3,075 ticks and84 affected checks pass. Existing effect
 ownership admits Nausea and complete pufferfish;1,386 full tests/production/TCP
 pass at8cceaae, full native integration and dedicated client gates remain.
 **Implementing:** [Jump Boost](tickets/VMC-037l.md):257 native attributes,1,285
-material powers/10,280 fall calculations and five affected checks pass. Live
-player/geometry composition and actual jumps/landings follow.
+material powers/10,280 fall calculations,1,320 complete jumps,257 packets and139
+affected checks pass. Owned ground-jump/fall/geometry composition is implemented;
+frozen production/client verification follows.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
