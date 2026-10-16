@@ -328,6 +328,9 @@ defmodule Valimc.Protocol.Packets do
 
   def movement_attributes(player, attribute), do: attribute_packet(player.entity_id, [attribute])
 
+  def absorption_attributes(player, attribute),
+    do: attribute_packet(player.entity_id, [attribute])
+
   defp attribute_packet(entity_id, attributes) do
     packet("update_attributes", [
       Wire.varint(entity_id),

@@ -125,6 +125,7 @@ defmodule Valimc.Protocol.EntityPackets do
               :pose,
               :frozen_ticks,
               :health,
+              :absorption,
               :air_supply
             ] do
     fact = EntityTypes.field(name)
@@ -156,6 +157,10 @@ defmodule Valimc.Protocol.EntityPackets do
 
         :health ->
           check(is_number(value) and value >= 0 and value <= 1024, "invalid health")
+          <<value::float-32>>
+
+        :absorption ->
+          check(is_number(value) and value >= 0 and value <= 2048, "invalid absorption")
           <<value::float-32>>
       end
 

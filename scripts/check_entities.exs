@@ -84,6 +84,25 @@ packets =
         "air_" <> supply ->
           EntityPackets.metadata(300, air_supply: String.to_integer(supply))
 
+        "absorption_maximum_" <> amp ->
+          amp = String.to_integer(amp)
+
+          effects =
+            if amp < 0,
+              do: %{},
+              else: %{
+                Valimc.Protocol.EffectTypes.id("absorption") => [{200, amp, false, true, true}]
+              }
+
+          {:ok, derived} = Valimc.PlayerAbsorption.derive(effects)
+          Packets.absorption_attributes(base, derived.attribute)
+
+        "absorption_" <> points ->
+          EntityPackets.metadata(300, absorption: String.to_float(points))
+
+        "health_absorption_" <> points ->
+          EntityPackets.metadata(300, health: 18.0, absorption: String.to_float(points))
+
         "health_metadata_" <> points ->
           EntityPackets.metadata(300, health: String.to_float(points))
 

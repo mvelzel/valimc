@@ -16,6 +16,9 @@ import net.minecraft.network.protocol.game.*;
 import net.minecraft.network.syncher.*;
 import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.ai.attributes.*;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.item.*;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.nbt.CompoundTag;
@@ -107,6 +110,16 @@ public class EntityOracle {
     for(int supply:new int[]{-20,-19,-1,0,1,127,128,299,300})
       cases.put("air_"+supply,new ClientboundSetEntityDataPacket(ID,List.of(value(air,supply))));
     var health = accessor(LivingEntity.class,"DATA_HEALTH_ID");
+    var absorption = accessor(Player.class,"DATA_PLAYER_ABSORPTION_ID");
+    for(float points:new float[]{0,Float.MIN_VALUE,.1f,4,1024,2048}){
+      cases.put("absorption_"+Float.toString(points),new ClientboundSetEntityDataPacket(ID,List.of(value(absorption,points))));
+      cases.put("health_absorption_"+Float.toString(points),new ClientboundSetEntityDataPacket(ID,List.of(value(health,18f),value(absorption,points))));
+    }
+    for(int amp=-1;amp<=255;amp++){
+      var attributes=new AttributeMap(Player.createAttributes().build());
+      if(amp>=0)MobEffects.ABSORPTION.value().addAttributeModifiers(attributes,amp);
+      cases.put("absorption_maximum_"+amp,new ClientboundUpdateAttributesPacket(ID,List.of(attributes.getInstance(Attributes.MAX_ABSORPTION))));
+    }
     for(float points:new float[]{0,Float.MIN_VALUE,.1f,7.25f,20,1024}){
       cases.put("health_"+Float.toString(points),new ClientboundSetHealthPacket(points,20,5));
       cases.put("health_metadata_"+Float.toString(points),new ClientboundSetEntityDataPacket(ID,List.of(value(health,points))));

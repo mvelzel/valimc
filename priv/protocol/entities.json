@@ -1,5 +1,9 @@
 {
   "fields": {
+    "absorption": {
+      "index": 17,
+      "serializer": 3
+    },
     "air_supply": {
       "index": 1,
       "serializer": 1

@@ -11,6 +11,7 @@ import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.player.Player;
 
 /** Original extraction of versioned IDs and accessor facts, not implementation source. */
 public class EntityMetadata {
@@ -42,6 +43,7 @@ public class EntityMetadata {
     fields.put("pose", accessor(Entity.class, "DATA_POSE"));
     fields.put("frozen_ticks", accessor(Entity.class, "DATA_TICKS_FROZEN"));
     fields.put("health", accessor(LivingEntity.class, "DATA_HEALTH_ID"));
+    fields.put("absorption", accessor(Player.class, "DATA_PLAYER_ABSORPTION_ID"));
     fields.put("living_flags", accessor(LivingEntity.class, "DATA_LIVING_ENTITY_FLAGS"));
     var facts = new TreeMap<String,Object>();
     facts.put("version", "26.3"); facts.put("protocol", 777);

@@ -65,3 +65,12 @@ wrong identity and trailing bytes are refused.35 affected snapshot/store/kernel
 checks pass(seed171688), including pending death-drop history and byte-stable
 roundtrips. Raw `.local/absorption-snapshot-targeted.log`. Live restoration and
 graphical golden hearts remain unimplemented at this foundation checkpoint.
+
+Wire foundation: regenerated native entity facts add only player Absorption17/
+float serializer3. EntityOracle now supplies12 golden-heart/combined-health
+metadata packets and257 maximum-attribute packets (no effect plus all256 amps).
+Elixir independently matches complete bytes and native decoding, alongside
+existing fixtures:340 packets/272 velocities total. Fourteen affected checks
+pass(seed588468), including metadata bounds; no new live emission yet. Raw:
+`.local/absorption-entities.log`, `.local/absorption-entity-{native,elixir,decode}.log`,
+`.local/absorption-packet-targeted.log`.
