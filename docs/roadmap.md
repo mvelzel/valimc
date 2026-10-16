@@ -28,7 +28,9 @@ and drinks pass79 affected checks plus47 later overlapping owner/recovery checks
 still running; keep this block local until it passes.
 In parallel: [milk/honey effect removal](tickets/VMC-036d.md),658 native
 maps/callbacks and87 affected checks. Owned consumption is implemented locally;
-production/native TCP and its actual-client gate follow.
+frozen `d71b2a9` production/native TCP pass and its actual-client gate is running.
+Next: [Resistance reduction](tickets/VMC-037e.md),135,150 native contexts and10
+affected checks; live damage/gear composition and its client gate follow.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

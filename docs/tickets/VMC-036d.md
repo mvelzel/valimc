@@ -1,7 +1,7 @@
 # VMC-036d — Milk and honey effect removal
 
-Status: Native foundation `51fe9be` and owned consumption verified locally.
-Production/native TCP and actual-client gates remain; keep this slice unpushed.
+Status: Owned consumption `d71b2a9` passes automated/native TCP/build checks.
+Actual-client validation is running; keep this slice unpushed until accepted.
 
 Acceptance: Milk removes all active/suppressed effects, honey removes poison
 only. Use native durations, nutrition/eligibility, cancellation, both hands,
@@ -48,3 +48,9 @@ removed status or rewind a later grant. Evidence:
 unsupported-item/slot expectations, corrected to match the new support and native
 inventory insertion. Production, both native TCP transports and actual CUA
 milk/honey use/removal/containers/negatives/reconnect remain before acceptance.
+
+Frozen `d71b2a9` production release and both native plaintext/continuous AES-CFB8
+TCP transports pass. Logs: `.local/removal-live-{production,native-tcp}.log`.
+The dedicated client tester owns the immutable946-blob release and whole consistent
+source/receipt53 clone `/tmp/valimc-removal-live-client-20261016`. The larger parent
+block's1,302 full tests pass; its full native run is still pending independently.
