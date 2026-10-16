@@ -42,6 +42,14 @@ defmodule Valimc.Protocol.InventoryClickTest do
   end
 
   test "unknown IDs, counts, duplicate slots and patches are rejected" do
+    for container <- [-1, 128],
+        do:
+          assert(
+            decode([Wire.varint(container), <<0, 9::16, 0, 0, 0, 0>>]) ==
+              {:error, :invalid_menu_id}
+          )
+
+    assert decode([<<0>>, Wire.varint(-1), <<9::16, 0, 0, 0, 0>>]) == {:error, :invalid_menu_id}
     assert decode([header(), Wire.varint(129)]) == {:error, :predicted_slot_limit}
     assert decode([header(), <<2, 9::16, 0, 9::16, 0, 0>>]) == {:error, :duplicate_predicted_slot}
     assert decode([header(), <<1, 46::16, 0, 0>>]) == {:error, :invalid_predicted_slot}

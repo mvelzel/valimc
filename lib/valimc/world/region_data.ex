@@ -936,6 +936,37 @@ defmodule Valimc.World.RegionData do
 
   def handle_info({:saved, _, _, _}, state), do: {:noreply, state}
 
+  def handle_info({:table_request, epoch, connection, ref, position, grant}, state)
+      when is_pid(connection) and is_reference(ref) do
+    decision =
+      cond do
+        epoch != state.items.epoch ->
+          {:error, :stale_owner}
+
+        not valid_block_query?([position], :any) ->
+          {:error, :invalid_block_query}
+
+        Valimc.World.region_key(Valimc.World.chunk_key(elem(position, 0), elem(position, 2))) !=
+            state.key ->
+          {:error, :wrong_region}
+
+        true ->
+          Valimc.TableAccess.authorize(
+            Chunk.block_at(state.edits, position),
+            position,
+            grant,
+            System.monotonic_time(:millisecond)
+          )
+      end
+
+    Valimc.Connection.deliver(
+      connection,
+      {:table_admitted, ref, {self(), state.items.epoch}, decision}
+    )
+
+    {:noreply, state}
+  end
+
   def handle_info(_, state), do: {:noreply, state}
 
   def valid_block_query?(positions, revision),

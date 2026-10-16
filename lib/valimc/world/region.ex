@@ -36,6 +36,23 @@ defmodule Valimc.World.Region do
 
   def observe_blocks(_, _, _), do: {:error, :invalid_block_query}
 
+  @doc "Authorize one menu operation on the block owner; replies are ordered with its block events."
+  def request_table({pid, epoch}, connection, ref, position, grant)
+      when is_pid(pid) and is_reference(epoch) and is_pid(connection) and is_reference(ref) do
+    case Process.info(pid, :message_queue_len) do
+      {:message_queue_len, size} ->
+        if size <= Valimc.config(:max_mailbox) do
+          send(pid, {:table_request, epoch, connection, ref, position, grant})
+          :ok
+        else
+          {:error, :table_owner_unavailable}
+        end
+
+      _ ->
+        {:error, :table_owner_unavailable}
+    end
+  end
+
   @doc "Commit a prepared owner-local block batch at an exact observed revision. No cross-owner atomicity."
   def set_blocks({pid, epoch}, revision, edits)
       when is_pid(pid) and is_reference(epoch) and is_integer(revision) and revision >= 0 do
@@ -168,6 +185,9 @@ defmodule Valimc.World.Region do
     do: RegionData.handle_info(message, state.resource) |> wrap(state)
 
   def handle_info({:resource, _, _}, state), do: {:noreply, state}
+
+  def handle_info({:table_request, _, _, _, _, _} = message, state),
+    do: RegionData.handle_info(message, state.resource) |> wrap(state)
 
   def handle_info({:DOWN, _, :process, _, _} = message, state),
     do: RegionData.handle_info(message, state.resource) |> wrap(state)

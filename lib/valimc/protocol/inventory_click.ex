@@ -6,7 +6,7 @@ defmodule Valimc.Protocol.InventoryClick do
   def decode(bytes) when byte_size(bytes) <= 65_536 do
     {container, bytes} = Wire.take_varint(bytes)
     {state_id, <<slot::signed-16, button::signed-8, bytes::binary>>} = Wire.take_varint(bytes)
-    check(container <= 127 and state_id <= 32767, :invalid_menu_id)
+    check(container in 0..127 and state_id in 0..32767, :invalid_menu_id)
     {action, bytes} = Wire.take_varint(bytes)
     action = ItemTypes.input(action)
     check(action != nil, :unknown_click_action)

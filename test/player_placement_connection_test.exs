@@ -314,7 +314,12 @@ defmodule Valimc.PlayerPlacementConnectionTest do
 
     try do
       send_place(client, c.target)
-      wait(fn -> :sys.get_state(pid).placement_job != nil end)
+
+      wait(fn ->
+        state = :sys.get_state(pid)
+        state.table_job != nil or state.placement_job != nil
+      end)
+
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
       {_body, client} = Client.await(client, :play, "system_chat")
       Process.sleep(275)
@@ -335,7 +340,12 @@ defmodule Valimc.PlayerPlacementConnectionTest do
 
     try do
       send_place(client, c.target)
-      wait(fn -> :sys.get_state(pid).placement_job != nil end)
+
+      wait(fn ->
+        state = :sys.get_state(pid)
+        state.table_job != nil or state.placement_job != nil
+      end)
+
       Client.send_packet(client, :play, "set_carried_item", <<1::signed-16>>)
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
       {_body, client} = Client.await(client, :play, "system_chat")
@@ -477,7 +487,12 @@ defmodule Valimc.PlayerPlacementConnectionTest do
 
     try do
       send_place(client, c.target)
-      wait(fn -> :sys.get_state(pid).placement_job != nil end)
+
+      wait(fn ->
+        state = :sys.get_state(pid)
+        state.table_job != nil or state.placement_job != nil
+      end)
+
       Client.send_packet(client, :play, "set_carried_item", <<1::signed-16>>)
       {<<1>>, client} = Client.await(client, :play, "set_held_slot")
       :sys.resume(owner)

@@ -42,6 +42,8 @@ defmodule Valimc.Connection do
     PlayerStore,
     PlayerTransfers,
     PlayerUse,
+    TableAccess,
+    TableMenu,
     TransferDelivery,
     World
   }
@@ -56,9 +58,12 @@ defmodule Valimc.Connection do
   @slab_blocks :json.decode(File.read!(@slab_tags))["minecraft:block"]["minecraft:slabs"]
                |> MapSet.new()
 
-  defguardp inventory_pending(state)
+  defguardp inventory_busy(state)
             when state.recovery != nil or state.creative_input.queued > 0 or state.use_save != nil or
+                   state.table_job != nil or
                    (state.placement_job != nil and state.placement_job.command.mode == :survival)
+
+  defguardp inventory_pending(state) when inventory_busy(state) or state.table_closing
 
   def start_link(socket), do: GenServer.start_link(__MODULE__, socket)
 
@@ -194,6 +199,12 @@ defmodule Valimc.Connection do
        placement_queue: :queue.new(),
        placement_queued: 0,
        placement_job: nil,
+       table_menu: nil,
+       table_counter: 0,
+       table_job: nil,
+       table_queue: :queue.new(),
+       table_queued: 0,
+       table_closing: false,
        life_save: nil,
        life_stage: :alive,
        respawn_requested: false,
@@ -379,6 +390,14 @@ defmodule Valimc.Connection do
   def handle_info({:DOWN, ref, :process, _, _}, %{key_job: %{monitor: ref}} = state),
     do: guard_connection(state, fn -> reject(state, "Login encryption unavailable") end)
 
+  def handle_info({:table_deadline, ref}, %{table_job: %{ref: ref}} = state),
+    do: guard_connection(state, fn -> {:noreply, fail_table_query(state)} end)
+
+  def handle_info({:table_deadline, _}, state), do: {:noreply, state}
+
+  def handle_info({:DOWN, ref, :process, _, _}, %{table_job: %{monitor: ref}} = state),
+    do: guard_connection(state, fn -> {:noreply, fail_table_query(state)} end)
+
   def handle_info(:save_player, state) do
     Process.send_after(self(), :save_player, Valimc.config(:player_save_interval_ms))
 
@@ -432,6 +451,8 @@ defmodule Valimc.Connection do
          %{state | save_ref: nil, use_save: nil}
          |> drain_creative()
          |> continue_life()
+         |> continue_table_close()
+         |> drain_table_clicks()
          |> drain_placements()}
       end)
 
@@ -486,7 +507,8 @@ defmodule Valimc.Connection do
       if snapshot.outbox != expected_outbox or
            snapshot.inventory.slots != plan.inventory.slots or
            snapshot.inventory.carried != plan.inventory.carried or
-           snapshot.inventory.selected != plan.inventory.selected,
+           snapshot.inventory.selected != plan.inventory.selected or
+           snapshot.inventory.table_inputs != plan.inventory.table_inputs,
          do: reject(state, "Inventory transfer returned inconsistent state")
 
       recovery = %{
@@ -518,6 +540,9 @@ defmodule Valimc.Connection do
 
       if recovery.mode == :death,
         do: reject(state, "Death inventory cleanup could not be committed; reconnect to recover")
+
+      if state.table_closing,
+        do: reject(state, "Table cleanup could not be committed; reconnect to recover")
 
       if recovery.mode == :login,
         do:
@@ -564,6 +589,8 @@ defmodule Valimc.Connection do
            |> drain_creative()
            |> sync_creative_result()
            |> continue_life()
+           |> continue_table_close()
+           |> drain_table_clicks()
            |> drain_placements()
        )}
     end)
@@ -925,6 +952,8 @@ defmodule Valimc.Connection do
            |> tick_item_use()
            |> tick_food()
            |> tick_mining()
+           |> continue_table_close()
+           |> check_table_menu()
            |> start_motion()
            |> sample_pose()}
 
@@ -1485,6 +1514,7 @@ defmodule Valimc.Connection do
             state
           end
 
+        state = if health.value <= 0, do: begin_table_close(state), else: state
         Players.update(self(), state.player)
 
         if selected.notify do
@@ -1939,7 +1969,7 @@ defmodule Valimc.Connection do
 
         case Inventory.select(state.inventory, slot) do
           {:ok, inventory} ->
-            if inventory_pending(state) do
+            if selection_pending?(state) do
               send_packets(state, [Packets.held_slot(state.inventory.selected)])
               resync_inventory(state)
             else
@@ -1966,7 +1996,8 @@ defmodule Valimc.Connection do
 
       "container_close" ->
         {_container, <<>>} = Wire.take_varint(payload)
-        inventory_close(state)
+        # Native close retires the current menu regardless of the supplied ID.
+        if state.table_menu, do: begin_table_close(state), else: inventory_close(state)
 
       "use_item_on" ->
         place_block(state, payload)
@@ -2351,6 +2382,13 @@ defmodule Valimc.Connection do
 
   defp relocate(state, player, reset_motion \\ true) do
     state = state |> cancel_pose_job() |> cancel_mining()
+
+    state =
+      if state.table_job && state.table_job.kind == :open,
+        do: fail_table_query(state),
+        else: state
+
+    state = begin_table_close(state)
     player = if reset_motion, do: %{player | motion: %PlayerMotion{}}, else: player
 
     if state.motion_pending && state.motion_pending.retry,
@@ -2615,6 +2653,46 @@ defmodule Valimc.Connection do
     player.pid != self() and abs(cx - px) <= d and abs(cz - pz) <= d
   end
 
+  defp event(
+         %{phase: :play, table_job: %{ref: ref, owner: owner} = job} = state,
+         {:table_admitted, ref, owner, decision}
+       ) do
+    state = cancel_table_query(state)
+
+    current =
+      System.monotonic_time(:millisecond) < job.grant.expires and
+        if(job.kind == :open,
+          do: state.player.game_mode.current == job.grant.mode,
+          else: table_signature(state) == job.signature
+        ) and
+        World.existing_owner(job.key) == {:ok, owner}
+
+    case {job.kind, decision, current} do
+      {:open, :open, true} ->
+        if state.life_stage == :alive and not state.teleport_pending and
+             PlayerInput.loaded?(state.player.input) and reachable?(state, job.position),
+           do: open_table_menu(state, job.position, owner, job.command.sequence),
+           else: acknowledge_table_use(state, job.command)
+
+      {:open, :pass, true} ->
+        execute_placement(state, job.command, job.placement)
+
+      {:open, _, _} ->
+        acknowledge_table_use(state, job.command)
+
+      {_, :valid, true} ->
+        if table_player_valid?(state) do
+          state = if job.kind == :click, do: apply_table_click(state, job.command), else: state
+          drain_table_clicks(state)
+        else
+          begin_table_close(state)
+        end
+
+      _ ->
+        begin_table_close(state)
+    end
+  end
+
   defp event(%{phase: :play} = state, {:chat, message}) do
     send_packets(state, [Packets.chat(message)])
     state
@@ -2624,13 +2702,20 @@ defmodule Valimc.Connection do
     if MapSet.member?(state.chunks, World.chunk_key(x, z)),
       do: send_packets(state, [Packets.block(pos, block)])
 
-    mining_changed(%{state | pose_generation: state.pose_generation + 1})
+    state
+    |> Map.put(:pose_generation, state.pose_generation + 1)
+    |> mining_changed()
+    |> check_table_menu()
   end
 
   defp event(%{phase: :play} = state, {:block_batch, updates}) do
     frames = for {chunk, frame} <- updates, MapSet.member?(state.chunks, chunk), do: frame
     send_frames(state, frames)
-    mining_changed(%{state | pose_generation: state.pose_generation + 1})
+
+    state
+    |> Map.put(:pose_generation, state.pose_generation + 1)
+    |> mining_changed()
+    |> check_table_menu()
   end
 
   defp event(%{phase: :play} = state, {:player_joined, player}), do: track_peer(state, player)
@@ -2821,6 +2906,10 @@ defmodule Valimc.Connection do
        do: resync_inventory(state)
 
   defp start_inventory_transfer(state, inventory, stacks, crafting) do
+    prepare_inventory_transfer(state, inventory, stacks, crafting)
+  end
+
+  defp prepare_inventory_transfer(state, inventory, stacks, crafting \\ nil) do
     # Standing preview eye height minus vanilla's float32 0.3 offset.
     # These entities remain stationary until authoritative item physics exists.
     records =
@@ -3214,6 +3303,9 @@ defmodule Valimc.Connection do
           not state.inventory.infinite_materials ->
             resync_inventory(state)
 
+          state.table_closing or state.table_job != nil ->
+            resync_inventory(state)
+
           state.recovery != nil and not creative_pending?(state) ->
             resync_inventory(state)
 
@@ -3378,9 +3470,17 @@ defmodule Valimc.Connection do
     %{state | inventory: inventory}
   end
 
+  defp resync_inventory(%{table_closing: true} = state), do: state
+
   defp resync_inventory(state) do
     inventory = state.inventory |> Inventory.cancel_drag() |> Inventory.advance()
-    send_packets(state, [Packets.inventory(inventory), Packets.cursor(inventory.carried)])
+
+    packet =
+      if state.table_menu,
+        do: Packets.table_inventory(state.table_menu.id, inventory),
+        else: Packets.inventory(inventory)
+
+    send_packets(state, [packet, Packets.cursor(inventory.carried)])
     %{state | inventory: inventory}
   end
 
@@ -3407,6 +3507,19 @@ defmodule Valimc.Connection do
 
   defp inventory_click(state, payload) do
     case InventoryClick.decode(payload) do
+      {:ok, click} when state.table_menu != nil ->
+        if click.container == state.table_menu.id do
+          if state.table_queued >= 64, do: reject(state, "Too many pending table actions")
+
+          drain_table_clicks(%{
+            state
+            | table_queue: :queue.in(click, state.table_queue),
+              table_queued: state.table_queued + 1
+          })
+        else
+          resync_inventory(state)
+        end
+
       {:ok, %{container: 0}} when inventory_pending(state) ->
         resync_inventory(state)
 
@@ -3445,42 +3558,279 @@ defmodule Valimc.Connection do
   defp place_block(state, payload) do
     case UseItemOn.decode(payload) do
       {:ok, request} ->
-        stack = Inventory.held(state.inventory, request.hand)
-
         cond do
-          not Valimc.PlayerInteraction.valid_hit?(request.position, request.cursor) or
-              not reachable?(state, request.position) ->
-            send_packets(state, [Packets.ack(request.sequence)])
-            resync_inventory(state)
+          state.table_menu != nil or inventory_pending(state) ->
+            acknowledge_table_use(state, request)
 
-          stack != nil and Valimc.Physics.Placement.supported_item?(stack.item_id) ->
-            if state.placement_queued >= 16,
-              do: reject(state, "Too many pending block interactions")
-
-            body = placement_body(state, request)
-
-            command = %{
-              request: request,
-              item: stack.item_id,
-              stack: stack,
-              slot: if(request.hand == :off, do: 45, else: 36 + state.inventory.selected),
-              mode: state.player.game_mode.current,
-              body: body,
-              expires: System.monotonic_time(:millisecond) + 250
-            }
-
-            drain_placements(%{
-              state
-              | placement_queue: :queue.in(command, state.placement_queue),
-                placement_queued: state.placement_queued + 1
-            })
+          state.life_stage == :alive and PlayerInput.loaded?(state.player.input) and
+            not state.teleport_pending and state.save_ref == nil and
+            MapSet.member?(
+              state.chunks,
+              World.chunk_key(elem(request.position, 0), elem(request.position, 2))
+            ) and
+            reachable?(state, request.position) and
+              Valimc.PlayerInteraction.valid_hit?(request.position, request.cursor) ->
+            request_table(state, :open, request.position, request)
 
           true ->
-            preview_placement(state, request, stack)
+            execute_placement(state, request)
         end
 
       {:error, _} ->
         reject(state, "Malformed block interaction")
+    end
+  end
+
+  defp table_signature(state) do
+    {state.player.game_mode.current, PlayerInput.pressed?(state.player.input, :shift),
+     Map.take(state.inventory, [
+       :slots,
+       :carried,
+       :selected,
+       :infinite_materials,
+       :table_inputs,
+       :drag
+     ])}
+  end
+
+  defp selection_pending?(
+         %{table_job: %{kind: :open}, player: %{game_mode: %{current: :creative}}} = state
+       ),
+       do: inventory_pending(%{state | table_job: nil})
+
+  defp selection_pending?(state), do: inventory_pending(state)
+
+  defp request_table(state, kind, {x, _, z} = position, command) do
+    key = World.region_key(World.chunk_key(x, z))
+    expires = System.monotonic_time(:millisecond) + 250
+
+    grant = %{
+      kind: kind,
+      mode: state.player.game_mode.current,
+      eye: Valimc.PlayerInteraction.eye(state.player),
+      expires: expires,
+      hand: if(kind == :open, do: command.hand, else: :main),
+      secondary: PlayerInput.pressed?(state.player.input, :shift),
+      main: Inventory.held(state.inventory, :main) != nil,
+      off: Inventory.held(state.inventory, :off) != nil
+    }
+
+    case World.existing_owner(key) do
+      {:ok, {pid, _} = owner} ->
+        if kind != :open and state.table_menu.owner != owner do
+          begin_table_close(state)
+        else
+          ref = make_ref()
+          monitor = Process.monitor(pid)
+          timer = Process.send_after(self(), {:table_deadline, ref}, 300)
+
+          job = %{
+            ref: ref,
+            monitor: monitor,
+            timer: timer,
+            owner: owner,
+            key: key,
+            kind: kind,
+            position: position,
+            grant: grant,
+            command: command,
+            placement: if(kind == :open, do: capture_placement(state, command)),
+            signature: table_signature(state)
+          }
+
+          state = %{state | table_job: job}
+
+          case Valimc.World.Region.request_table(owner, self(), ref, position, grant) do
+            :ok -> state
+            _ -> fail_table_query(state)
+          end
+        end
+
+      _ ->
+        if kind == :open,
+          do: acknowledge_table_use(state, command),
+          else: begin_table_close(state)
+    end
+  end
+
+  defp cancel_table_query(%{table_job: nil} = state), do: state
+
+  defp cancel_table_query(state) do
+    Process.cancel_timer(state.table_job.timer)
+    Process.demonitor(state.table_job.monitor, [:flush])
+    %{state | table_job: nil}
+  end
+
+  defp fail_table_query(%{table_job: %{kind: :open, command: command}} = state),
+    do: state |> cancel_table_query() |> acknowledge_table_use(command)
+
+  defp fail_table_query(state), do: state |> cancel_table_query() |> begin_table_close()
+
+  defp acknowledge_table_use(state, request) do
+    send_packets(state, [Packets.ack(request.sequence)])
+    resync_inventory(state)
+  end
+
+  defp open_table_menu(state, position, owner, sequence) do
+    id = rem(state.table_counter, 127) + 1
+
+    inventory =
+      %{Inventory.cancel_drag(state.inventory) | table_inputs: Tuple.duplicate(nil, 9)}
+      |> Inventory.advance()
+
+    state = state |> stop_item_use() |> cancel_mining()
+
+    send_packets(state, [
+      Packets.ack(sequence),
+      Packets.open_table(id),
+      Packets.table_inventory(id, inventory),
+      Packets.cursor(inventory.carried)
+    ])
+
+    %{
+      state
+      | inventory: inventory,
+        table_menu: %{id: id, position: position, owner: owner},
+        table_counter: id
+    }
+  end
+
+  defp table_player_valid?(%{table_menu: nil}), do: false
+
+  defp table_player_valid?(state) do
+    state.life_stage == :alive and not state.teleport_pending and
+      PlayerInput.loaded?(state.player.input) and
+      TableAccess.valid?(
+        Data.item_block(Data.item("crafting_table")),
+        state.player.game_mode.current,
+        Valimc.PlayerInteraction.eye(state.player),
+        state.table_menu.position
+      )
+  end
+
+  defp check_table_menu(%{table_menu: nil} = state), do: state
+
+  defp check_table_menu(state) do
+    cond do
+      not table_player_valid?(state) -> begin_table_close(state)
+      inventory_pending(state) or state.save_ref != nil -> state
+      state.table_queued > 0 -> drain_table_clicks(state)
+      true -> request_table(state, :check, state.table_menu.position, nil)
+    end
+  end
+
+  defp drain_table_clicks(state) when inventory_pending(state) or state.save_ref != nil, do: state
+  defp drain_table_clicks(%{table_menu: nil} = state), do: state
+
+  defp drain_table_clicks(state) do
+    case :queue.out(state.table_queue) do
+      {:empty, _} ->
+        state
+
+      {{:value, click}, queue} ->
+        state = %{state | table_queue: queue, table_queued: state.table_queued - 1}
+        request_table(state, :click, state.table_menu.position, click)
+    end
+  end
+
+  defp apply_table_click(%{player: %{game_mode: %{current: :spectator}}} = state, _),
+    do: resync_inventory(state)
+
+  defp apply_table_click(state, click) do
+    case TableMenu.plan_click(state.inventory, click.action, click.slot, click.button) do
+      {:ok, inventory, []} ->
+        send_packets(state, [
+          Packets.table_inventory(state.table_menu.id, inventory),
+          Packets.cursor(inventory.carried)
+        ])
+
+        %{state | inventory: inventory}
+
+      {:ok, inventory, [_ | _] = stacks} ->
+        crafting = if click.slot == 0, do: {click.action, click.button}
+        start_inventory_transfer(state, inventory, stacks, crafting)
+
+      {:error, _} ->
+        resync_inventory(state)
+    end
+  end
+
+  defp begin_table_close(%{table_menu: nil} = state), do: continue_table_close(state)
+
+  defp begin_table_close(state) do
+    send_packets(state, [Packets.packet("container_close", Wire.varint(state.table_menu.id))])
+    state = cancel_table_query(state)
+
+    continue_table_close(%{
+      state
+      | table_menu: nil,
+        table_closing: true,
+        table_queue: :queue.new(),
+        table_queued: 0
+    })
+  end
+
+  defp continue_table_close(%{table_closing: false} = state), do: state
+
+  defp continue_table_close(%{life_stage: stage} = state) when stage != :alive,
+    do: %{state | table_closing: false}
+
+  defp continue_table_close(state) when inventory_busy(state) or state.save_ref != nil, do: state
+
+  defp continue_table_close(state) do
+    case Inventory.close(state.inventory) do
+      {:ok, inventory, []} ->
+        resync_inventory(%{state | inventory: inventory, table_closing: false})
+
+      {:ok, inventory, [_ | _] = stacks} ->
+        prepare_inventory_transfer(state, inventory, stacks)
+
+      {:error, _} ->
+        reject(state, "Table cleanup could not be planned; reconnect to recover")
+    end
+  end
+
+  defp capture_placement(state, request) do
+    stack = Inventory.held(state.inventory, request.hand)
+
+    command =
+      if stack != nil and Valimc.Physics.Placement.supported_item?(stack.item_id) do
+        %{
+          request: request,
+          item: stack.item_id,
+          stack: stack,
+          slot: if(request.hand == :off, do: 45, else: 36 + state.inventory.selected),
+          mode: state.player.game_mode.current,
+          body: placement_body(state, request),
+          expires: System.monotonic_time(:millisecond) + 250
+        }
+      end
+
+    %{stack: stack, command: command}
+  end
+
+  defp execute_placement(state, request, captured \\ nil) do
+    captured = captured || capture_placement(state, request)
+    stack = captured.stack
+
+    cond do
+      not Valimc.PlayerInteraction.valid_hit?(request.position, request.cursor) or
+          not reachable?(state, request.position) ->
+        send_packets(state, [Packets.ack(request.sequence)])
+        resync_inventory(state)
+
+      stack != nil and Valimc.Physics.Placement.supported_item?(stack.item_id) ->
+        if state.placement_queued >= 16,
+          do: reject(state, "Too many pending block interactions")
+
+        drain_placements(%{
+          state
+          | placement_queue: :queue.in(captured.command, state.placement_queue),
+            placement_queued: state.placement_queued + 1
+        })
+
+      true ->
+        preview_placement(state, request, stack)
     end
   end
 
