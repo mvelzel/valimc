@@ -631,6 +631,37 @@ defmodule Valimc.PlayerUseConnectionTest do
     end
   end
 
+  for hand <- [:main, :off] do
+    test "fatal #{hand} drink reports the original named mainhand before its container/death cleanup",
+         ctx do
+      food = %PlayerFood{level: 10, saturation: 0.0}
+      potion = potion("harming")
+      named = if unquote(hand) == :main, do: potion, else: ItemStack.new("iron_sword")
+
+      named = %{
+        named
+        | components: Map.put(named.components, "minecraft:custom_name", {:string, "Unsafe brew"})
+      }
+
+      slots = if unquote(hand) == :main, do: %{36 => named}, else: %{36 => named, 45 => potion}
+      seed(ctx, food, 5.0, inventory: %Inventory{slots: slots})
+      {client, pid} = login(ctx, 5.0, food)
+      client = use_hand(client, pid, unquote(hand))
+      ticks(pid, 32)
+      wait(fn -> state(pid).life_stage == :dead end)
+      {body, _client} = Client.await(client, :play, "player_combat_kill")
+      {_entity, body} = Wire.take_varint(body)
+      assert {:ok, tag, <<>>} = Valimc.Protocol.NBT.take(body)
+
+      assert %Valimc.Protocol.ServerText{tag: ^tag} =
+               Valimc.PlayerDeathMessage.component(ctx.name, {:self_magic, named})
+
+      assert state(pid).inventory.slots == %{} and state(pid).player.health.value == 0.0
+      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+      assert saved.transfer_sequence == 1 and saved.outbox == nil
+    end
+  end
+
   test "a later Resistance callback cannot protect earlier instant damage in the same drink",
        ctx do
     food = %PlayerFood{}

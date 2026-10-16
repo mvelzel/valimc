@@ -1,100 +1,91 @@
 # VMC-037g — Instant Health and Instant Damage
 
-Status: Owned instant drinking implemented locally. Targeted/native checks pass;
-production/TCP/client checks and named-mainhand death text remain pending.
+Status: Owned drinking implemented locally at `f4670e6`; targeted/native,
+production/both TCP transports and focused stock/mixed/fatal client checks pass.
+Named-mainhand text is implemented locally in [VMC-004b3](VMC-004b3.md), awaiting
+its client gate. Abnormal signed-healing downstream behavior and final integration
+remain open. This ticket is not Done.
 
 Acceptance: actual healing/harming drinks apply once at completion, with native
-amounts/source and supported defenses, no persistent instant-effect icon. Keep
-health, container/count, mixed effects and fatal consumption/death recovery on the
-existing owner/checkpoint lane. Cancellation, creative/modes and reconnect must
-preserve accepted state; no separate timer or effect owner.
-
-Client: actual healing/harming and stronger drinks, cancellation, both hands,
-defenses, mixed timed effects, fatal drink/respawn and fresh reconnect without
-reapplying or duplicating the container.
+amounts/self source and supported defenses, without a persistent instant icon.
+Health, containers, mixed effects and fatal consumption/death recovery share the
+existing owner/checkpoint lane. Cancellation, creative and reconnect preserve
+accepted state. Client checks include both hands, defenses, mixed ordering,
+fatal drinks, translated item text/hover, Respawn and fresh reconnect.
 
 Pinned26.3: `PotionContents.applyToLivingEntity/onConsume`,
-`HealOrHarmMobEffect.applyInstantaneousEffect/applyEffectTick`,
-`InstantaneousMobEffect`, existing health/defense and durable consumption code.
-Private bytecode: `.local/instant-{PotionContents,HealOrHarmMobEffect,InstantaneousMobEffect}.javap`.
-Player drinking attributes its harmful magic to the drinking player. Do not
-silently reuse the no-attacker periodic poison source. JVM signed shift/wrap and
-negative high-amplifier healing requests need explicit proof before live handling.
+`HealOrHarmMobEffect.applyInstantaneousEffect`, `LivingEntity.heal/setHealth`,
+`DamageSource.getLocalizedDeathMessage`, item display/data codecs and existing
+health/defense/consumption references. Jar SHA1
+`33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c`. Original probes are public;
+bytecode/fixtures remain ignored under `.local/instant-*` and `.local/item-hover-*`.
 
-First slice intercepts native drink health requests only, including all256
-amplifiers and custom duration/scale inputs. It cannot prove downstream health,
-armor, death text, inventory durability or actual-client behavior.
+## Native foundations
 
-October16: original `InstantDrinkOracle` invokes actual
-`PotionContents.applyToLivingEntity` on a controlled player/server-level context;
-only heal/hurt endpoints are intercepted.10,240 cases cover both effects, all256
-amplifiers, infinite/zero/finite/maximum durations and four duration scales. Amounts
-match exactly and harmful sources retain both direct/causing self attribution.
-`InstantEffect.drink_request/2` reproduces signed32 shifts and the native
-double-to-int-to-float request. Duration scaling does not change instant strength.
-Three boundary checks pass. The first comparison exposed Gson's short Float
-decimal representation at high magnitudes; the probe now writes promoted doubles
-so comparisons retain the actual native float bits. Evidence:
-`.local/instant-drinks-{native-final,native-check-final,targeted-final}.log`.
-Negative/zero requests remain requests only; full native downstream consequences
-and durable consumption/death composition still need implementation.
+- `cc3dfa5`:10,240 actual drink requests, both effects/all256 amplifiers/five
+  durations/four duration scales. Signed32 shifts/wrap and double-to-int-to-float
+  amounts match. Duration scaling does not change instant strength. Harm uses
+  self-attributed indirect_magic; its direct and causing entities are the player.
+  Probe float observations use promoted doubles to retain actual float bits.
+- `bc518fe`:32 native self-magic event contexts and24 plain-hand death/chat
+  components;80 independently encoded packets native-decode correctly. Names
+  occur twice; a custom mainhand name selects the item template, item-name alone
+  does not. Named-item details and proofs are in VMC-004b3.
+- `303f233`:195 actual native heal/setHealth transitions using the real health
+  accessor and controlled maximum. Signed/zero/subnormal/huge requests clamp;
+  dead health does not revive. This proves raw health, not abnormal death handling.
+- `f4670e6`:33,280 native self-magic defenses, including0/6/12 damage, all43
+  enchantments, wrong-slot/stored negatives, caps and ResistanceII. Finite results,
+  no armor wear/exhaustion and bounded overflow follow the existing defense lane.
 
-Self-attribution protocol foundation: `SelfMagicOracle` uses actual native
-DamageSource death messages and the entity/source damage-event constructor.32
-fixtures cover four entity-ID boundaries, two names and empty/stock/custom-named/
-item-name-only mainhands. Elixir self-magic events retain both source entity IDs;
-24 plain-mainhand messages include the player twice. All80 independently encoded
-event/death/chat packets native-decode to the expected messages. Six affected
-packet/request checks pass. Evidence: `.local/self-magic-{native-final,check,decode,targeted}.log`.
+Raw: `.local/instant-drinks-{native-final,native-check-final,targeted-final}.log`,
+`.local/self-magic-{native-final,check,decode,targeted}.log`,
+`.local/healing-{native-final,native-check-final,targeted-final}.log`,
+`.local/instant-{damage-protection,resisted-damage}-{native,check}-final.log`.
 
-Named mainhands select `death.attack.indirectMagic.item` and include the actual
-styled item/hover component; item-name alone does not. This named-item message is
-observed but not yet implemented. Capture the original mainhand before replacing
-the consumed container, including when drinking offhand. The new event/template
-helpers are unwired; instant drinking still remains unsupported.
+## Owned composition and verification
 
-Signed healing foundation: `PlayerHealth.heal/2` matches195 actual native
-`LivingEntity.heal/setHealth` transitions, using the real synchronized health
-accessor with a controlled maximum and unrelated notifications suppressed. Zero,
-subnormal, ordinary, maximum, negative and signed instant requests clamp correctly;
-dead players do not revive. The initial probe tried an incomplete whole-entity
-builder; it now constructs only the real health accessor required by this method.
-44 affected health/request/consumption checks pass(seed946132), including corrected
-Night Vision fixture lookup (the prior numeric15 was another unsupported effect).
-Evidence: `.local/healing-{native-final,native-check-final,targeted-final}.log`.
-This helper is not yet wired into instant consumption or death adjudication.
+`PlayerConsumption` plans inventory/container, nutrition, timed effects and instant
+callbacks in delivery order without I/O. `PlayerDamage` shares owned immunity,
+armor, Resistance and Protection. One final snapshot queues before publication;
+fatal consumption waits for its acknowledgement before the death/drop journal.
+No extra owner/timer/replay callback or second effect authority. Original mainhand
+is retained before container replacement. Instant effects never enter timed maps.
 
-Larger block integration is frozen at `cc3dfa5` (961 unchanged source blobs):1,330
-full tests and production pass with four BEAM schedulers; full native integration
-is running independently (`.local/effects-integration-{full-tests,production,full-native}.log`).
-That checkpoint contains movement effects and instant request math, before the
-later self-magic and signed-healing helpers; their targeted proofs remain separate.
+113 affected checks pass(seed230653): cancel/full/creative/offhand drinks, source
+IDs, ordered defenses/hurt windows and a stalled fatal drink followed by healing.
+The zero-health+bottle snapshot precedes exactly one durable drop; reconnect
+retains source1/drop without revival or reapplication. Earlier damage refactor
+passes103 regressions. Raw `.local/instant-consumption-targeted-order.log` and
+`.local/damage-resolution-targeted.log`. Frozen `f4670e6` production/both native
+TCP transports pass: `.local/instant-consumption-live-{production,native-tcp}.log`.
 
-Owned composition: `PlayerConsumption` plans nutrition, inventory/container, timed
-effects and instant health requests in delivery order without I/O. `PlayerDamage`
-shares the existing owned immunity/armor/Resistance/Protection calculation. Queue
-one final snapshot before any publication/death work; fatal consumption waits for
-that acknowledgement before its existing death/drop journal can run. No separate
-process, timer, replay callback or second authoritative effect map. Original
-mainhand context is captured before replacing containers. Instant effects never
-enter the saved timed-effect map or show persistent icons.
+October16 actual26.3/protocol777 PASS within focused stock scope; primary reviewed
+`.local/client-tests/VMC-037g/report.md` once. Actual harm/heal20→14→18,
+offhand strong harm18→6, strong heal6→14→20 clamp; cancellation/full-food,
+creative harm and unsupported InstantHealth+NightVision16 refusal pass.
+Four ProtectionIV pieces+ResistanceI reduce6→1.728 damage without wear; FR alone
+does not help. Actual Resistance-before-harm deals4.8, reversed order deals6;
+milk removes the timed head. Fresh Quick Play retains health/bottle/timed status,
+without instant replay. One isolated stock fatal drink shows the self-magic death
+message, actual Respawn and one durable bottle. A later healing callback after
+fatal harm does not revive. Defense acquisition and item provisioning use fixtures;
+actual use, health changes and Respawn are GUI actions, with no repeated healing
+fixtures masking damage. No precise tick timing or abnormal-dose claim.
 
-33,280 actual self-attributed indirect-magic/gear cases pass, including0/6/12 damage,
-all43 enchantments, stored/wrong-slot negatives, caps and ResistanceII. Exact finite
-results, source exhaustion/no armor wear and the existing bounded overflow rule
-hold.113 affected checks pass(seed230653): cancel/full healing, creative stronger
-healing, offhand stronger harming/event source IDs, callback order/hurt windows,
-later Resistance exclusion and a stalled fatal drink followed by healing. Its
-zero-health+bottle checkpoint precedes one durable drop; reconnect retains one
-bottle/source1 without revival or reapplication. An initial test incorrectly read
-the source counter from Inventory rather than the persisted snapshot; corrected.
-The existing damage-only refactor also passed103 owner regressions before live
-consumption changes. Raw evidence:
-`.local/instant-{damage-protection,resisted-damage}-{native,check}-final.log`,
-`.local/instant-consumption-targeted-order.log`, `.local/damage-resolution-targeted.log`.
+Both wrappers/JVMs stopped; zero connections, seven regions+clock flush:ok,
+server49581 exit0 without gameplay errors.967 frozen blobs remain unchanged.
+Whole dataset `/tmp/valimc-instant-consumption-live-client-20261016` retains20HP,
+empty inventory/effects, source55/outboxnil, region0,0receipt55 and1,1receipt54,
+each with its one bottle. Earlier receipt histories stay intact. Cleanup/proof:
+`.local/instant-consumption-live-cleanup.log`, `.local/instant-consumption-publication-proof.json`.
 
-Pending: named-mainhand styled item/hover death messages, production/native TCP,
-actual stock/mixed/fatal drinks and final integration. Negative high-amplifier
-healing clamps to zero and enters the owned death lifecycle with a generic cause;
+Larger-block `cc3dfa5` passes1,330 full tests/production/full native integration,
+including plaintext/AES-CFB8 TCP, session69595 exit0. That release includes movement
+effects and instant request math, before later self-magic/healing/live composition.
+Raw `.local/effects-integration-{full-tests,production,full-native}.log`.
+
+Pending: named-item client gate and final integration. Negative high-amplifier
+healing currently clamps to zero and enters owned death with a generic cause;
 native raw healing is proved, but native downstream death/statistics behavior for
-that abnormal request is not yet established. Do not call this ticket complete.
+that abnormal request remains unproved. Resolve this before calling037g complete.

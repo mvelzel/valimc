@@ -21,7 +21,7 @@ defmodule Valimc.Protocol.NBT do
   @integers %{byte: 1, short: 2, int: 4, long: 8}
   @floats %{float: 4, double: 8}
   @arrays %{byte_array: 1, int_array: 4, long_array: 8}
-  @budget {65_536, 1024}
+  @budget {65_536, 1024, 32}
   @four_byte_prefixes [<<0xF0>>, <<0xF1>>, <<0xF2>>, <<0xF3>>, <<0xF4>>]
 
   def take(bytes) do
@@ -45,10 +45,15 @@ defmodule Valimc.Protocol.NBT do
     end
   end
 
-  def encode({type, value}) do
+  def encode(tag), do: encode(tag, @budget)
+
+  @doc "Bounded outbound composition of admitted item/text data; never an input decoder."
+  def encode_server_component(tag), do: encode(tag, {262_144, 8192, 64})
+
+  defp encode({type, value}, limits) do
     id = @ids[type]
     check(id != nil, :unknown_nbt_tag)
-    {prefix, budget} = emit(<<id>>, @budget)
+    {prefix, budget} = emit(<<id>>, limits)
     {payload, _} = write(type, value, budget, 0)
     [prefix, payload]
   end
@@ -64,6 +69,24 @@ defmodule Valimc.Protocol.NBT do
 
   def float(value), do: {:float, <<value::float-32>>}
   def double(value), do: {:double, <<value::float-64>>}
+
+  @doc "Typed sequence with native empty-name wrappers for mixed primitive/compound entries."
+  def list([]), do: {:list, {:end, []}}
+
+  def list(tags) do
+    case Enum.uniq(Enum.map(tags, &elem(&1, 0))) do
+      [type] ->
+        {:list, {type, Enum.map(tags, &elem(&1, 1))}}
+
+      _ ->
+        {:list,
+         {:compound,
+          Enum.map(tags, fn
+            {:compound, fields} -> fields
+            tag -> %{"" => tag}
+          end)}}
+    end
+  end
 
   @doc "Typed NBT comparison bytes: Mojang NaN equality, cached numeric zero and empty-list equality."
   def identity_key({type, value} = tag) do
@@ -275,23 +298,23 @@ defmodule Valimc.Protocol.NBT do
 
   defp units(_, _), do: throw({:nbt_error, :invalid_nbt_utf})
 
-  defp cut(bytes, size, {left, nodes}) do
+  defp cut(bytes, size, {left, nodes, depth}) do
     check(size <= left, :nbt_byte_limit)
     check(size <= byte_size(bytes), :truncated_nbt)
     <<value::binary-size(^size), rest::binary>> = bytes
-    {value, rest, {left - size, nodes}}
+    {value, rest, {left - size, nodes, depth}}
   end
 
-  defp emit(data, {left, nodes}) do
+  defp emit(data, {left, nodes, depth}) do
     size = IO.iodata_length(data)
     check(size <= left, :nbt_byte_limit)
-    {data, {left - size, nodes}}
+    {data, {left - size, nodes, depth}}
   end
 
-  defp node({bytes, nodes}, depth) do
-    check(depth <= 32, :nbt_depth_limit)
+  defp node({bytes, nodes, limit}, depth) do
+    check(depth <= limit, :nbt_depth_limit)
     check(nodes > 0, :nbt_node_limit)
-    {bytes, nodes - 1}
+    {bytes, nodes - 1, limit}
   end
 
   defp retain(bytes),

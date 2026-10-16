@@ -1783,12 +1783,6 @@ defmodule Valimc.Connection do
   end
 
   defp death_notice(state, announce, source \\ :fall) do
-    source =
-      case source do
-        {:self_magic, _mainhand} -> :self_magic
-        source -> source
-      end
-
     message =
       Valimc.PlayerDeathMessage.component(
         state.player.name,

@@ -21,5 +21,9 @@ defmodule Valimc.Protocol.PotionTypes do
   def valid_id?(id), do: is_integer(id) and id >= 0 and id < tuple_size(@potions)
   def id("minecraft:" <> _ = name), do: Map.fetch!(@ids, name)
   def id(name) when is_binary(name), do: id("minecraft:" <> name)
+
+  def name(id) when is_integer(id) and id >= 0 and id < tuple_size(@potions),
+    do: elem(@potions, id)["name"]
+
   def effects(id), do: Map.fetch!(@effects, id)
 end

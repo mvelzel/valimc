@@ -1,8 +1,9 @@
 # VMC-037f — Speed and Slowness
 
-Status: Native foundation `742a37e`, live composition `285d983`. Targeted/native
-TCP/production and all focused actual-client groups pass. Larger-block native
-integration remains running; keep this block local until it passes.
+Status: Done within scope.
+
+Native foundation `742a37e`, live composition `285d983`; published through
+`285d983`. Targeted/full/native TCP/production and actual-client gates pass.
 
 Acceptance: native movement-speed modifiers and clamping, active amplifiers,
 expiry/promotion/removal, sprint composition and reconnect. Send authoritative
@@ -79,5 +80,7 @@ Primary server log review found no gameplay errors; server73547 stopped exit0.
 Final whole dataset retains15.8HP, empty effects, one offhand bottle, food10,
 source/receipt53 and outboxnil. Cleanup: `.local/movement-effects-live-cleanup.log`.
 No claim for complete ground authority/custom gear/Depth Strider or every stock
-variant. Larger-block `cc3dfa5` passes1,330 full tests/build; native integration is
-still running independently.
+variant. Larger-block `cc3dfa5` passes1,330 full tests, production and full native
+integration, including plaintext/AES-CFB8 TCP (session69595 exit0). Raw evidence:
+`.local/effects-integration-{full-tests,production,full-native}.log`. All gates for
+this movement-effect slice pass; later instant-consumption work is excluded.

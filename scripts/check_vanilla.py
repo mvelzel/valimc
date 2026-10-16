@@ -293,6 +293,11 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'SelfMagicOracle', self_magic], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_self_magic.exs', self_magic, self_magic_elixir], cwd=root, check=True)
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'SelfMagicOracle', 'verify', self_magic_elixir], cwd=root, check=True)
+    item_hover = str(pathlib.Path(world) / 'item-hover.json')
+    item_hover_elixir = str(pathlib.Path(world) / 'item-hover-elixir.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemHoverOracle', item_hover], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_item_hover.exs', item_hover, item_hover_elixir], cwd=root, check=True)
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemHoverOracle', 'verify', item_hover_elixir], cwd=root, check=True)
     for source_matrix in ['environment', 'hazards', 'effects', 'instant']:
         resisted = str(pathlib.Path(world) / ('resisted-' + source_matrix + '.json'))
         subprocess.run([sys.executable, 'scripts/java_tool.py', 'DamageProtectionOracle', resisted, source_matrix, '1'], cwd=root, check=True)

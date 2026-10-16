@@ -57,6 +57,9 @@ defmodule Valimc.Protocol.Wire do
     do: {{x, y, z}, rest}
 
   # Network NBT has an unnamed root in current Java versions.
+  def text_component(%Valimc.Protocol.ServerText{} = component),
+    do: Valimc.Protocol.ServerText.encode(component)
+
   def text_component(text) when is_binary(text),
     do: Valimc.Protocol.NBT.encode({:compound, %{"text" => {:string, text}}})
 

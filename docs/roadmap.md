@@ -30,15 +30,16 @@ negatives/reconnect. Retrieve tickets for scope and source/receipt53 evidence.
 contexts,116,320 composed cases,106 affected checks,1,321 full tests/production,
 both native TCP transports and actual falls/contact/gear/drinks/promotion/expiry/
 milk/starvation exclusion/reconnect. Whole source/receipt53 retained.
-**Implementing:** [Speed/Slowness](tickets/VMC-037f.md),132,098 native attribute
-contexts and seven foundation checks pass. Live attributes/drinks/Turtle Master
-now pass63 affected checks, production/both native TCP transports at `285d983`;
-all focused actual-client groups pass. Larger-block `cc3dfa5` passes1,330 full
-tests/build; full native integration remains running before publication.
-**Implementing:** [instant healing/harming](tickets/VMC-037g.md),10,240 native
-requests/33,280 self-magic defenses and113 affected checks pass. Owned ordered
-consumption/fatal checkpoint/recovery is implemented locally; named-item death
-text, production/TCP/client checks remain. Retrieve the ticket for abnormal-dose limits.
+**Done within scope:** [Speed/Slowness and Turtle Master](tickets/VMC-037f.md) at
+`285d983`:132,098 native attributes,63 affected checks, production/both native TCP
+transports and actual drinks/walking/promotion/expiry/milk/fall/reconnect. Larger
+`cc3dfa5` integration passes1,330 full tests, production and full native/TCP checks.
+**Implementing:** [instant healing/harming](tickets/VMC-037g.md): owned ordered
+consumption/fatal recovery at `f4670e6` passes113 affected checks, production/both
+TCP transports and focused actual stock/mixed/fatal drinks/reconnect. Named-item
+text/hover [VMC-004b3](tickets/VMC-004b3.md) passes344 native contexts/688 packets
+and78 affected checks locally; its client gate, abnormal signed-healing downstream
+behavior and final integration remain.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
