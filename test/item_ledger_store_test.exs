@@ -5,7 +5,7 @@ defmodule Valimc.ItemLedgerStoreTest do
   alias Valimc.World
   alias Valimc.World.{ItemLedger, Items, MiningRecord, Region, Store}
 
-  setup do
+  setup tags do
     nonce = System.unique_integer([:positive])
     key = {20_000 + rem(nonce, 10_000), 600}
     {rx, rz} = key
@@ -38,6 +38,12 @@ defmodule Valimc.ItemLedgerStoreTest do
     }
 
     receipts = %{<<71::128>> => %{sequence: 3, digest: <<33::256>>}}
+
+    receipts =
+      if Map.get(tags, :receipt_reservation, false),
+        do: Map.put(receipts, <<72::128>>, %{sequence: 0, digest: <<0::256>>}),
+        else: receipts
+
     {:ok, bytes} = ItemLedger.encode(key, [record], receipts, ledger)
     path = Store.item_path(base, key)
     File.write!(path, bytes)
@@ -80,6 +86,31 @@ defmodule Valimc.ItemLedgerStoreTest do
     assert_receive {:DOWN, ^monitor, :process, ^pid, _}, 1500
     assert {:ok, owner} = World.item_owner(key)
     owner
+  end
+
+  @tag receipt_reservation: true
+  test "reserved source capacity survives critical writes and owner recovery before a first transfer",
+       ctx do
+    {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
+    assert :sys.get_state(pid).resource.item_receipts == ctx.receipts
+    {:ok, handle} = Region.find_item(owner, ctx.record.uuid)
+    assert {:ok, _} = Region.replace_item(handle, %{ctx.record.stack | count: 4})
+    assert hd(disk(ctx).records).stack.count == 4
+    owner = restart(pid, ctx.key, :kill)
+    assert :sys.get_state(elem(owner, 0)).resource.item_receipts == ctx.receipts
+    born = %{ctx.record | uuid: <<3::128>>}
+
+    assert {:ok, :applied} =
+             Region.apply_item_transfer(owner, %{
+               source: <<72::128>>,
+               sequence: 1,
+               records: [born]
+             })
+
+    {:ok, saved} = ItemLedger.decode(File.read!(ctx.path), ctx.key)
+    assert saved.receipts[<<72::128>>].sequence == 1
+    assert saved.receipts[<<71::128>>] == ctx.receipts[<<71::128>>]
+    assert saved.ledger == ctx.ledger
   end
 
   test "ordinary motion, critical edits and owner replacement retain every ledger component",

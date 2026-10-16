@@ -58,3 +58,13 @@ placement/mining/drop snapshots and no second grant. Runtime activation follows.
 Admission must reserve receipt capacity for new source UUIDs through terminal
 commit, including rejection; other transfer kinds must respect those reservations.
 Otherwise a filled receipt table could strand a persisted player intent.
+
+Receipt-capacity foundation: a new player's slot can be durably reserved using
+sequence0/digest0 in the existing bounded receipt layout. It acknowledges no
+positive transfer, never replaces an existing high-water mark, and survives writer/
+owner recovery. Normal transfers count the slot and can advance it to terminal
+proof even when all4096 slots are occupied. Other zero-sequence digests remain
+invalid; positive legacy bytes remain unchanged.30 affected checks pass
+(seed684312), `.local/pickup-receipt-reservation-targeted.log`, including actual
+critical write/kill/reload/first-delivery. Live admission must persist the slot
+before issuing its expiring contact permit; that composition remains open.
