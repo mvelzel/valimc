@@ -9,21 +9,15 @@ indexes validated tickets. None imply full parity.
 
 ## Priority
 
-Current: **[owned status effects](tickets/VMC-037a.md)**. Duration/refresh and packet
-foundations are **Done within kernel scope**:50,433 native traces,40 effect IDs,
-61,600 packets and actual baseline at `9fce29f`. Local bounded map/source-immunity
-kernels match129/306 native cases and9 affected tests. Optional v18 effect persistence
-passes62 affected recovery/boundary checks. Live
-[ownership/clock and Fire Resistance](tickets/VMC-037a1.md) passes34 affected tests,
-129 native callback traces,1,265 full tests/production and actual-client hazard/
-expiry/promotion/reconnect/respawn checks and full native integration at `d7e688c`.
-Matched preview loads remain. [Potion contents/delivery](tickets/VMC-037b.md) now
-matches481 native stacks,4,329 scaled deliveries and18,578 identity pairs. Live
-Fire Resistance drinking/bottles and owned final saves pass91 affected checks,
-1,276 full tests/production and native TCP at `82dd108`. Actual air-targeted drinks/
-expiry/creative/reconnect pass; ground-targeted drinking failed. The ordering fix
-passes53 use/table/placement checks; native TCP/build and focused GUI retest follow.
-Keep pending work local.
+**Done:** [status foundations](tickets/VMC-037a.md),
+[owned Fire Resistance](tickets/VMC-037a1.md) and
+[supported potion drinking](tickets/VMC-037b.md), accepted at `fa0b320`. Native
+state/codec proofs,1,276 full tests/build, later53 affected checks/native TCP/build
+and actual contacts, drinks, expiry, negatives, creative, death/respawn and reconnect
+pass. The ground-target drinking failure was fixed and retested. Six matched128/512
+water samples pass; retain dense login variance and older admission findings.
+Next: breathing effects/air ordering, then remaining status/consumption behavior.
+Keep new work local until its own client gate passes; retrieve evidence in tickets.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

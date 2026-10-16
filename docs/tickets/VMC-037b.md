@@ -1,7 +1,7 @@
 # VMC-037b — Potion contents and delivery
 
-Status: Native/automated and actual air-targeted drinking pass. Ground-targeted
-drinking failed in the client; ordering fix passes affected checks, retest pending.
+Status: **Done within contents/delivery and supported Fire Resistance drinking
+scope**, accepted at `fa0b320`. Other effect behaviors/brewing/projectiles remain.
 
 Acceptance: bounded native potion contents, effective stack identity and duration
 scaling preserve stock/custom values through both stack formats and journals.
@@ -85,4 +85,35 @@ owner clocks stay responsive; clearing the admission resumes the drain. No new
 queue/process/timer.53 affected use/table/placement checks pass(seed172851), including
 unavailable-owner timeout and ordinary consumption. Evidence:
 `.local/potion-block-use-{repro,targeted-final}.log`. Graphical ground-target retest
-and native TCP/build follow before publication.
+and native TCP/build acceptance follow below.
+
+Final `fa0b320` production and both native TCP transports pass:
+`.local/potion-block-use-{production,native-tcp}.log`. October16 focused actual
+client **PASS**: same ground targeting now supports cancellation, full custom/main
+and long/offhand drinks, actual magma immunity then genuine finite expiry/damage/
+wear, water/effectless drinks, bread, unsupported Water Breathing refusal and fresh
+effect/bottle reconnect. The native32→4-tick use prefix and400-tick grant also appear
+in owned observations. This closes the82dd failure without substituting air aim.
+Reviewed dedicated report `.local/client-tests/VMC-037b-ground/report.md`; both
+JVMs stopped, zero connections, regions/clock flushed and server stopped cleanly.
+Source50/outboxnil and region0,0 receipt50 remain equal; old drops aged naturally.
+Saved9030-tick effect and one offhand bottle remain in the disposable dataset.
+
+Matched preview measurements,9f→fa0: five-second static-water creative workloads,
+identical load/server driver hashes,912/930 frozen source blobs checked before runs.
+Native jobs, compilers, production servers and graphical clients were stopped.
+Every sample passes with zero corrections/disconnects and verified final positions.
+Raw workloads/results/manifests: `.local/potion-live-loads/`, driver
+`.local/run_potion_loads.py`; original samples retained with the reverse dense pair.
+
+| Layout | Baseline/candidate elapsed s | Baseline/candidate MiB | Baseline/candidate login p95 ms |
+|---|---|---|---|
+| Dense128 |5.753/5.482|135.78/149.46|94.50/174.31|
+| Spread512 |5.107/5.101|311.85/315.73|78.50/80.45|
+| Dense128 reverse pair |5.283/6.314|142.17/137.60|75.92/85.23|
+
+Dense login is slower in both samples, with varying magnitude; memory direction
+reverses. Retain this profiling finding. These are sparse preview samples, not an
+active-potion/hazard workload, survival capacity or cross-server speed comparison.
+Earlier512 worker-admission/host-load failures remain recorded in VMC-017b5; current
+passes do not establish stable512 capacity. No fastest-server or improvement claim.

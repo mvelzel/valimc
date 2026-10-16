@@ -5,8 +5,10 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-037b supported potions](../tickets/VMC-037b.md) | `81ebb4f`/`82dd108`/`fa0b320`:481 native stacks/4,329 deliveries/18,578 identities,1,276 full tests/build,53 ordering regressions/native TCP and actual ground/both-hand drinks, expiry, bottles, negatives, creative and reconnect; measured preview limits retained |
+| [VMC-037a1 owned Fire Resistance](../tickets/VMC-037a1.md) | `d7e688c`→`fa0b320`: owner clock/immunity, suppressed state/v18 snapshots, native full integration and actual icons/contacts/gear/expiry/promotion/removal/death/respawn/reconnect; quiet-clock final saves corrected |
 | [VMC-017b5 player contacts](../tickets/VMC-017b5.md) | `8fbe510`/`9fce29f`: magma/campfire/cactus/berries, ordered owned damage/gear/death, full native TCP,1,253 tests/build and actual contacts/negatives/wear/death/respawn/reconnect; matched preview limits retained |
-| [VMC-037a duration/wire foundations](../tickets/VMC-037a.md) | `639cb46`/`5ed7eb9`:50,433 native state traces,40 effect IDs/61,600 packets,1,253 full tests/build and actual baseline at `9fce29f`; no live status effects |
+| [VMC-037a status foundations](../tickets/VMC-037a.md) | duration/wire/map/immunity/v18 persistence:50,433 traces,40 IDs/61,600 packets,129/306 map/source contexts and62 recovery checks; live baseline/integration accepted in037a1/037b |
 | [VMC-017b4c](../tickets/VMC-017b4c.md) | `7423e59`: fenced indexed roof/sky/plains-rain extinction, native/full TCP,1,238 tests/build and actual shelter/exposure/water/reconnect;512-player deadline finding retained |
 | [VMC-017b5 foundations](../tickets/VMC-017b5.md) | `9a7179a`: bounded native hazard requests/gear immunity/armor defenses,1,245 full tests/build and actual baseline/fire/armor regression; live acceptance above |
 | [VMC-017b4b](../tickets/VMC-017b4b.md) | `f0aa671`: ordered native fire/soul/lava/water paths,1,219 full tests/native TCP/production, matched128/512 water loads and actual entry/exit/gear/modes/water/reconnect/death/respawn; rain/effects remain |

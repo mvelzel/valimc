@@ -1,7 +1,8 @@
 # VMC-037a — Owned status-effect state
 
-Status: Duration/replacement(`639cb46`) and wire(`5ed7eb9`) foundations **Done within
-kernel scope**, with baseline below. No live effects yet.
+Status: Duration, map, wire, immunity and persistence foundations **Done within
+their stated scopes**. [Owned Fire Resistance](VMC-037a1.md) and
+[supported potion drinking](VMC-037b.md) are accepted at `fa0b320`.
 
 Acceptance: bounded immutable effect state supports native stronger/weaker refresh,
 hidden effects, finite/infinite durations and flags. Keep one effect map on the
@@ -39,15 +40,15 @@ table. `EffectTypes` indexes their scalar identities; `Packets` validates IDs/st
 before encoding. Eight affected checks cover malformed inputs and existing lifecycle
 packets. Original `StatusEffectPacketOracle`; evidence:
 `.local/status-effect-packets-{native,native-check,native-decode,targeted}.log`.
-No live status packet is emitted yet.
+This wire checkpoint alone emits no live status packets.
 
 October16 baseline **PASS**, frozen `9fce29f`: actual join/terrain, walking, `/stats`,
 inventory, death/Respawn and a fresh reconnect. Dedicated report reviewed:
 `.local/client-tests/VMC-017b5-message/report.md`. This release contains both unused
 foundations; no live effect icon/immunity is claimed.1,253 full tests(seed554870)
 and production pass; native duration/packet checks above cover these additions
-separately from the earlier `8fbe510` full native run. Next: bounded player map,
-source immunity and atomic owner persistence, followed by live Fire Resistance.
+separately from the earlier `8fbe510` full native run. The map, persistence and live
+composition below supersede that checkpoint's limited baseline.
 
 Local map/immunity foundation: `PlayerEffects` keeps at most40 catalog entries with
 bounded suppression chains.129 actual `LivingEntity.addEffect/removeEffect/tickEffects`
@@ -60,8 +61,8 @@ Fire Resistance presence(including zero duration until removed) blocks eight fir
 sources before downstream health/wear; unrelated effects and non-fire sources do not.
 Nine affected checks pass(seed108479), including full40×256 bounds and malformed
 maps. Evidence: `.local/player-effect-map-{native,native-check,targeted}.log`,
-`.local/status-damage-{native,native-check,targeted}.log`. Neither kernel is live;
-baseline remains pending before publication. Next: bounded snapshot codec/ownership.
+`.local/status-damage-{native,native-check,targeted}.log`. Live baseline and
+integration acceptance are recorded in VMC-037a1, including actual source negatives.
 
 Snapshot foundation: optional v18 wraps existing journals under one checksum, with
 a canonical61,561-byte maximum effect payload(40 IDs×256 rungs). Legacy snapshots
@@ -71,5 +72,6 @@ requests, counters and receipts are unchanged. Disconnect-close and transfer cle
 also retain the newest effect state.62 affected checks pass(seed255828), including
 the late-state close/rejection/death regression. Malformed counts,
 IDs/chains/flags, truncation, recursive wrappers and wrong UUIDs refuse. Evidence:
-`.local/player-effect-snapshot-targeted-final.log`. No live owner restoration,
-clock or icon yet; combine the pending baseline with live composition.
+`.local/player-effect-snapshot-targeted-final.log`. Owned restoration/clock/icon and
+quiet-clock final-save acceptance are recorded in VMC-037a1/037b. These foundations
+are complete; remaining effect behavior is separate work, not a pending gate here.
