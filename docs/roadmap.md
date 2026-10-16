@@ -16,11 +16,13 @@ kernels match129/306 native cases and9 affected tests. Optional v18 effect persi
 passes62 affected recovery/boundary checks. Live
 [ownership/clock and Fire Resistance](tickets/VMC-037a1.md) passes34 affected tests,
 129 native callback traces,1,265 full tests/production and actual-client hazard/
-expiry/promotion/reconnect/respawn checks at `d7e688c`. Full native integration and
-matched preview loads remain. [Potion contents/delivery](tickets/VMC-037b.md) now
+expiry/promotion/reconnect/respawn checks and full native integration at `d7e688c`.
+Matched preview loads remain. [Potion contents/delivery](tickets/VMC-037b.md) now
 matches481 native stacks,4,329 scaled deliveries and18,578 identity pairs. Live
-Fire Resistance drinking/bottles and owned final saves pass91 affected checks;
-integration/build and actual-client validation follow.
+Fire Resistance drinking/bottles and owned final saves pass91 affected checks,
+1,276 full tests/production and native TCP at `82dd108`. Actual air-targeted drinks/
+expiry/creative/reconnect pass; ground-targeted drinking failed. The ordering fix
+passes53 use/table/placement checks; native TCP/build and focused GUI retest follow.
 Keep pending work local.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),

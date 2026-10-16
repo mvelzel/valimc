@@ -60,6 +60,7 @@ defmodule Valimc.Connection do
   import Bitwise
   @basic_mining Enum.map(~w(stone dirt grass_block cobblestone oak_planks glass), &Data.block/1)
   @fire_resistance EffectTypes.id("fire_resistance")
+  @use_item_packet Data.id(:play, :serverbound, "use_item")
   @slab_tags Path.expand("../../priv/protocol/tags.json", __DIR__)
   @external_resource @slab_tags
   @slab_blocks :json.decode(File.read!(@slab_tags))["minecraft:block"]["minecraft:slabs"]
@@ -1227,6 +1228,13 @@ defmodule Valimc.Connection do
 
       {:error, _} ->
         reject(state, "Malformed packet")
+
+      # Preserve the client's fallback until its preceding block-use decision.
+      # Earlier chat/control frames and owner clocks remain responsive. The
+      # bounded receive buffer holds this frame until admission/deadline drains it.
+      {:ok, @use_item_packet, _, _}
+      when state.phase == :play and state.table_job != nil and state.table_job.kind == :open ->
+        {:noreply, state}
 
       {:ok, id, payload, tail} ->
         state = reset_window(state)
@@ -4107,6 +4115,7 @@ defmodule Valimc.Connection do
   defp cancel_table_query(state) do
     Process.cancel_timer(state.table_job.timer)
     Process.demonitor(state.table_job.monitor, [:flush])
+    if state.table_job.kind == :open, do: send(self(), :drain)
     %{state | table_job: nil}
   end
 

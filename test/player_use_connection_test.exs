@@ -11,7 +11,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     PlayerStore
   }
 
-  alias Valimc.Protocol.{ItemStack, PotionContents, PotionTypes, Wire}
+  alias Valimc.Protocol.{Data, ItemStack, PotionContents, PotionTypes, UseItemOn, Wire}
   alias Valimc.TestClient, as: Client
 
   defp wait(fun, left \\ 400) do
@@ -201,6 +201,70 @@ defmodule Valimc.PlayerUseConnectionTest do
     {amp, rest} = Wire.take_varint(rest)
     {duration, <<flags>>} = Wire.take_varint(rest)
     {{entity, id, amp, duration, flags}, client}
+  end
+
+  defp block_then_drink(client, ctx) do
+    {:ok, on} =
+      UseItemOn.encode(%{
+        hand: :main,
+        position: {floor(ctx.pose.x), 63, floor(ctx.pose.z)},
+        face: 1,
+        cursor: {0.5, 1.0, 0.5},
+        inside: false,
+        border: false,
+        sequence: 1
+      })
+
+    use = IO.iodata_to_binary([<<0, 2>>, <<0.0::float-32, 90.0::float-32>>])
+
+    Client.send_raw(client, [
+      Wire.frame(Data.id(:play, :serverbound, "use_item_on"), on, client.threshold),
+      Wire.frame(Data.id(:play, :serverbound, "use_item"), use, client.threshold)
+    ])
+  end
+
+  test "block-targeted drinking waits for asynchronous block admission instead of rejecting the following use",
+       ctx do
+    food = %PlayerFood{}
+    drink = potion("fire_resistance")
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => drink}})
+    {client, pid} = login(ctx, 20.0, food)
+    client = block_then_drink(client, ctx)
+    {<<1>>, client} = Client.await(client, :play, "block_changed_ack")
+    {<<2>>, _client} = Client.await(client, :play, "block_changed_ack")
+    wait(fn -> state(pid).active_use != nil end)
+    assert state(pid).active_use.remaining == 32
+    ticks(pid, 32)
+    assert state(pid).player.effects == %{11 => [{3600, 0, false, true, true}]}
+    assert state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
+  end
+
+  test "an unavailable block owner times out its admission without blocking the player clock or losing the fallback",
+       ctx do
+    food = %PlayerFood{}
+    drink = potion("fire_resistance")
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => drink}})
+    {client, pid} = login(ctx, 20.0, food)
+    {:ok, {region, _}} = Valimc.World.existing_owner(ctx.key)
+    :sys.suspend(region)
+
+    try do
+      client = block_then_drink(client, ctx)
+      wait(fn -> state(pid).table_job != nil end)
+      assert byte_size(state(pid).buffer) > 0 and not state(pid).active
+      tick(pid)
+      assert state(pid).active_use == nil and state(pid).player.effects == %{}
+      {<<1>>, client} = Client.await(client, :play, "block_changed_ack")
+      {<<2>>, _client} = Client.await(client, :play, "block_changed_ack")
+      wait(fn -> state(pid).active_use != nil end)
+      assert state(pid).table_job == nil and state(pid).active_use.remaining == 32
+      :sys.resume(region)
+      ticks(pid, 32)
+      assert state(pid).player.effects == %{11 => [{3600, 0, false, true, true}]}
+      assert state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
+    after
+      if Process.alive?(region), do: :sys.resume(region)
+    end
   end
 
   test "both-hand potion completion grants only after native timing and saves effects with the bottle",

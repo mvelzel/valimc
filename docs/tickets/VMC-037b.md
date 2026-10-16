@@ -1,7 +1,7 @@
 # VMC-037b — Potion contents and delivery
 
-Status: Component/delivery and live drinking verified locally; integration/build
-and actual-client gates pending.
+Status: Native/automated and actual air-targeted drinking pass. Ground-targeted
+drinking failed in the client; ordering fix passes affected checks, retest pending.
 
 Acceptance: bounded native potion contents, effective stack identity and duration
 scaling preserve stock/custom values through both stack formats and journals.
@@ -60,3 +60,29 @@ flight, inventory and death/respawn persistence regressions. Evidence:
 bug: cached player observations could retain older effect durations. Final saves
 now capture current owner state; per-frame guards preserve earlier accepted input.
 Active clocks continue during persistence and acknowledgement cannot rewind them.
+
+Frozen `82dd108` passes1,276 full tests(seed106669), production and both native TCP
+transports: `.local/potion-live-{full-tests,production,native-tcp}.log`. Full native
+integration at earlier `d7e688c` also passes, including plaintext/continuous AES-CFB8;
+new potion-specific probes above and82dd TCP checks cover the additions separately.
+
+October16 dedicated actual-client report reviewed:
+`.local/client-tests/VMC-037b/report.md`. **PASS** native stock/long/custom tooltips,
+actual inventory moves/raw-content reconnect, cancellation, main/offhand drinks,
+bottles/nutrition, actual magma immunity, genuine400-tick expiry followed by natural
+damage/wear, unsupported Water Breathing refusal, creative retention and saved
+finite-effect/bottle reconnect. Effectless potion display/storage passed; its drink
+was not separately checked. Custom potion name is a native translation suffix.
+Failed ground-target attempts caused a legitimate death and pickups; actual Respawn
+passed, dataset retained(source50/outboxnil), no expiry proof from those attempts.
+
+**FAIL**: reachable ground targeting animated drinking but left the potion/effect
+unchanged; aiming into air worked. A paired native-framed block-use/item-use TCP
+regression reproduced the lost fallback. The fix retains that item-use frame in
+the existing bounded receive buffer until the preceding asynchronous block
+admission completes or its300ms deadline fires. Earlier chat/control traffic and
+owner clocks stay responsive; clearing the admission resumes the drain. No new
+queue/process/timer.53 affected use/table/placement checks pass(seed172851), including
+unavailable-owner timeout and ordinary consumption. Evidence:
+`.local/potion-block-use-{repro,targeted-final}.log`. Graphical ground-target retest
+and native TCP/build follow before publication.
