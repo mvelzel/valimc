@@ -28,7 +28,7 @@ defmodule Valimc.ItemAgeTest do
     {expired, [handle]} = Items.age(aged)
     assert handle == {items.epoch, id, 3}
     assert expired.entries[id].motion == %{record.motion | age: 6000, pickup_delay: 0}
-    assert expired.views[id] == %{view | revision: 3, pickup_delay: 0}
+    assert expired.views[id] == %{view | revision: 3, pickup_delay: 0, merge_open: false}
     assert {:ok, empty} = Items.remove(expired, items.epoch, id, 3)
     assert empty.ledger.generations == %{}
   end
@@ -56,6 +56,7 @@ defmodule Valimc.ItemAgeTest do
     assert {:ok, next, _} = Items.advance(items, {0, 0}, items.epoch, [step])
     assert next.views[id].motion_revision == items.views[id].motion_revision
     assert next.entries[id].physical_revision == items.entries[id].physical_revision + 1
+    assert next.views[id].physical_revision == next.entries[id].physical_revision
   end
 
   test "infinite-age and permanent-delay sentinels never allocate counter revisions once unchanged" do

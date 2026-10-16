@@ -419,4 +419,30 @@ defmodule Valimc.ItemCrossMergeRegionTest do
 
     assert disk(c, c.destination).records == [c.recipient]
   end
+
+  test "sub-packet motion and return cannot revive an old source authorization", c do
+    c = custom_counter_fixture(c)
+    assert {:ok, _, fence} = Region.item_merge_donor(c.source, c.donor.uuid, c.recipient.uuid)
+    {:ok, {_, id, revision}} = Items.find(state(c.source).items, c.donor.uuid)
+    before = state(c.source).items.views[id]
+
+    step = %{
+      id: id,
+      revision: revision,
+      position: {c.donor.x, c.donor.y, c.donor.z},
+      motion: %{c.donor.motion | velocity: {1.0e-12, 0.0, 0.0}}
+    }
+
+    assert {:ok, [_]} = Region.advance_items(c.source, [step])
+    next = state(c.source).items.views[id]
+    assert next.motion_revision == before.motion_revision
+    refute World.item_observation_current?(fence)
+
+    assert {:ok, [_]} =
+             Region.advance_items(c.source, [
+               %{step | revision: next.revision, motion: c.donor.motion}
+             ])
+
+    refute World.item_observation_current?(fence)
+  end
 end

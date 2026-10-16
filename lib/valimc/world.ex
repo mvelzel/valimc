@@ -118,8 +118,8 @@ defmodule Valimc.World do
       {^pid, _, %{epoch: ^epoch, items: table}} ->
         case :ets.lookup(table, :items) do
           [{:items, %{^id => view}}] ->
-            Process.alive?(pid) and view.uuid == uuid and
-              {view.metadata_revision, view.motion_revision} == versions
+            Process.alive?(pid) and view.uuid == uuid and view.merge_open and
+              view.physical_revision == versions
 
           _ ->
             false

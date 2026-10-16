@@ -32,7 +32,12 @@ defmodule Valimc.World.Items do
                 Map.update!(
                   items.views,
                   id,
-                  &%{&1 | revision: revision, pickup_delay: next.pickup_delay}
+                  &%{
+                    &1
+                    | revision: revision,
+                      pickup_delay: next.pickup_delay,
+                      merge_open: merge_open?(entry.stack.count, &1.merge_max, next)
+                  }
                 )
           }
         end
@@ -167,12 +172,20 @@ defmodule Valimc.World.Items do
       if stack == entry.stack do
         {:ok, state, {epoch, id, revision}}
       else
-        view = %{
-          state.views[id]
-          | revision: revision + 1,
-            metadata: metadata,
-            metadata_revision: state.views[id].metadata_revision + 1
-        }
+        view =
+          %{
+            state.views[id]
+            | revision: revision + 1,
+              physical_revision: entry.physical_revision + 1,
+              metadata: metadata,
+              metadata_revision: state.views[id].metadata_revision + 1
+          }
+          |> Map.merge(
+            merge_hints(
+              stack,
+              Map.get(entry, :motion, %ItemMotionState{no_gravity: entry.no_gravity})
+            )
+          )
 
         bytes = state.bytes - packet_bytes(state.views[id].metadata) + packet_bytes(metadata)
 
@@ -270,11 +283,22 @@ defmodule Valimc.World.Items do
       if entity == entry.entity and Map.get(entry, :motion) == motion do
         {:ok, state, {state.epoch, id, revision}}
       else
+        physical_revision =
+          entry.physical_revision +
+            if(
+              entity != entry.entity or motion.no_gravity != entry.no_gravity or
+                motion.on_ground != Map.get(Map.get(entry, :motion, %{}), :on_ground, false),
+              do: 1,
+              else: 0
+            )
+
         view = %{
           old
           | revision: revision + 1,
+            physical_revision: physical_revision,
             at: {x, y, z},
             pickup_delay: motion.pickup_delay,
+            merge_open: merge_open?(entry.stack.count, state.views[id].merge_max, motion),
             chunk: Valimc.World.chunk_key(x, z),
             spawn: binary_packet(EntityPackets.spawn_item(entity)),
             position: position,
@@ -296,15 +320,7 @@ defmodule Valimc.World.Items do
               | entity: entity,
                 revision: revision + 1,
                 no_gravity: motion.no_gravity,
-                physical_revision:
-                  entry.physical_revision +
-                    if(
-                      entity != entry.entity or motion.no_gravity != entry.no_gravity or
-                        motion.on_ground !=
-                          Map.get(Map.get(entry, :motion, %{}), :on_ground, false),
-                      do: 1,
-                      else: 0
-                    )
+                physical_revision: physical_revision
             }
             |> Map.put(:motion, motion)
 
@@ -368,22 +384,25 @@ defmodule Valimc.World.Items do
       state.bytes + Enum.sum(Enum.map([spawn, metadata, position, velocity], &packet_bytes/1))
 
     if bytes + return_bytes(state) <= @max_bytes do
-      view = %{
-        entity_id: id,
-        uuid: uuid,
-        ownership_generation: Map.get(state.ledger.generations, uuid, 0),
-        epoch: state.epoch,
-        revision: 1,
-        metadata_revision: 1,
-        motion_revision: 1,
-        chunk: Valimc.World.chunk_key(x, z),
-        at: {x, y, z},
-        pickup_delay: if(motion, do: motion.pickup_delay, else: 0),
-        spawn: spawn,
-        metadata: metadata,
-        position: position,
-        motion: velocity
-      }
+      view =
+        %{
+          entity_id: id,
+          uuid: uuid,
+          ownership_generation: Map.get(state.ledger.generations, uuid, 0),
+          epoch: state.epoch,
+          revision: 1,
+          physical_revision: 1,
+          metadata_revision: 1,
+          motion_revision: 1,
+          chunk: Valimc.World.chunk_key(x, z),
+          at: {x, y, z},
+          pickup_delay: if(motion, do: motion.pickup_delay, else: 0),
+          spawn: spawn,
+          metadata: metadata,
+          position: position,
+          motion: velocity
+        }
+        |> Map.merge(merge_hints(stack, motion || %ItemMotionState{no_gravity: no_gravity}))
 
       entry = %{
         entity: entity,
@@ -409,6 +428,23 @@ defmodule Valimc.World.Items do
   end
 
   defp build_entity(_, _, _, _, _, _), do: {:error, :entity_id_exhausted}
+
+  defp merge_hints(stack, motion),
+    do: %{
+      merge_key:
+        :crypto.hash(
+          :sha256,
+          :erlang.term_to_binary(ItemStack.identity_key(stack), [:deterministic])
+        ),
+      count: stack.count,
+      merge_max: ItemStack.max_stack_size(stack),
+      merge_open: merge_open?(stack.count, ItemStack.max_stack_size(stack), motion)
+    }
+
+  defp merge_open?(count, maximum, motion),
+    do:
+      motion.age != -32768 and motion.age < 6000 and
+        motion.pickup_delay != 32767 and count < maximum
 
   def return_capacity?(state),
     do:

@@ -11,6 +11,7 @@ defmodule Valimc.World.RegionData do
     ItemMergeEscrow,
     ItemMergeInbox,
     ItemMergePermits,
+    ItemCrossMergeQuery,
     OwnerItemReceipts,
     ItemTransfers,
     PickupPermits,
@@ -38,6 +39,12 @@ defmodule Valimc.World.RegionData do
     :item_simulation_enabled,
     :item_merge_stamp,
     :item_merge_next,
+    :item_cross_job,
+    :item_cross_next,
+    :item_cross_stamp,
+    :item_cross_scan_stamp,
+    :item_cross_cursor,
+    :item_cross_retry,
     :item_resting,
     :item_motion_generation,
     :item_saved_generation,
@@ -101,6 +108,12 @@ defmodule Valimc.World.RegionData do
       item_simulation_enabled: Valimc.config(:item_simulation),
       item_merge_stamp: nil,
       item_merge_next: nil,
+      item_cross_job: nil,
+      item_cross_next: nil,
+      item_cross_stamp: nil,
+      item_cross_scan_stamp: nil,
+      item_cross_cursor: nil,
+      item_cross_retry: false,
       item_resting: %{},
       item_motion_generation: 0,
       item_saved_generation: 0,
@@ -131,6 +144,7 @@ defmodule Valimc.World.RegionData do
       state = %{state | item_resting: Map.take(state.item_resting, Map.keys(items.entries))}
 
       if expired == [] do
+        state = start_item_cross_merging(state, now)
         state = start_item_simulation(state, now)
         if state.item_simulation == nil, do: start_item_merging(state, now), else: state
       else
@@ -142,6 +156,69 @@ defmodule Valimc.World.RegionData do
 
         {:noreply, state} = commit_items(items, :ok, nil, state)
         state
+      end
+    else
+      state
+    end
+  end
+
+  defp start_item_cross_merging(state, now) do
+    if state.item_cross_job == nil and state.item_storage_enabled and
+         state.items.ledger.outgoing == nil and
+         (state.item_cross_next == nil or now >= state.item_cross_next) do
+      state = %{state | item_cross_next: now + 200}
+
+      case ItemCrossMergeQuery.scene(state.key, state.items.views) do
+        nil ->
+          %{
+            state
+            | item_cross_stamp: nil,
+              item_cross_scan_stamp: nil,
+              item_cross_cursor: nil,
+              item_cross_retry: false
+          }
+
+        %{stamp: stamp} = scene ->
+          cond do
+            stamp == state.item_cross_stamp ->
+              state
+
+            scene.targets == [] ->
+              %{state | item_cross_stamp: stamp}
+
+            true ->
+              same_scan = stamp == state.item_cross_scan_stamp
+              cursor = if same_scan, do: state.item_cross_cursor
+              retry = same_scan and state.item_cross_retry
+              token = make_ref()
+
+              case ItemCrossMergeQuery.start(
+                     self(),
+                     state.items.epoch,
+                     token,
+                     state.key,
+                     scene,
+                     cursor
+                   ) do
+                {:ok, worker, monitor} ->
+                  Valimc.Metrics.add(:item_cross_jobs)
+
+                  job = %{
+                    worker: worker,
+                    monitor: monitor,
+                    token: token,
+                    stamp: stamp,
+                    retry: retry,
+                    timer: send_after(state, {:item_cross_deadline, token}, 750)
+                  }
+
+                  %{state | item_cross_job: job}
+
+                {:error, _} ->
+                  Valimc.Metrics.add(:item_cross_busy)
+                  state
+              end
+          end
       end
     else
       state
@@ -355,7 +432,7 @@ defmodule Valimc.World.RegionData do
         owner: {self(), epoch},
         id: id,
         uuid: uuid,
-        versions: {view.metadata_revision, view.motion_revision},
+        versions: view.physical_revision,
         expires_at: System.monotonic_time(:millisecond) + 250
       }
 
@@ -1413,6 +1490,45 @@ defmodule Valimc.World.RegionData do
 
   def handle_info({:item_transfer_plan, _, _, _}, state), do: {:noreply, state}
 
+  def handle_info(
+        {:item_cross_query, worker, token, result},
+        %{item_cross_job: %{worker: worker, token: token} = job} = state
+      ) do
+    Process.cancel_timer(job.timer)
+    Process.demonitor(job.monitor, [:flush])
+    retry = job.retry or result.retry
+    complete = result.cursor == nil and not retry and not result.progress
+
+    next =
+      System.monotonic_time(:millisecond) +
+        if(result.progress or result.cursor != nil, do: 0, else: 200)
+
+    {:noreply,
+     %{
+       state
+       | item_cross_job: nil,
+         item_cross_next: next,
+         item_cross_stamp: if(complete, do: job.stamp),
+         item_cross_scan_stamp: job.stamp,
+         item_cross_cursor: result.cursor,
+         item_cross_retry: result.cursor != nil and retry
+     }}
+  end
+
+  def handle_info({:item_cross_query, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:item_cross_deadline, token},
+        %{item_cross_job: %{token: token} = job} = state
+      ) do
+    Process.demonitor(job.monitor, [:flush])
+    Process.exit(job.worker, :kill)
+    Valimc.Metrics.add(:item_cross_timeouts)
+    {:noreply, %{state | item_cross_job: nil}}
+  end
+
+  def handle_info({:item_cross_deadline, _}, state), do: {:noreply, state}
+
   def handle_info({:release_pickup, token, source}, state),
     do:
       {:noreply,
@@ -1743,6 +1859,15 @@ defmodule Valimc.World.RegionData do
 
   def handle_info(
         {:DOWN, ref, :process, worker, _},
+        %{item_cross_job: %{monitor: ref, worker: worker} = job} = state
+      ) do
+    Process.cancel_timer(job.timer)
+    Valimc.Metrics.add(:item_cross_failures)
+    {:noreply, %{state | item_cross_job: nil}}
+  end
+
+  def handle_info(
+        {:DOWN, ref, :process, worker, _},
         %{item_simulation: %{monitor: ref, worker: worker} = job} = state
       ) do
     Process.cancel_timer(job.timer)
@@ -1921,7 +2046,7 @@ defmodule Valimc.World.RegionData do
   end
 
   defp finish_item_reply(state, from, {:item_merge_counters, items}) do
-    reply_item(from, {:ok, :applied})
+    reply_item(from, {:ok, if(items == state.items, do: :unchanged, else: :applied)})
 
     if items == state.items do
       state
@@ -2066,6 +2191,11 @@ defmodule Valimc.World.RegionData do
     if state.item_simulation do
       Process.cancel_timer(state.item_simulation.timer)
       Process.exit(state.item_simulation.worker, :kill)
+    end
+
+    if state.item_cross_job do
+      Process.cancel_timer(state.item_cross_job.timer)
+      Process.exit(state.item_cross_job.worker, :kill)
     end
 
     if state.item_handoff do

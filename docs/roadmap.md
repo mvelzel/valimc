@@ -37,7 +37,8 @@ tests, production/full native TCP and actual natural/whole/partial/delay/mode/
 boundary/reconnect/stalled-save checks. [Advanced pickup contexts](tickets/VMC-035c1.md)
 remain open. Current work: [cross-owner merging](tickets/VMC-035b1.md). Local escrow,
 bounded live admission/delivery and proof-backed recovery pass targeted checks;
-automatic discovery, measurements and graphical validation follow.
+automatic discovery and measured convergence also pass targeted checks. Broader
+integration/production and graphical validation follow.
 
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Player processes own their simulation state; bounded workers sample geometry.
