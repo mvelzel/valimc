@@ -121,6 +121,7 @@ defmodule Valimc.CreativeDropTest do
     {_, state} = completed(ctx, 2)
     assert state.inventory.slots == %{36 => %{ctx.stone | count: 6}}
     original = records(ctx)
+    assert Enum.all?(original, &(&1.motion.pickup_delay == 40 and not &1.motion.no_gravity))
     assert Enum.sort(Enum.map(original, & &1.stack.count)) == [1, 3]
     assert Enum.any?(original, &(&1.stack == %{ctx.stone | count: 1}))
     depart(ctx, client)

@@ -2916,20 +2916,13 @@ defmodule Valimc.Connection do
   end
 
   defp prepare_inventory_transfer(state, inventory, stacks, crafting \\ nil) do
-    # Standing preview eye height minus vanilla's float32 0.3 offset.
-    # These entities remain stationary until authoritative item physics exists.
-    records =
-      Enum.map(stacks, fn stack ->
-        %{
-          uuid: :crypto.strong_rand_bytes(16),
-          x: state.player.x,
-          y: state.player.y + 1.3199999928474426,
-          z: state.player.z,
-          stack: stack
-        }
-      end)
+    case Valimc.PlayerDrops.records(state.player, stacks, :directed) do
+      {:ok, key, records} -> prepare_drop_transfer(state, inventory, key, records, crafting)
+      {:error, _} -> resync_inventory(state)
+    end
+  end
 
-    key = World.region_key(World.chunk_key(state.player.x, state.player.z))
+  defp prepare_drop_transfer(state, inventory, key, records, crafting) do
     ref = make_ref()
 
     recovery = %{
@@ -3361,17 +3354,10 @@ defmodule Valimc.Connection do
     state = %{state | creative_input: input}
 
     if result == :ok and stack != nil do
-      key = World.region_key(World.chunk_key(state.player.x, state.player.z))
-
-      record = %{
-        uuid: :crypto.strong_rand_bytes(16),
-        x: state.player.x,
-        y: state.player.y + 1.3199999928474426,
-        z: state.player.z,
-        stack: stack
-      }
-
-      enqueue_creative(state, {:create, key, record}, bytes)
+      case Valimc.PlayerDrops.records(state.player, [stack], :directed) do
+        {:ok, key, [record]} -> enqueue_creative(state, {:create, key, record}, bytes)
+        {:error, _} -> resync_inventory(state)
+      end
     else
       resync_inventory(state)
     end

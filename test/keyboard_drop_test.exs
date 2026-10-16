@@ -6,11 +6,13 @@ defmodule Valimc.KeyboardDropTest do
   alias Valimc.TestClient, as: Client
   import ExUnit.CaptureLog
 
-  setup do
+  setup tags do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-keyboard-drop-#{nonce}")
     old = Valimc.config(:world_path)
+    old_simulation = Valimc.config(:item_simulation)
     Application.put_env(:valimc, :world_path, base)
+    if Map.get(tags, :simulation, false), do: Application.put_env(:valimc, :item_simulation, true)
     key = {20_000 + rem(nonce, 10_000), 400}
     name = "Drop" <> Integer.to_string(nonce)
     uuid = Valimc.Connection.offline_uuid(name)
@@ -38,6 +40,7 @@ defmodule Valimc.KeyboardDropTest do
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
+      Application.put_env(:valimc, :item_simulation, old_simulation)
       File.rm_rf!(base)
     end)
 
@@ -117,6 +120,44 @@ defmodule Valimc.KeyboardDropTest do
     end)
   end
 
+  @tag simulation: true
+  test "real TCP drop launches, lands, ages and reconnects with conserved source inventory",
+       ctx do
+    client = login(ctx)
+    action(client, "drop_item")
+    {_, state} = completed(ctx, 1)
+    assert state.inventory.slots[43] == %{ctx.stone | count: 6}
+
+    {_, _} =
+      await_state(
+        ctx,
+        fn _ ->
+          case records(ctx) do
+            [%{motion: %{on_ground: true, pickup_delay: 0}}] -> true
+            _ -> false
+          end
+        end,
+        3000
+      )
+
+    [record] = records(ctx)
+    assert record.stack == %{ctx.stone | count: 1}
+    assert record.y == 64.0 and record.z > ctx.pose.z + 0.3 and record.motion.age >= 40
+    Client.close(client)
+    departed(ctx)
+    {:ok, {pid, _}} = World.item_owner(ctx.key)
+    :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+    second = login(ctx)
+    {_, restored} = completed(ctx, 1)
+    assert restored.inventory.slots[43] == %{ctx.stone | count: 6}
+    [saved_record] = records(ctx)
+    assert saved_record.uuid == record.uuid and saved_record.stack == record.stack
+    assert_in_delta saved_record.z, record.z, 0.001
+    assert saved_record.y == 64.0 and saved_record.motion.pickup_delay == 0
+    Client.close(second)
+    departed(ctx)
+  end
+
   test "single/all/empty drops preserve counts, patches and UUIDs through reconnect and owner reload",
        ctx do
     client = login(ctx)
@@ -126,6 +167,8 @@ defmodule Valimc.KeyboardDropTest do
     assert state.inventory.slots[45] == ItemStack.new("egg", 3)
     [one] = records(ctx)
     assert one.stack == %{ctx.stone | count: 1}
+    assert one.motion.pickup_delay == 40 and not one.motion.no_gravity
+    assert elem(one.motion.velocity, 2) >= 0.28
     assert one.x == ctx.pose.x and one.z == ctx.pose.z
     assert_in_delta one.y, ctx.pose.y + 1.3199999928474426, 1.0e-12
     action(client, "drop_all_items")

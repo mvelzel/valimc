@@ -44,7 +44,7 @@ defmodule Valimc.PlayerCraftingTransfers do
   def prepare(_, _, _, _, _, _, _), do: {:error, :invalid_crafting_transfer}
 
   defp at_source?(record, pose),
-    do: record.x == pose.x and record.y == pose.y + 1.3199999928474426 and record.z == pose.z
+    do: Valimc.PlayerDrops.at_source?(record, pose)
 
   defp strip_journal(snapshot), do: Map.drop(snapshot, [:transfer_sequence, :outbox])
 end

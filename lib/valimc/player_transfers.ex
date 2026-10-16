@@ -1,6 +1,6 @@
 defmodule Valimc.PlayerTransfers do
   @moduledoc "Conserved source plans and explicit, separately authorized creative creation."
-  alias Valimc.{Inventory, PlayerSnapshot, World}
+  alias Valimc.{Inventory, PlayerDrops, PlayerSnapshot}
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.ItemTransfers
   @max_sequence 18_446_744_073_709_551_615
@@ -8,7 +8,7 @@ defmodule Valimc.PlayerTransfers do
   @doc "Pins a disconnected cleanup batch; callers must commit it before any delivery."
   def plan_disconnect(%{pose: pose, inventory: inventory} = snapshot) do
     with {:ok, next, stacks} <- Inventory.disconnect(inventory) do
-      drop_plan(snapshot, pose, next, stacks)
+      drop_plan(snapshot, pose, next, stacks, :directed)
     end
   end
 
@@ -20,25 +20,14 @@ defmodule Valimc.PlayerTransfers do
   def plan_death(%{pose: pose, inventory: inventory, health: %{value: health}} = snapshot)
       when health <= 0 do
     with {:ok, next, stacks, _destroyed} <- Inventory.death_batch(inventory),
-         do: drop_plan(snapshot, pose, next, stacks)
+         do: drop_plan(snapshot, pose, next, stacks, :scattered)
   end
 
   def plan_death(_), do: {:error, :player_not_dead}
 
-  defp drop_plan(snapshot, pose, next, stacks) do
-    records =
-      Enum.map(stacks, fn stack ->
-        %{
-          uuid: :crypto.strong_rand_bytes(16),
-          x: pose.x,
-          y: pose.y + 1.3199999928474426,
-          z: pose.z,
-          stack: stack
-        }
-      end)
-
-    key = World.region_key(World.chunk_key(pose.x, pose.z))
-    {:ok, %{snapshot | inventory: next}, key, records}
+  defp drop_plan(snapshot, pose, next, stacks, kind) do
+    with {:ok, key, records} <- PlayerDrops.records(pose, stacks, kind),
+         do: {:ok, %{snapshot | inventory: next}, key, records}
   end
 
   def prepare(uuid, sequence, before, after_snapshot, key, records),
