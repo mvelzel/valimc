@@ -22,7 +22,9 @@ Current [contact hazards](tickets/VMC-017b5.md): request/immunity/armor foundati
 are **Done within kernel scope**, `9a7179a`, with additional native probes,
 1,245 full tests/build and actual baseline/fire/armor/water regression. Live contact
 geometry/ownership now passes46 affected tests,1,728 native traces and257 packet
-codecs; its full integration/client/performance gates remain. Status effects follow.
+codecs; its full integration/client/performance gates remain.
+[Status-effect state](tickets/VMC-037a.md) matches50,433 native duration/refresh
+traces and three targeted tests; unused kernel baseline and live ownership remain.
 Keep pending work local.
 
 [Automatic item simulation](tickets/VMC-035a6.md),
