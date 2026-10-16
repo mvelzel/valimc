@@ -1,8 +1,8 @@
 # VMC-037i — Instant Saturation drinks
 
-Status: Owned drinking `7b65f32` passes69 affected checks,1,354 full tests,
-production/both native TCP transports and all five actual-client groups. Final
-larger native integration remains running before publication/Done.
+Status: Done within scope; validated and published at `7b65f32`.69 affected checks,
+1,354 full tests, production, full native integration/both TCP transports and all
+five actual-client groups pass.
 
 Acceptance: drinking Instant Saturation applies native food/saturation once, in
 callback order with other potion effects, on the existing atomic consumption
@@ -67,3 +67,7 @@ are corroborated by owner/saved state; use, food, container and icons were visua
 Milk after the mixed drink followed expiry, not a new removal proof. Raw evidence/
 hashes: `.local/saturation-publication-proof.json`, `.local/saturation-live-cleanup.log`,
 tester trace/fixtures and frozen launch directories. No performance claim.
+
+Final immutable7b65f32 native integration exits0 on October16, including actual
+plaintext and continuous AES-CFB8 TCP. Log/hash retained in the private publication
+proof. Published directly to main; no remaining gate for this scoped slice.

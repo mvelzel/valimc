@@ -127,6 +127,36 @@ defmodule Valimc.PlayerUseConnectionTest do
 
   defp ticks(pid, count), do: Enum.each(1..count, fn _ -> tick(pid) end)
 
+  defp seed_chance(pid, hit) do
+    {seed, next} =
+      Enum.find_value(1..1000, fn n ->
+        seed = {71, 93, n}
+        {draw, next} = :rand.uniform_s(16_777_216, :rand.seed_s(:exsss, seed))
+        draw = (draw - 1) / 16_777_216
+        if if(hit, do: draw < 0.1, else: draw > 0.9), do: {seed, next}
+      end)
+
+    before = :rand.export_seed_s(:rand.seed_s(:exsss, seed))
+
+    :sys.replace_state(pid, fn state ->
+      :rand.seed(:exsss, seed)
+      state
+    end)
+
+    {before, :rand.export_seed_s(next)}
+  end
+
+  defp assert_chance_rng(pid, expected) do
+    caller = self()
+
+    :sys.replace_state(pid, fn state ->
+      send(caller, {:chance_rng, :rand.export_seed()})
+      state
+    end)
+
+    assert_receive {:chance_rng, ^expected}
+  end
+
   defp seed(ctx, food, health, opts) do
     mode = Keyword.get(opts, :mode, :survival)
     inventory = Keyword.get(opts, :inventory, %Inventory{})
@@ -1567,7 +1597,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     wait(fn -> state(pid).save_ref == nil end)
 
     for {name, seq} <-
-          Enum.with_index(["golden_apple", "suspicious_stew", "enchanted_golden_apple"], 3) do
+          Enum.with_index(["pufferfish", "suspicious_stew", "chorus_fruit"], 3) do
       :sys.replace_state(pid, fn s ->
         %{s | inventory: %{s.inventory | slots: %{36 => ItemStack.new(name)}}}
       end)
@@ -1576,6 +1606,159 @@ defmodule Valimc.PlayerUseConnectionTest do
       assert state(pid).active_use == nil
       assert state(pid).inventory.slots[36] == ItemStack.new(name)
     end
+  end
+
+  for hand <- [:main, :off] do
+    test "stock golden apple #{hand} cancels without a draw and saves full-food buffs once across reconnect",
+         ctx do
+      food = %PlayerFood{saturation: 0.0}
+      apple = ItemStack.new("golden_apple", 2)
+      slot = if unquote(hand) == :main, do: 36, else: 45
+      seed(ctx, food, 10.0, inventory: %Inventory{slots: %{slot => apple}})
+      {client, pid} = login(ctx, 10.0, food)
+      {before, after_one} = seed_chance(pid, false)
+      client = use_hand(client, pid, unquote(hand))
+      ticks(pid, 8)
+      action(client, "release_use_item")
+      wait(fn -> state(pid).active_use == nil end)
+      assert_chance_rng(pid, before)
+      assert state(pid).player.effects == %{} and state(pid).player.absorption == 0.0
+      assert state(pid).inventory.slots == %{slot => apple}
+      client = use_hand(client, pid, unquote(hand), 2)
+      ticks(pid, 31)
+      assert_chance_rng(pid, before)
+      tick(pid)
+      assert_chance_rng(pid, after_one)
+      expected = %{food | saturation: 9.600000381469727}
+      assert state(pid).player.food == expected and state(pid).player.health.value == 10.0
+      assert state(pid).player.absorption == 4.0
+
+      assert state(pid).player.effects == %{
+               9 => [{100, 1, false, true, true}],
+               @absorption => [{2400, 0, false, true, true}]
+             }
+
+      client = absorption_packet(client, 4.0)
+      wait(fn -> state(pid).use_save == nil end)
+      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+      assert saved.effects == state(pid).player.effects and saved.absorption == 4.0
+      assert saved.food == expected and saved.inventory.slots[slot] == %{apple | count: 1}
+      Client.close(client)
+      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+      {_client, restored} = login(ctx, 10.0, expected)
+      assert state(restored).player.effects == saved.effects
+      assert state(restored).inventory.slots == saved.inventory.slots
+      assert state(restored).player.absorption == 4.0 and state(restored).active_use == nil
+    end
+  end
+
+  for mode <- [:survival, :creative] do
+    test "stock enchanted apple applies all four callbacks together in #{mode}", ctx do
+      food = %PlayerFood{level: 10, saturation: 0.0}
+      apple = ItemStack.new("enchanted_golden_apple")
+      seed(ctx, food, 12.0, mode: unquote(mode), inventory: %Inventory{slots: %{45 => apple}})
+      {client, pid} = login(ctx, 12.0, food)
+      {_, after_one} = seed_chance(pid, false)
+      _client = use_hand(client, pid, :off)
+      ticks(pid, 32)
+      assert_chance_rng(pid, after_one)
+      assert state(pid).player.food == %PlayerFood{level: 14, saturation: 9.600000381469727}
+      assert state(pid).player.absorption == 16.0 and state(pid).player.health.value == 12.0
+
+      assert state(pid).player.effects == %{
+               9 => [{400, 1, false, true, true}],
+               10 => [{6000, 0, false, true, true}],
+               11 => [{6000, 0, false, true, true}],
+               @absorption => [{2400, 3, false, true, true}]
+             }
+
+      assert state(pid).inventory.slots ==
+               if(unquote(mode) == :creative, do: %{45 => apple}, else: %{})
+    end
+  end
+
+  for {name, hit, nutrition, saturation, id, duration} <- [
+        {"chicken", true, 2, 1.2000000476837158, @hunger, 600},
+        {"chicken", false, 2, 1.2000000476837158, @hunger, 600},
+        {"rotten_flesh", true, 4, 0.800000011920929, @hunger, 600},
+        {"rotten_flesh", false, 4, 0.800000011920929, @hunger, 600},
+        {"poisonous_potato", true, 2, 1.2000000476837158, 18, 100},
+        {"poisonous_potato", false, 2, 1.2000000476837158, 18, 100},
+        {"spider_eye", true, 2, 3.200000047683716, 18, 100}
+      ] do
+    test "stock #{name} #{hit} chance feeds and draws once in the actual socket owner", ctx do
+      food = %PlayerFood{level: 5, saturation: 0.0}
+      item = ItemStack.new(unquote(name), 2)
+      seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => item}})
+      {client, pid} = login(ctx, 20.0, food)
+      {_, after_one} = seed_chance(pid, unquote(hit))
+      _client = use_hand(client, pid)
+      ticks(pid, 32)
+      assert_chance_rng(pid, after_one)
+
+      assert state(pid).player.food == %PlayerFood{
+               level: 5 + unquote(nutrition),
+               saturation: unquote(saturation)
+             }
+
+      assert state(pid).player.effects ==
+               if(unquote(hit),
+                 do: %{unquote(id) => [{unquote(duration), 0, false, true, true}]},
+                 else: %{}
+               )
+
+      assert state(pid).inventory.slots == %{36 => %{item | count: 1}}
+      wait(fn -> state(pid).use_save == nil end)
+      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+      assert saved.effects == state(pid).player.effects and saved.food == state(pid).player.food
+      assert saved.inventory.slots == state(pid).inventory.slots
+    end
+  end
+
+  test "pending food checkpoint neither rerolls nor rewinds owned buffs", ctx do
+    food = %PlayerFood{level: 5, saturation: 0.0}
+    apple = ItemStack.new("golden_apple", 2)
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => apple}})
+    {client, pid} = login(ctx, 20.0, food)
+    {_, after_one} = seed_chance(pid, true)
+    client = use_hand(client, pid)
+    store = state(pid).player_store
+    :sys.suspend(store)
+
+    try do
+      ticks(pid, 32)
+      assert state(pid).use_save != nil
+      _client = use_hand(client, pid, :main, 2)
+      ticks(pid, 9)
+      assert_chance_rng(pid, after_one)
+      assert state(pid).inventory.slots == %{36 => %{apple | count: 1}}
+      assert state(pid).player.effects[9] == [{91, 1, false, true, true}]
+      assert state(pid).player.effects[@absorption] == [{2391, 0, false, true, true}]
+      :sys.resume(store)
+      wait(fn -> state(pid).use_save == nil end)
+      Client.close(client)
+      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+      assert saved.effects[9] == [{91, 1, false, true, true}]
+      assert saved.effects[@absorption] == [{2391, 0, false, true, true}]
+      assert saved.absorption == 4.0 and saved.inventory.slots == %{36 => %{apple | count: 1}}
+    after
+      if Process.alive?(store), do: :sys.resume(store)
+    end
+  end
+
+  test "unsupported prospective food effects refuse before nutrition, use or any RNG draw", ctx do
+    food = %PlayerFood{level: 5, saturation: 0.0}
+    fish = ItemStack.new("pufferfish")
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => fish}})
+    {client, pid} = login(ctx, 20.0, food)
+    {before, _} = seed_chance(pid, false)
+    _client = use_hand(client, pid)
+    ticks(pid, 32)
+    assert_chance_rng(pid, before)
+    assert state(pid).active_use == nil and state(pid).use_save == nil
+    assert state(pid).player.food == food and state(pid).player.effects == %{}
+    assert state(pid).inventory.slots == %{36 => fish}
   end
 
   test "creative consumes nutrition without removing the item or creating its remainder", ctx do

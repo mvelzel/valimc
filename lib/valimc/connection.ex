@@ -1483,11 +1483,32 @@ defmodule Valimc.Connection do
 
       true ->
         case ConsumableRemoval.policy(stack, props) do
-          {:ok, policy} -> {:ok, {:remove, policy}}
-          :unsupported -> :unsupported
+          {:ok, policy} ->
+            {:ok, {:remove, policy}}
+
+          :unsupported ->
+            with {:ok, callbacks} <- Valimc.StockFoodEffects.policy(stack, props),
+                 true <-
+                   Enum.all?(callbacks, fn callback ->
+                     Enum.all?(callback.effects, fn {id, _} -> id in @live_effects end)
+                   end) do
+              {:ok, {:chance, callbacks}}
+            else
+              _ -> :unsupported
+            end
         end
     end
   end
+
+  defp resolve_item_use_effects({:chance, callbacks}) do
+    # One unbiased 24-bit native-float draw per group, in this socket owner's RNG.
+    # Preflight/cancellation never draw; the accepted outcome shares the meal's save.
+    draws = Enum.map(callbacks, fn _ -> (:rand.uniform(16_777_216) - 1) / 16_777_216 end)
+    {:ok, effects} = Valimc.StockFoodEffects.resolve(callbacks, draws)
+    effects
+  end
+
+  defp resolve_item_use_effects(effects), do: effects
 
   defp publish_item_use(state, flags) do
     player = %{state.player | use_flags: flags}
@@ -1553,6 +1574,8 @@ defmodule Valimc.Connection do
     props = FoodItems.properties(stack)
 
     with {:ok, incoming} <- item_use_effects(stack, props) do
+      incoming = resolve_item_use_effects(incoming)
+
       case Valimc.PlayerConsumption.plan(state.player, state.inventory, use.hand, props, incoming) do
         {:ok, transition} ->
           # Plan health and all callbacks without I/O, then queue one immutable

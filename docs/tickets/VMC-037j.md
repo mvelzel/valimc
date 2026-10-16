@@ -1,7 +1,8 @@
 # VMC-037j — Owned Absorption
 
-Status: Owned Absorption implemented locally;128 affected checks pass. Production,
-native TCP and actual-client gates remain before publication/Done.
+Status: Owned958c8ee passes128 affected checks,1,368 full tests, production/both
+native TCP transports and all five actual-client groups. Final native integration
+is running before publication/Done.
 
 Acceptance: native golden-heart pool and maximum, effect add/upgrade/promotion/
 removal, damage spending after defenses, immunity/source exclusions, persistence
@@ -109,3 +110,25 @@ Full rerun at test-only checkpointb97c5ca passes1,368 tests; runtime/config/data
 files are identical to the immutable958c8ee release. Raw
 `.local/absorption-live-full-tests-fixed.log`. New stock-food research is outside
 that full run. Production/TCP remain at958c8ee; graphical verification continues.
+
+Actual26.3 client PASS on immutable958c8ee; primary reviewed the dedicated tester's
+report once. Cancelled use leaves no pool; actual amp1 grants8, actual harming
+spends6 leaving2 without red damage, and fresh direct reconnect retains2 without
+refill/replay. Actual one-block falls spend1; milk removes pool/icon. Genuine
+strong→weak promotion clamps7→4 and preserves a spent2 without refill; natural
+expiry clears it. An actual incoming weaker dose refills2→4 while stronger stays.
+Creative retains the dose and ignores falling; mixed actual NightVision15 refuses
+whole. An isolated fatal drink spends golden hearts before actual death/Respawn,
+leaving20HP, zero pool/effects and empty inventory. No health fixtures masked damage.
+
+Both clients/JVMs and server63175 stopped; eight regions+clock flush:ok and zero
+connections/players.994 frozen blobs remain unchanged. Whole dataset
+`/tmp/valimc-absorption-live-client-20261016` retains source61/outboxnil, destination
+{2,2} receipt61 and exactly one unpicked count1 glass bottle from the fatal dose.
+Independent stopped-dataset decode verifies player/receipt/item and no pending
+transfer. First offline interval lacked a byte comparison; actual fresh reconnect
+proves spent-pool retention, and final offline hashes are stable. Private report,
+cleanup, audit and hashes: `.local/client-tests/VMC-037j/report.md`,
+`.local/absorption-{live-cleanup,final-audit}.log`,
+`.local/absorption-publication-proof.json`. Larger native integration session17839
+runs against958c8ee; do not repeat the passed client gate.

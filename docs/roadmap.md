@@ -43,16 +43,17 @@ lifecycle stays [open](tickets/VMC-037g1.md); negative-dose drinks are refused w
 callbacks/150 instance ticks,11,520 food compositions,77 affected checks,
 production/both TCP transports and actual stationary drain, milk, hidden promotion/
 expiry, creative/unsupported negatives and reconnect; published through085ac9f.
-**Final integration:** [Instant Saturation drinks](tickets/VMC-037i.md), `7b65f32`:
-98,304 native callbacks,69 affected/1,354 full tests, production/both TCP transports
-and all five actual-client groups pass. Full native integration runs before publication.
+**Done within scope:** [Instant Saturation drinks](tickets/VMC-037i.md), published
+at `7b65f32`:98,304 native callbacks,69 affected/1,354 full tests, production/full
+native integration/both TCP transports and all five actual-client groups pass.
 **Implementing:** [Absorption](tickets/VMC-037j.md): native pool/effect lifecycle,
 40,392 damage/food contexts, durable v19 and269 packets pass. Owned drinking,
 damage/milk/expiry/promotion/depletion/reconnect and self/peer replication pass128
-affected checks. Frozen958c8ee production/TCP and1,368 full tests pass; dedicated
-client verification is finishing, with larger native integration next.
-**Next:** [stock food status callbacks](tickets/VMC-036e.md): seven stock records,
-112 native callback boundaries and11 affected checks pass; live admission follows.
+affected checks. Frozen958c8ee production/TCP,1,368 full tests and all five dedicated client groups
+pass; final native integration is running before publication.
+**Implementing:** [stock food status callbacks](tickets/VMC-036e.md): seven stock
+records/112 native callback boundaries and86 affected checks pass. Owned meals
+apply complete supported groups with one local RNG draw; frozen client gate follows.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

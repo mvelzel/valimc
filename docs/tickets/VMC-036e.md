@@ -1,6 +1,7 @@
 # VMC-036e — Stock food status callbacks
 
-Status: Native facts/chance foundation verified; live food callbacks unsupported.
+Status: Owned stock callbacks implemented locally;86 affected checks pass. Frozen
+production/native TCP and dedicated client gates follow before publication/Done.
 
 Acceptance: stock foods with supported status effects (including golden apples,
 rotten flesh, raw chicken and poisonous potato) apply their complete native callback
@@ -45,3 +46,18 @@ resolution with caller-supplied native floats; it is not wired into live use yet
 Eleven affected checks pass(seed646160), including chance equality, grouped order,
 draw count/precision, native defaults and unexpected-listener refusal.
 Raw `.local/consume-status-{native,elixir,targeted}.log`.
+
+Owned completion admits exact stock callback groups only when every prospective
+status is implemented. A failed chance cannot bypass unsupported effects; pufferfish
+remains refused whole. Preflight/cancellation never draw. Completion draws one
+unbiased24-bit float from the owning connection's OTP RNG per group, then feeds
+selected ordered effects into the existing pure consumption transition. Meal,
+count, effect map and golden hearts share its checkpoint; no extra timer/process.
+
+86 affected checks pass(seed270019): actual TCP both-hand golden apples at full
+food, cancellation without draws, grouped enchanted buffs in survival/creative,
+success/failure for chicken/rotten flesh/poisonous potato, guaranteed spider eye,
+exact single-draw advancement, atomic pending saves, fresh reconnect and pufferfish
+whole refusal before nutrition/RNG. Tests seed only the owning process's RNG;
+runtime has no testing strategy/override. Native callback foundation is unchanged.
+Raw `.local/stock-food-live-targeted.log`. Graphical acceptance remains pending.
