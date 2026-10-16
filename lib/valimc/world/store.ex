@@ -1,6 +1,6 @@
 defmodule Valimc.World.Store do
   use GenServer, restart: :temporary
-  alias Valimc.World.{Chunk, ItemRecords, Items, MiningRecord}
+  alias Valimc.World.{Chunk, ItemLedger, Items, MiningRecord}
 
   @moduledoc "Independently supervised resource I/O with one monitored owner and fenced writes."
   def start_link({key, owner}),
@@ -48,14 +48,14 @@ defmodule Valimc.World.Store do
   def load_items(pid), do: GenServer.call(pid, :load_items)
 
   def flush_items(pid, lease, items, receipts),
-    do: GenServer.call(pid, {:flush_items, lease, Items.records(items), receipts}, 15_000)
+    do: GenServer.call(pid, {:flush_items, lease, Items.snapshot(items), receipts}, 15_000)
 
   def commit_items(pid, lease, items, receipts, {owner, epoch}, token),
     do:
-      GenServer.cast(pid, {:items, lease, Items.records(items), receipts, {owner, epoch}, token})
+      GenServer.cast(pid, {:items, lease, Items.snapshot(items), receipts, {owner, epoch}, token})
 
   def commit_mining(pid, lease, %{items: items} = proposal, owner, token) do
-    proposal = proposal |> Map.delete(:items) |> Map.put(:records, Items.records(items))
+    proposal = proposal |> Map.delete(:items) |> Map.merge(Items.snapshot(items))
     GenServer.cast(pid, {:mining, lease, proposal, owner, token})
   end
 
@@ -196,22 +196,34 @@ defmodule Valimc.World.Store do
 
   def handle_info(_, state), do: {:noreply, state}
 
-  defp save_items(state, records, receipts) do
-    with {:ok, bytes} <- ItemRecords.encode(state.key, records, receipts),
+  defp save_items(state, %{records: records, ledger: ledger}, receipts) do
+    with {:ok, bytes} <- ItemLedger.encode(state.key, records, receipts, ledger),
          do: write_items(state.items, bytes)
   end
 
-  defp read_items(nil, _key), do: {:ok, %{records: [], receipts: %{}}}
+  defp read_items(nil, _key), do: {:ok, %{records: [], receipts: %{}, ledger: %ItemLedger{}}}
 
   defp read_items(path, key) do
     case File.open(path, [:read, :raw, :binary], fn io ->
-           :file.read(io, ItemRecords.max_bytes() + 1)
+           :file.read(io, ItemLedger.max_bytes() + 1)
          end) do
-      {:ok, {:ok, bytes}} -> ItemRecords.decode(bytes, key)
-      {:error, :enoent} -> {:ok, %{records: [], receipts: %{}}}
-      {:ok, :eof} -> {:error, :invalid_item_file}
-      {:ok, {:error, reason}} -> {:error, reason}
-      {:error, reason} -> {:error, reason}
+      {:ok, {:ok, bytes}} ->
+        case ItemLedger.decode(bytes, key) do
+          {:ok, data} -> {:ok, data}
+          {:error, _} -> {:error, :invalid_item_file}
+        end
+
+      {:error, :enoent} ->
+        read_items(nil, key)
+
+      {:ok, :eof} ->
+        {:error, :invalid_item_file}
+
+      {:ok, {:error, reason}} ->
+        {:error, reason}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -230,10 +242,11 @@ defmodule Valimc.World.Store do
          edits: edits,
          changes: changes,
          records: records,
-         receipts: receipts
+         receipts: receipts,
+         ledger: ledger
        })
        when is_map(edits) and map_size(edits) <= 131_072 and is_map(changes) do
-    with {:ok, item_bytes} <- ItemRecords.encode(key, records, receipts),
+    with {:ok, item_bytes} <- ItemLedger.encode(key, records, receipts, ledger),
          {:ok, journal} <- MiningRecord.encode(key, changes, item_bytes),
          true <- Enum.all?(changes, fn {pos, block} -> Chunk.block_at(edits, pos) == block end) do
       {:ok, journal, item_bytes}

@@ -2,12 +2,15 @@ defmodule Valimc.World.Items do
   @moduledoc "Bounded scene items and accepted steps. Only the enclosing region mutates these."
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.{EntityPackets, ItemStack, ItemTypes, Wire}
-  defstruct epoch: nil, entries: %{}, views: %{}, bytes: 0
+  alias Valimc.World.ItemLedger
+  defstruct epoch: nil, entries: %{}, views: %{}, bytes: 0, ledger: %ItemLedger{}
   @max_items 256
   @max_bytes 524_288
   @max_steps 32
 
   def new, do: %__MODULE__{epoch: make_ref()}
+
+  def snapshot(state), do: %{records: records(state), ledger: state.ledger}
 
   def records(state) do
     state.entries
@@ -18,13 +21,16 @@ defmodule Valimc.World.Items do
     |> Enum.sort_by(& &1.uuid)
   end
 
-  def restore(key, records) when is_list(records) do
+  def restore(key, records, ledger \\ %ItemLedger{})
+
+  def restore(key, records, %ItemLedger{} = ledger) when is_list(records) do
     prefix = Enum.take(records, @max_items + 1)
 
-    if length(prefix) > @max_items do
+    if length(prefix) > @max_items or
+         not match?({:ok, _}, ItemLedger.encode(key, prefix, %{}, ledger)) do
       {:error, :invalid_item_file}
     else
-      Enum.reduce_while(prefix, {:ok, new(), MapSet.new()}, fn
+      Enum.reduce_while(prefix, {:ok, %{new() | ledger: ledger}, MapSet.new()}, fn
         %{uuid: uuid, x: x, y: y, z: z, stack: stack} = record, {:ok, state, seen} ->
           with true <-
                  is_binary(uuid) and byte_size(uuid) == 16 and not MapSet.member?(seen, uuid),
@@ -58,7 +64,7 @@ defmodule Valimc.World.Items do
     _ -> {:error, :invalid_item_file}
   end
 
-  def restore(_, _), do: {:error, :invalid_item_file}
+  def restore(_, _, _), do: {:error, :invalid_item_file}
 
   def find(state, <<_::128>> = uuid) do
     case Enum.find(state.entries, fn {_, entry} -> entry.entity.uuid == uuid end) do
@@ -152,7 +158,7 @@ defmodule Valimc.World.Items do
   end
 
   def remove(state, epoch, id, revision) do
-    with {:ok, _entry} <- current(state, epoch, id, revision) do
+    with {:ok, entry} <- current(state, epoch, id, revision) do
       view = state.views[id]
 
       {:ok,
@@ -160,7 +166,11 @@ defmodule Valimc.World.Items do
          state
          | entries: Map.delete(state.entries, id),
            views: Map.delete(state.views, id),
-           bytes: state.bytes - view_bytes(view)
+           bytes: state.bytes - view_bytes(view),
+           ledger: %{
+             state.ledger
+             | generations: Map.delete(state.ledger.generations, entry.entity.uuid)
+           }
        }}
     end
   end
@@ -298,6 +308,7 @@ defmodule Valimc.World.Items do
       view = %{
         entity_id: id,
         uuid: uuid,
+        ownership_generation: Map.get(state.ledger.generations, uuid, 0),
         epoch: state.epoch,
         revision: 1,
         metadata_revision: 1,

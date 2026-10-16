@@ -48,8 +48,8 @@ defmodule Valimc.World.RegionData do
 
     {items, receipts, persistent} =
       case Store.load_items(store) do
-        {:ok, %{records: records, receipts: receipts, persistent: persistent}} ->
-          case Items.restore(key, records) do
+        {:ok, %{records: records, receipts: receipts, ledger: ledger, persistent: persistent}} ->
+          case Items.restore(key, records, ledger) do
             {:ok, items} -> {items, receipts, persistent}
             {:error, reason} -> exit({:item_load_failed, reason})
           end
