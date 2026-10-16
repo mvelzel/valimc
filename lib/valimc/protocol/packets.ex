@@ -35,12 +35,26 @@ defmodule Valimc.Protocol.Packets do
     ])
   end
 
-  def inventory(inventory) do
+  def inventory(inventory),
+    do: inventory_content(0, inventory, Valimc.Inventory.display_contents(inventory))
+
+  def open_table(container) when container in 1..127 do
+    packet("open_screen", [
+      Wire.varint(container),
+      Wire.varint(12),
+      Valimc.Protocol.NBT.encode({:compound, %{"translate" => {:string, "container.crafting"}}})
+    ])
+  end
+
+  def table_inventory(container, inventory) when container in 1..127,
+    do: inventory_content(container, inventory, Valimc.TableMenu.contents(inventory))
+
+  defp inventory_content(container, inventory, contents) do
     packet("container_set_content", [
-      Wire.varint(0),
+      Wire.varint(container),
       Wire.varint(inventory.state_id),
       Wire.varint(46),
-      Enum.map(Valimc.Inventory.display_contents(inventory), &ItemStack.encode/1),
+      Enum.map(contents, &ItemStack.encode/1),
       ItemStack.encode(inventory.carried)
     ])
   end

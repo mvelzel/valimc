@@ -169,6 +169,9 @@ indexes validated tickets. None imply full parity.
    Its [owned input/cleanup foundation](tickets/VMC-033f1.md) passes affected/native
    checks and restart/TCP recovery; actual connected/disconnected cleanup and fresh
    reconnect passed (`7d1a97f`). This foundation is complete; table clicks follow.
+   [Table click plans](tickets/VMC-033f2.md) pass134 affected checks,11,990 native
+   traces and2,398 native packet decodes; player baseline is pending before live
+   block/menu composition.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 [VMC-003c](tickets/VMC-003c.md)'s direct local test-client lifecycle is complete:
@@ -180,6 +183,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
+| [VMC-033f2](tickets/VMC-033f2.md) | Bundle/player baseline; live3×3 belongs to composition | Local checkpoint next |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 

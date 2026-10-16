@@ -3,6 +3,11 @@ defmodule Valimc.Inventory do
   alias Valimc.Protocol.{ItemStack, ItemTypes}
   @max_encoded_bytes 524_288
   @equipment %{"head" => 5, "chest" => 6, "legs" => 7, "feet" => 8, "offhand" => 45}
+  defguardp click_slot(slot)
+            when slot in 1..45 or
+                   (is_tuple(slot) and tuple_size(slot) == 2 and elem(slot, 0) == :table and
+                      elem(slot, 1) in 0..8)
+
   defstruct slots: %{},
             table_inputs: nil,
             selected: 0,
@@ -13,6 +18,10 @@ defmodule Valimc.Inventory do
 
   def new(infinite_materials \\ false) when is_boolean(infinite_materials),
     do: %__MODULE__{infinite_materials: infinite_materials}
+
+  def get(%{table_inputs: cells}, {:table, index})
+      when is_tuple(cells) and tuple_size(cells) == 9 and index in 0..8,
+      do: elem(cells, index)
 
   def get(inventory, slot), do: inventory.slots[slot]
   @doc "All owned physical slots; a table's nine transient inputs follow player slots."
@@ -25,7 +34,12 @@ defmodule Valimc.Inventory do
     do: Tuple.to_list(cells)
 
   def crafting_result(inventory) do
-    case Valimc.Crafting.result(Enum.map(1..4, &get(inventory, &1))) do
+    inputs =
+      if inventory.table_inputs,
+        do: table_contents(inventory),
+        else: Enum.map(1..4, &get(inventory, &1))
+
+    case Valimc.Crafting.result(inputs) do
       {:ok, stack} -> stack
       :none -> nil
     end
@@ -102,13 +116,9 @@ defmodule Valimc.Inventory do
         if(inventory.table_inputs, do: Enum.map(0..8, &{:table, &1}), else: [])
 
   defp owned_stack(inventory, :carried), do: inventory.carried
-  defp owned_stack(inventory, {:table, index}), do: elem(inventory.table_inputs, index)
   defp owned_stack(inventory, slot), do: get(inventory, slot)
 
   defp put_owned(inventory, :carried, stack), do: %{inventory | carried: stack}
-
-  defp put_owned(inventory, {:table, index}, stack),
-    do: %{inventory | table_inputs: put_elem(inventory.table_inputs, index, stack)}
 
   defp put_owned(inventory, slot, stack), do: put(inventory, slot, stack)
 
@@ -273,8 +283,8 @@ defmodule Valimc.Inventory do
   end
 
   def plan_click(inventory, :throw, slot, button)
-      when (slot in 0..45 or slot in [-1, -999]) and button in -128..127 do
-    stack = if slot >= 0 and inventory.carried == nil, do: get(inventory, slot)
+      when (click_slot(slot) or slot in [0, -1, -999]) and button in -128..127 do
+    stack = if slot not in [-1, -999] and inventory.carried == nil, do: get(inventory, slot)
 
     if stack do
       # Result drops need a recipe conversion plan, not ordinary conservation.
@@ -309,7 +319,7 @@ defmodule Valimc.Inventory do
       result == nil ->
         finish(inventory)
 
-      specialized_click?(result) or specialized_click?(cursor) ->
+      specialized_click?(cursor) or (cursor != nil and specialized_click?(result)) ->
         {:error, :unsupported_click}
 
       cursor == nil or
@@ -361,14 +371,15 @@ defmodule Valimc.Inventory do
       else: inventory |> collect(0, button) |> finish()
   end
 
-  defp ordinary_click(inventory, :pickup, slot, button) when slot in 1..45 and button in [0, 1] do
+  defp ordinary_click(inventory, :pickup, slot, button)
+       when click_slot(slot) and button in [0, 1] do
     if specialized_click?(get(inventory, slot)) or specialized_click?(inventory.carried),
       do: {:error, :unsupported_click},
       else: inventory |> pickup(slot, button) |> finish()
   end
 
   defp ordinary_click(inventory, :swap, slot, button)
-       when slot in 1..45 and (button in 0..8 or button == 40) do
+       when click_slot(slot) and (button in 0..8 or button == 40) do
     target = if button == 40, do: 45, else: 36 + button
     first = get(inventory, slot)
     second = get(inventory, target)
@@ -381,14 +392,14 @@ defmodule Valimc.Inventory do
   end
 
   defp ordinary_click(inventory, :quick_move, slot, button)
-       when slot in 1..45 and button in [0, 1],
+       when click_slot(slot) and button in [0, 1],
        do: inventory |> quick_move(slot) |> finish()
 
   defp ordinary_click(inventory, :pickup_all, slot, button)
-       when slot in 0..45 and button in [0, 1],
+       when (click_slot(slot) or slot == 0) and button in [0, 1],
        do: inventory |> collect(slot, button) |> finish()
 
-  defp ordinary_click(inventory, :clone, slot, _) when slot in 0..45 do
+  defp ordinary_click(inventory, :clone, slot, _) when click_slot(slot) or slot == 0 do
     source = get(inventory, slot)
 
     if inventory.infinite_materials and inventory.carried == nil and source != nil,
@@ -459,7 +470,7 @@ defmodule Valimc.Inventory do
   defp quick_craft(inventory, _, _, _),
     do: {:ok, inventory |> cancel_drag() |> advance()}
 
-  defp drag_target?(inventory, slot) when slot in 1..45 do
+  defp drag_target?(inventory, slot) when click_slot(slot) do
     cursor = inventory.carried
     present = get(inventory, slot)
 
@@ -525,6 +536,34 @@ defmodule Valimc.Inventory do
     end
   end
 
+  defp quick_move(%{table_inputs: cells} = inventory, slot) when cells != nil do
+    case get(inventory, slot) do
+      nil ->
+        inventory
+
+      stack ->
+        groups =
+          if slot in 9..44 do
+            # Native QUICK_MOVE retries a partially moved source. Finish its grid
+            # admission before routing the remainder to the other storage section.
+            [
+              Enum.map(0..8, &{:table, &1}),
+              if(slot in 9..35, do: Enum.to_list(36..44), else: Enum.to_list(9..35))
+            ]
+          else
+            [Enum.to_list(9..44)]
+          end
+
+        {next, left} =
+          Enum.reduce(groups, {inventory, stack.count}, fn targets, {next, left} ->
+            {next, left} = transfer(next, stack, left, targets, :merge)
+            transfer(next, stack, left, targets, :empty)
+          end)
+
+        put(next, slot, sized(stack, left))
+    end
+  end
+
   defp quick_move(inventory, slot) do
     stack = get(inventory, slot)
     equipment = if stack, do: equipment_slot(stack)
@@ -558,7 +597,9 @@ defmodule Valimc.Inventory do
   end
 
   defp consume_crafting_inputs(inventory) do
-    Enum.reduce(1..4, inventory, fn slot, next ->
+    inputs = if inventory.table_inputs, do: Enum.map(0..8, &{:table, &1}), else: 1..4
+
+    Enum.reduce(inputs, inventory, fn slot, next ->
       case get(next, slot) do
         nil -> next
         stack -> put(next, slot, sized(stack, stack.count - 1))
@@ -596,7 +637,12 @@ defmodule Valimc.Inventory do
     if get(inventory, slot) != nil do
       inventory
     else
-      targets = if button == 0, do: 1..45, else: 45..1//-1
+      visible =
+        if inventory.table_inputs,
+          do: Enum.map(0..8, &{:table, &1}) ++ Enum.to_list(9..44),
+          else: Enum.to_list(1..45)
+
+      targets = if button == 0, do: visible, else: Enum.reverse(visible)
 
       Enum.reduce([:partial, :all], inventory, fn pass, inventory ->
         Enum.reduce(targets, inventory, fn slot, inventory ->
@@ -663,6 +709,10 @@ defmodule Valimc.Inventory do
       do: nil,
       else: @equipment[ItemTypes.item(stack.item_id)["equipment_slot"]]
   end
+
+  defp put(%{table_inputs: cells} = inventory, {:table, index}, stack)
+       when is_tuple(cells) and tuple_size(cells) == 9 and index in 0..8,
+       do: %{inventory | table_inputs: put_elem(cells, index, stack)}
 
   defp put(inventory, slot, nil), do: %{inventory | slots: Map.delete(inventory.slots, slot)}
 
