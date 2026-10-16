@@ -628,7 +628,8 @@ public class VanillaOracle implements AutoCloseable {
         }
         return wanted.isEmpty();
       });
-      first.await(returnedMenu);
+      // The close response above and peer drops establish completion. Do not
+      // require another unsolicited duplicate before testing a repeated close.
       first.send(gameOut,new ServerboundContainerClosePacket(0));
       first.await(returnedMenu);
       System.out.println("PASS: Mojang 26.3 connected close partial merge, cleared cursor/grid, exact patched/damaged five-item overflow batch and repeated close contents.");

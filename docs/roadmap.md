@@ -11,8 +11,8 @@ indexes validated tickets. None imply full parity.
 
 [Owned table menus](tickets/VMC-033f4.md) are validated, including authoritative
 access and bounded durable close. [Bulk result dropping](tickets/VMC-033h.md) is
-validated. Current work: [crafting remainders](tickets/VMC-033g.md), followed by
-[near-camera item presentation](tickets/VMC-018c3.md).
+validated, as are [crafting remainders](tickets/VMC-033g.md). Current work:
+[near-camera item presentation](tickets/VMC-018c3.md) and authoritative item motion.
 
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Player processes own their simulation state; bounded workers sample geometry.
@@ -195,7 +195,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-033g](tickets/VMC-033g.md) | Actual three recipes/remainders/overflow/reconnect; coherent integration | Targeted/native-verified local checkpoint |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 

@@ -1,6 +1,7 @@
 # VMC-033g — Crafting remainders
 
-Status: Implemented; client/coherent integration pending. October16,2026.
+Status: Done within ordinary manual remainder-recipe scope. October16,2026.
+Runtime `c06b4bd`; test expectation repair `265b151`.
 Parent: VMC-033; uses VMC-033h.
 
 Acceptance: cake, honey block and bottled-honey sugar select their native recipes,
@@ -59,12 +60,41 @@ Existing3,392 ordinary bulk traces still pass. Raw
 68 affected tests passed (seed934998), including cake buckets/patches, both-mode
 overflow, output-before-remainder swap, non-five-record boundaries, exact/forged
 journals and live TCP pickup/offhand/bulk/shift/close/reconnect. Raw
-`.local/remainder-final-targeted.log`. Formatting/Python syntax pass. The combined
-bulk/remainder block still needs frozen full tests/native integration/production
-and dedicated GUI scenarios; no client/Done claim yet.
+`.local/remainder-final-targeted.log`. Formatting/Python syntax pass. Coherent
+block results follow.
 
 First frozen full suite:969/970 passed; a keyboard-drop test still expected a
 pending close to be ignored. Updated it to verify deferred return, unchanged
 offhand/selection, exact single drop and fresh reconnect;15 affected checks pass
 (seed654680). This test-only follow-up leaves the frozen `c06b4bd` runtime/native
-scripts unchanged. Full-suite rerun follows; original failed log retained.
+scripts unchanged. Original failed log retained.
+
+Frozen full rerun passes970 tests (seed443449); production and all five dedicated
+GUI scenarios pass. Full native integration passed its pure/codec/menu probes,
+then its TCP close scenario waited for a second unsolicited duplicate inventory
+response after already observing the correct closed menu and five peer drops.
+The unified deferred-close path emits one final response. Removed only that extra
+wait; retain cleared menu/partial merge/exact overflow checks and send a real
+repeated close before expecting another response. Complete targeted plaintext and
+continuous AES-CFB8 TCP reruns pass against the unchanged frozen runtime. Native
+integration is validated by the complete probe prefix plus both corrected TCP
+scenarios; the original failed run is retained. Raw
+`.local/crafting-remainders-{final-full-tests,full-native,production}.log`,
+`.local/remainder-tcp-integration-02.log`.
+
+Five actual-client scenarios passed on frozen `c06b4bd`: player bottled sugar with
+patched residual input/plain bottle; cake with three returned buckets; survival
+full-storage offhand output/four overflow bottles; six-craft Shift continuation
+over five four-record journals and final physical bottles; creative overflow
+discard followed by physical close cleanup. All used actual gestures and fresh
+reconnects (ten launches). Exact snapshots/ledgers corroborate client observations.
+Report `.local/client-tests/VMC-033g/report.md`; both727-blob snapshots rehashed,
+unchanged-runtime proof/evidence hashes `.local/remainders-proof.json`.
+
+Fresh whole dataset `/tmp/valimc-remainders-client-20261016` starts at zero with
+prior datasets preserved. Restored original snapshot/396 scene cells except latest
+sequence9/nil; retained all37 committed records (28 bottles/eight honey/one block),
+receipt9, no pending work and no test JVMs. Fresh-world near-camera item planes
+reproduced only after drops; stepping away showed recognizable sprites. This
+separate presentation/physics observation remains VMC-018c3. Recipe book, special
+component outputs and broader crafting/container behavior remain open.
