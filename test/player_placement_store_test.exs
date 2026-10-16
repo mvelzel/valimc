@@ -237,12 +237,15 @@ defmodule Valimc.PlayerPlacementStoreTest do
         food: %PlayerFood{level: 7, saturation: 0.0, exhaustion: 3.5, timer: 79}
     }
 
+    later = Map.put(later, :fire_ticks, -20)
+
     monitor = Process.monitor(ctx.writer)
     assert :ok = PlayerStore.close_session(ctx.writer, fence, later)
     assert_receive {:DOWN, ^monitor, :process, _, :normal}, 5000
     final = read(ctx)
     assert final.outbox == nil and final.transfer_sequence == 2 and final.inventory.slots == %{}
     assert final.health == later.health and final.food == later.food
+    assert final.fire_ticks == -20
     assert World.get_block(ctx.position) == 0
 
     {:ok, %{records: records}} =

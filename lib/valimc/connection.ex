@@ -1713,6 +1713,7 @@ defmodule Valimc.Connection do
         Packets.player_use(player),
         Packets.player_pose(player),
         Packets.player_environment(player),
+        Packets.player_flags(player),
         Packets.spawn_position(),
         Packets.interaction_attributes(player),
         Packets.inventory(inventory),
@@ -2094,6 +2095,7 @@ defmodule Valimc.Connection do
       motion: %PlayerMotion{},
       environment: %PlayerEnvironment{},
       air_supply: Valimc.PlayerAir.maximum(),
+      fire_ticks: 0,
       food: %PlayerFood{},
       use_flags: 0,
       equipment: %{},
@@ -2147,6 +2149,7 @@ defmodule Valimc.Connection do
                 ),
               environment: %PlayerEnvironment{frozen_ticks: Map.get(snapshot, :frozen_ticks, 0)},
               air_supply: Map.get(snapshot, :air_supply, Valimc.PlayerAir.maximum()),
+              fire_ticks: Map.get(snapshot, :fire_ticks, 0),
               food: Map.get(snapshot, :food, %PlayerFood{})
           }
 
@@ -2222,6 +2225,7 @@ defmodule Valimc.Connection do
       Packets.player_info(state.player),
       Packets.interaction_attributes(state.player),
       Packets.player_environment(state.player),
+      Packets.player_flags(state.player),
       Packets.player_pose(state.player),
       Packets.player_health(state.player),
       Packets.player_use(state.player),

@@ -17,7 +17,7 @@ defmodule Valimc.PlayerSnapshot do
   @outbox_bytes max(57 + 5 * (69 + 65_536), PlayerMiningIntent.max_bytes())
   @max_sequence 18_446_744_073_709_551_615
   @max_bytes 56 + 4 + 3 + 8 + 4 + 24 + 12 + 8 + 13 + 2 + 11 + @inventory_bytes + @outbox_bytes +
-               32 + 1
+               32 + 1 + 5
 
   def max_bytes, do: @max_bytes
 
@@ -68,6 +68,11 @@ defmodule Valimc.PlayerSnapshot do
     snapshot =
       if Map.has_key?(player, :food),
         do: Map.put(snapshot, :food, player.food),
+        else: snapshot
+
+    snapshot =
+      if Map.has_key?(player, :fire_ticks),
+        do: Map.put(snapshot, :fire_ticks, player.fire_ticks),
         else: snapshot
 
     case player do
@@ -240,6 +245,14 @@ defmodule Valimc.PlayerSnapshot do
         do: {version, journal},
         else: {15, [<<version>>, table_body, journal]}
 
+    {version, journal} =
+      if Map.has_key?(snapshot, :fire_ticks) do
+        check(Valimc.PlayerBurning.valid?(snapshot.fire_ticks), :invalid_fire_ticks)
+        {17, [<<version, snapshot.fire_ticks::signed-32>>, journal]}
+      else
+        {version, journal}
+      end
+
     payload =
       IO.iodata_to_binary([
         <<"VMCPOSE", version, uuid::binary-size(16), pose.x::float-64, pose.y::float-64,
@@ -264,6 +277,16 @@ defmodule Valimc.PlayerSnapshot do
     <<payload::binary-size(^payload_bytes), checksum::binary-size(32)>> = bytes
     check(:crypto.hash(:sha256, payload) == checksum, :invalid_player_file)
 
+    {payload, burning} =
+      case payload do
+        <<"VMCPOSE", 17, header::binary-size(52), base, ticks::signed-32, body::binary>>
+        when base in 2..16 ->
+          {<<"VMCPOSE", base, header::binary, body::binary>>, %{fire_ticks: ticks}}
+
+        _ ->
+          {payload, %{}}
+      end
+
     {payload, table_inputs, table_bytes} =
       case payload do
         <<"VMCPOSE", 15, header::binary-size(52), base, rest::binary>>
@@ -277,8 +300,12 @@ defmodule Valimc.PlayerSnapshot do
       end
 
     case decode_payload(payload, uuid, table_bytes, table_inputs) do
-      {:ok, snapshot} -> {:ok, put_in(snapshot.inventory.table_inputs, table_inputs)}
-      error -> error
+      {:ok, snapshot} ->
+        snapshot = put_in(snapshot.inventory.table_inputs, table_inputs)
+        {:ok, Map.merge(snapshot, burning)}
+
+      error ->
+        error
     end
   rescue
     _ -> {:error, :invalid_player_file}

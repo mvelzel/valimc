@@ -27,6 +27,7 @@ defmodule Valimc.PlayerLifeTest do
     assert dead.motion.velocity == {0.0, 0.0, 0.0} and dead.motion.fall_distance == 0
     assert dead.environment.damage_phase == 0 and not dead.environment.damage_due
     alive = PlayerLife.respawn(dead)
+    assert alive.fire_ticks == 0
     assert alive.health == %PlayerHealth{} and alive.pose == :standing
     assert alive.food == %Valimc.PlayerFood{}
     assert alive.last_death == dead.last_death and alive.environment.frozen_ticks == 0
@@ -39,6 +40,9 @@ defmodule Valimc.PlayerLifeTest do
     health = %PlayerHealth{value: 0.0, death_ticks: 19}
     assert PlayerHealth.tick(health).death_ticks == 20
     assert health |> PlayerHealth.tick() |> PlayerHealth.tick() |> Map.get(:death_ticks) == 20
+
+    assert PlayerLife.die(Map.put(player(), :fire_ticks, 300)).fire_ticks == 0
+    assert PlayerLife.dead(Map.put(player(), :fire_ticks, -20)).fire_ticks == -20
   end
 
   test "last death is checksummed with health and journal; sealed invalid coordinates are rejected" do

@@ -344,7 +344,8 @@ defmodule Valimc.Protocol.Packets do
   end
 
   def shared_flags(player) do
-    flags = Map.get(player, :input, %Valimc.PlayerInput{}).shared_flags &&& bnot(16)
+    flags = Map.get(player, :input, %Valimc.PlayerInput{}).shared_flags &&& bnot(17)
+    flags = if Map.get(player, :fire_ticks, 0) > 0, do: flags ||| 1, else: flags
     if Map.get(player, :motion, %Valimc.PlayerMotion{}).swimming, do: flags ||| 16, else: flags
   end
 

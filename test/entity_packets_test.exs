@@ -25,6 +25,22 @@ defmodule Valimc.EntityPacketsTest do
 
   defp payload({_, payload}), do: IO.iodata_to_binary(payload)
 
+  test "burning and swimming flags come from the owner, including peer recreation" do
+    player = Map.merge(entity(), %{input: %Valimc.PlayerInput{shared_flags: 27}, fire_ticks: 0})
+    assert Packets.shared_flags(player) == 10
+    assert Packets.shared_flags(%{player | fire_ticks: -20}) == 10
+    player = Map.put(player, :motion, %Valimc.PlayerMotion{swimming: true})
+    assert Packets.shared_flags(player) == 26
+    burning = %{player | fire_ticks: 300}
+    assert Packets.shared_flags(burning) == 27
+    assert payload(Packets.player_flags(burning)) == Wire.varint(300) <> <<0, 0, 27, 255>>
+    previous = Packets.view(player)
+    assert Packets.player_flags(burning) in Packets.move_entity(burning, previous)
+    moved = %{burning | x: 100.0}
+    assert Packets.player_flags(moved) in Packets.move_entity(moved, previous)
+    refute Packets.player_flags(player) in Packets.move_entity(player, previous)
+  end
+
   test "spawn uses item type, float32 packed angles and the complete packed velocity" do
     e = entity()
     packet = EntityPackets.spawn_item(e)

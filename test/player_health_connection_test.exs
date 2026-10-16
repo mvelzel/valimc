@@ -59,6 +59,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
       abilities: Valimc.PlayerAbilities.for_mode(:survival),
       motion: %Valimc.PlayerMotion{},
       environment: %Valimc.PlayerEnvironment{},
+      fire_ticks: 300,
       health: %PlayerHealth{value: 7.25, hurt_ticks: 7, cooldown: 17, last_hurt: 5.0}
     }
 
@@ -73,9 +74,11 @@ defmodule Valimc.PlayerHealthConnectionTest do
       assert health == 7.25
       state = :sys.get_state(pid)
       assert state.player.health.value == 7.25
+      assert state.player.fire_ticks in 1..300
       assert state.player.health.cooldown == 0 and state.player.health.last_hurt == 0
       assert state.player.health.hurt_ticks <= 7
       client = Client.load_world(client)
+      assert Bitwise.band(client.entity_flags[state.player.entity_id], 1) == 1
       assert Enum.at(client.inventory.items, 36) == ItemStack.new("stone", 7)
       monitor = Process.monitor(pid)
       Client.close(client)
@@ -83,6 +86,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
       departed(ctx)
       assert {:ok, saved} = PlayerSnapshot.decode(File.read!(path), ctx.uuid)
       assert saved.health.value == 7.25 and saved.health.hurt_ticks <= 7
+      assert saved.fire_ticks in 1..300
       assert saved.inventory.slots == inventory.slots
       assert saved.outbox == nil and saved.transfer_sequence == 0
     end

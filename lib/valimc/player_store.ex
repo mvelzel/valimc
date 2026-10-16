@@ -203,6 +203,7 @@ defmodule Valimc.PlayerStore do
               :game_mode,
               :frozen_ticks,
               :air_supply,
+              :fire_ticks,
               :food,
               :velocity,
               :health,

@@ -170,6 +170,13 @@ defmodule Valimc.PlayerPickupTransfersTest do
     assert pending.inventory == inventory
     assert {:ok, bytes} = PlayerSnapshot.encode(@uuid, pending)
     assert <<"VMCPOSE", 15, _::binary-size(52), 16, _::binary>> = bytes
+    burning = Map.put(pending, :fire_ticks, 300)
+
+    assert {:ok, <<"VMCPOSE", 17, _::binary>> = fire_bytes} =
+             PlayerSnapshot.encode(@uuid, burning)
+
+    assert {:ok, restored_fire} = PlayerSnapshot.decode(fire_bytes, @uuid)
+    assert restored_fire == persisted(burning)
     assert {:ok, restored} = PlayerSnapshot.decode(bytes, @uuid)
     assert restored == persisted(pending)
 

@@ -12,7 +12,7 @@ defmodule Valimc.PlayerLife do
   def valid_location?(_), do: false
 
   def dead(player) do
-    %{
+    player = %{
       player
       | last_death:
           Map.get(player, :last_death) || {floor(player.x), floor(player.y), floor(player.z)},
@@ -21,6 +21,10 @@ defmodule Valimc.PlayerLife do
         environment: PlayerEnvironment.tick(player.environment, false),
         pose: :dying
     }
+
+    if Map.has_key?(player, :fire_ticks),
+      do: %{player | fire_ticks: min(0, player.fire_ticks)},
+      else: player
   end
 
   def respawn(player) do
@@ -39,6 +43,7 @@ defmodule Valimc.PlayerLife do
         pose: :standing
     }
     |> Map.put(:air_supply, Valimc.PlayerAir.maximum())
+    |> Map.put(:fire_ticks, 0)
     |> Map.put(:food, %Valimc.PlayerFood{})
     |> Map.put(:use_flags, 0)
     |> Map.put(:equipment, %{})

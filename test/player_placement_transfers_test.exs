@@ -82,6 +82,11 @@ defmodule Valimc.PlayerPlacementTransfersTest do
     assert {:ok, <<"VMCPOSE", 15, _::binary>> = bytes} = PlayerSnapshot.encode(@uuid, pending)
     assert {:ok, restored} = PlayerSnapshot.decode(bytes, @uuid)
     assert restored == persisted(pending)
+    burning = Map.put(pending, :fire_ticks, 300)
+    assert {:ok, <<"VMCPOSE", 17, _::binary>> = bytes} = PlayerSnapshot.encode(@uuid, burning)
+    assert {:ok, restored_fire} = PlayerSnapshot.decode(bytes, @uuid)
+    assert restored_fire == persisted(burning)
+    assert {:ok, %{fire_ticks: 300}} = PlayerPlacementTransfers.resolve(restored_fire, :rejected)
     assert {:ok, refunded} = PlayerPlacementTransfers.resolve(restored, :rejected)
 
     assert refunded.inventory.table_inputs == cells and
