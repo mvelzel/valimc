@@ -30,15 +30,7 @@ defmodule Valimc.PlayerPlacementQuery do
        outcome =
          case prepare(item, request, now() + @timeout) do
            {:ok, plan} ->
-             if grant != nil and now() < expires and
-                  MapSet.member?(
-                    grant.chunks,
-                    World.chunk_key(
-                      elem(plan.candidate.position, 0),
-                      elem(plan.candidate.position, 2)
-                    )
-                  ) and
-                  unobstructed?(plan.candidate, grant.box) do
+             if admitted?(plan, grant, expires) do
                Region.place_block(
                  plan.owner,
                  plan.revision,
@@ -59,6 +51,72 @@ defmodule Valimc.PlayerPlacementQuery do
     RuntimeError -> {:error, :placement_workers_busy}
   catch
     :exit, _ -> {:error, :placement_workers_busy}
+  end
+
+  @doc "Reserve a prepared survival context; this job never consumes inventory or places a block."
+  def start_survival(item, request, grant, expires) do
+    connection = self()
+
+    {:ok,
+     Task.Supervisor.async_nolink(Valimc.CollisionWorkers, fn ->
+       result =
+         with {:ok, plan} <- prepare(item, request, now() + @timeout),
+              true <- admitted?(plan, grant, expires),
+              {:ok, reservation} <-
+                Region.reserve_placement(plan.owner, plan.revision, plan.expected) do
+           reservation = Map.merge(reservation, %{owner: plan.owner, key: plan.region})
+
+           if now() < expires,
+             do: {:reserved, Map.merge(reservation, %{candidate: plan.candidate})},
+             else:
+               (
+                 Region.release_placement(plan.owner, reservation.permit)
+                 {:refused, :expired_placement}
+               )
+         else
+           false -> {:refused, :player_admission}
+           error -> error
+         end
+
+       case result do
+         {:reserved, _} -> result
+         outcome -> with :ok <- correct(request, connection), do: {:ok, outcome}
+       end
+     end)}
+  rescue
+    RuntimeError -> {:error, :placement_workers_busy}
+  catch
+    :exit, _ -> {:error, :placement_workers_busy}
+  end
+
+  def start_correction(request, reservation) do
+    connection = self()
+
+    {:ok,
+     Task.Supervisor.async_nolink(Valimc.CollisionWorkers, fn ->
+       if reservation do
+         try do
+           Region.release_placement(reservation.owner, reservation.permit)
+         catch
+           :exit, _ -> :ok
+         end
+       end
+
+       with :ok <- correct(request, connection), do: {:ok, :corrected}
+     end)}
+  rescue
+    RuntimeError -> {:error, :placement_workers_busy}
+  catch
+    :exit, _ -> {:error, :placement_workers_busy}
+  end
+
+  defp admitted?(_plan, nil, _expires), do: false
+
+  defp admitted?(plan, grant, expires) do
+    {x, _, z} = plan.candidate.position
+
+    now() < expires and MapSet.member?(grant.chunks, World.chunk_key(x, z)) and
+      unobstructed?(plan.candidate, grant.box)
   end
 
   defp unobstructed?(%{state: state, position: position}, body) do
@@ -109,6 +167,7 @@ defmodule Valimc.PlayerPlacementQuery do
          region: key,
          revision: observed.revision,
          candidate: candidate,
+         expected: observed.blocks,
          batch: batch,
          deadline: deadline
        }}

@@ -57,7 +57,8 @@ defmodule Valimc.Connection do
                |> MapSet.new()
 
   defguardp inventory_pending(state)
-            when state.recovery != nil or state.creative_input.queued > 0 or state.use_save != nil
+            when state.recovery != nil or state.creative_input.queued > 0 or state.use_save != nil or
+                   (state.placement_job != nil and state.placement_job.command.mode == :survival)
 
   def start_link(socket), do: GenServer.start_link(__MODULE__, socket)
 
@@ -427,7 +428,11 @@ defmodule Valimc.Connection do
   def handle_info({:player_saved, ref, :ok}, %{save_ref: ref} = state),
     do:
       guard_connection(state, fn ->
-        {:noreply, %{state | save_ref: nil, use_save: nil} |> drain_creative() |> continue_life()}
+        {:noreply,
+         %{state | save_ref: nil, use_save: nil}
+         |> drain_creative()
+         |> continue_life()
+         |> drain_placements()}
       end)
 
   def handle_info(:drain_creative, %{creative_drain_scheduled: true} = state),
@@ -522,15 +527,19 @@ defmodule Valimc.Connection do
           )
 
       Process.cancel_timer(recovery.timer)
-      send_packets(state, [Packets.chat("Item drop could not be prepared; inventory restored")])
+
+      send_packets(state, [
+        Packets.chat("Item operation could not be prepared; inventory restored")
+      ])
 
       {:noreply,
        state
        |> Map.put(:recovery, nil)
-       |> correct_mining_recovery(recovery)
+       |> correct_block_recovery(recovery)
        |> drain_creative()
        |> sync_creative_result()
-       |> continue_life()}
+       |> continue_life()
+       |> drain_placements()}
     end)
   end
 
@@ -545,12 +554,17 @@ defmodule Valimc.Connection do
       Process.cancel_timer(recovery.timer)
       inventory = recovered_inventory(state, snapshot)
       state = %{state | recovery: nil, store_fence: fence, inventory: inventory}
-      state = correct_mining_recovery(state, recovery)
+      state = correct_block_recovery(state, recovery)
 
       {:noreply,
        if(recovery.mode == :login,
          do: reconcile_login(state),
-         else: state |> drain_creative() |> sync_creative_result() |> continue_life()
+         else:
+           state
+           |> drain_creative()
+           |> sync_creative_result()
+           |> continue_life()
+           |> drain_placements()
        )}
     end)
   end
@@ -598,10 +612,14 @@ defmodule Valimc.Connection do
 
     guard_connection(state, fn ->
       case result do
+        {:reserved, reservation} ->
+          state = %{state | placement_job: nil}
+          {:noreply, prepare_survival_placement(state, job.command, reservation)}
+
         {:ok, _outcome} ->
           state = if job.command.body == nil, do: resync_inventory(state), else: state
           send_packets(state, [Packets.ack(job.command.request.sequence)])
-          {:noreply, drain_placements(%{state | placement_job: nil})}
+          {:noreply, %{state | placement_job: nil} |> continue_life() |> drain_placements()}
 
         _ ->
           reject(state, "Block interaction unavailable; please reconnect")
@@ -3056,12 +3074,19 @@ defmodule Valimc.Connection do
       else: state
   end
 
-  defp correct_mining_recovery(state, recovery) do
+  defp correct_block_recovery(state, recovery) do
     intent = if recovery.intent, do: recovery.intent[:outbox], else: recovery.plan[:intent]
 
-    if recovery.mode == :play and match?(%{kind: :mining}, intent),
-      do: correct_mining(state, intent.target),
-      else: state
+    case {recovery.mode, intent} do
+      {:play, %{kind: :mining}} ->
+        correct_mining(state, intent.target)
+
+      {:play, %{kind: :placement}} ->
+        correct_placement(state, intent.request, recovery.plan.reservation)
+
+      _ ->
+        state
+    end
   end
 
   defp commit_mining(%{save_ref: ref} = state) when ref != nil, do: state
@@ -3394,6 +3419,9 @@ defmodule Valimc.Connection do
             command = %{
               request: request,
               item: stack.item_id,
+              stack: stack,
+              slot: if(request.hand == :off, do: 45, else: 36 + state.inventory.selected),
+              mode: state.player.game_mode.current,
               body: body,
               expires: System.monotonic_time(:millisecond) + 250
             }
@@ -3414,8 +3442,12 @@ defmodule Valimc.Connection do
   end
 
   defp placement_body(state, request) do
-    if state.life_stage == :alive and state.player.game_mode.current == :creative and
-         state.inventory.infinite_materials and PlayerInput.loaded?(state.player.input) and
+    mode = state.player.game_mode.current
+
+    if state.life_stage == :alive and state.player.health.value > 0 and
+         ((mode == :creative and state.inventory.infinite_materials) or
+            (mode == :survival and not state.inventory.infinite_materials)) and
+         PlayerInput.loaded?(state.player.input) and
          not state.teleport_pending and not inventory_pending(state) and
          reachable?(state, request.position) and
          Valimc.PlayerInteraction.valid_hit?(request.position, request.cursor) do
@@ -3431,6 +3463,10 @@ defmodule Valimc.Connection do
 
   defp drain_placements(%{placement_job: job} = state) when job != nil, do: state
 
+  defp drain_placements(state)
+       when state.recovery != nil or state.save_ref != nil or state.use_save != nil,
+       do: state
+
   defp drain_placements(state) do
     case :queue.out(state.placement_queue) do
       {:empty, _} ->
@@ -3439,7 +3475,12 @@ defmodule Valimc.Connection do
       {{:value, command}, queue} ->
         state = %{state | placement_queue: queue, placement_queued: state.placement_queued - 1}
 
-        case PlayerPlacementQuery.start_creative(
+        start =
+          if command.mode == :survival,
+            do: &PlayerPlacementQuery.start_survival/4,
+            else: &PlayerPlacementQuery.start_creative/4
+
+        case start.(
                command.item,
                command.request,
                command.body,
@@ -3452,6 +3493,86 @@ defmodule Valimc.Connection do
           {:error, _} ->
             reject(state, "Block interaction capacity reached; please reconnect")
         end
+    end
+  end
+
+  defp prepare_survival_placement(state, command, reservation) do
+    if command.body != nil and state.life_stage == :alive and state.player.health.value > 0 and
+         state.player.game_mode.current == :survival and not state.inventory.infinite_materials and
+         not state.teleport_pending and not inventory_pending(state) and state.save_ref == nil and
+         System.monotonic_time(:millisecond) < command.expires and
+         command.slot ==
+           if(command.request.hand == :off, do: 45, else: 36 + state.inventory.selected) and
+         Inventory.get(state.inventory, command.slot) == command.stack do
+      after_stack =
+        if command.stack.count == 1,
+          do: nil,
+          else: %{command.stack | count: command.stack.count - 1}
+
+      slots =
+        if after_stack,
+          do: Map.put(state.inventory.slots, command.slot, after_stack),
+          else: Map.delete(state.inventory.slots, command.slot)
+
+      inventory =
+        %{state.inventory | slots: slots} |> Inventory.cancel_drag() |> Inventory.advance()
+
+      intent =
+        reservation
+        |> Map.take([:key, :permit, :expected])
+        |> Map.merge(%{
+          kind: :placement,
+          slot: command.slot,
+          before: command.stack,
+          after: after_stack,
+          request: command.request,
+          edits: %{reservation.candidate.position => reservation.candidate.state}
+        })
+
+      ref = make_ref()
+
+      recovery = %{
+        new_recovery(:play, :prepare, nil)
+        | ref: ref,
+          plan: %{
+            key: reservation.key,
+            records: [],
+            inventory: inventory,
+            intent: intent,
+            reservation: reservation
+          }
+      }
+
+      PlayerStore.prepare_placement(
+        state.player_store,
+        state.store_fence,
+        PlayerSnapshot.capture(state.player, state.inventory),
+        intent,
+        ref
+      )
+
+      state |> cancel_mining() |> stop_item_use() |> Map.put(:recovery, recovery)
+    else
+      correct_placement(state, command.request, reservation)
+    end
+  end
+
+  defp correct_placement(state, request, reservation) do
+    case PlayerPlacementQuery.start_correction(request, reservation) do
+      {:ok, task} ->
+        timer = Process.send_after(self(), {:placement_deadline, task.ref}, 750)
+
+        %{
+          state
+          | placement_job: %{
+              task: task,
+              timer: timer,
+              command: %{mode: :correction, body: nil, request: request}
+            }
+        }
+
+      {:error, _} ->
+        reject(state, "Block correction capacity reached; please reconnect")
     end
   end
 

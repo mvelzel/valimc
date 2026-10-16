@@ -43,7 +43,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     }
   end
 
-  defp seed(c, mode \\ :creative) do
+  defp seed(c, mode \\ :creative, slots \\ %{}) do
     player =
       Map.merge(c.pose, %{
         game_mode: GameMode.new(mode),
@@ -51,11 +51,15 @@ defmodule Valimc.PlayerPlacementConnectionTest do
       })
 
     inventory = %Inventory{
-      slots: %{
-        36 => ItemStack.new("stone", 7),
-        37 => ItemStack.new("oak_slab", 9),
-        45 => ItemStack.new("oak_slab", 11)
-      }
+      slots:
+        Map.merge(
+          %{
+            36 => ItemStack.new("stone", 7),
+            37 => ItemStack.new("oak_slab", 9),
+            45 => ItemStack.new("oak_slab", 11)
+          },
+          slots
+        )
     }
 
     {:ok, bytes} = PlayerSnapshot.encode(c.uuid, PlayerSnapshot.capture(player, inventory))
@@ -142,22 +146,139 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     assert World.get_block({x, y + 1, z}) == 15
   end
 
-  test "unloaded and survival owners cannot authorize creative placement or consume stacks", c do
+  test "survival consumes owned main/offhand stacks and persists wet/double placements across fresh login",
+       c do
     seed(c, :survival)
     {client, pid} = login(c)
-    before = :sys.get_state(pid).inventory
     send_place(client, c.target)
-    _client = ack(client)
-    assert World.get_block(c.target) == 0
+    client = ack(client)
+    assert World.get_block(c.target) == 1
+    assert :sys.get_state(pid).inventory.slots[36].count == 6
+    :ok = World.set_block(c.target, 89)
+    send_place(client, c.target, 1, 0.5, 1, 2)
+    client = ack(client, 2)
+    assert World.get_block(c.target) == 15_179
+    assert :sys.get_state(pid).inventory.slots[45].count == 10
+    send_place(client, c.target, 1, 0.5, 1, 3)
+    client = ack(client, 3)
+    assert World.get_block(c.target) == 15_182
+    assert :sys.get_state(pid).inventory.slots[45].count == 9
+    assert saved(c).transfer_sequence == 3 and saved(c).outbox == nil
+    assert World.item_snapshot(c.key) == %{}
+    Client.close(client)
 
-    assert Map.take(:sys.get_state(pid).inventory, [
-             :slots,
-             :selected,
-             :carried,
-             :drag,
-             :infinite_materials
-           ]) ==
-             Map.take(before, [:slots, :selected, :carried, :drag, :infinite_materials])
+    wait(fn ->
+      not Process.alive?(pid) and Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == []
+    end)
+
+    {_fresh, fresh_pid} = login(c)
+    assert :sys.get_state(fresh_pid).inventory.slots[36].count == 6
+    assert :sys.get_state(fresh_pid).inventory.slots[45].count == 9
+    assert World.get_block(c.target) == 15_182
+  end
+
+  defp saved(c) do
+    {:ok, snapshot} = PlayerSnapshot.decode(File.read!(PlayerStore.path(c.base, c.uuid)), c.uuid)
+    snapshot
+  end
+
+  test "last-item placement depletes exactly its hand and subsequent empty use is inert", c do
+    seed(c, :survival, %{36 => ItemStack.new("stone"), 45 => ItemStack.new("oak_slab")})
+    {client, pid} = login(c)
+    send_place(client, c.target)
+    client = ack(client)
+    assert :sys.get_state(pid).inventory.slots[36] == nil
+    assert saved(c).inventory.slots[36] == nil
+    assert :ok = World.set_block(c.target, 0)
+    send_place(client, c.target, 1, 0.5, 1, 2)
+    client = ack(client, 2)
+    assert World.get_block(c.target) == 15_180
+    assert :sys.get_state(pid).inventory.slots[45] == nil
+    assert saved(c).transfer_sequence == 2 and saved(c).outbox == nil
+    assert :ok = World.set_block(c.target, 0)
+    send_place(client, c.target, 1, 0.5, 1, 3)
+    _client = ack(client, 3)
+    assert World.get_block(c.target) == 0 and saved(c).transfer_sequence == 2
+  end
+
+  test "survival body, occupied, reach and unloaded refusals preserve source stacks and counters",
+       c do
+    seed(c, :survival)
+    {client, pid} = login(c, false)
+    before = :sys.get_state(pid).inventory.slots
+    send_place(client, c.target)
+    client = ack(client)
+    Client.send_packet(client, :play, "player_loaded", <<>>)
+    feet = {floor(c.pose.x), 64, floor(c.pose.z)}
+    send_place(client, feet, 1, 0.5, 0, 2)
+    client = ack(client, 2)
+    assert World.get_block(feet) == 0
+    {x, y, z} = c.target
+    assert :ok = World.set_block(c.target, 1)
+    assert :ok = World.set_block({x, y + 1, z}, 15)
+    send_place(client, c.target, 1, 0.5, 0, 3)
+    client = ack(client, 3)
+    send_place(client, {x, y, z + 40}, 1, 0.5, 0, 4)
+    _client = ack(client, 4)
+    assert World.get_block({x, y + 1, z}) == 15
+    assert :sys.get_state(pid).inventory.slots == before
+    assert :sys.get_state(:sys.get_state(pid).player_store).snapshot.transfer_sequence == 0
+  end
+
+  test "pending source save blocks selection, not chat or world reads, and precedes destination mutation",
+       c do
+    seed(c, :survival)
+    {client, pid} = login(c)
+    writer = :sys.get_state(pid).player_store
+    :sys.suspend(writer)
+
+    try do
+      send_place(client, c.target)
+      wait(fn -> match?(%{stage: :prepare}, :sys.get_state(pid).recovery) end)
+      Client.send_packet(client, :play, "set_carried_item", <<1::signed-16>>)
+      Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
+      {_body, client} = Client.await(client, :play, "system_chat")
+      assert :sys.get_state(pid).inventory.selected == 0
+      assert :sys.get_state(pid).inventory.slots[36].count == 7
+      assert World.get_block(c.target) == 0
+      :sys.resume(writer)
+      _client = ack(client)
+      assert World.get_block(c.target) == 1
+      assert :sys.get_state(pid).inventory.slots[36].count == 6
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+    end
+  end
+
+  test "disconnect during destination storage recovers the already-consumed stack exactly once",
+       c do
+    seed(c, :survival)
+    {client, pid} = login(c)
+    {:ok, {region, _}} = World.existing_owner(c.key)
+    writer = :sys.get_state(region).resource.store
+    :sys.suspend(writer)
+
+    try do
+      send_place(client, c.target)
+
+      wait(fn ->
+        match?(%{kind: :placement, phase: :writing}, :sys.get_state(region).resource.item_pending)
+      end)
+
+      assert saved(c).outbox.kind == :placement
+      assert saved(c).inventory.slots[36].count == 6
+      assert World.get_block(c.target) == 0
+      Client.close(client)
+      wait(fn -> not Process.alive?(pid) end)
+      :sys.resume(writer)
+      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == [] end)
+      {_fresh, fresh_pid} = login(c)
+      assert World.get_block(c.target) == 1
+      assert :sys.get_state(fresh_pid).inventory.slots[36].count == 6
+      assert saved(c).transfer_sequence == 1 and saved(c).outbox == nil
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+    end
   end
 
   test "unloaded preview stays inert even with creative inventory permission", c do
@@ -166,6 +287,23 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     send_place(client, c.target)
     _client = ack(client)
     assert World.get_block(c.target) == 0
+  end
+
+  test "adventure and spectator placement cannot mutate blocks or source stacks", c do
+    for mode <- [:adventure, :spectator] do
+      seed(c, mode)
+      {client, pid} = login(c)
+      before = :sys.get_state(pid).inventory.slots
+      send_place(client, c.target)
+      client = ack(client)
+      assert World.get_block(c.target) == 0
+      assert :sys.get_state(pid).inventory.slots == before
+      Client.close(client)
+
+      wait(fn ->
+        not Process.alive?(pid) and Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == []
+      end)
+    end
   end
 
   test "region stalls leave the socket responsive and cannot spend expired authority", c do
@@ -184,6 +322,30 @@ defmodule Valimc.PlayerPlacementConnectionTest do
       _client = ack(client)
       assert World.get_block(c.target) == 0
       assert Process.alive?(pid)
+    after
+      :sys.resume(owner)
+    end
+  end
+
+  test "stalled survival sampling fences selection and expires without source consumption", c do
+    seed(c, :survival)
+    {client, pid} = login(c)
+    {:ok, {owner, _}} = World.existing_owner(c.key)
+    :sys.suspend(owner)
+
+    try do
+      send_place(client, c.target)
+      wait(fn -> :sys.get_state(pid).placement_job != nil end)
+      Client.send_packet(client, :play, "set_carried_item", <<1::signed-16>>)
+      Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
+      {_body, client} = Client.await(client, :play, "system_chat")
+      assert :sys.get_state(pid).inventory.selected == 0
+      Process.sleep(275)
+      :sys.resume(owner)
+      _client = ack(client)
+      assert World.get_block(c.target) == 0
+      assert :sys.get_state(pid).inventory.slots[36].count == 7
+      assert :sys.get_state(:sys.get_state(pid).player_store).snapshot.transfer_sequence == 0
     after
       :sys.resume(owner)
     end
