@@ -1,0 +1,117 @@
+alias Valimc.ItemMotionState
+alias Valimc.Protocol.ItemStack
+alias Valimc.World
+alias Valimc.World.{ItemRecords, Region, Store}
+
+[base] = System.argv()
+base = Path.expand(base)
+false = File.exists?(base)
+File.mkdir_p!(base)
+Application.put_env(:valimc, :world_path, base)
+Application.put_env(:valimc, :port, 0)
+{:ok, _} = Application.ensure_all_started(:valimc)
+
+snapshot = fn owners ->
+  for {pid, _} <- owners do
+    state = :sys.get_state(pid).resource
+    %{entries: state.items.entries, sleeping: map_size(state.item_resting)}
+  end
+end
+
+rows =
+  for {{mode, owners, count}, index} <-
+        Enum.with_index(
+          for mode <- [:moving, :resting],
+              {owners, count} <- [{1, 1}, {1, 32}, {1, 256}, {8, 256}],
+              do: {mode, owners, count}
+        ) do
+    regions =
+      for n <- 1..owners do
+        key = {71000 + index * 32 + n * 2, 9000}
+        {rx, rz} = key
+
+        records =
+          for id <- 1..count do
+            %{
+              uuid: <<index * 10000 + n * 1000 + id::128>>,
+              stack: ItemStack.new("stone", 3),
+              x: rx * 128 + 4.5 + rem(id - 1, 16) * 0.5,
+              y: if(mode == :moving, do: 68.0, else: 64.0),
+              z: rz * 128 + 4.5 + div(id - 1, 16) * 0.5,
+              motion: %ItemMotionState{
+                velocity: if(mode == :moving, do: {0.1, 0.0, 0.0}, else: {0.0, 0.0, 0.0}),
+                no_gravity: mode == :moving,
+                on_ground: mode == :resting
+              }
+            }
+          end
+
+        {:ok, bytes} = ItemRecords.encode(key, records)
+        File.write!(Store.item_path(base, key), bytes)
+        {:ok, owner} = World.item_owner(key)
+        owner
+      end
+
+    Process.sleep(500)
+    before = snapshot.(regions)
+    metrics = Valimc.Metrics.snapshot()
+    started = System.monotonic_time(:microsecond)
+    Process.sleep(2000)
+    after_snapshot = snapshot.(regions)
+    elapsed = System.monotonic_time(:microsecond) - started
+    after_metrics = Valimc.Metrics.snapshot()
+
+    rates =
+      Enum.zip(before, after_snapshot)
+      |> Enum.flat_map(fn {a, b} ->
+        true = map_size(a.entries) == count and map_size(b.entries) == count
+
+        Enum.map(a.entries, fn {id, entry} ->
+          current = b.entries[id]
+
+          %{
+            age: (current.motion.age - entry.motion.age) * 1_000_000 / elapsed,
+            motion: (current.physical_revision - entry.physical_revision) * 1_000_000 / elapsed
+          }
+        end)
+      end)
+
+    metric = fn name -> Map.get(after_metrics, name, 0) - Map.get(metrics, name, 0) end
+
+    result = %{
+      mode: mode,
+      owners: owners,
+      items_per_owner: count,
+      measured_us: elapsed,
+      age_hz_min: Enum.min(Enum.map(rates, & &1.age)),
+      age_hz_max: Enum.max(Enum.map(rates, & &1.age)),
+      motion_hz_min: Enum.min(Enum.map(rates, & &1.motion)),
+      motion_hz_max: Enum.max(Enum.map(rates, & &1.motion)),
+      sleeping: Enum.sum(Enum.map(after_snapshot, & &1.sleeping)),
+      jobs: metric.(:item_simulation_jobs),
+      timeouts: metric.(:item_simulation_timeouts),
+      refused: metric.(:item_simulation_refusals),
+      busy: metric.(:item_simulation_busy),
+      item_snapshot_saves: metric.(:item_snapshot_saves)
+    }
+
+    for {pid, _} <- regions do
+      :ok = Region.flush(pid)
+      :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+    end
+
+    result
+  end
+
+IO.puts(
+  :json.encode(%{
+    scope:
+      "owned automatic item cadence, fenced geometry, counter clocks, sleep and periodic disk saves; no sockets, player launch, merge/pickup or cross-owner workload",
+    runtime: %{
+      elixir: System.version(),
+      otp: System.otp_release(),
+      schedulers: System.schedulers_online()
+    },
+    results: rows
+  })
+)

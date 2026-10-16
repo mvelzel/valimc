@@ -24,6 +24,9 @@ defmodule Valimc.World.RegionData do
     :item_publication,
     :item_pending,
     :item_handoff,
+    :item_simulation,
+    :item_simulation_enabled,
+    :item_resting,
     :item_motion_generation,
     :item_saved_generation,
     :item_checkpoint,
@@ -62,7 +65,7 @@ defmodule Valimc.World.RegionData do
       end
 
     publication = :ets.new(:region_items, [:set, :protected, read_concurrency: true])
-    :ets.insert(publication, {:items, items.views})
+    :ets.insert(publication, [{:items, items.views}, {:block_fence, items.epoch, 0}])
 
     by_chunk =
       Enum.reduce(edits, %{}, fn {{x, _, z} = pos, block}, acc ->
@@ -80,6 +83,9 @@ defmodule Valimc.World.RegionData do
       item_publication: publication,
       item_pending: nil,
       item_handoff: nil,
+      item_simulation: nil,
+      item_simulation_enabled: Valimc.config(:item_simulation),
+      item_resting: %{},
       item_motion_generation: 0,
       item_saved_generation: 0,
       item_checkpoint: nil,
@@ -100,6 +106,89 @@ defmodule Valimc.World.RegionData do
       save_timer: save_timer
     }
     |> resume_item_handoff()
+  end
+
+  def item_tick(state, now) do
+    if state.item_simulation_enabled and state.item_pending == nil do
+      {items, expired} = Items.age(state.items)
+      state = remember_item_counters(state, items)
+      state = %{state | item_resting: Map.take(state.item_resting, Map.keys(items.entries))}
+
+      if expired == [] do
+        start_item_simulation(state, now)
+      else
+        items =
+          Enum.reduce(expired, items, fn {epoch, id, revision}, acc ->
+            {:ok, next} = Items.remove(acc, epoch, id, revision)
+            next
+          end)
+
+        {:noreply, state} = commit_items(items, :ok, nil, state)
+        state
+      end
+    else
+      state
+    end
+  end
+
+  defp remember_item_counters(state, items) do
+    if items == state.items do
+      state
+    else
+      :ets.insert(state.item_publication, {:items, items.views})
+      generation = state.item_motion_generation + 1
+
+      schedule_item_checkpoint(%{
+        state
+        | items: items,
+          item_motion_generation: generation,
+          item_saved_generation:
+            if(state.item_storage_enabled, do: state.item_saved_generation, else: generation)
+      })
+    end
+  end
+
+  defp start_item_simulation(%{item_simulation: nil} = state, now) do
+    inputs =
+      for {id, entry} <- state.items.entries, not resting_current?(state, id) do
+        %{
+          id: id,
+          revision: entry.revision,
+          position: {entry.entity.x, entry.entity.y, entry.entity.z},
+          motion: entry.motion,
+          physical_revision: entry.physical_revision
+        }
+      end
+
+    if inputs == [] do
+      state
+    else
+      token = make_ref()
+
+      case Valimc.ItemSimulation.start(self(), state.items.epoch, token, inputs) do
+        {:ok, job} ->
+          Valimc.Metrics.add(:item_simulation_jobs)
+          timer = send_after(state, {:item_simulation_deadline, token}, 350)
+          %{state | item_simulation: Map.merge(job, %{timer: timer, deadline: now + 350})}
+
+        {:error, _} ->
+          Valimc.Metrics.add(:item_simulation_busy)
+          state
+      end
+    end
+  end
+
+  defp start_item_simulation(state, _), do: state
+
+  defp resting_current?(state, id) do
+    case state.item_resting[id] do
+      {version, fences} ->
+        version == state.items.entries[id].physical_revision and
+          Valimc.World.item_frame_current?(fences)
+
+      nil ->
+        false
+    end
   end
 
   def handle_call({:create_item, epoch, stack, position}, from, state) do
@@ -486,6 +575,7 @@ defmodule Valimc.World.RegionData do
            (map_size(state.edits) < 131_072 or Map.has_key?(state.edits, position)) do
         edits = put_edit(state.edits, position, block)
         local = put_edit(Map.get(state.by_chunk, key, %{}), position, block)
+        :ets.insert(state.item_publication, {:block_fence, state.items.epoch, state.revision + 1})
         Valimc.World.publish(state.key, {:block, position, block})
         Valimc.Metrics.add(:block_edits)
 
@@ -757,6 +847,7 @@ defmodule Valimc.World.RegionData do
   end
 
   defp publish_blocks(state, batch, proposal, dirty) do
+    :ets.insert(state.item_publication, {:block_fence, state.items.epoch, proposal.revision})
     Valimc.World.publish(state.key, {:block_batch, batch.frames})
     Valimc.Metrics.add(:block_edits, map_size(batch.edits))
 
@@ -940,6 +1031,43 @@ defmodule Valimc.World.RegionData do
   end
 
   def handle_info({:item_transfer_plan, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:item_simulation, worker, token, result},
+        %{item_simulation: %{worker: worker, token: token} = job} = state
+      ) do
+    Process.cancel_timer(job.timer)
+    Process.demonitor(job.monitor, [:flush])
+    state = %{state | item_simulation: nil}
+
+    case result do
+      {:ok, %{steps: steps, refused: refused, fences: fences}} ->
+        Valimc.Metrics.add(:item_simulation_refusals, length(refused))
+
+        if state.item_pending == nil and System.monotonic_time(:millisecond) < job.deadline and
+             Valimc.World.item_frame_current?(fences),
+           do: commit_simulated_items(state, steps, fences),
+           else: {:noreply, state}
+
+      {:error, _} ->
+        Valimc.Metrics.add(:item_simulation_failures)
+        {:noreply, state}
+    end
+  end
+
+  def handle_info({:item_simulation, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:item_simulation_deadline, token},
+        %{item_simulation: %{token: token} = job} = state
+      ) do
+    Process.demonitor(job.monitor, [:flush])
+    Process.exit(job.worker, :kill)
+    Valimc.Metrics.add(:item_simulation_timeouts)
+    {:noreply, %{state | item_simulation: nil}}
+  end
+
+  def handle_info({:item_simulation_deadline, _}, state), do: {:noreply, state}
 
   def handle_info(
         {:item_handoff_wake, token},
@@ -1221,6 +1349,14 @@ defmodule Valimc.World.RegionData do
 
   def handle_info(
         {:DOWN, ref, :process, worker, _},
+        %{item_simulation: %{monitor: ref, worker: worker} = job} = state
+      ) do
+    Process.cancel_timer(job.timer)
+    {:noreply, %{state | item_simulation: nil}}
+  end
+
+  def handle_info(
+        {:DOWN, ref, :process, worker, _},
         %{item_handoff: %{phase: :delivering, monitor: ref, worker: worker} = job} = state
       ) do
     Process.cancel_timer(job.timer)
@@ -1323,6 +1459,78 @@ defmodule Valimc.World.RegionData do
   defp reply_item(nil, _), do: :ok
   defp reply_item(from, reply), do: GenServer.reply(from, reply)
 
+  defp commit_simulated_items(state, steps, fences) do
+    steps =
+      Enum.flat_map(steps, fn step ->
+        case state.items.entries[step.id] do
+          %{motion: counters, physical_revision: revision} = entry
+          when revision == step.physical_revision ->
+            [
+              %{
+                step
+                | revision: entry.revision,
+                  motion: %{step.motion | age: counters.age, pickup_delay: counters.pickup_delay}
+              }
+            ]
+
+          _ ->
+            []
+        end
+      end)
+
+    {local, borders} =
+      Enum.split_with(steps, fn %{position: {x, _, z}} ->
+        Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == state.key
+      end)
+
+    state =
+      Enum.reduce(Enum.chunk_every(local, 32), state, fn batch, acc ->
+        {:reply, _, next} =
+          handle_call(
+            {:publish_item_motion, acc.items.epoch, batch,
+             System.monotonic_time(:millisecond) + 250},
+            nil,
+            acc
+          )
+
+        next
+      end)
+
+    resting =
+      Enum.reduce(local, state.item_resting, fn step, cache ->
+        if rests?(step.motion),
+          do: Map.put(cache, step.id, {state.items.entries[step.id].physical_revision, fences}),
+          else: Map.delete(cache, step.id)
+      end)
+
+    state = %{state | item_resting: resting}
+
+    if borders != [] and state.items.ledger.outgoing == nil and state.item_storage_enabled do
+      {destination, batch} =
+        borders
+        |> Enum.group_by(fn %{position: {x, _, z}} ->
+          Valimc.World.region_key(Valimc.World.chunk_key(x, z))
+        end)
+        |> Enum.sort_by(&elem(&1, 0))
+        |> hd()
+
+      case plan_item_change(
+             :item_handoff_out,
+             {destination, Enum.take(batch, 32), System.monotonic_time(:millisecond) + 250},
+             nil,
+             state
+           ) do
+        {:noreply, next} -> {:noreply, next}
+        {:reply, _, next} -> {:noreply, next}
+      end
+    else
+      {:noreply, state}
+    end
+  end
+
+  defp rests?(%{velocity: {x, y, z}, on_ground: ground, no_gravity: floating}),
+    do: (ground or floating) and y == 0.0 and x * x + z * z <= 1.0e-10
+
   defp resume_item_handoff(%{items: %{ledger: %{outgoing: nil}}} = state),
     do: %{state | item_handoff: nil}
 
@@ -1367,6 +1575,11 @@ defmodule Valimc.World.RegionData do
 
     if state.item_checkpoint_timer, do: Process.cancel_timer(state.item_checkpoint_timer.timer)
     if state.item_checkpoint, do: Process.cancel_timer(state.item_checkpoint.timer)
+
+    if state.item_simulation do
+      Process.cancel_timer(state.item_simulation.timer)
+      Process.exit(state.item_simulation.worker, :kill)
+    end
 
     if state.item_handoff do
       if Map.has_key?(state.item_handoff, :timer),

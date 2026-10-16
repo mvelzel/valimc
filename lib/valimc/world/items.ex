@@ -12,6 +12,35 @@ defmodule Valimc.World.Items do
 
   def snapshot(state), do: %{records: records(state), ledger: state.ledger}
 
+  @doc "Advance owner counters without geometry, packet encoding or changing physical view versions."
+  def age(state) do
+    Enum.reduce(state.entries, {state, []}, fn {id, entry}, {items, expired} ->
+      motion = Map.get(entry, :motion, %ItemMotionState{no_gravity: entry.no_gravity})
+      next = ItemMotionState.tick(motion)
+
+      items =
+        if Map.get(entry, :motion) == next do
+          items
+        else
+          revision = entry.revision + 1
+          entry = entry |> Map.put(:motion, next) |> Map.put(:revision, revision)
+
+          %{
+            items
+            | entries: Map.put(items.entries, id, entry),
+              views: Map.update!(items.views, id, &%{&1 | revision: revision})
+          }
+        end
+
+      expired =
+        if next.age >= 6000,
+          do: [{items.epoch, id, items.entries[id].revision} | expired],
+          else: expired
+
+      {items, expired}
+    end)
+  end
+
   def records(state) do
     state.entries
     |> Enum.map(fn {_, %{entity: entity, stack: stack} = entry} ->
@@ -143,7 +172,12 @@ defmodule Valimc.World.Items do
         bytes = state.bytes - packet_bytes(state.views[id].metadata) + packet_bytes(metadata)
 
         if bytes <= @max_bytes do
-          entry = %{entry | stack: stack, revision: revision + 1}
+          entry = %{
+            entry
+            | stack: stack,
+              revision: revision + 1,
+              physical_revision: entry.physical_revision + 1
+          }
 
           next = %{
             state
@@ -250,7 +284,21 @@ defmodule Valimc.World.Items do
 
         if bytes <= @max_bytes do
           entry =
-            %{entry | entity: entity, revision: revision + 1, no_gravity: motion.no_gravity}
+            %{
+              entry
+              | entity: entity,
+                revision: revision + 1,
+                no_gravity: motion.no_gravity,
+                physical_revision:
+                  entry.physical_revision +
+                    if(
+                      entity != entry.entity or motion.no_gravity != entry.no_gravity or
+                        motion.on_ground !=
+                          Map.get(Map.get(entry, :motion, %{}), :on_ground, false),
+                      do: 1,
+                      else: 0
+                    )
+            }
             |> Map.put(:motion, motion)
 
           {:ok,
@@ -328,7 +376,14 @@ defmodule Valimc.World.Items do
         motion: velocity
       }
 
-      entry = %{entity: entity, stack: stack, revision: 1, no_gravity: no_gravity}
+      entry = %{
+        entity: entity,
+        stack: stack,
+        revision: 1,
+        physical_revision: 1,
+        no_gravity: no_gravity
+      }
+
       entry = if motion, do: Map.put(entry, :motion, motion), else: entry
 
       next = %{

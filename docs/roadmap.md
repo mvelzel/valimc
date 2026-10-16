@@ -26,7 +26,7 @@ actual movement with paused I/O, periodic saves, critical replacement and reconn
 [Durable owner handoff](tickets/VMC-035a5.md) is validated (`19434e0`):85 affected
 checks,1045 full tests/build, full native integration/both TCP transports and actual
 boundary/recovery/reconnect checks. [Automatic simulation](tickets/VMC-035a6.md)
-is in progress in an isolated prototype.
+has a local tested owner-cadence checkpoint; player launch and its client gate follow.
 
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Player processes own their simulation state; bounded workers sample geometry.
@@ -209,6 +209,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
+| [VMC-035a6](tickets/VMC-035a6.md) | Natural player launch/fall/landing, automatic crossing/support wakeup and reconnect | Local owner-cadence checkpoint; launch producers next |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 

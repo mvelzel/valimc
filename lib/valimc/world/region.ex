@@ -206,7 +206,8 @@ defmodule Valimc.World.Region do
       {:ok, clock, late, delay} ->
         Valimc.Metrics.add(:region_ticks)
         Valimc.Metrics.add(:region_late_milliseconds, late)
-        {:noreply, schedule_tick(state, clock, delay)}
+        resource = RegionData.item_tick(state.resource, now)
+        {:noreply, schedule_tick(%{state | resource: resource}, clock, delay)}
     end
   end
 

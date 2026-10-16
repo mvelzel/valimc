@@ -58,15 +58,9 @@ defmodule Valimc.Physics.ItemTravel do
          {:ok, after_move} <-
            FluidCurrents.sample_item(frame, body(moved.position), moved.velocity),
          next = %{
-           motion
+           ItemMotionState.tick(motion)
            | velocity: after_move.velocity,
-             on_ground: moved.on_ground,
-             age: if(motion.age == -32_768, do: motion.age, else: min(6000, motion.age + 1)),
-             pickup_delay:
-               if(motion.pickup_delay == 32_767,
-                 do: motion.pickup_delay,
-                 else: max(0, motion.pickup_delay - 1)
-               )
+             on_ground: moved.on_ground
          },
          true <- ItemMotionState.valid?(next) do
       {:ok, %{input | position: moved.position, motion: next}}

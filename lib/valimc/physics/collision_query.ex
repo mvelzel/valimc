@@ -48,8 +48,11 @@ defmodule Valimc.Physics.CollisionQuery do
         end
       end)
       |> case do
-        {:ok, positions} -> prepare_positions(Enum.sort(positions), finish, true, true)
-        error -> error
+        {:ok, positions} ->
+          prepare_positions(Enum.sort(positions), finish, true, true, Valimc.ItemGeometryWorkers)
+
+        error ->
+          error
       end
       |> launch_prepared()
     else
@@ -72,7 +75,7 @@ defmodule Valimc.Physics.CollisionQuery do
     end
   end
 
-  defp prepare_positions(positions, finish, verify, admit) do
+  defp prepare_positions(positions, finish, verify, admit, workers \\ Valimc.CollisionWorkers) do
     with true <-
            Enum.all?(positions, fn {x, y, z} ->
              abs(x) < 30_000_000 and abs(z) < 30_000_000 and abs(y) <= 1_000_000
@@ -86,19 +89,19 @@ defmodule Valimc.Physics.CollisionQuery do
          true <-
            Enum.sum(Enum.map(groups, fn {_, positions} -> div(length(positions) + 127, 128) end)) <=
              @max_batches do
-      {:ok, fn -> launch(groups, finish, verify, admit) end}
+      {:ok, fn -> launch(groups, finish, verify, admit, workers) end}
     else
       false -> {:error, :invalid_collision_query}
       {:error, _} = error -> error
     end
   end
 
-  defp launch(groups, finish, verify, admit) do
+  defp launch(groups, finish, verify, admit, workers) do
     caller = self()
     deadline = now() + @timeout
 
     {:ok,
-     Task.Supervisor.async_nolink(Valimc.CollisionWorkers, fn ->
+     Task.Supervisor.async_nolink(workers, fn ->
        monitor = Process.monitor(caller)
 
        try do

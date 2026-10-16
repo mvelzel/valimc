@@ -9,6 +9,10 @@ defmodule Valimc.Application do
     Valimc.World.Chunk.load!()
 
     children = [
+      {Task.Supervisor,
+       name: Valimc.ItemSimulationWorkers, max_children: max(System.schedulers_online() * 4, 1)},
+      {Task.Supervisor,
+       name: Valimc.ItemGeometryWorkers, max_children: max(System.schedulers_online() * 8, 1)},
       Valimc.Metrics,
       {Valimc.World.Clock, []},
       {Registry, keys: :unique, name: Valimc.RegionRegistry},

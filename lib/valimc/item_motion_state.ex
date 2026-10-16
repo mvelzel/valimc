@@ -6,6 +6,17 @@ defmodule Valimc.ItemMotionState do
             on_ground: false,
             no_gravity: false
 
+  def tick(%__MODULE__{} = state),
+    do: %{
+      state
+      | age: if(state.age == -32_768, do: state.age, else: min(6000, state.age + 1)),
+        pickup_delay:
+          if(state.pickup_delay == 32_767,
+            do: state.pickup_delay,
+            else: max(0, state.pickup_delay - 1)
+          )
+    }
+
   def valid?(%__MODULE__{
         velocity: {x, y, z},
         age: age,
