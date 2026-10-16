@@ -32,8 +32,11 @@ support-wake/water/reconnect checks.
 [Same-owner item merging](tickets/VMC-035b.md) is validated (`0505bc1`):1,076 full
 tests, production/native kernels, both TCP transports and actual merging/component/
 capacity/range/reconnect checks. [Cross-owner merging](tickets/VMC-035b1.md) follows.
-[Item pickup](tickets/VMC-035c.md) has native insertion/contact plans and durable
-region→player transfer; automatic player collection and graphical checks follow.
+[Ordinary item pickup](tickets/VMC-035c.md) is validated (`79811a8`):1,123 full
+tests, production/full native TCP and actual natural/whole/partial/delay/mode/
+boundary/reconnect/stalled-save checks. [Advanced pickup contexts](tickets/VMC-035c1.md)
+remain open. Current work: [cross-owner merging](tickets/VMC-035b1.md), with local pure
+escrow/inbox recovery and return-capacity plans; live composition follows.
 
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Player processes own their simulation state; bounded workers sample geometry.

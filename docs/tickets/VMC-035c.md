@@ -1,133 +1,86 @@
-# VMC-035c — Item pickup
+# VMC-035c — Ordinary item pickup
 
-Status: In progress. Durable owner/writer composition is local; automatic collection
-and the graphical gate remain open.
+Status: **Done within unmounted, untargeted pickup scope**, October16,2026.
+Runtime checkpoint `79811a818824ae869e43232af83b58217478cde4`.
+[Advanced contexts](VMC-035c1.md) and [cross-owner merging](VMC-035b1.md) remain open.
 
-Acceptance: eligible nearby world items enter the authoritative player inventory
-with native slot priority, component identity, partial capacity and creative
-overflow behavior. Delay/target/mode/range negatives refuse. Concurrent players,
-disconnects, source/destination crashes and retries conserve items and durable
-receipts. Inventory observations cannot authorize a world withdrawal.
+## Behavior and authority
 
-Start with pure insertion and actual pinned26.3 `Inventory.add(ItemStack)` and
-`ItemEntity.playerTouch` callbacks; reference bytecode stays ignored at
-`.local/inventory-pickup-bytecode.txt` and `.local/item-entity-bytecode.txt`.
-An insertion may mutate inventory/world remainder even when its native callback
-returns false; verify that independently from pickup animation/stat callbacks.
-Build leased, recoverable region→player consumption only after these plans match.
+Native inventory insertion preserves slot priority, exact components, partial
+capacity and creative overflow. Partial insertion changes inventory and the world
+remainder even when the native callback is false. Delay, mode, health, loading,
+teleport and contact gate live collection; adjacent-region contact works.
 
-Client scenario: actual walk into a naturally dropped stack after delay, inventory
-gain and entity removal/partial remainder, full and incompatible negatives,
-simultaneous-player contention and fresh reconnect/recovery. Dedicated tester owns
-the verdict. Kernel checks do not complete the live or graphical gate.
+Each connection owns player/inventory ordering and one bounded pickup query.
+Visible position/delay hints discover candidates; they confer no authority. Queries
+rotate candidates, release unusable grants, and create no empty-scene jobs. Fresh
+accepted player state fences responses. Regions recheck their current owned item.
+There is no global gameplay coordinator or process per item.
 
-Insertion checkpoint: `Inventory.pickup_stack/2` preserves all other inventory
-ownership and returns the exact remainder separately from the callback boolean.
-24 affected checks pass(seed298116), `.local/item-pickup-inventory-targeted.log`.
-384 actual native insertion/callback/remainder observations pass across slot
-priorities, full/partial capacities, damage, names, effective defaults, custom99
-and both material permissions. Raw `.local/item-pickup-native{.json,.log,-check.log}`
-stays ignored; isolated Java output avoids concurrent integration compilation.
-No live pickup authority or graphical pickup claim yet; checkpoint stays local.
+1. Region admission durably reserves source receipt capacity before granting
+   contact permission: at most128 grants/owner, one/source,250ms lifetime.
+2. The leased player writer assigns a monotone sequence and saves the original
+   inventory plus a v16 intent. Slots/cursor/table/selection and material permission
+   are pinned; a later mode change cannot reinterpret an accepted insertion.
+3. A bounded owner plan commits withdrawal/partial replacement and a typed applied
+   or rejected receipt together, before publication. Competing mutations wait/refuse.
+4. The source writer fetches actual owner proof before saving gain plus intent clear.
+   A delivery acknowledgment or observation cannot grant inventory. Rejection clears
+   without gain; lost acknowledgments replay receipts, never recreate withdrawn items.
+5. Disconnect/reopen uses the same protocol. Failed final source saves retain a
+   recoverable intent. Expired preparation rejects safely and can retry with a new
+   sequence; committed counters/receipts never rewind.
 
-Next authority protocol: persist a player intent with its original inventory before
-requesting region withdrawal. The region commits item removal/partial replacement
-and a typed terminal receipt atomically. Only matching applied proof lets the
-player add inventory and clear its intent atomically; rejection clears without
-gain. Reuse the player's monotone sequence/receipt lane. A bounded expiring region
-permit fences the item UUID/generation/stack, accepted contact and source player.
-Recovery first checks the receipt; an expired/missing permit may reject only when
-withdrawal was not committed. Never grant inventory from a published item view.
+Whole pickup emits the native take callback after commit. Partial false callbacks
+emit none. Canonical requests are at most131,164bytes; source intents add41bytes.
+Legacy source records remain readable. Regional receipt tables remain bounded4096;
+sequence0/digest0 reserves capacity and acknowledges no positive transfer.
 
-Withdrawal-plan checkpoint: canonical≤131,164-byte requests pin source/sequence,
-permit, item UUID/generation and exact before/remainder stacks. Pure region plans
-retain typed applied/rejected receipts with item removal/replacement; retries work
-after codec restoration, including competing players and a superseded birth.
-26 affected checks pass(seed905945), `.local/pickup-withdrawal-targeted.log`.
-No live permits or durable runtime composition yet.
+## References and verification
 
-Player intent checkpoint: v16 snapshots retain original inventory plus canonical
-withdrawal and a digest of physical slots/cursor/table/selection/material permission.
-Transient menu revisions/drag do not affect persistence. Applied receipt proof
-grants the recomputed exact amount and clears the intent together; rejection
-clears without gain. The source writer must fetch proof from the owning region,
-never trust a delivery reply alone.42 affected checks pass(seed572787),
-`.local/player-pickup-intent-targeted.log`: table wrappers, creative overflow,
-partial false callbacks, source mutations, counterfeit/stale receipts, legacy
-placement/mining/drop snapshots and no second grant. Runtime activation follows.
+Pinned Mojang26.3 `Inventory.add(ItemStack)`, `ItemEntity.playerTouch` and
+`Player.aiStep` supply insertion/callback/contact behavior. An unmounted body expands
+by(1,0.5,1); strict native AABB intersection applies. Reference bytecode remains
+ignored in `.local/{inventory-pickup,item-entity,drop-player}-bytecode.txt`.
 
-Admission must reserve receipt capacity for new source UUIDs through terminal
-commit, including rejection; other transfer kinds must respect those reservations.
-Otherwise a filled receipt table could strand a persisted player intent.
+| Check | Result / private evidence |
+|---|---|
+| Native insertion |384 actual cases; `.local/item-pickup-native{.json,.log,-check.log}` |
+| Native contact |5,832 boundaries; `.local/item-pickup-contact-native{.json,.log,-check.log}` |
+| Pure withdrawal/source codecs |26 withdrawal /42 source checks; `.local/{pickup-withdrawal,player-pickup-intent}-targeted.log` |
+| Capacity / leased writer / permits |30 /36 /19 checks; `.local/{pickup-receipt-reservation,player-pickup-store,pickup-permits}-targeted.log` |
+| Live region/writer/delivery |62 checks(seed352045); `.local/pickup-inbox-checkpoint-targeted.log` |
+| Automatic TCP / related regressions |73 checks(seed476133); `.local/pickup-auto-checkpoint-targeted.log` |
+| Storage/worker pressure |14 checks, including3 new cases(seed618829); `.local/pickup-pressure-targeted.log` |
+| Full suite |1,123 pass(seed489962); `.local/item-pickup-full-tests-retest.log` |
+| Production / full native integration |PASS, including plaintext and continuous AES-CFB8 TCP; `.local/item-pickup-{production,full-native}.log` |
 
-Receipt-capacity foundation: a new player's slot can be durably reserved using
-sequence0/digest0 in the existing bounded receipt layout. It acknowledges no
-positive transfer, never replaces an existing high-water mark, and survives writer/
-owner recovery. Normal transfers count the slot and can advance it to terminal
-proof even when all4096 slots are occupied. Other zero-sequence digests remain
-invalid; positive legacy bytes remain unchanged.30 affected checks pass
-(seed684312), `.local/pickup-receipt-reservation-targeted.log`, including actual
-critical write/kill/reload/first-delivery. Live admission must persist the slot
-before issuing its expiring contact permit; that composition remains open.
+The first broad run had one obsolete item-age assertion: the new delay hint changes
+while retained wire packets/versions do not. The corrected assertion and full
+retest pass; runtime code was unchanged. Frozen manifest805 blobs:
+`.local/item-pickup-checkpoint.json`.
 
-Leased writer checkpoint: prepare saves original inventory/v16 intent; completion
-fetches terminal proof from the real owning region before saving gain+clear.36
-affected checks pass(seed26220), `.local/player-pickup-store-targeted.log`: stale
-leases, pending writes, source restart, rejection/forged proof and failed final
-save/reopen. Recovery fixtures write a complete pure region commit after the
-source intent and before lazy region load; they do not exercise live admission.
-No world item is restored after a failed recipient save. Contact permits, live
-inbox/delivery, disconnect composition and automatic collection remain open.
+Actual Minecraft PASS across8 fresh direct Java26.3/protocol777 launches: natural Q
+and menu whole-stack drops, positive-delay contact then collection, partial7→1+6,
+full survival refusal, creative overflow, spectator/range negatives, distinct named
+stacks across an ownership boundary, reconnect and a paused-save/disconnect/retry.
+The dedicated tester owns the verdict: `.local/client-tests/VMC-035c/report.md`.
+No unexpected protocol/gameplay error occurred. All clients stopped; full original
+player restored except latest sequence30/nil outbox, histories retained, owners
+flushed, runtime module hashes unchanged, zero players/connections.
 
-Contact/permit checkpoint: pinned26.3 `Player.aiStep` expands an unmounted body
-by(1,0.5,1); `ItemEntity.playerTouch` checks delay/target before insertion. The pure
-query matches5,832 actual native AABB boundaries, including adjacent doubles near
-world edges. `.local/item-pickup-contact-native{.json,.log,-check.log}`.19 affected
-checks pass(seed806605), `.local/pickup-permits-targeted.log`. Grants require an
-already committed receipt slot, one per source,≤128 per owner,250ms lifetime.
-Consumption rechecks owned position, exact stack, generation, delay and contact;
-counter-only revisions do not invalidate contact. These are inactive kernels;
-region admission/withdrawal/delivery and the automatic player lane follow. Mounted
-pickup and persistent exclusive targets remain outside this initial composition.
+Exact take-animation frame timing/sound, graphical two-player contention and a
+post-withdrawal crash were not separately certified. Owner/TCP fault tests cover
+contention, owner restart before/after withdrawal and failed final source saving.
+Mounted pickup/persistent exclusive targets remain the separate follow-up.
 
-Live inbox checkpoint (October16): region admission fsyncs receipt capacity before
-issuing contact permission. A bounded off-owner plan freezes competing item changes
-until withdrawal/remainder plus typed receipt is durable; only then is it published.
-Source completion fetches that proof. Delivery and disconnect use the same protocol.
-Material permission is latched with the original insertion plan, so a later mode
-change cannot dispose of a survival remainder or strand a creative overflow intent.
-62 affected checks pass(seed352045), `.local/pickup-inbox-checkpoint-targeted.log`: actual
-admission/writer pauses, expiry, partial conservation, competing players, owner
-restart before/after withdrawal, source reopen and disconnect with a mode change.
-Automatic player discovery/collection, replication callbacks and GUI checks follow.
+## Measurement
 
-Automatic collection checkpoint: each player rotates nearby visible candidates,
-with one bounded I/O query and no idle jobs in empty scenes. Publications carry
-position/delay hints only; the region rechecks current authority. Accepted pose,
-mode, health, loading, teleport and inventory lanes fence returned grants. The
-leased writer assigns the source sequence and retains original inventory until
-proof. Unusable grants release without consuming receipt history. Whole pickup
-publishes the native callback after commit; partial false callbacks do not animate.
-73 affected checks pass(seed476133), `.local/pickup-auto-checkpoint-targeted.log`:
-real TCP whole/partial/full/creative, delay, spectator/range, adjacent-owner contact,
-late-grant movement, fair discovery, two-player races and fresh login; mining/use/
-table regressions also pass. Broader integration/build and actual Minecraft follow.
-
-Integration follow-up: production release passed for frozen `79811a8` (805 blobs).
-The first broad run passed1,122/1,123; the sole failure expected an unchanged delay
-hint in the item-age test. Correcting that assertion retains exact packet/version
-checks; the full retest passes1,123(seed489962),
-`.local/item-pickup-full-tests-retest.log`.14 additional affected checks pass
-(seed618829), `.local/pickup-pressure-targeted.log`: source-write expiry/retry,
-disconnect during queued preparation, fresh login and saturated I/O responsiveness.
-No runtime change was needed. Full native integration and graphical checks continue.
-
-`bench/item_pickup.exs` exercises actual leased source saves, region capacity/
-withdrawal, delivery and authoritative proof across4/32 sources and1/8 owners,
-with64/512 entities and plain/4KiB components. Both runs conserve all items. Run01
-observed721–1,349 pickups/s and1.6–24.6ms median; run02, during full-suite/native/
-client load, observed76–145/s and37–244ms median, including42 safely rejected and
-retried expired permits. These are trusted-contact durable-I/O measurements;
-TCP/graphics/physics and cross-server comparisons are excluded. Raw workloads,
-results, revision/hash/load notes and complete datasets:
-`.local/item-pickup-bench-{01.log,02.log,manifest.json}` and the logged `/tmp` paths.
+`bench/item_pickup.exs` exercises real source saves, region withdrawal, delivery and
+proof across4/32 sources,1/8 owners,64/512 entities and plain/4KiB components. Both
+runs conserve all items. Run01:721–1,349 pickups/s,1.6–24.6ms median. Run02 during
+full-suite/native/client load:76–145/s,37–244ms median,42 safely rejected/retried
+expired permits. These measure trusted-contact durable I/O; TCP, graphics, physics
+and cross-server comparisons are excluded. Raw results/workload hashes/load notes
+and whole datasets: `.local/item-pickup-bench-{01.log,02.log,manifest.json}` and the
+logged `/tmp` paths. This establishes no fastest-server claim.
