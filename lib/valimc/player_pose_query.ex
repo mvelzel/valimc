@@ -62,6 +62,7 @@ defmodule Valimc.PlayerPoseQuery do
                   result
                   |> Map.put(:powder_snow, powder)
                   |> Map.put(:submerged, air.submerged)
+                  |> Map.put(:eye_water, air.water)
                   |> Map.put(:kinetics, kinetics)
                   |> Map.put(:swimming, swimming)}
         end

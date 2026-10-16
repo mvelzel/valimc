@@ -179,6 +179,7 @@ defmodule Valimc.PlayerMotionQuery do
          moved: moved,
          powder_snow: powder,
          submerged: air.submerged,
+         eye_water: air.water,
          exhaustion: exhaustion,
          kinetics: %{packet: packet, tick: tick},
          landing: landing,

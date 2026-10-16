@@ -32,6 +32,9 @@ defmodule Valimc.Connection do
     PlayerLife,
     PlayerMotion,
     PlayerMotionQuery,
+    PlayerMining,
+    PlayerMiningAttempt,
+    PlayerMiningQuery,
     PlayerPoseQuery,
     PlayerSnapshot,
     PlayerStore,
@@ -45,6 +48,7 @@ defmodule Valimc.Connection do
 
   alias Valimc.World.{ItemReplication, WeatherReplication}
   import Bitwise
+  @basic_mining Enum.map(~w(stone dirt grass_block cobblestone oak_planks glass), &Data.block/1)
 
   defguardp inventory_pending(state)
             when state.recovery != nil or state.creative_input.queued > 0 or state.use_save != nil
@@ -177,6 +181,9 @@ defmodule Valimc.Connection do
        save_ref: nil,
        use_save: nil,
        active_use: nil,
+       mining: nil,
+       mining_job: nil,
+       mining_water: false,
        life_save: nil,
        life_stage: :alive,
        respawn_requested: false,
@@ -460,7 +467,9 @@ defmodule Valimc.Connection do
         %{recovery: %{stage: :prepare, ref: ref, plan: plan} = recovery} = state
       ) do
     guard_connection(state, fn ->
-      if snapshot.outbox != %{key: plan.key, records: plan.records} or
+      expected_outbox = Map.get(plan, :intent, %{key: plan.key, records: plan.records})
+
+      if snapshot.outbox != expected_outbox or
            snapshot.inventory.slots != plan.inventory.slots or
            snapshot.inventory.carried != plan.inventory.carried or
            snapshot.inventory.selected != plan.inventory.selected,
@@ -509,6 +518,7 @@ defmodule Valimc.Connection do
       {:noreply,
        state
        |> Map.put(:recovery, nil)
+       |> correct_mining_recovery(recovery)
        |> drain_creative()
        |> sync_creative_result()
        |> continue_life()}
@@ -526,6 +536,7 @@ defmodule Valimc.Connection do
       Process.cancel_timer(recovery.timer)
       inventory = recovered_inventory(state, snapshot)
       state = %{state | recovery: nil, store_fence: fence, inventory: inventory}
+      state = correct_mining_recovery(state, recovery)
 
       {:noreply,
        if(recovery.mode == :login,
@@ -572,6 +583,33 @@ defmodule Valimc.Connection do
     end)
   end
 
+  def handle_info({ref, result}, %{mining_job: %{task: %Task{ref: ref}} = job} = state) do
+    Process.demonitor(ref, [:flush])
+    Process.cancel_timer(job.timer)
+
+    guard_connection(state, fn ->
+      state = %{state | mining_job: nil}
+
+      if System.monotonic_time(:millisecond) < job.deadline do
+        {:noreply, mining_result(state, job, result)}
+      else
+        if job.kind == :reserve and match?({:ok, %{owner: _, permit: _}}, result),
+          do: PlayerMiningQuery.release(elem(result, 1))
+
+        state = cancel_mining(state)
+        {:noreply, if(job.kind == :correct, do: state, else: correct_mining(state, job.position))}
+      end
+    end)
+  end
+
+  def handle_info({:mining_deadline, ref}, %{mining_job: %{task: %Task{ref: ref}}} = state),
+    do: guard_connection(state, fn -> {:noreply, cancel_mining(state)} end)
+
+  def handle_info({:mining_deadline, _}, state), do: {:noreply, state}
+
+  def handle_info({:DOWN, ref, :process, _, _}, %{mining_job: %{task: %Task{ref: ref}}} = state),
+    do: guard_connection(state, fn -> {:noreply, cancel_mining(state)} end)
+
   def handle_info({ref, result}, %{motion_job: %{task: %Task{ref: ref}} = job} = state) do
     Process.demonitor(ref, [:flush])
     Process.cancel_timer(job.timer)
@@ -596,6 +634,7 @@ defmodule Valimc.Connection do
                fences: fences,
                powder_snow: powder,
                submerged: submerged,
+               eye_water: eye_water,
                exhaustion: exhaustion,
                kinetics: kinetics,
                landing: landing
@@ -638,7 +677,7 @@ defmodule Valimc.Connection do
                   next
                   |> apply_movement_exhaustion(exhaustion)
                   |> apply_kinetic_tick(kinetics.tick, kinetics.packet.bounced)
-                  |> observe_environment(powder, submerged)
+                  |> observe_environment(powder, submerged, eye_water)
                   |> monitor_pose_sources(fences)
                   |> update_view()
                   |> apply_landing(landing)
@@ -703,6 +742,7 @@ defmodule Valimc.Connection do
            fences: fences,
            powder_snow: powder,
            submerged: submerged,
+           eye_water: eye_water,
            kinetics: kinetics
          }} ->
           if System.monotonic_time(:millisecond) < job.deadline and
@@ -723,7 +763,7 @@ defmodule Valimc.Connection do
             state =
               %{state | player: player}
               |> apply_kinetic_tick(kinetics, false)
-              |> observe_environment(powder, submerged)
+              |> observe_environment(powder, submerged, eye_water)
               |> monitor_pose_sources(fences)
 
             state =
@@ -823,6 +863,7 @@ defmodule Valimc.Connection do
            |> apply_void_damage()
            |> tick_item_use()
            |> tick_food()
+           |> tick_mining()
            |> start_motion()
            |> sample_pose()}
 
@@ -1358,7 +1399,13 @@ defmodule Valimc.Connection do
 
         state =
           if health.value <= 0 do
-            state = state |> cancel_pose_job() |> cancel_motion_job() |> stop_item_use()
+            state =
+              state
+              |> cancel_pose_job()
+              |> cancel_motion_job()
+              |> stop_item_use()
+              |> cancel_mining()
+
             player = PlayerLife.die(%{player | use_flags: state.player.use_flags})
 
             %{
@@ -2238,7 +2285,7 @@ defmodule Valimc.Connection do
   end
 
   defp relocate(state, player, reset_motion \\ true) do
-    state = cancel_pose_job(state)
+    state = state |> cancel_pose_job() |> cancel_mining()
     player = if reset_motion, do: %{player | motion: %PlayerMotion{}}, else: player
 
     if state.motion_pending && state.motion_pending.retry,
@@ -2338,7 +2385,7 @@ defmodule Valimc.Connection do
     state
   end
 
-  defp observe_environment(state, powder, submerged) do
+  defp observe_environment(state, powder, submerged, eye_water) do
     due = state.simulation_due
     previous = state.player.environment
     allowed = PlayerEnvironment.can_freeze?(state.player, state.inventory)
@@ -2361,7 +2408,7 @@ defmodule Valimc.Connection do
     end
 
     Players.update(self(), player)
-    state = %{state | player: player, simulation_due: false}
+    state = %{state | player: player, simulation_due: false, mining_water: eye_water}
     state = if due, do: observe_air(state, submerged), else: state
 
     if damage_due do
@@ -2510,13 +2557,13 @@ defmodule Valimc.Connection do
     if MapSet.member?(state.chunks, World.chunk_key(x, z)),
       do: send_packets(state, [Packets.block(pos, block)])
 
-    %{state | pose_generation: state.pose_generation + 1}
+    mining_changed(%{state | pose_generation: state.pose_generation + 1})
   end
 
   defp event(%{phase: :play} = state, {:block_batch, updates}) do
     frames = for {chunk, frame} <- updates, MapSet.member?(state.chunks, chunk), do: frame
     send_frames(state, frames)
-    %{state | pose_generation: state.pose_generation + 1}
+    mining_changed(%{state | pose_generation: state.pose_generation + 1})
   end
 
   defp event(%{phase: :play} = state, {:player_joined, player}), do: track_peer(state, player)
@@ -2738,6 +2785,311 @@ defmodule Valimc.Connection do
     )
 
     resync_inventory(%{state | recovery: recovery})
+  end
+
+  defp survival_mining_action(state, action, position) do
+    cond do
+      action == ItemTypes.action_id("abort_destroy_block") ->
+        cancel_mining(state)
+
+      action == ItemTypes.action_id("start_destroy_block") ->
+        state = state |> cancel_mining() |> stop_item_use()
+
+        if mining_allowed?(state, position) do
+          mining = %{
+            position: position,
+            started: state.simulation_clock.tick,
+            requested_at: System.monotonic_time(:millisecond),
+            stopped: false,
+            attempt: nil,
+            reservation: nil,
+            needs_check: true,
+            renew_at: 0
+          }
+
+          tick_mining(%{state | mining: mining})
+        else
+          correct_mining(state, position)
+        end
+
+      action == ItemTypes.action_id("stop_destroy_block") ->
+        case state.mining do
+          %{position: ^position} = mining ->
+            tick_mining(%{state | mining: %{mining | stopped: true}})
+
+          _ ->
+            state |> cancel_mining() |> correct_mining(position)
+        end
+
+      true ->
+        state
+    end
+  end
+
+  defp mining_allowed?(state, position) do
+    state.phase == :play and state.life_stage == :alive and
+      state.player.game_mode.current == :survival and state.player.health.value > 0 and
+      PlayerInput.loaded?(state.player.input) and not state.teleport_pending and
+      not inventory_pending(state) and reachable?(state, position) and
+      Valimc.Physics.MiningTools.can_destroy?(Inventory.held(state.inventory, :main), false)
+  end
+
+  defp mining_changed(%{mining: nil} = state), do: state
+  defp mining_changed(state), do: %{state | mining: %{state.mining | needs_check: true}}
+
+  defp tick_mining(%{mining: nil} = state), do: state
+
+  defp tick_mining(state) do
+    mining = state.mining
+    now = System.monotonic_time(:millisecond)
+
+    cond do
+      not mining_allowed?(state, mining.position) ->
+        state |> cancel_mining() |> correct_mining(mining.position)
+
+      state.mining_job != nil ->
+        state
+
+      mining.reservation == nil and now - mining.requested_at >= 500 ->
+        cancel_mining(state)
+
+      mining.reservation == nil ->
+        mining_job(state, :reserve, PlayerMiningQuery.reserve(mining.position), mining.position)
+
+      World.existing_owner(mining.reservation.key) != {:ok, mining.reservation.owner} ->
+        state |> cancel_mining() |> correct_mining(mining.position)
+
+      mining.needs_check or now >= mining.renew_at ->
+        mining_job(state, :renew, PlayerMiningQuery.renew(mining.reservation), mining.position)
+
+      state.pose_checked != pose_signature(state) or state.motion_pending != nil ->
+        state
+
+      true ->
+        block = Map.fetch!(mining.reservation.expected, mining.position)
+
+        {:ok, rate} =
+          PlayerMining.rate(
+            state.inventory,
+            block,
+            state.mining_water,
+            state.player.motion.on_ground
+          )
+
+        {attempt, events} =
+          if mining.attempt == nil do
+            {:ok, attempt, events} =
+              PlayerMiningAttempt.start(mining.position, block, rate, mining.started)
+
+            {attempt, events}
+          else
+            {:ok, attempt, events} =
+              PlayerMiningAttempt.tick(mining.attempt, block, rate, state.simulation_clock.tick)
+
+            {attempt, events}
+          end
+
+        {attempt, events} =
+          if mining.stopped and attempt.phase == :active do
+            {:ok, attempt, next} =
+              PlayerMiningAttempt.stop(attempt, block, rate, state.simulation_clock.tick)
+
+            {attempt, events ++ next}
+          else
+            {attempt, events}
+          end
+
+        state = %{state | mining: %{mining | attempt: attempt}}
+
+        for {:crack, stage} <- events,
+            do:
+              broadcast_player_packet(
+                state,
+                Packets.block_destruction(state.player.entity_id, mining.position, stage)
+              )
+
+        if attempt.phase == :ready, do: commit_mining(state), else: state
+    end
+  end
+
+  defp mining_job(state, kind, {:ok, task}, position) do
+    deadline = System.monotonic_time(:millisecond) + 250
+    timer = Process.send_after(self(), {:mining_deadline, task.ref}, 250)
+
+    job = %{
+      kind: kind,
+      task: task,
+      timer: timer,
+      position: position,
+      generation: state.pose_generation,
+      deadline: deadline
+    }
+
+    %{state | mining_job: job}
+  end
+
+  defp mining_job(state, _, {:error, _}, _), do: state
+
+  defp mining_result(
+         %{mining: %{position: position} = mining} = state,
+         %{kind: :reserve, position: position} = job,
+         {:ok, reservation}
+       ) do
+    block = Map.fetch!(reservation.expected, position)
+
+    mining = %{
+      mining
+      | reservation: reservation,
+        needs_check: job.generation != state.pose_generation,
+        renew_at: System.monotonic_time(:millisecond) + 5000
+    }
+
+    state = %{state | mining: mining}
+
+    if block in @basic_mining and mining_allowed?(state, position) do
+      tick_mining(state)
+    else
+      send_packets(state, [Packets.block(position, block)])
+      cancel_mining(state)
+    end
+  end
+
+  defp mining_result(%{mining: mining} = state, %{kind: :renew} = job, {:ok, expected})
+       when mining != nil do
+    if expected == mining.reservation.expected do
+      mining = %{
+        mining
+        | needs_check: job.generation != state.pose_generation,
+          renew_at: System.monotonic_time(:millisecond) + 5000
+      }
+
+      tick_mining(%{state | mining: mining})
+    else
+      state |> cancel_mining() |> correct_mining(job.position)
+    end
+  end
+
+  defp mining_result(state, %{kind: :correct} = job, {:ok, owner, block}) do
+    key = World.region_key(World.chunk_key(elem(job.position, 0), elem(job.position, 2)))
+
+    if job.generation == state.pose_generation and World.existing_owner(key) == {:ok, owner} and
+         reachable?(state, job.position),
+       do: send_packets(state, [Packets.block(job.position, block)])
+
+    state
+  end
+
+  defp mining_result(state, %{kind: :correct}, _), do: state
+  defp mining_result(state, job, _), do: state |> cancel_mining() |> correct_mining(job.position)
+
+  defp cancel_mining(state) do
+    if state.mining_job do
+      Process.cancel_timer(state.mining_job.timer)
+      Process.exit(state.mining_job.task.pid, :kill)
+      Process.demonitor(state.mining_job.task.ref, [:flush])
+    end
+
+    if state.mining do
+      mining = state.mining
+
+      broadcast_player_packet(
+        state,
+        Packets.block_destruction(state.player.entity_id, mining.position, -1)
+      )
+
+      if mining.reservation, do: PlayerMiningQuery.release(mining.reservation)
+    end
+
+    %{state | mining: nil, mining_job: nil}
+  end
+
+  defp correct_mining(state, position) do
+    if state.mining_job == nil and reachable?(state, position),
+      do: mining_job(state, :correct, PlayerMiningQuery.observe(position), position),
+      else: state
+  end
+
+  defp correct_mining_recovery(state, recovery) do
+    intent = if recovery.intent, do: recovery.intent[:outbox], else: recovery.plan[:intent]
+
+    if recovery.mode == :play and match?(%{kind: :mining}, intent),
+      do: correct_mining(state, intent.target),
+      else: state
+  end
+
+  defp commit_mining(%{save_ref: ref} = state) when ref != nil, do: state
+
+  defp commit_mining(state) do
+    mining = state.mining
+    reservation = mining.reservation
+    block = Map.fetch!(reservation.expected, mining.position)
+    before = Inventory.held(state.inventory, :main)
+
+    {:ok, drops} =
+      Valimc.Physics.MiningLoot.drops(
+        block,
+        before,
+        PlayerMining.harvest?(state.inventory, block)
+      )
+
+    {after_tool, _broken} = Valimc.ToolDurability.mine(before, block, false)
+    {x, y, z} = mining.position
+
+    records =
+      Enum.map(drops, fn stack ->
+        %{uuid: :crypto.strong_rand_bytes(16), x: x + 0.5, y: y + 0.5, z: z + 0.5, stack: stack}
+      end)
+
+    slot = 36 + state.inventory.selected
+
+    slots =
+      if after_tool,
+        do: Map.put(state.inventory.slots, slot, after_tool),
+        else: Map.delete(state.inventory.slots, slot)
+
+    inventory =
+      %{state.inventory | slots: slots} |> Inventory.cancel_drag() |> Inventory.advance()
+
+    intent =
+      reservation
+      |> Map.take([:key, :permit, :expected])
+      |> Map.merge(%{
+        kind: :mining,
+        target: mining.position,
+        slot: slot,
+        before: before,
+        after: after_tool,
+        records: records
+      })
+
+    ref = make_ref()
+
+    recovery = %{
+      new_recovery(:play, :prepare, nil)
+      | ref: ref,
+        plan: %{key: reservation.key, records: records, inventory: inventory, intent: intent}
+    }
+
+    PlayerStore.prepare_mining(
+      state.player_store,
+      state.store_fence,
+      PlayerSnapshot.capture(state.player, state.inventory),
+      intent,
+      ref
+    )
+
+    # This intent now resolves through the durable lane; attempt cancellation must not release its permit.
+    %{state | mining: nil, recovery: recovery}
+  end
+
+  defp break_block_action(
+         %{player: %{game_mode: %{current: :survival}}} = state,
+         action,
+         position,
+         sequence
+       ) do
+    send_packets(state, [Packets.ack(sequence)])
+    survival_mining_action(state, action, position)
   end
 
   defp break_block_action(state, action, position, sequence) do
@@ -3135,6 +3487,7 @@ defmodule Valimc.Connection do
 
   @impl true
   def terminate(_reason, state) do
+    cancel_mining(state)
     :gen_tcp.close(state.socket)
 
     if state.motion_pending && state.motion_pending.retry,

@@ -1,7 +1,7 @@
 # VMC-029a — Survival mining
 
-Status: Native mining arithmetic, stock tools and player speed verified; live mining
-pending. October 16, 2026.
+Status: Basic live survival mining automated-verified; actual-client gate and
+broader block/loot/callback coverage pending. October 16, 2026.
 
 Acceptance: survival players can mine with native tool speed, break progress,
 harvest permission, drops and durability. Handle start/abort/stop acknowledgements,
@@ -51,8 +51,9 @@ The first [loot catalog](VMC-029a4.md) matches210,847 native contexts for930
 deterministic block families, including direct/stored Silk Touch controls. Random
 and contextual rules remain explicit unsupported results. The pure
 [attempt/animation foundation](VMC-029a5.md) matches490 native action traces and165
-codecs, with an explicit elapsed-tick correction for delayed completion. Next:
-renewable block fencing and live composition, then expand loot/destruction callbacks.
+codecs, with an explicit elapsed-tick correction for delayed completion.
+Renewable block fencing and [basic live composition](VMC-029a6.md) are implemented.
+Next: actual-client validation, then expand loot/destruction callbacks.
 [Base removal](VMC-029a3.md) now retains contained fluid, matching all35,723 native
 states and71,446 actual removal callbacks; wet mining recovery/creative TCP pass.
 Actual wet/dry creative removal, fresh-client persistence and basic responsiveness
