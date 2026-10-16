@@ -51,5 +51,14 @@ defmodule Valimc.PlayerAbsorptionTest do
     assert {:error, :invalid_absorption} = PlayerAbsorption.set(nil, 4)
     assert {:error, :invalid_absorption} = PlayerAbsorption.start(0, 4, 256)
     assert {:error, :invalid_absorption} = PlayerAbsorption.tick([], 1)
+    assert {:error, :invalid_absorption} = PlayerAbsorption.spend(4, -1)
+  end
+
+  test "post-defense damage spends golden hearts first, with native float cancellation at huge values" do
+    assert {:ok, %{pool: 2.0, damage: +0.0}} = PlayerAbsorption.spend(8.0, 6.0)
+    assert {:ok, %{pool: +0.0, damage: 2.0}} = PlayerAbsorption.spend(4.0, 6.0)
+    assert {:ok, %{pool: 0.5, damage: 33_554_432.0}} = PlayerAbsorption.spend(0.5, 33_554_432.0)
+    assert {:ok, %{pool: remaining, damage: +0.0}} = PlayerAbsorption.spend(0.5, 0.1)
+    assert remaining == 0.4000000059604645
   end
 end

@@ -44,3 +44,15 @@ unchanged refill, high-amplifier bounds and malformed state. No live admission o
 damage behavior is established yet. Raw ignored:
 `.local/absorption-{native,elixir,targeted}-final.*`; pinned bytecode
 `.local/absorption-{AbsorptionMobEffect,LivingEntity,Player,MobEffect}.javap`.
+
+Damage foundation: `AbsorptionDamageOracle` executes40,392 actual Player
+actuallyHurt transitions over all51 native source kinds, three starting healths,
+six pools,11 amounts (including subnormal/large values) and four controlled
+armor→magic factor pairs. Golden hearts spend after both phases; only residual
+red-health damage triggers food exhaustion and the damage event. Real FoodData,
+health and absorption setters run; armor formulas and combat/stat storage endpoints
+are controlled, so this is not a full gear/outer-hurt/death proof. Elixir's spend
+kernel matches every pool/residual/health/food result. Keep the native float
+subtractions: at sufficiently large damage, rounding can leave a small pool
+unchanged, unlike min(pool,damage). Fourteen affected checks pass(seed829282).
+Raw `.local/absorption-damage-{native,elixir,targeted}.*`.

@@ -46,6 +46,19 @@ defmodule Valimc.PlayerAbsorption do
 
   def start(_, _, _), do: {:error, :invalid_absorption}
 
+  @doc "Spend after defenses using native float subtraction, retaining rounding at large damage."
+  def spend(pool, damage) do
+    if bounded?(pool, 0, @attribute["max"]) and bounded?(damage, 0, @float_max) do
+      pool = f32(pool)
+      damage = f32(damage)
+      remaining = max(0.0, f32(damage - pool))
+      consumed = f32(damage - remaining)
+      {:ok, %{pool: max(0.0, f32(pool - consumed)), damage: remaining}}
+    else
+      {:error, :invalid_absorption}
+    end
+  end
+
   @doc "A depleted pool ends the whole instance before duration decrement or hidden promotion."
   def tick(effect, pool) do
     if StatusEffect.valid?(effect) and bounded?(pool, 0, @attribute["max"]) do

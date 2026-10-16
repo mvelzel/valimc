@@ -48,7 +48,8 @@ expiry, creative/unsupported negatives and reconnect. Publication follows separa
 and all five actual-client groups pass. Full native integration runs before publication.
 **Researching:** [Absorption](tickets/VMC-037j.md):6,912 native attribute/setter
 contexts,240 refreshes/80 ticks/four promotions/48 removals and10 affected checks
-pass. Damage ordering and durable owner/metadata composition precede admission.
+pass;40,392 native damage/health/food transitions and14 affected checks pass too.
+Durable pool and owner/metadata composition precede admission.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
