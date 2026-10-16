@@ -35,5 +35,12 @@ feet52; lava/direct fire0.1, ongoing burning0).138,080 native wear cases plus th
 facts pass `.local/armor-wear-native-check-final.log`;582 burning cases still pass
 `.local/fire-live-burning-regression.log`.
 
-Next: freeze/build this checkpoint and delegate the client scenario. Keep it local
-until the graphical report is reviewed. Parent fire-block/effect work stays open.
+Frozen runtime `7b5b382` builds in production and passes96 affected checks. The
+larger suite found one test-reader assumption: legitimate armor updates replaced
+its remembered interaction packet. Readers now retain attributes by entity/holder;
+17 affected checks pass(seed699173), and Mojang decodes both attribute packets and
+all scenarios over plaintext/AES-CFB8 TCP. Logs:
+`.local/fire-live-{production,attribute-readers-final,native-tcp-final}.log`.
+The complete suite is being rerun with the corrected reader. The dedicated tester
+is validating this unchanged runtime; keep it local until its report is reviewed.
+Parent fire-block/effect work stays open.

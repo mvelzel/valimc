@@ -110,11 +110,13 @@ defmodule Valimc.GameModeConnectionTest do
       assert s.player.abilities == GameMode.abilities(saved_mode, true)
       assert client.abilities.flags == PlayerAbilities.flags(s.player.abilities)
 
-      assert client.attributes_body ==
-               s.player
-               |> Valimc.Protocol.Packets.interaction_attributes()
-               |> elem(1)
-               |> IO.iodata_to_binary()
+      for {id, base, modifiers} <- Valimc.PlayerInteraction.attributes(mode) do
+        assert client.attributes[{s.player.entity_id, id}] == {base, modifiers}
+      end
+
+      assert client.attributes[{s.player.entity_id, 1}] == {0.0, []}
+      assert client.attributes[{s.player.entity_id, 2}] == {0.0, []}
+      assert client.attributes[{s.player.entity_id, 10}] == {1.0, []}
 
       assert s.inventory.infinite_materials == (mode == :creative)
       assert client.inventory.items == Inventory.contents(ctx.inventory)

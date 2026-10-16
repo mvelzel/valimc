@@ -206,6 +206,7 @@ public class VanillaOracle implements AutoCloseable {
   private ClientboundPlayerAbilitiesPacket abilities;
   private int abilitiesPackets;
   private ClientboundUpdateAttributesPacket interactionAttributes;
+  private ClientboundUpdateAttributesPacket armorAttributes;
   private Object readGame() throws Exception {
     Object packet = read(gameIn);
     if (packet instanceof ClientboundAddEntityPacket spawn && spawn.getType()==EntityTypes.ITEM)
@@ -217,7 +218,10 @@ public class VanillaOracle implements AutoCloseable {
       for (int id:removed.entityIds()) observedItems.remove(id);
     if (packet instanceof ClientboundLoginPacket login) playerId=login.playerId();
     if (packet instanceof ClientboundPlayerAbilitiesPacket current) { abilities=current; abilitiesPackets++; }
-    if (packet instanceof ClientboundUpdateAttributesPacket current) { interactionAttributes=current; }
+    if (packet instanceof ClientboundUpdateAttributesPacket current) {
+      if(current.getValues().stream().anyMatch(a->a.attribute().equals(net.minecraft.world.entity.ai.attributes.Attributes.BLOCK_INTERACTION_RANGE)))interactionAttributes=current;
+      if(current.getValues().stream().anyMatch(a->a.attribute().equals(net.minecraft.world.entity.ai.attributes.Attributes.ARMOR)))armorAttributes=current;
+    }
     if (packet instanceof ClientboundChangeDifficultyPacket difficulty) {
       if (difficulty.difficulty()!=net.minecraft.world.Difficulty.EASY || difficulty.locked())
         throw new AssertionError("Unexpected default world difficulty");
@@ -372,6 +376,14 @@ public class VanillaOracle implements AutoCloseable {
         if(instance.getValue()!=5.0)throw new AssertionError("Incorrect creative interaction range");
       }
       System.out.println("PASS: native TCP player interaction attribute holders/bases/modifiers initialize both creative ranges to five.");
+      if(first.armorAttributes==null||first.armorAttributes.getValues().size()!=3)throw new AssertionError("Missing equipped armor attributes");
+      for(var a:first.armorAttributes.getValues()){
+        var instance=new net.minecraft.world.entity.ai.attributes.AttributeInstance(a.attribute(),v->{});
+        instance.setBaseValue(a.base());for(var modifier:a.modifiers())instance.addTransientModifier(modifier);
+        double expected=a.attribute().equals(net.minecraft.world.entity.ai.attributes.Attributes.BURNING_TIME)?1:0;
+        if(instance.getValue()!=expected)throw new AssertionError("Unexpected empty-gear armor attributes");
+      }
+      System.out.println("PASS: native TCP armor/toughness/burning-time holders and values initialize empty equipment.");
       var flightRequest=new net.minecraft.world.entity.player.Abilities();
       for(boolean flying:new boolean[]{true,false}) {
         flightRequest.flying=flying;

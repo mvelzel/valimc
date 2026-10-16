@@ -141,8 +141,13 @@ defmodule Valimc.TestClient do
     Map.put(client, :abilities, %{flags: flags, flying_speed: fly, walking_speed: walk})
   end
 
-  def auto_reply(client, :play, "update_attributes", body),
-    do: Map.put(client, :attributes_body, body)
+  def auto_reply(client, :play, "update_attributes", body) do
+    {entity, body} = Wire.take_varint(body)
+    {count, body} = Wire.take_varint(body)
+    {values, <<>>} = take_attributes(body, count, %{})
+    values = Map.new(values, fn {id, value} -> {{entity, id}, value} end)
+    Map.put(client, :attributes, Map.merge(Map.get(client, :attributes, %{}), values))
+  end
 
   def auto_reply(client, :play, "set_entity_data", body) do
     {id, rest} = Wire.take_varint(body)
@@ -155,6 +160,21 @@ defmodule Valimc.TestClient do
   end
 
   def auto_reply(client, _, _, _), do: client
+
+  defp take_attributes(body, 0, values), do: {values, body}
+
+  defp take_attributes(body, count, values) do
+    {id, <<base::float-64, body::binary>>} = Wire.take_varint(body)
+    {count_modifiers, body} = Wire.take_varint(body)
+
+    {modifiers, body} =
+      Enum.map_reduce(List.duplicate(nil, count_modifiers), body, fn _, body ->
+        {name, <<amount::float-64, operation, body::binary>>} = Wire.take_string(body)
+        {{name, amount, operation}, body}
+      end)
+
+    take_attributes(body, count - 1, Map.put(values, id, {base, modifiers}))
+  end
 
   defp take_equipment(client, id, <<flags, rest::binary>>) do
     {:ok, stack, rest} = ItemStack.take(rest)
