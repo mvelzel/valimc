@@ -38,6 +38,9 @@ for row <- cases["packets"] do
 
   unless UseItemOn.decode(Base.decode16!(row["wire"], case: :lower)) == {:ok, expected},
     do: raise("Native use-on codec differs #{inspect(row)}")
+
+  unless UseItemOn.encode(expected) == {:ok, Base.decode16!(row["wire"], case: :lower)},
+    do: raise("Native use-on re-encoding differs #{inspect(row)}")
 end
 
 for row <- cases["nonfinite"] do

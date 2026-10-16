@@ -25,6 +25,36 @@ defmodule Valimc.Protocol.UseItemOn do
 
   def decode(_), do: {:error, :invalid_use_item_on}
 
+  def encode(
+        %{
+          hand: hand,
+          position: position,
+          face: face,
+          cursor: {x, y, z},
+          inside: inside,
+          border: border,
+          sequence: sequence
+        } = request
+      )
+      when hand in [:main, :off] and is_boolean(inside) and is_boolean(border) do
+    bytes =
+      IO.iodata_to_binary([
+        Wire.varint(if(hand == :main, do: 0, else: 1)),
+        Wire.position(position),
+        Wire.varint(face),
+        <<x::float-32, y::float-32, z::float-32>>,
+        Wire.bool(inside),
+        Wire.bool(border),
+        Wire.varint(sequence)
+      ])
+
+    if decode(bytes) == {:ok, request}, do: {:ok, bytes}, else: {:error, :invalid_use_item_on}
+  rescue
+    _ -> {:error, :invalid_use_item_on}
+  end
+
+  def encode(_), do: {:error, :invalid_use_item_on}
+
   # Native decoding permits nonfinite hits; gameplay ignores them and still acknowledges.
   defp cursor(<<x::float-32, y::float-32, z::float-32>>), do: {x, y, z}
   defp cursor(_), do: :nonfinite
