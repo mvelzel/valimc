@@ -6,6 +6,7 @@ defmodule Valimc.World.RegionData do
     Items,
     ItemHandoffs,
     ItemHandoffDelivery,
+    ItemMerges,
     ItemTransfers,
     MiningPermits,
     MiningTransfers,
@@ -205,6 +206,25 @@ defmodule Valimc.World.RegionData do
 
   def handle_call({:remove_item, epoch, id, revision}, from, state),
     do: item_request(epoch, from, state, fn -> Items.remove(state.items, epoch, id, revision) end)
+
+  def handle_call({:merge_items, epoch, pairs, deadline}, from, state) do
+    cond do
+      epoch != state.items.epoch ->
+        {:reply, {:error, :stale_region}, state}
+
+      not state.item_storage_enabled ->
+        {:reply, {:error, :transfer_storage_disabled}, state}
+
+      state.item_pending != nil ->
+        {:reply, {:error, :item_storage_busy}, state}
+
+      not is_integer(deadline) or System.monotonic_time(:millisecond) >= deadline ->
+        {:reply, {:error, :expired_item_step}, state}
+
+      true ->
+        plan_item_change(:item_merge, {pairs, deadline}, from, state)
+    end
+  end
 
   def handle_call({:advance_items, epoch, steps, deadline}, from, state) do
     item_request(epoch, from, state, fn ->
@@ -714,7 +734,12 @@ defmodule Valimc.World.RegionData do
           worker: worker,
           monitor: Process.monitor(worker),
           timer: send_after(state, {:item_commit_deadline, token}, 5000),
-          acceptance_deadline: if(kind == :item_handoff_out, do: elem(request, 2), else: nil)
+          acceptance_deadline:
+            case kind do
+              :item_handoff_out -> elem(request, 2)
+              :item_merge -> elem(request, 1)
+              _ -> nil
+            end
         }
 
         {:noreply, %{state | item_pending: pending}}
@@ -751,6 +776,14 @@ defmodule Valimc.World.RegionData do
   defp item_plan(:item_handoff_clear, items, receipts, key, {sequence, digest}) do
     with {:ok, next} <- ItemHandoffs.finish(items, key, sequence, digest),
          do: {:write, next, receipts, :ok}
+  end
+
+  defp item_plan(:item_merge, items, receipts, _key, {pairs, _deadline}) do
+    case ItemMerges.plan(items, items.epoch, pairs) do
+      {:ok, ^items, changes} -> {:reply, {:ok, changes}}
+      {:ok, next, changes} -> {:write, next, receipts, {:ok, changes}}
+      error -> error
+    end
   end
 
   defp block_transfer_writing?(state),
@@ -986,7 +1019,13 @@ defmodule Valimc.World.RegionData do
           item_pending: %{kind: kind, phase: :planning, worker: worker, token: token} = pending
         } = state
       )
-      when kind in [:item_transfer, :item_handoff_in, :item_handoff_out, :item_handoff_clear] do
+      when kind in [
+             :item_transfer,
+             :item_handoff_in,
+             :item_handoff_out,
+             :item_handoff_clear,
+             :item_merge
+           ] do
     Process.demonitor(pending.monitor, [:flush])
 
     result =

@@ -121,6 +121,15 @@ defmodule Valimc.World.Region do
   def remove_item({pid, epoch, id, revision}),
     do: GenServer.call(pid, {:remove_item, epoch, id, revision}, 6000)
 
+  @doc "Trusted same-owner pairs; reply follows one durable replacement/removal commit."
+  def merge_items({pid, epoch}, pairs),
+    do:
+      GenServer.call(
+        pid,
+        {:merge_items, epoch, pairs, System.monotonic_time(:millisecond) + 250},
+        6000
+      )
+
   @doc "Trusted accepted steps; caller must supply fresh geometry and retain the returned fences."
   def advance_items({pid, epoch}, steps),
     do:

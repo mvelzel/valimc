@@ -32,3 +32,11 @@ raw `.local/item-merge-native{.json,.log,-check.log}` and targeted log remain
 ignored. The isolated oracle compilation avoids the concurrent full-suite Java
 output directory. Live discovery/scheduling, durable owner composition, cross-owner
 merging and actual-client verification remain open; checkpoint stays local.
+
+Durable owner API checkpoint: trusted same-owner pairs now plan on the bounded
+item worker pool with a250ms acceptance deadline, freeze conflicting item updates
+and publish only after the leased writer acknowledges one atomic file.50 affected
+checks pass(seed861324), `.local/item-merge-region-targeted.log`: paused writes,
+no early publication, competing/stale/refused work, pool saturation, failed writes
+and owner recovery retain exact stacks/receipts. Automatic discovery and graphical
+merging remain open; this checkpoint stays local.
