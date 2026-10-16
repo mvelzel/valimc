@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-035a4](../tickets/VMC-035a4.md) | `c49fdb1`:61 affected fault/recovery/TCP checks, bounded coalesced saves and actual paused-writer movement/periodic save/critical replacement/reconnect |
 | [VMC-035a3](../tickets/VMC-035a3.md) | `adba589`:67 affected/12,960 native travel steps and actual fall/landing, slime rebound, water drift/reconnect; controlled pacing, visual buoyancy limit retained |
 | [VMC-035a2](../tickets/VMC-035a2.md) | `6459416`:47 affected/300 native packet checks,994 full tests/production and actual controlled movement/replacement/reconnect; automatic physics remains separate |
 | [VMC-035a1](../tickets/VMC-035a1.md) | `85458f1`: bounded saved item motion/v3 outboxes,67 affected recovery checks and actual pending-source item view/reconnect/no replay; live simulation remains separate |

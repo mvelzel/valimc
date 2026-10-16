@@ -20,9 +20,10 @@ pending-source recovery/reconnect. Automatic simulation remains open.
 [Accepted-step replication](tickets/VMC-035a2.md) is validated (`6459416`): native
 codecs, bounded durable batches and actual controlled movement/replacement/reconnect.
 [Fenced item travel](tickets/VMC-035a3.md) is validated (`adba589`), including
-actual fall/landing, slime rebound, water drift and fresh reconnect. Automatic
-scheduling and cross-owner handoff remain open; [coalesced motion saves](tickets/VMC-035a4.md)
-pass affected persistence/TCP checks and await their client gate.
+actual fall/landing, slime rebound, water drift and fresh reconnect.
+[Coalesced motion saves](tickets/VMC-035a4.md) are validated (`c49fdb1`), including
+actual movement with paused I/O, periodic saves, critical replacement and reconnect.
+Automatic scheduling and cross-owner handoff remain open.
 
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Player processes own their simulation state; bounded workers sample geometry.
@@ -205,7 +206,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-035a4](tickets/VMC-035a4.md) | Actual movement with paused writer, periodic save and fresh reconnect | Affected-verified local checkpoint |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 
