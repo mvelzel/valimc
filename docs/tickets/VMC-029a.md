@@ -47,7 +47,10 @@ composition remains pending.
 
 [Atomic persistence](VMC-029a1.md) now includes source intent, receipt-backed wear
 compensation and login/disconnect recovery, with101 affected tests passing.
-Next: native loot planning and owned mining attempts.
+The first [loot catalog](VMC-029a4.md) matches210,847 native contexts for930
+deterministic block families, including direct/stored Silk Touch controls. Random
+and contextual rules remain explicit unsupported results. Next: owned mining
+attempts/live start/abort/stop, then expand loot and destruction callbacks.
 [Base removal](VMC-029a3.md) now retains contained fluid, matching all35,723 native
 states and71,446 actual removal callbacks; wet mining recovery/creative TCP pass.
 Its graphical gate remains pending.

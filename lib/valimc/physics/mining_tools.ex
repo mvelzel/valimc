@@ -126,7 +126,10 @@ defmodule Valimc.Physics.MiningTools do
       else: select(rest, block, field, default)
   end
 
-  defp block_id(state), do: uint16(@states, state)
+  def block_count, do: @blocks
+
+  def block_id(state) when is_integer(state) and state >= 0 and state < @count,
+    do: uint16(@states, state)
 
   defp uint16(binary, index) do
     <<value::16>> = binary_part(binary, index * 2, 2)

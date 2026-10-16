@@ -109,7 +109,9 @@ indexes validated tickets. None imply full parity.
    receipt-backed source wear/refunds, with101 affected checks passing.
    [Fluid-preserving removal](tickets/VMC-029a3.md) passes full native state
    comparisons and47 affected checks, including wet recovery and creative TCP.
-   Native loot and live start/abort/stop are next.
+   [Deterministic loot](tickets/VMC-029a4.md) matches210,847 native contexts across
+   930 block families. Owned attempts/live start/abort/stop are next; broader loot
+   and destruction callbacks remain.
    Live survival mining remains absent. Client checks above continue independently.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
