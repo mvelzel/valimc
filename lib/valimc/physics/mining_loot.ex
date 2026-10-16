@@ -1,6 +1,6 @@
 defmodule Valimc.Physics.MiningLoot do
   @moduledoc "Native-verified deterministic stock block loot; unsupported rule families stay explicit."
-  alias Valimc.Physics.MiningTools
+  alias Valimc.Physics.{Mining, MiningTools}
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes}
   @path Path.expand("../../../priv/physics/mining_loot.json", __DIR__)
   @external_resource @path
@@ -54,6 +54,17 @@ defmodule Valimc.Physics.MiningLoot do
           end)
   unless map_size(@states) == length(@facts["state_profiles"]),
     do: raise("Duplicate state loot overrides")
+
+  @ordinary MapSet.new(@facts["ordinary_mining"])
+  unless MapSet.size(@ordinary) == 178 and length(@facts["ordinary_mining"]) == 178 and
+           Enum.all?(@ordinary, fn state ->
+             is_integer(state) and state in 0..(@count - 1) and Mining.hardness(state) >= 0 and
+               elem(@blocks, MiningTools.block_id(state)) != 0
+           end),
+         do: raise("Invalid ordinary mining admission")
+
+  @doc "Finite, deterministic ordinary cubes with native-verified base destruction callbacks."
+  def ordinary_mining?(state), do: MapSet.member?(@ordinary, state)
 
   @doc "Use the original tool before wear, including a tool that breaks on this operation."
   def drops(state, tool, harvest)

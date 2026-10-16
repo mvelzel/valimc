@@ -3009,6 +3009,7 @@ defmodule Valimc.Connection do
 
     supported =
       block in @basic_mining or
+        Valimc.Physics.MiningLoot.ordinary_mining?(block) or
         MapSet.member?(@slab_blocks, Valimc.Physics.MiningTools.block_id(block))
 
     if supported and mining_allowed?(state, position) do

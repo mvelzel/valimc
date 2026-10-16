@@ -224,12 +224,12 @@ defmodule Valimc.PlayerMiningConnectionTest do
     wait(fn -> finished(pid) and World.get_block(ctx.target) == 0 end, 2500)
     assert World.item_snapshot(ctx.key) == %{}
     assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
-    obsidian = Data.item_block(Data.item("obsidian"))
-    :ok = World.set_block(ctx.target, obsidian)
+    unsupported = Data.item_block(Data.item("glowstone"))
+    :ok = World.set_block(ctx.target, unsupported)
     action(client, "start_destroy_block", ctx.target, 3)
     await_ack(client, 3)
     wait(fn -> finished(pid) end)
-    assert World.get_block(ctx.target) == obsidian
+    assert World.get_block(ctx.target) == unsupported
     assert World.item_snapshot(ctx.key) == %{}
   end
 
@@ -393,5 +393,93 @@ defmodule Valimc.PlayerMiningConnectionTest do
            ]
 
     assert map_size(World.item_snapshot(ctx.key)) == 2
+  end
+
+  test "ordinary cubes use live tool rules, bookshelf counts and Silk Touch across reconnect",
+       ctx do
+    enchant = fn name, levels ->
+      %{ItemStack.new(name) | components: %{"minecraft:enchantments" => levels}}
+    end
+
+    seed(ctx, %{
+      36 => enchant.("diamond_pickaxe", %{"minecraft:efficiency" => 5}),
+      37 => enchant.("diamond_axe", %{"minecraft:efficiency" => 5}),
+      38 => enchant.("diamond_axe", %{"minecraft:efficiency" => 5, "minecraft:silk_touch" => 1})
+    })
+
+    {client, pid} = login(ctx)
+
+    cases = [
+      {"polished_granite", 0, ItemStack.new("polished_granite")},
+      {"spruce_planks", 1, ItemStack.new("spruce_planks")},
+      {"iron_block", 0, ItemStack.new("iron_block")},
+      {"red_concrete", 0, ItemStack.new("red_concrete")},
+      {"bookshelf", 1, ItemStack.new("book", 3)},
+      {"bookshelf", 2, ItemStack.new("bookshelf")}
+    ]
+
+    for {{name, slot, _drop}, sequence} <- Enum.with_index(cases, 1) do
+      Client.send_packet(client, :play, "set_carried_item", <<slot::signed-16>>)
+      wait(fn -> state(pid).inventory.selected == slot end)
+      :ok = World.set_block(ctx.target, Data.item_block(Data.item(name)))
+      action(client, "start_destroy_block", ctx.target, sequence * 2 - 1)
+      await_ack(client, sequence * 2 - 1)
+      action(client, "stop_destroy_block", ctx.target, sequence * 2)
+      await_ack(client, sequence * 2)
+      wait(fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
+      assert saved(ctx).transfer_sequence == sequence and saved(ctx).outbox == nil
+    end
+
+    expected = cases |> Enum.map(&elem(&1, 2)) |> Enum.sort_by(& &1.item_id)
+    assert Enum.sort_by(drops(ctx), & &1.item_id) == expected
+
+    for {slot, damage} <- [{36, 3}, {37, 2}, {38, 1}] do
+      assert state(pid).inventory.slots[slot].components["minecraft:damage"] == damage
+    end
+
+    inventory = state(pid).inventory
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    {_fresh, pid} = login(ctx)
+    assert state(pid).inventory.slots == inventory.slots
+    assert state(pid).inventory.selected == inventory.selected
+    assert state(pid).inventory.carried == inventory.carried
+    assert saved(ctx).transfer_sequence == 6 and saved(ctx).outbox == nil
+    assert Enum.sort_by(drops(ctx), & &1.item_id) == expected
+    assert World.get_block(ctx.target) == 0
+  end
+
+  test "wrong-tier ordinary mining wears its tool without loot and excluded blocks do nothing",
+       ctx do
+    tool = %{
+      ItemStack.new("wooden_pickaxe")
+      | components: %{"minecraft:enchantments" => %{"minecraft:efficiency" => 5}}
+    }
+
+    seed(ctx, %{36 => tool})
+    {client, pid} = login(ctx)
+    :ok = World.set_block(ctx.target, Data.item_block(Data.item("iron_block")))
+    action(client, "start_destroy_block", ctx.target, 1)
+    await_ack(client, 1)
+    action(client, "stop_destroy_block", ctx.target, 2)
+    await_ack(client, 2)
+    wait(fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
+    assert drops(ctx) == []
+    assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
+    worn = Inventory.held(state(pid).inventory, :main)
+    assert worn.components["minecraft:damage"] == 1
+
+    for {name, sequence} <-
+          Enum.with_index(~w(bedrock glowstone melon sea_lantern gilded_blackstone), 3) do
+      block = Data.item_block(Data.item(name))
+      :ok = World.set_block(ctx.target, block)
+      action(client, "start_destroy_block", ctx.target, sequence)
+      await_ack(client, sequence)
+      wait(fn -> finished(pid) and state(pid).mining_job == nil end)
+      assert World.get_block(ctx.target) == block
+      assert Inventory.held(state(pid).inventory, :main) == worn
+      assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
+      assert drops(ctx) == []
+    end
   end
 end

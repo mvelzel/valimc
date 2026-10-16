@@ -129,16 +129,23 @@ public class MiningLootOracle {
     }
     throw new NoSuchMethodException("Missing block drop method");
   }
-  private static void slabCallbacks(Block block)throws NoSuchMethodException{
-    if(!(block instanceof SlabBlock))throw new AssertionError("Non-slab in native slab tag: "+block);
+  private static void simpleCallbacks(Block block)throws NoSuchMethodException{
     if(block.getClass().getMethod("destroy",net.minecraft.world.level.LevelAccessor.class,net.minecraft.core.BlockPos.class,BlockState.class).getDeclaringClass()!=Block.class
       ||block.getClass().getMethod("playerDestroy",ServerLevel.class,ServerPlayer.class,net.minecraft.core.BlockPos.class,BlockState.class,net.minecraft.world.level.block.entity.BlockEntity.class,ItemStack.class).getDeclaringClass()!=Block.class
-      ||block.getClass().getMethod("playerWillDestroy",net.minecraft.world.level.Level.class,net.minecraft.core.BlockPos.class,BlockState.class,net.minecraft.world.entity.player.Player.class).getDeclaringClass()!=Block.class)throw new AssertionError("Specialized slab destruction: "+block);
+      ||block.getClass().getMethod("playerWillDestroy",net.minecraft.world.level.Level.class,net.minecraft.core.BlockPos.class,BlockState.class,net.minecraft.world.entity.player.Player.class).getDeclaringClass()!=Block.class)throw new AssertionError("Specialized destruction: "+block);
+    callbackOwner(block,"spawnAfterBreak",BlockState.class,ServerLevel.class,BlockPos.class,ItemStack.class,boolean.class);
+    callbackOwner(block,"affectNeighborsAfterRemoval",BlockState.class,ServerLevel.class,BlockPos.class,boolean.class);
+    callbackOwner(block,"attack",BlockState.class,net.minecraft.world.level.Level.class,BlockPos.class,net.minecraft.world.entity.player.Player.class);
+  }
+  private static void callbackOwner(Block block,String name,Class<?>...parameters)throws NoSuchMethodException{
     for(Class<?> type=block.getClass();type!=null;type=type.getSuperclass())try{
-      if(type.getDeclaredMethod("attack",BlockState.class,net.minecraft.world.level.Level.class,net.minecraft.core.BlockPos.class,net.minecraft.world.entity.player.Player.class).getDeclaringClass()!=BlockBehaviour.class)throw new AssertionError("Specialized slab attack: "+block);
+      if(type.getDeclaredMethod(name,parameters).getDeclaringClass()!=BlockBehaviour.class)throw new AssertionError("Specialized "+name+": "+block);
       return;
     }catch(NoSuchMethodException missing){}
-    throw new AssertionError("Missing slab attack method");
+    throw new NoSuchMethodException(name);
+  }
+  private static boolean ordinaryCube(Block block){
+    return block==Blocks.GLASS||(block.getClass()==Block.class&&block.getStateDefinition().getPossibleStates().size()==1&&block.asItem().getClass()==BlockItem.class&&!block.defaultBlockState().canBeReplaced()&&block.defaultBlockState().isCollisionShapeFullBlock(net.minecraft.world.level.EmptyBlockGetter.INSTANCE,BlockPos.ZERO));
   }
   private static ItemStack enchanted(HolderLookup.Provider lookup,Item item,boolean stored,Map<net.minecraft.resources.ResourceKey<Enchantment>,Integer> levels){
     var stack=new ItemStack(item);var patch=new ItemEnchantments.Mutable(ItemEnchantments.EMPTY);
@@ -147,7 +154,7 @@ public class MiningLootOracle {
   }
   public static void main(String[] args)throws Exception{
     var base=MiningToolOracle.initialize();var gson=new Gson();var profiles=new JsonArray();profiles.add(JsonNull.INSTANCE);
-    var indexes=new LinkedHashMap<String,Integer>();var blocks=new JsonArray();var overrides=new JsonArray();var cases=new JsonArray();int supported=0,states=0;
+    var indexes=new LinkedHashMap<String,Integer>();var blocks=new JsonArray();var overrides=new JsonArray();var cases=new JsonArray();var ordinaryMining=new JsonArray();int supported=0,states=0;
     var field=sun.misc.Unsafe.class.getDeclaredField("theUnsafe");field.setAccessible(true);var unsafe=(sun.misc.Unsafe)field.get(null);
     try(var resources=new MultiPackResourceManager(PackType.SERVER_DATA,List.of(ServerPacksSource.createVanillaPackSource().fullResources()))){
       var loaded=RegistryDataLoader.load(resources,base.listRegistries().toList(),RegistryDataLoader.RELOADABLE_REGISTRIES,Runnable::run).join();
@@ -165,7 +172,9 @@ public class MiningLootOracle {
         enchanted(lookup,Items.DIAMOND_PICKAXE,false,Map.of(Enchantments.SILK_TOUCH,1,Enchantments.FORTUNE,255)));
       for(var block:BuiltInRegistries.BLOCK){
         if(BuiltInRegistries.BLOCK.getId(block)!=blocks.size())throw new AssertionError("Non-contiguous blocks");
-        boolean slab=block.builtInRegistryHolder().is(BlockTags.SLABS);if(slab)slabCallbacks(block);
+        boolean slab=block.builtInRegistryHolder().is(BlockTags.SLABS);
+        if(slab&&!(block instanceof SlabBlock))throw new AssertionError("Non-slab in native slab tag: "+block);
+        boolean ordinary=ordinaryCube(block);if(slab||ordinary)simpleCallbacks(block);
         if(!baseDrops(block)){if(slab)throw new AssertionError("Specialized tagged slab drops: "+block);blocks.add(0);continue;}
         var choices=new LinkedHashMap<BlockState,Profile>();
         try{
@@ -178,6 +187,7 @@ public class MiningLootOracle {
           }
           for(var state:block.getStateDefinition().getPossibleStates())choices.put(state,table==null?new Profile(List.of(),List.of()):new Profile(evaluate(table,false,state),evaluate(table,true,state)));
         }catch(Unsupported unsupported){if(slab)throw new AssertionError("Unsupported tagged slab loot: "+block);blocks.add(0);continue;}
+        if(ordinary&&block.defaultBlockState().getDestroySpeed(net.minecraft.world.level.EmptyBlockGetter.INSTANCE,BlockPos.ZERO)>=0)ordinaryMining.add(Block.getId(block.defaultBlockState()));
         var frequencies=new LinkedHashMap<Profile,Integer>();for(var profile:choices.values())frequencies.merge(profile,1,Integer::sum);
         Profile baseProfile=null;int frequency=0;for(var entry:frequencies.entrySet())if(entry.getValue()>frequency){baseProfile=entry.getKey();frequency=entry.getValue();}
         int baseIndex=index(baseProfile,profiles,indexes,gson);blocks.add(baseIndex);supported++;
@@ -197,8 +207,9 @@ public class MiningLootOracle {
       }
     }
     var result=new JsonObject();result.addProperty("version","26.3");result.addProperty("data_version",5023);result.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
-    result.addProperty("state_count",Block.BLOCK_STATE_REGISTRY.size());result.addProperty("block_count",blocks.size());result.addProperty("supported_blocks",supported);result.add("profiles",profiles);result.add("block_profiles",blocks);result.add("state_profiles",overrides);
+    if(ordinaryMining.size()!=178)throw new AssertionError("Changed deterministic ordinary mining admission");
+    result.addProperty("state_count",Block.BLOCK_STATE_REGISTRY.size());result.addProperty("block_count",blocks.size());result.addProperty("supported_blocks",supported);result.add("profiles",profiles);result.add("block_profiles",blocks);result.add("state_profiles",overrides);result.add("ordinary_mining",ordinaryMining);
     Files.writeString(Path.of(args[0]),gson.toJson(result)+"\n");Files.writeString(Path.of(args[1]),gson.toJson(cases)+"\n");
-    System.out.println("PASS: "+supported+" deterministic block families, "+states+" actual native state/tool drop contexts; random/context/function rules excluded.");
+    System.out.println("PASS: "+supported+" deterministic block families, "+states+" actual native state/tool drop contexts, "+ordinaryMining.size()+" finite ordinary states with verified base destruction; random/context/function rules excluded.");
   }
 }

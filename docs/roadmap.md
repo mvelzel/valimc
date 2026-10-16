@@ -121,6 +121,9 @@ indexes validated tickets. None imply full parity.
    [Stateful loot/slabs](tickets/VMC-029a7.md) is validated (`4899168`): native
    constant counts,101 slab families,231,455 native cases,21 affected checks and
    actual single/double wet/dry slabs, wear and fresh reconnect.
+   [Ordinary full cubes](tickets/VMC-029a8.md) add173 finite deterministic types;
+   65 affected tests and231,455 native loot contexts pass. Actual client gate is
+   next; random loot and broader callbacks remain open.
 4. **[VMC-029b](tickets/VMC-029b.md): authoritative placement.** Native candidates/
    codecs match518,964 contexts and576 packets. Bounded preparation and expiring
    owner commits now compose on the player with admission, ordered corrections
@@ -146,6 +149,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
+| [VMC-029a8](tickets/VMC-029a8.md) | New cube mining, tool/loot counts, bookshelf Silk Touch and reconnect | Local checkpoint; frozen release next |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 
