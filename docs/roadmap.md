@@ -39,9 +39,12 @@ consumption/fatal recovery at `f4670e6` passes113 affected checks, production/bo
 TCP transports and focused actual stock/mixed/fatal drinks/reconnect. Named-item
 text/hover [VMC-004b3](tickets/VMC-004b3.md) passes344 native contexts/688 packets
 and78 affected checks locally; frozen8a28534 passes1,341 tests/build/both TCP
-transports. Named-item/refusal client gates and final native integration remain;
+transports. Named-item/refusal client gates pass; final native integration remains;
 abnormal signed-healing lifecycle is [VMC-037g1](tickets/VMC-037g1.md), with whole
 negative-dose refusal tested locally.
+**Next:** [Hunger](tickets/VMC-037h.md) has a verified pure request foundation:
+10,240 native callbacks/150 instance ticks and12 affected checks. Owned food/effect
+composition, actual drinking and its client gate remain; live Hunger is still refused.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

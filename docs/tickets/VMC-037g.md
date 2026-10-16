@@ -2,10 +2,10 @@
 
 Status: Owned drinking implemented locally at `f4670e6`; targeted/native,
 production/both TCP transports and focused stock/mixed/fatal client checks pass.
-Named-mainhand text is implemented locally in [VMC-004b3](VMC-004b3.md), awaiting
-its client gate. Negative signed healing is now wholly refused locally; its
-native lifecycle is a separate [follow-up](VMC-037g1.md). Final integration and
-client verification of that refusal remain. This ticket is not Done.
+Named-mainhand text [VMC-004b3](VMC-004b3.md) and whole negative-dose refusal
+at662dc7f also pass their client/production/TCP gates. The abnormal native lifecycle
+is a separate [follow-up](VMC-037g1.md). Parent8a28534 full native integration
+remains running before publication. This ticket is not Done.
 
 Acceptance: actual healing/harming drinks apply once at completion, with native
 amounts/self source and supported defenses, without a persistent instant icon.
@@ -86,7 +86,8 @@ including plaintext/AES-CFB8 TCP, session69595 exit0. That release includes move
 effects and instant request math, before later self-magic/healing/live composition.
 Raw `.local/effects-integration-{full-tests,production,full-native}.log`.
 
-Pending: named-item/refusal client gates and final integration. The later admission
+Pending: final native integration/publication only for this ordinary-drink scope.
+Named-item/refusal client gates pass. The later admission
 guard refuses negative signed-healing potions atomically, with53 affected checks
 and768 native health/callback observations. Its abnormal zero-health lifecycle is
 tracked in VMC-037g1; no custom-dose parity claim. The frozen8a28534 parent passes
