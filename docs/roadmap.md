@@ -14,14 +14,14 @@ and [ordered natural fire contacts](tickets/VMC-017b4b.md) are **Done within sco
 runtime `f0aa671`:1,219 full tests, full native TCP/production and actual fire/soul/
 lava, exit/water, gear/modes, reconnect and death/respawn. Matched128/512-player water
 loads pass;512-player login/allocation variation remains a profiling finding.
-Next: [roof-aware rain extinction](tickets/VMC-017b4c.md) and status-effect defenses.
-Native column/sky/climate foundations, fenced owner reads and live rain composition
-pass1,238 full tests/production and all required client checks; full native integration
-and matched preview measurements remain.
-Next [contact hazards](tickets/VMC-017b5.md):3,060 native callback requests and three
-targeted checks/baseline pass. Stock immunity matches3,721 native contexts/two tests;
-armor/protection matches33,120 cases and wear237,500. Client regression, geometry
-and live ownership remain. Keep pending checkpoints local.
+[Roof-aware rain extinction](tickets/VMC-017b4c.md) is **Done within flat-plains
+scope**, `7423e59`: full native/both TCP,1,238 full tests/production and actual shelter,
+exposure/water/reconnect. Matched water loads retain one512-player deadline failure
+and a passing reverse pair; worker-admission profiling remains open.
+Current [contact hazards](tickets/VMC-017b5.md): request/immunity/armor foundations
+are **Done within kernel scope**, `9a7179a`, with additional native probes,
+1,245 full tests/build and actual baseline/fire/armor/water regression. Live contact
+geometry/ownership and status-effect defenses remain. Keep pending work local.
 
 [Automatic item simulation](tickets/VMC-035a6.md),
 [same-owner merging](tickets/VMC-035b.md), [ordinary pickup](tickets/VMC-035c.md),

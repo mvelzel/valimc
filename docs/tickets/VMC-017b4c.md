@@ -1,8 +1,8 @@
 # VMC-017b4c — Rain exposure and column observations
 
-Status: Implemented, frozen `7423e59`;1,238 full tests(seed937151), production and
-all five required graphical scenarios pass. Full native integration remains running;
-keep local until its terminal result. Foundation checkpoint `6875995`.
+Status: **Done within flat-plains rain scope**, frozen `7423e59`;1,238 full tests
+(seed937151), production, full native integration/both TCP transports and all five
+required graphical scenarios pass. Foundation checkpoint `6875995`.
 
 Acceptance: native rain extinguishes outdoor burning, roofs shield players and
 removing the roof restores exposure. Use fenced column observations in the existing
@@ -90,7 +90,22 @@ zero players/connections and clear weather. Report reviewed:
 `.local/client-tests/VMC-017b4c/report.md`; server log has no unexpected gameplay error.
 Logs: `.local/rain-live-{full-tests,production,full-native}.log`.
 
-Next: accept terminal full native integration/both TCP and retain matched preview
-measurements before publication. Full lighting, world-block weathering, other biome
-generation/modifiers and status effects remain separate. Client gate is complete;
-do not redo it unless a relevant runtime change or failure requires it.
+Full native integration exited0 on October16, including plaintext and continuous
+AES-CFB8 TCP. Subsequent unused hazard/gear kernels and the renamed durability call
+at `9a7179a` pass1,245 full tests(seed107270), production, their additional native
+probes and a fresh actual baseline/natural-fire/armor/water regression.
+
+Matched preview measurements: frozen `f0aa671` versus `7423e59`, identical drivers,
+five-second static-water creative workloads.128 dense players passed with zero
+corrections/disconnects:5.376→5.616seconds,137.08→139.73MiB, login p9590.77→73.97ms.
+512 spread baseline passed, but initial candidate had467 deadline/late-result
+corrections despite verified final positions. The retained reverse pair both passed
+without corrections/disconnects: baseline/candidate5.124/5.150seconds,
+300.59/302.04MiB, p9581.01/79.55ms. All six raw results/manifests are in
+`.local/rain-contact-loads/`; the first failure remains a worker-admission/host-load
+profiling finding, not a stable512-player capacity result. No speedup, rain-heavy
+throughput or survival-capacity claim is established.
+
+This rain slice is complete; full lighting, world-block weathering, other biome
+generation/modifiers and status effects remain separate. Do not redo its client
+gate unless a relevant runtime change or failure requires it.
