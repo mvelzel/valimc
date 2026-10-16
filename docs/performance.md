@@ -1,5 +1,10 @@
 # Measured prototype behavior
 
+October16 contact-hazard comparison: matched128-player static-water samples and
+the512-player reverse pair pass; the initial512 baseline has469 movement corrections.
+[VMC-017b5](tickets/VMC-017b5.md) records all six samples and limits. The existing
+worker-admission/host-load finding remains open; no stable512 capacity is established.
+
 Measured on October 13, 2026 on this macOS ARM64 host with **10 BEAM schedulers**, Elixir 1.20.4 and OTP 29.1.1. These are short development measurements, not production capacity limits or cross-server comparisons.
 
 A separate Python process opens real loopback TCP connections, completes compressed Minecraft 26.3 login/configuration, loads nine flat spawn chunks, acknowledges batches and keepalives, and sends 100 movement packets per client. Both runs use view distance **1**; normal development configuration uses **3**, requiring 49 spawn chunks per client.

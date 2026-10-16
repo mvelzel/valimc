@@ -9,25 +9,18 @@ indexes validated tickets. None imply full parity.
 
 ## Priority
 
-Current: **[fire and lava damage](tickets/VMC-017b4.md)**. [Live lava/burning](tickets/VMC-017b4a.md)
-and [ordered natural fire contacts](tickets/VMC-017b4b.md) are **Done within scope**,
-runtime `f0aa671`:1,219 full tests, full native TCP/production and actual fire/soul/
-lava, exit/water, gear/modes, reconnect and death/respawn. Matched128/512-player water
-loads pass;512-player login/allocation variation remains a profiling finding.
-[Roof-aware rain extinction](tickets/VMC-017b4c.md) is **Done within flat-plains
-scope**, `7423e59`: full native/both TCP,1,238 full tests/production and actual shelter,
-exposure/water/reconnect. Matched water loads retain one512-player deadline failure
-and a passing reverse pair; worker-admission profiling remains open.
-Current [contact hazards](tickets/VMC-017b5.md): request/immunity/armor foundations
-are **Done within kernel scope**, `9a7179a`, with additional native probes,
-1,245 full tests/build and actual baseline/fire/armor/water regression. Live contact
-geometry/ownership passes1,248 full tests/build,1,728 native traces and actual contact/
-gear/reconnect/respawn checks. Cactus death-text failure has a native/92-test-verified
-correction awaiting client retest; full native/performance gates also remain.
-[Status-effect state](tickets/VMC-037a.md) matches50,433 native duration/refresh
-traces;40 effect identities and61,600 packet codecs also match. Unused foundation
-baseline and live ownership remain.
-Keep pending work local.
+Current: **[owned status effects](tickets/VMC-037a.md)**. Duration/refresh and packet
+foundations are **Done within kernel scope**:50,433 native traces,40 effect IDs,
+61,600 packets and actual baseline at `9fce29f`. Next: bounded owner map, persistence
+and live Fire Resistance; no live status effects yet. Keep pending work local.
+
+[Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
+[flat-plains rain extinction](tickets/VMC-017b4c.md) and
+[player contact hazards](tickets/VMC-017b5.md) are **Done within their stated scopes**.
+Latest runtime `9fce29f`:1,253 full tests/production, native full integration at `8fbe510`
+plus targeted translation/status proofs, actual hazard/gear/death/respawn/reconnect
+checks. Matched128/512 water samples retain the existing worker-admission/host-load
+finding; no stable512 capacity or speed claim. Retrieve detailed evidence in tickets.
 
 [Automatic item simulation](tickets/VMC-035a6.md),
 [same-owner merging](tickets/VMC-035b.md), [ordinary pickup](tickets/VMC-035c.md),

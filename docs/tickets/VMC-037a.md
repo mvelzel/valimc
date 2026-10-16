@@ -1,7 +1,7 @@
 # VMC-037a — Owned status-effect state
 
-Status: Pure duration/replacement and wire foundations verified locally; baseline pending.
-No live effects yet.
+Status: Duration/replacement(`639cb46`) and wire(`5ed7eb9`) foundations **Done within
+kernel scope**, with baseline below. No live effects yet.
 
 Acceptance: bounded immutable effect state supports native stronger/weaker refresh,
 hidden effects, finite/infinite durations and flags. Keep one effect map on the
@@ -39,5 +39,12 @@ table. `EffectTypes` indexes their scalar identities; `Packets` validates IDs/st
 before encoding. Eight affected checks cover malformed inputs and existing lifecycle
 packets. Original `StatusEffectPacketOracle`; evidence:
 `.local/status-effect-packets-{native,native-check,native-decode,targeted}.log`.
-No live status packet is emitted yet. Next: owner state/codec and source immunity,
-with baseline before publishing these unused foundations.
+No live status packet is emitted yet.
+
+October16 baseline **PASS**, frozen `9fce29f`: actual join/terrain, walking, `/stats`,
+inventory, death/Respawn and a fresh reconnect. Dedicated report reviewed:
+`.local/client-tests/VMC-017b5-message/report.md`. This release contains both unused
+foundations; no live effect icon/immunity is claimed.1,253 full tests(seed554870)
+and production pass; native duration/packet checks above cover these additions
+separately from the earlier `8fbe510` full native run. Next: bounded player map,
+source immunity and atomic owner persistence, followed by live Fire Resistance.

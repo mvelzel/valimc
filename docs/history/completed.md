@@ -5,8 +5,10 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-017b5 player contacts](../tickets/VMC-017b5.md) | `8fbe510`/`9fce29f`: magma/campfire/cactus/berries, ordered owned damage/gear/death, full native TCP,1,253 tests/build and actual contacts/negatives/wear/death/respawn/reconnect; matched preview limits retained |
+| [VMC-037a duration/wire foundations](../tickets/VMC-037a.md) | `639cb46`/`5ed7eb9`:50,433 native state traces,40 effect IDs/61,600 packets,1,253 full tests/build and actual baseline at `9fce29f`; no live status effects |
 | [VMC-017b4c](../tickets/VMC-017b4c.md) | `7423e59`: fenced indexed roof/sky/plains-rain extinction, native/full TCP,1,238 tests/build and actual shelter/exposure/water/reconnect;512-player deadline finding retained |
-| [VMC-017b5 foundations](../tickets/VMC-017b5.md) | `9a7179a`: bounded native hazard requests/gear immunity/armor defenses,1,245 full tests/build and actual baseline/fire/armor regression; live hazard geometry/ownership remain |
+| [VMC-017b5 foundations](../tickets/VMC-017b5.md) | `9a7179a`: bounded native hazard requests/gear immunity/armor defenses,1,245 full tests/build and actual baseline/fire/armor regression; live acceptance above |
 | [VMC-017b4b](../tickets/VMC-017b4b.md) | `f0aa671`: ordered native fire/soul/lava/water paths,1,219 full tests/native TCP/production, matched128/512 water loads and actual entry/exit/gear/modes/water/reconnect/death/respawn; rain/effects remain |
 | [VMC-017b4a](../tickets/VMC-017b4a.md) | `7b5b382`/`0372724`:96 affected checks,1,207 full tests, native TCP/production and actual lava/exit/water, armor/HUD/wear/break, Fire Protection, burning reconnect, both fatal sources/respawn and creative; natural fire/sweeps/rain/effects remain |
 | [VMC-035d1](../tickets/VMC-035d1.md) | `f27b413`:21 native boundaries, targeted lifetime/save/recovery checks, production/both native TCP transports and actual visible fall/strict boundary/unlimited counters/reconnect; receipts retained |
