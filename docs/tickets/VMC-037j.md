@@ -1,0 +1,46 @@
+# VMC-037j — Owned Absorption
+
+Status: Native attribute/effect foundation verified; live Absorption unsupported.
+Damage spending, durable pool and metadata/owner composition follow.
+
+Acceptance: native golden-heart pool and maximum, effect add/upgrade/promotion/
+removal, damage spending after defenses, immunity/source exclusions, persistence
+and self/peer metadata on the existing player owner. No second health authority.
+Preserve atomic consumption/death checkpoints and no refill on reconnect.
+
+First prove actual native Absorption callbacks and setters over all amplifiers,
+existing pools and maximum clamps. Then prove damage/food interactions and native
+removal/hidden promotion before admission. Pure request math alone is insufficient.
+
+Client: actual custom Absorption drink displays golden hearts, subsequent actual
+fall/contact spends them before red health, milk/expiry removes the permitted pool,
+upgrades/hidden promotion follow native behavior and fresh reconnect retains the
+spent amount without refill. Include creative/unsupported mixed negatives and
+ordinary health/death regressions. Delegate graphical verification after a frozen
+production release; native probes cannot replace it.
+
+Reference: pinned26.3 AbsorptionMobEffect, LivingEntity absorption/attributes/
+damage hooks, Player absorption metadata and FoodData, MobEffectInstance updates.
+Golden-apple chance/listener delivery remains a separate consumable slice. Keep
+all native jars, bytecode, captures and worlds ignored.
+
+October16: original `AbsorptionOracle` matches6,912 native setter/start/attribute
+removal contexts,240 actual LivingEntity.addEffect refreshes,80 actual instance
+ticks, four hidden promotions and48 actual effect removals. All256 amplifiers,
+fractional/negative/large pools and added base maximum boundaries are covered.
+Default player maximum is0; the active dose adds4×(amplifier+1), attribute ID22/
+modifier `minecraft:effect.absorption` ADD_VALUE, capped2048. Player golden-heart
+metadata is native index17. The actual native Player setter uses synchronized data.
+
+Every accepted add calls the incoming dose's start hook, even an unchanged/weak
+refresh; it can refill a spent pool up to that dose and the active maximum.
+Depletion ends even an infinite head before duration decrement/hidden promotion.
+Ordinary hidden promotion clamps to the weaker maximum without refilling; actual
+removal clamps to the remaining base maximum. Promotion uses the real instance
+with a controlled native attribute-update callback; full world ticks are excluded.
+`PlayerAbsorption` supplies pure derived attributes, clamp/start and instance-tick
+hooks only. Ten affected checks pass(seed351414), including depleted hidden chains,
+unchanged refill, high-amplifier bounds and malformed state. No live admission or
+damage behavior is established yet. Raw ignored:
+`.local/absorption-{native,elixir,targeted}-final.*`; pinned bytecode
+`.local/absorption-{AbsorptionMobEffect,LivingEntity,Player,MobEffect}.javap`.

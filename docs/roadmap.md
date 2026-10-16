@@ -43,9 +43,12 @@ lifecycle stays [open](tickets/VMC-037g1.md); negative-dose drinks are refused w
 callbacks/150 instance ticks,11,520 food compositions,77 affected checks,
 production/both TCP transports and actual stationary drain, milk, hidden promotion/
 expiry, creative/unsupported negatives and reconnect. Publication follows separately.
-**Implementing:** [Instant Saturation drinks](tickets/VMC-037i.md):98,304 native food
-callbacks and69 affected checks pass; owned atomic drinking is local, with
-production/TCP/client validation pending.
+**Final integration:** [Instant Saturation drinks](tickets/VMC-037i.md), `7b65f32`:
+98,304 native callbacks,69 affected/1,354 full tests, production/both TCP transports
+and all five actual-client groups pass. Full native integration runs before publication.
+**Researching:** [Absorption](tickets/VMC-037j.md):6,912 native attribute/setter
+contexts,240 refreshes/80 ticks/four promotions/48 removals and10 affected checks
+pass. Damage ordering and durable owner/metadata composition precede admission.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

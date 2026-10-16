@@ -1,7 +1,8 @@
 # VMC-037i — Instant Saturation drinks
 
-Status: Native request foundation `26c4569`; owned drinking implemented locally,
-69 affected checks pass (seed379948). Production/TCP/client gates remain.
+Status: Owned drinking `7b65f32` passes69 affected checks,1,354 full tests,
+production/both native TCP transports and all five actual-client groups. Final
+larger native integration remains running before publication/Done.
 
 Acceptance: drinking Instant Saturation applies native food/saturation once, in
 callback order with other potion effects, on the existing atomic consumption
@@ -39,4 +40,30 @@ and fresh reconnect without replay. Creative amplifier255 caps food/saturation
 while retaining the drink. Mixed Hunger feeds once, then its next owned tick
 spends saturation at the existing exhaustion threshold. Negative signed healing
 refuses earlier Saturation and Resistance callbacks together. Raw:
-`.local/saturation-live-targeted.log`. Graphical tests remain pending.
+`.local/saturation-live-targeted.log`. Graphical acceptance is recorded below.
+
+Larger frozen7b65f32 block:1,354 full tests(seed394458), production and native
+plaintext/AES-CFB8 TCP pass; `.local/saturation-live-{full-tests,production,native-tcp}.log`.
+Full native integration session4900 runs against this immutable986-blob release,
+including Hunger/Saturation and the signed-healing guard, before new Absorption.
+
+Actual26.3/protocol777 PASS on frozen7b65f32; primary reviewed the dedicated
+`.local/client-tests/VMC-037i/report.md` once. Actual500ms cancellation retains
+the dose; full amp2 drink visibly feeds10→13, owner saturation6, one bottle and
+no timed icon/map. It stays exact for157 admitted ticks. Actual offhand amp255
+caps food20/saturation20 without wrapping; creative amp2 feeds10→13/saturation6
+while retaining the exact dose. Mixed Hunger+Saturation feeds10→14/saturation8,
+then only Hunger persists and saturation falls to5 after142 admitted ticks,
+without repeated feeding. Mixed actual NightVision15 is refused whole. Actual
+amp0 drink feeds10→11/saturation2; fresh direct reconnect retains11/2, one bottle,
+empty effects and no replay, with no post-acceptance food fixture. Health18 stays.
+
+Both wrappers/JVMs stopped, zero connections/players, four regions+clock flush:ok;
+server97442 exit0 without gameplay errors.986 frozen blobs remain unchanged.
+Whole dataset `/tmp/valimc-saturation-live-client-20261016` retains survival,18HP,
+food11/saturation2/exhaustion0, empty effects, bottle36/milk37, source60/outboxnil;
+fixtures did not reset journals/counters/receipts or health. Saturation numbers
+are corroborated by owner/saved state; use, food, container and icons were visual.
+Milk after the mixed drink followed expiry, not a new removal proof. Raw evidence/
+hashes: `.local/saturation-publication-proof.json`, `.local/saturation-live-cleanup.log`,
+tester trace/fixtures and frozen launch directories. No performance claim.
