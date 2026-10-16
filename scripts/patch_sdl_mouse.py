@@ -12,6 +12,25 @@ SOURCE = ROOT / "research/tools/SDL"
 REVISION = "ab5541ec5d4377dcc20a701897437f07ba71566f"
 HEADER = "src/video/cocoa/SDL_cocoacua.h"
 CHANGES = [
+    ("src/video/cocoa/SDL_cocoakeyboard.m", '#include "../../events/SDL_keyboard_c.h"\n',
+     '#include "../../events/SDL_keyboard_c.h"\n#include "../../events/SDL_mouse_c.h"\n'),
+    ("src/video/cocoa/SDL_cocoakeyboard.m", "    switch ([event type]) {\n",
+     '''    // Dedicated CUA gestures hold logical buttons across separate actions/captures.
+    // F8 toggles use (right); F9 toggles attack (left). No desktop mouse events.
+    if ((code == SDL_SCANCODE_F8 || code == SDL_SCANCODE_F9) &&
+        ([event type] == NSEventTypeKeyDown || [event type] == NSEventTypeKeyUp)) {
+        SDL_Window *window = SDL_GetKeyboardFocus();
+        if (window && [event type] == NSEventTypeKeyDown && ![event isARepeat]) {
+            const Uint8 button = code == SDL_SCANCODE_F8 ? SDL_BUTTON_RIGHT : SDL_BUTTON_LEFT;
+            const bool down = !(SDL_GetMouseState(NULL, NULL) & SDL_BUTTON_MASK(button));
+            SDL_SendMouseButton(Cocoa_GetEventTimestamp([event timestamp]), window,
+                                SDL_DEFAULT_MOUSE_ID, button, down);
+        }
+        return;
+    }
+
+    switch ([event type]) {
+'''),
     ("src/video/cocoa/SDL_cocoamouse.m", "#if 0\n#define DEBUG_COCOAMOUSE",
      '#include "SDL_cocoacua.h"\n\n#if 0\n#define DEBUG_COCOAMOUSE'),
     ("src/video/cocoa/SDL_cocoawindow.m", "#if 0\n#define DEBUG_COCOAWINDOW",

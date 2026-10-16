@@ -30,6 +30,10 @@ Use `mcp__cua_repl` for every UI action. The tester checks ordinary menu clicks,
 inventory pickup/place, opposite camera drags, commands and fresh logs. Reconnect
 by stopping the owned process and launching a fresh direct client, never a menu.
 Camera `drag` holds a button and can mine blocks; use the disposable test world.
+For input across captures/actions, F8 toggles logical use/right-button hold and
+F9 toggles attack/left-button hold. Press the same key again to release before
+menus or the next scenario. Key repeat does not toggle; a fresh client starts
+released. These dedicated adapter gestures never touch the desktop pointer.
 Do not add desktop-position diagnostics, cursor assertions or compatibility modes.
 Keyboard input can still activate Minecraft; this backend isolates pointer
 handling and does not promise foreground isolation.
