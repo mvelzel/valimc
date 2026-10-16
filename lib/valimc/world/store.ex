@@ -47,6 +47,9 @@ defmodule Valimc.World.Store do
   def close(pid, lease), do: GenServer.call(pid, {:close, lease}, 1000)
   def load_items(pid), do: GenServer.call(pid, :load_items)
 
+  def flush_items(pid, lease, items, receipts),
+    do: GenServer.call(pid, {:flush_items, lease, Items.records(items), receipts}, 15_000)
+
   def commit_items(pid, lease, items, receipts, {owner, epoch}, token),
     do:
       GenServer.cast(pid, {:items, lease, Items.records(items), receipts, {owner, epoch}, token})
@@ -115,6 +118,12 @@ defmodule Valimc.World.Store do
     {:reply, result, state}
   end
 
+  def handle_call({:flush_items, lease, records, receipts}, _from, %{lease: lease} = state),
+    do: {:reply, save_items(state, records, receipts), state}
+
+  def handle_call({:flush_items, _, _, _}, _from, state),
+    do: {:reply, {:error, :stale_store_lease}, state}
+
   @impl true
   def handle_cast({:snapshot, lease, edits, {owner, epoch}, revision}, %{lease: lease} = state) do
     result = write(state.blocks, edits)
@@ -136,10 +145,7 @@ defmodule Valimc.World.Store do
         {:items, lease, records, receipts, {owner, epoch}, token},
         %{lease: lease} = state
       ) do
-    result =
-      with {:ok, bytes} <- ItemRecords.encode(state.key, records, receipts),
-           do: write_items(state.items, bytes)
-
+    result = save_items(state, records, receipts)
     send(owner, {:resource, epoch, {:items_saved, self(), token, result}})
     {:noreply, state}
   end
@@ -189,6 +195,11 @@ defmodule Valimc.World.Store do
       do: {:stop, :normal, state}
 
   def handle_info(_, state), do: {:noreply, state}
+
+  defp save_items(state, records, receipts) do
+    with {:ok, bytes} <- ItemRecords.encode(state.key, records, receipts),
+         do: write_items(state.items, bytes)
+  end
 
   defp read_items(nil, _key), do: {:ok, %{records: [], receipts: %{}}}
 
@@ -302,7 +313,12 @@ defmodule Valimc.World.Store do
     end
   end
 
-  defp write_items(path, bytes), do: write_atomic(path, bytes)
+  defp write_items(path, bytes) do
+    result = write_atomic(path, bytes)
+    if result == :ok and path != nil, do: Valimc.Metrics.add(:item_snapshot_saves)
+    result
+  end
+
   defp write_atomic(nil, _bytes), do: :ok
 
   defp write_atomic(path, bytes) do

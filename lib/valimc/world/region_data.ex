@@ -21,6 +21,10 @@ defmodule Valimc.World.RegionData do
     :item_storage_enabled,
     :item_publication,
     :item_pending,
+    :item_motion_generation,
+    :item_saved_generation,
+    :item_checkpoint,
+    :item_checkpoint_timer,
     :mining_permits,
     :placement_permits,
     :store,
@@ -72,6 +76,10 @@ defmodule Valimc.World.RegionData do
       item_storage_enabled: persistent,
       item_publication: publication,
       item_pending: nil,
+      item_motion_generation: 0,
+      item_saved_generation: 0,
+      item_checkpoint: nil,
+      item_checkpoint_timer: nil,
       mining_permits: %MiningPermits{},
       placement_permits: %PlacementPermits{},
       store: store,
@@ -110,6 +118,49 @@ defmodule Valimc.World.RegionData do
         do: Items.advance(state.items, state.key, epoch, steps),
         else: {:error, :expired_item_step}
     end)
+  end
+
+  def handle_call({:publish_item_motion, epoch, steps, deadline}, _from, state) do
+    cond do
+      epoch != state.items.epoch ->
+        {:reply, {:error, :stale_region}, state}
+
+      state.item_pending != nil ->
+        {:reply, {:error, :item_storage_busy}, state}
+
+      not is_integer(deadline) or System.monotonic_time(:millisecond) >= deadline ->
+        {:reply, {:error, :expired_item_step}, state}
+
+      true ->
+        case Items.advance(state.items, state.key, epoch, steps) do
+          {:ok, items, handles} ->
+            handles =
+              Enum.map(handles, fn {epoch, id, revision} -> {self(), epoch, id, revision} end)
+
+            if items == state.items do
+              {:reply, {:ok, handles}, state}
+            else
+              :ets.insert(state.item_publication, {:items, items.views})
+              generation = state.item_motion_generation + 1
+
+              next = %{
+                state
+                | items: items,
+                  item_motion_generation: generation,
+                  item_saved_generation:
+                    if(state.item_storage_enabled,
+                      do: state.item_saved_generation,
+                      else: generation
+                    )
+              }
+
+              {:reply, {:ok, handles}, schedule_item_checkpoint(next)}
+            end
+
+          error ->
+            {:reply, error, state}
+        end
+    end
   end
 
   def handle_call({:item_transfer, epoch, transfer}, from, state) do
@@ -425,9 +476,35 @@ defmodule Valimc.World.RegionData do
       when kind in [:mining, :placement],
       do: {:reply, {:error, :mining_storage_busy}, state}
 
+  def handle_call(:flush, _from, %{item_pending: pending} = state) when pending != nil,
+    do: {:reply, {:error, :item_storage_busy}, state}
+
   def handle_call(:flush, _from, state) do
-    result = Store.flush(state.store, state.store_lease, state.edits)
-    {:reply, result, %{state | dirty: result != :ok}}
+    with :ok <- flush_item_motion(state) do
+      result = Store.flush(state.store, state.store_lease, state.edits)
+
+      {:reply, result,
+       %{state | dirty: result != :ok, item_saved_generation: state.item_motion_generation}}
+    else
+      error -> {:reply, error, state}
+    end
+  end
+
+  defp flush_item_motion(state) do
+    if state.item_saved_generation < state.item_motion_generation,
+      do: Store.flush_items(state.store, state.store_lease, state.items, state.item_receipts),
+      else: :ok
+  end
+
+  defp schedule_item_checkpoint(state) do
+    if state.item_saved_generation < state.item_motion_generation and state.item_checkpoint == nil and
+         state.item_checkpoint_timer == nil do
+      token = make_ref()
+      timer = send_after(state, {:item_checkpoint, token}, 1000)
+      %{state | item_checkpoint_timer: %{token: token, timer: timer}}
+    else
+      state
+    end
   end
 
   defp item_request(epoch, from, state, work) do
@@ -826,7 +903,15 @@ defmodule Valimc.World.RegionData do
     next = publish_blocks(state, batch, pending.proposal, false)
     :ets.insert(state.item_publication, {:items, pending.items.views})
     GenServer.reply(pending.from, {:ok, :applied})
-    {:noreply, %{next | items: pending.items, item_receipts: pending.receipts, item_pending: nil}}
+
+    {:noreply,
+     %{
+       next
+       | items: pending.items,
+         item_receipts: pending.receipts,
+         item_pending: nil,
+         item_saved_generation: state.item_motion_generation
+     }}
   end
 
   def handle_info(
@@ -844,6 +929,70 @@ defmodule Valimc.World.RegionData do
 
   def handle_info({:mining_saved, _, _, _}, state), do: {:noreply, state}
 
+  def handle_info({:item_checkpoint, token}, %{item_checkpoint_timer: %{token: token}} = state) do
+    state = %{state | item_checkpoint_timer: nil}
+
+    cond do
+      state.item_saved_generation == state.item_motion_generation ->
+        {:noreply, state}
+
+      state.item_pending != nil ->
+        {:noreply, schedule_item_checkpoint(state)}
+
+      state.item_checkpoint != nil ->
+        {:noreply, state}
+
+      true ->
+        token = make_ref()
+
+        Store.commit_items(
+          state.store,
+          state.store_lease,
+          state.items,
+          state.item_receipts,
+          {self(), state.items.epoch},
+          token
+        )
+
+        checkpoint = %{
+          token: token,
+          generation: state.item_motion_generation,
+          timer: send_after(state, {:item_checkpoint_deadline, token}, 5000)
+        }
+
+        {:noreply, %{state | item_checkpoint: checkpoint}}
+    end
+  end
+
+  def handle_info({:item_checkpoint, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:items_saved, writer, token, :ok},
+        %{store: writer, item_checkpoint: %{token: token} = checkpoint} = state
+      ) do
+    Process.cancel_timer(checkpoint.timer)
+    saved = max(state.item_saved_generation, checkpoint.generation)
+
+    {:noreply,
+     schedule_item_checkpoint(%{state | item_checkpoint: nil, item_saved_generation: saved})}
+  end
+
+  def handle_info(
+        {:items_saved, writer, token, {:error, reason}},
+        %{store: writer, item_checkpoint: %{token: token} = checkpoint} = state
+      ) do
+    Process.cancel_timer(checkpoint.timer)
+    {:stop, {:item_checkpoint_failed, reason}, %{state | item_checkpoint: nil}}
+  end
+
+  def handle_info(
+        {:item_checkpoint_deadline, token},
+        %{item_checkpoint: %{token: token}} = state
+      ),
+      do: {:stop, :item_checkpoint_timeout, state}
+
+  def handle_info({:item_checkpoint_deadline, _}, state), do: {:noreply, state}
+
   def handle_info(
         {:items_saved, writer, token, :ok},
         %{store: writer, item_pending: %{phase: :writing, token: token} = pending} = state
@@ -854,7 +1003,13 @@ defmodule Valimc.World.RegionData do
     GenServer.reply(pending.from, pending.reply)
 
     {:noreply,
-     %{state | items: pending.items, item_receipts: pending.receipts, item_pending: nil}}
+     %{
+       state
+       | items: pending.items,
+         item_receipts: pending.receipts,
+         item_pending: nil,
+         item_saved_generation: state.item_motion_generation
+     }}
   end
 
   def handle_info(
@@ -1007,6 +1162,9 @@ defmodule Valimc.World.RegionData do
   def terminate(reason, state) do
     Process.cancel_timer(state.save_timer)
 
+    if state.item_checkpoint_timer, do: Process.cancel_timer(state.item_checkpoint_timer.timer)
+    if state.item_checkpoint, do: Process.cancel_timer(state.item_checkpoint.timer)
+
     if state.item_pending do
       Process.cancel_timer(state.item_pending.timer)
       GenServer.reply(state.item_pending.from, {:error, :item_commit_uncertain})
@@ -1018,6 +1176,11 @@ defmodule Valimc.World.RegionData do
     for {_, job} <- state.jobs,
         job.pid != nil and Process.whereis(Valimc.ChunkWorkers) != nil,
         do: Task.Supervisor.terminate_child(Valimc.ChunkWorkers, job.pid)
+
+    # All casts and flushes originate from this owner and reach its leased writer
+    # in order. A queued critical proposal must never be followed by old items.
+    if reason in [:normal, :shutdown] and not match?(%{phase: :writing}, state.item_pending),
+      do: flush_item_motion(state)
 
     if reason in [:normal, :shutdown] and state.dirty do
       # A queued atomic write must never be followed by the old pre-commit snapshot.

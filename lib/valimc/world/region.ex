@@ -130,6 +130,15 @@ defmodule Valimc.World.Region do
         6000
       )
 
+  @doc "Trusted accepted ordinary motion; coalesced persistence may roll back motion after a crash."
+  def publish_item_motion({pid, epoch}, steps),
+    do:
+      GenServer.call(
+        pid,
+        {:publish_item_motion, epoch, steps, System.monotonic_time(:millisecond) + 250},
+        2000
+      )
+
   def find_item({pid, epoch}, uuid), do: GenServer.call(pid, {:find_item, epoch, uuid})
 
   # Internal inbox only; source persistence/lease fencing must precede gameplay use.

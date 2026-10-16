@@ -99,4 +99,40 @@ defmodule Valimc.ItemConnectionTest do
     {_, <<6.5::float-64, 64.5::float-64, 4.5::float-64, _::binary>>} = Wire.take_varint(body)
     _late = assert_stack(late, id, stack)
   end
+
+  test "ordinary motion reaches the TCP observer while its region writer is suspended" do
+    {_, client} = Client.login(name())
+    on_exit(fn -> Client.close(client) end)
+    client = Client.load_world(client)
+    {:ok, {pid, epoch} = owner} = World.item_owner({0, 0})
+
+    {:ok, {^pid, ^epoch, id, 1}} =
+      Region.create_item(owner, ItemStack.new("egg", 3), {4.5, 64.5, 4.5})
+
+    on_exit(fn -> if Process.alive?(pid), do: Region.remove_item({pid, epoch, id, 2}) end)
+    {_spawn, client} = await_entity(client, "add_entity", id)
+    client = assert_stack(client, id, ItemStack.new("egg", 3))
+    writer = :sys.get_state(pid).resource.store
+    :sys.suspend(writer)
+
+    try do
+      step = %{
+        id: id,
+        revision: 1,
+        position: {5.5, 64.5, 4.5},
+        motion: %Valimc.ItemMotionState{velocity: {0.1, 0.0, 0.0}, no_gravity: true}
+      }
+
+      assert {:ok, [_]} = Region.publish_item_motion(owner, [step])
+      {body, client} = await_entity(client, "entity_position_sync", id)
+
+      assert {^id, <<0, 5.5::float-64, 64.5::float-64, 4.5::float-64, 0::64, 0>>} =
+               Wire.take_varint(body)
+
+      {_velocity, _client} = await_entity(client, "set_entity_motion", id)
+      assert {:message_queue_len, 0} = Process.info(writer, :message_queue_len)
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+    end
+  end
 end
