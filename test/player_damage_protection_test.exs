@@ -3,6 +3,33 @@ defmodule Valimc.PlayerDamageProtectionTest do
   alias Valimc.{Inventory, PlayerDamageProtection}
   alias Valimc.Protocol.ItemStack
 
+  test "contact hazards use armor and ordinary protection; campfires additionally use fire protection" do
+    gear = %{
+      ItemStack.new("diamond_boots")
+      | components: %{
+          "minecraft:enchantments" => %{
+            "minecraft:protection" => 1,
+            "minecraft:fire_protection" => 2,
+            "minecraft:feather_falling" => 255
+          }
+        }
+    }
+
+    inventory = %Inventory{slots: %{8 => gear}}
+    assert PlayerDamageProtection.points(inventory, :campfire) == 5
+
+    for source <- [:campfire, :cactus, :sweet_berry_bush] do
+      assert PlayerDamageProtection.wears_armor?(source)
+      assert PlayerDamageProtection.exhaustion(source) == 0.10000000149011612
+      assert {:ok, damage} = PlayerDamageProtection.damage(inventory, source, 1)
+      assert damage < 1
+    end
+
+    for source <- [:cactus, :sweet_berry_bush] do
+      assert PlayerDamageProtection.points(inventory, source) == 1
+    end
+  end
+
   test "native worn slot rules include patched armor and exclude carried/stored/hand enchantments" do
     stack = %{
       ItemStack.new("iron_boots")

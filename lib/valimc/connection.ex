@@ -1550,7 +1550,7 @@ defmodule Valimc.Connection do
         {:ok, inventory, broken} =
           if source in [:in_fire, :on_fire, :lava, :hot_floor],
             do:
-              Valimc.ArmorDurability.fire(
+              Valimc.ArmorDurability.damage(
                 state.inventory,
                 source,
                 selected.damage,

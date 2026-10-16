@@ -100,7 +100,7 @@ public class ArmorWearOracle {
     var tagFacts=JsonParser.parseString(Files.readString(Path.of("priv/protocol/tags.json"))).getAsJsonObject().getAsJsonObject("minecraft:damage_type");
     var names=JsonParser.parseString(Files.readString(Path.of("priv/protocol/registries.json"))).getAsJsonObject().getAsJsonArray("minecraft:damage_type");
     var sources=new LinkedHashMap<String,DamageSource>();
-    for(var type:List.of(DamageTypes.IN_FIRE,DamageTypes.ON_FIRE,DamageTypes.LAVA,DamageTypes.HOT_FLOOR)){
+    for(var type:List.of(DamageTypes.IN_FIRE,DamageTypes.ON_FIRE,DamageTypes.LAVA,DamageTypes.HOT_FLOOR,DamageTypes.CAMPFIRE,DamageTypes.CACTUS,DamageTypes.SWEET_BERRY_BUSH)){
       var holder=lookup.lookupOrThrow(Registries.DAMAGE_TYPE).getOrThrow(type);int id=-1;
       for(int i=0;i<names.size();i++)if(names.get(i).getAsString().equals(type.identifier().toString()))id=i;
       var keys=new ArrayList<TagKey<DamageType>>();for(var e:tagFacts.entrySet())for(var value:e.getValue().getAsJsonArray())if(value.getAsInt()==id)keys.add(TagKey.create(Registries.DAMAGE_TYPE,Identifier.parse(e.getKey())));
@@ -112,7 +112,7 @@ public class ArmorWearOracle {
       var stock=new ItemStack(item);var equippable=stock.get(DataComponents.EQUIPPABLE);
       if(equippable!=null&&equippable.damageOnHurt())hurt.add(BuiltInRegistries.ITEM.getId(item));
       boolean immune=!stock.canBeHurtBy(sources.get("lava"));
-      for(var source:sources.values())if(immune==stock.canBeHurtBy(source))throw new AssertionError("Source-specific resistance needs separate facts");
+      for(var source:sources.values())if((immune&&source.is(DamageTypeTags.IS_FIRE))==stock.canBeHurtBy(source))throw new AssertionError("Source-specific resistance needs separate facts");
       if(immune)resistant.add(BuiltInRegistries.ITEM.getId(item));if(item.builtInRegistryHolder().is(armor))armorTag.add(BuiltInRegistries.ITEM.getId(item));
       if(item==Items.AIR)continue;
       for(var source:sources.entrySet())for(int slot=0;slot<4;slot++)for(String removed:List.of("","minecraft:equippable","minecraft:damage","minecraft:max_damage","minecraft:damage_resistant")){
@@ -147,6 +147,6 @@ public class ArmorWearOracle {
     for(int i=0;i<SLOTS.length;i++)events.addProperty(Integer.toString(MENU[i]),(byte)event.invoke(null,SLOTS[i]));facts.add("break_events",events);
     var exhaustion=new JsonObject();for(var source:sources.entrySet())exhaustion.addProperty(source.getKey(),(double)source.getValue().getFoodExhaustion());facts.add("exhaustion",exhaustion);
     Files.writeString(Path.of(args[0]),new GsonBuilder().setPrettyPrinting().create().toJson(facts)+"\n");Files.writeString(Path.of(args[1]),new Gson().toJson(rows));
-    System.out.println("PASS: "+rows.size()+" native Player.hurtArmor/ItemStack wear cases; all stock items, four armor positions/fire sources, removals, Unbreaking thresholds, break payloads and signed-int durability. Health and attribute refresh excluded.");
+    System.out.println("PASS: "+rows.size()+" native Player.hurtArmor/ItemStack wear cases; all stock items, four armor positions, seven fire/contact sources, removals, Unbreaking thresholds, break payloads and signed-int durability. Health and attribute refresh excluded.");
   }
 }

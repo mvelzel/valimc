@@ -15,7 +15,7 @@ end
 
 for {source, exhaustion} <- facts["exhaustion"] do
   unless Valimc.PlayerDamageProtection.exhaustion(String.to_existing_atom(source)) == exhaustion,
-    do: raise("Native fire exhaustion differs")
+    do: raise("Native environmental damage exhaustion differs")
 end
 
 cases = cases_path |> File.read!() |> JSON.decode!()
@@ -60,7 +60,7 @@ for c <- cases do
   end
 
   {:ok, inventory, broken} =
-    ArmorDurability.fire(
+    ArmorDurability.damage(
       %Inventory{slots: %{c["slot"] => stack}},
       String.to_existing_atom(c["source"]),
       c["amount"],
@@ -102,5 +102,5 @@ for c <- cases do
 end
 
 IO.puts(
-  "PASS: #{length(cases)} native armor fire-wear cases, exact draws, break payloads and pinned facts."
+  "PASS: #{length(cases)} native environmental armor-wear cases, exact draws, break payloads and pinned facts."
 )

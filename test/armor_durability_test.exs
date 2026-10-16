@@ -3,32 +3,54 @@ defmodule Valimc.ArmorDurabilityTest do
   alias Valimc.{ArmorDurability, Inventory}
   alias Valimc.Protocol.ItemStack
 
+  test "netherite resists campfire wear but cactus and berry damage still wear it" do
+    boots = ItemStack.new("netherite_boots")
+    inventory = %Inventory{slots: %{8 => boots}}
+    no_draw = fn -> flunk("Unenchanted gear must not draw") end
+    assert {:ok, ^inventory, []} = ArmorDurability.damage(inventory, :campfire, 2, false, no_draw)
+
+    for source <- [:cactus, :sweet_berry_bush] do
+      assert {:ok, worn, []} = ArmorDurability.damage(inventory, source, 1, false, no_draw)
+      assert worn.slots[8].components["minecraft:damage"] == 1
+    end
+
+    iron = %Inventory{slots: %{8 => ItemStack.new("iron_boots")}}
+    assert {:ok, worn, []} = ArmorDurability.damage(iron, :campfire, 2, false, no_draw)
+    assert worn.slots[8].components["minecraft:damage"] == 1
+  end
+
   test "source, permission, component and netherite resistance gates preserve inventory without RNG" do
     helmet = ItemStack.new("iron_helmet")
     inventory = %Inventory{slots: %{5 => helmet, 36 => helmet}, carried: helmet}
     no_draw = fn -> flunk("Unexpected armor RNG") end
-    assert {:ok, ^inventory, []} = ArmorDurability.fire(inventory, :on_fire, 1, false, no_draw)
-    assert {:ok, ^inventory, []} = ArmorDurability.fire(inventory, :lava, 4, true, no_draw)
-    assert {:ok, ^inventory, []} = ArmorDurability.fire(inventory, :lava, 0, false, no_draw)
-    assert {:ok, worn, []} = ArmorDurability.fire(inventory, :lava, 4, false, no_draw)
+    assert {:ok, ^inventory, []} = ArmorDurability.damage(inventory, :on_fire, 1, false, no_draw)
+    assert {:ok, ^inventory, []} = ArmorDurability.damage(inventory, :lava, 4, true, no_draw)
+    assert {:ok, ^inventory, []} = ArmorDurability.damage(inventory, :lava, 0, false, no_draw)
+    assert {:ok, worn, []} = ArmorDurability.damage(inventory, :lava, 4, false, no_draw)
     assert worn.slots[5].components["minecraft:damage"] == 1
     assert worn.slots[36] == helmet and worn.carried == helmet
 
     for removed <- ["minecraft:equippable", "minecraft:damage", "minecraft:max_damage"] do
       inventory = %Inventory{slots: %{5 => %{helmet | removed: MapSet.new([removed])}}}
-      assert {:ok, ^inventory, []} = ArmorDurability.fire(inventory, :lava, 4, false, no_draw)
+      assert {:ok, ^inventory, []} = ArmorDurability.damage(inventory, :lava, 4, false, no_draw)
     end
 
     boots = ItemStack.new("netherite_boots")
     inventory = %Inventory{slots: %{8 => boots}}
-    assert {:ok, ^inventory, []} = ArmorDurability.fire(inventory, :lava, 4, false, no_draw)
+    assert {:ok, ^inventory, []} = ArmorDurability.damage(inventory, :lava, 4, false, no_draw)
     vulnerable = %{boots | removed: MapSet.new(["minecraft:damage_resistant"])}
 
     assert {:ok, worn, []} =
-             ArmorDurability.fire(%Inventory{slots: %{8 => vulnerable}}, :lava, 4, false, no_draw)
+             ArmorDurability.damage(
+               %Inventory{slots: %{8 => vulnerable}},
+               :lava,
+               4,
+               false,
+               no_draw
+             )
 
     assert worn.slots[8].components["minecraft:damage"] == 1
-    assert {:error, :invalid_armor_wear} = ArmorDurability.fire(inventory, :lava, 5, false)
+    assert {:error, :invalid_armor_wear} = ArmorDurability.damage(inventory, :lava, 5, false)
   end
 
   test "armor Unbreaking uses its native threshold; breaks carry the worn stack and retain other slots" do
@@ -50,7 +72,7 @@ defmodule Valimc.ArmorDurabilityTest do
       value
     end
 
-    assert {:ok, worn, [{5, broken}]} = ArmorDurability.fire(inventory, :lava, 4, false, random)
+    assert {:ok, worn, [{5, broken}]} = ArmorDurability.damage(inventory, :lava, 4, false, random)
     assert broken.components["minecraft:damage"] == 165
     assert worn.slots == %{8 => helmet} and Process.get(:draws) == []
 
@@ -63,7 +85,7 @@ defmodule Valimc.ArmorDurabilityTest do
     }
 
     assert {:ok, worn, []} =
-             ArmorDurability.fire(%Inventory{slots: %{5 => huge}}, :in_fire, 1, false)
+             ArmorDurability.damage(%Inventory{slots: %{5 => huge}}, :in_fire, 1, false)
 
     assert worn.slots[5].components["minecraft:damage"] == 0
   end

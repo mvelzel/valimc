@@ -4,8 +4,8 @@ defmodule Valimc.PlayerDamageProtection do
   alias Valimc.Physics.ArmorDamage
   alias Valimc.Protocol.ItemStack
   @float_max 3.4028234663852886e38
-  @fire [:in_fire, :on_fire, :lava, :hot_floor]
-  @armored [:in_fire, :lava, :hot_floor]
+  @fire [:in_fire, :on_fire, :lava, :hot_floor, :campfire]
+  @armored [:in_fire, :lava, :hot_floor, :campfire, :cactus, :sweet_berry_bush]
   @fire_facts_path Path.expand("../../priv/protocol/item_armor_wear.json", __DIR__)
   @external_resource @fire_facts_path
   @exhaustion :json.decode(File.read!(@fire_facts_path))["exhaustion"]
@@ -16,7 +16,8 @@ defmodule Valimc.PlayerDamageProtection do
   def points(%Inventory{}, :out_of_world), do: 0
 
   def points(%Inventory{slots: slots}, source)
-      when source in [:fall, :stalagmite, :freeze, :drown, :starve] or source in @fire do
+      when source in [:fall, :stalagmite, :freeze, :drown, :starve, :cactus, :sweet_berry_bush] or
+             source in @fire do
     # Every pinned item has empty default enchantments. Native slot matching
     # applies both fall effects to all four player armor slots, including patched gear.
     feather = if source in [:fall, :stalagmite], do: 3, else: 0
@@ -43,7 +44,16 @@ defmodule Valimc.PlayerDamageProtection do
       do: {:ok, f32(amount)}
 
   def damage(%Inventory{} = inventory, source, amount)
-      when (source in [:fall, :stalagmite, :freeze, :drown, :out_of_world] or source in @fire) and
+      when (source in [
+              :fall,
+              :stalagmite,
+              :freeze,
+              :drown,
+              :out_of_world,
+              :cactus,
+              :sweet_berry_bush
+            ] or
+              source in @fire) and
              is_number(amount) and
              amount >= 0 and
              amount <= @float_max do

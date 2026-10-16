@@ -1,5 +1,5 @@
 defmodule Valimc.ArmorDurability do
-  @moduledoc "Bounded player-owned wear for admitted fire damage (at most four raw damage)."
+  @moduledoc "Bounded player-owned armor wear for admitted environmental hits (at most four raw damage)."
   alias Valimc.{Inventory, PlayerDamageProtection}
   alias Valimc.Protocol.{ItemStack, ItemTypes}
   @path Path.expand("../../priv/protocol/item_armor_wear.json", __DIR__)
@@ -10,13 +10,14 @@ defmodule Valimc.ArmorDurability do
   @armor MapSet.new(@facts["armor_tag"])
   @armor_chance List.to_tuple(@facts["unbreaking"]["armor"])
   @other_chance List.to_tuple(@facts["unbreaking"]["other"])
+  @fire [:in_fire, :on_fire, :lava, :hot_floor, :campfire]
 
   def break_event(slot) when slot in 5..8, do: @facts["break_events"][Integer.to_string(slot)]
 
-  def fire(inventory, source, amount, infinite, random \\ &next_float/0)
+  def damage(inventory, source, amount, infinite, random \\ &next_float/0)
 
-  def fire(%Inventory{} = inventory, source, amount, infinite, random)
-      when source in [:in_fire, :on_fire, :lava, :hot_floor] and is_number(amount) and
+  def damage(%Inventory{} = inventory, source, amount, infinite, random)
+      when (source in @fire or source in [:cactus, :sweet_berry_bush]) and is_number(amount) and
              amount >= 0 and amount <= 4 and is_boolean(infinite) and is_function(random, 0) do
     <<amount::float-32>> = <<amount::float-32>>
 
@@ -27,7 +28,7 @@ defmodule Valimc.ArmorDurability do
         Enum.reduce([8, 7, 6, 5], {inventory, []}, fn slot, {inventory, broken} ->
           stack = Inventory.get(inventory, slot)
 
-          case wear(stack, random) do
+          case wear(stack, source, random) do
             {^stack, nil} ->
               {inventory, broken}
 
@@ -46,11 +47,11 @@ defmodule Valimc.ArmorDurability do
     end
   end
 
-  def fire(_, _, _, _, _), do: {:error, :invalid_armor_wear}
+  def damage(_, _, _, _, _), do: {:error, :invalid_armor_wear}
 
-  defp wear(nil, _random), do: {nil, nil}
+  defp wear(nil, _source, _random), do: {nil, nil}
 
-  defp wear(%ItemStack{} = stack, random) do
+  defp wear(%ItemStack{} = stack, source, random) do
     maximum =
       component(stack, "minecraft:max_damage", ItemTypes.item(stack.item_id)["max_damage"])
 
@@ -62,7 +63,7 @@ defmodule Valimc.ArmorDurability do
     allowed =
       MapSet.member?(@hurt, stack.item_id) and
         not MapSet.member?(stack.removed, "minecraft:equippable") and
-        not (MapSet.member?(@resistant, stack.item_id) and
+        not (source in @fire and MapSet.member?(@resistant, stack.item_id) and
                not MapSet.member?(stack.removed, "minecraft:damage_resistant"))
 
     if not allowed or maximum == nil or damage == nil or
