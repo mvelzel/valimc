@@ -36,3 +36,9 @@ Unexpected food listeners and other unsupported effects still refuse whole.
 Raw `.local/nausea-{native,elixir,live-targeted}.log`. The food tester continues on
 its older immutable9246b50, where pufferfish remains an intentional negative;
 these distinct admission checkpoints must not be confused.
+
+Frozen8cceaae larger food/Nausea block passes1,386 full tests(seed recorded in raw
+log), production and actual native plaintext/AES-CFB8 TCP. Full native integration
+session98415 runs separately. Raw `.local/nausea-live-{full-tests,production,native-tcp}.log`
+and `.local/nausea-publication-proof.json`. No live release was replaced during
+older food client verification; its scoped negative remains valid at9246b50.
