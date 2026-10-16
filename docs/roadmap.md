@@ -32,7 +32,11 @@ both native TCP transports and actual falls/contact/gear/drinks/promotion/expiry
 milk/starvation exclusion/reconnect. Whole source/receipt53 retained.
 **Implementing:** [Speed/Slowness](tickets/VMC-037f.md),132,098 native attribute
 contexts and seven foundation checks pass. Live attributes/drinks/Turtle Master
-now pass63 affected checks; native TCP/production and its own client gate follow.
+now pass63 affected checks, production/both native TCP transports at `285d983`;
+its dedicated actual-client validation is running.
+Next: [instant healing/harming](tickets/VMC-037g.md),10,240 native drink requests
+and three affected checks pass. Self-attributed damage and durable fatal completion
+require live composition; no instant potion support claimed yet.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

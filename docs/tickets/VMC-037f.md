@@ -53,3 +53,10 @@ unsupported mixed-potion negative now uses Resistance+Night Vision. Initial test
 attempted the second drink while the first atomic save was pending; waiting for
 that acknowledged checkpoint fixes the fixture rather than changing admission.
 Evidence: `.local/movement-effects-live-targeted-fixed.log`.
+
+Frozen `285d983` production and both native TCP transports pass, including actual
+Mojang-decoded movement attribute initialization, sprint composition/removal.
+Evidence: `.local/movement-effects-live-{production,native-tcp}.log`. Dedicated
+actual-client validation uses this immutable956-blob release and whole retained
+source/receipt53 dataset `/tmp/valimc-movement-effects-live-client-20261016`.
+The graphical gate is pending; no observed walking-speed verdict claimed yet.
