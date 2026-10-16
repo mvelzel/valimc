@@ -23,13 +23,13 @@ import net.minecraft.world.level.material.*;
 public class FireContactOracle {
   static class World extends ServerLevel {
     DamageSources sources;RandomSource random;
-    private World(){super(null,null,null,null,null,null,false,0L,List.of(),false);}
+    protected World(){super(null,null,null,null,null,null,false,0L,List.of(),false);}
     public DamageSources damageSources(){return sources;}
     public RandomSource getRandom(){return random;}
   }
   static class Body extends ServerPlayer {
     World world;double factor;int frozen;boolean immune;List<String> damage;
-    private Body(){super(null,null,null,null);}
+    protected Body(){super(null,null,null,null);}
     public ServerLevel level(){return world;}
     public boolean fireImmune(){return immune;}
     public boolean isAlive(){return true;}

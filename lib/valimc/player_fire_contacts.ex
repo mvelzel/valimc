@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerFireContacts do
   @moduledoc "Bounded ordered fire/fluid operations from a worker's contact steps; owners apply them while alive."
   @limit 2048
-  @kinds [:fire, :soul_fire, :lava, :water]
+  @kinds [:fire, :soul_fire, :lava, :water, :powder_snow]
 
   def plan(steps) when is_list(steps) and length(steps) <= @limit do
     with {:ok, _count} <-
@@ -31,6 +31,6 @@ defmodule Valimc.PlayerFireContacts do
         else: []
       ) ++
       if(lava > 0, do: [:lava_ignite | List.duplicate(:lava_hurt, lava)], else: []) ++
-      if(:water in contacts, do: [:extinguish], else: [])
+      if(:water in contacts or :powder_snow in contacts, do: [:extinguish], else: [])
   end
 end

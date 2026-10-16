@@ -3,7 +3,6 @@ defmodule Valimc.Physics.StuckContact do
   alias Valimc.Physics.{
     BlockCollisions.Frame,
     BlockShapes,
-    BodySweep,
     Box,
     CollisionContext,
     PlayerPose,
@@ -12,7 +11,6 @@ defmodule Valimc.Physics.StuckContact do
     StuckMotion
   }
 
-  @epsilon 9.999999747378752e-6
   defstruct pose: :standing,
             feet: {0.5, 64.0, 0.5},
             flying: false,
@@ -43,14 +41,12 @@ defmodule Valimc.Physics.StuckContact do
     with {:ok, _} <- PlayerPose.geometry(facts.pose, facts.feet),
          {:ok, _, feet} <- at(frame, floor_point(facts.feet)),
          {:ok, acc} <-
-           Enum.reduce_while(
+           Valimc.Physics.BodyPaths.reduce(
              paths,
-             {:ok, %{context: context, last: nil, seen: MapSet.new(), attempts: 0}},
-             fn path, {:ok, acc} ->
-               case movement(frame, path, facts, feet, acc) do
-                 {:ok, acc} -> {:cont, {:ok, acc}}
-                 error -> {:halt, error}
-               end
+             facts.pose,
+             %{context: context, last: nil, seen: MapSet.new()},
+             fn acc, pos, step, body, delta ->
+               visit(frame, pos, step, body, delta, facts, feet, acc)
              end
            ) do
       {:ok,
@@ -59,91 +55,6 @@ defmodule Valimc.Physics.StuckContact do
          reset_fall: acc.last != nil,
          last: acc.last
        }}
-    end
-  end
-
-  defp movement(frame, path, facts, feet, acc) do
-    with {:ok, segments, destination} <- segments(path),
-         {:ok, {acc, remaining}} <-
-           Enum.reduce_while(segments, {:ok, {acc, 16}}, fn {from, to}, {:ok, {acc, budget}} ->
-             case line(frame, from, to, facts, feet, acc, budget) do
-               {:ok, acc, used} -> {:cont, {:ok, {acc, budget - used}}}
-               error -> {:halt, error}
-             end
-           end) do
-      if remaining <= 0 do
-        with {:ok, acc, _} <- line(frame, destination, destination, facts, feet, acc, 1),
-             do: {:ok, acc}
-      else
-        {:ok, acc}
-      end
-    end
-  end
-
-  defp segments(%{from: from, to: to} = path) do
-    axis = Map.get(path, :axis)
-
-    if point?(from) and point?(to) and (axis == nil or vector?(axis)) and
-         vector?(subtract(to, from)) do
-      delta = subtract(to, from)
-
-      {dx, dy, dz} = delta
-
-      if axis != nil and dx * dx + dy * dy + dz * dz > 0 do
-        order = if abs(elem(axis, 0)) < abs(elem(axis, 2)), do: [1, 2, 0], else: [1, 0, 2]
-
-        {_, segments} =
-          Enum.reduce(order, {from, []}, fn i, {current, segments} ->
-            d = elem(delta, i)
-
-            if d == 0 do
-              {current, segments}
-            else
-              next = put_elem(current, i, elem(current, i) + d)
-              {next, [{current, next} | segments]}
-            end
-          end)
-
-        {:ok, Enum.reverse(segments), to}
-      else
-        {:ok, [{from, to}], to}
-      end
-    else
-      {:error, :stuck_contact_limit}
-    end
-  end
-
-  defp segments(_), do: {:error, :invalid_stuck_path}
-
-  defp line(frame, from, to, facts, feet, acc, budget) do
-    with {:ok, before} <- PlayerPose.geometry(facts.pose, from),
-         {:ok, after_move} <- PlayerPose.geometry(facts.pose, to),
-         {:ok, sweep} <- BodySweep.plan(from, to, deflate(after_move.box)) do
-      result =
-        Enum.reduce_while(sweep.visits, {:ok, acc, 0}, fn {pos, step}, {:ok, acc, last_step} ->
-          cond do
-            step >= budget ->
-              {:halt, {:budget, acc, last_step}}
-
-            acc.attempts >= 4096 ->
-              {:halt, {:error, :stuck_contact_limit}}
-
-            true ->
-              acc = %{acc | attempts: acc.attempts + 1}
-
-              case visit(frame, pos, step, before.box, subtract(to, from), facts, feet, acc) do
-                {:ok, acc} -> {:cont, {:ok, acc, step}}
-                error -> {:halt, error}
-              end
-          end
-        end)
-
-      case result do
-        {:budget, acc, step} -> {:ok, acc, step + 1}
-        {:ok, acc, step} when sweep.complete -> {:ok, acc, step + 1}
-        {:ok, _, _} -> {:error, :stuck_contact_limit}
-        error -> error
-      end
     end
   end
 
@@ -201,16 +112,5 @@ defmodule Valimc.Physics.StuckContact do
          )
   end
 
-  defp deflate({a, b, c, d, e, f}),
-    do:
-      Box.new(
-        {a + @epsilon, b + @epsilon, c + @epsilon, d - @epsilon, e - @epsilon, f - @epsilon}
-      )
-
-  defp point?({x, y, z}), do: Enum.all?([x, y, z], &(is_number(&1) and abs(&1) <= 60_000_000))
-  defp point?(_), do: false
-  defp vector?({x, y, z}), do: Enum.all?([x, y, z], &(is_number(&1) and abs(&1) <= 64))
-  defp vector?(_), do: false
   defp floor_point({x, y, z}), do: {floor(x), floor(y), floor(z)}
-  defp subtract({x, y, z}, {a, b, c}), do: {x - a, y - b, z - c}
 end

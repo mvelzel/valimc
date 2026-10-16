@@ -31,6 +31,27 @@ Nine affected tests pass(seed313771), including work limits and overflow. Logs:
 `.local/fire-contact-{native,native-check,targeted}.log`; raw4080 rows remain ignored.
 The probe controls isAlive and excludes geometry, health and damage-induced death.
 
-Next: fresh fenced geometry and player-owner application, including death gating,
-then native/contact/connection checks and the graphical scenario. Keep this pending
+Geometry foundation: `Physics.FireContact.sample_paths` consumes the existing
+immutable frame and retained accepted paths; it emits ordered operations, not
+health mutations. Shared `BodyPaths` retains101 paths,16 steps per move with native
+destination fallback,4,096 candidate attempts and the2,048-cell frame ceiling.
+Slowing contacts reuse that traversal. Native metadata covers all35,723 states,
+512 ordinary/one soul-fire state,136 static inside-shape exceptions and contextual
+powder snow. Fluid hits use strict swept native body/surface contact, including
+waterlogged blocks and same-fluid-above heights; candidate overlap alone is not a hit.
+
+1,584 actual native path/contact scenes match counter, freeze, PRNG and ordered
+requests.1,680 slowing scenes and3,456 retained-path batches remain exact after
+extraction;4,080 callback cases remain exact.27 targeted tests pass(seed206775),
+including existing live-lava connections. Logs:
+`.local/fire-geometry-{native-final,targeted-final}.log`,
+`.local/body-paths-native-regression.log`; generated facts compare exactly with
+`priv/physics/inside_blocks.json`. Probe controls health/alive/freeze eligibility,
+advancement/debug delivery and powder-snow destruction permissions. It does not
+validate damage-induced death, freeze accumulation, melting or cauldron effects.
+Powder contact contributes fire extinction; existing freezing ownership remains
+separate. This geometry is not yet connected to player authority.
+
+Next: player-owner application, including death gating, admission/clock cadence,
+negative-fire contact wakeup and fresh defense refresh, then connection/client checks. Keep this pending
 feature local; the pure foundation above is verified and need not be repeated.

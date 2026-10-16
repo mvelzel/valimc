@@ -1,5 +1,12 @@
 alias Valimc.{PlayerBurning, PlayerFireContacts}
-[path] = System.argv()
+[path | facts] = System.argv()
+
+for native_path <- facts do
+  unless :json.decode(File.read!(native_path)) ==
+           :json.decode(File.read!("priv/physics/inside_blocks.json")),
+         do: raise("Native inside-block catalog differs")
+end
+
 rows = :json.decode(File.read!(path))
 kinds = %{"fire" => :fire, "soul_fire" => :soul_fire, "lava" => :lava, "water" => :water}
 
@@ -11,11 +18,55 @@ for row <- rows do
     row["increment"]
   end
 
-  steps =
-    for step <- String.split(row["pattern"], "|"),
-        do: Enum.map(String.split(step, ","), &Map.fetch!(kinds, &1))
+  operations =
+    if Map.has_key?(row, "pattern") do
+      steps =
+        for step <- String.split(row["pattern"], "|"),
+            do: Enum.map(String.split(step, ","), &Map.fetch!(kinds, &1))
 
-  {:ok, operations} = PlayerFireContacts.plan(steps)
+      {:ok, operations} = PlayerFireContacts.plan(steps)
+      operations
+    else
+      alias Valimc.Physics.{BlockCollisions.Frame, CollisionContext, FireContact}
+      states = Map.new(row["blocks"], fn [x, y, z, id] -> {{x, y, z}, id} end)
+
+      paths =
+        Enum.map(row["paths"], fn p ->
+          %{
+            from: List.to_tuple(p["from"]),
+            to: List.to_tuple(p["to"]),
+            axis: if(is_list(p["axis"]), do: List.to_tuple(p["axis"]))
+          }
+        end)
+
+      feet = List.to_tuple(row["feet"])
+
+      context =
+        CollisionContext.entity(elem(feet, 1))
+        |> CollisionContext.with_entity(row["fall"], false, false)
+
+      facts = %{
+        pose:
+          Map.fetch!(
+            %{"standing" => :standing, "crouching" => :crouching, "swimming" => :swimming},
+            row["pose"]
+          ),
+        feet: feet,
+        flying: false,
+        spectator: row["spectator"],
+        weaving: false
+      }
+
+      case FireContact.sample_paths(
+             %Frame{states: states, fences: %{}, entities: %{}},
+             paths,
+             context,
+             facts
+           ) do
+        {:ok, result} -> result.operations
+        error -> raise("Native geometry refused: #{inspect({row, error})}")
+      end
+    end
 
   {ticks, frozen, damage} =
     Enum.reduce(operations, {row["current"], 140, []}, fn operation, {ticks, frozen, damage} ->
