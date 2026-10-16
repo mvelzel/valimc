@@ -12,8 +12,8 @@ defmodule Valimc.World.Items do
 
   def snapshot(state), do: %{records: records(state), ledger: state.ledger}
 
-  @doc "Advance owner counters without geometry, packet encoding or changing physical view versions."
-  def age(state) do
+  @doc "Advance counters and identify expired/below-world items; removal waits for the owner's durable commit."
+  def age(state, minimum_y \\ Valimc.World.Chunk.min_y()) do
     Enum.reduce(state.entries, {state, []}, fn {id, entry}, {items, expired} ->
       motion = Map.get(entry, :motion, %ItemMotionState{no_gravity: entry.no_gravity})
       next = ItemMotionState.tick(motion)
@@ -43,7 +43,7 @@ defmodule Valimc.World.Items do
         end
 
       expired =
-        if next.age >= 6000,
+        if next.age >= 6000 or entry.entity.y < minimum_y - 64,
           do: [{items.epoch, id, items.entries[id].revision} | expired],
           else: expired
 

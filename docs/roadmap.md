@@ -40,6 +40,8 @@ bounded live admission/delivery and proof-backed recovery pass targeted checks;
 automatic discovery and measured convergence also pass targeted checks. The block
 passes1,176 full tests/production; native/graphical checks are running. A subsequent
 moving-scene fairness fix passes49 affected checks and awaits final client validation.
+[Void item disposal](tickets/VMC-035d1.md) independently matches21 native boundaries
+and passes targeted storage/recovery checks; its graphical gate remains pending.
 
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Player processes own their simulation state; bounded workers sample geometry.
