@@ -43,4 +43,18 @@ permit, item UUID/generation and exact before/remainder stacks. Pure region plan
 retain typed applied/rejected receipts with item removal/replacement; retries work
 after codec restoration, including competing players and a superseded birth.
 26 affected checks pass(seed905945), `.local/pickup-withdrawal-targeted.log`.
-No live permits, player intent codec or durable runtime composition yet.
+No live permits or durable runtime composition yet.
+
+Player intent checkpoint: v16 snapshots retain original inventory plus canonical
+withdrawal and a digest of physical slots/cursor/table/selection/material mode.
+Transient menu revisions/drag do not affect persistence. Applied receipt proof
+grants the recomputed exact amount and clears the intent together; rejection
+clears without gain. The source writer must fetch proof from the owning region,
+never trust a delivery reply alone.42 affected checks pass(seed572787),
+`.local/player-pickup-intent-targeted.log`: table wrappers, creative overflow,
+partial false callbacks, source mutations, counterfeit/stale receipts, legacy
+placement/mining/drop snapshots and no second grant. Runtime activation follows.
+
+Admission must reserve receipt capacity for new source UUIDs through terminal
+commit, including rejection; other transfer kinds must respect those reservations.
+Otherwise a filled receipt table could strand a persisted player intent.

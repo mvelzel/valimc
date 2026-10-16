@@ -6,6 +6,7 @@ defmodule Valimc.PlayerSnapshot do
     PlayerHealth,
     PlayerMiningIntent,
     PlayerPlacementIntent,
+    PlayerPickupIntent,
     PlayerStore
   }
 
@@ -222,6 +223,14 @@ defmodule Valimc.PlayerSnapshot do
 
           14
 
+        %{kind: :pickup} ->
+          check(
+            version == 12 and PlayerPickupIntent.matches_snapshot?(outbox, snapshot),
+            :invalid_pickup_snapshot
+          )
+
+          16
+
         _ ->
           version
       end
@@ -257,7 +266,8 @@ defmodule Valimc.PlayerSnapshot do
 
     {payload, table_inputs, table_bytes} =
       case payload do
-        <<"VMCPOSE", 15, header::binary-size(52), base, rest::binary>> when base in 2..14 ->
+        <<"VMCPOSE", 15, header::binary-size(52), base, rest::binary>>
+        when base in 2..14 or base == 16 ->
           {cells, body} = take_stacks(rest, 9)
           table_bytes = byte_size(rest) - byte_size(body)
           {<<"VMCPOSE", base, header::binary, body::binary>>, List.to_tuple(cells), table_bytes}
@@ -266,7 +276,7 @@ defmodule Valimc.PlayerSnapshot do
           {payload, nil, 0}
       end
 
-    case decode_payload(payload, uuid, table_bytes) do
+    case decode_payload(payload, uuid, table_bytes, table_inputs) do
       {:ok, snapshot} -> {:ok, put_in(snapshot.inventory.table_inputs, table_inputs)}
       error -> error
     end
@@ -278,7 +288,7 @@ defmodule Valimc.PlayerSnapshot do
 
   def decode(_, _), do: {:error, :invalid_player_file}
 
-  defp decode_payload(payload, uuid, table_bytes) do
+  defp decode_payload(payload, uuid, table_bytes, table_inputs) do
     case payload do
       <<"VMCPOSE", 1, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
         yaw::float-32, pitch::float-32>> ->
@@ -323,7 +333,7 @@ defmodule Valimc.PlayerSnapshot do
 
       <<"VMCPOSE", version, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
         yaw::float-32, pitch::float-32, @data_version::32, rest::binary>>
-      when version in [5, 6, 7, 8, 9, 10, 11, 12, 13, 14] ->
+      when version in [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16] ->
         {food, rest} =
           if version >= 12 do
             <<level, saturation::float-32, exhaustion::float-32, timer::16, rest::binary>> =
@@ -417,6 +427,7 @@ defmodule Valimc.PlayerSnapshot do
             decode_inventory(body, table_bytes),
             sequence,
             case version do
+              16 -> decode_pickup_outbox(uuid, sequence, outbox)
               14 -> decode_placement_outbox(uuid, sequence, outbox)
               13 -> decode_mining_outbox(uuid, sequence, outbox)
               _ -> decode_outbox(uuid, sequence, outbox)
@@ -432,6 +443,15 @@ defmodule Valimc.PlayerSnapshot do
         check(
           version != 14 or
             PlayerPlacementIntent.matches_inventory?(snapshot.outbox, snapshot.inventory),
+          :invalid_player_file
+        )
+
+        check(
+          version != 16 or
+            PlayerPickupIntent.matches_snapshot?(snapshot.outbox, %{
+              inventory: %{snapshot.inventory | table_inputs: table_inputs},
+              game_mode: mode
+            }),
           :invalid_player_file
         )
 
@@ -480,6 +500,11 @@ defmodule Valimc.PlayerSnapshot do
     bytes
   end
 
+  defp encode_outbox(uuid, sequence, %{kind: :pickup} = intent) do
+    {:ok, bytes} = PlayerPickupIntent.encode(uuid, sequence, intent)
+    bytes
+  end
+
   defp encode_outbox(_uuid, _sequence, %{kind: _}),
     do: throw({:snapshot_error, :invalid_transfer_kind})
 
@@ -498,6 +523,11 @@ defmodule Valimc.PlayerSnapshot do
 
   defp decode_placement_outbox(uuid, sequence, bytes) do
     {:ok, intent} = PlayerPlacementIntent.decode(uuid, sequence, bytes)
+    intent
+  end
+
+  defp decode_pickup_outbox(uuid, sequence, bytes) do
+    {:ok, intent} = PlayerPickupIntent.decode(uuid, sequence, bytes)
     intent
   end
 
