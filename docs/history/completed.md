@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-033f4](../tickets/VMC-033f4.md) | `8fe1adf`: live owned table menus,947 full tests/full native TCP/production and actual recipes/refusals/removal/relocation/disconnect/two-batch overflow/reconnect; ordinary VMC-033f scope complete |
 | [VMC-033f3](../tickets/VMC-033f3.md) | `738852b`: table placement/mining,49 affected/native checks, production and actual both-mode/both-hand consumption, isolated wear/drop, refusal and reconnect |
 | [VMC-004b2e](../tickets/VMC-004b2e.md) | `c8a8a13`: teleport-confirmed chunk readiness,32 affected checks, three fresh actual joins,933 full tests/full native TCP/production |
 | [VMC-033f2](../tickets/VMC-033f2.md) | `6ec31a9`:46-slot click plans,11,990 native traces/2,398 packet decodes,134 affected checks and actual player baseline; readiness gate closed by `c8a8a13` |

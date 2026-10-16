@@ -1,6 +1,6 @@
 # VMC-033f — Owned crafting-table menu
 
-Status: Native menu/storage contracts in progress. October 16, 2026.
+Status: Done within ordinary table-menu scope. October 16, 2026; `8fe1adf`.
 Parent: VMC-033; uses VMC-033e.
 
 Acceptance: place/use a crafting table, open its unmodified-client3×3 menu and
@@ -36,3 +36,9 @@ are not displayed. Native menu type12; open packet round-trip with container17
 and `container.crafting` title consumed all bytes. Private original probe/facts:
 `.local/TableMenuLayout.java`, `.local/table-menu-layout.{json,log}`. It suppresses
 recipe callbacks for layout inspection, so claims no reach/close/click behavior.
+
+All four child slices are validated: owned inputs/cleanup, click plans, table
+blocks and live menu ownership. VMC-033f4 records947 full tests, full native TCP/
+production and five focused actual-client scenarios, including two-batch overflow
+and fresh reconnect. Bulk Ctrl-Q, remainder/component recipes and recipe-book
+synchronization remain separate tickets.
