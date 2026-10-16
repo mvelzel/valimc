@@ -104,6 +104,14 @@ defmodule Valimc.World.RegionData do
   def handle_call({:remove_item, epoch, id, revision}, from, state),
     do: item_request(epoch, from, state, fn -> Items.remove(state.items, epoch, id, revision) end)
 
+  def handle_call({:advance_items, epoch, steps, deadline}, from, state) do
+    item_request(epoch, from, state, fn ->
+      if is_integer(deadline) and System.monotonic_time(:millisecond) < deadline,
+        do: Items.advance(state.items, state.key, epoch, steps),
+        else: {:error, :expired_item_step}
+    end)
+  end
+
   def handle_call({:item_transfer, epoch, transfer}, from, state) do
     cond do
       epoch != state.items.epoch ->
@@ -439,6 +447,15 @@ defmodule Valimc.World.RegionData do
   end
 
   defp item_result({:ok, items}, from, state), do: commit_items(items, :ok, from, state)
+
+  defp item_result({:ok, items, handles}, from, state) when is_list(handles) do
+    handles = Enum.map(handles, fn {epoch, id, revision} -> {self(), epoch, id, revision} end)
+
+    if items == state.items,
+      do: {:reply, {:ok, handles}, state},
+      else: commit_items(items, {:ok, handles}, from, state)
+  end
+
   defp item_result({:error, _} = error, _from, state), do: {:reply, error, state}
 
   defp commit_items(items, reply, from, state),

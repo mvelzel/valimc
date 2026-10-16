@@ -1,5 +1,5 @@
 defmodule Valimc.World.ItemReplication do
-  @moduledoc "Bounded observer-local reconciliation of stationary item publications."
+  @moduledoc "Bounded observer-local item updates; position and metadata revisions are independent."
   alias Valimc.Protocol.EntityPackets
   alias Valimc.World.Items
   defstruct tracked: %{}, cursor: 0
@@ -28,13 +28,24 @@ defmodule Valimc.World.ItemReplication do
       Enum.reduce_while(later ++ earlier, {retained, state.cursor, [], bytes, 0}, fn id, acc ->
         {tracked, _cursor, packets, bytes, changes} = acc
         view = desired[id]
-        version = {view.epoch, view.revision}
+        version = {view.epoch, {view.metadata_revision, view.motion_revision}}
 
         delta =
           case tracked[id] do
-            nil -> [view.spawn, view.metadata]
-            ^version -> []
-            _ -> [view.metadata]
+            nil ->
+              [view.spawn, view.metadata]
+
+            ^version ->
+              []
+
+            {_, {metadata_revision, motion_revision}} ->
+              moved =
+                if motion_revision == view.motion_revision,
+                  do: [],
+                  else: [view.position, view.motion]
+
+              moved ++
+                if(metadata_revision == view.metadata_revision, do: [], else: [view.metadata])
           end
 
         cost = Enum.reduce(delta, 0, &(Items.packet_bytes(&1) + &2))

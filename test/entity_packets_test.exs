@@ -99,6 +99,31 @@ defmodule Valimc.EntityPacketsTest do
     assert_raise ArgumentError, fn -> EntityPackets.remove(Enum.to_list(1..4097)) end
   end
 
+  test "absolute position sync uses a linear path and float rotations without embedded velocity" do
+    e = Map.put(entity(), :on_ground, true)
+    packet = EntityPackets.position(e)
+    assert elem(packet, 0) == Data.id(:play, :clientbound, "entity_position_sync")
+
+    assert {300, <<0, x::float-64, y::float-64, z::float-64, yaw::float-32, pitch::float-32, 1>>} =
+             Wire.take_varint(payload(packet))
+
+    assert {x, y, z} == {e.x, e.y, e.z}
+    assert yaw == 1.40625 and pitch == -1.40625
+
+    for override <- [
+          %{x: 30_000_000},
+          %{y: 1_000_001},
+          %{entity_id: 0},
+          %{yaw: nil},
+          %{pitch: 1.0e100},
+          %{on_ground: nil}
+        ] do
+      assert_raise ArgumentError, fn -> EntityPackets.position(Map.merge(e, override)) end
+    end
+
+    assert_raise ArgumentError, fn -> EntityPackets.position(%{}) end
+  end
+
   test "invalid helper inputs cannot encode malformed or oversized entity state" do
     for ticks <- [-1, 141, 1.0, nil] do
       assert_raise ArgumentError, fn -> EntityPackets.metadata(300, frozen_ticks: ticks) end

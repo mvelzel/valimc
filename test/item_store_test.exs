@@ -351,6 +351,50 @@ defmodule Valimc.ItemStoreTest do
              ItemRecords.decode(File.read!(path), ctx.key)
   end
 
+  test "accepted step publication waits for disk and survives owner replacement with its receipt",
+       ctx do
+    request = transfer(ctx)
+    assert {:ok, :applied} = Region.apply_item_transfer(ctx.owner, request)
+    {:ok, {_, _, id, revision}} = Region.find_item(ctx.owner, hd(request.records).uuid)
+    {x, y, z} = ctx.position
+
+    step = %{
+      id: id,
+      revision: revision,
+      position: {x + 1, y, z},
+      motion: %Valimc.ItemMotionState{velocity: {0.1, 0, 0}, pickup_delay: 39, no_gravity: true}
+    }
+
+    writer = :sys.get_state(ctx.pid).resource.store
+    before = World.item_snapshot(ctx.key)
+    :sys.suspend(writer)
+
+    try do
+      task = Task.async(fn -> Region.advance_items(ctx.owner, [step]) end)
+      wait_pending(ctx.pid)
+      assert Task.yield(task, 10) == nil
+      assert World.item_snapshot(ctx.key) == before
+      assert {:error, :item_storage_busy} = Region.advance_items(ctx.owner, [step])
+      :sys.resume(writer)
+      assert {:ok, [{_, _, ^id, 2}]} = Task.await(task)
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+    end
+
+    assert {:error, :expired_item_step} =
+             GenServer.call(
+               ctx.pid,
+               {:advance_items, elem(ctx.owner, 1), [step],
+                System.monotonic_time(:millisecond) - 1}
+             )
+
+    owner = replace_owner(ctx)
+    assert [record] = Valimc.World.Items.records(:sys.get_state(elem(owner, 0)).resource.items)
+    assert {record.x, record.y, record.z} == step.position and record.motion == step.motion
+    assert {:ok, :already_applied} = Region.apply_item_transfer(owner, request)
+    assert map_size(World.item_snapshot(ctx.key)) == 1
+  end
+
   test "scene updates and block snapshots retain the inbox receipt", ctx do
     request = transfer(ctx)
     assert {:ok, :applied} = Region.apply_item_transfer(ctx.owner, request)

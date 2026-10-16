@@ -48,6 +48,34 @@ defmodule Valimc.Protocol.EntityPackets do
     Packets.packet("set_entity_motion", [Wire.varint(id), PackedVelocity.encode(velocity)])
   end
 
+  @doc "Absolute linear-path synchronization; simulation owns the supplied accepted position."
+  def position(%{entity_id: id, x: x, y: y, z: z, on_ground: on_ground} = entity) do
+    entity_id!(id)
+
+    check(
+      coordinate?(x, 29_999_984) and coordinate?(z, 29_999_984) and
+        coordinate?(y, 1_000_000) and is_boolean(on_ground),
+      "invalid entity position"
+    )
+
+    yaw = Map.get(entity, :yaw, 0.0)
+    pitch = Map.get(entity, :pitch, 0.0)
+
+    check(
+      coordinate?(yaw, 1_000_000) and coordinate?(pitch, 1_000_000),
+      "invalid entity rotation"
+    )
+
+    Packets.packet("entity_position_sync", [
+      Wire.varint(id),
+      # 26.3 PositionPath.Type.LINEAR, followed by the final Vec3 (no velocity).
+      <<0, x::float-64, y::float-64, z::float-64, yaw::float-32, pitch::float-32,
+        if(on_ground, do: 1, else: 0)>>
+    ])
+  end
+
+  def position(_), do: raise(ArgumentError, "invalid entity position")
+
   def equipment(id, changes) do
     entity_id!(id)
     changes = bounded_list!(changes, 8, "invalid equipment batch")

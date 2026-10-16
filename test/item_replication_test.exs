@@ -18,7 +18,7 @@ defmodule Valimc.ItemReplicationTest do
     {state, packets} = ItemReplication.reconcile(ItemReplication.new(), desired)
     assert names(packets) == ["add_entity", "set_entity_data"]
     assert {^state, []} = ItemReplication.reconcile(state, desired)
-    changed = %{desired | id => %{view | revision: 2}}
+    changed = %{desired | id => %{view | revision: 2, metadata_revision: 2}}
     {state, packets} = ItemReplication.reconcile(state, changed)
     assert names(packets) == ["set_entity_data"]
     replaced = %{desired | id => %{view | epoch: make_ref()}}
@@ -41,7 +41,8 @@ defmodule Valimc.ItemReplicationTest do
       Enum.reduce(1..3, first, fn tick, state ->
         dirty =
           Map.new(desired, fn {id, view} ->
-            {id, %{view | revision: if(MapSet.member?(low_ids, id), do: tick + 1, else: 1)}}
+            revision = if MapSet.member?(low_ids, id), do: tick + 1, else: 1
+            {id, %{view | revision: revision, metadata_revision: revision}}
           end)
 
         {next, packets} = ItemReplication.reconcile(state, dirty)
@@ -53,8 +54,8 @@ defmodule Valimc.ItemReplicationTest do
 
     clean =
       Map.new(desired, fn {id, view} ->
-        {_, revision} = state.tracked[id]
-        {id, %{view | revision: revision}}
+        {_, {metadata_revision, motion_revision}} = state.tracked[id]
+        {id, %{view | metadata_revision: metadata_revision, motion_revision: motion_revision}}
       end)
 
     assert {^state, []} = ItemReplication.reconcile(state, clean)
@@ -74,8 +75,8 @@ defmodule Valimc.ItemReplicationTest do
     assert map_size(first.tracked) == 4
     assert Enum.reduce(packets, 0, &(Items.packet_bytes(&1) + &2)) <= 262_144
 
-    assert Enum.all?(first.tracked, fn {_, {epoch, revision}} ->
-             is_reference(epoch) and revision == 1
+    assert Enum.all?(first.tracked, fn {_, {epoch, revisions}} ->
+             is_reference(epoch) and revisions == {1, 1}
            end)
 
     {next, packets} = ItemReplication.reconcile(first, desired)

@@ -121,6 +121,15 @@ defmodule Valimc.World.Region do
   def remove_item({pid, epoch, id, revision}),
     do: GenServer.call(pid, {:remove_item, epoch, id, revision}, 6000)
 
+  @doc "Trusted accepted steps; caller must supply fresh geometry and retain the returned fences."
+  def advance_items({pid, epoch}, steps),
+    do:
+      GenServer.call(
+        pid,
+        {:advance_items, epoch, steps, System.monotonic_time(:millisecond) + 250},
+        6000
+      )
+
   def find_item({pid, epoch}, uuid), do: GenServer.call(pid, {:find_item, epoch, uuid})
 
   # Internal inbox only; source persistence/lease fencing must precede gameplay use.

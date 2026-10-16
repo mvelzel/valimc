@@ -66,4 +66,37 @@ defmodule Valimc.ItemConnectionTest do
     {body, _} = Client.await(client, :play, "system_chat")
     assert :binary.match(body, "schedulers") != :nomatch
   end
+
+  test "accepted item steps reach the existing observer and fresh tracking at the latest position" do
+    {_, client} = Client.login(name())
+    on_exit(fn -> Client.close(client) end)
+    client = Client.load_world(client)
+    {:ok, {pid, epoch} = owner} = World.item_owner({0, 0})
+    stack = ItemStack.new("stone", 3)
+    {:ok, {^pid, ^epoch, id, 1}} = Region.create_item(owner, stack, {4.5, 64.5, 4.5})
+    {_spawn, client} = await_entity(client, "add_entity", id)
+    client = assert_stack(client, id, stack)
+
+    step = %{
+      id: id,
+      revision: 1,
+      position: {6.5, 64.5, 4.5},
+      motion: %Valimc.ItemMotionState{velocity: {0.1, 0.0, 0.0}, no_gravity: true}
+    }
+
+    assert {:ok, [handle]} = Region.advance_items(owner, [step])
+    on_exit(fn -> if Process.alive?(pid), do: Region.remove_item(handle) end)
+    {body, client} = await_entity(client, "entity_position_sync", id)
+
+    assert {^id, <<0, 6.5::float-64, 64.5::float-64, 4.5::float-64, 0::64, 0>>} =
+             Wire.take_varint(body)
+
+    {_velocity, _client} = await_entity(client, "set_entity_motion", id)
+    {_, late} = Client.login(name())
+    on_exit(fn -> Client.close(late) end)
+    {body, late} = await_entity(late, "add_entity", id)
+    {^id, <<_uuid::128, body::binary>>} = Wire.take_varint(body)
+    {_, <<6.5::float-64, 64.5::float-64, 4.5::float-64, _::binary>>} = Wire.take_varint(body)
+    _late = assert_stack(late, id, stack)
+  end
 end

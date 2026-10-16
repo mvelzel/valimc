@@ -1,10 +1,11 @@
 defmodule Valimc.World.Items do
-  @moduledoc "Bounded stationary scene items. Only the enclosing region mutates these."
+  @moduledoc "Bounded scene items and accepted steps. Only the enclosing region mutates these."
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.{EntityPackets, ItemStack, ItemTypes, Wire}
   defstruct epoch: nil, entries: %{}, views: %{}, bytes: 0
   @max_items 256
   @max_bytes 524_288
+  @max_steps 32
 
   def new, do: %__MODULE__{epoch: make_ref()}
 
@@ -119,11 +120,17 @@ defmodule Valimc.World.Items do
 
   def replace(state, epoch, id, revision, stack) do
     with {:ok, entry} <- current(state, epoch, id, revision),
-         {:ok, metadata} <- metadata(id, stack) do
+         {:ok, metadata} <- metadata(id, stack, entry.no_gravity) do
       if stack == entry.stack do
         {:ok, state, {epoch, id, revision}}
       else
-        view = %{state.views[id] | revision: revision + 1, metadata: metadata}
+        view = %{
+          state.views[id]
+          | revision: revision + 1,
+            metadata: metadata,
+            metadata_revision: state.views[id].metadata_revision + 1
+        }
+
         bytes = state.bytes - packet_bytes(state.views[id].metadata) + packet_bytes(metadata)
 
         if bytes <= @max_bytes do
@@ -153,10 +160,108 @@ defmodule Valimc.World.Items do
          state
          | entries: Map.delete(state.entries, id),
            views: Map.delete(state.views, id),
-           bytes: state.bytes - packet_bytes(view.spawn) - packet_bytes(view.metadata)
+           bytes: state.bytes - view_bytes(view)
        }}
     end
   end
+
+  @doc "Atomic bounded steps from a trusted owner; geometry/clock admission belongs to the caller."
+  def advance(state, key, epoch, steps) when is_list(steps) do
+    steps = Enum.take(steps, @max_steps + 1)
+
+    cond do
+      epoch != state.epoch ->
+        {:error, :stale_region}
+
+      length(steps) not in 1..@max_steps or
+          length(Enum.uniq_by(steps, &Map.get(&1, :id))) != length(steps) ->
+        {:error, :invalid_item_steps}
+
+      true ->
+        Enum.reduce_while(steps, {:ok, state, []}, fn step, {:ok, items, handles} ->
+          case advance_one(items, key, step) do
+            {:ok, next, handle} -> {:cont, {:ok, next, [handle | handles]}}
+            error -> {:halt, error}
+          end
+        end)
+        |> case do
+          {:ok, items, handles} -> {:ok, items, Enum.reverse(handles)}
+          error -> error
+        end
+    end
+  rescue
+    _ -> {:error, :invalid_item_steps}
+  end
+
+  def advance(_, _, _, _), do: {:error, :invalid_item_steps}
+
+  defp advance_one(state, key, %{id: id, revision: revision, position: {x, y, z}, motion: motion}) do
+    with {:ok, entry} <- current(state, state.epoch, id, revision),
+         true <- valid_position?({x, y, z}) and ItemMotionState.valid?(motion),
+         true <- Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == key do
+      entity = Map.merge(entry.entity, %{x: x, y: y, z: z, velocity: motion.velocity})
+
+      position =
+        binary_packet(EntityPackets.position(Map.put(entity, :on_ground, motion.on_ground)))
+
+      velocity = binary_packet(EntityPackets.motion(id, motion.velocity))
+      old = state.views[id]
+
+      metadata =
+        if motion.no_gravity == entry.no_gravity do
+          old.metadata
+        else
+          {:ok, packet} = metadata(id, entry.stack, motion.no_gravity)
+          packet
+        end
+
+      if entity == entry.entity and Map.get(entry, :motion) == motion do
+        {:ok, state, {state.epoch, id, revision}}
+      else
+        view = %{
+          old
+          | revision: revision + 1,
+            chunk: Valimc.World.chunk_key(x, z),
+            spawn: binary_packet(EntityPackets.spawn_item(entity)),
+            position: position,
+            motion: velocity,
+            metadata: metadata,
+            metadata_revision:
+              old.metadata_revision + if(metadata == old.metadata, do: 0, else: 1),
+            motion_revision:
+              old.motion_revision +
+                if(position == old.position and velocity == old.motion, do: 0, else: 1)
+        }
+
+        bytes = state.bytes - view_bytes(old) + view_bytes(view)
+
+        if bytes <= @max_bytes do
+          entry =
+            %{entry | entity: entity, revision: revision + 1, no_gravity: motion.no_gravity}
+            |> Map.put(:motion, motion)
+
+          {:ok,
+           %{
+             state
+             | entries: Map.put(state.entries, id, entry),
+               views: Map.put(state.views, id, view),
+               bytes: bytes
+           }, {state.epoch, id, revision + 1}}
+        else
+          {:error, :item_byte_limit}
+        end
+      end
+    else
+      false -> {:error, :invalid_item_step}
+      error -> error
+    end
+  end
+
+  defp advance_one(_, _, _), do: {:error, :invalid_item_steps}
+
+  defp view_bytes(view),
+    do:
+      Enum.sum(Enum.map([view.spawn, view.metadata, view.position, view.motion], &packet_bytes/1))
 
   def packet_bytes({id, payload}), do: byte_size(Wire.varint(id)) + byte_size(payload)
 
@@ -183,7 +288,11 @@ defmodule Valimc.World.Items do
     entity = %{entity_id: id, uuid: uuid, x: x, y: y, z: z}
     spawn = binary_packet(EntityPackets.spawn_item(entity))
     {:ok, metadata} = metadata(id, stack)
-    bytes = state.bytes + packet_bytes(spawn) + packet_bytes(metadata)
+    position = binary_packet(EntityPackets.position(Map.put(entity, :on_ground, false)))
+    velocity = binary_packet(EntityPackets.motion(id, {0.0, 0.0, 0.0}))
+
+    bytes =
+      state.bytes + Enum.sum(Enum.map([spawn, metadata, position, velocity], &packet_bytes/1))
 
     if bytes <= @max_bytes do
       view = %{
@@ -191,12 +300,16 @@ defmodule Valimc.World.Items do
         uuid: uuid,
         epoch: state.epoch,
         revision: 1,
+        metadata_revision: 1,
+        motion_revision: 1,
         chunk: Valimc.World.chunk_key(x, z),
         spawn: spawn,
-        metadata: metadata
+        metadata: metadata,
+        position: position,
+        motion: velocity
       }
 
-      entry = %{entity: entity, stack: stack, revision: 1}
+      entry = %{entity: entity, stack: stack, revision: 1, no_gravity: true}
       entry = if motion, do: Map.put(entry, :motion, motion), else: entry
 
       next = %{
@@ -221,19 +334,21 @@ defmodule Valimc.World.Items do
     end
   end
 
-  defp metadata(id, %ItemStack{components: components, removed: %MapSet{}} = stack)
+  defp metadata(id, stack, no_gravity \\ true)
+
+  defp metadata(id, %ItemStack{components: components, removed: %MapSet{}} = stack, no_gravity)
        when is_map(components) do
     if stack.item_id == ItemTypes.id("air") do
       {:error, :empty_item}
     else
-      {:ok, binary_packet(EntityPackets.metadata(id, no_gravity: true, item_stack: stack))}
+      {:ok, binary_packet(EntityPackets.metadata(id, no_gravity: no_gravity, item_stack: stack))}
     end
   rescue
     ArgumentError -> {:error, :invalid_item}
   end
 
-  defp metadata(_, nil), do: {:error, :empty_item}
-  defp metadata(_, _), do: {:error, :invalid_item}
+  defp metadata(_, nil, _), do: {:error, :empty_item}
+  defp metadata(_, _, _), do: {:error, :invalid_item}
   defp binary_packet({id, payload}), do: {id, IO.iodata_to_binary(payload)}
 
   def valid_position?({x, y, z}),
