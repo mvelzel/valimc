@@ -15,6 +15,17 @@ defmodule Valimc.Inventory do
 
   def get(inventory, slot), do: inventory.slots[slot]
   def contents(inventory), do: Enum.map(0..45, &get(inventory, &1))
+
+  def crafting_result(inventory) do
+    case Valimc.Crafting2x2.result(Enum.map(1..4, &get(inventory, &1))) do
+      {:ok, stack} -> stack
+      :none -> nil
+    end
+  end
+
+  def display_contents(inventory),
+    do: [crafting_result(inventory) | Enum.map(1..45, &get(inventory, &1))]
+
   def advance(inventory), do: %{inventory | state_id: rem(inventory.state_id + 1, 32768)}
   def held(inventory, :main), do: get(inventory, 36 + inventory.selected)
   def held(inventory, :off), do: get(inventory, 45)
@@ -205,13 +216,18 @@ defmodule Valimc.Inventory do
     end
   end
 
+  def plan_click(inventory, :throw, 0, button) when button in -128..127 do
+    if inventory.carried == nil and crafting_result(inventory) != nil,
+      do: {:error, :unsupported_click},
+      else: with({:ok, next} <- finish(inventory), do: {:ok, next, []})
+  end
+
   def plan_click(inventory, :throw, slot, button)
       when (slot in 0..45 or slot in [-1, -999]) and button in -128..127 do
     stack = if slot >= 0 and inventory.carried == nil, do: get(inventory, slot)
 
     if stack do
-      # Vanilla treats every nonzero button as all; only button 1 repeats a
-      # replenishing crafting result. This preview keeps result slot 0 empty.
+      # Result drops need a recipe conversion plan, not ordinary conservation.
       count = if button == 0, do: 1, else: stack.count
       next = put(inventory, slot, sized(stack, stack.count - count))
       with {:ok, next} <- finish(next), do: {:ok, next, [sized(stack, count)]}
@@ -235,14 +251,53 @@ defmodule Valimc.Inventory do
 
   def click(inventory, action, slot, button), do: ordinary_click(inventory, action, slot, button)
 
-  defp ordinary_click(inventory, :pickup, slot, button) when slot in 5..45 and button in [0, 1] do
+  defp ordinary_click(inventory, :pickup, 0, button) when button in [0, 1] do
+    result = crafting_result(inventory)
+    cursor = inventory.carried
+
+    cond do
+      result == nil ->
+        finish(inventory)
+
+      specialized_click?(result) or specialized_click?(cursor) ->
+        {:error, :unsupported_click}
+
+      cursor == nil or
+          (compatible?(cursor, result) and
+             cursor.count + result.count <= ItemStack.max_stack_size(cursor)) ->
+        next =
+          Enum.reduce(1..4, inventory, fn slot, next ->
+            case get(next, slot) do
+              nil -> next
+              stack -> put(next, slot, sized(stack, stack.count - 1))
+            end
+          end)
+
+        carried = if cursor, do: sized(cursor, cursor.count + result.count), else: result
+        finish(%{next | carried: carried})
+
+      true ->
+        finish(inventory)
+    end
+  end
+
+  defp ordinary_click(_, action, 0, _) when action in [:quick_move, :swap, :clone],
+    do: {:error, :unsupported_click}
+
+  defp ordinary_click(inventory, :pickup_all, 0, button) when button in [0, 1] do
+    if crafting_result(inventory),
+      do: finish(inventory),
+      else: inventory |> collect(0, button) |> finish()
+  end
+
+  defp ordinary_click(inventory, :pickup, slot, button) when slot in 1..45 and button in [0, 1] do
     if specialized_click?(get(inventory, slot)) or specialized_click?(inventory.carried),
       do: {:error, :unsupported_click},
       else: inventory |> pickup(slot, button) |> finish()
   end
 
   defp ordinary_click(inventory, :swap, slot, button)
-       when slot in 5..45 and (button in 0..8 or button == 40) do
+       when slot in 1..45 and (button in 0..8 or button == 40) do
     target = if button == 40, do: 45, else: 36 + button
     first = get(inventory, slot)
     second = get(inventory, target)
@@ -255,7 +310,7 @@ defmodule Valimc.Inventory do
   end
 
   defp ordinary_click(inventory, :quick_move, slot, button)
-       when slot in 5..45 and button in [0, 1],
+       when slot in 1..45 and button in [0, 1],
        do: inventory |> quick_move(slot) |> finish()
 
   defp ordinary_click(inventory, :pickup_all, slot, button)
@@ -333,7 +388,7 @@ defmodule Valimc.Inventory do
   defp quick_craft(inventory, _, _, _),
     do: {:ok, inventory |> cancel_drag() |> advance()}
 
-  defp drag_target?(inventory, slot) when slot in 5..45 do
+  defp drag_target?(inventory, slot) when slot in 1..45 do
     cursor = inventory.carried
     present = get(inventory, slot)
 
@@ -349,7 +404,7 @@ defmodule Valimc.Inventory do
   def encoded_size(inventory),
     do:
       Enum.reduce(
-        contents(inventory),
+        display_contents(inventory),
         IO.iodata_length(ItemStack.encode(inventory.carried)),
         fn stack, size -> size + IO.iodata_length(ItemStack.encode(stack)) end
       )
@@ -408,7 +463,7 @@ defmodule Valimc.Inventory do
         stack == nil ->
           []
 
-        slot not in 5..8 and equipment != nil and equipment != slot and
+        slot in 9..45 and equipment != nil and equipment != slot and
             get(inventory, equipment) == nil ->
           [equipment]
 

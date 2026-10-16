@@ -51,7 +51,7 @@ defmodule Valimc.InventoryDragTest do
     bounded = click(inv, -999, 0)
     bounded = Enum.reduce(1..1000, bounded, &click(&2, &1, 1))
     assert MapSet.size(bounded.drag.slots) == 17
-    assert Enum.all?(bounded.drag.slots, &(&1 in 9..45))
+    assert Enum.all?(bounded.drag.slots, &(&1 in 1..4 or &1 in 9..45))
   end
 
   test "invalid phase sequences and interrupts leave owned items intact and clear the gesture" do

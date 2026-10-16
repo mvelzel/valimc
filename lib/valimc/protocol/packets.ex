@@ -40,7 +40,7 @@ defmodule Valimc.Protocol.Packets do
       Wire.varint(0),
       Wire.varint(inventory.state_id),
       Wire.varint(46),
-      Enum.map(Valimc.Inventory.contents(inventory), &ItemStack.encode/1),
+      Enum.map(Valimc.Inventory.display_contents(inventory), &ItemStack.encode/1),
       ItemStack.encode(inventory.carried)
     ])
   end

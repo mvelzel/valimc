@@ -59,7 +59,7 @@ defmodule Valimc.InventoryCreativeTransactionsTest do
     assert next.carried == nil and next.drag == nil
     started = click(inv, :quick_craft, -999, 8)
     bounded = Enum.reduce(1..1000, started, &click(&2, :quick_craft, &1, 9))
-    assert MapSet.size(bounded.drag.slots) == 36
+    assert MapSet.size(bounded.drag.slots) == 40
   end
 
   test "single/no targets and already full targets retain the cursor; item and equipment caps hold" do

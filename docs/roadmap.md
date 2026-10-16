@@ -150,8 +150,9 @@ indexes validated tickets. None imply full parity.
    checks. Production and actual baseline smoke passed (`6cd6800`); this
    foundation is complete. Live grid/result composition follows.
    Broader crafting and recipe-book synchronization remain open.
-   [Manual grid crafting](tickets/VMC-033b.md) is in progress: derived output,
-   atomic ingredient consumption and correct cursor/cleanup boundaries.
+   [Manual grid crafting](tickets/VMC-033b.md) passes113 affected checks and3,536
+   actual native menu contexts: derived output, atomic ingredient consumption
+   and cursor/cleanup boundaries. Actual client validation follows.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 [VMC-003c](tickets/VMC-003c.md)'s direct local test-client lifecycle is complete:
@@ -163,6 +164,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
+| [VMC-033b](tickets/VMC-033b.md) | Manual crafting, refusals, cleanup and fresh reconnect | Local checkpoint; frozen release next |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 

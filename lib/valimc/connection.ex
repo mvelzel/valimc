@@ -3318,8 +3318,24 @@ defmodule Valimc.Connection do
   defp write_creative_slot(state, slot, stack, publish \\ true) do
     case Inventory.creative(state.inventory, slot, stack) do
       {:ok, inventory} ->
-        if publish,
-          do: send_packets(state, [Packets.container_slot(inventory.state_id, slot, stack)])
+        if publish do
+          updates = [Packets.container_slot(inventory.state_id, slot, stack)]
+
+          updates =
+            if slot in 1..4,
+              do:
+                updates ++
+                  [
+                    Packets.container_slot(
+                      inventory.state_id,
+                      0,
+                      Inventory.crafting_result(inventory)
+                    )
+                  ],
+              else: updates
+
+          send_packets(state, updates)
+        end
 
         %{state | inventory: inventory}
 

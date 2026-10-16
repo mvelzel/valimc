@@ -13,6 +13,125 @@ import net.minecraft.server.packs.resources.*;
 import net.minecraft.world.item.*;
 import net.minecraft.world.item.crafting.*;
 public class PlayerCraftingOracle {
+  // Actual menu/ResultSlot behavior, with world construction, networking and stats controlled.
+  static class MenuWorld extends net.minecraft.server.level.ServerLevel {
+    RecipeManager recipes;
+    private MenuWorld() { super(null,null,null,null,null,null,false,0L,List.of(),false); }
+    public RecipeManager recipeAccess() { return recipes; }
+    public net.minecraft.world.flag.FeatureFlagSet enabledFeatures() { return net.minecraft.world.flag.FeatureFlags.DEFAULT_FLAGS; }
+  }
+  static class MenuPlayer extends net.minecraft.world.entity.player.Player {
+    MenuWorld world;
+    private MenuPlayer() { super(null,null); }
+    public MenuWorld level() { return world; }
+    public net.minecraft.world.level.GameType gameMode() {
+      return getAbilities().instabuild ? net.minecraft.world.level.GameType.CREATIVE : net.minecraft.world.level.GameType.SURVIVAL;
+    }
+    public void awardStat(net.minecraft.stats.Stat<?> stat,int amount) {}
+  }
+  static class Menu extends net.minecraft.world.inventory.InventoryMenu {
+    RecipeManager recipes;
+    MenuWorld world;
+    Menu(net.minecraft.world.entity.player.Inventory inventory,MenuPlayer player) {
+      super(inventory,false,player);
+      recipes=player.world.recipes;
+      world=player.world;
+    }
+    public void slotsChanged(net.minecraft.world.Container container) {
+      if(recipes==null)return;
+      var input=getCraftSlots().asPositionedCraftInput().input();
+      var recipe=recipes.getRecipeFor(RecipeType.CRAFTING,input,world);
+      resultSlots.setItem(0,recipe.map(r->r.value().assemble(input)).orElse(ItemStack.EMPTY));
+    }
+  }
+  static JsonElement stack(ItemStack stack) {
+    if(stack.isEmpty())return JsonNull.INSTANCE;
+    var row=new JsonArray();
+    row.add(BuiltInRegistries.ITEM.getId(stack.getItem()));
+    row.add(stack.getCount());
+    var glint=stack.get(net.minecraft.core.component.DataComponents.ENCHANTMENT_GLINT_OVERRIDE);
+    if(glint==null)row.add(JsonNull.INSTANCE);else row.add(glint);
+    return row;
+  }
+  static ItemStack stack(String name,int count) {
+    return name.isEmpty()?ItemStack.EMPTY:new ItemStack(BuiltInRegistries.ITEM.getValue(Identifier.parse("minecraft:"+name)),count);
+  }
+  static void observeMenu(RecipeManager recipes,JsonArray cases,boolean creative,Map<Integer,ItemStack> slots,ItemStack cursor,int[][] actions)throws Exception {
+    var field=sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+    field.setAccessible(true);
+    var unsafe=(sun.misc.Unsafe)field.get(null);
+    var world=(MenuWorld)unsafe.allocateInstance(MenuWorld.class);
+    world.recipes=recipes;
+    var player=(MenuPlayer)unsafe.allocateInstance(MenuPlayer.class);
+    player.world=world;
+    var abilities=new net.minecraft.world.entity.player.Abilities();
+    abilities.instabuild=creative;
+    field=net.minecraft.world.entity.player.Player.class.getDeclaredField("abilities");
+    field.setAccessible(true);
+    field.set(player,abilities);
+    var inventory=new net.minecraft.world.entity.player.Inventory(player,new net.minecraft.world.entity.EntityEquipment());
+    field=net.minecraft.world.entity.player.Player.class.getDeclaredField("inventory");
+    field.setAccessible(true);
+    field.set(player,inventory);
+    var menu=new Menu(inventory,player);
+    var before=new JsonArray();
+    for(int slot=0;slot<46;slot++) {
+      var value=slots.getOrDefault(slot,ItemStack.EMPTY);
+      before.add(stack(value));
+      if(slot!=0)menu.getSlot(slot).set(value.copy());
+    }
+    menu.setCarried(cursor.copy());
+    var actionRows=new JsonArray();
+    for(var action:actions) {
+      var type=net.minecraft.world.inventory.ContainerInput.values()[action[0]];
+      menu.clicked(action[1],action[2],type,player);
+      actionRows.add(new Gson().toJsonTree(action));
+    }
+    var after=new JsonArray();
+    for(int slot=0;slot<46;slot++)after.add(stack(menu.getSlot(slot).getItem()));
+    var row=new JsonArray();
+    row.add(creative);
+    row.add(before);
+    row.add(stack(cursor));
+    row.add(actionRows);
+    row.add(after);
+    row.add(stack(menu.getCarried()));
+    cases.add(row);
+  }
+  static void menus(RecipeManager manager,String path)throws Exception {
+    var cases=new JsonArray();
+    String[][] grids={
+      {"oak_log","","",""},{"","","","oak_log"},{"bamboo","","",""},
+      {"","oak_planks","","spruce_planks"},{"oak_planks","spruce_planks","birch_planks","jungle_planks"},
+      {"iron_ingot","","","iron_ingot"},{"flint","iron_ingot","",""},{"bedrock","","",""}
+    };
+    String[] outputs={"oak_planks","oak_planks","bamboo_planks","stick","crafting_table","shears","flint_and_steel","stone"};
+    int pickup=net.minecraft.world.inventory.ContainerInput.PICKUP.ordinal();
+    int collect=net.minecraft.world.inventory.ContainerInput.PICKUP_ALL.ordinal();
+    int move=net.minecraft.world.inventory.ContainerInput.QUICK_MOVE.ordinal();
+    int swap=net.minecraft.world.inventory.ContainerInput.SWAP.ordinal();
+    int drag=net.minecraft.world.inventory.ContainerInput.QUICK_CRAFT.ordinal();
+    for(boolean creative:new boolean[]{false,true})for(int g=0;g<grids.length;g++)for(int amount:new int[]{1,2}) {
+      var slots=new HashMap<Integer,ItemStack>();
+      for(int i=0;i<4;i++)if(!grids[g][i].isEmpty())slots.put(i+1,stack(grids[g][i],amount));
+      for(int button=0;button<2;button++) {
+        int limit=stack(outputs[g],1).getMaxStackSize();
+        for(int count=0;count<=limit;count++)observeMenu(manager,cases,creative,slots,count==0?ItemStack.EMPTY:stack(outputs[g],count),new int[][]{{pickup,0,button}});
+        var patched=stack(outputs[g],1);
+        patched.set(net.minecraft.core.component.DataComponents.ENCHANTMENT_GLINT_OVERRIDE,true);
+        observeMenu(manager,cases,creative,slots,patched,new int[][]{{pickup,0,button}});
+        observeMenu(manager,cases,creative,slots,stack("bedrock",2),new int[][]{{pickup,0,button}});
+        observeMenu(manager,cases,creative,slots,ItemStack.EMPTY,new int[][]{{pickup,0,button},{pickup,0,button}});
+        observeMenu(manager,cases,creative,slots,slots.values().iterator().next().copy(),new int[][]{{collect,0,button}});
+      }
+      observeMenu(manager,cases,creative,Map.of(1,stack("iron_helmet",1)),ItemStack.EMPTY,new int[][]{{move,1,0}});
+      observeMenu(manager,cases,creative,Map.of(36,stack("oak_log",2)),ItemStack.EMPTY,new int[][]{{swap,4,0}});
+      observeMenu(manager,cases,creative,Map.of(36,stack("oak_log",2)),ItemStack.EMPTY,new int[][]{{pickup,36,0},{pickup,1,1}});
+      observeMenu(manager,cases,creative,Map.of(),stack("oak_planks",4),new int[][]{{drag,-999,0},{drag,0,1},{drag,1,1},{drag,2,1},{drag,3,1},{drag,4,1},{drag,-999,2}});
+    }
+    Files.writeString(Path.of(path),new Gson().toJson(cases));
+    System.out.println("PASS: "+cases.size()+" actual InventoryMenu/ResultSlot contexts, both abilities, cursor boundaries, repetition, collection and input gestures.");
+  }
   @SuppressWarnings("unchecked") static List<Optional<Ingredient>> ingredients(CraftingRecipe r)throws Exception {
     if(r instanceof ShapedRecipe s)return s.getIngredients();
     var f=ShapelessRecipe.class.getDeclaredField("ingredients");
@@ -148,6 +267,10 @@ public class PlayerCraftingOracle {
       var lookup=HolderLookup.Provider.create(Stream.concat(base.listRegistries().filter(r->!keys.contains(r.key())),loaded.listRegistries()));
       for(var tags:pending)tags.apply();
       var manager=new RecipeManager(lookup);
+      if(args[0].equals("menu")) {
+        menus(manager,args[1]);
+        return;
+      }
       for(var holder:manager.getRecipes()) {
         if(!(holder.value() instanceof CraftingRecipe recipe)||(recipe.getClass()!=ShapedRecipe.class&&recipe.getClass()!=ShapelessRecipe.class))continue;
         ordinary++;
