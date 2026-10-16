@@ -3,6 +3,21 @@ defmodule Valimc.PlayerLifePacketsTest do
   alias Valimc.Protocol.{ClientCommand, Data, Packets, Wire}
   defp payload({_, body}), do: IO.iodata_to_binary(body)
 
+  test "fire sources and equipped armor attributes use the pinned registries" do
+    for source <- [:in_fire, :on_fire, :lava, :hot_floor] do
+      {128, body} = Packets.damage_event(128, source) |> payload() |> Wire.take_varint()
+      {id, <<0, 0, 0>>} = Wire.take_varint(body)
+
+      assert id ==
+               Data.registry_id("minecraft:damage_type", "minecraft:" <> Atom.to_string(source))
+    end
+
+    {128, <<3, 1, 20.0::float-64, 0, 2, 8.0::float-64, 0, 10, 0.4::float-64, 0>>} =
+      Packets.armor_attributes(%{entity_id: 128}, %{armor: 20, toughness: 8.0, burning_time: 0.4})
+      |> payload()
+      |> Wire.take_varint()
+  end
+
   test "fall events have no attacker/source position, and death uses a fixed-width entity ID" do
     packet = Packets.damage_event(128)
     assert elem(packet, 0) == Data.id(:play, :clientbound, "damage_event")

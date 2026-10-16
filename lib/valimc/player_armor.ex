@@ -11,6 +11,14 @@ defmodule Valimc.PlayerArmor do
                end)}
             end)
   @fire List.to_tuple(@facts["fire_protection"])
+  @attribute_path Path.expand("../../priv/protocol/attributes.json", __DIR__)
+  @external_resource @attribute_path
+  @attribute_facts :json.decode(File.read!(@attribute_path))
+  @ids for key <- ["armor", "armor_toughness", "burning_time"],
+           do: @attribute_facts["minecraft:" <> key]["id"]
+
+  def protocol_attributes(%{armor: armor, toughness: toughness, burning_time: burning}),
+    do: Enum.zip_with(@ids, [armor, toughness, burning], fn id, value -> {id, value, []} end)
 
   def attributes(%Inventory{} = inventory) do
     {armor, toughness, burning} =

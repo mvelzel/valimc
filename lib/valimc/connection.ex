@@ -234,6 +234,8 @@ defmodule Valimc.Connection do
        simulation_clock: nil,
        food_tick_origin: 0,
        simulation_due: false,
+       fire_damage_due: false,
+       armor_view: nil,
        item_replication: ItemReplication.new(),
        clock_version: nil,
        weather_view: nil,
@@ -812,7 +814,7 @@ defmodule Valimc.Connection do
                   next
                   |> apply_movement_exhaustion(exhaustion)
                   |> apply_kinetic_tick(kinetics.tick, kinetics.packet.bounced)
-                  |> observe_environment(powder, submerged, eye_water)
+                  |> observe_environment(powder, submerged, eye_water, kinetics.tick)
                   |> monitor_pose_sources(fences)
                   |> update_view()
                   |> apply_landing(landing)
@@ -898,7 +900,7 @@ defmodule Valimc.Connection do
             state =
               %{state | player: player}
               |> apply_kinetic_tick(kinetics, false)
-              |> observe_environment(powder, submerged, eye_water)
+              |> observe_environment(powder, submerged, eye_water, kinetics)
               |> monitor_pose_sources(fences)
 
             state =
@@ -992,6 +994,7 @@ defmodule Valimc.Connection do
             do: broadcast_player_packet(state, Packets.remove_entity(player))
 
           state = %{state | player: player, simulation_clock: next, simulation_due: true}
+          state = tick_burning(state)
 
           {:noreply,
            state
@@ -1372,13 +1375,21 @@ defmodule Valimc.Connection do
     else
       equipment = PlayerEquipment.capture(state.inventory)
 
-      if PlayerEquipment.changes(equipment, state.player.equipment) == [] do
-        %{state | equipment_source: source}
-      else
-        player = %{state.player | equipment: equipment}
-        Players.update(self(), player)
-        %{state | player: player, equipment_source: source}
-      end
+      state =
+        if PlayerEquipment.changes(equipment, state.player.equipment) == [] do
+          %{state | equipment_source: source}
+        else
+          player = %{state.player | equipment: equipment}
+          Players.update(self(), player)
+          %{state | player: player, equipment_source: source}
+        end
+
+      attributes = Valimc.PlayerArmor.attributes(state.inventory)
+
+      if attributes != state.armor_view and state.phase == :play,
+        do: send_packets(state, [Packets.armor_attributes(state.player, attributes)])
+
+      %{state | armor_view: attributes}
     end
   end
 
@@ -1531,13 +1542,51 @@ defmodule Valimc.Connection do
           not PlayerInput.loaded?(state.player.input) ->
         {:immune, state}
 
+      source in [:in_fire, :lava, :hot_floor] and inventory_pending(state) ->
+        {:deferred, state}
+
       true ->
+        {:ok, inventory, broken} =
+          if source in [:in_fire, :on_fire, :lava, :hot_floor],
+            do:
+              Valimc.ArmorDurability.fire(
+                state.inventory,
+                source,
+                selected.damage,
+                state.player.abilities.infinite_materials
+              ),
+            else: {:ok, state.inventory, []}
+
         {:ok, damage} =
-          Valimc.PlayerDamageProtection.damage(state.inventory, source, selected.damage)
+          Valimc.PlayerDamageProtection.damage(inventory, source, selected.damage)
 
         {:ok, health} = PlayerHealth.reduce(selected.state, damage)
-        player = %{state.player | health: health}
-        state = %{state | player: player}
+
+        food =
+          if damage > 0,
+            do:
+              PlayerFood.exhaust(
+                state.player.food,
+                Valimc.PlayerDamageProtection.exhaustion(source)
+              ),
+            else: state.player.food
+
+        player = %{state.player | health: health, food: food}
+
+        state =
+          if inventory == state.inventory do
+            %{state | player: player}
+          else
+            %{state | player: player, inventory: inventory}
+            |> resync_inventory()
+            |> publish_equipment()
+          end
+
+        for {slot, _stack} <- broken do
+          packet = Packets.armor_break(player.entity_id, slot)
+          send_packets(state, [packet])
+          broadcast_player_packet(state, packet)
+        end
 
         state =
           if health.value <= 0 do
@@ -1548,7 +1597,7 @@ defmodule Valimc.Connection do
               |> stop_item_use()
               |> cancel_mining()
 
-            player = PlayerLife.die(%{player | use_flags: state.player.use_flags})
+            player = PlayerLife.die(state.player)
 
             %{
               state
@@ -1558,6 +1607,7 @@ defmodule Valimc.Connection do
                 pose_checked: nil,
                 pose_generation: state.pose_generation + 1,
                 life_stage: :sealing_death,
+                fire_damage_due: false,
                 creative_input: CreativeInput.clear(state.creative_input)
             }
           else
@@ -1592,6 +1642,10 @@ defmodule Valimc.Connection do
         source == :drown -> " drowned"
         source == :out_of_world -> " fell out of the world"
         source == :starve -> " starved to death"
+        source == :lava -> " tried to swim in lava"
+        source == :on_fire -> " burned to death"
+        source == :in_fire -> " went up in flames"
+        source == :hot_floor -> " discovered the floor was lava"
         source == :stalagmite -> " was impaled on a stalagmite"
         true -> " hit the ground too hard"
       end
@@ -1685,6 +1739,7 @@ defmodule Valimc.Connection do
       | player: player,
         inventory: inventory,
         life_stage: :alive,
+        fire_damage_due: false,
         active_use: nil,
         respawn_requested: false,
         food_tick_origin: state.simulation_clock.tick,
@@ -1716,6 +1771,7 @@ defmodule Valimc.Connection do
         Packets.player_flags(player),
         Packets.spawn_position(),
         Packets.interaction_attributes(player),
+        Packets.armor_attributes(player, Valimc.PlayerArmor.attributes(inventory)),
         Packets.inventory(inventory),
         Packets.cursor(nil),
         Packets.held_slot(0)
@@ -2224,6 +2280,7 @@ defmodule Valimc.Connection do
       Packets.level_load_start(),
       Packets.player_info(state.player),
       Packets.interaction_attributes(state.player),
+      Packets.armor_attributes(state.player, Valimc.PlayerArmor.attributes(state.inventory)),
       Packets.player_environment(state.player),
       Packets.player_flags(state.player),
       Packets.player_pose(state.player),
@@ -2485,6 +2542,7 @@ defmodule Valimc.Connection do
     active =
       state.simulation_due and
         (PlayerEnvironment.active?(state.player.environment) or
+           state.player.fire_ticks > 0 or state.fire_damage_due or
            Valimc.PlayerAir.supply(state.player) < Valimc.PlayerAir.maximum() or
            not state.player.motion.settled)
 
@@ -2542,7 +2600,92 @@ defmodule Valimc.Connection do
     state
   end
 
-  defp observe_environment(state, powder, submerged, eye_water) do
+  defp tick_burning(%{life_stage: stage} = state) when stage != :alive,
+    do: %{state | fire_damage_due: false}
+
+  defp tick_burning(state) do
+    {:ok, burning} =
+      Valimc.PlayerBurning.tick(
+        state.player.fire_ticks,
+        false,
+        false,
+        state.player.abilities.invulnerable
+      )
+
+    player = %{state.player | fire_ticks: burning.ticks}
+    burning_now = player.fire_ticks > 0
+    burning_before = state.player.fire_ticks > 0
+    if burning_now != burning_before, do: Players.update(self(), player)
+
+    %{
+      state
+      | player: player,
+        pose_checked: if(burning_before and not burning_now, do: nil, else: state.pose_checked),
+        fire_damage_due: burning.ticks > 0 and (state.fire_damage_due or burning.damage > 0)
+    }
+  end
+
+  defp observe_burning(%{life_stage: stage} = state, _, _, _) when stage != :alive,
+    do: %{state | fire_damage_due: false}
+
+  defp observe_burning(state, fluid, due, powder) do
+    # Burn requests are bounded while geometry is delayed. They are consumed only
+    # against this fresh body sample; lava suppresses the concurrent on-fire hit.
+    pending = state.fire_damage_due
+    state = %{state | fire_damage_due: false}
+
+    state =
+      if pending and not fluid.lava do
+        {:ok, selected} = PlayerHealth.hurt_window(state.player.health, 1.0)
+        {_, next} = apply_damage(state, selected, :on_fire)
+        next
+      else
+        state
+      end
+
+    if state.life_stage != :alive or state.player.game_mode.current == :spectator do
+      state
+    else
+      previous = state.player.fire_ticks
+
+      {:ok, contact} =
+        if fluid.lava do
+          Valimc.PlayerBurning.lava(
+            previous,
+            false,
+            Valimc.PlayerArmor.attributes(state.inventory).burning_time,
+            state.player.abilities.invulnerable
+          )
+        else
+          {:ok, %{ticks: previous, damage: 0.0, clear_freeze: false}}
+        end
+
+      {:ok, ticks} =
+        if fluid.water or powder,
+          do: Valimc.PlayerBurning.clear(contact.ticks),
+          else: {:ok, contact.ticks}
+
+      ticks = if ticks <= 0 and ticks <= previous, do: -20, else: ticks
+
+      environment =
+        if contact.clear_freeze,
+          do: %{state.player.environment | frozen_ticks: 0},
+          else: state.player.environment
+
+      player = %{state.player | fire_ticks: ticks, environment: environment}
+      state = %{state | player: player}
+
+      if due and contact.damage > 0 do
+        {:ok, selected} = PlayerHealth.hurt_window(player.health, contact.damage)
+        {_, next} = apply_damage(state, selected, :lava)
+        next
+      else
+        state
+      end
+    end
+  end
+
+  defp observe_environment(state, powder, submerged, eye_water, fluid) do
     due = state.simulation_due
     previous = state.player.environment
     allowed = PlayerEnvironment.can_freeze?(state.player, state.inventory)
@@ -2555,7 +2698,11 @@ defmodule Valimc.Connection do
         not allowed
       )
 
-    {damage_due, environment} = PlayerEnvironment.consume_damage(environment, allowed)
+    player = %{state.player | environment: environment}
+    state = observe_burning(%{state | player: player}, fluid, due, powder)
+
+    {damage_due, environment} =
+      PlayerEnvironment.consume_damage(state.player.environment, allowed)
 
     player = %{state.player | environment: environment}
 

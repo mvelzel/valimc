@@ -1,0 +1,306 @@
+defmodule Valimc.PlayerFireConnectionTest do
+  use ExUnit.Case, async: false
+  alias Valimc.{Connection, Inventory, PlayerHealth, Players, PlayerSnapshot, PlayerStore, World}
+  alias Valimc.Protocol.{Data, ItemStack, Wire}
+  alias Valimc.TestClient, as: Client
+
+  setup do
+    nonce = System.unique_integer([:positive])
+    name = "Fire#{nonce}"
+    uuid = Connection.offline_uuid(name)
+    base = Path.join(System.tmp_dir!(), "valimc-fire-#{nonce}")
+    old = Valimc.config(:world_path)
+    Application.put_env(:valimc, :world_path, base)
+    key = {170_000 + rem(nonce, 10_000), 983}
+    {rx, rz} = key
+    pose = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
+
+    on_exit(fn ->
+      for p <- Players.all(),
+          p.name == name,
+          do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
+
+      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
+          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
+
+      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+
+      Application.put_env(:valimc, :world_path, old)
+      File.rm_rf!(base)
+    end)
+
+    %{name: name, uuid: uuid, key: key, pose: pose, path: PlayerStore.path(base, uuid)}
+  end
+
+  defp state(pid), do: :sys.get_state(pid)
+
+  defp wait(fun, left \\ 500) do
+    if value = fun.(),
+      do: value,
+      else:
+        (
+          assert left > 0
+          Process.sleep(5)
+          wait(fun, left - 1)
+        )
+  end
+
+  defp material(ctx, name) do
+    id = %{"air" => 0, "water" => 89, "lava" => 105}[name]
+    for y <- [64, 65], do: :ok = World.set_block({floor(ctx.pose.x), y, floor(ctx.pose.z)}, id)
+  end
+
+  defp seed(ctx, opts) do
+    mode = Keyword.get(opts, :mode, :survival)
+
+    player =
+      Map.merge(ctx.pose, %{
+        game_mode: Valimc.GameMode.new(mode),
+        abilities: Valimc.PlayerAbilities.for_mode(mode),
+        motion: %Valimc.PlayerMotion{},
+        environment: %Valimc.PlayerEnvironment{frozen_ticks: 140},
+        health: %PlayerHealth{value: Keyword.get(opts, :health, 20.0)},
+        last_death: nil,
+        air_supply: 300,
+        fire_ticks: Keyword.get(opts, :fire, 0),
+        food: %Valimc.PlayerFood{level: 5, saturation: 0.0}
+      })
+
+    {:ok, bytes} =
+      PlayerSnapshot.encode(
+        ctx.uuid,
+        PlayerSnapshot.capture(player, Keyword.get(opts, :inventory, %Inventory{}))
+      )
+
+    File.mkdir_p!(Path.dirname(ctx.path))
+    File.write!(ctx.path, bytes)
+    material(ctx, Keyword.get(opts, :material, "lava"))
+  end
+
+  defp park(pid) do
+    :sys.replace_state(pid, fn s ->
+      %{
+        s
+        | simulation_clock: %{
+            s.simulation_clock
+            | token: {s.simulation_clock.epoch, make_ref()},
+              deadline: System.monotonic_time(:millisecond) + 60_000
+          }
+      }
+    end)
+  end
+
+  defp login(ctx) do
+    {_, client} = Client.login(ctx.name)
+    pid = wait(fn -> Enum.find(Players.all(), &(&1.name == ctx.name)) end).pid
+    park(pid)
+    client = Client.load_world(client)
+    Client.send_packet(client, :play, "player_loaded", <<>>)
+
+    wait(fn ->
+      not state(pid).teleport_pending and Valimc.PlayerInput.loaded?(state(pid).player.input)
+    end)
+
+    on_exit(fn -> Client.close(client) end)
+    {client, pid}
+  end
+
+  defp tick(pid, geometry \\ true) do
+    before =
+      :sys.replace_state(pid, fn s ->
+        %{
+          s
+          | simulation_clock: %{
+              s.simulation_clock
+              | deadline: System.monotonic_time(:millisecond)
+            }
+        }
+      end)
+
+    send(pid, {:player_tick, before.simulation_clock.token})
+    assert state(pid).simulation_clock.tick == before.simulation_clock.tick + 1
+    park(pid)
+
+    if geometry,
+      do:
+        wait(fn ->
+          state(pid).pose_job == nil and state(pid).motion_job == nil and
+            not state(pid).simulation_due
+        end)
+
+    before.simulation_clock.token
+  end
+
+  test "fresh lava ignites, clears freezing, wears once per accepted cooldown and uses native damage packets",
+       ctx do
+    helmet = ItemStack.new("iron_helmet")
+    seed(ctx, inventory: %Inventory{slots: %{5 => helmet}})
+    {client, pid} = login(ctx)
+    tick(pid)
+    s = state(pid)
+    assert s.player.fire_ticks == 300 and s.player.environment.frozen_ticks == 0
+    assert s.inventory.slots[5].components["minecraft:damage"] == 1
+    assert s.player.health.value == 16.06399917602539
+    assert s.player.food.exhaustion == 0.10000000149011612
+    assert s.player.health.cooldown == 20 and not s.fire_damage_due
+    {body, client} = Client.await(client, :play, "damage_event")
+    {entity, rest} = Wire.take_varint(body)
+    {source, <<0, 0, 0>>} = Wire.take_varint(rest)
+
+    assert entity == s.player.entity_id and
+             source == Data.registry_id("minecraft:damage_type", "minecraft:lava")
+
+    for _ <- 1..9, do: tick(pid)
+    assert state(pid).inventory.slots[5].components["minecraft:damage"] == 1
+    tick(pid)
+    assert state(pid).inventory.slots[5].components["minecraft:damage"] == 2
+    assert state(pid).player.health.value < s.player.health.value
+    Client.close(client)
+  end
+
+  test "ongoing burning uses the admitted old counter phase and water extinguishes without future damage",
+       ctx do
+    seed(ctx, fire: 20, material: "air")
+    {_client, pid} = login(ctx)
+    old = tick(pid)
+    assert state(pid).player.fire_ticks == 19
+    assert state(pid).player.health.value == 19.0 and not state(pid).fire_damage_due
+    send(pid, {:player_tick, old})
+    assert state(pid).player.fire_ticks == 19
+    for _ <- 1..5, do: tick(pid)
+    assert state(pid).player.fire_ticks == 14 and state(pid).player.health.value == 19.0
+    material(ctx, "water")
+    tick(pid)
+    assert state(pid).player.fire_ticks == -20 and not state(pid).fire_damage_due
+    for _ <- 1..20, do: tick(pid)
+    assert state(pid).player.health.value == 19.0
+  end
+
+  test "broken armor loses attributes before reduction while Netherite resists fire wear", ctx do
+    helmet = %{ItemStack.new("iron_helmet") | components: %{"minecraft:damage" => 164}}
+    boots = ItemStack.new("netherite_boots")
+    seed(ctx, inventory: %Inventory{slots: %{5 => helmet, 8 => boots}})
+    {client, pid} = login(ctx)
+    tick(pid)
+    s = state(pid)
+    assert s.inventory.slots == %{8 => boots}
+    # Only the surviving Netherite boots contribute armor3/toughness3.
+    assert s.armor_view.armor == 3 and s.armor_view.toughness == 3.0
+    assert s.player.health.value > 16.0 and s.player.health.value < 17.0
+    {body, _client} = Client.await(client, :play, "entity_event")
+    assert body == <<s.player.entity_id::signed-32, 49>>
+  end
+
+  test "equipped fire protection shortens ignition; creative and spectator never lose health or armor",
+       ctx do
+    fire = %{
+      ItemStack.new("iron_helmet")
+      | components: %{"minecraft:enchantments" => %{"minecraft:fire_protection" => 4}}
+    }
+
+    seed(ctx, inventory: %Inventory{slots: %{5 => fire}})
+    {client, pid} = login(ctx)
+    tick(pid)
+    assert state(pid).player.fire_ticks == 120
+    assert state(pid).player.health.value > 17.0
+
+    for mode <- [:creative, :spectator] do
+      :sys.replace_state(pid, fn s ->
+        %{
+          s
+          | player: %{
+              s.player
+              | game_mode: Valimc.GameMode.new(mode),
+                abilities: Valimc.PlayerAbilities.for_mode(mode),
+                health: %PlayerHealth{},
+                fire_ticks: 300
+            }
+        }
+      end)
+
+      before = state(pid).inventory
+      tick(pid)
+      assert state(pid).player.health.value == 20.0 and state(pid).inventory == before
+      assert state(pid).player.fire_ticks <= 1
+    end
+
+    Client.close(client)
+  end
+
+  test "inventory recovery defers wear and rechecks current contact rather than replaying stale lava",
+       ctx do
+    helmet = ItemStack.new("iron_helmet")
+    seed(ctx, inventory: %Inventory{slots: %{5 => helmet}})
+    {_client, pid} = login(ctx)
+    :sys.replace_state(pid, &%{&1 | use_save: make_ref()})
+    tick(pid)
+    assert state(pid).player.health.value == 20.0 and state(pid).inventory.slots[5] == helmet
+    material(ctx, "air")
+    :sys.replace_state(pid, &%{&1 | use_save: nil, player: %{&1.player | fire_ticks: 19}})
+    tick(pid)
+    assert state(pid).player.health.value == 20.0 and state(pid).inventory.slots[5] == helmet
+    material(ctx, "lava")
+    tick(pid)
+    assert state(pid).player.health.value < 20.0
+    assert state(pid).inventory.slots[5].components["minecraft:damage"] == 1
+  end
+
+  test "fatal lava seals one death and respawn clears burning and pending damage", ctx do
+    seed(ctx, health: 3.0, inventory: %Inventory{slots: %{36 => ItemStack.new("diamond", 2)}})
+    {client, pid} = login(ctx)
+    tick(pid, false)
+    wait(fn -> state(pid).life_stage == :dead end)
+    assert state(pid).player.fire_ticks == 0
+    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.health.value == 0.0 and saved.fire_ticks == 0 and saved.outbox == nil
+    assert saved.transfer_sequence == 1 and saved.inventory.slots == %{}
+    Client.send_packet(client, :play, "client_command", <<0>>)
+    {_, _client} = Client.await(client, :play, "respawn")
+    assert state(pid).player.fire_ticks == 0 and not state(pid).fire_damage_due
+    assert state(pid).player.health.value == 20.0
+  end
+
+  test "a stalled body query coalesces burning requests while the owned counter keeps advancing",
+       ctx do
+    seed(ctx, fire: 100, material: "air")
+    {_client, pid} = login(ctx)
+    wait(fn -> state(pid).pose_job == nil and state(pid).motion_job == nil end)
+    {:ok, {owner, _epoch}} = World.existing_owner(ctx.key)
+    :sys.suspend(owner)
+
+    try do
+      for _ <- 1..21, do: tick(pid, false)
+      pending = state(pid)
+      assert pending.player.fire_ticks == 79 and pending.fire_damage_due
+      assert pending.player.health.value == 20.0
+      assert pending.pose_job != nil or pending.motion_job != nil
+    after
+      :sys.resume(owner)
+    end
+
+    wait(fn ->
+      state(pid).pose_job == nil and state(pid).motion_job == nil and
+        not state(pid).simulation_due
+    end)
+
+    assert state(pid).player.health.value == 19.0 and not state(pid).fire_damage_due
+  end
+
+  test "unloaded lava cannot ignite or damage, and expired burning clears the visible flag",
+       ctx do
+    seed(ctx, fire: 1, material: "air")
+    {_client, pid} = login(ctx)
+    tick(pid)
+    assert state(pid).player.fire_ticks == -20 and state(pid).player.health.value == 20.0
+    assert Bitwise.band(Valimc.Protocol.Packets.shared_flags(state(pid).player), 1) == 0
+    material(ctx, "lava")
+
+    :sys.replace_state(pid, fn s ->
+      %{s | player: %{s.player | input: %Valimc.PlayerInput{load_ticks: 60}}}
+    end)
+
+    tick(pid, false)
+    assert state(pid).player.fire_ticks == -20 and state(pid).player.health.value == 20.0
+  end
+end

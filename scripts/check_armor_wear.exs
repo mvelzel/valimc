@@ -1,10 +1,22 @@
 alias Valimc.{ArmorDurability, Inventory}
-alias Valimc.Protocol.ItemStack
+alias Valimc.Protocol.{ItemStack, Packets}
 [facts_path, cases_path] = System.argv()
 facts = facts_path |> File.read!() |> JSON.decode!()
 
 unless facts == JSON.decode!(File.read!("priv/protocol/item_armor_wear.json")),
   do: raise("Pinned native armor-wear facts differ")
+
+for {slot, event} <- facts["break_events"] do
+  {_, body} = Packets.armor_break(128, String.to_integer(slot))
+
+  unless IO.iodata_to_binary(body) == <<128::signed-32, event>>,
+    do: raise("Native armor-break packet differs")
+end
+
+for {source, exhaustion} <- facts["exhaustion"] do
+  unless Valimc.PlayerDamageProtection.exhaustion(String.to_existing_atom(source)) == exhaustion,
+    do: raise("Native fire exhaustion differs")
+end
 
 cases = cases_path |> File.read!() |> JSON.decode!()
 
@@ -68,7 +80,9 @@ for c <- cases do
             MapSet.member?(
               Valimc.Protocol.ItemTypes.defaults(actual.item_id).present,
               "minecraft:damage"
-            ) and not MapSet.member?(actual.removed, "minecraft:damage"), do: 0)
+            ) and not MapSet.member?(actual.removed, "minecraft:damage"),
+            do: 0
+          )
         )
 
   # Native get(component) returns null on a stack after shrink-to-empty.

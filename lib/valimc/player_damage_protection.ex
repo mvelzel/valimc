@@ -6,8 +6,12 @@ defmodule Valimc.PlayerDamageProtection do
   @float_max 3.4028234663852886e38
   @fire [:in_fire, :on_fire, :lava, :hot_floor]
   @armored [:in_fire, :lava, :hot_floor]
+  @fire_facts_path Path.expand("../../priv/protocol/item_armor_wear.json", __DIR__)
+  @external_resource @fire_facts_path
+  @exhaustion :json.decode(File.read!(@fire_facts_path))["exhaustion"]
 
   def wears_armor?(source), do: source in @armored
+  def exhaustion(source), do: Map.get(@exhaustion, Atom.to_string(source), 0.0)
 
   def points(%Inventory{}, :out_of_world), do: 0
 

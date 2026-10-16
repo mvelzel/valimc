@@ -175,8 +175,19 @@ defmodule Valimc.Protocol.Packets do
   def damage_event(entity_id, source \\ :fall) do
     life_entity_id!(entity_id)
 
-    unless source in [:fall, :stalagmite, :freeze, :drown, :out_of_world, :starve],
-      do: raise(ArgumentError, "invalid damage source")
+    unless source in [
+             :fall,
+             :stalagmite,
+             :freeze,
+             :drown,
+             :out_of_world,
+             :starve,
+             :on_fire,
+             :in_fire,
+             :lava,
+             :hot_floor
+           ],
+           do: raise(ArgumentError, "invalid damage source")
 
     packet("damage_event", [
       Wire.varint(entity_id),
@@ -199,6 +210,11 @@ defmodule Valimc.Protocol.Packets do
   def death_animation(entity_id) do
     life_entity_id!(entity_id)
     packet("entity_event", <<entity_id::signed-32, 3>>)
+  end
+
+  def armor_break(entity_id, slot) when slot in 5..8 do
+    life_entity_id!(entity_id)
+    packet("entity_event", <<entity_id::signed-32, Valimc.ArmorDurability.break_event(slot)>>)
   end
 
   def use_item_finished(entity_id) do
@@ -250,9 +266,15 @@ defmodule Valimc.Protocol.Packets do
 
   def interaction_attributes(player) do
     attributes = Valimc.PlayerInteraction.attributes(player.game_mode.current)
+    attribute_packet(player.entity_id, attributes)
+  end
 
+  def armor_attributes(player, attributes),
+    do: attribute_packet(player.entity_id, Valimc.PlayerArmor.protocol_attributes(attributes))
+
+  defp attribute_packet(entity_id, attributes) do
     packet("update_attributes", [
-      Wire.varint(player.entity_id),
+      Wire.varint(entity_id),
       Wire.varint(length(attributes)),
       Enum.map(attributes, fn {id, base, modifiers} ->
         [

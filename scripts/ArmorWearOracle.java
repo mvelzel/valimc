@@ -143,6 +143,9 @@ public class ArmorWearOracle {
       observe(rows,p,sources.get("lava"),"lava",stack,0,amount,0f,input);
     }
     var facts=new JsonObject();facts.add("damage_on_hurt",hurt);facts.add("fire_resistant",resistant);facts.add("armor_tag",armorTag);facts.add("unbreaking",probabilities);
+    var events=new JsonObject();var event=LivingEntity.class.getDeclaredMethod("entityEventForEquipmentBreak",EquipmentSlot.class);event.setAccessible(true);
+    for(int i=0;i<SLOTS.length;i++)events.addProperty(Integer.toString(MENU[i]),(byte)event.invoke(null,SLOTS[i]));facts.add("break_events",events);
+    var exhaustion=new JsonObject();for(var source:sources.entrySet())exhaustion.addProperty(source.getKey(),(double)source.getValue().getFoodExhaustion());facts.add("exhaustion",exhaustion);
     Files.writeString(Path.of(args[0]),new GsonBuilder().setPrettyPrinting().create().toJson(facts)+"\n");Files.writeString(Path.of(args[1]),new Gson().toJson(rows));
     System.out.println("PASS: "+rows.size()+" native Player.hurtArmor/ItemStack wear cases; all stock items, four armor positions/fire sources, removals, Unbreaking thresholds, break payloads and signed-int durability. Health and attribute refresh excluded.");
   }

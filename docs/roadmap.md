@@ -13,8 +13,9 @@ Current: **[fire and lava damage](tickets/VMC-017b4.md)**. Armor/toughness math
 matches580 native cases; equipped armor/burning-time attributes match20,236 cases.
 Burning primitives match582 native cases; saved counters/metadata pass85 affected
 checks and actual saved-overlay/reconnect validation. Fire reductions match44,160
-native cases and bounded armor wear matches138,080. Fresh contact/damage composition
-follows; the unfinished live feature remains local pending its client gate.
+native cases and bounded armor wear matches138,080. [Live lava/burning](tickets/VMC-017b4a.md)
+passes96 affected checks; its graphical gate is next. The unfinished live feature
+remains local pending that gate; fire-block/sweep/rain/effect work follows.
 
 [Automatic item simulation](tickets/VMC-035a6.md),
 [same-owner merging](tickets/VMC-035b.md), [ordinary pickup](tickets/VMC-035c.md),

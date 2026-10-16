@@ -11,6 +11,8 @@ defmodule Valimc.ArmorDurability do
   @armor_chance List.to_tuple(@facts["unbreaking"]["armor"])
   @other_chance List.to_tuple(@facts["unbreaking"]["other"])
 
+  def break_event(slot) when slot in 5..8, do: @facts["break_events"][Integer.to_string(slot)]
+
   def fire(inventory, source, amount, infinite, random \\ &next_float/0)
 
   def fire(%Inventory{} = inventory, source, amount, infinite, random)
