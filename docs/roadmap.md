@@ -9,8 +9,9 @@ indexes validated tickets. None imply full parity.
 
 ## Priority
 
-Next: **[fire and lava damage](tickets/VMC-017b4.md)**. Native armor/toughness,
-fire protection and saved burning state precede live contact/damage composition.
+Current: **[fire and lava damage](tickets/VMC-017b4.md)**. Armor/toughness math
+matches580 native cases; equipped attributes, fire protection and saved burning
+state precede live contact/damage composition.
 
 [Automatic item simulation](tickets/VMC-035a6.md),
 [same-owner merging](tickets/VMC-035b.md), [ordinary pickup](tickets/VMC-035c.md),
