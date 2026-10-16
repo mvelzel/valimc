@@ -18,6 +18,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.damagesource.*;
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.entity.*;
+import net.minecraft.world.entity.ai.attributes.*;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.*;
 import net.minecraft.world.item.enchantment.*;
@@ -39,14 +40,23 @@ public class DamageProtectionOracle {
   }
   private static class Probe extends Player {
     ProbeLevel world; Map<EquipmentSlot,ItemStack> gear;
+    int armorValue=30,wearCalls; double toughness; float wearAmount;
+    boolean fire;
     private Probe(){super(null,null);}
     public GameType gameMode(){return GameType.SURVIVAL;}
     public ServerLevel level(){return world;}
     public ItemStack getItemBySlot(EquipmentSlot slot){return gear.getOrDefault(slot,ItemStack.EMPTY);}
     public RandomSource getRandom(){return RandomSource.create(1);}
     public boolean hasEffect(Holder<MobEffect> effect){return false;}
-    public int getArmorValue(){return 30;}
-    protected void hurtArmor(DamageSource source,float amount){throw new AssertionError("Environmental source must bypass armor wear");}
+    public int getArmorValue(){return armorValue;}
+    public double getAttributeValue(Holder<Attribute> attribute){
+      if(attribute.equals(Attributes.ARMOR_TOUGHNESS))return toughness;
+      throw new AssertionError("Unexpected damage attribute: "+attribute);
+    }
+    protected void hurtArmor(DamageSource source,float amount){
+      if(!fire)throw new AssertionError("Environmental source must bypass armor wear");
+      wearCalls++;wearAmount=amount;
+    }
     float armor(DamageSource source,float amount){return getDamageAfterArmorAbsorb(source,amount);}
     float magic(DamageSource source,float amount){return getDamageAfterMagicAbsorb(source,amount);}
   }
@@ -64,14 +74,27 @@ public class DamageProtectionOracle {
   }
   private static int menuSlot(EquipmentSlot slot){return switch(slot){case HEAD->5;case CHEST->6;case LEGS->7;case FEET->8;case MAINHAND->36;case OFFHAND->45;default->throw new AssertionError(slot);};}
   private static void equip(Probe p,JsonArray gear,MappedRegistry<Enchantment> registry,RegistryAccess.Frozen access,EquipmentSlot slot,Map<String,Integer> direct,Map<String,Integer> stored){
-    var stack=new ItemStack(Items.STONE);stack.set(DataComponents.ENCHANTMENTS,patch(direct,registry,access));stack.set(DataComponents.STORED_ENCHANTMENTS,patch(stored,registry,access));p.gear.put(slot,stack);
-    var row=new JsonObject();row.addProperty("slot",menuSlot(slot));row.add("direct",new Gson().toJsonTree(direct));row.add("stored",new Gson().toJsonTree(stored));gear.add(row);
+    equip(p,gear,registry,access,slot,Items.STONE,false,direct,stored);
+  }
+  private static void equip(Probe p,JsonArray gear,MappedRegistry<Enchantment> registry,RegistryAccess.Frozen access,EquipmentSlot slot,Item item,boolean removed,Map<String,Integer> direct,Map<String,Integer> stored){
+    var stack=new ItemStack(item);if(removed)stack.remove(DataComponents.ATTRIBUTE_MODIFIERS);
+    stack.set(DataComponents.ENCHANTMENTS,patch(direct,registry,access));stack.set(DataComponents.STORED_ENCHANTMENTS,patch(stored,registry,access));p.gear.put(slot,stack);
+    var row=new JsonObject();row.addProperty("slot",menuSlot(slot));row.addProperty("item_id",BuiltInRegistries.ITEM.getId(item));row.addProperty("removed",removed);row.add("direct",new Gson().toJsonTree(direct));row.add("stored",new Gson().toJsonTree(stored));gear.add(row);
   }
   private static void observe(JsonArray cases,Probe p,JsonArray gear,String source,DamageSource damage){
+    if(p.fire){
+      var attributes=new AttributeMap(Player.createAttributes().build());
+      for(var entry:p.gear.entrySet())entry.getValue().forEachModifier(entry.getKey(),(attribute,modifier)->{
+        if(attribute.equals(Attributes.ARMOR)||attribute.equals(Attributes.ARMOR_TOUGHNESS))attributes.getInstance(attribute).addOrUpdateTransientModifier(modifier);
+      });
+      p.armorValue=(int)Math.floor(attributes.getValue(Attributes.ARMOR));p.toughness=attributes.getValue(Attributes.ARMOR_TOUGHNESS);
+    }
     float protection=EnchantmentHelper.getDamageProtection(p.world,p,damage);
     for(float amount:new float[]{.1f,1,5,100,Float.MAX_VALUE}){
-      float armored=p.armor(damage,amount);if(armored!=amount)throw new AssertionError("Unexpected environmental armor reduction");
-      var c=new JsonObject();c.add("gear",gear);c.addProperty("source",source);c.addProperty("amount",(double)amount);c.addProperty("protection",(double)protection);c.addProperty("damage",(double)p.magic(damage,armored));cases.add(c);
+      p.wearCalls=0;float armored=p.armor(damage,amount);if(!p.fire&&armored!=amount)throw new AssertionError("Unexpected environmental armor reduction");
+      var c=new JsonObject();c.add("gear",gear);c.addProperty("source",source);c.addProperty("amount",(double)amount);c.addProperty("protection",(double)protection);c.addProperty("damage",(double)p.magic(damage,armored));
+      if(p.fire){c.addProperty("armor",p.armorValue);c.addProperty("toughness",p.toughness);c.addProperty("armored",(double)armored);c.addProperty("wear_calls",p.wearCalls);if(p.wearCalls>0)c.addProperty("wear_amount",(double)p.wearAmount);}
+      cases.add(c);
     }
   }
   public static void main(String[] args)throws Exception{
@@ -84,12 +107,13 @@ public class DamageProtectionOracle {
     var unsafe=(sun.misc.Unsafe)field(sun.misc.Unsafe.class,"theUnsafe").get(null);
     var server=(ProbeServer)unsafe.allocateInstance(ProbeServer.class);server.registries=new ReloadableServerRegistries.Holder(lookup);
     var world=(ProbeLevel)unsafe.allocateInstance(ProbeLevel.class);world.server=server;
-    var p=(Probe)unsafe.allocateInstance(Probe.class);p.world=world;p.gear=new EnumMap<>(EquipmentSlot.class);field(Entity.class,"position").set(p,new Vec3(.5,64,.5));
+    var p=(Probe)unsafe.allocateInstance(Probe.class);p.world=world;p.gear=new EnumMap<>(EquipmentSlot.class);p.armorValue=30;p.fire=args.length>1&&args[1].equals("fire");field(Entity.class,"position").set(p,new Vec3(.5,64,.5));
     var tags=JsonParser.parseString(Files.readString(Path.of("priv/protocol/tags.json"))).getAsJsonObject().getAsJsonObject("minecraft:damage_type");
     var names=JsonParser.parseString(Files.readString(Path.of("priv/protocol/registries.json"))).getAsJsonObject().getAsJsonArray("minecraft:damage_type");
     var bindTags=Holder.Reference.class.getDeclaredMethod("bindTags",Collection.class);bindTags.setAccessible(true);
     var cases=new JsonArray();
-    for(var type:List.of(DamageTypes.FALL,DamageTypes.STALAGMITE,DamageTypes.FREEZE,DamageTypes.DROWN,DamageTypes.FELL_OUT_OF_WORLD,DamageTypes.STARVE)){
+    var types=p.fire?List.of(DamageTypes.IN_FIRE,DamageTypes.ON_FIRE,DamageTypes.LAVA,DamageTypes.HOT_FLOOR):List.of(DamageTypes.FALL,DamageTypes.STALAGMITE,DamageTypes.FREEZE,DamageTypes.DROWN,DamageTypes.FELL_OUT_OF_WORLD,DamageTypes.STARVE);
+    for(var type:types){
       var holder=lookup.lookupOrThrow(Registries.DAMAGE_TYPE).getOrThrow(type);int id=-1;
       for(int i=0;i<names.size();i++)if(names.get(i).getAsString().equals(type.identifier().toString()))id=i;
       if(id<0)throw new AssertionError(type);var keys=new ArrayList<TagKey<DamageType>>();
@@ -106,8 +130,15 @@ public class DamageProtectionOracle {
           equip(p,gear,registry,access,slot,Map.of("minecraft:protection",protection,"minecraft:feather_falling",feather),Map.of());
         observe(cases,p,gear,type.identifier().getPath(),damage);
       }
+      if(p.fire)for(boolean removed:new boolean[]{false,true})for(int protection:new int[]{0,1,4,255})for(int fire:new int[]{0,1,4,255}){
+        for(var set:List.of(new Item[]{Items.LEATHER_HELMET,Items.LEATHER_CHESTPLATE,Items.LEATHER_LEGGINGS,Items.LEATHER_BOOTS},new Item[]{Items.IRON_HELMET,Items.IRON_CHESTPLATE,Items.IRON_LEGGINGS,Items.IRON_BOOTS},new Item[]{Items.DIAMOND_HELMET,Items.DIAMOND_CHESTPLATE,Items.DIAMOND_LEGGINGS,Items.DIAMOND_BOOTS},new Item[]{Items.NETHERITE_HELMET,Items.NETHERITE_CHESTPLATE,Items.NETHERITE_LEGGINGS,Items.NETHERITE_BOOTS})){
+          p.gear.clear();var gear=new JsonArray();int index=0;
+          for(var slot:List.of(EquipmentSlot.HEAD,EquipmentSlot.CHEST,EquipmentSlot.LEGS,EquipmentSlot.FEET))equip(p,gear,registry,access,slot,set[index++],removed,Map.of("minecraft:protection",protection,"minecraft:fire_protection",fire),Map.of());
+          observe(cases,p,gear,type.identifier().getPath(),damage);
+        }
+      }
     }
     Files.writeString(Path.of(args[0]),new Gson().toJson(cases));
-    System.out.println("PASS: "+cases.size()+" native equipment/protection/armor-bypass/magic damage cases; fall/stalagmite/freeze/drown/void/starve, all "+registry.size()+" enchantments, levels0/1/4/255, stored and hand negatives, stacked caps. Effects/health/world mutation excluded.");
+    System.out.println("PASS: "+cases.size()+" native equipment/protection/armor/magic damage cases; sources="+types+", all "+registry.size()+" enchantments, levels0/1/4/255, stored and hand negatives, stacked caps. Effects/health/world mutation excluded; armor-wear callback recorded but stack wear excluded.");
   }
 }

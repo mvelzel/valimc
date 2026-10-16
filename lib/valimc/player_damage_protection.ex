@@ -1,16 +1,22 @@
 defmodule Valimc.PlayerDamageProtection do
   @moduledoc "Player-owned worn-enchantment defenses for implemented environmental damage."
-  alias Valimc.Inventory
+  alias Valimc.{Inventory, PlayerArmor}
+  alias Valimc.Physics.ArmorDamage
   alias Valimc.Protocol.ItemStack
   @float_max 3.4028234663852886e38
+  @fire [:in_fire, :on_fire, :lava, :hot_floor]
+  @armored [:in_fire, :lava, :hot_floor]
+
+  def wears_armor?(source), do: source in @armored
 
   def points(%Inventory{}, :out_of_world), do: 0
 
   def points(%Inventory{slots: slots}, source)
-      when source in [:fall, :stalagmite, :freeze, :drown, :starve] do
+      when source in [:fall, :stalagmite, :freeze, :drown, :starve] or source in @fire do
     # Every pinned item has empty default enchantments. Native slot matching
     # applies both fall effects to all four player armor slots, including patched gear.
     feather = if source in [:fall, :stalagmite], do: 3, else: 0
+    fire = if source in @fire, do: 2, else: 0
 
     Enum.reduce(5..8, 0, fn slot, total ->
       case slots[slot] do
@@ -18,7 +24,8 @@ defmodule Valimc.PlayerDamageProtection do
           enchantments = Map.get(components, "minecraft:enchantments", %{})
 
           total + Map.get(enchantments, "minecraft:protection", 0) +
-            feather * Map.get(enchantments, "minecraft:feather_falling", 0)
+            feather * Map.get(enchantments, "minecraft:feather_falling", 0) +
+            fire * Map.get(enchantments, "minecraft:fire_protection", 0)
 
         nil ->
           total
@@ -26,17 +33,27 @@ defmodule Valimc.PlayerDamageProtection do
     end)
   end
 
-  @doc "Apply native float32 protection after cooldown selection; these sources bypass armor/wear."
+  @doc "Apply native armor then enchantment reduction after cooldown selection; wear belongs to the owner."
   def damage(%Inventory{}, :starve, amount)
       when is_number(amount) and amount >= 0 and amount <= @float_max,
       do: {:ok, f32(amount)}
 
   def damage(%Inventory{} = inventory, source, amount)
-      when source in [:fall, :stalagmite, :freeze, :drown, :out_of_world] and is_number(amount) and
+      when (source in [:fall, :stalagmite, :freeze, :drown, :out_of_world] or source in @fire) and
+             is_number(amount) and
              amount >= 0 and
              amount <= @float_max do
+    armored =
+      if source in @armored do
+        attributes = PlayerArmor.attributes(inventory)
+        {:ok, damage} = ArmorDamage.reduce(amount, attributes.armor, attributes.toughness)
+        damage
+      else
+        f32(amount)
+      end
+
     fraction = f32(min(points(inventory, source), 20) / 25.0)
-    {:ok, f32(f32(amount) * f32(1.0 - fraction))}
+    {:ok, f32(armored * f32(1.0 - fraction))}
   end
 
   def damage(_, _, _), do: {:error, :invalid_damage_protection}

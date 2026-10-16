@@ -52,4 +52,50 @@ defmodule Valimc.PlayerDamageProtectionTest do
     assert PlayerDamageProtection.damage(inventory, :fall, :bad) ==
              {:error, :invalid_damage_protection}
   end
+
+  test "lava and direct fire use armor; ongoing burning bypasses it but retains fire protection" do
+    inventory = %Inventory{
+      slots: %{
+        5 => ItemStack.new("diamond_helmet"),
+        6 => ItemStack.new("diamond_chestplate"),
+        7 => ItemStack.new("diamond_leggings"),
+        8 => ItemStack.new("diamond_boots")
+      }
+    }
+
+    assert {:ok, 4.0} = PlayerDamageProtection.damage(inventory, :on_fire, 4)
+
+    for source <- [:in_fire, :lava, :hot_floor] do
+      assert PlayerDamageProtection.wears_armor?(source)
+      assert {:ok, damage} = PlayerDamageProtection.damage(inventory, source, 4)
+      assert_in_delta damage, 0.96, 0.000001
+    end
+
+    refute PlayerDamageProtection.wears_armor?(:on_fire)
+
+    fire = %{
+      ItemStack.new("stone")
+      | components: %{
+          "minecraft:enchantments" => %{
+            "minecraft:protection" => 4,
+            "minecraft:fire_protection" => 4,
+            "minecraft:feather_falling" => 255
+          }
+        }
+    }
+
+    for source <- [:in_fire, :on_fire, :lava, :hot_floor] do
+      assert PlayerDamageProtection.points(%Inventory{slots: %{5 => fire}}, source) == 12
+
+      assert PlayerDamageProtection.points(
+               %Inventory{slots: %{36 => fire}, carried: fire},
+               source
+             ) == 0
+
+      assert {:ok, damage} =
+               PlayerDamageProtection.damage(%Inventory{slots: %{5 => fire}}, source, 4)
+
+      assert_in_delta damage, 2.08, 0.000001
+    end
+  end
 end
