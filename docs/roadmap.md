@@ -19,8 +19,11 @@ water samples pass; retain dense login variance and older admission findings.
 **Current:** [Water Breathing/air ordering](tickets/VMC-037c.md) passes60 affected
 tests and433 native predicate/policy contexts. Owned drinks, tick-start expiry,
 delayed geometry, depleted reconnect and invulnerable refill are implemented;
-broader integration/build and actual-client gates remain. Keep it local until
-validated. Remaining status/consumption behavior follows; evidence stays in tickets.
+1,284 full tests, production and both native TCP transports pass; actual-client
+validation is running against immutable `1fd6287`. Keep it local until validated.
+[Periodic health effects](tickets/VMC-037d.md) now match124,596 native action/timing
+cases and10 affected checks; owner composition and its client gate follow.
+Evidence stays in tickets.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

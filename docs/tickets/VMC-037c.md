@@ -1,7 +1,7 @@
 # VMC-037c — Breathing effects and air ownership
 
-Status: Predicate/owned composition verified locally; broader integration/build
-and actual-client validation pending. Keep this slice local.
+Status: Committed locally at `1fd6287`; automated integration/build pass.
+Actual-client validation is running. Keep this slice local until its gate passes.
 
 Acceptance: Water Breathing pauses oxygen loss and restores depleted air while
 submerged, with expiry, existing defenses, natural drowning, drinks and reconnect.
@@ -52,3 +52,11 @@ Evidence: `.local/status-air-live-targeted.log` and
 full-baseTick execution is not claimed; its ordering/refill rules use the pinned
 bytecode and the existing native air primitives. GUI drinking/submersion/expiry/
 drowning, finite reconnect and relevant negatives remain required before Done.
+
+Frozen `1fd6287` passes1,284 full tests(seed105045), production release and native
+plaintext/continuous AES-CFB8 TCP. Raw evidence: `.local/breathing-live-full-tests.log`,
+`.local/breathing-live-production.log`, `.local/breathing-live-native-tcp.log`.
+The full native suite last passed at `d7e688c`; subsequent potion/breathing native
+probes and both transports are targeted integration, not a repeat of that entire suite.
+The dedicated client tester owns the immutable release and whole consistent dataset
+`/tmp/valimc-breathing-live-client-20261016` (initial source/receipt50).
