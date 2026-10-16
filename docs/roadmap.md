@@ -115,7 +115,10 @@ indexes validated tickets. None imply full parity.
    affected checks. [Basic live mining](tickets/VMC-029a6.md) now composes the
    player clock, fresh contact, loot/wear and durable region/source receipts;
    broader loot and destruction callbacks remain.
-   Its automated TCP checks pass; actual-client validation remains pending.
+   All six basic block kinds, cracks/abort, loot/wear and fresh reconnect passed
+   actual-client checks (`c163209`);822 full tests/build pass, full native integration running.
+   [Stateful loot/slabs](tickets/VMC-029a7.md) adds native constant counts and101
+   slab families;231,455 native cases and21 affected checks pass, GUI pending.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 [VMC-003c](tickets/VMC-003c.md)'s direct local test-client lifecycle is complete:
@@ -129,7 +132,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
-| [VMC-029a6](tickets/VMC-029a6.md) | Actual basic survival timing, drops/wear, cancellations and reconnect | Local live-mining checkpoint |
+| [VMC-029a7](tickets/VMC-029a7.md) | Actual single/double and wet/dry slab loot, wear and reconnect | Local slab checkpoint |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

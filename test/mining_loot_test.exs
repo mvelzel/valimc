@@ -29,16 +29,24 @@ defmodule Valimc.Physics.MiningLootTest do
     assert glass == ItemStack.new("glass")
   end
 
-  test "unsupported random/count/context families never become guessed drops" do
+  test "unsupported random/context families never become guessed drops" do
     ore = Data.item_block(Data.item("diamond_ore"))
-    slab = Data.item_block(Data.item("oak_slab"))
     assert {:error, :unsupported_mining_loot} = MiningLoot.drops(ore, nil, true)
-    assert {:error, :unsupported_mining_loot} = MiningLoot.drops(slab, nil, true)
     assert {:ok, []} = MiningLoot.drops(ore, nil, false)
     assert {:ok, [planks]} = MiningLoot.drops(Data.block("oak_planks"), nil, true)
     assert planks == ItemStack.new("oak_planks")
 
     for state <- [-1, Data.block_state_count(), nil],
         do: assert({:error, :invalid_mining_loot} == MiningLoot.drops(state, nil, true))
+  end
+
+  test "single and double slab states retain exact counts independently of contained water" do
+    for state <- 15177..15180,
+        do: assert(MiningLoot.drops(state, nil, true) == {:ok, [ItemStack.new("oak_slab")]})
+
+    for state <- 15181..15182,
+        do: assert(MiningLoot.drops(state, nil, true) == {:ok, [ItemStack.new("oak_slab", 2)]})
+
+    assert MiningLoot.drops(15181, nil, false) == {:ok, []}
   end
 end

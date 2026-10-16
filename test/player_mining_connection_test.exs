@@ -365,4 +365,33 @@ defmodule Valimc.PlayerMiningConnectionTest do
     assert Inventory.held(state(pid).inventory, :main) == ItemStack.new("iron_pickaxe")
     assert Map.get(saved(ctx), :transfer_sequence, 0) == 0
   end
+
+  test "live wet single and dry double slabs commit contained fluid, exact counts and one wear each",
+       ctx do
+    tool = %{
+      ItemStack.new("diamond_axe")
+      | components: %{"minecraft:enchantments" => %{"minecraft:efficiency" => 10}}
+    }
+
+    seed(ctx, %{36 => tool})
+    {client, pid} = login(ctx)
+
+    for {{block, replacement}, sequence} <- Enum.with_index([{15179, 89}, {15182, 0}], 1) do
+      :ok = World.set_block(ctx.target, block)
+      action(client, "start_destroy_block", ctx.target, sequence)
+      await_ack(client, sequence)
+      wait(fn -> finished(pid) and World.get_block(ctx.target) == replacement end)
+      assert saved(ctx).transfer_sequence == sequence and saved(ctx).outbox == nil
+
+      assert Inventory.held(state(pid).inventory, :main).components["minecraft:damage"] ==
+               sequence
+    end
+
+    assert Enum.sort_by(drops(ctx), & &1.count) == [
+             ItemStack.new("oak_slab"),
+             ItemStack.new("oak_slab", 2)
+           ]
+
+    assert map_size(World.item_snapshot(ctx.key)) == 2
+  end
 end

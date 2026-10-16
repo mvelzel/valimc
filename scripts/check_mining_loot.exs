@@ -26,7 +26,7 @@ tools = {
 cases = cases_path |> File.read!() |> JSON.decode!()
 
 for [state, variant, ids] <- cases do
-  expected = Enum.map(ids, &%ItemStack{item_id: &1})
+  expected = Enum.map(ids, fn [id, count] -> %ItemStack{item_id: id, count: count} end)
 
   unless MiningLoot.drops(state, elem(tools, variant), true) == {:ok, expected},
     do: raise("Native deterministic loot differs #{inspect({state, variant, ids})}")
@@ -36,7 +36,7 @@ for state <- 0..(Data.block_state_count() - 1),
     do:
       if(MiningLoot.drops(state, nil, false) != {:ok, []}, do: raise("Wrong-tool loot #{state}"))
 
-unless facts["supported_blocks"] == 930 and length(cases) == 210_847,
+unless facts["supported_blocks"] == 1108 and length(cases) == 231_455,
   do: raise("Incomplete native deterministic loot contexts")
 
 IO.puts(

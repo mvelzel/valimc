@@ -49,6 +49,10 @@ defmodule Valimc.Connection do
   alias Valimc.World.{ItemReplication, WeatherReplication}
   import Bitwise
   @basic_mining Enum.map(~w(stone dirt grass_block cobblestone oak_planks glass), &Data.block/1)
+  @slab_tags Path.expand("../../priv/protocol/tags.json", __DIR__)
+  @external_resource @slab_tags
+  @slab_blocks :json.decode(File.read!(@slab_tags))["minecraft:block"]["minecraft:slabs"]
+               |> MapSet.new()
 
   defguardp inventory_pending(state)
             when state.recovery != nil or state.creative_input.queued > 0 or state.use_save != nil
@@ -2946,7 +2950,11 @@ defmodule Valimc.Connection do
 
     state = %{state | mining: mining}
 
-    if block in @basic_mining and mining_allowed?(state, position) do
+    supported =
+      block in @basic_mining or
+        MapSet.member?(@slab_blocks, Valimc.Physics.MiningTools.block_id(block))
+
+    if supported and mining_allowed?(state, position) do
       tick_mining(state)
     else
       send_packets(state, [Packets.block(position, block)])

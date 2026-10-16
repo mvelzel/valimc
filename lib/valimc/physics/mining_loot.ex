@@ -20,11 +20,18 @@ defmodule Valimc.Physics.MiningLoot do
                   unless is_list(ids) and length(ids) <= 256 and
                            Enum.all?(
                              ids,
-                             &(is_integer(&1) and &1 > 0 and ItemTypes.item(&1) != nil)
+                             fn
+                               [id, count] ->
+                                 is_integer(id) and id > 0 and ItemTypes.item(id) != nil and
+                                   count in 1..64
+
+                               _ ->
+                                 false
+                             end
                            ),
                          do: raise("Invalid deterministic loot profile")
 
-                  Enum.map(ids, &%ItemStack{item_id: &1})
+                  Enum.map(ids, fn [id, count] -> %ItemStack{item_id: id, count: count} end)
                 end
                 |> List.to_tuple()
             end)
@@ -38,12 +45,22 @@ defmodule Valimc.Physics.MiningLoot do
            Enum.count(Tuple.to_list(@blocks), &(&1 != 0)) == @facts["supported_blocks"],
          do: raise("Incomplete deterministic loot indexes")
 
+  @states Map.new(@facts["state_profiles"], fn [state, profile] ->
+            unless is_integer(state) and state in 0..(@count - 1) and
+                     is_integer(profile) and profile in 1..(tuple_size(@profiles) - 1),
+                   do: raise("Invalid state loot override")
+
+            {state, profile}
+          end)
+  unless map_size(@states) == length(@facts["state_profiles"]),
+    do: raise("Duplicate state loot overrides")
+
   @doc "Use the original tool before wear, including a tool that breaks on this operation."
   def drops(state, tool, harvest)
       when is_integer(state) and state >= 0 and state < @count and
              is_boolean(harvest) do
     if harvest do
-      case elem(@profiles, elem(@blocks, MiningTools.block_id(state))) do
+      case elem(@profiles, Map.get(@states, state, elem(@blocks, MiningTools.block_id(state)))) do
         nil -> {:error, :unsupported_mining_loot}
         profile -> {:ok, elem(profile, if(silk?(tool), do: 1, else: 0))}
       end
