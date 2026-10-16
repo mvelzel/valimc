@@ -68,3 +68,12 @@ invalid; positive legacy bytes remain unchanged.30 affected checks pass
 (seed684312), `.local/pickup-receipt-reservation-targeted.log`, including actual
 critical write/kill/reload/first-delivery. Live admission must persist the slot
 before issuing its expiring contact permit; that composition remains open.
+
+Leased writer checkpoint: prepare saves original inventory/v16 intent; completion
+fetches terminal proof from the real owning region before saving gain+clear.36
+affected checks pass(seed26220), `.local/player-pickup-store-targeted.log`: stale
+leases, pending writes, source restart, rejection/forged proof and failed final
+save/reopen. Recovery fixtures write a complete pure region commit after the
+source intent and before lazy region load; they do not exercise live admission.
+No world item is restored after a failed recipient save. Contact permits, live
+inbox/delivery, disconnect composition and automatic collection remain open.
