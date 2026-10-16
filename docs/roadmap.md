@@ -16,9 +16,11 @@ lava, exit/water, gear/modes, reconnect and death/respawn. Matched128/512-player
 loads pass;512-player login/allocation variation remains a profiling finding.
 Next: [roof-aware rain extinction](tickets/VMC-017b4c.md) and status-effect defenses.
 Native column/sky/climate foundations, fenced owner reads and live rain composition
-pass1,238 full tests/production; full native integration and final client checks remain.
+pass1,238 full tests/production and all required client checks; full native integration
+and matched preview measurements remain.
 Next [contact hazards](tickets/VMC-017b5.md):3,060 native callback requests and three
-targeted checks pass; immunity and live ownership remain. Keep pending checkpoints local.
+targeted checks/baseline pass. Stock immunity matches3,721 native contexts/two tests;
+its baseline, geometry and live ownership remain. Keep pending checkpoints local.
 
 [Automatic item simulation](tickets/VMC-035a6.md),
 [same-owner merging](tickets/VMC-035b.md), [ordinary pickup](tickets/VMC-035c.md),
