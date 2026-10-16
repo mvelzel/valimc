@@ -1,7 +1,8 @@
 # VMC-037f — Speed and Slowness
 
-Status: Native attribute foundation `742a37e`; live admission/replication and stock
-Turtle Master composition pass affected tests locally. Build/TCP/client gates pending.
+Status: Native foundation `742a37e`, live composition `285d983`. Targeted/native
+TCP/production and all focused actual-client groups pass. Larger-block native
+integration remains running; keep this block local until it passes.
 
 Acceptance: native movement-speed modifiers and clamping, active amplifiers,
 expiry/promotion/removal, sprint composition and reconnect. Send authoritative
@@ -59,4 +60,24 @@ Mojang-decoded movement attribute initialization, sprint composition/removal.
 Evidence: `.local/movement-effects-live-{production,native-tcp}.log`. Dedicated
 actual-client validation uses this immutable956-blob release and whole retained
 source/receipt53 dataset `/tmp/valimc-movement-effects-live-client-20261016`.
-The graphical gate is pending; no observed walking-speed verdict claimed yet.
+The actual-client gate passes as recorded below.
+
+Actual26.3 PASS; primary reviewed `.local/client-tests/VMC-037f/report.md` once.
+Matched2000ms held-W gestures show normal8.63–9.06blocks, SpeedI11.13, SpeedII12.39,
+SlownessIV3.62 and promoted SlownessI7.52. These are indicative actual actions,
+not tick-accurate benchmark ratios. Actual stronger/weak drinks promote and expire;
+milk clears both heads and restores normal walking. Actual long Turtle Master
+shows both SlownessIV/ResistanceIII, slower walking and a real walked-off fall
+reduced3→1.2HP damage, without armor/healing or synthetic damage calls. Both-hand
+cancel/full drinks, Speed+Slowness, practical sprint and unsupported mixed
+Speed+Night Vision refusal pass. Fresh Quick Play reconnect retains finite SpeedII,
+one offhand bottle and changed walking; two offline snapshots23.534s apart retain
+829ticks exactly. Final genuine expiry restores normal walking.
+
+All three JVMs stopped; zero players/connections, four regions+clock flush:ok.
+Primary server log review found no gameplay errors; server73547 stopped exit0.
+Final whole dataset retains15.8HP, empty effects, one offhand bottle, food10,
+source/receipt53 and outboxnil. Cleanup: `.local/movement-effects-live-cleanup.log`.
+No claim for complete ground authority/custom gear/Depth Strider or every stock
+variant. Larger-block `cc3dfa5` passes1,330 full tests/build; native integration is
+still running independently.

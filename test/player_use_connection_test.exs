@@ -489,7 +489,13 @@ defmodule Valimc.PlayerUseConnectionTest do
     id = Valimc.Protocol.EffectTypes.id("resistance")
     contents = %{PotionContents.empty() | effects: [{id, [{200, 0, false, true, true}]}]}
     drink = %{ItemStack.new("potion") | components: %{"minecraft:potion_contents" => contents}}
-    mixed = %{contents | effects: contents.effects ++ [{15, [{200, 0, false, true, true}]}]}
+    night_vision = Valimc.Protocol.EffectTypes.id("night_vision")
+
+    mixed = %{
+      contents
+      | effects: contents.effects ++ [{night_vision, [{200, 0, false, true, true}]}]
+    }
+
     turtle = %{drink | components: %{"minecraft:potion_contents" => mixed}}
     seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => drink, 45 => turtle}})
     {client, pid} = login(ctx, 20.0, food)

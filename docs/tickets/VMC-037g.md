@@ -51,3 +51,20 @@ styled item/hover component; item-name alone does not. This named-item message i
 observed but not yet implemented. Capture the original mainhand before replacing
 the consumed container, including when drinking offhand. The new event/template
 helpers are unwired; instant drinking still remains unsupported.
+
+Signed healing foundation: `PlayerHealth.heal/2` matches195 actual native
+`LivingEntity.heal/setHealth` transitions, using the real synchronized health
+accessor with a controlled maximum and unrelated notifications suppressed. Zero,
+subnormal, ordinary, maximum, negative and signed instant requests clamp correctly;
+dead players do not revive. The initial probe tried an incomplete whole-entity
+builder; it now constructs only the real health accessor required by this method.
+44 affected health/request/consumption checks pass(seed946132), including corrected
+Night Vision fixture lookup (the prior numeric15 was another unsupported effect).
+Evidence: `.local/healing-{native-final,native-check-final,targeted-final}.log`.
+This helper is not yet wired into instant consumption or death adjudication.
+
+Larger block integration is frozen at `cc3dfa5` (961 unchanged source blobs):1,330
+full tests and production pass with four BEAM schedulers; full native integration
+is running independently (`.local/effects-integration-{full-tests,production,full-native}.log`).
+That checkpoint contains movement effects and instant request math, before the
+later self-magic and signed-healing helpers; their targeted proofs remain separate.

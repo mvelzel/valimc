@@ -29,6 +29,17 @@ defmodule Valimc.PlayerHealth do
       else: {:error, :invalid_health}
   end
 
+  @doc "Native float healing, including signed requests, without reviving a dead player."
+  def heal(%__MODULE__{} = state, amount) do
+    if valid?(state) and bounded?(amount, -@float_max, @float_max) do
+      if state.value > 0,
+        do: set(state, f32(state.value + f32(amount))),
+        else: {:ok, state}
+    else
+      {:error, :invalid_health}
+    end
+  end
+
   @doc "Select damage after blocking, before armor/absorption and owner commit."
   def hurt_window(%__MODULE__{} = state, amount, bypass_cooldown \\ false) do
     if valid?(state) and bounded?(amount, -@float_max, @float_max) and is_boolean(bypass_cooldown) do
