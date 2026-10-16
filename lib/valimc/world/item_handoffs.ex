@@ -45,6 +45,8 @@ defmodule Valimc.World.ItemHandoffs do
   @doc "Reconstruct the same delivery after recovery; runtime handles never enter its digest."
   def request(%{ledger: %{outgoing: nil}}, _), do: {:error, :missing_item_handoff}
 
+  def request(%{ledger: %{outgoing: %{kind: :merge}}}, _), do: {:error, :not_item_handoff}
+
   def request(%{ledger: ledger}, source) do
     transfer = Map.merge(ledger.outgoing, %{source: source, sequence: ledger.sequence})
     with {:ok, _} <- digest(transfer.destination, transfer), do: {:ok, transfer}
@@ -106,8 +108,8 @@ defmodule Valimc.World.ItemHandoffs do
   # cleared. Retry after clearance; the owner stays free to process that ack.
   defp unreserved(%{ledger: %{outgoing: nil}}, _), do: :ok
 
-  defp unreserved(%{ledger: %{outgoing: outgoing}}, records) do
-    if MapSet.disjoint?(MapSet.new(outgoing.records, & &1.uuid), MapSet.new(records, & &1.uuid)),
+  defp unreserved(items, records) do
+    if not Enum.any?(records, &Items.reserved_uuid?(items, &1.uuid)),
       do: :ok,
       else: {:error, :item_handoff_busy}
   end

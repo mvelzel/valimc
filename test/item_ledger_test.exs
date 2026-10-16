@@ -82,7 +82,7 @@ defmodule Valimc.ItemLedgerTest do
       %{base | generations: %{<<1::128>> => 0}},
       %{base | generations: %{<<99::128>> => 1}},
       %{base | incoming: %{{0, 0} => receipt(1)}},
-      %{base | incoming: %{{1, 0} => %{sequence: 0, digest: <<0::256>>}}},
+      %{base | incoming: %{{1, 0} => %{sequence: 0, digest: <<1::256>>}}},
       %{base | incoming: %{{1, 0} => %{sequence: 1, digest: <<0>>}}},
       Map.put(base, :unknown, true),
       %{},

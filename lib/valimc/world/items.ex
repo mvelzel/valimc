@@ -113,7 +113,7 @@ defmodule Valimc.World.Items do
     cond do
       not valid_position?(position) -> {:error, :invalid_item_position}
       Valimc.World.region_key(Valimc.World.chunk_key(x, z)) != key -> {:error, :wrong_region}
-      map_size(state.entries) >= @max_items -> {:error, :item_count_limit}
+      map_size(state.entries) + return_slots(state) >= @max_items -> {:error, :item_count_limit}
       true -> build_new(state, stack, {x, y, z})
     end
   end
@@ -139,10 +139,10 @@ defmodule Valimc.World.Items do
       match?({:ok, _}, find(state, uuid)) ->
         {:error, :duplicate_item_uuid}
 
-      state.ledger.outgoing != nil and Map.has_key?(state.ledger.outgoing.generations, uuid) ->
+      reserved_uuid?(state, uuid) ->
         {:error, :item_handoff_busy}
 
-      map_size(state.entries) >= @max_items ->
+      map_size(state.entries) + return_slots(state) >= @max_items ->
         {:error, :item_count_limit}
 
       true ->
@@ -176,7 +176,7 @@ defmodule Valimc.World.Items do
 
         bytes = state.bytes - packet_bytes(state.views[id].metadata) + packet_bytes(metadata)
 
-        if bytes <= @max_bytes do
+        if bytes + return_bytes(state) <= @max_bytes do
           entry = %{
             entry
             | stack: stack,
@@ -289,7 +289,7 @@ defmodule Valimc.World.Items do
 
         bytes = state.bytes - view_bytes(old) + view_bytes(view)
 
-        if bytes <= @max_bytes do
+        if bytes + return_bytes(state) <= @max_bytes do
           entry =
             %{
               entry
@@ -367,7 +367,7 @@ defmodule Valimc.World.Items do
     bytes =
       state.bytes + Enum.sum(Enum.map([spawn, metadata, position, velocity], &packet_bytes/1))
 
-    if bytes <= @max_bytes do
+    if bytes + return_bytes(state) <= @max_bytes do
       view = %{
         entity_id: id,
         uuid: uuid,
@@ -409,6 +409,24 @@ defmodule Valimc.World.Items do
   end
 
   defp build_entity(_, _, _, _, _, _), do: {:error, :entity_id_exhausted}
+
+  def return_capacity?(state),
+    do:
+      map_size(state.entries) + return_slots(state) <= @max_items and
+        state.bytes + return_bytes(state) <= @max_bytes
+
+  def reserved_uuid?(%{ledger: %{outgoing: %{kind: :merge, request: request}}}, uuid),
+    do: request.donor.uuid == uuid
+
+  def reserved_uuid?(%{ledger: %{outgoing: %{generations: generations}}}, uuid),
+    do: Map.has_key?(generations, uuid)
+
+  def reserved_uuid?(_, _), do: false
+
+  defp return_slots(%{ledger: %{outgoing: %{kind: :merge}}}), do: 1
+  defp return_slots(_), do: 0
+  defp return_bytes(%{ledger: %{outgoing: %{kind: :merge, return_bytes: bytes}}}), do: bytes
+  defp return_bytes(_), do: 0
 
   defp valid_record_motion?(record) do
     case Map.fetch(record, :motion) do

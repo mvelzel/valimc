@@ -1776,6 +1776,9 @@ defmodule Valimc.World.RegionData do
   defp resume_item_handoff(%{items: %{ledger: %{outgoing: nil}}} = state),
     do: %{state | item_handoff: nil}
 
+  # Cross-owner merge journals have their own future receipt/recovery driver.
+  defp resume_item_handoff(%{items: %{ledger: %{outgoing: %{kind: :merge}}}} = state), do: state
+
   defp resume_item_handoff(%{item_handoff: nil} = state), do: schedule_handoff_retry(state, 0)
   defp resume_item_handoff(state), do: state
 

@@ -1,6 +1,6 @@
 defmodule Valimc.World.ItemLedger do
   @moduledoc "Bounded regional handoff metadata around unchanged legacy player-item records."
-  alias Valimc.World.ItemRecords
+  alias Valimc.World.{ItemRecords, ItemMergeTransfer, OwnerItemReceipts}
   defstruct sequence: 0, outgoing: nil, incoming: %{}, generations: %{}
   @max_sequence 18_446_744_073_709_551_615
   @max_receipts 4096
@@ -109,6 +109,11 @@ defmodule Valimc.World.ItemLedger do
 
   defp outgoing(nil), do: <<0>>
 
+  defp outgoing(%{kind: :merge, request: request}) do
+    {:ok, bytes} = ItemMergeTransfer.encode(request)
+    <<2, byte_size(bytes)::32, bytes::binary>>
+  end
+
   defp outgoing(%{destination: {x, z}, records: records, generations: hops}) do
     records = Enum.sort_by(records, & &1.uuid)
     {:ok, bytes} = ItemRecords.encode({x, z}, records)
@@ -122,6 +127,14 @@ defmodule Valimc.World.ItemLedger do
   end
 
   defp take_outgoing(<<0>>), do: nil
+
+  defp take_outgoing(<<2, length::32, rest::binary>>) do
+    true = length <= ItemMergeTransfer.max_bytes()
+    <<bytes::binary-size(^length)>> = rest
+    {:ok, request} = ItemMergeTransfer.decode(bytes)
+    {:ok, escrow} = ItemMergeTransfer.escrow(request)
+    escrow
+  end
 
   defp take_outgoing(<<1, x::signed-32, z::signed-32, length::32, rest::binary>>) do
     true = length <= @outgoing_bytes
@@ -138,12 +151,10 @@ defmodule Valimc.World.ItemLedger do
 
   defp valid?(key, records, %__MODULE__{} = ledger) do
     map_size(ledger) == 5 and region?(key) and sequence?(ledger.sequence, true) and
-      is_list(records) and length(Enum.take(records, 257)) <= 256 and
+      is_list(records) and length(Enum.take(records, 257)) + return_slots(ledger.outgoing) <= 256 and
       is_map(ledger.incoming) and map_size(ledger.incoming) <= @max_receipts and
       Enum.all?(ledger.incoming, fn {source, r} ->
-        region?(source) and source != key and is_map(r) and map_size(r) == 2 and
-          sequence?(Map.get(r, :sequence), false) and
-          is_binary(Map.get(r, :digest)) and byte_size(r.digest) == 32
+        region?(source) and source != key and OwnerItemReceipts.valid?(r)
       end) and valid_generations?(ledger.generations, records, false) and
       valid_outgoing?(ledger.outgoing, key, ledger.sequence) and
       disjoint?(records, ledger.outgoing)
@@ -152,6 +163,14 @@ defmodule Valimc.World.ItemLedger do
   defp valid?(_, _, _), do: false
 
   defp valid_outgoing?(nil, _, _), do: true
+
+  defp valid_outgoing?(%{kind: :merge, request: request} = outgoing, key, sequence) do
+    request.source == key and request.sequence == sequence and
+      case ItemMergeTransfer.escrow(request) do
+        {:ok, ^outgoing} -> true
+        _ -> false
+      end
+  end
 
   defp valid_outgoing?(
          %{destination: destination, records: records, generations: hops} = outgoing,
@@ -183,9 +202,15 @@ defmodule Valimc.World.ItemLedger do
 
   defp disjoint?(_, nil), do: true
 
+  defp disjoint?(owned, %{kind: :merge, request: request}),
+    do: not Enum.any?(owned, &(&1.uuid == request.donor.uuid))
+
   defp disjoint?(owned, %{records: outgoing}) do
     MapSet.disjoint?(MapSet.new(owned, & &1.uuid), MapSet.new(outgoing, & &1.uuid))
   end
+
+  defp return_slots(%{kind: :merge}), do: 1
+  defp return_slots(_), do: 0
 
   defp region?({x, z}),
     do:
