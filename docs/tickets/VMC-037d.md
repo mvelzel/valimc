@@ -1,7 +1,7 @@
 # VMC-037d — Periodic health effects
 
-Status: Owned composition `5b123b1` passes automated checks/build. Full native
-integration and actual-client validation are running; keep this block unpushed.
+Status: Owned composition `5b123b1` passes automated checks/build and all actual
+client groups. Full native integration is still running; keep this block unpushed.
 
 Acceptance: Regeneration, poison and wither execute on the existing player clock
 with native active-head timing, finite/infinite duration, amplifier shift behavior,
@@ -62,8 +62,7 @@ once through source/receipt completion. Raw logs:
 `.local/periodic-live-targeted-final.log`, `.local/periodic-live-recovery-targeted.log`.
 Initial tests exposed the missing packet-source allowlist and a test helper that
 incorrectly required idle geometry to run; both corrected. The idle sample
-optimization is unchanged. GUI hearts/timers/drinking/expiry/negatives/death/
-respawn/reconnect remain required before acceptance.
+optimization is unchanged. Actual-client evidence follows.
 
 Frozen `5b123b1` passes1,302 full tests(seed458956) and production release. The
 complete native integration script is running against that same immutable941-blob
@@ -71,3 +70,21 @@ checkpoint, independent of the client test. Logs:
 `.local/periodic-live-{full-tests,production,full-native}.log`. The client tester
 uses a whole25-file clone of the stopped source/receipt51 dataset at
 `/tmp/valimc-periodic-live-client-20261016`; root owns server shutdown after testing.
+
+Actual26.3 client PASS, tester report reviewed once:
+`.local/client-tests/VMC-037d/report.md`. Actual drinks demonstrate regeneration
+four+1HP/50tick events and expiry, poison25tick damage/floor/expiry, lethal
+wither40tick damage/native translated death and actual Respawn. Two actual
+regeneration drinks demonstrate stronger-head1250ms healing then weaker-head
+2500ms promotion. Actual canceled poison and unsupported Night Vision remain
+intact. Actual geared poison/wither bypass Fire Resistance, retain Protection
+reduction and no armor wear; creative/spectator negatives use labeled fixtures.
+Fresh reconnect preserves finite state/health/bottle without offline advancement
+or replay. Exact intervals use read-only traces with scheduling tolerance;
+infinite/high-amplifier/zero boundaries remain native/deterministic proofs.
+
+Death52 and subsequent pickup53 are retained, source/receipt53 and outboxnil.
+Final20HP/regen534ticks, seven bottles and retained canceled/unsupported potions.
+Both owned client JVMs stopped, zero players/connections, five region flushes and
+clock:ok. Primary reviewed the server session: no gameplay errors; server stopped
+cleanly. Full native completion remains the only block integration gate.

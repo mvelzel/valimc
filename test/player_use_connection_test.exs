@@ -141,6 +141,7 @@ defmodule Valimc.PlayerUseConnectionTest do
       health: %PlayerHealth{value: health},
       last_death: nil,
       air_supply: 300,
+      effects: Keyword.get(opts, :effects, %{}),
       food: food
     }
 
@@ -475,6 +476,199 @@ defmodule Valimc.PlayerUseConnectionTest do
     assert saved.inventory.slots == state(pid).inventory.slots
   end
 
+  for {hand, slot} <- [{:main, 36}, {:off, 45}] do
+    test "#{hand} milk clears hidden and unrelated statuses atomically even with full inventory",
+         ctx do
+      food = %PlayerFood{}
+      drink = ItemStack.new("milk_bucket")
+      slots = Map.new(9..44, &{&1, ItemStack.new("stone", 64)}) |> Map.put(unquote(slot), drink)
+      seed(ctx, food, 20.0, inventory: %Inventory{slots: slots})
+      {client, pid} = login(ctx, 20.0, food)
+
+      ids =
+        Enum.map(
+          ~w(regeneration fire_resistance water_breathing poison),
+          &Valimc.Protocol.EffectTypes.id/1
+        )
+
+      for id <- ids do
+        {:ok, effect} = Valimc.StatusEffect.new(600, 0)
+        assert {:ok, true} = Connection.add_effect(pid, id, effect)
+      end
+
+      {:ok, hidden} = Valimc.StatusEffect.new(200, 2)
+      assert {:ok, true} = Connection.add_effect(pid, 11, hidden)
+      client = use_hand(client, pid, unquote(hand))
+      ticks(pid, 31)
+      assert map_size(state(pid).player.effects) == 4 and state(pid).inventory.slots == slots
+      tick(pid)
+      {<<entity::signed-32, 9>>, client} = Client.await(client, :play, "entity_event")
+
+      _client =
+        Enum.reduce(Enum.sort(ids), client, fn expected, client ->
+          {body, client} = Client.await(client, :play, "remove_mob_effect")
+          {^entity, rest} = Wire.take_varint(body)
+          assert {^expected, <<>>} = Wire.take_varint(rest)
+          client
+        end)
+
+      assert state(pid).player.effects == %{} and state(pid).player.food == food
+      assert state(pid).inventory.slots == Map.put(slots, unquote(slot), ItemStack.new("bucket"))
+      health = state(pid).player.health.value
+      ticks(pid, 50)
+      assert state(pid).player.health.value == health
+      wait(fn -> state(pid).use_save == nil end)
+      Client.close(client)
+      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+
+      assert saved.effects == %{} and
+               saved.inventory.slots[unquote(slot)] == ItemStack.new("bucket")
+
+      assert saved.food == food and saved.health.value == health
+    end
+  end
+
+  test "honey uses forty ticks, clears poison only, adds nutrition and inserts its bottle alongside remaining honey",
+       ctx do
+    food = %PlayerFood{level: 5, saturation: 0.0}
+    drink = ItemStack.new("honey_bottle", 2)
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{45 => drink}})
+    {client, pid} = login(ctx, 20.0, food)
+    poison = Valimc.Protocol.EffectTypes.id("poison")
+    {:ok, venom} = Valimc.StatusEffect.new(100, 0)
+    {:ok, fire} = Valimc.StatusEffect.new(-1, 0)
+    assert {:ok, true} = Connection.add_effect(pid, poison, venom)
+    assert {:ok, true} = Connection.add_effect(pid, 11, fire)
+    client = use_hand(client, pid, :off)
+    ticks(pid, 39)
+    assert state(pid).player.effects[poison] != nil and state(pid).inventory.slots[45] == drink
+    tick(pid)
+    {body, _client} = Client.await(client, :play, "remove_mob_effect")
+    {_entity, rest} = Wire.take_varint(body)
+    assert {^poison, <<>>} = Wire.take_varint(rest)
+    assert state(pid).player.effects == %{11 => [{-1, 0, false, true, true}]}
+    assert state(pid).player.food == %PlayerFood{level: 11, saturation: 1.2000000476837158}
+
+    assert state(pid).inventory.slots == %{
+             36 => ItemStack.new("glass_bottle"),
+             45 => ItemStack.new("honey_bottle")
+           }
+
+    health = state(pid).player.health.value
+    ticks(pid, 30)
+    assert state(pid).player.health.value == health
+    wait(fn -> state(pid).use_save == nil end)
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.effects == %{11 => [{-1, 0, false, true, true}]}
+    assert saved.inventory.slots[36] == ItemStack.new("glass_bottle")
+    assert saved.inventory.slots[45] == ItemStack.new("honey_bottle")
+  end
+
+  test "canceled milk and unsupported honey overflow never clear effects or consume inventory/food",
+       ctx do
+    food = %PlayerFood{level: 5, saturation: 0.0}
+
+    slots =
+      Map.new(9..44, &{&1, ItemStack.new("stone", 64)})
+      |> Map.put(36, ItemStack.new("honey_bottle", 2))
+      |> Map.put(45, ItemStack.new("milk_bucket"))
+
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: slots})
+    {client, pid} = login(ctx, 20.0, food)
+    id = Valimc.Protocol.EffectTypes.id("poison")
+    {:ok, effect} = Valimc.StatusEffect.new(-1, 0)
+    assert {:ok, true} = Connection.add_effect(pid, id, effect)
+    client = use_hand(client, pid, :off)
+    ticks(pid, 10)
+    _client = action(client, "release_use_item")
+    wait(fn -> state(pid).active_use == nil end)
+    client = use_hand(client, pid, :main, 2)
+    ticks(pid, 40)
+    assert state(pid).player.effects == %{id => [{-1, 0, false, true, true}]}
+    assert state(pid).inventory.slots == slots and state(pid).player.food == food
+    assert state(pid).active_use == nil and state(pid).use_save == nil
+    Client.close(client)
+  end
+
+  test "creative milk clears status while retaining its bucket item and producing no remainder",
+       ctx do
+    food = %PlayerFood{}
+    drink = ItemStack.new("milk_bucket")
+    seed(ctx, food, 20.0, mode: :creative, inventory: %Inventory{slots: %{36 => drink}})
+    {client, pid} = login(ctx, 20.0, food)
+    {:ok, effect} = Valimc.StatusEffect.new(-1, 0)
+    assert {:ok, true} = Connection.add_effect(pid, 11, effect)
+    _client = use_hand(client, pid)
+    ticks(pid, 32)
+    assert state(pid).player.effects == %{} and state(pid).inventory.slots == %{36 => drink}
+    assert state(pid).player.food == food
+  end
+
+  for {name, duration, remainder} <- [
+        {"milk_bucket", 32, "bucket"},
+        {"honey_bottle", 40, "glass_bottle"}
+      ] do
+    test "#{name} remains consumable at full food with no matching effects", ctx do
+      food = %PlayerFood{}
+      seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => ItemStack.new(unquote(name))}})
+      {client, pid} = login(ctx, 20.0, food)
+      _client = use_hand(client, pid)
+      ticks(pid, unquote(duration))
+      assert state(pid).player.effects == %{} and state(pid).player.food.level == 20
+      assert state(pid).inventory.slots == %{36 => ItemStack.new(unquote(remainder))}
+      assert state(pid).active_use == nil
+    end
+  end
+
+  test "a stalled milk checkpoint cannot restore removed effects or rewind a later owned grant",
+       ctx do
+    food = %PlayerFood{level: 5, saturation: 0.0}
+
+    seed(ctx, food, 20.0,
+      inventory: %Inventory{slots: %{36 => ItemStack.new("milk_bucket")}},
+      effects: %{11 => [{-1, 0, false, true, true}]}
+    )
+
+    {client, pid} = login(ctx, 20.0, food)
+    _client = use_hand(client, pid)
+    store = state(pid).player_store
+    :sys.suspend(store)
+
+    try do
+      ticks(pid, 32)
+      assert state(pid).player.effects == %{} and state(pid).use_save != nil
+      {:ok, later} = Valimc.StatusEffect.new(200, 0)
+      assert {:ok, true} = Connection.add_effect(pid, 12, later)
+      ticks(pid, 3)
+      :sys.resume(store)
+      wait(fn -> state(pid).use_save == nil end)
+      assert state(pid).player.effects == %{12 => [{197, 0, false, true, true}]}
+      Client.close(client)
+      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+      assert saved.effects == %{12 => [{197, 0, false, true, true}]}
+      assert saved.inventory.slots == %{36 => ItemStack.new("bucket")}
+    after
+      if Process.alive?(store), do: :sys.resume(store)
+    end
+  end
+
+  test "an introduced potion listener on milk stays refused instead of silently clearing effects",
+       ctx do
+    food = %PlayerFood{}
+    milk = %{ItemStack.new("milk_bucket") | components: potion("fire_resistance").components}
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => milk}})
+    {client, pid} = login(ctx, 20.0, food)
+    {:ok, effect} = Valimc.StatusEffect.new(-1, 0)
+    assert {:ok, true} = Connection.add_effect(pid, 12, effect)
+    _client = use_hand(client, pid)
+    assert state(pid).active_use == nil and state(pid).inventory.slots[36] == milk
+    assert state(pid).player.effects == %{12 => [{-1, 0, false, true, true}]}
+  end
+
   for {name, delta} <- [{"regeneration", 1.0}, {"poison", -1.0}] do
     test "#{name} drinking checkpoints delivery before its first periodic health action", ctx do
       food = %PlayerFood{level: 5, saturation: 0.0}
@@ -678,7 +872,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     wait(fn -> state(pid).save_ref == nil end)
 
     for {name, seq} <-
-          Enum.with_index(["honey_bottle", "suspicious_stew", "milk_bucket"], 3) do
+          Enum.with_index(["golden_apple", "suspicious_stew", "enchanted_golden_apple"], 3) do
       :sys.replace_state(pid, fn s ->
         %{s | inventory: %{s.inventory | slots: %{36 => ItemStack.new(name)}}}
       end)

@@ -20,6 +20,7 @@ defmodule Valimc.Connection do
 
   alias Valimc.{
     CreativeInput,
+    ConsumableRemoval,
     FoodItems,
     GameMode,
     Inventory,
@@ -1460,7 +1461,10 @@ defmodule Valimc.Connection do
           else: :unsupported
 
       true ->
-        :unsupported
+        case ConsumableRemoval.policy(stack, props) do
+          {:ok, policy} -> {:ok, {:remove, policy}}
+          :unsupported -> :unsupported
+        end
     end
   end
 
@@ -1535,17 +1539,7 @@ defmodule Valimc.Connection do
               do: PlayerFood.eat(state.player.food, props.food.nutrition, props.food.saturation),
               else: state.player.food
 
-          {effect_packets, effects} =
-            Enum.map_reduce(incoming, state.player.effects, fn {id, value}, effects ->
-              new = not Map.has_key?(effects, id)
-              {:ok, next, changed} = PlayerEffects.add(effects, id, value)
-
-              packet =
-                if changed,
-                  do: Packets.update_effect(state.player.entity_id, id, hd(next[id]), new)
-
-              {packet, next}
-            end)
+          {effect_packets, effects} = consumed_effects(state.player, incoming)
 
           player = %{state.player | food: food, effects: effects}
           # One checkpoint owns nutrition, effects, consumption and remainder.
@@ -1583,6 +1577,24 @@ defmodule Valimc.Connection do
       :unsupported ->
         state |> stop_item_use() |> resync_inventory()
     end
+  end
+
+  defp consumed_effects(player, {:remove, policy}) do
+    {:ok, effects, removed} = ConsumableRemoval.apply(player.effects, policy)
+    {Enum.map(removed, &Packets.remove_effect(player.entity_id, &1)), effects}
+  end
+
+  defp consumed_effects(player, additions) when is_list(additions) do
+    Enum.map_reduce(additions, player.effects, fn {id, value}, effects ->
+      new = not Map.has_key?(effects, id)
+      {:ok, next, changed} = PlayerEffects.add(effects, id, value)
+
+      packet =
+        if changed,
+          do: Packets.update_effect(player.entity_id, id, hd(next[id]), new)
+
+      {packet, next}
+    end)
   end
 
   defp apply_movement_exhaustion(%{player: %{abilities: %{invulnerable: true}}} = state, _),

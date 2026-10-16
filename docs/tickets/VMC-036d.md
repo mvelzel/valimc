@@ -1,7 +1,7 @@
 # VMC-036d — Milk and honey effect removal
 
-Status: Native removal foundation verified locally; no live support yet.
-Keep it local pending owned composition and its client gate.
+Status: Native foundation `51fe9be` and owned consumption verified locally.
+Production/native TCP and actual-client gates remain; keep this slice unpushed.
 
 Acceptance: Milk removes all active/suppressed effects, honey removes poison
 only. Use native durations, nutrition/eligibility, cancellation, both hands,
@@ -31,3 +31,20 @@ Eight affected tests pass(seed225739). Evidence:
 `.local/consumable-removal-{native,native-check,targeted}.log`. The probe excludes
 health/attributes, nutrition, consumption/counts, persistence and actual-client
 behavior; those remain composition/GUI gates.
+
+Owned completion now folds either potion additions or the explicit stock removal
+policy into the same nutrition/effects/inventory/remainder checkpoint. Removal
+packets follow native use-finished notification; no extra process/timer. Ordinary
+milk/honey consume even when no effect matches. Creative removes effects while
+retaining the held item; honey's excess bottle uses existing bounded inventory
+insertion. Unhandled overflow refuses food/effect/count mutation together.
+
+87 affected checks pass(seed666961): both hands,32/40tick completion, full storage,
+hidden/unrelated removal, poison-only honey with nutrition and selected-hotbar
+bottle insertion, cancellation, empty effects/full food, creative, introduced
+listener refusal, and reconnect saves. A suspended milk writer cannot restore a
+removed status or rewind a later grant. Evidence:
+`.local/consumable-removal-live-targeted-final.log`. The first run exposed stale
+unsupported-item/slot expectations, corrected to match the new support and native
+inventory insertion. Production, both native TCP transports and actual CUA
+milk/honey use/removal/containers/negatives/reconnect remain before acceptance.
