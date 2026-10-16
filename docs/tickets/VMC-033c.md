@@ -1,6 +1,6 @@
 # VMC-033c — Player crafting result gestures
 
-Status: Automated-verified; actual client pending. October 16, 2026.
+Status: Done within drop-free gesture scope. October 16, 2026; `b3060b6`.
 Parent: VMC-033; builds on VMC-033b.
 
 Acceptance: native-verified result shift, hotbar/offhand swap and creative clone
@@ -45,7 +45,24 @@ of silently filtering them. Prior3,536 manual-menu contexts remain required.
 86 affected tests pass (seed953502), including live shift/swap/correction packets,
 partial-plan rollback, exact reverse storage, changed-recipe stop and clone
 permission. Logs `.local/player-crafting-gestures-{native,check,tests}.log` and
-`.local/player-crafting-menu-{native,check}.log`. Actual client gate remains open;
+`.local/player-crafting-menu-{native,check}.log`. Accepted client evidence follows;
 this ticket is the drop-free gesture slice, not completed result-drop support.
 The eight focused result/TCP tests also pass (seed141568), including positive
 clone and revoked-permission correction with exact ingredients retained.
+
+October16 actual Java26.3/protocol777 verification on frozen checkpoint
+`5a004e64b76042f17c07ba564a28ca7b5e30c590`: dedicated SDL tester reports
+PASS for Shift log17→planks64 in44 plus4 in43; number9 single craft,
+occupied matching hotbar target no-op and F single craft to offhand;
+partial-capacity Shift refusal preserves log2/planks62/storage/cursor exactly;
+close and fresh direct reconnect preserve storage and clear derived result.
+All689 checkpoint blobs and loaded production Inventory BEAM/cwd/PID checked.
+Four fresh direct QuickPlay clients stopped via their tracked wrappers and JVM
+absence checked. Full snapshot restored except latest source58/nil outbox;
+all56 old item records retained exact, legitimate close-cleanup log2 record
+and region0 receipt58 retained, all other receipts exact. Raw detailed report,
+action/RPC logs and full snapshot/item evidence are ignored under
+`.local/client-tests/VMC-033c/`. Optional entirely full capacity was not separately
+exercised. No graphical creative-clone claim or result-drop support claim;
+VMC-033d remains a separate boundary. Primary reviewed and accepted this report;
+the drop-free gesture slice is complete.

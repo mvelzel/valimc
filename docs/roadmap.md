@@ -155,7 +155,9 @@ indexes validated tickets. None imply full parity.
    and cursor/cleanup boundaries. Production and actual recipes/refusals/cleanup/
    reconnect passed (`adfb228`); the manual slice is complete.
    [Result gestures](tickets/VMC-033c.md) pass86 affected checks and3,642 native
-   contexts;112 overflow plans remain refused pending recipe-conversion transfers.
+   contexts; production and actual shift/number/offhand/refusal/reconnect passed
+   (`b3060b6`). The drop-free slice is complete;112 overflow plans remain refused
+   at that checkpoint. [Durable crafting drops](tickets/VMC-033d.md) follows.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 [VMC-003c](tickets/VMC-003c.md)'s direct local test-client lifecycle is complete:
@@ -167,7 +169,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-033c](tickets/VMC-033c.md) | Result shift/swap/clone and overflow refusal | Local checkpoint; waits for sole tester |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 
