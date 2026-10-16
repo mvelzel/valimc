@@ -30,33 +30,24 @@ Enum.each(cases, fn [creative, before, cursor, [[action, slot, button]], expecte
   initial = %Inventory{infinite_materials: creative, slots: slots, carried: stack.(cursor)}
   observed = Inventory.plan_click(initial, Enum.at(actions, action), slot, button)
 
-  if drops != [] do
-    unless observed == {:error, :unsupported_crafting_overflow},
-      do:
-        raise(
-          "Crafting overflow was not refused #{inspect({creative, before, cursor, action, button, drops, observed})}"
-        )
-  else
-    case observed do
-      {:ok, result, []} ->
-        unless Inventory.display_contents(result) == Enum.map(expected, stack) and
-                 result.carried == stack.(carried) and Inventory.get(result, 0) == nil,
-               do:
-                 raise(
-                   "Native result gesture differs #{inspect({creative, before, cursor, action, button, expected, carried, result})}"
-                 )
+  case observed do
+    {:ok, result, stacks} ->
+      unless Inventory.display_contents(result) == Enum.map(expected, stack) and
+               result.carried == stack.(carried) and Inventory.get(result, 0) == nil and
+               stacks == Enum.map(drops, stack),
+             do:
+               raise(
+                 "Native result gesture differs #{inspect({creative, before, cursor, action, button, expected, carried, result})}"
+               )
 
-      other ->
-        raise(
-          "Native result gesture refused #{inspect({creative, before, cursor, action, button, other})}"
-        )
-    end
+    other ->
+      raise(
+        "Native result gesture refused #{inspect({creative, before, cursor, action, button, other})}"
+      )
   end
 end)
 
-unless length(cases) == 3_754 and Enum.count(cases, &(List.last(&1) != [])) == 112,
+unless length(cases) == 9_466 and Enum.count(cases, &(List.last(&1) != [])) == 2_968,
   do: raise("Incomplete native result gesture coverage")
 
-IO.puts(
-  "PASS:3642 native result gesture contexts and112 native overflow plans explicitly refused."
-)
+IO.puts("PASS:9466 native result gestures, including2968 exact single-output drop plans.")

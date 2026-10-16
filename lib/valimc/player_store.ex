@@ -60,6 +60,13 @@ defmodule Valimc.PlayerStore do
   def prepare_transfer(pid, fence, before, after_snapshot, key, records, ref),
     do: GenServer.cast(pid, {:prepare, self(), fence, before, after_snapshot, key, records, ref})
 
+  def prepare_crafting(pid, fence, before, after_snapshot, key, records, gesture, ref),
+    do:
+      GenServer.cast(
+        pid,
+        {:prepare_crafting, self(), fence, before, after_snapshot, key, records, gesture, ref}
+      )
+
   def prepare_death(pid, fence, before, after_snapshot, key, records, ref),
     do:
       GenServer.cast(
@@ -250,6 +257,23 @@ defmodule Valimc.PlayerStore do
         after_snapshot,
         key,
         records
+      )
+    end)
+  end
+
+  def handle_cast(
+        {:prepare_crafting, owner, fence, before, after_snapshot, key, records, gesture, ref},
+        %{owner: owner} = state
+      ) do
+    prepare_plan(state, fence, ref, fn ->
+      Valimc.PlayerCraftingTransfers.prepare(
+        state.uuid,
+        sequence(state),
+        before,
+        after_snapshot,
+        key,
+        records,
+        gesture
       )
     end)
   end

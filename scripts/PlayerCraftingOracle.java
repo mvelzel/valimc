@@ -189,6 +189,28 @@ public class PlayerCraftingOracle {
     Files.writeString(Path.of(path),new Gson().toJson(cases));
     System.out.println("PASS: "+cases.size()+" actual native result gesture contexts, including overflow drops and changed recipes.");
   }
+  static void drops(RecipeManager manager,String path)throws Exception {
+    gestures(manager,path);
+    var cases=JsonParser.parseString(Files.readString(Path.of(path))).getAsJsonArray();
+    var profiles=JsonParser.parseString(Files.readString(Path.of("priv/crafting/player_recipes.json"))).getAsJsonObject().getAsJsonArray("recipes");
+    for(var entry:profiles) {
+      var profile=entry.getAsJsonObject();
+      int width=profile.get("width").getAsInt();
+      var ingredients=profile.getAsJsonArray("ingredients");
+      var slots=new HashMap<Integer,ItemStack>();
+      for(int i=0;i<ingredients.size();i++)if(!ingredients.get(i).isJsonNull()) {
+        int id=ingredients.get(i).getAsJsonArray().get(0).getAsInt();
+        int slot=width==0?i:i/width*2+i%width;
+        var input=new ItemStack(BuiltInRegistries.ITEM.byId(id));
+        input.setCount(Math.min(2,input.getMaxStackSize()));
+        slots.put(slot+1,input);
+      }
+      for(boolean creative:new boolean[]{false,true})for(int button:new int[]{0,2,-1})for(boolean cursor:new boolean[]{false,true})
+        observeMenu(manager,cases,creative,slots,cursor?stack("stone",1):ItemStack.EMPTY,new int[][]{{net.minecraft.world.inventory.ContainerInput.THROW.ordinal(),0,button}});
+    }
+    Files.writeString(Path.of(path),new Gson().toJson(cases));
+    System.out.println("PASS: "+cases.size()+" actual native single result-drop and gesture contexts.");
+  }
   @SuppressWarnings("unchecked") static List<Optional<Ingredient>> ingredients(CraftingRecipe r)throws Exception {
     if(r instanceof ShapedRecipe s)return s.getIngredients();
     var f=ShapelessRecipe.class.getDeclaredField("ingredients");
@@ -330,6 +352,10 @@ public class PlayerCraftingOracle {
       }
       if(args[0].equals("gestures")) {
         gestures(manager,args[1]);
+        return;
+      }
+      if(args[0].equals("drops")) {
+        drops(manager,args[1]);
         return;
       }
       for(var holder:manager.getRecipes()) {

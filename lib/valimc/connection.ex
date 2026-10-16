@@ -2808,11 +2808,13 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp start_inventory_transfer(state, _, _)
+  defp start_inventory_transfer(state, inventory, stacks, crafting \\ nil)
+
+  defp start_inventory_transfer(state, _, _, _)
        when inventory_pending(state) or state.save_ref != nil,
        do: resync_inventory(state)
 
-  defp start_inventory_transfer(state, inventory, stacks) do
+  defp start_inventory_transfer(state, inventory, stacks, crafting) do
     # Standing preview eye height minus vanilla's float32 0.3 offset.
     # These entities remain stationary until authoritative item physics exists.
     records =
@@ -2835,15 +2837,31 @@ defmodule Valimc.Connection do
         plan: %{key: key, records: records, inventory: inventory}
     }
 
-    PlayerStore.prepare_transfer(
-      state.player_store,
-      state.store_fence,
-      PlayerSnapshot.capture(state.player, state.inventory),
-      PlayerSnapshot.capture(state.player, inventory),
-      key,
-      records,
-      ref
-    )
+    before = PlayerSnapshot.capture(state.player, state.inventory)
+    after_snapshot = PlayerSnapshot.capture(state.player, inventory)
+
+    if crafting,
+      do:
+        PlayerStore.prepare_crafting(
+          state.player_store,
+          state.store_fence,
+          before,
+          after_snapshot,
+          key,
+          records,
+          crafting,
+          ref
+        ),
+      else:
+        PlayerStore.prepare_transfer(
+          state.player_store,
+          state.store_fence,
+          before,
+          after_snapshot,
+          key,
+          records,
+          ref
+        )
 
     resync_inventory(%{state | recovery: recovery})
   end
@@ -3398,7 +3416,8 @@ defmodule Valimc.Connection do
             %{state | inventory: inventory}
 
           {:ok, inventory, [_ | _] = stacks} ->
-            start_inventory_transfer(state, inventory, stacks)
+            crafting = if click.slot == 0, do: {click.action, click.button}
+            start_inventory_transfer(state, inventory, stacks, crafting)
 
           {:error, _} ->
             send_packets(state, [

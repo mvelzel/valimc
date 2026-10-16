@@ -33,7 +33,7 @@ defmodule Valimc.PlayerCraftingConnectionTest do
       File.rm_rf!(base)
     end)
 
-    %{base: base, name: name, uuid: uuid, pose: pose}
+    %{base: base, name: name, uuid: uuid, pose: pose, key: key}
   end
 
   defp wait(fun, attempts \\ 1_000) do
@@ -83,6 +83,13 @@ defmodule Valimc.PlayerCraftingConnectionTest do
     client
   end
 
+  defp inventory_until(client, predicate) do
+    {body, client} = Client.await(client, :play, "container_set_content")
+    client = Client.auto_reply(client, :play, "container_set_content", body)
+    {_, client} = Client.await(client, :play, "set_cursor_item")
+    if predicate.(client.inventory), do: client, else: inventory_until(client, predicate)
+  end
+
   test "live survival result packets craft one recipe, close physical items and reconnect exactly",
        ctx do
     seed(ctx, %{36 => ItemStack.new("oak_log", 2)})
@@ -120,7 +127,7 @@ defmodule Valimc.PlayerCraftingConnectionTest do
              saved.transfer_sequence == 0
   end
 
-  test "mixed ingredient clicks derive sticks; incompatible/full cursor and result throw refuse",
+  test "mixed ingredient clicks derive sticks; incompatible/full cursors refuse",
        ctx do
     seed(ctx, %{
       36 => ItemStack.new("oak_planks", 2),
@@ -137,7 +144,7 @@ defmodule Valimc.PlayerCraftingConnectionTest do
     client = client |> click(38) |> click(2, 1) |> click(0)
     assert client.inventory.carried == ItemStack.new("oak_planks")
     assert Enum.at(client.inventory.items, 2) == ItemStack.new("oak_planks")
-    client = client |> click(2) |> click(0, 0, "throw")
+    client = click(client, 2)
     assert client.inventory.carried == nil
     assert Enum.at(client.inventory.items, 2) == ItemStack.new("oak_planks", 2)
     client = click(client, 0)
@@ -148,37 +155,82 @@ defmodule Valimc.PlayerCraftingConnectionTest do
     assert :sys.get_state(owner).recovery == nil
   end
 
-  test "result shift/swap packets consume inputs and correct partial-overflow predictions", ctx do
-    seed(ctx, %{36 => ItemStack.new("oak_log", 17)})
+  test "result shift and empty hotbar/offhand swaps consume exact inputs", ctx do
+    seed(ctx, %{36 => ItemStack.new("oak_log", 17), 37 => ItemStack.new("oak_log", 2)})
     {client, owner} = login(ctx)
     client = client |> click(36) |> click(1) |> click(0, 0, "quick_move")
     assert Enum.at(client.inventory.items, 44) == ItemStack.new("oak_planks", 64)
     assert Enum.at(client.inventory.items, 43) == ItemStack.new("oak_planks", 4)
     assert hd(client.inventory.items) == nil and Enum.at(client.inventory.items, 1) == nil
-    inv = %Inventory{slots: Map.new(9..44, &{&1, ItemStack.new("bedrock", 64)})}
-
-    inv = %{
-      inv
-      | slots:
-          Map.merge(inv.slots, %{
-            1 => ItemStack.new("oak_log", 2),
-            44 => ItemStack.new("oak_planks", 62)
-          })
-    }
-
-    :sys.replace_state(owner, fn state -> %{state | inventory: inv} end)
-    client = click(client, 0, 0, "quick_move")
-    assert Enum.at(client.inventory.items, 1) == ItemStack.new("oak_log", 2)
-    assert Enum.at(client.inventory.items, 44) == ItemStack.new("oak_planks", 62)
-
-    :sys.replace_state(owner, fn state ->
-      %{state | inventory: %{state.inventory | slots: Map.delete(state.inventory.slots, 36)}}
-    end)
-
-    client = click(client, 0, 0, "swap")
+    client = client |> click(37) |> click(1) |> click(0, 0, "swap")
     assert Enum.at(client.inventory.items, 1) == ItemStack.new("oak_log")
     assert Enum.at(client.inventory.items, 36) == ItemStack.new("oak_planks", 4)
+    client = click(client, 0, 8, "swap")
+    assert Enum.at(client.inventory.items, 1) == ItemStack.new("oak_log")
+    client = click(client, 0, 40, "swap")
+    assert Enum.at(client.inventory.items, 1) == nil
+    assert Enum.at(client.inventory.items, 45) == ItemStack.new("oak_planks", 4)
     assert :sys.get_state(owner).recovery == nil
+  end
+
+  test "partial result and Q drop commit exact conversion records before reconnect", ctx do
+    full = Map.new(9..44, &{&1, ItemStack.new("bedrock", 64)})
+
+    slots =
+      Map.merge(full, %{
+        36 => ItemStack.new("oak_log", 2),
+        44 => ItemStack.new("oak_planks", 62),
+        45 => ItemStack.new("bedrock", 64)
+      })
+
+    seed(ctx, slots)
+    {client, owner} = login(ctx)
+    client = client |> click(36) |> click(1) |> click(45) |> click(36)
+    client = click(client, 0, 0, "quick_move")
+
+    wait(fn ->
+      state = :sys.get_state(owner)
+      state.recovery == nil and state.inventory.slots[1] == ItemStack.new("oak_log")
+    end)
+
+    client = inventory_until(client, &(Enum.at(&1.items, 1) == ItemStack.new("oak_log")))
+    assert Enum.at(client.inventory.items, 1) == ItemStack.new("oak_log")
+    assert Enum.at(client.inventory.items, 44) == ItemStack.new("oak_planks", 64)
+    client = click(client, 0, 0, "throw")
+
+    wait(fn ->
+      state = :sys.get_state(owner)
+      state.recovery == nil and state.inventory.slots[1] == nil
+    end)
+
+    client = inventory_until(client, &(hd(&1.items) == nil and Enum.at(&1.items, 1) == nil))
+    assert hd(client.inventory.items) == nil and Enum.at(client.inventory.items, 1) == nil
+    assert Enum.at(client.inventory.items, 44) == ItemStack.new("oak_planks", 64)
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    {fresh, _} = login(ctx)
+    assert Enum.at(fresh.inventory.items, 44) == ItemStack.new("oak_planks", 64)
+
+    assert fresh.inventory.carried == nil and
+             Enum.all?(Enum.take(fresh.inventory.items, 5), &is_nil/1)
+
+    {:ok, saved} =
+      PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
+
+    assert saved.transfer_sequence == 2 and saved.outbox == nil
+
+    {:ok, ledger} =
+      Valimc.World.ItemRecords.decode(
+        File.read!(Valimc.World.Store.item_path(ctx.base, ctx.key)),
+        ctx.key
+      )
+
+    assert Enum.map(ledger.records, & &1.stack) |> Enum.sort_by(& &1.count) == [
+             ItemStack.new("oak_planks", 2),
+             ItemStack.new("oak_planks", 4)
+           ]
+
+    assert map_size(Valimc.World.item_snapshot(ctx.key)) == 2
   end
 
   test "creative input edits replicate their derived result and an invented result edit corrects it",
