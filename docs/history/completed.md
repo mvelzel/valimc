@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-035a1](../tickets/VMC-035a1.md) | `85458f1`: bounded saved item motion/v3 outboxes,67 affected recovery checks and actual pending-source item view/reconnect/no replay; live simulation remains separate |
 | [VMC-033g](../tickets/VMC-033g.md) | `c06b4bd`/`265b151`: three remainder recipes,2,240 native traces,970 full tests/native TCP/production and actual buckets/bottles, overflow/continuation, creative discard and fresh reconnects |
 | [VMC-033h](../tickets/VMC-033h.md) | `f1db8f0`: bounded ordinary bulk crafting,47 targeted/3,392 native traces, production and actual both grids/refusal/close cancellation/reconnect; separate item rendering observation retained |
 | [VMC-033f4](../tickets/VMC-033f4.md) | `8fe1adf`: live owned table menus,947 full tests/full native TCP/production and actual recipes/refusals/removal/relocation/disconnect/two-batch overflow/reconnect; ordinary VMC-033f scope complete |

@@ -15,8 +15,8 @@ validated, as are [crafting remainders](tickets/VMC-033g.md). Current work:
 [near-camera item presentation](tickets/VMC-018c3.md) and authoritative item motion.
 [Launch/motion kernels](tickets/VMC-035a.md) pass affected/native checks and actual
 baseline smoke (`f31f178`); owner composition remains open.
-[Saved item motion](tickets/VMC-035a1.md) passes affected recovery tests; client
-validation follows before enabling live simulation.
+[Saved item motion](tickets/VMC-035a1.md) is validated (`85458f1`), including actual
+pending-source recovery/reconnect. Live simulation and replication remain open.
 
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Player processes own their simulation state; bounded workers sample geometry.
@@ -199,7 +199,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-035a1](tickets/VMC-035a1.md) | Actual pending-source recovery/item view/fresh reconnect |67 affected checks passed; local storage foundation |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 
