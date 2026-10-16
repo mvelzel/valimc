@@ -132,8 +132,9 @@ indexes validated tickets. None imply full parity.
    874 full tests, full native integration/both TCP transports, production and
    actual depletion/wet/dry/top/both-hand/fresh reconnect. Broader callbacks and
    ownership remain open. [Ordinary full cubes](tickets/VMC-029b2.md) now admit178
-   more items with53 affected checks,1,319,700 native contexts and2,840 consumption
-   cases passing; actual-client validation is next.
+   more items and are validated (`5fd058a`):53 affected checks,1,319,700 native
+   contexts,2,840 consumption cases, production and actual both-mode family,
+   offhand/depletion/refusal/fresh-reconnect checks. Broader placement remains open.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 [VMC-003c](tickets/VMC-003c.md)'s direct local test-client lifecycle is complete:
@@ -145,7 +146,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-029b2](tickets/VMC-029b2.md) | New ordinary cube families in both modes, depletion/reconnect | Local checkpoint; frozen release next |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 
