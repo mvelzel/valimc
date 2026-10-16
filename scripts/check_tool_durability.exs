@@ -49,6 +49,10 @@ for row <- facts["cases"] do
   end
 
   {next, broken} = ToolDurability.mine(stack, row["state"], false, random)
+
+  unless ToolDurability.valid_result?(stack, row["state"], false, next),
+    do: raise("Native mining outcome rejected by source validation #{inspect(row)}")
+
   count = if next, do: next.count, else: 0
   breaks = if broken, do: 1, else: 0
 

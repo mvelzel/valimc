@@ -42,11 +42,12 @@ Six affected tests and existing mining/tool native regressions pass. Logs
 
 Stock [mining durability](VMC-029a2.md) now matches39,704 actual native callbacks,
 including shears/zero hardness, removed components, direct/stored Unbreaking,
-break payloads and custom integer boundaries. Six affected checks pass; source
-intent/wear compensation and live composition remain pending.
+break payloads and custom integer boundaries. Six affected checks pass; live
+composition remains pending.
 
-Next: [atomic block/drop persistence](VMC-029a1.md) source intent and compensation,
-native loot planning and owned mining attempts.
+[Atomic persistence](VMC-029a1.md) now includes source intent, receipt-backed wear
+compensation and login/disconnect recovery, with101 affected tests passing.
+Next: native loot planning and owned mining attempts.
 Status effects/arbitrary attribute patches and the live client scenario remain
 pending; current stock gear/contact composition needs no global gameplay owner.
 

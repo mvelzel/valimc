@@ -22,6 +22,7 @@ defmodule Valimc.TransferDelivery do
         :transfer_workers_busy,
         :item_workers_busy,
         :item_storage_busy,
+        :mining_storage_busy,
         :region_restarting,
         :stale_region,
         :item_commit_uncertain,
@@ -34,6 +35,29 @@ defmodule Valimc.TransferDelivery do
       ]
 
   def retryable?(_), do: false
+
+  def completed?(%{outbox: %{kind: :mining}}, result),
+    do:
+      result in [
+        {:ok, :applied},
+        {:ok, :already_applied},
+        {:ok, :rejected},
+        {:ok, :already_rejected}
+      ]
+
+  def completed?(_intent, result), do: result in [{:ok, :applied}, {:ok, :already_applied}]
+
+  defp deliver(uuid, %{transfer_sequence: sequence, outbox: %{kind: :mining} = intent}) do
+    with {:ok, key, request, _digest} <- Valimc.PlayerMiningIntent.request(uuid, sequence, intent),
+         {:ok, owner} <- World.item_owner(key),
+         :ok <- persistent_destination(owner, uuid) do
+      Region.apply_mining_transfer(owner, request)
+    end
+  rescue
+    _ -> {:error, :invalid_mining_transfer}
+  catch
+    :exit, _ -> {:error, :region_restarting}
+  end
 
   defp deliver(uuid, intent) do
     with {:ok, key, request, _digest} <- Valimc.PlayerSnapshot.transfer_request(uuid, intent),

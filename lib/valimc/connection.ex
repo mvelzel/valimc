@@ -443,7 +443,7 @@ defmodule Valimc.Connection do
     state = %{state | recovery: %{recovery | job: nil}}
 
     guard_connection(state, fn ->
-      if result in [{:ok, :applied}, {:ok, :already_applied}] do
+      if TransferDelivery.completed?(state.recovery.intent, result) do
         ref = make_ref()
         PlayerStore.complete_transfer(state.player_store, state.store_fence, ref)
         {:noreply, %{state | recovery: %{state.recovery | stage: :complete, ref: ref}}}

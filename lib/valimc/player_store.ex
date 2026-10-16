@@ -1,8 +1,18 @@
 defmodule Valimc.PlayerStore do
   use GenServer, restart: :temporary, shutdown: 15_000
   require Logger
-  alias Valimc.{Metrics, PlayerSnapshot, PlayerTransfers, TransferDelivery, World}
-  alias Valimc.World.Region
+
+  alias Valimc.{
+    Metrics,
+    PlayerMiningIntent,
+    PlayerMiningTransfers,
+    PlayerSnapshot,
+    PlayerTransfers,
+    TransferDelivery,
+    World
+  }
+
+  alias Valimc.World.{MiningTransfers, Region}
 
   @moduledoc "A leased per-session player-state writer; serialization/I/O are outside socket owners."
   @keys [:x, :y, :z, :yaw, :pitch]
@@ -61,6 +71,10 @@ defmodule Valimc.PlayerStore do
 
   def complete_transfer(pid, fence, ref),
     do: GenServer.cast(pid, {:complete, self(), fence, ref})
+
+  # The trusted player owner has already sampled the original loot/wear proposal.
+  def prepare_mining(pid, fence, snapshot, intent, ref),
+    do: GenServer.cast(pid, {:prepare_mining, self(), fence, snapshot, intent, ref})
 
   def close(pid, fence, snapshot), do: GenServer.call(pid, {:close, fence, snapshot}, 5000)
 
@@ -244,10 +258,17 @@ defmodule Valimc.PlayerStore do
     end)
   end
 
+  def handle_cast({:prepare_mining, owner, fence, snapshot, intent, ref}, %{owner: owner} = state) do
+    prepare_plan(state, fence, ref, fn ->
+      PlayerMiningTransfers.prepare(state.uuid, sequence(state), snapshot, intent)
+    end)
+  end
+
   def handle_cast({:complete, owner, fence, ref}, %{owner: owner} = state) do
     with :ok <- source_guard(state, fence),
-         :ok <- destination_proof(state) do
-      commit_transfer(state, %{state.snapshot | outbox: nil}, ref)
+         {:ok, result} <- destination_proof(state),
+         {:ok, next} <- resolved_snapshot(state.snapshot, result) do
+      commit_transfer(state, next, ref)
     else
       error -> transfer_reply(state, ref, error)
     end
@@ -273,9 +294,9 @@ defmodule Valimc.PlayerStore do
     Process.demonitor(job.monitor, [:flush])
     state = %{state | closing: %{state.closing | job: nil}}
 
-    if result in [{:ok, :applied}, {:ok, :already_applied}] do
-      with :ok <- destination_proof(state),
-           next = %{state.snapshot | outbox: nil},
+    if TransferDelivery.completed?(state.snapshot, result) do
+      with {:ok, outcome} <- destination_proof(state),
+           {:ok, next} <- resolved_snapshot(state.snapshot, outcome),
            :ok <- save(state, next) do
         cancel_closing(state.closing)
 
@@ -478,13 +499,18 @@ defmodule Valimc.PlayerStore do
   end
 
   defp destination_proof(state) do
-    with {:ok, key, request, digest} <-
-           PlayerSnapshot.transfer_request(state.uuid, state.snapshot),
+    with {:ok, key, request, digest, kind} <- proof_request(state.uuid, state.snapshot),
          {:ok, owner} <- World.item_owner(key),
          {:ok, {^key, receipt}} <- Region.item_transfer_receipt(owner, state.uuid) do
-      if receipt == %{sequence: request.sequence, digest: digest},
-        do: :ok,
-        else: {:error, :transfer_receipt_conflict}
+      case kind do
+        :mining ->
+          MiningTransfers.receipt_result(key, request, receipt)
+
+        :items ->
+          if receipt == %{sequence: request.sequence, digest: digest},
+            do: {:ok, :applied},
+            else: {:error, :transfer_receipt_conflict}
+      end
     else
       {:error, :no_pending_transfer} = error -> error
       {:error, :missing_transfer_receipt} -> {:error, :transfer_not_applied}
@@ -494,6 +520,21 @@ defmodule Valimc.PlayerStore do
   catch
     :exit, _ -> {:error, :transfer_destination_unavailable}
   end
+
+  defp proof_request(uuid, %{transfer_sequence: sequence, outbox: %{kind: :mining} = intent}) do
+    with {:ok, key, request, digest} <- PlayerMiningIntent.request(uuid, sequence, intent),
+         do: {:ok, key, request, digest, :mining}
+  end
+
+  defp proof_request(uuid, snapshot) do
+    with {:ok, key, request, digest} <- PlayerSnapshot.transfer_request(uuid, snapshot),
+         do: {:ok, key, request, digest, :items}
+  end
+
+  defp resolved_snapshot(%{outbox: %{kind: :mining}} = snapshot, result),
+    do: PlayerMiningTransfers.resolve(snapshot, result)
+
+  defp resolved_snapshot(snapshot, :applied), do: {:ok, %{snapshot | outbox: nil}}
 
   defp load(nil, _), do: {:ok, nil}
 

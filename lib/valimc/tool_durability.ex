@@ -10,6 +10,30 @@ defmodule Valimc.ToolDurability do
 
   def mine(%ItemStack{} = stack, state, infinite, random)
       when is_boolean(infinite) and is_function(random, 0) do
+    case wear_context(stack, state, infinite) do
+      :unchanged ->
+        {stack, nil}
+
+      {cost, maximum, damage, level} ->
+        apply_wear(stack, maximum, damage, wear(cost, level, random))
+    end
+  end
+
+  @doc "Validates a sampled stock mining result without consuming the owner's RNG again."
+  def valid_result?(nil, _state, infinite, result) when is_boolean(infinite), do: result == nil
+
+  def valid_result?(%ItemStack{} = stack, state, infinite, result) when is_boolean(infinite) do
+    case wear_context(stack, state, infinite) do
+      :unchanged ->
+        result == stack
+
+      {cost, maximum, damage, level} ->
+        possible = if level == 0, do: [cost], else: 0..cost
+        Enum.any?(possible, &(elem(apply_wear(stack, maximum, damage, &1), 0) == result))
+    end
+  end
+
+  defp wear_context(stack, state, infinite) do
     cost = MiningTools.damage_per_block(stack, state)
 
     maximum =
@@ -22,26 +46,26 @@ defmodule Valimc.ToolDurability do
 
     if infinite or cost == 0 or maximum == nil or damage == nil or
          component(stack, "minecraft:unbreakable", nil) != nil do
-      {stack, nil}
+      :unchanged
     else
       level =
         stack.components
         |> Map.get("minecraft:enchantments", %{})
         |> Map.get("minecraft:unbreaking", 0)
 
-      wear = wear(cost, level, random)
-
-      if wear == 0 do
-        {stack, nil}
-      else
-        # Native signed-int addition precedes clamping, including custom INT_MAX durability.
-        value = min(damage, maximum) + wear
-        value = if value > 2_147_483_647, do: value - 4_294_967_296, else: value
-        value = value |> max(0) |> min(maximum)
-        next = %{stack | components: Map.put(stack.components, "minecraft:damage", value)}
-        if value >= maximum, do: {nil, next}, else: {next, nil}
-      end
+      {cost, maximum, damage, level}
     end
+  end
+
+  defp apply_wear(stack, _maximum, _damage, 0), do: {stack, nil}
+
+  defp apply_wear(stack, maximum, damage, wear) do
+    # Native signed-int addition precedes clamping, including custom INT_MAX durability.
+    value = min(damage, maximum) + wear
+    value = if value > 2_147_483_647, do: value - 4_294_967_296, else: value
+    value = value |> max(0) |> min(maximum)
+    next = %{stack | components: Map.put(stack.components, "minecraft:damage", value)}
+    if value >= maximum, do: {nil, next}, else: {next, nil}
   end
 
   defp wear(cost, 0, _random), do: cost
