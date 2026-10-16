@@ -11,6 +11,8 @@ import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.*;
+import net.minecraft.world.item.alchemy.*;
+import net.minecraft.world.effect.*;
 
 /** Original fixture generator: actual Mojang codecs normalize raw patches before equality. */
 public class StackIdentityOracle {
@@ -19,7 +21,7 @@ public class StackIdentityOracle {
   private static final Set<String> SUPPORTED = Set.of("custom_data", "max_stack_size",
     "max_damage", "damage", "repair_cost", "rarity", "unbreakable", "creative_slot_lock",
     "intangible_projectile", "enchantment_glint_override", "item_model", "tooltip_style",
-    "minimum_attack_charge", "custom_name", "item_name", "lore", "enchantments", "stored_enchantments", "tooltip_display", "food");
+    "minimum_attack_charge", "custom_name", "item_name", "lore", "enchantments", "stored_enchantments", "tooltip_display", "food", "potion_contents");
 
   @SuppressWarnings("unchecked")
   private static <T> byte[] value(DataComponentType<T> type, Object value) {
@@ -97,6 +99,26 @@ public class StackIdentityOracle {
     nbt("nbt/double-zero","0a0600016e000000000000000000","0a0600016e800000000000000000");
     nbt("nbt/empty-list","0a0900016e050000000000","0a0900016e060000000000");
     nbt("nbt/typed-number","0a0100016e0000","0a0300016e0000000000");
+    var fire = BuiltInRegistries.POTION.get(Identifier.withDefaultNamespace("fire_resistance")).orElseThrow();
+    var type = component("potion_contents");
+    var head = new MobEffectInstance(MobEffects.FIRE_RESISTANCE,200,1,false,true,true);
+    var suppressed = new MobEffectInstance(MobEffects.FIRE_RESISTANCE,200,1,false,true,true);
+    var hidden = MobEffectInstance.class.getDeclaredField("hiddenEffect");hidden.setAccessible(true);
+    hidden.set(suppressed,new MobEffectInstance(MobEffects.FIRE_RESISTANCE,600,3,true,false,false));
+    var water = new MobEffectInstance(MobEffects.WATER_BREATHING,200,1,false,true,true);
+    var values = List.of(PotionContents.EMPTY,
+      new PotionContents(fire),
+      new PotionContents(Optional.empty(),Optional.of(0),List.of(),Optional.empty()),
+      new PotionContents(Optional.empty(),Optional.of(-1),List.of(),Optional.empty()),
+      new PotionContents(Optional.empty(),Optional.empty(),List.of(),Optional.of("")),
+      new PotionContents(Optional.empty(),Optional.empty(),List.of(),Optional.of("custom")),
+      new PotionContents(Optional.empty(),Optional.empty(),List.of(head),Optional.empty()),
+      new PotionContents(Optional.empty(),Optional.empty(),List.of(suppressed),Optional.empty()),
+      new PotionContents(Optional.empty(),Optional.empty(),List.of(head,water),Optional.empty()),
+      new PotionContents(Optional.empty(),Optional.empty(),List.of(water,head),Optional.empty()));
+    for(int a=0;a<values.size();a++)for(int b=0;b<values.size();b++)
+      pair("potion/value/"+a+"/"+b,Items.POTION,Map.of(type,value(type,values.get(a))),List.of(),
+        Map.of(type,value(type,values.get(b))),List.of());
     Files.writeString(Path.of(args[0]),new Gson().toJson(cases));
     System.out.println("PASS: Generated "+cases.size()+" Mojang raw-patch equality cases across all item prototypes.");
   }

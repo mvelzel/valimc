@@ -14,8 +14,12 @@ foundations are **Done within kernel scope**:50,433 native traces,40 effect IDs,
 61,600 packets and actual baseline at `9fce29f`. Local bounded map/source-immunity
 kernels match129/306 native cases and9 affected tests. Optional v18 effect persistence
 passes62 affected recovery/boundary checks. Live
-[ownership/clock and Fire Resistance](tickets/VMC-037a1.md) passes34 affected tests
-and129 native callback traces; full rerun/build/native and GUI are pending.
+[ownership/clock and Fire Resistance](tickets/VMC-037a1.md) passes34 affected tests,
+129 native callback traces,1,265 full tests/production and actual-client hazard/
+expiry/promotion/reconnect/respawn checks at `d7e688c`. Full native integration and
+matched preview loads remain. [Potion contents/delivery](tickets/VMC-037b.md) now
+matches481 native stacks,4,329 scaled deliveries and18,578 identity pairs, with44
+affected checks; graphical baseline and live drinking follow.
 Keep pending work local.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),

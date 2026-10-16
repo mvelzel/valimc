@@ -39,6 +39,10 @@ defmodule Valimc.Protocol.ItemTypes do
                         {value, <<>>} = Valimc.Protocol.TooltipDisplay.take(bytes)
                         Valimc.Protocol.TooltipDisplay.identity_key(value)
 
+                      "minecraft:potion_contents" ->
+                        {value, <<>>} = Valimc.Protocol.PotionContents.take(bytes)
+                        Valimc.Protocol.PotionContents.identity_key(value)
+
                       _ ->
                         bytes
                     end

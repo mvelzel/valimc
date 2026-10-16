@@ -1,0 +1,825 @@
+{
+  "version": "26.3",
+  "data_version": 5023,
+  "server_sha1": "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c",
+  "potions": [
+    {
+      "id": 0,
+      "name": "minecraft:water",
+      "effects": []
+    },
+    {
+      "id": 1,
+      "name": "minecraft:mundane",
+      "effects": []
+    },
+    {
+      "id": 2,
+      "name": "minecraft:thick",
+      "effects": []
+    },
+    {
+      "id": 3,
+      "name": "minecraft:awkward",
+      "effects": []
+    },
+    {
+      "id": 4,
+      "name": "minecraft:night_vision",
+      "effects": [
+        {
+          "id": 15,
+          "rungs": [
+            [
+              3600,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "minecraft:long_night_vision",
+      "effects": [
+        {
+          "id": 15,
+          "rungs": [
+            [
+              9600,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "minecraft:invisibility",
+      "effects": [
+        {
+          "id": 13,
+          "rungs": [
+            [
+              3600,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "minecraft:long_invisibility",
+      "effects": [
+        {
+          "id": 13,
+          "rungs": [
+            [
+              9600,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "minecraft:leaping",
+      "effects": [
+        {
+          "id": 7,
+          "rungs": [
+            [
+              3600,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "name": "minecraft:long_leaping",
+      "effects": [
+        {
+          "id": 7,
+          "rungs": [
+            [
+              9600,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "name": "minecraft:strong_leaping",
+      "effects": [
+        {
+          "id": 7,
+          "rungs": [
+            [
+              1800,
+              1,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "name": "minecraft:fire_resistance",
+      "effects": [
+        {
+          "id": 11,
+          "rungs": [
+            [
+              3600,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "name": "minecraft:long_fire_resistance",
+      "effects": [
+        {
+          "id": 11,
+          "rungs": [
+            [
+              9600,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "name": "minecraft:swiftness",
+      "effects": [
+        {
+          "id": 0,
+          "rungs": [
+            [
+              3600,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "name": "minecraft:long_swiftness",
+      "effects": [
+        {
+          "id": 0,
+          "rungs": [
+            [
+              9600,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "name": "minecraft:strong_swiftness",
+      "effects": [
+        {
+          "id": 0,
+          "rungs": [
+            [
+              1800,
+              1,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "name": "minecraft:slowness",
+      "effects": [
+        {
+          "id": 1,
+          "rungs": [
+            [
+              1800,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "name": "minecraft:long_slowness",
+      "effects": [
+        {
+          "id": 1,
+          "rungs": [
+            [
+              4800,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "name": "minecraft:strong_slowness",
+      "effects": [
+        {
+          "id": 1,
+          "rungs": [
+            [
+              400,
+              3,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "name": "minecraft:turtle_master",
+      "effects": [
+        {
+          "id": 1,
+          "rungs": [
+            [
+              400,
+              3,
+              false,
+              true,
+              true
+            ]
+          ]
+        },
+        {
+          "id": 10,
+          "rungs": [
+            [
+              400,
+              2,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "name": "minecraft:long_turtle_master",
+      "effects": [
+        {
+          "id": 1,
+          "rungs": [
+            [
+              800,
+              3,
+              false,
+              true,
+              true
+            ]
+          ]
+        },
+        {
+          "id": 10,
+          "rungs": [
+            [
+              800,
+              2,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "name": "minecraft:strong_turtle_master",
+      "effects": [
+        {
+          "id": 1,
+          "rungs": [
+            [
+              400,
+              5,
+              false,
+              true,
+              true
+            ]
+          ]
+        },
+        {
+          "id": 10,
+          "rungs": [
+            [
+              400,
+              3,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "name": "minecraft:water_breathing",
+      "effects": [
+        {
+          "id": 12,
+          "rungs": [
+            [
+              3600,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "name": "minecraft:long_water_breathing",
+      "effects": [
+        {
+          "id": 12,
+          "rungs": [
+            [
+              9600,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "name": "minecraft:healing",
+      "effects": [
+        {
+          "id": 5,
+          "rungs": [
+            [
+              1,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "name": "minecraft:strong_healing",
+      "effects": [
+        {
+          "id": 5,
+          "rungs": [
+            [
+              1,
+              1,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "name": "minecraft:harming",
+      "effects": [
+        {
+          "id": 6,
+          "rungs": [
+            [
+              1,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "name": "minecraft:strong_harming",
+      "effects": [
+        {
+          "id": 6,
+          "rungs": [
+            [
+              1,
+              1,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "name": "minecraft:poison",
+      "effects": [
+        {
+          "id": 18,
+          "rungs": [
+            [
+              900,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "name": "minecraft:long_poison",
+      "effects": [
+        {
+          "id": 18,
+          "rungs": [
+            [
+              1800,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "name": "minecraft:strong_poison",
+      "effects": [
+        {
+          "id": 18,
+          "rungs": [
+            [
+              432,
+              1,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "name": "minecraft:regeneration",
+      "effects": [
+        {
+          "id": 9,
+          "rungs": [
+            [
+              900,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "name": "minecraft:long_regeneration",
+      "effects": [
+        {
+          "id": 9,
+          "rungs": [
+            [
+              1800,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "name": "minecraft:strong_regeneration",
+      "effects": [
+        {
+          "id": 9,
+          "rungs": [
+            [
+              450,
+              1,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "name": "minecraft:strength",
+      "effects": [
+        {
+          "id": 4,
+          "rungs": [
+            [
+              3600,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "name": "minecraft:long_strength",
+      "effects": [
+        {
+          "id": 4,
+          "rungs": [
+            [
+              9600,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "name": "minecraft:strong_strength",
+      "effects": [
+        {
+          "id": 4,
+          "rungs": [
+            [
+              1800,
+              1,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "name": "minecraft:weakness",
+      "effects": [
+        {
+          "id": 17,
+          "rungs": [
+            [
+              1800,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "name": "minecraft:long_weakness",
+      "effects": [
+        {
+          "id": 17,
+          "rungs": [
+            [
+              4800,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "name": "minecraft:luck",
+      "effects": [
+        {
+          "id": 25,
+          "rungs": [
+            [
+              6000,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "name": "minecraft:slow_falling",
+      "effects": [
+        {
+          "id": 27,
+          "rungs": [
+            [
+              1800,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "name": "minecraft:long_slow_falling",
+      "effects": [
+        {
+          "id": 27,
+          "rungs": [
+            [
+              4800,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "name": "minecraft:wind_charged",
+      "effects": [
+        {
+          "id": 35,
+          "rungs": [
+            [
+              3600,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "name": "minecraft:weaving",
+      "effects": [
+        {
+          "id": 36,
+          "rungs": [
+            [
+              3600,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "name": "minecraft:oozing",
+      "effects": [
+        {
+          "id": 37,
+          "rungs": [
+            [
+              3600,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "name": "minecraft:infested",
+      "effects": [
+        {
+          "id": 38,
+          "rungs": [
+            [
+              3600,
+              0,
+              false,
+              true,
+              true
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "default_contents": {
+    "1271": "00000000",
+    "1442": "00000000",
+    "1444": "00000000",
+    "1445": "00000000"
+  }
+}

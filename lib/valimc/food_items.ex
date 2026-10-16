@@ -32,13 +32,22 @@ defmodule Valimc.FoodItems do
 
   def properties(%ItemStack{} = stack) do
     defaults = defaults(stack.item_id)
+    listeners = Enum.reject(defaults.other_listeners, &MapSet.member?(stack.removed, &1))
+
+    # A supported patch can introduce a native listener on an ordinary food item.
+    # Until the owned consumer handles it, it must not silently become a plain meal.
+    listeners =
+      if Map.has_key?(stack.components, "minecraft:potion_contents") and
+           "minecraft:potion_contents" not in listeners,
+         do: ["minecraft:potion_contents" | listeners],
+         else: listeners
 
     %{
       defaults
       | food: effective(stack, "minecraft:food", defaults.food),
         consumable: effective(stack, "minecraft:consumable", defaults.consumable),
         remainder: effective(stack, "minecraft:use_remainder", defaults.remainder),
-        other_listeners: Enum.reject(defaults.other_listeners, &MapSet.member?(stack.removed, &1))
+        other_listeners: listeners
     }
   end
 

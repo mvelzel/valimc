@@ -9042,6 +9042,7 @@
         "minecraft:item_name": "0a0800097472616e736c61746500156974656d2e6d696e6563726166742e706f74696f6e00",
         "minecraft:lore": "00",
         "minecraft:max_stack_size": "01",
+        "minecraft:potion_contents": "00000000",
         "minecraft:rarity": "00",
         "minecraft:repair_cost": "00",
         "minecraft:tooltip_display": "0000"
@@ -14400,6 +14401,7 @@
         "minecraft:item_name": "0a0800097472616e736c617465001c6974656d2e6d696e6563726166742e73706c6173685f706f74696f6e00",
         "minecraft:lore": "00",
         "minecraft:max_stack_size": "01",
+        "minecraft:potion_contents": "00000000",
         "minecraft:rarity": "00",
         "minecraft:repair_cost": "00",
         "minecraft:tooltip_display": "0000"
@@ -14455,6 +14457,7 @@
         "minecraft:item_name": "0a0800097472616e736c617465001b6974656d2e6d696e6563726166742e7469707065645f6172726f7700",
         "minecraft:lore": "00",
         "minecraft:max_stack_size": "40",
+        "minecraft:potion_contents": "00000000",
         "minecraft:rarity": "00",
         "minecraft:repair_cost": "00",
         "minecraft:tooltip_display": "0000"
@@ -14484,6 +14487,7 @@
         "minecraft:item_name": "0a0800097472616e736c617465001f6974656d2e6d696e6563726166742e6c696e676572696e675f706f74696f6e00",
         "minecraft:lore": "00",
         "minecraft:max_stack_size": "01",
+        "minecraft:potion_contents": "00000000",
         "minecraft:rarity": "00",
         "minecraft:repair_cost": "00",
         "minecraft:tooltip_display": "0000"
