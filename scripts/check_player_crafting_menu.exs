@@ -20,7 +20,7 @@ end
 actions = [:pickup, :quick_move, :swap, :clone, :throw, :quick_craft, :pickup_all]
 cases = path |> File.read!() |> JSON.decode!()
 
-for [creative, before, cursor, clicks, expected, carried] <- cases do
+Enum.each(cases, fn [creative, before, cursor, clicks, expected, carried, []] ->
   slots =
     before
     |> Enum.with_index()
@@ -46,7 +46,7 @@ for [creative, before, cursor, clicks, expected, carried] <- cases do
            raise(
              "Native crafting menu differs #{inspect({creative, before, cursor, clicks, expected, carried, result})}"
            )
-end
+end)
 
 unless length(cases) == 3_536, do: raise("Incomplete actual crafting-menu contexts")
 IO.puts("PASS:#{length(cases)} actual native player-menu contexts.")

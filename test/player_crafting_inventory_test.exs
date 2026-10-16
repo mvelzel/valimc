@@ -108,11 +108,11 @@ defmodule Valimc.PlayerCraftingInventoryTest do
              )
   end
 
-  test "unsupported result gestures cannot convert ingredients or create ordinary drop plans" do
+  test "result throw cannot create ordinary drop plans; interrupts only cancel the drag" do
     inv = %Inventory{infinite_materials: true, slots: %{1 => ItemStack.new("oak_log", 2)}}
 
-    for action <- [:throw, :quick_move, :swap, :clone], button <- [0, 1] do
-      assert Inventory.plan_click(inv, action, 0, button) == {:error, :unsupported_click}
+    for button <- [0, 1] do
+      assert Inventory.plan_click(inv, :throw, 0, button) == {:error, :unsupported_click}
     end
 
     inv = %{inv | carried: ItemStack.new("oak_log")}

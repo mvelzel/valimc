@@ -22,12 +22,17 @@ public class PlayerCraftingOracle {
   }
   static class MenuPlayer extends net.minecraft.world.entity.player.Player {
     MenuWorld world;
+    List<ItemStack> dropped;
     private MenuPlayer() { super(null,null); }
     public MenuWorld level() { return world; }
     public net.minecraft.world.level.GameType gameMode() {
       return getAbilities().instabuild ? net.minecraft.world.level.GameType.CREATIVE : net.minecraft.world.level.GameType.SURVIVAL;
     }
     public void awardStat(net.minecraft.stats.Stat<?> stat,int amount) {}
+    public net.minecraft.world.entity.item.ItemEntity drop(ItemStack stack,boolean random,net.minecraft.util.Prediction prediction) {
+      if(!stack.isEmpty())dropped.add(stack.copy());
+      return null;
+    }
   }
   static class Menu extends net.minecraft.world.inventory.InventoryMenu {
     RecipeManager recipes;
@@ -64,6 +69,7 @@ public class PlayerCraftingOracle {
     world.recipes=recipes;
     var player=(MenuPlayer)unsafe.allocateInstance(MenuPlayer.class);
     player.world=world;
+    player.dropped=new ArrayList<>();
     var abilities=new net.minecraft.world.entity.player.Abilities();
     abilities.instabuild=creative;
     field=net.minecraft.world.entity.player.Player.class.getDeclaredField("abilities");
@@ -96,6 +102,9 @@ public class PlayerCraftingOracle {
     row.add(actionRows);
     row.add(after);
     row.add(stack(menu.getCarried()));
+    var dropped=new JsonArray();
+    for(var item:player.dropped)dropped.add(stack(item));
+    row.add(dropped);
     cases.add(row);
   }
   static void menus(RecipeManager manager,String path)throws Exception {
@@ -131,6 +140,54 @@ public class PlayerCraftingOracle {
     }
     Files.writeString(Path.of(path),new Gson().toJson(cases));
     System.out.println("PASS: "+cases.size()+" actual InventoryMenu/ResultSlot contexts, both abilities, cursor boundaries, repetition, collection and input gestures.");
+  }
+  static void gestures(RecipeManager manager,String path)throws Exception {
+    var cases=new JsonArray();
+    for(boolean creative:new boolean[]{false,true})for(int amount:new int[]{1,2,17,64})for(var action:List.of(net.minecraft.world.inventory.ContainerInput.QUICK_MOVE,net.minecraft.world.inventory.ContainerInput.SWAP,net.minecraft.world.inventory.ContainerInput.CLONE)) {
+      int[] buttons=action==net.minecraft.world.inventory.ContainerInput.SWAP?new int[]{0,8,40}:new int[]{0,1};
+      for(int button:buttons)for(int layout=0;layout<8;layout++)for(boolean cursor:new boolean[]{false,true}) {
+        var slots=new HashMap<Integer,ItemStack>();
+        slots.put(1,stack("oak_log",amount));
+        int target=button==40?45:36+button;
+        if(layout>0)for(int slot=9;slot<=44;slot++)slots.put(slot,stack("bedrock",64));
+        if(layout==1)slots.remove(44);
+        if(layout==2)slots.put(44,stack("oak_planks",60));
+        if(layout==3)slots.put(44,stack("oak_planks",62));
+        if(layout==4)slots.put(44,stack("oak_planks",63));
+        if(layout==5)slots.put(target,stack("oak_planks",60));
+        if(layout==6)slots.put(target,stack("oak_planks",62));
+        if(layout==7) {
+          slots.put(target,stack("oak_planks",1));
+          var patched=stack("oak_planks",60);
+          patched.set(net.minecraft.core.component.DataComponents.ENCHANTMENT_GLINT_OVERRIDE,true);
+          slots.put(44,patched);
+        }
+        observeMenu(manager,cases,creative,slots,cursor?stack("stone",1):ItemStack.EMPTY,new int[][]{{action.ordinal(),0,button}});
+      }
+    }
+    for(boolean creative:new boolean[]{false,true}) {
+      // One table consumes the bottom row; the remaining top row changes recipe.
+      var slots=Map.of(1,stack("oak_planks",2),2,stack("oak_planks",2),3,stack("oak_planks",1),4,stack("oak_planks",1));
+      observeMenu(manager,cases,creative,slots,ItemStack.EMPTY,new int[][]{{net.minecraft.world.inventory.ContainerInput.QUICK_MOVE.ordinal(),0,0}});
+    }
+    var profiles=JsonParser.parseString(Files.readString(Path.of("priv/crafting/player_recipes.json"))).getAsJsonObject().getAsJsonArray("recipes");
+    for(var entry:profiles) {
+      var profile=entry.getAsJsonObject();
+      int width=profile.get("width").getAsInt();
+      var ingredients=profile.getAsJsonArray("ingredients");
+      var slots=new HashMap<Integer,ItemStack>();
+      for(int i=0;i<ingredients.size();i++)if(!ingredients.get(i).isJsonNull()) {
+        int id=ingredients.get(i).getAsJsonArray().get(0).getAsInt();
+        int slot=width==0?i:i/width*2+i%width;
+        var input=new ItemStack(BuiltInRegistries.ITEM.byId(id));
+        input.setCount(Math.min(2,input.getMaxStackSize()));
+        slots.put(slot+1,input);
+      }
+      for(boolean creative:new boolean[]{false,true})for(var action:List.of(net.minecraft.world.inventory.ContainerInput.QUICK_MOVE,net.minecraft.world.inventory.ContainerInput.SWAP,net.minecraft.world.inventory.ContainerInput.CLONE))
+        observeMenu(manager,cases,creative,slots,ItemStack.EMPTY,new int[][]{{action.ordinal(),0,0}});
+    }
+    Files.writeString(Path.of(path),new Gson().toJson(cases));
+    System.out.println("PASS: "+cases.size()+" actual native result gesture contexts, including overflow drops and changed recipes.");
   }
   @SuppressWarnings("unchecked") static List<Optional<Ingredient>> ingredients(CraftingRecipe r)throws Exception {
     if(r instanceof ShapedRecipe s)return s.getIngredients();
@@ -269,6 +326,10 @@ public class PlayerCraftingOracle {
       var manager=new RecipeManager(lookup);
       if(args[0].equals("menu")) {
         menus(manager,args[1]);
+        return;
+      }
+      if(args[0].equals("gestures")) {
+        gestures(manager,args[1]);
         return;
       }
       for(var holder:manager.getRecipes()) {

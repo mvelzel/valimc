@@ -148,6 +148,39 @@ defmodule Valimc.PlayerCraftingConnectionTest do
     assert :sys.get_state(owner).recovery == nil
   end
 
+  test "result shift/swap packets consume inputs and correct partial-overflow predictions", ctx do
+    seed(ctx, %{36 => ItemStack.new("oak_log", 17)})
+    {client, owner} = login(ctx)
+    client = client |> click(36) |> click(1) |> click(0, 0, "quick_move")
+    assert Enum.at(client.inventory.items, 44) == ItemStack.new("oak_planks", 64)
+    assert Enum.at(client.inventory.items, 43) == ItemStack.new("oak_planks", 4)
+    assert hd(client.inventory.items) == nil and Enum.at(client.inventory.items, 1) == nil
+    inv = %Inventory{slots: Map.new(9..44, &{&1, ItemStack.new("bedrock", 64)})}
+
+    inv = %{
+      inv
+      | slots:
+          Map.merge(inv.slots, %{
+            1 => ItemStack.new("oak_log", 2),
+            44 => ItemStack.new("oak_planks", 62)
+          })
+    }
+
+    :sys.replace_state(owner, fn state -> %{state | inventory: inv} end)
+    client = click(client, 0, 0, "quick_move")
+    assert Enum.at(client.inventory.items, 1) == ItemStack.new("oak_log", 2)
+    assert Enum.at(client.inventory.items, 44) == ItemStack.new("oak_planks", 62)
+
+    :sys.replace_state(owner, fn state ->
+      %{state | inventory: %{state.inventory | slots: Map.delete(state.inventory.slots, 36)}}
+    end)
+
+    client = click(client, 0, 0, "swap")
+    assert Enum.at(client.inventory.items, 1) == ItemStack.new("oak_log")
+    assert Enum.at(client.inventory.items, 36) == ItemStack.new("oak_planks", 4)
+    assert :sys.get_state(owner).recovery == nil
+  end
+
   test "creative input edits replicate their derived result and an invented result edit corrects it",
        ctx do
     seed(ctx, %{})
@@ -180,5 +213,17 @@ defmodule Valimc.PlayerCraftingConnectionTest do
     client = Client.auto_reply(client, :play, "container_set_content", body)
     assert hd(client.inventory.items) == ItemStack.new("oak_planks", 4)
     assert :sys.get_state(owner).inventory.slots == %{4 => ItemStack.new("oak_log", 2)}
+    {_, client} = Client.await(client, :play, "set_cursor_item")
+    client = click(client, 0, 2, "clone")
+    assert client.inventory.carried == ItemStack.new("oak_planks", 64)
+    assert Enum.at(client.inventory.items, 4) == ItemStack.new("oak_log", 2)
+
+    :sys.replace_state(owner, fn state ->
+      %{state | inventory: %{state.inventory | infinite_materials: false, carried: nil}}
+    end)
+
+    client = click(client, 0, 2, "clone")
+    assert client.inventory.carried == nil
+    assert Enum.at(client.inventory.items, 4) == ItemStack.new("oak_log", 2)
   end
 end

@@ -265,13 +265,7 @@ defmodule Valimc.Inventory do
       cursor == nil or
           (compatible?(cursor, result) and
              cursor.count + result.count <= ItemStack.max_stack_size(cursor)) ->
-        next =
-          Enum.reduce(1..4, inventory, fn slot, next ->
-            case get(next, slot) do
-              nil -> next
-              stack -> put(next, slot, sized(stack, stack.count - 1))
-            end
-          end)
+        next = consume_crafting_inputs(inventory)
 
         carried = if cursor, do: sized(cursor, cursor.count + result.count), else: result
         finish(%{next | carried: carried})
@@ -281,8 +275,34 @@ defmodule Valimc.Inventory do
     end
   end
 
-  defp ordinary_click(_, action, 0, _) when action in [:quick_move, :swap, :clone],
-    do: {:error, :unsupported_click}
+  defp ordinary_click(inventory, :quick_move, 0, button) when button in [0, 1] do
+    case crafting_result(inventory) do
+      nil -> finish(inventory)
+      result -> quick_move_crafting(inventory, result, 99)
+    end
+  end
+
+  defp ordinary_click(inventory, :swap, 0, button) when button in 0..8 or button == 40 do
+    target = if button == 40, do: 45, else: 36 + button
+
+    case {crafting_result(inventory), get(inventory, target)} do
+      {%ItemStack{} = result, nil} ->
+        inventory |> consume_crafting_inputs() |> put(target, result) |> finish()
+
+      _ ->
+        finish(inventory)
+    end
+  end
+
+  defp ordinary_click(inventory, :clone, 0, _) do
+    case {inventory.infinite_materials, inventory.carried, crafting_result(inventory)} do
+      {true, nil, %ItemStack{} = result} ->
+        finish(%{inventory | carried: sized(result, ItemStack.max_stack_size(result))})
+
+      _ ->
+        finish(inventory)
+    end
+  end
 
   defp ordinary_click(inventory, :pickup_all, 0, button) when button in [0, 1] do
     if crafting_result(inventory),
@@ -483,6 +503,35 @@ defmodule Valimc.Inventory do
       {inventory, left} = transfer(inventory, stack, stack.count, targets, :merge)
       {inventory, left} = transfer(inventory, stack, left, targets, :empty)
       put(inventory, slot, sized(stack, left))
+    end
+  end
+
+  defp consume_crafting_inputs(inventory) do
+    Enum.reduce(1..4, inventory, fn slot, next ->
+      case get(next, slot) do
+        nil -> next
+        stack -> put(next, slot, sized(stack, stack.count - 1))
+      end
+    end)
+  end
+
+  defp quick_move_crafting(inventory, _, 0), do: finish(inventory)
+
+  defp quick_move_crafting(inventory, original, remaining) do
+    result = crafting_result(inventory)
+
+    if result != nil and compatible?(result, original) do
+      targets = Enum.to_list(44..9//-1)
+      {next, left} = transfer(inventory, result, result.count, targets, :merge)
+      {next, left} = transfer(next, result, left, targets, :empty)
+
+      cond do
+        left == result.count -> finish(inventory)
+        left > 0 -> {:error, :unsupported_crafting_overflow}
+        true -> quick_move_crafting(consume_crafting_inputs(next), original, remaining - 1)
+      end
+    else
+      finish(inventory)
     end
   end
 
