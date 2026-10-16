@@ -1,7 +1,7 @@
 # VMC-037d — Periodic health effects
 
-Status: Native foundation `c6c6dea` and owned composition verified locally;
-production/broader integration and actual-client gates remain. Keep it unpushed.
+Status: Owned composition `5b123b1` passes automated checks/build. Full native
+integration and actual-client validation are running; keep this block unpushed.
 
 Acceptance: Regeneration, poison and wither execute on the existing player clock
 with native active-head timing, finite/infinite duration, amplifier shift behavior,
@@ -64,3 +64,10 @@ Initial tests exposed the missing packet-source allowlist and a test helper that
 incorrectly required idle geometry to run; both corrected. The idle sample
 optimization is unchanged. GUI hearts/timers/drinking/expiry/negatives/death/
 respawn/reconnect remain required before acceptance.
+
+Frozen `5b123b1` passes1,302 full tests(seed458956) and production release. The
+complete native integration script is running against that same immutable941-blob
+checkpoint, independent of the client test. Logs:
+`.local/periodic-live-{full-tests,production,full-native}.log`. The client tester
+uses a whole25-file clone of the stopped source/receipt51 dataset at
+`/tmp/valimc-periodic-live-client-20261016`; root owns server shutdown after testing.

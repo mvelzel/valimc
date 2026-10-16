@@ -23,8 +23,11 @@ for fixture limits and the consistent source/receipt51 dataset.
 **Current:** [periodic health effects](tickets/VMC-037d.md). Native action/timing
 foundation `c6c6dea` matches124,596 cases/10 checks. Owned regeneration/poison/wither
 and drinks pass79 affected checks plus47 later overlapping owner/recovery checks;
-20,800 native defenses and source/lifecycle codecs pass. Production, broader
-integration and actual-client gates follow. Keep this block local until validated.
+20,800 native defenses and source/lifecycle codecs pass. Frozen `5b123b1` passes
+1,302 full tests/build; full native integration and actual-client validation are
+running. Keep this block local until validated.
+Next: [milk/honey effect removal](tickets/VMC-036d.md),658 native maps/callbacks
+and8 affected checks; owned consumption and its client gate follow.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
