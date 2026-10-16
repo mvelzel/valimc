@@ -211,6 +211,15 @@ defmodule Valimc.Protocol.Packets do
 
   def ack(sequence), do: packet("block_changed_ack", Wire.varint(sequence))
 
+  def block_destruction(entity_id, position, stage)
+      when entity_id in 0..2_147_483_647 and stage in -1..9,
+      do:
+        packet("block_destruction", [
+          Wire.varint(entity_id),
+          Wire.position(position),
+          <<stage::8>>
+        ])
+
   def player_info(player) do
     packet("player_info_update", [
       <<0x1D, 1>>,

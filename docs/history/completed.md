@@ -98,3 +98,4 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-036c](../tickets/VMC-036c.md) | `7337af64`; actual plain-food hands/animation, nutrition, cancellation/reconnect and soup/creative remainders; effects/overflow remain separate |
 | [VMC-003d](../tickets/VMC-003d.md) | Dedicated SDL held-use/attack gestures, intervening CUA actions/captures, release and fresh-process reset |
 | [VMC-018d](../tickets/VMC-018d.md) | `7337af64`; actual six-slot peer equipment, component glint, use ordering, clears and tracking recreation; attributes/combat remain separate |
+| [VMC-029a3](../tickets/VMC-029a3.md) | `a696a61`; native full-state base removal, wet atomic recovery and actual wet/dry creative removal/reconnect; fluid spreading/block callbacks remain separate |

@@ -107,11 +107,12 @@ indexes validated tickets. None imply full parity.
    including Unbreaking and final-use breaks. [Atomic block/drop persistence](tickets/VMC-029a1.md) has bounded
    proposal/source-intent codecs, writer recovery, fenced region commits and
    receipt-backed source wear/refunds, with101 affected checks passing.
-   [Fluid-preserving removal](tickets/VMC-029a3.md) passes full native state
-   comparisons and47 affected checks, including wet recovery and creative TCP.
+   [Fluid-preserving removal](tickets/VMC-029a3.md) is validated (`a696a61`): full
+   native state comparisons,47 affected checks and actual wet/dry creative removal/reconnect.
    [Deterministic loot](tickets/VMC-029a4.md) matches210,847 native contexts across
-   930 block families. Owned attempts/live start/abort/stop are next; broader loot
-   and destruction callbacks remain.
+   930 block families. [Attempt progress/animation](tickets/VMC-029a5.md) matches490
+   native action traces and165 codecs. Renewable fencing/live composition are next;
+   broader loot and destruction callbacks remain.
    Live survival mining remains absent. Client checks above continue independently.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
@@ -126,7 +127,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
-| [VMC-029a3](tickets/VMC-029a3.md) | Actual wet/dry creative removal and reconnect; live survival remains separate | Local removal checkpoint |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

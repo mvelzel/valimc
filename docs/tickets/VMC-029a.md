@@ -49,11 +49,14 @@ composition remains pending.
 compensation and login/disconnect recovery, with101 affected tests passing.
 The first [loot catalog](VMC-029a4.md) matches210,847 native contexts for930
 deterministic block families, including direct/stored Silk Touch controls. Random
-and contextual rules remain explicit unsupported results. Next: owned mining
-attempts/live start/abort/stop, then expand loot and destruction callbacks.
+and contextual rules remain explicit unsupported results. The pure
+[attempt/animation foundation](VMC-029a5.md) matches490 native action traces and165
+codecs, with an explicit elapsed-tick correction for delayed completion. Next:
+renewable block fencing and live composition, then expand loot/destruction callbacks.
 [Base removal](VMC-029a3.md) now retains contained fluid, matching all35,723 native
 states and71,446 actual removal callbacks; wet mining recovery/creative TCP pass.
-Its graphical gate remains pending.
+Actual wet/dry creative removal, fresh-client persistence and basic responsiveness
+passed on immutablea696a61; base removal is complete within that scope.
 Status effects/arbitrary attribute patches and the live client scenario remain
 pending; current stock gear/contact composition needs no global gameplay owner.
 
