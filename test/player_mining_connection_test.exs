@@ -224,7 +224,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
     wait(fn -> finished(pid) and World.get_block(ctx.target) == 0 end, 2500)
     assert World.item_snapshot(ctx.key) == %{}
     assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
-    unsupported = Data.item_block(Data.item("glowstone"))
+    unsupported = Data.item_block(Data.item("diamond_ore"))
     :ok = World.set_block(ctx.target, unsupported)
     action(client, "start_destroy_block", ctx.target, 3)
     await_ack(client, 3)
@@ -470,7 +470,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
     assert worn.components["minecraft:damage"] == 1
 
     for {name, sequence} <-
-          Enum.with_index(~w(bedrock glowstone melon sea_lantern gilded_blackstone), 3) do
+          Enum.with_index(~w(bedrock diamond_ore oak_log chest), 3) do
       block = Data.item_block(Data.item(name))
       :ok = World.set_block(ctx.target, block)
       action(client, "start_destroy_block", ctx.target, sequence)
@@ -481,5 +481,61 @@ defmodule Valimc.PlayerMiningConnectionTest do
       assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
       assert drops(ctx) == []
     end
+  end
+
+  test "live random cubes persist bounded sampled loot and original-tool Silk Touch", ctx do
+    tool = %{
+      ItemStack.new("diamond_pickaxe")
+      | components: %{
+          "minecraft:enchantments" => %{"minecraft:efficiency" => 10, "minecraft:fortune" => 3}
+        }
+    }
+
+    silk = %{
+      tool
+      | components: %{
+          "minecraft:enchantments" => %{
+            "minecraft:efficiency" => 10,
+            "minecraft:fortune" => 255,
+            "minecraft:silk_touch" => 1
+          }
+        }
+    }
+
+    seed(ctx, %{36 => tool, 37 => silk})
+    {client, pid} = login(ctx)
+
+    cases = [
+      {"melon", 0, "melon_slice", 3..9},
+      {"glowstone", 0, "glowstone_dust", 2..4},
+      {"sea_lantern", 0, "prismarine_crystals", 2..5},
+      {"gilded_blackstone", 0, "gold_nugget", 2..5},
+      {"melon", 1, "melon", 1..1},
+      {"gilded_blackstone", 1, "gilded_blackstone", 1..1}
+    ]
+
+    for {{name, slot, drop, count}, sequence} <- Enum.with_index(cases, 1) do
+      Client.send_packet(client, :play, "set_carried_item", <<slot::signed-16>>)
+      wait(fn -> state(pid).inventory.selected == slot end)
+      :ok = World.set_block(ctx.target, Data.item_block(Data.item(name)))
+      action(client, "start_destroy_block", ctx.target, sequence * 2 - 1)
+      await_ack(client, sequence * 2 - 1)
+      action(client, "stop_destroy_block", ctx.target, sequence * 2)
+      await_ack(client, sequence * 2)
+      wait(fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
+      assert saved(ctx).transfer_sequence == sequence and saved(ctx).outbox == nil
+      assert Enum.count(drops(ctx), &(&1.item_id == Data.item(drop) and &1.count in count)) == 1
+    end
+
+    before = drops(ctx)
+    assert state(pid).inventory.slots[36].components["minecraft:damage"] == 4
+    assert state(pid).inventory.slots[37].components["minecraft:damage"] == 2
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    {_fresh, pid} = login(ctx)
+    assert drops(ctx) == before
+    assert saved(ctx).transfer_sequence == 6 and saved(ctx).outbox == nil
+    assert state(pid).inventory.slots[36].components["minecraft:damage"] == 4
+    assert state(pid).inventory.slots[37].components["minecraft:damage"] == 2
   end
 end

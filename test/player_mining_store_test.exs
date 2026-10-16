@@ -173,6 +173,62 @@ defmodule Valimc.PlayerMiningStoreTest do
     assert {:error, :no_pending_transfer} = complete(ctx, final_fence)
   end
 
+  test "sampled random loot is journaled exactly and never changes on delivery or restart", ctx do
+    :ok = Region.release_mining(ctx.owner, ctx.intent.permit)
+    block = Data.item_block(Data.item("melon"))
+    :ok = World.set_block(ctx.position, block)
+    {:ok, reservation} = Region.reserve_mining(ctx.owner, [ctx.position])
+
+    tool = %{
+      ctx.intent.before
+      | components:
+          Map.put(ctx.intent.before.components, "minecraft:enchantments", %{
+            "minecraft:fortune" => 2
+          })
+    }
+
+    # Base3+draw2 and Fortune draw1 yield exactly6; no draw tape belongs in recovery.
+    {:ok, [stack]} =
+      Valimc.Physics.RandomMiningLoot.drops(block, tool, true, fn
+        5 -> 2
+        3 -> 1
+      end)
+
+    assert stack == ItemStack.new("melon_slice", 6)
+    {after_tool, _} = ToolDurability.mine(tool, block, false)
+    records = [%{hd(ctx.intent.records) | stack: stack}]
+
+    intent =
+      ctx.intent
+      |> Map.merge(reservation)
+      |> Map.merge(%{before: tool, after: after_tool, records: records})
+
+    snapshot = put_in(ctx.snapshot, [:inventory, Access.key(:slots), 43], tool)
+    ctx = %{ctx | intent: intent, snapshot: snapshot}
+    {_fence, pending} = prepare(ctx)
+    assert pending.outbox.records == records
+    assert {:ok, :applied} = deliver(ctx, pending)
+    assert {:ok, :already_applied} = deliver(ctx, pending)
+    assert :ok = DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, ctx.writer)
+    _owner = restart_region(ctx)
+    {:ok, writer, restored, fence} = PlayerStore.open(ctx.uuid)
+    ctx = %{ctx | writer: writer}
+    assert restored.outbox.records == records
+    assert {:ok, :already_applied} = deliver(ctx, restored)
+    assert {:ok, _, final} = complete(ctx, fence)
+    assert final.outbox == nil and final.transfer_sequence == 1
+    assert Inventory.get(final.inventory, 43) == nil
+    assert World.get_block(ctx.position) == 0
+
+    {:ok, ledger} =
+      Valimc.World.ItemRecords.decode(
+        File.read!(Valimc.World.Store.item_path(ctx.base, ctx.key)),
+        ctx.key
+      )
+
+    assert ledger.records == records
+  end
+
   test "source and destination restart reject an uncommitted permit and refund the exact tool once",
        ctx do
     {_fence, pending} = prepare(ctx)

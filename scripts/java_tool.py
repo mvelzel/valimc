@@ -22,6 +22,8 @@ if name == 'StuckPathsOracle':
     sources.append(str(root / 'scripts' / 'StuckContactOracle.java'))
 if name in ('PlayerMiningOracle', 'ToolDurabilityOracle', 'MiningLootOracle', 'MiningAttemptOracle', 'PlacementOracle', 'PlacementConsumptionOracle'):
     sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
+if name == 'RandomMiningLootOracle':
+    sources += [str(root / 'scripts' / (source + '.java')) for source in ('MiningToolOracle', 'MiningLootOracle')]
 if name in ('PositionCollisionOracle', 'ScaffoldingCollisionOracle', 'PowderSnowCollisionOracle', 'ShulkerCollisionOracle', 'VoxelUnionOracle', 'PistonCollisionOracle', 'MovementCollisionOracle', 'VoxelIntersectionOracle', 'BlockCollisionOracle', 'StepMovementOracle', 'EntityCollisionOracle', 'ServerMovementOracle'):
     sources.append(str(root / 'scripts' / 'CollisionMetadata.java'))
 compiled = subprocess.run([java_home + '/bin/javac', '-cp', classpath, '-d', str(tools), *sources])

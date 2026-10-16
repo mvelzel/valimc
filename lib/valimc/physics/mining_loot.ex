@@ -1,6 +1,6 @@
 defmodule Valimc.Physics.MiningLoot do
-  @moduledoc "Native-verified deterministic stock block loot; unsupported rule families stay explicit."
-  alias Valimc.Physics.{Mining, MiningTools}
+  @moduledoc "Native-verified stock block loot; unsupported rule families stay explicit."
+  alias Valimc.Physics.{Mining, MiningTools, RandomMiningLoot}
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes}
   @path Path.expand("../../../priv/physics/mining_loot.json", __DIR__)
   @external_resource @path
@@ -72,7 +72,7 @@ defmodule Valimc.Physics.MiningLoot do
              is_boolean(harvest) do
     if harvest do
       case elem(@profiles, Map.get(@states, state, elem(@blocks, MiningTools.block_id(state)))) do
-        nil -> {:error, :unsupported_mining_loot}
+        nil -> RandomMiningLoot.drops(state, tool, true)
         profile -> {:ok, elem(profile, if(silk?(tool), do: 1, else: 0))}
       end
     else

@@ -122,14 +122,14 @@ public class MiningLootOracle {
     var key=gson.toJson(value);Integer index=indexes.get(key);
     if(index==null){index=profiles.size();indexes.put(key,index);profiles.add(value);}return index;
   }
-  private static boolean baseDrops(Block block)throws NoSuchMethodException{
+  static boolean baseDrops(Block block)throws NoSuchMethodException{
     for(Class<?> type=block.getClass();type!=null;type=type.getSuperclass()){
       try{return type.getDeclaredMethod("getDrops",net.minecraft.world.level.block.state.BlockState.class,LootParams.Builder.class).getDeclaringClass()==BlockBehaviour.class;}
       catch(NoSuchMethodException missing){}
     }
     throw new NoSuchMethodException("Missing block drop method");
   }
-  private static void simpleCallbacks(Block block)throws NoSuchMethodException{
+  static void simpleCallbacks(Block block)throws NoSuchMethodException{
     if(block.getClass().getMethod("destroy",net.minecraft.world.level.LevelAccessor.class,net.minecraft.core.BlockPos.class,BlockState.class).getDeclaringClass()!=Block.class
       ||block.getClass().getMethod("playerDestroy",ServerLevel.class,ServerPlayer.class,net.minecraft.core.BlockPos.class,BlockState.class,net.minecraft.world.level.block.entity.BlockEntity.class,ItemStack.class).getDeclaringClass()!=Block.class
       ||block.getClass().getMethod("playerWillDestroy",net.minecraft.world.level.Level.class,net.minecraft.core.BlockPos.class,BlockState.class,net.minecraft.world.entity.player.Player.class).getDeclaringClass()!=Block.class)throw new AssertionError("Specialized destruction: "+block);
@@ -144,7 +144,7 @@ public class MiningLootOracle {
     }catch(NoSuchMethodException missing){}
     throw new NoSuchMethodException(name);
   }
-  private static boolean ordinaryCube(Block block){
+  static boolean ordinaryCube(Block block){
     return block==Blocks.GLASS||(block.getClass()==Block.class&&block.getStateDefinition().getPossibleStates().size()==1&&block.asItem().getClass()==BlockItem.class&&!block.defaultBlockState().canBeReplaced()&&block.defaultBlockState().isCollisionShapeFullBlock(net.minecraft.world.level.EmptyBlockGetter.INSTANCE,BlockPos.ZERO));
   }
   private static ItemStack enchanted(HolderLookup.Provider lookup,Item item,boolean stored,Map<net.minecraft.resources.ResourceKey<Enchantment>,Integer> levels){

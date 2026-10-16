@@ -124,6 +124,8 @@ indexes validated tickets. None imply full parity.
    [Ordinary full cubes](tickets/VMC-029a8.md) are validated (`e28fbb8`):173 added
    types,65 affected tests,231,455 native loot contexts, production and actual
    tool/loot/wear/abort/fresh-reconnect checks. Broader callbacks remain open.
+   [Random cube loot](tickets/VMC-029a9.md) passes53 affected tests and380,160 native
+   contexts: four types, Fortune/Silk Touch and stable sampled delivery. GUI pending.
 4. **[VMC-029b](tickets/VMC-029b.md): authoritative placement.** Native candidates/
    codecs match518,964 contexts and576 packets. Bounded preparation and expiring
    owner commits now compose on the player with admission, ordered corrections
@@ -149,6 +151,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
+| [VMC-029a9](tickets/VMC-029a9.md) | Random/Silk/Fortune cube drops, wear and reconnect | Local checkpoint; frozen release next |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 
