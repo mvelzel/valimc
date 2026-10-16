@@ -296,10 +296,15 @@ defmodule Valimc.World.Items do
 
   defp build_entity(state, stack, {x, y, z}, id, uuid, motion) when id in 1..2_147_483_647 do
     entity = %{entity_id: id, uuid: uuid, x: x, y: y, z: z}
+    entity = if motion, do: Map.put(entity, :velocity, motion.velocity), else: entity
+    no_gravity = if motion, do: motion.no_gravity, else: true
+    on_ground = if motion, do: motion.on_ground, else: false
     spawn = binary_packet(EntityPackets.spawn_item(entity))
-    {:ok, metadata} = metadata(id, stack)
-    position = binary_packet(EntityPackets.position(Map.put(entity, :on_ground, false)))
-    velocity = binary_packet(EntityPackets.motion(id, {0.0, 0.0, 0.0}))
+    {:ok, metadata} = metadata(id, stack, no_gravity)
+    position = binary_packet(EntityPackets.position(Map.put(entity, :on_ground, on_ground)))
+
+    velocity =
+      binary_packet(EntityPackets.motion(id, Map.get(entity, :velocity, {0.0, 0.0, 0.0})))
 
     bytes =
       state.bytes + Enum.sum(Enum.map([spawn, metadata, position, velocity], &packet_bytes/1))
@@ -320,7 +325,7 @@ defmodule Valimc.World.Items do
         motion: velocity
       }
 
-      entry = %{entity: entity, stack: stack, revision: 1, no_gravity: true}
+      entry = %{entity: entity, stack: stack, revision: 1, no_gravity: no_gravity}
       entry = if motion, do: Map.put(entry, :motion, motion), else: entry
 
       next = %{

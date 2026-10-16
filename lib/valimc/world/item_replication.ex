@@ -11,6 +11,8 @@ defmodule Valimc.World.ItemReplication do
   def max_visible, do: @max_visible
 
   def reconcile(state, desired) when map_size(desired) <= @max_visible do
+    desired = newest_owners(desired)
+
     removed =
       for {id, {epoch, _}} <- state.tracked,
           not Map.has_key?(desired, id) or desired[id].epoch != epoch,
@@ -62,6 +64,21 @@ defmodule Valimc.World.ItemReplication do
       end)
 
     {%{state | tracked: tracked, cursor: cursor}, removal ++ Enum.reverse(packets)}
+  end
+
+  # Sequential ETS reads may span a handoff. Choose ownership before removals,
+  # spawning or pacing so the old and adopted runtime IDs cannot coexist.
+  defp newest_owners(desired) do
+    desired
+    |> Enum.reduce(%{}, fn {id, view}, by_uuid ->
+      Map.update(by_uuid, view.uuid, {id, view}, fn {old_id, old} ->
+        if {view.ownership_generation, id} > {old.ownership_generation, old_id},
+          do: {id, view},
+          else: {old_id, old}
+      end)
+    end)
+    |> Map.values()
+    |> Map.new()
   end
 
   defp binary_packet({id, payload}), do: {id, IO.iodata_to_binary(payload)}
