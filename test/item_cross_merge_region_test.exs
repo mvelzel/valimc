@@ -445,4 +445,49 @@ defmodule Valimc.ItemCrossMergeRegionTest do
 
     refute World.item_observation_current?(fence)
   end
+
+  test "recipient handoff after admission rejects the old merge and returns only its donor", c do
+    third_key = {elem(c.destination, 0) + 1, elem(c.destination, 1)}
+    {:ok, third} = World.item_owner(third_key)
+
+    on_exit(fn ->
+      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, third_key),
+          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+
+      for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, third_key),
+          do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
+    end)
+
+    assert {:ok, request} = grant(c)
+    {:ok, {_, id, revision}} = Items.find(state(c.target).items, c.recipient.uuid)
+
+    step = %{
+      id: id,
+      revision: revision,
+      position: {elem(third_key, 0) * 128 + 0.5, c.recipient.y, c.recipient.z},
+      motion: c.recipient.motion
+    }
+
+    assert {:ok, 1} = Region.handoff_items(c.target, third_key, [step])
+
+    wait(fn ->
+      state(c.target).items.ledger.outgoing == nil and state(c.target).item_pending == nil
+    end)
+
+    assert {:ok, :prepared} = Region.prepare_item_merge(c.source, request)
+    wait(fn -> finished(c) end)
+    assert [%{uuid: uuid, stack: %{count: 3}}] = Items.records(state(third).items)
+    assert uuid == c.recipient.uuid
+    assert Items.records(state(c.source).items) == [c.donor]
+    assert state(c.source).items.ledger.generations[c.donor.uuid] == 3
+    assert Items.records(state(c.target).items) == []
+
+    assert {:ok, :rejected} =
+             ItemMergeTransfer.receipt_result(
+               request,
+               disk(c, c.destination).ledger.incoming[c.key]
+             )
+
+    assert disk(c, c.key).receipts == c.births and disk(c, c.destination).receipts == c.births
+  end
 end

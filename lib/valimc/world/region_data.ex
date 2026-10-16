@@ -184,12 +184,20 @@ defmodule Valimc.World.RegionData do
               state
 
             scene.targets == [] ->
-              %{state | item_cross_stamp: stamp}
+              %{
+                state
+                | item_cross_stamp: stamp,
+                  item_cross_scan_stamp: nil,
+                  item_cross_cursor: nil,
+                  item_cross_retry: false
+              }
 
             true ->
-              same_scan = stamp == state.item_cross_scan_stamp
-              cursor = if same_scan, do: state.item_cross_cursor
-              retry = same_scan and state.item_cross_retry
+              # Physical changes cannot keep resetting a crowded moving scene to
+              # its first batch. Finish the cycle, then rescan changed observations.
+              cursor = state.item_cross_cursor
+              scan_stamp = state.item_cross_scan_stamp || stamp
+              retry = state.item_cross_retry
               token = make_ref()
 
               case ItemCrossMergeQuery.start(
@@ -208,6 +216,7 @@ defmodule Valimc.World.RegionData do
                     monitor: monitor,
                     token: token,
                     stamp: stamp,
+                    scan_stamp: scan_stamp,
                     retry: retry,
                     timer: send_after(state, {:item_cross_deadline, token}, 750)
                   }
@@ -1497,7 +1506,10 @@ defmodule Valimc.World.RegionData do
     Process.cancel_timer(job.timer)
     Process.demonitor(job.monitor, [:flush])
     retry = job.retry or result.retry
-    complete = result.cursor == nil and not retry and not result.progress
+
+    complete =
+      result.cursor == nil and not retry and not result.progress and
+        job.scan_stamp == job.stamp
 
     next =
       System.monotonic_time(:millisecond) +
@@ -1509,7 +1521,7 @@ defmodule Valimc.World.RegionData do
        | item_cross_job: nil,
          item_cross_next: next,
          item_cross_stamp: if(complete, do: job.stamp),
-         item_cross_scan_stamp: job.stamp,
+         item_cross_scan_stamp: if(result.cursor != nil, do: job.scan_stamp),
          item_cross_cursor: result.cursor,
          item_cross_retry: result.cursor != nil and retry
      }}

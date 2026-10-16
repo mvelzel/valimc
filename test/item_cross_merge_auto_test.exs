@@ -31,7 +31,12 @@ defmodule Valimc.ItemCrossMergeAutoTest do
             y: 68.0,
             z: elem(key, 1) * 128 + 4.5 + i * 3,
             stack: %{stack | count: if(variant == :reverse, do: 1, else: 2)},
-            motion: %ItemMotionState{age: 30, pickup_delay: 15, no_gravity: true}
+            motion: %ItemMotionState{
+              age: 30,
+              pickup_delay: 15,
+              no_gravity: true,
+              velocity: if(tags[:moving], do: {0.0, 0.0, 0.01}, else: {0.0, 0.0, 0.0})
+            }
           }
 
           recipient = %{
@@ -275,6 +280,13 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     assert total(c) == 12 * 66
     assert state(c.source).items.ledger.sequence == 0
     assert map_size(state(c.source).items.entries) == 12
+  end
+
+  @tag pairs: 12, moving: true
+  test "moving scenes do not starve counter pairs beyond the first batch", c do
+    start(c)
+    wait(fn -> Enum.all?(Items.records(state(c.target).items), &(&1.motion.age < 90)) end, 400)
+    assert total(c) == 12 * 66 and state(c.source).items.ledger.sequence == 0
   end
 
   test "a query deadline during source fsync leaves its accepted journal recoverable", c do
