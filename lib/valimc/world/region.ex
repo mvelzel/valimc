@@ -141,6 +141,19 @@ defmodule Valimc.World.Region do
 
   def find_item({pid, epoch}, uuid), do: GenServer.call(pid, {:find_item, epoch, uuid})
 
+  @doc "Trusted accepted border steps; success means durable withdrawal, with asynchronous delivery."
+  def handoff_items({pid, epoch}, destination, steps),
+    do:
+      GenServer.call(
+        pid,
+        {:handoff_items, epoch, destination, steps, System.monotonic_time(:millisecond) + 250},
+        6000
+      )
+
+  @doc "Internal region inbox; delivery must follow a durably committed source intent."
+  def apply_item_handoff({pid, epoch}, transfer),
+    do: GenServer.call(pid, {:item_handoff, epoch, transfer}, 6000)
+
   # Internal inbox only; source persistence/lease fencing must precede gameplay use.
   def apply_item_transfer({pid, epoch}, transfer),
     do: GenServer.call(pid, {:item_transfer, epoch, transfer}, 6000)

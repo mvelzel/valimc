@@ -4,6 +4,8 @@ defmodule Valimc.World.RegionData do
     BlockBatch,
     Chunk,
     Items,
+    ItemHandoffs,
+    ItemHandoffDelivery,
     ItemTransfers,
     MiningPermits,
     MiningTransfers,
@@ -21,6 +23,7 @@ defmodule Valimc.World.RegionData do
     :item_storage_enabled,
     :item_publication,
     :item_pending,
+    :item_handoff,
     :item_motion_generation,
     :item_saved_generation,
     :item_checkpoint,
@@ -76,6 +79,7 @@ defmodule Valimc.World.RegionData do
       item_storage_enabled: persistent,
       item_publication: publication,
       item_pending: nil,
+      item_handoff: nil,
       item_motion_generation: 0,
       item_saved_generation: 0,
       item_checkpoint: nil,
@@ -95,6 +99,7 @@ defmodule Valimc.World.RegionData do
       saving: false,
       save_timer: save_timer
     }
+    |> resume_item_handoff()
   end
 
   def handle_call({:create_item, epoch, stack, position}, from, state) do
@@ -173,6 +178,37 @@ defmodule Valimc.World.RegionData do
 
       true ->
         plan_transfer(transfer, from, state)
+    end
+  end
+
+  def handle_call({:handoff_items, epoch, destination, steps, deadline}, from, state) do
+    cond do
+      epoch != state.items.epoch ->
+        {:reply, {:error, :stale_region}, state}
+
+      not state.item_storage_enabled ->
+        {:reply, {:error, :transfer_storage_disabled}, state}
+
+      state.item_pending != nil ->
+        {:reply, {:error, :item_storage_busy}, state}
+
+      state.items.ledger.outgoing != nil ->
+        {:reply, {:error, :item_handoff_busy}, state}
+
+      not is_integer(deadline) or System.monotonic_time(:millisecond) >= deadline ->
+        {:reply, {:error, :expired_item_step}, state}
+
+      true ->
+        plan_item_change(:item_handoff_out, {destination, steps, deadline}, from, state)
+    end
+  end
+
+  def handle_call({:item_handoff, epoch, transfer}, from, state) do
+    cond do
+      epoch != state.items.epoch -> {:reply, {:error, :stale_region}, state}
+      not state.item_storage_enabled -> {:reply, {:error, :transfer_storage_disabled}, state}
+      state.item_pending != nil -> {:reply, {:error, :item_storage_busy}, state}
+      true -> plan_item_change(:item_handoff_in, transfer, from, state)
     end
   end
 
@@ -564,7 +600,10 @@ defmodule Valimc.World.RegionData do
     {:noreply, %{state | item_pending: pending}}
   end
 
-  defp plan_transfer(transfer, from, state) do
+  defp plan_transfer(transfer, from, state),
+    do: plan_item_change(:item_transfer, transfer, from, state)
+
+  defp plan_item_change(kind, request, from, state) do
     owner = self()
     epoch = state.items.epoch
     token = make_ref()
@@ -573,18 +612,19 @@ defmodule Valimc.World.RegionData do
     key = state.key
 
     case Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
-           result = ItemTransfers.plan(items, receipts, key, transfer)
+           result = item_plan(kind, items, receipts, key, request)
            send(owner, {:resource, epoch, {:item_transfer_plan, self(), token, result}})
          end) do
       {:ok, worker} ->
         pending = %{
-          kind: :item_transfer,
+          kind: kind,
           phase: :planning,
           token: token,
           from: from,
           worker: worker,
           monitor: Process.monitor(worker),
-          timer: send_after(state, {:item_commit_deadline, token}, 5000)
+          timer: send_after(state, {:item_commit_deadline, token}, 5000),
+          acceptance_deadline: if(kind == :item_handoff_out, do: elem(request, 2), else: nil)
         }
 
         {:noreply, %{state | item_pending: pending}}
@@ -595,6 +635,32 @@ defmodule Valimc.World.RegionData do
       {:error, reason} ->
         {:reply, {:error, {:item_worker_failed, reason}}, state}
     end
+  end
+
+  defp item_plan(:item_transfer, items, receipts, key, transfer) do
+    case ItemTransfers.plan(items, receipts, key, transfer) do
+      {:ok, next, receipts, :applied} -> {:write, next, receipts, {:ok, :applied}}
+      {:ok, _, _, :already_applied} -> {:reply, {:ok, :already_applied}}
+      error -> error
+    end
+  end
+
+  defp item_plan(:item_handoff_in, items, receipts, key, transfer) do
+    case ItemHandoffs.accept(items, key, transfer) do
+      {:ok, next, :applied} -> {:write, next, receipts, {:ok, :applied}}
+      {:ok, _, :already_applied} -> {:reply, {:ok, :already_applied}}
+      error -> error
+    end
+  end
+
+  defp item_plan(:item_handoff_out, items, receipts, key, {destination, steps, _}) do
+    with {:ok, next, request} <- ItemHandoffs.depart(items, key, items.epoch, destination, steps),
+         do: {:write, next, receipts, {:ok, request.sequence}}
+  end
+
+  defp item_plan(:item_handoff_clear, items, receipts, key, {sequence, digest}) do
+    with {:ok, next} <- ItemHandoffs.finish(items, key, sequence, digest),
+         do: {:write, next, receipts, :ok}
   end
 
   defp block_transfer_writing?(state),
@@ -826,14 +892,20 @@ defmodule Valimc.World.RegionData do
   def handle_info(
         {:item_transfer_plan, worker, token, result},
         %{
-          item_pending:
-            %{kind: :item_transfer, phase: :planning, worker: worker, token: token} = pending
+          item_pending: %{kind: kind, phase: :planning, worker: worker, token: token} = pending
         } = state
-      ) do
+      )
+      when kind in [:item_transfer, :item_handoff_in, :item_handoff_out, :item_handoff_clear] do
     Process.demonitor(pending.monitor, [:flush])
 
+    result =
+      if pending.acceptance_deadline != nil and
+           System.monotonic_time(:millisecond) >= pending.acceptance_deadline,
+         do: {:error, :expired_item_step},
+         else: result
+
     case result do
-      {:ok, items, receipts, :applied} ->
+      {:write, items, receipts, reply} ->
         Store.commit_items(
           state.store,
           state.store_lease,
@@ -850,24 +922,103 @@ defmodule Valimc.World.RegionData do
             phase: :writing,
             items: items,
             receipts: receipts,
-            reply: {:ok, :applied}
+            reply: reply
           })
 
         {:noreply, %{state | item_pending: writing}}
 
-      {:ok, _, _, :already_applied} ->
+      {:reply, reply} ->
         Process.cancel_timer(pending.timer)
-        GenServer.reply(pending.from, {:ok, :already_applied})
-        {:noreply, %{state | item_pending: nil}}
+        reply_item(pending.from, reply)
+        {:noreply, resume_item_handoff(%{state | item_pending: nil})}
 
       {:error, _} = error ->
         Process.cancel_timer(pending.timer)
-        GenServer.reply(pending.from, error)
-        {:noreply, %{state | item_pending: nil}}
+        reply_item(pending.from, error)
+        {:noreply, item_plan_failed(state, pending)}
     end
   end
 
   def handle_info({:item_transfer_plan, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:item_handoff_wake, token},
+        %{item_handoff: %{phase: :retry, token: token}} = state
+      ) do
+    token = make_ref()
+
+    case ItemHandoffDelivery.start(
+           self(),
+           state.items.epoch,
+           token,
+           state.key,
+           state.items.ledger
+         ) do
+      {:ok, worker, monitor} ->
+        job = %{
+          phase: :delivering,
+          token: token,
+          worker: worker,
+          monitor: monitor,
+          timer: send_after(state, {:item_handoff_deadline, token}, 8000)
+        }
+
+        {:noreply, %{state | item_handoff: job}}
+
+      {:error, _} ->
+        {:noreply, schedule_handoff_retry(state, 250)}
+    end
+  end
+
+  def handle_info(
+        {:item_handoff_wake, token},
+        %{item_handoff: %{phase: :ready_clear, token: token} = ack} = state
+      ) do
+    if state.item_pending != nil do
+      {:noreply, schedule_handoff_clear(state, ack.sequence, ack.digest, 100)}
+    else
+      case plan_item_change(:item_handoff_clear, {ack.sequence, ack.digest}, nil, state) do
+        {:noreply, next} ->
+          {:noreply, %{next | item_handoff: %{phase: :clearing}}}
+
+        {:reply, _, next} ->
+          {:noreply, schedule_handoff_clear(next, ack.sequence, ack.digest, 100)}
+      end
+    end
+  end
+
+  def handle_info({:item_handoff_wake, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:item_handoff_delivered, worker, token, result},
+        %{item_handoff: %{phase: :delivering, worker: worker, token: token} = job} = state
+      ) do
+    Process.cancel_timer(job.timer)
+    Process.demonitor(job.monitor, [:flush])
+
+    case result do
+      {:ok, sequence, digest} ->
+        {:noreply, schedule_handoff_clear(state, sequence, digest, 0)}
+
+      {:error, _} ->
+        Valimc.Metrics.add(:item_handoff_retries)
+        {:noreply, schedule_handoff_retry(state, 250)}
+    end
+  end
+
+  def handle_info({:item_handoff_delivered, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:item_handoff_deadline, token},
+        %{item_handoff: %{phase: :delivering, token: token} = job} = state
+      ) do
+    Process.demonitor(job.monitor, [:flush])
+    Process.exit(job.worker, :kill)
+    Valimc.Metrics.add(:item_handoff_retries)
+    {:noreply, schedule_handoff_retry(state, 250)}
+  end
+
+  def handle_info({:item_handoff_deadline, _}, state), do: {:noreply, state}
 
   def handle_info(
         {:block_transfer_plan, worker, token, result},
@@ -1000,7 +1151,7 @@ defmodule Valimc.World.RegionData do
       when not is_map_key(pending, :batch) do
     Process.cancel_timer(pending.timer)
     :ets.insert(state.item_publication, {:items, pending.items.views})
-    GenServer.reply(pending.from, pending.reply)
+    reply_item(pending.from, pending.reply)
 
     {:noreply,
      %{
@@ -1009,7 +1160,8 @@ defmodule Valimc.World.RegionData do
          item_receipts: pending.receipts,
          item_pending: nil,
          item_saved_generation: state.item_motion_generation
-     }}
+     }
+     |> resume_item_handoff()}
   end
 
   def handle_info(
@@ -1018,7 +1170,7 @@ defmodule Valimc.World.RegionData do
       )
       when not is_map_key(pending, :batch) do
     Process.cancel_timer(pending.timer)
-    GenServer.reply(pending.from, {:error, :item_commit_uncertain})
+    reply_item(pending.from, {:error, :item_commit_uncertain})
     require Logger
     Logger.error("Region item commit failed: #{inspect(reason)}")
     {:stop, {:item_storage_failed, reason}, %{state | item_pending: nil}}
@@ -1063,8 +1215,17 @@ defmodule Valimc.World.RegionData do
         %{item_pending: %{phase: :planning, monitor: ref, worker: worker} = pending} = state
       ) do
     Process.cancel_timer(pending.timer)
-    GenServer.reply(pending.from, {:error, :item_plan_failed})
-    {:noreply, %{state | item_pending: nil}}
+    reply_item(pending.from, {:error, :item_plan_failed})
+    {:noreply, item_plan_failed(state, pending)}
+  end
+
+  def handle_info(
+        {:DOWN, ref, :process, worker, _},
+        %{item_handoff: %{phase: :delivering, monitor: ref, worker: worker} = job} = state
+      ) do
+    Process.cancel_timer(job.timer)
+    Valimc.Metrics.add(:item_handoff_retries)
+    {:noreply, schedule_handoff_retry(state, 250)}
   end
 
   def handle_info(
@@ -1159,15 +1320,65 @@ defmodule Valimc.World.RegionData do
   defp send_after(state, message, delay),
     do: Process.send_after(self(), {:resource, state.items.epoch, message}, delay)
 
+  defp reply_item(nil, _), do: :ok
+  defp reply_item(from, reply), do: GenServer.reply(from, reply)
+
+  defp resume_item_handoff(%{items: %{ledger: %{outgoing: nil}}} = state),
+    do: %{state | item_handoff: nil}
+
+  defp resume_item_handoff(%{item_handoff: nil} = state), do: schedule_handoff_retry(state, 0)
+  defp resume_item_handoff(state), do: state
+
+  defp schedule_handoff_retry(state, delay) do
+    token = make_ref()
+    timer = send_after(state, {:item_handoff_wake, token}, delay)
+    %{state | item_handoff: %{phase: :retry, token: token, timer: timer}}
+  end
+
+  defp schedule_handoff_clear(state, sequence, digest, delay) do
+    token = make_ref()
+    timer = send_after(state, {:item_handoff_wake, token}, delay)
+
+    %{
+      state
+      | item_handoff: %{
+          phase: :ready_clear,
+          sequence: sequence,
+          digest: digest,
+          token: token,
+          timer: timer
+        }
+    }
+  end
+
+  defp item_plan_failed(state, pending) do
+    state = %{state | item_pending: nil}
+
+    state =
+      if Map.get(pending, :kind) == :item_handoff_clear,
+        do: %{state | item_handoff: nil},
+        else: state
+
+    resume_item_handoff(state)
+  end
+
   def terminate(reason, state) do
     Process.cancel_timer(state.save_timer)
 
     if state.item_checkpoint_timer, do: Process.cancel_timer(state.item_checkpoint_timer.timer)
     if state.item_checkpoint, do: Process.cancel_timer(state.item_checkpoint.timer)
 
+    if state.item_handoff do
+      if Map.has_key?(state.item_handoff, :timer),
+        do: Process.cancel_timer(state.item_handoff.timer)
+
+      if Map.has_key?(state.item_handoff, :worker),
+        do: Process.exit(state.item_handoff.worker, :kill)
+    end
+
     if state.item_pending do
       Process.cancel_timer(state.item_pending.timer)
-      GenServer.reply(state.item_pending.from, {:error, :item_commit_uncertain})
+      reply_item(state.item_pending.from, {:error, :item_commit_uncertain})
 
       if state.item_pending.phase == :planning and Process.whereis(Valimc.ItemWorkers) != nil,
         do: Task.Supervisor.terminate_child(Valimc.ItemWorkers, state.item_pending.worker)

@@ -23,8 +23,8 @@ codecs, bounded durable batches and actual controlled movement/replacement/recon
 actual fall/landing, slime rebound, water drift and fresh reconnect.
 [Coalesced motion saves](tickets/VMC-035a4.md) are validated (`c49fdb1`), including
 actual movement with paused I/O, periodic saves, critical replacement and reconnect.
-[Durable owner handoff](tickets/VMC-035a5.md) is in progress; automatic scheduling
-follows its ownership/recovery path.
+[Durable owner handoff](tickets/VMC-035a5.md) passes85 affected checks; actual
+boundary/reconnect validation is next. Automatic scheduling follows this gate.
 
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Player processes own their simulation state; bounded workers sample geometry.
@@ -207,6 +207,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
+| [VMC-035a5](tickets/VMC-035a5.md) | Actual boundary movement, receipt recovery and reconnect | Local handoff checkpoint |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 

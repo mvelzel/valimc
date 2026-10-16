@@ -105,6 +105,9 @@ defmodule Valimc.World.Items do
       match?({:ok, _}, find(state, uuid)) ->
         {:error, :duplicate_item_uuid}
 
+      state.ledger.outgoing != nil and Map.has_key?(state.ledger.outgoing.generations, uuid) ->
+        {:error, :item_handoff_busy}
+
       map_size(state.entries) >= @max_items ->
         {:error, :item_count_limit}
 

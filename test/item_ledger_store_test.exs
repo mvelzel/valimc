@@ -41,12 +41,19 @@ defmodule Valimc.ItemLedgerStoreTest do
     {:ok, bytes} = ItemLedger.encode(key, [record], receipts, ledger)
     path = Store.item_path(base, key)
     File.write!(path, bytes)
+    # Keep the outgoing intent pending while exercising unrelated save paths.
+    destination = {rx + 1, rz}
+    occupied = for n <- 1..256, do: %{outgoing | uuid: <<1000 + n::128>>}
+    {:ok, full} = ItemLedger.encode(destination, occupied, %{})
+    File.write!(Store.item_path(base, destination), full)
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+      for region <- [key, destination],
+          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, region),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
-      for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
+      for region <- [key, destination],
+          {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, region),
           do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, previous)
