@@ -78,6 +78,18 @@ defmodule Valimc.Physics.FluidFlowTest do
     assert still.velocity == {0.1, 0.2, 0.3} and still.depths.water > 0
   end
 
+  test "items normalize shallow current sums while players retain depth-scaled averaging" do
+    f = frame(%{{0, 64, 0} => 89, {1, 64, 0} => 96})
+    box = {0.375, 64.7, 0.375, 0.625, 64.95, 0.625}
+    {:ok, item} = FluidCurrents.sample_item(f, box, {0.003, 0.0, 0.0})
+    {:ok, player} = FluidCurrents.sample(f, box, {0.003, 0.0, 0.0})
+    assert item.depths == player.depths and item.depths.water > 0
+    assert item.velocity == {0.017, 0.0, 0.0}
+    assert elem(player.velocity, 0) < elem(item.velocity, 0)
+    {:ok, still} = FluidCurrents.sample_item(f, box, {0.1, 0.2, 0.3}, false)
+    assert still.velocity == {0.1, 0.2, 0.3} and still.depths == item.depths
+  end
+
   test "contextual support and missing cells fail explicitly" do
     shulker = Data.item_block(ItemTypes.id("shulker_box"))
     f = frame(%{{0, 64, 0} => shulker})

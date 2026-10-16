@@ -8,6 +8,10 @@ Enum.each(Enum.with_index(cases), fn {c, index} ->
   {:ok, actual} = MotionBlocks.fetch(index)
   encoded = Map.new(actual, fn {k, v} -> {Atom.to_string(k), v} end)
   if encoded != c["properties"], do: raise("Motion block facts differ for #{index}")
+
+  unless MotionBlocks.fence?(index) == c["fence"] and
+           MotionBlocks.uses_own_speed?(index) == c["speed_override"],
+         do: raise("Contextual material state differs for #{index}")
 end)
 
 IO.puts("PASS: #{length(cases)} native block motion facts match compiled lookups.")

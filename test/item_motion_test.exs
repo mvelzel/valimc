@@ -61,6 +61,16 @@ defmodule Valimc.Physics.ItemMotionTest do
     assert ice > stone
   end
 
+  test "native gravity addition clears horizontal negative zero left by wall restitution" do
+    assert {:ok, %{velocity: {x, _, z}}} = ItemMotion.prepare({-0.0, 0.0, -0.0}, %ItemMotion{})
+    assert <<x::float-64, z::float-64>> == <<0.0::float-64, 0.0::float-64>>
+
+    assert {:ok, %{velocity: {x, _, z}}} =
+             ItemMotion.prepare({-0.0, 0.0, -0.0}, %ItemMotion{no_gravity: true})
+
+    assert <<x::float-64, z::float-64>> == <<-0.0::float-64, -0.0::float-64>>
+  end
+
   test "missing or unbounded observations refuse before physics" do
     for facts <- [
           %{},

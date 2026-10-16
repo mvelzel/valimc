@@ -12,7 +12,7 @@ tools = root / 'research/java-tools'
 tools.mkdir(exist_ok=True)
 name = sys.argv[1]
 sources = [str(root / 'scripts' / (name + '.java'))]
-if name in ('FluidFlowOracle', 'FluidCurrentOracle'):
+if name in ('FluidFlowOracle', 'FluidCurrentOracle', 'ItemCurrentOracle', 'ItemTravelOracle'):
     sources.append(str(root / 'scripts' / 'FluidBoundaryMetadata.java'))
 if name == 'FluidSupportOracle':
     sources.append(str(root / 'scripts' / 'CollisionMetadata.java'))
@@ -20,7 +20,7 @@ if name == 'ClimbContactOracle':
     sources.append(str(root / 'scripts' / 'ClimbMetadata.java'))
 if name == 'StuckPathsOracle':
     sources.append(str(root / 'scripts' / 'StuckContactOracle.java'))
-if name in ('PlayerMiningOracle', 'ToolDurabilityOracle', 'MiningLootOracle', 'MiningAttemptOracle', 'PlacementOracle', 'PlacementConsumptionOracle', 'PlayerCraftingOracle', 'TableMenuOracle', 'CraftingTableAccessOracle', 'ItemDropOracle', 'ItemMotionOracle'):
+if name in ('PlayerMiningOracle', 'ToolDurabilityOracle', 'MiningLootOracle', 'MiningAttemptOracle', 'PlacementOracle', 'PlacementConsumptionOracle', 'PlayerCraftingOracle', 'TableMenuOracle', 'CraftingTableAccessOracle', 'ItemDropOracle', 'ItemMotionOracle', 'ItemTravelOracle'):
     sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
 if name == 'RandomMiningLootOracle':
     sources += [str(root / 'scripts' / (source + '.java')) for source in ('MiningToolOracle', 'MiningLootOracle')]

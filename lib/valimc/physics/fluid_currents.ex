@@ -1,18 +1,25 @@
 defmodule Valimc.Physics.FluidCurrents do
-  @moduledoc "Native player current averaging and minimum push, calculated outside gameplay owners."
+  @moduledoc "Native player/item fluid currents, calculated outside gameplay owners."
   alias Valimc.Physics.{FluidContact, FluidFlow}
   @empty %{height: 0.0, sum: {0.0, 0.0, 0.0}, count: 0}
 
-  def sample(frame, box, velocity, pushed \\ true, fast_lava \\ false) do
+  def sample(frame, box, velocity, pushed \\ true, fast_lava \\ false),
+    do: sample_body(frame, box, velocity, pushed, fast_lava, :player)
+
+  def sample_item(frame, box, velocity, pushed \\ true, fast_lava \\ false),
+    do: sample_body(frame, box, velocity, pushed, fast_lava, :item)
+
+  defp sample_body(frame, box, velocity, pushed, fast_lava, kind) do
     if valid_velocity?(velocity) and is_boolean(pushed) and is_boolean(fast_lava) do
       with {:ok, contacts} <- FluidContact.contacts(frame, box),
            {:ok, accumulators} <- accumulate(contacts, frame, pushed),
            next =
              velocity
-             |> apply_current(accumulators.water, 0.014)
+             |> apply_current(accumulators.water, 0.014, kind)
              |> apply_current(
                accumulators.lava,
-               if(fast_lava, do: 0.007, else: 0.0023333333333333335)
+               if(fast_lava, do: 0.007, else: 0.0023333333333333335),
+               kind
              ),
            true <- valid_velocity?(next) do
         {:ok,
@@ -51,13 +58,14 @@ defmodule Valimc.Physics.FluidCurrents do
     end)
   end
 
-  defp apply_current(velocity, %{count: 0}, _), do: velocity
+  defp apply_current(velocity, %{count: 0}, _, _), do: velocity
 
-  defp apply_current({x, _, z} = velocity, %{sum: {sx, sy, sz} = sum, count: count}, factor) do
+  defp apply_current({x, _, z} = velocity, %{sum: {sx, sy, sz} = sum, count: count}, factor, kind) do
     if sx * sx + sy * sy + sz * sz < 9.999999747378752e-6 do
       velocity
     else
-      push = sum |> scale(1.0 / count) |> scale(factor)
+      current = if kind == :item, do: FluidFlow.normalize(sum), else: scale(sum, 1.0 / count)
+      push = scale(current, factor)
       {a, b, c} = push
 
       push =

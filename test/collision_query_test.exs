@@ -115,6 +115,79 @@ defmodule Valimc.CollisionQueryTest do
     assert {:error, :invalid_collision_query} = CollisionQuery.start({0, 64, 0, 1, 65, 1}, :bad)
   end
 
+  test "disjoint bodies share one fenced sample without scanning their enclosing empty space", %{
+    origin: n
+  } do
+    boxes = [
+      {n - 4.8, 64, n - 4.8, n - 4.2, 64.25, n - 4.2},
+      {n + 60.2, 64, n + 60.2, n + 60.8, 64.25, n + 60.8}
+    ]
+
+    assert {:error, :block_scan_limit} =
+             CollisionQuery.start_frame(
+               {n - 4.8, 64, n - 4.8, n + 60.8, 64.25, n + 60.8},
+               CollisionContext.empty(),
+               &{:ok, &1}
+             )
+
+    {:ok, task} =
+      CollisionQuery.start_batch_frame(boxes, &Valimc.Physics.BlockCollisions.prepare/1)
+
+    assert {:ok, frame} = await(task)
+    assert map_size(frame.fences) == 2
+    refute Map.has_key?(frame.states, {n + 30, 64, n + 30})
+
+    for box <- boxes do
+      assert {:ok, _} =
+               Valimc.Physics.BlockCollisions.collect_frame(box, frame, CollisionContext.empty())
+    end
+  end
+
+  test "batch planning deduplicates overlaps and refuses count/cell/coordinate overflow", %{
+    origin: n
+  } do
+    box = {n + 4.2, 64, n + 4.2, n + 4.8, 64.25, n + 4.8}
+    {:ok, plan} = Valimc.Physics.BlockScan.plan(box)
+
+    {:ok, task} =
+      CollisionQuery.start_batch_frame(
+        List.duplicate(box, 32),
+        &Valimc.Physics.BlockCollisions.prepare/1
+      )
+
+    assert {:ok, frame} = await(task)
+    assert MapSet.new(Map.keys(frame.states)) == MapSet.new(plan, &elem(&1, 0))
+
+    assert {:error, :invalid_collision_batch} =
+             CollisionQuery.start_batch_frame(List.duplicate(box, 33), &{:ok, &1})
+
+    assert {:error, :invalid_collision_batch} = CollisionQuery.start_batch_frame([], &{:ok, &1})
+    assert {:error, _} = CollisionQuery.start_batch_frame([nil], &{:ok, &1})
+
+    assert {:error, _} =
+             CollisionQuery.start_batch_frame(
+               [{30_000_000, 64, 0, 30_000_001, 65, 1}],
+               &{:ok, &1}
+             )
+
+    sparse =
+      for i <- 1..32, do: {n + i * 5.0 + 0.2, 64, n + 4.2, n + i * 5.0 + 1.8, 65.8, n + 5.8}
+
+    assert {:error, :block_scan_limit} = CollisionQuery.start_batch_frame(sparse, &{:ok, &1})
+  end
+
+  test "batch results recheck real source revisions after pure work", %{origin: n} do
+    box = {n + 5.2, 64, n + 5.2, n + 5.8, 64.25, n + 5.8}
+
+    {:ok, task} =
+      CollisionQuery.start_batch_frame([box], fn observations ->
+        :ok = World.set_block({n + 5, 64, n + 5}, 1)
+        {:ok, observations}
+      end)
+
+    assert await(task) == {:error, {:region, {-401, -401}, :stale_revision}}
+  end
+
   test "out-of-build observations are native air while edits remain disallowed", %{origin: n} do
     {:ok, owner} = World.existing_owner({-401, -401})
     assert {:ok, obs} = Region.observe_blocks(owner, [{n, -65, n}, {n, 320, n}])

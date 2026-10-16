@@ -34,6 +34,14 @@ defmodule Valimc.Physics.MotionBlocks do
               end)
               |> List.to_tuple()
   @states Base.decode16!(@facts["states"], case: :lower)
+  @fences MapSet.new(@facts["fence_states"])
+  @speed_overrides MapSet.new(@facts["speed_override_states"])
+  unless MapSet.size(@fences) > 0 and MapSet.size(@speed_overrides) == 18 and
+           Enum.all?([@fences, @speed_overrides], fn ids ->
+             Enum.all?(ids, &(is_integer(&1) and &1 in 0..(@count - 1)))
+           end),
+         do: raise("Invalid contextual material states")
+
   unless tuple_size(@properties) == 10 and byte_size(@states) == div(@count + 1, 2) and
            (rem(@count, 2) == 0 or (:binary.last(@states) &&& 15) == 0) and
            Enum.all?(0..(@count - 1), fn id ->
@@ -52,4 +60,7 @@ defmodule Valimc.Physics.MotionBlocks do
   end
 
   def fetch(_), do: {:error, :unknown_block_state}
+
+  def uses_own_speed?(id), do: MapSet.member?(@speed_overrides, id)
+  def fence?(id), do: MapSet.member?(@fences, id)
 end

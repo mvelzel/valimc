@@ -43,8 +43,9 @@ defmodule Valimc.Physics.ItemMotion do
     {x * drag, y + rise, z * drag}
   end
 
-  defp accelerate({x, y, z}, %{no_gravity: no_gravity}),
-    do: {x * 1.0, if(no_gravity, do: y * 1.0, else: y - 0.04), z * 1.0}
+  defp accelerate({x, y, z}, %{no_gravity: true}), do: {x * 1.0, y * 1.0, z * 1.0}
+  # Entity.applyGravity adds a vector, including positive zero on X/Z.
+  defp accelerate({x, y, z}, %{no_gravity: false}), do: {x + 0.0, y - 0.04, z + 0.0}
 
   defp valid?(f),
     do:

@@ -17,6 +17,9 @@ public class BlockMotionMetadata {
     var suppresses=new HashSet<Integer>();
     for(var id:tags.getAsJsonObject("minecraft:block").getAsJsonArray("minecraft:suppresses_bounce"))suppresses.add(id.getAsInt());
     var supportY=new HashSet<Integer>();
+    var fences=new HashSet<Integer>();
+    for(var id:tags.getAsJsonObject("minecraft:block").getAsJsonArray("minecraft:fences"))fences.add(id.getAsInt());
+    var fenceStates=new JsonArray();var speedOverrides=new JsonArray();
     // Movement's 0.500001f offset is above the native fence-only <=0.5 branch.
     for(String tag:List.of("minecraft:walls"))
       for(var id:tags.getAsJsonObject("minecraft:block").getAsJsonArray(tag))supportY.add(id.getAsInt());
@@ -25,12 +28,16 @@ public class BlockMotionMetadata {
     for(var state:Block.BLOCK_STATE_REGISTRY){
       if(Block.getId(state)!=states++)throw new AssertionError("Non-contiguous state registry");
       var block=state.getBlock();var facts=new JsonObject();
+      boolean fence=fences.contains(BuiltInRegistries.BLOCK.getId(block));
+      boolean speedOverride=block==Blocks.WATER||block==Blocks.BUBBLE_COLUMN;
+      if(fence)fenceStates.add(Block.getId(state));if(speedOverride)speedOverrides.add(Block.getId(state));
       facts.addProperty("friction",(double)block.getFriction());facts.addProperty("speed_factor",(double)block.getSpeedFactor());
       facts.addProperty("jump_factor",(double)block.getJumpFactor());facts.addProperty("bounciness",(double)block.getBounceRestitution());
       facts.addProperty("suppresses_bounce",suppresses.contains(BuiltInRegistries.BLOCK.getId(block)));
       facts.addProperty("fluid_empty",state.getFluidState().isEmpty());
       facts.addProperty("support_holds_y",block instanceof FenceGateBlock||supportY.contains(BuiltInRegistries.BLOCK.getId(block)));
-      var c=new JsonObject();c.addProperty("id",Block.getId(state));c.add("properties",facts);cases.add(c);
+      var c=new JsonObject();c.addProperty("id",Block.getId(state));c.add("properties",facts);
+      c.addProperty("fence",fence);c.addProperty("speed_override",speedOverride);cases.add(c);
       String key=gson.toJson(facts);Integer index=indexes.get(key);
       if(index==null){index=properties.size();indexes.put(key,index);properties.add(facts);}
       if(index>=16)throw new AssertionError("More than sixteen motion property sets");
@@ -40,6 +47,7 @@ public class BlockMotionMetadata {
     var result=new JsonObject();result.addProperty("version","26.3");result.addProperty("data_version",5023);
     result.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
     result.addProperty("state_count",states);result.add("properties",properties);result.addProperty("states",HexFormat.of().formatHex(packed.toByteArray()));
+    result.add("fence_states",fenceStates);result.add("speed_override_states",speedOverrides);
     Files.writeString(Path.of(args[0]),gson.toJson(result)+"\n");
     Files.writeString(Path.of(args[1]),gson.toJson(cases)+"\n");
     System.out.println("PASS: "+states+" native block motion states / "+properties.size()+" property sets / "+packed.size()+" packed bytes; suppression from pinned block tags.");

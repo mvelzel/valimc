@@ -32,21 +32,55 @@ defmodule Valimc.Physics.CollisionQuery do
   def prepare_movement_frame(box, context, finish) when is_function(finish, 1),
     do: prepare(box, context, finish, true, true)
 
+  @doc "Sample up to32 disjoint bodies in one fenced job, without scanning the space between them."
+  def start_batch_frame(boxes, finish) when is_list(boxes) and is_function(finish, 1) do
+    boxes = Enum.take(boxes, 33)
+
+    if length(boxes) in 1..32 do
+      Enum.reduce_while(boxes, {:ok, MapSet.new()}, fn box, {:ok, positions} ->
+        with {:ok, plan} <- BlockScan.plan(box, frame_cell_limit()),
+             next = Enum.reduce(plan, positions, fn {pos, _}, acc -> MapSet.put(acc, pos) end),
+             true <- MapSet.size(next) <= frame_cell_limit() do
+          {:cont, {:ok, next}}
+        else
+          false -> {:halt, {:error, :block_scan_limit}}
+          error -> {:halt, error}
+        end
+      end)
+      |> case do
+        {:ok, positions} -> prepare_positions(Enum.sort(positions), finish, true, true)
+        error -> error
+      end
+      |> launch_prepared()
+    else
+      {:error, :invalid_collision_batch}
+    end
+  end
+
+  def start_batch_frame(_, _), do: {:error, :invalid_collision_batch}
+
   defp launch_prepared({:ok, start}), do: start.()
   defp launch_prepared(error), do: error
 
   defp prepare(box, context, finish, verify, admit) do
     with true <- CollisionContext.valid?(context),
-         {:ok, plan} <- BlockScan.plan(box, if(verify, do: frame_cell_limit(), else: 512)),
-         true <-
-           Enum.all?(plan, fn {{x, y, z}, _} ->
+         {:ok, plan} <- BlockScan.plan(box, if(verify, do: frame_cell_limit(), else: 512)) do
+      prepare_positions(Enum.map(plan, &elem(&1, 0)), finish, verify, admit)
+    else
+      false -> {:error, :invalid_collision_query}
+      error -> error
+    end
+  end
+
+  defp prepare_positions(positions, finish, verify, admit) do
+    with true <-
+           Enum.all?(positions, fn {x, y, z} ->
              abs(x) < 30_000_000 and abs(z) < 30_000_000 and abs(y) <= 1_000_000
            end),
          groups =
            Enum.group_by(
-             plan,
-             fn {{x, _, z}, _} -> World.region_key(World.chunk_key(x, z)) end,
-             fn {pos, _} -> pos end
+             positions,
+             fn {x, _, z} -> World.region_key(World.chunk_key(x, z)) end
            ),
          true <- map_size(groups) <= @max_regions,
          true <-
