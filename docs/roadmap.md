@@ -127,7 +127,9 @@ indexes validated tickets. None imply full parity.
    and one bounded worker.70 affected checks, both native TCP transports, production
    and actual creative targeting/slab/water/both-hand/reconnect checks pass
    (`96da2b8`). This core is complete; [durable survival consumption](tickets/VMC-029b1.md)
-   is next, with broader callbacks/ownership still open.
+   is in progress: typed requests, exact count consumption and v14 source journals
+   pass targeted checks; destination/lease/live composition remains. Broader
+   callbacks/ownership are still open.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 [VMC-003c](tickets/VMC-003c.md)'s direct local test-client lifecycle is complete:
