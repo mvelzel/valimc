@@ -1,6 +1,7 @@
 # VMC-037g — Instant Health and Instant Damage
 
-Status: Native drink-request foundation verified locally; no live support claimed.
+Status: Owned instant drinking implemented locally. Targeted/native checks pass;
+production/TCP/client checks and named-mainhand death text remain pending.
 
 Acceptance: actual healing/harming drinks apply once at completion, with native
 amounts/source and supported defenses, no persistent instant-effect icon. Keep
@@ -68,3 +69,32 @@ full tests and production pass with four BEAM schedulers; full native integratio
 is running independently (`.local/effects-integration-{full-tests,production,full-native}.log`).
 That checkpoint contains movement effects and instant request math, before the
 later self-magic and signed-healing helpers; their targeted proofs remain separate.
+
+Owned composition: `PlayerConsumption` plans nutrition, inventory/container, timed
+effects and instant health requests in delivery order without I/O. `PlayerDamage`
+shares the existing owned immunity/armor/Resistance/Protection calculation. Queue
+one final snapshot before any publication/death work; fatal consumption waits for
+that acknowledgement before its existing death/drop journal can run. No separate
+process, timer, replay callback or second authoritative effect map. Original
+mainhand context is captured before replacing containers. Instant effects never
+enter the saved timed-effect map or show persistent icons.
+
+33,280 actual self-attributed indirect-magic/gear cases pass, including0/6/12 damage,
+all43 enchantments, stored/wrong-slot negatives, caps and ResistanceII. Exact finite
+results, source exhaustion/no armor wear and the existing bounded overflow rule
+hold.113 affected checks pass(seed230653): cancel/full healing, creative stronger
+healing, offhand stronger harming/event source IDs, callback order/hurt windows,
+later Resistance exclusion and a stalled fatal drink followed by healing. Its
+zero-health+bottle checkpoint precedes one durable drop; reconnect retains one
+bottle/source1 without revival or reapplication. An initial test incorrectly read
+the source counter from Inventory rather than the persisted snapshot; corrected.
+The existing damage-only refactor also passed103 owner regressions before live
+consumption changes. Raw evidence:
+`.local/instant-{damage-protection,resisted-damage}-{native,check}-final.log`,
+`.local/instant-consumption-targeted-order.log`, `.local/damage-resolution-targeted.log`.
+
+Pending: named-mainhand styled item/hover death messages, production/native TCP,
+actual stock/mixed/fatal drinks and final integration. Negative high-amplifier
+healing clamps to zero and enters the owned death lifecycle with a generic cause;
+native raw healing is proved, but native downstream death/statistics behavior for
+that abnormal request is not yet established. Do not call this ticket complete.

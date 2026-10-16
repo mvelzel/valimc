@@ -25,6 +25,7 @@ defmodule Valimc.PlayerDamageProtection do
              :cactus,
              :sweet_berry_bush,
              :magic,
+             :indirect_magic,
              :wither
            ] or
              source in @fire do
@@ -65,6 +66,7 @@ defmodule Valimc.PlayerDamageProtection do
               :cactus,
               :sweet_berry_bush,
               :magic,
+              :indirect_magic,
               :wither
             ] or
               source in @fire) and

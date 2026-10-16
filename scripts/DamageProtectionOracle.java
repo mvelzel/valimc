@@ -89,7 +89,7 @@ public class DamageProtectionOracle {
       p.armorValue=(int)Math.floor(attributes.getValue(Attributes.ARMOR));p.toughness=attributes.getValue(Attributes.ARMOR_TOUGHNESS);
     }
     float protection=EnchantmentHelper.getDamageProtection(p.world,p,damage);
-    for(float amount:new float[]{.1f,1,5,100,Float.MAX_VALUE}){
+    for(float amount:source.equals("indirect_magic")?new float[]{0,.1f,1,5,6,12,100,Float.MAX_VALUE}:new float[]{.1f,1,5,100,Float.MAX_VALUE}){
       p.wearCalls=0;float armored=p.armor(damage,amount);if(!p.fire&&armored!=amount)throw new AssertionError("Unexpected environmental armor reduction");
       var c=new JsonObject();c.add("gear",gear);c.addProperty("source",source);c.addProperty("amount",(double)amount);c.addProperty("protection",(double)protection);
       float resolved=p.magic(damage,armored);if(Float.isNaN(resolved)||resolved<0)throw new AssertionError("Unexpected resolved damage");
@@ -119,6 +119,7 @@ public class DamageProtectionOracle {
     var cases=new JsonArray();
     var types=switch(mode){
       case "effects"->List.of(DamageTypes.MAGIC,DamageTypes.WITHER);
+      case "instant"->List.of(DamageTypes.INDIRECT_MAGIC);
       case "hazards"->List.of(DamageTypes.CAMPFIRE,DamageTypes.CACTUS,DamageTypes.SWEET_BERRY_BUSH);
       case "fire"->List.of(DamageTypes.IN_FIRE,DamageTypes.ON_FIRE,DamageTypes.LAVA,DamageTypes.HOT_FLOOR);
       case "environment"->List.of(DamageTypes.FALL,DamageTypes.STALAGMITE,DamageTypes.FREEZE,DamageTypes.DROWN,DamageTypes.FELL_OUT_OF_WORLD,DamageTypes.STARVE);
@@ -129,7 +130,7 @@ public class DamageProtectionOracle {
       for(int i=0;i<names.size();i++)if(names.get(i).getAsString().equals(type.identifier().toString()))id=i;
       if(id<0)throw new AssertionError(type);var keys=new ArrayList<TagKey<DamageType>>();
       for(var e:tags.entrySet())for(var value:e.getValue().getAsJsonArray())if(value.getAsInt()==id)keys.add(TagKey.create(Registries.DAMAGE_TYPE,net.minecraft.resources.Identifier.parse(e.getKey())));
-      bindTags.invoke(holder,keys);var damage=new DamageSource(holder);
+      bindTags.invoke(holder,keys);var damage=mode.equals("instant")?new DamageSource(holder,p,p):new DamageSource(holder);
       for(var enchantment:registry.entrySet())for(int level:new int[]{0,1,4,255})for(boolean stored:new boolean[]{false,true})
         for(var slot:List.of(EquipmentSlot.HEAD,EquipmentSlot.CHEST,EquipmentSlot.LEGS,EquipmentSlot.FEET,EquipmentSlot.MAINHAND,EquipmentSlot.OFFHAND)){
           p.gear.clear();var gear=new JsonArray();var one=Map.of(enchantment.getKey().identifier().toString(),level);

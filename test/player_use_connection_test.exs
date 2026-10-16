@@ -195,6 +195,13 @@ defmodule Valimc.PlayerUseConnectionTest do
     }
   end
 
+  defp custom_potion(effects) do
+    %{
+      ItemStack.new("potion")
+      | components: %{"minecraft:potion_contents" => %{PotionContents.empty() | effects: effects}}
+    }
+  end
+
   defp effect_packet(client) do
     {body, client} = Client.await(client, :play, "update_mob_effect")
     {entity, rest} = Wire.take_varint(body)
@@ -481,6 +488,160 @@ defmodule Valimc.PlayerUseConnectionTest do
     assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.food == state(pid).player.food and saved.effects == state(pid).player.effects
     assert saved.inventory.slots == state(pid).inventory.slots
+  end
+
+  test "instant healing drinks act once without storing an effect, including creative and cancellation",
+       ctx do
+    food = %PlayerFood{}
+    drink = potion("healing")
+    seed(ctx, food, 10.0, inventory: %Inventory{slots: %{36 => drink}})
+    {client, pid} = login(ctx, 10.0, food)
+    client = use_hand(client, pid)
+    ticks(pid, 8)
+    action(client, "release_use_item")
+    wait(fn -> state(pid).active_use == nil end)
+    assert state(pid).player.health.value == 10.0 and state(pid).inventory.slots[36] == drink
+    client = use_hand(client, pid, :main, 2)
+    ticks(pid, 32)
+    assert state(pid).player.health.value == 14.0 and state(pid).player.effects == %{}
+    wait(fn -> state(pid).use_save == nil end)
+    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+
+    assert saved.health.value == 14.0 and
+             saved.inventory.slots[36] == ItemStack.new("glass_bottle")
+
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    {client, pid} = login(ctx, 14.0, food)
+    assert state(pid).player.health.value == 14.0 and state(pid).player.effects == %{}
+
+    :sys.replace_state(pid, fn s ->
+      %{
+        s
+        | player: %{
+            s.player
+            | abilities: Valimc.PlayerAbilities.for_mode(:creative),
+              game_mode: Valimc.GameMode.new(:creative)
+          },
+          inventory: %{
+            s.inventory
+            | infinite_materials: true,
+              slots: %{45 => potion("strong_healing")}
+          }
+      }
+    end)
+
+    _client = use_hand(client, pid, :off, 3)
+    ticks(pid, 32)
+
+    assert state(pid).player.health.value == 20.0 and
+             state(pid).inventory.slots[45] == potion("strong_healing")
+  end
+
+  test "harming emits self-attributed magic and completes health and offhand bottle together",
+       ctx do
+    food = %PlayerFood{}
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{45 => potion("strong_harming")}})
+    {client, pid} = login(ctx, 20.0, food)
+    client = use_hand(client, pid, :off)
+    ticks(pid, 32)
+    {body, _client} = Client.await(client, :play, "damage_event")
+    {entity, body} = Wire.take_varint(body)
+    {source, body} = Wire.take_varint(body)
+    {cause, body} = Wire.take_varint(body)
+    {direct, <<0>>} = Wire.take_varint(body)
+    assert source == Data.registry_id("minecraft:damage_type", "minecraft:indirect_magic")
+    assert entity == state(pid).player.entity_id and cause == entity + 1 and direct == cause
+    assert state(pid).player.health.value == 8.0 and state(pid).player.effects == %{}
+    wait(fn -> state(pid).use_save == nil end)
+    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+
+    assert saved.health.value == 8.0 and
+             saved.inventory.slots[45] == ItemStack.new("glass_bottle")
+  end
+
+  test "mixed instant callbacks preserve delivery order, active defenses and the hurt window",
+       ctx do
+    food = %PlayerFood{}
+    rung = fn amp -> [{200, amp, false, true, true}] end
+    drink = custom_potion([{10, rung.(0)}, {6, rung.(0)}, {6, rung.(1)}])
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => drink}})
+    {client, pid} = login(ctx, 20.0, food)
+    _client = use_hand(client, pid)
+    ticks(pid, 32)
+    assert_in_delta state(pid).player.health.value, 10.4, 0.000002
+    assert state(pid).player.health.last_hurt == 12.0 and state(pid).player.health.cooldown == 20
+    assert state(pid).player.effects == %{10 => rung.(0)}
+    assert state(pid).inventory.slots[36] == ItemStack.new("glass_bottle")
+  end
+
+  test "fatal harming waits for its bottle checkpoint and recovers one death drop after reconnect",
+       ctx do
+    food = %PlayerFood{level: 10, saturation: 0.0}
+    drink = custom_potion([{6, [{1, 0, false, true, true}]}, {5, [{1, 1, false, true, true}]}])
+    seed(ctx, food, 5.0, inventory: %Inventory{slots: %{36 => drink}})
+    {client, pid} = login(ctx, 5.0, food)
+    client = use_hand(client, pid)
+    store = state(pid).player_store
+    :sys.suspend(store)
+
+    try do
+      ticks(pid, 32)
+      assert state(pid).player.health.value == 0.0 and state(pid).life_stage == :sealing_death
+
+      assert state(pid).use_save != nil and
+               state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
+
+      assert Valimc.World.item_snapshot(ctx.key) == %{}
+      :sys.resume(store)
+      wait(fn -> state(pid).life_stage == :dead end)
+      {body, _client} = Client.await(client, :play, "player_combat_kill")
+      {_entity, message} = Wire.take_varint(body)
+
+      assert {:ok,
+              {:compound,
+               %{
+                 "translate" => {:string, "death.attack.indirectMagic"},
+                 "with" => {:list, {:string, names}}
+               }}, <<>>} = Valimc.Protocol.NBT.take(message)
+
+      assert names == [ctx.name, ctx.name]
+      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+      assert saved.health.value == 0.0 and saved.inventory.slots == %{} and saved.effects == %{}
+      assert saved.transfer_sequence == 1 and saved.outbox == nil
+      assert map_size(Valimc.World.item_snapshot(ctx.key)) == 1
+      Client.close(client)
+      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+      {_client, restored} = login(ctx, 0.0, food)
+
+      assert state(restored).player.health.value == 0.0
+      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+      assert saved.transfer_sequence == 1 and saved.outbox == nil
+
+      assert map_size(Valimc.World.item_snapshot(ctx.key)) == 1
+      [view] = Valimc.World.item_snapshot(ctx.key) |> Map.values()
+
+      {_entity, <<5, 8, _gravity, 8, 7, stack_bytes::binary>>} =
+        Wire.take_varint(IO.iodata_to_binary(elem(view.metadata, 1)))
+
+      bottle = ItemStack.new("glass_bottle")
+      assert {:ok, ^bottle, <<255>>} = ItemStack.take(stack_bytes)
+    after
+      if Process.alive?(store), do: :sys.resume(store)
+    end
+  end
+
+  test "a later Resistance callback cannot protect earlier instant damage in the same drink",
+       ctx do
+    food = %PlayerFood{}
+    rung = [{200, 0, false, true, true}]
+    drink = custom_potion([{6, rung}, {10, rung}])
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => drink}})
+    {client, pid} = login(ctx, 20.0, food)
+    _client = use_hand(client, pid)
+    ticks(pid, 32)
+    assert state(pid).player.health.value == 14.0
+    assert state(pid).player.effects == %{10 => rung}
   end
 
   test "custom Resistance drinks checkpoint before mitigated damage; mixed unsupported potion stays intact",

@@ -35,9 +35,10 @@ contexts and seven foundation checks pass. Live attributes/drinks/Turtle Master
 now pass63 affected checks, production/both native TCP transports at `285d983`;
 all focused actual-client groups pass. Larger-block `cc3dfa5` passes1,330 full
 tests/build; full native integration remains running before publication.
-Next: [instant healing/harming](tickets/VMC-037g.md),10,240 native drink requests
-and three affected checks pass. Self-attributed damage and durable fatal completion
-require live composition; no instant potion support claimed yet.
+**Implementing:** [instant healing/harming](tickets/VMC-037g.md),10,240 native
+requests/33,280 self-magic defenses and113 affected checks pass. Owned ordered
+consumption/fatal checkpoint/recovery is implemented locally; named-item death
+text, production/TCP/client checks remain. Retrieve the ticket for abnormal-dose limits.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

@@ -66,6 +66,7 @@ defmodule Valimc.Connection do
   @fire_resistance EffectTypes.id("fire_resistance")
   @resistance EffectTypes.id("resistance")
   @periodic_effects Enum.sort(Enum.map(~w(regeneration poison wither), &EffectTypes.id/1))
+  @instant_effects Enum.map(~w(instant_health instant_damage), &EffectTypes.id/1)
   @live_effects [@fire_resistance, @resistance, EffectTypes.id("water_breathing")] ++
                   Enum.map(~w(speed slowness), &EffectTypes.id/1) ++
                   @periodic_effects
@@ -1465,7 +1466,7 @@ defmodule Valimc.Connection do
 
         effects = PotionContents.effects(contents)
 
-        if Enum.all?(effects, fn {id, _} -> id in @live_effects end),
+        if Enum.all?(effects, fn {id, _} -> id in @live_effects or id in @instant_effects end),
           do: {:ok, effects},
           else: :unsupported
 
@@ -1541,40 +1542,75 @@ defmodule Valimc.Connection do
     props = FoodItems.properties(stack)
 
     with {:ok, incoming} <- item_use_effects(stack, props) do
-      case Inventory.consume_hand(state.inventory, use.hand, props.remainder) do
-        {:ok, inventory, []} ->
-          food =
-            if props.food,
-              do: PlayerFood.eat(state.player.food, props.food.nutrition, props.food.saturation),
-              else: state.player.food
-
-          {effect_packets, effects} = consumed_effects(state.player, incoming)
-
-          player = %{state.player | food: food, effects: effects}
-          # One checkpoint owns nutrition, effects, consumption and remainder.
-          # No world item escapes this lane.
+      case Valimc.PlayerConsumption.plan(state.player, state.inventory, use.hand, props, incoming) do
+        {:ok, transition} ->
+          # Plan health and all callbacks without I/O, then queue one immutable
+          # checkpoint before any socket write or death lifecycle can run.
           ref = make_ref()
+
+          state = %{
+            state
+            | player: transition.player,
+              inventory: transition.inventory,
+              save_ref: ref,
+              use_save: ref
+          }
+
+          state = if transition.death, do: dead_state(state), else: state
 
           PlayerStore.checkpoint(
             state.player_store,
             state.store_fence,
-            PlayerSnapshot.capture(player, inventory),
+            PlayerSnapshot.capture(state.player, state.inventory),
             ref
           )
 
           Process.send_after(self(), {:save_deadline, ref}, 5000)
-          state = %{state | player: player, inventory: inventory, save_ref: ref, use_save: ref}
-          Players.update(self(), player)
-          if notify, do: send_packets(state, [Packets.use_item_finished(player.entity_id)])
-          send_packets(state, Enum.reject(effect_packets, &is_nil/1))
+          Players.update(self(), state.player)
+          if notify, do: send_packets(state, [Packets.use_item_finished(state.player.entity_id)])
+
+          effect_packets =
+            Enum.map(transition.effects, fn
+              {:remove, id} ->
+                Packets.remove_effect(state.player.entity_id, id)
+
+              {:update, id, rung, new} ->
+                Packets.update_effect(state.player.entity_id, id, rung, new)
+            end)
+
+          send_packets(state, effect_packets)
+
+          for {:self_magic, _} <- transition.damage do
+            packet = Packets.self_magic_damage(state.player.entity_id)
+            send_packets(state, [packet])
+            broadcast_player_packet(state, packet)
+          end
+
+          state =
+            if transition.death do
+              state
+              |> cancel_pose_job()
+              |> cancel_motion_job()
+              |> stop_item_use()
+              |> cancel_mining()
+              |> begin_table_close()
+            else
+              state
+            end
+
           state = state |> publish_equipment() |> stop_item_use() |> publish_movement_speed()
 
           send_packets(state, [
-            Packets.health(player.health, food),
-            Packets.inventory(inventory),
-            Packets.cursor(inventory.carried)
+            Packets.health(state.player.health, state.player.food),
+            Packets.player_health(state.player),
+            Packets.inventory(state.inventory),
+            Packets.cursor(state.inventory.carried)
           ])
 
+          state =
+            if transition.death, do: death_notice(state, true, transition.death), else: state
+
+          send(self(), :drain)
           state
 
         _ ->
@@ -1586,24 +1622,6 @@ defmodule Valimc.Connection do
       :unsupported ->
         state |> stop_item_use() |> resync_inventory()
     end
-  end
-
-  defp consumed_effects(player, {:remove, policy}) do
-    {:ok, effects, removed} = ConsumableRemoval.apply(player.effects, policy)
-    {Enum.map(removed, &Packets.remove_effect(player.entity_id, &1)), effects}
-  end
-
-  defp consumed_effects(player, additions) when is_list(additions) do
-    Enum.map_reduce(additions, player.effects, fn {id, value}, effects ->
-      new = not Map.has_key?(effects, id)
-      {:ok, next, changed} = PlayerEffects.add(effects, id, value)
-
-      packet =
-        if changed,
-          do: Packets.update_effect(player.entity_id, id, hd(next[id]), new)
-
-      {packet, next}
-    end)
   end
 
   defp apply_movement_exhaustion(%{player: %{abilities: %{invulnerable: true}}} = state, _),
@@ -1680,56 +1698,25 @@ defmodule Valimc.Connection do
   end
 
   defp apply_damage(state, selected, source, effects \\ nil) do
-    cond do
-      state.life_stage != :alive or not selected.accepted ->
-        {:ignored, state}
-
-      (source in [:fall, :stalagmite] and state.player.abilities.may_fly) or
-        (source != :out_of_world and state.player.abilities.invulnerable) or
-          not PlayerInput.loaded?(state.player.input) ->
-        {:immune, state}
-
-      Valimc.PlayerEnchantmentImmunity.immune?(state.inventory, source) ->
-        {:immune, state}
-
-      PlayerStatusImmunity.immune?(state.player.effects, source) ->
-        {:immune, state}
-
-      Valimc.PlayerDamageProtection.wears_armor?(source) and inventory_pending(state) ->
-        {:deferred, state}
-
-      true ->
-        {:ok, inventory, broken} =
-          if Valimc.PlayerDamageProtection.wears_armor?(source),
-            do:
-              Valimc.ArmorDurability.damage(
-                state.inventory,
-                source,
-                selected.damage,
-                state.player.abilities.infinite_materials
-              ),
-            else: {:ok, state.inventory, []}
-
-        {:ok, damage} =
-          Valimc.PlayerDamageProtection.damage(
-            inventory,
+    result =
+      if state.life_stage != :alive,
+        do: :ignored,
+        else:
+          Valimc.PlayerDamage.resolve(
+            state.player,
+            state.inventory,
+            selected,
             source,
-            selected.damage,
-            effects || state.player.effects
+            effects || state.player.effects,
+            inventory_pending(state)
           )
 
-        {:ok, health} = PlayerHealth.reduce(selected.state, damage)
+    case result do
+      reason when reason in [:ignored, :immune, :deferred] ->
+        {reason, state}
 
-        food =
-          if damage > 0,
-            do:
-              PlayerFood.exhaust(
-                state.player.food,
-                Valimc.PlayerDamageProtection.exhaustion(source)
-              ),
-            else: state.player.food
-
-        player = %{state.player | health: health, food: food}
+      {:ok, %{player: player, inventory: inventory, broken: broken}} ->
+        health = player.health
 
         state =
           if inventory == state.inventory do
@@ -1755,20 +1742,7 @@ defmodule Valimc.Connection do
               |> stop_item_use()
               |> cancel_mining()
 
-            player = PlayerLife.die(state.player)
-
-            %{
-              state
-              | player: player,
-                motion_pending: nil,
-                motion_window: nil,
-                pose_checked: nil,
-                pose_generation: state.pose_generation + 1,
-                life_stage: :sealing_death,
-                fire_damage_due: false,
-                fire_contacts_active: false,
-                creative_input: CreativeInput.clear(state.creative_input)
-            }
+            dead_state(state)
           else
             state
           end
@@ -1793,7 +1767,28 @@ defmodule Valimc.Connection do
     end
   end
 
+  defp dead_state(state) do
+    %{
+      state
+      | player: PlayerLife.die(state.player),
+        motion_pending: nil,
+        motion_window: nil,
+        pose_checked: nil,
+        pose_generation: state.pose_generation + 1,
+        life_stage: :sealing_death,
+        fire_damage_due: false,
+        fire_contacts_active: false,
+        creative_input: CreativeInput.clear(state.creative_input)
+    }
+  end
+
   defp death_notice(state, announce, source \\ :fall) do
+    source =
+      case source do
+        {:self_magic, _mainhand} -> :self_magic
+        source -> source
+      end
+
     message =
       Valimc.PlayerDeathMessage.component(
         state.player.name,

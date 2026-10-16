@@ -63,6 +63,9 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     periodic_damage = str(pathlib.Path(world) / 'periodic-damage.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'DamageProtectionOracle', periodic_damage, 'effects'], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_damage_protection.exs', periodic_damage], cwd=root, check=True)
+    instant_damage = str(pathlib.Path(world) / 'instant-damage.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'DamageProtectionOracle', instant_damage, 'instant'], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_damage_protection.exs', instant_damage], cwd=root, check=True)
     damage_immunity = str(pathlib.Path(world) / 'damage-immunity.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'DamageImmunityOracle', damage_immunity], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_damage_immunity.exs', damage_immunity], cwd=root, check=True)
@@ -290,7 +293,7 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'SelfMagicOracle', self_magic], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_self_magic.exs', self_magic, self_magic_elixir], cwd=root, check=True)
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'SelfMagicOracle', 'verify', self_magic_elixir], cwd=root, check=True)
-    for source_matrix in ['environment', 'hazards', 'effects']:
+    for source_matrix in ['environment', 'hazards', 'effects', 'instant']:
         resisted = str(pathlib.Path(world) / ('resisted-' + source_matrix + '.json'))
         subprocess.run([sys.executable, 'scripts/java_tool.py', 'DamageProtectionOracle', resisted, source_matrix, '1'], cwd=root, check=True)
         subprocess.run(['mix', 'run', '--no-start', 'scripts/check_damage_protection.exs', resisted], cwd=root, check=True)

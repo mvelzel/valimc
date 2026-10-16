@@ -1,6 +1,7 @@
 alias Valimc.{Inventory, PlayerArmor, PlayerDamageProtection}
 alias Valimc.Physics.ArmorDamage
 alias Valimc.Protocol.{EffectTypes, ItemStack, ItemTypes}
+Code.ensure_loaded!(PlayerDamageProtection)
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()
 
