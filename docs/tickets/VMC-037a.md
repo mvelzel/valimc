@@ -1,6 +1,6 @@
 # VMC-037a — Owned status-effect state
 
-Status: Pure duration/replacement kernel verified locally; baseline pending.
+Status: Pure duration/replacement and wire foundations verified locally; baseline pending.
 No live effects yet.
 
 Acceptance: bounded immutable effect state supports native stronger/weaker refresh,
@@ -29,5 +29,15 @@ chain. Three boundary/invariant tests pass(seed495959). Original probe invokes
 `MobEffectInstance.update/tickServer` with Fire Resistance and a controlled body,
 so no periodic action is executed. Gameplay hooks, attributes, icons, persistence
 and live immunity remain open. Evidence: `.local/status-effect-{native,native-check,
-targeted}.log`; raw transitions are ignored. Next: owner state/codec and source
-immunity, with baseline before publishing this unused foundation.
+targeted}.log`; raw transitions are ignored.
+
+Wire foundation:40 native built-in effect names/IDs and61,600 complete update/remove
+packets match independently encoded bytes and Mojang decoding: all ambient/particle/
+icon/blend flags, four entity IDs, four amplifiers and finite/infinite duration
+boundaries. These are fixed built-in holders, not the synchronized dynamic registry
+table. `EffectTypes` indexes their scalar identities; `Packets` validates IDs/state
+before encoding. Eight affected checks cover malformed inputs and existing lifecycle
+packets. Original `StatusEffectPacketOracle`; evidence:
+`.local/status-effect-packets-{native,native-check,native-decode,targeted}.log`.
+No live status packet is emitted yet. Next: owner state/codec and source immunity,
+with baseline before publishing these unused foundations.

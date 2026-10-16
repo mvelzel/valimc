@@ -172,6 +172,35 @@ defmodule Valimc.Protocol.Packets do
 
   def level_load_start, do: packet("game_event", <<13, 0.0::float-32>>)
 
+  def update_effect(entity_id, effect_id, {ticks, level, ambient, particles, icon} = rung, blend) do
+    life_entity_id!(entity_id)
+
+    unless Valimc.Protocol.EffectTypes.valid_id?(effect_id) and Valimc.StatusEffect.valid?([rung]) and
+             is_boolean(blend),
+           do: raise(ArgumentError, "invalid effect packet")
+
+    flags =
+      if(ambient, do: 1, else: 0) + if(particles, do: 2, else: 0) +
+        if(icon, do: 4, else: 0) + if(blend, do: 8, else: 0)
+
+    packet("update_mob_effect", [
+      Wire.varint(entity_id),
+      Wire.varint(effect_id),
+      Wire.varint(level),
+      Wire.varint(ticks),
+      <<flags>>
+    ])
+  end
+
+  def remove_effect(entity_id, effect_id) do
+    life_entity_id!(entity_id)
+
+    unless Valimc.Protocol.EffectTypes.valid_id?(effect_id),
+      do: raise(ArgumentError, "invalid effect packet")
+
+    packet("remove_mob_effect", [Wire.varint(entity_id), Wire.varint(effect_id)])
+  end
+
   def damage_event(entity_id, source \\ :fall) do
     life_entity_id!(entity_id)
 

@@ -24,7 +24,8 @@ are **Done within kernel scope**, `9a7179a`, with additional native probes,
 geometry/ownership now passes46 affected tests,1,728 native traces and257 packet
 codecs; its full integration/client/performance gates remain.
 [Status-effect state](tickets/VMC-037a.md) matches50,433 native duration/refresh
-traces and three targeted tests; unused kernel baseline and live ownership remain.
+traces;40 effect identities and61,600 packet codecs also match. Unused foundation
+baseline and live ownership remain.
 Keep pending work local.
 
 [Automatic item simulation](tickets/VMC-035a6.md),
