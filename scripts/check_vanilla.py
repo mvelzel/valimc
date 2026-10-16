@@ -282,6 +282,11 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     instant_drinks = str(pathlib.Path(world) / 'instant-drinks.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'InstantDrinkOracle', instant_drinks], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_instant_drinks.exs', instant_drinks], cwd=root, check=True)
+    self_magic = str(pathlib.Path(world) / 'self-magic.json')
+    self_magic_elixir = str(pathlib.Path(world) / 'self-magic-elixir.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'SelfMagicOracle', self_magic], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_self_magic.exs', self_magic, self_magic_elixir], cwd=root, check=True)
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'SelfMagicOracle', 'verify', self_magic_elixir], cwd=root, check=True)
     for source_matrix in ['environment', 'hazards', 'effects']:
         resisted = str(pathlib.Path(world) / ('resisted-' + source_matrix + '.json'))
         subprocess.run([sys.executable, 'scripts/java_tool.py', 'DamageProtectionOracle', resisted, source_matrix, '1'], cwd=root, check=True)

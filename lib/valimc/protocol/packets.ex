@@ -201,6 +201,18 @@ defmodule Valimc.Protocol.Packets do
     packet("remove_mob_effect", [Wire.varint(entity_id), Wire.varint(effect_id)])
   end
 
+  def self_magic_damage(entity_id) do
+    life_entity_id!(entity_id)
+
+    packet("damage_event", [
+      Wire.varint(entity_id),
+      Wire.varint(Data.registry_id("minecraft:damage_type", "minecraft:indirect_magic")),
+      Wire.varint(entity_id + 1),
+      Wire.varint(entity_id + 1),
+      <<0>>
+    ])
+  end
+
   def damage_event(entity_id, source \\ :fall) do
     life_entity_id!(entity_id)
 

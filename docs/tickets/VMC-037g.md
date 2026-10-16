@@ -37,3 +37,17 @@ so comparisons retain the actual native float bits. Evidence:
 `.local/instant-drinks-{native-final,native-check-final,targeted-final}.log`.
 Negative/zero requests remain requests only; full native downstream consequences
 and durable consumption/death composition still need implementation.
+
+Self-attribution protocol foundation: `SelfMagicOracle` uses actual native
+DamageSource death messages and the entity/source damage-event constructor.32
+fixtures cover four entity-ID boundaries, two names and empty/stock/custom-named/
+item-name-only mainhands. Elixir self-magic events retain both source entity IDs;
+24 plain-mainhand messages include the player twice. All80 independently encoded
+event/death/chat packets native-decode to the expected messages. Six affected
+packet/request checks pass. Evidence: `.local/self-magic-{native-final,check,decode,targeted}.log`.
+
+Named mainhands select `death.attack.indirectMagic.item` and include the actual
+styled item/hover component; item-name alone does not. This named-item message is
+observed but not yet implemented. Capture the original mainhand before replacing
+the consumed container, including when drinking offhand. The new event/template
+helpers are unwired; instant drinking still remains unsupported.

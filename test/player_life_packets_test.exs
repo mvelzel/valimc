@@ -35,6 +35,7 @@ defmodule Valimc.PlayerLifePacketsTest do
 
     for id <- [0, -1, 2_147_483_648, :bad] do
       assert_raise ArgumentError, fn -> Packets.damage_event(id) end
+      assert_raise ArgumentError, fn -> Packets.self_magic_damage(id) end
       assert_raise ArgumentError, fn -> Packets.death_animation(id) end
       assert_raise ArgumentError, fn -> Packets.death(id, "fell") end
     end
