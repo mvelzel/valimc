@@ -8,7 +8,7 @@ defmodule Valimc.PlacementTest do
 
   defp item(name), do: ItemStack.new(name).item_id
 
-  test "block-use decoding is bounded and rejects partial, nonfinite and invalid fields" do
+  test "block-use decoding is bounded; nonfinite hits remain acknowledgeable without authority" do
     body =
       IO.iodata_to_binary([
         <<0>>,
@@ -35,12 +35,16 @@ defmodule Valimc.PlacementTest do
           body <> :binary.copy(<<0>>, 13),
           <<2>> <> binary_part(body, 1, 24),
           binary_part(body, 0, 9) <> <<6>> <> binary_part(body, 10, 15),
-          binary_part(body, 0, 10) <> <<0x7F800000::32>> <> binary_part(body, 14, 11),
-          binary_part(body, 0, 14) <> <<0x7FC00000::32>> <> binary_part(body, 18, 7),
           binary_part(body, 0, 24) <> Wire.varint(-1),
           binary_part(body, 0, 24) <> <<128, 128, 128, 128, 128, 0>>
         ] do
       assert {:error, :invalid_use_item_on} = UseItemOn.decode(malformed)
+    end
+
+    for bits <- [0x7FC00000, 0x7F800000, 0xFF800000] do
+      raw = binary_part(body, 0, 10) <> <<bits::32>> <> binary_part(body, 14, 11)
+      assert {:ok, %{cursor: :nonfinite, sequence: 127} = decoded} = UseItemOn.decode(raw)
+      refute Valimc.PlayerInteraction.valid_hit?(decoded.position, decoded.cursor)
     end
 
     # Native booleans accept any nonzero byte; coordinate validity belongs to admission.

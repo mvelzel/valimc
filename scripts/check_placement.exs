@@ -40,9 +40,18 @@ for row <- cases["packets"] do
     do: raise("Native use-on codec differs #{inspect(row)}")
 end
 
-unless length(cases["contexts"]) == 518_964 and length(cases["packets"]) == 576,
-  do: raise("Missing placement contexts/codecs")
+for row <- cases["nonfinite"] do
+  {:ok, %{cursor: :nonfinite, sequence: 1} = decoded} =
+    UseItemOn.decode(Base.decode16!(row["wire"], case: :lower))
+
+  if Valimc.PlayerInteraction.valid_hit?(decoded.position, decoded.cursor),
+    do: raise("Nonfinite hit gained authority")
+end
+
+unless length(cases["contexts"]) == 518_964 and length(cases["packets"]) == 576 and
+         length(cases["nonfinite"]) == 9,
+       do: raise("Missing placement contexts/codecs")
 
 IO.puts(
-  "PASS: 518,964 native placement candidates and 576 block-use packets; final admission remains separate."
+  "PASS: 518,964 native placement candidates, 576 block-use packets and nine nonfinite negatives; final admission remains separate."
 )

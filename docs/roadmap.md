@@ -123,8 +123,9 @@ indexes validated tickets. None imply full parity.
    actual single/double wet/dry slabs, wear and fresh reconnect.
 4. **[VMC-029b](tickets/VMC-029b.md): authoritative placement.** Native candidates/
    codecs match518,964 contexts and576 packets. Bounded preparation and expiring
-   owner commits pass32 affected checks. Live player admission/correction and
-   durable survival consumption are next; specialized uses remain open.
+   owner commits now compose on the player with admission, ordered corrections
+   and one bounded worker.70 affected checks and both native TCP transports pass;
+   creative GUI validation is next, then durable survival consumption.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 [VMC-003c](tickets/VMC-003c.md)'s direct local test-client lifecycle is complete:
@@ -138,6 +139,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
+| [VMC-029b](tickets/VMC-029b.md) | Actual creative targeting/slab states, refusal and reconnect | Local placement checkpoint |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

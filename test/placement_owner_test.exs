@@ -64,6 +64,18 @@ defmodule Valimc.PlacementOwnerTest do
     assert World.get_block(c.position) == 0
   end
 
+  test "corrections share owner message order with later world publications", c do
+    World.subscribe(MapSet.new([c.key]), MapSet.new())
+    assert :ok = Region.correct_blocks(c.owner, [c.position], self())
+    assert :ok = World.set_block(c.position, 1)
+    assert_receive {:event, {:block, position, 0}}
+    assert position == c.position
+    assert_receive {:event, {:block, ^position, 1}}
+
+    assert {:error, :invalid_block_query} =
+             Region.correct_blocks(c.owner, List.duplicate(c.position, 3), self())
+  end
+
   test "queued expired commits cannot mutate a resumed owner", c do
     assert {:ok, prepared} = plan(c)
     {pid, _} = c.owner

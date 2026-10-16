@@ -69,6 +69,8 @@ defmodule Valimc.Physics.Placement do
   def adjacent(%{position: position, face: face}) when face in 0..5,
     do: offset(position, face)
 
+  def supported_item?(item), do: Map.has_key?(@plain, item) or Map.has_key?(@slabs, item)
+
   defp replaceable(state, item, face, upper, clicked) do
     case :binary.at(@replace, state) do
       0 ->

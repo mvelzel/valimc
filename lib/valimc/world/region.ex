@@ -60,6 +60,13 @@ defmodule Valimc.World.Region do
 
   def place_block(_, _, _, _), do: {:error, :invalid_placement}
 
+  @doc "Send current clicked/adjacent corrections from the same sender as owner block publications."
+  def correct_blocks({pid, epoch}, positions, connection) when is_pid(connection) do
+    GenServer.call(pid, {:correct_blocks, epoch, positions, connection}, 250)
+  catch
+    :exit, _ -> {:error, :region_unavailable}
+  end
+
   @doc "Reserve currently owned blocks for a short mining commit; the token is invalid after mutation/restart."
   def reserve_mining({pid, epoch}, positions),
     do: GenServer.call(pid, {:reserve_mining, epoch, positions}, 250)

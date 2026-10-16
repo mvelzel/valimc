@@ -27,6 +27,7 @@ defmodule Valimc.CreativeItemsTest do
     {_, client} = Client.login(name())
     on_exit(fn -> Client.close(client) end)
     client = Client.load_world(client)
+    Client.send_packet(client, :play, "player_loaded", <<>>)
 
     stack = %{
       ItemStack.new("stone", 17)

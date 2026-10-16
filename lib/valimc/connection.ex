@@ -12,6 +12,7 @@ defmodule Valimc.Connection do
     ItemTypes,
     Packets,
     UseItem,
+    UseItemOn,
     Wire
   }
 
@@ -35,6 +36,7 @@ defmodule Valimc.Connection do
     PlayerMining,
     PlayerMiningAttempt,
     PlayerMiningQuery,
+    PlayerPlacementQuery,
     PlayerPoseQuery,
     PlayerSnapshot,
     PlayerStore,
@@ -188,6 +190,9 @@ defmodule Valimc.Connection do
        mining: nil,
        mining_job: nil,
        mining_water: false,
+       placement_queue: :queue.new(),
+       placement_queued: 0,
+       placement_job: nil,
        life_save: nil,
        life_stage: :alive,
        respawn_requested: false,
@@ -586,6 +591,40 @@ defmodule Valimc.Connection do
       {:noreply, recovery_failure(state, {:error, :region_restarting})}
     end)
   end
+
+  def handle_info({ref, result}, %{placement_job: %{task: %Task{ref: ref}} = job} = state) do
+    Process.demonitor(ref, [:flush])
+    Process.cancel_timer(job.timer)
+
+    guard_connection(state, fn ->
+      case result do
+        {:ok, _outcome} ->
+          state = if job.command.body == nil, do: resync_inventory(state), else: state
+          send_packets(state, [Packets.ack(job.command.request.sequence)])
+          {:noreply, drain_placements(%{state | placement_job: nil})}
+
+        _ ->
+          reject(state, "Block interaction unavailable; please reconnect")
+      end
+    end)
+  end
+
+  def handle_info({:placement_deadline, ref}, %{placement_job: %{task: %Task{ref: ref}}} = state),
+    do:
+      guard_connection(state, fn ->
+        reject(state, "Block interaction timed out; please reconnect")
+      end)
+
+  def handle_info({:placement_deadline, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:DOWN, ref, :process, _, _},
+        %{placement_job: %{task: %Task{ref: ref}}} = state
+      ),
+      do:
+        guard_connection(state, fn ->
+          reject(state, "Block interaction failed; please reconnect")
+        end)
 
   def handle_info({ref, result}, %{mining_job: %{task: %Task{ref: ref}} = job} = state) do
     Process.demonitor(ref, [:flush])
@@ -3336,32 +3375,92 @@ defmodule Valimc.Connection do
   end
 
   defp place_block(state, payload) do
-    {hand, payload} = Wire.take_varint(payload)
-    {position, payload} = Wire.take_position(payload)
+    case UseItemOn.decode(payload) do
+      {:ok, request} ->
+        stack = Inventory.held(state.inventory, request.hand)
 
-    {face, <<cursor::binary-size(12), _inside, _border, payload::binary>>} =
-      Wire.take_varint(payload)
+        cond do
+          not Valimc.PlayerInteraction.valid_hit?(request.position, request.cursor) or
+              not reachable?(state, request.position) ->
+            send_packets(state, [Packets.ack(request.sequence)])
+            resync_inventory(state)
 
-    {sequence, <<>>} = Wire.take_varint(payload)
-    {x, y, z} = position
+          stack != nil and Valimc.Physics.Placement.supported_item?(stack.item_id) ->
+            if state.placement_queued >= 16,
+              do: reject(state, "Too many pending block interactions")
 
-    target =
-      case face do
-        0 -> {x, y - 1, z}
-        1 -> {x, y + 1, z}
-        2 -> {x, y, z - 1}
-        3 -> {x, y, z + 1}
-        4 -> {x - 1, y, z}
-        5 -> {x + 1, y, z}
-        _ -> reject(state, "Invalid block face")
-      end
+            body = placement_body(state, request)
 
-    stack =
-      case hand do
-        0 -> Inventory.held(state.inventory, :main)
-        1 -> Inventory.held(state.inventory, :off)
-        _ -> reject(state, "Invalid interaction hand")
-      end
+            command = %{
+              request: request,
+              item: stack.item_id,
+              body: body,
+              expires: System.monotonic_time(:millisecond) + 250
+            }
+
+            drain_placements(%{
+              state
+              | placement_queue: :queue.in(command, state.placement_queue),
+                placement_queued: state.placement_queued + 1
+            })
+
+          true ->
+            preview_placement(state, request, stack)
+        end
+
+      {:error, _} ->
+        reject(state, "Malformed block interaction")
+    end
+  end
+
+  defp placement_body(state, request) do
+    if state.life_stage == :alive and state.player.game_mode.current == :creative and
+         state.inventory.infinite_materials and PlayerInput.loaded?(state.player.input) and
+         not state.teleport_pending and not inventory_pending(state) and
+         reachable?(state, request.position) and
+         Valimc.PlayerInteraction.valid_hit?(request.position, request.cursor) do
+      {:ok, geometry} =
+        Valimc.Physics.PlayerPose.geometry(
+          state.player.pose,
+          {state.player.x, state.player.y, state.player.z}
+        )
+
+      %{box: geometry.box, chunks: state.chunks}
+    end
+  end
+
+  defp drain_placements(%{placement_job: job} = state) when job != nil, do: state
+
+  defp drain_placements(state) do
+    case :queue.out(state.placement_queue) do
+      {:empty, _} ->
+        state
+
+      {{:value, command}, queue} ->
+        state = %{state | placement_queue: queue, placement_queued: state.placement_queued - 1}
+
+        case PlayerPlacementQuery.start_creative(
+               command.item,
+               command.request,
+               command.body,
+               command.expires
+             ) do
+          {:ok, task} ->
+            timer = Process.send_after(self(), {:placement_deadline, task.ref}, 750)
+            %{state | placement_job: %{task: task, timer: timer, command: command}}
+
+          {:error, _} ->
+            reject(state, "Block interaction capacity reached; please reconnect")
+        end
+    end
+  end
+
+  defp preview_placement(
+         state,
+         %{position: position, cursor: cursor, sequence: sequence} = request,
+         stack
+       ) do
+    target = Valimc.Physics.Placement.adjacent(request)
 
     item = if stack, do: Data.item_block(stack.item_id)
 
@@ -3496,6 +3595,13 @@ defmodule Valimc.Connection do
   @impl true
   def terminate(_reason, state) do
     cancel_mining(state)
+
+    if state.placement_job do
+      Process.cancel_timer(state.placement_job.timer)
+      Process.exit(state.placement_job.task.pid, :kill)
+      Process.demonitor(state.placement_job.task.ref, [:flush])
+    end
+
     :gen_tcp.close(state.socket)
 
     if state.motion_pending && state.motion_pending.retry,

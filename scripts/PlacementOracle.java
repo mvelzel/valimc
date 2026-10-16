@@ -100,9 +100,18 @@ public class PlacementOracle {
         var row=new JsonObject();row.addProperty("hand",hand==InteractionHand.MAIN_HAND?"main":"off");row.add("position",position(pos));row.addProperty("face",face.get3DDataValue());row.addProperty("sequence",sequence);row.addProperty("inside",inside);row.addProperty("border",border);row.add("cursor",new Gson().toJsonTree(List.of(.25,.5,.75)));row.addProperty("wire",HexFormat.of().formatHex(raw));packets.add(row);
       }finally{buffer.release();}
     }
+    var nonfinite=new JsonArray();
+    for(int axis=0;axis<3;axis++)for(int bits:new int[]{0x7fc00000,0x7f800000,0xff800000}){
+      var buffer=new FriendlyByteBuf(Unpooled.buffer());
+      try{buffer.writeVarInt(0);buffer.writeBlockPos(BlockPos.ZERO);buffer.writeVarInt(Direction.UP.get3DDataValue());for(int i=0;i<3;i++)buffer.writeInt(i==axis?bits:Float.floatToIntBits(.5f));buffer.writeBoolean(false);buffer.writeBoolean(false);buffer.writeVarInt(1);
+        var raw=new byte[buffer.readableBytes()];buffer.getBytes(buffer.readerIndex(),raw);var decoded=ServerboundUseItemOnPacket.STREAM_CODEC.decode(buffer);var location=decoded.hitResult().getLocation();double value=axis==0?location.x:axis==1?location.y:location.z;
+        if(buffer.isReadable()||decoded.sequence()!=1||Double.isFinite(value))throw new AssertionError("Native codec must retain nonfinite hit for gameplay admission");
+        var row=new JsonObject();row.addProperty("wire",HexFormat.of().formatHex(raw));nonfinite.add(row);
+      }finally{buffer.release();}
+    }
     var facts=new JsonObject();facts.addProperty("version","26.3");facts.addProperty("data_version",5023);facts.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");facts.addProperty("state_count",flags.size());facts.addProperty("replaceability",HexFormat.of().formatHex(flags.toByteArray()));facts.add("plain",plain);facts.add("slabs",slabs);
-    var observed=new JsonObject();observed.add("contexts",cases);observed.add("packets",packets);observed.add("unsupported_replacement",new Gson().toJsonTree(unsupported));
+    var observed=new JsonObject();observed.add("contexts",cases);observed.add("packets",packets);observed.add("nonfinite",nonfinite);observed.add("unsupported_replacement",new Gson().toJsonTree(unsupported));
     Files.writeString(Path.of(args[0]),new Gson().toJson(facts)+"\n");Files.writeString(Path.of(args[1]),new Gson().toJson(observed));
-    System.out.println("PASS: "+cases.size()+" actual placement contexts, "+packets.size()+" native use-on packets, 101 slab families; specialized replacement excluded: "+unsupported);
+    System.out.println("PASS: "+cases.size()+" actual placement contexts, "+packets.size()+" native use-on packets and "+nonfinite.size()+" acknowledgeable nonfinite hits, 101 slab families; specialized replacement excluded: "+unsupported);
   }
 }

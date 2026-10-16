@@ -266,6 +266,23 @@ defmodule Valimc.World.RegionData do
     handle_call({:set_block, position, replacement}, from, state)
   end
 
+  def handle_call({:correct_blocks, epoch, positions, connection}, from, state) do
+    if is_pid(connection) and valid_block_query?(positions, :any) and length(positions) <= 2 do
+      case handle_call({:observe_blocks, epoch, positions, :any}, from, state) do
+        {:reply, {:ok, observed}, state} ->
+          for {position, block} <- observed.blocks,
+              do: Valimc.Connection.deliver(connection, {:block, position, block})
+
+          {:reply, :ok, state}
+
+        error ->
+          error
+      end
+    else
+      {:reply, {:error, :invalid_block_query}, state}
+    end
+  end
+
   def handle_call({:set_blocks, epoch, revision, %BlockBatch{} = batch}, _from, state) do
     cond do
       epoch != state.items.epoch ->

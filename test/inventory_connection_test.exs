@@ -99,6 +99,7 @@ defmodule Valimc.InventoryConnectionTest do
     {_, client} = Client.login(username)
     on_exit(fn -> Client.close(client) end)
     client = Client.load_world(client)
+    Client.send_packet(client, :play, "player_loaded", <<>>)
     {_, peer} = Client.login(name())
     on_exit(fn -> Client.close(peer) end)
     peer = Client.load_world(peer)

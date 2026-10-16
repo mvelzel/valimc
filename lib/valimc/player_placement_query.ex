@@ -1,6 +1,7 @@
 defmodule Valimc.PlayerPlacementQuery do
   @moduledoc "Bounded placement preparation; a sampled plan grants no player or world authority."
   alias Valimc.Physics.Placement
+  alias Valimc.Physics.{BlockShapes, Box, Shape}
   alias Valimc.World
   alias Valimc.World.{BlockBatch, Region}
   @timeout 250
@@ -18,6 +19,69 @@ defmodule Valimc.PlayerPlacementQuery do
     RuntimeError -> {:error, :placement_workers_busy}
   catch
     :exit, _ -> {:error, :placement_workers_busy}
+  end
+
+  @doc "Execute one already-admitted creative command, then order its corrections on block owners."
+  def start_creative(item, request, grant, expires) do
+    connection = self()
+
+    {:ok,
+     Task.Supervisor.async_nolink(Valimc.CollisionWorkers, fn ->
+       outcome =
+         case prepare(item, request, now() + @timeout) do
+           {:ok, plan} ->
+             if grant != nil and now() < expires and
+                  MapSet.member?(
+                    grant.chunks,
+                    World.chunk_key(
+                      elem(plan.candidate.position, 0),
+                      elem(plan.candidate.position, 2)
+                    )
+                  ) and
+                  unobstructed?(plan.candidate, grant.box) do
+               Region.place_block(
+                 plan.owner,
+                 plan.revision,
+                 plan.batch,
+                 min(plan.deadline, expires)
+               )
+             else
+               {:refused, :player_admission}
+             end
+
+           {:error, reason} ->
+             {:refused, reason}
+         end
+
+       with :ok <- correct(request, connection), do: {:ok, outcome}
+     end)}
+  rescue
+    RuntimeError -> {:error, :placement_workers_busy}
+  catch
+    :exit, _ -> {:error, :placement_workers_busy}
+  end
+
+  defp unobstructed?(%{state: state, position: position}, body) do
+    with {:ok, shape} <- BlockShapes.fetch(state) do
+      shape = Shape.move(shape, position)
+      not Enum.any?(shape.boxes, &Box.intersects?(body, &1))
+    else
+      _ -> false
+    end
+  end
+
+  defp correct(request, connection) do
+    [request.position, Placement.adjacent(request)]
+    |> Enum.uniq()
+    |> Enum.group_by(fn {x, _, z} -> World.region_key(World.chunk_key(x, z)) end)
+    |> Enum.reduce_while(:ok, fn {key, positions}, :ok ->
+      with {:ok, owner} <- World.existing_owner(key),
+           :ok <- Region.correct_blocks(owner, positions, connection) do
+        {:cont, :ok}
+      else
+        error -> {:halt, error}
+      end
+    end)
   end
 
   defp prepare(item, request, deadline) do

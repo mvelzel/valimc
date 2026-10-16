@@ -25,6 +25,7 @@ defmodule Valimc.InteractionRangeConnectionTest do
     File.write!(path, bytes)
     {_, client} = Client.login(name)
     client = Client.load_world(client)
+    Client.send_packet(client, :play, "player_loaded", <<>>)
     pid = Enum.find(Players.all(), &(&1.name == name)).pid
 
     on_exit(fn ->

@@ -6,14 +6,14 @@ defmodule Valimc.Protocol.UseItemOn do
     with {:ok, hand, rest} when hand in [0, 1] <- Wire.read_varint(bytes),
          <<x::signed-26, z::signed-26, y::signed-12, rest::binary>> <- rest,
          {:ok, face, rest} when face in 0..5 <- Wire.read_varint(rest),
-         <<cx::float-32, cy::float-32, cz::float-32, inside, border, rest::binary>> <- rest,
+         <<cursor::binary-size(12), inside, border, rest::binary>> <- rest,
          {:ok, sequence, <<>>} when sequence <= 2_147_483_647 <- Wire.read_varint(rest) do
       {:ok,
        %{
          hand: if(hand == 0, do: :main, else: :off),
          position: {x, y, z},
          face: face,
-         cursor: {cx, cy, cz},
+         cursor: cursor(cursor),
          inside: inside != 0,
          border: border != 0,
          sequence: sequence
@@ -24,4 +24,8 @@ defmodule Valimc.Protocol.UseItemOn do
   end
 
   def decode(_), do: {:error, :invalid_use_item_on}
+
+  # Native decoding permits nonfinite hits; gameplay ignores them and still acknowledges.
+  defp cursor(<<x::float-32, y::float-32, z::float-32>>), do: {x, y, z}
+  defp cursor(_), do: :nonfinite
 end

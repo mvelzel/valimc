@@ -275,7 +275,7 @@ defmodule Valimc.GameModeConnectionTest do
         <<1, 0.5::float-32, 1.0::float-32, 0.5::float-32, 0, 0, 0>>
       ])
 
-      client = barrier(client)
+      {<<0>>, client} = Client.await(client, :play, "block_changed_ack")
       assert World.get_block(target) == 0
       assert client.inventory.items == Inventory.contents(ctx.inventory)
       assert client.inventory.state_id > 0

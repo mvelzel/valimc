@@ -1,6 +1,7 @@
 # VMC-029b — Authoritative placement
 
-Status: Native candidate kernel verified; live placement/consumption remain open.
+Status: Live creative plain/slab placement automated-verified; actual client pending.
+Survival consumption and broader placement remain open.
 October 16, 2026.
 
 Acceptance: preserve vanilla clicked-versus-adjacent targeting, replaceability,
@@ -32,16 +33,16 @@ native oracle matches518,964 actual contexts (all states with supported replacem
 methods, all slab halves/faces/float32 half boundaries, liquids, snow layers,
 occupied and different-slab neighbors). Its576 native use-on packets match the
 bounded decoder across both hands, coordinate extremes, flags and sequence sizes.
-Eight affected tests pass, including malformed/nonfinite/truncated fields,
+Nine actual native nonfinite-hit decodes remain acknowledgeable but grant no
+placement; malformed/truncated fields are rejected. Eight foundation tests cover
 replaceability, occupied targets and water-versus-flowing-water negatives.
 Logs `.local/placement-{native,check,tests}.log`; private facts/cases stay ignored,
 only normalized scalar catalogs are public.
 
-This kernel grants no world mutation. Ten specialized replacement classes/803
-states are explicit unsupported cases. Grass-block placement, item component
-overrides, collision/support/use callbacks, owner ordering and durable survival
-consumption remain unimplemented here. Next: bounded owner composition and actual
-changed-behavior client checks; this checkpoint stays local until that gate passes.
+Ten specialized replacement classes/803 states are explicit unsupported cases.
+Grass-block placement, component overrides, specialized support/use callbacks,
+peer-body ownership, cross-owner mutations and survival consumption remain open.
+This checkpoint stays local until changed-behavior client validation passes.
 
 Owner preparation now uses one bounded250ms worker and existing loaded owners;
 it neither cold-loads regions nor changes blocks. A prepared one-block creative
@@ -50,6 +51,28 @@ deadline, checked after dequeue. It shares existing batch publication and mining
 write exclusion.32 affected tests pass, including inert preparation, wet-half/
 double outcomes, target ABA, delayed expired commit, retired owner, stalled reads,
 absent regions and explicit cross-owner refusal. Logs
-`.local/placement-owner-{compile,tests}.log`. No live connection uses this lane yet;
-player/held-item/body admission, correction/ordering and cross-owner operations
-remain next work. Survival must use durable consumption rather than this creative API.
+`.local/placement-owner-{compile,tests}.log`. Survival must use durable consumption
+rather than this creative API.
+
+Live creative composition: admit commands on their player owner using
+current mode, inventory permission, loading, teleport, hit and reach. Capture the
+accepted item/body, preserving input order before later selection/movement events.
+Keep at most16 queued commands and one bounded worker; queued authority expires
+after250ms. The region rechecks incarnation/revision/deadline; body collision and
+loaded-target checks precede a write. Corrections originate on block owners so
+they cannot overtake later publications from that owner. Verify actual halves,
+water, merging, refused occupied/body cases and reconnect. This first live
+lane retains other blocks' existing preview behavior; peer-body ownership,
+cross-owner mutations, specialized uses and survival consumption remain open.
+
+Seventy affected tests pass. Six new real-TCP scenarios cover native targeting,
+both hands, slab states, occupied/body refusal, unloaded/survival refusal,
+responsive sockets during stalled region reads, expired authority and original
+held-item ordering before selection. Existing fixtures now send native
+`player_loaded`; asynchronous placement waits for its acknowledgement rather than
+an unrelated stats response. Refused survival predictions restore inventory
+before acknowledgement; correction state IDs can advance without changing items.
+Native plaintext and continuous AES-CFB8 TCP pass, including offhand bottom/double
+slabs and peer section-update replication. Normalized native facts reproduce
+exactly. Logs `.local/placement-live-{native,check,affected-tests,tcp}.log`.
+Production/client gates are next; no full-suite rerun is claimed for this slice.

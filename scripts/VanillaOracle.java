@@ -52,6 +52,13 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 
 /** A real TCP client using Mojang's 26.3 encoders and decoders as an independent oracle. */
 public class VanillaOracle implements AutoCloseable {
+  static boolean updatesBlock(Object packet, BlockPos position, net.minecraft.world.level.block.state.BlockState expected) {
+    if(packet instanceof ClientboundBlockUpdatePacket block)return block.getPos().equals(position)&&block.getBlockState()==expected;
+    if(packet instanceof ClientboundSectionBlocksUpdatePacket section){
+      boolean[] found={false};section.runUpdates((pos,state)->{if(pos.equals(position)&&state==expected)found[0]=true;});return found[0];
+    }
+    return false;
+  }
   private static RegistryAccess.Frozen registries;
   private static ProtocolInfo<?> gameIn;
   private static ProtocolInfo<?> gameOut;
@@ -425,7 +432,7 @@ public class VanillaOracle implements AutoCloseable {
       first.send(gameOut, new ServerboundUseItemOnPacket(InteractionHand.MAIN_HAND,
         new BlockHitResult(new Vec3(2.5, 64, 0.5), Direction.UP, new BlockPos(2, 63, 0), false), 1));
       first.await(p -> p instanceof ClientboundBlockUpdatePacket b && b.getPos().equals(new BlockPos(2,64,0)) && b.getBlockState().is(Blocks.STONE));
-      second.await(p -> p instanceof ClientboundBlockUpdatePacket b && b.getPos().equals(new BlockPos(2,64,0)) && b.getBlockState().is(Blocks.STONE));
+      second.await(p -> updatesBlock(p,new BlockPos(2,64,0),Blocks.STONE.defaultBlockState()));
       first.send(gameOut, new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK, new BlockPos(2,64,0), Direction.UP, 2));
       first.await(p -> p instanceof ClientboundBlockUpdatePacket b && b.getPos().equals(new BlockPos(2,64,0)) && b.getBlockState().isAir());
       var eggs = new ItemStack(Items.EGG, 16);
@@ -446,6 +453,21 @@ public class VanillaOracle implements AutoCloseable {
       first.await(p -> p instanceof ClientboundBlockUpdatePacket b && b.getPos().equals(new BlockPos(3,64,0)) && b.getBlockState().is(Blocks.STONE));
       first.send(gameOut, new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK, new BlockPos(3,64,0), Direction.UP, 4));
       first.await(p -> p instanceof ClientboundBlockUpdatePacket b && b.getPos().equals(new BlockPos(3,64,0)) && b.getBlockState().isAir());
+      var slabs = new ItemStack(Items.OAK_SLAB,11);
+      first.send(gameOut,new ServerboundSetCreativeModeSlotPacket(45,slabs));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot()==45 && ItemStack.matches(s.getItem(),slabs));
+      var slabPos = new BlockPos(4,64,0);
+      var bottom = Blocks.OAK_SLAB.defaultBlockState();
+      var doubled = bottom.setValue(net.minecraft.world.level.block.SlabBlock.TYPE,net.minecraft.world.level.block.state.properties.SlabType.DOUBLE);
+      first.send(gameOut,new ServerboundUseItemOnPacket(InteractionHand.OFF_HAND,new BlockHitResult(new Vec3(4.5,64,.5),Direction.UP,new BlockPos(4,63,0),false),5));
+      first.await(p -> updatesBlock(p,slabPos,bottom));second.await(p -> updatesBlock(p,slabPos,bottom));
+      first.send(gameOut,new ServerboundUseItemOnPacket(InteractionHand.OFF_HAND,new BlockHitResult(new Vec3(4.5,64.5,.5),Direction.UP,slabPos,false),6));
+      first.await(p -> updatesBlock(p,slabPos,doubled));second.await(p -> updatesBlock(p,slabPos,doubled));
+      first.send(gameOut,new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK,slabPos,Direction.UP,7));
+      first.await(p -> updatesBlock(p,slabPos,Blocks.AIR.defaultBlockState()));
+      first.send(gameOut,new ServerboundSetCreativeModeSlotPacket(45,stone));
+      first.await(p -> p instanceof ClientboundContainerSetSlotPacket s && s.getSlot()==45 && ItemStack.matches(s.getItem(),stone));
+      System.out.println("PASS: native TCP offhand bottom/double slab placement and peer section-update replication; original held stacks restored.");
       var predictions = new Int2ObjectOpenHashMap<HashedStack>();
       predictions.put(9, HashedStack.create(stone, component -> 0x12345678));
       var invented = new ItemStack(Items.DIAMOND, 99);
