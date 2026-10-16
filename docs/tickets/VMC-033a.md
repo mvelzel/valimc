@@ -1,6 +1,6 @@
 # VMC-033a — Player crafting recipe foundation
 
-Status: Automated-verified; baseline client smoke pending. October 16, 2026.
+Status: Done within recipe-foundation scope. October 16, 2026; `6cd6800`.
 Parent: VMC-033.
 
 Acceptance: pinned ordinary shaped/shapeless recipes that fit a2×2 player grid
@@ -65,5 +65,26 @@ exclusions and invalid grids. Python tool syntax checks pass; the new native
 oracle/checker joins the next full integration block. Logs
 `.local/player-crafting-{native,check,tests}.log`.
 
-Next: frozen production build and dedicated baseline client smoke. This kernel
-does not enable grid/result clicks yet; compose that in the next live slice.
+Frozen production build passed; dedicated baseline evidence follows. This kernel
+does not enable grid/result clicks; compose those in VMC-033b.
+
+
+Dedicated baseline client smoke — October 16, 2026: **PASS** on frozen
+`6cd6800d4c35d41e7682e45e336651518ce97bca` (all682 source blob IDs independently
+verified; runtime PID78816/frozen BEAM confirmed), whole cloned dataset
+`/tmp/valimc-player-crafting-client-20261016`. Direct unmodified Java26.3/protocol777
+Quick Play launch in default small window via dedicated SDL app: flat world and
+normal survival HUD rendered; E inventory opened/closed; actual `/stats` showed
+`1 players · 7 regions · 10 schedulers · 101 MiB`; dedicated internal pointer
+clicked pause-menu Back to Game successfully. No crafting/use/attack/movement
+performed. Initial app-bind timeout recovered via app inventory refresh.
+Owned client session56818/JVM92510 stopped and waited (wrapper0/JVM143).
+Disconnected checks: zero players, source56/outboxnil, exact full player snapshot,
+all55 item records and all receipt maps/digests unchanged; baseline reclosed and
+reopened exactly with latest sequence retained. Runtime left running unchanged.
+Fresh logs had no protocol/gameplay failures; offline properties/Realms auth,
+OS/Vulkan and missing post-effect warnings were nonblocking. Raw report,
+metadata/logs and full before/after/final snapshots are ignored under
+`.local/client-tests/VMC-033a/`; no routine screenshot files. This is baseline
+GUI evidence for an unused pure kernel, not live graphical crafting; native
+recipe correctness remains the separate149,128-case oracle evidence above.

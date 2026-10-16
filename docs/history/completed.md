@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-033a](../tickets/VMC-033a.md) | `6cd6800`:476 bounded player-grid recipes,149,128 native contexts, five targeted checks, production and actual baseline smoke; live crafting follows |
 | [VMC-029b3](../tickets/VMC-029b3.md) | `4d60aa4`:60 axis families, native/84 affected checks,889 full tests/full native TCP/build and actual both-mode axes, depletion, horizontal mining and reconnect |
 | [VMC-029a9](../tickets/VMC-029a9.md) | `84a6fca`: four random cube loot families,53 affected/380,160 native/build checks and actual random/Silk/Fortune drops, wear and reconnect |
 | [VMC-029a8](../tickets/VMC-029a8.md) | `e28fbb8`:173 more deterministic cube mining types, native/65 affected/build checks and actual exact drops/wear, bookshelf Silk Touch, abort and reconnect |
