@@ -11,29 +11,43 @@ defmodule Valimc.PlayerConsumption do
   }
 
   alias Valimc.Protocol.EffectTypes
+  @heal EffectTypes.id("instant_health")
   @instant Enum.map(~w(instant_health instant_damage), &EffectTypes.id/1)
 
-  def plan(player, inventory, hand, props, incoming) do
-    case Inventory.consume_hand(inventory, hand, props.remainder) do
-      {:ok, next, []} ->
-        food =
-          if props.food,
-            do: PlayerFood.eat(player.food, props.food.nutrition, props.food.saturation),
-            else: player.food
+  @doc "Negative signed healing's zero-health lifecycle remains unsupported; refuse the whole drink."
+  def admitted_effects?({:remove, _}), do: true
 
-        transition = %{
-          player: %{player | food: food},
-          inventory: next,
-          effects: [],
-          damage: [],
-          death: nil
-        }
-
-        original_hand = Inventory.held(inventory, :main)
-        {:ok, consume(transition, incoming, original_hand)}
+  def admitted_effects?(effects) when is_list(effects) do
+    Enum.all?(effects, fn
+      {@heal, [{_, amp, _, _, _} | _]} ->
+        {:ok, {:heal, amount}} = InstantEffect.drink_request(@heal, amp)
+        amount >= 0
 
       _ ->
-        :refused
+        true
+    end)
+  end
+
+  def plan(player, inventory, hand, props, incoming) do
+    with true <- admitted_effects?(incoming),
+         {:ok, next, []} <- Inventory.consume_hand(inventory, hand, props.remainder) do
+      food =
+        if props.food,
+          do: PlayerFood.eat(player.food, props.food.nutrition, props.food.saturation),
+          else: player.food
+
+      transition = %{
+        player: %{player | food: food},
+        inventory: next,
+        effects: [],
+        damage: [],
+        death: nil
+      }
+
+      original_hand = Inventory.held(inventory, :main)
+      {:ok, consume(transition, incoming, original_hand)}
+    else
+      _ -> :refused
     end
   end
 
@@ -69,12 +83,7 @@ defmodule Valimc.PlayerConsumption do
   defp instant(transition, {:heal, amount}, _) do
     {:ok, health} = PlayerHealth.heal(transition.player.health, amount)
 
-    death =
-      if transition.player.health.value > 0 and health.value <= 0,
-        do: :generic,
-        else: transition.death
-
-    %{transition | player: %{transition.player | health: health}, death: death}
+    %{transition | player: %{transition.player | health: health}}
   end
 
   defp instant(transition, {:hurt, source, amount}, hand) do

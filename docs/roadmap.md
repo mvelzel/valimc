@@ -38,8 +38,10 @@ transports and actual drinks/walking/promotion/expiry/milk/fall/reconnect. Large
 consumption/fatal recovery at `f4670e6` passes113 affected checks, production/both
 TCP transports and focused actual stock/mixed/fatal drinks/reconnect. Named-item
 text/hover [VMC-004b3](tickets/VMC-004b3.md) passes344 native contexts/688 packets
-and78 affected checks locally; its client gate, abnormal signed-healing downstream
-behavior and final integration remain.
+and78 affected checks locally; frozen8a28534 passes1,341 tests/build/both TCP
+transports. Named-item/refusal client gates and final native integration remain;
+abnormal signed-healing lifecycle is [VMC-037g1](tickets/VMC-037g1.md), with whole
+negative-dose refusal tested locally.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

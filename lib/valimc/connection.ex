@@ -1466,9 +1466,10 @@ defmodule Valimc.Connection do
 
         effects = PotionContents.effects(contents)
 
-        if Enum.all?(effects, fn {id, _} -> id in @live_effects or id in @instant_effects end),
-          do: {:ok, effects},
-          else: :unsupported
+        if Enum.all?(effects, fn {id, _} -> id in @live_effects or id in @instant_effects end) and
+             Valimc.PlayerConsumption.admitted_effects?(effects),
+           do: {:ok, effects},
+           else: :unsupported
 
       true ->
         case ConsumableRemoval.policy(stack, props) do

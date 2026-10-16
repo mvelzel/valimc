@@ -662,6 +662,36 @@ defmodule Valimc.PlayerUseConnectionTest do
     end
   end
 
+  for hand <- [:main, :off] do
+    test "negative signed healing in a mixed #{hand} potion is refused before any mutation",
+         ctx do
+      food = %PlayerFood{level: 10, saturation: 0.0}
+      effects = [{10, [{200, 0, false, true, true}]}, {5, [{1, 29, false, true, true}]}]
+      drink = custom_potion(effects)
+      slot = if unquote(hand) == :main, do: 36, else: 45
+      seed(ctx, food, 5.0, inventory: %Inventory{slots: %{slot => drink}})
+      {client, pid} = login(ctx, 5.0, food)
+      _client = use_hand(client, pid, unquote(hand))
+      assert state(pid).active_use == nil
+      ticks(pid, 32)
+      assert state(pid).player.health.value == 5.0 and state(pid).life_stage == :alive
+      assert state(pid).player.effects == %{} and state(pid).player.food == food
+      assert state(pid).inventory.slots == %{slot => drink} and state(pid).use_save == nil
+      props = %{remainder: ItemStack.new("glass_bottle"), food: %{nutrition: 6, saturation: 0.5}}
+
+      assert :refused =
+               Valimc.PlayerConsumption.plan(
+                 state(pid).player,
+                 state(pid).inventory,
+                 unquote(hand),
+                 props,
+                 effects
+               )
+
+      assert Valimc.World.item_snapshot(ctx.key) == %{}
+    end
+  end
+
   test "a later Resistance callback cannot protect earlier instant damage in the same drink",
        ctx do
     food = %PlayerFood{}
