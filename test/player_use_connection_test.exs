@@ -458,6 +458,34 @@ defmodule Valimc.PlayerUseConnectionTest do
     assert saved.inventory.slots == state(pid).inventory.slots
   end
 
+  test "custom Resistance drinks checkpoint before mitigated damage; mixed unsupported turtle potion stays intact",
+       ctx do
+    food = %PlayerFood{level: 5, saturation: 0.0}
+    id = Valimc.Protocol.EffectTypes.id("resistance")
+    contents = %{PotionContents.empty() | effects: [{id, [{200, 0, false, true, true}]}]}
+    drink = %{ItemStack.new("potion") | components: %{"minecraft:potion_contents" => contents}}
+    turtle = potion("turtle_master")
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => drink, 45 => turtle}})
+    {client, pid} = login(ctx, 20.0, food)
+    client = use_hand(client, pid)
+    ticks(pid, 32)
+    {{_, ^id, 0, 200, 14}, client} = effect_packet(client)
+    assert state(pid).inventory.slots[36] == ItemStack.new("glass_bottle")
+    wait(fn -> state(pid).use_save == nil end)
+    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.health.value == 20.0 and saved.effects == %{id => [{200, 0, false, true, true}]}
+    assert {:ok, :hurt} = Connection.fall_damage(pid, 10.0)
+    assert state(pid).player.health.value == 12.0
+    _client = use_hand(client, pid, :off, 2)
+    assert state(pid).active_use == nil and state(pid).inventory.slots[45] == turtle
+    assert state(pid).player.effects == %{id => [{200, 0, false, true, true}]}
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.health.value == 12.0 and saved.effects == %{id => [{200, 0, false, true, true}]}
+    assert saved.inventory.slots == %{36 => ItemStack.new("glass_bottle"), 45 => turtle}
+  end
+
   test "Water Breathing drinks use the same atomic effect/bottle lane", ctx do
     food = %PlayerFood{}
     drink = potion("water_breathing")

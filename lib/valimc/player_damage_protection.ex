@@ -1,6 +1,6 @@
 defmodule Valimc.PlayerDamageProtection do
   @moduledoc "Player-owned worn-enchantment defenses for implemented environmental and periodic damage."
-  alias Valimc.{Inventory, PlayerArmor}
+  alias Valimc.{Inventory, PlayerArmor, PlayerResistance}
   alias Valimc.Physics.ArmorDamage
   alias Valimc.Protocol.ItemStack
   @float_max 3.4028234663852886e38
@@ -48,12 +48,14 @@ defmodule Valimc.PlayerDamageProtection do
     end)
   end
 
-  @doc "Apply native armor then enchantment reduction after cooldown selection; wear belongs to the owner."
-  def damage(%Inventory{}, :starve, amount)
-      when is_number(amount) and amount >= 0 and amount <= @float_max,
-      do: {:ok, f32(amount)}
+  @doc "Apply armor, Resistance, then enchantments after cooldown selection; wear belongs to the owner."
+  def damage(inventory, source, amount, effects \\ %{})
 
-  def damage(%Inventory{} = inventory, source, amount)
+  def damage(%Inventory{}, :starve, amount, effects)
+      when is_number(amount) and amount >= 0 and amount <= @float_max,
+      do: PlayerResistance.reduce(amount, :starve, effects)
+
+  def damage(%Inventory{} = inventory, source, amount, effects)
       when (source in [
               :fall,
               :stalagmite,
@@ -78,11 +80,13 @@ defmodule Valimc.PlayerDamageProtection do
         f32(amount)
       end
 
-    fraction = f32(min(points(inventory, source), 20) / 25.0)
-    {:ok, f32(armored * f32(1.0 - fraction))}
+    with {:ok, resisted} <- PlayerResistance.reduce(armored, source, effects) do
+      fraction = f32(min(points(inventory, source), 20) / 25.0)
+      {:ok, f32(resisted * f32(1.0 - fraction))}
+    end
   end
 
-  def damage(_, _, _), do: {:error, :invalid_damage_protection}
+  def damage(_, _, _, _), do: {:error, :invalid_damage_protection}
 
   defp f32(number) do
     <<value::float-32>> = <<number::float-32>>

@@ -1,6 +1,6 @@
 alias Valimc.{Inventory, PlayerArmor, PlayerDamageProtection}
 alias Valimc.Physics.ArmorDamage
-alias Valimc.Protocol.{ItemStack, ItemTypes}
+alias Valimc.Protocol.{EffectTypes, ItemStack, ItemTypes}
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()
 
@@ -27,10 +27,17 @@ for c <- cases do
 
   inventory = %Inventory{slots: slots}
   source = String.to_existing_atom(c["source"])
-  {:ok, damage} = PlayerDamageProtection.damage(inventory, source, c["amount"])
+
+  effects =
+    if c["resistance"] >= 0,
+      do: %{EffectTypes.id("resistance") => [{-1, c["resistance"], false, true, true}]},
+      else: %{}
+
+  {:ok, damage} = PlayerDamageProtection.damage(inventory, source, c["amount"], effects)
+  matches = if c["damage"] == "infinity", do: damage > 1024, else: damage == c["damage"]
 
   unless PlayerDamageProtection.points(inventory, source) == c["protection"] and
-           damage == c["damage"] and
+           matches and
            PlayerDamageProtection.exhaustion(source) == c["exhaustion"],
          do: raise("Native environmental protection differs #{inspect({c, damage})}")
 
@@ -51,5 +58,5 @@ for c <- cases do
 end
 
 IO.puts(
-  "PASS: #{length(cases)} native worn protection/armor/magic damage cases and admitted source-specific armor callbacks."
+  "PASS: #{length(cases)} native worn protection/armor/Resistance/magic cases and source-specific wear callbacks; finite results exact, lethal overflow bounded."
 )

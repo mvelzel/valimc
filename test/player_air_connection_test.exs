@@ -303,6 +303,53 @@ defmodule Valimc.PlayerAirConnectionTest do
     end
   end
 
+  test "drowning mitigation uses the admitted Resistance level through its expiry tick", ctx do
+    seed(ctx, air: -19)
+    {_client, pid} = login(ctx)
+    :sys.replace_state(pid, fn s -> %{s | player: %{s.player | air_supply: -19}} end)
+    id = Valimc.Protocol.EffectTypes.id("resistance")
+    {:ok, effect} = Valimc.StatusEffect.new(1, 0)
+    assert {:ok, true} = Connection.add_effect(pid, id, effect)
+    tick(pid)
+    assert state(pid).player.effects == %{} and state(pid).player.air_supply == 0
+    assert state(pid).player.health.value == 18.399999618530273
+  end
+
+  test "a grant after air admission cannot reduce its older drowning request", ctx do
+    seed(ctx, air: -19)
+    {_client, pid} = login(ctx)
+    :sys.replace_state(pid, fn s -> %{s | player: %{s.player | air_supply: -19}} end)
+    {:ok, {region, _}} = World.existing_owner(ctx.key)
+    :sys.suspend(region)
+
+    try do
+      tick(pid, false)
+      assert state(pid).environment_effects == %{}
+      {:ok, effect} = Valimc.StatusEffect.new(-1, 4)
+
+      assert {:ok, true} =
+               Connection.add_effect(pid, Valimc.Protocol.EffectTypes.id("resistance"), effect)
+
+      :sys.resume(region)
+
+      wait(fn ->
+        not state(pid).simulation_due and state(pid).pose_job == nil and
+          state(pid).motion_job == nil
+      end)
+
+      assert state(pid).player.health.value == 18.0 and state(pid).player.air_supply == 0
+
+      :sys.replace_state(pid, fn s ->
+        %{s | player: %{s.player | air_supply: -19, health: %{s.player.health | cooldown: 0}}}
+      end)
+
+      tick(pid)
+      assert state(pid).player.health.value == 18.0 and state(pid).player.air_supply == 0
+    after
+      if Process.alive?(region), do: :sys.resume(region)
+    end
+  end
+
   test "a later breathing grant cannot retroactively protect an already admitted air step", ctx do
     seed(ctx, air: -19)
     {_client, pid} = login(ctx)

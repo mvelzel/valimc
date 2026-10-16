@@ -155,6 +155,44 @@ defmodule Valimc.PlayerFireConnectionTest do
     before.simulation_clock.token
   end
 
+  test "Resistance blocks health after armor wear and cooldown selection; removal restores lava damage",
+       ctx do
+    helmet = ItemStack.new("iron_helmet")
+    seed(ctx, inventory: %Inventory{slots: %{5 => helmet}})
+    {_client, pid} = login(ctx)
+    id = Valimc.Protocol.EffectTypes.id("resistance")
+    {:ok, effect} = Valimc.StatusEffect.new(200, 4)
+    assert {:ok, true} = Connection.add_effect(pid, id, effect)
+    tick(pid)
+    assert state(pid).player.health.value == 20.0
+    assert state(pid).player.health.cooldown == 20
+    assert state(pid).inventory.slots[5].components["minecraft:damage"] == 1
+    assert {:ok, true} = Connection.remove_effect(pid, id)
+    for _ <- 1..9, do: tick(pid)
+    assert state(pid).player.health.value == 20.0
+    tick(pid)
+    assert state(pid).player.health.value < 20.0
+    assert state(pid).inventory.slots[5].components["minecraft:damage"] == 2
+  end
+
+  test "burning uses admitted pre-expiry Resistance instead of the later status map", ctx do
+    seed(ctx, fire: 20, material: "air")
+    {_client, pid} = login(ctx)
+    id = Valimc.Protocol.EffectTypes.id("resistance")
+    {:ok, effect} = Valimc.StatusEffect.new(1, 4)
+    assert {:ok, true} = Connection.add_effect(pid, id, effect)
+    tick(pid)
+    assert state(pid).player.health.value == 20.0 and state(pid).player.effects == %{}
+    assert state(pid).environment_effects == %{id => [{1, 4, false, true, true}]}
+
+    :sys.replace_state(pid, fn s ->
+      %{s | player: %{s.player | fire_ticks: 20, health: %PlayerHealth{}}}
+    end)
+
+    tick(pid)
+    assert state(pid).player.health.value == 19.0 and state(pid).environment_effects == %{}
+  end
+
   test "owned effect grants retain suppressed refresh, admission and packet lifecycle", ctx do
     seed(ctx, fire: -20, material: "air")
     {client, pid} = login(ctx)

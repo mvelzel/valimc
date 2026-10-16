@@ -5,6 +5,8 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-036d milk/honey](../tickets/VMC-036d.md) | `d71b2a9`:658 native callbacks/maps,87 affected checks, production/both TCP transports and actual both-hand removal, containers, cancellation/overflow/creative negatives and reconnect; parent full native passes at5b123b1 |
+| [VMC-037d periodic effects](../tickets/VMC-037d.md) | `5b123b1`:124,596 native requests plus20,800 defenses/codecs,1,302 full tests/native integration/production and actual regeneration/poison/wither drinks, expiry/promotion, defenses/death/respawn and reconnect |
 | [VMC-037c Water Breathing/air](../tickets/VMC-037c.md) | `1fd6287`:433 native predicates/policies,60 affected checks,1,284 full tests/build, both native TCP transports and actual drinks/submersion/refill/expiry/drowning/surfacing/modes/negatives/reconnect; whole source/receipt51 retained |
 | [VMC-037b supported potions](../tickets/VMC-037b.md) | `81ebb4f`/`82dd108`/`fa0b320`:481 native stacks/4,329 deliveries/18,578 identities,1,276 full tests/build,53 ordering regressions/native TCP and actual ground/both-hand drinks, expiry, bottles, negatives, creative and reconnect; measured preview limits retained |
 | [VMC-037a1 owned Fire Resistance](../tickets/VMC-037a1.md) | `d7e688c`→`fa0b320`: owner clock/immunity, suppressed state/v18 snapshots, native full integration and actual icons/contacts/gear/expiry/promotion/removal/death/respawn/reconnect; quiet-clock final saves corrected |

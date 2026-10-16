@@ -1,7 +1,7 @@
 # VMC-037e — Resistance damage reduction
 
-Status: Native reduction foundation verified locally; no live grant/drink support.
-Owner/gear composition and actual-client gates remain; keep it unpushed.
+Status: Native foundation `b6c6fca` and owned damage/consumption composition
+verified locally. Production/native TCP and actual-client gates remain; keep local.
 
 Acceptance: Resistance reduces eligible damage after armor and before worn
 enchantments, using the active amplifier and native exclusions. Preserve damage
@@ -36,3 +36,29 @@ After removing new signed-zero test-pattern warnings, the two changed kernel
 checks pass(seed739183); the full135,150 native comparison passes again with an
 explicit module load before existing-atom lookup. Final evidence:
 `.local/resistance-{targeted,native-check}-final.log`.
+
+Owned composition: Resistance is now admitted through grant/login and custom
+PotionContents drinking. Damage applies armor/wear, then Resistance, then worn
+Protection; maximum-level mitigation still advances ordinary cooldown/wear.
+Environmental burning/air/freezing retain only tick-start Resistance in one
+bounded immutable owner field. Expiry or a later grant cannot change an already
+admitted base step; delayed geometry consumes the latest policy without replay.
+Direct contacts/falls use current owned state. Periodic effects use the documented
+ID order, so Resistance expiry/promotion precedes poison/wither actions. Respawn
+clears environmental policy. No new timer/process, mailbox lane or global owner.
+
+Native composed proofs pass116,320 cases:33,120 armored campfire/cactus/berry,
+62,400 fall/freeze/drown/void/starvation and20,800 magic/wither contexts, all43
+enchantments/slot negatives/caps, real effect map and ResistanceII. Finite results
+match exactly; native infinity uses the documented lethal bounded representation.
+Armor callback order/exhaustion match. Evidence:
+`.local/resistance-geared-{hazards,environment,periodic}-{native,check}.log`.
+
+106 affected checks pass(seed710443): resisted health with ordinary armor wear/
+cooldown, burning/air expiry, late grant versus admitted drowning, periodic hidden
+promotion/expiry, atomic custom drink/bottle and damaged reconnect. Turtle Master
+remains refused as a whole because its Slowness behavior is not implemented; the
+new Resistance admission never partially applies that potion. Evidence:
+`.local/resistance-live-targeted-final.log`. Baseline82 owner checks also pass;
+the first added-test compile attempt had a helper arity error, fixed before tests.
+Full combat, statistics/other attributes and complete Turtle Master stay open.

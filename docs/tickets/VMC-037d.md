@@ -1,7 +1,7 @@
 # VMC-037d — Periodic health effects
 
-Status: Owned composition `5b123b1` passes automated checks/build and all actual
-client groups. Full native integration is still running; keep this block unpushed.
+Status: Done within scope at `5b123b1`, published through `d71b2a9`. Full tests,
+native integration, production and all actual-client groups pass.
 
 Acceptance: Regeneration, poison and wither execute on the existing player clock
 with native active-head timing, finite/infinite duration, amplifier shift behavior,
@@ -65,8 +65,8 @@ incorrectly required idle geometry to run; both corrected. The idle sample
 optimization is unchanged. Actual-client evidence follows.
 
 Frozen `5b123b1` passes1,302 full tests(seed458956) and production release. The
-complete native integration script is running against that same immutable941-blob
-checkpoint, independent of the client test. Logs:
+complete native integration passes against that same immutable941-blob
+checkpoint, including plain and continuous AES-CFB8 TCP (session81516 exit0). Logs:
 `.local/periodic-live-{full-tests,production,full-native}.log`. The client tester
 uses a whole25-file clone of the stopped source/receipt51 dataset at
 `/tmp/valimc-periodic-live-client-20261016`; root owns server shutdown after testing.
@@ -87,4 +87,6 @@ Death52 and subsequent pickup53 are retained, source/receipt53 and outboxnil.
 Final20HP/regen534ticks, seven bottles and retained canceled/unsupported potions.
 Both owned client JVMs stopped, zero players/connections, five region flushes and
 clock:ok. Primary reviewed the server session: no gameplay errors; server stopped
-cleanly. Full native completion remains the only block integration gate.
+cleanly. All stated gates pass. Native Motion load probes emit upstream crash-report
+handler/sysctl diagnostics in the controlled harness; their39 cases still pass.
+Broader combat, effects and survival behavior remain separate work.

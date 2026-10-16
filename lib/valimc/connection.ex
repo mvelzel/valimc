@@ -63,8 +63,10 @@ defmodule Valimc.Connection do
   import Bitwise
   @basic_mining Enum.map(~w(stone dirt grass_block cobblestone oak_planks glass), &Data.block/1)
   @fire_resistance EffectTypes.id("fire_resistance")
+  @resistance EffectTypes.id("resistance")
   @periodic_effects Enum.sort(Enum.map(~w(regeneration poison wither), &EffectTypes.id/1))
-  @live_effects [@fire_resistance, EffectTypes.id("water_breathing")] ++ @periodic_effects
+  @live_effects [@fire_resistance, @resistance, EffectTypes.id("water_breathing")] ++
+                  @periodic_effects
   @use_item_packet Data.id(:play, :serverbound, "use_item")
   @slab_tags Path.expand("../../priv/protocol/tags.json", __DIR__)
   @external_resource @slab_tags
@@ -301,6 +303,7 @@ defmodule Valimc.Connection do
        food_tick_origin: 0,
        simulation_due: false,
        air_policy: :none,
+       environment_effects: %{},
        fire_damage_due: false,
        fire_contacts_active: false,
        armor_view: nil,
@@ -1066,7 +1069,10 @@ defmodule Valimc.Connection do
             | player: player,
               simulation_clock: next,
               simulation_due: true,
-              air_policy: PlayerAirEffects.policy(player.effects)
+              air_policy: PlayerAirEffects.policy(player.effects),
+              # Base-step damage precedes expiry; retain only its relevant level
+              # while bounded geometry samples coalesce to the latest admitted tick.
+              environment_effects: Map.take(player.effects, [@resistance])
           }
 
           state = tick_burning(state)
@@ -1670,7 +1676,7 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp apply_damage(state, selected, source) do
+  defp apply_damage(state, selected, source, effects \\ nil) do
     cond do
       state.life_stage != :alive or not selected.accepted ->
         {:ignored, state}
@@ -1702,7 +1708,12 @@ defmodule Valimc.Connection do
             else: {:ok, state.inventory, []}
 
         {:ok, damage} =
-          Valimc.PlayerDamageProtection.damage(inventory, source, selected.damage)
+          Valimc.PlayerDamageProtection.damage(
+            inventory,
+            source,
+            selected.damage,
+            effects || state.player.effects
+          )
 
         {:ok, health} = PlayerHealth.reduce(selected.state, damage)
 
@@ -1873,6 +1884,8 @@ defmodule Valimc.Connection do
       | player: player,
         inventory: inventory,
         life_stage: :alive,
+        air_policy: :none,
+        environment_effects: %{},
         fire_damage_due: false,
         fire_contacts_active: false,
         active_use: nil,
@@ -2849,7 +2862,7 @@ defmodule Valimc.Connection do
     state =
       if pending and not fluid.lava do
         {:ok, selected} = PlayerHealth.hurt_window(state.player.health, 1.0)
-        {_, next} = apply_damage(state, selected, :on_fire)
+        {_, next} = apply_damage(state, selected, :on_fire, state.environment_effects)
         next
       else
         state
@@ -2963,7 +2976,7 @@ defmodule Valimc.Connection do
 
     if damage_due do
       {:ok, selected} = PlayerHealth.hurt_window(state.player.health, 1.0)
-      {_, state} = apply_damage(state, selected, :freeze)
+      {_, state} = apply_damage(state, selected, :freeze, state.environment_effects)
       state
     else
       state
@@ -3001,7 +3014,7 @@ defmodule Valimc.Connection do
       send_packets(state, [bubbles])
       broadcast_player_packet(state, bubbles)
       {:ok, selected} = PlayerHealth.hurt_window(player.health, damage)
-      {_, state} = apply_damage(state, selected, :drown)
+      {_, state} = apply_damage(state, selected, :drown, state.environment_effects)
       state
     else
       state

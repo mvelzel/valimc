@@ -302,6 +302,25 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
     assert state(pid).player.health.value == 19.0 and state(pid).inventory.slots[36] == gear
   end
 
+  test "periodic damage sees Resistance promotion and expiry in the chosen effect-ID order",
+       ctx do
+    seed(ctx, [])
+    {_client, pid} = login(ctx)
+    resistance = effect(pid, "resistance", -1)
+    effect(pid, "resistance", 1, 4)
+    effect(pid, "poison", 25)
+    tick(pid)
+    assert state(pid).player.health.value == 19.200000762939453
+    assert state(pid).player.effects[resistance] == [{-1, 0, false, true, true}]
+    assert {:ok, true} = Connection.remove_effect(pid, resistance)
+    :sys.replace_state(pid, fn s -> %{s | player: %{s.player | health: %PlayerHealth{}}} end)
+    effect(pid, "resistance", 1, 4)
+    effect(pid, "wither", 40)
+    tick(pid)
+    assert state(pid).player.health.value == 19.0
+    assert Map.get(state(pid).player.effects, resistance) == nil
+  end
+
   test "stalled geometry cannot stop or replay owned periodic healing", ctx do
     seed(ctx, health: 10.0)
     {_client, pid} = login(ctx)

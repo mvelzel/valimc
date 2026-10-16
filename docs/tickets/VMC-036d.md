@@ -1,7 +1,7 @@
 # VMC-036d — Milk and honey effect removal
 
-Status: Owned consumption `d71b2a9` passes automated/native TCP/build checks.
-Actual-client validation is running; keep this slice unpushed until accepted.
+Status: Done within stock milk/honey scope at `d71b2a9`. Targeted/native TCP/build
+and actual-client checks pass, as does the larger parent native integration.
 
 Acceptance: Milk removes all active/suppressed effects, honey removes poison
 only. Use native durations, nutrition/eligibility, cancellation, both hands,
@@ -47,10 +47,28 @@ removed status or rewind a later grant. Evidence:
 `.local/consumable-removal-live-targeted-final.log`. The first run exposed stale
 unsupported-item/slot expectations, corrected to match the new support and native
 inventory insertion. Production, both native TCP transports and actual CUA
-milk/honey use/removal/containers/negatives/reconnect remain before acceptance.
+milk/honey use/removal/containers/negatives/reconnect are recorded below.
 
 Frozen `d71b2a9` production release and both native plaintext/continuous AES-CFB8
 TCP transports pass. Logs: `.local/removal-live-{production,native-tcp}.log`.
 The dedicated client tester owns the immutable946-blob release and whole consistent
 source/receipt53 clone `/tmp/valimc-removal-live-client-20261016`. The larger parent
-block's1,302 full tests pass; its full native run is still pending independently.
+block's1,302 full tests and full native integration pass at `5b123b1`; this later
+consumption increment has its own87 checks,658 native cases, build and both TCP transports.
+
+Actual26.3 client PASS, report reviewed once:
+`.local/client-tests/VMC-036d/report.md`. Actual mainhand cancellation/full milk
+clears four statuses, offhand milk works with full storage, empty/full-food
+consumption works, creative clears without consumption, honey clears active and
+hidden poison while FR/WB persist and returns its extra bottle to the selected
+hotbar. Actual full-storage honey refuses count/food/removal atomically; Night
+Vision remains intact. Final actual milk+honey and fresh Quick Play reconnect
+preserve empty effects, bucket36/honey1slot37/bottle38 and food11/saturation1.2.
+Precise32/40tick boundaries use native/owner proofs; GUI uses actual full/canceled
+holds. A rejected unordered poison fixture was corrected before the valid trial.
+
+Source/receipt53, outboxnil retained; final1HP/air300. Both owned clients stopped,
+zero players/connections, two region flushes and clock:ok. Primary server log
+review found no gameplay errors; production server stopped cleanly. Raw client
+logs remain under the frozen checkpoint. All stated gates pass; broader food
+effects remain separate.

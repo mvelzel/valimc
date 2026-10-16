@@ -16,7 +16,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.TagKey;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.damagesource.*;
-import net.minecraft.world.effect.MobEffect;
+import net.minecraft.world.effect.*;
 import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.ai.attributes.*;
 import net.minecraft.world.entity.player.Player;
@@ -47,7 +47,6 @@ public class DamageProtectionOracle {
     public ServerLevel level(){return world;}
     public ItemStack getItemBySlot(EquipmentSlot slot){return gear.getOrDefault(slot,ItemStack.EMPTY);}
     public RandomSource getRandom(){return RandomSource.create(1);}
-    public boolean hasEffect(Holder<MobEffect> effect){return false;}
     public int getArmorValue(){return armorValue;}
     public double getAttributeValue(Holder<Attribute> attribute){
       if(attribute.equals(Attributes.ARMOR_TOUGHNESS))return toughness;
@@ -92,7 +91,10 @@ public class DamageProtectionOracle {
     float protection=EnchantmentHelper.getDamageProtection(p.world,p,damage);
     for(float amount:new float[]{.1f,1,5,100,Float.MAX_VALUE}){
       p.wearCalls=0;float armored=p.armor(damage,amount);if(!p.fire&&armored!=amount)throw new AssertionError("Unexpected environmental armor reduction");
-      var c=new JsonObject();c.add("gear",gear);c.addProperty("source",source);c.addProperty("amount",(double)amount);c.addProperty("protection",(double)protection);c.addProperty("damage",(double)p.magic(damage,armored));c.addProperty("exhaustion",(double)damage.getFoodExhaustion());
+      var c=new JsonObject();c.add("gear",gear);c.addProperty("source",source);c.addProperty("amount",(double)amount);c.addProperty("protection",(double)protection);
+      float resolved=p.magic(damage,armored);if(Float.isNaN(resolved)||resolved<0)throw new AssertionError("Unexpected resolved damage");
+      if(Float.isInfinite(resolved))c.addProperty("damage","infinity");else c.addProperty("damage",(double)resolved);
+      var resistance=p.getEffect(MobEffects.RESISTANCE);c.addProperty("resistance",resistance==null?-1:resistance.getAmplifier());c.addProperty("exhaustion",(double)damage.getFoodExhaustion());
       if(p.fire){c.addProperty("armor",p.armorValue);c.addProperty("toughness",p.toughness);c.addProperty("armored",(double)armored);c.addProperty("wear_calls",p.wearCalls);if(p.wearCalls>0)c.addProperty("wear_amount",(double)p.wearAmount);}
       cases.add(c);
     }
@@ -107,12 +109,21 @@ public class DamageProtectionOracle {
     var unsafe=(sun.misc.Unsafe)field(sun.misc.Unsafe.class,"theUnsafe").get(null);
     var server=(ProbeServer)unsafe.allocateInstance(ProbeServer.class);server.registries=new ReloadableServerRegistries.Holder(lookup);
     var world=(ProbeLevel)unsafe.allocateInstance(ProbeLevel.class);world.server=server;
-    var p=(Probe)unsafe.allocateInstance(Probe.class);p.world=world;p.gear=new EnumMap<>(EquipmentSlot.class);p.armorValue=30;p.fire=args.length>1&&!args[1].equals("effects");field(Entity.class,"position").set(p,new Vec3(.5,64,.5));
+    String mode=args.length>1?args[1]:"environment";
+    var p=(Probe)unsafe.allocateInstance(Probe.class);p.world=world;p.gear=new EnumMap<>(EquipmentSlot.class);p.armorValue=30;p.fire=Set.of("fire","hazards").contains(mode);field(Entity.class,"position").set(p,new Vec3(.5,64,.5));
+    var statuses=new HashMap<Holder<MobEffect>,MobEffectInstance>();field(LivingEntity.class,"activeEffects").set(p,statuses);
+    if(args.length>2)statuses.put(MobEffects.RESISTANCE,new MobEffectInstance(MobEffects.RESISTANCE,-1,Integer.parseInt(args[2])));
     var tags=JsonParser.parseString(Files.readString(Path.of("priv/protocol/tags.json"))).getAsJsonObject().getAsJsonObject("minecraft:damage_type");
     var names=JsonParser.parseString(Files.readString(Path.of("priv/protocol/registries.json"))).getAsJsonObject().getAsJsonArray("minecraft:damage_type");
     var bindTags=Holder.Reference.class.getDeclaredMethod("bindTags",Collection.class);bindTags.setAccessible(true);
     var cases=new JsonArray();
-    var types=args.length>1&&args[1].equals("effects")?List.of(DamageTypes.MAGIC,DamageTypes.WITHER):args.length>1&&args[1].equals("hazards")?List.of(DamageTypes.CAMPFIRE,DamageTypes.CACTUS,DamageTypes.SWEET_BERRY_BUSH):p.fire?List.of(DamageTypes.IN_FIRE,DamageTypes.ON_FIRE,DamageTypes.LAVA,DamageTypes.HOT_FLOOR):List.of(DamageTypes.FALL,DamageTypes.STALAGMITE,DamageTypes.FREEZE,DamageTypes.DROWN,DamageTypes.FELL_OUT_OF_WORLD,DamageTypes.STARVE);
+    var types=switch(mode){
+      case "effects"->List.of(DamageTypes.MAGIC,DamageTypes.WITHER);
+      case "hazards"->List.of(DamageTypes.CAMPFIRE,DamageTypes.CACTUS,DamageTypes.SWEET_BERRY_BUSH);
+      case "fire"->List.of(DamageTypes.IN_FIRE,DamageTypes.ON_FIRE,DamageTypes.LAVA,DamageTypes.HOT_FLOOR);
+      case "environment"->List.of(DamageTypes.FALL,DamageTypes.STALAGMITE,DamageTypes.FREEZE,DamageTypes.DROWN,DamageTypes.FELL_OUT_OF_WORLD,DamageTypes.STARVE);
+      default->throw new AssertionError("Unknown source matrix: "+mode);
+    };
     for(var type:types){
       var holder=lookup.lookupOrThrow(Registries.DAMAGE_TYPE).getOrThrow(type);int id=-1;
       for(int i=0;i<names.size();i++)if(names.get(i).getAsString().equals(type.identifier().toString()))id=i;
@@ -139,6 +150,6 @@ public class DamageProtectionOracle {
       }
     }
     Files.writeString(Path.of(args[0]),new Gson().toJson(cases));
-    System.out.println("PASS: "+cases.size()+" native equipment/protection/armor/magic damage cases; sources="+types+", all "+registry.size()+" enchantments, levels0/1/4/255, stored and hand negatives, stacked caps. Effects/health/world mutation excluded; armor-wear callback recorded but stack wear excluded.");
+    System.out.println("PASS: "+cases.size()+" native equipment/protection/armor/magic damage cases; sources="+types+", all "+registry.size()+" enchantments, levels0/1/4/255, stored and hand negatives, stacked caps, Resistance="+(args.length>2?args[2]:"absent")+". Health/world mutation/statistics excluded; armor-wear callback recorded but stack wear excluded; native lethal infinity labeled.");
   }
 }
