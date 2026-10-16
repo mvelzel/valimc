@@ -6,13 +6,15 @@ defmodule Valimc.PlayerStore do
     Metrics,
     PlayerMiningIntent,
     PlayerMiningTransfers,
+    PlayerPlacementIntent,
+    PlayerPlacementTransfers,
     PlayerSnapshot,
     PlayerTransfers,
     TransferDelivery,
     World
   }
 
-  alias Valimc.World.{MiningTransfers, Region}
+  alias Valimc.World.{MiningTransfers, PlacementTransfers, Region}
 
   @moduledoc "A leased per-session player-state writer; serialization/I/O are outside socket owners."
   @keys [:x, :y, :z, :yaw, :pitch]
@@ -75,6 +77,9 @@ defmodule Valimc.PlayerStore do
   # The trusted player owner has already sampled the original loot/wear proposal.
   def prepare_mining(pid, fence, snapshot, intent, ref),
     do: GenServer.cast(pid, {:prepare_mining, self(), fence, snapshot, intent, ref})
+
+  def prepare_placement(pid, fence, snapshot, intent, ref),
+    do: GenServer.cast(pid, {:prepare_placement, self(), fence, snapshot, intent, ref})
 
   def close(pid, fence, snapshot), do: GenServer.call(pid, {:close, fence, snapshot}, 5000)
 
@@ -261,6 +266,15 @@ defmodule Valimc.PlayerStore do
   def handle_cast({:prepare_mining, owner, fence, snapshot, intent, ref}, %{owner: owner} = state) do
     prepare_plan(state, fence, ref, fn ->
       PlayerMiningTransfers.prepare(state.uuid, sequence(state), snapshot, intent)
+    end)
+  end
+
+  def handle_cast(
+        {:prepare_placement, owner, fence, snapshot, intent, ref},
+        %{owner: owner} = state
+      ) do
+    prepare_plan(state, fence, ref, fn ->
+      PlayerPlacementTransfers.prepare(state.uuid, sequence(state), snapshot, intent)
     end)
   end
 
@@ -506,6 +520,9 @@ defmodule Valimc.PlayerStore do
         :mining ->
           MiningTransfers.receipt_result(key, request, receipt)
 
+        :placement ->
+          PlacementTransfers.receipt_result(key, request, receipt)
+
         :items ->
           if receipt == %{sequence: request.sequence, digest: digest},
             do: {:ok, :applied},
@@ -526,6 +543,11 @@ defmodule Valimc.PlayerStore do
          do: {:ok, key, request, digest, :mining}
   end
 
+  defp proof_request(uuid, %{transfer_sequence: sequence, outbox: %{kind: :placement} = intent}) do
+    with {:ok, key, request, digest} <- PlayerPlacementIntent.request(uuid, sequence, intent),
+         do: {:ok, key, request, digest, :placement}
+  end
+
   defp proof_request(uuid, snapshot) do
     with {:ok, key, request, digest} <- PlayerSnapshot.transfer_request(uuid, snapshot),
          do: {:ok, key, request, digest, :items}
@@ -533,6 +555,9 @@ defmodule Valimc.PlayerStore do
 
   defp resolved_snapshot(%{outbox: %{kind: :mining}} = snapshot, result),
     do: PlayerMiningTransfers.resolve(snapshot, result)
+
+  defp resolved_snapshot(%{outbox: %{kind: :placement}} = snapshot, result),
+    do: PlayerPlacementTransfers.resolve(snapshot, result)
 
   defp resolved_snapshot(snapshot, :applied), do: {:ok, %{snapshot | outbox: nil}}
 

@@ -194,7 +194,8 @@ defmodule Valimc.MiningRegionTest do
         send(
           ctx.pid,
           {:resource, ctx.epoch,
-           {:mining_plan, self(), token, {:ok, Map.put(plan, :batch, batch)}}}
+           {:block_transfer_plan, self(), token,
+            {:ok, Map.merge(plan, %{batch: batch, kind: :mining})}}}
         )
 
         send(parent, :planning_finished)

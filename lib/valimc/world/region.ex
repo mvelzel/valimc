@@ -83,6 +83,17 @@ defmodule Valimc.World.Region do
   def apply_mining_transfer({pid, epoch}, transfer),
     do: GenServer.call(pid, {:mining_transfer, epoch, transfer}, 6000)
 
+  @doc "Fence the exact prepared placement context on its existing block owner."
+  def reserve_placement({pid, epoch}, revision, expected),
+    do: GenServer.call(pid, {:reserve_placement, epoch, revision, expected}, 250)
+
+  def release_placement({pid, epoch}, permit),
+    do: GenServer.call(pid, {:release_placement, epoch, permit}, 250)
+
+  @doc "Internal inbox: delivery follows durable, leased source consumption."
+  def apply_placement_transfer({pid, epoch}, transfer),
+    do: GenServer.call(pid, {:placement_transfer, epoch, transfer}, 6000)
+
   # Scene-only API: these operations must never consume a player inventory.
   def create_item({pid, epoch}, stack, position),
     do: GenServer.call(pid, {:create_item, epoch, stack, position}, 6000)

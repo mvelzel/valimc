@@ -36,7 +36,7 @@ defmodule Valimc.TransferDelivery do
 
   def retryable?(_), do: false
 
-  def completed?(%{outbox: %{kind: :mining}}, result),
+  def completed?(%{outbox: %{kind: kind}}, result) when kind in [:mining, :placement],
     do:
       result in [
         {:ok, :applied},
@@ -55,6 +55,19 @@ defmodule Valimc.TransferDelivery do
     end
   rescue
     _ -> {:error, :invalid_mining_transfer}
+  catch
+    :exit, _ -> {:error, :region_restarting}
+  end
+
+  defp deliver(uuid, %{transfer_sequence: sequence, outbox: %{kind: :placement} = intent}) do
+    with {:ok, key, request, _digest} <-
+           Valimc.PlayerPlacementIntent.request(uuid, sequence, intent),
+         {:ok, owner} <- World.item_owner(key),
+         :ok <- persistent_destination(owner, uuid) do
+      Region.apply_placement_transfer(owner, request)
+    end
+  rescue
+    _ -> {:error, :invalid_placement_transfer}
   catch
     :exit, _ -> {:error, :region_restarting}
   end
