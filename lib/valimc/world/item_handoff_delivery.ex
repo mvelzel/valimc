@@ -1,7 +1,7 @@
 defmodule Valimc.World.ItemHandoffDelivery do
   @moduledoc "One bounded destination I/O attempt; the source retains its durable intent until receipt."
   alias Valimc.World
-  alias Valimc.World.{ItemHandoffs, Region}
+  alias Valimc.World.{ItemHandoffs, ItemMergeTransfer, Region}
 
   def start(owner, epoch, token, key, ledger) do
     case Task.Supervisor.start_child(Valimc.TransferWorkers, fn ->
@@ -14,6 +14,19 @@ defmodule Valimc.World.ItemHandoffDelivery do
     end
   catch
     :exit, _ -> {:error, :item_handoff_workers_busy}
+  end
+
+  defp deliver(key, %{outgoing: %{kind: :merge, request: request}}) do
+    with true <- request.source == key,
+         {:ok, owner} <- World.item_owner(request.destination),
+         {:ok, result} when result in [:applied, :already_applied, :rejected, :already_rejected] <-
+           Region.apply_item_merge(owner, request),
+         {:ok, {destination, proof}} when destination == request.destination <-
+           Region.owner_item_receipt(owner, key),
+         {:ok, _} <- ItemMergeTransfer.receipt_result(request, proof),
+         do: {:ok, request.sequence, {:item_merge, proof}}
+  catch
+    :exit, _ -> {:error, :item_handoff_uncertain}
   end
 
   defp deliver(key, ledger) do

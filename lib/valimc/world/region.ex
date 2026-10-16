@@ -137,6 +137,28 @@ defmodule Valimc.World.Region do
   def release_pickup({pid, epoch}, token, source),
     do: send(pid, {:resource, epoch, {:release_pickup, token, source}})
 
+  @doc "Trusted donor proposal; a returned grant follows durable recipient receipt admission."
+  def reserve_item_merge({pid, epoch}, proposal),
+    do:
+      GenServer.call(
+        pid,
+        {:reserve_item_merge, epoch, proposal, System.monotonic_time(:millisecond) + 250},
+        6000
+      )
+
+  @doc "Internal source journal; use only the request returned by reserve_item_merge/2."
+  def prepare_item_merge({pid, epoch}, request),
+    do: GenServer.call(pid, {:prepare_item_merge, epoch, request}, 6000)
+
+  def apply_item_merge({pid, epoch}, request),
+    do: GenServer.call(pid, {:apply_item_merge, epoch, request}, 6000)
+
+  def owner_item_receipt({pid, epoch}, source),
+    do: GenServer.call(pid, {:owner_item_receipt, epoch, source}, 2000)
+
+  def release_item_merge({pid, epoch}, token, source),
+    do: send(pid, {:resource, epoch, {:release_item_merge, token, source}})
+
   @doc "Trusted same-owner pairs; reply follows one durable replacement/removal commit."
   def merge_items({pid, epoch}, pairs),
     do:

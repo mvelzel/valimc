@@ -35,8 +35,9 @@ capacity/range/reconnect checks. [Cross-owner merging](tickets/VMC-035b1.md) fol
 [Ordinary item pickup](tickets/VMC-035c.md) is validated (`79811a8`):1,123 full
 tests, production/full native TCP and actual natural/whole/partial/delay/mode/
 boundary/reconnect/stalled-save checks. [Advanced pickup contexts](tickets/VMC-035c1.md)
-remain open. Current work: [cross-owner merging](tickets/VMC-035b1.md), with local pure
-escrow/inbox recovery and return-capacity plans; live composition follows.
+remain open. Current work: [cross-owner merging](tickets/VMC-035b1.md). Local escrow,
+bounded live admission/delivery and proof-backed recovery pass targeted checks;
+automatic discovery, measurements and graphical validation follow.
 
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Player processes own their simulation state; bounded workers sample geometry.

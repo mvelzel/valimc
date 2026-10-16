@@ -8,6 +8,10 @@ defmodule Valimc.World.RegionData do
     ItemHandoffDelivery,
     ItemReceipts,
     ItemMerges,
+    ItemMergeEscrow,
+    ItemMergeInbox,
+    ItemMergePermits,
+    OwnerItemReceipts,
     ItemTransfers,
     PickupPermits,
     PickupTransfers,
@@ -25,6 +29,7 @@ defmodule Valimc.World.RegionData do
     :items,
     :item_receipts,
     :pickup_permits,
+    :item_merge_permits,
     :item_storage_enabled,
     :item_publication,
     :item_pending,
@@ -87,6 +92,7 @@ defmodule Valimc.World.RegionData do
       items: items,
       item_receipts: receipts,
       pickup_permits: PickupPermits.new(),
+      item_merge_permits: ItemMergePermits.new(),
       item_storage_enabled: persistent,
       item_publication: publication,
       item_pending: nil,
@@ -317,6 +323,62 @@ defmodule Valimc.World.RegionData do
           reply -> reply
         end
     end
+  end
+
+  def handle_call({:reserve_item_merge, epoch, proposal, deadline}, from, state) do
+    now = System.monotonic_time(:millisecond)
+
+    source =
+      case proposal do
+        %{source: source} -> source
+        _ -> nil
+      end
+
+    with :ok <- cross_merge_ready(state, epoch),
+         true <- is_integer(deadline) and now < deadline,
+         :ok <- ItemMergePermits.available?(state.item_merge_permits, source, now) do
+      plan_item_change(:cross_merge_admission, {proposal, deadline}, from, state)
+    else
+      false -> {:reply, {:error, :expired_item_step}, state}
+      error -> {:reply, error, state}
+    end
+  end
+
+  def handle_call({:prepare_item_merge, epoch, request}, from, state) do
+    with :ok <- cross_merge_ready(state, epoch),
+         do: plan_item_change(:cross_merge_out, request, from, state),
+         else: (error -> {:reply, error, state})
+  end
+
+  def handle_call({:apply_item_merge, epoch, request}, from, state) do
+    with :ok <- cross_merge_ready(state, epoch) do
+      {permits, allowed} =
+        ItemMergePermits.consume(
+          state.item_merge_permits,
+          state.items,
+          request,
+          System.monotonic_time(:millisecond)
+        )
+
+      case plan_item_change(:cross_merge_in, {request, allowed}, from, state) do
+        {:noreply, next} -> {:noreply, %{next | item_merge_permits: permits}}
+        reply -> reply
+      end
+    else
+      error -> {:reply, error, state}
+    end
+  end
+
+  def handle_call({:owner_item_receipt, epoch, source}, _, state) do
+    result =
+      cond do
+        epoch != state.items.epoch -> {:error, :stale_region}
+        not state.item_storage_enabled -> {:error, :transfer_storage_disabled}
+        not Map.has_key?(state.items.ledger.incoming, source) -> {:error, :missing_item_receipt}
+        true -> {:ok, {state.key, state.items.ledger.incoming[source]}}
+      end
+
+    {:reply, result, state}
   end
 
   def handle_call({:merge_items, epoch, pairs, deadline}, from, state) do
@@ -825,6 +887,15 @@ defmodule Valimc.World.RegionData do
   defp plan_transfer(transfer, from, state),
     do: plan_item_change(:item_transfer, transfer, from, state)
 
+  defp cross_merge_ready(state, epoch) do
+    cond do
+      state.items.epoch != epoch -> {:error, :stale_region}
+      not state.item_storage_enabled -> {:error, :transfer_storage_disabled}
+      state.item_pending != nil -> {:error, :item_storage_busy}
+      true -> :ok
+    end
+  end
+
   defp plan_item_change(kind, request, from, state) do
     owner = self()
     epoch = state.items.epoch
@@ -850,6 +921,7 @@ defmodule Valimc.World.RegionData do
             case kind do
               :item_handoff_out -> elem(request, 2)
               :pickup_admission -> elem(request, 2)
+              :cross_merge_admission -> elem(request, 1)
               :item_merge -> elem(request, 1)
               :item_merge_auto -> elem(request, 1)
               _ -> nil
@@ -911,8 +983,49 @@ defmodule Valimc.World.RegionData do
   end
 
   defp item_plan(:item_handoff_clear, items, receipts, key, {sequence, digest}) do
-    with {:ok, next} <- ItemHandoffs.finish(items, key, sequence, digest),
-         do: {:write, next, receipts, :ok}
+    result =
+      case digest do
+        {:item_merge, proof} ->
+          case ItemMergeEscrow.finish(items, key, sequence, proof) do
+            {:ok, next, _} -> {:ok, next}
+            error -> error
+          end
+
+        _ ->
+          ItemHandoffs.finish(items, key, sequence, digest)
+      end
+
+    with {:ok, next} <- result, do: {:write, next, receipts, :ok}
+  end
+
+  defp item_plan(:cross_merge_admission, items, receipts, key, {proposal, deadline}) do
+    with {:ok, request} <- ItemMergePermits.prepare(items, key, proposal),
+         {:ok, incoming, status} <-
+           OwnerItemReceipts.reserve(items.ledger.incoming, request.source, key) do
+      reply = {:item_merge_grant, request, deadline}
+
+      if status == :existing,
+        do: {:reply, reply},
+        else: {:write, %{items | ledger: %{items.ledger | incoming: incoming}}, receipts, reply}
+    end
+  end
+
+  defp item_plan(:cross_merge_out, items, receipts, key, request) do
+    with {:ok, next} <- ItemMergeEscrow.prepare(items, key, items.epoch, request),
+         do: {:write, next, receipts, {:ok, :prepared}}
+  end
+
+  defp item_plan(:cross_merge_in, items, receipts, key, {request, permitted}) do
+    case ItemMergeInbox.apply(items, key, request, permitted) do
+      {:ok, _, result} when result in [:already_applied, :already_rejected] ->
+        {:reply, {:ok, result}}
+
+      {:ok, next, result} ->
+        {:write, next, receipts, {:ok, result}}
+
+      error ->
+        error
+    end
   end
 
   defp item_plan(:item_merge, items, receipts, _key, {pairs, _deadline}) do
@@ -1175,7 +1288,10 @@ defmodule Valimc.World.RegionData do
              :item_merge,
              :item_merge_auto,
              :pickup_admission,
-             :item_pickup
+             :item_pickup,
+             :cross_merge_admission,
+             :cross_merge_out,
+             :cross_merge_in
            ] do
     Process.demonitor(pending.monitor, [:flush])
 
@@ -1251,6 +1367,14 @@ defmodule Valimc.World.RegionData do
   end
 
   def handle_info({:item_simulation, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info({:release_item_merge, token, source}, state),
+    do:
+      {:noreply,
+       %{
+         state
+         | item_merge_permits: ItemMergePermits.release(state.item_merge_permits, token, source)
+       }}
 
   def handle_info(
         {:item_simulation_deadline, token},
@@ -1696,6 +1820,31 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  defp finish_item_reply(state, from, {:item_merge_grant, request, deadline}) do
+    now = System.monotonic_time(:millisecond)
+
+    result =
+      if now < deadline,
+        do:
+          ItemMergePermits.grant(
+            state.item_merge_permits,
+            state.items.ledger.incoming,
+            request,
+            now
+          ),
+        else: {:error, :expired_item_step}
+
+    case result do
+      {:ok, permits, request} ->
+        reply_item(from, {:ok, request})
+        %{state | item_merge_permits: permits}
+
+      error ->
+        reply_item(from, error)
+        state
+    end
+  end
+
   defp finish_item_reply(state, from, reply) do
     reply_item(from, reply)
     state
@@ -1775,9 +1924,6 @@ defmodule Valimc.World.RegionData do
 
   defp resume_item_handoff(%{items: %{ledger: %{outgoing: nil}}} = state),
     do: %{state | item_handoff: nil}
-
-  # Cross-owner merge journals have their own future receipt/recovery driver.
-  defp resume_item_handoff(%{items: %{ledger: %{outgoing: %{kind: :merge}}}} = state), do: state
 
   defp resume_item_handoff(%{item_handoff: nil} = state), do: schedule_handoff_retry(state, 0)
   defp resume_item_handoff(state), do: state

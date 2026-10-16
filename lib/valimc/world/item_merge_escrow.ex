@@ -6,12 +6,13 @@ defmodule Valimc.World.ItemMergeEscrow do
   def prepare(items, key, epoch, request) do
     with true <- items.epoch == epoch and request.source == key,
          true <- items.ledger.outgoing == nil and request.sequence == items.ledger.sequence + 1,
-         {:ok, escrow} <- ItemMergeTransfer.escrow(request),
          {:ok, {^epoch, id, revision}} <- Items.find(items, request.donor.uuid),
          entry = items.entries[id],
-         true <- record(entry) == request.donor,
+         true <- entry.stack == request.donor.stack,
          true <-
            Map.get(items.ledger.generations, request.donor.uuid, 0) == request.donor_generation,
+         request = %{request | donor: record(entry)},
+         {:ok, escrow} <- ItemMergeTransfer.escrow(request),
          {:ok, next} <- Items.remove(items, epoch, id, revision),
          next = %{next | ledger: %{next.ledger | sequence: request.sequence, outgoing: escrow}},
          true <- Items.return_capacity?(next),
