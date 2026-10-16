@@ -54,6 +54,9 @@ pass; final native integration is running before publication.
 **Implementing:** [stock food status callbacks](tickets/VMC-036e.md): seven stock
 records/112 native callback boundaries and86 affected checks pass. Owned meals
 apply complete supported groups with one local RNG draw; frozen client gate follows.
+**Implementing:** [Nausea/complete pufferfish](tickets/VMC-037k.md):256 native
+no-action hook contexts/3,075 ticks and84 affected checks pass. Existing effect
+ownership admits Nausea and complete pufferfish; frozen client gate follows.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

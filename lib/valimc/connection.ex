@@ -71,7 +71,7 @@ defmodule Valimc.Connection do
   @periodic_effects Enum.sort(Enum.map(~w(regeneration hunger poison wither), &EffectTypes.id/1))
   @instant_effects Enum.map(~w(instant_health instant_damage saturation), &EffectTypes.id/1)
   @live_effects [@fire_resistance, @resistance, @absorption, EffectTypes.id("water_breathing")] ++
-                  Enum.map(~w(speed slowness), &EffectTypes.id/1) ++
+                  Enum.map(~w(speed slowness nausea), &EffectTypes.id/1) ++
                   @periodic_effects
   @use_item_packet Data.id(:play, :serverbound, "use_item")
   @slab_tags Path.expand("../../priv/protocol/tags.json", __DIR__)

@@ -1597,7 +1597,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     wait(fn -> state(pid).save_ref == nil end)
 
     for {name, seq} <-
-          Enum.with_index(["pufferfish", "suspicious_stew", "chorus_fruit"], 3) do
+          Enum.with_index(["suspicious_stew", "chorus_fruit"], 3) do
       :sys.replace_state(pid, fn s ->
         %{s | inventory: %{s.inventory | slots: %{36 => ItemStack.new(name)}}}
       end)
@@ -1747,9 +1747,9 @@ defmodule Valimc.PlayerUseConnectionTest do
     end
   end
 
-  test "unsupported prospective food effects refuse before nutrition, use or any RNG draw", ctx do
+  test "unexpected food listeners refuse before nutrition, use or any RNG draw", ctx do
     food = %PlayerFood{level: 5, saturation: 0.0}
-    fish = ItemStack.new("pufferfish")
+    fish = %{ItemStack.new("pufferfish") | components: potion("night_vision").components}
     seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => fish}})
     {client, pid} = login(ctx, 20.0, food)
     {before, _} = seed_chance(pid, false)
@@ -1759,6 +1759,70 @@ defmodule Valimc.PlayerUseConnectionTest do
     assert state(pid).active_use == nil and state(pid).use_save == nil
     assert state(pid).player.food == food and state(pid).player.effects == %{}
     assert state(pid).inventory.slots == %{36 => fish}
+  end
+
+  test "pufferfish applies all three effects in one meal and actual milk removes the whole group",
+       ctx do
+    food = %PlayerFood{level: 5, saturation: 0.0}
+    fish = ItemStack.new("pufferfish", 2)
+
+    seed(ctx, food, 20.0,
+      inventory: %Inventory{slots: %{36 => fish, 45 => ItemStack.new("milk_bucket")}}
+    )
+
+    {client, pid} = login(ctx, 20.0, food)
+    {_, after_one} = seed_chance(pid, false)
+    client = use_hand(client, pid)
+    ticks(pid, 32)
+    assert_chance_rng(pid, after_one)
+    assert state(pid).player.food == %PlayerFood{level: 6, saturation: 0.20000000298023224}
+
+    assert state(pid).player.effects == %{
+             8 => [{300, 0, false, true, true}],
+             @hunger => [{300, 2, false, true, true}],
+             18 => [{1200, 1, false, true, true}]
+           }
+
+    assert state(pid).inventory.slots[36] == %{fish | count: 1}
+    wait(fn -> state(pid).use_save == nil end)
+    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.effects == state(pid).player.effects and saved.food == state(pid).player.food
+    assert saved.inventory.slots == state(pid).inventory.slots
+    client = use_hand(client, pid, :off, 2)
+    ticks(pid, 32)
+    assert state(pid).player.effects == %{} and state(pid).player.health.value < 20.0
+    assert state(pid).inventory.slots[45] == ItemStack.new("bucket")
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.effects == %{} and saved.inventory.slots[36] == %{fish | count: 1}
+  end
+
+  test "Nausea promotion, expiry and spent-duration reconnect use only the existing effect clock",
+       ctx do
+    food = %PlayerFood{level: 5, saturation: 0.0}
+    drink = custom_potion([{8, [{300, 0, false, true, true}]}])
+    seed(ctx, food, 17.0, inventory: %Inventory{slots: %{36 => drink}})
+    {client, pid} = login(ctx, 17.0, food)
+    client = use_hand(client, pid)
+    ticks(pid, 32)
+    assert state(pid).player.effects == %{8 => [{300, 0, false, true, true}]}
+    {{_, 8, 0, 300, 14}, client} = effect_packet(client)
+    assert {:ok, true} = Connection.add_effect(pid, 8, [{1, 2, false, true, true}])
+    tick(pid)
+    assert state(pid).player.effects == %{8 => [{299, 0, false, true, true}]}
+    ticks(pid, 9)
+    assert state(pid).player.effects == %{8 => [{290, 0, false, true, true}]}
+    assert state(pid).player.health.value == 17.0 and state(pid).player.food == food
+    wait(fn -> state(pid).use_save == nil end)
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    {_client, restored} = login(ctx, 17.0, food)
+    assert state(restored).player.effects == %{8 => [{290, 0, false, true, true}]}
+    assert state(restored).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
+    ticks(restored, 290)
+    assert state(restored).player.effects == %{}
+    assert state(restored).player.health.value == 17.0 and state(restored).player.food == food
   end
 
   test "creative consumes nutrition without removing the item or creating its remainder", ctx do
