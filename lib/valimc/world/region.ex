@@ -121,6 +121,19 @@ defmodule Valimc.World.Region do
   def remove_item({pid, epoch, id, revision}),
     do: GenServer.call(pid, {:remove_item, epoch, id, revision}, 6000)
 
+  @doc "Trusted accepted player contact; a new receipt slot is durable before this returns a grant."
+  def reserve_pickup({pid, epoch}, actor, item_uuid),
+    do:
+      GenServer.call(
+        pid,
+        {:reserve_pickup, epoch, actor, item_uuid, System.monotonic_time(:millisecond) + 250},
+        6000
+      )
+
+  @doc "Internal pickup inbox; delivery follows the player's durably prepared original inventory."
+  def apply_pickup_transfer({pid, epoch}, request),
+    do: GenServer.call(pid, {:pickup_transfer, epoch, request}, 6000)
+
   @doc "Trusted same-owner pairs; reply follows one durable replacement/removal commit."
   def merge_items({pid, epoch}, pairs),
     do:

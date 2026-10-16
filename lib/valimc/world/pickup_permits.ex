@@ -12,14 +12,14 @@ defmodule Valimc.World.PickupPermits do
     permits = prune(permits, now)
 
     cond do
-      not ItemReceipts.valid?(receipts[source]) ->
-        {:error, :pickup_receipt_slot_required}
-
       Enum.any?(permits.entries, fn {_, grant} -> grant.source == source end) ->
         {:error, :pickup_already_pending}
 
       map_size(permits.entries) >= @max_permits ->
         {:error, :pickup_permits_full}
+
+      not ItemReceipts.valid?(receipts[source]) ->
+        {:error, :pickup_receipt_slot_required}
 
       true ->
         with {:ok, {_, id, _}} <- Items.find(items, item_uuid),

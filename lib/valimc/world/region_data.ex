@@ -6,8 +6,11 @@ defmodule Valimc.World.RegionData do
     Items,
     ItemHandoffs,
     ItemHandoffDelivery,
+    ItemReceipts,
     ItemMerges,
     ItemTransfers,
+    PickupPermits,
+    PickupTransfers,
     MiningPermits,
     MiningTransfers,
     PlacementPermits,
@@ -21,6 +24,7 @@ defmodule Valimc.World.RegionData do
     :key,
     :items,
     :item_receipts,
+    :pickup_permits,
     :item_storage_enabled,
     :item_publication,
     :item_pending,
@@ -82,6 +86,7 @@ defmodule Valimc.World.RegionData do
       key: key,
       items: items,
       item_receipts: receipts,
+      pickup_permits: PickupPermits.new(),
       item_storage_enabled: persistent,
       item_publication: publication,
       item_pending: nil,
@@ -235,6 +240,76 @@ defmodule Valimc.World.RegionData do
 
   def handle_call({:remove_item, epoch, id, revision}, from, state),
     do: item_request(epoch, from, state, fn -> Items.remove(state.items, epoch, id, revision) end)
+
+  def handle_call({:reserve_pickup, epoch, actor, item_uuid, deadline}, from, state) do
+    cond do
+      epoch != state.items.epoch ->
+        {:reply, {:error, :stale_region}, state}
+
+      not state.item_storage_enabled ->
+        {:reply, {:error, :transfer_storage_disabled}, state}
+
+      state.item_pending != nil ->
+        {:reply, {:error, :item_storage_busy}, state}
+
+      not is_integer(deadline) or System.monotonic_time(:millisecond) >= deadline ->
+        {:reply, {:error, :expired_item_step}, state}
+
+      true ->
+        case PickupPermits.issue(
+               state.pickup_permits,
+               state.item_receipts,
+               state.items,
+               actor,
+               item_uuid,
+               System.monotonic_time(:millisecond)
+             ) do
+          {:ok, permits, grant} ->
+            {:reply, {:ok, grant}, %{state | pickup_permits: permits}}
+
+          {:error, :pickup_receipt_slot_required} ->
+            with {:ok, {_, id, _}} <- Items.find(state.items, item_uuid),
+                 true <- Valimc.Physics.ItemPickup.eligible?(actor, state.items.entries[id]) do
+              actor = Map.take(actor, [:uuid, :box, :game_mode, :health, :passenger])
+              plan_item_change(:pickup_admission, {actor, item_uuid, deadline}, from, state)
+            else
+              _ -> {:reply, {:error, :pickup_not_available}, state}
+            end
+
+          error ->
+            {:reply, error, state}
+        end
+    end
+  end
+
+  def handle_call({:pickup_transfer, epoch, request}, from, state) do
+    cond do
+      epoch != state.items.epoch ->
+        {:reply, {:error, :stale_region}, state}
+
+      not state.item_storage_enabled ->
+        {:reply, {:error, :transfer_storage_disabled}, state}
+
+      state.item_pending != nil ->
+        {:reply, {:error, :item_storage_busy}, state}
+
+      true ->
+        {permits, eligible} =
+          PickupPermits.consume(
+            state.pickup_permits,
+            state.items,
+            request,
+            System.monotonic_time(:millisecond)
+          )
+
+        # This owner admits the decision now and freezes item mutations while
+        # planning/persisting. Expiry after admission cannot change its ordering.
+        case plan_item_change(:item_pickup, {request, eligible}, from, state) do
+          {:noreply, next} -> {:noreply, %{next | pickup_permits: permits}}
+          reply -> reply
+        end
+    end
+  end
 
   def handle_call({:merge_items, epoch, pairs, deadline}, from, state) do
     cond do
@@ -766,6 +841,7 @@ defmodule Valimc.World.RegionData do
           acceptance_deadline:
             case kind do
               :item_handoff_out -> elem(request, 2)
+              :pickup_admission -> elem(request, 2)
               :item_merge -> elem(request, 1)
               :item_merge_auto -> elem(request, 1)
               _ -> nil
@@ -787,6 +863,29 @@ defmodule Valimc.World.RegionData do
       {:ok, next, receipts, :applied} -> {:write, next, receipts, {:ok, :applied}}
       {:ok, _, _, :already_applied} -> {:reply, {:ok, :already_applied}}
       error -> error
+    end
+  end
+
+  defp item_plan(:pickup_admission, items, receipts, _key, {actor, item_uuid, deadline}) do
+    reply = {:pickup_grant, actor, item_uuid, deadline}
+
+    case ItemReceipts.reserve(receipts, actor.uuid) do
+      {:ok, _, :existing} -> {:reply, reply}
+      {:ok, reserved, :reserved} -> {:write, items, reserved, reply}
+      error -> error
+    end
+  end
+
+  defp item_plan(:item_pickup, items, receipts, key, {request, eligible}) do
+    case PickupTransfers.plan(items, receipts, key, request, eligible) do
+      {:ok, %{result: result}} when result in [:already_applied, :already_rejected] ->
+        {:reply, {:ok, result}}
+
+      {:ok, plan} ->
+        {:write, plan.items, plan.receipts, {:ok, plan.result}}
+
+      error ->
+        error
     end
   end
 
@@ -1066,7 +1165,9 @@ defmodule Valimc.World.RegionData do
              :item_handoff_out,
              :item_handoff_clear,
              :item_merge,
-             :item_merge_auto
+             :item_merge_auto,
+             :pickup_admission,
+             :item_pickup
            ] do
     Process.demonitor(pending.monitor, [:flush])
 
@@ -1101,8 +1202,8 @@ defmodule Valimc.World.RegionData do
 
       {:reply, reply} ->
         Process.cancel_timer(pending.timer)
-        reply_item(pending.from, reply)
-        {:noreply, resume_item_handoff(%{state | item_pending: nil})}
+        next = finish_item_reply(%{state | item_pending: nil}, pending.from, reply)
+        {:noreply, resume_item_handoff(next)}
 
       {:error, _} = error ->
         Process.cancel_timer(pending.timer)
@@ -1360,7 +1461,6 @@ defmodule Valimc.World.RegionData do
       when not is_map_key(pending, :batch) do
     Process.cancel_timer(pending.timer)
     :ets.insert(state.item_publication, {:items, pending.items.views})
-    reply_item(pending.from, pending.reply)
 
     {:noreply,
      %{
@@ -1370,6 +1470,7 @@ defmodule Valimc.World.RegionData do
          item_pending: nil,
          item_saved_generation: state.item_motion_generation
      }
+     |> finish_item_reply(pending.from, pending.reply)
      |> resume_item_handoff()}
   end
 
@@ -1539,6 +1640,38 @@ defmodule Valimc.World.RegionData do
 
   defp reply_item(nil, _), do: :ok
   defp reply_item(from, reply), do: GenServer.reply(from, reply)
+
+  defp finish_item_reply(state, from, {:pickup_grant, actor, item_uuid, deadline}) do
+    now = System.monotonic_time(:millisecond)
+
+    result =
+      if now < deadline,
+        do:
+          PickupPermits.issue(
+            state.pickup_permits,
+            state.item_receipts,
+            state.items,
+            actor,
+            item_uuid,
+            now
+          ),
+        else: {:error, :expired_item_step}
+
+    case result do
+      {:ok, permits, grant} ->
+        reply_item(from, {:ok, grant})
+        %{state | pickup_permits: permits}
+
+      error ->
+        reply_item(from, error)
+        state
+    end
+  end
+
+  defp finish_item_reply(state, from, reply) do
+    reply_item(from, reply)
+    state
+  end
 
   defp commit_simulated_items(state, steps, fences) do
     steps =

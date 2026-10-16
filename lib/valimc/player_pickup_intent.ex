@@ -3,11 +3,14 @@ defmodule Valimc.PlayerPickupIntent do
   alias Valimc.{GameMode, Inventory}
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.PickupRequest
-  def max_bytes, do: 40 + PickupRequest.max_bytes()
+  def max_bytes, do: 41 + PickupRequest.max_bytes()
 
-  def bind(%{kind: :pickup} = intent, snapshot) when map_size(intent) == 3 do
-    with {:ok, digest} <- inventory_digest(snapshot),
-         do: {:ok, Map.put(intent, :inventory_digest, digest)}
+  def bind(%{kind: :pickup} = intent, %{game_mode: %GameMode{current: mode}} = snapshot)
+      when map_size(intent) == 3 and mode in [:survival, :adventure, :creative] do
+    infinite = mode == :creative
+
+    with {:ok, digest} <- inventory_digest(snapshot, infinite),
+         do: {:ok, Map.merge(intent, %{inventory_digest: digest, infinite_materials: infinite})}
   end
 
   def bind(_, _), do: {:error, :invalid_pickup_intent}
@@ -19,13 +22,14 @@ defmodule Valimc.PlayerPickupIntent do
           kind: :pickup,
           key: key,
           inventory_digest: <<_::256>> = digest,
+          infinite_materials: infinite,
           request: %{source: uuid, sequence: sequence} = request
         } =
           intent
       )
-      when map_size(intent) == 4 do
+      when map_size(intent) == 5 and is_boolean(infinite) do
     with {:ok, bytes} <- PickupRequest.encode(key, request),
-         do: {:ok, <<"VMCIOUT", 1, digest::binary, bytes::binary>>}
+         do: {:ok, <<"VMCIOUT", 1, if(infinite, do: 1, else: 0), digest::binary, bytes::binary>>}
   end
 
   def encode(_, _, _), do: {:error, :invalid_pickup_intent}
@@ -33,14 +37,22 @@ defmodule Valimc.PlayerPickupIntent do
   def decode(
         uuid,
         sequence,
-        <<"VMCIOUT", 1, digest::binary-size(32), "VMCPICK", 1, 5023::32, rx::signed-32,
+        <<"VMCIOUT", 1, infinite, digest::binary-size(32), "VMCPICK", 1, 5023::32, rx::signed-32,
           rz::signed-32, rest::binary>>
-      ) do
+      )
+      when infinite in 0..1 do
     bytes = <<"VMCPICK", 1, 5023::32, rx::signed-32, rz::signed-32, rest::binary>>
 
     with {:ok, %{source: ^uuid, sequence: ^sequence} = request} <-
            PickupRequest.decode(bytes, {rx, rz}) do
-      {:ok, %{kind: :pickup, key: {rx, rz}, request: request, inventory_digest: digest}}
+      {:ok,
+       %{
+         kind: :pickup,
+         key: {rx, rz},
+         request: request,
+         inventory_digest: digest,
+         infinite_materials: infinite == 1
+       }}
     else
       _ -> {:error, :invalid_pickup_intent}
     end
@@ -57,17 +69,22 @@ defmodule Valimc.PlayerPickupIntent do
   def request(_, _, _), do: {:error, :invalid_pickup_intent}
 
   def inventory_result(
-        %{kind: :pickup, request: request, inventory_digest: digest},
         %{
-          inventory: %Inventory{} = inventory,
-          game_mode: %GameMode{current: mode}
+          kind: :pickup,
+          request: request,
+          inventory_digest: digest,
+          infinite_materials: infinite
+        },
+        %{
+          inventory: %Inventory{} = inventory
         } = snapshot
       )
-      when mode in [:survival, :adventure, :creative] do
-    # Save files derive this permission from the saved mode, not a client flag.
-    inventory = %{inventory | infinite_materials: mode == :creative}
+      when is_boolean(infinite) do
+    # Permission belongs to the accepted intent. A later mode change cannot
+    # reinterpret a prepared survival remainder as creative overflow disposal.
+    inventory = %{inventory | infinite_materials: infinite}
 
-    with {:ok, ^digest} <- inventory_digest(snapshot),
+    with {:ok, ^digest} <- inventory_digest(snapshot, infinite),
          {:ok, next, remainder, callback} <- Inventory.pickup_stack(inventory, request.before),
          true <- remainder == request.remainder do
       {:ok, next, callback}
@@ -83,11 +100,13 @@ defmodule Valimc.PlayerPickupIntent do
   def matches_snapshot?(intent, snapshot),
     do: match?({:ok, _, _}, inventory_result(intent, snapshot))
 
-  defp inventory_digest(%{
-         inventory: %Inventory{selected: selected} = inventory,
-         game_mode: %GameMode{current: mode}
-       })
-       when selected in 0..8 and mode in [:survival, :adventure, :creative] do
+  defp inventory_digest(
+         %{
+           inventory: %Inventory{selected: selected} = inventory
+         },
+         infinite
+       )
+       when selected in 0..8 and is_boolean(infinite) do
     bytes = [
       for(slot <- 1..45, do: ItemStack.encode(Inventory.get(inventory, slot))),
       ItemStack.encode(inventory.carried),
@@ -99,7 +118,8 @@ defmodule Valimc.PlayerPickupIntent do
         {:ok,
          :crypto.hash(:sha256, [
            "VMCPICK-INVENTORY",
-           <<GameMode.id(mode), selected, if(inventory.table_inputs == nil, do: 0, else: 1)>>,
+           <<if(infinite, do: 1, else: 0), selected,
+             if(inventory.table_inputs == nil, do: 0, else: 1)>>,
            bytes
          ])},
       else: {:error, :pickup_inventory_conflict}
@@ -109,5 +129,5 @@ defmodule Valimc.PlayerPickupIntent do
     _, _ -> {:error, :pickup_inventory_conflict}
   end
 
-  defp inventory_digest(_), do: {:error, :pickup_inventory_conflict}
+  defp inventory_digest(_, _), do: {:error, :pickup_inventory_conflict}
 end

@@ -106,8 +106,7 @@ defmodule Valimc.PlayerPickupTransfersTest do
           put_in(restored.inventory.selected, 4),
           put_in(restored.inventory.carried, nil),
           put_in(restored.inventory.slots[36], intent.request.before),
-          put_in(restored.inventory.table_inputs, {nil, nil, nil, nil, nil, nil, nil, nil, nil}),
-          %{restored | game_mode: GameMode.new(:creative)}
+          put_in(restored.inventory.table_inputs, {nil, nil, nil, nil, nil, nil, nil, nil, nil})
         ] do
       assert {:error, :pickup_inventory_conflict} =
                PlayerPickupTransfers.resolve(@uuid, changed, withdrawn.receipts[@uuid])
@@ -184,6 +183,63 @@ defmodule Valimc.PlayerPickupTransfersTest do
              resolved.inventory.table_inputs == inventory.table_inputs
 
     assert resolved.inventory.infinite_materials and Items.records(withdrawn.items) == []
+  end
+
+  test "a later creative mode cannot reinterpret an accepted survival partial pickup" do
+    {state, intent} = source()
+    stack = intent.request.before
+
+    state = %{
+      state
+      | inventory: %Inventory{
+          slots: Map.new(9..44, &{&1, %{stack | count: 64}}) |> Map.put(36, %{stack | count: 63})
+        }
+    }
+
+    intent = put_in(intent.request.remainder, %{stack | count: 6})
+    assert {:ok, pending} = PlayerPickupTransfers.prepare(@uuid, 9, state, intent)
+    pending = %{pending | game_mode: GameMode.new(:creative)}
+    assert {:ok, bytes} = PlayerSnapshot.encode(@uuid, pending)
+    assert {:ok, restored} = PlayerSnapshot.decode(bytes, @uuid)
+    assert {:ok, _next, false} = PlayerPickupIntent.inventory_result(restored.outbox, restored)
+
+    assert {:ok, withdrawn} =
+             PickupTransfers.plan(world(intent), %{}, {0, 0}, intent.request, true)
+
+    assert {:ok, resolved} =
+             PlayerPickupTransfers.resolve(@uuid, restored, withdrawn.receipts[@uuid])
+
+    assert resolved.inventory.slots[36].count == 64
+    assert resolved.inventory.infinite_materials
+    assert [%{stack: %{count: 6}}] = Items.records(withdrawn.items)
+  end
+
+  test "an accepted creative overflow survives later survival mode and a table wrapper" do
+    {state, intent} = source(:creative)
+
+    state = %{
+      state
+      | inventory: %Inventory{
+          slots: Map.new(9..44, &{&1, ItemStack.new("egg", 16)}),
+          table_inputs: {ItemStack.new("dirt"), nil, nil, nil, nil, nil, nil, nil, nil}
+        }
+    }
+
+    assert {:ok, pending} = PlayerPickupTransfers.prepare(@uuid, 9, state, intent)
+    pending = %{pending | game_mode: GameMode.new(:survival)}
+    assert {:ok, bytes} = PlayerSnapshot.encode(@uuid, pending)
+    assert {:ok, restored} = PlayerSnapshot.decode(bytes, @uuid)
+
+    assert {:ok, withdrawn} =
+             PickupTransfers.plan(world(intent), %{}, {0, 0}, intent.request, true)
+
+    assert {:ok, resolved} =
+             PlayerPickupTransfers.resolve(@uuid, restored, withdrawn.receipts[@uuid])
+
+    assert resolved.inventory.slots == state.inventory.slots
+    assert resolved.inventory.table_inputs == state.inventory.table_inputs
+    refute resolved.inventory.infinite_materials
+    assert Items.records(withdrawn.items) == []
   end
 
   test "wrong identity, pending work, mode, health, capacity and sequence limits refuse" do

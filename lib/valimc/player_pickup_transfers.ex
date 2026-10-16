@@ -33,10 +33,13 @@ defmodule Valimc.PlayerPickupTransfers do
     with {:ok, key, request, _} <- PlayerPickupIntent.request(uuid, sequence, intent),
          {:ok, result} <- PickupTransfers.receipt_result(key, request, receipt),
          {:ok, inventory, _callback} <- PlayerPickupIntent.inventory_result(intent, snapshot) do
+      inventory = if(result == :applied, do: inventory, else: snapshot.inventory)
+      inventory = %{inventory | infinite_materials: snapshot.game_mode.current == :creative}
+
       {:ok,
        %{
          snapshot
-         | inventory: if(result == :applied, do: inventory, else: snapshot.inventory),
+         | inventory: inventory,
            outbox: nil
        }}
     end

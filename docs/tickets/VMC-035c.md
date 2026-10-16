@@ -1,6 +1,7 @@
 # VMC-035c — Item pickup
 
-Status: In progress. Pickup foundations are local; live composition/GUI gate open.
+Status: In progress. Durable owner/writer composition is local; automatic collection
+and the graphical gate remain open.
 
 Acceptance: eligible nearby world items enter the authoritative player inventory
 with native slot priority, component identity, partial capacity and creative
@@ -46,7 +47,7 @@ after codec restoration, including competing players and a superseded birth.
 No live permits or durable runtime composition yet.
 
 Player intent checkpoint: v16 snapshots retain original inventory plus canonical
-withdrawal and a digest of physical slots/cursor/table/selection/material mode.
+withdrawal and a digest of physical slots/cursor/table/selection/material permission.
 Transient menu revisions/drag do not affect persistence. Applied receipt proof
 grants the recomputed exact amount and clears the intent together; rejection
 clears without gain. The source writer must fetch proof from the owning region,
@@ -88,3 +89,14 @@ Consumption rechecks owned position, exact stack, generation, delay and contact;
 counter-only revisions do not invalidate contact. These are inactive kernels;
 region admission/withdrawal/delivery and the automatic player lane follow. Mounted
 pickup and persistent exclusive targets remain outside this initial composition.
+
+Live inbox checkpoint (October16): region admission fsyncs receipt capacity before
+issuing contact permission. A bounded off-owner plan freezes competing item changes
+until withdrawal/remainder plus typed receipt is durable; only then is it published.
+Source completion fetches that proof. Delivery and disconnect use the same protocol.
+Material permission is latched with the original insertion plan, so a later mode
+change cannot dispose of a survival remainder or strand a creative overflow intent.
+62 affected checks pass(seed352045), `.local/pickup-inbox-checkpoint-targeted.log`: actual
+admission/writer pauses, expiry, partial conservation, competing players, owner
+restart before/after withdrawal, source reopen and disconnect with a mode change.
+Automatic player discovery/collection, replication callbacks and GUI checks follow.
