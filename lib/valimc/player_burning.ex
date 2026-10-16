@@ -74,6 +74,37 @@ defmodule Valimc.PlayerBurning do
 
   def lava(_, _, _, _), do: {:error, :invalid_burning}
 
+  def fire(current, immune, factor, invulnerable \\ false, random \\ fn -> :rand.uniform(2) end)
+
+  def fire(current, immune, factor, invulnerable, random)
+      when counter(current) and is_boolean(immune) and is_number(factor) and factor >= 0 and
+             factor <= 1024 and is_boolean(invulnerable) and is_function(random, 0) do
+    if immune do
+      {:ok, %{ticks: current, clear_freeze: false}}
+    else
+      # Native player contact increments signed counters before the eight-second
+      # minimum. Negative cooldowns advance without consuming randomness.
+      increment = if current < 0, do: 1, else: random.()
+
+      if increment in 1..2 do
+        wrapped =
+          if current + increment > @maximum,
+            do: current + increment - 4_294_967_296,
+            else: current + increment
+
+        {:ok, next} = assign(wrapped, invulnerable)
+
+        if next >= 0,
+          do: ignite_seconds(next, 8.0, factor, invulnerable),
+          else: {:ok, %{ticks: next, clear_freeze: false}}
+      else
+        {:error, :invalid_burning}
+      end
+    end
+  end
+
+  def fire(_, _, _, _, _), do: {:error, :invalid_burning}
+
   defp f32(number) do
     <<value::float-32>> = <<number::float-32>>
     value

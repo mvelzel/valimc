@@ -16,8 +16,9 @@ checks and actual saved-overlay/reconnect validation. Fire reductions match44,16
 native cases and bounded armor wear matches138,080. [Live lava/burning](tickets/VMC-017b4a.md)
 is **Done within scope**, runtime `7b5b382`:96 affected checks,1,207 full tests,
 native TCP/build and actual lava/exit/water/defenses/wear/reconnect/fatal lava/fatal
-burning/respawn/creative checks. Next: natural fire/soul-fire and ordered swept
-contacts; rain/effect defenses follow. Completed foundations need no repeat work.
+burning/respawn/creative checks. [Ordered natural fire contacts](tickets/VMC-017b4b.md)
+have a verified4,080-case counter/operation foundation; fresh geometry and owner
+composition are next. Rain/effect defenses follow.
 
 [Automatic item simulation](tickets/VMC-035a6.md),
 [same-owner merging](tickets/VMC-035b.md), [ordinary pickup](tickets/VMC-035c.md),
