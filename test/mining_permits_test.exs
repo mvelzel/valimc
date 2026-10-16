@@ -21,4 +21,22 @@ defmodule Valimc.MiningPermitsTest do
     assert {:ok, renewed, _} = MiningPermits.reserve(full, blocks, 10_000)
     assert map_size(renewed.entries) == 1
   end
+
+  test "renewal retains the original blocks and cannot revive expired, mutated or released tokens" do
+    blocks = %{{0, 63, 0} => 1}
+    {:ok, permits, token} = MiningPermits.reserve(%MiningPermits{}, blocks, 0)
+    {:ok, renewed, ^blocks} = MiningPermits.renew(permits, token, 9999)
+    assert map_size(renewed.entries) == 1
+    assert {:ok, ^blocks} = MiningPermits.lookup(renewed, token, 19_998)
+    assert {:error, :stale_mining_permit} = MiningPermits.renew(renewed, token, 19_999)
+    assert {:error, :stale_mining_permit} = MiningPermits.renew(permits, token, 10_000)
+
+    unrelated = MiningPermits.invalidate(renewed, %{{1, 63, 0} => 1})
+    assert {:ok, _, ^blocks} = MiningPermits.renew(unrelated, token, 10_001)
+    mutated = MiningPermits.invalidate(renewed, blocks)
+    assert {:error, :stale_mining_permit} = MiningPermits.renew(mutated, token, 10_001)
+    released = MiningPermits.remove(renewed, token)
+    assert {:error, :stale_mining_permit} = MiningPermits.renew(released, token, 10_001)
+    assert MiningPermits.remove(released, token) == released
+  end
 end

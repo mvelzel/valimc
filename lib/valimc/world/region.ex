@@ -52,6 +52,14 @@ defmodule Valimc.World.Region do
   def reserve_mining({pid, epoch}, positions),
     do: GenServer.call(pid, {:reserve_mining, epoch, positions}, 250)
 
+  @doc "Keep the original block fence alive during a long attempt; renewal cannot recreate it."
+  def renew_mining({pid, epoch}, permit),
+    do: GenServer.call(pid, {:renew_mining, epoch, permit}, 250)
+
+  @doc "Retire an uncommitted attempt without waiting for reservation expiry."
+  def release_mining({pid, epoch}, permit),
+    do: GenServer.call(pid, {:release_mining, epoch, permit}, 250)
+
   @doc "Internal inbox: the caller must have durably prepared and fenced the player's mining intent."
   def apply_mining_transfer({pid, epoch}, transfer),
     do: GenServer.call(pid, {:mining_transfer, epoch, transfer}, 6000)

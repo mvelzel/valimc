@@ -313,6 +313,35 @@ defmodule Valimc.MiningRegionTest do
     assert {:error, :wrong_region} = Region.reserve_mining(ctx.owner, [{0, 63, 0}])
   end
 
+  test "renewal and release preserve owner, target and committed receipt fencing", ctx do
+    token = ctx.transfer.permit
+    expected = ctx.transfer.expected
+    assert :ok = World.set_block(ctx.other, Data.block("dirt"))
+    assert {:ok, ^expected} = Region.renew_mining(ctx.owner, token)
+    stale = {ctx.pid, make_ref()}
+    assert {:error, :stale_owner} = Region.renew_mining(stale, token)
+    assert {:error, :stale_owner} = Region.release_mining(stale, token)
+    assert {:ok, :applied} = Region.apply_mining_transfer(ctx.owner, ctx.transfer)
+    assert :ok = Region.release_mining(ctx.owner, token)
+    assert {:ok, :already_applied} = Region.apply_mining_transfer(ctx.owner, ctx.transfer)
+    assert map_size(World.item_snapshot(ctx.key)) == 1
+
+    {:ok, released} = Region.reserve_mining(ctx.owner, [ctx.other])
+    assert :ok = Region.release_mining(ctx.owner, released.permit)
+    assert :ok = Region.release_mining(ctx.owner, released.permit)
+    assert {:error, :stale_mining_permit} = Region.renew_mining(ctx.owner, released.permit)
+
+    request =
+      Map.merge(released, %{source: :crypto.strong_rand_bytes(16), sequence: 1, records: []})
+
+    assert {:ok, :rejected} = Region.apply_mining_transfer(ctx.owner, request)
+    assert World.get_block(ctx.other) == Data.block("dirt")
+    {:ok, aba} = Region.reserve_mining(ctx.owner, [ctx.other])
+    assert :ok = World.set_block(ctx.other, Data.block("dirt"))
+    assert {:error, :stale_mining_permit} = Region.renew_mining(ctx.owner, aba.permit)
+    assert map_size(World.item_snapshot(ctx.key)) == 1
+  end
+
   test "waterlogged removal recovers its water and exact drop outcome across a failed writer",
        ctx do
     assert :ok = World.set_block(ctx.position, 15179)

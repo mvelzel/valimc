@@ -147,6 +147,28 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  def handle_call({:renew_mining, epoch, permit}, _from, state) do
+    if epoch == state.items.epoch do
+      case MiningPermits.renew(state.mining_permits, permit, System.monotonic_time(:millisecond)) do
+        {:ok, permits, blocks} ->
+          {:reply, {:ok, blocks}, %{state | mining_permits: permits}}
+
+        error ->
+          {:reply, error, state}
+      end
+    else
+      {:reply, {:error, :stale_owner}, state}
+    end
+  end
+
+  def handle_call({:release_mining, epoch, permit}, _from, state) do
+    if epoch == state.items.epoch,
+      do:
+        {:reply, :ok,
+         %{state | mining_permits: MiningPermits.remove(state.mining_permits, permit)}},
+      else: {:reply, {:error, :stale_owner}, state}
+  end
+
   def handle_call({:mining_transfer, epoch, transfer}, from, state) do
     cond do
       epoch != state.items.epoch -> {:reply, {:error, :stale_region}, state}

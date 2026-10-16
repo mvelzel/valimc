@@ -29,6 +29,14 @@ defmodule Valimc.World.MiningPermits do
   def remove(%__MODULE__{} = permits, token),
     do: %{permits | entries: Map.delete(permits.entries, token)}
 
+  @doc "Extend only a still-live reservation; expired, mutated and released identities never revive."
+  def renew(%__MODULE__{} = permits, token, now) when is_integer(now) do
+    with {:ok, blocks} <- lookup(permits, token, now) do
+      entry = %{permits.entries[token] | expires: now + @lifetime}
+      {:ok, %{permits | entries: Map.put(permits.entries, token, entry)}, blocks}
+    end
+  end
+
   def invalidate(%__MODULE__{} = permits, edits) do
     entries =
       Map.reject(permits.entries, fn {_, entry} ->

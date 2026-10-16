@@ -111,7 +111,8 @@ indexes validated tickets. None imply full parity.
    native state comparisons,47 affected checks and actual wet/dry creative removal/reconnect.
    [Deterministic loot](tickets/VMC-029a4.md) matches210,847 native contexts across
    930 block families. [Attempt progress/animation](tickets/VMC-029a5.md) matches490
-   native action traces and165 codecs. Renewable fencing/live composition are next;
+   native action traces and165 codecs. Renewable original-block fences pass19
+   affected checks; live composition is next;
    broader loot and destruction callbacks remain.
    Live survival mining remains absent. Client checks above continue independently.
 
