@@ -13,6 +13,8 @@ indexes validated tickets. None imply full parity.
 access and bounded durable close. [Bulk result dropping](tickets/VMC-033h.md) is
 validated, as are [crafting remainders](tickets/VMC-033g.md). Current work:
 [near-camera item presentation](tickets/VMC-018c3.md) and authoritative item motion.
+[Launch/motion kernels](tickets/VMC-035a.md) pass affected/native checks; owner
+composition remains open.
 
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Player processes own their simulation state; bounded workers sample geometry.
@@ -195,6 +197,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
+| [VMC-035a](tickets/VMC-035a.md) | Kernel baseline smoke; live item composition remains separate | Native-verified local foundation |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 

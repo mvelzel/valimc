@@ -367,6 +367,12 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'EntityOracle', 'generate', entity_fixtures], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_entities.exs', entity_fixtures, entity_encoded], cwd=root, check=True)
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'EntityOracle', 'verify', entity_encoded], cwd=root, check=True)
+    item_launch = str(pathlib.Path(world) / 'item-launch.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemDropOracle', item_launch], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_item_drop.exs', item_launch], cwd=root, check=True)
+    item_motion = str(pathlib.Path(world) / 'item-motion.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemMotionOracle', item_motion], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_item_motion.exs', item_motion], cwd=root, check=True)
     for mode, encrypted in [('plain', False), ('encrypted', True)]:
         with socket.socket() as port_probe:
             port_probe.bind(('127.0.0.1', 0))

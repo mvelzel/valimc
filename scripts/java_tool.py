@@ -20,7 +20,7 @@ if name == 'ClimbContactOracle':
     sources.append(str(root / 'scripts' / 'ClimbMetadata.java'))
 if name == 'StuckPathsOracle':
     sources.append(str(root / 'scripts' / 'StuckContactOracle.java'))
-if name in ('PlayerMiningOracle', 'ToolDurabilityOracle', 'MiningLootOracle', 'MiningAttemptOracle', 'PlacementOracle', 'PlacementConsumptionOracle', 'PlayerCraftingOracle', 'TableMenuOracle', 'CraftingTableAccessOracle'):
+if name in ('PlayerMiningOracle', 'ToolDurabilityOracle', 'MiningLootOracle', 'MiningAttemptOracle', 'PlacementOracle', 'PlacementConsumptionOracle', 'PlayerCraftingOracle', 'TableMenuOracle', 'CraftingTableAccessOracle', 'ItemDropOracle', 'ItemMotionOracle'):
     sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
 if name == 'RandomMiningLootOracle':
     sources += [str(root / 'scripts' / (source + '.java')) for source in ('MiningToolOracle', 'MiningLootOracle')]
