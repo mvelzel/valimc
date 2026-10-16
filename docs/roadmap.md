@@ -9,16 +9,13 @@ indexes validated tickets. None imply full parity.
 
 ## Priority
 
-Current: **[fire and lava damage](tickets/VMC-017b4.md)**. Armor/toughness math
-matches580 native cases; equipped armor/burning-time attributes match20,236 cases.
-Burning primitives match582 native cases; saved counters/metadata pass85 affected
-checks and actual saved-overlay/reconnect validation. Fire reductions match44,160
-native cases and bounded armor wear matches138,080. [Live lava/burning](tickets/VMC-017b4a.md)
-is **Done within scope**, runtime `7b5b382`:96 affected checks,1,207 full tests,
-native TCP/build and actual lava/exit/water/defenses/wear/reconnect/fatal lava/fatal
-burning/respawn/creative checks. [Ordered natural fire contacts](tickets/VMC-017b4b.md)
-have verified4,080-case counter/operation and1,584-scene geometry foundations;
-owner composition passes affected checks and awaits full integration/client validation. Rain/effect defenses follow.
+Current: **[fire and lava damage](tickets/VMC-017b4.md)**. [Live lava/burning](tickets/VMC-017b4a.md)
+and [ordered natural fire contacts](tickets/VMC-017b4b.md) are **Done within scope**,
+runtime `f0aa671`:1,219 full tests, full native TCP/production and actual fire/soul/
+lava, exit/water, gear/modes, reconnect and death/respawn. Matched128/512-player water
+loads pass;512-player login/allocation variation remains a profiling finding.
+Next: roof-aware rain extinction and status-effect defenses. Rain foundations and
+owner column observations are being implemented locally, with their client gate open.
 
 [Automatic item simulation](tickets/VMC-035a6.md),
 [same-owner merging](tickets/VMC-035b.md), [ordinary pickup](tickets/VMC-035c.md),

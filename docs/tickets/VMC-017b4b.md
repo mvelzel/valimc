@@ -1,6 +1,7 @@
 # VMC-017b4b — Ordered fire-block contacts
 
-Status: In progress; not live or graphically verified.
+Status: **Done within ordered natural-fire contact scope**, October16,2026.
+Accepted runtime `f0aa671`; rain/effects remain parent follow-ups.
 
 Acceptance: fenced retained movement paths produce bounded ordered fire/soul-fire/
 lava/water contacts. The player owner applies native step ordering, cooldowns,
@@ -34,7 +35,8 @@ The probe controls isAlive and excludes geometry, health and damage-induced deat
 Geometry foundation: `Physics.FireContact.sample_paths` consumes the existing
 immutable frame and retained accepted paths; it emits ordered operations, not
 health mutations. Shared `BodyPaths` retains101 paths,16 steps per move with native
-destination fallback,4,096 candidate attempts and the2,048-cell frame ceiling.
+destination fallback,4,096 candidate attempts and a2,048-cell prepared-frame ceiling;
+live query admission retains its smaller1,024-cell limit.
 Slowing contacts reuse that traversal. Native metadata covers all35,723 states,
 512 ordinary/one soul-fire state,136 static inside-shape exceptions and contextual
 powder snow. Fluid hits use strict swept native body/surface contact, including
@@ -50,9 +52,9 @@ including existing live-lava connections. Logs:
 advancement/debug delivery and powder-snow destruction permissions. It does not
 validate damage-induced death, freeze accumulation, melting or cauldron effects.
 Powder contact contributes fire extinction; existing freezing ownership remains
-separate. This geometry is not yet connected to player authority.
+separate. The following owner composition consumes this verified geometry.
 
-Owner composition is implemented locally: the existing geometry worker samples
+Owner composition: the existing geometry worker samples
 accepted history, excluding forecast travel. Only an admitted owner tick consumes
 its plan; negative fire contact keeps pose sampling active. Damage uses current
 armor/attributes per operation, and death stops remaining operations. Body queries
@@ -66,6 +68,35 @@ New real-TCP cases cover stationary negative ignition, non-admitted moves, a cro
 fire with dry endpoint, first-callback death, exactly one worn death stack and respawn.
 Evidence: `.local/fire-live-contacts-{affected-final,owner-final}.log`.
 
-Next: freeze/build, full integration and delegated actual natural-fire/soul-fire/
-mode/defense/water/reconnect/death checks. Keep this pending feature local; verified
-foundations need no repeat implementation.
+October16 dedicated client **PASS**, frozen `f0aa671`: five fresh direct clients
+exercise actual ordinary/soul-fire entry, sustained and dry-exit burning, armor
+wear/break and HUD, single/stacked Fire Protection, water extinction, fresh burning
+reconnect, fatal soul fire/respawn, creative/spectator negatives and lava regression.
+Trusted setup supplied gear/modes and extended a naturally ignited counter for
+reconnect; one duration fixture increased max health. Numerical counters/readbacks
+complement graphical actions. The first water attempt stopped short and was not
+counted; the repeated crossing passed. No gameplay failure was found. All clients
+stopped, full snapshot restored retaining sequence36/outboxnil and matching receipt;
+regions/clock flushed. Report reviewed:
+`.local/client-tests/VMC-017b4b/report.md`; server log has no errors/warnings.
+Rain/effects, melting/cauldrons, freezing accumulation and extreme-speed sweeps are
+not claimed by this client gate. Automated TCP covers the exactly-one worn fatal
+drop; that count is not a graphical claim.
+
+Complete block:1,219 full tests(seed263476), production and full native integration
+including plaintext/continuous AES-CFB8 TCP pass; native harness terminated0.
+Logs: `.local/fire-contact-live-{full-tests,production,full-native}.log`.
+
+Matched static-water preview loads compare frozen `7b5b382` against `f0aa671`,
+identical driver hashes, view1/10sched,128 dense and512 spread players,100 legal
+moves/client. All six samples have zero disconnects/corrections and verified final
+positions/swimming. Dense:6.103→5.304s,136.18→136.83MiB. Spread first/reverse-order
+repeat:5.160/5.156→5.171/5.158s;317.18/314.11→316.24/337.86MiB.
+Spread login p95 varies80.91/227.99→224.98/250.93ms; retain that latency/allocation
+finding for profiling. These short shared-water workloads do not measure natural
+fire capacity, survival or establish a speed win. Raw samples, manifests/revisions
+and repeated-pair rationale: `.local/fire-contact-loads/`.
+
+Publication proof rehashes all859 frozen blobs; tested code matches the accepted
+prefix. `.local/fire-contact-publication-proof.json`. This slice is complete;
+continue rain/status effects without reopening accepted fire/lava foundations.
