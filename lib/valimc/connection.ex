@@ -29,6 +29,7 @@ defmodule Valimc.Connection do
     Players,
     PlayerAbilities,
     PlayerAirEffects,
+    PlayerMovementSpeed,
     PlayerEnvironment,
     PlayerEquipment,
     PlayerEffects,
@@ -66,6 +67,7 @@ defmodule Valimc.Connection do
   @resistance EffectTypes.id("resistance")
   @periodic_effects Enum.sort(Enum.map(~w(regeneration poison wither), &EffectTypes.id/1))
   @live_effects [@fire_resistance, @resistance, EffectTypes.id("water_breathing")] ++
+                  Enum.map(~w(speed slowness), &EffectTypes.id/1) ++
                   @periodic_effects
   @use_item_packet Data.id(:play, :serverbound, "use_item")
   @slab_tags Path.expand("../../priv/protocol/tags.json", __DIR__)
@@ -202,7 +204,7 @@ defmodule Valimc.Connection do
             end
 
             Players.update(self(), player)
-            {:reply, {:ok, changed}, next}
+            {:reply, {:ok, changed}, publish_movement_speed(next)}
           catch
             {:disconnect, _, current} -> {:stop, :normal, {:error, :disconnected}, current}
           end
@@ -300,6 +302,7 @@ defmodule Valimc.Connection do
        motion_pending: nil,
        motion_window: nil,
        simulation_clock: nil,
+       movement_speed_view: nil,
        food_tick_origin: 0,
        simulation_due: false,
        air_policy: :none,
@@ -1564,7 +1567,7 @@ defmodule Valimc.Connection do
           Players.update(self(), player)
           if notify, do: send_packets(state, [Packets.use_item_finished(player.entity_id)])
           send_packets(state, Enum.reject(effect_packets, &is_nil/1))
-          state = state |> publish_equipment() |> stop_item_use()
+          state = state |> publish_equipment() |> stop_item_use() |> publish_movement_speed()
 
           send_packets(state, [
             Packets.health(player.health, food),
@@ -1886,6 +1889,7 @@ defmodule Valimc.Connection do
         life_stage: :alive,
         air_policy: :none,
         environment_effects: %{},
+        movement_speed_view: nil,
         fire_damage_due: false,
         fire_contacts_active: false,
         active_use: nil,
@@ -1926,7 +1930,7 @@ defmodule Valimc.Connection do
       ] ++ weather_packets
     )
 
-    state = relocate(state, player)
+    state = state |> publish_movement_speed() |> relocate(player)
 
     for pid <- Players.nearby(state.regions),
         pid != self(),
@@ -2453,6 +2457,7 @@ defmodule Valimc.Connection do
       end)
     )
 
+    state = publish_movement_speed(state)
     existing = Players.ready(self())
     state = update_view(state)
 
@@ -2473,7 +2478,19 @@ defmodule Valimc.Connection do
     else
       player = %{state.player | input: input}
       Players.update(self(), player)
-      %{state | player: player}
+      publish_movement_speed(%{state | player: player})
+    end
+  end
+
+  defp publish_movement_speed(state) do
+    {_, sprint} = signature = PlayerMovementSpeed.signature(state.player)
+
+    if signature == state.movement_speed_view do
+      state
+    else
+      {:ok, derived} = PlayerMovementSpeed.derive(state.player.effects, sprint)
+      send_packets(state, [Packets.movement_attributes(state.player, derived.attribute)])
+      %{state | movement_speed_view: signature}
     end
   end
 
@@ -2822,7 +2839,7 @@ defmodule Valimc.Connection do
       end)
 
     send_packets(next, packets)
-    next
+    publish_movement_speed(next)
   end
 
   defp tick_effects(state), do: state

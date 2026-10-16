@@ -1,6 +1,7 @@
 # VMC-037f — Speed and Slowness
 
-Status: Native attribute foundation verified locally; no live support claimed.
+Status: Native attribute foundation `742a37e`; live admission/replication and stock
+Turtle Master composition pass affected tests locally. Build/TCP/client gates pending.
 
 Acceptance: native movement-speed modifiers and clamping, active amplifiers,
 expiry/promotion/removal, sprint composition and reconnect. Send authoritative
@@ -35,3 +36,20 @@ Seven affected checks pass, including hidden promotion, zero-duration ownership,
 high-amplifier non-wrapping/clamp and malformed-map refusal. Raw evidence:
 `.local/movement-effects-{native,native-check-final,targeted-final}.log`.
 These prove the derived attribute only; live admission/packets/movement remain.
+
+Owned composition: admit Speed/Slowness grants, saved state and complete stock
+potions, including all Turtle Master variants. Publish movement-speed attributes
+at join/respawn, actual consumption/removal, active amplifier changes and sprint
+transitions. A two-head/sprint signature suppresses ordinary duration-only updates;
+derive on changes, without persisting a second attribute authority or adding timers.
+The existing server retains observed horizontal displacement; current fluid input
+has no movement-speed-dependent Depth Strider acceleration. Full authoritative
+ground acceleration and gear/custom movement modifiers remain follow-ups.
+
+63 affected checks pass(seed340665): actual TCP drinking, modifier packets/sprint,
+quiet countdown, hidden promotion/expiry, milk removal, complete Turtle Master
+SlownessIV/ResistanceIII plus reduced fall, bottle and fresh reconnect. The old
+unsupported mixed-potion negative now uses Resistance+Night Vision. Initial tests
+attempted the second drink while the first atomic save was pending; waiting for
+that acknowledged checkpoint fixes the fixture rather than changing admission.
+Evidence: `.local/movement-effects-live-targeted-fixed.log`.

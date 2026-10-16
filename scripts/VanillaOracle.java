@@ -207,6 +207,7 @@ public class VanillaOracle implements AutoCloseable {
   private int abilitiesPackets;
   private ClientboundUpdateAttributesPacket interactionAttributes;
   private ClientboundUpdateAttributesPacket armorAttributes;
+  private ClientboundUpdateAttributesPacket movementAttributes;
   private Object readGame() throws Exception {
     Object packet = read(gameIn);
     if (packet instanceof ClientboundAddEntityPacket spawn && spawn.getType()==EntityTypes.ITEM)
@@ -221,6 +222,7 @@ public class VanillaOracle implements AutoCloseable {
     if (packet instanceof ClientboundUpdateAttributesPacket current) {
       if(current.getValues().stream().anyMatch(a->a.attribute().equals(net.minecraft.world.entity.ai.attributes.Attributes.BLOCK_INTERACTION_RANGE)))interactionAttributes=current;
       if(current.getValues().stream().anyMatch(a->a.attribute().equals(net.minecraft.world.entity.ai.attributes.Attributes.ARMOR)))armorAttributes=current;
+      if(current.getValues().stream().anyMatch(a->a.attribute().equals(net.minecraft.world.entity.ai.attributes.Attributes.MOVEMENT_SPEED)))movementAttributes=current;
     }
     if (packet instanceof ClientboundChangeDifficultyPacket difficulty) {
       if (difficulty.difficulty()!=net.minecraft.world.Difficulty.EASY || difficulty.locked())
@@ -329,6 +331,18 @@ public class VanillaOracle implements AutoCloseable {
     return packet instanceof ClientboundSetEntityDataPacket p && p.id()==id &&
       p.packedItems().stream().anyMatch(v -> v.id()==0 && v.value().equals((byte)flags));
   }
+  private double movementValue() {
+    if(movementAttributes==null || movementAttributes.getValues().size()!=1)
+      throw new AssertionError("Missing player movement attribute");
+    var value=movementAttributes.getValues().iterator().next();
+    if(!value.attribute().equals(net.minecraft.world.entity.ai.attributes.Attributes.MOVEMENT_SPEED))
+      throw new AssertionError("Wrong movement attribute holder");
+    var instance=new net.minecraft.world.entity.ai.attributes.AttributeInstance(value.attribute(),v->{});
+    instance.setBaseValue(value.base());
+    for(var modifier:value.modifiers())instance.addTransientModifier(modifier);
+    return instance.getValue();
+  }
+
   private void playerCommand(int declaredId,ServerboundPlayerCommandPacket.Action action) throws Exception {
     var b=new FriendlyByteBuf(Unpooled.buffer());
     try {
@@ -384,6 +398,10 @@ public class VanillaOracle implements AutoCloseable {
         if(instance.getValue()!=expected)throw new AssertionError("Unexpected empty-gear armor attributes");
       }
       System.out.println("PASS: native TCP armor/toughness/burning-time holders and values initialize empty equipment.");
+      double nativeMovementBase = new net.minecraft.world.entity.ai.attributes.AttributeMap(
+        net.minecraft.world.entity.player.Player.createAttributes().build()).getValue(
+          net.minecraft.world.entity.ai.attributes.Attributes.MOVEMENT_SPEED);
+      if(first.movementValue()!=nativeMovementBase)throw new AssertionError("Incorrect initial player movement speed");
       var flightRequest=new net.minecraft.world.entity.player.Abilities();
       for(boolean flying:new boolean[]{true,false}) {
         flightRequest.flying=flying;
@@ -399,12 +417,16 @@ public class VanillaOracle implements AutoCloseable {
       second.await(p -> flags(p,first.playerId,2));
       first.playerCommand(second.playerId,ServerboundPlayerCommandPacket.Action.START_SPRINTING);
       first.await(p -> flags(p,first.playerId,10));
+      if(first.movementValue()!=nativeMovementBase*(1+0.30000001192092896))
+        throw new AssertionError("Missing authoritative sprint movement modifier");
       second.await(p -> flags(p,first.playerId,10));
       first.send(gameOut,new ServerboundPlayerInputPacket(new net.minecraft.world.entity.player.Input(false,false,false,false,false,false,true)));
       first.await(p -> flags(p,first.playerId,8));
       second.await(p -> flags(p,first.playerId,8));
       first.playerCommand(-1,ServerboundPlayerCommandPacket.Action.STOP_SPRINTING);
       first.await(p -> flags(p,first.playerId,0));
+      if(first.movementValue()!=nativeMovementBase)throw new AssertionError("Sprint modifier was not removed");
+      System.out.println("PASS: native TCP player movement attribute initializes, composes sprint and clears it.");
       second.await(p -> flags(p,first.playerId,0));
       System.out.println("PASS: native player input/command/load codecs and independent Shift/sprint metadata for self and peer.");
       if (first.lastTime==null || second.lastTime==null) throw new AssertionError("Missing initial clock synchronization");

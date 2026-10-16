@@ -312,6 +312,8 @@ defmodule Valimc.Protocol.Packets do
   def armor_attributes(player, attributes),
     do: attribute_packet(player.entity_id, Valimc.PlayerArmor.protocol_attributes(attributes))
 
+  def movement_attributes(player, attribute), do: attribute_packet(player.entity_id, [attribute])
+
   defp attribute_packet(entity_id, attributes) do
     packet("update_attributes", [
       Wire.varint(entity_id),

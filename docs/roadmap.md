@@ -26,13 +26,13 @@ and [milk/honey effect removal](tickets/VMC-036d.md) at `d71b2a9`, published thr
 drinks/timing/defenses/death/promotion/reconnect. Milk/honey add658 native cases,
 87 affected checks, production/both TCP transports and actual removal/containers/
 negatives/reconnect. Retrieve tickets for scope and source/receipt53 evidence.
-**Implementing:** [Resistance](tickets/VMC-037e.md),135,150 native contexts,
-116,320 composed gear/source cases and106 affected checks. Owned damage/drinks
-and admitted environmental ordering pass1,321 full tests/production and both native
-TCP transports at `d9e1b8a`; actual-client validation is running. Turtle Master
-still needs Slowness.
-Next: [Speed/Slowness](tickets/VMC-037f.md),132,098 native attribute contexts and
-seven affected checks pass. Live attributes/drinks/Turtle Master follow separately.
+**Done within scope:** [Resistance](tickets/VMC-037e.md) at `d9e1b8a`:135,150 native
+contexts,116,320 composed cases,106 affected checks,1,321 full tests/production,
+both native TCP transports and actual falls/contact/gear/drinks/promotion/expiry/
+milk/starvation exclusion/reconnect. Whole source/receipt53 retained.
+**Implementing:** [Speed/Slowness](tickets/VMC-037f.md),132,098 native attribute
+contexts and seven foundation checks pass. Live attributes/drinks/Turtle Master
+now pass63 affected checks; native TCP/production and its own client gate follow.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

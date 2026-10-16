@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-037e Resistance](../tickets/VMC-037e.md) | `d9e1b8a`:135,150 native contexts/116,320 defenses,1,321 full tests/production, both TCP transports and actual falls/contact/gear wear, drinks/promotion/expiry/milk, starvation exclusion and reconnect |
 | [VMC-036d milk/honey](../tickets/VMC-036d.md) | `d71b2a9`:658 native callbacks/maps,87 affected checks, production/both TCP transports and actual both-hand removal, containers, cancellation/overflow/creative negatives and reconnect; parent full native passes at5b123b1 |
 | [VMC-037d periodic effects](../tickets/VMC-037d.md) | `5b123b1`:124,596 native requests plus20,800 defenses/codecs,1,302 full tests/native integration/production and actual regeneration/poison/wither drinks, expiry/promotion, defenses/death/respawn and reconnect |
 | [VMC-037c Water Breathing/air](../tickets/VMC-037c.md) | `1fd6287`:433 native predicates/policies,60 affected checks,1,284 full tests/build, both native TCP transports and actual drinks/submersion/refill/expiry/drowning/surfacing/modes/negatives/reconnect; whole source/receipt51 retained |

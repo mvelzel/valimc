@@ -1,7 +1,7 @@
 # VMC-037e — Resistance damage reduction
 
-Status: Native foundation `b6c6fca` and owned damage/consumption composition
-verified locally. Production/native TCP and actual-client gates remain; keep local.
+Status: Done within owned Resistance scope at `d9e1b8a`. Native/targeted/full tests,
+production/both TCP transports and all requested actual-client groups pass.
 
 Acceptance: Resistance reduces eligible damage after armor and before worn
 enchantments, using the active amplifier and native exclusions. Preserve damage
@@ -66,6 +66,25 @@ Full combat, statistics/other attributes and complete Turtle Master stay open.
 Frozen `d9e1b8a` passes1,321 full tests and a production release, plus both native
 plaintext/continuous AES-CFB8 TCP integrations. Logs:
 `.local/resistance-live-{full-tests,production,native-tcp}.log`.
-Actual-client validation owns that immutable951-blob release and whole source/
-receipt53 dataset `/tmp/valimc-resistance-live-client-20261016`. The client gate
-remains pending; full native integration of the preceding block passed at5b123b1.
+Actual-client validation used that immutable951-blob release and whole source/
+receipt53 dataset `/tmp/valimc-resistance-live-client-20261016`. Full native
+integration of the preceding block passed at5b123b1.
+
+Actual26.3 client PASS; primary reviewed the tester report once:
+`.local/client-tests/VMC-037e/report.md`. Real falls show bare2HP versus1.6HP with
+ResistanceI; actual stronger drink promotes to the hidden weaker head and then
+expires. Four ProtectionIV pieces plus ResistanceII reduce that fall to0.432HP;
+actual milk restores0.72HP Protection-only damage. Actual ResistanceV drink and
+CUA cactus contact retain health but wear all four pieces15 points/cooldown19.
+Actual mainhand cancellation/full use and offhand drinks produce correct bottles.
+Fresh Quick Play reconnect retains finite status/damaged health/bottle; reduction
+continues. A food0/timer79 fixture produces real owner starvation damage despite
+ResistanceV; this excludes natural food-bar exhaustion from the graphical claim.
+Stock Turtle Master remains wholly refused at this checkpoint. Burning/drowning/
+freezing admission ordering and overflow retain their automated proof scope.
+
+One initial20HP fixture; no subsequent healing masked damage. Both client JVMs
+stopped, zero connections/players, two region flushes and clock:ok. Primary server
+log review found no gameplay errors; server79476 stopped with exit0. Final whole
+dataset retains9.384HP/ResistanceV486ticks, food10, four ProtectionIV pieces/wear15,
+source/receipt53 and outboxnil. Raw cleanup: `.local/resistance-live-cleanup.log`.

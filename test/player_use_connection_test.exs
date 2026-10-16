@@ -204,6 +204,31 @@ defmodule Valimc.PlayerUseConnectionTest do
     {{entity, id, amp, duration, flags}, client}
   end
 
+  defp speed_attribute(client, pid) do
+    {body, client} = Client.await(client, :play, "update_attributes")
+    client = Client.auto_reply(client, :play, "update_attributes", body)
+
+    {:ok, derived} =
+      Valimc.PlayerMovementSpeed.derive(
+        state(pid).player.effects,
+        Bitwise.band(state(pid).player.input.shared_flags, 8) != 0
+      )
+
+    {26, base, modifiers} = derived.attribute
+    assert client.attributes[{state(pid).player.entity_id, 26}] == {base, modifiers}
+    client
+  end
+
+  defp quiet_attributes_until_stats(client) do
+    {id, body, client} = Client.read(client)
+    name = Data.name(:play, :clientbound, id)
+    assert name != "update_attributes"
+
+    if name == "system_chat",
+      do: client,
+      else: quiet_attributes_until_stats(Client.auto_reply(client, :play, name, body))
+  end
+
   defp block_then_drink(client, ctx) do
     {:ok, on} =
       UseItemOn.encode(%{
@@ -458,13 +483,14 @@ defmodule Valimc.PlayerUseConnectionTest do
     assert saved.inventory.slots == state(pid).inventory.slots
   end
 
-  test "custom Resistance drinks checkpoint before mitigated damage; mixed unsupported turtle potion stays intact",
+  test "custom Resistance drinks checkpoint before mitigated damage; mixed unsupported potion stays intact",
        ctx do
     food = %PlayerFood{level: 5, saturation: 0.0}
     id = Valimc.Protocol.EffectTypes.id("resistance")
     contents = %{PotionContents.empty() | effects: [{id, [{200, 0, false, true, true}]}]}
     drink = %{ItemStack.new("potion") | components: %{"minecraft:potion_contents" => contents}}
-    turtle = potion("turtle_master")
+    mixed = %{contents | effects: contents.effects ++ [{15, [{200, 0, false, true, true}]}]}
+    turtle = %{drink | components: %{"minecraft:potion_contents" => mixed}}
     seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => drink, 45 => turtle}})
     {client, pid} = login(ctx, 20.0, food)
     client = use_hand(client, pid)
@@ -484,6 +510,91 @@ defmodule Valimc.PlayerUseConnectionTest do
     assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 12.0 and saved.effects == %{id => [{200, 0, false, true, true}]}
     assert saved.inventory.slots == %{36 => ItemStack.new("glass_bottle"), 45 => turtle}
+  end
+
+  test "Speed drinking, sprint, promotion, expiry and milk publish owned movement attributes",
+       ctx do
+    food = %PlayerFood{}
+
+    seed(ctx, food, 20.0,
+      inventory: %Inventory{
+        slots: %{36 => potion("swiftness"), 45 => ItemStack.new("milk_bucket")}
+      }
+    )
+
+    {client, pid} = login(ctx, 20.0, food)
+    assert client.attributes[{state(pid).player.entity_id, 26}] == {0.10000000149011612, []}
+    client = use_hand(client, pid)
+    ticks(pid, 32)
+    {{_, 0, 0, 3600, 14}, client} = effect_packet(client)
+    client = speed_attribute(client, pid)
+    wait(fn -> state(pid).use_save == nil end)
+
+    # Ordinary countdown does not dirty the active amplifier or resend attributes.
+    tick(pid)
+    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
+    client = quiet_attributes_until_stats(client)
+    assert state(pid).movement_speed_view == {[0, nil], false}
+
+    Client.send_packet(client, :play, "player_command", [
+      Wire.varint(state(pid).player.entity_id),
+      <<1, 0>>
+    ])
+
+    client = speed_attribute(client, pid)
+    assert state(pid).movement_speed_view == {[0, nil], true}
+
+    Client.send_packet(client, :play, "player_command", [
+      Wire.varint(state(pid).player.entity_id),
+      <<2, 0>>
+    ])
+
+    client = speed_attribute(client, pid)
+
+    assert {:ok, true} = Connection.add_effect(pid, 0, [{1, 1, false, true, true}])
+    client = speed_attribute(client, pid)
+    tick(pid)
+    client = speed_attribute(client, pid)
+    assert state(pid).movement_speed_view == {[0, nil], false}
+    client = use_hand(client, pid, :off, 2)
+    assert state(pid).active_use != nil
+    ticks(pid, 32)
+    client = speed_attribute(client, pid)
+    assert state(pid).player.effects == %{}
+    assert state(pid).inventory.slots[45] == ItemStack.new("bucket")
+    assert {:ok, true} = Connection.add_effect(pid, 1, [{1, 3, false, true, true}])
+    client = speed_attribute(client, pid)
+    tick(pid)
+    _client = speed_attribute(client, pid)
+    assert state(pid).movement_speed_view == {[nil, nil], false}
+  end
+
+  test "stock Turtle Master consumes both effects atomically and reconnect initializes movement speed",
+       ctx do
+    food = %PlayerFood{}
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => potion("turtle_master")}})
+    {client, pid} = login(ctx, 20.0, food)
+    client = use_hand(client, pid)
+    ticks(pid, 32)
+    {{_, 1, 3, 400, 14}, client} = effect_packet(client)
+    {{_, 10, 2, 400, 14}, client} = effect_packet(client)
+    _client = speed_attribute(client, pid)
+    assert state(pid).inventory.slots[36] == ItemStack.new("glass_bottle")
+    assert {:ok, :hurt} = Connection.fall_damage(pid, 10.0)
+    assert state(pid).player.health.value == 16.0
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    {client, restored} = login(ctx, 16.0, food)
+    {:ok, derived} = Valimc.PlayerMovementSpeed.derive(state(restored).player.effects, false)
+    {26, base, modifiers} = derived.attribute
+    assert client.attributes[{state(restored).player.entity_id, 26}] == {base, modifiers}
+
+    assert state(restored).player.effects == %{
+             1 => [{400, 3, false, true, true}],
+             10 => [{400, 2, false, true, true}]
+           }
+
+    assert state(restored).inventory.slots[36] == ItemStack.new("glass_bottle")
   end
 
   test "Water Breathing drinks use the same atomic effect/bottle lane", ctx do

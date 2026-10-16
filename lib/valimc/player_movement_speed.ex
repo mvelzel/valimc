@@ -2,6 +2,7 @@ defmodule Valimc.PlayerMovementSpeed do
   @moduledoc "Derived player movement speed from owned Speed/Slowness heads and sprint intent."
   alias Valimc.PlayerEffects
   alias Valimc.Protocol.EffectTypes
+  import Bitwise
   @path Path.expand("../../priv/protocol/attributes.json", __DIR__)
   @external_resource @path
   @attribute :json.decode(File.read!(@path))["minecraft:movement_speed"]
@@ -11,6 +12,16 @@ defmodule Valimc.PlayerMovementSpeed do
     {EffectTypes.id("slowness"), "minecraft:effect.slowness", -0.15000000596046448}
   ]
   @sprint {"minecraft:sprinting", 0.30000001192092896, 2}
+
+  @doc "Only active amplifiers and sprint change the derived attribute; durations do not."
+  def signature(%{effects: effects, input: input}) do
+    {Enum.map(@effects, fn {id, _, _} ->
+       case effects[id] do
+         nil -> nil
+         [{_, amplifier, _, _, _} | _] -> amplifier
+       end
+     end), (input.shared_flags &&& 8) != 0}
+  end
 
   def derive(effects, sprint) when is_boolean(sprint) do
     if PlayerEffects.valid?(effects) do
