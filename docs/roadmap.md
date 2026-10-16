@@ -58,11 +58,14 @@ and all five client groups pass at9246b50; larger native integration remains.
 **Implementing:** [Nausea/complete pufferfish](tickets/VMC-037k.md):256 native
 no-action hook contexts/3,075 ticks and84 affected checks pass. Existing effect
 ownership admits Nausea and complete pufferfish;1,386 full tests/production/TCP
-pass at8cceaae, full native integration and dedicated client gates remain.
+and all five client groups pass at8cceaae; final full native integration remains.
 **Implementing:** [Jump Boost](tickets/VMC-037l.md):257 native attributes,1,285
 material powers/10,280 fall calculations,1,320 complete jumps,257 packets and139
 affected checks pass. Owned ground-jump/fall/geometry composition is implemented;
 frozen production/client verification follows.
+**Implementing:** [Slow Falling/Levitation](tickets/VMC-037m.md):512 native hook
+contexts/96 gravity selections/24 pre-travel resets and10 affected checks pass.
+Live dry/fluid/owner composition remains unsupported.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

@@ -1,7 +1,8 @@
 # VMC-037k — Nausea and complete pufferfish effects
 
 Status: Owned Nausea/pufferfish implemented locally;84 affected checks pass.
-Frozen production/client gates remain before publication/Done.
+Production/native TCP,1,386 full tests and all five actual-client groups pass.
+Final full native integration remains before publication/Done.
 
 Acceptance: native Nausea duration/refresh/expiry and client distortion use the
 existing player effect owner, packets and persistence. Pufferfish then applies
@@ -42,3 +43,24 @@ log), production and actual native plaintext/AES-CFB8 TCP. Full native integrati
 session98415 runs separately. Raw `.local/nausea-live-{full-tests,production,native-tcp}.log`
 and `.local/nausea-publication-proof.json`. No live release was replaced during
 older food client verification; its scoped negative remains valid at9246b50.
+
+Actual26.3 client PASS on immutable8cceaae; primary reviewed the dedicated report
+once. Cancelled pufferfish retains count/nutrition; actual completion consumes one
+and visibly grants PoisonII/HungerIII/Nausea with genuine world distortion. Native
+15s Nausea/Hunger expire while Poison persists; actual milk clears it. Separate
+early milk, sampled100ms, removes heads251/251/1151 while far from expiry, creates
+bucket and stops exhaustion/Poison/distortion. Actual weak500/strong200 drinks
+promote II→I without another bottle or nutrition. Full-food and actual mixed
+NightVision15 negatives refuse whole. Creative retains dose with all three icons
+and damage immunity. Long actual Nausea1200 drink→bottle survives fresh direct
+reconnect with duration1054→765→515, no replay or post-acceptance fixture.
+
+All three wrappers/JVMs and server58678 stopped; eight regions+clock flush:ok,
+zero connections/players and1,003 frozen blobs unchanged. Whole final dataset
+`/tmp/valimc-nausea-live-client-20261016`: survival1HP from actual prior Poison,
+effects{}/pool0, puffer2/bucket, food11/saturation0.20000000298023224/exhaustion
+0.7499995231628418, source61/outboxnil and destination{2,2}receipt61. No health or
+journal resets. Raw report/fixtures/traces, cleanup and hashes:
+`.local/client-tests/VMC-037k/report.md`, `.local/nausea-live-cleanup.log`,
+`.local/nausea-publication-proof.json`. No remaining graphical gate; native98415
+continues. Exact UI time versus saved elapsed durations are distinguished in report.
