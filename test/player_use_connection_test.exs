@@ -11,7 +11,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     PlayerStore
   }
 
-  alias Valimc.Protocol.{ItemStack, Wire}
+  alias Valimc.Protocol.{ItemStack, PotionContents, PotionTypes, Wire}
   alias Valimc.TestClient, as: Client
 
   defp wait(fun, left \\ 400) do
@@ -185,6 +185,214 @@ defmodule Valimc.PlayerUseConnectionTest do
     )
   end
 
+  defp potion(name) do
+    %{
+      ItemStack.new("potion")
+      | components: %{
+          "minecraft:potion_contents" => %{PotionContents.empty() | potion: PotionTypes.id(name)}
+        }
+    }
+  end
+
+  defp effect_packet(client) do
+    {body, client} = Client.await(client, :play, "update_mob_effect")
+    {entity, rest} = Wire.take_varint(body)
+    {id, rest} = Wire.take_varint(rest)
+    {amp, rest} = Wire.take_varint(rest)
+    {duration, <<flags>>} = Wire.take_varint(rest)
+    {{entity, id, amp, duration, flags}, client}
+  end
+
+  test "both-hand potion completion grants only after native timing and saves effects with the bottle",
+       ctx do
+    food = %PlayerFood{}
+    fire = potion("fire_resistance")
+    long = potion("long_fire_resistance")
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => fire, 45 => long}})
+    {client, pid} = login(ctx, 20.0, food)
+    client = use_hand(client, pid)
+    assert state(pid).active_use.remaining == 32
+    ticks(pid, 31)
+    assert state(pid).inventory.slots[36] == fire and state(pid).player.effects == %{}
+    tick(pid)
+    {<<entity::signed-32, 9>>, client} = Client.await(client, :play, "entity_event")
+    {{^entity, 11, 0, 3600, 14}, client} = effect_packet(client)
+    assert state(pid).inventory.slots[36] == ItemStack.new("glass_bottle")
+    assert state(pid).player.effects == %{11 => [{3600, 0, false, true, true}]}
+    assert state(pid).player.food == food
+    wait(fn -> state(pid).use_save == nil end)
+
+    client = use_hand(client, pid, :off, 2)
+    assert state(pid).player.use_flags == 3
+    ticks(pid, 32)
+    {<<^entity::signed-32, 9>>, client} = Client.await(client, :play, "entity_event")
+    {{^entity, 11, 0, 9600, 6}, client} = effect_packet(client)
+    assert state(pid).inventory.slots[45] == ItemStack.new("glass_bottle")
+    assert state(pid).player.effects == %{11 => [{9600, 0, false, true, true}]}
+    wait(fn -> state(pid).use_save == nil end)
+    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.effects == state(pid).player.effects
+    assert saved.inventory.slots == state(pid).inventory.slots
+    assert saved.outbox == nil and saved.transfer_sequence == 0
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    {_client, owner} = login(ctx, 20.0, food)
+    assert state(owner).player.effects == saved.effects
+    assert state(owner).inventory.slots == saved.inventory.slots
+    assert state(owner).active_use == nil
+  end
+
+  test "cancelled potions and newly unsupported completion contents never grant or consume",
+       ctx do
+    food = %PlayerFood{}
+    fire = potion("fire_resistance")
+    unsupported = potion("water_breathing")
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => fire, 45 => unsupported}})
+    {client, pid} = login(ctx, 20.0, food)
+    client = use_hand(client, pid)
+    ticks(pid, 8)
+    action(client, "release_use_item")
+    wait(fn -> state(pid).active_use == nil end)
+    assert state(pid).player.effects == %{} and state(pid).inventory.slots[36] == fire
+    client = use_hand(client, pid, :off, 2)
+    assert state(pid).active_use == nil and state(pid).inventory.slots[45] == unsupported
+    _client = use_hand(client, pid, :main, 3)
+    ticks(pid, 31)
+
+    :sys.replace_state(pid, fn s ->
+      %{s | inventory: %{s.inventory | slots: %{36 => unsupported}}}
+    end)
+
+    tick(pid)
+    assert state(pid).active_use == nil and state(pid).use_save == nil
+    assert state(pid).player.effects == %{} and state(pid).inventory.slots[36] == unsupported
+  end
+
+  test "native custom delivery drops raw hidden chains but keeps sequential suppression and expiry",
+       ctx do
+    food = %PlayerFood{}
+
+    contents = %{
+      PotionContents.empty()
+      | effects: [
+          {11, [{2, 2, false, true, true}, {900, 255, false, true, true}]},
+          {11, [{600, 0, true, false, true}]}
+        ]
+    }
+
+    drink = %{ItemStack.new("potion") | components: %{"minecraft:potion_contents" => contents}}
+    slots = Map.new(9..44, &{&1, ItemStack.new("stone", 64)}) |> Map.put(45, drink)
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: slots})
+    {client, pid} = login(ctx, 20.0, food)
+    client = use_hand(client, pid, :off)
+    ticks(pid, 32)
+    {<<entity::signed-32, 9>>, client} = Client.await(client, :play, "entity_event")
+    {{^entity, 11, 2, 2, 14}, client} = effect_packet(client)
+    {{^entity, 11, 2, 2, 4}, client} = effect_packet(client)
+
+    assert state(pid).player.effects == %{
+             11 => [{2, 2, false, false, true}, {600, 0, true, false, true}]
+           }
+
+    assert state(pid).inventory.slots == Map.put(slots, 45, ItemStack.new("glass_bottle"))
+    ticks(pid, 2)
+    {{^entity, 11, 0, 598, 5}, _client} = effect_packet(client)
+    assert state(pid).player.effects == %{11 => [{598, 0, true, false, true}]}
+    wait(fn -> state(pid).use_save == nil end)
+  end
+
+  test "creative drinks apply effects without consuming or producing bottles",
+       ctx do
+    food = %PlayerFood{}
+    drink = potion("fire_resistance")
+    seed(ctx, food, 20.0, mode: :creative, inventory: %Inventory{slots: %{36 => drink}})
+    {client, pid} = login(ctx, 20.0, food)
+    _client = use_hand(client, pid)
+    ticks(pid, 32)
+    assert state(pid).player.effects == %{11 => [{3600, 0, false, true, true}]}
+    assert state(pid).inventory.slots == %{36 => drink}
+    wait(fn -> state(pid).use_save == nil end)
+  end
+
+  test "unsupported bottle overflow rejects potion effects and consumption together", ctx do
+    food = %PlayerFood{}
+    drink = potion("fire_resistance")
+
+    stacked = %{
+      drink
+      | count: 2,
+        components: Map.put(drink.components, "minecraft:max_stack_size", 64)
+    }
+
+    slots = Map.new(9..45, &{&1, ItemStack.new("stone", 64)}) |> Map.put(36, stacked)
+
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: slots})
+    {client, pid} = login(ctx, 20.0, food)
+    _client = use_hand(client, pid)
+    ticks(pid, 32)
+    assert state(pid).player.effects == %{} and state(pid).inventory.slots == slots
+    assert state(pid).active_use == nil and state(pid).use_save == nil
+  end
+
+  test "a stalled potion checkpoint cannot rewind the effect clock or consume twice", ctx do
+    food = %PlayerFood{}
+    drink = potion("fire_resistance")
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => drink}})
+    {client, pid} = login(ctx, 20.0, food)
+    client = use_hand(client, pid)
+    store = state(pid).player_store
+    :sys.suspend(store)
+
+    try do
+      ticks(pid, 32)
+      assert state(pid).use_save != nil
+      assert state(pid).player.effects == %{11 => [{3600, 0, false, true, true}]}
+      _client = use_hand(client, pid, :main, 2)
+      ticks(pid, 9)
+      assert state(pid).active_use == nil
+      assert state(pid).player.effects == %{11 => [{3591, 0, false, true, true}]}
+      assert {:ok, observed} = Players.get(pid)
+      assert observed.effects == %{11 => [{3600, 0, false, true, true}]}
+      :sys.resume(store)
+      wait(fn -> state(pid).use_save == nil end)
+      assert state(pid).player.effects == %{11 => [{3591, 0, false, true, true}]}
+      assert state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
+      Client.close(client)
+      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+      assert saved.effects == %{11 => [{3591, 0, false, true, true}]}
+      assert saved.inventory.slots == %{36 => ItemStack.new("glass_bottle")}
+    after
+      if Process.alive?(store), do: :sys.resume(store)
+    end
+  end
+
+  test "effectless bottles and potion patches on food retain native listener and nutrition behavior",
+       ctx do
+    food = %PlayerFood{level: 5, saturation: 0.0}
+    bread = %{ItemStack.new("bread") | components: potion("fire_resistance").components}
+
+    seed(ctx, food, 20.0,
+      inventory: %Inventory{slots: %{36 => ItemStack.new("potion"), 45 => bread}}
+    )
+
+    {client, pid} = login(ctx, 20.0, food)
+    client = use_hand(client, pid)
+    ticks(pid, 32)
+    assert state(pid).player.effects == %{} and state(pid).player.food == food
+    assert state(pid).inventory.slots[36] == ItemStack.new("glass_bottle")
+    wait(fn -> state(pid).use_save == nil end)
+    _client = use_hand(client, pid, :off, 2)
+    ticks(pid, 32)
+    assert state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
+    assert state(pid).player.food == %PlayerFood{level: 10, saturation: 6.0}
+    assert state(pid).player.effects == %{11 => [{3600, 0, false, true, true}]}
+    wait(fn -> state(pid).use_save == nil end)
+    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.food == state(pid).player.food and saved.effects == state(pid).player.effects
+    assert saved.inventory.slots == state(pid).inventory.slots
+  end
+
   test "native duration finishes each hand once, orders completion before inventory, and reconnects atomically",
        ctx do
     food = %PlayerFood{level: 3, saturation: 0.0}
@@ -303,7 +511,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     wait(fn -> state(pid).save_ref == nil end)
 
     for {name, seq} <-
-          Enum.with_index(["honey_bottle", "potion", "suspicious_stew", "milk_bucket"], 3) do
+          Enum.with_index(["honey_bottle", "suspicious_stew", "milk_bucket"], 3) do
       :sys.replace_state(pid, fn s ->
         %{s | inventory: %{s.inventory | slots: %{36 => ItemStack.new(name)}}}
       end)

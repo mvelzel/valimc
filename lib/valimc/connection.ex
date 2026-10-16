@@ -12,6 +12,7 @@ defmodule Valimc.Connection do
     ItemStack,
     ItemTypes,
     Packets,
+    PotionContents,
     UseItem,
     UseItemOn,
     Wire
@@ -1401,7 +1402,7 @@ defmodule Valimc.Connection do
     stack = Inventory.held(state.inventory, hand)
     props = if stack, do: FoodItems.properties(stack)
 
-    if props && FoodItems.plain?(props) &&
+    if props && match?({:ok, _}, item_use_effects(stack, props)) &&
          FoodItems.eligible?(props, state.player.food, state.player.abilities) do
       use = PlayerUse.new(stack, hand, props)
       state = %{state | active_use: use}
@@ -1411,6 +1412,35 @@ defmodule Valimc.Connection do
         else: publish_item_use(state, PlayerUse.start_flags(state.player.use_flags, hand))
     else
       resync_inventory(state)
+    end
+  end
+
+  defp item_use_effects(stack, props) do
+    cond do
+      FoodItems.plain?(props) ->
+        {:ok, []}
+
+      props.other_listeners == ["minecraft:potion_contents"] and
+          FoodItems.plain?(%{props | other_listeners: []}) ->
+        contents =
+          case Map.fetch(stack.components, "minecraft:potion_contents") do
+            {:ok, value} ->
+              value
+
+            :error ->
+              bytes = ItemTypes.defaults(stack.item_id).values["minecraft:potion_contents"]
+              {value, <<>>} = PotionContents.take(bytes)
+              value
+          end
+
+        effects = PotionContents.effects(contents)
+
+        if Enum.all?(effects, fn {id, _} -> id == @fire_resistance end),
+          do: {:ok, effects},
+          else: :unsupported
+
+      true ->
+        :unsupported
     end
   end
 
@@ -1477,7 +1507,7 @@ defmodule Valimc.Connection do
     stack = Inventory.held(state.inventory, use.hand)
     props = FoodItems.properties(stack)
 
-    if FoodItems.plain?(props) do
+    with {:ok, incoming} <- item_use_effects(stack, props) do
       case Inventory.consume_hand(state.inventory, use.hand, props.remainder) do
         {:ok, inventory, []} ->
           food =
@@ -1485,8 +1515,21 @@ defmodule Valimc.Connection do
               do: PlayerFood.eat(state.player.food, props.food.nutrition, props.food.saturation),
               else: state.player.food
 
-          player = %{state.player | food: food}
-          # One atomic checkpoint owns both changes. No world item escapes this lane.
+          {effect_packets, effects} =
+            Enum.map_reduce(incoming, state.player.effects, fn {id, value}, effects ->
+              new = not Map.has_key?(effects, id)
+              {:ok, next, changed} = PlayerEffects.add(effects, id, value)
+
+              packet =
+                if changed,
+                  do: Packets.update_effect(state.player.entity_id, id, hd(next[id]), new)
+
+              {packet, next}
+            end)
+
+          player = %{state.player | food: food, effects: effects}
+          # One checkpoint owns nutrition, effects, consumption and remainder.
+          # No world item escapes this lane.
           ref = make_ref()
 
           PlayerStore.checkpoint(
@@ -1500,6 +1543,7 @@ defmodule Valimc.Connection do
           state = %{state | player: player, inventory: inventory, save_ref: ref, use_save: ref}
           Players.update(self(), player)
           if notify, do: send_packets(state, [Packets.use_item_finished(player.entity_id)])
+          send_packets(state, Enum.reject(effect_packets, &is_nil/1))
           state = state |> publish_equipment() |> stop_item_use()
 
           send_packets(state, [
@@ -1516,7 +1560,8 @@ defmodule Valimc.Connection do
           state |> stop_item_use() |> resync_inventory()
       end
     else
-      state |> stop_item_use() |> resync_inventory()
+      :unsupported ->
+        state |> stop_item_use() |> resync_inventory()
     end
   end
 
@@ -4626,20 +4671,15 @@ defmodule Valimc.Connection do
     end
 
     if state.player_store && state.phase == :play do
-      # Read the latest owner publication for movement accepted before a failure.
+      # Observations can lag quiet simulation clocks. Persist the owner state;
+      # per-frame exception boundaries already retain earlier accepted packets.
       snapshot =
         case state.life_save do
           %{kind: :respawn, snapshot: snapshot} ->
             snapshot
 
           _ ->
-            player =
-              case Players.get(self()) do
-                {:ok, latest} -> latest
-                :error -> state.player
-              end
-
-            PlayerSnapshot.capture(player, state.inventory)
+            PlayerSnapshot.capture(state.player, state.inventory)
         end
 
       try do

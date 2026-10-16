@@ -1,7 +1,7 @@
 # VMC-037b — Potion contents and delivery
 
-Status: Component/delivery kernel verified locally; graphical baseline pending.
-No live potion consumption yet.
+Status: Component/delivery and live drinking verified locally; integration/build
+and actual-client gates pending.
 
 Acceptance: bounded native potion contents, effective stack identity and duration
 scaling preserve stock/custom values through both stack formats and journals.
@@ -42,3 +42,21 @@ default components were regenerated; other item facts/defaults are unchanged.
 Evidence: `.local/potion-{native,native-check,native-decode,identity-native,
 identity-check,defaults-native,targeted-final}.log`. Current scale API admits only
 nonnegative finite float32 inputs; a duration-scale item component is not supported.
+
+Live composition uses the existing admitted32-tick use clock. Plain/effectless
+drinks and Fire Resistance normal/long/custom contents are admitted; other effect
+behaviors and specialized listeners refuse without consuming. Current completion
+contents are rechecked, including potion patches on food. One checkpoint contains
+nutrition, effects, consumed count and bottle remainder. Native packet order is
+finish event, sequential add/refresh packets, then use/equipment/inventory updates.
+Full-inventory single bottles replace the hand; unsupported patched-stack overflow
+refuses the whole transition. Creative retains the item without a bottle.
+
+91 affected checks pass(seed60920): real TCP timing/both hands, cancellation,
+unsupported current contents, native hidden-copy/flag refresh/suppression/promotion,
+creative/remainders/overflow, reconnect and stalled-save ordering, plus movement,
+flight, inventory and death/respawn persistence regressions. Evidence:
+`.local/potion-live-targeted-final.log`. The stalled-save case exposed a final-save
+bug: cached player observations could retain older effect durations. Final saves
+now capture current owner state; per-frame guards preserve earlier accepted input.
+Active clocks continue during persistence and acknowledgement cannot rewind them.
