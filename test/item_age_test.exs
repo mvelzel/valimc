@@ -21,14 +21,14 @@ defmodule Valimc.ItemAgeTest do
     {observer, _} = ItemReplication.reconcile(ItemReplication.new(), items.views)
     {aged, []} = Items.age(items)
     assert aged.entries[id].motion == %{record.motion | age: 5999, pickup_delay: 1}
-    assert aged.views[id] == %{view | revision: 2}
+    assert aged.views[id] == %{view | revision: 2, pickup_delay: 1}
     assert aged.bytes == items.bytes and aged.ledger == ledger
     assert aged.entries[id].physical_revision == items.entries[id].physical_revision
     assert {^observer, []} = ItemReplication.reconcile(observer, aged.views)
     {expired, [handle]} = Items.age(aged)
     assert handle == {items.epoch, id, 3}
     assert expired.entries[id].motion == %{record.motion | age: 6000, pickup_delay: 0}
-    assert expired.views[id] == %{view | revision: 3}
+    assert expired.views[id] == %{view | revision: 3, pickup_delay: 0}
     assert {:ok, empty} = Items.remove(expired, items.epoch, id, 3)
     assert empty.ledger.generations == %{}
   end

@@ -112,3 +112,22 @@ publishes the native callback after commit; partial false callbacks do not anima
 real TCP whole/partial/full/creative, delay, spectator/range, adjacent-owner contact,
 late-grant movement, fair discovery, two-player races and fresh login; mining/use/
 table regressions also pass. Broader integration/build and actual Minecraft follow.
+
+Integration follow-up: production release passed for frozen `79811a8` (805 blobs).
+The first broad run passed1,122/1,123; the sole failure expected an unchanged delay
+hint in the item-age test. Correcting that assertion retains exact packet/version
+checks; the full retest passes1,123(seed489962),
+`.local/item-pickup-full-tests-retest.log`.14 additional affected checks pass
+(seed618829), `.local/pickup-pressure-targeted.log`: source-write expiry/retry,
+disconnect during queued preparation, fresh login and saturated I/O responsiveness.
+No runtime change was needed. Full native integration and graphical checks continue.
+
+`bench/item_pickup.exs` exercises actual leased source saves, region capacity/
+withdrawal, delivery and authoritative proof across4/32 sources and1/8 owners,
+with64/512 entities and plain/4KiB components. Both runs conserve all items. Run01
+observed721–1,349 pickups/s and1.6–24.6ms median; run02, during full-suite/native/
+client load, observed76–145/s and37–244ms median, including42 safely rejected and
+retried expired permits. These are trusted-contact durable-I/O measurements;
+TCP/graphics/physics and cross-server comparisons are excluded. Raw workloads,
+results, revision/hash/load notes and complete datasets:
+`.local/item-pickup-bench-{01.log,02.log,manifest.json}` and the logged `/tmp` paths.

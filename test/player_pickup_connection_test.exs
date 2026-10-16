@@ -286,4 +286,92 @@ defmodule Valimc.PlayerPickupConnectionTest do
       if Process.alive?(writer), do: :sys.resume(writer)
     end
   end
+
+  test "an expired permission during a paused source save rejects then retries without loss", c do
+    seed(c)
+    {client, pid} = login(c)
+    {_owner, _, key} = spawn_item(c, ItemStack.new("stone", 7), 2.0)
+    writer = :sys.get_state(pid).player_store
+    :sys.suspend(writer)
+
+    try do
+      _client = Client.teleport(client, pid, %{c.pose | x: c.pose.x + 1.0})
+      wait(fn -> match?(%{stage: :prepare}, :sys.get_state(pid).recovery) end)
+      assert saved(c).inventory.slots == %{} and saved(c).outbox == nil
+      assert [%{stack: %{count: 7}}] = records(c, key)
+      Process.sleep(260)
+      :sys.resume(writer)
+      wait(fn -> picked(pid, 36, 7) end)
+      assert records(c, key) == [] and saved(c).outbox == nil
+      assert saved(c).transfer_sequence >= 2
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+    end
+  end
+
+  test "disconnect while source preparation is queued retains the intent and recovers on fresh login",
+       c do
+    seed(c)
+    {client, pid} = login(c)
+    {_owner, _, key} = spawn_item(c, ItemStack.new("stone", 7), 2.0)
+    writer = :sys.get_state(pid).player_store
+    :sys.suspend(writer)
+
+    try do
+      client = Client.teleport(client, pid, %{c.pose | x: c.pose.x + 1.0})
+      wait(fn -> match?(%{stage: :prepare}, :sys.get_state(pid).recovery) end)
+      Client.close(client)
+      Process.sleep(260)
+      :sys.resume(writer)
+
+      wait(fn ->
+        not Process.alive?(pid) and Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == []
+      end)
+
+      assert saved(c).outbox == nil and saved(c).inventory.slots == %{}
+      assert saved(c).transfer_sequence == 1
+      assert [%{stack: %{count: 7}}] = records(c, key)
+      {_fresh, next} = login(c)
+      wait(fn -> picked(next, 36, 7) end)
+      assert records(c, key) == [] and saved(c).transfer_sequence >= 2
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+    end
+  end
+
+  test "saturated pickup I/O workers leave the socket responsive and retry after capacity returns",
+       c do
+    seed(c)
+    {client, pid} = login(c)
+
+    workers =
+      Stream.repeatedly(fn ->
+        Task.Supervisor.start_child(Valimc.TransferWorkers, fn ->
+          receive do
+            :stop -> :ok
+          end
+        end)
+      end)
+      |> Enum.reduce_while([], fn
+        {:ok, worker}, acc -> {:cont, [worker | acc]}
+        {:error, :max_children}, acc -> {:halt, acc}
+      end)
+
+    try do
+      {_owner, _, key} = spawn_item(c, ItemStack.new("stone", 7))
+      Process.sleep(100)
+      Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
+      {chat, _client} = Client.await(client, :play, "system_chat")
+      assert :binary.match(chat, "schedulers") != :nomatch
+      assert :sys.get_state(pid).recovery == nil and :sys.get_state(pid).pickup_job == nil
+      assert [%{stack: %{count: 7}}] = records(c, key)
+      for worker <- workers, do: Task.Supervisor.terminate_child(Valimc.TransferWorkers, worker)
+      wait(fn -> picked(pid, 36, 7) end)
+      assert records(c, key) == []
+    after
+      for worker <- workers,
+          Process.alive?(worker),
+          do: Task.Supervisor.terminate_child(Valimc.TransferWorkers, worker)
+    end
+  end
 end
