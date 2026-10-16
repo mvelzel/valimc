@@ -67,7 +67,7 @@ defmodule Valimc.Connection do
   @resistance EffectTypes.id("resistance")
   @hunger EffectTypes.id("hunger")
   @periodic_effects Enum.sort(Enum.map(~w(regeneration hunger poison wither), &EffectTypes.id/1))
-  @instant_effects Enum.map(~w(instant_health instant_damage), &EffectTypes.id/1)
+  @instant_effects Enum.map(~w(instant_health instant_damage saturation), &EffectTypes.id/1)
   @live_effects [@fire_resistance, @resistance, EffectTypes.id("water_breathing")] ++
                   Enum.map(~w(speed slowness), &EffectTypes.id/1) ++
                   @periodic_effects

@@ -34,19 +34,18 @@ milk/starvation exclusion/reconnect. Whole source/receipt53 retained.
 `285d983`:132,098 native attributes,63 affected checks, production/both native TCP
 transports and actual drinks/walking/promotion/expiry/milk/fall/reconnect. Larger
 `cc3dfa5` integration passes1,330 full tests, production and full native/TCP checks.
-**Implementing:** [instant healing/harming](tickets/VMC-037g.md): owned ordered
-consumption/fatal recovery at `f4670e6` passes113 affected checks, production/both
-TCP transports and focused actual stock/mixed/fatal drinks/reconnect. Named-item
-text/hover [VMC-004b3](tickets/VMC-004b3.md) passes344 native contexts/688 packets
-and78 affected checks locally; frozen8a28534 passes1,341 tests/build/both TCP
-transports. Named-item/refusal client gates pass; final native integration remains;
-abnormal signed-healing lifecycle is [VMC-037g1](tickets/VMC-037g1.md), with whole
-negative-dose refusal tested locally.
-**Implementing:** [Hunger](tickets/VMC-037h.md):10,240 native callbacks/150 instance
-ticks,11,520 food compositions and77 affected checks. Owned food/effect drinking,
-milk/promotion/expiry and reconnect pass locally; production/TCP/client gates follow.
-**Next slice:** [Instant Saturation drinks](tickets/VMC-037i.md):98,304 native food
-callbacks and11 affected checks pass; owner consumption/client validation follow.
+**Done within scope:** [instant healing/harming](tickets/VMC-037g.md) and named-item
+text/hover [VMC-004b3](tickets/VMC-004b3.md), validated/published through `662dc7f`:
+1,341 parent full tests/production/full native TCP integration and actual stock/
+mixed/fatal/named drinks, hovers, Respawn/refusal/reconnect. Abnormal signed-healing
+lifecycle stays [open](tickets/VMC-037g1.md); negative-dose drinks are refused whole.
+**Done within scope:** [Hunger](tickets/VMC-037h.md), runtime `085ac9f`:10,240 native
+callbacks/150 instance ticks,11,520 food compositions,77 affected checks,
+production/both TCP transports and actual stationary drain, milk, hidden promotion/
+expiry, creative/unsupported negatives and reconnect. Publication follows separately.
+**Implementing:** [Instant Saturation drinks](tickets/VMC-037i.md):98,304 native food
+callbacks and69 affected checks pass; owned atomic drinking is local, with
+production/TCP/client validation pending.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

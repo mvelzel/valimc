@@ -1,7 +1,8 @@
 # VMC-037h — Hunger status effect
 
-Status: Native foundation `19bb41a`; owned drinking/tick/food composition now
-implemented locally. Targeted checks pass; production/TCP/client gates remain.
+Status: **Done within owned Hunger-drink scope**, runtime `085ac9f`. Native,
+77 affected checks, production/both native TCP transports and all five actual
+client groups pass. Newer Saturation work remains separate.
 
 Acceptance: active Hunger heads request native float exhaustion each admitted
 player tick, before ordinary food processing. Preserve mode/ability immunity,
@@ -65,3 +66,25 @@ refusal of then-unsupported16, not a Night Vision GUI proof. Retain those origin
 reports. The next client negative must look up actual night_vision15. Automated
 older mixed negatives already used that named lookup. Do not require Hunger16 to
 remain refused once this feature is admitted.
+
+Actual26.3/protocol777 PASS on frozen085ac9f; primary reviewed the dedicated
+`.local/client-tests/VMC-037h/report.md` once. Actual cancellation retained potion;
+full amp19 drink showed Hunger/brown food and stationary loss20→17 over121 ticks.
+Actual milk removed the active head; food/exhaustion stayed exact for62 ticks.
+Actual weak200→strong100 drinks gave two bottles; observed strong99/hidden150,
+strong2/hidden53, then promoted weak51, with exhaustion slope0.1→0.005 per tick
+and genuine expiry. Creative retained its exact drink while the head ticked,
+without food/exhaustion change. Mixed Hunger16+actual NightVision15 stayed wholly
+refused. Fresh direct reconnect retained saved head407 with no offline mutation
+and later head68 after339 admitted ticks, one bottle and no replay.
+
+Both client wrappers/JVMs stopped; zero connections/players, four regions+clock
+flush:ok, server87371 exit0 without gameplay errors. All983 frozen blobs match.
+Final whole dataset `/tmp/valimc-hunger-live-client-20261016` retains18HP, food20/
+saturation0/exhaustion3.0000212193, empty effects, survival, one bottle and bucket,
+source60/outboxnil and receipt60. Distant historical records were not rewritten.
+Fixtures prepared food/effects/items and mode; uses, elapsed transitions and
+reconnect were actual. Final milk followed expiry; active removal was proven
+separately. These are admitted-tick observations, not performance measurements.
+Proof/raw: `.local/hunger-publication-proof.json`, `.local/hunger-live-cleanup.log`,
+`.local/hunger-live-{production,native-tcp}.log`, tester trace and launch evidence.

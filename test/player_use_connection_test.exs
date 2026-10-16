@@ -14,6 +14,7 @@ defmodule Valimc.PlayerUseConnectionTest do
   alias Valimc.Protocol.{Data, ItemStack, PotionContents, PotionTypes, UseItemOn, Wire}
   alias Valimc.TestClient, as: Client
   @hunger Valimc.Protocol.EffectTypes.id("hunger")
+  @saturation Valimc.Protocol.EffectTypes.id("saturation")
 
   defp wait(fun, left \\ 400) do
     if value = fun.(),
@@ -667,7 +668,13 @@ defmodule Valimc.PlayerUseConnectionTest do
     test "negative signed healing in a mixed #{hand} potion is refused before any mutation",
          ctx do
       food = %PlayerFood{level: 10, saturation: 0.0}
-      effects = [{10, [{200, 0, false, true, true}]}, {5, [{1, 29, false, true, true}]}]
+
+      effects = [
+        {@saturation, [{1, 3, false, true, true}]},
+        {10, [{200, 0, false, true, true}]},
+        {5, [{1, 29, false, true, true}]}
+      ]
+
       drink = custom_potion(effects)
       slot = if unquote(hand) == :main, do: 36, else: 45
       seed(ctx, food, 5.0, inventory: %Inventory{slots: %{slot => drink}})
@@ -691,6 +698,85 @@ defmodule Valimc.PlayerUseConnectionTest do
 
       assert Valimc.World.item_snapshot(ctx.key) == %{}
     end
+  end
+
+  for hand <- [:main, :off] do
+    test "Saturation #{hand} drink cancels cleanly and checkpoints repeated callbacks once across reconnect",
+         ctx do
+      food = %PlayerFood{level: 8, saturation: 0.0, exhaustion: 1.0}
+
+      effects = [
+        {@saturation, [{0, 2, false, true, true}]},
+        {@saturation, [{-1, 0, false, true, true}]}
+      ]
+
+      drink = custom_potion(effects)
+      slot = if unquote(hand) == :main, do: 36, else: 45
+      seed(ctx, food, 20.0, inventory: %Inventory{slots: %{slot => drink}})
+      {client, pid} = login(ctx, 20.0, food)
+      client = use_hand(client, pid, unquote(hand))
+      ticks(pid, 8)
+      action(client, "release_use_item")
+      wait(fn -> state(pid).active_use == nil end)
+      assert state(pid).inventory.slots == %{slot => drink} and state(pid).player.food == food
+      client = use_hand(client, pid, unquote(hand), 2)
+      ticks(pid, 32)
+      expected = %PlayerFood{level: 12, saturation: 8.0, exhaustion: 1.0}
+      assert state(pid).player.food == expected and state(pid).player.effects == %{}
+      wait(fn -> state(pid).use_save == nil end)
+      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+      assert saved.food == expected and saved.effects == %{}
+      assert saved.inventory.slots == %{slot => ItemStack.new("glass_bottle")}
+      Client.close(client)
+      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+      {_client, restored} = login(ctx, 20.0, expected)
+      ticks(restored, 5)
+      assert state(restored).player.food == expected and state(restored).player.effects == %{}
+      assert state(restored).inventory.slots == saved.inventory.slots
+    end
+  end
+
+  test "creative Saturation delivers food while retaining the exact high-amplifier drink", ctx do
+    food = %PlayerFood{level: 10, saturation: 0.0}
+    drink = custom_potion([{@saturation, [{1, 255, false, true, true}]}])
+    seed(ctx, food, 20.0, mode: :creative, inventory: %Inventory{slots: %{45 => drink}})
+    {client, pid} = login(ctx, 20.0, food)
+    _client = use_hand(client, pid, :off)
+    ticks(pid, 32)
+    assert state(pid).player.food == %PlayerFood{level: 20, saturation: 20.0}
+    assert state(pid).player.effects == %{} and state(pid).player.health.value == 20.0
+    assert state(pid).inventory.slots == %{45 => drink}
+  end
+
+  test "Saturation mixed with Hunger feeds once before later owned exhaustion spends saturation",
+       ctx do
+    food = %PlayerFood{level: 10, saturation: 0.0, exhaustion: 3.990000009536743}
+
+    drink =
+      custom_potion([
+        {@hunger, [{100, 3, false, true, true}]},
+        {@saturation, [{200, 1, false, true, true}]}
+      ])
+
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => drink}})
+    {client, pid} = login(ctx, 20.0, food)
+    _client = use_hand(client, pid)
+    ticks(pid, 32)
+    expected = %{food | level: 12, saturation: 4.0}
+    assert state(pid).player.food == expected
+    assert state(pid).player.effects == %{@hunger => [{100, 3, false, true, true}]}
+    wait(fn -> state(pid).use_save == nil end)
+    tick(pid)
+    {:ok, {:exhaust, amount}} = Valimc.HungerEffect.request([{100, 3, false, true, true}])
+
+    {expected, _} =
+      PlayerFood.tick(PlayerFood.exhaust(expected, amount), %PlayerHealth{}, 1, false)
+
+    assert state(pid).player.food == expected and expected.level == 12 and
+             expected.saturation == 3.0
+
+    assert state(pid).player.effects == %{@hunger => [{99, 3, false, true, true}]}
+    assert state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
   end
 
   test "Hunger drinking applies exhaustion before food spending and milk stops the owned request",

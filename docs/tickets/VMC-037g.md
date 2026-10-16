@@ -1,11 +1,9 @@
 # VMC-037g — Instant Health and Instant Damage
 
-Status: Owned drinking implemented locally at `f4670e6`; targeted/native,
-production/both TCP transports and focused stock/mixed/fatal client checks pass.
-Named-mainhand text [VMC-004b3](VMC-004b3.md) and whole negative-dose refusal
-at662dc7f also pass their client/production/TCP gates. The abnormal native lifecycle
-is a separate [follow-up](VMC-037g1.md). Parent8a28534 full native integration
-remains running before publication. This ticket is not Done.
+Status: **Done within ordinary-drink scope**, validated through `662dc7f`.
+Targeted/native,1,341 parent full tests, production/full native TCP integration and
+actual stock/mixed/fatal/named drinks and reconnect pass. Abnormal signed-healing
+lifecycle remains a separate [follow-up](VMC-037g1.md), deliberately refused whole.
 
 Acceptance: actual healing/harming drinks apply once at completion, with native
 amounts/self source and supported defenses, without a persistent instant icon.
@@ -87,10 +85,12 @@ including plaintext/AES-CFB8 TCP, session69595 exit0. That release includes move
 effects and instant request math, before later self-magic/healing/live composition.
 Raw `.local/effects-integration-{full-tests,production,full-native}.log`.
 
-Pending: final native integration/publication only for this ordinary-drink scope.
 Named-item/refusal client gates pass. The later admission
 guard refuses negative signed-healing potions atomically, with53 affected checks
 and768 native health/callback observations. Its abnormal zero-health lifecycle is
 tracked in VMC-037g1; no custom-dose parity claim. The frozen8a28534 parent passes
 1,341 full tests, production and both TCP transports; its full native integration
-is still running. That immutable release predates the new negative-dose guard.
+passes (session15548 exit0), including plaintext and AES-CFB8 TCP. That immutable
+release predates the new negative-dose guard; the guard's53 affected/native768,
+production/TCP/client checks are separate. Full log:
+`.local/named-consumption-live-full-native.log`; hashed publication proofs retained.

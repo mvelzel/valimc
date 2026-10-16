@@ -12,7 +12,7 @@ defmodule Valimc.PlayerConsumption do
 
   alias Valimc.Protocol.EffectTypes
   @heal EffectTypes.id("instant_health")
-  @instant Enum.map(~w(instant_health instant_damage), &EffectTypes.id/1)
+  @instant Enum.map(~w(instant_health instant_damage saturation), &EffectTypes.id/1)
 
   @doc "Negative signed healing's zero-health lifecycle remains unsupported; refuse the whole drink."
   def admitted_effects?({:remove, _}), do: true
@@ -78,6 +78,11 @@ defmodule Valimc.PlayerConsumption do
         %{current | player: %{current.player | effects: effects}, effects: events}
       end
     end)
+  end
+
+  defp instant(transition, {:eat, nutrition, saturation}, _) do
+    food = PlayerFood.eat(transition.player.food, nutrition, saturation)
+    %{transition | player: %{transition.player | food: food}}
   end
 
   defp instant(transition, {:heal, amount}, _) do

@@ -1,6 +1,7 @@
 # VMC-037i — Instant Saturation drinks
 
-Status: Native request foundation verified; live Saturation remains unsupported.
+Status: Native request foundation `26c4569`; owned drinking implemented locally,
+69 affected checks pass (seed379948). Production/TCP/client gates remain.
 
 Acceptance: drinking Instant Saturation applies native food/saturation once, in
 callback order with other potion effects, on the existing atomic consumption
@@ -30,3 +31,12 @@ saturation, capped by native food rules; duration/scaling and invulnerability do
 not suppress it. Existing exhaustion/timer remain exact. Eleven affected tests
 pass (seed345269). This proves callback delivery, not owner ticks or containers.
 Raw results: ignored `.local/saturation-drinks-{native,elixir}-final.*`.
+
+Live callbacks reuse PlayerConsumption's ordered transition and single final
+snapshot; no new timer/process or persisted instant status. Both-hand actual TCP
+tests cover cancellation, repeated callbacks at zero/infinite duration, one bottle
+and fresh reconnect without replay. Creative amplifier255 caps food/saturation
+while retaining the drink. Mixed Hunger feeds once, then its next owned tick
+spends saturation at the existing exhaustion threshold. Negative signed healing
+refuses earlier Saturation and Resistance callbacks together. Raw:
+`.local/saturation-live-targeted.log`. Graphical tests remain pending.

@@ -5,6 +5,9 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-037h Hunger](../tickets/VMC-037h.md) | `085ac9f`:10,240 callbacks/150 instance ticks/11,520 native food compositions,77 affected checks, production/TCP and five actual-client groups including hidden promotion/expiry, milk, negatives and reconnect |
+| [VMC-037g instant drinks](../tickets/VMC-037g.md) | `662dc7f`: ordinary healing/harming, ordered defenses, containers/fatal recovery and actual drinks/Respawn/reconnect; parent8a28534 passes1,341 full tests/native TCP/production; abnormal signed healing deliberately refused |
+| [VMC-004b3 item hovers](../tickets/VMC-004b3.md) | `8a28534`:344 native data/death contexts/688 packets,78 affected checks and actual named potion/original-mainhand sword death/chat hovers, negatives and reconnect |
 | [VMC-037f Speed/Slowness](../tickets/VMC-037f.md) | `285d983`:132,098 native attributes,63 affected checks, actual drinks/walking/promotion/expiry/milk/Turtle Master falls/reconnect; larger cc3dfa5 passes1,330 tests/full native TCP/production |
 | [VMC-037e Resistance](../tickets/VMC-037e.md) | `d9e1b8a`:135,150 native contexts/116,320 defenses,1,321 full tests/production, both TCP transports and actual falls/contact/gear wear, drinks/promotion/expiry/milk, starvation exclusion and reconnect |
 | [VMC-036d milk/honey](../tickets/VMC-036d.md) | `d71b2a9`:658 native callbacks/maps,87 affected checks, production/both TCP transports and actual both-hand removal, containers, cancellation/overflow/creative negatives and reconnect; parent full native passes at5b123b1 |
