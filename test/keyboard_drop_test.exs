@@ -387,7 +387,7 @@ defmodule Valimc.KeyboardDropTest do
     departed(ctx)
   end
 
-  test "stalled cursor prepare preserves ownership and gates repeated outside/close/swap inputs",
+  test "stalled cursor prepare gates repeated actions and defers close until committed",
        ctx do
     client = login(ctx)
     menu_click(client, "pickup", 43, 0)
@@ -408,10 +408,26 @@ defmodule Valimc.KeyboardDropTest do
       assert records(ctx) == []
       :sys.resume(state.player_store)
       {^pid, done} = completed(ctx, 1)
-      assert done.inventory.carried == %{ctx.stone | count: 6}
+      assert done.inventory.carried == nil and not done.table_closing
+
+      assert done.inventory.slots == %{
+               36 => %{ctx.stone | count: 6},
+               45 => ItemStack.new("egg", 3)
+             }
+
+      assert done.inventory.selected == 7
       assert [record] = records(ctx)
       assert record.stack == %{ctx.stone | count: 1}
       Client.close(client)
+      departed(ctx)
+      fresh = login(ctx)
+      {_, restored} = owned(ctx, &(&1.slots[36] == %{ctx.stone | count: 6}))
+
+      assert restored.inventory.carried == nil and
+               restored.inventory.slots[45] == ItemStack.new("egg", 3)
+
+      assert length(records(ctx)) == 1 and saved(ctx).transfer_sequence == 1
+      Client.close(fresh)
     after
       if Process.alive?(state.player_store), do: :sys.resume(state.player_store)
       Client.close(client)

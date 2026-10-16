@@ -62,3 +62,9 @@ journals and live TCP pickup/offhand/bulk/shift/close/reconnect. Raw
 `.local/remainder-final-targeted.log`. Formatting/Python syntax pass. The combined
 bulk/remainder block still needs frozen full tests/native integration/production
 and dedicated GUI scenarios; no client/Done claim yet.
+
+First frozen full suite:969/970 passed; a keyboard-drop test still expected a
+pending close to be ignored. Updated it to verify deferred return, unchanged
+offhand/selection, exact single drop and fresh reconnect;15 affected checks pass
+(seed654680). This test-only follow-up leaves the frozen `c06b4bd` runtime/native
+scripts unchanged. Full-suite rerun follows; original failed log retained.
