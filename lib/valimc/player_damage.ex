@@ -2,6 +2,7 @@ defmodule Valimc.PlayerDamage do
   @moduledoc "Pure owned damage resolution; callers publish, persist and advance death lifecycle."
   alias Valimc.{
     ArmorDurability,
+    PlayerAbsorption,
     PlayerDamageProtection,
     PlayerEnchantmentImmunity,
     PlayerFood,
@@ -40,15 +41,20 @@ defmodule Valimc.PlayerDamage do
             else: {:ok, inventory, []}
 
         {:ok, damage} = PlayerDamageProtection.damage(inventory, source, selected.damage, effects)
-        {:ok, health} = PlayerHealth.reduce(selected.state, damage)
+        {:ok, absorbed} = PlayerAbsorption.spend(Map.get(player, :absorption, 0.0), damage)
+        {:ok, health} = PlayerHealth.reduce(selected.state, absorbed.damage)
 
         food =
-          if damage > 0,
+          if absorbed.damage > 0,
             do: PlayerFood.exhaust(player.food, PlayerDamageProtection.exhaustion(source)),
             else: player.food
 
         {:ok,
-         %{player: %{player | health: health, food: food}, inventory: inventory, broken: broken}}
+         %{
+           player: Map.merge(player, %{health: health, food: food, absorption: absorbed.pool}),
+           inventory: inventory,
+           broken: broken
+         }}
     end
   end
 end

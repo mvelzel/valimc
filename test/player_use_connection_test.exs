@@ -15,6 +15,7 @@ defmodule Valimc.PlayerUseConnectionTest do
   alias Valimc.TestClient, as: Client
   @hunger Valimc.Protocol.EffectTypes.id("hunger")
   @saturation Valimc.Protocol.EffectTypes.id("saturation")
+  @absorption Valimc.Protocol.EffectTypes.id("absorption")
 
   defp wait(fun, left \\ 400) do
     if value = fun.(),
@@ -144,6 +145,7 @@ defmodule Valimc.PlayerUseConnectionTest do
       last_death: nil,
       air_supply: 300,
       effects: Keyword.get(opts, :effects, %{}),
+      absorption: Keyword.get(opts, :absorption, 0.0),
       food: food
     }
 
@@ -211,6 +213,16 @@ defmodule Valimc.PlayerUseConnectionTest do
     {amp, rest} = Wire.take_varint(rest)
     {duration, <<flags>>} = Wire.take_varint(rest)
     {{entity, id, amp, duration, flags}, client}
+  end
+
+  defp absorption_packet(client, expected) do
+    {body, client} = Client.await(client, :play, "set_entity_data")
+    {_entity, rest} = Wire.take_varint(body)
+
+    case rest do
+      <<17, 3, value::float-32, 255>> when value == expected -> client
+      _ -> absorption_packet(client, expected)
+    end
   end
 
   defp speed_attribute(client, pid) do
@@ -451,7 +463,9 @@ defmodule Valimc.PlayerUseConnectionTest do
       assert state(pid).active_use == nil
       assert state(pid).player.effects == %{11 => [{3591, 0, false, true, true}]}
       assert {:ok, observed} = Players.get(pid)
-      assert observed.effects == %{11 => [{3600, 0, false, true, true}]}
+      # Other owner work can publish a newer observation; ETS is not the clock authority.
+      assert %{11 => [{observed_ticks, 0, false, true, true}]} = observed.effects
+      assert observed_ticks in 3591..3600
       :sys.resume(store)
       wait(fn -> state(pid).use_save == nil end)
       assert state(pid).player.effects == %{11 => [{3591, 0, false, true, true}]}
@@ -670,6 +684,7 @@ defmodule Valimc.PlayerUseConnectionTest do
       food = %PlayerFood{level: 10, saturation: 0.0}
 
       effects = [
+        {@absorption, [{200, 1, false, true, true}]},
         {@saturation, [{1, 3, false, true, true}]},
         {10, [{200, 0, false, true, true}]},
         {5, [{1, 29, false, true, true}]}
@@ -777,6 +792,157 @@ defmodule Valimc.PlayerUseConnectionTest do
 
     assert state(pid).player.effects == %{@hunger => [{99, 3, false, true, true}]}
     assert state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
+  end
+
+  for hand <- [:main, :off] do
+    test "Absorption #{hand} drink publishes golden hearts and reconnects a spent pool without refill",
+         ctx do
+      food = %PlayerFood{}
+      drink = custom_potion([{@absorption, [{200, 1, false, true, true}]}])
+      slot = if unquote(hand) == :main, do: 36, else: 45
+      seed(ctx, food, 20.0, inventory: %Inventory{slots: %{slot => drink}})
+      {client, pid} = login(ctx, 20.0, food)
+      client = use_hand(client, pid, unquote(hand))
+      ticks(pid, 32)
+      assert state(pid).player.absorption == 8.0
+      client = absorption_packet(client, 8.0)
+      wait(fn -> state(pid).use_save == nil end)
+      assert {:ok, :hurt} = Connection.fall_damage(pid, 6.0)
+      assert state(pid).player.absorption == 2.0 and state(pid).player.health.value == 20.0
+      _client = absorption_packet(client, 2.0)
+      Client.close(client)
+      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+
+      assert saved.absorption == 2.0 and
+               saved.inventory.slots == %{slot => ItemStack.new("glass_bottle")}
+
+      {_client, restored} = login(ctx, 20.0, food)
+      assert state(restored).player.absorption == 2.0
+      tick(restored)
+      assert state(restored).player.absorption == 2.0
+      assert {:ok, :hurt} = Connection.fall_damage(restored, 6.0)
+
+      assert state(restored).player.health.value == 16.0 and
+               state(restored).player.absorption == 0.0
+
+      tick(restored)
+      refute Map.has_key?(state(restored).player.effects, @absorption)
+    end
+  end
+
+  test "unchanged weak Absorption refresh refills only its dose and actual milk clears the pool",
+       ctx do
+    food = %PlayerFood{}
+    head = [{600, 1, false, true, true}]
+
+    seed(ctx, food, 20.0,
+      effects: %{@absorption => head},
+      absorption: 2.0,
+      inventory: %Inventory{slots: %{45 => ItemStack.new("milk_bucket")}}
+    )
+
+    {client, pid} = login(ctx, 20.0, food)
+    assert state(pid).player.absorption == 2.0
+    {:ok, selected} = PlayerHealth.hurt_window(state(pid).player.health, 1.0)
+
+    assert {:ok, %{player: protected}} =
+             Valimc.PlayerDamage.resolve(
+               state(pid).player,
+               state(pid).inventory,
+               selected,
+               :campfire,
+               state(pid).player.effects,
+               false
+             )
+
+    assert protected.absorption == 1.0 and protected.health.value == 20.0 and
+             protected.food == food
+
+    assert {:ok, false} = Connection.add_effect(pid, @absorption, [{1, 0, false, true, true}])
+    assert state(pid).player.absorption == 4.0 and state(pid).player.effects[@absorption] == head
+    _client = use_hand(client, pid, :off)
+    ticks(pid, 32)
+    assert state(pid).player.effects == %{} and state(pid).player.absorption == 0.0
+    assert state(pid).inventory.slots[45] == ItemStack.new("bucket")
+    wait(fn -> state(pid).use_save == nil end)
+    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.absorption == 0.0 and saved.effects == %{}
+  end
+
+  test "Absorption hidden promotion clamps without refill, expiry clears and depletion ends an infinite head",
+       ctx do
+    food = %PlayerFood{}
+    effects = %{@absorption => [{1, 1, false, true, true}, {10, 0, false, true, true}]}
+    seed(ctx, food, 20.0, effects: effects, absorption: 7.5, inventory: %Inventory{})
+    {_client, pid} = login(ctx, 20.0, food)
+    tick(pid)
+    assert state(pid).player.effects[@absorption] == [{9, 0, false, true, true}]
+    assert state(pid).player.absorption == 4.0
+    ticks(pid, 9)
+    assert state(pid).player.effects == %{} and state(pid).player.absorption == 0.0
+    assert {:ok, true} = Connection.add_effect(pid, @absorption, [{-1, 1, false, true, true}])
+    assert {:ok, :hurt} = Connection.fall_damage(pid, 8.0)
+    assert state(pid).player.health.value == 20.0 and state(pid).player.absorption == 0.0
+    tick(pid)
+    assert state(pid).player.effects == %{}
+  end
+
+  test "a depleted restored Absorption head removes its hidden chain without a refill", ctx do
+    food = %PlayerFood{}
+    effects = %{@absorption => [{1, 1, false, true, true}, {200, 0, false, true, true}]}
+    seed(ctx, food, 20.0, effects: effects, absorption: 0.0, inventory: %Inventory{})
+    {_client, pid} = login(ctx, 20.0, food)
+    assert state(pid).player.absorption == 0.0
+    tick(pid)
+    assert state(pid).player.effects == %{} and state(pid).player.absorption == 0.0
+  end
+
+  test "mixed Absorption and harming callbacks preserve delivery order and final container snapshot",
+       ctx do
+    food = %PlayerFood{}
+    absorb = {@absorption, [{200, 0, false, true, true}]}
+    harm = {Valimc.Protocol.EffectTypes.id("instant_damage"), [{1, 0, false, true, true}]}
+
+    seed(ctx, food, 20.0,
+      inventory: %Inventory{
+        slots: %{
+          36 => custom_potion([absorb, harm]),
+          45 => custom_potion([harm, absorb])
+        }
+      }
+    )
+
+    {client, pid} = login(ctx, 20.0, food)
+    client = use_hand(client, pid)
+    ticks(pid, 32)
+    assert state(pid).player.health.value == 18.0 and state(pid).player.absorption == 0.0
+    wait(fn -> state(pid).use_save == nil end)
+    ticks(pid, 20)
+    _client = use_hand(client, pid, :off, 2)
+    ticks(pid, 32)
+    assert state(pid).player.health.value == 12.0 and state(pid).player.absorption == 4.0
+    wait(fn -> state(pid).use_save == nil end)
+    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.health.value == 12.0 and saved.absorption == 4.0
+
+    assert saved.inventory.slots == %{
+             36 => ItemStack.new("glass_bottle"),
+             45 => ItemStack.new("glass_bottle")
+           }
+  end
+
+  test "creative Absorption fills golden hearts while retaining the potion and ordinary fall immunity",
+       ctx do
+    food = %PlayerFood{}
+    drink = custom_potion([{@absorption, [{200, 0, false, true, true}]}])
+    seed(ctx, food, 20.0, mode: :creative, inventory: %Inventory{slots: %{45 => drink}})
+    {client, pid} = login(ctx, 20.0, food)
+    _client = use_hand(client, pid, :off)
+    ticks(pid, 32)
+    assert state(pid).inventory.slots == %{45 => drink} and state(pid).player.absorption == 4.0
+    assert {:ok, :immune} = Connection.fall_damage(pid, 8.0)
+    assert state(pid).player.absorption == 4.0 and state(pid).player.health.value == 20.0
   end
 
   test "Hunger drinking applies exhaustion before food spending and milk stops the owned request",

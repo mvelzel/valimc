@@ -1,7 +1,7 @@
 # VMC-037j — Owned Absorption
 
-Status: Native attribute/effect foundation verified; live Absorption unsupported.
-Damage spending, durable pool and metadata/owner composition follow.
+Status: Owned Absorption implemented locally;128 affected checks pass. Production,
+native TCP and actual-client gates remain before publication/Done.
 
 Acceptance: native golden-heart pool and maximum, effect add/upgrade/promotion/
 removal, damage spending after defenses, immunity/source exclusions, persistence
@@ -74,3 +74,23 @@ existing fixtures:340 packets/272 velocities total. Fourteen affected checks
 pass(seed588468), including metadata bounds; no new live emission yet. Raw:
 `.local/absorption-entities.log`, `.local/absorption-entity-{native,elixir,decode}.log`,
 `.local/absorption-packet-targeted.log`.
+
+Owned composition uses the existing player state/clock and consumption checkpoint.
+Native start hooks run for every accepted incoming dose, even unchanged refreshes;
+milk/removal and hidden promotion clamp without refill. Damage spends the pool
+after existing armor/Resistance/Protection, exhausting food only for residual red
+damage. Depletion ends hidden/infinite heads; admitted status requests spend the
+pre-expiry pool before final duration/max clamping. Login restores/clamps the saved
+amount without starting a dose; Respawn resets it. Cached maximum/pool changes
+replicate to self/nearby peers and fresh tracking. No extra owner/timer or global
+gameplay lane; unchanged durations do not emit attribute/heart packets.
+
+128 affected checks pass(seed812851), including both-hand golden-heart TCP data,
+spent reconnect/no replay, mixed Absorption/harming order, unchanged weak refill,
+milk/expiry/promotion/depletion, creative immunity, fully absorbed campfire food
+cost and whole negative-healing refusal. Existing periodic/health/food/death/drop/
+store/codec checks pass. Initial integration exposed an old219-byte snapshot
+expectation (v19 adds5) and an assertion that ETS must retain one exact stale
+effect head; newer observations are legitimate, while owner/save durations remain
+exact. Both expectations were corrected before the passing run. Raw:
+`.local/absorption-live-targeted-final.log`. Frozen production/client gate follows.

@@ -1,5 +1,5 @@
 defmodule Valimc.PlayerAbsorption do
-  @moduledoc "Pure golden-heart limits and effect hooks; live damage, persistence and replication remain separate."
+  @moduledoc "Pure golden-heart state and effect hooks; the player owner commits and replicates outcomes."
   alias Valimc.{PlayerEffects, StatusEffect}
   alias Valimc.Protocol.EffectTypes
   @absorption EffectTypes.id("absorption")
@@ -9,6 +9,21 @@ defmodule Valimc.PlayerAbsorption do
   @float_max 3.4028234663852886e38
 
   def valid?(pool), do: bounded?(pool, 0, @attribute["max"]) and f32(pool) == pool
+
+  def reconcile(player, incoming_amplifier \\ nil) do
+    {:ok, derived} = derive(player.effects)
+    {:ok, pool} = set(Map.get(player, :absorption, 0.0), derived.maximum)
+
+    pool =
+      if incoming_amplifier == nil do
+        pool
+      else
+        {:ok, started} = start(pool, derived.maximum, incoming_amplifier)
+        started
+      end
+
+    Map.put(player, :absorption, pool)
+  end
 
   def derive(effects, base \\ 0.0) do
     if PlayerEffects.valid?(effects) and bounded?(base, 0, @attribute["max"]) do

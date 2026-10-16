@@ -4,6 +4,7 @@ defmodule Valimc.PlayerConsumption do
     ConsumableRemoval,
     InstantEffect,
     Inventory,
+    PlayerAbsorption,
     PlayerDamage,
     PlayerEffects,
     PlayerFood,
@@ -12,6 +13,7 @@ defmodule Valimc.PlayerConsumption do
 
   alias Valimc.Protocol.EffectTypes
   @heal EffectTypes.id("instant_health")
+  @absorption EffectTypes.id("absorption")
   @instant Enum.map(~w(instant_health instant_damage saturation), &EffectTypes.id/1)
 
   @doc "Negative signed healing's zero-health lifecycle remains unsupported; refuse the whole drink."
@@ -56,7 +58,7 @@ defmodule Valimc.PlayerConsumption do
 
     %{
       transition
-      | player: %{transition.player | effects: effects},
+      | player: PlayerAbsorption.reconcile(%{transition.player | effects: effects}),
         effects: Enum.map(removed, &{:remove, &1})
     }
   end
@@ -75,7 +77,14 @@ defmodule Valimc.PlayerConsumption do
             do: current.effects ++ [{:update, id, hd(effects[id]), new}],
             else: current.effects
 
-        %{current | player: %{current.player | effects: effects}, effects: events}
+        player = %{current.player | effects: effects}
+
+        player =
+          if id == @absorption,
+            do: PlayerAbsorption.reconcile(player, elem(head, 1)),
+            else: player
+
+        %{current | player: player, effects: events}
       end
     end)
   end

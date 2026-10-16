@@ -45,8 +45,8 @@ defmodule Valimc.PlayerStoreTest do
     assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000
     wait_for_departure(name, uuid)
     bytes = File.read!(Store.path(base, uuid))
-    assert byte_size(bytes) == 219
-    assert {:ok, %{effects: %{}}} = Valimc.PlayerSnapshot.decode(bytes, uuid)
+    assert byte_size(bytes) == 224
+    assert {:ok, %{effects: %{}, absorption: +0.0}} = Valimc.PlayerSnapshot.decode(bytes, uuid)
 
     {^uuid, second} = Client.login(name)
     assert second.pose == pose()

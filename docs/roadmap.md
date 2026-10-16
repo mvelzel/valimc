@@ -46,11 +46,10 @@ expiry, creative/unsupported negatives and reconnect. Publication follows separa
 **Final integration:** [Instant Saturation drinks](tickets/VMC-037i.md), `7b65f32`:
 98,304 native callbacks,69 affected/1,354 full tests, production/both TCP transports
 and all five actual-client groups pass. Full native integration runs before publication.
-**Researching:** [Absorption](tickets/VMC-037j.md):6,912 native attribute/setter
-contexts,240 refreshes/80 ticks/four promotions/48 removals and10 affected checks
-pass;40,392 native damage/health/food transitions and14 affected checks pass too.
-Durable pool35 checks and269 native Absorption packets pass; live owner
-composition precedes admission.
+**Implementing:** [Absorption](tickets/VMC-037j.md): native pool/effect lifecycle,
+40,392 damage/food contexts, durable v19 and269 packets pass. Owned drinking,
+damage/milk/expiry/promotion/depletion/reconnect and self/peer replication pass128
+affected checks; production/TCP/client gates follow.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

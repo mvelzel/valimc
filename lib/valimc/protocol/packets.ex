@@ -397,6 +397,9 @@ defmodule Valimc.Protocol.Packets do
   def player_health(player),
     do: EntityPackets.metadata(player.entity_id, health: player_health_value(player))
 
+  def player_absorption(player),
+    do: EntityPackets.metadata(player.entity_id, absorption: Map.get(player, :absorption, 0.0))
+
   def player_use(player),
     do: EntityPackets.metadata(player.entity_id, living_flags: Map.get(player, :use_flags, 0))
 

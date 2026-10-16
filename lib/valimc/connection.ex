@@ -28,6 +28,7 @@ defmodule Valimc.Connection do
     PeriodicEffect,
     Players,
     PlayerAbilities,
+    PlayerAbsorption,
     PlayerAirEffects,
     PlayerMovementSpeed,
     PlayerEnvironment,
@@ -66,9 +67,10 @@ defmodule Valimc.Connection do
   @fire_resistance EffectTypes.id("fire_resistance")
   @resistance EffectTypes.id("resistance")
   @hunger EffectTypes.id("hunger")
+  @absorption EffectTypes.id("absorption")
   @periodic_effects Enum.sort(Enum.map(~w(regeneration hunger poison wither), &EffectTypes.id/1))
   @instant_effects Enum.map(~w(instant_health instant_damage saturation), &EffectTypes.id/1)
-  @live_effects [@fire_resistance, @resistance, EffectTypes.id("water_breathing")] ++
+  @live_effects [@fire_resistance, @resistance, @absorption, EffectTypes.id("water_breathing")] ++
                   Enum.map(~w(speed slowness), &EffectTypes.id/1) ++
                   @periodic_effects
   @use_item_packet Data.id(:play, :serverbound, "use_item")
@@ -193,6 +195,12 @@ defmodule Valimc.Connection do
         {:ok, effects, changed} ->
           new = not Map.has_key?(state.player.effects, id)
           player = %{state.player | effects: effects}
+
+          player =
+            if id == @absorption and incoming != :remove,
+              do: PlayerAbsorption.reconcile(player, elem(hd(incoming), 1)),
+              else: PlayerAbsorption.reconcile(player)
+
           next = %{state | player: player}
 
           try do
@@ -206,7 +214,7 @@ defmodule Valimc.Connection do
             end
 
             Players.update(self(), player)
-            {:reply, {:ok, changed}, publish_movement_speed(next)}
+            {:reply, {:ok, changed}, next |> publish_movement_speed() |> publish_absorption()}
           catch
             {:disconnect, _, current} -> {:stop, :normal, {:error, :disconnected}, current}
           end
@@ -305,6 +313,7 @@ defmodule Valimc.Connection do
        motion_window: nil,
        simulation_clock: nil,
        movement_speed_view: nil,
+       absorption_view: nil,
        food_tick_origin: 0,
        simulation_due: false,
        air_policy: :none,
@@ -1600,7 +1609,12 @@ defmodule Valimc.Connection do
               state
             end
 
-          state = state |> publish_equipment() |> stop_item_use() |> publish_movement_speed()
+          state =
+            state
+            |> publish_equipment()
+            |> stop_item_use()
+            |> publish_movement_speed()
+            |> publish_absorption()
 
           send_packets(state, [
             Packets.health(state.player.health, state.player.food),
@@ -1763,6 +1777,7 @@ defmodule Valimc.Connection do
           Packets.player_health(state.player)
         ])
 
+        state = publish_absorption(state)
         state = if health.value <= 0, do: death_notice(state, true, source), else: state
         send(self(), :drain)
         {if(health.value <= 0, do: :dead, else: :hurt), continue_life(state)}
@@ -1881,6 +1896,7 @@ defmodule Valimc.Connection do
         air_policy: :none,
         environment_effects: %{},
         movement_speed_view: nil,
+        absorption_view: nil,
         fire_damage_due: false,
         fire_contacts_active: false,
         active_use: nil,
@@ -1921,7 +1937,7 @@ defmodule Valimc.Connection do
       ] ++ weather_packets
     )
 
-    state = state |> publish_movement_speed() |> relocate(player)
+    state = state |> publish_movement_speed() |> publish_absorption() |> relocate(player)
 
     for pid <- Players.nearby(state.regions),
         pid != self(),
@@ -2296,6 +2312,7 @@ defmodule Valimc.Connection do
       air_supply: Valimc.PlayerAir.maximum(),
       fire_ticks: 0,
       effects: %{},
+      absorption: 0.0,
       food: %PlayerFood{},
       use_flags: 0,
       equipment: %{},
@@ -2351,9 +2368,11 @@ defmodule Valimc.Connection do
               air_supply: Map.get(snapshot, :air_supply, Valimc.PlayerAir.maximum()),
               fire_ticks: Map.get(snapshot, :fire_ticks, 0),
               effects: Map.get(snapshot, :effects, %{}),
+              absorption: Map.get(snapshot, :absorption, 0.0),
               food: Map.get(snapshot, :food, %PlayerFood{})
           }
 
+          player = PlayerAbsorption.reconcile(player)
           player = if health.value <= 0, do: PlayerLife.dead(player), else: player
 
           unless Enum.all?(player.effects, fn {id, _} -> id in @live_effects end),
@@ -2448,7 +2467,7 @@ defmodule Valimc.Connection do
       end)
     )
 
-    state = publish_movement_speed(state)
+    state = state |> publish_movement_speed() |> publish_absorption()
     existing = Players.ready(self())
     state = update_view(state)
 
@@ -2482,6 +2501,39 @@ defmodule Valimc.Connection do
       {:ok, derived} = PlayerMovementSpeed.derive(state.player.effects, sprint)
       send_packets(state, [Packets.movement_attributes(state.player, derived.attribute)])
       %{state | movement_speed_view: signature}
+    end
+  end
+
+  defp absorption_level(effects) do
+    case effects[@absorption] do
+      nil -> nil
+      [{_, amp, _, _, _} | _] -> amp
+    end
+  end
+
+  defp publish_absorption(state) do
+    view = {absorption_level(state.player.effects), state.player.absorption}
+
+    if view == state.absorption_view do
+      state
+    else
+      previous = state.absorption_view
+      {:ok, derived} = PlayerAbsorption.derive(state.player.effects)
+
+      packets =
+        if previous == nil or elem(previous, 0) != elem(view, 0),
+          do: [Packets.absorption_attributes(state.player, derived.attribute)],
+          else: []
+
+      packets =
+        if previous == nil or elem(previous, 1) != elem(view, 1),
+          do: packets ++ [Packets.player_absorption(state.player)],
+          else: packets
+
+      Players.update(self(), state.player)
+      send_packets(state, packets)
+      Enum.each(packets, &broadcast_player_packet(state, &1))
+      %{state | absorption_view: view}
     end
   end
 
@@ -2799,7 +2851,11 @@ defmodule Valimc.Connection do
 
   defp tick_effects(%{life_stage: :alive, player: %{effects: effects}} = state)
        when map_size(effects) > 0 do
+    before_level = absorption_level(effects)
+    depleted = Map.has_key?(effects, @absorption) and state.player.absorption == 0
+    effects = if depleted, do: Map.delete(effects, @absorption), else: effects
     {:ok, after_effects, events} = PlayerEffects.tick(effects)
+    events = if depleted, do: [{:remove, @absorption} | events], else: events
     # Requests read pre-decrement heads. Publish the final duration map to this
     # owner before health application can seal a durable death snapshot.
     state = %{state | player: %{state.player | effects: after_effects}}
@@ -2825,7 +2881,24 @@ defmodule Valimc.Connection do
         end
       end)
 
-    player = next.player
+    {next, events} =
+      if next.life_stage == :alive and next.player.absorption == 0 and
+           Map.has_key?(next.player.effects, @absorption) do
+        player = %{next.player | effects: Map.delete(next.player.effects, @absorption)}
+        events = Enum.reject(events, fn event -> elem(event, 1) == @absorption end)
+        {%{next | player: player}, events ++ [{:remove, @absorption}]}
+      else
+        {next, events}
+      end
+
+    # Damage requests above spend the pre-expiry pool; promotion/removal then
+    # clamps it to the final maximum without starting another dose.
+    player =
+      if next.life_stage == :alive and before_level != absorption_level(next.player.effects),
+        do: PlayerAbsorption.reconcile(next.player),
+        else: next.player
+
+    next = %{next | player: player}
 
     packets =
       Enum.map(events, fn
@@ -2834,7 +2907,7 @@ defmodule Valimc.Connection do
       end)
 
     send_packets(next, packets)
-    publish_movement_speed(next)
+    next |> publish_movement_speed() |> publish_absorption()
   end
 
   defp tick_effects(state), do: state
@@ -3277,7 +3350,12 @@ defmodule Valimc.Connection do
                       Packets.player_pose(player),
                       Packets.player_environment(player),
                       Packets.player_use(player),
-                      Packets.player_health(player)
+                      Packets.player_health(player),
+                      Packets.player_absorption(player),
+                      Packets.absorption_attributes(
+                        player,
+                        elem(PlayerAbsorption.derive(player.effects), 1).attribute
+                      )
                     ] ++ Packets.player_equipment(player)
 
               [Packets.player_info(player) | body]
