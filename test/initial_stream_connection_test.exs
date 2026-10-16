@@ -54,8 +54,14 @@ defmodule Valimc.InitialStreamConnectionTest do
     assert state.chunks == MapSet.new()
 
     packets = state.packets
+    window = state.window
     Client.send_packet(client, :play, "chunk_batch_received", <<8.0::float-32>>)
-    wait(fn -> :sys.get_state(owner).packets > packets end)
+
+    wait(fn ->
+      current = :sys.get_state(owner)
+      current.packets > packets or (current.window != window and current.packets > 0)
+    end)
+
     send(owner, :send_chunks)
     assert :sys.get_state(owner).teleport_pending
     {client, names} = drain(client)

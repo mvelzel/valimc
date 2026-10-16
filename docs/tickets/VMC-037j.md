@@ -94,3 +94,13 @@ expectation (v19 adds5) and an assertion that ETS must retain one exact stale
 effect head; newer observations are legitimate, while owner/save durations remain
 exact. Both expectations were corrected before the passing run. Raw:
 `.local/absorption-live-targeted-final.log`. Frozen production/client gate follows.
+
+Frozen958c8ee production and both native TCP transports pass. Initial larger suite
+passes1,364/1,368: three old fixtures expected pre-v19 bytes, and the initial-stream
+test compared a per-second rate counter across its rollover. Current fixtures
+include the zero pool; migration asserts v19. The stream test now observes the
+counter's window too, preserving its no-chunks-before-ack assertion. All12 affected
+checks pass(seed825783); full suite rerun follows. These are test-only corrections;
+the immutable production runtime under graphical verification stays unchanged.
+Raw `.local/absorption-live-{production,native-tcp,full-tests}.log`,
+`.local/absorption-full-integration-fixes-targeted.log`.

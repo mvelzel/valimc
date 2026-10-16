@@ -50,6 +50,8 @@ and all five actual-client groups pass. Full native integration runs before publ
 40,392 damage/food contexts, durable v19 and269 packets pass. Owned drinking,
 damage/milk/expiry/promotion/depletion/reconnect and self/peer replication pass128
 affected checks; production/TCP/client gates follow.
+**Next:** [stock food status callbacks](tickets/VMC-036e.md): native chance/group
+semantics for golden apples and ordinary harmful foods, then owned completion.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
