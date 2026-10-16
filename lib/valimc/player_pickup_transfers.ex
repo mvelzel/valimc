@@ -8,6 +8,7 @@ defmodule Valimc.PlayerPickupTransfers do
       when is_integer(sequence) and sequence >= 0 and sequence < @max_sequence and hp > 0 do
     with true <- Map.get(snapshot, :outbox) == nil,
          true <- Map.get(snapshot, :transfer_sequence, sequence) == sequence,
+         {:ok, intent} <- assign_source(intent, uuid, sequence + 1),
          {:ok, bound} <- PlayerPickupIntent.bind(intent, snapshot),
          {:ok, bytes} <- PlayerPickupIntent.encode(uuid, sequence + 1, bound),
          {:ok, canonical} <- PlayerPickupIntent.decode(uuid, sequence + 1, bytes),
@@ -46,4 +47,11 @@ defmodule Valimc.PlayerPickupTransfers do
   end
 
   def resolve(_, _, _), do: {:error, :invalid_pickup_plan}
+
+  defp assign_source(%{request: request} = intent, uuid, sequence) do
+    if Map.get(request, :source, uuid) == uuid and
+         Map.get(request, :sequence, sequence) == sequence,
+       do: {:ok, %{intent | request: Map.merge(request, %{source: uuid, sequence: sequence})}},
+       else: {:error, :invalid_pickup_plan}
+  end
 end

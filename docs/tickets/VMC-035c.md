@@ -100,3 +100,15 @@ change cannot dispose of a survival remainder or strand a creative overflow inte
 admission/writer pauses, expiry, partial conservation, competing players, owner
 restart before/after withdrawal, source reopen and disconnect with a mode change.
 Automatic player discovery/collection, replication callbacks and GUI checks follow.
+
+Automatic collection checkpoint: each player rotates nearby visible candidates,
+with one bounded I/O query and no idle jobs in empty scenes. Publications carry
+position/delay hints only; the region rechecks current authority. Accepted pose,
+mode, health, loading, teleport and inventory lanes fence returned grants. The
+leased writer assigns the source sequence and retains original inventory until
+proof. Unusable grants release without consuming receipt history. Whole pickup
+publishes the native callback after commit; partial false callbacks do not animate.
+73 affected checks pass(seed476133), `.local/pickup-auto-checkpoint-targeted.log`:
+real TCP whole/partial/full/creative, delay, spectator/range, adjacent-owner contact,
+late-grant movement, fair discovery, two-player races and fresh login; mining/use/
+table regressions also pass. Broader integration/build and actual Minecraft follow.

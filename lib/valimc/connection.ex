@@ -37,6 +37,8 @@ defmodule Valimc.Connection do
     PlayerMiningAttempt,
     PlayerMiningQuery,
     PlayerPlacementQuery,
+    PlayerPickupIntent,
+    PlayerPickupQuery,
     PlayerPoseQuery,
     PlayerSnapshot,
     PlayerStore,
@@ -211,6 +213,8 @@ defmodule Valimc.Connection do
        life_stage: :alive,
        respawn_requested: false,
        recovery: nil,
+       pickup_job: nil,
+       pickup_cursor: 0,
        creative_input: CreativeInput.new(creative_tick()),
        creative_drain_scheduled: false,
        chunks: MapSet.new(),
@@ -500,12 +504,50 @@ defmodule Valimc.Connection do
 
   def handle_info({:transfer_delivered, _, _, _}, state), do: {:noreply, state}
 
+  def handle_info({ref, result}, %{pickup_job: %{task: %Task{ref: ref}} = job} = state) do
+    Process.demonitor(ref, [:flush])
+    Process.cancel_timer(job.timer)
+
+    guard_connection(state, fn ->
+      state = %{state | pickup_job: nil}
+
+      case result do
+        {:ok, reservation} -> {:noreply, prepare_pickup(state, job, reservation)}
+        _ -> {:noreply, state}
+      end
+    end)
+  end
+
+  def handle_info({:pickup_deadline, ref}, %{pickup_job: %{task: %Task{ref: ref}}} = state),
+    do: {:noreply, cancel_pickup_query(state)}
+
+  def handle_info({:pickup_deadline, _}, state), do: {:noreply, state}
+
+  def handle_info({:DOWN, ref, :process, _, _}, %{pickup_job: %{task: %Task{ref: ref}}} = state),
+    do: {:noreply, cancel_pickup_query(state)}
+
   def handle_info(
         {:player_transfer_saved, ref, {:ok, fence, snapshot}},
         %{recovery: %{stage: :prepare, ref: ref, plan: plan} = recovery} = state
       ) do
     guard_connection(state, fn ->
-      expected_outbox = Map.get(plan, :intent, %{key: plan.key, records: plan.records})
+      expected_outbox =
+        if plan[:intent] && plan.intent[:kind] == :pickup do
+          intent =
+            %{
+              plan.intent
+              | request:
+                  Map.merge(
+                    plan.intent.request,
+                    %{source: state.player.uuid, sequence: snapshot.transfer_sequence}
+                  )
+            }
+
+          {:ok, intent} = PlayerPickupIntent.bind(intent, plan.snapshot)
+          intent
+        else
+          Map.get(plan, :intent, %{key: plan.key, records: plan.records})
+        end
 
       if snapshot.outbox != expected_outbox or
            snapshot.inventory.slots != plan.inventory.slots or
@@ -1018,6 +1060,8 @@ defmodule Valimc.Connection do
           end)
 
         desired_items = World.visible_items(state.regions, state.chunks)
+
+        state = start_pickup_query(state, desired_items)
 
         {item_replication, item_packets} =
           ItemReplication.reconcile(state.item_replication, desired_items)
@@ -2726,6 +2770,13 @@ defmodule Valimc.Connection do
 
   defp event(%{phase: :play} = state, {:player_joined, player}), do: track_peer(state, player)
 
+  defp event(%{phase: :play} = state, {:item_pickup, epoch, id, collector, count}) do
+    if match?({^epoch, _}, state.item_replication.tracked[id]),
+      do: send_packets(state, [Valimc.Protocol.EntityPackets.pickup(id, collector, count)])
+
+    state
+  end
+
   defp event(%{phase: :play} = state, {:player_packet, pid, entity, packet}) do
     case Map.get(state.peers, pid) do
       view when is_tuple(view) and elem(view, 0) == entity -> send_packets(state, [packet])
@@ -2915,6 +2966,106 @@ defmodule Valimc.Connection do
     prepare_inventory_transfer(state, inventory, stacks, crafting)
   end
 
+  defp pickup_allowed?(state) do
+    state.phase == :play and state.life_stage == :alive and state.player.health.value > 0 and
+      state.player.game_mode.current in [:survival, :adventure, :creative] and
+      PlayerInput.loaded?(state.player.input) and not state.teleport_pending and
+      not inventory_pending(state) and state.save_ref == nil and state.placement_job == nil and
+      state.pose_checked == pose_signature(state) and state.motion_pending == nil
+  end
+
+  defp start_pickup_query(%{pickup_job: job} = state, _) when job != nil, do: state
+
+  defp start_pickup_query(state, views) when map_size(views) == 0, do: state
+
+  defp start_pickup_query(state, views) do
+    if pickup_allowed?(state) do
+      {:ok, actor} = PlayerPickupQuery.actor(state.player)
+
+      case PlayerPickupQuery.candidate(views, actor.box, state.pickup_cursor) do
+        nil ->
+          state
+
+        {id, view} ->
+          state = %{state | pickup_cursor: id}
+
+          case PlayerPickupQuery.start(actor, view) do
+            {:ok, task} ->
+              timer = Process.send_after(self(), {:pickup_deadline, task.ref}, 500)
+
+              %{
+                state
+                | pickup_job: %{
+                    task: task,
+                    timer: timer,
+                    signature: PlayerPickupQuery.signature(state.player)
+                  }
+              }
+
+            _ ->
+              state
+          end
+      end
+    else
+      state
+    end
+  end
+
+  defp prepare_pickup(state, job, reservation) do
+    result =
+      with true <- pickup_allowed?(state),
+           true <- job.signature == PlayerPickupQuery.signature(state.player),
+           {:ok, _next, remainder, _callback} <-
+             Inventory.pickup_stack(state.inventory, reservation.grant.before),
+           true <- remainder != reservation.grant.before do
+        snapshot = PlayerSnapshot.capture(state.player, state.inventory)
+
+        intent = %{
+          kind: :pickup,
+          key: reservation.key,
+          request: Map.put(reservation.grant, :remainder, remainder)
+        }
+
+        ref = make_ref()
+
+        recovery = %{
+          new_recovery(:play, :prepare, nil)
+          | ref: ref,
+            plan: %{
+              key: reservation.key,
+              records: [],
+              inventory: state.inventory,
+              intent: intent,
+              snapshot: snapshot
+            }
+        }
+
+        PlayerStore.prepare_pickup(state.player_store, state.store_fence, snapshot, intent, ref)
+        {:ok, %{state | recovery: recovery}}
+      else
+        _ -> :unavailable
+      end
+
+    case result do
+      {:ok, next} ->
+        next
+
+      _ ->
+        PlayerPickupQuery.release(reservation, state.player.uuid)
+        state
+    end
+  end
+
+  defp cancel_pickup_query(%{pickup_job: nil} = state), do: state
+
+  defp cancel_pickup_query(state) do
+    job = state.pickup_job
+    Process.cancel_timer(job.timer)
+    Process.exit(job.task.pid, :kill)
+    Process.demonitor(job.task.ref, [:flush])
+    %{state | pickup_job: nil}
+  end
+
   defp prepare_inventory_transfer(state, inventory, stacks, crafting \\ nil) do
     case Valimc.PlayerDrops.records(state.player, stacks, :directed) do
       {:ok, key, records} -> prepare_drop_transfer(state, inventory, key, records, crafting)
@@ -3011,6 +3162,8 @@ defmodule Valimc.Connection do
   defp mining_changed(state), do: %{state | mining: %{state.mining | needs_check: true}}
 
   defp tick_mining(%{mining: nil} = state), do: state
+
+  defp tick_mining(%{recovery: %{plan: %{intent: %{kind: :pickup}}}} = state), do: state
 
   defp tick_mining(state) do
     mining = state.mining
@@ -4149,6 +4302,7 @@ defmodule Valimc.Connection do
 
   @impl true
   def terminate(_reason, state) do
+    cancel_pickup_query(state)
     cancel_mining(state)
 
     if state.placement_job do

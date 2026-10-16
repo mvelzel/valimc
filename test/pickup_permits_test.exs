@@ -57,6 +57,11 @@ defmodule Valimc.PickupPermitsTest do
 
     assert {:error, :pickup_already_pending} =
              PickupPermits.issue(permits, receipts, items, actor, record.uuid, 1100)
+
+    assert PickupPermits.release(permits, request.permit, <<2::128>>) == permits
+    released = PickupPermits.release(permits, request.permit, actor.uuid)
+    assert released.entries == %{}
+    assert {:ok, _, _} = PickupPermits.issue(released, receipts, items, actor, record.uuid, 1100)
   end
 
   test "fresh range, stack, pickup delay and ownership generation invalidate old grants" do

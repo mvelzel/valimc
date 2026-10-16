@@ -28,7 +28,12 @@ defmodule Valimc.World.Items do
           %{
             items
             | entries: Map.put(items.entries, id, entry),
-              views: Map.update!(items.views, id, &%{&1 | revision: revision})
+              views:
+                Map.update!(
+                  items.views,
+                  id,
+                  &%{&1 | revision: revision, pickup_delay: next.pickup_delay}
+                )
           }
         end
 
@@ -268,6 +273,8 @@ defmodule Valimc.World.Items do
         view = %{
           old
           | revision: revision + 1,
+            at: {x, y, z},
+            pickup_delay: motion.pickup_delay,
             chunk: Valimc.World.chunk_key(x, z),
             spawn: binary_packet(EntityPackets.spawn_item(entity)),
             position: position,
@@ -370,6 +377,8 @@ defmodule Valimc.World.Items do
         metadata_revision: 1,
         motion_revision: 1,
         chunk: Valimc.World.chunk_key(x, z),
+        at: {x, y, z},
+        pickup_delay: if(motion, do: motion.pickup_delay, else: 0),
         spawn: spawn,
         metadata: metadata,
         position: position,

@@ -27,12 +27,14 @@ defmodule Valimc.World.PickupPermits do
              true <- ItemPickup.eligible?(actor, entry) do
           token = :crypto.strong_rand_bytes(16)
 
-          actor = %{
-            uuid: source,
-            box: actor.box,
-            game_mode: actor.game_mode,
-            health: %{value: actor.health.value}
-          }
+          actor =
+            %{
+              uuid: source,
+              box: actor.box,
+              game_mode: actor.game_mode,
+              health: %{value: actor.health.value}
+            }
+            |> Map.merge(Map.take(actor, [:entity_id]))
 
           grant = %{
             source: source,
@@ -88,6 +90,13 @@ defmodule Valimc.World.PickupPermits do
   end
 
   def consume(permits, _, _, _), do: {permits, false}
+
+  def release(permits, token, source) do
+    case permits.entries[token] do
+      %{source: ^source} -> %{permits | entries: Map.delete(permits.entries, token)}
+      _ -> permits
+    end
+  end
 
   defp prune(permits, now),
     do: %{

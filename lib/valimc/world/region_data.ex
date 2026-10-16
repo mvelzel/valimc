@@ -270,7 +270,7 @@ defmodule Valimc.World.RegionData do
           {:error, :pickup_receipt_slot_required} ->
             with {:ok, {_, id, _}} <- Items.find(state.items, item_uuid),
                  true <- Valimc.Physics.ItemPickup.eligible?(actor, state.items.entries[id]) do
-              actor = Map.take(actor, [:uuid, :box, :game_mode, :health, :passenger])
+              actor = Map.take(actor, [:uuid, :entity_id, :box, :game_mode, :health, :passenger])
               plan_item_change(:pickup_admission, {actor, item_uuid, deadline}, from, state)
             else
               _ -> {:reply, {:error, :pickup_not_available}, state}
@@ -294,6 +294,12 @@ defmodule Valimc.World.RegionData do
         {:reply, {:error, :item_storage_busy}, state}
 
       true ->
+        grant =
+          case request do
+            %{permit: token} -> state.pickup_permits.entries[token]
+            _ -> nil
+          end
+
         {permits, eligible} =
           PickupPermits.consume(
             state.pickup_permits,
@@ -304,7 +310,9 @@ defmodule Valimc.World.RegionData do
 
         # This owner admits the decision now and freezes item mutations while
         # planning/persisting. Expiry after admission cannot change its ordering.
-        case plan_item_change(:item_pickup, {request, eligible}, from, state) do
+        effect = pickup_effect(state.items, request, grant, eligible)
+
+        case plan_item_change(:item_pickup, {request, eligible, effect}, from, state) do
           {:noreply, next} -> {:noreply, %{next | pickup_permits: permits}}
           reply -> reply
         end
@@ -876,13 +884,13 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  defp item_plan(:item_pickup, items, receipts, key, {request, eligible}) do
+  defp item_plan(:item_pickup, items, receipts, key, {request, eligible, effect}) do
     case PickupTransfers.plan(items, receipts, key, request, eligible) do
       {:ok, %{result: result}} when result in [:already_applied, :already_rejected] ->
         {:reply, {:ok, result}}
 
       {:ok, plan} ->
-        {:write, plan.items, plan.receipts, {:ok, plan.result}}
+        {:write, plan.items, plan.receipts, {:pickup_result, plan.result, effect}}
 
       error ->
         error
@@ -1213,6 +1221,11 @@ defmodule Valimc.World.RegionData do
   end
 
   def handle_info({:item_transfer_plan, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info({:release_pickup, token, source}, state),
+    do:
+      {:noreply,
+       %{state | pickup_permits: PickupPermits.release(state.pickup_permits, token, source)}}
 
   def handle_info(
         {:item_simulation, worker, token, result},
@@ -1640,6 +1653,21 @@ defmodule Valimc.World.RegionData do
 
   defp reply_item(nil, _), do: :ok
   defp reply_item(from, reply), do: GenServer.reply(from, reply)
+
+  defp pickup_effect(items, %{remainder: nil} = request, %{actor: %{entity_id: collector}}, true)
+       when is_integer(collector) and collector in 1..2_147_483_647 do
+    with {:ok, {epoch, id, _}} <- Items.find(items, request.item_uuid),
+         do: {:item_pickup, epoch, id, collector, request.before.count},
+         else: (_ -> nil)
+  end
+
+  defp pickup_effect(_, _, _, _), do: nil
+
+  defp finish_item_reply(state, from, {:pickup_result, result, effect}) do
+    if result == :applied and effect != nil, do: Valimc.World.publish(state.key, effect)
+    reply_item(from, {:ok, result})
+    state
+  end
 
   defp finish_item_reply(state, from, {:pickup_grant, actor, item_uuid, deadline}) do
     now = System.monotonic_time(:millisecond)

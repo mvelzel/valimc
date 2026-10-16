@@ -134,6 +134,9 @@ defmodule Valimc.World.Region do
   def apply_pickup_transfer({pid, epoch}, request),
     do: GenServer.call(pid, {:pickup_transfer, epoch, request}, 6000)
 
+  def release_pickup({pid, epoch}, token, source),
+    do: send(pid, {:resource, epoch, {:release_pickup, token, source}})
+
   @doc "Trusted same-owner pairs; reply follows one durable replacement/removal commit."
   def merge_items({pid, epoch}, pairs),
     do:
