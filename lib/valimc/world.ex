@@ -103,6 +103,37 @@ defmodule Valimc.World do
 
   def item_frame_current?(_), do: false
 
+  @doc "Invalidate a previously source-owner-authorized item snapshot; observations grant no authority."
+  def item_observation_current?(%{
+        key: key,
+        owner: {pid, epoch},
+        id: id,
+        uuid: uuid,
+        versions: versions,
+        expires_at: expires
+      }) do
+    true = is_integer(expires) and System.monotonic_time(:millisecond) < expires
+
+    case Directory.lookup(key) do
+      {^pid, _, %{epoch: ^epoch, items: table}} ->
+        case :ets.lookup(table, :items) do
+          [{:items, %{^id => view}}] ->
+            Process.alive?(pid) and view.uuid == uuid and
+              {view.metadata_revision, view.motion_revision} == versions
+
+          _ ->
+            false
+        end
+
+      _ ->
+        false
+    end
+  rescue
+    _ -> false
+  end
+
+  def item_observation_current?(_), do: false
+
   def item_snapshot(key) do
     case Directory.lookup(key) do
       {_, _, %{items: table}} ->

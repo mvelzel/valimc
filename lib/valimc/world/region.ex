@@ -159,6 +159,12 @@ defmodule Valimc.World.Region do
   def release_item_merge({pid, epoch}, token, source),
     do: send(pid, {:resource, epoch, {:release_item_merge, token, source}})
 
+  def item_merge_donor({pid, epoch}, uuid, recipient),
+    do: GenServer.call(pid, {:item_merge_donor, epoch, uuid, recipient}, 2000)
+
+  def apply_item_merge_counters({pid, epoch}, request, source_fence),
+    do: GenServer.call(pid, {:item_merge_counters, epoch, request, source_fence}, 2000)
+
   @doc "Trusted same-owner pairs; reply follows one durable replacement/removal commit."
   def merge_items({pid, epoch}, pairs),
     do:

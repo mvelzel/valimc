@@ -325,6 +325,75 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  def handle_call({:item_merge_donor, epoch, uuid, recipient}, _, state) do
+    with :ok <- cross_merge_ready(state, epoch),
+         true <- state.items.ledger.outgoing == nil,
+         {:ok, {^epoch, id, _}} <- Items.find(state.items, uuid) do
+      entry = state.items.entries[id]
+
+      record =
+        entry.entity
+        |> Map.take([:uuid, :x, :y, :z])
+        |> Map.put(:stack, entry.stack)
+        |> Map.put(
+          :motion,
+          Map.get(entry, :motion, %Valimc.ItemMotionState{no_gravity: entry.no_gravity})
+        )
+
+      view = state.items.views[id]
+
+      proposal = %{
+        source: state.key,
+        sequence: state.items.ledger.sequence + 1,
+        donor: record,
+        donor_generation: Map.get(state.items.ledger.generations, uuid, 0),
+        recipient_uuid: recipient
+      }
+
+      fence = %{
+        key: state.key,
+        owner: {self(), epoch},
+        id: id,
+        uuid: uuid,
+        versions: {view.metadata_revision, view.motion_revision},
+        expires_at: System.monotonic_time(:millisecond) + 250
+      }
+
+      {:reply, {:ok, proposal, fence}, state}
+    else
+      _ -> {:reply, {:error, :item_merge_not_available}, state}
+    end
+  end
+
+  def handle_call({:item_merge_counters, epoch, request, source_fence}, from, state) do
+    with :ok <- cross_merge_ready(state, epoch) do
+      {permits, permitted} =
+        ItemMergePermits.consume(
+          state.item_merge_permits,
+          state.items,
+          request,
+          System.monotonic_time(:millisecond)
+        )
+
+      valid =
+        permitted and
+          match?(
+            %{key: key, uuid: uuid} when key == request.source and uuid == request.donor.uuid,
+            source_fence
+          ) and
+          Valimc.World.item_observation_current?(source_fence)
+
+      # The source owner authorized this snapshot. Its publication only fences it;
+      # this admission orders the counter effect before later source changes.
+      case plan_item_change(:cross_merge_counters, {request, valid}, from, state) do
+        {:noreply, next} -> {:noreply, %{next | item_merge_permits: permits}}
+        reply -> reply
+      end
+    else
+      error -> {:reply, error, state}
+    end
+  end
+
   def handle_call({:reserve_item_merge, epoch, proposal, deadline}, from, state) do
     now = System.monotonic_time(:millisecond)
 
@@ -1028,6 +1097,11 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  defp item_plan(:cross_merge_counters, items, _, key, {request, permitted}) do
+    with {:ok, next} <- ItemMergeInbox.counter_plan(items, key, request, permitted),
+         do: {:reply, {:item_merge_counters, next}}
+  end
+
   defp item_plan(:item_merge, items, receipts, _key, {pairs, _deadline}) do
     merge_plan(items, receipts, pairs)
   end
@@ -1291,7 +1365,8 @@ defmodule Valimc.World.RegionData do
              :item_pickup,
              :cross_merge_admission,
              :cross_merge_out,
-             :cross_merge_in
+             :cross_merge_in,
+             :cross_merge_counters
            ] do
     Process.demonitor(pending.monitor, [:flush])
 
@@ -1842,6 +1917,22 @@ defmodule Valimc.World.RegionData do
       error ->
         reply_item(from, error)
         state
+    end
+  end
+
+  defp finish_item_reply(state, from, {:item_merge_counters, items}) do
+    reply_item(from, {:ok, :applied})
+
+    if items == state.items do
+      state
+    else
+      :ets.insert(state.item_publication, {:items, items.views})
+
+      schedule_item_checkpoint(%{
+        state
+        | items: items,
+          item_motion_generation: state.item_motion_generation + 1
+      })
     end
   end
 

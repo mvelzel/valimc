@@ -281,4 +281,51 @@ defmodule Valimc.ItemMergeInboxTest do
     assert dest.ledger.incoming[req.source].sequence == 7
     assert dest.ledger.incoming[other.source].sequence == 8
   end
+
+  test "zero-material custom merges synchronize counters without changing ownership or receipts" do
+    {_source, dest, req} = fixture()
+    stack = %{ItemStack.new("stone", 2) | components: %{"minecraft:max_stack_size" => 99}}
+
+    req = %{
+      req
+      | donor: %{req.donor | stack: stack},
+        recipient: %{req.recipient | stack: %{stack | count: 64}}
+    }
+
+    {:ok, dest} = Items.restore(req.destination, [req.recipient], dest.ledger)
+
+    {observer, _} =
+      Valimc.World.ItemReplication.reconcile(Valimc.World.ItemReplication.new(), dest.views)
+
+    assert {:ok, synced} = ItemMergeInbox.counter_plan(dest, req.destination, req, true)
+    assert [%{uuid: uuid, stack: %{count: 64}, motion: motion}] = Items.records(synced)
+    assert uuid == req.recipient.uuid and motion.age == 30 and motion.pickup_delay == 10
+    assert synced.ledger == dest.ledger and Map.keys(synced.entries) == Map.keys(dest.entries)
+    assert {^observer, []} = Valimc.World.ItemReplication.reconcile(observer, synced.views)
+
+    assert {:error, :item_merge_not_available} =
+             ItemMergeInbox.counter_plan(synced, req.destination, req, false)
+
+    recover(req.destination, synced)
+  end
+
+  test "counter effects cannot grant, withdraw or redistribute even valid merge material" do
+    {_source, dest, req} = fixture()
+
+    assert {:error, :item_merge_not_available} =
+             ItemMergeInbox.counter_plan(dest, req.destination, req, true)
+
+    stack = %{ItemStack.new("stone") | components: %{"minecraft:max_stack_size" => 99}}
+
+    reverse = %{
+      req
+      | donor: %{req.donor | stack: stack},
+        recipient: %{req.recipient | stack: %{stack | count: 65}}
+    }
+
+    {:ok, dest} = Items.restore(req.destination, [reverse.recipient], dest.ledger)
+
+    assert {:error, :item_merge_not_available} =
+             ItemMergeInbox.counter_plan(dest, req.destination, reverse, true)
+  end
 end

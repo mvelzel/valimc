@@ -320,4 +320,103 @@ defmodule Valimc.ItemCrossMergeRegionTest do
 
     assert disk(c, c.key).receipts == c.births and disk(c, c.destination).receipts == c.births
   end
+
+  test "counter-only native effects keep both entity identities and use coalesced persistence",
+       c do
+    c = custom_counter_fixture(c)
+
+    assert {:ok, proposal, fence} =
+             Region.item_merge_donor(c.source, c.donor.uuid, c.recipient.uuid)
+
+    assert World.item_observation_current?(fence)
+    assert {:ok, request} = Region.reserve_item_merge(c.target, proposal)
+    before = state(c.target)
+    writer = before.store
+    :sys.suspend(writer)
+
+    try do
+      assert {:ok, :applied} = Region.apply_item_merge_counters(c.target, request, fence)
+      after_effect = state(c.target)
+      assert after_effect.items.ledger == before.items.ledger
+      assert Map.keys(after_effect.items.entries) == Map.keys(before.items.entries)
+      assert [%{stack: %{count: 64}, motion: motion}] = Items.records(after_effect.items)
+      assert motion.age == 30 and motion.pickup_delay == 10
+      assert after_effect.item_motion_generation > after_effect.item_saved_generation
+      assert disk(c, c.destination).records == [c.recipient]
+      assert disk(c, c.key).records == [c.donor] and disk(c, c.key).ledger.sequence == 6
+      assert state(c.source).items.ledger.outgoing == nil
+
+      assert {:error, :item_merge_not_available} =
+               Region.apply_item_merge_counters(c.target, request, fence)
+
+      :sys.resume(writer)
+      {pid, _} = c.target
+      assert :ok = Region.flush(pid)
+
+      assert [%{stack: %{count: 64}, motion: %{age: 30, pickup_delay: 10}}] =
+               disk(c, c.destination).records
+
+      assert disk(c, c.destination).ledger.incoming[c.key].sequence == 0
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+    end
+  end
+
+  defp custom_counter_fixture(c) do
+    stack = %{ItemStack.new("stone", 2) | components: %{"minecraft:max_stack_size" => 99}}
+    donor = %{c.donor | stack: stack}
+    recipient = %{c.recipient | stack: %{stack | count: 64}}
+
+    for {owner, record} <- [{c.source, donor}, {c.target, recipient}] do
+      {:ok, {epoch, id, revision}} = Items.find(state(owner).items, record.uuid)
+      {pid, ^epoch} = owner
+      assert {:ok, _} = Region.replace_item({pid, epoch, id, revision}, record.stack)
+    end
+
+    %{c | donor: donor, recipient: recipient}
+  end
+
+  test "source publication invalidates prior owner authority after motion or expiry", c do
+    c = custom_counter_fixture(c)
+
+    assert {:ok, proposal, fence} =
+             Region.item_merge_donor(c.source, c.donor.uuid, c.recipient.uuid)
+
+    assert {:ok, request} = Region.reserve_item_merge(c.target, proposal)
+    {:ok, {_, id, revision}} = Items.find(state(c.source).items, c.donor.uuid)
+
+    step = %{
+      id: id,
+      revision: revision,
+      position: {c.donor.x - 3.0, c.donor.y, c.donor.z},
+      motion: c.donor.motion
+    }
+
+    assert {:ok, [handle]} = Region.advance_items(c.source, [step])
+    refute World.item_observation_current?(fence)
+
+    assert {:error, :item_merge_not_available} =
+             Region.apply_item_merge_counters(c.target, request, fence)
+
+    assert disk(c, c.destination).records == [c.recipient]
+
+    {_, _, id, revision} = handle
+
+    assert {:ok, [_]} =
+             Region.advance_items(c.source, [
+               %{step | id: id, revision: revision, position: {c.donor.x, c.donor.y, c.donor.z}}
+             ])
+
+    assert {:ok, proposal, expired} =
+             Region.item_merge_donor(c.source, c.donor.uuid, c.recipient.uuid)
+
+    Process.sleep(260)
+    assert {:ok, request} = Region.reserve_item_merge(c.target, proposal)
+    refute World.item_observation_current?(expired)
+
+    assert {:error, :item_merge_not_available} =
+             Region.apply_item_merge_counters(c.target, request, expired)
+
+    assert disk(c, c.destination).records == [c.recipient]
+  end
 end

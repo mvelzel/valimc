@@ -31,6 +31,21 @@ defmodule Valimc.World.ItemMergeInbox do
 
   def apply(_, _, _, _), do: {:error, :invalid_item_merge_transfer}
 
+  @doc "A one-shot owner-authorized counter effect moves no material and advances no transfer receipt."
+  def counter_plan(items, key, request, true) do
+    with true <- request.destination == key,
+         {:ok, _} <- ItemMergeTransfer.digest(request),
+         {:ok, next} <- update(items, key, request, true) do
+      {:ok, next}
+    else
+      _ -> {:error, :item_merge_not_available}
+    end
+  rescue
+    _ -> {:error, :item_merge_not_available}
+  end
+
+  def counter_plan(_, _, _, _), do: {:error, :item_merge_not_available}
+
   defp plan(items, key, request, permitted) do
     {next, result} =
       case if(permitted, do: update(items, key, request), else: :rejected) do
@@ -45,7 +60,7 @@ defmodule Valimc.World.ItemMergeInbox do
          do: {:ok, %{next | ledger: ledger}, result}
   end
 
-  defp update(items, key, request) do
+  defp update(items, key, request, counters_only \\ false) do
     with {:error, :missing_item} <- Items.find(items, request.donor.uuid),
          {:ok, {epoch, id, revision}} <- Items.find(items, request.recipient.uuid),
          current = items.entries[id],
@@ -55,6 +70,9 @@ defmodule Valimc.World.ItemMergeInbox do
              request.recipient_generation,
          actual = record(current),
          {:ok, decision} <- ItemMergeTransfer.decision(%{request | recipient: actual}),
+         true <-
+           not counters_only or
+             (decision.stack == current.stack and decision.donor_stack == request.donor.stack),
          {:ok, next, {^epoch, ^id, revision}} <-
            Items.replace(items, epoch, id, revision, decision.stack),
          {:ok, next, [_]} <-
