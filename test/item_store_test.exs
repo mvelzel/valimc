@@ -327,6 +327,30 @@ defmodule Valimc.ItemStoreTest do
              Region.apply_item_transfer({elem(owner, 0), elem(ctx.owner, 1)}, request)
   end
 
+  test "moving transfer intent survives real writer recovery and removal retains its receipt",
+       ctx do
+    request = transfer(ctx)
+    motion = %Valimc.ItemMotionState{velocity: {0.3, 0.1, -0.2}, pickup_delay: 40}
+    record = Map.put(hd(request.records), :motion, motion)
+    request = %{request | records: [record]}
+    assert {:ok, :applied} = Region.apply_item_transfer(ctx.owner, request)
+    path = Store.item_path(ctx.base, ctx.key)
+    assert <<"VMCITEMS", 3, _::binary>> = bytes = File.read!(path)
+    assert {:ok, %{records: [^record], receipts: receipts}} = ItemRecords.decode(bytes, ctx.key)
+    owner = replace_owner(ctx)
+    assert [^record] = Valimc.World.Items.records(:sys.get_state(elem(owner, 0)).resource.items)
+    assert {:ok, :already_applied} = Region.apply_item_transfer(owner, request)
+    assert File.read!(path) == bytes
+    assert {:ok, handle} = Region.find_item(owner, record.uuid)
+    assert :ok = Region.remove_item(handle)
+    final = replace_owner(%{ctx | pid: elem(owner, 0)}, :shutdown)
+    assert {:ok, :already_applied} = Region.apply_item_transfer(final, request)
+    assert World.item_snapshot(ctx.key) == %{}
+
+    assert {:ok, %{records: [], receipts: ^receipts}} =
+             ItemRecords.decode(File.read!(path), ctx.key)
+  end
+
   test "scene updates and block snapshots retain the inbox receipt", ctx do
     request = transfer(ctx)
     assert {:ok, :applied} = Region.apply_item_transfer(ctx.owner, request)

@@ -47,7 +47,7 @@ private inspection `.local/item-entity-bytecode.txt`. Both public probes also pa
 through registered `java_tool.py` invocations and their Elixir checkers; raw
 `.local/item-{drop,motion}-registered-{native.json,native.log,check.log}`.
 
-Next: durable velocity/delay records and ordered owner commits, bounded active-item
+Next: [durable velocity/delay records](VMC-035a1.md) and ordered owner commits, bounded active-item
 geometry work, replication, resting/support wakeups and cross-owner handoff. Retain
 source retry receipts after moves/pickups so old deliveries cannot recreate items.
 Live composition remains pending. Frozen `f31f178` baseline client smoke passed:

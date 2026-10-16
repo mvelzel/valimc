@@ -1,5 +1,7 @@
 defmodule Valimc.World.ItemRecords do
-  @moduledoc "Bounded stationary items and retry receipts; runtime handles are never persisted."
+  @moduledoc "Bounded items, optional motion and retry receipts; runtime handles are never persisted."
+  import Bitwise
+  alias Valimc.ItemMotionState
   alias Valimc.Protocol.{ItemStack, ItemTypes}
   alias Valimc.World.Items
   @data_version 5023
@@ -19,15 +21,18 @@ defmodule Valimc.World.ItemRecords do
     records = Enum.take(records, @max_count + 1)
     check(length(records) <= @max_count)
     check(length(Enum.uniq_by(records, fn %{uuid: uuid} -> uuid end)) == length(records))
+    moving = Enum.any?(records, &Map.has_key?(&1, :motion))
 
     {parts, _} =
-      Enum.map_reduce(records, 0, fn %{uuid: uuid, x: x, y: y, z: z, stack: stack}, size ->
+      Enum.map_reduce(records, 0, fn %{uuid: uuid, x: x, y: y, z: z, stack: stack} = record,
+                                     size ->
         check(is_binary(uuid) and byte_size(uuid) == 16 and stack != nil)
         check(position_valid?({rx, rz}, {x, y, z}))
         check(stack.item_id != ItemTypes.id("air"))
 
         bytes = [
           <<uuid::binary-size(16), x::float-64, y::float-64, z::float-64>>,
+          encode_motion(record, moving),
           ItemStack.encode(stack)
         ]
 
@@ -37,10 +42,10 @@ defmodule Valimc.World.ItemRecords do
       end)
 
     {version, receipt_body} =
-      if map_size(receipts) == 0 do
+      if not moving and map_size(receipts) == 0 do
         {1, []}
       else
-        {2,
+        {if(moving, do: 3, else: 2),
          [
            <<map_size(receipts)::16>>,
            receipts
@@ -84,12 +89,13 @@ defmodule Valimc.World.ItemRecords do
         {1, body} ->
           {%{}, body}
 
-        {2, <<sources::16, body::binary>>} ->
+        {version, <<sources::16, body::binary>>} when version in [2, 3] ->
           check(sources <= @max_sources)
           take_receipts(body, sources, %{})
       end
 
-    {records, <<>>} = take_records(body, count, [], MapSet.new(), {rx, rz})
+    {records, <<>>} = take_records(body, count, [], MapSet.new(), {rx, rz}, version)
+    check(version != 3 or Enum.any?(records, &Map.has_key?(&1, :motion)))
     check(byte_size(body) <= @item_bytes)
     {:ok, %{records: Enum.reverse(records), receipts: receipts}}
   rescue
@@ -128,21 +134,61 @@ defmodule Valimc.World.ItemRecords do
     )
   end
 
-  defp take_records(body, 0, records, _, _key), do: {records, body}
+  defp take_records(body, 0, records, _, _key, _version), do: {records, body}
 
   defp take_records(
          <<uuid::binary-size(16), x::float-64, y::float-64, z::float-64, body::binary>>,
          count,
          records,
          seen,
-         key
+         key,
+         version
        ) do
     check(not MapSet.member?(seen, uuid))
     check(position_valid?(key, {x, y, z}))
+    {motion, body} = take_motion(body, version)
     {:ok, stack, rest} = ItemStack.take(body)
     check(stack != nil)
     record = %{uuid: uuid, x: x, y: y, z: z, stack: stack}
-    take_records(rest, count - 1, [record | records], MapSet.put(seen, uuid), key)
+    record = if motion, do: Map.put(record, :motion, motion), else: record
+    take_records(rest, count - 1, [record | records], MapSet.put(seen, uuid), key, version)
+  end
+
+  # Keep v1/v2 byte-for-byte stable: existing source receipts hash those bytes.
+  defp encode_motion(_, false), do: []
+
+  defp encode_motion(record, true) do
+    case Map.fetch(record, :motion) do
+      :error ->
+        <<0>>
+
+      {:ok, state} ->
+        check(ItemMotionState.valid?(state))
+        %{velocity: {x, y, z}, age: age, pickup_delay: delay} = state
+        flags = 1 + if(state.on_ground, do: 2, else: 0) + if(state.no_gravity, do: 4, else: 0)
+        <<flags, x::float-64, y::float-64, z::float-64, age::signed-16, delay::signed-16>>
+    end
+  end
+
+  defp take_motion(body, version) when version in [1, 2], do: {nil, body}
+  defp take_motion(<<0, body::binary>>, 3), do: {nil, body}
+
+  defp take_motion(
+         <<flags, x::float-64, y::float-64, z::float-64, age::signed-16, delay::signed-16,
+           body::binary>>,
+         3
+       )
+       when flags in [1, 3, 5, 7] do
+    state = %ItemMotionState{
+      velocity: {x, y, z},
+      age: age,
+      pickup_delay: delay,
+      on_ground: (flags &&& 2) != 0,
+      no_gravity: (flags &&& 4) != 0
+    }
+
+    check(ItemMotionState.valid?(state))
+    {state, body}
   end
 
   defp position_valid?(key, {x, _, z} = position),

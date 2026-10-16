@@ -13,7 +13,7 @@ defmodule Valimc.PlayerSnapshot do
   alias Valimc.World.{ItemRecords, ItemTransfers}
   @data_version 5023
   @inventory_bytes 524_288
-  @outbox_bytes max(55 + 5 * (40 + 65_536), PlayerMiningIntent.max_bytes())
+  @outbox_bytes max(57 + 5 * (69 + 65_536), PlayerMiningIntent.max_bytes())
   @max_sequence 18_446_744_073_709_551_615
   @max_bytes 56 + 4 + 3 + 8 + 4 + 24 + 12 + 8 + 13 + 2 + 11 + @inventory_bytes + @outbox_bytes +
                32 + 1
@@ -506,8 +506,10 @@ defmodule Valimc.PlayerSnapshot do
   defp decode_outbox(
          uuid,
          sequence,
-         <<"VMCITEMS", 1, @data_version::32, rx::signed-32, rz::signed-32, _::binary>> = bytes
-       ) do
+         <<"VMCITEMS", version, @data_version::32, rx::signed-32, rz::signed-32, _::binary>> =
+           bytes
+       )
+       when version in [1, 3] do
     key = {rx, rz}
     {:ok, %{records: records, receipts: receipts}} = ItemRecords.decode(bytes, key)
     check(receipts == %{}, :invalid_player_file)

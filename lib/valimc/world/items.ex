@@ -1,5 +1,6 @@
 defmodule Valimc.World.Items do
   @moduledoc "Bounded stationary scene items. Only the enclosing region mutates these."
+  alias Valimc.ItemMotionState
   alias Valimc.Protocol.{EntityPackets, ItemStack, ItemTypes, Wire}
   defstruct epoch: nil, entries: %{}, views: %{}, bytes: 0
   @max_items 256
@@ -9,8 +10,9 @@ defmodule Valimc.World.Items do
 
   def records(state) do
     state.entries
-    |> Enum.map(fn {_, %{entity: entity, stack: stack}} ->
-      entity |> Map.take([:uuid, :x, :y, :z]) |> Map.put(:stack, stack)
+    |> Enum.map(fn {_, %{entity: entity, stack: stack} = entry} ->
+      record = entity |> Map.take([:uuid, :x, :y, :z]) |> Map.put(:stack, stack)
+      if Map.has_key?(entry, :motion), do: Map.put(record, :motion, entry.motion), else: record
     end)
     |> Enum.sort_by(& &1.uuid)
   end
@@ -22,14 +24,22 @@ defmodule Valimc.World.Items do
       {:error, :invalid_item_file}
     else
       Enum.reduce_while(prefix, {:ok, new(), MapSet.new()}, fn
-        %{uuid: uuid, x: x, y: y, z: z, stack: stack}, {:ok, state, seen} ->
+        %{uuid: uuid, x: x, y: y, z: z, stack: stack} = record, {:ok, state, seen} ->
           with true <-
                  is_binary(uuid) and byte_size(uuid) == 16 and not MapSet.member?(seen, uuid),
                true <- valid_position?({x, y, z}),
+               true <- valid_record_motion?(record),
                true <- Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == key,
                {:ok, _} <- metadata(1, stack),
                {:ok, next, _} <-
-                 build_entity(state, stack, {x, y, z}, System.unique_integer([:positive]), uuid) do
+                 build_entity(
+                   state,
+                   stack,
+                   {x, y, z},
+                   System.unique_integer([:positive]),
+                   uuid,
+                   Map.get(record, :motion)
+                 ) do
             {:cont, {:ok, next, MapSet.put(seen, uuid)}}
           else
             _ -> {:halt, {:error, :invalid_item_file}}
@@ -70,10 +80,17 @@ defmodule Valimc.World.Items do
   def create(_, _, _, _), do: {:error, :invalid_item_position}
 
   @doc "Creates a stable-UUID inbox record; the caller commits its receipt atomically."
-  def create_record(state, key, %{uuid: <<_::128>> = uuid, x: x, y: y, z: z, stack: stack}) do
+  def create_record(
+        state,
+        key,
+        %{uuid: <<_::128>> = uuid, x: x, y: y, z: z, stack: stack} = record
+      ) do
     cond do
       not valid_position?({x, y, z}) ->
         {:error, :invalid_item_position}
+
+      not valid_record_motion?(record) ->
+        {:error, :invalid_item}
 
       Valimc.World.region_key(Valimc.World.chunk_key(x, z)) != key ->
         {:error, :wrong_region}
@@ -86,7 +103,15 @@ defmodule Valimc.World.Items do
 
       true ->
         with {:ok, _} <- metadata(1, stack),
-             do: build_entity(state, stack, {x, y, z}, System.unique_integer([:positive]), uuid)
+             do:
+               build_entity(
+                 state,
+                 stack,
+                 {x, y, z},
+                 System.unique_integer([:positive]),
+                 uuid,
+                 Map.get(record, :motion)
+               )
     end
   end
 
@@ -152,7 +177,9 @@ defmodule Valimc.World.Items do
     end
   end
 
-  defp build_entity(state, stack, {x, y, z}, id, uuid) when id in 1..2_147_483_647 do
+  defp build_entity(state, stack, position, id, uuid, motion \\ nil)
+
+  defp build_entity(state, stack, {x, y, z}, id, uuid, motion) when id in 1..2_147_483_647 do
     entity = %{entity_id: id, uuid: uuid, x: x, y: y, z: z}
     spawn = binary_packet(EntityPackets.spawn_item(entity))
     {:ok, metadata} = metadata(id, stack)
@@ -170,6 +197,7 @@ defmodule Valimc.World.Items do
       }
 
       entry = %{entity: entity, stack: stack, revision: 1}
+      entry = if motion, do: Map.put(entry, :motion, motion), else: entry
 
       next = %{
         state
@@ -184,7 +212,14 @@ defmodule Valimc.World.Items do
     end
   end
 
-  defp build_entity(_, _, _, _, _), do: {:error, :entity_id_exhausted}
+  defp build_entity(_, _, _, _, _, _), do: {:error, :entity_id_exhausted}
+
+  defp valid_record_motion?(record) do
+    case Map.fetch(record, :motion) do
+      :error -> true
+      {:ok, motion} -> ItemMotionState.valid?(motion)
+    end
+  end
 
   defp metadata(id, %ItemStack{components: components, removed: %MapSet{}} = stack)
        when is_map(components) do

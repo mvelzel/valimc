@@ -24,7 +24,7 @@ defmodule Valimc.LoginRecoveryTest do
     %{base: base, key: key}
   end
 
-  defp seed(ctx) do
+  defp seed(ctx, motion \\ nil) do
     name = "Recover" <> Integer.to_string(System.unique_integer([:positive]))
     uuid = Valimc.Connection.offline_uuid(name)
     pose = %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0}
@@ -41,6 +41,8 @@ defmodule Valimc.LoginRecoveryTest do
         stack: ItemStack.new("stone", 3)
       }
     ]
+
+    records = if motion, do: Enum.map(records, &Map.put(&1, :motion, motion)), else: records
 
     {:ok, pending} = PlayerTransfers.prepare(uuid, 0, before, kept, ctx.key, records)
     {:ok, bytes} = PlayerSnapshot.encode(uuid, pending)
@@ -102,6 +104,24 @@ defmodule Valimc.LoginRecoveryTest do
       finish(Client.begin_login(fixture.name), fixture)
       assert map_size(World.item_snapshot(ctx.key)) == count
     end
+  end
+
+  test "v3 pending launch recovers through login and fresh retry never recreates a removed item",
+       ctx do
+    motion = %Valimc.ItemMotionState{velocity: {0.3, 0.1, -0.2}, pickup_delay: 40}
+    fixture = seed(ctx, motion)
+    finish(Client.begin_login(fixture.name), fixture)
+    {:ok, owner} = World.item_owner(ctx.key)
+    assert [record] = Valimc.World.Items.records(:sys.get_state(elem(owner, 0)).resource.items)
+    assert record.motion == motion
+    assert {:ok, handle} = Region.find_item(owner, record.uuid)
+    assert :ok = Region.remove_item(handle)
+
+    # Replay the physically committed source intent after its destination was consumed.
+    File.write!(fixture.path, fixture.bytes)
+    finish(Client.begin_login(fixture.name), fixture)
+    assert World.item_snapshot(ctx.key) == %{}
+    assert :sys.get_state(elem(owner, 0)).resource.item_receipts[fixture.uuid].sequence == 1
   end
 
   test "stalled delivery leaves login unpublished and sockets/other identities responsive", ctx do
