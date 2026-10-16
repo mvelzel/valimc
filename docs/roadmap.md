@@ -129,8 +129,9 @@ indexes validated tickets. None imply full parity.
    (`96da2b8`). This core is complete; [durable survival consumption](tickets/VMC-029b1.md)
    is in progress: typed requests, exact count consumption and v14 source journals
    plus receipt-backed destination/lease recovery pass85 affected checks. Live
-   composition passes78 affected checks and12 connection checks; integration and
-   actual-client gates remain;874 full tests and the frozen production build pass.
+   composition passes78 affected checks and12 connection checks; the actual-client
+   gate is accepted.874 full tests and the frozen production build pass; full native
+   integration is still running.
    Broader callbacks/ownership are still open.
    [Ordinary full cubes](tickets/VMC-029b2.md) are scoped as the next catalog slice.
 
@@ -144,7 +145,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-029b1](tickets/VMC-029b1.md) | Survival placement/both hands/depletion/reconnect | Frozen `af99f492`; dedicated tester active |
+| [VMC-029b1](tickets/VMC-029b1.md) | Full native integration; actual gate accepted | Frozen `af99f492` |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 
