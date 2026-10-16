@@ -130,7 +130,9 @@ indexes validated tickets. None imply full parity.
    is in progress: typed requests, exact count consumption and v14 source journals
    plus receipt-backed destination/lease recovery pass85 affected checks. Live
    composition passes78 affected checks and12 connection checks; integration and
-   actual-client gates remain. Broader callbacks/ownership are still open.
+   actual-client gates remain;874 full tests and the frozen production build pass.
+   Broader callbacks/ownership are still open.
+   [Ordinary full cubes](tickets/VMC-029b2.md) are scoped as the next catalog slice.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 [VMC-003c](tickets/VMC-003c.md)'s direct local test-client lifecycle is complete:
@@ -142,7 +144,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-029b1](tickets/VMC-029b1.md) | Survival placement/both hands/depletion/reconnect | Local checkpoint; frozen release next |
+| [VMC-029b1](tickets/VMC-029b1.md) | Survival placement/both hands/depletion/reconnect | Frozen `af99f492`; dedicated tester active |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 
