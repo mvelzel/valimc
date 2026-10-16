@@ -26,7 +26,9 @@ actual movement with paused I/O, periodic saves, critical replacement and reconn
 [Durable owner handoff](tickets/VMC-035a5.md) is validated (`19434e0`):85 affected
 checks,1045 full tests/build, full native integration/both TCP transports and actual
 boundary/recovery/reconnect checks. [Automatic simulation](tickets/VMC-035a6.md)
-has local tested cadence/launch checkpoints; natural graphical scenarios follow.
+is validated within cadence/player-launch scope (`e839fff`):1,064 full tests,
+native TCP/production and actual standing/crouching/whole-stack/fall/crossing/
+support-wake/water/reconnect checks.
 [Item merging](tickets/VMC-035b.md) has local native-verified pair kernels, durable
 same-owner commits and automatic discovery; graphical merging follows.
 
@@ -211,7 +213,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-035a6](tickets/VMC-035a6.md) | Client passed; broader native integration running | `e839fff` frozen release |
 | [VMC-035b](tickets/VMC-035b.md) | Actual automatic merge/component/limit/refusal/reconnect checks | Local same-owner checkpoints |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
