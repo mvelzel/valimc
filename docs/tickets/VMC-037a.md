@@ -48,3 +48,17 @@ foundations; no live effect icon/immunity is claimed.1,253 full tests(seed554870
 and production pass; native duration/packet checks above cover these additions
 separately from the earlier `8fbe510` full native run. Next: bounded player map,
 source immunity and atomic owner persistence, followed by live Fire Resistance.
+
+Local map/immunity foundation: `PlayerEffects` keeps at most40 catalog entries with
+bounded suppression chains.129 actual `LivingEntity.addEffect/removeEffect/tickEffects`
+traces match map state and per-effect callback order, including simultaneous promotion/
+600-tick updates, zero-duration removal and suppressed refresh without notification.
+The probe uses inert Fire Resistance/Water Breathing and controlled callbacks;
+eligibility, periodic actions and attributes are excluded. `PlayerStatusImmunity`
+matches306 native `LivingEntity.hasEffect/hurtServer` cases across all51 sources:
+Fire Resistance presence(including zero duration until removed) blocks eight fire
+sources before downstream health/wear; unrelated effects and non-fire sources do not.
+Nine affected checks pass(seed108479), including full40×256 bounds and malformed
+maps. Evidence: `.local/player-effect-map-{native,native-check,targeted}.log`,
+`.local/status-damage-{native,native-check,targeted}.log`. Neither kernel is live;
+baseline remains pending before publication. Next: bounded snapshot codec/ownership.

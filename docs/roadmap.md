@@ -11,8 +11,9 @@ indexes validated tickets. None imply full parity.
 
 Current: **[owned status effects](tickets/VMC-037a.md)**. Duration/refresh and packet
 foundations are **Done within kernel scope**:50,433 native traces,40 effect IDs,
-61,600 packets and actual baseline at `9fce29f`. Next: bounded owner map, persistence
-and live Fire Resistance; no live status effects yet. Keep pending work local.
+61,600 packets and actual baseline at `9fce29f`. Local bounded map/source-immunity
+kernels match129/306 native cases and9 affected tests; their baseline is pending.
+Next: atomic persistence/ownership and live Fire Resistance. Keep pending work local.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

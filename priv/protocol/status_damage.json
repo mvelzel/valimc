@@ -1,0 +1,15 @@
+{
+  "version": "26.3",
+  "data_version": 5023,
+  "server_sha1": "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c",
+  "fire_resistance_sources": [
+    "campfire",
+    "fireball",
+    "hot_floor",
+    "in_fire",
+    "lava",
+    "on_fire",
+    "sulfur_cube_hot",
+    "unattributed_fireball"
+  ]
+}
