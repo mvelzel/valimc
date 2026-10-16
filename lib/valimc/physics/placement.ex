@@ -66,6 +66,9 @@ defmodule Valimc.Physics.Placement do
 
   def candidate(_, _, _, _), do: {:error, :invalid_context}
 
+  def adjacent(%{position: position, face: face}) when face in 0..5,
+    do: offset(position, face)
+
   defp replaceable(state, item, face, upper, clicked) do
     case :binary.at(@replace, state) do
       0 ->

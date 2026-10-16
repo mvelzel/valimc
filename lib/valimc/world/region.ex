@@ -48,6 +48,18 @@ defmodule Valimc.World.Region do
 
   def set_blocks(_, _, _), do: {:error, :invalid_block_batch}
 
+  @doc "Internal creative placement commit; caller must freshly admit its player and held item."
+  def place_block({pid, epoch}, revision, %BlockBatch{} = batch, deadline)
+      when is_pid(pid) and is_reference(epoch) and is_integer(revision) and revision >= 0 and
+             is_integer(deadline) do
+    GenServer.call(pid, {:place_block, epoch, revision, batch, deadline}, 1000)
+  catch
+    :exit, {:timeout, _} -> {:error, :block_commit_uncertain}
+    :exit, _ -> {:error, :region_unavailable}
+  end
+
+  def place_block(_, _, _, _), do: {:error, :invalid_placement}
+
   @doc "Reserve currently owned blocks for a short mining commit; the token is invalid after mutation/restart."
   def reserve_mining({pid, epoch}, positions),
     do: GenServer.call(pid, {:reserve_mining, epoch, positions}, 250)

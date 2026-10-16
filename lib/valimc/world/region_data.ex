@@ -292,6 +292,17 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  def handle_call({:place_block, epoch, revision, %BlockBatch{} = batch, deadline}, from, state) do
+    now = System.monotonic_time(:millisecond)
+
+    if is_integer(deadline) and deadline > now and deadline <= now + 250 and
+         map_size(batch.edits) == 1 do
+      handle_call({:set_blocks, epoch, revision, batch}, from, state)
+    else
+      {:reply, {:error, :invalid_or_expired_placement}, state}
+    end
+  end
+
   def handle_call({:set_block, {x, y, z} = position, block}, _from, state) do
     key = Valimc.World.chunk_key(x, z)
 

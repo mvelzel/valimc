@@ -121,9 +121,10 @@ indexes validated tickets. None imply full parity.
    [Stateful loot/slabs](tickets/VMC-029a7.md) is validated (`4899168`): native
    constant counts,101 slab families,231,455 native cases,21 affected checks and
    actual single/double wet/dry slabs, wear and fresh reconnect.
-4. **[VMC-029b](tickets/VMC-029b.md): authoritative placement.** Native clicked/
-   adjacent context, replaceability and slab-state research first, then bounded
-   owner admission and durable survival consumption. Specialized uses remain open.
+4. **[VMC-029b](tickets/VMC-029b.md): authoritative placement.** Native candidates/
+   codecs match518,964 contexts and576 packets. Bounded preparation and expiring
+   owner commits pass32 affected checks. Live player admission/correction and
+   durable survival consumption are next; specialized uses remain open.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 [VMC-003c](tickets/VMC-003c.md)'s direct local test-client lifecycle is complete:
