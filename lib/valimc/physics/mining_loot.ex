@@ -58,7 +58,7 @@ defmodule Valimc.Physics.MiningLoot do
   @ordinary MapSet.new(@facts["ordinary_mining"])
   @pillars MapSet.new(@facts["pillar_mining"])
   @simple MapSet.union(@ordinary, @pillars)
-  unless MapSet.size(@ordinary) == 178 and length(@facts["ordinary_mining"]) == 178 and
+  unless MapSet.size(@ordinary) == 179 and length(@facts["ordinary_mining"]) == 179 and
            MapSet.size(@pillars) == 180 and length(@facts["pillar_mining"]) == 180 and
            MapSet.disjoint?(@ordinary, @pillars) and
            Enum.all?(@simple, fn state ->

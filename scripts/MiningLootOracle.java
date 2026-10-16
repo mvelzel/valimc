@@ -145,7 +145,7 @@ public class MiningLootOracle {
     throw new NoSuchMethodException(name);
   }
   static boolean ordinaryCube(Block block){
-    return block==Blocks.GLASS||(block.getClass()==Block.class&&block.getStateDefinition().getPossibleStates().size()==1&&block.asItem().getClass()==BlockItem.class&&!block.defaultBlockState().canBeReplaced()&&block.defaultBlockState().isCollisionShapeFullBlock(net.minecraft.world.level.EmptyBlockGetter.INSTANCE,BlockPos.ZERO));
+    return block==Blocks.GLASS||block==Blocks.CRAFTING_TABLE||(block.getClass()==Block.class&&block.getStateDefinition().getPossibleStates().size()==1&&block.asItem().getClass()==BlockItem.class&&!block.defaultBlockState().canBeReplaced()&&block.defaultBlockState().isCollisionShapeFullBlock(net.minecraft.world.level.EmptyBlockGetter.INSTANCE,BlockPos.ZERO));
   }
   private static ItemStack enchanted(HolderLookup.Provider lookup,Item item,boolean stored,Map<net.minecraft.resources.ResourceKey<Enchantment>,Integer> levels){
     var stack=new ItemStack(item);var patch=new ItemEnchantments.Mutable(ItemEnchantments.EMPTY);
@@ -208,7 +208,7 @@ public class MiningLootOracle {
       }
     }
     var result=new JsonObject();result.addProperty("version","26.3");result.addProperty("data_version",5023);result.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
-    if(ordinaryMining.size()!=178)throw new AssertionError("Changed deterministic ordinary mining admission");
+    if(ordinaryMining.size()!=179)throw new AssertionError("Changed deterministic ordinary mining admission");
     if(pillarMining.size()!=180)throw new AssertionError("Changed deterministic pillar mining admission");
     result.addProperty("state_count",Block.BLOCK_STATE_REGISTRY.size());result.addProperty("block_count",blocks.size());result.addProperty("supported_blocks",supported);result.add("profiles",profiles);result.add("block_profiles",blocks);result.add("state_profiles",overrides);result.add("ordinary_mining",ordinaryMining);result.add("pillar_mining",pillarMining);
     Files.writeString(Path.of(args[0]),gson.toJson(result)+"\n");Files.writeString(Path.of(args[1]),gson.toJson(cases)+"\n");

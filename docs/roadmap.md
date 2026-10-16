@@ -176,6 +176,8 @@ continues after readiness validation; its feature baseline already passed.
    [Table click plans](tickets/VMC-033f2.md) pass134 affected checks,11,990 native
    traces and2,398 native packet decodes; player baseline is pending before live
    block/menu composition.
+   [Table blocks](tickets/VMC-033f3.md) pass49 affected tests and native placement,
+   consumption and mining checks; actual placement/mining is next.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 [VMC-003c](tickets/VMC-003c.md)'s direct local test-client lifecycle is complete:
@@ -189,6 +191,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-033f2](tickets/VMC-033f2.md) | Feature baseline passed; initial join repair retest | `6ec31a9`, local |
 | [VMC-004b2e](tickets/VMC-004b2e.md) | Repeated actual joins; coherent block integration | Local readiness fix next |
+| [VMC-033f3](tickets/VMC-033f3.md) | Actual table placement/mining/reconnect | Local block support |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 

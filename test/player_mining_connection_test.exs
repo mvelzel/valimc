@@ -414,6 +414,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
       {"spruce_planks", 1, ItemStack.new("spruce_planks")},
       {"iron_block", 0, ItemStack.new("iron_block")},
       {"red_concrete", 0, ItemStack.new("red_concrete")},
+      {"crafting_table", 1, ItemStack.new("crafting_table")},
       {"bookshelf", 1, ItemStack.new("book", 3)},
       {"bookshelf", 2, ItemStack.new("bookshelf")}
     ]
@@ -433,7 +434,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
     expected = cases |> Enum.map(&elem(&1, 2)) |> Enum.sort_by(& &1.item_id)
     assert Enum.sort_by(drops(ctx), & &1.item_id) == expected
 
-    for {slot, damage} <- [{36, 3}, {37, 2}, {38, 1}] do
+    for {slot, damage} <- [{36, 3}, {37, 3}, {38, 1}] do
       assert state(pid).inventory.slots[slot].components["minecraft:damage"] == damage
     end
 
@@ -444,7 +445,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
     assert state(pid).inventory.slots == inventory.slots
     assert state(pid).inventory.selected == inventory.selected
     assert state(pid).inventory.carried == inventory.carried
-    assert saved(ctx).transfer_sequence == 6 and saved(ctx).outbox == nil
+    assert saved(ctx).transfer_sequence == 7 and saved(ctx).outbox == nil
     assert Enum.sort_by(drops(ctx), & &1.item_id) == expected
     assert World.get_block(ctx.target) == 0
   end

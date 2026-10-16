@@ -23,7 +23,7 @@ defmodule Valimc.Physics.Placement do
                |> Map.new()
   unless byte_size(@replace) == @count and
            Enum.all?(:binary.bin_to_list(@replace), &(&1 in 0..3)) and
-           map_size(@plain) == 183 and map_size(@slabs) == 101 and map_size(@pillars) == 60 and
+           map_size(@plain) == 184 and map_size(@slabs) == 101 and map_size(@pillars) == 60 and
            map_size(@slab_states) == 606 and
            Enum.all?(@slabs, fn {_item, states} -> tuple_size(states) == 6 end) and
            Enum.all?(@plain, fn {_item, state} ->

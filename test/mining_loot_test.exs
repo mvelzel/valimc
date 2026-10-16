@@ -52,7 +52,7 @@ defmodule Valimc.Physics.MiningLootTest do
 
   test "ordinary mining admits finite deterministic cubes without specialized callbacks" do
     for name <-
-          ~w(polished_granite spruce_planks iron_block red_concrete bookshelf obsidian packed_ice) do
+          ~w(polished_granite spruce_planks iron_block red_concrete bookshelf obsidian packed_ice crafting_table) do
       state = Data.item_block(Data.item(name))
       assert MiningLoot.ordinary_mining?(state)
       assert {:ok, _} = MiningLoot.drops(state, nil, true)

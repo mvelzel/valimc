@@ -53,11 +53,11 @@ public class PlacementOracle {
     var plain=new JsonObject();
     for(var block:BuiltInRegistries.BLOCK){
       boolean ordinary=block.getClass()==Block.class&&block.getStateDefinition().getPossibleStates().size()==1&&block.asItem().getClass()==BlockItem.class&&!block.defaultBlockState().canBeReplaced()&&block.defaultBlockState().isCollisionShapeFullBlock(net.minecraft.world.level.EmptyBlockGetter.INSTANCE,BlockPos.ZERO);
-      if(!ordinary&&block!=Blocks.GLASS)continue;
+      if(!ordinary&&block!=Blocks.GLASS&&block!=Blocks.CRAFTING_TABLE)continue;
       if(owner(block.getClass(),"getStateForPlacement",BlockPlaceContext.class)!=Block.class||block.defaultBlockState().canBeReplaced()||block.asItem().getClass()!=BlockItem.class)throw new AssertionError("Plain placement needs context: "+block);
       plain.addProperty(Integer.toString(BuiltInRegistries.ITEM.getId(block.asItem())),Block.getId(block.defaultBlockState()));
     }
-    if(plain.size()!=183)throw new AssertionError("Changed ordinary cube placement catalog");
+    if(plain.size()!=184)throw new AssertionError("Changed plain placement catalog");
     var slabs=new JsonArray();var slabItems=new ArrayList<Item>();
     for(var block:BuiltInRegistries.BLOCK)if(block.builtInRegistryHolder().is(BlockTags.SLABS)){
       if(owner(block.getClass(),"getStateForPlacement",BlockPlaceContext.class)!=SlabBlock.class||owner(block.getClass(),"canBeReplaced",BlockState.class,BlockPlaceContext.class)!=SlabBlock.class||block.asItem().getClass()!=BlockItem.class)throw new AssertionError("Specialized slab placement: "+block);

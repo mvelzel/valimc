@@ -51,10 +51,10 @@ for row <- cases["nonfinite"] do
     do: raise("Nonfinite hit gained authority")
 end
 
-unless length(cases["contexts"]) == 1_590_780 and length(cases["packets"]) == 576 and
+unless length(cases["contexts"]) == 1_595_262 and length(cases["packets"]) == 576 and
          length(cases["nonfinite"]) == 9,
        do: raise("Missing placement contexts/codecs")
 
 IO.puts(
-  "PASS: 1,590,780 native placement candidates, 576 block-use packets and nine nonfinite negatives; final admission remains separate."
+  "PASS: 1,595,262 native placement candidates, 576 block-use packets and nine nonfinite negatives; final admission remains separate."
 )

@@ -360,7 +360,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
   end
 
   defp ordinary_cubes(c, mode) do
-    names = ~w(polished_granite spruce_planks iron_block red_concrete)
+    names = ~w(polished_granite spruce_planks iron_block red_concrete crafting_table)
 
     slots =
       names
@@ -399,6 +399,38 @@ defmodule Valimc.PlayerPlacementConnectionTest do
 
   test "pillar packets preserve all axes and both creative hand counts", c do
     pillars(c, :creative)
+  end
+
+  test "survival table placement consumes either hand once and survives a fresh connection", c do
+    seed(c, :survival, %{
+      36 => ItemStack.new("crafting_table"),
+      45 => ItemStack.new("crafting_table")
+    })
+
+    {client, pid} = login(c)
+    table = Valimc.Protocol.Data.item_block(ItemStack.new("crafting_table").item_id)
+    other = {elem(c.target, 0) + 1, 64, elem(c.target, 2)}
+    :ok = World.set_block(other, 0)
+
+    send_place(client, c.target)
+    client = ack(client)
+    assert World.get_block(c.target) == table
+    assert :sys.get_state(pid).inventory.slots[36] == nil
+    assert saved(c).transfer_sequence == 1 and saved(c).outbox == nil
+
+    send_place(client, other, 1, 0.5, 1, 2)
+    _client = ack(client, 2)
+    assert World.get_block(other) == table
+    assert :sys.get_state(pid).inventory.slots[45] == nil
+    assert saved(c).transfer_sequence == 2 and saved(c).outbox == nil
+
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == [] end)
+    {_fresh, fresh_pid} = login(c)
+    assert :sys.get_state(fresh_pid).inventory.slots[36] == nil
+    assert :sys.get_state(fresh_pid).inventory.slots[45] == nil
+    assert World.get_block(c.target) == table and World.get_block(other) == table
+    assert saved(c).transfer_sequence == 2 and saved(c).outbox == nil
   end
 
   test "pillar packets consume and persist both survival hands without changing axes", c do
