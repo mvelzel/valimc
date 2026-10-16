@@ -310,7 +310,7 @@ defmodule Valimc.PlayerUseConnectionTest do
        ctx do
     food = %PlayerFood{}
     fire = potion("fire_resistance")
-    unsupported = potion("water_breathing")
+    unsupported = potion("night_vision")
     seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => fire, 45 => unsupported}})
     {client, pid} = login(ctx, 20.0, food)
     client = use_hand(client, pid)
@@ -454,6 +454,24 @@ defmodule Valimc.PlayerUseConnectionTest do
     wait(fn -> state(pid).use_save == nil end)
     assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.food == state(pid).player.food and saved.effects == state(pid).player.effects
+    assert saved.inventory.slots == state(pid).inventory.slots
+  end
+
+  test "Water Breathing drinks use the same atomic effect/bottle lane", ctx do
+    food = %PlayerFood{}
+    drink = potion("water_breathing")
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => drink}})
+    {client, pid} = login(ctx, 20.0, food)
+    client = use_hand(client, pid)
+    ticks(pid, 32)
+    {<<entity::signed-32, 9>>, client} = Client.await(client, :play, "entity_event")
+    {{^entity, 12, 0, 3600, 14}, _client} = effect_packet(client)
+    assert state(pid).player.effects == %{12 => [{3600, 0, false, true, true}]}
+    assert state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
+    assert state(pid).player.food == food
+    wait(fn -> state(pid).use_save == nil end)
+    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.effects == state(pid).player.effects
     assert saved.inventory.slots == state(pid).inventory.slots
   end
 

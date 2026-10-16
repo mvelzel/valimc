@@ -9,7 +9,7 @@ defmodule Valimc.PlayerAirTest do
     assert PlayerAir.tick(-18, true, false, 0, 0.5) == {-19, 0.0}
     assert PlayerAir.tick(-19, true, false, 0, 0.5) == {0, 2.0}
     assert PlayerAir.tick(0, true, false, 0, 0.5) == {-1, 0.0}
-    assert PlayerAir.tick(-19, true, true, 0, 0.5) == {-19, 0.0}
+    assert PlayerAir.tick(-19, true, true, 0, 0.5) == {-15, 0.0}
     assert PlayerAir.tick(-19, false, false, 0, 0.5) == {-15, 0.0}
     assert PlayerAir.tick(299, false, true, 0, 0.5) == {300, 0.0}
   end

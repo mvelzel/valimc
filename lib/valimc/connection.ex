@@ -26,6 +26,7 @@ defmodule Valimc.Connection do
     Metrics,
     Players,
     PlayerAbilities,
+    PlayerAirEffects,
     PlayerEnvironment,
     PlayerEquipment,
     PlayerEffects,
@@ -60,6 +61,7 @@ defmodule Valimc.Connection do
   import Bitwise
   @basic_mining Enum.map(~w(stone dirt grass_block cobblestone oak_planks glass), &Data.block/1)
   @fire_resistance EffectTypes.id("fire_resistance")
+  @live_effects [@fire_resistance, EffectTypes.id("water_breathing")]
   @use_item_packet Data.id(:play, :serverbound, "use_item")
   @slab_tags Path.expand("../../priv/protocol/tags.json", __DIR__)
   @external_resource @slab_tags
@@ -172,7 +174,7 @@ defmodule Valimc.Connection do
         _,
         %{phase: :play, life_stage: :alive} = state
       ) do
-    if System.monotonic_time(:millisecond) < deadline and id == @fire_resistance do
+    if System.monotonic_time(:millisecond) < deadline and id in @live_effects do
       result =
         if incoming == :remove,
           do: PlayerEffects.remove(state.player.effects, id),
@@ -295,6 +297,7 @@ defmodule Valimc.Connection do
        simulation_clock: nil,
        food_tick_origin: 0,
        simulation_due: false,
+       air_policy: :none,
        fire_damage_due: false,
        fire_contacts_active: false,
        armor_view: nil,
@@ -1055,7 +1058,14 @@ defmodule Valimc.Connection do
           if state.player.health.death_ticks < 20 and player.health.death_ticks == 20,
             do: broadcast_player_packet(state, Packets.remove_entity(player))
 
-          state = %{state | player: player, simulation_clock: next, simulation_due: true}
+          state = %{
+            state
+            | player: player,
+              simulation_clock: next,
+              simulation_due: true,
+              air_policy: PlayerAirEffects.policy(player.effects)
+          }
+
           state = tick_burning(state)
           state = tick_effects(state)
 
@@ -1443,7 +1453,7 @@ defmodule Valimc.Connection do
 
         effects = PotionContents.effects(contents)
 
-        if Enum.all?(effects, fn {id, _} -> id == @fire_resistance end),
+        if Enum.all?(effects, fn {id, _} -> id in @live_effects end),
           do: {:ok, effects},
           else: :unsupported
 
@@ -2324,7 +2334,7 @@ defmodule Valimc.Connection do
 
           player = if health.value <= 0, do: PlayerLife.dead(player), else: player
 
-          unless Enum.all?(player.effects, fn {id, _} -> id == @fire_resistance end),
+          unless Enum.all?(player.effects, fn {id, _} -> id in @live_effects end),
             do: reject(state, "Saved status effect is not implemented in this preview")
 
           {pid, fence, player, inventory, pending}
@@ -2906,7 +2916,8 @@ defmodule Valimc.Connection do
   defp observe_air(state, submerged) do
     previous = Valimc.PlayerAir.supply(state.player)
     oxygen = Valimc.PlayerAir.oxygen_bonus(state.inventory)
-    draw = if oxygen > 0 and submerged, do: :rand.uniform_real(), else: 0.0
+    spend = submerged and not state.player.abilities.invulnerable and state.air_policy == :none
+    draw = if oxygen > 0 and spend, do: :rand.uniform_real(), else: 0.0
 
     {air, damage} =
       Valimc.PlayerAir.tick(
@@ -2914,7 +2925,8 @@ defmodule Valimc.Connection do
         submerged,
         state.player.abilities.invulnerable,
         oxygen,
-        draw
+        draw,
+        state.air_policy
       )
 
     player = %{state.player | air_supply: air}

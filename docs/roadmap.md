@@ -16,8 +16,11 @@ state/codec proofs,1,276 full tests/build, later53 affected checks/native TCP/bu
 and actual contacts, drinks, expiry, negatives, creative, death/respawn and reconnect
 pass. The ground-target drinking failure was fixed and retested. Six matched128/512
 water samples pass; retain dense login variance and older admission findings.
-Next: breathing effects/air ordering, then remaining status/consumption behavior.
-Keep new work local until its own client gate passes; retrieve evidence in tickets.
+**Current:** [Water Breathing/air ordering](tickets/VMC-037c.md) passes60 affected
+tests and433 native predicate/policy contexts. Owned drinks, tick-start expiry,
+delayed geometry, depleted reconnect and invulnerable refill are implemented;
+broader integration/build and actual-client gates remain. Keep it local until
+validated. Remaining status/consumption behavior follows; evidence stays in tickets.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

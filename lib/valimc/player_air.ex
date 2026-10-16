@@ -21,13 +21,17 @@ defmodule Valimc.PlayerAir do
     end
   end
 
-  def tick(air, true, false, oxygen, draw) do
+  def tick(air, submerged, immune, oxygen, draw, policy \\ :none)
+
+  def tick(air, true, false, oxygen, draw, :none) do
     decreased = decrease(air, oxygen, draw)
     if drowning?(decreased), do: {0, 2.0}, else: {decreased, 0.0}
   end
 
-  def tick(air, true, true, _oxygen, _draw), do: {air, 0.0}
-  def tick(air, false, _immune, _oxygen, _draw), do: {increase(air), 0.0}
+  def tick(air, true, _immune, _oxygen, _draw, :hold), do: {air, 0.0}
+
+  def tick(air, _submerged, _immune, _oxygen, _draw, policy)
+      when policy in [:none, :refill, :hold], do: {increase(air), 0.0}
 
   # The pinned Respiration attribute effect applies to the head slot only.
   # Other native items/enchantments contribute no default oxygen modifier.
