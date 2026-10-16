@@ -189,6 +189,28 @@ defmodule Valimc.Inventory do
     end
   end
 
+  @doc "Pure native world-stack insertion; remainder mutation is independent of the callback result."
+  def pickup_stack(%__MODULE__{} = inventory, nil), do: {:ok, inventory, nil, false}
+
+  def pickup_stack(%__MODULE__{} = inventory, %ItemStack{} = stack) do
+    _ = ItemStack.encode(stack)
+    {next, remainder} = return_stack(inventory, stack)
+    remainder = if inventory.infinite_materials, do: nil, else: remainder
+    callback = remainder == nil
+
+    if next == inventory do
+      {:ok, inventory, remainder, callback}
+    else
+      with {:ok, next} <- finish(next), do: {:ok, next, remainder, callback}
+    end
+  rescue
+    _ -> {:error, :invalid_pickup_stack}
+  catch
+    _, _ -> {:error, :invalid_pickup_stack}
+  end
+
+  def pickup_stack(_, _), do: {:error, :invalid_pickup_stack}
+
   defp return_stack(inventory, nil), do: {inventory, nil}
 
   defp return_stack(inventory, stack) do

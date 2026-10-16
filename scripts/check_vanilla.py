@@ -387,6 +387,9 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     item_merge = str(pathlib.Path(world) / 'item-merge.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemMergeOracle', item_merge], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_item_merge.exs', item_merge], cwd=root, check=True)
+    item_pickup = str(pathlib.Path(world) / 'item-pickup.json')
+    subprocess.run([sys.executable, 'scripts/java_tool.py', 'ItemPickupOracle', item_pickup], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_item_pickup.exs', item_pickup], cwd=root, check=True)
     for mode, encrypted in [('plain', False), ('encrypted', True)]:
         with socket.socket() as port_probe:
             port_probe.bind(('127.0.0.1', 0))
