@@ -2665,6 +2665,11 @@ defmodule Valimc.Connection do
         end
 
       if due and state.life_stage == :alive do
+        state =
+          if Map.get(fluid, :rain, false) and Valimc.World.Clock.weather().wet,
+            do: apply_fire_contact(state, :extinguish),
+            else: state
+
         ticks = state.player.fire_ticks
         ticks = if ticks <= 0 and ticks <= previous, do: -20, else: ticks
         %{state | player: %{state.player | fire_ticks: ticks}}

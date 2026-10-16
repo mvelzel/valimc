@@ -57,13 +57,14 @@ defmodule Valimc.PlayerPoseQuery do
                    | swimming: swimming
                  }),
                {:ok, kinetics} <- Valimc.PlayerKinetics.tick(candidate, result.pose, frame),
+               {:ok, rain} <- Valimc.PlayerRainQuery.sample(position, result.geometry, frame),
                do:
                  {:ok,
                   result
                   |> Map.put(:powder_snow, powder)
                   |> Map.put(:submerged, air.submerged)
                   |> Map.put(:eye_water, air.water)
-                  |> Map.put(:kinetics, kinetics)
+                  |> Map.put(:kinetics, Map.put(kinetics, :rain, rain))
                   |> Map.put(:swimming, swimming)}
         end
       end)

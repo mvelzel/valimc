@@ -1,7 +1,8 @@
 # VMC-017b4c — Rain exposure and column observations
 
-Status: Native column/sky/climate foundations and fenced owner reads implemented
-locally; live rain extinction and graphical/production gates remain open.
+Status: Live rain extinction and independent chunk heightmaps implemented locally;
+targeted/native checks pass. Production/full integration and graphical gates remain.
+Foundation checkpoint `6875995`.
 
 Acceptance: native rain extinguishes outdoor burning, roofs shield players and
 removing the roof restores exposure. Use fenced column observations in the existing
@@ -14,8 +15,8 @@ negative and fresh reconnect. Preserve all existing natural-fire/lava behavior.
 
 Reference: pinned26.3 `Entity.isInRain/applyEffectsFromBlocks`,
 `Level.precipitationAt/isRainingAt`, `Heightmap.update/Types` and native block tags.
-Initial column index uses a bounded384-bit occupancy integer with six native
-predicate families. Tag binding is required: bootstrap alone leaves material/tag
+Column words use bounded384-bit occupancy; the predicate catalog covers six native
+heightmap types. Tag binding is required: bootstrap alone leaves material/tag
 predicates empty. Native traces include every stock state classification, top
 removals, fluids/fire/leaves and random column changes. Generation, sky propagation,
 biome precipitation and live ownership are not covered by that foundation.
@@ -54,14 +55,28 @@ The region owner restores the index from edits and updates it with direct,
 batch and durable block proposals. Bounded column reads retain its incarnation and
 block revision; stale/malformed/foreign reads fail.45 affected checks pass(seed531236),
 including flush/replacement and existing mining/placement/store boundaries;
-`.local/rain-columns-owner-targeted.log`. No live rain contact or chunk-header change
-yet. Graphical and production gates remain open. The final47-test affected foundation
+`.local/rain-columns-owner-targeted.log`. The final47-test affected foundation
 run passes(seed277433), `.local/rain-foundations-owner-final.log`.
 `PlayerRainQuery` reads one indexed column at its prepared block revision in the
 existing geometry worker. It combines native sky-source/motion heights and
 flat-climate feet/head facts; dry weather skips the read.16 targeted checks pass
 (seed702021), including stale roofs, roof removal/glass and altitude negatives;
-`.local/rain-query-targeted.log`. Live player composition remains separate.
+`.local/rain-query-targeted.log`.
 
-Next: compose the verified rain observation on the admitted player tick, correct
-chunk heightmap predicates, then exercise the graphical gate. Keep pending work local.
+Live composition now samples one fenced column in both existing movement/pose
+workers. Only the admitted owner tick extinguishes, after ordered fire contacts;
+ongoing/fatal damage still precedes it. Consumption rechecks the published native
+wet threshold. Clear weather, sheltered roofs and high-altitude plains snow do not
+extinguish. No new process/timer or global call on the player owner is introduced.
+
+Chunk encoding now publishes distinct native WORLD_SURFACE/MOTION_BLOCKING maps,
+using bounded words instead of vertical scans. In particular, fire no longer acts
+as a rain roof. Mojang decodes11 complete packets and5,632 independent height values
+from actual native update traces; `.local/chunk-heightmaps-native-final.log`.
+59 affected checks pass(seed554238), including real TCP
+roof removal/rain-after-ignition, high-altitude snow, fatal-before-rain ordering,
+existing fire/motion/pose/weather regressions; `.local/rain-live-targeted-initial.log`.
+
+Next: freeze/build, full integration and dedicated actual outdoor/roof/glass/
+removal/clear/reconnect checks. Keep pending work local. Full lighting, weathering
+world blocks, other biome generation/modifiers and status effects remain separate.

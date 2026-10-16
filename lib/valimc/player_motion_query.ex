@@ -169,6 +169,7 @@ defmodule Valimc.PlayerMotionQuery do
              Valimc.PlayerKinetics.apply_result(%{accepted_motion | swimming: swimming}, packet)
            ),
          {:ok, tick} <- Valimc.PlayerKinetics.tick(candidate, after_move.pose, blocks),
+         {:ok, rain} <- Valimc.PlayerRainQuery.sample(destination, after_move.geometry, blocks),
          {:ok, exhaustion} <-
            food_requests(player, candidate, requested, flags, air, tick, blocks) do
       {:ok,
@@ -181,7 +182,7 @@ defmodule Valimc.PlayerMotionQuery do
          submerged: air.submerged,
          eye_water: air.water,
          exhaustion: exhaustion,
-         kinetics: %{packet: packet, tick: tick},
+         kinetics: %{packet: packet, tick: Map.put(tick, :rain, rain)},
          landing: landing,
          fences: blocks.fences
        }}

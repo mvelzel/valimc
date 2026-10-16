@@ -14,6 +14,7 @@ defmodule Valimc.PlayerRainQueryTest do
 
     on_exit(fn ->
       Clock.configure({:weather, :clear, 0})
+      await_wet(false)
       Clock.configure({:advance_weather, true})
 
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),

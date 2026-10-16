@@ -50,35 +50,26 @@ defmodule Valimc.World.Chunk do
 
     data = IO.iodata_to_binary(sections)
 
-    column_tops =
-      Enum.reduce(edits, %{}, fn {{x, y, z}, block}, acc ->
-        if block != 0, do: Map.update(acc, {x, z}, y, &max(&1, y)), else: acc
-      end)
+    index = Valimc.World.ColumnIndex.restore(edits)
 
-    heights =
+    columns =
       for z <- 0..15, x <- 0..15 do
-        wx = cx * 16 + x
-        wz = cz * 16 + z
-        top = max(63, Map.get(column_tops, {wx, wz}, 63))
-
-        highest =
-          Enum.find(top..@min_y//-1, @min_y - 1, fn y -> block_at(edits, {wx, y, wz}) != 0 end)
-
-        highest + 1 - @min_y
+        Valimc.World.ColumnIndex.heights(index, {cx * 16 + x, cz * 16 + z})
       end
 
-    heightmap = longs(heights, 9)
+    surface = longs(Enum.map(columns, &(&1.world_surface - @min_y)), 9)
+    motion = longs(Enum.map(columns, &(&1.motion_blocking - @min_y)), 9)
     full_mask = (1 <<< 26) - 1
     light = :binary.copy(<<255>>, 2048)
 
     Packets.packet("level_chunk_with_light", [
       <<cx::signed-32, cz::signed-32>>,
       <<2, 1>>,
-      Wire.varint(length(heightmap)),
-      heightmap,
+      Wire.varint(length(surface)),
+      surface,
       <<4>>,
-      Wire.varint(length(heightmap)),
-      heightmap,
+      Wire.varint(length(motion)),
+      motion,
       Wire.varint(byte_size(data)),
       data,
       <<0>>,

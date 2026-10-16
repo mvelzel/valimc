@@ -412,4 +412,65 @@ defmodule Valimc.PlayerFireConnectionTest do
     assert state(pid).player.health.value == 20.0 and state(pid).player.fire_ticks == 0
     assert not state(pid).fire_contacts_active
   end
+
+  defp rain do
+    alias Valimc.World.Clock
+    :ok = Clock.configure({:advance_weather, false})
+    :ok = Clock.configure({:weather, :rain, 600})
+    wait(fn -> Clock.weather().wet end)
+
+    on_exit(fn ->
+      :ok = Clock.configure({:weather, :clear, 0})
+      wait(fn -> not Clock.weather().wet end)
+      :ok = Clock.configure({:advance_weather, true})
+    end)
+  end
+
+  test "rain extinguishes after natural ignition when a transparent roof is removed", ctx do
+    rain()
+    seed(ctx, fire: -1, material: "fire")
+    roof = {floor(ctx.pose.x), 66, floor(ctx.pose.z)}
+    :ok = World.set_block(roof, Data.block("glass"))
+    {_client, pid} = login(ctx)
+    tick(pid)
+    assert state(pid).player.fire_ticks == 160
+    assert state(pid).player.health.value == 19.0
+    :ok = World.remove_block(roof)
+    wait(fn -> state(pid).pose_job == nil end)
+    assert state(pid).player.fire_ticks == 160
+    tick(pid)
+    assert state(pid).player.fire_ticks == -20
+    assert state(pid).fire_contacts_active
+  end
+
+  test "outdoor rain clears ongoing fire but snow at high altitude does not", ctx do
+    rain()
+    seed(ctx, fire: 181, material: "air")
+    {client, pid} = login(ctx)
+    assert state(pid).player.fire_ticks == 181
+    tick(pid)
+    assert state(pid).player.fire_ticks == -20
+
+    high = %{ctx.pose | y: 1024.0}
+    assert :ok = Connection.teleport(pid, high)
+    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
+    {_, _client} = Client.await(client, :play, "system_chat")
+    # Trusted owner setup supplies only a burning counter after an authorized relocation.
+    :sys.replace_state(pid, fn s -> %{s | player: %{s.player | fire_ticks: 181}} end)
+    wait(fn -> not state(pid).teleport_pending and state(pid).pose_job == nil end)
+    tick(pid)
+    assert state(pid).player.fire_ticks == 180
+  end
+
+  test "fatal ongoing damage still precedes outdoor rain extinction", ctx do
+    rain()
+    seed(ctx, fire: 180, health: 0.5, material: "air")
+    {_client, pid} = login(ctx)
+    tick(pid, false)
+    wait(fn -> state(pid).life_stage == :dead end)
+    assert state(pid).player.health.value == 0.0
+    assert state(pid).player.fire_ticks == 0
+    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.health.value == 0.0 and saved.fire_ticks == 0
+  end
 end
