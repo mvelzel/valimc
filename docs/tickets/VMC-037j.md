@@ -56,3 +56,12 @@ kernel matches every pool/residual/health/food result. Keep the native float
 subtractions: at sufficiently large damage, rounding can leave a small pool
 unchanged, unlike min(pool,damage). Fourteen affected checks pass(seed829282).
 Raw `.local/absorption-damage-{native,elixir,targeted}.*`.
+
+Durable-pool foundation: optional snapshot v19 stores one canonical float0..2048
+with the existing checksum, effect map and unchanged transfer request/outbox.
+All earlier formats remain readable without inventing a refill. Capture is
+explicit; malformed/noncanonical/negative/oversize pools, nested/truncated wrappers,
+wrong identity and trailing bytes are refused.35 affected snapshot/store/kernel
+checks pass(seed171688), including pending death-drop history and byte-stable
+roundtrips. Raw `.local/absorption-snapshot-targeted.log`. Live restoration and
+graphical golden hearts remain unimplemented at this foundation checkpoint.

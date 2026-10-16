@@ -2,6 +2,7 @@ defmodule Valimc.PlayerSnapshot do
   @moduledoc "Bounded player state/outbox; legacy pose/inventory migration, not vanilla NBT."
   alias Valimc.{
     Inventory,
+    PlayerAbsorption,
     PlayerEffects,
     PlayerFood,
     PlayerHealth,
@@ -18,12 +19,17 @@ defmodule Valimc.PlayerSnapshot do
   @outbox_bytes max(57 + 5 * (69 + 65_536), PlayerMiningIntent.max_bytes())
   @max_sequence 18_446_744_073_709_551_615
   @max_bytes 56 + 4 + 3 + 8 + 4 + 24 + 12 + 8 + 13 + 2 + 11 + @inventory_bytes + @outbox_bytes +
-               32 + 1 + 5 + 1 + PlayerEffects.max_bytes()
+               32 + 1 + 5 + 1 + PlayerEffects.max_bytes() + 5
 
   def max_bytes, do: @max_bytes
 
   def capture(player, %Inventory{} = inventory) do
     snapshot = %{pose: PlayerStore.pose(player), inventory: inventory}
+
+    snapshot =
+      if Map.has_key?(player, :absorption),
+        do: Map.put(snapshot, :absorption, player.absorption),
+        else: snapshot
 
     snapshot =
       if Map.has_key?(player, :motion),
@@ -268,6 +274,14 @@ defmodule Valimc.PlayerSnapshot do
         {version, journal}
       end
 
+    {version, journal} =
+      if Map.has_key?(snapshot, :absorption) do
+        check(PlayerAbsorption.valid?(snapshot.absorption), :invalid_absorption)
+        {19, [<<version, snapshot.absorption::float-32>>, journal]}
+      else
+        {version, journal}
+      end
+
     payload =
       IO.iodata_to_binary([
         <<"VMCPOSE", version, uuid::binary-size(16), pose.x::float-64, pose.y::float-64,
@@ -291,6 +305,17 @@ defmodule Valimc.PlayerSnapshot do
     payload_bytes = byte_size(bytes) - 32
     <<payload::binary-size(^payload_bytes), checksum::binary-size(32)>> = bytes
     check(:crypto.hash(:sha256, payload) == checksum, :invalid_player_file)
+
+    {payload, absorption} =
+      case payload do
+        <<"VMCPOSE", 19, header::binary-size(52), base, pool::float-32, body::binary>>
+        when base in 2..18 ->
+          check(PlayerAbsorption.valid?(pool), :invalid_absorption)
+          {<<"VMCPOSE", base, header::binary, body::binary>>, %{absorption: pool}}
+
+        _ ->
+          {payload, %{}}
+      end
 
     {payload, effects} =
       case payload do
@@ -327,7 +352,7 @@ defmodule Valimc.PlayerSnapshot do
     case decode_payload(payload, uuid, table_bytes, table_inputs) do
       {:ok, snapshot} ->
         snapshot = put_in(snapshot.inventory.table_inputs, table_inputs)
-        {:ok, snapshot |> Map.merge(burning) |> Map.merge(effects)}
+        {:ok, snapshot |> Map.merge(burning) |> Map.merge(effects) |> Map.merge(absorption)}
 
       error ->
         error

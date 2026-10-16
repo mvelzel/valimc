@@ -8,6 +8,8 @@ defmodule Valimc.PlayerAbsorption do
   @attribute :json.decode(File.read!(@path))["minecraft:max_absorption"]
   @float_max 3.4028234663852886e38
 
+  def valid?(pool), do: bounded?(pool, 0, @attribute["max"]) and f32(pool) == pool
+
   def derive(effects, base \\ 0.0) do
     if PlayerEffects.valid?(effects) and bounded?(base, 0, @attribute["max"]) do
       modifiers =
