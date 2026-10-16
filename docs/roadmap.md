@@ -9,39 +9,19 @@ indexes validated tickets. None imply full parity.
 
 ## Priority
 
-[Owned table menus](tickets/VMC-033f4.md) are validated, including authoritative
-access and bounded durable close. [Bulk result dropping](tickets/VMC-033h.md) is
-validated, as are [crafting remainders](tickets/VMC-033g.md). Current work:
-[near-camera item presentation](tickets/VMC-018c3.md) and authoritative item motion.
-[Launch/motion kernels](tickets/VMC-035a.md) pass affected/native checks and actual
-baseline smoke (`f31f178`); owner composition remains open.
-[Saved item motion](tickets/VMC-035a1.md) is validated (`85458f1`), including actual
-pending-source recovery/reconnect. Automatic simulation remains open.
-[Accepted-step replication](tickets/VMC-035a2.md) is validated (`6459416`): native
-codecs, bounded durable batches and actual controlled movement/replacement/reconnect.
-[Fenced item travel](tickets/VMC-035a3.md) is validated (`adba589`), including
-actual fall/landing, slime rebound, water drift and fresh reconnect.
-[Coalesced motion saves](tickets/VMC-035a4.md) are validated (`c49fdb1`), including
-actual movement with paused I/O, periodic saves, critical replacement and reconnect.
-[Durable owner handoff](tickets/VMC-035a5.md) is validated (`19434e0`):85 affected
-checks,1045 full tests/build, full native integration/both TCP transports and actual
-boundary/recovery/reconnect checks. [Automatic simulation](tickets/VMC-035a6.md)
-is validated within cadence/player-launch scope (`e839fff`):1,064 full tests,
-native TCP/production and actual standing/crouching/whole-stack/fall/crossing/
-support-wake/water/reconnect checks.
-[Same-owner item merging](tickets/VMC-035b.md) is validated (`0505bc1`):1,076 full
-tests, production/native kernels, both TCP transports and actual merging/component/
-capacity/range/reconnect checks. [Cross-owner merging](tickets/VMC-035b1.md) follows.
-[Ordinary item pickup](tickets/VMC-035c.md) is validated (`79811a8`):1,123 full
-tests, production/full native TCP and actual natural/whole/partial/delay/mode/
-boundary/reconnect/stalled-save checks. [Advanced pickup contexts](tickets/VMC-035c1.md)
-remain open. Current work: [cross-owner merging](tickets/VMC-035b1.md). Local escrow,
-bounded live admission/delivery and proof-backed recovery pass targeted checks;
-automatic discovery and measured convergence also pass targeted checks. The block
-passes1,176 full tests/production; native/graphical checks are running. A subsequent
-moving-scene fairness fix passes49 affected checks and awaits final client validation.
-[Void item disposal](tickets/VMC-035d1.md) independently matches21 native boundaries
-and passes targeted storage/recovery checks; its graphical gate remains pending.
+Next: **[fire and lava damage](tickets/VMC-017b4.md)**. Native armor/toughness,
+fire protection and saved burning state precede live contact/damage composition.
+
+[Automatic item simulation](tickets/VMC-035a6.md),
+[same-owner merging](tickets/VMC-035b.md), [ordinary pickup](tickets/VMC-035c.md),
+[cross-owner merging](tickets/VMC-035b1.md) and
+[void disposal](tickets/VMC-035d1.md) are **Done within their stated scopes**.
+The latest block passes1,178 full tests plus targeted void checks, native integration/
+both TCP transports, production and actual-client boundary/fairness/recovery/void/
+reconnect scenarios. Final feature runtime `f27b413`; evidence stays in tickets.
+[Advanced pickup contexts](tickets/VMC-035c1.md) and
+[near-camera presentation](tickets/VMC-018c3.md) remain open. Retrieve earlier
+validated slices through the [completed index](history/completed.md).
 
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Player processes own their simulation state; bounded workers sample geometry.
