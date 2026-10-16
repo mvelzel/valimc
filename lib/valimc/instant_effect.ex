@@ -1,9 +1,13 @@
 defmodule Valimc.InstantEffect do
-  @moduledoc "Native player drink health requests; callers own defenses, health and durable completion."
+  @moduledoc "Native instant drink requests; callers own health, food and durable completion."
   import Bitwise
   alias Valimc.Protocol.EffectTypes
   @heal EffectTypes.id("instant_health")
   @harm EffectTypes.id("instant_damage")
+  @saturation EffectTypes.id("saturation")
+
+  def drink_request(@saturation, amplifier) when amplifier in 0..255,
+    do: {:ok, {:eat, amplifier + 1, (amplifier + 1) * 2.0}}
 
   def drink_request(id, amplifier) when id in [@heal, @harm] and amplifier in 0..255 do
     amount = amount(if(id == @heal, do: 4, else: 6), amplifier)

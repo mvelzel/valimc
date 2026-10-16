@@ -1,6 +1,13 @@
 defmodule Valimc.InstantEffectTest do
   use ExUnit.Case, async: true
   alias Valimc.InstantEffect
+  @saturation Valimc.Protocol.EffectTypes.id("saturation")
+
+  test "Saturation supplies absolute food properties without wrapping or applying health" do
+    assert {:ok, {:eat, 1, 2.0}} = InstantEffect.drink_request(@saturation, 0)
+    assert {:ok, {:eat, 256, 512.0}} = InstantEffect.drink_request(@saturation, 255)
+    assert {:error, :invalid_instant_effect} = InstantEffect.drink_request(@saturation, 256)
+  end
 
   test "ordinary player drinks heal or request self-attributed indirect magic" do
     assert {:ok, {:heal, 4.0}} = InstantEffect.drink_request(5, 0)
