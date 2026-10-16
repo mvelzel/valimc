@@ -145,9 +145,10 @@ indexes validated tickets. None imply full parity.
    mining states,84 affected checks,1,590,780 native placements,3,440 consumption
    cases,889 full tests, full native TCP/build and actual axes/mining/reconnect.
 
-5. **[VMC-033a](tickets/VMC-033a.md): player crafting foundation.** Research native
-   2×2 shaped/shapeless matching and derived result ownership, then compose live
-   grid/result gestures. Broader crafting and recipe-book synchronization remain open.
+5. **[VMC-033a](tickets/VMC-033a.md): player crafting foundation.**476 indexed
+   2×2 recipes pass149,128 native selection/result contexts and five targeted
+   checks. Baseline client smoke is next, then live grid/result composition.
+   Broader crafting and recipe-book synchronization remain open.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 [VMC-003c](tickets/VMC-003c.md)'s direct local test-client lifecycle is complete:
@@ -159,6 +160,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
+| [VMC-033a](tickets/VMC-033a.md) | Baseline smoke for the unused crafting kernel | Local checkpoint; frozen release next |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 

@@ -1,6 +1,7 @@
 # VMC-033a — Player crafting recipe foundation
 
-Status: Research in progress. October 16, 2026. Parent: VMC-033.
+Status: Automated-verified; baseline client smoke pending. October 16, 2026.
+Parent: VMC-033.
 
 Acceptance: pinned ordinary shaped/shapeless recipes that fit a2×2 player grid
 have bounded immutable ingredient/result facts and native-verified matching,
@@ -41,7 +42,7 @@ cases, leaving476 intended supported recipes (151 shaped/325 shapeless). Retain
 the shadowed candidate's input grids as negative controls in the canonical oracle.
 Raw sources/facts/cases,
 isolated classes and comparison stay ignored under `.local/crafting-*` and
-`.local/CraftingCandidates.java`. No production code changed yet.
+`.local/CraftingCandidates.java`.
 
 Native `InventoryMenu`/`ResultSlot` probe (network/stat presentation controlled)
 confirms both pickup buttons take the complete recipe output; insufficient cursor
@@ -52,3 +53,17 @@ Result-drop preparation needs a validated recipe conversion, not ordinary item
 conservation alone; retain bounded delivery batches and exact recovery semantics.
 All477 candidate output items inherit base `Item.onCraftedBy` and
 `onCraftedPostProcess` in the native probe; no output-specific hook was observed.
+
+Implemented `Crafting2x2.result/1`: immutable rule tuple, count/ingredient index,
+bounded shaped placements/mirrors and at most four-ingredient shapeless matching.
+Normalized476-recipe facts are compiled once; runtime lookup owns no process or
+RNG. The canonical native generator reproduces the facts and all149,128 actual
+global selection/result cases pass the final API, including patched/count inputs
+and unsupported-special negatives. Five targeted tests pass (seed771737): log
+tags, mixed woods, translated/mirrored rules, shapeless order, special/remainder
+exclusions and invalid grids. Python tool syntax checks pass; the new native
+oracle/checker joins the next full integration block. Logs
+`.local/player-crafting-{native,check,tests}.log`.
+
+Next: frozen production build and dedicated baseline client smoke. This kernel
+does not enable grid/result clicks yet; compose that in the next live slice.
