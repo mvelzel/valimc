@@ -351,6 +351,52 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     end
   end
 
+  test "ordinary cube families use creative collision admission without consumption", c do
+    ordinary_cubes(c, :creative)
+  end
+
+  test "ordinary cube families use the survival journal and preserve counts on body refusal", c do
+    ordinary_cubes(c, :survival)
+  end
+
+  defp ordinary_cubes(c, mode) do
+    names = ~w(polished_granite spruce_planks iron_block red_concrete)
+
+    slots =
+      names
+      |> Enum.with_index(36)
+      |> Map.new(fn {name, slot} -> {slot, ItemStack.new(name, 2)} end)
+
+    seed(c, mode, slots)
+    {client, pid} = login(c)
+    feet = {floor(c.pose.x), 64, floor(c.pose.z)}
+
+    Enum.reduce(Enum.with_index(names), client, fn {name, slot}, client ->
+      Client.send_packet(client, :play, "set_carried_item", <<slot::signed-16>>)
+      {_packet, client} = Client.await(client, :play, "set_held_slot")
+      assert :ok = World.set_block(c.target, 0)
+      send_place(client, c.target, 1, 0.5, 0, 2 * slot + 1)
+      client = ack(client, 2 * slot + 1)
+
+      assert World.get_block(c.target) ==
+               Valimc.Protocol.Data.item_block(ItemStack.new(name).item_id)
+
+      count = if mode == :survival, do: 1, else: 2
+      assert :sys.get_state(pid).inventory.slots[36 + slot].count == count
+      send_place(client, feet, 1, 0.5, 0, 2 * slot + 2)
+      client = ack(client, 2 * slot + 2)
+      assert World.get_block(feet) == 0
+      assert :sys.get_state(pid).inventory.slots[36 + slot].count == count
+
+      if mode == :survival do
+        assert saved(c).transfer_sequence == slot + 1 and saved(c).outbox == nil
+        assert saved(c).inventory.slots[36 + slot].count == 1
+      end
+
+      client
+    end)
+  end
+
   test "an accepted command retains its original held item before a later selection", c do
     seed(c)
     {client, pid} = login(c)

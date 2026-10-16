@@ -51,8 +51,8 @@ for row <- rows do
   end
 end
 
-unless length(rows) == 1060, do: raise("Missing native placement consumption cases")
+unless length(rows) == 2840, do: raise("Missing native placement consumption cases")
 
 IO.puts(
-  "PASS: 1,060 native survival/creative consumption cases; 530 canonical source-intent round trips."
+  "PASS: 2,840 native survival/creative consumption cases; 1,420 canonical source-intent round trips."
 )

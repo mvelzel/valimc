@@ -103,4 +103,17 @@ defmodule Valimc.PlacementTest do
     assert {:ok, %{state: 15_180}} = Placement.candidate(slab, 90, 0, request())
     assert {:ok, %{state: 15_182}} = Placement.candidate(slab, 1, 15_179, request())
   end
+
+  test "ordinary cube admission includes stone, wood, mineral storage and color families" do
+    for name <- ~w(polished_granite spruce_planks iron_block red_concrete purple_terracotta) do
+      assert Placement.supported_item?(item(name))
+      assert {:ok, %{state: state}} = Placement.candidate(item(name), 0, 0, request())
+      assert state == Data.item_block(item(name))
+    end
+
+    for name <- ~w(sand oak_log chest oak_stairs redstone_block) do
+      refute Placement.supported_item?(item(name))
+      assert {:error, :unsupported_item} = Placement.candidate(item(name), 0, 0, request())
+    end
+  end
 end

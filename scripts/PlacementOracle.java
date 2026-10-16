@@ -51,10 +51,13 @@ public class PlacementOracle {
     var level=(ProbeLevel)((sun.misc.Unsafe)field.get(null)).allocateInstance(ProbeLevel.class);
     level.clickedPos=BlockPos.ZERO;level.adjacent=Blocks.AIR.defaultBlockState();
     var plain=new JsonObject();
-    for(var block:List.of(Blocks.STONE,Blocks.DIRT,Blocks.COBBLESTONE,Blocks.OAK_PLANKS,Blocks.GLASS)){
+    for(var block:BuiltInRegistries.BLOCK){
+      boolean ordinary=block.getClass()==Block.class&&block.getStateDefinition().getPossibleStates().size()==1&&block.asItem().getClass()==BlockItem.class&&!block.defaultBlockState().canBeReplaced()&&block.defaultBlockState().isCollisionShapeFullBlock(net.minecraft.world.level.EmptyBlockGetter.INSTANCE,BlockPos.ZERO);
+      if(!ordinary&&block!=Blocks.GLASS)continue;
       if(owner(block.getClass(),"getStateForPlacement",BlockPlaceContext.class)!=Block.class||block.defaultBlockState().canBeReplaced()||block.asItem().getClass()!=BlockItem.class)throw new AssertionError("Plain placement needs context: "+block);
       plain.addProperty(Integer.toString(BuiltInRegistries.ITEM.getId(block.asItem())),Block.getId(block.defaultBlockState()));
     }
+    if(plain.size()!=183)throw new AssertionError("Changed ordinary cube placement catalog");
     var slabs=new JsonArray();var slabItems=new ArrayList<Item>();
     for(var block:BuiltInRegistries.BLOCK)if(block.builtInRegistryHolder().is(BlockTags.SLABS)){
       if(owner(block.getClass(),"getStateForPlacement",BlockPlaceContext.class)!=SlabBlock.class||owner(block.getClass(),"canBeReplaced",BlockState.class,BlockPlaceContext.class)!=SlabBlock.class||block.asItem().getClass()!=BlockItem.class)throw new AssertionError("Specialized slab placement: "+block);
@@ -89,6 +92,14 @@ public class PlacementOracle {
     for(var item:allItems)for(var state:fixtures)for(var face:List.of(Direction.UP,Direction.DOWN,Direction.NORTH)){
       observe(cases,level,item,state,Blocks.AIR.defaultBlockState(),face,.5,BlockPos.ZERO);
       observe(cases,level,item,Blocks.STONE.defaultBlockState(),state,face,.5,BlockPos.ZERO);
+    }
+    // Ordinary cubes also exercise the three other horizontal directions at both cursor halves.
+    var ordinaryFixtures=new ArrayList<BlockState>();
+    for(var block:List.of(Blocks.AIR,Blocks.STONE,Blocks.WATER,Blocks.LAVA,Blocks.SHORT_GRASS,Blocks.SNOW,Blocks.OAK_SLAB))ordinaryFixtures.addAll(block.getStateDefinition().getPossibleStates());
+    for(var id:plain.keySet())for(var state:ordinaryFixtures)for(var face:List.of(Direction.SOUTH,Direction.WEST,Direction.EAST))for(double y:new double[]{.25,.75}){
+      var item=BuiltInRegistries.ITEM.byId(Integer.parseInt(id));
+      observe(cases,level,item,state,Blocks.AIR.defaultBlockState(),face,y,BlockPos.ZERO);
+      observe(cases,level,item,Blocks.STONE.defaultBlockState(),state,face,y,BlockPos.ZERO);
     }
     var packets=new JsonArray();
     for(var hand:InteractionHand.values())for(var face:Direction.values())for(var pos:List.of(BlockPos.ZERO,new BlockPos(-33554432,-2048,33554431),new BlockPos(33554431,2047,-33554432)))for(int sequence:new int[]{0,127,128,Integer.MAX_VALUE})for(boolean inside:new boolean[]{false,true})for(boolean border:new boolean[]{false,true}){
