@@ -108,12 +108,13 @@ defmodule Valimc.PlayerCraftingInventoryTest do
              )
   end
 
-  test "single result throw plans a complete recipe; bulk stays refused and interrupts only cancel" do
+  test "single and bulk result throws consume recipes; interrupts only cancel" do
     inv = %Inventory{infinite_materials: true, slots: %{1 => ItemStack.new("oak_log", 2)}}
 
     assert {:ok, next, [output]} = Inventory.plan_click(inv, :throw, 0, 0)
     assert output == ItemStack.new("oak_planks", 4) and next.slots[1] == ItemStack.new("oak_log")
-    assert Inventory.plan_click(inv, :throw, 0, 1) == {:error, :unsupported_crafting_bulk_drop}
+    assert {:ok, bulk, [^output, ^output]} = Inventory.plan_click(inv, :throw, 0, 1)
+    assert bulk.slots == %{}
 
     inv = %{inv | carried: ItemStack.new("oak_log")}
     assert click(inv, :pickup_all, 0).slots == inv.slots

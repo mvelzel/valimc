@@ -7,8 +7,8 @@ defmodule Valimc.PlayerCraftingTransfers do
   def prepare(uuid, sequence, before, after_snapshot, key, records, {action, button})
       when is_integer(sequence) and sequence >= 0 and sequence < @max_sequence and
              ((action == :quick_move and button in [0, 1]) or
-                (action == :throw and button in -128..127 and button != 1)) do
-    with {:ok, inventory, [_] = stacks} <-
+                (action == :throw and button in -128..127)) do
+    with {:ok, inventory, [_ | _] = stacks} when length(stacks) <= 5 <-
            Inventory.plan_click(before.inventory, action, 0, button),
          true <- strip_journal(after_snapshot) == %{strip_journal(before) | inventory: inventory},
          true <- is_list(records) and Enum.map(records, & &1.stack) == stacks,

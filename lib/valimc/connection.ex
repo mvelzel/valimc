@@ -63,7 +63,8 @@ defmodule Valimc.Connection do
                    state.table_job != nil or
                    (state.placement_job != nil and state.placement_job.command.mode == :survival)
 
-  defguardp inventory_pending(state) when inventory_busy(state) or state.table_closing
+  defguardp inventory_pending(state)
+            when inventory_busy(state) or state.table_closing or state.crafting_repeat != nil
 
   def start_link(socket), do: GenServer.start_link(__MODULE__, socket)
 
@@ -205,6 +206,7 @@ defmodule Valimc.Connection do
        table_queue: :queue.new(),
        table_queued: 0,
        table_closing: false,
+       crafting_repeat: nil,
        life_save: nil,
        life_stage: :alive,
        respawn_requested: false,
@@ -452,6 +454,7 @@ defmodule Valimc.Connection do
          |> drain_creative()
          |> continue_life()
          |> continue_table_close()
+         |> continue_crafting_repeat()
          |> drain_table_clicks()
          |> drain_placements()}
       end)
@@ -541,7 +544,7 @@ defmodule Valimc.Connection do
       if recovery.mode == :death,
         do: reject(state, "Death inventory cleanup could not be committed; reconnect to recover")
 
-      if state.table_closing,
+      if state.table_closing and state.inventory.table_inputs != nil,
         do: reject(state, "Table cleanup could not be committed; reconnect to recover")
 
       if recovery.mode == :login,
@@ -552,6 +555,7 @@ defmodule Valimc.Connection do
           )
 
       Process.cancel_timer(recovery.timer)
+      state = %{state | table_closing: false, crafting_repeat: nil}
 
       send_packets(state, [
         Packets.chat("Item operation could not be prepared; inventory restored")
@@ -590,6 +594,7 @@ defmodule Valimc.Connection do
            |> sync_creative_result()
            |> continue_life()
            |> continue_table_close()
+           |> continue_crafting_repeat()
            |> drain_table_clicks()
            |> drain_placements()
        )}
@@ -953,6 +958,7 @@ defmodule Valimc.Connection do
            |> tick_food()
            |> tick_mining()
            |> continue_table_close()
+           |> continue_crafting_repeat()
            |> check_table_menu()
            |> start_motion()
            |> sample_pose()}
@@ -3484,25 +3490,8 @@ defmodule Valimc.Connection do
     %{state | inventory: inventory}
   end
 
-  defp inventory_close(state) when inventory_pending(state),
-    do: resync_inventory(state)
-
   defp inventory_close(state) do
-    case Inventory.close(state.inventory) do
-      {:ok, inventory, []} ->
-        send_packets(state, [Packets.inventory(inventory), Packets.cursor(nil)])
-        %{state | inventory: inventory}
-
-      {:ok, inventory, [_ | _] = stacks} ->
-        start_inventory_transfer(state, inventory, stacks)
-
-      {:error, _} ->
-        send_packets(state, [
-          Packets.chat("Menu return exceeds inventory limits; inventory restored")
-        ])
-
-        resync_inventory(state)
-    end
+    continue_table_close(%{state | crafting_repeat: nil, table_closing: true})
   end
 
   defp inventory_click(state, payload) do
@@ -3535,8 +3524,7 @@ defmodule Valimc.Connection do
             %{state | inventory: inventory}
 
           {:ok, inventory, [_ | _] = stacks} ->
-            crafting = if click.slot == 0, do: {click.action, click.button}
-            start_inventory_transfer(state, inventory, stacks, crafting)
+            start_click_transfer(state, inventory, stacks, click)
 
           {:error, _} ->
             send_packets(state, [
@@ -3747,8 +3735,7 @@ defmodule Valimc.Connection do
         %{state | inventory: inventory}
 
       {:ok, inventory, [_ | _] = stacks} ->
-        crafting = if click.slot == 0, do: {click.action, click.button}
-        start_inventory_transfer(state, inventory, stacks, crafting)
+        start_click_transfer(state, inventory, stacks, click)
 
       {:error, _} ->
         resync_inventory(state)
@@ -3765,6 +3752,7 @@ defmodule Valimc.Connection do
       state
       | table_menu: nil,
         table_closing: true,
+        crafting_repeat: nil,
         table_queue: :queue.new(),
         table_queued: 0
     })
@@ -3786,7 +3774,61 @@ defmodule Valimc.Connection do
         prepare_inventory_transfer(state, inventory, stacks)
 
       {:error, _} ->
-        reject(state, "Table cleanup could not be planned; reconnect to recover")
+        if state.inventory.table_inputs do
+          reject(state, "Menu cleanup could not be planned; reconnect to recover")
+        else
+          send_packets(state, [
+            Packets.chat("Menu return exceeds inventory limits; inventory restored")
+          ])
+
+          resync_inventory(%{state | table_closing: false})
+        end
+    end
+  end
+
+  defp start_click_transfer(state, inventory, stacks, click) do
+    crafting = if click.slot == 0, do: {click.action, click.button}
+    next = start_inventory_transfer(state, inventory, stacks, crafting)
+
+    if crafting == {:throw, 1} and length(stacks) == 5 and next.recovery != nil do
+      %{
+        next
+        | crafting_repeat: %{click: click, output: Inventory.crafting_result(state.inventory)}
+      }
+    else
+      next
+    end
+  end
+
+  defp continue_crafting_repeat(%{crafting_repeat: nil} = state), do: state
+
+  defp continue_crafting_repeat(%{life_stage: stage} = state) when stage != :alive,
+    do: %{state | crafting_repeat: nil}
+
+  defp continue_crafting_repeat(%{table_closing: true} = state),
+    do: %{state | crafting_repeat: nil}
+
+  defp continue_crafting_repeat(state) when inventory_busy(state) or state.save_ref != nil,
+    do: state
+
+  defp continue_crafting_repeat(state) do
+    repeat = state.crafting_repeat
+    state = %{state | crafting_repeat: nil}
+    result = Inventory.crafting_result(state.inventory)
+
+    cond do
+      result == nil or not ItemStack.same_item?(result, repeat.output) ->
+        resync_inventory(state)
+
+      repeat.click.container == 0 and state.table_menu == nil ->
+        {:ok, inventory, stacks} = Inventory.plan_click(state.inventory, :throw, 0, 1)
+        start_click_transfer(state, inventory, stacks, repeat.click)
+
+      state.table_menu != nil and repeat.click.container == state.table_menu.id ->
+        request_table(state, :click, state.table_menu.position, repeat.click)
+
+      true ->
+        resync_inventory(state)
     end
   end
 

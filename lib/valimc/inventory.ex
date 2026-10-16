@@ -243,7 +243,7 @@ defmodule Valimc.Inventory do
     |> advance()
   end
 
-  @doc "Plans a click and zero/one world-drop effects; the caller owns durable commit."
+  @doc "Plans a click and at most five world drops; the caller owns durable commit/continuation."
   def plan_click(%{drag: drag} = inventory, action, slot, button)
       when drag != nil and action != :quick_craft do
     with {:ok, next} <- click(inventory, action, slot, button), do: {:ok, next, []}
@@ -271,8 +271,8 @@ defmodule Valimc.Inventory do
 
   def plan_click(inventory, :throw, 0, button) when button in -128..127 do
     case {inventory.carried, crafting_result(inventory), button} do
-      {nil, %ItemStack{}, 1} ->
-        {:error, :unsupported_crafting_bulk_drop}
+      {nil, %ItemStack{} = result, 1} ->
+        drop_crafting(inventory, result, 5, [])
 
       {nil, %ItemStack{} = result, _} ->
         finish_crafting(consume_crafting_inputs(inventory), [result])
@@ -609,6 +609,17 @@ defmodule Valimc.Inventory do
 
   defp finish_crafting(inventory, stacks) do
     with {:ok, next} <- finish(inventory), do: {:ok, next, stacks}
+  end
+
+  defp drop_crafting(inventory, _, 0, drops), do: finish_crafting(inventory, Enum.reverse(drops))
+
+  defp drop_crafting(inventory, original, budget, drops) do
+    result = crafting_result(inventory)
+
+    if result != nil and compatible?(result, original),
+      do:
+        drop_crafting(consume_crafting_inputs(inventory), original, budget - 1, [result | drops]),
+      else: finish_crafting(inventory, Enum.reverse(drops))
   end
 
   defp quick_move_crafting(inventory, _, 0), do: finish_crafting(inventory, [])

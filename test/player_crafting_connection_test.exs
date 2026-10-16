@@ -278,4 +278,130 @@ defmodule Valimc.PlayerCraftingConnectionTest do
     assert client.inventory.carried == nil
     assert Enum.at(client.inventory.items, 4) == ItemStack.new("oak_log", 2)
   end
+
+  test "Ctrl-Q repeats17 crafts in four durable batches and reconnect never repeats them", ctx do
+    seed(ctx, %{36 => ItemStack.new("oak_log", 17)})
+    {client, owner} = login(ctx)
+    client = client |> click(36) |> click(1) |> click(0, 1, "throw")
+
+    wait(fn ->
+      state = :sys.get_state(owner)
+      state.recovery == nil and state.crafting_repeat == nil and state.inventory.slots == %{}
+    end)
+
+    _client = inventory_until(client, &(Enum.at(&1.items, 1) == nil))
+    assert length(records(ctx)) == 17
+    assert Enum.all?(records(ctx), &(&1.stack == ItemStack.new("oak_planks", 4)))
+    assert saved(ctx).transfer_sequence == 4 and saved(ctx).outbox == nil
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    {_fresh, fresh_pid} = login(ctx)
+    assert :sys.get_state(fresh_pid).crafting_repeat == nil
+    assert length(records(ctx)) == 17 and saved(ctx).transfer_sequence == 4
+  end
+
+  test "closing while bulk waits for its source cancels continuation and returns unspent inputs",
+       ctx do
+    seed(ctx, %{36 => ItemStack.new("oak_log", 17)})
+    {client, owner} = login(ctx)
+    client = client |> click(36) |> click(1)
+    writer = :sys.get_state(owner).player_store
+    :sys.suspend(writer)
+
+    try do
+      _client = click(client, 0, 1, "throw")
+      assert :sys.get_state(owner).crafting_repeat != nil
+      Client.send_packet(client, :play, "container_close", <<0>>)
+      wait(fn -> :sys.get_state(owner).table_closing end)
+      assert :sys.get_state(owner).crafting_repeat == nil
+      :sys.resume(writer)
+
+      wait(fn ->
+        state = :sys.get_state(owner)
+        state.recovery == nil and not state.table_closing
+      end)
+
+      assert :sys.get_state(owner).inventory.slots == %{36 => ItemStack.new("oak_log", 12)}
+      assert length(records(ctx)) == 5
+      assert Enum.all?(records(ctx), &(&1.stack == ItemStack.new("oak_planks", 4)))
+      assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+    end
+  end
+
+  test "crash after the first bulk source recovers committed outputs and cleans unspent inputs",
+       ctx do
+    seed(ctx, %{36 => ItemStack.new("oak_log", 17)})
+    {client, owner} = login(ctx)
+    client = client |> click(36) |> click(1)
+    {:ok, {region, _}} = Valimc.World.existing_owner(ctx.key)
+    :sys.suspend(region)
+
+    try do
+      _client = click(client, 0, 1, "throw")
+      wait(fn -> match?(%{stage: :delivery}, :sys.get_state(owner).recovery) end)
+      pending = saved(ctx)
+      assert pending.inventory.slots == %{1 => ItemStack.new("oak_log", 12)}
+      assert pending.transfer_sequence == 1 and length(pending.outbox.records) == 5
+      writer = :sys.get_state(owner).player_store
+      Process.exit(owner, :kill)
+      if Process.alive?(writer), do: Process.exit(writer, :kill)
+      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+      :sys.resume(region)
+      {_fresh, fresh_pid} = login(ctx)
+      assert :sys.get_state(fresh_pid).inventory.slots == %{}
+      assert :sys.get_state(fresh_pid).crafting_repeat == nil
+
+      assert Enum.sort(Enum.map(records(ctx), & &1.stack)) ==
+               Enum.sort([
+                 ItemStack.new("oak_log", 12) | List.duplicate(ItemStack.new("oak_planks", 4), 5)
+               ])
+
+      assert saved(ctx).transfer_sequence == 2 and saved(ctx).outbox == nil
+    after
+      if Process.alive?(region), do: :sys.resume(region)
+    end
+  end
+
+  defp saved(ctx) do
+    {:ok, snapshot} =
+      PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
+
+    snapshot
+  end
+
+  test "death during a prepared bulk batch commits five results and drops only unspent inputs",
+       ctx do
+    seed(ctx, %{36 => ItemStack.new("oak_log", 17)})
+    {client, owner} = login(ctx)
+    Client.send_packet(client, :play, "player_loaded", <<>>)
+    wait(fn -> Valimc.PlayerInput.loaded?(:sys.get_state(owner).player.input) end)
+    client = client |> click(36) |> click(1)
+    writer = :sys.get_state(owner).player_store
+    :sys.suspend(writer)
+
+    try do
+      _client = click(client, 0, 1, "throw")
+      assert {:ok, :dead} = Connection.fall_damage(owner, 100)
+      :sys.resume(writer)
+      wait(fn -> :sys.get_state(owner).life_stage == :dead end)
+      state = :sys.get_state(owner)
+      assert state.crafting_repeat == nil and state.inventory.slots == %{}
+
+      assert Enum.sort(Enum.map(records(ctx), & &1.stack)) ==
+               Enum.sort([
+                 ItemStack.new("oak_log", 12) | List.duplicate(ItemStack.new("oak_planks", 4), 5)
+               ])
+
+      assert saved(ctx).transfer_sequence == 2 and saved(ctx).outbox == nil
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+    end
+  end
+
+  defp records(ctx) do
+    {:ok, {pid, _}} = Valimc.World.item_owner(ctx.key)
+    Valimc.World.Items.records(:sys.get_state(pid).resource.items)
+  end
 end

@@ -503,6 +503,67 @@ defmodule Valimc.TableConnectionTest do
     end
   end
 
+  test "table bulk repeats before later queued clicks and commits each bounded conversion", ctx do
+    seed(ctx, %{36 => ItemStack.new("oak_log", 17), 37 => ItemStack.new("cobblestone")})
+    {client, pid} = login(ctx)
+    client = open(client, ctx) |> click(37) |> click(1)
+    writer = :sys.get_state(pid).player_store
+    :sys.suspend(writer)
+
+    try do
+      send_click(client, 0, 1, "throw")
+      wait(fn -> :sys.get_state(pid).crafting_repeat != nil end)
+      send_click(client, 38)
+      wait(fn -> :sys.get_state(pid).table_queued == 1 end)
+      assert :sys.get_state(pid).inventory.carried == nil
+      :sys.resume(writer)
+
+      wait(fn ->
+        state = :sys.get_state(pid)
+
+        state.crafting_repeat == nil and state.recovery == nil and state.table_queued == 0 and
+          state.inventory.carried == ItemStack.new("cobblestone")
+      end)
+
+      assert :sys.get_state(pid).inventory.table_inputs == Tuple.duplicate(nil, 9)
+      assert length(records(ctx)) == 17
+      assert Enum.all?(records(ctx), &(&1.stack == ItemStack.new("oak_planks", 4)))
+      assert saved(ctx).transfer_sequence == 4 and saved(ctx).outbox == nil
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+    end
+  end
+
+  test "removing a table between bulk batches fences further conversion and returns12 inputs",
+       ctx do
+    seed(ctx, %{36 => ItemStack.new("oak_log", 17)})
+    {client, pid} = login(ctx)
+    client = open(client, ctx) |> click(37) |> click(1)
+    writer = :sys.get_state(pid).player_store
+    :sys.suspend(writer)
+
+    try do
+      send_click(client, 0, 1, "throw")
+      wait(fn -> :sys.get_state(pid).crafting_repeat != nil end)
+      :ok = World.set_block(target(ctx), 0)
+      :sys.resume(writer)
+
+      wait(fn ->
+        state = :sys.get_state(pid)
+        state.table_menu == nil and not state.table_closing and state.recovery == nil
+      end)
+
+      state = :sys.get_state(pid)
+      assert state.crafting_repeat == nil and state.inventory.table_inputs == nil
+      assert state.inventory.slots == %{36 => ItemStack.new("oak_log", 12)}
+      assert length(records(ctx)) == 5
+      assert Enum.all?(records(ctx), &(&1.stack == ItemStack.new("oak_planks", 4)))
+      assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+    end
+  end
+
   defp saved(ctx) do
     {:ok, saved} =
       PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)

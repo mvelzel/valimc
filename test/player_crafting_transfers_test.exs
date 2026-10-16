@@ -75,6 +75,62 @@ defmodule Valimc.PlayerCraftingTransfersTest do
              )
   end
 
+  test "bulk authorizes exactly a bounded batch and persists every output in its journal" do
+    for size <- [2, 3], amount <- [2, 6, 17] do
+      inv =
+        if size == 2,
+          do: %Inventory{slots: %{1 => ItemStack.new("oak_log", amount)}},
+          else: %Inventory{
+            table_inputs:
+              List.to_tuple([ItemStack.new("oak_log", amount) | List.duplicate(nil, 8)])
+          }
+
+      {before, after_snapshot, records} = plan(inv, {:throw, 1})
+      assert length(records) == min(5, amount)
+
+      assert {:ok, pending} =
+               PlayerCraftingTransfers.prepare(
+                 @uuid,
+                 3,
+                 before,
+                 after_snapshot,
+                 {0, 0},
+                 records,
+                 {:throw, 1}
+               )
+
+      assert pending.outbox.records == records and pending.transfer_sequence == 4
+      assert {:ok, bytes} = PlayerSnapshot.encode(@uuid, pending)
+      assert {:ok, decoded} = PlayerSnapshot.decode(bytes, @uuid)
+      assert decoded.outbox == pending.outbox
+      assert decoded.inventory.slots == pending.inventory.slots
+      assert decoded.inventory.table_inputs == pending.inventory.table_inputs
+      assert decoded.inventory.carried == pending.inventory.carried
+
+      assert {:error, :invalid_crafting_transfer} =
+               PlayerCraftingTransfers.prepare(
+                 @uuid,
+                 3,
+                 before,
+                 after_snapshot,
+                 {0, 0},
+                 tl(records),
+                 {:throw, 1}
+               )
+
+      assert {:error, :invalid_crafting_transfer} =
+               PlayerCraftingTransfers.prepare(
+                 @uuid,
+                 3,
+                 before,
+                 after_snapshot,
+                 {0, 0},
+                 records,
+                 {:throw, 0}
+               )
+    end
+  end
+
   test "forged output, ingredients, metadata, positions, gestures and source bounds refuse" do
     inv = %Inventory{slots: %{1 => ItemStack.new("oak_log", 2)}}
     {before, after_snapshot, [record] = records} = plan(inv, {:throw, 0})
