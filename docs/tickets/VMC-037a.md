@@ -62,3 +62,14 @@ Nine affected checks pass(seed108479), including full40×256 bounds and malforme
 maps. Evidence: `.local/player-effect-map-{native,native-check,targeted}.log`,
 `.local/status-damage-{native,native-check,targeted}.log`. Neither kernel is live;
 baseline remains pending before publication. Next: bounded snapshot codec/ownership.
+
+Snapshot foundation: optional v18 wraps existing journals under one checksum, with
+a canonical61,561-byte maximum effect payload(40 IDs×256 rungs). Legacy snapshots
+keep their encoding. Active/suppressed durations and flags survive ordinary death
+transfers and typed mining/table, placement-refund and pickup-restart boundaries;
+requests, counters and receipts are unchanged. Disconnect-close and transfer cleanup
+also retain the newest effect state.62 affected checks pass(seed255828), including
+the late-state close/rejection/death regression. Malformed counts,
+IDs/chains/flags, truncation, recursive wrappers and wrong UUIDs refuse. Evidence:
+`.local/player-effect-snapshot-targeted-final.log`. No live owner restoration,
+clock or icon yet; combine the pending baseline with live composition.

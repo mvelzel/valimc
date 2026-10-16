@@ -124,6 +124,7 @@ defmodule Valimc.PlayerTransfers do
         :frozen_ticks,
         :air_supply,
         :fire_ticks,
+        :effects,
         :food,
         :velocity,
         :health,

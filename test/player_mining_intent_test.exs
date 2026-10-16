@@ -59,6 +59,9 @@ defmodule Valimc.PlayerMiningIntentTest do
     burning = Map.put(state, :fire_ticks, 300)
     assert {:ok, <<"VMCPOSE", 17, _::binary>> = bytes} = PlayerSnapshot.encode(@uuid, burning)
     assert {:ok, ^burning} = PlayerSnapshot.decode(bytes, @uuid)
+    effects = Map.put(burning, :effects, %{11 => [{300, 0, false, true, true}]})
+    assert {:ok, <<"VMCPOSE", 18, _::binary>> = bytes} = PlayerSnapshot.encode(@uuid, effects)
+    assert {:ok, ^effects} = PlayerSnapshot.decode(bytes, @uuid)
 
     assert {:error, :invalid_mining_snapshot} =
              PlayerSnapshot.encode(@uuid, put_in(state.inventory.selected, 0))

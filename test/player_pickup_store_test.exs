@@ -163,6 +163,8 @@ defmodule Valimc.PlayerPickupStoreTest do
 
   test "source restart resolves actual region proof once and persists the gained inventory",
        ctx do
+    effects = %{11 => [{2, 1, false, true, true}, {-1, 0, true, false, true}]}
+    ctx = %{ctx | snapshot: Map.put(ctx.snapshot, :effects, effects)}
     {_fence, pending} = prepare(ctx)
     terminal(ctx, true)
     {ctx, ^pending} = reopen(ctx)
@@ -171,6 +173,7 @@ defmodule Valimc.PlayerPickupStoreTest do
     assert resolved.transfer_sequence == 1
     {ctx, restored} = reopen(ctx)
     assert restored.inventory.slots == resolved.inventory.slots and restored.outbox == nil
+    assert restored.effects == effects and resolved.effects == effects
     assert {:error, :no_pending_transfer} = complete(ctx, ctx.fence)
     assert {:ok, {owner, _}} = World.item_owner(ctx.key)
     assert :sys.get_state(owner).resource.items.entries == %{}

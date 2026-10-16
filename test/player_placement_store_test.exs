@@ -174,6 +174,8 @@ defmodule Valimc.PlayerPlacementStoreTest do
 
   test "source and destination restart reject an uncommitted permit and refund the exact last item",
        ctx do
+    effects = %{11 => [{300, 0, false, true, true}]}
+    ctx = %{ctx | snapshot: Map.put(ctx.snapshot, :effects, effects)}
     {_fence, pending} = prepare(ctx)
     {ctx, restored, fence} = restart(ctx)
     assert restored == persisted(pending)
@@ -183,6 +185,7 @@ defmodule Valimc.PlayerPlacementStoreTest do
     assert final.transfer_sequence == 1 and final.outbox == nil
     assert Inventory.get(final.inventory, 45) == ctx.intent.before
     assert read(ctx) == persisted(final)
+    assert final.effects == effects
     assert World.get_block(ctx.position) == 0
     assert {:ok, :already_rejected} = deliver(ctx, pending)
   end
@@ -238,6 +241,7 @@ defmodule Valimc.PlayerPlacementStoreTest do
     }
 
     later = Map.put(later, :fire_ticks, -20)
+    later = Map.put(later, :effects, %{11 => [{7, 0, false, true, true}]})
 
     monitor = Process.monitor(ctx.writer)
     assert :ok = PlayerStore.close_session(ctx.writer, fence, later)
@@ -246,6 +250,7 @@ defmodule Valimc.PlayerPlacementStoreTest do
     assert final.outbox == nil and final.transfer_sequence == 2 and final.inventory.slots == %{}
     assert final.health == later.health and final.food == later.food
     assert final.fire_ticks == -20
+    assert final.effects == later.effects
     assert World.get_block(ctx.position) == 0
 
     {:ok, %{records: records}} =
