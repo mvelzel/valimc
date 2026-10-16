@@ -1,6 +1,6 @@
 # VMC-033b — Manual player-grid crafting
 
-Status: Automated-verified; actual client pending. October 16, 2026.
+Status: Done within manual recipe scope. October 16, 2026; `adfb228`.
 Parent: VMC-033; uses [recipes](VMC-033a.md).
 
 Acceptance: ordinary grid1..4 manipulations derive a result view and pickup0
@@ -43,5 +43,25 @@ actual TCP survival clicks, result corrections/refusals, close and reconnect.
 Two prior drag expectations now include the four crafting inputs. Initial test
 fixture lacked survival abilities and referenced a nonexistent state field;
 corrected fixtures, with no runtime change needed. Raw test log
-`.local/player-crafting-live-tests.log`. Frozen release and graphical crafting
-remain the publication gate; no live-client claim yet.
+`.local/player-crafting-live-tests.log`. Frozen production release passed;
+accepted graphical crafting evidence follows.
+
+Actual-client evidence, October16,2026: dedicated tester PASS on frozen
+`adfb228760b570a424f4cc54ef967b37614ab29d` (all686 blobs verified), Java26.3/
+protocol777, disposable whole cloned dataset, direct Quick Play and dedicated SDL
+pointer. Survival manual clicks verified log2→planks8 (right pickup takes4 and
+left pickup takes4), mixed oak/spruce sticks4 and table1 with exact ingredient
+consumption, near-fulloak61 and wrongspruce cursor refusals, validtake4, close
+with carried4/remaininglog1, fresh reconnect exactoak65/spruce1/log1 and empty
+inputs/result/cursor. Live RPC confirmed physicalslot0nil throughout. Actual
+`/stats`:1player/7regions/10schedulers/99MB; wrappers/JVMs stopped, zeroPlayers.
+Full original snapshot restored retaining latest source57/niloutbox; all55 prior
+item records exact, region1/2/3 receipts exact. A disconnected transient-grid
+fixture underwent legitimate login cleanup: newoak_log2 record and region0
+receipt57 retained; original receipt10 archived, no journal rollback. No block
+fixtures changed. Raw report `.local/client-tests/VMC-033b/report.md`, numbered
+observations, full before/final snapshots/ledgers and cleanup assertions. Server
+log clean; client only offline auth/Realms and platform/render warnings. Limits:
+survival player2x2 only; no creative GUI, recipebook/tablewindow/special/remainder/
+itemoverride or unsupported result-gesture claim. Primary reviewed and accepted
+the report; this manual slice is complete. VMC-033c owns additional gestures.

@@ -152,7 +152,8 @@ indexes validated tickets. None imply full parity.
    Broader crafting and recipe-book synchronization remain open.
    [Manual grid crafting](tickets/VMC-033b.md) passes113 affected checks and3,536
    actual native menu contexts: derived output, atomic ingredient consumption
-   and cursor/cleanup boundaries. Actual client validation follows.
+   and cursor/cleanup boundaries. Production and actual recipes/refusals/cleanup/
+   reconnect passed (`adfb228`); the manual slice is complete.
    [Result gestures](tickets/VMC-033c.md) pass86 affected checks and3,642 native
    contexts;112 overflow plans remain refused pending recipe-conversion transfers.
 
@@ -166,7 +167,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-033b](tickets/VMC-033b.md) | Manual crafting, refusals, cleanup and fresh reconnect | Local checkpoint; frozen release next |
 | [VMC-033c](tickets/VMC-033c.md) | Result shift/swap/clone and overflow refusal | Local checkpoint; waits for sole tester |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
