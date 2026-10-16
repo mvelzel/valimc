@@ -1851,7 +1851,8 @@ defmodule Valimc.Connection do
         if abs(x - state.player.x) + abs(y - state.player.y) + abs(z - state.player.z) > 0.01,
           do: reject(state, "Invalid teleport position")
 
-        resume = state.teleport_pending and state.login_velocity_pending
+        confirmed = state.teleport_pending
+        resume = confirmed and state.login_velocity_pending
 
         state = %{
           state
@@ -1860,6 +1861,7 @@ defmodule Valimc.Connection do
             login_velocity_pending: false
         }
 
+        if confirmed, do: send(self(), :send_chunks)
         if resume, do: send_velocity(state, state.player.motion.velocity), else: state
 
       "keep_alive" ->
@@ -2579,7 +2581,9 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp stream_chunks(%{phase: :play, batch_pending: false, pending: [_ | _]} = state) do
+  defp stream_chunks(
+         %{phase: :play, teleport_pending: false, batch_pending: false, pending: [_ | _]} = state
+       ) do
     {batch, pending} = Enum.split(state.pending, 4)
 
     frames =

@@ -9,6 +9,10 @@ indexes validated tickets. None imply full parity.
 
 ## Priority
 
+Initial join prerequisite: [VMC-004b2e](tickets/VMC-004b2e.md) fixes an observed
+client encoder race before publishing the pending table kernel. Table composition
+continues after readiness validation; its feature baseline already passed.
+
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Player processes own their simulation state; bounded workers sample geometry.
    Coupled effects need explicit ordering. Owner/timer, client-tick admission and
@@ -183,7 +187,8 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-033f2](tickets/VMC-033f2.md) | Bundle/player baseline; live3×3 belongs to composition | Local checkpoint next |
+| [VMC-033f2](tickets/VMC-033f2.md) | Feature baseline passed; initial join repair retest | `6ec31a9`, local |
+| [VMC-004b2e](tickets/VMC-004b2e.md) | Repeated actual joins; coherent block integration | Local readiness fix next |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 
