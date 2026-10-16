@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-029a8](../tickets/VMC-029a8.md) | `e28fbb8`:173 more deterministic cube mining types, native/65 affected/build checks and actual exact drops/wear, bookshelf Silk Touch, abort and reconnect |
 | [VMC-029b2](../tickets/VMC-029b2.md) | `5fd058a`:178 more plain placement items,53 affected/native/build checks and actual stone/wood/metal/color both-mode placement, offhand/depletion and reconnect |
 | [VMC-029b1](../tickets/VMC-029b1.md) | `af99f492`: owned one-block survival placement, exact both-hand depletion/refunds and typed receipts;874 tests/full native TCP/build and actual shapes/water/counts/reconnect |
 | [VMC-029b creative core](../tickets/VMC-029b.md) | `96da2b8`: one-owner plain/slab targeting,70 affected checks/native TCP/build, actual halves/water/both hands and fresh reconnect; broader placement remains open |
