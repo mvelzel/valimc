@@ -48,6 +48,9 @@ composition remains pending.
 [Atomic persistence](VMC-029a1.md) now includes source intent, receipt-backed wear
 compensation and login/disconnect recovery, with101 affected tests passing.
 Next: native loot planning and owned mining attempts.
+[Base removal](VMC-029a3.md) now retains contained fluid, matching all35,723 native
+states and71,446 actual removal callbacks; wet mining recovery/creative TCP pass.
+Its graphical gate remains pending.
 Status effects/arbitrary attribute patches and the live client scenario remain
 pending; current stock gear/contact composition needs no global gameplay owner.
 

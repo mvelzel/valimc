@@ -82,6 +82,7 @@ defmodule Valimc.MiningRegionTest do
       assert World.item_snapshot(ctx.key) == %{}
       assert {:ok, _} = Region.observe_blocks(ctx.owner, [ctx.position])
       assert {:error, :mining_storage_busy} = World.set_block(ctx.other, 1)
+      assert {:error, :mining_storage_busy} = World.remove_block(ctx.position)
       assert {:error, :mining_storage_busy} = Region.flush(ctx.pid)
       send(ctx.pid, {:resource, ctx.epoch, :save})
       send(ctx.pid, {:resource, ctx.epoch, {:items_saved, writer, pending.token, :ok}})
@@ -310,5 +311,31 @@ defmodule Valimc.MiningRegionTest do
 
     assert {:error, :invalid_mining_reservation} = Region.reserve_mining(ctx.owner, [])
     assert {:error, :wrong_region} = Region.reserve_mining(ctx.owner, [{0, 63, 0}])
+  end
+
+  test "waterlogged removal recovers its water and exact drop outcome across a failed writer",
+       ctx do
+    assert :ok = World.set_block(ctx.position, 15179)
+    assert :ok = Region.flush(ctx.pid)
+    assert {:ok, permit} = Region.reserve_mining(ctx.owner, [ctx.position])
+    request = Map.merge(ctx.transfer, permit)
+    path = Store.item_path(ctx.base, ctx.key)
+    File.mkdir!(path)
+    ref = Process.monitor(ctx.pid)
+
+    capture_log(fn ->
+      assert {:error, :mining_commit_uncertain} = Region.apply_mining_transfer(ctx.owner, request)
+      assert_receive {:DOWN, ^ref, :process, _, _}, 1000
+    end)
+
+    File.rmdir!(path)
+    assert {:ok, owner} = World.item_owner(ctx.key)
+    assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, request)
+    assert World.get_block(ctx.position) == 89
+    assert map_size(World.item_snapshot(ctx.key)) == 1
+    assert :ok = World.set_block(ctx.position, Data.block("dirt"))
+    assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, request)
+    assert World.get_block(ctx.position) == Data.block("dirt")
+    assert map_size(World.item_snapshot(ctx.key)) == 1
   end
 end

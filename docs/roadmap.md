@@ -105,6 +105,8 @@ indexes validated tickets. None imply full parity.
    including Unbreaking and final-use breaks. [Atomic block/drop persistence](tickets/VMC-029a1.md) has bounded
    proposal/source-intent codecs, writer recovery, fenced region commits and
    receipt-backed source wear/refunds, with101 affected checks passing.
+   [Fluid-preserving removal](tickets/VMC-029a3.md) passes full native state
+   comparisons and47 affected checks, including wet recovery and creative TCP.
    Native loot and live start/abort/stop are next.
    Live survival mining remains absent. Client checks above continue independently.
 
@@ -121,6 +123,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 | [VMC-003d](tickets/VMC-003d.md) | Held-button adapter gestures, visible use/attack and release | Local SDL adapter |
+| [VMC-029a3](tickets/VMC-029a3.md) | Actual wet/dry creative removal and reconnect; live survival remains separate | Local removal checkpoint |
 | [VMC-036c](tickets/VMC-036c.md) | Actual eating animation, hands, interruptions, nutrition and bowl/reconnect | Local consumable checkpoint |
 | [VMC-018d](tickets/VMC-018d.md) | Actual peer hands/armor, use animation, clears and tracking recreation | Local equipment checkpoint |
 

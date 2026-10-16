@@ -69,6 +69,16 @@ defmodule Valimc.InteractionRangeConnectionTest do
     client
   end
 
+  test "creative removal retains contained water and dry removal still becomes air", ctx do
+    target = {ctx.x + 1, 65, ctx.z}
+    assert :ok = World.set_block(target, 15179)
+    client = break(ctx.client, target)
+    assert World.get_block(target) == 89
+    assert :ok = World.set_block(target, 15180)
+    _client = break(client, target)
+    assert World.get_block(target) == 0
+  end
+
   test "placement validates the clicked box, even when the adjacent destination is outside reach",
        ctx do
     clicked = {ctx.x + 6, 65, ctx.z}

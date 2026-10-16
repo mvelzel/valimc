@@ -5,6 +5,10 @@ if length(cases) != Valimc.Physics.FluidBlocks.count(), do: raise("Incomplete de
 Enum.each(Enum.with_index(cases), fn {c, id} ->
   if c["id"] != id, do: raise("Non-contiguous native fluid cases")
   {:ok, result} = Valimc.Physics.FluidBlocks.fetch(id)
+
+  unless Valimc.Physics.FluidBlocks.after_removal(id) == c["replacement"],
+    do: raise("Native base-removal state mismatch #{id}")
+
   expected = c["properties"]
 
   if result.kind != elem({:empty, :water, :lava}, expected["kind"]) or

@@ -2745,7 +2745,7 @@ defmodule Valimc.Connection do
          ItemTypes.action_id("start_destroy_block"),
          ItemTypes.action_id("stop_destroy_block")
        ] and state.player.game_mode.current == :creative and reachable?(state, position),
-       do: World.set_block(position, 0)
+       do: World.remove_block(position)
 
     updates =
       if reachable?(state, position),

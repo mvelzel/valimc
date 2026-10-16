@@ -51,6 +51,12 @@ defmodule Valimc.World do
     GenServer.call(pid, {:set_block, position, block})
   end
 
+  @doc "Base removal reads and replaces the current block inside its owner, retaining contained fluid."
+  def remove_block({x, _, z} = position) do
+    {:ok, pid} = region(region_key(chunk_key(x, z)))
+    GenServer.call(pid, {:remove_block, position})
+  end
+
   def item_owner(key), do: owner(key)
 
   @doc "Find an existing incarnation without loading or starting a region."

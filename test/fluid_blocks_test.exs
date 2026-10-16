@@ -18,6 +18,15 @@ defmodule Valimc.Physics.FluidBlocksTest do
     assert {:ok, %{kind: :water, source: true, amount: 8}} = FluidBlocks.fetch(15179)
   end
 
+  test "base removal retains waterlogging and the native liquid level rather than forcing air" do
+    assert FluidBlocks.after_removal(15180) == 0
+    assert FluidBlocks.after_removal(15179) == 89
+    for state <- 89..97, do: assert(FluidBlocks.after_removal(state) == state)
+    for state <- 98..104, do: assert(FluidBlocks.after_removal(state) == 97)
+    for state <- 105..113, do: assert(FluidBlocks.after_removal(state) == state)
+    for state <- 114..120, do: assert(FluidBlocks.after_removal(state) == 113)
+  end
+
   test "only bounded registered state identities have fluid facts" do
     assert FluidBlocks.count() == 35_723
     assert {:ok, _} = FluidBlocks.fetch(35_722)

@@ -237,6 +237,13 @@ defmodule Valimc.World.RegionData do
     {:reply, result, state}
   end
 
+  def handle_call({:remove_block, position}, from, state) do
+    replacement =
+      state.edits |> Chunk.block_at(position) |> Valimc.Physics.FluidBlocks.after_removal()
+
+    handle_call({:set_block, position, replacement}, from, state)
+  end
+
   def handle_call({:set_blocks, epoch, revision, %BlockBatch{} = batch}, _from, state) do
     cond do
       epoch != state.items.epoch ->
@@ -406,7 +413,10 @@ defmodule Valimc.World.RegionData do
            result =
              with {:ok, plan} <- MiningTransfers.plan(items, receipts, key, transfer, eligible) do
                if plan.result == :applied do
-                 changes = Map.new(plan.expected, fn {pos, _} -> {pos, 0} end)
+                 changes =
+                   Map.new(plan.expected, fn {pos, block} ->
+                     {pos, Valimc.Physics.FluidBlocks.after_removal(block)}
+                   end)
 
                  with {:ok, batch} <- BlockBatch.prepare(changes),
                       do: {:ok, Map.put(plan, :batch, batch)}
