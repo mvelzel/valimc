@@ -14,8 +14,9 @@ and [ordered natural fire contacts](tickets/VMC-017b4b.md) are **Done within sco
 runtime `f0aa671`:1,219 full tests, full native TCP/production and actual fire/soul/
 lava, exit/water, gear/modes, reconnect and death/respawn. Matched128/512-player water
 loads pass;512-player login/allocation variation remains a profiling finding.
-Next: roof-aware rain extinction and status-effect defenses. Rain foundations and
-owner column observations are being implemented locally, with their client gate open.
+Next: [roof-aware rain extinction](tickets/VMC-017b4c.md) and status-effect defenses.
+Native column/sky/climate foundations and fenced owner reads pass targeted checks;
+live rain composition and its client gate remain open. Keep this checkpoint local.
 
 [Automatic item simulation](tickets/VMC-035a6.md),
 [same-owner merging](tickets/VMC-035b.md), [ordinary pickup](tickets/VMC-035c.md),

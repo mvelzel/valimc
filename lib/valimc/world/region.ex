@@ -36,6 +36,23 @@ defmodule Valimc.World.Region do
 
   def observe_blocks(_, _, _), do: {:error, :invalid_block_query}
 
+  @doc "Observe bounded native column heights at the same fence as block observations."
+  def observe_columns(owner, columns, expected_revision \\ :any)
+
+  def observe_columns({pid, epoch}, columns, expected_revision)
+      when is_pid(pid) and is_reference(epoch) do
+    if RegionData.valid_column_query?(columns, expected_revision) do
+      GenServer.call(pid, {:observe_columns, epoch, columns, expected_revision}, 250)
+    else
+      {:error, :invalid_column_query}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :column_query_timeout}
+    :exit, _ -> {:error, :region_unavailable}
+  end
+
+  def observe_columns(_, _, _), do: {:error, :invalid_column_query}
+
   @doc "Authorize one menu operation on the block owner; replies are ordered with its block events."
   def request_table({pid, epoch}, connection, ref, position, grant)
       when is_pid(pid) and is_reference(epoch) and is_pid(connection) and is_reference(ref) do

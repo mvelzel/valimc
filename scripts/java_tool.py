@@ -18,12 +18,14 @@ if name == 'FluidSupportOracle':
     sources.append(str(root / 'scripts' / 'CollisionMetadata.java'))
 if name == 'ClimbContactOracle':
     sources.append(str(root / 'scripts' / 'ClimbMetadata.java'))
-if name == 'FireGeometryOracle':
+if name in ('FireGeometryOracle', 'RainContactOracle'):
     sources.append(str(root / 'scripts' / 'FireContactOracle.java'))
 if name == 'StuckPathsOracle':
     sources.append(str(root / 'scripts' / 'StuckContactOracle.java'))
-if name in ('PlayerMiningOracle', 'ToolDurabilityOracle', 'MiningLootOracle', 'MiningAttemptOracle', 'PlacementOracle', 'PlacementConsumptionOracle', 'PlayerCraftingOracle', 'TableMenuOracle', 'CraftingTableAccessOracle', 'ItemDropOracle', 'ItemMotionOracle', 'ItemTravelOracle', 'ItemMergeOracle', 'ItemPickupOracle'):
+if name in ('FlatClimateOracle', 'SkyColumnOracle', 'RainContactOracle', 'HeightmapOracle', 'PlayerMiningOracle', 'ToolDurabilityOracle', 'MiningLootOracle', 'MiningAttemptOracle', 'PlacementOracle', 'PlacementConsumptionOracle', 'PlayerCraftingOracle', 'TableMenuOracle', 'CraftingTableAccessOracle', 'ItemDropOracle', 'ItemMotionOracle', 'ItemTravelOracle', 'ItemMergeOracle', 'ItemPickupOracle'):
     sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
+if name == 'SkyColumnOracle':
+    sources.append(str(root / 'scripts' / 'HeightmapOracle.java'))
 if name == 'RandomMiningLootOracle':
     sources += [str(root / 'scripts' / (source + '.java')) for source in ('MiningToolOracle', 'MiningLootOracle')]
 if name == 'TableCraftingOracle':

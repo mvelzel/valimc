@@ -3,6 +3,7 @@ defmodule Valimc.World.RegionData do
   alias Valimc.World.{
     BlockBatch,
     Chunk,
+    ColumnIndex,
     Items,
     ItemHandoffs,
     ItemHandoffDelivery,
@@ -57,6 +58,7 @@ defmodule Valimc.World.RegionData do
     :store_monitor,
     :edits,
     :by_chunk,
+    :column_index,
     :cache,
     :jobs,
     :versions,
@@ -126,6 +128,7 @@ defmodule Valimc.World.RegionData do
       store_monitor: store_monitor,
       edits: edits,
       by_chunk: by_chunk,
+      column_index: ColumnIndex.restore(edits),
       cache: %{},
       jobs: %{},
       versions: %{},
@@ -852,6 +855,36 @@ defmodule Valimc.World.RegionData do
     {:reply, result, state}
   end
 
+  def handle_call({:observe_columns, epoch, columns, expected_revision}, _from, state) do
+    result =
+      cond do
+        not valid_column_query?(columns, expected_revision) ->
+          {:error, :invalid_column_query}
+
+        epoch != state.items.epoch ->
+          {:error, :stale_owner}
+
+        expected_revision != :any and expected_revision != state.revision ->
+          {:error, :stale_revision}
+
+        Enum.any?(columns, fn {x, z} ->
+          Valimc.World.region_key(Valimc.World.chunk_key(x, z)) != state.key
+        end) ->
+          {:error, :wrong_region}
+
+        true ->
+          {:ok,
+           %{
+             owner: {self(), state.items.epoch},
+             region: state.key,
+             revision: state.revision,
+             columns: Map.new(columns, &{&1, ColumnIndex.heights(state.column_index, &1)})
+           }}
+      end
+
+    {:reply, result, state}
+  end
+
   def handle_call({:remove_block, position}, from, state) do
     replacement =
       state.edits |> Chunk.block_at(position) |> Valimc.Physics.FluidBlocks.after_removal()
@@ -920,7 +953,7 @@ defmodule Valimc.World.RegionData do
       {:reply, {:error, :mining_storage_busy}, state}
     else
       if Valimc.World.region_key(key) == state.key and Chunk.valid_y?(y) and block >= 0 and
-           block < 65536 and
+           block < Valimc.Protocol.Data.block_state_count() and
            (map_size(state.edits) < 131_072 or Map.has_key?(state.edits, position)) do
         edits = put_edit(state.edits, position, block)
         local = put_edit(Map.get(state.by_chunk, key, %{}), position, block)
@@ -936,6 +969,7 @@ defmodule Valimc.World.RegionData do
              placement_permits:
                PlacementPermits.invalidate(state.placement_permits, %{position => block}),
              by_chunk: Map.put(state.by_chunk, key, local),
+             column_index: ColumnIndex.update(state.column_index, edits, %{position => block}),
              dirty: true,
              revision: state.revision + 1,
              cache: Map.delete(state.cache, key),
@@ -1296,7 +1330,14 @@ defmodule Valimc.World.RegionData do
       versions =
         Enum.reduce(batch.chunks, state.versions, &Map.update(&2, &1, 1, fn n -> n + 1 end))
 
-      {:ok, %{edits: edits, by_chunk: by_chunk, versions: versions, revision: state.revision + 1}}
+      {:ok,
+       %{
+         edits: edits,
+         by_chunk: by_chunk,
+         column_index: ColumnIndex.update(state.column_index, edits, batch.edits),
+         versions: versions,
+         revision: state.revision + 1
+       }}
     end
   end
 
@@ -1973,6 +2014,19 @@ defmodule Valimc.World.RegionData do
     do:
       (revision == :any or (is_integer(revision) and revision >= 0)) and
         valid_block_positions?(positions, 0)
+
+  def valid_column_query?(columns, revision),
+    do:
+      (revision == :any or (is_integer(revision) and revision >= 0)) and
+        valid_columns?(columns, 0)
+
+  defp valid_columns?([], _), do: true
+
+  defp valid_columns?([{x, z} | rest], count)
+       when count < 128 and is_integer(x) and is_integer(z),
+       do: abs(x) < 30_000_000 and abs(z) < 30_000_000 and valid_columns?(rest, count + 1)
+
+  defp valid_columns?(_, _), do: false
 
   defp valid_block_positions?([], _), do: true
 
