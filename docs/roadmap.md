@@ -18,7 +18,7 @@ is **Done within scope**, runtime `7b5b382`:96 affected checks,1,207 full tests,
 native TCP/build and actual lava/exit/water/defenses/wear/reconnect/fatal lava/fatal
 burning/respawn/creative checks. [Ordered natural fire contacts](tickets/VMC-017b4b.md)
 have verified4,080-case counter/operation and1,584-scene geometry foundations;
-player-owner composition and its client gate are next. Rain/effect defenses follow.
+owner composition passes affected checks and awaits full integration/client validation. Rain/effect defenses follow.
 
 [Automatic item simulation](tickets/VMC-035a6.md),
 [same-owner merging](tickets/VMC-035b.md), [ordinary pickup](tickets/VMC-035c.md),

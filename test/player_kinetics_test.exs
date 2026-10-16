@@ -76,7 +76,7 @@ defmodule Valimc.PlayerKineticsTest do
     assert elem(query, 0) <= 2.2 and elem(query, 3) >= 5.8
     incomplete = %{f | states: Map.delete(f.states, {3, 64, 4})}
 
-    assert {:error, :incomplete_stuck_frame} =
+    assert {:error, :incomplete_fire_frame} =
              PlayerKinetics.tick(candidate, :standing, incomplete)
   end
 

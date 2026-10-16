@@ -52,6 +52,20 @@ validate damage-induced death, freeze accumulation, melting or cauldron effects.
 Powder contact contributes fire extinction; existing freezing ownership remains
 separate. This geometry is not yet connected to player authority.
 
-Next: player-owner application, including death gating, admission/clock cadence,
-negative-fire contact wakeup and fresh defense refresh, then connection/client checks. Keep this pending
-feature local; the pure foundation above is verified and need not be repeated.
+Owner composition is implemented locally: the existing geometry worker samples
+accepted history, excluding forecast travel. Only an admitted owner tick consumes
+its plan; negative fire contact keeps pose sampling active. Damage uses current
+armor/attributes per operation, and death stops remaining operations. Body queries
+enclose above-fluid dependencies along old paths. No additional process/timer.
+
+The101-test affected pass found three fixture expectations: the first incomplete
+frame now fails in fire sampling, repeated move packets require client_tick_end,
+and item observations expose encoded metadata rather than a raw stack. Those are
+corrected;33 fire/kinetics tests pass(seed277343), other68 had passed unchanged.
+New real-TCP cases cover stationary negative ignition, non-admitted moves, a crossed
+fire with dry endpoint, first-callback death, exactly one worn death stack and respawn.
+Evidence: `.local/fire-live-contacts-{affected-final,owner-final}.log`.
+
+Next: freeze/build, full integration and delegated actual natural-fire/soul-fire/
+mode/defense/water/reconnect/death checks. Keep this pending feature local; verified
+foundations need no repeat implementation.

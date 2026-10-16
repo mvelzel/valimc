@@ -235,6 +235,7 @@ defmodule Valimc.Connection do
        food_tick_origin: 0,
        simulation_due: false,
        fire_damage_due: false,
+       fire_contacts_active: false,
        armor_view: nil,
        item_replication: ItemReplication.new(),
        clock_version: nil,
@@ -1608,6 +1609,7 @@ defmodule Valimc.Connection do
                 pose_generation: state.pose_generation + 1,
                 life_stage: :sealing_death,
                 fire_damage_due: false,
+                fire_contacts_active: false,
                 creative_input: CreativeInput.clear(state.creative_input)
             }
           else
@@ -1740,6 +1742,7 @@ defmodule Valimc.Connection do
         inventory: inventory,
         life_stage: :alive,
         fire_damage_due: false,
+        fire_contacts_active: false,
         active_use: nil,
         respawn_requested: false,
         food_tick_origin: state.simulation_clock.tick,
@@ -2543,6 +2546,7 @@ defmodule Valimc.Connection do
       state.simulation_due and
         (PlayerEnvironment.active?(state.player.environment) or
            state.player.fire_ticks > 0 or state.fire_damage_due or
+           state.fire_contacts_active or
            Valimc.PlayerAir.supply(state.player) < Valimc.PlayerAir.maximum() or
            not state.player.motion.settled)
 
@@ -2628,7 +2632,7 @@ defmodule Valimc.Connection do
   defp observe_burning(%{life_stage: stage} = state, _, _, _) when stage != :alive,
     do: %{state | fire_damage_due: false}
 
-  defp observe_burning(state, fluid, due, powder) do
+  defp observe_burning(state, fluid, due, _powder) do
     # Burn requests are bounded while geometry is delayed. They are consumed only
     # against this fresh body sample; lava suppresses the concurrent on-fire hit.
     pending = state.fire_damage_due
@@ -2644,45 +2648,74 @@ defmodule Valimc.Connection do
       end
 
     if state.life_stage != :alive or state.player.game_mode.current == :spectator do
-      state
+      %{state | fire_contacts_active: false}
     else
       previous = state.player.fire_ticks
+      state = %{state | fire_contacts_active: fluid.fire_contacts.active}
 
-      {:ok, contact} =
-        if fluid.lava do
-          Valimc.PlayerBurning.lava(
-            previous,
-            false,
-            Valimc.PlayerArmor.attributes(state.inventory).burning_time,
-            state.player.abilities.invulnerable
-          )
+      state =
+        if due do
+          Enum.reduce_while(fluid.fire_contacts.operations, state, fn operation, state ->
+            if state.life_stage == :alive,
+              do: {:cont, apply_fire_contact(state, operation)},
+              else: {:halt, state}
+          end)
         else
-          {:ok, %{ticks: previous, damage: 0.0, clear_freeze: false}}
+          state
         end
 
-      {:ok, ticks} =
-        if fluid.water or powder,
-          do: Valimc.PlayerBurning.clear(contact.ticks),
-          else: {:ok, contact.ticks}
-
-      ticks = if ticks <= 0 and ticks <= previous, do: -20, else: ticks
-
-      environment =
-        if contact.clear_freeze,
-          do: %{state.player.environment | frozen_ticks: 0},
-          else: state.player.environment
-
-      player = %{state.player | fire_ticks: ticks, environment: environment}
-      state = %{state | player: player}
-
-      if due and contact.damage > 0 do
-        {:ok, selected} = PlayerHealth.hurt_window(player.health, contact.damage)
-        {_, next} = apply_damage(state, selected, :lava)
-        next
+      if due and state.life_stage == :alive do
+        ticks = state.player.fire_ticks
+        ticks = if ticks <= 0 and ticks <= previous, do: -20, else: ticks
+        %{state | player: %{state.player | fire_ticks: ticks}}
       else
         state
       end
     end
+  end
+
+  defp apply_fire_contact(state, :clear_freeze),
+    do: %{
+      state
+      | player: %{state.player | environment: %{state.player.environment | frozen_ticks: 0}}
+    }
+
+  defp apply_fire_contact(state, :fire_ignite) do
+    {:ok, ignition} =
+      Valimc.PlayerBurning.fire(
+        state.player.fire_ticks,
+        false,
+        Valimc.PlayerArmor.attributes(state.inventory).burning_time,
+        state.player.abilities.invulnerable
+      )
+
+    %{state | player: %{state.player | fire_ticks: ignition.ticks}}
+  end
+
+  defp apply_fire_contact(state, :lava_ignite) do
+    {:ok, ignition} =
+      Valimc.PlayerBurning.lava(
+        state.player.fire_ticks,
+        false,
+        Valimc.PlayerArmor.attributes(state.inventory).burning_time,
+        state.player.abilities.invulnerable
+      )
+
+    %{state | player: %{state.player | fire_ticks: ignition.ticks}}
+  end
+
+  defp apply_fire_contact(state, :lava_hurt),
+    do: apply_fire_contact(state, {:damage, :lava, 4.0})
+
+  defp apply_fire_contact(state, {:damage, source, amount}) do
+    {:ok, selected} = PlayerHealth.hurt_window(state.player.health, amount)
+    {_, state} = apply_damage(state, selected, source)
+    state
+  end
+
+  defp apply_fire_contact(state, :extinguish) do
+    {:ok, ticks} = Valimc.PlayerBurning.clear(state.player.fire_ticks)
+    %{state | player: %{state.player | fire_ticks: ticks}}
   end
 
   defp observe_environment(state, powder, submerged, eye_water, fluid) do

@@ -11,7 +11,10 @@ defmodule Valimc.Physics.MovementPaths do
     |> Enum.reduce_while({:ok, box}, fn path, {:ok, box} ->
       with {:ok, from} <- Valimc.Physics.PlayerPose.geometry(:standing, path.from),
            {:ok, to} <- Valimc.Physics.PlayerPose.geometry(:standing, path.to) do
-        {:cont, {:ok, union(union(box, from.box), to.box)}}
+        # Inside-fluid contact needs the state above every retained body's head.
+        from_box = Valimc.Physics.Box.expand_towards(from.box, {0.0, 1.0, 0.0})
+        to_box = Valimc.Physics.Box.expand_towards(to.box, {0.0, 1.0, 0.0})
+        {:cont, {:ok, union(union(box, from_box), to_box)}}
       else
         error -> {:halt, error}
       end

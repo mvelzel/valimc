@@ -47,7 +47,7 @@ defmodule Valimc.PlayerFireConnectionTest do
   end
 
   defp material(ctx, name) do
-    id = %{"air" => 0, "water" => 89, "lava" => 105}[name]
+    id = %{"air" => 0, "water" => 89, "lava" => 105, "fire" => 4931, "soul_fire" => 5443}[name]
     for y <- [64, 65], do: :ok = World.set_block({floor(ctx.pose.x), y, floor(ctx.pose.z)}, id)
   end
 
@@ -302,5 +302,114 @@ defmodule Valimc.PlayerFireConnectionTest do
 
     tick(pid, false)
     assert state(pid).player.fire_ticks == -20 and state(pid).player.health.value == 20.0
+  end
+
+  test "stationary fire advances its negative cooldown on admitted contacts until it ignites",
+       ctx do
+    seed(ctx, fire: -20, material: "fire")
+    {_client, pid} = login(ctx)
+    assert state(pid).player.fire_ticks == -20
+    tick(pid)
+    assert state(pid).player.fire_ticks == -19 and state(pid).fire_contacts_active
+    assert state(pid).player.health.value == 19.0
+    assert state(pid).player.environment.frozen_ticks == 0
+
+    for _ <- 1..18, do: tick(pid)
+    assert state(pid).player.fire_ticks == -1 and state(pid).fire_contacts_active
+    tick(pid)
+    assert state(pid).player.fire_ticks == 160
+    assert state(pid).player.health.value == 18.0
+    tick(pid)
+    assert state(pid).player.fire_ticks in [160, 161]
+    material(ctx, "air")
+    tick(pid)
+    assert state(pid).player.fire_ticks > 0 and not state(pid).fire_contacts_active
+  end
+
+  test "movement packets cannot advance ignition or damage without an admitted owner tick", ctx do
+    seed(ctx, fire: -20, material: "fire")
+    {client, pid} = login(ctx)
+
+    for i <- 1..8 do
+      target = ctx.pose.x + i * 0.01
+
+      Client.send_packet(
+        client,
+        :play,
+        "move_player_pos",
+        <<target::float-64, ctx.pose.y::float-64, ctx.pose.z::float-64, 1>>
+      )
+
+      Client.send_packet(client, :play, "client_tick_end", <<>>)
+
+      wait(fn ->
+        state(pid).player.x == target and state(pid).motion_job == nil and
+          state(pid).pose_job == nil
+      end)
+
+      assert state(pid).player.fire_ticks == -20 and state(pid).player.health.value == 20.0
+    end
+
+    tick(pid)
+    assert state(pid).player.fire_ticks == -19 and state(pid).player.health.value == 19.0
+  end
+
+  test "a real accepted crossing retains fire contact at a dry endpoint", ctx do
+    seed(ctx, fire: -1, material: "air")
+    {x, z} = {floor(ctx.pose.x), floor(ctx.pose.z)}
+    :ok = World.set_block({x + 1, 64, z}, 4931)
+    {client, pid} = login(ctx)
+    target = ctx.pose.x + 2.0
+
+    Client.send_packet(
+      client,
+      :play,
+      "move_player_pos",
+      <<target::float-64, ctx.pose.y::float-64, ctx.pose.z::float-64, 1>>
+    )
+
+    wait(fn ->
+      state(pid).player.x == target and state(pid).motion_job == nil and
+        state(pid).pose_job == nil
+    end)
+
+    assert state(pid).player.fire_ticks == -1 and state(pid).player.health.value == 20.0
+    tick(pid)
+    assert state(pid).player.fire_ticks == 160 and state(pid).player.health.value == 19.0
+    tick(pid)
+    assert state(pid).player.fire_ticks == 159 and not state(pid).fire_contacts_active
+  end
+
+  test "fatal first fire callback stops later contacts and persists exactly one worn death stack",
+       ctx do
+    helmet = ItemStack.new("iron_helmet")
+
+    seed(ctx,
+      fire: -1,
+      health: 0.5,
+      material: "fire",
+      inventory: %Inventory{slots: %{5 => helmet}}
+    )
+
+    :ok = World.set_block({floor(ctx.pose.x), 65, floor(ctx.pose.z)}, 5443)
+    {client, pid} = login(ctx)
+    tick(pid, false)
+    wait(fn -> state(pid).life_stage == :dead end)
+    assert not state(pid).fire_contacts_active and not state(pid).fire_damage_due
+    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.health.value == 0.0 and saved.fire_ticks == 0 and saved.outbox == nil
+    assert saved.transfer_sequence == 1 and saved.inventory.slots == %{}
+    [view] = World.item_snapshot(ctx.key) |> Map.values()
+
+    {_entity, <<5, 8, _gravity, 8, 7, stack_bytes::binary>>} =
+      Wire.take_varint(IO.iodata_to_binary(elem(view.metadata, 1)))
+
+    {:ok, dropped, <<255>>} = ItemStack.take(stack_bytes)
+    assert dropped.item_id == helmet.item_id
+    assert dropped.components["minecraft:damage"] == 1
+    Client.send_packet(client, :play, "client_command", <<0>>)
+    {_, _client} = Client.await(client, :play, "respawn")
+    assert state(pid).player.health.value == 20.0 and state(pid).player.fire_ticks == 0
+    assert not state(pid).fire_contacts_active
   end
 end

@@ -11,6 +11,7 @@ defmodule Valimc.PlayerKinetics do
     ClimbMotion,
     CollisionContext,
     CollisionResponse,
+    FireContact,
     FluidContact,
     FluidControls,
     FluidCurrents,
@@ -222,6 +223,19 @@ defmodule Valimc.PlayerKinetics do
     position = point(player)
 
     with {:ok, geometry} <- PlayerPose.geometry(pose, position),
+         {:ok, fire_contacts} <-
+           FireContact.sample_paths(
+             frame,
+             MovementPaths.collect(motion.paths, position, position),
+             context(player, player.y),
+             %{
+               pose: pose,
+               feet: position,
+               flying: player.abilities.flying,
+               spectator: player.game_mode.current == :spectator,
+               weaving: false
+             }
+           ),
          {:ok, before} <- material(frame, geometry.box, position, context(player, player.y)),
          {:ok, currents} <-
            FluidCurrents.sample(frame, geometry.box, motion.velocity, not player.abilities.flying),
@@ -306,6 +320,7 @@ defmodule Valimc.PlayerKinetics do
            supported: true,
            water: currents.depths.water > 0,
            lava: currents.depths.lava > 0,
+           fire_contacts: fire_contacts,
            reset_fall: climb.reset_fall or contact.reset_fall,
            stuck_multiplier: contact.multiplier || step.multiplier,
            paths: %MovementPaths{}
