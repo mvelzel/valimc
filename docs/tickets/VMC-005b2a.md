@@ -86,3 +86,17 @@ October 15 bounded retry: actual pickup36 then drag across9..12 generated only
 endpoint pickup12, no quick-craft packets. Gate remains pending; right/middle
 held motion is unavailable in the documented CUA API. Complete state restored,
 logs clean. `.local/client-tests/VMC-005b2a/retry-20261015/report.md`.
+
+October 16 bounded retry with validated SDL F9/F8 latches: reviewed; gate remains pending.
+On frozen `489916833cdccec2c6e3eef27bdfbeefda300a71`/PID56593, actual17-item
+fixture pickup then F9+documented drag across9..12 produced endpoint12 count17;
+trace showed pickup/pickup_all, no quick-craft. F8+drag across18..21 produced
+ordinary right-half pickup and endpoint placement (12=8,21=9), no quick-craft.
+The documented API provides left-button drag, but no pure pointer movement or
+right-button drag to combine with a held latch. This bounded attempt does not
+verify multi-slot distribution or establish a server quick-craft failure.
+Ordinary merge/reopen rendered17 correctly. Owned JVM exited143; zeroPlayers0,
+passive trace disabled, exact original worn-tool inventory/pose restored.
+Source25/outboxnil and all41 exact records/receipts25/10/6/9 unchanged. Evidence,
+actions and precise limits:
+`.local/client-tests/VMC-005b2a/retry-20261016/report.md`.
