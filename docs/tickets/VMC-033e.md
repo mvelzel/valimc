@@ -1,6 +1,6 @@
 # VMC-033e — Crafting-table recipe foundation
 
-Status: Automated-verified; client regression pending. October 16, 2026.
+Status: Done within ordinary recipe-foundation scope, `7779eaf`. October 16, 2026.
 Parent: VMC-033.
 
 Acceptance: pinned ordinary3×3 recipes have bounded immutable facts and actual
@@ -19,7 +19,7 @@ This foundation does not open a table menu. Follow-up composition owns nine
 transient inputs per player, container IDs/slot mapping and reach/close/recovery;
 the placed table has no shared inventory needing a process. Keep derived output
 out of physical conservation. The shared matcher now drives player crafting:
-client regression must craft a log manually, close and reconnect without changing
+client regression passed manual log crafting, close and reconnect with exact
 counts. Actual table clicks belong to the later live slice.
 
 Isolated native classification:1,202 exact ordinary recipes; exclude three
@@ -46,6 +46,9 @@ old player cases,3,536 actual menu cases,9,466 result/drop cases and100 affected
 tests. Raw `.local/table-crafting-{canonical-native,check,player-check,menu-check,`
 `gestures-check,tests}.log`; canonical cases/facts remain ignored. Native tools
 were compiled in isolated classes while the earlier full block owned shared ones.
+Frozen production build passed (`.local/table-recipe-production.log`). The prior
+player-crafting block passed914 full tests/native integration/both TCP transports;
+this matcher change uses the affected checks above.
 
 Microbenchmark:8,773 identical sampled2×2 native grids, five alternating rounds,
 same476-recipe coverage, baseline `88416e9`. Final median2.246ms/887,564 reductions
@@ -54,3 +57,18 @@ versus2.430ms/1,303,659; raw `.local/table-crafting-benchmark.json`, workload
 retained. Initial general assignment added overhead; small constant paths and
 early failure remove it. Native integration was active, so timings are a local
 microkernel observation, not capacity or cross-server evidence.
+
+Actual client regression PASS, October16,2026: unmodified26.3/protocol777 on
+frozen `7779eafc0171ee354746b3e85aa1c01e68dc4491` (697 blobs verified;
+loaded Crafting/Inventory match frozen production code). Dedicated SDL pointer:
+hotbar log2→player grid4, visible result planks4; right result took whole4/log1,
+left result took whole4/carried8/empty grid. Stored8, E close/reopen and fresh
+Quick Play reconnect both retained exact8 with empty grid/result/cursor; RPC
+confirmed physical slot0 nil throughout. Both tracked client wrappers/JVMs
+stopped and zero connections verified. Restored original full snapshot with
+source60/nil outbox; all59 prior records and every region receipt term unchanged
+(21/8/4/26 records; receipts60/6/9/56). Server left running unchanged. Raw report,
+snapshots, RPC observations, code hashes and fresh logs:
+`.local/client-tests/VMC-033e/`. Scope is existing2×2 regression only, with no
+3×3/table/remainder/special/recipe-book GUI claim. Client logs show ancillary
+offline profile/Realms authentication and renderer messages, no crafting crash.

@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-033e](../tickets/VMC-033e.md) | `7779eaf`:1,180 bounded ordinary recipes,438,672 native/100 affected checks, production and actual player-grid crafting/cleanup/reconnect; live table menu follows |
 | [VMC-033d](../tickets/VMC-033d.md) | `88416e9`: exact single-record recipe conversions,140 affected/9,466 native checks,914 full tests/full native TCP/build and actual partial shift/Q/refusal/reconnect |
 | [VMC-033c](../tickets/VMC-033c.md) | `b3060b6`: bounded drop-free result gestures,86 affected/3,642 native/build checks and actual repeated shift, number/offhand, occupied/overflow refusal and reconnect |
 | [VMC-033b](../tickets/VMC-033b.md) | `adfb228`: player-grid manual crafting,113 affected/3,536 native/build checks and actual planks, mixed recipes, cursor refusals, cleanup and reconnect |
