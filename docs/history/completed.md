@@ -97,3 +97,4 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-036b](../tickets/VMC-036b.md) | `7337af64`; actual sprint/swim/jump exhaustion, walk/crouch/mode negatives and depleted reconnect; detailed GUI limits retained |
 | [VMC-036c](../tickets/VMC-036c.md) | `7337af64`; actual plain-food hands/animation, nutrition, cancellation/reconnect and soup/creative remainders; effects/overflow remain separate |
 | [VMC-003d](../tickets/VMC-003d.md) | Dedicated SDL held-use/attack gestures, intervening CUA actions/captures, release and fresh-process reset |
+| [VMC-018d](../tickets/VMC-018d.md) | `7337af64`; actual six-slot peer equipment, component glint, use ordering, clears and tracking recreation; attributes/combat remain separate |

@@ -88,8 +88,8 @@ indexes validated tickets. None imply full parity.
    nutrition, soup remainders and creative behavior are validated (`7337af64`).
    Specialized effects/overflow remain separate work.
    [Player equipment](tickets/VMC-018d.md) passes128 native packet cases and39
-   affected tests; live held/worn replication and animation ordering are implemented,
-   with graphical validation pending.
+   affected tests; actual hands/armor, changes/clears, use presentation and tracking
+   recreation are validated within six-slot replication scope (`7337af64`).
    [Idle food clock work](tickets/VMC-036a1.md) addresses the measured 512-player
    memory increase; native/83 affected checks pass, but repeated loads show no
    whole-workload memory improvement. Allocation profiling remains open; continue
@@ -127,7 +127,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 | [VMC-029a3](tickets/VMC-029a3.md) | Actual wet/dry creative removal and reconnect; live survival remains separate | Local removal checkpoint |
-| [VMC-018d](tickets/VMC-018d.md) | Actual peer hands/armor, use animation, clears and tracking recreation | Local equipment checkpoint |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection
