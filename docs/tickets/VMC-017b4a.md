@@ -1,6 +1,7 @@
 # VMC-017b4a — Live lava and ongoing burning
 
-Status: Implemented locally; automated checks pass, graphical gate pending.
+Status: **Done within live lava/ongoing-burning scope**, October16,2026.
+Runtime `7b5b382`; integration-reader checkpoint `0372724`.
 Depends on the verified [fire foundations](VMC-017b4.md).
 
 Acceptance: the existing admitted player clock advances burning; at most one
@@ -41,6 +42,20 @@ its remembered interaction packet. Readers now retain attributes by entity/holde
 17 affected checks pass(seed699173), and Mojang decodes both attribute packets and
 all scenarios over plaintext/AES-CFB8 TCP. Logs:
 `.local/fire-live-{production,attribute-readers-final,native-tcp-final}.log`.
-The complete suite is being rerun with the corrected reader. The dedicated tester
-is validating this unchanged runtime; keep it local until its report is reviewed.
-Parent fire-block/effect work stays open.
+The corrected complete suite passes1,207 tests(seed894654),
+`.local/fire-live-full-tests-final.log`. The unchanged runtime passes actual lava
+entry/exit, dry ongoing burns, water
+extinguishing, diamond reduction/HUD/wear, Netherite resistance, helmet break,
+single/stacked Fire Protection, burning fresh reconnect, fatal lava and dry burning,
+actual respawn/control and creative negative. Six fresh direct clients stopped;
+full snapshot restored retaining latest sequence36/outboxnil and matching region
+receipt. Report reviewed: `.local/client-tests/VMC-017b4a/report.md`.
+
+Fixtures supplied gear, modes, water teleport and a longer saved counter for the
+reconnect retry. Gear setup did not immediately sync; normal post-hit replication
+showed empty slots/HUD after break. No graphical equip-gesture claim. One rapid
+trusted teleport pair caused an explained confirmation disconnect; no spontaneous
+gameplay/protocol failure was found. Numerical math and loading/spectator/powder
+negatives rely on targeted/native checks. Natural fire, swept contact boundaries,
+rain and status effects remain parent work. This slice is complete; do not reopen
+its persistence, lava or ongoing-burning work as unimplemented.

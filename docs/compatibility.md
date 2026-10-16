@@ -7,7 +7,7 @@ Completed tickets establish their stated scope, not subsystem/full-server parity
 | Area | Implemented preview | Still missing |
 |---|---|---|
 | Protocol/login | Status, compression, registries/tags, encryption, optional real online identity | Full packet behavior, signed chat, complete session/proxy policy |
-| Players | Nearby replication, saved pose/flight/modes/fall/freeze/health, hurt timers, powder freezing/thaw, input/Shift/sprint flags, selected pose/eye height, bounded block-based movement corrections, default ranges | Live mode transitions, complete forces/attributes/effects, damage/combat/hunger/death |
+| Players | Nearby replication, saved pose/flight/modes/fall/freeze/health, hurt timers, powder freezing/thaw, lava/ongoing burning with armor/wear and respawn, input/Shift/sprint flags, selected pose/eye height, bounded block-based movement corrections, default ranges | Live mode transitions, complete forces/attributes/effects, damage/combat/hunger/death |
 | World | Flat chunks, creative edits, basic/slab survival mining and placement, clocks/weather/difficulty, custom snapshots | Anvil/NBT worlds, generation/biomes/structures, real lighting, full gamerules, functional/oriented blocks |
 | Inventory | Supported components, authoritative clicks/swaps/drops, manual2×2/3×3 ordinary/remainder recipes, bounded bulk crafting, durable cleanup/recovery, six-slot equipment replication | Recipe book, special/component crafting outputs, full components/containers/equipment rules; pending gesture gates |
 | Items | Durable stationary scene entities, bounded replication and transfer retries | Gravity, merging, pickup, despawn and complete entity lifecycle |

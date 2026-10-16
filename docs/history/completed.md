@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-017b4a](../tickets/VMC-017b4a.md) | `7b5b382`/`0372724`:96 affected checks,1,207 full tests, native TCP/production and actual lava/exit/water, armor/HUD/wear/break, Fire Protection, burning reconnect, both fatal sources/respawn and creative; natural fire/sweeps/rain/effects remain |
 | [VMC-035d1](../tickets/VMC-035d1.md) | `f27b413`:21 native boundaries, targeted lifetime/save/recovery checks, production/both native TCP transports and actual visible fall/strict boundary/unlimited counters/reconnect; receipts retained |
 | [VMC-035b1](../tickets/VMC-035b1.md) | `a2f7770`:1,178 full tests/production, full native parent integration/final TCP and actual natural/whole cross-owner merges, negatives, reverse/counter flow, typed proof/recovery, moving12-pair fairness and reconnect |
 | [VMC-035c](../tickets/VMC-035c.md) | `79811a8`:1,123 full tests/production/full native TCP and actual automatic ordinary pickup, partial/full/creative, delay/mode/boundary/component/reconnect/stalled-save recovery; mounted/exclusive contexts remain open |
