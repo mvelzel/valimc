@@ -143,7 +143,12 @@ indexes validated tickets. None imply full parity.
    offhand/depletion/refusal/fresh-reconnect checks. Broader placement remains open.
    [Logs/pillars](tickets/VMC-029b3.md) add60 axis families/180 mining states;
    84 affected checks,1,590,780 native placement and3,440 consumption cases pass.
-   The full suite passes889 tests; full native integration and actual axes are next.
+   The full suite passes889 tests and actual axis placement/mining/reconnect pass;
+   full native integration is still running before publication.
+
+5. **[VMC-033a](tickets/VMC-033a.md): player crafting foundation.** Research native
+   2×2 shaped/shapeless matching and derived result ownership, then compose live
+   grid/result gestures. Broader crafting and recipe-book synchronization remain open.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 [VMC-003c](tickets/VMC-003c.md)'s direct local test-client lifecycle is complete:
@@ -155,7 +160,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-029b3](tickets/VMC-029b3.md) | Actual axis placement/mining and reconnect | Automated-verified; frozen release next |
+| [VMC-029b3](tickets/VMC-029b3.md) | Full native catalog integration | Client accepted; local4d60aa4 |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 
