@@ -132,6 +132,148 @@ defmodule Valimc.PlayerFireConnectionTest do
     before.simulation_clock.token
   end
 
+  test "contact hazards require an admitted tick and retain distinct source packets, wear and no ignition",
+       ctx do
+    seed(ctx, fire: -20, material: "air")
+    {client, pid} = login(ctx)
+    block = {floor(ctx.pose.x), 64, floor(ctx.pose.z)}
+
+    sources = [{24234, :campfire}, {8599, :cactus}, {24299, :sweet_berry_bush}]
+
+    Enum.reduce(sources, client, fn {id, source}, client ->
+      :ok = World.set_block(block, id)
+
+      :sys.replace_state(pid, fn s ->
+        %{
+          s
+          | inventory: %Inventory{slots: %{5 => ItemStack.new("iron_helmet")}},
+            player: %{s.player | health: %PlayerHealth{}, fire_ticks: -20}
+        }
+      end)
+
+      target = state(pid).player.x + 0.01
+
+      Client.send_packet(
+        client,
+        :play,
+        "move_player_pos",
+        <<target::float-64, ctx.pose.y::float-64, ctx.pose.z::float-64, 1>>
+      )
+
+      Client.send_packet(client, :play, "client_tick_end", <<>>)
+
+      wait(fn ->
+        state(pid).player.x == target and state(pid).motion_job == nil and
+          state(pid).pose_job == nil
+      end)
+
+      assert state(pid).player.health.value == 20.0
+      assert state(pid).inventory.slots[5].components == %{}
+      tick(pid)
+      assert state(pid).player.health.value < 20.0
+      assert state(pid).player.fire_ticks == -20
+      assert state(pid).inventory.slots[5].components["minecraft:damage"] == 1
+      {body, client} = Client.await(client, :play, "damage_event")
+      {_entity, rest} = Wire.take_varint(body)
+      {type, _rest} = Wire.take_varint(rest)
+      assert type == Data.registry_id("minecraft:damage_type", "minecraft:#{source}")
+      client
+    end)
+  end
+
+  test "grounded magma respects careful input and fresh feet immunity before cooldown or armor wear",
+       ctx do
+    seed(ctx, fire: -20, material: "air")
+    :ok = World.set_block({floor(ctx.pose.x), 63, floor(ctx.pose.z)}, 16826)
+    {client, pid} = login(ctx)
+    helmet = ItemStack.new("iron_helmet")
+
+    frost = %{
+      ItemStack.new("iron_boots")
+      | components: %{"minecraft:enchantments" => %{"minecraft:frost_walker" => 0}}
+    }
+
+    :sys.replace_state(pid, fn s ->
+      %{
+        s
+        | inventory: %Inventory{slots: %{5 => helmet, 8 => frost}},
+          player: %{s.player | motion: %{s.player.motion | physical_ground: true}}
+      }
+    end)
+
+    tick(pid)
+    assert state(pid).player.health.value == 20.0 and state(pid).player.health.cooldown == 0
+    assert state(pid).inventory.slots[5] == helmet
+    assert state(pid).inventory.slots[8] == frost
+
+    :sys.replace_state(pid, fn s ->
+      %{
+        s
+        | inventory: %Inventory{slots: %{5 => helmet}},
+          player: %{s.player | input: %{s.player.input | shared_flags: 2}}
+      }
+    end)
+
+    tick(pid)
+    assert state(pid).player.health.value == 20.0
+
+    :sys.replace_state(pid, fn s ->
+      %{s | player: %{s.player | input: %{s.player.input | shared_flags: 0}}}
+    end)
+
+    tick(pid)
+    assert state(pid).player.health.value < 20.0
+    assert state(pid).inventory.slots[5].components["minecraft:damage"] == 1
+    {body, _client} = Client.await(client, :play, "damage_event")
+    {_entity, rest} = Wire.take_varint(body)
+    {type, _} = Wire.take_varint(rest)
+    assert type == Data.registry_id("minecraft:damage_type", "minecraft:hot_floor")
+  end
+
+  test "fatal immediate cactus stops an earlier retained fire ignition and persists one worn death drop",
+       ctx do
+    helmet = ItemStack.new("iron_helmet")
+
+    seed(ctx,
+      fire: -1,
+      health: 0.5,
+      material: "air",
+      inventory: %Inventory{slots: %{5 => helmet}}
+    )
+
+    {x, z} = {floor(ctx.pose.x), floor(ctx.pose.z)}
+    :ok = World.set_block({x + 1, 64, z}, 4931)
+    :ok = World.set_block({x + 2, 64, z}, 8599)
+    {client, pid} = login(ctx)
+    target = ctx.pose.x + 1.25
+
+    Client.send_packet(
+      client,
+      :play,
+      "move_player_pos",
+      <<target::float-64, ctx.pose.y::float-64, ctx.pose.z::float-64, 1>>
+    )
+
+    wait(fn ->
+      state(pid).player.x == target and state(pid).motion_job == nil and
+        state(pid).pose_job == nil
+    end)
+
+    tick(pid, false)
+    wait(fn -> state(pid).life_stage == :dead end)
+    assert state(pid).player.fire_ticks == -1
+    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.health.value == 0.0 and saved.fire_ticks == -1
+    assert saved.inventory.slots == %{} and saved.outbox == nil and saved.transfer_sequence == 1
+    [view] = World.item_snapshot(ctx.key) |> Map.values()
+
+    {_entity, <<5, 8, _gravity, 8, 7, stack_bytes::binary>>} =
+      Wire.take_varint(IO.iodata_to_binary(elem(view.metadata, 1)))
+
+    {:ok, dropped, <<255>>} = ItemStack.take(stack_bytes)
+    assert dropped.item_id == helmet.item_id and dropped.components["minecraft:damage"] == 1
+  end
+
   test "fresh lava ignites, clears freezing, wears once per accepted cooldown and uses native damage packets",
        ctx do
     helmet = ItemStack.new("iron_helmet")

@@ -22,6 +22,7 @@ public class PlayerLifeOracle {
   private static RegistryAccess.Frozen access;
   private static Holder<DimensionType> overworld;
   private static Holder<DamageType> fall,stalagmite,freeze,drown,voidSource,starve;
+  private static Map<String,Holder<DamageType>> hazards;
   private static class Probe extends Player {
     private Probe(){super(null,null);}
     public GameType gameMode(){return GameType.SURVIVAL;}
@@ -61,6 +62,7 @@ public class PlayerLifeOracle {
       result.put("drown_"+id,new ClientboundDamageEventPacket(id,drown,-1,-1,Optional.empty()));
       result.put("void_"+id,new ClientboundDamageEventPacket(id,voidSource,-1,-1,Optional.empty()));
       result.put("starve_"+id,new ClientboundDamageEventPacket(id,starve,-1,-1,Optional.empty()));
+      for(var hazard:hazards.entrySet())result.put("hazard_"+hazard.getKey()+"_"+id,new ClientboundDamageEventPacket(id,hazard.getValue(),-1,-1,Optional.empty()));
       result.put("drowning_bubbles_"+id,new ClientboundEntityEventPacket(player,(byte)67));
       result.put("death_animation_"+id,new ClientboundEntityEventPacket(player,(byte)3));
       for(var message:List.of("fell","ValiMCTest hit the ground too hard","fall \u0000😀é"))
@@ -76,6 +78,7 @@ public class PlayerLifeOracle {
     drown=damage.getOrThrow(DamageTypes.DROWN);
     voidSource=damage.getOrThrow(DamageTypes.FELL_OUT_OF_WORLD);
     starve=damage.getOrThrow(DamageTypes.STARVE);
+    hazards=new LinkedHashMap<>();for(var key:List.of(DamageTypes.CAMPFIRE,DamageTypes.CACTUS,DamageTypes.SWEET_BERRY_BUSH))hazards.put(key.identifier().getPath(),damage.getOrThrow(key));
     var packets=packets();
     if(args[0].equals("verify")){
       var rows=JsonParser.parseString(Files.readString(Path.of(args[1]))).getAsJsonArray();

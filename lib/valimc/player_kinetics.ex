@@ -11,7 +11,7 @@ defmodule Valimc.PlayerKinetics do
     ClimbMotion,
     CollisionContext,
     CollisionResponse,
-    FireContact,
+    BlockContacts,
     FluidContact,
     FluidControls,
     FluidCurrents,
@@ -54,7 +54,7 @@ defmodule Valimc.PlayerKinetics do
     sprint = (player.input.shared_flags &&& 8) != 0
 
     {motion.velocity, motion.physical_ground, motion.on_ground, motion.swimming, motion.paths,
-     motion.stuck_multiplier, sprint, player.input.buttons,
+     motion.known_movement, motion.stuck_multiplier, sprint, player.input.buttons,
      Valimc.PlayerInput.loaded?(player.input), Map.get(player, :yaw, 0.0),
      if(motion.swimming or sprint, do: Map.get(player, :pitch, 0.0))}
   end
@@ -223,8 +223,10 @@ defmodule Valimc.PlayerKinetics do
     position = point(player)
 
     with {:ok, geometry} <- PlayerPose.geometry(pose, position),
+         {:ok, before} <- material(frame, geometry.box, position, context(player, player.y)),
+         {:ok, support} <- Valimc.PlayerLanding.from_material(frame, before, position),
          {:ok, fire_contacts} <-
-           FireContact.sample_paths(
+           BlockContacts.sample_paths(
              frame,
              MovementPaths.collect(motion.paths, position, position),
              context(player, player.y),
@@ -233,10 +235,13 @@ defmodule Valimc.PlayerKinetics do
                feet: position,
                flying: player.abilities.flying,
                spectator: player.game_mode.current == :spectator,
-               weaving: false
+               weaving: false,
+               grounded: motion.physical_ground,
+               careful: (player.input.shared_flags &&& 2) != 0,
+               known_movement: motion.known_movement,
+               support_state: support.state
              }
            ),
-         {:ok, before} <- material(frame, geometry.box, position, context(player, player.y)),
          {:ok, currents} <-
            FluidCurrents.sample(frame, geometry.box, motion.velocity, not player.abilities.flying),
          fluid =

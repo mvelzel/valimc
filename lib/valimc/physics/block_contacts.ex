@@ -1,7 +1,8 @@
-defmodule Valimc.Physics.FireContact do
-  @moduledoc "Ordered fire/fluid contact plans from immutable fenced frames and retained accepted paths."
+defmodule Valimc.Physics.BlockContacts do
+  @moduledoc "Ordered support, immediate damage and deferred fire/fluid plans from fenced accepted paths."
   alias Valimc.Physics.{
     BlockCollisions.Frame,
+    BlockHazards,
     BlockShapes,
     BodyPaths,
     Box,
@@ -19,31 +20,50 @@ defmodule Valimc.Physics.FireContact do
         %Frame{states: states} = frame,
         paths,
         context,
-        %{pose: _, feet: _, flying: _, spectator: _, weaving: _} = facts
+        %{
+          pose: _,
+          feet: _,
+          flying: _,
+          spectator: _,
+          weaving: _,
+          grounded: _,
+          careful: _,
+          known_movement: _,
+          support_state: _
+        } = facts
       )
       when is_map(states) and map_size(states) <= 2048 and is_list(paths) and length(paths) <= 101 do
     if CollisionContext.valid?(context) and context.entity_present and
-         Enum.all?([facts.flying, facts.spectator, facts.weaving], &is_boolean/1) do
+         Enum.all?(
+           [facts.flying, facts.spectator, facts.weaving, facts.grounded, facts.careful],
+           &is_boolean/1
+         ) do
       if facts.spectator or paths == [] do
         {:ok, %{operations: [], active: false}}
       else
         with {:ok, _} <- PlayerPose.geometry(facts.pose, facts.feet),
              {:ok, feet_state} <- at(frame, floor_point(facts.feet)),
              {:ok, feet_kind} <- StuckBlocks.fetch(feet_state),
+             {:ok, support} <- request(facts.support_state, facts),
              initial = %{
                context: context,
                seen: MapSet.new(),
                step: nil,
                steps: [],
                current: [],
-               active: false
+               immediate:
+                 if(facts.grounded and match?({:hot_floor, _}, support),
+                   do: [damage(support)],
+                   else: []
+                 ),
+               active: facts.grounded and match?({:hot_floor, _}, support)
              },
              {:ok, acc} <-
                BodyPaths.reduce(paths, facts.pose, initial, fn acc, pos, step, body, delta ->
                  visit(frame, pos, step, body, delta, facts, feet_kind, acc)
                end),
              {:ok, operations} <- Valimc.PlayerFireContacts.plan(finish(acc)) do
-          {:ok, %{operations: operations, active: acc.active}}
+          {:ok, %{operations: Enum.reverse(acc.immediate, operations), active: acc.active}}
         end
       end
     else
@@ -64,7 +84,8 @@ defmodule Valimc.Physics.FireContact do
         else
           with {:ok, block_hit} <- hit?(shape, state, pos, body, delta, acc.context),
                {:ok, fluid} <- fluid_hit(frame, state, pos, body, delta),
-               {:ok, slow_kind} <- StuckBlocks.fetch(state) do
+               {:ok, slow_kind} <- StuckBlocks.fetch(state),
+               {:ok, request} <- request(state, facts) do
             if block_hit or fluid != :empty do
               acc = advance(acc, step)
 
@@ -73,11 +94,17 @@ defmodule Valimc.Physics.FireContact do
 
               contacts = if fluid != :empty, do: contacts ++ [fluid], else: contacts
 
+              immediate =
+                if block_hit and request != nil and not match?({:hot_floor, _}, request),
+                  do: [damage(request) | acc.immediate],
+                  else: acc.immediate
+
               acc = %{
                 acc
                 | seen: MapSet.put(acc.seen, pos),
                   current: Enum.reverse(contacts, acc.current),
-                  active: acc.active or kind in [:fire, :soul_fire]
+                  immediate: immediate,
+                  active: acc.active or kind in [:fire, :soul_fire] or immediate != []
               }
 
               # Native immediate slowing callbacks can reset fall distance before
@@ -104,6 +131,11 @@ defmodule Valimc.Physics.FireContact do
       end
     end
   end
+
+  defp request(state, facts),
+    do: BlockHazards.request(state, facts.careful, true, facts.known_movement, {0.0, 0.0, 0.0})
+
+  defp damage({source, amount}), do: {:damage, source, amount}
 
   defp hit?(:full, _, _, _, _, _), do: {:ok, true}
 

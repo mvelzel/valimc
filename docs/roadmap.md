@@ -21,7 +21,9 @@ and a passing reverse pair; worker-admission profiling remains open.
 Current [contact hazards](tickets/VMC-017b5.md): request/immunity/armor foundations
 are **Done within kernel scope**, `9a7179a`, with additional native probes,
 1,245 full tests/build and actual baseline/fire/armor/water regression. Live contact
-geometry/ownership and status-effect defenses remain. Keep pending work local.
+geometry/ownership now passes46 affected tests,1,728 native traces and257 packet
+codecs; its full integration/client/performance gates remain. Status effects follow.
+Keep pending work local.
 
 [Automatic item simulation](tickets/VMC-035a6.md),
 [same-owner merging](tickets/VMC-035b.md), [ordinary pickup](tickets/VMC-035c.md),

@@ -27,7 +27,7 @@ for row <- rows do
       {:ok, operations} = PlayerFireContacts.plan(steps)
       operations
     else
-      alias Valimc.Physics.{BlockCollisions.Frame, CollisionContext, FireContact}
+      alias Valimc.Physics.{BlockCollisions.Frame, CollisionContext, BlockContacts}
       states = Map.new(row["blocks"], fn [x, y, z, id] -> {{x, y, z}, id} end)
 
       paths =
@@ -54,10 +54,14 @@ for row <- rows do
         feet: feet,
         flying: false,
         spectator: row["spectator"],
-        weaving: false
+        weaving: false,
+        grounded: false,
+        careful: false,
+        known_movement: {0.0, 0.0, 0.0},
+        support_state: 0
       }
 
-      case FireContact.sample_paths(
+      case BlockContacts.sample_paths(
              %Frame{states: states, fences: %{}, entities: %{}},
              paths,
              context,

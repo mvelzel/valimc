@@ -1543,12 +1543,15 @@ defmodule Valimc.Connection do
           not PlayerInput.loaded?(state.player.input) ->
         {:immune, state}
 
-      source in [:in_fire, :lava, :hot_floor] and inventory_pending(state) ->
+      Valimc.PlayerEnchantmentImmunity.immune?(state.inventory, source) ->
+        {:immune, state}
+
+      Valimc.PlayerDamageProtection.wears_armor?(source) and inventory_pending(state) ->
         {:deferred, state}
 
       true ->
         {:ok, inventory, broken} =
-          if source in [:in_fire, :on_fire, :lava, :hot_floor],
+          if Valimc.PlayerDamageProtection.wears_armor?(source),
             do:
               Valimc.ArmorDurability.damage(
                 state.inventory,

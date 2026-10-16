@@ -35,23 +35,28 @@ defmodule Valimc.PlayerLanding do
   end
 
   @doc false
-  def material(%BlockCollisions.Frame{} = frame, box, {x, y, z} = position, context) do
+  def material(%BlockCollisions.Frame{} = frame, box, position, context) do
     with {:ok, material} <- PlayerKinetics.material(frame, box, position, context) do
-      below =
-        case material.support do
-          nil ->
-            {floor(x), floor(y - @legacy_offset), floor(z)}
+      from_material(frame, material, position)
+    end
+  end
 
-          %{position: {sx, _, sz} = pos, state: state} ->
-            if LandingBlocks.support_holds_y?(state),
-              do: pos,
-              else: {sx, floor(y - @legacy_offset), sz}
-        end
+  @doc false
+  def from_material(frame, material, {x, y, z}) do
+    below =
+      case material.support do
+        nil ->
+          {floor(x), floor(y - @legacy_offset), floor(z)}
 
-      case Map.fetch(frame.states, below) do
-        {:ok, state} -> {:ok, %{position: below, state: state}}
-        :error -> {:error, :incomplete_landing_frame}
+        %{position: {sx, _, sz} = pos, state: state} ->
+          if LandingBlocks.support_holds_y?(state),
+            do: pos,
+            else: {sx, floor(y - @legacy_offset), sz}
       end
+
+    case Map.fetch(frame.states, below) do
+      {:ok, state} -> {:ok, %{position: below, state: state}}
+      :error -> {:error, :incomplete_landing_frame}
     end
   end
 end

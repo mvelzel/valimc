@@ -45,6 +45,14 @@ packets =
         ["void", id] ->
           Packets.damage_event(String.to_integer(id), :out_of_world)
 
+        ["hazard" | fields] ->
+          {source, [id]} = Enum.split(fields, length(fields) - 1)
+
+          Packets.damage_event(
+            String.to_integer(id),
+            source |> Enum.join("_") |> String.to_atom()
+          )
+
         ["death", "animation", id] ->
           Packets.death_animation(String.to_integer(id))
 
