@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-029b creative core](../tickets/VMC-029b.md) | `96da2b8`: one-owner plain/slab targeting,70 affected checks/native TCP/build, actual halves/water/both hands and fresh reconnect; broader placement remains open |
 | [VMC-029a6](../tickets/VMC-029a6.md) | `c163209`: six basic survival-mining kinds, native/TCP timing and receipt checks,822 full tests/build, plaintext/AES integration and actual loot/wear/reconnect |
 | [VMC-029a7](../tickets/VMC-029a7.md) | `4899168`: native deterministic counts/all101 slab families; affected tests, frozen build and actual wet/dry single/double loot, wear and reconnect |
 | [VMC-017a3](../tickets/VMC-017a3.md) | `0b2ad043`: actual fall enchantments, negatives, cap and reconnect; reviewed October16 |

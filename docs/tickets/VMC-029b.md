@@ -1,7 +1,7 @@
 # VMC-029b — Authoritative placement
 
-Status: Live creative plain/slab placement automated-verified; actual client pending.
-Survival consumption and broader placement remain open.
+Status: Creative single-owner plain/slab core Done; actual report reviewed and accepted.
+[Survival consumption](VMC-029b1.md) and broader placement remain open.
 October 16, 2026.
 
 Acceptance: preserve vanilla clicked-versus-adjacent targeting, replaceability,
@@ -42,7 +42,7 @@ only normalized scalar catalogs are public.
 Ten specialized replacement classes/803 states are explicit unsupported cases.
 Grass-block placement, component overrides, specialized support/use callbacks,
 peer-body ownership, cross-owner mutations and survival consumption remain open.
-This checkpoint stays local until changed-behavior client validation passes.
+Changed-behavior graphical validation passed on the frozen core checkpoint.
 
 Owner preparation now uses one bounded250ms worker and existing loaded owners;
 it neither cold-loads regions nor changes blocks. A prepared one-block creative
@@ -75,4 +75,26 @@ before acknowledgement; correction state IDs can advance without changing items.
 Native plaintext and continuous AES-CFB8 TCP pass, including offhand bottom/double
 slabs and peer section-update replication. Normalized native facts reproduce
 exactly. Logs `.local/placement-live-{native,check,affected-tests,tcp}.log`.
-Production/client gates are next; no full-suite rerun is claimed for this slice.
+Frozen `96da2b87bf73fd6ab257ebe862f73cd8470ed88d` production build and actual
+client gates pass;655 blobs verified. `.local/placement-production.log` and
+`.local/placement-validation-checkpoint.json`. No full-suite rerun is claimed for
+this slice; the preceding mining block owns the822-test/full-native run.
+
+Actual-client evidence — October16,2026: dedicated tester reports PASS for the
+creative stone/oak representative slice at frozen
+`96da2b87bf73fd6ab257ebe862f73cd8470ed88d` (655 independently verified blobs),
+Java26.3/protocol777 and mandatorySDL backend. Actual main-hand use placed stone
+on grass beside an anchor, dry bottom oak15180, merged double15182, and top15178
+via upper-side targeting. Offhand use placed source-water oak15179 with visible
+contained water, then merged15182 with water visibly removed. Downward stone use
+inside own body left air; vanilla prediction may reject this before transmission,
+so this does not independently establish server negative admission. HUD and durable
+inventory retained creative counts32/32/16. Fresh direct reconnect visibly retained
+stone, dry double/top lower gap, water-cleared double and a second wet half; `/stats`
+responded. Both owned JVMs stopped/waited; zero players, exact original full player
+snapshot/worn inventory, all46 touched cells and all41 exact item records/receipt
+maps restored/retained; source25/outboxnil unchanged. No server restart. Frozen
+runtime/dataset and assertions are in ignored `.local/client-tests/VMC-029b/report.md`
+and per-scenario logs. Reviewed and accepted within core scope; the parent stays open.
+Graphical scope excludes replaceable vegetation, separately targeted occupied
+solids, other plain/slab families, peer/cross-region, survival and special callbacks.
