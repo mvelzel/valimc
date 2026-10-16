@@ -39,6 +39,8 @@ defmodule Valimc.PlayerLifePacketsTest do
       assert_raise ArgumentError, fn -> Packets.death(id, "fell") end
     end
 
+    assert {_, _} = Packets.death(1, String.duplicate("a", 1024))
+
     for message <- [nil, <<255>>, String.duplicate("a", 1025)] do
       assert_raise ArgumentError, fn -> Packets.death(1, message) end
     end

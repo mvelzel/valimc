@@ -246,7 +246,7 @@ defmodule Valimc.PlayerVoidConnectionTest do
     try do
       tick(pid)
       {body, client} = Client.await(client, :play, "player_combat_kill")
-      assert :binary.match(body, "fell out of the world") != :nomatch
+      assert :binary.match(body, "death.attack.outOfWorld") != :nomatch
       assert state(pid).life_stage == :sealing_death
       marker = state(pid).save_ref
       ticks(pid, 15)

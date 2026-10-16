@@ -1,0 +1,21 @@
+{
+  "version": "26.3",
+  "data_version": 5023,
+  "server_sha1": "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c",
+  "keys": {
+    "fall": "death.attack.fall",
+    "stalagmite": "death.attack.stalagmite",
+    "freeze": "death.attack.freeze",
+    "drown": "death.attack.drown",
+    "out_of_world": "death.attack.outOfWorld",
+    "starve": "death.attack.starve",
+    "on_fire": "death.attack.onFire",
+    "in_fire": "death.attack.inFire",
+    "lava": "death.attack.lava",
+    "hot_floor": "death.attack.hotFloor",
+    "campfire": "death.attack.inFire",
+    "cactus": "death.attack.cactus",
+    "sweet_berry_bush": "death.attack.sweetBerryBush",
+    "generic": "death.attack.generic"
+  }
+}

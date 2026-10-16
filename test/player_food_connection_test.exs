@@ -288,7 +288,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
     {client, pid} = login(ctx, 1.0, food)
     tick(pid)
     {body, client} = Client.await(client, :play, "player_combat_kill")
-    assert :binary.match(body, "starved to death") != :nomatch
+    assert :binary.match(body, "death.attack.starve") != :nomatch
     ticks(pid, 10)
     assert state(pid).player.food == %PlayerFood{level: 0, saturation: 0.0}
     Client.send_packet(client, :play, "client_command", <<0>>)

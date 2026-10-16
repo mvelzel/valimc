@@ -1640,22 +1640,11 @@ defmodule Valimc.Connection do
   end
 
   defp death_notice(state, announce, source \\ :fall) do
-    reason =
-      cond do
-        not announce -> " died"
-        source == :freeze -> " froze to death"
-        source == :drown -> " drowned"
-        source == :out_of_world -> " fell out of the world"
-        source == :starve -> " starved to death"
-        source == :lava -> " tried to swim in lava"
-        source == :on_fire -> " burned to death"
-        source == :in_fire -> " went up in flames"
-        source == :hot_floor -> " discovered the floor was lava"
-        source == :stalagmite -> " was impaled on a stalagmite"
-        true -> " hit the ground too hard"
-      end
-
-    message = state.player.name <> reason
+    message =
+      Valimc.PlayerDeathMessage.component(
+        state.player.name,
+        if(announce, do: source, else: :generic)
+      )
 
     send_packets(state, [
       Packets.player_pose(state.player),

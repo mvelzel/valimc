@@ -21,8 +21,9 @@ and a passing reverse pair; worker-admission profiling remains open.
 Current [contact hazards](tickets/VMC-017b5.md): request/immunity/armor foundations
 are **Done within kernel scope**, `9a7179a`, with additional native probes,
 1,245 full tests/build and actual baseline/fire/armor/water regression. Live contact
-geometry/ownership now passes46 affected tests,1,728 native traces and257 packet
-codecs; its full integration/client/performance gates remain.
+geometry/ownership passes1,248 full tests/build,1,728 native traces and actual contact/
+gear/reconnect/respawn checks. Cactus death-text failure has a native/92-test-verified
+correction awaiting client retest; full native/performance gates also remain.
 [Status-effect state](tickets/VMC-037a.md) matches50,433 native duration/refresh
 traces;40 effect identities and61,600 packet codecs also match. Unused foundation
 baseline and live ownership remain.

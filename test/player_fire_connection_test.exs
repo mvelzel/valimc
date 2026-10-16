@@ -262,6 +262,12 @@ defmodule Valimc.PlayerFireConnectionTest do
     tick(pid, false)
     wait(fn -> state(pid).life_stage == :dead end)
     assert state(pid).player.fire_ticks == -1
+    {body, _client} = Client.await(client, :play, "player_combat_kill")
+    {_entity, message} = Wire.take_varint(body)
+
+    assert {:ok, {:compound, %{"translate" => {:string, "death.attack.cactus"}}}, <<>>} =
+             Valimc.Protocol.NBT.take(message)
+
     {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 0.0 and saved.fire_ticks == -1
     assert saved.inventory.slots == %{} and saved.outbox == nil and saved.transfer_sequence == 1

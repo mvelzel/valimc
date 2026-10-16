@@ -233,10 +233,16 @@ defmodule Valimc.Protocol.Packets do
   def death(entity_id, message) do
     life_entity_id!(entity_id)
 
-    unless is_binary(message) and byte_size(message) <= 1024 and String.valid?(message),
-      do: raise(ArgumentError, "invalid death message")
+    unless (is_binary(message) and byte_size(message) <= 1024 and String.valid?(message)) or
+             Valimc.Protocol.TextComponent.valid?(message),
+           do: raise(ArgumentError, "invalid death message")
 
-    packet("player_combat_kill", [Wire.varint(entity_id), Wire.text_component(message)])
+    encoded = Wire.text_component(message)
+
+    if not is_binary(message) and IO.iodata_length(encoded) > 1024,
+      do: raise(ArgumentError, "death message exceeds limit")
+
+    packet("player_combat_kill", [Wire.varint(entity_id), encoded])
   end
 
   def death_animation(entity_id) do
