@@ -30,7 +30,8 @@ for c <- cases do
   {:ok, damage} = PlayerDamageProtection.damage(inventory, source, c["amount"])
 
   unless PlayerDamageProtection.points(inventory, source) == c["protection"] and
-           damage == c["damage"],
+           damage == c["damage"] and
+           PlayerDamageProtection.exhaustion(source) == c["exhaustion"],
          do: raise("Native environmental protection differs #{inspect({c, damage})}")
 
   if Map.has_key?(c, "armored") do

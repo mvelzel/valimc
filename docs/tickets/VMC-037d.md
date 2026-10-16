@@ -1,7 +1,7 @@
 # VMC-037d — Periodic health effects
 
-Status: Native action/timing foundation verified locally. No live grant/drink
-support yet; its client gate remains open and this work stays unpushed.
+Status: Native foundation `c6c6dea` and owned composition verified locally;
+production/broader integration and actual-client gates remain. Keep it unpushed.
 
 Acceptance: Regeneration, poison and wither execute on the existing player clock
 with native active-head timing, finite/infinite duration, amplifier shift behavior,
@@ -33,4 +33,34 @@ requests one `wither` damage. A request alone neither revives nor commits health
 Only the active head acts, before decrement/promotion. Finite countdown phase
 does not depend on entity age. Ten affected tests pass(seed763640). Evidence:
 `.local/periodic-effects-{native,native-check,targeted}.log`. These are no live
-damage/gear/cooldown/durability or graphical proofs. Owner composition follows.
+damage/gear/cooldown/durability or graphical proofs. Owned composition follows.
+
+Owned composition admits all three effects through the existing grant/login and
+atomic potion-use lane. The player clock selects requests from pre-decrement
+heads, folds independent effect kinds in ID order and stops actions at death.
+It installs the final duration map before health can seal a death snapshot.
+Infinite age is the admitted player clock wrapped to signed32; no catchup or
+extra timer/process. Healing replicates hearts/metadata without food exhaustion;
+damage uses the existing mode/load/cooldown/defense/death path. Magic/wither bypass
+armor and wear, retain ordinary worn Protection and cause zero exhaustion.
+
+Native proofs:20,800 magic/wither enchantment/slot/threshold contexts,32 native
+death translations/256 independently encoded death/chat packets,265 lifecycle/
+damage packets including both added sources, all native-decoded. Only two scalar
+translation keys were added to public facts. Evidence:
+`.local/periodic-damage-{protection,message}-*.log`,
+`.local/periodic-player-life-{native,check,decode}.log`.
+
+79 affected checks pass(seed827311); later47 owner/use/death-store checks pass
+(seed915800), overlapping intentionally. Boundaries include countdown/infinite
+phase, signed age wrap, hidden promotion, stale timers, poison's health threshold,
+ten-tick hurt suppression, modes, worn/carried defenses, stalled geometry, finite
+reconnect, stock main-hand regeneration/poison and custom offhand wither bottles.
+Fatal wither seals decremented effects and one unchanged drop. A suspended potion
+writer also permits one subsequent death, retaining the consumed bottle exactly
+once through source/receipt completion. Raw logs:
+`.local/periodic-live-targeted-final.log`, `.local/periodic-live-recovery-targeted.log`.
+Initial tests exposed the missing packet-source allowlist and a test helper that
+incorrectly required idle geometry to run; both corrected. The idle sample
+optimization is unchanged. GUI hearts/timers/drinking/expiry/negatives/death/
+respawn/reconnect remain required before acceptance.

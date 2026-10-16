@@ -1,5 +1,5 @@
 defmodule Valimc.PlayerDamageProtection do
-  @moduledoc "Player-owned worn-enchantment defenses for implemented environmental damage."
+  @moduledoc "Player-owned worn-enchantment defenses for implemented environmental and periodic damage."
   alias Valimc.{Inventory, PlayerArmor}
   alias Valimc.Physics.ArmorDamage
   alias Valimc.Protocol.ItemStack
@@ -16,7 +16,17 @@ defmodule Valimc.PlayerDamageProtection do
   def points(%Inventory{}, :out_of_world), do: 0
 
   def points(%Inventory{slots: slots}, source)
-      when source in [:fall, :stalagmite, :freeze, :drown, :starve, :cactus, :sweet_berry_bush] or
+      when source in [
+             :fall,
+             :stalagmite,
+             :freeze,
+             :drown,
+             :starve,
+             :cactus,
+             :sweet_berry_bush,
+             :magic,
+             :wither
+           ] or
              source in @fire do
     # Every pinned item has empty default enchantments. Native slot matching
     # applies both fall effects to all four player armor slots, including patched gear.
@@ -51,7 +61,9 @@ defmodule Valimc.PlayerDamageProtection do
               :drown,
               :out_of_world,
               :cactus,
-              :sweet_berry_bush
+              :sweet_berry_bush,
+              :magic,
+              :wither
             ] or
               source in @fire) and
              is_number(amount) and

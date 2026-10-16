@@ -78,7 +78,7 @@ public class PlayerLifeOracle {
     drown=damage.getOrThrow(DamageTypes.DROWN);
     voidSource=damage.getOrThrow(DamageTypes.FELL_OUT_OF_WORLD);
     starve=damage.getOrThrow(DamageTypes.STARVE);
-    hazards=new LinkedHashMap<>();for(var key:List.of(DamageTypes.CAMPFIRE,DamageTypes.CACTUS,DamageTypes.SWEET_BERRY_BUSH))hazards.put(key.identifier().getPath(),damage.getOrThrow(key));
+    hazards=new LinkedHashMap<>();for(var key:List.of(DamageTypes.CAMPFIRE,DamageTypes.CACTUS,DamageTypes.SWEET_BERRY_BUSH,DamageTypes.MAGIC,DamageTypes.WITHER))hazards.put(key.identifier().getPath(),damage.getOrThrow(key));
     var packets=packets();
     if(args[0].equals("verify")){
       var rows=JsonParser.parseString(Files.readString(Path.of(args[1]))).getAsJsonArray();

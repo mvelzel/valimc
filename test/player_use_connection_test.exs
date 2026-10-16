@@ -475,6 +475,91 @@ defmodule Valimc.PlayerUseConnectionTest do
     assert saved.inventory.slots == state(pid).inventory.slots
   end
 
+  for {name, delta} <- [{"regeneration", 1.0}, {"poison", -1.0}] do
+    test "#{name} drinking checkpoints delivery before its first periodic health action", ctx do
+      food = %PlayerFood{level: 5, saturation: 0.0}
+      drink = potion(unquote(name))
+
+      [{id, [{duration, _, _, _, _}]}] =
+        PotionContents.effects(drink.components["minecraft:potion_contents"])
+
+      seed(ctx, food, 8.0, inventory: %Inventory{slots: %{36 => drink}})
+      {client, pid} = login(ctx, 8.0, food)
+      client = use_hand(client, pid)
+      ticks(pid, 32)
+      assert state(pid).player.health.value == 8.0
+      assert state(pid).player.effects[id] == [{duration, 0, false, true, true}]
+      assert state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
+      {{_, ^id, 0, ^duration, 14}, _client} = effect_packet(client)
+      wait(fn -> state(pid).use_save == nil end)
+      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+      assert saved.effects == state(pid).player.effects and saved.health.value == 8.0
+      assert saved.inventory.slots == state(pid).inventory.slots
+      tick(pid)
+      assert state(pid).player.health.value == 8.0 + unquote(delta)
+      assert elem(hd(state(pid).player.effects[id]), 0) == duration - 1
+      assert state(pid).player.food == food
+    end
+  end
+
+  test "custom wither drinks retain atomic bottle/effect delivery and act on the next clock",
+       ctx do
+    food = %PlayerFood{level: 5, saturation: 0.0}
+    id = Valimc.Protocol.EffectTypes.id("wither")
+    contents = %{PotionContents.empty() | effects: [{id, [{80, 0, false, true, true}]}]}
+    drink = %{ItemStack.new("potion") | components: %{"minecraft:potion_contents" => contents}}
+    seed(ctx, food, 8.0, inventory: %Inventory{slots: %{45 => drink}})
+    {client, pid} = login(ctx, 8.0, food)
+    client = use_hand(client, pid, :off)
+    ticks(pid, 32)
+    {{_, ^id, 0, 80, 14}, _client} = effect_packet(client)
+    assert state(pid).player.health.value == 8.0
+    assert state(pid).inventory.slots == %{45 => ItemStack.new("glass_bottle")}
+    wait(fn -> state(pid).use_save == nil end)
+    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.effects == %{id => [{80, 0, false, true, true}]}
+    assert saved.inventory.slots == state(pid).inventory.slots and saved.health.value == 8.0
+    tick(pid)
+    assert state(pid).player.health.value == 7.0 and state(pid).player.food == food
+    assert state(pid).player.effects == %{id => [{79, 0, false, true, true}]}
+  end
+
+  test "death behind a stalled potion checkpoint retains one consumed bottle/drop and post-tick effects",
+       ctx do
+    food = %PlayerFood{level: 5, saturation: 0.0}
+    id = Valimc.Protocol.EffectTypes.id("wither")
+    contents = %{PotionContents.empty() | effects: [{id, [{80, 0, false, true, true}]}]}
+    drink = %{ItemStack.new("potion") | components: %{"minecraft:potion_contents" => contents}}
+    seed(ctx, food, 0.5, inventory: %Inventory{slots: %{36 => drink}})
+    {client, pid} = login(ctx, 0.5, food)
+    _client = use_hand(client, pid)
+    store = state(pid).player_store
+    :sys.suspend(store)
+
+    try do
+      ticks(pid, 32)
+      assert state(pid).use_save != nil and state(pid).player.health.value == 0.5
+      tick(pid)
+      assert state(pid).life_stage == :sealing_death and state(pid).use_save != nil
+      assert state(pid).player.effects == %{id => [{79, 0, false, true, true}]}
+      assert state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
+      :sys.resume(store)
+      wait(fn -> state(pid).life_stage == :dead end)
+      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+      assert saved.health.value == 0.0 and saved.effects == %{id => [{79, 0, false, true, true}]}
+      assert saved.inventory.slots == %{} and saved.transfer_sequence == 1 and saved.outbox == nil
+      [view] = Valimc.World.item_snapshot(ctx.key) |> Map.values()
+
+      {_entity, <<5, 8, _gravity, 8, 7, encoded::binary>>} =
+        Wire.take_varint(IO.iodata_to_binary(elem(view.metadata, 1)))
+
+      assert {:ok, bottle, <<255>>} = ItemStack.take(encoded)
+      assert bottle == ItemStack.new("glass_bottle")
+    after
+      if Process.alive?(store), do: :sys.resume(store)
+    end
+  end
+
   test "native duration finishes each hand once, orders completion before inventory, and reconnects atomically",
        ctx do
     food = %PlayerFood{level: 3, saturation: 0.0}

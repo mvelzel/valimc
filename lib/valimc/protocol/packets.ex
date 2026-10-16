@@ -217,7 +217,9 @@ defmodule Valimc.Protocol.Packets do
              :hot_floor,
              :campfire,
              :cactus,
-             :sweet_berry_bush
+             :sweet_berry_bush,
+             :magic,
+             :wither
            ],
            do: raise(ArgumentError, "invalid damage source")
 

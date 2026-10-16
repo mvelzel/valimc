@@ -16,6 +16,8 @@
     "campfire": "death.attack.inFire",
     "cactus": "death.attack.cactus",
     "sweet_berry_bush": "death.attack.sweetBerryBush",
-    "generic": "death.attack.generic"
+    "generic": "death.attack.generic",
+    "magic": "death.attack.magic",
+    "wither": "death.attack.wither"
   }
 }

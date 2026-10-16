@@ -1,7 +1,7 @@
 # VMC-037c — Breathing effects and air ownership
 
-Status: Committed locally at `1fd6287`; automated integration/build pass.
-Actual-client validation is running. Keep this slice local until its gate passes.
+Status: **Done within owned Water Breathing/air scope**, `1fd6287`, published
+October16. Automated integration/build and all six actual-client groups pass.
 
 Acceptance: Water Breathing pauses oxygen loss and restores depleted air while
 submerged, with expiry, existing defenses, natural drowning, drinks and reconnect.
@@ -50,13 +50,31 @@ recovery and actual TCP Water Breathing consumption/effect/bottle checkpoint.
 Evidence: `.local/status-air-live-targeted.log` and
 `.local/status-air-native-check-final.log`(433 native predicates/policies). Native
 full-baseTick execution is not claimed; its ordering/refill rules use the pinned
-bytecode and the existing native air primitives. GUI drinking/submersion/expiry/
-drowning, finite reconnect and relevant negatives remain required before Done.
+bytecode and the existing native air primitives. Actual-client evidence follows.
 
 Frozen `1fd6287` passes1,284 full tests(seed105045), production release and native
 plaintext/continuous AES-CFB8 TCP. Raw evidence: `.local/breathing-live-full-tests.log`,
 `.local/breathing-live-production.log`, `.local/breathing-live-native-tcp.log`.
 The full native suite last passed at `d7e688c`; subsequent potion/breathing native
 probes and both transports are targeted integration, not a repeat of that entire suite.
-The dedicated client tester owns the immutable release and whole consistent dataset
+The dedicated client tester tested the immutable release and whole consistent dataset
 `/tmp/valimc-breathing-live-client-20261016` (initial source/receipt50).
+
+Actual26.3 client PASS: main/offhand ground-targeted drinking/bottles, actual
+submersion with owned+4 depleted-air refill, genuine400-tick expiry into natural
+oxygen loss/drowning20→12HP, separate actual surfacing/recovery, Fire Resistance
+negative, creative/spectator refill, canceled use, unsupported Night Vision and
+fresh finite/bottle/depleted-air reconnect without offline catchup or replay.
+Initial air depletion/modes are trusted fixtures; exact login air before connected
+refill and stalled geometry are deterministic evidence, not GUI observations.
+Tester report reviewed once: `.local/client-tests/VMC-037c/report.md`; run logs
+remain under the frozen checkpoint's ignored client evidence directory.
+
+A tester pool-setup mistake caused ordinary magma death before the successful
+breathing trials. Normal respawn/transfers were retained; it is not breathing
+failure evidence. Whole dataset advances source/receipt50→51, outboxnil. Final
+survival8HP/air300/finite8648ticks/one offhand bottle, safe pool shore. Both owned
+JVMs stopped; zero players/connections, seven regions and clock flush:ok, server
+cleanly stopped. `.local/breathing-publication-proof.json` binds immutable source
+blobs and all accepted reports/checks. Conduit/Nautilus actions, broader effects,
+fluid propagation and full-server parity remain separate work.

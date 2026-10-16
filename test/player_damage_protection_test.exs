@@ -3,6 +3,33 @@ defmodule Valimc.PlayerDamageProtectionTest do
   alias Valimc.{Inventory, PlayerDamageProtection}
   alias Valimc.Protocol.ItemStack
 
+  test "periodic magic/wither bypass armor and wear, retain ordinary worn protection, and cause no exhaustion" do
+    gear = %{
+      ItemStack.new("diamond_chestplate")
+      | components: %{
+          "minecraft:enchantments" => %{
+            "minecraft:protection" => 4,
+            "minecraft:fire_protection" => 255
+          }
+        }
+    }
+
+    for source <- [:magic, :wither] do
+      refute PlayerDamageProtection.wears_armor?(source)
+      assert PlayerDamageProtection.exhaustion(source) == 0.0
+      assert {:ok, 1.0} = PlayerDamageProtection.damage(%Inventory{}, source, 1)
+      assert PlayerDamageProtection.points(%Inventory{slots: %{6 => gear}}, source) == 4
+
+      assert PlayerDamageProtection.points(
+               %Inventory{slots: %{36 => gear}, carried: gear},
+               source
+             ) == 0
+
+      assert {:ok, 0.8400000333786011} =
+               PlayerDamageProtection.damage(%Inventory{slots: %{6 => gear}}, source, 1)
+    end
+  end
+
   test "contact hazards use armor and ordinary protection; campfires additionally use fire protection" do
     gear = %{
       ItemStack.new("diamond_boots")

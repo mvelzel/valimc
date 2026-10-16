@@ -24,6 +24,7 @@ defmodule Valimc.Connection do
     GameMode,
     Inventory,
     Metrics,
+    PeriodicEffect,
     Players,
     PlayerAbilities,
     PlayerAirEffects,
@@ -61,7 +62,8 @@ defmodule Valimc.Connection do
   import Bitwise
   @basic_mining Enum.map(~w(stone dirt grass_block cobblestone oak_planks glass), &Data.block/1)
   @fire_resistance EffectTypes.id("fire_resistance")
-  @live_effects [@fire_resistance, EffectTypes.id("water_breathing")]
+  @periodic_effects Enum.sort(Enum.map(~w(regeneration poison wither), &EffectTypes.id/1))
+  @live_effects [@fire_resistance, EffectTypes.id("water_breathing")] ++ @periodic_effects
   @use_item_packet Data.id(:play, :serverbound, "use_item")
   @slab_tags Path.expand("../../priv/protocol/tags.json", __DIR__)
   @external_resource @slab_tags
@@ -2764,9 +2766,29 @@ defmodule Valimc.Connection do
 
   defp tick_effects(%{life_stage: :alive, player: %{effects: effects}} = state)
        when map_size(effects) > 0 do
-    {:ok, effects, events} = PlayerEffects.tick(effects)
-    player = %{state.player | effects: effects}
-    next = %{state | player: player}
+    {:ok, after_effects, events} = PlayerEffects.tick(effects)
+    # Requests read pre-decrement heads. Publish the final duration map to this
+    # owner before health application can seal a durable death snapshot.
+    state = %{state | player: %{state.player | effects: after_effects}}
+    unsigned_age = band(state.simulation_clock.tick, 0xFFFFFFFF)
+    age = if unsigned_age >= 2_147_483_648, do: unsigned_age - 4_294_967_296, else: unsigned_age
+
+    next =
+      Enum.reduce_while(@periodic_effects, state, fn id, current ->
+        cond do
+          current.life_stage != :alive ->
+            {:halt, current}
+
+          not Map.has_key?(effects, id) ->
+            {:cont, current}
+
+          true ->
+            {:ok, action} = PeriodicEffect.request(id, effects[id], age, current.player.health)
+            {:cont, apply_effect_action(current, action)}
+        end
+      end)
+
+    player = next.player
 
     packets =
       Enum.map(events, fn
@@ -2779,6 +2801,29 @@ defmodule Valimc.Connection do
   end
 
   defp tick_effects(state), do: state
+
+  defp apply_effect_action(state, :none), do: state
+
+  defp apply_effect_action(state, {:heal, amount}) do
+    health = heal(state.player.health, amount)
+
+    if health.value == state.player.health.value do
+      state
+    else
+      player = %{state.player | health: health}
+      state = %{state | player: player}
+      Players.update(self(), player)
+      packet = Packets.player_health(player)
+      send_packets(state, [Packets.health(health, player.food), packet])
+      broadcast_player_packet(state, packet)
+    end
+  end
+
+  defp apply_effect_action(state, {:hurt, source, amount}) do
+    {:ok, selected} = PlayerHealth.hurt_window(state.player.health, amount)
+    {_, state} = apply_damage(state, selected, source)
+    state
+  end
 
   defp observe_burning(%{life_stage: stage} = state, _, _, _) when stage != :alive,
     do: %{state | fire_damage_due: false}

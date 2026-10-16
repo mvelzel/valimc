@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-037c Water Breathing/air](../tickets/VMC-037c.md) | `1fd6287`:433 native predicates/policies,60 affected checks,1,284 full tests/build, both native TCP transports and actual drinks/submersion/refill/expiry/drowning/surfacing/modes/negatives/reconnect; whole source/receipt51 retained |
 | [VMC-037b supported potions](../tickets/VMC-037b.md) | `81ebb4f`/`82dd108`/`fa0b320`:481 native stacks/4,329 deliveries/18,578 identities,1,276 full tests/build,53 ordering regressions/native TCP and actual ground/both-hand drinks, expiry, bottles, negatives, creative and reconnect; measured preview limits retained |
 | [VMC-037a1 owned Fire Resistance](../tickets/VMC-037a1.md) | `d7e688c`→`fa0b320`: owner clock/immunity, suppressed state/v18 snapshots, native full integration and actual icons/contacts/gear/expiry/promotion/removal/death/respawn/reconnect; quiet-clock final saves corrected |
 | [VMC-017b5 player contacts](../tickets/VMC-017b5.md) | `8fbe510`/`9fce29f`: magma/campfire/cactus/berries, ordered owned damage/gear/death, full native TCP,1,253 tests/build and actual contacts/negatives/wear/death/respawn/reconnect; matched preview limits retained |

@@ -16,14 +16,15 @@ state/codec proofs,1,276 full tests/build, later53 affected checks/native TCP/bu
 and actual contacts, drinks, expiry, negatives, creative, death/respawn and reconnect
 pass. The ground-target drinking failure was fixed and retested. Six matched128/512
 water samples pass; retain dense login variance and older admission findings.
-**Current:** [Water Breathing/air ordering](tickets/VMC-037c.md) passes60 affected
-tests and433 native predicate/policy contexts. Owned drinks, tick-start expiry,
-delayed geometry, depleted reconnect and invulnerable refill are implemented;
-1,284 full tests, production and both native TCP transports pass; actual-client
-validation is running against immutable `1fd6287`. Keep it local until validated.
-[Periodic health effects](tickets/VMC-037d.md) now match124,596 native action/timing
-cases and10 affected checks; owner composition and its client gate follow.
-Evidence stays in tickets.
+[Water Breathing/air ordering](tickets/VMC-037c.md) is **Done within scope** and
+published at `1fd6287`:433 native contexts,60 affected checks,1,284 full tests/build,
+both native TCP transports and all six actual-client groups. Retrieve its ticket
+for fixture limits and the consistent source/receipt51 dataset.
+**Current:** [periodic health effects](tickets/VMC-037d.md). Native action/timing
+foundation `c6c6dea` matches124,596 cases/10 checks. Owned regeneration/poison/wither
+and drinks pass79 affected checks plus47 later overlapping owner/recovery checks;
+20,800 native defenses and source/lifecycle codecs pass. Production, broader
+integration and actual-client gates follow. Keep this block local until validated.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
