@@ -71,7 +71,7 @@ milk clears both heads and restores normal walking. Actual long Turtle Master
 shows both SlownessIV/ResistanceIII, slower walking and a real walked-off fall
 reduced3→1.2HP damage, without armor/healing or synthetic damage calls. Both-hand
 cancel/full drinks, Speed+Slowness, practical sprint and unsupported mixed
-Speed+Night Vision refusal pass. Fresh Quick Play reconnect retains finite SpeedII,
+then-unsupported mixed-status refusal pass. Fresh Quick Play reconnect retains finite SpeedII,
 one offhand bottle and changed walking; two offline snapshots23.534s apart retain
 829ticks exactly. Final genuine expiry restores normal walking.
 

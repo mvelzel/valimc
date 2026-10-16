@@ -65,7 +65,8 @@ defmodule Valimc.Connection do
   @basic_mining Enum.map(~w(stone dirt grass_block cobblestone oak_planks glass), &Data.block/1)
   @fire_resistance EffectTypes.id("fire_resistance")
   @resistance EffectTypes.id("resistance")
-  @periodic_effects Enum.sort(Enum.map(~w(regeneration poison wither), &EffectTypes.id/1))
+  @hunger EffectTypes.id("hunger")
+  @periodic_effects Enum.sort(Enum.map(~w(regeneration hunger poison wither), &EffectTypes.id/1))
   @instant_effects Enum.map(~w(instant_health instant_damage), &EffectTypes.id/1)
   @live_effects [@fire_resistance, @resistance, EffectTypes.id("water_breathing")] ++
                   Enum.map(~w(speed slowness), &EffectTypes.id/1) ++
@@ -2815,7 +2816,11 @@ defmodule Valimc.Connection do
             {:cont, current}
 
           true ->
-            {:ok, action} = PeriodicEffect.request(id, effects[id], age, current.player.health)
+            {:ok, action} =
+              if id == @hunger,
+                do: Valimc.HungerEffect.request(effects[id]),
+                else: PeriodicEffect.request(id, effects[id], age, current.player.health)
+
             {:cont, apply_effect_action(current, action)}
         end
       end)
@@ -2835,6 +2840,17 @@ defmodule Valimc.Connection do
   defp tick_effects(state), do: state
 
   defp apply_effect_action(state, :none), do: state
+
+  defp apply_effect_action(state, {:exhaust, amount}) do
+    if state.player.abilities.invulnerable do
+      state
+    else
+      food = PlayerFood.exhaust(state.player.food, amount)
+      player = %{state.player | food: food}
+      if food != state.player.food, do: Players.update(self(), player)
+      %{state | player: player}
+    end
+  end
 
   defp apply_effect_action(state, {:heal, amount}) do
     health = heal(state.player.health, amount)

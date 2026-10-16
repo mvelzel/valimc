@@ -64,7 +64,8 @@ TCP transports pass: `.local/instant-consumption-live-{production,native-tcp}.lo
 October16 actual26.3/protocol777 PASS within focused stock scope; primary reviewed
 `.local/client-tests/VMC-037g/report.md` once. Actual harm/heal20→14→18,
 offhand strong harm18→6, strong heal6→14→20 clamp; cancellation/full-food,
-creative harm and unsupported InstantHealth+NightVision16 refusal pass.
+creative harm and InstantHealth+then-unsupported effect16 refusal pass. The old
+handoff mislabeled16 Night Vision; the native catalog identifies it as Hunger.
 Four ProtectionIV pieces+ResistanceI reduce6→1.728 damage without wear; FR alone
 does not help. Actual Resistance-before-harm deals4.8, reversed order deals6;
 milk removes the timed head. Fresh Quick Play retains health/bottle/timed status,

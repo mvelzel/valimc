@@ -13,6 +13,7 @@ defmodule Valimc.PlayerUseConnectionTest do
 
   alias Valimc.Protocol.{Data, ItemStack, PotionContents, PotionTypes, UseItemOn, Wire}
   alias Valimc.TestClient, as: Client
+  @hunger Valimc.Protocol.EffectTypes.id("hunger")
 
   defp wait(fun, left \\ 400) do
     if value = fun.(),
@@ -690,6 +691,81 @@ defmodule Valimc.PlayerUseConnectionTest do
 
       assert Valimc.World.item_snapshot(ctx.key) == %{}
     end
+  end
+
+  test "Hunger drinking applies exhaustion before food spending and milk stops the owned request",
+       ctx do
+    food = %PlayerFood{level: 10, saturation: 0.0, exhaustion: 3.990000009536743}
+    drink = custom_potion([{@hunger, [{200, 3, false, true, true}]}])
+
+    seed(ctx, food, 20.0,
+      inventory: %Inventory{slots: %{36 => drink, 45 => ItemStack.new("milk_bucket")}}
+    )
+
+    {client, pid} = login(ctx, 20.0, food)
+    client = use_hand(client, pid)
+    ticks(pid, 32)
+    assert state(pid).player.effects == %{@hunger => [{200, 3, false, true, true}]}
+    wait(fn -> state(pid).use_save == nil end)
+    tick(pid)
+    {:ok, {:exhaust, amount}} = Valimc.HungerEffect.request([{200, 3, false, true, true}])
+    {expected, _} = PlayerFood.tick(PlayerFood.exhaust(food, amount), %PlayerHealth{}, 1, false)
+    assert state(pid).player.food == expected and expected.level == 9
+    _client = use_hand(client, pid, :off, 2)
+    ticks(pid, 32)
+
+    assert state(pid).player.effects == %{} and
+             state(pid).inventory.slots[45] == ItemStack.new("bucket")
+
+    before = state(pid).player.food
+    ticks(pid, 20)
+    assert state(pid).player.food == before
+  end
+
+  test "Hunger hidden promotion and expiry use pre-decrement heads and invulnerability ability immunity",
+       ctx do
+    food = %PlayerFood{level: 10, saturation: 0.0}
+    effects = %{@hunger => [{1, 3, false, true, true}, {3, 0, false, true, true}]}
+    seed(ctx, food, 20.0, inventory: %Inventory{}, effects: effects)
+    {_client, pid} = login(ctx, 20.0, food)
+    tick(pid)
+    assert state(pid).player.effects == %{@hunger => [{2, 0, false, true, true}]}
+    {:ok, {:exhaust, strong}} = Valimc.HungerEffect.request(effects[@hunger])
+    assert state(pid).player.food == PlayerFood.exhaust(food, strong)
+    tick(pid)
+    tick(pid)
+    assert state(pid).player.effects == %{}
+    before = state(pid).player.food
+    tick(pid)
+    assert state(pid).player.food == before
+
+    :sys.replace_state(pid, fn s ->
+      %{s | player: %{s.player | abilities: %{s.player.abilities | invulnerable: true}}}
+    end)
+
+    assert {:ok, true} = Connection.add_effect(pid, @hunger, [{20, 255, false, true, true}])
+    ticks(pid, 10)
+    assert state(pid).player.effects == %{@hunger => [{10, 255, false, true, true}]}
+    assert state(pid).player.food == before
+  end
+
+  test "Hunger reconnect retains owned food and duration without replaying the drink", ctx do
+    food = %PlayerFood{level: 10, saturation: 0.0}
+    drink = custom_potion([{@hunger, [{100, 19, false, true, true}]}])
+    seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => drink}})
+    {client, pid} = login(ctx, 20.0, food)
+    _client = use_hand(client, pid)
+    ticks(pid, 32)
+    wait(fn -> state(pid).use_save == nil end)
+    ticks(pid, 5)
+    expected = state(pid).player.food
+    assert state(pid).player.effects == %{@hunger => [{95, 19, false, true, true}]}
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    {_client, restored} = login(ctx, 20.0, expected)
+    assert state(restored).player.effects == %{@hunger => [{95, 19, false, true, true}]}
+    assert state(restored).player.food == expected
+    assert state(restored).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
   end
 
   test "a later Resistance callback cannot protect earlier instant damage in the same drink",
