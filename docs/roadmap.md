@@ -161,6 +161,9 @@ indexes validated tickets. None imply full parity.
    affected checks and9,466 native contexts, including exact recipe conversion,
    source/destination recovery and real TCP. Actual overflow/Q/refusal/reconnect,
    914 full tests, full native TCP/production passed (`88416e9`); this slice is complete.
+   [Table recipes](tickets/VMC-033e.md) pass438,672 native contexts and100 affected
+   tests, retaining all476 player recipes; player crafting regression is pending.
+   A player-owned3×3 table menu follows. Bulk result dropping remains separate.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 [VMC-003c](tickets/VMC-003c.md)'s direct local test-client lifecycle is complete:
@@ -172,6 +175,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
+| [VMC-033e](tickets/VMC-033e.md) | Shared matcher player-crafting regression | Local work; checkpoint/release next |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 

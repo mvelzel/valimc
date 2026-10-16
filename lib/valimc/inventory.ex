@@ -17,7 +17,7 @@ defmodule Valimc.Inventory do
   def contents(inventory), do: Enum.map(0..45, &get(inventory, &1))
 
   def crafting_result(inventory) do
-    case Valimc.Crafting2x2.result(Enum.map(1..4, &get(inventory, &1))) do
+    case Valimc.Crafting.result(Enum.map(1..4, &get(inventory, &1))) do
       {:ok, stack} -> stack
       :none -> nil
     end
