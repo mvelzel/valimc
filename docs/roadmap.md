@@ -27,6 +27,8 @@ actual movement with paused I/O, periodic saves, critical replacement and reconn
 checks,1045 full tests/build, full native integration/both TCP transports and actual
 boundary/recovery/reconnect checks. [Automatic simulation](tickets/VMC-035a6.md)
 has local tested cadence/launch checkpoints; natural graphical scenarios follow.
+[Item merging](tickets/VMC-035b.md) starts with native pair decisions and bounded
+same-owner plans while automatic motion completes its separate client gate.
 
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Player processes own their simulation state; bounded workers sample geometry.
