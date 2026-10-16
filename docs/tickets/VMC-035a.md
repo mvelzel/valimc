@@ -48,9 +48,9 @@ through registered `java_tool.py` invocations and their Elixir checkers; raw
 `.local/item-{drop,motion}-registered-{native.json,native.log,check.log}`.
 
 [Saved motion](VMC-035a1.md) and [accepted-step replication](VMC-035a2.md) are
-validated foundations. [Fenced travel batches](VMC-035a3.md) now compose sampled
-geometry and motion; their actual-client gate follows. Next: automatic owner
-scheduling, efficient motion checkpoints, resting/support wakeups and cross-owner handoff. Retain
+validated foundations. [Fenced travel](VMC-035a3.md), [coalesced saves](VMC-035a4.md)
+and [durable owner handoff](VMC-035a5.md) are validated. Next:
+[automatic simulation](VMC-035a6.md), including resting/support wakeups. Retain
 source retry receipts after moves/pickups so old deliveries cannot recreate items.
 Live composition remains pending. Frozen `f31f178` baseline client smoke passed:
 actual flat-world join/render, walking/SDL look, log→four planks/returning two logs,

@@ -23,9 +23,10 @@ codecs, bounded durable batches and actual controlled movement/replacement/recon
 actual fall/landing, slime rebound, water drift and fresh reconnect.
 [Coalesced motion saves](tickets/VMC-035a4.md) are validated (`c49fdb1`), including
 actual movement with paused I/O, periodic saves, critical replacement and reconnect.
-[Durable owner handoff](tickets/VMC-035a5.md) passes85 affected checks,1045 full
-tests/build and actual boundary/recovery/reconnect checks. Full native integration
-is running. [Automatic simulation](tickets/VMC-035a6.md) follows.
+[Durable owner handoff](tickets/VMC-035a5.md) is validated (`19434e0`):85 affected
+checks,1045 full tests/build, full native integration/both TCP transports and actual
+boundary/recovery/reconnect checks. [Automatic simulation](tickets/VMC-035a6.md)
+is in progress in an isolated prototype.
 
 1. **[VMC-011a](tickets/VMC-011a.md): authoritative ownership/tick ordering.**
    Player processes own their simulation state; bounded workers sample geometry.
