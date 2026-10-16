@@ -84,7 +84,9 @@ indexes validated tickets. None imply full parity.
    [Consuming items](tickets/VMC-036c.md) has native facts/food codecs, 18,474
    identity cases and49 affected tests. Live plain-food use now passes38 affected
    tests: owner-clock timing, both hands, interruption, remainders and atomic
-   food/inventory saves. Specialized effects/overflow and the client gate remain.
+   food/inventory saves. Actual both-hand animations, cancellation/reconnect,
+   nutrition, soup remainders and creative behavior are validated (`7337af64`).
+   Specialized effects/overflow remain separate work.
    [Player equipment](tickets/VMC-018d.md) passes128 native packet cases and39
    affected tests; live held/worn replication and animation ordering are implemented,
    with graphical validation pending.
@@ -122,9 +124,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
-| [VMC-003d](tickets/VMC-003d.md) | Held-button adapter gestures, visible use/attack and release | Local SDL adapter |
 | [VMC-029a3](tickets/VMC-029a3.md) | Actual wet/dry creative removal and reconnect; live survival remains separate | Local removal checkpoint |
-| [VMC-036c](tickets/VMC-036c.md) | Actual eating animation, hands, interruptions, nutrition and bowl/reconnect | Local consumable checkpoint |
 | [VMC-018d](tickets/VMC-018d.md) | Actual peer hands/armor, use animation, clears and tracking recreation | Local equipment checkpoint |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full

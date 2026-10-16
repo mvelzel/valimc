@@ -95,3 +95,5 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-017b3](../tickets/VMC-017b3.md) | `7337af64`; actual accepted void falls, armor/mode bypass, damaged reconnect and fatal survival/creative respawn; boundary/loading remain native-covered |
 | [VMC-036a](../tickets/VMC-036a.md) | `7337af64`; actual hunger spending/healing, difficulty floors, peaceful recovery, reconnect and starvation/respawn; movement/eating remain separate |
 | [VMC-036b](../tickets/VMC-036b.md) | `7337af64`; actual sprint/swim/jump exhaustion, walk/crouch/mode negatives and depleted reconnect; detailed GUI limits retained |
+| [VMC-036c](../tickets/VMC-036c.md) | `7337af64`; actual plain-food hands/animation, nutrition, cancellation/reconnect and soup/creative remainders; effects/overflow remain separate |
+| [VMC-003d](../tickets/VMC-003d.md) | Dedicated SDL held-use/attack gestures, intervening CUA actions/captures, release and fresh-process reset |

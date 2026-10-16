@@ -1,6 +1,6 @@
 # VMC-036c — Consumable item use
 
-Status: Live plain-food use automated-verified; graphical gate pending. October 16, 2026.
+Status: Validated and complete within plain-food use scope. October 16, 2026.
 Depends on owned food, hand/inventory authority and the admitted player clock.
 
 Acceptance: unmodified-client use starts the native held-item animation and
@@ -89,3 +89,27 @@ Client scenario: eat from both hands; visible use animation, stack reduction and
 food recovery; full-food negative and always-edible positive; interrupt mid-use,
 change held stack, reconnect and test a container remainder with a full inventory.
 Delegate on a frozen release after earlier gates; report unsupported effects honestly.
+
+October16 actual-client evidence — reviewed and accepted: unchanged immutable
+7337af6/PID74315, disposable `/tmp/valimc-consumable-client-20261016`, Java26.3/
+protocol777, six fresh small direct SDL/CUA clients. Actual2sec bread use in both
+hands consumed exactly one correct stack, ordinary32tick owner duration, food/
+saturation0→5→10→15→20;500ms release canceled unchanged. Fullfood plainbread
+rejected, plain can_always_eat patch consumed, unsupportedgoldenapple2 unchanged.
+Fresh reconnect preserved completed food/inventory and canceled partial release.
+Last stew with37 occupied slots replaced held item with bowl only, food10→16/
+sat7.2; creative retained fresh stew1/noextra bowl, food16→20/sat14.4.
+The initial blocking timedclick observation limit was resolved by VMC-003d's
+rebuilt dedicated SDL F8/F9 gestures (hash06f2450…950e1). Actual main/offhand
+raised-food/crumb animations were observed during held use. Mainselection retired
+remaining19→nil→32; F swap retired25→nil→differentitem32; offhand selection
+retained31→30→29. Direct held disconnect lastoffremaining5; fresh clientnil/flags0
+and idle hands, exact food/inventory retained. No metadata-only animation claim.
+All6 JVMs stopped/waited/zeroPlayers, same runtime; safe survival18HP/food20/sat20/
+ex0/timer0/air300 and full fixture inventory with actual bowl9 preserved. Initial
+zerofood setup caused two easy starvation hits20→18 before meal, no death;
+actual damaged outcome retained. Source10/outboxnil/lastdeath unchanged, all29
+world-item records exact unchanged17/8/4, receipts10/6/9. Settings1/unlocked/
+regenfalse unchanged. Specialized effects, overflow/peer/stale-writer faults and
+arbitrary duration overrides remain limits. Full actions/traces/limits/cleanup:
+`.local/client-tests/VMC-036c/report.md`.
