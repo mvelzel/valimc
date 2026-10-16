@@ -141,10 +141,9 @@ indexes validated tickets. None imply full parity.
    more items and are validated (`5fd058a`):53 affected checks,1,319,700 native
    contexts,2,840 consumption cases, production and actual both-mode family,
    offhand/depletion/refusal/fresh-reconnect checks. Broader placement remains open.
-   [Logs/pillars](tickets/VMC-029b3.md) add60 axis families/180 mining states;
-   84 affected checks,1,590,780 native placement and3,440 consumption cases pass.
-   The full suite passes889 tests and actual axis placement/mining/reconnect pass;
-   full native integration is still running before publication.
+   [Logs/pillars](tickets/VMC-029b3.md) are validated (`4d60aa4`):60 families/180
+   mining states,84 affected checks,1,590,780 native placements,3,440 consumption
+   cases,889 full tests, full native TCP/build and actual axes/mining/reconnect.
 
 5. **[VMC-033a](tickets/VMC-033a.md): player crafting foundation.** Research native
    2×2 shaped/shapeless matching and derived result ownership, then compose live
@@ -160,7 +159,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-029b3](tickets/VMC-029b3.md) | Full native catalog integration | Client accepted; local4d60aa4 |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 
