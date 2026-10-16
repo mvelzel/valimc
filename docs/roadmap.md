@@ -126,14 +126,13 @@ indexes validated tickets. None imply full parity.
    owner commits now compose on the player with admission, ordered corrections
    and one bounded worker.70 affected checks, both native TCP transports, production
    and actual creative targeting/slab/water/both-hand/reconnect checks pass
-   (`96da2b8`). This core is complete; [durable survival consumption](tickets/VMC-029b1.md)
-   is in progress: typed requests, exact count consumption and v14 source journals
-   plus receipt-backed destination/lease recovery pass85 affected checks. Live
-   composition passes78 affected checks and12 connection checks; the actual-client
-   gate is accepted.874 full tests and the frozen production build pass; full native
-   integration is still running.
-   Broader callbacks/ownership are still open.
-   [Ordinary full cubes](tickets/VMC-029b2.md) are scoped as the next catalog slice.
+   (`96da2b8`). This core is complete. [Durable survival consumption](tickets/VMC-029b1.md)
+   is validated and complete within owned one-block/both-hand scope (`af99f492`):
+   exact consumption/refunds, v14 source journals and typed destination receipts,
+   874 full tests, full native integration/both TCP transports, production and
+   actual depletion/wet/dry/top/both-hand/fresh reconnect. Broader callbacks and
+   ownership remain open. [Ordinary full cubes](tickets/VMC-029b2.md) are next;
+   native probes match1,319,700 contexts and2,840 consumption cases.
 
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 [VMC-003c](tickets/VMC-003c.md)'s direct local test-client lifecycle is complete:
@@ -145,7 +144,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 
 | Ticket | Remaining gate | Checkpoint / release |
 |---|---|---|
-| [VMC-029b1](tickets/VMC-029b1.md) | Full native integration; actual gate accepted | Frozen `af99f492` |
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 
