@@ -1,8 +1,8 @@
 # VMC-037j — Owned Absorption
 
-Status: Owned958c8ee passes128 affected checks,1,368 full tests, production/both
-native TCP transports and all five actual-client groups. Final native integration
-is running before publication/Done.
+Status: Done within scope; runtime958c8ee validated/published throughb97c5ca.
+128 affected checks,1,368 full tests, production/full native integration/both TCP
+transports and all five actual-client groups pass.
 
 Acceptance: native golden-heart pool and maximum, effect add/upgrade/promotion/
 removal, damage spending after defenses, immunity/source exclusions, persistence
@@ -132,3 +132,8 @@ cleanup, audit and hashes: `.local/client-tests/VMC-037j/report.md`,
 `.local/absorption-{live-cleanup,final-audit}.log`,
 `.local/absorption-publication-proof.json`. Larger native integration session17839
 runs against958c8ee; do not repeat the passed client gate.
+
+Final frozen958c8ee full native integration exits0 on October16, including actual
+plaintext and continuous AES-CFB8 TCP. Published prefixb97c5ca includes only
+test-fixture corrections after that runtime; no remaining gate for this scope.
+Private final log/hash is bound in the publication proof.

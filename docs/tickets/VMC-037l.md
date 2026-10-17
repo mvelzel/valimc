@@ -1,8 +1,8 @@
 # VMC-037l — Jump Boost
 
-Status: Owned06c64d2 passes139 affected checks, native power/jump/fall/packets,
-production/both TCP transports and actual-client acceptance. Larger movement-effect
-integration remains before publication/Done.
+Status: Done within scope at06c64d2:139 affected checks, native power/jump/fall/packets,
+production/both TCP transports and actual-client acceptance pass. Larger d7e6062
+integration passes1,408 full tests, production and full native integration/both TCP.
 
 Acceptance: stock/custom Jump Boost drinks change owned ground-jump power and safe
 fall distance with native arithmetic, including material factors, hidden promotion,
@@ -73,5 +73,5 @@ connections/players and1,008 frozen blobs unchanged. Whole final dataset
 pool0, bottle36/bucket37, food11/saturation0.2/exhaustion2.09999871254, source61/
 outboxnil and destination{2,2}receipt61/items{}. Receipt history remains. Raw report, cleanup and hashes:
 `.local/client-tests/VMC-037l/report.md`, `.local/jump-boost-live-cleanup.log`,
-`.local/jump-boost-publication-proof.json`. No remaining graphical gate; final
-movement-effect integration follows without retesting this immutable client release.
+`.local/jump-boost-publication-proof.json`. Larger native session75623 exited0
+(completion collected October18). All Jump Boost gates pass.

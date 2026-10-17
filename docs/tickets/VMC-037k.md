@@ -1,8 +1,7 @@
 # VMC-037k — Nausea and complete pufferfish effects
 
-Status: Owned Nausea/pufferfish implemented locally;84 affected checks pass.
-Production/native TCP,1,386 full tests and all five actual-client groups pass.
-Final full native integration remains before publication/Done.
+Status: Done within scope at8cceaae:84 affected/1,386 full tests, production,
+full native integration/both TCP transports and all five actual-client groups pass.
 
 Acceptance: native Nausea duration/refresh/expiry and client distortion use the
 existing player effect owner, packets and persistence. Pufferfish then applies
@@ -62,5 +61,6 @@ effects{}/pool0, puffer2/bucket, food11/saturation0.20000000298023224/exhaustion
 0.7499995231628418, source61/outboxnil and destination{2,2}receipt61. No health or
 journal resets. Raw report/fixtures/traces, cleanup and hashes:
 `.local/client-tests/VMC-037k/report.md`, `.local/nausea-live-cleanup.log`,
-`.local/nausea-publication-proof.json`. No remaining graphical gate; native98415
-continues. Exact UI time versus saved elapsed durations are distinguished in report.
+`.local/nausea-publication-proof.json`. Native98415 exited0, including both TCP
+transports (completion collected October18). All gates pass. Exact UI time versus
+saved elapsed durations are distinguished in report.

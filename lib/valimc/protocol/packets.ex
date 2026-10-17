@@ -39,10 +39,24 @@ defmodule Valimc.Protocol.Packets do
     do: inventory_content(0, inventory, Valimc.Inventory.display_contents(inventory))
 
   def open_table(container) when container in 1..127 do
+    open_screen(container, 12, "container.crafting")
+  end
+
+  def open_chest(container, rows) when container in 1..127 and rows in 1..6 do
+    {:ok, type} = Valimc.ChestMenu.type(rows)
+
+    open_screen(
+      container,
+      type,
+      if(rows == 6, do: "container.chestDouble", else: "container.chest")
+    )
+  end
+
+  defp open_screen(container, type, title) do
     packet("open_screen", [
       Wire.varint(container),
-      Wire.varint(12),
-      Valimc.Protocol.NBT.encode({:compound, %{"translate" => {:string, "container.crafting"}}})
+      Wire.varint(type),
+      Valimc.Protocol.NBT.encode({:compound, %{"translate" => {:string, title}}})
     ])
   end
 

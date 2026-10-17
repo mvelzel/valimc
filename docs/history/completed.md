@@ -5,6 +5,10 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-037l Jump Boost](../tickets/VMC-037l.md) | Runtime06c64d2:139 affected checks, native power/attributes/jumps/falls/packets and actual-client acceptance; larger d7e6062 passes1,408 full tests/full native TCP/production |
+| [VMC-037k Nausea/pufferfish](../tickets/VMC-037k.md) | `8cceaae`:256 hook contexts/3,075 ticks,84 affected/1,386 full tests, full native TCP/production and actual complete pufferfish, distortion, expiry/milk, negatives/promotion/reconnect |
+| [VMC-036e stock food effects](../tickets/VMC-036e.md) | Runtime9246b50/integrated8cceaae: seven stock records/112 callback boundaries,86 affected/1,386 full tests, full native TCP/production and five actual-client groups |
+| [VMC-037j Absorption](../tickets/VMC-037j.md) | Runtime958c8ee/publishedb97c5ca: golden-heart pool/lifecycle/damage/v19/packets,128 affected/1,368 full tests, full native TCP/production and five actual-client groups including spent reconnect, promotion/milk, fatal Respawn and receipt61 |
 | [VMC-037i Saturation](../tickets/VMC-037i.md) | `7b65f32`:98,304 native callbacks,69 affected/1,354 full tests, full native TCP/production and actual both-hand/creative/mixed/refusal/reconnect checks |
 | [VMC-037h Hunger](../tickets/VMC-037h.md) | `085ac9f`:10,240 callbacks/150 instance ticks/11,520 native food compositions,77 affected checks, production/TCP and five actual-client groups including hidden promotion/expiry, milk, negatives and reconnect |
 | [VMC-037g instant drinks](../tickets/VMC-037g.md) | `662dc7f`: ordinary healing/harming, ordered defenses, containers/fatal recovery and actual drinks/Respawn/reconnect; parent8a28534 passes1,341 full tests/native TCP/production; abnormal signed healing deliberately refused |

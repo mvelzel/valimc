@@ -26,6 +26,11 @@ unless facts["version"] == "26.3" and facts["menu_type"] == 12 and
          length(facts["cleanup"]) == 24,
        do: raise("Incomplete table menu observations")
 
+{_, open_body} = Valimc.Protocol.Packets.open_table(facts["container_id"])
+
+unless IO.iodata_to_binary(open_body) == Base.decode16!(facts["packet_hex"], case: :lower),
+  do: raise("Native crafting table open body differs")
+
 Enum.each(facts["cleanup"], fn [
                                  creative,
                                  disconnected,

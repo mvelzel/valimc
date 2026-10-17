@@ -1,8 +1,8 @@
 # VMC-036e — Stock food status callbacks
 
-Status: Owned9246b50 passes86 affected checks, production/native TCP and all five
-actual-client groups. Larger8cceaae food/Nausea block passes1,386 full tests; full
-native integration is pending before publication/Done.
+Status: Done within stock-food scope at9246b50, integrated through8cceaae.
+86 affected/1,386 full tests, production/full native integration/both TCP
+transports and all five actual-client groups pass.
 
 Acceptance: stock foods with supported status effects (including golden apples,
 rotten flesh, raw chicken and poisonous potato) apply their complete native callback
@@ -80,4 +80,6 @@ apple2/food14/saturation9.600000381469727, pool4/Absorption1600ticks, source61/
 outboxnil and region{2,2}receipt61. No health or journal resets. Private report,
 fixtures/traces, cleanup and hashes: `.local/client-tests/VMC-036e/report.md`,
 `.local/stock-food-live-cleanup.log`, `.local/stock-food-publication-proof.json`.
-No remaining graphical gate; larger native integration continues at8cceaae.
+Final larger native integration at8cceaae exited0, including both TCP transports
+(completion collected October18). All gates pass; pufferfish admission is completed
+by VMC-037k at8cceaae.

@@ -46,28 +46,24 @@ expiry, creative/unsupported negatives and reconnect; published through085ac9f.
 **Done within scope:** [Instant Saturation drinks](tickets/VMC-037i.md), published
 at `7b65f32`:98,304 native callbacks,69 affected/1,354 full tests, production/full
 native integration/both TCP transports and all five actual-client groups pass.
-**Implementing:** [Absorption](tickets/VMC-037j.md): native pool/effect lifecycle,
-40,392 damage/food contexts, durable v19 and269 packets pass. Owned drinking,
-damage/milk/expiry/promotion/depletion/reconnect and self/peer replication pass128
-affected checks. Frozen958c8ee production/TCP,1,368 full tests and all five dedicated client groups
-pass; final native integration is running before publication.
-**Implementing:** [stock food status callbacks](tickets/VMC-036e.md): seven stock
-records/112 native callback boundaries and86 affected checks pass. Owned meals
-apply complete supported groups with one local RNG draw. Production/native TCP
-and all five client groups pass at9246b50; larger native integration remains.
-**Implementing:** [Nausea/complete pufferfish](tickets/VMC-037k.md):256 native
-no-action hook contexts/3,075 ticks and84 affected checks pass. Existing effect
-ownership admits Nausea and complete pufferfish;1,386 full tests/production/TCP
-and all five client groups pass at8cceaae; final full native integration remains.
-**Implementing:** [Jump Boost](tickets/VMC-037l.md):257 native attributes,1,285
-material powers/10,280 fall calculations,1,320 complete jumps,257 packets and139
-affected checks pass. Owned ground-jump/fall/geometry composition is implemented;
-production/both TCP and actual client acceptance pass at06c64d2; larger movement
-integration remains.
+**Done within scope:** [Absorption](tickets/VMC-037j.md), runtime958c8ee published
+throughb97c5ca: native lifecycle/damage/durable pool/packets,128 affected/1,368 full
+tests, production/full native integration/both TCP and all five client groups pass.
+**Done within scope:** [stock food status callbacks](tickets/VMC-036e.md) and
+[Nausea/complete pufferfish](tickets/VMC-037k.md), validated through8cceaae:
+112 native callback boundaries,256 hook contexts/3,075 ticks,86/84 affected checks,
+1,386 full tests, production/full native integration/both TCP transports and both
+actual-client gates pass. Retrieve their tickets for scoped chance sampling.
+**Done within scope:** [Jump Boost](tickets/VMC-037l.md), runtime06c64d2: native
+power/attributes/fall/jump/packets,139 affected checks and actual-client acceptance
+pass; larger d7e6062 adds1,408 full tests, production/full native integration/both TCP.
 **Implementing:** [Slow Falling/Levitation](tickets/VMC-037m.md):512 native hook
 contexts/96 gravity selections/24 pre-travel resets,25,926 dry/5,340 fluid cases
 and179 affected checks pass. Owned travel/fall reset/fencing is implemented;
-frozen larger integration and dedicated actual-client gate follow.
+larger1,408 full tests/production/full native integration/both TCP pass; dedicated
+actual-client gate remains.
+**Next:** [chest menus/ownership](tickets/VMC-032a.md): native slot/layout facts
+first, then region-owned contents and receipt-backed player transfers.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
