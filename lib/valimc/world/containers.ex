@@ -1,10 +1,11 @@
 defmodule Valimc.World.Containers do
   @moduledoc "Region-owned container snapshots; persistent revisions fence stale views across replacement."
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.Chunk
-  defstruct sequence: 0, entries: %{}
+  alias Valimc.World.{Chunk, ItemReceipts}
+  defstruct sequence: 0, entries: %{}, receipts: %{}
   @max_sequence 18_446_744_073_709_551_615
   @max_entries 1024
+  @max_sources ItemReceipts.max_sources()
   @contents_bytes 524_288
   @max_bytes 8_388_608
   def max_entries, do: @max_entries
@@ -62,17 +63,27 @@ defmodule Valimc.World.Containers do
 
   defp change(_, _, _), do: {:error, :container_sequence_exhausted}
 
-  def encode({rx, rz} = key, %__MODULE__{sequence: sequence, entries: entries})
+  def encode({rx, rz} = key, %__MODULE__{sequence: sequence, entries: entries, receipts: receipts})
       when is_integer(sequence) and sequence in 0..@max_sequence and is_map(entries) and
              map_size(entries) <= @max_entries do
     true = region?(key)
+    true = valid_receipts?(receipts)
+    version = if map_size(receipts) == 0, do: 1, else: 2
+    receipt_count = if version == 1, do: <<>>, else: <<map_size(receipts)::16>>
+
+    receipt_bytes =
+      Enum.map(Enum.sort(receipts), fn {source, receipt} ->
+        <<source::binary-size(16), receipt.sequence::64, receipt.digest::binary-size(32)>>
+      end)
+
     revisions = Enum.map(entries, fn {_, entry} -> entry.revision end)
     true = length(Enum.uniq(revisions)) == length(revisions)
+    initial_size = 63 + byte_size(receipt_count) + map_size(receipts) * 56
 
     {parts, _} =
       entries
       |> Enum.sort()
-      |> Enum.map_reduce(63, fn {{x, y, z} = position, entry}, size ->
+      |> Enum.map_reduce(initial_size, fn {{x, y, z} = position, entry}, size ->
         %{revision: revision, rows: rows, slots: slots} = entry
         true = map_size(entry) == 3 and owned?(key, position)
         true = is_integer(revision) and revision > 0 and revision <= sequence
@@ -86,9 +97,11 @@ defmodule Valimc.World.Containers do
 
     payload =
       IO.iodata_to_binary([
-        <<"VMCCONTS", 1, 5023::32, rx::signed-32, rz::signed-32, sequence::64,
+        <<"VMCCONTS", version, 5023::32, rx::signed-32, rz::signed-32, sequence::64,
           map_size(entries)::16>>,
-        parts
+        receipt_count,
+        parts,
+        receipt_bytes
       ])
 
     {:ok, payload <> :crypto.hash(:sha256, payload)}
@@ -106,12 +119,14 @@ defmodule Valimc.World.Containers do
     <<payload::binary-size(^size), checksum::binary-size(32)>> = bytes
     true = :crypto.hash(:sha256, payload) == checksum
 
-    <<"VMCCONTS", 1, 5023::32, ^rx::signed-32, ^rz::signed-32, sequence::64, count::16,
+    <<"VMCCONTS", version, 5023::32, ^rx::signed-32, ^rz::signed-32, sequence::64, count::16,
       body::binary>> = payload
 
-    true = count <= @max_entries
-    {entries, <<>>} = take_entries(body, count, %{})
-    state = %__MODULE__{sequence: sequence, entries: entries}
+    true = count <= @max_entries and version in [1, 2]
+    {receipts_count, body} = if version == 1, do: {0, body}, else: take_receipt_count(body)
+    {entries, body} = take_entries(body, count, %{})
+    {receipts, <<>>} = take_receipts(body, receipts_count, %{})
+    state = %__MODULE__{sequence: sequence, entries: entries, receipts: receipts}
     {:ok, ^bytes} = encode(key, state)
     {:ok, state}
   rescue
@@ -145,6 +160,39 @@ defmodule Valimc.World.Containers do
     {:ok, stack, rest} = ItemStack.take(bytes)
     take_slots(rest, count - 1, [stack | slots])
   end
+
+  defp take_receipt_count(<<count::16, body::binary>>) do
+    true = count in 1..ItemReceipts.max_sources()
+    {count, body}
+  end
+
+  defp take_receipts(body, 0, receipts), do: {receipts, body}
+
+  defp take_receipts(
+         <<source::binary-size(16), sequence::64, digest::binary-size(32), body::binary>>,
+         count,
+         receipts
+       ) do
+    false = Map.has_key?(receipts, source)
+
+    take_receipts(
+      body,
+      count - 1,
+      Map.put(receipts, source, %{sequence: sequence, digest: digest})
+    )
+  end
+
+  defp valid_receipts?(receipts) when is_map(receipts) and map_size(receipts) <= @max_sources do
+    Enum.all?(receipts, fn
+      {<<_::128>>, receipt} when is_map(receipt) and map_size(receipt) == 2 ->
+        ItemReceipts.valid?(receipt)
+
+      _ ->
+        false
+    end)
+  end
+
+  defp valid_receipts?(_), do: false
 
   defp valid_slots?(rows, slots) do
     slot_bytes(rows, slots)

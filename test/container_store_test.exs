@@ -1,7 +1,7 @@
 defmodule Valimc.ContainerStoreTest do
   use ExUnit.Case, async: false
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{Containers, Store}
+  alias Valimc.World.{ContainerRequest, Containers, ContainerTransfers, Store}
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -115,5 +115,51 @@ defmodule Valimc.ContainerStoreTest do
     Store.commit_containers(writer, lease, ctx.filled, {self(), epoch}, token)
     assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, {:error, _}}}, 1000
     refute File.regular?(Store.container_path(ctx.base, ctx.key))
+  end
+
+  test "contents and withdrawal receipt survive writer death before the source consumes its acknowledgment",
+       ctx do
+    {:ok, writer, lease} = Store.open(ctx.key)
+    source = <<1::128>>
+    {:ok, reserved, :reserved} = ContainerTransfers.reserve(ctx.filled, source)
+    assert :ok = Store.flush_containers(writer, lease, reserved)
+    entry = reserved.entries[ctx.position]
+
+    request = %{
+      source: source,
+      sequence: 33,
+      permit: <<4::128>>,
+      position: ctx.position,
+      revision: entry.revision,
+      rows: 3,
+      slots: entry.slots,
+      inventory: %Valimc.Inventory{},
+      action: :pickup,
+      slot: 26,
+      button: 0
+    }
+
+    {:ok, %{containers: committed, result: :applied}} =
+      ContainerTransfers.plan(reserved, ctx.key, request, true)
+
+    epoch = make_ref()
+    token = make_ref()
+    Store.commit_containers(writer, lease, committed, {self(), epoch}, token)
+    # Same-sender ordering proves the file finished; deliberately leave the ack unread.
+    assert {:ok, ^committed} = Store.load_containers(writer)
+    monitor = Process.monitor(writer)
+    Process.exit(writer, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^writer, :killed}, 1000
+    {:ok, replacement, _lease} = Store.open(ctx.key)
+    assert {:ok, restored} = Store.load_containers(replacement)
+    assert restored == committed
+
+    assert {:ok, %{result: :already_applied, containers: ^restored}} =
+             ContainerTransfers.plan(restored, ctx.key, request, false)
+
+    assert {:ok, _, player_after} = ContainerRequest.plan(request)
+    assert player_after.carried == ItemStack.new("diamond", 3)
+    assert elem(restored.entries[ctx.position].slots, 26) == nil
+    assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, :ok}}
   end
 end
