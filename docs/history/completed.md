@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-032a2 ordinary chest plans](../tickets/VMC-032a2.md) | `8b962d7`:23,040 native pickup/shift/number/offhand cases,14 affected checks, production and dedicated baseline; no live chest caller |
 | [VMC-032a/032a1 chest foundations](../tickets/VMC-032a.md) | `faee515`: six native layouts/405 addresses/open bodies,8 layout/23 storage checks, leased snapshot revisions/bounds/recovery, production and actual table baseline; live chests remain open |
 | [VMC-037m Slow Falling/Levitation](../tickets/VMC-037m.md) | `d7e6062`:179 affected/1,408 full tests, native gravity/dry/fluid composition, full native TCP/production and actual drinks/descent/ascent/contact/expiry/milk/fluids/negatives/flight/reconnect |
 | [VMC-037l Jump Boost](../tickets/VMC-037l.md) | Runtime06c64d2:139 affected checks, native power/attributes/jumps/falls/packets and actual-client acceptance; larger d7e6062 passes1,408 full tests/full native TCP/production |

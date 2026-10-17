@@ -63,8 +63,10 @@ production/full native integration/both TCP and dedicated actual-client acceptan
 **Done within foundation scopes:** [chest layouts](tickets/VMC-032a.md) and
 [region snapshots](tickets/VMC-032a1.md) atfaee515: native layouts/open codecs,
 8/23 affected checks, production and dedicated table baseline pass. No live chests.
-**Implementing:** [ordinary chest click plans](tickets/VMC-032a2.md). Then compose
-region revisions, durable player transfers and physical chest lifecycle before UI.
+**Done within planner scope:** [ordinary chest clicks](tickets/VMC-032a2.md) at
+8b962d7:23,040 native cases,14 affected checks, production/dedicated baseline.
+**Implementing:** [container request/receipt foundation](tickets/VMC-032a3.md).
+Player journals, live region composition and physical chest lifecycle follow before UI.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
