@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-037m Slow Falling/Levitation](../tickets/VMC-037m.md) | `d7e6062`:179 affected/1,408 full tests, native gravity/dry/fluid composition, full native TCP/production and actual drinks/descent/ascent/contact/expiry/milk/fluids/negatives/flight/reconnect |
 | [VMC-037l Jump Boost](../tickets/VMC-037l.md) | Runtime06c64d2:139 affected checks, native power/attributes/jumps/falls/packets and actual-client acceptance; larger d7e6062 passes1,408 full tests/full native TCP/production |
 | [VMC-037k Nausea/pufferfish](../tickets/VMC-037k.md) | `8cceaae`:256 hook contexts/3,075 ticks,84 affected/1,386 full tests, full native TCP/production and actual complete pufferfish, distortion, expiry/milk, negatives/promotion/reconnect |
 | [VMC-036e stock food effects](../tickets/VMC-036e.md) | Runtime9246b50/integrated8cceaae: seven stock records/112 callback boundaries,86 affected/1,386 full tests, full native TCP/production and five actual-client groups |

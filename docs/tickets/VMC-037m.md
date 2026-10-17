@@ -1,7 +1,7 @@
 # VMC-037m — Slow Falling and Levitation travel
 
-Status: Owned Slow Falling/Levitation implemented locally;179 affected checks
-and native gravity/dry/fluid composition pass. Frozen integration/client gates follow.
+Status: Done within scope atd7e6062:179 affected/1,408 full tests, production,
+full native integration/both TCP transports and dedicated actual-client acceptance pass.
 
 Acceptance: current effect heads select native dry/fluid gravity and Levitation
 travel, reset fall distance at the correct owner boundary and invalidate stale
@@ -65,3 +65,21 @@ reconnect, promotion/expiry/milk and whole unsupported mixes; previous jumps,
 accepted landings, movement, geometry and consumption checks also pass. Native
 selection/composition proofs above remain unchanged. Frozen larger integration and
 dedicated actual-client descent/ascent/fall acceptance follow. No Done claim yet.
+
+October18: immutable d7e6062 passes1,408 full tests(seed389490), production, both
+native TCP transports and full native integration(session75623 exit0). Dedicated
+actual26.3 client acceptance passes: main/offhand Slow Falling/cancellation, protected
+eight-block descent versus ordinary five-damage fall, Levitation ascent/wall/ceiling,
+actual milk, natural promotion/expiry, water no-lift and dry exit, lava with Fire
+Resistance/controlled exit, whole unsupported refusal, creative retained dose/flight
+and fresh accepted mixed-dose reconnect without replay. II→I occurred under a
+ceiling, so no free-ascent rate comparison is claimed; native rates cover that.
+Creative flight was a trusted fixture; actual keyboard movement was exercised.
+
+All client wrappers/JVMs and server74332 stopped; eight regions+clock flush:ok,
+zero players/connections and1,013 frozen blobs unchanged. Independent stopped-dataset
+audit retains survival/flyingfalse, actual12HP, effects{}/pool0/fall_distance0,
+one bottle, source61/outboxnil and destination{2,2}receipt61/items{}. No health or
+journal rollback. Report reviewed once. Raw report/fixtures, cleanup/final audit and
+hashes: `.local/client-tests/VMC-037m/`, `.local/travel-effects-live-cleanup.log`,
+`.local/travel-effects-final-audit.log`, `.local/travel-effects-publication-proof.json`.

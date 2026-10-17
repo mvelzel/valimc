@@ -1,6 +1,6 @@
 defmodule Valimc.World.Store do
   use GenServer, restart: :temporary
-  alias Valimc.World.{Chunk, ItemLedger, Items, MiningRecord}
+  alias Valimc.World.{Chunk, Containers, ItemLedger, Items, MiningRecord}
 
   @moduledoc "Independently supervised resource I/O with one monitored owner and fenced writes."
   def start_link({key, owner}),
@@ -46,6 +46,13 @@ defmodule Valimc.World.Store do
   def flush(pid, lease, edits), do: GenServer.call(pid, {:flush, lease, edits}, 15_000)
   def close(pid, lease), do: GenServer.call(pid, {:close, lease}, 1000)
   def load_items(pid), do: GenServer.call(pid, :load_items)
+  def load_containers(pid), do: GenServer.call(pid, :load_containers)
+
+  def flush_containers(pid, lease, containers),
+    do: GenServer.call(pid, {:flush_containers, lease, containers}, 15_000)
+
+  def commit_containers(pid, lease, containers, {owner, epoch}, token),
+    do: GenServer.cast(pid, {:containers, lease, containers, {owner, epoch}, token})
 
   def flush_items(pid, lease, items, receipts),
     do: GenServer.call(pid, {:flush_items, lease, Items.snapshot(items), receipts}, 15_000)
@@ -63,6 +70,8 @@ defmodule Valimc.World.Store do
   def item_path(base, {rx, rz}), do: Path.join(base, "r.#{rx}.#{rz}.items")
   def mining_path(nil, _), do: nil
   def mining_path(base, {rx, rz}), do: Path.join(base, "r.#{rx}.#{rz}.mining")
+  def container_path(nil, _), do: nil
+  def container_path(base, {rx, rz}), do: Path.join(base, "r.#{rx}.#{rz}.containers")
   @impl true
   def init({{rx, rz} = key, owner}) do
     path =
@@ -76,6 +85,7 @@ defmodule Valimc.World.Store do
        blocks: path,
        items: item_path(Valimc.config(:world_path), key),
        mining: mining_path(Valimc.config(:world_path), key),
+       containers: container_path(Valimc.config(:world_path), key),
        recovered: false,
        key: key,
        owner: owner,
@@ -117,6 +127,15 @@ defmodule Valimc.World.Store do
 
     {:reply, result, state}
   end
+
+  def handle_call(:load_containers, _from, state),
+    do: {:reply, read_containers(state.containers, state.key), state}
+
+  def handle_call({:flush_containers, lease, containers}, _from, %{lease: lease} = state),
+    do: {:reply, save_containers(state, containers), state}
+
+  def handle_call({:flush_containers, _, _}, _from, state),
+    do: {:reply, {:error, :stale_store_lease}, state}
 
   def handle_call({:flush_items, lease, records, receipts}, _from, %{lease: lease} = state),
     do: {:reply, save_items(state, records, receipts), state}
@@ -172,6 +191,15 @@ defmodule Valimc.World.Store do
     end
   end
 
+  def handle_cast(
+        {:containers, lease, containers, {owner, epoch}, token},
+        %{lease: lease} = state
+      ) do
+    result = save_containers(state, containers)
+    send(owner, {:resource, epoch, {:containers_saved, self(), token, result}})
+    {:noreply, state}
+  end
+
   def handle_cast({:snapshot, _, _, {owner, epoch}, revision}, state) do
     send(owner, {:resource, epoch, {:saved, self(), revision, {:error, :stale_store_lease}}})
     {:noreply, state}
@@ -187,6 +215,15 @@ defmodule Valimc.World.Store do
     {:noreply, state}
   end
 
+  def handle_cast({:containers, _, _, {owner, epoch}, token}, state) do
+    send(
+      owner,
+      {:resource, epoch, {:containers_saved, self(), token, {:error, :stale_store_lease}}}
+    )
+
+    {:noreply, state}
+  end
+
   @impl true
   def handle_info(
         {:DOWN, monitor, :process, owner, _},
@@ -199,6 +236,23 @@ defmodule Valimc.World.Store do
   defp save_items(state, %{records: records, ledger: ledger}, receipts) do
     with {:ok, bytes} <- ItemLedger.encode(state.key, records, receipts, ledger),
          do: write_items(state.items, bytes)
+  end
+
+  defp save_containers(state, containers) do
+    with {:ok, bytes} <- Containers.encode(state.key, containers),
+         do: write_atomic(state.containers, bytes)
+  end
+
+  defp read_containers(nil, _), do: {:ok, %Containers{}}
+
+  defp read_containers(path, key) do
+    case File.open(path, [:read, :raw, :binary], &:file.read(&1, Containers.max_bytes() + 1)) do
+      {:ok, {:ok, bytes}} -> Containers.decode(bytes, key)
+      {:error, :enoent} -> {:ok, %Containers{}}
+      {:ok, :eof} -> {:error, :invalid_container_snapshot}
+      {:ok, {:error, reason}} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp read_items(nil, _key), do: {:ok, %{records: [], receipts: %{}, ledger: %ItemLedger{}}}

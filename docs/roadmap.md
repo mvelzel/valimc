@@ -57,13 +57,13 @@ actual-client gates pass. Retrieve their tickets for scoped chance sampling.
 **Done within scope:** [Jump Boost](tickets/VMC-037l.md), runtime06c64d2: native
 power/attributes/fall/jump/packets,139 affected checks and actual-client acceptance
 pass; larger d7e6062 adds1,408 full tests, production/full native integration/both TCP.
-**Implementing:** [Slow Falling/Levitation](tickets/VMC-037m.md):512 native hook
-contexts/96 gravity selections/24 pre-travel resets,25,926 dry/5,340 fluid cases
-and179 affected checks pass. Owned travel/fall reset/fencing is implemented;
-larger1,408 full tests/production/full native integration/both TCP pass; dedicated
-actual-client gate remains.
-**Next:** [chest menus/ownership](tickets/VMC-032a.md): native slot/layout facts
-first, then region-owned contents and receipt-backed player transfers.
+**Done within scope:** [Slow Falling/Levitation](tickets/VMC-037m.md), runtime
+d7e6062: native gravity/dry/fluid composition,179 affected/1,408 full tests,
+production/full native integration/both TCP and dedicated actual-client acceptance.
+**Implementing:** [chest menus](tickets/VMC-032a.md) and
+[region container snapshots](tickets/VMC-032a1.md): native layouts/open codecs and
+revision-fenced leased persistence pass targeted checks. Baseline client smoke
+remains; live shared menus/block lifecycle/receipt-backed transfers follow.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
