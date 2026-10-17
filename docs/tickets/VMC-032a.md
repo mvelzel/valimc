@@ -1,6 +1,6 @@
 # VMC-032a — Chest menu foundation
 
-Status: Research/implementation; persistent chests are not live.
+Status: Done within layout-foundation scope atfaee515. Persistent chests are not live.
 
 Acceptance: native generic chest row/type/slot mapping and contents over container
 storage plus player inventory. Closing a view must not return chest contents to a
@@ -33,3 +33,11 @@ body. Six native comparisons,24 existing table cleanup cases and8 affected tests
 pass(seed505985); changed-file formatting/Python compilation pass. Native fixtures
 use ContainerUser callbacks, matching26.3. Private logs: `.local/chest-menu-*`
 and `.local/chest-foundation-table-*`. Baseline GUI remains pending.
+
+Frozen faee515 production and dedicated actual26.3 baseline pass: join/movement/HUD,
+command/inventory and existing3×3 table recipe, cursor close and input close cleanup.
+The open-screen helper retains correct rendering. Report reviewed once; no live
+chest UI claim. Client/server stopped, four regions+clock flushed,1,022 frozen blobs
+unchanged, stopped dataset source61/outboxnil/receipt61 retained. Private report
+`.local/client-tests/VMC-032a/report.md`; cleanup/audit/hashes in
+`.local/chest-foundations-publication-proof.json`. All gates for this foundation pass.

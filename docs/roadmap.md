@@ -60,10 +60,11 @@ pass; larger d7e6062 adds1,408 full tests, production/full native integration/bo
 **Done within scope:** [Slow Falling/Levitation](tickets/VMC-037m.md), runtime
 d7e6062: native gravity/dry/fluid composition,179 affected/1,408 full tests,
 production/full native integration/both TCP and dedicated actual-client acceptance.
-**Implementing:** [chest menus](tickets/VMC-032a.md) and
-[region container snapshots](tickets/VMC-032a1.md): native layouts/open codecs and
-revision-fenced leased persistence pass targeted checks. Baseline client smoke
-remains; live shared menus/block lifecycle/receipt-backed transfers follow.
+**Done within foundation scopes:** [chest layouts](tickets/VMC-032a.md) and
+[region snapshots](tickets/VMC-032a1.md) atfaee515: native layouts/open codecs,
+8/23 affected checks, production and dedicated table baseline pass. No live chests.
+**Implementing:** [ordinary chest click plans](tickets/VMC-032a2.md). Then compose
+region revisions, durable player transfers and physical chest lifecycle before UI.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
