@@ -63,7 +63,7 @@ defmodule Valimc.Connection do
 
   alias Valimc.World.TickClock
 
-  alias Valimc.World.{ItemReplication, WeatherReplication}
+  alias Valimc.World.{ChestLidReplication, ItemReplication, WeatherReplication}
   import Bitwise
   @basic_mining Enum.map(~w(stone dirt grass_block cobblestone oak_planks glass), &Data.block/1)
   @fire_resistance EffectTypes.id("fire_resistance")
@@ -290,6 +290,7 @@ defmodule Valimc.Connection do
        placement_queued: 0,
        placement_job: nil,
        table_menu: nil,
+       chest_lids: %ChestLidReplication{},
        table_counter: 0,
        table_job: nil,
        table_queue: :queue.new(),
@@ -495,6 +496,12 @@ defmodule Valimc.Connection do
     do: guard_connection(state, fn -> {:noreply, fail_table_query(state)} end)
 
   def handle_info({:table_deadline, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:DOWN, ref, :process, _, _},
+        %{table_menu: %{kind: :chest, monitor: ref}} = state
+      ),
+      do: guard_connection(state, fn -> {:noreply, begin_table_close(state)} end)
 
   def handle_info({:DOWN, ref, :process, _, _}, %{table_job: %{monitor: ref}} = state),
     do: guard_connection(state, fn -> {:noreply, fail_table_query(state)} end)
@@ -1072,7 +1079,11 @@ defmodule Valimc.Connection do
   def handle_info({:DOWN, ref, :process, _, _}, %{store_monitor: ref} = state),
     do: guard_connection(state, fn -> reject(state, "Player storage stopped") end)
 
-  def handle_info({:DOWN, ref, :process, _, _}, state) do
+  def handle_info({:DOWN, ref, :process, pid, _}, state) do
+    {lids, closed} = ChestLidReplication.down(state.chest_lids, ref, pid)
+    send_packets(state, Enum.map(closed, &Packets.chest_lid(&1, false)))
+    state = %{state | chest_lids: lids}
+
     if Map.has_key?(state.pose_sources, ref) do
       {:noreply,
        %{
@@ -3281,6 +3292,7 @@ defmodule Valimc.Connection do
         | center: center,
           regions: regions,
           chunks: MapSet.intersection(state.chunks, desired),
+          chest_lids: ChestLidReplication.retain(state.chest_lids, desired),
           pending: pending
       }
 
@@ -3293,9 +3305,31 @@ defmodule Valimc.Connection do
        ) do
     {batch, pending} = Enum.split(state.pending, 4)
 
+    {chunk_frames, lids} =
+      Enum.map_reduce(batch, state.chest_lids, fn chunk, lids ->
+        frame = World.chunk(chunk)
+
+        case World.chest_lid_snapshot(chunk) do
+          {:ok, owner, positions, lid_frame} ->
+            lids = Enum.reduce(positions, lids, &ChestLidReplication.observe(&2, owner, &1, true))
+            accepted = Enum.filter(positions, &(lids.positions[&1] == owner))
+
+            lid_frame =
+              if accepted == positions,
+                do: lid_frame,
+                else:
+                  Enum.map(accepted, &Packets.frame(Packets.chest_lid(&1, true), state.threshold))
+
+            {[frame, lid_frame], lids}
+
+          :empty ->
+            {frame, lids}
+        end
+      end)
+
     frames =
       [Packets.frame(Packets.packet("chunk_batch_start", <<>>), state.threshold)] ++
-        Enum.map(batch, &World.chunk/1) ++
+        chunk_frames ++
         [
           Packets.frame(
             Packets.packet("chunk_batch_finished", Wire.varint(length(batch))),
@@ -3309,6 +3343,7 @@ defmodule Valimc.Connection do
       state
       | pending: pending,
         chunks: Enum.reduce(batch, state.chunks, &MapSet.put(&2, &1)),
+        chest_lids: lids,
         batch_pending: true
     }
   end
@@ -3332,7 +3367,7 @@ defmodule Valimc.Connection do
       System.monotonic_time(:millisecond) < job.grant.expires and
         if(job.kind == :open,
           do: state.player.game_mode.current == job.grant.mode,
-          else: table_signature(state) == job.signature
+          else: menu_signature(state) == job.signature
         ) and
         World.existing_owner(job.key) == {:ok, owner}
 
@@ -3363,9 +3398,18 @@ defmodule Valimc.Connection do
           begin_table_close(state)
         end
 
-      {kind, {:chest, block, view}, true} when kind in [:check, :refresh, :click] ->
+      {kind, {:chest, block, view}, true} when kind in [:subscribe, :check, :refresh, :click] ->
         if state.table_menu.kind == :chest and table_player_valid?(state) do
-          state = %{state | table_menu: %{state.table_menu | block: block, view: view}}
+          state = %{
+            state
+            | table_menu: %{
+                state.table_menu
+                | block: block,
+                  view: view,
+                  dirty: false,
+                  subscribed: true
+              }
+          }
 
           state =
             if kind == :click,
@@ -3379,6 +3423,39 @@ defmodule Valimc.Connection do
 
       _ ->
         begin_table_close(state)
+    end
+  end
+
+  defp event(
+         %{
+           phase: :play,
+           table_menu: %{kind: :chest, owner: owner, view_ref: ref, position: position} = menu
+         } = state,
+         {:container_changed, owner, ref, position, revision}
+       ) do
+    if revision > menu.view.revision do
+      check_table_menu(%{state | table_menu: %{menu | dirty: true}})
+    else
+      state
+    end
+  end
+
+  defp event(
+         %{phase: :play, table_menu: %{kind: :chest, owner: owner, view_ref: ref}} = state,
+         {:container_closed, owner, ref}
+       ),
+       do: begin_table_close(state)
+
+  defp event(%{phase: :play} = state, {:chest_lid, owner, {x, _, z} = position, open, frame}) do
+    chunk = World.chunk_key(x, z)
+
+    if MapSet.member?(state.chunks, chunk) and
+         World.existing_owner(World.region_key(chunk)) == {:ok, owner} do
+      lids = ChestLidReplication.observe(state.chest_lids, owner, position, open)
+      if not open or lids.positions[position] == owner, do: send_frames(state, [frame])
+      %{state | chest_lids: lids}
+    else
+      state
     end
   end
 
@@ -4404,6 +4481,9 @@ defmodule Valimc.Connection do
 
   defp selection_pending?(state), do: inventory_pending(state)
 
+  defp menu_signature(%{table_menu: %{kind: :chest}} = state), do: chest_signature(state)
+  defp menu_signature(state), do: table_signature(state)
+
   defp request_table(state, kind, {x, _, z} = position, command) do
     key = World.region_key(World.chunk_key(x, z))
     expires = System.monotonic_time(:millisecond) + 250
@@ -4423,6 +4503,7 @@ defmodule Valimc.Connection do
       if state.table_menu do
         Map.merge(grant, %{
           menu: state.table_menu.kind,
+          view_ref: state.table_menu[:view_ref],
           revision:
             if(state.table_menu.kind == :chest and kind != :refresh,
               do: state.table_menu.view.revision
@@ -4452,7 +4533,7 @@ defmodule Valimc.Connection do
             grant: grant,
             command: command,
             placement: if(kind == :open, do: capture_placement(state, command)),
-            signature: table_signature(state)
+            signature: menu_signature(state)
           }
 
           state = %{state | table_job: job}
@@ -4531,7 +4612,7 @@ defmodule Valimc.Connection do
       Packets.cursor(inventory.carried)
     ])
 
-    %{
+    state = %{
       state
       | inventory: inventory,
         table_menu: %{
@@ -4540,10 +4621,17 @@ defmodule Valimc.Connection do
           position: position,
           owner: owner,
           block: block,
-          view: view
+          view: view,
+          view_ref: make_ref(),
+          monitor: Process.monitor(elem(owner, 0)),
+          subscribed: false,
+          dirty: false,
+          opener: state.player.game_mode.current != :spectator
         },
         table_counter: id
     }
+
+    request_table(state, :subscribe, position, nil)
   end
 
   defp table_player_valid?(%{table_menu: nil}), do: false
@@ -4573,6 +4661,42 @@ defmodule Valimc.Connection do
   end
 
   defp check_table_menu(%{table_menu: nil} = state), do: state
+
+  defp check_table_menu(%{table_menu: %{kind: :chest} = menu} = state) do
+    key = World.region_key(World.chunk_key(elem(menu.position, 0), elem(menu.position, 2)))
+
+    cond do
+      not table_player_valid?(state) or World.existing_owner(key) != {:ok, menu.owner} ->
+        begin_table_close(state)
+
+      inventory_pending(state) or state.save_ref != nil ->
+        state
+
+      menu.opener != (state.player.game_mode.current != :spectator) ->
+        Valimc.World.Region.unsubscribe_container(menu.owner, self(), menu.view_ref)
+
+        menu = %{
+          menu
+          | view_ref: make_ref(),
+            opener: state.player.game_mode.current != :spectator,
+            subscribed: false
+        }
+
+        request_table(%{state | table_menu: menu}, :subscribe, menu.position, nil)
+
+      not menu.subscribed ->
+        request_table(state, :subscribe, menu.position, nil)
+
+      menu.dirty ->
+        request_table(state, :refresh, menu.position, nil)
+
+      state.table_queued > 0 ->
+        drain_table_clicks(state)
+
+      true ->
+        state
+    end
+  end
 
   defp check_table_menu(state) do
     cond do
@@ -4766,10 +4890,18 @@ defmodule Valimc.Connection do
     resync_inventory(%{state | recovery: recovery})
   end
 
+  defp retire_chest_view(%{table_menu: %{kind: :chest} = menu}) do
+    Valimc.World.Region.unsubscribe_container(menu.owner, self(), menu.view_ref)
+    Process.demonitor(menu.monitor, [:flush])
+  end
+
+  defp retire_chest_view(_), do: :ok
+
   defp begin_table_close(%{table_menu: nil} = state), do: continue_table_close(state)
 
   defp begin_table_close(state) do
     send_packets(state, [Packets.packet("container_close", Wire.varint(state.table_menu.id))])
+    retire_chest_view(state)
     state = cancel_table_query(state)
 
     continue_table_close(%{
@@ -5187,6 +5319,7 @@ defmodule Valimc.Connection do
 
   @impl true
   def terminate(_reason, state) do
+    retire_chest_view(state)
     cancel_table_query(state)
     cancel_pickup_query(state)
     cancel_mining(state)

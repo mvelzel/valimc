@@ -83,7 +83,8 @@ Opening/source-candidate kernels pass46 affected checks and native provider prob
 correction/close/reconnect pass. [Durable exchanges](tickets/VMC-032a9b.md)
 pass101 affected checks/ten TCP scenarios,1,491 full tests/production and actual
 exchanges/cleanup/reconnect. Full native integration remains pending/local.
-Viewer replication refinements and physical lifecycle remain.
+[Bounded viewer/lid replication](tickets/VMC-032a9c.md) passes109 affected checks;
+measurement/production/client gates remain. Physical lifecycle follows.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
@@ -287,6 +288,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
+| [VMC-032a9c](tickets/VMC-032a9c.md) | Lid rendering/peer disconnect/reconnect | Local viewer checkpoint |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

@@ -6,6 +6,7 @@ defmodule Valimc.World.RegionData do
     ContainerRequest,
     ContainerTransfers,
     ContainerPermits,
+    ContainerViewers,
     ColumnIndex,
     Items,
     ItemHandoffs,
@@ -33,6 +34,7 @@ defmodule Valimc.World.RegionData do
     :key,
     :containers,
     :container_permits,
+    :container_viewers,
     :items,
     :item_receipts,
     :pickup_permits,
@@ -113,6 +115,7 @@ defmodule Valimc.World.RegionData do
       item_receipts: receipts,
       containers: containers,
       container_permits: %ContainerPermits{},
+      container_viewers: %ContainerViewers{},
       pickup_permits: PickupPermits.new(),
       item_merge_permits: ItemMergePermits.new(),
       item_storage_enabled: persistent,
@@ -813,7 +816,7 @@ defmodule Valimc.World.RegionData do
       key = state.key
       block = container_block(state, request)
 
-      start_container_work(state, from, :deliver, fn ->
+      start_container_work(state, from, :deliver, container_position(request), fn ->
         with {:ok, digest} <- ContainerRequest.digest(key, request),
              {:ok, reserved, _} <- ContainerTransfers.reserve(containers, request.source) do
           {permits, eligible} =
@@ -842,7 +845,7 @@ defmodule Valimc.World.RegionData do
           containers = state.containers
           key = state.key
 
-          start_container_work(state, from, {:admit, actor}, fn ->
+          start_container_work(state, from, {:admit, actor}, container_position(request), fn ->
             request = %{request | permit: :crypto.strong_rand_bytes(16)}
 
             with {:ok, digest} <- ContainerRequest.digest(key, request),
@@ -1046,6 +1049,7 @@ defmodule Valimc.World.RegionData do
         if Valimc.World.region_key(key) == state.key and Chunk.valid_y?(y) and block >= 0 and
              block < Valimc.Protocol.Data.block_state_count() and
              (map_size(state.edits) < 131_072 or Map.has_key?(state.edits, position)) do
+          state = retire_container_changes(state, %{position => block})
           edits = put_edit(state.edits, position, block)
           local = put_edit(Map.get(state.by_chunk, key, %{}), position, block)
 
@@ -1194,6 +1198,9 @@ defmodule Valimc.World.RegionData do
 
   defp container_block(_, _), do: nil
 
+  defp container_position(%{position: position}), do: position
+  defp container_position(_), do: nil
+
   defp container_access(
          state,
          %{
@@ -1222,7 +1229,7 @@ defmodule Valimc.World.RegionData do
     containers = state.containers
     key = state.key
 
-    start_container_work(state, from, :recover, fn ->
+    start_container_work(state, from, :recover, container_position(request), fn ->
       with {:ok, _} <- ContainerRequest.digest(key, request),
            {:ok, reserved, _} <- ContainerTransfers.reserve(containers, request.source),
            do: ContainerTransfers.plan(reserved, key, request, false)
@@ -1258,11 +1265,12 @@ defmodule Valimc.World.RegionData do
            }}
       end
 
+    state = notify_container_changed(state, pending.position)
     GenServer.reply(pending.from, reply)
     resume_item_handoff(state)
   end
 
-  defp start_container_work(state, from, operation, work) do
+  defp start_container_work(state, from, operation, position, work) do
     owner = self()
     epoch = state.items.epoch
     token = make_ref()
@@ -1275,6 +1283,7 @@ defmodule Valimc.World.RegionData do
         pending = %{
           kind: :container,
           operation: operation,
+          position: position,
           phase: :planning,
           token: token,
           from: from,
@@ -1580,6 +1589,7 @@ defmodule Valimc.World.RegionData do
   end
 
   defp publish_blocks(state, batch, proposal, dirty) do
+    state = retire_container_changes(state, batch.edits)
     :ets.insert(state.item_publication, {:block_fence, state.items.epoch, proposal.revision})
     Valimc.World.publish(state.key, {:block_batch, batch.frames})
     Valimc.Metrics.add(:block_edits, map_size(batch.edits))
@@ -2243,7 +2253,10 @@ defmodule Valimc.World.RegionData do
       ),
       do: {:stop, {:store_failed, reason}, state}
 
-  def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
+  def handle_info({:DOWN, ref, :process, pid, reason}, state) do
+    state =
+      apply_container_viewers(state, ContainerViewers.down(state.container_viewers, pid, ref))
+
     case Enum.find(state.jobs, fn {_, job} -> job.monitor == ref end) do
       {key, job} ->
         for from <- job.waiters, do: GenServer.reply(from, {:error, {:encoder_failed, reason}})
@@ -2312,6 +2325,8 @@ defmodule Valimc.World.RegionData do
           end
       end
 
+    {decision, state} = container_view_decision(state, connection, position, grant, decision)
+
     Valimc.Connection.deliver(
       connection,
       {:table_admitted, ref, {self(), state.items.epoch}, decision}
@@ -2320,7 +2335,142 @@ defmodule Valimc.World.RegionData do
     {:noreply, state}
   end
 
+  def handle_info({:container_unsubscribe, connection, ref}, state) do
+    {:noreply,
+     apply_container_viewers(
+       state,
+       ContainerViewers.unregister(state.container_viewers, connection, ref)
+     )}
+  end
+
   def handle_info(_, state), do: {:noreply, state}
+
+  defp container_view_decision(state, connection, position, grant, decision) do
+    if is_map(grant) and grant[:menu] == :chest and
+         (decision == :valid or match?({:chest, _, _}, decision)) do
+      ref = grant[:view_ref]
+      view = state.container_viewers.views[connection]
+
+      cond do
+        grant.kind == :subscribe and is_reference(ref) ->
+          monitor =
+            if view && view.ref == ref, do: view.monitor, else: Process.monitor(connection)
+
+          entry = state.containers.entries[position]
+
+          case ContainerViewers.register(
+                 state.container_viewers,
+                 connection,
+                 ref,
+                 monitor,
+                 position,
+                 grant.mode != :spectator,
+                 entry.revision
+               ) do
+            {:ok, viewers, retired, lids} ->
+              state = apply_container_viewers(state, {viewers, retired, lids})
+              {decision, state}
+
+            {:error, _} = error ->
+              if view == nil or view.monitor != monitor, do: Process.demonitor(monitor, [:flush])
+              {error, state}
+          end
+
+        view != nil and view.ref == ref and view.position == position and
+            view.opener == (grant.mode != :spectator) ->
+          viewers =
+            ContainerViewers.observed(
+              state.container_viewers,
+              connection,
+              ref,
+              state.containers.entries[position].revision
+            )
+
+          {decision, %{state | container_viewers: viewers}}
+
+        true ->
+          {{:error, :stale_container_view}, state}
+      end
+    else
+      {decision, state}
+    end
+  end
+
+  defp notify_container_changed(state, position) do
+    case state.containers.entries[position] do
+      %{revision: revision} ->
+        {viewers, notices} = ContainerViewers.changed(state.container_viewers, position, revision)
+
+        for {pid, ref, revision} <- notices,
+            do:
+              Valimc.Connection.deliver(
+                pid,
+                {:container_changed, {self(), state.items.epoch}, ref, position, revision}
+              )
+
+        %{state | container_viewers: viewers}
+
+      _ ->
+        state
+    end
+  end
+
+  defp retire_container_changes(state, edits) do
+    positions =
+      for {position, block} <- edits, Chunk.block_at(state.edits, position) != block, do: position
+
+    {viewers, retired, lids} = ContainerViewers.invalidate(state.container_viewers, positions)
+
+    for view <- retired,
+        do:
+          Valimc.Connection.deliver(
+            view.pid,
+            {:container_closed, {self(), state.items.epoch}, view.ref}
+          )
+
+    apply_container_viewers(state, {viewers, retired, lids})
+  end
+
+  defp apply_container_viewers(state, {viewers, retired, lids}) do
+    for view <- retired, do: Process.demonitor(view.monitor, [:flush])
+    state = %{state | container_viewers: viewers}
+    threshold = Valimc.config(:compression_threshold)
+
+    for chunk <-
+          lids |> Enum.map(fn {{x, _, z}, _} -> Valimc.World.chunk_key(x, z) end) |> Enum.uniq() do
+      positions =
+        for {{x, _, z} = position, {_, count}} <- viewers.positions,
+            count > 0 and Valimc.World.chunk_key(x, z) == chunk,
+            do: position
+
+      positions = Enum.sort(positions)
+
+      if positions == [] do
+        :ets.delete(state.item_publication, {:container_lids, chunk})
+      else
+        frame =
+          positions
+          |> Enum.map(&Packets.frame(Packets.chest_lid(&1, true), threshold))
+          |> IO.iodata_to_binary()
+
+        :ets.insert(
+          state.item_publication,
+          {{:container_lids, chunk}, state.items.epoch, positions, frame}
+        )
+      end
+    end
+
+    for {position, open} <- lids do
+      frame = Packets.frame(Packets.chest_lid(position, open), threshold)
+
+      Valimc.World.publish(
+        state.key,
+        {:chest_lid, {self(), state.items.epoch}, position, open, frame}
+      )
+    end
+
+    state
+  end
 
   def valid_block_query?(positions, revision),
     do:

@@ -372,6 +372,118 @@ defmodule Valimc.ChestConnectionTest do
     end
   end
 
+  defp viewer_state(ctx) do
+    {:ok, {pid, _}} = World.existing_owner(ctx.key)
+    :sys.get_state(pid).resource.container_viewers
+  end
+
+  defp subscribed(pid) do
+    wait(fn ->
+      state = :sys.get_state(pid)
+      state.table_menu && state.table_menu.subscribed && state.table_job == nil
+    end)
+  end
+
+  defp second_actor(ctx, mode \\ :survival) do
+    name = "ChestB#{rem(System.unique_integer([:positive]), 1_000_000_000)}"
+    other = %{ctx | name: name, uuid: Connection.offline_uuid(name)}
+
+    snapshot = %{saved(ctx) | game_mode: GameMode.new(mode)}
+
+    {:ok, bytes} = PlayerSnapshot.encode(other.uuid, snapshot)
+    File.write!(PlayerStore.path(ctx.base, other.uuid), bytes)
+    other
+  end
+
+  test "idle viewers use no repeated owner queries and late chunks receive only public lid state",
+       ctx do
+    seed(ctx)
+    {first, first_pid} = login(ctx)
+    first = open(first, ctx)
+    subscribed(first_pid)
+    assert Valimc.World.ContainerViewers.open_count(viewer_state(ctx), ctx.position) == 1
+    chunk = World.chunk_key(elem(ctx.position, 0), elem(ctx.position, 2))
+    {:ok, owner, [position], frame} = World.chest_lid_snapshot(chunk)
+    assert position == ctx.position and is_binary(frame)
+    assert viewer_state(ctx).views[first_pid].pending == false
+    {:ok, {region, _}} = World.existing_owner(ctx.key)
+    :erlang.trace(region, true, [:receive])
+    Process.sleep(180)
+    :erlang.trace(region, false, [:receive])
+    messages = drain_traces(region, [])
+    refute Enum.any?(messages, &match?({:table_request, _, _, _, _, _}, &1))
+
+    other = second_actor(ctx)
+    {passive, passive_pid} = login(other)
+    wait(fn -> :sys.get_state(passive_pid).chest_lids.positions[ctx.position] == owner end)
+    assert viewer_state(ctx).views[passive_pid] == nil
+    assert :sys.get_state(passive_pid).table_menu == nil
+    source = saved(ctx).transfer_sequence
+    Client.send_packet(first, :play, "container_close", Wire.varint(first.inventory.container))
+    _first = content(first, &(&1.container == 0))
+    wait(fn -> viewer_state(ctx).views == %{} end)
+    wait(fn -> :sys.get_state(passive_pid).chest_lids.positions == %{} end)
+    assert World.chest_lid_snapshot(chunk) == :empty
+    assert saved(ctx).transfer_sequence == source
+    Client.close(passive)
+  end
+
+  defp drain_traces(region, acc) do
+    receive do
+      {:trace, ^region, :receive, message} -> drain_traces(region, [message | acc])
+    after
+      0 -> acc
+    end
+  end
+
+  test "first and last eligible viewers control lids; spectators and stale refs cannot retire them",
+       ctx do
+    seed(ctx)
+    {first, first_pid} = login(ctx)
+    first = open(first, ctx)
+    subscribed(first_pid)
+    original_ref = :sys.get_state(first_pid).table_menu.view_ref
+    other = second_actor(ctx, :spectator)
+    {second, second_pid} = login(other)
+    second = open(second, other)
+    subscribed(second_pid)
+    assert Valimc.World.ContainerViewers.open_count(viewer_state(ctx), ctx.position) == 1
+    Client.send_packet(first, :play, "container_close", Wire.varint(first.inventory.container))
+    first = content(first, &(&1.container == 0))
+    wait(fn -> Valimc.World.ContainerViewers.open_count(viewer_state(ctx), ctx.position) == 0 end)
+    assert map_size(viewer_state(ctx).views) == 1
+    first = open(first, ctx)
+    subscribed(first_pid)
+    menu = :sys.get_state(first_pid).table_menu
+    :ok = Region.unsubscribe_container(menu.owner, first_pid, original_ref)
+    _barrier = :sys.get_state(elem(menu.owner, 0))
+    assert viewer_state(ctx).views[first_pid].ref == menu.view_ref
+    assert Valimc.World.ContainerViewers.open_count(viewer_state(ctx), ctx.position) == 1
+    Client.close(first)
+    wait(fn -> viewer_state(ctx).views[first_pid] == nil end)
+    assert Valimc.World.ContainerViewers.open_count(viewer_state(ctx), ctx.position) == 0
+    assert :sys.get_state(second_pid).table_menu != nil
+    Client.close(second)
+  end
+
+  test "owner death closes passive lids as well as active menus without publishing private contents",
+       ctx do
+    seed(ctx)
+    {first, first_pid} = login(ctx)
+    _first = open(first, ctx)
+    subscribed(first_pid)
+    other = second_actor(ctx)
+    {_passive, passive_pid} = login(other)
+    wait(fn -> map_size(:sys.get_state(passive_pid).chest_lids.positions) == 1 end)
+    {:ok, {region, _}} = World.existing_owner(ctx.key)
+    :ok = Region.flush(region)
+    :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, region)
+    wait(fn -> :sys.get_state(first_pid).table_menu == nil end)
+    wait(fn -> :sys.get_state(passive_pid).chest_lids.positions == %{} end)
+    assert :sys.get_state(passive_pid).table_menu == nil
+    assert stored(ctx).entries[ctx.position].slots |> elem(0) == ItemStack.new("diamond", 3)
+  end
+
   test "two live players racing one chest conserve its contents and refresh both views", ctx do
     seed(ctx)
     other_name = "ChestB#{rem(System.unique_integer([:positive]), 1_000_000_000)}"

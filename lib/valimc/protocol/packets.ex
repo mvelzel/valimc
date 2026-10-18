@@ -52,6 +52,16 @@ defmodule Valimc.Protocol.Packets do
     )
   end
 
+  # Native event1 opens for any positive byte; binary occupancy avoids wrapping
+  # an opener count of256 to a spurious close. Ordinary chest registry ID245.
+  def chest_lid(position, open?) when is_boolean(open?),
+    do:
+      packet("block_event", [
+        Wire.position(position),
+        <<1, if(open?, do: 1, else: 0)>>,
+        Wire.varint(245)
+      ])
+
   defp open_screen(container, type, title) do
     packet("open_screen", [
       Wire.varint(container),

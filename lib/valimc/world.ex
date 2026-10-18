@@ -150,6 +150,25 @@ defmodule Valimc.World do
     ArgumentError -> %{}
   end
 
+  @doc "Public lid presentation for a loaded chunk; never contains storage contents."
+  def chest_lid_snapshot(chunk) do
+    case Directory.lookup(region_key(chunk)) do
+      {pid, _, %{epoch: epoch, items: table}} ->
+        case :ets.lookup(table, {:container_lids, chunk}) do
+          [{{:container_lids, ^chunk}, ^epoch, positions, frame}] ->
+            if Process.alive?(pid), do: {:ok, {pid, epoch}, positions, frame}, else: :empty
+
+          _ ->
+            :empty
+        end
+
+      _ ->
+        :empty
+    end
+  rescue
+    ArgumentError -> :empty
+  end
+
   def visible_items(regions, chunks) do
     limit = Valimc.World.ItemReplication.max_visible()
 

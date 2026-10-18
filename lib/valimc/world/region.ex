@@ -70,6 +70,13 @@ defmodule Valimc.World.Region do
     end
   end
 
+  @doc "Retire only the specified connection's current view in this owner incarnation."
+  def unsubscribe_container({pid, epoch}, connection, ref)
+      when is_pid(pid) and is_reference(epoch) and is_pid(connection) and is_reference(ref) do
+    send(pid, {:resource, epoch, {:container_unsubscribe, connection, ref}})
+    :ok
+  end
+
   @doc "Commit a prepared owner-local block batch at an exact observed revision. No cross-owner atomicity."
   def set_blocks({pid, epoch}, revision, edits)
       when is_pid(pid) and is_reference(epoch) and is_integer(revision) and revision >= 0 do

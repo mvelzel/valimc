@@ -33,7 +33,7 @@ defmodule Valimc.ChestOpening do
            off: off
          } <- grant,
          true <-
-           kind in [:open, :check, :click, :refresh] and
+           kind in [:open, :subscribe, :check, :click, :refresh] and
              mode in [:survival, :creative, :adventure, :spectator],
          true <- is_number(x) and is_number(y) and is_number(z) and is_integer(expires),
          true <-
