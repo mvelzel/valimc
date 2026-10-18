@@ -81,6 +81,9 @@ defmodule Valimc.Protocol.Packets do
   def held_slot(slot), do: packet("set_held_slot", Wire.varint(slot))
   def cursor(stack), do: packet("set_cursor_item", ItemStack.encode(stack))
 
+  def player_inventory_slot(slot, stack) when slot in 0..40,
+    do: packet("set_player_inventory", [Wire.varint(slot), ItemStack.encode(stack)])
+
   def known_packs do
     packet(
       "select_known_packs",

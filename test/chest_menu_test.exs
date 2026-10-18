@@ -37,4 +37,13 @@ defmodule Valimc.ChestMenuTest do
 
     assert {:error, :invalid_chest_contents} = ChestMenu.contents(3, {}, %Inventory{})
   end
+
+  test "offhand correction addresses the physical inventory independently of chest cells" do
+    for stack <- [nil, ItemStack.new("oak_planks", 7)] do
+      {id, body} = Valimc.Protocol.Packets.player_inventory_slot(40, stack)
+      assert id == Valimc.Protocol.Data.id(:play, :clientbound, "set_player_inventory")
+      {40, bytes} = Valimc.Protocol.Wire.take_varint(IO.iodata_to_binary(body))
+      assert {:ok, ^stack, <<>>} = ItemStack.take(bytes)
+    end
+  end
 end

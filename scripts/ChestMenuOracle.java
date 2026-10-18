@@ -10,6 +10,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundOpenScreenPacket;
 import net.minecraft.network.protocol.game.ClientboundContainerSetContentPacket;
 import net.minecraft.network.protocol.game.ServerboundContainerClickPacket;
+import net.minecraft.network.protocol.game.ClientboundSetPlayerInventoryPacket;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.*;
 import net.minecraft.world.entity.ContainerUser;
@@ -77,7 +78,17 @@ public class ChestMenuOracle {
       if(!after.equals(stored)||!owner.drops.isEmpty())throw new AssertionError("Closing chest moved storage");
       row.add("after_close",after);cases.add(row);
     }
-    var out=new JsonObject();out.addProperty("version","26.3");out.addProperty("protocol",777);
+    var corrections=new JsonArray();
+    for(var stack:List.of(ItemStack.EMPTY,TableMenuOracle.item("oak_planks",7))){
+      var buffer=new RegistryFriendlyByteBuf(Unpooled.buffer(),access);
+      try{
+        ClientboundSetPlayerInventoryPacket.STREAM_CODEC.encode(buffer,new ClientboundSetPlayerInventoryPacket(Inventory.SLOT_OFFHAND,stack));
+        var bytes=new byte[buffer.readableBytes()];buffer.getBytes(0,bytes);
+        var row=new JsonObject();row.addProperty("slot",Inventory.SLOT_OFFHAND);row.add("stack",TableMenuOracle.stack(stack));
+        row.addProperty("hex",HexFormat.of().formatHex(bytes));corrections.add(row);
+      }finally{buffer.release();}
+    }
+    var out=new JsonObject();out.add("offhand_corrections",corrections);out.addProperty("version","26.3");out.addProperty("protocol",777);
     out.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");out.add("cases",cases);
     Files.writeString(Path.of(args[0]),new Gson().toJson(out));
     System.out.println("PASS: six native chest layouts/open/content bodies/hotbar pickup input codecs and empty-cursor close retaining storage; gameplay clicks/world/ownership/persistence excluded.");

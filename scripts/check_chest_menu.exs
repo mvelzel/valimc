@@ -64,6 +64,12 @@ for row <- facts["cases"] do
     do: raise("Native chest close/lifecycle differs")
 end
 
+for row <- facts["offhand_corrections"] do
+  true = row["slot"] == 40
+  {_, body} = Packets.player_inventory_slot(40, stack.(row["stack"]))
+  true = IO.iodata_to_binary(body) == Base.decode16!(row["hex"], case: :lower)
+end
+
 IO.puts(
   "PASS: six native chest layouts/405 slot identities, open/content bodies/hotbar pickup input and storage-preserving empty-cursor close. Live authorization/exchanges require separate checks."
 )

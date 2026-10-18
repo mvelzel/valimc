@@ -50,3 +50,15 @@ one plank: the complete stopped dataset now retains seven planks, source/item3,3
 receipt67, unchanged container receipt63/revision1/empty27 and old item2,2receipt61.
 No reset was performed. First failure report `.local/client-tests/VMC-032a9a/report.md`;
 wrapper stopped, zero players and all four region/clock flushes passed before shutdown.
+
+Fixed68de778 client: the pickup/shift/number/F refusal stays connected, but F over
+an occupied player hotbar creates a persistent client-only offhand ghost. Closing
+and opening the player inventory clears it; authority remains seven in slot36,
+no slot45, source67 unchanged. This is a failed correction gate, not item duplication.
+Generic chest/table contents omit offhand, so resynchronization now also sends the
+native ClientboundSetPlayerInventoryPacket for physical index40 (server slot45).
+Pinned client ClientPacketListener.handleSetPlayerInventory writes that index
+directly even with a chest open. Native empty/populated offhand bodies and25
+affected packet/table checks pass (seed889700); exact fixed read-only build and
+dedicated retest remain pending. Raw `.local/chest-view-offhand-native.json`,
+`.local/chest-view-offhand-native-comparison.log`, `.local/chest-offhand-correction-targeted.log`.

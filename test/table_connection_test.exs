@@ -168,6 +168,20 @@ defmodule Valimc.TableConnectionTest do
     assert saved(ctx).transfer_sequence == 0 and saved(ctx).outbox == nil
   end
 
+  test "refused menu predictions correct the physical offhand outside its visible cells", ctx do
+    slots = %{36 => ItemStack.new("oak_planks", 7), 45 => ItemStack.new("stone", 3)}
+    seed(ctx, slots)
+    {client, pid} = login(ctx)
+    client = open(client, ctx)
+    send_click(client, 37, 41, "swap")
+    {body, _client} = Client.await(client, :play, "set_player_inventory")
+    {40, body} = Wire.take_varint(body)
+    assert {:ok, stack, <<>>} = ItemStack.take(body)
+    assert stack == slots[45]
+    assert :sys.get_state(pid).inventory.slots == slots
+    assert :sys.get_state(pid).inventory.carried == nil
+  end
+
   test "table use preserves native both-hand and secondary precedence across modes", ctx do
     for {mode, hand, shift, slots, expected} <- [
           {:survival, 0, false, %{45 => ItemStack.new("stick")}, true},

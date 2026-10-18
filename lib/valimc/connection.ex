@@ -4220,7 +4220,14 @@ defmodule Valimc.Connection do
           Packets.inventory(inventory)
       end
 
-    send_packets(state, [packet, Packets.cursor(inventory.carried)])
+    # Generic chest/table contents exclude the offhand, although native F input
+    # predicts a change there. Correct its physical inventory address as well.
+    offhand =
+      if state.table_menu,
+        do: [Packets.player_inventory_slot(40, Inventory.get(inventory, 45))],
+        else: []
+
+    send_packets(state, [packet, Packets.cursor(inventory.carried)] ++ offhand)
     %{state | inventory: inventory}
   end
 
