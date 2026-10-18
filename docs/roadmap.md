@@ -116,6 +116,9 @@ both TCP transports and combined actual baseline/chest exchanges/reconnect pass.
 These gates are closed; live menus/cooking/XP need separate acceptance.
 **Implementing:** [live processor menus](tickets/VMC-034k.md), using existing
 regional ownership, viewers and transfer workers; automatic cooking/XP remain later.
+Its frozen6264a79 passes1,625 full tests/production/current native TCP; actual
+feature validation is running. [Atomic cooking batches](tickets/VMC-034l.md)
+are the next unused kernel; active scheduling follows without replacing K's release.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

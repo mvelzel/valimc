@@ -2,7 +2,17 @@ defmodule Valimc.MiningStoreTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
   alias Valimc.Protocol.{Data, ItemStack}
-  alias Valimc.World.{Chunk, Containers, ItemLedger, ItemRecords, Items, MiningRecord, Store}
+
+  alias Valimc.World.{
+    Chunk,
+    Containers,
+    CookingBatch,
+    ItemLedger,
+    ItemRecords,
+    Items,
+    MiningRecord,
+    Store
+  }
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -112,21 +122,20 @@ defmodule Valimc.MiningStoreTest do
     typed = %{source => %{sequence: 77, digest: :crypto.hash(:sha256, "cooking-typed")}}
     containers = %{containers | receipts: typed}
 
-    {:ok, containers, entry} =
+    {:ok, containers, _entry} =
       Containers.replace_cooking(containers, ctx.position, entry.revision, initial, %{
         recipe.key => 42
       })
 
     :ok = Store.flush_containers(ctx.writer, ctx.lease, containers)
-    {:ok, cooked, %{drops: [bucket], completed: completed}} = Valimc.Cooking.step(initial, block)
 
-    {:ok, after_containers, _} =
-      Containers.replace_cooking(containers, ctx.position, entry.revision, cooked, %{
-        completed => 43
-      })
+    {:ok, plan} =
+      CookingBatch.plan(containers, Items.new(), ctx.key, %{ctx.position => block})
 
-    {x, y, z} = ctx.position
-    {:ok, items, _} = Items.create(Items.new(), ctx.key, bucket, {x + 0.5, y + 0.5, z + 0.5})
+    assert plan.refused == %{}
+    assert plan.containers.entries[ctx.position].recipes == %{recipe.key => 43}
+    assert [%{stack: bucket}] = Items.records(plan.items)
+    assert bucket == ItemStack.new("bucket")
     {:ok, %{receipts: original_receipts}} = Store.load_items(ctx.writer)
 
     # Native26.3 tick fixture: north-facing furnace6884 unlit /6883 lit.
@@ -136,12 +145,13 @@ defmodule Valimc.MiningStoreTest do
     proposal = %{
       ctx.proposal
       | edits: Map.put(before_blocks, ctx.position, lit_block),
-        changes: %{ctx.position => lit_block},
-        items: items,
+        changes: plan.changes,
+        items: plan.items,
         receipts: original_receipts
     }
 
-    %{ctx | proposal: Map.put(proposal, :containers, after_containers)}
+    assert plan.changes == %{ctx.position => lit_block}
+    %{ctx | proposal: Map.put(proposal, :containers, plan.containers)}
   end
 
   test "joint block/items/container commit acknowledges all outputs and survives writer replacement",

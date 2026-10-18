@@ -1,5 +1,5 @@
 defmodule Valimc.Physics.CookingBlocks do
-  @moduledoc "Pinned furnace-family kinds and native empty placement states."
+  @moduledoc "Pinned furnace-family kinds, facing-preserving light states and empty placement."
   alias Valimc.Physics.ChestPlacement
   alias Valimc.Protocol.Data
   @path Path.expand("../../../priv/physics/cooking_blocks.json", __DIR__)
@@ -7,6 +7,17 @@ defmodule Valimc.Physics.CookingBlocks do
   @facts JSON.decode!(File.read!(@path))
   @kinds {:furnace, :smoker, :blast_furnace}
   @states Map.new(@facts["states"], fn row -> {row["state"], elem(@kinds, row["kind"])} end)
+  @lit Map.new(@facts["states"], fn row ->
+         pair =
+           Map.new(
+             Enum.filter(@facts["states"], fn other ->
+               other["kind"] == row["kind"] and other["facing"] == row["facing"]
+             end),
+             &{&1["lit"], &1["state"]}
+           )
+
+         {row["state"], pair}
+       end)
   @placements @facts["placements"]
               |> Enum.map(fn table ->
                 Map.new(table, fn {heading, state} -> {String.to_integer(heading), state} end)
@@ -24,6 +35,15 @@ defmodule Valimc.Physics.CookingBlocks do
 
   def kind(state), do: Map.get(@states, state)
   def kind_for_item(item), do: Map.get(@items, item)
+
+  def lit(state, value) when is_boolean(value) do
+    case @lit do
+      %{^state => %{^value => result}} -> {:ok, result}
+      _ -> {:error, :invalid_cooking_state}
+    end
+  end
+
+  def lit(_, _), do: {:error, :invalid_cooking_state}
 
   def placement(kind, yaw) when kind in [:furnace, :smoker, :blast_furnace] do
     with {:ok, heading} <- ChestPlacement.horizontal(yaw) do

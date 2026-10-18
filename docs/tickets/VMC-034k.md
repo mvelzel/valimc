@@ -46,3 +46,8 @@ range/owner closure, pending-candidate cancellation, prepared-owner crash recove
 and reconnect. Earlier test expectations for a matching cursor and a stack field
 were corrected; no production regression was found. Formatting/compile pass.
 Production, current native TCP and dedicated actual feature acceptance remain.
+
+Frozen6264a79 passes1,625 full tests, production and current native provider/both
+TCP transports (`.local/cooking-live-{full-tests,production,native-tcp}.log`).
+Dedicated actual menu feature validation is running against that immutable release
+and a new whole source20/typed20/item18/storage33 dataset. No release replacement.

@@ -333,6 +333,7 @@ with tempfile.TemporaryDirectory(prefix='valimc-oracle-') as world:
     cooking_tick = str(pathlib.Path(world) / 'cooking-tick.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'CookingTickOracle', cooking_tick], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_cooking_tick.exs', cooking_tick], cwd=root, check=True)
+    subprocess.run(['mix', 'run', '--no-start', 'scripts/check_cooking_batch.exs', cooking_tick], cwd=root, check=True)
     cooking_placement = str(pathlib.Path(world) / 'cooking-placement.json')
     subprocess.run([sys.executable, 'scripts/java_tool.py', 'CookingPlacementOracle', cooking_placement], cwd=root, check=True)
     subprocess.run(['mix', 'run', '--no-start', 'scripts/check_cooking_blocks.exs', cooking_placement], cwd=root, check=True)

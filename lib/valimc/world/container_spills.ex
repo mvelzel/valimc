@@ -25,6 +25,11 @@ defmodule Valimc.World.ContainerSpills do
     end)
   end
 
+  @doc "Admit one native furnace fuel remainder into the enclosing joint proposal."
+  def add_remainder(items, _key, _position, []), do: {:ok, items}
+  def add_remainder(items, key, position, [stack]), do: release(items, key, position, [stack])
+  def add_remainder(_, _, _, _), do: {:error, :invalid_cooking_remainder}
+
   defp release(items, key, position, stacks) do
     Enum.reduce_while(stacks, {:ok, items}, fn
       nil, acc ->
