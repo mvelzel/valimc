@@ -1,6 +1,7 @@
 defmodule Valimc.World.ContainerRequest do
   @moduledoc "Canonical bounded container action; a durable player intent must precede delivery."
-  alias Valimc.{ContainerClick, Inventory}
+  alias Valimc.{ContainerClick, CookingClick, Inventory}
+  alias Valimc.Physics.CookingBlocks
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.Containers
   @max_sequence 18_446_744_073_709_551_615
@@ -8,6 +9,7 @@ defmodule Valimc.World.ContainerRequest do
   @header_bytes 95
   @max_bytes @header_bytes + 2 * @contents_bytes
   @actions %{pickup: 0, quick_move: 1, swap: 2}
+  @kinds {:furnace, :smoker, :blast_furnace}
   def max_bytes, do: @max_bytes
 
   def encode(
@@ -18,7 +20,6 @@ defmodule Valimc.World.ContainerRequest do
           permit: <<_::128>> = permit,
           position: {x, y, z} = position,
           revision: revision,
-          rows: rows,
           slots: slots,
           inventory: %Inventory{} = inventory,
           action: action,
@@ -28,7 +29,7 @@ defmodule Valimc.World.ContainerRequest do
       )
       when map_size(request) == 11 and is_integer(sequence) and sequence in 1..@max_sequence and
              is_integer(revision) and revision in 1..@max_sequence do
-    with {:ok, _, _} <- Containers.create(%Containers{}, key, position, rows),
+    with {:ok, version, tag} <- layout(request, key, position),
          {:ok, _slots, _inventory} <- plan(request),
          true <- valid_inventory?(inventory),
          storage_bytes = encode_cells(Tuple.to_list(slots)),
@@ -36,9 +37,9 @@ defmodule Valimc.World.ContainerRequest do
            encode_cells(Enum.map(1..45, &Inventory.get(inventory, &1)) ++ [inventory.carried]),
          {:ok, code} <- Map.fetch(@actions, action) do
       {:ok,
-       <<"VMCCREQ", 1, 5023::32, rx::signed-32, rz::signed-32, source::binary-size(16),
+       <<"VMCCREQ", version, 5023::32, rx::signed-32, rz::signed-32, source::binary-size(16),
          sequence::64, permit::binary-size(16), x::signed-32, y::signed-32, z::signed-32,
-         revision::64, rows, code, slot::signed-16, button::signed-8, inventory.selected,
+         revision::64, tag, code, slot::signed-16, button::signed-8, inventory.selected,
          if(inventory.infinite_materials, do: 1, else: 0), byte_size(storage_bytes)::32,
          byte_size(inventory_bytes)::32, storage_bytes::binary, inventory_bytes::binary>>}
     else
@@ -55,18 +56,19 @@ defmodule Valimc.World.ContainerRequest do
   def decode(bytes, {rx, rz} = key)
       when is_binary(bytes) and
              byte_size(bytes) in @header_bytes..@max_bytes do
-    <<"VMCCREQ", 1, 5023::32, ^rx::signed-32, ^rz::signed-32, source::binary-size(16),
+    <<"VMCCREQ", version, 5023::32, ^rx::signed-32, ^rz::signed-32, source::binary-size(16),
       sequence::64, permit::binary-size(16), x::signed-32, y::signed-32, z::signed-32,
-      revision::64, rows, code, slot::signed-16, button::signed-8, selected, infinite,
+      revision::64, tag, code, slot::signed-16, button::signed-8, selected, infinite,
       storage_size::32, inventory_size::32, rest::binary>> = bytes
 
-    true = rows in 1..6 and selected in 0..8 and infinite in [0, 1]
+    {layout_key, layout_value, count} = decode_layout(version, tag)
+    true = selected in 0..8 and infinite in [0, 1]
     true = storage_size in 1..@contents_bytes and inventory_size in 1..@contents_bytes
 
     <<storage_bytes::binary-size(^storage_size), inventory_bytes::binary-size(^inventory_size)>> =
       rest
 
-    {storage, <<>>} = take_cells(storage_bytes, rows * 9, [])
+    {storage, <<>>} = take_cells(storage_bytes, count, [])
     {cells, <<>>} = take_cells(inventory_bytes, 46, [])
 
     slots =
@@ -92,13 +94,14 @@ defmodule Valimc.World.ContainerRequest do
       permit: permit,
       position: {x, y, z},
       revision: revision,
-      rows: rows,
       slots: List.to_tuple(storage),
       inventory: inventory,
       action: action,
       slot: slot,
       button: button
     }
+
+    request = Map.put(request, layout_key, layout_value)
 
     {:ok, ^bytes} = encode(key, request)
     {:ok, request}
@@ -123,6 +126,49 @@ defmodule Valimc.World.ContainerRequest do
         button: button
       }),
       do: ContainerClick.plan(rows, slots, inventory, action, slot, button)
+
+  def plan(%{
+        kind: kind,
+        slots: slots,
+        inventory: inventory,
+        action: action,
+        slot: slot,
+        button: button
+      }) do
+    with {:ok, block} <- CookingBlocks.placement(kind, 0.0),
+         {:ok, next_slots, next_inventory, _taken} <-
+           CookingClick.plan(block, slots, inventory, action, slot, button),
+         do: {:ok, next_slots, next_inventory}
+  end
+
+  def matches_entry?(
+        %{revision: revision, rows: rows, slots: slots},
+        %{revision: revision, rows: rows, slots: slots}
+      ),
+      do: true
+
+  def matches_entry?(
+        %{revision: revision, kind: kind, slots: slots},
+        %{revision: revision, kind: kind, cooking: %{slots: slots}}
+      )
+      when kind in [:furnace, :smoker, :blast_furnace],
+      do: true
+
+  def matches_entry?(_, _), do: false
+
+  defp layout(%{rows: rows}, key, position) do
+    with {:ok, _, _} <- Containers.create(%Containers{}, key, position, rows),
+         do: {:ok, 1, rows}
+  end
+
+  defp layout(%{kind: kind}, key, position) do
+    with {:ok, _, _} <- Containers.create_cooking(%Containers{}, key, position, kind),
+         do: {:ok, 2, Enum.find_index(Tuple.to_list(@kinds), &(&1 == kind))}
+  end
+
+  defp layout(_, _, _), do: invalid()
+  defp decode_layout(1, rows) when rows in 1..6, do: {:rows, rows, rows * 9}
+  defp decode_layout(2, kind) when kind in 0..2, do: {:kind, elem(@kinds, kind), 3}
 
   defp valid_inventory?(%Inventory{
          slots: slots,

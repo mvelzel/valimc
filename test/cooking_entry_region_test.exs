@@ -52,7 +52,29 @@ defmodule Valimc.CookingEntryRegionTest do
       :erlang.term_to_binary({:valimc_region, 1, edits})
     )
 
-    {:ok, {pid, _}} = World.item_owner(key)
+    {:ok, {pid, epoch}} = World.item_owner(key)
+
+    request = %{
+      source: <<2::128>>,
+      sequence: 1,
+      permit: <<3::128>>,
+      position: blank,
+      revision: containers.entries[blank].revision,
+      kind: :smoker,
+      slots: containers.entries[blank].cooking.slots,
+      inventory: %Valimc.Inventory{carried: ItemStack.new("cod")},
+      action: :pickup,
+      slot: 0,
+      button: 0
+    }
+
+    assert {:ok, _} = Valimc.World.ContainerRequest.encode(key, request)
+
+    assert {:error, :invalid_container_context} =
+             Region.admit_container_transfer({pid, epoch}, request, %{
+               uuid: request.source,
+               mode: :survival
+             })
 
     for position <- [pos, blank] do
       assert {:error, :occupied_container} = World.set_block(position, 0)

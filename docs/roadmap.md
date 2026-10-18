@@ -111,7 +111,8 @@ progress codecs and10 affected/1,580 full tests plus production pass; baseline/
 full native integration pending. [Item transfer plans](tickets/VMC-034h.md) match
 40,776 native results/234 refused overflows and16 affected checks; no live caller.
 [External slot state transitions](tickets/VMC-034i.md) match2,304 native setters
-and16 affected checks; checkpoint baseline pending. Live exchange admission is next.
+and16 affected checks; checkpoint baseline pending. [Transfer journals](tickets/VMC-034j.md)
+retain48 legacy byte layouts and pass47 affected checks; live grants/menus remain closed.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

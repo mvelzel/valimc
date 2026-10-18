@@ -29,3 +29,7 @@ Unchanged slots are not assigned. Raw `.local/cooking-slot-edit-{native,comparis
 existing cooking tick and click regressions. Invalid/oversized proposals refuse
 whole rather than discard items. Formatting passes. No production schedule,
 source/receipt mutation or XP/recipe-use effect exists in this slice.
+
+Frozenc793348 production passes(`.local/cooking-slot-edit-production.log`). A
+combined unused-foundation baseline will run on the later cooking transfer
+checkpoint; broader physical/menu integration continues on frozene9d7227.

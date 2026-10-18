@@ -852,9 +852,7 @@ defmodule Valimc.World.RegionData do
 
             with {:ok, digest} <- ContainerRequest.digest(key, request),
                  {:ok, entry} <- Valimc.World.Containers.observe(containers, request.position),
-                 true <-
-                   {entry.revision, entry.rows, entry.slots} ==
-                     {request.revision, request.rows, request.slots},
+                 true <- ContainerRequest.matches_entry?(request, entry),
                  {:ok, reserved, _} <- ContainerTransfers.reserve(containers, request.source),
                  {:ok, _} <- Valimc.World.Containers.encode(key, reserved),
                  do: {:ok, %{containers: reserved, result: {:admitted, request, digest}}},

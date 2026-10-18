@@ -39,7 +39,8 @@ defmodule Valimc.PlayerContainerIntent do
   def encode(_, _, _), do: {:error, :invalid_container_intent}
 
   def decode(uuid, sequence, <<"VMCCOUT", 1, bytes::binary>>) do
-    <<"VMCCREQ", 1, 5023::32, rx::signed-32, rz::signed-32, _::binary>> = bytes
+    <<"VMCCREQ", version, 5023::32, rx::signed-32, rz::signed-32, _::binary>> = bytes
+    true = version in [1, 2]
 
     with {:ok, %{source: ^uuid, sequence: ^sequence} = request} <-
            ContainerRequest.decode(bytes, {rx, rz}) do

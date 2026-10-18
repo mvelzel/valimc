@@ -1,5 +1,7 @@
 defmodule Valimc.World.ContainerTransfers do
   @moduledoc "Receipt-backed container decisions; fresh owner eligibility is supplied by the region."
+  alias Valimc.Cooking
+  alias Valimc.Physics.CookingBlocks
   alias Valimc.World.{ContainerRequest, Containers, ItemReceipts}
 
   def reserve(%Containers{} = containers, source) do
@@ -67,20 +69,37 @@ defmodule Valimc.World.ContainerTransfers do
   def receipt_result(_, _, _), do: {:error, :transfer_conflict}
 
   defp exchange(containers, request) do
-    with {:ok, %{revision: revision, rows: rows, slots: slots}} <-
-           Containers.observe(containers, request.position),
-         true <- {revision, rows, slots} == {request.revision, request.rows, request.slots},
+    with {:ok, entry} <- Containers.observe(containers, request.position),
+         true <- ContainerRequest.matches_entry?(request, entry),
          {:ok, next_slots, _player_result} <- ContainerRequest.plan(request) do
-      if next_slots == slots do
+      if next_slots == request.slots do
         {:ok, containers}
       else
-        with {:ok, next, _} <-
-               Containers.replace(containers, request.position, revision, next_slots),
-             do: {:ok, next}
+        replace(containers, request.position, entry, next_slots)
       end
     else
       _ -> {:error, :stale_container}
     end
+  end
+
+  defp replace(containers, position, %{rows: _, revision: revision}, slots) do
+    with {:ok, next, _} <- Containers.replace(containers, position, revision, slots),
+         do: {:ok, next}
+  end
+
+  defp replace(
+         containers,
+         position,
+         %{kind: kind, cooking: cooking, recipes: recipes} = entry,
+         slots
+       ) do
+    # Withdrawing earned output must include a durable XP/recipe-award decision.
+    with true <- recipes == %{} or elem(slots, 2) == elem(cooking.slots, 2),
+         {:ok, block} <- CookingBlocks.placement(kind, 0.0),
+         {:ok, edited} <- Cooking.edit_slots(cooking, slots, block),
+         {:ok, next, _} <-
+           Containers.replace_cooking(containers, position, entry.revision, edited, recipes),
+         do: {:ok, next}
   end
 
   defp outcome(digest, actual) do
