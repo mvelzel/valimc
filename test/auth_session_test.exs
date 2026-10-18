@@ -1,5 +1,6 @@
 defmodule Valimc.AuthSessionTest do
-  use ExUnit.Case, async: true
+  # TLS deadlines must not compete with the suite's CPU-heavy native geometry checks.
+  use ExUnit.Case, async: false
   alias Valimc.Auth.{HTTP, Profile, SessionService}
   @id "12345678123456781234567812345678"
   defp json(value), do: value |> :json.encode() |> IO.iodata_to_binary()

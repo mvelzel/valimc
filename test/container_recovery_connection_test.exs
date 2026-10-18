@@ -22,7 +22,7 @@ defmodule Valimc.ContainerRecoveryConnectionTest do
     base = Path.join(System.tmp_dir!(), "valimc-container-login-#{nonce}")
     previous = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)
-    name = "ChestRecover#{nonce}"
+    name = "ChestR#{rem(nonce, 1_000_000_000)}"
     uuid = Connection.offline_uuid(name)
     span = Valimc.config(:region_size) * 16
     position = {elem(key, 0) * span + 40, 64, elem(key, 1) * span + 40}
