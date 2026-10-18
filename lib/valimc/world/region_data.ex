@@ -2262,12 +2262,23 @@ defmodule Valimc.World.RegionData do
           {:error, :wrong_region}
 
         true ->
-          Valimc.TableAccess.authorize(
-            Chunk.block_at(state.edits, position),
-            position,
-            grant,
-            System.monotonic_time(:millisecond)
-          )
+          block = Chunk.block_at(state.edits, position)
+          now = System.monotonic_time(:millisecond)
+
+          if Valimc.ChestAccess.single?(block) or (is_map(grant) and grant[:menu] == :chest) do
+            {x, y, z} = position
+
+            Valimc.ChestOpening.authorize(
+              block,
+              state.containers.entries[position],
+              Chunk.block_at(state.edits, {x, y + 1, z}),
+              position,
+              grant,
+              now
+            )
+          else
+            Valimc.TableAccess.authorize(block, position, grant, now)
+          end
       end
 
     Valimc.Connection.deliver(

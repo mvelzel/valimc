@@ -4,13 +4,9 @@ defmodule Valimc.TableAccess do
   @table Data.item_block(Data.item("crafting_table"))
   @modes [:survival, :creative, :adventure, :spectator]
 
-  def opens?(mode, hand, secondary, main, off)
-      when mode in @modes and hand in [:main, :off] and is_boolean(secondary) and
-             is_boolean(main) and is_boolean(off) do
-    mode == :spectator or (hand == :main and not (secondary and (main or off)))
-  end
-
-  def opens?(_, _, _, _, _), do: false
+  defdelegate opens?(mode, hand, secondary, main, off),
+    to: PlayerInteraction,
+    as: :opens_block_menu?
 
   def valid?(block, mode, eye, position),
     do: block == @table and PlayerInteraction.within_block?(mode, eye, position, 4.0)

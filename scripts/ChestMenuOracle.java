@@ -6,6 +6,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundOpenScreenPacket;
+import net.minecraft.network.protocol.game.ClientboundContainerSetContentPacket;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.*;
 import net.minecraft.world.entity.ContainerUser;
@@ -52,6 +53,13 @@ public class ChestMenuOracle {
         var decoded=ClientboundOpenScreenPacket.STREAM_CODEC.decode(buffer);
         if(buffer.isReadable()||decoded.getContainerId()!=17)throw new AssertionError("Invalid native open packet");
       }finally{buffer.release();}
+      buffer=new RegistryFriendlyByteBuf(Unpooled.buffer(),access);
+      try{
+        ClientboundContainerSetContentPacket.STREAM_CODEC.encode(buffer,new ClientboundContainerSetContentPacket(17,0,menu.getItems(),ItemStack.EMPTY));
+        var bytes=new byte[buffer.readableBytes()];buffer.getBytes(0,bytes);row.addProperty("content_hex",HexFormat.of().formatHex(bytes));
+        var decoded=ClientboundContainerSetContentPacket.STREAM_CODEC.decode(buffer);
+        if(buffer.isReadable()||decoded.containerId()!=17||decoded.items().size()!=rows*9+36)throw new AssertionError("Invalid native content packet");
+      }finally{buffer.release();}
       menu.removed(owner);row.addProperty("opens",storage.opens);row.addProperty("closes",storage.closes);
       if(storage.opens!=1||storage.closes!=1)throw new AssertionError("Unbalanced native view lifecycle");
       var after=new JsonArray();for(int i=0;i<storage.getContainerSize();i++)after.add(TableMenuOracle.stack(storage.getItem(i)));
@@ -61,6 +69,6 @@ public class ChestMenuOracle {
     var out=new JsonObject();out.addProperty("version","26.3");out.addProperty("protocol",777);
     out.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");out.add("cases",cases);
     Files.writeString(Path.of(args[0]),new Gson().toJson(out));
-    System.out.println("PASS: six native chest menu layouts/slot identities/open codecs and empty-cursor close retaining storage; click/world/ownership/persistence excluded.");
+    System.out.println("PASS: six native chest menu layouts/slot identities/open/content codecs and empty-cursor close retaining storage; click/world/ownership/persistence excluded.");
   }
 }

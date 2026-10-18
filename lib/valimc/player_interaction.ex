@@ -9,6 +9,13 @@ defmodule Valimc.PlayerInteraction do
   # Native standing eye height is a float before promotion to double.
   @standing_eye_height 1.6200000047683716
 
+  def opens_block_menu?(mode, hand, secondary, main, off)
+      when mode in @modes and hand in [:main, :off] and is_boolean(secondary) and
+             is_boolean(main) and is_boolean(off),
+      do: mode == :spectator or (hand == :main and not (secondary and (main or off)))
+
+  def opens_block_menu?(_, _, _, _, _), do: false
+
   def block_range(:creative), do: @block["default"] + 0.5
   def block_range(mode) when mode in @modes, do: @block["default"]
   def entity_range(:creative), do: @entity["default"] + 2.0

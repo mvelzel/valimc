@@ -19,6 +19,7 @@ defmodule Valimc.Connection do
   }
 
   alias Valimc.{
+    ChestAccess,
     CreativeInput,
     ConsumableRemoval,
     FoodItems,
@@ -3294,6 +3295,12 @@ defmodule Valimc.Connection do
       {:open, :pass, true} ->
         execute_placement(state, job.command, job.placement)
 
+      {:open, {:chest, block, view}, true} ->
+        if state.life_stage == :alive and not state.teleport_pending and
+             PlayerInput.loaded?(state.player.input) and reachable?(state, job.position),
+           do: open_chest_menu(state, job.position, owner, block, view, job.command.sequence),
+           else: acknowledge_table_use(state, job.command)
+
       {:open, _, _} ->
         acknowledge_table_use(state, job.command)
 
@@ -3304,6 +3311,15 @@ defmodule Valimc.Connection do
         else
           begin_table_close(state)
         end
+
+      {:check, {:chest, block, view}, true} ->
+        if state.table_menu.kind == :chest and table_player_valid?(state),
+          do:
+            resync_inventory(%{
+              state
+              | table_menu: %{state.table_menu | block: block, view: view}
+            }),
+          else: begin_table_close(state)
 
       _ ->
         begin_table_close(state)
@@ -4193,9 +4209,16 @@ defmodule Valimc.Connection do
     inventory = state.inventory |> Inventory.cancel_drag() |> Inventory.advance()
 
     packet =
-      if state.table_menu,
-        do: Packets.table_inventory(state.table_menu.id, inventory),
-        else: Packets.inventory(inventory)
+      case state.table_menu do
+        %{kind: :chest, id: id, view: view} ->
+          Packets.chest_inventory(id, view.rows, view.slots, inventory)
+
+        %{id: id} ->
+          Packets.table_inventory(id, inventory)
+
+        nil ->
+          Packets.inventory(inventory)
+      end
 
     send_packets(state, [packet, Packets.cursor(inventory.carried)])
     %{state | inventory: inventory}
@@ -4207,6 +4230,10 @@ defmodule Valimc.Connection do
 
   defp inventory_click(state, payload) do
     case InventoryClick.decode(payload) do
+      {:ok, _click} when state.table_menu != nil and state.table_menu.kind == :chest ->
+        # Viewing lands before durable exchanges. Never trust predicted changes.
+        resync_inventory(state)
+
       {:ok, click} when state.table_menu != nil ->
         if click.container == state.table_menu.id do
           if state.table_queued >= 64, do: reject(state, "Too many pending table actions")
@@ -4314,6 +4341,16 @@ defmodule Valimc.Connection do
       off: Inventory.held(state.inventory, :off) != nil
     }
 
+    grant =
+      if state.table_menu do
+        Map.merge(grant, %{
+          menu: state.table_menu.kind,
+          revision: if(state.table_menu.kind == :chest, do: state.table_menu.view.revision)
+        })
+      else
+        grant
+      end
+
     case World.existing_owner(key) do
       {:ok, {pid, _} = owner} ->
         if kind != :open and state.table_menu.owner != owner do
@@ -4390,7 +4427,34 @@ defmodule Valimc.Connection do
     %{
       state
       | inventory: inventory,
-        table_menu: %{id: id, position: position, owner: owner},
+        table_menu: %{kind: :table, id: id, position: position, owner: owner},
+        table_counter: id
+    }
+  end
+
+  defp open_chest_menu(state, position, owner, block, view, sequence) do
+    id = rem(state.table_counter, 127) + 1
+    inventory = state.inventory |> Inventory.cancel_drag() |> Inventory.advance()
+    state = state |> stop_item_use() |> cancel_mining()
+
+    send_packets(state, [
+      Packets.ack(sequence),
+      Packets.open_chest(id, view.rows),
+      Packets.chest_inventory(id, view.rows, view.slots, inventory),
+      Packets.cursor(inventory.carried)
+    ])
+
+    %{
+      state
+      | inventory: inventory,
+        table_menu: %{
+          kind: :chest,
+          id: id,
+          position: position,
+          owner: owner,
+          block: block,
+          view: view
+        },
         table_counter: id
     }
   end
@@ -4398,14 +4462,27 @@ defmodule Valimc.Connection do
   defp table_player_valid?(%{table_menu: nil}), do: false
 
   defp table_player_valid?(state) do
+    menu = state.table_menu
+
+    valid =
+      if menu.kind == :chest do
+        ChestAccess.valid_view?(
+          menu.block,
+          state.player.game_mode.current,
+          Valimc.PlayerInteraction.eye(state.player),
+          menu.position
+        )
+      else
+        TableAccess.valid?(
+          Data.item_block(Data.item("crafting_table")),
+          state.player.game_mode.current,
+          Valimc.PlayerInteraction.eye(state.player),
+          menu.position
+        )
+      end
+
     state.life_stage == :alive and not state.teleport_pending and
-      PlayerInput.loaded?(state.player.input) and
-      TableAccess.valid?(
-        Data.item_block(Data.item("crafting_table")),
-        state.player.game_mode.current,
-        Valimc.PlayerInteraction.eye(state.player),
-        state.table_menu.position
-      )
+      PlayerInput.loaded?(state.player.input) and valid
   end
 
   defp check_table_menu(%{table_menu: nil} = state), do: state

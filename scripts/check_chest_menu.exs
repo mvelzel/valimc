@@ -44,10 +44,15 @@ for row <- facts["cases"] do
   unless IO.iodata_to_binary(body) == Base.decode16!(row["open_hex"], case: :lower),
     do: raise("Native chest open body differs")
 
+  {_, body} = Packets.chest_inventory(17, rows, storage, %Inventory{slots: slots})
+
+  unless IO.iodata_to_binary(body) == Base.decode16!(row["content_hex"], case: :lower),
+    do: raise("Native chest content body differs")
+
   unless row["opens"] == 1 and row["closes"] == 1 and row["after_close"] == row["storage"],
     do: raise("Native chest close/lifecycle differs")
 end
 
 IO.puts(
-  "PASS: six native chest layouts/405 slot identities, open bodies and contents; empty-cursor close retains storage. Shared authority/clicks/world/persistence not implemented."
+  "PASS: six native chest layouts/405 slot identities, open/content bodies and storage-preserving empty-cursor close. Live authorization/exchanges require separate checks."
 )

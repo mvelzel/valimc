@@ -63,11 +63,16 @@ defmodule Valimc.Protocol.Packets do
   def table_inventory(container, inventory) when container in 1..127,
     do: inventory_content(container, inventory, Valimc.TableMenu.contents(inventory))
 
+  def chest_inventory(container, rows, storage, inventory) when container in 1..127 do
+    {:ok, contents} = Valimc.ChestMenu.contents(rows, storage, inventory)
+    inventory_content(container, inventory, contents)
+  end
+
   defp inventory_content(container, inventory, contents) do
     packet("container_set_content", [
       Wire.varint(container),
       Wire.varint(inventory.state_id),
-      Wire.varint(46),
+      Wire.varint(length(contents)),
       Enum.map(contents, &ItemStack.encode/1),
       ItemStack.encode(inventory.carried)
     ])
