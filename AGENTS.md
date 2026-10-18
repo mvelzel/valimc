@@ -11,6 +11,8 @@ code/references. Consult [development](docs/development.md) for workflow changes
 do not load the whole backlog, completed index or unrelated tickets.
 The roadmap is editable planning, not a fixed implementation order.
 Keep README small; put feature evidence in its ticket. Use `rg` to retrieve details.
+Standing docs describe the current state, not dated policy changes or a changelog.
+Replace superseded instructions; keep checkpoint-specific evidence in tickets.
 
 ## Correctness and sources
 
@@ -48,8 +50,10 @@ Keep README small; put feature evidence in its ticket. Use `rg` to retrieve deta
   work. Tested dependencies may be used without calling their tickets Done.
 - Per commit, run changed-file formatting and affected tests/native probes only.
   Run full tests/native integration and a production build after a larger coherent
-  block; fix integration failures. Do not repeat broad checks for every commit
-  (user instruction, October 15, 2026). Use meaningful boundary regressions.
+  block; fix integration failures. Subtickets never count as larger blocks: use a
+  parent-ticket or milestone boundary. Run broad checks in the background while
+  continuing independent work. Do not repeat them per commit. Use meaningful
+  boundary regressions.
 - Always delegate actual Minecraft validation to one dedicated testing subagent.
   Use medium reasoning with a focused fresh handoff (`reasoning_effort: "medium"`,
   `fork_turns: "none"`). Only it drives CUA; the primary continues independent work.

@@ -3,6 +3,8 @@
 Read [AGENTS.md](../AGENTS.md), [current work](roadmap.md) and the active ticket.
 Use [backlog](backlog.md) or [completed index](history/completed.md) only to locate
 needed details. Feature-specific evidence belongs in `tickets/VMC-*.md`, not here.
+Guides describe current behavior and rules. Replace outdated text instead of
+appending dated changes; Git provides the change history.
 
 ## One slice, targeted checks
 
@@ -26,7 +28,8 @@ needed details. Feature-specific evidence belongs in `tickets/VMC-*.md`, not her
 6. Review its verification report, fix/retest failures, update the queue/ticket
    and publish the validated checkpoint. Never infer a graphical pass from a codec or fixture.
 
-After a larger coherent block, run broader integration once and fix failures:
+Only after a parent-ticket or milestone boundary, run broader integration once
+and fix failures. Subtickets never count as larger blocks of work:
 
 ```sh
 mix format --check-formatted
@@ -35,9 +38,13 @@ python3 scripts/check_vanilla.py
 MIX_ENV=prod mix release --overwrite
 ```
 
+Run these checks in the background with logs under `.local/` and continue
+independent development while they run.
+
 Never overwrite a release under client test. Use a separate `MIX_BUILD_PATH` for
 an integration build while the tester owns another release. Individual commits
-need targeted checks, not this whole block (user instruction, October 15, 2026).
+need targeted checks, not this whole block. Building a frozen test server when
+needed for graphical validation is separate from rerunning the broad check gate.
 Docs-only edits need relevant link/retrieval checks and baseline client smoke.
 
 ## Client handoff

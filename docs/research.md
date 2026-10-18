@@ -1,4 +1,4 @@
-# Source research — 2026-10-13
+# Source research
 
 All nineteen checkouts are pinned in `research/sources.lock.json` and downloaded in ignored `research/sources/`. This is a subsystem-oriented survey; a repository's existence, activity, or benchmark is not evidence of vanilla 26.3 completeness. Its pinned README and the implementation paths below were inspected; benchmark claims were not independently reproduced.
 
@@ -27,7 +27,7 @@ All nineteen checkouts are pinned in `research/sources.lock.json` and downloaded
 ## Reference hierarchy and selected inspirations
 
 1. **Protocol/gameplay reference: vanilla 26.3.** Pin its jar hash and inspect relevant codecs/classes, using differential fixtures and client observations. Decompile privately when needed. This does not require copying its runtime internals.
-2. **Production behavior: Paper.** The user accepts Paper-compatible differences (October 15). Prefer performant BEAM ownership, region/chunk layout and scheduling over 1:1 vanilla internals; record meaningful behavior tradeoffs. Pumpkin/SteelMC also inform design, with their incomplete coverage kept explicit.
+2. **Production engineering: Paper.** Preserve the vanilla player experience while freely optimizing BEAM ownership, region/chunk layout and scheduling. Paper, Pumpkin and SteelMC inform design without imposing internal or plugin compatibility contracts; record meaningful behavior tradeoffs and incomplete coverage.
 3. **Parallel ownership: Folia and Dragonfly.** Region constraints and owner transaction APIs are especially relevant to BEAM processes. Adopt explicit ordering/fencing/bounded handoffs, not the source language's locking/thread model. Inspect their actual boundary rules before changing ValiMC's region protocol.
 4. **Ground-up implementation structure: SteelMC and Pumpkin.** Study generation, protocol, inventories, pacing, persistence and tests, recording current omissions. Cross-check behavior with vanilla rather than choosing whichever rewrite is easier to port.
 5. **Targeted engineering: Cuberite, MCHPRS, Minestom, Go-MC and the Prismarine ecosystem.** Storage, dense redstone representations, scheduling partitions and independent codecs/tests are valuable. Older versions, specialized modes and missing vanilla features restrict what they can prove.
