@@ -39,7 +39,7 @@ recipe-use/XP effects, region writes, player receipts or live menu authorization
 
 Frozenbb04210 production passes(`.local/cooking-click-production.log`). The parent
 e9d7227 integration checkpoint has1,580 full tests/production; its full native run
-continues; the combined unused-foundation client baseline is accepted below.
+passes; the combined unused-foundation client baseline is accepted below.
 
 October18: accepted combined G/H/I/J actual26.3 baseline on frozen5105393.
 Actual ordinary chest deposit/withdraw restores exact slots/cursor; source18→20,

@@ -1,6 +1,6 @@
 # VMC-034f — Empty processing-block lifecycle
 
-Status: Physical/client feature acceptance passed atb68ca61; broader physical/menu integration pending. Depends on VMC-034e; no live cooking.
+Status: Done within empty physical lifecycle scope atb68ca61. No live cooking.
 
 Acceptance: placing a stock furnace, smoker or blast furnace creates one owned
 empty cooking entry in the same block/item/container commit; empty mining/removal
@@ -45,7 +45,7 @@ mining rejection without tool wear/contents loss. Old chest spill/recovery and r
 processor guards still pass. Initial packet checks caught/fixed missing facing
 capture and the chest-only creative removal route. Frozenb68ca61 production and both native TCP transports pass
 (`.local/cooking-physical-{production,native-tcp}.log`). Dedicated actual placement/
-mine/pickup/negatives/reconnect passed; integration remains before Done.
+mine/pickup/negatives/reconnect passed.
 
 Dedicated26.3 feature acceptance and stopped-world audit pass (October18).
 Actual stock placement/facing/offhand, mining/self-loot/pickup, named/occupied
@@ -57,4 +57,5 @@ real mining/pickup, not a reset. Creative mode used the authorized consistent
 fixture because /gamemode is unimplemented. No new-menu/cooking/XP claim.
 Client gate is closed; report was reviewed once. Both clients and server stopped;
 1,133 frozen blobs/world evidence are in `.local/cooking-physical-publication-proof.json`.
-Broader e9d7227 full tests1,580 pass; full native integration is still running.
+Broader e9d7227 full tests1,580 and full native integration/both TCP transports
+pass (`.local/cooking-physical-menu-native-full.log`). Every F gate is closed.

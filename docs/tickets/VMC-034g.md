@@ -1,6 +1,6 @@
 # VMC-034g — Cooking menu presentation foundation
 
-Status: Foundation and client baseline pass; coherent native integration pending. No live menu admission.
+Status: Done within unused presentation scope ate9d7227. Live menus belong to VMC-034k.
 
 Acceptance: native furnace/smoker/blast menu IDs, three storage addresses plus
 36 player cells, exact open/content bodies and four progress properties. Preserve
@@ -25,14 +25,16 @@ bounds; no extra speed property. Raw `.local/cooking-menu-{native,comparison}.lo
 
 10 affected layout/storage checks pass(seed921657), including hidden inventory,
 invalid timer/slot shapes and progress wire bounds. Formatting passes. No live
-caller. Production and the combined checkpoint baseline pass; native integration
-remains pending.
+caller. Production, full native integration and the combined checkpoint baseline pass.
 
 Frozene9d7227 coherent physical/menu block passes1,580 full tests and production
 (`.local/cooking-physical-menu-full-tests.log`, `.local/cooking-menu-production.log`).
-Full native integration is running against its unchanged checkpoint. The combined
+Full native integration/both TCP transports pass on the unchanged checkpoint
+(`.local/cooking-physical-menu-native-full.log`). The combined
 G/H/I/J actual26.3 baseline passes at5105393: ordinary chest deposit/withdraw and
 fresh reconnect preserve exact items/receipts and three occupied processors.
 Accepted report `.local/client-tests/VMC-034j/report.md`; stopped audit and1,149
 frozen blob hashes `.local/cooking-transfer-publication-proof.json`. No live
 processor interaction is claimed.
+
+All G gates are closed; proof `.local/cooking-menu-publication-proof.json`.

@@ -102,13 +102,10 @@ remain next; these foundations do not yet cook items in gameplay.
 at2dbae91, published through4965f2b: codec/cold-owner/joint recovery,1,556 full tests,
 production/full native integration/both TCP and dedicated mixed-snapshot/reconnect
 acceptance pass. This gate is closed; no live cooking claim.
-**Implementing:** [empty processor lifecycle](tickets/VMC-034f.md): native facing/
-loot and73 affected checks pass for furnace/smoker/blast placement/mining/removal;
-production/both native TCP and dedicated feature/reconnect acceptance pass.
-Broader physical/menu native integration is pending; its client gate is closed.
-**Integration pending:** [cooking menu presentation](tickets/VMC-034g.md): native
-layouts/progress,10 affected/1,580 full tests, production and combined baseline pass.
-The coherent full native run continues on frozene9d7227.
+**Done within physical/presentation scopes:** [empty processor lifecycle](tickets/VMC-034f.md)
+b68ca61 and [cooking views](tickets/VMC-034g.md)e9d7227: native/affected/1,580 full
+checks, production/full native integration/both TCP and actual physical feature/
+combined baseline/reconnect pass. These gates are closed; live menus follow.
 **Done within unused foundation scopes:** [item plans](tickets/VMC-034h.md)bb04210,
 [slot transitions](tickets/VMC-034i.md)c793348 and
 [transfer journals](tickets/VMC-034j.md)5105393: native/affected checks, production,

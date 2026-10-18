@@ -32,7 +32,7 @@ source/receipt mutation or XP/recipe-use effect exists in this slice.
 
 Frozenc793348 production passes(`.local/cooking-slot-edit-production.log`). The combined
 unused-foundation baseline passes at the later cooking transfer checkpoint;
-broader physical/menu integration continues on frozene9d7227.
+broader physical/menu integration passes on frozene9d7227.
 
 October18: accepted combined G/H/I/J actual26.3 baseline on frozen5105393.
 Actual ordinary chest deposit/withdraw restores exact slots/cursor; source18→20,
