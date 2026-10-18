@@ -98,21 +98,24 @@ pass. No live cooking claim.
 2,880 native boundaries/12,750 trace steps,11 affected checks, production and
 dedicated baseline/reconnect pass. Durable region storage/integration and menus
 remain next; these foundations do not yet cook items in gameplay.
-**Implementing:** [persistent cooking entries](tickets/VMC-034e.md): mixed v3
-snapshots retain old bytes/receipts and pass targeted codec, cold-owner and all
-eight joint-write recovery boundaries.1,556 full tests/production and dedicated
-mixed-snapshot rendering/chest/reconnect acceptance pass; only full native
-integration remains before publication.
+**Done within paused-storage scope:** [persistent cooking entries](tickets/VMC-034e.md)
+at2dbae91, published through4965f2b: codec/cold-owner/joint recovery,1,556 full tests,
+production/full native integration/both TCP and dedicated mixed-snapshot/reconnect
+acceptance pass. This gate is closed; no live cooking claim.
 **Implementing:** [empty processor lifecycle](tickets/VMC-034f.md): native facing/
 loot and73 affected checks pass for furnace/smoker/blast placement/mining/removal;
-production and both native TCP transports pass; actual feature validation pending.
-**Implementing:** [cooking menu presentation](tickets/VMC-034g.md): native layouts/
-progress codecs and10 affected/1,580 full tests plus production pass; baseline/
-full native integration pending. [Item transfer plans](tickets/VMC-034h.md) match
-40,776 native results/234 refused overflows and16 affected checks; no live caller.
-[External slot state transitions](tickets/VMC-034i.md) match2,304 native setters
-and16 affected checks; checkpoint baseline pending. [Transfer journals](tickets/VMC-034j.md)
-retain48 legacy byte layouts and pass47 affected checks; live grants/menus remain closed.
+production/both native TCP and dedicated feature/reconnect acceptance pass.
+Broader physical/menu native integration is pending; its client gate is closed.
+**Integration pending:** [cooking menu presentation](tickets/VMC-034g.md): native
+layouts/progress,10 affected/1,580 full tests, production and combined baseline pass.
+The coherent full native run continues on frozene9d7227.
+**Done within unused foundation scopes:** [item plans](tickets/VMC-034h.md)bb04210,
+[slot transitions](tickets/VMC-034i.md)c793348 and
+[transfer journals](tickets/VMC-034j.md)5105393: native/affected checks, production,
+both TCP transports and combined actual baseline/chest exchanges/reconnect pass.
+These gates are closed; live menus/cooking/XP need separate acceptance.
+**Implementing:** [live processor menus](tickets/VMC-034k.md), using existing
+regional ownership, viewers and transfer workers; automatic cooking/XP remain later.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

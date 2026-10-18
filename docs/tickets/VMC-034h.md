@@ -1,6 +1,6 @@
 # VMC-034h — Cooking menu item-transfer plans
 
-Status: Pure item planner implemented; checkpoint baseline/integration pending. No live caller.
+Status: Done within pure item-planner scope atbb04210. Live menu admission belongs to VMC-034k.
 
 Acceptance: pure drop-free pickup/split/merge, shift routing and number/offhand
 swaps match actual26.3 furnace-family clicks. Fuel slot accepts fuel components
@@ -39,4 +39,13 @@ recipe-use/XP effects, region writes, player receipts or live menu authorization
 
 Frozenbb04210 production passes(`.local/cooking-click-production.log`). The parent
 e9d7227 integration checkpoint has1,580 full tests/production; its full native run
-and the combined unused-foundation client baseline remain pending.
+continues; the combined unused-foundation client baseline is accepted below.
+
+October18: accepted combined G/H/I/J actual26.3 baseline on frozen5105393.
+Actual ordinary chest deposit/withdraw restores exact slots/cursor; source18→20,
+typed20, independent item18 and storage23→25 remain consistent through fresh
+reconnect. Three occupied processor entries remain exact. Both clients stopped143;
+server20532 flushed/stopped0. Report `.local/client-tests/VMC-034j/report.md`,
+stopped audit `.local/cooking-transfer-final-audit.log`,1,149 unchanged frozen blobs
+and eight whole-dataset file hashes `.local/cooking-transfer-publication-proof.json`.
+This closes the unused-foundation baseline, not live cooking/menu/XP gameplay.

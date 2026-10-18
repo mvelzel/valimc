@@ -1,6 +1,6 @@
 # VMC-034j — Cooking transfer journal foundation
 
-Status: Implemented foundation; production/client baseline pending. Live region grants and menus remain closed.
+Status: Done within transfer-journal foundation scope at5105393. Live menu admission belongs to VMC-034k.
 
 Acceptance: bounded v2 container requests carry cooking kind/three expected slots
 and produce deterministic player/region decisions. Retain v1 bytes and old player
@@ -31,4 +31,18 @@ output refusal, existing chest/storage/connection recovery and cold-owner grants
 Cooking edits use the current owned state and retain all recipe-use records.
 A real cold owner refuses cooking admission without changing counters or items.
 No live permission widened; rejection/recovery still writes a terminal receipt.
-Formatting and legacy comparison pass; checkpoint production/baseline pending.
+Formatting and legacy comparison pass.
+
+Frozen5105393 production and both current native TCP transports pass
+(`.local/cooking-transfer-{production,native-tcp}.log`). Combined G/H/I/J baseline
+passes on that exact checkpoint against a whole stopped F clone with an added
+empty chest. The immutable release was retained throughout.
+
+October18: accepted combined G/H/I/J actual26.3 baseline on frozen5105393.
+Actual ordinary chest deposit/withdraw restores exact slots/cursor; source18→20,
+typed20, independent item18 and storage23→25 remain consistent through fresh
+reconnect. Three occupied processor entries remain exact. Both clients stopped143;
+server20532 flushed/stopped0. Report `.local/client-tests/VMC-034j/report.md`,
+stopped audit `.local/cooking-transfer-final-audit.log`,1,149 unchanged frozen blobs
+and eight whole-dataset file hashes `.local/cooking-transfer-publication-proof.json`.
+This closes the unused-foundation baseline, not live cooking/menu/XP gameplay.

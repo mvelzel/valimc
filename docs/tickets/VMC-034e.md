@@ -1,7 +1,7 @@
 # VMC-034e — Persistent cooking entries
 
-Status: Storage, production and mixed-snapshot client acceptance pass at2dbae91.
-Only full native integration remains; no live cooking.
+Status: Done within paused-storage scope at2dbae91, published through4965f2b.
+All storage gates are closed; no live cooking.
 
 Acceptance: persist each furnace/smoker/blast-furnace's exact three slots, bounded
 progress and recipe-use counters inside the existing region container authority.
@@ -59,5 +59,11 @@ Both clients stopped143; regions/clock flushed, server89153 stopped0. Accepted
 `.local/client-tests/VMC-034e/report.md`; stopped audit,39 dataset-file/1,124 unchanged
 frozen-blob hashes `.local/cooking-entry-publication-proof.json`. The initial
 read-only observer was retried after its region loaded; no client/gameplay failure.
-The client gate is closed; do not repeat it. Only the isolated full native run
-remains before publication. No processor interaction or automatic cooking claim.
+The client gate is closed; do not repeat it. No processor interaction or automatic
+cooking claim.
+
+Full native integration, including both TCP transports, completed successfully
+on unchanged frozen2dbae91 (October18, `.local/cooking-entry-native-full.log`).
+All1,124 frozen blobs and the accepted storage/recovery/client evidence remain
+pinned in `.local/cooking-entry-publication-proof.json`; every E gate is closed.
+No live cooking/menu/XP claim. Do not repeat the accepted client gate.

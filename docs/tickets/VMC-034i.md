@@ -1,6 +1,6 @@
 # VMC-034i — External cooking-slot state transitions
 
-Status: Pure hook implemented; checkpoint baseline pending. No live caller.
+Status: Done within pure external-edit hook scope atc793348. Live menu admission belongs to VMC-034k.
 
 Acceptance: after an admitted menu slot edit, replacing/removing an input resets
 progress and computes the native contextual duration. Count-only edits preserve
@@ -30,6 +30,15 @@ existing cooking tick and click regressions. Invalid/oversized proposals refuse
 whole rather than discard items. Formatting passes. No production schedule,
 source/receipt mutation or XP/recipe-use effect exists in this slice.
 
-Frozenc793348 production passes(`.local/cooking-slot-edit-production.log`). A
-combined unused-foundation baseline will run on the later cooking transfer
-checkpoint; broader physical/menu integration continues on frozene9d7227.
+Frozenc793348 production passes(`.local/cooking-slot-edit-production.log`). The combined
+unused-foundation baseline passes at the later cooking transfer checkpoint;
+broader physical/menu integration continues on frozene9d7227.
+
+October18: accepted combined G/H/I/J actual26.3 baseline on frozen5105393.
+Actual ordinary chest deposit/withdraw restores exact slots/cursor; source18→20,
+typed20, independent item18 and storage23→25 remain consistent through fresh
+reconnect. Three occupied processor entries remain exact. Both clients stopped143;
+server20532 flushed/stopped0. Report `.local/client-tests/VMC-034j/report.md`,
+stopped audit `.local/cooking-transfer-final-audit.log`,1,149 unchanged frozen blobs
+and eight whole-dataset file hashes `.local/cooking-transfer-publication-proof.json`.
+This closes the unused-foundation baseline, not live cooking/menu/XP gameplay.
