@@ -100,7 +100,9 @@ own gates are closed. **Done within pure foundation scopes:**
 production and dedicated baseline/reconnect pass. Larger32bc5a1 adds1,547 full tests.
 [Cooking recipes](tickets/VMC-034c.md) now match14,922 native selections and
 44,766 speed contexts/7 affected checks; production/client baseline pending.
-These are unused foundations; live cooking remains next.
+[Progress transitions](tickets/VMC-034d.md) match2,880 native boundaries and
+12,750 multi-tick steps/11 affected checks; production/client baseline pending.
+These are unused foundations; durable region integration and menus remain next.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
