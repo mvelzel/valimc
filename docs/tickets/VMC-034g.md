@@ -26,3 +26,8 @@ bounds; no extra speed property. Raw `.local/cooking-menu-{native,comparison}.lo
 10 affected layout/storage checks pass(seed921657), including hidden inventory,
 invalid timer/slot shapes and progress wire bounds. Formatting passes. No live
 caller. Production/dedicated checkpoint baseline and integration remain pending.
+
+Frozene9d7227 coherent physical/menu block passes1,580 full tests and production
+(`.local/cooking-physical-menu-full-tests.log`, `.local/cooking-menu-production.log`).
+Full native integration is running against its unchanged checkpoint; dedicated
+baseline remains pending after VMC-034f feature acceptance.
