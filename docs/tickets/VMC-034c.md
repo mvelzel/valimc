@@ -1,7 +1,6 @@
 # VMC-034c — Stock cooking recipes
 
-Status: Pure indexed resolver implemented; production/client baseline pending.
-No live furnace processing.
+Status: Done within pure recipe resolver scope at32bc5a1. No live processing.
 
 Acceptance: indexed stock smelting/smoking/blasting selection, result components,
 base cooking time and float32 XP match actual pinned RecipeManager/assemble calls.
@@ -31,3 +30,14 @@ Seven affected checks pass(seed628797), including composition with atomic output
 refusal/consumption, cooking-kind exclusions, invalid input/context and unsupported
 speed (`.local/cooking-recipes-targeted.log`). Changed formatting/Python compilation
 and public audit pass; production and dedicated baseline remain pending.
+
+
+October18 frozen32bc5a1 passes1,547 full tests, production and dedicated baseline:
+two actual fresh direct joins, native empty chest/HUD/lid open/close and reconnect
+retain every quantity/component and source110/typed109/item110+61/storage30. No
+packet errors or gameplay edits. Both clients stopped143; regions/clock flushed,
+server29174 stopped0. Accepted `.local/client-tests/VMC-034c/report.md`;39 stopped
+dataset-file/1,115 unchanged frozen-blob hashes and audit
+`.local/cooking-recipes-publication-proof.json`. Parent full native/both TCP and
+current targeted recipe probes pass. All unused-foundation gates are closed;
+do not repeat this baseline. Actual smelting and XP awards remain future work.

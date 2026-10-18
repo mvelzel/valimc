@@ -83,23 +83,17 @@ production/both TCP and actual model rendering/journal recovery/fresh reconnect.
 matched idle-component measurements and dedicated actual exchanges/shared lids/
 fresh snapshots/reconnect pass. Source/typed79, item receipts67+61 and seven planks
 remain consistent. Broader gestures remain separate.
-**Implementing:** [physical chest lifecycle](tickets/VMC-032a10.md). Placement,
-metadata and scattering kernels at083c7bd pass32 affected checks, targeted native
-probes, frozen production and actual baseline;
-empty physical checkpoint6bda186 is validated/published after1,525 full tests,
-production/native TCP and actual placement/mine/pickup/reconnect. Region-owned
-atomic contents spill atd70ef58 passes84 affected/1,535 corrected full tests and
-production and actual survival/creative contents release, exact pickup and fresh
-reconnect. The full native integration check is the only remaining publication
-gate. [Chest sounds](tickets/VMC-032a11.md), runtimebd727ca, pass512 native pitches/
-40 packet bodies,34 affected/1,540 full checks, production/both native TCP and
-dedicated muted menu/lid/reconnect acceptance. Audible playback is untested; all
-own gates are closed. **Done within pure foundation scopes:**
-[furnace fuel](tickets/VMC-034a.md) at e219f43 and
-[atomic furnace items](tickets/VMC-034b.md) at372acd0: native cases, affected tests,
-production and dedicated baseline/reconnect pass. Larger32bc5a1 adds1,547 full tests.
-[Cooking recipes](tickets/VMC-034c.md) now match14,922 native selections and
-44,766 speed contexts/7 affected checks; production/client baseline pending.
+**Done within ordinary isolated single-chest scope:** [physical lifecycle](tickets/VMC-032a10.md),
+kernels083c7bd / empty6bda186 / filledd70ef58: native probes, recovery boundaries,
+1,535 full tests, production/full native integration/both TCP and actual survival/
+creative contents release/pickup/reconnect pass. [Chest sounds](tickets/VMC-032a11.md)
+atbd727ca pass native pitch/packet/range,34 affected/1,540 full checks, production/
+both TCP and dedicated muted interoperability. Published through372acd0; audible
+playback is untested. These gates are closed.
+**Done within unused foundation scopes:** [fuel](tickets/VMC-034a.md) e219f43,
+[atomic slots](tickets/VMC-034b.md)372acd0 and [recipes](tickets/VMC-034c.md)32bc5a1.
+Native probes, affected/1,547 full tests, production and dedicated baseline/reconnect
+pass. No live cooking claim.
 [Progress transitions](tickets/VMC-034d.md) match2,880 native boundaries and
 12,750 multi-tick steps/11 affected checks; production/client baseline pending.
 These are unused foundations; durable region integration and menus remain next.

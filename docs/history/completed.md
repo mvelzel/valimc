@@ -5,6 +5,9 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-032a10 physical chests](../tickets/VMC-032a10.md) | `6bda186`/`d70ef58`: isolated dry/wet/both-hand placement, atomic contents release, recovery/refusal, full tests/native integration/production and actual survival/creative pickup/reconnect |
+| [VMC-032a11 chest sounds](../tickets/VMC-032a11.md) | `bd727ca`: native pitch/packet/range and first/last bounded delivery; full tests/production/TCP and muted actual menu/lid/reconnect; audible playback untested |
+| [VMC-034a fuel](../tickets/VMC-034a.md) / [034b slots](../tickets/VMC-034b.md) / [034c recipes](../tickets/VMC-034c.md) | `e219f43`/`372acd0`/`32bc5a1`: pure native-matching foundations,1,547 full tests, production and dedicated baselines; no live cooking |
 | [VMC-032a9 ordinary chest menus](../tickets/VMC-032a9.md) | `8503ab6` exchanges / `6eda1cd` bounded viewers and lids:1,503 full tests, production/native TCP, parent full native integration, matched idle-component measurements and actual exchanges/shared lids/fresh snapshots/reconnect; physical lifecycle remains open |
 | [VMC-032a9a chest viewing](../tickets/VMC-032a9a.md) | `7542f0a`:53 affected checks/native menu/prediction/offhand codecs, production and actual opening/refused gestures/offhand correction while open/close/fresh reconnect; exchanges remain separate |
 | [VMC-032a8 chest presentation](../tickets/VMC-032a8.md) | `efa821d`:33 affected/1,471 full tests,64 native codecs/two complete chunks, production/both TCP and actual model rendering/fixture WAL recovery/fresh reconnect; live opening remains open |
