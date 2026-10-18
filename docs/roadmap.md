@@ -86,7 +86,8 @@ remain consistent. Broader gestures remain separate.
 **Implementing:** [physical chest lifecycle](tickets/VMC-032a10.md). Placement,
 metadata and scattering kernels at083c7bd pass32 affected checks, targeted native
 probes, frozen production and actual baseline;
-joint runtime writes/spills and feature-client acceptance remain pending.
+local joint-metadata integration passes45 affected checks. Creative/admission/spill
+composition and physical feature-client acceptance remain pending.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

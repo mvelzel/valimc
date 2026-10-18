@@ -12,6 +12,8 @@ defmodule Valimc.PlacementRegionTest do
     Store
   }
 
+  @chest hd(JSON.decode!(File.read!("priv/protocol/chest_states.json"))["single_states"])
+
   setup do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-placement-region-#{nonce}")
@@ -109,6 +111,72 @@ defmodule Valimc.PlacementRegionTest do
       if Process.alive?(writer), do: :sys.resume(writer)
       Task.shutdown(task, :brutal_kill)
     end
+  end
+
+  test "a chest's block, empty contents and receipt publish together and remove together after restart",
+       ctx do
+    request = %{ctx.transfer | edits: %{ctx.position => @chest}}
+    writer = :sys.get_state(ctx.pid).resource.store
+    :sys.suspend(writer)
+    task = Task.async(fn -> Region.apply_placement_transfer(ctx.owner, request) end)
+
+    try do
+      pending = writing(ctx.pid)
+      assert pending.containers.entries[ctx.position].rows == 3
+      assert :sys.get_state(ctx.pid).resource.containers.entries == %{}
+      assert World.get_block(ctx.position) == 0
+      assert Task.yield(task, 10) == nil
+      :sys.resume(writer)
+      assert {:ok, :applied} = Task.await(task)
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+      Task.shutdown(task, :brutal_kill)
+    end
+
+    path = Store.container_path(ctx.base, ctx.key)
+    {:ok, containers} = Valimc.World.Containers.decode(File.read!(path), ctx.key)
+    assert containers.entries[ctx.position].slots == Tuple.duplicate(nil, 27)
+    assert containers.sequence == 1 and containers.receipts == %{}
+    assert World.get_block(ctx.position) == @chest
+    receipt(ctx, ctx.owner, request, :applied)
+    :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid)
+    {:ok, owner} = World.item_owner(ctx.key)
+    assert {:ok, :already_applied} = Region.apply_placement_transfer(owner, request)
+    assert :sys.get_state(elem(owner, 0)).resource.containers == containers
+    {:ok, reserved} = Region.reserve_mining(owner, [ctx.position])
+    removal = Map.merge(reserved, %{source: request.source, sequence: 2, records: []})
+    assert {:ok, :applied} = Region.apply_mining_transfer(owner, removal)
+    assert World.get_block(ctx.position) == Valimc.Physics.FluidBlocks.after_removal(@chest)
+    {:ok, removed} = Valimc.World.Containers.decode(File.read!(path), ctx.key)
+    assert removed.entries == %{} and removed.sequence == 2 and removed.receipts == %{}
+    assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, removal)
+    assert File.regular?(path) and not File.exists?(Store.mining_path(ctx.base, ctx.key))
+  end
+
+  test "a chest metadata-file failure recovers the whole joint proposal before retry", ctx do
+    request = %{ctx.transfer | edits: %{ctx.position => @chest}}
+    path = Store.container_path(ctx.base, ctx.key)
+    File.mkdir_p!(path)
+    monitor = Process.monitor(ctx.pid)
+
+    capture_log(fn ->
+      assert {:error, :mining_commit_uncertain} =
+               Region.apply_placement_transfer(ctx.owner, request)
+
+      assert_receive {:DOWN, ^monitor, :process, _, _}, 1000
+    end)
+
+    assert File.regular?(Store.mining_path(ctx.base, ctx.key))
+    File.rmdir!(path)
+    {:ok, owner} = World.item_owner(ctx.key)
+    assert {:ok, :already_applied} = Region.apply_placement_transfer(owner, request)
+    assert World.get_block(ctx.position) == @chest
+    {:ok, containers} = Valimc.World.Containers.decode(File.read!(path), ctx.key)
+    assert containers.entries[ctx.position].slots == Tuple.duplicate(nil, 27)
+    assert containers.sequence == 1 and containers.receipts == %{}
+    assert :sys.get_state(elem(owner, 0)).resource.containers == containers
+    assert not File.exists?(Store.mining_path(ctx.base, ctx.key))
+    receipt(ctx, owner, request, :applied)
   end
 
   test "unrelated edits preserve permits; target ABA, release and changed context reject durably",

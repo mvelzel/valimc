@@ -157,9 +157,11 @@ defmodule Valimc.MiningRegionTest do
       for request <- [ctx.transfer, second],
           do: Task.async(fn -> Region.apply_mining_transfer(ctx.owner, request) end)
 
+    initial = Enum.map(tasks, &Task.await/1)
+
     results =
-      for {task, request} <- Enum.zip(tasks, [ctx.transfer, second]) do
-        case Task.await(task) do
+      for {result, request} <- Enum.zip(initial, [ctx.transfer, second]) do
+        case result do
           {:error, :item_storage_busy} -> Region.apply_mining_transfer(ctx.owner, request)
           result -> result
         end

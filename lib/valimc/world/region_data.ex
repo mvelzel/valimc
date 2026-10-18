@@ -7,6 +7,7 @@ defmodule Valimc.World.RegionData do
     ContainerTransfers,
     ContainerPermits,
     ContainerViewers,
+    ContainerLifecycle,
     ColumnIndex,
     Items,
     ItemHandoffs,
@@ -1492,6 +1493,7 @@ defmodule Valimc.World.RegionData do
     token = make_ref()
     items = state.items
     receipts = state.item_receipts
+    containers = state.containers
     key = state.key
     eligible = permit_matches?(state, kind, transfer)
     module = transfer_module(kind)
@@ -1511,8 +1513,14 @@ defmodule Valimc.World.RegionData do
                      end)
                    end
 
-                 with {:ok, batch} <- BlockBatch.prepare(changes),
-                      do: {:ok, Map.put(plan, :batch, batch)}
+                 with {:ok, batch} <- BlockBatch.prepare(changes) do
+                   plan = Map.put(plan, :batch, batch)
+
+                   case block_container_metadata(plan, containers, key) do
+                     {:ok, plan} -> {:ok, plan}
+                     {:error, _} -> {:ok, module.reject(plan, items, receipts)}
+                   end
+                 end
                else
                  {:ok, plan}
                end
@@ -1538,6 +1546,35 @@ defmodule Valimc.World.RegionData do
 
       {:error, reason} ->
         {:reply, {:error, {:item_worker_failed, reason}}, state}
+    end
+  end
+
+  defp block_container_metadata(plan, containers, key) do
+    expected = Map.take(plan.expected, Map.keys(plan.batch.edits))
+
+    affected =
+      Enum.any?(plan.batch.edits, fn {position, block} ->
+        Map.has_key?(containers.entries, position) or Valimc.ChestAccess.single?(block) or
+          Valimc.ChestAccess.single?(expected[position])
+      end)
+
+    if affected do
+      with {:ok, change} <- ContainerLifecycle.plan(containers, key, expected, plan.batch.edits),
+           true <-
+             Enum.all?(change.removed, fn %{entry: entry} ->
+               entry.slots |> Tuple.to_list() |> Enum.all?(&is_nil/1)
+             end) do
+        {:ok,
+         if(change.containers == containers,
+           do: plan,
+           else: Map.put(plan, :containers, change.containers)
+         )}
+      else
+        false -> {:error, :occupied_container}
+        error -> error
+      end
+    else
+      {:ok, plan}
     end
   end
 
@@ -1626,15 +1663,22 @@ defmodule Valimc.World.RegionData do
           {:ok, proposal} ->
             token = make_ref()
 
+            snapshot = %{
+              edits: proposal.edits,
+              changes: plan.batch.edits,
+              items: plan.items,
+              receipts: plan.receipts
+            }
+
+            snapshot =
+              if plan[:containers],
+                do: Map.put(snapshot, :containers, plan.containers),
+                else: snapshot
+
             Store.commit_mining(
               state.store,
               state.store_lease,
-              %{
-                edits: proposal.edits,
-                changes: plan.batch.edits,
-                items: plan.items,
-                receipts: plan.receipts
-              },
+              snapshot,
               {self(), state.items.epoch},
               token
             )
@@ -1650,6 +1694,11 @@ defmodule Valimc.World.RegionData do
               items: plan.items,
               receipts: plan.receipts
             }
+
+            writing =
+              if plan[:containers],
+                do: Map.put(writing, :containers, plan.containers),
+                else: writing
 
             {:noreply, %{state | item_pending: writing}}
 
@@ -2062,6 +2111,7 @@ defmodule Valimc.World.RegionData do
        next
        | items: pending.items,
          item_receipts: pending.receipts,
+         containers: Map.get(pending, :containers, state.containers),
          item_pending: nil,
          item_saved_generation: state.item_motion_generation
      }}
