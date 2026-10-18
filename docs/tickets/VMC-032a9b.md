@@ -1,6 +1,6 @@
 # VMC-032a9b — Durable ordinary chest exchanges
 
-Status: Automated verified; production/native integration and client gate pending. Depends on checked source,
+Status: Actual-client/full-test/production gates pass; full native integration pending. Depends on checked source,
 region admission/receipt and joint-storage foundations; viewing has its own
 [client gate](VMC-032a9a.md).
 
@@ -47,3 +47,17 @@ durable mining rejection/replay with no drops. Same-state edits and unrelated/em
 containers retain their existing paths. Raw `.local/chest-occupied-guard-targeted-final.log`.
 Native ordinary click semantics remain the23,040-case VMC-032a2 kernel; this slice
 changes ownership/composition rather than inventing another click algorithm.
+
+Frozen8503ab6 passes1,491 full tests and production build. Dedicated actual-client
+validation passes pickup/deposit/split/merge/shift/number/offhand, clone/drop
+refusals, occupied mutation refusal and cursor return/fresh reconnect. Exactly12
+accepted changes move source67→79 and typed receipt63→79; storage revision1→11,
+ending empty with all seven planks in player slot36. Item receipts67+61 remain
+unchanged. Immediate cursor-close disk checkpoint still held cursor7; clean logout
+saved the returned slot and fresh reconnect retained it. No new transfer was
+allocated for close cleanup. Both wrappers stopped; zero players/connections,
+all regions/clock flushed and server stopped0. Whole stopped dataset audit passes:
+source79/outboxnil, typed79, entry11/27nil, items67+61,12HP/no effects, original
+chest/table/incidental plank retained. Raw `.local/client-tests/VMC-032a9b/report.md`,
+`.local/chest-exchange-final-audit.log`, full-test/production logs. Full native
+integration is still running against the frozen checkpoint; this gate stays open.
