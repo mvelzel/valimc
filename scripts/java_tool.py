@@ -46,7 +46,7 @@ if name in ('ChestBlockEntityOracle', 'ChestOpeningOracle', 'ChestViewOracle', '
     sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
 if name == 'ChestSoundOracle':
     sources += [str(root / 'scripts' / (source + '.java')) for source in ('ChestViewOracle', 'MiningToolOracle')]
-if name == 'CookingFuelOracle':
+if name in ('CookingFuelOracle', 'CookingItemsOracle'):
     sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
 if name in ('CraftingBulkOracle', 'RemainderCraftingOracle'):
     sources.append(str(root / 'scripts' / 'TableMenuClickOracle.java'))
