@@ -165,12 +165,12 @@ defmodule Valimc.CookingBatchTest do
     assert {:error, :invalid_cooking_batch} =
              CookingBatch.plan(containers, items, @key, %{{5, 64, 4} => block})
 
-    too_many = Map.new(1..65, &{{&1, 64, 4}, block})
+    too_many = Map.new(1..(CookingBatch.limit() + 1), &{{&1, 64, 4}, block})
     assert {:error, :invalid_cooking_batch} = CookingBatch.plan(containers, items, @key, too_many)
     assert {:error, _} = CookingBatch.plan(containers, items, {1, 0}, %{@position => block})
   end
 
-  test "a full quantum composes independent completions in deterministic content revision order" do
+  test "a multi-entry batch composes completions in deterministic content revision order" do
     {:ok, block} = CookingBlocks.placement(:furnace, 0.0)
     {:ok, lit} = CookingBlocks.lit(block, true)
 
@@ -207,5 +207,36 @@ defmodule Valimc.CookingBatchTest do
     {:ok, bytes} = Containers.encode(@key, result.containers)
     assert {:ok, same} = Containers.decode(bytes, @key)
     assert same == result.containers
+  end
+
+  test "one bounded logical step covers the full region capacity without invalidating item revisions" do
+    {:ok, block} = CookingBlocks.placement(:furnace, 0.0)
+    {:ok, lit} = CookingBlocks.lit(block, true)
+
+    {containers, blocks} =
+      Enum.reduce(0..1023, {%Containers{}, %{}}, fn n, {containers, blocks} ->
+        position = {rem(n, 128), 64, div(n, 128)}
+        {:ok, containers, entry} = Containers.create_cooking(containers, @key, position, :furnace)
+
+        {:ok, containers, _} =
+          Containers.replace_cooking(
+            containers,
+            position,
+            entry.revision,
+            %Cooking{burn_left: 20, burn_total: 100},
+            %{}
+          )
+
+        {containers, Map.put(blocks, position, lit)}
+      end)
+
+    {:ok, plan} = CookingBatch.plan(containers, Items.new(), @key, blocks)
+    assert length(plan.changed) == 1024 and plan.refused == %{} and plan.changes == %{}
+    assert plan.containers.sequence == containers.sequence
+
+    for {position, entry} <- plan.containers.entries do
+      assert entry.revision == containers.entries[position].revision
+      assert entry.cooking.burn_left == 19
+    end
   end
 end

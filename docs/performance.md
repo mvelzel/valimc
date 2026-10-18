@@ -1,5 +1,10 @@
 # Measured prototype behavior
 
+October18 [cooking planning](tickets/VMC-034m.md): identical1,024-processor steps,
+100 alternating samples, tiled64 p50/p95=81.762/118.045ms; one1,024-entry proposal
+9.117/13.789ms. Pure planner only; disk/publication/player simulation excluded.
+Raw workloads/revisions and host-load limits live in the ticket.
+
 October16 contact-hazard comparison: matched128-player static-water samples and
 the512-player reverse pair pass; the initial512 baseline has469 movement corrections.
 [VMC-017b5](tickets/VMC-017b5.md) records all six samples and limits. The existing

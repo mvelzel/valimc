@@ -3,7 +3,7 @@ defmodule Valimc.World.CookingBatch do
   alias Valimc.Cooking
   alias Valimc.Physics.CookingBlocks
   alias Valimc.World.{Containers, ContainerSpills, CookingEntry, Items}
-  @limit 64
+  @limit 1024
   def limit, do: @limit
 
   def plan(%Containers{} = containers, %Items{} = items, key, blocks)

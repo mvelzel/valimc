@@ -1,8 +1,8 @@
 # VMC-034l — Atomic owned cooking batches
 
-Status: Implementing; unused kernel after live menus VMC-034k.
+Status: Kernel implemented atc10988f; combined production/client gate pending.
 
-Acceptance: one bounded proposal advances up to64 owned furnace-family entries,
+Acceptance: one bounded proposal advances owned furnace-family entries,
 retains all receipts and joins fuel consumption/remainders, input/output, recipe
 uses and facing-preserving lit changes. A capacity/unsupported-context refusal
 keeps that entire processor unchanged without stopping unrelated entries.
@@ -39,3 +39,5 @@ scatter and existing journal recovery. The writer's cooking fixture now uses the
 actual batch plan; all eight partial block/item/container output subsets retain
 recipe use43 and exactly one bucket without altering independent receipts.
 No live caller or scheduling claim; production and combined client gate pending.
+VMC-034m raises the quantum from64 to the1,024-entry storage bound after measuring
+repeated whole-snapshot overhead; the native transition behavior is unchanged.
