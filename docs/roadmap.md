@@ -70,8 +70,10 @@ production/full native integration/both TCP and dedicated actual-client acceptan
 [admitted exchanges](tickets/VMC-032a6.md), through4be2f22. These pass37/68/49/88
 affected checks,1,464 full tests, production, parent full native/current both TCP
 transports and dedicated baseline/pending-intent recovery/fresh reconnect.
-**Implementing:** [atomic block/container storage](tickets/VMC-032a7.md) passes117
-affected checks; frozen production/ordinary placement-mining-reconnect gate follows.
+**Done within storage scope:** [joint block/container journal](tickets/VMC-032a7.md)
+atb297d87:117 affected checks, production/both native TCP and actual ordinary
+survival place/mine/pickup/reconnect; source66 and separate typed receipt63 retained.
+**Implementing:** [chest block-entity presentation](tickets/VMC-032a8.md).
 Physical lifecycle, opening and viewer replication remain before live chest UI.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
