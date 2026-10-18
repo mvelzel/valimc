@@ -998,7 +998,8 @@ defmodule Valimc.World.RegionData do
     block = Chunk.block_at(state.edits, position)
     replacement = Valimc.Physics.FluidBlocks.after_removal(block)
 
-    if Valimc.ChestAccess.single?(block) and Map.has_key?(state.containers.entries, position) do
+    if (Valimc.ChestAccess.single?(block) or Valimc.Physics.CookingBlocks.kind(block) != nil) and
+         Map.has_key?(state.containers.entries, position) do
       if state.item_pending != nil do
         {:reply, {:error, :item_storage_busy}, state}
       else
@@ -1609,7 +1610,9 @@ defmodule Valimc.World.RegionData do
   defp container_metadata_affected?(containers, expected, edits) do
     Enum.any?(edits, fn {position, block} ->
       Map.has_key?(containers.entries, position) or Valimc.ChestAccess.single?(block) or
-        Valimc.ChestAccess.single?(expected[position])
+        Valimc.ChestAccess.single?(expected[position]) or
+        Valimc.Physics.CookingBlocks.kind(block) != nil or
+        Valimc.Physics.CookingBlocks.kind(expected[position]) != nil
     end)
   end
 
@@ -1719,9 +1722,13 @@ defmodule Valimc.World.RegionData do
 
     Enum.any?(changes, fn {position, block} ->
       case state.containers.entries[position] do
-        %{cooking: _} ->
-          # Cooking metadata has no admitted removal/spill protocol yet.
-          block != Chunk.block_at(state.edits, position)
+        %{cooking: _} = entry ->
+          original = Chunk.block_at(state.edits, position)
+
+          block != original and
+            not (retired[position] == entry and Valimc.World.CookingEntry.empty?(entry) and
+                   Valimc.Physics.CookingBlocks.kind(original) == entry.kind and
+                   Valimc.Physics.CookingBlocks.kind(block) != entry.kind)
 
         %{slots: slots} = entry ->
           block != Chunk.block_at(state.edits, position) and

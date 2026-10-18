@@ -103,6 +103,9 @@ snapshots retain old bytes/receipts and pass targeted codec, cold-owner and all
 eight joint-write recovery boundaries.1,556 full tests/production and dedicated
 mixed-snapshot rendering/chest/reconnect acceptance pass; only full native
 integration remains before publication.
+**Implementing:** [empty processor lifecycle](tickets/VMC-034f.md): native facing/
+loot and73 affected checks pass for furnace/smoker/blast placement/mining/removal;
+production/TCP/actual feature validation pending. Menus and live cooking remain.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

@@ -1,8 +1,9 @@
 defmodule Valimc.World.ContainerLifecycle do
-  @moduledoc "Pure owner-local ordinary chest metadata proposal. Every removed entry must be spilled in the same joint block/item/container commit."
+  @moduledoc "Pure owner-local chest and empty cooking-block metadata proposal. Every removed entry must be spilled in the same joint block/item/container commit."
   alias Valimc.{ChestAccess, World}
   alias Valimc.Protocol.Data
-  alias Valimc.World.{Chunk, Containers}
+  alias Valimc.Physics.CookingBlocks
+  alias Valimc.World.{Chunk, Containers, CookingEntry}
   @path Path.expand("../../../priv/protocol/chest_states.json", __DIR__)
   @external_resource @path
   @double JSON.decode!(File.read!(@path))["states"]
@@ -44,27 +45,30 @@ defmodule Valimc.World.ContainerLifecycle do
     |> Enum.sort()
     |> Enum.reduce_while({:ok, containers, []}, fn {position, replacement},
                                                    {:ok, current, removed} ->
-      case {ChestAccess.single?(expected[position]), current.entries[position]} do
-        {true, %{rows: 3, slots: slots} = entry} when tuple_size(slots) == 27 ->
-          if ChestAccess.single?(replacement) do
-            {:cont, {:ok, current, removed}}
-          else
-            case Containers.remove(current, position, entry.revision) do
-              {:ok, next, ^entry} ->
-                {:cont, {:ok, next, [%{position: position, entry: entry} | removed]}}
+      case {kind(expected[position]), current.entries[position]} do
+        {:chest, %{rows: 3, slots: slots} = entry} when tuple_size(slots) == 27 ->
+          if kind(replacement) == :chest,
+            do: {:cont, {:ok, current, removed}},
+            else: retire_entry(current, position, entry, removed)
 
-              error ->
-                {:halt, error}
-            end
-          end
-
-        {true, _} ->
+        {:chest, _} ->
           {:halt, {:error, :missing_or_invalid_chest}}
 
-        {false, nil} ->
+        {original, %{kind: original, cooking: _} = entry}
+        when original in [:furnace, :smoker, :blast_furnace] ->
+          cond do
+            kind(replacement) == original -> {:cont, {:ok, current, removed}}
+            not CookingEntry.empty?(entry) -> {:halt, {:error, :occupied_cooking_entry}}
+            true -> retire_entry(current, position, entry, removed)
+          end
+
+        {original, _} when original in [:furnace, :smoker, :blast_furnace] ->
+          {:halt, {:error, :missing_or_invalid_cooking_entry}}
+
+        {nil, nil} ->
           {:cont, {:ok, current, removed}}
 
-        {false, _} ->
+        {nil, _} ->
           {:halt, {:error, :unexpected_container}}
       end
     end)
@@ -79,8 +83,15 @@ defmodule Valimc.World.ContainerLifecycle do
     edits
     |> Enum.sort()
     |> Enum.reduce_while({:ok, containers}, fn {position, replacement}, {:ok, current} ->
-      if ChestAccess.single?(replacement) and not ChestAccess.single?(expected[position]) do
-        case Containers.create(current, key, position, 3) do
+      next_kind = kind(replacement)
+
+      if next_kind != nil and next_kind != kind(expected[position]) do
+        result =
+          if next_kind == :chest,
+            do: Containers.create(current, key, position, 3),
+            else: Containers.create_cooking(current, key, position, next_kind)
+
+        case result do
           {:ok, next, _} -> {:cont, {:ok, next}}
           error -> {:halt, error}
         end
@@ -88,5 +99,15 @@ defmodule Valimc.World.ContainerLifecycle do
         {:cont, {:ok, current}}
       end
     end)
+  end
+
+  defp kind(state),
+    do: if(ChestAccess.single?(state), do: :chest, else: CookingBlocks.kind(state))
+
+  defp retire_entry(current, position, entry, removed) do
+    case Containers.remove(current, position, entry.revision) do
+      {:ok, next, ^entry} -> {:cont, {:ok, next, [%{position: position, entry: entry} | removed]}}
+      error -> {:halt, error}
+    end
   end
 end

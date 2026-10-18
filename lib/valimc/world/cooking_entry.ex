@@ -14,6 +14,14 @@ defmodule Valimc.World.CookingEntry do
   def new(kind) when kind in @kinds, do: {:ok, %{kind: kind, cooking: %Cooking{}, recipes: %{}}}
   def new(_), do: invalid()
 
+  def empty?(%{
+        cooking: %Cooking{slots: {nil, nil, nil}, burn_left: 0, progress: 0},
+        recipes: recipes
+      })
+      when is_map(recipes) and map_size(recipes) == 0, do: true
+
+  def empty?(_), do: false
+
   def encode(%{kind: kind, revision: revision, cooking: cooking, recipes: recipes} = entry)
       when map_size(entry) == 4 and kind in @kinds and is_integer(revision) and
              revision in 1..18_446_744_073_709_551_615 and is_map(recipes) and

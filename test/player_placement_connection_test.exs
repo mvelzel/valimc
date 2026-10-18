@@ -225,6 +225,107 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     end
   end
 
+  for kind <- [:furnace, :smoker, :blast_furnace], mode <- [:survival, :creative] do
+    main_count = if mode == :survival, do: 1, else: 2
+    off_count = if mode == :survival, do: 2, else: 3
+    sequence = if mode == :survival, do: 2, else: 0
+
+    test "#{mode} #{kind} packet placement owns empty state and preserves both hands through reconnect",
+         c do
+      kind = unquote(kind)
+      mode = unquote(mode)
+      name = Atom.to_string(kind)
+      c = %{c | pose: %{c.pose | yaw: 90.0}}
+      seed(c, mode, %{36 => ItemStack.new(name, 2), 45 => ItemStack.new(name, 3)})
+      {client, pid} = login(c)
+      send_place(client, c.target)
+      client = ack(client)
+      {:ok, block} = Valimc.Physics.CookingBlocks.placement(kind, 90.0)
+      assert World.get_block(c.target) == block
+      expected_main = ItemStack.new(name, unquote(main_count))
+      assert :sys.get_state(pid).inventory.slots[36] == expected_main
+      {x, y, z} = c.target
+      other = {x - 1, y, z}
+      send_place(client, other, 1, 0.5, 1, 2)
+      client = ack(client, 2)
+      assert World.get_block(other) == block
+      expected_off = ItemStack.new(name, unquote(off_count))
+      assert :sys.get_state(pid).inventory.slots[45] == expected_off
+      Client.close(client)
+
+      wait(fn ->
+        not Process.alive?(pid) and Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == []
+      end)
+
+      {_fresh, fresh_pid} = login(c)
+      assert :sys.get_state(fresh_pid).inventory.slots[36] == expected_main
+      assert :sys.get_state(fresh_pid).inventory.slots[45] == expected_off
+      expected_sequence = unquote(sequence)
+      assert saved(c).transfer_sequence == expected_sequence and saved(c).outbox == nil
+      {:ok, {region, _}} = World.existing_owner(c.key)
+      containers = :sys.get_state(region).resource.containers
+      assert containers.sequence == 2 and containers.receipts == %{}
+
+      for position <- [c.target, other] do
+        assert containers.entries[position].kind == kind
+        assert Valimc.World.CookingEntry.empty?(containers.entries[position])
+      end
+
+      assert World.item_snapshot(c.key) == %{}
+    end
+  end
+
+  for kind <- [:furnace, :smoker, :blast_furnace] do
+    test "named #{kind} refuses without source consumption in both modes", c do
+      name = Atom.to_string(unquote(kind))
+
+      named = %{
+        ItemStack.new(name, 2)
+        | components: %{"minecraft:custom_name" => {:string, "Named"}}
+      }
+
+      for mode <- [:creative, :survival] do
+        seed(c, mode, %{36 => named})
+        {client, pid} = login(c)
+        send_place(client, c.target)
+        _client = ack(client)
+        assert World.get_block(c.target) == 0
+        assert :sys.get_state(pid).inventory.slots[36] == named
+        assert :sys.get_state(:sys.get_state(pid).player_store).snapshot.transfer_sequence == 0
+        Client.close(client)
+
+        wait(fn ->
+          not Process.alive?(pid) and Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == []
+        end)
+      end
+    end
+
+    test "creative #{kind} destruction retires empty state without block loot or stock consumption",
+         c do
+      kind = unquote(kind)
+      name = Atom.to_string(kind)
+      seed(c, :creative, %{36 => ItemStack.new(name, 2)})
+      {client, pid} = login(c)
+      send_place(client, c.target)
+      client = ack(client)
+
+      Client.send_packet(client, :play, "player_action", [
+        Wire.varint(0),
+        Wire.position(c.target),
+        <<1>>,
+        Wire.varint(2)
+      ])
+
+      _client = ack(client, 2)
+      assert World.get_block(c.target) == 0
+      assert :sys.get_state(pid).inventory.slots[36] == ItemStack.new(name, 2)
+      {:ok, {region, _}} = World.existing_owner(c.key)
+      containers = :sys.get_state(region).resource.containers
+      assert containers.entries == %{} and containers.sequence == 2 and containers.receipts == %{}
+      assert World.item_snapshot(c.key) == %{}
+    end
+  end
+
   test "body obstruction and occupied adjacency correct predictions without overwriting", c do
     seed(c)
     {client, _pid} = login(c)

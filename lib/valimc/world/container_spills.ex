@@ -2,12 +2,23 @@ defmodule Valimc.World.ContainerSpills do
   @moduledoc "Bounded region-owned stored-stack release. Only the enclosing joint journal publishes the returned item proposal."
   alias Valimc.ItemMotionState
   alias Valimc.Physics.ContainerScatter
-  alias Valimc.World.Items
+  alias Valimc.World.{CookingEntry, Items}
 
   def add(items, key, removed) do
     Enum.reduce_while(removed, {:ok, items}, fn %{position: position, entry: entry},
                                                 {:ok, current} ->
-      case release(current, key, position, Tuple.to_list(entry.slots)) do
+      result =
+        case entry do
+          %{slots: slots} ->
+            release(current, key, position, Tuple.to_list(slots))
+
+          %{cooking: _} ->
+            if CookingEntry.empty?(entry),
+              do: {:ok, current},
+              else: {:error, :occupied_cooking_entry}
+        end
+
+      case result do
         {:ok, next} -> {:cont, {:ok, next}}
         error -> {:halt, error}
       end

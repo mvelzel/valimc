@@ -4008,6 +4008,7 @@ defmodule Valimc.Connection do
     supported =
       block in @basic_mining or
         ChestAccess.single?(block) or
+        Valimc.Physics.CookingBlocks.kind(block) != nil or
         Valimc.Physics.MiningLoot.ordinary_mining?(block) or
         Valimc.Physics.RandomMiningLoot.supported?(block) or
         MapSet.member?(@slab_blocks, Valimc.Physics.MiningTools.block_id(block))
@@ -5033,11 +5034,7 @@ defmodule Valimc.Connection do
       cond do
         Valimc.Physics.Placement.supported_stack?(stack) ->
           %{
-            request:
-              if(stack.item_id == Data.item("chest"),
-                do: Map.put(request, :yaw, state.player.yaw),
-                else: request
-              ),
+            request: Map.put(request, :yaw, state.player.yaw),
             item: stack.item_id,
             stack: stack,
             slot: if(request.hand == :off, do: 45, else: 36 + state.inventory.selected),

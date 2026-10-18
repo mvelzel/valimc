@@ -528,6 +528,102 @@ defmodule Valimc.PlayerMiningConnectionTest do
     assert drops(ctx) == [ItemStack.new("chest")]
   end
 
+  for kind <- [:furnace, :smoker, :blast_furnace] do
+    test "empty #{kind} TCP mining retires metadata and releases exactly its stock block", ctx do
+      kind = unquote(kind)
+
+      tool = %{
+        ItemStack.new("diamond_pickaxe")
+        | components: %{"minecraft:enchantments" => %{"minecraft:efficiency" => 255}}
+      }
+
+      seed(ctx, %{36 => tool}, 0)
+      {:ok, owner} = World.owner(ctx.key)
+      {:ok, observed} = Valimc.World.Region.observe_blocks(owner, [ctx.target])
+      {:ok, block} = Valimc.Physics.CookingBlocks.placement(kind, 0.0)
+      {:ok, batch} = Valimc.World.BlockBatch.prepare(%{ctx.target => block})
+
+      assert {:ok, _} =
+               Valimc.World.Region.place_block(
+                 owner,
+                 observed.revision,
+                 batch,
+                 System.monotonic_time(:millisecond) + 250
+               )
+
+      {client, pid} = login(ctx)
+      action(client, "start_destroy_block", ctx.target, 1)
+      wait(fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
+      assert drops(ctx) == [ItemStack.new(Atom.to_string(kind))]
+      assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
+      assert Inventory.held(state(pid).inventory, :main).components["minecraft:damage"] == 1
+
+      {:ok, containers} =
+        Valimc.World.Containers.decode(
+          File.read!(Valimc.World.Store.container_path(ctx.base, ctx.key)),
+          ctx.key
+        )
+
+      assert containers.entries == %{} and containers.sequence == 2 and containers.receipts == %{}
+      Client.close(client)
+      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+      {_fresh, fresh_pid} = login(ctx)
+      assert Inventory.held(state(fresh_pid).inventory, :main).components["minecraft:damage"] == 1
+      assert drops(ctx) == [ItemStack.new(Atom.to_string(kind))]
+    end
+  end
+
+  for kind <- [:furnace, :smoker, :blast_furnace] do
+    test "occupied #{kind} TCP mining rejects durably without wearing tools or releasing contents",
+         ctx do
+      alias Valimc.World.{Containers, Store}
+      kind = unquote(kind)
+
+      tool = %{
+        ItemStack.new("diamond_pickaxe")
+        | components: %{"minecraft:enchantments" => %{"minecraft:efficiency" => 255}}
+      }
+
+      seed(ctx, %{36 => tool}, 0)
+      {:ok, {region, _}} = World.existing_owner(ctx.key)
+      :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, region)
+
+      {:ok, containers, entry} =
+        Containers.create_cooking(%Containers{}, ctx.key, ctx.target, kind)
+
+      cooking = %Valimc.Cooking{slots: {ItemStack.new("raw_iron"), nil, nil}}
+
+      {:ok, containers, _} =
+        Containers.replace_cooking(containers, ctx.target, entry.revision, cooking, %{})
+
+      {:ok, bytes} = Containers.encode(ctx.key, containers)
+      File.write!(Store.container_path(ctx.base, ctx.key), bytes)
+      {:ok, block} = Valimc.Physics.CookingBlocks.placement(kind, 0.0)
+      {rx, rz} = ctx.key
+
+      File.write!(
+        Path.join(ctx.base, "r.#{rx}.#{rz}.etf"),
+        :erlang.term_to_binary({:valimc_region, 1, %{ctx.target => block}})
+      )
+
+      {client, pid} = login(ctx)
+      action(client, "start_destroy_block", ctx.target, 1)
+
+      wait(fn ->
+        finished(pid) and saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
+      end)
+
+      assert World.get_block(ctx.target) == block
+      assert Inventory.held(state(pid).inventory, :main) == tool
+      assert drops(ctx) == []
+
+      {:ok, restored} =
+        Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+
+      assert restored == containers
+    end
+  end
+
   test "filled chest TCP mining consumes only tool wear while its owner releases exact stored patches",
        ctx do
     alias Valimc.World.{Containers, Region, Store}

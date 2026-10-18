@@ -1,7 +1,9 @@
 defmodule Valimc.Physics.Placement do
   @moduledoc "Pure native placement candidates; owners still admit geometry, writes and consumption."
-  alias Valimc.Physics.{ChestPlacement, FluidBlocks}
+  alias Valimc.Physics.{ChestPlacement, CookingBlocks, FluidBlocks}
   @chest_item Valimc.Protocol.Data.item("chest")
+  @cooking_items Enum.map(~w(furnace smoker blast_furnace), &Valimc.Protocol.Data.item/1)
+  @facing_items [@chest_item | @cooking_items]
   @path Path.expand("../../../priv/physics/placement.json", __DIR__)
   @external_resource @path
   @facts JSON.decode!(File.read!(@path))
@@ -85,23 +87,24 @@ defmodule Valimc.Physics.Placement do
 
   def supported_item?(item),
     do:
-      item == @chest_item or Map.has_key?(@plain, item) or Map.has_key?(@slabs, item) or
+      item in @facing_items or Map.has_key?(@plain, item) or Map.has_key?(@slabs, item) or
         Map.has_key?(@pillars, item)
 
-  @doc "Chest names require owned metadata and loot-copy support before item consumption."
-  def supported_stack?(%Valimc.Protocol.ItemStack{item_id: @chest_item, components: components}),
-    do: not Map.has_key?(components, "minecraft:custom_name")
+  @doc "Container names need owned metadata and loot-copy support before item consumption."
+  def supported_stack?(%Valimc.Protocol.ItemStack{item_id: item, components: components})
+      when item in @facing_items,
+      do: not Map.has_key?(components, "minecraft:custom_name")
 
   def supported_stack?(%Valimc.Protocol.ItemStack{item_id: item}), do: supported_item?(item)
   def supported_stack?(_), do: false
 
   @doc "Validate a saved edit independently of transient player yaw; destination permissions still fence its exact block state."
-  def saved_candidate(@chest_item, clicked, adjacent, request, edits)
-      when is_map(edits) and is_map(request) do
+  def saved_candidate(item, clicked, adjacent, request, edits)
+      when item in @facing_items and is_map(edits) and is_map(request) do
     case Map.to_list(edits) do
       [{position, state}] ->
         Enum.find_value([0.0, 90.0, 180.0, 270.0], {:error, :invalid_context}, fn yaw ->
-          case candidate(@chest_item, clicked, adjacent, Map.put(request, :yaw, yaw)) do
+          case candidate(item, clicked, adjacent, Map.put(request, :yaw, yaw)) do
             {:ok, %{position: ^position, state: ^state}} = result -> result
             _ -> nil
           end
@@ -117,6 +120,9 @@ defmodule Valimc.Physics.Placement do
 
   defp candidate_state(@chest_item, state, _, _, request),
     do: ChestPlacement.single_state(request[:yaw], state)
+
+  defp candidate_state(item, _, _, _, request) when item in @cooking_items,
+    do: CookingBlocks.placement(CookingBlocks.kind_for_item(item), request[:yaw])
 
   defp candidate_state(item, state, face, upper, _), do: {:ok, placed(item, state, face, upper)}
 
