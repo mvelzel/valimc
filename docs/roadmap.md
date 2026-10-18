@@ -73,7 +73,10 @@ transports and dedicated baseline/pending-intent recovery/fresh reconnect.
 **Done within storage scope:** [joint block/container journal](tickets/VMC-032a7.md)
 atb297d87:117 affected checks, production/both native TCP and actual ordinary
 survival place/mine/pickup/reconnect; source66 and separate typed receipt63 retained.
-**Implementing:** [chest block-entity presentation](tickets/VMC-032a8.md).
+**Done within presentation scope:** [chest block entities](tickets/VMC-032a8.md)
+atefa821d:33 affected/1,471 full tests,64 native codec cases/two complete chunks,
+production/both TCP and actual model rendering/journal recovery/fresh reconnect.
+**Implementing:** [live ordinary chest menus](tickets/VMC-032a9.md).
 Physical lifecycle, opening and viewer replication remain before live chest UI.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
