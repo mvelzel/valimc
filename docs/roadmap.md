@@ -94,10 +94,10 @@ reconnect. The full native integration check is the only remaining publication
 gate. [Chest sounds](tickets/VMC-032a11.md), runtimebd727ca, pass512 native pitches/
 40 packet bodies,34 affected/1,540 full checks, production/both native TCP and
 dedicated muted menu/lid/reconnect acceptance. Audible playback is untested; all
-own gates are closed. [Furnace fuel foundations](tickets/VMC-034a.md) now pass
-79,584 native callbacks and9 affected checks; production passes, client baseline
-pending. [Atomic furnace item transitions](tickets/VMC-034b.md) pass37,440 native
-completion/1,960 consumption cases and12 affected checks.
+own gates are closed. **Done within pure foundation scopes:**
+[furnace fuel](tickets/VMC-034a.md) at e219f43 and
+[atomic furnace items](tickets/VMC-034b.md) at372acd0: native cases, affected tests,
+production and dedicated baseline/reconnect pass. Larger32bc5a1 adds1,547 full tests.
 [Cooking recipes](tickets/VMC-034c.md) now match14,922 native selections and
 44,766 speed contexts/7 affected checks; production/client baseline pending.
 These are unused foundations; live cooking remains next.

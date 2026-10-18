@@ -1,7 +1,7 @@
 # VMC-034b — Atomic furnace item transitions
 
-Status: Pure slot proposals implemented; production/client baseline pending.
-VMC-034a owns contextual fuel resolution. No live cooking.
+Status: Done within pure slot-proposal scope at372acd0. VMC-034a owns contextual fuel
+resolution. No live cooking.
 
 Acceptance: a bounded pure three-slot proposal consumes one fuel/input, preserves
 component identity, admits complete recipe output only when it fits, and returns
@@ -37,3 +37,15 @@ Output refusal returns no changed slots. No live recipe, tick, XP or journal cal
 exists. Twelve affected checks pass(seed788254), including blocked atomic output,
 identity equivalence/difference, sponge and remainder/invalid-fuel boundaries
 (`.local/cooking-items-targeted.log`). Production and unused-kernel baseline pending.
+
+
+October18 frozen372acd0 production and dedicated unused-kernel baseline pass:
+two fresh actual direct launches, native empty-chest menu/lid/HUD and reconnect
+retain source110/outboxnil, typed109/item110+61/storage30, six stock chests plus
+named2, seven planks, axe damage3 and12HP. No packet errors or gameplay edits.
+Both clients stopped143; zero players/connections, regions/clock flushed and
+server28856 stopped0. Accepted report `.local/client-tests/VMC-034b/report.md`;
+39 stopped dataset-file/1,108 unchanged frozen-blob hashes and exact quantity audit
+`.local/cooking-items-publication-proof.json`. Larger foundation block at32bc5a1 passes
+1,547 full tests. All gates for this unused foundation are closed; do not repeat
+the baseline. Actual smelting remains future runtime work.

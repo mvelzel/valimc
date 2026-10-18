@@ -1,7 +1,6 @@
 # VMC-034a — Furnace fuel foundation
 
-Status: Pure fuel resolver implemented; production and dedicated client baseline
-pending. No live furnace/cooking claim.
+Status: Done within pure resolver scope at e219f43. No live furnace/cooking claim.
 
 Acceptance for this slice: stock26.3 cooking-fuel defaults and contextual resolution
 match native observations; explicit component removals and unsupported patches do
@@ -39,3 +38,15 @@ Targeted native probe, changed formatting, Python compilation and public audit
 pass. Baseline client scenario for this unused kernel: fresh direct join, normal
 HUD/empty-chest open/close and fresh reconnect with exact saved quantities/receipts.
 This baseline cannot establish fuel consumption or smelting.
+
+
+October18 frozene219f43 production and dedicated unused-kernel baseline pass:
+two fresh actual direct launches, native empty-chest menu/lid/HUD and reconnect
+retain source110/outboxnil, typed109/item110+61/storage30, six stock chests plus
+named2, seven planks, axe damage3 and12HP. No packet errors or gameplay edits.
+Both clients stopped143; zero players/connections, regions/clock flushed and
+server84198 stopped0. Accepted report `.local/client-tests/VMC-034a/report.md`;
+39 stopped dataset-file/1,101 unchanged frozen-blob hashes and exact quantity audit
+`.local/cooking-fuel-publication-proof.json`. Larger foundation block at32bc5a1 passes
+1,547 full tests. All gates for this unused foundation are closed; do not repeat
+the baseline. Actual smelting remains future runtime work.
