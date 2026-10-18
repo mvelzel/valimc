@@ -1,8 +1,46 @@
 defmodule Valimc.Cooking do
-  @moduledoc "One bounded pure stock furnace step; the region must durably admit its entire result."
+  @moduledoc "Bounded pure cooking transitions; the region must durably admit each entire result."
   alias Valimc.{CookingRecipes, Protocol.ItemStack}
   alias Valimc.Physics.{CookingFuel, CookingItems}
   defstruct slots: {nil, nil, nil}, burn_left: 0, burn_total: 0, progress: 0, total: 0, speed: 1.0
+
+  @doc "Apply externally changed slots before joint admission; no ticking, recipe-use or award effects."
+  def edit_slots(%__MODULE__{} = state, slots, block) do
+    with true <- valid?(state),
+         true <- valid?(%{state | slots: slots}),
+         :none <- CookingRecipes.find(nil, block, state.speed),
+         true <-
+           Enum.all?(Tuple.to_list(slots), fn
+             nil -> true
+             stack -> stack.count in 1..ItemStack.max_stack_size(stack)
+           end) do
+      previous = elem(state.slots, 0)
+      input = elem(slots, 0)
+
+      same_input =
+        input != nil and previous != nil and ItemStack.same_item?(input, previous)
+
+      if not same_input and (input != nil or previous != nil) do
+        total =
+          case CookingRecipes.find(input, block, state.speed) do
+            {:ok, recipe} -> recipe.cook_ticks
+            :none -> 200
+          end
+
+        {:ok, %{state | slots: slots, progress: 0, total: total}}
+      else
+        {:ok, %{state | slots: slots}}
+      end
+    else
+      _ -> {:error, :invalid_cooking_edit}
+    end
+  rescue
+    _ -> {:error, :invalid_cooking_edit}
+  catch
+    _, _ -> {:error, :invalid_cooking_edit}
+  end
+
+  def edit_slots(_, _, _), do: {:error, :invalid_cooking_edit}
 
   def step(%__MODULE__{} = state, block) do
     true = valid?(state)

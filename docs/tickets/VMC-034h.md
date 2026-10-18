@@ -36,3 +36,7 @@ the whole noninsertable stack. Unsupported gestures/overflow return no proposal.
 existing generic-chest and cooking-view checks. Compilation is warning-free and
 changed formatting passes. This does not apply block-entity input reset hooks,
 recipe-use/XP effects, region writes, player receipts or live menu authorization.
+
+Frozenbb04210 production passes(`.local/cooking-click-production.log`). The parent
+e9d7227 integration checkpoint has1,580 full tests/production; its full native run
+and the combined unused-foundation client baseline remain pending.

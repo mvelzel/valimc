@@ -1,7 +1,7 @@
 # VMC-034f — Empty processing-block lifecycle
 
-Status: Physical empty lifecycle implemented; production/native TCP and actual
-client feature acceptance pending. Depends on VMC-034e; no live cooking.
+Status: Physical empty lifecycle/production/native TCP pass; actual client and
+integration acceptance pending. Depends on VMC-034e; no live cooking.
 
 Acceptance: placing a stock furnace, smoker or blast furnace creates one owned
 empty cooking entry in the same block/item/container commit; empty mining/removal
