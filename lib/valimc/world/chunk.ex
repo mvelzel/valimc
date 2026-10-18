@@ -72,7 +72,7 @@ defmodule Valimc.World.Chunk do
       motion,
       Wire.varint(byte_size(data)),
       data,
-      <<0>>,
+      Valimc.Protocol.ChestBlockEntity.chunk_entries({cx, cz}, edits),
       <<4, full_mask::little-32, 0, 0, 4, full_mask::little-32>>,
       <<26>>,
       List.duplicate([Wire.varint(2048), light], 26),
