@@ -89,8 +89,12 @@ probes, frozen production and actual baseline;
 empty physical checkpoint6bda186 is validated/published after1,525 full tests,
 production/native TCP and actual placement/mine/pickup/reconnect. Region-owned
 atomic contents spill atd70ef58 passes84 affected/1,535 corrected full tests and
-production; full native and filled feature-client gates remain open. Independent
-[chest sound foundations](tickets/VMC-032a11.md) are being researched.
+production and actual survival/creative contents release, exact pickup and fresh
+reconnect. The full native integration check is the only remaining publication
+gate. [Chest sounds](tickets/VMC-032a11.md), runtimebd727ca, pass512 native pitches/
+40 packet bodies,34 affected/1,540 full checks, production/both native TCP and
+dedicated muted menu/lid/reconnect acceptance. Audible playback is untested; all
+own gates are closed. Next: [furnace fuel foundations](tickets/VMC-034a.md).
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
