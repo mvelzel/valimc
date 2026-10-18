@@ -1,6 +1,6 @@
 # VMC-034k — Live owned cooking menus and exchanges
 
-Status: Implementing; prior unused foundations are VMC-034g–j.
+Status: Done within live viewing/manual exchange scope at6264a79. Automatic cooking/XP remain separate.
 
 Acceptance: all three stock processor menus open through fresh native-range
 admission, show three storage/36 player cells and four progress properties, and
@@ -45,9 +45,21 @@ XP-bearing terminal refusal, spectator/shared refresh, two-player race, stale id
 range/owner closure, pending-candidate cancellation, prepared-owner crash recovery
 and reconnect. Earlier test expectations for a matching cursor and a stack field
 were corrected; no production regression was found. Formatting/compile pass.
-Production, current native TCP and dedicated actual feature acceptance remain.
+Production, current native TCP and dedicated actual feature acceptance pass.
 
 Frozen6264a79 passes1,625 full tests, production and current native provider/both
 TCP transports (`.local/cooking-live-{full-tests,production,native-tcp}.log`).
-Dedicated actual menu feature validation is running against that immutable release
+Dedicated actual menu feature validation passed against that immutable release
 and a new whole source20/typed20/item18/storage33 dataset. No release replacement.
+
+Accepted actual26.3 report `.local/client-tests/VMC-034k/report.md` (October18):
+all three models/native menus through overhead stone and static flame/progress,
+actual Furnace split/merge/number/offhand/shift/input reset, invalid fuel/output,
+one-bucket cap, ordinary seeded output withdrawal, XP-bearing pickup/shift refusal,
+range closure and fresh reconnect pass. Shared-view/race/crash coverage is actual
+TCP, not two graphical identities. Source/typed40, storage47, item receipt18 and
+nil outbox retain exact components/quantities; XP3 and all other entries/blocks
+remain exact. Both clients stopped143; server86790 flushed/stopped0. Root stopped
+save audit passes;1,155 frozen blobs/eight dataset hashes are pinned in
+`.local/cooking-live-publication-proof.json`. Every K gate is closed. No automatic
+cooking, fuel consumption over time or XP award is claimed.

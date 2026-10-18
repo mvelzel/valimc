@@ -111,13 +111,14 @@ combined baseline/reconnect pass. These gates are closed; live menus follow.
 [transfer journals](tickets/VMC-034j.md)5105393: native/affected checks, production,
 both TCP transports and combined actual baseline/chest exchanges/reconnect pass.
 These gates are closed; live menus/cooking/XP need separate acceptance.
-**Implementing:** [live processor menus](tickets/VMC-034k.md), using existing
-regional ownership, viewers and transfer workers; automatic cooking/XP remain later.
-Its frozen6264a79 passes1,625 full tests/production/current native TCP; actual
-feature validation is running. [Atomic cooking batches](tickets/VMC-034l.md)
-are implemented locally; [live regional cooking](tickets/VMC-034m.md) follows,
-starting with measured whole-region work rather than per-processor tasks. K's
-client release remains unchanged.
+**Done within live viewing/manual exchange scope:** [processor menus](tickets/VMC-034k.md)
+6264a79:66 affected/1,625 full tests, native/production/current TCP and actual all-
+family menus/transfers/refusals/range/reconnect pass. These gates are closed.
+**Implementing:** [atomic cooking batches](tickets/VMC-034l.md)c10988f and
+[live regional cooking](tickets/VMC-034m.md): native15,630 compositions,27 affected
+checks and matched planner measurements pass; the unused-kernel baseline remains.
+Automatic cooking/XP are still unadmitted. The next active scheduler uses measured
+whole-region work without per-processor tasks/timers.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
