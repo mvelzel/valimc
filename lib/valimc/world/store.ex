@@ -171,11 +171,12 @@ defmodule Valimc.World.Store do
 
   def handle_cast({:mining, lease, proposal, {owner, epoch}, token}, %{lease: lease} = state) do
     case mining_proposal(state.key, proposal) do
-      {:ok, journal, item_bytes} ->
+      {:ok, journal, item_bytes, container_bytes} ->
         result =
           with :ok <- write_atomic(state.mining, journal),
                :ok <- write(state.blocks, proposal.edits),
                :ok <- write_atomic(state.items, item_bytes),
+               :ok <- write_containers(state.containers, container_bytes),
                do: remove_mining(state.mining)
 
         send(owner, {:resource, epoch, {:mining_saved, self(), token, result}})
@@ -292,24 +293,39 @@ defmodule Valimc.World.Store do
     end
   end
 
-  defp mining_proposal(key, %{
-         edits: edits,
-         changes: changes,
-         records: records,
-         receipts: receipts,
-         ledger: ledger
-       })
+  defp mining_proposal(
+         key,
+         %{
+           edits: edits,
+           changes: changes,
+           records: records,
+           receipts: receipts,
+           ledger: ledger
+         } = proposal
+       )
        when is_map(edits) and map_size(edits) <= 131_072 and is_map(changes) do
     with {:ok, item_bytes} <- ItemLedger.encode(key, records, receipts, ledger),
-         {:ok, journal} <- MiningRecord.encode(key, changes, item_bytes),
+         {:ok, container_bytes} <- proposal_containers(key, proposal),
+         {:ok, journal} <- proposal_journal(key, changes, item_bytes, container_bytes),
          true <- Enum.all?(changes, fn {pos, block} -> Chunk.block_at(edits, pos) == block end) do
-      {:ok, journal, item_bytes}
+      {:ok, journal, item_bytes, container_bytes}
     else
       _ -> {:error, :invalid_mining_proposal}
     end
   end
 
   defp mining_proposal(_, _), do: {:error, :invalid_mining_proposal}
+
+  defp proposal_containers(key, %{containers: containers}), do: Containers.encode(key, containers)
+  defp proposal_containers(_, _), do: {:ok, nil}
+
+  defp proposal_journal(key, changes, items, nil), do: MiningRecord.encode(key, changes, items)
+
+  defp proposal_journal(key, changes, items, containers),
+    do: MiningRecord.encode(key, changes, items, containers)
+
+  defp write_containers(_, nil), do: :ok
+  defp write_containers(path, bytes), do: write_atomic(path, bytes)
 
   defp recover_mining(%{recovered: true}), do: :ok
   defp recover_mining(%{mining: nil}), do: :ok
@@ -328,7 +344,8 @@ defmodule Valimc.World.Store do
 
         with true <- map_size(edits) <= 131_072,
              :ok <- write(state.blocks, edits),
-             :ok <- write_atomic(state.items, proposal.item_bytes) do
+             :ok <- write_atomic(state.items, proposal.item_bytes),
+             :ok <- write_containers(state.containers, Map.get(proposal, :container_bytes)) do
           remove_mining(state.mining)
         else
           false -> {:error, :region_edit_limit}
