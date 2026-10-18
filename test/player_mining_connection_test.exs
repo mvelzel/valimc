@@ -50,7 +50,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
     end
   end
 
-  defp seed(ctx, slots) do
+  defp seed(ctx, slots, block \\ Data.block("stone")) do
     player =
       Map.merge(ctx.pose, %{
         game_mode: GameMode.new(:survival),
@@ -69,7 +69,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
     path = PlayerStore.path(ctx.base, ctx.uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
-    :ok = World.set_block(ctx.target, Data.block("stone"))
+    :ok = World.set_block(ctx.target, block)
   end
 
   defp login(ctx) do
@@ -526,6 +526,65 @@ defmodule Valimc.PlayerMiningConnectionTest do
     assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
     assert Inventory.held(state(fresh_pid).inventory, :main).components["minecraft:damage"] == 1
     assert drops(ctx) == [ItemStack.new("chest")]
+  end
+
+  test "filled chest TCP mining consumes only tool wear while its owner releases exact stored patches",
+       ctx do
+    alias Valimc.World.{Containers, Region, Store}
+
+    tool = %{
+      ItemStack.new("diamond_axe")
+      | components: %{"minecraft:enchantments" => %{"minecraft:efficiency" => 255}}
+    }
+
+    stored = %{
+      ItemStack.new("diamond", 3)
+      | components: %{"minecraft:custom_name" => {:string, "Saved diamonds"}}
+    }
+
+    {:ok, chest} = Valimc.Physics.ChestPlacement.single_state(0.0, 0)
+    {:ok, containers, entry} = Containers.create(%Containers{}, ctx.key, ctx.target, 3)
+
+    {:ok, containers, _} =
+      Containers.replace(containers, ctx.target, entry.revision, put_elem(entry.slots, 0, stored))
+
+    typed = %{ctx.uuid => %{sequence: 5, digest: <<7::256>>}}
+    {:ok, bytes} = Containers.encode(ctx.key, %{containers | receipts: typed})
+    File.mkdir_p!(ctx.base)
+    File.write!(Store.container_path(ctx.base, ctx.key), bytes)
+    {rx, rz} = ctx.key
+
+    File.write!(
+      Path.join(ctx.base, "r.#{rx}.#{rz}.etf"),
+      :erlang.term_to_binary({:valimc_region, 1, %{ctx.target => chest}})
+    )
+
+    seed(ctx, %{36 => tool}, chest)
+    {client, pid} = login(ctx)
+    action(client, "start_destroy_block", ctx.target, 1)
+    wait(fn -> finished(pid) and World.get_block(ctx.target) == 0 end)
+
+    assert Enum.sort_by(drops(ctx), & &1.item_id) ==
+             Enum.sort_by([ItemStack.new("chest"), stored], & &1.item_id)
+
+    assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
+    assert Inventory.held(state(pid).inventory, :main).components["minecraft:damage"] == 1
+
+    {:ok, containers} =
+      Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+
+    assert containers.entries == %{} and containers.sequence == 3 and containers.receipts == typed
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    {_fresh, fresh_pid} = login(ctx)
+    assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
+    assert Inventory.held(state(fresh_pid).inventory, :main).components["minecraft:damage"] == 1
+    {:ok, owner} = World.item_owner(ctx.key)
+    assert {:ok, {_, receipt}} = Region.item_transfer_receipt(owner, ctx.uuid)
+    assert receipt.sequence == 1
+
+    assert Enum.sort_by(drops(ctx), & &1.item_id) ==
+             Enum.sort_by([ItemStack.new("chest"), stored], & &1.item_id)
   end
 
   test "live random cubes persist bounded sampled loot and original-tool Silk Touch", ctx do

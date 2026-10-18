@@ -8,6 +8,7 @@ defmodule Valimc.World.RegionData do
     ContainerPermits,
     ContainerViewers,
     ContainerLifecycle,
+    ContainerSpills,
     ColumnIndex,
     Items,
     ItemHandoffs,
@@ -1002,8 +1003,7 @@ defmodule Valimc.World.RegionData do
         {:reply, {:error, :item_storage_busy}, state}
       else
         with {:ok, batch} <- BlockBatch.prepare(%{position => replacement}),
-             {:ok, proposal} <- block_proposal(state, batch),
-             do: start_container_blocks(state, from, batch, proposal, %{position => block}, :ok),
+             do: start_container_blocks(state, from, batch, %{position => block}, :ok),
              else: (error -> {:reply, error, state})
       end
     else
@@ -1089,10 +1089,7 @@ defmodule Valimc.World.RegionData do
         {:reply, {:error, :unsupported_chest_neighbors}, state}
 
       true ->
-        case block_proposal(state, batch) do
-          {:ok, proposal} -> start_container_blocks(state, from, batch, proposal, expected)
-          error -> {:reply, error, state}
-        end
+        start_container_blocks(state, from, batch, expected)
     end
   end
 
@@ -1616,15 +1613,20 @@ defmodule Valimc.World.RegionData do
     end)
   end
 
-  defp start_container_blocks(state, from, batch, proposal, expected, reply \\ :revision) do
+  defp start_container_blocks(state, from, batch, expected, reply \\ :revision) do
     owner = self()
     epoch = state.items.epoch
     token = make_ref()
     containers = state.containers
+    items = state.items
     key = state.key
 
     case Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
-           result = ContainerLifecycle.plan(containers, key, expected, batch.edits)
+           result =
+             with {:ok, change} <- ContainerLifecycle.plan(containers, key, expected, batch.edits),
+                  {:ok, next} <- ContainerSpills.add(items, key, change.removed),
+                  do: {:ok, Map.put(change, :items, next)}
+
            send(owner, {:resource, epoch, {:container_block_plan, self(), token, result}})
          end) do
       {:ok, worker} ->
@@ -1638,7 +1640,6 @@ defmodule Valimc.World.RegionData do
           monitor: Process.monitor(worker),
           timer: send_after(state, {:item_commit_deadline, token}, 5000),
           batch: batch,
-          proposal: proposal,
           items: state.items,
           receipts: state.item_receipts
         }
@@ -1660,17 +1661,18 @@ defmodule Valimc.World.RegionData do
 
     if affected do
       with {:ok, change} <- ContainerLifecycle.plan(containers, key, expected, plan.batch.edits),
-           true <-
-             Enum.all?(change.removed, fn %{entry: entry} ->
-               entry.slots |> Tuple.to_list() |> Enum.all?(&is_nil/1)
-             end) do
+           {:ok, items} <- ContainerSpills.add(plan.items, key, change.removed) do
         {:ok,
          if(change.containers == containers,
            do: plan,
-           else: Map.put(plan, :containers, change.containers)
+           else:
+             Map.merge(plan, %{
+               containers: change.containers,
+               items: items,
+               removed: change.removed
+             })
          )}
       else
-        false -> {:error, :occupied_container}
         error -> error
       end
     else
@@ -1678,12 +1680,12 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  defp block_proposal(state, batch) do
+  defp block_proposal(state, batch, removed \\ []) do
     edits =
       Enum.reduce(batch.edits, state.edits, fn {pos, block}, acc -> put_edit(acc, pos, block) end)
 
     cond do
-      protected_container_change?(state, batch.edits) ->
+      protected_container_change?(state, batch.edits, removed) ->
         {:error, :occupied_container}
 
       map_size(edits) > 131_072 ->
@@ -1710,14 +1712,19 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # Until physical lifecycle plans spill contents in the joint WAL, no block
-  # mutation path may orphan a nonempty stored inventory.
-  defp protected_container_change?(state, changes) do
+  # Raw edits cannot orphan contents. Only a fully admitted spill proposal may
+  # retire the exact owned entry in its joint block/item/container WAL.
+  defp protected_container_change?(state, changes, removed \\ []) do
+    retired = Map.new(removed, fn %{position: position, entry: entry} -> {position, entry} end)
+
     Enum.any?(changes, fn {position, block} ->
       case state.containers.entries[position] do
-        %{slots: slots} ->
+        %{slots: slots} = entry ->
           block != Chunk.block_at(state.edits, position) and
-            Enum.any?(Tuple.to_list(slots), &(&1 != nil))
+            Enum.any?(Tuple.to_list(slots), &(&1 != nil)) and
+            not (retired[position] == entry and
+                   Valimc.ChestAccess.single?(Chunk.block_at(state.edits, position)) and
+                   not Valimc.ChestAccess.single?(block))
 
         nil ->
           false
@@ -1776,7 +1783,7 @@ defmodule Valimc.World.RegionData do
         )
 
       true ->
-        case block_proposal(state, plan.batch) do
+        case block_proposal(state, plan.batch, Map.get(plan, :removed, [])) do
           {:ok, proposal} ->
             token = make_ref()
 
@@ -2198,36 +2205,41 @@ defmodule Valimc.World.RegionData do
     Process.demonitor(pending.monitor, [:flush])
 
     case result do
-      {:ok, %{containers: containers, removed: removed}} ->
-        if Enum.all?(removed, fn %{entry: entry} ->
-             entry.slots |> Tuple.to_list() |> Enum.all?(&is_nil/1)
-           end) do
-          snapshot = %{
-            edits: pending.proposal.edits,
-            changes: pending.batch.edits,
-            items: pending.items,
-            receipts: pending.receipts,
-            containers: containers
-          }
+      {:ok, %{containers: containers, removed: removed, items: items}} ->
+        case block_proposal(state, pending.batch, removed) do
+          {:ok, proposal} ->
+            snapshot = %{
+              edits: proposal.edits,
+              changes: pending.batch.edits,
+              items: items,
+              receipts: pending.receipts,
+              containers: containers
+            }
 
-          Store.commit_mining(
-            state.store,
-            state.store_lease,
-            snapshot,
-            {self(), state.items.epoch},
-            token
-          )
+            Store.commit_mining(
+              state.store,
+              state.store_lease,
+              snapshot,
+              {self(), state.items.epoch},
+              token
+            )
 
-          writing =
-            pending
-            |> Map.drop([:worker, :monitor])
-            |> Map.merge(%{phase: :writing, containers: containers})
+            writing =
+              pending
+              |> Map.drop([:worker, :monitor])
+              |> Map.merge(%{
+                phase: :writing,
+                proposal: proposal,
+                containers: containers,
+                items: items
+              })
 
-          {:noreply, %{state | item_pending: writing}}
-        else
-          Process.cancel_timer(pending.timer)
-          GenServer.reply(pending.from, {:error, :occupied_container})
-          {:noreply, item_plan_failed(state, pending)}
+            {:noreply, %{state | item_pending: writing}}
+
+          {:error, _} = error ->
+            Process.cancel_timer(pending.timer)
+            GenServer.reply(pending.from, error)
+            {:noreply, item_plan_failed(state, pending)}
         end
 
       {:error, _} = error ->

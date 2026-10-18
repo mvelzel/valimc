@@ -86,9 +86,9 @@ remain consistent. Broader gestures remain separate.
 **Implementing:** [physical chest lifecycle](tickets/VMC-032a10.md). Placement,
 metadata and scattering kernels at083c7bd pass32 affected checks, targeted native
 probes, frozen production and actual baseline;
-local joint-metadata integration passes45 affected checks. Empty physical admission,
-creative journaling and native self loot are implemented locally; stored-item spill
-and physical feature-client acceptance remain pending.
+empty physical checkpoint6bda186 passes1,525 full tests/production/native TCP and
+awaits graphical acceptance. Region-owned atomic contents spill passes84 affected
+checks locally; its integration and physical feature-client gates remain open.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

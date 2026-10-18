@@ -212,7 +212,7 @@ defmodule Valimc.ChestConnectionTest do
         &(Enum.at(&1.items, 1) == ItemStack.new("oak_planks", 8) and &1.carried == nil)
       )
 
-    assert {:error, :occupied_container} = World.remove_block(ctx.position)
+    assert {:error, :occupied_container} = World.set_block(ctx.position, 0)
 
     client =
       click(
