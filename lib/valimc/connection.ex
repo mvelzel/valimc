@@ -3446,13 +3446,25 @@ defmodule Valimc.Connection do
        ),
        do: begin_table_close(state)
 
-  defp event(%{phase: :play} = state, {:chest_lid, owner, {x, _, z} = position, open, frame}) do
+  defp event(
+         %{phase: :play} = state,
+         {:chest_lid, owner, {x, _, z} = position, open, frame, sound}
+       ) do
     chunk = World.chunk_key(x, z)
 
     if MapSet.member?(state.chunks, chunk) and
          World.existing_owner(World.region_key(chunk)) == {:ok, owner} do
       lids = ChestLidReplication.observe(state.chest_lids, owner, position, open)
-      if not open or lids.positions[position] == owner, do: send_frames(state, [frame])
+
+      sounds =
+        if sound != nil and Valimc.Protocol.ChestSounds.audible?(state.player, position),
+          do: [sound],
+          else: []
+
+      frames =
+        if not open or lids.positions[position] == owner, do: [frame | sounds], else: sounds
+
+      send_frames(state, frames)
       %{state | chest_lids: lids}
     else
       state

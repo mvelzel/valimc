@@ -40,7 +40,7 @@ public class ChestSoundOracle {
     var registry=new JsonArray();
     for(var event:events) {
       var row=new JsonObject(); row.addProperty("name",BuiltInRegistries.SOUND_EVENT.getKey(event).toString());
-      row.addProperty("id",BuiltInRegistries.SOUND_EVENT.getId(event)); registry.add(row);
+      row.addProperty("id",BuiltInRegistries.SOUND_EVENT.getId(event)); row.addProperty("range",event.getRange(0.5F)); registry.add(row);
     }
     var packets=new JsonArray(); var access=RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY);
     for(var event:events) for(var pos:List.of(new double[]{0.5,64.5,0.5},new double[]{-1.01,-63.99,15.875},new double[]{29999984.5,319.5,-29999983.5}))

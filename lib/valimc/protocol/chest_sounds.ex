@@ -35,6 +35,14 @@ defmodule Valimc.Protocol.ChestSounds do
 
   def packet(_, _, _, _), do: {:error, :invalid_chest_sound}
 
+  @doc "Native stock sound range16, measured from the block center to the player's feet."
+  def audible?(%{x: px, y: py, z: pz}, {x, y, z}) do
+    dx = x + 0.5 - px
+    dy = y + 0.5 - py
+    dz = z + 0.5 - pz
+    dx * dx + dy * dy + dz * dz < 256.0
+  end
+
   defp f32(number) do
     <<value::float-32>> = <<number::float-32>>
     value

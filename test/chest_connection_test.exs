@@ -395,6 +395,110 @@ defmodule Valimc.ChestConnectionTest do
     other
   end
 
+  defp sounds_until_chat(client, acc \\ []) do
+    {id, body, client} = Client.read(client)
+    name = Data.name(:play, :clientbound, id)
+    client = Client.auto_reply(client, :play, name, body)
+
+    case name do
+      "system_chat" -> {Enum.reverse(acc), client}
+      "sound" -> sounds_until_chat(client, [body | acc])
+      _ -> sounds_until_chat(client, acc)
+    end
+  end
+
+  test "first/last viewers share one sound; intermediate and spectator views are silent; removal never replays a close sound",
+       ctx do
+    seed(ctx, :survival, true, nil)
+    {first, first_pid} = login(ctx)
+    other = second_actor(ctx)
+    {second, second_pid} = login(other)
+    spectator = second_actor(ctx, :spectator)
+    {spectator_client, spectator_pid} = login(spectator)
+    World.subscribe(MapSet.new([ctx.key]), MapSet.new())
+    {:ok, owner} = World.existing_owner(ctx.key)
+    position = ctx.position
+
+    first = open(first, ctx)
+    subscribed(first_pid)
+    assert_receive {:event, {:chest_lid, ^owner, ^position, true, _lid, sound}}, 1000
+    assert is_binary(sound)
+
+    assert {:ok, _id, expected, <<>>} =
+             Wire.next_frame(sound, 2_097_152, :sys.get_state(first_pid).threshold)
+
+    assert {^expected, second} = Client.await(second, :play, "sound")
+    assert {^expected, spectator_client} = Client.await(spectator_client, :play, "sound")
+    second = open(second, other)
+    subscribed(second_pid)
+    spectator_client = open(spectator_client, spectator)
+    subscribed(spectator_pid)
+    refute_receive {:event, {:chest_lid, _, _, _, _, _}}, 20
+
+    Client.send_packet(first, :play, "container_close", Wire.varint(first.inventory.container))
+    first = content(first, &(&1.container == 0))
+    assert Valimc.World.ContainerViewers.open_count(viewer_state(ctx), position) == 1
+    refute_receive {:event, {:chest_lid, _, _, _, _, _}}, 20
+    Client.send_packet(second, :play, "container_close", Wire.varint(second.inventory.container))
+    _second = content(second, &(&1.container == 0))
+    assert_receive {:event, {:chest_lid, ^owner, ^position, false, _lid, sound}}, 1000
+    assert is_binary(sound)
+
+    Client.send_packet(
+      spectator_client,
+      :play,
+      "container_close",
+      Wire.varint(spectator_client.inventory.container)
+    )
+
+    _spectator_client = content(spectator_client, &(&1.container == 0))
+    refute_receive {:event, {:chest_lid, _, _, _, _, _}}, 20
+
+    _first = open(first, ctx)
+    subscribed(first_pid)
+    assert_receive {:event, {:chest_lid, ^owner, ^position, true, _, sound}}, 1000
+    assert is_binary(sound)
+    assert :ok = World.remove_block(position)
+    assert_receive {:event, {:chest_lid, ^owner, ^position, false, _, nil}}, 1000
+    wait(fn -> :sys.get_state(first_pid).table_menu == nil end)
+  end
+
+  test "actual TCP sound delivery filters distant and stale-owner transitions", ctx do
+    seed(ctx, :survival, true, nil)
+    {client, pid} = login(ctx)
+    {:ok, owner} = World.existing_owner(ctx.key)
+    threshold = :sys.get_state(pid).threshold
+    {:ok, packet} = Valimc.Protocol.ChestSounds.packet(true, ctx.position, 0.5, -1)
+    sound = Valimc.Protocol.Packets.frame(packet, threshold)
+
+    lid =
+      Valimc.Protocol.Packets.frame(
+        Valimc.Protocol.Packets.chest_lid(ctx.position, true),
+        threshold
+      )
+
+    deliver = fn owner ->
+      Connection.deliver(pid, {:chest_lid, owner, ctx.position, true, lid, sound})
+      :sys.get_state(pid)
+    end
+
+    deliver.(owner)
+    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
+    {bodies, client} = sounds_until_chat(client)
+    assert bodies == [IO.iodata_to_binary(elem(packet, 1))]
+
+    {x, y, z} = ctx.position
+    client = Client.teleport(client, pid, %{ctx.pose | x: x + 16.5, y: y + 0.5, z: z + 0.5})
+    deliver.(owner)
+    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
+    assert {[], client} = sounds_until_chat(client)
+    client = Client.teleport(client, pid, ctx.pose)
+    deliver.({elem(owner, 0), make_ref()})
+    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
+    assert {[], _client} = sounds_until_chat(client)
+    assert saved(ctx).transfer_sequence == 0 and saved(ctx).outbox == nil
+  end
+
   test "idle viewers use no repeated owner queries and late chunks receive only public lid state",
        ctx do
     seed(ctx)

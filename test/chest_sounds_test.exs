@@ -27,4 +27,11 @@ defmodule Valimc.Protocol.ChestSoundsTest do
       assert {:error, :invalid_chest_sound} = ChestSounds.packet(true, position, 0.5, seed)
     end
   end
+
+  test "stock audience excludes its exact three-dimensional radius and uses player feet" do
+    assert ChestSounds.audible?(%{x: 16.499, y: 64.5, z: 0.5}, {0, 64, 0})
+    refute ChestSounds.audible?(%{x: 16.5, y: 64.5, z: 0.5}, {0, 64, 0})
+    refute ChestSounds.audible?(%{x: 0.5, y: 80.5, z: 0.5}, {0, 64, 0})
+    assert ChestSounds.audible?(%{x: -0.5, y: -64.0, z: -0.5}, {-1, -64, -1})
+  end
 end

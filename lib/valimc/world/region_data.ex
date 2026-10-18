@@ -2666,10 +2666,10 @@ defmodule Valimc.World.RegionData do
             {:container_closed, {self(), state.items.epoch}, view.ref}
           )
 
-    apply_container_viewers(state, {viewers, retired, lids})
+    apply_container_viewers(state, {viewers, retired, lids}, false)
   end
 
-  defp apply_container_viewers(state, {viewers, retired, lids}) do
+  defp apply_container_viewers(state, {viewers, retired, lids}, sound? \\ true) do
     for view <- retired, do: Process.demonitor(view.monitor, [:flush])
     state = %{state | container_viewers: viewers}
     threshold = Valimc.config(:compression_threshold)
@@ -2701,9 +2701,17 @@ defmodule Valimc.World.RegionData do
     for {position, open} <- lids do
       frame = Packets.frame(Packets.chest_lid(position, open), threshold)
 
+      sound =
+        if sound? do
+          <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+          draw = (:rand.uniform(16_777_216) - 1) / 16_777_216
+          {:ok, packet} = Valimc.Protocol.ChestSounds.packet(open, position, draw, seed)
+          Packets.frame(packet, threshold)
+        end
+
       Valimc.World.publish(
         state.key,
-        {:chest_lid, {self(), state.items.epoch}, position, open, frame}
+        {:chest_lid, {self(), state.items.epoch}, position, open, frame, sound}
       )
     end
 

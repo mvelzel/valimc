@@ -5,6 +5,7 @@ facts = JSON.decode!(File.read!("priv/protocol/chest_sounds.json"))
 true = raw["version"] == "26.3" and raw["server_sha1"] == facts["server_sha1"]
 true = raw["blocks_source"] == facts["blocks_source"]
 true = Map.new(raw["registry"], &{&1["name"], &1["id"]}) == facts["sounds"]
+true = Enum.all?(raw["registry"], &(&1["range"] == 16.0))
 true = length(raw["traces"]) == 256 and length(raw["packets"]) == 270
 
 for trace <- raw["traces"], {draw, sound} <- Enum.zip(trace["draws"], trace["sounds"]) do
