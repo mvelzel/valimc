@@ -1,6 +1,6 @@
 # VMC-032a9a — Owner-fenced ordinary chest viewing
 
-Status: Automated verified; dedicated Minecraft validation pending. Parent
+Status: Done within viewing scope at7542f0a. Parent
 [live menus](VMC-032a9.md) retains all exchange/physical lifecycle gates.
 
 Acceptance: the unmodified26.3 client opens an owned single chest as a3×9 view,
@@ -62,3 +62,16 @@ directly even with a chest open. Native empty/populated offhand bodies and25
 affected packet/table checks pass (seed889700); exact fixed read-only build and
 dedicated retest remain pending. Raw `.local/chest-view-offhand-native.json`,
 `.local/chest-view-offhand-native-comparison.log`, `.local/chest-offhand-correction-targeted.log`.
+
+Final7542f0a: **PASS**,53 exact frozen focused tests/production and dedicated
+Minecraft26.3 acceptance. Actual pickup/shift/number/F predictions restore seven
+planks and empty storage/cursor. Crucially, F over the occupied hotbar clears the
+offhand ghost while Chest stays open. Escape/reopen and a fresh direct launch keep
+the coherent27+36 view and unchanged counters; table baseline passed at68de778.
+No exchange, physical lifecycle, lid/sound or populated-offhand GUI claim.
+Accepted final report `.local/client-tests/VMC-032a9a-correction/report.md`;
+prior failure reports remain separate. Both JVMs stopped, zero players/connections,
+four region/clock flushes passed, server69144 exited0 and1,060 frozen blobs remain
+unchanged. The whole stopped dataset audits seven planks/12HP/source67/outboxnil,
+typed receipt63/entry1/27nil and independent item receipts67/61. Proof and hashes:
+`.local/chest-view-correction-publication-proof.json`.

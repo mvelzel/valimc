@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-032a9a chest viewing](../tickets/VMC-032a9a.md) | `7542f0a`:53 affected checks/native menu/prediction/offhand codecs, production and actual opening/refused gestures/offhand correction while open/close/fresh reconnect; exchanges remain separate |
 | [VMC-032a8 chest presentation](../tickets/VMC-032a8.md) | `efa821d`:33 affected/1,471 full tests,64 native codecs/two complete chunks, production/both TCP and actual model rendering/fixture WAL recovery/fresh reconnect; live opening remains open |
 | [VMC-032a7 joint block/container journal](../tickets/VMC-032a7.md) | `b297d87`:117 affected checks/all eight partial-write subsets, production/both TCP and actual ordinary survival place/mine/pickup/fresh reconnect; physical chest admission remains open |
 | [VMC-032a6 admitted exchanges](../tickets/VMC-032a6.md) | `4be2f22`:88 affected/1,464 full tests, native24 states/112 validity boundaries, production/both TCP and actual absent-grant recovery/fresh reconnect; live chest UI remains open |
