@@ -480,7 +480,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     assert prepared.transfer_sequence == 1 and prepared.inventory == snapshot.inventory
   end
 
-  test "occupied containers refuse direct/batch mutation and durably reject mining without item loss",
+  test "occupied containers refuse raw edits and unadmitted mining without item loss",
        ctx do
     position = ctx.intent.request.position
     entry = ctx.containers.entries[position]
@@ -504,7 +504,6 @@ defmodule Valimc.PlayerContainerStoreTest do
     other = {x + 1, y, z}
     before = File.read!(Store.container_path(ctx.base, ctx.key))
     {:ok, observed} = Region.observe_blocks(owner, [position, other])
-    assert {:error, :occupied_container} = World.remove_block(position)
     assert {:error, :occupied_container} = World.set_block(position, 0)
 
     assert {:error, :occupied_container} =
@@ -514,6 +513,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     {:ok, unchanged} = Region.observe_blocks(owner, [])
     assert unchanged.revision == observed.revision
     {:ok, reservation} = Region.reserve_mining(owner, [position])
+    assert :ok = Region.release_mining(owner, reservation.permit)
     transfer = Map.merge(reservation, %{source: ctx.uuid, sequence: 1, records: []})
     assert {:ok, :rejected} = Region.apply_mining_transfer(owner, transfer)
     assert {:ok, :already_rejected} = Region.apply_mining_transfer(owner, transfer)

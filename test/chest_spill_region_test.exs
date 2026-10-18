@@ -175,6 +175,40 @@ defmodule Valimc.ChestSpillRegionTest do
     assert audit(c, false) == saved
   end
 
+  test "creative owner death during queued storage preserves the sampled spill UUIDs and motion",
+       c do
+    writer = :sys.get_state(c.pid).resource.store
+    :sys.suspend(writer)
+
+    task =
+      Task.async(fn ->
+        try do
+          World.remove_block(c.position)
+        catch
+          :exit, _ -> :retired
+        end
+      end)
+
+    try do
+      pending = writing(c.pid)
+      proposed = Items.records(pending.items)
+      monitor = Process.monitor(c.pid)
+      Process.exit(c.pid, :kill)
+      assert_receive {:DOWN, ^monitor, :process, _, :killed}, 1000
+      assert :retired = Task.await(task)
+      :sys.resume(writer)
+      {:ok, owner} = World.item_owner(c.key)
+      assert elem(owner, 0) != c.pid
+      saved = audit(c, false)
+      assert saved.records == proposed and saved.receipts == %{}
+      assert :ok = World.remove_block(c.position)
+      assert audit(c, false) == saved
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+      Task.shutdown(task, :brutal_kill)
+    end
+  end
+
   @tag capacity: true
   test "insufficient item admission durably refuses the entire filled mining operation", c do
     assert {:error, :item_count_limit} = World.remove_block(c.position)
