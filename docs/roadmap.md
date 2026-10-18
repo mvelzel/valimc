@@ -76,15 +76,13 @@ survival place/mine/pickup/reconnect; source66 and separate typed receipt63 reta
 **Done within presentation scope:** [chest block entities](tickets/VMC-032a8.md)
 atefa821d:33 affected/1,471 full tests,64 native codec cases/two complete chunks,
 production/both TCP and actual model rendering/journal recovery/fresh reconnect.
-**Implementing:** [live ordinary chest menus](tickets/VMC-032a9.md).
-Opening/source-candidate kernels pass46 affected checks and native provider probes;
-[Read-only viewing](tickets/VMC-032a9a.md) is **Done within scope** at7542f0a:
-53 affected checks/native codecs, production and actual opening/refusal/offhand
-correction/close/reconnect pass. [Durable exchanges](tickets/VMC-032a9b.md)
-pass101 affected checks/ten TCP scenarios,1,491 full tests/production and actual
-exchanges/cleanup/reconnect. Full native integration remains pending/local.
-[Bounded viewer/lid replication](tickets/VMC-032a9c.md) passes109 affected checks;
-measurement/production/client gates remain. Physical lifecycle follows.
+**Done within ordinary single-chest menu scope:** [live menus](tickets/VMC-032a9.md),
+[viewing](tickets/VMC-032a9a.md), [durable exchanges](tickets/VMC-032a9b.md) and
+[bounded viewers/lids](tickets/VMC-032a9c.md), runtime through6eda1cd.
+1,503 full tests, production/current native TCP, parent full native integration,
+matched idle-component measurements and dedicated actual exchanges/shared lids/
+fresh snapshots/reconnect pass. Source/typed79, item receipts67+61 and seven planks
+remain consistent. Physical placement/removal and broader gestures follow.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
@@ -288,7 +286,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
-| [VMC-032a9c](tickets/VMC-032a9c.md) | Lid rendering/peer disconnect/reconnect | Local viewer checkpoint |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

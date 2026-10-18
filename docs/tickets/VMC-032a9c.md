@@ -1,6 +1,6 @@
 # VMC-032a9c — Bounded chest viewers and lid events
 
-Status: Runtime/targeted checks pass; measurement, production and client gate pending.
+Status: Done within bounded ordinary-chest viewer/lid scope at6eda1cd.
 
 Acceptance: a region owns bounded viewer records keyed by socket/session reference,
 with process monitors and per-position indexes, never a process per chest. One
@@ -54,4 +54,24 @@ first/last/spectator/stale references and active/passive owner loss. Pure tests 
 coalesced revision highwater,1024 viewer bounds and visible-owner monitor retirement.
 Raw `.local/chest-viewer-targeted-final.log`; initial test-fixture snapshot field
 error was corrected before this passing run. Native viewer probe/comparison pass;
-benchmark and graphical lid behavior remain separate gates.
+benchmark and graphical lid behavior were accepted in the subsequent gates below.
+
+Frozen6eda1cd passes1,503 full tests, production, current plaintext/AES-CFB8 native
+TCP and targeted native viewer codecs, following8503ab6's full native integration.
+Matched idle-component samples against8503ab6 retain the same entry/local checks:
+128 viewers×40 rounds remove5,120 owner queries (median9,660→1,322µs);
+512×40 remove20,480 (34,856→5,231µs). Measured owner reductions fall657,353/2,629,460
+to0. Three samples each; no TCP/writes/active world load/player-capacity claim.
+Published workload/results: [idle component](../benchmarks/chest-viewers-idle.json).
+
+Dedicated actual client passes sole open/close, two eligible viewers preserving
+a raised lid after primary close, peer disconnect closing it, and fresh initial
+chunk rendering of a lid already held open by the real TCP peer. Subsequent normal
+open/close passes. This is one GUI plus a scripted TCP peer; exact animation timing
+and audio are not claimed. Both wrappers stopped143, peer stopped, zero players/
+connections/viewers/lids; regions/clock flushed and server82753 stopped0.
+Whole stopped audit retains seven planks/12HP, source79/outboxnil, typed79,
+entry11/empty27 and item receipts67+61; peer source0/empty/no receipt. No transfer
+or replay.1,070 frozen blobs unchanged. Report `.local/client-tests/VMC-032a9c/report.md`,
+accepted hashes `.local/chest-viewer-publication-proof.json`. Physical lifecycle,
+sounds, trapped/double chests and broader menu gestures remain separate work.

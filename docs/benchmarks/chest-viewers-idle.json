@@ -1,0 +1,115 @@
+{
+  "date": "2026-10-18",
+  "minecraft": "26.3 / protocol777",
+  "elixir": "1.20.4-otp29",
+  "otp": "29.1.1",
+  "platform": "macOS-27.0.1-arm64-arm-64bit",
+  "script": "bench/chest_viewers.exs",
+  "script_sha256": "d84d48cdf27a1b4a04e3028dd00f1c266555457799fc3ae3f20f9b0a7d7c4f23",
+  "scope": "Single-owner idle-view component; same immutable chest entry and local checks; 40 accelerated checks/viewer, three samples. No TCP, writes or active world load. Not a player-capacity or whole-server speed result.",
+  "run": "MIX_ENV=prod mix run --no-start /path/to/candidate/bench/chest_viewers.exs output.json; run the same script against each revision sequentially after other checks/client JVMs stop.",
+  "before": {
+    "revision": "8503ab6d0bf5cabb944027dec6a15b79c9bae979",
+    "subscribed": false,
+    "results": [
+      {
+        "samples": [
+          {
+            "elapsed_us": 10110,
+            "owner_reductions": 657358,
+            "local_checks": 5120,
+            "owner_queries": 5120
+          },
+          {
+            "elapsed_us": 9660,
+            "owner_reductions": 657353,
+            "local_checks": 5120,
+            "owner_queries": 5120
+          },
+          {
+            "elapsed_us": 9150,
+            "owner_reductions": 657353,
+            "local_checks": 5120,
+            "owner_queries": 5120
+          }
+        ],
+        "viewers": 128
+      },
+      {
+        "samples": [
+          {
+            "elapsed_us": 41819,
+            "owner_reductions": 2629419,
+            "local_checks": 20480,
+            "owner_queries": 20480
+          },
+          {
+            "elapsed_us": 34856,
+            "owner_reductions": 2629464,
+            "local_checks": 20480,
+            "owner_queries": 20480
+          },
+          {
+            "elapsed_us": 34050,
+            "owner_reductions": 2629460,
+            "local_checks": 20480,
+            "owner_queries": 20480
+          }
+        ],
+        "viewers": 512
+      }
+    ]
+  },
+  "after": {
+    "revision": "6eda1cdb8b05604df3958c22d0aea8a0424dc8ce",
+    "subscribed": true,
+    "results": [
+      {
+        "samples": [
+          {
+            "elapsed_us": 1354,
+            "owner_reductions": 0,
+            "local_checks": 5120,
+            "owner_queries": 0
+          },
+          {
+            "elapsed_us": 1314,
+            "owner_reductions": 0,
+            "local_checks": 5120,
+            "owner_queries": 0
+          },
+          {
+            "elapsed_us": 1322,
+            "owner_reductions": 0,
+            "local_checks": 5120,
+            "owner_queries": 0
+          }
+        ],
+        "viewers": 128
+      },
+      {
+        "samples": [
+          {
+            "elapsed_us": 5405,
+            "owner_reductions": 0,
+            "local_checks": 20480,
+            "owner_queries": 0
+          },
+          {
+            "elapsed_us": 5108,
+            "owner_reductions": 0,
+            "local_checks": 20480,
+            "owner_queries": 0
+          },
+          {
+            "elapsed_us": 5231,
+            "owner_reductions": 0,
+            "local_checks": 20480,
+            "owner_queries": 0
+          }
+        ],
+        "viewers": 512
+      }
+    ]
+  }
+}

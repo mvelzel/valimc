@@ -1,6 +1,6 @@
 # VMC-032a9b — Durable ordinary chest exchanges
 
-Status: Actual-client/full-test/production gates pass; full native integration pending. Depends on checked source,
+Status: Done within ordinary single-chest exchange scope at8503ab6. Depends on checked source,
 region admission/receipt and joint-storage foundations; viewing has its own
 [client gate](VMC-032a9a.md).
 
@@ -60,4 +60,5 @@ all regions/clock flushed and server stopped0. Whole stopped dataset audit passe
 source79/outboxnil, typed79, entry11/27nil, items67+61,12HP/no effects, original
 chest/table/incidental plank retained. Raw `.local/client-tests/VMC-032a9b/report.md`,
 `.local/chest-exchange-final-audit.log`, full-test/production logs. Full native
-integration is still running against the frozen checkpoint; this gate stays open.
+integration passes on8503ab6, including plaintext and continuous AES-CFB8 TCP.
+`.local/chest-exchange-publication-proof.json` records accepted source/data/log hashes.
