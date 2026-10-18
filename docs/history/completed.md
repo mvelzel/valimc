@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-034l cooking batches](../tickets/VMC-034l.md) | `c10988f`/`7cdb21e`:15,630 native compositions, bounded1,024-entry step, journal recovery/targeted checks, production and exact-retention baseline/reconnect atbfac2bb; no live scheduling |
 | [VMC-034k live processor menus](../tickets/VMC-034k.md) | `6264a79`:66 affected/1,625 full tests, native/production/both TCP and actual all-family menus/manual exchanges/negatives/range/reconnect; no automatic cooking/XP |
 | [VMC-034f physical processors](../tickets/VMC-034f.md) / [034g views](../tickets/VMC-034g.md) | `b68ca61`/`e9d7227`: native/affected/1,580 full tests, production/full native/both TCP and actual placement/mining/refusals plus combined view baseline/reconnect; no live cooking |
 | [VMC-034e cooking storage](../tickets/VMC-034e.md) | `2dbae91`: bounded mixed snapshots, joint recovery,1,556 full tests/full native/production and actual mixed-storage baseline/reconnect; no live cooking |

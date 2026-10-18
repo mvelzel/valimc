@@ -42,6 +42,7 @@ for row <- raw["cases"] do
   containers = %Containers{sequence: 1, entries: %{position => entry}, receipts: receipts}
   {:ok, result} = CookingBatch.plan(containers, Items.new(), {0, 0}, %{position => block})
   true = result.refused == %{}
+  true = CookingBatch.awake?(entry, block) == (before != row["after"])
   actual = result.containers.entries[position]
   true = actual.cooking == state.(row["after"]) and actual.recipes == row["after"]["recipes"]
   true = Map.get(result.changes, position, block) == row["after"]["state"]

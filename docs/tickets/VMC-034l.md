@@ -1,6 +1,6 @@
 # VMC-034l — Atomic owned cooking batches
 
-Status: Kernel implemented atc10988f; combined production/client gate pending.
+Status: Done within unused atomic-batch scope atc10988f/7cdb21e; accepted baselinebfac2bb.
 
 Acceptance: one bounded proposal advances owned furnace-family entries,
 retains all receipts and joins fuel consumption/remainders, input/output, recipe
@@ -38,6 +38,15 @@ revision/item-capacity refusals, unaffected neighboring progress, native remaind
 scatter and existing journal recovery. The writer's cooking fixture now uses the
 actual batch plan; all eight partial block/item/container output subsets retain
 recipe use43 and exactly one bucket without altering independent receipts.
-No live caller or scheduling claim; production and combined client gate pending.
+No live caller or scheduling claim. Production and combined client gate pass.
 VMC-034m raises the quantum from64 to the1,024-entry storage bound after measuring
 repeated whole-snapshot overhead; the native transition behavior is unchanged.
+
+Accepted unused-kernel actual26.3 baseline on immutablebfac2bb (October18): all
+three retained processor menus, ordinary chest, E/HUD/movement and fresh reconnect
+pass without gestures or fixture edits. Full inventory/Containers/block values
+stay exact; source/typed40/storage47/item18 and nil outbox unchanged. Clients
+stopped143 and server73003 flushed/stopped0. Stopped audit and1,160 frozen-blob/
+eight world hashes `.local/cooking-batch-publication-proof.json`; report
+`.local/client-tests/VMC-034l/report.md`. L's gate is closed; do not repeat it.
+M's live scheduler, elapsed cooking and XP gates remain separate and open.

@@ -59,3 +59,16 @@ menu admission responsive while planning, and fence any canceled proposal. Bound
 progress generations by owned entries and clear them on removal. Timer checkpoints
 must share write ordering with item changes; uncertainty retires the owner rather
 than publishing speculative state. Actual cooking/XP gates remain open.
+
+Activity selection is also implemented: an entry wakes only if its next native
+step changes slots/heat/progress or corrects its lit state. Stable empty, full-
+output and unsupported-input processors sleep until an external change; remaining
+heat and cooldown still run. The predicate matches every before/after transition
+in the15,630 native sample (including traces).16 affected checks pass(seed900620),
+`.local/cooking-activity-{targeted,native-comparison}.log`. Runtime activity-index
+maintenance and dispatch remain next; this predicate starts no work by itself.
+
+The unused1024-bound baseline is accepted atbfac2bb with L; do not repeat it.
+Progress/clock publication must send only the four native properties when item
+content is unchanged; full39-cell inventory resync belongs to content/recovery.
+Keep that reason distinct while coalescing both notification lanes.

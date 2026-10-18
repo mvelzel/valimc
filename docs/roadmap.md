@@ -114,9 +114,11 @@ These gates are closed; live menus/cooking/XP need separate acceptance.
 **Done within live viewing/manual exchange scope:** [processor menus](tickets/VMC-034k.md)
 6264a79:66 affected/1,625 full tests, native/production/current TCP and actual all-
 family menus/transfers/refusals/range/reconnect pass. These gates are closed.
-**Implementing:** [atomic cooking batches](tickets/VMC-034l.md)c10988f and
-[live regional cooking](tickets/VMC-034m.md): native15,630 compositions,27 affected
-checks and matched planner measurements pass; the unused-kernel baseline remains.
+**Done within unused atomic-batch scope:** [cooking batches](tickets/VMC-034l.md)
+c10988f/7cdb21e pass native15,630 compositions,27 affected checks, production and
+exact-retention client baseline/reconnect atbfac2bb. This gate is closed.
+**Implementing:** [live regional cooking](tickets/VMC-034m.md): matched planning
+measurements,43 affected progress-observation checks and native activity predicates pass.
 Automatic cooking/XP are still unadmitted. The next active scheduler uses measured
 whole-region work without per-processor tasks/timers.
 

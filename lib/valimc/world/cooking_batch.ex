@@ -6,6 +6,19 @@ defmodule Valimc.World.CookingBatch do
   @limit 1024
   def limit, do: @limit
 
+  @doc "Whether an owned processor can change on its next logical tick."
+  def awake?(%{kind: kind, cooking: %Cooking{} = cooking}, block) do
+    with true <- kind != nil and CookingBlocks.kind(block) == kind,
+         {:ok, next, events} <- Cooking.step(cooking, block),
+         {:ok, replacement} <- CookingBlocks.lit(block, events.lit) do
+      next != cooking or replacement != block
+    else
+      _ -> false
+    end
+  end
+
+  def awake?(_, _), do: false
+
   def plan(%Containers{} = containers, %Items{} = items, key, blocks)
       when is_map(blocks) and map_size(blocks) <= @limit do
     with {:ok, _} <- Containers.encode(key, containers),

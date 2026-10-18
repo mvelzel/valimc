@@ -239,4 +239,29 @@ defmodule Valimc.CookingBatchTest do
       assert entry.cooking.burn_left == 19
     end
   end
+
+  test "activity sleeps stable empty/blocked/unsupported contents and wakes heat, cooldown or a lit mismatch" do
+    {:ok, block} = CookingBlocks.placement(:furnace, 0.0)
+    {:ok, lit} = CookingBlocks.lit(block, true)
+    entry = %{kind: :furnace, cooking: %Cooking{}}
+    refute CookingBatch.awake?(entry, block)
+    assert CookingBatch.awake?(entry, lit)
+    assert CookingBatch.awake?(%{entry | cooking: %Cooking{progress: 10, total: 200}}, block)
+    assert CookingBatch.awake?(%{entry | cooking: %Cooking{burn_left: 10, burn_total: 100}}, lit)
+    fuel = ItemStack.new("coal")
+    input = ItemStack.new("raw_iron")
+    pending = %Cooking{slots: {input, fuel, nil}, total: 200}
+    assert CookingBatch.awake?(%{entry | cooking: pending}, block)
+    full = %{pending | slots: {input, fuel, ItemStack.new("iron_ingot", 64)}}
+    refute CookingBatch.awake?(%{entry | cooking: full}, block)
+    assert CookingBatch.awake?(%{entry | cooking: %{full | burn_left: 10, burn_total: 100}}, lit)
+
+    refute CookingBatch.awake?(
+             %{entry | cooking: %{pending | slots: {ItemStack.new("bedrock"), fuel, nil}}},
+             block
+           )
+
+    refute CookingBatch.awake?(%{entry | kind: :smoker, cooking: pending}, block)
+    refute CookingBatch.awake?(nil, block)
+  end
 end
