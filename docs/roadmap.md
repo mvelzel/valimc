@@ -82,7 +82,10 @@ production/both TCP and actual model rendering/journal recovery/fresh reconnect.
 1,503 full tests, production/current native TCP, parent full native integration,
 matched idle-component measurements and dedicated actual exchanges/shared lids/
 fresh snapshots/reconnect pass. Source/typed79, item receipts67+61 and seven planks
-remain consistent. Physical placement/removal and broader gestures follow.
+remain consistent. Broader gestures remain separate.
+**Implementing:** [physical chest lifecycle](tickets/VMC-032a10.md). Placement,
+metadata and scattering kernels pass32 affected checks and targeted native probes;
+joint runtime writes/spills and feature-client acceptance remain pending.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
@@ -286,6 +289,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
+| [VMC-032a10](tickets/VMC-032a10.md) | Kernel checkpoint baseline; physical feature later | Local lifecycle foundation |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

@@ -1,0 +1,36 @@
+defmodule Valimc.Physics.ChestPlacement do
+  @moduledoc "Pinned isolated single-chest orientation/water state; callers must separately admit placement and neighbors."
+  import Bitwise
+  alias Valimc.Physics.FluidBlocks
+  @path Path.expand("../../../priv/physics/chest_placement.json", __DIR__)
+  @external_resource @path
+  @facts JSON.decode!(File.read!(@path))
+  @states Map.new(@facts["by_heading"], fn {heading, states} ->
+            {String.to_integer(heading), states}
+          end)
+  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
+           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+           Enum.sort(Map.keys(@states)) == [2, 3, 4, 5] and
+           Enum.all?(@states, fn {_, states} ->
+             Enum.sort(Map.keys(states)) == ["dry", "wet"] and
+               Enum.all?(Map.values(states), &Valimc.ChestAccess.single?/1)
+           end),
+         do: raise("Wrong single-chest placement facts")
+
+  # The native floor-to-int saturates before its low two bits choose a direction.
+  # Reducing an unbounded float angle modulo360 first gives different huge-yaw results.
+  def horizontal(yaw) when is_number(yaw) and abs(yaw) <= 3.4028234663852886e38 do
+    quarter = yaw / 90.0 + 0.5
+    index = quarter |> floor() |> max(-2_147_483_648) |> min(2_147_483_647) |> band(3)
+    {:ok, elem({3, 4, 2, 5}, index)}
+  end
+
+  def horizontal(_), do: {:error, :invalid_chest_yaw}
+
+  def single_state(yaw, target_state) do
+    with {:ok, heading} <- horizontal(yaw),
+         {:ok, fluid} <- FluidBlocks.fetch(target_state) do
+      {:ok, @states[heading][if(fluid.kind == :water and fluid.source, do: "wet", else: "dry")]}
+    end
+  end
+end
