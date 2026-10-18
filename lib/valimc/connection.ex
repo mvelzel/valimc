@@ -3409,8 +3409,14 @@ defmodule Valimc.Connection do
         end
 
       {operation, {kind, block, view}, true}
-      when operation in [:subscribe, :check, :refresh, :click] and kind in [:chest, :cooking] ->
+      when operation in [:subscribe, :check, :refresh, :progress, :click] and
+             kind in [:chest, :cooking] ->
         if state.table_menu.kind == kind and table_player_valid?(state) do
+          properties_only =
+            operation == :progress and kind == :cooking and
+              state.table_menu.view.revision == view.revision and
+              state.table_menu.view.cooking.slots == view.cooking.slots
+
           state = %{
             state
             | table_menu: %{
@@ -3418,14 +3424,23 @@ defmodule Valimc.Connection do
                 | block: block,
                   view: view,
                   dirty: false,
+                  progress_dirty: false,
                   subscribed: true
               }
           }
 
           state =
-            if operation == :click,
-              do: apply_menu_click(state, job.command),
-              else: resync_inventory(state)
+            cond do
+              operation == :click ->
+                apply_menu_click(state, job.command)
+
+              properties_only ->
+                send_packets(state, Packets.cooking_properties(state.table_menu.id, view.cooking))
+                state
+
+              true ->
+                resync_inventory(state)
+            end
 
           drain_table_clicks(state)
         else
@@ -3461,7 +3476,7 @@ defmodule Valimc.Connection do
        )
        when is_integer(generation) and generation > 0 do
     if generation > Map.get(menu.view, :generation, 0),
-      do: check_table_menu(%{state | table_menu: %{menu | dirty: true}}),
+      do: check_table_menu(%{state | table_menu: %{menu | progress_dirty: true}}),
       else: state
   end
 
@@ -4554,7 +4569,7 @@ defmodule Valimc.Connection do
     expires = System.monotonic_time(:millisecond) + 250
 
     grant = %{
-      kind: kind,
+      kind: if(kind == :progress, do: :refresh, else: kind),
       mode: state.player.game_mode.current,
       eye: Valimc.PlayerInteraction.eye(state.player),
       expires: expires,
@@ -4570,7 +4585,7 @@ defmodule Valimc.Connection do
           menu: state.table_menu.kind,
           view_ref: state.table_menu[:view_ref],
           revision:
-            if(state.table_menu.kind in [:chest, :cooking] and kind != :refresh,
+            if(state.table_menu.kind in [:chest, :cooking] and kind not in [:refresh, :progress],
               do: state.table_menu.view.revision
             )
         })
@@ -4706,6 +4721,7 @@ defmodule Valimc.Connection do
           monitor: Process.monitor(elem(owner, 0)),
           subscribed: false,
           dirty: false,
+          progress_dirty: false,
           opener: kind == :chest and state.player.game_mode.current != :spectator
         },
         table_counter: id
@@ -4784,6 +4800,9 @@ defmodule Valimc.Connection do
 
       state.table_queued > 0 ->
         drain_table_clicks(state)
+
+      menu.progress_dirty ->
+        request_table(state, :progress, menu.position, nil)
 
       true ->
         state

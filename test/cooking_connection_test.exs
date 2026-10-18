@@ -535,6 +535,7 @@ defmodule Valimc.CookingConnectionTest do
 
     menu = :sys.get_state(pid).table_menu
     assert menu.view.generation == 0
+    observed_inventory = client.inventory
     {region, _} = owner = menu.owner
     position = ctx.position
 
@@ -563,7 +564,6 @@ defmodule Valimc.CookingConnectionTest do
     end)
 
     Connection.deliver(pid, {:container_progress, owner, menu.view_ref, position, 1})
-    client = content(client)
 
     client =
       Enum.reduce(0..3, client, fn index, client ->
@@ -574,6 +574,8 @@ defmodule Valimc.CookingConnectionTest do
       end)
 
     wait(fn -> :sys.get_state(pid).table_menu.view.generation == 1 end)
+    assert client.inventory == observed_inventory
+    assert :sys.get_state(pid).inventory.state_id == observed_inventory.state_id
     assert :sys.get_state(pid).table_menu.view.revision == menu.view.revision
     assert :sys.get_state(pid).table_menu.view.cooking.progress == 11
     assert saved(ctx).transfer_sequence == 0 and saved(ctx).outbox == nil

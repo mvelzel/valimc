@@ -72,3 +72,24 @@ The unused1024-bound baseline is accepted atbfac2bb with L; do not repeat it.
 Progress/clock publication must send only the four native properties when item
 content is unchanged; full39-cell inventory resync belongs to content/recovery.
 Keep that reason distinct while coalescing both notification lanes.
+
+Progress transport now uses a separate queued refresh reason and sends only the
+four native properties while slots/content revision remain unchanged. Queued item
+clicks take priority; a content change or player recovery still gets the full view.
+43 affected checks pass(seed167196), `.local/cooking-properties-only-targeted-final.log`;
+actual TCP verifies progress changes without advancing inventory state or source.
+The first run caught an incorrect grant-kind mapping; the final grant retains
+native fresh refresh authorization and all ordinary exchanges pass.
+
+Exact framed-byte comparison of equal unchanged inventories: four properties use
+28 bytes uncompressed/32 with compression negotiated, versus prior full refresh
+92/122/237 bytes (empty/typical/packed) or99/129/244 with compression negotiated.
+Seven packets become four; no traffic-rate/capacity claim. Original workload/raw
+results `.local/cooking-progress-wire-bench.{exs,json,log}`. No timer sender is
+active yet; runtime dispatch/joint acknowledgement/checkpointing remain next.
+
+Runtime integration must distinguish a same-family lit-bit change from removal:
+retain viewers, and preserve item permits when content did not change. The raw
+occupied-block guard stays strict; only a fresh owned cooking proof admits its
+lit update. Include content-changing no-op block fences in the existing joint WAL,
+then notify after its acknowledgement. Never replace the release under client test.
