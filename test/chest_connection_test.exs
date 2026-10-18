@@ -149,7 +149,7 @@ defmodule Valimc.ChestConnectionTest do
             Wire.varint(id),
             <<0, slot::signed-16, button::signed-8>>,
             Wire.varint(ItemTypes.input_id(action)),
-            <<0, 0>>
+            <<1, slot::signed-16, 0, 0>>
           ])
 
           client = content(client)

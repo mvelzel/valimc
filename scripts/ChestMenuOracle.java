@@ -4,9 +4,12 @@ import java.util.*;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.HashedStack;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundOpenScreenPacket;
 import net.minecraft.network.protocol.game.ClientboundContainerSetContentPacket;
+import net.minecraft.network.protocol.game.ServerboundContainerClickPacket;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.*;
 import net.minecraft.world.entity.ContainerUser;
@@ -55,6 +58,14 @@ public class ChestMenuOracle {
       }finally{buffer.release();}
       buffer=new RegistryFriendlyByteBuf(Unpooled.buffer(),access);
       try{
+        int hotbar=rows*9+27;
+        var predictions=new Int2ObjectOpenHashMap<HashedStack>();predictions.put(hotbar,HashedStack.EMPTY);
+        var cursor=HashedStack.create(menu.getSlot(hotbar).getItem(),component->0x12345678);
+        ServerboundContainerClickPacket.STREAM_CODEC.encode(buffer,new ServerboundContainerClickPacket(17,0,(short)hotbar,(byte)0,ContainerInput.PICKUP,predictions,cursor));
+        var bytes=new byte[buffer.readableBytes()];buffer.getBytes(0,bytes);row.addProperty("pickup_hex",HexFormat.of().formatHex(bytes));
+      }finally{buffer.release();}
+      buffer=new RegistryFriendlyByteBuf(Unpooled.buffer(),access);
+      try{
         ClientboundContainerSetContentPacket.STREAM_CODEC.encode(buffer,new ClientboundContainerSetContentPacket(17,0,menu.getItems(),ItemStack.EMPTY));
         var bytes=new byte[buffer.readableBytes()];buffer.getBytes(0,bytes);row.addProperty("content_hex",HexFormat.of().formatHex(bytes));
         var decoded=ClientboundContainerSetContentPacket.STREAM_CODEC.decode(buffer);
@@ -69,6 +80,6 @@ public class ChestMenuOracle {
     var out=new JsonObject();out.addProperty("version","26.3");out.addProperty("protocol",777);
     out.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");out.add("cases",cases);
     Files.writeString(Path.of(args[0]),new Gson().toJson(out));
-    System.out.println("PASS: six native chest menu layouts/slot identities/open/content codecs and empty-cursor close retaining storage; click/world/ownership/persistence excluded.");
+    System.out.println("PASS: six native chest layouts/open/content bodies/hotbar pickup input codecs and empty-cursor close retaining storage; gameplay clicks/world/ownership/persistence excluded.");
   }
 }

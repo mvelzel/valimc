@@ -49,10 +49,21 @@ for row <- facts["cases"] do
   unless IO.iodata_to_binary(body) == Base.decode16!(row["content_hex"], case: :lower),
     do: raise("Native chest content body differs")
 
+  {:ok, click} =
+    Valimc.Protocol.InventoryClick.decode(
+      Base.decode16!(row["pickup_hex"], case: :lower),
+      rows * 9 + 36
+    )
+
+  true = click.container == 17 and click.slot == rows * 9 + 27 and click.action == :pickup
+  true = click.predicted_slots == %{click.slot => nil}
+  true = click.predicted_cursor.item_id == Valimc.Protocol.ItemTypes.id("oak_planks")
+  true = click.predicted_cursor.count == 1
+
   unless row["opens"] == 1 and row["closes"] == 1 and row["after_close"] == row["storage"],
     do: raise("Native chest close/lifecycle differs")
 end
 
 IO.puts(
-  "PASS: six native chest layouts/405 slot identities, open/content bodies and storage-preserving empty-cursor close. Live authorization/exchanges require separate checks."
+  "PASS: six native chest layouts/405 slot identities, open/content bodies/hotbar pickup input and storage-preserving empty-cursor close. Live authorization/exchanges require separate checks."
 )

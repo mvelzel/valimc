@@ -3,7 +3,10 @@ defmodule Valimc.Protocol.InventoryClick do
   alias Valimc.Protocol.{ItemTypes, Wire}
   defstruct [:container, :state_id, :slot, :button, :action, :predicted_slots, :predicted_cursor]
 
-  def decode(bytes) when byte_size(bytes) <= 65_536 do
+  def decode(bytes, slot_count \\ 46)
+
+  def decode(bytes, slot_count)
+      when byte_size(bytes) <= 65_536 and slot_count in 1..128 do
     {container, bytes} = Wire.take_varint(bytes)
     {state_id, <<slot::signed-16, button::signed-8, bytes::binary>>} = Wire.take_varint(bytes)
     check(container in 0..127 and state_id in 0..32767, :invalid_menu_id)
@@ -12,7 +15,7 @@ defmodule Valimc.Protocol.InventoryClick do
     check(action != nil, :unknown_click_action)
     {count, bytes} = Wire.take_varint(bytes)
     check(count <= 128, :predicted_slot_limit)
-    {slots, bytes} = slots(bytes, count, %{})
+    {slots, bytes} = slots(bytes, count, %{}, slot_count)
     {cursor, <<>>} = hashed_stack(bytes)
 
     {:ok,
@@ -33,14 +36,14 @@ defmodule Valimc.Protocol.InventoryClick do
     {:click_error, reason} -> {:error, reason}
   end
 
-  def decode(_), do: {:error, :click_byte_limit}
-  defp slots(bytes, 0, slots), do: {slots, bytes}
+  def decode(_, _), do: {:error, :click_byte_limit}
+  defp slots(bytes, 0, slots, _), do: {slots, bytes}
 
-  defp slots(<<slot::signed-16, bytes::binary>>, count, slots) do
-    check(slot in 0..45, :invalid_predicted_slot)
+  defp slots(<<slot::signed-16, bytes::binary>>, count, slots, slot_count) do
+    check(slot >= 0 and slot < slot_count, :invalid_predicted_slot)
     check(not Map.has_key?(slots, slot), :duplicate_predicted_slot)
     {stack, bytes} = hashed_stack(bytes)
-    slots(bytes, count - 1, Map.put(slots, slot, stack))
+    slots(bytes, count - 1, Map.put(slots, slot, stack), slot_count)
   end
 
   defp hashed_stack(<<0, bytes::binary>>), do: {nil, bytes}

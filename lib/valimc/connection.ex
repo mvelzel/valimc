@@ -4229,7 +4229,13 @@ defmodule Valimc.Connection do
   end
 
   defp inventory_click(state, payload) do
-    case InventoryClick.decode(payload) do
+    slots =
+      case state.table_menu do
+        %{kind: :chest, view: view} -> view.rows * 9 + 36
+        _ -> 46
+      end
+
+    case InventoryClick.decode(payload, slots) do
       {:ok, _click} when state.table_menu != nil and state.table_menu.kind == :chest ->
         # Viewing lands before durable exchanges. Never trust predicted changes.
         resync_inventory(state)

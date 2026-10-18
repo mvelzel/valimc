@@ -34,3 +34,19 @@ receipts66/61 and container receipt63. Verify empty chest UI/main inventory of e
 planks, refused pickup/shift/number/offhand, close/reopen, then a fresh direct launch
 with unchanged contents/counters. Confirm the existing table still opens and closes.
 The dedicated tester owns visual acceptance and reports pass/fail with debug detail.
+
+First client run at e0c9f27: **FAIL**, not published. Opening displayed the correct
+Chest27+36 UI; actual hotbar pickup disconnected as malformed. InventoryClick's
+prediction decoder still assumed0..45. The fix bounds prediction indices by the
+active menu (63 for this chest), retaining46 for player/table menus.51 affected
+checks pass (seed965650), now including nonempty hotbar predictions over TCP and
+exact native hotbar pickup inputs for all six chest dimensions. Raw
+`.local/chest-view-prediction-targeted.log`, `.local/chest-view-native-fixed.json`,
+`.local/chest-view-native-fixed-comparison.log`. Dedicated fixed-client rerun pending.
+
+The e0c9f27 coherent integration block passes1,481 full tests, production and both
+native TCP transports. An incidental tester plank placement before opening consumed
+one plank: the complete stopped dataset now retains seven planks, source/item3,3
+receipt67, unchanged container receipt63/revision1/empty27 and old item2,2receipt61.
+No reset was performed. First failure report `.local/client-tests/VMC-032a9a/report.md`;
+wrapper stopped, zero players and all four region/clock flushes passed before shutdown.

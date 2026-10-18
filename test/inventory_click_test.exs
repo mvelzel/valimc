@@ -41,6 +41,20 @@ defmodule Valimc.Protocol.InventoryClickTest do
     assert InventoryClick.decode(:binary.copy(<<0>>, 65_537)) == {:error, :click_byte_limit}
   end
 
+  test "predicted slots are bounded by the active menu, including chest hotbars" do
+    for cells <- [46, 63, 90] do
+      bytes = IO.iodata_to_binary([header(), <<1, cells - 1::signed-16, 0, 0>>])
+      assert {:ok, click} = InventoryClick.decode(bytes, cells)
+      assert click.predicted_slots == %{(cells - 1) => nil}
+      bytes = IO.iodata_to_binary([header(), <<1, cells::signed-16, 0, 0>>])
+      assert {:error, :invalid_predicted_slot} = InventoryClick.decode(bytes, cells)
+    end
+
+    bytes = IO.iodata_to_binary([header(), <<1, 54::signed-16, 0, 0>>])
+    assert {:ok, _} = InventoryClick.decode(bytes, 63)
+    assert {:error, :invalid_predicted_slot} = InventoryClick.decode(bytes)
+  end
+
   test "unknown IDs, counts, duplicate slots and patches are rejected" do
     for container <- [-1, 128],
         do:
