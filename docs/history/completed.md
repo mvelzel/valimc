@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-034m live regional cooking](../tickets/VMC-034m.md) | `99dfb57`: 15,630 native compositions, targeted owner/clock/recovery checks, matched worker measurements and actual all-family cooking/concurrent gestures/items/refusals/sponge/restart conservation; XP awards remain separate |
 | [VMC-034l cooking batches](../tickets/VMC-034l.md) | `c10988f`/`7cdb21e`:15,630 native compositions, bounded1,024-entry step, journal recovery/targeted checks, production and exact-retention baseline/reconnect atbfac2bb; no live scheduling |
 | [VMC-034k live processor menus](../tickets/VMC-034k.md) | `6264a79`:66 affected/1,625 full tests, native/production/both TCP and actual all-family menus/manual exchanges/negatives/range/reconnect; no automatic cooking/XP |
 | [VMC-034f physical processors](../tickets/VMC-034f.md) / [034g views](../tickets/VMC-034g.md) | `b68ca61`/`e9d7227`: native/affected/1,580 full tests, production/full native/both TCP and actual placement/mining/refusals plus combined view baseline/reconnect; no live cooking |
@@ -77,7 +78,6 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-029a7](../tickets/VMC-029a7.md) | `4899168`: native deterministic counts/all101 slab families; affected tests, frozen build and actual wet/dry single/double loot, wear and reconnect |
 | [VMC-017a3](../tickets/VMC-017a3.md) | `0b2ad043`: actual fall enchantments, negatives, cap and reconnect; reviewed October16 |
 | [VMC-017b1](../tickets/VMC-017b1.md) | `0b2ad043`: actual periodic freezing, defenses, immunity, reconnect and fatal respawn; reviewed October16 |
-| [Compatibility policy](../../AGENTS.md) | Done October 15, 2026; `4c449d9`: vanilla gameplay/client interoperability, BEAM-native internals |
 | [VMC-001](../tickets/VMC-001.md) | 4f948be |
 | [VMC-002](../tickets/VMC-002.md) | b5a2c72 |
 | [VMC-003](../tickets/VMC-003.md) | Validated |

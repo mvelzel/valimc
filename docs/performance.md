@@ -1,9 +1,10 @@
 # Measured prototype behavior
 
-[Cooking planning](tickets/VMC-034m.md): identical1,024-processor steps,
-100 alternating samples, tiled64 p50/p95=81.762/118.045ms; one1,024-entry proposal
-9.117/13.789ms. Pure planner only; disk/publication/player simulation excluded.
-Raw workloads/revisions and host-load limits live in the ticket.
+[Cooking activity indexing](tickets/VMC-034m.md): 1,024 stored processors,
+100 alternating equal-result samples. With 64 active, p50/p95 falls from
+8.295/11.967 to 6.942/9.078 ms; with 1,024 active, from 44.097/51.686 to
+32.751/39.619 ms. Pure worker work only; disk/publication/player simulation
+excluded. Raw workloads, revisions and limits live in the ticket.
 
 Contact-hazard comparison: matched128-player static-water samples and
 the512-player reverse pair pass; the initial512 baseline has469 movement corrections.
