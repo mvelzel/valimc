@@ -252,8 +252,10 @@ defmodule Valimc.WorldClockTest do
     {token, _} = :sys.get_state(pid).save_timer
     send(pid, {:clock_save, token})
 
+    # The owner allows up to five seconds to retire its linked I/O process.
+    # Wait through that bounded cleanup while still requiring the exact write failure.
     assert_receive {:DOWN, ^monitor, :process, ^pid, {:clock_save_failed, {:error, :enotdir}}},
-                   1000
+                   6000
 
     assert File.read!(path) == "blocked-directory"
   end
