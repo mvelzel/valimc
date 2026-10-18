@@ -78,8 +78,10 @@ atefa821d:33 affected/1,471 full tests,64 native codec cases/two complete chunks
 production/both TCP and actual model rendering/journal recovery/fresh reconnect.
 **Implementing:** [live ordinary chest menus](tickets/VMC-032a9.md).
 Opening/source-candidate kernels pass46 affected checks and native provider probes;
-[read-only viewing](tickets/VMC-032a9a.md) passes47 affected checks/native codecs,
-awaiting its dedicated client gate. Exchanges, viewer replication and physical lifecycle remain.
+[read-only viewing](tickets/VMC-032a9a.md) passes53 affected checks/native codecs,
+awaiting final client correction acceptance. [Durable exchanges](tickets/VMC-032a9b.md)
+pass101 affected checks/ten TCP scenarios; integration/client gates remain local.
+Viewer replication refinements and physical lifecycle remain.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
@@ -284,6 +286,7 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
 | [VMC-032a9a](tickets/VMC-032a9a.md) | Open/refusal/close/table baseline/fresh reconnect | Local viewing checkpoint |
+| [VMC-032a9b](tickets/VMC-032a9b.md) | Actual exchanges/cleanup/reconnect | Local exchange checkpoint |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

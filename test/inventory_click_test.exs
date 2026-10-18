@@ -55,6 +55,13 @@ defmodule Valimc.Protocol.InventoryClickTest do
     assert {:error, :invalid_predicted_slot} = InventoryClick.decode(bytes)
   end
 
+  test "a late chest click remains parseable after the current screen changed" do
+    bytes = <<17, 0, 54::signed-16, 0, 0, 1, 54::signed-16, 0, 0>>
+    assert {:ok, click} = InventoryClick.decode(bytes, 0, 46)
+    assert click.container == 17 and click.predicted_slots == %{54 => nil}
+    assert {:error, :invalid_predicted_slot} = InventoryClick.decode(bytes, 17, 46)
+  end
+
   test "unknown IDs, counts, duplicate slots and patches are rejected" do
     for container <- [-1, 128],
         do:

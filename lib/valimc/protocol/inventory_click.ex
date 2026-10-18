@@ -4,8 +4,9 @@ defmodule Valimc.Protocol.InventoryClick do
   defstruct [:container, :state_id, :slot, :button, :action, :predicted_slots, :predicted_cursor]
 
   def decode(bytes, slot_count \\ 46)
+  def decode(bytes, slot_count), do: decode(bytes, :any, slot_count)
 
-  def decode(bytes, slot_count)
+  def decode(bytes, expected_container, slot_count)
       when byte_size(bytes) <= 65_536 and slot_count in 1..128 do
     {container, bytes} = Wire.take_varint(bytes)
     {state_id, <<slot::signed-16, button::signed-8, bytes::binary>>} = Wire.take_varint(bytes)
@@ -15,7 +16,10 @@ defmodule Valimc.Protocol.InventoryClick do
     check(action != nil, :unknown_click_action)
     {count, bytes} = Wire.take_varint(bytes)
     check(count <= 128, :predicted_slot_limit)
-    {slots, bytes} = slots(bytes, count, %{}, slot_count)
+    # A click can arrive after its screen was closed by the server. Parse its
+    # bounded observations so the listener can ignore the old container ID.
+    limit = if expected_container in [:any, container], do: slot_count, else: 128
+    {slots, bytes} = slots(bytes, count, %{}, limit)
     {cursor, <<>>} = hashed_stack(bytes)
 
     {:ok,
@@ -36,7 +40,7 @@ defmodule Valimc.Protocol.InventoryClick do
     {:click_error, reason} -> {:error, reason}
   end
 
-  def decode(_, _), do: {:error, :click_byte_limit}
+  def decode(_, _, _), do: {:error, :click_byte_limit}
   defp slots(bytes, 0, slots, _), do: {slots, bytes}
 
   defp slots(<<slot::signed-16, bytes::binary>>, count, slots, slot_count) do

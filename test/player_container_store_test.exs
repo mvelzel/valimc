@@ -480,6 +480,53 @@ defmodule Valimc.PlayerContainerStoreTest do
     assert prepared.transfer_sequence == 1 and prepared.inventory == snapshot.inventory
   end
 
+  test "occupied containers refuse direct/batch mutation and durably reject mining without item loss",
+       ctx do
+    position = ctx.intent.request.position
+    entry = ctx.containers.entries[position]
+    slots = put_elem(entry.slots, 0, ItemStack.new("diamond", 3))
+    {:ok, containers, entry} = Containers.replace(ctx.containers, position, entry.revision, slots)
+    request = %{ctx.intent.request | revision: entry.revision, slots: slots}
+
+    block = hd(JSON.decode!(File.read!("priv/protocol/chest_states.json"))["single_states"])
+    {rx, rz} = ctx.key
+
+    File.write!(
+      Path.join(ctx.base, "r.#{rx}.#{rz}.etf"),
+      :erlang.term_to_binary({:valimc_region, 1, %{position => block}})
+    )
+
+    {owner, ctx, _actor} =
+      admit(%{ctx | containers: containers, intent: %{ctx.intent | request: request}})
+
+    block = World.get_block(position)
+    {x, y, z} = position
+    other = {x + 1, y, z}
+    before = File.read!(Store.container_path(ctx.base, ctx.key))
+    {:ok, observed} = Region.observe_blocks(owner, [position, other])
+    assert {:error, :occupied_container} = World.remove_block(position)
+    assert {:error, :occupied_container} = World.set_block(position, 0)
+
+    assert {:error, :occupied_container} =
+             Region.set_blocks(owner, observed.revision, %{position => 0, other => 1})
+
+    assert World.get_block(position) == block and World.get_block(other) == observed.blocks[other]
+    {:ok, unchanged} = Region.observe_blocks(owner, [])
+    assert unchanged.revision == observed.revision
+    {:ok, reservation} = Region.reserve_mining(owner, [position])
+    transfer = Map.merge(reservation, %{source: ctx.uuid, sequence: 1, records: []})
+    assert {:ok, :rejected} = Region.apply_mining_transfer(owner, transfer)
+    assert {:ok, :already_rejected} = Region.apply_mining_transfer(owner, transfer)
+    assert World.get_block(position) == block and World.item_snapshot(ctx.key) == %{}
+    assert File.read!(Store.container_path(ctx.base, ctx.key)) == before
+    assert {:ok, {_, receipt}} = Region.item_transfer_receipt(owner, ctx.uuid)
+
+    assert {:ok, :rejected} =
+             Valimc.World.MiningTransfers.receipt_result(ctx.key, transfer, receipt)
+
+    assert :ok = World.set_block(position, block)
+  end
+
   test "candidate refuses stale fences or pending transfers and never rewrites their journal",
        ctx do
     {writer, fence, pending} = prepare(ctx)

@@ -33,7 +33,8 @@ defmodule Valimc.ChestOpening do
            off: off
          } <- grant,
          true <-
-           kind in [:open, :check] and mode in [:survival, :creative, :adventure, :spectator],
+           kind in [:open, :check, :click, :refresh] and
+             mode in [:survival, :creative, :adventure, :spectator],
          true <- is_number(x) and is_number(y) and is_number(z) and is_integer(expires),
          true <-
            hand in [:main, :off] and is_boolean(secondary) and
@@ -58,10 +59,10 @@ defmodule Valimc.ChestOpening do
         not ChestAccess.valid_view?(block, mode, grant.eye, position) ->
           {:error, :invalid_chest_context}
 
-        kind == :check and grant[:menu] != :chest ->
+        kind != :open and grant[:menu] != :chest ->
           {:error, :invalid_chest_context}
 
-        kind == :check and grant[:revision] == entry.revision ->
+        kind in [:check, :click] and grant[:revision] == entry.revision ->
           :valid
 
         true ->

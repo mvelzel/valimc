@@ -1035,37 +1035,48 @@ defmodule Valimc.World.RegionData do
   def handle_call({:set_block, {x, y, z} = position, block}, _from, state) do
     key = Valimc.World.chunk_key(x, z)
 
-    if block_transfer_writing?(state) do
-      {:reply, {:error, :mining_storage_busy}, state}
-    else
-      if Valimc.World.region_key(key) == state.key and Chunk.valid_y?(y) and block >= 0 and
-           block < Valimc.Protocol.Data.block_state_count() and
-           (map_size(state.edits) < 131_072 or Map.has_key?(state.edits, position)) do
-        edits = put_edit(state.edits, position, block)
-        local = put_edit(Map.get(state.by_chunk, key, %{}), position, block)
-        :ets.insert(state.item_publication, {:block_fence, state.items.epoch, state.revision + 1})
-        Valimc.World.publish(state.key, {:block, position, block})
-        Valimc.Metrics.add(:block_edits)
+    cond do
+      block_transfer_writing?(state) ->
+        {:reply, {:error, :mining_storage_busy}, state}
 
-        {:reply, :ok,
-         %{
-           state
-           | edits: edits,
-             mining_permits: MiningPermits.invalidate(state.mining_permits, %{position => block}),
-             container_permits:
-               ContainerPermits.invalidate(state.container_permits, %{position => block}),
-             placement_permits:
-               PlacementPermits.invalidate(state.placement_permits, %{position => block}),
-             by_chunk: Map.put(state.by_chunk, key, local),
-             column_index: ColumnIndex.update(state.column_index, edits, %{position => block}),
-             dirty: true,
-             revision: state.revision + 1,
-             cache: Map.delete(state.cache, key),
-             versions: Map.update(state.versions, key, 1, &(&1 + 1))
-         }}
-      else
-        {:reply, {:error, :invalid_block}, state}
-      end
+      protected_container_change?(state, %{position => block}) ->
+        {:reply, {:error, :occupied_container}, state}
+
+      true ->
+        if Valimc.World.region_key(key) == state.key and Chunk.valid_y?(y) and block >= 0 and
+             block < Valimc.Protocol.Data.block_state_count() and
+             (map_size(state.edits) < 131_072 or Map.has_key?(state.edits, position)) do
+          edits = put_edit(state.edits, position, block)
+          local = put_edit(Map.get(state.by_chunk, key, %{}), position, block)
+
+          :ets.insert(
+            state.item_publication,
+            {:block_fence, state.items.epoch, state.revision + 1}
+          )
+
+          Valimc.World.publish(state.key, {:block, position, block})
+          Valimc.Metrics.add(:block_edits)
+
+          {:reply, :ok,
+           %{
+             state
+             | edits: edits,
+               mining_permits:
+                 MiningPermits.invalidate(state.mining_permits, %{position => block}),
+               container_permits:
+                 ContainerPermits.invalidate(state.container_permits, %{position => block}),
+               placement_permits:
+                 PlacementPermits.invalidate(state.placement_permits, %{position => block}),
+               by_chunk: Map.put(state.by_chunk, key, local),
+               column_index: ColumnIndex.update(state.column_index, edits, %{position => block}),
+               dirty: true,
+               revision: state.revision + 1,
+               cache: Map.delete(state.cache, key),
+               versions: Map.update(state.versions, key, 1, &(&1 + 1))
+           }}
+        else
+          {:reply, {:error, :invalid_block}, state}
+        end
     end
   end
 
@@ -1525,27 +1536,47 @@ defmodule Valimc.World.RegionData do
     edits =
       Enum.reduce(batch.edits, state.edits, fn {pos, block}, acc -> put_edit(acc, pos, block) end)
 
-    if map_size(edits) > 131_072 do
-      {:error, :region_edit_limit}
-    else
-      by_chunk =
-        Enum.reduce(batch.edits, state.by_chunk, fn {{x, _, z} = pos, block}, acc ->
-          key = Valimc.World.chunk_key(x, z)
-          Map.put(acc, key, put_edit(Map.get(acc, key, %{}), pos, block))
-        end)
+    cond do
+      protected_container_change?(state, batch.edits) ->
+        {:error, :occupied_container}
 
-      versions =
-        Enum.reduce(batch.chunks, state.versions, &Map.update(&2, &1, 1, fn n -> n + 1 end))
+      map_size(edits) > 131_072 ->
+        {:error, :region_edit_limit}
 
-      {:ok,
-       %{
-         edits: edits,
-         by_chunk: by_chunk,
-         column_index: ColumnIndex.update(state.column_index, edits, batch.edits),
-         versions: versions,
-         revision: state.revision + 1
-       }}
+      true ->
+        by_chunk =
+          Enum.reduce(batch.edits, state.by_chunk, fn {{x, _, z} = pos, block}, acc ->
+            key = Valimc.World.chunk_key(x, z)
+            Map.put(acc, key, put_edit(Map.get(acc, key, %{}), pos, block))
+          end)
+
+        versions =
+          Enum.reduce(batch.chunks, state.versions, &Map.update(&2, &1, 1, fn n -> n + 1 end))
+
+        {:ok,
+         %{
+           edits: edits,
+           by_chunk: by_chunk,
+           column_index: ColumnIndex.update(state.column_index, edits, batch.edits),
+           versions: versions,
+           revision: state.revision + 1
+         }}
     end
+  end
+
+  # Until physical lifecycle plans spill contents in the joint WAL, no block
+  # mutation path may orphan a nonempty stored inventory.
+  defp protected_container_change?(state, changes) do
+    Enum.any?(changes, fn {position, block} ->
+      case state.containers.entries[position] do
+        %{slots: slots} ->
+          block != Chunk.block_at(state.edits, position) and
+            Enum.any?(Tuple.to_list(slots), &(&1 != nil))
+
+        nil ->
+          false
+      end
+    end)
   end
 
   defp publish_blocks(state, batch, proposal, dirty) do

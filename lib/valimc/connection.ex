@@ -29,6 +29,7 @@ defmodule Valimc.Connection do
     PeriodicEffect,
     Players,
     PlayerAbilities,
+    PlayerContainerQuery,
     PlayerAbsorption,
     PlayerAirEffects,
     PlayerMovementSpeed,
@@ -498,6 +499,56 @@ defmodule Valimc.Connection do
   def handle_info({:DOWN, ref, :process, _, _}, %{table_job: %{monitor: ref}} = state),
     do: guard_connection(state, fn -> {:noreply, fail_table_query(state)} end)
 
+  def handle_info(
+        {:container_candidate, ref, result},
+        %{table_job: %{kind: :container, stage: :candidate, ref: ref} = job} = state
+      ) do
+    guard_connection(state, fn ->
+      next =
+        case result do
+          {:ok, intent} ->
+            if chest_action_current?(state, job),
+              do: admit_chest_action(state, intent),
+              else: fail_chest_action(state)
+
+          _ ->
+            fail_chest_action(state)
+        end
+
+      {:noreply, next}
+    end)
+  end
+
+  def handle_info({:container_candidate, _, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {ref, result},
+        %{table_job: %{kind: :container, task: %Task{ref: ref}} = job} = state
+      ) do
+    Process.demonitor(ref, [:flush])
+    state = %{state | table_job: %{job | task: nil}}
+
+    guard_connection(state, fn ->
+      next =
+        with {:ok, request} <- result,
+             true <- chest_action_current?(state, job),
+             true <- Map.delete(request, :permit) == Map.delete(job.intent.request, :permit),
+             true <- System.monotonic_time(:millisecond) < job.actor.expires do
+          prepare_chest_action(state, %{job.intent | request: request})
+        else
+          _ -> fail_chest_action(state)
+        end
+
+      {:noreply, next}
+    end)
+  end
+
+  def handle_info(
+        {:DOWN, ref, :process, _, _},
+        %{table_job: %{kind: :container, task: %Task{ref: ref}}} = state
+      ),
+      do: guard_connection(state, fn -> {:noreply, fail_chest_action(state)} end)
+
   def handle_info(:save_player, state) do
     Process.send_after(self(), :save_player, Valimc.config(:player_save_interval_ms))
 
@@ -727,7 +778,7 @@ defmodule Valimc.Connection do
          else:
            state
            |> drain_creative()
-           |> sync_creative_result()
+           |> sync_recovery_inventory(recovery)
            |> continue_life()
            |> continue_table_close()
            |> continue_crafting_repeat()
@@ -3306,20 +3357,25 @@ defmodule Valimc.Connection do
 
       {_, :valid, true} ->
         if table_player_valid?(state) do
-          state = if job.kind == :click, do: apply_table_click(state, job.command), else: state
+          state = if job.kind == :click, do: apply_menu_click(state, job.command), else: state
           drain_table_clicks(state)
         else
           begin_table_close(state)
         end
 
-      {:check, {:chest, block, view}, true} ->
-        if state.table_menu.kind == :chest and table_player_valid?(state),
-          do:
-            resync_inventory(%{
-              state
-              | table_menu: %{state.table_menu | block: block, view: view}
-            }),
-          else: begin_table_close(state)
+      {kind, {:chest, block, view}, true} when kind in [:check, :refresh, :click] ->
+        if state.table_menu.kind == :chest and table_player_valid?(state) do
+          state = %{state | table_menu: %{state.table_menu | block: block, view: view}}
+
+          state =
+            if kind == :click,
+              do: apply_menu_click(state, job.command),
+              else: resync_inventory(state)
+
+          drain_table_clicks(state)
+        else
+          begin_table_close(state)
+        end
 
       _ ->
         begin_table_close(state)
@@ -4090,6 +4146,17 @@ defmodule Valimc.Connection do
       else: resync_inventory(state)
   end
 
+  defp sync_recovery_inventory(
+         %{table_menu: %{kind: :chest}} = state,
+         %{intent: %{outbox: %{kind: :container}}}
+       ) do
+    # Sealing changes player items; refresh storage before publishing a combined
+    # menu so the client never sees new player items beside the previous storage.
+    request_table(state, :refresh, state.table_menu.position, nil)
+  end
+
+  defp sync_recovery_inventory(state, _), do: sync_creative_result(state)
+
   defp creative_drop(state, stack, bytes) do
     {result, input} = CreativeInput.charge(state.creative_input, creative_tick())
     state = %{state | creative_input: input}
@@ -4242,11 +4309,9 @@ defmodule Valimc.Connection do
         _ -> 46
       end
 
-    case InventoryClick.decode(payload, slots) do
-      {:ok, _click} when state.table_menu != nil and state.table_menu.kind == :chest ->
-        # Viewing lands before durable exchanges. Never trust predicted changes.
-        resync_inventory(state)
+    id = if state.table_menu, do: state.table_menu.id, else: 0
 
+    case InventoryClick.decode(payload, id, slots) do
       {:ok, click} when state.table_menu != nil ->
         if click.container == state.table_menu.id do
           if state.table_queued >= 64, do: reject(state, "Too many pending table actions")
@@ -4358,7 +4423,10 @@ defmodule Valimc.Connection do
       if state.table_menu do
         Map.merge(grant, %{
           menu: state.table_menu.kind,
-          revision: if(state.table_menu.kind == :chest, do: state.table_menu.view.revision)
+          revision:
+            if(state.table_menu.kind == :chest and kind != :refresh,
+              do: state.table_menu.view.revision
+            )
         })
       else
         grant
@@ -4407,6 +4475,12 @@ defmodule Valimc.Connection do
   defp cancel_table_query(state) do
     Process.cancel_timer(state.table_job.timer)
     Process.demonitor(state.table_job.monitor, [:flush])
+
+    if task = state.table_job[:task] do
+      Process.exit(task.pid, :kill)
+      Process.demonitor(task.ref, [:flush])
+    end
+
     if state.table_job.kind == :open, do: send(self(), :drain)
     %{state | table_job: nil}
   end
@@ -4542,6 +4616,154 @@ defmodule Valimc.Connection do
       {:error, _} ->
         resync_inventory(state)
     end
+  end
+
+  defp apply_menu_click(%{table_menu: %{kind: :chest}} = state, click),
+    do: begin_chest_action(state, click)
+
+  defp apply_menu_click(state, click), do: apply_table_click(state, click)
+
+  defp begin_chest_action(%{player: %{game_mode: %{current: :spectator}}} = state, _),
+    do: resync_inventory(state)
+
+  defp begin_chest_action(state, click) do
+    menu = state.table_menu
+
+    with {:ok, slots, inventory} <-
+           Valimc.ContainerClick.plan(
+             menu.view.rows,
+             menu.view.slots,
+             state.inventory,
+             click.action,
+             click.slot,
+             click.button
+           ),
+         false <-
+           slots == menu.view.slots and
+             %{inventory | state_id: state.inventory.state_id} == state.inventory do
+      ref = make_ref()
+
+      job = %{
+        kind: :container,
+        stage: :candidate,
+        ref: ref,
+        owner: menu.owner,
+        menu: menu.id,
+        monitor: Process.monitor(elem(menu.owner, 0)),
+        timer: Process.send_after(self(), {:table_deadline, ref}, 300),
+        signature: chest_signature(state),
+        task: nil,
+        intent: nil,
+        actor: nil
+      }
+
+      {x, _, z} = menu.position
+
+      intent = %{
+        kind: :container,
+        key: World.region_key(World.chunk_key(x, z)),
+        request: %{
+          permit: <<0::128>>,
+          position: menu.position,
+          revision: menu.view.revision,
+          rows: menu.view.rows,
+          slots: menu.view.slots,
+          inventory: state.inventory,
+          action: click.action,
+          slot: click.slot,
+          button: click.button
+        }
+      }
+
+      PlayerStore.container_candidate(
+        state.player_store,
+        state.store_fence,
+        PlayerSnapshot.capture(state.player, state.inventory),
+        intent,
+        ref
+      )
+
+      %{state | table_job: job}
+    else
+      _ -> resync_inventory(state)
+    end
+  end
+
+  defp chest_action_current?(state, job) do
+    match?(
+      %{kind: :chest, id: id, owner: owner} when id == job.menu and owner == job.owner,
+      state.table_menu
+    ) and chest_signature(state) == job.signature and
+      table_player_valid?(state) and state.player.health.value > 0 and
+      World.existing_owner(
+        World.region_key(
+          World.chunk_key(
+            elem(state.table_menu.position, 0),
+            elem(state.table_menu.position, 2)
+          )
+        )
+      ) == {:ok, job.owner}
+  end
+
+  defp chest_signature(state) do
+    {mode, _secondary, items} = table_signature(state)
+    {mode, items}
+  end
+
+  defp admit_chest_action(state, intent) do
+    actor = %{
+      uuid: state.player.uuid,
+      mode: state.player.game_mode.current,
+      eye: Valimc.PlayerInteraction.eye(state.player),
+      health: state.player.health.value,
+      expires: System.monotonic_time(:millisecond) + 250
+    }
+
+    case PlayerContainerQuery.start(state.table_job.owner, intent.request, actor) do
+      {:ok, task} ->
+        %{
+          state
+          | table_job: %{
+              state.table_job
+              | stage: :admit,
+                task: task,
+                intent: intent,
+                actor: actor
+            }
+        }
+
+      _ ->
+        fail_chest_action(state)
+    end
+  end
+
+  defp fail_chest_action(state) do
+    state = cancel_table_query(state)
+
+    if table_player_valid?(state),
+      do: request_table(state, :refresh, state.table_menu.position, nil),
+      else: begin_table_close(state)
+  end
+
+  defp prepare_chest_action(state, intent) do
+    state = cancel_table_query(state)
+    ref = make_ref()
+    snapshot = PlayerSnapshot.capture(state.player, state.inventory)
+
+    recovery = %{
+      new_recovery(:play, :prepare, nil)
+      | ref: ref,
+        plan: %{
+          key: intent.key,
+          records: [],
+          inventory: state.inventory,
+          intent: intent,
+          snapshot: snapshot
+        }
+    }
+
+    PlayerStore.prepare_container(state.player_store, state.store_fence, snapshot, intent, ref)
+    resync_inventory(%{state | recovery: recovery})
   end
 
   defp begin_table_close(%{table_menu: nil} = state), do: continue_table_close(state)
@@ -4965,6 +5187,7 @@ defmodule Valimc.Connection do
 
   @impl true
   def terminate(_reason, state) do
+    cancel_table_query(state)
     cancel_pickup_query(state)
     cancel_mining(state)
 
