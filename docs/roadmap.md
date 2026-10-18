@@ -65,15 +65,13 @@ production/full native integration/both TCP and dedicated actual-client acceptan
 8/23 affected checks, production and dedicated table baseline pass. No live chests.
 **Done within planner scope:** [ordinary chest clicks](tickets/VMC-032a2.md) at
 8b962d7:23,040 native cases,14 affected checks, production/dedicated baseline.
-**Implementing:** [container request/receipt foundation](tickets/VMC-032a3.md).
-It passes37 affected/1,435 full tests, production and dedicated baseline; full native
-integration remains. [Player prepare/seal](tickets/VMC-032a4.md) passes68 affected
-checks, production/both native TCP transports and actual baseline/fresh reconnect.
-[Owned recovery delivery](tickets/VMC-032a5.md) passes49 affected checks, production,
-actual pending-intent recovery/reconnect and1,451-test integration(e294fb6).
-[Owner-authorized exchanges](tickets/VMC-032a6.md) pass88 affected checks/native
-access boundaries; frozen production/client checks follow. Physical lifecycle,
-opening and viewer replication remain before live UI.
+**Done within owner/journal scopes:** [request/receipts](tickets/VMC-032a3.md),
+[player prepare/seal](tickets/VMC-032a4.md), [recovery](tickets/VMC-032a5.md) and
+[admitted exchanges](tickets/VMC-032a6.md), through4be2f22. These pass37/68/49/88
+affected checks,1,464 full tests, production, parent full native/current both TCP
+transports and dedicated baseline/pending-intent recovery/fresh reconnect.
+**Implementing:** [atomic block/container storage](tickets/VMC-032a7.md).
+Physical lifecycle, opening and viewer replication remain before live chest UI.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

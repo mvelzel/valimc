@@ -5,6 +5,9 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-032a6 admitted exchanges](../tickets/VMC-032a6.md) | `4be2f22`:88 affected/1,464 full tests, native24 states/112 validity boundaries, production/both TCP and actual absent-grant recovery/fresh reconnect; live chest UI remains open |
+| [VMC-032a4/a5 player journal/recovery](../tickets/VMC-032a5.md) | Runtime2e3c0a0/902599d, integratede294fb6:68/49 affected/1,451 full tests, native TCP/production and actual retained items, pending-intent rejection/source62 plus fresh reconnect |
+| [VMC-032a3 request/receipt foundation](../tickets/VMC-032a3.md) | `c9fffd7`:37 affected/1,435 full tests, full native/both TCP/production and actual baseline; atomic typed outcomes and bounded replay metadata |
 | [VMC-032a2 ordinary chest plans](../tickets/VMC-032a2.md) | `8b962d7`:23,040 native pickup/shift/number/offhand cases,14 affected checks, production and dedicated baseline; no live chest caller |
 | [VMC-032a/032a1 chest foundations](../tickets/VMC-032a.md) | `faee515`: six native layouts/405 addresses/open bodies,8 layout/23 storage checks, leased snapshot revisions/bounds/recovery, production and actual table baseline; live chests remain open |
 | [VMC-037m Slow Falling/Levitation](../tickets/VMC-037m.md) | `d7e6062`:179 affected/1,408 full tests, native gravity/dry/fluid composition, full native TCP/production and actual drinks/descent/ascent/contact/expiry/milk/fluids/negatives/flight/reconnect |
