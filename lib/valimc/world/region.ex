@@ -234,6 +234,10 @@ defmodule Valimc.World.Region do
   def container_transfer_receipt({pid, epoch}, source),
     do: GenServer.call(pid, {:container_transfer_receipt, epoch, source}, 2000)
 
+  @doc "Recover a durable source intent; absent surviving gameplay admission only permits rejection."
+  def recover_container_transfer({pid, epoch}, request),
+    do: GenServer.call(pid, {:recover_container_transfer, epoch, request}, 6000)
+
   @impl true
   def init({key, token}) do
     Process.flag(:trap_exit, true)

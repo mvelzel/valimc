@@ -3,6 +3,8 @@ defmodule Valimc.World.RegionData do
   alias Valimc.World.{
     BlockBatch,
     Chunk,
+    ContainerRequest,
+    ContainerTransfers,
     ColumnIndex,
     Items,
     ItemHandoffs,
@@ -797,6 +799,15 @@ defmodule Valimc.World.RegionData do
     {:reply, reply, state}
   end
 
+  def handle_call({:recover_container_transfer, epoch, request}, from, state) do
+    cond do
+      epoch != state.items.epoch -> {:reply, {:error, :stale_region}, state}
+      not state.item_storage_enabled -> {:reply, {:error, :transfer_storage_disabled}, state}
+      state.item_pending != nil -> {:reply, {:error, :item_storage_busy}, state}
+      true -> start_container_recovery(state, request, from)
+    end
+  end
+
   def handle_call({:container_transfer_receipt, epoch, source}, _from, state) do
     result =
       cond do
@@ -1096,6 +1107,42 @@ defmodule Valimc.World.RegionData do
 
   defp plan_transfer(transfer, from, state),
     do: plan_item_change(:item_transfer, transfer, from, state)
+
+  defp start_container_recovery(state, request, from) do
+    owner = self()
+    epoch = state.items.epoch
+    token = make_ref()
+    containers = state.containers
+    key = state.key
+
+    case Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
+           result =
+             with {:ok, _} <- ContainerRequest.digest(key, request),
+                  {:ok, reserved, _} <- ContainerTransfers.reserve(containers, request.source),
+                  do: ContainerTransfers.plan(reserved, key, request, false)
+
+           send(owner, {:resource, epoch, {:container_recovery_plan, self(), token, result}})
+         end) do
+      {:ok, worker} ->
+        pending = %{
+          kind: :container,
+          phase: :planning,
+          token: token,
+          from: from,
+          worker: worker,
+          monitor: Process.monitor(worker),
+          timer: send_after(state, {:item_commit_deadline, token}, 5000)
+        }
+
+        {:noreply, %{state | item_pending: pending}}
+
+      {:error, :max_children} ->
+        {:reply, {:error, :item_workers_busy}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, {:item_worker_failed, reason}}, state}
+    end
+  end
 
   defp cross_merge_ready(state, epoch) do
     cond do
@@ -1495,6 +1542,72 @@ defmodule Valimc.World.RegionData do
       end
     end
   end
+
+  def handle_info(
+        {:container_recovery_plan, worker, token, result},
+        %{
+          item_pending:
+            %{kind: :container, phase: :planning, worker: worker, token: token} = pending
+        } = state
+      ) do
+    Process.demonitor(pending.monitor, [:flush])
+
+    case result do
+      {:ok, %{result: result}} when result in [:already_applied, :already_rejected] ->
+        Process.cancel_timer(pending.timer)
+        GenServer.reply(pending.from, {:ok, result})
+        {:noreply, resume_item_handoff(%{state | item_pending: nil})}
+
+      {:ok, %{containers: containers, result: result}} ->
+        Store.commit_containers(
+          state.store,
+          state.store_lease,
+          containers,
+          {self(), state.items.epoch},
+          token
+        )
+
+        writing =
+          pending
+          |> Map.drop([:worker, :monitor])
+          |> Map.merge(%{phase: :writing, containers: containers, reply: {:ok, result}})
+
+        {:noreply, %{state | item_pending: writing}}
+
+      {:error, _} = error ->
+        Process.cancel_timer(pending.timer)
+        GenServer.reply(pending.from, error)
+        {:noreply, item_plan_failed(state, pending)}
+    end
+  end
+
+  def handle_info({:container_recovery_plan, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:containers_saved, writer, token, :ok},
+        %{
+          store: writer,
+          item_pending: %{kind: :container, phase: :writing, token: token} = pending
+        } = state
+      ) do
+    Process.cancel_timer(pending.timer)
+    GenServer.reply(pending.from, pending.reply)
+    {:noreply, resume_item_handoff(%{state | containers: pending.containers, item_pending: nil})}
+  end
+
+  def handle_info(
+        {:containers_saved, writer, token, {:error, reason}},
+        %{
+          store: writer,
+          item_pending: %{kind: :container, phase: :writing, token: token} = pending
+        } = state
+      ) do
+    Process.cancel_timer(pending.timer)
+    GenServer.reply(pending.from, {:error, :container_commit_uncertain})
+    {:stop, {:container_storage_failed, reason}, %{state | item_pending: nil}}
+  end
+
+  def handle_info({:containers_saved, _, _, _}, state), do: {:noreply, state}
 
   def handle_info(
         {:item_transfer_plan, worker, token, result},

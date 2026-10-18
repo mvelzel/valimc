@@ -8,6 +8,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     PlayerFood,
     PlayerSnapshot,
     PlayerStore,
+    TransferDelivery,
     World
   }
 
@@ -192,5 +193,116 @@ defmodule Valimc.PlayerContainerStoreTest do
              PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
 
     assert saved.inventory == pending.inventory and saved.outbox == pending.outbox
+  end
+
+  test "bounded delivery rejects an unadmitted intent once and lets the source seal without losing its items",
+       ctx do
+    {writer, fence, pending} = prepare(ctx)
+    token = make_ref()
+    assert {:ok, job} = TransferDelivery.start(self(), token, ctx.uuid, pending)
+    assert_receive {:transfer_delivered, _, ^token, {:ok, :rejected} = result}, 1500
+    Process.demonitor(job.monitor, [:flush])
+    assert TransferDelivery.completed?(pending, result)
+    ref = make_ref()
+    PlayerStore.complete_transfer(writer, fence, ref)
+    assert_receive {:player_transfer_saved, ^ref, {:ok, _, sealed}}, 1500
+
+    assert sealed.inventory == ctx.snapshot.inventory and sealed.outbox == nil and
+             sealed.transfer_sequence == 1
+
+    {:ok, owner} = World.item_owner(ctx.key)
+
+    assert {:ok, :already_rejected} =
+             Region.recover_container_transfer(owner, pending.outbox.request)
+
+    assert {:ok, containers} =
+             Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+
+    assert containers.entries == %{} and containers.receipts[ctx.uuid].sequence == 1
+  end
+
+  test "recovery returns an applied receipt even though the original gameplay grant is gone",
+       ctx do
+    {writer, fence, pending} = prepare(ctx)
+    decision = write_decision(ctx, pending, true)
+    token = make_ref()
+    {:ok, job} = TransferDelivery.start(self(), token, ctx.uuid, pending)
+    assert_receive {:transfer_delivered, _, ^token, {:ok, :already_applied}}, 1500
+    Process.demonitor(job.monitor, [:flush])
+    ref = make_ref()
+    PlayerStore.complete_transfer(writer, fence, ref)
+    assert_receive {:player_transfer_saved, ^ref, {:ok, _, sealed}}, 1500
+    assert sealed.inventory.carried == nil and sealed.outbox == nil
+
+    {:ok, containers} =
+      Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+
+    assert containers == decision.containers
+  end
+
+  test "a recovery outcome is not published or acknowledged before the suspended writer commits",
+       ctx do
+    {_writer, _fence, pending} = prepare(ctx)
+    {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
+    writer = :sys.get_state(pid).resource.store
+    :sys.suspend(writer)
+    task = Task.async(fn -> Region.recover_container_transfer(owner, pending.outbox.request) end)
+
+    try do
+      await(fn ->
+        match?(%{phase: :writing, kind: :container}, :sys.get_state(pid).resource.item_pending)
+      end)
+
+      assert Task.yield(task, 20) == nil
+
+      assert {:error, :item_storage_busy} =
+               Region.recover_container_transfer(owner, pending.outbox.request)
+
+      assert {:error, :stale_region} =
+               Region.recover_container_transfer({pid, make_ref()}, pending.outbox.request)
+
+      assert {:error, :missing_container_receipt} =
+               Region.container_transfer_receipt(owner, ctx.uuid)
+
+      :sys.resume(writer)
+      assert Task.await(task, 1500) == {:ok, :rejected}
+      assert {:ok, {_, %{sequence: 1}}} = Region.container_transfer_receipt(owner, ctx.uuid)
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+      Task.shutdown(task, :brutal_kill)
+    end
+  end
+
+  test "owner replacement recovers a committed rejection after its source has not sealed", ctx do
+    {writer, fence, pending} = prepare(ctx)
+    {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
+    assert {:ok, :rejected} = Region.recover_container_transfer(owner, pending.outbox.request)
+    monitor = Process.monitor(pid)
+    Process.exit(pid, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}, 1000
+    {:ok, replacement} = World.item_owner(ctx.key)
+    assert replacement != owner
+
+    assert {:ok, :already_rejected} =
+             Region.recover_container_transfer(replacement, pending.outbox.request)
+
+    ref = make_ref()
+    PlayerStore.complete_transfer(writer, fence, ref)
+    assert_receive {:player_transfer_saved, ^ref, {:ok, _, sealed}}, 1500
+    assert sealed.outbox == nil and sealed.inventory == ctx.snapshot.inventory
+    assert sealed.transfer_sequence == 1
+  end
+
+  defp await(check, remaining \\ 100)
+  defp await(_, 0), do: flunk("container recovery did not reach its expected boundary")
+
+  defp await(check, remaining) do
+    if check.(),
+      do: :ok,
+      else:
+        (
+          Process.sleep(5)
+          await(check, remaining - 1)
+        )
   end
 end

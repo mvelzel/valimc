@@ -68,8 +68,10 @@ production/full native integration/both TCP and dedicated actual-client acceptan
 **Implementing:** [container request/receipt foundation](tickets/VMC-032a3.md).
 It passes37 affected/1,435 full tests, production and dedicated baseline; full native
 integration remains. [Player prepare/seal](tickets/VMC-032a4.md) passes68 affected
-checks; frozen production/client gates follow. Live delivery/mutations and physical
-chest lifecycle remain before UI.
+checks, production/both native TCP transports and actual baseline/fresh reconnect.
+[Owned recovery delivery](tickets/VMC-032a5.md) passes49 affected checks, including
+real TCP recovery/reconnect; its pending-intent client gate follows. Live admission,
+mutations and physical chest lifecycle remain before UI.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

@@ -26,6 +26,7 @@ defmodule Valimc.TransferDelivery do
         :region_restarting,
         :stale_region,
         :item_commit_uncertain,
+        :container_commit_uncertain,
         :max_children,
         :item_count_limit,
         :item_byte_limit,
@@ -36,14 +37,15 @@ defmodule Valimc.TransferDelivery do
 
   def retryable?(_), do: false
 
-  def completed?(%{outbox: %{kind: kind}}, result) when kind in [:mining, :placement, :pickup],
-    do:
-      result in [
-        {:ok, :applied},
-        {:ok, :already_applied},
-        {:ok, :rejected},
-        {:ok, :already_rejected}
-      ]
+  def completed?(%{outbox: %{kind: kind}}, result)
+      when kind in [:mining, :placement, :pickup, :container],
+      do:
+        result in [
+          {:ok, :applied},
+          {:ok, :already_applied},
+          {:ok, :rejected},
+          {:ok, :already_rejected}
+        ]
 
   def completed?(_intent, result), do: result in [{:ok, :applied}, {:ok, :already_applied}]
 
@@ -80,6 +82,17 @@ defmodule Valimc.TransferDelivery do
     end
   rescue
     _ -> {:error, :invalid_pickup_request}
+  catch
+    :exit, _ -> {:error, :region_restarting}
+  end
+
+  defp deliver(uuid, %{transfer_sequence: sequence, outbox: %{kind: :container} = intent}) do
+    with {:ok, key, request, _} <- Valimc.PlayerContainerIntent.request(uuid, sequence, intent),
+         {:ok, owner} <- World.item_owner(key) do
+      Region.recover_container_transfer(owner, request)
+    end
+  rescue
+    _ -> {:error, :invalid_container_request}
   catch
     :exit, _ -> {:error, :region_restarting}
   end
