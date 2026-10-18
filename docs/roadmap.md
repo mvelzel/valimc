@@ -105,7 +105,9 @@ mixed-snapshot rendering/chest/reconnect acceptance pass; only full native
 integration remains before publication.
 **Implementing:** [empty processor lifecycle](tickets/VMC-034f.md): native facing/
 loot and73 affected checks pass for furnace/smoker/blast placement/mining/removal;
-production/TCP/actual feature validation pending. Menus and live cooking remain.
+production and both native TCP transports pass; actual feature validation pending.
+**Implementing:** [cooking menu presentation](tickets/VMC-034g.md): native layouts/
+progress codecs and10 affected checks pass; no live admission, clicks or ticking.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

@@ -52,6 +52,11 @@ defmodule Valimc.Protocol.Packets do
     )
   end
 
+  def open_cooking(container, kind) when container in 1..127 do
+    {:ok, type} = Valimc.CookingMenu.type(kind)
+    open_screen(container, type, "container." <> Atom.to_string(kind))
+  end
+
   # Native event1 opens for any positive byte; binary occupancy avoids wrapping
   # an opener count of256 to a spurious close. Ordinary chest registry ID245.
   def chest_lid(position, open?) when is_boolean(open?),
@@ -76,6 +81,18 @@ defmodule Valimc.Protocol.Packets do
   def chest_inventory(container, rows, storage, inventory) when container in 1..127 do
     {:ok, contents} = Valimc.ChestMenu.contents(rows, storage, inventory)
     inventory_content(container, inventory, contents)
+  end
+
+  def cooking_inventory(container, cooking, inventory) when container in 1..127 do
+    {:ok, contents} = Valimc.CookingMenu.contents(cooking, inventory)
+    inventory_content(container, inventory, contents)
+  end
+
+  def cooking_properties(container, cooking) when container in 1..127 do
+    {:ok, properties} = Valimc.CookingMenu.properties(cooking)
+
+    for {value, index} <- Enum.with_index(properties),
+        do: packet("container_set_data", [Wire.varint(container), <<index::16, value::16>>])
   end
 
   defp inventory_content(container, inventory, contents) do

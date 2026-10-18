@@ -44,5 +44,6 @@ all three types/both modes/both hands, saved facing/reconnect, stock mining/tool
 wear/one drop, creative/no drops, named pre-admission refusal and occupied durable
 mining rejection without tool wear/contents loss. Old chest spill/recovery and raw
 processor guards still pass. Initial packet checks caught/fixed missing facing
-capture and the chest-only creative removal route. Production/current native TCP
-and actual placement/mine/pickup/negatives/reconnect remain pending.
+capture and the chest-only creative removal route. Frozenb68ca61 production and both native TCP transports pass
+(`.local/cooking-physical-{production,native-tcp}.log`). Dedicated actual placement/
+mine/pickup/negatives/reconnect is running; integration remains before Done.

@@ -36,7 +36,7 @@ if name == 'TableCraftingOracle':
     sources += [str(root / 'scripts' / (source + '.java')) for source in ('PlayerCraftingOracle', 'MiningToolOracle')]
 if name in ('TableMenuClickOracle', 'CraftingBulkOracle', 'RemainderCraftingOracle'):
     sources += [str(root / 'scripts' / (source + '.java')) for source in ('PlayerCraftingOracle', 'TableMenuOracle', 'MiningToolOracle')]
-if name == 'ChestMenuOracle':
+if name in ('ChestMenuOracle', 'CookingMenuOracle'):
     sources += [str(root / 'scripts' / (source + '.java')) for source in ('TableMenuOracle', 'MiningToolOracle')]
 if name == 'ChestClickOracle':
     sources += [str(root / 'scripts' / (source + '.java')) for source in ('PlayerCraftingOracle', 'TableMenuOracle', 'MiningToolOracle')]
