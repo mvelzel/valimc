@@ -3,7 +3,7 @@ raw = JSON.decode!(File.read!(path))
 alias Valimc.Cooking
 alias Valimc.Physics.CookingBlocks
 alias Valimc.Protocol.ItemStack
-alias Valimc.World.{Containers, CookingBatch, Items}
+alias Valimc.World.{Containers, CookingBatch, CookingRuntime, Items}
 
 true =
   raw["version"] == "26.3" and raw["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
@@ -40,7 +40,10 @@ for row <- raw["cases"] do
   }
 
   containers = %Containers{sequence: 1, entries: %{position => entry}, receipts: receipts}
-  {:ok, result} = CookingBatch.plan(containers, Items.new(), {0, 0}, %{position => block})
+
+  {:ok, result} =
+    CookingRuntime.plan(containers, Items.new(), {0, 0}, %{position => block}, :all, MapSet.new())
+
   true = result.refused == %{}
   true = CookingBatch.awake?(entry, block) == (before != row["after"])
   actual = result.containers.entries[position]
@@ -50,8 +53,14 @@ for row <- raw["cases"] do
   true = result.containers.receipts == receipts
   content_changed = entry.cooking.slots != actual.cooking.slots or entry.recipes != actual.recipes
   true = actual.revision == if(content_changed, do: 2, else: 1)
+
+  true =
+    MapSet.member?(result.active, position) == CookingBatch.awake?(actual, row["after"]["state"])
+
+  true = result.content == if(content_changed, do: [position], else: [])
+  true = result.batch != nil == (before["state"] != row["after"]["state"])
 end
 
 IO.puts(
-  "PASS:15,630 native cooking states composed with exact recipe uses, lit states, remainder quantities, preserved receipts and content-only revision fencing."
+  "PASS:15,630 native cooking states through runtime activity selection, recipe uses, lit frames, remainders, preserved receipts and content-only revisions."
 )

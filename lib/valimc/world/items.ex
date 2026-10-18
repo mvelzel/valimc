@@ -10,6 +10,44 @@ defmodule Valimc.World.Items do
 
   def new, do: %__MODULE__{epoch: make_ref()}
 
+  @doc "Rebase worker-created items onto current motion/counters; never replace existing items or receipts."
+  def merge_created(%{epoch: epoch} = current, %{epoch: epoch} = original, original),
+    do: {:ok, current}
+
+  def merge_created(current, original, proposed) do
+    original_ids = Map.keys(original.entries)
+    added = Map.drop(proposed.entries, original_ids)
+    added_bytes = proposed.bytes - original.bytes
+
+    cond do
+      current.epoch != original.epoch or proposed.epoch != original.epoch or
+        proposed.ledger != original.ledger or
+        Map.take(proposed.entries, original_ids) != original.entries or added_bytes < 0 ->
+        {:error, :invalid_item_additions}
+
+      map_size(current.entries) + map_size(added) + return_slots(current) > @max_items ->
+        {:error, :item_count_limit}
+
+      current.bytes + added_bytes > @max_bytes ->
+        {:error, :item_bytes_limit}
+
+      Enum.any?(added, fn {id, entry} ->
+        Map.has_key?(current.entries, id) or reserved_uuid?(current, entry.entity.uuid) or
+            match?({:ok, _}, find(current, entry.entity.uuid))
+      end) ->
+        {:error, :duplicate_item_uuid}
+
+      true ->
+        {:ok,
+         %{
+           current
+           | entries: Map.merge(current.entries, added),
+             views: Map.merge(current.views, Map.take(proposed.views, Map.keys(added))),
+             bytes: current.bytes + added_bytes
+         }}
+    end
+  end
+
   def snapshot(state), do: %{records: records(state), ledger: state.ledger}
 
   @doc "Advance counters and identify expired/below-world items; removal waits for the owner's durable commit."

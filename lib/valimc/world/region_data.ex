@@ -3,6 +3,7 @@ defmodule Valimc.World.RegionData do
   alias Valimc.World.{
     BlockBatch,
     Chunk,
+    CookingRuntime,
     ContainerRequest,
     ContainerTransfers,
     ContainerPermits,
@@ -38,6 +39,7 @@ defmodule Valimc.World.RegionData do
     :container_permits,
     :container_viewers,
     :cooking_progress,
+    :cooking,
     :items,
     :item_receipts,
     :pickup_permits,
@@ -120,6 +122,7 @@ defmodule Valimc.World.RegionData do
       container_permits: %ContainerPermits{},
       container_viewers: %ContainerViewers{},
       cooking_progress: %{},
+      cooking: %CookingRuntime{enabled: Valimc.config(:cooking_simulation)},
       pickup_permits: PickupPermits.new(),
       item_merge_permits: ItemMergePermits.new(),
       item_storage_enabled: persistent,
@@ -183,6 +186,216 @@ defmodule Valimc.World.RegionData do
     else
       state
     end
+  end
+
+  def cooking_tick(%{cooking: runtime} = state, now) do
+    cond do
+      not runtime.enabled or not state.item_storage_enabled or runtime.job != nil or
+          state.item_pending != nil ->
+        state
+
+      runtime.dirty and now >= runtime.checkpoint_at ->
+        token = make_ref()
+
+        Store.commit_containers(
+          state.store,
+          state.store_lease,
+          state.containers,
+          {self(), state.items.epoch},
+          token
+        )
+
+        pending = %{
+          kind: :cooking_checkpoint,
+          phase: :writing,
+          token: token,
+          from: nil,
+          timer: send_after(state, {:item_commit_deadline, token}, 5000)
+        }
+
+        Valimc.Metrics.add(:cooking_checkpoints)
+        %{state | item_pending: pending}
+
+      is_integer(runtime.retry_at) and now < runtime.retry_at and runtime.seen == nil ->
+        state
+
+      CookingRuntime.due?(runtime, state.containers, state.edits, state.items, now) ->
+        start_cooking_plan(state, now)
+
+      true ->
+        state
+    end
+  end
+
+  defp start_cooking_plan(state, now) do
+    owner = self()
+    epoch = state.items.epoch
+    token = make_ref()
+    containers = state.containers
+    items = state.items
+    edits = state.edits
+    key = state.key
+    selection = CookingRuntime.selection(state.cooking, containers, edits, items, now)
+    blocked = state.cooking.blocked
+
+    case Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
+           result = CookingRuntime.plan(containers, items, key, edits, selection, blocked)
+           send(owner, {:resource, epoch, {:cooking_plan, self(), token, result}})
+         end) do
+      {:ok, worker} ->
+        job = %{
+          worker: worker,
+          token: token,
+          monitor: Process.monitor(worker),
+          timer: send_after(state, {:cooking_deadline, token}, 500),
+          containers: containers,
+          items: items
+        }
+
+        Valimc.Metrics.add(:cooking_batches)
+        %{state | cooking: %{state.cooking | job: job}}
+
+      {:error, _} ->
+        Valimc.Metrics.add(:cooking_busy)
+        %{state | cooking: %{state.cooking | seen: nil, retry_at: now + 100}}
+    end
+  end
+
+  defp accept_cooking_plan(state, job, plan) do
+    current =
+      state.item_pending == nil and state.containers == job.containers and
+        Enum.all?(plan.expected, fn {position, block} ->
+          Chunk.block_at(state.edits, position) == block
+        end)
+
+    with true <- current,
+         {:ok, items} <- Items.merge_created(state.items, job.items, plan.items) do
+      plan = %{plan | items: items}
+
+      if plan.changes == %{},
+        do: finish_cooking(state, plan, false),
+        else: commit_cooking(state, plan)
+    else
+      _ ->
+        Valimc.Metrics.add(:cooking_stale)
+        state
+    end
+  end
+
+  defp commit_cooking(state, plan) do
+    result =
+      if plan.batch do
+        if Enum.all?(plan.batch.edits, fn {position, block} ->
+             CookingRuntime.lit_change?(Chunk.block_at(state.edits, position), block)
+           end), do: build_block_proposal(state, plan.batch), else: {:error, :invalid_cooking_lit}
+      else
+        {:ok, nil}
+      end
+
+    case result do
+      {:ok, proposal} ->
+        token = make_ref()
+
+        Store.commit_mining(
+          state.store,
+          state.store_lease,
+          %{
+            edits: if(proposal, do: proposal.edits, else: state.edits),
+            changes: plan.changes,
+            items: plan.items,
+            receipts: state.item_receipts,
+            containers: plan.containers
+          },
+          {self(), state.items.epoch},
+          token
+        )
+
+        pending = %{
+          kind: :cooking_batch,
+          phase: :writing,
+          token: token,
+          from: nil,
+          timer: send_after(state, {:item_commit_deadline, token}, 5000),
+          plan: plan,
+          proposal: proposal
+        }
+
+        Valimc.Metrics.add(:cooking_commits)
+        %{state | item_pending: pending}
+
+      {:error, _} ->
+        Valimc.Metrics.add(:cooking_plan_failures)
+
+        %{
+          state
+          | cooking: %{
+              state.cooking
+              | seen: nil,
+                retry_at: System.monotonic_time(:millisecond) + 1000
+            }
+        }
+    end
+  end
+
+  defp finish_cooking(state, plan, durable) do
+    now = System.monotonic_time(:millisecond)
+
+    state =
+      if durable and plan.batch,
+        do: publish_blocks(state, plan.batch, plan.proposal, false, true),
+        else: state
+
+    runtime =
+      CookingRuntime.accepted(state.cooking, plan, plan.containers, state.edits, plan.items, now)
+
+    runtime =
+      cond do
+        durable ->
+          %{runtime | dirty: false}
+
+        plan.changed != [] and not runtime.dirty ->
+          %{runtime | dirty: true, checkpoint_at: now + 1000}
+
+        true ->
+          runtime
+      end
+
+    :ets.insert(state.item_publication, {:items, plan.items.views})
+
+    state = %{
+      state
+      | containers: plan.containers,
+        items: plan.items,
+        cooking: runtime,
+        cooking_progress: Map.take(state.cooking_progress, Map.keys(plan.containers.entries)),
+        container_permits:
+          ContainerPermits.invalidate(state.container_permits, Map.new(plan.content, &{&1, nil}))
+    }
+
+    state =
+      if durable, do: %{state | item_saved_generation: state.item_motion_generation}, else: state
+
+    state = Enum.reduce(plan.content, state, &notify_container_changed(&2, &1))
+
+    Enum.reduce(plan.changed, state, fn position, state ->
+      generation = Map.get(state.cooking_progress, position, 0) + 1
+
+      {viewers, notices} =
+        ContainerViewers.progressed(state.container_viewers, position, generation)
+
+      for {pid, ref, progress} <- notices,
+          do:
+            Valimc.Connection.deliver(
+              pid,
+              {:container_progress, {self(), state.items.epoch}, ref, position, progress}
+            )
+
+      %{
+        state
+        | container_viewers: viewers,
+          cooking_progress: Map.put(state.cooking_progress, position, generation)
+      }
+    end)
   end
 
   defp start_item_cross_merging(state, now) do
@@ -1151,11 +1364,16 @@ defmodule Valimc.World.RegionData do
     do: {:reply, {:error, :item_storage_busy}, state}
 
   def handle_call(:flush, _from, state) do
-    with :ok <- flush_item_motion(state) do
+    with :ok <- flush_item_motion(state), :ok <- flush_cooking(state, state.containers) do
       result = Store.flush(state.store, state.store_lease, state.edits)
 
       {:reply, result,
-       %{state | dirty: result != :ok, item_saved_generation: state.item_motion_generation}}
+       %{
+         state
+         | dirty: result != :ok,
+           item_saved_generation: state.item_motion_generation,
+           cooking: %{state.cooking | dirty: result != :ok and state.cooking.dirty}
+       }}
     else
       error -> {:reply, error, state}
     end
@@ -1166,6 +1384,11 @@ defmodule Valimc.World.RegionData do
       do: Store.flush_items(state.store, state.store_lease, state.items, state.item_receipts),
       else: :ok
   end
+
+  defp flush_cooking(%{cooking: %{dirty: true}} = state, containers),
+    do: Store.flush_containers(state.store, state.store_lease, containers)
+
+  defp flush_cooking(_, _), do: :ok
 
   defp schedule_item_checkpoint(state) do
     if state.item_saved_generation < state.item_motion_generation and state.item_checkpoint == nil and
@@ -1561,7 +1784,7 @@ defmodule Valimc.World.RegionData do
     do:
       match?(%{kind: kind} when kind in [:container, :container_blocks], state.item_pending) or
         match?(
-          %{kind: kind, phase: :writing} when kind in [:mining, :placement],
+          %{kind: kind, phase: :writing} when kind in [:mining, :placement, :cooking_batch],
           state.item_pending
         )
 
@@ -1715,13 +1938,16 @@ defmodule Valimc.World.RegionData do
   end
 
   defp block_proposal(state, batch, removed \\ []) do
+    if protected_container_change?(state, batch.edits, removed),
+      do: {:error, :occupied_container},
+      else: build_block_proposal(state, batch)
+  end
+
+  defp build_block_proposal(state, batch) do
     edits =
       Enum.reduce(batch.edits, state.edits, fn {pos, block}, acc -> put_edit(acc, pos, block) end)
 
     cond do
-      protected_container_change?(state, batch.edits, removed) ->
-        {:error, :occupied_container}
-
       map_size(edits) > 131_072 ->
         {:error, :region_edit_limit}
 
@@ -1774,8 +2000,8 @@ defmodule Valimc.World.RegionData do
     end)
   end
 
-  defp publish_blocks(state, batch, proposal, dirty) do
-    state = retire_container_changes(state, batch.edits)
+  defp publish_blocks(state, batch, proposal, dirty, cooking \\ false) do
+    state = if cooking, do: state, else: retire_container_changes(state, batch.edits)
     :ets.insert(state.item_publication, {:block_fence, state.items.epoch, proposal.revision})
     Valimc.World.publish(state.key, {:block_batch, batch.frames})
     Valimc.Metrics.add(:block_edits, map_size(batch.edits))
@@ -1786,7 +2012,11 @@ defmodule Valimc.World.RegionData do
       cache: Map.drop(state.cache, batch.chunks),
       dirty: dirty,
       mining_permits: MiningPermits.invalidate(state.mining_permits, batch.edits),
-      container_permits: ContainerPermits.invalidate(state.container_permits, batch.edits),
+      container_permits:
+        if(cooking,
+          do: state.container_permits,
+          else: ContainerPermits.invalidate(state.container_permits, batch.edits)
+        ),
       placement_permits: PlacementPermits.invalidate(state.placement_permits, batch.edits)
     })
   end
@@ -1999,7 +2229,68 @@ defmodule Valimc.World.RegionData do
     {:stop, {:container_storage_failed, reason}, %{state | item_pending: nil}}
   end
 
+  def handle_info(
+        {:containers_saved, writer, token, result},
+        %{store: writer, item_pending: %{kind: :cooking_checkpoint, token: token} = pending} =
+          state
+      ) do
+    Process.cancel_timer(pending.timer)
+
+    case result do
+      :ok -> {:noreply, %{state | item_pending: nil, cooking: %{state.cooking | dirty: false}}}
+      {:error, reason} -> {:stop, {:cooking_checkpoint_failed, reason}, state}
+    end
+  end
+
   def handle_info({:containers_saved, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:cooking_plan, worker, token, result},
+        %{cooking: %{job: %{worker: worker, token: token} = job}} = state
+      ) do
+    Process.cancel_timer(job.timer)
+    Process.demonitor(job.monitor, [:flush])
+    state = %{state | cooking: %{state.cooking | job: nil}}
+
+    case result do
+      {:ok, plan} ->
+        {:noreply, accept_cooking_plan(state, job, plan)}
+
+      {:error, _} ->
+        Valimc.Metrics.add(:cooking_plan_failures)
+
+        {:noreply,
+         %{
+           state
+           | cooking: %{
+               state.cooking
+               | seen: nil,
+                 retry_at: System.monotonic_time(:millisecond) + 1000
+             }
+         }}
+    end
+  end
+
+  def handle_info({:cooking_plan, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info({:cooking_deadline, token}, %{cooking: %{job: %{token: token} = job}} = state) do
+    Process.demonitor(job.monitor, [:flush])
+    Process.exit(job.worker, :kill)
+    Valimc.Metrics.add(:cooking_timeouts)
+
+    {:noreply,
+     %{
+       state
+       | cooking: %{
+           state.cooking
+           | job: nil,
+             seen: nil,
+             retry_at: System.monotonic_time(:millisecond) + 100
+         }
+     }}
+  end
+
+  def handle_info({:cooking_deadline, _}, state), do: {:noreply, state}
 
   def handle_info(
         {:item_transfer_plan, worker, token, result},
@@ -2360,6 +2651,22 @@ defmodule Valimc.World.RegionData do
     {:stop, {:mining_storage_failed, reason}, %{state | item_pending: nil}}
   end
 
+  def handle_info(
+        {:mining_saved, writer, token, result},
+        %{store: writer, item_pending: %{kind: :cooking_batch, token: token} = pending} = state
+      ) do
+    Process.cancel_timer(pending.timer)
+
+    case result do
+      :ok ->
+        plan = Map.put(pending.plan, :proposal, pending.proposal)
+        {:noreply, finish_cooking(%{state | item_pending: nil}, plan, true)}
+
+      {:error, reason} ->
+        {:stop, {:cooking_storage_failed, reason}, state}
+    end
+  end
+
   def handle_info({:mining_saved, _, _, _}, state), do: {:noreply, state}
 
   def handle_info({:item_checkpoint, token}, %{item_checkpoint_timer: %{token: token}} = state) do
@@ -2532,6 +2839,25 @@ defmodule Valimc.World.RegionData do
         %{store: writer, store_monitor: ref} = state
       ),
       do: {:stop, {:store_failed, reason}, state}
+
+  def handle_info(
+        {:DOWN, ref, :process, worker, _},
+        %{cooking: %{job: %{worker: worker, monitor: ref} = job}} = state
+      ) do
+    Process.cancel_timer(job.timer)
+    Valimc.Metrics.add(:cooking_plan_failures)
+
+    {:noreply,
+     %{
+       state
+       | cooking: %{
+           state.cooking
+           | job: nil,
+             seen: nil,
+             retry_at: System.monotonic_time(:millisecond) + 100
+         }
+     }}
+  end
 
   def handle_info({:DOWN, ref, :process, pid, reason}, state) do
     state =
@@ -3032,6 +3358,11 @@ defmodule Valimc.World.RegionData do
   def terminate(reason, state) do
     Process.cancel_timer(state.save_timer)
 
+    if state.cooking.job do
+      Process.cancel_timer(state.cooking.job.timer)
+      Process.exit(state.cooking.job.worker, :kill)
+    end
+
     if state.item_checkpoint_timer, do: Process.cancel_timer(state.item_checkpoint_timer.timer)
     if state.item_checkpoint, do: Process.cancel_timer(state.item_checkpoint.timer)
 
@@ -3078,11 +3409,27 @@ defmodule Valimc.World.RegionData do
           when kind in [:mining, :placement, :container_blocks] ->
             proposal.edits
 
+          %{kind: :cooking_batch, phase: :writing, proposal: %{edits: edits}} ->
+            edits
+
           _ ->
             state.edits
         end
 
       Store.flush(state.store, state.store_lease, edits)
+    end
+
+    if reason in [:normal, :shutdown] do
+      # Follow queued writes with their successor, never the old pre-commit containers.
+      containers =
+        case state.item_pending do
+          %{phase: :writing, plan: %{containers: containers}} -> containers
+          %{phase: :writing, decision: %{containers: containers}} -> containers
+          %{phase: :writing, containers: containers} -> containers
+          _ -> state.containers
+        end
+
+      flush_cooking(state, containers)
     end
 
     Process.demonitor(state.store_monitor, [:flush])

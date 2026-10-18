@@ -115,10 +115,11 @@ family menus/transfers/refusals/range/reconnect pass. These gates are closed.
 **Done within unused atomic-batch scope:** [cooking batches](tickets/VMC-034l.md)
 c10988f/7cdb21e pass native15,630 compositions,27 affected checks, production and
 exact-retention client baseline/reconnect atbfac2bb. This gate is closed.
-**Implementing:** [live regional cooking](tickets/VMC-034m.md): matched planning
-measurements,43 affected progress-observation checks and native activity predicates pass.
-Automatic cooking/XP are still unadmitted. The next active scheduler uses measured
-whole-region work without per-processor tasks/timers.
+**Awaiting client validation:** [live regional cooking](tickets/VMC-034m.md).
+Bounded worker plans run without reserving gameplay admission; joint lit/content
+writes, timer checkpoints and sleeping/refusal retries are implemented. Targeted
+owner/clock regressions and 15,630 native compositions pass. Actual cooking acceptance
+is pending; XP awards remain unimplemented. Retrieve the ticket for evidence and limits.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

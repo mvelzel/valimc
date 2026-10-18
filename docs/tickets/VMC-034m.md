@@ -1,95 +1,72 @@
 # VMC-034m — Live regional cooking
 
-Status: Implementing after VMC-034l; K's client checkpoint remains immutable.
+Status: Implemented; actual-client acceptance pending. Depends on validated
+[VMC-034k](VMC-034k.md) menus and [VMC-034l](VMC-034l.md) batches.
 
-Acceptance: loaded owned processors consume fuel, advance/cool, complete items,
-publish native progress/lit states and retain recipe uses across restart. Admit
-fuel/remainders/completion/recipe counters atomically before publication. Keep
-menus responsive and coherent across concurrent transfers and owner replacement.
-XP-bearing output keeps its explicit refusal until a complete award protocol exists;
-this slice cannot close the whole furnace feature.
+Loaded regional processors ignite, advance/cool, complete recipes and publish native
+properties/lit states. Fuel, remainders, outputs and recipe uses commit together.
+XP-bearing output remains refused until its award protocol exists; this ticket
+cannot close the whole furnace feature.
 
-Use one existing region clock and bounded work on existing workers, without
-per-processor processes/timers. A native logical step must cover every eligible
-processor without repeatedly encoding the same region snapshot in small tiles.
-Bound the proposal by the existing1,024-entry storage limit. Keep owner ordering,
-generation/fencing and disk acknowledgements explicit.
+## Ownership and persistence
 
-Progress-only changes may remain owned memory with a bounded checkpoint cadence;
-item/recipe/lit changes require joint durability. A crash may rewind uncheckpointed
-heat/progress, never duplicate inputs, outputs, fuel remainders or recipe awards.
-Observers need a coalesced progress generation separate from content revisions.
-Define active/sleeping transitions and transient capacity refusal retrying so stable
-empty/blocked processors do no continuous work and no processor starves neighbors.
+One existing region clock dispatches at most one bounded cooking job per owner.
+Workers select activity, simulate up to 1,024 processors and encode candidate frames.
+Planning reserves no gameplay write slot: item motion and menu admission continue.
+Container/block snapshots and owner epoch/token fence publication. Competing menu
+writes win over an obsolete plan. Created remainders merge into current item state
+without replacing newer motion/counters; capacity and UUID conflicts reject safely.
 
-Client scenario: all three types actually ignite/cook, correct relative cook times,
-input depletion, full-output pause, invalid fuel, water bucket/sponge, menu refresh,
-close/reopen and restart conservation. Verify only implemented output/award scope.
+Stable processors sleep until external changes. Capacity-refused entries retry at
+most once per second, or when capacity changes, while other processors continue.
+Worker failure/timeout discards speculation and backs off without retiring gameplay.
 
-October18 measured scheduling prerequisite:27 affected tests pass(seed820030),
-including a complete1,024-processor step with preserved item revisions. The
-existing64-entry limit would require16 whole-snapshot validations for that logical
-step. With identical1,024 occupied processors/receipts and exact equal final state,
-100 alternating matched samples show tiled64 p50/p95=81.762/118.045ms versus
-whole1,024=9.117/13.789ms. Ten warmups, ten BEAM schedulers; a separate graphical
-client was running. This is pure planning, excluding I/O/publication/players;
-no whole-server capacity or cross-server speed claim.
+Progress keeps content revisions stable and coalesces a separate viewer generation.
+Unchanged inventories receive only four native properties. Timers checkpoint after
+1,000 ms and flush explicitly or on clean shutdown; queued joint writes retain their
+successor snapshot. A crash may rewind uncheckpointed timers, never committed items.
+Lit/content/recipe changes use the existing joint block/item/container WAL, including
+content-changing no-op block fences. Publication follows acknowledgement; uncertainty
+retires the owner. Lit toggles retain viewers and unchanged-content permits.
 
-Baselinec10988f; candidate changes only the bound. Raw workload/baseline source/
-samples are `.local/cooking-batch-bench-whole.exs`, `cooking-batch64-bench.exs` and
-`cooking-batch-bench-whole.json` (SHA256d32fb298b89c59c396891a03b68e72d48c240fdbd42812d7e95e83f830760d5d).
-The first implementation uses one bounded whole-region proposal, not a task per
-processor. Runtime admission, progress generations, checkpointing and actual
-cooking validation remain; no scheduler is enabled yet.
+## Verification
 
-Progress observation checkpoint:43 affected checks pass(seed665206),
-`.local/cooking-progress-viewers-targeted-final.log`. One pending notice coalesces
-1,000 timer generations independently of content changes; neither acknowledgment
-can clear a newer observation in the other lane. Owner/session refs fence stale
-notifications. An actual TCP menu refresh publishes new progress with the same
-item revision/source and acknowledges the right generation; ordinary chest and
-all cooking exchange regressions pass. The harness now consumes the asynchronous
-initial subscription snapshot before checking later progress. No live timer sender
-or automatic cooking is enabled by this checkpoint.
+Reference: pinned Mojang 26.3 server SHA-1
+`33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c`, native furnace `serverTick` and codecs.
+`CookingTickOracle` plus `scripts/check_cooking_batch.exs` verifies 15,630 native
+states through runtime selection, exact recipes/remainders, lit frames and revisions.
+Raw evidence: `.local/cooking-runtime-native.json`,
+`cooking-runtime-native-oracle.log`, `cooking-runtime-native-comparison.log`.
 
-Next implementation: run one owned batch from the existing regional clock, using
-existing bounded workers/write lane. Compute activity and candidate encodings off
-owner; serialize epoch/token/content checks and durable publication. Keep normal
-menu admission responsive while planning, and fence any canceled proposal. Bound
-progress generations by owned entries and clear them on removal. Timer checkpoints
-must share write ordering with item changes; uncertainty retires the owner rather
-than publishing speculative state. Actual cooking/XP gates remain open.
+Targeted owner/runtime checks cover all three native durations, activity/backoff,
+concurrent item motion and menu admission, stale blocks/contents, late timeout,
+acknowledgement-before-publication, periodic/explicit checkpoints, exact shutdown
+retention, queued-write ordering and actual region-clock/item-physics composition.
+The affected regression set passes 109 checks (seed494027), including the 10-test
+owner set. Changed-file formatting and the public-tree audit pass. Logs:
+`.local/cooking-runtime-{targeted,activity-tests,shutdown-tests}.log`.
+No broad test/native-integration/production gate is due at this subticket boundary.
 
-Activity selection is also implemented: an entry wakes only if its next native
-step changes slots/heat/progress or corrects its lit state. Stable empty, full-
-output and unsupported-input processors sleep until an external change; remaining
-heat and cooldown still run. The predicate matches every before/after transition
-in the15,630 native sample (including traces).16 affected checks pass(seed900620),
-`.local/cooking-activity-{targeted,native-comparison}.log`. Runtime activity-index
-maintenance and dispatch remain next; this predicate starts no work by itself.
+Matched pure-worker measurement: 1,024 stored entries, 64 or 1,024 active, ten warmups
+and 100 alternating equal-result samples on ten schedulers. Reusing known activity
+and remaining heat reduces sparse p50/p95 from 8.295/11.967 to 6.942/9.078 ms;
+dense from 44.097/51.686 to 32.751/39.619 ms. Dense maximum remains 51.284 ms.
+This excludes I/O, players and networking and establishes no server capacity claim.
+Workload, baseline source, hashes and samples: `.local/cooking-runtime-bench.exs`,
+`cooking-runtime-before.ex`, `cooking-runtime-bench.json`.
 
-The unused1024-bound baseline is accepted atbfac2bb with L; do not repeat it.
-Progress/clock publication must send only the four native properties when item
-content is unchanged; full39-cell inventory resync belongs to content/recovery.
-Keep that reason distinct while coalescing both notification lanes.
+The prior batch-bound proof and property-byte measurements remain in private
+`.local/cooking-batch-bench-whole.{exs,json}` and
+`.local/cooking-progress-wire-bench.{exs,json,log}`; L's gate is closed at `bfac2bb`.
+Frozen `cfd791e` baseline smoke passes: direct Java 26.3 join, flat terrain, `/stats`
+and fresh logs. Dataset/report: `.local/client-tests/VMC-034m-reimplementation/baseline`.
 
-Progress transport now uses a separate queued refresh reason and sends only the
-four native properties while slots/content revision remain unchanged. Queued item
-clicks take priority; a content change or player recovery still gets the full view.
-43 affected checks pass(seed167196), `.local/cooking-properties-only-targeted-final.log`;
-actual TCP verifies progress changes without advancing inventory state or source.
-The first run caught an incorrect grant-kind mapping; the final grant retains
-native fresh refresh authorization and all ordinary exchanges pass.
+## Pending client gate
 
-Exact framed-byte comparison of equal unchanged inventories: four properties use
-28 bytes uncompressed/32 with compression negotiated, versus prior full refresh
-92/122/237 bytes (empty/typical/packed) or99/129/244 with compression negotiated.
-Seven packets become four; no traffic-rate/capacity claim. Original workload/raw
-results `.local/cooking-progress-wire-bench.{exs,json,log}`. No timer sender is
-active yet; runtime dispatch/joint acknowledgement/checkpointing remain next.
-
-Runtime integration must distinguish a same-family lit-bit change from removal:
-retain viewers, and preserve item permits when content did not change. The raw
-occupied-block guard stays strict; only a fresh owned cooking proof admits its
-lit update. Include content-changing no-op block fences in the existing joint WAL,
-then notify after its acknowledgement. Never replace the release under client test.
+Dedicated tester: fresh whole datasets and immutable implementation checkpoint.
+Verify GUI ignition/progress/completion in furnace, smoker and blast furnace with
+correct relative durations; depletion/full-output pause and wake; invalid fuel;
+wet sponge/bucket; responsive transfers/cursor/offhand during cooking; dropped-item
+motion; burnout retaining the menu; explicit XP-output refusal; fresh reconnect and
+coordinated clean restart conserving source inventories, receipts and recipe uses.
+Do not replace the tested checkpoint or restore one side of a committed transfer.
