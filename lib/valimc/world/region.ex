@@ -231,6 +231,9 @@ defmodule Valimc.World.Region do
   def item_transfer_receipt({pid, epoch}, source),
     do: GenServer.call(pid, {:item_transfer_receipt, epoch, source}, 2000)
 
+  def container_transfer_receipt({pid, epoch}, source),
+    do: GenServer.call(pid, {:container_transfer_receipt, epoch, source}, 2000)
+
   @impl true
   def init({key, token}) do
     Process.flag(:trap_exit, true)

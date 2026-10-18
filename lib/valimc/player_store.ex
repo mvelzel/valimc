@@ -4,6 +4,8 @@ defmodule Valimc.PlayerStore do
 
   alias Valimc.{
     Metrics,
+    PlayerContainerIntent,
+    PlayerContainerTransfers,
     PlayerMiningIntent,
     PlayerMiningTransfers,
     PlayerPlacementIntent,
@@ -16,7 +18,13 @@ defmodule Valimc.PlayerStore do
     World
   }
 
-  alias Valimc.World.{MiningTransfers, PlacementTransfers, PickupTransfers, Region}
+  alias Valimc.World.{
+    ContainerTransfers,
+    MiningTransfers,
+    PlacementTransfers,
+    PickupTransfers,
+    Region
+  }
 
   @moduledoc "A leased per-session player-state writer; serialization/I/O are outside socket owners."
   @keys [:x, :y, :z, :yaw, :pitch]
@@ -92,6 +100,9 @@ defmodule Valimc.PlayerStore do
 
   def prepare_pickup(pid, fence, snapshot, intent, ref),
     do: GenServer.cast(pid, {:prepare_pickup, self(), fence, snapshot, intent, ref})
+
+  def prepare_container(pid, fence, snapshot, intent, ref),
+    do: GenServer.cast(pid, {:prepare_container, self(), fence, snapshot, intent, ref})
 
   def close(pid, fence, snapshot), do: GenServer.call(pid, {:close, fence, snapshot}, 5000)
 
@@ -312,6 +323,15 @@ defmodule Valimc.PlayerStore do
   def handle_cast({:prepare_pickup, owner, fence, snapshot, intent, ref}, %{owner: owner} = state) do
     prepare_plan(state, fence, ref, fn ->
       PlayerPickupTransfers.prepare(state.uuid, sequence(state), snapshot, intent)
+    end)
+  end
+
+  def handle_cast(
+        {:prepare_container, owner, fence, snapshot, intent, ref},
+        %{owner: owner} = state
+      ) do
+    prepare_plan(state, fence, ref, fn ->
+      PlayerContainerTransfers.prepare(state.uuid, sequence(state), snapshot, intent)
     end)
   end
 
@@ -549,6 +569,27 @@ defmodule Valimc.PlayerStore do
     {:noreply, state}
   end
 
+  defp destination_proof(
+         %{snapshot: %{transfer_sequence: sequence, outbox: %{kind: :container} = intent}} = state
+       ) do
+    with {:ok, key, request, _} <- PlayerContainerIntent.request(state.uuid, sequence, intent),
+         {:ok, owner} <- World.item_owner(key),
+         {:ok, {^key, receipt}} <- Region.container_transfer_receipt(owner, state.uuid) do
+      if receipt.sequence == 0 do
+        {:error, :transfer_not_applied}
+      else
+        with {:ok, _} <- ContainerTransfers.receipt_result(key, request, receipt),
+             do: {:ok, {:container, receipt}}
+      end
+    else
+      {:error, :missing_container_receipt} -> {:error, :transfer_not_applied}
+      {:error, :transfer_storage_disabled} -> {:error, :transfer_destination_ephemeral}
+      _ -> {:error, :transfer_destination_unavailable}
+    end
+  catch
+    :exit, _ -> {:error, :transfer_destination_unavailable}
+  end
+
   defp destination_proof(state) do
     with {:ok, key, request, digest, kind} <- proof_request(state.uuid, state.snapshot),
          {:ok, owner} <- World.item_owner(key),
@@ -610,6 +651,12 @@ defmodule Valimc.PlayerStore do
          {:pickup, receipt}
        ),
        do: PlayerPickupTransfers.resolve(uuid, snapshot, receipt)
+
+  defp resolved_snapshot(
+         %{outbox: %{kind: :container, request: %{source: uuid}}} = snapshot,
+         {:container, receipt}
+       ),
+       do: PlayerContainerTransfers.resolve(uuid, snapshot, receipt)
 
   defp resolved_snapshot(snapshot, :applied), do: {:ok, %{snapshot | outbox: nil}}
 

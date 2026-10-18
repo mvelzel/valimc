@@ -3,6 +3,7 @@ defmodule Valimc.PlayerSnapshot do
   alias Valimc.{
     Inventory,
     PlayerAbsorption,
+    PlayerContainerIntent,
     PlayerEffects,
     PlayerFood,
     PlayerHealth,
@@ -16,7 +17,10 @@ defmodule Valimc.PlayerSnapshot do
   alias Valimc.World.{ItemRecords, ItemTransfers}
   @data_version 5023
   @inventory_bytes 524_288
-  @outbox_bytes max(57 + 5 * (69 + 65_536), PlayerMiningIntent.max_bytes())
+  @outbox_bytes max(
+                  max(57 + 5 * (69 + 65_536), PlayerMiningIntent.max_bytes()),
+                  PlayerContainerIntent.max_bytes()
+                )
   @max_sequence 18_446_744_073_709_551_615
   @max_bytes 56 + 4 + 3 + 8 + 4 + 24 + 12 + 8 + 13 + 2 + 11 + @inventory_bytes + @outbox_bytes +
                32 + 1 + 5 + 1 + PlayerEffects.max_bytes() + 5
@@ -248,6 +252,14 @@ defmodule Valimc.PlayerSnapshot do
 
           16
 
+        %{kind: :container} ->
+          check(
+            version == 12 and PlayerContainerIntent.matches_snapshot?(outbox, snapshot),
+            :invalid_container_snapshot
+          )
+
+          20
+
         _ ->
           version
       end
@@ -309,7 +321,7 @@ defmodule Valimc.PlayerSnapshot do
     {payload, absorption} =
       case payload do
         <<"VMCPOSE", 19, header::binary-size(52), base, pool::float-32, body::binary>>
-        when base in 2..18 ->
+        when base in 2..18 or base == 20 ->
           check(PlayerAbsorption.valid?(pool), :invalid_absorption)
           {<<"VMCPOSE", base, header::binary, body::binary>>, %{absorption: pool}}
 
@@ -319,7 +331,8 @@ defmodule Valimc.PlayerSnapshot do
 
     {payload, effects} =
       case payload do
-        <<"VMCPOSE", 18, header::binary-size(52), base, rest::binary>> when base in 2..17 ->
+        <<"VMCPOSE", 18, header::binary-size(52), base, rest::binary>>
+        when base in 2..17 or base == 20 ->
           {:ok, effects, body} = PlayerEffects.take(rest)
           {<<"VMCPOSE", base, header::binary, body::binary>>, %{effects: effects}}
 
@@ -330,7 +343,7 @@ defmodule Valimc.PlayerSnapshot do
     {payload, burning} =
       case payload do
         <<"VMCPOSE", 17, header::binary-size(52), base, ticks::signed-32, body::binary>>
-        when base in 2..16 ->
+        when base in 2..16 or base == 20 ->
           {<<"VMCPOSE", base, header::binary, body::binary>>, %{fire_ticks: ticks}}
 
         _ ->
@@ -410,7 +423,7 @@ defmodule Valimc.PlayerSnapshot do
 
       <<"VMCPOSE", version, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
         yaw::float-32, pitch::float-32, @data_version::32, rest::binary>>
-      when version in [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16] ->
+      when version in [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 20] ->
         {food, rest} =
           if version >= 12 do
             <<level, saturation::float-32, exhaustion::float-32, timer::16, rest::binary>> =
@@ -504,6 +517,7 @@ defmodule Valimc.PlayerSnapshot do
             decode_inventory(body, table_bytes),
             sequence,
             case version do
+              20 -> decode_container_outbox(uuid, sequence, outbox)
               16 -> decode_pickup_outbox(uuid, sequence, outbox)
               14 -> decode_placement_outbox(uuid, sequence, outbox)
               13 -> decode_mining_outbox(uuid, sequence, outbox)
@@ -526,6 +540,15 @@ defmodule Valimc.PlayerSnapshot do
         check(
           version != 16 or
             PlayerPickupIntent.matches_snapshot?(snapshot.outbox, %{
+              inventory: %{snapshot.inventory | table_inputs: table_inputs},
+              game_mode: mode
+            }),
+          :invalid_player_file
+        )
+
+        check(
+          version != 20 or
+            PlayerContainerIntent.matches_snapshot?(snapshot.outbox, %{
               inventory: %{snapshot.inventory | table_inputs: table_inputs},
               game_mode: mode
             }),
@@ -582,6 +605,11 @@ defmodule Valimc.PlayerSnapshot do
     bytes
   end
 
+  defp encode_outbox(uuid, sequence, %{kind: :container} = intent) do
+    {:ok, bytes} = PlayerContainerIntent.encode(uuid, sequence, intent)
+    bytes
+  end
+
   defp encode_outbox(_uuid, _sequence, %{kind: _}),
     do: throw({:snapshot_error, :invalid_transfer_kind})
 
@@ -605,6 +633,11 @@ defmodule Valimc.PlayerSnapshot do
 
   defp decode_pickup_outbox(uuid, sequence, bytes) do
     {:ok, intent} = PlayerPickupIntent.decode(uuid, sequence, bytes)
+    intent
+  end
+
+  defp decode_container_outbox(uuid, sequence, bytes) do
+    {:ok, intent} = PlayerContainerIntent.decode(uuid, sequence, bytes)
     intent
   end
 

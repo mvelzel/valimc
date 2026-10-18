@@ -28,6 +28,7 @@ defmodule Valimc.World.RegionData do
 
   defstruct [
     :key,
+    :containers,
     :items,
     :item_receipts,
     :pickup_permits,
@@ -73,6 +74,12 @@ defmodule Valimc.World.RegionData do
     store_monitor = Process.monitor(store)
     edits = Store.load(store)
 
+    containers =
+      case Store.load_containers(store) do
+        {:ok, containers} -> containers
+        {:error, reason} -> exit({:container_load_failed, reason})
+      end
+
     {items, receipts, persistent} =
       case Store.load_items(store) do
         {:ok, %{records: records, receipts: receipts, ledger: ledger, persistent: persistent}} ->
@@ -100,6 +107,7 @@ defmodule Valimc.World.RegionData do
       key: key,
       items: items,
       item_receipts: receipts,
+      containers: containers,
       pickup_permits: PickupPermits.new(),
       item_merge_permits: ItemMergePermits.new(),
       item_storage_enabled: persistent,
@@ -787,6 +795,19 @@ defmodule Valimc.World.RegionData do
       end
 
     {:reply, reply, state}
+  end
+
+  def handle_call({:container_transfer_receipt, epoch, source}, _from, state) do
+    result =
+      cond do
+        epoch != state.items.epoch -> {:error, :stale_region}
+        not state.item_storage_enabled -> {:error, :transfer_storage_disabled}
+        not (is_binary(source) and byte_size(source) == 16) -> {:error, :invalid_transfer_source}
+        state.containers.receipts[source] == nil -> {:error, :missing_container_receipt}
+        true -> {:ok, {state.key, state.containers.receipts[source]}}
+      end
+
+    {:reply, result, state}
   end
 
   def handle_call({:item_transfer_receipt, epoch, source}, _from, state) do
