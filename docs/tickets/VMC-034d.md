@@ -1,7 +1,6 @@
 # VMC-034d — Furnace progress transitions
 
-Status: Pure progress kernel implemented; production/client baseline pending.
-Depends on fuel, item and recipe foundations; no live cooking.
+Status: Done within pure progress-kernel scope ate4c41cd. No live cooking.
 
 Acceptance: one bounded pure step matches pinned serverTick for fuel exhaustion/
 refill, progress rescaling, blocked/missing input, completion and cooldown. Return
@@ -33,3 +32,14 @@ checks pass(seed589943), including200-step completion, blocked atomicity, fast
 rescaling, same-step sponge/remainder composition and invalid state/context
 (`.local/cooking-tick-targeted.log`). Runtime admission, persistence, active-region
 scheduling, menu progress and XP remain unimplemented. Production/baseline pending.
+
+
+October18 frozene4c41cd production and dedicated baseline pass: two fresh actual
+joins, ordinary empty-chest menu/lid/HUD and reconnect preserve all quantities/
+components and source110/typed109/item110+61/storage30. No packet errors or fixture
+writes. Both clients stopped143; regions/clock flushed, server22669 stopped0.
+Accepted `.local/client-tests/VMC-034d/report.md`;39 stopped dataset-file/1,120
+unchanged frozen-blob hashes and exact audit `.local/cooking-tick-publication-proof.json`.
+Parent full native/both TCP and current native tick traces pass. All gates for
+this unused kernel are closed; do not repeat the baseline. Runtime ownership/
+journal/menu admission is the next feature work.

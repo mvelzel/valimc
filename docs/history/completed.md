@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-034d progress](../tickets/VMC-034d.md) | `e4c41cd`:2,880 native boundaries/12,750 trace steps,11 affected checks, production and dedicated baseline/reconnect; no live cooking |
 | [VMC-032a10 physical chests](../tickets/VMC-032a10.md) | `6bda186`/`d70ef58`: isolated dry/wet/both-hand placement, atomic contents release, recovery/refusal, full tests/native integration/production and actual survival/creative pickup/reconnect |
 | [VMC-032a11 chest sounds](../tickets/VMC-032a11.md) | `bd727ca`: native pitch/packet/range and first/last bounded delivery; full tests/production/TCP and muted actual menu/lid/reconnect; audible playback untested |
 | [VMC-034a fuel](../tickets/VMC-034a.md) / [034b slots](../tickets/VMC-034b.md) / [034c recipes](../tickets/VMC-034c.md) | `e219f43`/`372acd0`/`32bc5a1`: pure native-matching foundations,1,547 full tests, production and dedicated baselines; no live cooking |

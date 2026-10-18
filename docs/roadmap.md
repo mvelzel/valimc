@@ -94,9 +94,10 @@ playback is untested. These gates are closed.
 [atomic slots](tickets/VMC-034b.md)372acd0 and [recipes](tickets/VMC-034c.md)32bc5a1.
 Native probes, affected/1,547 full tests, production and dedicated baseline/reconnect
 pass. No live cooking claim.
-[Progress transitions](tickets/VMC-034d.md) match2,880 native boundaries and
-12,750 multi-tick steps/11 affected checks; production/client baseline pending.
-These are unused foundations; durable region integration and menus remain next.
+**Done within pure progress scope:** [transitions](tickets/VMC-034d.md) e4c41cd:
+2,880 native boundaries/12,750 trace steps,11 affected checks, production and
+dedicated baseline/reconnect pass. Durable region storage/integration and menus
+remain next; these foundations do not yet cook items in gameplay.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
