@@ -100,7 +100,9 @@ dedicated baseline/reconnect pass. Durable region storage/integration and menus
 remain next; these foundations do not yet cook items in gameplay.
 **Implementing:** [persistent cooking entries](tickets/VMC-034e.md): mixed v3
 snapshots retain old bytes/receipts and pass targeted codec, cold-owner and all
-eight joint-write recovery boundaries. Full integration/production/client pending.
+eight joint-write recovery boundaries.1,556 full tests/production and dedicated
+mixed-snapshot rendering/chest/reconnect acceptance pass; only full native
+integration remains before publication.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

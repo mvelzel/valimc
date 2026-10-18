@@ -1,7 +1,7 @@
 # VMC-034e — Persistent cooking entries
 
-Status: Storage and defensive owner loading implemented; full integration,
-production and mixed-snapshot client baseline pending. No live cooking.
+Status: Storage, production and mixed-snapshot client acceptance pass at2dbae91.
+Only full native integration remains; no live cooking.
 
 Acceptance: persist each furnace/smoker/blast-furnace's exact three slots, bounded
 progress and recipe-use counters inside the existing region container authority.
@@ -47,3 +47,17 @@ add three paused processing entries and their unlit blocks beside the existing
 empty chest, then test fresh native joins, rendering and chest open/close/reconnect.
 Verify exact processor slots/progress/recipe uses and independent receipts before
 and after. Raw removal refusal is a server check; actual smelting remains unclaimed.
+
+
+October18 frozen2dbae91 passes1,556 full tests and production. Dedicated actual
+run01/fresh run02 render the chest and all three processor models, open/close the
+ordinary chest and retain the complete canonical/live container value byte-for-
+value through reconnect. Storage36 retains chest revision11 and paused processor
+revisions32/34/36, exact input2/fuel2/result1, progress19/49/49, recipe uses43/9/21;
+source110/outboxnil, typed109/item110+61 and player quantities remain unchanged.
+Both clients stopped143; regions/clock flushed, server89153 stopped0. Accepted
+`.local/client-tests/VMC-034e/report.md`; stopped audit,39 dataset-file/1,124 unchanged
+frozen-blob hashes `.local/cooking-entry-publication-proof.json`. The initial
+read-only observer was retried after its region loaded; no client/gameplay failure.
+The client gate is closed; do not repeat it. Only the isolated full native run
+remains before publication. No processor interaction or automatic cooking claim.
