@@ -1,16 +1,16 @@
 # Measured prototype behavior
 
-October18 [cooking planning](tickets/VMC-034m.md): identical1,024-processor steps,
+[Cooking planning](tickets/VMC-034m.md): identical1,024-processor steps,
 100 alternating samples, tiled64 p50/p95=81.762/118.045ms; one1,024-entry proposal
 9.117/13.789ms. Pure planner only; disk/publication/player simulation excluded.
 Raw workloads/revisions and host-load limits live in the ticket.
 
-October16 contact-hazard comparison: matched128-player static-water samples and
+Contact-hazard comparison: matched128-player static-water samples and
 the512-player reverse pair pass; the initial512 baseline has469 movement corrections.
 [VMC-017b5](tickets/VMC-017b5.md) records all six samples and limits. The existing
 worker-admission/host-load finding remains open; no stable512 capacity is established.
 
-Measured on October 13, 2026 on this macOS ARM64 host with **10 BEAM schedulers**, Elixir 1.20.4 and OTP 29.1.1. These are short development measurements, not production capacity limits or cross-server comparisons.
+The samples below use this macOS ARM64 host with **10 BEAM schedulers**, Elixir 1.20.4 and OTP 29.1.1. These are short development measurements, not production capacity limits or cross-server comparisons.
 
 A separate Python process opens real loopback TCP connections, completes compressed Minecraft 26.3 login/configuration, loads nine flat spawn chunks, acknowledges batches and keepalives, and sends 100 movement packets per client. Both runs use view distance **1**; normal development configuration uses **3**, requiring 49 spawn chunks per client.
 
@@ -24,7 +24,7 @@ Raw samples include timestamps, counters, scheduler/process counts and an implem
 These historical runs predate client-tick admission. The current driver sends a
 `client_tick_end` after every position and records its own hash and delimiter
 count. New samples therefore have a different packet workload; retain that context
-when comparing them with the October 13 numbers.
+when comparing them with the archived numbers below.
 
 The driver also now verifies every final authoritative position and fails on any
 movement correction. Spread players start at saved spawn fixtures. Current runs

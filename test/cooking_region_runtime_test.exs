@@ -203,7 +203,15 @@ defmodule Valimc.CookingRegionRuntimeTest do
   test "periodic checkpoints acknowledge current timers and failed storage never publishes a proposal",
        ctx do
     state = seed(ctx, progress()) |> start() |> result()
-    state = RegionData.cooking_tick(state, state.cooking.checkpoint_at)
+    before = state.containers.entries[ctx.position].cooking.progress
+
+    state = %{
+      state
+      | cooking: %{state.cooking | checkpoint_at: System.monotonic_time(:millisecond)}
+    }
+
+    state = state |> start() |> result()
+    assert state.containers.entries[ctx.position].cooking.progress == before + 1
     assert state.item_pending.kind == :cooking_checkpoint
     state = saved(state)
     assert not state.cooking.dirty and disk(ctx) == state.containers
@@ -249,6 +257,22 @@ defmodule Valimc.CookingRegionRuntimeTest do
     RegionData.terminate(:shutdown, reloaded)
   end
 
+  test "worker-admission backoff does not postpone an overdue timer checkpoint", ctx do
+    state = seed(ctx, progress()) |> start() |> result()
+    now = System.monotonic_time(:millisecond)
+
+    state = %{
+      state
+      | cooking: %{state.cooking | seen: nil, retry_at: now + 100, checkpoint_at: now - 1}
+    }
+
+    state = RegionData.cooking_tick(state, now)
+    assert state.item_pending.kind == :cooking_checkpoint and state.cooking.job == nil
+    state = saved(state)
+    assert disk(ctx) == state.containers and not state.cooking.dirty
+    RegionData.terminate(:shutdown, state)
+  end
+
   test "joint changes publish only after acknowledgement and keep viewers on burnout", ctx do
     state = seed(ctx, %Cooking{burn_left: 1, burn_total: 1})
 
@@ -291,6 +315,48 @@ defmodule Valimc.CookingRegionRuntimeTest do
     assert disk(ctx) == expected
   end
 
+  test "a timer-only write cannot suppress the clean-shutdown item-motion flush", ctx do
+    state = seed(ctx, progress())
+    {x, y, z} = ctx.position
+
+    {:ok, items, {epoch, id, revision}} =
+      Items.create(state.items, ctx.key, ItemStack.new("stone"), {x + 0.5, y + 2.0, z + 0.5})
+
+    :ok = Store.flush_items(state.store, state.store_lease, items, state.item_receipts)
+
+    step = %{
+      id: id,
+      revision: revision,
+      position: {x + 0.6, y + 2.0, z + 0.5},
+      motion: %ItemMotionState{no_gravity: true, velocity: {0.1, 0.0, 0.0}}
+    }
+
+    {:reply, {:ok, [_]}, state} =
+      RegionData.handle_call(
+        {:publish_item_motion, epoch, [step], System.monotonic_time(:millisecond) + 250},
+        nil,
+        %{state | items: items}
+      )
+
+    state = state |> start() |> result()
+
+    state = %{
+      state
+      | cooking: %{state.cooking | checkpoint_at: System.monotonic_time(:millisecond)}
+    }
+
+    state = state |> start() |> result()
+    assert state.item_pending.kind == :cooking_checkpoint
+    expected_items = Items.records(state.items)
+    RegionData.terminate(:shutdown, state)
+
+    {:ok, stored} =
+      Valimc.World.ItemRecords.decode(File.read!(Store.item_path(ctx.base, ctx.key)), ctx.key)
+
+    assert stored.records == expected_items
+    assert disk(ctx) == state.containers
+  end
+
   test "a late timed-out plan cannot publish or reserve the write lane", ctx do
     state = seed(ctx, progress()) |> start()
     token = state.cooking.job.token
@@ -301,6 +367,62 @@ defmodule Valimc.CookingRegionRuntimeTest do
     {:noreply, ignored} = RegionData.handle_info(late, expired)
     assert ignored == expired and disk(ctx) == state.containers
     RegionData.terminate(:shutdown, ignored)
+  end
+
+  test "replacement recovers a queued cooking commit once and ignores old-owner callbacks", ctx do
+    state = seed(ctx, %{progress() | progress: 199})
+    RegionData.terminate(:shutdown, state)
+    Application.put_env(:valimc, :cooking_simulation, false)
+    {:ok, {pid, old_epoch}} = Valimc.World.item_owner(ctx.key)
+    :sys.suspend(pid)
+    writer = :sys.get_state(pid).resource.store
+    :sys.suspend(writer)
+
+    try do
+      :sys.replace_state(pid, fn state ->
+        resource = %{state.resource | cooking: %{state.resource.cooking | enabled: true}}
+        %{state | resource: start(resource)}
+      end)
+
+      :sys.resume(pid)
+
+      eventually(fn ->
+        match?(%{kind: :cooking_batch}, :sys.get_state(pid).resource.item_pending)
+      end)
+
+      pending = :sys.get_state(pid).resource.item_pending
+      expected = pending.plan.containers
+      assert disk(ctx) != expected
+      monitor = Process.monitor(pid)
+      Process.exit(pid, :kill)
+      assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}
+      :sys.resume(writer)
+      {replacement, epoch} = replacement(ctx.key)
+      assert replacement != pid and epoch != old_epoch
+      assert disk(ctx) == expected
+      assert :sys.get_state(replacement).resource.containers == expected
+      send(replacement, {:resource, old_epoch, {:mining_saved, writer, pending.token, :ok}})
+      assert :sys.get_state(replacement).resource.containers == expected
+      entry = expected.entries[ctx.position]
+      assert elem(entry.cooking.slots, 0) == ItemStack.new("raw_iron")
+      assert elem(entry.cooking.slots, 2) == ItemStack.new("iron_ingot")
+      assert Enum.sum(Map.values(entry.recipes)) == 1
+    after
+      if Process.alive?(pid), do: :sys.resume(pid)
+      if Process.alive?(writer), do: :sys.resume(writer)
+    end
+  end
+
+  defp replacement(key, left \\ 100) do
+    case Valimc.World.item_owner(key) do
+      {:ok, owner} ->
+        owner
+
+      {:error, _} ->
+        assert left > 0
+        Process.sleep(20)
+        replacement(key, left - 1)
+    end
   end
 
   test "the actual region clock cooks all families while dropped-item physics advances", ctx do

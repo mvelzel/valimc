@@ -194,27 +194,10 @@ defmodule Valimc.World.RegionData do
           state.item_pending != nil ->
         state
 
-      runtime.dirty and now >= runtime.checkpoint_at ->
-        token = make_ref()
-
-        Store.commit_containers(
-          state.store,
-          state.store_lease,
-          state.containers,
-          {self(), state.items.epoch},
-          token
-        )
-
-        pending = %{
-          kind: :cooking_checkpoint,
-          phase: :writing,
-          token: token,
-          from: nil,
-          timer: send_after(state, {:item_commit_deadline, token}, 5000)
-        }
-
-        Valimc.Metrics.add(:cooking_checkpoints)
-        %{state | item_pending: pending}
+      runtime.dirty and now >= runtime.checkpoint_at and
+          (not CookingRuntime.due?(runtime, state.containers, state.edits, state.items, now) or
+             (runtime.seen == nil and is_integer(runtime.retry_at) and now < runtime.retry_at)) ->
+        checkpoint_cooking(state)
 
       is_integer(runtime.retry_at) and now < runtime.retry_at and runtime.seen == nil ->
         state
@@ -225,6 +208,29 @@ defmodule Valimc.World.RegionData do
       true ->
         state
     end
+  end
+
+  defp checkpoint_cooking(state) do
+    token = make_ref()
+
+    Store.commit_containers(
+      state.store,
+      state.store_lease,
+      state.containers,
+      {self(), state.items.epoch},
+      token
+    )
+
+    pending = %{
+      kind: :cooking_checkpoint,
+      phase: :writing,
+      token: token,
+      from: nil,
+      timer: send_after(state, {:item_commit_deadline, token}, 5000)
+    }
+
+    Valimc.Metrics.add(:cooking_checkpoints)
+    %{state | item_pending: pending}
   end
 
   defp start_cooking_plan(state, now) do
@@ -377,25 +383,30 @@ defmodule Valimc.World.RegionData do
 
     state = Enum.reduce(plan.content, state, &notify_container_changed(&2, &1))
 
-    Enum.reduce(plan.changed, state, fn position, state ->
-      generation = Map.get(state.cooking_progress, position, 0) + 1
+    state =
+      Enum.reduce(plan.changed, state, fn position, state ->
+        generation = Map.get(state.cooking_progress, position, 0) + 1
 
-      {viewers, notices} =
-        ContainerViewers.progressed(state.container_viewers, position, generation)
+        {viewers, notices} =
+          ContainerViewers.progressed(state.container_viewers, position, generation)
 
-      for {pid, ref, progress} <- notices,
-          do:
-            Valimc.Connection.deliver(
-              pid,
-              {:container_progress, {self(), state.items.epoch}, ref, position, progress}
-            )
+        for {pid, ref, progress} <- notices,
+            do:
+              Valimc.Connection.deliver(
+                pid,
+                {:container_progress, {self(), state.items.epoch}, ref, position, progress}
+              )
 
-      %{
-        state
-        | container_viewers: viewers,
-          cooking_progress: Map.put(state.cooking_progress, position, generation)
-      }
-    end)
+        %{
+          state
+          | container_viewers: viewers,
+            cooking_progress: Map.put(state.cooking_progress, position, generation)
+        }
+      end)
+
+    if not durable and state.cooking.dirty and now >= state.cooking.checkpoint_at,
+      do: checkpoint_cooking(state),
+      else: state
   end
 
   defp start_item_cross_merging(state, now) do
@@ -3398,7 +3409,14 @@ defmodule Valimc.World.RegionData do
 
     # All casts and flushes originate from this owner and reach its leased writer
     # in order. A queued critical proposal must never be followed by old items.
-    if reason in [:normal, :shutdown] and not match?(%{phase: :writing}, state.item_pending),
+    writing_items =
+      match?(%{phase: :writing}, state.item_pending) and
+        not match?(
+          %{kind: kind} when kind in [:container, :cooking_checkpoint],
+          state.item_pending
+        )
+
+    if reason in [:normal, :shutdown] and not writing_items,
       do: flush_item_motion(state)
 
     if reason in [:normal, :shutdown] and state.dirty do
