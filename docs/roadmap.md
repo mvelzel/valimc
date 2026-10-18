@@ -97,7 +97,10 @@ dedicated muted menu/lid/reconnect acceptance. Audible playback is untested; all
 own gates are closed. [Furnace fuel foundations](tickets/VMC-034a.md) now pass
 79,584 native callbacks and9 affected checks; production passes, client baseline
 pending. [Atomic furnace item transitions](tickets/VMC-034b.md) pass37,440 native
-completion/1,960 consumption cases and12 affected checks; no live cooking yet.
+completion/1,960 consumption cases and12 affected checks.
+[Cooking recipes](tickets/VMC-034c.md) now match14,922 native selections and
+44,766 speed contexts/7 affected checks; production/client baseline pending.
+These are unused foundations; live cooking remains next.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
