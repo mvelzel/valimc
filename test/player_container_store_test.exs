@@ -460,6 +460,67 @@ defmodule Valimc.PlayerContainerStoreTest do
     assert stored.receipts[ctx.uuid].sequence == 1 and stored.receipts[source].sequence == 1
   end
 
+  test "canonical candidate needs no socket-side sequence and does not persist until real preparation",
+       ctx do
+    {:ok, writer, nil, fence} = PlayerStore.open(ctx.uuid)
+    draft = %{ctx.intent | request: Map.drop(ctx.intent.request, [:source, :sequence])}
+    snapshot = %{ctx.snapshot | inventory: %{ctx.snapshot.inventory | state_id: 123}}
+    ref = make_ref()
+    PlayerStore.container_candidate(writer, fence, snapshot, draft, ref)
+    assert_receive {:container_candidate, ^ref, {:ok, candidate}}, 1000
+    assert candidate.request.source == ctx.uuid and candidate.request.sequence == 1
+    assert candidate.request.inventory.state_id == 0
+    refute File.exists?(PlayerStore.path(ctx.base, ctx.uuid))
+    assert :sys.get_state(writer).snapshot == nil
+    {_owner, ctx, _actor} = admit(%{ctx | intent: candidate})
+    ref = make_ref()
+    PlayerStore.prepare_container(writer, fence, snapshot, ctx.intent, ref)
+    assert_receive {:player_transfer_saved, ^ref, {:ok, _, prepared}}, 1000
+    assert prepared.outbox == ctx.intent
+    assert prepared.transfer_sequence == 1 and prepared.inventory == snapshot.inventory
+  end
+
+  test "candidate refuses stale fences or pending transfers and never rewrites their journal",
+       ctx do
+    {writer, fence, pending} = prepare(ctx)
+    before = File.read!(PlayerStore.path(ctx.base, ctx.uuid))
+
+    for {fence, expected} <- [{make_ref(), :stale_player_snapshot}, {fence, :transfer_pending}] do
+      ref = make_ref()
+      PlayerStore.container_candidate(writer, fence, ctx.snapshot, ctx.intent, ref)
+      assert_receive {:container_candidate, ^ref, {:error, ^expected}}, 1000
+    end
+
+    assert File.read!(PlayerStore.path(ctx.base, ctx.uuid)) == before
+    assert :sys.get_state(writer).snapshot.outbox == pending.outbox
+  end
+
+  test "an old candidate cannot reuse a sequence after another action sealed", ctx do
+    {:ok, writer, nil, fence} = PlayerStore.open(ctx.uuid)
+    draft = %{ctx.intent | request: Map.drop(ctx.intent.request, [:source, :sequence])}
+    ref = make_ref()
+    PlayerStore.container_candidate(writer, fence, ctx.snapshot, draft, ref)
+    assert_receive {:container_candidate, ^ref, {:ok, old}}, 1000
+    ref = make_ref()
+    PlayerStore.prepare_container(writer, fence, ctx.snapshot, ctx.intent, ref)
+    assert_receive {:player_transfer_saved, ^ref, {:ok, fence, pending}}, 1000
+    write_decision(ctx, pending, false)
+    ref = make_ref()
+    PlayerStore.complete_transfer(writer, fence, ref)
+    assert_receive {:player_transfer_saved, ^ref, {:ok, fence, _sealed}}, 1000
+    before = File.read!(PlayerStore.path(ctx.base, ctx.uuid))
+    snapshot = Map.delete(ctx.snapshot, :transfer_sequence)
+    ref = make_ref()
+    PlayerStore.prepare_container(writer, fence, snapshot, old, ref)
+    assert_receive {:player_transfer_saved, ^ref, {:error, :invalid_container_plan}}, 1000
+    ref = make_ref()
+    PlayerStore.container_candidate(writer, fence, snapshot, draft, ref)
+    assert_receive {:container_candidate, ^ref, {:ok, fresh}}, 1000
+    assert fresh.request.sequence == 2 and fresh.request.source == ctx.uuid
+    assert File.read!(PlayerStore.path(ctx.base, ctx.uuid)) == before
+    assert :sys.get_state(writer).snapshot.transfer_sequence == 1
+  end
+
   defp await(check, remaining \\ 100)
   defp await(_, 0), do: flunk("container recovery did not reach its expected boundary")
 

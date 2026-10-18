@@ -104,6 +104,10 @@ defmodule Valimc.PlayerStore do
   def prepare_container(pid, fence, snapshot, intent, ref),
     do: GenServer.cast(pid, {:prepare_container, self(), fence, snapshot, intent, ref})
 
+  @doc "Preview the canonical next action; only preparation persists/reserves its sequence."
+  def container_candidate(pid, fence, snapshot, intent, ref),
+    do: GenServer.cast(pid, {:container_candidate, self(), fence, snapshot, intent, ref})
+
   def close(pid, fence, snapshot), do: GenServer.call(pid, {:close, fence, snapshot}, 5000)
 
   def close_session(pid, fence, snapshot),
@@ -333,6 +337,21 @@ defmodule Valimc.PlayerStore do
     prepare_plan(state, fence, ref, fn ->
       PlayerContainerTransfers.prepare(state.uuid, sequence(state), snapshot, intent)
     end)
+  end
+
+  def handle_cast(
+        {:container_candidate, owner, fence, snapshot, intent, ref},
+        %{owner: owner} = state
+      ) do
+    result =
+      with :ok <- source_guard(state, fence),
+           {:ok, snapshot} <- checkpoint_snapshot(state, fence, snapshot),
+           {:ok, candidate} <-
+             PlayerContainerTransfers.prepare(state.uuid, sequence(state), snapshot, intent),
+           do: {:ok, candidate.outbox}
+
+    send(owner, {:container_candidate, ref, result})
+    {:noreply, state}
   end
 
   def handle_cast({:complete, owner, fence, ref}, %{owner: owner} = state) do

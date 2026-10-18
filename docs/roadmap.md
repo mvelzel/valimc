@@ -77,7 +77,8 @@ survival place/mine/pickup/reconnect; source66 and separate typed receipt63 reta
 atefa821d:33 affected/1,471 full tests,64 native codec cases/two complete chunks,
 production/both TCP and actual model rendering/journal recovery/fresh reconnect.
 **Implementing:** [live ordinary chest menus](tickets/VMC-032a9.md).
-Physical lifecycle, opening and viewer replication remain before live chest UI.
+Opening/source-candidate kernels pass46 affected checks and native provider probes;
+live opening, exchanges, viewer replication and physical lifecycle remain.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
