@@ -829,7 +829,7 @@ defmodule Valimc.World.RegionData do
               System.monotonic_time(:millisecond)
             )
 
-          eligible = eligible and Valimc.ChestAccess.single?(block)
+          eligible = eligible and container_block_matches?(request, block)
 
           case ContainerTransfers.plan(reserved, key, request, eligible) do
             {:ok, decision} -> {:ok, Map.put(decision, :permits, permits)}
@@ -1280,7 +1280,38 @@ defmodule Valimc.World.RegionData do
       else: {:error, :invalid_container_context}
   end
 
+  defp container_access(
+         state,
+         %{
+           source: source,
+           kind: kind,
+           position: position,
+           inventory: %Valimc.Inventory{} = inventory
+         } = request,
+         %{uuid: source, mode: mode} = actor
+       ) do
+    block = container_block(state, request)
+
+    if inventory.infinite_materials == (mode == :creative) and
+         Valimc.Physics.CookingBlocks.kind(block) == kind,
+       do:
+         Valimc.CookingOpening.authorize_action(
+           block,
+           position,
+           actor,
+           System.monotonic_time(:millisecond)
+         ),
+       else: {:error, :invalid_container_context}
+  end
+
   defp container_access(_, _, _), do: {:error, :invalid_container_context}
+
+  defp container_block_matches?(%{rows: _}, block), do: Valimc.ChestAccess.single?(block)
+
+  defp container_block_matches?(%{kind: kind}, block),
+    do: Valimc.Physics.CookingBlocks.kind(block) == kind
+
+  defp container_block_matches?(_, _), do: false
 
   defp start_container_recovery(state, request, from) do
     containers = state.containers
@@ -2556,19 +2587,31 @@ defmodule Valimc.World.RegionData do
           block = Chunk.block_at(state.edits, position)
           now = System.monotonic_time(:millisecond)
 
-          if Valimc.ChestAccess.single?(block) or (is_map(grant) and grant[:menu] == :chest) do
-            {x, y, z} = position
+          cond do
+            Valimc.Physics.CookingBlocks.kind(block) != nil or
+                (is_map(grant) and grant[:menu] == :cooking) ->
+              Valimc.CookingOpening.authorize(
+                block,
+                state.containers.entries[position],
+                position,
+                grant,
+                now
+              )
 
-            Valimc.ChestOpening.authorize(
-              block,
-              state.containers.entries[position],
-              Chunk.block_at(state.edits, {x, y + 1, z}),
-              position,
-              grant,
-              now
-            )
-          else
-            Valimc.TableAccess.authorize(block, position, grant, now)
+            Valimc.ChestAccess.single?(block) or (is_map(grant) and grant[:menu] == :chest) ->
+              {x, y, z} = position
+
+              Valimc.ChestOpening.authorize(
+                block,
+                state.containers.entries[position],
+                Chunk.block_at(state.edits, {x, y + 1, z}),
+                position,
+                grant,
+                now
+              )
+
+            true ->
+              Valimc.TableAccess.authorize(block, position, grant, now)
           end
       end
 
@@ -2593,10 +2636,11 @@ defmodule Valimc.World.RegionData do
   def handle_info(_, state), do: {:noreply, state}
 
   defp container_view_decision(state, connection, position, grant, decision) do
-    if is_map(grant) and grant[:menu] == :chest and
-         (decision == :valid or match?({:chest, _, _}, decision)) do
+    if is_map(grant) and grant[:menu] in [:chest, :cooking] and
+         (decision == :valid or match?({kind, _, _} when kind in [:chest, :cooking], decision)) do
       ref = grant[:view_ref]
       view = state.container_viewers.views[connection]
+      opener = grant.menu == :chest and grant.mode != :spectator
 
       cond do
         grant.kind == :subscribe and is_reference(ref) ->
@@ -2611,7 +2655,7 @@ defmodule Valimc.World.RegionData do
                  ref,
                  monitor,
                  position,
-                 grant.mode != :spectator,
+                 opener,
                  entry.revision
                ) do
             {:ok, viewers, retired, lids} ->
@@ -2624,7 +2668,7 @@ defmodule Valimc.World.RegionData do
           end
 
         view != nil and view.ref == ref and view.position == position and
-            view.opener == (grant.mode != :spectator) ->
+            view.opener == opener ->
           viewers =
             ContainerViewers.observed(
               state.container_viewers,

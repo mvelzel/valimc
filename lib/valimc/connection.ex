@@ -499,8 +499,9 @@ defmodule Valimc.Connection do
 
   def handle_info(
         {:DOWN, ref, :process, _, _},
-        %{table_menu: %{kind: :chest, monitor: ref}} = state
-      ),
+        %{table_menu: %{kind: kind, monitor: ref}} = state
+      )
+      when kind in [:chest, :cooking],
       do: guard_connection(state, fn -> {:noreply, begin_table_close(state)} end)
 
   def handle_info({:DOWN, ref, :process, _, _}, %{table_job: %{monitor: ref}} = state),
@@ -514,8 +515,8 @@ defmodule Valimc.Connection do
       next =
         case result do
           {:ok, intent} ->
-            if chest_action_current?(state, job),
-              do: admit_chest_action(state, intent),
+            if container_action_current?(state, job),
+              do: admit_container_action(state, intent),
               else: fail_chest_action(state)
 
           _ ->
@@ -538,7 +539,7 @@ defmodule Valimc.Connection do
     guard_connection(state, fn ->
       next =
         with {:ok, request} <- result,
-             true <- chest_action_current?(state, job),
+             true <- container_action_current?(state, job),
              true <- Map.delete(request, :permit) == Map.delete(job.intent.request, :permit),
              true <- System.monotonic_time(:millisecond) < job.actor.expires do
           prepare_chest_action(state, %{job.intent | request: request})
@@ -3381,10 +3382,19 @@ defmodule Valimc.Connection do
       {:open, :pass, true} ->
         execute_placement(state, job.command, job.placement)
 
-      {:open, {:chest, block, view}, true} ->
+      {:open, {kind, block, view}, true} when kind in [:chest, :cooking] ->
         if state.life_stage == :alive and not state.teleport_pending and
              PlayerInput.loaded?(state.player.input) and reachable?(state, job.position),
-           do: open_chest_menu(state, job.position, owner, block, view, job.command.sequence),
+           do:
+             open_container_menu(
+               state,
+               kind,
+               job.position,
+               owner,
+               block,
+               view,
+               job.command.sequence
+             ),
            else: acknowledge_table_use(state, job.command)
 
       {:open, _, _} ->
@@ -3398,8 +3408,9 @@ defmodule Valimc.Connection do
           begin_table_close(state)
         end
 
-      {kind, {:chest, block, view}, true} when kind in [:subscribe, :check, :refresh, :click] ->
-        if state.table_menu.kind == :chest and table_player_valid?(state) do
+      {operation, {kind, block, view}, true}
+      when operation in [:subscribe, :check, :refresh, :click] and kind in [:chest, :cooking] ->
+        if state.table_menu.kind == kind and table_player_valid?(state) do
           state = %{
             state
             | table_menu: %{
@@ -3412,7 +3423,7 @@ defmodule Valimc.Connection do
           }
 
           state =
-            if kind == :click,
+            if operation == :click,
               do: apply_menu_click(state, job.command),
               else: resync_inventory(state)
 
@@ -3429,10 +3440,11 @@ defmodule Valimc.Connection do
   defp event(
          %{
            phase: :play,
-           table_menu: %{kind: :chest, owner: owner, view_ref: ref, position: position} = menu
+           table_menu: %{kind: kind, owner: owner, view_ref: ref, position: position} = menu
          } = state,
          {:container_changed, owner, ref, position, revision}
-       ) do
+       )
+       when kind in [:chest, :cooking] do
     if revision > menu.view.revision do
       check_table_menu(%{state | table_menu: %{menu | dirty: true}})
     else
@@ -3441,9 +3453,10 @@ defmodule Valimc.Connection do
   end
 
   defp event(
-         %{phase: :play, table_menu: %{kind: :chest, owner: owner, view_ref: ref}} = state,
+         %{phase: :play, table_menu: %{kind: kind, owner: owner, view_ref: ref}} = state,
          {:container_closed, owner, ref}
-       ),
+       )
+       when kind in [:chest, :cooking],
        do: begin_table_close(state)
 
   defp event(
@@ -4250,9 +4263,10 @@ defmodule Valimc.Connection do
   end
 
   defp sync_recovery_inventory(
-         %{table_menu: %{kind: :chest}} = state,
+         %{table_menu: %{kind: kind}} = state,
          %{intent: %{outbox: %{kind: :container}}}
-       ) do
+       )
+       when kind in [:chest, :cooking] do
     # Sealing changes player items; refresh storage before publishing a combined
     # menu so the client never sees new player items beside the previous storage.
     request_table(state, :refresh, state.table_menu.position, nil)
@@ -4383,6 +4397,9 @@ defmodule Valimc.Connection do
         %{kind: :chest, id: id, view: view} ->
           Packets.chest_inventory(id, view.rows, view.slots, inventory)
 
+        %{kind: :cooking, id: id, view: view} ->
+          Packets.cooking_inventory(id, view.cooking, inventory)
+
         %{id: id} ->
           Packets.table_inventory(id, inventory)
 
@@ -4397,7 +4414,13 @@ defmodule Valimc.Connection do
         do: [Packets.player_inventory_slot(40, Inventory.get(inventory, 45))],
         else: []
 
-    send_packets(state, [packet, Packets.cursor(inventory.carried)] ++ offhand)
+    properties =
+      case state.table_menu do
+        %{kind: :cooking, id: id, view: view} -> Packets.cooking_properties(id, view.cooking)
+        _ -> []
+      end
+
+    send_packets(state, [packet, Packets.cursor(inventory.carried)] ++ offhand ++ properties)
     %{state | inventory: inventory}
   end
 
@@ -4409,6 +4432,7 @@ defmodule Valimc.Connection do
     slots =
       case state.table_menu do
         %{kind: :chest, view: view} -> view.rows * 9 + 36
+        %{kind: :cooking} -> 39
         _ -> 46
       end
 
@@ -4507,7 +4531,9 @@ defmodule Valimc.Connection do
 
   defp selection_pending?(state), do: inventory_pending(state)
 
-  defp menu_signature(%{table_menu: %{kind: :chest}} = state), do: chest_signature(state)
+  defp menu_signature(%{table_menu: %{kind: kind}} = state) when kind in [:chest, :cooking],
+    do: container_signature(state)
+
   defp menu_signature(state), do: table_signature(state)
 
   defp request_table(state, kind, {x, _, z} = position, command) do
@@ -4531,7 +4557,7 @@ defmodule Valimc.Connection do
           menu: state.table_menu.kind,
           view_ref: state.table_menu[:view_ref],
           revision:
-            if(state.table_menu.kind == :chest and kind != :refresh,
+            if(state.table_menu.kind in [:chest, :cooking] and kind != :refresh,
               do: state.table_menu.view.revision
             )
         })
@@ -4626,23 +4652,38 @@ defmodule Valimc.Connection do
     }
   end
 
-  defp open_chest_menu(state, position, owner, block, view, sequence) do
+  defp open_container_menu(state, kind, position, owner, block, view, sequence) do
     id = rem(state.table_counter, 127) + 1
     inventory = state.inventory |> Inventory.cancel_drag() |> Inventory.advance()
     state = state |> stop_item_use() |> cancel_mining()
 
-    send_packets(state, [
-      Packets.ack(sequence),
-      Packets.open_chest(id, view.rows),
-      Packets.chest_inventory(id, view.rows, view.slots, inventory),
-      Packets.cursor(inventory.carried)
-    ])
+    {open, content, properties} =
+      case kind do
+        :chest ->
+          {Packets.open_chest(id, view.rows),
+           Packets.chest_inventory(id, view.rows, view.slots, inventory), []}
+
+        :cooking ->
+          {Packets.open_cooking(id, view.kind),
+           Packets.cooking_inventory(id, view.cooking, inventory),
+           Packets.cooking_properties(id, view.cooking)}
+      end
+
+    send_packets(
+      state,
+      [
+        Packets.ack(sequence),
+        open,
+        content,
+        Packets.cursor(inventory.carried)
+      ] ++ properties
+    )
 
     state = %{
       state
       | inventory: inventory,
         table_menu: %{
-          kind: :chest,
+          kind: kind,
           id: id,
           position: position,
           owner: owner,
@@ -4652,7 +4693,7 @@ defmodule Valimc.Connection do
           monitor: Process.monitor(elem(owner, 0)),
           subscribed: false,
           dirty: false,
-          opener: state.player.game_mode.current != :spectator
+          opener: kind == :chest and state.player.game_mode.current != :spectator
         },
         table_counter: id
     }
@@ -4666,20 +4707,30 @@ defmodule Valimc.Connection do
     menu = state.table_menu
 
     valid =
-      if menu.kind == :chest do
-        ChestAccess.valid_view?(
-          menu.block,
-          state.player.game_mode.current,
-          Valimc.PlayerInteraction.eye(state.player),
-          menu.position
-        )
-      else
-        TableAccess.valid?(
-          Data.item_block(Data.item("crafting_table")),
-          state.player.game_mode.current,
-          Valimc.PlayerInteraction.eye(state.player),
-          menu.position
-        )
+      case menu.kind do
+        :chest ->
+          ChestAccess.valid_view?(
+            menu.block,
+            state.player.game_mode.current,
+            Valimc.PlayerInteraction.eye(state.player),
+            menu.position
+          )
+
+        :cooking ->
+          Valimc.CookingOpening.valid_view?(
+            menu.block,
+            state.player.game_mode.current,
+            Valimc.PlayerInteraction.eye(state.player),
+            menu.position
+          )
+
+        :table ->
+          TableAccess.valid?(
+            Data.item_block(Data.item("crafting_table")),
+            state.player.game_mode.current,
+            Valimc.PlayerInteraction.eye(state.player),
+            menu.position
+          )
       end
 
     state.life_stage == :alive and not state.teleport_pending and
@@ -4688,8 +4739,10 @@ defmodule Valimc.Connection do
 
   defp check_table_menu(%{table_menu: nil} = state), do: state
 
-  defp check_table_menu(%{table_menu: %{kind: :chest} = menu} = state) do
+  defp check_table_menu(%{table_menu: %{kind: kind} = menu} = state)
+       when kind in [:chest, :cooking] do
     key = World.region_key(World.chunk_key(elem(menu.position, 0), elem(menu.position, 2)))
+    opener = kind == :chest and state.player.game_mode.current != :spectator
 
     cond do
       not table_player_valid?(state) or World.existing_owner(key) != {:ok, menu.owner} ->
@@ -4698,13 +4751,13 @@ defmodule Valimc.Connection do
       inventory_pending(state) or state.save_ref != nil ->
         state
 
-      menu.opener != (state.player.game_mode.current != :spectator) ->
+      menu.opener != opener ->
         Valimc.World.Region.unsubscribe_container(menu.owner, self(), menu.view_ref)
 
         menu = %{
           menu
           | view_ref: make_ref(),
-            opener: state.player.game_mode.current != :spectator,
+            opener: opener,
             subscribed: false
         }
 
@@ -4768,28 +4821,30 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp apply_menu_click(%{table_menu: %{kind: :chest}} = state, click),
-    do: begin_chest_action(state, click)
+  defp apply_menu_click(%{table_menu: %{kind: kind}} = state, click)
+       when kind in [:chest, :cooking],
+       do: begin_container_action(state, click)
 
   defp apply_menu_click(state, click), do: apply_table_click(state, click)
 
-  defp begin_chest_action(%{player: %{game_mode: %{current: :spectator}}} = state, _),
+  defp begin_container_action(%{player: %{game_mode: %{current: :spectator}}} = state, _),
     do: resync_inventory(state)
 
-  defp begin_chest_action(state, click) do
+  defp begin_container_action(state, click) do
     menu = state.table_menu
 
+    proposal =
+      Map.merge(container_request_view(menu.view), %{
+        inventory: state.inventory,
+        action: click.action,
+        slot: click.slot,
+        button: click.button
+      })
+
     with {:ok, slots, inventory} <-
-           Valimc.ContainerClick.plan(
-             menu.view.rows,
-             menu.view.slots,
-             state.inventory,
-             click.action,
-             click.slot,
-             click.button
-           ),
+           Valimc.World.ContainerRequest.plan(proposal),
          false <-
-           slots == menu.view.slots and
+           slots == proposal.slots and
              %{inventory | state_id: state.inventory.state_id} == state.inventory do
       ref = make_ref()
 
@@ -4801,7 +4856,7 @@ defmodule Valimc.Connection do
         menu: menu.id,
         monitor: Process.monitor(elem(menu.owner, 0)),
         timer: Process.send_after(self(), {:table_deadline, ref}, 300),
-        signature: chest_signature(state),
+        signature: container_signature(state),
         task: nil,
         intent: nil,
         actor: nil
@@ -4812,17 +4867,12 @@ defmodule Valimc.Connection do
       intent = %{
         kind: :container,
         key: World.region_key(World.chunk_key(x, z)),
-        request: %{
-          permit: <<0::128>>,
-          position: menu.position,
-          revision: menu.view.revision,
-          rows: menu.view.rows,
-          slots: menu.view.slots,
-          inventory: state.inventory,
-          action: click.action,
-          slot: click.slot,
-          button: click.button
-        }
+        request:
+          Map.merge(proposal, %{
+            permit: <<0::128>>,
+            position: menu.position,
+            revision: menu.view.revision
+          })
       }
 
       PlayerStore.container_candidate(
@@ -4839,11 +4889,17 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp chest_action_current?(state, job) do
+  defp container_request_view(%{rows: rows, slots: slots}), do: %{rows: rows, slots: slots}
+
+  defp container_request_view(%{kind: kind, cooking: cooking}),
+    do: %{kind: kind, slots: cooking.slots}
+
+  defp container_action_current?(state, job) do
     match?(
-      %{kind: :chest, id: id, owner: owner} when id == job.menu and owner == job.owner,
+      %{kind: kind, id: id, owner: owner}
+      when kind in [:chest, :cooking] and id == job.menu and owner == job.owner,
       state.table_menu
-    ) and chest_signature(state) == job.signature and
+    ) and container_signature(state) == job.signature and
       table_player_valid?(state) and state.player.health.value > 0 and
       World.existing_owner(
         World.region_key(
@@ -4855,12 +4911,12 @@ defmodule Valimc.Connection do
       ) == {:ok, job.owner}
   end
 
-  defp chest_signature(state) do
+  defp container_signature(state) do
     {mode, _secondary, items} = table_signature(state)
     {mode, items}
   end
 
-  defp admit_chest_action(state, intent) do
+  defp admit_container_action(state, intent) do
     actor = %{
       uuid: state.player.uuid,
       mode: state.player.game_mode.current,
@@ -4916,18 +4972,19 @@ defmodule Valimc.Connection do
     resync_inventory(%{state | recovery: recovery})
   end
 
-  defp retire_chest_view(%{table_menu: %{kind: :chest} = menu}) do
+  defp retire_container_view(%{table_menu: %{kind: kind} = menu})
+       when kind in [:chest, :cooking] do
     Valimc.World.Region.unsubscribe_container(menu.owner, self(), menu.view_ref)
     Process.demonitor(menu.monitor, [:flush])
   end
 
-  defp retire_chest_view(_), do: :ok
+  defp retire_container_view(_), do: :ok
 
   defp begin_table_close(%{table_menu: nil} = state), do: continue_table_close(state)
 
   defp begin_table_close(state) do
     send_packets(state, [Packets.packet("container_close", Wire.varint(state.table_menu.id))])
-    retire_chest_view(state)
+    retire_container_view(state)
     state = cancel_table_query(state)
 
     continue_table_close(%{
@@ -5366,7 +5423,7 @@ defmodule Valimc.Connection do
 
   @impl true
   def terminate(_reason, state) do
-    retire_chest_view(state)
+    retire_container_view(state)
     cancel_table_query(state)
     cancel_pickup_query(state)
     cancel_mining(state)
