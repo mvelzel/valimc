@@ -93,6 +93,54 @@ defmodule Valimc.ContainerViewersTest do
     assert {^next, [], []} = Viewers.invalidate(next, [@a])
   end
 
+  test "timer generations coalesce independently of content and each acknowledgment fences its own lane" do
+    {state, a, _} = add(%Viewers{}, @a, false, 17)
+    {state, b, _} = add(state, @b, false, 17)
+    {state, [{pid, ref, 1}]} = Viewers.progressed(state, @a, 1)
+    assert {pid, ref} == {a.pid, a.ref}
+    assert state.views[a.pid].revision == 17 and not state.views[a.pid].pending
+    assert state.views[b.pid] == b
+
+    state =
+      Enum.reduce(2..1000, state, fn generation, state ->
+        {next, []} = Viewers.progressed(state, @a, generation)
+        next
+      end)
+
+    {state, [{_, _, 18}]} = Viewers.changed(state, @a, 18)
+    content_seen = Viewers.observed(state, a.pid, a.ref, 18)
+    assert content_seen.views[a.pid].progress_pending
+    refute content_seen.views[a.pid].pending
+    assert Viewers.observed_progress(content_seen, a.pid, a.ref, 999) == content_seen
+    assert Viewers.observed_progress(content_seen, a.pid, make_ref(), 1000) == content_seen
+    state = Viewers.observed_progress(content_seen, a.pid, a.ref, 1000)
+    refute state.views[a.pid].progress_pending
+    {state, [{_, _, 1001}]} = Viewers.progressed(state, @a, 1001)
+    {state, [{_, _, 19}]} = Viewers.changed(state, @a, 19)
+    state = Viewers.observed_progress(state, a.pid, a.ref, 1001)
+    assert state.views[a.pid].pending
+    refute state.views[a.pid].progress_pending
+    assert state.views[a.pid].revision == 19
+  end
+
+  test "retired timer sessions and invalid generations cannot acknowledge a replacement" do
+    {state, a, _} = add(%Viewers{}, @a, false)
+    {state, [_]} = Viewers.progressed(state, @a, 5)
+    replacement = make_ref()
+    {:ok, state, [_], []} = Viewers.register(state, a.pid, replacement, make_ref(), @a, false, 1)
+    {state, [_]} = Viewers.progressed(state, @a, 6)
+    assert Viewers.observed_progress(state, a.pid, a.ref, 6) == state
+
+    for invalid <- [-1, nil, 1.5, 18_446_744_073_709_551_616] do
+      assert {^state, []} = Viewers.progressed(state, @a, invalid)
+      assert Viewers.observed_progress(state, a.pid, replacement, invalid) == state
+    end
+
+    {empty, [_], []} = Viewers.unregister(state, a.pid, replacement)
+    assert empty.views == %{} and empty.positions == %{}
+    assert {^empty, []} = Viewers.progressed(empty, @a, 7)
+  end
+
   test "full capacity permits replacement and wire occupancy never wraps at256 viewers" do
     state =
       Enum.reduce(1..Viewers.max_views(), %Viewers{}, fn _, current ->

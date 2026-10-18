@@ -41,3 +41,21 @@ samples are `.local/cooking-batch-bench-whole.exs`, `cooking-batch64-bench.exs` 
 The first implementation uses one bounded whole-region proposal, not a task per
 processor. Runtime admission, progress generations, checkpointing and actual
 cooking validation remain; no scheduler is enabled yet.
+
+Progress observation checkpoint:43 affected checks pass(seed665206),
+`.local/cooking-progress-viewers-targeted-final.log`. One pending notice coalesces
+1,000 timer generations independently of content changes; neither acknowledgment
+can clear a newer observation in the other lane. Owner/session refs fence stale
+notifications. An actual TCP menu refresh publishes new progress with the same
+item revision/source and acknowledges the right generation; ordinary chest and
+all cooking exchange regressions pass. The harness now consumes the asynchronous
+initial subscription snapshot before checking later progress. No live timer sender
+or automatic cooking is enabled by this checkpoint.
+
+Next implementation: run one owned batch from the existing regional clock, using
+existing bounded workers/write lane. Compute activity and candidate encodings off
+owner; serialize epoch/token/content checks and durable publication. Keep normal
+menu admission responsive while planning, and fence any canceled proposal. Bound
+progress generations by owned entries and clear them on removal. Timer checkpoints
+must share write ordering with item changes; uncertainty retires the owner rather
+than publishing speculative state. Actual cooking/XP gates remain open.

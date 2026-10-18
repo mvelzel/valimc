@@ -515,6 +515,88 @@ defmodule Valimc.CookingConnectionTest do
     end
   end
 
+  test "owned timer observations refresh properties without invalidating content or accepting old sessions",
+       ctx do
+    cooking = %Valimc.Cooking{burn_left: 67, burn_total: 1600, progress: 10, total: 200}
+    seed(ctx, :furnace, :survival, cooking)
+    {client, pid} = login(ctx)
+    {client, _} = open(client, ctx, :furnace)
+    subscribed(pid)
+    # Opening precedes the asynchronous subscription snapshot. Consume that
+    # second initial observation before testing the later timer notification.
+    client = content(client)
+
+    client =
+      Enum.reduce(0..3, client, fn index, client ->
+        {body, client} = Client.await(client, :play, "container_set_data")
+        {_, <<^index::signed-16, _::signed-16>>} = Wire.take_varint(body)
+        client
+      end)
+
+    menu = :sys.get_state(pid).table_menu
+    assert menu.view.generation == 0
+    {region, _} = owner = menu.owner
+    position = ctx.position
+
+    :sys.replace_state(region, fn state ->
+      resource = state.resource
+      entry = resource.containers.entries[position]
+      entry = %{entry | cooking: %{entry.cooking | progress: 11}}
+
+      containers = %{
+        resource.containers
+        | entries: Map.put(resource.containers.entries, position, entry)
+      }
+
+      {viewers, [_]} =
+        Valimc.World.ContainerViewers.progressed(resource.container_viewers, position, 1)
+
+      %{
+        state
+        | resource: %{
+            resource
+            | containers: containers,
+              container_viewers: viewers,
+              cooking_progress: %{position => 1}
+          }
+      }
+    end)
+
+    Connection.deliver(pid, {:container_progress, owner, menu.view_ref, position, 1})
+    client = content(client)
+
+    client =
+      Enum.reduce(0..3, client, fn index, client ->
+        {body, client} = Client.await(client, :play, "container_set_data")
+        {_, <<^index::signed-16, value::signed-16>>} = Wire.take_varint(body)
+        assert value == Enum.at([67, 1600, 11, 200], index)
+        client
+      end)
+
+    wait(fn -> :sys.get_state(pid).table_menu.view.generation == 1 end)
+    assert :sys.get_state(pid).table_menu.view.revision == menu.view.revision
+    assert :sys.get_state(pid).table_menu.view.cooking.progress == 11
+    assert saved(ctx).transfer_sequence == 0 and saved(ctx).outbox == nil
+    refute :sys.get_state(region).resource.container_viewers.views[pid].progress_pending
+
+    for {candidate_owner, ref, generation} <- [
+          {{region, make_ref()}, menu.view_ref, 2},
+          {owner, make_ref(), 2},
+          {owner, menu.view_ref, 1}
+        ],
+        do:
+          Connection.deliver(
+            pid,
+            {:container_progress, candidate_owner, ref, position, generation}
+          )
+
+    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
+    {_, client} = Client.await(client, :play, "system_chat")
+    assert :sys.get_state(pid).table_menu.view.generation == 1
+    assert :sys.get_state(pid).table_job == nil
+    _client = close(client, pid)
+  end
+
   for kind <- [:furnace, :smoker, :blast_furnace], mode <- [:survival, :creative] do
     input_name = if kind == :smoker, do: "cod", else: "raw_iron"
 

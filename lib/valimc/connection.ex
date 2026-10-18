@@ -3453,6 +3453,19 @@ defmodule Valimc.Connection do
   end
 
   defp event(
+         %{
+           phase: :play,
+           table_menu: %{kind: :cooking, owner: owner, view_ref: ref, position: position} = menu
+         } = state,
+         {:container_progress, owner, ref, position, generation}
+       )
+       when is_integer(generation) and generation > 0 do
+    if generation > Map.get(menu.view, :generation, 0),
+      do: check_table_menu(%{state | table_menu: %{menu | dirty: true}}),
+      else: state
+  end
+
+  defp event(
          %{phase: :play, table_menu: %{kind: kind, owner: owner, view_ref: ref}} = state,
          {:container_closed, owner, ref}
        )

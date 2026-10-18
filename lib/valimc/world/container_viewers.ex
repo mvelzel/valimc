@@ -102,6 +102,48 @@ defmodule Valimc.World.ContainerViewers do
 
   def changed(state, _, _), do: {state, []}
 
+  @doc "Coalesce owned timer observations independently of item-content revisions."
+  def progressed(%__MODULE__{} = state, position, generation)
+      when is_integer(generation) and generation in 1..@max_revision do
+    {members, _} = Map.get(state.positions, position, {MapSet.new(), 0})
+
+    Enum.reduce(members, {state, []}, fn pid, {current, notices} ->
+      view = current.views[pid]
+
+      if generation > Map.get(view, :progress, 0) do
+        notices =
+          if Map.get(view, :progress_pending, false),
+            do: notices,
+            else: [{pid, view.ref, generation} | notices]
+
+        view = Map.merge(view, %{progress: generation, progress_pending: true})
+        {%{current | views: Map.put(current.views, pid, view)}, notices}
+      else
+        {current, notices}
+      end
+    end)
+  end
+
+  def progressed(state, _, _), do: {state, []}
+
+  def observed_progress(%__MODULE__{} = state, pid, ref, generation)
+      when is_integer(generation) and generation in 0..@max_revision do
+    case state.views[pid] do
+      %{ref: ^ref} = view ->
+        if generation >= Map.get(view, :progress, 0) do
+          view = Map.merge(view, %{progress: generation, progress_pending: false})
+          %{state | views: Map.put(state.views, pid, view)}
+        else
+          state
+        end
+
+      _ ->
+        state
+    end
+  end
+
+  def observed_progress(state, _, _, _), do: state
+
   def observed(%__MODULE__{} = state, pid, ref, revision)
       when is_integer(revision) and revision in 1..@max_revision do
     case state.views[pid] do

@@ -37,6 +37,7 @@ defmodule Valimc.World.RegionData do
     :containers,
     :container_permits,
     :container_viewers,
+    :cooking_progress,
     :items,
     :item_receipts,
     :pickup_permits,
@@ -118,6 +119,7 @@ defmodule Valimc.World.RegionData do
       containers: containers,
       container_permits: %ContainerPermits{},
       container_viewers: %ContainerViewers{},
+      cooking_progress: %{},
       pickup_permits: PickupPermits.new(),
       item_merge_permits: ItemMergePermits.new(),
       item_storage_enabled: persistent,
@@ -2636,6 +2638,14 @@ defmodule Valimc.World.RegionData do
   def handle_info(_, state), do: {:noreply, state}
 
   defp container_view_decision(state, connection, position, grant, decision) do
+    generation = Map.get(state.cooking_progress, position, 0)
+
+    decision =
+      case decision do
+        {:cooking, block, entry} -> {:cooking, block, Map.put(entry, :generation, generation)}
+        _ -> decision
+      end
+
     if is_map(grant) and grant[:menu] in [:chest, :cooking] and
          (decision == :valid or match?({kind, _, _} when kind in [:chest, :cooking], decision)) do
       ref = grant[:view_ref]
@@ -2659,6 +2669,11 @@ defmodule Valimc.World.RegionData do
                  entry.revision
                ) do
             {:ok, viewers, retired, lids} ->
+              viewers =
+                if grant.menu == :cooking,
+                  do: ContainerViewers.observed_progress(viewers, connection, ref, generation),
+                  else: viewers
+
               state = apply_container_viewers(state, {viewers, retired, lids})
               {decision, state}
 
@@ -2676,6 +2691,11 @@ defmodule Valimc.World.RegionData do
               ref,
               state.containers.entries[position].revision
             )
+
+          viewers =
+            if grant.menu == :cooking,
+              do: ContainerViewers.observed_progress(viewers, connection, ref, generation),
+              else: viewers
 
           {decision, %{state | container_viewers: viewers}}
 
