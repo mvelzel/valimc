@@ -112,7 +112,18 @@ defmodule Valimc.Cooking do
     rounded
   end
 
-  defp valid?(state) do
+  @doc false
+  def valid?(%__MODULE__{} = state) do
+    valid_state?(state)
+  rescue
+    _ -> false
+  catch
+    _, _ -> false
+  end
+
+  def valid?(_), do: false
+
+  defp valid_state?(state) do
     is_tuple(state.slots) and tuple_size(state.slots) == 3 and
       Enum.all?(Tuple.to_list(state.slots), fn
         nil ->

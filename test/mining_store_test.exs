@@ -91,6 +91,59 @@ defmodule Valimc.MiningStoreTest do
     %{ctx | proposal: proposal}
   end
 
+  defp cooking_proposal(ctx) do
+    block = Data.item_block(Data.item("furnace"))
+    before_blocks = Map.put(ctx.before_edits, ctx.position, block)
+    :ok = Store.flush(ctx.writer, ctx.lease, before_blocks)
+
+    {:ok, containers, entry} =
+      Containers.create_cooking(%Containers{}, ctx.key, ctx.position, :furnace)
+
+    fuel = %{ItemStack.new("lava_bucket", 2) | components: %{"minecraft:max_stack_size" => 99}}
+
+    initial = %Valimc.Cooking{
+      slots: {ItemStack.new("raw_iron", 2), fuel, nil},
+      progress: 199,
+      total: 200
+    }
+
+    {:ok, recipe} = Valimc.CookingRecipes.find(elem(initial.slots, 0), block)
+    source = ctx.proposal.receipts |> Map.keys() |> hd()
+    typed = %{source => %{sequence: 77, digest: :crypto.hash(:sha256, "cooking-typed")}}
+    containers = %{containers | receipts: typed}
+
+    {:ok, containers, entry} =
+      Containers.replace_cooking(containers, ctx.position, entry.revision, initial, %{
+        recipe.key => 42
+      })
+
+    :ok = Store.flush_containers(ctx.writer, ctx.lease, containers)
+    {:ok, cooked, %{drops: [bucket], completed: completed}} = Valimc.Cooking.step(initial, block)
+
+    {:ok, after_containers, _} =
+      Containers.replace_cooking(containers, ctx.position, entry.revision, cooked, %{
+        completed => 43
+      })
+
+    {x, y, z} = ctx.position
+    {:ok, items, _} = Items.create(Items.new(), ctx.key, bucket, {x + 0.5, y + 0.5, z + 0.5})
+    {:ok, %{receipts: original_receipts}} = Store.load_items(ctx.writer)
+
+    # Native26.3 tick fixture: north-facing furnace6884 unlit /6883 lit.
+    6884 = block
+    lit_block = 6883
+
+    proposal = %{
+      ctx.proposal
+      | edits: Map.put(before_blocks, ctx.position, lit_block),
+        changes: %{ctx.position => lit_block},
+        items: items,
+        receipts: original_receipts
+    }
+
+    %{ctx | proposal: Map.put(proposal, :containers, after_containers)}
+  end
+
   test "joint block/items/container commit acknowledges all outputs and survives writer replacement",
        ctx do
     ctx = container_proposal(ctx)
@@ -108,50 +161,55 @@ defmodule Valimc.MiningStoreTest do
     refute File.exists?(Store.mining_path(ctx.base, ctx.key))
   end
 
-  test "journal replay repairs every subset of three replaced output files before ownership admission",
-       ctx do
-    ctx = container_proposal(ctx)
-    {blocks, items, journal_path} = paths(ctx)
-    containers = Store.container_path(ctx.base, ctx.key)
-    before = Enum.map([blocks, items, containers], &File.read!/1)
+  for kind <- [:chest, :cooking] do
+    test "journal replay repairs every subset of three replaced output files for #{kind}",
+         ctx do
+      ctx = if unquote(kind) == :cooking, do: cooking_proposal(ctx), else: container_proposal(ctx)
+      {blocks, items, journal_path} = paths(ctx)
+      containers = Store.container_path(ctx.base, ctx.key)
+      before = Enum.map([blocks, items, containers], &File.read!/1)
 
-    {:ok, item_bytes} =
-      ItemLedger.encode(
-        ctx.key,
-        Items.records(ctx.proposal.items),
-        ctx.proposal.receipts,
-        ctx.proposal.items.ledger
-      )
-
-    {:ok, container_bytes} = Containers.encode(ctx.key, ctx.proposal.containers)
-
-    {:ok, journal} =
-      MiningRecord.encode(ctx.key, ctx.proposal.changes, item_bytes, container_bytes)
-
-    after_bytes = [
-      :erlang.term_to_binary({:valimc_region, 1, ctx.proposal.edits}),
-      item_bytes,
-      container_bytes
-    ]
-
-    assert :ok = Store.close(ctx.writer, ctx.lease)
-
-    for subset <- 0..7 do
-      # Restore all three files as one stopped fixture, then inject this crash boundary.
-      for {{path, before}, {after_bytes, bit}} <-
-            Enum.zip(Enum.zip([blocks, items, containers], before), Enum.with_index(after_bytes)) do
-        File.write!(
-          path,
-          if(Bitwise.band(subset, Bitwise.bsl(1, bit)) == 0, do: before, else: after_bytes)
+      {:ok, item_bytes} =
+        ItemLedger.encode(
+          ctx.key,
+          Items.records(ctx.proposal.items),
+          ctx.proposal.receipts,
+          ctx.proposal.items.ledger
         )
-      end
 
-      File.write!(journal_path, journal)
-      assert {:ok, writer, lease} = Store.open(ctx.key)
-      assert_outcome(writer, ctx)
-      assert Store.load_containers(writer) == {:ok, ctx.proposal.containers}
-      refute File.exists?(journal_path)
-      assert :ok = Store.close(writer, lease)
+      {:ok, container_bytes} = Containers.encode(ctx.key, ctx.proposal.containers)
+
+      {:ok, journal} =
+        MiningRecord.encode(ctx.key, ctx.proposal.changes, item_bytes, container_bytes)
+
+      after_bytes = [
+        :erlang.term_to_binary({:valimc_region, 1, ctx.proposal.edits}),
+        item_bytes,
+        container_bytes
+      ]
+
+      assert :ok = Store.close(ctx.writer, ctx.lease)
+
+      for subset <- 0..7 do
+        # Restore all three files as one stopped fixture, then inject this crash boundary.
+        for {{path, before}, {after_bytes, bit}} <-
+              Enum.zip(
+                Enum.zip([blocks, items, containers], before),
+                Enum.with_index(after_bytes)
+              ) do
+          File.write!(
+            path,
+            if(Bitwise.band(subset, Bitwise.bsl(1, bit)) == 0, do: before, else: after_bytes)
+          )
+        end
+
+        File.write!(journal_path, journal)
+        assert {:ok, writer, lease} = Store.open(ctx.key)
+        assert_outcome(writer, ctx)
+        assert Store.load_containers(writer) == {:ok, ctx.proposal.containers}
+        refute File.exists?(journal_path)
+        assert :ok = Store.close(writer, lease)
+      end
     end
   end
 

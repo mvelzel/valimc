@@ -1719,6 +1719,10 @@ defmodule Valimc.World.RegionData do
 
     Enum.any?(changes, fn {position, block} ->
       case state.containers.entries[position] do
+        %{cooking: _} ->
+          # Cooking metadata has no admitted removal/spill protocol yet.
+          block != Chunk.block_at(state.edits, position)
+
         %{slots: slots} = entry ->
           block != Chunk.block_at(state.edits, position) and
             Enum.any?(Tuple.to_list(slots), &(&1 != nil)) and
