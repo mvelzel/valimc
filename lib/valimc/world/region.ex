@@ -238,6 +238,14 @@ defmodule Valimc.World.Region do
   def recover_container_transfer({pid, epoch}, request),
     do: GenServer.call(pid, {:recover_container_transfer, epoch, request}, 6000)
 
+  @doc "Internal action admission against the current chest and fresh player context."
+  def admit_container_transfer({pid, epoch}, request, actor),
+    do: GenServer.call(pid, {:admit_container_transfer, epoch, request, actor}, 6000)
+
+  @doc "Deliver a prepared source intent; absent matching action admission permits rejection only."
+  def container_transfer({pid, epoch}, request),
+    do: GenServer.call(pid, {:container_transfer, epoch, request}, 6000)
+
   @impl true
   def init({key, token}) do
     Process.flag(:trap_exit, true)

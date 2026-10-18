@@ -89,7 +89,7 @@ defmodule Valimc.TransferDelivery do
   defp deliver(uuid, %{transfer_sequence: sequence, outbox: %{kind: :container} = intent}) do
     with {:ok, key, request, _} <- Valimc.PlayerContainerIntent.request(uuid, sequence, intent),
          {:ok, owner} <- World.item_owner(key) do
-      Region.recover_container_transfer(owner, request)
+      Region.container_transfer(owner, request)
     end
   rescue
     _ -> {:error, :invalid_container_request}

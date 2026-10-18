@@ -5,6 +5,7 @@ defmodule Valimc.World.RegionData do
     Chunk,
     ContainerRequest,
     ContainerTransfers,
+    ContainerPermits,
     ColumnIndex,
     Items,
     ItemHandoffs,
@@ -31,6 +32,7 @@ defmodule Valimc.World.RegionData do
   defstruct [
     :key,
     :containers,
+    :container_permits,
     :items,
     :item_receipts,
     :pickup_permits,
@@ -110,6 +112,7 @@ defmodule Valimc.World.RegionData do
       items: items,
       item_receipts: receipts,
       containers: containers,
+      container_permits: %ContainerPermits{},
       pickup_permits: PickupPermits.new(),
       item_merge_permits: ItemMergePermits.new(),
       item_storage_enabled: persistent,
@@ -800,12 +803,63 @@ defmodule Valimc.World.RegionData do
   end
 
   def handle_call({:recover_container_transfer, epoch, request}, from, state) do
-    cond do
-      epoch != state.items.epoch -> {:reply, {:error, :stale_region}, state}
-      not state.item_storage_enabled -> {:reply, {:error, :transfer_storage_disabled}, state}
-      state.item_pending != nil -> {:reply, {:error, :item_storage_busy}, state}
-      true -> start_container_recovery(state, request, from)
-    end
+    container_request(state, epoch, fn -> start_container_recovery(state, request, from) end)
+  end
+
+  def handle_call({:container_transfer, epoch, request}, from, state) do
+    container_request(state, epoch, fn ->
+      containers = state.containers
+      permits = state.container_permits
+      key = state.key
+      block = container_block(state, request)
+
+      start_container_work(state, from, :deliver, fn ->
+        with {:ok, digest} <- ContainerRequest.digest(key, request),
+             {:ok, reserved, _} <- ContainerTransfers.reserve(containers, request.source) do
+          {permits, eligible} =
+            ContainerPermits.consume(
+              permits,
+              request,
+              digest,
+              System.monotonic_time(:millisecond)
+            )
+
+          eligible = eligible and Valimc.ChestAccess.single?(block)
+
+          case ContainerTransfers.plan(reserved, key, request, eligible) do
+            {:ok, decision} -> {:ok, Map.put(decision, :permits, permits)}
+            error -> error
+          end
+        end
+      end)
+    end)
+  end
+
+  def handle_call({:admit_container_transfer, epoch, request, actor}, from, state) do
+    container_request(state, epoch, fn ->
+      case container_access(state, request, actor) do
+        :ok ->
+          containers = state.containers
+          key = state.key
+
+          start_container_work(state, from, {:admit, actor}, fn ->
+            request = %{request | permit: :crypto.strong_rand_bytes(16)}
+
+            with {:ok, digest} <- ContainerRequest.digest(key, request),
+                 {:ok, entry} <- Valimc.World.Containers.observe(containers, request.position),
+                 true <-
+                   {entry.revision, entry.rows, entry.slots} ==
+                     {request.revision, request.rows, request.slots},
+                 {:ok, reserved, _} <- ContainerTransfers.reserve(containers, request.source),
+                 {:ok, _} <- Valimc.World.Containers.encode(key, reserved),
+                 do: {:ok, %{containers: reserved, result: {:admitted, request, digest}}},
+                 else: (_ -> {:error, :invalid_container_admission})
+          end)
+
+        error ->
+          {:reply, error, state}
+      end
+    end)
   end
 
   def handle_call({:container_transfer_receipt, epoch, source}, _from, state) do
@@ -998,6 +1052,8 @@ defmodule Valimc.World.RegionData do
            state
            | edits: edits,
              mining_permits: MiningPermits.invalidate(state.mining_permits, %{position => block}),
+             container_permits:
+               ContainerPermits.invalidate(state.container_permits, %{position => block}),
              placement_permits:
                PlacementPermits.invalidate(state.placement_permits, %{position => block}),
              by_chunk: Map.put(state.by_chunk, key, local),
@@ -1108,24 +1164,106 @@ defmodule Valimc.World.RegionData do
   defp plan_transfer(transfer, from, state),
     do: plan_item_change(:item_transfer, transfer, from, state)
 
+  defp container_request(state, epoch, start) do
+    cond do
+      epoch != state.items.epoch -> {:reply, {:error, :stale_region}, state}
+      not state.item_storage_enabled -> {:reply, {:error, :transfer_storage_disabled}, state}
+      state.item_pending != nil -> {:reply, {:error, :item_storage_busy}, state}
+      true -> start.()
+    end
+  end
+
+  defp container_block(state, %{position: position}) do
+    if valid_block_query?([position], :any) and
+         Valimc.World.region_key(Valimc.World.chunk_key(elem(position, 0), elem(position, 2))) ==
+           state.key,
+       do: Chunk.block_at(state.edits, position),
+       else: nil
+  end
+
+  defp container_block(_, _), do: nil
+
+  defp container_access(
+         state,
+         %{
+           source: source,
+           position: position,
+           rows: 3,
+           inventory: %Valimc.Inventory{} = inventory
+         } =
+           request,
+         %{uuid: source, mode: mode} = actor
+       ) do
+    if inventory.infinite_materials == (mode == :creative),
+      do:
+        Valimc.ChestAccess.authorize(
+          container_block(state, request),
+          position,
+          actor,
+          System.monotonic_time(:millisecond)
+        ),
+      else: {:error, :invalid_container_context}
+  end
+
+  defp container_access(_, _, _), do: {:error, :invalid_container_context}
+
   defp start_container_recovery(state, request, from) do
-    owner = self()
-    epoch = state.items.epoch
-    token = make_ref()
     containers = state.containers
     key = state.key
 
-    case Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
-           result =
-             with {:ok, _} <- ContainerRequest.digest(key, request),
-                  {:ok, reserved, _} <- ContainerTransfers.reserve(containers, request.source),
-                  do: ContainerTransfers.plan(reserved, key, request, false)
+    start_container_work(state, from, :recover, fn ->
+      with {:ok, _} <- ContainerRequest.digest(key, request),
+           {:ok, reserved, _} <- ContainerTransfers.reserve(containers, request.source),
+           do: ContainerTransfers.plan(reserved, key, request, false)
+    end)
+  end
 
+  defp finish_container_result(state, pending) do
+    Process.cancel_timer(pending.timer)
+    state = %{state | item_pending: nil}
+
+    {reply, state} =
+      case {pending.operation, pending.decision.result} do
+        {{:admit, actor}, {:admitted, request, digest}} ->
+          with :ok <- container_access(state, request, actor),
+               {:ok, permits} <-
+                 ContainerPermits.issue(
+                   state.container_permits,
+                   state.containers.receipts,
+                   request,
+                   digest,
+                   System.monotonic_time(:millisecond)
+                 ) do
+            {{:ok, request}, %{state | container_permits: permits}}
+          else
+            error -> {error, state}
+          end
+
+        {_, result} ->
+          {{:ok, result},
+           %{
+             state
+             | container_permits: Map.get(pending.decision, :permits, state.container_permits)
+           }}
+      end
+
+    GenServer.reply(pending.from, reply)
+    resume_item_handoff(state)
+  end
+
+  defp start_container_work(state, from, operation, work) do
+    owner = self()
+    epoch = state.items.epoch
+    token = make_ref()
+
+    case Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
+           result = work.()
            send(owner, {:resource, epoch, {:container_recovery_plan, self(), token, result}})
          end) do
       {:ok, worker} ->
         pending = %{
           kind: :container,
+          operation: operation,
           phase: :planning,
           token: token,
           from: from,
@@ -1311,10 +1449,11 @@ defmodule Valimc.World.RegionData do
 
   defp block_transfer_writing?(state),
     do:
-      match?(
-        %{kind: kind, phase: :writing} when kind in [:mining, :placement],
-        state.item_pending
-      )
+      match?(%{kind: :container}, state.item_pending) or
+        match?(
+          %{kind: kind, phase: :writing} when kind in [:mining, :placement],
+          state.item_pending
+        )
 
   defp permit_matches?(state, kind, %{permit: token, expected: expected}) do
     {module, permits} = permit_store(state, kind)
@@ -1420,6 +1559,7 @@ defmodule Valimc.World.RegionData do
       cache: Map.drop(state.cache, batch.chunks),
       dirty: dirty,
       mining_permits: MiningPermits.invalidate(state.mining_permits, batch.edits),
+      container_permits: ContainerPermits.invalidate(state.container_permits, batch.edits),
       placement_permits: PlacementPermits.invalidate(state.placement_permits, batch.edits)
     })
   end
@@ -1553,26 +1693,23 @@ defmodule Valimc.World.RegionData do
     Process.demonitor(pending.monitor, [:flush])
 
     case result do
-      {:ok, %{result: result}} when result in [:already_applied, :already_rejected] ->
-        Process.cancel_timer(pending.timer)
-        GenServer.reply(pending.from, {:ok, result})
-        {:noreply, resume_item_handoff(%{state | item_pending: nil})}
+      {:ok, %{containers: containers} = decision} ->
+        pending = Map.put(pending, :decision, decision)
 
-      {:ok, %{containers: containers, result: result}} ->
-        Store.commit_containers(
-          state.store,
-          state.store_lease,
-          containers,
-          {self(), state.items.epoch},
-          token
-        )
+        if containers == state.containers do
+          {:noreply, finish_container_result(state, pending)}
+        else
+          Store.commit_containers(
+            state.store,
+            state.store_lease,
+            containers,
+            {self(), state.items.epoch},
+            token
+          )
 
-        writing =
-          pending
-          |> Map.drop([:worker, :monitor])
-          |> Map.merge(%{phase: :writing, containers: containers, reply: {:ok, result}})
-
-        {:noreply, %{state | item_pending: writing}}
+          writing = pending |> Map.drop([:worker, :monitor]) |> Map.put(:phase, :writing)
+          {:noreply, %{state | item_pending: writing}}
+        end
 
       {:error, _} = error ->
         Process.cancel_timer(pending.timer)
@@ -1590,9 +1727,8 @@ defmodule Valimc.World.RegionData do
           item_pending: %{kind: :container, phase: :writing, token: token} = pending
         } = state
       ) do
-    Process.cancel_timer(pending.timer)
-    GenServer.reply(pending.from, pending.reply)
-    {:noreply, resume_item_handoff(%{state | containers: pending.containers, item_pending: nil})}
+    {:noreply,
+     finish_container_result(%{state | containers: pending.decision.containers}, pending)}
   end
 
   def handle_info(

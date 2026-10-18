@@ -293,6 +293,173 @@ defmodule Valimc.PlayerContainerStoreTest do
     assert sealed.transfer_sequence == 1
   end
 
+  defp admit(ctx) do
+    {:ok, bytes} = Containers.encode(ctx.key, %{ctx.containers | receipts: %{}})
+    File.write!(Store.container_path(ctx.base, ctx.key), bytes)
+    block = hd(JSON.decode!(File.read!("priv/protocol/chest_states.json"))["single_states"])
+    :ok = World.set_block(ctx.intent.request.position, block)
+    {:ok, owner} = World.item_owner(ctx.key)
+    {x, y, z} = ctx.intent.request.position
+
+    actor = %{
+      uuid: ctx.uuid,
+      mode: :survival,
+      eye: {x + 0.5, y + 1.6, z + 0.5},
+      health: 19.0,
+      expires: System.monotonic_time(:millisecond) + 250
+    }
+
+    assert {:ok, request} = Region.admit_container_transfer(owner, ctx.intent.request, actor)
+    assert request.permit != ctx.intent.request.permit
+    assert {:ok, {_, %{sequence: 0}}} = Region.container_transfer_receipt(owner, ctx.uuid)
+    {owner, %{ctx | intent: %{ctx.intent | request: request}}, actor}
+  end
+
+  test "admitted source preparation and bounded delivery exchange items exactly once", ctx do
+    {owner, ctx, _actor} = admit(ctx)
+    {writer, fence, pending} = prepare(ctx)
+    token = make_ref()
+    {:ok, job} = TransferDelivery.start(self(), token, ctx.uuid, pending)
+    assert_receive {:transfer_delivered, _, ^token, {:ok, :applied}}, 1500
+    Process.demonitor(job.monitor, [:flush])
+    ref = make_ref()
+    PlayerStore.complete_transfer(writer, fence, ref)
+    assert_receive {:player_transfer_saved, ^ref, {:ok, _, sealed}}, 1500
+    assert sealed.outbox == nil and sealed.inventory.carried == nil
+    assert sealed.inventory.slots == ctx.snapshot.inventory.slots
+    assert {:ok, :already_applied} = Region.container_transfer(owner, pending.outbox.request)
+
+    {:ok, stored} =
+      Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+
+    assert elem(stored.entries[ctx.intent.request.position].slots, 0) ==
+             ItemStack.new("diamond", 3)
+
+    assert stored.sequence == 2 and stored.receipts[ctx.uuid].sequence == 1
+  end
+
+  test "owner replacement loses the uncommitted grant and rejects without taking source items",
+       ctx do
+    {{pid, _}, ctx, _actor} = admit(ctx)
+    {writer, fence, pending} = prepare(ctx)
+    monitor = Process.monitor(pid)
+    Process.exit(pid, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}, 1000
+    {:ok, owner} = World.item_owner(ctx.key)
+    assert {:ok, :rejected} = Region.container_transfer(owner, pending.outbox.request)
+    ref = make_ref()
+    PlayerStore.complete_transfer(writer, fence, ref)
+    assert_receive {:player_transfer_saved, ^ref, {:ok, _, sealed}}, 1500
+    assert sealed.inventory == ctx.snapshot.inventory and sealed.outbox == nil
+  end
+
+  test "admission checks fresh ownership, exact view and player context; removed blocks cannot apply",
+       ctx do
+    {{pid, _} = owner, ctx, actor} = admit(ctx)
+    request = ctx.intent.request
+
+    assert {:error, :stale_region} =
+             Region.admit_container_transfer({pid, make_ref()}, request, actor)
+
+    for actor <- [
+          %{actor | uuid: <<99::128>>},
+          %{actor | mode: :spectator},
+          %{actor | mode: :creative},
+          %{actor | health: 0},
+          %{actor | eye: {0.0, 0.0, 0.0}}
+        ] do
+      assert {:error, :invalid_container_context} =
+               Region.admit_container_transfer(owner, request, actor)
+    end
+
+    assert {:error, :invalid_container_admission} =
+             Region.admit_container_transfer(
+               owner,
+               %{request | revision: request.revision + 1},
+               actor
+             )
+
+    assert {:error, :invalid_container_context} =
+             Region.admit_container_transfer(owner, %{request | rows: 6}, actor)
+
+    :ok = World.set_block(request.position, 0)
+    assert {:ok, :rejected} = Region.container_transfer(owner, request)
+    assert {:ok, :already_rejected} = Region.recover_container_transfer(owner, request)
+
+    assert {:error, :invalid_container_context} =
+             Region.admit_container_transfer(owner, request, actor)
+  end
+
+  test "removing and recreating the same block cannot revive its old action permit", ctx do
+    {owner, ctx, _actor} = admit(ctx)
+    position = ctx.intent.request.position
+    block = World.get_block(position)
+    :ok = World.set_block(position, 0)
+    :ok = World.set_block(position, block)
+    assert {:ok, :rejected} = Region.container_transfer(owner, ctx.intent.request)
+
+    {:ok, stored} =
+      Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+
+    assert stored.entries[position].slots == Tuple.duplicate(nil, 27)
+  end
+
+  test "a new player gets no permit before receipt reservation is durable; block edits cannot interleave",
+       ctx do
+    {{pid, _} = owner, ctx, actor} = admit(ctx)
+    source = :crypto.strong_rand_bytes(16)
+    request = %{ctx.intent.request | source: source}
+    actor = %{actor | uuid: source, expires: System.monotonic_time(:millisecond) + 250}
+    writer = :sys.get_state(pid).resource.store
+    :sys.suspend(writer)
+    task = Task.async(fn -> Region.admit_container_transfer(owner, request, actor) end)
+
+    try do
+      await(fn ->
+        match?(%{phase: :writing, kind: :container}, :sys.get_state(pid).resource.item_pending)
+      end)
+
+      assert Task.yield(task, 20) == nil
+
+      assert {:error, :missing_container_receipt} =
+               Region.container_transfer_receipt(owner, source)
+
+      assert {:error, :mining_storage_busy} = World.set_block(request.position, 0)
+
+      refute Enum.any?(
+               :sys.get_state(pid).resource.container_permits.entries,
+               fn {_, grant} -> grant.source == source end
+             )
+
+      :sys.resume(writer)
+      assert {:ok, admitted} = Task.await(task, 1500)
+      assert {:ok, {_, %{sequence: 0}}} = Region.container_transfer_receipt(owner, source)
+      assert Map.has_key?(:sys.get_state(pid).resource.container_permits.entries, admitted.permit)
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+      Task.shutdown(task, :brutal_kill)
+    end
+  end
+
+  test "two admitted players with the same view cannot both spend its container revision", ctx do
+    {owner, ctx, actor} = admit(ctx)
+    source = :crypto.strong_rand_bytes(16)
+    request = %{ctx.intent.request | source: source}
+    actor = %{actor | uuid: source, expires: System.monotonic_time(:millisecond) + 250}
+    assert {:ok, competing} = Region.admit_container_transfer(owner, request, actor)
+    assert {:ok, :applied} = Region.container_transfer(owner, ctx.intent.request)
+    assert {:ok, :rejected} = Region.container_transfer(owner, competing)
+    assert {:ok, :already_applied} = Region.container_transfer(owner, ctx.intent.request)
+    assert {:ok, :already_rejected} = Region.container_transfer(owner, competing)
+
+    {:ok, stored} =
+      Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+
+    assert stored.sequence == 2
+    assert elem(stored.entries[request.position].slots, 0) == ItemStack.new("diamond", 3)
+    assert stored.receipts[ctx.uuid].sequence == 1 and stored.receipts[source].sequence == 1
+  end
+
   defp await(check, remaining \\ 100)
   defp await(_, 0), do: flunk("container recovery did not reach its expected boundary")
 
