@@ -1,0 +1,10 @@
+{
+  "version": "26.3",
+  "data_version": 5023,
+  "server_sha1": "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c",
+  "blocks_source": 4,
+  "sounds": {
+    "minecraft:block.chest.open": 349,
+    "minecraft:block.chest.close": 347
+  }
+}

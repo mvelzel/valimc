@@ -44,6 +44,8 @@ if name == 'ChestAccessOracle':
     sources += [str(root / 'scripts' / (source + '.java')) for source in ('CraftingTableAccessOracle', 'MiningToolOracle')]
 if name in ('ChestBlockEntityOracle', 'ChestOpeningOracle', 'ChestViewOracle', 'ChestPlacementOracle', 'ContainerDropOracle', 'ChestLootOracle'):
     sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
+if name == 'ChestSoundOracle':
+    sources += [str(root / 'scripts' / (source + '.java')) for source in ('ChestViewOracle', 'MiningToolOracle')]
 if name in ('CraftingBulkOracle', 'RemainderCraftingOracle'):
     sources.append(str(root / 'scripts' / 'TableMenuClickOracle.java'))
 if name in ('PositionCollisionOracle', 'ScaffoldingCollisionOracle', 'PowderSnowCollisionOracle', 'ShulkerCollisionOracle', 'VoxelUnionOracle', 'PistonCollisionOracle', 'MovementCollisionOracle', 'VoxelIntersectionOracle', 'BlockCollisionOracle', 'StepMovementOracle', 'EntityCollisionOracle', 'ServerMovementOracle'):
