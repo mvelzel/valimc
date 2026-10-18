@@ -42,7 +42,7 @@ if name == 'ChestClickOracle':
     sources += [str(root / 'scripts' / (source + '.java')) for source in ('PlayerCraftingOracle', 'TableMenuOracle', 'MiningToolOracle')]
 if name == 'ChestAccessOracle':
     sources += [str(root / 'scripts' / (source + '.java')) for source in ('CraftingTableAccessOracle', 'MiningToolOracle')]
-if name in ('ChestBlockEntityOracle', 'ChestOpeningOracle', 'ChestViewOracle', 'ChestPlacementOracle', 'ContainerDropOracle'):
+if name in ('ChestBlockEntityOracle', 'ChestOpeningOracle', 'ChestViewOracle', 'ChestPlacementOracle', 'ContainerDropOracle', 'ChestLootOracle'):
     sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
 if name in ('CraftingBulkOracle', 'RemainderCraftingOracle'):
     sources.append(str(root / 'scripts' / 'TableMenuClickOracle.java'))

@@ -115,6 +115,10 @@ defmodule Valimc.PlacementRegionTest do
 
   test "a chest's block, empty contents and receipt publish together and remove together after restart",
        ctx do
+    {x, y, z} = ctx.position
+    position = {x + 4, y, z + 4}
+    {:ok, reservation} = reserve(ctx.owner, [position])
+    ctx = %{ctx | position: position, transfer: Map.merge(ctx.transfer, reservation)}
     request = %{ctx.transfer | edits: %{ctx.position => @chest}}
     writer = :sys.get_state(ctx.pid).resource.store
     :sys.suspend(writer)
@@ -154,6 +158,10 @@ defmodule Valimc.PlacementRegionTest do
   end
 
   test "a chest metadata-file failure recovers the whole joint proposal before retry", ctx do
+    {x, y, z} = ctx.position
+    position = {x + 4, y, z + 4}
+    {:ok, reservation} = reserve(ctx.owner, [position])
+    ctx = %{ctx | position: position, transfer: Map.merge(ctx.transfer, reservation)}
     request = %{ctx.transfer | edits: %{ctx.position => @chest}}
     path = Store.container_path(ctx.base, ctx.key)
     File.mkdir_p!(path)
@@ -177,6 +185,21 @@ defmodule Valimc.PlacementRegionTest do
     assert :sys.get_state(elem(owner, 0)).resource.containers == containers
     assert not File.exists?(Store.mining_path(ctx.base, ctx.key))
     receipt(ctx, owner, request, :applied)
+  end
+
+  test "a new adjacent chest after reservation durably rejects without publishing target metadata",
+       ctx do
+    {x, y, z} = ctx.position
+    position = {x + 4, y, z + 4}
+    {:ok, reserved} = reserve(ctx.owner, [position])
+    request = Map.merge(ctx.transfer, Map.merge(reserved, %{edits: %{position => @chest}}))
+    :ok = World.set_block({x + 5, y, z + 4}, @chest)
+    assert {:ok, :rejected} = Region.apply_placement_transfer(ctx.owner, request)
+    receipt(ctx, ctx.owner, request, :rejected)
+    assert World.get_block(position) == 0
+    assert :sys.get_state(ctx.pid).resource.containers.entries == %{}
+    assert {:ok, :already_rejected} = Region.apply_placement_transfer(ctx.owner, request)
+    assert World.item_snapshot(ctx.key) == %{}
   end
 
   test "unrelated edits preserve permits; target ABA, release and changed context reject durably",

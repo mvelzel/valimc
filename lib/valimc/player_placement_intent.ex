@@ -22,15 +22,17 @@ defmodule Valimc.PlayerPlacementIntent do
         } = intent
       )
       when slot in 36..45 do
-    with true <- (slot == 45 and hit.hand == :off) or (slot in 36..44 and hit.hand == :main),
+    with true <- Placement.supported_stack?(before),
+         true <- (slot == 45 and hit.hand == :off) or (slot in 36..44 and hit.hand == :main),
          true <- Valimc.PlayerInteraction.valid_hit?(hit.position, hit.cursor),
          true <- after_stack == consume(before),
          {:ok, candidate} <-
-           Placement.candidate(
+           Placement.saved_candidate(
              before.item_id,
              expected[hit.position],
              Map.get(expected, Placement.adjacent(hit), 0),
-             hit
+             hit,
+             edits
            ),
          true <- edits == %{candidate.position => candidate.state},
          {:ok, key, transfer, _digest} <- request(uuid, sequence, intent),

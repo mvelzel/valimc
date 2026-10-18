@@ -975,11 +975,40 @@ defmodule Valimc.World.RegionData do
     {:reply, result, state}
   end
 
-  def handle_call({:remove_block, position}, from, state) do
-    replacement =
-      state.edits |> Chunk.block_at(position) |> Valimc.Physics.FluidBlocks.after_removal()
+  def handle_call({:destroy_block, epoch, revision, position, deadline}, from, state) do
+    now = System.monotonic_time(:millisecond)
 
-    handle_call({:set_block, position, replacement}, from, state)
+    cond do
+      epoch != state.items.epoch ->
+        {:reply, {:error, :stale_owner}, state}
+
+      revision != state.revision ->
+        {:reply, {:error, :stale_revision}, state}
+
+      not (is_integer(deadline) and now < deadline and deadline <= now + 250) ->
+        {:reply, {:error, :expired_destruction}, state}
+
+      true ->
+        handle_call({:remove_block, position}, from, state)
+    end
+  end
+
+  def handle_call({:remove_block, position}, from, state) do
+    block = Chunk.block_at(state.edits, position)
+    replacement = Valimc.Physics.FluidBlocks.after_removal(block)
+
+    if Valimc.ChestAccess.single?(block) and Map.has_key?(state.containers.entries, position) do
+      if state.item_pending != nil do
+        {:reply, {:error, :item_storage_busy}, state}
+      else
+        with {:ok, batch} <- BlockBatch.prepare(%{position => replacement}),
+             {:ok, proposal} <- block_proposal(state, batch),
+             do: start_container_blocks(state, from, batch, proposal, %{position => block}, :ok),
+             else: (error -> {:reply, error, state})
+      end
+    else
+      handle_call({:set_block, position, replacement}, from, state)
+    end
   end
 
   def handle_call({:correct_blocks, epoch, positions, connection}, from, state) do
@@ -1028,11 +1057,42 @@ defmodule Valimc.World.RegionData do
   def handle_call({:place_block, epoch, revision, %BlockBatch{} = batch, deadline}, from, state) do
     now = System.monotonic_time(:millisecond)
 
-    if is_integer(deadline) and deadline > now and deadline <= now + 250 and
-         map_size(batch.edits) == 1 do
-      handle_call({:set_blocks, epoch, revision, batch}, from, state)
-    else
-      {:reply, {:error, :invalid_or_expired_placement}, state}
+    expected =
+      Map.new(batch.edits, fn {position, _} ->
+        {position, Chunk.block_at(state.edits, position)}
+      end)
+
+    cond do
+      not (is_integer(deadline) and deadline > now and deadline <= now + 250 and
+               map_size(batch.edits) == 1) ->
+        {:reply, {:error, :invalid_or_expired_placement}, state}
+
+      not container_metadata_affected?(state.containers, expected, batch.edits) ->
+        handle_call({:set_blocks, epoch, revision, batch}, from, state)
+
+      epoch != state.items.epoch ->
+        {:reply, {:error, :stale_owner}, state}
+
+      revision != state.revision ->
+        {:reply, {:error, :stale_revision}, state}
+
+      batch.region != state.key ->
+        {:reply, {:error, :wrong_region}, state}
+
+      not state.item_storage_enabled ->
+        {:reply, {:error, :transfer_storage_disabled}, state}
+
+      state.item_pending != nil ->
+        {:reply, {:error, :item_storage_busy}, state}
+
+      not isolated_chest_changes?(state, batch) ->
+        {:reply, {:error, :unsupported_chest_neighbors}, state}
+
+      true ->
+        case block_proposal(state, batch) do
+          {:ok, proposal} -> start_container_blocks(state, from, batch, proposal, expected)
+          error -> {:reply, error, state}
+        end
     end
   end
 
@@ -1470,7 +1530,7 @@ defmodule Valimc.World.RegionData do
 
   defp block_transfer_writing?(state),
     do:
-      match?(%{kind: :container}, state.item_pending) or
+      match?(%{kind: kind} when kind in [:container, :container_blocks], state.item_pending) or
         match?(
           %{kind: kind, phase: :writing} when kind in [:mining, :placement],
           state.item_pending
@@ -1549,14 +1609,54 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  defp container_metadata_affected?(containers, expected, edits) do
+    Enum.any?(edits, fn {position, block} ->
+      Map.has_key?(containers.entries, position) or Valimc.ChestAccess.single?(block) or
+        Valimc.ChestAccess.single?(expected[position])
+    end)
+  end
+
+  defp start_container_blocks(state, from, batch, proposal, expected, reply \\ :revision) do
+    owner = self()
+    epoch = state.items.epoch
+    token = make_ref()
+    containers = state.containers
+    key = state.key
+
+    case Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
+           result = ContainerLifecycle.plan(containers, key, expected, batch.edits)
+           send(owner, {:resource, epoch, {:container_block_plan, self(), token, result}})
+         end) do
+      {:ok, worker} ->
+        pending = %{
+          kind: :container_blocks,
+          reply: reply,
+          phase: :planning,
+          token: token,
+          from: from,
+          worker: worker,
+          monitor: Process.monitor(worker),
+          timer: send_after(state, {:item_commit_deadline, token}, 5000),
+          batch: batch,
+          proposal: proposal,
+          items: state.items,
+          receipts: state.item_receipts
+        }
+
+        {:noreply, %{state | item_pending: pending}}
+
+      {:error, :max_children} ->
+        {:reply, {:error, :item_workers_busy}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, {:item_worker_failed, reason}}, state}
+    end
+  end
+
   defp block_container_metadata(plan, containers, key) do
     expected = Map.take(plan.expected, Map.keys(plan.batch.edits))
 
-    affected =
-      Enum.any?(plan.batch.edits, fn {position, block} ->
-        Map.has_key?(containers.entries, position) or Valimc.ChestAccess.single?(block) or
-          Valimc.ChestAccess.single?(expected[position])
-      end)
+    affected = container_metadata_affected?(containers, expected, plan.batch.edits)
 
     if affected do
       with {:ok, change} <- ContainerLifecycle.plan(containers, key, expected, plan.batch.edits),
@@ -1642,6 +1742,22 @@ defmodule Valimc.World.RegionData do
     })
   end
 
+  defp isolated_chest_changes?(state, batch) do
+    Enum.all?(batch.edits, fn {position, block} ->
+      if Valimc.ChestAccess.single?(block) and
+           not Valimc.ChestAccess.single?(Chunk.block_at(state.edits, position)) do
+        Enum.all?(Valimc.Physics.ChestPlacement.neighbors(position), fn {x, _, z} = neighbor ->
+          Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == state.key and
+            not Valimc.ChestAccess.ordinary?(
+              Map.get(batch.edits, neighbor, Chunk.block_at(state.edits, neighbor))
+            )
+        end)
+      else
+        true
+      end
+    end)
+  end
+
   defp commit_block_transfer(plan, pending, state) do
     cond do
       plan.result in [:already_applied, :already_rejected] ->
@@ -1651,7 +1767,8 @@ defmodule Valimc.World.RegionData do
       plan.result == :rejected ->
         commit_rejected_block_transfer(plan, pending.from, state)
 
-      not permit_matches?(state, plan.kind, plan) ->
+      not permit_matches?(state, plan.kind, plan) or
+          not isolated_chest_changes?(state, plan.batch) ->
         commit_rejected_block_transfer(
           transfer_module(plan.kind).reject(plan, state.items, state.item_receipts),
           pending.from,
@@ -2072,6 +2189,57 @@ defmodule Valimc.World.RegionData do
   def handle_info({:item_handoff_deadline, _}, state), do: {:noreply, state}
 
   def handle_info(
+        {:container_block_plan, worker, token, result},
+        %{
+          item_pending:
+            %{kind: :container_blocks, phase: :planning, token: token, worker: worker} = pending
+        } = state
+      ) do
+    Process.demonitor(pending.monitor, [:flush])
+
+    case result do
+      {:ok, %{containers: containers, removed: removed}} ->
+        if Enum.all?(removed, fn %{entry: entry} ->
+             entry.slots |> Tuple.to_list() |> Enum.all?(&is_nil/1)
+           end) do
+          snapshot = %{
+            edits: pending.proposal.edits,
+            changes: pending.batch.edits,
+            items: pending.items,
+            receipts: pending.receipts,
+            containers: containers
+          }
+
+          Store.commit_mining(
+            state.store,
+            state.store_lease,
+            snapshot,
+            {self(), state.items.epoch},
+            token
+          )
+
+          writing =
+            pending
+            |> Map.drop([:worker, :monitor])
+            |> Map.merge(%{phase: :writing, containers: containers})
+
+          {:noreply, %{state | item_pending: writing}}
+        else
+          Process.cancel_timer(pending.timer)
+          GenServer.reply(pending.from, {:error, :occupied_container})
+          {:noreply, item_plan_failed(state, pending)}
+        end
+
+      {:error, _} = error ->
+        Process.cancel_timer(pending.timer)
+        GenServer.reply(pending.from, error)
+        {:noreply, item_plan_failed(state, pending)}
+    end
+  end
+
+  def handle_info({:container_block_plan, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info(
         {:block_transfer_plan, worker, token, result},
         %{
           item_pending: %{kind: kind, phase: :planning, worker: worker, token: token} = pending
@@ -2100,11 +2268,19 @@ defmodule Valimc.World.RegionData do
           item_pending: %{kind: kind, phase: :writing, token: token, batch: batch} = pending
         } = state
       )
-      when kind in [:mining, :placement] do
+      when kind in [:mining, :placement, :container_blocks] do
     Process.cancel_timer(pending.timer)
     next = publish_blocks(state, batch, pending.proposal, false)
     :ets.insert(state.item_publication, {:items, pending.items.views})
-    GenServer.reply(pending.from, {:ok, :applied})
+
+    reply =
+      cond do
+        kind != :container_blocks -> {:ok, :applied}
+        pending.reply == :ok -> :ok
+        true -> {:ok, next.revision}
+      end
+
+    GenServer.reply(pending.from, reply)
 
     {:noreply,
      %{
@@ -2124,7 +2300,7 @@ defmodule Valimc.World.RegionData do
           item_pending: %{kind: kind, phase: :writing, token: token, batch: _} = pending
         } = state
       )
-      when kind in [:mining, :placement] do
+      when kind in [:mining, :placement, :container_blocks] do
     Process.cancel_timer(pending.timer)
     GenServer.reply(pending.from, {:error, :mining_commit_uncertain})
     {:stop, {:mining_storage_failed, reason}, %{state | item_pending: nil}}
@@ -2805,7 +2981,8 @@ defmodule Valimc.World.RegionData do
       # A queued atomic write must never be followed by the old pre-commit snapshot.
       edits =
         case state.item_pending do
-          %{kind: kind, phase: :writing, proposal: proposal} when kind in [:mining, :placement] ->
+          %{kind: kind, phase: :writing, proposal: proposal}
+          when kind in [:mining, :placement, :container_blocks] ->
             proposal.edits
 
           _ ->

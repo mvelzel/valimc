@@ -130,6 +130,101 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     assert World.item_snapshot(c.key) == %{}
   end
 
+  test "survival chest placement consumes either hand, owns an immediately usable menu and survives login",
+       c do
+    c = %{c | pose: %{c.pose | yaw: 90.0}}
+    seed(c, :survival, %{36 => ItemStack.new("chest", 2), 45 => ItemStack.new("chest", 3)})
+    {client, pid} = login(c)
+    send_place(client, c.target)
+    client = ack(client)
+    {:ok, dry} = Valimc.Physics.ChestPlacement.single_state(90.0, 0)
+    assert World.get_block(c.target) == dry
+    assert :sys.get_state(pid).inventory.slots[36] == ItemStack.new("chest")
+    {x, y, z} = c.target
+    wet = {x - 2, y, z}
+    :ok = World.set_block(wet, 89)
+    send_place(client, wet, 1, 0.5, 1, 2)
+    client = ack(client, 2)
+    {:ok, wet_state} = Valimc.Physics.ChestPlacement.single_state(90.0, 89)
+    assert World.get_block(wet) == wet_state
+    assert :sys.get_state(pid).inventory.slots[45] == ItemStack.new("chest", 2)
+
+    # Horizontal neighbors would need double-chest behavior, so refuse before spending a source sequence.
+    send_place(client, {x + 1, y, z}, 1, 0.5, 0, 3)
+    client = ack(client, 3)
+    assert World.get_block({x + 1, y, z}) == 0
+    assert saved(c).transfer_sequence == 2 and saved(c).outbox == nil
+    assert :sys.get_state(pid).inventory.slots[36] == ItemStack.new("chest")
+
+    send_place(client, c.target, 1, 0.5, 0, 4)
+    client = ack(client, 4)
+    {_body, client} = Client.await(client, :play, "open_screen")
+    assert :sys.get_state(pid).table_menu.position == c.target
+    Client.close(client)
+
+    wait(fn ->
+      not Process.alive?(pid) and Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == []
+    end)
+
+    {_fresh, fresh_pid} = login(c)
+    assert :sys.get_state(fresh_pid).inventory.slots[36] == ItemStack.new("chest")
+    assert :sys.get_state(fresh_pid).inventory.slots[45] == ItemStack.new("chest", 2)
+    assert saved(c).transfer_sequence == 2 and saved(c).outbox == nil
+    {:ok, {region, _}} = World.existing_owner(c.key)
+    containers = :sys.get_state(region).resource.containers
+    assert containers.sequence == 2 and containers.receipts == %{}
+    assert containers.entries[c.target].slots == Tuple.duplicate(nil, 27)
+    assert containers.entries[wet].slots == Tuple.duplicate(nil, 27)
+    assert World.item_snapshot(c.key) == %{}
+  end
+
+  test "creative physical chest placement and destruction retire metadata without consuming or dropping",
+       c do
+    seed(c, :creative, %{36 => ItemStack.new("chest", 2)})
+    {client, pid} = login(c)
+    send_place(client, c.target)
+    client = ack(client)
+    assert Valimc.ChestAccess.single?(World.get_block(c.target))
+
+    Client.send_packet(client, :play, "player_action", [
+      Wire.varint(0),
+      Wire.position(c.target),
+      <<1>>,
+      Wire.varint(2)
+    ])
+
+    _client = ack(client, 2)
+    assert World.get_block(c.target) == 0
+    assert :sys.get_state(pid).inventory.slots[36] == ItemStack.new("chest", 2)
+    {:ok, {region, _}} = World.existing_owner(c.key)
+    assert :sys.get_state(region).resource.containers.entries == %{}
+    assert :sys.get_state(region).resource.containers.sequence == 2
+    assert World.item_snapshot(c.key) == %{}
+  end
+
+  test "named chest placement refuses both modes without losing name, metadata or source counter",
+       c do
+    named = %{
+      ItemStack.new("chest", 2)
+      | components: %{"minecraft:custom_name" => {:string, "Named"}}
+    }
+
+    for mode <- [:creative, :survival] do
+      seed(c, mode, %{36 => named})
+      {client, pid} = login(c)
+      send_place(client, c.target)
+      client = ack(client)
+      assert World.get_block(c.target) == 0
+      assert :sys.get_state(pid).inventory.slots[36] == named
+      assert :sys.get_state(:sys.get_state(pid).player_store).snapshot.transfer_sequence == 0
+      Client.close(client)
+
+      wait(fn ->
+        not Process.alive?(pid) and Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == []
+      end)
+    end
+  end
+
   test "body obstruction and occupied adjacency correct predictions without overwriting", c do
     seed(c)
     {client, _pid} = login(c)

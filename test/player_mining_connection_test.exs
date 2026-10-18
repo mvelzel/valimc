@@ -471,7 +471,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
     assert worn.components["minecraft:damage"] == 1
 
     for {name, sequence} <-
-          Enum.with_index(~w(bedrock diamond_ore oak_stairs chest), 3) do
+          Enum.with_index(~w(bedrock diamond_ore oak_stairs), 3) do
       block = Data.item_block(Data.item(name))
       :ok = World.set_block(ctx.target, block)
       action(client, "start_destroy_block", ctx.target, sequence)
@@ -482,6 +482,50 @@ defmodule Valimc.PlayerMiningConnectionTest do
       assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
       assert drops(ctx) == []
     end
+  end
+
+  test "physical empty wet chest mining durably removes metadata and drops exactly its block",
+       ctx do
+    tool = %{
+      ItemStack.new("diamond_axe")
+      | components: %{"minecraft:enchantments" => %{"minecraft:efficiency" => 255}}
+    }
+
+    seed(ctx, %{36 => tool})
+    :ok = World.set_block(ctx.target, 89)
+    {:ok, owner} = World.owner(ctx.key)
+    {:ok, observed} = Valimc.World.Region.observe_blocks(owner, [ctx.target])
+    {:ok, chest} = Valimc.Physics.ChestPlacement.single_state(0.0, 89)
+    {:ok, batch} = Valimc.World.BlockBatch.prepare(%{ctx.target => chest})
+
+    assert {:ok, _} =
+             Valimc.World.Region.place_block(
+               owner,
+               observed.revision,
+               batch,
+               System.monotonic_time(:millisecond) + 250
+             )
+
+    {client, pid} = login(ctx)
+    action(client, "start_destroy_block", ctx.target, 1)
+    wait(fn -> finished(pid) and World.get_block(ctx.target) == 89 end)
+    assert drops(ctx) == [ItemStack.new("chest")]
+    assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
+    assert Inventory.held(state(pid).inventory, :main).components["minecraft:damage"] == 1
+
+    {:ok, containers} =
+      Valimc.World.Containers.decode(
+        File.read!(Valimc.World.Store.container_path(ctx.base, ctx.key)),
+        ctx.key
+      )
+
+    assert containers.entries == %{} and containers.sequence == 2 and containers.receipts == %{}
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    {_fresh, fresh_pid} = login(ctx)
+    assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
+    assert Inventory.held(state(fresh_pid).inventory, :main).components["minecraft:damage"] == 1
+    assert drops(ctx) == [ItemStack.new("chest")]
   end
 
   test "live random cubes persist bounded sampled loot and original-tool Silk Touch", ctx do

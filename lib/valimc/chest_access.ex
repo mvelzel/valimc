@@ -5,7 +5,10 @@ defmodule Valimc.ChestAccess do
   @external_resource @path
   @facts JSON.decode!(File.read!(@path))
   @single MapSet.new(@facts["single_states"])
+  @ordinary MapSet.new(@facts["states"], & &1["state"])
   @modes [:survival, :creative, :adventure, :spectator]
+
+  def ordinary?(block), do: MapSet.member?(@ordinary, block)
 
   def single?(block), do: MapSet.member?(@single, block)
 

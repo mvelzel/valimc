@@ -647,10 +647,21 @@ defmodule Valimc.ChestConnectionTest do
     before = File.read!(Store.container_path(ctx.base, ctx.key))
     {client, pid} = login(ctx)
     client = open(client, ctx)
-    :ok = World.set_block(ctx.position, 0)
+    :ok = World.remove_block(ctx.position)
     client = content(client, &(&1.container == 0))
     assert :sys.get_state(pid).table_menu == nil
-    :ok = World.set_block(ctx.position, @chest)
+    {:ok, owner} = World.existing_owner(ctx.key)
+    {:ok, observed} = Region.observe_blocks(owner, [ctx.position])
+    {:ok, batch} = Valimc.World.BlockBatch.prepare(%{ctx.position => @chest})
+
+    {:ok, _} =
+      Region.place_block(
+        owner,
+        observed.revision,
+        batch,
+        System.monotonic_time(:millisecond) + 250
+      )
+
     client = open(client, ctx)
     client = Client.teleport(client, pid, %{ctx.pose | x: ctx.pose.x + 20})
     assert :sys.get_state(pid).table_menu == nil
@@ -662,7 +673,11 @@ defmodule Valimc.ChestConnectionTest do
     {:ok, _} = World.owner(ctx.key)
     _client = content(client, &(&1.container == 0))
     assert :sys.get_state(pid).table_menu == nil
-    assert File.read!(Store.container_path(ctx.base, ctx.key)) == before
+    {:ok, old} = Containers.decode(before, ctx.key)
+    after_state = stored(ctx)
+    assert after_state.receipts == old.receipts
+    assert after_state.entries[ctx.position].slots == old.entries[ctx.position].slots
+    assert after_state.entries[ctx.position].revision > old.entries[ctx.position].revision
     assert :sys.get_state(pid).inventory.slots == %{36 => ItemStack.new("oak_planks", 8)}
   end
 end

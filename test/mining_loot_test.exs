@@ -50,6 +50,25 @@ defmodule Valimc.Physics.MiningLootTest do
     assert MiningLoot.drops(15181, nil, false) == {:ok, []}
   end
 
+  test "single stock chests drop themselves independently of facing, water and enchantments" do
+    facts = JSON.decode!(File.read!("priv/protocol/chest_states.json"))
+
+    tool = %{
+      ItemStack.new("diamond_axe")
+      | components: %{"minecraft:enchantments" => %{"minecraft:fortune" => 255}}
+    }
+
+    for state <- facts["single_states"], tool <- [nil, tool] do
+      assert MiningLoot.drops(state, tool, true) == {:ok, [ItemStack.new("chest")]}
+      assert MiningLoot.drops(state, tool, false) == {:ok, []}
+    end
+
+    for row <- facts["states"],
+        row["state"] not in facts["single_states"],
+        do:
+          assert(MiningLoot.drops(row["state"], nil, true) == {:error, :unsupported_mining_loot})
+  end
+
   test "ordinary mining admits finite deterministic cubes without specialized callbacks" do
     for name <-
           ~w(polished_granite spruce_planks iron_block red_concrete bookshelf obsidian packed_ice crafting_table) do

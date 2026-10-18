@@ -26,7 +26,7 @@ defmodule Valimc.PlayerPlacementQuery do
     connection = self()
 
     {:ok,
-     Task.Supervisor.async_nolink(Valimc.CollisionWorkers, fn ->
+     Task.Supervisor.async_nolink(Valimc.TransferWorkers, fn ->
        outcome =
          case prepare(item, request, now() + @timeout) do
            {:ok, plan} ->
@@ -46,6 +46,31 @@ defmodule Valimc.PlayerPlacementQuery do
          end
 
        with :ok <- correct(request, connection), do: {:ok, outcome}
+     end)}
+  rescue
+    RuntimeError -> {:error, :placement_workers_busy}
+  catch
+    :exit, _ -> {:error, :placement_workers_busy}
+  end
+
+  @doc "Bounded creative destruction and correction; disk acknowledgment never blocks the player owner."
+  def start_destroy(position, eye, expires) do
+    connection = self()
+
+    {:ok,
+     Task.Supervisor.async_nolink(Valimc.TransferWorkers, fn ->
+       {x, _, z} = position
+       key = World.region_key(World.chunk_key(x, z))
+
+       with {:ok, owner} <- World.existing_owner(key),
+            {:ok, observed} <- Region.observe_blocks(owner, [position]) do
+         outcome =
+           if now() < expires and Valimc.PlayerInteraction.within_block?(:creative, eye, position),
+             do: Region.destroy_block(owner, observed.revision, position, expires),
+             else: {:refused, :expired_destruction}
+
+         with :ok <- Region.correct_blocks(owner, [position], connection), do: {:ok, outcome}
+       end
      end)}
   rescue
     RuntimeError -> {:error, :placement_workers_busy}
@@ -159,6 +184,7 @@ defmodule Valimc.PlayerPlacementQuery do
              request
            ),
          {:ok, batch} <- BlockBatch.prepare(%{candidate.position => candidate.state}),
+         :ok <- isolated_chest(owner, key, candidate, observed.revision),
          {:ok, _} <- Region.observe_blocks(owner, [], observed.revision),
          true <- World.existing_owner(key) == {:ok, owner} and now() < deadline do
       {:ok,
@@ -178,6 +204,27 @@ defmodule Valimc.PlayerPlacementQuery do
     end
   catch
     :exit, _ -> {:error, :placement_region_unavailable}
+  end
+
+  defp isolated_chest(owner, key, candidate, revision) do
+    if Valimc.ChestAccess.single?(candidate.state) do
+      neighbors = Valimc.Physics.ChestPlacement.neighbors(candidate.position)
+
+      if Enum.all?(neighbors, fn {x, _, z} -> World.region_key(World.chunk_key(x, z)) == key end) do
+        with {:ok, observed} <- Region.observe_blocks(owner, neighbors, revision),
+             false <-
+               Enum.any?(observed.blocks, fn {_, state} -> Valimc.ChestAccess.ordinary?(state) end),
+             do: :ok,
+             else: (
+               true -> {:error, :adjacent_chest}
+               error -> error
+             )
+      else
+        {:error, :cross_owner_chest}
+      end
+    else
+      :ok
+    end
   end
 
   defp now, do: System.monotonic_time(:millisecond)

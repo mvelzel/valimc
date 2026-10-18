@@ -112,7 +112,7 @@ defmodule Valimc.PlacementTest do
       assert state == Data.item_block(item(name))
     end
 
-    for name <- ~w(sand chest oak_stairs redstone_block) do
+    for name <- ~w(sand oak_stairs redstone_block) do
       refute Placement.supported_item?(item(name))
       assert {:error, :unsupported_item} = Placement.candidate(item(name), 0, 0, request())
     end

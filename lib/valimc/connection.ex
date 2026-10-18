@@ -3995,6 +3995,7 @@ defmodule Valimc.Connection do
 
     supported =
       block in @basic_mining or
+        ChestAccess.single?(block) or
         Valimc.Physics.MiningLoot.ordinary_mining?(block) or
         Valimc.Physics.RandomMiningLoot.supported?(block) or
         MapSet.member?(@slab_blocks, Valimc.Physics.MiningTools.block_id(block))
@@ -4156,17 +4157,29 @@ defmodule Valimc.Connection do
     if action in [
          ItemTypes.action_id("start_destroy_block"),
          ItemTypes.action_id("stop_destroy_block")
-       ] and state.player.game_mode.current == :creative and reachable?(state, position),
-       do: World.remove_block(position)
+       ] and
+         state.player.game_mode.current == :creative and state.life_stage == :alive and
+         reachable?(state, position) and not state.teleport_pending do
+      if state.placement_queued >= 16, do: reject(state, "Too many pending block interactions")
 
-    updates =
-      if reachable?(state, position),
-        do: [Packets.block(position, World.get_block(position))],
-        else: []
+      command = %{
+        kind: :destroy,
+        mode: :creative,
+        request: %{position: position, sequence: sequence},
+        eye: Valimc.PlayerInteraction.eye(state.player),
+        body: %{},
+        expires: System.monotonic_time(:millisecond) + 250
+      }
 
-    send_packets(state, [Packets.ack(sequence) | updates])
-
-    state
+      drain_placements(%{
+        state
+        | placement_queue: :queue.in(command, state.placement_queue),
+          placement_queued: state.placement_queued + 1
+      })
+    else
+      send_packets(state, [Packets.ack(sequence)])
+      state
+    end
   end
 
   defp creative_slot(state, <<slot::signed-16, payload::binary>>) do
@@ -5005,16 +5018,27 @@ defmodule Valimc.Connection do
     stack = Inventory.held(state.inventory, request.hand)
 
     command =
-      if stack != nil and Valimc.Physics.Placement.supported_item?(stack.item_id) do
-        %{
-          request: request,
-          item: stack.item_id,
-          stack: stack,
-          slot: if(request.hand == :off, do: 45, else: 36 + state.inventory.selected),
-          mode: state.player.game_mode.current,
-          body: placement_body(state, request),
-          expires: System.monotonic_time(:millisecond) + 250
-        }
+      cond do
+        Valimc.Physics.Placement.supported_stack?(stack) ->
+          %{
+            request:
+              if(stack.item_id == Data.item("chest"),
+                do: Map.put(request, :yaw, state.player.yaw),
+                else: request
+              ),
+            item: stack.item_id,
+            stack: stack,
+            slot: if(request.hand == :off, do: 45, else: 36 + state.inventory.selected),
+            mode: state.player.game_mode.current,
+            body: placement_body(state, request),
+            expires: System.monotonic_time(:millisecond) + 250
+          }
+
+        stack != nil and Valimc.Physics.Placement.supported_item?(stack.item_id) ->
+          %{kind: :correction, mode: :correction, request: request, body: nil}
+
+        true ->
+          nil
       end
 
     %{stack: stack, command: command}
@@ -5030,9 +5054,12 @@ defmodule Valimc.Connection do
         send_packets(state, [Packets.ack(request.sequence)])
         resync_inventory(state)
 
-      stack != nil and Valimc.Physics.Placement.supported_item?(stack.item_id) ->
+      captured.command != nil ->
         if state.placement_queued >= 16,
           do: reject(state, "Too many pending block interactions")
+
+        state =
+          if captured.command[:kind] == :correction, do: resync_inventory(state), else: state
 
         drain_placements(%{
           state
@@ -5084,12 +5111,23 @@ defmodule Valimc.Connection do
             do: &PlayerPlacementQuery.start_survival/4,
             else: &PlayerPlacementQuery.start_creative/4
 
-        case start.(
-               command.item,
-               command.request,
-               command.body,
-               command.expires
-             ) do
+        started =
+          case command[:kind] do
+            :destroy ->
+              PlayerPlacementQuery.start_destroy(
+                command.request.position,
+                command.eye,
+                command.expires
+              )
+
+            :correction ->
+              PlayerPlacementQuery.start_correction(command.request, nil)
+
+            _ ->
+              start.(command.item, command.request, command.body, command.expires)
+          end
+
+        case started do
           {:ok, task} ->
             timer = Process.send_after(self(), {:placement_deadline, task.ref}, 750)
             %{state | placement_job: %{task: task, timer: timer, command: command}}
@@ -5129,7 +5167,7 @@ defmodule Valimc.Connection do
           slot: command.slot,
           before: command.stack,
           after: after_stack,
-          request: command.request,
+          request: Map.delete(command.request, :yaw),
           edits: %{reservation.candidate.position => reservation.candidate.state}
         })
 

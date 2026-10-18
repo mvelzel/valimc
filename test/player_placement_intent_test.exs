@@ -54,6 +54,54 @@ defmodule Valimc.PlayerPlacementIntentTest do
     end
   end
 
+  test "saved chest orientation round trips without transient yaw and rejects wrong wetness or target" do
+    original = intent(2)
+    stack = ItemStack.new("chest", 2)
+
+    for yaw <- [0.0, 90.0, 180.0, 270.0], fluid <- [0, 89, 90, 105] do
+      {:ok, state} = Valimc.Physics.ChestPlacement.single_state(yaw, fluid)
+
+      chest = %{
+        original
+        | before: stack,
+          after: %{stack | count: 1},
+          expected: %{{1, 64, 1} => fluid},
+          edits: %{{1, 64, 1} => state}
+      }
+
+      assert {:ok, bytes} = PlayerPlacementIntent.encode(@source, 1, chest)
+      assert {:ok, ^chest} = PlayerPlacementIntent.decode(@source, 1, bytes)
+      assert <<"VMCPOUT", 1, _::binary>> = bytes
+      invalid = %{chest | edits: %{{1, 64, 1} => state + if(fluid == 89, do: 1, else: -1)}}
+
+      assert {:error, :invalid_placement_intent} =
+               PlayerPlacementIntent.encode(@source, 1, invalid)
+
+      assert {:error, :invalid_placement_intent} =
+               PlayerPlacementIntent.encode(@source, 1, %{chest | edits: %{{2, 64, 1} => state}})
+    end
+  end
+
+  test "named chests cannot enter a source intent before owned name metadata exists" do
+    original = intent(2)
+
+    stack = %{
+      ItemStack.new("chest", 2)
+      | components: %{"minecraft:custom_name" => {:string, "Named"}}
+    }
+
+    {:ok, state} = Valimc.Physics.ChestPlacement.single_state(0.0, 0)
+
+    chest = %{
+      original
+      | before: stack,
+        after: %{stack | count: 1},
+        edits: %{original.request.position => state}
+    }
+
+    assert {:error, :invalid_placement_intent} = PlayerPlacementIntent.encode(@source, 1, chest)
+  end
+
   test "native candidate and count fences reject arbitrary blocks, changed patches and excess consumption" do
     original = intent()
 

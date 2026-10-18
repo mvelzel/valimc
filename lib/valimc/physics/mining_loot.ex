@@ -75,9 +75,13 @@ defmodule Valimc.Physics.MiningLoot do
       when is_integer(state) and state >= 0 and state < @count and
              is_boolean(harvest) do
     if harvest do
-      case elem(@profiles, Map.get(@states, state, elem(@blocks, MiningTools.block_id(state)))) do
-        nil -> RandomMiningLoot.drops(state, tool, true)
-        profile -> {:ok, elem(profile, if(silk?(tool), do: 1, else: 0))}
+      if Valimc.ChestAccess.single?(state) do
+        {:ok, [ItemStack.new("chest")]}
+      else
+        case elem(@profiles, Map.get(@states, state, elem(@blocks, MiningTools.block_id(state)))) do
+          nil -> RandomMiningLoot.drops(state, tool, true)
+          profile -> {:ok, elem(profile, if(silk?(tool), do: 1, else: 0))}
+        end
       end
     else
       {:ok, []}

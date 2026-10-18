@@ -100,6 +100,13 @@ defmodule Valimc.World.Region do
   end
 
   def place_block(_, _, _, _), do: {:error, :invalid_placement}
+  @doc "One fresh creative destruction through the owner, including its owned metadata journal."
+  def destroy_block({pid, epoch}, revision, position, deadline) do
+    GenServer.call(pid, {:destroy_block, epoch, revision, position, deadline}, 1000)
+  catch
+    :exit, {:timeout, _} -> {:error, :block_commit_uncertain}
+    :exit, _ -> {:error, :region_unavailable}
+  end
 
   @doc "Send current clicked/adjacent corrections from the same sender as owner block publications."
   def correct_blocks({pid, epoch}, positions, connection) when is_pid(connection) do

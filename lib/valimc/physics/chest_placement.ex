@@ -27,6 +27,8 @@ defmodule Valimc.Physics.ChestPlacement do
 
   def horizontal(_), do: {:error, :invalid_chest_yaw}
 
+  def neighbors({x, y, z}), do: [{x - 1, y, z}, {x + 1, y, z}, {x, y, z - 1}, {x, y, z + 1}]
+
   def single_state(yaw, target_state) do
     with {:ok, heading} <- horizontal(yaw),
          {:ok, fluid} <- FluidBlocks.fetch(target_state) do

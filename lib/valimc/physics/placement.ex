@@ -1,6 +1,7 @@
 defmodule Valimc.Physics.Placement do
   @moduledoc "Pure native placement candidates; owners still admit geometry, writes and consumption."
-  alias Valimc.Physics.FluidBlocks
+  alias Valimc.Physics.{ChestPlacement, FluidBlocks}
+  @chest_item Valimc.Protocol.Data.item("chest")
   @path Path.expand("../../../priv/physics/placement.json", __DIR__)
   @external_resource @path
   @facts JSON.decode!(File.read!(@path))
@@ -42,11 +43,16 @@ defmodule Valimc.Physics.Placement do
          do: raise("Invalid placement facts")
 
   @doc "Propose a state from an immutable clicked/adjacent sample, without granting a world write."
-  def candidate(item, clicked, adjacent, %{
-        position: {x, y, z} = position,
-        face: face,
-        cursor: {_cx, cy, _cz}
-      })
+  def candidate(
+        item,
+        clicked,
+        adjacent,
+        %{
+          position: {x, y, z} = position,
+          face: face,
+          cursor: {_cx, cy, _cz}
+        } = request
+      )
       when is_integer(item) and is_integer(clicked) and clicked >= 0 and clicked < @count and
              is_integer(adjacent) and adjacent >= 0 and adjacent < @count and
              is_integer(face) and face in 0..5 and is_integer(x) and is_integer(y) and
@@ -60,9 +66,9 @@ defmodule Valimc.Physics.Placement do
            target = if(replace, do: position, else: offset(position, face)),
            state = if(replace, do: clicked, else: adjacent),
            {:ok, true} <-
-             if(replace, do: {:ok, true}, else: replaceable(state, item, face, upper, false)) do
-        {:ok,
-         %{position: target, state: placed(item, state, face, upper), replace_clicked: replace}}
+             if(replace, do: {:ok, true}, else: replaceable(state, item, face, upper, false)),
+           {:ok, placed} <- candidate_state(item, state, face, upper, request) do
+        {:ok, %{position: target, state: placed, replace_clicked: replace}}
       else
         {:ok, false} -> {:error, :occupied}
         error -> error
@@ -78,7 +84,41 @@ defmodule Valimc.Physics.Placement do
     do: offset(position, face)
 
   def supported_item?(item),
-    do: Map.has_key?(@plain, item) or Map.has_key?(@slabs, item) or Map.has_key?(@pillars, item)
+    do:
+      item == @chest_item or Map.has_key?(@plain, item) or Map.has_key?(@slabs, item) or
+        Map.has_key?(@pillars, item)
+
+  @doc "Chest names require owned metadata and loot-copy support before item consumption."
+  def supported_stack?(%Valimc.Protocol.ItemStack{item_id: @chest_item, components: components}),
+    do: not Map.has_key?(components, "minecraft:custom_name")
+
+  def supported_stack?(%Valimc.Protocol.ItemStack{item_id: item}), do: supported_item?(item)
+  def supported_stack?(_), do: false
+
+  @doc "Validate a saved edit independently of transient player yaw; destination permissions still fence its exact block state."
+  def saved_candidate(@chest_item, clicked, adjacent, request, edits)
+      when is_map(edits) and is_map(request) do
+    case Map.to_list(edits) do
+      [{position, state}] ->
+        Enum.find_value([0.0, 90.0, 180.0, 270.0], {:error, :invalid_context}, fn yaw ->
+          case candidate(@chest_item, clicked, adjacent, Map.put(request, :yaw, yaw)) do
+            {:ok, %{position: ^position, state: ^state}} = result -> result
+            _ -> nil
+          end
+        end)
+
+      _ ->
+        {:error, :invalid_context}
+    end
+  end
+
+  def saved_candidate(item, clicked, adjacent, request, _edits),
+    do: candidate(item, clicked, adjacent, request)
+
+  defp candidate_state(@chest_item, state, _, _, request),
+    do: ChestPlacement.single_state(request[:yaw], state)
+
+  defp candidate_state(item, state, face, upper, _), do: {:ok, placed(item, state, face, upper)}
 
   defp replaceable(state, item, face, upper, clicked) do
     case :binary.at(@replace, state) do
