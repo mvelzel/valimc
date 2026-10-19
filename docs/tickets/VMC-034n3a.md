@@ -54,7 +54,20 @@ conflicting identity/content, canonical bytes, combined record limits, exact 8 M
 acceptance/one-byte refusal, lost ACKs, stale leases, I/O failure and all eight
 joint replacement subsets at each endpoint. Existing native splitting/packet
 proofs apply unchanged. Private logs: `.local/orb-transfer-*.log`.
+Ten focused checks (seed533281) also prove the exact 427,020-byte ledger with
+256 full-recipe imports plus 256 source intents. No broad gate is due for this subticket.
+
+Measurement at `4b09f6f`: M4/24 GiB, 10 schedulers, 5 warmups/30 samples. Source
+always retains 256 pending awards ×107 recipes; routes/imports vary 1/64/256.
+At 256, source/destination snapshots are 422,545/418,649 bytes; prepare p50/p95
+103.674/140.176 ms, adoption39.220/57.502 ms, settlement101.344/142.085 ms.
+These validations belong on bounded CPU/I/O workers. Pure codecs/proposals only,
+no gameplay/disk/socket load; host/tester activity overlaps and no capacity/speed
+comparison is established. Raw samples, script and source hashes:
+`.local/orb-transfer-bench-4b09f6f.{exs,json,log}`.
 
 Client gate pending. Fresh dataset: `.local/client-tests/VMC-034n3a/world`, with
 14 receipt-backed source awards, a pending route and matching durable destination
 adoption (lost-ACK boundary). Remote publication is deliberately inactive.
+The [delivery runtime](VMC-034n3b.md) follows; it must not reinterpret this unused
+foundation as a completed live handoff.

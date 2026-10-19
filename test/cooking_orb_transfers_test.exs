@@ -379,6 +379,37 @@ defmodule Valimc.CookingOrbTransfersTest do
     assert full_source.orb_transfers == CookingOrbTransfers.new()
   end
 
+  test "all 256 full-recipe imports and source intents reach the exact ledger byte bound" do
+    recipes = JSON.decode!(File.read!("priv/crafting/cooking.json"))["recipes"]
+    uses = Map.new(recipes, &{&1["recipe"], 10})
+    draws = Map.new(uses, fn {r, _} -> {r, 0} end)
+
+    {source, outgoing, incoming} =
+      Enum.reduce(1..256, {%Containers{}, %{}, %{}}, fn n, {source, outgoing, incoming} ->
+        {source, id} = award(source, @source, {128.5, 64.25, 0.5}, n, uses, draws)
+        {other, imported_id} = award(%Containers{}, {-1, 0}, {0.5, 64.25, 0.5}, n, uses, draws)
+
+        request = %{
+          source: {-1, 0},
+          destination: @source,
+          id: imported_id,
+          award: other.pending_awards[imported_id]
+        }
+
+        {source, Map.put(outgoing, id, :pending), Map.put(incoming, imported_id, request)}
+      end)
+
+    full = %{source | orb_transfers: %{revision: 512, outgoing: outgoing, incoming: incoming}}
+
+    assert {:ok, bytes} =
+             CookingOrbTransfers.encode(full.orb_transfers, @source, full.pending_awards, %{})
+
+    assert byte_size(bytes) == CookingOrbTransfers.max_bytes()
+    assert {:ok, transfers} = CookingOrbTransfers.decode(bytes, @source, full.pending_awards, %{})
+    assert transfers == full.orb_transfers
+    assert cold(full, @source) == full
+  end
+
   defp fill(cs, {rx, rz} = key, target) do
     stack = fn size ->
       %{
