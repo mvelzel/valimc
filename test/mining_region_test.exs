@@ -286,7 +286,7 @@ defmodule Valimc.MiningRegionTest do
             DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid)
           end)
 
-        assert {:error, :item_commit_uncertain} = Task.await(task)
+        assert {:error, :mining_commit_uncertain} = Task.await(task)
         :sys.resume(writer)
         assert :ok = Task.await(stop)
         stop

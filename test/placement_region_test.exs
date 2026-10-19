@@ -362,7 +362,7 @@ defmodule Valimc.PlacementRegionTest do
       stop =
         Task.async(fn -> DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid) end)
 
-      assert {:error, :item_commit_uncertain} = Task.await(task)
+      assert {:error, :mining_commit_uncertain} = Task.await(task)
       :sys.resume(writer)
       assert :ok = Task.await(stop)
       {:ok, owner} = World.item_owner(ctx.key)

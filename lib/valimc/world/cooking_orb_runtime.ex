@@ -1,7 +1,15 @@
 defmodule Valimc.World.CookingOrbRuntime do
   @moduledoc "Bounded local/remote XP proposals; durable ACK before observation and receipt."
   alias Valimc.Protocol.EntityPackets
-  alias Valimc.World.{CookingOrbs, CookingOrbTransfers, CookingOrbBodies, Items, Store}
+
+  alias Valimc.World.{
+    CookingOrbs,
+    CookingOrbTransfers,
+    CookingOrbBodies,
+    Items,
+    RegionData,
+    Store
+  }
 
   defstruct job: nil,
             seen: nil,
@@ -282,67 +290,41 @@ defmodule Valimc.World.CookingOrbRuntime do
     do: commit(state, job, id, containers, views, nil)
 
   defp commit(state, job, id, containers, views, settled) do
-    token = make_ref()
+    # Adopted at once, so the snapshot must be storable before it replaces state.
+    case Valimc.World.Containers.encode(state.key, containers) do
+      {:ok, _} ->
+        token = make_ref()
 
-    Store.commit_containers(
-      state.store,
-      state.store_lease,
-      containers,
-      {self(), state.items.epoch},
-      token
-    )
+        Store.commit_containers(
+          state.store,
+          state.store_lease,
+          containers,
+          {self(), state.items.epoch},
+          token
+        )
 
-    pending = %{
-      kind: :cooking_orbs,
-      phase: :writing,
-      token: token,
-      from: job.from,
-      containers: containers,
-      views: views,
-      id: id,
-      settled: settled,
-      timer: timer(state, {:item_commit_deadline, token}, 5000)
-    }
-
-    {:noreply, %{state | item_pending: pending}}
-  end
-
-  def saved(state, result) do
-    pending = state.item_pending
-    Process.cancel_timer(pending.timer)
-    state = %{state | item_pending: nil}
-
-    case result do
-      :ok ->
         runtime = state.cooking_orbs
-        receipt = if Map.get(pending, :settled), do: nil, else: runtime.receipt
+        receipt = if settled, do: nil, else: runtime.receipt
 
         state = %{
           state
-          | containers: pending.containers,
-            cooking: %{state.cooking | dirty: false},
-            cooking_orbs: %{
-              runtime
-              | cursor: pending.id,
-                seen: nil,
-                retry_at: nil,
-                receipt: receipt
-            }
+          | containers: containers,
+            cooking_orbs: %{runtime | cursor: id, seen: nil, retry_at: nil, receipt: receipt}
         }
 
-        state = publish(state, pending.views)
-        reply(pending.from, {:ok, :applied})
-        {:noreply, state}
+        {:noreply,
+         RegionData.queue_container_write(state, token, job.from, {:ok, :applied}, [
+           {:cooking_orbs, views}
+         ])}
 
-      {:error, :invalid_container_snapshot} ->
-        reply(pending.from, {:error, :cooking_orb_transfer_capacity})
-        {:noreply, retry(put_in(state.cooking_orbs.cursor, pending.id), now() + 1000)}
-
-      {:error, reason} ->
-        reply(pending.from, {:error, :cooking_orb_commit_uncertain})
-        {:stop, {:cooking_orb_storage_failed, reason}, state}
+      {:error, _} ->
+        reply(job.from, {:error, :cooking_orb_transfer_capacity})
+        {:noreply, retry(put_in(state.cooking_orbs.cursor, id), now() + 1000)}
     end
   end
+
+  @doc false
+  def durable(state, views), do: publish(state, views)
 
   def expired(state, token) do
     case state.cooking_orbs.job do
@@ -369,27 +351,6 @@ defmodule Valimc.World.CookingOrbRuntime do
       clear_job(runtime.job)
       reply(runtime.job.from, {:error, :cooking_orb_owner_stopped})
       Process.exit(runtime.job.worker, :kill)
-    end
-  end
-
-  @doc false
-  def shutdown_containers(state, pending) do
-    writer = state.store
-    epoch = state.items.epoch
-    token = pending.token
-    # Never flush the pre-commit predecessor after an uncertain queued write.
-    receive do
-      {:resource, ^epoch, {:containers_saved, ^writer, ^token, :ok}} ->
-        pending.containers
-
-      {:resource, ^epoch,
-       {:containers_saved, ^writer, ^token, {:error, :invalid_container_snapshot}}} ->
-        state.containers
-
-      {:resource, ^epoch, {:containers_saved, ^writer, ^token, {:error, _}}} ->
-        nil
-    after
-      5000 -> nil
     end
   end
 

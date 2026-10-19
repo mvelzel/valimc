@@ -43,6 +43,8 @@ defmodule Valimc.CookingOrbDeliveryTest do
     %{source: source, dest: dest, peer: peer, base: base, at: at(dest)}
   end
 
+  defp queued?(state, kind), do: Enum.any?(state.item_writes, &(&1.kind == kind))
+
   defp at({x, z}), do: {x * 128 + 8.5, 64.5, z * 128 + 8.5}
 
   defp award(key, position, state \\ %Containers{}, zero \\ false) do
@@ -108,7 +110,7 @@ defmodule Valimc.CookingOrbDeliveryTest do
   end
 
   defp saved(state) do
-    token = state.item_pending.token
+    token = Valimc.TestRegion.write_token(state)
     epoch = state.items.epoch
     writer = state.store
     assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, _} = message}, 3000
@@ -157,7 +159,7 @@ defmodule Valimc.CookingOrbDeliveryTest do
 
     try do
       state = result(state)
-      assert state.containers === cs and state.item_pending.kind == :cooking_orbs
+      assert state.containers.entries === cs.entries and queued?(state, :containers)
       assert published(state) == %{}
       refute_receive {^tag, _}, 30
       assert {:ok, %Containers{orb_transfers: %{incoming: incoming}}} = disk(ctx, ctx.dest)
@@ -201,7 +203,7 @@ defmodule Valimc.CookingOrbDeliveryTest do
     {:ok, cs, _} = Containers.replace_cooking(cs, pos, entry.revision, cooking, %{})
     {cs, _} = award(ctx.source, at(ctx.source), cs)
     state = result(%{state | containers: cs, cooking: %{state.cooking | dirty: true}})
-    assert state.containers.orb_transfers.outgoing[request.id] == :pending
+    assert queued?(state, :containers) and published(state) == %{}
     {:noreply, settled} = saved(state)
     assert settled.containers.orb_transfers.outgoing[request.id] == :delivered
     assert settled.cooking_orbs.receipt == nil and published(settled) == %{}
@@ -263,12 +265,12 @@ defmodule Valimc.CookingOrbDeliveryTest do
     writer = state.store
     monitor = state.store_monitor
     assert {:ok, committed} = Store.load_containers(writer)
-    assert committed == state.item_pending.containers and published(state) == %{}
+    assert committed == state.containers and published(state) == %{}
     Process.exit(writer, :kill)
     assert_receive {:DOWN, ^monitor, :process, ^writer, :killed} = message
     assert {:stop, {:store_failed, :killed}, stopped} = RegionData.handle_info(message, state)
     RegionData.terminate(:injected, stopped)
-    assert_receive {^tag, {:error, :item_commit_uncertain}}
+    assert_receive {^tag, {:error, :container_commit_uncertain}}
     restored = RegionData.load(ctx.dest) |> CookingOrbRuntime.tick(now()) |> result()
     assert restored.containers == committed and map_size(published(restored)) == 1
     tag = make_ref()
@@ -286,8 +288,8 @@ defmodule Valimc.CookingOrbDeliveryTest do
     state = start_adoption(state, request, tag)
     Valimc.TestDisk.break_writer(state.store)
     state = result(state)
-    assert {:stop, {:cooking_orb_storage_failed, _}, stopped} = saved(state)
-    assert_receive {^tag, {:error, :cooking_orb_commit_uncertain}}
+    assert {:stop, {:container_storage_failed, _}, stopped} = saved(state)
+    assert_receive {^tag, {:error, :container_commit_uncertain}}
     assert published(stopped) == %{} and disk(ctx, ctx.source) == {:ok, routed}
     RegionData.terminate(:injected, stopped)
   end
@@ -347,7 +349,7 @@ defmodule Valimc.CookingOrbDeliveryTest do
 
     try do
       {:ok, {ap, _}} = World.item_owner(ctx.source)
-      wait(fn -> match?(%{kind: :cooking_orbs}, resource(bp).item_pending) end)
+      wait(fn -> queued?(resource(bp), :containers) end)
       source = resource(ap)
       assert source.item_pending == nil and source.cooking_orbs.delivery != nil
       assert source.containers.orb_transfers.outgoing[id] == :pending

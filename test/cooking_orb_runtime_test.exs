@@ -43,6 +43,8 @@ defmodule Valimc.CookingOrbRuntimeTest do
     %{key: key, position: position, base: base}
   end
 
+  defp queued?(state, kind), do: Enum.any?(state.item_writes, &(&1.kind == kind))
+
   defp add(cs, key, position, uses \\ %{@gold => 3, @iron => 5}, draws \\ %{@iron => 0}) do
     n = map_size(cs.pending_awards) + 1
     digest = :crypto.hash(:sha256, <<n::32>>)
@@ -81,7 +83,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
   end
 
   defp saved(state) do
-    token = state.item_pending.token
+    token = Valimc.TestRegion.write_token(state)
     epoch = state.items.epoch
     writer = state.store
     assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, _} = message}, 3000
@@ -110,8 +112,9 @@ defmodule Valimc.CookingOrbRuntimeTest do
 
     try do
       proposed = result(state)
-      assert proposed.item_pending.kind == :cooking_orbs
-      assert proposed.containers.cooking_orbs == %{} and published(proposed) == %{}
+      assert queued?(proposed, :containers)
+      # Adopted in owner memory; nothing is published or on disk before the ACK.
+      assert map_size(proposed.containers.cooking_orbs) == 1 and published(proposed) == %{}
       assert disk(ctx).cooking_orbs == %{}
       :sys.resume(state.store)
       assert {:noreply, installed} = saved(proposed)
@@ -141,7 +144,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
     {cs, _} = add(cs, ctx.key, {x + 1, 64.5, z})
     current = %{state | containers: cs, cooking: %{state.cooking | dirty: true}}
     proposed = result(current)
-    assert proposed.containers == cs and published(proposed) == %{}
+    assert proposed.containers.entries == cs.entries and published(proposed) == %{}
     {:noreply, installed} = saved(proposed)
     assert installed.containers.entries == cs.entries
     assert installed.containers.receipts == cs.receipts
@@ -158,7 +161,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
   test "remote poses acquire a durable route without source entities; a later local award wakes the owner",
        ctx do
     state = seed(ctx, true) |> start() |> result()
-    assert state.item_pending.kind == :cooking_orbs and published(state) == %{}
+    assert queued?(state, :containers) and published(state) == %{}
     {:noreply, state} = saved(state)
     assert state.cooking_orbs.job == nil and state.item_pending == nil
     assert published(state) == %{}
@@ -282,30 +285,30 @@ defmodule Valimc.CookingOrbRuntimeTest do
     state = seed(ctx) |> start()
     Valimc.TestDisk.break_writer(state.store)
     state = result(state)
-    assert {:stop, {:cooking_orb_storage_failed, _}, stopped} = saved(state)
-    assert stopped.containers.cooking_orbs == %{} and published(stopped) == %{}
+    assert {:stop, {:container_storage_failed, _}, stopped} = saved(state)
+    assert published(stopped) == %{} and disk(ctx).cooking_orbs == %{}
     RegionData.terminate(:injected, stopped)
   end
 
   test "writer death after durability but before ACK restores exactly one unpublished materialization",
        ctx do
     state = seed(ctx) |> start() |> result()
-    pending = state.item_pending
+    token = Valimc.TestRegion.write_token(state)
     assert {:ok, committed} = Store.load_containers(state.store)
-    assert committed == pending.containers and published(state) == %{}
+    assert committed == state.containers and published(state) == %{}
     writer = state.store
     monitor = state.store_monitor
     Process.exit(writer, :kill)
     assert_receive {:DOWN, ^monitor, :process, ^writer, :killed} = down
     assert {:stop, {:store_failed, :killed}, stopped} = RegionData.handle_info(down, state)
-    assert stopped.containers.cooking_orbs == %{} and published(stopped) == %{}
+    assert published(stopped) == %{}
     RegionData.terminate(:injected, stopped)
     restored = RegionData.load(ctx.key) |> start() |> result()
     assert restored.item_pending == nil and restored.containers == committed
     assert map_size(published(restored)) == 2 and disk(ctx) == committed
 
     assert {:noreply, ^restored} =
-             RegionData.handle_info({:containers_saved, writer, pending.token, :ok}, restored)
+             RegionData.handle_info({:containers_saved, writer, token, :ok}, restored)
 
     assert start(restored).cooking_orbs.job == nil
     RegionData.terminate(:shutdown, restored)
@@ -315,7 +318,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
     state = seed(ctx) |> start()
     {:ok, current} = Store.load_containers(state.store)
     state = result(%{state | store_lease: make_ref()})
-    assert {:stop, {:cooking_orb_storage_failed, :stale_store_lease}, stopped} = saved(state)
+    assert {:stop, {:container_storage_failed, :stale_store_lease}, stopped} = saved(state)
     assert published(stopped) == %{} and disk(ctx) == current
     RegionData.terminate(:injected, stopped)
   end
@@ -327,7 +330,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
     :ok = Store.flush_containers(writer, lease, cs)
     :ok = Store.close(writer, lease)
     state = RegionData.load(ctx.key) |> start() |> result()
-    assert state.item_pending.kind == :cooking_orbs
+    assert queued?(state, :containers)
     {:noreply, installed} = saved(state)
     assert installed.containers.cooking_orbs == %{id => %{}}
     assert installed.containers.pending_awards == cs.pending_awards
@@ -336,15 +339,14 @@ defmodule Valimc.CookingOrbRuntimeTest do
     RegionData.terminate(:shutdown, installed)
   end
 
-  test "shared capacity may fill during planning; writer refusal preserves the pending award",
+  test "shared capacity may fill during planning; the refusal preserves the pending award",
        ctx do
     state = seed(ctx) |> start()
     full = fill_snapshot(state.containers, ctx)
     assert :ok = Store.flush_containers(state.store, state.store_lease, full)
-    writing = result(%{state | containers: full})
-    assert writing.item_pending.kind == :cooking_orbs and published(writing) == %{}
-    assert {:noreply, refused} = saved(writing)
-    assert refused.item_pending == nil and refused.containers == full
+    # An unstorable snapshot is refused before adoption, so nothing is queued.
+    refused = result(%{state | containers: full})
+    assert not queued?(refused, :containers) and refused.containers == full
     assert refused.containers.cooking_orbs == %{} and published(refused) == %{}
     assert disk(ctx) == full and start(refused).cooking_orbs.job == nil
     RegionData.terminate(:shutdown, refused)
@@ -401,8 +403,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
 
     full = fill_snapshot(state.containers, ctx)
     :ok = Store.flush_containers(state.store, state.store_lease, full)
-    state = result(%{state | containers: full})
-    {:noreply, refused} = saved(state)
+    refused = result(%{state | containers: full})
     assert_receive {^tag, {:error, :cooking_orb_transfer_capacity}}
     assert refused.containers == full and published(refused) == %{}
     pos = Enum.min(Map.keys(full.entries))
@@ -446,7 +447,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
       Containers.replace_cooking(full, pos, entry.revision, %Valimc.Cooking{progress: 17}, %{})
 
     state = %{state | containers: current, cooking: %{state.cooking | dirty: true}} |> result()
-    assert state.item_pending.kind == :cooking_orbs and published(state) == %{}
+    assert not queued?(state, :containers) and published(state) == %{}
     RegionData.terminate(:shutdown, state)
     assert disk(ctx) == current
     assert disk(ctx).entries[pos].cooking.progress == 17
@@ -476,7 +477,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
       )
 
     state = %{state | cooking: %{state.cooking | dirty: true}} |> start() |> result()
-    expected = state.item_pending.containers
+    expected = state.containers
     RegionData.terminate(:shutdown, state)
     assert disk(ctx) == expected
 

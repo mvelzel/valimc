@@ -39,6 +39,8 @@ defmodule Valimc.CookingRegionRuntimeTest do
     %{key: key, base: base, position: position, unlit: unlit, lit: lit}
   end
 
+  defp queued?(state, kind), do: Enum.any?(state.item_writes, &(&1.kind == kind))
+
   defp seed(ctx, cooking, lit \\ true) do
     {:ok, containers, entry} =
       Containers.create_cooking(%Containers{}, ctx.key, ctx.position, :furnace)
@@ -76,12 +78,19 @@ defmodule Valimc.CookingRegionRuntimeTest do
   end
 
   defp saved(state) do
-    token = state.item_pending.token
+    token = Valimc.TestRegion.write_token(state)
     epoch = state.items.epoch
     assert_receive {:resource, ^epoch, message}, 2000
     assert elem(message, 2) == token
     {:noreply, next} = RegionData.handle_info(message, state)
     next
+  end
+
+  defp published(state, position) do
+    {:ok, _, blocks} =
+      Valimc.World.BlockSnapshot.read(state.item_publication, state.items.epoch, [position])
+
+    blocks[position]
   end
 
   defp disk(ctx) do
@@ -166,7 +175,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
     epoch = state.items.epoch
     assert_receive {:resource, ^epoch, {:container_recovery_plan, _, _, _} = message}, 2000
     {:noreply, state} = RegionData.handle_info(message, state)
-    state = if state.item_pending, do: saved(state), else: state
+    state = if state.item_writes != [], do: saved(state), else: state
     assert state.containers.receipts[source].sequence == 0
     assert pending.kind == :container
     RegionData.terminate(:shutdown, state)
@@ -211,7 +220,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
 
     state = state |> start() |> result()
     assert state.containers.entries[ctx.position].cooking.progress == before + 1
-    assert state.item_pending.kind == :cooking_checkpoint
+    assert queued?(state, :containers)
     state = saved(state)
     assert not state.cooking.dirty and disk(ctx) == state.containers
 
@@ -232,17 +241,17 @@ defmodule Valimc.CookingRegionRuntimeTest do
       |> start()
       |> result()
 
-    before = state.containers
-    image = Blocks.image(state.blocks)
-    pending = state.item_pending
+    durable = disk(ctx)
+    lit = published(state, ctx.position)
 
-    assert {:stop, {:cooking_storage_failed, :injected}, stopped} =
+    assert {:stop, {:mining_storage_failed, :injected}, stopped} =
              RegionData.handle_info(
-               {:mining_saved, state.store, pending.token, {:error, :injected}},
+               {:mining_saved, state.store, Valimc.TestRegion.write_token(state),
+                {:error, :injected}},
                state
              )
 
-    assert stopped.containers == before and Blocks.image(stopped.blocks) == image
+    assert disk(ctx) == durable and published(stopped, ctx.position) == lit
     RegionData.terminate(:injected, stopped)
   end
 
@@ -267,7 +276,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
     }
 
     state = RegionData.cooking_tick(state, now)
-    assert state.item_pending.kind == :cooking_checkpoint and state.cooking.job == nil
+    assert queued?(state, :containers) and state.cooking.job == nil
     state = saved(state)
     assert disk(ctx) == state.containers and not state.cooking.dirty
     RegionData.terminate(:shutdown, state)
@@ -288,15 +297,13 @@ defmodule Valimc.CookingRegionRuntimeTest do
       )
 
     state = %{state | container_viewers: viewers} |> start() |> result()
-    assert state.item_pending.kind == :cooking_batch
-
-    assert Blocks.get(state.blocks, ctx.position) == ctx.lit and
-             state.containers.entries[ctx.position].cooking.burn_left == 1
-
+    assert queued?(state, :blocks)
+    # Adopted in memory; readers keep the lit furnace until the ACK is handled.
+    assert Blocks.get(state.blocks, ctx.position) == ctx.unlit
+    assert published(state, ctx.position) == ctx.lit
     state = saved(state)
-
-    assert Blocks.get(state.blocks, ctx.position) == ctx.unlit and
-             state.containers.entries[ctx.position].cooking.burn_left == 0
+    assert published(state, ctx.position) == ctx.unlit
+    assert disk(ctx).entries[ctx.position].cooking.burn_left == 0
 
     assert Map.keys(state.container_viewers.views) == Map.keys(viewers.views)
     assert state.container_viewers.views[self()].ref == viewers.views[self()].ref
@@ -309,7 +316,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
     state = seed(ctx, %{progress() | progress: 198}) |> start() |> result()
     assert state.cooking.dirty and state.containers.entries[ctx.position].cooking.progress == 199
     state = state |> start() |> result()
-    expected = state.item_pending.plan.containers
+    expected = state.containers
     assert elem(expected.entries[ctx.position].cooking.slots, 2) == ItemStack.new("iron_ingot")
     RegionData.terminate(:shutdown, state)
     assert disk(ctx) == expected
@@ -346,7 +353,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
     }
 
     state = state |> start() |> result()
-    assert state.item_pending.kind == :cooking_checkpoint
+    assert queued?(state, :containers)
     expected_items = Items.records(state.items)
     RegionData.terminate(:shutdown, state)
 
@@ -386,12 +393,10 @@ defmodule Valimc.CookingRegionRuntimeTest do
 
       :sys.resume(pid)
 
-      eventually(fn ->
-        match?(%{kind: :cooking_batch}, Valimc.TestConn.state(pid).resource.item_pending)
-      end)
-
-      pending = Valimc.TestConn.state(pid).resource.item_pending
-      expected = pending.plan.containers
+      eventually(fn -> queued?(Valimc.TestConn.state(pid).resource, :blocks) end)
+      resource = Valimc.TestConn.state(pid).resource
+      token = Valimc.TestRegion.write_token(resource)
+      expected = resource.containers
       assert disk(ctx) != expected
       monitor = Process.monitor(pid)
       Process.exit(pid, :kill)
@@ -401,7 +406,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
       assert replacement != pid and epoch != old_epoch
       assert disk(ctx) == expected
       assert :sys.get_state(replacement).resource.containers == expected
-      send(replacement, {:resource, old_epoch, {:mining_saved, writer, pending.token, :ok}})
+      send(replacement, {:resource, old_epoch, {:mining_saved, writer, token, :ok}})
       assert :sys.get_state(replacement).resource.containers == expected
       entry = expected.entries[ctx.position]
       assert elem(entry.cooking.slots, 0) == ItemStack.new("raw_iron")

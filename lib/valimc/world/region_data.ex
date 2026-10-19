@@ -234,16 +234,8 @@ defmodule Valimc.World.RegionData do
       token
     )
 
-    pending = %{
-      kind: :cooking_checkpoint,
-      phase: :writing,
-      token: token,
-      from: nil,
-      timer: send_after(state, {:item_commit_deadline, token}, 5000)
-    }
-
     Valimc.Metrics.add(:cooking_checkpoints)
-    %{state | item_pending: pending}
+    queue_container_write(state, token, nil, nil, [])
   end
 
   defp start_cooking_plan(state, now) do
@@ -329,18 +321,21 @@ defmodule Valimc.World.RegionData do
           token
         )
 
-        pending = %{
-          kind: :cooking_batch,
-          phase: :writing,
-          token: token,
-          from: nil,
-          timer: send_after(state, {:item_commit_deadline, token}, 5000),
-          plan: plan,
-          proposal: proposal
-        }
-
         Valimc.Metrics.add(:cooking_commits)
-        %{state | item_pending: pending}
+
+        # Group commit (step 4d): lit blocks, items and containers are adopted; client
+        # updates and viewer notices wait for durability.
+        {state, effects} =
+          if plan.batch,
+            do: apply_blocks(state, plan.batch, proposal, false, true),
+            else: {state, nil}
+
+        timer = send_after(state, {:item_commit_deadline, token}, 5000)
+
+        state
+        |> queue_write(token, timer, plan.items, :blocks, effects)
+        |> finish_cooking(plan, true)
+        |> carries_containers()
 
       {:error, _} ->
         Valimc.Metrics.add(:cooking_plan_failures)
@@ -356,13 +351,10 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  # `durable` plans were adopted with their queued frame (blocks already applied);
+  # volatile progress is checkpointed later. Viewer notices follow queued writes.
   defp finish_cooking(state, plan, durable) do
     now = System.monotonic_time(:millisecond)
-
-    state =
-      if durable and plan.batch,
-        do: publish_blocks(state, plan.batch, plan.proposal, false, true),
-        else: state
 
     runtime =
       CookingRuntime.accepted(
@@ -375,16 +367,12 @@ defmodule Valimc.World.RegionData do
       )
 
     runtime =
-      cond do
-        durable ->
-          %{runtime | dirty: false}
+      if plan.changed != [], do: %{runtime | generation: runtime.generation + 1}, else: runtime
 
-        plan.changed != [] and not runtime.dirty ->
-          %{runtime | dirty: true, checkpoint_at: now + 1000}
-
-        true ->
-          runtime
-      end
+    runtime =
+      if not durable and plan.changed != [] and not runtime.dirty,
+        do: %{runtime | dirty: true, checkpoint_at: now + 1000},
+        else: runtime
 
     publish_item_views(%{state | items: plan.items})
 
@@ -398,10 +386,7 @@ defmodule Valimc.World.RegionData do
           ContainerPermits.invalidate(state.container_permits, Map.new(plan.content, &{&1, nil}))
     }
 
-    state =
-      if durable, do: %{state | item_saved_generation: state.item_motion_generation}, else: state
-
-    state = Enum.reduce(plan.content, state, &notify_container_changed(&2, &1))
+    state = release_when_durable(state, Enum.map(plan.content, &{:container_changed, &1}))
 
     state =
       Enum.reduce(plan.changed, state, fn position, state ->
@@ -410,18 +395,18 @@ defmodule Valimc.World.RegionData do
         {viewers, notices} =
           ContainerViewers.progressed(state.container_viewers, position, generation)
 
-        for {pid, ref, progress} <- notices,
-            do:
-              Valimc.Connection.deliver(
-                pid,
-                {:container_progress, {self(), state.items.epoch}, ref, position, progress}
-              )
+        deliveries =
+          for {pid, ref, progress} <- notices,
+              do:
+                {:deliver, pid,
+                 {:container_progress, {self(), state.items.epoch}, ref, position, progress}}
 
         %{
           state
           | container_viewers: viewers,
             cooking_progress: Map.put(state.cooking_progress, position, generation)
         }
+        |> release_when_durable(deliveries)
       end)
 
     if not durable and state.cooking.dirty and now >= state.cooking.checkpoint_at,
@@ -1434,6 +1419,34 @@ defmodule Valimc.World.RegionData do
       else: :ok
   end
 
+  defp cast_final_flush(state) do
+    owner = {self(), state.items.epoch}
+
+    if state.item_saved_generation < state.item_motion_generation,
+      do:
+        Store.commit_items(
+          state.store,
+          state.store_lease,
+          state.items,
+          state.item_receipts,
+          owner,
+          make_ref()
+        )
+
+    if state.cooking.dirty,
+      do:
+        Store.commit_containers(
+          state.store,
+          state.store_lease,
+          state.containers,
+          owner,
+          make_ref()
+        )
+
+    if map_size(state.unsaved) > 0,
+      do: Store.snapshot(state.store, state.store_lease, state.unsaved, owner, state.revision)
+  end
+
   defp flush_cooking(%{cooking: %{dirty: true}} = state, containers),
     do: Store.flush_containers(state.store, state.store_lease, containers)
 
@@ -1501,6 +1514,12 @@ defmodule Valimc.World.RegionData do
   # memory at once, so later operations and ticks build on them while the frame is
   # written. Replies and published views are held until the write is durable; a
   # failed write stops the owner, so nothing un-durable was ever observed.
+  defp queue_write(state, token, timer, items, kind, blocks) do
+    state = queue_item_write(state, token, timer, items, state.item_receipts, nil, nil, blocks)
+    {earlier, [last]} = Enum.split(state.item_writes, -1)
+    %{state | item_writes: earlier ++ [%{last | kind: kind}]}
+  end
+
   defp queue_item_write(state, token, timer, items, receipts, from, reply, blocks \\ nil) do
     # The frame carries all motion adopted so far: its acknowledgement saves
     # exactly this generation, not motion that advances while it is in flight.
@@ -1514,16 +1533,26 @@ defmodule Valimc.World.RegionData do
       generation: state.item_motion_generation,
       kind: if(blocks, do: :blocks, else: :items),
       blocks: blocks,
-      effects: []
+      effects: [],
+      cooking_generation: nil
     }
 
     %{state | items: items, item_receipts: receipts, item_writes: state.item_writes ++ [write]}
   end
 
+  # A queued frame that carries the full containers saves cooking progress up to
+  # the generation current when it was queued.
+  defp carries_containers(state) do
+    {earlier, [last]} = Enum.split(state.item_writes, -1)
+    write = %{last | cooking_generation: state.cooking.generation}
+    %{state | item_writes: earlier ++ [write]}
+  end
+
   # Group commit for container state (VMC-063 step 4c): contents and permits are
   # adopted at once; the reply and `effects` wait for this frame to be durable.
   # The frame saves no item motion, so it keeps the saved generation unchanged.
-  defp queue_container_write(state, token, from, reply, effects) do
+  @doc false
+  def queue_container_write(state, token, from, reply, effects) do
     write = %{
       token: token,
       timer: send_after(state, {:item_commit_deadline, token}, 5000),
@@ -1534,7 +1563,8 @@ defmodule Valimc.World.RegionData do
       generation: state.item_saved_generation,
       kind: :containers,
       blocks: nil,
-      effects: effects
+      effects: effects,
+      cooking_generation: state.cooking.generation
     }
 
     %{state | item_writes: state.item_writes ++ [write]}
@@ -1550,6 +1580,14 @@ defmodule Valimc.World.RegionData do
   end
 
   defp release_effect(state, {:blocks, effects}), do: release_blocks(state, effects)
+
+  defp release_effect(state, {:deliver, pid, message}) do
+    Valimc.Connection.deliver(pid, message)
+    state
+  end
+
+  defp release_effect(state, {:cooking_orbs, durable}),
+    do: CookingOrbRuntime.durable(state, durable)
 
   defp release_effect(state, {:raw_block, position, block, previous}) do
     state = retire_container_changes(state, %{position => block}, previous)
@@ -1953,9 +1991,7 @@ defmodule Valimc.World.RegionData do
   end
 
   defp block_transfer_writing?(state),
-    do:
-      match?(%{kind: kind} when kind in [:container, :container_blocks], state.item_pending) or
-        match?(%{kind: :cooking_batch, phase: :writing}, state.item_pending)
+    do: match?(%{kind: kind} when kind in [:container, :container_blocks], state.item_pending)
 
   defp permit_matches?(state, kind, %{permit: token, expected: expected}) do
     {module, permits} = permit_store(state, kind)
@@ -2433,25 +2469,6 @@ defmodule Valimc.World.RegionData do
 
   def handle_info({:container_recovery_plan, _, _, _}, state), do: {:noreply, state}
 
-  def handle_info(
-        {:containers_saved, writer, token, result},
-        %{store: writer, item_pending: %{kind: :cooking_checkpoint, token: token} = pending} =
-          state
-      ) do
-    Process.cancel_timer(pending.timer)
-
-    case result do
-      :ok -> {:noreply, %{state | item_pending: nil, cooking: %{state.cooking | dirty: false}}}
-      {:error, reason} -> {:stop, {:cooking_checkpoint_failed, reason}, state}
-    end
-  end
-
-  def handle_info(
-        {:containers_saved, writer, token, result},
-        %{store: writer, item_pending: %{kind: :cooking_orbs, token: token}} = state
-      ),
-      do: CookingOrbRuntime.saved(state, result)
-
   def handle_info({:containers_saved, writer, token, result}, %{store: writer} = state)
       when is_map_key(state, :item_writes) and state.item_writes != [] and
              hd(state.item_writes).token == token and hd(state.item_writes).kind == :containers,
@@ -2838,22 +2855,6 @@ defmodule Valimc.World.RegionData do
       when is_map_key(state, :item_writes) and state.item_writes != [] and
              hd(state.item_writes).token == token and hd(state.item_writes).kind == :blocks,
       do: complete_queued_write(state, result)
-
-  def handle_info(
-        {:mining_saved, writer, token, result},
-        %{store: writer, item_pending: %{kind: :cooking_batch, token: token} = pending} = state
-      ) do
-    Process.cancel_timer(pending.timer)
-
-    case result do
-      :ok ->
-        plan = Map.put(pending.plan, :proposal, pending.proposal)
-        {:noreply, finish_cooking(%{state | item_pending: nil}, plan, true)}
-
-      {:error, reason} ->
-        {:stop, {:cooking_storage_failed, reason}, state}
-    end
-  end
 
   def handle_info({:mining_saved, _, _, _}, state), do: {:noreply, state}
 
@@ -3357,6 +3358,12 @@ defmodule Valimc.World.RegionData do
       :ok ->
         state = %{state | item_writes: rest}
         state = if write.blocks, do: release_blocks(state, write.blocks), else: state
+
+        state =
+          if write.cooking_generation == state.cooking.generation,
+            do: %{state | cooking: %{state.cooking | dirty: false}},
+            else: state
+
         state = Enum.reduce(write.effects, state, &release_effect(&2, &1))
 
         state =
@@ -3647,7 +3654,8 @@ defmodule Valimc.World.RegionData do
       Process.cancel_timer(write.timer)
 
       for from <- [write.from | Enum.map(write.held, &elem(&1, 0))],
-          do: reply_item(from, {:error, :item_commit_uncertain})
+          not match?({:deliver, _}, from),
+          do: reply_item(from, {:error, uncertain(write)})
     end
 
     if state.item_pending do
@@ -3662,41 +3670,10 @@ defmodule Valimc.World.RegionData do
         job.pid != nil and Process.whereis(Valimc.ChunkWorkers) != nil,
         do: Task.Supervisor.terminate_child(Valimc.ChunkWorkers, job.pid)
 
-    # All casts and flushes originate from this owner and reach its leased writer
-    # in order. A queued critical proposal must never be followed by old items.
-    # Queued item writes already hold the newest items; never block shutdown on a
-    # stalled writer just to add volatile motion.
-    writing_items =
-      state.item_writes != [] or
-        (match?(%{phase: :writing, items: _}, state.item_pending) and
-           not match?(
-             %{kind: kind} when kind in [:cooking_checkpoint, :cooking_orbs],
-             state.item_pending
-           ))
-
-    if reason in [:normal, :shutdown] and not writing_items,
-      do: flush_item_motion(state)
-
-    # Queued atomic commits carry their own cells; only raw edits remain unsaved.
-    if reason in [:normal, :shutdown] and map_size(state.unsaved) > 0,
-      do: Store.flush(state.store, state.store_lease, state.unsaved)
-
-    if reason in [:normal, :shutdown] do
-      # Follow queued writes with their successor, never the old pre-commit containers.
-      containers =
-        case state.item_pending do
-          %{kind: :cooking_orbs, phase: :writing} = pending ->
-            CookingOrbRuntime.shutdown_containers(state, pending)
-
-          %{phase: :writing, plan: %{containers: containers}} ->
-            containers
-
-          _ ->
-            state.containers
-        end
-
-      if containers != nil, do: flush_cooking(state, containers)
-    end
+    # Volatile state (item motion, cooking progress, raw cells) follows any queued
+    # frames as casts in owner order; `Store.close/2` returns once the writer has
+    # handled them, and a stalled writer only costs that volatile tail.
+    if reason in [:normal, :shutdown], do: cast_final_flush(state)
 
     Process.demonitor(state.store_monitor, [:flush])
 

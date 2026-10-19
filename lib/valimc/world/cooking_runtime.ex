@@ -11,6 +11,9 @@ defmodule Valimc.World.CookingRuntime do
             capacity: nil,
             retry_at: nil,
             dirty: false,
+            # Bumped on every in-memory progress change; a durable frame that
+            # carried the containers at this generation clears `dirty`.
+            generation: 0,
             checkpoint_at: 0
 
   def capacity(items), do: {map_size(items.entries), items.bytes, items.ledger.outgoing}
