@@ -1,6 +1,7 @@
 # VMC-034n4b — Durable mutable XP bodies and terminal expiry
 
-Status: In progress. Storage slice of [orb simulation](VMC-034n4.md), using
+Status: Done within stored-body/terminal-decision scope at `1aba4ee` / `966b430`.
+Storage slice of [orb simulation](VMC-034n4.md), using
 [verified arithmetic](VMC-034n4a.md) and [accepted pickup](VMC-034n5.md).
 
 Separate mutable position/velocity/age from immutable birth/adoption proofs.
@@ -70,12 +71,10 @@ exactly8MiB. Current-region bounds refuse cross-owner poses until moving handoff
 exists. Native expiry arithmetic reuses the completed kernel; no per-tick disk
 writes or per-orb processes are introduced.
 
-Next gate: dedicated stored-pose/expiry fixture and actual smelt/XP/restart
-acceptance on a frozen checkpoint; benchmark storage/projection while it runs.
-
 Boundary follow-up: reject more than11 launch draws/rows per award or256 candidate
 markers before traversing a proposal. Exhausted64-bit generations refuse without
-changing storage. Eight targeted checks pass(seed in `.local/orb-bodies-width.log`).
+changing storage. Eight targeted checks pass(seed252373,
+`.local/orb-bodies-width.log`). Successor966b430 contains these early guards.
 
 Measurement at1aba4ee: `.local/orb-bodies-bench-1aba4ee.{exs,json,log}` retains
 source/script hashes, hardware,5 warmups/30 samples and matched one-recipe
@@ -88,3 +87,30 @@ with no views. One-row checkpoint+install costs20.22/26.67ms active and
 simulation hot path; future frame updates need in-memory batches and a separate
 checkpoint cadence. Pure components exclude disk, geometry, network and live
 workload; no TPS/capacity/comparative claim.
+
+Actual-client acceptance (2026-10-19, Java26.3/protocol777): dedicated tester
+reports PASS on frozen1aba4ee runs01–02 and966b430 run03, same complete dataset
+`.local/client-tests/VMC-034n4b/world`. Old-birth contact grants nothing; actual
+walking into the stored-pose contact boundary collects both3-XP units, raising
+XP12→18. Walking through a terminal fixture grants nothing. Exact region-owner
+replacement restores neither collected nor expired units. Real raw-gold/coal
+smelting and ordinary output take/stow yield gold12 and XP19; empty ordinary/
+Shift output clicks refuse. Same-release and successor full restarts retain
+gold12/steak3/XP19, three recipes and empty cursor/outbox. Final cold files reconcile
+nine awards:25 decided =19 consumed +6 expired +0 remaining; source/typed51,
+container sequence46, body revision10/eight markers. All six original awards,
+births and consumption counters remain unchanged. Helpers/JVMs/servers stopped,
+zero players, region/clock flushed and port25565 clear. Report, observations and
+reconciliation remain in `.local/client-tests/VMC-034n4b/`.
+
+Fixture limit: the active stored pose overlaps a smoker, hiding its sprite.
+Actual old-birth refusal versus stored-boundary collection and visible XP change
+verify contact authority; separate active-sprite visibility is not claimed. Both
+stored pose and expiry were precommitted fixtures, not automatic simulation.
+These storage/read-authority gates are closed. Live movement/ageing/expiry,
+moving handoff and Mending remain separate; this subticket does not trigger broad
+integration/build checks.
+
+Next implementation: [supplied travel geometry/current](VMC-034n4c.md), then
+pose-generation admission and live scheduling. Full storage validation is a
+checkpoint operation, not a per-frame motion API.
