@@ -475,7 +475,8 @@ defmodule Valimc.TestConn do
     pose: :pose_job,
     pickup: :pickup_job,
     mining: :mining_job,
-    placement: :placement_job
+    placement: :placement_job,
+    motion: :motion_job
   ]
 
   def state(pid), do: view(:sys.get_state(pid))

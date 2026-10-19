@@ -327,7 +327,6 @@ defmodule Valimc.Connection do
        pose_checked: nil,
        pose_generation: 0,
        pose_sources: %{},
-       motion_job: nil,
        jobs: Jobs.new(),
        motion_pending: nil,
        motion_window: nil,
@@ -468,6 +467,103 @@ defmodule Valimc.Connection do
     end)
   end
 
+  defp job_result(:motion, job, result, state) do
+    guard_connection(state, fn ->
+      cond do
+        System.monotonic_time(:millisecond) >= job.input.deadline ->
+          {:noreply, correct_motion(state, :movement_late_result_corrections)}
+
+        motion_signature(state) != job.signature ->
+          {:noreply, start_motion(state)}
+
+        true ->
+          case result do
+            {:ok,
+             %{
+               accepted: true,
+               pose: pose,
+               swimming: swimming,
+               fences: fences,
+               powder_snow: powder,
+               submerged: submerged,
+               eye_water: eye_water,
+               exhaustion: exhaustion,
+               kinetics: kinetics,
+               landing: landing
+             }} ->
+              if Enum.all?(fences, fn {key, %{owner: owner}} ->
+                   World.existing_owner(key) == {:ok, owner}
+                 end) do
+                player = state.player |> Map.merge(job.input.position) |> Map.put(:pose, pose)
+
+                movement =
+                  {player.x - state.player.x, player.y - state.player.y,
+                   player.z - state.player.z}
+
+                motion =
+                  PlayerMotion.accept(
+                    state.player.motion,
+                    movement,
+                    job.input.flags,
+                    player.abilities.flying
+                  )
+
+                motion =
+                  PlayerKinetics.apply_result(%{motion | swimming: swimming}, kinetics.packet)
+
+                player = %{player | motion: motion}
+
+                if pose != state.player.pose,
+                  do: send_packets(state, [Packets.player_pose(player)])
+
+                next = %{
+                  state
+                  | player: player,
+                    motion_pending: nil,
+                    pose_checked: nil
+                }
+
+                send(self(), :drain)
+
+                next =
+                  next
+                  |> apply_movement_exhaustion(exhaustion)
+                  |> apply_kinetic_tick(kinetics.tick, kinetics.packet.bounced)
+                  |> observe_environment(powder, submerged, eye_water, kinetics.tick)
+                  |> monitor_pose_sources(fences)
+                  |> update_view()
+                  |> apply_landing(landing)
+
+                {:noreply,
+                 if(next.life_stage == :alive,
+                   do: %{next | pose_checked: pose_signature(next)},
+                   else: next
+                 )}
+              else
+                {:noreply, correct_motion(state, :movement_source_corrections)}
+              end
+
+            {:ok, %{accepted: false}} ->
+              {:noreply, correct_motion(state, :movement_collision_corrections)}
+
+            {:error, reason} ->
+              metric =
+                if reason == :collision_query_timeout,
+                  do: :movement_query_timeout_corrections,
+                  else: :movement_geometry_corrections
+
+              {:noreply, correct_motion(state, metric)}
+          end
+      end
+    end)
+  end
+
+  defp job_down(:motion, _job, _reason, state),
+    do:
+      guard_connection(state, fn ->
+        {:noreply, correct_motion(state, :movement_geometry_corrections)}
+      end)
+
   defp job_down(:placement, _job, _reason, state),
     do:
       guard_connection(state, fn ->
@@ -478,6 +574,12 @@ defmodule Valimc.Connection do
     do: guard_connection(state, fn -> {:noreply, cancel_mining(state)} end)
 
   defp job_down(kind, _job, _reason, state) when kind in [:pose, :pickup], do: {:noreply, state}
+
+  defp job_timeout(:motion, _job, state),
+    do:
+      guard_connection(state, fn ->
+        {:noreply, correct_motion(state, :movement_worker_deadline_corrections)}
+      end)
 
   defp job_timeout(:placement, _job, state),
     do:
@@ -1041,110 +1143,6 @@ defmodule Valimc.Connection do
     end)
   end
 
-  defp info({ref, result}, %{motion_job: %{task: %Task{ref: ref}} = job} = state) do
-    Process.demonitor(ref, [:flush])
-    Process.cancel_timer(job.timer)
-
-    guard_connection(state, fn ->
-      state = %{state | motion_job: nil}
-
-      cond do
-        System.monotonic_time(:millisecond) >= job.input.deadline ->
-          {:noreply, correct_motion(state, :movement_late_result_corrections)}
-
-        motion_signature(state) != job.signature ->
-          {:noreply, start_motion(state)}
-
-        true ->
-          case result do
-            {:ok,
-             %{
-               accepted: true,
-               pose: pose,
-               swimming: swimming,
-               fences: fences,
-               powder_snow: powder,
-               submerged: submerged,
-               eye_water: eye_water,
-               exhaustion: exhaustion,
-               kinetics: kinetics,
-               landing: landing
-             }} ->
-              if Enum.all?(fences, fn {key, %{owner: owner}} ->
-                   World.existing_owner(key) == {:ok, owner}
-                 end) do
-                player = state.player |> Map.merge(job.input.position) |> Map.put(:pose, pose)
-
-                movement =
-                  {player.x - state.player.x, player.y - state.player.y,
-                   player.z - state.player.z}
-
-                motion =
-                  PlayerMotion.accept(
-                    state.player.motion,
-                    movement,
-                    job.input.flags,
-                    player.abilities.flying
-                  )
-
-                motion =
-                  PlayerKinetics.apply_result(%{motion | swimming: swimming}, kinetics.packet)
-
-                player = %{player | motion: motion}
-
-                if pose != state.player.pose,
-                  do: send_packets(state, [Packets.player_pose(player)])
-
-                next = %{
-                  state
-                  | player: player,
-                    motion_pending: nil,
-                    pose_checked: nil
-                }
-
-                send(self(), :drain)
-
-                next =
-                  next
-                  |> apply_movement_exhaustion(exhaustion)
-                  |> apply_kinetic_tick(kinetics.tick, kinetics.packet.bounced)
-                  |> observe_environment(powder, submerged, eye_water, kinetics.tick)
-                  |> monitor_pose_sources(fences)
-                  |> update_view()
-                  |> apply_landing(landing)
-
-                {:noreply,
-                 if(next.life_stage == :alive,
-                   do: %{next | pose_checked: pose_signature(next)},
-                   else: next
-                 )}
-              else
-                {:noreply, correct_motion(state, :movement_source_corrections)}
-              end
-
-            {:ok, %{accepted: false}} ->
-              {:noreply, correct_motion(state, :movement_collision_corrections)}
-
-            {:error, reason} ->
-              metric =
-                if reason == :collision_query_timeout,
-                  do: :movement_query_timeout_corrections,
-                  else: :movement_geometry_corrections
-
-              {:noreply, correct_motion(state, metric)}
-          end
-      end
-    end)
-  end
-
-  defp info({:motion_deadline, ref}, %{motion_job: %{task: %Task{ref: ref}}} = state),
-    do:
-      guard_connection(state, fn ->
-        {:noreply, correct_motion(state, :movement_worker_deadline_corrections)}
-      end)
-
-  defp info({:motion_deadline, _}, state), do: {:noreply, state}
-
   defp info({:retry_motion, token}, %{motion_pending: %{token: token} = input} = state),
     do:
       guard_connection(state, fn ->
@@ -1152,12 +1150,6 @@ defmodule Valimc.Connection do
       end)
 
   defp info({:retry_motion, _}, state), do: {:noreply, state}
-
-  defp info({:DOWN, ref, :process, _, _}, %{motion_job: %{task: %Task{ref: ref}}} = state),
-    do:
-      guard_connection(state, fn ->
-        {:noreply, correct_motion(state, :movement_geometry_corrections)}
-      end)
 
   # Cancelling geometry retires its reference; a result already in this mailbox
   # must never become a new player input or crash a healthy connection.
@@ -2854,10 +2846,9 @@ defmodule Valimc.Connection do
     do: {pose_signature(state), state.player.game_mode.current}
 
   defp start_motion(
-         %{life_stage: :alive, motion_job: nil, teleport_pending: false, motion_pending: input} =
-           state
+         %{life_stage: :alive, teleport_pending: false, motion_pending: input, jobs: jobs} = state
        )
-       when input != nil do
+       when input != nil and not is_map_key(jobs.active, :motion) do
     remaining = input.deadline - System.monotonic_time(:millisecond)
 
     if remaining <= 0 do
@@ -2895,18 +2886,14 @@ defmodule Valimc.Connection do
           if input.retry, do: Process.cancel_timer(input.retry)
           Metrics.add(:movement_jobs_started)
           Metrics.add(:movement_admission_wait_ms, 250 - remaining)
-          timer = Process.send_after(self(), {:motion_deadline, task.ref}, remaining)
 
-          %{
-            state
-            | motion_pending: %{input | retry: nil},
-              motion_job: %{
-                task: task,
-                timer: timer,
-                input: input,
-                signature: signature
-              }
-          }
+          {jobs, _job} =
+            Jobs.track(state.jobs, :motion, task,
+              timeout: remaining,
+              data: %{input: input, signature: signature}
+            )
+
+          %{state | motion_pending: %{input | retry: nil}, jobs: jobs}
 
         {:error, reason}
         when reason in [:collision_workers_busy, :collision_workers_unavailable] ->
@@ -2931,16 +2918,11 @@ defmodule Valimc.Connection do
   end
 
   defp cancel_motion_job(state) do
-    if state.motion_job do
-      Process.cancel_timer(state.motion_job.timer)
-      Process.exit(state.motion_job.task.pid, :kill)
-      Process.demonitor(state.motion_job.task.ref, [:flush])
-    end
-
+    {_job, jobs} = Jobs.cancel(state.jobs, :motion)
     input = state.motion_pending
     if input && input.retry, do: Process.cancel_timer(input.retry)
     input = if input, do: %{input | retry: nil, prepared: nil}
-    %{state | motion_job: nil, motion_pending: input}
+    %{state | jobs: jobs, motion_pending: input}
   end
 
   defp correct_motion(state, metric) do
@@ -2963,11 +2945,8 @@ defmodule Valimc.Connection do
     if state.motion_pending && state.motion_pending.retry,
       do: Process.cancel_timer(state.motion_pending.retry)
 
-    if state.motion_job do
-      Process.cancel_timer(state.motion_job.timer)
-      Process.exit(state.motion_job.task.pid, :kill)
-      Process.demonitor(state.motion_job.task.ref, [:flush])
-    end
+    {_job, jobs} = Jobs.cancel(state.jobs, :motion)
+    state = %{state | jobs: jobs}
 
     teleport = if state.teleport == 2_147_483_647, do: 0, else: state.teleport + 1
     send_packets(state, [Packets.teleport(player, teleport)])
@@ -2980,7 +2959,6 @@ defmodule Valimc.Connection do
         teleport: teleport,
         teleport_pending: true,
         login_velocity_pending: false,
-        motion_job: nil,
         motion_pending: nil,
         motion_window: nil,
         pose_checked: nil,
@@ -5744,12 +5722,6 @@ defmodule Valimc.Connection do
       do: Process.cancel_timer(state.motion_pending.retry)
 
     Jobs.cancel_all(state.jobs)
-
-    if state.motion_job do
-      Process.cancel_timer(state.motion_job.timer)
-      Process.exit(state.motion_job.task.pid, :kill)
-      Process.demonitor(state.motion_job.task.ref, [:flush])
-    end
 
     if state.key_job do
       Process.cancel_timer(state.key_job.timer)
