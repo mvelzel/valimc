@@ -1,13 +1,14 @@
 defmodule Valimc.ItemSimulationRegionTest do
-  use ExUnit.Case, async: false
-  # Serial: asserts deltas of global Metrics counters other owners also bump.
+  use ExUnit.Case, async: true
   alias Valimc.TestScope
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.ItemStack
   alias Valimc.World
   alias Valimc.World.{ItemLedger, ItemRecords, ItemTransfers, Region}
 
-  setup tags do
+  setup :scope
+
+  def scope(tags) do
     nonce = System.unique_integer([:positive])
     key = {60_000 + rem(nonce, 1000), 2000}
     base = Path.join(System.tmp_dir!(), "valimc-item-simulation-#{nonce}")
@@ -57,10 +58,10 @@ defmodule Valimc.ItemSimulationRegionTest do
     %{key: key, owner: owner, base: base, records: records, receipts: receipts}
   end
 
-  defp state(ctx), do: :sys.get_state(elem(ctx.owner, 0)).resource
-  defp entry(ctx), do: state(ctx).items.entries |> Map.values() |> hd()
+  def state(ctx), do: :sys.get_state(elem(ctx.owner, 0)).resource
+  def entry(ctx), do: state(ctx).items.entries |> Map.values() |> hd()
 
-  defp wait(fun, count \\ 600) do
+  def wait(fun, count \\ 600) do
     if value = fun.(),
       do: value,
       else:
@@ -69,21 +70,6 @@ defmodule Valimc.ItemSimulationRegionTest do
           Process.sleep(5)
           wait(fun, count - 1)
         )
-  end
-
-  test "owned cadence falls, sleeps without geometry work, ages, and wakes on support edits",
-       ctx do
-    wait(fn -> map_size(state(ctx).item_resting) == 1 end)
-    assert entry(ctx).entity.y == 64.0 and entry(ctx).motion.on_ground
-    age = entry(ctx).motion.age
-    jobs = Map.get(Valimc.Metrics.snapshot(), :item_simulation_jobs, 0)
-    Process.sleep(160)
-    assert entry(ctx).motion.age > age
-    assert Map.get(Valimc.Metrics.snapshot(), :item_simulation_jobs, 0) == jobs
-    pos = hd(ctx.records)
-    :ok = World.set_block({floor(pos.x), 63, floor(pos.z)}, 0)
-    wait(fn -> entry(ctx).entity.y < 63.9 end)
-    assert entry(ctx).motion.age > age
   end
 
   @tag count: 256
@@ -141,5 +127,29 @@ defmodule Valimc.ItemSimulationRegionTest do
     assert current.items.entries[elem(handle, 2)].entity.x > elem(destination, 0) * 128
     assert current.items.entries[elem(handle, 2)].motion.age >= 1
     assert state(ctx).item_receipts == ctx.receipts and state(ctx).items.ledger.sequence == 1
+  end
+end
+
+defmodule Valimc.ItemSimulationRegionTest.Serial do
+  use ExUnit.Case, async: false
+  # Serial: asserts deltas of global Metrics counters other owners also bump.
+  import Valimc.ItemSimulationRegionTest, only: [entry: 1, state: 1, wait: 1]
+  alias Valimc.World
+
+  setup {Valimc.ItemSimulationRegionTest, :scope}
+
+  test "owned cadence falls, sleeps without geometry work, ages, and wakes on support edits",
+       ctx do
+    wait(fn -> map_size(state(ctx).item_resting) == 1 end)
+    assert entry(ctx).entity.y == 64.0 and entry(ctx).motion.on_ground
+    age = entry(ctx).motion.age
+    jobs = Map.get(Valimc.Metrics.snapshot(), :item_simulation_jobs, 0)
+    Process.sleep(160)
+    assert entry(ctx).motion.age > age
+    assert Map.get(Valimc.Metrics.snapshot(), :item_simulation_jobs, 0) == jobs
+    pos = hd(ctx.records)
+    :ok = World.set_block({floor(pos.x), 63, floor(pos.z)}, 0)
+    wait(fn -> entry(ctx).entity.y < 63.9 end)
+    assert entry(ctx).motion.age > age
   end
 end

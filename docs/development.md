@@ -48,7 +48,10 @@ player UUIDs) a private world path or simulation toggle, read through
 since a graceful `terminate_child` holds the shared supervisor. Modules stay
 `async: false` when they saturate a global worker pool, assert global `Metrics`
 or owner counts, assert production latency deadlines, change global clock state,
-or drive sockets; the comment under `use ExUnit.Case` says which.
+or drive sockets; the comment under `use ExUnit.Case` says which. When only a few
+tests touch global state, they move into a `Module.Serial` module at the end of the
+same file, which imports the async module's public helpers and reuses its setup
+through `setup {Module, :scope}`, so the rest of the file stays concurrent.
 
 Rust code lives in `native/` (`valimc_core` pure crate, `valimc_nif` Rustler shim,
 built by `use Rustler` in `Valimc.Native`). Run `cargo fmt --check` there too.

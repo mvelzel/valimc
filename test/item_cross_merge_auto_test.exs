@@ -1,11 +1,12 @@
 defmodule Valimc.ItemCrossMergeAutoTest do
-  use ExUnit.Case, async: false
-  # Serial: asserts deltas of global Metrics counters other owners also bump.
+  use ExUnit.Case, async: true
   alias Valimc.TestScope
   alias Valimc.{ItemMotionState, Metrics, Protocol.ItemStack, World}
   alias Valimc.World.{ItemLedger, Items, Region}
 
-  setup tags do
+  setup :scope
+
+  def scope(tags) do
     n = System.unique_integer([:positive])
     key = {72000 + rem(n, 10000), 2300}
     target_key = {elem(key, 0) + 1, elem(key, 1)}
@@ -127,9 +128,9 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     }
   end
 
-  defp state({pid, _}), do: Valimc.TestConn.state(pid).resource
+  def state({pid, _}), do: Valimc.TestConn.state(pid).resource
 
-  defp start(c) do
+  def start(c) do
     for {pid, _} <- [c.source, c.target],
         do:
           :sys.replace_state(
@@ -138,7 +139,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
           )
   end
 
-  defp wait(fun, tries \\ 1000) do
+  def wait(fun, tries \\ 1000) do
     if value = fun.(),
       do: value,
       else:
@@ -149,7 +150,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
         )
   end
 
-  defp idle(c),
+  def idle(c),
     do:
       Enum.all?([c.source, c.target], fn owner ->
         s = state(owner)
@@ -158,14 +159,12 @@ defmodule Valimc.ItemCrossMergeAutoTest do
           s.item_cross_job == nil
       end)
 
-  defp jobs, do: Map.get(Metrics.snapshot(), :item_cross_jobs, 0)
-
   defp ages(c),
     do: for(o <- [c.source, c.target], r <- Items.records(state(o).items), do: r.motion.age)
 
   # Re-evaluates discovery on the next owner tick instead of after its 200 ms cadence,
   # then waits until both owners have ticked twice and no transfer or query is in flight.
-  defp rescan(c) do
+  def rescan(c) do
     before = Enum.max(ages(c))
 
     for {pid, _} <- [c.source, c.target],
@@ -174,11 +173,11 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     wait(fn -> Enum.max(ages(c)) >= before + 2 and idle(c) end)
   end
 
-  defp total(c),
+  def total(c),
     do:
       Enum.sum(for o <- [c.source, c.target], {_, e} <- state(o).items.entries, do: e.stack.count)
 
-  defp converged(c), do: map_size(state(c.source).items.entries) == 0 and idle(c)
+  def converged(c), do: map_size(state(c.source).items.entries) == 0 and idle(c)
 
   defp disk(c, k) do
     {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, k, :items), k)
@@ -218,57 +217,6 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     assert [%{uuid: uuid, stack: %{count: 7}}] = Items.records(state(c.source).items)
     assert uuid == hd(c.donors).uuid
     assert disk(c, c.target_key).ledger.sequence == 1
-  end
-
-  for variant <- [:components, :capacity, :horizontal, :vertical, :sentinel] do
-    @tag variant: variant
-    test "automatic discovery rejects #{variant} without a journal", c do
-      before = jobs()
-      start(c)
-      # Both owners finish a scan; the sentinel donor never enters the source scene.
-      wait(fn ->
-        state(c.target).item_cross_stamp != nil and idle(c) and
-          if(c.variant == :sentinel,
-            do: jobs() == before,
-            else: jobs() > before and state(c.source).item_cross_stamp != nil
-          )
-      end)
-
-      rescan(c)
-      assert idle(c) and total(c) == hd(c.donors).stack.count + hd(c.recipients).stack.count
-
-      assert map_size(state(c.source).items.entries) == 1 and
-               map_size(state(c.target).items.entries) == 1
-
-      assert state(c.source).items.ledger.sequence == 0 and
-               state(c.target).items.ledger.sequence == 0
-
-      assert state(c.target).items.ledger.incoming == %{}
-    end
-  end
-
-  @tag variant: :counter
-  test "counter-only automatic effects settle without identity or journal churn", c do
-    ids = Map.keys(state(c.source).items.entries) ++ Map.keys(state(c.target).items.entries)
-    start(c)
-    wait(fn -> hd(Items.records(state(c.target).items)).motion.age < 90 end)
-
-    wait(fn ->
-      Enum.all?(
-        [c.source, c.target],
-        &(state(&1).item_cross_stamp != nil and map_size(state(&1).item_resting) == 1)
-      ) and idle(c)
-    end)
-
-    jobs = jobs()
-    rescan(c)
-
-    assert ids ==
-             Map.keys(state(c.source).items.entries) ++ Map.keys(state(c.target).items.entries)
-
-    assert total(c) == 66 and state(c.source).items.ledger.sequence == 0
-    assert state(c.target).items.ledger.incoming[c.key].sequence == 0
-    assert jobs() == jobs
   end
 
   @tag variant: :reverse
@@ -341,6 +289,71 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     after
       if Process.alive?(writer), do: :sys.resume(writer)
     end
+  end
+end
+
+defmodule Valimc.ItemCrossMergeAutoTest.Serial do
+  use ExUnit.Case, async: false
+  # Serial: asserts deltas of global Metrics counters other owners also bump.
+  import Valimc.ItemCrossMergeAutoTest,
+    only: [state: 1, start: 1, wait: 1, idle: 1, rescan: 1, total: 1, converged: 1]
+
+  alias Valimc.Metrics
+  alias Valimc.World.Items
+
+  setup {Valimc.ItemCrossMergeAutoTest, :scope}
+
+  defp jobs, do: Map.get(Metrics.snapshot(), :item_cross_jobs, 0)
+
+  for variant <- [:components, :capacity, :horizontal, :vertical, :sentinel] do
+    @tag variant: variant
+    test "automatic discovery rejects #{variant} without a journal", c do
+      before = jobs()
+      start(c)
+      # Both owners finish a scan; the sentinel donor never enters the source scene.
+      wait(fn ->
+        state(c.target).item_cross_stamp != nil and idle(c) and
+          if(c.variant == :sentinel,
+            do: jobs() == before,
+            else: jobs() > before and state(c.source).item_cross_stamp != nil
+          )
+      end)
+
+      rescan(c)
+      assert idle(c) and total(c) == hd(c.donors).stack.count + hd(c.recipients).stack.count
+
+      assert map_size(state(c.source).items.entries) == 1 and
+               map_size(state(c.target).items.entries) == 1
+
+      assert state(c.source).items.ledger.sequence == 0 and
+               state(c.target).items.ledger.sequence == 0
+
+      assert state(c.target).items.ledger.incoming == %{}
+    end
+  end
+
+  @tag variant: :counter
+  test "counter-only automatic effects settle without identity or journal churn", c do
+    ids = Map.keys(state(c.source).items.entries) ++ Map.keys(state(c.target).items.entries)
+    start(c)
+    wait(fn -> hd(Items.records(state(c.target).items)).motion.age < 90 end)
+
+    wait(fn ->
+      Enum.all?(
+        [c.source, c.target],
+        &(state(&1).item_cross_stamp != nil and map_size(state(&1).item_resting) == 1)
+      ) and idle(c)
+    end)
+
+    jobs = jobs()
+    rescan(c)
+
+    assert ids ==
+             Map.keys(state(c.source).items.entries) ++ Map.keys(state(c.target).items.entries)
+
+    assert total(c) == 66 and state(c.source).items.ledger.sequence == 0
+    assert state(c.target).items.ledger.incoming[c.key].sequence == 0
+    assert jobs() == jobs
   end
 
   test "an exhausted shared I/O pool retries discovery after capacity returns", c do

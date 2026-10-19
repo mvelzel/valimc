@@ -99,7 +99,20 @@ parallelism. Lowering concurrency did not help `test.fast` (`--max-cases 10`:
 The socket suites stay serial. A trial running 12 of them concurrently took 124.7 s
 with 17 of 108 tests failing, against 12.8 s serially. They share the listener,
 the connection supervisor, the global player list and broadcast chat, and several
-log in more than one player. The remaining serial non-socket time (about 13.6 s)
-comes mostly from five modules, each holding one test that saturates a global
-worker pool or asserts a global metric delta. Splitting those tests out is the
-next step. Raw logs stay in `.local/perf/test-suite-concurrency/`.
+log in more than one player. Raw logs stay in `.local/perf/test-suite-concurrency/`.
+
+Most of the remaining serial non-socket time came from six modules, each serial
+because of one to seven tests that saturate a global worker pool or assert a global
+`Metrics` delta. Those tests now sit in a `Serial` module at the end of their file,
+sharing the async module's setup; the other 57 tests run concurrently. Same
+machine, same 1,003 `test.fast` tests:
+
+| `mix test.fast` | Wall | Async | Sync |
+|---|---|---|---|
+| Before (1460118) | 30.7 s, 32.9 s | 13.2 s, 14.6 s | 14.3 s, 14.5 s |
+| After | 27.7 s, 21.9 s | 18.3 s, 13.9 s | 4.6 s, 4.7 s |
+
+The serial phase drops by about 10 s. Two runs cannot tell whether the wider async
+spread afterwards is machine noise or added contention; the six files alone also
+varied, 4.7–12.3 s async across five runs. Raw logs stay in
+`.local/perf/test-suite-split/`.

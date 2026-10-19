@@ -1,6 +1,5 @@
 defmodule Valimc.CookingOrbDeliveryTest do
-  use ExUnit.Case, async: false
-  # Serial: saturates a global worker pool that concurrent owners also use.
+  use ExUnit.Case, async: true
   alias Valimc.TestScope
   alias Valimc.CookingAwards
   alias Valimc.Protocol.ItemStack
@@ -18,7 +17,9 @@ defmodule Valimc.CookingOrbDeliveryTest do
     Store
   }
 
-  setup do
+  setup :scope
+
+  def scope(_context) do
     Process.flag(:trap_exit, true)
     nonce = System.unique_integer([:positive])
     source = {110_000 + rem(nonce, 1000), 2291}
@@ -76,7 +77,7 @@ defmodule Valimc.CookingOrbDeliveryTest do
     :ok = Store.close(writer, lease)
   end
 
-  defp fixture(ctx) do
+  def fixture(ctx) do
     {cs, id} = award(ctx.source, ctx.at)
     {:ok, routed, request, :prepared} = CookingOrbTransfers.prepare(cs, ctx.source, id)
     seed(ctx.source, routed)
@@ -118,13 +119,13 @@ defmodule Valimc.CookingOrbDeliveryTest do
       |> Enum.flat_map(fn {_, _, views} -> Map.to_list(views) end)
       |> Map.new()
 
-  defp disk(ctx, key),
+  def disk(ctx, key),
     do: Containers.decode(Valimc.TestDisk.read(ctx.base, key, :containers), key)
 
   defp resource(pid), do: Valimc.TestConn.state(pid).resource
-  defp now, do: System.monotonic_time(:millisecond)
+  def now, do: System.monotonic_time(:millisecond)
 
-  defp wait(fun, left \\ 800) do
+  def wait(fun, left \\ 800) do
     if value = fun.(),
       do: value,
       else:
@@ -414,6 +415,16 @@ defmodule Valimc.CookingOrbDeliveryTest do
     assert {:error, :cooking_orb_transfer_capacity} =
              Region.apply_cooking_orb_spawn({bp, be}, bytes)
   end
+end
+
+defmodule Valimc.CookingOrbDeliveryTest.Serial do
+  use ExUnit.Case, async: false
+  # Serial: saturates a global worker pool that concurrent owners also use.
+  import Valimc.CookingOrbDeliveryTest, only: [fixture: 1, disk: 2, now: 0, wait: 1]
+  alias Valimc.World
+  alias Valimc.World.{CookingOrbDelivery, RegionData}
+
+  setup {Valimc.CookingOrbDeliveryTest, :scope}
 
   test "transfer worker saturation, failed attempts and late results preserve durable intent",
        ctx do

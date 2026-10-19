@@ -1,6 +1,5 @@
 defmodule Valimc.CookingOrbRuntimeTest do
-  use ExUnit.Case, async: false
-  # Serial: saturates a global worker pool that concurrent owners also use.
+  use ExUnit.Case, async: true
   alias Valimc.TestScope
   alias Valimc.{CookingAwards, ItemMotionState}
   alias Valimc.Protocol.ItemStack
@@ -20,7 +19,9 @@ defmodule Valimc.CookingOrbRuntimeTest do
   @iron "minecraft:iron_ingot_from_smelting_raw_iron"
   @source <<31::128>>
 
-  setup do
+  setup :scope
+
+  def scope(_context) do
     nonce = System.unique_integer([:positive])
     key = {91_000 + rem(nonce, 5000), 2091}
     {rx, rz} = key
@@ -57,7 +58,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
      }, id}
   end
 
-  defp seed(ctx, remote \\ false) do
+  def seed(ctx, remote \\ false) do
     {x, y, z} = ctx.position
     position = if remote, do: {x + 128, y, z}, else: ctx.position
     {cs, _} = add(%Containers{}, ctx.key, position)
@@ -67,7 +68,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
     RegionData.load(ctx.key)
   end
 
-  defp start(state), do: CookingOrbRuntime.tick(state, System.monotonic_time(:millisecond))
+  def start(state), do: CookingOrbRuntime.tick(state, System.monotonic_time(:millisecond))
 
   defp result(state) do
     %{worker: worker, token: token} = state.cooking_orbs.job
@@ -85,7 +86,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
     RegionData.handle_info(message, state)
   end
 
-  defp published(state) do
+  def published(state) do
     :ets.match_object(state.item_publication, {{:orbs, :_}, :_, :_})
     |> Enum.flat_map(fn {_, _, views} -> Map.to_list(views) end)
     |> Map.new()
@@ -347,32 +348,6 @@ defmodule Valimc.CookingOrbRuntimeTest do
     RegionData.terminate(:shutdown, refused)
   end
 
-  test "bounded worker saturation backs off without reserving gameplay storage", ctx do
-    state = seed(ctx)
-
-    workers =
-      for _ <- 1..System.schedulers_online() do
-        {:ok, pid} =
-          Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
-            receive do
-              :finish -> :ok
-            end
-          end)
-
-        pid
-      end
-
-    try do
-      next = start(state)
-      assert next.cooking_orbs.job == nil and next.item_pending == nil
-      assert next.cooking_orbs.retry_at > System.monotonic_time(:millisecond)
-      assert published(next) == %{}
-    after
-      for pid <- workers, do: send(pid, :finish)
-      RegionData.terminate(:shutdown, state)
-    end
-  end
-
   test "destination shared-byte refusal keeps the durable source intent and later retry adopts once",
        ctx do
     alias Valimc.World.CookingOrbTransfers
@@ -574,5 +549,40 @@ defmodule Valimc.CookingOrbRuntimeTest do
     {:ok, bytes} = Containers.encode(ctx.key, next)
     assert byte_size(bytes) == Containers.max_bytes() - 1
     next
+  end
+end
+
+defmodule Valimc.CookingOrbRuntimeTest.Serial do
+  use ExUnit.Case, async: false
+  # Serial: saturates a global worker pool that concurrent owners also use.
+  import Valimc.CookingOrbRuntimeTest, only: [seed: 1, start: 1, published: 1]
+  alias Valimc.World.RegionData
+
+  setup {Valimc.CookingOrbRuntimeTest, :scope}
+
+  test "bounded worker saturation backs off without reserving gameplay storage", ctx do
+    state = seed(ctx)
+
+    workers =
+      for _ <- 1..System.schedulers_online() do
+        {:ok, pid} =
+          Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
+            receive do
+              :finish -> :ok
+            end
+          end)
+
+        pid
+      end
+
+    try do
+      next = start(state)
+      assert next.cooking_orbs.job == nil and next.item_pending == nil
+      assert next.cooking_orbs.retry_at > System.monotonic_time(:millisecond)
+      assert published(next) == %{}
+    after
+      for pid <- workers, do: send(pid, :finish)
+      RegionData.terminate(:shutdown, state)
+    end
   end
 end
