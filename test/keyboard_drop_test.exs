@@ -67,6 +67,15 @@ defmodule Valimc.KeyboardDropTest do
     end
   end
 
+  # The departed session's store finishes its recovery before the next login.
+  defp closed(ctx, attempts \\ 1000) do
+    if Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) != [] do
+      assert attempts > 0
+      Process.sleep(2)
+      closed(ctx, attempts - 1)
+    end
+  end
+
   defp departed(ctx, attempts \\ 1000) do
     if Enum.any?(Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid), fn {_, v} ->
          v != :closing
@@ -307,6 +316,7 @@ defmodule Valimc.KeyboardDropTest do
       Client.close(client)
       departed(ctx)
       :sys.resume(destination)
+      closed(ctx)
       second = login(ctx)
       {_, state} = completed(ctx, sequence)
       assert state.inventory.slots[43] == %{ctx.stone | count: 7 - sequence}
@@ -502,6 +512,7 @@ defmodule Valimc.KeyboardDropTest do
       Client.close(client)
       departed(ctx)
       :sys.resume(writer)
+      closed(ctx)
       second = login(ctx)
       completed(ctx, 2)
       assert second.inventory.carried == nil
@@ -593,6 +604,7 @@ defmodule Valimc.KeyboardDropTest do
       Client.close(client)
       departed(ctx)
       :sys.resume(writer)
+      closed(ctx)
       second = login(ctx)
       completed(ctx, 1)
       assert Enum.at(second.inventory.items, 43) == nil

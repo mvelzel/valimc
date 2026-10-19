@@ -189,7 +189,7 @@ defmodule Valimc.ItemStoreTest do
                       Region.replace_item(handle, ItemStack.new("egg", 3))
 
              assert_receive {:DOWN, ^ref, :process, _, {:item_storage_failed, _}}, 1500
-           end) =~ "Region item commit failed"
+           end) =~ "Region commit failed"
 
     Valimc.TestDisk.await_exit(writer)
     assert disk(ctx) == old

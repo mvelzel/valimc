@@ -457,20 +457,16 @@ defmodule Valimc.PlayerPlacementConnectionTest do
        c do
     seed(c, :survival)
     {client, pid} = login(c)
-    {:ok, {region, _}} = World.existing_owner(c.key)
+    {:ok, {region, _} = owner} = World.existing_owner(c.key)
     writer = :sys.get_state(region).resource.store
     :sys.suspend(writer)
 
     try do
       send_place(client, c.target)
-
-      wait(fn ->
-        match?(%{kind: :placement, phase: :writing}, :sys.get_state(region).resource.item_pending)
-      end)
-
+      wait(fn -> Enum.any?(:sys.get_state(region).resource.item_writes, & &1.blocks) end)
       assert saved(c).outbox.kind == :placement
       assert saved(c).inventory.slots[36].count == 6
-      assert World.get_block(c.target) == 0
+      assert Valimc.TestRegion.published_block(owner, c.target) == 0
       Client.close(client)
       wait(fn -> not Process.alive?(pid) end)
       :sys.resume(writer)

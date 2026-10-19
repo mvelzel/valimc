@@ -59,8 +59,8 @@ defmodule Valimc.PlacementRegionTest do
   defp writing(_, 0), do: flunk("placement did not reach bounded writing phase")
 
   defp writing(pid, attempts) do
-    case Valimc.TestConn.state(pid).resource.item_pending do
-      %{kind: :placement, phase: :writing} = pending ->
+    case Valimc.TestRegion.in_flight(Valimc.TestConn.state(pid).resource) do
+      %{} = pending ->
         pending
 
       _ ->
@@ -86,14 +86,12 @@ defmodule Valimc.PlacementRegionTest do
 
     try do
       pending = writing(ctx.pid)
-      assert World.get_block(ctx.position) == 0
-
-      assert {:error, :missing_transfer_receipt} =
-               Region.item_transfer_receipt(ctx.owner, ctx.transfer.source)
-
+      # Adopted in owner memory; the snapshot and the receipt wait for durability.
+      assert Valimc.TestRegion.published_block(ctx.owner, ctx.position) == 0
+      proof = Task.async(fn -> Region.item_transfer_receipt(ctx.owner, ctx.transfer.source) end)
+      assert Task.yield(proof, 20) == nil
       assert {:ok, _} = Region.observe_blocks(ctx.owner, [])
-      assert {:error, :mining_storage_busy} = World.set_block(ctx.other, 1)
-      assert {:error, :mining_storage_busy} = Region.flush(ctx.pid)
+      assert {:error, :item_storage_busy} = Region.flush(ctx.pid)
       send(ctx.pid, {:resource, ctx.epoch, :save})
       send(ctx.pid, {:resource, ctx.epoch, {:items_saved, writer, pending.token, :ok}})
       send(ctx.pid, {:resource, make_ref(), {:mining_saved, writer, pending.token, :ok}})
@@ -102,6 +100,7 @@ defmodule Valimc.PlacementRegionTest do
       assert Task.yield(task, 10) == nil
       :sys.resume(writer)
       assert {:ok, :applied} = Task.await(task)
+      assert {:ok, _} = Task.await(proof)
       assert World.get_block(ctx.position) == 1
       receipt(ctx, ctx.owner, ctx.transfer, :applied)
       assert World.item_snapshot(ctx.key) == %{}
@@ -128,8 +127,8 @@ defmodule Valimc.PlacementRegionTest do
     try do
       pending = writing(ctx.pid)
       assert pending.containers.entries[ctx.position].rows == 3
-      assert :sys.get_state(ctx.pid).resource.containers.entries == %{}
-      assert World.get_block(ctx.position) == 0
+      # Adopted in owner memory; the published block waits for durability.
+      assert Valimc.TestRegion.published_block(ctx.owner, ctx.position) == 0
       assert Task.yield(task, 10) == nil
       :sys.resume(writer)
       assert {:ok, :applied} = Task.await(task)

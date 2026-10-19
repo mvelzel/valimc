@@ -116,8 +116,8 @@ defmodule Valimc.ChestSpillRegionTest do
   defp writing(_, 0), do: flunk("spill did not reach its joint writer")
 
   defp writing(pid, tries) do
-    case Valimc.TestConn.state(pid).resource.item_pending do
-      %{phase: :writing} = pending ->
+    case Valimc.TestRegion.in_flight(Valimc.TestConn.state(pid).resource) do
+      %{} = pending ->
         pending
 
       _ ->
@@ -139,8 +139,10 @@ defmodule Valimc.ChestSpillRegionTest do
       assert quantities(Enum.map(Items.records(pending.items), & &1.stack)) ==
                quantities([ItemStack.new("chest") | c.stock])
 
-      assert :sys.get_state(c.pid).resource.containers == c.containers
-      assert World.get_block(c.position) == c.chest and World.item_snapshot(c.key) == %{}
+      # Adopted in owner memory; the published block and items wait for durability.
+      assert Valimc.TestRegion.published_block(c.owner, c.position) == c.chest and
+               World.item_snapshot(c.key) == %{}
+
       assert Task.yield(task, 10) == nil
       :sys.resume(writer)
       assert {:ok, :applied} = Task.await(task)

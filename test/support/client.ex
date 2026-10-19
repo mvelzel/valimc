@@ -506,9 +506,18 @@ defmodule Valimc.TestRegion do
   @doc "The oldest in-flight write: a queued item write or the writing slot."
   def in_flight(resource) do
     case Map.get(resource, :item_writes, []) do
-      [write | _] -> write
+      # Queued writes were adopted in memory: their proposal is the owner state.
+      [write | _] -> Map.merge(%{items: resource.items, containers: resource.containers}, write)
       [] -> if match?(%{phase: :writing}, resource.item_pending), do: resource.item_pending
     end
+  end
+
+  @doc "The block at `position` as collision readers see it (the published snapshot)."
+  def published_block({pid, epoch}, {x, _, z} = position) do
+    key = Valimc.World.region_key(Valimc.World.chunk_key(x, z))
+    {^pid, _, %{items: table}} = Valimc.World.Directory.lookup(key)
+    {:ok, _revision, blocks} = Valimc.World.BlockSnapshot.read(table, epoch, [position])
+    blocks[position]
   end
 
   @doc "The token of the oldest in-flight item write, or of the pending slot."

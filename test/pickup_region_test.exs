@@ -3,7 +3,7 @@ defmodule Valimc.PickupRegionTest do
   alias Valimc.{GameMode, Inventory, ItemMotionState, PlayerFood, PlayerSnapshot, PlayerStore}
   alias Valimc.{TransferDelivery, World}
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{ItemLedger, Items, PickupTransfers, Region}
+  alias Valimc.World.{ItemLedger, PickupTransfers, Region}
 
   setup do
     n = System.unique_integer([:positive])

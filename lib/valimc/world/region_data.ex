@@ -82,6 +82,7 @@ defmodule Valimc.World.RegionData do
     :dirty,
     :unsaved,
     :item_writes,
+    :unpublished_chunks,
     :saving_cells,
     :saving,
     :save_timer
@@ -167,6 +168,7 @@ defmodule Valimc.World.RegionData do
       dirty: false,
       unsaved: %{},
       item_writes: [],
+      unpublished_chunks: MapSet.new(),
       saving_cells: nil,
       saving: false,
       save_timer: save_timer
@@ -1153,7 +1155,8 @@ defmodule Valimc.World.RegionData do
 
       Map.has_key?(state.cache, key) ->
         Valimc.Metrics.add(:chunk_cache_hits)
-        {:reply, state.cache[key], state}
+        # Cached sections may include blocks whose write is still in flight.
+        {:noreply, finish_when_durable(state, from, state.cache[key])}
 
       Map.has_key?(state.jobs, key) ->
         Valimc.Metrics.add(:chunk_requests_coalesced)
@@ -1166,8 +1169,14 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  def handle_call({:get_block, position}, _from, state),
-    do: {:reply, Blocks.get(state.blocks, position), state}
+  # Adopted blocks are visible outside the owner only once durable.
+  def handle_call({:get_block, position}, from, state) do
+    block = Blocks.get(state.blocks, position)
+
+    if Enum.any?(state.item_writes, &(&1.blocks != nil)),
+      do: {:noreply, finish_when_durable(state, from, block)},
+      else: {:reply, block, state}
+  end
 
   def handle_call({:observe_blocks, epoch, positions, expected_revision}, _from, state) do
     result =
@@ -1365,37 +1374,32 @@ defmodule Valimc.World.RegionData do
              Blocks.put(state.blocks, %{position => block}) == :ok do
           state = retire_container_changes(state, %{position => block}, previous_blocks)
 
-          revision = state.revision + 1
-
-          :ok =
-            BlockSnapshot.publish_chunks(state.item_publication, state.blocks, [key], revision)
-
-          BlockSnapshot.publish_fence(state.item_publication, state.items.epoch, revision)
-
           Valimc.World.publish(state.key, {:block, position, block})
           Valimc.Metrics.add(:block_edits)
 
-          {:reply, :ok,
-           %{
-             state
-             | unsaved: Map.put(state.unsaved, position, block),
-               mining_permits:
-                 MiningPermits.invalidate(state.mining_permits, %{position => block}),
-               container_permits:
-                 ContainerPermits.invalidate(state.container_permits, %{position => block}),
-               placement_permits:
-                 PlacementPermits.invalidate(state.placement_permits, %{position => block}),
-               column_index:
-                 ColumnIndex.update(
-                   state.column_index,
-                   &Blocks.get(state.blocks, &1),
-                   %{position => block}
-                 ),
-               dirty: true,
-               revision: state.revision + 1,
-               cache: Map.delete(state.cache, key),
-               versions: Map.update(state.versions, key, 1, &(&1 + 1))
-           }}
+          next =
+            %{
+              state
+              | unsaved: Map.put(state.unsaved, position, block),
+                mining_permits:
+                  MiningPermits.invalidate(state.mining_permits, %{position => block}),
+                container_permits:
+                  ContainerPermits.invalidate(state.container_permits, %{position => block}),
+                placement_permits:
+                  PlacementPermits.invalidate(state.placement_permits, %{position => block}),
+                column_index:
+                  ColumnIndex.update(
+                    state.column_index,
+                    &Blocks.get(state.blocks, &1),
+                    %{position => block}
+                  ),
+                dirty: true,
+                revision: state.revision + 1,
+                cache: Map.delete(state.cache, key),
+                versions: Map.update(state.versions, key, 1, &(&1 + 1))
+            }
+
+          {:reply, :ok, publish_block_snapshots(next, [key])}
         else
           {:reply, {:error, :invalid_block}, state}
         end
@@ -1503,7 +1507,7 @@ defmodule Valimc.World.RegionData do
   # memory at once, so later operations and ticks build on them while the frame is
   # written. Replies and published views are held until the write is durable; a
   # failed write stops the owner, so nothing un-durable was ever observed.
-  defp queue_item_write(state, token, timer, items, receipts, from, reply) do
+  defp queue_item_write(state, token, timer, items, receipts, from, reply, blocks \\ nil) do
     # The frame carries all motion adopted so far: its acknowledgement saves
     # exactly this generation, not motion that advances while it is in flight.
     write = %{
@@ -1513,7 +1517,8 @@ defmodule Valimc.World.RegionData do
       reply: reply,
       views: items.views,
       held: [],
-      generation: state.item_motion_generation
+      generation: state.item_motion_generation,
+      blocks: blocks
     }
 
     %{state | items: items, item_receipts: receipts, item_writes: state.item_writes ++ [write]}
@@ -2113,45 +2118,76 @@ defmodule Valimc.World.RegionData do
   end
 
   defp publish_blocks(state, batch, proposal, dirty, cooking \\ false) do
-    previous = Blocks.get_many(state.blocks, Map.keys(proposal.changes))
-    # The proposal was durably committed; storage follows it (validated at proposal time).
-    :ok = Blocks.put(state.blocks, proposal.changes)
-    state = if cooking, do: state, else: retire_container_changes(state, batch.edits, previous)
+    {state, effects} = apply_blocks(state, batch, proposal, dirty, cooking)
+    release_blocks(state, effects)
+  end
 
-    :ok =
-      BlockSnapshot.publish_chunks(
-        state.item_publication,
-        state.blocks,
-        Enum.uniq(
-          Enum.map(Map.keys(proposal.changes), fn {x, _, z} -> Valimc.World.chunk_key(x, z) end)
-        ),
-        proposal.revision
+  # Memory side of a block commit: storage, fences, permits and caches. External
+  # effects are returned for `release_blocks/2` (immediately, or once durable).
+  defp apply_blocks(state, batch, proposal, dirty, cooking) do
+    previous = Blocks.get_many(state.blocks, Map.keys(proposal.changes))
+    :ok = Blocks.put(state.blocks, proposal.changes)
+
+    chunks =
+      Enum.uniq(
+        Enum.map(Map.keys(proposal.changes), fn {x, _, z} -> Valimc.World.chunk_key(x, z) end)
       )
 
-    BlockSnapshot.publish_fence(state.item_publication, state.items.epoch, proposal.revision)
-    Valimc.World.publish(state.key, {:block_batch, batch.frames})
-    Valimc.Metrics.add(:block_edits, map_size(batch.edits))
+    state =
+      state
+      |> struct!(Map.take(proposal, [:column_index, :versions, :revision]))
+      |> Map.merge(%{
+        cache: Map.drop(state.cache, batch.chunks),
+        dirty: dirty or state.dirty,
+        # Raw (non-transfer) batches are persisted by the periodic save as cells; a
+        # durable commit already logged its cells and supersedes older raw ones.
+        unsaved:
+          if(dirty,
+            do: Map.merge(state.unsaved, proposal.changes),
+            else: Map.drop(state.unsaved, Map.keys(proposal.changes))
+          ),
+        mining_permits: MiningPermits.invalidate(state.mining_permits, batch.edits),
+        container_permits:
+          if(cooking,
+            do: state.container_permits,
+            else: ContainerPermits.invalidate(state.container_permits, batch.edits)
+          ),
+        placement_permits: PlacementPermits.invalidate(state.placement_permits, batch.edits)
+      })
 
-    state
-    |> struct!(Map.take(proposal, [:column_index, :versions, :revision]))
-    |> Map.merge(%{
-      cache: Map.drop(state.cache, batch.chunks),
-      dirty: dirty or state.dirty,
-      # Raw (non-transfer) batches are persisted by the periodic save as cells; a
-      # durable commit already logged its cells and supersedes older raw ones.
-      unsaved:
-        if(dirty,
-          do: Map.merge(state.unsaved, proposal.changes),
-          else: Map.drop(state.unsaved, Map.keys(proposal.changes))
-        ),
-      mining_permits: MiningPermits.invalidate(state.mining_permits, batch.edits),
-      container_permits:
-        if(cooking,
-          do: state.container_permits,
-          else: ContainerPermits.invalidate(state.container_permits, batch.edits)
-        ),
-      placement_permits: PlacementPermits.invalidate(state.placement_permits, batch.edits)
-    })
+    {state, %{batch: batch, previous: previous, chunks: chunks, cooking: cooking}}
+  end
+
+  defp release_blocks(state, effects) do
+    state =
+      if effects.cooking,
+        do: state,
+        else: retire_container_changes(state, effects.batch.edits, effects.previous)
+
+    Valimc.World.publish(state.key, {:block_batch, effects.batch.frames})
+    Valimc.Metrics.add(:block_edits, map_size(effects.batch.edits))
+    publish_block_snapshots(state, effects.chunks)
+  end
+
+  # Collision readers see snapshots only of durable state: while writes are in
+  # flight, changed chunks wait and are published with the fence once quiescent.
+  defp publish_block_snapshots(state, chunks) do
+    unpublished = Enum.into(chunks, state.unpublished_chunks)
+
+    if state.item_writes == [] do
+      :ok =
+        BlockSnapshot.publish_chunks(
+          state.item_publication,
+          state.blocks,
+          MapSet.to_list(unpublished),
+          state.revision
+        )
+
+      BlockSnapshot.publish_fence(state.item_publication, state.items.epoch, state.revision)
+      %{state | unpublished_chunks: MapSet.new()}
+    else
+      %{state | unpublished_chunks: unpublished}
+    end
   end
 
   defp isolated_chest_changes?(state, batch) do
@@ -2173,8 +2209,10 @@ defmodule Valimc.World.RegionData do
   defp commit_block_transfer(plan, pending, state) do
     cond do
       plan.result in [:already_applied, :already_rejected] ->
-        GenServer.reply(pending.from, {:ok, plan.result})
-        {:noreply, %{state | item_pending: nil}}
+        Process.cancel_timer(pending.timer)
+
+        {:noreply,
+         finish_when_durable(%{state | item_pending: nil}, pending.from, {:ok, plan.result})}
 
       plan.result == :rejected ->
         commit_rejected_block_transfer(plan, pending.from, state)
@@ -2211,24 +2249,28 @@ defmodule Valimc.World.RegionData do
               token
             )
 
-            writing = %{
-              kind: plan.kind,
-              phase: :writing,
-              token: token,
-              timer: send_after(state, {:item_commit_deadline, token}, 5000),
-              from: pending.from,
-              batch: plan.batch,
-              proposal: proposal,
-              items: plan.items,
-              receipts: plan.receipts
+            # Group commit (step 4b): adopt blocks, items and receipts now; client
+            # block updates, snapshots and the reply wait for durability.
+            if state.item_pending, do: Process.cancel_timer(state.item_pending.timer)
+            {state, effects} = apply_blocks(state, plan.batch, proposal, false, false)
+
+            state = %{
+              state
+              | item_pending: nil,
+                containers: Map.get(plan, :containers, state.containers)
             }
 
-            writing =
-              if plan[:containers],
-                do: Map.put(writing, :containers, plan.containers),
-                else: writing
-
-            {:noreply, %{state | item_pending: writing}}
+            {:noreply,
+             queue_item_write(
+               state,
+               token,
+               send_after(state, {:item_commit_deadline, token}, 5000),
+               plan.items,
+               plan.receipts,
+               pending.from,
+               {:ok, :applied},
+               effects
+             )}
 
           {:error, _} ->
             commit_rejected_block_transfer(
@@ -2749,6 +2791,11 @@ defmodule Valimc.World.RegionData do
 
   def handle_info({:block_transfer_plan, _, _, _}, state), do: {:noreply, state}
 
+  def handle_info({:mining_saved, writer, token, result}, %{store: writer} = state)
+      when is_map_key(state, :item_writes) and state.item_writes != [] and
+             hd(state.item_writes).token == token and hd(state.item_writes).blocks != nil,
+      do: complete_queued_write(state, result)
+
   def handle_info(
         {:mining_saved, writer, token, :ok},
         %{
@@ -2876,38 +2923,11 @@ defmodule Valimc.World.RegionData do
 
   def handle_info({:item_checkpoint_deadline, _}, state), do: {:noreply, state}
 
+  # Each acknowledgement kind completes only its own kind of queued write.
   def handle_info({:items_saved, writer, token, result}, %{store: writer} = state)
       when is_map_key(state, :item_writes) and state.item_writes != [] and
-             hd(state.item_writes).token == token do
-    [write | rest] = state.item_writes
-    Process.cancel_timer(write.timer)
-
-    case result do
-      :ok ->
-        state = %{state | item_writes: rest}
-        if rest == [], do: publish_item_views(state)
-
-        state =
-          %{state | item_saved_generation: max(state.item_saved_generation, write.generation)}
-          |> finish_item_reply(write.from, write.reply)
-
-        state =
-          Enum.reduce(write.held, state, fn {from, reply}, acc ->
-            finish_item_reply(acc, from, reply)
-          end)
-
-        {:noreply, resume_item_handoff(state)}
-
-      {:error, reason} ->
-        for queued <- state.item_writes,
-            from <- [queued.from | Enum.map(queued.held, &elem(&1, 0))],
-            do: reply_item(from, {:error, :item_commit_uncertain})
-
-        require Logger
-        Logger.error("Region item commit failed: #{inspect(reason)}")
-        {:stop, {:item_storage_failed, reason}, %{state | item_writes: []}}
-    end
-  end
+             hd(state.item_writes).token == token and hd(state.item_writes).blocks == nil,
+      do: complete_queued_write(state, result)
 
   def handle_info({:items_saved, _, _, _}, state), do: {:noreply, state}
 
@@ -2929,7 +2949,8 @@ defmodule Valimc.World.RegionData do
         Process.demonitor(job.monitor, [:flush])
 
         if version == Map.get(state.versions, key, 0) do
-          for from <- job.waiters, do: GenServer.reply(from, frame)
+          state =
+            Enum.reduce(job.waiters, state, &finish_when_durable(&2, &1, frame))
 
           {:noreply,
            %{state | jobs: Map.delete(state.jobs, key), cache: Map.put(state.cache, key, frame)}}
@@ -3326,6 +3347,51 @@ defmodule Valimc.World.RegionData do
 
   defp send_after(state, message, delay),
     do: Process.send_after(self(), {:resource, state.items.epoch, message}, delay)
+
+  # Writes are acknowledged in queue order (the writer is FIFO). Release the
+  # head write's effects, then everything that waited on it.
+  defp complete_queued_write(state, result) do
+    [write | rest] = state.item_writes
+    Process.cancel_timer(write.timer)
+
+    case result do
+      :ok ->
+        state = %{state | item_writes: rest}
+        state = if write.blocks, do: release_blocks(state, write.blocks), else: state
+
+        state =
+          if rest == [] do
+            publish_item_views(state)
+            publish_block_snapshots(state, [])
+          else
+            state
+          end
+
+        state =
+          %{state | item_saved_generation: max(state.item_saved_generation, write.generation)}
+          |> finish_item_reply(write.from, write.reply)
+
+        state =
+          Enum.reduce(write.held, state, fn {from, reply}, acc ->
+            finish_item_reply(acc, from, reply)
+          end)
+
+        {:noreply, resume_item_handoff(state)}
+
+      {:error, reason} ->
+        for queued <- state.item_writes,
+            from <- [queued.from | Enum.map(queued.held, &elem(&1, 0))],
+            do: reply_item(from, {:error, uncertain(queued)})
+
+        require Logger
+        Logger.error("Region commit failed: #{inspect(reason)}")
+        stop = if write.blocks, do: :mining_storage_failed, else: :item_storage_failed
+        {:stop, {stop, reason}, %{state | item_writes: []}}
+    end
+  end
+
+  defp uncertain(%{blocks: nil}), do: :item_commit_uncertain
+  defp uncertain(_write), do: :mining_commit_uncertain
 
   defp reply_item(nil, _), do: :ok
   defp reply_item(from, reply), do: GenServer.reply(from, reply)
