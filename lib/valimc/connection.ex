@@ -5564,6 +5564,8 @@ defmodule Valimc.Connection do
     target = Valimc.Physics.Placement.adjacent(request)
 
     item = if stack, do: Data.item_block(stack.item_id)
+    # Container variants without an owned record are corrected, never written as empty shells.
+    item = if item != nil and Valimc.Physics.BlockEntities.unsupported?(item), do: nil, else: item
 
     allowed =
       Valimc.PlayerInteraction.valid_hit?(position, cursor) and reachable?(state, position)
