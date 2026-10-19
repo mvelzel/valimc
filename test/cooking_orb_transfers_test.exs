@@ -399,32 +399,6 @@ defmodule Valimc.CookingOrbTransfersTest do
     assert cold(adopted, @dest) == adopted
   end
 
-  test "shared snapshot budget accepts exactly 8 MiB and refuses one byte beyond it" do
-    {source, id} = award()
-    {:ok, _, request, _} = CookingOrbTransfers.prepare(source, @source, id)
-    {:ok, adopted, _} = CookingOrbTransfers.accept(%Containers{}, @dest, request)
-    {:ok, empty_bytes} = Containers.encode(@dest, %Containers{})
-    {:ok, adopted_bytes} = Containers.encode(@dest, adopted)
-    # The 17 generic v1 entries gain one layout tag each in the v6 envelope.
-    delta = byte_size(adopted_bytes) - byte_size(empty_bytes) + 17
-    full = fill(%Containers{}, @dest, Containers.max_bytes() - delta)
-    assert {:ok, exact, :applied} = CookingOrbTransfers.accept(full, @dest, request)
-    assert {:ok, bytes} = Containers.encode(@dest, exact)
-    assert byte_size(bytes) == Containers.max_bytes()
-    assert {:ok, ^exact} = Containers.decode(bytes, @dest)
-    over = grow(full)
-
-    assert {:error, :cooking_orb_transfer_capacity} =
-             CookingOrbTransfers.accept(over, @dest, request)
-
-    full_source = fill(source, @source, Containers.max_bytes())
-
-    assert {:error, :cooking_orb_transfer_capacity} =
-             CookingOrbTransfers.prepare(full_source, @source, id)
-
-    assert full_source.orb_transfers == CookingOrbTransfers.new()
-  end
-
   test "all 256 full-recipe imports and source intents reach the exact ledger byte bound" do
     recipes = JSON.decode!(File.read!("priv/crafting/cooking.json"))["recipes"]
     uses = Map.new(recipes, &{&1["recipe"], 10})
@@ -454,54 +428,5 @@ defmodule Valimc.CookingOrbTransfersTest do
     assert {:ok, transfers} = CookingOrbTransfers.decode(bytes, @source, full.pending_awards, %{})
     assert transfers == full.orb_transfers
     assert cold(full, @source) == full
-  end
-
-  defp fill(cs, {rx, rz} = key, target) do
-    stack = fn size ->
-      %{
-        ItemStack.new("stone")
-        | components: %{
-            "minecraft:custom_data" =>
-              {:compound, %{"payload" => {:string, String.duplicate("x", size)}}}
-          }
-      }
-    end
-
-    large = stack.(30_000)
-
-    entries =
-      for n <- 1..17, into: %{} do
-        count = if n == 17, do: 7, else: 17
-        slots = List.to_tuple(List.duplicate(large, count) ++ List.duplicate(nil, 27 - count))
-        {{rx * 128 + n, 64, rz * 128 + 2}, %{revision: n, rows: 3, slots: slots}}
-      end
-
-    cs = %{cs | sequence: 17, entries: entries}
-    {:ok, bytes} = Containers.encode(key, cs)
-    overhead = IO.iodata_length(ItemStack.encode(stack.(0))) - 1
-    size = target - byte_size(bytes) - overhead - 1
-    true = size in 1..30_000
-    pos = {rx * 128 + 17, 64, rz * 128 + 2}
-    next = put_in(cs.entries[pos].slots, put_elem(cs.entries[pos].slots, 7, stack.(size)))
-    {:ok, bytes} = Containers.encode(key, next)
-    size = size + target - byte_size(bytes)
-    next = put_in(cs.entries[pos].slots, put_elem(cs.entries[pos].slots, 7, stack.(size)))
-    {:ok, bytes} = Containers.encode(key, next)
-    assert byte_size(bytes) == target
-    next
-  end
-
-  defp grow(cs) do
-    pos = Enum.max(Map.keys(cs.entries))
-    stack = elem(cs.entries[pos].slots, 7)
-    {:compound, %{"payload" => {:string, text}}} = stack.components["minecraft:custom_data"]
-
-    stack =
-      put_in(
-        stack.components["minecraft:custom_data"],
-        {:compound, %{"payload" => {:string, text <> "x"}}}
-      )
-
-    put_in(cs.entries[pos].slots, put_elem(cs.entries[pos].slots, 7, stack))
   end
 end

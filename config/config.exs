@@ -16,6 +16,8 @@ config :valimc,
   motd: "ValiMC · Elixir/OTP · 26.3 development server",
   max_packet_bytes: 2_097_152,
   max_mailbox: 256,
+  # Overloaded connections stop gracefully; a stuck one is killed after this delay.
+  overload_kill_ms: 5_000,
   packets_per_second: 400,
   bytes_per_second: 4_194_304,
   compression_threshold: 256,

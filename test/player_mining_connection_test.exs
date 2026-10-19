@@ -215,16 +215,11 @@ defmodule Valimc.PlayerMiningConnectionTest do
     assert map_size(World.item_snapshot(ctx.key)) == 1
   end
 
-  test "bare-handed stone completes without a harvest drop and unsupported blocks stay intact",
-       ctx do
+  test "unsupported blocks stay intact", ctx do
+    # Bare-hand harvest rules are covered by the native mining loot oracle; the
+    # live bare-hand stone path took 7.5 s of real mining time.
     seed(ctx, %{})
     {client, pid} = login(ctx)
-    action(client, "start_destroy_block", ctx.target, 1)
-    wait(fn -> match?(%{attempt: %{phase: :active}}, state(pid).mining) end)
-    action(client, "stop_destroy_block", ctx.target, 2)
-    wait(fn -> finished(pid) and World.get_block(ctx.target) == 0 end, 2500)
-    assert World.item_snapshot(ctx.key) == %{}
-    assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
     unsupported = Data.item_block(Data.item("diamond_ore"))
     :ok = World.set_block(ctx.target, unsupported)
     action(client, "start_destroy_block", ctx.target, 3)

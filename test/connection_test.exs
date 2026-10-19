@@ -150,7 +150,7 @@ defmodule Valimc.ConnectionTest do
     for _ <- 1..300, do: Valimc.Connection.deliver(player.pid, {:chat, "load"})
     # A stuck (here: suspended) connection cannot handle the graceful signal and is
     # killed by the fallback timer.
-    assert_receive {:DOWN, ^ref, :process, _, :killed}, 7_000
+    assert_receive {:DOWN, ^ref, :process, _, :killed}, 2_000
     Client.send_packet(healthy, :play, "chat_command", Wire.string("stats"))
     {_body, _} = Client.await(healthy, :play, "system_chat")
   end

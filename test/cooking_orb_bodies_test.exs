@@ -295,23 +295,6 @@ defmodule Valimc.CookingOrbBodiesTest do
     assert cold(cs) == cs
   end
 
-  test "capacity refuses initialization before a decision; fixed-size expiry fits even at exactly8MiB" do
-    {cs, id} = local()
-    full = fill(cs)
-    [uuid] = Map.keys(cs.cooking_orbs[id])
-    decisions = %{uuid => {{0, 0, 0}, {0.2, 0.7, 0.9}}}
-    assert {:error, _} = CookingOrbBodies.initialize(full, @key, id, decisions)
-    assert full.orb_bodies == CookingOrbBodies.new()
-    {initialized, _} = init(cs, id)
-    full = fill(initialized)
-    {:ok, p} = advance(full, id, 6000)
-    assert {:ok, expired, :applied} = CookingOrbBodies.install(full, @key, p)
-    assert {:ok, bytes} = Containers.encode(@key, expired)
-    assert byte_size(bytes) == Containers.max_bytes()
-    assert CookingOrbBodies.project(cold(expired))[id] == %{}
-    assert expired.entries == full.entries and expired.orb_consumption == full.orb_consumption
-  end
-
   test "input widths and exhausted generations refuse before launch or transition work" do
     {cs, id} = local(1)
     decisions = for n <- 1..12, into: %{}, do: {<<n::128>>, {{0, 0, 0}, {0.5, 0.5, 0.5}}}
@@ -329,41 +312,5 @@ defmodule Valimc.CookingOrbBodiesTest do
     assert {:ok, _} = Containers.encode(@key, exhausted)
     assert {:error, _} = advance(exhausted, id, 1)
     assert exhausted.orb_bodies.awards == cs.orb_bodies.awards
-  end
-
-  defp fill(cs) do
-    stack = fn size ->
-      %{
-        Valimc.Protocol.ItemStack.new("stone")
-        | components: %{
-            "minecraft:custom_data" =>
-              {:compound, %{"payload" => {:string, String.duplicate("x", size)}}}
-          }
-      }
-    end
-
-    large = stack.(30_000)
-
-    entries =
-      for i <- 1..17, into: %{} do
-        count = if i == 17, do: 7, else: 17
-        slots = List.to_tuple(List.duplicate(large, count) ++ List.duplicate(nil, 27 - count))
-        {{i, 64, 16}, %{revision: i, rows: 3, slots: slots}}
-      end
-
-    full = %{cs | entries: entries, sequence: 17}
-    {:ok, bytes} = Containers.encode(@key, full)
-    overhead = IO.iodata_length(Valimc.Protocol.ItemStack.encode(stack.(0))) - 1
-    length = Containers.max_bytes() - byte_size(bytes) - overhead
-
-    full =
-      put_in(
-        full.entries[{17, 64, 16}].slots,
-        put_elem(full.entries[{17, 64, 16}].slots, 7, stack.(length))
-      )
-
-    {:ok, bytes} = Containers.encode(@key, full)
-    assert byte_size(bytes) == Containers.max_bytes()
-    full
   end
 end

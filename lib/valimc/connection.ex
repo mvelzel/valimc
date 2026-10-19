@@ -251,7 +251,7 @@ defmodule Valimc.Connection do
           if :ets.insert_new(Valimc.OverloadedConnections, {pid}) do
             Metrics.add(:slow_clients_disconnected)
             Process.exit(pid, {:shutdown, :overloaded})
-            :timer.kill_after(5_000, pid)
+            :timer.kill_after(Valimc.config(:overload_kill_ms), pid)
           end
 
           :overloaded
