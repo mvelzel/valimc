@@ -133,9 +133,11 @@ remains in progress: its bounded kernel/co-snapshot slice is validated at
 `d95273c` (108 affected checks, native probes and actual retention/refusal/restart).
 **Done within local-runtime scope:** asynchronous durable installation/native orb
 presentation at `ed06d5a`; affected owner/TCP checks and dedicated actual graphics,
-contact/refusal/owner recovery/full restart pass. Source/typed30 reconciles. Next:
-cross-region XP handoff, starting with its [durable spawn protocol](tickets/VMC-034n3a.md);
-orb physics/lifetime and pickup/player XP remain open.
+contact/refusal/owner recovery/full restart pass. Source/typed30 reconciles.
+**Done within unused protocol/storage scope:** [durable remote spawn protocol](tickets/VMC-034n3a.md)
+at `4b09f6f` (targeted recovery/capacity checks, actual baseline/both owner deaths/
+full restart; source/typed24 reconciles). Next: [live remote delivery](tickets/VMC-034n3b.md).
+Orb physics/lifetime and pickup/player XP remain open.
 Live XP/recipe delivery and earned-output withdrawal remain gated.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),

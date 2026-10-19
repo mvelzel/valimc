@@ -1,7 +1,8 @@
 # VMC-034n3a — Durable remote XP spawn protocol
 
-Status: In progress. Part of [orb ownership](VMC-034n3.md). Unused foundation;
-live owner-to-owner delivery and remote publication follow this slice.
+Status: **Done within unused protocol/storage scope** at `4b09f6f`, with maximum
+ledger regression at `eb0e4aa`. Part of [orb ownership](VMC-034n3.md).
+Live owner-to-owner delivery and remote publication follow this slice.
 
 An award can belong to a processor's region while its spawn position belongs to
 another region. Preserve the immutable source obligation. Persist a source routing
@@ -41,6 +42,8 @@ reject another digest for the same source region/player/sequence. Derived native
 orb UUIDs/denominations remain unchanged. Callers must commit proposals before
 sending requests, publishing adoption or acknowledging success; the pure API is
 not proof of a write. No live packet handler or runtime invokes this path yet.
+Source obligations/intents are retry/provenance records, not another active orb;
+conservation tracks the unique award across routing and destination adoption.
 
 Container version 6 embeds the bounded transfer ledger with explicit lengths for
 the pending/local ledgers. Request limit: 1,633 bytes; ledger limit: 427,020 bytes.
@@ -66,8 +69,15 @@ no gameplay/disk/socket load; host/tester activity overlaps and no capacity/spee
 comparison is established. Raw samples, script and source hashes:
 `.local/orb-transfer-bench-4b09f6f.{exs,json,log}`.
 
-Client gate pending. Fresh dataset: `.local/client-tests/VMC-034n3a/world`, with
-14 receipt-backed source awards, a pending route and matching durable destination
-adoption (lost-ACK boundary). Remote publication is deliberately inactive.
+Actual-client gate **PASS** (2026-10-19), Java26.3/protocol777 at `4b09f6f`: local
+orb grid/stats, survival furnace mining/pickup, actual smelting and normal/Shift
+output refusals, both owner deaths and full server restart/fresh reconnect. Same
+whole dataset preserves exact 14 pending awards/13 local markers/12 views/4,931 XP
+and the pending source route/matching durable destination adoption (XP3, lost-ACK
+boundary). Destination remains unpublished. Final source/typed24, item receipt16,
+gold13/smooth stone1/furnace1/pickaxe wear1; no dirt/raw iron/coal/cursor/outbox/drops.
+A absent; Boutput1/use1. All owned sessions stopped and port25565 clear.
+Evidence/report: `.local/client-tests/VMC-034n3a/report.md`. Muted audio and native
+6,000-tick client aging remain limits; no remote graphics/delivery or pickup claim.
 The [delivery runtime](VMC-034n3b.md) follows; it must not reinterpret this unused
 foundation as a completed live handoff.
