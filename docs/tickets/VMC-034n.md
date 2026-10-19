@@ -2,7 +2,9 @@
 
 Status: In progress. [Award values](VMC-034n1.md) and
 [pending storage](VMC-034n2.md) are complete within unused foundation scopes.
-Next: [owned orbs](VMC-034n3.md), XP/player authority and recipe delivery.
+The [orb materialization kernel](VMC-034n3.md) is also validated at `d95273c`;
+owner-fenced runtime publication/handoff remain next, followed by XP/player authority
+and recipe delivery.
 Output with recipe uses stays refused until the complete award path is admitted.
 
 Player withdrawals must release the earned output, award used recipes and spawn
@@ -40,4 +42,4 @@ Acceptance:
   conservation. Native probes cannot replace these actions.
 
 Keep the current refusal until orb/player/recipe ownership, persistence and joint
-delivery are tested. Values and pending storage need no reimplementation.
+delivery are tested. Values, pending storage and the orb kernel need no reimplementation.
