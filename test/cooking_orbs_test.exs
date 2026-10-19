@@ -243,4 +243,67 @@ defmodule Valimc.CookingOrbsTest do
     assert {:error, :invalid_container_snapshot} = Containers.encode(@key, invalid)
     assert {:error, :invalid_container_snapshot} = CookingOrbs.materialize(invalid, @key, hd(ids))
   end
+
+  test "shared snapshot byte capacity refuses whole materialization even below the orb-record limit" do
+    alias Valimc.Protocol.ItemStack
+    {pending, id} = award()
+
+    make_stack = fn size ->
+      %{
+        ItemStack.new("stone")
+        | components: %{
+            "minecraft:custom_data" =>
+              {:compound, %{"payload" => {:string, String.duplicate("x", size)}}}
+          }
+      }
+    end
+
+    large = make_stack.(30_000)
+    slots = List.to_tuple(List.duplicate(large, 17) ++ List.duplicate(nil, 10))
+
+    filled =
+      Enum.reduce(0..15, pending, fn x, cs ->
+        {:ok, cs, entry} = Containers.create(cs, @key, {x, 64, 0}, 3)
+        {:ok, cs, _} = Containers.replace(cs, {x, 64, 0}, entry.revision, slots)
+        cs
+      end)
+
+    position = {16, 64, 0}
+    {:ok, filled, entry} = Containers.create(filled, @key, position, 3)
+    slots = List.to_tuple(List.duplicate(large, 7) ++ List.duplicate(nil, 20))
+    {:ok, filled, entry} = Containers.replace(filled, position, entry.revision, slots)
+    {:ok, bytes} = Containers.encode(@key, filled)
+    overhead = IO.iodata_length(ItemStack.encode(make_stack.(0))) - 1
+    padding = Containers.max_bytes() - byte_size(bytes) - overhead - 1
+    assert padding in 1..30_000
+    slots = put_elem(slots, 7, make_stack.(padding))
+    {:ok, full, entry} = Containers.replace(filled, position, entry.revision, slots)
+    {:ok, before_bytes} = Containers.encode(@key, full)
+    assert byte_size(before_bytes) == Containers.max_bytes() - 1
+    assert {:error, :cooking_orb_capacity} = CookingOrbs.materialize(full, @key, id)
+    assert full.cooking_orbs == %{} and balance(full) == {7, 0}
+    assert {:ok, ^before_bytes} = Containers.encode(@key, full)
+
+    {:ok, small, :materialized} = CookingOrbs.materialize(pending, @key, id)
+    {:ok, a} = Containers.encode(@key, pending)
+    {:ok, b} = Containers.encode(@key, small)
+    delta = byte_size(b) - byte_size(a)
+    slots = put_elem(slots, 7, make_stack.(padding - delta + 1))
+    {:ok, fitting, _} = Containers.replace(full, position, entry.revision, slots)
+    assert {:ok, next, :materialized} = CookingOrbs.materialize(fitting, @key, id)
+    assert balance(next) == {0, 7}
+    assert {:ok, bytes} = Containers.encode(@key, next)
+    assert byte_size(bytes) == Containers.max_bytes()
+    assert {:ok, ^next} = Containers.decode(bytes, @key)
+
+    # A single additional slot byte crosses the combined cap.
+    slots = put_elem(slots, 7, make_stack.(padding - delta + 2))
+
+    {:ok, one_over, _} =
+      Containers.replace(fitting, position, fitting.entries[position].revision, slots)
+
+    assert {:ok, _} = Containers.encode(@key, one_over)
+    assert {:error, :cooking_orb_capacity} = CookingOrbs.materialize(one_over, @key, id)
+    assert balance(one_over) == {7, 0}
+  end
 end

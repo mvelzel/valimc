@@ -33,7 +33,15 @@ defmodule Valimc.World.CookingOrbs do
 
         :error ->
           next = Map.put(containers.cooking_orbs, id, records(id, record))
-          {:ok, %{containers | cooking_orbs: next}, :materialized}
+          successor = %{containers | cooking_orbs: next}
+
+          # The orb ledger has its own bound, but shares the whole snapshot's byte
+          # budget with slots/receipts/awards. Refuse before returning a proposal
+          # that its leased writer could not commit.
+          case Containers.encode(key, successor) do
+            {:ok, _} -> {:ok, successor, :materialized}
+            {:error, _} -> {:error, :cooking_orb_capacity}
+          end
       end
     else
       false -> {:error, :xp_orb_handoff_required}
