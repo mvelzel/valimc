@@ -5,6 +5,9 @@ alias Valimc.World.{Directory, Items, Region, Store}
 alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
 alias Valimc.TestClient, as: Client
 true = is_binary(Valimc.config(:world_path))
+# Exact record comparisons need stationary items; regions read this when they start.
+Application.put_env(:valimc, :item_simulation, false)
+Application.put_env(:valimc, :cooking_simulation, false)
 {:ok, owner = {pid, epoch}} = World.owner({0, 0})
 :ok = World.set_block({2, 64, 2}, 1)
 :ok = Region.flush(pid)

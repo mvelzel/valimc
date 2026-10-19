@@ -1,72 +1,43 @@
 #!/usr/bin/env python3
-"""Run development tools against the official Minecraft jar, never the server runtime."""
-import os, pathlib, subprocess, sys, shutil
+"""Run development tools against the official Minecraft jar, never the server runtime.
+
+All `scripts/*.java` sources compile together in one javac call (so shared helpers
+need no dependency list) and only when a source is newer than the last build.
+"""
+import os, pathlib, subprocess, sys
+from java_runtime import java_home as find_java_home
+
 root = pathlib.Path(__file__).resolve().parent.parent
 bundle = root / 'research/vanilla-bundle'
-jars = sorted((bundle / 'libraries').rglob('*.jar'))
-jars += [bundle / 'versions/26.3/server-26.3.jar']
-classpath = os.pathsep.join(str(p) for p in jars)
-from java_runtime import java_home as find_java_home
-java_home = find_java_home()
 tools = root / 'research/java-tools'
-tools.mkdir(exist_ok=True)
-name = sys.argv[1]
-sources = [str(root / 'scripts' / (name + '.java'))]
-if name in ('FluidFlowOracle', 'FluidCurrentOracle', 'ItemCurrentOracle', 'ItemTravelOracle'):
-    sources.append(str(root / 'scripts' / 'FluidBoundaryMetadata.java'))
-if name == 'FluidSupportOracle':
-    sources.append(str(root / 'scripts' / 'CollisionMetadata.java'))
-if name == 'ClimbContactOracle':
-    sources.append(str(root / 'scripts' / 'ClimbMetadata.java'))
-if name in ('StatusEffectOracle', 'HazardGeometryOracle', 'BlockHazardOracle', 'FireGeometryOracle', 'RainContactOracle'):
-    sources.append(str(root / 'scripts' / 'FireContactOracle.java'))
-if name == 'PlayerEffectMapOracle':
-    sources += [str(root / 'scripts' / (source + '.java')) for source in ('StatusEffectOracle', 'FireContactOracle')]
-if name == 'StuckPathsOracle':
-    sources.append(str(root / 'scripts' / 'StuckContactOracle.java'))
-if name in ('HazardGeometryOracle', 'DamageImmunityOracle', 'FlatClimateOracle', 'SkyColumnOracle', 'RainContactOracle', 'HeightmapOracle', 'PlayerMiningOracle', 'ToolDurabilityOracle', 'MiningLootOracle', 'MiningAttemptOracle', 'PlacementOracle', 'PlacementConsumptionOracle', 'PlayerCraftingOracle', 'TableMenuOracle', 'CraftingTableAccessOracle', 'ItemDropOracle', 'ItemMotionOracle', 'ItemTravelOracle', 'ItemMergeOracle', 'ItemPickupOracle'):
-    sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
-if name == 'SkyColumnOracle':
-    sources.append(str(root / 'scripts' / 'HeightmapOracle.java'))
-if name == 'HazardGeometryOracle':
-    sources.append(str(root / 'scripts' / 'FireGeometryOracle.java'))
-if name == 'RandomMiningLootOracle':
-    sources += [str(root / 'scripts' / (source + '.java')) for source in ('MiningToolOracle', 'MiningLootOracle')]
-if name == 'TableCraftingOracle':
-    sources += [str(root / 'scripts' / (source + '.java')) for source in ('PlayerCraftingOracle', 'MiningToolOracle')]
-if name in ('TableMenuClickOracle', 'CraftingBulkOracle', 'RemainderCraftingOracle'):
-    sources += [str(root / 'scripts' / (source + '.java')) for source in ('PlayerCraftingOracle', 'TableMenuOracle', 'MiningToolOracle')]
-if name in ('ChestMenuOracle', 'CookingMenuOracle'):
-    sources += [str(root / 'scripts' / (source + '.java')) for source in ('TableMenuOracle', 'MiningToolOracle')]
-if name == 'CookingSlotEditOracle':
-    sources += [str(root / 'scripts' / (source + '.java')) for source in ('CookingTickOracle', 'MiningToolOracle')]
-if name == 'CookingClickOracle':
-    sources.append(str(root / 'scripts' / 'ChestClickOracle.java'))
-if name in ('ChestClickOracle', 'CookingClickOracle'):
-    sources += [str(root / 'scripts' / (source + '.java')) for source in ('PlayerCraftingOracle', 'TableMenuOracle', 'MiningToolOracle')]
-if name == 'ChestAccessOracle':
-    sources += [str(root / 'scripts' / (source + '.java')) for source in ('CraftingTableAccessOracle', 'MiningToolOracle')]
-if name in ('ChestBlockEntityOracle', 'ChestOpeningOracle', 'ChestViewOracle', 'ChestPlacementOracle', 'ContainerDropOracle', 'ChestLootOracle'):
-    sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
-if name == 'ChestSoundOracle':
-    sources += [str(root / 'scripts' / (source + '.java')) for source in ('ChestViewOracle', 'MiningToolOracle')]
-if name in ('CookingFuelOracle', 'CookingItemsOracle', 'CookingRecipesOracle', 'CookingTickOracle', 'CookingLootOracle', 'CookingOpeningOracle', 'CookingExperienceOracle'):
-    sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
-if name == 'CookingRecipeBookOracle':
-    sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
-if name == 'PlayerExperienceOracle':
-    sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
-if name == 'OrbMotionOracle':
-    sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
-if name == 'ExperienceOrbOracle':
-    sources += [str(root / 'scripts' / (source + '.java')) for source in ('CookingExperienceOracle', 'MiningToolOracle')]
-if name == 'CookingPlacementOracle':
-    sources += [str(root / 'scripts' / (source + '.java')) for source in ('ChestPlacementOracle', 'MiningToolOracle')]
-if name in ('CraftingBulkOracle', 'RemainderCraftingOracle'):
-    sources.append(str(root / 'scripts' / 'TableMenuClickOracle.java'))
-if name in ('PositionCollisionOracle', 'ScaffoldingCollisionOracle', 'PowderSnowCollisionOracle', 'ShulkerCollisionOracle', 'VoxelUnionOracle', 'PistonCollisionOracle', 'MovementCollisionOracle', 'VoxelIntersectionOracle', 'BlockCollisionOracle', 'StepMovementOracle', 'EntityCollisionOracle', 'ServerMovementOracle'):
-    sources.append(str(root / 'scripts' / 'CollisionMetadata.java'))
-compiled = subprocess.run([java_home + '/bin/javac', '-cp', classpath, '-d', str(tools), *sources])
-if compiled.returncode:
-    sys.exit(compiled.returncode)
-sys.exit(subprocess.run([java_home + '/bin/java', '-cp', str(tools) + os.pathsep + classpath, name, *sys.argv[2:]]).returncode)
+stamp = tools / '.compiled'
+
+
+def classpath():
+    jars = sorted((bundle / 'libraries').rglob('*.jar'))
+    jars += [bundle / 'versions/26.3/server-26.3.jar']
+    return os.pathsep.join(str(p) for p in jars)
+
+
+def compile_tools(java_home=None):
+    """Compile every oracle once; returns the java executable and runtime classpath."""
+    java_home = java_home or find_java_home()
+    sources = sorted((root / 'scripts').glob('*.java'))
+    tools.mkdir(parents=True, exist_ok=True)
+    newest = max(p.stat().st_mtime for p in sources)
+    if not stamp.exists() or stamp.stat().st_mtime < newest:
+        result = subprocess.run([java_home + '/bin/javac', '-nowarn', '-cp', classpath(), '-d', str(tools),
+                                 *map(str, sources)])
+        if result.returncode:
+            raise SystemExit(result.returncode)
+        stamp.touch()
+    return java_home + '/bin/java', str(tools) + os.pathsep + classpath()
+
+
+def command(name, *args):
+    java, cp = compile_tools()
+    return [java, '-cp', cp, name, *args]
+
+
+if __name__ == '__main__':
+    sys.exit(subprocess.run(command(sys.argv[1], *sys.argv[2:])).returncode)
