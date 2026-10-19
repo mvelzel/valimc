@@ -75,14 +75,30 @@ defmodule Valimc.World.ExperienceTransfers do
 
           next = %{next | receipts: Map.put(next.receipts, request.source, receipt)}
 
-          with {:ok, _} <- Containers.encode(key, next),
-               do:
-                 {:ok,
-                  %{
-                    containers: next,
-                    result: result,
-                    experience: if(result == :applied, do: request, else: nil)
-                  }}
+          case Containers.encode(key, next) do
+            {:ok, _} ->
+              {:ok,
+               %{
+                 containers: next,
+                 result: result,
+                 experience: if(result == :applied, do: request, else: nil)
+               }}
+
+            {:error, _} ->
+              # The source slot was reserved before admission. Its fixed-size
+              # terminal rejection fits even when a new consumed counter cannot.
+              rejected = %{
+                reserved
+                | receipts:
+                    Map.put(reserved.receipts, request.source, %{
+                      sequence: request.sequence,
+                      digest: ContainerTransfers.result_digest(digest, :rejected)
+                    })
+              }
+
+              with {:ok, _} <- Containers.encode(key, rejected),
+                   do: {:ok, %{containers: rejected, result: :rejected, experience: nil}}
+          end
       end
     end
   end

@@ -7,6 +7,8 @@ defmodule Valimc.CookingOrbTransfersTest do
     Containers,
     ContainerTransfers,
     CookingOrbs,
+    CookingOrbConsumptions,
+    CookingOrbRuntime,
     CookingOrbTransfers,
     PendingCookingAwards
   }
@@ -90,6 +92,50 @@ defmodule Valimc.CookingOrbTransfersTest do
              CookingOrbTransfers.prepare(done, @source, id)
 
     assert {:ok, ^adopted, :already_applied} = CookingOrbTransfers.accept(adopted, @dest, request)
+  end
+
+  test "import replay and cold publication retain consumed units without rewriting adoption proofs" do
+    {source, id} = award()
+    {:ok, routed, request, _} = CookingOrbTransfers.prepare(source, @source, id)
+    {:ok, adopted, _} = CookingOrbTransfers.accept(%Containers{}, @dest, request)
+    {:ok, records} = CookingOrbTransfers.records(request)
+    [{uuid, %{value: 3, count: 2}}] = Map.to_list(records)
+
+    {:ok, half} = CookingOrbConsumptions.take(adopted, uuid, 3, 0)
+    half = cold(half, @dest)
+    assert {:ok, ^half, :already_applied} = CookingOrbTransfers.accept(half, @dest, request)
+    assert {:error, _} = CookingOrbConsumptions.take(half, uuid, 3, 0)
+    assert {:refresh, publication} = CookingOrbRuntime.plan(half, @dest, 11, %CookingOrbRuntime{})
+    assert [%{uuid: ^uuid, count: 1, consumed: 1}] = Map.values(publication.views)
+    assert publication.ledger[id] == records
+
+    {:ok, consumed} = CookingOrbConsumptions.take(half, uuid, 3, 1)
+    consumed = cold(consumed, @dest)
+
+    assert {:ok, ^consumed, :already_applied} =
+             CookingOrbTransfers.accept(consumed, @dest, request)
+
+    assert {:refresh, empty} =
+             CookingOrbRuntime.plan(consumed, @dest, 12, %CookingOrbRuntime{
+               views: publication.views
+             })
+
+    assert empty.views == %{} and empty.rows == []
+    assert empty.retired == [{8, 0}]
+    assert empty.ledger[id] == records
+    assert consumed.orb_transfers == adopted.orb_transfers
+    assert consumed.pending_awards == %{} and consumed.cooking_orbs == %{}
+    assert {:error, _} = CookingOrbConsumptions.take(consumed, uuid, 3, 2)
+
+    {:ok, digest} = CookingOrbTransfers.digest(request)
+
+    assert {:ok, settled, :delivered} =
+             CookingOrbTransfers.acknowledge(routed, @source, id, digest)
+
+    assert cold(settled, @source).pending_awards == source.pending_awards
+
+    assert {:ok, ^consumed, :already_applied} =
+             CookingOrbTransfers.accept(consumed, @dest, request)
   end
 
   test "zero XP persists adoption and routing without an entity and keeps recipe delivery" do

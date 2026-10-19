@@ -232,6 +232,62 @@ defmodule Valimc.ExperienceTransfersTest do
     assert resource(ctx.owner).containers.orb_consumption == CookingOrbConsumptions.new()
   end
 
+  test "a full snapshot seals rejection in its reserved slot without consuming or stranding player XP",
+       ctx do
+    {prepared, request} = prepare(ctx, ctx.snapshot, ctx.request)
+    {:ok, reserved, _} = ContainerTransfers.reserve(ctx.cs, ctx.uuid)
+
+    stack = fn length ->
+      %{
+        Valimc.Protocol.ItemStack.new("stone")
+        | components: %{
+            "minecraft:custom_data" =>
+              {:compound, %{"payload" => {:string, String.duplicate("x", length)}}}
+          }
+      }
+    end
+
+    {x, _, z} = ctx.at
+    large = stack.(30_000)
+
+    entries =
+      for i <- 1..17, into: %{} do
+        count = if i == 17, do: 7, else: 17
+        slots = List.to_tuple(List.duplicate(large, count) ++ List.duplicate(nil, 27 - count))
+        {{floor(x) + i, 64, floor(z)}, %{revision: i, rows: 3, slots: slots}}
+      end
+
+    full = %{reserved | sequence: 17, entries: entries}
+    {:ok, bytes} = Containers.encode(ctx.key, full)
+    overhead = IO.iodata_length(Valimc.Protocol.ItemStack.encode(stack.(0))) - 1
+    length = Containers.max_bytes() - byte_size(bytes) - overhead - 1
+    position = {floor(x) + 17, 64, floor(z)}
+
+    full =
+      put_in(
+        full.entries[position].slots,
+        put_elem(full.entries[position].slots, 7, stack.(length))
+      )
+
+    {:ok, bytes} = Containers.encode(ctx.key, full)
+    assert byte_size(bytes) == Containers.max_bytes() - 1
+    assert {:ok, decision} = ExperienceTransfers.plan(full, ctx.key, request, true)
+    assert decision.result == :rejected and decision.experience == nil
+    assert decision.containers.orb_consumption == CookingOrbConsumptions.new()
+    assert decision.containers.entries == full.entries
+
+    assert {:ok, restored} =
+             PlayerContainerTransfers.resolve(
+               ctx.uuid,
+               prepared,
+               decision.containers.receipts[ctx.uuid]
+             )
+
+    assert restored.outbox == nil and restored.progression.experience.total == 0
+    assert {:ok, again} = ExperienceTransfers.plan(decision.containers, ctx.key, request, true)
+    assert again.result == :already_rejected and again.containers == decision.containers
+  end
+
   test "one merged unit is consumed durably before a matching player grant; replay never grants again",
        ctx do
     {prepared, request} = prepare(ctx, ctx.snapshot, ctx.request)
