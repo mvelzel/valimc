@@ -56,6 +56,8 @@ if name == 'CookingRecipeBookOracle':
     sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
 if name == 'PlayerExperienceOracle':
     sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
+if name == 'OrbMotionOracle':
+    sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
 if name == 'ExperienceOrbOracle':
     sources += [str(root / 'scripts' / (source + '.java')) for source in ('CookingExperienceOracle', 'MiningToolOracle')]
 if name == 'CookingPlacementOracle':

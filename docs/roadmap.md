@@ -146,7 +146,8 @@ runtime `9b585f0` / capacity correction `3e70e07`: native XP/recipe codecs, targ
 journal/capacity/replay checks and all eight dedicated client groups pass. Actual
 ordinary/Shift smelting, all three families, owner replacement and full restart
 conserve gold10/steak3/XP11 with source/typed35. These gates are closed.
-Next: [orb simulation](tickets/VMC-034n4.md); motion/lifetime/moving handoff,
+Active: [orb simulation](tickets/VMC-034n4.md), starting with
+[supplied motion kernels](tickets/VMC-034n4a.md); motion/lifetime/moving handoff,
 Mending and processor-destruction XP remain separate. The parent earned-output
 ticket remains in progress; no full cooking/survival parity claim.
 

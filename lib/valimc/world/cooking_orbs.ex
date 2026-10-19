@@ -1,5 +1,5 @@
 defmodule Valimc.World.CookingOrbs do
-  @moduledoc "Bounded, replayable cooking XP materialization proposals; pickup remains inactive."
+  @moduledoc "Bounded immutable cooking XP creation proposals; consumption is tracked separately."
   alias Valimc.World.Containers
   @values [2477, 1237, 617, 307, 149, 73, 37, 17, 7, 3, 1]
   @max_awards 256
@@ -51,9 +51,9 @@ defmodule Valimc.World.CookingOrbs do
 
   def materialize(_, _, _), do: invalid()
 
-  # This pre-pickup ledger is immutable: each marked award has exactly its native
-  # denomination histogram, including an empty record set for zero XP. A later
-  # pickup protocol must durably account for consumption before relaxing this check.
+  # Each birth marker retains exactly its native histogram, including an empty
+  # record set for zero XP. CookingOrbConsumptions accounts for collected units
+  # separately; pickup never relaxes or rewrites this proof.
   def encode(ledger, key, awards)
       when is_map(ledger) and map_size(ledger) <= @max_awards and is_map(awards) and
              map_size(awards) <= @max_awards do
