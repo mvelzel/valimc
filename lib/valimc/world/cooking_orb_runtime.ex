@@ -1,7 +1,7 @@
 defmodule Valimc.World.CookingOrbRuntime do
   @moduledoc "Bounded local/remote XP proposals; durable ACK before observation and receipt."
   alias Valimc.Protocol.EntityPackets
-  alias Valimc.World.{CookingOrbs, CookingOrbTransfers, Items, Store}
+  alias Valimc.World.{CookingOrbs, CookingOrbTransfers, CookingOrbBodies, Items, Store}
 
   defstruct job: nil,
             seen: nil,
@@ -11,6 +11,7 @@ defmodule Valimc.World.CookingOrbRuntime do
             views: %{},
             revision: 0,
             consumption_revision: 0,
+            body_revision: 0,
             receipt: nil,
             delivery: nil,
             delivery_cursor: nil,
@@ -32,6 +33,7 @@ defmodule Valimc.World.CookingOrbRuntime do
 
       runtime.receipt == nil and runtime.revision == cs.orb_transfers.revision and
         runtime.consumption_revision == cs.orb_consumption.revision and
+        runtime.body_revision == cs.orb_bodies.revision and
         map_size(runtime.ledger) ==
           map_size(cs.cooking_orbs) + map_size(cs.orb_transfers.incoming) and
           (map_size(cs.pending_awards) ==
@@ -96,6 +98,7 @@ defmodule Valimc.World.CookingOrbRuntime do
           ledger: containers.cooking_orbs,
           transfers: containers.orb_transfers,
           consumption: containers.orb_consumption,
+          bodies: containers.orb_bodies,
           stamp: stamp(containers),
           from: from,
           deadline: deadline
@@ -114,7 +117,8 @@ defmodule Valimc.World.CookingOrbRuntime do
 
     cond do
       runtime.ledger != ledger or runtime.revision != containers.orb_transfers.revision or
-          runtime.consumption_revision != containers.orb_consumption.revision ->
+        runtime.consumption_revision != containers.orb_consumption.revision or
+          runtime.body_revision != containers.orb_bodies.revision ->
         {:refresh, publication(containers, runtime.views, epoch)}
 
       runtime.receipt != nil ->
@@ -204,6 +208,7 @@ defmodule Valimc.World.CookingOrbRuntime do
       state.item_pending == nil and state.containers.cooking_orbs === job.ledger and
         state.containers.orb_transfers === job.transfers and
         state.containers.orb_consumption === job.consumption and
+        state.containers.orb_bodies === job.bodies and
         (job.deadline == nil or now() < job.deadline)
 
   defp accept(state, _job, {:refresh, views}), do: {:noreply, publish(state, views)}
@@ -394,6 +399,7 @@ defmodule Valimc.World.CookingOrbRuntime do
          rows: rows,
          revision: revision,
          consumption_revision: consumed,
+         body_revision: body_revision,
          retired: retired
        }) do
     for chunk <- retired, do: :ets.delete(state.item_publication, {:orbs, chunk})
@@ -406,34 +412,19 @@ defmodule Valimc.World.CookingOrbRuntime do
           | ledger: ledger,
             views: views,
             revision: revision,
-            consumption_revision: consumed
+            consumption_revision: consumed,
+            body_revision: body_revision
         }
     }
   end
 
-  defp owned_ledger(containers) do
-    Enum.reduce(containers.orb_transfers.incoming, containers.cooking_orbs, fn {id, request},
-                                                                               ledger ->
-      {:ok, records} = CookingOrbTransfers.records(request)
-      Map.put(ledger, id, records)
-    end)
-  end
+  defp owned_ledger(containers), do: CookingOrbs.owned_records(containers)
 
   defp publication(containers, existing, epoch) do
     ledger = owned_ledger(containers)
     counts = containers.orb_consumption.counts
 
-    active =
-      Map.new(ledger, fn {id, records} ->
-        records =
-          for {uuid, record} <- records,
-              left = record.count - Map.get(counts, uuid, 0),
-              left > 0,
-              into: %{},
-              do: {uuid, %{record | count: left}}
-
-        {id, records}
-      end)
+    active = CookingOrbBodies.project(containers)
 
     views =
       views(active, existing, epoch)
@@ -454,6 +445,7 @@ defmodule Valimc.World.CookingOrbRuntime do
       ledger: ledger,
       revision: containers.orb_transfers.revision,
       consumption_revision: containers.orb_consumption.revision,
+      body_revision: containers.orb_bodies.revision,
       retired: retired
     }
   end
@@ -466,6 +458,14 @@ defmodule Valimc.World.CookingOrbRuntime do
     {entries, bytes} =
       Enum.map_reduce(records, 0, fn {uuid, record}, size ->
         {id, view} = Map.get_lazy(by_uuid, uuid, fn -> view(uuid, record, epoch) end)
+
+        view =
+          if view.at != record.position do
+            {_, moved} = view(uuid, record, epoch, id)
+            %{moved | motion_revision: view.motion_revision + 1}
+          else
+            view
+          end
 
         cost =
           Enum.sum(
@@ -480,8 +480,10 @@ defmodule Valimc.World.CookingOrbRuntime do
     Map.new(entries)
   end
 
-  defp view(uuid, %{position: {x, y, z}, value: value, count: count}, epoch) do
-    id = System.unique_integer([:positive])
+  defp view(uuid, record, epoch),
+    do: view(uuid, record, epoch, System.unique_integer([:positive]))
+
+  defp view(uuid, %{position: {x, y, z}, value: value, count: count}, epoch, id) do
     entity = %{entity_id: id, uuid: uuid, x: x, y: y, z: z, on_ground: false}
 
     {id,
@@ -509,7 +511,7 @@ defmodule Valimc.World.CookingOrbRuntime do
   defp stamp(cs),
     do:
       {map_size(cs.pending_awards), map_size(cs.cooking_orbs), cs.orb_transfers.revision,
-       cs.orb_consumption.revision}
+       cs.orb_consumption.revision, cs.orb_bodies.revision}
 
   defp rotate(ids, nil), do: ids
 

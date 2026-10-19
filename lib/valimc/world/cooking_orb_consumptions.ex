@@ -1,16 +1,11 @@
 defmodule Valimc.World.CookingOrbConsumptions do
   @moduledoc "Append-only consumed-unit counters; creation/adoption records are never rewritten or resurrected."
-  alias Valimc.World.CookingOrbs
+  alias Valimc.World.{CookingOrbs, CookingOrbBodies}
   def new, do: %{revision: 0, counts: %{}}
   def max_bytes, do: 10 + CookingOrbs.max_records() * 20
 
   def births(containers) do
-    imported =
-      Map.new(containers.orb_transfers.incoming, fn {id, request} ->
-        {id, CookingOrbs.records(id, request.award)}
-      end)
-
-    awards = Map.merge(containers.cooking_orbs, imported)
+    awards = CookingOrbs.owned_records(containers)
     rows = for {_, records} <- awards, row <- records, do: row
     records = Map.new(rows)
     true = map_size(records) == length(rows) and length(rows) <= CookingOrbs.max_records()
@@ -18,8 +13,8 @@ defmodule Valimc.World.CookingOrbConsumptions do
   end
 
   def take(containers, uuid, value, consumed) do
-    with %{value: ^value, count: count} <- births(containers)[uuid],
-         true <- is_integer(consumed) and consumed >= 0 and consumed < count,
+    with %{value: ^value, count: count} when count > 0 <- CookingOrbBodies.fetch(containers, uuid),
+         true <- is_integer(consumed) and consumed >= 0,
          true <- Map.get(containers.orb_consumption.counts, uuid, 0) == consumed do
       ledger = containers.orb_consumption
 

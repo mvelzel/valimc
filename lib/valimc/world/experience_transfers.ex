@@ -1,6 +1,13 @@
 defmodule Valimc.World.ExperienceTransfers do
   @moduledoc "One XP-unit withdrawal shares container receipts; a player grant requires its exact durable proof."
-  alias Valimc.World.{ContainerRequest, ContainerTransfers, Containers, CookingOrbConsumptions}
+  alias Valimc.World.{
+    ContainerRequest,
+    ContainerTransfers,
+    Containers,
+    CookingOrbConsumptions,
+    CookingOrbBodies
+  }
+
   alias Valimc.Physics.{Box, ItemPickup}
 
   def contact?(box, {x, y, z}) do
@@ -26,9 +33,9 @@ defmodule Valimc.World.ExperienceTransfers do
              mode in [:survival, :adventure, :creative] and hp > 0 and
              now < expiry do
     with %{value: value, count: count, position: {x, y, z} = at} <-
-           CookingOrbConsumptions.births(containers)[request.orb_uuid],
+           CookingOrbBodies.fetch(containers, request.orb_uuid),
          true <- {floor(x), floor(y), floor(z)} == request.position,
-         true <- value == request.value and request.consumed < count,
+         true <- value == request.value and count > 0,
          true <-
            Map.get(containers.orb_consumption.counts, request.orb_uuid, 0) == request.consumed,
          do: contact?(box, at),

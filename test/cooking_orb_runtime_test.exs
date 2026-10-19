@@ -7,6 +7,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
     Containers,
     ContainerTransfers,
     CookingOrbRuntime,
+    CookingOrbBodies,
     Items,
     PendingCookingAwards,
     RegionData,
@@ -175,6 +176,81 @@ defmodule Valimc.CookingOrbRuntimeTest do
     state = start(installed)
     assert state.cooking_orbs.job == nil and start(state).cooking_orbs.job == nil
     RegionData.terminate(:shutdown, state)
+  end
+
+  test "stored poses preserve entity IDs and late publication cannot revive durably expired bodies",
+       ctx do
+    {:noreply, state} = seed(ctx) |> start() |> result() |> saved()
+    before = published(state)
+    [id] = Map.keys(state.containers.cooking_orbs)
+
+    decisions =
+      for {uuid, _} <- state.containers.cooking_orbs[id],
+          into: %{},
+          do: {uuid, {{0, 0, 0}, {0.2, 0.7, 0.9}}}
+
+    {:ok, p} = CookingOrbBodies.initialize(state.containers, ctx.key, id, decisions)
+    {:ok, cs, :applied} = CookingOrbBodies.install(state.containers, ctx.key, p)
+    {x, y, z} = ctx.position
+
+    updates =
+      for {uuid, row} <- cs.orb_bodies.awards[id],
+          into: %{},
+          do:
+            {uuid,
+             %{
+               expected_revision: row.revision,
+               position: {x + 20, y, z},
+               velocity: row.velocity,
+               age: 5999,
+               on_ground: true
+             }}
+
+    {:ok, p} = CookingOrbBodies.checkpoint(cs, ctx.key, updates)
+    {:ok, moved, :applied} = CookingOrbBodies.install(cs, ctx.key, p)
+    assert :ok = Store.flush_containers(state.store, state.store_lease, moved)
+    state = %{state | containers: moved} |> start() |> result()
+    after_move = published(state)
+    assert Map.keys(after_move) |> Enum.sort() == Map.keys(before) |> Enum.sort()
+
+    assert Enum.all?(after_move, fn {eid, v} ->
+             v.at == {x + 20, y, z} and
+               v.motion_revision > before[eid].motion_revision
+           end)
+
+    assert :ets.lookup(state.item_publication, {:orbs, Valimc.World.chunk_key(x, z)}) == []
+
+    # Start a valid refresh, then commit expiry before its old worker reply arrives.
+    state = put_in(state.cooking_orbs.body_revision, -1) |> start()
+
+    updates =
+      for {uuid, row} <- moved.orb_bodies.awards[id],
+          into: %{},
+          do:
+            {uuid,
+             %{
+               expected_revision: row.revision,
+               position: row.position,
+               velocity: row.velocity,
+               age: 6000,
+               on_ground: true
+             }}
+
+    {:ok, p} = CookingOrbBodies.checkpoint(moved, ctx.key, updates)
+    {:ok, expired, :applied} = CookingOrbBodies.install(moved, ctx.key, p)
+    assert :ok = Store.flush_containers(state.store, state.store_lease, expired)
+    state = result(%{state | containers: expired})
+    assert published(state) == after_move
+    state = put_in(state.cooking_orbs.retry_at, nil) |> start() |> result()
+
+    assert published(state) == %{} and
+             state.cooking_orbs.body_revision == expired.orb_bodies.revision
+
+    assert start(state).cooking_orbs.job == nil
+    RegionData.terminate(:shutdown, state)
+    cold = RegionData.load(ctx.key) |> start() |> result()
+    assert cold.containers == expired and published(cold) == %{} and disk(ctx) == expired
+    RegionData.terminate(:shutdown, cold)
   end
 
   test "late, failed and busy planning cannot publish or clobber another operation", ctx do

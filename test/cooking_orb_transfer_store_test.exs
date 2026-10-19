@@ -7,6 +7,9 @@ defmodule Valimc.CookingOrbTransferStoreTest do
     Containers,
     ContainerTransfers,
     CookingOrbTransfers,
+    CookingOrbs,
+    CookingOrbBodies,
+    CookingOrbConsumptions,
     ItemLedger,
     Items,
     MiningRecord,
@@ -113,6 +116,74 @@ defmodule Valimc.CookingOrbTransferStoreTest do
 
     assert :ok = Store.close(source_writer, source_lease)
     assert :ok = Store.close(dest_writer, dest_lease)
+  end
+
+  test "v8 imported launch/expiry survives lost ACK and all interrupted joint replacement subsets",
+       ctx do
+    [uuid] = Map.keys(CookingOrbs.records(ctx.id, ctx.request.award))
+
+    {:ok, p} =
+      CookingOrbBodies.initialize(ctx.adopted, ctx.dest, ctx.id, %{
+        uuid => {{0, 0, 0}, {0.2, 0.7, 0.9}}
+      })
+
+    {:ok, initialized, :applied} = CookingOrbBodies.install(ctx.adopted, ctx.dest, p)
+    {:ok, taken} = CookingOrbConsumptions.take(initialized, uuid, 3, 0)
+    row = taken.orb_bodies.awards[ctx.id][uuid]
+
+    updates = %{
+      uuid => %{
+        expected_revision: row.revision,
+        position: row.position,
+        velocity: row.velocity,
+        age: 6000,
+        on_ground: true
+      }
+    }
+
+    {:ok, p} = CookingOrbBodies.checkpoint(taken, ctx.dest, updates)
+    {:ok, expired, :applied} = CookingOrbBodies.install(taken, ctx.dest, p)
+    {writer, lease} = commit_and_crash(ctx.dest, expired)
+    assert {:ok, ^expired} = Store.load_containers(writer)
+    assert CookingOrbBodies.project(expired)[ctx.id] == %{}
+
+    assert {:ok, ^expired, :already_applied} =
+             CookingOrbTransfers.accept(expired, ctx.dest, ctx.request)
+
+    assert :ok = Store.close(writer, lease)
+
+    {rx, rz} = ctx.dest
+    pos = {rx * 128 + 2, 63, rz * 128 + 2}
+    edits = %{pos => 0}
+    {:ok, items} = ItemLedger.encode(ctx.dest, [], %{})
+    {:ok, before_cs} = Containers.encode(ctx.dest, ctx.adopted)
+    {:ok, after_cs} = Containers.encode(ctx.dest, expired)
+    {:ok, journal} = MiningRecord.encode(ctx.dest, edits, items, after_cs)
+
+    paths = [
+      Path.join(ctx.base, "r.#{rx}.#{rz}.etf"),
+      Store.item_path(ctx.base, ctx.dest),
+      Store.container_path(ctx.base, ctx.dest)
+    ]
+
+    for subset <- 0..7 do
+      before = [:erlang.term_to_binary({:valimc_region, 1, %{}}), items, before_cs]
+      after_bytes = [:erlang.term_to_binary({:valimc_region, 1, edits}), items, after_cs]
+
+      for {path, old, new, bit} <- Enum.zip([paths, before, after_bytes, [0, 1, 2]]),
+          do:
+            File.write!(
+              path,
+              if(Bitwise.band(subset, Bitwise.bsl(1, bit)) == 0, do: old, else: new)
+            )
+
+      File.write!(Store.mining_path(ctx.base, ctx.dest), journal)
+      {:ok, writer, lease} = Store.open(ctx.dest)
+      assert Store.load(writer) == edits
+      assert {:ok, ^expired} = Store.load_containers(writer)
+      assert CookingOrbBodies.project(expired)[ctx.id] == %{}
+      assert :ok = Store.close(writer, lease)
+    end
   end
 
   test "destination write failure leaves the source intent and prior destination bytes intact",

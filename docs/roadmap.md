@@ -149,7 +149,7 @@ conserve gold10/steak3/XP11 with source/typed35. These gates are closed.
 **Done within unused motion-kernel scope:** [VMC-034n4a](tickets/VMC-034n4a.md)
 at `7d0a946`: native56 launches/5,184 ticks/5 age boundaries,42 affected checks
 and actual smelt/XP/restart baseline pass, conserving XP12/source42. These gates
-are closed. Next: [mutable body storage/expiry](tickets/VMC-034n4b.md) within
+are closed. Active: [mutable body storage/expiry](tickets/VMC-034n4b.md) within
 [orb simulation](tickets/VMC-034n4.md); live motion/lifetime/moving handoff,
 Mending and processor-destruction XP remain separate. The parent earned-output
 ticket remains in progress; no full cooking/survival parity claim.

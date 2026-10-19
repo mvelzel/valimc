@@ -8,6 +8,14 @@ defmodule Valimc.World.CookingOrbs do
   def max_bytes, do: @max_bytes
   def max_records, do: @max_awards * length(@values)
 
+  @doc "Owned immutable birth sets, including canonical remote adoptions."
+  def owned_records(containers) do
+    Enum.reduce(containers.orb_transfers.incoming, containers.cooking_orbs, fn {id, request},
+                                                                               acc ->
+      Map.put(acc, id, records(id, request.award))
+    end)
+  end
+
   @doc "Native denomination histogram in eleven divisions, independent of XP magnitude."
   def split(amount) when is_integer(amount) and amount in 0..@max_experience do
     {groups, 0} =
