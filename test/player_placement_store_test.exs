@@ -1,5 +1,6 @@
 defmodule Valimc.PlayerPlacementStoreTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
   import ExUnit.CaptureLog
 
   alias Valimc.{

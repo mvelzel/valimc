@@ -15,6 +15,7 @@ end
 
 defmodule Valimc.OnlineConnectionTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
   alias Valimc.TestClient, as: Client
   alias Valimc.Protocol.{Data, Encryption, Wire}
   alias Valimc.{Connection, LoginKeys, Players}

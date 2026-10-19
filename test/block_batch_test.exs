@@ -1,5 +1,6 @@
 defmodule Valimc.BlockBatchTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
   alias Valimc.Protocol.{Data, Wire}
   alias Valimc.World
   alias Valimc.World.{BlockBatch, Region}

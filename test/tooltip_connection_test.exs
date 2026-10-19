@@ -1,5 +1,6 @@
 defmodule Valimc.TooltipConnectionTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
   alias Valimc.TestClient, as: Client
   alias Valimc.Protocol.{ItemStack, ItemTypes, TooltipDisplay, Wire}
   defp name, do: "Tip" <> Integer.to_string(System.unique_integer([:positive]))

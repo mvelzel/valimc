@@ -1,5 +1,6 @@
 defmodule Valimc.LoginRecoveryTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
   alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, PlayerTransfers, World}
   alias Valimc.World.{Region, Store}
   alias Valimc.Protocol.{Data, ItemStack, Wire}

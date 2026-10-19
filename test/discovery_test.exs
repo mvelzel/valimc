@@ -15,6 +15,7 @@ end
 
 defmodule Valimc.DiscoveryTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
   alias Valimc.Auth.{Discovery, DiscoveryDocument, DiscoverySupervisor, SessionService}
   alias Valimc.TestClient, as: Client
   @url "https://sessionserver.mojang.com/session/minecraft/hasJoined"

@@ -1,5 +1,6 @@
 defmodule Valimc.MenuOverflowTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
   alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players, World}
   alias Valimc.World.{ItemRecords, Items, Region, Store}
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}

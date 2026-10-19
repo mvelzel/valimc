@@ -1,5 +1,6 @@
 defmodule Valimc.ConnectionTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
   alias Valimc.TestClient, as: Client
   alias Valimc.Protocol.{Data, Wire}
   defp name(prefix), do: prefix <> Integer.to_string(System.unique_integer([:positive]))

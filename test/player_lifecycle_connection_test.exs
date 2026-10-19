@@ -1,5 +1,6 @@
 defmodule Valimc.PlayerLifecycleConnectionTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
   alias Valimc.{Connection, Inventory, PlayerHealth, PlayerSnapshot, Players, PlayerStore, World}
   alias Valimc.Protocol.{ItemStack, Packets, Wire}
   alias Valimc.TestClient, as: Client

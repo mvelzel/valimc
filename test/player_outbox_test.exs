@@ -1,5 +1,6 @@
 defmodule Valimc.PlayerOutboxTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
   alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, PlayerTransfers, World}
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.Region

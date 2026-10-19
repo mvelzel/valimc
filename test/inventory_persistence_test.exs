@@ -1,5 +1,6 @@
 defmodule Valimc.InventoryPersistenceTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
   alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players, World}
   alias Valimc.World.Items
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}

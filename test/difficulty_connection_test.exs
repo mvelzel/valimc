@@ -1,5 +1,6 @@
 defmodule Valimc.DifficultyConnectionTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
   alias Valimc.TestClient, as: Client
   alias Valimc.Protocol.{Data, Wire}
   alias Valimc.World.Clock

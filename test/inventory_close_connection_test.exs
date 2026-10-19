@@ -1,5 +1,6 @@
 defmodule Valimc.InventoryCloseConnectionTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
   alias Valimc.TestClient, as: Client
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   defp name, do: "Close" <> Integer.to_string(System.unique_integer([:positive]))

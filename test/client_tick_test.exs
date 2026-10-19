@@ -1,5 +1,6 @@
 defmodule Valimc.ClientTickTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
   alias Valimc.Protocol.{ClientTick, Data, Wire}
   alias Valimc.TestClient, as: Client
 

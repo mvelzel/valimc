@@ -1,5 +1,6 @@
 defmodule Valimc.InventoryConnectionTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
   alias Valimc.Inventory
   alias Valimc.TestClient, as: Client
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}

@@ -1,5 +1,6 @@
 defmodule Valimc.PlayerFoodConnectionTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
 
   alias Valimc.{
     Connection,

@@ -1,5 +1,6 @@
 defmodule Valimc.InitialStreamConnectionTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
   alias Valimc.{Players, Protocol.Data, Protocol.Wire}
   alias Valimc.TestClient, as: Client
   @chunks ~w(chunk_batch_start level_chunk_with_light chunk_batch_finished)

@@ -1,5 +1,6 @@
 defmodule Valimc.DisconnectedInventoryTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
   import ExUnit.CaptureLog
   alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players, World}
   alias Valimc.World.{ItemRecords, Items, Region, Store}

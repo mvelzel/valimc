@@ -1,5 +1,6 @@
 defmodule Valimc.PlayerFreezeDamageConnectionTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
 
   alias Valimc.{
     Connection,

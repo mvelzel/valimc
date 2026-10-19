@@ -1,5 +1,6 @@
 defmodule Valimc.TableInventoryRecoveryTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
 
   alias Valimc.{
     Connection,

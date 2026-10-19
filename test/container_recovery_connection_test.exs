@@ -1,5 +1,6 @@
 defmodule Valimc.ContainerRecoveryConnectionTest do
   use ExUnit.Case, async: false
+  @moduletag :tcp
 
   alias Valimc.{
     Connection,
