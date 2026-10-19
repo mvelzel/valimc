@@ -211,6 +211,15 @@ fn snapshot_chunk<'a>(env: Env<'a>, region: ResourceArc<Region>, cx: i32, cz: i3
     })
 }
 
+/// fsync a directory so a completed rename survives power loss (Erlang's `:file`
+/// cannot open directories). Runs on a dirty I/O scheduler.
+#[rustler::nif(schedule = "DirtyIo")]
+fn fsync_dir(path: String) -> Result<Atom, String> {
+    let dir = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+    dir.sync_all().map_err(|e| e.to_string())?;
+    Ok(atoms::ok())
+}
+
 #[rustler::nif]
 fn compact(region: ResourceArc<Region>) -> Result<Atom, Atom> {
     with_store(&region, |store| {
