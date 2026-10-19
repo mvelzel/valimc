@@ -2100,8 +2100,13 @@ defmodule Valimc.World.RegionData do
     |> Map.merge(%{
       cache: Map.drop(state.cache, batch.chunks),
       dirty: dirty or state.dirty,
-      # Raw (non-transfer) batches are persisted by the periodic save as cells.
-      unsaved: if(dirty, do: Map.merge(state.unsaved, proposal.changes), else: state.unsaved),
+      # Raw (non-transfer) batches are persisted by the periodic save as cells; a
+      # durable commit already logged its cells and supersedes older raw ones.
+      unsaved:
+        if(dirty,
+          do: Map.merge(state.unsaved, proposal.changes),
+          else: Map.drop(state.unsaved, Map.keys(proposal.changes))
+        ),
       mining_permits: MiningPermits.invalidate(state.mining_permits, batch.edits),
       container_permits:
         if(cooking,
