@@ -2,6 +2,8 @@ defmodule Valimc.Connection do
   use GenServer, restart: :temporary, shutdown: 15_000
 
   @moduledoc "A socket-owning process per player, including their protocol and connection-local state."
+  require Logger
+
   alias Valimc.Protocol.{
     ClientCommand,
     ClientTick,
@@ -19,6 +21,7 @@ defmodule Valimc.Connection do
   }
 
   alias Valimc.{
+    ChatThrottle,
     ChestAccess,
     CreativeInput,
     ConsumableRemoval,
@@ -243,8 +246,14 @@ defmodule Valimc.Connection do
           send(pid, {:event, event})
           :ok
         else
-          Metrics.add(:slow_clients_disconnected)
-          Process.exit(pid, :kill)
+          # First sender only: ask for a graceful stop (terminate/2 saves), and kill
+          # it if it is too stuck to handle the signal.
+          if :ets.insert_new(Valimc.OverloadedConnections, {pid}) do
+            Metrics.add(:slow_clients_disconnected)
+            Process.exit(pid, {:shutdown, :overloaded})
+            :timer.kill_after(5_000, pid)
+          end
+
           :overloaded
         end
 
@@ -277,6 +286,7 @@ defmodule Valimc.Connection do
        auth_job: nil,
        player: nil,
        client_tick: %ClientTick{},
+       chat_throttle: ChatThrottle.new(),
        player_store: nil,
        store_fence: nil,
        store_monitor: nil,
@@ -1387,11 +1397,32 @@ defmodule Valimc.Connection do
     guard_connection(state, fn -> {:noreply, event(state, event)} end)
   end
 
+  # Overload is signalled, not killed, so terminate/2 still saves and releases jobs.
+  def handle_info({:EXIT, _from, {:shutdown, :overloaded} = reason}, state),
+    do: {:stop, reason, state}
+
+  def handle_info({:EXIT, _from, :normal}, state), do: {:noreply, state}
+
+  def handle_info({:EXIT, _from, reason}, state),
+    do: {:stop, {:shutdown, {:linked_exit, reason}}, state}
+
+  def handle_info(message, state) do
+    Logger.warning("Connection ignored unexpected message: #{inspect(message, limit: 8)}")
+    {:noreply, state}
+  end
+
   defp guard_connection(state, work) do
     work.()
   rescue
-    _ ->
+    exception ->
+      # Malformed input and server defects both end the session; never silently.
       Metrics.add(:malformed_connections)
+
+      Logger.warning(
+        "Connection closed after exception: " <>
+          Exception.format(:error, exception, __STACKTRACE__)
+      )
+
       {:stop, :normal, state}
   catch
     {:disconnect, _reason, current} -> {:stop, :normal, current}
@@ -2484,12 +2515,13 @@ defmodule Valimc.Connection do
 
       "chat" ->
         {message, _metadata} = Wire.take_string(payload, 256)
+        state = throttle_chat(state)
         Players.broadcast({:chat, "<#{state.player.name}> #{message}"})
         state
 
       "chat_command" ->
         {command, <<>>} = Wire.take_string(payload, 256)
-        command(state, command)
+        state |> throttle_chat() |> command(command)
 
       nil ->
         reject(state, "Unknown packet ID")
@@ -2500,6 +2532,13 @@ defmodule Valimc.Connection do
   end
 
   defp handle_packet(state, _, _), do: reject(state, "Unexpected protocol state")
+
+  defp throttle_chat(state) do
+    case ChatThrottle.record(state.chat_throttle) do
+      {:ok, throttle} -> %{state | chat_throttle: throttle}
+      {:spam, _} -> reject(state, "Kicked for spamming")
+    end
+  end
 
   defp start_player_login(state, name, profile \\ nil) do
     mode = GameMode.new(Valimc.config(:default_game_mode))
@@ -2594,7 +2633,6 @@ defmodule Valimc.Connection do
           {pid, fence, player, inventory, pending}
 
         {:error, reason} ->
-          require Logger
           Logger.warning("Player state load failed: #{inspect(reason)}")
           reject(state, "Player save unavailable; please retry after storage is repaired")
       end
@@ -5743,7 +5781,6 @@ defmodule Valimc.Connection do
         )
       catch
         :exit, _ ->
-          require Logger
           Logger.error("Player state final save could not complete")
       end
     end

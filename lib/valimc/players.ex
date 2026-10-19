@@ -41,7 +41,11 @@ defmodule Valimc.Players do
     do: Valimc.World.region_key(Valimc.World.chunk_key(player.x, player.z))
 
   def broadcast(event, except \\ nil) do
-    for player <- all(), player.pid != except, do: Valimc.Connection.deliver(player.pid, event)
+    # Select only ready pids; copying every full player map would make chat O(N * state).
+    for pid <- :ets.select(__MODULE__, [{{:"$1", %{ready: true}}, [], [:"$1"]}]),
+        pid != except,
+        do: Valimc.Connection.deliver(pid, event)
+
     :ok
   end
 
@@ -54,6 +58,8 @@ defmodule Valimc.Players do
       read_concurrency: true,
       write_concurrency: true
     ])
+
+    :ets.new(Valimc.OverloadedConnections, [:named_table, :public, :set, write_concurrency: true])
 
     :ets.new(Valimc.SpatialIndex, [
       :named_table,
@@ -106,6 +112,7 @@ defmodule Valimc.Players do
 
   @impl true
   def handle_info({:DOWN, ref, :process, pid, _}, state) do
+    :ets.delete(Valimc.OverloadedConnections, pid)
     :ets.match_delete(Valimc.SpatialIndex, {:_, pid})
 
     case :ets.take(__MODULE__, pid) do
