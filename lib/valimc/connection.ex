@@ -312,7 +312,6 @@ defmodule Valimc.Connection do
        life_stage: :alive,
        respawn_requested: false,
        recovery: nil,
-       experience_job: nil,
        experience_after: System.monotonic_time(:millisecond),
        pickup_cursor: 0,
        creative_input: CreativeInput.new(creative_tick()),
@@ -558,6 +557,43 @@ defmodule Valimc.Connection do
     end)
   end
 
+  defp job_result(:experience, job, result, state) do
+    guard_connection(state, fn ->
+      with {:ok, request} <- result,
+           true <- experience_current?(state, job),
+           true <- Map.delete(request, :permit) == Map.delete(job.intent.request, :permit) do
+        state = cancel_experience_query(state)
+        ref = make_ref()
+        snapshot = PlayerSnapshot.capture(state.player, state.inventory)
+        intent = %{job.intent | request: request}
+
+        recovery = %{
+          new_recovery(:play, :prepare, nil)
+          | ref: ref,
+            plan: %{
+              key: intent.key,
+              records: [],
+              inventory: state.inventory,
+              intent: intent,
+              snapshot: snapshot
+            }
+        }
+
+        PlayerStore.prepare_container(
+          state.player_store,
+          state.store_fence,
+          snapshot,
+          intent,
+          ref
+        )
+
+        {:noreply, %{state | recovery: recovery}}
+      else
+        _ -> {:noreply, cancel_experience_query(state)}
+      end
+    end)
+  end
+
   defp job_down(:motion, _job, _reason, state),
     do:
       guard_connection(state, fn ->
@@ -573,7 +609,8 @@ defmodule Valimc.Connection do
   defp job_down(:mining, _job, _reason, state),
     do: guard_connection(state, fn -> {:noreply, cancel_mining(state)} end)
 
-  defp job_down(kind, _job, _reason, state) when kind in [:pose, :pickup], do: {:noreply, state}
+  defp job_down(kind, _job, _reason, state) when kind in [:pose, :pickup, :experience],
+    do: {:noreply, state}
 
   defp job_timeout(:motion, _job, state),
     do:
@@ -750,69 +787,20 @@ defmodule Valimc.Connection do
 
   defp info(
          {:container_candidate, ref, result},
-         %{experience_job: %{ref: ref, stage: :candidate} = job} = state
+         %{jobs: %{active: %{experience: %{ref: ref, stage: :candidate} = job}}} = state
        ) do
     guard_connection(state, fn ->
       with {:ok, intent} <- result,
            true <- experience_current?(state, job),
            {:ok, task} <- PlayerContainerQuery.start(job.owner, intent.request, job.actor) do
-        {:noreply, %{state | experience_job: %{job | task: task, intent: intent, stage: :admit}}}
+        jobs = Jobs.update(state.jobs, :experience, %{intent: intent, stage: :admit})
+        {jobs, _job} = Jobs.attach(jobs, :experience, task)
+        {:noreply, %{state | jobs: jobs}}
       else
         _ -> {:noreply, cancel_experience_query(state)}
       end
     end)
   end
-
-  defp info({ref, result}, %{experience_job: %{task: %Task{ref: ref}} = job} = state) do
-    Process.demonitor(ref, [:flush])
-    state = put_in(state.experience_job.task, nil)
-
-    guard_connection(state, fn ->
-      with {:ok, request} <- result,
-           true <- experience_current?(state, job),
-           true <- Map.delete(request, :permit) == Map.delete(job.intent.request, :permit) do
-        state = cancel_experience_query(state)
-        ref = make_ref()
-        snapshot = PlayerSnapshot.capture(state.player, state.inventory)
-        intent = %{job.intent | request: request}
-
-        recovery = %{
-          new_recovery(:play, :prepare, nil)
-          | ref: ref,
-            plan: %{
-              key: intent.key,
-              records: [],
-              inventory: state.inventory,
-              intent: intent,
-              snapshot: snapshot
-            }
-        }
-
-        PlayerStore.prepare_container(
-          state.player_store,
-          state.store_fence,
-          snapshot,
-          intent,
-          ref
-        )
-
-        {:noreply, %{state | recovery: recovery}}
-      else
-        _ -> {:noreply, cancel_experience_query(state)}
-      end
-    end)
-  end
-
-  defp info({:experience_deadline, ref}, %{experience_job: %{ref: ref}} = state),
-    do: {:noreply, cancel_experience_query(state)}
-
-  defp info({:experience_deadline, _}, state), do: {:noreply, state}
-
-  defp info(
-         {:DOWN, ref, :process, _, _},
-         %{experience_job: %{task: %Task{ref: ref}}} = state
-       ),
-       do: {:noreply, cancel_experience_query(state)}
 
   defp info(
          {:container_candidate, ref, result},
@@ -3908,7 +3896,7 @@ defmodule Valimc.Connection do
   defp start_experience_query(state, views) do
     now = System.monotonic_time(:millisecond)
 
-    if state.experience_job == nil and not Jobs.active?(state.jobs, :pickup) and
+    if not Jobs.active?(state.jobs, :experience) and not Jobs.active?(state.jobs, :pickup) and
          state.table_job == nil and
          state.table_queued == 0 and pickup_allowed?(state) and now >= state.experience_after do
       {:ok, actor} = PlayerPickupQuery.actor(state.player)
@@ -3951,18 +3939,20 @@ defmodule Valimc.Connection do
                 ref
               )
 
-              job = %{
-                ref: ref,
-                stage: :candidate,
-                owner: owner,
-                task: nil,
-                intent: nil,
-                signature: PlayerPickupQuery.signature(state.player),
-                actor: Map.put(actor, :expires, now + 500),
-                timer: Process.send_after(self(), {:experience_deadline, ref}, 500)
-              }
+              {jobs, _job} =
+                Jobs.track(state.jobs, :experience, nil,
+                  ref: ref,
+                  timeout: 500,
+                  data: %{
+                    stage: :candidate,
+                    owner: owner,
+                    intent: nil,
+                    signature: PlayerPickupQuery.signature(state.player),
+                    actor: Map.put(actor, :expires, now + 500)
+                  }
+                )
 
-              %{state | experience_job: job, experience_after: now + 100}
+              %{state | jobs: jobs, experience_after: now + 100}
 
             _ ->
               state
@@ -3975,26 +3965,19 @@ defmodule Valimc.Connection do
 
   defp experience_current?(state, job),
     do:
-      pickup_allowed?(%{state | experience_job: nil}) and not Jobs.active?(state.jobs, :pickup) and
+      pickup_allowed?(state, true) and not Jobs.active?(state.jobs, :pickup) and
         job.signature == PlayerPickupQuery.signature(state.player) and
         System.monotonic_time(:millisecond) < job.actor.expires
 
-  defp cancel_experience_query(%{experience_job: nil} = state), do: state
-
   defp cancel_experience_query(state) do
-    job = state.experience_job
-    Process.cancel_timer(job.timer)
-
-    if job.task do
-      Process.exit(job.task.pid, :kill)
-      Process.demonitor(job.task.ref, [:flush])
-    end
-
-    %{state | experience_job: nil}
+    {_job, jobs} = Jobs.cancel(state.jobs, :experience)
+    %{state | jobs: jobs}
   end
 
-  defp pickup_allowed?(state) do
-    state.experience_job == nil and state.phase == :play and state.life_stage == :alive and
+  # An experience query in flight blocks pickups unless it is the caller's own check.
+  defp pickup_allowed?(state, own_experience \\ false) do
+    (own_experience or not Jobs.active?(state.jobs, :experience)) and state.phase == :play and
+      state.life_stage == :alive and
       state.player.health.value > 0 and
       state.player.game_mode.current in [:survival, :adventure, :creative] and
       PlayerInput.loaded?(state.player.input) and not state.teleport_pending and
