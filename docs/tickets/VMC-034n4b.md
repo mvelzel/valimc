@@ -72,3 +72,19 @@ writes or per-orb processes are introduced.
 
 Next gate: dedicated stored-pose/expiry fixture and actual smelt/XP/restart
 acceptance on a frozen checkpoint; benchmark storage/projection while it runs.
+
+Boundary follow-up: reject more than11 launch draws/rows per award or256 candidate
+markers before traversing a proposal. Exhausted64-bit generations refuse without
+changing storage. Eight targeted checks pass(seed in `.local/orb-bodies-width.log`).
+
+Measurement at1aba4ee: `.local/orb-bodies-bench-1aba4ee.{exs,json,log}` retains
+source/script hashes, hardware,5 warmups/30 samples and matched one-recipe
+4,925-XP awards at1/64/256 markers. AppleM4/10 schedulers, shared host during GUI.
+At256 markers/2,816 records, snapshots are172,161 bytes legacy and408,749 bytes
+initialized. Active encode p50/p95 is4.94/7.26ms, cold publication10.35/14.47ms,
+and1,000 unchanged idle plans71/94µs. Fully expired publication is0.308/0.517ms
+with no views. One-row checkpoint+install costs20.22/26.67ms active and
+16.62/28.80ms with6/11 records expired. These full-storage checks belong off the
+simulation hot path; future frame updates need in-memory batches and a separate
+checkpoint cadence. Pure components exclude disk, geometry, network and live
+workload; no TPS/capacity/comparative claim.

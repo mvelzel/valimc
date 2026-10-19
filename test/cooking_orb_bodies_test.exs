@@ -312,6 +312,25 @@ defmodule Valimc.CookingOrbBodiesTest do
     assert expired.entries == full.entries and expired.orb_consumption == full.orb_consumption
   end
 
+  test "input widths and exhausted generations refuse before launch or transition work" do
+    {cs, id} = local(1)
+    decisions = for n <- 1..12, into: %{}, do: {<<n::128>>, {{0, 0, 0}, {0.5, 0.5, 0.5}}}
+    assert {:error, _} = CookingOrbBodies.initialize(cs, @key, id, decisions)
+    {cs, _} = init(cs, id)
+    too_many = for n <- 1..257, into: %{}, do: {<<n::256>>, %{}}
+    p = %{expected: CookingOrbBodies.fence(cs), bodies: %{revision: 2, awards: too_many}}
+    assert {:error, _} = CookingOrbBodies.install(cs, @key, p)
+    [uuid] = Map.keys(cs.orb_bodies.awards[id])
+    row = cs.orb_bodies.awards[id][uuid]
+    too_many = for n <- 1..12, into: %{}, do: {<<n::128>>, row}
+    p = %{p | bodies: %{revision: 2, awards: %{id => too_many}}}
+    assert {:error, _} = CookingOrbBodies.install(cs, @key, p)
+    exhausted = put_in(cs.orb_bodies.revision, 18_446_744_073_709_551_615)
+    assert {:ok, _} = Containers.encode(@key, exhausted)
+    assert {:error, _} = advance(exhausted, id, 1)
+    assert exhausted.orb_bodies.awards == cs.orb_bodies.awards
+  end
+
   defp fill(cs) do
     stack = fn size ->
       %{

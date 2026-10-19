@@ -9,7 +9,7 @@ defmodule Valimc.World.CookingOrbBodies do
   def fence(cs), do: {cs.orb_bodies.revision, cs.orb_consumption.revision}
 
   @doc "Pure launch proposal. Supply draws only for uncollected units; replay never resamples them."
-  def initialize(cs, key, id, decisions) when is_map(decisions) do
+  def initialize(cs, key, id, decisions) when is_map(decisions) and map_size(decisions) <= 11 do
     with {:ok, _} <- Containers.encode(key, cs),
          {:ok, births} <- Map.fetch(CookingOrbs.owned_records(cs), id) do
       if Map.has_key?(cs.orb_bodies.awards, id) do
@@ -104,9 +104,17 @@ defmodule Valimc.World.CookingOrbBodies do
   def checkpoint(_, _, _), do: invalid()
 
   @doc "Rebase only body state after its read fence matches. Call on a bounded worker before durable owner commit."
-  def install(cs, key, %{expected: expected, bodies: bodies} = proposal)
-      when map_size(proposal) == 2 do
+  def install(
+        cs,
+        key,
+        %{expected: expected, bodies: %{revision: revision, awards: awards} = bodies} = proposal
+      )
+      when map_size(proposal) == 2 and map_size(bodies) == 2 and is_map(awards) and
+             map_size(awards) <= 256 and is_integer(revision) and revision in 0..@max do
     cond do
+      not Enum.all?(awards, fn {_, rows} -> is_map(rows) and map_size(rows) <= 11 end) ->
+        invalid()
+
       cs.orb_bodies === bodies ->
         {:ok, cs, :already_applied}
 
@@ -213,7 +221,10 @@ defmodule Valimc.World.CookingOrbBodies do
     parts =
       Enum.map(Enum.sort(awards), fn {<<_::256>> = id, rows} ->
         expected = Map.fetch!(births, id)
-        true = is_map(rows) and MapSet.new(Map.keys(rows)) == MapSet.new(Map.keys(expected))
+
+        true =
+          is_map(rows) and map_size(rows) <= 11 and
+            MapSet.new(Map.keys(rows)) == MapSet.new(Map.keys(expected))
 
         data =
           Enum.map(Enum.sort(rows), fn {<<_::128>> = uuid, row} ->
