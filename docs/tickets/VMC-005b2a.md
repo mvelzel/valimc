@@ -1,7 +1,7 @@
 # VMC-005b2a — Bounded quick-craft transactions
 
-Status: Awaiting client
-Note: Awaiting sustained client gesture validation. Updated: October 14, 2026. Depends on VMC-005b1. Publishing this checkpoint with the explicit request to push all work to `main`; the pending gesture gate is not marked Done.
+Status: Done
+Note: Client-generated multi-slot drags validated October 20, 2026 at `220dea1`. Depends on VMC-005b1.
 
 ## Scope and acceptance
 
@@ -99,3 +99,11 @@ passive trace disabled, exact original worn-tool inventory/pose restored.
 Source 25/outboxnil and all 41 exact records/receipts25/10/6/9 unchanged. Evidence,
 actions and precise limits:
 `.local/client-tests/VMC-005b2a/retry-20261016/report.md`.
+
+October 20 client validation (PASS, `220dea1`, frozen release, survival dataset):
+in an ordinary survival menu a real left-drag of 8 dirt over 3 slots gave 2/2/2
+with 2 on the cursor and a right-drag of those 2 over 2 slots gave 1/1; the
+layout survived close/reopen and a fresh-client reconnect. Creative-screen drags
+(64 over 5 gave 12 each, 4 remaining; right-drag one each) also matched vanilla.
+A survival middle-click changed nothing. Server and client logs were clean.
+Evidence: `.local/client-tests/M1-items/` runs 03 and 04.

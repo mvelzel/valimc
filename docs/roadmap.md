@@ -54,11 +54,11 @@ model. Additional status effects and container variants wait for M1.
 
 | Ticket | Remaining gate |
 |---|---|
-| [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag |
-| [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill |
+| [VMC-005b2c](tickets/VMC-005b2c.md) | Server CLONE/type-2 fill from a creative container menu (VMC-032) |
 
 The M1 client baseline (join, terrain, building, chest, furnace, reconnect,
 restart, survival mining) passed on `68c98da`; see [VMC-062](tickets/VMC-062.md).
+Item group commit (VMC-063 step 4a) passed its client check on `220dea1`.
 
 ## Retrieve and update
 

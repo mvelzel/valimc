@@ -180,3 +180,4 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-029a3](../tickets/VMC-029a3.md) | `a696a61`; native full-state base removal, wet atomic recovery and actual wet/dry creative removal/reconnect; fluid spreading/block callbacks remain separate |
 | [VMC-062](../tickets/VMC-062.md) | `959dcfc`; Rust paletted section storage replaces the edit map; byte-identical chunk packets; M1 client baseline at `68c98da` |
 | [VMC-065](../tickets/VMC-065.md) | `959dcfc`; owner-published chunk snapshots for lock-free collision reads; partitioned collision pool; M1 client baseline at `68c98da` |
+| [VMC-005b2a](../tickets/VMC-005b2a.md) | `220dea1`; client-generated left-even/right-one multi-slot drags in an ordinary survival menu, persisted across reconnect |

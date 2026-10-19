@@ -1,7 +1,7 @@
 # VMC-005b2c — Authoritative creative clone and fill
 
 Status: Awaiting client
-Note: Awaiting client-generated clone/fill validation. Updated: October 14, 2026. Depends on VMC-005b1/005b2a. Its automated checkpoint was published through main `61e6677` on October 14 with this gate pending. Actual clone/fill validation remains required before declaring Done.
+Note: Awaiting client-generated clone/fill validation. Updated: October 20, 2026. Depends on VMC-005b1/005b2a. Its automated checkpoint was published through main `61e6677` on October 14 with this gate pending. Actual clone/fill validation remains required before declaring Done.
 
 ## Scope and acceptance
 
@@ -100,3 +100,10 @@ ordinary middle-click without permission emits no server request. Neither proves
 server CLONE. A real generic creative container (VMC-032) and held type-2 motion
 remain required. State restored/logs clean; gate pending. Evidence:
 `.local/client-tests/VMC-005b2c/retry-20261015/report.md`.
+
+October 20 client run (`220dea1`): creative-screen middle-click clone (1 to 64)
+and middle-drag fill (12 to 64 each over 4 slots) matched vanilla and persisted
+across reconnect, but the creative screen sends creative slot writes, not CLONE
+or quick-craft type-2 container clicks. The server path still needs an ordinary
+container menu in creative (VMC-032); gate pending. Evidence:
+`.local/client-tests/M1-items/` runs 01 and 02.
