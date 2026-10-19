@@ -67,3 +67,14 @@ stay intact. Vanilla drops the contents and the stored recipe experience, which
 needs the occupied spill plus cooking orbs (VMC-034n4c). Copper chests and barrels
 place as plain blocks without container records; a copper chest renders invisible
 after reconnect because its chunk carries no block entity.
+
+Container-variant refusal (October 20): `BlockEntityOracle` records the 4,743
+pinned block-entity states (`priv/physics/block_entities.json`, stage
+`block_entities`). Owner block proposals (placement and batch commits) refuse
+any that is not a single chest or furnace-family state
+(`:unsupported_block_entity`), and the creative preview no longer writes them,
+so copper chests, barrels and other container variants are corrected with no
+shell or item loss until M1. Survival already corrected them. Raw `set_block`
+stays a fixture/admin tool. `test/unsupported_block_entity_test.exs` covers both
+modes plus unchanged chest/furnace placement; 190 affected and 1,008 fast checks
+pass. No client re-run yet.

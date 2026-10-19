@@ -2067,9 +2067,17 @@ defmodule Valimc.World.RegionData do
   end
 
   defp block_proposal(state, batch, removed \\ []) do
-    if protected_container_change?(state, batch.edits, removed),
-      do: {:error, :occupied_container},
-      else: build_block_proposal(state, batch)
+    cond do
+      protected_container_change?(state, batch.edits, removed) ->
+        {:error, :occupied_container}
+
+      # Without an owned record the block would be an empty, invisible shell.
+      Enum.any?(batch.edits, fn {_, block} -> Valimc.Physics.BlockEntities.unsupported?(block) end) ->
+        {:error, :unsupported_block_entity}
+
+      true ->
+        build_block_proposal(state, batch)
+    end
   end
 
   defp build_block_proposal(state, batch) do

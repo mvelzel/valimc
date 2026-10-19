@@ -368,6 +368,10 @@ STAGES = [
         ('check', 'check_chest_block_entity.exs', '@chest-entities.json', '@chest-chunks.json'),
         ('java', 'ChestBlockEntityOracle', '@chest-entities.json', '@chest-chunks.json'),
     ]),
+    ('block_entities', [
+        ('java', 'BlockEntityOracle', '@block-entities.json'),
+        ('same', '@block-entities.json', 'priv/physics/block_entities.json'),
+    ]),
     ('chest_opening', [
         ('java', 'ChestOpeningOracle', '@chest-opening.json'),
         ('check', 'check_chest_opening.exs', '@chest-opening.json'),
