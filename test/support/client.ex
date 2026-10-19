@@ -132,6 +132,12 @@ defmodule Valimc.TestClient do
     })
   end
 
+  def auto_reply(client, :play, "set_experience", <<progress::float-32, rest::binary>>) do
+    {level, rest} = Wire.take_varint(rest)
+    {total, <<>>} = Wire.take_varint(rest)
+    Map.put(client, :experience, %{level: level, progress: progress, total: total})
+  end
+
   def auto_reply(client, :play, "set_held_slot", body) do
     {slot, <<>>} = Wire.take_varint(body)
     Map.put(client, :selected, slot)

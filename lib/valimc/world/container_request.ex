@@ -7,10 +7,13 @@ defmodule Valimc.World.ContainerRequest do
   @max_sequence 18_446_744_073_709_551_615
   @contents_bytes 524_288
   @header_bytes 95
-  @max_bytes @header_bytes + 2 * @contents_bytes
+  @max_bytes @header_bytes + 2 * @contents_bytes + 239
   @actions %{pickup: 0, quick_move: 1, swap: 2}
   @kinds {:furnace, :smoker, :blast_furnace}
   def max_bytes, do: @max_bytes
+
+  def encode(key, %{kind: :experience} = request),
+    do: Valimc.World.ExperienceRequest.encode(key, request)
 
   def encode(
         {rx, rz} = key,
@@ -27,7 +30,7 @@ defmodule Valimc.World.ContainerRequest do
           button: button
         } = request
       )
-      when map_size(request) == 11 and is_integer(sequence) and sequence in 1..@max_sequence and
+      when map_size(request) in [11, 12] and is_integer(sequence) and sequence in 1..@max_sequence and
              is_integer(revision) and revision in 1..@max_sequence do
     with {:ok, version, tag} <- layout(request, key, position),
          {:ok, _slots, _inventory} <- plan(request),
@@ -35,13 +38,15 @@ defmodule Valimc.World.ContainerRequest do
          storage_bytes = encode_cells(Tuple.to_list(slots)),
          inventory_bytes =
            encode_cells(Enum.map(1..45, &Inventory.get(inventory, &1)) ++ [inventory.carried]),
-         {:ok, code} <- Map.fetch(@actions, action) do
+         {:ok, code} <- Map.fetch(@actions, action),
+         {:ok, award} <- award_bytes(request, version) do
       {:ok,
        <<"VMCCREQ", version, 5023::32, rx::signed-32, rz::signed-32, source::binary-size(16),
          sequence::64, permit::binary-size(16), x::signed-32, y::signed-32, z::signed-32,
          revision::64, tag, code, slot::signed-16, button::signed-8, inventory.selected,
          if(inventory.infinite_materials, do: 1, else: 0), byte_size(storage_bytes)::32,
-         byte_size(inventory_bytes)::32, storage_bytes::binary, inventory_bytes::binary>>}
+         byte_size(inventory_bytes)::32, storage_bytes::binary, inventory_bytes::binary,
+         award::binary>>}
     else
       _ -> invalid()
     end
@@ -52,6 +57,9 @@ defmodule Valimc.World.ContainerRequest do
   end
 
   def encode(_, _), do: invalid()
+
+  def decode(<<"VMCXPICK", _::binary>> = bytes, key),
+    do: Valimc.World.ExperienceRequest.decode(bytes, key)
 
   def decode(bytes, {rx, rz} = key)
       when is_binary(bytes) and
@@ -65,7 +73,8 @@ defmodule Valimc.World.ContainerRequest do
     true = selected in 0..8 and infinite in [0, 1]
     true = storage_size in 1..@contents_bytes and inventory_size in 1..@contents_bytes
 
-    <<storage_bytes::binary-size(^storage_size), inventory_bytes::binary-size(^inventory_size)>> =
+    <<storage_bytes::binary-size(^storage_size), inventory_bytes::binary-size(^inventory_size),
+      award_bytes::binary>> =
       rest
 
     {storage, <<>>} = take_cells(storage_bytes, count, [])
@@ -102,6 +111,15 @@ defmodule Valimc.World.ContainerRequest do
     }
 
     request = Map.put(request, layout_key, layout_value)
+
+    request =
+      if version == 3 do
+        {:ok, award} = Valimc.World.CookingAwardRequest.decode(award_bytes)
+        Map.put(request, :award, award)
+      else
+        <<>> = award_bytes
+        request
+      end
 
     {:ok, ^bytes} = encode(key, request)
     {:ok, request}
@@ -156,9 +174,22 @@ defmodule Valimc.World.ContainerRequest do
 
   def matches_entry?(_, _), do: false
 
+  defp award_bytes(%{award: award}, 3), do: Valimc.World.CookingAwardRequest.encode(award)
+
+  defp award_bytes(request, version) when version in [1, 2] and map_size(request) == 11,
+    do: {:ok, <<>>}
+
+  defp award_bytes(_, _), do: invalid()
+
   defp layout(%{rows: rows}, key, position) do
     with {:ok, _, _} <- Containers.create(%Containers{}, key, position, rows),
          do: {:ok, 1, rows}
+  end
+
+  defp layout(%{kind: kind, award: award}, key, position) do
+    with {:ok, _, _} <- Containers.create_cooking(%Containers{}, key, position, kind),
+         {:ok, _} <- Valimc.World.CookingAwardRequest.encode(award),
+         do: {:ok, 3, Enum.find_index(Tuple.to_list(@kinds), &(&1 == kind))}
   end
 
   defp layout(%{kind: kind}, key, position) do
@@ -168,7 +199,9 @@ defmodule Valimc.World.ContainerRequest do
 
   defp layout(_, _, _), do: invalid()
   defp decode_layout(1, rows) when rows in 1..6, do: {:rows, rows, rows * 9}
-  defp decode_layout(2, kind) when kind in 0..2, do: {:kind, elem(@kinds, kind), 3}
+
+  defp decode_layout(version, kind) when version in [2, 3] and kind in 0..2,
+    do: {:kind, elem(@kinds, kind), 3}
 
   defp valid_inventory?(%Inventory{
          slots: slots,

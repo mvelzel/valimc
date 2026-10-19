@@ -5,6 +5,14 @@ defmodule Valimc.PlayerContainerIntent do
   def max_bytes, do: 8 + ContainerRequest.max_bytes()
 
   def bind(
+        %{kind: :container, key: _, request: %{kind: :experience} = request} = intent,
+        snapshot
+      ) do
+    with {:ok, request} <- Valimc.World.ExperienceRequest.bind(request, snapshot),
+         do: {:ok, %{intent | request: request}}
+  end
+
+  def bind(
         %{kind: :container, key: key, request: request} = intent,
         %{inventory: %Inventory{} = inventory, game_mode: %GameMode{current: mode}}
       )
@@ -33,14 +41,27 @@ defmodule Valimc.PlayerContainerIntent do
       )
       when map_size(intent) == 3 do
     with {:ok, bytes} <- ContainerRequest.encode(key, request),
-         do: {:ok, <<"VMCCOUT", 1, bytes::binary>>}
+         do:
+           {:ok, <<"VMCCOUT", if(request[:kind] == :experience, do: 2, else: 1), bytes::binary>>}
   end
 
   def encode(_, _, _), do: {:error, :invalid_container_intent}
 
+  def decode(
+        uuid,
+        sequence,
+        <<"VMCCOUT", 2, "VMCXPICK", 1, 5023::32, rx::signed-32, rz::signed-32, rest::binary>>
+      ) do
+    bytes = <<"VMCXPICK", 1, 5023::32, rx::signed-32, rz::signed-32, rest::binary>>
+
+    with {:ok, %{source: ^uuid, sequence: ^sequence} = request} <-
+           ContainerRequest.decode(bytes, {rx, rz}),
+         do: {:ok, %{kind: :container, key: {rx, rz}, request: request}}
+  end
+
   def decode(uuid, sequence, <<"VMCCOUT", 1, bytes::binary>>) do
     <<"VMCCREQ", version, 5023::32, rx::signed-32, rz::signed-32, _::binary>> = bytes
-    true = version in [1, 2]
+    true = version in [1, 2, 3]
 
     with {:ok, %{source: ^uuid, sequence: ^sequence} = request} <-
            ContainerRequest.decode(bytes, {rx, rz}) do
@@ -61,6 +82,14 @@ defmodule Valimc.PlayerContainerIntent do
   end
 
   def request(_, _, _), do: {:error, :invalid_container_intent}
+
+  def inventory_result(
+        %{request: %{kind: :experience} = request},
+        %{inventory: inventory} = snapshot
+      ) do
+    with {:ok, ^request} <- Valimc.World.ExperienceRequest.bind(request, snapshot),
+         do: {:ok, inventory}
+  end
 
   def inventory_result(%{key: key, request: request} = intent, %{
         inventory: %Inventory{} = inventory

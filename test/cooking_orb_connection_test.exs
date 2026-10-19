@@ -85,7 +85,7 @@ defmodule Valimc.CookingOrbConnectionTest do
           source,
           1,
           digest,
-          {pose.x, 64.5, pose.z},
+          {pose.x + 4.0, 64.5, pose.z},
           award
         )
 

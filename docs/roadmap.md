@@ -141,10 +141,11 @@ full restart; source/typed24 reconciles). **Done within initial remote-spawn sco
 `5cb237f`):84 affected owner/TCP checks and all five dedicated client scenarios
 pass. Boundary contact, both owner replacements, duplicate replay and full restart
 retain exact ledgers/4,934 owned XP; source/typed24 reconciles. These gates are closed.
-Next: [authoritative orb simulation](tickets/VMC-034n4.md), starting with native
-motion/lifetime kernels, then mutable bodies/terminal receipts and live scheduling.
-Pickup/player XP remain open.
-Live XP/recipe delivery and earned-output withdrawal remain gated.
+Active: [furnace output to collected XP](tickets/VMC-034n5.md), prioritizing durable
+consumption/player XP/recipe grants and earned-output admission before broader
+[orb simulation](tickets/VMC-034n4.md). The vertical runtime passes targeted/native
+checks; actual-client acceptance is pending. Motion/lifetime/moving handoff,
+Mending and processor-destruction XP remain separate.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

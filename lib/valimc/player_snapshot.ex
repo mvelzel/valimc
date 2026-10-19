@@ -23,12 +23,17 @@ defmodule Valimc.PlayerSnapshot do
                 )
   @max_sequence 18_446_744_073_709_551_615
   @max_bytes 56 + 4 + 3 + 8 + 4 + 24 + 12 + 8 + 13 + 2 + 11 + @inventory_bytes + @outbox_bytes +
-               32 + 1 + 5 + 1 + PlayerEffects.max_bytes() + 5
+               32 + 1 + 5 + 1 + PlayerEffects.max_bytes() + 5 + 27
 
   def max_bytes, do: @max_bytes
 
   def capture(player, %Inventory{} = inventory) do
     snapshot = %{pose: PlayerStore.pose(player), inventory: inventory}
+
+    snapshot =
+      if Map.has_key?(player, :progression),
+        do: Map.put(snapshot, :progression, player.progression),
+        else: snapshot
 
     snapshot =
       if Map.has_key?(player, :absorption),
@@ -294,6 +299,14 @@ defmodule Valimc.PlayerSnapshot do
         {version, journal}
       end
 
+    {version, journal} =
+      if Map.has_key?(snapshot, :progression) do
+        {:ok, progression} = Valimc.PlayerProgression.encode(snapshot.progression)
+        {21, [<<version>>, progression, journal]}
+      else
+        {version, journal}
+      end
+
     payload =
       IO.iodata_to_binary([
         <<"VMCPOSE", version, uuid::binary-size(16), pose.x::float-64, pose.y::float-64,
@@ -317,6 +330,17 @@ defmodule Valimc.PlayerSnapshot do
     payload_bytes = byte_size(bytes) - 32
     <<payload::binary-size(^payload_bytes), checksum::binary-size(32)>> = bytes
     check(:crypto.hash(:sha256, payload) == checksum, :invalid_player_file)
+
+    {payload, progression} =
+      case payload do
+        <<"VMCPOSE", 21, header::binary-size(52), base, bytes::binary-size(26), body::binary>>
+        when base in 2..20 ->
+          {:ok, progression} = Valimc.PlayerProgression.decode(bytes)
+          {<<"VMCPOSE", base, header::binary, body::binary>>, %{progression: progression}}
+
+        _ ->
+          {payload, %{}}
+      end
 
     {payload, absorption} =
       case payload do
@@ -362,10 +386,16 @@ defmodule Valimc.PlayerSnapshot do
           {payload, nil, 0}
       end
 
-    case decode_payload(payload, uuid, table_bytes, table_inputs) do
+    case decode_payload(payload, uuid, table_bytes, table_inputs, progression) do
       {:ok, snapshot} ->
         snapshot = put_in(snapshot.inventory.table_inputs, table_inputs)
-        {:ok, snapshot |> Map.merge(burning) |> Map.merge(effects) |> Map.merge(absorption)}
+
+        {:ok,
+         snapshot
+         |> Map.merge(burning)
+         |> Map.merge(effects)
+         |> Map.merge(absorption)
+         |> Map.merge(progression)}
 
       error ->
         error
@@ -378,7 +408,7 @@ defmodule Valimc.PlayerSnapshot do
 
   def decode(_, _), do: {:error, :invalid_player_file}
 
-  defp decode_payload(payload, uuid, table_bytes, table_inputs) do
+  defp decode_payload(payload, uuid, table_bytes, table_inputs, progression) do
     case payload do
       <<"VMCPOSE", 1, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
         yaw::float-32, pitch::float-32>> ->
@@ -549,6 +579,7 @@ defmodule Valimc.PlayerSnapshot do
         check(
           version != 20 or
             PlayerContainerIntent.matches_snapshot?(snapshot.outbox, %{
+              progression: Map.get(progression, :progression),
               inventory: %{snapshot.inventory | table_inputs: table_inputs},
               game_mode: mode
             }),

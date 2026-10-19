@@ -52,6 +52,10 @@ if name == 'ChestSoundOracle':
     sources += [str(root / 'scripts' / (source + '.java')) for source in ('ChestViewOracle', 'MiningToolOracle')]
 if name in ('CookingFuelOracle', 'CookingItemsOracle', 'CookingRecipesOracle', 'CookingTickOracle', 'CookingLootOracle', 'CookingOpeningOracle', 'CookingExperienceOracle'):
     sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
+if name == 'CookingRecipeBookOracle':
+    sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
+if name == 'PlayerExperienceOracle':
+    sources.append(str(root / 'scripts' / 'MiningToolOracle.java'))
 if name == 'ExperienceOrbOracle':
     sources += [str(root / 'scripts' / (source + '.java')) for source in ('CookingExperienceOracle', 'MiningToolOracle')]
 if name == 'CookingPlacementOracle':

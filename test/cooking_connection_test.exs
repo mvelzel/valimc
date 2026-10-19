@@ -259,26 +259,51 @@ defmodule Valimc.CookingConnectionTest do
              14
   end
 
-  test "XP-bearing output refusal seals a terminal decision without losing items or recipe uses",
-       ctx do
-    cooking = %Valimc.Cooking{slots: {nil, nil, ItemStack.new("iron_ingot", 3)}}
-    recipes = %{"minecraft:iron_ingot_from_smelting_raw_iron" => 3}
-    seed(ctx, :furnace, :survival, cooking, recipes)
-    before = stored(ctx).entries[ctx.position]
-    {client, pid} = login(ctx)
-    {client, _} = open(client, ctx, :furnace)
-    send_click(client, 2)
-    client = content(client)
+  for {kind, recipe, item} <- [
+        {:furnace, "minecraft:gold_ingot_from_smelting_raw_gold", "gold_ingot"},
+        {:smoker, "minecraft:cooked_beef_from_smoking", "cooked_beef"},
+        {:blast_furnace, "minecraft:gold_ingot_from_blasting_raw_gold", "gold_ingot"}
+      ],
+      action <- ["pickup", "quick_move"] do
+    @tag xp_kind: kind, xp_recipe: recipe, xp_item: item, xp_action: action
+    test "#{kind} #{action} output clears uses, learns its recipe and collects durable XP", ctx do
+      %{xp_kind: kind, xp_recipe: recipe, xp_item: item, xp_action: action} = ctx
+      cooking = %Valimc.Cooking{slots: {nil, nil, ItemStack.new(item, 3)}}
+      seed(ctx, kind, :survival, cooking, %{recipe => 3})
+      {client, pid} = login(ctx)
+      {client, _} = open(client, ctx, kind)
+      send_click(client, 2, 0, action)
 
-    wait(fn ->
-      state = :sys.get_state(pid)
-      state.recovery == nil and state.table_job == nil and saved(ctx).transfer_sequence == 1
-    end)
+      wait(fn ->
+        cs = stored(ctx)
 
-    assert :sys.get_state(pid).inventory.carried == nil
-    assert stored(ctx).entries[ctx.position] == before
-    assert saved(ctx).outbox == nil and stored(ctx).receipts[ctx.uuid].sequence == 1
-    _client = close(client, pid)
+        cs.entries[ctx.position].recipes == %{} and map_size(cs.pending_awards) == 1 and
+          :sys.get_state(pid).recovery == nil
+      end)
+
+      [{_, decision}] = Map.to_list(stored(ctx).pending_awards)
+      amount = decision.award.experience
+      assert amount in 1..3
+      wait(fn -> :sys.get_state(pid).player.progression.experience.total == amount end)
+      player = :sys.get_state(pid)
+      assert MapSet.member?(player.player.progression.recipes, recipe)
+      assert elem(stored(ctx).entries[ctx.position].cooking.slots, 2) == nil
+
+      if action == "pickup",
+        do: assert(player.inventory.carried == ItemStack.new(item, 3)),
+        else:
+          assert(Enum.any?(player.inventory.slots, fn {_, s} -> s == ItemStack.new(item, 3) end))
+
+      assert stored(ctx).orb_consumption.revision > 0
+      assert saved(ctx).outbox == nil
+      assert saved(ctx).progression.experience.total == amount
+      assert saved(ctx).transfer_sequence == stored(ctx).receipts[ctx.uuid].sequence
+      # An empty result cannot clear credit or create another decision.
+      client = content(client, fn inv -> Enum.at(inv.items, 2) == nil end)
+      send_click(client, 2, 0, action)
+      _client = close(client, pid)
+      assert map_size(stored(ctx).pending_awards) == 1
+    end
   end
 
   test "shared cooking views refresh exactly once and spectators cannot exchange", ctx do

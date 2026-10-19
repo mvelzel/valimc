@@ -34,11 +34,33 @@ defmodule Valimc.PlayerContainerTransfers do
          {:ok, inventory} <- PlayerContainerIntent.inventory_result(intent, snapshot) do
       inventory = if result == :applied, do: inventory, else: snapshot.inventory
       inventory = %{inventory | infinite_materials: snapshot.game_mode.current == :creative}
-      {:ok, %{snapshot | inventory: inventory, outbox: nil}}
+      next = %{snapshot | inventory: inventory, outbox: nil}
+
+      if result == :applied do
+        progress(next, request)
+      else
+        {:ok, next}
+      end
     end
   end
 
   def resolve(_, _, _), do: {:error, :invalid_container_plan}
+
+  defp progress(snapshot, %{kind: :experience, value: value}) do
+    with {:ok, xp} <- Valimc.PlayerExperience.give(snapshot.progression.experience, value),
+         do: {:ok, put_in(snapshot.progression.experience, xp)}
+  end
+
+  defp progress(snapshot, %{award: %{recipes: recipes}}) do
+    with {:ok, progression} <-
+           Valimc.PlayerProgression.learn(
+             Map.get(snapshot, :progression, %Valimc.PlayerProgression{}),
+             recipes
+           ),
+         do: {:ok, Map.put(snapshot, :progression, progression)}
+  end
+
+  defp progress(snapshot, _), do: {:ok, snapshot}
 
   defp assign_source(%{request: request} = intent, uuid, sequence) do
     if Map.get(request, :source, uuid) == uuid and

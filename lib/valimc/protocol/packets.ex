@@ -208,6 +208,16 @@ defmodule Valimc.Protocol.Packets do
     )
   end
 
+  def experience(%Valimc.PlayerExperience{} = xp) do
+    true = Valimc.PlayerExperience.valid?(xp)
+
+    packet("set_experience", [
+      <<xp.progress::float-32>>,
+      Wire.varint(xp.level),
+      Wire.varint(xp.total)
+    ])
+  end
+
   def health(health \\ %Valimc.PlayerHealth{}, food \\ %Valimc.PlayerFood{}) do
     unless Valimc.PlayerHealth.valid?(health) and Valimc.PlayerFood.valid?(food),
       do: raise(ArgumentError, "invalid health/food")

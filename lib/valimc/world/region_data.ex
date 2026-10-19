@@ -1064,7 +1064,12 @@ defmodule Valimc.World.RegionData do
 
           eligible = eligible and container_block_matches?(request, block)
 
-          case ContainerTransfers.plan(reserved, key, request, eligible) do
+          plan =
+            if request[:kind] == :experience,
+              do: Valimc.World.ExperienceTransfers.plan(reserved, key, request, eligible),
+              else: ContainerTransfers.plan(reserved, key, request, eligible)
+
+          case plan do
             {:ok, decision} -> {:ok, Map.put(decision, :permits, permits)}
             error -> error
           end
@@ -1084,8 +1089,7 @@ defmodule Valimc.World.RegionData do
             request = %{request | permit: :crypto.strong_rand_bytes(16)}
 
             with {:ok, digest} <- ContainerRequest.digest(key, request),
-                 {:ok, entry} <- Valimc.World.Containers.observe(containers, request.position),
-                 true <- ContainerRequest.matches_entry?(request, entry),
+                 true <- container_admission_matches?(containers, request, actor),
                  {:ok, reserved, _} <- ContainerTransfers.reserve(containers, request.source),
                  {:ok, _} <- Valimc.World.Containers.encode(key, reserved),
                  do: {:ok, %{containers: reserved, result: {:admitted, request, digest}}},
@@ -1501,6 +1505,18 @@ defmodule Valimc.World.RegionData do
   defp container_position(%{position: position}), do: position
   defp container_position(_), do: nil
 
+  defp container_access(_state, %{kind: :experience, source: source}, %{
+         uuid: source,
+         game_mode: %{current: mode},
+         health: %{value: hp},
+         expires: expires
+       })
+       when mode in [:survival, :adventure, :creative] and hp > 0 do
+    if System.monotonic_time(:millisecond) < expires,
+      do: :ok,
+      else: {:error, :expired_experience_contact}
+  end
+
   defp container_access(
          state,
          %{
@@ -1536,6 +1552,7 @@ defmodule Valimc.World.RegionData do
     block = container_block(state, request)
 
     if inventory.infinite_materials == (mode == :creative) and
+         (request[:award] == nil or request.award.position == actor[:position]) and
          Valimc.Physics.CookingBlocks.kind(block) == kind,
        do:
          Valimc.CookingOpening.authorize_action(
@@ -1549,6 +1566,21 @@ defmodule Valimc.World.RegionData do
 
   defp container_access(_, _, _), do: {:error, :invalid_container_context}
 
+  defp container_admission_matches?(containers, %{kind: :experience} = request, actor),
+    do:
+      Valimc.World.ExperienceTransfers.eligible?(
+        containers,
+        request,
+        actor,
+        System.monotonic_time(:millisecond)
+      )
+
+  defp container_admission_matches?(containers, request, _actor),
+    do:
+      match?({:ok, _}, Valimc.World.Containers.observe(containers, request.position)) and
+        ContainerRequest.matches_entry?(request, containers.entries[request.position])
+
+  defp container_block_matches?(%{kind: :experience}, _), do: true
   defp container_block_matches?(%{rows: _}, block), do: Valimc.ChestAccess.single?(block)
 
   defp container_block_matches?(%{kind: kind}, block),
@@ -1563,7 +1595,11 @@ defmodule Valimc.World.RegionData do
     start_container_work(state, from, :recover, container_position(request), fn ->
       with {:ok, _} <- ContainerRequest.digest(key, request),
            {:ok, reserved, _} <- ContainerTransfers.reserve(containers, request.source),
-           do: ContainerTransfers.plan(reserved, key, request, false)
+           do:
+             if(request[:kind] == :experience,
+               do: Valimc.World.ExperienceTransfers.plan(reserved, key, request, false),
+               else: ContainerTransfers.plan(reserved, key, request, false)
+             )
     end)
   end
 
@@ -1597,6 +1633,20 @@ defmodule Valimc.World.RegionData do
       end
 
     state = notify_container_changed(state, pending.position)
+
+    if request = Map.get(pending.decision, :experience) do
+      case Enum.find(state.cooking_orbs.views, fn {_, v} -> v.uuid == request.orb_uuid end) do
+        {id, _} ->
+          Valimc.World.publish(
+            state.key,
+            {:experience_pickup, state.items.epoch, id, request.collector}
+          )
+
+        _ ->
+          :ok
+      end
+    end
+
     GenServer.reply(pending.from, reply)
     resume_item_handoff(state)
   end

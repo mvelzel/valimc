@@ -10,10 +10,25 @@ defmodule Valimc.World.ContainerTransfers do
   end
 
   def plan(%Containers{} = containers, key, request, eligible) when is_boolean(eligible) do
-    decide(containers, key, request, eligible, fn _ -> exchange(containers, request) end)
+    if request[:award] do
+      decide(containers, key, request, eligible, fn digest ->
+        draws =
+          Map.new(request.award.recipes, fn name ->
+            <<sample::24>> = :crypto.strong_rand_bytes(3)
+            {name, sample}
+          end)
+
+        exchange_cooking_award(containers, key, request, digest, %{
+          position: request.award.position,
+          draws: draws
+        })
+      end)
+    else
+      decide(containers, key, request, eligible, fn _ -> exchange(containers, request) end)
+    end
   end
 
-  @doc "Unused award planner; live withdrawal stays gated until XP/recipe delivery is implemented."
+  @doc "Atomic output, cleared uses and immutable XP/recipe decision; called only with a fresh owner permit."
   def plan_cooking_award(%Containers{} = containers, key, request, eligible, context)
       when is_boolean(eligible) do
     decide(containers, key, request, eligible, fn digest ->
@@ -91,6 +106,7 @@ defmodule Valimc.World.ContainerTransfers do
     with {:ok, %{kind: kind, cooking: cooking, recipes: uses} = entry} <-
            Containers.observe(containers, request.position),
          true <- uses != %{} and ContainerRequest.matches_entry?(request, entry),
+         true <- request[:award] == nil or request.award.recipes == Enum.sort(Map.keys(uses)),
          {:ok, slots, _inventory} <- ContainerRequest.plan(request),
          true <- withdrawal?(elem(cooking.slots, 2), elem(slots, 2)),
          {:ok, award} <- CookingAwards.plan(uses, draws),

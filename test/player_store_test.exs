@@ -45,7 +45,7 @@ defmodule Valimc.PlayerStoreTest do
     assert_receive {:DOWN, ^ref, :process, _, :normal}, 1000
     wait_for_departure(name, uuid)
     bytes = File.read!(Store.path(base, uuid))
-    assert byte_size(bytes) == 224
+    assert byte_size(bytes) == 251
     assert {:ok, %{effects: %{}, absorption: +0.0}} = Valimc.PlayerSnapshot.decode(bytes, uuid)
 
     {^uuid, second} = Client.login(name)

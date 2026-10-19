@@ -7,8 +7,9 @@ owner installation/native replication accepted at `ed06d5a`. The unused
 [remote storage protocol](VMC-034n3a.md) is accepted at `4b09f6f`;
 [live remote delivery](VMC-034n3b.md) is accepted at `38cf281`. Initial creation
 and ownership are complete within their staged scope. Next:
-[orb simulation](VMC-034n4.md), XP/player authority and recipe delivery.
-Output with recipe uses stays refused until the complete award path is admitted.
+[furnace output to collected XP](VMC-034n5.md) before broader
+[orb simulation](VMC-034n4.md). Its consumption/player-XP/recipe path is implemented
+and awaiting graphical acceptance. Processor-destruction XP remains separate.
 
 Player withdrawals must release the earned output, award used recipes and spawn
 the corresponding experience exactly once. Removing a processor must preserve

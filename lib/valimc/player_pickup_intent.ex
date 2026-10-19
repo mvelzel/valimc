@@ -100,13 +100,14 @@ defmodule Valimc.PlayerPickupIntent do
   def matches_snapshot?(intent, snapshot),
     do: match?({:ok, _, _}, inventory_result(intent, snapshot))
 
-  defp inventory_digest(
-         %{
-           inventory: %Inventory{selected: selected} = inventory
-         },
-         infinite
-       )
-       when selected in 0..8 and is_boolean(infinite) do
+  @doc false
+  def inventory_digest(
+        %{
+          inventory: %Inventory{selected: selected} = inventory
+        },
+        infinite
+      )
+      when selected in 0..8 and is_boolean(infinite) do
     bytes = [
       for(slot <- 1..45, do: ItemStack.encode(Inventory.get(inventory, slot))),
       ItemStack.encode(inventory.carried),
@@ -129,5 +130,6 @@ defmodule Valimc.PlayerPickupIntent do
     _, _ -> {:error, :pickup_inventory_conflict}
   end
 
-  defp inventory_digest(_, _), do: {:error, :pickup_inventory_conflict}
+  @doc false
+  def inventory_digest(_, _), do: {:error, :pickup_inventory_conflict}
 end

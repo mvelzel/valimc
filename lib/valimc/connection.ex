@@ -301,6 +301,8 @@ defmodule Valimc.Connection do
        life_stage: :alive,
        respawn_requested: false,
        recovery: nil,
+       experience_job: nil,
+       experience_after: System.monotonic_time(:millisecond),
        pickup_job: nil,
        pickup_cursor: 0,
        creative_input: CreativeInput.new(creative_tick()),
@@ -507,6 +509,72 @@ defmodule Valimc.Connection do
 
   def handle_info({:DOWN, ref, :process, _, _}, %{table_job: %{monitor: ref}} = state),
     do: guard_connection(state, fn -> {:noreply, fail_table_query(state)} end)
+
+  def handle_info(
+        {:container_candidate, ref, result},
+        %{experience_job: %{ref: ref, stage: :candidate} = job} = state
+      ) do
+    guard_connection(state, fn ->
+      with {:ok, intent} <- result,
+           true <- experience_current?(state, job),
+           {:ok, task} <- PlayerContainerQuery.start(job.owner, intent.request, job.actor) do
+        {:noreply, %{state | experience_job: %{job | task: task, intent: intent, stage: :admit}}}
+      else
+        _ -> {:noreply, cancel_experience_query(state)}
+      end
+    end)
+  end
+
+  def handle_info({ref, result}, %{experience_job: %{task: %Task{ref: ref}} = job} = state) do
+    Process.demonitor(ref, [:flush])
+    state = put_in(state.experience_job.task, nil)
+
+    guard_connection(state, fn ->
+      with {:ok, request} <- result,
+           true <- experience_current?(state, job),
+           true <- Map.delete(request, :permit) == Map.delete(job.intent.request, :permit) do
+        state = cancel_experience_query(state)
+        ref = make_ref()
+        snapshot = PlayerSnapshot.capture(state.player, state.inventory)
+        intent = %{job.intent | request: request}
+
+        recovery = %{
+          new_recovery(:play, :prepare, nil)
+          | ref: ref,
+            plan: %{
+              key: intent.key,
+              records: [],
+              inventory: state.inventory,
+              intent: intent,
+              snapshot: snapshot
+            }
+        }
+
+        PlayerStore.prepare_container(
+          state.player_store,
+          state.store_fence,
+          snapshot,
+          intent,
+          ref
+        )
+
+        {:noreply, %{state | recovery: recovery}}
+      else
+        _ -> {:noreply, cancel_experience_query(state)}
+      end
+    end)
+  end
+
+  def handle_info({:experience_deadline, ref}, %{experience_job: %{ref: ref}} = state),
+    do: {:noreply, cancel_experience_query(state)}
+
+  def handle_info({:experience_deadline, _}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:DOWN, ref, :process, _, _},
+        %{experience_job: %{task: %Task{ref: ref}}} = state
+      ),
+      do: {:noreply, cancel_experience_query(state)}
 
   def handle_info(
         {:container_candidate, ref, result},
@@ -778,7 +846,31 @@ defmodule Valimc.Connection do
 
       Process.cancel_timer(recovery.timer)
       inventory = recovered_inventory(state, snapshot)
+      previous_progression = state.player.progression
       state = %{state | recovery: nil, store_fence: fence, inventory: inventory}
+
+      state =
+        if Map.has_key?(snapshot, :progression),
+          do: put_in(state.player.progression, snapshot.progression),
+          else: state
+
+      state =
+        if recovery.intent.outbox[:request] &&
+             recovery.intent.outbox.request[:kind] == :experience,
+           do: %{state | experience_after: System.monotonic_time(:millisecond) + 100},
+           else: state
+
+      if recovery.mode != :login do
+        if previous_progression.experience != state.player.progression.experience,
+          do: send_packets(state, [Packets.experience(state.player.progression.experience)])
+
+        learned =
+          MapSet.difference(state.player.progression.recipes, previous_progression.recipes)
+
+        if MapSet.size(learned) > 0,
+          do: send_packets(state, [Valimc.CookingRecipeBook.packet(learned, false, true)])
+      end
+
       state = correct_block_recovery(state, recovery)
 
       {:noreply,
@@ -1240,10 +1332,13 @@ defmodule Valimc.Connection do
         state =
           emit_peer_packets(%{state | item_replication: item_replication}, item_packets, :buffer)
 
+        desired_orbs = World.visible_orbs(state.regions, state.chunks)
+        state = start_experience_query(state, desired_orbs)
+
         {orb_replication, orb_packets} =
           EntityReplication.reconcile_predicted(
             state.orb_replication,
-            World.visible_orbs(state.regions, state.chunks)
+            desired_orbs
           )
 
         state =
@@ -2429,6 +2524,7 @@ defmodule Valimc.Connection do
       fire_ticks: 0,
       effects: %{},
       absorption: 0.0,
+      progression: %Valimc.PlayerProgression{},
       food: %PlayerFood{},
       use_flags: 0,
       equipment: %{},
@@ -2485,6 +2581,7 @@ defmodule Valimc.Connection do
               fire_ticks: Map.get(snapshot, :fire_ticks, 0),
               effects: Map.get(snapshot, :effects, %{}),
               absorption: Map.get(snapshot, :absorption, 0.0),
+              progression: Map.get(snapshot, :progression, %Valimc.PlayerProgression{}),
               food: Map.get(snapshot, :food, %PlayerFood{})
           }
 
@@ -2550,6 +2647,8 @@ defmodule Valimc.Connection do
 
     send_packets(state, [
       Packets.login(state.player),
+      Packets.experience(state.player.progression.experience),
+      Valimc.CookingRecipeBook.packet(state.player.progression.recipes, true, false),
       clock_packet,
       difficulty_packet,
       Packets.abilities(state.player.abilities),
@@ -3552,6 +3651,13 @@ defmodule Valimc.Connection do
 
   defp event(%{phase: :play} = state, {:player_joined, player}), do: track_peer(state, player)
 
+  defp event(%{phase: :play} = state, {:experience_pickup, epoch, id, collector}) do
+    if match?({^epoch, _}, state.orb_replication.tracked[id]),
+      do: send_packets(state, [Valimc.Protocol.EntityPackets.pickup(id, collector, 1)])
+
+    state
+  end
+
   defp event(%{phase: :play} = state, {:item_pickup, epoch, id, collector, count}) do
     if match?({^epoch, _}, state.item_replication.tracked[id]),
       do: send_packets(state, [Valimc.Protocol.EntityPackets.pickup(id, collector, count)])
@@ -3753,8 +3859,96 @@ defmodule Valimc.Connection do
     prepare_inventory_transfer(state, inventory, stacks, crafting)
   end
 
+  defp start_experience_query(state, views) do
+    now = System.monotonic_time(:millisecond)
+
+    if state.experience_job == nil and state.pickup_job == nil and state.table_job == nil and
+         state.table_queued == 0 and pickup_allowed?(state) and now >= state.experience_after do
+      {:ok, actor} = PlayerPickupQuery.actor(state.player)
+
+      candidates =
+        Enum.filter(views, fn {_, v} ->
+          Valimc.World.ExperienceTransfers.contact?(actor.box, v.at)
+        end)
+
+      case Enum.min_by(candidates, fn {id, _} -> id end, fn -> nil end) do
+        nil ->
+          state
+
+        {_, view} ->
+          key = World.region_key(view.chunk)
+
+          case World.existing_owner(key) do
+            {:ok, {_, epoch} = owner} when epoch == view.epoch ->
+              ref = make_ref()
+              {x, y, z} = view.at
+
+              request = %{
+                kind: :experience,
+                permit: <<0::128>>,
+                position: {floor(x), floor(y), floor(z)},
+                orb_uuid: view.uuid,
+                value: view.value,
+                consumed: view.consumed,
+                before: state.player.progression.experience,
+                collector: state.player.entity_id
+              }
+
+              intent = %{kind: :container, key: key, request: request}
+
+              PlayerStore.container_candidate(
+                state.player_store,
+                state.store_fence,
+                PlayerSnapshot.capture(state.player, state.inventory),
+                intent,
+                ref
+              )
+
+              job = %{
+                ref: ref,
+                stage: :candidate,
+                owner: owner,
+                task: nil,
+                intent: nil,
+                signature: PlayerPickupQuery.signature(state.player),
+                actor: Map.put(actor, :expires, now + 500),
+                timer: Process.send_after(self(), {:experience_deadline, ref}, 500)
+              }
+
+              %{state | experience_job: job, experience_after: now + 100}
+
+            _ ->
+              state
+          end
+      end
+    else
+      state
+    end
+  end
+
+  defp experience_current?(state, job),
+    do:
+      pickup_allowed?(%{state | experience_job: nil}) and state.pickup_job == nil and
+        job.signature == PlayerPickupQuery.signature(state.player) and
+        System.monotonic_time(:millisecond) < job.actor.expires
+
+  defp cancel_experience_query(%{experience_job: nil} = state), do: state
+
+  defp cancel_experience_query(state) do
+    job = state.experience_job
+    Process.cancel_timer(job.timer)
+
+    if job.task do
+      Process.exit(job.task.pid, :kill)
+      Process.demonitor(job.task.ref, [:flush])
+    end
+
+    %{state | experience_job: nil}
+  end
+
   defp pickup_allowed?(state) do
-    state.phase == :play and state.life_stage == :alive and state.player.health.value > 0 and
+    state.experience_job == nil and state.phase == :play and state.life_stage == :alive and
+      state.player.health.value > 0 and
       state.player.game_mode.current in [:survival, :adventure, :creative] and
       PlayerInput.loaded?(state.player.input) and not state.teleport_pending and
       not inventory_pending(state) and state.save_ref == nil and state.placement_job == nil and
@@ -4891,6 +5085,17 @@ defmodule Valimc.Connection do
          false <-
            slots == proposal.slots and
              %{inventory | state_id: state.inventory.state_id} == state.inventory do
+      proposal =
+        if menu.kind == :cooking and menu.view.recipes != %{} and
+             elem(slots, 2) != elem(proposal.slots, 2) do
+          Map.put(proposal, :award, %{
+            position: {state.player.x, state.player.y, state.player.z},
+            recipes: Enum.sort(Map.keys(menu.view.recipes))
+          })
+        else
+          proposal
+        end
+
       ref = make_ref()
 
       job = %{
@@ -4965,6 +5170,7 @@ defmodule Valimc.Connection do
     actor = %{
       uuid: state.player.uuid,
       mode: state.player.game_mode.current,
+      position: {state.player.x, state.player.y, state.player.z},
       eye: Valimc.PlayerInteraction.eye(state.player),
       health: state.player.health.value,
       expires: System.monotonic_time(:millisecond) + 250
@@ -5471,6 +5677,7 @@ defmodule Valimc.Connection do
     retire_container_view(state)
     cancel_table_query(state)
     cancel_pickup_query(state)
+    cancel_experience_query(state)
     cancel_mining(state)
 
     if state.placement_job do
