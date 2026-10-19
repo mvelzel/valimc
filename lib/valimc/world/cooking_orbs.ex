@@ -96,7 +96,8 @@ defmodule Valimc.World.CookingOrbs do
 
   def decode(_, _, _), do: invalid()
 
-  defp records(id, %{position: position, award: %{recipes: recipes}}) do
+  @doc "Derive frozen creation records from a validated immutable award decision."
+  def records(id, %{position: position, award: %{recipes: recipes}}) do
     # The furnace awards each recipe separately. Splitting their sum would change
     # denominations (for example, XP 3 + 4 becomes 3,3,1, never one value-7 orb).
     groups =

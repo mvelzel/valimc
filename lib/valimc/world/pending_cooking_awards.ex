@@ -11,10 +11,35 @@ defmodule Valimc.World.PendingCookingAwards do
   @max_awards 256
   @max_bytes 524_288
   @max_record 85 + 107 * 14
+  @max_record_bytes 34 + @max_record
   @no_draw 16_777_216
   @max_sequence 18_446_744_073_709_551_615
   def max_awards, do: @max_awards
   def max_bytes, do: @max_bytes
+  def max_record_bytes, do: @max_record_bytes
+
+  @doc "Canonical immutable decision for owner transfers; this is not a player receipt."
+  def encode_record(key, <<_::256>> = id, record) do
+    ^id = identity(key, record.source, record.sequence, record.digest)
+    bytes = record_bytes(record)
+    {:ok, <<id::binary, byte_size(bytes)::16, bytes::binary>>}
+  rescue
+    _ -> invalid()
+  end
+
+  def encode_record(_, _, _), do: invalid()
+
+  def decode_record(bytes, key)
+      when is_binary(bytes) and byte_size(bytes) in 133..@max_record_bytes do
+    {awards, <<>>} = take(bytes, 1, %{})
+    [{id, record}] = Map.to_list(awards)
+    {:ok, ^bytes} = encode_record(key, id, record)
+    {:ok, id, record}
+  rescue
+    _ -> invalid()
+  end
+
+  def decode_record(_, _), do: invalid()
 
   def put(awards, key, source, sequence, digest, {x, y, z}, award)
       when is_map(awards) and map_size(awards) <= @max_awards and
@@ -60,10 +85,9 @@ defmodule Valimc.World.PendingCookingAwards do
       awards
       |> Enum.sort()
       |> Enum.map(fn {id, record} ->
-        ^id = identity(key, record.source, record.sequence, record.digest)
         true = receipt?(receipts[record.source], record)
-        bytes = record_bytes(record)
-        <<id::binary-size(32), byte_size(bytes)::16, bytes::binary>>
+        {:ok, bytes} = encode_record(key, id, record)
+        bytes
       end)
 
     bytes = IO.iodata_to_binary([<<map_size(awards)::16>>, parts])

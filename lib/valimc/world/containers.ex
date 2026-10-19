@@ -1,8 +1,23 @@
 defmodule Valimc.World.Containers do
   @moduledoc "Region-owned container snapshots; persistent revisions fence stale views across replacement."
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{Chunk, CookingEntry, CookingOrbs, ItemReceipts, PendingCookingAwards}
-  defstruct sequence: 0, entries: %{}, receipts: %{}, pending_awards: %{}, cooking_orbs: %{}
+
+  alias Valimc.World.{
+    Chunk,
+    CookingEntry,
+    CookingOrbs,
+    CookingOrbTransfers,
+    ItemReceipts,
+    PendingCookingAwards
+  }
+
+  defstruct sequence: 0,
+            entries: %{},
+            receipts: %{},
+            pending_awards: %{},
+            cooking_orbs: %{},
+            orb_transfers: %{revision: 0, outgoing: %{}, incoming: %{}}
+
   @max_sequence 18_446_744_073_709_551_615
   @max_entries 1024
   @max_sources ItemReceipts.max_sources()
@@ -89,7 +104,8 @@ defmodule Valimc.World.Containers do
         entries: entries,
         receipts: receipts,
         pending_awards: awards,
-        cooking_orbs: orbs
+        cooking_orbs: orbs,
+        orb_transfers: transfers
       })
       when is_integer(sequence) and sequence in 0..@max_sequence and is_map(entries) and
              map_size(entries) <= @max_entries do
@@ -97,24 +113,37 @@ defmodule Valimc.World.Containers do
     true = valid_receipts?(receipts)
     true = is_map(awards)
     true = is_map(orbs)
+    remote? = transfers != CookingOrbTransfers.new()
+    {:ok, transfer_bytes} = CookingOrbTransfers.encode(transfers, key, awards, orbs)
 
     {:ok, award_bytes} =
-      if map_size(awards) == 0,
+      if map_size(awards) == 0 and not remote?,
         do: {:ok, <<>>},
         else: PendingCookingAwards.encode(key, awards, receipts)
 
     {:ok, orb_bytes} =
-      if map_size(orbs) == 0, do: {:ok, <<>>}, else: CookingOrbs.encode(orbs, key, awards)
+      if map_size(orbs) == 0 and not remote?,
+        do: {:ok, <<>>},
+        else: CookingOrbs.encode(orbs, key, awards)
 
-    # v5 length-delimits the existing pending ledger, then appends its orb ledger.
-    # v1-v4 stay byte-identical when no award has been materialized.
+    # v6 length-delimits both ledgers before transfer receipts. Empty transfer
+    # state retains exact v1-v5 bytes, including their original layout tags.
     effects =
-      if map_size(orbs) == 0,
-        do: award_bytes,
-        else: <<byte_size(award_bytes)::32, award_bytes::binary, orb_bytes::binary>>
+      cond do
+        remote? ->
+          <<byte_size(award_bytes)::32, award_bytes::binary, byte_size(orb_bytes)::32,
+            orb_bytes::binary, transfer_bytes::binary>>
+
+        map_size(orbs) == 0 ->
+          award_bytes
+
+        true ->
+          <<byte_size(award_bytes)::32, award_bytes::binary, orb_bytes::binary>>
+      end
 
     version =
       cond do
+        remote? -> 6
         map_size(orbs) > 0 -> 5
         map_size(awards) > 0 -> 4
         Enum.any?(entries, fn {_, entry} -> Map.has_key?(entry, :cooking) end) -> 3
@@ -179,7 +208,7 @@ defmodule Valimc.World.Containers do
     <<"VMCCONTS", version, 5023::32, ^rx::signed-32, ^rz::signed-32, sequence::64, count::16,
       body::binary>> = payload
 
-    true = count <= @max_entries and version in [1, 2, 3, 4, 5]
+    true = count <= @max_entries and version in [1, 2, 3, 4, 5, 6]
 
     {receipts_count, body} =
       case version do
@@ -188,26 +217,35 @@ defmodule Valimc.World.Containers do
         3 -> take_receipt_count(body, 0)
         4 -> take_receipt_count(body, 0)
         5 -> take_receipt_count(body, 0)
+        6 -> take_receipt_count(body, 0)
       end
 
     {entries, body} = take_entries(body, count, %{}, min(version, 3))
     {receipts, rest} = take_receipts(body, receipts_count, %{})
 
-    {awards, orbs} =
+    {awards, orbs, transfers} =
       case version do
+        6 ->
+          <<length::32, award_bytes::binary-size(length), rest::binary>> = rest
+          <<length::32, orb_bytes::binary-size(length), transfer_bytes::binary>> = rest
+          {:ok, awards} = PendingCookingAwards.decode(award_bytes, key, receipts)
+          {:ok, orbs} = CookingOrbs.decode(orb_bytes, key, awards)
+          {:ok, transfers} = CookingOrbTransfers.decode(transfer_bytes, key, awards, orbs)
+          {awards, orbs, transfers}
+
         5 ->
           <<length::32, award_bytes::binary-size(length), orb_bytes::binary>> = rest
           {:ok, awards} = PendingCookingAwards.decode(award_bytes, key, receipts)
           {:ok, orbs} = CookingOrbs.decode(orb_bytes, key, awards)
-          {awards, orbs}
+          {awards, orbs, CookingOrbTransfers.new()}
 
         4 ->
           {:ok, awards} = PendingCookingAwards.decode(rest, key, receipts)
-          {awards, %{}}
+          {awards, %{}, CookingOrbTransfers.new()}
 
         _ ->
           <<>> = rest
-          {%{}, %{}}
+          {%{}, %{}, CookingOrbTransfers.new()}
       end
 
     state = %__MODULE__{
@@ -215,7 +253,8 @@ defmodule Valimc.World.Containers do
       entries: entries,
       receipts: receipts,
       pending_awards: awards,
-      cooking_orbs: orbs
+      cooking_orbs: orbs,
+      orb_transfers: transfers
     }
 
     {:ok, ^bytes} = encode(key, state)
