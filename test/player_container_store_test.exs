@@ -244,13 +244,16 @@ defmodule Valimc.PlayerContainerStoreTest do
        ctx do
     {_writer, _fence, pending} = prepare(ctx)
     {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
-    writer = :sys.get_state(pid).resource.store
+    writer = Valimc.TestConn.state(pid).resource.store
     :sys.suspend(writer)
     task = Task.async(fn -> Region.recover_container_transfer(owner, pending.outbox.request) end)
 
     try do
       await(fn ->
-        match?(%{phase: :writing, kind: :container}, :sys.get_state(pid).resource.item_pending)
+        match?(
+          %{phase: :writing, kind: :container},
+          Valimc.TestConn.state(pid).resource.item_pending
+        )
       end)
 
       assert Task.yield(task, 20) == nil
@@ -410,13 +413,16 @@ defmodule Valimc.PlayerContainerStoreTest do
     source = :crypto.strong_rand_bytes(16)
     request = %{ctx.intent.request | source: source}
     actor = %{actor | uuid: source, expires: System.monotonic_time(:millisecond) + 250}
-    writer = :sys.get_state(pid).resource.store
+    writer = Valimc.TestConn.state(pid).resource.store
     :sys.suspend(writer)
     task = Task.async(fn -> Region.admit_container_transfer(owner, request, actor) end)
 
     try do
       await(fn ->
-        match?(%{phase: :writing, kind: :container}, :sys.get_state(pid).resource.item_pending)
+        match?(
+          %{phase: :writing, kind: :container},
+          Valimc.TestConn.state(pid).resource.item_pending
+        )
       end)
 
       assert Task.yield(task, 20) == nil
@@ -427,14 +433,18 @@ defmodule Valimc.PlayerContainerStoreTest do
       assert {:error, :mining_storage_busy} = World.set_block(request.position, 0)
 
       refute Enum.any?(
-               :sys.get_state(pid).resource.container_permits.entries,
+               Valimc.TestConn.state(pid).resource.container_permits.entries,
                fn {_, grant} -> grant.source == source end
              )
 
       :sys.resume(writer)
       assert {:ok, admitted} = Task.await(task, 1500)
       assert {:ok, {_, %{sequence: 0}}} = Region.container_transfer_receipt(owner, source)
-      assert Map.has_key?(:sys.get_state(pid).resource.container_permits.entries, admitted.permit)
+
+      assert Map.has_key?(
+               Valimc.TestConn.state(pid).resource.container_permits.entries,
+               admitted.permit
+             )
     after
       if Process.alive?(writer), do: :sys.resume(writer)
       Task.shutdown(task, :brutal_kill)

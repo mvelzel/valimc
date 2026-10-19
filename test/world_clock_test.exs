@@ -106,7 +106,7 @@ defmodule Valimc.WorldClockTest do
     end
 
     assert :ok = Clock.configure({:advance_time, false}, pid)
-    state = :sys.get_state(pid)
+    state = Valimc.TestConn.state(pid)
     [{:network, version, periodic, latest}] = :ets.lookup(state.table, :network)
     assert is_reference(version) and periodic == latest
     assert before.game_time == 0
@@ -114,15 +114,15 @@ defmodule Valimc.WorldClockTest do
 
   test "delivered ticks advance game time; paused/global clocks do not; stale and early timers stay fenced" do
     pid = clock(tick_interval_ms: 1000)
-    state = :sys.get_state(pid)
+    state = Valimc.TestConn.state(pid)
     {old_token, _} = state.tick_timer
     # An early matching timer cannot advance time or leave two live timer chains.
     send(pid, {:clock_tick, old_token})
-    after_early = :sys.get_state(pid)
+    after_early = Valimc.TestConn.state(pid)
     assert after_early.data.game_time == 0
     assert elem(after_early.tick_timer, 0) != old_token
     send(pid, {:clock_tick, old_token})
-    assert :sys.get_state(pid).tick_timer == after_early.tick_timer
+    assert Valimc.TestConn.state(pid).tick_timer == after_early.tick_timer
 
     :sys.replace_state(
       pid,
@@ -150,34 +150,34 @@ defmodule Valimc.WorldClockTest do
   test "one pending immutable save while storage stalls; ticks/controls respond and newer revision stays dirty" do
     path = temporary()
     pid = clock(world_path: path, save_interval_ms: 1000)
-    store = :sys.get_state(pid).store
+    store = Valimc.TestConn.state(pid).store
     :sys.suspend(store)
 
     try do
       assert :ok = Clock.configure({"minecraft:overworld", :ticks, 2}, pid)
-      {token, _} = :sys.get_state(pid).save_timer
+      {token, _} = Valimc.TestConn.state(pid).save_timer
       send(pid, {:clock_save, token})
-      pending = :sys.get_state(pid)
+      pending = Valimc.TestConn.state(pid)
       assert pending.saving != nil
       assert :ok = Clock.configure({"minecraft:overworld", :ticks, 4}, pid)
-      {next_token, _} = :sys.get_state(pid).save_timer
+      {next_token, _} = Valimc.TestConn.state(pid).save_timer
       send(pid, {:clock_save, next_token})
-      assert :sys.get_state(pid).saving == pending.saving
+      assert Valimc.TestConn.state(pid).saving == pending.saving
       assert {:message_queue_len, 1} = Process.info(store, :message_queue_len)
       send(pid, {:clock_saved, make_ref(), :ok})
       send(pid, {:clock_save_deadline, make_ref()})
-      assert :sys.get_state(pid).saving == pending.saving
+      assert Valimc.TestConn.state(pid).saving == pending.saving
     after
       :sys.resume(store)
     end
 
-    eventually(fn -> :sys.get_state(pid).saving == nil end)
-    assert :sys.get_state(pid).dirty
+    eventually(fn -> Valimc.TestConn.state(pid).saving == nil end)
+    assert Valimc.TestConn.state(pid).dirty
     assert {:ok, saved} = ClockRecord.decode(File.read!(ClockStore.path(path)))
     assert saved.clocks["minecraft:overworld"].total_ticks == 2
-    {token, _} = :sys.get_state(pid).save_timer
+    {token, _} = Valimc.TestConn.state(pid).save_timer
     send(pid, {:clock_save, token})
-    eventually(fn -> :sys.get_state(pid).saving == nil end)
+    eventually(fn -> Valimc.TestConn.state(pid).saving == nil end)
     assert {:ok, saved} = ClockRecord.decode(File.read!(ClockStore.path(path)))
     assert saved.clocks["minecraft:overworld"].total_ticks == 4
   end
@@ -210,11 +210,11 @@ defmodule Valimc.WorldClockTest do
     Process.unlink(pid)
     monitor = Process.monitor(pid)
     assert :ok = Clock.configure({"minecraft:overworld", :ticks, 2}, pid)
-    state = :sys.get_state(pid)
+    state = Valimc.TestConn.state(pid)
     :sys.suspend(state.store)
     {token, _} = state.save_timer
     send(pid, {:clock_save, token})
-    pending = :sys.get_state(pid).saving
+    pending = Valimc.TestConn.state(pid).saving
     # A physical-commit/withheld-reply fixture. The owner must never flush its
     # older memory snapshot over the file when the save outcome is uncertain.
     committed = Clock.snapshot(pid)
@@ -249,7 +249,7 @@ defmodule Valimc.WorldClockTest do
     monitor = Process.monitor(pid)
     File.write!(path, "blocked-directory")
     assert :ok = Clock.configure({"minecraft:overworld", :ticks, 5}, pid)
-    {token, _} = :sys.get_state(pid).save_timer
+    {token, _} = Valimc.TestConn.state(pid).save_timer
     send(pid, {:clock_save, token})
 
     # The owner allows up to five seconds to retire its linked I/O process.

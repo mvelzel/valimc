@@ -35,7 +35,7 @@ defmodule Valimc.ItemMergeRegionTest do
 
     on_exit(fn ->
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key) do
-        state = :sys.get_state(pid).resource
+        state = Valimc.TestConn.state(pid).resource
         if Process.alive?(state.store), do: :sys.resume(state.store)
         DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
       end
@@ -51,7 +51,7 @@ defmodule Valimc.ItemMergeRegionTest do
     %{owner: owner, key: key, base: base, records: records, receipts: receipts}
   end
 
-  defp state({pid, _}), do: :sys.get_state(pid).resource
+  defp state({pid, _}), do: Valimc.TestConn.state(pid).resource
 
   defp pairs(owner) do
     items = state(owner).items

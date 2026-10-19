@@ -46,7 +46,7 @@ defmodule Valimc.ItemCrossMergeRegionTest do
     on_exit(fn ->
       for k <- [key, destination] do
         for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, k) do
-          writer = :sys.get_state(pid).resource.store
+          writer = Valimc.TestConn.state(pid).resource.store
           if Process.alive?(writer), do: :sys.resume(writer)
           DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
         end
@@ -71,7 +71,7 @@ defmodule Valimc.ItemCrossMergeRegionTest do
     }
   end
 
-  defp state({pid, _}), do: :sys.get_state(pid).resource
+  defp state({pid, _}), do: Valimc.TestConn.state(pid).resource
 
   defp disk(c, key) do
     {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, key, :items), key)

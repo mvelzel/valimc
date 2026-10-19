@@ -72,7 +72,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
     Client.send_packet(client, :play, "player_loaded", <<>>)
     pid = Enum.find(Players.all(), &(&1.name == c.name)).pid
     on_exit(fn -> Client.close(client) end)
-    wait(fn -> :sys.get_state(pid).pose_checked != nil end)
+    wait(fn -> Valimc.TestConn.state(pid).pose_checked != nil end)
     {client, pid}
   end
 
@@ -120,7 +120,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
   end
 
   defp picked(pid, slot, count) do
-    state = :sys.get_state(pid)
+    state = Valimc.TestConn.state(pid)
     state.recovery == nil and match?(%{count: ^count}, state.inventory.slots[slot])
   end
 
@@ -131,7 +131,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
     {body, client} = Client.await(client, :play, "take_item_entity")
     {^id, body} = Wire.take_varint(body)
     {collector, body} = Wire.take_varint(body)
-    assert collector == :sys.get_state(pid).player.entity_id
+    assert collector == Valimc.TestConn.state(pid).player.entity_id
     assert {7, <<>>} == Wire.take_varint(body)
     wait(fn -> picked(pid, 36, 7) end)
     assert records(c, key) == []
@@ -178,12 +178,12 @@ defmodule Valimc.PlayerPickupConnectionTest do
     {client, pid} = login(c)
     {_owner, _, key} = spawn_item(c, ItemStack.new("stone", 7))
     Process.sleep(300)
-    assert :sys.get_state(pid).inventory.slots == slots
+    assert Valimc.TestConn.state(pid).inventory.slots == slots
     assert [%{stack: %{count: 7}}] = records(c, key)
     assert saved(c).outbox == nil
     {_client, pid} = relogin_mode(c, client, pid, :creative)
     wait(fn -> records(c, key) == [] and saved(c).outbox == nil end)
-    assert :sys.get_state(pid).inventory.slots == slots
+    assert Valimc.TestConn.state(pid).inventory.slots == slots
     assert saved(c).transfer_sequence == 1
   end
 
@@ -221,7 +221,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
     Process.sleep(100)
     {region, ^epoch} = owner
     assert :sys.get_state(region).resource.items.entries[id].motion.pickup_delay > 0
-    assert :sys.get_state(pid).inventory.slots == %{}
+    assert Valimc.TestConn.state(pid).inventory.slots == %{}
     wait(fn -> picked(pid, 36, 7) end)
     assert records(c, key) == []
   end
@@ -237,7 +237,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
     wait(fn -> records(c, key) == [] end)
 
     wait(fn ->
-      :sys.get_state(pid).recovery == nil and :sys.get_state(second_pid).recovery == nil
+      Valimc.TestConn.state(pid).recovery == nil and :sys.get_state(second_pid).recovery == nil
     end)
 
     totals =
@@ -279,9 +279,9 @@ defmodule Valimc.PlayerPickupConnectionTest do
       wait(fn -> match?(%{phase: :writing}, :sys.get_state(region).resource.item_pending) end)
       _client = Client.teleport(client, pid, %{c.pose | x: c.pose.x - 3.0})
       :sys.resume(writer)
-      wait(fn -> :sys.get_state(pid).pickup_job == nil end)
+      wait(fn -> Valimc.TestConn.state(pid).pickup_job == nil end)
       assert records(c, key) |> Enum.map(& &1.stack.count) == [7]
-      assert :sys.get_state(pid).inventory.slots == %{} and saved(c).outbox == nil
+      assert Valimc.TestConn.state(pid).inventory.slots == %{} and saved(c).outbox == nil
       assert saved(c).transfer_sequence == 0
     after
       if Process.alive?(writer), do: :sys.resume(writer)
@@ -292,12 +292,12 @@ defmodule Valimc.PlayerPickupConnectionTest do
     seed(c)
     {client, pid} = login(c)
     {_owner, _, key} = spawn_item(c, ItemStack.new("stone", 7), 2.0)
-    writer = :sys.get_state(pid).player_store
+    writer = Valimc.TestConn.state(pid).player_store
     :sys.suspend(writer)
 
     try do
       _client = Client.teleport(client, pid, %{c.pose | x: c.pose.x + 1.0})
-      wait(fn -> match?(%{stage: :prepare}, :sys.get_state(pid).recovery) end)
+      wait(fn -> match?(%{stage: :prepare}, Valimc.TestConn.state(pid).recovery) end)
       assert saved(c).inventory.slots == %{} and saved(c).outbox == nil
       assert [%{stack: %{count: 7}}] = records(c, key)
       Process.sleep(260)
@@ -315,12 +315,12 @@ defmodule Valimc.PlayerPickupConnectionTest do
     seed(c)
     {client, pid} = login(c)
     {_owner, _, key} = spawn_item(c, ItemStack.new("stone", 7), 2.0)
-    writer = :sys.get_state(pid).player_store
+    writer = Valimc.TestConn.state(pid).player_store
     :sys.suspend(writer)
 
     try do
       client = Client.teleport(client, pid, %{c.pose | x: c.pose.x + 1.0})
-      wait(fn -> match?(%{stage: :prepare}, :sys.get_state(pid).recovery) end)
+      wait(fn -> match?(%{stage: :prepare}, Valimc.TestConn.state(pid).recovery) end)
       Client.close(client)
       Process.sleep(260)
       :sys.resume(writer)
@@ -364,7 +364,10 @@ defmodule Valimc.PlayerPickupConnectionTest do
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
       {chat, _client} = Client.await(client, :play, "system_chat")
       assert :binary.match(chat, "schedulers") != :nomatch
-      assert :sys.get_state(pid).recovery == nil and :sys.get_state(pid).pickup_job == nil
+
+      assert Valimc.TestConn.state(pid).recovery == nil and
+               Valimc.TestConn.state(pid).pickup_job == nil
+
       assert [%{stack: %{count: 7}}] = records(c, key)
       for worker <- workers, do: Task.Supervisor.terminate_child(Valimc.TransferWorkers, worker)
       wait(fn -> picked(pid, 36, 7) end)

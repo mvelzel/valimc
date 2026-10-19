@@ -171,10 +171,10 @@ defmodule Valimc.InventoryPersistenceTest do
 
     try do
       send(pid, :save_player)
-      assert is_reference(:sys.get_state(pid).save_ref)
+      assert is_reference(Valimc.TestConn.state(pid).save_ref)
       _client = seed(client, 9, egg)
       for _ <- 1..3, do: send(pid, :save_player)
-      assert :sys.get_state(pid).inventory.slots[9] == egg
+      assert Valimc.TestConn.state(pid).inventory.slots[9] == egg
       assert {:message_queue_len, 1} = Process.info(writer, :message_queue_len)
     after
       :sys.resume(writer)
@@ -195,7 +195,7 @@ defmodule Valimc.InventoryPersistenceTest do
       username = name()
       {uuid, client} = login(username)
       pid = player(username).pid
-      state = :sys.get_state(pid)
+      state = Valimc.TestConn.state(pid)
       ref = Process.monitor(pid)
       stone = ItemStack.new("stone", 19)
 

@@ -145,7 +145,7 @@ defmodule Valimc.ExperienceTransfersTest do
     {prepared, request}
   end
 
-  defp resource({pid, _}), do: :sys.get_state(pid).resource
+  defp resource({pid, _}), do: Valimc.TestConn.state(pid).resource
   defp wait(f, n \\ 100)
   defp wait(f, 0), do: assert(f.())
 

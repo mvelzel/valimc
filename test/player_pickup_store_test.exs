@@ -212,6 +212,6 @@ defmodule Valimc.PlayerPickupStoreTest do
     assert {:ok, _fence, resolved} = complete(ctx, ctx.fence)
     assert resolved.inventory.slots[36] == ctx.intent.request.before and resolved.outbox == nil
     {:ok, {pid, _}} = World.item_owner(ctx.key)
-    assert :sys.get_state(pid).resource.items.entries == %{}
+    assert Valimc.TestConn.state(pid).resource.items.entries == %{}
   end
 end

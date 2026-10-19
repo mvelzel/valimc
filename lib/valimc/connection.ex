@@ -92,7 +92,8 @@ defmodule Valimc.Connection do
   defguardp inventory_busy(state)
             when state.recovery != nil or state.creative_input.queued > 0 or state.use_save != nil or
                    state.table_job != nil or
-                   (state.placement_job != nil and state.placement_job.command.mode == :survival)
+                   (is_map_key(state.jobs.active, :placement) and
+                      :erlang.map_get(:placement, state.jobs.active).command.mode == :survival)
 
   defguardp inventory_pending(state)
             when inventory_busy(state) or state.table_closing or state.crafting_repeat != nil
@@ -296,11 +297,9 @@ defmodule Valimc.Connection do
        use_save: nil,
        active_use: nil,
        mining: nil,
-       mining_job: nil,
        mining_water: false,
        placement_queue: :queue.new(),
        placement_queued: 0,
-       placement_job: nil,
        table_menu: nil,
        chest_lids: %ChestLidReplication{},
        table_counter: 0,
@@ -315,7 +314,6 @@ defmodule Valimc.Connection do
        recovery: nil,
        experience_job: nil,
        experience_after: System.monotonic_time(:millisecond),
-       pickup_job: nil,
        pickup_cursor: 0,
        creative_input: CreativeInput.new(creative_tick()),
        creative_drain_scheduled: false,
@@ -428,7 +426,67 @@ defmodule Valimc.Connection do
     end)
   end
 
-  defp job_down(:pose, _job, _reason, state), do: {:noreply, state}
+  defp job_result(:pickup, job, result, state) do
+    guard_connection(state, fn ->
+      case result do
+        {:ok, reservation} -> {:noreply, prepare_pickup(state, job, reservation)}
+        _ -> {:noreply, state}
+      end
+    end)
+  end
+
+  defp job_result(:mining, job, result, state) do
+    guard_connection(state, fn ->
+      if System.monotonic_time(:millisecond) < job.deadline do
+        {:noreply, mining_result(state, job, result)}
+      else
+        if job.stage == :reserve and match?({:ok, %{owner: _, permit: _}}, result),
+          do: PlayerMiningQuery.release(elem(result, 1))
+
+        state = cancel_mining(state)
+
+        {:noreply,
+         if(job.stage == :correct, do: state, else: correct_mining(state, job.position))}
+      end
+    end)
+  end
+
+  defp job_result(:placement, job, result, state) do
+    guard_connection(state, fn ->
+      case result do
+        {:reserved, reservation} ->
+          {:noreply, prepare_survival_placement(state, job.command, reservation)}
+
+        {:ok, _outcome} ->
+          state = if job.command.body == nil, do: resync_inventory(state), else: state
+          send_packets(state, [Packets.ack(job.command.request.sequence)])
+          {:noreply, state |> continue_life() |> drain_placements()}
+
+        _ ->
+          reject(state, "Block interaction unavailable; please reconnect")
+      end
+    end)
+  end
+
+  defp job_down(:placement, _job, _reason, state),
+    do:
+      guard_connection(state, fn ->
+        reject(state, "Block interaction failed; please reconnect")
+      end)
+
+  defp job_down(:mining, _job, _reason, state),
+    do: guard_connection(state, fn -> {:noreply, cancel_mining(state)} end)
+
+  defp job_down(kind, _job, _reason, state) when kind in [:pose, :pickup], do: {:noreply, state}
+
+  defp job_timeout(:placement, _job, state),
+    do:
+      guard_connection(state, fn ->
+        reject(state, "Block interaction timed out; please reconnect")
+      end)
+
+  defp job_timeout(:mining, _job, state),
+    do: guard_connection(state, fn -> {:noreply, cancel_mining(state)} end)
 
   defp job_timeout(_kind, _job, state), do: {:noreply, state}
 
@@ -804,28 +862,6 @@ defmodule Valimc.Connection do
 
   defp info({:transfer_delivered, _, _, _}, state), do: {:noreply, state}
 
-  defp info({ref, result}, %{pickup_job: %{task: %Task{ref: ref}} = job} = state) do
-    Process.demonitor(ref, [:flush])
-    Process.cancel_timer(job.timer)
-
-    guard_connection(state, fn ->
-      state = %{state | pickup_job: nil}
-
-      case result do
-        {:ok, reservation} -> {:noreply, prepare_pickup(state, job, reservation)}
-        _ -> {:noreply, state}
-      end
-    end)
-  end
-
-  defp info({:pickup_deadline, ref}, %{pickup_job: %{task: %Task{ref: ref}}} = state),
-    do: {:noreply, cancel_pickup_query(state)}
-
-  defp info({:pickup_deadline, _}, state), do: {:noreply, state}
-
-  defp info({:DOWN, ref, :process, _, _}, %{pickup_job: %{task: %Task{ref: ref}}} = state),
-    do: {:noreply, cancel_pickup_query(state)}
-
   defp info(
          {:player_transfer_saved, ref, {:ok, fence, snapshot}},
          %{recovery: %{stage: :prepare, ref: ref, plan: plan} = recovery} = state
@@ -1004,71 +1040,6 @@ defmodule Valimc.Connection do
       {:noreply, recovery_failure(state, {:error, :region_restarting})}
     end)
   end
-
-  defp info({ref, result}, %{placement_job: %{task: %Task{ref: ref}} = job} = state) do
-    Process.demonitor(ref, [:flush])
-    Process.cancel_timer(job.timer)
-
-    guard_connection(state, fn ->
-      case result do
-        {:reserved, reservation} ->
-          state = %{state | placement_job: nil}
-          {:noreply, prepare_survival_placement(state, job.command, reservation)}
-
-        {:ok, _outcome} ->
-          state = if job.command.body == nil, do: resync_inventory(state), else: state
-          send_packets(state, [Packets.ack(job.command.request.sequence)])
-          {:noreply, %{state | placement_job: nil} |> continue_life() |> drain_placements()}
-
-        _ ->
-          reject(state, "Block interaction unavailable; please reconnect")
-      end
-    end)
-  end
-
-  defp info({:placement_deadline, ref}, %{placement_job: %{task: %Task{ref: ref}}} = state),
-    do:
-      guard_connection(state, fn ->
-        reject(state, "Block interaction timed out; please reconnect")
-      end)
-
-  defp info({:placement_deadline, _}, state), do: {:noreply, state}
-
-  defp info(
-         {:DOWN, ref, :process, _, _},
-         %{placement_job: %{task: %Task{ref: ref}}} = state
-       ),
-       do:
-         guard_connection(state, fn ->
-           reject(state, "Block interaction failed; please reconnect")
-         end)
-
-  defp info({ref, result}, %{mining_job: %{task: %Task{ref: ref}} = job} = state) do
-    Process.demonitor(ref, [:flush])
-    Process.cancel_timer(job.timer)
-
-    guard_connection(state, fn ->
-      state = %{state | mining_job: nil}
-
-      if System.monotonic_time(:millisecond) < job.deadline do
-        {:noreply, mining_result(state, job, result)}
-      else
-        if job.kind == :reserve and match?({:ok, %{owner: _, permit: _}}, result),
-          do: PlayerMiningQuery.release(elem(result, 1))
-
-        state = cancel_mining(state)
-        {:noreply, if(job.kind == :correct, do: state, else: correct_mining(state, job.position))}
-      end
-    end)
-  end
-
-  defp info({:mining_deadline, ref}, %{mining_job: %{task: %Task{ref: ref}}} = state),
-    do: guard_connection(state, fn -> {:noreply, cancel_mining(state)} end)
-
-  defp info({:mining_deadline, _}, state), do: {:noreply, state}
-
-  defp info({:DOWN, ref, :process, _, _}, %{mining_job: %{task: %Task{ref: ref}}} = state),
-    do: guard_connection(state, fn -> {:noreply, cancel_mining(state)} end)
 
   defp info({ref, result}, %{motion_job: %{task: %Task{ref: ref}} = job} = state) do
     Process.demonitor(ref, [:flush])
@@ -3959,7 +3930,8 @@ defmodule Valimc.Connection do
   defp start_experience_query(state, views) do
     now = System.monotonic_time(:millisecond)
 
-    if state.experience_job == nil and state.pickup_job == nil and state.table_job == nil and
+    if state.experience_job == nil and not Jobs.active?(state.jobs, :pickup) and
+         state.table_job == nil and
          state.table_queued == 0 and pickup_allowed?(state) and now >= state.experience_after do
       {:ok, actor} = PlayerPickupQuery.actor(state.player)
 
@@ -4025,7 +3997,7 @@ defmodule Valimc.Connection do
 
   defp experience_current?(state, job),
     do:
-      pickup_allowed?(%{state | experience_job: nil}) and state.pickup_job == nil and
+      pickup_allowed?(%{state | experience_job: nil}) and not Jobs.active?(state.jobs, :pickup) and
         job.signature == PlayerPickupQuery.signature(state.player) and
         System.monotonic_time(:millisecond) < job.actor.expires
 
@@ -4048,11 +4020,13 @@ defmodule Valimc.Connection do
       state.player.health.value > 0 and
       state.player.game_mode.current in [:survival, :adventure, :creative] and
       PlayerInput.loaded?(state.player.input) and not state.teleport_pending and
-      not inventory_pending(state) and state.save_ref == nil and state.placement_job == nil and
+      not inventory_pending(state) and state.save_ref == nil and
+      not Jobs.active?(state.jobs, :placement) and
       state.pose_checked == pose_signature(state) and state.motion_pending == nil
   end
 
-  defp start_pickup_query(%{pickup_job: job} = state, _) when job != nil, do: state
+  defp start_pickup_query(%{jobs: jobs} = state, _) when is_map_key(jobs.active, :pickup),
+    do: state
 
   defp start_pickup_query(state, views) when map_size(views) == 0, do: state
 
@@ -4069,16 +4043,13 @@ defmodule Valimc.Connection do
 
           case PlayerPickupQuery.start(actor, view) do
             {:ok, task} ->
-              timer = Process.send_after(self(), {:pickup_deadline, task.ref}, 500)
+              {jobs, _job} =
+                Jobs.track(state.jobs, :pickup, task,
+                  timeout: 500,
+                  data: %{signature: PlayerPickupQuery.signature(state.player)}
+                )
 
-              %{
-                state
-                | pickup_job: %{
-                    task: task,
-                    timer: timer,
-                    signature: PlayerPickupQuery.signature(state.player)
-                  }
-              }
+              %{state | jobs: jobs}
 
             _ ->
               state
@@ -4134,14 +4105,9 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp cancel_pickup_query(%{pickup_job: nil} = state), do: state
-
   defp cancel_pickup_query(state) do
-    job = state.pickup_job
-    Process.cancel_timer(job.timer)
-    Process.exit(job.task.pid, :kill)
-    Process.demonitor(job.task.ref, [:flush])
-    %{state | pickup_job: nil}
+    {_job, jobs} = Jobs.cancel(state.jobs, :pickup)
+    %{state | jobs: jobs}
   end
 
   defp prepare_inventory_transfer(state, inventory, stacks, crafting \\ nil) do
@@ -4251,7 +4217,7 @@ defmodule Valimc.Connection do
       not mining_allowed?(state, mining.position) ->
         state |> cancel_mining() |> correct_mining(mining.position)
 
-      state.mining_job != nil ->
+      Jobs.active?(state.jobs, :mining) ->
         state
 
       mining.reservation == nil and now - mining.requested_at >= 500 ->
@@ -4316,27 +4282,26 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp mining_job(state, kind, {:ok, task}, position) do
-    deadline = System.monotonic_time(:millisecond) + 250
-    timer = Process.send_after(self(), {:mining_deadline, task.ref}, 250)
+  defp mining_job(state, stage, {:ok, task}, position) do
+    {jobs, _job} =
+      Jobs.track(state.jobs, :mining, task,
+        timeout: 250,
+        data: %{
+          stage: stage,
+          position: position,
+          generation: state.pose_generation,
+          deadline: System.monotonic_time(:millisecond) + 250
+        }
+      )
 
-    job = %{
-      kind: kind,
-      task: task,
-      timer: timer,
-      position: position,
-      generation: state.pose_generation,
-      deadline: deadline
-    }
-
-    %{state | mining_job: job}
+    %{state | jobs: jobs}
   end
 
   defp mining_job(state, _, {:error, _}, _), do: state
 
   defp mining_result(
          %{mining: %{position: position} = mining} = state,
-         %{kind: :reserve, position: position} = job,
+         %{stage: :reserve, position: position} = job,
          {:ok, reservation}
        ) do
     block = Map.fetch!(reservation.expected, position)
@@ -4366,7 +4331,7 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp mining_result(%{mining: mining} = state, %{kind: :renew} = job, {:ok, expected})
+  defp mining_result(%{mining: mining} = state, %{stage: :renew} = job, {:ok, expected})
        when mining != nil do
     if expected == mining.reservation.expected do
       mining = %{
@@ -4381,7 +4346,7 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp mining_result(state, %{kind: :correct} = job, {:ok, owner, block}) do
+  defp mining_result(state, %{stage: :correct} = job, {:ok, owner, block}) do
     key = World.region_key(World.chunk_key(elem(job.position, 0), elem(job.position, 2)))
 
     if job.generation == state.pose_generation and World.existing_owner(key) == {:ok, owner} and
@@ -4391,15 +4356,12 @@ defmodule Valimc.Connection do
     state
   end
 
-  defp mining_result(state, %{kind: :correct}, _), do: state
+  defp mining_result(state, %{stage: :correct}, _), do: state
   defp mining_result(state, job, _), do: state |> cancel_mining() |> correct_mining(job.position)
 
   defp cancel_mining(state) do
-    if state.mining_job do
-      Process.cancel_timer(state.mining_job.timer)
-      Process.exit(state.mining_job.task.pid, :kill)
-      Process.demonitor(state.mining_job.task.ref, [:flush])
-    end
+    {_job, jobs} = Jobs.cancel(state.jobs, :mining)
+    state = %{state | jobs: jobs}
 
     if state.mining do
       mining = state.mining
@@ -4412,11 +4374,11 @@ defmodule Valimc.Connection do
       if mining.reservation, do: PlayerMiningQuery.release(mining.reservation)
     end
 
-    %{state | mining: nil, mining_job: nil}
+    %{state | mining: nil}
   end
 
   defp correct_mining(state, position) do
-    if state.mining_job == nil and reachable?(state, position),
+    if not Jobs.active?(state.jobs, :mining) and reachable?(state, position),
       do: mining_job(state, :correct, PlayerMiningQuery.observe(position), position),
       else: state
   end
@@ -5506,7 +5468,8 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp drain_placements(%{placement_job: job} = state) when job != nil, do: state
+  defp drain_placements(%{jobs: jobs} = state) when is_map_key(jobs.active, :placement),
+    do: state
 
   defp drain_placements(state)
        when state.recovery != nil or state.save_ref != nil or state.use_save != nil,
@@ -5543,8 +5506,10 @@ defmodule Valimc.Connection do
 
         case started do
           {:ok, task} ->
-            timer = Process.send_after(self(), {:placement_deadline, task.ref}, 750)
-            %{state | placement_job: %{task: task, timer: timer, command: command}}
+            {jobs, _job} =
+              Jobs.track(state.jobs, :placement, task, timeout: 750, data: %{command: command})
+
+            %{state | jobs: jobs}
 
           {:error, _} ->
             reject(state, "Block interaction capacity reached; please reconnect")
@@ -5616,16 +5581,12 @@ defmodule Valimc.Connection do
   defp correct_placement(state, request, reservation) do
     case PlayerPlacementQuery.start_correction(request, reservation) do
       {:ok, task} ->
-        timer = Process.send_after(self(), {:placement_deadline, task.ref}, 750)
+        command = %{mode: :correction, body: nil, request: request}
 
-        %{
-          state
-          | placement_job: %{
-              task: task,
-              timer: timer,
-              command: %{mode: :correction, body: nil, request: request}
-            }
-        }
+        {jobs, _job} =
+          Jobs.track(state.jobs, :placement, task, timeout: 750, data: %{command: command})
+
+        %{state | jobs: jobs}
 
       {:error, _} ->
         reject(state, "Block correction capacity reached; please reconnect")
@@ -5776,12 +5737,6 @@ defmodule Valimc.Connection do
     cancel_pickup_query(state)
     cancel_experience_query(state)
     cancel_mining(state)
-
-    if state.placement_job do
-      Process.cancel_timer(state.placement_job.timer)
-      Process.exit(state.placement_job.task.pid, :kill)
-      Process.demonitor(state.placement_job.task.ref, [:flush])
-    end
 
     :gen_tcp.close(state.socket)
 

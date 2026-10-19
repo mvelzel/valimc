@@ -111,7 +111,7 @@ defmodule Valimc.KeyboardDropTest do
 
   defp records(ctx) do
     {:ok, {pid, _}} = World.item_owner(ctx.key)
-    Items.records(:sys.get_state(pid).resource.items)
+    Items.records(Valimc.TestConn.state(pid).resource.items)
   end
 
   defp completed(ctx, sequence) do
@@ -240,7 +240,7 @@ defmodule Valimc.KeyboardDropTest do
       client = barrier(client)
       Client.await_position(pid, %{x: ctx.pose.x + 1})
       send(pid, :save_player)
-      frozen = :sys.get_state(pid)
+      frozen = Valimc.TestConn.state(pid)
       assert client.selected == 7
       assert frozen.inventory.slots == before.inventory.slots and frozen.inventory.selected == 7
       assert frozen.inventory.carried == nil and frozen.save_ref == nil
@@ -266,16 +266,16 @@ defmodule Valimc.KeyboardDropTest do
       send(pid, {:player_transfer_saved, make_ref(), {:ok, make_ref(), saved(ctx)}})
       send(pid, {:recovery_deadline, make_ref()})
       client = barrier(client)
-      assert :sys.get_state(pid).inventory.selected == 7
-      last_id = :sys.get_state(pid).inventory.state_id
+      assert Valimc.TestConn.state(pid).inventory.selected == 7
+      last_id = Valimc.TestConn.state(pid).inventory.state_id
       :sys.resume(destination)
       {^pid, finished} = completed(ctx, 1)
       assert finished.inventory.state_id > last_id
       assert finished.player.x == ctx.pose.x + 1 and length(records(ctx)) == 1
       action(client, "swap_item_with_offhand")
       client = barrier(client)
-      assert :sys.get_state(pid).inventory.slots[43] == ItemStack.new("egg", 3)
-      assert :sys.get_state(pid).inventory.slots[45] == %{ctx.stone | count: 6}
+      assert Valimc.TestConn.state(pid).inventory.slots[43] == ItemStack.new("egg", 3)
+      assert Valimc.TestConn.state(pid).inventory.slots[45] == %{ctx.stone | count: 6}
       Client.close(client)
     after
       if Process.alive?(source), do: :sys.resume(source)
@@ -326,7 +326,7 @@ defmodule Valimc.KeyboardDropTest do
       {^pid, saving} = await_state(ctx, &(&1.save_ref != nil))
       action(client, "drop_item")
       client = barrier(client)
-      frozen = :sys.get_state(pid)
+      frozen = Valimc.TestConn.state(pid)
       assert frozen.recovery == nil and frozen.save_ref == saving.save_ref
       assert frozen.inventory.slots[43] == ctx.stone and records(ctx) == []
       :sys.resume(state.player_store)
@@ -447,7 +447,7 @@ defmodule Valimc.KeyboardDropTest do
       action(client, "swap_item_with_offhand")
       Client.send_packet(client, :play, "container_close", <<0>>)
       client = barrier(client)
-      pending = :sys.get_state(pid)
+      pending = Valimc.TestConn.state(pid)
       assert pending.inventory.carried == ctx.stone and pending.inventory.slots[45].count == 3
       assert pending.recovery.plan.inventory.carried == %{ctx.stone | count: 6}
       assert records(ctx) == []
@@ -528,8 +528,8 @@ defmodule Valimc.KeyboardDropTest do
       await_state(ctx, &(&1.save_ref != nil))
       menu_click(client, "pickup", -999, 0)
       client = barrier(client)
-      assert :sys.get_state(pid).inventory.carried == ctx.stone
-      assert :sys.get_state(pid).recovery == nil and records(ctx) == []
+      assert Valimc.TestConn.state(pid).inventory.carried == ctx.stone
+      assert Valimc.TestConn.state(pid).recovery == nil and records(ctx) == []
       :sys.resume(state.player_store)
       await_state(ctx, &(&1.save_ref == nil))
       menu_click(client, "pickup", -999, 0)

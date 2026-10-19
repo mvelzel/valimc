@@ -46,10 +46,10 @@ defmodule Valimc.RegionTickTest do
     send(pid, :tick)
     send(pid, {:tick, {make_ref(), make_ref()}})
     assert {:ok, _} = Region.observe_blocks({pid, epoch}, [])
-    assert :sys.get_state(pid).tick_clock == state.tick_clock
+    assert Valimc.TestConn.state(pid).tick_clock == state.tick_clock
     send(pid, {:tick, token})
     assert {:ok, _} = Region.observe_blocks({pid, epoch}, [])
-    after_early = :sys.get_state(pid)
+    after_early = Valimc.TestConn.state(pid)
     assert after_early.tick_clock.tick == state.tick_clock.tick
     assert after_early.tick_clock.deadline == state.tick_clock.deadline
     assert after_early.tick_clock.token != token
@@ -57,7 +57,7 @@ defmodule Valimc.RegionTickTest do
     assert is_integer(Process.read_timer(after_early.tick_timer))
     send(pid, {:tick, token})
     assert {:ok, _} = Region.observe_blocks({pid, epoch}, [])
-    assert :sys.get_state(pid).tick_clock == after_early.tick_clock
+    assert Valimc.TestConn.state(pid).tick_clock == after_early.tick_clock
   end
 
   test "a replacement owner rejects its predecessor's timer while another owner advances" do

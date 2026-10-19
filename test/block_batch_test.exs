@@ -47,7 +47,7 @@ defmodule Valimc.BlockBatchTest do
         ],
         do: World.chunk(key)
 
-    before = :sys.get_state(pid).resource
+    before = Valimc.TestConn.state(pid).resource
     World.subscribe(MapSet.new([{400, 401}]), MapSet.new())
     assert {:ok, revision} = Region.set_blocks(owner, before.revision, changes)
     assert revision == before.revision + 1
@@ -55,7 +55,7 @@ defmodule Valimc.BlockBatchTest do
     assert {:ok, %{blocks: ^changes, revision: ^revision}} =
              Region.observe_blocks(owner, Map.keys(changes), revision)
 
-    after_commit = :sys.get_state(pid).resource
+    after_commit = Valimc.TestConn.state(pid).resource
     assert map_size(after_commit.cache) == 1
 
     assert after_commit.versions == %{
@@ -134,7 +134,8 @@ defmodule Valimc.BlockBatchTest do
     owner
   end
 
-  defp mutation_state(pid) when is_pid(pid), do: mutation_state(:sys.get_state(pid).resource)
+  defp mutation_state(pid) when is_pid(pid),
+    do: mutation_state(Valimc.TestConn.state(pid).resource)
 
   defp mutation_state(state),
     do:

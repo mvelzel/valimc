@@ -67,7 +67,7 @@ defmodule Valimc.EncryptedConnectionTest do
     {uuid, client} = Client.login_session(Map.put(client, :cipher, cipher), name)
     client = Client.load_world(client)
     assert uuid == Connection.offline_uuid(name)
-    assert :sys.get_state(pid).cipher.owner == pid
+    assert Valimc.TestConn.state(pid).cipher.owner == pid
     client = Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
     {body, client} = Client.await(client, :play, "system_chat")
     assert byte_size(body) > 0

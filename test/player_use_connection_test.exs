@@ -85,8 +85,8 @@ defmodule Valimc.PlayerUseConnectionTest do
     Client.send_packet(client, :play, "player_loaded", <<>>)
 
     wait(fn ->
-      not :sys.get_state(pid).teleport_pending and
-        Valimc.PlayerInput.loaded?(:sys.get_state(pid).player.input)
+      not Valimc.TestConn.state(pid).teleport_pending and
+        Valimc.PlayerInput.loaded?(Valimc.TestConn.state(pid).player.input)
     end)
 
     on_exit(fn -> Client.close(client) end)

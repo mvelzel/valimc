@@ -95,7 +95,7 @@ defmodule Valimc.ChestConnectionTest do
     client = Client.load_world(client)
     pid = Enum.find(Players.all(), &(&1.name == ctx.name)).pid
     Client.send_packet(client, :play, "player_loaded", <<>>)
-    wait(fn -> Valimc.PlayerInput.loaded?(:sys.get_state(pid).player.input) end)
+    wait(fn -> Valimc.PlayerInput.loaded?(Valimc.TestConn.state(pid).player.input) end)
 
     on_exit(fn ->
       Client.close(client)
@@ -128,7 +128,7 @@ defmodule Valimc.ChestConnectionTest do
     use_chest(client, ctx, hand)
     {_, client} = Client.await(client, :play, "block_changed_ack")
     pid = Enum.find(Players.all(), &(&1.name == ctx.name)).pid
-    assert :sys.get_state(pid).table_menu != nil
+    assert Valimc.TestConn.state(pid).table_menu != nil
     {body, client} = Client.await(client, :play, "open_screen")
     {id, body} = Wire.take_varint(body)
     assert id in 1..127
@@ -158,11 +158,11 @@ defmodule Valimc.ChestConnectionTest do
     client = open(client, ctx)
     old = client.inventory.container
     client = Client.teleport(client, pid, %{ctx.pose | x: ctx.pose.x + 0.1})
-    assert :sys.get_state(pid).table_menu == nil
+    assert Valimc.TestConn.state(pid).table_menu == nil
     send_click(client, 54, 0, "pickup", old)
     {_, client} = Client.await(client, :play, "container_close")
     _client = content(client, &(&1.container == 0))
-    assert :sys.get_state(pid).inventory.slots == %{36 => ItemStack.new("oak_planks", 8)}
+    assert Valimc.TestConn.state(pid).inventory.slots == %{36 => ItemStack.new("oak_planks", 8)}
     assert saved(ctx).transfer_sequence == 0 and saved(ctx).outbox == nil
   end
 
@@ -187,7 +187,7 @@ defmodule Valimc.ChestConnectionTest do
     client = open(client, ctx)
     assert hd(client.inventory.items) == ItemStack.new("diamond", 3)
     assert Enum.at(client.inventory.items, 54) == ItemStack.new("oak_planks", 8)
-    assert :sys.get_state(pid).inventory.table_inputs == nil
+    assert Valimc.TestConn.state(pid).inventory.table_inputs == nil
     client = click(client, 54, 0, "pickup", &(&1.carried == ItemStack.new("oak_planks", 8)))
 
     client =
@@ -230,7 +230,7 @@ defmodule Valimc.ChestConnectionTest do
       )
 
     client = click(client, 62, 40, "swap", &(Enum.at(&1.items, 62) == nil))
-    assert :sys.get_state(pid).inventory.slots[45] == ItemStack.new("oak_planks", 8)
+    assert Valimc.TestConn.state(pid).inventory.slots[45] == ItemStack.new("oak_planks", 8)
     client = click(client, 0, 40, "swap", &(hd(&1.items) == ItemStack.new("oak_planks", 8)))
 
     client =
@@ -272,7 +272,7 @@ defmodule Valimc.ChestConnectionTest do
     client = click(client, 61, 0, "pickup", &(&1.carried == ItemStack.new("oak_planks", 4)))
     Client.send_packet(client, :play, "container_close", Wire.varint(client.inventory.container))
     _client = content(client, &(&1.container == 0 and &1.carried == nil))
-    assert :sys.get_state(pid).table_menu == nil
+    assert Valimc.TestConn.state(pid).table_menu == nil
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
     {fresh, fresh_pid} = login(ctx)
@@ -298,13 +298,13 @@ defmodule Valimc.ChestConnectionTest do
     {client, pid} = login(ctx)
     use_chest(client, ctx)
     {_, client} = Client.await(client, :play, "block_changed_ack")
-    assert :sys.get_state(pid).table_menu == nil
+    assert Valimc.TestConn.state(pid).table_menu == nil
     :ok = World.set_block(above, 0)
     client = open(client, ctx)
     :ok = World.set_block(above, Data.block("stone"))
 
     wait(fn ->
-      state = :sys.get_state(pid)
+      state = Valimc.TestConn.state(pid)
       state.table_job == nil and state.table_menu != nil
     end)
 
@@ -312,7 +312,7 @@ defmodule Valimc.ChestConnectionTest do
     _client = content(client, &(&1.container == 0))
     use_chest(client, ctx)
     {_, _client} = Client.await(client, :play, "block_changed_ack")
-    assert :sys.get_state(pid).table_menu == nil
+    assert Valimc.TestConn.state(pid).table_menu == nil
   end
 
   test "a chest-shaped block without an owned container cannot open", ctx do
@@ -320,7 +320,7 @@ defmodule Valimc.ChestConnectionTest do
     {client, pid} = login(ctx)
     use_chest(client, ctx)
     {_, _client} = Client.await(client, :play, "block_changed_ack")
-    assert :sys.get_state(pid).table_menu == nil
+    assert Valimc.TestConn.state(pid).table_menu == nil
     assert Valimc.TestDisk.read(ctx.base, ctx.key, :containers) == nil
   end
 
@@ -335,7 +335,7 @@ defmodule Valimc.ChestConnectionTest do
 
     try do
       send_click(client, 54)
-      wait(fn -> match?(%{stage: :delivery}, :sys.get_state(pid).recovery) end)
+      wait(fn -> match?(%{stage: :delivery}, Valimc.TestConn.state(pid).recovery) end)
       assert saved(ctx).outbox.kind == :container and saved(ctx).transfer_sequence == 1
       assert saved(ctx).inventory.slots == %{36 => ItemStack.new("oak_planks", 8)}
 
@@ -350,17 +350,21 @@ defmodule Valimc.ChestConnectionTest do
       Client.send_packet(client, :play, "container_click", <<0, 0, 36::signed-16, 0, 0, 0, 0>>)
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
       {_, client} = Client.await(client, :play, "system_chat")
-      assert :sys.get_state(pid).table_menu == nil and :sys.get_state(pid).table_closing
-      assert :sys.get_state(pid).inventory.selected == 0
+
+      assert Valimc.TestConn.state(pid).table_menu == nil and
+               Valimc.TestConn.state(pid).table_closing
+
+      assert Valimc.TestConn.state(pid).inventory.selected == 0
       assert stored(ctx).receipts[ctx.uuid].sequence == 0
       :sys.resume(writer)
       _client = content(client, &(&1.container == 0 and &1.carried == nil))
 
       wait(fn ->
-        :sys.get_state(pid).recovery == nil and not :sys.get_state(pid).table_closing
+        Valimc.TestConn.state(pid).recovery == nil and
+          not Valimc.TestConn.state(pid).table_closing
       end)
 
-      assert :sys.get_state(pid).inventory.slots == %{36 => ItemStack.new("oak_planks", 8)}
+      assert Valimc.TestConn.state(pid).inventory.slots == %{36 => ItemStack.new("oak_planks", 8)}
       assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
       assert stored(ctx).receipts[ctx.uuid].sequence == 1
       assert elem(stored(ctx).entries[ctx.position].slots, 0) == ItemStack.new("diamond", 3)
@@ -371,12 +375,12 @@ defmodule Valimc.ChestConnectionTest do
 
   defp viewer_state(ctx) do
     {:ok, {pid, _}} = World.existing_owner(ctx.key)
-    :sys.get_state(pid).resource.container_viewers
+    Valimc.TestConn.state(pid).resource.container_viewers
   end
 
   defp subscribed(pid) do
     wait(fn ->
-      state = :sys.get_state(pid)
+      state = Valimc.TestConn.state(pid)
       state.table_menu && state.table_menu.subscribed && state.table_job == nil
     end)
   end
@@ -464,7 +468,7 @@ defmodule Valimc.ChestConnectionTest do
     seed(ctx, :survival, true, nil)
     {client, pid} = login(ctx)
     {:ok, owner} = World.existing_owner(ctx.key)
-    threshold = :sys.get_state(pid).threshold
+    threshold = Valimc.TestConn.state(pid).threshold
     {:ok, packet} = Valimc.Protocol.ChestSounds.packet(true, ctx.position, 0.5, -1)
     sound = Valimc.Protocol.Packets.frame(packet, threshold)
 
@@ -476,7 +480,7 @@ defmodule Valimc.ChestConnectionTest do
 
     deliver = fn owner ->
       Connection.deliver(pid, {:chest_lid, owner, ctx.position, true, lid, sound})
-      :sys.get_state(pid)
+      Valimc.TestConn.state(pid)
     end
 
     deliver.(owner)
@@ -605,14 +609,14 @@ defmodule Valimc.ChestConnectionTest do
 
     wait(fn ->
       Enum.all?([first_pid, second_pid], fn pid ->
-        state = :sys.get_state(pid)
+        state = Valimc.TestConn.state(pid)
 
         state.recovery == nil and state.table_job == nil and state.table_queued == 0 and
           state.table_menu != nil and elem(state.table_menu.view.slots, 0) == nil
       end)
     end)
 
-    carried = for pid <- [first_pid, second_pid], do: :sys.get_state(pid).inventory.carried
+    carried = for pid <- [first_pid, second_pid], do: Valimc.TestConn.state(pid).inventory.carried
     assert Enum.sort(carried) == Enum.sort([nil, ItemStack.new("diamond", 3)])
     assert elem(stored(ctx).entries[ctx.position].slots, 0) == nil
     assert stored(ctx).sequence == 3
@@ -636,14 +640,14 @@ defmodule Valimc.ChestConnectionTest do
     seed(ctx)
     {client, pid} = login(ctx)
     client = open(client, ctx)
-    writer = :sys.get_state(pid).player_store
+    writer = Valimc.TestConn.state(pid).player_store
     :sys.suspend(writer)
 
     try do
       send_click(client, 54)
 
       wait(fn ->
-        match?(%{kind: :container, stage: :candidate}, :sys.get_state(pid).table_job)
+        match?(%{kind: :container, stage: :candidate}, Valimc.TestConn.state(pid).table_job)
       end)
 
       Client.send_packet(
@@ -654,12 +658,15 @@ defmodule Valimc.ChestConnectionTest do
       )
 
       _client = content(client, &(&1.container == 0))
-      assert :sys.get_state(pid).table_job == nil and :sys.get_state(pid).recovery == nil
+
+      assert Valimc.TestConn.state(pid).table_job == nil and
+               Valimc.TestConn.state(pid).recovery == nil
+
       :sys.resume(writer)
       # A writer call is a barrier after its already-queued candidate cast.
       _state = :sys.get_state(writer)
       assert saved(ctx).transfer_sequence == 0 and saved(ctx).outbox == nil
-      assert :sys.get_state(pid).inventory.slots == %{36 => ItemStack.new("oak_planks", 8)}
+      assert Valimc.TestConn.state(pid).inventory.slots == %{36 => ItemStack.new("oak_planks", 8)}
       assert stored(ctx).receipts[ctx.uuid].sequence == 0
     after
       if Process.alive?(writer), do: :sys.resume(writer)
@@ -679,7 +686,7 @@ defmodule Valimc.ChestConnectionTest do
       send_click(client, 54, 0, "quick_move")
 
       wait(fn ->
-        match?(%{stage: :delivery}, :sys.get_state(pid).recovery) and
+        match?(%{stage: :delivery}, Valimc.TestConn.state(pid).recovery) and
           match?(
             %{kind: :container, phase: :writing},
             :sys.get_state(region).resource.item_pending
@@ -694,13 +701,14 @@ defmodule Valimc.ChestConnectionTest do
       _client = content(client, &(&1.container == 0 and &1.carried == nil))
 
       wait(fn ->
-        :sys.get_state(pid).recovery == nil and not :sys.get_state(pid).table_closing
+        Valimc.TestConn.state(pid).recovery == nil and
+          not Valimc.TestConn.state(pid).table_closing
       end)
 
       {:ok, replacement} = World.existing_owner(ctx.key)
       assert replacement != owner
       assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
-      assert :sys.get_state(pid).inventory.slots == %{}
+      assert Valimc.TestConn.state(pid).inventory.slots == %{}
       assert elem(stored(ctx).entries[ctx.position].slots, 1) == ItemStack.new("oak_planks", 8)
       assert stored(ctx).receipts[ctx.uuid].sequence == 1
       assert World.item_snapshot(ctx.key) == %{}
@@ -734,7 +742,7 @@ defmodule Valimc.ChestConnectionTest do
       else
         use_chest(client, ctx, hand)
         {_, _client} = Client.await(client, :play, "block_changed_ack")
-        assert :sys.get_state(pid).table_menu == nil
+        assert Valimc.TestConn.state(pid).table_menu == nil
       end
 
       Client.close(client)
@@ -750,7 +758,7 @@ defmodule Valimc.ChestConnectionTest do
     client = open(client, ctx)
     :ok = World.remove_block(ctx.position)
     client = content(client, &(&1.container == 0))
-    assert :sys.get_state(pid).table_menu == nil
+    assert Valimc.TestConn.state(pid).table_menu == nil
     {:ok, owner} = World.existing_owner(ctx.key)
     {:ok, observed} = Region.observe_blocks(owner, [ctx.position])
     {:ok, batch} = Valimc.World.BlockBatch.prepare(%{ctx.position => @chest})
@@ -765,7 +773,7 @@ defmodule Valimc.ChestConnectionTest do
 
     client = open(client, ctx)
     client = Client.teleport(client, pid, %{ctx.pose | x: ctx.pose.x + 20})
-    assert :sys.get_state(pid).table_menu == nil
+    assert Valimc.TestConn.state(pid).table_menu == nil
     client = Client.teleport(client, pid, ctx.pose)
     client = open(client, ctx)
     {:ok, {region, _}} = World.existing_owner(ctx.key)
@@ -773,12 +781,12 @@ defmodule Valimc.ChestConnectionTest do
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, region)
     {:ok, _} = World.owner(ctx.key)
     _client = content(client, &(&1.container == 0))
-    assert :sys.get_state(pid).table_menu == nil
+    assert Valimc.TestConn.state(pid).table_menu == nil
     {:ok, old} = Containers.decode(before, ctx.key)
     after_state = stored(ctx)
     assert after_state.receipts == old.receipts
     assert after_state.entries[ctx.position].slots == old.entries[ctx.position].slots
     assert after_state.entries[ctx.position].revision > old.entries[ctx.position].revision
-    assert :sys.get_state(pid).inventory.slots == %{36 => ItemStack.new("oak_planks", 8)}
+    assert Valimc.TestConn.state(pid).inventory.slots == %{36 => ItemStack.new("oak_planks", 8)}
   end
 end

@@ -375,7 +375,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
     Application.put_env(:valimc, :cooking_simulation, false)
     {:ok, {pid, old_epoch}} = Valimc.World.item_owner(ctx.key)
     :sys.suspend(pid)
-    writer = :sys.get_state(pid).resource.store
+    writer = Valimc.TestConn.state(pid).resource.store
     :sys.suspend(writer)
 
     try do
@@ -387,10 +387,10 @@ defmodule Valimc.CookingRegionRuntimeTest do
       :sys.resume(pid)
 
       eventually(fn ->
-        match?(%{kind: :cooking_batch}, :sys.get_state(pid).resource.item_pending)
+        match?(%{kind: :cooking_batch}, Valimc.TestConn.state(pid).resource.item_pending)
       end)
 
-      pending = :sys.get_state(pid).resource.item_pending
+      pending = Valimc.TestConn.state(pid).resource.item_pending
       expected = pending.plan.containers
       assert disk(ctx) != expected
       monitor = Process.monitor(pid)
@@ -463,7 +463,10 @@ defmodule Valimc.CookingRegionRuntimeTest do
     assert :ok = Store.flush_containers(state.store, state.store_lease, committed)
     RegionData.terminate(:shutdown, %{state | containers: committed})
     {:ok, {pid, old_epoch}} = Valimc.World.item_owner(ctx.key)
-    assert :sys.get_state(pid).resource.containers.pending_awards == committed.pending_awards
+
+    assert Valimc.TestConn.state(pid).resource.containers.pending_awards ==
+             committed.pending_awards
+
     monitor = Process.monitor(pid)
     Process.exit(pid, :kill)
     assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}
@@ -547,7 +550,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
              )
 
     eventually(fn ->
-      current = :sys.get_state(pid).resource
+      current = Valimc.TestConn.state(pid).resource
 
       Enum.all?(current.containers.entries, fn {_, entry} ->
         Enum.sum(Map.values(entry.recipes)) == 1

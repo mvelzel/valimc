@@ -99,7 +99,7 @@ defmodule Valimc.DisconnectedInventoryTest do
     pid
   end
 
-  defp records(pid), do: Items.records(:sys.get_state(pid).resource.items)
+  defp records(pid), do: Items.records(Valimc.TestConn.state(pid).resource.items)
 
   defp verify(ctx, snapshot, records) do
     assert snapshot.inventory.slots == Map.take(ctx.inventory.slots, [38, 45])

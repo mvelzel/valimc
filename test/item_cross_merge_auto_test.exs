@@ -127,7 +127,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     }
   end
 
-  defp state({pid, _}), do: :sys.get_state(pid).resource
+  defp state({pid, _}), do: Valimc.TestConn.state(pid).resource
 
   defp start(c) do
     for {pid, _} <- [c.source, c.target],

@@ -135,11 +135,11 @@ defmodule Valimc.ItemSimulationRegionTest do
 
     wait(fn ->
       state(ctx).items.entries == %{} and state(ctx).items.ledger.outgoing == nil and
-        map_size(:sys.get_state(pid).resource.items.entries) == 1
+        map_size(Valimc.TestConn.state(pid).resource.items.entries) == 1
     end)
 
     assert {:ok, handle} = Region.find_item(owner, <<1::128>>)
-    current = :sys.get_state(pid).resource
+    current = Valimc.TestConn.state(pid).resource
     assert current.items.ledger.generations == %{<<1::128>> => 1}
     assert current.items.entries[elem(handle, 2)].entity.x > elem(destination, 0) * 128
     assert current.items.entries[elem(handle, 2)].motion.age >= 1

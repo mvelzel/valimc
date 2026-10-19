@@ -68,7 +68,7 @@ defmodule Valimc.PlacementOwnerTest do
     request = %{position: c.position, face: 1, cursor: {0.5, 0.5, 0.5}, yaw: 180.0}
     assert {:ok, prepared} = plan(c, "chest", request)
     {pid, _} = c.owner
-    writer = :sys.get_state(pid).resource.store
+    writer = Valimc.TestConn.state(pid).resource.store
     :sys.suspend(writer)
 
     task =
@@ -79,7 +79,7 @@ defmodule Valimc.PlacementOwnerTest do
     try do
       wait_writing(pid)
       assert World.get_block(c.position) == 0
-      assert :sys.get_state(pid).resource.containers.entries == %{}
+      assert Valimc.TestConn.state(pid).resource.containers.entries == %{}
       assert {:error, :mining_storage_busy} = World.set_block(c.position, 1)
       assert Task.yield(task, 10) == nil
       :sys.resume(writer)
@@ -91,7 +91,7 @@ defmodule Valimc.PlacementOwnerTest do
     end
 
     chest = World.get_block(c.position)
-    old = :sys.get_state(pid).resource.containers
+    old = Valimc.TestConn.state(pid).resource.containers
     assert old.entries[c.position].slots == Tuple.duplicate(nil, 27)
     :sys.suspend(writer)
     {:ok, current} = Region.observe_blocks(c.owner, [c.position])
@@ -109,7 +109,7 @@ defmodule Valimc.PlacementOwnerTest do
     try do
       wait_writing(pid)
       assert World.get_block(c.position) == chest
-      assert :sys.get_state(pid).resource.containers == old
+      assert Valimc.TestConn.state(pid).resource.containers == old
       assert Task.yield(removal, 10) == nil
       :sys.resume(writer)
       assert :ok = Task.await(removal)
@@ -127,7 +127,7 @@ defmodule Valimc.PlacementOwnerTest do
       )
 
     assert containers.entries == %{} and containers.sequence == 2 and containers.receipts == %{}
-    assert :sys.get_state(pid).resource.containers == containers
+    assert Valimc.TestConn.state(pid).resource.containers == containers
     assert World.item_snapshot(c.key) == %{}
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
     {:ok, {replacement, _}} = World.owner(c.key)
@@ -151,7 +151,7 @@ defmodule Valimc.PlacementOwnerTest do
     {:ok, prepared} = plan(c, "chest", request)
     {pid, _} = c.owner
     before = World.get_block(c.position)
-    writer = :sys.get_state(pid).resource.store
+    writer = Valimc.TestConn.state(pid).resource.store
     Valimc.TestDisk.break_writer(writer)
     monitor = Process.monitor(pid)
 
@@ -180,7 +180,7 @@ defmodule Valimc.PlacementOwnerTest do
   defp wait_writing(pid, tries) do
     if match?(
          %{kind: :container_blocks, phase: :writing},
-         :sys.get_state(pid).resource.item_pending
+         Valimc.TestConn.state(pid).resource.item_pending
        ) do
       :ok
     else

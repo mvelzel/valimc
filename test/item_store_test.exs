@@ -33,7 +33,7 @@ defmodule Valimc.ItemStoreTest do
   end
 
   defp wait_pending(pid, retries \\ 100) do
-    case :sys.get_state(pid).resource.item_pending do
+    case Valimc.TestConn.state(pid).resource.item_pending do
       pending when pending == nil or pending.phase == :planning ->
         assert(retries > 0)
         Process.sleep(1)

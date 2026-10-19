@@ -135,7 +135,7 @@ defmodule Valimc.WeatherTest do
 
     recovered = Clock.snapshot(pid)
     assert recovered.weather == Weather.prepare(snapshot.weather)
-    [{:weather, view}] = :ets.lookup(:sys.get_state(pid).table, :weather)
+    [{:weather, view}] = :ets.lookup(Valimc.TestConn.state(pid).table, :weather)
     assert view.wet and view.rain_level == 1.0 and view.thunder_level == 1.0
     assert {:error, :invalid_weather_change} = Clock.configure({:weather, :thunder, -1}, pid)
     assert Clock.snapshot(pid) == recovered

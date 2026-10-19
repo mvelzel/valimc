@@ -35,7 +35,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
     {<<health::float-32, rest::binary>>, client} = Client.await(client, :play, "set_health")
     assert {20, <<5.0::float-32>>} = Wire.take_varint(rest)
     {pid, _} = Enum.find(:ets.tab2list(Players), fn {_, player} -> player.name == name end)
-    _ = :sys.get_state(pid)
+    _ = Valimc.TestConn.state(pid)
     {health, client, pid}
   end
 
@@ -73,7 +73,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
     for _ <- 1..2 do
       {health, client, pid} = health_login(ctx.name)
       assert health == 7.25
-      state = :sys.get_state(pid)
+      state = Valimc.TestConn.state(pid)
       assert state.player.health.value == 7.25
       assert state.player.fire_ticks in 1..300
       assert state.player.health.cooldown == 0 and state.player.health.last_hurt == 0
@@ -102,7 +102,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
     File.write!(path, bytes)
     {health, client, pid} = health_login(ctx.name)
     assert health == 20.0
-    assert :sys.get_state(pid).teleport_pending
+    assert Valimc.TestConn.state(pid).teleport_pending
     on_exit(fn -> Client.close(client) end)
 
     :sys.replace_state(pid, fn state ->
@@ -119,14 +119,14 @@ defmodule Valimc.PlayerHealthConnectionTest do
       }
     end)
 
-    state = :sys.get_state(pid)
+    state = Valimc.TestConn.state(pid)
     token = state.simulation_clock.token
     send(pid, {:player_tick, token})
-    next = :sys.get_state(pid)
+    next = Valimc.TestConn.state(pid)
     assert next.player.health == %{state.player.health | hurt_ticks: 9, cooldown: 19}
     assert next.simulation_clock.tick == state.simulation_clock.tick + 1
     send(pid, {:player_tick, token})
-    assert :sys.get_state(pid).player.health == next.player.health
+    assert Valimc.TestConn.state(pid).player.health == next.player.health
 
     :sys.replace_state(pid, fn state ->
       %{
@@ -138,12 +138,12 @@ defmodule Valimc.PlayerHealthConnectionTest do
       }
     end)
 
-    token = :sys.get_state(pid).simulation_clock.token
+    token = Valimc.TestConn.state(pid).simulation_clock.token
     send(pid, {:player_tick, token})
-    early = :sys.get_state(pid)
+    early = Valimc.TestConn.state(pid)
     assert early.player.health == next.player.health
     assert early.simulation_clock.tick == next.simulation_clock.tick
     send(pid, {:player_tick, token})
-    assert :sys.get_state(pid).player.health == next.player.health
+    assert Valimc.TestConn.state(pid).player.health == next.player.health
   end
 end

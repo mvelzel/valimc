@@ -93,7 +93,7 @@ defmodule Valimc.ItemLedgerStoreTest do
   test "reserved source capacity survives critical writes and owner recovery before a first transfer",
        ctx do
     {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
-    assert :sys.get_state(pid).resource.item_receipts == ctx.receipts
+    assert Valimc.TestConn.state(pid).resource.item_receipts == ctx.receipts
     {:ok, handle} = Region.find_item(owner, ctx.record.uuid)
     assert {:ok, _} = Region.replace_item(handle, %{ctx.record.stack | count: 4})
     assert hd(disk(ctx).records).stack.count == 4
@@ -119,7 +119,7 @@ defmodule Valimc.ItemLedgerStoreTest do
     assert {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
     assert {:ok, {_, epoch, id, revision} = handle} = Region.find_item(owner, ctx.record.uuid)
     assert World.item_snapshot(ctx.key)[id].ownership_generation == 4
-    assert :sys.get_state(pid).resource.items.ledger == ctx.ledger
+    assert Valimc.TestConn.state(pid).resource.items.ledger == ctx.ledger
 
     step = %{
       id: id,
@@ -169,10 +169,10 @@ defmodule Valimc.ItemLedgerStoreTest do
     }
 
     assert {:ok, _} = Region.publish_item_motion(owner, [step])
-    timer = :sys.get_state(pid).resource.item_checkpoint_timer
+    timer = Valimc.TestConn.state(pid).resource.item_checkpoint_timer
     send(pid, {:resource, epoch, {:item_checkpoint, timer.token}})
     assert {:ok, _} = Region.observe_blocks(owner, [])
-    state = :sys.get_state(pid).resource
+    state = Valimc.TestConn.state(pid).resource
     assert {:ok, %{ledger: ledger}} = Store.load_items(state.store)
     assert ledger == ctx.ledger
     assert [%{motion: %{age: 5}}] = disk(ctx).records

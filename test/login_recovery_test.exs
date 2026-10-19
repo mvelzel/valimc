@@ -148,7 +148,7 @@ defmodule Valimc.LoginRecoveryTest do
       send(pid, {:retry_recovery, state.recovery.id, make_ref()})
       send(pid, {:recovery_deadline, make_ref()})
       send(pid, {:player_transfer_saved, make_ref(), {:error, :bad}})
-      assert :sys.get_state(pid).recovery.job.pid == job.pid
+      assert Valimc.TestConn.state(pid).recovery.job.pid == job.pid
       assert {:error, :session_closing} = PlayerStore.open(fixture.uuid)
       name = "Healthy" <> Integer.to_string(System.unique_integer([:positive]))
       {healthy_uuid, healthy} = Client.login(name)

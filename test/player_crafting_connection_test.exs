@@ -403,7 +403,7 @@ defmodule Valimc.PlayerCraftingConnectionTest do
 
   defp records(ctx) do
     {:ok, {pid, _}} = Valimc.World.item_owner(ctx.key)
-    Valimc.World.Items.records(:sys.get_state(pid).resource.items)
+    Valimc.World.Items.records(Valimc.TestConn.state(pid).resource.items)
   end
 
   test "pickup remainders commit with their carried output and survive disconnect cleanup", ctx do

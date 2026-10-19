@@ -143,29 +143,29 @@ defmodule Valimc.TableConnectionTest do
     client = client |> click(37) |> click(1) |> click(38) |> click(2) |> click(39) |> click(3)
     client = client |> click(40) |> click(5, 1) |> click(8, 1)
     assert hd(client.inventory.items) == ItemStack.new("wooden_pickaxe")
-    assert :sys.get_state(pid).inventory.slots[0] == nil
+    assert Valimc.TestConn.state(pid).inventory.slots[0] == nil
     client = click(client, 0, 4, "swap")
     assert hd(client.inventory.items) == nil
-    assert :sys.get_state(pid).inventory.slots[40] == ItemStack.new("wooden_pickaxe")
-    assert :sys.get_state(pid).inventory.slots[45] == ItemStack.new("leather", 5)
+    assert Valimc.TestConn.state(pid).inventory.slots[40] == ItemStack.new("wooden_pickaxe")
+    assert Valimc.TestConn.state(pid).inventory.slots[45] == ItemStack.new("leather", 5)
     Client.send_packet(client, :play, "container_close", Wire.varint(first))
     client = inventory_until(client, &(&1.container == 0))
-    assert :sys.get_state(pid).inventory.table_inputs == nil
+    assert Valimc.TestConn.state(pid).inventory.table_inputs == nil
     client = open(client, ctx)
     assert client.inventory.container != first
     send_click(client, 41, 0, "pickup", first)
     client = inventory_until(client, &(&1.container != first))
-    assert :sys.get_state(pid).table_menu.id == client.inventory.container
-    assert :sys.get_state(pid).inventory.carried == nil
+    assert Valimc.TestConn.state(pid).table_menu.id == client.inventory.container
+    assert Valimc.TestConn.state(pid).inventory.carried == nil
     Client.send_packet(client, :play, "container_close", <<99>>)
     _client = inventory_until(client, &(&1.container == 0))
-    assert :sys.get_state(pid).table_menu == nil
+    assert Valimc.TestConn.state(pid).table_menu == nil
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
     {fresh, pid} = login(ctx)
     assert fresh.inventory.container == 0
     assert Enum.at(fresh.inventory.items, 40) == ItemStack.new("wooden_pickaxe")
-    assert :sys.get_state(pid).inventory.table_inputs == nil
+    assert Valimc.TestConn.state(pid).inventory.table_inputs == nil
     assert saved(ctx).transfer_sequence == 0 and saved(ctx).outbox == nil
   end
 
@@ -179,8 +179,8 @@ defmodule Valimc.TableConnectionTest do
     {40, body} = Wire.take_varint(body)
     assert {:ok, stack, <<>>} = ItemStack.take(body)
     assert stack == slots[45]
-    assert :sys.get_state(pid).inventory.slots == slots
-    assert :sys.get_state(pid).inventory.carried == nil
+    assert Valimc.TestConn.state(pid).inventory.slots == slots
+    assert Valimc.TestConn.state(pid).inventory.carried == nil
   end
 
   test "table use preserves native both-hand and secondary precedence across modes", ctx do
@@ -202,14 +202,14 @@ defmodule Valimc.TableConnectionTest do
         else
           use_table(client, ctx, hand)
           {_, client} = Client.await(client, :play, "block_changed_ack")
-          assert :sys.get_state(pid).table_menu == nil
+          assert Valimc.TestConn.state(pid).table_menu == nil
           client
         end
 
       if mode == :spectator do
         _client = click(client, 37)
-        assert :sys.get_state(pid).inventory.slots == slots
-        assert :sys.get_state(pid).inventory.carried == nil
+        assert Valimc.TestConn.state(pid).inventory.slots == slots
+        assert Valimc.TestConn.state(pid).inventory.carried == nil
       end
 
       Client.close(client)
@@ -221,12 +221,15 @@ defmodule Valimc.TableConnectionTest do
     seed(ctx, %{36 => ItemStack.new("oak_log", 2)})
     {client, pid} = login(ctx)
     client = open(client, ctx) |> click(37) |> click(9)
-    assert :sys.get_state(pid).inventory.table_inputs |> elem(8) == ItemStack.new("oak_log", 2)
+
+    assert Valimc.TestConn.state(pid).inventory.table_inputs |> elem(8) ==
+             ItemStack.new("oak_log", 2)
+
     assert :ok = Connection.teleport(pid, %{ctx.pose | x: ctx.pose.x + 20})
     _client = inventory_until(client, &(&1.container == 0))
-    assert :sys.get_state(pid).table_menu == nil
-    assert :sys.get_state(pid).inventory.table_inputs == nil
-    assert :sys.get_state(pid).inventory.slots[36] == ItemStack.new("oak_log", 2)
+    assert Valimc.TestConn.state(pid).table_menu == nil
+    assert Valimc.TestConn.state(pid).inventory.table_inputs == nil
+    assert Valimc.TestConn.state(pid).inventory.slots[36] == ItemStack.new("oak_log", 2)
     assert records(ctx) == []
   end
 
@@ -242,7 +245,7 @@ defmodule Valimc.TableConnectionTest do
           Enum.at(inv.items, 2) == ItemStack.new("oak_log") and inv.carried == nil
       end)
 
-    assert :sys.get_state(pid).table_queued == 0
+    assert Valimc.TestConn.state(pid).table_queued == 0
     {:ok, owner} = World.existing_owner(ctx.key)
     {:ok, observed} = Valimc.World.Region.observe_blocks(owner, [])
 
@@ -250,8 +253,8 @@ defmodule Valimc.TableConnectionTest do
              Valimc.World.Region.set_blocks(owner, observed.revision, %{target(ctx) => 0})
 
     client = inventory_until(client, &(&1.container == 0))
-    assert :sys.get_state(pid).table_menu == nil
-    assert :sys.get_state(pid).inventory.table_inputs == nil
+    assert Valimc.TestConn.state(pid).table_menu == nil
+    assert Valimc.TestConn.state(pid).inventory.table_inputs == nil
     assert Enum.at(client.inventory.items, 36) == ItemStack.new("oak_log", 2)
     assert records(ctx) == []
   end
@@ -268,14 +271,14 @@ defmodule Valimc.TableConnectionTest do
       send_click(client, 0)
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
       {_message, client} = Client.await(client, :play, "system_chat")
-      wait(fn -> :sys.get_state(pid).table_menu == nil end)
+      wait(fn -> Valimc.TestConn.state(pid).table_menu == nil end)
       Valimc.TestRegionGate.resume(region)
       _client = inventory_until(client, &(&1.container == 0))
-      assert :sys.get_state(pid).inventory.carried == nil
-      assert :sys.get_state(pid).inventory.slots[36] == ItemStack.new("oak_log")
+      assert Valimc.TestConn.state(pid).inventory.carried == nil
+      assert Valimc.TestConn.state(pid).inventory.slots[36] == ItemStack.new("oak_log")
 
       refute Enum.any?(
-               Inventory.contents(:sys.get_state(pid).inventory),
+               Inventory.contents(Valimc.TestConn.state(pid).inventory),
                &(&1 == ItemStack.new("oak_planks", 4))
              )
 
@@ -305,7 +308,7 @@ defmodule Valimc.TableConnectionTest do
       }
     end)
 
-    writer = :sys.get_state(pid).player_store
+    writer = Valimc.TestConn.state(pid).player_store
     :sys.suspend(writer)
 
     try do
@@ -316,7 +319,10 @@ defmodule Valimc.TableConnectionTest do
         Wire.varint(client.inventory.container)
       )
 
-      wait(fn -> :sys.get_state(pid).table_closing and :sys.get_state(pid).recovery != nil end)
+      wait(fn ->
+        Valimc.TestConn.state(pid).table_closing and Valimc.TestConn.state(pid).recovery != nil
+      end)
+
       send_click(client, 37)
 
       Client.send_packet(client, :play, "container_click", [
@@ -328,16 +334,17 @@ defmodule Valimc.TableConnectionTest do
       Client.send_packet(client, :play, "set_carried_item", <<2::signed-16>>)
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
       {_message, client} = Client.await(client, :play, "system_chat")
-      assert :sys.get_state(pid).inventory.slots == full
-      assert :sys.get_state(pid).inventory.selected == 0
+      assert Valimc.TestConn.state(pid).inventory.slots == full
+      assert Valimc.TestConn.state(pid).inventory.selected == 0
       :sys.resume(writer)
 
       wait(fn ->
-        not :sys.get_state(pid).table_closing and :sys.get_state(pid).recovery == nil
+        not Valimc.TestConn.state(pid).table_closing and
+          Valimc.TestConn.state(pid).recovery == nil
       end)
 
       _client = inventory_until(client, &(&1.container == 0 and &1.carried == nil))
-      state = :sys.get_state(pid)
+      state = Valimc.TestConn.state(pid)
       assert state.inventory.slots == full and state.inventory.table_inputs == nil
       assert saved(ctx).transfer_sequence == 2 and saved(ctx).outbox == nil
       expected = [ItemStack.new("egg", 3) | Tuple.to_list(cells)]
@@ -370,8 +377,8 @@ defmodule Valimc.TableConnectionTest do
     client = click(client, 0, 0, "throw")
 
     wait(fn ->
-      :sys.get_state(pid).recovery == nil and
-        :sys.get_state(pid).inventory.table_inputs == Tuple.duplicate(nil, 9)
+      Valimc.TestConn.state(pid).recovery == nil and
+        Valimc.TestConn.state(pid).inventory.table_inputs == Tuple.duplicate(nil, 9)
     end)
 
     _client = inventory_until(client, &(hd(&1.items) == nil))
@@ -381,7 +388,7 @@ defmodule Valimc.TableConnectionTest do
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
     {fresh, pid} = login(ctx)
     assert fresh.inventory.carried == nil
-    assert :sys.get_state(pid).inventory.table_inputs == nil
+    assert Valimc.TestConn.state(pid).inventory.table_inputs == nil
     assert saved(ctx).transfer_sequence == 1 and length(records(ctx)) == 1
   end
 
@@ -395,9 +402,9 @@ defmodule Valimc.TableConnectionTest do
       %{state | player: %{state.player | x: state.player.x + 10}}
     end)
 
-    wait(fn -> :sys.get_state(pid).table_menu == nil end)
-    assert :sys.get_state(pid).inventory.table_inputs == nil
-    assert :sys.get_state(pid).inventory.slots[36] == ItemStack.new("oak_log", 2)
+    wait(fn -> Valimc.TestConn.state(pid).table_menu == nil end)
+    assert Valimc.TestConn.state(pid).inventory.table_inputs == nil
+    assert Valimc.TestConn.state(pid).inventory.slots[36] == ItemStack.new("oak_log", 2)
     assert records(ctx) == []
   end
 
@@ -409,9 +416,9 @@ defmodule Valimc.TableConnectionTest do
     assert :ok = Valimc.World.Region.flush(region)
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, region)
     {:ok, {_fresh_owner, _}} = World.owner(ctx.key)
-    wait(fn -> :sys.get_state(pid).table_menu == nil end)
-    assert :sys.get_state(pid).inventory.table_inputs == nil
-    assert :sys.get_state(pid).inventory.slots[36] == ItemStack.new("oak_log", 2)
+    wait(fn -> Valimc.TestConn.state(pid).table_menu == nil end)
+    assert Valimc.TestConn.state(pid).inventory.table_inputs == nil
+    assert Valimc.TestConn.state(pid).inventory.slots[36] == ItemStack.new("oak_log", 2)
     assert records(ctx) == []
   end
 
@@ -420,8 +427,8 @@ defmodule Valimc.TableConnectionTest do
     {client, pid} = login(ctx)
     _client = open(client, ctx) |> click(37) |> click(9)
     assert {:ok, :dead} = Connection.fall_damage(pid, 100)
-    wait(fn -> :sys.get_state(pid).life_stage == :dead end)
-    state = :sys.get_state(pid)
+    wait(fn -> Valimc.TestConn.state(pid).life_stage == :dead end)
+    state = Valimc.TestConn.state(pid)
     assert state.table_menu == nil and not state.table_closing
     assert state.inventory.table_inputs == nil and state.inventory.carried == nil
     assert Enum.map(records(ctx), & &1.stack) == [ItemStack.new("oak_log", 2)]
@@ -457,11 +464,11 @@ defmodule Valimc.TableConnectionTest do
         Wire.varint(client.inventory.container)
       )
 
-      wait(fn -> match?(%{stage: :delivery}, :sys.get_state(pid).recovery) end)
+      wait(fn -> match?(%{stage: :delivery}, Valimc.TestConn.state(pid).recovery) end)
       pending = saved(ctx)
       assert pending.transfer_sequence == 1 and length(pending.outbox.records) == 5
       assert Enum.count(Inventory.table_contents(pending.inventory), &(&1 != nil)) == 5
-      writer = :sys.get_state(pid).player_store
+      writer = Valimc.TestConn.state(pid).player_store
       Process.exit(pid, :kill)
       if Process.alive?(writer), do: Process.exit(writer, :kill)
       wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
@@ -482,13 +489,13 @@ defmodule Valimc.TableConnectionTest do
     seed(ctx, %{36 => ItemStack.new("oak_log", 2)}, :creative)
     {client, pid} = login(ctx)
     client = open(client, ctx) |> click(37) |> click(9)
-    writer = :sys.get_state(pid).player_store
+    writer = Valimc.TestConn.state(pid).player_store
     :sys.suspend(writer)
 
     try do
-      wait(fn -> :sys.get_state(pid).table_job == nil end)
+      wait(fn -> Valimc.TestConn.state(pid).table_job == nil end)
       send(pid, :save_player)
-      wait(fn -> :sys.get_state(pid).save_ref != nil end)
+      wait(fn -> Valimc.TestConn.state(pid).save_ref != nil end)
 
       Client.send_packet(
         client,
@@ -497,7 +504,7 @@ defmodule Valimc.TableConnectionTest do
         Wire.varint(client.inventory.container)
       )
 
-      wait(fn -> :sys.get_state(pid).table_closing end)
+      wait(fn -> Valimc.TestConn.state(pid).table_closing end)
 
       Client.send_packet(client, :play, "set_creative_mode_slot", [
         <<36::signed-16>>,
@@ -506,12 +513,15 @@ defmodule Valimc.TableConnectionTest do
 
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
       {_message, client} = Client.await(client, :play, "system_chat")
-      assert :sys.get_state(pid).inventory.slots[36] == nil
-      assert elem(:sys.get_state(pid).inventory.table_inputs, 8) == ItemStack.new("oak_log", 2)
+      assert Valimc.TestConn.state(pid).inventory.slots[36] == nil
+
+      assert elem(Valimc.TestConn.state(pid).inventory.table_inputs, 8) ==
+               ItemStack.new("oak_log", 2)
+
       :sys.resume(writer)
       _client = inventory_until(client, &(&1.container == 0))
-      assert :sys.get_state(pid).inventory.slots == %{36 => ItemStack.new("oak_log", 2)}
-      assert :sys.get_state(pid).inventory.table_inputs == nil
+      assert Valimc.TestConn.state(pid).inventory.slots == %{36 => ItemStack.new("oak_log", 2)}
+      assert Valimc.TestConn.state(pid).inventory.table_inputs == nil
       assert records(ctx) == []
     after
       if Process.alive?(writer), do: :sys.resume(writer)
@@ -522,25 +532,25 @@ defmodule Valimc.TableConnectionTest do
     seed(ctx, %{36 => ItemStack.new("oak_log", 17), 37 => ItemStack.new("cobblestone")})
     {client, pid} = login(ctx)
     client = open(client, ctx) |> click(37) |> click(1)
-    writer = :sys.get_state(pid).player_store
+    writer = Valimc.TestConn.state(pid).player_store
     :sys.suspend(writer)
 
     try do
       send_click(client, 0, 1, "throw")
-      wait(fn -> :sys.get_state(pid).crafting_repeat != nil end)
+      wait(fn -> Valimc.TestConn.state(pid).crafting_repeat != nil end)
       send_click(client, 38)
-      wait(fn -> :sys.get_state(pid).table_queued == 1 end)
-      assert :sys.get_state(pid).inventory.carried == nil
+      wait(fn -> Valimc.TestConn.state(pid).table_queued == 1 end)
+      assert Valimc.TestConn.state(pid).inventory.carried == nil
       :sys.resume(writer)
 
       wait(fn ->
-        state = :sys.get_state(pid)
+        state = Valimc.TestConn.state(pid)
 
         state.crafting_repeat == nil and state.recovery == nil and state.table_queued == 0 and
           state.inventory.carried == ItemStack.new("cobblestone")
       end)
 
-      assert :sys.get_state(pid).inventory.table_inputs == Tuple.duplicate(nil, 9)
+      assert Valimc.TestConn.state(pid).inventory.table_inputs == Tuple.duplicate(nil, 9)
       assert length(records(ctx)) == 17
       assert Enum.all?(records(ctx), &(&1.stack == ItemStack.new("oak_planks", 4)))
       assert saved(ctx).transfer_sequence == 4 and saved(ctx).outbox == nil
@@ -554,21 +564,21 @@ defmodule Valimc.TableConnectionTest do
     seed(ctx, %{36 => ItemStack.new("oak_log", 17)})
     {client, pid} = login(ctx)
     client = open(client, ctx) |> click(37) |> click(1)
-    writer = :sys.get_state(pid).player_store
+    writer = Valimc.TestConn.state(pid).player_store
     :sys.suspend(writer)
 
     try do
       send_click(client, 0, 1, "throw")
-      wait(fn -> :sys.get_state(pid).crafting_repeat != nil end)
+      wait(fn -> Valimc.TestConn.state(pid).crafting_repeat != nil end)
       :ok = World.set_block(target(ctx), 0)
       :sys.resume(writer)
 
       wait(fn ->
-        state = :sys.get_state(pid)
+        state = Valimc.TestConn.state(pid)
         state.table_menu == nil and not state.table_closing and state.recovery == nil
       end)
 
-      state = :sys.get_state(pid)
+      state = Valimc.TestConn.state(pid)
       assert state.crafting_repeat == nil and state.inventory.table_inputs == nil
       assert state.inventory.slots == %{36 => ItemStack.new("oak_log", 12)}
       assert length(records(ctx)) == 5
@@ -602,9 +612,9 @@ defmodule Valimc.TableConnectionTest do
     client = open(client, ctx) |> click(37)
     client = Enum.reduce([1, 1, 2, 2, 4, 4, 5, 5], client, &click(&2, &1, 1))
     client = client |> click(9, 40, "swap") |> click(9) |> click(37) |> click(0, 40, "swap")
-    wait(fn -> :sys.get_state(pid).recovery == nil end)
-    assert :sys.get_state(pid).inventory.slots[45] == ItemStack.new("honey_block")
-    assert :sys.get_state(pid).inventory.carried == nil
+    wait(fn -> Valimc.TestConn.state(pid).recovery == nil end)
+    assert Valimc.TestConn.state(pid).inventory.slots[45] == ItemStack.new("honey_block")
+    assert Valimc.TestConn.state(pid).inventory.carried == nil
     assert Enum.map(records(ctx), & &1.stack) == List.duplicate(ItemStack.new("glass_bottle"), 4)
     assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
     Client.close(client)
@@ -622,7 +632,7 @@ defmodule Valimc.TableConnectionTest do
 
   defp records(ctx) do
     {:ok, {pid, _}} = World.item_owner(ctx.key)
-    Valimc.World.Items.records(:sys.get_state(pid).resource.items)
+    Valimc.World.Items.records(Valimc.TestConn.state(pid).resource.items)
   end
 
   test "shift continuation rechecks table batches and finishes a drop-free last craft before close",
@@ -642,7 +652,7 @@ defmodule Valimc.TableConnectionTest do
     send_click(client, 0, 0, "quick_move")
 
     wait(fn ->
-      state = :sys.get_state(pid)
+      state = Valimc.TestConn.state(pid)
 
       state.recovery == nil and state.crafting_repeat == nil and state.table_job == nil and
         state.inventory.slots[44] == ItemStack.new("honey_block", 6)
@@ -653,12 +663,12 @@ defmodule Valimc.TableConnectionTest do
     Client.send_packet(client, :play, "container_close", Wire.varint(client.inventory.container))
 
     wait(fn ->
-      state = :sys.get_state(pid)
+      state = Valimc.TestConn.state(pid)
       state.table_menu == nil and state.recovery == nil and not state.table_closing
     end)
 
     assert length(records(ctx)) == 24
-    assert :sys.get_state(pid).inventory.table_inputs == nil
+    assert Valimc.TestConn.state(pid).inventory.table_inputs == nil
     assert saved(ctx).transfer_sequence == 6 and saved(ctx).outbox == nil
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)

@@ -116,7 +116,7 @@ defmodule Valimc.ChestSpillRegionTest do
   defp writing(_, 0), do: flunk("spill did not reach its joint writer")
 
   defp writing(pid, tries) do
-    case :sys.get_state(pid).resource.item_pending do
+    case Valimc.TestConn.state(pid).resource.item_pending do
       %{phase: :writing} = pending ->
         pending
 
@@ -239,10 +239,10 @@ defmodule Valimc.ChestSpillRegionTest do
     Valimc.TestDisk.await_exit(writer)
     {:ok, {pid, _} = owner} = World.item_owner(c.key)
     assert World.get_block(c.position) == c.chest
-    assert :sys.get_state(pid).resource.containers == c.containers
+    assert Valimc.TestConn.state(pid).resource.containers == c.containers
     assert {:ok, :rejected} = Region.apply_mining_transfer(owner, c.transfer)
     assert World.get_block(c.position) == c.chest
-    assert :sys.get_state(pid).resource.containers == c.containers
+    assert Valimc.TestConn.state(pid).resource.containers == c.containers
     {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, c.key, :items), c.key)
     assert saved.records == c.initial
   end

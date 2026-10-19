@@ -86,7 +86,7 @@ defmodule Valimc.PickupRegionTest do
     }
   end
 
-  defp state({pid, _}), do: :sys.get_state(pid).resource
+  defp state({pid, _}), do: Valimc.TestConn.state(pid).resource
 
   defp disk(ctx) do
     {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :items), ctx.key)

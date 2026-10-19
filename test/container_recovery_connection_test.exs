@@ -144,7 +144,7 @@ defmodule Valimc.ContainerRecoveryConnectionTest do
       end
 
       {client, pid} = login(ctx)
-      state = :sys.get_state(pid)
+      state = Valimc.TestConn.state(pid)
       assert state.recovery == nil
       expected = if unquote(applied), do: %{}, else: %{36 => ItemStack.new("diamond", 3)}
       assert state.inventory.slots == expected

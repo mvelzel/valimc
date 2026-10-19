@@ -106,7 +106,7 @@ defmodule Valimc.CookingConnectionTest do
     client = Client.load_world(client)
     pid = Enum.find(Players.all(), &(&1.name == ctx.name)).pid
     Client.send_packet(client, :play, "player_loaded", <<>>)
-    wait(fn -> Valimc.PlayerInput.loaded?(:sys.get_state(pid).player.input) end)
+    wait(fn -> Valimc.PlayerInput.loaded?(Valimc.TestConn.state(pid).player.input) end)
 
     on_exit(fn ->
       Client.close(client)
@@ -188,7 +188,8 @@ defmodule Valimc.CookingConnectionTest do
     client = content(client, &(&1.container == 0 and &1.carried == nil))
 
     wait(fn ->
-      :sys.get_state(pid).table_menu == nil and not :sys.get_state(pid).table_closing
+      Valimc.TestConn.state(pid).table_menu == nil and
+        not Valimc.TestConn.state(pid).table_closing
     end)
 
     client
@@ -196,7 +197,7 @@ defmodule Valimc.CookingConnectionTest do
 
   defp subscribed(pid) do
     wait(fn ->
-      state = :sys.get_state(pid)
+      state = Valimc.TestConn.state(pid)
       state.table_menu && state.table_menu.subscribed && state.table_job == nil
     end)
   end
@@ -211,7 +212,7 @@ defmodule Valimc.CookingConnectionTest do
     for slot <- [1, 2] do
       send_click(client, slot)
       _client = content(client)
-      assert :sys.get_state(pid).inventory.carried == ItemStack.new("raw_iron", 3)
+      assert Valimc.TestConn.state(pid).inventory.carried == ItemStack.new("raw_iron", 3)
       assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
       assert stored(ctx) == before
     end
@@ -222,7 +223,7 @@ defmodule Valimc.CookingConnectionTest do
     send_click(client, 0, 0, "pickup", old_id)
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
     {_, _client} = Client.await(client, :play, "system_chat")
-    assert :sys.get_state(pid).table_menu == nil
+    assert Valimc.TestConn.state(pid).table_menu == nil
     assert saved(ctx).transfer_sequence == 2 and saved(ctx).outbox == nil
     assert stored(ctx).entries[ctx.position].cooking.slots == {nil, nil, nil}
   end
@@ -241,11 +242,11 @@ defmodule Valimc.CookingConnectionTest do
 
     send_click(client, 1)
     client = content(client)
-    assert :sys.get_state(pid).inventory.carried == ItemStack.new("bucket", 14)
+    assert Valimc.TestConn.state(pid).inventory.carried == ItemStack.new("bucket", 14)
     assert saved(ctx).transfer_sequence == 2 and saved(ctx).outbox == nil
     _client = close(client, pid)
     assert stored(ctx).entries[ctx.position].cooking.slots == {nil, ItemStack.new("bucket"), nil}
-    slots = :sys.get_state(pid).inventory.slots
+    slots = Valimc.TestConn.state(pid).inventory.slots
 
     assert Enum.sum(
              for {_, stack} <- slots, stack.item_id == Data.item("bucket"), do: stack.count
@@ -272,14 +273,14 @@ defmodule Valimc.CookingConnectionTest do
         cs = stored(ctx)
 
         cs.entries[ctx.position].recipes == %{} and map_size(cs.pending_awards) == 1 and
-          :sys.get_state(pid).recovery == nil
+          Valimc.TestConn.state(pid).recovery == nil
       end)
 
       [{_, decision}] = Map.to_list(stored(ctx).pending_awards)
       amount = decision.award.experience
       assert amount in 1..3
-      wait(fn -> :sys.get_state(pid).player.progression.experience.total == amount end)
-      player = :sys.get_state(pid)
+      wait(fn -> Valimc.TestConn.state(pid).player.progression.experience.total == amount end)
+      player = Valimc.TestConn.state(pid)
       assert MapSet.member?(player.player.progression.recipes, recipe)
       assert elem(stored(ctx).entries[ctx.position].cooking.slots, 2) == nil
 
@@ -339,7 +340,7 @@ defmodule Valimc.CookingConnectionTest do
     {client, _} = open(client, ctx, :smoker)
     before = stored(ctx)
     client = Client.teleport(client, pid, %{ctx.pose | x: ctx.pose.x + 20})
-    assert :sys.get_state(pid).table_menu == nil
+    assert Valimc.TestConn.state(pid).table_menu == nil
     client = Client.teleport(client, pid, ctx.pose)
     {client, _} = open(client, ctx, :smoker)
     subscribed(pid)
@@ -347,7 +348,7 @@ defmodule Valimc.CookingConnectionTest do
     :ok = Region.flush(region)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, region)
     _client = content(client, &(&1.container == 0))
-    assert :sys.get_state(pid).table_menu == nil
+    assert Valimc.TestConn.state(pid).table_menu == nil
     assert stored(ctx) == before
     assert saved(ctx).transfer_sequence == 0 and saved(ctx).outbox == nil
   end
@@ -365,7 +366,7 @@ defmodule Valimc.CookingConnectionTest do
       send_click(client, 30, 0, "quick_move")
 
       wait(fn ->
-        match?(%{stage: :delivery}, :sys.get_state(pid).recovery) and
+        match?(%{stage: :delivery}, Valimc.TestConn.state(pid).recovery) and
           match?(
             %{kind: :container, phase: :writing},
             :sys.get_state(region).resource.item_pending
@@ -380,7 +381,8 @@ defmodule Valimc.CookingConnectionTest do
       _client = content(client, &(&1.container == 0 and &1.carried == nil))
 
       wait(fn ->
-        :sys.get_state(pid).recovery == nil and not :sys.get_state(pid).table_closing
+        Valimc.TestConn.state(pid).recovery == nil and
+          not Valimc.TestConn.state(pid).table_closing
       end)
 
       {:ok, replacement} = World.existing_owner(ctx.key)
@@ -392,7 +394,7 @@ defmodule Valimc.CookingConnectionTest do
 
       assert stored(ctx).receipts[ctx.uuid].sequence == 1
       assert World.item_snapshot(ctx.key) == %{}
-      refute Map.has_key?(:sys.get_state(pid).inventory.slots, 36)
+      refute Map.has_key?(Valimc.TestConn.state(pid).inventory.slots, 36)
     after
       if Process.alive?(writer), do: :sys.resume(writer)
     end
@@ -412,14 +414,14 @@ defmodule Valimc.CookingConnectionTest do
 
     for pid <- [first_pid, second_pid] do
       wait(fn ->
-        state = :sys.get_state(pid)
+        state = Valimc.TestConn.state(pid)
 
         state.recovery == nil and state.table_job == nil and state.table_queued == 0 and
           state.table_menu != nil and state.table_menu.view.cooking.slots == {nil, nil, nil}
       end)
     end
 
-    carried = for pid <- [first_pid, second_pid], do: :sys.get_state(pid).inventory.carried
+    carried = for pid <- [first_pid, second_pid], do: Valimc.TestConn.state(pid).inventory.carried
     assert Enum.sort(carried) == Enum.sort([nil, ItemStack.new("cod", 2)])
     assert stored(ctx).entries[ctx.position].cooking.slots == {nil, nil, nil}
     assert stored(ctx).sequence == 3
@@ -432,14 +434,14 @@ defmodule Valimc.CookingConnectionTest do
     seed(ctx, :furnace)
     {client, pid} = login(ctx)
     {client, _} = open(client, ctx, :furnace)
-    writer = :sys.get_state(pid).player_store
+    writer = Valimc.TestConn.state(pid).player_store
     :sys.suspend(writer)
 
     try do
       send_click(client, 30, 0, "quick_move")
 
       wait(fn ->
-        match?(%{kind: :container, stage: :candidate}, :sys.get_state(pid).table_job)
+        match?(%{kind: :container, stage: :candidate}, Valimc.TestConn.state(pid).table_job)
       end)
 
       Client.send_packet(
@@ -452,7 +454,10 @@ defmodule Valimc.CookingConnectionTest do
       _client = content(client, &(&1.container == 0))
       :sys.resume(writer)
       _barrier = :sys.get_state(writer)
-      assert :sys.get_state(pid).table_job == nil and :sys.get_state(pid).recovery == nil
+
+      assert Valimc.TestConn.state(pid).table_job == nil and
+               Valimc.TestConn.state(pid).recovery == nil
+
       assert saved(ctx).transfer_sequence == 0 and saved(ctx).outbox == nil
       assert stored(ctx).entries[ctx.position].cooking.slots == {nil, nil, nil}
       assert stored(ctx).receipts[ctx.uuid].sequence == 0
@@ -520,14 +525,14 @@ defmodule Valimc.CookingConnectionTest do
       assert properties == [67, 1600, 49, 100]
       assert Enum.take(client.inventory.items, 3) == Tuple.to_list(cooking.slots)
 
-      assert :sys.get_state(pid).table_menu.kind == :cooking and
-               :sys.get_state(pid).inventory.table_inputs == nil
+      assert Valimc.TestConn.state(pid).table_menu.kind == :cooking and
+               Valimc.TestConn.state(pid).inventory.table_inputs == nil
 
       {:ok, {region, _}} = World.existing_owner(ctx.key)
       wait(fn -> map_size(:sys.get_state(region).resource.container_viewers.views) == 1 end)
       viewers = :sys.get_state(region).resource.container_viewers
       assert Valimc.World.ContainerViewers.open_count(viewers, ctx.position) == 0
-      refute :sys.get_state(pid).table_menu.opener
+      refute Valimc.TestConn.state(pid).table_menu.opener
       _client = close(client, pid)
       wait(fn -> :sys.get_state(region).resource.container_viewers.views == %{} end)
       assert stored(ctx).entries[ctx.position].cooking == cooking
@@ -552,7 +557,7 @@ defmodule Valimc.CookingConnectionTest do
         client
       end)
 
-    menu = :sys.get_state(pid).table_menu
+    menu = Valimc.TestConn.state(pid).table_menu
     assert menu.view.generation == 0
     observed_inventory = client.inventory
     {region, _} = owner = menu.owner
@@ -592,11 +597,11 @@ defmodule Valimc.CookingConnectionTest do
         client
       end)
 
-    wait(fn -> :sys.get_state(pid).table_menu.view.generation == 1 end)
+    wait(fn -> Valimc.TestConn.state(pid).table_menu.view.generation == 1 end)
     assert client.inventory == observed_inventory
-    assert :sys.get_state(pid).inventory.state_id == observed_inventory.state_id
-    assert :sys.get_state(pid).table_menu.view.revision == menu.view.revision
-    assert :sys.get_state(pid).table_menu.view.cooking.progress == 11
+    assert Valimc.TestConn.state(pid).inventory.state_id == observed_inventory.state_id
+    assert Valimc.TestConn.state(pid).table_menu.view.revision == menu.view.revision
+    assert Valimc.TestConn.state(pid).table_menu.view.cooking.progress == 11
     assert saved(ctx).transfer_sequence == 0 and saved(ctx).outbox == nil
     refute :sys.get_state(region).resource.container_viewers.views[pid].progress_pending
 
@@ -613,8 +618,8 @@ defmodule Valimc.CookingConnectionTest do
 
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
     {_, client} = Client.await(client, :play, "system_chat")
-    assert :sys.get_state(pid).table_menu.view.generation == 1
-    assert :sys.get_state(pid).table_job == nil
+    assert Valimc.TestConn.state(pid).table_menu.view.generation == 1
+    assert Valimc.TestConn.state(pid).table_job == nil
     _client = close(client, pid)
   end
 
@@ -646,7 +651,7 @@ defmodule Valimc.CookingConnectionTest do
         click(client, 31, 0, "quick_move", &(Enum.at(&1.items, 1) == ItemStack.new("coal", 7)))
 
       client = click(client, 0, 40, "swap", &(Enum.at(&1.items, 0) == ItemStack.new("stone", 2)))
-      assert :sys.get_state(pid).inventory.slots[45] == input
+      assert Valimc.TestConn.state(pid).inventory.slots[45] == input
       client = click(client, 0, 40, "swap", &(Enum.at(&1.items, 0) == input))
 
       client =
@@ -678,7 +683,7 @@ defmodule Valimc.CookingConnectionTest do
         45 => ItemStack.new("stone", 2)
       }
 
-      assert :sys.get_state(pid).inventory.slots == expected
+      assert Valimc.TestConn.state(pid).inventory.slots == expected
       client = close(client, pid)
       Client.close(client)
       wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)

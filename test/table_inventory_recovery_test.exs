@@ -76,7 +76,7 @@ defmodule Valimc.TableInventoryRecoveryTest do
 
   defp records(ctx) do
     {:ok, {pid, _}} = World.item_owner(ctx.key)
-    Items.records(:sys.get_state(pid).resource.items)
+    Items.records(Valimc.TestConn.state(pid).resource.items)
   end
 
   defp owned(ctx), do: [ctx.inventory.carried | Tuple.to_list(ctx.inventory.table_inputs)]

@@ -492,8 +492,8 @@ defmodule Valimc.CookingOrbRuntimeTest do
     expected = state.containers.pending_awards
     RegionData.terminate(:shutdown, state)
     {:ok, {pid, epoch}} = Valimc.World.item_owner(ctx.key)
-    eventually(fn -> map_size(:sys.get_state(pid).resource.cooking_orbs.views) == 2 end)
-    first = :sys.get_state(pid).resource
+    eventually(fn -> map_size(Valimc.TestConn.state(pid).resource.cooking_orbs.views) == 2 end)
+    first = Valimc.TestConn.state(pid).resource
     assert first.containers.pending_awards == expected
     assert disk(ctx) == first.containers
     {x, _, z} = ctx.position

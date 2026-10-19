@@ -124,7 +124,7 @@ defmodule Valimc.CookingOrbDeliveryTest do
   defp disk(ctx, key),
     do: Containers.decode(Valimc.TestDisk.read(ctx.base, key, :containers), key)
 
-  defp resource(pid), do: :sys.get_state(pid).resource
+  defp resource(pid), do: Valimc.TestConn.state(pid).resource
   defp now, do: System.monotonic_time(:millisecond)
 
   defp wait(fun, left \\ 800) do

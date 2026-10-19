@@ -471,7 +471,12 @@ defmodule Valimc.TestConn do
   into `Valimc.Session.Jobs` (e.g. `pose_job`), so tests stay independent of the
   internal layout.
   """
-  @legacy_jobs [pose: :pose_job]
+  @legacy_jobs [
+    pose: :pose_job,
+    pickup: :pickup_job,
+    mining: :mining_job,
+    placement: :placement_job
+  ]
 
   def state(pid), do: view(:sys.get_state(pid))
 

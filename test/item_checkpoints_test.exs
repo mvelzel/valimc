@@ -211,9 +211,9 @@ defmodule Valimc.ItemCheckpointsTest do
     Process.exit(pid, :kill)
     assert_receive {:DOWN, ^ref, :process, ^pid, :killed}, 1500
     assert {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
-    assert [%{motion: %{age: 1}}] = Items.records(:sys.get_state(pid).resource.items)
+    assert [%{motion: %{age: 1}}] = Items.records(Valimc.TestConn.state(pid).resource.items)
     assert {:ok, :already_applied} = Region.apply_item_transfer(owner, ctx.transfer)
-    assert map_size(:sys.get_state(pid).resource.items.entries) == 1
+    assert map_size(Valimc.TestConn.state(pid).resource.items.entries) == 1
   end
 
   test "foreign callback/epoch/lease and stale/expired steps cannot acknowledge or change motion",
@@ -271,7 +271,7 @@ defmodule Valimc.ItemCheckpointsTest do
 
     assert disk(ctx) == old
     assert {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
-    assert [%{motion: %{age: 0}}] = Items.records(:sys.get_state(pid).resource.items)
+    assert [%{motion: %{age: 0}}] = Items.records(Valimc.TestConn.state(pid).resource.items)
     assert {:ok, :already_applied} = Region.apply_item_transfer(owner, ctx.transfer)
   end
 
@@ -314,7 +314,7 @@ defmodule Valimc.ItemCheckpointsTest do
     end)
 
     assert {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
-    assert [%{motion: %{age: 0}}] = Items.records(:sys.get_state(pid).resource.items)
+    assert [%{motion: %{age: 0}}] = Items.records(Valimc.TestConn.state(pid).resource.items)
     assert {:ok, :already_applied} = Region.apply_item_transfer(owner, ctx.transfer)
   end
 end

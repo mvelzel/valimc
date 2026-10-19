@@ -5,7 +5,8 @@ defmodule Valimc.Session.Jobs do
   correlation reference. Replaces per-kind start/timer/monitor/result/DOWN/cancel
   bookkeeping; the owning domain module decides what each outcome means.
 
-  `classify/2` turns an incoming message into `{:result, kind, job, payload, jobs}`,
+  A timed-out job's task or process is stopped. `classify/2` turns an incoming
+  message into `{:result, kind, job, payload, jobs}`,
   `{:down, kind, job, reason, jobs}`, `{:timeout, kind, job, jobs}`, `:stale` (a
   message of a finished or replaced job) or `:unknown`.
   """
@@ -83,8 +84,13 @@ defmodule Valimc.Session.Jobs do
   @doc "Classify an incoming message; a completed job is removed (its monitor flushed)."
   def classify(%__MODULE__{} = jobs, {:job_timeout, kind, ref}) do
     case get(jobs, kind) do
-      %{ref: ^ref} = job -> {:timeout, kind, job, remove(jobs, job, false)}
-      _ -> :stale
+      %{ref: ^ref} = job ->
+        # An expired job's task or process is stopped; a late reply is then unknown.
+        stop_target(job)
+        {:timeout, kind, job, remove(jobs, job, true)}
+
+      _ ->
+        :stale
     end
   end
 

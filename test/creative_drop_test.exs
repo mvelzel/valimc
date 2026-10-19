@@ -73,7 +73,7 @@ defmodule Valimc.CreativeDropTest do
 
   defp records(ctx) do
     {:ok, {pid, _}} = World.item_owner(ctx.key)
-    Items.records(:sys.get_state(pid).resource.items)
+    Items.records(Valimc.TestConn.state(pid).resource.items)
   end
 
   defp frame(client, slot, stack),
@@ -172,7 +172,7 @@ defmodule Valimc.CreativeDropTest do
       Client.send_packet(client, :play, "container_close", <<0>>)
       client = barrier(client)
       Client.await_position(pid, %{x: ctx.pose.x + 1})
-      assert :sys.get_state(pid).player.x == ctx.pose.x + 1
+      assert Valimc.TestConn.state(pid).player.x == ctx.pose.x + 1
       assert records(ctx) == [] and saved(ctx).transfer_sequence == 0
       {_, peer} = Client.login("Peer" <> Integer.to_string(System.unique_integer([:positive])))
       peer = barrier(peer)
@@ -186,7 +186,7 @@ defmodule Valimc.CreativeDropTest do
       )
 
       assert saved(ctx).outbox != nil and World.item_snapshot(ctx.key) == %{}
-      assert :sys.get_state(pid).creative_input.queued == 3
+      assert Valimc.TestConn.state(pid).creative_input.queued == 3
       :sys.resume(destination)
       {_, finished} = completed(ctx, 2)
 
@@ -243,7 +243,7 @@ defmodule Valimc.CreativeDropTest do
       wait(ctx, &(&1.save_ref != nil))
       batch(client, [{-1, %{ctx.stone | count: 1}}, {36, %{ctx.stone | count: 6}}])
       wait(ctx, &(&1.creative_input.queued == 2))
-      assert :sys.get_state(pid).recovery == nil
+      assert Valimc.TestConn.state(pid).recovery == nil
       :sys.resume(initial.player_store)
       {_, finished} = completed(ctx, 1)
       assert finished.inventory.slots[36].count == 6
@@ -273,8 +273,8 @@ defmodule Valimc.CreativeDropTest do
     :sys.replace_state(pid, &%{&1 | inventory: %{&1.inventory | infinite_materials: false}})
     batch(client, [{-1, ItemStack.new("diamond")}, {36, ItemStack.new("diamond")}])
     client = barrier(client)
-    assert :sys.get_state(pid).inventory.slots == initial.inventory.slots
-    assert :sys.get_state(pid).creative_input.level == 0
+    assert Valimc.TestConn.state(pid).inventory.slots == initial.inventory.slots
+    assert Valimc.TestConn.state(pid).creative_input.level == 0
 
     :sys.replace_state(pid, fn s ->
       %{
@@ -298,8 +298,8 @@ defmodule Valimc.CreativeDropTest do
     ])
 
     client = barrier(client)
-    assert :sys.get_state(pid).creative_input.level == 1499
-    assert :sys.get_state(pid).inventory.slots == initial.inventory.slots
+    assert Valimc.TestConn.state(pid).creative_input.level == 1499
+    assert Valimc.TestConn.state(pid).inventory.slots == initial.inventory.slots
     assert saved(ctx).transfer_sequence == 0 and records(ctx) == []
     depart(ctx, client)
   end

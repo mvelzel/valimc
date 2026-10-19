@@ -283,7 +283,7 @@ defmodule Valimc.PlayerStoreTest do
       name = username()
       {uuid, client} = Client.configure(name)
       [{pid, _}] = Enum.filter(:ets.tab2list(Valimc.Players), fn {_, p} -> p.name == name end)
-      state = :sys.get_state(pid)
+      state = Valimc.TestConn.state(pid)
       assert state.phase == :configuration
       assert state.step == :finish
       ref = Process.monitor(pid)

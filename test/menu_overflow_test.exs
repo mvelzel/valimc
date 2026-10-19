@@ -149,7 +149,7 @@ defmodule Valimc.MenuOverflowTest do
 
   defp records(ctx) do
     {:ok, {pid, _}} = World.item_owner(ctx.key)
-    Items.records(:sys.get_state(pid).resource.items)
+    Items.records(Valimc.TestConn.state(pid).resource.items)
   end
 
   defp completed(ctx) do
@@ -235,7 +235,7 @@ defmodule Valimc.MenuOverflowTest do
 
       client = barrier(client)
       Client.await_position(pid, %{x: ctx.pose.x + 1})
-      frozen = :sys.get_state(pid)
+      frozen = Valimc.TestConn.state(pid)
 
       assert frozen.inventory.slots == ctx.original.slots and
                frozen.inventory.carried == ctx.original.carried
@@ -310,7 +310,7 @@ defmodule Valimc.MenuOverflowTest do
         close_menu(client)
         {_, client} = Client.await(client, :play, "system_chat")
         client = barrier(client)
-        frozen = :sys.get_state(pid)
+        frozen = Valimc.TestConn.state(pid)
         assert frozen.recovery == nil and frozen.inventory.slots == ctx.original.slots
         assert frozen.inventory.carried == ctx.original.carried
         Client.close(client)
@@ -346,7 +346,7 @@ defmodule Valimc.MenuOverflowTest do
       await_state(ctx, &(&1.save_ref != nil))
       close_menu(client)
       client = barrier(client)
-      frozen = :sys.get_state(pid)
+      frozen = Valimc.TestConn.state(pid)
       assert frozen.recovery == nil and frozen.inventory.slots == ctx.original.slots
       assert frozen.inventory.carried == ctx.original.carried and records(ctx) == []
       :sys.resume(state.player_store)

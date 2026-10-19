@@ -28,14 +28,14 @@ defmodule Valimc.SurvivalRulesTest do
     on_exit(fn -> File.rm_rf!(path) end)
     opts = [name: nil, world_path: path, tick_interval_ms: nil, save_interval_ms: nil]
     pid = start_supervised!({Clock, opts})
-    table = :sys.get_state(pid).table
+    table = Valimc.TestConn.state(pid).table
     assert [{:survival, {1, true}}] = :ets.lookup(table, :survival)
     assert :ok = Clock.configure({:natural_regeneration, false}, pid)
     assert :ok = Clock.configure({:difficulty, 3}, pid)
     assert [{:survival, {3, false}}] = :ets.lookup(table, :survival)
-    before = :sys.get_state(pid)
+    before = Valimc.TestConn.state(pid)
     assert {:error, :invalid_clock_change} = Clock.configure({:natural_regeneration, 1}, pid)
-    assert :sys.get_state(pid) == before
+    assert Valimc.TestConn.state(pid) == before
     assert :ok = Clock.flush(pid)
     stop_supervised!(Clock)
     loaded = start_supervised!({Clock, opts})

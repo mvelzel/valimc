@@ -77,7 +77,7 @@ defmodule Valimc.CookingEntryRegionTest do
       assert {:error, :occupied_container} = World.set_block(position, 0)
     end
 
-    assert :sys.get_state(pid).resource.containers == containers
+    assert Valimc.TestConn.state(pid).resource.containers == containers
     assert :ok = Region.flush(pid)
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
     {:ok, {replacement, _}} = World.item_owner(key)

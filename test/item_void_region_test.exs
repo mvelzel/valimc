@@ -60,7 +60,7 @@ defmodule Valimc.ItemVoidRegionTest do
     }
   end
 
-  defp state({pid, _}), do: :sys.get_state(pid).resource
+  defp state({pid, _}), do: Valimc.TestConn.state(pid).resource
 
   defp enable({pid, _}),
     do: :sys.replace_state(pid, &%{&1 | resource: %{&1.resource | item_simulation_enabled: true}})

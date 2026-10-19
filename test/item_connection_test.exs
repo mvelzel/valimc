@@ -113,7 +113,7 @@ defmodule Valimc.ItemConnectionTest do
     on_exit(fn -> if Process.alive?(pid), do: Region.remove_item({pid, epoch, id, 2}) end)
     {_spawn, client} = await_entity(client, "add_entity", id)
     client = assert_stack(client, id, ItemStack.new("egg", 3))
-    writer = :sys.get_state(pid).resource.store
+    writer = Valimc.TestConn.state(pid).resource.store
     :sys.suspend(writer)
 
     try do

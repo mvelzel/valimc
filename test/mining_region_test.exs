@@ -60,7 +60,7 @@ defmodule Valimc.MiningRegionTest do
   defp writing(_, 0), do: flunk("mining did not reach bounded writing phase")
 
   defp writing(pid, attempts) do
-    case :sys.get_state(pid).resource.item_pending do
+    case Valimc.TestConn.state(pid).resource.item_pending do
       %{kind: :mining, phase: :writing} = pending ->
         pending
 

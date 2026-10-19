@@ -44,7 +44,7 @@ defmodule Valimc.ItemHandoffRegionTest do
       for region <- [key, destination],
           {pid, _} <- Registry.lookup(Valimc.RegionRegistry, region) do
         :sys.resume(pid)
-        resource = :sys.get_state(pid).resource
+        resource = Valimc.TestConn.state(pid).resource
         if Process.alive?(resource.store), do: :sys.resume(resource.store)
         DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
       end
@@ -69,7 +69,7 @@ defmodule Valimc.ItemHandoffRegionTest do
     }
   end
 
-  defp resource({pid, _}), do: :sys.get_state(pid).resource
+  defp resource({pid, _}), do: Valimc.TestConn.state(pid).resource
 
   defp wait(fun, remaining \\ 600) do
     case fun.() do

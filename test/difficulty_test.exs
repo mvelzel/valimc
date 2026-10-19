@@ -68,13 +68,13 @@ defmodule Valimc.DifficultyTest do
     pid = start_supervised!({Clock, opts})
     assert :ok = Clock.configure({:difficulty, 1}, pid)
     assert :ok = Clock.configure({:difficulty_locked, true}, pid)
-    before = :sys.get_state(pid)
+    before = Valimc.TestConn.state(pid)
     assert :ok = Clock.configure({:difficulty, 0}, pid)
-    assert :sys.get_state(pid) == before
+    assert Valimc.TestConn.state(pid) == before
 
     for operation <- [{:difficulty, 4}, {:difficulty, 2, 1}, {:difficulty_locked, 1}] do
       assert {:error, :invalid_difficulty_change} = Clock.configure(operation, pid)
-      assert :sys.get_state(pid) == before
+      assert Valimc.TestConn.state(pid) == before
     end
 
     assert :ok = Clock.configure({:difficulty, 3, true}, pid)

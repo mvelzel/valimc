@@ -134,7 +134,7 @@ defmodule Valimc.OnlineConnectionTest do
     assert player.uuid == profile(name).uuid
     assert player.uuid != Connection.offline_uuid(name)
     assert player.properties == profile(name).properties
-    state = :sys.get_state(pid)
+    state = Valimc.TestConn.state(pid)
     assert state.cipher.owner == pid and state.auth_job == nil
     assert state.key_public == nil and state.key_pair == nil and state.key_challenge == nil
     client = Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
@@ -153,7 +153,7 @@ defmodule Valimc.OnlineConnectionTest do
     no_lease(pid, name)
     send(pid, {:session_verified, self(), make_ref(), {:ok, profile(name)}})
     send(pid, {:session_deadline, make_ref()})
-    assert :sys.get_state(pid).step == :auth_job
+    assert Valimc.TestConn.state(pid).step == :auth_job
     no_lease(pid, name)
     send(worker, {:auth_result, {:ok, profile(name)}})
     {uuid, client} = Client.login_session(client, name)

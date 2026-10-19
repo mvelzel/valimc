@@ -126,8 +126,8 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     send_place(client, c.target, 2, 0.75, 1, 4)
     _client = ack(client, 4)
     assert World.get_block(c.target) == 15_178
-    assert :sys.get_state(pid).inventory.slots[36].count == 7
-    assert :sys.get_state(pid).inventory.slots[45].count == 11
+    assert Valimc.TestConn.state(pid).inventory.slots[36].count == 7
+    assert Valimc.TestConn.state(pid).inventory.slots[45].count == 11
     assert World.item_snapshot(c.key) == %{}
   end
 
@@ -140,7 +140,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     client = ack(client)
     {:ok, dry} = Valimc.Physics.ChestPlacement.single_state(90.0, 0)
     assert World.get_block(c.target) == dry
-    assert :sys.get_state(pid).inventory.slots[36] == ItemStack.new("chest")
+    assert Valimc.TestConn.state(pid).inventory.slots[36] == ItemStack.new("chest")
     {x, y, z} = c.target
     wet = {x - 2, y, z}
     :ok = World.set_block(wet, 89)
@@ -148,19 +148,19 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     client = ack(client, 2)
     {:ok, wet_state} = Valimc.Physics.ChestPlacement.single_state(90.0, 89)
     assert World.get_block(wet) == wet_state
-    assert :sys.get_state(pid).inventory.slots[45] == ItemStack.new("chest", 2)
+    assert Valimc.TestConn.state(pid).inventory.slots[45] == ItemStack.new("chest", 2)
 
     # Horizontal neighbors would need double-chest behavior, so refuse before spending a source sequence.
     send_place(client, {x + 1, y, z}, 1, 0.5, 0, 3)
     client = ack(client, 3)
     assert World.get_block({x + 1, y, z}) == 0
     assert saved(c).transfer_sequence == 2 and saved(c).outbox == nil
-    assert :sys.get_state(pid).inventory.slots[36] == ItemStack.new("chest")
+    assert Valimc.TestConn.state(pid).inventory.slots[36] == ItemStack.new("chest")
 
     send_place(client, c.target, 1, 0.5, 0, 4)
     client = ack(client, 4)
     {_body, client} = Client.await(client, :play, "open_screen")
-    assert :sys.get_state(pid).table_menu.position == c.target
+    assert Valimc.TestConn.state(pid).table_menu.position == c.target
     Client.close(client)
 
     wait(fn ->
@@ -196,7 +196,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
 
     _client = ack(client, 2)
     assert World.get_block(c.target) == 0
-    assert :sys.get_state(pid).inventory.slots[36] == ItemStack.new("chest", 2)
+    assert Valimc.TestConn.state(pid).inventory.slots[36] == ItemStack.new("chest", 2)
     {:ok, {region, _}} = World.existing_owner(c.key)
     assert :sys.get_state(region).resource.containers.entries == %{}
     assert :sys.get_state(region).resource.containers.sequence == 2
@@ -216,8 +216,11 @@ defmodule Valimc.PlayerPlacementConnectionTest do
       send_place(client, c.target)
       client = ack(client)
       assert World.get_block(c.target) == 0
-      assert :sys.get_state(pid).inventory.slots[36] == named
-      assert :sys.get_state(:sys.get_state(pid).player_store).snapshot.transfer_sequence == 0
+      assert Valimc.TestConn.state(pid).inventory.slots[36] == named
+
+      assert :sys.get_state(Valimc.TestConn.state(pid).player_store).snapshot.transfer_sequence ==
+               0
+
       Client.close(client)
 
       wait(fn ->
@@ -244,14 +247,14 @@ defmodule Valimc.PlayerPlacementConnectionTest do
       {:ok, block} = Valimc.Physics.CookingBlocks.placement(kind, 90.0)
       assert World.get_block(c.target) == block
       expected_main = ItemStack.new(name, unquote(main_count))
-      assert :sys.get_state(pid).inventory.slots[36] == expected_main
+      assert Valimc.TestConn.state(pid).inventory.slots[36] == expected_main
       {x, y, z} = c.target
       other = {x - 1, y, z}
       send_place(client, other, 1, 0.5, 1, 2)
       client = ack(client, 2)
       assert World.get_block(other) == block
       expected_off = ItemStack.new(name, unquote(off_count))
-      assert :sys.get_state(pid).inventory.slots[45] == expected_off
+      assert Valimc.TestConn.state(pid).inventory.slots[45] == expected_off
       Client.close(client)
 
       wait(fn ->
@@ -291,8 +294,11 @@ defmodule Valimc.PlayerPlacementConnectionTest do
         send_place(client, c.target)
         _client = ack(client)
         assert World.get_block(c.target) == 0
-        assert :sys.get_state(pid).inventory.slots[36] == named
-        assert :sys.get_state(:sys.get_state(pid).player_store).snapshot.transfer_sequence == 0
+        assert Valimc.TestConn.state(pid).inventory.slots[36] == named
+
+        assert :sys.get_state(Valimc.TestConn.state(pid).player_store).snapshot.transfer_sequence ==
+                 0
+
         Client.close(client)
 
         wait(fn ->
@@ -319,7 +325,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
 
       _client = ack(client, 2)
       assert World.get_block(c.target) == 0
-      assert :sys.get_state(pid).inventory.slots[36] == ItemStack.new(name, 2)
+      assert Valimc.TestConn.state(pid).inventory.slots[36] == ItemStack.new(name, 2)
       {:ok, {region, _}} = World.existing_owner(c.key)
       containers = :sys.get_state(region).resource.containers
       assert containers.entries == %{} and containers.sequence == 2 and containers.receipts == %{}
@@ -350,16 +356,16 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     send_place(client, c.target)
     client = ack(client)
     assert World.get_block(c.target) == 1
-    assert :sys.get_state(pid).inventory.slots[36].count == 6
+    assert Valimc.TestConn.state(pid).inventory.slots[36].count == 6
     :ok = World.set_block(c.target, 89)
     send_place(client, c.target, 1, 0.5, 1, 2)
     client = ack(client, 2)
     assert World.get_block(c.target) == 15_179
-    assert :sys.get_state(pid).inventory.slots[45].count == 10
+    assert Valimc.TestConn.state(pid).inventory.slots[45].count == 10
     send_place(client, c.target, 1, 0.5, 1, 3)
     client = ack(client, 3)
     assert World.get_block(c.target) == 15_182
-    assert :sys.get_state(pid).inventory.slots[45].count == 9
+    assert Valimc.TestConn.state(pid).inventory.slots[45].count == 9
     assert saved(c).transfer_sequence == 3 and saved(c).outbox == nil
     assert World.item_snapshot(c.key) == %{}
     Client.close(client)
@@ -384,13 +390,13 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     {client, pid} = login(c)
     send_place(client, c.target)
     client = ack(client)
-    assert :sys.get_state(pid).inventory.slots[36] == nil
+    assert Valimc.TestConn.state(pid).inventory.slots[36] == nil
     assert saved(c).inventory.slots[36] == nil
     assert :ok = World.set_block(c.target, 0)
     send_place(client, c.target, 1, 0.5, 1, 2)
     client = ack(client, 2)
     assert World.get_block(c.target) == 15_180
-    assert :sys.get_state(pid).inventory.slots[45] == nil
+    assert Valimc.TestConn.state(pid).inventory.slots[45] == nil
     assert saved(c).transfer_sequence == 2 and saved(c).outbox == nil
     assert :ok = World.set_block(c.target, 0)
     send_place(client, c.target, 1, 0.5, 1, 3)
@@ -402,7 +408,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
        c do
     seed(c, :survival)
     {client, pid} = login(c, false)
-    before = :sys.get_state(pid).inventory.slots
+    before = Valimc.TestConn.state(pid).inventory.slots
     send_place(client, c.target)
     client = ack(client)
     Client.send_packet(client, :play, "player_loaded", <<>>)
@@ -418,30 +424,30 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     send_place(client, {x, y, z + 40}, 1, 0.5, 0, 4)
     _client = ack(client, 4)
     assert World.get_block({x, y + 1, z}) == 15
-    assert :sys.get_state(pid).inventory.slots == before
-    assert :sys.get_state(:sys.get_state(pid).player_store).snapshot.transfer_sequence == 0
+    assert Valimc.TestConn.state(pid).inventory.slots == before
+    assert :sys.get_state(Valimc.TestConn.state(pid).player_store).snapshot.transfer_sequence == 0
   end
 
   test "pending source save blocks selection, not chat or world reads, and precedes destination mutation",
        c do
     seed(c, :survival)
     {client, pid} = login(c)
-    writer = :sys.get_state(pid).player_store
+    writer = Valimc.TestConn.state(pid).player_store
     :sys.suspend(writer)
 
     try do
       send_place(client, c.target)
-      wait(fn -> match?(%{stage: :prepare}, :sys.get_state(pid).recovery) end)
+      wait(fn -> match?(%{stage: :prepare}, Valimc.TestConn.state(pid).recovery) end)
       Client.send_packet(client, :play, "set_carried_item", <<1::signed-16>>)
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
       {_body, client} = Client.await(client, :play, "system_chat")
-      assert :sys.get_state(pid).inventory.selected == 0
-      assert :sys.get_state(pid).inventory.slots[36].count == 7
+      assert Valimc.TestConn.state(pid).inventory.selected == 0
+      assert Valimc.TestConn.state(pid).inventory.slots[36].count == 7
       assert World.get_block(c.target) == 0
       :sys.resume(writer)
       _client = ack(client)
       assert World.get_block(c.target) == 1
-      assert :sys.get_state(pid).inventory.slots[36].count == 6
+      assert Valimc.TestConn.state(pid).inventory.slots[36].count == 6
     after
       if Process.alive?(writer), do: :sys.resume(writer)
     end
@@ -490,11 +496,11 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     for mode <- [:adventure, :spectator] do
       seed(c, mode)
       {client, pid} = login(c)
-      before = :sys.get_state(pid).inventory.slots
+      before = Valimc.TestConn.state(pid).inventory.slots
       send_place(client, c.target)
       client = ack(client)
       assert World.get_block(c.target) == 0
-      assert :sys.get_state(pid).inventory.slots == before
+      assert Valimc.TestConn.state(pid).inventory.slots == before
       Client.close(client)
 
       wait(fn ->
@@ -513,7 +519,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
       send_place(client, c.target)
 
       wait(fn ->
-        state = :sys.get_state(pid)
+        state = Valimc.TestConn.state(pid)
         state.table_job != nil or state.placement_job != nil
       end)
 
@@ -539,20 +545,22 @@ defmodule Valimc.PlayerPlacementConnectionTest do
       send_place(client, c.target)
 
       wait(fn ->
-        state = :sys.get_state(pid)
+        state = Valimc.TestConn.state(pid)
         state.table_job != nil or state.placement_job != nil
       end)
 
       Client.send_packet(client, :play, "set_carried_item", <<1::signed-16>>)
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
       {_body, client} = Client.await(client, :play, "system_chat")
-      assert :sys.get_state(pid).inventory.selected == 0
+      assert Valimc.TestConn.state(pid).inventory.selected == 0
       Process.sleep(275)
       Valimc.TestRegionGate.resume(owner)
       _client = ack(client)
       assert World.get_block(c.target) == 0
-      assert :sys.get_state(pid).inventory.slots[36].count == 7
-      assert :sys.get_state(:sys.get_state(pid).player_store).snapshot.transfer_sequence == 0
+      assert Valimc.TestConn.state(pid).inventory.slots[36].count == 7
+
+      assert :sys.get_state(Valimc.TestConn.state(pid).player_store).snapshot.transfer_sequence ==
+               0
     after
       Valimc.TestRegionGate.resume(owner)
     end
@@ -589,11 +597,11 @@ defmodule Valimc.PlayerPlacementConnectionTest do
                Valimc.Protocol.Data.item_block(ItemStack.new(name).item_id)
 
       count = if mode == :survival, do: 1, else: 2
-      assert :sys.get_state(pid).inventory.slots[36 + slot].count == count
+      assert Valimc.TestConn.state(pid).inventory.slots[36 + slot].count == count
       send_place(client, feet, 1, 0.5, 0, 2 * slot + 2)
       client = ack(client, 2 * slot + 2)
       assert World.get_block(feet) == 0
-      assert :sys.get_state(pid).inventory.slots[36 + slot].count == count
+      assert Valimc.TestConn.state(pid).inventory.slots[36 + slot].count == count
 
       if mode == :survival do
         assert saved(c).transfer_sequence == slot + 1 and saved(c).outbox == nil
@@ -622,13 +630,13 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     send_place(client, c.target)
     client = ack(client)
     assert World.get_block(c.target) == table
-    assert :sys.get_state(pid).inventory.slots[36] == nil
+    assert Valimc.TestConn.state(pid).inventory.slots[36] == nil
     assert saved(c).transfer_sequence == 1 and saved(c).outbox == nil
 
     send_place(client, other, 1, 0.5, 1, 2)
     _client = ack(client, 2)
     assert World.get_block(other) == table
-    assert :sys.get_state(pid).inventory.slots[45] == nil
+    assert Valimc.TestConn.state(pid).inventory.slots[45] == nil
     assert saved(c).transfer_sequence == 2 and saved(c).outbox == nil
 
     Client.close(client)
@@ -660,18 +668,18 @@ defmodule Valimc.PlayerPlacementConnectionTest do
       assert World.get_block(c.target) == expected
       remaining = if mode == :survival, do: 3 - div(seq + 1, 2), else: 3
       slot = if hand == 0, do: 36, else: 45
-      stack = :sys.get_state(pid).inventory.slots[slot]
+      stack = Valimc.TestConn.state(pid).inventory.slots[slot]
       if remaining == 0, do: assert(stack == nil), else: assert(stack.count == remaining)
       assert saved(c).transfer_sequence == if(mode == :survival, do: seq, else: 0)
       assert saved(c).outbox == nil
       client
     end)
 
-    slots = :sys.get_state(pid).inventory.slots
+    slots = Valimc.TestConn.state(pid).inventory.slots
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == [] end)
     {_fresh, pid} = login(c)
-    assert :sys.get_state(pid).inventory.slots == slots
+    assert Valimc.TestConn.state(pid).inventory.slots == slots
     assert World.get_block(c.target) == 177
     assert saved(c).transfer_sequence == if(mode == :survival, do: 6, else: 0)
   end
@@ -686,7 +694,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
       send_place(client, c.target)
 
       wait(fn ->
-        state = :sys.get_state(pid)
+        state = Valimc.TestConn.state(pid)
         state.table_job != nil or state.placement_job != nil
       end)
 

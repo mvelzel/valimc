@@ -82,8 +82,8 @@ defmodule Valimc.PlayerFoodConnectionTest do
     Client.send_packet(client, :play, "player_loaded", <<>>)
 
     wait(fn ->
-      not :sys.get_state(pid).teleport_pending and
-        Valimc.PlayerInput.loaded?(:sys.get_state(pid).player.input)
+      not Valimc.TestConn.state(pid).teleport_pending and
+        Valimc.PlayerInput.loaded?(Valimc.TestConn.state(pid).player.input)
     end)
 
     on_exit(fn -> Client.close(client) end)
@@ -374,7 +374,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
     {_, client} = Client.await(client, :play, "respawn")
     {body, _client} = Client.await(client, :play, "set_health")
     assert_health(body, 20.0, %PlayerFood{})
-    assert :sys.get_state(pid).player.food == %PlayerFood{}
+    assert Valimc.TestConn.state(pid).player.food == %PlayerFood{}
     assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.food == %PlayerFood{} and saved.air_supply == 300
     assert saved.inventory.slots == %{} and saved.transfer_sequence == 1 and saved.outbox == nil
