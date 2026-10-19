@@ -1,6 +1,6 @@
 # VMC-034n3b — Live remote XP spawn delivery
 
-Status: Planned. Depends on the [durable protocol](VMC-034n3a.md); part of
+Status: In progress. Depends on the [durable protocol](VMC-034n3a.md); part of
 [orb ownership](VMC-034n3.md). This covers initial remote spawning, not moving
 an already active orb or enabling earned-output withdrawal.
 
@@ -35,3 +35,33 @@ Implementation/acceptance:
 References: pinned native splitting/codecs in the parent; `CookingOrbTransfers`
 for immutable decisions and `ItemHandoffDelivery` for bounded delivery patterns.
 Do not redo the accepted local runtime or durable protocol.
+
+Runtime design: one CPU proposal and one outbound delivery per region. The inbox
+accepts only a bounded canonical request binary and a deadline. Preparation,
+adoption and settlement rebase their ledger delta at the current lease/epoch;
+the source retains one received acknowledgement until its own settlement commits.
+No write lane is held while waiting for another region. Source intents never
+become source-side entity observations; destination adoption alone owns the effect.
+
+Implementation: automatic remote route preparation, bounded transfer-worker RPC,
+destination adoption/publication and source settlement are integrated. CPU plans
+have 2 s deadlines; writes 5 s; inbox/RPC/delivery limits are 6/7/8 s. Busy worker
+admission backs off 100 ms; uncertain deliveries rotate after 1 s. The transfer
+revision wakes scheduling even when record counts are unchanged. Both imported
+and local frozen views share native replication and its prediction corrections.
+
+Automated checks (2026-10-19): 83 affected tests pass (seed141334), including
+simultaneous opposite deliveries/zero XP, source death while destination writes,
+writer death after adoption durability/before ACK, concurrent slots/receipts/timers
+during adoption and settlement, shared-byte refusal/retry, stale/late work and
+worker saturation. Native TCP covers both local and remote spawn/value/pose,
+ordinary pickup separation, late join and stable UUIDs/fresh network IDs after
+owner loss. Existing native denomination/packet probes remain unchanged. Logs:
+`.local/orb-delivery-*.log`. No broad gate is due at this subticket boundary.
+
+Client gate pending: `.local/client-tests/VMC-034n3b/world` starts with 14 real
+receipt-backed obligations, no materialized orbs or transfer decisions. Runtime
+must produce 13 local markers/12 local sprites/4,931 XP and one delivered remote
+route/adoption/sprite worth3 XP. Expected maps remain private in the evidence
+directory. Cross-boundary contacts, both owner replacements, baseline cooking/
+refusals and full restart must pass before publication.

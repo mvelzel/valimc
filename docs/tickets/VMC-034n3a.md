@@ -41,7 +41,8 @@ delivered routes and all immutable source obligations. Destination receipts also
 reject another digest for the same source region/player/sequence. Derived native
 orb UUIDs/denominations remain unchanged. Callers must commit proposals before
 sending requests, publishing adoption or acknowledging success; the pure API is
-not proof of a write. No live packet handler or runtime invokes this path yet.
+not proof of a write. The [delivery runtime](VMC-034n3b.md) now invokes this path;
+its own graphical gate is separate from this accepted storage scope.
 Source obligations/intents are retry/provenance records, not another active orb;
 conservation tracks the unique award across routing and destination adoption.
 

@@ -1,7 +1,14 @@
 defmodule Valimc.World.Region do
   use GenServer
   @moduledoc "Simulation lifecycle owner; storage resources remain separate from its tick state."
-  alias Valimc.World.{BlockBatch, CookingOrbRuntime, RegionData, TickClock}
+  alias Valimc.World.{
+    BlockBatch,
+    CookingOrbDelivery,
+    CookingOrbRuntime,
+    CookingOrbTransfers,
+    RegionData,
+    TickClock
+  }
 
   def start_link({key, token}),
     do:
@@ -238,6 +245,21 @@ defmodule Valimc.World.Region do
   def apply_item_handoff({pid, epoch}, transfer),
     do: GenServer.call(pid, {:item_handoff, epoch, transfer}, 6000)
 
+  @doc "Internal bounded XP inbox; source intent must already be durable."
+  def apply_cooking_orb_spawn({pid, epoch}, bytes)
+      when is_pid(pid) and is_reference(epoch) and is_binary(bytes) do
+    with true <- byte_size(bytes) <= CookingOrbTransfers.max_request_bytes(),
+         {:message_queue_len, size} <- Process.info(pid, :message_queue_len),
+         true <- size <= Valimc.config(:max_mailbox) do
+      deadline = System.monotonic_time(:millisecond) + 6000
+      GenServer.call(pid, {:cooking_orb_spawn, epoch, bytes, deadline}, 7000)
+    else
+      _ -> {:error, :cooking_orb_inbox_unavailable}
+    end
+  end
+
+  def apply_cooking_orb_spawn(_, _), do: {:error, :invalid_cooking_orb_transfer}
+
   # Internal inbox only; source persistence/lease fencing must precede gameplay use.
   def apply_item_transfer({pid, epoch}, transfer),
     do: GenServer.call(pid, {:item_transfer, epoch, transfer}, 6000)
@@ -311,6 +333,7 @@ defmodule Valimc.World.Region do
           |> RegionData.item_tick(now)
           |> RegionData.cooking_tick(now)
           |> CookingOrbRuntime.tick(now)
+          |> CookingOrbDelivery.tick(now)
 
         {:noreply, schedule_tick(%{state | resource: resource}, clock, delay)}
     end

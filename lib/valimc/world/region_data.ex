@@ -5,6 +5,7 @@ defmodule Valimc.World.RegionData do
     Chunk,
     CookingRuntime,
     CookingOrbRuntime,
+    CookingOrbDelivery,
     ContainerRequest,
     ContainerTransfers,
     ContainerPermits,
@@ -890,6 +891,9 @@ defmodule Valimc.World.RegionData do
         plan_item_change(:item_handoff_out, {destination, steps, deadline}, from, state)
     end
   end
+
+  def handle_call({:cooking_orb_spawn, epoch, bytes, deadline}, from, state),
+    do: CookingOrbRuntime.adopt(state, epoch, bytes, deadline, from)
 
   def handle_call({:item_handoff, epoch, transfer}, from, state) do
     cond do
@@ -2270,6 +2274,12 @@ defmodule Valimc.World.RegionData do
   def handle_info({:cooking_orb_deadline, token}, state),
     do: CookingOrbRuntime.expired(state, token)
 
+  def handle_info({:cooking_orb_delivered, worker, token, result}, state),
+    do: CookingOrbDelivery.returned(state, worker, token, result)
+
+  def handle_info({:cooking_orb_delivery_deadline, token}, state),
+    do: CookingOrbDelivery.expired(state, token)
+
   def handle_info(
         {:cooking_plan, worker, token, result},
         %{cooking: %{job: %{worker: worker, token: token} = job}} = state
@@ -2887,6 +2897,12 @@ defmodule Valimc.World.RegionData do
 
   def handle_info(
         {:DOWN, ref, :process, worker, _},
+        %{cooking_orbs: %{delivery: %{worker: worker, monitor: ref}}} = state
+      ),
+      do: CookingOrbDelivery.down(state)
+
+  def handle_info(
+        {:DOWN, ref, :process, worker, _},
         %{cooking_orbs: %{job: %{worker: worker, monitor: ref}}} = state
       ),
       do: CookingOrbRuntime.down(state)
@@ -3390,6 +3406,7 @@ defmodule Valimc.World.RegionData do
   def terminate(reason, state) do
     Process.cancel_timer(state.save_timer)
     CookingOrbRuntime.terminate(state.cooking_orbs)
+    CookingOrbDelivery.terminate(state.cooking_orbs)
 
     if state.cooking.job do
       Process.cancel_timer(state.cooking.job.timer)

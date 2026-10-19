@@ -1,13 +1,26 @@
 defmodule Valimc.World.CookingOrbRuntime do
-  @moduledoc "Local XP installation on bounded workers, durable ACK before observation; pickup remains inactive."
+  @moduledoc "Bounded local/remote XP proposals; durable ACK before observation and receipt."
   alias Valimc.Protocol.EntityPackets
-  alias Valimc.World.{CookingOrbs, Items, Store}
-  defstruct job: nil, seen: nil, retry_at: nil, cursor: nil, ledger: %{}, views: %{}
+  alias Valimc.World.{CookingOrbs, CookingOrbTransfers, Items, Store}
+
+  defstruct job: nil,
+            seen: nil,
+            retry_at: nil,
+            cursor: nil,
+            ledger: %{},
+            views: %{},
+            revision: 0,
+            receipt: nil,
+            delivery: nil,
+            delivery_cursor: nil,
+            delivery_seen: nil,
+            delivery_retry_at: nil
+
   @max_view_bytes 1_048_576
 
   def tick(state, now) do
     runtime = state.cooking_orbs
-    stamp = stamp(state.containers)
+    cs = state.containers
 
     cond do
       not state.item_storage_enabled or runtime.job != nil or state.item_pending != nil ->
@@ -16,17 +29,46 @@ defmodule Valimc.World.CookingOrbRuntime do
       is_integer(runtime.retry_at) and now < runtime.retry_at ->
         state
 
-      map_size(runtime.ledger) == map_size(state.containers.cooking_orbs) and
-          (map_size(state.containers.pending_awards) == map_size(runtime.ledger) or
-             (runtime.seen == stamp and runtime.retry_at == nil)) ->
+      runtime.receipt == nil and runtime.revision == cs.orb_transfers.revision and
+        map_size(runtime.ledger) ==
+          map_size(cs.cooking_orbs) + map_size(cs.orb_transfers.incoming) and
+          (map_size(cs.pending_awards) ==
+             map_size(cs.cooking_orbs) + map_size(cs.orb_transfers.outgoing) or
+             (runtime.seen == stamp(cs) and runtime.retry_at == nil)) ->
         state
 
       true ->
-        start(state, now)
+        start(state, now, :scan, nil, nil)
     end
   end
 
-  defp start(state, now) do
+  def adopt(state, epoch, bytes, deadline, from) do
+    cond do
+      epoch != state.items.epoch ->
+        {:reply, {:error, :stale_region}, state}
+
+      not state.item_storage_enabled ->
+        {:reply, {:error, :transfer_storage_disabled}, state}
+
+      not is_binary(bytes) or byte_size(bytes) > CookingOrbTransfers.max_request_bytes() ->
+        {:reply, {:error, :invalid_cooking_orb_transfer}, state}
+
+      not is_integer(deadline) or now() >= deadline ->
+        {:reply, {:error, :expired_cooking_orb_transfer}, state}
+
+      state.item_pending != nil or state.cooking_orbs.job != nil ->
+        {:reply, {:error, :item_storage_busy}, state}
+
+      true ->
+        next = start(state, now(), {:adopt, bytes}, from, deadline)
+
+        if next.cooking_orbs.job,
+          do: {:noreply, next},
+          else: {:reply, {:error, :cooking_orb_workers_busy}, next}
+    end
+  end
+
+  defp start(state, now, operation, from, deadline) do
     owner = self()
     epoch = state.items.epoch
     token = make_ref()
@@ -35,7 +77,12 @@ defmodule Valimc.World.CookingOrbRuntime do
     key = state.key
 
     case Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
-           result = plan(containers, key, epoch, runtime)
+           result =
+             case operation do
+               :scan -> plan(containers, key, epoch, runtime)
+               {:adopt, bytes} -> plan_adoption(containers, key, epoch, runtime, bytes)
+             end
+
            send(owner, {:resource, epoch, {:cooking_orb_plan, self(), token, result}})
          end) do
       {:ok, worker} ->
@@ -45,7 +92,10 @@ defmodule Valimc.World.CookingOrbRuntime do
           monitor: Process.monitor(worker),
           timer: timer(state, {:cooking_orb_deadline, token}, 2000),
           ledger: containers.cooking_orbs,
-          stamp: stamp(containers)
+          transfers: containers.orb_transfers,
+          stamp: stamp(containers),
+          from: from,
+          deadline: deadline
         }
 
         %{state | cooking_orbs: %{runtime | job: job, retry_at: nil}}
@@ -57,34 +107,74 @@ defmodule Valimc.World.CookingOrbRuntime do
 
   @doc false
   def plan(containers, key, epoch, runtime) do
-    if runtime.ledger != containers.cooking_orbs do
-      {:refresh, publication(containers.cooking_orbs, runtime.views, epoch)}
-    else
-      ids = containers.pending_awards |> Map.keys() |> Enum.sort()
+    ledger = owned_ledger(containers)
 
-      {before, after_cursor} =
-        if runtime.cursor == nil,
-          do: {[], ids},
-          else: Enum.split_while(ids, &(&1 <= runtime.cursor))
+    cond do
+      runtime.ledger != ledger or runtime.revision != containers.orb_transfers.revision ->
+        {:refresh, publication(containers, runtime.views, epoch)}
 
-      id =
-        Enum.find(after_cursor ++ before, fn id ->
-          not Map.has_key?(containers.cooking_orbs, id) and
-            owned?(key, containers.pending_awards[id].position)
-        end)
+      runtime.receipt != nil ->
+        {id, digest} = runtime.receipt
 
-      if id do
+        with {:ok, proposed, status} <-
+               CookingOrbTransfers.acknowledge(containers, key, id, digest) do
+          if status == :already_delivered,
+            do: {:settled, id},
+            else:
+              {:settle, id, digest, containers.pending_awards[id], proposed.orb_transfers,
+               publication(proposed, runtime.views, epoch)}
+        end
+
+      true ->
+        plan_award(containers, key, epoch, runtime)
+    end
+  rescue
+    _ -> {:error, :orb_plan_failed}
+  end
+
+  defp plan_award(containers, key, epoch, runtime) do
+    ids = containers.pending_awards |> Map.keys() |> Enum.sort() |> rotate(runtime.cursor)
+
+    id =
+      Enum.find(ids, fn id ->
+        not Map.has_key?(containers.cooking_orbs, id) and
+          not Map.has_key?(containers.orb_transfers.outgoing, id)
+      end)
+
+    if id do
+      award = containers.pending_awards[id]
+
+      if owned?(key, award.position) do
         case CookingOrbs.materialize(containers, key, id) do
           {:ok, proposed, :materialized} ->
-            {:install, id, containers.pending_awards[id], proposed.cooking_orbs[id],
-             publication(proposed.cooking_orbs, runtime.views, epoch)}
+            {:install, id, award, proposed.cooking_orbs[id],
+             publication(proposed, runtime.views, epoch)}
 
           {:error, reason} ->
             {:refused, id, reason}
         end
       else
-        :idle
+        case CookingOrbTransfers.prepare(containers, key, id) do
+          {:ok, proposed, _, :prepared} ->
+            {:route, id, award, proposed.orb_transfers,
+             publication(proposed, runtime.views, epoch)}
+
+          {:error, reason} ->
+            {:refused, id, reason}
+        end
       end
+    else
+      :idle
+    end
+  end
+
+  defp plan_adoption(containers, key, epoch, runtime, bytes) do
+    with {:ok, request} <- CookingOrbTransfers.decode_request(bytes),
+         {:ok, proposed, status} <- CookingOrbTransfers.accept(containers, key, request) do
+      if status == :already_applied,
+        do: {:duplicate, request},
+        else:
+          {:adopt, request, proposed.orb_transfers, publication(proposed, runtime.views, epoch)}
     end
   rescue
     _ -> {:error, :orb_plan_failed}
@@ -95,52 +185,73 @@ defmodule Valimc.World.CookingOrbRuntime do
       %{worker: ^worker, token: ^token} = job ->
         clear_job(job)
         state = put_in(state.cooking_orbs.job, nil)
-        accept(state, job, result)
+
+        if current?(state, job),
+          do: accept(state, job, result),
+          else: reject(state, job, :stale_cooking_orb_plan)
 
       _ ->
         {:noreply, state}
     end
   end
 
-  defp accept(state, job, {:refresh, views}) do
-    if state.containers.cooking_orbs === job.ledger do
-      {:noreply, publish(state, job.ledger, views)}
+  defp current?(state, job),
+    do:
+      state.item_pending == nil and state.containers.cooking_orbs === job.ledger and
+        state.containers.orb_transfers === job.transfers and
+        (job.deadline == nil or now() < job.deadline)
+
+  defp accept(state, _job, {:refresh, views}), do: {:noreply, publish(state, views)}
+
+  defp accept(state, job, {:install, id, award, records, views}) do
+    if state.containers.pending_awards[id] === award do
+      commit(
+        state,
+        job,
+        id,
+        %{state.containers | cooking_orbs: Map.put(job.ledger, id, records)},
+        views
+      )
     else
-      {:noreply, retry(state, now() + 100)}
+      reject(state, job, :stale_cooking_award)
     end
   end
 
-  defp accept(state, job, {:install, id, award, records, views}) do
-    if state.item_pending == nil and state.containers.pending_awards[id] === award and
-         state.containers.cooking_orbs === job.ledger do
-      # Rebase only the orb delta. The I/O owner validates the current combined
-      # snapshot, including slot/receipt/timer changes that occurred during planning.
-      containers = %{state.containers | cooking_orbs: Map.put(job.ledger, id, records)}
-      token = make_ref()
-
-      Store.commit_containers(
-        state.store,
-        state.store_lease,
-        containers,
-        {self(), state.items.epoch},
-        token
-      )
-
-      pending = %{
-        kind: :cooking_orbs,
-        phase: :writing,
-        token: token,
-        from: nil,
-        containers: containers,
-        views: views,
-        id: id,
-        timer: timer(state, {:item_commit_deadline, token}, 5000)
-      }
-
-      {:noreply, %{state | item_pending: pending}}
+  defp accept(state, job, {:route, id, award, transfers, views}) do
+    if state.containers.pending_awards[id] === award do
+      commit(state, job, id, %{state.containers | orb_transfers: transfers}, views)
     else
-      {:noreply, retry(state, now() + 100)}
+      reject(state, job, :stale_cooking_award)
     end
+  end
+
+  defp accept(state, job, {:settle, id, digest, award, transfers, views}) do
+    if state.cooking_orbs.receipt == {id, digest} and
+         state.containers.pending_awards[id] === award do
+      commit(state, job, id, %{state.containers | orb_transfers: transfers}, views, id)
+    else
+      reject(state, job, :stale_cooking_orb_receipt)
+    end
+  end
+
+  defp accept(state, job, {:adopt, request, transfers, views}),
+    do: commit(state, job, request.id, %{state.containers | orb_transfers: transfers}, views)
+
+  defp accept(state, job, {:duplicate, _request}) do
+    reply(job.from, {:ok, :already_applied})
+    {:noreply, state}
+  end
+
+  defp accept(state, _job, {:settled, id}) do
+    runtime = state.cooking_orbs
+
+    receipt =
+      case runtime.receipt do
+        {^id, _} -> nil
+        other -> other
+      end
+
+    {:noreply, %{state | cooking_orbs: %{runtime | receipt: receipt}}}
   end
 
   defp accept(state, job, :idle),
@@ -150,7 +261,41 @@ defmodule Valimc.World.CookingOrbRuntime do
   defp accept(state, _job, {:refused, id, _}),
     do: {:noreply, retry(put_in(state.cooking_orbs.cursor, id), now() + 1000)}
 
-  defp accept(state, _job, {:error, _}), do: {:noreply, retry(state, now() + 1000)}
+  defp accept(state, job, {:error, reason}), do: reject(state, job, reason)
+
+  defp reject(state, job, reason) do
+    reply(job.from, {:error, reason})
+    {:noreply, retry(state, now() + 100)}
+  end
+
+  defp commit(state, job, id, containers, views),
+    do: commit(state, job, id, containers, views, nil)
+
+  defp commit(state, job, id, containers, views, settled) do
+    token = make_ref()
+
+    Store.commit_containers(
+      state.store,
+      state.store_lease,
+      containers,
+      {self(), state.items.epoch},
+      token
+    )
+
+    pending = %{
+      kind: :cooking_orbs,
+      phase: :writing,
+      token: token,
+      from: job.from,
+      containers: containers,
+      views: views,
+      id: id,
+      settled: settled,
+      timer: timer(state, {:item_commit_deadline, token}, 5000)
+    }
+
+    {:noreply, %{state | item_pending: pending}}
+  end
 
   def saved(state, result) do
     pending = state.item_pending
@@ -159,21 +304,32 @@ defmodule Valimc.World.CookingOrbRuntime do
 
     case result do
       :ok ->
+        runtime = state.cooking_orbs
+        receipt = if Map.get(pending, :settled), do: nil, else: runtime.receipt
+
         state = %{
           state
           | containers: pending.containers,
             cooking: %{state.cooking | dirty: false},
-            cooking_orbs: %{state.cooking_orbs | cursor: pending.id, seen: nil, retry_at: nil}
+            cooking_orbs: %{
+              runtime
+              | cursor: pending.id,
+                seen: nil,
+                retry_at: nil,
+                receipt: receipt
+            }
         }
 
-        {:noreply, publish(state, pending.containers.cooking_orbs, pending.views)}
+        state = publish(state, pending.views)
+        reply(pending.from, {:ok, :applied})
+        {:noreply, state}
 
       {:error, :invalid_container_snapshot} ->
-        # A concurrent slot change may fill the shared byte budget. No file was
-        # written, no effects were published, and the original award stays pending.
+        reply(pending.from, {:error, :cooking_orb_transfer_capacity})
         {:noreply, retry(put_in(state.cooking_orbs.cursor, pending.id), now() + 1000)}
 
       {:error, reason} ->
+        reply(pending.from, {:error, :cooking_orb_commit_uncertain})
         {:stop, {:cooking_orb_storage_failed, reason}, state}
     end
   end
@@ -183,6 +339,7 @@ defmodule Valimc.World.CookingOrbRuntime do
       %{token: ^token} = job ->
         clear_job(job)
         Process.exit(job.worker, :kill)
+        reply(job.from, {:error, :cooking_orb_plan_timeout})
         {:noreply, retry(put_in(state.cooking_orbs.job, nil), now() + 1000)}
 
       _ ->
@@ -191,13 +348,16 @@ defmodule Valimc.World.CookingOrbRuntime do
   end
 
   def down(state) do
-    clear_job(state.cooking_orbs.job)
+    job = state.cooking_orbs.job
+    clear_job(job)
+    reply(job.from, {:error, :cooking_orb_plan_failed})
     {:noreply, retry(put_in(state.cooking_orbs.job, nil), now() + 100)}
   end
 
   def terminate(runtime) do
     if runtime.job do
       clear_job(runtime.job)
+      reply(runtime.job.from, {:error, :cooking_orb_owner_stopped})
       Process.exit(runtime.job.worker, :kill)
     end
   end
@@ -207,8 +367,7 @@ defmodule Valimc.World.CookingOrbRuntime do
     writer = state.store
     epoch = state.items.epoch
     token = pending.token
-    # Shutdown may overtake the ACK. A rejected rebased snapshot must flush current
-    # timers; a successful one must never be followed by its pre-orb predecessor.
+    # Never flush the pre-commit predecessor after an uncertain queued write.
     receive do
       {:resource, ^epoch, {:containers_saved, ^writer, ^token, :ok}} ->
         pending.containers
@@ -224,14 +383,26 @@ defmodule Valimc.World.CookingOrbRuntime do
     end
   end
 
-  defp publish(state, ledger, %{views: views, rows: rows}) do
-    # This staging ledger only grows. Owner replacement destroys its entire table.
-    # Future consumption/motion must explicitly retire/revise these observations.
+  defp publish(state, %{ledger: ledger, views: views, rows: rows, revision: revision}) do
+    # Creation ledgers only grow; future motion/consumption must retire observations.
     :ets.insert(state.item_publication, rows)
-    %{state | cooking_orbs: %{state.cooking_orbs | ledger: ledger, views: views}}
+
+    %{
+      state
+      | cooking_orbs: %{state.cooking_orbs | ledger: ledger, views: views, revision: revision}
+    }
   end
 
-  defp publication(ledger, existing, epoch) do
+  defp owned_ledger(containers) do
+    Enum.reduce(containers.orb_transfers.incoming, containers.cooking_orbs, fn {id, request},
+                                                                               ledger ->
+      {:ok, records} = CookingOrbTransfers.records(request)
+      Map.put(ledger, id, records)
+    end)
+  end
+
+  defp publication(containers, existing, epoch) do
+    ledger = owned_ledger(containers)
     views = views(ledger, existing, epoch)
 
     rows =
@@ -239,7 +410,7 @@ defmodule Valimc.World.CookingOrbRuntime do
       |> Enum.group_by(fn {_, view} -> view.chunk end)
       |> Enum.map(fn {chunk, entries} -> {{:orbs, chunk}, epoch, Map.new(entries)} end)
 
-    %{views: views, rows: rows}
+    %{views: views, rows: rows, ledger: ledger, revision: containers.orb_transfers.revision}
   end
 
   defp views(ledger, existing, epoch) do
@@ -288,18 +459,25 @@ defmodule Valimc.World.CookingOrbRuntime do
   end
 
   defp packet({id, body}), do: {id, IO.iodata_to_binary(body)}
-  # Scheduling only: pending awards and frozen markers can only be appended in
-  # this staging lifecycle. Counts avoid scanning worker-copied ledgers every tick.
-  # Commit acceptance still fences the full immutable award and prior ledger.
-  # Consumption/handoff must introduce a revision when these sets become mutable.
-  defp stamp(containers),
-    do: {map_size(containers.pending_awards), map_size(containers.cooking_orbs)}
+  # Only append-only creation sets and transfer status change in this lifecycle.
+  # The revision fences settlement as well as adoption without deep idle comparisons.
+  defp stamp(cs),
+    do: {map_size(cs.pending_awards), map_size(cs.cooking_orbs), cs.orb_transfers.revision}
+
+  defp rotate(ids, nil), do: ids
+
+  defp rotate(ids, cursor) do
+    {before, later} = Enum.split_while(ids, &(&1 <= cursor))
+    later ++ before
+  end
 
   defp owned?(key, {x, _, z}), do: Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == key
 
   defp retry(state, at),
     do: %{state | cooking_orbs: %{state.cooking_orbs | seen: nil, retry_at: at}}
 
+  defp reply(nil, _), do: :ok
+  defp reply(from, result), do: GenServer.reply(from, result)
   defp now, do: System.monotonic_time(:millisecond)
 
   defp timer(state, message, delay),

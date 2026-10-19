@@ -136,7 +136,8 @@ presentation at `ed06d5a`; affected owner/TCP checks and dedicated actual graphi
 contact/refusal/owner recovery/full restart pass. Source/typed30 reconciles.
 **Done within unused protocol/storage scope:** [durable remote spawn protocol](tickets/VMC-034n3a.md)
 at `4b09f6f` (targeted recovery/capacity checks, actual baseline/both owner deaths/
-full restart; source/typed24 reconciles). Next: [live remote delivery](tickets/VMC-034n3b.md).
+full restart; source/typed24 reconciles). Active: [live remote delivery](tickets/VMC-034n3b.md);
+83 affected owner/TCP checks pass; dedicated client gate pending.
 Orb physics/lifetime and pickup/player XP remain open.
 Live XP/recipe delivery and earned-output withdrawal remain gated.
 

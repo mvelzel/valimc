@@ -152,11 +152,14 @@ defmodule Valimc.CookingOrbRuntimeTest do
     RegionData.terminate(:shutdown, all)
   end
 
-  test "remote poses stay pending without futile jobs; a later local award wakes the owner",
+  test "remote poses acquire a durable route without source entities; a later local award wakes the owner",
        ctx do
     state = seed(ctx, true) |> start() |> result()
+    assert state.item_pending.kind == :cooking_orbs and published(state) == %{}
+    {:noreply, state} = saved(state)
     assert state.cooking_orbs.job == nil and state.item_pending == nil
     assert published(state) == %{}
+    assert Map.values(state.containers.orb_transfers.outgoing) == [:pending]
 
     for offset <- [50, 1000, 10000],
         do:
@@ -169,7 +172,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
     {:noreply, installed} = %{state | containers: cs} |> start() |> result() |> saved()
     assert map_size(installed.containers.pending_awards) == 2
     assert map_size(installed.containers.cooking_orbs) == 1
-    state = installed |> start() |> result()
+    state = start(installed)
     assert state.cooking_orbs.job == nil and start(state).cooking_orbs.job == nil
     RegionData.terminate(:shutdown, state)
   end
@@ -295,6 +298,63 @@ defmodule Valimc.CookingOrbRuntimeTest do
       for pid <- workers, do: send(pid, :finish)
       RegionData.terminate(:shutdown, state)
     end
+  end
+
+  test "destination shared-byte refusal keeps the durable source intent and later retry adopts once",
+       ctx do
+    alias Valimc.World.CookingOrbTransfers
+    state = seed(ctx)
+    {rx, rz} = ctx.key
+    source_key = {rx - 1, rz}
+    {source, id} = add(%Containers{}, source_key, ctx.position)
+    {:ok, routed, request, _} = CookingOrbTransfers.prepare(source, source_key, id)
+    {:ok, writer, lease} = Store.open(source_key)
+    :ok = Store.flush_containers(writer, lease, routed)
+    :ok = Store.close(writer, lease)
+    {:ok, bytes} = CookingOrbTransfers.encode_request(request)
+    tag = make_ref()
+
+    {:noreply, state} =
+      CookingOrbRuntime.adopt(
+        state,
+        state.items.epoch,
+        bytes,
+        System.monotonic_time(:millisecond) + 6000,
+        {self(), tag}
+      )
+
+    full = fill_snapshot(state.containers, ctx)
+    :ok = Store.flush_containers(state.store, state.store_lease, full)
+    state = result(%{state | containers: full})
+    {:noreply, refused} = saved(state)
+    assert_receive {^tag, {:error, :cooking_orb_transfer_capacity}}
+    assert refused.containers == full and published(refused) == %{}
+    pos = Enum.min(Map.keys(full.entries))
+    entry = full.entries[pos]
+
+    {:ok, available, _} =
+      Containers.replace(full, pos, entry.revision, put_elem(entry.slots, 0, nil))
+
+    :ok = Store.flush_containers(refused.store, refused.store_lease, available)
+    tag = make_ref()
+    state = %{refused | containers: available}
+
+    {:noreply, state} =
+      CookingOrbRuntime.adopt(
+        state,
+        state.items.epoch,
+        bytes,
+        System.monotonic_time(:millisecond) + 6000,
+        {self(), tag}
+      )
+
+    {:noreply, accepted} = state |> result() |> saved()
+    assert_receive {^tag, {:ok, :applied}}
+    assert map_size(accepted.containers.orb_transfers.incoming) == 1
+    assert map_size(published(accepted)) == 2
+    {:ok, source_bytes} = File.read(Store.container_path(ctx.base, source_key))
+    assert {:ok, ^routed} = Containers.decode(source_bytes, source_key)
+    RegionData.terminate(:shutdown, accepted)
   end
 
   test "shutdown behind a capacity refusal still flushes current uncheckpointed cooking timers",
