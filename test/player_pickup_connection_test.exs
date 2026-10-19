@@ -276,7 +276,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
 
     try do
       client = Client.teleport(client, pid, %{c.pose | x: c.pose.x + 1.0})
-      wait(fn -> match?(%{phase: :writing}, :sys.get_state(region).resource.item_pending) end)
+      wait(fn -> Valimc.TestRegion.in_flight?(:sys.get_state(region).resource) end)
       _client = Client.teleport(client, pid, %{c.pose | x: c.pose.x - 3.0})
       :sys.resume(writer)
       wait(fn -> Valimc.TestConn.state(pid).pickup_job == nil end)

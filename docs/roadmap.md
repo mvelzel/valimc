@@ -19,10 +19,10 @@ lands. See [architecture](architecture.md) for the target design.
 
 | Ticket | Slice | Status |
 |---|---|---|
-| [VMC-062](tickets/VMC-062.md) | Rust NIF toolchain and paletted section storage replacing the edit map | Awaiting client |
+| [VMC-062](tickets/VMC-062.md) | Rust NIF toolchain and paletted section storage replacing the edit map | Done |
 | [VMC-063](tickets/VMC-063.md) | Region log with group commit; no tick pauses (design ready) | Planned |
 | VMC-064 | One owner-transaction engine and section fencing (steps 6–8 of VMC-063) | Planned |
-| [VMC-065](tickets/VMC-065.md) | Published section snapshots for lock-free collision/observation reads | Awaiting client |
+| [VMC-065](tickets/VMC-065.md) | Published section snapshots for lock-free collision/observation reads | Done |
 | VMC-066 | Tick pipeline on game time: steppable clock, scheduled and random ticks | Planned |
 | VMC-067 | Generic entity model; items and XP orbs migrate onto it | Planned |
 | VMC-068 | Unified generated block/item registry, block behaviours, protocol constants | Planned |
@@ -57,8 +57,8 @@ model. Additional status effects and container variants wait for M1.
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill |
 
-The first M1 client run will be a baseline regression (join, terrain, mining,
-placement, chests, furnaces, items, reconnect) on the new section storage.
+The M1 client baseline (join, terrain, building, chest, furnace, reconnect,
+restart, survival mining) passed on `68c98da`; see [VMC-062](tickets/VMC-062.md).
 
 ## Retrieve and update
 

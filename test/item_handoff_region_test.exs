@@ -104,10 +104,18 @@ defmodule Valimc.ItemHandoffRegionTest do
     do:
       wait(fn ->
         s = resource(owner)
-        s.items.ledger.outgoing == nil and s.item_pending == nil
+        s.items.ledger.outgoing == nil and not Valimc.TestRegion.writing?(s)
       end)
 
-  defp published(owner, uuid), do: match?({:ok, _}, Region.find_item(owner, uuid))
+  # Durably present in that owner's region (what a restart or any reader would see).
+  defp published({pid, _}, uuid) do
+    [key] = Registry.keys(Valimc.RegionRegistry, pid)
+
+    {:ok, saved} =
+      ItemLedger.decode(Valimc.TestDisk.read(Valimc.config(:world_path), key, :items), key)
+
+    Enum.any?(saved.records, &(&1.uuid == uuid))
+  end
 
   defp disk(ctx, key) do
     assert {:ok, snapshot} = ItemLedger.decode(Valimc.TestDisk.read(ctx.base, key, :items), key)
@@ -169,7 +177,7 @@ defmodule Valimc.ItemHandoffRegionTest do
         )
       end)
 
-    wait(fn -> match?(%{phase: :writing}, resource(ctx.owner).item_pending) end)
+    wait(fn -> Valimc.TestRegion.in_flight?(resource(ctx.owner)) end)
     assert Task.yield(task, 10) == nil
     assert published(ctx.owner, ctx.uuid) and not published(ctx.other, ctx.uuid)
     assert disk(ctx, ctx.key).ledger.outgoing == nil
@@ -192,7 +200,7 @@ defmodule Valimc.ItemHandoffRegionTest do
                steps(ctx.owner, ctx.destination, [ctx.uuid])
              )
 
-    wait(fn -> match?(%{phase: :writing}, resource(ctx.other).item_pending) end)
+    wait(fn -> Valimc.TestRegion.in_flight?(resource(ctx.other)) end)
     before = disk(ctx, ctx.key)
     assert before.records == [] and before.ledger.sequence == 1
     refute published(ctx.owner, ctx.uuid) or published(ctx.other, ctx.uuid)
@@ -227,7 +235,7 @@ defmodule Valimc.ItemHandoffRegionTest do
                steps(ctx.owner, ctx.destination, [ctx.uuid])
              )
 
-    wait(fn -> match?(%{phase: :writing}, resource(ctx.other).item_pending) end)
+    wait(fn -> Valimc.TestRegion.in_flight?(resource(ctx.other)) end)
     :sys.suspend(elem(ctx.owner, 0))
     :sys.resume(writer)
     wait(fn -> published(ctx.other, ctx.uuid) end)
@@ -273,7 +281,7 @@ defmodule Valimc.ItemHandoffRegionTest do
                steps(ctx.owner, ctx.destination, [ctx.uuid])
              )
 
-    wait(fn -> match?(%{phase: :writing}, resource(ctx.other).item_pending) end)
+    wait(fn -> Valimc.TestRegion.in_flight?(resource(ctx.other)) end)
     job = resource(ctx.owner).item_handoff
     {pid, epoch} = ctx.owner
 
@@ -328,7 +336,7 @@ defmodule Valimc.ItemHandoffRegionTest do
                steps(ctx.owner, ctx.destination, [ctx.uuid])
              )
 
-    wait(fn -> match?(%{phase: :writing}, resource(ctx.other).item_pending) end)
+    wait(fn -> Valimc.TestRegion.in_flight?(resource(ctx.other)) end)
     source_writer = resource(ctx.owner).store
     Valimc.TestDisk.break_writer(source_writer)
 
@@ -379,7 +387,7 @@ defmodule Valimc.ItemHandoffRegionTest do
                steps(ctx.owner, ctx.destination, [ctx.uuid])
              )
 
-    wait(fn -> match?(%{phase: :writing}, resource(ctx.other).item_pending) end)
+    wait(fn -> Valimc.TestRegion.in_flight?(resource(ctx.other)) end)
     job = resource(ctx.owner).item_handoff
     {pid, epoch} = ctx.owner
     monitor = Process.monitor(job.worker)

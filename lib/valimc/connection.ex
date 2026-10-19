@@ -364,7 +364,7 @@ defmodule Valimc.Connection do
   @impl true
   # Session jobs (`Valimc.Session.Jobs`) claim their results, DOWNs and timeouts
   # first; everything else goes to the per-message clauses below.
-  def handle_info(message, state) do
+  def handle_info(message, %{jobs: %Jobs{}} = state) do
     case Jobs.classify(state.jobs, message) do
       {:result, kind, job, payload, jobs} -> job_result(kind, job, payload, %{state | jobs: jobs})
       {:down, kind, job, reason, jobs} -> job_down(kind, job, reason, %{state | jobs: jobs})
@@ -373,6 +373,8 @@ defmodule Valimc.Connection do
       :unknown -> info(message, state)
     end
   end
+
+  def handle_info(message, state), do: info(message, state)
 
   defp job_result(:pose, job, result, state) do
     guard_connection(state, fn ->

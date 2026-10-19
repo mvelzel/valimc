@@ -153,7 +153,9 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     do:
       Enum.all?([c.source, c.target], fn owner ->
         s = state(owner)
-        s.items.ledger.outgoing == nil and s.item_pending == nil and s.item_cross_job == nil
+
+        s.items.ledger.outgoing == nil and not Valimc.TestRegion.writing?(s) and
+          s.item_cross_job == nil
       end)
 
   defp jobs, do: Map.get(Metrics.snapshot(), :item_cross_jobs, 0)
@@ -323,13 +325,13 @@ defmodule Valimc.ItemCrossMergeAutoTest do
       start(c)
 
       wait(fn ->
-        match?(%{kind: :cross_merge_out, phase: :writing}, state(c.source).item_pending)
+        Valimc.TestRegion.in_flight?(state(c.source))
       end)
 
       job = state(c.source).item_cross_job
       assert job != nil
       wait(fn -> not Process.alive?(job.worker) end)
-      assert state(c.source).item_pending.phase == :writing
+      assert Valimc.TestRegion.in_flight?(state(c.source))
       assert {:ok, c.source} == GenServer.call(elem(c.source, 0), :owner)
       :sys.resume(writer)
       wait(fn -> converged(c) end)

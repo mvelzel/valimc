@@ -272,7 +272,7 @@ defmodule Valimc.MenuOverflowTest do
         await_state(
           ctx,
           &(&1.recovery != nil && &1.recovery.stage == :delivery &&
-              :sys.get_state(region).resource.item_pending != nil)
+              Valimc.TestRegion.writing?(:sys.get_state(region).resource))
         )
 
       snapshot = saved(ctx)

@@ -81,6 +81,7 @@ defmodule Valimc.World.RegionData do
     :revision,
     :dirty,
     :unsaved,
+    :item_writes,
     :saving_cells,
     :saving,
     :save_timer
@@ -165,6 +166,7 @@ defmodule Valimc.World.RegionData do
       revision: 0,
       dirty: false,
       unsaved: %{},
+      item_writes: [],
       saving_cells: nil,
       saving: false,
       save_timer: save_timer
@@ -382,7 +384,7 @@ defmodule Valimc.World.RegionData do
           runtime
       end
 
-    :ets.insert(state.item_publication, {:items, plan.items.views})
+    publish_item_views(%{state | items: plan.items})
 
     state = %{
       state
@@ -525,7 +527,7 @@ defmodule Valimc.World.RegionData do
     if items == state.items do
       state
     else
-      :ets.insert(state.item_publication, {:items, items.views})
+      publish_item_views(%{state | items: items})
       generation = state.item_motion_generation + 1
 
       schedule_item_checkpoint(%{
@@ -609,6 +611,10 @@ defmodule Valimc.World.RegionData do
 
       not is_integer(deadline) or System.monotonic_time(:millisecond) >= deadline ->
         {:reply, {:error, :expired_item_step}, state}
+
+      # Behind in-flight writes, issue the grant (in order) once they are durable.
+      state.item_writes != [] ->
+        {:noreply, finish_when_durable(state, from, {:pickup_grant, actor, item_uuid, deadline})}
 
       true ->
         case PickupPermits.issue(
@@ -787,7 +793,7 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  def handle_call({:owner_item_receipt, epoch, source}, _, state) do
+  def handle_call({:owner_item_receipt, epoch, source}, from, state) do
     result =
       cond do
         epoch != state.items.epoch -> {:error, :stale_region}
@@ -796,7 +802,7 @@ defmodule Valimc.World.RegionData do
         true -> {:ok, {state.key, state.items.ledger.incoming[source]}}
       end
 
-    {:reply, result, state}
+    {:noreply, finish_when_durable(state, from, result)}
   end
 
   def handle_call({:merge_items, epoch, pairs, deadline}, from, state) do
@@ -846,7 +852,7 @@ defmodule Valimc.World.RegionData do
             if items == state.items do
               {:reply, {:ok, handles}, state}
             else
-              :ets.insert(state.item_publication, {:items, items.views})
+              publish_item_views(%{state | items: items})
               generation = state.item_motion_generation + 1
 
               next = %{
@@ -1127,7 +1133,7 @@ defmodule Valimc.World.RegionData do
     {:reply, result, state}
   end
 
-  def handle_call({:item_transfer_receipt, epoch, source}, _from, state) do
+  def handle_call({:item_transfer_receipt, epoch, source}, from, state) do
     result =
       cond do
         epoch != state.items.epoch -> {:error, :stale_region}
@@ -1137,7 +1143,7 @@ defmodule Valimc.World.RegionData do
         true -> {:ok, {state.key, state.item_receipts[source]}}
       end
 
-    {:reply, result, state}
+    {:noreply, finish_when_durable(state, from, result)}
   end
 
   def handle_call({:chunk, key}, from, state) do
@@ -1403,6 +1409,10 @@ defmodule Valimc.World.RegionData do
   def handle_call(:flush, _from, %{item_pending: pending} = state) when pending != nil,
     do: {:reply, {:error, :item_storage_busy}, state}
 
+  # A synchronous flush behind stalled writes would block the owner.
+  def handle_call(:flush, _from, %{item_writes: [_ | _]} = state),
+    do: {:reply, {:error, :item_storage_busy}, state}
+
   def handle_call(:flush, _from, state) do
     with :ok <- flush_item_motion(state), :ok <- flush_cooking(state, state.containers) do
       result = Store.flush(state.store, state.store_lease, state.unsaved)
@@ -1486,18 +1496,45 @@ defmodule Valimc.World.RegionData do
       token
     )
 
-    pending = %{
-      phase: :writing,
+    {:noreply, queue_item_write(state, token, timer, items, receipts, from, reply)}
+  end
+
+  # Group commit for item state (VMC-063 step 4a): the new items are adopted in
+  # memory at once, so later operations and ticks build on them while the frame is
+  # written. Replies and published views are held until the write is durable; a
+  # failed write stops the owner, so nothing un-durable was ever observed.
+  defp queue_item_write(state, token, timer, items, receipts, from, reply) do
+    # The frame carries all motion adopted so far: its acknowledgement saves
+    # exactly this generation, not motion that advances while it is in flight.
+    write = %{
       token: token,
       timer: timer,
-      items: items,
-      receipts: receipts,
+      from: from,
       reply: reply,
-      from: from
+      views: items.views,
+      held: [],
+      generation: state.item_motion_generation
     }
 
-    {:noreply, %{state | item_pending: pending}}
+    %{state | items: items, item_receipts: receipts, item_writes: state.item_writes ++ [write]}
   end
+
+  # A reply derived from item state (including receipts used as destination
+  # proof) must not leave before every write it may depend on is durable.
+  defp finish_when_durable(%{item_writes: []} = state, from, reply),
+    do: finish_item_reply(state, from, reply)
+
+  defp finish_when_durable(state, from, reply) do
+    {earlier, [last]} = Enum.split(state.item_writes, -1)
+    %{state | item_writes: earlier ++ [%{last | held: last.held ++ [{from, reply}]}]}
+  end
+
+  # Views are published only when no item write is in flight; the last durable
+  # acknowledgement publishes the current views.
+  defp publish_item_views(%{item_writes: []} = state),
+    do: :ets.insert(state.item_publication, {:items, state.items.views})
+
+  defp publish_item_views(_state), do: true
 
   defp plan_transfer(transfer, from, state),
     do: plan_item_change(:item_transfer, transfer, from, state)
@@ -2208,16 +2245,10 @@ defmodule Valimc.World.RegionData do
     field = if plan.kind == :mining, do: :mining_permits, else: :placement_permits
     state = Map.put(state, field, module.remove(permits, plan.permit))
 
-    {:noreply, next} =
-      commit_items(
-        state.items,
-        {:ok, :rejected},
-        from,
-        state,
-        plan.receipts
-      )
-
-    {:noreply, %{next | item_pending: Map.put(next.item_pending, :kind, plan.kind)}}
+    # The rejection receipt is an ordinary queued item write; its reply waits for
+    # it. The planning slot of the block operation is released first.
+    if state.item_pending, do: Process.cancel_timer(state.item_pending.timer)
+    commit_items(state.items, {:ok, :rejected}, from, %{state | item_pending: nil}, plan.receipts)
   end
 
   defp start_job(state, key) do
@@ -2451,21 +2482,14 @@ defmodule Valimc.World.RegionData do
           token
         )
 
-        writing =
-          pending
-          |> Map.drop([:worker, :monitor])
-          |> Map.merge(%{
-            phase: :writing,
-            items: items,
-            receipts: receipts,
-            reply: reply
-          })
+        state = %{state | item_pending: nil}
 
-        {:noreply, %{state | item_pending: writing}}
+        {:noreply,
+         queue_item_write(state, token, pending.timer, items, receipts, pending.from, reply)}
 
       {:reply, reply} ->
         Process.cancel_timer(pending.timer)
-        next = finish_item_reply(%{state | item_pending: nil}, pending.from, reply)
+        next = finish_when_durable(%{state | item_pending: nil}, pending.from, reply)
         {:noreply, resume_item_handoff(next)}
 
       {:error, _} = error ->
@@ -2735,7 +2759,7 @@ defmodule Valimc.World.RegionData do
       when kind in [:mining, :placement, :container_blocks] do
     Process.cancel_timer(pending.timer)
     next = publish_blocks(state, batch, pending.proposal, false)
-    :ets.insert(state.item_publication, {:items, pending.items.views})
+    publish_item_views(%{state | items: pending.items})
 
     reply =
       cond do
@@ -2852,42 +2876,50 @@ defmodule Valimc.World.RegionData do
 
   def handle_info({:item_checkpoint_deadline, _}, state), do: {:noreply, state}
 
-  def handle_info(
-        {:items_saved, writer, token, :ok},
-        %{store: writer, item_pending: %{phase: :writing, token: token} = pending} = state
-      )
-      when not is_map_key(pending, :batch) do
-    Process.cancel_timer(pending.timer)
-    :ets.insert(state.item_publication, {:items, pending.items.views})
+  def handle_info({:items_saved, writer, token, result}, %{store: writer} = state)
+      when is_map_key(state, :item_writes) and state.item_writes != [] and
+             hd(state.item_writes).token == token do
+    [write | rest] = state.item_writes
+    Process.cancel_timer(write.timer)
 
-    {:noreply,
-     %{
-       state
-       | items: pending.items,
-         item_receipts: pending.receipts,
-         item_pending: nil,
-         item_saved_generation: state.item_motion_generation
-     }
-     |> finish_item_reply(pending.from, pending.reply)
-     |> resume_item_handoff()}
-  end
+    case result do
+      :ok ->
+        state = %{state | item_writes: rest}
+        if rest == [], do: publish_item_views(state)
 
-  def handle_info(
-        {:items_saved, writer, token, {:error, reason}},
-        %{store: writer, item_pending: %{phase: :writing, token: token} = pending} = state
-      )
-      when not is_map_key(pending, :batch) do
-    Process.cancel_timer(pending.timer)
-    reply_item(pending.from, {:error, :item_commit_uncertain})
-    require Logger
-    Logger.error("Region item commit failed: #{inspect(reason)}")
-    {:stop, {:item_storage_failed, reason}, %{state | item_pending: nil}}
+        state =
+          %{state | item_saved_generation: max(state.item_saved_generation, write.generation)}
+          |> finish_item_reply(write.from, write.reply)
+
+        state =
+          Enum.reduce(write.held, state, fn {from, reply}, acc ->
+            finish_item_reply(acc, from, reply)
+          end)
+
+        {:noreply, resume_item_handoff(state)}
+
+      {:error, reason} ->
+        for queued <- state.item_writes,
+            from <- [queued.from | Enum.map(queued.held, &elem(&1, 0))],
+            do: reply_item(from, {:error, :item_commit_uncertain})
+
+        require Logger
+        Logger.error("Region item commit failed: #{inspect(reason)}")
+        {:stop, {:item_storage_failed, reason}, %{state | item_writes: []}}
+    end
   end
 
   def handle_info({:items_saved, _, _, _}, state), do: {:noreply, state}
 
   def handle_info({:item_commit_deadline, token}, %{item_pending: %{token: token}} = state),
     do: {:stop, :item_storage_timeout, state}
+
+  def handle_info({:item_commit_deadline, token}, state)
+      when is_list(state.item_writes) and state.item_writes != [] do
+    if Enum.any?(state.item_writes, &(&1.token == token)),
+      do: {:stop, :item_storage_timeout, state},
+      else: {:noreply, state}
+  end
 
   def handle_info({:item_commit_deadline, _}, state), do: {:noreply, state}
 
@@ -3371,7 +3403,7 @@ defmodule Valimc.World.RegionData do
     if items == state.items do
       state
     else
-      :ets.insert(state.item_publication, {:items, items.views})
+      publish_item_views(%{state | items: items})
 
       schedule_item_checkpoint(%{
         state
@@ -3533,6 +3565,15 @@ defmodule Valimc.World.RegionData do
         do: Process.exit(state.item_handoff.worker, :kill)
     end
 
+    # Queued item writes stay ordered in the writer; their callers learn only that
+    # the outcome is uncertain (recovery or a retry resolves it).
+    for write <- state.item_writes do
+      Process.cancel_timer(write.timer)
+
+      for from <- [write.from | Enum.map(write.held, &elem(&1, 0))],
+          do: reply_item(from, {:error, :item_commit_uncertain})
+    end
+
     if state.item_pending do
       Process.cancel_timer(state.item_pending.timer)
       reply_item(state.item_pending.from, {:error, :item_commit_uncertain})
@@ -3547,12 +3588,15 @@ defmodule Valimc.World.RegionData do
 
     # All casts and flushes originate from this owner and reach its leased writer
     # in order. A queued critical proposal must never be followed by old items.
+    # Queued item writes already hold the newest items; never block shutdown on a
+    # stalled writer just to add volatile motion.
     writing_items =
-      match?(%{phase: :writing}, state.item_pending) and
-        not match?(
-          %{kind: kind} when kind in [:container, :cooking_checkpoint, :cooking_orbs],
-          state.item_pending
-        )
+      state.item_writes != [] or
+        (match?(%{phase: :writing, items: _}, state.item_pending) and
+           not match?(
+             %{kind: kind} when kind in [:container, :cooking_checkpoint, :cooking_orbs],
+             state.item_pending
+           ))
 
     if reason in [:normal, :shutdown] and not writing_items,
       do: flush_item_motion(state)

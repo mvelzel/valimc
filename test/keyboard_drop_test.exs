@@ -253,7 +253,7 @@ defmodule Valimc.KeyboardDropTest do
         await_state(
           ctx,
           &(&1.recovery != nil && &1.recovery.stage == :delivery &&
-              :sys.get_state(region).resource.item_pending != nil)
+              Valimc.TestRegion.writing?(:sys.get_state(region).resource))
         )
 
       assert prepared.inventory.slots[43] == %{ctx.stone | count: 6}
@@ -299,7 +299,7 @@ defmodule Valimc.KeyboardDropTest do
         await_state(
           ctx,
           &(&1.recovery != nil && &1.recovery.stage == :delivery &&
-              :sys.get_state(region).resource.item_pending != nil)
+              Valimc.TestRegion.writing?(:sys.get_state(region).resource))
         )
 
       sequence = pending.recovery.intent.transfer_sequence
@@ -495,7 +495,7 @@ defmodule Valimc.KeyboardDropTest do
       await_state(
         ctx,
         &(&1.recovery != nil && &1.recovery.stage == :delivery &&
-            :sys.get_state(region).resource.item_pending != nil)
+            Valimc.TestRegion.writing?(:sys.get_state(region).resource))
       )
 
       assert saved(ctx).inventory.carried == %{ctx.stone | count: 6}
@@ -585,7 +585,7 @@ defmodule Valimc.KeyboardDropTest do
       await_state(
         ctx,
         &(&1.recovery != nil && &1.recovery.stage == :delivery &&
-            :sys.get_state(region).resource.item_pending != nil)
+            Valimc.TestRegion.writing?(:sys.get_state(region).resource))
       )
 
       menu_click(client, "pickup", -999, 0, <<1>>)

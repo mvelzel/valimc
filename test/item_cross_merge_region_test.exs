@@ -107,7 +107,9 @@ defmodule Valimc.ItemCrossMergeRegionTest do
 
   defp finished(c) do
     s = state(c.source)
-    s.items.ledger.sequence >= 7 and s.items.ledger.outgoing == nil and s.item_pending == nil
+
+    s.items.ledger.sequence >= 7 and s.items.ledger.outgoing == nil and
+      not Valimc.TestRegion.writing?(s)
   end
 
   test "actual admission, donor journal, destination proof and automatic source clear conserve items",
@@ -136,7 +138,7 @@ defmodule Valimc.ItemCrossMergeRegionTest do
 
     try do
       task = Task.async(fn -> grant(c) end)
-      wait(fn -> match?(%{phase: :writing}, state(c.target).item_pending) end)
+      wait(fn -> Valimc.TestRegion.in_flight?(state(c.target)) end)
       assert disk(c, c.destination).ledger.incoming == %{}
       assert state(c.target).item_merge_permits.entries == %{}
       Process.sleep(260)
@@ -158,12 +160,12 @@ defmodule Valimc.ItemCrossMergeRegionTest do
 
     try do
       assert {:ok, :prepared} = Region.prepare_item_merge(c.source, request)
-      wait(fn -> match?(%{phase: :writing}, state(c.target).item_pending) end)
+      wait(fn -> Valimc.TestRegion.in_flight?(state(c.target)) end)
       assert disk(c, c.key).records == [] and disk(c, c.key).ledger.outgoing.request == request
-      assert Items.records(state(c.target).items) == [c.recipient]
       assert disk(c, c.destination).records == [c.recipient]
-      assert {:ok, {key, %{sequence: 0}}} = Region.owner_item_receipt(c.target, c.key)
-      assert key == c.destination
+      # The receipt is destination proof: it is answered only once durable.
+      receipt = Task.async(fn -> Region.owner_item_receipt(c.target, c.key) end)
+      assert Task.yield(receipt, 20) == nil
       {pid, _} = c.source
       monitor = Process.monitor(pid)
 
@@ -177,6 +179,9 @@ defmodule Valimc.ItemCrossMergeRegionTest do
       Process.sleep(260)
       :sys.resume(writer)
       wait(fn -> finished(c) end)
+      assert {:ok, {key, %{sequence: sequence}}} = Task.await(receipt)
+      assert sequence > 0
+      assert key == c.destination
       assert disk(c, c.key).records == [] and disk(c, c.key).ledger.outgoing == nil
       assert [%{stack: %{count: 5}}] = disk(c, c.destination).records
       assert {:ok, :already_applied} = Region.apply_item_merge(c.target, request)
@@ -469,7 +474,8 @@ defmodule Valimc.ItemCrossMergeRegionTest do
     assert {:ok, 1} = Region.handoff_items(c.target, third_key, [step])
 
     wait(fn ->
-      state(c.target).items.ledger.outgoing == nil and state(c.target).item_pending == nil
+      state(c.target).items.ledger.outgoing == nil and
+        not Valimc.TestRegion.writing?(state(c.target))
     end)
 
     assert {:ok, :prepared} = Region.prepare_item_merge(c.source, request)

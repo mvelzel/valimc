@@ -136,7 +136,7 @@ defmodule Valimc.LoginRecoveryTest do
       {pid, state} =
         await_state(
           fixture.name,
-          &(&1.recovery != nil and :sys.get_state(region).resource.item_pending != nil)
+          &(&1.recovery != nil and Valimc.TestRegion.writing?(:sys.get_state(region).resource))
         )
 
       assert state.phase == :login and state.step == :recover
@@ -177,7 +177,7 @@ defmodule Valimc.LoginRecoveryTest do
       {pid, state} =
         await_state(
           fixture.name,
-          &(&1.recovery != nil and :sys.get_state(region).resource.item_pending != nil)
+          &(&1.recovery != nil and Valimc.TestRegion.writing?(:sys.get_state(region).resource))
         )
 
       job = state.recovery.job
@@ -240,7 +240,7 @@ defmodule Valimc.LoginRecoveryTest do
       {pid, state} =
         await_state(
           fixture.name,
-          &(&1.recovery != nil and :sys.get_state(region).resource.item_pending != nil)
+          &(&1.recovery != nil and Valimc.TestRegion.writing?(:sys.get_state(region).resource))
         )
 
       job = state.recovery.job
@@ -301,7 +301,7 @@ defmodule Valimc.LoginRecoveryTest do
       {_, state} =
         await_state(
           fixture.name,
-          &(&1.recovery != nil and :sys.get_state(region).resource.item_pending != nil)
+          &(&1.recovery != nil and Valimc.TestRegion.writing?(:sys.get_state(region).resource))
         )
 
       job = state.recovery.job

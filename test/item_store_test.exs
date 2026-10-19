@@ -33,8 +33,8 @@ defmodule Valimc.ItemStoreTest do
   end
 
   defp wait_pending(pid, retries \\ 100) do
-    case Valimc.TestConn.state(pid).resource.item_pending do
-      pending when pending == nil or pending.phase == :planning ->
+    case Valimc.TestRegion.in_flight(Valimc.TestConn.state(pid).resource) do
+      nil ->
         assert(retries > 0)
         Process.sleep(1)
         wait_pending(pid, retries - 1)
@@ -47,7 +47,7 @@ defmodule Valimc.ItemStoreTest do
   defp send_resource(ctx, message), do: send(ctx.pid, {:resource, elem(ctx.owner, 1), message})
 
   test "untagged and foreign-epoch callbacks cannot publish a real pending proposal", ctx do
-    {handle, _, stone} = seed(ctx)
+    {handle, _, _stone} = seed(ctx)
     writer = :sys.get_state(ctx.pid).resource.store
     :sys.suspend(writer)
 
@@ -64,10 +64,10 @@ defmodule Valimc.ItemStoreTest do
       end
 
       assert {:ok, _} = Region.observe_blocks(ctx.owner, [])
-      assert :sys.get_state(ctx.pid).resource.item_pending.token == pending.token
+      assert Valimc.TestRegion.write_token(:sys.get_state(ctx.pid).resource) == pending.token
       assert Task.yield(task, 10) == nil
+      # The owner adopted the change in memory, but publishes nothing before durability.
       assert World.item_snapshot(ctx.key)[elem(handle, 2)].revision == 1
-      assert :sys.get_state(ctx.pid).resource.items.entries[elem(handle, 2)].stack == stone
       :sys.resume(writer)
       assert {:ok, updated} = Task.await(task)
       assert World.item_snapshot(ctx.key)[elem(updated, 2)].revision == 2
@@ -143,9 +143,9 @@ defmodule Valimc.ItemStoreTest do
     assert World.item_snapshot(ctx.key) == %{}
   end
 
-  test "one stalled proposal is unpublished, rejects more mutations and leaves block operations live",
+  test "a stalled write holds replies and publication while later mutations queue behind it",
        ctx do
-    {handle, uuid, stone} = seed(ctx)
+    {handle, _uuid, stone} = seed(ctx)
     writer = :sys.get_state(ctx.pid).resource.store
     :sys.suspend(writer)
 
@@ -154,22 +154,23 @@ defmodule Valimc.ItemStoreTest do
       assert {:message_queue_len, 0} = Process.info(writer, :message_queue_len)
       task = Task.async(fn -> Region.replace_item(handle, ItemStack.new("egg", 3)) end)
       pending = wait_pending(ctx.pid)
-      assert Task.yield(task, 10) == nil
+      created = Task.async(fn -> Region.create_item(ctx.owner, stone, ctx.position) end)
+      assert Task.yield(task, 10) == nil and Task.yield(created, 10) == nil
+      assert map_size(World.item_snapshot(ctx.key)) == 1
       assert World.item_snapshot(ctx.key)[elem(handle, 2)].revision == 1
-      assert {:ok, ^handle} = Region.find_item(ctx.owner, uuid)
-      assert {:error, :item_storage_busy} = Region.remove_item(handle)
-      assert {:error, :item_storage_busy} = Region.create_item(ctx.owner, stone, ctx.position)
       {x, _, z} = ctx.position
       assert :ok = World.set_block({floor(x), 64, floor(z)}, 1)
       assert World.get_block({floor(x), 64, floor(z)}) == 1
       send_resource(ctx, {:items_saved, writer, make_ref(), :ok})
       send_resource(ctx, {:items_saved, self(), pending.token, :ok})
       send_resource(ctx, {:item_commit_deadline, make_ref()})
-      assert :sys.get_state(ctx.pid).resource.item_pending.token == pending.token
-      assert {:message_queue_len, 1} = Process.info(writer, :message_queue_len)
+      assert Valimc.TestRegion.write_token(:sys.get_state(ctx.pid).resource) == pending.token
+      assert {:message_queue_len, 2} = Process.info(writer, :message_queue_len)
       :sys.resume(writer)
       assert {:ok, updated} = Task.await(task)
+      assert {:ok, _} = Task.await(created)
       assert World.item_snapshot(ctx.key)[elem(updated, 2)].revision == 2
+      assert map_size(World.item_snapshot(ctx.key)) == 2
       assert :ok = Region.flush(ctx.pid)
     after
       if Process.alive?(writer), do: :sys.resume(writer)
@@ -372,7 +373,6 @@ defmodule Valimc.ItemStoreTest do
       wait_pending(ctx.pid)
       assert Task.yield(task, 10) == nil
       assert World.item_snapshot(ctx.key) == before
-      assert {:error, :item_storage_busy} = Region.advance_items(ctx.owner, [step])
       :sys.resume(writer)
       assert {:ok, [{_, _, ^id, 2}]} = Task.await(task)
     after
@@ -425,13 +425,18 @@ defmodule Valimc.ItemStoreTest do
       task = Task.async(fn -> Region.apply_item_transfer(ctx.owner, request) end)
       pending = wait_pending(ctx.pid)
       assert Task.yield(task, 10) == nil
-      assert :sys.get_state(ctx.pid).resource.item_receipts == %{}
       assert World.item_snapshot(ctx.key) == %{}
-      assert {:error, :item_storage_busy} = Region.apply_item_transfer(ctx.owner, request)
+      # A duplicate and a receipt query would be destination proof: both wait for
+      # the original write to become durable.
+      duplicate = Task.async(fn -> Region.apply_item_transfer(ctx.owner, request) end)
+      proof = Task.async(fn -> Region.item_transfer_receipt(ctx.owner, request.source) end)
+      assert Task.yield(duplicate, 50) == nil and Task.yield(proof, 10) == nil
       send_resource(ctx, {:items_saved, self(), pending.token, :ok})
-      assert :sys.get_state(ctx.pid).resource.item_receipts == %{}
+      assert Task.yield(duplicate, 10) == nil
       :sys.resume(writer)
       assert {:ok, :applied} = Task.await(task)
+      assert {:ok, :already_applied} = Task.await(duplicate)
+      assert {:ok, {_, %{sequence: 1}}} = Task.await(proof)
       assert :sys.get_state(ctx.pid).resource.item_receipts[request.source].sequence == 1
       :sys.suspend(writer)
       assert {:ok, :already_applied} = Region.apply_item_transfer(ctx.owner, request)
@@ -493,7 +498,7 @@ defmodule Valimc.ItemStoreTest do
 
     try do
       assert {:error, :item_workers_busy} = Region.apply_item_transfer(ctx.owner, transfer(ctx))
-      assert :sys.get_state(ctx.pid).resource.item_pending == nil
+      refute Valimc.TestRegion.writing?(:sys.get_state(ctx.pid).resource)
       assert World.item_snapshot(ctx.key) == %{}
       assert Valimc.TestDisk.read(ctx.base, ctx.key, :items) == nil
       {x, _, z} = ctx.position
@@ -552,7 +557,7 @@ defmodule Valimc.ItemStoreTest do
     assert {:error, :item_storage_busy} = Region.apply_item_transfer(ctx.owner, transfer(ctx))
     Process.exit(worker, :kill)
     assert {:error, :item_plan_failed} = Task.await(caller)
-    assert :sys.get_state(ctx.pid).resource.item_pending == nil
+    refute Valimc.TestRegion.writing?(:sys.get_state(ctx.pid).resource)
 
     result =
       Valimc.World.ItemTransfers.plan(Valimc.World.Items.new(), %{}, ctx.key, transfer(ctx))

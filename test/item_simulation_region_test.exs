@@ -117,7 +117,7 @@ defmodule Valimc.ItemSimulationRegionTest do
 
   @tag motion: %ItemMotionState{age: 5998}
   test "despawn is durable and original source replay cannot recreate the item", ctx do
-    wait(fn -> state(ctx).items.entries == %{} and state(ctx).item_pending == nil end)
+    wait(fn -> state(ctx).items.entries == %{} and not Valimc.TestRegion.writing?(state(ctx)) end)
 
     assert {:ok, saved} =
              ItemLedger.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :items), ctx.key)

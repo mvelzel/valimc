@@ -135,11 +135,8 @@ defmodule Valimc.ItemCheckpointsTest do
       checkpoint(ctx)
       second = advance(ctx, first, 2)
       replacement = Task.async(fn -> Region.replace_item(second, ItemStack.new("egg", 3)) end)
-      wait(ctx, &(&1.item_pending != nil))
+      wait(ctx, &Valimc.TestRegion.writing?/1)
       assert {:message_queue_len, 2} = Process.info(writer, :message_queue_len)
-
-      assert {:error, :item_storage_busy} =
-               Region.publish_item_motion(ctx.owner, [step(ctx, second, 3)])
 
       assert {:error, :item_storage_busy} = Region.flush(ctx.pid)
       assert Task.yield(replacement, 10) == nil
@@ -166,7 +163,7 @@ defmodule Valimc.ItemCheckpointsTest do
     try do
       checkpoint(ctx)
       removal = Task.async(fn -> Region.remove_item(handle) end)
-      wait(ctx, &(&1.item_pending != nil))
+      wait(ctx, &Valimc.TestRegion.writing?/1)
       :sys.resume(writer)
       assert :ok = Task.await(removal)
       assert read(ctx).records == []
@@ -285,7 +282,7 @@ defmodule Valimc.ItemCheckpointsTest do
       _ = advance(ctx, handle, 2)
       {:ok, current} = Region.find_item(ctx.owner, <<71::128>>)
       removal = Task.async(fn -> Region.remove_item(current) end)
-      wait(ctx, &(&1.item_pending != nil))
+      wait(ctx, &Valimc.TestRegion.writing?/1)
 
       stopping =
         Task.async(fn -> DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid) end)

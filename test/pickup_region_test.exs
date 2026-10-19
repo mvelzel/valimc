@@ -185,15 +185,16 @@ defmodule Valimc.PickupRegionTest do
 
     try do
       task = Task.async(fn -> Region.reserve_pickup(ctx.owner, ctx.actor, ctx.record.uuid) end)
-      wait(fn -> match?(%{phase: :writing}, state(ctx.owner).item_pending) end)
-      assert disk(ctx).receipts == %{} and state(ctx.owner).item_receipts == %{}
+      wait(fn -> Valimc.TestRegion.in_flight?(state(ctx.owner)) end)
+      assert disk(ctx).receipts == %{}
       assert Task.yield(task, 1) == nil
-
-      assert {:error, :item_storage_busy} =
-               Region.reserve_pickup(ctx.owner, ctx.actor, ctx.record.uuid)
-
+      # A second admission waits behind the in-flight slot and then finds the
+      # first grant already pending.
+      again = Task.async(fn -> Region.reserve_pickup(ctx.owner, ctx.actor, ctx.record.uuid) end)
+      assert Task.yield(again, 20) == nil
       :sys.resume(writer)
       assert {:ok, _} = Task.await(task, 2000)
+      assert {:error, :pickup_already_pending} = Task.await(again, 2000)
       assert disk(ctx).receipts[ctx.uuid] == %{sequence: 0, digest: <<0::256>>}
     after
       if Process.alive?(writer), do: :sys.resume(writer)
@@ -206,7 +207,7 @@ defmodule Valimc.PickupRegionTest do
 
     try do
       task = Task.async(fn -> Region.reserve_pickup(ctx.owner, ctx.actor, ctx.record.uuid) end)
-      wait(fn -> match?(%{phase: :writing}, state(ctx.owner).item_pending) end)
+      wait(fn -> Valimc.TestRegion.in_flight?(state(ctx.owner)) end)
       Process.sleep(260)
       :sys.resume(writer)
       assert {:error, :expired_item_step} = Task.await(task, 2000)
@@ -235,16 +236,17 @@ defmodule Valimc.PickupRegionTest do
 
     try do
       task = Task.async(fn -> Region.apply_pickup_transfer(ctx.owner, pending.outbox.request) end)
-      wait(fn -> match?(%{phase: :writing}, state(ctx.owner).item_pending) end)
+      wait(fn -> Valimc.TestRegion.in_flight?(state(ctx.owner)) end)
       assert disk(ctx).records == [ctx.record]
-      assert Items.records(state(ctx.owner).items) == [ctx.record]
       assert player(ctx).inventory.slots[36].count == 63
 
-      assert {:error, :item_storage_busy} =
-               Region.apply_pickup_transfer(ctx.owner, pending.outbox.request)
+      duplicate =
+        Task.async(fn -> Region.apply_pickup_transfer(ctx.owner, pending.outbox.request) end)
 
+      assert Task.yield(duplicate, 20) == nil
       :sys.resume(writer)
       assert {:ok, :applied} = Task.await(task, 2000)
+      assert {:ok, :already_applied} = Task.await(duplicate, 2000)
       {_fence, resolved} = complete(ctx, fence)
       assert resolved.inventory.slots[36].count == 64
       assert [%{stack: %{count: 6}}] = disk(ctx).records

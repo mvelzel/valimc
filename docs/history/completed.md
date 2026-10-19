@@ -178,3 +178,5 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-003d](../tickets/VMC-003d.md) | Dedicated SDL held-use/attack gestures, intervening CUA actions/captures, release and fresh-process reset |
 | [VMC-018d](../tickets/VMC-018d.md) | `7337af64`; actual six-slot peer equipment, component glint, use ordering, clears and tracking recreation; attributes/combat remain separate |
 | [VMC-029a3](../tickets/VMC-029a3.md) | `a696a61`; native full-state base removal, wet atomic recovery and actual wet/dry creative removal/reconnect; fluid spreading/block callbacks remain separate |
+| [VMC-062](../tickets/VMC-062.md) | `959dcfc`; Rust paletted section storage replaces the edit map; byte-identical chunk packets; M1 client baseline at `68c98da` |
+| [VMC-065](../tickets/VMC-065.md) | `959dcfc`; owner-published chunk snapshots for lock-free collision reads; partitioned collision pool; M1 client baseline at `68c98da` |

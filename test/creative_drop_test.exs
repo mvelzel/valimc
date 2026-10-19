@@ -182,7 +182,7 @@ defmodule Valimc.CreativeDropTest do
       wait(
         ctx,
         &(&1.recovery != nil && &1.recovery.stage == :delivery &&
-            :sys.get_state(region).resource.item_pending != nil)
+            Valimc.TestRegion.writing?(:sys.get_state(region).resource))
       )
 
       assert saved(ctx).outbox != nil and World.item_snapshot(ctx.key) == %{}
@@ -217,7 +217,7 @@ defmodule Valimc.CreativeDropTest do
       wait(
         ctx,
         &(&1.recovery != nil && &1.recovery.stage == :delivery && &1.creative_input.queued == 1 &&
-            :sys.get_state(region).resource.item_pending != nil)
+            Valimc.TestRegion.writing?(:sys.get_state(region).resource))
       )
 
       client = barrier(client)
@@ -394,7 +394,7 @@ defmodule Valimc.CreativeDropTest do
       wait(
         ctx,
         &(&1.recovery != nil && &1.recovery.stage == :delivery && &1.creative_input.queued == 2 &&
-            :sys.get_state(region).resource.item_pending != nil)
+            Valimc.TestRegion.writing?(:sys.get_state(region).resource))
       )
 
       pinned = saved(ctx).outbox.records

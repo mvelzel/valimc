@@ -490,3 +490,32 @@ defmodule Valimc.TestConn do
 
   def view(state), do: state
 end
+
+defmodule Valimc.TestRegion do
+  @moduledoc "Region owner probes that do not depend on how durable writes are queued."
+  @doc "Whether a durable item/block/container write is planned or in flight."
+  def writing?(resource),
+    do: resource.item_pending != nil or Map.get(resource, :item_writes, []) != []
+
+  @doc "Whether a durable write is in flight (not merely being planned)."
+  def in_flight?(resource),
+    do:
+      Map.get(resource, :item_writes, []) != [] or
+        match?(%{phase: :writing}, resource.item_pending)
+
+  @doc "The oldest in-flight write: a queued item write or the writing slot."
+  def in_flight(resource) do
+    case Map.get(resource, :item_writes, []) do
+      [write | _] -> write
+      [] -> if match?(%{phase: :writing}, resource.item_pending), do: resource.item_pending
+    end
+  end
+
+  @doc "The token of the oldest in-flight item write, or of the pending slot."
+  def write_token(resource) do
+    case Map.get(resource, :item_writes, []) do
+      [write | _] -> write.token
+      [] -> resource.item_pending && resource.item_pending[:token]
+    end
+  end
+end

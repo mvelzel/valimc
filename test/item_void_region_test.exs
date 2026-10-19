@@ -83,7 +83,7 @@ defmodule Valimc.ItemVoidRegionTest do
 
   defp removed(_c, owner) do
     s = state(owner)
-    s.item_pending == nil and map_size(s.items.entries) == 1
+    not Valimc.TestRegion.writing?(s) and map_size(s.items.entries) == 1
   end
 
   test "void removal waits for fsync, retains receipts and survives owner reopening", c do
@@ -92,7 +92,7 @@ defmodule Valimc.ItemVoidRegionTest do
 
     try do
       enable(c.owner)
-      wait(fn -> match?(%{phase: :writing}, state(c.owner).item_pending) end)
+      wait(fn -> Valimc.TestRegion.in_flight?(state(c.owner)) end)
       assert map_size(World.item_snapshot(c.key)) == 2 and length(disk(c).records) == 2
       assert state(c.owner).item_simulation == nil and state(c.owner).item_cross_job == nil
       :sys.resume(writer)
