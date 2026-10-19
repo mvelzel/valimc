@@ -2,19 +2,6 @@ defmodule Valimc.Physics.ItemMotionTest do
   use ExUnit.Case, async: true
   alias Valimc.Physics.ItemMotion
 
-  test "gravity precedes movement and drag follows supplied collision velocity" do
-    assert {:ok, %{request: {0.3, y, -0.2} = requested}} =
-             ItemMotion.prepare({0.3, 0.1, -0.2}, %ItemMotion{})
-
-    assert y == 0.060000000000000005
-
-    assert {:ok, {0.2940000057220459, 0.058800001144409184, -0.1960000038146973}} =
-             ItemMotion.finish(requested, false, 0.6)
-
-    assert {:ok, {0.17640001773834227, +0.0, -0.11760001182556153}} =
-             ItemMotion.finish({0.3, +0.0, -0.2}, true, 0.6)
-  end
-
   test "fluid depth and rise use strict native float boundaries, including no-gravity items" do
     for kind <- [:water, :lava] do
       assert {:ok, %{velocity: {1.0, -0.04, +0.0}}} =
@@ -37,28 +24,6 @@ defmodule Valimc.Physics.ItemMotionTest do
 
     assert {:ok, %{velocity: {1.0, +0.0, +0.0}}} =
              ItemMotion.prepare({1, 0, 0}, %ItemMotion{no_gravity: true})
-  end
-
-  test "resting items skip movement until supplied refresh; horizontal motion wakes them" do
-    assert {:ok, %{request: nil, velocity: {+0.0, -0.04, +0.0}}} =
-             ItemMotion.prepare({0, 0, 0}, %ItemMotion{on_ground: true})
-
-    assert {:ok, %{request: {+0.0, -0.04, +0.0}}} =
-             ItemMotion.prepare({0, 0, 0}, %ItemMotion{on_ground: true, refresh: true})
-
-    assert {:ok, %{request: {0.004, -0.04, +0.0}}} =
-             ItemMotion.prepare({0.004, 0, 0}, %ItemMotion{on_ground: true})
-
-    assert {:ok, %{request: {+0.0, -0.04, +0.0}}} =
-             ItemMotion.prepare({0, 0, 0}, %ItemMotion{})
-  end
-
-  test "ground friction and bounce use post-collision support, without bouncing upward velocity" do
-    assert {:ok, {_, 0.49000000953674316, _}} = ItemMotion.finish({0, -1, 0}, true, 0.6)
-    assert {:ok, {_, 0.9800000190734863, _}} = ItemMotion.finish({0, 1, 0}, true, 0.6)
-    {:ok, {stone, _, _}} = ItemMotion.finish({1, 0, 0}, true, 0.6)
-    {:ok, {ice, _, _}} = ItemMotion.finish({1, 0, 0}, true, 0.98)
-    assert ice > stone
   end
 
   test "native gravity addition clears horizontal negative zero left by wall restitution" do

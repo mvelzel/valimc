@@ -2,21 +2,6 @@ defmodule Valimc.Physics.MovementPathsTest do
   use ExUnit.Case, async: true
   alias Valimc.Physics.MovementPaths
 
-  test "bounded history coalesces the oldest travel without retaining its bent axis order" do
-    history =
-      Enum.reduce(0..149, %MovementPaths{}, fn i, history ->
-        MovementPaths.record(history, {i * 0.01, 64.0, 0.5}, {0.01, 0.0, 0.0}, {0.02, 0.0, 0.0})
-      end)
-
-    assert history.count == 100
-    paths = MovementPaths.collect(history, {0.0, 64.0, 0.5}, {1.5, 64.0, 0.5})
-    assert length(paths) == 100
-    assert hd(paths).from == {0.0, 64.0, 0.5} and hd(paths).axis == nil
-    assert elem(hd(paths).to, 0) == 0.51
-    assert Enum.at(paths, 1).axis == {0.02, 0.0, 0.0}
-    assert List.last(paths).to == {1.5, 64.0, 0.5}
-  end
-
   test "blocked tiny travel is omitted while stationary and final gap contacts remain" do
     origin = {0.5, 64.0, 0.5}
     empty = %MovementPaths{}

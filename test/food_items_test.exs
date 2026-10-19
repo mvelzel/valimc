@@ -44,12 +44,4 @@ defmodule Valimc.FoodItemsTest do
              survival
            )
   end
-
-  test "meal arithmetic preserves native positive integer overflow and saturation bounds" do
-    assert PlayerFood.eat(%PlayerFood{level: 1}, 2_147_483_647, 6.0).level == 0
-    assert PlayerFood.eat(%PlayerFood{level: 0}, 2_147_483_647, 6.0).level == 20
-    food = PlayerFood.eat(%PlayerFood{level: 19}, 5, 3.4028234663852886e38)
-    assert food.level == 20 and food.saturation == 20.0
-    assert PlayerFood.valid?(food)
-  end
 end

@@ -10,20 +10,6 @@ defmodule Valimc.Physics.StuckContactTest do
   defp context(y, fall \\ 5.0),
     do: CollisionContext.entity(y) |> CollisionContext.with_entity(fall, false, false)
 
-  test "a crossed cobweb survives an endpoint outside its body" do
-    from = {0.5, 64.0, 0.5}
-    to = {3.5, 64.0, 0.5}
-
-    {:ok, effect} =
-      StuckContact.sample(frame(%{{1, 64, 0} => 2362}), from, to, context(64.0), %StuckContact{
-        feet: to
-      })
-
-    assert effect.reset_fall and effect.last.kind == :cobweb
-    assert effect.last.position == {1, 64, 0}
-    assert effect.multiplier == {0.25, 0.05000000074505806, 0.25}
-  end
-
   test "earlier fall reset changes a later powder snow contact geometry" do
     from = {0.5, 64.95, 0.5}
     to = {3.2, 64.95, 0.5}

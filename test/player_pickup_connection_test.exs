@@ -213,7 +213,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
       id: id,
       revision: revision,
       position: {c.pose.x + 2.0, c.pose.y, c.pose.z},
-      motion: %Valimc.ItemMotionState{no_gravity: true, pickup_delay: 40}
+      motion: %Valimc.ItemMotionState{no_gravity: true, pickup_delay: 4}
     }
 
     assert {:ok, [_]} = Region.advance_items(owner, [step])

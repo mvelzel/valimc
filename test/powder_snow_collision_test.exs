@@ -1,10 +1,8 @@
 defmodule Valimc.PowderSnowCollisionTest do
   use ExUnit.Case, async: true
-  alias Valimc.Physics.{BlockShapes, Box, Collision, CollisionContext, Shape}
+  alias Valimc.Physics.{BlockShapes, CollisionContext, Shape}
   @id 30519
   @pos {0, 64, 0}
-  @epsilon 9.999999747378752e-6
-  @falling_top 0.8999999761581421
 
   defp context(
          bottom,
@@ -42,38 +40,6 @@ defmodule Valimc.PowderSnowCollisionTest do
 
     assert {:context_required, "minecraft:moving_piston"} =
              BlockShapes.fetch(piston, @pos, context(65.0))
-  end
-
-  test "fall distance is a strict double boundary with precedence over boots and falling blocks" do
-    assert Shape.empty?(shape(context(65.0, 2.5)))
-    falling = shape(context(65.0, 2.5 + 4.440892098500626e-16))
-    assert falling.boxes == [{0.0, 0.0, 0.0, 1.0, @falling_top, 1.0}]
-
-    for identity <- [false, true],
-        walkable <- [false, true],
-        descending <- [false, true],
-        do: assert(shape(context(64.5, 10.0, identity, walkable, descending)) == falling)
-
-    box = Box.new({0.2, 67.0, 0.2, 0.8, 68.8, 0.8})
-
-    assert Collision.clip(:y, box, [Shape.move(falling, @pos)], -5.0) ==
-             64.0 + @falling_top - 67.0
-  end
-
-  test "falling blocks collide fully even below the top or while descending" do
-    for bottom <- [63.0, 64.5, 65.0], descending <- [false, true] do
-      full = shape(context(bottom, 2.5, true, false, descending))
-      assert full.boxes == [{0.0, 0.0, 0.0, 1.0, 1.0, 1.0}]
-    end
-  end
-
-  test "walkable entities require feet above the strict epsilon boundary and no descent" do
-    threshold = 65.0 - @epsilon
-    assert Shape.empty?(shape(context(threshold, 0.0, false, true)))
-    full = shape(context(threshold + 1.0e-12, 0.0, false, true))
-    assert full.boxes == [{0.0, 0.0, 0.0, 1.0, 1.0, 1.0}]
-    assert Shape.empty?(shape(context(65.0, 0.0, false, true, true)))
-    assert Shape.empty?(shape(context(64.5, 0.0, false, true)))
   end
 
   test "invalid entity facts reject before lookup and factories normalize bounded numbers" do

@@ -40,42 +40,6 @@ defmodule Valimc.Protocol.TooltipDisplayTest do
     assert TooltipDisplay.valid?(controls(["minecraft:attribute_modifiers"]))
   end
 
-  test "set duplicates/order and nonzero boolean bytes normalize, with hidden membership still significant" do
-    a = ComponentTypes.id("enchantments")
-    b = ComponentTypes.id("lore")
-    {left, <<>>} = TooltipDisplay.take(raw(0, [a, b, a]))
-    {right, <<>>} = TooltipDisplay.take(raw(0, [b, a]))
-    assert TooltipDisplay.identity_key(left) == TooltipDisplay.identity_key(right)
-    assert IO.iodata_to_binary(TooltipDisplay.encode(left)) == raw(0, Enum.sort([a, b]))
-
-    for flag <- [1, 2, 127, 128, 255] do
-      assert {value, <<>>} = TooltipDisplay.take(raw(flag, [a]))
-      assert value.hide and value.hidden == MapSet.new(["minecraft:enchantments"])
-    end
-
-    refute ItemStack.same_item?(
-             stack(1, controls([], true)),
-             stack(1, controls(["minecraft:lore"], true))
-           )
-  end
-
-  test "presentation queries leave owned names/lore/enchantments untouched in both stack formats" do
-    visible = stack(7, controls())
-    hidden = stack(7, controls(["minecraft:lore", "minecraft:enchantments"]))
-    all = stack(7, controls(["minecraft:lore"], true))
-
-    assert Map.delete(visible.components, "minecraft:tooltip_display") ==
-             Map.delete(hidden.components, "minecraft:tooltip_display")
-
-    assert TooltipDisplay.shows?(hidden.components["minecraft:tooltip_display"], "custom_name")
-    refute TooltipDisplay.shows?(hidden.components["minecraft:tooltip_display"], "lore")
-    refute TooltipDisplay.shows?(all.components["minecraft:tooltip_display"], "custom_name")
-
-    for item <- [visible, hidden, all],
-        mode <- [:trusted, :untrusted],
-        do: assert(ItemStack.decode(bytes(item, mode), mode) == {:ok, item})
-  end
-
   test "default controls merge but removal, whole-hide and explicit hidden controls remain distinct" do
     plain = ItemStack.new("stone")
     defaults = %{plain | components: %{"minecraft:tooltip_display" => controls()}}

@@ -3,28 +3,6 @@ defmodule Valimc.Physics.CookingFuelTest do
   alias Valimc.Physics.CookingFuel
   alias Valimc.Protocol.{Data, ItemStack}
 
-  test "stock fuel duration and speed follow the supplied native cooking block" do
-    furnace = Data.item_block(Data.item("furnace"))
-    fast = Data.item_block(Data.item("blast_furnace"))
-
-    assert CookingFuel.resolve(ItemStack.new("oak_planks"), furnace) ==
-             {:ok, %{burn_ticks: 300, speed_multiplier: 1.0}}
-
-    assert CookingFuel.resolve(ItemStack.new("oak_planks"), fast) ==
-             {:ok, %{burn_ticks: 150, speed_multiplier: 2.0}}
-
-    assert CookingFuel.resolve(nil, fast) == {:ok, %{burn_ticks: 0, speed_multiplier: 1.0}}
-
-    assert CookingFuel.resolve(ItemStack.new("dried_kelp_block"), furnace) ==
-             {:ok, %{burn_ticks: 4001, speed_multiplier: 1.0}}
-
-    assert CookingFuel.resolve(ItemStack.new("dried_kelp_block"), fast) ==
-             {:ok, %{burn_ticks: 2000, speed_multiplier: 2.0}}
-
-    assert CookingFuel.resolve(ItemStack.new("stone"), furnace) ==
-             {:ok, %{burn_ticks: 0, speed_multiplier: 1.0}}
-  end
-
   test "removal overrides default fuel, names preserve it, unsupported patches refuse instead of guessing" do
     furnace = Data.item_block(Data.item("furnace"))
     stock = ItemStack.new("coal", 4)

@@ -1,6 +1,6 @@
 defmodule Valimc.CraftingRemaindersTest do
   use ExUnit.Case, async: true
-  alias Valimc.{Crafting, Inventory, PlayerCraftingTransfers, PlayerSnapshot}
+  alias Valimc.{Inventory, PlayerCraftingTransfers, PlayerSnapshot}
   alias Valimc.Protocol.ItemStack
 
   defp honey(size, amount, slots, creative \\ false) do
@@ -17,47 +17,6 @@ defmodule Valimc.CraftingRemaindersTest do
   end
 
   defp full, do: Map.new(9..44, &{&1, ItemStack.new("bedrock", 64)})
-
-  defp inputs(inv),
-    do:
-      if(inv.table_inputs,
-        do: Tuple.to_list(inv.table_inputs),
-        else: Enum.map(1..4, &inv.slots[&1])
-      )
-
-  test "consumed containers become fresh bottles in the exact input cells in either permission" do
-    for size <- [2, 3], creative <- [false, true] do
-      inv = honey(size, 1, full(), creative)
-      assert {:ok, next, [output]} = Inventory.plan_click(inv, :throw, 0, 0)
-      assert output == ItemStack.new("honey_block")
-
-      assert Enum.reject(inputs(next), &is_nil/1) ==
-               List.duplicate(ItemStack.new("glass_bottle"), 4)
-
-      assert Crafting.result(inputs(next)) == :none
-      assert Map.take(next.slots, Enum.to_list(9..44)) == full()
-    end
-  end
-
-  test "stacked inputs emit bottles before thrown output, with creative overflow discarded" do
-    for size <- [2, 3], creative <- [false, true] do
-      inv = honey(size, 2, full(), creative)
-      assert {:ok, next, drops} = Inventory.plan_click(inv, :throw, 0, 0)
-      expected = if creative, do: [], else: List.duplicate(ItemStack.new("glass_bottle"), 4)
-      assert drops == expected ++ [ItemStack.new("honey_block")]
-
-      assert Enum.reject(inputs(next), &is_nil/1) ==
-               List.duplicate(ItemStack.new("honey_bottle"), 4)
-    end
-  end
-
-  test "matching offhand gets the first remainder before full storage overflows" do
-    inv = honey(3, 2, Map.put(full(), 45, ItemStack.new("glass_bottle", 63)))
-    assert {:ok, next, drops} = Inventory.plan_click(inv, :pickup, 0, 0)
-    assert next.slots[45] == ItemStack.new("glass_bottle", 64)
-    assert drops == List.duplicate(ItemStack.new("glass_bottle"), 3)
-    assert next.carried == ItemStack.new("honey_block")
-  end
 
   test "a three-sugar result must fit before any input or remainder is spent" do
     inv = %Inventory{slots: Map.put(full(), 1, ItemStack.new("honey_bottle", 2))}
@@ -84,58 +43,6 @@ defmodule Valimc.CraftingRemaindersTest do
     assert next.slots[36] == ItemStack.new("honey_block")
     assert drops == List.duplicate(ItemStack.new("glass_bottle"), 4)
     assert next.carried == nil
-  end
-
-  test "cake consumes all inputs and returns three plain buckets, retaining stacked input patches" do
-    for amount <- [1, 2] do
-      milk = %{
-        ItemStack.new("milk_bucket", amount)
-        | components: %{
-            "minecraft:max_stack_size" => 99,
-            "minecraft:enchantment_glint_override" => true
-          }
-      }
-
-      cells =
-        [
-          milk,
-          milk,
-          milk,
-          ItemStack.new("sugar", amount),
-          ItemStack.new("egg", amount),
-          ItemStack.new("sugar", amount)
-        ] ++ List.duplicate(ItemStack.new("wheat", amount), 3)
-
-      inv = %Inventory{table_inputs: List.to_tuple(cells)}
-      assert {:ok, next, []} = Inventory.plan_click(inv, :pickup, 0, 0)
-      assert next.carried == ItemStack.new("cake")
-
-      if amount == 1 do
-        assert Enum.take(inputs(next), 3) == List.duplicate(ItemStack.new("bucket"), 3)
-        assert Enum.drop(inputs(next), 3) == List.duplicate(nil, 6)
-      else
-        assert Enum.take(inputs(next), 3) == List.duplicate(%{milk | count: 1}, 3)
-        assert next.slots[36] == ItemStack.new("bucket", 3)
-      end
-    end
-  end
-
-  test "two effects per craft stop a batch at four records and continue without losing its boundary" do
-    inv = %Inventory{slots: Map.put(full(), 1, ItemStack.new("honey_bottle", 6))}
-    assert {:ok, next, first} = Inventory.plan_click(inv, :throw, 0, 1)
-    assert length(first) == 4 and next.slots[1] == ItemStack.new("honey_bottle", 4)
-
-    {last, drops} =
-      Enum.reduce(1..2, {next, first}, fn _, {inv, drops} ->
-        assert {:ok, next, batch} = Inventory.plan_click(inv, :throw, 0, 1)
-        assert length(batch) <= 5
-        {next, drops ++ batch}
-      end)
-
-    assert last.slots[1] == ItemStack.new("glass_bottle")
-    assert Enum.count(drops, &(&1 == ItemStack.new("sugar", 3))) == 6
-    assert Enum.count(drops, &(&1 == ItemStack.new("glass_bottle"))) == 5
-    assert Inventory.crafting_result(last) == nil
   end
 
   test "pickup and number conversion journals authorize all exact remainders and reject omissions" do

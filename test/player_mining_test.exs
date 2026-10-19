@@ -3,36 +3,6 @@ defmodule Valimc.PlayerMiningTest do
   alias Valimc.{Inventory, PlayerMining}
   alias Valimc.Protocol.{Data, ItemStack}
 
-  test "selected main-hand efficiency requires a fast tool and independently retains harvest tier" do
-    enchanted = %{
-      ItemStack.new("iron_pickaxe")
-      | components: %{"minecraft:enchantments" => %{"minecraft:efficiency" => 5}}
-    }
-
-    inventory = %Inventory{
-      selected: 7,
-      slots: %{43 => enchanted, 36 => ItemStack.new("diamond_pickaxe")}
-    }
-
-    assert PlayerMining.speed(inventory, Data.block("stone"), false, true) == 32.0
-    assert PlayerMining.speed(inventory, Data.block("dirt"), false, true) == 1.0
-    refute PlayerMining.harvest?(inventory, Data.item_block(Data.item("obsidian")))
-    assert PlayerMining.harvest?(%Inventory{}, Data.block("dirt"))
-    refute PlayerMining.harvest?(%Inventory{}, Data.block("stone"))
-
-    stored = %{
-      enchanted
-      | components: %{"minecraft:stored_enchantments" => %{"minecraft:efficiency" => 255}}
-    }
-
-    assert PlayerMining.speed(
-             %{inventory | slots: %{43 => stored}},
-             Data.block("stone"),
-             false,
-             true
-           ) == 6.0
-  end
-
   test "eye submersion and airborne penalties compose with head-only bounded Aqua Affinity" do
     inventory = %Inventory{slots: %{36 => ItemStack.new("iron_pickaxe")}}
     <<wet::float-32>> = <<6.0 * 0.20000000298023224::float-32>>

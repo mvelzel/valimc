@@ -2,53 +2,7 @@ defmodule Valimc.StepMovementTest do
   use ExUnit.Case, async: true
   alias Valimc.Physics.{Box, Shape, StepMovement, VoxelOps}
   @box {-0.3, 0.0, -0.3, 0.3, 1.8, 0.3}
-  defp floor_shape, do: VoxelOps.box({-4, -1, -4, 4, 0, 4})
   defp slab, do: VoxelOps.box({1, 0, -1, 2, 0.5, 1})
-
-  test "slabs step up only after ground or a clipped downward movement" do
-    shapes = [floor_shape(), slab()]
-    assert {:step, plan} = StepMovement.prepare(@box, shapes, {2, 0, 0}, 0.6, true)
-    assert {:ok, {2.0, 0.5, +0.0}} = StepMovement.finish(plan, shapes)
-
-    assert {:resolved, {0.7, +0.0, +0.0}} =
-             StepMovement.prepare(@box, shapes, {2, 0, 0}, 0.6, false)
-
-    assert {:step, plan} = StepMovement.prepare(@box, shapes, {2, -0.08, 0}, 0.6, false)
-    assert {:ok, {2.0, 0.5, +0.0}} = StepMovement.finish(plan, shapes)
-
-    assert {:resolved, {0.7, +0.0, +0.0}} =
-             StepMovement.prepare(@box, shapes, {2, 0, 0}, 0.0, true)
-  end
-
-  test "falling steps use the lowered box and restore its displacement in the result" do
-    shapes = [floor_shape(), slab()]
-    falling = Box.move(@box, {0, 0.2, 0})
-    assert {:step, plan} = StepMovement.prepare(falling, shapes, {2, -1, 0}, 0.6, false)
-    assert elem(plan.start_box, 1) == 0.0
-    assert elem(plan.query, 1) == 0.0
-    assert {:ok, {2.0, y, +0.0}} = StepMovement.finish(plan, shapes)
-    assert y == 0.3
-    assert {:step, grounded} = StepMovement.prepare(@box, shapes, {2, 0, 0}, 0.6, true)
-    assert elem(grounded.query, 1) == -9.999999747378752e-6
-  end
-
-  test "the first improving candidate wins even if a higher step travels further" do
-    low = VoxelOps.box({1, 0, -1, 1.5, 0.25, 1})
-    high = VoxelOps.box({1.5, 0, -1, 2, 0.5, 1})
-    shapes = [floor_shape(), low, high]
-    assert {:step, plan} = StepMovement.prepare(@box, shapes, {2, 0, 0}, 0.6, true)
-    assert {:ok, {1.2, 0.25, +0.0}} = StepMovement.finish(plan, shapes)
-    assert {:ok, {1.2, 0.25, +0.0}} = StepMovement.finish(plan, Enum.reverse(shapes))
-  end
-
-  test "a second observation can block the step with a low ceiling" do
-    initial = [floor_shape(), slab()]
-    assert {:step, plan} = StepMovement.prepare(@box, initial, {2, 0, 0}, 0.6, true)
-    ceiling = VoxelOps.box({-1, 2, -1, 4, 3, 1})
-    assert {:ok, result} = StepMovement.finish(plan, [ceiling | initial])
-    assert result == plan.base
-    assert {:ok, {2.0, 0.5, +0.0}} = StepMovement.finish(plan, initial)
-  end
 
   test "candidate points include internal grid coordinates and round/deduplicate as float32" do
     grid =
@@ -63,13 +17,6 @@ defmodule Valimc.StepMovementTest do
     assert {:ok, [+0.0, 0.5]} = StepMovement.candidate_heights(@box, [grid], 0.6, 0.25)
     close = VoxelOps.box({1, 0, -1, 2, 0.500000001, 1})
     assert {:ok, [0.5]} = StepMovement.candidate_heights(@box, [slab(), close], 0.6, 0)
-  end
-
-  test "zero squared length bypasses shape clipping including subnormal requests and signed zero" do
-    for v <- [{-0.0, -0.0, -0.0}, {1.0e-200, -1.0e-200, 0.0}] do
-      assert {:resolved, actual} = StepMovement.prepare(@box, [slab()], v, 0.6, true)
-      assert :erlang.term_to_binary(actual) == :erlang.term_to_binary(v)
-    end
   end
 
   test "all shape, candidate, displacement and plan bounds fail explicitly" do

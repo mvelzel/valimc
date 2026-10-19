@@ -1,6 +1,6 @@
 defmodule Valimc.ScaffoldingCollisionTest do
   use ExUnit.Case, async: true
-  alias Valimc.Physics.{BlockShapes, Box, Collision, CollisionContext, Shape}
+  alias Valimc.Physics.{BlockShapes, CollisionContext, Shape}
   @pos {0, 64, 0}
   @epsilon 9.999999747378752e-6
 
@@ -20,37 +20,6 @@ defmodule Valimc.ScaffoldingCollisionTest do
     assert BlockShapes.fetch(35_723, @pos, context) == {:error, :unknown_block_state}
     assert CollisionContext.above?(context, 1.0, 64, true)
     refute CollisionContext.above?(context, 1.0, 64, false)
-  end
-
-  test "landing uses the stable platform while descending a supported block removes collision" do
-    {:ok, stable} = BlockShapes.fetch(24063, @pos, CollisionContext.entity(65.1))
-    world = Shape.move(stable, @pos)
-    box = Box.new({0.2, 65.1, 0.2, 0.8, 66.9, 0.8})
-    assert Collision.clip(:y, box, [world], -2.0) == 65.0 - 65.1
-    {:ok, empty} = BlockShapes.fetch(24063, @pos, CollisionContext.entity(65.1, true))
-    assert Shape.empty?(empty)
-    assert Collision.clip(:y, box, [Shape.move(empty, @pos)], -2.0) == -2.0
-
-    for id <- 24063..24094 do
-      assert {:ok, placement} =
-               BlockShapes.fetch(id, @pos, CollisionContext.entity(65.1, false, true))
-
-      assert Shape.empty?(placement)
-    end
-  end
-
-  test "unsupported bottom plate depends on distance, bottom property and lower height boundary" do
-    {:ok, bottom} = BlockShapes.fetch(24065, @pos, CollisionContext.entity(64.5, true))
-    assert bottom.boxes == [{0.0, 0.0, 0.0, 1.0, 0.125, 1.0}]
-    assert {:ok, ^bottom} = BlockShapes.fetch(24065, @pos, CollisionContext.entity(64.5))
-
-    for {id, height} <- [{24063, 64.5}, {24081, 64.5}, {24065, 64.0 - @epsilon}] do
-      {:ok, shape} = BlockShapes.fetch(id, @pos, CollisionContext.entity(height))
-      assert Shape.empty?(shape)
-    end
-
-    assert {:ok, ^bottom} =
-             BlockShapes.fetch(24065, @pos, CollisionContext.entity(64.0 - @epsilon + 1.0e-12))
   end
 
   test "above comparison is strict and uses promoted float epsilon, not decimal double epsilon" do

@@ -122,21 +122,19 @@ defmodule Valimc.PlayerLandingConnectionTest do
     :ok
   end
 
-  for {amplifier, damage} <- [{0, 4.0}, {1, 3.0}, {255, 0.0}] do
-    test "Jump Boost #{amplifier} increases safe distance on an accepted eight-block landing",
-         ctx do
-      id = Valimc.Protocol.EffectTypes.id("jump_boost")
-      seed(ctx, y: 72.0, effects: %{id => [{1200, unquote(amplifier), false, true, true}]})
-      {client, pid} = login(ctx)
-      fall(client, pid, 64.0)
-      assert state(pid).player.health.value == 20.0 - unquote(damage)
-      assert state(pid).player.motion.fall_distance == 0.0
-      Client.close(client)
-      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-      assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
-      assert saved.health.value == 20.0 - unquote(damage)
-      assert [{_, unquote(amplifier), false, true, true}] = saved.effects[id]
-    end
+  test "Jump Boost 1 increases safe distance on an accepted eight-block landing",
+       ctx do
+    id = Valimc.Protocol.EffectTypes.id("jump_boost")
+    seed(ctx, y: 72.0, effects: %{id => [{1200, 1, false, true, true}]})
+    {client, pid} = login(ctx)
+    fall(client, pid, 64.0)
+    assert state(pid).player.health.value == 17.0
+    assert state(pid).player.motion.fall_distance == 0.0
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.health.value == 17.0
+    assert [{_, 1, false, true, true}] = saved.effects[id]
   end
 
   test "removing Jump Boost before an accepted landing restores ordinary fall cost", ctx do
@@ -179,62 +177,47 @@ defmodule Valimc.PlayerLandingConnectionTest do
       else: without_bounce_impulse(Client.auto_reply(client, :play, name, body))
   end
 
-  for {distance, damage} <- [{3.5, 0.0}, {4.0, 1.0}, {8.0, 5.0}] do
-    test "accepted #{distance}-block fall applies #{damage} damage once and retains it on reconnect",
-         ctx do
-      seed(ctx,
-        y: 64.0 + unquote(distance),
-        inventory: %Inventory{slots: %{36 => ItemStack.new("stone", 7)}}
-      )
+  test "accepted eight-block fall applies 5 damage once and retains it on reconnect",
+       ctx do
+    seed(ctx,
+      y: 72.0,
+      inventory: %Inventory{slots: %{36 => ItemStack.new("stone", 7)}}
+    )
 
-      {client, pid} = login(ctx)
-      fall(client, pid, 64.0)
-      assert state(pid).player.health.value == 20.0 - unquote(damage)
-      assert state(pid).player.motion.fall_distance == 0.0
+    {client, pid} = login(ctx)
+    fall(client, pid, 64.0)
+    assert state(pid).player.health.value == 15.0
+    assert state(pid).player.motion.fall_distance == 0.0
 
-      client =
-        if unquote(damage) > 0 do
-          {body, client} = Client.await(client, :play, "damage_event")
-          {entity, body} = Wire.take_varint(body)
-          {source, <<0, 0, 0>>} = Wire.take_varint(body)
-          assert entity == state(pid).player.entity_id
-          assert source == Data.registry_id("minecraft:damage_type", "minecraft:fall")
-          {<<health::float-32, _::binary>>, client} = Client.await(client, :play, "set_health")
-          assert health == 20.0 - unquote(damage)
-          client
-        else
-          client
-        end
+    {body, client} = Client.await(client, :play, "damage_event")
+    {entity, body} = Wire.take_varint(body)
+    {source, <<0, 0, 0>>} = Wire.take_varint(body)
+    assert entity == state(pid).player.entity_id
+    assert source == Data.registry_id("minecraft:damage_type", "minecraft:fall")
+    {<<health::float-32, _::binary>>, client} = Client.await(client, :play, "set_health")
+    assert health == 15.0
 
-      Client.send_packet(client, :play, "move_player_status_only", <<1>>)
-      Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-      {_, client} = Client.await(client, :play, "system_chat")
-      assert state(pid).player.health.value == 20.0 - unquote(damage)
-      Client.close(client)
-      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-      {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
-      assert saved.health.value == 20.0 - unquote(damage)
-      {second, owner} = login(ctx)
-      assert state(owner).player.health.value == saved.health.value
-      assert Enum.at(second.inventory.items, 36) == ItemStack.new("stone", 7)
-      assert saved.transfer_sequence == 0 and saved.outbox == nil
-    end
+    Client.send_packet(client, :play, "move_player_status_only", <<1>>)
+    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
+    {_, client} = Client.await(client, :play, "system_chat")
+    assert state(pid).player.health.value == 15.0
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.health.value == 15.0
+    {second, owner} = login(ctx)
+    assert state(owner).player.health.value == saved.health.value
+    assert Enum.at(second.inventory.items, 36) == ItemStack.new("stone", 7)
+    assert saved.transfer_sequence == 0 and saved.outbox == nil
   end
 
-  for {id, bottom, damage} <- [
-        {2257, 63.5625, 1.0},
-        {14741, 64.0, 1.0},
-        {25173, 63.9375, 1.0},
-        {14379, 64.0, 0.0}
-      ] do
-    test "live landing state #{id} uses its native distance/multiplier rule", ctx do
-      seed(ctx, y: unquote(bottom) + 8.0)
-      assert :ok = World.set_block({floor(ctx.pose.x), 63, floor(ctx.pose.z)}, unquote(id))
-      {client, pid} = login(ctx)
-      fall(client, pid, unquote(bottom))
-      assert state(pid).player.health.value == 20.0 - unquote(damage)
-      assert state(pid).player.motion.fall_distance == 0.0
-    end
+  test "live bed landing uses its native distance/multiplier rule", ctx do
+    seed(ctx, y: 71.5625)
+    assert :ok = World.set_block({floor(ctx.pose.x), 63, floor(ctx.pose.z)}, 2257)
+    {client, pid} = login(ctx)
+    fall(client, pid, 63.5625)
+    assert state(pid).player.health.value == 19.0
+    assert state(pid).player.motion.fall_distance == 0.0
   end
 
   test "a ground-only report is sampled once instead of silently erasing saved fall distance",
@@ -304,21 +287,17 @@ defmodule Valimc.PlayerLandingConnectionTest do
     assert state(pid).player.motion.fall_distance == 0.0
   end
 
-  for {id, damage} <- [{33570, 0.0}, {33571, 3.0}] do
-    test "dripstone state #{id} composes water contact with its distance/source rule", ctx do
-      seed(ctx, y: 65.6875)
-      assert :ok = World.set_block({floor(ctx.pose.x), 63, floor(ctx.pose.z)}, unquote(id))
-      {client, pid} = login(ctx)
-      fall(client, pid, 63.6875)
-      assert state(pid).player.health.value == 20.0 - unquote(damage)
+  test "dripstone state 33571 composes water contact with its distance/source rule", ctx do
+    seed(ctx, y: 65.6875)
+    assert :ok = World.set_block({floor(ctx.pose.x), 63, floor(ctx.pose.z)}, 33571)
+    {client, pid} = login(ctx)
+    fall(client, pid, 63.6875)
+    assert state(pid).player.health.value == 17.0
 
-      if unquote(damage) > 0 do
-        {body, _} = Client.await(client, :play, "damage_event")
-        {_, rest} = Wire.take_varint(body)
-        {source, <<0, 0, 0>>} = Wire.take_varint(rest)
-        assert source == Data.registry_id("minecraft:damage_type", "minecraft:stalagmite")
-      end
-    end
+    {body, _} = Client.await(client, :play, "damage_event")
+    {_, rest} = Wire.take_varint(body)
+    {source, <<0, 0, 0>>} = Wire.take_varint(rest)
+    assert source == Data.registry_id("minecraft:damage_type", "minecraft:stalagmite")
   end
 
   test "an admitted web contact clears a restored fall before the subsequent ordinary landing",

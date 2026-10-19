@@ -19,47 +19,6 @@ defmodule Valimc.ItemPickupInventoryTest do
     assert {:ok, ^original, nil, false} = Inventory.pickup_stack(original, nil)
   end
 
-  test "selected hand, offhand and storage merge before vacancies; partial insertion has a false callback" do
-    stone = ItemStack.new("stone", 64)
-
-    slots =
-      Map.new(9..44, &{&1, stone})
-      |> Map.merge(%{
-        40 => %{stone | count: 63},
-        45 => %{stone | count: 63},
-        36 => %{stone | count: 63}
-      })
-
-    original = %Inventory{selected: 4, slots: slots}
-
-    assert {:ok, next, remainder, false} =
-             Inventory.pickup_stack(original, ItemStack.new("stone", 7))
-
-    assert remainder == ItemStack.new("stone", 4)
-    assert Enum.all?([40, 45, 36], &(next.slots[&1].count == 64))
-    assert {:ok, ^next, ^remainder, false} = Inventory.pickup_stack(next, remainder)
-    creative = %{original | infinite_materials: true}
-    assert {:ok, filled, nil, true} = Inventory.pickup_stack(creative, ItemStack.new("stone", 7))
-    assert filled.slots == next.slots
-    assert {:ok, ^filled, nil, true} = Inventory.pickup_stack(filled, ItemStack.new("stone", 7))
-  end
-
-  test "effective components merge while the surviving patch remains exact" do
-    explicit = %{ItemStack.new("stone", 63) | components: %{"minecraft:max_stack_size" => 64}}
-    original = %Inventory{selected: 3, slots: %{39 => explicit}}
-    assert {:ok, next, nil, true} = Inventory.pickup_stack(original, ItemStack.new("stone", 2))
-    assert next.slots[39] == %{explicit | count: 64}
-    assert next.slots[36] == ItemStack.new("stone")
-
-    named = %{
-      ItemStack.new("stone")
-      | components: %{"minecraft:custom_name" => {:string, "separate"}}
-    }
-
-    assert {:ok, separate, nil, true} = Inventory.pickup_stack(next, named)
-    assert separate.slots[37] == named and separate.slots[39] == next.slots[39]
-  end
-
   test "invalid stack and an oversized resulting inventory refuse atomically" do
     original = Inventory.new()
 

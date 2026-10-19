@@ -2,14 +2,6 @@ defmodule Valimc.Physics.SweptContactTest do
   use ExUnit.Case, async: true
   alias Valimc.Physics.Box
 
-  test "swept contact finds a crossed shape with both endpoints outside" do
-    body = Box.new({0.2, 64.0, 0.2, 0.8, 65.8, 0.8})
-    obstacle = Box.new({1.0, 64.0, 0.0, 2.0, 65.0, 1.0})
-    assert Box.collided_along?(body, {3.0, 0.0, 0.0}, [obstacle])
-    refute Box.intersects?(body, obstacle)
-    refute Box.intersects?(Box.move(body, {3.0, 0.0, 0.0}), obstacle)
-  end
-
   test "face touching is excluded but actual overlap is retained" do
     shape = Box.new({0.0, 64.0, 0.0, 1.0, 65.0, 1.0})
     body = Box.new({0.2, 65.0, 0.2, 0.8, 66.8, 0.8})

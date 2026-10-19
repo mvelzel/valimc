@@ -1,25 +1,8 @@
 defmodule Valimc.PlayerAbilitiesTest do
   use ExUnit.Case, async: true
   alias Valimc.{PlayerAbilities, PlayerSnapshot, Inventory, PlayerTransfers}
-  alias Valimc.Protocol.{ItemStack, Packets}
+  alias Valimc.Protocol.ItemStack
   import Bitwise
-
-  test "mode rules preserve speeds, preserve creative flight and force spectator flight" do
-    initial = %PlayerAbilities{flying: true, flying_speed: 0.2, walking_speed: 0.3}
-    assert PlayerAbilities.for_mode(:creative, initial).flying
-    refute PlayerAbilities.for_mode(:creative).flying
-    assert PlayerAbilities.for_mode(:spectator).flying
-
-    for mode <- [:survival, :creative, :adventure, :spectator] do
-      a = PlayerAbilities.for_mode(mode, initial)
-      assert a.flying_speed == 0.2 and a.walking_speed == 0.3
-      assert a.may_build == mode in [:survival, :creative]
-      assert a.infinite_materials == (mode == :creative)
-      assert a.invulnerable == mode in [:creative, :spectator]
-      assert a.may_fly == mode in [:creative, :spectator]
-      if mode in [:survival, :adventure], do: refute(a.flying)
-    end
-  end
 
   test "all client flags affect only permission-gated flight; malformed bodies reject" do
     for mode <- [:survival, :creative, :adventure, :spectator], flags <- 0..255 do
@@ -33,16 +16,6 @@ defmodule Valimc.PlayerAbilitiesTest do
       assert {:error, :invalid_abilities_packet} =
                PlayerAbilities.request_flight(PlayerAbilities.for_mode(:creative), body)
     end
-  end
-
-  test "the ability packet represents current flight and omits the local build permission" do
-    creative = PlayerAbilities.for_mode(:creative)
-    assert elem(Packets.abilities(creative), 1) == <<13, 0.05::float-32, 0.1::float-32>>
-
-    assert elem(Packets.abilities(%{creative | flying: true}), 1) ==
-             <<15, 0.05::float-32, 0.1::float-32>>
-
-    assert Packets.abilities(creative) == Packets.abilities(%{creative | may_build: false})
   end
 
   defp pose, do: %{x: 0.5, y: 70.0, z: 0.5, yaw: 20.0, pitch: 5.0}

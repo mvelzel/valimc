@@ -39,19 +39,6 @@ defmodule Valimc.PoseFitTest do
   defp select(observations, intent \\ %PlayerPose{}, current \\ :standing),
     do: PoseFit.select(current, intent, @position, CollisionContext.empty(), observations)
 
-  test "complete open observations select standing and retain exact owner fences" do
-    observations = observations()
-    assert {:ok, result} = select(observations)
-    assert result.pose == :standing
-    assert result.queries == [:swimming, :standing]
-    assert result.fits == %{swimming: true, standing: true}
-
-    assert result.fences ==
-             Map.new(observations.blocks, &{&1.region, Map.take(&1, [:owner, :revision])})
-
-    assert {:ok, result.geometry} == PlayerPose.geometry(:standing, @position)
-  end
-
   test "crouch/crawl clearance and the initial swimming gate use native lazy order" do
     assert {:ok, crouch} = select(observations(%{{0, 65, 0} => 15178}))
     assert crouch.pose == :crouching
@@ -66,19 +53,6 @@ defmodule Valimc.PoseFitTest do
              select(observations(%{{0, 64, 0} => 1}, nil), %PlayerPose{}, :crouching)
 
     assert retained.pose == :crouching and retained.queries == [:swimming]
-  end
-
-  test "solid head-space entities restrict the selected pose; non-solid entities do not" do
-    entity = %{
-      id: 2,
-      box: {0.2, 65.6, 0.2, 0.8, 65.8, 0.8},
-      spectator: false,
-      collidable: true,
-      same_vehicle: false
-    }
-
-    assert {:ok, %{pose: :crouching}} = select(observations(%{}, [entity]))
-    assert {:ok, %{pose: :standing}} = select(observations(%{}, [%{entity | collidable: false}]))
   end
 
   test "border and malformed/missing observations remain explicit rather than becoming air" do

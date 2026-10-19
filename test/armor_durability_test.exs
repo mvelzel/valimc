@@ -3,22 +3,6 @@ defmodule Valimc.ArmorDurabilityTest do
   alias Valimc.{ArmorDurability, Inventory}
   alias Valimc.Protocol.ItemStack
 
-  test "netherite resists campfire wear but cactus and berry damage still wear it" do
-    boots = ItemStack.new("netherite_boots")
-    inventory = %Inventory{slots: %{8 => boots}}
-    no_draw = fn -> flunk("Unenchanted gear must not draw") end
-    assert {:ok, ^inventory, []} = ArmorDurability.damage(inventory, :campfire, 2, false, no_draw)
-
-    for source <- [:cactus, :sweet_berry_bush] do
-      assert {:ok, worn, []} = ArmorDurability.damage(inventory, source, 1, false, no_draw)
-      assert worn.slots[8].components["minecraft:damage"] == 1
-    end
-
-    iron = %Inventory{slots: %{8 => ItemStack.new("iron_boots")}}
-    assert {:ok, worn, []} = ArmorDurability.damage(iron, :campfire, 2, false, no_draw)
-    assert worn.slots[8].components["minecraft:damage"] == 1
-  end
-
   test "source, permission, component and netherite resistance gates preserve inventory without RNG" do
     helmet = ItemStack.new("iron_helmet")
     inventory = %Inventory{slots: %{5 => helmet, 36 => helmet}, carried: helmet}

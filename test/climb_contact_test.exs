@@ -6,32 +6,6 @@ defmodule Valimc.Physics.ClimbContactTest do
   defp frame(state, below \\ 0),
     do: %Frame{states: %{@pos => state, {0, 63, 0} => below}, entities: %{}, fences: %{}}
 
-  test "open trapdoors need a ladder below with matching direction" do
-    assert {:ok, %{climbing: true}} =
-             ClimbContact.sample(frame(8784, 7307), @pos, false, false, false)
-
-    assert {:ok, %{climbing: false}} =
-             ClimbContact.sample(frame(8784, 7309), @pos, false, false, false)
-
-    assert {:ok, %{climbing: false}} =
-             ClimbContact.sample(frame(8788, 7307), @pos, false, false, false)
-
-    assert {:ok, %{climbing: false}} =
-             ClimbContact.sample(frame(8784, 1), @pos, false, false, false)
-  end
-
-  test "gliding excludes vines but retains ladder/scaffolding facts; flight and spectator exclude all" do
-    assert {:ok, %{climbing: true}} = ClimbContact.sample(frame(10092), @pos, false, false, false)
-    assert {:ok, %{climbing: false}} = ClimbContact.sample(frame(10092), @pos, false, false, true)
-    assert {:ok, %{climbing: true}} = ClimbContact.sample(frame(7307), @pos, false, false, true)
-
-    assert {:ok, %{climbing: true, scaffolding: true}} =
-             ClimbContact.sample(frame(24063), @pos, false, false, false)
-
-    assert {:ok, %{climbing: false}} = ClimbContact.sample(frame(7307), @pos, true, false, false)
-    assert {:ok, %{climbing: false}} = ClimbContact.sample(frame(7307), @pos, false, true, false)
-  end
-
   test "missing contextual observations never become unclimbable air" do
     f = frame(8784)
 

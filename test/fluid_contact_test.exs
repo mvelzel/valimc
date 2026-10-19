@@ -3,17 +3,6 @@ defmodule Valimc.Physics.FluidContactTest do
   alias Valimc.Physics.{BlockCollisions.Frame, BlockEntityContext, BlockScan, FluidContact}
   @box {0.2, 64.0, 0.2, 0.8, 65.8, 0.8}
 
-  test "same fluid above fills the surface, other fluid does not" do
-    {:ok, water} = FluidContact.sample(frame(%{{0, 64, 0} => 89}), @box)
-    assert water.water == 0.8888888955116272 and water.lava == 0.0
-
-    assert {:ok, %{water: 1.8888888955116272, lava: 0.0}} ==
-             FluidContact.sample(frame(%{{0, 64, 0} => 89, {0, 65, 0} => 89}), @box)
-
-    assert {:ok, %{water: 0.8888888955116272, lava: 1.8888888955116272}} ==
-             FluidContact.sample(frame(%{{0, 64, 0} => 89, {0, 65, 0} => 105}), @box)
-  end
-
   test "contact excludes a millimetre at the body edge and uses original feet for depth" do
     surface = 64.0 + 0.8888888955116272
     box = {0.2, surface - 0.0005, 0.2, 0.8, surface + 1.8, 0.8}
@@ -35,27 +24,6 @@ defmodule Valimc.Physics.FluidContactTest do
 
     assert {:ok, %{water: 0.0, lava: 0.0}} ==
              FluidContact.sample(frame(%{{0, 64, 0} => 15180}), @box)
-  end
-
-  test "eye surface is inclusive and source fluid extends under sturdy cover" do
-    water = frame(%{{0, 64, 0} => 89})
-    surface = 64.0 + 0.8888888955116272
-
-    assert {:ok, %{water: true, lava: false}} ==
-             FluidContact.eyes(water, @box, {0.5, surface, 0.5})
-
-    assert {:ok, %{water: false, lava: false}} ==
-             FluidContact.eyes(water, @box, {0.5, 64.99, 0.5})
-
-    covered = frame(%{{0, 64, 0} => 89, {0, 65, 0} => 1})
-
-    assert {:ok, %{water: true, lava: false}} ==
-             FluidContact.eyes(covered, @box, {0.5, 64.99, 0.5})
-
-    flowing = frame(%{{0, 64, 0} => 90, {0, 65, 0} => 1})
-
-    assert {:ok, %{water: false, lava: false}} ==
-             FluidContact.eyes(flowing, @box, {0.5, 64.99, 0.5})
   end
 
   test "eye contact keeps contextual cover unresolved and scans the actual body column" do

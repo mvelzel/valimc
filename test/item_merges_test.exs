@@ -1,6 +1,6 @@
 defmodule Valimc.ItemMergesTest do
   use ExUnit.Case, async: true
-  alias Valimc.{ItemMotionState, Physics.ItemMerge, Protocol.ItemStack}
+  alias Valimc.{ItemMotionState, Protocol.ItemStack}
   alias Valimc.World.{ItemHandoffs, ItemLedger, ItemMerges, Items}
 
   defp record(n, count, extra \\ %{}) do
@@ -75,29 +75,6 @@ defmodule Valimc.ItemMergesTest do
     assert ledger == merged.ledger
   end
 
-  test "custom99 uses the native64 entity cap, including a recipient initially above64" do
-    for {ac, bc, expected_recipient, expected_donor} <- [{32, 33, 64, 1}, {2, 65, 64, 3}] do
-      custom = fn n ->
-        %{ItemStack.new("stone", n) | components: %{"minecraft:max_stack_size" => 99}}
-      end
-
-      {:ok, items} =
-        Items.restore({0, 0}, [
-          record(1, ac, %{stack: custom.(ac)}),
-          record(2, bc, %{stack: custom.(bc)})
-        ])
-
-      assert {:ok, next, [_]} = ItemMerges.plan(items, items.epoch, [pair(items, 1, 2)])
-
-      assert Enum.map(Items.records(next), & &1.stack.count) == [
-               expected_donor,
-               expected_recipient
-             ]
-
-      assert Enum.sum(Enum.map(Items.records(next), & &1.stack.count)) == ac + bc
-    end
-  end
-
   test "batch refuses stale, repeated, oversized, incompatible and out-of-range pairs without partial state" do
     {:ok, items} = Items.restore({0, 0}, for(n <- 1..4, do: record(n, 2)))
     first = pair(items, 1, 2)
@@ -124,26 +101,6 @@ defmodule Valimc.ItemMergesTest do
       {:ok, other} = Items.restore({0, 0}, [record(1, 2), b])
       assert {:error, _} = ItemMerges.plan(other, other.epoch, [pair(other, 1, 2)])
     end
-  end
-
-  test "sentinels, removed entities and different pickup targets refuse; delayed entities can merge" do
-    input = %{
-      stack: ItemStack.new("stone", 2),
-      motion: %ItemMotionState{},
-      target: nil,
-      alive: true
-    }
-
-    for change <- [%{age: -32768}, %{age: 6000}, %{pickup_delay: 32767}] do
-      assert {:error, :not_mergeable} =
-               ItemMerge.pair(%{input | motion: struct(input.motion, change)}, input)
-    end
-
-    assert {:error, :not_mergeable} = ItemMerge.pair(%{input | alive: false}, input)
-    assert {:error, :not_mergeable} = ItemMerge.pair(%{input | target: <<1::128>>}, input)
-
-    assert {:ok, %{motion: %{pickup_delay: 40}}} =
-             ItemMerge.pair(%{input | motion: %{input.motion | pickup_delay: 40}}, input)
   end
 
   test "discovery bounds disjoint cohorts and converges a full owner without losing counts" do

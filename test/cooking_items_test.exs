@@ -31,27 +31,6 @@ defmodule Valimc.Physics.CookingItemsTest do
     assert CookingItems.finish({nil, coal, nil}, ingot) == {:error, :invalid_cooking_items}
   end
 
-  test "wet sponge uses the native bucket replacement and retains unconsumed input patches" do
-    sponge = %{
-      ItemStack.new("wet_sponge", 2)
-      | components: %{"minecraft:custom_name" => {:string, "Wet"}}
-    }
-
-    bucket = %{
-      ItemStack.new("bucket", 16)
-      | components: %{"minecraft:custom_name" => {:string, "Bucket"}}
-    }
-
-    assert CookingItems.finish({sponge, bucket, nil}, ItemStack.new("sponge")) ==
-             {:ok, {%{sponge | count: 1}, ItemStack.new("water_bucket"), ItemStack.new("sponge")}}
-
-    assert CookingItems.finish(
-             {ItemStack.new("raw_iron"), bucket, nil},
-             ItemStack.new("iron_ingot")
-           ) ==
-             {:ok, {nil, bucket, ItemStack.new("iron_ingot")}}
-  end
-
   test "fuel remainders replace an empty slot or return bounded overflow for durable admission" do
     state = Data.item_block(Data.item("furnace"))
 

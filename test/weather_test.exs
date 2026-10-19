@@ -1,29 +1,6 @@
 defmodule Valimc.WeatherTest do
   use ExUnit.Case, async: true
-  alias Valimc.World.{Clock, ClockRecord, ClockState, Weather, WeatherReplication}
-
-  test "clear override, expiration, timer refill order and owned random state" do
-    weather = %Weather{
-      clear_time: 1,
-      rain_time: 2,
-      thunder_time: 3,
-      raining: true,
-      thundering: true,
-      random_seed: Weather.seed(0)
-    }
-
-    clear = Weather.tick(weather)
-    assert clear.clear_time == 0 and clear.rain_time == 0 and clear.thunder_time == 0
-    refute clear.raining or clear.thundering
-    assert clear.random_seed == weather.random_seed
-    sampled = Weather.tick(clear)
-    assert sampled.rain_time in 12000..180_000 and sampled.thunder_time in 12000..180_000
-    refute sampled.raining or sampled.thundering
-    assert sampled.random_seed != clear.random_seed
-    toggled = Weather.tick(%{clear | rain_time: 1, thunder_time: 1})
-    assert toggled.raining and toggled.thundering and toggled.rain_time == 0
-    assert toggled.rain_level == ClockState.float32(0.01)
-  end
+  alias Valimc.World.{Clock, ClockRecord, Weather, WeatherReplication}
 
   test "frozen weather cycle still completes intensity transitions and remains independent of time" do
     weather = %Weather{

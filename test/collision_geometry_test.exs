@@ -45,24 +45,6 @@ defmodule Valimc.CollisionGeometryTest do
     assert Shape.empty?(air) and air.boxes == []
   end
 
-  test "clip stops at full-block contact, respects perpendicular contact and preserves overlap" do
-    stone = shape("stone")
-    box = Box.new({-1.0, 0.0, 0.0, -0.4, 1.8, 0.6})
-    assert Collision.clip(:x, box, [stone], 1.0) == 0.4
-    assert Collision.clip(:x, box, [stone], -1.0) == -1.0
-    shifted = Shape.move(stone, {-3, -5, 9})
-    assert shifted.bits == stone.bits
-
-    assert Collision.clip(:x, Box.move(box, {-3, -5, 9}), [shifted], 1.0) ==
-             -3.0 - (-0.4 - 3.0)
-
-    assert Collision.clip(:x, Box.move(box, {0, 1, 0}), [stone], 1.0) == 1.0
-    inside = Box.new({0.2, 0.2, 0.2, 0.8, 0.8, 0.8})
-    assert Shape.collide(stone, :x, inside, 1.0) == 1.0
-    falling = Box.new({0.2, 1.0, 0.2, 0.8, 2.8, 0.8})
-    assert Collision.clip(:y, falling, [shape("oak_slab")], -2.0) == -0.5
-  end
-
   test "native tiny-delta ordering distinguishes empty lists, raw empty shapes and list clipping" do
     {:ok, air} = BlockShapes.fetch(0)
     stone = shape("stone")

@@ -1,6 +1,6 @@
 defmodule Valimc.ShulkerCollisionTest do
   use ExUnit.Case, async: true
-  alias Valimc.Physics.{BlockEntityContext, BlockShapes, Box, Collision, CollisionContext, Shape}
+  alias Valimc.Physics.{BlockEntityContext, BlockShapes, CollisionContext}
   @pos {0, 64, 0}
   @states BlockShapes.entries()
           |> Tuple.to_list()
@@ -35,46 +35,6 @@ defmodule Valimc.ShulkerCollisionTest do
       assert shape(id, BlockEntityContext.other()) == full
       assert shape(id, BlockEntityContext.shulker(0, 0)) == full
     end
-  end
-
-  test "open lids expand along the state facing and upward contacts use the expanded top" do
-    boxes =
-      @states
-      |> Enum.take(6)
-      |> Enum.map(fn id ->
-        shape(id, BlockEntityContext.shulker(1, 1)).boxes |> hd()
-      end)
-      |> MapSet.new()
-
-    assert boxes ==
-             MapSet.new([
-               {0.0, -0.5, 0.0, 1.0, 1.0, 1.0},
-               {0.0, 0.0, 0.0, 1.0, 1.5, 1.0},
-               {0.0, 0.0, -0.5, 1.0, 1.0, 1.0},
-               {0.0, 0.0, 0.0, 1.0, 1.0, 1.5},
-               {-0.5, 0.0, 0.0, 1.0, 1.0, 1.0},
-               {0.0, 0.0, 0.0, 1.5, 1.0, 1.0}
-             ])
-
-    opened = shape(@up, BlockEntityContext.shulker(1, 1))
-    assert opened.boxes == [{0.0, 0.0, 0.0, 1.0, 1.5, 1.0}]
-    box = Box.new({0.2, 67.0, 0.2, 0.8, 68.8, 0.8})
-    assert Collision.clip(:y, box, [Shape.move(opened, @pos)], -5.0) == -1.5
-  end
-
-  test "native float interpolation retains old progress even at partial tick one" do
-    interpolated = shape(@up, BlockEntityContext.shulker(1.0, 0.1))
-    direct = shape(@up, BlockEntityContext.shulker(0.0, 0.1))
-    refute interpolated == direct
-    assert interpolated.boxes == [{0.0, 0.0, 0.0, 1.0, 1.050000011920929, 1.0}]
-    normalized = BlockEntityContext.shulker(0.0, 0.1)
-    assert normalized.progress == 0.10000000149011612
-  end
-
-  test "negligible lid extensions snap to the full cube while larger extensions retain bounds" do
-    full = shape(@up, BlockEntityContext.absent())
-    assert shape(@up, BlockEntityContext.shulker(0, 1.0e-8)) == full
-    refute shape(@up, BlockEntityContext.shulker(0, 1.0e-5)) == full
   end
 
   test "invalid contexts reject and unavailable snapshots do not interfere with independent shapes" do

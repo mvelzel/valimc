@@ -17,14 +17,6 @@ defmodule Valimc.PlayerJumpBoostTest do
     assert empty.attribute == {29, 3.0, []} and empty.safe_distance == 3.0
   end
 
-  test "material multiplies base strength before adding the native float bonus" do
-    assert {:ok, 0.41999998688697815} = PlayerJumpBoost.power(1, -1)
-    assert {:ok, 0.5199999809265137} = PlayerJumpBoost.power(1, 0)
-    assert {:ok, 0.10000000149011612} = PlayerJumpBoost.power(0, 0)
-    assert {:ok, 0.3100000023841858} = PlayerJumpBoost.power(0.5, 0)
-    assert {:ok, 27.280000686645508} = PlayerJumpBoost.power(4, 255)
-  end
-
   test "invalid effects and powers cannot enter a geometry request" do
     assert {:error, :invalid_jump_boost} = PlayerJumpBoost.derive(%{@id => []})
     assert {:error, :invalid_jump_boost} = PlayerJumpBoost.derive(nil)

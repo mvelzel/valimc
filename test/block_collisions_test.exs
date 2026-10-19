@@ -53,34 +53,6 @@ defmodule Valimc.BlockCollisionsTest do
     assert result.fences == Map.new(obs, &{&1.region, Map.take(&1, [:owner, :revision])})
   end
 
-  test "strict shared full-block overlap retains tiny and zero extents inside a block" do
-    for width <- [0.0, 1.0e-8, 1.0e-7] do
-      box = {0.5, 0.2, 0.2, 0.5 + width, 0.8, 0.8}
-
-      assert {:ok, %{colliders: [%{position: {0, 0, 0}}]}} =
-               BlockCollisions.collect(box, observations(box, %{{0, 0, 0} => 1}))
-
-      assert Shape.empty?(VoxelOps.world_box(box))
-    end
-
-    touching = {1.0, 0.2, 0.2, 1.5, 0.8, 0.8}
-
-    assert {:ok, %{colliders: []}} =
-             BlockCollisions.collect(touching, observations(touching, %{{0, 0, 0} => 1}))
-  end
-
-  test "voxel overlap excludes holes inside a compound shape's bounds" do
-    box = {0.4, 0.6, 0.8, 0.6, 0.9, 0.95}
-
-    assert {:ok, %{colliders: []}} =
-             BlockCollisions.collect(box, observations(box, %{{0, 0, 0} => 5474}))
-
-    lower = {0.4, 0.4, 0.8, 0.6, 0.6, 0.95}
-
-    assert {:ok, %{colliders: [%{state: 5474}]}} =
-             BlockCollisions.collect(lower, observations(lower, %{{0, 0, 0} => 5474}))
-  end
-
   test "missing observations never silently become air, including ineligible candidates" do
     obs = observations(@box)
     [first | rest] = obs

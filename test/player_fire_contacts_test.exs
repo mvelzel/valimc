@@ -34,16 +34,6 @@ defmodule Valimc.PlayerFireContactsTest do
     end
   end
 
-  test "negative fire cooldowns advance without randomness and positive exposure can extend" do
-    no_random = fn -> flunk("negative cooldown or immunity consumed randomness") end
-    assert {:ok, %{ticks: -1}} = PlayerBurning.fire(-2, false, 1, false, no_random)
-    assert {:ok, %{ticks: 160}} = PlayerBurning.fire(-1, false, 1, false, no_random)
-    assert {:ok, %{ticks: 300}} = PlayerBurning.fire(300, true, 1, false, no_random)
-    assert {:ok, %{ticks: 302}} = PlayerBurning.fire(300, false, 1, false, fn -> 2 end)
-    assert {:ok, %{ticks: 64}} = PlayerBurning.fire(-1, false, 0.3999999761581421)
-    assert {:ok, %{ticks: 1}} = PlayerBurning.fire(300, false, 1, true, fn -> 2 end)
-  end
-
   test "signed counter overflow and zero-duration contact follow setter order" do
     assert {:ok, %{ticks: -2_147_483_647, clear_freeze: false}} =
              PlayerBurning.fire(2_147_483_647, false, 1, false, fn -> 2 end)

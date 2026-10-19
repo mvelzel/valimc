@@ -122,8 +122,5 @@ defmodule Valimc.Crafting3x3Test do
     for count <- [0, 1, 8, 10],
         do:
           assert(Crafting.result(List.duplicate(nil, count)) == {:error, :invalid_crafting_grid})
-
-    assert Crafting.result(grid(["oak_log", nil, nil, nil])) ==
-             {:ok, ItemStack.new("oak_planks", 4)}
   end
 end

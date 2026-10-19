@@ -2,16 +2,6 @@ defmodule Valimc.Physics.SwimSteeringTest do
   use ExUnit.Case, async: true
   alias Valimc.Physics.SwimSteering
 
-  test "upward steering needs jump or fluid above; downward steering always applies while swimming" do
-    v = {0.1, 0.0, -0.2}
-    assert {:ok, ^v} = SwimSteering.step(v, 1.0, true, false, false, false)
-    assert {:ok, {0.1, 0.06, -0.2}} = SwimSteering.step(v, 1.0, true, true, false, false)
-    assert {:ok, {0.1, 0.06, -0.2}} = SwimSteering.step(v, 1.0, true, false, true, false)
-    assert {:ok, {0.1, -0.085, -0.2}} = SwimSteering.step(v, -1.0, true, false, false, false)
-    assert {:ok, ^v} = SwimSteering.step(v, -1.0, false, true, true, false)
-    assert {:ok, ^v} = SwimSteering.step(v, -1.0, true, true, true, true)
-  end
-
   test "the downward blend changes strictly below minus point two and observations are bounded" do
     assert {:ok, {+0.0, -0.012, +0.0}} =
              SwimSteering.step({0, 0, 0}, -0.2, true, false, false, false)

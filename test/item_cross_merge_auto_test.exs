@@ -156,6 +156,22 @@ defmodule Valimc.ItemCrossMergeAutoTest do
         s.items.ledger.outgoing == nil and s.item_pending == nil and s.item_cross_job == nil
       end)
 
+  defp jobs, do: Map.get(Metrics.snapshot(), :item_cross_jobs, 0)
+
+  defp ages(c),
+    do: for(o <- [c.source, c.target], r <- Items.records(state(o).items), do: r.motion.age)
+
+  # Re-evaluates discovery on the next owner tick instead of after its 200 ms cadence,
+  # then waits until both owners have ticked twice and no transfer or query is in flight.
+  defp rescan(c) do
+    before = Enum.max(ages(c))
+
+    for {pid, _} <- [c.source, c.target],
+        do: :sys.replace_state(pid, &%{&1 | resource: %{&1.resource | item_cross_next: nil}})
+
+    wait(fn -> Enum.max(ages(c)) >= before + 2 and idle(c) end)
+  end
+
   defp total(c),
     do:
       Enum.sum(for o <- [c.source, c.target], {_, e} <- state(o).items.entries, do: e.stack.count)
@@ -205,8 +221,18 @@ defmodule Valimc.ItemCrossMergeAutoTest do
   for variant <- [:components, :capacity, :horizontal, :vertical, :sentinel] do
     @tag variant: variant
     test "automatic discovery rejects #{variant} without a journal", c do
+      before = jobs()
       start(c)
-      Process.sleep(450)
+      # Both owners finish a scan; the sentinel donor never enters the source scene.
+      wait(fn ->
+        state(c.target).item_cross_stamp != nil and idle(c) and
+          if(c.variant == :sentinel,
+            do: jobs() == before,
+            else: jobs() > before and state(c.source).item_cross_stamp != nil
+          )
+      end)
+
+      rescan(c)
       assert idle(c) and total(c) == hd(c.donors).stack.count + hd(c.recipients).stack.count
 
       assert map_size(state(c.source).items.entries) == 1 and
@@ -232,15 +258,15 @@ defmodule Valimc.ItemCrossMergeAutoTest do
       ) and idle(c)
     end)
 
-    jobs = Map.get(Metrics.snapshot(), :item_cross_jobs, 0)
-    Process.sleep(450)
+    jobs = jobs()
+    rescan(c)
 
     assert ids ==
              Map.keys(state(c.source).items.entries) ++ Map.keys(state(c.target).items.entries)
 
     assert total(c) == 66 and state(c.source).items.ledger.sequence == 0
     assert state(c.target).items.ledger.incoming[c.key].sequence == 0
-    assert Map.get(Metrics.snapshot(), :item_cross_jobs, 0) == jobs
+    assert jobs() == jobs
   end
 
   @tag variant: :reverse
@@ -251,7 +277,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     assert uuid == hd(c.donors).uuid
     assert state(c.source).items.ledger.generations[uuid] == 1
     assert [%{stack: %{count: 64}}] = Items.records(state(c.target).items)
-    Process.sleep(450)
+    rescan(c)
     assert total(c) == 66 and state(c.source).items.ledger.sequence == 1
   end
 

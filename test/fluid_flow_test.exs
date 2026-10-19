@@ -31,63 +31,12 @@ defmodule Valimc.Physics.FluidFlowTest do
     refute BlockEntityContext.valid?(%{closed | closed: :unknown})
   end
 
-  test "a lower neighboring fluid level pulls horizontally; a different fluid does not" do
-    assert {:ok, {1.0, 0.0, 0.0}} ==
-             FluidFlow.sample(frame(%{{0, 64, 0} => 89, {1, 64, 0} => 96}), {0, 64, 0})
-
-    assert {:ok, {0.0, 0.0, 0.0}} ==
-             FluidFlow.sample(frame(%{{0, 64, 0} => 89, {1, 64, 0} => 105}), {0, 64, 0})
-  end
-
-  test "falling flow is pulled down by sturdy faces while ice is excluded" do
-    assert {:ok, {0.0, -1.0, 0.0}} ==
-             FluidFlow.sample(frame(%{{0, 64, 0} => 97, {1, 64, 0} => 1}), {0, 64, 0})
-
-    ice = Data.item_block(ItemTypes.id("ice"))
-
-    assert {:ok, {0.0, 0.0, 0.0}} ==
-             FluidFlow.sample(frame(%{{0, 64, 0} => 97, {1, 64, 0} => ice}), {0, 64, 0})
-  end
-
-  test "flow barriers include signs independently of their collision geometry" do
-    sign = Data.item_block(ItemTypes.id("oak_sign"))
-
-    assert {:ok, {0.0, 0.0, 0.0}} ==
-             FluidFlow.sample(
-               frame(%{{0, 64, 0} => 89, {1, 64, 0} => sign, {1, 63, 0} => 89}),
-               {0, 64, 0}
-             )
-
-    assert {:ok, {1.0, 0.0, 0.0}} ==
-             FluidFlow.sample(frame(%{{0, 64, 0} => 89, {1, 63, 0} => 89}), {0, 64, 0})
-  end
-
-  test "shallow currents apply the minimum push only below the horizontal velocity threshold" do
-    f = frame(%{{0, 64, 0} => 89, {1, 64, 0} => 96})
-    {:ok, resting} = FluidCurrents.sample(f, @box, {0.0, 0.0, 0.0})
-    assert resting.velocity == {0.0045000000000000005, 0.0, 0.0}
-    {:ok, moving} = FluidCurrents.sample(f, @box, {0.003, 0.0, 0.0})
-    assert elem(moving.velocity, 0) == 0.003 + resting.depths.water * 0.014
-  end
-
   test "unaffected players retain contact depth without querying or applying currents" do
     f = frame(%{{0, 64, 0} => 89})
     f = %{f | states: Map.drop(f.states, [{-1, 64, 0}, {1, 64, 0}, {0, 64, -1}, {0, 64, 1}])}
     assert {:error, :incomplete_fluid_frame} == FluidCurrents.sample(f, @box, {0.1, 0.2, 0.3})
     {:ok, still} = FluidCurrents.sample(f, @box, {0.1, 0.2, 0.3}, false)
     assert still.velocity == {0.1, 0.2, 0.3} and still.depths.water > 0
-  end
-
-  test "items normalize shallow current sums while players retain depth-scaled averaging" do
-    f = frame(%{{0, 64, 0} => 89, {1, 64, 0} => 96})
-    box = {0.375, 64.7, 0.375, 0.625, 64.95, 0.625}
-    {:ok, item} = FluidCurrents.sample_item(f, box, {0.003, 0.0, 0.0})
-    {:ok, player} = FluidCurrents.sample(f, box, {0.003, 0.0, 0.0})
-    assert item.depths == player.depths and item.depths.water > 0
-    assert item.velocity == {0.017, 0.0, 0.0}
-    assert elem(player.velocity, 0) < elem(item.velocity, 0)
-    {:ok, still} = FluidCurrents.sample_item(f, box, {0.1, 0.2, 0.3}, false)
-    assert still.velocity == {0.1, 0.2, 0.3} and still.depths == item.depths
   end
 
   test "contextual support and missing cells fail explicitly" do

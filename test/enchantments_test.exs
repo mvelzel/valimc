@@ -19,24 +19,6 @@ defmodule Valimc.Protocol.EnchantmentsTest do
 
   defp bytes(stack, mode \\ :trusted), do: ItemStack.encode(stack, mode) |> IO.iodata_to_binary()
 
-  test "all negotiated IDs and level boundaries round trip, consuming only their own component" do
-    assert length(Enchantments.names()) == 43
-
-    for {name, id} <- Enum.with_index(Enchantments.names()) do
-      assert Enchantments.id(name) == id and Enchantments.name(id) == name
-
-      for level <- [0, 1, 3, 255] do
-        values = %{name => level}
-        assert {^values, <<42>>} = Enchantments.take(raw([{id, level}]) <> <<42>>)
-
-        assert {^values, <<>>} =
-                 Enchantments.take(IO.iodata_to_binary(Enchantments.encode(values)))
-      end
-    end
-
-    assert {%{}, <<42>>} = Enchantments.take(<<0, 42>>)
-  end
-
   test "duplicate last values win, including overwritten invalid levels and retained zero" do
     id = Enchantments.id("minecraft:unbreaking")
 

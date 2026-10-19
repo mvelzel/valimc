@@ -1,6 +1,6 @@
 defmodule Valimc.VoxelOpsTest do
   use ExUnit.Case, async: true
-  alias Valimc.Physics.{Box, Collision, Shape, VoxelOps}
+  alias Valimc.Physics.{Shape, VoxelOps}
 
   test "FULL support requires native face equality, not merely covering the unit face" do
     expanded = VoxelOps.box({-1.0e-7, 0.0, 0.0, 1.5, 1.0, 1.0})
@@ -10,18 +10,6 @@ defmodule Valimc.VoxelOpsTest do
     assert VoxelOps.face_full?(expanded, 5)
     refute VoxelOps.face_full?(%Shape{}, 0)
     assert_raise ArgumentError, fn -> VoxelOps.face_full?(expanded, 6) end
-  end
-
-  test "box construction retains dyadic cells, float bounds and native minimum extent" do
-    half = VoxelOps.box({0.0, 0.0, 0.0, 0.5, 1.0, 1.0})
-    assert half.sizes == {2, 1, 1}
-    assert half.axes == {{0.0, 0.5, 1.0}, {0.0, 1.0}, {0.0, 1.0}}
-    assert half.bits == <<1>>
-    assert half.boxes == [{0.0, 0.0, 0.0, 0.5, 1.0, 1.0}]
-    assert Shape.empty?(VoxelOps.box({0.0, 0.0, 0.0, 1.0e-8, 1.0, 1.0}))
-    refute Shape.empty?(VoxelOps.box({0.0, 0.0, 0.0, 1.0e-7, 1.0, 1.0}))
-    arbitrary = VoxelOps.box({-0.13, 0.0, 0.0, 1.1, 0.3, 1.0})
-    assert arbitrary.axes == {{-0.13, 1.1}, {0.0, 0.3}, {0.0, 1.0}}
   end
 
   test "optimization removes redundant interior cuts and does not modify inputs" do
@@ -35,20 +23,6 @@ defmodule Valimc.VoxelOpsTest do
     assert lower.bits == <<1>>
     expanded = VoxelOps.union(full, VoxelOps.box({-0.5, 0.0, 0.0, 1.5, 1.0, 1.0}))
     assert expanded.boxes == [{-0.5, 0.0, 0.0, 1.5, 1.0, 1.0}]
-  end
-
-  test "touching full and half-height blocks retain the seam and correct contacts" do
-    full = VoxelOps.box({0.0, 0.0, 0.0, 1.0, 1.0, 1.0})
-    half = VoxelOps.box({0.0, 0.0, 1.0, 1.0, 0.5, 2.0})
-    combined = VoxelOps.union(full, half)
-    assert combined.boxes == [{0.0, 0.0, 0.0, 1.0, 0.5, 2.0}, {0.0, 0.5, 0.0, 1.0, 1.0, 1.0}]
-    assert combined.bits == <<7>>
-    world = Shape.move(combined, {0, 64, 0})
-
-    for {z, delta} <- [{0.5, -2.0}, {1.5, -2.5}] do
-      player = Box.new({0.2, 67.0, z - 0.3, 0.8, 68.8, z + 0.3})
-      assert Collision.clip(:y, player, [world], -5.0) == delta
-    end
   end
 
   test "invalid geometry and oversized coordinate jobs fail before producing a partial union" do

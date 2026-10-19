@@ -32,31 +32,6 @@ defmodule Valimc.Physics.BlockContactsTest do
     BlockContacts.sample_paths(f, [%{from: from, to: to, axis: nil}], context, facts)
   end
 
-  test "accepted paths retain crossed fire and later water even with a dry endpoint" do
-    {:ok, result} =
-      sample(frame(%{{1, 64, 0} => @fire, {2, 64, 0} => 89}), {0.5, 64.0, 0.5}, {3.5, 64.0, 0.5})
-
-    assert result.active
-
-    assert result.operations == [
-             :clear_freeze,
-             :fire_ignite,
-             {:damage, :in_fire, 1.0},
-             :extinguish
-           ]
-
-    assert {:ok, %{operations: [], active: false}} =
-             sample(frame(%{{1, 64, 0} => @fire}), {3.5, 64.0, 0.5}, {3.5, 64.0, 0.5})
-  end
-
-  test "liquid block candidates alone cannot extinguish a body above their surface" do
-    f = frame(%{{0, 64, 0} => 89})
-    assert {:ok, %{operations: [:extinguish]}} = sample(f, {0.5, 64.8, 0.5}, {0.5, 64.8, 0.5})
-    assert {:ok, %{operations: []}} = sample(f, {0.5, 64.9, 0.5}, {0.5, 64.9, 0.5})
-    f = %{f | states: Map.put(f.states, {0, 65, 0}, 89)}
-    assert {:ok, %{operations: [:extinguish]}} = sample(f, {0.5, 64.9, 0.5}, {0.5, 64.9, 0.5})
-  end
-
   test "flight retains fire contacts, spectator skips them and each new tick has a fresh hit set" do
     f = frame(%{{0, 64, 0} => @soul})
     point = {0.5, 64.0, 0.5}

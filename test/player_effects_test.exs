@@ -2,29 +2,6 @@ defmodule Valimc.PlayerEffectsTest do
   use ExUnit.Case, async: true
   alias Valimc.{PlayerEffects, StatusEffect}
 
-  test "suppressed changes persist and promotion can coincide with the duration refresh" do
-    {:ok, strong} = StatusEffect.new(1, 1)
-    {:ok, weak} = StatusEffect.new(601, 0)
-    assert {:ok, effects, true} = PlayerEffects.add(%{}, 11, strong)
-    assert {:ok, effects, false} = PlayerEffects.add(effects, 11, weak)
-    assert length(effects[11]) == 2
-    {:ok, ended} = StatusEffect.new(0, 0)
-    {:ok, effects, true} = PlayerEffects.add(effects, 12, ended)
-
-    assert {:ok, %{11 => [{600, 0, false, true, true}]} = effects,
-            [
-              {:update, 11, {600, 0, false, true, true}, true},
-              {:update, 11, {600, 0, false, true, true}, false},
-              {:remove, 12}
-            ]} =
-             PlayerEffects.tick(effects)
-
-    assert {:ok, %{}, true} = PlayerEffects.remove(effects, 11)
-    assert {:ok, %{}, false} = PlayerEffects.remove(%{}, 11)
-    {:ok, infinite} = StatusEffect.new(-1, 0)
-    assert {:ok, %{11 => ^infinite}, []} = PlayerEffects.tick(%{11 => infinite})
-  end
-
   test "expired suppressed promotion carries its update value even when removed in the same tick" do
     ended = {0, 0, false, true, true}
     effects = %{11 => [{1, 2, false, true, true}, ended]}

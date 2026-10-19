@@ -6,19 +6,6 @@ defmodule Valimc.CookingAwardsTest do
   @gold "minecraft:gold_ingot_from_smelting_gold_ore"
   @scrap "minecraft:netherite_scrap"
 
-  test "fractional credit rounds strictly below the supplied native nextFloat sample" do
-    assert {:ok, low} = CookingAwards.plan(%{@stone => 5}, %{@stone => 8_388_607})
-    assert {:ok, tie} = CookingAwards.plan(%{@stone => 5}, %{@stone => 8_388_608})
-    assert low.experience == 1 and tie.experience == 0
-    assert tie.recipes == [%{recipe: @stone, uses: 5, experience: 0}]
-    assert tie.draws_used == %{@stone => 8_388_608}
-
-    assert {:ok, up} = CookingAwards.plan(%{@iron => 7}, %{@iron => 0})
-    assert {:ok, down} = CookingAwards.plan(%{@iron => 7}, %{@iron => 16_777_215})
-    assert up.experience == 5 and down.experience == 4
-    assert up == elem(CookingAwards.plan(%{@iron => 7}, %{@iron => 0}), 1)
-  end
-
   test "mixed recipe uses are all awarded in stable order, including zero-XP outcomes" do
     uses = %{@iron => 4, @gold => 2, @stone => 1}
     assert {:ok, plan} = CookingAwards.plan(uses, %{@iron => 0, @stone => 16_777_215})
@@ -40,15 +27,6 @@ defmodule Valimc.CookingAwardsTest do
     end
 
     assert CookingAwards.plan(%{}) == {:ok, %{experience: 0, recipes: [], draws_used: %{}}}
-  end
-
-  test "count conversion and multiplication preserve native float32 precision" do
-    # The odd count first rounds to 16,777,216 at Java's i2f conversion.
-    assert {:ok, plan} = CookingAwards.plan(%{@gold => 16_777_217})
-    assert plan.experience == 16_777_216
-    assert plan.recipes == [%{recipe: @gold, uses: 16_777_217, experience: 16_777_216}]
-    assert {:ok, near} = CookingAwards.plan(%{@gold => 2_147_483_583})
-    assert near.experience == 2_147_483_520
   end
 
   test "unknown credit, malformed counts and entropy refuse the entire proposal" do

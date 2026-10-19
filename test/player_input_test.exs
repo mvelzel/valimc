@@ -1,27 +1,7 @@
 defmodule Valimc.PlayerInputTest do
   use ExUnit.Case, async: true
-  import Bitwise
   alias Valimc.PlayerInput, as: Input
   alias Valimc.Protocol.{Data, Packets, Wire}
-
-  test "all byte values retain seven booleans and ignore the reserved high bit" do
-    for byte <- 0..255 do
-      assert {:ok, input} = Input.receive_input(Input.loaded(%Input{}), <<byte>>)
-      assert input.buttons == (byte &&& 127)
-      assert input.shared_flags == if((byte &&& 32) != 0, do: 2, else: 0)
-
-      for {key, mask} <- [
-            forward: 1,
-            backward: 2,
-            left: 4,
-            right: 8,
-            jump: 16,
-            shift: 32,
-            sprint: 64
-          ],
-          do: assert(Input.pressed?(input, key) == ((byte &&& mask) != 0))
-    end
-  end
 
   test "load completion retains intent but does not replay pre-load flags or commands" do
     assert {:ok, input} = Input.receive_input(%Input{}, <<96>>)

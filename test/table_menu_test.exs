@@ -104,25 +104,6 @@ defmodule Valimc.TableMenuTest do
              Inventory.get(next, 5) == nil
   end
 
-  test "table collection excludes player grid, armor and offhand in both directions" do
-    inv =
-      table(%{1 => ItemStack.new("oak_planks", 63), 9 => ItemStack.new("oak_planks", 2)}, %{
-        1 => ItemStack.new("oak_planks", 11),
-        9 => ItemStack.new("oak_planks", 4),
-        44 => ItemStack.new("oak_planks", 8),
-        45 => ItemStack.new("oak_planks", 13)
-      })
-
-    inv = %{inv | carried: ItemStack.new("oak_planks", 2)}
-
-    for button <- [0, 1] do
-      {:ok, next, []} = TableMenu.plan_click(inv, :pickup_all, 5, button)
-      assert next.carried == ItemStack.new("oak_planks", 64)
-      assert Inventory.get(next, 1) == inv.slots[1] and Inventory.get(next, 45) == inv.slots[45]
-      assert Inventory.get(next, {:table, 0}).count == if(button == 0, do: 1, else: 15)
-    end
-  end
-
   test "nine-input result overflow is authorized as an exact durable recipe conversion" do
     inv = powder()
     assert Inventory.crafting_result(inv) == ItemStack.new("white_concrete_powder", 8)

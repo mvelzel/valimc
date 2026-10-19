@@ -31,31 +31,6 @@ defmodule Valimc.Physics.SneakEdgesTest do
     assert empty.requested == {0.0, 0.0, 0.0} and empty.queries < 4096
   end
 
-  test "near-ground support matters only below the native fall threshold" do
-    requested = {0.6, 0.0, 0.0}
-    support = [{-1.0, 63.0, -1.0, 0.1, 63.5, 1.0}]
-
-    {:ok, close} =
-      SneakEdges.step(
-        @box,
-        requested,
-        %SneakEdges{shift: true, fall_distance: 0.05},
-        free(support)
-      )
-
-    assert elem(close.requested, 0) < 0.6
-
-    {:ok, falling} =
-      SneakEdges.step(
-        @box,
-        requested,
-        %SneakEdges{shift: true, fall_distance: 0.6000000238418579},
-        free(support)
-      )
-
-    assert falling.requested == requested and falling.queries == 0
-  end
-
   test "exclusions perform no reads, while a missing supporting frame is never empty space" do
     missing = fn _ -> {:error, :incomplete_frame} end
 

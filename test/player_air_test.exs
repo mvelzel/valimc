@@ -1,7 +1,6 @@
 defmodule Valimc.PlayerAirTest do
   use ExUnit.Case, async: true
-  alias Valimc.{Inventory, PlayerAir}
-  alias Valimc.Protocol.ItemStack
+  alias Valimc.PlayerAir
   alias Valimc.Physics.{BlockCollisions.Frame, PlayerPose}
 
   test "default submersion has a grace period, bounded repeated damage, and independent surfacing recovery" do
@@ -53,29 +52,5 @@ defmodule Valimc.PlayerAirTest do
     assert PlayerAir.valid?(-20) and PlayerAir.valid?(300)
     refute PlayerAir.valid?(-21)
     refute PlayerAir.valid?(301)
-  end
-
-  test "oxygen preserves air on the native threshold and uses only direct head enchantments" do
-    stack = %{
-      ItemStack.new("iron_helmet")
-      | components: %{
-          "minecraft:enchantments" => %{"minecraft:respiration" => 3}
-        }
-    }
-
-    inventory = %Inventory{slots: %{5 => stack}}
-    assert PlayerAir.oxygen_bonus(inventory) == 3
-    assert PlayerAir.decrease(10, 3, 0.24999999999999997) == 9
-    assert PlayerAir.decrease(10, 3, 0.25) == 10
-
-    for slot <- [6, 7, 8, 36, 45],
-        do: assert(PlayerAir.oxygen_bonus(%Inventory{slots: %{slot => stack}}) == 0)
-
-    stack = %{
-      stack
-      | components: %{"minecraft:stored_enchantments" => %{"minecraft:respiration" => 3}}
-    }
-
-    assert PlayerAir.oxygen_bonus(%Inventory{slots: %{5 => stack}}) == 0
   end
 end

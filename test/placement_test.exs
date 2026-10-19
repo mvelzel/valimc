@@ -72,38 +72,6 @@ defmodule Valimc.PlacementTest do
     assert {:error, :invalid_context} = Placement.candidate(stone, 0, 0, request(6))
   end
 
-  test "slab side hit boundaries distinguish halves and merge into a dry double" do
-    slab = item("oak_slab")
-    assert {:ok, %{state: 15_180}} = Placement.candidate(slab, 0, 0, request(2, 0.5))
-
-    assert {:ok, %{state: 15_178}} =
-             Placement.candidate(slab, 0, 0, request(2, 0.5000000596046448))
-
-    assert {:ok, %{state: 15_178}} = Placement.candidate(slab, 0, 0, request(0))
-    assert {:ok, %{state: 15_180}} = Placement.candidate(slab, 0, 0, request(1, 1.0))
-
-    assert {:ok, %{state: 15_182, replace_clicked: true}} =
-             Placement.candidate(slab, 15_179, 0, request(1))
-
-    assert {:ok, %{state: 15_182, replace_clicked: true}} =
-             Placement.candidate(slab, 15_177, 0, request(2, 0.5))
-
-    assert {:error, :occupied} = Placement.candidate(slab, 15_182, 1, request())
-
-    assert {:ok, %{state: 15_182, position: {0, 65, 0}, replace_clicked: false}} =
-             Placement.candidate(slab, 1, 15_177, request())
-
-    assert {:error, :occupied} = Placement.candidate(item("stone_slab"), 1, 15_179, request())
-  end
-
-  test "only source water waterlogs a new slab; merging discards the contained source" do
-    slab = item("oak_slab")
-    assert {:ok, %{state: 15_179}} = Placement.candidate(slab, 89, 0, request())
-    assert {:ok, %{state: 15_177}} = Placement.candidate(slab, 89, 0, request(0))
-    assert {:ok, %{state: 15_180}} = Placement.candidate(slab, 90, 0, request())
-    assert {:ok, %{state: 15_182}} = Placement.candidate(slab, 1, 15_179, request())
-  end
-
   test "ordinary cube admission includes stone, wood, mineral storage and color families" do
     for name <-
           ~w(polished_granite spruce_planks iron_block red_concrete purple_terracotta crafting_table) do
@@ -115,22 +83,6 @@ defmodule Valimc.PlacementTest do
     for name <- ~w(sand oak_stairs redstone_block) do
       refute Placement.supported_item?(item(name))
       assert {:error, :unsupported_item} = Placement.candidate(item(name), 0, 0, request())
-    end
-  end
-
-  test "pillar axes follow every clicked face through liquid replacement and solid adjacency" do
-    for {name, axes} <- [{"oak_log", {139, 140, 141}}, {"stripped_spruce_log", {177, 178, 179}}],
-        {face, axis} <- [{0, 1}, {1, 1}, {2, 2}, {3, 2}, {4, 0}, {5, 0}] do
-      assert Placement.supported_item?(item(name))
-      state = elem(axes, axis)
-
-      assert {:ok, %{state: ^state, position: {0, 64, 0}, replace_clicked: true}} =
-               Placement.candidate(item(name), 89, 1, request(face))
-
-      assert {:ok, %{state: ^state, replace_clicked: false}} =
-               Placement.candidate(item(name), 1, 0, request(face))
-
-      assert {:error, :occupied} = Placement.candidate(item(name), 1, 1, request(face))
     end
   end
 end

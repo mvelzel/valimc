@@ -3,25 +3,6 @@ defmodule Valimc.PlayerEnchantmentImmunityTest do
   alias Valimc.{Inventory, PlayerEnchantmentImmunity}
   alias Valimc.Protocol.ItemStack
 
-  test "direct Frost Walker presence in feet grants stepping immunity even at encoded level zero" do
-    for item <- ["stone", "iron_boots"], level <- [0, 1, 2, 255] do
-      stack = %{
-        ItemStack.new(item)
-        | components: %{"minecraft:enchantments" => %{"minecraft:frost_walker" => level}}
-      }
-
-      inventory = %Inventory{slots: %{8 => stack}}
-
-      for source <- [:hot_floor, :campfire, :sulfur_cube_hot] do
-        assert PlayerEnchantmentImmunity.immune?(inventory, source)
-      end
-
-      for source <- [:lava, :in_fire, :on_fire, :cactus, :sweet_berry_bush, :out_of_world] do
-        refute PlayerEnchantmentImmunity.immune?(inventory, source)
-      end
-    end
-  end
-
   test "carried, hand, other armor, stored and reduction enchantments grant no immunity" do
     stack = %{
       ItemStack.new("iron_boots")

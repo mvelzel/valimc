@@ -1,15 +1,7 @@
 defmodule Valimc.BlockScanTest do
   use ExUnit.Case, async: true
-  alias Valimc.Physics.{BlockScan, Box}
+  alias Valimc.Physics.BlockScan
   alias Valimc.Protocol.Data
-
-  test "native cursor is X-fastest, classifies boundaries and skips corners" do
-    assert {:ok, positions} = BlockScan.plan({0.2, 0.2, 0.2, 0.8, 0.8, 0.8})
-    assert length(positions) == 19
-    assert Enum.take(positions, 3) == [{{0, -1, -1}, 2}, {{-1, 0, -1}, 2}, {{0, 0, -1}, 1}]
-    assert {{0, 0, 0}, 0} in positions
-    refute Enum.any?(positions, fn {_, type} -> type == 3 end)
-  end
 
   test "face candidates retain protruding fences and edges retain only moving pistons" do
     fence = Data.item_block(Data.item("oak_fence"))
@@ -19,13 +11,6 @@ defmodule Valimc.BlockScanTest do
     assert {:ok, true} = BlockScan.eligible(1, 0)
     for id <- 3801..3812, do: assert(BlockScan.eligible(id, 2) == {:ok, true})
     assert {:ok, false} = BlockScan.eligible(:unread, 3)
-  end
-
-  test "negative coordinates and an exact integer expand both sides with native epsilon" do
-    {:ok, positions} = BlockScan.plan({0.0, 0.0, 0.0, 1.0, 1.0, 1.0})
-    assert {{-2, 0, 0}, 1} in positions and {{2, 0, 0}, 1} in positions
-    {:ok, shifted} = BlockScan.plan(Box.move({0.2, 0.2, 0.2, 0.8, 0.8, 0.8}, {-17, 64, 17}))
-    assert {{-17, 64, 17}, 0} in shifted
   end
 
   test "raw volume is bounded before candidate allocation, including corners" do

@@ -13,6 +13,14 @@ defmodule Valimc.DifficultyConnectionTest do
     Client.await(client, :play, "change_difficulty")
   end
 
+  defp wait_until(fun, attempts \\ 200) do
+    cond do
+      fun.() -> :ok
+      attempts == 0 -> flunk("condition not reached")
+      true -> Process.sleep(5) && wait_until(fun, attempts - 1)
+    end
+  end
+
   defp no_changes_until_time(client) do
     {id, body, client} = Client.read(client)
     name = Data.name(:play, :clientbound, id)
@@ -47,6 +55,8 @@ defmodule Valimc.DifficultyConnectionTest do
     assert Clock.snapshot().difficulty.level == 3 and Clock.snapshot().difficulty.locked
     _first = first |> no_changes_until_time() |> no_changes_until_time()
     Client.close(second)
+    # The old session must finish shutting down before its name can rejoin.
+    wait_until(fn -> Client.connection("DifficultyPeer") == nil end)
     {<<3, 1>>, rejoined} = login("DifficultyPeer")
     Client.close(rejoined)
   end

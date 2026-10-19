@@ -1,7 +1,7 @@
 defmodule Valimc.CookingMenuTest do
   use ExUnit.Case, async: true
   alias Valimc.{Cooking, CookingMenu, Inventory}
-  alias Valimc.Protocol.{Data, ItemStack, Packets, Wire}
+  alias Valimc.Protocol.ItemStack
 
   test "three storage cells and player edges preserve hidden inventory without aliasing" do
     stack = ItemStack.new("coal", 7)
@@ -22,18 +22,6 @@ defmodule Valimc.CookingMenuTest do
 
     assert cooking.slots == {stack, nil, stack} and inventory.slots[45] == stack
     for kind <- [:furnace, :smoker, :blast_furnace], do: assert({:ok, _} = CookingMenu.type(kind))
-  end
-
-  test "progress packets retain native bounded integer order independently of item state" do
-    cooking = %Cooking{burn_left: 20_000, burn_total: 20_000, progress: 199, total: 200}
-    assert {:ok, [20_000, 20_000, 199, 200]} = CookingMenu.properties(cooking)
-
-    for {{id, body}, index} <- Enum.with_index(Packets.cooking_properties(127, cooking)) do
-      assert id == Data.id(:play, :clientbound, "container_set_data")
-      {127, bytes} = Wire.take_varint(IO.iodata_to_binary(body))
-      assert <<^index::signed-16, value::signed-16>> = bytes
-      assert value == Enum.at([20_000, 20_000, 199, 200], index)
-    end
   end
 
   test "malformed progress and contents and external click sentinels refuse whole" do

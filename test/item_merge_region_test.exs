@@ -72,6 +72,14 @@ defmodule Valimc.ItemMergeRegionTest do
     end
   end
 
+  defp survivor_age(ctx, uuid) do
+    Enum.find(Items.records(state(ctx.owner).items), &(&1.uuid == uuid)).motion.age
+  end
+
+  # Owner ticks advanced the survivor's motion age and no merge job is in flight.
+  defp settled(ctx, uuid, age),
+    do: wait(fn -> survivor_age(ctx, uuid) >= age and state(ctx.owner).item_pending == nil end)
+
   defp items_bytes(ctx), do: Valimc.TestDisk.read(ctx.base, ctx.key, :items)
 
   defp disk(ctx) do
@@ -189,13 +197,11 @@ defmodule Valimc.ItemMergeRegionTest do
     }
 
     assert {:ok, _} = Region.create_item(ctx.owner, named, {survivor.x, survivor.y, survivor.z})
-    Process.sleep(450)
+    settled(ctx, survivor.uuid, survivor_age(ctx, survivor.uuid) + 2)
     jobs = Map.get(Valimc.Metrics.snapshot(), :item_merge_jobs, 0)
-    age = hd(Items.records(state(ctx.owner).items)).motion.age
-    Process.sleep(450)
+    settled(ctx, survivor.uuid, survivor_age(ctx, survivor.uuid) + 2)
     assert Map.get(Valimc.Metrics.snapshot(), :item_merge_jobs, 0) == jobs
     assert map_size(state(ctx.owner).items.entries) == 2
-    assert hd(Items.records(state(ctx.owner).items)).motion.age > age
 
     assert {:ok, _} =
              Region.create_item(

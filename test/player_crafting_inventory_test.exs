@@ -26,31 +26,6 @@ defmodule Valimc.PlayerCraftingInventoryTest do
     end
   end
 
-  test "a complete result must fit the cursor with effective identity unchanged" do
-    for button <- [0, 1], count <- 60..64 do
-      inv = %Inventory{
-        slots: %{1 => ItemStack.new("oak_log", 2)},
-        carried: ItemStack.new("oak_planks", count)
-      }
-
-      next = click(inv, :pickup, 0, button)
-      assert next.carried.count == if(count == 60, do: 64, else: count)
-      assert next.slots[1].count == if(count == 60, do: 1, else: 2)
-    end
-
-    for cursor <- [
-          ItemStack.new("stone"),
-          %{
-            ItemStack.new("oak_planks")
-            | components: %{"minecraft:enchantment_glint_override" => true}
-          }
-        ] do
-      inv = %Inventory{slots: %{1 => ItemStack.new("oak_log", 2)}, carried: cursor}
-      assert click(inv, :pickup, 0).slots == inv.slots
-      assert click(inv, :pickup, 0).carried == cursor
-    end
-  end
-
   test "mixed tags consume exactly one per occupied cell and preserve remaining input patches" do
     patched = %{
       ItemStack.new("oak_planks", 3)

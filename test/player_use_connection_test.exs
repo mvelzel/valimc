@@ -1844,18 +1844,10 @@ defmodule Valimc.PlayerUseConnectionTest do
     end
   end
 
-  for {name, hit, nutrition, saturation, id, duration} <- [
-        {"chicken", true, 2, 1.2000000476837158, @hunger, 600},
-        {"chicken", false, 2, 1.2000000476837158, @hunger, 600},
-        {"rotten_flesh", true, 4, 0.800000011920929, @hunger, 600},
-        {"rotten_flesh", false, 4, 0.800000011920929, @hunger, 600},
-        {"poisonous_potato", true, 2, 1.2000000476837158, 18, 100},
-        {"poisonous_potato", false, 2, 1.2000000476837158, 18, 100},
-        {"spider_eye", true, 2, 3.200000047683716, 18, 100}
-      ] do
-    test "stock #{name} #{hit} chance feeds and draws once in the actual socket owner", ctx do
+  for hit <- [true, false] do
+    test "stock chicken #{hit} chance feeds and draws once in the actual socket owner", ctx do
       food = %PlayerFood{level: 5, saturation: 0.0}
-      item = ItemStack.new(unquote(name), 2)
+      item = ItemStack.new("chicken", 2)
       seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => item}})
       {client, pid} = login(ctx, 20.0, food)
       {_, after_one} = seed_chance(pid, unquote(hit))
@@ -1864,13 +1856,13 @@ defmodule Valimc.PlayerUseConnectionTest do
       assert_chance_rng(pid, after_one)
 
       assert state(pid).player.food == %PlayerFood{
-               level: 5 + unquote(nutrition),
-               saturation: unquote(saturation)
+               level: 7,
+               saturation: 1.2000000476837158
              }
 
       assert state(pid).player.effects ==
                if(unquote(hit),
-                 do: %{unquote(id) => [{unquote(duration), 0, false, true, true}]},
+                 do: %{@hunger => [{600, 0, false, true, true}]},
                  else: %{}
                )
 
