@@ -60,6 +60,13 @@ A Claude subagent drove every run in the background while the user worked.
     reverse looks turned exactly -30°.
   - Escape → Options → Done → Back to Game did not rotate the camera.
   - Cleanup left no JVM and no socket, with exit 143 and 0 players.
+- slab-run-01 (`3e4a18f`, fresh creative world `.local/claude-slab/`) passed a
+  usage demo:
+  - Fetched an Oak Slab by creative search.
+  - Stacked two slabs into a double slab (server state 15180 → 15182 at one position).
+  - Broke the double slab, leaving air with the grass below intact.
+  - Destroyed the stack in Destroy Item.
+  - Cleanup was clean.
 Limit: the user's real cursor crossing the visible test window still reaches the
 patched Cocoa path. The off-Space capture path was not exercised.
 

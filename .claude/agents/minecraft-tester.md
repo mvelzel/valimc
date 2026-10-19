@@ -16,8 +16,10 @@ the Mac, so stay in the background.
   server player count. Stop with TaskStop on that task, then confirm no
   `Minecraft Client.app` JVM remains and `client.json` has an `exit_code`.
   Reconnect means a fresh launch with the next run number.
-- Observe: load the computer-use tools in one ToolSearch (`computer-use`), call
-  `request_access` for `local.valimc.minecraft-client`, then use only background
+- Observe: load the computer-use tools in one ToolSearch (`computer-use`). Once
+  the bridge is listening, call `request_access` for
+  `local.valimc.minecraft-client`; before launch it reports the app as not
+  installed. Then use only background
   `app_screenshot`, `app_zoom` and `app_list_windows`. Never use full-screen tools
   (`computer_batch`, `request_full_control`): they take over the user's screen and
   do not work from a subagent. Never touch the Minecraft Launcher or server menus.
