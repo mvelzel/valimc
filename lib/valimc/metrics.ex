@@ -1,17 +1,35 @@
 defmodule Valimc.Metrics do
   use GenServer
-  @moduledoc "Lock-free counters and BEAM resource snapshots for measurement."
+
+  @moduledoc """
+  Lock-free counters and BEAM resource snapshots for measurement.
+
+  Each key gets its own `:counters` cell (write-concurrent); the ETS table only
+  maps keys to cells and is written once per key. Incrementing a shared ETS
+  counter from every connection serializes on one row lock under load.
+  """
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   @impl true
   def init(_) do
-    :ets.new(__MODULE__, [:named_table, :public, :set, write_concurrency: true])
+    :ets.new(__MODULE__, [:named_table, :public, :set, read_concurrency: true])
     {:ok, nil}
   end
 
-  def add(key, value \\ 1), do: :ets.update_counter(__MODULE__, key, {2, value}, {key, 0})
+  def add(key, value \\ 1), do: :counters.add(cell(key), 1, value)
+
+  defp cell(key) do
+    case :ets.lookup(__MODULE__, key) do
+      [{_, cell}] ->
+        cell
+
+      [] ->
+        cell = :counters.new(1, [:write_concurrency])
+        if :ets.insert_new(__MODULE__, {key, cell}), do: cell, else: cell(key)
+    end
+  end
 
   def snapshot do
-    Map.new(:ets.tab2list(__MODULE__))
+    Map.new(:ets.tab2list(__MODULE__), fn {key, cell} -> {key, :counters.get(cell, 1)} end)
     |> Map.merge(%{
       players: Valimc.Players.count(),
       processes: :erlang.system_info(:process_count),

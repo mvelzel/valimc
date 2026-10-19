@@ -24,10 +24,10 @@ change; never run the full suite just to be thorough.
 | Docs, tickets, scripts only | `scripts/audit_public_tree.py` (includes docs lint) |
 | One module and its callers | The module's test files and the tests that name it (`rg -l ModuleName test`) |
 | Several modules, no shared owner/protocol change | `mix test --stale` |
-| Pure kernels (physics, codecs) | Their test files plus the matching `check_vanilla.py --only` stage |
+| Pure kernels (physics, codecs) | Their test files plus only the matching `check_vanilla.py --only <stage>` |
 | Rust in `native/` | `cargo test`, `cargo clippy --all-targets`, plus `test/blocks_test.exs` |
 | Region owner, connection, persistence or protocol core | `mix test.fast`, then the touched socket suites by name |
-| Milestone or parent-ticket boundary | Full `mix test` and `check_vanilla.py` in the background |
+| Milestone boundary (at most once per milestone) | Full `mix test`, then full `check_vanilla.py` (about 15 minutes) in the background |
 
 ```sh
 mix format --check-formatted lib/valimc/physics/pose_fit.ex test/pose_fit_test.exs

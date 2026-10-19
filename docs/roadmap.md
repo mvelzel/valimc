@@ -19,14 +19,14 @@ lands. See [architecture](architecture.md) for the target design.
 
 | Ticket | Slice | Status |
 |---|---|---|
-| [VMC-062](tickets/VMC-062.md) | Rust NIF toolchain and paletted section storage replacing the edit map | In progress |
-| VMC-063 | Region persistence v2: dirty-section deltas, group commit, no tick pauses | Planned |
-| VMC-064 | One owner-transaction engine (idempotent ops, permits, outbox) and section fencing | Planned |
-| [VMC-065](tickets/VMC-065.md) | Published section snapshots for lock-free collision/observation reads | In progress |
+| [VMC-062](tickets/VMC-062.md) | Rust NIF toolchain and paletted section storage replacing the edit map | Awaiting client |
+| [VMC-063](tickets/VMC-063.md) | Region log with group commit; no tick pauses (design ready) | Planned |
+| VMC-064 | One owner-transaction engine and section fencing (steps 6–8 of VMC-063) | Planned |
+| [VMC-065](tickets/VMC-065.md) | Published section snapshots for lock-free collision/observation reads | Awaiting client |
 | VMC-066 | Tick pipeline on game time: steppable clock, scheduled and random ticks | Planned |
 | VMC-067 | Generic entity model; items and XP orbs migrate onto it | Planned |
 | VMC-068 | Unified generated block/item registry, block behaviours, protocol constants | Planned |
-| VMC-069 | Connection split: codec, login flow, job registry, slim replication | Planned |
+| [VMC-069](tickets/VMC-069.md) | Connection hot path (slim peers, frame once, counters), then split | In progress |
 
 Order matters only where tickets share code: 062 precedes 063/065; 064 precedes
 067. VMC-068 and VMC-069 can proceed in parallel with the world work.

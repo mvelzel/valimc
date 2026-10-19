@@ -1310,13 +1310,7 @@ defmodule Valimc.Connection do
 
         nearby = Players.nearby(state.regions)
 
-        state =
-          Enum.reduce(nearby, state, fn pid, acc ->
-            case Players.get(pid) do
-              {:ok, player} -> track_peer(acc, player, :buffer)
-              :error -> acc
-            end
-          end)
+        state = Enum.reduce(nearby, state, &replicate_peer(&2, &1))
 
         state =
           Enum.reduce(state.peers, state, fn {pid, player}, acc ->
@@ -3078,10 +3072,13 @@ defmodule Valimc.Connection do
     broadcast_player_packet(state, packet)
   end
 
+  # Frame (and compress) once; peers share the refc binary and only encrypt it.
   defp broadcast_player_packet(state, packet) do
+    framed = {state.threshold, IO.iodata_to_binary(Packets.frame(packet, state.threshold))}
+
     for pid <- Players.nearby(state.regions),
         pid != self(),
-        do: deliver(pid, {:player_packet, self(), state.player.entity_id, packet})
+        do: deliver(pid, {:player_packet, self(), state.player.entity_id, packet, framed})
 
     state
   end
@@ -3703,6 +3700,20 @@ defmodule Valimc.Connection do
     state
   end
 
+  defp event(%{phase: :play} = state, {:player_packet, pid, entity, packet, {threshold, frame}}) do
+    case Map.get(state.peers, pid) do
+      view when is_tuple(view) and elem(view, 0) == entity ->
+        if threshold == state.threshold,
+          do: send_frames(state, [frame]),
+          else: send_packets(state, [packet])
+
+      _ ->
+        :ok
+    end
+
+    state
+  end
+
   defp event(%{phase: :play} = state, {:player_packet, pid, entity, packet}) do
     case Map.get(state.peers, pid) do
       view when is_tuple(view) and elem(view, 0) == entity -> send_packets(state, [packet])
@@ -3746,6 +3757,43 @@ defmodule Valimc.Connection do
   end
 
   defp event(state, _), do: state
+
+  # Known peers cost one view lookup when unchanged; see `Players.peer_view/1`.
+  defp replicate_peer(state, pid) do
+    case state.peers[pid] do
+      nil ->
+        case Players.get(pid) do
+          {:ok, player} -> track_peer(state, player, :buffer)
+          :error -> state
+        end
+
+      known ->
+        case Players.peer_view(pid) do
+          nil ->
+            state
+
+          ^known ->
+            if view_visible?(state, known), do: state, else: track_peer_replica(state, pid)
+
+          _changed ->
+            track_peer_replica(state, pid)
+        end
+    end
+  end
+
+  defp track_peer_replica(state, pid) do
+    case Players.peer_replica(pid) do
+      nil -> state
+      replica -> track_peer(state, replica, :buffer)
+    end
+  end
+
+  defp view_visible?(state, view) do
+    {cx, cz} = World.chunk_key(state.player.x, state.player.z)
+    {px, pz} = World.chunk_key(elem(view, 2) / 4096, elem(view, 4) / 4096)
+    d = Valimc.config(:view_distance)
+    abs(cx - px) <= d and abs(cz - pz) <= d
+  end
 
   defp track_peer(state, player, mode \\ :direct) do
     cond do
