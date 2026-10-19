@@ -49,6 +49,8 @@ milestones C–F describe the remaining scope.
 
 Cooking-orb simulation ([VMC-034n4c](tickets/VMC-034n4c.md)) waits for the entity
 model. Additional status effects and container variants wait for M1.
+Removing a furnace that holds items is refused until its spill and stored
+experience exist ([VMC-034f](tickets/VMC-034f.md)).
 
 ## Pending client gates
 
@@ -58,7 +60,7 @@ model. Additional status effects and container variants wait for M1.
 
 The M1 client baseline (join, terrain, building, chest, furnace, reconnect,
 restart, survival mining) passed on `68c98da`; see [VMC-062](tickets/VMC-062.md).
-Item group commit (VMC-063 step 4a) passed its client check on `220dea1`.
+Item and block-transfer group commit (VMC-063 steps 4a/4b) passed client checks.
 
 ## Retrieve and update
 

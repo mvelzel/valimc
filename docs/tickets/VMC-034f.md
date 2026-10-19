@@ -60,3 +60,10 @@ Client gate is closed; report was reviewed once. Both clients and server stopped
 1,133 frozen blobs/world evidence are in `.local/cooking-physical-publication-proof.json`.
 Broader e9d7227 full tests 1,580 and full native integration/both TCP transports
 pass (`.local/cooking-physical-menu-native-full.log`). Every F gate is closed.
+
+October 20 client finding (`5b7cf61`): creative removal of a furnace holding items
+returns `:occupied_cooking_entry` and the client sees the block restored; contents
+stay intact. Vanilla drops the contents and the stored recipe experience, which
+needs the occupied spill plus cooking orbs (VMC-034n4c). Copper chests and barrels
+place as plain blocks without container records; a copper chest renders invisible
+after reconnect because its chunk carries no block entity.

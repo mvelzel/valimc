@@ -107,3 +107,9 @@ across reconnect, but the creative screen sends creative slot writes, not CLONE
 or quick-craft type-2 container clicks. The server path still needs an ordinary
 container menu in creative (VMC-032); gate pending. Evidence:
 `.local/client-tests/M1-items/` runs 01 and 02.
+
+October 20 client run (`5b7cf61`): in creative, an ordinary chest and furnace menu
+(opened with right-click) ignored middle-click on a full stack and middle-drag
+with a carried stack; the client did not even predict a clone, so no CLONE or
+type-2 click reached the server. Next step: check whether the client sees
+`hasInfiniteMaterials` (abilities instabuild) inside ordinary menus. Gate pending.
