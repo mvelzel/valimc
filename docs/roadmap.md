@@ -129,10 +129,12 @@ actual cooking/refusal/reconnect baseline pass; no live XP award claim.
 at `65061b9`: atomic container/receipt/XP proposals, bounded version-4 snapshots,
 journal/owner recovery, competing views and actual retention through mining,
 cooking/refusals and full restart pass. [Owned orb materialization](tickets/VMC-034n3.md)
-remains in progress: its unused bounded kernel/co-snapshot slice is validated at
+remains in progress: its bounded kernel/co-snapshot slice is validated at
 `d95273c` (108 affected checks, native probes and actual retention/refusal/restart).
-Active: local-owner asynchronous publication/native orb presentation; automated
-owner/TCP checks pass, dedicated client gate pending. Cross-region handoff follows.
+**Done within local-runtime scope:** asynchronous durable installation/native orb
+presentation at `ed06d5a`; affected owner/TCP checks and dedicated actual graphics,
+contact/refusal/owner recovery/full restart pass. Source/typed30 reconciles. Next:
+cross-region XP handoff; orb physics/lifetime and pickup/player XP remain open.
 Live XP/recipe delivery and earned-output withdrawal remain gated.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
