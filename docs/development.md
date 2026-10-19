@@ -16,16 +16,31 @@ locate details. Feature evidence belongs in `tickets/VMC-*.md`.
 
 ## Checks
 
-Per commit, format the changed files and run the affected tests:
+The full suite takes about two minutes. Choose the smallest check that covers the
+change; never run the full suite just to be thorough.
+
+| Change | Run |
+|---|---|
+| Docs, tickets, scripts only | `scripts/audit_public_tree.py` (includes docs lint) |
+| One module and its callers | The module's test files and the tests that name it (`rg -l ModuleName test`) |
+| Several modules, no shared owner/protocol change | `mix test --stale` |
+| Pure kernels (physics, codecs) | Their test files plus the matching `check_vanilla.py --only` stage |
+| Rust in `native/` | `cargo test`, `cargo clippy --all-targets`, plus `test/blocks_test.exs` |
+| Region owner, connection, persistence or protocol core | `mix test.fast`, then the touched socket suites by name |
+| Milestone or parent-ticket boundary | Full `mix test` and `check_vanilla.py` in the background |
 
 ```sh
 mix format --check-formatted lib/valimc/physics/pose_fit.ex test/pose_fit_test.exs
-mix test --stale
 mix test test/pose_fit_test.exs
+mix test --stale
 ```
 
-`mix test.fast` runs everything except the socket suites (`@moduletag :tcp`), in
-about 35 seconds. Each test run uses a private temporary directory.
+`mix test --stale` runs only tests whose dependencies changed since the last stale
+run. `mix test.fast` runs everything except the socket suites (`@moduletag :tcp`),
+in about 35 seconds. Each test run uses a private temporary directory.
+
+Rust code lives in `native/` (`valimc_core` pure crate, `valimc_nif` Rustler shim,
+built by `use Rustler` in `Valimc.Native`). Run `cargo fmt --check` there too.
 
 Vanilla oracles compare Elixir output with the pinned Mojang jar. Run one stage,
 or every stage in parallel (compiles all oracles once, collects every failure,

@@ -7,7 +7,10 @@ defmodule Valimc.MixProject do
       version: "0.1.0",
       elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
-      deps: [],
+      # Copy priv (with the built NIF) instead of symlinking it, so a private build
+      # (e.g. the oracle runner's) cannot be changed by later dev builds.
+      build_embedded: Mix.env() == :prod or System.get_env("VALIMC_BUILD_EMBEDDED") == "1",
+      deps: deps(),
       test_ignore_filters: [~r"test/support/"],
       elixirc_options: [warnings_as_errors: true],
       aliases: aliases()
@@ -22,4 +25,7 @@ defmodule Valimc.MixProject do
   def application do
     [extra_applications: [:logger, :crypto, :ssl], mod: {Valimc.Application, []}]
   end
+
+  # Build-time only: compiles `native/valimc_nif` (keep the crate on the same minor).
+  defp deps, do: [{:rustler, "~> 0.38.0", runtime: false}]
 end

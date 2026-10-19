@@ -3,7 +3,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
   alias Valimc.{Cooking, Inventory, ItemMotionState}
   alias Valimc.Physics.CookingBlocks
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{Containers, ContainerTransfers, Items, RegionData, Store}
+  alias Valimc.World.{Blocks, Containers, ContainerTransfers, Items, RegionData, Store}
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -178,9 +178,12 @@ defmodule Valimc.CookingRegionRuntimeTest do
 
   test "changed block or contents deterministically discard a stale proposal", ctx do
     state = seed(ctx, %Cooking{burn_left: 1, burn_total: 1}) |> start()
-    changed = %{state | edits: Map.put(state.edits, ctx.position, ctx.unlit)} |> result()
+    original = Blocks.get(state.blocks, ctx.position)
+    :ok = Blocks.put(state.blocks, %{ctx.position => ctx.unlit})
+    changed = result(state)
     assert changed.item_pending == nil and changed.containers == state.containers
-    state = %{changed | edits: state.edits} |> start()
+    :ok = Blocks.put(changed.blocks, %{ctx.position => original})
+    state = start(changed)
     entry = state.containers.entries[ctx.position]
 
     {:ok, containers, _} =
@@ -234,6 +237,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
       |> result()
 
     before = state.containers
+    image = Blocks.image(state.blocks)
     pending = state.item_pending
 
     assert {:stop, {:cooking_storage_failed, :injected}, stopped} =
@@ -242,7 +246,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
                state
              )
 
-    assert stopped.containers == before and stopped.edits == state.edits
+    assert stopped.containers == before and Blocks.image(stopped.blocks) == image
     RegionData.terminate(:injected, stopped)
   end
 
@@ -290,12 +294,12 @@ defmodule Valimc.CookingRegionRuntimeTest do
     state = %{state | container_viewers: viewers} |> start() |> result()
     assert state.item_pending.kind == :cooking_batch
 
-    assert state.edits[ctx.position] == ctx.lit and
+    assert Blocks.get(state.blocks, ctx.position) == ctx.lit and
              state.containers.entries[ctx.position].cooking.burn_left == 1
 
     state = saved(state)
 
-    assert state.edits[ctx.position] == ctx.unlit and
+    assert Blocks.get(state.blocks, ctx.position) == ctx.unlit and
              state.containers.entries[ctx.position].cooking.burn_left == 0
 
     assert Map.keys(state.container_viewers.views) == Map.keys(viewers.views)
@@ -495,7 +499,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
           {1, :smoker, "cod"},
           {2, :blast_furnace, "raw_iron"}
         ],
-        {state.containers, state.edits},
+        {state.containers, Blocks.image(state.blocks)},
         fn {offset, kind, input}, {containers, edits} ->
           position = {x + offset, y, z}
 

@@ -2,6 +2,7 @@ defmodule Valimc.Physics.CollisionQuery do
   @moduledoc "Supervised bounded live observations; results retain fences, not gameplay authority."
   alias Valimc.Physics.{BlockCollisions, BlockScan, CollisionContext}
   alias Valimc.World
+  alias Valimc.World.{BlockSnapshot, Directory}
 
   @timeout 250
   @max_regions 16
@@ -75,7 +76,7 @@ defmodule Valimc.Physics.CollisionQuery do
     end
   end
 
-  defp prepare_positions(positions, finish, verify, admit, workers \\ Valimc.CollisionWorkers) do
+  defp prepare_positions(positions, finish, verify, admit, workers \\ nil) do
     with true <-
            Enum.all?(positions, fn {x, y, z} ->
              abs(x) < 30_000_000 and abs(z) < 30_000_000 and abs(y) <= 1_000_000
@@ -89,30 +90,26 @@ defmodule Valimc.Physics.CollisionQuery do
          true <-
            Enum.sum(Enum.map(groups, fn {_, positions} -> div(length(positions) + 127, 128) end)) <=
              @max_batches do
-      {:ok, fn -> launch(groups, finish, verify, admit, workers) end}
+      {:ok,
+       fn -> launch(groups, finish, verify, admit, workers || Valimc.Workers.collision()) end}
     else
       false -> {:error, :invalid_collision_query}
       {:error, _} = error -> error
     end
   end
 
+  # Reads come from each owner's published chunk snapshots (`BlockSnapshot`); no
+  # owner mailbox is involved. Verification re-checks every source fence.
   defp launch(groups, finish, verify, admit, workers) do
-    caller = self()
     deadline = now() + @timeout
 
     {:ok,
      Task.Supervisor.async_nolink(workers, fn ->
-       monitor = Process.monitor(caller)
-
-       try do
-         with {:ok, requests} <- request(groups, admit),
-              {:ok, observations} <- gather(requests, [], deadline, monitor, caller),
-              {:ok, result} <- finish.(observations),
-              :ok <- verify_frame(verify, observations, deadline, monitor, caller) do
-           if now() < deadline, do: {:ok, result}, else: {:error, :collision_query_timeout}
-         end
-       after
-         Process.demonitor(monitor, [:flush])
+       with {:ok, sources} <- resolve(groups, admit),
+            {:ok, observations} <- observe(sources, deadline),
+            {:ok, result} <- finish.(observations),
+            :ok <- verify_frame(verify, observations, sources) do
+         if now() < deadline, do: {:ok, result}, else: {:error, :collision_query_timeout}
        end
      end)}
   rescue
@@ -121,129 +118,99 @@ defmodule Valimc.Physics.CollisionQuery do
     :exit, _ -> {:error, :collision_workers_unavailable}
   end
 
-  defp verify_frame(false, _, _, _, _), do: :ok
-
-  defp verify_frame(true, observations, deadline, monitor, caller) do
-    observations
-    |> Enum.uniq_by(& &1.region)
-    |> Enum.reduce_while({:ok, :gen_server.reqids_new()}, fn observation, {:ok, requests} ->
-      %{region: key, owner: owner, revision: revision} = observation
-
-      if World.existing_owner(key) == {:ok, owner} do
-        {:cont, {:ok, enqueue(requests, key, owner, [[]], revision)}}
-      else
-        {:halt, {:error, {:region, key, :region_unavailable}}}
-      end
-    end)
-    |> case do
-      {:ok, requests} ->
-        case gather(requests, [], deadline, monitor, caller) do
-          {:ok, _} -> :ok
-          error -> error
-        end
-
-      error ->
-        error
-    end
-  end
-
-  defp request(groups, admit) do
-    # Resolve all incarnations before enqueueing any reads; never call World.owner/1 here.
-    Enum.reduce_while(groups, {:ok, []}, fn {key, positions}, {:ok, owners} ->
+  defp resolve(groups, admit) do
+    Enum.reduce_while(groups, {:ok, []}, fn {key, positions}, {:ok, sources} ->
       case source(key, admit) do
-        {:ok, owner} -> {:cont, {:ok, [{key, owner, Enum.chunk_every(positions, 128)} | owners]}}
+        {:ok, owner, table} -> {:cont, {:ok, [{key, owner, table, positions} | sources]}}
         {:error, reason} -> {:halt, {:error, {:region, key, reason}}}
       end
     end)
-    |> case do
-      {:ok, owners} ->
-        {:ok,
-         Enum.reduce(owners, :gen_server.reqids_new(), fn {key, owner, batches}, requests ->
-           enqueue(requests, key, owner, batches, :any)
-         end)}
-
-      error ->
-        error
-    end
   end
 
   defp source(key, admit) do
-    case World.existing_owner(key) do
+    case published(key) do
       {:error, _} when admit ->
-        # Disk loading stays in its resource owner. Never await World.owner/1
-        # here: the player deadline can cancel this worker even during admission.
-        with {:ok, _} <- World.region(key), do: World.existing_owner(key)
+        # Disk loading stays in its resource owner; a loading source fails closed.
+        with {:ok, _} <- World.region(key), do: published(key)
 
       result ->
         result
     end
   end
 
-  defp enqueue(requests, key, {pid, epoch} = owner, [batch | rest], revision) do
-    label = {key, owner, batch, rest, revision}
-    :gen_server.send_request(pid, {:observe_blocks, epoch, batch, revision}, label, requests)
-  end
-
-  defp gather(requests, observations, deadline, monitor, caller) do
-    cond do
-      now() >= deadline ->
-        {:error, :collision_query_timeout}
-
-      :gen_server.reqids_size(requests) == 0 ->
-        {:ok, observations}
-
-      true ->
-        receive do
-          {:DOWN, ^monitor, :process, ^caller, _} ->
-            {:error, :collision_query_caller_down}
-
-          message ->
-            case :gen_server.check_response(message, requests, true) do
-              {{:reply, reply}, label, remaining} ->
-                next(reply, label, remaining, observations, deadline, monitor, caller)
-
-              {{:error, _}, {key, _, _, _, _}, _} ->
-                {:error, {:region, key, :region_unavailable}}
-
-              :no_reply ->
-                gather(requests, observations, deadline, monitor, caller)
-            end
-        after
-          max(deadline - now(), 0) -> {:error, :collision_query_timeout}
-        end
+  defp published(key) do
+    with {:ok, {pid, epoch} = owner} <- World.existing_owner(key),
+         {^pid, _, %{epoch: ^epoch, items: table}} <- Directory.lookup(key) do
+      {:ok, owner, table}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :region_unavailable}
     end
   end
 
-  defp next(
-         {:ok, %{owner: owner, region: key, revision: revision, blocks: blocks} = observation},
-         {key, owner, batch, rest, expected},
-         requests,
-         observations,
-         deadline,
-         monitor,
-         caller
-       )
-       when is_integer(revision) and revision >= 0 and is_map(blocks) do
-    cond do
-      expected != :any and expected != revision ->
-        {:error, {:region, key, :stale_revision}}
-
-      map_size(blocks) != length(batch) or Enum.any?(batch, &(not Map.has_key?(blocks, &1))) ->
-        {:error, {:region, key, :invalid_block_observation}}
-
-      true ->
-        requests =
-          if rest == [], do: requests, else: enqueue(requests, key, owner, rest, revision)
-
-        gather(requests, [observation | observations], deadline, monitor, caller)
+  # Test builds can hold reads of a region (`Valimc.TestRegionGate`) to keep
+  # geometry in flight, as a stalled owner did before published snapshots.
+  if Application.compile_env(:valimc, :region_read_gates, false) do
+    defp gate(key, pid, deadline) do
+      cond do
+        :ets.whereis(:valimc_region_read_gates) == :undefined -> :ok
+        :ets.lookup(:valimc_region_read_gates, key) != [{key, pid}] -> :ok
+        now() >= deadline -> {:error, :collision_query_timeout}
+        true -> Process.sleep(2) && gate(key, pid, deadline)
+      end
     end
+  else
+    defp gate(_key, _pid, _deadline), do: :ok
   end
 
-  defp next({:error, reason}, {key, _, _, _, _}, _, _, _, _, _),
-    do: {:error, {:region, key, reason}}
+  defp observe(sources, deadline) do
+    Enum.reduce_while(sources, {:ok, []}, fn {key, {pid, epoch} = owner, table, positions},
+                                             {:ok, acc} ->
+      with :ok <- gate(key, pid, deadline),
+           result <- BlockSnapshot.read(table, epoch, positions) do
+        result
+      end
+      |> case do
+        {:ok, revision, blocks} ->
+          # One consistent revision, delivered in the bounded 128-block observation shape.
+          batches =
+            for batch <- Enum.chunk_every(positions, 128),
+                do: %{
+                  owner: owner,
+                  region: key,
+                  revision: revision,
+                  blocks: Map.take(blocks, batch)
+                }
 
-  defp next(_, {key, _, _, _, _}, _, _, _, _, _),
-    do: {:error, {:region, key, :invalid_block_observation}}
+          {:cont, {:ok, batches ++ acc}}
+
+        {:error, :collision_query_timeout} = timeout ->
+          {:halt, timeout}
+
+        {:error, reason} ->
+          {:halt, {:error, {:region, key, reason}}}
+      end
+    end)
+  end
+
+  defp verify_frame(false, _, _), do: :ok
+
+  defp verify_frame(true, observations, sources) do
+    tables = Map.new(sources, fn {key, _, table, _} -> {key, table} end)
+
+    Enum.reduce_while(observations, :ok, fn %{region: key, owner: {_, epoch} = owner} = o, :ok ->
+      cond do
+        World.existing_owner(key) != {:ok, owner} ->
+          {:halt, {:error, {:region, key, :region_unavailable}}}
+
+        not BlockSnapshot.current?(tables[key], epoch, o.revision) ->
+          {:halt, {:error, {:region, key, :stale_revision}}}
+
+        true ->
+          {:cont, :ok}
+      end
+    end)
+  end
 
   defp now, do: System.monotonic_time(:millisecond)
 end

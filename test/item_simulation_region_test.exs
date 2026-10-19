@@ -102,16 +102,17 @@ defmodule Valimc.ItemSimulationRegionTest do
   test "unavailable neighbor geometry does not freeze age and pickup-delay clocks", ctx do
     neighbor = {elem(ctx.key, 0) + 1, elem(ctx.key, 1)}
     {:ok, {pid, _}} = World.item_owner(neighbor)
-    :sys.suspend(pid)
 
-    try do
-      age = entry(ctx).motion.age
-      wait(fn -> entry(ctx).motion.age >= age + 7 end)
-      assert entry(ctx).entity.y == 68.0
-      assert state(ctx).item_resting == %{}
-    after
-      :sys.resume(pid)
-    end
+    # Published reads of the neighbor fail (foreign epoch) while it keeps running.
+    :sys.replace_state(pid, fn state ->
+      :ets.insert(state.resource.item_publication, {:block_fence, make_ref(), 0})
+      state
+    end)
+
+    age = entry(ctx).motion.age
+    wait(fn -> entry(ctx).motion.age >= age + 7 end)
+    assert entry(ctx).entity.y == 68.0
+    assert state(ctx).item_resting == %{}
   end
 
   @tag motion: %ItemMotionState{age: 5998}

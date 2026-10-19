@@ -19,66 +19,6 @@ defmodule Valimc.CollisionQueryTest do
 
   defp await(task), do: Task.await(task, 1500)
 
-  defp fake(key, handler) do
-    parent = self()
-    epoch = make_ref()
-
-    pid =
-      spawn(fn ->
-        {:ok, _} = Registry.register(Valimc.RegionRegistry, key, %{epoch: epoch})
-        send(parent, {:ready, self()})
-        fake_loop(key, epoch, parent, handler, 0)
-      end)
-
-    assert_receive {:ready, ^pid}
-    # Private observation fixture, installed by the directory's ETS owner. This
-    # intentionally supplies fake query responses, not gameplay authority.
-    :sys.replace_state(Valimc.World.Directory, fn state ->
-      :ets.insert(
-        Valimc.RegionRoutes,
-        {key, pid, make_ref(), make_ref(), %{epoch: epoch, items: nil}}
-      )
-
-      state
-    end)
-
-    on_exit(fn ->
-      :sys.replace_state(Valimc.World.Directory, fn state ->
-        case :ets.lookup(Valimc.RegionRoutes, key) do
-          [{^key, ^pid, _, _, _}] -> :ets.delete(Valimc.RegionRoutes, key)
-          _ -> :ok
-        end
-
-        state
-      end)
-
-      Process.exit(pid, :kill)
-    end)
-
-    {pid, epoch}
-  end
-
-  defp fake_loop(key, epoch, parent, handler, index) do
-    receive do
-      {:"$gen_call", from, {:observe_blocks, ^epoch, batch, expected}} ->
-        send(parent, {:batch, self(), batch, expected})
-
-        observation = %{
-          owner: {self(), epoch},
-          region: key,
-          revision: 0,
-          blocks: Map.new(batch, &{&1, 0})
-        }
-
-        case handler.(index, observation) do
-          :hold -> send(parent, {:held, self(), from, observation})
-          reply -> GenServer.reply(from, reply)
-        end
-
-        fake_loop(key, epoch, parent, handler, index + 1)
-    end
-  end
-
   test "live geometry spans existing owners and retains exact snapshot fences", %{origin: n} do
     for x <- (n - 1)..(n + 1), y <- 64..65, do: :ok = World.set_block({x, y, n}, 1)
     box = {n - 0.3, 64.0, n - 2.3, n + 0.3, 65.8, n + 2.3}
@@ -201,119 +141,86 @@ defmodule Valimc.CollisionQueryTest do
     end
   end
 
-  test "a stalled owner does not serialize other owner requests or independent queries", %{
-    origin: n
-  } do
+  test "a suspended owner does not delay reads of its published snapshot", %{origin: n} do
     {:ok, {pid, _}} = World.existing_owner({-401, -401})
+    :ok = World.set_block({n + 1, 64, n + 1}, 1)
     :sys.suspend(pid)
 
     try do
-      {:ok, slow} = CollisionQuery.start({n - 0.3, 64, n - 0.3, n + 0.3, 65.8, n + 0.3})
-      neighbour = {-402, -402}
-      {:ok, owner} = World.existing_owner(neighbour)
-      assert {:ok, _} = Region.observe_blocks(owner, [{n - 1, 64, n - 1}])
-      {:ok, fast} = CollisionQuery.start({n - 5.8, 64, n - 5.8, n - 5.2, 65.8, n - 5.2})
-      assert {:ok, %{colliders: []}} = await(fast)
-      assert Process.alive?(slow.pid)
-      assert {:error, :collision_query_timeout} = await(slow)
+      {:ok, task} = CollisionQuery.start({n + 1.2, 64, n + 1.2, n + 1.8, 65.8, n + 1.8})
+      assert {:ok, %{colliders: [_ | _]}} = await(task)
     after
       :sys.resume(pid)
     end
   end
 
-  test "owners are requested concurrently, batches pin revisions and malformed replies reject" do
-    first = fake({700, 700}, fn _, obs -> {:ok, obs} end)
-    second = fake({701, 700}, fn _, _ -> :hold end)
-    n = 701 * 128
+  test "snapshot rows newer than the fence and foreign epochs are rejected" do
+    alias Valimc.World.{BlockSnapshot, Blocks}
+    table = :ets.new(:snapshot_test, [:set, :public])
+    epoch = make_ref()
+    {:ok, blocks} = Blocks.new({0, 0}, %{{1, 70, 1} => 1})
+    :ok = BlockSnapshot.publish_chunks(table, blocks, [{0, 0}], 1)
+    BlockSnapshot.publish_fence(table, epoch, 1)
 
-    {:ok, task} =
-      CollisionQuery.start({n - 0.3, 64, 700 * 128 + 5.2, n + 0.3, 65.8, 700 * 128 + 5.8})
+    assert {:ok, 1, %{{1, 70, 1} => 1, {40, 63, 40} => 9}} =
+             BlockSnapshot.read(table, epoch, [{1, 70, 1}, {40, 63, 40}])
 
-    assert_receive {:batch, p1, _, :any}
-    assert_receive {:batch, p2, _, :any}
-    assert Enum.sort([p1, p2]) == Enum.sort([elem(first, 0), elem(second, 0)])
-    assert {:error, :collision_query_timeout} = await(task)
-
-    fake({702, 700}, fn index, obs ->
-      if index == 0, do: {:ok, obs}, else: {:error, :stale_revision}
-    end)
-
-    n = 702 * 128 + 5
-
-    {:ok, task} =
-      CollisionQuery.start({n + 0.2, 64.2, 700 * 128 + 5.2, n + 5.8, 69.8, 700 * 128 + 10.8})
-
-    assert {:error, {:region, {702, 700}, :stale_revision}} = await(task)
-    assert_receive {:batch, _, _, 0}
-
-    fake({703, 700}, fn _, obs -> {:ok, %{obs | blocks: %{}}} end)
-    n = 703 * 128 + 5
-
-    {:ok, task} =
-      CollisionQuery.start({n + 0.2, 64.2, 700 * 128 + 5.2, n + 0.8, 65.8, 700 * 128 + 5.8})
-
-    assert {:error, {:region, {703, 700}, :invalid_block_observation}} = await(task)
+    # Owner order is rows first, fence last: a reader between them sees a newer row.
+    :ok = Blocks.put(blocks, %{{1, 70, 1} => 0})
+    :ok = BlockSnapshot.publish_chunks(table, blocks, [{0, 0}], 2)
+    assert {:error, :stale_revision} = BlockSnapshot.read(table, epoch, [{1, 70, 1}])
+    BlockSnapshot.publish_fence(table, epoch, 2)
+    assert {:ok, 2, %{{1, 70, 1} => 0}} = BlockSnapshot.read(table, epoch, [{1, 70, 1}])
+    refute BlockSnapshot.current?(table, epoch, 1)
+    assert {:error, :stale_owner} = BlockSnapshot.read(table, make_ref(), [{1, 70, 1}])
   end
 
-  test "caller loss, cancellation and dead owners leave no live query or late result" do
-    {pid, _} = fake({704, 700}, fn _, _ -> :hold end)
-    n = 704 * 128 + 5
-    box = {n + 0.2, 64.2, 700 * 128 + 5.2, n + 0.8, 65.8, 700 * 128 + 5.8}
+  test "cancellation and dead owners leave no live query or late result", %{origin: n} do
+    box = {n + 5.2, 64, n + 5.2, n + 5.8, 65.8, n + 5.8}
     parent = self()
 
-    caller =
-      spawn(fn ->
-        {:ok, task} = CollisionQuery.start(box)
-        send(parent, {:task, task})
+    hold = fn _observations ->
+      send(parent, {:holding, self()})
 
-        receive do
-          :stop -> :ok
-        end
-      end)
+      receive do
+        :release -> {:ok, :done}
+      end
+    end
 
-    assert_receive {:task, task}
-    ref = Process.monitor(task.pid)
-    assert_receive {:batch, ^pid, _, _}
-    assert_receive {:held, ^pid, _, _}
-    Process.exit(caller, :kill)
-    assert_receive {:DOWN, ^ref, :process, _, _}, 500
-    refute Process.alive?(task.pid)
-    {:ok, cancelled} = CollisionQuery.start(box)
-    assert_receive {:batch, ^pid, _, _}
-    assert_receive {:held, ^pid, late, observation}
+    {:ok, cancelled} = CollisionQuery.start_frame(box, CollisionContext.empty(), hold)
+    assert_receive {:holding, _}
     assert Task.shutdown(cancelled, :brutal_kill) == nil
     refute Process.alive?(cancelled.pid)
-    GenServer.reply(late, {:ok, observation})
-    cancelled_ref = cancelled.ref
-    refute_receive {^cancelled_ref, _}, 20
+
+    {:ok, {pid, _}} = World.existing_owner({-401, -401})
+    DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
     {:ok, dead} = CollisionQuery.start(box)
-    assert_receive {:batch, ^pid, _, _}
-    Process.exit(pid, :kill)
-    assert {:error, {:region, {704, 700}, :region_unavailable}} = await(dead)
+    assert {:error, {:region, {-401, -401}, :region_unavailable}} = await(dead)
   end
 
   test "pool capacity rejects excess admission and becomes usable after release", %{origin: n} do
-    limit = CollisionQuery.worker_limit()
-
+    # Pools are partitioned by caller; fill this caller's partition.
     holders =
-      for _ <- 1..limit do
-        {:ok, pid} =
-          Task.Supervisor.start_child(Valimc.CollisionWorkers, fn ->
-            receive do
-              :stop -> :ok
-            end
-          end)
+      Stream.repeatedly(fn ->
+        Task.Supervisor.start_child(Valimc.Workers.collision(), fn ->
+          receive do
+            :stop -> :ok
+          end
+        end)
+      end)
+      |> Enum.take_while(&match?({:ok, _}, &1))
+      |> Enum.map(fn {:ok, pid} -> pid end)
 
-        pid
-      end
+    assert length(holders) >= div(CollisionQuery.worker_limit(), Valimc.Workers.partitions())
 
     try do
       assert {:error, :collision_workers_busy} =
                CollisionQuery.start({n + 5.2, 64, n + 5.2, n + 5.8, 65.8, n + 5.8})
     after
-      for pid <- holders, do: Task.Supervisor.terminate_child(Valimc.CollisionWorkers, pid)
+      for pid <- holders, do: send(pid, :stop)
     end
 
+    Process.sleep(20)
     {:ok, task} = CollisionQuery.start({n + 5.2, 64, n + 5.2, n + 5.8, 65.8, n + 5.8})
     assert {:ok, _} = await(task)
   end

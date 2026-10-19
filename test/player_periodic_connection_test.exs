@@ -327,12 +327,12 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
     {_client, pid} = login(ctx)
     effect(pid, "regeneration", 50)
     {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(region)
+    Valimc.TestRegionGate.stall(region)
 
     try do
       for _ <- 1..50, do: tick(pid, false)
       assert state(pid).player.health.value == 11.0 and state(pid).player.effects == %{}
-      :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
 
       wait(fn ->
         state(pid).pose_job == nil and state(pid).motion_job == nil and
@@ -341,7 +341,7 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
 
       assert state(pid).player.health.value == 11.0
     after
-      if Process.alive?(region), do: :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
     end
   end
 end

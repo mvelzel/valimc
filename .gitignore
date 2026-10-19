@@ -19,3 +19,5 @@ erl_crash.dump
 __pycache__/
 /.local/
 /.claude/settings.local.json
+/native/target/
+/priv/native/

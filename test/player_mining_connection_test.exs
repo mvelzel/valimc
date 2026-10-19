@@ -313,7 +313,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
     seed(ctx, %{36 => ItemStack.new("iron_pickaxe")})
     {client, pid} = login(ctx)
     {:ok, {region, _} = owner} = World.existing_owner(ctx.key)
-    :ok = :sys.suspend(region)
+    :ok = Valimc.TestRegionGate.stall(region)
 
     try do
       action(client, "start_destroy_block", ctx.target, 1)
@@ -336,7 +336,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
       assert state(pid).mining == nil and state(pid).recovery == nil
       assert Inventory.held(state(pid).inventory, :main) == ItemStack.new("iron_pickaxe")
     after
-      :ok = :sys.resume(region)
+      :ok = Valimc.TestRegionGate.resume(region)
     end
 
     assert World.get_block(ctx.target) == Data.block("stone")
@@ -348,13 +348,13 @@ defmodule Valimc.PlayerMiningConnectionTest do
     seed(ctx, %{36 => ItemStack.new("iron_pickaxe")})
     {client, pid} = login(ctx)
     {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :ok = :sys.suspend(region)
+    :ok = Valimc.TestRegionGate.stall(region)
     action(client, "start_destroy_block", ctx.target, 1)
     wait(fn -> state(pid).mining_job != nil end)
     :ok = :sys.suspend(pid)
 
     try do
-      :ok = :sys.resume(region)
+      :ok = Valimc.TestRegionGate.resume(region)
       Process.sleep(300)
     after
       :ok = :sys.resume(pid)

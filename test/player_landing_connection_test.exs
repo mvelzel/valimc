@@ -266,7 +266,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
              state(pid).player.motion.fall_distance == 8.0
 
     {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(region)
+    Valimc.TestRegionGate.stall(region)
 
     try do
       move(client, pid, 64.0, 1)
@@ -281,7 +281,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
 
       assert state(pid).player.health.value == 20.0 and state(pid).player.y == 80.0
     after
-      :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
     end
   end
 

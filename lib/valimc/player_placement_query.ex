@@ -11,7 +11,7 @@ defmodule Valimc.PlayerPlacementQuery do
       deadline = now() + @timeout
 
       {:ok,
-       Task.Supervisor.async_nolink(Valimc.CollisionWorkers, fn ->
+       Task.Supervisor.async_nolink(Valimc.Workers.collision(), fn ->
          prepare(item, request, deadline)
        end)}
     end
@@ -83,7 +83,7 @@ defmodule Valimc.PlayerPlacementQuery do
     connection = self()
 
     {:ok,
-     Task.Supervisor.async_nolink(Valimc.CollisionWorkers, fn ->
+     Task.Supervisor.async_nolink(Valimc.Workers.collision(), fn ->
        result =
          with {:ok, plan} <- prepare(item, request, now() + @timeout),
               true <- admitted?(plan, grant, expires),
@@ -118,7 +118,7 @@ defmodule Valimc.PlayerPlacementQuery do
     connection = self()
 
     {:ok,
-     Task.Supervisor.async_nolink(Valimc.CollisionWorkers, fn ->
+     Task.Supervisor.async_nolink(Valimc.Workers.collision(), fn ->
        if reservation do
          try do
            Region.release_placement(reservation.owner, reservation.permit)

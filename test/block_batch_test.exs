@@ -3,7 +3,7 @@ defmodule Valimc.BlockBatchTest do
   @moduletag :tcp
   alias Valimc.Protocol.{Data, Wire}
   alias Valimc.World
-  alias Valimc.World.{BlockBatch, Region}
+  alias Valimc.World.{BlockBatch, Blocks, Region}
   alias Valimc.TestClient, as: Client
 
   test "preparation bounds positions, registry states, count and one-region scope" do
@@ -86,21 +86,20 @@ defmodule Valimc.BlockBatchTest do
     {x, z} = {402 * 128, 403 * 128}
     full = for dx <- 0..127, dz <- 0..127, y <- 64..71, into: %{}, do: {{x + dx, y, z + dz}, 1}
 
-    by_chunk =
-      full
-      |> Enum.group_by(fn {{x, _, z}, _} -> World.chunk_key(x, z) end)
-      |> Map.new(fn {key, entries} -> {key, Map.new(entries)} end)
-
+    # Fill the sparse persistence image to its limit inside the owner process.
     state =
-      :sys.replace_state(pid, &%{&1 | resource: %{&1.resource | edits: full, by_chunk: by_chunk}}).resource
+      :sys.replace_state(pid, fn s ->
+        :ok = Blocks.put(s.resource.blocks, full)
+        s
+      end).resource
 
     added = {x, 72, z}
     assert {:error, :region_edit_limit} = Region.set_blocks(owner, state.revision, %{added => 1})
     assert mutation_state(pid) == mutation_state(state)
     assert {:ok, _} = Region.set_blocks(owner, state.revision, %{{x, 64, z} => 0, added => 1})
-    after_commit = :sys.get_state(pid).resource
-    assert map_size(after_commit.edits) == 131_072
-    assert after_commit.edits[added] == 1 and not Map.has_key?(after_commit.edits, {x, 64, z})
+    image = Blocks.image(:sys.get_state(pid).resource.blocks)
+    assert map_size(image) == 131_072
+    assert image[added] == 1 and not Map.has_key?(image, {x, 64, z})
   end
 
   test "compressed TCP sends only section frames for the recipient's loaded chunks" do
@@ -159,7 +158,10 @@ defmodule Valimc.BlockBatchTest do
   defp mutation_state(pid) when is_pid(pid), do: mutation_state(:sys.get_state(pid).resource)
 
   defp mutation_state(state),
-    do: Map.take(state, [:edits, :by_chunk, :cache, :versions, :revision, :dirty])
+    do:
+      state
+      |> Map.take([:cache, :versions, :revision, :dirty])
+      |> Map.put(:image, Blocks.image(state.blocks))
 
   defp collect_updates(client, received) do
     {id, body, client} = Client.read(client)

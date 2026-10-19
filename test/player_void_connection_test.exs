@@ -213,7 +213,7 @@ defmodule Valimc.PlayerVoidConnectionTest do
     seed(ctx, inventory: inventory)
     {_client, pid} = login(ctx)
     {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(region)
+    Valimc.TestRegionGate.stall(region)
 
     try do
       tick(pid)
@@ -222,7 +222,7 @@ defmodule Valimc.PlayerVoidConnectionTest do
       assert state(pid).player.health.value == 12.0
       assert state(pid).inventory.slots == inventory.slots
     after
-      if Process.alive?(region), do: :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
     end
   end
 

@@ -279,7 +279,7 @@ defmodule Valimc.MovementFoodConnectionTest do
     {client, pid} = login(ctx)
     command(client, pid, true)
     {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(region)
+    Valimc.TestRegionGate.stall(region)
 
     try do
       target = %{ctx.pose | x: ctx.pose.x + 0.2}
@@ -287,7 +287,7 @@ defmodule Valimc.MovementFoodConnectionTest do
       _old = wait(fn -> state(pid).motion_job end)
       Client.send_packet(client, :play, "player_command", <<0, 2, 0>>)
       assert state(pid).player.food == %PlayerFood{}
-      :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
       moved(pid, target)
       wait(fn -> Bitwise.band(state(pid).player.input.shared_flags, 8) == 0 end)
       expected = PlayerFood.exhaust(%PlayerFood{}, 0.019999999552965164)
@@ -297,7 +297,7 @@ defmodule Valimc.MovementFoodConnectionTest do
       moved(pid, next)
       assert state(pid).player.food == expected
     after
-      if Process.alive?(region), do: :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
     end
   end
 
@@ -317,7 +317,7 @@ defmodule Valimc.MovementFoodConnectionTest do
     wait(fn -> not state(pid).teleport_pending end)
     assert state(pid).player.food == %PlayerFood{}
     {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(region)
+    Valimc.TestRegionGate.stall(region)
 
     try do
       move(client, %{ctx.pose | z: ctx.pose.z + 0.1})
@@ -327,7 +327,7 @@ defmodule Valimc.MovementFoodConnectionTest do
       assert state(pid).player.food == %PlayerFood{}
       assert Process.alive?(pid)
     after
-      if Process.alive?(region), do: :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
     end
   end
 
@@ -337,7 +337,7 @@ defmodule Valimc.MovementFoodConnectionTest do
     {client, pid} = login(ctx)
     command(client, pid, true)
     {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(region)
+    Valimc.TestRegionGate.stall(region)
 
     try do
       target = %{ctx.pose | x: ctx.pose.x + 0.2}
@@ -346,11 +346,11 @@ defmodule Valimc.MovementFoodConnectionTest do
       tick(pid)
       spent = %PlayerFood{level: 19, saturation: 0.0, exhaustion: 0.125}
       assert state(pid).player.food == spent
-      :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
       moved(pid, target)
       assert state(pid).player.food == PlayerFood.exhaust(spent, 0.019999999552965164)
     after
-      if Process.alive?(region), do: :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
     end
   end
 end

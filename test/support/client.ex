@@ -293,3 +293,78 @@ defmodule Valimc.TestClient do
     load_world(client, expected, count + if(name == "level_chunk_with_light", do: 1, else: 0))
   end
 end
+
+defmodule Valimc.TestRegionGate do
+  @moduledoc """
+  Stall a region for tests: suspend its owner and hold published-snapshot reads
+  (compiled in only with `region_read_gates: true`), so geometry stays in flight.
+  """
+  @table :valimc_region_read_gates
+
+  def stall(pid) do
+    ensure_table()
+    :ets.insert(@table, {key(pid), pid})
+    :sys.suspend(pid)
+  end
+
+  def resume(pid) do
+    ensure_table()
+    :ets.match_delete(@table, {:_, pid})
+    if Process.alive?(pid), do: :sys.resume(pid)
+    :ok
+  end
+
+  defp key(pid) do
+    [key] = Registry.keys(Valimc.RegionRegistry, pid)
+    key
+  end
+
+  defp ensure_table do
+    if :ets.whereis(@table) == :undefined do
+      # Owned by a long-lived holder so the table outlives individual tests.
+      parent = self()
+
+      spawn(fn ->
+        :ets.new(@table, [:named_table, :public, :set])
+        send(parent, :gate_table_ready)
+        Process.sleep(:infinity)
+      end)
+
+      receive do
+        :gate_table_ready -> :ok
+      end
+    end
+  end
+end
+
+defmodule Valimc.TestPool do
+  @moduledoc "Saturate the collision pool partition a given caller (e.g. a connection) uses."
+  def partition(caller), do: {:via, PartitionSupervisor, {Valimc.CollisionWorkers, caller}}
+
+  def fill(caller) do
+    Stream.repeatedly(fn ->
+      Task.Supervisor.start_child(partition(caller), fn ->
+        receive do
+          :stop -> :ok
+        end
+      end)
+    end)
+    |> Enum.take_while(&match?({:ok, _}, &1))
+    |> Enum.map(fn {:ok, pid} -> pid end)
+  end
+
+  def active(caller), do: DynamicSupervisor.count_children(partition(caller)).active
+
+  def release(holders) do
+    for holder <- holders, Process.alive?(holder) do
+      ref = Process.monitor(holder)
+      send(holder, :stop)
+
+      receive do
+        {:DOWN, ^ref, _, _, _} -> :ok
+      end
+    end
+
+    :ok
+  end
+end

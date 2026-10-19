@@ -507,7 +507,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     seed(c)
     {client, pid} = login(c)
     {:ok, {owner, _}} = World.existing_owner(c.key)
-    :sys.suspend(owner)
+    Valimc.TestRegionGate.stall(owner)
 
     try do
       send_place(client, c.target)
@@ -520,12 +520,12 @@ defmodule Valimc.PlayerPlacementConnectionTest do
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
       {_body, client} = Client.await(client, :play, "system_chat")
       Process.sleep(275)
-      :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
       _client = ack(client)
       assert World.get_block(c.target) == 0
       assert Process.alive?(pid)
     after
-      :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
     end
   end
 
@@ -533,7 +533,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     seed(c, :survival)
     {client, pid} = login(c)
     {:ok, {owner, _}} = World.existing_owner(c.key)
-    :sys.suspend(owner)
+    Valimc.TestRegionGate.stall(owner)
 
     try do
       send_place(client, c.target)
@@ -548,13 +548,13 @@ defmodule Valimc.PlayerPlacementConnectionTest do
       {_body, client} = Client.await(client, :play, "system_chat")
       assert :sys.get_state(pid).inventory.selected == 0
       Process.sleep(275)
-      :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
       _client = ack(client)
       assert World.get_block(c.target) == 0
       assert :sys.get_state(pid).inventory.slots[36].count == 7
       assert :sys.get_state(:sys.get_state(pid).player_store).snapshot.transfer_sequence == 0
     after
-      :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
     end
   end
 
@@ -680,7 +680,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     seed(c)
     {client, pid} = login(c)
     {:ok, {owner, _}} = World.existing_owner(c.key)
-    :sys.suspend(owner)
+    Valimc.TestRegionGate.stall(owner)
 
     try do
       send_place(client, c.target)
@@ -692,7 +692,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
 
       Client.send_packet(client, :play, "set_carried_item", <<1::signed-16>>)
       {<<1>>, client} = Client.await(client, :play, "set_held_slot")
-      :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
       client = ack(client)
       assert World.get_block(c.target) == 1
       :ok = World.set_block(c.target, 0)
@@ -700,7 +700,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
       _client = ack(client, 2)
       assert World.get_block(c.target) == 15_180
     after
-      :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
     end
   end
 end

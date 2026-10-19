@@ -12,10 +12,10 @@ current shape to the target below.
 | Socket, protocol, AES stream, session inventory/input/pose | One connection process per player |
 | Admission, names, lifecycle | Players service; never on movement or chat hot paths |
 | Nearby-player observations | Published ETS rows plus a spatial index; paced replication |
-| Blocks, chunk sections, block entities, stationary items | Region owner (8×8 chunks) |
+| Blocks (Rust paletted sections), block entities, stationary items | Region owner (8×8 chunks); immutable chunk snapshots in its ETS table for readers |
 | Item and orb observations | Region-owned protected ETS; cached immutable packet binaries |
 | World clock, weather, difficulty | Environment owner; immutable publications |
-| Encoding, collision queries, auth/crypto, transfer recovery | Bounded worker pools |
+| Encoding, collision queries, auth/crypto, transfer recovery | Bounded worker pools (collision pool partitioned per caller) |
 | Region files and player snapshots | Leased writers; disk outside sensitive owners |
 
 Ingress is bounded by `active: :once`, packet/byte rate windows, a receive-buffer

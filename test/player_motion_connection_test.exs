@@ -317,7 +317,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
        ctx do
     {_client, pid} = login(hd(ctx.names))
     {:ok, {owner, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(owner)
+    Valimc.TestRegionGate.stall(owner)
 
     try do
       assert :ok = Connection.set_velocity(pid, {0.4, 0.8, 0.0})
@@ -362,11 +362,11 @@ defmodule Valimc.PlayerMotionConnectionTest do
                )
 
       assert state(pid).player.motion.velocity == {0.2, 0.5, 0.0}
-      :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
       wait(fn -> elem(state(pid).player.motion.velocity, 1) < 0.5 end)
       assert Process.alive?(pid)
     after
-      if Process.alive?(owner), do: :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
     end
   end
 
@@ -423,7 +423,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     :ok = World.set_block({floor(ctx.pos.x), 64, floor(ctx.pos.z)}, 30519)
     wait(fn -> state(pid).player.environment.frozen_ticks >= 3 end)
     {:ok, {owner, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(owner)
+    Valimc.TestRegionGate.stall(owner)
 
     try do
       job = wait(fn -> state(pid).pose_job end)
@@ -433,13 +433,13 @@ defmodule Valimc.PlayerMotionConnectionTest do
       client = Client.teleport(client, pid, %{ctx.pos | x: ctx.pos.x + 2})
       send(pid, {job.task.ref, {:ok, %{pose: :standing, powder_snow: true, fences: %{}}}})
       assert state(pid).player.environment.frozen_ticks == before
-      :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
       wait(fn -> state(pid).player.environment.frozen_ticks == 0 end)
       assert Process.alive?(pid)
       move(client, %{ctx.pos | x: ctx.pos.x + 2.2})
       wait(fn -> state(pid).player.x == ctx.pos.x + 2.2 end)
     after
-      if Process.alive?(owner), do: :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
     end
   end
 
@@ -495,7 +495,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     move(client, %{top | y: 67.0}, 0)
     wait(fn -> state(pid).player.y == 67.0 end)
     {:ok, {owner, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(owner)
+    Valimc.TestRegionGate.stall(owner)
 
     try do
       move(client, %{top | y: 66.0}, 0)
@@ -506,7 +506,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
       _client = correction(client, pid, top)
       assert state(pid).player.y == 68.0
     after
-      if Process.alive?(owner), do: :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
     end
   end
 
@@ -629,7 +629,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
 
     {_, client} = Client.await(client, :play, "container_set_slot")
     {:ok, {owner, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(owner)
+    Valimc.TestRegionGate.stall(owner)
 
     try do
       move(client, %{ctx.pos | x: ctx.pos.x + 0.2})
@@ -642,7 +642,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
       ])
 
       assert state(pid).recovery == nil
-      :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
 
       wait(fn ->
         state(pid).player.x == ctx.pos.x + 0.2 and state(pid).inventory.slots[36] == nil and
@@ -662,7 +662,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
 
       assert saved.transfer_sequence == 1 and saved.outbox == nil
     after
-      if Process.alive?(owner), do: :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
     end
   end
 
@@ -684,7 +684,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     {other, independent} = login(List.last(ctx.names))
     other_pos = state(independent).player
     {:ok, {owner, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(owner)
+    Valimc.TestRegionGate.stall(owner)
 
     try do
       move(client, %{ctx.pos | x: ctx.pos.x + 0.1})
@@ -695,11 +695,11 @@ defmodule Valimc.PlayerMotionConnectionTest do
       client = correction(client, pid, ctx.pos)
       {_, client} = Client.await(client, :play, "system_chat")
       refute Process.alive?(job.task.pid)
-      :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
       move(client, %{ctx.pos | x: ctx.pos.x + 0.2})
       wait(fn -> state(pid).player.x == ctx.pos.x + 0.2 end)
     after
-      if Process.alive?(owner), do: :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
     end
   end
 
@@ -707,7 +707,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
        ctx do
     {client, pid} = login(hd(ctx.names))
     {:ok, {owner, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(owner)
+    Valimc.TestRegionGate.stall(owner)
 
     try do
       move(client, %{ctx.pos | x: ctx.pos.x + 0.1})
@@ -721,21 +721,21 @@ defmodule Valimc.PlayerMotionConnectionTest do
       client = correction(client, pid, destination)
       assert state(pid).motion_pending == nil
       assert Process.alive?(pid)
-      :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
       move(client, %{ctx.pos | x: ctx.pos.x + 0.4})
       wait(fn -> state(pid).player.x == ctx.pos.x + 0.4 end)
 
       assert {:error, :invalid_or_expired_teleport} =
                Connection.teleport(pid, Map.put(destination, :extra, 1))
     after
-      if Process.alive?(owner), do: :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
     end
   end
 
   test "expired completed geometry cannot commit after its player mailbox resumes", ctx do
     {client, pid} = login(hd(ctx.names))
     {:ok, {owner, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(owner)
+    Valimc.TestRegionGate.stall(owner)
 
     try do
       move(client, %{ctx.pos | x: ctx.pos.x + 0.2})
@@ -743,7 +743,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
       :sys.suspend(pid)
 
       try do
-        :sys.resume(owner)
+        Valimc.TestRegionGate.resume(owner)
         wait(fn -> not Process.alive?(job.task.pid) end)
         Process.sleep(260)
       after
@@ -752,14 +752,14 @@ defmodule Valimc.PlayerMotionConnectionTest do
 
       _client = correction(client, pid, ctx.pos)
     after
-      if Process.alive?(owner), do: :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
     end
   end
 
   test "a TCP burst retains one active input and disconnect cancels outstanding work", ctx do
     {client, pid} = login(hd(ctx.names))
     {:ok, {owner, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(owner)
+    Valimc.TestRegionGate.stall(owner)
 
     try do
       move(client, %{ctx.pos | x: ctx.pos.x + 0.01})
@@ -768,16 +768,16 @@ defmodule Valimc.PlayerMotionConnectionTest do
       assert state(pid).motion_job.task.ref == job.task.ref
       assert state(pid).motion_pending.position.x == ctx.pos.x + 0.01
       refute state(pid).active
-      :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
       wait(fn -> state(pid).player.x == ctx.pos.x + 0.34 end)
-      :sys.suspend(owner)
+      Valimc.TestRegionGate.stall(owner)
       move(client, %{ctx.pos | x: ctx.pos.x + 0.4})
       job = wait(fn -> state(pid).motion_job end)
       ref = Process.monitor(job.task.pid)
       Client.close(client)
       assert_receive {:DOWN, ^ref, :process, _, _}, 1000
     after
-      if Process.alive?(owner), do: :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
     end
   end
 
@@ -785,17 +785,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     {client, pid} = login(hd(ctx.names))
     wait(fn -> state(pid).pose_job == nil end)
 
-    holders =
-      for _ <- 1..Valimc.Physics.CollisionQuery.worker_limit() do
-        {:ok, holder} =
-          Task.Supervisor.start_child(Valimc.CollisionWorkers, fn ->
-            receive do
-              :stop -> :ok
-            end
-          end)
-
-        holder
-      end
+    holders = Valimc.TestPool.fill(pid)
 
     try do
       move(client, %{ctx.pos | x: ctx.pos.x + 0.1})
@@ -804,13 +794,11 @@ defmodule Valimc.PlayerMotionConnectionTest do
       assert state(pid).player.x == ctx.pos.x
       client = correction(client, pid, ctx.pos)
       send(pid, {:retry_motion, input.token})
-      for holder <- holders, do: Task.Supervisor.terminate_child(Valimc.CollisionWorkers, holder)
+      Valimc.TestPool.release(holders)
       move(client, %{ctx.pos | x: ctx.pos.x + 0.2})
       wait(fn -> state(pid).player.x == ctx.pos.x + 0.2 end)
     after
-      for holder <- holders,
-          Process.alive?(holder),
-          do: Task.Supervisor.terminate_child(Valimc.CollisionWorkers, holder)
+      Valimc.TestPool.release(holders)
     end
   end
 
@@ -818,14 +806,14 @@ defmodule Valimc.PlayerMotionConnectionTest do
        ctx do
     {client, pid} = login(hd(ctx.names))
     {:ok, {owner, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(owner)
+    Valimc.TestRegionGate.stall(owner)
 
     try do
       move(client, %{ctx.pos | x: ctx.pos.x + 0.1})
       wait(fn -> state(pid).motion_job end)
       Client.send_packet(client, :play, "player_input", <<32>>)
       assert state(pid).player.input.shared_flags == 0
-      :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
 
       wait(fn ->
         state(pid).player.x == ctx.pos.x + 0.1 and state(pid).player.pose == :crouching
@@ -833,7 +821,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
 
       assert state(pid).player.pose == :crouching
       refute state(pid).teleport_pending
-      :sys.suspend(owner)
+      Valimc.TestRegionGate.stall(owner)
       move(client, %{ctx.pos | x: ctx.pos.x + 0.2})
       wait(fn -> state(pid).motion_job end)
       Process.exit(owner, :kill)
@@ -843,7 +831,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
       move(client, %{ctx.pos | x: ctx.pos.x + 0.3})
       wait(fn -> state(pid).player.x == ctx.pos.x + 0.3 end)
     after
-      if Process.alive?(owner), do: :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
     end
   end
 
@@ -852,17 +840,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     :ok = World.set_block({floor(ctx.pos.x) + 1, 64, floor(ctx.pos.z)}, 1)
     wait(fn -> state(pid).pose_job == nil end)
 
-    holders =
-      for _ <- 1..Valimc.Physics.CollisionQuery.worker_limit() do
-        {:ok, holder} =
-          Task.Supervisor.start_child(Valimc.CollisionWorkers, fn ->
-            receive do
-              :stop -> :ok
-            end
-          end)
-
-        holder
-      end
+    holders = Valimc.TestPool.fill(pid)
 
     try do
       move(client, %{ctx.pos | x: ctx.pos.x + 0.5})
@@ -880,14 +858,12 @@ defmodule Valimc.PlayerMotionConnectionTest do
         }
       end)
 
-      for holder <- holders, do: Task.Supervisor.terminate_child(Valimc.CollisionWorkers, holder)
+      Valimc.TestPool.release(holders)
       wait(fn -> state(pid).player.x == ctx.pos.x + 0.5 end)
       refute state(pid).teleport_pending
       assert state(pid).player.game_mode.current == :spectator
     after
-      for holder <- holders,
-          Process.alive?(holder),
-          do: Task.Supervisor.terminate_child(Valimc.CollisionWorkers, holder)
+      Valimc.TestPool.release(holders)
     end
   end
 end

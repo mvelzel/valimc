@@ -11,6 +11,7 @@ defmodule Valimc.ChestAccess do
   def ordinary?(block), do: MapSet.member?(@ordinary, block)
 
   def single?(block), do: MapSet.member?(@single, block)
+  def single_states, do: @single
 
   def valid_view?(block, mode, {x, y, z} = eye, position)
       when mode in @modes and is_number(x) and is_number(y) and is_number(z),

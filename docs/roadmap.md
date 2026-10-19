@@ -19,10 +19,10 @@ lands. See [architecture](architecture.md) for the target design.
 
 | Ticket | Slice | Status |
 |---|---|---|
-| [VMC-062](tickets/VMC-062.md) | Rust NIF toolchain and paletted section storage replacing the edit map | Next |
+| [VMC-062](tickets/VMC-062.md) | Rust NIF toolchain and paletted section storage replacing the edit map | In progress |
 | VMC-063 | Region persistence v2: dirty-section deltas, group commit, no tick pauses | Planned |
 | VMC-064 | One owner-transaction engine (idempotent ops, permits, outbox) and section fencing | Planned |
-| VMC-065 | Published section snapshots for lock-free collision/observation reads | Planned |
+| [VMC-065](tickets/VMC-065.md) | Published section snapshots for lock-free collision/observation reads | In progress |
 | VMC-066 | Tick pipeline on game time: steppable clock, scheduled and random ticks | Planned |
 | VMC-067 | Generic entity model; items and XP orbs migrate onto it | Planned |
 | VMC-068 | Unified generated block/item registry, block behaviours, protocol constants | Planned |

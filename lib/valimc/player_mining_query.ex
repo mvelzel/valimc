@@ -35,7 +35,7 @@ defmodule Valimc.PlayerMiningQuery do
   end
 
   defp start(fun) do
-    {:ok, Task.Supervisor.async_nolink(Valimc.CollisionWorkers, fn -> safely(fun) end)}
+    {:ok, Task.Supervisor.async_nolink(Valimc.Workers.collision(), fn -> safely(fun) end)}
   rescue
     RuntimeError -> {:error, :mining_workers_busy}
   catch

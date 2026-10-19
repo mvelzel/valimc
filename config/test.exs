@@ -6,6 +6,7 @@ config :valimc,
   port: 0,
   world_path: nil,
   acceptors: 2,
-  view_distance: 1
+  view_distance: 1,
+  region_read_gates: true
 
 config :logger, level: :warning

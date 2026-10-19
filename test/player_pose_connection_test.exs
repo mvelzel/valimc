@@ -190,14 +190,14 @@ defmodule Valimc.PlayerPoseConnectionTest do
 
     wait(fn -> state(pid).pose_job == nil and state(pid).pose_checked != nil end)
     {:ok, {owner, _}} = World.owner(ctx.key)
-    :sys.suspend(owner)
+    Valimc.TestRegionGate.stall(owner)
 
     try do
       client = sprint(client, entity, true)
       job = wait(fn -> state(pid).pose_job end)
       Client.send_packet(client, :play, "player_abilities", <<2>>)
       wait(fn -> state(pid).player.abilities.flying end)
-      :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
       wait(fn -> state(pid).pose_job == nil or state(pid).pose_job.task.ref != job.task.ref end)
       wait(fn -> state(pid).pose_job == nil and state(pid).pose_checked != nil end)
       assert state(pid).player.abilities.flying
@@ -205,7 +205,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
       refute state(pid).player.motion.swimming
       assert Packets.shared_flags(state(pid).player) == 8
     after
-      if Process.alive?(owner), do: :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
     end
   end
 
@@ -285,7 +285,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
     entity = state(pid).player.entity_id
     client = input(client, true) |> await_pose(entity, 5)
     {:ok, {owner, _}} = World.owner(ctx.key)
-    :sys.suspend(owner)
+    Valimc.TestRegionGate.stall(owner)
 
     try do
       client = input(client, false)
@@ -296,13 +296,13 @@ defmodule Valimc.PlayerPoseConnectionTest do
       _other = input(other, true) |> await_pose(state(other_pid).player.entity_id, 5)
       client = input(client, true)
       wait(fn -> state(pid).player.input.shared_flags == 2 end)
-      :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
       wait(fn -> state(pid).pose_job == nil or state(pid).pose_job.task.ref != job.task.ref end)
       assert state(pid).player.pose == :crouching
       assert Process.alive?(pid) and Process.alive?(other_pid)
       Client.close(client)
     after
-      if Process.alive?(owner), do: :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
     end
   end
 
@@ -320,7 +320,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
     {:ok, {replacement, _}} = World.owner(ctx.key)
     refute replacement == owner
     client = await_pose(client, entity, 0)
-    :sys.suspend(replacement)
+    Valimc.TestRegionGate.stall(replacement)
 
     try do
       client = input(client, true)
@@ -330,7 +330,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
       assert_receive {:DOWN, ^ref, :process, _, _}, 1000
       refute Process.alive?(job.task.pid)
     after
-      if Process.alive?(replacement), do: :sys.resume(replacement)
+      Valimc.TestRegionGate.resume(replacement)
     end
   end
 
@@ -341,17 +341,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
     client = input(client, true) |> await_pose(entity, 5)
     wait(fn -> state(pid).pose_job == nil end)
 
-    holders =
-      for _ <- 1..Valimc.Physics.CollisionQuery.worker_limit() do
-        {:ok, holder} =
-          Task.Supervisor.start_child(Valimc.CollisionWorkers, fn ->
-            receive do
-              :stop -> :ok
-            end
-          end)
-
-        holder
-      end
+    holders = Valimc.TestPool.fill(pid)
 
     try do
       client = input(client, false)
@@ -359,14 +349,12 @@ defmodule Valimc.PlayerPoseConnectionTest do
       {_, client} = Client.await(client, :play, "system_chat")
       Process.sleep(110)
       assert state(pid).player.pose == :crouching and state(pid).pose_job == nil
-      assert DynamicSupervisor.count_children(Valimc.CollisionWorkers).active == length(holders)
-      for holder <- holders, do: Task.Supervisor.terminate_child(Valimc.CollisionWorkers, holder)
+      assert Valimc.TestPool.active(pid) == length(holders)
+      Valimc.TestPool.release(holders)
       _client = await_pose(client, entity, 0)
       assert state(pid).player.pose == :standing
     after
-      for holder <- holders,
-          Process.alive?(holder),
-          do: Task.Supervisor.terminate_child(Valimc.CollisionWorkers, holder)
+      Valimc.TestPool.release(holders)
     end
   end
 
@@ -375,7 +363,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
     entity = state(pid).player.entity_id
     client = input(client, true) |> await_pose(entity, 5)
     {:ok, {owner, _}} = World.owner(ctx.key)
-    :sys.suspend(owner)
+    Valimc.TestRegionGate.stall(owner)
 
     try do
       client = input(client, false)
@@ -383,7 +371,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
       :sys.suspend(pid)
 
       try do
-        :sys.resume(owner)
+        Valimc.TestRegionGate.resume(owner)
         wait(fn -> not Process.alive?(job.task.pid) end)
         roof = {floor(ctx.pos.x), 65, floor(ctx.pos.z)}
         :ok = World.set_block(roof, 15178)
@@ -397,7 +385,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
       await_stats_without_standing(client, entity)
       assert state(pid).player.pose == :crouching
     after
-      if Process.alive?(owner), do: :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
     end
   end
 

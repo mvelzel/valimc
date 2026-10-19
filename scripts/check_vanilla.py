@@ -14,7 +14,8 @@ from vanilla_stages import HELPERS, STAGES
 root = java_tool.root
 logs = root / '.local/vanilla-checks'
 # A private build compiled once up front: concurrent source edits cannot change a run.
-mix_env = dict(os.environ, MIX_BUILD_PATH=str(root / '.local/vanilla-checks/_build'))
+mix_env = dict(os.environ, MIX_BUILD_PATH=str(root / '.local/vanilla-checks/_build'),
+               VALIMC_BUILD_EMBEDDED='1')
 
 
 def audit():

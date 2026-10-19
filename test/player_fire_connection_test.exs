@@ -625,7 +625,7 @@ defmodule Valimc.PlayerFireConnectionTest do
     {_client, pid} = login(ctx)
     wait(fn -> state(pid).pose_job == nil and state(pid).motion_job == nil end)
     {:ok, {owner, _epoch}} = World.existing_owner(ctx.key)
-    :sys.suspend(owner)
+    Valimc.TestRegionGate.stall(owner)
 
     try do
       for _ <- 1..21, do: tick(pid, false)
@@ -634,7 +634,7 @@ defmodule Valimc.PlayerFireConnectionTest do
       assert pending.player.health.value == 20.0
       assert pending.pose_job != nil or pending.motion_job != nil
     after
-      :sys.resume(owner)
+      Valimc.TestRegionGate.resume(owner)
     end
 
     wait(fn ->

@@ -183,13 +183,13 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
     {_client, pid} = login(ctx)
     zero_phase(pid)
     {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(region)
+    Valimc.TestRegionGate.stall(region)
 
     try do
       for _ <- 1..80, do: tick(pid, false)
       assert state(pid).player.environment.damage_due
       assert state(pid).player.health.value == 20.0
-      :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
       # An expired query is discarded; an admitted tick starts a fresh one.
       tick(pid)
       assert state(pid).player.health.value == 19.0
@@ -197,7 +197,7 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
       tick(pid)
       assert state(pid).player.health.value == 19.0
     after
-      if Process.alive?(region), do: :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
     end
   end
 

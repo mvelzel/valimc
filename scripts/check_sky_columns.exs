@@ -18,14 +18,14 @@ for row <- rows do
         do: Map.delete(edits, position),
         else: Map.put(edits, position, block)
 
-    index = ColumnIndex.update(index, edits, %{position => block})
+    index = ColumnIndex.update(index, &Chunk.block_at(edits, &1), %{position => block})
     actual = ColumnIndex.heights(index, column).sky_source
 
     unless actual == max(-64, expected),
       do:
         raise("Native sky-source height differs: #{inspect({position, block, actual, expected})}")
 
-    unless ColumnIndex.restore(edits) == index,
+    unless ColumnIndex.restore(edits, &Chunk.block_at(edits, &1)) == index,
       do: raise("Rebuilt sky/height columns differ from incremental observations")
 
     {edits, index}

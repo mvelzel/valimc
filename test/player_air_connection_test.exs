@@ -192,14 +192,14 @@ defmodule Valimc.PlayerAirConnectionTest do
     {client, pid} = login(ctx)
     :sys.replace_state(pid, fn s -> %{s | player: %{s.player | air_supply: 20}} end)
     {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(region)
+    Valimc.TestRegionGate.stall(region)
 
     try do
       for _ <- 1..40, do: tick(pid, false)
       assert state(pid).player.air_supply == 20
       assert state(pid).player.health.value == 20.0
     after
-      :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
     end
 
     tick(pid)
@@ -285,13 +285,13 @@ defmodule Valimc.PlayerAirConnectionTest do
     {:ok, one} = Valimc.StatusEffect.new(1, 0)
     assert {:ok, true} = Connection.add_effect(pid, 12, one)
     {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(region)
+    Valimc.TestRegionGate.stall(region)
 
     try do
       for _ <- 1..5, do: tick(pid, false)
       assert state(pid).player.air_supply == -19
       assert state(pid).player.effects == %{} and state(pid).air_policy == :none
-      :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
 
       wait(fn ->
         not state(pid).simulation_due and state(pid).pose_job == nil and
@@ -300,7 +300,7 @@ defmodule Valimc.PlayerAirConnectionTest do
 
       assert state(pid).player.air_supply == 0 and state(pid).player.health.value == 18.0
     after
-      if Process.alive?(region), do: :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
     end
   end
 
@@ -321,7 +321,7 @@ defmodule Valimc.PlayerAirConnectionTest do
     {_client, pid} = login(ctx)
     :sys.replace_state(pid, fn s -> %{s | player: %{s.player | air_supply: -19}} end)
     {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(region)
+    Valimc.TestRegionGate.stall(region)
 
     try do
       tick(pid, false)
@@ -331,7 +331,7 @@ defmodule Valimc.PlayerAirConnectionTest do
       assert {:ok, true} =
                Connection.add_effect(pid, Valimc.Protocol.EffectTypes.id("resistance"), effect)
 
-      :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
 
       wait(fn ->
         not state(pid).simulation_due and state(pid).pose_job == nil and
@@ -347,7 +347,7 @@ defmodule Valimc.PlayerAirConnectionTest do
       tick(pid)
       assert state(pid).player.health.value == 18.0 and state(pid).player.air_supply == 0
     after
-      if Process.alive?(region), do: :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
     end
   end
 
@@ -356,14 +356,14 @@ defmodule Valimc.PlayerAirConnectionTest do
     {_client, pid} = login(ctx)
     :sys.replace_state(pid, fn s -> %{s | player: %{s.player | air_supply: -19}} end)
     {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(region)
+    Valimc.TestRegionGate.stall(region)
 
     try do
       tick(pid, false)
       assert state(pid).air_policy == :none and state(pid).player.air_supply == -19
       {:ok, infinite} = Valimc.StatusEffect.new(-1, 0)
       assert {:ok, true} = Connection.add_effect(pid, 12, infinite)
-      :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
 
       wait(fn ->
         not state(pid).simulation_due and state(pid).pose_job == nil and
@@ -375,7 +375,7 @@ defmodule Valimc.PlayerAirConnectionTest do
       assert state(pid).air_policy == :refill and state(pid).player.air_supply == 4
       assert state(pid).player.effects[12] == [{-1, 0, false, true, true}]
     after
-      if Process.alive?(region), do: :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
     end
   end
 
@@ -409,7 +409,7 @@ defmodule Valimc.PlayerAirConnectionTest do
     seed(ctx, air: -19)
     {client, pid} = login(ctx)
     {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(region)
+    Valimc.TestRegionGate.stall(region)
 
     try do
       tick(pid, false)
@@ -417,12 +417,12 @@ defmodule Valimc.PlayerAirConnectionTest do
       _client = Client.teleport(client, pid, %{ctx.pose | x: ctx.pose.x + 3})
       send(pid, {job.task.ref, {:ok, %{submerged: true}}})
       assert state(pid).player.health.value == 20.0
-      :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
       tick(pid)
       assert state(pid).player.air_supply == -15
       assert state(pid).player.health.value == 20.0
     after
-      if Process.alive?(region), do: :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
     end
   end
 

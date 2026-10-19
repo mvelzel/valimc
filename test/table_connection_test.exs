@@ -262,14 +262,14 @@ defmodule Valimc.TableConnectionTest do
     client = open(client, ctx) |> click(37) |> click(1)
     assert hd(client.inventory.items) == ItemStack.new("oak_planks", 4)
     {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(region)
+    Valimc.TestRegionGate.stall(region)
 
     try do
       send_click(client, 0)
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
       {_message, client} = Client.await(client, :play, "system_chat")
       wait(fn -> :sys.get_state(pid).table_menu == nil end)
-      :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
       _client = inventory_until(client, &(&1.container == 0))
       assert :sys.get_state(pid).inventory.carried == nil
       assert :sys.get_state(pid).inventory.slots[36] == ItemStack.new("oak_log")
@@ -281,7 +281,7 @@ defmodule Valimc.TableConnectionTest do
 
       assert records(ctx) == []
     after
-      if Process.alive?(region), do: :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
     end
   end
 
@@ -435,7 +435,7 @@ defmodule Valimc.TableConnectionTest do
     cells = Enum.map(1..9, &ItemStack.new("oak_planks", &1)) |> List.to_tuple()
     full = Map.new(9..44, &{&1, ItemStack.new("bedrock", 64)})
     {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :sys.suspend(region)
+    Valimc.TestRegionGate.stall(region)
 
     try do
       :sys.replace_state(pid, fn state ->
@@ -465,7 +465,7 @@ defmodule Valimc.TableConnectionTest do
       Process.exit(pid, :kill)
       if Process.alive?(writer), do: Process.exit(writer, :kill)
       wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-      :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
       {_fresh, fresh_pid} = login(ctx)
       assert :sys.get_state(fresh_pid).inventory.slots == full
       assert :sys.get_state(fresh_pid).inventory.table_inputs == nil
@@ -474,7 +474,7 @@ defmodule Valimc.TableConnectionTest do
       assert Enum.sort(Enum.map(records(ctx), & &1.stack)) == Enum.sort(expected)
       assert length(records(ctx)) == 10
     after
-      if Process.alive?(region), do: :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
     end
   end
 

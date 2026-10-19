@@ -441,7 +441,7 @@ defmodule Valimc.CookingOrbDeliveryTest do
 
     wait(fn -> Enum.all?(workers, &(not Process.alive?(&1))) end)
     {:ok, {bp, _}} = World.item_owner(ctx.dest)
-    :sys.suspend(bp)
+    Valimc.TestRegionGate.stall(bp)
 
     try do
       working = CookingOrbDelivery.tick(state, now())
@@ -460,7 +460,7 @@ defmodule Valimc.CookingOrbDeliveryTest do
       assert disk(ctx, ctx.source) == {:ok, routed}
       RegionData.terminate(:shutdown, expired)
     after
-      :sys.resume(bp)
+      Valimc.TestRegionGate.resume(bp)
     end
   end
 end

@@ -136,7 +136,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     seed(ctx, name, %Inventory{slots: Map.new(36..43, &{&1, ItemStack.new("stone", &1 - 35)})})
     {client, pid} = login(name)
     {:ok, {region, _}} = World.item_owner(ctx.key)
-    :sys.suspend(region)
+    Valimc.TestRegionGate.stall(region)
 
     try do
       p = state(pid).player
@@ -174,7 +174,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
       assert stored.last_death == {floor(p.x), floor(p.y), floor(p.z)}
       assert World.item_snapshot(ctx.key) == %{}
     after
-      :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
     end
 
     # The queued request is delivered automatically after the blocked destination.
@@ -243,7 +243,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     seed(ctx, name, %Inventory{slots: Map.new(36..43, &{&1, ItemStack.new("stone", &1 - 35)})})
     {client, pid} = login(name)
     {:ok, {region, _}} = World.item_owner(ctx.key)
-    :sys.suspend(region)
+    Valimc.TestRegionGate.stall(region)
 
     next =
       try do
@@ -275,7 +275,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
         assert map_size(source.inventory.slots) == 3
         next
       after
-        :sys.resume(region)
+        Valimc.TestRegionGate.resume(region)
       end
 
     {_, next} = Client.login_session(next, name)
@@ -338,7 +338,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
 
     {client, pid} = login(name)
     {:ok, {region, _}} = World.item_owner(ctx.key)
-    :sys.suspend(region)
+    Valimc.TestRegionGate.stall(region)
 
     try do
       Client.send_packet(client, :play, "player_action", [
@@ -356,7 +356,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
       assert source.health.value == 20 and source.transfer_sequence == 1 and source.outbox != nil
       assert source.inventory.slots[36].count == 6
     after
-      :sys.resume(region)
+      Valimc.TestRegionGate.resume(region)
     end
 
     _client = respawn(client, pid)

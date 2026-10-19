@@ -1,5 +1,11 @@
 # Measured prototype behavior
 
+[Section storage](tickets/VMC-062.md) (`bench/section_storage.exs`, 30-sample
+medians, one chunk packet before compression): Rust paletted sections versus the
+former Elixir edit map and encoder. One edit 3.7 ms → 0.10 ms; 4,096 random edits
+20.5 ms → 0.20 ms; a terrain-like chunk (49,152 varied blocks) 93.6 ms → 0.23 ms
+with block memory 3.0 MB → 75 KB. Untouched chunks keep the cached flat packet.
+
 [Cooking activity indexing](tickets/VMC-034m.md): 1,024 stored processors,
 100 alternating equal-result samples. With 64 active, p50/p95 falls from
 8.295/11.967 to 6.942/9.078 ms; with 1,024 active, from 44.097/51.686 to

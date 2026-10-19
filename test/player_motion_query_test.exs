@@ -99,7 +99,8 @@ defmodule Valimc.PlayerMotionQueryTest do
     :sys.suspend(replacement)
 
     try do
-      assert {:error, :collision_query_timeout} = query(p, %{x: p.x + 0.2})
+      # A busy owner no longer stalls movement: reads use its published snapshot.
+      assert {:ok, %{accepted: true}} = query(p, %{x: p.x + 0.2})
     after
       :sys.resume(replacement)
     end

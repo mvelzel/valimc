@@ -8,12 +8,15 @@ preview**; survival gameplay is incomplete. No fastest-server claim is made.
 
 ```sh
 asdf install
+mix deps.get
 mix run --no-halt
 ```
 
 Join `localhost:25565` with Java 26.3. The default is loopback/offline mode.
-Elixir 1.20.4 and OTP 29.1.1 are pinned in `.tool-versions`; the runtime has no
-JVM, Rust or Hex dependencies. Java 25 is used only by development reference tools.
+Elixir 1.20.4 and OTP 29.1.1 are pinned in `.tool-versions`. Building also needs
+Rust 1.91+ (`cargo`): `mix deps.get && mix compile` builds the `native/` crates
+(chunk section storage) through Rustler, a build-time Hex dependency. There are no
+runtime Hex or JVM dependencies; Java 25 is used only by development reference tools.
 
 The preview supports login/encryption/optional online authentication, flat chunks,
 creative edits, nearby players, supported inventory transactions and persistence.

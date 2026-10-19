@@ -2,6 +2,8 @@ defmodule Valimc.World.RegionData do
   @moduledoc "One storage resource's data and operations, executed by its owning process."
   alias Valimc.World.{
     BlockBatch,
+    Blocks,
+    BlockSnapshot,
     Chunk,
     CookingRuntime,
     CookingOrbRuntime,
@@ -71,8 +73,7 @@ defmodule Valimc.World.RegionData do
     :store,
     :store_lease,
     :store_monitor,
-    :edits,
-    :by_chunk,
+    :blocks,
     :column_index,
     :cache,
     :jobs,
@@ -87,6 +88,12 @@ defmodule Valimc.World.RegionData do
     {:ok, store, store_lease} = Store.open(key)
     store_monitor = Process.monitor(store)
     edits = Store.load(store)
+
+    blocks =
+      case Blocks.new(key, edits) do
+        {:ok, blocks} -> blocks
+        {:error, reason} -> exit({:block_load_failed, reason})
+      end
 
     containers =
       case Store.load_containers(store) do
@@ -107,13 +114,8 @@ defmodule Valimc.World.RegionData do
       end
 
     publication = :ets.new(:region_items, [:set, :protected, read_concurrency: true])
+    :ok = BlockSnapshot.publish_chunks(publication, blocks, Blocks.touched_chunks(blocks), 0)
     :ets.insert(publication, [{:items, items.views}, {:block_fence, items.epoch, 0}])
-
-    by_chunk =
-      Enum.reduce(edits, %{}, fn {{x, _, z} = pos, block}, acc ->
-        chunk = Valimc.World.chunk_key(x, z)
-        Map.update(acc, chunk, %{pos => block}, &Map.put(&1, pos, block))
-      end)
 
     save_timer = Process.send_after(self(), {:resource, items.epoch, :save}, 30_000)
 
@@ -153,9 +155,8 @@ defmodule Valimc.World.RegionData do
       store: store,
       store_lease: store_lease,
       store_monitor: store_monitor,
-      edits: edits,
-      by_chunk: by_chunk,
-      column_index: ColumnIndex.restore(edits),
+      blocks: blocks,
+      column_index: ColumnIndex.restore(edits, &Blocks.get(blocks, &1)),
       cache: %{},
       jobs: %{},
       versions: %{},
@@ -199,14 +200,14 @@ defmodule Valimc.World.RegionData do
         state
 
       runtime.dirty and now >= runtime.checkpoint_at and
-          (not CookingRuntime.due?(runtime, state.containers, state.edits, state.items, now) or
+          (not CookingRuntime.due?(runtime, state.containers, state.revision, state.items, now) or
              (runtime.seen == nil and is_integer(runtime.retry_at) and now < runtime.retry_at)) ->
         checkpoint_cooking(state)
 
       is_integer(runtime.retry_at) and now < runtime.retry_at and runtime.seen == nil ->
         state
 
-      CookingRuntime.due?(runtime, state.containers, state.edits, state.items, now) ->
+      CookingRuntime.due?(runtime, state.containers, state.revision, state.items, now) ->
         start_cooking_plan(state, now)
 
       true ->
@@ -243,9 +244,10 @@ defmodule Valimc.World.RegionData do
     token = make_ref()
     containers = state.containers
     items = state.items
-    edits = state.edits
+    # Workers get values: the blocks under every cooking container, not the storage handle.
+    edits = Blocks.get_many(state.blocks, for({p, %{cooking: _}} <- containers.entries, do: p))
     key = state.key
-    selection = CookingRuntime.selection(state.cooking, containers, edits, items, now)
+    selection = CookingRuntime.selection(state.cooking, containers, state.revision, items, now)
     blocked = state.cooking.blocked
 
     case Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
@@ -275,7 +277,7 @@ defmodule Valimc.World.RegionData do
     current =
       state.item_pending == nil and state.containers == job.containers and
         Enum.all?(plan.expected, fn {position, block} ->
-          Chunk.block_at(state.edits, position) == block
+          Blocks.get(state.blocks, position) == block
         end)
 
     with true <- current,
@@ -296,7 +298,7 @@ defmodule Valimc.World.RegionData do
     result =
       if plan.batch do
         if Enum.all?(plan.batch.edits, fn {position, block} ->
-             CookingRuntime.lit_change?(Chunk.block_at(state.edits, position), block)
+             CookingRuntime.lit_change?(Blocks.get(state.blocks, position), block)
            end), do: build_block_proposal(state, plan.batch), else: {:error, :invalid_cooking_lit}
       else
         {:ok, nil}
@@ -310,7 +312,7 @@ defmodule Valimc.World.RegionData do
           state.store,
           state.store_lease,
           %{
-            edits: if(proposal, do: proposal.edits, else: state.edits),
+            edits: if(proposal, do: proposal.edits, else: Blocks.image(state.blocks)),
             changes: plan.changes,
             items: plan.items,
             receipts: state.item_receipts,
@@ -356,7 +358,14 @@ defmodule Valimc.World.RegionData do
         else: state
 
     runtime =
-      CookingRuntime.accepted(state.cooking, plan, plan.containers, state.edits, plan.items, now)
+      CookingRuntime.accepted(
+        state.cooking,
+        plan,
+        plan.containers,
+        state.revision,
+        plan.items,
+        now
+      )
 
     runtime =
       cond do
@@ -921,7 +930,7 @@ defmodule Valimc.World.RegionData do
         {:reply, {:error, :mining_storage_busy}, state}
 
       true ->
-        blocks = Map.new(positions, &{&1, Chunk.block_at(state.edits, &1)})
+        blocks = Map.new(positions, &{&1, Blocks.get(state.blocks, &1)})
 
         case MiningPermits.reserve(
                state.mining_permits,
@@ -985,7 +994,7 @@ defmodule Valimc.World.RegionData do
 
       not Enum.all?(expected, fn {{x, y, z}, block} ->
         Chunk.valid_y?(y) and Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == state.key and
-            Chunk.block_at(state.edits, {x, y, z}) == block
+            Blocks.get(state.blocks, {x, y, z}) == block
       end) ->
         {:reply, {:error, :placement_context_changed}, state}
 
@@ -1149,7 +1158,7 @@ defmodule Valimc.World.RegionData do
   end
 
   def handle_call({:get_block, position}, _from, state),
-    do: {:reply, Chunk.block_at(state.edits, position), state}
+    do: {:reply, Blocks.get(state.blocks, position), state}
 
   def handle_call({:observe_blocks, epoch, positions, expected_revision}, _from, state) do
     result =
@@ -1174,7 +1183,7 @@ defmodule Valimc.World.RegionData do
              owner: {self(), state.items.epoch},
              region: state.key,
              revision: state.revision,
-             blocks: Map.new(positions, &{&1, Chunk.block_at(state.edits, &1)})
+             blocks: Map.new(positions, &{&1, Blocks.get(state.blocks, &1)})
            }}
       end
 
@@ -1230,7 +1239,7 @@ defmodule Valimc.World.RegionData do
   end
 
   def handle_call({:remove_block, position}, from, state) do
-    block = Chunk.block_at(state.edits, position)
+    block = Blocks.get(state.blocks, position)
     replacement = Valimc.Physics.FluidBlocks.after_removal(block)
 
     if (Valimc.ChestAccess.single?(block) or Valimc.Physics.CookingBlocks.kind(block) != nil) and
@@ -1295,7 +1304,7 @@ defmodule Valimc.World.RegionData do
 
     expected =
       Map.new(batch.edits, fn {position, _} ->
-        {position, Chunk.block_at(state.edits, position)}
+        {position, Blocks.get(state.blocks, position)}
       end)
 
     cond do
@@ -1340,17 +1349,19 @@ defmodule Valimc.World.RegionData do
         {:reply, {:error, :occupied_container}, state}
 
       true ->
+        previous_blocks = Blocks.get_many(state.blocks, [position])
+
         if Valimc.World.region_key(key) == state.key and Chunk.valid_y?(y) and block >= 0 and
              block < Valimc.Protocol.Data.block_state_count() and
-             (map_size(state.edits) < 131_072 or Map.has_key?(state.edits, position)) do
-          state = retire_container_changes(state, %{position => block})
-          edits = put_edit(state.edits, position, block)
-          local = put_edit(Map.get(state.by_chunk, key, %{}), position, block)
+             Blocks.put(state.blocks, %{position => block}) == :ok do
+          state = retire_container_changes(state, %{position => block}, previous_blocks)
 
-          :ets.insert(
-            state.item_publication,
-            {:block_fence, state.items.epoch, state.revision + 1}
-          )
+          revision = state.revision + 1
+
+          :ok =
+            BlockSnapshot.publish_chunks(state.item_publication, state.blocks, [key], revision)
+
+          BlockSnapshot.publish_fence(state.item_publication, state.items.epoch, revision)
 
           Valimc.World.publish(state.key, {:block, position, block})
           Valimc.Metrics.add(:block_edits)
@@ -1358,15 +1369,18 @@ defmodule Valimc.World.RegionData do
           {:reply, :ok,
            %{
              state
-             | edits: edits,
-               mining_permits:
+             | mining_permits:
                  MiningPermits.invalidate(state.mining_permits, %{position => block}),
                container_permits:
                  ContainerPermits.invalidate(state.container_permits, %{position => block}),
                placement_permits:
                  PlacementPermits.invalidate(state.placement_permits, %{position => block}),
-               by_chunk: Map.put(state.by_chunk, key, local),
-               column_index: ColumnIndex.update(state.column_index, edits, %{position => block}),
+               column_index:
+                 ColumnIndex.update(
+                   state.column_index,
+                   &Blocks.get(state.blocks, &1),
+                   %{position => block}
+                 ),
                dirty: true,
                revision: state.revision + 1,
                cache: Map.delete(state.cache, key),
@@ -1387,7 +1401,7 @@ defmodule Valimc.World.RegionData do
 
   def handle_call(:flush, _from, state) do
     with :ok <- flush_item_motion(state), :ok <- flush_cooking(state, state.containers) do
-      result = Store.flush(state.store, state.store_lease, state.edits)
+      result = Store.flush(state.store, state.store_lease, Blocks.image(state.blocks))
 
       {:reply, result,
        %{
@@ -1496,7 +1510,7 @@ defmodule Valimc.World.RegionData do
     if valid_block_query?([position], :any) and
          Valimc.World.region_key(Valimc.World.chunk_key(elem(position, 0), elem(position, 2))) ==
            state.key,
-       do: Chunk.block_at(state.edits, position),
+       do: Blocks.get(state.blocks, position),
        else: nil
   end
 
@@ -2012,28 +2026,26 @@ defmodule Valimc.World.RegionData do
   end
 
   defp build_block_proposal(state, batch) do
-    edits =
-      Enum.reduce(batch.edits, state.edits, fn {pos, block}, acc -> put_edit(acc, pos, block) end)
+    edits = Blocks.image(state.blocks, batch.edits)
 
     cond do
+      # The sparse persistence image stays bounded until section persistence (VMC-063).
       map_size(edits) > 131_072 ->
         {:error, :region_edit_limit}
 
       true ->
-        by_chunk =
-          Enum.reduce(batch.edits, state.by_chunk, fn {{x, _, z} = pos, block}, acc ->
-            key = Valimc.World.chunk_key(x, z)
-            Map.put(acc, key, put_edit(Map.get(acc, key, %{}), pos, block))
-          end)
-
         versions =
           Enum.reduce(batch.chunks, state.versions, &Map.update(&2, &1, 1, fn n -> n + 1 end))
+
+        lookup = fn position ->
+          Map.get_lazy(batch.edits, position, fn -> Blocks.get(state.blocks, position) end)
+        end
 
         {:ok,
          %{
            edits: edits,
-           by_chunk: by_chunk,
-           column_index: ColumnIndex.update(state.column_index, edits, batch.edits),
+           changes: batch.edits,
+           column_index: ColumnIndex.update(state.column_index, lookup, batch.edits),
            versions: versions,
            revision: state.revision + 1
          }}
@@ -2048,7 +2060,7 @@ defmodule Valimc.World.RegionData do
     Enum.any?(changes, fn {position, block} ->
       case state.containers.entries[position] do
         %{cooking: _} = entry ->
-          original = Chunk.block_at(state.edits, position)
+          original = Blocks.get(state.blocks, position)
 
           block != original and
             not (retired[position] == entry and Valimc.World.CookingEntry.empty?(entry) and
@@ -2056,10 +2068,10 @@ defmodule Valimc.World.RegionData do
                    Valimc.Physics.CookingBlocks.kind(block) != entry.kind)
 
         %{slots: slots} = entry ->
-          block != Chunk.block_at(state.edits, position) and
+          block != Blocks.get(state.blocks, position) and
             Enum.any?(Tuple.to_list(slots), &(&1 != nil)) and
             not (retired[position] == entry and
-                   Valimc.ChestAccess.single?(Chunk.block_at(state.edits, position)) and
+                   Valimc.ChestAccess.single?(Blocks.get(state.blocks, position)) and
                    not Valimc.ChestAccess.single?(block))
 
         nil ->
@@ -2069,13 +2081,27 @@ defmodule Valimc.World.RegionData do
   end
 
   defp publish_blocks(state, batch, proposal, dirty, cooking \\ false) do
-    state = if cooking, do: state, else: retire_container_changes(state, batch.edits)
-    :ets.insert(state.item_publication, {:block_fence, state.items.epoch, proposal.revision})
+    previous = Blocks.get_many(state.blocks, Map.keys(proposal.changes))
+    # The proposal was durably committed; storage follows it (validated at proposal time).
+    :ok = Blocks.put(state.blocks, proposal.changes)
+    state = if cooking, do: state, else: retire_container_changes(state, batch.edits, previous)
+
+    :ok =
+      BlockSnapshot.publish_chunks(
+        state.item_publication,
+        state.blocks,
+        Enum.uniq(
+          Enum.map(Map.keys(proposal.changes), fn {x, _, z} -> Valimc.World.chunk_key(x, z) end)
+        ),
+        proposal.revision
+      )
+
+    BlockSnapshot.publish_fence(state.item_publication, state.items.epoch, proposal.revision)
     Valimc.World.publish(state.key, {:block_batch, batch.frames})
     Valimc.Metrics.add(:block_edits, map_size(batch.edits))
 
     state
-    |> struct!(proposal)
+    |> struct!(Map.take(proposal, [:column_index, :versions, :revision]))
     |> Map.merge(%{
       cache: Map.drop(state.cache, batch.chunks),
       dirty: dirty,
@@ -2092,11 +2118,11 @@ defmodule Valimc.World.RegionData do
   defp isolated_chest_changes?(state, batch) do
     Enum.all?(batch.edits, fn {position, block} ->
       if Valimc.ChestAccess.single?(block) and
-           not Valimc.ChestAccess.single?(Chunk.block_at(state.edits, position)) do
+           not Valimc.ChestAccess.single?(Blocks.get(state.blocks, position)) do
         Enum.all?(Valimc.Physics.ChestPlacement.neighbors(position), fn {x, _, z} = neighbor ->
           Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == state.key and
             not Valimc.ChestAccess.ordinary?(
-              Map.get(batch.edits, neighbor, Chunk.block_at(state.edits, neighbor))
+              Map.get(batch.edits, neighbor, Blocks.get(state.blocks, neighbor))
             )
         end)
       else
@@ -2193,10 +2219,6 @@ defmodule Valimc.World.RegionData do
     {:noreply, %{next | item_pending: Map.put(next.item_pending, :kind, plan.kind)}}
   end
 
-  defp put_edit(edits, {_, y, _} = pos, block) do
-    if block == Chunk.base(y), do: Map.delete(edits, pos), else: Map.put(edits, pos, block)
-  end
-
   defp start_job(state, key) do
     job = state.jobs[key]
 
@@ -2206,18 +2228,29 @@ defmodule Valimc.World.RegionData do
       owner = self()
       epoch = state.items.epoch
       token = make_ref()
-      edits = Map.get(state.by_chunk, key, %{})
+      # Section encoding is a short NIF call on the owner; packet assembly and
+      # compression run in the worker from these immutable binaries.
+      started = System.monotonic_time(:microsecond)
+      encoded = Blocks.encode(state.blocks, key)
+      entities = if encoded == :flat, do: %{}, else: Blocks.chunk_entities(state.blocks, key)
+      sections_microseconds = System.monotonic_time(:microsecond) - started
       version = Map.get(state.versions, key, 0)
       threshold = Valimc.config(:compression_threshold)
 
       case Task.Supervisor.start_child(Valimc.ChunkWorkers, fn ->
              started = System.monotonic_time(:microsecond)
-             frame = Chunk.encode(key, edits) |> Packets.frame(threshold)
+
+             packet =
+               if encoded == :flat,
+                 do: Chunk.encode(key, %{}),
+                 else: Chunk.packet(encoded, entities)
+
+             frame = Packets.frame(packet, threshold)
              Valimc.Metrics.add(:chunks_encoded)
 
              Valimc.Metrics.add(
                :chunk_encode_microseconds,
-               System.monotonic_time(:microsecond) - started
+               sections_microseconds + System.monotonic_time(:microsecond) - started
              )
 
              send(owner, {:resource, epoch, {:encoded, key, token, version, frame}})
@@ -2979,7 +3012,7 @@ defmodule Valimc.World.RegionData do
         Store.snapshot(
           state.store,
           state.store_lease,
-          state.edits,
+          Blocks.image(state.blocks),
           {self(), state.items.epoch},
           state.revision
         )
@@ -3010,7 +3043,7 @@ defmodule Valimc.World.RegionData do
           {:error, :wrong_region}
 
         true ->
-          block = Chunk.block_at(state.edits, position)
+          block = Blocks.get(state.blocks, position)
           now = System.monotonic_time(:millisecond)
 
           cond do
@@ -3030,7 +3063,7 @@ defmodule Valimc.World.RegionData do
               Valimc.ChestOpening.authorize(
                 block,
                 state.containers.entries[position],
-                Chunk.block_at(state.edits, {x, y + 1, z}),
+                Blocks.get(state.blocks, {x, y + 1, z}),
                 position,
                 grant,
                 now
@@ -3150,9 +3183,10 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  defp retire_container_changes(state, edits) do
+  # `previous` holds the blocks before `edits`; storage may already hold `edits`.
+  defp retire_container_changes(state, edits, previous) do
     positions =
-      for {position, block} <- edits, Chunk.block_at(state.edits, position) != block, do: position
+      for {position, block} <- edits, Map.fetch!(previous, position) != block, do: position
 
     {viewers, retired, lids} = ContainerViewers.invalidate(state.container_viewers, positions)
 
@@ -3520,7 +3554,7 @@ defmodule Valimc.World.RegionData do
             edits
 
           _ ->
-            state.edits
+            Blocks.image(state.blocks)
         end
 
       Store.flush(state.store, state.store_lease, edits)

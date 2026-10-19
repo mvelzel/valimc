@@ -50,17 +50,29 @@ defmodule Valimc.ItemSimulationTest do
     assert length(steps) == 256 and length(Enum.uniq_by(steps, & &1.id)) == 256
   end
 
-  test "a stalled owner bounds concurrent geometry work and retires its tasks", ctx do
-    pid = elem(ctx.owner, 0)
+  test "a busy owner does not stall geometry, and unavailable geometry retires its tasks", ctx do
+    {pid, _} = ctx.owner
     :sys.suspend(pid)
 
     try do
-      assert {:ok, %{steps: [], refused: refused}} = result(inputs(ctx.key, 256, 0.1))
-      assert length(refused) == 256
-      assert DynamicSupervisor.count_children(Valimc.ItemGeometryWorkers).active == 0
+      # Reads come from the published snapshot, not the (suspended) owner mailbox.
+      assert {:ok, %{refused: []}} = result(inputs(ctx.key, 256, 0.1))
     after
       :sys.resume(pid)
     end
+
+    stale_fence(pid)
+    assert {:ok, %{steps: [], refused: refused}} = result(inputs(ctx.key, 256, 0.1))
+    assert length(refused) == 256
+    assert DynamicSupervisor.count_children(Valimc.ItemGeometryWorkers).active == 0
+  end
+
+  # Make published reads fail (foreign epoch) without stopping the owner.
+  defp stale_fence(pid) do
+    :sys.replace_state(pid, fn state ->
+      :ets.insert(state.resource.item_publication, {:block_fence, make_ref(), 0})
+      state
+    end)
   end
 
   test "empty, oversized and duplicate identity batches refuse before starting work", ctx do

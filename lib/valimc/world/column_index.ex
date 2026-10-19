@@ -1,14 +1,15 @@
 defmodule Valimc.World.ColumnIndex do
   @moduledoc "Sparse flat-world column words; mutations update two sky edges and two height predicates."
   alias Valimc.Physics.{HeightmapBlocks, SkyBlocks}
-  alias Valimc.World.{Chunk, ColumnHeight}
+  alias Valimc.World.ColumnHeight
   @flat ColumnHeight.flat()
   @default {@flat, @flat, @flat}
 
-  def restore(edits), do: update(%{}, edits, edits)
+  @doc "Rebuild from sparse edits; `lookup` reads the complete post-edit block at a position."
+  def restore(edits, lookup), do: update(%{}, lookup, edits)
 
-  @doc "The complete post-mutation edit map supplies adjacent states, including other edits in this batch."
-  def update(index, edits, changes) do
+  @doc "`lookup` reads post-mutation states, including other changes in this batch."
+  def update(index, lookup, changes) when is_function(lookup, 1) do
     Enum.reduce(changes, index, fn
       {{_, y, _}, _}, acc when y < -64 or y > 319 ->
         acc
@@ -20,8 +21,8 @@ defmodule Valimc.World.ColumnIndex do
         {:ok, surface} = ColumnHeight.update(surface, y, opaque)
         {:ok, opaque} = HeightmapBlocks.opaque?(block, :motion_blocking)
         {:ok, motion} = ColumnHeight.update(motion, y, opaque)
-        sky = sky_edge(sky, edits, {x, y + 1, z}, position)
-        sky = if y > -64, do: sky_edge(sky, edits, position, {x, y - 1, z}), else: sky
+        sky = sky_edge(sky, lookup, {x, y + 1, z}, position)
+        sky = if y > -64, do: sky_edge(sky, lookup, position, {x, y - 1, z}), else: sky
         words = {surface, motion, sky}
         if words == @default, do: Map.delete(acc, key), else: Map.put(acc, key, words)
     end)
@@ -35,9 +36,8 @@ defmodule Valimc.World.ColumnIndex do
     %{world_surface: surface, motion_blocking: motion, sky_source: sky}
   end
 
-  defp sky_edge(bits, edits, above, {_, y, _} = below) do
-    {:ok, blocked} =
-      SkyBlocks.blocked?(Chunk.block_at(edits, above), Chunk.block_at(edits, below))
+  defp sky_edge(bits, lookup, above, {_, y, _} = below) do
+    {:ok, blocked} = SkyBlocks.blocked?(lookup.(above), lookup.(below))
 
     {:ok, bits} = ColumnHeight.update(bits, y, blocked)
     bits
