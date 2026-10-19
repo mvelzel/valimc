@@ -66,6 +66,43 @@ defmodule Valimc.ContainerStoreTest do
     assert Map.take(Store.load(writer), for(i <- 0..3, do: {x + i, 64, z})) |> map_size() == 4
   end
 
+  test "checkpoints run beside appends, prune covered segments and recover exactly", ctx do
+    Application.put_env(:valimc, :store_checkpoint_bytes, 1)
+    on_exit(fn -> Application.delete_env(:valimc, :store_checkpoint_bytes) end)
+    {:ok, writer, lease} = Store.open(ctx.key)
+    dir = Store.log_dir(ctx.base, ctx.key)
+    {x, _, z} = ctx.position
+
+    for i <- 1..20 do
+      assert :ok =
+               Store.flush_containers(
+                 writer,
+                 lease,
+                 if(rem(i, 2) == 0, do: ctx.filled, else: ctx.empty)
+               )
+
+      Store.snapshot(writer, lease, %{{x + i, 64, z} => 1}, {self(), make_ref()}, i)
+    end
+
+    assert :ok = Store.flush_containers(writer, lease, ctx.filled)
+    wait_checkpointed(writer)
+    files = File.ls!(dir)
+    assert Enum.count(files, &String.starts_with?(&1, "ckpt.")) == 1
+    assert Enum.count(files, &String.starts_with?(&1, "log.")) <= 2
+    assert :ok = Store.close(writer, lease)
+    {:ok, writer, _lease} = Store.open(ctx.key)
+    assert Store.load_containers(writer) == {:ok, ctx.filled}
+    assert map_size(Map.take(Store.load(writer), for(i <- 1..20, do: {x + i, 64, z}))) == 20
+  end
+
+  defp wait_checkpointed(writer, tries \\ 200) do
+    if :sys.get_state(writer).checkpointing != nil do
+      assert tries > 0
+      Process.sleep(5)
+      wait_checkpointed(writer, tries - 1)
+    end
+  end
+
   test "leased asynchronous commit survives writer replacement with exact contents and revisions",
        ctx do
     assert {:ok, writer, lease} = Store.open(ctx.key)

@@ -18,6 +18,8 @@ config :valimc,
   max_mailbox: 256,
   # Overloaded connections stop gracefully; a stuck one is killed after this delay.
   overload_kill_ms: 5_000,
+  # macOS `fsync` stops at the drive cache; flush through it (F_FULLFSYNC).
+  full_fsync: match?({:unix, :darwin}, :os.type()),
   packets_per_second: 400,
   bytes_per_second: 4_194_304,
   compression_threshold: 256,

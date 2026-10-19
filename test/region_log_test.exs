@@ -102,6 +102,15 @@ defmodule Valimc.World.RegionLogTest do
     assert {:error, :invalid_checkpoint} = RegionLog.open(dir)
   end
 
+  test "a drive flush (F_FULLFSYNC) follows each append when enabled", %{tmp_dir: dir} do
+    {:ok, log, _} = RegionLog.open(dir)
+    {:ok, log, lsn} = RegionLog.append(%{log | full_sync: true}, [[{:a, 1}], [{:b, 2}]])
+    assert {:ok, %{frames: frames}} = RegionLog.read(dir)
+    assert List.last(frames).lsn == lsn and ops(frames) |> Enum.take(-2) == [{:a, 1}, {:b, 2}]
+    assert {:error, _} = Valimc.Native.full_sync(Path.join(dir, "missing"))
+    RegionLog.close(log)
+  end
+
   test "segments rotate past their size limit", %{tmp_dir: dir} do
     {:ok, log, _} = RegionLog.open(dir)
     big = :binary.copy(<<7>>, 1_100_000)

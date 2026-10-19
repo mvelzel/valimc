@@ -32,9 +32,11 @@ vanilla spam throttle. Runtime caps live in `config/config.exs`.
 - **Published reads.** After each committed batch the owner publishes immutable
   section snapshots with revisions (VMC-065). Collision workers and other readers
   read them directly; fences compare section revisions instead of a region-wide one.
-- **Group commit.** Owner operations queue durable effects; one writer batch per
-  tick persists dirty sections and journals, fsyncs file and directory, and then
-  acknowledges every operation in the batch (VMC-063). Simulation keeps ticking.
+- **Group commit.** Owners adopt every durable change in memory at once and queue
+  its frame (at most 64); replies, publications and client updates wait until the
+  frame is durable. The region writer drains all queued frames into one log append
+  with one `datasync` (plus `F_FULLFSYNC` on macOS), then acknowledges them in
+  order; checkpoints run beside it (VMC-063). Simulation keeps ticking.
 - **One transaction engine.** Cross-owner effects (pickup, mining drops, container
   exchanges, merges, handoffs, XP) are idempotent operations keyed by source,
   sequence and digest with one permit table and one outbox (VMC-064).
@@ -79,8 +81,10 @@ pinned vanilla behavior. See [research](research.md).
 
 ## Durability and failure
 
-Block and player state use custom snapshots, not Anvil/player NBT (until M2).
-Periodic saves can lose recent uncheckpointed state on a hard crash. Item transfers
+Region state lives in a per-region log of checksummed frames plus checkpoints, not
+Anvil (until M2); player state in custom snapshots. Acknowledged writes survive a
+crash; volatile state (item motion, cooking progress, raw creative edits) is saved
+periodically and at clean shutdown, so a hard crash can lose its recent tail. Item transfers
 journal a reduced source inventory plus one outbox before delivery; the region
 commits records and retry receipts before publication. Source clearing requires
 destination receipt proof. UUID writer leases, owner incarnations and revisions

@@ -22,7 +22,16 @@ defmodule Valimc.World.RegionLog do
   @max_frame 64 * 1024 * 1024
   @segment_limit 4 * 1024 * 1024
 
-  defstruct [:dir, :fd, :segment, :segment_bytes, :next_lsn, :incarnation, :checkpoint_lsn]
+  defstruct [
+    :dir,
+    :fd,
+    :segment,
+    :segment_bytes,
+    :next_lsn,
+    :incarnation,
+    :checkpoint_lsn,
+    full_sync: false
+  ]
 
   @type op :: tuple()
   @type frame :: %{lsn: non_neg_integer(), incarnation: non_neg_integer(), ops: [op]}
@@ -125,7 +134,8 @@ defmodule Valimc.World.RegionLog do
         dir: dir,
         next_lsn: last_lsn + 1,
         incarnation: incarnation,
-        checkpoint_lsn: base
+        checkpoint_lsn: base,
+        full_sync: Application.get_env(:valimc, :full_fsync, false)
       }
 
       with {:ok, log} <- open_segment(log, tail),
@@ -157,7 +167,8 @@ defmodule Valimc.World.RegionLog do
       end)
 
     with :ok <- :file.write(log.fd, frames),
-         :ok <- :file.datasync(log.fd) do
+         :ok <- :file.datasync(log.fd),
+         :ok <- drive_flush(log) do
       log = %{log | next_lsn: next, segment_bytes: log.segment_bytes + IO.iodata_length(frames)}
       log = if log.segment_bytes >= @segment_limit, do: rotate(log), else: {:ok, log}
 
@@ -173,25 +184,36 @@ defmodule Valimc.World.RegionLog do
   covered segments and older checkpoints.
   """
   def checkpoint(%__MODULE__{} = log, state) do
-    lsn = log.next_lsn - 1
-    path = Path.join(log.dir, name("ckpt", lsn))
+    with {:ok, log, job} <- begin_checkpoint(log),
+         :ok <- write_checkpoint(job, state),
+         do: {:ok, %{log | checkpoint_lsn: job.lsn}}
+  end
+
+  @doc """
+  Start a checkpoint at the last appended LSN: rotate so later frames go to a new
+  segment. `write_checkpoint/2` may then run in another process while the owner
+  keeps appending; it touches only files that cover LSNs up to the job's.
+  """
+  def begin_checkpoint(%__MODULE__{} = log) do
+    with {:ok, log} <- rotate(log),
+         do: {:ok, log, %{dir: log.dir, lsn: log.next_lsn - 1, incarnation: log.incarnation}}
+  end
+
+  @doc "Write the checkpoint for a `begin_checkpoint/1` job and prune what it covers."
+  def write_checkpoint(%{dir: dir, lsn: lsn, incarnation: incarnation}, state) do
+    path = Path.join(dir, name("ckpt", lsn))
     tmp = path <> ".tmp"
 
-    with {:ok, log} <- rotate(log),
-         :ok <- File.write(tmp, encode_checkpoint(lsn, log.incarnation, state), [:binary, :sync]),
+    with :ok <- File.write(tmp, encode_checkpoint(lsn, incarnation, state), [:binary, :sync]),
          :ok <- File.rename(tmp, path),
-         :ok <- fsync_dir(log.dir) do
-      for file <- list(log.dir, "ckpt."),
-          file != Path.basename(path),
-          do: File.rm(Path.join(log.dir, file))
+         :ok <- fsync_dir(dir) do
+      for file <- list(dir, "ckpt."),
+          file < Path.basename(path),
+          do: File.rm(Path.join(dir, file))
 
-      for {base, file} <- segments(log.dir),
-          base <= lsn,
-          file != Path.basename(log.segment),
-          do: File.rm(Path.join(log.dir, file))
-
-      :ok = fsync_dir(log.dir)
-      {:ok, %{log | checkpoint_lsn: lsn}}
+      # Rotation at `lsn` guarantees every segment based at or below it ends there.
+      for {base, file} <- segments(dir), base <= lsn, do: File.rm(Path.join(dir, file))
+      fsync_dir(dir)
     end
   end
 
@@ -307,6 +329,16 @@ defmodule Valimc.World.RegionLog do
   end
 
   defp name(kind, lsn), do: "#{kind}.#{String.pad_leading(Integer.to_string(lsn), 20, "0")}"
+
+  # OTP's `datasync` is a plain `fsync` on macOS, which stops at the drive cache.
+  defp drive_flush(%{full_sync: false}), do: :ok
+
+  defp drive_flush(%{segment: segment}) do
+    case Valimc.Native.full_sync(segment) do
+      {:ok, :ok} -> :ok
+      {:error, reason} -> {:error, {:full_sync, reason}}
+    end
+  end
 
   defp fsync_dir(dir) do
     case Valimc.Native.fsync_dir(dir) do

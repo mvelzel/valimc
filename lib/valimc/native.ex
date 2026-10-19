@@ -23,4 +23,5 @@ defmodule Valimc.Native do
   def snapshot_chunk(_region, _cx, _cz), do: :erlang.nif_error(:nif_not_loaded)
   def heap_bytes(_region), do: :erlang.nif_error(:nif_not_loaded)
   def fsync_dir(_path), do: :erlang.nif_error(:nif_not_loaded)
+  def full_sync(_path), do: :erlang.nif_error(:nif_not_loaded)
 end

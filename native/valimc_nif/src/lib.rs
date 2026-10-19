@@ -186,7 +186,12 @@ fn touched_chunks(region: ResourceArc<Region>) -> Result<Vec<(i32, i32)>, Atom> 
 /// per cell, or `{:dense, cells}` with a big-endian u16 per cell. `nil` for an
 /// untouched chunk (readers use the base profile).
 #[rustler::nif]
-fn snapshot_chunk<'a>(env: Env<'a>, region: ResourceArc<Region>, cx: i32, cz: i32) -> Result<Term<'a>, Atom> {
+fn snapshot_chunk<'a>(
+    env: Env<'a>,
+    region: ResourceArc<Region>,
+    cx: i32,
+    cz: i32,
+) -> Result<Term<'a>, Atom> {
     with_store(&region, |store| {
         store.check_chunk((cx, cz)).map_err(error)?;
         let Some(column) = store.columns.get(&(cx, cz)) else {
@@ -199,7 +204,11 @@ fn snapshot_chunk<'a>(env: Env<'a>, region: ResourceArc<Region>, cx: i32, cz: i3
                 Storage::Single(state) => state.encode(env),
                 Storage::Indexed { palette, cells } => {
                     let palette: Vec<Term<'a>> = palette.iter().map(|p| p.encode(env)).collect();
-                    (rustler::types::tuple::make_tuple(env, &palette), binary(env, &cells[..])).encode(env)
+                    (
+                        rustler::types::tuple::make_tuple(env, &palette),
+                        binary(env, &cells[..]),
+                    )
+                        .encode(env)
                 }
                 Storage::Dense(cells) => {
                     let bytes: Vec<u8> = cells.iter().flat_map(|c| c.to_be_bytes()).collect();
@@ -217,6 +226,16 @@ fn snapshot_chunk<'a>(env: Env<'a>, region: ResourceArc<Region>, cx: i32, cz: i3
 fn fsync_dir(path: String) -> Result<Atom, String> {
     let dir = std::fs::File::open(&path).map_err(|e| e.to_string())?;
     dir.sync_all().map_err(|e| e.to_string())?;
+    Ok(atoms::ok())
+}
+
+/// Flush a file through the drive's write cache. On Apple platforms `fsync`
+/// stops at the cache and `File::sync_all` issues `F_FULLFSYNC`; any descriptor of
+/// the file will do. Runs on a dirty I/O scheduler.
+#[rustler::nif(schedule = "DirtyIo")]
+fn full_sync(path: String) -> Result<Atom, String> {
+    let file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+    file.sync_all().map_err(|e| e.to_string())?;
     Ok(atoms::ok())
 }
 

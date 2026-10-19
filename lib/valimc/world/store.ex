@@ -9,10 +9,9 @@ defmodule Valimc.World.Store do
   frame: block changes as `{:cells, %{position => block}}` and full values for
   `{:items, bytes}` and `{:containers, bytes}`, so a mining commit changing all
   three is atomic with one fsync. Checkpoints hold the sparse block image.
-  The log is checkpointed once appended frames exceed `@checkpoint_bytes`. Legacy
+  The log is checkpointed once appended frames exceed `:store_checkpoint_bytes`. Legacy
   per-file snapshots (`r.X.Z.etf/.items/.containers/.mining`) are imported once.
   """
-  @checkpoint_bytes 32 * 1024 * 1024
   @max_batch 256
   @max_commit_cells 4096
   @empty %{blocks: %{}, items: nil, containers: nil}
@@ -119,6 +118,8 @@ defmodule Valimc.World.Store do
        log: nil,
        values: @empty,
        appended: 0,
+       checkpoint_bytes: Application.get_env(:valimc, :store_checkpoint_bytes, 32 * 1024 * 1024),
+       checkpointing: nil,
        recovered: false,
        owner: owner,
        monitor: Process.monitor(owner),
@@ -252,6 +253,18 @@ defmodule Valimc.World.Store do
         %{monitor: monitor, owner: owner} = state
       ),
       do: {:stop, :normal, state}
+
+  def handle_info({:checkpointed, ref, result}, %{checkpointing: ref} = state) do
+    Valimc.Metrics.add(if result == :ok, do: :store_checkpoints, else: :store_checkpoint_failures)
+
+    # A failed checkpoint leaves the (still valid) log; retry after more appends.
+    appended =
+      if result == :ok,
+        do: state.appended,
+        else: max(state.appended, div(state.checkpoint_bytes, 2))
+
+    {:noreply, %{state | checkpointing: nil, appended: appended}}
+  end
 
   def handle_info(_, state), do: {:noreply, state}
 
@@ -541,14 +554,47 @@ defmodule Valimc.World.Store do
     end)
   end
 
-  defp maybe_checkpoint(%{appended: appended} = state) when appended < @checkpoint_bytes,
-    do: state
+  defp maybe_checkpoint(%{appended: appended, checkpoint_bytes: limit} = state)
+       when appended < limit,
+       do: state
+
+  # Checkpoints are written by a linked task from the immutable values while the
+  # writer keeps appending to the segment `begin_checkpoint/1` rotated to. If they
+  # keep failing, a synchronous checkpoint caps the log at 4x the threshold.
+  defp maybe_checkpoint(%{checkpointing: ref} = state) when ref != nil do
+    if state.appended < 4 * state.checkpoint_bytes do
+      state
+    else
+      case RegionLog.checkpoint(state.log, state.values) do
+        {:ok, log} -> %{state | log: log, appended: 0}
+        {:error, _} -> state
+      end
+    end
+  end
 
   defp maybe_checkpoint(state) do
-    case RegionLog.checkpoint(state.log, state.values) do
-      {:ok, log} -> %{state | log: log, appended: 0}
-      # A failed compaction keeps the (still valid) log; retry after more appends.
-      {:error, _} -> %{state | appended: div(@checkpoint_bytes, 2)}
+    case RegionLog.begin_checkpoint(state.log) do
+      {:ok, log, job} ->
+        writer = self()
+        ref = make_ref()
+        values = state.values
+
+        {:ok, _} =
+          Task.start_link(fn ->
+            result =
+              try do
+                RegionLog.write_checkpoint(job, values)
+              rescue
+                error -> {:error, error}
+              end
+
+            send(writer, {:checkpointed, ref, result})
+          end)
+
+        %{state | log: log, appended: 0, checkpointing: ref}
+
+      {:error, _} ->
+        %{state | appended: div(state.checkpoint_bytes, 2)}
     end
   end
 end

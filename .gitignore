@@ -21,3 +21,6 @@ __pycache__/
 /.claude/settings.local.json
 /native/target/
 /priv/native/
+
+# ExUnit @tmp_dir fixtures
+/tmp/

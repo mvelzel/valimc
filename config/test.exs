@@ -8,6 +8,7 @@ config :valimc,
   acceptors: 2,
   view_distance: 1,
   region_read_gates: true,
+  full_fsync: false,
   overload_kill_ms: 200
 
 config :logger, level: :warning
