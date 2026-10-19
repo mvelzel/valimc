@@ -1,7 +1,8 @@
 # VMC-034n4a — Supplied XP orb motion kernels
 
-Status: In progress. Part of [orb simulation](VMC-034n4.md). Basic output/pickup
-is complete in VMC-034n5 and must not be reimplemented.
+Status: **Done within unused supplied-kernel scope**, checkpoint `7d0a946`.
+Part of [orb simulation](VMC-034n4.md). Basic output/pickup is complete in
+VMC-034n5 and must not be reimplemented. These kernel/baseline gates are closed.
 
 Slice: pure launch, acceleration, post-collision drag/bounce and age transition.
 Owners supply authoritative contacts, selected target offset and post-move facts;
@@ -48,5 +49,27 @@ kernel boundaries (seed674184). Correction canonicalizes integer velocity inputs
 to doubles in the no-gravity/embedded branches; the native comparison still passes.
 Raw observations/logs: `.local/orb-motion-{native.json,native.log,check.log,targeted.log,boundary.log}`.
 
-Next gate: frozen checkpoint and dedicated baseline while measurements and
-boundary review continue independently. No live orb simulation claim.
+Measurement at7d0a946: `.local/orb-motion-bench-7d0a946.{exs,json,log}` retains
+source/script hashes,30 samples after5 warmups, AppleM4/10 schedulers and exact
+workload. Mixed dry/water/lava/target/support preparation+finish+age p50/p95 is
+119/228µs at128 records,461/770µs at512,2.81/4.45ms at2,816. Launch batches at
+2,816 cost2.01/3.02ms. Pure arithmetic only: no geometry, RNG generation, I/O,
+owners or sockets; shared host during GUI work. No TPS/capacity/comparative claim.
+
+Actual Java26.3 baseline (2026-10-19): all three groups **PASS** on frozen7d0a946.
+Dedicated tester joined terrain/stats, actually smelted/took one gold ingot,
+observed XP11→12/bar4/9→5/9, repeated empty ordinary/Shift output negatives and
+verified a fresh whole-world restart. Dataset `.local/client-tests/VMC-034n4a/world`
+is a complete accepted N5 copy plus recorded raw gold1/coal1 fixture, with no
+one-sided restore. Final flushed disk: gold11/steak3, XP12/level1/progress
+0.555555522441864, three learned recipes, six awards/births/consumed units,
+source/typed42, container sequence41, nil cursor/outbox, no active views. Prior
+five immutable award/birth/consumption maps remain intact. Report and exact
+fingerprints/reconciliation: `.local/client-tests/VMC-034n4a/{report.md,final-disk.log,reconciliation.log}`;
+run01–02 retain client logs. No gameplay/protocol error; all owned clients/server
+stopped,0players and flush:ok, port25565 clear. Baseline proves existing gameplay
+preserved; unused kernels make no graphical launch/travel/fluid/expiry claim.
+
+Next: [mutable body storage/terminal expiry](VMC-034n4b.md), followed by geometry,
+live scheduling/admission/replication and moving-owner handoff. No live orb
+simulation claim; do not repeat the completed arithmetic/baseline work.
