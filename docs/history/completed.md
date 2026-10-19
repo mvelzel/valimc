@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-034n1 cooking XP values](../tickets/VMC-034n1.md) | `9664371`: 712 native award hooks/219 arithmetic boundaries, 33 affected checks and actual cooking/refusal/reconnect baseline; unused kernel, no live XP awards |
 | [VMC-034m live regional cooking](../tickets/VMC-034m.md) | `99dfb57`: 15,630 native compositions, targeted owner/clock/recovery checks, matched worker measurements and actual all-family cooking/concurrent gestures/items/refusals/sponge/restart conservation; XP awards remain separate |
 | [VMC-034l cooking batches](../tickets/VMC-034l.md) | `c10988f`/`7cdb21e`:15,630 native compositions, bounded1,024-entry step, journal recovery/targeted checks, production and exact-retention baseline/reconnect atbfac2bb; no live scheduling |
 | [VMC-034k live processor menus](../tickets/VMC-034k.md) | `6264a79`:66 affected/1,625 full tests, native/production/both TCP and actual all-family menus/manual exchanges/negatives/range/reconnect; no automatic cooking/XP |

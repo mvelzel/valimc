@@ -41,3 +41,4 @@ Acceptance:
 
 Start with a small native award oracle and XP ownership/storage prerequisites;
 keep the current refusal until those prerequisites and joint delivery are tested.
+The [pending-award storage slice](VMC-034n2.md) follows the native value foundation.
