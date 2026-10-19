@@ -1122,7 +1122,7 @@ defmodule Valimc.World.RegionData do
     end)
   end
 
-  def handle_call({:container_transfer_receipt, epoch, source}, _from, state) do
+  def handle_call({:container_transfer_receipt, epoch, source}, from, state) do
     result =
       cond do
         epoch != state.items.epoch -> {:error, :stale_region}
@@ -1132,7 +1132,8 @@ defmodule Valimc.World.RegionData do
         true -> {:ok, {state.key, state.containers.receipts[source]}}
       end
 
-    {:reply, result, state}
+    # A receipt is destination proof: it leaves only once durable.
+    {:noreply, finish_when_durable(state, from, result)}
   end
 
   def handle_call({:item_transfer_receipt, epoch, source}, from, state) do
@@ -1173,7 +1174,7 @@ defmodule Valimc.World.RegionData do
   def handle_call({:get_block, position}, from, state) do
     block = Blocks.get(state.blocks, position)
 
-    if Enum.any?(state.item_writes, &(&1.blocks != nil)),
+    if Enum.any?(state.item_writes, &(&1.kind == :blocks)),
       do: {:noreply, finish_when_durable(state, from, block)},
       else: {:reply, block, state}
   end
@@ -1372,10 +1373,7 @@ defmodule Valimc.World.RegionData do
         if Valimc.World.region_key(key) == state.key and Chunk.valid_y?(y) and block >= 0 and
              block < Valimc.Protocol.Data.block_state_count() and
              Blocks.put(state.blocks, %{position => block}) == :ok do
-          state = retire_container_changes(state, %{position => block}, previous_blocks)
-
-          Valimc.World.publish(state.key, {:block, position, block})
-          Valimc.Metrics.add(:block_edits)
+          state = release_when_durable(state, [{:raw_block, position, block, previous_blocks}])
 
           next =
             %{
@@ -1405,10 +1403,6 @@ defmodule Valimc.World.RegionData do
         end
     end
   end
-
-  def handle_call(:flush, _from, %{item_pending: %{kind: kind, phase: :writing}} = state)
-      when kind in [:mining, :placement],
-      do: {:reply, {:error, :mining_storage_busy}, state}
 
   def handle_call(:flush, _from, %{item_pending: pending} = state) when pending != nil,
     do: {:reply, {:error, :item_storage_busy}, state}
@@ -1518,11 +1512,73 @@ defmodule Valimc.World.RegionData do
       views: items.views,
       held: [],
       generation: state.item_motion_generation,
-      blocks: blocks
+      kind: if(blocks, do: :blocks, else: :items),
+      blocks: blocks,
+      effects: []
     }
 
     %{state | items: items, item_receipts: receipts, item_writes: state.item_writes ++ [write]}
   end
+
+  # Group commit for container state (VMC-063 step 4c): contents and permits are
+  # adopted at once; the reply and `effects` wait for this frame to be durable.
+  # The frame saves no item motion, so it keeps the saved generation unchanged.
+  defp queue_container_write(state, token, from, reply, effects) do
+    write = %{
+      token: token,
+      timer: send_after(state, {:item_commit_deadline, token}, 5000),
+      from: from,
+      reply: reply,
+      views: state.items.views,
+      held: [],
+      generation: state.item_saved_generation,
+      kind: :containers,
+      blocks: nil,
+      effects: effects
+    }
+
+    %{state | item_writes: state.item_writes ++ [write]}
+  end
+
+  # Effects derived from adopted state wait for every write before them.
+  defp release_when_durable(%{item_writes: []} = state, effects),
+    do: Enum.reduce(effects, state, &release_effect(&2, &1))
+
+  defp release_when_durable(state, effects) do
+    {earlier, [last]} = Enum.split(state.item_writes, -1)
+    %{state | item_writes: earlier ++ [%{last | effects: last.effects ++ effects}]}
+  end
+
+  defp release_effect(state, {:blocks, effects}), do: release_blocks(state, effects)
+
+  defp release_effect(state, {:raw_block, position, block, previous}) do
+    state = retire_container_changes(state, %{position => block}, previous)
+    Valimc.World.publish(state.key, {:block, position, block})
+    Valimc.Metrics.add(:block_edits)
+    state
+  end
+
+  defp release_effect(state, {:container_changed, position}),
+    do: notify_container_changed(state, position)
+
+  defp release_effect(state, {:experience_pickup, request}) do
+    case Enum.find(state.cooking_orbs.views, fn {_, v} -> v.uuid == request.orb_uuid end) do
+      {id, _} ->
+        Valimc.World.publish(
+          state.key,
+          {:experience_pickup, state.items.epoch, id, request.collector}
+        )
+
+      _ ->
+        :ok
+    end
+
+    state
+  end
+
+  # Whether a queued write changes blocks or container contents.
+  defp world_write_queued?(state),
+    do: Enum.any?(Map.get(state, :item_writes, []), &(&1.kind != :items))
 
   # A reply derived from item state (including receipts used as destination
   # proof) must not leave before every write it may depend on is durable.
@@ -1664,52 +1720,39 @@ defmodule Valimc.World.RegionData do
     end)
   end
 
-  defp finish_container_result(state, pending) do
-    Process.cancel_timer(pending.timer)
-    state = %{state | item_pending: nil}
+  # A container decision adopts its permits at once; the reply, viewer notices and
+  # the orb pickup leave only once every write the decision read is durable.
+  defp adopt_container_result(state, pending) do
+    case {pending.operation, pending.decision.result} do
+      {{:admit, actor}, {:admitted, request, digest}} ->
+        with :ok <- container_access(state, request, actor),
+             {:ok, permits} <-
+               ContainerPermits.issue(
+                 state.container_permits,
+                 state.containers.receipts,
+                 request,
+                 digest,
+                 System.monotonic_time(:millisecond)
+               ) do
+          {{:ok, request}, %{state | container_permits: permits}}
+        else
+          error -> {error, state}
+        end
 
-    {reply, state} =
-      case {pending.operation, pending.decision.result} do
-        {{:admit, actor}, {:admitted, request, digest}} ->
-          with :ok <- container_access(state, request, actor),
-               {:ok, permits} <-
-                 ContainerPermits.issue(
-                   state.container_permits,
-                   state.containers.receipts,
-                   request,
-                   digest,
-                   System.monotonic_time(:millisecond)
-                 ) do
-            {{:ok, request}, %{state | container_permits: permits}}
-          else
-            error -> {error, state}
-          end
-
-        {_, result} ->
-          {{:ok, result},
-           %{
-             state
-             | container_permits: Map.get(pending.decision, :permits, state.container_permits)
-           }}
-      end
-
-    state = notify_container_changed(state, pending.position)
-
-    if request = Map.get(pending.decision, :experience) do
-      case Enum.find(state.cooking_orbs.views, fn {_, v} -> v.uuid == request.orb_uuid end) do
-        {id, _} ->
-          Valimc.World.publish(
-            state.key,
-            {:experience_pickup, state.items.epoch, id, request.collector}
-          )
-
-        _ ->
-          :ok
-      end
+      {_, result} ->
+        {{:ok, result},
+         %{
+           state
+           | container_permits: Map.get(pending.decision, :permits, state.container_permits)
+         }}
     end
+  end
 
-    GenServer.reply(pending.from, reply)
-    resume_item_handoff(state)
+  defp container_effects(pending) do
+    case Map.get(pending.decision, :experience) do
+      nil -> [{:container_changed, pending.position}]
+      request -> [{:container_changed, pending.position}, {:experience_pickup, request}]
+    end
   end
 
   defp start_container_work(state, from, operation, position, work) do
@@ -1912,10 +1955,7 @@ defmodule Valimc.World.RegionData do
   defp block_transfer_writing?(state),
     do:
       match?(%{kind: kind} when kind in [:container, :container_blocks], state.item_pending) or
-        match?(
-          %{kind: kind, phase: :writing} when kind in [:mining, :placement, :cooking_batch],
-          state.item_pending
-        )
+        match?(%{kind: :cooking_batch, phase: :writing}, state.item_pending)
 
   defp permit_matches?(state, kind, %{permit: token, expected: expected}) do
     {module, permits} = permit_store(state, kind)
@@ -2117,9 +2157,10 @@ defmodule Valimc.World.RegionData do
     end)
   end
 
+  # Client block updates keep owner order: behind queued world writes they wait.
   defp publish_blocks(state, batch, proposal, dirty, cooking \\ false) do
     {state, effects} = apply_blocks(state, batch, proposal, dirty, cooking)
-    release_blocks(state, effects)
+    release_when_durable(state, [{:blocks, effects}])
   end
 
   # Memory side of a block commit: storage, fences, permits and caches. External
@@ -2356,21 +2397,32 @@ defmodule Valimc.World.RegionData do
     case result do
       {:ok, %{containers: containers} = decision} ->
         pending = Map.put(pending, :decision, decision)
+        Process.cancel_timer(pending.timer)
+        changed = containers != state.containers
 
-        if containers == state.containers do
-          {:noreply, finish_container_result(state, pending)}
-        else
-          Store.commit_containers(
-            state.store,
-            state.store_lease,
-            containers,
-            {self(), state.items.epoch},
-            token
-          )
+        if changed,
+          do:
+            Store.commit_containers(
+              state.store,
+              state.store_lease,
+              containers,
+              {self(), state.items.epoch},
+              token
+            )
 
-          writing = pending |> Map.drop([:worker, :monitor]) |> Map.put(:phase, :writing)
-          {:noreply, %{state | item_pending: writing}}
-        end
+        state = %{state | item_pending: nil, containers: containers}
+        {reply, state} = adopt_container_result(state, pending)
+        effects = container_effects(pending)
+
+        state =
+          if changed,
+            do: queue_container_write(state, token, pending.from, reply, effects),
+            else:
+              state
+              |> release_when_durable(effects)
+              |> finish_when_durable(pending.from, reply)
+
+        {:noreply, resume_item_handoff(state)}
 
       {:error, _} = error ->
         Process.cancel_timer(pending.timer)
@@ -2380,29 +2432,6 @@ defmodule Valimc.World.RegionData do
   end
 
   def handle_info({:container_recovery_plan, _, _, _}, state), do: {:noreply, state}
-
-  def handle_info(
-        {:containers_saved, writer, token, :ok},
-        %{
-          store: writer,
-          item_pending: %{kind: :container, phase: :writing, token: token} = pending
-        } = state
-      ) do
-    {:noreply,
-     finish_container_result(%{state | containers: pending.decision.containers}, pending)}
-  end
-
-  def handle_info(
-        {:containers_saved, writer, token, {:error, reason}},
-        %{
-          store: writer,
-          item_pending: %{kind: :container, phase: :writing, token: token} = pending
-        } = state
-      ) do
-    Process.cancel_timer(pending.timer)
-    GenServer.reply(pending.from, {:error, :container_commit_uncertain})
-    {:stop, {:container_storage_failed, reason}, %{state | item_pending: nil}}
-  end
 
   def handle_info(
         {:containers_saved, writer, token, result},
@@ -2422,6 +2451,11 @@ defmodule Valimc.World.RegionData do
         %{store: writer, item_pending: %{kind: :cooking_orbs, token: token}} = state
       ),
       do: CookingOrbRuntime.saved(state, result)
+
+  def handle_info({:containers_saved, writer, token, result}, %{store: writer} = state)
+      when is_map_key(state, :item_writes) and state.item_writes != [] and
+             hd(state.item_writes).token == token and hd(state.item_writes).kind == :containers,
+      do: complete_queued_write(state, result)
 
   def handle_info({:containers_saved, _, _, _}, state), do: {:noreply, state}
 
@@ -2742,17 +2776,26 @@ defmodule Valimc.World.RegionData do
               token
             )
 
-            writing =
-              pending
-              |> Map.drop([:worker, :monitor])
-              |> Map.merge(%{
-                phase: :writing,
-                proposal: proposal,
-                containers: containers,
-                items: items
-              })
+            # Group commit (step 4c): adopt like a block transfer.
+            Process.cancel_timer(pending.timer)
 
-            {:noreply, %{state | item_pending: writing}}
+            {state, effects} =
+              apply_blocks(%{state | item_pending: nil}, pending.batch, proposal, false, false)
+
+            state = %{state | containers: containers}
+            reply = if pending.reply == :ok, do: :ok, else: {:ok, state.revision}
+
+            {:noreply,
+             queue_item_write(
+               state,
+               token,
+               send_after(state, {:item_commit_deadline, token}, 5000),
+               items,
+               pending.receipts,
+               pending.from,
+               reply,
+               effects
+             )}
 
           {:error, _} = error ->
             Process.cancel_timer(pending.timer)
@@ -2793,53 +2836,8 @@ defmodule Valimc.World.RegionData do
 
   def handle_info({:mining_saved, writer, token, result}, %{store: writer} = state)
       when is_map_key(state, :item_writes) and state.item_writes != [] and
-             hd(state.item_writes).token == token and hd(state.item_writes).blocks != nil,
+             hd(state.item_writes).token == token and hd(state.item_writes).kind == :blocks,
       do: complete_queued_write(state, result)
-
-  def handle_info(
-        {:mining_saved, writer, token, :ok},
-        %{
-          store: writer,
-          item_pending: %{kind: kind, phase: :writing, token: token, batch: batch} = pending
-        } = state
-      )
-      when kind in [:mining, :placement, :container_blocks] do
-    Process.cancel_timer(pending.timer)
-    next = publish_blocks(state, batch, pending.proposal, false)
-    publish_item_views(%{state | items: pending.items})
-
-    reply =
-      cond do
-        kind != :container_blocks -> {:ok, :applied}
-        pending.reply == :ok -> :ok
-        true -> {:ok, next.revision}
-      end
-
-    GenServer.reply(pending.from, reply)
-
-    {:noreply,
-     %{
-       next
-       | items: pending.items,
-         item_receipts: pending.receipts,
-         containers: Map.get(pending, :containers, state.containers),
-         item_pending: nil,
-         item_saved_generation: state.item_motion_generation
-     }}
-  end
-
-  def handle_info(
-        {:mining_saved, writer, token, {:error, reason}},
-        %{
-          store: writer,
-          item_pending: %{kind: kind, phase: :writing, token: token, batch: _} = pending
-        } = state
-      )
-      when kind in [:mining, :placement, :container_blocks] do
-    Process.cancel_timer(pending.timer)
-    GenServer.reply(pending.from, {:error, :mining_commit_uncertain})
-    {:stop, {:mining_storage_failed, reason}, %{state | item_pending: nil}}
-  end
 
   def handle_info(
         {:mining_saved, writer, token, result},
@@ -2926,7 +2924,7 @@ defmodule Valimc.World.RegionData do
   # Each acknowledgement kind completes only its own kind of queued write.
   def handle_info({:items_saved, writer, token, result}, %{store: writer} = state)
       when is_map_key(state, :item_writes) and state.item_writes != [] and
-             hd(state.item_writes).token == token and hd(state.item_writes).blocks == nil,
+             hd(state.item_writes).token == token and hd(state.item_writes).kind == :items,
       do: complete_queued_write(state, result)
 
   def handle_info({:items_saved, _, _, _}, state), do: {:noreply, state}
@@ -3143,13 +3141,14 @@ defmodule Valimc.World.RegionData do
       end
 
     {decision, state} = container_view_decision(state, connection, position, grant, decision)
+    message = {:table_admitted, ref, {self(), state.items.epoch}, decision}
 
-    Valimc.Connection.deliver(
-      connection,
-      {:table_admitted, ref, {self(), state.items.epoch}, decision}
-    )
-
-    {:noreply, state}
+    if world_write_queued?(state) do
+      {:noreply, finish_when_durable(state, {:deliver, connection}, message)}
+    else
+      Valimc.Connection.deliver(connection, message)
+      {:noreply, state}
+    end
   end
 
   def handle_info({:container_unsubscribe, connection, ref}, state) do
@@ -3358,6 +3357,7 @@ defmodule Valimc.World.RegionData do
       :ok ->
         state = %{state | item_writes: rest}
         state = if write.blocks, do: release_blocks(state, write.blocks), else: state
+        state = Enum.reduce(write.effects, state, &release_effect(&2, &1))
 
         state =
           if rest == [] do
@@ -3381,19 +3381,29 @@ defmodule Valimc.World.RegionData do
       {:error, reason} ->
         for queued <- state.item_writes,
             from <- [queued.from | Enum.map(queued.held, &elem(&1, 0))],
+            not match?({:deliver, _}, from),
             do: reply_item(from, {:error, uncertain(queued)})
 
         require Logger
         Logger.error("Region commit failed: #{inspect(reason)}")
-        stop = if write.blocks, do: :mining_storage_failed, else: :item_storage_failed
+
+        stop =
+          case write.kind do
+            :items -> :item_storage_failed
+            :blocks -> :mining_storage_failed
+            :containers -> :container_storage_failed
+          end
+
         {:stop, {stop, reason}, %{state | item_writes: []}}
     end
   end
 
-  defp uncertain(%{blocks: nil}), do: :item_commit_uncertain
-  defp uncertain(_write), do: :mining_commit_uncertain
+  defp uncertain(%{kind: :items}), do: :item_commit_uncertain
+  defp uncertain(%{kind: :blocks}), do: :mining_commit_uncertain
+  defp uncertain(%{kind: :containers}), do: :container_commit_uncertain
 
   defp reply_item(nil, _), do: :ok
+  defp reply_item({:deliver, pid}, message), do: Valimc.Connection.deliver(pid, message)
   defp reply_item(from, reply), do: GenServer.reply(from, reply)
 
   defp pickup_effect(items, %{remainder: nil} = request, %{actor: %{entity_id: collector}}, true)
@@ -3660,7 +3670,7 @@ defmodule Valimc.World.RegionData do
       state.item_writes != [] or
         (match?(%{phase: :writing, items: _}, state.item_pending) and
            not match?(
-             %{kind: kind} when kind in [:container, :cooking_checkpoint, :cooking_orbs],
+             %{kind: kind} when kind in [:cooking_checkpoint, :cooking_orbs],
              state.item_pending
            ))
 
@@ -3679,12 +3689,6 @@ defmodule Valimc.World.RegionData do
             CookingOrbRuntime.shutdown_containers(state, pending)
 
           %{phase: :writing, plan: %{containers: containers}} ->
-            containers
-
-          %{phase: :writing, decision: %{containers: containers}} ->
-            containers
-
-          %{phase: :writing, containers: containers} ->
             containers
 
           _ ->

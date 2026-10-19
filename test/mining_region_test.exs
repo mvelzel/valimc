@@ -109,6 +109,28 @@ defmodule Valimc.MiningRegionTest do
     end
   end
 
+  test "a raw edit behind a queued mining write reaches subscribers after the mined block", ctx do
+    World.subscribe(MapSet.new([ctx.key]), MapSet.new())
+    writer = :sys.get_state(ctx.pid).resource.store
+    :sys.suspend(writer)
+    task = Task.async(fn -> Region.apply_mining_transfer(ctx.owner, ctx.transfer) end)
+
+    try do
+      writing(ctx.pid)
+      assert :ok = World.set_block(ctx.position, 1)
+      refute_receive {:event, {:block, _, _}}, 20
+      refute_received {:event, {:block_batch, _}}
+      :sys.resume(writer)
+      assert {:ok, :applied} = Task.await(task)
+      assert_receive {:event, {:block_batch, _}}
+      assert_receive {:event, {:block, position, 1}}
+      assert position == ctx.position and World.get_block(ctx.position) == 1
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+      Task.shutdown(task, :brutal_kill)
+    end
+  end
+
   test "unrelated edits preserve permits but a changed-and-restored target durably rejects its old intent",
        ctx do
     assert :ok = World.set_block(ctx.other, 1)

@@ -240,6 +240,9 @@ defmodule Valimc.PlayerContainerStoreTest do
     assert containers == decision.containers
   end
 
+  defp container_write?(pid),
+    do: Enum.any?(Valimc.TestConn.state(pid).resource.item_writes, &(&1.kind == :containers))
+
   test "a recovery outcome is not published or acknowledged before the suspended writer commits",
        ctx do
     {_writer, _fence, pending} = prepare(ctx)
@@ -249,27 +252,23 @@ defmodule Valimc.PlayerContainerStoreTest do
     task = Task.async(fn -> Region.recover_container_transfer(owner, pending.outbox.request) end)
 
     try do
-      await(fn ->
-        match?(
-          %{phase: :writing, kind: :container},
-          Valimc.TestConn.state(pid).resource.item_pending
-        )
-      end)
-
+      await(fn -> container_write?(pid) end)
       assert Task.yield(task, 20) == nil
 
-      assert {:error, :item_storage_busy} =
-               Region.recover_container_transfer(owner, pending.outbox.request)
+      # The outcome is adopted: a repeat and the receipt proof wait for durability.
+      repeat =
+        Task.async(fn -> Region.recover_container_transfer(owner, pending.outbox.request) end)
+
+      proof = Task.async(fn -> Region.container_transfer_receipt(owner, ctx.uuid) end)
+      assert Task.yield(repeat, 20) == nil and Task.yield(proof, 20) == nil
 
       assert {:error, :stale_region} =
                Region.recover_container_transfer({pid, make_ref()}, pending.outbox.request)
 
-      assert {:error, :missing_container_receipt} =
-               Region.container_transfer_receipt(owner, ctx.uuid)
-
       :sys.resume(writer)
       assert Task.await(task, 1500) == {:ok, :rejected}
-      assert {:ok, {_, %{sequence: 1}}} = Region.container_transfer_receipt(owner, ctx.uuid)
+      assert Task.await(repeat, 1500) == {:ok, :already_rejected}
+      assert {:ok, {_, %{sequence: 1}}} = Task.await(proof, 1500)
     after
       if Process.alive?(writer), do: :sys.resume(writer)
       Task.shutdown(task, :brutal_kill)
@@ -407,7 +406,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     assert stored.entries[position].slots == Tuple.duplicate(nil, 27)
   end
 
-  test "a new player gets no permit before receipt reservation is durable; block edits cannot interleave",
+  test "a new player's permit leaves only once its reservation is durable; a later edit voids it",
        ctx do
     {{pid, _} = owner, ctx, actor} = admit(ctx)
     source = :crypto.strong_rand_bytes(16)
@@ -418,30 +417,18 @@ defmodule Valimc.PlayerContainerStoreTest do
     task = Task.async(fn -> Region.admit_container_transfer(owner, request, actor) end)
 
     try do
-      await(fn ->
-        match?(
-          %{phase: :writing, kind: :container},
-          Valimc.TestConn.state(pid).resource.item_pending
-        )
-      end)
-
+      await(fn -> container_write?(pid) end)
       assert Task.yield(task, 20) == nil
-
-      assert {:error, :missing_container_receipt} =
-               Region.container_transfer_receipt(owner, source)
-
-      assert {:error, :mining_storage_busy} = World.set_block(request.position, 0)
-
-      refute Enum.any?(
-               Valimc.TestConn.state(pid).resource.container_permits.entries,
-               fn {_, grant} -> grant.source == source end
-             )
-
+      proof = Task.async(fn -> Region.container_transfer_receipt(owner, source) end)
+      assert Task.yield(proof, 20) == nil
+      # Owner order puts the edit after the admission, so it invalidates the permit.
+      assert :ok = World.set_block(request.position, 0)
       :sys.resume(writer)
+      assert {:ok, {_, %{sequence: 0}}} = Task.await(proof, 1500)
       assert {:ok, admitted} = Task.await(task, 1500)
       assert {:ok, {_, %{sequence: 0}}} = Region.container_transfer_receipt(owner, source)
 
-      assert Map.has_key?(
+      refute Map.has_key?(
                Valimc.TestConn.state(pid).resource.container_permits.entries,
                admitted.permit
              )

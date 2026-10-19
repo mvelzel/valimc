@@ -78,9 +78,8 @@ defmodule Valimc.PlacementOwnerTest do
 
     try do
       wait_writing(pid)
-      assert World.get_block(c.position) == 0
-      assert Valimc.TestConn.state(pid).resource.containers.entries == %{}
-      assert {:error, :mining_storage_busy} = World.set_block(c.position, 1)
+      # Adopted in owner memory; readers see the chest only once durable.
+      assert Valimc.TestRegion.published_block(c.owner, c.position) == 0
       assert Task.yield(task, 10) == nil
       :sys.resume(writer)
       assert {:ok, revision} = Task.await(task)
@@ -108,8 +107,14 @@ defmodule Valimc.PlacementOwnerTest do
 
     try do
       wait_writing(pid)
-      assert World.get_block(c.position) == chest
-      assert Valimc.TestConn.state(pid).resource.containers == old
+      assert Valimc.TestRegion.published_block(c.owner, c.position) == chest
+
+      assert Valimc.World.Containers.decode(
+               Valimc.TestDisk.read(c.path, c.key, :containers),
+               c.key
+             ) ==
+               {:ok, old}
+
       assert Task.yield(removal, 10) == nil
       :sys.resume(writer)
       assert :ok = Task.await(removal)
@@ -178,10 +183,7 @@ defmodule Valimc.PlacementOwnerTest do
   defp wait_writing(_, 0), do: flunk("joint chest write did not start")
 
   defp wait_writing(pid, tries) do
-    if match?(
-         %{kind: :container_blocks, phase: :writing},
-         Valimc.TestConn.state(pid).resource.item_pending
-       ) do
+    if Enum.any?(Valimc.TestConn.state(pid).resource.item_writes, &(&1.kind == :blocks)) do
       :ok
     else
       Process.sleep(1)

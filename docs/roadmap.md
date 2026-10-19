@@ -20,7 +20,7 @@ lands. See [architecture](architecture.md) for the target design.
 | Ticket | Slice | Status |
 |---|---|---|
 | [VMC-062](tickets/VMC-062.md) | Rust NIF toolchain and paletted section storage replacing the edit map | Done |
-| [VMC-063](tickets/VMC-063.md) | Region log with group commit; no tick pauses (design ready) | Planned |
+| [VMC-063](tickets/VMC-063.md) | Region log with group commit; no tick pauses | In progress |
 | VMC-064 | One owner-transaction engine and section fencing (steps 6–8 of VMC-063) | Planned |
 | [VMC-065](tickets/VMC-065.md) | Published section snapshots for lock-free collision/observation reads | Done |
 | VMC-066 | Tick pipeline on game time: steppable clock, scheduled and random ticks | Planned |

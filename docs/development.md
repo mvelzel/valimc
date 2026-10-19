@@ -16,8 +16,8 @@ locate details. Feature evidence belongs in `tickets/VMC-*.md`.
 
 ## Checks
 
-The full suite takes about two minutes. Choose the smallest check that covers the
-change; never run the full suite just to be thorough.
+The full suite takes about 2.5 minutes and `mix test.fast` about one minute, so
+neither is a routine check. Choose the smallest check that covers the change.
 
 | Change | Run |
 |---|---|
@@ -26,7 +26,7 @@ change; never run the full suite just to be thorough.
 | Several modules, no shared owner/protocol change | `mix test --stale` |
 | Pure kernels (physics, codecs) | Their test files plus only the matching `check_vanilla.py --only <stage>` |
 | Rust in `native/` | `cargo test`, `cargo clippy --all-targets`, plus `test/blocks_test.exs` |
-| Region owner, connection, persistence or protocol core | `mix test.fast`, then the touched socket suites by name |
+| Region owner, connection, persistence or protocol core | The test files of the touched flows by name (socket suites included); `mix test.fast` once per finished parent step, not per edit |
 | Milestone boundary (at most once per milestone) | Full `mix test`, then full `check_vanilla.py` (about 15 minutes) in the background |
 
 ```sh
@@ -38,8 +38,7 @@ mix test --stale
 `mix test --stale` runs only tests whose dependencies changed since the last stale
 run. Untrusted-input decoders get StreamData properties (`test/codec_property_test.exs`;
 `STREAM_RUNS=5000` for a deeper run). Micro-benchmarks use Benchee (`bench/*.exs`);
-scenario benchmarks of a running server stay custom. `mix test.fast` runs everything except the socket suites (`@moduletag :tcp`),
-in about 35 seconds. Each test run uses a private temporary directory.
+scenario benchmarks of a running server stay custom. `mix test.fast` runs everything except the socket suites (`@moduletag :tcp`). Each test run uses a private temporary directory.
 
 Rust code lives in `native/` (`valimc_core` pure crate, `valimc_nif` Rustler shim,
 built by `use Rustler` in `Valimc.Native`). Run `cargo fmt --check` there too.

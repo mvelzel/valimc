@@ -367,10 +367,7 @@ defmodule Valimc.CookingConnectionTest do
 
       wait(fn ->
         match?(%{stage: :delivery}, Valimc.TestConn.state(pid).recovery) and
-          match?(
-            %{kind: :container, phase: :writing},
-            :sys.get_state(region).resource.item_pending
-          )
+          Enum.any?(:sys.get_state(region).resource.item_writes, &(&1.kind == :containers))
       end)
 
       assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox.kind == :container
