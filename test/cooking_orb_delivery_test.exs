@@ -21,6 +21,7 @@ defmodule Valimc.CookingOrbDeliveryTest do
     nonce = System.unique_integer([:positive])
     source = {110_000 + rem(nonce, 1000), 2291}
     dest = {elem(source, 0) + 1, elem(source, 1)}
+    peer = {elem(source, 0) + 2, elem(source, 1)}
     base = Path.join(System.tmp_dir!(), "valimc-orb-delivery-#{nonce}")
     previous = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)
@@ -31,7 +32,7 @@ defmodule Valimc.CookingOrbDeliveryTest do
             {Valimc.RegionRegistry, Valimc.RegionSupervisor},
             {Valimc.RegionStoreRegistry, Valimc.RegionStoreSupervisor}
           ],
-          key <- [source, dest],
+          key <- [source, dest, peer],
           {pid, _} <- Registry.lookup(registry, key),
           do: DynamicSupervisor.terminate_child(supervisor, pid)
 
@@ -39,7 +40,7 @@ defmodule Valimc.CookingOrbDeliveryTest do
       File.rm_rf!(base)
     end)
 
-    %{source: source, dest: dest, base: base, at: at(dest)}
+    %{source: source, dest: dest, peer: peer, base: base, at: at(dest)}
   end
 
   defp at({x, z}), do: {x * 128 + 8.5, 64.5, z * 128 + 8.5}
@@ -363,6 +364,56 @@ defmodule Valimc.CookingOrbDeliveryTest do
     after
       if Process.alive?(writer), do: :sys.resume(writer)
     end
+  end
+
+  test "a full destination retains its intent while another destination makes progress", ctx do
+    origin = {elem(ctx.source, 0) - 2, elem(ctx.source, 1)}
+
+    {original, imports} =
+      Enum.reduce(1..256, {%Containers{}, %{}}, fn _, {cs, imports} ->
+        {cs, id} = award(origin, ctx.at, cs)
+        request = %{source: origin, destination: ctx.dest, id: id, award: cs.pending_awards[id]}
+        {cs, Map.put(imports, id, request)}
+      end)
+
+    original = %{
+      original
+      | orb_transfers: %{
+          revision: 512,
+          incoming: %{},
+          outgoing: Map.new(imports, fn {id, _} -> {id, :delivered} end)
+        }
+    }
+
+    {:ok, bytes} = Containers.encode(origin, original)
+    File.write!(Store.container_path(ctx.base, origin), bytes)
+    full = %Containers{orb_transfers: %{revision: 256, outgoing: %{}, incoming: imports}}
+    seed(ctx.dest, full)
+    {cs, blocked} = award(ctx.source, ctx.at)
+    {cs, available} = award(ctx.source, at(ctx.peer), cs)
+    seed(ctx.source, cs)
+    {:ok, {ap, _}} = World.item_owner(ctx.source)
+    {:ok, {bp, be}} = World.item_owner(ctx.dest)
+    {:ok, {cp, _}} = World.item_owner(ctx.peer)
+
+    wait(fn ->
+      r = resource(ap)
+
+      r.containers.orb_transfers.outgoing[blocked] == :pending and
+        r.containers.orb_transfers.outgoing[available] == :delivered and
+        r.cooking_orbs.delivery_cursor == blocked and is_integer(r.cooking_orbs.delivery_retry_at)
+    end)
+
+    assert resource(bp).containers == full
+    assert map_size(resource(cp).containers.orb_transfers.incoming) == 1
+    assert map_size(resource(cp).cooking_orbs.views) == 1
+    assert resource(ap).containers.pending_awards == cs.pending_awards
+    assert resource(ap).cooking_orbs.views == %{}
+    {:ok, request} = CookingOrbTransfers.request(resource(ap).containers, ctx.source, blocked)
+    {:ok, bytes} = CookingOrbTransfers.encode_request(request)
+
+    assert {:error, :cooking_orb_transfer_capacity} =
+             Region.apply_cooking_orb_spawn({bp, be}, bytes)
   end
 
   test "transfer worker saturation, failed attempts and late results preserve durable intent",

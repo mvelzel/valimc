@@ -59,6 +59,28 @@ ordinary pickup separation, late join and stable UUIDs/fresh network IDs after
 owner loss. Existing native denomination/packet probes remain unchanged. Logs:
 `.local/orb-delivery-*.log`. No broad gate is due at this subticket boundary.
 
+The additional full-destination regression passes with all nine delivery tests
+(seed441054): a refused destination retains its durable source intent while a
+second destination receives and settles its award. Its existing 256 imports remain
+unchanged; the source exposes no copy and retains both immutable obligations.
+
+Measurements at `38cf281`: M4/24 GiB, 10 schedulers, 5 warmups/30 samples,
+1/64/256 imported one-recipe awards worth 4,925 XP each (11/704/2,816 records).
+Cold import planning p50/p95 is 0.041/0.087, 3.713/5.385 and 12.631/18.142 ms;
+source settlement planning is 0.024/0.090, 0.533/1.124 and 1.371/2.102 ms.
+Both idle schedulers together, 1,000 calls with a copied ledger, take
+0.071/0.146, 0.115/0.224 and 0.070/0.157 ms. The maximum imported snapshot is
+38,745 bytes for this one-recipe workload; it is not the maximum legal ledger.
+At 2,816 records, visible reads for nine/64 chunks are 77/197 and 354/721 µs;
+continuous observer corrections are 266/479 µs for one paced batch (1,024 visible).
+The unchanged local workload rerun retains flat idle cost, but host variance and
+added transfer-aware planning give no latency improvement claim: maximum cold
+local planning is 11.222/29.489 ms versus 5.812/7.619 ms at `ed06d5a`.
+Raw samples, exact scripts, source hashes and coverage are retained in
+`.local/orb-delivery-{imports,local}-38cf281.{exs,json}`. These are pure worker/ETS/
+replication measurements without disk/socket/gameplay load; actual client tests
+overlapped on the host. They do not establish server capacity or comparative speed.
+
 Client gate pending: `.local/client-tests/VMC-034n3b/world` starts with 14 real
 receipt-backed obligations, no materialized orbs or transfer decisions. Runtime
 must produce 13 local markers/12 local sprites/4,931 XP and one delivered remote
