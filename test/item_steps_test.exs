@@ -2,7 +2,7 @@ defmodule Valimc.ItemStepsTest do
   use ExUnit.Case, async: true
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.{Data, ItemStack, Wire}
-  alias Valimc.World.{ItemRecords, ItemReplication, Items}
+  alias Valimc.World.{ItemRecords, EntityReplication, Items}
 
   defp initial do
     {:ok, items, {epoch, id, revision}} =
@@ -42,27 +42,27 @@ defmodule Valimc.ItemStepsTest do
 
   test "position precedes velocity; later movement avoids repeated metadata and fresh tracking uses current spawn" do
     {items, epoch, step} = initial()
-    {observer, _} = ItemReplication.reconcile(ItemReplication.new(), items.views)
+    {observer, _} = EntityReplication.reconcile(EntityReplication.new(), items.views)
     {:ok, next, _} = Items.advance(items, {0, 0}, epoch, [step])
-    {observer, packets} = ItemReplication.reconcile(observer, next.views)
+    {observer, packets} = EntityReplication.reconcile(observer, next.views)
     assert names(packets) == ["entity_position_sync", "set_entity_motion", "set_entity_data"]
     step2 = %{step | revision: 2, position: {17.0, 64.9, 0.5}, motion: %{step.motion | age: 2}}
     {:ok, latest, _} = Items.advance(next, {0, 0}, epoch, [step2])
-    {observer, packets} = ItemReplication.reconcile(observer, latest.views)
+    {observer, packets} = EntityReplication.reconcile(observer, latest.views)
     assert names(packets) == ["entity_position_sync", "set_entity_motion"]
-    assert {^observer, []} = ItemReplication.reconcile(observer, latest.views)
-    {_, [spawn, _]} = ItemReplication.reconcile(ItemReplication.new(), latest.views)
+    assert {^observer, []} = EntityReplication.reconcile(observer, latest.views)
+    {_, [spawn, _]} = EntityReplication.reconcile(EntityReplication.new(), latest.views)
     assert spawn == latest.views[step.id].spawn
     assert spawn != items.views[step.id].spawn
 
-    {behind, _} = ItemReplication.reconcile(ItemReplication.new(), items.views)
-    {_, [position | _]} = ItemReplication.reconcile(behind, latest.views)
+    {behind, _} = EntityReplication.reconcile(EntityReplication.new(), items.views)
+    {_, [position | _]} = EntityReplication.reconcile(behind, latest.views)
     assert position == latest.views[step.id].position
     refute position == next.views[step.id].position
 
     age_only = %{step2 | revision: 3, motion: %{step2.motion | age: 3}}
     {:ok, aged, _} = Items.advance(latest, {0, 0}, epoch, [age_only])
-    assert {^observer, []} = ItemReplication.reconcile(observer, aged.views)
+    assert {^observer, []} = EntityReplication.reconcile(observer, aged.views)
   end
 
   test "invalid, duplicate, stale and cross-region batches cannot publish a partial result" do
@@ -97,10 +97,10 @@ defmodule Valimc.ItemStepsTest do
     }
 
     {:ok, items, {_, _, revision}} = Items.replace(items, epoch, step.id, 1, stack)
-    {observer, _} = ItemReplication.reconcile(ItemReplication.new(), items.views)
+    {observer, _} = EntityReplication.reconcile(EntityReplication.new(), items.views)
     step = %{step | revision: revision, motion: %{step.motion | no_gravity: true}}
     {:ok, next, _} = Items.advance(items, {0, 0}, epoch, [step])
-    {_, packets} = ItemReplication.reconcile(observer, next.views)
+    {_, packets} = EntityReplication.reconcile(observer, next.views)
     assert names(packets) == ["entity_position_sync", "set_entity_motion"]
     assert Enum.sum(Enum.map(packets, &Items.packet_bytes/1)) < 100
     {:ok, empty} = Items.remove(next, epoch, step.id, revision + 1)

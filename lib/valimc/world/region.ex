@@ -1,7 +1,7 @@
 defmodule Valimc.World.Region do
   use GenServer
   @moduledoc "Simulation lifecycle owner; storage resources remain separate from its tick state."
-  alias Valimc.World.{BlockBatch, RegionData, TickClock}
+  alias Valimc.World.{BlockBatch, CookingOrbRuntime, RegionData, TickClock}
 
   def start_link({key, token}),
     do:
@@ -305,7 +305,13 @@ defmodule Valimc.World.Region do
       {:ok, clock, late, delay} ->
         Valimc.Metrics.add(:region_ticks)
         Valimc.Metrics.add(:region_late_milliseconds, late)
-        resource = state.resource |> RegionData.item_tick(now) |> RegionData.cooking_tick(now)
+
+        resource =
+          state.resource
+          |> RegionData.item_tick(now)
+          |> RegionData.cooking_tick(now)
+          |> CookingOrbRuntime.tick(now)
+
         {:noreply, schedule_tick(%{state | resource: resource}, clock, delay)}
     end
   end

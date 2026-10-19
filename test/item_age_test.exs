@@ -2,7 +2,7 @@ defmodule Valimc.ItemAgeTest do
   use ExUnit.Case, async: true
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{ItemLedger, ItemReplication, Items}
+  alias Valimc.World.{ItemLedger, EntityReplication, Items}
 
   test "counter-only advances preserve retained wire binaries and ownership generations" do
     record = %{
@@ -18,13 +18,13 @@ defmodule Valimc.ItemAgeTest do
     {:ok, items} = Items.restore({0, 0}, [record], ledger)
     [id] = Map.keys(items.entries)
     view = items.views[id]
-    {observer, _} = ItemReplication.reconcile(ItemReplication.new(), items.views)
+    {observer, _} = EntityReplication.reconcile(EntityReplication.new(), items.views)
     {aged, []} = Items.age(items)
     assert aged.entries[id].motion == %{record.motion | age: 5999, pickup_delay: 1}
     assert aged.views[id] == %{view | revision: 2, pickup_delay: 1}
     assert aged.bytes == items.bytes and aged.ledger == ledger
     assert aged.entries[id].physical_revision == items.entries[id].physical_revision
-    assert {^observer, []} = ItemReplication.reconcile(observer, aged.views)
+    assert {^observer, []} = EntityReplication.reconcile(observer, aged.views)
     {expired, [handle]} = Items.age(aged)
     assert handle == {items.epoch, id, 3}
     assert expired.entries[id].motion == %{record.motion | age: 6000, pickup_delay: 0}

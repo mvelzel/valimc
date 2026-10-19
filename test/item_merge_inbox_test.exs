@@ -295,13 +295,13 @@ defmodule Valimc.ItemMergeInboxTest do
     {:ok, dest} = Items.restore(req.destination, [req.recipient], dest.ledger)
 
     {observer, _} =
-      Valimc.World.ItemReplication.reconcile(Valimc.World.ItemReplication.new(), dest.views)
+      Valimc.World.EntityReplication.reconcile(Valimc.World.EntityReplication.new(), dest.views)
 
     assert {:ok, synced} = ItemMergeInbox.counter_plan(dest, req.destination, req, true)
     assert [%{uuid: uuid, stack: %{count: 64}, motion: motion}] = Items.records(synced)
     assert uuid == req.recipient.uuid and motion.age == 30 and motion.pickup_delay == 10
     assert synced.ledger == dest.ledger and Map.keys(synced.entries) == Map.keys(dest.entries)
-    assert {^observer, []} = Valimc.World.ItemReplication.reconcile(observer, synced.views)
+    assert {^observer, []} = Valimc.World.EntityReplication.reconcile(observer, synced.views)
 
     assert {:error, :item_merge_not_available} =
              ItemMergeInbox.counter_plan(synced, req.destination, req, false)

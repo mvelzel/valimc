@@ -63,7 +63,7 @@ defmodule Valimc.Connection do
 
   alias Valimc.World.TickClock
 
-  alias Valimc.World.{ChestLidReplication, ItemReplication, WeatherReplication}
+  alias Valimc.World.{ChestLidReplication, EntityReplication, WeatherReplication}
   import Bitwise
   @basic_mining Enum.map(~w(stone dirt grass_block cobblestone oak_planks glass), &Data.block/1)
   @fire_resistance EffectTypes.id("fire_resistance")
@@ -330,7 +330,8 @@ defmodule Valimc.Connection do
        fire_damage_due: false,
        fire_contacts_active: false,
        armor_view: nil,
-       item_replication: ItemReplication.new(),
+       item_replication: EntityReplication.new(),
+       orb_replication: EntityReplication.new(),
        clock_version: nil,
        weather_view: nil,
        difficulty_view: nil,
@@ -1234,10 +1235,19 @@ defmodule Valimc.Connection do
         state = start_pickup_query(state, desired_items)
 
         {item_replication, item_packets} =
-          ItemReplication.reconcile(state.item_replication, desired_items)
+          EntityReplication.reconcile(state.item_replication, desired_items)
 
         state =
           emit_peer_packets(%{state | item_replication: item_replication}, item_packets, :buffer)
+
+        {orb_replication, orb_packets} =
+          EntityReplication.reconcile(
+            state.orb_replication,
+            World.visible_orbs(state.regions, state.chunks)
+          )
+
+        state =
+          emit_peer_packets(%{state | orb_replication: orb_replication}, orb_packets, :buffer)
 
         {version, clock_packet} = Valimc.World.Clock.publication()
 
@@ -1971,7 +1981,9 @@ defmodule Valimc.Connection do
 
   defp finish_respawn(state, player) do
     old_entities = Enum.map(state.peers, fn {_, view} -> Packets.remove_entity(view) end)
-    old_items = Map.keys(state.item_replication.tracked)
+
+    old_items =
+      Map.keys(state.item_replication.tracked) ++ Map.keys(state.orb_replication.tracked)
 
     old_items =
       if old_items == [], do: [], else: [Valimc.Protocol.EntityPackets.remove(old_items)]
@@ -2006,7 +2018,8 @@ defmodule Valimc.Connection do
         pending: [],
         batch_pending: false,
         peers: %{},
-        item_replication: ItemReplication.new(),
+        item_replication: EntityReplication.new(),
+        orb_replication: EntityReplication.new(),
         clock_version: clock_version,
         difficulty_view: difficulty,
         weather_view: weather_view

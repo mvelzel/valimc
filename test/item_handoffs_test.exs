@@ -2,7 +2,7 @@ defmodule Valimc.ItemHandoffsTest do
   use ExUnit.Case, async: true
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.{EntityPackets, ItemStack}
-  alias Valimc.World.{ItemHandoffs, ItemLedger, ItemReplication, Items}
+  alias Valimc.World.{ItemHandoffs, ItemLedger, EntityReplication, Items}
 
   defp record(n, x \\ 0.5),
     do: %{
@@ -186,13 +186,13 @@ defmodule Valimc.ItemHandoffsTest do
     [old_id] = Map.keys(a.views)
     [new_id] = Map.keys(b.views)
     torn = Map.merge(a.views, b.views)
-    {fresh, packets} = ItemReplication.reconcile(ItemReplication.new(), torn)
+    {fresh, packets} = EntityReplication.reconcile(EntityReplication.new(), torn)
     assert Map.keys(fresh.tracked) == [new_id] and length(packets) == 2
-    {old, _} = ItemReplication.reconcile(ItemReplication.new(), a.views)
-    {next, packets} = ItemReplication.reconcile(old, torn)
+    {old, _} = EntityReplication.reconcile(EntityReplication.new(), a.views)
+    {next, packets} = EntityReplication.reconcile(old, torn)
     assert Map.keys(next.tracked) == [new_id] and length(packets) == 3
     refute Map.has_key?(next.tracked, old_id)
-    assert {^next, []} = ItemReplication.reconcile(next, torn)
+    assert {^next, []} = EntityReplication.reconcile(next, torn)
   end
 
   defp binary_packet({id, bytes}), do: {id, IO.iodata_to_binary(bytes)}

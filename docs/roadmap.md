@@ -131,7 +131,8 @@ journal/owner recovery, competing views and actual retention through mining,
 cooking/refusals and full restart pass. [Owned orb materialization](tickets/VMC-034n3.md)
 remains in progress: its unused bounded kernel/co-snapshot slice is validated at
 `d95273c` (108 affected checks, native probes and actual retention/refusal/restart).
-Next: owner-fenced runtime publication and cross-region handoff.
+Active: local-owner asynchronous publication/native orb presentation; automated
+owner/TCP checks pass, dedicated client gate pending. Cross-region handoff follows.
 Live XP/recipe delivery and earned-output withdrawal remain gated.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),

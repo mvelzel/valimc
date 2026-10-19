@@ -1,4 +1,4 @@
-alias Valimc.{ItemMotionState, World.ItemReplication, World.Items}
+alias Valimc.{ItemMotionState, World.EntityReplication, World.Items}
 alias Valimc.Protocol.ItemStack
 
 rich = %{
@@ -27,8 +27,8 @@ rows =
     end
 
     initial =
-      Enum.reduce_while(1..(4 * count), ItemReplication.new(), fn _, observer ->
-        {next, _} = ItemReplication.reconcile(observer, views.(owners))
+      Enum.reduce_while(1..(4 * count), EntityReplication.new(), fn _, observer ->
+        {next, _} = EntityReplication.reconcile(observer, views.(owners))
         if map_size(next.tracked) == 4 * count, do: {:halt, next}, else: {:cont, next}
       end)
 
@@ -71,7 +71,7 @@ rows =
                 {key, next, ids}
               end)
 
-            {observer, emitted} = ItemReplication.reconcile(observer, views.(owners))
+            {observer, emitted} = EntityReplication.reconcile(observer, views.(owners))
             {owners, observer, emitted}
           end)
 

@@ -170,7 +170,7 @@ defmodule Valimc.World do
   end
 
   def visible_items(regions, chunks) do
-    limit = Valimc.World.ItemReplication.max_visible()
+    limit = Valimc.World.EntityReplication.max_visible()
 
     regions
     |> Enum.sort()
@@ -186,6 +186,49 @@ defmodule Valimc.World do
           |> Enum.take(limit - map_size(acc))
 
         {:cont, Map.merge(acc, Map.new(views))}
+      end
+    end)
+  end
+
+  @doc "Chunk-local XP presentation only; it cannot authorize pickup or a transfer."
+  def orb_snapshot(chunk) do
+    case Directory.lookup(region_key(chunk)) do
+      {_, _, %{epoch: epoch, items: table}} ->
+        case :ets.lookup(table, {:orbs, chunk}) do
+          [{{:orbs, ^chunk}, ^epoch, views}] -> views
+          _ -> %{}
+        end
+
+      _ ->
+        %{}
+    end
+  rescue
+    ArgumentError -> %{}
+  end
+
+  def visible_orbs(regions, chunks) do
+    limit = Valimc.World.EntityReplication.max_visible()
+    regions = regions |> Enum.sort() |> Enum.take(64) |> MapSet.new()
+
+    chunks
+    |> Enum.sort()
+    |> Enum.take(4096)
+    |> Enum.reduce_while(%{}, fn chunk, acc ->
+      cond do
+        map_size(acc) == limit ->
+          {:halt, acc}
+
+        not MapSet.member?(regions, region_key(chunk)) ->
+          {:cont, acc}
+
+        true ->
+          visible =
+            orb_snapshot(chunk)
+            |> Enum.sort_by(&elem(&1, 0))
+            |> Enum.take(limit - map_size(acc))
+            |> Map.new()
+
+          {:cont, Map.merge(acc, visible)}
       end
     end)
   end

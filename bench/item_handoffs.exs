@@ -1,6 +1,6 @@
 alias Valimc.ItemMotionState
 alias Valimc.Protocol.ItemStack
-alias Valimc.World.{ItemHandoffs, ItemLedger, ItemReplication, Items}
+alias Valimc.World.{ItemHandoffs, ItemLedger, EntityReplication, Items}
 
 measure = fn run ->
   for _ <- 1..20, do: run.()
@@ -88,13 +88,13 @@ replication =
       end
 
     tracked =
-      Enum.reduce(1..16, ItemReplication.new(), fn _, state ->
-        {next, _} = ItemReplication.reconcile(state, views)
+      Enum.reduce(1..16, EntityReplication.new(), fn _, state ->
+        {next, _} = EntityReplication.reconcile(state, views)
         next
       end)
 
     true = map_size(tracked.tracked) == unique
-    run = fn -> {^tracked, []} = ItemReplication.reconcile(tracked, views) end
+    run = fn -> {^tracked, []} = EntityReplication.reconcile(tracked, views) end
     Map.merge(measure.(run), %{sampled_views: map_size(views), unique_items: unique, torn: torn})
   end
 

@@ -463,16 +463,25 @@ defmodule Valimc.CookingRegionRuntimeTest do
     assert :ok = Store.flush_containers(state.store, state.store_lease, committed)
     RegionData.terminate(:shutdown, %{state | containers: committed})
     {:ok, {pid, old_epoch}} = Valimc.World.item_owner(ctx.key)
-    assert :sys.get_state(pid).resource.containers == committed
+    assert :sys.get_state(pid).resource.containers.pending_awards == committed.pending_awards
     monitor = Process.monitor(pid)
     Process.exit(pid, :kill)
     assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}
     {replacement, epoch} = replacement(ctx.key)
     assert replacement != pid and epoch != old_epoch
-    assert :sys.get_state(replacement).resource.containers == committed
+    [id] = Map.keys(committed.pending_awards)
+
+    {:ok, materialized, :materialized} =
+      Valimc.World.CookingOrbs.materialize(committed, ctx.key, id)
+
+    eventually(fn ->
+      current = :sys.get_state(replacement).resource
+      current.containers == materialized and current.item_pending == nil
+    end)
+
     send(replacement, {:resource, old_epoch, {:containers_saved, state.store, make_ref(), :ok}})
     assert :ok = Valimc.World.Region.flush(replacement)
-    assert disk(ctx) == committed
+    assert disk(ctx) == materialized
   end
 
   test "the actual region clock cooks all families while dropped-item physics advances", ctx do

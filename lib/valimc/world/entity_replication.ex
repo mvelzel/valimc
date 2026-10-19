@@ -1,5 +1,5 @@
-defmodule Valimc.World.ItemReplication do
-  @moduledoc "Bounded observer-local item updates; position and metadata revisions are independent."
+defmodule Valimc.World.EntityReplication do
+  @moduledoc "Bounded observer-local entity updates; position and metadata revisions are independent."
   alias Valimc.Protocol.EntityPackets
   alias Valimc.World.Items
   defstruct tracked: %{}, cursor: 0

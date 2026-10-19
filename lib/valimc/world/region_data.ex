@@ -4,6 +4,7 @@ defmodule Valimc.World.RegionData do
     BlockBatch,
     Chunk,
     CookingRuntime,
+    CookingOrbRuntime,
     ContainerRequest,
     ContainerTransfers,
     ContainerPermits,
@@ -40,6 +41,7 @@ defmodule Valimc.World.RegionData do
     :container_viewers,
     :cooking_progress,
     :cooking,
+    :cooking_orbs,
     :items,
     :item_receipts,
     :pickup_permits,
@@ -123,6 +125,7 @@ defmodule Valimc.World.RegionData do
       container_viewers: %ContainerViewers{},
       cooking_progress: %{},
       cooking: %CookingRuntime{enabled: Valimc.config(:cooking_simulation)},
+      cooking_orbs: %CookingOrbRuntime{},
       pickup_permits: PickupPermits.new(),
       item_merge_permits: ItemMergePermits.new(),
       item_storage_enabled: persistent,
@@ -2253,7 +2256,19 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  def handle_info(
+        {:containers_saved, writer, token, result},
+        %{store: writer, item_pending: %{kind: :cooking_orbs, token: token}} = state
+      ),
+      do: CookingOrbRuntime.saved(state, result)
+
   def handle_info({:containers_saved, _, _, _}, state), do: {:noreply, state}
+
+  def handle_info({:cooking_orb_plan, worker, token, result}, state),
+    do: CookingOrbRuntime.result(state, worker, token, result)
+
+  def handle_info({:cooking_orb_deadline, token}, state),
+    do: CookingOrbRuntime.expired(state, token)
 
   def handle_info(
         {:cooking_plan, worker, token, result},
@@ -2870,6 +2885,12 @@ defmodule Valimc.World.RegionData do
      }}
   end
 
+  def handle_info(
+        {:DOWN, ref, :process, worker, _},
+        %{cooking_orbs: %{job: %{worker: worker, monitor: ref}}} = state
+      ),
+      do: CookingOrbRuntime.down(state)
+
   def handle_info({:DOWN, ref, :process, pid, reason}, state) do
     state =
       apply_container_viewers(state, ContainerViewers.down(state.container_viewers, pid, ref))
@@ -3368,6 +3389,7 @@ defmodule Valimc.World.RegionData do
 
   def terminate(reason, state) do
     Process.cancel_timer(state.save_timer)
+    CookingOrbRuntime.terminate(state.cooking_orbs)
 
     if state.cooking.job do
       Process.cancel_timer(state.cooking.job.timer)
@@ -3412,7 +3434,7 @@ defmodule Valimc.World.RegionData do
     writing_items =
       match?(%{phase: :writing}, state.item_pending) and
         not match?(
-          %{kind: kind} when kind in [:container, :cooking_checkpoint],
+          %{kind: kind} when kind in [:container, :cooking_checkpoint, :cooking_orbs],
           state.item_pending
         )
 
@@ -3441,13 +3463,23 @@ defmodule Valimc.World.RegionData do
       # Follow queued writes with their successor, never the old pre-commit containers.
       containers =
         case state.item_pending do
-          %{phase: :writing, plan: %{containers: containers}} -> containers
-          %{phase: :writing, decision: %{containers: containers}} -> containers
-          %{phase: :writing, containers: containers} -> containers
-          _ -> state.containers
+          %{kind: :cooking_orbs, phase: :writing} = pending ->
+            CookingOrbRuntime.shutdown_containers(state, pending)
+
+          %{phase: :writing, plan: %{containers: containers}} ->
+            containers
+
+          %{phase: :writing, decision: %{containers: containers}} ->
+            containers
+
+          %{phase: :writing, containers: containers} ->
+            containers
+
+          _ ->
+            state.containers
         end
 
-      flush_cooking(state, containers)
+      if containers != nil, do: flush_cooking(state, containers)
     end
 
     Process.demonitor(state.store_monitor, [:flush])

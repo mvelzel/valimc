@@ -1,5 +1,5 @@
 defmodule Valimc.World.CookingOrbs do
-  @moduledoc "Bounded, replayable cooking XP materialization proposals; no live pickup or replication."
+  @moduledoc "Bounded, replayable cooking XP materialization proposals; pickup remains inactive."
   alias Valimc.World.Containers
   @values [2477, 1237, 617, 307, 149, 73, 37, 17, 7, 3, 1]
   @max_awards 256
@@ -22,7 +22,7 @@ defmodule Valimc.World.CookingOrbs do
 
   def split(_), do: {:error, :invalid_experience}
 
-  @doc "Unused pure successor; its owning region must durably commit it before publishing effects."
+  @doc "Pure successor; its owning region must durably commit it before publishing effects."
   def materialize(%Containers{} = containers, key, <<_::256>> = id) do
     with {:ok, _} <- Containers.encode(key, containers),
          {:ok, record} <- fetch_award(containers.pending_awards, id),
