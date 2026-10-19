@@ -1,6 +1,6 @@
 # VMC-003e — Background input bridge for Claude Code
 
-Status: Claude Code gate passed October 19, 2026; Codex baseline smoke pending.
+Status: Done within dual-harness input scope at `5863974`; both client gates pass.
 Depends on: [VMC-003b](VMC-003b.md), [VMC-003c](VMC-003c.md).
 
 Claude Code must validate the dedicated client from a subagent, in the background,
@@ -63,5 +63,20 @@ A Claude subagent drove every run in the background while the user worked.
 Limit: the user's real cursor crossing the visible test window still reaches the
 patched Cocoa path. The off-Space capture path was not exercised.
 
-Next gate/fix: a Codex `mcp__cua_repl` baseline smoke on this library (join,
-`/stats`, menu click, camera drag, F8/F9) confirms its path is unchanged.
+Codex acceptance (2026-10-19, Java26.3/protocol777): dedicated medium-reasoning
+tester reports PASS on `5863974`, unchanged direct launch and the same SDL hash
+above, using only `mcp__cua_repl`. Join, visible `/stats`, menu click, creative
+Oak Slab pickup, two right clicks forming a double slab, F9 breaking it, F8/F9
+release and complete inventory/cursor disposal pass. A fresh second client,
+host-staged facing the sky, passes opposite camera drags: yaw0→14.7→-15.3 with
+visible opposite cloud movement. This is a functional baseline, not an exact
+sensitivity comparison. Evidence: `.local/client-tests/runner-slab-smoke/`.
+
+Initial camera attempts mined disposable blocks because drag holds attack; this
+is documented input behavior, not an observed runner regression. The tester read
+the pointer guide late; handoffs now require both guides before input, and
+camera-only checks use a sky-facing pose. No runner implementation changed.
+Both owned clients and servers stopped/waited; JVM PIDs gone, input socket absent
+and port25565 clear. No live player-registry count was queried on the unnamed
+server. Both Claude and Codex acceptance gates are closed; retain the cursor/
+off-Space limits above.

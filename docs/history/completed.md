@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-003e dual-harness client input](../tickets/VMC-003e.md) | `5863974`: Claude background bridge and unchanged Codex CUA join/chat/menus/creative double-slab/opposite sky drags/F8/F9/cleanup pass; same SDL library, no runner changes during Codex acceptance |
 | [VMC-034n4b stored XP bodies/terminal expiry](../tickets/VMC-034n4b.md) | `1aba4ee` / `966b430`: boundedv8 migration/capacity/recovery, component measurements and actual stored-pose contact/expired refusal/furnace/owner/full restart;25 decided =19 consumed +6 expired, source/typed51; automatic physics remains separate |
 | [VMC-034n4a supplied XP motion kernels](../tickets/VMC-034n4a.md) | `7d0a946`:56 native launches/5,184 ticks/5 age boundaries,42 affected checks, bounded batch measurements and actual smelt/XP/restart baseline; unused arithmetic accepted, live motion/storage remain separate |
 | [VMC-034n5 furnace output to collected XP](../tickets/VMC-034n5.md) | `9b585f0` / capacity correction `3e70e07`: native arithmetic/packets/recipe unlocks, targeted capacity/journal/replay checks and eight actual-client groups; ordinary/Shift smelting, all families and owner/full restart conserve gold10/steak3/XP11, source/typed35; motion/Mending/destruction remain separate |

@@ -352,6 +352,9 @@ validated slices through the [completed index](history/completed.md).
 VMC-061's concise docs/retrieval workflow is complete, ahead of further features.
 [VMC-003c](tickets/VMC-003c.md)'s direct local test-client lifecycle is complete:
 automatic join, small window, readable Auto UI, muted launch and owned shutdown.
+[VMC-003e](tickets/VMC-003e.md)'s dual-harness input bridge is complete at
+`5863974`: Claude background checks and the unchanged Codex CUA/slab baseline
+pass, including opposite sky drags, F8/F9 and owned shutdown.
 
 ## Pending client queue
 
@@ -361,7 +364,6 @@ One dedicated tester owns CUA. Code checkpoints can progress independently.
 |---|---|---|
 | [VMC-005b2a](tickets/VMC-005b2a.md) | Sustained multi-slot client drag | Published with gate pending |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Client-generated clone/fill | Published with gate pending |
-| [VMC-003e](tickets/VMC-003e.md) | Codex baseline smoke on the bridge library (Claude gate passed) | Local checkpoint |
 
 The admission/routing block (`66a4b81`) passes 481 tests, production build and full
 native integration, including plaintext/encrypted TCP. Live pose selection

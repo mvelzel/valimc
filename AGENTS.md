@@ -58,7 +58,9 @@ Replace superseded instructions; keep checkpoint-specific evidence in tickets.
   Use medium reasoning with a focused fresh handoff (Codex: `reasoning_effort:
   "medium"`, `fork_turns: "none"`; Claude Code: the `minecraft-tester` agent).
   Only it drives CUA; the primary continues independent work.
-  Hand off exact checkpoint/release, dataset, scenarios and evidence paths.
+  Hand off exact checkpoint/release, dataset, scenarios and evidence paths. Require
+  the tester to read [client testing](docs/client-testing.md) and the
+  [pointer guide](docs/mouse-testing.md) before its first input.
   Coordinate restarts and fixtures; never replace a release under test.
 - The tester owns actual-client verification and reports PASS/FAIL per scenario,
   checked actions and limits. Failures include reproduction steps, expected versus

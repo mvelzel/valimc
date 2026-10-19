@@ -31,7 +31,8 @@ Use the harness's computer-use tool (Codex `mcp__cua_repl`) or the input bridge 
 every UI action. The tester checks ordinary menu clicks,
 inventory pickup/place, opposite camera drags, commands and fresh logs. Reconnect
 by stopping the owned process and launching a fresh direct client, never a menu.
-Camera `drag` holds a button and can mine blocks; use the disposable test world.
+Camera `drag` holds a button and can mine blocks. For camera-only checks, stage
+the player facing the sky; do not drag across the block being verified.
 For input across captures/actions, F8 toggles logical use/right-button hold and
 F9 toggles attack/left-button hold. Press the same key again to release before
 menus or the next scenario. Key repeat does not toggle; a fresh client starts
