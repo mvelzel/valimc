@@ -3,8 +3,7 @@
 Use Minecraft **Java 26.3 / protocol 777**, app ID `local.valimc.minecraft-client`.
 One dedicated testing subagent drives the client; the primary continues work.
 Before the first input, read this guide, the [pointer guide](mouse-testing.md) and
-the tool's current API documentation. Use documented input semantics, not copied
-API snippets; camera drags hold a button and can mine the blocks under the aim.
+the tool's current API documentation.
 
 Launch a fresh client directly into the test server:
 
