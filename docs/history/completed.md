@@ -5,6 +5,9 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-034n3 initial XP creation/ownership](../tickets/VMC-034n3.md) | Kernel `d95273c`, local runtime `ed06d5a`, remote delivery `38cf281`: bounded durable native creation, targeted/native checks and actual graphics/contact/refusals/owner recovery/full restart; simulation/pickup remain open |
+| [VMC-034n3a remote spawn protocol](../tickets/VMC-034n3a.md) | `4b09f6f`: canonical intents/adoptions/digest settlement, capacity/joint recovery and actual baseline/both owner deaths/full restart; unused storage slice accepted |
+| [VMC-034n3b live remote delivery](../tickets/VMC-034n3b.md) | `38cf281` / fairness `5cb237f`:84 affected checks and five actual-client scenarios; one destination effect, duplicate replay, owner replacement/full restart and exact4,934-XP accounting; no physics/pickup claim |
 | [VMC-034n2 pending cooking awards](../tickets/VMC-034n2.md) | `65061b9`: bounded atomic snapshot/receipt decisions, journal/owner replacement and actual pending retention through mining/cooking/refusals/full restart; live XP delivery remains gated |
 | [VMC-034n1 cooking XP values](../tickets/VMC-034n1.md) | `9664371`: 712 native award hooks/219 arithmetic boundaries, 33 affected checks and actual cooking/refusal/reconnect baseline; unused kernel, no live XP awards |
 | [VMC-034m live regional cooking](../tickets/VMC-034m.md) | `99dfb57`: 15,630 native compositions, targeted owner/clock/recovery checks, matched worker measurements and actual all-family cooking/concurrent gestures/items/refusals/sponge/restart conservation; XP awards remain separate |

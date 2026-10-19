@@ -5,8 +5,9 @@ Status: In progress. [Award values](VMC-034n1.md) and
 The [orb materialization kernel](VMC-034n3.md) is validated at `d95273c`, with local
 owner installation/native replication accepted at `ed06d5a`. The unused
 [remote storage protocol](VMC-034n3a.md) is accepted at `4b09f6f`;
-[live remote delivery](VMC-034n3b.md) remains next, followed by orb simulation,
-XP/player authority and recipe delivery.
+[live remote delivery](VMC-034n3b.md) is accepted at `38cf281`. Initial creation
+and ownership are complete within their staged scope. Next:
+[orb simulation](VMC-034n4.md), XP/player authority and recipe delivery.
 Output with recipe uses stays refused until the complete award path is admitted.
 
 Player withdrawals must release the earned output, award used recipes and spawn

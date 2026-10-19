@@ -1,6 +1,7 @@
 # VMC-034n3b — Live remote XP spawn delivery
 
-Status: In progress. Depends on the [durable protocol](VMC-034n3a.md); part of
+Status: Done within initial remote-spawn scope. Runtime `38cf281`, additional
+fairness check/measurements `5cb237f`. Depends on the [durable protocol](VMC-034n3a.md); part of
 [orb ownership](VMC-034n3.md). This covers initial remote spawning, not moving
 an already active orb or enabling earned-output withdrawal.
 
@@ -50,7 +51,8 @@ admission backs off 100 ms; uncertain deliveries rotate after 1 s. The transfer
 revision wakes scheduling even when record counts are unchanged. Both imported
 and local frozen views share native replication and its prediction corrections.
 
-Automated checks (2026-10-19): 83 affected tests pass (seed141334), including
+Automated checks (2026-10-19): 84 distinct affected tests pass across the
+83-test regression (seed141334) and nine-test delivery run below, including
 simultaneous opposite deliveries/zero XP, source death while destination writes,
 writer death after adoption durability/before ACK, concurrent slots/receipts/timers
 during adoption and settlement, shared-byte refusal/retry, stale/late work and
@@ -81,9 +83,26 @@ Raw samples, exact scripts, source hashes and coverage are retained in
 replication measurements without disk/socket/gameplay load; actual client tests
 overlapped on the host. They do not establish server capacity or comparative speed.
 
-Client gate pending: `.local/client-tests/VMC-034n3b/world` starts with 14 real
-receipt-backed obligations, no materialized orbs or transfer decisions. Runtime
-must produce 13 local markers/12 local sprites/4,931 XP and one delivered remote
-route/adoption/sprite worth3 XP. Expected maps remain private in the evidence
-directory. Cross-boundary contacts, both owner replacements, baseline cooking/
-refusals and full restart must pass before publication.
+Actual client **PASS** (2026-10-19), Java26.3/protocol777, frozen `38cf281`:
+all five scenarios pass on the same whole dataset
+`.local/client-tests/VMC-034n3b/world`. It began with 14 real receipt-backed
+obligations and no creation/transfer records. Runtime produced 13 local markers,
+12 local sprites/4,931 XP and one remote route/adoption/sprite worth3 XP. Exact
+pending, local, source/destination transfer and imported record maps match.
+Actual W/S crossed x640 and contacted the single remote sprite without duplicate,
+persistent drift, pickup or XP gain. Mining A/ordinary item pickup and cooking B
+passed; ordinary/Shift earned-output take remained refused with empty cursor.
+Both owner replacements preserved 13 UUIDs with disjoint fresh network IDs and no
+old tracked IDs. Duplicate delivery returned `already_applied`, preserving IDs.
+Full server restart/fresh direct client retained the scene, inventory and refusals.
+
+Final source sequence/typed receipt24, cursor/outbox nil, all 14 obligations retained,
+4,934 owned XP, A absent, Boutput1/use1, gold13/smoothstone1/furnace1, pickaxe wear1,
+raw iron/coal/dirt0 and no dropped item records; pickup receipt16 retained. Both
+owners/clock flushed, players0, owned helpers/JVMs/servers stopped and port25565
+clear. Report: `.local/client-tests/VMC-034n3b/report.md`; exact reconciliation,
+identity and duplicate diagnostics remain alongside it. Tester diagnostic assertion
+errors were corrected and final assertions pass. No routine images were required.
+Static staging/client6,000-tick lifetime, offline-auth/renderer warnings and muted
+audio remain limits. No physics/pickup/player-XP/full-survival claim. Next:
+[authoritative orb simulation](VMC-034n4.md); earned output remains gated.
