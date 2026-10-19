@@ -139,7 +139,7 @@ defmodule Valimc.PlayerStore do
        uuid: uuid,
        owner: owner,
        monitor: ref,
-       path: path(Valimc.config(:world_path), uuid),
+       path: path(Valimc.config(:world_path, uuid), uuid),
        loaded: false,
        snapshot: nil,
        fence: make_ref(),

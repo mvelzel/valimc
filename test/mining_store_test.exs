@@ -1,5 +1,6 @@
 defmodule Valimc.MiningStoreTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   import ExUnit.CaptureLog
   alias Valimc.Protocol.{Data, ItemStack}
 
@@ -15,9 +16,8 @@ defmodule Valimc.MiningStoreTest do
   setup do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-mining-store-#{nonce}")
-    previous = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
     key = {10_000 + rem(nonce, 10_000), 300}
+    TestScope.isolate(key, world_path: base)
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16
     position = {rx * span, 63, rz * span}
@@ -40,9 +40,8 @@ defmodule Valimc.MiningStoreTest do
 
     on_exit(fn ->
       for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, previous)
       File.rm_rf!(base)
     end)
 

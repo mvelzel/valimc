@@ -1,5 +1,6 @@
 defmodule Valimc.ColumnRegionTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   alias Valimc.Protocol.Data
   alias Valimc.World
   alias Valimc.World.Region
@@ -8,14 +9,12 @@ defmodule Valimc.ColumnRegionTest do
     nonce = System.unique_integer([:positive])
     key = {980, nonce}
     base = Path.join(System.tmp_dir!(), "valimc-columns-#{nonce}")
-    previous = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
+    TestScope.isolate(key, world_path: base)
 
     on_exit(fn ->
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, previous)
       File.rm_rf!(base)
     end)
 

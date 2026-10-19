@@ -1,5 +1,7 @@
 defmodule Valimc.RegionLoadingTest do
   use ExUnit.Case, async: false
+  # Serial: asserts production latency deadlines that concurrent CPU load can exceed.
+  alias Valimc.TestScope
   alias Valimc.World
   alias Valimc.World.Region
   import ExUnit.CaptureLog
@@ -7,13 +9,12 @@ defmodule Valimc.RegionLoadingTest do
   test "a failed cold legacy block import preserves its file and leaves unrelated owners available" do
     nonce = rem(System.unique_integer([:positive]), 10_000) + 1
     base = Path.join(System.tmp_dir!(), "valimc-bad-cold-#{nonce}")
-    old_path = Valimc.config(:world_path)
     key = {-752, -nonce}
     independent = {-753, -nonce}
     path = Valimc.World.Store.block_path(base, key)
     File.mkdir_p!(base)
     File.write!(path, <<0>>)
-    Application.put_env(:valimc, :world_path, base)
+    TestScope.isolate([key, independent], world_path: base)
 
     try do
       capture_log(fn -> assert {:error, _} = World.owner(key) end)
@@ -26,9 +27,8 @@ defmodule Valimc.RegionLoadingTest do
     after
       for k <- [key, independent],
           {pid, _} <- Registry.lookup(Valimc.RegionRegistry, k),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, old_path)
       File.rm_rf!(base)
     end
   end
@@ -36,13 +36,12 @@ defmodule Valimc.RegionLoadingTest do
   test "a cold file read cannot hold the supervisor or publish an incomplete owner" do
     nonce = rem(System.unique_integer([:positive]), 10_000) + 1
     base = Path.join(System.tmp_dir!(), "valimc-cold-#{nonce}")
-    old_path = Valimc.config(:world_path)
     key = {-750, -nonce}
     independent = {-751, -nonce}
     path = Valimc.World.Store.block_path(base, key)
     File.mkdir_p!(base)
     assert {_, 0} = System.cmd("mkfifo", [path])
-    Application.put_env(:valimc, :world_path, base)
+    TestScope.isolate([key, independent], world_path: base)
     loading = Task.async(fn -> World.owner(key) end)
 
     try do
@@ -103,9 +102,8 @@ defmodule Valimc.RegionLoadingTest do
 
       for k <- [key, independent],
           {pid, _} <- Registry.lookup(Valimc.RegionRegistry, k),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, old_path)
       File.rm_rf!(base)
     end
   end

@@ -1,5 +1,6 @@
 defmodule Valimc.CookingRegionRuntimeTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   alias Valimc.{Cooking, Inventory, ItemMotionState}
   alias Valimc.Physics.CookingBlocks
   alias Valimc.Protocol.ItemStack
@@ -11,25 +12,15 @@ defmodule Valimc.CookingRegionRuntimeTest do
     {rx, rz} = key
     position = {rx * 128 + 40, 64, rz * 128 + 40}
     base = Path.join(System.tmp_dir!(), "valimc-cooking-owned-#{nonce}")
-
-    previous =
-      {Valimc.config(:world_path), Valimc.config(:cooking_simulation),
-       Valimc.config(:item_simulation)}
-
-    Application.put_env(:valimc, :world_path, base)
-    Application.put_env(:valimc, :cooking_simulation, true)
+    TestScope.isolate(key, world_path: base, cooking_simulation: true)
     File.mkdir_p!(base)
 
     on_exit(fn ->
-      Application.put_env(:valimc, :world_path, elem(previous, 0))
-      Application.put_env(:valimc, :cooking_simulation, elem(previous, 1))
-      Application.put_env(:valimc, :item_simulation, elem(previous, 2))
-
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+          do: TestScope.kill(pid)
 
       for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
+          do: TestScope.kill(pid)
 
       File.rm_rf!(base)
     end)
@@ -379,7 +370,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
   test "replacement recovers a queued cooking commit once and ignores old-owner callbacks", ctx do
     state = seed(ctx, %{progress() | progress: 199})
     RegionData.terminate(:shutdown, state)
-    Application.put_env(:valimc, :cooking_simulation, false)
+    TestScope.isolate(ctx.key, cooking_simulation: false)
     {:ok, {pid, old_epoch}} = Valimc.World.item_owner(ctx.key)
     :sys.suspend(pid)
     writer = Valimc.TestConn.state(pid).resource.store
@@ -536,7 +527,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
     Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
     Valimc.TestDisk.write(ctx.base, ctx.key, :blocks, edits)
 
-    Application.put_env(:valimc, :item_simulation, true)
+    TestScope.isolate(ctx.key, item_simulation: true)
     {:ok, {pid, _} = owner} = Valimc.World.item_owner(ctx.key)
 
     record = %{

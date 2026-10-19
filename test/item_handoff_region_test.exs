@@ -1,5 +1,6 @@
 defmodule Valimc.ItemHandoffRegionTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   import ExUnit.CaptureLog
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.ItemStack
@@ -11,8 +12,7 @@ defmodule Valimc.ItemHandoffRegionTest do
     key = {31_000 + rem(nonce, 10_000), 700}
     destination = {elem(key, 0) + 1, elem(key, 1)}
     base = Path.join(System.tmp_dir!(), "valimc-handoff-#{nonce}")
-    previous = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
+    TestScope.isolate(TestScope.neighborhood(key), world_path: base)
     File.mkdir_p!(base)
     count = Map.get(tags, :population, 1)
 
@@ -46,14 +46,13 @@ defmodule Valimc.ItemHandoffRegionTest do
         :sys.resume(pid)
         resource = Valimc.TestConn.state(pid).resource
         if Process.alive?(resource.store), do: :sys.resume(resource.store)
-        DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+        TestScope.kill(pid)
       end
 
       for region <- [key, destination],
           {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, region),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, previous)
       File.rm_rf!(base)
     end)
 
@@ -112,7 +111,7 @@ defmodule Valimc.ItemHandoffRegionTest do
     [key] = Registry.keys(Valimc.RegionRegistry, pid)
 
     {:ok, saved} =
-      ItemLedger.decode(Valimc.TestDisk.read(Valimc.config(:world_path), key, :items), key)
+      ItemLedger.decode(Valimc.TestDisk.read(Valimc.config(:world_path, key), key, :items), key)
 
     Enum.any?(saved.records, &(&1.uuid == uuid))
   end

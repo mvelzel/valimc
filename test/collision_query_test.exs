@@ -1,5 +1,7 @@
 defmodule Valimc.CollisionQueryTest do
   use ExUnit.Case, async: false
+  # Serial: saturates a global geometry worker pool that concurrent owners also use.
+  alias Valimc.TestScope
   alias Valimc.Physics.{CollisionQuery, Collision, CollisionContext}
   alias Valimc.World
   alias Valimc.World.{Chunk, Region}
@@ -11,7 +13,7 @@ defmodule Valimc.CollisionQueryTest do
     on_exit(fn ->
       for key <- keys,
           {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+          do: TestScope.kill(pid)
     end)
 
     %{keys: keys, origin: -51_328}

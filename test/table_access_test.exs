@@ -1,5 +1,6 @@
 defmodule Valimc.TableAccessTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   alias Valimc.{TableAccess, World}
   alias Valimc.Protocol.Data
   alias Valimc.World.Region
@@ -10,7 +11,7 @@ defmodule Valimc.TableAccessTest do
 
     on_exit(fn ->
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+          do: TestScope.kill(pid)
     end)
 
     {rx, rz} = key
@@ -40,7 +41,8 @@ defmodule Valimc.TableAccessTest do
     assert_receive {:event, {:block, ^position, 0}}
 
     ref = make_ref()
-    assert :ok = Region.request_table(owner, self(), ref, position, %{grant | kind: :click})
+    click = %{grant | kind: :click, expires: System.monotonic_time(:millisecond) + 500}
+    assert :ok = Region.request_table(owner, self(), ref, position, click)
     assert_receive {:event, {:table_admitted, ^ref, ^owner, {:error, :invalid_table_context}}}
     :ok = World.set_block(position, table)
     assert_receive {:event, {:block, ^position, ^table}}

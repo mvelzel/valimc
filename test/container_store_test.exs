@@ -1,5 +1,6 @@
 defmodule Valimc.ContainerStoreTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   alias Valimc.Protocol.ItemStack
 
   alias Valimc.{
@@ -17,8 +18,7 @@ defmodule Valimc.ContainerStoreTest do
     nonce = System.unique_integer([:positive])
     key = {900, nonce}
     base = Path.join(System.tmp_dir!(), "valimc-containers-#{nonce}")
-    previous = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
+    TestScope.isolate(key, world_path: base)
     span = Valimc.config(:region_size) * 16
     position = {900 * span, 64, nonce * span}
     {:ok, empty, entry} = Containers.create(%Containers{}, key, position, 3)
@@ -27,9 +27,8 @@ defmodule Valimc.ContainerStoreTest do
 
     on_exit(fn ->
       for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, previous)
       File.rm_rf!(base)
     end)
 

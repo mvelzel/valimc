@@ -1,5 +1,6 @@
 defmodule Valimc.PlayerPickupStoreTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   import ExUnit.CaptureLog
 
   alias Valimc.{
@@ -20,9 +21,8 @@ defmodule Valimc.PlayerPickupStoreTest do
     key = {51000 + rem(n, 10000), 1100}
     base = Path.join(System.tmp_dir!(), "valimc-pickup-source-#{n}")
     File.mkdir_p!(base)
-    previous = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
     uuid = <<n::128>>
+    TestScope.isolate([key, uuid], world_path: base)
 
     stack = %{
       ItemStack.new("stone", 7)
@@ -76,15 +76,14 @@ defmodule Valimc.PlayerPickupStoreTest do
 
     on_exit(fn ->
       for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
+          do: TestScope.kill(pid)
 
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+          do: TestScope.kill(pid)
 
       for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, previous)
       File.rm_rf!(base)
     end)
 

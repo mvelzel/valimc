@@ -1,5 +1,6 @@
 defmodule Valimc.MiningRegionTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   import ExUnit.CaptureLog
   alias Valimc.Protocol.{Data, ItemStack}
   alias Valimc.World
@@ -8,9 +9,8 @@ defmodule Valimc.MiningRegionTest do
   setup do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-mining-region-#{nonce}")
-    previous = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
     key = {20_000 + rem(nonce, 10_000), 400}
+    TestScope.isolate(key, world_path: base)
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16
     position = {rx * span, 63, rz * span}
@@ -38,9 +38,8 @@ defmodule Valimc.MiningRegionTest do
 
     on_exit(fn ->
       for {live, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, live)
+          do: TestScope.kill(live)
 
-      Application.put_env(:valimc, :world_path, previous)
       File.rm_rf!(base)
     end)
 

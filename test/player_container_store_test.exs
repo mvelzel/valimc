@@ -1,5 +1,6 @@
 defmodule Valimc.PlayerContainerStoreTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
 
   alias Valimc.{
     GameMode,
@@ -22,8 +23,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     span = Valimc.config(:region_size) * 16
     position = {elem(key, 0) * span + 1, 64, elem(key, 1) * span + 1}
     base = Path.join(System.tmp_dir!(), "valimc-container-player-#{nonce}")
-    previous = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
+    TestScope.isolate([key, uuid], world_path: base)
     File.mkdir_p!(base)
 
     inventory = %Inventory{
@@ -75,15 +75,14 @@ defmodule Valimc.PlayerContainerStoreTest do
     }
 
     on_exit(fn ->
-      for {registry, supervisor, key} <- [
-            {Valimc.PlayerStoreRegistry, Valimc.PlayerStoreSupervisor, uuid},
-            {Valimc.RegionRegistry, Valimc.RegionSupervisor, key},
-            {Valimc.RegionStoreRegistry, Valimc.RegionStoreSupervisor, key}
+      for {registry, key} <- [
+            {Valimc.PlayerStoreRegistry, uuid},
+            {Valimc.RegionRegistry, key},
+            {Valimc.RegionStoreRegistry, key}
           ],
           {pid, _} <- Registry.lookup(registry, key),
-          do: DynamicSupervisor.terminate_child(supervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, previous)
       File.rm_rf!(base)
     end)
 

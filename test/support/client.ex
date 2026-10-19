@@ -518,3 +518,44 @@ defmodule Valimc.TestRegion do
     end
   end
 end
+
+defmodule Valimc.TestScope do
+  @moduledoc """
+  Per-owner config for concurrent tests: owners started for the given region keys or
+  player UUIDs read `overrides` (e.g. `world_path: base, item_simulation: true`)
+  instead of the global app env, until the test exits. See `Valimc.config/2`.
+  """
+  @table Valimc.ScopedConfig
+
+  @doc "Create the override table, owned by a process that outlives every test."
+  def start do
+    {:ok, _} = Agent.start(fn -> :ets.new(@table, [:named_table, :public]) end)
+    :ok
+  end
+
+  @doc "Apply `overrides` to the owners of `scopes` started during this test."
+  def isolate(scopes, overrides) do
+    rows = for scope <- List.wrap(scopes), {key, value} <- overrides, do: {{scope, key}, value}
+    true = :ets.insert(@table, rows)
+    ExUnit.Callbacks.on_exit(fn -> Enum.each(rows, &:ets.delete_object(@table, &1)) end)
+    :ok
+  end
+
+  @doc """
+  Cleanup for an owner or store: kill it rather than `terminate_child/2`, whose
+  graceful shutdown would hold the shared supervisor (and every concurrent test's
+  admissions) while a suspended writer stalls the owner's final flush.
+  """
+  def kill(pid) do
+    ref = Process.monitor(pid)
+    Process.exit(pid, :kill)
+
+    receive do
+      {:DOWN, ^ref, :process, ^pid, _} -> :ok
+    end
+  end
+
+  @doc "`key` and the region keys within `radius` of it (owners a handoff may start)."
+  def neighborhood({rx, rz}, radius \\ 1),
+    do: for(x <- (rx - radius)..(rx + radius), z <- (rz - radius)..(rz + radius), do: {x, z})
+end

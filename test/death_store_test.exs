@@ -1,5 +1,6 @@
 defmodule Valimc.DeathStoreTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, PlayerTransfers, World}
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.Region
@@ -7,20 +8,18 @@ defmodule Valimc.DeathStoreTest do
   setup do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-death-#{nonce}")
-    old = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
     key = {50_000 + rem(nonce, 10_000), 850}
     uuid = :crypto.strong_rand_bytes(16)
+    TestScope.isolate([key, uuid], world_path: base)
     {:ok, writer, nil, fence} = PlayerStore.open(uuid)
 
     on_exit(fn ->
       for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
+          do: TestScope.kill(pid)
 
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, old)
       File.rm_rf!(base)
     end)
 

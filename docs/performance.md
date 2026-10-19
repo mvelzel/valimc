@@ -75,3 +75,44 @@ The next useful performance work is sustained tests with larger view distances, 
 [Owner-local block batches](tickets/VMC-011a3.md) now have a separate bounded
 commit/replication microbenchmark in `bench/block_batch.exs`. Its local subscriber
 workload measures batching, not network rendering or survival capacity.
+
+## Test suite wall time
+
+ExUnit runs async modules first, then sync modules one at a time, so serial
+modules add their full duration. Region and player-store tests now read a
+per-owner world path and toggles (`Valimc.config/2`) instead of swapping app env,
+and 24 of the 41 serial non-socket modules run concurrently. Same 10-core Mac,
+same 1,563 tests, `/usr/bin/time` wall time with ExUnit's async/sync split:
+
+| Run | Before (818b952) | After |
+|---|---|---|
+| `mix test.fast` | 41.2 s (17.1 + 24.1), 46.3 s (19.8 + 26.5) | 28.9–30.9 s over five runs (≈15 + 14.5) |
+| `mix test --only tcp` | 76.7 s, 80.4 s | 70.7 s (unchanged suites; run noise) |
+| `mix test` | not measured cleanly (see below) | 97.3 s (19.2 + 78.1), 100.6 s wall |
+
+The one full baseline run used `--slowest-modules`, which implies `--trace`, so it
+ran fully serial: 94.8 s (12.7 + 82.0). Its async phase was shorter than the
+concurrent one (15–19 s), so that phase is contended rather than short of
+parallelism. Lowering concurrency did not help `test.fast` (`--max-cases 10`:
+31.8 s, `5`: 39.8 s); this was not investigated further.
+
+The socket suites stay serial. A trial running 12 of them concurrently took 124.7 s
+with 17 of 108 tests failing, against 12.8 s serially. They share the listener,
+the connection supervisor, the global player list and broadcast chat, and several
+log in more than one player. Raw logs stay in `.local/perf/test-suite-concurrency/`.
+
+Most of the remaining serial non-socket time came from six modules, each serial
+because of one to seven tests that saturate a global worker pool or assert a global
+`Metrics` delta. Those tests now sit in a `Serial` module at the end of their file,
+sharing the async module's setup; the other 57 tests run concurrently. Same
+machine, same 1,003 `test.fast` tests:
+
+| `mix test.fast` | Wall | Async | Sync |
+|---|---|---|---|
+| Before (1460118) | 30.7 s, 32.9 s | 13.2 s, 14.6 s | 14.3 s, 14.5 s |
+| After | 27.7 s, 21.9 s | 18.3 s, 13.9 s | 4.6 s, 4.7 s |
+
+The serial phase drops by about 10 s. Two runs cannot tell whether the wider async
+spread afterwards is machine noise or added contention; the six files alone also
+varied, 4.7–12.3 s async across five runs. Raw logs stay in
+`.local/perf/test-suite-split/`.

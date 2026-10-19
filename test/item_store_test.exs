@@ -1,23 +1,24 @@
 defmodule Valimc.ItemStoreTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   alias Valimc.World
   alias Valimc.World.{ItemRecords, Region, Store}
   alias Valimc.Protocol.ItemStack
   import ExUnit.CaptureLog
 
-  setup do
+  setup :scope
+
+  def scope(_context) do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-items-#{nonce}")
-    old = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
     key = {230 + rem(nonce, 10_000), 230}
+    TestScope.isolate(key, world_path: base)
     {:ok, {pid, _} = owner} = World.item_owner(key)
 
     on_exit(fn ->
       for {live, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, live)
+          do: TestScope.kill(live)
 
-      Application.put_env(:valimc, :world_path, old)
       File.rm_rf!(base)
     end)
 
@@ -338,7 +339,7 @@ defmodule Valimc.ItemStoreTest do
 
   defp disk(ctx), do: Valimc.TestDisk.read(ctx.base, ctx.key, :items)
 
-  defp transfer(ctx, sequence \\ 1) do
+  def transfer(ctx, sequence \\ 1) do
     {x, y, z} = ctx.position
     record = %{uuid: <<sequence::128>>, x: x, y: y, z: z, stack: ItemStack.new("stone", 7)}
     %{source: <<99::128>>, sequence: sequence, records: [record]}
@@ -519,33 +520,6 @@ defmodule Valimc.ItemStoreTest do
     assert map_size(World.item_snapshot(ctx.key)) == 1
   end
 
-  test "saturated CPU workers reject without queuing or changing authoritative state", ctx do
-    workers =
-      for _ <- 1..System.schedulers_online() do
-        {:ok, worker} =
-          Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
-            receive do
-              :finish -> :ok
-            end
-          end)
-
-        worker
-      end
-
-    try do
-      assert {:error, :item_workers_busy} = Region.apply_item_transfer(ctx.owner, transfer(ctx))
-      refute Valimc.TestRegion.writing?(:sys.get_state(ctx.pid).resource)
-      assert World.item_snapshot(ctx.key) == %{}
-      assert Valimc.TestDisk.read(ctx.base, ctx.key, :items) == nil
-      {x, _, z} = ctx.position
-      assert :ok = World.set_block({floor(x), 64, floor(z)}, 1)
-    after
-      for worker <- workers, do: Task.Supervisor.terminate_child(Valimc.ItemWorkers, worker)
-    end
-
-    assert {:ok, :applied} = Region.apply_item_transfer(ctx.owner, transfer(ctx))
-  end
-
   # Install a controlled blocked pure job so failure/deadline delivery is deterministic.
   # No proposal has been sent to the disk writer at this boundary.
   defp blocked_plan(ctx) do
@@ -620,5 +594,42 @@ defmodule Valimc.ItemStoreTest do
     assert :sys.get_state(elem(owner, 0)).resource.item_receipts == %{}
     assert World.item_snapshot(ctx.key) == %{}
     assert {:ok, :applied} = Region.apply_item_transfer(owner, transfer(ctx))
+  end
+end
+
+defmodule Valimc.ItemStoreTest.Serial do
+  use ExUnit.Case, async: false
+  # Serial: saturates a global worker pool that concurrent owners also use.
+  import Valimc.ItemStoreTest, only: [transfer: 1]
+  alias Valimc.World
+  alias Valimc.World.Region
+
+  setup {Valimc.ItemStoreTest, :scope}
+
+  test "saturated CPU workers reject without queuing or changing authoritative state", ctx do
+    workers =
+      for _ <- 1..System.schedulers_online() do
+        {:ok, worker} =
+          Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
+            receive do
+              :finish -> :ok
+            end
+          end)
+
+        worker
+      end
+
+    try do
+      assert {:error, :item_workers_busy} = Region.apply_item_transfer(ctx.owner, transfer(ctx))
+      refute Valimc.TestRegion.writing?(:sys.get_state(ctx.pid).resource)
+      assert World.item_snapshot(ctx.key) == %{}
+      assert Valimc.TestDisk.read(ctx.base, ctx.key, :items) == nil
+      {x, _, z} = ctx.position
+      assert :ok = World.set_block({floor(x), 64, floor(z)}, 1)
+    after
+      for worker <- workers, do: Task.Supervisor.terminate_child(Valimc.ItemWorkers, worker)
+    end
+
+    assert {:ok, :applied} = Region.apply_item_transfer(ctx.owner, transfer(ctx))
   end
 end

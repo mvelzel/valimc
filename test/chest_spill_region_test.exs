@@ -1,5 +1,6 @@
 defmodule Valimc.ChestSpillRegionTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   import ExUnit.CaptureLog
   alias Valimc.Protocol.ItemStack
   alias Valimc.World
@@ -8,9 +9,8 @@ defmodule Valimc.ChestSpillRegionTest do
   setup context do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-chest-spill-#{nonce}")
-    previous = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
     key = {82_000 + rem(nonce, 10_000), 1990}
+    TestScope.isolate(key, world_path: base)
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16
     position = {rx * span + 40, 64, rz * span + 40}
@@ -71,9 +71,8 @@ defmodule Valimc.ChestSpillRegionTest do
 
     on_exit(fn ->
       for {live, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, live)
+          do: TestScope.kill(live)
 
-      Application.put_env(:valimc, :world_path, previous)
       File.rm_rf!(base)
     end)
 

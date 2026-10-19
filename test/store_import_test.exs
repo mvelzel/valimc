@@ -1,5 +1,6 @@
 defmodule Valimc.World.StoreImportTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   alias Valimc.World.{ItemLedger, MiningRecord, Store}
 
   @moduletag :tmp_dir
@@ -9,8 +10,7 @@ defmodule Valimc.World.StoreImportTest do
   } do
     key = {812, 813}
     {x, z} = {812 * 128 + 1, 813 * 128 + 1}
-    old = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
+    TestScope.isolate(key, world_path: base)
 
     try do
       File.write!(
@@ -37,7 +37,6 @@ defmodule Valimc.World.StoreImportTest do
       assert Store.load(writer) == %{}
       :ok = Store.close(writer, lease)
     after
-      Application.put_env(:valimc, :world_path, old)
     end
   end
 end

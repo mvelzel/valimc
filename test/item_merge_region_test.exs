@@ -1,18 +1,22 @@
 defmodule Valimc.ItemMergeRegionTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   import ExUnit.CaptureLog
   alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
   alias Valimc.World.{ItemLedger, Items, Region}
 
-  setup tags do
+  setup :scope
+
+  def scope(tags) do
     n = System.unique_integer([:positive])
     key = {41000 + rem(n, 10000), 900}
     base = Path.join(System.tmp_dir!(), "valimc-item-merge-#{n}")
     File.mkdir_p!(base)
-    previous = Valimc.config(:world_path)
-    previous_simulation = Valimc.config(:item_simulation)
-    Application.put_env(:valimc, :item_simulation, Map.get(tags, :simulation, false))
-    Application.put_env(:valimc, :world_path, base)
+
+    TestScope.isolate(key,
+      world_path: base,
+      item_simulation: Map.get(tags, :simulation, false)
+    )
 
     records =
       for i <- 1..2,
@@ -37,23 +41,21 @@ defmodule Valimc.ItemMergeRegionTest do
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key) do
         state = Valimc.TestConn.state(pid).resource
         if Process.alive?(state.store), do: :sys.resume(state.store)
-        DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+        TestScope.kill(pid)
       end
 
       for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, previous)
-      Application.put_env(:valimc, :item_simulation, previous_simulation)
       File.rm_rf!(base)
     end)
 
     %{owner: owner, key: key, base: base, records: records, receipts: receipts}
   end
 
-  defp state({pid, _}), do: Valimc.TestConn.state(pid).resource
+  def state({pid, _}), do: Valimc.TestConn.state(pid).resource
 
-  defp pairs(owner) do
+  def pairs(owner) do
     items = state(owner).items
     {:ok, {_, a, ar}} = Items.find(items, <<1::128>>)
     {:ok, {_, b, br}} = Items.find(items, <<2::128>>)
@@ -89,7 +91,7 @@ defmodule Valimc.ItemMergeRegionTest do
 
   defp items_bytes(ctx), do: Valimc.TestDisk.read(ctx.base, ctx.key, :items)
 
-  defp disk(ctx) do
+  def disk(ctx) do
     {:ok, saved} = ItemLedger.decode(items_bytes(ctx), ctx.key)
     saved
   end
@@ -167,28 +169,6 @@ defmodule Valimc.ItemMergeRegionTest do
     assert items_bytes(ctx) == original and not Valimc.TestRegion.writing?(state(ctx.owner))
   end
 
-  test "bounded worker saturation refuses without a queued merge", ctx do
-    blocked =
-      Stream.repeatedly(fn ->
-        Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
-          receive do
-            :stop -> :ok
-          end
-        end)
-      end)
-      |> Enum.reduce_while([], fn
-        {:ok, pid}, acc -> {:cont, [pid | acc]}
-        {:error, :max_children}, acc -> {:halt, acc}
-      end)
-
-    try do
-      assert {:error, :item_workers_busy} = Region.merge_items(ctx.owner, pairs(ctx.owner))
-      assert not Valimc.TestRegion.writing?(state(ctx.owner)) and length(disk(ctx).records) == 2
-    after
-      for pid <- blocked, do: Task.Supervisor.terminate_child(Valimc.ItemWorkers, pid)
-    end
-  end
-
   @tag simulation: true
   test "automatic merging sleeps after convergence and wakes for a new compatible birth", ctx do
     wait(fn ->
@@ -235,5 +215,36 @@ defmodule Valimc.ItemMergeRegionTest do
 
     assert map_size(state(ctx.owner).items.entries) == 2
     assert disk(ctx).receipts == ctx.receipts
+  end
+end
+
+defmodule Valimc.ItemMergeRegionTest.Serial do
+  use ExUnit.Case, async: false
+  # Serial: saturates a global worker pool that concurrent owners also use.
+  import Valimc.ItemMergeRegionTest, only: [state: 1, pairs: 1, disk: 1]
+  alias Valimc.World.Region
+
+  setup {Valimc.ItemMergeRegionTest, :scope}
+
+  test "bounded worker saturation refuses without a queued merge", ctx do
+    blocked =
+      Stream.repeatedly(fn ->
+        Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
+          receive do
+            :stop -> :ok
+          end
+        end)
+      end)
+      |> Enum.reduce_while([], fn
+        {:ok, pid}, acc -> {:cont, [pid | acc]}
+        {:error, :max_children}, acc -> {:halt, acc}
+      end)
+
+    try do
+      assert {:error, :item_workers_busy} = Region.merge_items(ctx.owner, pairs(ctx.owner))
+      assert not Valimc.TestRegion.writing?(state(ctx.owner)) and length(disk(ctx).records) == 2
+    after
+      for pid <- blocked, do: Task.Supervisor.terminate_child(Valimc.ItemWorkers, pid)
+    end
   end
 end
