@@ -10,33 +10,34 @@ defmodule Valimc.Protocol.Data do
   @blocks :json.decode(File.read!(Path.join(@path, "blocks.json")))
   @tags :json.decode(File.read!(Path.join(@path, "tags.json")))
 
-  def id(state, direction, name),
-    do:
-      @packets[Atom.to_string(state)][Atom.to_string(direction)]["minecraft:" <> name][
-        "protocol_id"
-      ] || raise("unknown packet #{name}")
+  # Packet ids and names compile to function clauses (binary/integer pattern
+  # dispatch). A runtime lookup through the nested JSON maps cost ~5 µs per packet.
+  @packet_entries for {state, directions} <- @packets,
+                      {direction, packets} <- directions,
+                      {name, %{"protocol_id" => id}} <- packets,
+                      do:
+                        {String.to_atom(state), String.to_atom(direction),
+                         String.replace_prefix(name, "minecraft:", ""), id}
 
-  def name(state, direction, id) do
-    :persistent_term.get({__MODULE__, state, direction})[id]
+  @doc "Protocol id of a packet by state, direction and name (without `minecraft:`)."
+  for {state, direction, name, id} <- @packet_entries do
+    def id(unquote(state), unquote(direction), unquote(name)), do: unquote(id)
   end
 
+  def id(_state, _direction, name), do: raise("unknown packet #{name}")
+
+  @doc "Packet name for a protocol id, or nil."
+  for {state, direction, name, id} <- @packet_entries do
+    def name(unquote(state), unquote(direction), unquote(id)), do: unquote(name)
+  end
+
+  def name(_state, _direction, _id), do: nil
+
+  @doc "All packet names of a state and direction."
+  def names(state, direction),
+    do: for({^state, ^direction, name, _} <- @packet_entries, do: name)
+
   def load! do
-    for {state, state_name} <- [
-          handshake: "handshake",
-          status: "status",
-          login: "login",
-          configuration: "configuration",
-          play: "play"
-        ],
-        direction <- [:clientbound, :serverbound] do
-      names =
-        Map.new(@packets[state_name][Atom.to_string(direction)] || %{}, fn {name, value} ->
-          {value["protocol_id"], String.replace_prefix(name, "minecraft:", "")}
-        end)
-
-      :persistent_term.put({__MODULE__, state, direction}, names)
-    end
-
     alias Valimc.Protocol.Wire
     tags = Enum.sort(@tags)
 
@@ -60,8 +61,12 @@ defmodule Valimc.Protocol.Data do
 
   def registries, do: @registries
 
+  @registry_index Map.new(@registries, fn {registry, entries} ->
+                    {registry, Map.new(Enum.with_index(entries))}
+                  end)
+
   def registry_id(registry, entry),
-    do: Enum.find_index(@registries[registry], &(&1 == entry)) || raise("unknown registry entry")
+    do: @registry_index[registry][entry] || raise("unknown registry entry")
 
   def block(name), do: Map.fetch!(@blocks["states"], name)
   def item(name), do: Valimc.Protocol.ItemTypes.id(name)
