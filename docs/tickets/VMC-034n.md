@@ -1,17 +1,7 @@
 # VMC-034n — Earned cooking output and XP awards
 
-Status: In progress. [Award values](VMC-034n1.md) and
-[pending storage](VMC-034n2.md) are complete within unused foundation scopes.
-The [orb materialization kernel](VMC-034n3.md) is validated at `d95273c`, with local
-owner installation/native replication accepted at `ed06d5a`. The unused
-[remote storage protocol](VMC-034n3a.md) is accepted at `4b09f6f`;
-[live remote delivery](VMC-034n3b.md) is accepted at `38cf281`. Initial creation
-and ownership are complete within their staged scope.
-[Furnace output to collected XP](VMC-034n5.md) is **Done within basic scope** at
-`9b585f0`/`3e70e07`: actual ordinary/Shift output, all three families, native XP/bar
-and recipe grants, owner recovery/restart conserve five awards/XP11. Do not reopen
-those gates. Next: broader [orb simulation](VMC-034n4.md); processor-destruction XP,
-Mending and advancement behavior remain separate. This parent is not complete.
+Status: In progress
+Note: In progress. [Award values](VMC-034n1.md) and [pending storage](VMC-034n2.md) are complete within unused foundation scopes. The [orb materialization kernel](VMC-034n3.md) is validated at `d95273c`, with local owner installation/native replication accepted at `ed06d5a`. The unused [remote storage protocol](VMC-034n3a.md) is accepted at `4b09f6f`; [live remote delivery](VMC-034n3b.md) is accepted at `38cf281`. Initial creation and ownership are complete within their staged scope. [Furnace output to collected XP](VMC-034n5.md) is **Done within basic scope** at `9b585f0`/`3e70e07`: actual ordinary/Shift output, all three families, native XP/bar and recipe grants, owner recovery/restart conserve five awards/XP11. Do not reopen those gates. Next: broader [orb simulation](VMC-034n4.md); processor-destruction XP, Mending and advancement behavior remain separate. This parent is not complete.
 
 Player withdrawals must release the earned output, award used recipes and spawn
 the corresponding experience exactly once. Removing a processor must preserve

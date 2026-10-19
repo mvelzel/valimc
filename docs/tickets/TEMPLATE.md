@@ -1,21 +1,24 @@
 # VMC-ID — Concrete behavior
 
-Status: Planned / In progress / Awaiting client validation / Done.
+Status: Planned
+Milestone: M1 foundations (or the milestone this ticket serves)
 Depends on: relevant tickets only.
 
-Before/after behavior and explicit scope limits.
+`Status:` is exactly one of Planned, In progress, Foundation, Awaiting client,
+Done or Parked. Done means live in play; an unused building block is Foundation.
+An optional `Note:` line may qualify the scope in one sentence.
+
+Behavior before/after and explicit scope limits.
 
 Acceptance:
 
-- Native behavior and meaningful positive/failure boundaries.
+- Vanilla behavior and meaningful positive/failure boundaries.
 - Ownership, work bounds, ordering/fencing/recovery when relevant.
-- Actual-client scenario, including relevant negative/recovery cases.
+- Performance expectation when the slice is on a hot path (benchmark name).
+- Player-visible scenario for the milestone client handoff, if any.
 
-Reference: pinned revisions/hash/classes/methods and design conclusions.
+Reference: pinned revisions/classes/methods and design conclusions.
 
-Checks: exact targeted commands/results; broad integration only at a parent-ticket
-or milestone boundary, never a subticket. Keep current evidence and remaining gates
-concise; replace superseded plans instead of appending a changelog.
-Client: checkpoint/release, dataset, date/version/actions/observations/limits;
-private evidence paths. A pending or failed action is not a pass.
-Next gate/fix: concrete remaining work. Git records the commit SHA.
+Checks: targeted commands and results. Broad gates run at milestone boundaries.
+Client: milestone handoff reference, date, PASS/FAIL and limits (raw evidence stays
+in `.local/`). Next: concrete remaining work.

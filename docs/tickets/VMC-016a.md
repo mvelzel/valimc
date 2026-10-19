@@ -1,7 +1,7 @@
 # VMC-016a — Owned abilities and persistent creative flight
 
-Status: Done — creative flight validated, local. Updated: October 14, 2026.
-Depends on VMC-003a accepted-state preservation and VMC-005c/019b journals.
+Status: Done
+Note: Done — creative flight validated, local. Updated: October 14, 2026. Depends on VMC-003a accepted-state preservation and VMC-005c/019b journals.
 
 ## Scope and acceptance
 

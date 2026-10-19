@@ -1,7 +1,7 @@
 # VMC-015a — Player movement observations and fall distance
 
-Status: Done within accepted-move fall-state scope. October 15, 2026. `84f5fb0`.
-Depends on VMC-014c4 and VMC-011a8.
+Status: Done
+Note: Done within accepted-move fall-state scope. October 15, 2026. `84f5fb0`. Depends on VMC-014c4 and VMC-011a8.
 
 Track accepted displacement, client ground/contact flags and fall distance in the
 player owner. Feed fall distance into contextual block geometry; the current live

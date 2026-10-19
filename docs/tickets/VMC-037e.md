@@ -1,7 +1,7 @@
 # VMC-037e — Resistance damage reduction
 
-Status: Done within owned Resistance scope at `d9e1b8a`. Native/targeted/full tests,
-production/both TCP transports and all requested actual-client groups pass.
+Status: Done
+Note: Done within owned Resistance scope at `d9e1b8a`. Native/targeted/full tests, production/both TCP transports and all requested actual-client groups pass.
 
 Acceptance: Resistance reduces eligible damage after armor and before worn
 enchantments, using the active amplifier and native exclusions. Preserve damage
@@ -13,27 +13,27 @@ after expiry, higher amplifier and worn Protection composition, source negatives
 milk removal and fresh reconnect. Fixtures may prepare status/damage conditions;
 actual drink/acquisition, hearts and removal remain CUA evidence.
 
-Pinned26.3: `LivingEntity.getDamageAfterMagicAbsorb`, `MobEffects.RESISTANCE`,
+Pinned 26.3: `LivingEntity.getDamageAfterMagicAbsorb`, `MobEffects.RESISTANCE`,
 `DamageTypeTags.BYPASSES_EFFECTS/BYPASSES_RESISTANCE` and existing armor/enchantment
 probes. Native float32 multiply then divide is observable; do not algebraically
 reorder it. Private reference `.local/gravity-LivingEntity.javap`.
 Native overflow/statistics and downstream composition need explicit scope.
 
-October16: original `ResistanceOracle` invokes actual native magic reduction with
+October 16: original `ResistanceOracle` invokes actual native magic reduction with
 real effect maps and independently bound native damage tags, skipping worn
-enchantments through a controlled non-server context.135,150 cases cover all51
+enchantments through a controlled non-server context.135,150 cases cover all 51
 sources,256 amplifiers, absent/zero/finite/infinite effects, subnormals, float32
 rounding and overflow. `PlayerResistance` matches every finite result exactly.
-The528 native positive-infinite results saturate to maximum finite float32 for
+The 528 native positive-infinite results saturate to maximum finite float32 for
 bounded owner health arithmetic; this retains lethal magnitude for implemented
 health/Protection ranges. It is an explicit representation choice, not native
-bit equality for infinity. Amplifier4+ yields zero eligible damage; source bypass
+bit equality for infinity. Amplifier 4+ yields zero eligible damage; source bypass
 tags still take precedence. Hidden rungs cannot influence the active head.
 Ten affected checks pass(seed81913). Evidence:
 `.local/resistance-{native,native-check,targeted}.log`. No statistics, worn-gear
 composition, live damage/clock ordering or actual-client result is claimed.
 After removing new signed-zero test-pattern warnings, the two changed kernel
-checks pass(seed739183); the full135,150 native comparison passes again with an
+checks pass(seed739183); the full 135,150 native comparison passes again with an
 explicit module load before existing-atom lookup. Final evidence:
 `.local/resistance-{targeted,native-check}-final.log`.
 
@@ -47,8 +47,8 @@ Direct contacts/falls use current owned state. Periodic effects use the document
 ID order, so Resistance expiry/promotion precedes poison/wither actions. Respawn
 clears environmental policy. No new timer/process, mailbox lane or global owner.
 
-Native composed proofs pass116,320 cases:33,120 armored campfire/cactus/berry,
-62,400 fall/freeze/drown/void/starvation and20,800 magic/wither contexts, all43
+Native composed proofs pass 116,320 cases:33,120 armored campfire/cactus/berry,
+62,400 fall/freeze/drown/void/starvation and 20,800 magic/wither contexts, all 43
 enchantments/slot negatives/caps, real effect map and ResistanceII. Finite results
 match exactly; native infinity uses the documented lethal bounded representation.
 Armor callback order/exhaustion match. Evidence:
@@ -59,32 +59,32 @@ cooldown, burning/air expiry, late grant versus admitted drowning, periodic hidd
 promotion/expiry, atomic custom drink/bottle and damaged reconnect. Turtle Master
 remains refused as a whole because its Slowness behavior is not implemented; the
 new Resistance admission never partially applies that potion. Evidence:
-`.local/resistance-live-targeted-final.log`. Baseline82 owner checks also pass;
+`.local/resistance-live-targeted-final.log`. Baseline 82 owner checks also pass;
 the first added-test compile attempt had a helper arity error, fixed before tests.
 Full combat, statistics/other attributes and complete Turtle Master stay open.
 
-Frozen `d9e1b8a` passes1,321 full tests and a production release, plus both native
+Frozen `d9e1b8a` passes 1,321 full tests and a production release, plus both native
 plaintext/continuous AES-CFB8 TCP integrations. Logs:
 `.local/resistance-live-{full-tests,production,native-tcp}.log`.
-Actual-client validation used that immutable951-blob release and whole source/
-receipt53 dataset `/tmp/valimc-resistance-live-client-20261016`. Full native
-integration of the preceding block passed at5b123b1.
+Actual-client validation used that immutable 951-blob release and whole source/
+receipt 53 dataset `/tmp/valimc-resistance-live-client-20261016`. Full native
+integration of the preceding block passed at `5b123b1`.
 
-Actual26.3 client PASS; primary reviewed the tester report once:
-`.local/client-tests/VMC-037e/report.md`. Real falls show bare2HP versus1.6HP with
+Actual 26.3 client PASS; primary reviewed the tester report once:
+`.local/client-tests/VMC-037e/report.md`. Real falls show bare2HP versus 1.6HP with
 ResistanceI; actual stronger drink promotes to the hidden weaker head and then
-expires. Four ProtectionIV pieces plus ResistanceII reduce that fall to0.432HP;
-actual milk restores0.72HP Protection-only damage. Actual ResistanceV drink and
-CUA cactus contact retain health but wear all four pieces15 points/cooldown19.
+expires. Four ProtectionIV pieces plus ResistanceII reduce that fall to 0.432HP;
+actual milk restores 0.72HP Protection-only damage. Actual ResistanceV drink and
+CUA cactus contact retain health but wear all four pieces 15 points/cooldown19.
 Actual mainhand cancellation/full use and offhand drinks produce correct bottles.
 Fresh Quick Play reconnect retains finite status/damaged health/bottle; reduction
-continues. A food0/timer79 fixture produces real owner starvation damage despite
+continues. A food 0/timer79 fixture produces real owner starvation damage despite
 ResistanceV; this excludes natural food-bar exhaustion from the graphical claim.
 Stock Turtle Master remains wholly refused at this checkpoint. Burning/drowning/
 freezing admission ordering and overflow retain their automated proof scope.
 
 One initial20HP fixture; no subsequent healing masked damage. Both client JVMs
 stopped, zero connections/players, two region flushes and clock:ok. Primary server
-log review found no gameplay errors; server79476 stopped with exit0. Final whole
-dataset retains9.384HP/ResistanceV486ticks, food10, four ProtectionIV pieces/wear15,
+log review found no gameplay errors; server 79476 stopped with exit 0. Final whole
+dataset retains 9.384HP/ResistanceV486ticks, food 10, four ProtectionIV pieces/wear15,
 source/receipt53 and outboxnil. Raw cleanup: `.local/resistance-live-cleanup.log`.

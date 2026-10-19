@@ -1,9 +1,7 @@
 # VMC-004b2c — Enchantment and stored-enchantment stack data
 
-Status: Done — actual-client validated, local commit. Updated: October 14, 2026.
-Depends on VMC-004b2a effective identity, VMC-004b2b text and the pinned core-pack
-registry negotiation. This slice implements data preservation; applying
-enchantment effects to combat/mining/loot remains part of survival gameplay.
+Status: Done
+Note: Done — actual-client validated, local commit. Updated: October 14, 2026. Depends on VMC-004b2a effective identity, VMC-004b2b text and the pinned core-pack registry negotiation. This slice implements data preservation; applying enchantment effects to combat/mining/loot remains part of survival gameplay.
 
 ## Scope and acceptance
 

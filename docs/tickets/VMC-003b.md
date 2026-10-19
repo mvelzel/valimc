@@ -1,6 +1,7 @@
 # VMC-003b — Isolate the Minecraft test pointer
 
-Status: Done. October 15, 2026.
+Status: Done
+Note: Done. October 15, 2026.
 
 Extend the dedicated SDL input adapter so computer-use events update Minecraft's
 logical pointer without moving, hiding, capturing or confining the user's desktop

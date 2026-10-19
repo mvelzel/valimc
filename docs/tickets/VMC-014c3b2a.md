@@ -1,7 +1,7 @@
 # VMC-014c3b2a — Player entity-collision observations
 
-Status: Done — client validated. October 15, 2026.
-Depends on VMC-014c3b1.
+Status: Done
+Note: Done — client validated. October 15, 2026. Depends on VMC-014c3b1.
 
 Add the bounded pure entity-collider collector needed by player pose fitting.
 The current block collector cannot establish that a player fits when a solid

@@ -1,8 +1,9 @@
 # VMC-034a — Furnace fuel foundation
 
-Status: Done within pure resolver scope at e219f43. No live furnace/cooking claim.
+Status: Foundation
+Note: Done within pure resolver scope at e219f43. No live furnace/cooking claim.
 
-Acceptance for this slice: stock26.3 cooking-fuel defaults and contextual resolution
+Acceptance for this slice: stock 26.3 cooking-fuel defaults and contextual resolution
 match native observations; explicit component removals and unsupported patches do
 not silently become fuel. Record the exact source/context and bounded pure lookup
 tests before admitting gameplay.
@@ -20,13 +21,13 @@ Dedicated actual-client acceptance must eventually smelt/consume fuel, collect
 output, refuse invalid inputs and preserve quantities/progress across reconnect.
 
 
-October18 pinned26.3/server33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c:
+October 18 pinned 26.3/server33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c:
 original CookingFuelOracle invokes actual getBurnDuration/getSpeedMultiplier for
-all1,658 stock items, explicit cooking_fuel removals and all24 orientation/lit
-states of furnace/smoker/blast furnace. All79,584 callbacks match. The347 fuels
-collapse to14 scalar profiles; no component definitions or upstream source are
-published. Fast cooking halves duration with integer truncation and uses speed2;
-dried kelp block is4001/2000 ticks, carpet67/33. Private raw declarations/callbacks
+all 1,658 stock items, explicit cooking_fuel removals and all 24 orientation/lit
+states of furnace/smoker/blast furnace. All 79,584 callbacks match. The 347 fuels
+collapse to 14 scalar profiles; no component definitions or upstream source are
+published. Fast cooking halves duration with integer truncation and uses speed 2;
+dried kelp block is 4001/2000 ticks, carpet 67/33. Private raw declarations/callbacks
 `.local/cooking-fuel-native.json`; comparison `.local/cooking-fuel-comparison.log`.
 
 CookingFuel.resolve/2 uses immutable compiled lookups, validates item patches,
@@ -40,13 +41,13 @@ HUD/empty-chest open/close and fresh reconnect with exact saved quantities/recei
 This baseline cannot establish fuel consumption or smelting.
 
 
-October18 frozene219f43 production and dedicated unused-kernel baseline pass:
+October 18 frozen `e219f43` production and dedicated unused-kernel baseline pass:
 two fresh actual direct launches, native empty-chest menu/lid/HUD and reconnect
-retain source110/outboxnil, typed109/item110+61/storage30, six stock chests plus
-named2, seven planks, axe damage3 and12HP. No packet errors or gameplay edits.
-Both clients stopped143; zero players/connections, regions/clock flushed and
-server84198 stopped0. Accepted report `.local/client-tests/VMC-034a/report.md`;
+retain source 110/outboxnil, typed 109/item110+61/storage30, six stock chests plus
+named 2, seven planks, axe damage 3 and12HP. No packet errors or gameplay edits.
+Both clients stopped 143; zero players/connections, regions/clock flushed and
+server 84198 stopped 0. Accepted report `.local/client-tests/VMC-034a/report.md`;
 39 stopped dataset-file/1,101 unchanged frozen-blob hashes and exact quantity audit
-`.local/cooking-fuel-publication-proof.json`. Larger foundation block at32bc5a1 passes
+`.local/cooking-fuel-publication-proof.json`. Larger foundation block at `32bc5a1` passes
 1,547 full tests. All gates for this unused foundation are closed; do not repeat
 the baseline. Actual smelting remains future runtime work.

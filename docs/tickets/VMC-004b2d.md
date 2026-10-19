@@ -1,7 +1,7 @@
 # VMC-004b2d — Tooltip display controls and component type index
 
-Status: Done — supported tooltip controls validated, local. Updated: October 14, 2026.
-Depends on effective stack identity and supported names/lore/enchantment data.
+Status: Done
+Note: Done — supported tooltip controls validated, local. Updated: October 14, 2026. Depends on effective stack identity and supported names/lore/enchantment data.
 
 ## Scope and acceptance
 

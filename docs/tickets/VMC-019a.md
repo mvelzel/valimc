@@ -1,8 +1,7 @@
 # VMC-019a — Persistent stationary item records and commit fencing
 
-Status: Done — stationary record recovery validated. Updated: October 14, 2026.
-Depends on VMC-018b/005c1.
-VMC-019 and gameplay drops/pickups remain incomplete.
+Status: Done
+Note: Done — stationary record recovery validated. Updated: October 14, 2026. Depends on VMC-018b/005c1. VMC-019 and gameplay drops/pickups remain incomplete.
 
 ## Scope and acceptance
 

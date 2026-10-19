@@ -52,3 +52,15 @@ Elixir **1.20.4** and Erlang/OTP **29.1.1** were verified against their current 
 ## Provenance
 
 The references are preserved as independent checkouts with their upstream license files. Pumpkin is GPL-3.0, SteelMC is AGPL-3.0-or-later, and other checkouts document their own terms. Paper/Folia/Spigot are patch-based repositories; generated Mojang gameplay source has not been checked into this project. The committed Elixir implementation uses original code and protocol facts, while reference source, the official jar, generated reports and Java tools stay separate from the runtime/release.
+
+## Pumpkin and the Rust boundary
+
+Pumpkin (commit `8c4d18c`, October 2026) targets the same 26.3/777 protocol. Its
+crates are GPL-3.0, git-only and pre-1.0, so ValiMC neither depends on nor ports
+them. Useful ideas, re-derived from vanilla rather than copied: a codegen-flattened
+density-function router with per-chunk caches, stage-by-stage worldgen parity
+hashes against vanilla dumps (its MIT-licensed Extractor mod produces such dumps),
+homogeneous/heterogeneous section palettes, and Criterion benchmarks for
+generation and chunk I/O. Its movement is client-authoritative and its lighting
+has no parity tests, so neither is a model for ValiMC. The resulting boundary is
+in [architecture](architecture.md#elixir-and-rust).

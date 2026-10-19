@@ -1,6 +1,7 @@
 # VMC-005b2d2b — Durable disconnected cursor/grid cleanup
 
-Status: Done — disconnected preview cleanup and recovery validated, local.
+Status: Done
+Note: Done — disconnected preview cleanup and recovery validated, local.
 Updated: October 14, 2026.
 Depends on VMC-005b2d2a and the source/destination transfer journals.
 

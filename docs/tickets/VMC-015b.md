@@ -1,7 +1,7 @@
 # VMC-015b — Gravity and air drag
 
-Status: Default dry live travel validated; full forces incomplete. October 15, 2026.
-Follows VMC-015a. Not Done.
+Status: Done
+Note: Default dry live travel validated; full forces incomplete. October 15, 2026. Follows VMC-015a. Not Done.
 
 Build the pure velocity update from pinned native behavior, then compose it with
 bounded collision work and player-owned ticks. Known client displacement is an

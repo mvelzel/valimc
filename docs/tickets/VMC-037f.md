@@ -1,6 +1,7 @@
 # VMC-037f — Speed and Slowness
 
-Status: Done within scope.
+Status: Done
+Note: Done within scope.
 
 Native foundation `742a37e`, live composition `285d983`; published through
 `285d983`. Targeted/full/native TCP/production and actual-client gates pass.
@@ -15,21 +16,21 @@ Client: actual Speed/Slowness and Turtle Master drinks change walking as expecte
 including cancellation, expiry, milk removal, simultaneous effects and reconnect.
 Distinguish supplied modifiers from actual movement/terrain evidence.
 
-Pinned26.3 references: `MobEffects` Speed/Slowness declarations,
+Pinned 26.3 references: `MobEffects` Speed/Slowness declarations,
 `MobEffect.createModifiers/addAttributeModifiers/removeAttributeModifiers`,
 `AttributeInstance.calculateValue`, `Player.createAttributes` and
 `LivingEntity.SPEED_MODIFIER_SPRINTING`. Private bytecode:
 `.local/speed-{MobEffects,MobEffect,AttributeInstance,AttributeMap,Player}.javap`.
 Native coefficients are promoted float constants; player base is the promoted
-float0.1 rather than the generic movement-speed attribute default0.7.
+float0.1 rather than the generic movement-speed attribute default 0.7.
 
 First slice proves modifier identity/operation/amplifier, player-base calculation,
 clamp and removal through original native probes. Gear/custom attributes, powder
 snow/Soul Speed modifiers and complete movement rules remain explicit follow-ups.
 
-October16: original `MovementEffectOracle` executes actual stock callbacks and
-native player AttributeMap evaluation/removal for132,098 Speed/Slowness amplifier
-pairs (absent and all256 levels), with/without sprint. Modifier identities,
+October 16: original `MovementEffectOracle` executes actual stock callbacks and
+native player AttributeMap evaluation/removal for 132,098 Speed/Slowness amplifier
+pairs (absent and all 256 levels), with/without sprint. Modifier identities,
 coefficients, operations, player base, clamped double and float travel speed match
 exactly. Native evaluation orders are independently observed; the first comparison
 found a one-ULP difference from multiplying sprint last. The pure implementation
@@ -59,28 +60,28 @@ Evidence: `.local/movement-effects-live-targeted-fixed.log`.
 Frozen `285d983` production and both native TCP transports pass, including actual
 Mojang-decoded movement attribute initialization, sprint composition/removal.
 Evidence: `.local/movement-effects-live-{production,native-tcp}.log`. Dedicated
-actual-client validation uses this immutable956-blob release and whole retained
+actual-client validation uses this immutable 956-blob release and whole retained
 source/receipt53 dataset `/tmp/valimc-movement-effects-live-client-20261016`.
 The actual-client gate passes as recorded below.
 
-Actual26.3 PASS; primary reviewed `.local/client-tests/VMC-037f/report.md` once.
-Matched2000ms held-W gestures show normal8.63–9.06blocks, SpeedI11.13, SpeedII12.39,
-SlownessIV3.62 and promoted SlownessI7.52. These are indicative actual actions,
+Actual 26.3 PASS; primary reviewed `.local/client-tests/VMC-037f/report.md` once.
+Matched2000ms held-W gestures show normal 8.63–9.06blocks, SpeedI 11.13, SpeedII 12.39,
+SlownessIV 3.62 and promoted SlownessI 7.52. These are indicative actual actions,
 not tick-accurate benchmark ratios. Actual stronger/weak drinks promote and expire;
 milk clears both heads and restores normal walking. Actual long Turtle Master
 shows both SlownessIV/ResistanceIII, slower walking and a real walked-off fall
-reduced3→1.2HP damage, without armor/healing or synthetic damage calls. Both-hand
+reduced 3→1.2HP damage, without armor/healing or synthetic damage calls. Both-hand
 cancel/full drinks, Speed+Slowness, practical sprint and unsupported mixed
 then-unsupported mixed-status refusal pass. Fresh Quick Play reconnect retains finite SpeedII,
-one offhand bottle and changed walking; two offline snapshots23.534s apart retain
+one offhand bottle and changed walking; two offline snapshots 23.534s apart retain
 829ticks exactly. Final genuine expiry restores normal walking.
 
 All three JVMs stopped; zero players/connections, four regions+clock flush:ok.
-Primary server log review found no gameplay errors; server73547 stopped exit0.
-Final whole dataset retains15.8HP, empty effects, one offhand bottle, food10,
+Primary server log review found no gameplay errors; server 73547 stopped exit 0.
+Final whole dataset retains 15.8HP, empty effects, one offhand bottle, food 10,
 source/receipt53 and outboxnil. Cleanup: `.local/movement-effects-live-cleanup.log`.
 No claim for complete ground authority/custom gear/Depth Strider or every stock
-variant. Larger-block `cc3dfa5` passes1,330 full tests, production and full native
-integration, including plaintext/AES-CFB8 TCP (session69595 exit0). Raw evidence:
+variant. Larger-block `cc3dfa5` passes 1,330 full tests, production and full native
+integration, including plaintext/AES-CFB8 TCP (session 69595 exit 0). Raw evidence:
 `.local/effects-integration-{full-tests,production,full-native}.log`. All gates for
 this movement-effect slice pass; later instant-consumption work is excluded.

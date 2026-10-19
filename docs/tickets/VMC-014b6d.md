@@ -1,6 +1,7 @@
 # VMC-014b6d — Live bounded collider observations
 
-Status: Done — validated. October 15, 2026. Depends on VMC-014b6c2.
+Status: Done
+Note: Done — validated. October 15, 2026. Depends on VMC-014b6c2.
 
 Read the bounded scan from existing region owners in a supervised query task,
 then collect geometry outside those owners. Return observation fences, never

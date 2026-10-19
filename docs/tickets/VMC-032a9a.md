@@ -1,9 +1,9 @@
 # VMC-032a9a — Owner-fenced ordinary chest viewing
 
-Status: Done within viewing scope at7542f0a. Parent
-[live menus](VMC-032a9.md) retains all exchange/physical lifecycle gates.
+Status: Done
+Note: Done within viewing scope at `7542f0a`. Parent [live menus](VMC-032a9.md) retains all exchange/physical lifecycle gates.
 
-Acceptance: the unmodified26.3 client opens an owned single chest as a3×9 view,
+Acceptance: the unmodified 26.3 client opens an owned single chest as a3×9 view,
 sees its current contents and its own main inventory/hotbar, closes/reopens and
 reconnects without moving items. Refuse predicted clicks in this checkpoint.
 Respect main/offhand/secondary precedence, initial lid obstruction, current entity/
@@ -14,10 +14,10 @@ The existing per-socket menu job owns at most one250ms query with a300ms deadlin
 The region checks current block/entity and returns immutable contents only on
 open or changed revision. Unchanged tick checks return a small validity decision;
 missing/replaced owners and expired contexts close the view. Player state never
-owns the shared contents. The source action preview from8a820ce remains unused
+owns the shared contents. The source action preview from `8a820ce` remains unused
 until exchange wiring lands.
 
-October18 checks:47 affected tests pass (seed419522), including real TCP opening/
+October 18 checks:47 affected tests pass (seed419522), including real TCP opening/
 content/refused pickup/shift/offhand/wrong ID, hand/secondary/spectator, lid blocking,
 missing entity, removal, relocation, owner replacement and fresh reconnect. An
 initial fixture inadvertently placed planks on its sneak-use negative, correctly
@@ -29,49 +29,49 @@ Raw `.local/chest-view-targeted-final.log`, `.local/chest-view-native.json` and
 33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c; provider/validity classes and obstruction
 contexts are recorded in the parent and VMC-032a6.
 
-Client scenario: clone the complete stopped a8 dataset; retain source66, item
-receipts66/61 and container receipt63. Verify empty chest UI/main inventory of eight
+Client scenario: clone the complete stopped a8 dataset; retain source 66, item
+receipts 66/61 and container receipt 63. Verify empty chest UI/main inventory of eight
 planks, refused pickup/shift/number/offhand, close/reopen, then a fresh direct launch
 with unchanged contents/counters. Confirm the existing table still opens and closes.
 The dedicated tester owns visual acceptance and reports pass/fail with debug detail.
 
 First client run at e0c9f27: **FAIL**, not published. Opening displayed the correct
-Chest27+36 UI; actual hotbar pickup disconnected as malformed. InventoryClick's
-prediction decoder still assumed0..45. The fix bounds prediction indices by the
-active menu (63 for this chest), retaining46 for player/table menus.51 affected
+Chest 27+36 UI; actual hotbar pickup disconnected as malformed. InventoryClick's
+prediction decoder still assumed 0..45. The fix bounds prediction indices by the
+active menu (63 for this chest), retaining 46 for player/table menus.51 affected
 checks pass (seed965650), now including nonempty hotbar predictions over TCP and
 exact native hotbar pickup inputs for all six chest dimensions. Raw
 `.local/chest-view-prediction-targeted.log`, `.local/chest-view-native-fixed.json`,
 `.local/chest-view-native-fixed-comparison.log`. Dedicated fixed-client rerun pending.
 
-The e0c9f27 coherent integration block passes1,481 full tests, production and both
+The e0c9f27 coherent integration block passes 1,481 full tests, production and both
 native TCP transports. An incidental tester plank placement before opening consumed
 one plank: the complete stopped dataset now retains seven planks, source/item3,3
-receipt67, unchanged container receipt63/revision1/empty27 and old item2,2receipt61.
+receipt 67, unchanged container receipt 63/revision1/empty27 and old item 2,2receipt61.
 No reset was performed. First failure report `.local/client-tests/VMC-032a9a/report.md`;
 wrapper stopped, zero players and all four region/clock flushes passed before shutdown.
 
 Fixed68de778 client: the pickup/shift/number/F refusal stays connected, but F over
 an occupied player hotbar creates a persistent client-only offhand ghost. Closing
-and opening the player inventory clears it; authority remains seven in slot36,
-no slot45, source67 unchanged. This is a failed correction gate, not item duplication.
+and opening the player inventory clears it; authority remains seven in slot 36,
+no slot 45, source 67 unchanged. This is a failed correction gate, not item duplication.
 Generic chest/table contents omit offhand, so resynchronization now also sends the
-native ClientboundSetPlayerInventoryPacket for physical index40 (server slot45).
+native ClientboundSetPlayerInventoryPacket for physical index 40 (server slot 45).
 Pinned client ClientPacketListener.handleSetPlayerInventory writes that index
-directly even with a chest open. Native empty/populated offhand bodies and25
+directly even with a chest open. Native empty/populated offhand bodies and 25
 affected packet/table checks pass (seed889700); exact fixed read-only build and
 dedicated retest remain pending. Raw `.local/chest-view-offhand-native.json`,
 `.local/chest-view-offhand-native-comparison.log`, `.local/chest-offhand-correction-targeted.log`.
 
 Final7542f0a: **PASS**,53 exact frozen focused tests/production and dedicated
-Minecraft26.3 acceptance. Actual pickup/shift/number/F predictions restore seven
+Minecraft 26.3 acceptance. Actual pickup/shift/number/F predictions restore seven
 planks and empty storage/cursor. Crucially, F over the occupied hotbar clears the
 offhand ghost while Chest stays open. Escape/reopen and a fresh direct launch keep
-the coherent27+36 view and unchanged counters; table baseline passed at68de778.
+the coherent 27+36 view and unchanged counters; table baseline passed at `68de778`.
 No exchange, physical lifecycle, lid/sound or populated-offhand GUI claim.
 Accepted final report `.local/client-tests/VMC-032a9a-correction/report.md`;
 prior failure reports remain separate. Both JVMs stopped, zero players/connections,
-four region/clock flushes passed, server69144 exited0 and1,060 frozen blobs remain
+four region/clock flushes passed, server 69144 exited 0 and 1,060 frozen blobs remain
 unchanged. The whole stopped dataset audits seven planks/12HP/source67/outboxnil,
-typed receipt63/entry1/27nil and independent item receipts67/61. Proof and hashes:
+typed receipt 63/entry1/27nil and independent item receipts 67/61. Proof and hashes:
 `.local/chest-view-correction-publication-proof.json`.

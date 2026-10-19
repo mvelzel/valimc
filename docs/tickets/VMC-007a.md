@@ -1,6 +1,7 @@
 # VMC-007a — Native encryption primitives and login codecs
 
-Status: Done — integrated encrypted client validated, local.
+Status: Done
+Note: Done — integrated encrypted client validated, local.
 Updated: October 14, 2026.
 Parent VMC-007 requires encrypted transport and verified online identities;
 this foundation alone does not provide either to a running connection.

@@ -52,10 +52,12 @@ coordinate restarts/fixture changes. Verify the listener/release before stopping
 Try enabled computer use even while the Mac is locked. If unavailable, leave the
 scenario pending and continue independent implementation.
 
-Baseline smoke for docs/research/workflow: join localhost, observe terrain, execute
-`/stats`, verify the response and inspect fresh logs. Features add changed behavior,
-negative cases and relevant recovery. Attempted input, host fixtures and native
-codecs cannot stand in for the graphical action. Do not connect to unrelated servers.
+Client runs happen at player-visible milestones with one batched handoff covering
+the milestone's scenarios; docs, research and unused foundations need none. A
+milestone run starts with a baseline (join, observe terrain, `/stats`, fresh logs)
+and then exercises changed behavior, negative cases and relevant recovery.
+Attempted input, host fixtures and native codecs cannot stand in for the graphical
+action. Do not connect to unrelated servers.
 
 The tester owns visual verification and reports date/version, PASS/FAIL per
 scenario, actual actions, failure reasons and limits. The primary reviews the

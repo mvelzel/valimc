@@ -1,7 +1,7 @@
 # VMC-006b — Overworld weather cycle and synchronization
 
-Status: Done — Overworld weather cycle validated, local. Updated: October 14, 2026.
-Depends on VMC-006a's delivered world ticks, immutable publications and fenced I/O.
+Status: Done
+Note: Done — Overworld weather cycle validated, local. Updated: October 14, 2026. Depends on VMC-006a's delivered world ticks, immutable publications and fenced I/O.
 
 ## Scope and acceptance
 

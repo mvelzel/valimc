@@ -1,7 +1,7 @@
 # VMC-019b3a — Bounded automatic outbox recovery before login
 
-Status: Done — automatic login recovery validated. Updated: October 14, 2026.
-Depends on VMC-019b2. First slice of session orchestration; drop controls remain.
+Status: Done
+Note: Done — automatic login recovery validated. Updated: October 14, 2026. Depends on VMC-019b2. First slice of session orchestration; drop controls remain.
 
 ## Scope and acceptance
 

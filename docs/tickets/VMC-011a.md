@@ -1,6 +1,7 @@
 # VMC-011a — Authoritative simulation ownership and tick order
 
-Status: In progress — player poses and block-based movement validated. October 15, 2026.
+Status: In progress
+Note: In progress — player poses and block-based movement validated. October 15, 2026.
 
 The pose/movement math is usable, but region read revisions and ETS publications
 do not themselves authorize coupled gameplay. Player owners must decide/commit

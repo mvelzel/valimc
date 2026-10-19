@@ -1,6 +1,7 @@
 # VMC-034f — Empty processing-block lifecycle
 
-Status: Done within empty physical lifecycle scope atb68ca61. No live cooking.
+Status: Foundation
+Note: Done within empty physical lifecycle scope at `b68ca61`. No live cooking.
 
 Acceptance: placing a stock furnace, smoker or blast furnace creates one owned
 empty cooking entry in the same block/item/container commit; empty mining/removal
@@ -18,14 +19,14 @@ pickup, creative removal, refused named/occupied contexts and fresh reconnect.
 No furnace menu, automatic cooking or XP claim in this slice.
 
 
-October18 pinned26.3/server33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c:
-original CookingPlacementOracle captures864 candidates across all three types,
+October 18 pinned 26.3/server33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c:
+original CookingPlacementOracle captures 864 candidates across all three types,
 four headings, six faces, both secondary-use states and six target blocks/fluids.
-All12 directional results and24 state kinds match the pure lookup. Candidates are
+All 12 directional results and 24 state kinds match the pure lookup. Candidates are
 unlit and never waterlogged. Existing native yaw arithmetic is reused; no copied
 threading model. Raw `.local/cooking-placement-native.json`,
-`.local/cooking-blocks-comparison.log`. CookingLootOracle captures864 state/tool/
-metadata contexts; all648 supported unnamed self-loot/harvest cases match. Names
+`.local/cooking-blocks-comparison.log`. CookingLootOracle captures 864 state/tool/
+metadata contexts; all 648 supported unnamed self-loot/harvest cases match. Names
 copy into native self loot, so named placement remains refused. Stored contents/
 XP use separate hooks and are unadmitted. Raw `.local/cooking-loot-native.json`,
 `.local/cooking-loot-comparison.log`.
@@ -47,15 +48,15 @@ capture and the chest-only creative removal route. Frozenb68ca61 production and 
 (`.local/cooking-physical-{production,native-tcp}.log`). Dedicated actual placement/
 mine/pickup/negatives/reconnect passed.
 
-Dedicated26.3 feature acceptance and stopped-world audit pass (October18).
+Dedicated 26.3 feature acceptance and stopped-world audit pass (October 18).
 Actual stock placement/facing/offhand, mining/self-loot/pickup, named/occupied
 refusals, creative removal and fresh reconnect are accepted. Five valid survival
 placements/mines/pickups plus three terminal refusals retain source/item18,
-no outbox, typed receipts{}, storage22, three exact occupied entries, stock4/2/2,
-named2each and pickaxe damage5. One extra smoker placement was corrected through
+no outbox, typed receipts{}, storage 22, three exact occupied entries, stock 4/2/2,
+named2each and pickaxe damage 5. One extra smoker placement was corrected through
 real mining/pickup, not a reset. Creative mode used the authorized consistent
 fixture because /gamemode is unimplemented. No new-menu/cooking/XP claim.
 Client gate is closed; report was reviewed once. Both clients and server stopped;
 1,133 frozen blobs/world evidence are in `.local/cooking-physical-publication-proof.json`.
-Broader e9d7227 full tests1,580 and full native integration/both TCP transports
+Broader e9d7227 full tests 1,580 and full native integration/both TCP transports
 pass (`.local/cooking-physical-menu-native-full.log`). Every F gate is closed.

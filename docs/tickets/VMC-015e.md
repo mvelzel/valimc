@@ -1,6 +1,7 @@
 # VMC-015e — Player climbing
 
-Status: Done within climbing scope. October 15, 2026. Validated `f83e8e7`.
+Status: Done
+Note: Done within climbing scope. October 15, 2026. Validated `f83e8e7`.
 
 Acceptance: complete climbable/scaffolding/trapdoor/ladder facts and fenced feet/
 below observations select native climbing, including matching open trapdoors over

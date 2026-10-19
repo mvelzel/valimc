@@ -1,7 +1,7 @@
 # VMC-006a — Registered world clocks and time synchronization
 
-Status: Done — core clocks validated, local. Updated: October 14, 2026.
-Depends on pinned registries, play initialization and bounded replication.
+Status: Done
+Note: Done — core clocks validated, local. Updated: October 14, 2026. Depends on pinned registries, play initialization and bounded replication.
 
 ## Scope and acceptance
 

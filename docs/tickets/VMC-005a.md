@@ -1,6 +1,7 @@
 # VMC-005a — Owner-local player inventory and synchronization
 
-Status: Done. Updated: October 13, 2026. Depends on tested VMC-004a code.
+Status: Done
+Note: Done. Updated: October 13, 2026. Depends on tested VMC-004a code.
 
 ## Scope and acceptance
 

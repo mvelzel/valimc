@@ -6,10 +6,10 @@
 32.751/39.619 ms. Pure worker work only; disk/publication/player simulation
 excluded. Raw workloads, revisions and limits live in the ticket.
 
-Contact-hazard comparison: matched128-player static-water samples and
-the512-player reverse pair pass; the initial512 baseline has469 movement corrections.
+Contact-hazard comparison: matched 128-player static-water samples and
+the 512-player reverse pair pass; the initial 512 baseline has 469 movement corrections.
 [VMC-017b5](tickets/VMC-017b5.md) records all six samples and limits. The existing
-worker-admission/host-load finding remains open; no stable512 capacity is established.
+worker-admission/host-load finding remains open; no stable 512 capacity is established.
 
 The samples below use this macOS ARM64 host with **10 BEAM schedulers**, Elixir 1.20.4 and OTP 29.1.1. These are short development measurements, not production capacity limits or cross-server comparisons.
 

@@ -1,8 +1,7 @@
 # VMC-007b — Connection-owned encrypted login and transport
 
-Status: Done — encrypted transport validated, local. Updated: October 14, 2026.
-Depends on VMC-007a's automated-verified crypto/codec checkpoint. Online identity
-verification remains VMC-007c; an encrypted offline connection is not authenticated.
+Status: Done
+Note: Done — encrypted transport validated, local. Updated: October 14, 2026. Depends on VMC-007a's automated-verified crypto/codec checkpoint. Online identity verification remains VMC-007c; an encrypted offline connection is not authenticated.
 
 ## Scope and acceptance
 

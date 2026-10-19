@@ -1,6 +1,7 @@
 # VMC-003a — Retain accepted state across a failed TCP batch
 
-Status: Done — local, unpushed. Updated: October 13, 2026. Follows VMC-003.
+Status: Done
+Note: Done — local, unpushed. Updated: October 13, 2026. Follows VMC-003.
 
 ## Scope and acceptance
 

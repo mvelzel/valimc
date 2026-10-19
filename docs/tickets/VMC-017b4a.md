@@ -1,12 +1,11 @@
 # VMC-017b4a — Live lava and ongoing burning
 
-Status: **Done within live lava/ongoing-burning scope**, October16,2026.
-Runtime `7b5b382`; integration-reader checkpoint `0372724`.
-Depends on the verified [fire foundations](VMC-017b4.md).
+Status: Foundation
+Note: **Done within live lava/ongoing-burning scope**, October 16,2026. Runtime `7b5b382`; integration-reader checkpoint `0372724`. Depends on the verified [fire foundations](VMC-017b4.md).
 
 Acceptance: the existing admitted player clock advances burning; at most one
 pending burn request resolves against fresh fenced fluid geometry. Lava ignites,
-requests4 raw damage, clears freezing and suppresses the concurrent on-fire
+requests 4 raw damage, clears freezing and suppresses the concurrent on-fire
 request. Exiting retains burning; water/powder snow extinguish. Mode/loading/death
 gates apply. Cooldown selection precedes bounded wear, then fresh equipped armor
 and enchantment reduction; replicate inventory, armor HUD, fire flags and death.
@@ -18,37 +17,37 @@ Netherite/breaking, burning reconnect and fatal lava/burning/respawn. Record fix
 setup separately from actual graphical actions. Natural fire blocks, swept block
 effects, rain and status-effect defenses remain parent follow-ups.
 
-References: pinned26.3 `Entity.baseTick/lavaIgnite/lavaHurt/clearFire`,
+References: pinned 26.3 `Entity.baseTick/lavaIgnite/lavaHurt/clearFire`,
 `LivingEntity.getDamageAfterArmorAbsorb/getDamageAfterMagicAbsorb/doHurtEquipment`,
 `Player.hurtArmor`, `ItemStack.hurtAndBreak`. See parent for native case evidence.
 Current fluid body samples are shared with the validated travel lane; exact block
 effect/sweep contact boundaries remain a parent follow-up.
 
-October16:96 affected tests pass(seed196704), `.local/fire-live-affected-final.log`.
+October 16:96 affected tests pass(seed196704), `.local/fire-live-affected-final.log`.
 Coverage includes fresh lava/cooldown packets, freezing reset, bounded pending burns
 under a stalled region, stale timer tokens, water/extinction, mode/loading gates,
 Fire Protection duration, break-before-reduction, Netherite wear immunity, pending
 inventory refusal/fresh recheck, durable fatal drops and respawn. Existing health,
 air/freezing/void/food, equipment, inputs and transfer/store regressions pass.
 No new process/timer is introduced; simulation reuses the existing query lane.
-Break events and source exhaustion are pinned native facts (head49/chest50/legs51/
-feet52; lava/direct fire0.1, ongoing burning0).138,080 native wear cases plus those
+Break events and source exhaustion are pinned native facts (head 49/chest50/legs51/
+feet 52; lava/direct fire 0.1, ongoing burning 0).138,080 native wear cases plus those
 facts pass `.local/armor-wear-native-check-final.log`;582 burning cases still pass
 `.local/fire-live-burning-regression.log`.
 
-Frozen runtime `7b5b382` builds in production and passes96 affected checks. The
+Frozen runtime `7b5b382` builds in production and passes 96 affected checks. The
 larger suite found one test-reader assumption: legitimate armor updates replaced
 its remembered interaction packet. Readers now retain attributes by entity/holder;
 17 affected checks pass(seed699173), and Mojang decodes both attribute packets and
 all scenarios over plaintext/AES-CFB8 TCP. Logs:
 `.local/fire-live-{production,attribute-readers-final,native-tcp-final}.log`.
-The corrected complete suite passes1,207 tests(seed894654),
+The corrected complete suite passes 1,207 tests(seed894654),
 `.local/fire-live-full-tests-final.log`. The unchanged runtime passes actual lava
 entry/exit, dry ongoing burns, water
 extinguishing, diamond reduction/HUD/wear, Netherite resistance, helmet break,
 single/stacked Fire Protection, burning fresh reconnect, fatal lava and dry burning,
 actual respawn/control and creative negative. Six fresh direct clients stopped;
-full snapshot restored retaining latest sequence36/outboxnil and matching region
+full snapshot restored retaining latest sequence 36/outboxnil and matching region
 receipt. Report reviewed: `.local/client-tests/VMC-017b4a/report.md`.
 
 Fixtures supplied gear, modes, water teleport and a longer saved counter for the

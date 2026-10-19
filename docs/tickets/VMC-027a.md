@@ -1,7 +1,7 @@
 # VMC-027a — Supplied world-border collision geometry
 
-Status: Done within supplied stationary-border scope. October 15, 2026.
-Prerequisite for live pose fitting.
+Status: Done
+Note: Done within supplied stationary-border scope. October 15, 2026. Prerequisite for live pose fitting.
 
 Provide pure native border bounds, containment and collision predicates from a
 complete supplied stationary border. The preview currently has no border owner,

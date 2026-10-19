@@ -1,6 +1,7 @@
 # VMC-014a — Cached block collision geometry
 
-Status: Done — cached geometry foundation validated. Updated: October 14, 2026.
+Status: Foundation
+Note: Done — cached geometry foundation validated. Updated: October 14, 2026.
 
 ## Scope and acceptance
 

@@ -1,7 +1,7 @@
 # VMC-037d — Periodic health effects
 
-Status: Done within scope at `5b123b1`, published through `d71b2a9`. Full tests,
-native integration, production and all actual-client groups pass.
+Status: Done
+Note: Done within scope at `5b123b1`, published through `d71b2a9`. Full tests, native integration, production and all actual-client groups pass.
 
 Acceptance: Regeneration, poison and wither execute on the existing player clock
 with native active-head timing, finite/infinite duration, amplifier shift behavior,
@@ -14,20 +14,20 @@ remains intact. Poison stops near its native health floor; wither can kill. Chec
 expiry, higher-level/hidden promotion, mode/gear negatives and fresh reconnect.
 Trusted setup is distinct from actual drinking, hearts/status and death evidence.
 
-Pinned26.3 reference: `MobEffectInstance.tickServer`, `RegenerationMobEffect`,
+Pinned 26.3 reference: `MobEffectInstance.tickServer`, `RegenerationMobEffect`,
 `PoisonMobEffect`, `WitherMobEffect`. Actions precede duration decrement/promotion;
 finite durations supply the countdown while infinite effects use entity tick age.
-Native Java shifts mask amplifier to five bits, including amplifier32/64 wrapping.
+Native Java shifts mask amplifier to five bits, including amplifier 32/64 wrapping.
 Private disassembly: `.local/status-actions-*.javap` and
 `.local/effects-MobEffectInstance.javap`. The initial probe will intercept native
 heal/damage requests; downstream health, defenses and owner composition are
 separate validation gates.
 
-October16: original `PeriodicEffectOracle` executes actual native instance ticks
+October 16: original `PeriodicEffectOracle` executes actual native instance ticks
 and intercepts heal/damage requests.124,596 cases match `PeriodicEffect` requests
-plus the existing `StatusEffect` duration/promotion kernel: all256 amplifiers,
+plus the existing `StatusEffect` duration/promotion kernel: all 256 amplifiers,
 zero/finite/infinite duration, signed entity ages, native float health thresholds,
-maximum1/20/128/1024 and continuous hidden promotion. Regeneration requests one
+maximum 1/20/128/1024 and continuous hidden promotion. Regeneration requests one
 heal below maximum; poison requests one `magic` damage only above1HP; wither
 requests one `wither` damage. A request alone neither revives nor commits health.
 Only the active head acts, before decrement/promotion. Finite countdown phase
@@ -39,7 +39,7 @@ Owned composition admits all three effects through the existing grant/login and
 atomic potion-use lane. The player clock selects requests from pre-decrement
 heads, folds independent effect kinds in ID order and stops actions at death.
 It installs the final duration map before health can seal a death snapshot.
-Infinite age is the admitted player clock wrapped to signed32; no catchup or
+Infinite age is the admitted player clock wrapped to signed 32; no catchup or
 extra timer/process. Healing replicates hearts/metadata without food exhaustion;
 damage uses the existing mode/load/cooldown/defense/death path. Magic/wither bypass
 armor and wear, retain ordinary worn Protection and cause zero exhaustion.
@@ -51,7 +51,7 @@ translation keys were added to public facts. Evidence:
 `.local/periodic-damage-{protection,message}-*.log`,
 `.local/periodic-player-life-{native,check,decode}.log`.
 
-79 affected checks pass(seed827311); later47 owner/use/death-store checks pass
+79 affected checks pass(seed827311); later 47 owner/use/death-store checks pass
 (seed915800), overlapping intentionally. Boundaries include countdown/infinite
 phase, signed age wrap, hidden promotion, stale timers, poison's health threshold,
 ten-tick hurt suppression, modes, worn/carried defenses, stalled geometry, finite
@@ -64,14 +64,14 @@ Initial tests exposed the missing packet-source allowlist and a test helper that
 incorrectly required idle geometry to run; both corrected. The idle sample
 optimization is unchanged. Actual-client evidence follows.
 
-Frozen `5b123b1` passes1,302 full tests(seed458956) and production release. The
-complete native integration passes against that same immutable941-blob
-checkpoint, including plain and continuous AES-CFB8 TCP (session81516 exit0). Logs:
+Frozen `5b123b1` passes 1,302 full tests(seed458956) and production release. The
+complete native integration passes against that same immutable 941-blob
+checkpoint, including plain and continuous AES-CFB8 TCP (session 81516 exit 0). Logs:
 `.local/periodic-live-{full-tests,production,full-native}.log`. The client tester
-uses a whole25-file clone of the stopped source/receipt51 dataset at
+uses a whole 25-file clone of the stopped source/receipt51 dataset at
 `/tmp/valimc-periodic-live-client-20261016`; root owns server shutdown after testing.
 
-Actual26.3 client PASS, tester report reviewed once:
+Actual 26.3 client PASS, tester report reviewed once:
 `.local/client-tests/VMC-037d/report.md`. Actual drinks demonstrate regeneration
 four+1HP/50tick events and expiry, poison25tick damage/floor/expiry, lethal
 wither40tick damage/native translated death and actual Respawn. Two actual
@@ -83,10 +83,10 @@ Fresh reconnect preserves finite state/health/bottle without offline advancement
 or replay. Exact intervals use read-only traces with scheduling tolerance;
 infinite/high-amplifier/zero boundaries remain native/deterministic proofs.
 
-Death52 and subsequent pickup53 are retained, source/receipt53 and outboxnil.
+Death 52 and subsequent pickup 53 are retained, source/receipt53 and outboxnil.
 Final20HP/regen534ticks, seven bottles and retained canceled/unsupported potions.
 Both owned client JVMs stopped, zero players/connections, five region flushes and
 clock:ok. Primary reviewed the server session: no gameplay errors; server stopped
 cleanly. All stated gates pass. Native Motion load probes emit upstream crash-report
-handler/sysctl diagnostics in the controlled harness; their39 cases still pass.
+handler/sysctl diagnostics in the controlled harness; their 39 cases still pass.
 Broader combat, effects and survival behavior remain separate work.

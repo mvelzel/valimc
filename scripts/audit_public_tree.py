@@ -59,3 +59,7 @@ if __name__ == "__main__":
         assert violation("priv/protocol/packets.json") is None
         print("PASS: publication guard rejects private paths, binaries and copied Minecraft packages")
     audit()
+
+    lint = subprocess.run([sys.executable, str(ROOT / "scripts/lint_docs.py")])
+    if lint.returncode:
+        raise SystemExit("DOCS LINT FAILED (scripts/lint_docs.py)")

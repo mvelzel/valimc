@@ -1,6 +1,7 @@
 # VMC-015g — Slowing block contacts
 
-Status: Default live contacts validated/published; weaving lifecycle and damage remain follow-ups. October 15, 2026.
+Status: Done
+Note: Default live contacts validated/published; weaving lifecycle and damage remain follow-ups. October 15, 2026.
 
 Acceptance: native player cobweb/weaving, berry bush and powder-snow contact
 selection; reset fall on contact and retain the last ordered multiplier until its

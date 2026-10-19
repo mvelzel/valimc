@@ -1,6 +1,7 @@
 # VMC-015h — Sneaking at edges
 
-Status: Validated and published (`6ca22ef`), complete within scope. October 15, 2026.
+Status: Done
+Note: Validated and published (`6ca22ef`), complete within scope. October 15, 2026.
 
 Acceptance: native Shift edge protection for grounded and near-ground players,
 separate X/Z/diagonal backoff, exact support-query geometry and native 0.05 steps.

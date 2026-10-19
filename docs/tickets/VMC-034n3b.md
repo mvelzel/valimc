@@ -1,9 +1,7 @@
 # VMC-034n3b — Live remote XP spawn delivery
 
-Status: Done within initial remote-spawn scope. Runtime `38cf281`, additional
-fairness check/measurements `5cb237f`. Depends on the [durable protocol](VMC-034n3a.md); part of
-[orb ownership](VMC-034n3.md). This covers initial remote spawning, not moving
-an already active orb or enabling earned-output withdrawal.
+Status: Done
+Note: Done within initial remote-spawn scope. Runtime `38cf281`, additional fairness check/measurements `5cb237f`. Depends on the [durable protocol](VMC-034n3a.md); part of [orb ownership](VMC-034n3.md). This covers initial remote spawning, not moving an already active orb or enabling earned-output withdrawal.
 
 Source owners must route pending awards to the owner of their spawn position.
 Use the stored intent before delivery, the destination's durable adoption before
@@ -87,7 +85,7 @@ Actual client **PASS** (2026-10-19), Java26.3/protocol777, frozen `38cf281`:
 all five scenarios pass on the same whole dataset
 `.local/client-tests/VMC-034n3b/world`. It began with 14 real receipt-backed
 obligations and no creation/transfer records. Runtime produced 13 local markers,
-12 local sprites/4,931 XP and one remote route/adoption/sprite worth3 XP. Exact
+12 local sprites/4,931 XP and one remote route/adoption/sprite worth 3 XP. Exact
 pending, local, source/destination transfer and imported record maps match.
 Actual W/S crossed x640 and contacted the single remote sprite without duplicate,
 persistent drift, pickup or XP gain. Mining A/ordinary item pickup and cooking B
@@ -96,10 +94,10 @@ Both owner replacements preserved 13 UUIDs with disjoint fresh network IDs and n
 old tracked IDs. Duplicate delivery returned `already_applied`, preserving IDs.
 Full server restart/fresh direct client retained the scene, inventory and refusals.
 
-Final source sequence/typed receipt24, cursor/outbox nil, all 14 obligations retained,
-4,934 owned XP, A absent, Boutput1/use1, gold13/smoothstone1/furnace1, pickaxe wear1,
-raw iron/coal/dirt0 and no dropped item records; pickup receipt16 retained. Both
-owners/clock flushed, players0, owned helpers/JVMs/servers stopped and port25565
+Final source sequence/typed receipt 24, cursor/outbox nil, all 14 obligations retained,
+4,934 owned XP, A absent, Boutput 1/use1, gold 13/smoothstone1/furnace1, pickaxe wear 1,
+raw iron/coal/dirt0 and no dropped item records; pickup receipt 16 retained. Both
+owners/clock flushed, players 0, owned helpers/JVMs/servers stopped and port 25565
 clear. Report: `.local/client-tests/VMC-034n3b/report.md`; exact reconciliation,
 identity and duplicate diagnostics remain alongside it. Tester diagnostic assertion
 errors were corrected and final assertions pass. No routine images were required.

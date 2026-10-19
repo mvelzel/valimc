@@ -1,6 +1,7 @@
 # VMC-034c — Stock cooking recipes
 
-Status: Done within pure recipe resolver scope at32bc5a1. No live processing.
+Status: Foundation
+Note: Done within pure recipe resolver scope at `32bc5a1`. No live processing.
 
 Acceptance: indexed stock smelting/smoking/blasting selection, result components,
 base cooking time and float32 XP match actual pinned RecipeManager/assemble calls.
@@ -13,14 +14,14 @@ is established. Baseline client scenario: direct join/HUD, ordinary empty-chest
 open/close and fresh reconnect with quantities unchanged; no smelting claim.
 
 
-October18 pinned26.3/server33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c:
+October 18 pinned 26.3/server33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c:
 CookingRecipesOracle loads native tags/reloadable registries, uses the actual
 RecipeManager selection and recipe assembly, and invokes native getTotalCookTime.
-14,922 stock/named/full input cases pass; all4,974 stock kind/item combinations
-have at most one matching recipe. Selection covers163 smelting,9 smoking and62
-blasting inputs,107 unique recipes. Stock base time is200 for every cooking kind;
-speed0/1/2 contexts resolve200/200/100. Output is one unpatched stock item; exact
-float32 XP bits are retained, with no awards implemented. All44,766 composed
+14,922 stock/named/full input cases pass; all 4,974 stock kind/item combinations
+have at most one matching recipe. Selection covers 163 smelting,9 smoking and 62
+blasting inputs,107 unique recipes. Stock base time is 200 for every cooking kind;
+speed 0/1/2 contexts resolve 200/200/100. Output is one unpatched stock item; exact
+float32 XP bits are retained, with no awards implemented. All 44,766 composed
 speed-context results match. Raw `.local/cooking-recipes-native.json`, comparison
 `.local/cooking-recipes-comparison.log`; upstream recipe JSON stays private.
 
@@ -32,11 +33,11 @@ speed (`.local/cooking-recipes-targeted.log`). Changed formatting/Python compila
 and public audit pass; production and dedicated baseline remain pending.
 
 
-October18 frozen32bc5a1 passes1,547 full tests, production and dedicated baseline:
+October 18 frozen `32bc5a1` passes 1,547 full tests, production and dedicated baseline:
 two actual fresh direct joins, native empty chest/HUD/lid open/close and reconnect
-retain every quantity/component and source110/typed109/item110+61/storage30. No
-packet errors or gameplay edits. Both clients stopped143; regions/clock flushed,
-server29174 stopped0. Accepted `.local/client-tests/VMC-034c/report.md`;39 stopped
+retain every quantity/component and source 110/typed109/item110+61/storage30. No
+packet errors or gameplay edits. Both clients stopped 143; regions/clock flushed,
+server 29174 stopped 0. Accepted `.local/client-tests/VMC-034c/report.md`;39 stopped
 dataset-file/1,115 unchanged frozen-blob hashes and audit
 `.local/cooking-recipes-publication-proof.json`. Parent full native/both TCP and
 current targeted recipe probes pass. All unused-foundation gates are closed;

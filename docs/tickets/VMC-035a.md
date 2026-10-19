@@ -1,6 +1,7 @@
 # VMC-035a — Dropped-item launch and motion
 
-Status: Launch/motion kernels verified; live composition pending. October16,2026.
+Status: In progress
+Note: Launch/motion kernels verified; live composition pending. October 16,2026.
 Parent: VMC-035.
 Related: VMC-018c3.
 
@@ -12,11 +13,11 @@ and persistence before enabling live motion. No per-item process or client-owned
 physics; sleeping/resting items should cost no unnecessary tick work.
 
 First checkpoint: pure launch from supplied pose/eye height and four uniform native
-float draws. Reference pinned26.3 `LivingEntity.createItemStackToDrop`,
-`ItemEntity` and `Mth`. Actual native probe observes720 directed/scattered launches,
+float draws. Reference pinned 26.3 `LivingEntity.createItemStackToDrop`,
+`ItemEntity` and `Mth`. Actual native probe observes 720 directed/scattered launches,
 six yaws/five pitches/three eye heights/four seeds; world ID allocation controlled.
 Raw `.local/DropLaunchProbe.java`, `.local/drop-launch-native.{json,log}`;
-private inspection `.local/drop-{livingentity,entity}-bytecode.txt`. Native delay40;
+private inspection `.local/drop-{livingentity,entity}-bytecode.txt`. Native delay 40;
 launch starts at actual eyeY minus float32(0.3), with nonzero directed/scattered
 velocity. Current preview instead freezes items using no-gravity metadata.
 
@@ -26,9 +27,9 @@ reconnect and region-boundary conservation. Pure kernels alone do not fix the
 stationary preview or complete this ticket. This foundation uses baseline smoke;
 the live composition will require the full feature scenario.
 
-Pure implementation passes three boundary/direction checks (seed847312) and720
+Pure implementation passes three boundary/direction checks (seed847312) and 720
 native launch observations. Origin, vertical velocity and pickup delay match
-exactly; horizontal libm jitter differs by at most4.34e-19, below the1e-15 bound.
+exactly; horizontal libm jitter differs by at most 4.34e-19, below the1e-15 bound.
 The kernel consumes supplied random values, allocates no process and owns no item.
 Native public driver `scripts/ItemDropOracle.java`; comparison `scripts/check_item_drop.exs`.
 Raw `.local/{item-drop-targeted,drop-launch-check}.log`.
@@ -55,7 +56,7 @@ source retry receipts after moves/pickups so old deliveries cannot recreate item
 Live composition remains pending. Frozen `f31f178` baseline client smoke passed:
 actual flat-world join/render, walking/SDL look, log→four planks/returning two logs,
 fresh reconnect with exact inventory/pose and `/stats`. Three owned launches
-stopped; original full snapshot restored, source0/nil, zero edits/items/receipts,
+stopped; original full snapshot restored, source 0/nil, zero edits/items/receipts,
 four owners flushed. Module MD5s unchanged;736 tracked blobs rehashed. Frozen
 compile and eight targeted tests pass; no broad suite/build rerun was needed for
 these unreachable kernels. Report `.local/client-tests/VMC-035a/report.md`;
@@ -67,5 +68,5 @@ updates with ordered reservations; Steel `f6fb4e4` (`item_entity.rs`) keeps item
 lifecycle state separate from common entity state. Use owner-local batch updates
 and fenced cross-owner intents here, rather than copying their per-item locks/
 atomics. Their constants/coverage are not the behavioral oracle; pinned native
-observations above include float boundaries and directed-drop delay40. Keep
+observations above include float boundaries and directed-drop delay 40. Keep
 upstream checkouts and inspected bytecode private under ignored research paths.

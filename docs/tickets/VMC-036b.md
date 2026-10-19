@@ -1,7 +1,7 @@
 # VMC-036b — Movement exhaustion
 
-Status: Validated and complete within accepted movement-exhaustion scope. October 16, 2026.
-Depends on [owned food](VMC-036a.md) and fenced accepted movement.
+Status: Done
+Note: Validated and complete within accepted movement-exhaustion scope. October 16, 2026. Depends on [owned food](VMC-036a.md) and fenced accepted movement.
 
 Acceptance: accepted survival sprint/swim travel and grounded jumps add native
 exhaustion once. Respect native movement precedence and float32 centimeter
@@ -21,7 +21,7 @@ use horizontal distance. Native precedence matters when predicates overlap.
 exhaustion requests across 256 overlapping predicates and 14 movement/rounding
 boundaries. Another 24 actual `Player.causeFoodExhaustion` executions verify all
 mode ability gates and saturation of added exhaustion. Two actual ServerPlayer
-jump callbacks (zero jump power/no-op stats) request0.2 sprinting or0.05 otherwise.
+jump callbacks (zero jump power/no-op stats) request 0.2 sprinting or 0.05 otherwise.
 The listener invokes that callback on grounded-to-airborne upward movement; the
 owner will bind it after acceptance rather than copy vanilla's pre-validation
 ordering. World contacts/acceptance and stats persistence are excluded. Four
@@ -50,10 +50,10 @@ plus TCP here. Frozen manifest: `.local/movement-food-validation-checkpoint.json
 573 blobs/no mismatches. Logs `.local/movement-food-block-full-tests.log`,
 `.local/movement-food-native-tcp.log`, `.local/movement-food-validation-production.log`.
 
-Six matched creative-water loads (ten schedulers), `ebb2874`→`c36d01f`: spread512
-5.146→5.125s, login p95 153.43→73.55ms, final265.76→318.59MiB; dense128
+Six matched creative-water loads (ten schedulers), `ebb2874`→`c36d01f`: spread 512
+5.146→5.125s, login p95 153.43→73.55ms, final 265.76→318.59MiB; dense 128
 5.593→5.751s, 132.64→66.39ms, 123.88→125.44MiB. Reverse spread order gave before
-5.121s/77.19ms/253.87MiB, after5.122s/190.17ms/318.54MiB. Every position/swim flag
+5.121s/77.19ms/253.87MiB, after 5.122s/190.17ms/318.54MiB. Every position/swim flag
 verified; zero corrections/disconnects. Login tails vary; the memory increase
 motivates [idle food work](VMC-036a1.md). No survival capacity/speed claim.
 Raw `.local/food-load-*.json/.log` and `.local/food-load-revisions.json`.
@@ -66,25 +66,25 @@ drumsticks; ordinary walking and creative flight are negatives. Reconnect retain
 the depleted state. Include grounded jump versus airborne held jump, correction
 and stale-frame negatives. Sprint eligibility/consumables remain distinct slices.
 
-October16 actual-client evidence — reviewed and accepted: immutable7337af6/
+October 16 actual-client evidence — reviewed and accepted: immutable7337af6/
 PID74315 release, disposable `/tmp/valimc-consumable-client-20261016`, Java26.3/
-protocol777, five fresh small direct SDL/CUA clients. Actual W/Shift+W accepted
-14.31m with exhaustion3.95 unchanged; Ctrl+W10sec accepted56.96m, saturation1→0
-then food20→19/HUD9.5drumsticks. Grounded Space350ms added0.05 once; held-airborne
+protocol 777, five fresh small direct SDL/CUA clients. Actual W/Shift+W accepted
+14.31m with exhaustion 3.95 unchanged; Ctrl+W10sec accepted 56.96m, saturation 1→0
+then food 20→19/HUD9.5drumsticks. Grounded Space350ms added 0.05 once; held-airborne
 input/accepted ascent/descent added no further jump cost. Fresh direct reconnect
-retained exact food19/sat0/ex3.536013126/timer0 and actual depleted HUD. Actual
+retained exact food 19/sat0/ex3.536013126/timer0 and actual depleted HUD. Actual
 Ctrl+W swimming in a bounded water corridor set swimmingtrue and spent exhaustion
-through food19, underwater/bubble/HUD view; armed air watcher prevented drowning.
-Fixed-x/z underwater Space cycles added four0.05 grounded jumps plus0.0956
-vertical travel; dry-eye/body-water repetition added only four0.05 jumps, zero
-vertical travel. Creative actual sprint/jump17.94m and spectator flight45.70m
+through food 19, underwater/bubble/HUD view; armed air watcher prevented drowning.
+Fixed-x/z underwater Space cycles added four 0.05 grounded jumps plus 0.0956
+vertical travel; dry-eye/body-water repetition added only four 0.05 jumps, zero
+vertical travel. Creative actual sprint/jump17.94m and spectator flight 45.70m
 horizontal/9.37m vertical retained exact food/exhaustion; invulnerable abilities
-and released input0/flags0 traced. Sprint-jump0.2 is a CUA input-composition limit
+and released input 0/flags0 traced. Sprint-jump0.2 is a CUA input-composition limit
 (native callback covered); climbing/creative-flight and independent body-water
 horizontal GUI assertions remain limits. No eligibility/stale/correction GUI claim.
-All wrappers stopped/waited/zeroPlayers, temporary1000-cell pool restored exactly,
-safe survival20HP/air300/food19/sat0/ex.673300385/timer0/empty snapshot; source10/
-outboxnil/lastdeath unchanged. All29 prior item ID/stack/components unchanged,
-counts17/8/4 and receipts10/6/9; initial difficulty1/unlocked/regenfalse unchanged.
+All wrappers stopped/waited/zeroPlayers, temporary 1000-cell pool restored exactly,
+safe survival20HP/air300/food19/sat0/ex.673300385/timer0/empty snapshot; source 10/
+outboxnil/lastdeath unchanged. All 29 prior item ID/stack/components unchanged,
+counts 17/8/4 and receipts 10/6/9; initial difficulty 1/unlocked/regenfalse unchanged.
 No gameplay failure/release restart. Full actions, native-control limitation,
 traces, conservation and cleanup: `.local/client-tests/VMC-036b/report.md`.

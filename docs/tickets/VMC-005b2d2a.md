@@ -1,8 +1,7 @@
 # VMC-005b2d2a — Durable connected menu-close overflow
 
-Status: Done — connected close overflow validated, local. Updated: October 14, 2026.
-Depends on VMC-005b2d1 and the automated-verified VMC-019b3c transfer helper.
-VMC-019b3c's actual mouse-input gate stays parked; this slice changes menu close.
+Status: Done
+Note: Done — connected close overflow validated, local. Updated: October 14, 2026. Depends on VMC-005b2d1 and the automated-verified VMC-019b3c transfer helper. VMC-019b3c's actual mouse-input gate stays parked; this slice changes menu close.
 
 ## Scope and acceptance
 

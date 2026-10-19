@@ -1,8 +1,7 @@
 # VMC-017a — Owned health and fall damage
 
-Status: Owned health/login/save validated (`18028cd`). Live death/respawn and
-accepted landing damage pass automated checks; graphical gates remain pending.
-October 15, 2026.
+Status: In progress
+Note: Owned health/login/save validated (`18028cd`). Live death/respawn and accepted landing damage pass automated checks; graphical gates remain pending. October 15, 2026.
 
 Acceptance: player-owned finite health, persistent save/reconnect, current health
 packets and fall damage from authoritative accepted landing distance. Preserve
@@ -34,7 +33,7 @@ original `scripts/FallDamageOracle.java`. The fall calculation remains unwired.
 Health foundation checkpoint: `PlayerHealth` matches 40 native setter/save/load
 cases and 336 actual `LivingEntity.hurtServer` cooldown prefixes (blocking,
 armor/absorption, events and death excluded). Stronger protected hits select only
-the increase before defenses. Health metadata is accessor9/float serializer3;
+the increase before defenses. Health metadata is accessor 9/float serializer 3;
 native codecs verify health updates and metadata among 62 packets and 272 packed
 velocities. Snapshot v9 stores float32 health plus saved hurt/death timers alongside
 velocity, inventory and the transfer journal; older versions remain readable.
@@ -48,11 +47,11 @@ max health), sends it through `set_health`, and captures it on saves/disconnect.
 Hurt/cooldown decrement once per admitted owner tick, independent of the geometry
 lane, following `LivingEntity.baseTick` and `ServerPlayer.tick`. Death timers await
 the death lifecycle. Seventy-five affected tests pass, including two TCP sessions
-at health7.25 with exact inventory retention, legacy migration, pending-teleport
+at health 7.25 with exact inventory retention, legacy migration, pending-teleport
 timer progression and stale/early tick rejection. Tests synchronize initial packet
 checks with the socket owner. Evidence: `.local/player-health-live-tests.log`.
 Frozen `18028cd`, `.local/health-live-checkpoint` (520 verified blobs), passed actual
-Java 26.3 checks at 21:24–21:28 CEST: seeded health7.25 displayed four filled hearts,
+Java 26.3 checks at 21:24–21:28 CEST: seeded health 7.25 displayed four filled hearts,
 dry movement/jump and `/stats`, real seven-stone hotbar move, durable snapshot and
 fresh direct reconnect with the same health/inventory. Both clients stopped/waited;
 leased cleanup restored a safe preview state. Tester report reviewed:

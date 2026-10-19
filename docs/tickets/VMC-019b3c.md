@@ -1,7 +1,7 @@
 # VMC-019b3c — Durable ordinary-menu throws and outside cursor drops
 
-Status: Done — actual menu drops validated, local. Updated: October 14, 2026.
-Depends on VMC-019b3b. Original checkpoint and completed GUI evidence follow.
+Status: Done
+Note: Done — actual menu drops validated, local. Updated: October 14, 2026. Depends on VMC-019b3b. Original checkpoint and completed GUI evidence follow.
 
 ## Scope and acceptance
 

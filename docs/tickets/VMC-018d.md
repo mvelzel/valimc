@@ -1,7 +1,7 @@
 # VMC-018d — Player equipment replication
 
-Status: Validated and complete within six-slot equipment replication scope.
-October 16, 2026. Actual-client report reviewed and accepted on7337af64.
+Status: Done
+Note: Validated and complete within six-slot equipment replication scope. October 16, 2026. Actual-client report reviewed and accepted on `7337af64`.
 
 Acceptance: nearby unmodified clients see both held hands and four worn armor
 slots, including count/component changes, hotbar selection, swaps, consumption,
@@ -14,7 +14,7 @@ Reference: pinned 26.3 `ClientboundSetEquipmentPacket`, `EquipmentSlot` and
 `33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c`. Private codec/slot inspection stays in
 `.local/equipment-{packet,slots}.javap`. Verify native codecs before live use.
 
-Original `EquipmentOracle` passes128 bidirectional native packets: all eight
+Original `EquipmentOracle` passes 128 bidirectional native packets: all eight
 native slots, empty/plain/patched stacks, entity-ID boundaries and continuation
 batches of one through eight entries. One boundary regression rejects invalid,
 empty, duplicate and oversized equipment batches. Evidence:
@@ -50,27 +50,27 @@ use animation with the correct item; clearing/recreated entities must not retain
 old gear. Delegate to the dedicated tester on a frozen release. Full attribute,
 combat and specialized wearable behavior remain separate owners.
 
-October16 actual-client evidence — reviewed and accepted: immutable7337af6/
+October 16 actual-client evidence — reviewed and accepted: immutable7337af6/
 PID74315 on unchanged `/tmp/valimc-consumable-client-20261016`, Java26.3/protocol777,
 mandatory SDL06f2450…950e1. Two fresh small actual SDL/CUA observer clients viewed
-regular-TCP peer Bench180018; distinct behind-viewer TCP observer retained native
+regular-TCP peer Bench 180018; distinct behind-viewer TCP observer retained native
 packet sequence. Initial bothhands/all4 distinct armor pieces rendered. Regular
 selection, slotwrites and swap changed bowl/bread3-glint; purple glint visible,
 counts verified by wire/owner only. Main/off use showed current item/face crumbs,
 with committed equipment before active hand metadata. Native pinned client
 `AvatarRenderer#getArmPose(Avatar,ItemStack,InteractionHand)` EAT/DRINK falls through
-ArmPose.ITEM at bytecode167 (`.local/equipment-AvatarRenderer.javap`, clientSHA1
+ArmPose.ITEM at bytecode 167 (`.local/equipment-AvatarRenderer.javap`, clientSHA 1
 e877b6a07acd633fb3bb475002175cec036e7b87); waist-level peer food pose is native,
 not a missing first-person raised-arm behavior. Armor/held clears rendered empty;
 peer reconnect/newentity retained current clears. Regular off-soup completion in
-survival gave food5→11/sat7.2 and bowl45, visible with currentdiamondchest. Native
-observer events equipment61→mainflag62, equipment101→offflag102, soup equipment141
-→offflag144, bowl145→stopflag146 verify ordering. Viewer accepted camera fixtures
-out500.5/back2.5 retired/recreated peer cache/render with current bowl/chest only;
+survival gave food 5→11/sat7.2 and bowl 45, visible with currentdiamondchest. Native
+observer events equipment 61→mainflag 62, equipment 101→offflag 102, soup equipment 141
+→offflag 144, bowl 145→stopflag 146 verify ordering. Viewer accepted camera fixtures
+out 500.5/back2.5 retired/recreated peer cache/render with current bowl/chest only;
 fresh actual observer reconnect and final departure had no stale gear. No manual
 long-walk/count-visual/attribute/combat/overflow claim. All2JVMs stopped/waited143,
 3peer connections+monitor closed, zeroPlayers. Main safe18HP/food20/sat20/air300/
-fullinventory andsource10/outboxnil/lastdeath unchanged; all29 exact worldrecords
-17/8/4/receipts10/6/9 conserved. New peer sources0/outboxnil, no drops/transfers.
-Settings1/unlocked/regenfalse unchanged. Detailed actions/native-client conclusion,
+fullinventory andsource 10/outboxnil/lastdeath unchanged; all 29 exact worldrecords
+17/8/4/receipts10/6/9 conserved. New peer sources 0/outboxnil, no drops/transfers.
+Settings 1/unlocked/regenfalse unchanged. Detailed actions/native-client conclusion,
 raw protocol/owner traces/limits/cleanup: `.local/client-tests/VMC-018d/report.md`.

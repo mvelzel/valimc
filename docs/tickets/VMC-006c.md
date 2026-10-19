@@ -1,7 +1,7 @@
 # VMC-006c — Persistent world difficulty and client synchronization
 
-Status: Done — difficulty state validated, local. Updated: October 14, 2026.
-Depends on VMC-006a/b environment ownership, immutable publications and fenced I/O.
+Status: Done
+Note: Done — difficulty state validated, local. Updated: October 14, 2026. Depends on VMC-006a/b environment ownership, immutable publications and fenced I/O.
 
 ## Scope and acceptance
 

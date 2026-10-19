@@ -1,6 +1,7 @@
 # VMC-004a — Bounded item stacks and scalar component patches
 
-Status: Done. Updated: October 13, 2026. Depends on VMC-002.
+Status: Done
+Note: Done. Updated: October 13, 2026. Depends on VMC-002.
 
 ## Scope and acceptance
 

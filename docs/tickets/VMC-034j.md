@@ -1,6 +1,7 @@
 # VMC-034j — Cooking transfer journal foundation
 
-Status: Done within transfer-journal foundation scope at5105393. Live menu admission belongs to VMC-034k.
+Status: Foundation
+Note: Done within transfer-journal foundation scope at 5105393. Live menu admission belongs to VMC-034k.
 
 Acceptance: bounded v2 container requests carry cooking kind/three expected slots
 and produce deterministic player/region decisions. Retain v1 bytes and old player
@@ -18,9 +19,9 @@ regressions, cooking edits/replays/stale rejection and player item conservation.
 Actual client: frozen baseline while no live caller exists. Live grants/open/menu
 exchange and award behavior need separate feature acceptance before enabling them.
 
-October18: v2 retains the95-byte bounded header and existing maximum; the kind
+October 18: v2 retains the 95-byte bounded header and existing maximum; the kind
 tag selects three cooking slots. V1 generic requests keep their original layout.
-All48 pre-extension v1 request and wrapped player outbox byte strings remain exact
+All 48 pre-extension v1 request and wrapped player outbox byte strings remain exact
 (`.local/container-request-legacy-{capture,comparison}.log`). Canonical decode
 rejects foreign regions, unknown kinds, truncation/trailing bytes and forged fields.
 
@@ -33,16 +34,16 @@ A real cold owner refuses cooking admission without changing counters or items.
 No live permission widened; rejection/recovery still writes a terminal receipt.
 Formatting and legacy comparison pass.
 
-Frozen5105393 production and both current native TCP transports pass
+Frozen 5105393 production and both current native TCP transports pass
 (`.local/cooking-transfer-{production,native-tcp}.log`). Combined G/H/I/J baseline
 passes on that exact checkpoint against a whole stopped F clone with an added
 empty chest. The immutable release was retained throughout.
 
-October18: accepted combined G/H/I/J actual26.3 baseline on frozen5105393.
-Actual ordinary chest deposit/withdraw restores exact slots/cursor; source18→20,
-typed20, independent item18 and storage23→25 remain consistent through fresh
-reconnect. Three occupied processor entries remain exact. Both clients stopped143;
-server20532 flushed/stopped0. Report `.local/client-tests/VMC-034j/report.md`,
+October 18: accepted combined G/H/I/J actual 26.3 baseline on frozen 5105393.
+Actual ordinary chest deposit/withdraw restores exact slots/cursor; source 18→20,
+typed 20, independent item 18 and storage 23→25 remain consistent through fresh
+reconnect. Three occupied processor entries remain exact. Both clients stopped 143;
+server 20532 flushed/stopped0. Report `.local/client-tests/VMC-034j/report.md`,
 stopped audit `.local/cooking-transfer-final-audit.log`,1,149 unchanged frozen blobs
 and eight whole-dataset file hashes `.local/cooking-transfer-publication-proof.json`.
 This closes the unused-foundation baseline, not live cooking/menu/XP gameplay.

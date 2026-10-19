@@ -1,7 +1,7 @@
 # VMC-014b6a — Bounded region block observations
 
-Status: Done — owner API and actual client scenario verified. October 15, 2026.
-Depends on VMC-014c1.
+Status: Done
+Note: Done — owner API and actual client scenario verified. October 15, 2026. Depends on VMC-014c1.
 
 Read at most 128 block positions in one existing region-owner turn. Return the
 owner incarnation and block revision with immutable state IDs. A caller can

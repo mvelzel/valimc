@@ -1,7 +1,7 @@
 # VMC-034m — Live regional cooking
 
-Status: Done within live-cooking scope at `99dfb57`. Depends on validated
-[VMC-034k](VMC-034k.md) menus and [VMC-034l](VMC-034l.md) batches.
+Status: Done
+Note: Done within live-cooking scope at `99dfb57`. Depends on validated [VMC-034k](VMC-034k.md) menus and [VMC-034l](VMC-034l.md) batches.
 
 Loaded regional processors ignite, advance/cool, complete recipes and publish native
 properties/lit states. Fuel, remainders, outputs and recipe uses commit together.

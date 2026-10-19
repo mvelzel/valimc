@@ -1,7 +1,7 @@
 # VMC-015c — Player environment ticks and freezing
 
-Status: Done within freezing scope; source `91caf387`. October 15, 2026.
-Follows VMC-015a; supports VMC-015b.
+Status: Done
+Note: Done within freezing scope; source `91caf387`. October 15, 2026. Follows VMC-015a; supports VMC-015b.
 
 Fix the observed powder-snow overlay that persists outside the block. Own freeze
 state and a 50 ms logical clock in the player process. Obtain powder contact from

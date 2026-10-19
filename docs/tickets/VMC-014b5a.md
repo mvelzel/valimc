@@ -1,7 +1,7 @@
 # VMC-014b5a — Bounded voxel unions
 
-Status: Done — primitive and actual client contacts verified. October 14, 2026.
-Depends on VMC-014b4.
+Status: Done
+Note: Done — primitive and actual client contacts verified. October 14, 2026. Depends on VMC-014b4.
 
 Moving-piston retraction joins a stationary base with a displaced head. Establish
 the required pure union/optimization primitive first; VMC-014b5 remains unfinished

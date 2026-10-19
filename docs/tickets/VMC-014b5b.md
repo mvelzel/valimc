@@ -1,7 +1,7 @@
 # VMC-014b5b — Moving-piston collision snapshots
 
-Status: Done — geometry and actual client contacts verified. October 14, 2026.
-Depends on VMC-014b5a.
+Status: Done
+Note: Done — geometry and actual client contacts verified. October 14, 2026. Depends on VMC-014b5a.
 
 Resolve moving-piston geometry from explicit state/direction/progress/source
 observations and a caller-owned movement exclusion. This replaces native thread

@@ -1,7 +1,7 @@
 # VMC-014c3a — Player input and shared flags
 
-Status: Done — validated. October 15, 2026.
-Depends on existing connection replication.
+Status: Done
+Note: Done — validated. October 15, 2026. Depends on existing connection replication.
 
 Retain the seven native input booleans and replicate Shift/sprint flags. These
 packets were previously ignored. This slice supplies intent for later movement;

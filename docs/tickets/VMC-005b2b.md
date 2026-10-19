@@ -1,6 +1,7 @@
 # VMC-005b2b — Authoritative collect-to-cursor
 
-Status: Done. Updated: October 13, 2026. Depends on VMC-005b1/005b2a.
+Status: Done
+Note: Done. Updated: October 13, 2026. Depends on VMC-005b1/005b2a.
 
 ## Scope and acceptance
 

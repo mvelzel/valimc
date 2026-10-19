@@ -1,6 +1,7 @@
 # VMC-007c — Verified online identities
 
-Status: Partially implemented — real online identities validated. Updated: October 14, 2026.
+Status: In progress
+Note: Partially implemented — real online identities validated. Updated: October 14, 2026.
 
 VMC-007a/b provide encrypted transport. Online mode must send authenticate=true,
 verify the native signed server digest through Mojang HTTPS, then admit the returned

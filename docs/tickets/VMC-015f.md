@@ -1,6 +1,7 @@
 # VMC-015f — Relative movement input
 
-Status: In progress. October 15, 2026.
+Status: In progress
+Note: In progress. October 15, 2026.
 
 Acceptance: native direction cancellation/normalization and yaw rotation; float
 acceleration rates for grounded/airborne/flight/water/lava contexts. Compose input

@@ -1,7 +1,7 @@
 # VMC-004b2b — Bounded item names, lore and text identity
 
-Status: Done — actual-client validated, local commit. Updated: October 14, 2026.
-Depends on VMC-004b1 NBT and VMC-004b2a effective identity.
+Status: Done
+Note: Done — actual-client validated, local commit. Updated: October 14, 2026. Depends on VMC-004b1 NBT and VMC-004b2a effective identity.
 
 ## Scope and acceptance
 

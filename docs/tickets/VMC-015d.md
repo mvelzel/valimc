@@ -1,7 +1,7 @@
 # VMC-015d — Player fluid travel
 
-Status: In progress; [default live composition](VMC-015d1.md) is validated (`2e66935`). October 15, 2026.
-Follows [dry travel](VMC-015b1.md) and [saved velocity](VMC-015b2.md).
+Status: In progress
+Note: In progress; [default live composition](VMC-015d1.md) is validated (`2e66935`). October 15, 2026. Follows [dry travel](VMC-015b1.md) and [saved velocity](VMC-015b2.md).
 
 Build bounded water/lava observations and
 native travel math on the existing player geometry lane. Keep accepted position

@@ -1,8 +1,7 @@
 # VMC-035c — Ordinary item pickup
 
-Status: **Done within unmounted, untargeted pickup scope**, October16,2026.
-Runtime checkpoint `79811a818824ae869e43232af83b58217478cde4`.
-[Advanced contexts](VMC-035c1.md) and [cross-owner merging](VMC-035b1.md) remain open.
+Status: Done
+Note: **Done within unmounted, untargeted pickup scope**, October 16,2026. Runtime checkpoint `79811a818824ae869e43232af83b58217478cde4`. [Advanced contexts](VMC-035c1.md) and [cross-owner merging](VMC-035b1.md) remain open.
 
 ## Behavior and authority
 
@@ -18,7 +17,7 @@ accepted player state fences responses. Regions recheck their current owned item
 There is no global gameplay coordinator or process per item.
 
 1. Region admission durably reserves source receipt capacity before granting
-   contact permission: at most128 grants/owner, one/source,250ms lifetime.
+   contact permission: at most 128 grants/owner, one/source,250ms lifetime.
 2. The leased player writer assigns a monotone sequence and saves the original
    inventory plus a v16 intent. Slots/cursor/table/selection and material permission
    are pinned; a later mode change cannot reinterpret an accepted insertion.
@@ -32,9 +31,9 @@ There is no global gameplay coordinator or process per item.
    sequence; committed counters/receipts never rewind.
 
 Whole pickup emits the native take callback after commit. Partial false callbacks
-emit none. Canonical requests are at most131,164bytes; source intents add41bytes.
+emit none. Canonical requests are at most 131,164bytes; source intents add41bytes.
 Legacy source records remain readable. Regional receipt tables remain bounded4096;
-sequence0/digest0 reserves capacity and acknowledges no positive transfer.
+sequence 0/digest0 reserves capacity and acknowledges no positive transfer.
 
 ## References and verification
 
@@ -51,22 +50,22 @@ ignored in `.local/{inventory-pickup,item-entity,drop-player}-bytecode.txt`.
 | Capacity / leased writer / permits |30 /36 /19 checks; `.local/{pickup-receipt-reservation,player-pickup-store,pickup-permits}-targeted.log` |
 | Live region/writer/delivery |62 checks(seed352045); `.local/pickup-inbox-checkpoint-targeted.log` |
 | Automatic TCP / related regressions |73 checks(seed476133); `.local/pickup-auto-checkpoint-targeted.log` |
-| Storage/worker pressure |14 checks, including3 new cases(seed618829); `.local/pickup-pressure-targeted.log` |
+| Storage/worker pressure |14 checks, including 3 new cases(seed618829); `.local/pickup-pressure-targeted.log` |
 | Full suite |1,123 pass(seed489962); `.local/item-pickup-full-tests-retest.log` |
 | Production / full native integration |PASS, including plaintext and continuous AES-CFB8 TCP; `.local/item-pickup-{production,full-native}.log` |
 
 The first broad run had one obsolete item-age assertion: the new delay hint changes
 while retained wire packets/versions do not. The corrected assertion and full
-retest pass; runtime code was unchanged. Frozen manifest805 blobs:
+retest pass; runtime code was unchanged. Frozen manifest 805 blobs:
 `.local/item-pickup-checkpoint.json`.
 
-Actual Minecraft PASS across8 fresh direct Java26.3/protocol777 launches: natural Q
-and menu whole-stack drops, positive-delay contact then collection, partial7→1+6,
+Actual Minecraft PASS across 8 fresh direct Java26.3/protocol777 launches: natural Q
+and menu whole-stack drops, positive-delay contact then collection, partial 7→1+6,
 full survival refusal, creative overflow, spectator/range negatives, distinct named
 stacks across an ownership boundary, reconnect and a paused-save/disconnect/retry.
 The dedicated tester owns the verdict: `.local/client-tests/VMC-035c/report.md`.
 No unexpected protocol/gameplay error occurred. All clients stopped; full original
-player restored except latest sequence30/nil outbox, histories retained, owners
+player restored except latest sequence 30/nil outbox, histories retained, owners
 flushed, runtime module hashes unchanged, zero players/connections.
 
 Exact take-animation frame timing/sound, graphical two-player contention and a
@@ -77,8 +76,8 @@ Mounted pickup/persistent exclusive targets remain the separate follow-up.
 ## Measurement
 
 `bench/item_pickup.exs` exercises real source saves, region withdrawal, delivery and
-proof across4/32 sources,1/8 owners,64/512 entities and plain/4KiB components. Both
-runs conserve all items. Run01:721–1,349 pickups/s,1.6–24.6ms median. Run02 during
+proof across 4/32 sources,1/8 owners,64/512 entities and plain/4KiB components. Both
+runs conserve all items. Run 01:721–1,349 pickups/s,1.6–24.6ms median. Run 02 during
 full-suite/native/client load:76–145/s,37–244ms median,42 safely rejected/retried
 expired permits. These measure trusted-contact durable I/O; TCP, graphics, physics
 and cross-server comparisons are excluded. Raw results/workload hashes/load notes

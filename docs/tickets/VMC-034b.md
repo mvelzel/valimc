@@ -1,7 +1,7 @@
 # VMC-034b — Atomic furnace item transitions
 
-Status: Done within pure slot-proposal scope at372acd0. VMC-034a owns contextual fuel
-resolution. No live cooking.
+Status: Foundation
+Note: Done within pure slot-proposal scope at `372acd0`. VMC-034a owns contextual fuel resolution. No live cooking.
 
 Acceptance: a bounded pure three-slot proposal consumes one fuel/input, preserves
 component identity, admits complete recipe output only when it fits, and returns
@@ -20,12 +20,12 @@ pure work and commits item changes/progress through the same durable authority.
 An active-work index schedules batches; sleeping blocks have no process or poll.
 
 
-October18 pinned26.3/server33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c:
-CookingItemsOracle invokes actual private canBurn/burn in37,440 cases over result/
+October 18 pinned 26.3/server33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c:
+CookingItemsOracle invokes actual private canBurn/burn in 37,440 cases over result/
 output identities, names, explicit/removed stack limits, count/capacity boundaries,
 ordinary/wet-sponge inputs and empty/named/multiple buckets. All match the original
-Elixir proposal. Native consumeFuel matches1,960 cases over all347 stock fuels,
-valid counts/names and patched99-capacity lava buckets. Five numeric stock
+Elixir proposal. Native consumeFuel matches 1,960 cases over all 347 stock fuels,
+valid counts/names and patched 99-capacity lava buckets. Five numeric stock
 crafting-remainder pairs are retained; only lava bucket is a stock fuel among them.
 Raw `.local/cooking-items-native.json`, comparison `.local/cooking-items-comparison.log`.
 
@@ -39,13 +39,13 @@ identity equivalence/difference, sponge and remainder/invalid-fuel boundaries
 (`.local/cooking-items-targeted.log`). Production and unused-kernel baseline pending.
 
 
-October18 frozen372acd0 production and dedicated unused-kernel baseline pass:
+October 18 frozen `372acd0` production and dedicated unused-kernel baseline pass:
 two fresh actual direct launches, native empty-chest menu/lid/HUD and reconnect
-retain source110/outboxnil, typed109/item110+61/storage30, six stock chests plus
-named2, seven planks, axe damage3 and12HP. No packet errors or gameplay edits.
-Both clients stopped143; zero players/connections, regions/clock flushed and
-server28856 stopped0. Accepted report `.local/client-tests/VMC-034b/report.md`;
+retain source 110/outboxnil, typed 109/item110+61/storage30, six stock chests plus
+named 2, seven planks, axe damage 3 and12HP. No packet errors or gameplay edits.
+Both clients stopped 143; zero players/connections, regions/clock flushed and
+server 28856 stopped 0. Accepted report `.local/client-tests/VMC-034b/report.md`;
 39 stopped dataset-file/1,108 unchanged frozen-blob hashes and exact quantity audit
-`.local/cooking-items-publication-proof.json`. Larger foundation block at32bc5a1 passes
+`.local/cooking-items-publication-proof.json`. Larger foundation block at `32bc5a1` passes
 1,547 full tests. All gates for this unused foundation are closed; do not repeat
 the baseline. Actual smelting remains future runtime work.

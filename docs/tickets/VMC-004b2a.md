@@ -1,6 +1,7 @@
 # VMC-004b2a — Effective component identity for supported stacks
 
-Status: Done — effective supported-component identity validated, local.
+Status: Done
+Note: Done — effective supported-component identity validated, local.
 Updated: October 14, 2026.
 Splits VMC-004b2; text/name/lore/enchantments remain subsequent slices.
 

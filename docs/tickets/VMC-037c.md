@@ -1,7 +1,7 @@
 # VMC-037c — Breathing effects and air ownership
 
-Status: **Done within owned Water Breathing/air scope**, `1fd6287`, published
-October16. Automated integration/build and all six actual-client groups pass.
+Status: Done
+Note: **Done within owned Water Breathing/air scope**, `1fd6287`, published October 16. Automated integration/build and all six actual-client groups pass.
 
 Acceptance: Water Breathing pauses oxygen loss and restores depleted air while
 submerged, with expiry, existing defenses, natural drowning, drinks and reconnect.
@@ -15,7 +15,7 @@ expire into natural oxygen loss/drowning, surface, reconnect with depleted air a
 effects. Include Fire Resistance's non-breathing negative and invulnerable air
 recovery. Trusted fixtures are distinct from actual drinking/movement/UI evidence.
 
-Pinned26.3: `LivingEntity.baseTick`, `MobEffectUtil.hasWaterBreathing` and
+Pinned 26.3: `LivingEntity.baseTick`, `MobEffectUtil.hasWaterBreathing` and
 `shouldEffectsRefillAirsupply`. Native air work precedes effect expiry. Water
 Breathing, Conduit Power and Breath of the Nautilus all prevent oxygen loss;
 Nautilus alone suppresses underwater refill. Water Breathing/Conduit override that
@@ -24,9 +24,9 @@ prevents it; the previous five-argument air primitive held instead. Conduit
 range/actions and Nautilus mounting remain separate gameplay systems. Private references:
 `.local/status-air-MobEffectUtil.javap`, `.local/gravity-LivingEntity.javap`.
 
-October16: original `StatusAirOracle` invokes both native predicates on the actual
-`LivingEntity` effect map.433 contexts cover every40 catalog entries, zero/one/
-finite/infinite/maximum durations, amplifier0/255 and all eight combinations of
+October 16: original `StatusAirOracle` invokes both native predicates on the actual
+`LivingEntity` effect map.433 contexts cover every 40 catalog entries, zero/one/
+finite/infinite/maximum durations, amplifier 0/255 and all eight combinations of
 the three relevant effects. `PlayerAirEffects` matches both predicates. Presence
 includes zero-duration entries until the effect clock removes them. Eight affected
 tests pass(seed838560), including that expiry/removal/refill boundary. Evidence:
@@ -39,7 +39,7 @@ admit Water Breathing alongside Fire Resistance. The owner captures a compact ai
 policy at the start of each admitted tick, before effect expiry. Existing fenced
 eye geometry consumes only the latest pending air step; later grants cannot
 retroactively change that step, and delayed samples do not replay expired policies.
-Breathing refills four air up to300; Nautilus-only hold remains a pure future context.
+Breathing refills four air up to 300; Nautilus-only hold remains a pure future context.
 Creative/spectator depleted underwater air now refills, matching native baseTick.
 Respiration draws occur only when air can be spent. No extra timer/process/job.
 
@@ -52,7 +52,7 @@ Evidence: `.local/status-air-live-targeted.log` and
 full-baseTick execution is not claimed; its ordering/refill rules use the pinned
 bytecode and the existing native air primitives. Actual-client evidence follows.
 
-Frozen `1fd6287` passes1,284 full tests(seed105045), production release and native
+Frozen `1fd6287` passes 1,284 full tests(seed105045), production release and native
 plaintext/continuous AES-CFB8 TCP. Raw evidence: `.local/breathing-live-full-tests.log`,
 `.local/breathing-live-production.log`, `.local/breathing-live-native-tcp.log`.
 The full native suite last passed at `d7e688c`; subsequent potion/breathing native
@@ -60,8 +60,8 @@ probes and both transports are targeted integration, not a repeat of that entire
 The dedicated client tester tested the immutable release and whole consistent dataset
 `/tmp/valimc-breathing-live-client-20261016` (initial source/receipt50).
 
-Actual26.3 client PASS: main/offhand ground-targeted drinking/bottles, actual
-submersion with owned+4 depleted-air refill, genuine400-tick expiry into natural
+Actual 26.3 client PASS: main/offhand ground-targeted drinking/bottles, actual
+submersion with owned+4 depleted-air refill, genuine 400-tick expiry into natural
 oxygen loss/drowning20→12HP, separate actual surfacing/recovery, Fire Resistance
 negative, creative/spectator refill, canceled use, unsupported Night Vision and
 fresh finite/bottle/depleted-air reconnect without offline catchup or replay.

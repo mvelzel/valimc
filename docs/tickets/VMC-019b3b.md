@@ -1,7 +1,7 @@
 # VMC-019b3b — Connected keyboard drops through the durable transfer path
 
-Status: Done — keyboard controls and transfer gates validated. Updated: October 14, 2026.
-Depends on VMC-019b3a. Stationary preview scope; full item lifecycle remains.
+Status: Done
+Note: Done — keyboard controls and transfer gates validated. Updated: October 14, 2026. Depends on VMC-019b3a. Stationary preview scope; full item lifecycle remains.
 
 ## Scope and acceptance
 

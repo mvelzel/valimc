@@ -1,8 +1,7 @@
 # VMC-034n3a — Durable remote XP spawn protocol
 
-Status: **Done within unused protocol/storage scope** at `4b09f6f`, with maximum
-ledger regression at `eb0e4aa`. Part of [orb ownership](VMC-034n3.md).
-Live owner-to-owner delivery and remote publication follow this slice.
+Status: Foundation
+Note: **Done within unused protocol/storage scope** at `4b09f6f`, with maximum ledger regression at `eb0e4aa`. Part of [orb ownership](VMC-034n3.md). Live owner-to-owner delivery and remote publication follow this slice.
 
 An award can belong to a processor's region while its spawn position belongs to
 another region. Preserve the immutable source obligation. Persist a source routing
@@ -64,7 +63,7 @@ Ten focused checks (seed533281) also prove the exact 427,020-byte ledger with
 Measurement at `4b09f6f`: M4/24 GiB, 10 schedulers, 5 warmups/30 samples. Source
 always retains 256 pending awards ×107 recipes; routes/imports vary 1/64/256.
 At 256, source/destination snapshots are 422,545/418,649 bytes; prepare p50/p95
-103.674/140.176 ms, adoption39.220/57.502 ms, settlement101.344/142.085 ms.
+103.674/140.176 ms, adoption 39.220/57.502 ms, settlement 101.344/142.085 ms.
 These validations belong on bounded CPU/I/O workers. Pure codecs/proposals only,
 no gameplay/disk/socket load; host/tester activity overlaps and no capacity/speed
 comparison is established. Raw samples, script and source hashes:
@@ -75,9 +74,9 @@ orb grid/stats, survival furnace mining/pickup, actual smelting and normal/Shift
 output refusals, both owner deaths and full server restart/fresh reconnect. Same
 whole dataset preserves exact 14 pending awards/13 local markers/12 views/4,931 XP
 and the pending source route/matching durable destination adoption (XP3, lost-ACK
-boundary). Destination remains unpublished. Final source/typed24, item receipt16,
-gold13/smooth stone1/furnace1/pickaxe wear1; no dirt/raw iron/coal/cursor/outbox/drops.
-A absent; Boutput1/use1. All owned sessions stopped and port25565 clear.
+boundary). Destination remains unpublished. Final source/typed24, item receipt 16,
+gold 13/smooth stone 1/furnace1/pickaxe wear 1; no dirt/raw iron/coal/cursor/outbox/drops.
+A absent; Boutput 1/use1. All owned sessions stopped and port 25565 clear.
 Evidence/report: `.local/client-tests/VMC-034n3a/report.md`. Muted audio and native
 6,000-tick client aging remain limits; no remote graphics/delivery or pickup claim.
 The [delivery runtime](VMC-034n3b.md) follows; it must not reinterpret this unused

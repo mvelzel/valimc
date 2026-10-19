@@ -1,6 +1,7 @@
 # VMC-003d — Held-button client validation
 
-Status: Validated and complete. October 16, 2026.
+Status: Done
+Note: Validated and complete. October 16, 2026.
 
 The native CUA API exposes blocking timed clicks, so captures and selection
 actions cannot occur while a click remains held. Eating completion passed, but
@@ -28,16 +29,16 @@ ignored `.local/sdl-hold-build.{json,log}`. The existing unused physical-button
 reconciler warning remains. The complete dedicated actual-client report below
 has been reviewed and accepted.
 
-October16 dedicated actual-client evidence — reviewed and accepted: fresh
-VMC-036c runs05/06 fingerprint rebuilt dylib06f24507707dc2a2973a645dc7ab1a3b3d57501e1b896cc81a01850b164950e1.
+October 16 dedicated actual-client evidence — reviewed and accepted: fresh
+VMC-036c runs 05/06 fingerprint rebuilt dylib06f24507707dc2a2973a645dc7ab1a3b3d57501e1b896cc81a01850b164950e1.
 F8 held use allowed actual main/offhand raised-food/crumb snapshots, intervening
 main selection/hand swap, offhand selection retention and explicit release.
-Direct held-use disconnect lastremaining5 followed by fresh launch gave released
+Direct held-use disconnect lastremaining 5 followed by fresh launch gave released
 idle hands/use nil/flags0. F9 held creative attack visibly swung/produced stone
-particles and removed12 of28 disposable row cells; explicit release then movement
+particles and removed 12 of 28 disposable row cells; explicit release then movement
 stopped against intact stone,16 held65samples. Row restored exactly. Normal
 pause Back to Game click/camera drag worked after release. No desktop pointer,
 cursor diagnostics, Minecraft class changes or survival-mining claim. Both owned
-JVMs stopped/waited143, zeroPlayers, same server7337/PID74315; all29 world items/
-source10/outboxnil conserved. Short report `.local/client-tests/VMC-003d/report.md`;
+JVMs stopped/waited143, zeroPlayers, same server 7337/PID74315; all 29 world items/
+source 10/outboxnil conserved. Short report `.local/client-tests/VMC-003d/report.md`;
 raw attack/restore and VMC-036c held-use traces remain ignored.

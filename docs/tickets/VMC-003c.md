@@ -1,6 +1,7 @@
 # VMC-003c — Direct test-client lifecycle
 
-Status: Done (`44f2fd9`); primary reviewed actual-client evidence October 15, 2026.
+Status: Done
+Note: Done (`44f2fd9`); primary reviewed actual-client evidence October 15, 2026.
 
 Every validation launches the dedicated vanilla client directly into the fixed
 local ValiMC endpoint, tests it, then shuts that process down. Reconnect means a

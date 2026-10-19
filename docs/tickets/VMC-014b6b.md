@@ -1,7 +1,7 @@
 # VMC-014b6b — Native block collision scan planning
 
-Status: Done — candidate planning and actual contacts verified. October 15, 2026.
-Depends on VMC-014b6a.
+Status: Done
+Note: Done — candidate planning and actual contacts verified. October 15, 2026. Depends on VMC-014b6a.
 
 Plan a bounded native block scan before owner reads: epsilon-expanded integer
 bounds, X-fastest cursor order and interior/face/edge classification. Extract

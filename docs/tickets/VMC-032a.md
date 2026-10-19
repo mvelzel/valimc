@@ -1,11 +1,12 @@
 # VMC-032a — Chest menu foundation
 
-Status: Done within layout-foundation scope atfaee515. Persistent chests are not live.
+Status: Foundation
+Note: Done within layout-foundation scope at `faee515`. Persistent chests are not live.
 
 Acceptance: native generic chest row/type/slot mapping and contents over container
 storage plus player inventory. Closing a view must not return chest contents to a
-player. First prove 1–6 row layouts against pinned26.3 ChestMenu/SimpleContainer;
-single physical chests use3 rows. Wire layout alone is not shared-container support.
+player. First prove 1–6 row layouts against pinned 26.3 ChestMenu/SimpleContainer;
+single physical chests use 3 rows. Wire layout alone is not shared-container support.
 
 Architecture: region owns persistent container contents/revision, not a process per
 block. A player owns its menu session, cursor and inventory. Plan clicks against a
@@ -25,19 +26,19 @@ chest tests cover two players, competing transfers, close/reconnect, block remov
 and recovery. Delegate actual GUI. Native probes cannot replace it; raw jars,
 bytecode, observations and worlds remain ignored.
 
-October18: original ChestMenuOracle verifies all six generic row/type layouts,
+October 18: original ChestMenuOracle verifies all six generic row/type layouts,
 405 slot identities, complete open-screen bodies, contents and empty-cursor close
 callbacks retaining storage. ChestMenu exposes pure addresses/views only; no live
 chest authority is admitted. Shared open-screen encoding retains the native table
-body. Six native comparisons,24 existing table cleanup cases and8 affected tests
+body. Six native comparisons,24 existing table cleanup cases and 8 affected tests
 pass(seed505985); changed-file formatting/Python compilation pass. Native fixtures
-use ContainerUser callbacks, matching26.3. Private logs: `.local/chest-menu-*`
+use ContainerUser callbacks, matching 26.3. Private logs: `.local/chest-menu-*`
 and `.local/chest-foundation-table-*`. Baseline GUI remains pending.
 
-Frozen faee515 production and dedicated actual26.3 baseline pass: join/movement/HUD,
-command/inventory and existing3×3 table recipe, cursor close and input close cleanup.
+Frozen faee515 production and dedicated actual 26.3 baseline pass: join/movement/HUD,
+command/inventory and existing 3×3 table recipe, cursor close and input close cleanup.
 The open-screen helper retains correct rendering. Report reviewed once; no live
 chest UI claim. Client/server stopped, four regions+clock flushed,1,022 frozen blobs
-unchanged, stopped dataset source61/outboxnil/receipt61 retained. Private report
+unchanged, stopped dataset source 61/outboxnil/receipt61 retained. Private report
 `.local/client-tests/VMC-032a/report.md`; cleanup/audit/hashes in
 `.local/chest-foundations-publication-proof.json`. All gates for this foundation pass.

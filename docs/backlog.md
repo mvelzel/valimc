@@ -1,7 +1,7 @@
 # Feature backlog
 
 Implementation order is flexible. [Current priorities and pending gates](roadmap.md)
-come first; VMC-061 improves development now, before further server implementation.
+come first: milestone M1 (VMC-062..069) rebuilds the foundations before more features.
 
 
 Each milestone depends on the relevant preceding ownership/state foundations.
@@ -141,6 +141,19 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | VMC-058 | Supervised Elixir extension API | Versioned contracts, explicit authorized mutations, bounded callbacks and isolation |
 | VMC-059 | Measured performance optimization | Matched feature coverage/workloads against vanilla, Paper/Folia and relevant rewrites |
 | VMC-060 | Release and compatibility certification | Every block/item/entity/menu/mechanic/command/gamerule has a tested coverage status |
+
+### M1 — Foundations (precede C–F)
+
+| ID | Slice | Acceptance gate |
+|---|---|---|
+| [VMC-062](tickets/VMC-062.md) | Rust NIF toolchain and paletted section storage | Edit map removed; byte-identical chunk packets; memory and encode benchmarks |
+| VMC-063 | Region persistence v2 | Dirty-section deltas, group commit, directory fsync, no tick pauses on I/O |
+| VMC-064 | Owner-transaction engine | One idempotent transaction/permit/outbox primitive replaces per-feature sets |
+| VMC-065 | Published section snapshots | Collision and observation reads skip owner mailboxes; fences preserved |
+| VMC-066 | Tick pipeline on game time | Steppable clock, scheduled/random ticks, deterministic tests |
+| VMC-067 | Generic entity model | Items and XP orbs share one entity lifecycle and replication path |
+| VMC-068 | Unified registry and block behaviours | One generated fact source and version module; behaviour callbacks |
+| VMC-069 | Connection decomposition | Codec/login/job/replication modules; encode-once fan-out; slim peer views |
 
 ## Milestone gates and concurrency constraints
 

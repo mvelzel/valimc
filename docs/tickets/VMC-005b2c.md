@@ -1,9 +1,7 @@
 # VMC-005b2c — Authoritative creative clone and fill
 
-Status: Awaiting client-generated clone/fill validation. Updated: October 14, 2026.
-Depends on VMC-005b1/005b2a. Its automated checkpoint was published through main
-`61e6677` on October 14 with this gate pending. Actual clone/fill validation
-remains required before declaring Done.
+Status: Awaiting client
+Note: Awaiting client-generated clone/fill validation. Updated: October 14, 2026. Depends on VMC-005b1/005b2a. Its automated checkpoint was published through main `61e6677` on October 14 with this gate pending. Actual clone/fill validation remains required before declaring Done.
 
 ## Scope and acceptance
 

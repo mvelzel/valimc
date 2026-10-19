@@ -1,7 +1,7 @@
 # VMC-036c — Consumable item use
 
-Status: Validated and complete within plain-food use scope. October 16, 2026.
-Depends on owned food, hand/inventory authority and the admitted player clock.
+Status: Done
+Note: Validated and complete within plain-food use scope. October 16, 2026. Depends on owned food, hand/inventory authority and the admitted player clock.
 
 Acceptance: unmodified-client use starts the native held-item animation and
 finishes after its component-defined duration. Apply nutrition/saturation,
@@ -56,7 +56,7 @@ tests pass. Evidence `.local/item-use-{native,check,verify,tests}.log`; source
 Live checkpoint: existing admitted player ticks advance one transient use counter.
 Requests acknowledge native sequences and wrapped angles; loading, spectator,
 full-food and active-use gates apply. Both hands publish living-use flags. Completion
-sends native event9 before the authoritative inventory, uses the latest same-type
+sends native event 9 before the authoritative inventory, uses the latest same-type
 stack's food properties, and checkpoints food/inventory together. No new owner,
 task or periodic timer is added. A busy writer defers completion; consumption acknowledgements
 never overwrite subsequent food ticks. Inventory transfers wait for that checkpoint.
@@ -76,8 +76,8 @@ and statistics are follow-ups; this is not full consumable or survival parity.
 
 Block verification: 762 full tests pass (seed327342), after correcting two peer
 recreation assertions to include the new living-use metadata; the focused peer
-regressions pass15 tests. Frozen `7d715999757747bee2fd644a7b0d5a52d9be7dac`
-has589 verified blobs in `.local/consumable-validation-checkpoint` and a successful
+regressions pass 15 tests. Frozen `7d715999757747bee2fd644a7b0d5a52d9be7dac`
+has 589 verified blobs in `.local/consumable-validation-checkpoint` and a successful
 production build. Full native integration finished successfully on that frozen
 tree, including both plaintext/encrypted TCP sessions. Equipment's subsequent
 767-test/build/native-TCP block is recorded in [VMC-018d](VMC-018d.md).
@@ -90,26 +90,26 @@ food recovery; full-food negative and always-edible positive; interrupt mid-use,
 change held stack, reconnect and test a container remainder with a full inventory.
 Delegate on a frozen release after earlier gates; report unsupported effects honestly.
 
-October16 actual-client evidence — reviewed and accepted: unchanged immutable
+October 16 actual-client evidence — reviewed and accepted: unchanged immutable
 7337af6/PID74315, disposable `/tmp/valimc-consumable-client-20261016`, Java26.3/
-protocol777, six fresh small direct SDL/CUA clients. Actual2sec bread use in both
+protocol 777, six fresh small direct SDL/CUA clients. Actual2sec bread use in both
 hands consumed exactly one correct stack, ordinary32tick owner duration, food/
-saturation0→5→10→15→20;500ms release canceled unchanged. Fullfood plainbread
-rejected, plain can_always_eat patch consumed, unsupportedgoldenapple2 unchanged.
+saturation 0→5→10→15→20;500ms release canceled unchanged. Fullfood plainbread
+rejected, plain can_always_eat patch consumed, unsupportedgoldenapple 2 unchanged.
 Fresh reconnect preserved completed food/inventory and canceled partial release.
-Last stew with37 occupied slots replaced held item with bowl only, food10→16/
-sat7.2; creative retained fresh stew1/noextra bowl, food16→20/sat14.4.
+Last stew with 37 occupied slots replaced held item with bowl only, food 10→16/
+sat 7.2; creative retained fresh stew 1/noextra bowl, food 16→20/sat14.4.
 The initial blocking timedclick observation limit was resolved by VMC-003d's
 rebuilt dedicated SDL F8/F9 gestures (hash06f2450…950e1). Actual main/offhand
 raised-food/crumb animations were observed during held use. Mainselection retired
-remaining19→nil→32; F swap retired25→nil→differentitem32; offhand selection
-retained31→30→29. Direct held disconnect lastoffremaining5; fresh clientnil/flags0
+remaining 19→nil→32; F swap retired 25→nil→differentitem 32; offhand selection
+retained 31→30→29. Direct held disconnect lastoffremaining 5; fresh clientnil/flags0
 and idle hands, exact food/inventory retained. No metadata-only animation claim.
-All6 JVMs stopped/waited/zeroPlayers, same runtime; safe survival18HP/food20/sat20/
-ex0/timer0/air300 and full fixture inventory with actual bowl9 preserved. Initial
-zerofood setup caused two easy starvation hits20→18 before meal, no death;
-actual damaged outcome retained. Source10/outboxnil/lastdeath unchanged, all29
-world-item records exact unchanged17/8/4, receipts10/6/9. Settings1/unlocked/
+All 6 JVMs stopped/waited/zeroPlayers, same runtime; safe survival18HP/food20/sat20/
+ex 0, timer 0, air 300 and full fixture inventory with actual bowl 9 preserved. Initial
+zerofood setup caused two easy starvation hits 20→18 before meal, no death;
+actual damaged outcome retained. Source 10/outboxnil/lastdeath unchanged, all 29
+world-item records exact unchanged 17/8/4, receipts 10/6/9. Settings 1/unlocked/
 regenfalse unchanged. Specialized effects, overflow/peer/stale-writer faults and
 arbitrary duration overrides remain limits. Full actions/traces/limits/cleanup:
 `.local/client-tests/VMC-036c/report.md`.
