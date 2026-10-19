@@ -82,7 +82,8 @@ pinned vanilla behavior. See [research](research.md).
 ## Durability and failure
 
 Region state lives in a per-region log of checksummed frames plus checkpoints, not
-Anvil (until M2); player state in custom snapshots. Acknowledged writes survive a
+Anvil (until M2); player snapshots are files group-committed through partitioned
+player logs (`Valimc.PlayerLog`). Acknowledged writes survive a
 crash; volatile state (item motion, cooking progress, raw creative edits) is saved
 periodically and at clean shutdown, so a hard crash can lose its recent tail. Item transfers
 journal a reduced source inventory plus one outbox before delivery; the region

@@ -20,6 +20,7 @@ defmodule Valimc.Application do
       {Registry, keys: :unique, name: Valimc.RegionRegistry},
       {Registry, keys: :duplicate, name: Valimc.VisibilityRegistry},
       Valimc.Players,
+      Valimc.PlayerLog,
       {Registry, keys: :unique, name: Valimc.PlayerStoreRegistry},
       {DynamicSupervisor,
        strategy: :one_for_one,

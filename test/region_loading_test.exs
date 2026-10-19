@@ -5,7 +5,7 @@ defmodule Valimc.RegionLoadingTest do
   import ExUnit.CaptureLog
 
   test "a failed cold legacy block import preserves its file and leaves unrelated owners available" do
-    nonce = System.unique_integer([:positive])
+    nonce = rem(System.unique_integer([:positive]), 10_000) + 1
     base = Path.join(System.tmp_dir!(), "valimc-bad-cold-#{nonce}")
     old_path = Valimc.config(:world_path)
     key = {-752, -nonce}
@@ -34,7 +34,7 @@ defmodule Valimc.RegionLoadingTest do
   end
 
   test "a cold file read cannot hold the supervisor or publish an incomplete owner" do
-    nonce = System.unique_integer([:positive])
+    nonce = rem(System.unique_integer([:positive]), 10_000) + 1
     base = Path.join(System.tmp_dir!(), "valimc-cold-#{nonce}")
     old_path = Valimc.config(:world_path)
     key = {-750, -nonce}

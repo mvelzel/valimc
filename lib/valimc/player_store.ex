@@ -712,10 +712,9 @@ defmodule Valimc.PlayerStore do
 
   defp write(nil, _), do: :ok
 
+  # Group-committed with other players' saves (`Valimc.PlayerLog`).
   defp write(path, bytes) do
-    with :ok <- File.mkdir_p(Path.dirname(path)),
-         :ok <- File.write(path <> ".tmp", bytes, [:binary, :sync]),
-         :ok <- File.rename(path <> ".tmp", path) do
+    with :ok <- Valimc.PlayerLog.commit(path, bytes) do
       Metrics.add(:player_saves)
       :ok
     end
