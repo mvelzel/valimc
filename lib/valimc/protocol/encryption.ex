@@ -11,20 +11,18 @@ defmodule Valimc.Protocol.Encryption do
   alias __MODULE__.KeyPair
   @rsa_bytes 128
   @max_chunk 2_097_152
-  @rsa_algorithm <<0x30, 0x0D, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 1, 1, 1, 5, 0>>
   defstruct [:owner, :incoming, :outgoing]
   def max_chunk, do: @max_chunk
 
   # Invoke at startup or in a bounded crypto job, never on a gameplay hot path.
   def generate_key_pair do
     {[exponent, modulus] = public, private} = :crypto.generate_key(:rsa, {1024, 65537})
-    rsa = der(0x30, integer(modulus) <> integer(exponent))
+    key = {:RSAPublicKey, :binary.decode_unsigned(modulus), :binary.decode_unsigned(exponent)}
+    # X.509 SubjectPublicKeyInfo DER, as the client expects.
+    {:SubjectPublicKeyInfo, encoded, :not_encrypted} =
+      :public_key.pem_entry_encode(:SubjectPublicKeyInfo, key)
 
-    %KeyPair{
-      public: public,
-      private: private,
-      encoded: der(0x30, @rsa_algorithm <> der(3, <<0, rsa::binary>>))
-    }
+    %KeyPair{public: public, private: private, encoded: encoded}
   end
 
   def challenge, do: :crypto.strong_rand_bytes(4)
@@ -99,18 +97,4 @@ defmodule Valimc.Protocol.Encryption do
     do: {:ok, :crypto.crypto_update(state, bytes)}
 
   defp update(_, _, _), do: {:error, :invalid_cipher_chunk}
-
-  # Only encode our generated public key; this is not an ASN.1 input parser.
-  defp integer(bytes) do
-    <<first, _::binary>> =
-      minimal = bytes |> :binary.decode_unsigned() |> :binary.encode_unsigned()
-
-    der(2, if(first >= 128, do: <<0, minimal::binary>>, else: minimal))
-  end
-
-  defp der(tag, bytes) do
-    size = byte_size(bytes)
-    length = if size < 128, do: <<size>>, else: <<0x81, size>>
-    <<tag, length::binary, bytes::binary>>
-  end
 end

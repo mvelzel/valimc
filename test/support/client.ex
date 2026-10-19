@@ -1,4 +1,16 @@
 defmodule Valimc.TestClient do
+  @doc "The connection process whose login name is `name` (connections may exit concurrently)."
+  def connection(name) do
+    Enum.find_value(DynamicSupervisor.which_children(Valimc.ConnectionSupervisor), fn {_, pid, _,
+                                                                                       _} ->
+      try do
+        if :sys.get_state(pid).login_name == name, do: pid
+      catch
+        :exit, _ -> nil
+      end
+    end)
+  end
+
   @moduledoc false
   alias Valimc.Protocol.{Data, Encryption, ItemStack, Wire}
 

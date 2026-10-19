@@ -36,7 +36,9 @@ mix test --stale
 ```
 
 `mix test --stale` runs only tests whose dependencies changed since the last stale
-run. `mix test.fast` runs everything except the socket suites (`@moduletag :tcp`),
+run. Untrusted-input decoders get StreamData properties (`test/codec_property_test.exs`;
+`STREAM_RUNS=5000` for a deeper run). Micro-benchmarks use Benchee (`bench/*.exs`);
+scenario benchmarks of a running server stay custom. `mix test.fast` runs everything except the socket suites (`@moduletag :tcp`),
 in about 35 seconds. Each test run uses a private temporary directory.
 
 Rust code lives in `native/` (`valimc_core` pure crate, `valimc_nif` Rustler shim,

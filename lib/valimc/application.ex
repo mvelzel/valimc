@@ -8,6 +8,7 @@ defmodule Valimc.Application do
     Valimc.Protocol.Data.load!()
     Valimc.World.Chunk.load!()
     Valimc.World.Blocks.init!()
+    Valimc.LoginKeys.init!()
 
     children = [
       {Task.Supervisor,
@@ -44,7 +45,6 @@ defmodule Valimc.Application do
         Valimc.CollisionWorkers,
         Valimc.Physics.CollisionQuery.worker_limit()
       ),
-      {Valimc.LoginKeys, []},
       {Valimc.KeyExchange, []},
       {Valimc.Auth.DiscoverySupervisor, []},
       {Valimc.Auth.SessionJobs, []},

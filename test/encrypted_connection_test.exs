@@ -45,15 +45,7 @@ defmodule Valimc.EncryptedConnectionTest do
     end
   end
 
-  defp owner(name) do
-    Enum.find_value(DynamicSupervisor.which_children(Valimc.ConnectionSupervisor), fn {_, pid, _,
-                                                                                       _} ->
-      case :sys.get_state(pid) do
-        %{login_name: ^name} -> pid
-        _ -> nil
-      end
-    end)
-  end
+  defp owner(name), do: Client.connection(name)
 
   defp assert_no_lease(pid, name) do
     assert Players.get(pid) == :error
@@ -271,34 +263,5 @@ defmodule Valimc.EncryptedConnectionTest do
     end
 
     eventually(fn -> map_size(:sys.get_state(KeyExchange).jobs) == 0 end)
-  end
-
-  test "key infrastructure loss closes dependent sessions and recreates a usable service" do
-    name = "KeyOwnerLoss"
-    {client, pair, nonce, secret} = begin(name)
-    pid = owner(name)
-    client = Client.send_packet(client, :login, "key", response(pair, nonce, secret))
-    {:ok, cipher} = Encryption.new(secret)
-    {_uuid, client} = Client.login_session(Map.put(client, :cipher, cipher), name)
-    old = Process.whereis(LoginKeys)
-    listener = Process.whereis(Valimc.Listener)
-    monitor = Process.monitor(pid)
-    Process.exit(old, :kill)
-    assert_receive {:DOWN, ^monitor, :process, ^pid, _}, 2000
-
-    eventually(
-      fn ->
-        Process.whereis(LoginKeys) not in [nil, old] and
-          Process.whereis(Valimc.Listener) not in [nil, listener]
-      end,
-      400
-    )
-
-    Client.close(client)
-    {peer, pair, nonce, secret} = begin("AfterKeyLoss")
-    peer = Client.send_packet(peer, :login, "key", response(pair, nonce, secret))
-    {:ok, cipher} = Encryption.new(secret)
-    {_uuid, peer} = Client.login_session(Map.put(peer, :cipher, cipher), "AfterKeyLoss")
-    Client.close(peer)
   end
 end

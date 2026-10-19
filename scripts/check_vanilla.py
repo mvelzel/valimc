@@ -45,9 +45,9 @@ def run_stage(name, steps, java, cp):
                 if kind == 'java':
                     cmd = [java, '-cp', cp, target, *args]
                 elif kind == 'check':
-                    cmd = ['mix', 'run', '--no-compile', '--no-start', f'scripts/{target}', *args]
+                    cmd = ['mix', 'run', '--no-compile', '--no-deps-check', '--no-start', f'scripts/{target}', *args]
                 elif kind == 'app':
-                    cmd = ['mix', 'run', '--no-compile', f'scripts/{target}', *args]
+                    cmd = ['mix', 'run', '--no-compile', '--no-deps-check', f'scripts/{target}', *args]
                     env = dict(mix_env, VALIMC_PORT='0', VALIMC_WORLD=str(work / 'world'))
                 elif kind == 'same':
                     generated, committed = json.loads(pathlib.Path(resolve(target)).read_text()), \
@@ -83,7 +83,7 @@ def run_tcp(java, cp):
                        VALIMC_GAME_MODE='creative')
             log_path = logs / f'tcp-{mode}-server.log'
             with log_path.open('w') as log:
-                server = subprocess.Popen(['mix', 'run', '--no-compile', '--no-halt'], cwd=root, env=env, stdout=log,
+                server = subprocess.Popen(['mix', 'run', '--no-compile', '--no-deps-check', '--no-halt'], cwd=root, env=env, stdout=log,
                                           stderr=subprocess.STDOUT)
                 try:
                     for _ in range(400):

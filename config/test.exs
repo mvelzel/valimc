@@ -10,3 +10,4 @@ config :valimc,
   region_read_gates: true
 
 config :logger, level: :warning
+config :stream_data, max_runs: String.to_integer(System.get_env("STREAM_RUNS", "100"))

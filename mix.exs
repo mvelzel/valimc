@@ -26,6 +26,12 @@ defmodule Valimc.MixProject do
     [extra_applications: [:logger, :crypto, :ssl], mod: {Valimc.Application, []}]
   end
 
-  # Build-time only: compiles `native/valimc_nif` (keep the crate on the same minor).
-  defp deps, do: [{:rustler, "~> 0.38.0", runtime: false}]
+  defp deps do
+    [
+      # Build-time only: compiles `native/valimc_nif` (keep the crate on the same minor).
+      {:rustler, "~> 0.38.0", runtime: false},
+      {:stream_data, "~> 1.1", only: :test},
+      {:benchee, "~> 1.3", only: :dev, runtime: false}
+    ]
+  end
 end

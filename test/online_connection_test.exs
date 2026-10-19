@@ -54,12 +54,7 @@ defmodule Valimc.OnlineConnectionTest do
         )
   end
 
-  defp owner(name) do
-    Enum.find_value(DynamicSupervisor.which_children(Valimc.ConnectionSupervisor), fn {_, pid, _,
-                                                                                       _} ->
-      if :sys.get_state(pid).login_name == name, do: pid
-    end)
-  end
+  defp owner(name), do: Client.connection(name)
 
   defp profile(name) do
     %{
