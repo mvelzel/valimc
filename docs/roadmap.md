@@ -124,11 +124,12 @@ ticket for measurements and limits. Next: [earned output/XP awards](tickets/VMC-
 and its XP ownership prerequisites; credited-output withdrawal remains refused.
 **Done within unused value scope:** [cooking XP awards](tickets/VMC-034n1.md) at
 `9664371`: 712 native award hooks/219 arithmetic boundaries, 33 affected tests and
-actual cooking/refusal/reconnect baseline pass. Next: [durable pending awards](tickets/VMC-034n2.md)
-before region/orb/player delivery; no live XP award claim.
-**Awaiting client validation:** [pending cooking awards](tickets/VMC-034n2.md):
-atomic container/receipt/XP proposals, bounded version-4 storage, journal replay and
-owner replacement pass targeted checks. Live withdrawal remains gated.
+actual cooking/refusal/reconnect baseline pass; no live XP award claim.
+**Done within unused storage scope:** [pending cooking awards](tickets/VMC-034n2.md)
+at `65061b9`: atomic container/receipt/XP proposals, bounded version-4 snapshots,
+journal/owner recovery, competing views and actual retention through mining,
+cooking/refusals and full restart pass. Next: [owned orb materialization](tickets/VMC-034n3.md).
+Live XP/recipe delivery and earned-output withdrawal remain gated.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

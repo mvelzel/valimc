@@ -1,9 +1,9 @@
 # VMC-034n — Earned cooking output and XP awards
 
-Status: In progress; [award-value foundation](VMC-034n1.md) first. Depends on
-[live cooking](VMC-034m.md) and the XP entity/player authority foundations in
-VMC-038. Output with recipe uses stays refused until
-the complete award path is admitted.
+Status: In progress. [Award values](VMC-034n1.md) and
+[pending storage](VMC-034n2.md) are complete within unused foundation scopes.
+Next: [owned orbs](VMC-034n3.md), XP/player authority and recipe delivery.
+Output with recipe uses stays refused until the complete award path is admitted.
 
 Player withdrawals must release the earned output, award used recipes and spawn
 the corresponding experience exactly once. Removing a processor must preserve
@@ -39,6 +39,5 @@ Acceptance:
   XP display, shared-menu competition, destruction and reconnect/restart
   conservation. Native probes cannot replace these actions.
 
-Start with a small native award oracle and XP ownership/storage prerequisites;
-keep the current refusal until those prerequisites and joint delivery are tested.
-The [pending-award storage slice](VMC-034n2.md) follows the native value foundation.
+Keep the current refusal until orb/player/recipe ownership, persistence and joint
+delivery are tested. Values and pending storage need no reimplementation.

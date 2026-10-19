@@ -133,6 +133,40 @@ defmodule Valimc.PendingCookingAwardsTest do
              ContainerTransfers.plan_cooking_award(bare, @key, req, true, context)
   end
 
+  test "competing old views cannot award the same credit twice, and the remainder earns no new credit" do
+    {cs, req, context} = fixture()
+    other = <<2::128>>
+    {:ok, cs, _} = ContainerTransfers.reserve(cs, other)
+    second = %{req | source: other}
+    first = applied(cs, req, context)
+
+    assert {:ok, %{result: :rejected, containers: rejected}} =
+             ContainerTransfers.plan_cooking_award(first, @key, second, true, context)
+
+    assert rejected.entries == first.entries and rejected.pending_awards == first.pending_awards
+
+    entry = first.entries[@pos]
+
+    refreshed = %{
+      second
+      | sequence: 2,
+        revision: entry.revision,
+        slots: entry.cooking.slots,
+        button: 0
+    }
+
+    assert {:ok, %{result: :applied, containers: remaining}} =
+             ContainerTransfers.plan(rejected, @key, refreshed, true)
+
+    assert elem(remaining.entries[@pos].cooking.slots, 2) == nil
+    assert remaining.pending_awards == first.pending_awards
+    assert {:ok, _, a} = ContainerRequest.plan(req)
+    assert {:ok, _, b} = ContainerRequest.plan(refreshed)
+    assert a.carried.count + b.carried.count == 4
+    assert {:ok, bytes} = Containers.encode(@key, remaining)
+    assert {:ok, ^remaining} = Containers.decode(bytes, @key)
+  end
+
   test "zero-XP outcomes retain a recipe effect and integral outcomes store no draw" do
     {cs, req, context} = fixture()
 
