@@ -81,27 +81,6 @@ defmodule Valimc.BlockBatchTest do
     assert epoch == after_commit.items.epoch
   end
 
-  test "capacity failure is atomic; removing one sparse edit admits one replacement at the limit" do
-    {pid, _} = owner = region({402, 403})
-    {x, z} = {402 * 128, 403 * 128}
-    full = for dx <- 0..127, dz <- 0..127, y <- 64..71, into: %{}, do: {{x + dx, y, z + dz}, 1}
-
-    # Fill the sparse persistence image to its limit inside the owner process.
-    state =
-      :sys.replace_state(pid, fn s ->
-        :ok = Blocks.put(s.resource.blocks, full)
-        s
-      end).resource
-
-    added = {x, 72, z}
-    assert {:error, :region_edit_limit} = Region.set_blocks(owner, state.revision, %{added => 1})
-    assert mutation_state(pid) == mutation_state(state)
-    assert {:ok, _} = Region.set_blocks(owner, state.revision, %{{x, 64, z} => 0, added => 1})
-    image = Blocks.image(:sys.get_state(pid).resource.blocks)
-    assert map_size(image) == 131_072
-    assert image[added] == 1 and not Map.has_key?(image, {x, 64, z})
-  end
-
   test "compressed TCP sends only section frames for the recipient's loaded chunks" do
     name = "Batch" <> Integer.to_string(System.unique_integer([:positive]))
     {_, client} = Client.login(name)

@@ -6,8 +6,9 @@ defmodule Valimc.World.Store do
   Independently supervised resource I/O with one monitored owner and fenced writes.
 
   Durable state lives in a `RegionLog` directory (`r.X.Z/`). Every write is one
-  frame of full values (`{:blocks, edits}`, `{:items, bytes}`, `{:containers,
-  bytes}`), so a mining commit that changes all three is atomic with one fsync.
+  frame: block changes as `{:cells, %{position => block}}` and full values for
+  `{:items, bytes}` and `{:containers, bytes}`, so a mining commit changing all
+  three is atomic with one fsync. Checkpoints hold the sparse block image.
   The log is checkpointed once appended frames exceed `@checkpoint_bytes`. Legacy
   per-file snapshots (`r.X.Z.etf/.items/.containers/.mining`) are imported once.
   """
@@ -50,10 +51,11 @@ defmodule Valimc.World.Store do
 
   def load(pid), do: GenServer.call(pid, :load)
 
-  def snapshot(pid, lease, edits, {owner, epoch}, revision),
-    do: GenServer.cast(pid, {:snapshot, lease, edits, {owner, epoch}, revision})
+  @doc "Persist block `cells` (`position => block`) asynchronously; acknowledged with `:saved`."
+  def snapshot(pid, lease, cells, {owner, epoch}, revision),
+    do: GenServer.cast(pid, {:snapshot, lease, cells, {owner, epoch}, revision})
 
-  def flush(pid, lease, edits), do: GenServer.call(pid, {:flush, lease, edits}, 15_000)
+  def flush(pid, lease, cells), do: GenServer.call(pid, {:flush, lease, cells}, 15_000)
   def close(pid, lease), do: GenServer.call(pid, {:close, lease}, 1000)
   def load_items(pid), do: GenServer.call(pid, :load_items)
   def load_containers(pid), do: GenServer.call(pid, :load_containers)
@@ -137,8 +139,8 @@ defmodule Valimc.World.Store do
 
   def handle_call(:load, _from, state), do: {:reply, state.values.blocks, state}
 
-  def handle_call({:flush, lease, edits}, _from, %{lease: lease} = state) do
-    {result, state} = write(state, [{:blocks, edits}])
+  def handle_call({:flush, lease, cells}, _from, %{lease: lease} = state) do
+    {result, state} = write(state, cells_parts(cells))
     {:reply, result, state}
   end
 
@@ -179,8 +181,8 @@ defmodule Valimc.World.Store do
     do: {:reply, {:error, :stale_store_lease}, state}
 
   @impl true
-  def handle_cast({:snapshot, lease, edits, {owner, epoch}, revision}, %{lease: lease} = state) do
-    {result, state} = write(state, [{:blocks, edits}])
+  def handle_cast({:snapshot, lease, cells, {owner, epoch}, revision}, %{lease: lease} = state) do
+    {result, state} = write(state, cells_parts(cells))
 
     case result do
       :ok ->
@@ -208,7 +210,7 @@ defmodule Valimc.World.Store do
     case mining_proposal(state.key, proposal) do
       {:ok, _journal, item_bytes, container_bytes} ->
         # One frame: blocks, items and containers commit together.
-        parts = [{:blocks, proposal.edits}, {:items, item_bytes}]
+        parts = [{:cells, proposal.changes}, {:items, item_bytes}]
         parts = if container_bytes, do: parts ++ [{:containers, container_bytes}], else: parts
         {result, state} = write(state, parts)
         send(owner, {:resource, epoch, {:mining_saved, self(), token, result}})
@@ -330,6 +332,7 @@ defmodule Valimc.World.Store do
   defp fold(%{checkpoint: checkpoint, frames: frames}) do
     Enum.reduce(frames, checkpoint || @empty, fn %{ops: ops}, values ->
       Enum.reduce(ops, values, fn
+        {:cells, cells}, acc -> %{acc | blocks: apply_cells(acc.blocks, cells)}
         {part, value}, acc when part in [:blocks, :items, :containers] -> %{acc | part => value}
         _, acc -> acc
       end)
@@ -415,19 +418,12 @@ defmodule Valimc.World.Store do
 
   defp mining_proposal(
          key,
-         %{
-           edits: edits,
-           changes: changes,
-           records: records,
-           receipts: receipts,
-           ledger: ledger
-         } = proposal
+         %{changes: changes, records: records, receipts: receipts, ledger: ledger} = proposal
        )
-       when is_map(edits) and map_size(edits) <= 131_072 and is_map(changes) do
+       when is_map(changes) do
     with {:ok, item_bytes} <- ItemLedger.encode(key, records, receipts, ledger),
          {:ok, container_bytes} <- proposal_containers(key, proposal),
-         {:ok, journal} <- proposal_journal(key, changes, item_bytes, container_bytes),
-         true <- Enum.all?(changes, fn {pos, block} -> Chunk.block_at(edits, pos) == block end) do
+         {:ok, journal} <- proposal_journal(key, changes, item_bytes, container_bytes) do
       {:ok, journal, item_bytes, container_bytes}
     else
       _ -> {:error, :invalid_mining_proposal}
@@ -446,6 +442,7 @@ defmodule Valimc.World.Store do
     do: MiningRecord.encode(key, changes, items, containers)
 
   # Append one frame of full values; without a world path, keep them in memory.
+  defp write(state, []), do: {:ok, state}
   defp write(%{log: nil} = state, parts), do: {:ok, apply_parts(state, parts)}
 
   defp write(state, parts) do
@@ -465,8 +462,25 @@ defmodule Valimc.World.Store do
     end
   end
 
-  defp apply_parts(state, parts),
-    do: %{state | values: Enum.reduce(parts, state.values, fn {k, v}, acc -> %{acc | k => v} end)}
+  defp apply_parts(state, parts) do
+    values =
+      Enum.reduce(parts, state.values, fn
+        {:cells, cells}, acc -> %{acc | blocks: apply_cells(acc.blocks, cells)}
+        {k, v}, acc -> %{acc | k => v}
+      end)
+
+    %{state | values: values}
+  end
+
+  defp cells_parts(cells) when map_size(cells) == 0, do: []
+  defp cells_parts(cells) when is_map(cells), do: [{:cells, cells}]
+
+  # The sparse image omits flat-terrain blocks.
+  defp apply_cells(blocks, cells) do
+    Enum.reduce(cells, blocks, fn {{_, y, _} = pos, block}, acc ->
+      if block == Chunk.base(y), do: Map.delete(acc, pos), else: Map.put(acc, pos, block)
+    end)
+  end
 
   defp maybe_checkpoint(%{appended: appended} = state) when appended < @checkpoint_bytes,
     do: state

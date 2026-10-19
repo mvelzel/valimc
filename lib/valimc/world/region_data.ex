@@ -80,6 +80,8 @@ defmodule Valimc.World.RegionData do
     :versions,
     :revision,
     :dirty,
+    :unsaved,
+    :saving_cells,
     :saving,
     :save_timer
   ]
@@ -162,6 +164,8 @@ defmodule Valimc.World.RegionData do
       versions: %{},
       revision: 0,
       dirty: false,
+      unsaved: %{},
+      saving_cells: nil,
       saving: false,
       save_timer: save_timer
     }
@@ -312,7 +316,6 @@ defmodule Valimc.World.RegionData do
           state.store,
           state.store_lease,
           %{
-            edits: if(proposal, do: proposal.edits, else: Blocks.image(state.blocks)),
             changes: plan.changes,
             items: plan.items,
             receipts: state.item_receipts,
@@ -1369,7 +1372,8 @@ defmodule Valimc.World.RegionData do
           {:reply, :ok,
            %{
              state
-             | mining_permits:
+             | unsaved: Map.put(state.unsaved, position, block),
+               mining_permits:
                  MiningPermits.invalidate(state.mining_permits, %{position => block}),
                container_permits:
                  ContainerPermits.invalidate(state.container_permits, %{position => block}),
@@ -1401,12 +1405,13 @@ defmodule Valimc.World.RegionData do
 
   def handle_call(:flush, _from, state) do
     with :ok <- flush_item_motion(state), :ok <- flush_cooking(state, state.containers) do
-      result = Store.flush(state.store, state.store_lease, Blocks.image(state.blocks))
+      result = Store.flush(state.store, state.store_lease, state.unsaved)
 
       {:reply, result,
        %{
          state
          | dirty: result != :ok,
+           unsaved: if(result == :ok, do: %{}, else: state.unsaved),
            item_saved_generation: state.item_motion_generation,
            cooking: %{state.cooking | dirty: result != :ok and state.cooking.dirty}
        }}
@@ -2026,30 +2031,20 @@ defmodule Valimc.World.RegionData do
   end
 
   defp build_block_proposal(state, batch) do
-    edits = Blocks.image(state.blocks, batch.edits)
+    versions =
+      Enum.reduce(batch.chunks, state.versions, &Map.update(&2, &1, 1, fn n -> n + 1 end))
 
-    cond do
-      # The sparse persistence image stays bounded until section persistence (VMC-063).
-      map_size(edits) > 131_072 ->
-        {:error, :region_edit_limit}
-
-      true ->
-        versions =
-          Enum.reduce(batch.chunks, state.versions, &Map.update(&2, &1, 1, fn n -> n + 1 end))
-
-        lookup = fn position ->
-          Map.get_lazy(batch.edits, position, fn -> Blocks.get(state.blocks, position) end)
-        end
-
-        {:ok,
-         %{
-           edits: edits,
-           changes: batch.edits,
-           column_index: ColumnIndex.update(state.column_index, lookup, batch.edits),
-           versions: versions,
-           revision: state.revision + 1
-         }}
+    lookup = fn position ->
+      Map.get_lazy(batch.edits, position, fn -> Blocks.get(state.blocks, position) end)
     end
+
+    {:ok,
+     %{
+       changes: batch.edits,
+       column_index: ColumnIndex.update(state.column_index, lookup, batch.edits),
+       versions: versions,
+       revision: state.revision + 1
+     }}
   end
 
   # Raw edits cannot orphan contents. Only a fully admitted spill proposal may
@@ -2104,7 +2099,9 @@ defmodule Valimc.World.RegionData do
     |> struct!(Map.take(proposal, [:column_index, :versions, :revision]))
     |> Map.merge(%{
       cache: Map.drop(state.cache, batch.chunks),
-      dirty: dirty,
+      dirty: dirty or state.dirty,
+      # Raw (non-transfer) batches are persisted by the periodic save as cells.
+      unsaved: if(dirty, do: Map.merge(state.unsaved, proposal.changes), else: state.unsaved),
       mining_permits: MiningPermits.invalidate(state.mining_permits, batch.edits),
       container_permits:
         if(cooking,
@@ -2154,7 +2151,6 @@ defmodule Valimc.World.RegionData do
             token = make_ref()
 
             snapshot = %{
-              edits: proposal.edits,
               changes: plan.batch.edits,
               items: plan.items,
               receipts: plan.receipts
@@ -2661,7 +2657,6 @@ defmodule Valimc.World.RegionData do
         case block_proposal(state, pending.batch, removed) do
           {:ok, proposal} ->
             snapshot = %{
-              edits: proposal.edits,
               changes: pending.batch.edits,
               items: items,
               receipts: pending.receipts,
@@ -3005,25 +3000,40 @@ defmodule Valimc.World.RegionData do
   end
 
   def handle_info(:save, state) do
-    saving = state.dirty and not state.saving and not block_transfer_writing?(state)
+    saving =
+      map_size(state.unsaved) > 0 and not state.saving and not block_transfer_writing?(state)
 
     if saving,
       do:
         Store.snapshot(
           state.store,
           state.store_lease,
-          Blocks.image(state.blocks),
+          state.unsaved,
           {self(), state.items.epoch},
           state.revision
         )
 
     Process.cancel_timer(state.save_timer)
     timer = send_after(state, :save, 30_000)
-    {:noreply, %{state | saving: state.saving or saving, save_timer: timer}}
+
+    {:noreply,
+     %{
+       state
+       | saving: state.saving or saving,
+         saving_cells: if(saving, do: state.unsaved, else: state.saving_cells),
+         save_timer: timer
+     }}
   end
 
-  def handle_info({:saved, writer, revision, result}, %{store: writer} = state) do
-    {:noreply, %{state | saving: false, dirty: result != :ok or revision != state.revision}}
+  def handle_info({:saved, writer, _revision, result}, %{store: writer} = state) do
+    # Keep cells changed again after the snapshot was sent.
+    unsaved =
+      if result == :ok,
+        do: Map.reject(state.unsaved, fn {pos, block} -> state.saving_cells[pos] == block end),
+        else: state.unsaved
+
+    {:noreply,
+     %{state | saving: false, saving_cells: nil, unsaved: unsaved, dirty: map_size(unsaved) > 0}}
   end
 
   def handle_info({:saved, _, _, _}, state), do: {:noreply, state}
@@ -3542,23 +3552,9 @@ defmodule Valimc.World.RegionData do
     if reason in [:normal, :shutdown] and not writing_items,
       do: flush_item_motion(state)
 
-    if reason in [:normal, :shutdown] and state.dirty do
-      # A queued atomic write must never be followed by the old pre-commit snapshot.
-      edits =
-        case state.item_pending do
-          %{kind: kind, phase: :writing, proposal: proposal}
-          when kind in [:mining, :placement, :container_blocks] ->
-            proposal.edits
-
-          %{kind: :cooking_batch, phase: :writing, proposal: %{edits: edits}} ->
-            edits
-
-          _ ->
-            Blocks.image(state.blocks)
-        end
-
-      Store.flush(state.store, state.store_lease, edits)
-    end
+    # Queued atomic commits carry their own cells; only raw edits remain unsaved.
+    if reason in [:normal, :shutdown] and map_size(state.unsaved) > 0,
+      do: Store.flush(state.store, state.store_lease, state.unsaved)
 
     if reason in [:normal, :shutdown] do
       # Follow queued writes with their successor, never the old pre-commit containers.
