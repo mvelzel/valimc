@@ -1,7 +1,8 @@
 # VMC-034n — Earned cooking output and XP awards
 
-Status: Planned. Depends on [live cooking](VMC-034m.md) and the XP entity/player
-authority foundations in VMC-038. Output with recipe uses stays refused until
+Status: In progress; [award-value foundation](VMC-034n1.md) first. Depends on
+[live cooking](VMC-034m.md) and the XP entity/player authority foundations in
+VMC-038. Output with recipe uses stays refused until
 the complete award path is admitted.
 
 Player withdrawals must release the earned output, award used recipes and spawn

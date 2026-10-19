@@ -122,6 +122,8 @@ checks and 15,630 native compositions. Actual all-family cooking, concurrent
 gestures/items, negatives, sponge/bucket and restart conservation pass. Retrieve the
 ticket for measurements and limits. Next: [earned output/XP awards](tickets/VMC-034n.md)
 and its XP ownership prerequisites; credited-output withdrawal remains refused.
+Active: [native cooking XP award values](tickets/VMC-034n1.md), an unused pure
+foundation before durable region/orb/player delivery.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and

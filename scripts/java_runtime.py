@@ -5,7 +5,7 @@ def java_home():
     requested = os.environ.get('VALIMC_JAVA_HOME')
     candidates = [requested] if requested else [
         os.environ.get('JAVA_HOME'),
-        '/tmp/valimc-jdk/jdk-25.0.4.1+1/Contents/Home',
+        str(pathlib.Path(__file__).resolve().parent.parent / '.local/toolchains/jdk/Contents/Home'),
         str(pathlib.Path(shutil.which('javac') or '/usr/bin/javac').resolve().parent.parent)]
     for candidate in candidates:
         if not candidate:

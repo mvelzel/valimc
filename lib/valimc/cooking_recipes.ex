@@ -25,11 +25,13 @@ defmodule Valimc.CookingRecipes do
            end)
            |> List.to_tuple()
   @items @facts["items"] |> Enum.map(&List.to_tuple/1) |> List.to_tuple()
+  @experience @recipes |> Tuple.to_list() |> Map.new(&{&1.key, &1.experience})
   unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
            @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
            Map.take(@fuel, ~w(version data_version server_sha1)) ==
              Map.take(@facts, ~w(version data_version server_sha1)) and
-           tuple_size(@items) == 3 and tuple_size(@recipes) == 107 and map_size(@contexts) == 24 and
+           tuple_size(@items) == 3 and tuple_size(@recipes) == 107 and
+           map_size(@experience) == 107 and map_size(@contexts) == 24 and
            Enum.all?(Tuple.to_list(@items), fn index ->
              tuple_size(index) == 1658 and
                Enum.all?(Tuple.to_list(index), &(is_integer(&1) and &1 in -1..106))
@@ -41,6 +43,9 @@ defmodule Valimc.CookingRecipes do
                recipe.experience >= 0 and recipe.experience <= 2
            end),
          do: raise("Wrong pinned cooking recipes")
+
+  @doc "Resolve stored recipe credit independently of the current input/block."
+  def experience(key), do: Map.fetch(@experience, key)
 
   @doc "Select a stock recipe in the supplied cooking block and admitted stock speed context."
   def find(stack, state, speed \\ 1.0) do
