@@ -43,13 +43,11 @@ Client.send_packet(client, :play, "player_action", [
 
 pending =
   Enum.reduce_while(1..500, false, fn _, _ ->
-    case :sys.get_state(pid).resource.item_pending do
-      %{phase: :writing} ->
-        {:halt, true}
-
-      _ ->
-        Process.sleep(5)
-        {:cont, false}
+    if Valimc.TestRegion.in_flight?(:sys.get_state(pid).resource) do
+      {:halt, true}
+    else
+      Process.sleep(5)
+      {:cont, false}
     end
   end)
 
@@ -64,7 +62,8 @@ true = pending
 {:ok, %{records: committed, receipts: receipts}} = Store.load_items(writer)
 true = Enum.sort_by(committed, & &1.uuid) == Enum.sort_by([record, drop], & &1.uuid)
 1 = receipts[uuid].sequence
-[^record] = Items.records(:sys.get_state(pid).resource.items)
+# The owner adopted the drop in memory, but nothing is published before the ACK.
+2 = length(Items.records(:sys.get_state(pid).resource.items))
 1 = map_size(World.item_snapshot({0, 0}))
 {:ok, ^intent} = PlayerSnapshot.decode(File.read!(source_path), uuid)
 
