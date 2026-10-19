@@ -1,6 +1,16 @@
 defmodule Valimc.ContainerStoreTest do
   use ExUnit.Case, async: false
   alias Valimc.Protocol.ItemStack
+
+  alias Valimc.{
+    Cooking,
+    GameMode,
+    Inventory,
+    PlayerContainerTransfers,
+    PlayerFood,
+    PlayerSnapshot
+  }
+
   alias Valimc.World.{ContainerRequest, Containers, ContainerTransfers, Store}
 
   setup do
@@ -161,5 +171,108 @@ defmodule Valimc.ContainerStoreTest do
     assert player_after.carried == ItemStack.new("diamond", 3)
     assert elem(restored.entries[ctx.position].slots, 26) == nil
     assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, :ok}}
+  end
+
+  test "earned output, recipe credit and pending award recover together before player sealing",
+       ctx do
+    source = <<83::128>>
+    recipe = "minecraft:iron_ingot_from_smelting_raw_iron"
+    {x, y, z} = ctx.position
+    pose = %{x: x + 0.5, y: y * 1.0, z: z + 0.5, yaw: 0.0, pitch: 0.0}
+
+    {:ok, before, entry} =
+      Containers.create_cooking(%Containers{}, ctx.key, ctx.position, :furnace)
+
+    cooking = %Cooking{slots: {nil, nil, ItemStack.new("iron_ingot", 4)}, total: 200}
+
+    {:ok, before, entry} =
+      Containers.replace_cooking(before, ctx.position, entry.revision, cooking, %{recipe => 7})
+
+    {:ok, before, _} = ContainerTransfers.reserve(before, source)
+
+    request = %{
+      source: source,
+      sequence: 1,
+      permit: <<84::128>>,
+      position: ctx.position,
+      revision: entry.revision,
+      kind: :furnace,
+      slots: cooking.slots,
+      inventory: %Inventory{},
+      action: :pickup,
+      slot: 2,
+      button: 1
+    }
+
+    snapshot = %{
+      pose: pose,
+      inventory: %Inventory{},
+      game_mode: GameMode.new(:survival),
+      flying: false,
+      fall_distance: 0.0,
+      frozen_ticks: 0,
+      velocity: {0.0, 0.0, 0.0},
+      health: %{value: 20.0, hurt_ticks: 0, death_ticks: 0},
+      last_death: nil,
+      air_supply: 300,
+      food: %PlayerFood{},
+      fire_ticks: -20,
+      effects: %{},
+      absorption: 0.0,
+      transfer_sequence: 0,
+      outbox: nil
+    }
+
+    intent = %{kind: :container, key: ctx.key, request: request}
+    assert {:ok, pending} = PlayerContainerTransfers.prepare(source, 0, snapshot, intent)
+    assert {:ok, bytes} = PlayerSnapshot.encode(source, pending)
+    assert {:ok, restored_player} = PlayerSnapshot.decode(bytes, source)
+    context = %{position: {pose.x, pose.y, pose.z}, draws: %{recipe => 0}}
+
+    assert {:ok, %{result: :applied, containers: committed}} =
+             ContainerTransfers.plan_cooking_award(
+               before,
+               ctx.key,
+               restored_player.outbox.request,
+               true,
+               context
+             )
+
+    {:ok, writer, lease} = Store.open(ctx.key)
+    assert :ok = Store.flush_containers(writer, lease, before)
+    epoch = make_ref()
+    token = make_ref()
+    Store.commit_containers(writer, lease, committed, {self(), epoch}, token)
+    assert {:ok, ^committed} = Store.load_containers(writer)
+    monitor = Process.monitor(writer)
+    Process.exit(writer, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^writer, :killed}, 1000
+    assert {:ok, replacement, next_lease} = Store.open(ctx.key)
+    assert {:ok, ^committed} = Store.load_containers(replacement)
+
+    assert {:ok, %{result: :already_applied, containers: ^committed}} =
+             ContainerTransfers.plan_cooking_award(
+               committed,
+               ctx.key,
+               request,
+               false,
+               :new_randomness
+             )
+
+    assert {:ok, sealed} =
+             PlayerContainerTransfers.resolve(source, restored_player, committed.receipts[source])
+
+    assert sealed.inventory.carried == ItemStack.new("iron_ingot", 2) and sealed.outbox == nil
+
+    assert elem(committed.entries[ctx.position].cooking.slots, 2) ==
+             ItemStack.new("iron_ingot", 2)
+
+    assert committed.entries[ctx.position].recipes == %{}
+    [record] = Map.values(committed.pending_awards)
+    assert record.award.experience == 5 and record.award.draws_used == %{recipe => 0}
+    assert {:error, :stale_store_lease} = Store.flush_containers(replacement, lease, before)
+    assert {:ok, ^committed} = Store.load_containers(replacement)
+    assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, :ok}}
+    assert :ok = Store.close(replacement, next_lease)
   end
 end

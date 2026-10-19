@@ -3,7 +3,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
   alias Valimc.{Cooking, Inventory, ItemMotionState}
   alias Valimc.Physics.CookingBlocks
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{Containers, Items, RegionData, Store}
+  alias Valimc.World.{Containers, ContainerTransfers, Items, RegionData, Store}
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -423,6 +423,56 @@ defmodule Valimc.CookingRegionRuntimeTest do
         Process.sleep(20)
         replacement(key, left - 1)
     end
+  end
+
+  test "a cold live owner and its replacement retain pending awards through clock and flush",
+       ctx do
+    cooking = %Cooking{slots: {nil, nil, ItemStack.new("iron_ingot", 4)}, total: 200}
+    state = seed(ctx, cooking, false)
+    entry = state.containers.entries[ctx.position]
+    recipe = "minecraft:iron_ingot_from_smelting_raw_iron"
+    source = <<103::128>>
+
+    {:ok, cs, entry} =
+      Containers.replace_cooking(state.containers, ctx.position, entry.revision, cooking, %{
+        recipe => 7
+      })
+
+    {:ok, cs, _} = ContainerTransfers.reserve(cs, source)
+
+    request = %{
+      source: source,
+      sequence: 1,
+      permit: <<104::128>>,
+      position: ctx.position,
+      revision: entry.revision,
+      kind: :furnace,
+      slots: cooking.slots,
+      inventory: %Inventory{},
+      action: :pickup,
+      slot: 2,
+      button: 1
+    }
+
+    {x, y, z} = ctx.position
+    context = %{position: {x + 0.5, y * 1.0, z + 0.5}, draws: %{recipe => 0}}
+
+    {:ok, %{containers: committed, result: :applied}} =
+      ContainerTransfers.plan_cooking_award(cs, ctx.key, request, true, context)
+
+    assert :ok = Store.flush_containers(state.store, state.store_lease, committed)
+    RegionData.terminate(:shutdown, %{state | containers: committed})
+    {:ok, {pid, old_epoch}} = Valimc.World.item_owner(ctx.key)
+    assert :sys.get_state(pid).resource.containers == committed
+    monitor = Process.monitor(pid)
+    Process.exit(pid, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}
+    {replacement, epoch} = replacement(ctx.key)
+    assert replacement != pid and epoch != old_epoch
+    assert :sys.get_state(replacement).resource.containers == committed
+    send(replacement, {:resource, old_epoch, {:containers_saved, state.store, make_ref(), :ok}})
+    assert :ok = Valimc.World.Region.flush(replacement)
+    assert disk(ctx) == committed
   end
 
   test "the actual region clock cooks all families while dropped-item physics advances", ctx do

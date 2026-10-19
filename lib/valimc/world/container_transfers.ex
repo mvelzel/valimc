@@ -1,8 +1,8 @@
 defmodule Valimc.World.ContainerTransfers do
   @moduledoc "Receipt-backed container decisions; fresh owner eligibility is supplied by the region."
-  alias Valimc.Cooking
+  alias Valimc.{Cooking, CookingAwards}
   alias Valimc.Physics.CookingBlocks
-  alias Valimc.World.{ContainerRequest, Containers, ItemReceipts}
+  alias Valimc.World.{ContainerRequest, Containers, ItemReceipts, PendingCookingAwards}
 
   def reserve(%Containers{} = containers, source) do
     with {:ok, receipts, result} <- ItemReceipts.reserve(containers.receipts, source),
@@ -10,6 +10,18 @@ defmodule Valimc.World.ContainerTransfers do
   end
 
   def plan(%Containers{} = containers, key, request, eligible) when is_boolean(eligible) do
+    decide(containers, key, request, eligible, fn _ -> exchange(containers, request) end)
+  end
+
+  @doc "Unused award planner; live withdrawal stays gated until XP/recipe delivery is implemented."
+  def plan_cooking_award(%Containers{} = containers, key, request, eligible, context)
+      when is_boolean(eligible) do
+    decide(containers, key, request, eligible, fn digest ->
+      exchange_cooking_award(containers, key, request, digest, context)
+    end)
+  end
+
+  defp decide(containers, key, request, eligible, exchange) do
     with {:ok, digest} <- ContainerRequest.digest(key, request) do
       base = %{containers: containers, result: nil}
 
@@ -30,7 +42,7 @@ defmodule Valimc.World.ContainerTransfers do
 
         _ ->
           {result, next} =
-            case eligible && exchange(containers, request) do
+            case eligible && exchange.(digest) do
               {:ok, next} -> {:applied, next}
               _ -> {:rejected, containers}
             end
@@ -67,6 +79,49 @@ defmodule Valimc.World.ContainerTransfers do
   end
 
   def receipt_result(_, _, _), do: {:error, :transfer_conflict}
+
+  defp exchange_cooking_award(
+         containers,
+         key,
+         request,
+         digest,
+         %{position: position, draws: draws} = context
+       )
+       when map_size(context) == 2 do
+    with {:ok, %{kind: kind, cooking: cooking, recipes: uses} = entry} <-
+           Containers.observe(containers, request.position),
+         true <- uses != %{} and ContainerRequest.matches_entry?(request, entry),
+         {:ok, slots, _inventory} <- ContainerRequest.plan(request),
+         true <- withdrawal?(elem(cooking.slots, 2), elem(slots, 2)),
+         {:ok, award} <- CookingAwards.plan(uses, draws),
+         {:ok, awards, _id} <-
+           PendingCookingAwards.put(
+             containers.pending_awards,
+             key,
+             request.source,
+             request.sequence,
+             digest,
+             position,
+             award
+           ),
+         {:ok, block} <- CookingBlocks.placement(kind, 0.0),
+         {:ok, edited} <- Cooking.edit_slots(cooking, slots, block),
+         {:ok, next, _} <-
+           Containers.replace_cooking(containers, request.position, entry.revision, edited, %{}) do
+      {:ok, %{next | pending_awards: awards}}
+    else
+      _ -> {:error, :invalid_cooking_award_transfer}
+    end
+  end
+
+  defp exchange_cooking_award(_, _, _, _, _), do: {:error, :invalid_cooking_award_transfer}
+  defp withdrawal?(nil, _), do: false
+  defp withdrawal?(_, nil), do: true
+
+  defp withdrawal?(before, after_stack),
+    do:
+      Valimc.Protocol.ItemStack.same_item?(before, after_stack) and
+        after_stack.count < before.count
 
   defp exchange(containers, request) do
     with {:ok, entry} <- Containers.observe(containers, request.position),
@@ -115,7 +170,8 @@ defmodule Valimc.World.ContainerTransfers do
     %{containers | receipts: Map.put(containers.receipts, request.source, receipt)}
   end
 
-  defp result_digest(digest, result),
+  @doc false
+  def result_digest(<<_::256>> = digest, result) when result in [:applied, :rejected],
     do:
       :crypto.hash(:sha256, [
         "VMCCONTAINER-RESULT",

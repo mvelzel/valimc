@@ -1,8 +1,8 @@
 defmodule Valimc.World.Containers do
   @moduledoc "Region-owned container snapshots; persistent revisions fence stale views across replacement."
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{Chunk, CookingEntry, ItemReceipts}
-  defstruct sequence: 0, entries: %{}, receipts: %{}
+  alias Valimc.World.{Chunk, CookingEntry, ItemReceipts, PendingCookingAwards}
+  defstruct sequence: 0, entries: %{}, receipts: %{}, pending_awards: %{}
   @max_sequence 18_446_744_073_709_551_615
   @max_entries 1024
   @max_sources ItemReceipts.max_sources()
@@ -84,14 +84,26 @@ defmodule Valimc.World.Containers do
 
   defp change(_, _, _), do: {:error, :container_sequence_exhausted}
 
-  def encode({rx, rz} = key, %__MODULE__{sequence: sequence, entries: entries, receipts: receipts})
+  def encode({rx, rz} = key, %__MODULE__{
+        sequence: sequence,
+        entries: entries,
+        receipts: receipts,
+        pending_awards: awards
+      })
       when is_integer(sequence) and sequence in 0..@max_sequence and is_map(entries) and
              map_size(entries) <= @max_entries do
     true = region?(key)
     true = valid_receipts?(receipts)
+    true = is_map(awards)
+
+    {:ok, award_bytes} =
+      if map_size(awards) == 0,
+        do: {:ok, <<>>},
+        else: PendingCookingAwards.encode(key, awards, receipts)
 
     version =
       cond do
+        map_size(awards) > 0 -> 4
         Enum.any?(entries, fn {_, entry} -> Map.has_key?(entry, :cooking) end) -> 3
         map_size(receipts) == 0 -> 1
         true -> 2
@@ -106,7 +118,11 @@ defmodule Valimc.World.Containers do
 
     revisions = Enum.map(entries, fn {_, entry} -> entry.revision end)
     true = length(Enum.uniq(revisions)) == length(revisions)
-    initial_size = 63 + byte_size(receipt_count) + map_size(receipts) * 56
+
+    initial_size =
+      63 + byte_size(receipt_count) + map_size(receipts) * 56 + byte_size(award_bytes)
+
+    true = initial_size <= @max_bytes
 
     {parts, _} =
       entries
@@ -115,7 +131,7 @@ defmodule Valimc.World.Containers do
         %{revision: revision} = entry
         true = owned?(key, position)
         true = is_integer(revision) and revision > 0 and revision <= sequence
-        bytes = entry_bytes(entry, version)
+        bytes = entry_bytes(entry, if(version == 4, do: 3, else: version))
         size = size + 20 + byte_size(bytes)
         true = size <= @max_bytes
 
@@ -128,7 +144,8 @@ defmodule Valimc.World.Containers do
           map_size(entries)::16>>,
         receipt_count,
         parts,
-        receipt_bytes
+        receipt_bytes,
+        award_bytes
       ])
 
     {:ok, payload <> :crypto.hash(:sha256, payload)}
@@ -149,18 +166,35 @@ defmodule Valimc.World.Containers do
     <<"VMCCONTS", version, 5023::32, ^rx::signed-32, ^rz::signed-32, sequence::64, count::16,
       body::binary>> = payload
 
-    true = count <= @max_entries and version in [1, 2, 3]
+    true = count <= @max_entries and version in [1, 2, 3, 4]
 
     {receipts_count, body} =
       case version do
         1 -> {0, body}
         2 -> take_receipt_count(body)
         3 -> take_receipt_count(body, 0)
+        4 -> take_receipt_count(body, 0)
       end
 
-    {entries, body} = take_entries(body, count, %{}, version)
-    {receipts, <<>>} = take_receipts(body, receipts_count, %{})
-    state = %__MODULE__{sequence: sequence, entries: entries, receipts: receipts}
+    {entries, body} = take_entries(body, count, %{}, if(version == 4, do: 3, else: version))
+    {receipts, rest} = take_receipts(body, receipts_count, %{})
+
+    awards =
+      if version == 4 do
+        {:ok, awards} = PendingCookingAwards.decode(rest, key, receipts)
+        awards
+      else
+        <<>> = rest
+        %{}
+      end
+
+    state = %__MODULE__{
+      sequence: sequence,
+      entries: entries,
+      receipts: receipts,
+      pending_awards: awards
+    }
+
     {:ok, ^bytes} = encode(key, state)
     {:ok, state}
   rescue

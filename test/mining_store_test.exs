@@ -6,6 +6,7 @@ defmodule Valimc.MiningStoreTest do
   alias Valimc.World.{
     Chunk,
     Containers,
+    ContainerTransfers,
     CookingBatch,
     ItemLedger,
     ItemRecords,
@@ -154,6 +155,52 @@ defmodule Valimc.MiningStoreTest do
     %{ctx | proposal: Map.put(proposal, :containers, plan.containers)}
   end
 
+  defp cooking_award_proposal(ctx) do
+    block = Data.item_block(Data.item("furnace"))
+    :ok = Store.flush(ctx.writer, ctx.lease, Map.put(ctx.before_edits, ctx.position, block))
+    source = <<96::128>>
+    recipe = "minecraft:iron_ingot_from_smelting_raw_iron"
+    {:ok, cs, entry} = Containers.create_cooking(%Containers{}, ctx.key, ctx.position, :furnace)
+    cooking = %Valimc.Cooking{slots: {nil, nil, ItemStack.new("iron_ingot", 4)}, total: 200}
+
+    {:ok, cs, entry} =
+      Containers.replace_cooking(cs, ctx.position, entry.revision, cooking, %{recipe => 7})
+
+    {:ok, cs, _} = ContainerTransfers.reserve(cs, source)
+
+    request = %{
+      source: source,
+      sequence: 1,
+      permit: <<97::128>>,
+      position: ctx.position,
+      revision: entry.revision,
+      kind: :furnace,
+      slots: cooking.slots,
+      inventory: %Valimc.Inventory{},
+      action: :pickup,
+      slot: 2,
+      button: 1
+    }
+
+    {x, y, z} = ctx.position
+    context = %{position: {x + 0.5, y * 1.0, z + 0.5}, draws: %{recipe => 0}}
+
+    {:ok, %{containers: cs, result: :applied}} =
+      ContainerTransfers.plan_cooking_award(cs, ctx.key, request, true, context)
+
+    :ok = Store.flush_containers(ctx.writer, ctx.lease, cs)
+    {:ok, next, _} = Containers.remove(cs, ctx.position, cs.entries[ctx.position].revision)
+    assert next.pending_awards == cs.pending_awards
+
+    {:ok, items, _} =
+      Items.create(Items.new(), ctx.key, ItemStack.new("furnace"), {x + 0.5, y + 0.5, z + 0.5})
+
+    {:ok, items, _} =
+      Items.create(items, ctx.key, ItemStack.new("iron_ingot", 2), {x + 0.25, y + 0.5, z + 0.5})
+
+    %{ctx | proposal: ctx.proposal |> Map.put(:containers, next) |> Map.put(:items, items)}
+  end
+
   test "joint block/items/container commit acknowledges all outputs and survives writer replacement",
        ctx do
     ctx = container_proposal(ctx)
@@ -171,10 +218,16 @@ defmodule Valimc.MiningStoreTest do
     refute File.exists?(Store.mining_path(ctx.base, ctx.key))
   end
 
-  for kind <- [:chest, :cooking] do
+  for kind <- [:chest, :cooking, :cooking_award] do
     test "journal replay repairs every subset of three replaced output files for #{kind}",
          ctx do
-      ctx = if unquote(kind) == :cooking, do: cooking_proposal(ctx), else: container_proposal(ctx)
+      ctx =
+        case unquote(kind) do
+          :chest -> container_proposal(ctx)
+          :cooking -> cooking_proposal(ctx)
+          :cooking_award -> cooking_award_proposal(ctx)
+        end
+
       {blocks, items, journal_path} = paths(ctx)
       containers = Store.container_path(ctx.base, ctx.key)
       before = Enum.map([blocks, items, containers], &File.read!/1)
@@ -224,7 +277,7 @@ defmodule Valimc.MiningStoreTest do
   end
 
   test "failed container replacement retains the joint journal and retires its writer", ctx do
-    ctx = container_proposal(ctx)
+    ctx = cooking_award_proposal(ctx)
     path = Store.container_path(ctx.base, ctx.key)
     File.rm!(path)
     File.mkdir!(path)

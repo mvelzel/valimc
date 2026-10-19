@@ -126,6 +126,9 @@ and its XP ownership prerequisites; credited-output withdrawal remains refused.
 `9664371`: 712 native award hooks/219 arithmetic boundaries, 33 affected tests and
 actual cooking/refusal/reconnect baseline pass. Next: [durable pending awards](tickets/VMC-034n2.md)
 before region/orb/player delivery; no live XP award claim.
+**Awaiting client validation:** [pending cooking awards](tickets/VMC-034n2.md):
+atomic container/receipt/XP proposals, bounded version-4 storage, journal replay and
+owner replacement pass targeted checks. Live withdrawal remains gated.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
