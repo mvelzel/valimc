@@ -6,10 +6,12 @@ The [orb materialization kernel](VMC-034n3.md) is validated at `d95273c`, with l
 owner installation/native replication accepted at `ed06d5a`. The unused
 [remote storage protocol](VMC-034n3a.md) is accepted at `4b09f6f`;
 [live remote delivery](VMC-034n3b.md) is accepted at `38cf281`. Initial creation
-and ownership are complete within their staged scope. Next:
-[furnace output to collected XP](VMC-034n5.md) before broader
-[orb simulation](VMC-034n4.md). Its consumption/player-XP/recipe path is implemented
-and awaiting graphical acceptance. Processor-destruction XP remains separate.
+and ownership are complete within their staged scope.
+[Furnace output to collected XP](VMC-034n5.md) is **Done within basic scope** at
+`9b585f0`/`3e70e07`: actual ordinary/Shift output, all three families, native XP/bar
+and recipe grants, owner recovery/restart conserve five awards/XP11. Do not reopen
+those gates. Next: broader [orb simulation](VMC-034n4.md); processor-destruction XP,
+Mending and advancement behavior remain separate. This parent is not complete.
 
 Player withdrawals must release the earned output, award used recipes and spawn
 the corresponding experience exactly once. Removing a processor must preserve
@@ -45,5 +47,6 @@ Acceptance:
   XP display, shared-menu competition, destruction and reconnect/restart
   conservation. Native probes cannot replace these actions.
 
-Keep the current refusal until orb/player/recipe ownership, persistence and joint
-delivery are tested. Values, pending storage and the orb kernel need no reimplementation.
+Player earned-output withdrawal is enabled through VMC-034n5. Keep unverified
+processor-removal callbacks refused until joint items/XP release is proved.
+Values, pending storage, initial creation and basic pickup need no reimplementation.

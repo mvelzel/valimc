@@ -5,7 +5,8 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
-| [VMC-034n3 initial XP creation/ownership](../tickets/VMC-034n3.md) | Kernel `d95273c`, local runtime `ed06d5a`, remote delivery `38cf281`: bounded durable native creation, targeted/native checks and actual graphics/contact/refusals/owner recovery/full restart; simulation/pickup remain open |
+| [VMC-034n5 furnace output to collected XP](../tickets/VMC-034n5.md) | `9b585f0` / capacity correction `3e70e07`: native arithmetic/packets/recipe unlocks, targeted capacity/journal/replay checks and eight actual-client groups; ordinary/Shift smelting, all families and owner/full restart conserve gold10/steak3/XP11, source/typed35; motion/Mending/destruction remain separate |
+| [VMC-034n3 initial XP creation/ownership](../tickets/VMC-034n3.md) | Kernel `d95273c`, local runtime `ed06d5a`, remote delivery `38cf281`: bounded durable native creation, targeted/native checks and actual graphics/contact/refusals/owner recovery/full restart; simulation separate, pickup composes through VMC-034n5 |
 | [VMC-034n3a remote spawn protocol](../tickets/VMC-034n3a.md) | `4b09f6f`: canonical intents/adoptions/digest settlement, capacity/joint recovery and actual baseline/both owner deaths/full restart; unused storage slice accepted |
 | [VMC-034n3b live remote delivery](../tickets/VMC-034n3b.md) | `38cf281` / fairness `5cb237f`:84 affected checks and five actual-client scenarios; one destination effect, duplicate replay, owner replacement/full restart and exact4,934-XP accounting; no physics/pickup claim |
 | [VMC-034n2 pending cooking awards](../tickets/VMC-034n2.md) | `65061b9`: bounded atomic snapshot/receipt decisions, journal/owner replacement and actual pending retention through mining/cooking/refusals/full restart; live XP delivery remains gated |

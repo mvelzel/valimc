@@ -120,8 +120,8 @@ exact-retention client baseline/reconnect atbfac2bb. This gate is closed.
 timer checkpoints and sleeping/refusal retries pass targeted owner/clock/recovery
 checks and 15,630 native compositions. Actual all-family cooking, concurrent
 gestures/items, negatives, sponge/bucket and restart conservation pass. Retrieve the
-ticket for measurements and limits. Next: [earned output/XP awards](tickets/VMC-034n.md)
-and its XP ownership prerequisites; credited-output withdrawal remains refused.
+ticket for measurements and limits. [Earned output/XP awards](tickets/VMC-034n.md)
+compose through the accepted pickup path below; broader callbacks remain open.
 **Done within unused value scope:** [cooking XP awards](tickets/VMC-034n1.md) at
 `9664371`: 712 native award hooks/219 arithmetic boundaries, 33 affected tests and
 actual cooking/refusal/reconnect baseline pass; no live XP award claim.
@@ -141,11 +141,14 @@ full restart; source/typed24 reconciles). **Done within initial remote-spawn sco
 `5cb237f`):84 affected owner/TCP checks and all five dedicated client scenarios
 pass. Boundary contact, both owner replacements, duplicate replay and full restart
 retain exact ledgers/4,934 owned XP; source/typed24 reconciles. These gates are closed.
-Active: [furnace output to collected XP](tickets/VMC-034n5.md), prioritizing durable
-consumption/player XP/recipe grants and earned-output admission before broader
-[orb simulation](tickets/VMC-034n4.md). The vertical runtime passes targeted/native
-checks; actual-client acceptance is pending. Motion/lifetime/moving handoff,
-Mending and processor-destruction XP remain separate.
+**Done within basic output/pickup scope:** [furnace output to collected XP](tickets/VMC-034n5.md),
+runtime `9b585f0` / capacity correction `3e70e07`: native XP/recipe codecs, targeted
+journal/capacity/replay checks and all eight dedicated client groups pass. Actual
+ordinary/Shift smelting, all three families, owner replacement and full restart
+conserve gold10/steak3/XP11 with source/typed35. These gates are closed.
+Next: [orb simulation](tickets/VMC-034n4.md); motion/lifetime/moving handoff,
+Mending and processor-destruction XP remain separate. The parent earned-output
+ticket remains in progress; no full cooking/survival parity claim.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),
 [flat-plains rain extinction](tickets/VMC-017b4c.md) and
