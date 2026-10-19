@@ -34,7 +34,7 @@ defmodule Valimc.PlayerVoidConnectionTest do
     %{name: name, uuid: uuid, key: key, pose: pose, path: PlayerStore.path(base, uuid)}
   end
 
-  defp state(pid), do: :sys.get_state(pid)
+  defp state(pid), do: Valimc.TestConn.state(pid)
 
   defp wait(fun, left \\ 400) do
     if value = fun.(),

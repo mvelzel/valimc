@@ -20,6 +20,8 @@ defmodule Valimc.Connection do
     Wire
   }
 
+  alias Valimc.Session.Jobs
+
   alias Valimc.{
     ChatThrottle,
     ChestAccess,
@@ -324,11 +326,11 @@ defmodule Valimc.Connection do
        peers: %{},
        player_flags_view: 0,
        equipment_source: nil,
-       pose_job: nil,
        pose_checked: nil,
        pose_generation: 0,
        pose_sources: %{},
        motion_job: nil,
+       jobs: Jobs.new(),
        motion_pending: nil,
        motion_window: nil,
        simulation_clock: nil,
@@ -364,7 +366,73 @@ defmodule Valimc.Connection do
   end
 
   @impl true
-  def handle_info(:activate, state) do
+  # Session jobs (`Valimc.Session.Jobs`) claim their results, DOWNs and timeouts
+  # first; everything else goes to the per-message clauses below.
+  def handle_info(message, state) do
+    case Jobs.classify(state.jobs, message) do
+      {:result, kind, job, payload, jobs} -> job_result(kind, job, payload, %{state | jobs: jobs})
+      {:down, kind, job, reason, jobs} -> job_down(kind, job, reason, %{state | jobs: jobs})
+      {:timeout, kind, job, jobs} -> job_timeout(kind, job, %{state | jobs: jobs})
+      :stale -> {:noreply, state}
+      :unknown -> info(message, state)
+    end
+  end
+
+  defp job_result(:pose, job, result, state) do
+    guard_connection(state, fn ->
+      case result do
+        {:ok,
+         %{
+           pose: pose,
+           swimming: swimming,
+           fences: fences,
+           powder_snow: powder,
+           submerged: submerged,
+           eye_water: eye_water,
+           kinetics: kinetics
+         }} ->
+          if System.monotonic_time(:millisecond) < job.deadline and
+               pose_signature(state) == job.signature and
+               Enum.all?(fences, fn {key, %{owner: owner}} ->
+                 World.existing_owner(key) == {:ok, owner}
+               end) do
+            player = %{
+              state.player
+              | pose: pose,
+                motion: %{state.player.motion | swimming: swimming}
+            }
+
+            if pose != state.player.pose do
+              send_packets(state, [Packets.player_pose(player)])
+            end
+
+            state =
+              %{state | player: player}
+              |> apply_kinetic_tick(kinetics, false)
+              |> observe_environment(powder, submerged, eye_water, kinetics)
+              |> monitor_pose_sources(fences)
+
+            state =
+              if state.life_stage == :alive,
+                do: %{state | pose_checked: pose_signature(state)},
+                else: state
+
+            {:noreply, state}
+          else
+            {:noreply, state}
+          end
+
+        {:error, _} ->
+          {:noreply, state}
+      end
+    end)
+  end
+
+  defp job_down(:pose, _job, _reason, state), do: {:noreply, state}
+
+  defp job_timeout(_kind, _job, state), do: {:noreply, state}
+
+  defp info(:activate, state) do
     :ok = :inet.setopts(state.socket, active: :once)
     Process.send_after(self(), :login_deadline, Valimc.config(:login_timeout_ms))
     Process.send_after(self(), :keepalive, Valimc.config(:keepalive_interval_ms))
@@ -372,7 +440,7 @@ defmodule Valimc.Connection do
     {:noreply, %{state | active: true}}
   end
 
-  def handle_info({:tcp, socket, data}, %{socket: socket} = state) do
+  defp info({:tcp, socket, data}, %{socket: socket} = state) do
     guard_connection(state, fn ->
       state = reset_window(state)
       bytes = state.bytes + byte_size(data)
@@ -386,14 +454,14 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info(:drain, state), do: guard_connection(state, fn -> consume(state, 64) end)
-  def handle_info({:tcp_closed, _}, state), do: {:stop, :normal, state}
-  def handle_info({:tcp_error, _, _}, state), do: {:stop, :normal, state}
+  defp info(:drain, state), do: guard_connection(state, fn -> consume(state, 64) end)
+  defp info({:tcp_closed, _}, state), do: {:stop, :normal, state}
+  defp info({:tcp_error, _, _}, state), do: {:stop, :normal, state}
 
-  def handle_info(
-        {:key_verified, worker, token, result},
-        %{key_job: %{pid: worker, token: token} = job} = state
-      ) do
+  defp info(
+         {:key_verified, worker, token, result},
+         %{key_job: %{pid: worker, token: token} = job} = state
+       ) do
     Process.cancel_timer(job.timer)
     Process.demonitor(job.monitor, [:flush])
     Valimc.KeyExchange.cancel(job)
@@ -446,12 +514,12 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info({:key_verified, _, _, _}, state), do: {:noreply, state}
+  defp info({:key_verified, _, _, _}, state), do: {:noreply, state}
 
-  def handle_info(
-        {:session_verified, worker, token, result},
-        %{auth_job: %{pid: worker, token: token} = job} = state
-      ) do
+  defp info(
+         {:session_verified, worker, token, result},
+         %{auth_job: %{pid: worker, token: token} = job} = state
+       ) do
     Process.cancel_timer(job.timer)
     Process.demonitor(job.monitor, [:flush])
     Valimc.Auth.SessionJobs.cancel(job)
@@ -478,52 +546,52 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info({:session_verified, _, _, _}, state), do: {:noreply, state}
+  defp info({:session_verified, _, _, _}, state), do: {:noreply, state}
 
-  def handle_info({:session_deadline, token}, %{auth_job: %{token: token} = job} = state) do
+  defp info({:session_deadline, token}, %{auth_job: %{token: token} = job} = state) do
     if System.monotonic_time(:millisecond) >= job.deadline,
       do: guard_connection(state, fn -> reject(state, "Authentication timed out") end),
       else: {:noreply, state}
   end
 
-  def handle_info({:session_deadline, _}, state), do: {:noreply, state}
+  defp info({:session_deadline, _}, state), do: {:noreply, state}
 
-  def handle_info({:DOWN, ref, :process, _, _}, %{auth_job: %{monitor: ref}} = state),
+  defp info({:DOWN, ref, :process, _, _}, %{auth_job: %{monitor: ref}} = state),
     do:
       guard_connection(state, fn ->
         reject(state, "Authentication servers unavailable; please retry")
       end)
 
-  def handle_info({:key_deadline, token}, %{key_job: %{token: token} = job} = state) do
+  defp info({:key_deadline, token}, %{key_job: %{token: token} = job} = state) do
     if System.monotonic_time(:millisecond) >= job.deadline,
       do: guard_connection(state, fn -> reject(state, "Login encryption timed out") end),
       else: {:noreply, state}
   end
 
-  def handle_info({:key_deadline, _}, state), do: {:noreply, state}
+  defp info({:key_deadline, _}, state), do: {:noreply, state}
 
-  def handle_info({:DOWN, ref, :process, _, _}, %{key_job: %{monitor: ref}} = state),
+  defp info({:DOWN, ref, :process, _, _}, %{key_job: %{monitor: ref}} = state),
     do: guard_connection(state, fn -> reject(state, "Login encryption unavailable") end)
 
-  def handle_info({:table_deadline, ref}, %{table_job: %{ref: ref}} = state),
+  defp info({:table_deadline, ref}, %{table_job: %{ref: ref}} = state),
     do: guard_connection(state, fn -> {:noreply, fail_table_query(state)} end)
 
-  def handle_info({:table_deadline, _}, state), do: {:noreply, state}
+  defp info({:table_deadline, _}, state), do: {:noreply, state}
 
-  def handle_info(
-        {:DOWN, ref, :process, _, _},
-        %{table_menu: %{kind: kind, monitor: ref}} = state
-      )
-      when kind in [:chest, :cooking],
-      do: guard_connection(state, fn -> {:noreply, begin_table_close(state)} end)
+  defp info(
+         {:DOWN, ref, :process, _, _},
+         %{table_menu: %{kind: kind, monitor: ref}} = state
+       )
+       when kind in [:chest, :cooking],
+       do: guard_connection(state, fn -> {:noreply, begin_table_close(state)} end)
 
-  def handle_info({:DOWN, ref, :process, _, _}, %{table_job: %{monitor: ref}} = state),
+  defp info({:DOWN, ref, :process, _, _}, %{table_job: %{monitor: ref}} = state),
     do: guard_connection(state, fn -> {:noreply, fail_table_query(state)} end)
 
-  def handle_info(
-        {:container_candidate, ref, result},
-        %{experience_job: %{ref: ref, stage: :candidate} = job} = state
-      ) do
+  defp info(
+         {:container_candidate, ref, result},
+         %{experience_job: %{ref: ref, stage: :candidate} = job} = state
+       ) do
     guard_connection(state, fn ->
       with {:ok, intent} <- result,
            true <- experience_current?(state, job),
@@ -535,7 +603,7 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info({ref, result}, %{experience_job: %{task: %Task{ref: ref}} = job} = state) do
+  defp info({ref, result}, %{experience_job: %{task: %Task{ref: ref}} = job} = state) do
     Process.demonitor(ref, [:flush])
     state = put_in(state.experience_job.task, nil)
 
@@ -575,21 +643,21 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info({:experience_deadline, ref}, %{experience_job: %{ref: ref}} = state),
+  defp info({:experience_deadline, ref}, %{experience_job: %{ref: ref}} = state),
     do: {:noreply, cancel_experience_query(state)}
 
-  def handle_info({:experience_deadline, _}, state), do: {:noreply, state}
+  defp info({:experience_deadline, _}, state), do: {:noreply, state}
 
-  def handle_info(
-        {:DOWN, ref, :process, _, _},
-        %{experience_job: %{task: %Task{ref: ref}}} = state
-      ),
-      do: {:noreply, cancel_experience_query(state)}
+  defp info(
+         {:DOWN, ref, :process, _, _},
+         %{experience_job: %{task: %Task{ref: ref}}} = state
+       ),
+       do: {:noreply, cancel_experience_query(state)}
 
-  def handle_info(
-        {:container_candidate, ref, result},
-        %{table_job: %{kind: :container, stage: :candidate, ref: ref} = job} = state
-      ) do
+  defp info(
+         {:container_candidate, ref, result},
+         %{table_job: %{kind: :container, stage: :candidate, ref: ref} = job} = state
+       ) do
     guard_connection(state, fn ->
       next =
         case result do
@@ -606,12 +674,12 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info({:container_candidate, _, _}, state), do: {:noreply, state}
+  defp info({:container_candidate, _, _}, state), do: {:noreply, state}
 
-  def handle_info(
-        {ref, result},
-        %{table_job: %{kind: :container, task: %Task{ref: ref}} = job} = state
-      ) do
+  defp info(
+         {ref, result},
+         %{table_job: %{kind: :container, task: %Task{ref: ref}} = job} = state
+       ) do
     Process.demonitor(ref, [:flush])
     state = %{state | table_job: %{job | task: nil}}
 
@@ -630,13 +698,13 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info(
-        {:DOWN, ref, :process, _, _},
-        %{table_job: %{kind: :container, task: %Task{ref: ref}}} = state
-      ),
-      do: guard_connection(state, fn -> {:noreply, fail_chest_action(state)} end)
+  defp info(
+         {:DOWN, ref, :process, _, _},
+         %{table_job: %{kind: :container, task: %Task{ref: ref}}} = state
+       ),
+       do: guard_connection(state, fn -> {:noreply, fail_chest_action(state)} end)
 
-  def handle_info(:save_player, state) do
+  defp info(:save_player, state) do
     Process.send_after(self(), :save_player, Valimc.config(:player_save_interval_ms))
 
     if state.phase == :play and state.save_ref == nil and not inventory_pending(state) do
@@ -656,7 +724,7 @@ defmodule Valimc.Connection do
     end
   end
 
-  def handle_info({:player_saved, ref, :ok}, %{life_save: %{ref: ref} = save} = state) do
+  defp info({:player_saved, ref, :ok}, %{life_save: %{ref: ref} = save} = state) do
     guard_connection(state, fn ->
       state = %{state | life_save: if(save.kind == :respawn, do: save, else: nil), save_ref: nil}
 
@@ -682,7 +750,7 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info({:player_saved, ref, :ok}, %{save_ref: ref} = state),
+  defp info({:player_saved, ref, :ok}, %{save_ref: ref} = state),
     do:
       guard_connection(state, fn ->
         {:noreply,
@@ -695,7 +763,7 @@ defmodule Valimc.Connection do
          |> drain_placements()}
       end)
 
-  def handle_info(:drain_creative, %{creative_drain_scheduled: true} = state),
+  defp info(:drain_creative, %{creative_drain_scheduled: true} = state),
     do:
       guard_connection(state, fn ->
         {:noreply,
@@ -705,21 +773,21 @@ defmodule Valimc.Connection do
          |> sync_creative_result()}
       end)
 
-  def handle_info(:drain_creative, state), do: {:noreply, state}
+  defp info(:drain_creative, state), do: {:noreply, state}
 
-  def handle_info({:player_saved, ref, {:error, _}}, %{save_ref: ref} = state),
+  defp info({:player_saved, ref, {:error, _}}, %{save_ref: ref} = state),
     do: guard_connection(state, fn -> reject(state, "Player save failed") end)
 
-  def handle_info({:save_deadline, ref}, %{save_ref: ref} = state),
+  defp info({:save_deadline, ref}, %{save_ref: ref} = state),
     do: guard_connection(state, fn -> reject(state, "Player save timed out") end)
 
-  def handle_info({:save_deadline, _}, state), do: {:noreply, state}
+  defp info({:save_deadline, _}, state), do: {:noreply, state}
 
-  def handle_info(
-        {:transfer_delivered, worker, token, result},
-        %{recovery: %{stage: :delivery, job: %{pid: worker, token: token} = job} = recovery} =
-          state
-      ) do
+  defp info(
+         {:transfer_delivered, worker, token, result},
+         %{recovery: %{stage: :delivery, job: %{pid: worker, token: token} = job} = recovery} =
+           state
+       ) do
     Process.demonitor(job.monitor, [:flush])
     state = %{state | recovery: %{recovery | job: nil}}
 
@@ -734,9 +802,9 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info({:transfer_delivered, _, _, _}, state), do: {:noreply, state}
+  defp info({:transfer_delivered, _, _, _}, state), do: {:noreply, state}
 
-  def handle_info({ref, result}, %{pickup_job: %{task: %Task{ref: ref}} = job} = state) do
+  defp info({ref, result}, %{pickup_job: %{task: %Task{ref: ref}} = job} = state) do
     Process.demonitor(ref, [:flush])
     Process.cancel_timer(job.timer)
 
@@ -750,18 +818,18 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info({:pickup_deadline, ref}, %{pickup_job: %{task: %Task{ref: ref}}} = state),
+  defp info({:pickup_deadline, ref}, %{pickup_job: %{task: %Task{ref: ref}}} = state),
     do: {:noreply, cancel_pickup_query(state)}
 
-  def handle_info({:pickup_deadline, _}, state), do: {:noreply, state}
+  defp info({:pickup_deadline, _}, state), do: {:noreply, state}
 
-  def handle_info({:DOWN, ref, :process, _, _}, %{pickup_job: %{task: %Task{ref: ref}}} = state),
+  defp info({:DOWN, ref, :process, _, _}, %{pickup_job: %{task: %Task{ref: ref}}} = state),
     do: {:noreply, cancel_pickup_query(state)}
 
-  def handle_info(
-        {:player_transfer_saved, ref, {:ok, fence, snapshot}},
-        %{recovery: %{stage: :prepare, ref: ref, plan: plan} = recovery} = state
-      ) do
+  defp info(
+         {:player_transfer_saved, ref, {:ok, fence, snapshot}},
+         %{recovery: %{stage: :prepare, ref: ref, plan: plan} = recovery} = state
+       ) do
     guard_connection(state, fn ->
       expected_outbox =
         if plan[:intent] && plan.intent[:kind] == :pickup do
@@ -807,10 +875,10 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info(
-        {:player_transfer_saved, ref, {:error, reason}},
-        %{recovery: %{stage: :prepare, ref: ref} = recovery} = state
-      ) do
+  defp info(
+         {:player_transfer_saved, ref, {:error, reason}},
+         %{recovery: %{stage: :prepare, ref: ref} = recovery} = state
+       ) do
     guard_connection(state, fn ->
       if reason == :player_commit_uncertain,
         do: reject(state, "Inventory transfer commit is uncertain; reconnect to recover")
@@ -846,10 +914,10 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info(
-        {:player_transfer_saved, ref, {:ok, fence, snapshot}},
-        %{recovery: %{stage: :complete, ref: ref} = recovery} = state
-      ) do
+  defp info(
+         {:player_transfer_saved, ref, {:ok, fence, snapshot}},
+         %{recovery: %{stage: :complete, ref: ref} = recovery} = state
+       ) do
     guard_connection(state, fn ->
       if snapshot.outbox != nil or snapshot.transfer_sequence != recovery.intent.transfer_sequence,
         do: reject(state, "Inventory recovery returned inconsistent state")
@@ -899,36 +967,37 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info(
-        {:player_transfer_saved, ref, {:error, _} = error},
-        %{recovery: %{stage: :complete, ref: ref}} = state
-      ),
-      do: guard_connection(state, fn -> {:noreply, recovery_failure(state, error)} end)
+  defp info(
+         {:player_transfer_saved, ref, {:error, _} = error},
+         %{recovery: %{stage: :complete, ref: ref}} = state
+       ),
+       do: guard_connection(state, fn -> {:noreply, recovery_failure(state, error)} end)
 
-  def handle_info({:player_transfer_saved, _, _}, state), do: {:noreply, state}
+  defp info({:player_transfer_saved, _, _}, state), do: {:noreply, state}
 
-  def handle_info(
-        {:retry_recovery, id, token},
-        %{recovery: %{id: id, stage: :retry, retry_token: token} = recovery} = state
-      ) do
+  defp info(
+         {:retry_recovery, id, token},
+         %{recovery: %{id: id, stage: :retry, retry_token: token} = recovery} = state
+       ) do
     state = %{state | recovery: %{recovery | retry_timer: nil}}
     guard_connection(state, fn -> {:noreply, deliver_recovery(state)} end)
   end
 
-  def handle_info({:retry_recovery, _, _}, state), do: {:noreply, state}
+  defp info({:retry_recovery, _, _}, state), do: {:noreply, state}
 
-  def handle_info({:recovery_deadline, id}, %{recovery: %{id: id}} = state),
+  defp info({:recovery_deadline, id}, %{recovery: %{id: id}} = state),
     do:
       guard_connection(state, fn ->
         reject(state, "Inventory recovery is still pending; please retry later")
       end)
 
-  def handle_info({:recovery_deadline, _}, state), do: {:noreply, state}
+  defp info({:recovery_deadline, _}, state), do: {:noreply, state}
 
-  def handle_info(
-        {:DOWN, monitor, :process, worker, _},
-        %{recovery: %{stage: :delivery, job: %{pid: worker, monitor: monitor}} = recovery} = state
-      ) do
+  defp info(
+         {:DOWN, monitor, :process, worker, _},
+         %{recovery: %{stage: :delivery, job: %{pid: worker, monitor: monitor}} = recovery} =
+           state
+       ) do
     state = %{state | recovery: %{recovery | job: nil}}
 
     guard_connection(state, fn ->
@@ -936,7 +1005,7 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info({ref, result}, %{placement_job: %{task: %Task{ref: ref}} = job} = state) do
+  defp info({ref, result}, %{placement_job: %{task: %Task{ref: ref}} = job} = state) do
     Process.demonitor(ref, [:flush])
     Process.cancel_timer(job.timer)
 
@@ -957,24 +1026,24 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info({:placement_deadline, ref}, %{placement_job: %{task: %Task{ref: ref}}} = state),
+  defp info({:placement_deadline, ref}, %{placement_job: %{task: %Task{ref: ref}}} = state),
     do:
       guard_connection(state, fn ->
         reject(state, "Block interaction timed out; please reconnect")
       end)
 
-  def handle_info({:placement_deadline, _}, state), do: {:noreply, state}
+  defp info({:placement_deadline, _}, state), do: {:noreply, state}
 
-  def handle_info(
-        {:DOWN, ref, :process, _, _},
-        %{placement_job: %{task: %Task{ref: ref}}} = state
-      ),
-      do:
-        guard_connection(state, fn ->
-          reject(state, "Block interaction failed; please reconnect")
-        end)
+  defp info(
+         {:DOWN, ref, :process, _, _},
+         %{placement_job: %{task: %Task{ref: ref}}} = state
+       ),
+       do:
+         guard_connection(state, fn ->
+           reject(state, "Block interaction failed; please reconnect")
+         end)
 
-  def handle_info({ref, result}, %{mining_job: %{task: %Task{ref: ref}} = job} = state) do
+  defp info({ref, result}, %{mining_job: %{task: %Task{ref: ref}} = job} = state) do
     Process.demonitor(ref, [:flush])
     Process.cancel_timer(job.timer)
 
@@ -993,15 +1062,15 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info({:mining_deadline, ref}, %{mining_job: %{task: %Task{ref: ref}}} = state),
+  defp info({:mining_deadline, ref}, %{mining_job: %{task: %Task{ref: ref}}} = state),
     do: guard_connection(state, fn -> {:noreply, cancel_mining(state)} end)
 
-  def handle_info({:mining_deadline, _}, state), do: {:noreply, state}
+  defp info({:mining_deadline, _}, state), do: {:noreply, state}
 
-  def handle_info({:DOWN, ref, :process, _, _}, %{mining_job: %{task: %Task{ref: ref}}} = state),
+  defp info({:DOWN, ref, :process, _, _}, %{mining_job: %{task: %Task{ref: ref}}} = state),
     do: guard_connection(state, fn -> {:noreply, cancel_mining(state)} end)
 
-  def handle_info({ref, result}, %{motion_job: %{task: %Task{ref: ref}} = job} = state) do
+  defp info({ref, result}, %{motion_job: %{task: %Task{ref: ref}} = job} = state) do
     Process.demonitor(ref, [:flush])
     Process.cancel_timer(job.timer)
 
@@ -1097,93 +1166,36 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info({:motion_deadline, ref}, %{motion_job: %{task: %Task{ref: ref}}} = state),
+  defp info({:motion_deadline, ref}, %{motion_job: %{task: %Task{ref: ref}}} = state),
     do:
       guard_connection(state, fn ->
         {:noreply, correct_motion(state, :movement_worker_deadline_corrections)}
       end)
 
-  def handle_info({:motion_deadline, _}, state), do: {:noreply, state}
+  defp info({:motion_deadline, _}, state), do: {:noreply, state}
 
-  def handle_info({:retry_motion, token}, %{motion_pending: %{token: token} = input} = state),
+  defp info({:retry_motion, token}, %{motion_pending: %{token: token} = input} = state),
     do:
       guard_connection(state, fn ->
         {:noreply, start_motion(%{state | motion_pending: %{input | retry: nil}})}
       end)
 
-  def handle_info({:retry_motion, _}, state), do: {:noreply, state}
+  defp info({:retry_motion, _}, state), do: {:noreply, state}
 
-  def handle_info({:DOWN, ref, :process, _, _}, %{motion_job: %{task: %Task{ref: ref}}} = state),
+  defp info({:DOWN, ref, :process, _, _}, %{motion_job: %{task: %Task{ref: ref}}} = state),
     do:
       guard_connection(state, fn ->
         {:noreply, correct_motion(state, :movement_geometry_corrections)}
       end)
 
-  def handle_info({ref, result}, %{pose_job: %{task: %Task{ref: ref}} = job} = state) do
-    Process.demonitor(ref, [:flush])
-
-    guard_connection(state, fn ->
-      state = %{state | pose_job: nil}
-
-      case result do
-        {:ok,
-         %{
-           pose: pose,
-           swimming: swimming,
-           fences: fences,
-           powder_snow: powder,
-           submerged: submerged,
-           eye_water: eye_water,
-           kinetics: kinetics
-         }} ->
-          if System.monotonic_time(:millisecond) < job.deadline and
-               pose_signature(state) == job.signature and
-               Enum.all?(fences, fn {key, %{owner: owner}} ->
-                 World.existing_owner(key) == {:ok, owner}
-               end) do
-            player = %{
-              state.player
-              | pose: pose,
-                motion: %{state.player.motion | swimming: swimming}
-            }
-
-            if pose != state.player.pose do
-              send_packets(state, [Packets.player_pose(player)])
-            end
-
-            state =
-              %{state | player: player}
-              |> apply_kinetic_tick(kinetics, false)
-              |> observe_environment(powder, submerged, eye_water, kinetics)
-              |> monitor_pose_sources(fences)
-
-            state =
-              if state.life_stage == :alive,
-                do: %{state | pose_checked: pose_signature(state)},
-                else: state
-
-            {:noreply, state}
-          else
-            {:noreply, state}
-          end
-
-        {:error, _} ->
-          {:noreply, state}
-      end
-    end)
-  end
-
-  def handle_info({:DOWN, ref, :process, _, _}, %{pose_job: %{task: %Task{ref: ref}}} = state),
-    do: {:noreply, %{state | pose_job: nil}}
-
   # Cancelling geometry retires its reference; a result already in this mailbox
   # must never become a new player input or crash a healthy connection.
-  def handle_info({ref, _}, state) when is_reference(ref), do: {:noreply, state}
+  defp info({ref, _}, state) when is_reference(ref), do: {:noreply, state}
 
-  def handle_info({:DOWN, ref, :process, _, _}, %{store_monitor: ref} = state),
+  defp info({:DOWN, ref, :process, _, _}, %{store_monitor: ref} = state),
     do: guard_connection(state, fn -> reject(state, "Player storage stopped") end)
 
-  def handle_info({:DOWN, ref, :process, pid, _}, state) do
+  defp info({:DOWN, ref, :process, pid, _}, state) do
     {lids, closed} = ChestLidReplication.down(state.chest_lids, ref, pid)
     send_packets(state, Enum.map(closed, &Packets.chest_lid(&1, false)))
     state = %{state | chest_lids: lids}
@@ -1201,10 +1213,10 @@ defmodule Valimc.Connection do
     end
   end
 
-  def handle_info(:login_deadline, %{phase: :play} = state), do: {:noreply, state}
-  def handle_info(:login_deadline, state), do: {:stop, :normal, state}
+  defp info(:login_deadline, %{phase: :play} = state), do: {:noreply, state}
+  defp info(:login_deadline, state), do: {:stop, :normal, state}
 
-  def handle_info(:keepalive, state) do
+  defp info(:keepalive, state) do
     guard_connection(state, fn ->
       Process.send_after(self(), :keepalive, Valimc.config(:keepalive_interval_ms))
 
@@ -1230,10 +1242,10 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info(
-        {:player_tick, token},
-        %{phase: :play, simulation_clock: %TickClock{} = clock} = state
-      ) do
+  defp info(
+         {:player_tick, token},
+         %{phase: :play, simulation_clock: %TickClock{} = clock} = state
+       ) do
     guard_connection(state, fn ->
       case TickClock.advance(clock, token, System.monotonic_time(:millisecond)) do
         {:ok, next, late, delay} ->
@@ -1288,9 +1300,9 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info({:player_tick, _}, state), do: {:noreply, state}
+  defp info({:player_tick, _}, state), do: {:noreply, state}
 
-  def handle_info(:publish_movement, state) do
+  defp info(:publish_movement, state) do
     guard_connection(state, fn ->
       if state.phase == :play do
         Process.send_after(self(), :publish_movement, 50)
@@ -1384,23 +1396,23 @@ defmodule Valimc.Connection do
     end)
   end
 
-  def handle_info(:send_chunks, state),
+  defp info(:send_chunks, state),
     do: guard_connection(state, fn -> {:noreply, stream_chunks(state)} end)
 
-  def handle_info({:event, event}, state) do
+  defp info({:event, event}, state) do
     guard_connection(state, fn -> {:noreply, event(state, event)} end)
   end
 
   # Overload is signalled, not killed, so terminate/2 still saves and releases jobs.
-  def handle_info({:EXIT, _from, {:shutdown, :overloaded} = reason}, state),
+  defp info({:EXIT, _from, {:shutdown, :overloaded} = reason}, state),
     do: {:stop, reason, state}
 
-  def handle_info({:EXIT, _from, :normal}, state), do: {:noreply, state}
+  defp info({:EXIT, _from, :normal}, state), do: {:noreply, state}
 
-  def handle_info({:EXIT, _from, reason}, state),
+  defp info({:EXIT, _from, reason}, state),
     do: {:stop, {:shutdown, {:linked_exit, reason}}, state}
 
-  def handle_info(message, state) do
+  defp info(message, state) do
     Logger.warning("Connection ignored unexpected message: #{inspect(message, limit: 8)}")
     {:noreply, state}
   end
@@ -2943,12 +2955,8 @@ defmodule Valimc.Connection do
   end
 
   defp cancel_pose_job(state) do
-    if state.pose_job do
-      Process.exit(state.pose_job.task.pid, :kill)
-      Process.demonitor(state.pose_job.task.ref, [:flush])
-    end
-
-    %{state | pose_job: nil}
+    {_job, jobs} = Jobs.cancel(state.jobs, :pose)
+    %{state | jobs: jobs}
   end
 
   defp cancel_motion_job(state) do
@@ -3013,9 +3021,9 @@ defmodule Valimc.Connection do
     do: {PlayerPoseQuery.signature(state.player), state.pose_generation}
 
   defp sample_pose(
-         %{life_stage: :alive, pose_job: nil, motion_pending: nil, teleport_pending: false} =
-           state
-       ) do
+         %{life_stage: :alive, motion_pending: nil, teleport_pending: false, jobs: jobs} = state
+       )
+       when not is_map_key(jobs.active, :pose) do
     signature = pose_signature(state)
 
     active =
@@ -3031,7 +3039,10 @@ defmodule Valimc.Connection do
 
       case PlayerPoseQuery.start(state.player) do
         {:ok, task} ->
-          %{state | pose_job: %{task: task, signature: signature, deadline: deadline}}
+          {jobs, _job} =
+            Jobs.track(state.jobs, :pose, task, data: %{signature: signature, deadline: deadline})
+
+          %{state | jobs: jobs}
 
         {:error, _} ->
           state
@@ -5777,10 +5788,7 @@ defmodule Valimc.Connection do
     if state.motion_pending && state.motion_pending.retry,
       do: Process.cancel_timer(state.motion_pending.retry)
 
-    if state.pose_job do
-      Process.exit(state.pose_job.task.pid, :kill)
-      Process.demonitor(state.pose_job.task.ref, [:flush])
-    end
+    Jobs.cancel_all(state.jobs)
 
     if state.motion_job do
       Process.cancel_timer(state.motion_job.timer)

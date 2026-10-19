@@ -39,7 +39,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
     %{base: base, key: key, pose: pose, target: target, name: name, uuid: uuid}
   end
 
-  defp state(pid), do: :sys.get_state(pid)
+  defp state(pid), do: Valimc.TestConn.state(pid)
 
   defp wait(fun, attempts \\ 1000) do
     if result = fun.() do

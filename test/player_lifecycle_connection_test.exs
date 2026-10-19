@@ -61,7 +61,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
   defp saved(ctx, name),
     do: PlayerSnapshot.decode(File.read!(path(ctx, name)), Connection.offline_uuid(name))
 
-  defp state(pid), do: :sys.get_state(pid)
+  defp state(pid), do: Valimc.TestConn.state(pid)
 
   defp wait(fun, left \\ 400) do
     if value = fun.(),

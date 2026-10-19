@@ -54,7 +54,7 @@ defmodule Valimc.GameModeConnectionTest do
     Client.load_world(client)
   end
 
-  defp state(ctx), do: :sys.get_state(Enum.find(Players.all(), &(&1.name == ctx.name)).pid)
+  defp state(ctx), do: Valimc.TestConn.state(Enum.find(Players.all(), &(&1.name == ctx.name)).pid)
 
   defp wait(fun, attempts \\ 500) do
     if fun.(),

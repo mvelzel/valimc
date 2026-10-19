@@ -55,7 +55,7 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
     {client, player.pid}
   end
 
-  defp state(pid), do: :sys.get_state(pid)
+  defp state(pid), do: Valimc.TestConn.state(pid)
 
   defp wait(fun, left \\ 500) do
     if result = fun.() do

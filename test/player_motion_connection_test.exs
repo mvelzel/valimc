@@ -55,7 +55,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     {client, pid}
   end
 
-  defp state(pid), do: :sys.get_state(pid)
+  defp state(pid), do: Valimc.TestConn.state(pid)
 
   defp owner(name) do
     wait(fn ->

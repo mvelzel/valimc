@@ -464,3 +464,22 @@ defmodule Valimc.TestDisk do
     :ok
   end
 end
+
+defmodule Valimc.TestConn do
+  @moduledoc """
+  A connection's state for assertions, with legacy flat views of jobs that moved
+  into `Valimc.Session.Jobs` (e.g. `pose_job`), so tests stay independent of the
+  internal layout.
+  """
+  @legacy_jobs [pose: :pose_job]
+
+  def state(pid), do: view(:sys.get_state(pid))
+
+  def view(%{jobs: %Valimc.Session.Jobs{} = jobs} = state) do
+    Enum.reduce(@legacy_jobs, state, fn {kind, key}, acc ->
+      Map.put(acc, key, Valimc.Session.Jobs.get(jobs, kind))
+    end)
+  end
+
+  def view(state), do: state
+end

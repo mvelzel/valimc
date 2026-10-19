@@ -90,7 +90,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
     {client, pid}
   end
 
-  defp state(pid), do: :sys.get_state(pid)
+  defp state(pid), do: Valimc.TestConn.state(pid)
 
   defp park(pid) do
     :sys.replace_state(pid, fn state ->
