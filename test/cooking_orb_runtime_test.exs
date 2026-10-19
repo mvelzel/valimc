@@ -208,6 +208,30 @@ defmodule Valimc.CookingOrbRuntimeTest do
     RegionData.terminate(:injected, stopped)
   end
 
+  test "writer death after durability but before ACK restores exactly one unpublished materialization",
+       ctx do
+    state = seed(ctx) |> start() |> result()
+    pending = state.item_pending
+    assert {:ok, committed} = Store.load_containers(state.store)
+    assert committed == pending.containers and published(state) == %{}
+    writer = state.store
+    monitor = state.store_monitor
+    Process.exit(writer, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^writer, :killed} = down
+    assert {:stop, {:store_failed, :killed}, stopped} = RegionData.handle_info(down, state)
+    assert stopped.containers.cooking_orbs == %{} and published(stopped) == %{}
+    RegionData.terminate(:injected, stopped)
+    restored = RegionData.load(ctx.key) |> start() |> result()
+    assert restored.item_pending == nil and restored.containers == committed
+    assert map_size(published(restored)) == 2 and disk(ctx) == committed
+
+    assert {:noreply, ^restored} =
+             RegionData.handle_info({:containers_saved, writer, pending.token, :ok}, restored)
+
+    assert start(restored).cooking_orbs.job == nil
+    RegionData.terminate(:shutdown, restored)
+  end
+
   test "stale storage lease rejects an otherwise valid plan without publishing", ctx do
     state = seed(ctx) |> start()
     {:ok, current} = Store.load_containers(state.store)

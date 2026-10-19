@@ -1241,7 +1241,7 @@ defmodule Valimc.Connection do
           emit_peer_packets(%{state | item_replication: item_replication}, item_packets, :buffer)
 
         {orb_replication, orb_packets} =
-          EntityReplication.reconcile(
+          EntityReplication.reconcile_predicted(
             state.orb_replication,
             World.visible_orbs(state.regions, state.chunks)
           )

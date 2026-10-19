@@ -16,7 +16,7 @@ defmodule Valimc.World.CookingOrbRuntime do
       is_integer(runtime.retry_at) and now < runtime.retry_at ->
         state
 
-      runtime.ledger == state.containers.cooking_orbs and
+      map_size(runtime.ledger) == map_size(state.containers.cooking_orbs) and
           (map_size(state.containers.pending_awards) == map_size(runtime.ledger) or
              (runtime.seen == stamp and runtime.retry_at == nil)) ->
         state
@@ -288,7 +288,13 @@ defmodule Valimc.World.CookingOrbRuntime do
   end
 
   defp packet({id, body}), do: {id, IO.iodata_to_binary(body)}
-  defp stamp(containers), do: {containers.pending_awards, containers.cooking_orbs}
+  # Scheduling only: pending awards and frozen markers can only be appended in
+  # this staging lifecycle. Counts avoid scanning worker-copied ledgers every tick.
+  # Commit acceptance still fences the full immutable award and prior ledger.
+  # Consumption/handoff must introduce a revision when these sets become mutable.
+  defp stamp(containers),
+    do: {map_size(containers.pending_awards), map_size(containers.cooking_orbs)}
+
   defp owned?(key, {x, _, z}), do: Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == key
 
   defp retry(state, at),

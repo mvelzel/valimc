@@ -85,6 +85,40 @@ defmodule Valimc.EntityReplicationTest do
     assert {^next, []} = EntityReplication.reconcile(next, desired)
   end
 
+  test "predicted entities receive bounded rotating corrections even at unchanged revisions" do
+    desired = views(200)
+
+    tracked =
+      Enum.reduce(1..4, EntityReplication.new(), fn _, state ->
+        {next, packets} = EntityReplication.reconcile_predicted(state, desired)
+        assert length(packets) == 128
+        next
+      end)
+
+    assert map_size(tracked.tracked) == 200
+
+    {corrected, ids} =
+      Enum.reduce(1..4, {tracked, MapSet.new()}, fn _, {state, seen} ->
+        {next, packets} = EntityReplication.reconcile_predicted(state, desired)
+        assert length(packets) == 128
+
+        assert names(packets) ==
+                 List.duplicate(["entity_position_sync", "set_entity_motion"], 64)
+                 |> List.flatten()
+
+        assert next.tracked == tracked.tracked
+        assert Enum.reduce(packets, 0, &(Items.packet_bytes(&1) + &2)) <= 262_144
+
+        ids = for {_, bytes} <- packets, do: elem(Wire.take_varint(bytes), 0)
+        {next, MapSet.union(seen, MapSet.new(ids))}
+      end)
+
+    assert ids == MapSet.new(Map.keys(desired))
+    {cleared, [packet]} = EntityReplication.reconcile_predicted(corrected, %{})
+    assert cleared.tracked == %{}
+    assert names([packet]) == ["remove_entities"]
+  end
+
   test "the maximum visible population is paced and its removals fit one bounded batch" do
     desired = Enum.reduce(1..4, %{}, fn _, acc -> Map.merge(acc, views(256)) end)
     assert map_size(desired) == 1024

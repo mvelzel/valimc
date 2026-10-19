@@ -10,7 +10,12 @@ defmodule Valimc.World.EntityReplication do
   def new, do: %__MODULE__{}
   def max_visible, do: @max_visible
 
-  def reconcile(state, desired) when map_size(desired) <= @max_visible do
+  def reconcile(state, desired), do: reconcile(state, desired, false)
+
+  @doc "Continuously correct client-predicted motion within the same rotating batch budget."
+  def reconcile_predicted(state, desired), do: reconcile(state, desired, true)
+
+  defp reconcile(state, desired, predicted?) when map_size(desired) <= @max_visible do
     desired = newest_owners(desired)
 
     removed =
@@ -37,12 +42,12 @@ defmodule Valimc.World.EntityReplication do
             nil ->
               [view.spawn, view.metadata]
 
-            ^version ->
+            ^version when not predicted? ->
               []
 
             {_, {metadata_revision, motion_revision}} ->
               moved =
-                if motion_revision == view.motion_revision,
+                if motion_revision == view.motion_revision and not predicted?,
                   do: [],
                   else: [view.position, view.motion]
 
