@@ -8,6 +8,10 @@
       "index": 1,
       "serializer": 1
     },
+    "experience_value": {
+      "index": 8,
+      "serializer": 1
+    },
     "frozen_ticks": {
       "index": 7,
       "serializer": 1

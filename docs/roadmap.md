@@ -128,7 +128,9 @@ actual cooking/refusal/reconnect baseline pass; no live XP award claim.
 **Done within unused storage scope:** [pending cooking awards](tickets/VMC-034n2.md)
 at `65061b9`: atomic container/receipt/XP proposals, bounded version-4 snapshots,
 journal/owner recovery, competing views and actual retention through mining,
-cooking/refusals and full restart pass. Next: [owned orb materialization](tickets/VMC-034n3.md).
+cooking/refusals and full restart pass. In progress: [owned orb materialization](tickets/VMC-034n3.md),
+starting with the unused bounded ledger/co-snapshot kernel; runtime publication and
+cross-region handoff follow. Its kernel client regression gate is pending.
 Live XP/recipe delivery and earned-output withdrawal remain gated.
 
 [Live lava/burning](tickets/VMC-017b4a.md), [natural fire contacts](tickets/VMC-017b4b.md),

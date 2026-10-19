@@ -11,7 +11,7 @@ defmodule Valimc.ContainerStoreTest do
     PlayerSnapshot
   }
 
-  alias Valimc.World.{ContainerRequest, Containers, ContainerTransfers, Store}
+  alias Valimc.World.{ContainerRequest, Containers, ContainerTransfers, CookingOrbs, Store}
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -273,6 +273,29 @@ defmodule Valimc.ContainerStoreTest do
     assert {:error, :stale_store_lease} = Store.flush_containers(replacement, lease, before)
     assert {:ok, ^committed} = Store.load_containers(replacement)
     assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, :ok}}
-    assert :ok = Store.close(replacement, next_lease)
+
+    # Pure materialization is still unused by live exchanges. A leased writer
+    # commits the marker and all orb groups together, before any effect is allowed.
+    [id] = Map.keys(committed.pending_awards)
+    assert {:ok, materialized, :materialized} = CookingOrbs.materialize(committed, ctx.key, id)
+    token = make_ref()
+    Store.commit_containers(replacement, next_lease, materialized, {self(), epoch}, token)
+    assert {:ok, ^materialized} = Store.load_containers(replacement)
+    monitor = Process.monitor(replacement)
+    Process.exit(replacement, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^replacement, :killed}, 1000
+    assert {:ok, recovered, recovered_lease} = Store.open(ctx.key)
+    assert {:ok, ^materialized} = Store.load_containers(recovered)
+
+    assert {:ok, ^materialized, :already_materialized} =
+             CookingOrbs.materialize(materialized, ctx.key, id)
+
+    assert materialized.pending_awards === committed.pending_awards
+    assert materialized.receipts === committed.receipts
+    assert Enum.sum(for {_, orb} <- materialized.cooking_orbs[id], do: orb.value * orb.count) == 5
+    assert {:error, :stale_store_lease} = Store.flush_containers(recovered, next_lease, committed)
+    assert {:ok, ^materialized} = Store.load_containers(recovered)
+    assert_receive {:resource, ^epoch, {:containers_saved, ^replacement, ^token, :ok}}
+    assert :ok = Store.close(recovered, recovered_lease)
   end
 end

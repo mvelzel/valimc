@@ -7,6 +7,7 @@ defmodule Valimc.MiningStoreTest do
     Chunk,
     Containers,
     ContainerTransfers,
+    CookingOrbs,
     CookingBatch,
     ItemLedger,
     ItemRecords,
@@ -218,14 +219,28 @@ defmodule Valimc.MiningStoreTest do
     refute File.exists?(Store.mining_path(ctx.base, ctx.key))
   end
 
-  for kind <- [:chest, :cooking, :cooking_award] do
+  for kind <- [:chest, :cooking, :cooking_award, :cooking_orbs] do
     test "journal replay repairs every subset of three replaced output files for #{kind}",
          ctx do
       ctx =
         case unquote(kind) do
-          :chest -> container_proposal(ctx)
-          :cooking -> cooking_proposal(ctx)
-          :cooking_award -> cooking_award_proposal(ctx)
+          :chest ->
+            container_proposal(ctx)
+
+          :cooking ->
+            cooking_proposal(ctx)
+
+          :cooking_award ->
+            cooking_award_proposal(ctx)
+
+          :cooking_orbs ->
+            ctx = cooking_award_proposal(ctx)
+            [id] = Map.keys(ctx.proposal.containers.pending_awards)
+
+            {:ok, containers, :materialized} =
+              CookingOrbs.materialize(ctx.proposal.containers, ctx.key, id)
+
+            put_in(ctx.proposal.containers, containers)
         end
 
       {blocks, items, journal_path} = paths(ctx)
@@ -278,6 +293,12 @@ defmodule Valimc.MiningStoreTest do
 
   test "failed container replacement retains the joint journal and retires its writer", ctx do
     ctx = cooking_award_proposal(ctx)
+    [id] = Map.keys(ctx.proposal.containers.pending_awards)
+
+    {:ok, materialized, :materialized} =
+      CookingOrbs.materialize(ctx.proposal.containers, ctx.key, id)
+
+    ctx = put_in(ctx.proposal.containers, materialized)
     path = Store.container_path(ctx.base, ctx.key)
     File.rm!(path)
     File.mkdir!(path)

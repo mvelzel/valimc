@@ -5,7 +5,10 @@ defmodule Valimc.Protocol.EntityPackets do
   @max_entity_id 2_147_483_647
   @max_removals 4096
 
-  def spawn_item(%{entity_id: id, uuid: uuid, x: x, y: y, z: z} = entity) do
+  def spawn_item(entity), do: spawn(entity, "item")
+  def spawn_experience_orb(entity), do: spawn(entity, "experience_orb")
+
+  defp spawn(%{entity_id: id, uuid: uuid, x: x, y: y, z: z} = entity, type) do
     entity_id!(id)
     check(is_binary(uuid) and byte_size(uuid) == 16, "invalid entity UUID")
 
@@ -20,14 +23,14 @@ defmodule Valimc.Protocol.EntityPackets do
     Packets.packet("add_entity", [
       Wire.varint(id),
       uuid,
-      Wire.varint(EntityTypes.id("item")),
+      Wire.varint(EntityTypes.id(type)),
       <<x::float-64, y::float-64, z::float-64>>,
       PackedVelocity.encode(Map.get(entity, :velocity, {0.0, 0.0, 0.0})),
       <<pitch, yaw, yaw, 0>>
     ])
   end
 
-  def spawn_item(_), do: raise(ArgumentError, "invalid item entity")
+  defp spawn(_, _), do: raise(ArgumentError, "invalid entity")
 
   def metadata(id, changes) do
     entity_id!(id)
@@ -126,7 +129,8 @@ defmodule Valimc.Protocol.EntityPackets do
               :frozen_ticks,
               :health,
               :absorption,
-              :air_supply
+              :air_supply,
+              :experience_value
             ] do
     fact = EntityTypes.field(name)
 
@@ -153,6 +157,10 @@ defmodule Valimc.Protocol.EntityPackets do
 
         :air_supply ->
           check(Valimc.PlayerAir.valid?(value), "invalid air supply")
+          Wire.varint(value)
+
+        :experience_value ->
+          check(is_integer(value) and value in 1..2_147_483_647, "invalid experience value")
           Wire.varint(value)
 
         :health ->

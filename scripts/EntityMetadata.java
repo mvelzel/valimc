@@ -9,6 +9,7 @@ import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializer;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
@@ -40,6 +41,7 @@ public class EntityMetadata {
     fields.put("air_supply", accessor(Entity.class, "DATA_AIR_SUPPLY_ID"));
     fields.put("no_gravity", accessor(Entity.class, "DATA_NO_GRAVITY"));
     fields.put("item_stack", accessor(ItemEntity.class, "DATA_ITEM"));
+    fields.put("experience_value", accessor(ExperienceOrb.class, "DATA_VALUE"));
     fields.put("pose", accessor(Entity.class, "DATA_POSE"));
     fields.put("frozen_ticks", accessor(Entity.class, "DATA_TICKS_FROZEN"));
     fields.put("health", accessor(LivingEntity.class, "DATA_HEALTH_ID"));

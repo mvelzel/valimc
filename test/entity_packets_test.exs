@@ -59,6 +59,32 @@ defmodule Valimc.EntityPacketsTest do
     end
   end
 
+  test "XP uses its native entity type and positive integer value metadata" do
+    e = entity()
+    packet = EntityPackets.spawn_experience_orb(e)
+    {300, <<uuid::binary-size(16), rest::binary>>} = Wire.take_varint(payload(packet))
+    assert uuid == e.uuid
+    {type, rest} = Wire.take_varint(rest)
+    assert type == EntityTypes.id("experience_orb") and type != EntityTypes.id("item")
+    {_id, <<_::128, item_tail::binary>>} = Wire.take_varint(payload(EntityPackets.spawn_item(e)))
+    {_, item_rest} = Wire.take_varint(item_tail)
+    assert item_rest == rest
+    assert EntityTypes.field(:experience_value) == %{"index" => 8, "serializer" => 1}
+
+    for value <- [1, 3, 2477, 2_147_483_647] do
+      assert payload(EntityPackets.metadata(300, experience_value: value)) ==
+               Wire.varint(300) <> <<8, 1>> <> Wire.varint(value) <> <<255>>
+    end
+
+    for value <- [0, -1, 2_147_483_648, 3.0, nil] do
+      assert_raise ArgumentError, fn -> EntityPackets.metadata(300, experience_value: value) end
+    end
+
+    for bad <- [%{}, %{e | uuid: <<0>>}, %{e | x: 30_000_000}, %{e | entity_id: 0}] do
+      assert_raise ArgumentError, fn -> EntityPackets.spawn_experience_orb(bad) end
+    end
+  end
+
   test "metadata uses pinned accessor types and preserves exact accepted stack bytes" do
     stack = %{
       ItemStack.new("stone", 7)
