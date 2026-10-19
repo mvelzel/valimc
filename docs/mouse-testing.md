@@ -2,6 +2,7 @@
 
 Launch Java 26.3 with `scripts/minecraft_client.py`; see [client testing](client-testing.md).
 App ID `local.valimc.minecraft-client`; one dedicated testing subagent owns CUA.
+Harness-specific tools are listed in [client testing](client-testing.md#harness-tools).
 
 Its local SDL backend consumes event positions for menu targeting and camera
 deltas. Desktop cursor warps, association, visibility changes and confinement are
@@ -26,7 +27,8 @@ Start a new direct client after rebuilding. Startup prints
 
 ## Use and verification
 
-Use `mcp__cua_repl` for every UI action. The tester checks ordinary menu clicks,
+Use the harness's computer-use tool (Codex `mcp__cua_repl`) or the input bridge for
+every UI action. The tester checks ordinary menu clicks,
 inventory pickup/place, opposite camera drags, commands and fresh logs. Reconnect
 by stopping the owned process and launching a fresh direct client, never a menu.
 Camera `drag` holds a button and can mine blocks; use the disposable test world.
@@ -37,6 +39,23 @@ released. These dedicated adapter gestures never touch the desktop pointer.
 Do not add desktop-position diagnostics, cursor assertions or compatibility modes.
 Keyboard input can still activate Minecraft; this backend isolates pointer
 handling and does not promise foreground isolation.
+
+## Input bridge
+
+When `VALIMC_INPUT_SOCKET` is set, which `minecraft_client.py` always does, the backend also listens on
+`.local/minecraft-input.sock`. `scripts/minecraft_input.py` sends a batch of commands
+(click, drag, look, press/down/up, scroll, key/keydown/keyup, type, wait, release,
+state). The game consumes them as SDL events on its own event pump, with logical
+window focus and without activating the app or touching the desktop pointer or
+keyboard. Coordinates are window-screenshot points, title bar included. It adds a
+channel; Cocoa event handling and the F8/F9 toggles are unchanged. Batches are
+bounded (16 KiB, 512 actions, 60 s), and the socket is owner-only and removed on stop.
+Minecraft discards the first motion after the pointer enters or the mouse is
+captured; the bridge spends those discards on no-op motions so `look` stays exact.
+It also separates a click's move from its press by 100 ms, so closing a screen
+does not turn the camera. The patched Cocoa path still sees the user's real cursor when it
+crosses the visible test window, so leave that window covered or out of the way.
+[VMC-003e](tickets/VMC-003e.md) records its validation.
 
 [VMC-003b](tickets/VMC-003b.md) records the current implementation and GUI gate.
 Older input investigation is retained in Git history and [VMC-003](tickets/VMC-003.md).

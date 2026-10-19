@@ -55,8 +55,9 @@ Replace superseded instructions; keep checkpoint-specific evidence in tickets.
   continuing independent work. Do not repeat them per commit. Use meaningful
   boundary regressions.
 - Always delegate actual Minecraft validation to one dedicated testing subagent.
-  Use medium reasoning with a focused fresh handoff (`reasoning_effort: "medium"`,
-  `fork_turns: "none"`). Only it drives CUA; the primary continues independent work.
+  Use medium reasoning with a focused fresh handoff (Codex: `reasoning_effort:
+  "medium"`, `fork_turns: "none"`; Claude Code: the `minecraft-tester` agent).
+  Only it drives CUA; the primary continues independent work.
   Hand off exact checkpoint/release, dataset, scenarios and evidence paths.
   Coordinate restarts and fixtures; never replace a release under test.
 - The tester owns actual-client verification and reports PASS/FAIL per scenario,
@@ -67,13 +68,13 @@ Replace superseded instructions; keep checkpoint-specific evidence in tickets.
   Use CUA observations as needed. Routine saved screenshots and image hashes are
   unnecessary; save images only for useful failure diagnosis or when requested.
 - Launch Java 26.3 directly with `scripts/minecraft_client.py --evidence
-  .local/client-tests/TICKET/run-01` in a tracked terminal session with native macOS
-  GUI access (`tty: true`, `sandbox_permissions: "require_escalated"`). It joins only
-  local ValiMC using Quick Play, a fresh game directory and the dedicated SDL app
-  `local.valimc.minecraft-client`. Test through `mcp__cua_repl`, then Ctrl-C/wait
-  for that session to shut down its JVM. Reconnect means a fresh launch; never use
-  the Launcher, saved-server list or manual connection menus. Keep the default
-  small windowed size; do not maximize. Try even while the
+  .local/client-tests/TICKET/run-01` as a tracked background process with native
+  macOS GUI access. It joins only local ValiMC using Quick Play, a fresh game
+  directory and the dedicated SDL app `local.valimc.minecraft-client`. Test in the
+  background with the harness tools in [client testing](docs/client-testing.md),
+  then interrupt that process and wait for it to shut down its JVM. Reconnect
+  means a fresh launch; never use the Launcher, saved-server list or manual
+  connection menus. Keep the default small windowed size; do not maximize. Try even while the
   Mac is locked; access is authorized. Unavailable CUA leaves the gate pending,
   not the backlog halted. Repair the prerequisite while independent work continues.
 - The dedicated SDL pointer backend is mandatory: no modes, fallbacks, backward

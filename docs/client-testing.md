@@ -1,7 +1,7 @@
 # Actual Minecraft validation
 
 Use Minecraft **Java 26.3 / protocol 777**, app ID `local.valimc.minecraft-client`.
-One dedicated testing subagent drives `mcp__cua_repl`; the primary continues work.
+One dedicated testing subagent drives the client; the primary continues work.
 Read the tool's current documentation, not copied API snippets.
 
 Launch a fresh client directly into the test server:
@@ -10,8 +10,8 @@ Launch a fresh client directly into the test server:
 /usr/bin/python3 scripts/minecraft_client.py --evidence .local/client-tests/TICKET/run-01
 ```
 
-Run this in a tracked `exec_command` session with `tty: true` and native macOS GUI
-access (`sandbox_permissions: "require_escalated"` on this host). The helper uses the
+Run it as a tracked background process with native macOS GUI access (see the
+harness table below). The helper uses the
 installed official jars/assets, dedicated SDL wrapper and fixed loopback Quick
 Play address. It creates a fresh game directory and uses the offline test identity
 `ValiMCTest`; the local test server must use offline mode. Account files and normal
@@ -19,10 +19,29 @@ client settings are untouched. Console/game logs and fingerprints stay in the ru
 Keep the default small windowed size and automatic UI scale; do not maximize or enter fullscreen.
 The dedicated client starts muted (`soundCategory_master:0.0`).
 
-After testing, Ctrl-C the owning terminal session with `write_stdin` and wait for
-its completion; the helper terminates/waits for its own JVM. Confirm zero server
-players. Reconnect tests stop the process and launch again with `run-02`, retaining
+After testing, interrupt the owning process and wait for its completion; the
+helper terminates/waits for its own JVM and removes the input socket. Confirm zero
+server players. Reconnect tests stop the process and launch again with `run-02`, retaining
 the server dataset. Never use the Launcher or navigate connection/server menus.
+
+## Harness tools
+
+Both harnesses test in the background while the user keeps using the Mac.
+
+| | Codex | Claude Code |
+|---|---|---|
+| Tester | subagent, `reasoning_effort: "medium"`, `fork_turns: "none"` | `minecraft-tester` agent |
+| Launch | `exec_command`, `tty: true`, `sandbox_permissions: "require_escalated"` | Bash `run_in_background: true` |
+| Stop | Ctrl-C through `write_stdin` | TaskStop |
+| Observe | `mcp__cua_repl` | `mcp__computer-use__app_screenshot` (background only) |
+| Input | `mcp__cua_repl` | `scripts/minecraft_input.py` |
+
+Claude Code's background computer-use tools refuse input to the OpenGL window, and
+its full-screen tools would take over the user's screen and fail inside subagents.
+Its tester therefore sends input through the client's in-process
+[input bridge](mouse-testing.md#input-bridge) and observes with background window
+screenshots. It launches with `--no-activate`, so the user's app stays in front.
+Codex launches without that flag, so its launch is unchanged.
 
 ## Handoff and evidence
 

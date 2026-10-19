@@ -16,6 +16,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 INSTALLED = pathlib.Path.home() / "Library/Application Support/minecraft"
 APP = ROOT / ".local/Minecraft Client.app/Contents/MacOS/java"
 SDL = ROOT / ".local/sdl-mouse-build/libSDL3.dylib"
+INPUT = ROOT / ".local/minecraft-input.sock"
 VERSION = "26.3"
 TARGET = "127.0.0.1:25565"
 PLAYER = "ValiMCTest"
@@ -78,6 +79,7 @@ def command(run):
     arguments += expand(data["arguments"]["game"])
     details = {"minecraft": VERSION, "protocol": 777, "target": TARGET,
                "player": PLAYER, "uuid": str(offline_uuid), "game_directory": values["game_directory"],
+               "input_socket": str(INPUT),
                "fingerprints": {str(p): hashlib.sha256(p.read_bytes()).hexdigest()
                                 for p in [metadata, jar, APP, SDL]}}
     return arguments, details
@@ -87,6 +89,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evidence", required=True, type=pathlib.Path,
                         help="Fresh run directory under .local/client-tests/")
+    parser.add_argument("--no-activate", action="store_true",
+                        help="Open the window without taking focus from the user's app")
     args = parser.parse_args()
     if sys.platform != "darwin":
         raise SystemExit("The dedicated test client requires macOS")
@@ -96,6 +100,7 @@ def main():
     with (ROOT / ".local/minecraft-test-client.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         arguments, details = command(run)
+        details["activates_window"] = not args.no_activate
         run.mkdir(parents=True, exist_ok=False)
         (run / "game").mkdir()
         for name in ["java", "jna", "lwjgl", "netty"]:
@@ -110,8 +115,14 @@ def main():
 
         signal.signal(signal.SIGTERM, stop)
         with (run / "console.log").open("w") as log:
+            # The patched SDL serves scripts/minecraft_input.py here; computer-use input is unchanged.
+            environment = {**os.environ, "VALIMC_INPUT_SOCKET": str(INPUT)}
+            if args.no_activate:
+                environment |= {"SDL_MAC_BACKGROUND_APP": "1", "SDL_WINDOW_ACTIVATE_WHEN_SHOWN": "0",
+                                "SDL_WINDOW_ACTIVATE_WHEN_RAISED": "0"}
             process = subprocess.Popen(arguments, cwd=run / "game", stdin=subprocess.DEVNULL,
-                                       stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+                                       stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
+                                       env=environment)
             details["pid"] = process.pid
             (run / "client.json").write_text(json.dumps(details, indent=2) + "\n")
             print(f"Test client PID {process.pid} → {TARGET}; Ctrl-C this session to stop it", flush=True)
@@ -128,6 +139,8 @@ def main():
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait()
+                if INPUT.is_socket():
+                    INPUT.unlink()
                 details["exit_code"] = process.returncode
                 (run / "client.json").write_text(json.dumps(details, indent=2) + "\n")
                 print(f"Test client stopped (exit {process.returncode})", flush=True)

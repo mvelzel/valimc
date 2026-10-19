@@ -10,8 +10,16 @@ import subprocess
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "research/tools/SDL"
 REVISION = "ab5541ec5d4377dcc20a701897437f07ba71566f"
-HEADER = "src/video/cocoa/SDL_cocoacua.h"
+HEADERS = {"src/video/cocoa/SDL_cocoacua.h": "scripts/native/valimc_cua.h",
+           "src/video/cocoa/SDL_cocoainput.h": "scripts/native/valimc_input.h"}
 CHANGES = [
+    # Socket input bridge for harnesses that cannot send background window input.
+    ("src/video/cocoa/SDL_cocoaevents.m", '#include "../../events/SDL_events_c.h"\n',
+     '#include "../../events/SDL_events_c.h"\n#include "SDL_cocoainput.h"\n'),
+    ("src/video/cocoa/SDL_cocoaevents.m",
+     "int Cocoa_PumpEventsUntilDate(SDL_VideoDevice *_this, NSDate *expiration, bool accumulate)\n{\n",
+     "int Cocoa_PumpEventsUntilDate(SDL_VideoDevice *_this, NSDate *expiration, bool accumulate)\n{\n"
+     "    ValimcPumpInput(_this);\n\n"),
     ("src/video/cocoa/SDL_cocoakeyboard.m", '#include "../../events/SDL_keyboard_c.h"\n',
      '#include "../../events/SDL_keyboard_c.h"\n#include "../../events/SDL_mouse_c.h"\n'),
     ("src/video/cocoa/SDL_cocoakeyboard.m", "    switch ([event type]) {\n",
@@ -113,11 +121,14 @@ def main():
         patched[name] = patched[name].replace(anchor, replacement, 1)
     for name, text in patched.items():
         if (SOURCE / name).read_text() not in (originals[name], text):
-            raise SystemExit(f"Preserving unexpected SDL edits: {name}")
-    header = (ROOT / "scripts/native/valimc_cua.h").read_text()
-    if (SOURCE / HEADER).exists() and (SOURCE / HEADER).read_text() != header:
-        raise SystemExit("Preserving unexpected SDL adapter header")
-    for name, text in {**patched, HEADER: header}.items():
+            raise SystemExit(f"Preserving unexpected SDL edits: {name} (if it only holds an older "
+                             f"ValiMC patch, restore it with git -C {SOURCE} checkout -- {name})")
+    headers = {name: (ROOT / source).read_text() for name, source in HEADERS.items()}
+    for name, header in headers.items():
+        if (SOURCE / name).exists() and (SOURCE / name).read_text() != header:
+            # Generated adapter headers carry no upstream content; refresh them from scripts/native.
+            print(f"Refreshing SDL adapter header {name}")
+    for name, text in {**patched, **headers}.items():
         (SOURCE / name).write_text(text)
     print("Prepared internal-pointer SDL backend; rebuild the dedicated client library")
 
