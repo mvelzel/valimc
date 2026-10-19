@@ -1,5 +1,7 @@
 defmodule Valimc.PlayerMotionQueryTest do
   use ExUnit.Case, async: false
+  # Serial: asserts production latency deadlines that concurrent CPU load can exceed.
+  alias Valimc.TestScope
   alias Valimc.{GameMode, PlayerAbilities, PlayerInput, PlayerMotionQuery, World}
 
   setup do
@@ -19,7 +21,7 @@ defmodule Valimc.PlayerMotionQueryTest do
 
     on_exit(fn ->
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+          do: TestScope.kill(pid)
     end)
 
     %{player: player, key: key}

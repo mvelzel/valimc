@@ -1,5 +1,7 @@
 defmodule Valimc.WorldItemsTest do
   use ExUnit.Case, async: false
+  # Serial: asserts the global count of live region owners.
+  alias Valimc.TestScope
   alias Valimc.World
   alias Valimc.World.{Items, Region}
   alias Valimc.Protocol.{ItemStack, Wire}
@@ -98,7 +100,7 @@ defmodule Valimc.WorldItemsTest do
     {:ok, {pid, epoch} = owner} = World.item_owner(key)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+      if Process.alive?(pid), do: TestScope.kill(pid)
     end)
 
     {:ok, {^pid, ^epoch, id, 1} = handle} =

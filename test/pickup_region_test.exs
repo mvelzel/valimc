@@ -1,5 +1,6 @@
 defmodule Valimc.PickupRegionTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   alias Valimc.{GameMode, Inventory, ItemMotionState, PlayerFood, PlayerSnapshot, PlayerStore}
   alias Valimc.{TransferDelivery, World}
   alias Valimc.Protocol.ItemStack
@@ -10,10 +11,9 @@ defmodule Valimc.PickupRegionTest do
     key = {51000 + rem(n, 10000), 1200}
     base = Path.join(System.tmp_dir!(), "valimc-pickup-region-#{n}")
     File.mkdir_p!(base)
-    previous = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
     uuid = <<n::64, 1::64>>
     second = <<n::64, 3::64>>
+    TestScope.isolate([key, uuid, second], world_path: base)
     x = elem(key, 0) * 128 + 8.5
     z = elem(key, 1) * 128 + 8.5
 
@@ -57,18 +57,17 @@ defmodule Valimc.PickupRegionTest do
     on_exit(fn ->
       for source <- [uuid, second],
           {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, source),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
+          do: TestScope.kill(pid)
 
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key) do
         store = state({pid, nil}).store
         if Process.alive?(store), do: :sys.resume(store)
-        DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+        TestScope.kill(pid)
       end
 
       for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, previous)
       File.rm_rf!(base)
     end)
 

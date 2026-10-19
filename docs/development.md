@@ -16,8 +16,9 @@ locate details. Feature evidence belongs in `tickets/VMC-*.md`.
 
 ## Checks
 
-The full suite takes about 2.5 minutes and `mix test.fast` about one minute, so
-neither is a routine check. Choose the smallest check that covers the change.
+On a 10-core Mac `mix test.fast` takes about 30 seconds and the full suite about
+100 seconds, most of it the serial socket suites; neither is a routine check.
+Choose the smallest check that covers the change.
 
 | Change | Run |
 |---|---|
@@ -39,6 +40,15 @@ mix test --stale
 run. Untrusted-input decoders get StreamData properties (`test/codec_property_test.exs`;
 `STREAM_RUNS=5000` for a deeper run). Micro-benchmarks use Benchee (`bench/*.exs`);
 scenario benchmarks of a running server stay custom. `mix test.fast` runs everything except the socket suites (`@moduletag :tcp`). Each test run uses a private temporary directory.
+
+Tests that start region owners or player stores run `async: true` with unique
+region keys: `Valimc.TestScope.isolate/2` gives the owners of those keys (and
+player UUIDs) a private world path or simulation toggle, read through
+`Valimc.config/2`, instead of changing app env. Cleanup uses `TestScope.kill/1`,
+since a graceful `terminate_child` holds the shared supervisor. Modules stay
+`async: false` when they saturate a global worker pool, assert global `Metrics`
+or owner counts, assert production latency deadlines, change global clock state,
+or drive sockets; the comment under `use ExUnit.Case` says which.
 
 Rust code lives in `native/` (`valimc_core` pure crate, `valimc_nif` Rustler shim,
 built by `use Rustler` in `Valimc.Native`). Run `cargo fmt --check` there too.

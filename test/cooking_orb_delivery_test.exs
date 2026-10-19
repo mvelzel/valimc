@@ -1,5 +1,7 @@
 defmodule Valimc.CookingOrbDeliveryTest do
   use ExUnit.Case, async: false
+  # Serial: saturates a global worker pool that concurrent owners also use.
+  alias Valimc.TestScope
   alias Valimc.CookingAwards
   alias Valimc.Protocol.ItemStack
   alias Valimc.World
@@ -23,20 +25,15 @@ defmodule Valimc.CookingOrbDeliveryTest do
     dest = {elem(source, 0) + 1, elem(source, 1)}
     peer = {elem(source, 0) + 2, elem(source, 1)}
     base = Path.join(System.tmp_dir!(), "valimc-orb-delivery-#{nonce}")
-    previous = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
+    TestScope.isolate(TestScope.neighborhood(dest, 2), world_path: base)
     File.mkdir_p!(base)
 
     on_exit(fn ->
-      for {registry, supervisor} <- [
-            {Valimc.RegionRegistry, Valimc.RegionSupervisor},
-            {Valimc.RegionStoreRegistry, Valimc.RegionStoreSupervisor}
-          ],
+      for registry <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
           key <- [source, dest, peer],
           {pid, _} <- Registry.lookup(registry, key),
-          do: DynamicSupervisor.terminate_child(supervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, previous)
       File.rm_rf!(base)
     end)
 

@@ -1,15 +1,15 @@
 defmodule Valimc.PlacementOwnerTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   alias Valimc.{PlayerPlacementQuery, World}
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.Region
 
   setup do
     nonce = System.unique_integer([:positive])
-    previous = Valimc.config(:world_path)
     path = Path.join(System.tmp_dir!(), "valimc-place-owner-#{nonce}")
-    Application.put_env(:valimc, :world_path, path)
     key = {60_000 + rem(nonce, 10_000), 1700}
+    TestScope.isolate(TestScope.neighborhood(key), world_path: path)
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16
     position = {rx * span + 40, 64, rz * span + 40}
@@ -17,9 +17,8 @@ defmodule Valimc.PlacementOwnerTest do
 
     on_exit(fn ->
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, previous)
       File.rm_rf!(path)
     end)
 

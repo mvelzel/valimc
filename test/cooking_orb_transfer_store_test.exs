@@ -1,5 +1,6 @@
 defmodule Valimc.CookingOrbTransferStoreTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   alias Valimc.CookingAwards
 
   alias Valimc.World.{
@@ -18,8 +19,7 @@ defmodule Valimc.CookingOrbTransferStoreTest do
     source = {31_000 + rem(nonce, 1000), 1191}
     dest = {elem(source, 0) + 1, 1191}
     base = Path.join(System.tmp_dir!(), "valimc-orb-transfer-#{nonce}")
-    previous = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
+    TestScope.isolate([source, dest], world_path: base)
     File.mkdir_p!(base)
     player = <<71::128>>
     digest = :crypto.hash(:sha256, "remote XP fixture")
@@ -45,9 +45,8 @@ defmodule Valimc.CookingOrbTransferStoreTest do
     on_exit(fn ->
       for key <- [source, dest],
           {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, previous)
       File.rm_rf!(base)
     end)
 

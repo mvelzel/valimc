@@ -1,5 +1,7 @@
 defmodule Valimc.ItemSimulationTest do
   use ExUnit.Case, async: false
+  # Serial: saturates a global geometry worker pool that concurrent owners also use.
+  alias Valimc.TestScope
   alias Valimc.{ItemMotionState, ItemSimulation, World}
 
   setup do
@@ -8,7 +10,7 @@ defmodule Valimc.ItemSimulationTest do
 
     on_exit(fn ->
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+          do: TestScope.kill(pid)
     end)
 
     %{key: key, owner: owner}

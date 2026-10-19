@@ -1,5 +1,6 @@
 defmodule Valimc.PlacementRegionTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   import ExUnit.CaptureLog
   alias Valimc.World
 
@@ -16,9 +17,8 @@ defmodule Valimc.PlacementRegionTest do
   setup do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-placement-region-#{nonce}")
-    previous = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
     key = {20_000 + rem(nonce, 10_000), 700}
+    TestScope.isolate(key, world_path: base)
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16
     position = {rx * span, 64, rz * span}
@@ -32,9 +32,8 @@ defmodule Valimc.PlacementRegionTest do
 
     on_exit(fn ->
       for {live, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, live)
+          do: TestScope.kill(live)
 
-      Application.put_env(:valimc, :world_path, previous)
       File.rm_rf!(base)
     end)
 

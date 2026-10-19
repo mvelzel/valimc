@@ -1,5 +1,6 @@
 defmodule Valimc.ItemCheckpointsTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   import ExUnit.CaptureLog
   alias Valimc.{ItemMotionState, World}
   alias Valimc.Protocol.ItemStack
@@ -8,9 +9,8 @@ defmodule Valimc.ItemCheckpointsTest do
   setup do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-item-checkpoints-#{nonce}")
-    old = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
     key = {20_000 + rem(nonce, 10_000), 320}
+    TestScope.isolate(key, world_path: base)
     {:ok, {pid, _} = owner} = World.item_owner(key)
     {rx, rz} = key
     position = {rx * 128 + 8.5, 65.5, rz * 128 + 8.5}
@@ -31,9 +31,8 @@ defmodule Valimc.ItemCheckpointsTest do
 
     on_exit(fn ->
       for {live, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, live)
+          do: TestScope.kill(live)
 
-      Application.put_env(:valimc, :world_path, old)
       File.rm_rf!(base)
     end)
 

@@ -1,5 +1,6 @@
 defmodule Valimc.RegionTickTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   alias Valimc.World
   alias Valimc.World.{Region, TickClock}
 
@@ -64,13 +65,13 @@ defmodule Valimc.RegionTickTest do
     key = {-651, -651}
     {:ok, {old, _}} = World.owner(key)
     old_token = :sys.get_state(old).tick_clock.token
-    :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, old)
+    :ok = TestScope.kill(old)
     {:ok, {replacement, epoch}} = World.owner(key)
     {:ok, {independent, other_epoch}} = World.owner({-652, -652})
 
     on_exit(fn ->
       for pid <- [replacement, independent],
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+          do: TestScope.kill(pid)
     end)
 
     state = hold_deadline(replacement)

@@ -1,5 +1,6 @@
 defmodule Valimc.BlockObservationTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   alias Valimc.World
   alias Valimc.World.Region
 
@@ -10,16 +11,14 @@ defmodule Valimc.BlockObservationTest do
         "valimc-block-observation-#{System.unique_integer([:positive])}"
       )
 
-    old = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, path)
     key = {-310, -310}
+    TestScope.isolate(TestScope.neighborhood(key), world_path: path)
     {:ok, owner} = World.owner(key)
 
     on_exit(fn ->
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, old)
       File.rm_rf!(path)
     end)
 
@@ -158,7 +157,7 @@ defmodule Valimc.BlockObservationTest do
 
     on_exit(fn ->
       if Process.alive?(other),
-        do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, other)
+        do: TestScope.kill(other)
     end)
 
     :sys.suspend(pid)

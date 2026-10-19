@@ -1,5 +1,6 @@
 defmodule Valimc.ItemLedgerStoreTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.{Data, ItemStack}
   alias Valimc.World
@@ -11,8 +12,7 @@ defmodule Valimc.ItemLedgerStoreTest do
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16
     base = Path.join(System.tmp_dir!(), "valimc-item-ledger-#{nonce}")
-    previous = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
+    TestScope.isolate(TestScope.neighborhood(key), world_path: base)
     File.mkdir_p!(base)
 
     record = %{
@@ -55,13 +55,12 @@ defmodule Valimc.ItemLedgerStoreTest do
     on_exit(fn ->
       for region <- [key, destination],
           {pid, _} <- Registry.lookup(Valimc.RegionRegistry, region),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+          do: TestScope.kill(pid)
 
       for region <- [key, destination],
           {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, region),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, previous)
       File.rm_rf!(base)
     end)
 

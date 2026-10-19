@@ -1,5 +1,7 @@
 defmodule Valimc.ItemMergeRegionTest do
   use ExUnit.Case, async: false
+  # Serial: saturates a global worker pool that concurrent owners also use.
+  alias Valimc.TestScope
   import ExUnit.CaptureLog
   alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
   alias Valimc.World.{ItemLedger, Items, Region}
@@ -9,10 +11,11 @@ defmodule Valimc.ItemMergeRegionTest do
     key = {41000 + rem(n, 10000), 900}
     base = Path.join(System.tmp_dir!(), "valimc-item-merge-#{n}")
     File.mkdir_p!(base)
-    previous = Valimc.config(:world_path)
-    previous_simulation = Valimc.config(:item_simulation)
-    Application.put_env(:valimc, :item_simulation, Map.get(tags, :simulation, false))
-    Application.put_env(:valimc, :world_path, base)
+
+    TestScope.isolate(key,
+      world_path: base,
+      item_simulation: Map.get(tags, :simulation, false)
+    )
 
     records =
       for i <- 1..2,
@@ -37,14 +40,12 @@ defmodule Valimc.ItemMergeRegionTest do
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key) do
         state = Valimc.TestConn.state(pid).resource
         if Process.alive?(state.store), do: :sys.resume(state.store)
-        DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+        TestScope.kill(pid)
       end
 
       for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, previous)
-      Application.put_env(:valimc, :item_simulation, previous_simulation)
       File.rm_rf!(base)
     end)
 

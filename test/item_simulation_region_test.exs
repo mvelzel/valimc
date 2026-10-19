@@ -1,5 +1,7 @@
 defmodule Valimc.ItemSimulationRegionTest do
   use ExUnit.Case, async: false
+  # Serial: asserts deltas of global Metrics counters other owners also bump.
+  alias Valimc.TestScope
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.ItemStack
   alias Valimc.World
@@ -9,9 +11,7 @@ defmodule Valimc.ItemSimulationRegionTest do
     nonce = System.unique_integer([:positive])
     key = {60_000 + rem(nonce, 1000), 2000}
     base = Path.join(System.tmp_dir!(), "valimc-item-simulation-#{nonce}")
-    previous = {Valimc.config(:world_path), Valimc.config(:item_simulation)}
-    Application.put_env(:valimc, :world_path, base)
-    Application.put_env(:valimc, :item_simulation, true)
+    TestScope.isolate(TestScope.neighborhood(key), world_path: base, item_simulation: true)
     File.mkdir_p!(base)
     {rx, rz} = key
     motion = Map.get(tags, :motion, %ItemMotionState{})
@@ -44,16 +44,13 @@ defmodule Valimc.ItemSimulationRegionTest do
     {:ok, owner} = World.item_owner(key)
 
     on_exit(fn ->
-      Application.put_env(:valimc, :item_simulation, elem(previous, 1))
-
       for x <- (rx - 1)..(rx + 1),
           z <- (rz - 1)..(rz + 1),
           {pid, _} <- Registry.lookup(Valimc.RegionRegistry, {x, z}) do
         :sys.resume(pid)
-        DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+        TestScope.kill(pid)
       end
 
-      Application.put_env(:valimc, :world_path, elem(previous, 0))
       File.rm_rf!(base)
     end)
 

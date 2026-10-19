@@ -1,5 +1,6 @@
 defmodule Valimc.CookingEntryRegionTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   alias Valimc.{Cooking, World}
   alias Valimc.Protocol.{Data, ItemStack}
   alias Valimc.World.{Containers, Region}
@@ -12,14 +13,12 @@ defmodule Valimc.CookingEntryRegionTest do
     pos = {rx * span + 40, 64, rz * span + 40}
     blank = {elem(pos, 0) + 1, 64, elem(pos, 2)}
     base = Path.join(System.tmp_dir!(), "valimc-cooking-entry-#{nonce}")
-    previous = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
+    TestScope.isolate(key, world_path: base)
 
     on_exit(fn ->
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, previous)
       File.rm_rf!(base)
     end)
 

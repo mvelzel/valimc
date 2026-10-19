@@ -1,5 +1,6 @@
 defmodule Valimc.ItemCrossMergeRegionTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   import ExUnit.CaptureLog
   alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
   alias Valimc.World.{ItemLedger, ItemMergeTransfer, Items, Region}
@@ -10,8 +11,7 @@ defmodule Valimc.ItemCrossMergeRegionTest do
     destination = {elem(key, 0) + 1, elem(key, 1)}
     base = Path.join(System.tmp_dir!(), "valimc-cross-merge-#{n}")
     File.mkdir_p!(base)
-    previous = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
+    TestScope.isolate(TestScope.neighborhood(key, 2), world_path: base)
 
     donor = %{
       uuid: <<n::64, 1::64>>,
@@ -48,14 +48,13 @@ defmodule Valimc.ItemCrossMergeRegionTest do
         for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, k) do
           writer = Valimc.TestConn.state(pid).resource.store
           if Process.alive?(writer), do: :sys.resume(writer)
-          DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+          TestScope.kill(pid)
         end
 
         for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, k),
-            do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
+            do: TestScope.kill(pid)
       end
 
-      Application.put_env(:valimc, :world_path, previous)
       File.rm_rf!(base)
     end)
 
@@ -455,10 +454,10 @@ defmodule Valimc.ItemCrossMergeRegionTest do
 
     on_exit(fn ->
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, third_key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+          do: TestScope.kill(pid)
 
       for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, third_key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
+          do: TestScope.kill(pid)
     end)
 
     assert {:ok, request} = grant(c)

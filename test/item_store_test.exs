@@ -1,5 +1,7 @@
 defmodule Valimc.ItemStoreTest do
   use ExUnit.Case, async: false
+  # Serial: saturates a global worker pool that concurrent owners also use.
+  alias Valimc.TestScope
   alias Valimc.World
   alias Valimc.World.{ItemRecords, Region, Store}
   alias Valimc.Protocol.ItemStack
@@ -8,16 +10,14 @@ defmodule Valimc.ItemStoreTest do
   setup do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-items-#{nonce}")
-    old = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
     key = {230 + rem(nonce, 10_000), 230}
+    TestScope.isolate(key, world_path: base)
     {:ok, {pid, _} = owner} = World.item_owner(key)
 
     on_exit(fn ->
       for {live, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, live)
+          do: TestScope.kill(live)
 
-      Application.put_env(:valimc, :world_path, old)
       File.rm_rf!(base)
     end)
 

@@ -1,20 +1,19 @@
 defmodule Valimc.RegionStoreLeaseTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
+  alias Valimc.TestScope
   alias Valimc.World.{Items, Store}
   alias Valimc.Protocol.ItemStack
 
   setup do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-store-lease-#{nonce}")
-    old = Valimc.config(:world_path)
     key = {760, nonce}
-    Application.put_env(:valimc, :world_path, base)
+    TestScope.isolate(key, world_path: base)
 
     on_exit(fn ->
       for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, old)
       File.rm_rf!(base)
     end)
 

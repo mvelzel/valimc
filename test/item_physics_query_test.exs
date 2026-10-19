@@ -1,11 +1,12 @@
 defmodule Valimc.ItemPhysicsQueryTest do
   use ExUnit.Case, async: false
+  # Serial: asserts production latency deadlines that concurrent CPU load can exceed.
   alias Valimc.{ItemMotionState, ItemPhysicsQuery, World}
 
   setup do
     key = {-403, -403}
     assert {:ok, owner} = World.owner(key)
-    on_exit(fn -> DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, elem(owner, 0)) end)
+    on_exit(fn -> Valimc.TestScope.kill(elem(owner, 0)) end)
     %{n: -51_584, owner: owner, key: key}
   end
 

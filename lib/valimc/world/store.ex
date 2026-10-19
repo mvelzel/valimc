@@ -112,7 +112,7 @@ defmodule Valimc.World.Store do
   def init({key, owner}) do
     {:ok,
      %{
-       base: Valimc.config(:world_path),
+       base: Valimc.config(:world_path, key),
        key: key,
        log: nil,
        values: @empty,

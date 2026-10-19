@@ -1,5 +1,7 @@
 defmodule Valimc.CookingOrbRuntimeTest do
   use ExUnit.Case, async: false
+  # Serial: saturates a global worker pool that concurrent owners also use.
+  alias Valimc.TestScope
   alias Valimc.{CookingAwards, ItemMotionState}
   alias Valimc.Protocol.ItemStack
 
@@ -24,19 +26,14 @@ defmodule Valimc.CookingOrbRuntimeTest do
     {rx, rz} = key
     position = {rx * 128 + 2.5, 64.5, rz * 128 + 2.5}
     base = Path.join(System.tmp_dir!(), "valimc-orbs-#{nonce}")
-    previous = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
+    TestScope.isolate(TestScope.neighborhood(key), world_path: base)
     File.mkdir_p!(base)
 
     on_exit(fn ->
-      for {reg, sup} <- [
-            {Valimc.RegionRegistry, Valimc.RegionSupervisor},
-            {Valimc.RegionStoreRegistry, Valimc.RegionStoreSupervisor}
-          ],
+      for reg <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
           {pid, _} <- Registry.lookup(reg, key),
-          do: DynamicSupervisor.terminate_child(sup, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, previous)
       File.rm_rf!(base)
     end)
 

@@ -1,5 +1,7 @@
 defmodule Valimc.ItemCrossMergeAutoTest do
   use ExUnit.Case, async: false
+  # Serial: asserts deltas of global Metrics counters other owners also bump.
+  alias Valimc.TestScope
   alias Valimc.{ItemMotionState, Metrics, Protocol.ItemStack, World}
   alias Valimc.World.{ItemLedger, Items, Region}
 
@@ -8,9 +10,8 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     key = {72000 + rem(n, 10000), 2300}
     target_key = {elem(key, 0) + 1, elem(key, 1)}
     base = Path.join(System.tmp_dir!(), "valimc-cross-auto-#{n}")
-    previous = Valimc.config(:world_path)
     File.mkdir_p!(base)
-    Application.put_env(:valimc, :world_path, base)
+    TestScope.isolate(TestScope.neighborhood(key, 2), world_path: base)
     variant = tags[:variant]
     count = tags[:pairs] || 1
 
@@ -105,14 +106,13 @@ defmodule Valimc.ItemCrossMergeAutoTest do
         for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, {x, z}) do
           writer = state({pid, nil}).store
           if Process.alive?(writer), do: :sys.resume(writer)
-          DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+          TestScope.kill(pid)
         end
 
         for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, {x, z}),
-            do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
+            do: TestScope.kill(pid)
       end
 
-      Application.put_env(:valimc, :world_path, previous)
       File.rm_rf!(base)
     end)
 

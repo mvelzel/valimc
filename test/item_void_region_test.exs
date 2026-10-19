@@ -1,5 +1,7 @@
 defmodule Valimc.ItemVoidRegionTest do
   use ExUnit.Case, async: false
+  # Serial: the fsync-wait assertion races a simulation tick that queued writes allow.
+  alias Valimc.TestScope
   import ExUnit.CaptureLog
   alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
   alias Valimc.World.{ItemLedger, Region}
@@ -8,9 +10,8 @@ defmodule Valimc.ItemVoidRegionTest do
     n = System.unique_integer([:positive])
     key = {81000 + rem(n, 10000), 2400}
     base = Path.join(System.tmp_dir!(), "valimc-item-void-#{n}")
-    previous = Valimc.config(:world_path)
     File.mkdir_p!(base)
-    Application.put_env(:valimc, :world_path, base)
+    TestScope.isolate(TestScope.neighborhood(key), world_path: base)
     motion = %ItemMotionState{age: -32768, pickup_delay: 32767, no_gravity: true}
 
     below = %{
@@ -39,13 +40,12 @@ defmodule Valimc.ItemVoidRegionTest do
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key) do
         writer = state({pid, nil}).store
         if Process.alive?(writer), do: :sys.resume(writer)
-        DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+        TestScope.kill(pid)
       end
 
       for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
+          do: TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, previous)
       File.rm_rf!(base)
     end)
 
