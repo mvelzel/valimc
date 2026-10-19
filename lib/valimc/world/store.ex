@@ -13,6 +13,8 @@ defmodule Valimc.World.Store do
   per-file snapshots (`r.X.Z.etf/.items/.containers/.mining`) are imported once.
   """
   @checkpoint_bytes 32 * 1024 * 1024
+  @max_batch 256
+  @max_commit_cells 4096
   @empty %{blocks: %{}, items: nil, containers: nil}
   def start_link({key, owner}),
     do:
@@ -180,59 +182,44 @@ defmodule Valimc.World.Store do
   def handle_call({:flush_items, _, _, _}, _from, state),
     do: {:reply, {:error, :stale_store_lease}, state}
 
+  # Group commit: every commit cast already queued under this lease joins one
+  # frame with one `datasync`; acknowledgements follow in arrival order. Frames
+  # carry absolute values, so the batch keeps merged cells and the last items and
+  # containers. One owner holds the lease and never casts while it waits in a
+  # call, so taking commit casts ahead of other messages cannot reorder its writes.
   @impl true
-  def handle_cast({:snapshot, lease, cells, {owner, epoch}, revision}, %{lease: lease} = state) do
-    {result, state} = write(state, cells_parts(cells))
+  def handle_cast(message, %{lease: lease} = state)
+      when elem(message, 0) in [:snapshot, :items, :mining, :containers] and
+             elem(message, 1) == lease do
+    batch = [message | drain(lease, @max_batch - 1, [])]
+    Valimc.Metrics.add(:store_batches)
+    Valimc.Metrics.add(:store_batch_commits, length(batch))
 
-    case result do
-      :ok ->
-        :ok
+    {result, written, state} =
+      case batch_parts(state.key, batch) do
+        {:ok, parts} ->
+          {result, state} = write(state, parts)
+          {result, true, state}
 
-      {:error, reason} ->
-        require Logger
-        Logger.error("Region save failed: #{inspect(reason)}")
+        {:invalid, reason} ->
+          {{:error, reason}, false, state}
+      end
+
+    if result != :ok do
+      require Logger
+      Logger.error("Region commit failed: #{inspect(result)}")
     end
 
-    send(owner, {:resource, epoch, {:saved, self(), revision, result}})
-    {:noreply, state}
-  end
+    for message <- batch, do: acknowledge(message, result)
 
-  def handle_cast(
-        {:items, lease, records, receipts, {owner, epoch}, token},
-        %{lease: lease} = state
-      ) do
-    {result, state} = save_items(state, records, receipts)
-    send(owner, {:resource, epoch, {:items_saved, self(), token, result}})
-    {:noreply, state}
-  end
+    # An append that failed may have left a torn frame; only recovery may continue.
+    case result do
+      {:error, reason} when written and state.log != nil ->
+        {:stop, {:storage_failed, reason}, state}
 
-  def handle_cast({:mining, lease, proposal, {owner, epoch}, token}, %{lease: lease} = state) do
-    case mining_proposal(state.key, proposal) do
-      {:ok, _journal, item_bytes, container_bytes} ->
-        # One frame: blocks, items and containers commit together.
-        parts = [{:cells, proposal.changes}, {:items, item_bytes}]
-        parts = if container_bytes, do: parts ++ [{:containers, container_bytes}], else: parts
-        {result, state} = write(state, parts)
-        send(owner, {:resource, epoch, {:mining_saved, self(), token, result}})
-
-        case result do
-          :ok -> {:noreply, state}
-          {:error, reason} -> {:stop, {:mining_storage_failed, reason}, state}
-        end
-
-      {:error, _} = error ->
-        send(owner, {:resource, epoch, {:mining_saved, self(), token, error}})
+      _ ->
         {:noreply, state}
     end
-  end
-
-  def handle_cast(
-        {:containers, lease, containers, {owner, epoch}, token},
-        %{lease: lease} = state
-      ) do
-    {result, state} = save_containers(state, containers)
-    send(owner, {:resource, epoch, {:containers_saved, self(), token, result}})
-    {:noreply, state}
   end
 
   def handle_cast({:snapshot, _, _, {owner, epoch}, revision}, state) do
@@ -416,30 +403,102 @@ defmodule Valimc.World.Store do
     end
   end
 
-  defp mining_proposal(
-         key,
-         %{changes: changes, records: records, receipts: receipts, ledger: ledger} = proposal
-       )
-       when is_map(changes) do
-    with {:ok, item_bytes} <- ItemLedger.encode(key, records, receipts, ledger),
-         {:ok, container_bytes} <- proposal_containers(key, proposal),
-         {:ok, journal} <- proposal_journal(key, changes, item_bytes, container_bytes) do
-      {:ok, journal, item_bytes, container_bytes}
-    else
-      _ -> {:error, :invalid_mining_proposal}
+  defp drain(_lease, 0, acc), do: Enum.reverse(acc)
+
+  defp drain(lease, left, acc) do
+    receive do
+      {:"$gen_cast", {tag, ^lease, _, _, _} = message}
+      when tag in [:snapshot, :mining, :containers] ->
+        drain(lease, left - 1, [message | acc])
+
+      {:"$gen_cast", {:items, ^lease, _, _, _, _} = message} ->
+        drain(lease, left - 1, [message | acc])
+    after
+      0 -> Enum.reverse(acc)
     end
   end
 
-  defp mining_proposal(_, _), do: {:error, :invalid_mining_proposal}
+  defp batch_parts(key, batch) do
+    folded =
+      Enum.reduce_while(batch, %{cells: %{}, items: nil, containers: nil}, fn message, acc ->
+        case fold_commit(key, message, acc) do
+          {:ok, acc} -> {:cont, acc}
+          error -> {:halt, error}
+        end
+      end)
 
-  defp proposal_containers(key, %{containers: containers}), do: Containers.encode(key, containers)
-  defp proposal_containers(_, _), do: {:ok, nil}
+    with %{} <- folded,
+         {:ok, items} <- encode_items(key, folded.items),
+         {:ok, containers} <- encode_containers(key, folded.containers) do
+      {:ok,
+       cells_parts(folded.cells) ++
+         if(items, do: [{:items, items}], else: []) ++
+         if(containers, do: [{:containers, containers}], else: [])}
+    else
+      # A batch holding a joint commit reports it as an invalid proposal.
+      {:error, reason} ->
+        if Enum.any?(batch, &(elem(&1, 0) == :mining)),
+          do: {:invalid, :invalid_mining_proposal},
+          else: {:invalid, reason}
+    end
+  end
 
-  # The journal encoding still validates the proposal's change bounds.
-  defp proposal_journal(key, changes, items, nil), do: MiningRecord.encode(key, changes, items)
+  defp fold_commit(_key, {:snapshot, _, cells, _, _}, acc) when is_map(cells),
+    do: {:ok, %{acc | cells: Map.merge(acc.cells, cells)}}
 
-  defp proposal_journal(key, changes, items, containers),
-    do: MiningRecord.encode(key, changes, items, containers)
+  defp fold_commit(_key, {:items, _, snapshot, receipts, _, _}, acc),
+    do: {:ok, %{acc | items: {snapshot, receipts}}}
+
+  defp fold_commit(_key, {:containers, _, containers, _, _}, acc),
+    do: {:ok, %{acc | containers: containers}}
+
+  defp fold_commit(key, {:mining, _, %{changes: changes} = proposal, _, _}, acc)
+       when is_map(changes) and map_size(changes) <= @max_commit_cells do
+    if Enum.all?(changes, &valid_cell?(key, &1)) do
+      items = {Map.take(proposal, [:records, :ledger]), proposal.receipts}
+
+      {:ok,
+       %{
+         acc
+         | cells: Map.merge(acc.cells, changes),
+           items: items,
+           containers: Map.get(proposal, :containers, acc.containers)
+       }}
+    else
+      {:error, :invalid_mining_proposal}
+    end
+  end
+
+  defp fold_commit(_, _, _), do: {:error, :invalid_commit}
+
+  defp valid_cell?(key, {{x, y, z}, block})
+       when is_integer(x) and is_integer(y) and is_integer(z) and is_integer(block),
+       do:
+         abs(x) <= 29_999_984 and abs(z) <= 29_999_984 and Chunk.valid_y?(y) and
+           block >= 0 and block < Valimc.Protocol.Data.block_state_count() and
+           Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == key
+
+  defp valid_cell?(_, _), do: false
+
+  defp encode_items(_key, nil), do: {:ok, nil}
+
+  defp encode_items(key, {%{records: records, ledger: ledger}, receipts}),
+    do: ItemLedger.encode(key, records, receipts, ledger)
+
+  defp encode_containers(_key, nil), do: {:ok, nil}
+  defp encode_containers(key, containers), do: Containers.encode(key, containers)
+
+  defp acknowledge({:snapshot, _, _, {owner, epoch}, revision}, result),
+    do: send(owner, {:resource, epoch, {:saved, self(), revision, result}})
+
+  defp acknowledge({:items, _, _, _, {owner, epoch}, token}, result),
+    do: send(owner, {:resource, epoch, {:items_saved, self(), token, result}})
+
+  defp acknowledge({:mining, _, _, {owner, epoch}, token}, result),
+    do: send(owner, {:resource, epoch, {:mining_saved, self(), token, result}})
+
+  defp acknowledge({:containers, _, _, {owner, epoch}, token}, result),
+    do: send(owner, {:resource, epoch, {:containers_saved, self(), token, result}})
 
   # Append one frame of full values; without a world path, keep them in memory.
   defp write(state, []), do: {:ok, state}

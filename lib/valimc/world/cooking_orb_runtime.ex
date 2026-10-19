@@ -33,7 +33,7 @@ defmodule Valimc.World.CookingOrbRuntime do
     cs = state.containers
 
     cond do
-      not state.item_storage_enabled or runtime.job != nil or state.item_pending != nil ->
+      not state.item_storage_enabled or runtime.job != nil or RegionData.write_busy(state) != nil ->
         state
 
       is_integer(runtime.retry_at) and now < runtime.retry_at ->
@@ -68,7 +68,7 @@ defmodule Valimc.World.CookingOrbRuntime do
       not is_integer(deadline) or now() >= deadline ->
         {:reply, {:error, :expired_cooking_orb_transfer}, state}
 
-      state.item_pending != nil or state.cooking_orbs.job != nil ->
+      RegionData.write_busy(state) != nil or state.cooking_orbs.job != nil ->
         {:reply, {:error, :item_storage_busy}, state}
 
       true ->

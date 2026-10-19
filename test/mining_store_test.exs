@@ -259,7 +259,7 @@ defmodule Valimc.MiningStoreTest do
     capture_log(fn ->
       Store.commit_mining(ctx.writer, ctx.lease, ctx.proposal, {self(), ctx.epoch}, token)
       assert_receive {:resource, _, {:mining_saved, _, ^token, {:error, _}}}, 1000
-      assert_receive {:DOWN, ^monitor, :process, _, {:mining_storage_failed, _}}, 1000
+      assert_receive {:DOWN, ^monitor, :process, _, {:storage_failed, _}}, 1000
     end)
 
     assert durable(ctx) == before

@@ -426,9 +426,9 @@ defmodule Valimc.TestDisk do
   defp write_v1(path, bytes), do: File.write!(path, bytes)
 
   @doc """
-  Make the running store's appends fail with an I/O error (its segment file
-  descriptor is closed) until `repair_writer/1`. The store reports the failure
-  exactly as for a failing disk; nothing reaches the log.
+  Make the running store's next append fail with an I/O error (its segment file
+  descriptor is closed). The store reports the failure exactly as for a failing
+  disk and stops; nothing reaches the log.
   """
   def break_writer(writer) do
     :sys.replace_state(writer, fn
@@ -452,16 +452,6 @@ defmodule Valimc.TestDisk do
     after
       timeout -> raise "store #{inspect(writer)} did not stop"
     end
-  end
-
-  @doc "Reopen the store's current segment after `break_writer/1`."
-  def repair_writer(writer) do
-    :sys.replace_state(writer, fn %{log: %RegionLog{segment: segment} = log} = state ->
-      {:ok, fd} = File.open(segment, [:append, :binary, :raw])
-      %{state | log: %{log | fd: fd}}
-    end)
-
-    :ok
   end
 end
 

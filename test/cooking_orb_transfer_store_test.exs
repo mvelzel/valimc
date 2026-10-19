@@ -169,7 +169,9 @@ defmodule Valimc.CookingOrbTransferStoreTest do
     assert {:ok, request} = CookingOrbTransfers.request(restored, ctx.source, ctx.id)
     assert request == ctx.request
     assert Valimc.TestDisk.read(ctx.base, ctx.dest, :containers) == bytes
-    Valimc.TestDisk.repair_writer(writer)
+    # A failed append retires the writer; a fresh one recovers the durable log.
+    Valimc.TestDisk.await_exit(writer)
+    {:ok, writer, lease} = Store.open(ctx.dest)
     assert {:ok, %Containers{}} = Store.load_containers(writer)
     assert :ok = Store.flush_containers(writer, lease, ctx.adopted)
     assert {:ok, adopted} = Store.load_containers(writer)

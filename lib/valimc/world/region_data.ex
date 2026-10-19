@@ -177,8 +177,14 @@ defmodule Valimc.World.RegionData do
   end
 
   def item_tick(state, now) do
-    if state.item_simulation_enabled and state.item_pending == nil do
-      {items, expired} = Items.age(state.items)
+    {items, expired} =
+      if state.item_simulation_enabled and state.item_pending == nil,
+        do: Items.age(state.items),
+        else: {nil, []}
+
+    # Under backpressure a tick with expiries (durable removals) is retried on
+    # the next tick instead of growing the write queue.
+    if items != nil and (expired == [] or write_busy(state) == nil) do
       state = remember_item_counters(state, items)
       state = %{state | item_resting: Map.take(state.item_resting, Map.keys(items.entries))}
 
@@ -204,7 +210,7 @@ defmodule Valimc.World.RegionData do
   def cooking_tick(%{cooking: runtime} = state, now) do
     cond do
       not runtime.enabled or not state.item_storage_enabled or runtime.job != nil or
-          state.item_pending != nil ->
+          write_busy(state) != nil ->
         state
 
       runtime.dirty and now >= runtime.checkpoint_at and
@@ -593,8 +599,8 @@ defmodule Valimc.World.RegionData do
       not state.item_storage_enabled ->
         {:reply, {:error, :transfer_storage_disabled}, state}
 
-      state.item_pending != nil ->
-        {:reply, {:error, :item_storage_busy}, state}
+      busy = write_busy(state) ->
+        {:reply, {:error, busy}, state}
 
       not is_integer(deadline) or System.monotonic_time(:millisecond) >= deadline ->
         {:reply, {:error, :expired_item_step}, state}
@@ -638,8 +644,8 @@ defmodule Valimc.World.RegionData do
       not state.item_storage_enabled ->
         {:reply, {:error, :transfer_storage_disabled}, state}
 
-      state.item_pending != nil ->
-        {:reply, {:error, :item_storage_busy}, state}
+      busy = write_busy(state) ->
+        {:reply, {:error, busy}, state}
 
       true ->
         grant =
@@ -800,8 +806,8 @@ defmodule Valimc.World.RegionData do
       not state.item_storage_enabled ->
         {:reply, {:error, :transfer_storage_disabled}, state}
 
-      state.item_pending != nil ->
-        {:reply, {:error, :item_storage_busy}, state}
+      busy = write_busy(state) ->
+        {:reply, {:error, busy}, state}
 
       not is_integer(deadline) or System.monotonic_time(:millisecond) >= deadline ->
         {:reply, {:error, :expired_item_step}, state}
@@ -824,8 +830,8 @@ defmodule Valimc.World.RegionData do
       epoch != state.items.epoch ->
         {:reply, {:error, :stale_region}, state}
 
-      state.item_pending != nil ->
-        {:reply, {:error, :item_storage_busy}, state}
+      busy = write_busy(state) ->
+        {:reply, {:error, busy}, state}
 
       not is_integer(deadline) or System.monotonic_time(:millisecond) >= deadline ->
         {:reply, {:error, :expired_item_step}, state}
@@ -867,8 +873,8 @@ defmodule Valimc.World.RegionData do
       epoch != state.items.epoch ->
         {:reply, {:error, :stale_region}, state}
 
-      state.item_pending != nil ->
-        {:reply, {:error, :item_storage_busy}, state}
+      busy = write_busy(state) ->
+        {:reply, {:error, busy}, state}
 
       true ->
         plan_transfer(transfer, from, state)
@@ -883,8 +889,8 @@ defmodule Valimc.World.RegionData do
       not state.item_storage_enabled ->
         {:reply, {:error, :transfer_storage_disabled}, state}
 
-      state.item_pending != nil ->
-        {:reply, {:error, :item_storage_busy}, state}
+      busy = write_busy(state) ->
+        {:reply, {:error, busy}, state}
 
       state.items.ledger.outgoing != nil ->
         {:reply, {:error, :item_handoff_busy}, state}
@@ -904,7 +910,7 @@ defmodule Valimc.World.RegionData do
     cond do
       epoch != state.items.epoch -> {:reply, {:error, :stale_region}, state}
       not state.item_storage_enabled -> {:reply, {:error, :transfer_storage_disabled}, state}
-      state.item_pending != nil -> {:reply, {:error, :item_storage_busy}, state}
+      busy = write_busy(state) -> {:reply, {:error, busy}, state}
       true -> plan_item_change(:item_handoff_in, transfer, from, state)
     end
   end
@@ -969,7 +975,7 @@ defmodule Valimc.World.RegionData do
     cond do
       epoch != state.items.epoch -> {:reply, {:error, :stale_region}, state}
       not state.item_storage_enabled -> {:reply, {:error, :transfer_storage_disabled}, state}
-      state.item_pending != nil -> {:reply, {:error, :item_storage_busy}, state}
+      busy = write_busy(state) -> {:reply, {:error, busy}, state}
       true -> plan_block_transfer(:mining, transfer, from, state)
     end
   end
@@ -1025,7 +1031,7 @@ defmodule Valimc.World.RegionData do
     cond do
       epoch != state.items.epoch -> {:reply, {:error, :stale_region}, state}
       not state.item_storage_enabled -> {:reply, {:error, :transfer_storage_disabled}, state}
-      state.item_pending != nil -> {:reply, {:error, :item_storage_busy}, state}
+      busy = write_busy(state) -> {:reply, {:error, busy}, state}
       true -> plan_block_transfer(:placement, transfer, from, state)
     end
   end
@@ -1248,8 +1254,8 @@ defmodule Valimc.World.RegionData do
 
     if (Valimc.ChestAccess.single?(block) or Valimc.Physics.CookingBlocks.kind(block) != nil) and
          Map.has_key?(state.containers.entries, position) do
-      if state.item_pending != nil do
-        {:reply, {:error, :item_storage_busy}, state}
+      if busy = write_busy(state) do
+        {:reply, {:error, busy}, state}
       else
         with {:ok, batch} <- BlockBatch.prepare(%{position => replacement}),
              do: start_container_blocks(state, from, batch, %{position => block}, :ok),
@@ -1331,8 +1337,8 @@ defmodule Valimc.World.RegionData do
       not state.item_storage_enabled ->
         {:reply, {:error, :transfer_storage_disabled}, state}
 
-      state.item_pending != nil ->
-        {:reply, {:error, :item_storage_busy}, state}
+      busy = write_busy(state) ->
+        {:reply, {:error, busy}, state}
 
       not isolated_chest_changes?(state, batch) ->
         {:reply, {:error, :unsupported_chest_neighbors}, state}
@@ -1466,7 +1472,7 @@ defmodule Valimc.World.RegionData do
   defp item_request(epoch, from, state, work) do
     cond do
       epoch != state.items.epoch -> {:reply, {:error, :stale_region}, state}
-      state.item_pending != nil -> {:reply, {:error, :item_storage_busy}, state}
+      busy = write_busy(state) -> {:reply, {:error, busy}, state}
       true -> item_result(work.(), from, state)
     end
   end
@@ -1514,6 +1520,21 @@ defmodule Valimc.World.RegionData do
   # memory at once, so later operations and ticks build on them while the frame is
   # written. Replies and published views are held until the write is durable; a
   # failed write stops the owner, so nothing un-durable was ever observed.
+  @max_queued_writes 64
+
+  @doc """
+  Why a new durable mutation cannot start now: the planning slot is taken
+  (`:item_storage_busy`) or the bounded write queue is full
+  (`:storage_backpressure`); both are retryable. `nil` when it may start.
+  """
+  def write_busy(state) do
+    cond do
+      state.item_pending != nil -> :item_storage_busy
+      length(Map.get(state, :item_writes, [])) >= @max_queued_writes -> :storage_backpressure
+      true -> nil
+    end
+  end
+
   defp queue_write(state, token, timer, items, kind, blocks) do
     state = queue_item_write(state, token, timer, items, state.item_receipts, nil, nil, blocks)
     {earlier, [last]} = Enum.split(state.item_writes, -1)
@@ -1642,7 +1663,7 @@ defmodule Valimc.World.RegionData do
     cond do
       epoch != state.items.epoch -> {:reply, {:error, :stale_region}, state}
       not state.item_storage_enabled -> {:reply, {:error, :transfer_storage_disabled}, state}
-      state.item_pending != nil -> {:reply, {:error, :item_storage_busy}, state}
+      busy = write_busy(state) -> {:reply, {:error, busy}, state}
       true -> start.()
     end
   end
@@ -1829,7 +1850,7 @@ defmodule Valimc.World.RegionData do
     cond do
       state.items.epoch != epoch -> {:error, :stale_region}
       not state.item_storage_enabled -> {:error, :transfer_storage_disabled}
-      state.item_pending != nil -> {:error, :item_storage_busy}
+      busy = write_busy(state) -> {:error, busy}
       true -> :ok
     end
   end
@@ -2719,7 +2740,7 @@ defmodule Valimc.World.RegionData do
         {:item_handoff_wake, token},
         %{item_handoff: %{phase: :ready_clear, token: token} = ack} = state
       ) do
-    if state.item_pending != nil do
+    if write_busy(state) != nil do
       {:noreply, schedule_handoff_clear(state, ack.sequence, ack.digest, 100)}
     else
       case plan_item_change(:item_handoff_clear, {ack.sequence, ack.digest}, nil, state) do
@@ -2865,7 +2886,7 @@ defmodule Valimc.World.RegionData do
       state.item_saved_generation == state.item_motion_generation ->
         {:noreply, state}
 
-      state.item_pending != nil ->
+      write_busy(state) != nil ->
         {:noreply, schedule_item_checkpoint(state)}
 
       state.item_checkpoint != nil ->

@@ -46,6 +46,42 @@ defmodule Valimc.ItemStoreTest do
 
   defp send_resource(ctx, message), do: send(ctx.pid, {:resource, elem(ctx.owner, 1), message})
 
+  test "a full write queue answers retryable backpressure, and drained writes all commit", ctx do
+    writer = :sys.get_state(ctx.pid).resource.store
+    :sys.suspend(writer)
+
+    try do
+      created =
+        for n <- 1..64 do
+          task =
+            Task.async(fn ->
+              Region.create_item(ctx.owner, ItemStack.new("stone"), ctx.position)
+            end)
+
+          wait_queued(ctx.pid, n)
+          task
+        end
+
+      assert {:error, :storage_backpressure} =
+               Region.create_item(ctx.owner, ItemStack.new("stone"), ctx.position)
+
+      :sys.resume(writer)
+      assert Enum.all?(Task.await_many(created, 5000), &match?({:ok, _}, &1))
+      assert {:ok, _} = Region.create_item(ctx.owner, ItemStack.new("stone"), ctx.position)
+      assert map_size(World.item_snapshot(ctx.key)) == 65
+    after
+      if Process.alive?(writer), do: :sys.resume(writer)
+    end
+  end
+
+  defp wait_queued(pid, count, retries \\ 500) do
+    if length(Valimc.TestConn.state(pid).resource.item_writes) < count do
+      assert retries > 0
+      Process.sleep(1)
+      wait_queued(pid, count, retries - 1)
+    end
+  end
+
   test "untagged and foreign-epoch callbacks cannot publish a real pending proposal", ctx do
     {handle, _, _stone} = seed(ctx)
     writer = :sys.get_state(ctx.pid).resource.store

@@ -36,6 +36,36 @@ defmodule Valimc.ContainerStoreTest do
     %{key: key, base: base, position: position, filled: filled, empty: empty}
   end
 
+  test "queued commits share one frame and one datasync and are acknowledged in order", ctx do
+    {:ok, writer, lease} = Store.open(ctx.key)
+    dir = Store.log_dir(ctx.base, ctx.key)
+    {:ok, %{frames: before}} = Valimc.World.RegionLog.read(dir)
+    {x, _, z} = ctx.position
+    epoch = make_ref()
+    :sys.suspend(writer)
+
+    sent =
+      for {containers, i} <- Enum.with_index([ctx.empty, ctx.filled, ctx.empty, ctx.filled]) do
+        token = make_ref()
+        Store.commit_containers(writer, lease, containers, {self(), epoch}, token)
+        Store.snapshot(writer, lease, %{{x + i, 64, z} => 1}, {self(), epoch}, i)
+        token
+      end
+
+    :sys.resume(writer)
+
+    for {token, i} <- Enum.with_index(sent) do
+      assert_receive {:resource, ^epoch, message}, 1000
+      assert message == {:containers_saved, writer, token, :ok}
+      assert_receive {:resource, ^epoch, {:saved, ^writer, ^i, :ok}}, 1000
+    end
+
+    {:ok, %{frames: frames}} = Valimc.World.RegionLog.read(dir)
+    assert length(frames) == length(before) + 1
+    assert {:ok, ctx.filled} == Store.load_containers(writer)
+    assert Map.take(Store.load(writer), for(i <- 0..3, do: {x + i, 64, z})) |> map_size() == 4
+  end
+
   test "leased asynchronous commit survives writer replacement with exact contents and revisions",
        ctx do
     assert {:ok, writer, lease} = Store.open(ctx.key)
