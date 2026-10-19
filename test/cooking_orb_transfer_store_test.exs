@@ -1,7 +1,6 @@
 defmodule Valimc.CookingOrbTransferStoreTest do
   use ExUnit.Case, async: false
   alias Valimc.CookingAwards
-  alias Valimc.Protocol.ItemStack
 
   alias Valimc.World.{
     Containers,
@@ -10,9 +9,6 @@ defmodule Valimc.CookingOrbTransferStoreTest do
     CookingOrbs,
     CookingOrbBodies,
     CookingOrbConsumptions,
-    ItemLedger,
-    Items,
-    MiningRecord,
     PendingCookingAwards,
     Store
   }
@@ -118,7 +114,7 @@ defmodule Valimc.CookingOrbTransferStoreTest do
     assert :ok = Store.close(dest_writer, dest_lease)
   end
 
-  test "v8 imported launch/expiry survives lost ACK and all interrupted joint replacement subsets",
+  test "v8 imported launch/expiry survives lost ACK and writer replacement",
        ctx do
     [uuid] = Map.keys(CookingOrbs.records(ctx.id, ctx.request.award))
 
@@ -151,39 +147,9 @@ defmodule Valimc.CookingOrbTransferStoreTest do
              CookingOrbTransfers.accept(expired, ctx.dest, ctx.request)
 
     assert :ok = Store.close(writer, lease)
-
-    {rx, rz} = ctx.dest
-    pos = {rx * 128 + 2, 63, rz * 128 + 2}
-    edits = %{pos => 0}
-    {:ok, items} = ItemLedger.encode(ctx.dest, [], %{})
-    {:ok, before_cs} = Containers.encode(ctx.dest, ctx.adopted)
-    {:ok, after_cs} = Containers.encode(ctx.dest, expired)
-    {:ok, journal} = MiningRecord.encode(ctx.dest, edits, items, after_cs)
-
-    paths = [
-      Path.join(ctx.base, "r.#{rx}.#{rz}.etf"),
-      Store.item_path(ctx.base, ctx.dest),
-      Store.container_path(ctx.base, ctx.dest)
-    ]
-
-    for subset <- 0..7 do
-      before = [:erlang.term_to_binary({:valimc_region, 1, %{}}), items, before_cs]
-      after_bytes = [:erlang.term_to_binary({:valimc_region, 1, edits}), items, after_cs]
-
-      for {path, old, new, bit} <- Enum.zip([paths, before, after_bytes, [0, 1, 2]]),
-          do:
-            File.write!(
-              path,
-              if(Bitwise.band(subset, Bitwise.bsl(1, bit)) == 0, do: old, else: new)
-            )
-
-      File.write!(Store.mining_path(ctx.base, ctx.dest), journal)
-      {:ok, writer, lease} = Store.open(ctx.dest)
-      assert Store.load(writer) == edits
-      assert {:ok, ^expired} = Store.load_containers(writer)
-      assert CookingOrbBodies.project(expired)[ctx.id] == %{}
-      assert :ok = Store.close(writer, lease)
-    end
+    {:ok, writer, lease} = Store.open(ctx.dest)
+    assert {:ok, ^expired} = Store.load_containers(writer)
+    assert :ok = Store.close(writer, lease)
   end
 
   test "destination write failure leaves the source intent and prior destination bytes intact",
@@ -191,11 +157,9 @@ defmodule Valimc.CookingOrbTransferStoreTest do
     {:ok, source_writer, source_lease} = Store.open(ctx.source)
     assert :ok = Store.flush_containers(source_writer, source_lease, ctx.routed)
     {:ok, writer, lease} = Store.open(ctx.dest)
-    path = Store.container_path(ctx.base, ctx.dest)
     assert :ok = Store.flush_containers(writer, lease, %Containers{})
-    bytes = File.read!(path)
-    File.rm!(path)
-    File.mkdir!(path)
+    bytes = Valimc.TestDisk.read(ctx.base, ctx.dest, :containers)
+    Valimc.TestDisk.break_writer(writer)
     epoch = make_ref()
     token = make_ref()
     Store.commit_containers(writer, lease, ctx.adopted, {self(), epoch}, token)
@@ -204,76 +168,13 @@ defmodule Valimc.CookingOrbTransferStoreTest do
     assert restored == ctx.routed
     assert {:ok, request} = CookingOrbTransfers.request(restored, ctx.source, ctx.id)
     assert request == ctx.request
-    File.rmdir!(path)
-    File.write!(path, bytes)
+    assert Valimc.TestDisk.read(ctx.base, ctx.dest, :containers) == bytes
+    Valimc.TestDisk.repair_writer(writer)
     assert {:ok, %Containers{}} = Store.load_containers(writer)
     assert :ok = Store.flush_containers(writer, lease, ctx.adopted)
     assert {:ok, adopted} = Store.load_containers(writer)
 
     assert {:ok, ^adopted, :already_applied} =
              CookingOrbTransfers.accept(adopted, ctx.dest, request)
-  end
-
-  test "joint recovery repairs every interrupted block/item/v6 replacement subset at either endpoint",
-       ctx do
-    for {key, before_cs, after_cs} <- [
-          {ctx.source, ctx.original, ctx.routed},
-          {ctx.dest, %Containers{}, ctx.adopted}
-        ] do
-      {rx, rz} = key
-      position = {rx * 128 + 2, 63, rz * 128 + 2}
-      edits = %{position => 0}
-      block_path = Path.join(ctx.base, "r.#{rx}.#{rz}.etf")
-      item_path = Store.item_path(ctx.base, key)
-      container_path = Store.container_path(ctx.base, key)
-      journal_path = Store.mining_path(ctx.base, key)
-      {:ok, before_containers} = Containers.encode(key, before_cs)
-      {:ok, after_containers} = Containers.encode(key, after_cs)
-      {:ok, empty_items} = ItemLedger.encode(key, [], %{})
-
-      {:ok, items, _} =
-        Items.create(
-          Items.new(),
-          key,
-          ItemStack.new("dirt"),
-          {rx * 128 + 2.5, 64.0, rz * 128 + 2.5}
-        )
-
-      records = Items.records(items)
-      {:ok, item_bytes} = ItemLedger.encode(key, records, %{})
-      {:ok, journal} = MiningRecord.encode(key, edits, item_bytes, after_containers)
-
-      before_bytes = [
-        :erlang.term_to_binary({:valimc_region, 1, %{}}),
-        empty_items,
-        before_containers
-      ]
-
-      after_bytes = [
-        :erlang.term_to_binary({:valimc_region, 1, edits}),
-        item_bytes,
-        after_containers
-      ]
-
-      paths = [block_path, item_path, container_path]
-
-      for subset <- 0..7 do
-        # Restore the complete stopped dataset before injecting one crash boundary.
-        for {path, old, new, bit} <- Enum.zip([paths, before_bytes, after_bytes, [0, 1, 2]]) do
-          File.write!(
-            path,
-            if(Bitwise.band(subset, Bitwise.bsl(1, bit)) == 0, do: old, else: new)
-          )
-        end
-
-        File.write!(journal_path, journal)
-        {:ok, writer, lease} = Store.open(key)
-        assert Store.load(writer) == edits
-        assert Store.load_containers(writer) == {:ok, after_cs}
-        assert {:ok, %{records: ^records}} = Store.load_items(writer)
-        refute File.exists?(journal_path)
-        assert :ok = Store.close(writer, lease)
-      end
-    end
   end
 end

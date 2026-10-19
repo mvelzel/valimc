@@ -44,8 +44,7 @@ defmodule Valimc.ItemCheckpointsTest do
       owner: owner,
       position: position,
       handle: handle,
-      transfer: transfer,
-      path: Store.item_path(base, key)
+      transfer: transfer
     }
   end
 
@@ -68,8 +67,10 @@ defmodule Valimc.ItemCheckpointsTest do
     next
   end
 
+  defp disk(ctx), do: Valimc.TestDisk.read(ctx.base, ctx.key, :items)
+
   defp read(ctx) do
-    assert {:ok, data} = ItemRecords.decode(File.read!(ctx.path), ctx.key)
+    assert {:ok, data} = ItemRecords.decode(disk(ctx), ctx.key)
     data
   end
 
@@ -96,12 +97,12 @@ defmodule Valimc.ItemCheckpointsTest do
   test "motion publishes while the writer is suspended and coalesces to one in-flight snapshot",
        ctx do
     writer = state(ctx).store
-    before = File.read!(ctx.path)
+    before = disk(ctx)
     :sys.suspend(writer)
 
     try do
       first = Enum.reduce(1..20, ctx.handle, &advance(ctx, &2, &1))
-      assert File.read!(ctx.path) == before
+      assert disk(ctx) == before
       assert World.item_snapshot(ctx.key)[elem(first, 2)].revision == 21
       assert {:message_queue_len, 0} = Process.info(writer, :message_queue_len)
       checkpoint(ctx)
@@ -257,10 +258,9 @@ defmodule Valimc.ItemCheckpointsTest do
 
   test "checkpoint disk failure fences the owner and leaves the old critical receipt recoverable",
        ctx do
-    old = File.read!(ctx.path)
+    old = disk(ctx)
     _ = advance(ctx, ctx.handle, 1)
-    File.rename!(ctx.path, ctx.path <> ".saved")
-    File.mkdir_p!(ctx.path)
+    Valimc.TestDisk.break_writer(state(ctx).store)
     ref = Process.monitor(ctx.pid)
 
     capture_log(fn ->
@@ -269,9 +269,7 @@ defmodule Valimc.ItemCheckpointsTest do
       assert_receive {:DOWN, ^ref, :process, _, {:item_checkpoint_failed, _}}, 1500
     end)
 
-    File.rmdir!(ctx.path)
-    File.rename!(ctx.path <> ".saved", ctx.path)
-    assert File.read!(ctx.path) == old
+    assert disk(ctx) == old
     assert {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
     assert [%{motion: %{age: 0}}] = Items.records(:sys.get_state(pid).resource.items)
     assert {:ok, :already_applied} = Region.apply_item_transfer(owner, ctx.transfer)

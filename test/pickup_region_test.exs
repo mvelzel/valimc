@@ -3,7 +3,7 @@ defmodule Valimc.PickupRegionTest do
   alias Valimc.{GameMode, Inventory, ItemMotionState, PlayerFood, PlayerSnapshot, PlayerStore}
   alias Valimc.{TransferDelivery, World}
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{ItemLedger, Items, PickupTransfers, Region, Store}
+  alias Valimc.World.{ItemLedger, Items, PickupTransfers, Region}
 
   setup do
     n = System.unique_integer([:positive])
@@ -26,9 +26,8 @@ defmodule Valimc.PickupRegionTest do
       motion: %ItemMotionState{no_gravity: true}
     }
 
-    path = Store.item_path(base, key)
     {:ok, bytes} = ItemLedger.encode(key, [record], %{}, %ItemLedger{})
-    File.write!(path, bytes)
+    Valimc.TestDisk.write(base, key, :items, bytes)
     {:ok, owner} = World.item_owner(key)
     {:ok, writer, nil, fence} = PlayerStore.open(uuid)
 
@@ -76,7 +75,6 @@ defmodule Valimc.PickupRegionTest do
     %{
       base: base,
       key: key,
-      path: path,
       owner: owner,
       writer: writer,
       fence: fence,
@@ -91,7 +89,7 @@ defmodule Valimc.PickupRegionTest do
   defp state({pid, _}), do: :sys.get_state(pid).resource
 
   defp disk(ctx) do
-    {:ok, saved} = ItemLedger.decode(File.read!(ctx.path), ctx.key)
+    {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :items), ctx.key)
     saved
   end
 

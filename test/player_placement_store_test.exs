@@ -15,7 +15,7 @@ defmodule Valimc.PlayerPlacementStoreTest do
   }
 
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{ItemRecords, Region, Store}
+  alias Valimc.World.{ItemRecords, Region}
   alias Valimc.TestClient, as: Client
 
   setup do
@@ -255,7 +255,7 @@ defmodule Valimc.PlayerPlacementStoreTest do
     assert World.get_block(ctx.position) == 0
 
     {:ok, %{records: records}} =
-      ItemRecords.decode(File.read!(Store.item_path(ctx.base, ctx.key)), ctx.key)
+      ItemRecords.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :items), ctx.key)
 
     assert Enum.sort(Enum.map(records, & &1.stack)) ==
              Enum.sort([ctx.intent.before, ItemStack.new("iron_helmet")])

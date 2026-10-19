@@ -3,7 +3,7 @@ defmodule Valimc.DisconnectedInventoryTest do
   @moduletag :tcp
   import ExUnit.CaptureLog
   alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players, World}
-  alias Valimc.World.{ItemRecords, Items, Region, Store}
+  alias Valimc.World.{ItemRecords, Items, Region}
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -384,9 +384,7 @@ defmodule Valimc.DisconnectedInventoryTest do
           }
 
     {:ok, bytes} = ItemRecords.encode(ctx.key, fixture)
-    path = Store.item_path(ctx.base, ctx.key)
-    File.mkdir_p!(Path.dirname(path))
-    File.write!(path, bytes)
+    Valimc.TestDisk.write(ctx.base, ctx.key, :items, bytes)
     owner = region(ctx)
     {:ok, writer, nil, fence} = PlayerStore.open(ctx.uuid)
     assert :ok = PlayerStore.close_session(writer, fence, ctx.snapshot)

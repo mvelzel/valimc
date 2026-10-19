@@ -255,6 +255,16 @@ defmodule Valimc.PlayerOutboxTest do
       assert World.item_snapshot(ctx.key) == %{}
     after
       Client.close(client)
+      closed(uuid)
+    end
+  end
+
+  # The session's close may still touch the region; let it finish before cleanup.
+  defp closed(uuid, attempts \\ 500) do
+    unless Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == [] do
+      assert attempts > 0
+      Process.sleep(2)
+      closed(uuid, attempts - 1)
     end
   end
 
@@ -652,17 +662,16 @@ defmodule Valimc.PlayerOutboxTest do
 
   test "an unreadable destination preserves the source intent until repair", ctx do
     {fence, pending} = prepare(ctx)
-    path = Valimc.World.Store.item_path(ctx.base, ctx.key)
-    File.mkdir_p!(Path.dirname(path))
-    File.write!(path, "corrupt-destination")
+    Valimc.TestDisk.write(ctx.base, ctx.key, :items, "corrupt-destination")
 
     capture_log(fn ->
       assert {:error, :transfer_destination_unavailable} = complete(ctx, fence)
     end)
 
     assert saved(ctx) == {:ok, pending}
-    assert File.read!(path) == "corrupt-destination" and Process.alive?(ctx.writer)
-    File.rm!(path)
+    assert Valimc.TestDisk.read(ctx.base, ctx.key, :items) == "corrupt-destination"
+    assert Process.alive?(ctx.writer)
+    Valimc.TestDisk.write(ctx.base, ctx.key, :items, nil)
     assert {:ok, :applied} = deliver(ctx, pending)
     assert {:ok, _, cleared} = complete(ctx, fence)
     assert cleared.outbox == nil and cleared.inventory == ctx.after.inventory

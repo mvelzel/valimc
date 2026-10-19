@@ -3,7 +3,7 @@ defmodule Valimc.MiningRegionTest do
   import ExUnit.CaptureLog
   alias Valimc.Protocol.{Data, ItemStack}
   alias Valimc.World
-  alias Valimc.World.{MiningTransfers, Region, Store}
+  alias Valimc.World.{MiningTransfers, Region}
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -282,9 +282,10 @@ defmodule Valimc.MiningRegionTest do
     assert map_size(World.item_snapshot(ctx.key)) == 1
   end
 
-  test "real writer failure recovers both blocks and receipts before accepting a retry", ctx do
-    path = Store.item_path(ctx.base, ctx.key)
-    File.mkdir!(path)
+  test "real writer failure commits neither block nor receipt and rejects the stale retry", ctx do
+    before = World.get_block(ctx.position)
+    writer = :sys.get_state(ctx.pid).resource.store
+    Valimc.TestDisk.break_writer(writer)
     ref = Process.monitor(ctx.pid)
 
     capture_log(fn ->
@@ -294,12 +295,11 @@ defmodule Valimc.MiningRegionTest do
       assert_receive {:DOWN, ^ref, :process, _, _}, 1000
     end)
 
-    assert File.regular?(Store.mining_path(ctx.base, ctx.key))
-    File.rmdir!(path)
+    Valimc.TestDisk.await_exit(writer)
     assert {:ok, owner} = World.item_owner(ctx.key)
-    assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, ctx.transfer)
-    assert World.get_block(ctx.position) == 0
-    assert map_size(World.item_snapshot(ctx.key)) == 1
+    assert World.get_block(ctx.position) == before and World.item_snapshot(ctx.key) == %{}
+    assert {:ok, :rejected} = Region.apply_mining_transfer(owner, ctx.transfer)
+    assert World.get_block(ctx.position) == before and World.item_snapshot(ctx.key) == %{}
   end
 
   test "no-drop mining still commits a block and receipt; invalid inbox data is inert", ctx do
@@ -345,14 +345,14 @@ defmodule Valimc.MiningRegionTest do
     assert map_size(World.item_snapshot(ctx.key)) == 1
   end
 
-  test "waterlogged removal recovers its water and exact drop outcome across a failed writer",
+  test "waterlogged removal survives a failed writer and recovers its water and exact drop",
        ctx do
     assert :ok = World.set_block(ctx.position, 15179)
     assert :ok = Region.flush(ctx.pid)
     assert {:ok, permit} = Region.reserve_mining(ctx.owner, [ctx.position])
     request = Map.merge(ctx.transfer, permit)
-    path = Store.item_path(ctx.base, ctx.key)
-    File.mkdir!(path)
+    writer = :sys.get_state(ctx.pid).resource.store
+    Valimc.TestDisk.break_writer(writer)
     ref = Process.monitor(ctx.pid)
 
     capture_log(fn ->
@@ -360,7 +360,17 @@ defmodule Valimc.MiningRegionTest do
       assert_receive {:DOWN, ^ref, :process, _, _}, 1000
     end)
 
-    File.rmdir!(path)
+    Valimc.TestDisk.await_exit(writer)
+    assert {:ok, owner} = World.item_owner(ctx.key)
+    assert World.get_block(ctx.position) == 15179 and World.item_snapshot(ctx.key) == %{}
+    assert {:ok, :rejected} = Region.apply_mining_transfer(owner, request)
+    assert {:ok, permit} = Region.reserve_mining(owner, [ctx.position])
+    request = Map.merge(%{ctx.transfer | source: :crypto.strong_rand_bytes(16)}, permit)
+    assert {:ok, :applied} = Region.apply_mining_transfer(owner, request)
+    {pid, _} = owner
+    ref = Process.monitor(pid)
+    Process.exit(pid, :kill)
+    assert_receive {:DOWN, ^ref, :process, _, _}, 1000
     assert {:ok, owner} = World.item_owner(ctx.key)
     assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, request)
     assert World.get_block(ctx.position) == 89

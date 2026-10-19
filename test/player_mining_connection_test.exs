@@ -116,8 +116,8 @@ defmodule Valimc.PlayerMiningConnectionTest do
   defp finished(pid), do: state(pid).mining == nil and state(pid).recovery == nil
 
   defp drops(ctx) do
-    path = Valimc.World.Store.item_path(ctx.base, ctx.key)
-    {:ok, ledger} = Valimc.World.ItemRecords.decode(File.read!(path), ctx.key)
+    bytes = Valimc.TestDisk.read(ctx.base, ctx.key, :items)
+    {:ok, ledger} = Valimc.World.ItemRecords.decode(bytes, ctx.key)
     Enum.map(ledger.records, & &1.stack)
   end
 
@@ -511,7 +511,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
 
     {:ok, containers} =
       Valimc.World.Containers.decode(
-        File.read!(Valimc.World.Store.container_path(ctx.base, ctx.key)),
+        Valimc.TestDisk.read(ctx.base, ctx.key, :containers),
         ctx.key
       )
 
@@ -556,7 +556,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
 
       {:ok, containers} =
         Valimc.World.Containers.decode(
-          File.read!(Valimc.World.Store.container_path(ctx.base, ctx.key)),
+          Valimc.TestDisk.read(ctx.base, ctx.key, :containers),
           ctx.key
         )
 
@@ -572,7 +572,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
   for kind <- [:furnace, :smoker, :blast_furnace] do
     test "occupied #{kind} TCP mining rejects durably without wearing tools or releasing contents",
          ctx do
-      alias Valimc.World.{Containers, Store}
+      alias Valimc.World.Containers
       kind = unquote(kind)
 
       tool = %{
@@ -593,14 +593,9 @@ defmodule Valimc.PlayerMiningConnectionTest do
         Containers.replace_cooking(containers, ctx.target, entry.revision, cooking, %{})
 
       {:ok, bytes} = Containers.encode(ctx.key, containers)
-      File.write!(Store.container_path(ctx.base, ctx.key), bytes)
+      Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
       {:ok, block} = Valimc.Physics.CookingBlocks.placement(kind, 0.0)
-      {rx, rz} = ctx.key
-
-      File.write!(
-        Path.join(ctx.base, "r.#{rx}.#{rz}.etf"),
-        :erlang.term_to_binary({:valimc_region, 1, %{ctx.target => block}})
-      )
+      Valimc.TestDisk.write(ctx.base, ctx.key, :blocks, %{ctx.target => block})
 
       {client, pid} = login(ctx)
       action(client, "start_destroy_block", ctx.target, 1)
@@ -614,7 +609,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
       assert drops(ctx) == []
 
       {:ok, restored} =
-        Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+        Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
 
       assert restored == containers
     end
@@ -622,7 +617,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
 
   test "filled chest TCP mining consumes only tool wear while its owner releases exact stored patches",
        ctx do
-    alias Valimc.World.{Containers, Region, Store}
+    alias Valimc.World.{Containers, Region}
 
     tool = %{
       ItemStack.new("diamond_axe")
@@ -643,13 +638,8 @@ defmodule Valimc.PlayerMiningConnectionTest do
     typed = %{ctx.uuid => %{sequence: 5, digest: <<7::256>>}}
     {:ok, bytes} = Containers.encode(ctx.key, %{containers | receipts: typed})
     File.mkdir_p!(ctx.base)
-    File.write!(Store.container_path(ctx.base, ctx.key), bytes)
-    {rx, rz} = ctx.key
-
-    File.write!(
-      Path.join(ctx.base, "r.#{rx}.#{rz}.etf"),
-      :erlang.term_to_binary({:valimc_region, 1, %{ctx.target => chest}})
-    )
+    Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
+    Valimc.TestDisk.write(ctx.base, ctx.key, :blocks, %{ctx.target => chest})
 
     seed(ctx, %{36 => tool}, chest)
     {client, pid} = login(ctx)
@@ -663,7 +653,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
     assert Inventory.held(state(pid).inventory, :main).components["minecraft:damage"] == 1
 
     {:ok, containers} =
-      Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+      Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
 
     assert containers.entries == %{} and containers.sequence == 3 and containers.receipts == typed
     Client.close(client)

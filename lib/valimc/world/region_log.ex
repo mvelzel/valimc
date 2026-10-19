@@ -141,6 +141,14 @@ defmodule Valimc.World.RegionLog do
     end
   end
 
+  @doc "Read a directory without opening it for writing (no truncation, no open frame)."
+  def read(dir) do
+    with {:ok, checkpoint} <- newest_checkpoint(dir),
+         {:ok, frames, _tail} <- read_segments(dir, checkpoint && checkpoint.lsn) do
+      {:ok, %{checkpoint: checkpoint && checkpoint.state, frames: frames}}
+    end
+  end
+
   @doc "Append one frame per ops list, then `datasync` once. Returns the last LSN."
   def append(%__MODULE__{} = log, batches) when is_list(batches) and batches != [] do
     {frames, next} =
@@ -205,7 +213,7 @@ defmodule Valimc.World.RegionLog do
     |> Enum.sort(:desc)
     |> case do
       [] -> {:ok, nil}
-      [file | _] -> decode_checkpoint(File.read!(Path.join(dir, file)))
+      [file | _] -> decode_checkpoint(File.read!(Path.join(dir, file), [:raw]))
     end
   end
 
@@ -218,7 +226,7 @@ defmodule Valimc.World.RegionLog do
     |> Enum.reduce_while({:ok, [], nil, -1}, fn {{_base, file}, index}, {:ok, acc, _, last} ->
       path = Path.join(dir, file)
 
-      case decode_frames(File.read!(path), last) do
+      case decode_frames(File.read!(path, [:raw]), last) do
         {:ok, frames, _, :clean} ->
           {:cont, {:ok, acc ++ frames, {path, nil}, last_lsn(frames, last)}}
 

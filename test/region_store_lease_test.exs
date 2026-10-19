@@ -60,8 +60,7 @@ defmodule Valimc.RegionStoreLeaseTest do
     assert :ok = Store.flush(writer, old_lease, %{pos => 1})
     Store.commit_items(writer, old_lease, Items.new(), %{}, {self(), epoch}, token)
     assert_receive {:resource, ^epoch, {:items_saved, ^writer, ^token, :ok}}
-    item_path = Store.item_path(ctx.base, ctx.key)
-    original_items = File.read!(item_path)
+    original_items = Valimc.TestDisk.read(ctx.base, ctx.key, :items)
     {rx, rz} = ctx.key
     size = Valimc.config(:region_size) * 16
 
@@ -92,7 +91,7 @@ defmodule Valimc.RegionStoreLeaseTest do
       assert {:error, :stale_store_lease} = Store.flush(writer, old_lease, %{pos => 3})
       assert {:error, :stale_store_lease} = Store.close(writer, old_lease)
       assert Store.load(writer) == %{pos => 1}
-      assert File.read!(item_path) == original_items
+      assert Valimc.TestDisk.read(ctx.base, ctx.key, :items) == original_items
       assert :ok = Store.flush(writer, lease, %{pos => 4})
       assert Store.load(writer) == %{pos => 4}
       assert Process.alive?(writer)

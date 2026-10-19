@@ -2,7 +2,7 @@ defmodule Valimc.ItemCrossMergeRegionTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
   alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
-  alias Valimc.World.{ItemLedger, ItemMergeTransfer, Items, Region, Store}
+  alias Valimc.World.{ItemLedger, ItemMergeTransfer, Items, Region}
 
   setup do
     n = System.unique_integer([:positive])
@@ -37,7 +37,7 @@ defmodule Valimc.ItemCrossMergeRegionTest do
           {destination, recipient, %ItemLedger{generations: %{recipient.uuid => 4}}}
         ] do
       {:ok, bytes} = ItemLedger.encode(key, [record], births, ledger)
-      File.write!(Store.item_path(base, key), bytes)
+      Valimc.TestDisk.write(base, key, :items, bytes)
     end
 
     {:ok, source_owner} = World.item_owner(key)
@@ -74,7 +74,7 @@ defmodule Valimc.ItemCrossMergeRegionTest do
   defp state({pid, _}), do: :sys.get_state(pid).resource
 
   defp disk(c, key) do
-    {:ok, saved} = ItemLedger.decode(File.read!(Store.item_path(c.base, key)), key)
+    {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, key, :items), key)
     saved
   end
 
@@ -276,8 +276,7 @@ defmodule Valimc.ItemCrossMergeRegionTest do
   test "failed donor fsync never publishes withdrawal or starts delivery", c do
     assert {:ok, request} = grant(c)
     writer = state(c.source).store
-    File.write!(Path.join(c.base, "blocked"), "file")
-    :sys.replace_state(writer, &%{&1 | items: Path.join(c.base, "blocked/items")})
+    Valimc.TestDisk.break_writer(writer)
     {pid, _} = c.source
     monitor = Process.monitor(pid)
 
@@ -297,8 +296,7 @@ defmodule Valimc.ItemCrossMergeRegionTest do
        c do
     assert {:ok, request} = grant(c)
     writer = state(c.target).store
-    File.write!(Path.join(c.base, "blocked"), "file")
-    :sys.replace_state(writer, &%{&1 | items: Path.join(c.base, "blocked/items")})
+    Valimc.TestDisk.break_writer(writer)
     {pid, _} = c.target
     monitor = Process.monitor(pid)
 

@@ -380,3 +380,87 @@ defmodule Valimc.TestPool do
     :ok
   end
 end
+
+defmodule Valimc.TestDisk do
+  @moduledoc """
+  Durable region state for tests, independent of the on-disk layout. Writes are
+  fixtures for a region whose store is not running (a stopping store is awaited):
+  before the region log exists they become legacy files (imported on first open),
+  afterwards a log frame.
+  """
+  alias Valimc.World.{RegionLog, Store}
+
+  def read(base, key, part), do: Store.durable(base, key, part)
+
+  def write(base, key, part, value) when part in [:blocks, :items, :containers] do
+    # A store stopping after its owner's death must not race this fixture.
+    for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key), do: await_exit(pid)
+    dir = Store.log_dir(base, key)
+
+    if File.dir?(dir) do
+      {:ok, log, _} = RegionLog.open(dir)
+      {:ok, log, _} = RegionLog.append(log, [[{part, value}]])
+      :ok = RegionLog.close(log)
+    else
+      File.mkdir_p!(base)
+
+      case part do
+        :blocks ->
+          File.write!(
+            Store.block_path(base, key),
+            :erlang.term_to_binary({:valimc_region, 1, value})
+          )
+
+        :items ->
+          write_v1(Store.item_path(base, key), value)
+
+        :containers ->
+          write_v1(Store.container_path(base, key), value)
+      end
+    end
+
+    :ok
+  end
+
+  defp write_v1(path, nil), do: File.rm(path)
+  defp write_v1(path, bytes), do: File.write!(path, bytes)
+
+  @doc """
+  Make the running store's appends fail with an I/O error (its segment file
+  descriptor is closed) until `repair_writer/1`. The store reports the failure
+  exactly as for a failing disk; nothing reaches the log.
+  """
+  def break_writer(writer) do
+    :sys.replace_state(writer, fn
+      %{log: %RegionLog{fd: fd}} = state ->
+        :ok = File.close(fd)
+        state
+    end)
+
+    :ok
+  end
+
+  @doc """
+  Wait until a broken writer has stopped, so the next owner opens a fresh store
+  instead of reclaiming the broken one.
+  """
+  def await_exit(writer, timeout \\ 2000) do
+    ref = Process.monitor(writer)
+
+    receive do
+      {:DOWN, ^ref, :process, ^writer, _} -> :ok
+    after
+      timeout -> raise "store #{inspect(writer)} did not stop"
+    end
+  end
+
+  @doc "Reopen the store's current segment after `break_writer/1`."
+  def repair_writer(writer) do
+    :sys.replace_state(writer, fn %{log: %RegionLog{segment: segment} = log} = state ->
+      {:ok, fd} = File.open(segment, [:append, :binary, :raw])
+      %{state | log: %{log | fd: fd}}
+    end)
+
+    :ok
+  end
+end

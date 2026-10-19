@@ -8,8 +8,7 @@ defmodule Valimc.PlacementRegionTest do
     MiningTransfers,
     PlacementPermits,
     PlacementTransfers,
-    Region,
-    Store
+    Region
   }
 
   @chest hd(JSON.decode!(File.read!("priv/protocol/chest_states.json"))["single_states"])
@@ -69,6 +68,8 @@ defmodule Valimc.PlacementRegionTest do
         writing(pid, attempts - 1)
     end
   end
+
+  defp disk(ctx), do: Valimc.TestDisk.read(ctx.base, ctx.key, :containers)
 
   defp receipt(ctx, owner, request, outcome) do
     assert {:ok, {key, receipt}} = Region.item_transfer_receipt(owner, request.source)
@@ -137,8 +138,7 @@ defmodule Valimc.PlacementRegionTest do
       Task.shutdown(task, :brutal_kill)
     end
 
-    path = Store.container_path(ctx.base, ctx.key)
-    {:ok, containers} = Valimc.World.Containers.decode(File.read!(path), ctx.key)
+    {:ok, containers} = Valimc.World.Containers.decode(disk(ctx), ctx.key)
     assert containers.entries[ctx.position].slots == Tuple.duplicate(nil, 27)
     assert containers.sequence == 1 and containers.receipts == %{}
     assert World.get_block(ctx.position) == @chest
@@ -151,20 +151,20 @@ defmodule Valimc.PlacementRegionTest do
     removal = Map.merge(reserved, %{source: request.source, sequence: 2, records: []})
     assert {:ok, :applied} = Region.apply_mining_transfer(owner, removal)
     assert World.get_block(ctx.position) == Valimc.Physics.FluidBlocks.after_removal(@chest)
-    {:ok, removed} = Valimc.World.Containers.decode(File.read!(path), ctx.key)
+    {:ok, removed} = Valimc.World.Containers.decode(disk(ctx), ctx.key)
     assert removed.entries == %{} and removed.sequence == 2 and removed.receipts == %{}
     assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, removal)
-    assert File.regular?(path) and not File.exists?(Store.mining_path(ctx.base, ctx.key))
   end
 
-  test "a chest metadata-file failure recovers the whole joint proposal before retry", ctx do
+  test "a failed chest write publishes neither block nor metadata and rejects the stale retry",
+       ctx do
     {x, y, z} = ctx.position
     position = {x + 4, y, z + 4}
     {:ok, reservation} = reserve(ctx.owner, [position])
     ctx = %{ctx | position: position, transfer: Map.merge(ctx.transfer, reservation)}
     request = %{ctx.transfer | edits: %{ctx.position => @chest}}
-    path = Store.container_path(ctx.base, ctx.key)
-    File.mkdir_p!(path)
+    writer = :sys.get_state(ctx.pid).resource.store
+    Valimc.TestDisk.break_writer(writer)
     monitor = Process.monitor(ctx.pid)
 
     capture_log(fn ->
@@ -174,17 +174,14 @@ defmodule Valimc.PlacementRegionTest do
       assert_receive {:DOWN, ^monitor, :process, _, _}, 1000
     end)
 
-    assert File.regular?(Store.mining_path(ctx.base, ctx.key))
-    File.rmdir!(path)
+    Valimc.TestDisk.await_exit(writer)
+    assert disk(ctx) == nil
     {:ok, owner} = World.item_owner(ctx.key)
-    assert {:ok, :already_applied} = Region.apply_placement_transfer(owner, request)
-    assert World.get_block(ctx.position) == @chest
-    {:ok, containers} = Valimc.World.Containers.decode(File.read!(path), ctx.key)
-    assert containers.entries[ctx.position].slots == Tuple.duplicate(nil, 27)
-    assert containers.sequence == 1 and containers.receipts == %{}
-    assert :sys.get_state(elem(owner, 0)).resource.containers == containers
-    assert not File.exists?(Store.mining_path(ctx.base, ctx.key))
-    receipt(ctx, owner, request, :applied)
+    assert World.get_block(ctx.position) == 0
+    assert {:ok, :rejected} = Region.apply_placement_transfer(owner, request)
+    assert World.get_block(ctx.position) == 0
+    assert :sys.get_state(elem(owner, 0)).resource.containers.entries == %{}
+    receipt(ctx, owner, request, :rejected)
   end
 
   test "a new adjacent chest after reservation durably rejects without publishing target metadata",
@@ -322,7 +319,7 @@ defmodule Valimc.PlacementRegionTest do
     receipt(ctx, owner, request, :applied)
   end
 
-  test "writer failure recovers block plus receipt and leaves preexisting item records exact",
+  test "writer failure commits neither block nor receipt and leaves item records exact",
        ctx do
     {x, y, z} = ctx.position
 
@@ -334,9 +331,8 @@ defmodule Valimc.PlacementRegionTest do
       )
 
     records = Valimc.World.Items.records(:sys.get_state(ctx.pid).resource.items)
-    path = Store.item_path(ctx.base, ctx.key)
-    File.rm!(path)
-    File.mkdir!(path)
+    writer = :sys.get_state(ctx.pid).resource.store
+    Valimc.TestDisk.break_writer(writer)
     monitor = Process.monitor(ctx.pid)
 
     capture_log(fn ->
@@ -346,12 +342,12 @@ defmodule Valimc.PlacementRegionTest do
       assert_receive {:DOWN, ^monitor, :process, _, _}, 1000
     end)
 
-    assert File.regular?(Store.mining_path(ctx.base, ctx.key))
-    File.rmdir!(path)
+    Valimc.TestDisk.await_exit(writer)
     {:ok, owner} = World.item_owner(ctx.key)
-    assert {:ok, :already_applied} = Region.apply_placement_transfer(owner, ctx.transfer)
-    assert World.get_block(ctx.position) == 1
-    receipt(ctx, owner, ctx.transfer, :applied)
+    assert World.get_block(ctx.position) == 0
+    assert {:ok, :rejected} = Region.apply_placement_transfer(owner, ctx.transfer)
+    assert World.get_block(ctx.position) == 0
+    receipt(ctx, owner, ctx.transfer, :rejected)
     assert records == Valimc.World.Items.records(:sys.get_state(elem(owner, 0)).resource.items)
   end
 

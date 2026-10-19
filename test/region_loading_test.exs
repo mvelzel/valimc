@@ -4,13 +4,13 @@ defmodule Valimc.RegionLoadingTest do
   alias Valimc.World.Region
   import ExUnit.CaptureLog
 
-  test "a failed cold block load preserves its file and leaves unrelated owners available" do
+  test "a failed cold legacy block import preserves its file and leaves unrelated owners available" do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-bad-cold-#{nonce}")
     old_path = Valimc.config(:world_path)
     key = {-752, -nonce}
     independent = {-753, -nonce}
-    path = Path.join(base, "r.#{elem(key, 0)}.#{elem(key, 1)}.etf")
+    path = Valimc.World.Store.block_path(base, key)
     File.mkdir_p!(base)
     File.write!(path, <<0>>)
     Application.put_env(:valimc, :world_path, base)
@@ -39,7 +39,7 @@ defmodule Valimc.RegionLoadingTest do
     old_path = Valimc.config(:world_path)
     key = {-750, -nonce}
     independent = {-751, -nonce}
-    path = Path.join(base, "r.#{elem(key, 0)}.#{elem(key, 1)}.etf")
+    path = Valimc.World.Store.block_path(base, key)
     File.mkdir_p!(base)
     assert {_, 0} = System.cmd("mkfifo", [path])
     Application.put_env(:valimc, :world_path, base)

@@ -2,7 +2,7 @@ defmodule Valimc.MenuOverflowTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
   alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players, World}
-  alias Valimc.World.{ItemRecords, Items, Region, Store}
+  alias Valimc.World.{ItemRecords, Items, Region}
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
   import ExUnit.CaptureLog
@@ -376,9 +376,7 @@ defmodule Valimc.MenuOverflowTest do
           }
 
     {:ok, bytes} = ItemRecords.encode(ctx.key, fixture)
-    item_path = Store.item_path(ctx.base, ctx.key)
-    File.mkdir_p!(Path.dirname(item_path))
-    File.write!(item_path, bytes)
+    Valimc.TestDisk.write(ctx.base, ctx.key, :items, bytes)
     client = login(ctx, true)
     close_menu(client)
 

@@ -223,7 +223,7 @@ defmodule Valimc.PlayerMiningStoreTest do
 
     {:ok, ledger} =
       Valimc.World.ItemRecords.decode(
-        File.read!(Valimc.World.Store.item_path(ctx.base, ctx.key)),
+        Valimc.TestDisk.read(ctx.base, ctx.key, :items),
         ctx.key
       )
 
@@ -301,7 +301,7 @@ defmodule Valimc.PlayerMiningStoreTest do
 
     {:ok, %{records: records}} =
       Valimc.World.ItemRecords.decode(
-        File.read!(Valimc.World.Store.item_path(ctx.base, ctx.key)),
+        Valimc.TestDisk.read(ctx.base, ctx.key, :items),
         ctx.key
       )
 

@@ -176,12 +176,11 @@ defmodule Valimc.ItemStoreTest do
     end
   end
 
-  test "a real rename failure fences the owner and preserves the old recoverable file", ctx do
+  test "a real write failure fences the owner and preserves the old recoverable state", ctx do
     {handle, uuid, stone} = seed(ctx)
-    path = Store.item_path(ctx.base, ctx.key)
-    old = File.read!(path)
-    File.rename!(path, path <> ".saved")
-    File.mkdir_p!(path)
+    old = disk(ctx)
+    writer = :sys.get_state(ctx.pid).resource.store
+    Valimc.TestDisk.break_writer(writer)
     ref = Process.monitor(ctx.pid)
 
     assert capture_log(fn ->
@@ -191,9 +190,8 @@ defmodule Valimc.ItemStoreTest do
              assert_receive {:DOWN, ^ref, :process, _, {:item_storage_failed, _}}, 1500
            end) =~ "Region item commit failed"
 
-    assert File.dir?(path) and File.read!(path <> ".saved") == old
-    File.rm_rf!(path)
-    File.rename!(path <> ".saved", path)
+    Valimc.TestDisk.await_exit(writer)
+    assert disk(ctx) == old
     {:ok, owner} = World.item_owner(ctx.key)
     {:ok, current} = Region.find_item(owner, uuid)
     assert :sys.get_state(elem(owner, 0)).resource.items.entries[elem(current, 2)].stack == stone
@@ -259,18 +257,19 @@ defmodule Valimc.ItemStoreTest do
 
   test "a corrupt item file is preserved and prevents only its region from publishing", ctx do
     seed(ctx)
-    path = Store.item_path(ctx.base, ctx.key)
-    bytes = File.read!(path)
+    bytes = disk(ctx)
+    writer = :sys.get_state(ctx.pid).resource.store
     DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid)
+    Valimc.TestDisk.await_exit(writer)
     corrupt = bytes <> <<0>>
-    File.write!(path, corrupt)
+    Valimc.TestDisk.write(ctx.base, ctx.key, :items, corrupt)
 
     capture_log(fn ->
       assert {:error, reason} = World.item_owner(ctx.key)
       assert reason in [{:item_load_failed, :invalid_item_file}, :region_restarting]
     end)
 
-    assert World.item_snapshot(ctx.key) == %{} and File.read!(path) == corrupt
+    assert World.item_snapshot(ctx.key) == %{} and disk(ctx) == corrupt
     {rx, rz} = ctx.key
     {:ok, healthy} = World.item_owner({rx + 1, rz})
 
@@ -283,8 +282,7 @@ defmodule Valimc.ItemStoreTest do
   test "old block snapshots cannot overwrite a newer committed item file", ctx do
     {handle, _, _} = seed(ctx)
     {:ok, _} = Region.replace_item(handle, ItemStack.new("egg", 3))
-    path = Store.item_path(ctx.base, ctx.key)
-    bytes = File.read!(path)
+    bytes = disk(ctx)
     writer = :sys.get_state(ctx.pid).resource.store
 
     Store.snapshot(
@@ -296,10 +294,12 @@ defmodule Valimc.ItemStoreTest do
     )
 
     assert_receive {:resource, _, {:saved, ^writer, 31, :ok}}
-    assert File.read!(path) == bytes
+    assert disk(ctx) == bytes
     assert {:ok, %{records: [%{stack: stack}]}} = ItemRecords.decode(bytes, ctx.key)
     assert stack == ItemStack.new("egg", 3)
   end
+
+  defp disk(ctx), do: Valimc.TestDisk.read(ctx.base, ctx.key, :items)
 
   defp transfer(ctx, sequence \\ 1) do
     {x, y, z} = ctx.position
@@ -314,13 +314,12 @@ defmodule Valimc.ItemStoreTest do
     assert map_size(World.item_snapshot(ctx.key)) == 1
     {:ok, handle} = Region.find_item(ctx.owner, hd(request.records).uuid)
     assert :ok = Region.remove_item(handle)
-    path = Store.item_path(ctx.base, ctx.key)
-    bytes = File.read!(path)
+    bytes = disk(ctx)
     assert {:ok, %{records: [], receipts: receipts}} = ItemRecords.decode(bytes, ctx.key)
     assert receipts[request.source].sequence == 1
     owner = replace_owner(ctx)
     assert {:ok, :already_applied} = Region.apply_item_transfer(owner, request)
-    assert World.item_snapshot(ctx.key) == %{} and File.read!(path) == bytes
+    assert World.item_snapshot(ctx.key) == %{} and disk(ctx) == bytes
     assert :sys.get_state(elem(owner, 0)).resource.item_receipts == receipts
 
     assert {:error, :stale_region} =
@@ -334,13 +333,12 @@ defmodule Valimc.ItemStoreTest do
     record = Map.put(hd(request.records), :motion, motion)
     request = %{request | records: [record]}
     assert {:ok, :applied} = Region.apply_item_transfer(ctx.owner, request)
-    path = Store.item_path(ctx.base, ctx.key)
-    assert <<"VMCITEMS", 3, _::binary>> = bytes = File.read!(path)
+    assert <<"VMCITEMS", 3, _::binary>> = bytes = disk(ctx)
     assert {:ok, %{records: [^record], receipts: receipts}} = ItemRecords.decode(bytes, ctx.key)
     owner = replace_owner(ctx)
     assert [^record] = Valimc.World.Items.records(:sys.get_state(elem(owner, 0)).resource.items)
     assert {:ok, :already_applied} = Region.apply_item_transfer(owner, request)
-    assert File.read!(path) == bytes
+    assert disk(ctx) == bytes
     assert {:ok, handle} = Region.find_item(owner, record.uuid)
     assert :ok = Region.remove_item(handle)
     final = replace_owner(%{ctx | pid: elem(owner, 0)}, :shutdown)
@@ -348,7 +346,7 @@ defmodule Valimc.ItemStoreTest do
     assert World.item_snapshot(ctx.key) == %{}
 
     assert {:ok, %{records: [], receipts: ^receipts}} =
-             ItemRecords.decode(File.read!(path), ctx.key)
+             ItemRecords.decode(disk(ctx), ctx.key)
   end
 
   test "accepted step publication waits for disk and survives owner replacement with its receipt",
@@ -497,7 +495,7 @@ defmodule Valimc.ItemStoreTest do
       assert {:error, :item_workers_busy} = Region.apply_item_transfer(ctx.owner, transfer(ctx))
       assert :sys.get_state(ctx.pid).resource.item_pending == nil
       assert World.item_snapshot(ctx.key) == %{}
-      assert not File.exists?(Store.item_path(ctx.base, ctx.key))
+      assert Valimc.TestDisk.read(ctx.base, ctx.key, :items) == nil
       {x, _, z} = ctx.position
       assert :ok = World.set_block({floor(x), 64, floor(z)}, 1)
     after
@@ -562,7 +560,7 @@ defmodule Valimc.ItemStoreTest do
     send_resource(ctx, {:item_transfer_plan, worker, token, result})
     assert :sys.get_state(ctx.pid).resource.item_receipts == %{}
     assert World.item_snapshot(ctx.key) == %{}
-    assert not File.exists?(Store.item_path(ctx.base, ctx.key))
+    assert Valimc.TestDisk.read(ctx.base, ctx.key, :items) == nil
     assert {:ok, :applied} = Region.apply_item_transfer(ctx.owner, transfer(ctx))
   end
 

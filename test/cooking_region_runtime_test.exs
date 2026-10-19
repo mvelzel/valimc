@@ -47,15 +47,11 @@ defmodule Valimc.CookingRegionRuntimeTest do
       Containers.replace_cooking(containers, ctx.position, entry.revision, cooking, %{})
 
     {:ok, bytes} = Containers.encode(ctx.key, containers)
-    File.write!(Store.container_path(ctx.base, ctx.key), bytes)
-    {rx, rz} = ctx.key
+    Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
 
-    File.write!(
-      Path.join(ctx.base, "r.#{rx}.#{rz}.etf"),
-      :erlang.term_to_binary(
-        {:valimc_region, 1, %{ctx.position => if(lit, do: ctx.lit, else: ctx.unlit)}}
-      )
-    )
+    Valimc.TestDisk.write(ctx.base, ctx.key, :blocks, %{
+      ctx.position => if(lit, do: ctx.lit, else: ctx.unlit)
+    })
 
     RegionData.load(ctx.key)
   end
@@ -90,7 +86,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
 
   defp disk(ctx) do
     {:ok, containers} =
-      Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+      Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
 
     containers
   end
@@ -355,7 +351,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
     RegionData.terminate(:shutdown, state)
 
     {:ok, stored} =
-      Valimc.World.ItemRecords.decode(File.read!(Store.item_path(ctx.base, ctx.key)), ctx.key)
+      Valimc.World.ItemRecords.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :items), ctx.key)
 
     assert stored.records == expected_items
     assert disk(ctx) == state.containers
@@ -529,13 +525,8 @@ defmodule Valimc.CookingRegionRuntimeTest do
       )
 
     {:ok, bytes} = Containers.encode(ctx.key, containers)
-    File.write!(Store.container_path(ctx.base, ctx.key), bytes)
-    {rx, rz} = ctx.key
-
-    File.write!(
-      Path.join(ctx.base, "r.#{rx}.#{rz}.etf"),
-      :erlang.term_to_binary({:valimc_region, 1, edits})
-    )
+    Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
+    Valimc.TestDisk.write(ctx.base, ctx.key, :blocks, edits)
 
     Application.put_env(:valimc, :item_simulation, true)
     {:ok, {pid, _} = owner} = Valimc.World.item_owner(ctx.key)

@@ -121,7 +121,9 @@ defmodule Valimc.CookingOrbDeliveryTest do
       |> Enum.flat_map(fn {_, _, views} -> Map.to_list(views) end)
       |> Map.new()
 
-  defp disk(ctx, key), do: Containers.decode(File.read!(Store.container_path(ctx.base, key)), key)
+  defp disk(ctx, key),
+    do: Containers.decode(Valimc.TestDisk.read(ctx.base, key, :containers), key)
+
   defp resource(pid), do: :sys.get_state(pid).resource
   defp now, do: System.monotonic_time(:millisecond)
 
@@ -282,7 +284,7 @@ defmodule Valimc.CookingOrbDeliveryTest do
     state = RegionData.load(ctx.dest)
     tag = make_ref()
     state = start_adoption(state, request, tag)
-    File.mkdir!(Store.container_path(ctx.base, ctx.dest))
+    Valimc.TestDisk.break_writer(state.store)
     state = result(state)
     assert {:stop, {:cooking_orb_storage_failed, _}, stopped} = saved(state)
     assert_receive {^tag, {:error, :cooking_orb_commit_uncertain}}
@@ -386,7 +388,7 @@ defmodule Valimc.CookingOrbDeliveryTest do
     }
 
     {:ok, bytes} = Containers.encode(origin, original)
-    File.write!(Store.container_path(ctx.base, origin), bytes)
+    Valimc.TestDisk.write(ctx.base, origin, :containers, bytes)
     full = %Containers{orb_transfers: %{revision: 256, outgoing: %{}, incoming: imports}}
     seed(ctx.dest, full)
     {cs, blocked} = award(ctx.source, ctx.at)

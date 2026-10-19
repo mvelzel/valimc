@@ -14,7 +14,7 @@ defmodule Valimc.CookingOrbConnectionTest do
   }
 
   alias Valimc.Protocol.{Data, EntityTypes, ItemStack, Wire}
-  alias Valimc.World.{Containers, ContainerTransfers, PendingCookingAwards, Region, Store}
+  alias Valimc.World.{Containers, ContainerTransfers, PendingCookingAwards, Region}
   alias Valimc.TestClient, as: Client
 
   for remote <- [false, true] do
@@ -98,7 +98,7 @@ defmodule Valimc.CookingOrbConnectionTest do
       }
 
       {:ok, bytes} = Containers.encode(source_key, cs)
-      File.write!(Store.container_path(base, source_key), bytes)
+      Valimc.TestDisk.write(base, source_key, :containers, bytes)
       {:ok, {source_owner, _}} = World.item_owner(source_key)
       {:ok, {owner, epoch}} = World.item_owner(key)
       wait(fn -> map_size(:sys.get_state(owner).resource.cooking_orbs.views) == 2 end)

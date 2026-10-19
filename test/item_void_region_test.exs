@@ -2,7 +2,7 @@ defmodule Valimc.ItemVoidRegionTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
   alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
-  alias Valimc.World.{ItemLedger, Region, Store}
+  alias Valimc.World.{ItemLedger, Region}
 
   setup do
     n = System.unique_integer([:positive])
@@ -31,9 +31,8 @@ defmodule Valimc.ItemVoidRegionTest do
       generations: %{below.uuid => 3, boundary.uuid => 4}
     }
 
-    path = Store.item_path(base, key)
     {:ok, bytes} = ItemLedger.encode(key, [below, boundary], receipts, ledger)
-    File.write!(path, bytes)
+    Valimc.TestDisk.write(base, key, :items, bytes)
     {:ok, owner} = World.item_owner(key)
 
     on_exit(fn ->
@@ -53,7 +52,6 @@ defmodule Valimc.ItemVoidRegionTest do
     %{
       key: key,
       base: base,
-      path: path,
       owner: owner,
       below: below,
       boundary: boundary,
@@ -79,7 +77,7 @@ defmodule Valimc.ItemVoidRegionTest do
   end
 
   defp disk(c) do
-    {:ok, saved} = ItemLedger.decode(File.read!(c.path), c.key)
+    {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, c.key, :items), c.key)
     saved
   end
 
@@ -116,8 +114,7 @@ defmodule Valimc.ItemVoidRegionTest do
 
   test "failed removal never publishes and a new owner retries from durable authority", c do
     writer = state(c.owner).store
-    File.write!(Path.join(c.base, "blocked"), "file")
-    :sys.replace_state(writer, &%{&1 | items: Path.join(c.base, "blocked/items")})
+    Valimc.TestDisk.break_writer(writer)
     {pid, _} = c.owner
     monitor = Process.monitor(pid)
 

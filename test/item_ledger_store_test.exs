@@ -3,7 +3,7 @@ defmodule Valimc.ItemLedgerStoreTest do
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.{Data, ItemStack}
   alias Valimc.World
-  alias Valimc.World.{ItemLedger, Items, MiningRecord, Region, Store}
+  alias Valimc.World.{ItemLedger, Items, Region, Store}
 
   setup tags do
     nonce = System.unique_integer([:positive])
@@ -45,13 +45,12 @@ defmodule Valimc.ItemLedgerStoreTest do
         else: receipts
 
     {:ok, bytes} = ItemLedger.encode(key, [record], receipts, ledger)
-    path = Store.item_path(base, key)
-    File.write!(path, bytes)
+    Valimc.TestDisk.write(base, key, :items, bytes)
     # Keep the outgoing intent pending while exercising unrelated save paths.
     destination = {rx + 1, rz}
     occupied = for n <- 1..256, do: %{outgoing | uuid: <<1000 + n::128>>}
     {:ok, full} = ItemLedger.encode(destination, occupied, %{})
-    File.write!(Store.item_path(base, destination), full)
+    Valimc.TestDisk.write(base, destination, :items, full)
 
     on_exit(fn ->
       for region <- [key, destination],
@@ -66,11 +65,13 @@ defmodule Valimc.ItemLedgerStoreTest do
       File.rm_rf!(base)
     end)
 
-    %{key: key, base: base, path: path, record: record, ledger: ledger, receipts: receipts}
+    %{key: key, base: base, record: record, ledger: ledger, receipts: receipts}
   end
 
   defp disk(ctx) do
-    assert {:ok, snapshot} = ItemLedger.decode(File.read!(ctx.path), ctx.key)
+    assert {:ok, snapshot} =
+             ItemLedger.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :items), ctx.key)
+
     assert snapshot.ledger == ctx.ledger
     assert snapshot.receipts == ctx.receipts
     snapshot
@@ -107,7 +108,7 @@ defmodule Valimc.ItemLedgerStoreTest do
                records: [born]
              })
 
-    {:ok, saved} = ItemLedger.decode(File.read!(ctx.path), ctx.key)
+    {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :items), ctx.key)
     assert saved.receipts[<<72::128>>].sequence == 1
     assert saved.receipts[<<71::128>>] == ctx.receipts[<<71::128>>]
     assert saved.ledger == ctx.ledger
@@ -193,38 +194,5 @@ defmodule Valimc.ItemLedgerStoreTest do
     assert {:ok, writer, _} = Store.open(ctx.key)
     assert {:ok, %{ledger: ledger}} = Store.load_items(writer)
     assert ledger == ctx.ledger
-  end
-
-  test "journal recovery retains complete ledger at each file replacement boundary", ctx do
-    {rx, rz} = ctx.key
-    block_path = Path.join(ctx.base, "r.#{rx}.#{rz}.etf")
-    journal_path = Store.mining_path(ctx.base, ctx.key)
-    before_items = File.read!(ctx.path)
-    before_blocks = :erlang.term_to_binary({:valimc_region, 1, %{}})
-    edits = %{{floor(ctx.record.x), 64, floor(ctx.record.z)} => Data.block("dirt")}
-    changed = %{ctx.record | stack: ItemStack.new("egg", 3)}
-    assert {:ok, bytes} = ItemLedger.encode(ctx.key, [changed], ctx.receipts, ctx.ledger)
-    assert {:ok, journal} = MiningRecord.encode(ctx.key, edits, bytes)
-
-    for boundary <- [:journal_only, :blocks_written, :both_written] do
-      File.write!(block_path, before_blocks)
-      File.write!(ctx.path, before_items)
-      File.write!(journal_path, journal)
-
-      if boundary != :journal_only,
-        do: File.write!(block_path, :erlang.term_to_binary({:valimc_region, 1, edits}))
-
-      if boundary == :both_written, do: File.write!(ctx.path, bytes)
-      assert {:ok, writer, lease} = Store.open(ctx.key)
-      assert Store.load(writer) == edits
-
-      assert {:ok, %{records: [^changed], ledger: ledger, receipts: receipts}} =
-               Store.load_items(writer)
-
-      assert ledger == ctx.ledger and receipts == ctx.receipts
-      assert disk(ctx).records == [changed]
-      refute File.exists?(journal_path)
-      assert :ok = Store.close(writer, lease)
-    end
   end
 end

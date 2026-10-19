@@ -13,7 +13,7 @@ defmodule Valimc.PlayerPickupStoreTest do
   }
 
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{ItemLedger, ItemReceipts, Items, PickupTransfers, Store}
+  alias Valimc.World.{ItemLedger, ItemReceipts, Items, PickupTransfers}
 
   setup do
     n = System.unique_integer([:positive])
@@ -41,7 +41,7 @@ defmodule Valimc.PlayerPickupStoreTest do
     {:ok, items} = Items.restore(key, [record])
     {:ok, receipts, :reserved} = ItemReceipts.reserve(%{}, uuid)
     {:ok, bytes} = ItemLedger.encode(key, [record], receipts, items.ledger)
-    File.write!(Store.item_path(base, key), bytes)
+    Valimc.TestDisk.write(base, key, :items, bytes)
     {:ok, writer, nil, fence} = PlayerStore.open(uuid)
 
     snapshot = %{
@@ -137,7 +137,7 @@ defmodule Valimc.PlayerPickupStoreTest do
     {:ok, bytes} =
       ItemLedger.encode(ctx.key, Items.records(plan.items), receipts, plan.items.ledger)
 
-    File.write!(Store.item_path(ctx.base, ctx.key), bytes)
+    Valimc.TestDisk.write(ctx.base, ctx.key, :items, bytes)
   end
 
   defp reopen(ctx) do

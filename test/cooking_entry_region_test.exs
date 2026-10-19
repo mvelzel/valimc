@@ -2,7 +2,7 @@ defmodule Valimc.CookingEntryRegionTest do
   use ExUnit.Case, async: false
   alias Valimc.{Cooking, World}
   alias Valimc.Protocol.{Data, ItemStack}
-  alias Valimc.World.{Containers, Region, Store}
+  alias Valimc.World.{Containers, Region}
 
   test "cold owners retain mixed cooking entries and refuse raw removal until lifecycle admission exists" do
     nonce = System.unique_integer([:positive])
@@ -40,17 +40,14 @@ defmodule Valimc.CookingEntryRegionTest do
     containers = %{containers | receipts: %{<<1::128>> => %{sequence: 77, digest: <<1::256>>}}}
     {:ok, bytes} = Containers.encode(key, containers)
     File.mkdir_p!(base)
-    File.write!(Store.container_path(base, key), bytes)
+    Valimc.TestDisk.write(base, key, :containers, bytes)
 
     edits = %{
       pos => Data.item_block(Data.item("furnace")) - 1,
       blank => Data.item_block(Data.item("smoker"))
     }
 
-    File.write!(
-      Path.join(base, "r.#{rx}.#{rz}.etf"),
-      :erlang.term_to_binary({:valimc_region, 1, edits})
-    )
+    Valimc.TestDisk.write(base, key, :blocks, edits)
 
     {:ok, {pid, epoch}} = World.item_owner(key)
 

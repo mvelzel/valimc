@@ -3,7 +3,7 @@ defmodule Valimc.ChestSpillRegionTest do
   import ExUnit.CaptureLog
   alias Valimc.Protocol.ItemStack
   alias Valimc.World
-  alias Valimc.World.{Containers, ItemLedger, Items, MiningTransfers, Region, Store}
+  alias Valimc.World.{Containers, ItemLedger, Items, MiningTransfers, Region}
 
   setup context do
     nonce = System.unique_integer([:positive])
@@ -34,9 +34,8 @@ defmodule Valimc.ChestSpillRegionTest do
     containers = %{containers | receipts: typed}
     {:ok, bytes} = Containers.encode(key, containers)
     File.mkdir_p!(base)
-    File.write!(Store.container_path(base, key), bytes)
-    block_path = Path.join(base, "r.#{rx}.#{rz}.etf")
-    File.write!(block_path, :erlang.term_to_binary({:valimc_region, 1, %{position => chest}}))
+    Valimc.TestDisk.write(base, key, :containers, bytes)
+    Valimc.TestDisk.write(base, key, :blocks, %{position => chest})
 
     initial =
       if context[:capacity] do
@@ -55,7 +54,7 @@ defmodule Valimc.ChestSpillRegionTest do
       end
 
     {:ok, bytes} = ItemLedger.encode(key, initial, %{}, %ItemLedger{})
-    File.write!(Store.item_path(base, key), bytes)
+    Valimc.TestDisk.write(base, key, :items, bytes)
     {:ok, {pid, _} = owner} = World.item_owner(key)
     {:ok, permit} = Region.reserve_mining(owner, [position])
     {x, y, z} = position
@@ -90,8 +89,7 @@ defmodule Valimc.ChestSpillRegionTest do
       stock: stock,
       typed: typed,
       initial: initial,
-      transfer: transfer,
-      block_path: block_path
+      transfer: transfer
     }
   end
 
@@ -102,16 +100,15 @@ defmodule Valimc.ChestSpillRegionTest do
   end
 
   defp audit(c, self_loot) do
-    {:ok, containers} = Containers.decode(File.read!(Store.container_path(c.base, c.key)), c.key)
+    {:ok, containers} = Containers.decode(Valimc.TestDisk.read(c.base, c.key, :containers), c.key)
 
     assert containers.entries == %{} and containers.sequence == 3 and
              containers.receipts == c.typed
 
-    {:ok, saved} = ItemLedger.decode(File.read!(Store.item_path(c.base, c.key)), c.key)
+    {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, c.key, :items), c.key)
     expected = if self_loot, do: [ItemStack.new("chest") | c.stock], else: c.stock
     assert quantities(Enum.map(saved.records, & &1.stack)) == quantities(expected)
     assert World.get_block(c.position) == 89
-    assert not File.exists?(Store.mining_path(c.base, c.key))
     saved
   end
 
@@ -217,7 +214,7 @@ defmodule Valimc.ChestSpillRegionTest do
     assert {:ok, :rejected} = Region.apply_mining_transfer(c.owner, c.transfer)
     assert World.get_block(c.position) == c.chest
     assert :sys.get_state(c.pid).resource.containers == c.containers
-    {:ok, saved} = ItemLedger.decode(File.read!(Store.item_path(c.base, c.key)), c.key)
+    {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, c.key, :items), c.key)
     assert saved.records == c.initial
 
     assert {:ok, :rejected} =
@@ -226,32 +223,27 @@ defmodule Valimc.ChestSpillRegionTest do
     assert {:ok, :already_rejected} = Region.apply_mining_transfer(c.owner, c.transfer)
   end
 
-  for boundary <- [:blocks, :items, :containers] do
-    test "filled spill recovers exact records and receipt after #{boundary} write failure", c do
-      path =
-        case unquote(boundary) do
-          :blocks -> c.block_path
-          :items -> Store.item_path(c.base, c.key)
-          :containers -> Store.container_path(c.base, c.key)
-        end
+  test "a failed filled spill write keeps the chest, contents and records, then rejects the retry",
+       c do
+    writer = :sys.get_state(c.pid).resource.store
+    Valimc.TestDisk.break_writer(writer)
+    monitor = Process.monitor(c.pid)
 
-      File.rm!(path)
-      File.mkdir!(path)
-      monitor = Process.monitor(c.pid)
+    capture_log(fn ->
+      assert {:error, :mining_commit_uncertain} =
+               Region.apply_mining_transfer(c.owner, c.transfer)
 
-      capture_log(fn ->
-        assert {:error, :mining_commit_uncertain} =
-                 Region.apply_mining_transfer(c.owner, c.transfer)
+      assert_receive {:DOWN, ^monitor, :process, _, _}, 1000
+    end)
 
-        assert_receive {:DOWN, ^monitor, :process, _, _}, 1000
-      end)
-
-      assert File.regular?(Store.mining_path(c.base, c.key))
-      File.rmdir!(path)
-      {:ok, owner} = World.item_owner(c.key)
-      saved = audit(c, true)
-      assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, c.transfer)
-      assert audit(c, true) == saved
-    end
+    Valimc.TestDisk.await_exit(writer)
+    {:ok, {pid, _} = owner} = World.item_owner(c.key)
+    assert World.get_block(c.position) == c.chest
+    assert :sys.get_state(pid).resource.containers == c.containers
+    assert {:ok, :rejected} = Region.apply_mining_transfer(owner, c.transfer)
+    assert World.get_block(c.position) == c.chest
+    assert :sys.get_state(pid).resource.containers == c.containers
+    {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, c.key, :items), c.key)
+    assert saved.records == c.initial
   end
 end

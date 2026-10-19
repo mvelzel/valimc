@@ -184,7 +184,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     {:ok, bytes} =
       ItemLedger.encode(ctx.key, [], %{ctx.uuid => %{sequence: 1, digest: <<77::256>>}})
 
-    File.write!(Store.item_path(ctx.base, ctx.key), bytes)
+    Valimc.TestDisk.write(ctx.base, ctx.key, :items, bytes)
     ref = make_ref()
     PlayerStore.complete_transfer(writer, fence, ref)
     assert_receive {:player_transfer_saved, ^ref, {:error, :transfer_not_applied}}, 1500
@@ -216,7 +216,7 @@ defmodule Valimc.PlayerContainerStoreTest do
              Region.recover_container_transfer(owner, pending.outbox.request)
 
     assert {:ok, containers} =
-             Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+             Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
 
     assert containers.entries == %{} and containers.receipts[ctx.uuid].sequence == 1
   end
@@ -235,7 +235,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     assert sealed.inventory.carried == nil and sealed.outbox == nil
 
     {:ok, containers} =
-      Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+      Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
 
     assert containers == decision.containers
   end
@@ -295,7 +295,7 @@ defmodule Valimc.PlayerContainerStoreTest do
 
   defp admit(ctx) do
     {:ok, bytes} = Containers.encode(ctx.key, %{ctx.containers | receipts: %{}})
-    File.write!(Store.container_path(ctx.base, ctx.key), bytes)
+    Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
     block = hd(JSON.decode!(File.read!("priv/protocol/chest_states.json"))["single_states"])
     :ok = World.set_block(ctx.intent.request.position, block)
     {:ok, owner} = World.item_owner(ctx.key)
@@ -330,7 +330,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     assert {:ok, :already_applied} = Region.container_transfer(owner, pending.outbox.request)
 
     {:ok, stored} =
-      Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+      Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
 
     assert elem(stored.entries[ctx.intent.request.position].slots, 0) ==
              ItemStack.new("diamond", 3)
@@ -399,7 +399,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     assert {:ok, :rejected} = Region.container_transfer(owner, ctx.intent.request)
 
     {:ok, stored} =
-      Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+      Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
 
     assert stored.entries[position].slots == Tuple.duplicate(nil, 27)
   end
@@ -453,7 +453,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     assert {:ok, :already_rejected} = Region.container_transfer(owner, competing)
 
     {:ok, stored} =
-      Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+      Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
 
     assert stored.sequence == 2
     assert elem(stored.entries[request.position].slots, 0) == ItemStack.new("diamond", 3)
@@ -489,12 +489,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     request = %{ctx.intent.request | revision: entry.revision, slots: slots}
 
     block = hd(JSON.decode!(File.read!("priv/protocol/chest_states.json"))["single_states"])
-    {rx, rz} = ctx.key
-
-    File.write!(
-      Path.join(ctx.base, "r.#{rx}.#{rz}.etf"),
-      :erlang.term_to_binary({:valimc_region, 1, %{position => block}})
-    )
+    Valimc.TestDisk.write(ctx.base, ctx.key, :blocks, %{position => block})
 
     {owner, ctx, _actor} =
       admit(%{ctx | containers: containers, intent: %{ctx.intent | request: request}})
@@ -502,7 +497,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     block = World.get_block(position)
     {x, y, z} = position
     other = {x + 1, y, z}
-    before = File.read!(Store.container_path(ctx.base, ctx.key))
+    before = Valimc.TestDisk.read(ctx.base, ctx.key, :containers)
     {:ok, observed} = Region.observe_blocks(owner, [position, other])
     assert {:error, :occupied_container} = World.set_block(position, 0)
 
@@ -518,7 +513,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     assert {:ok, :rejected} = Region.apply_mining_transfer(owner, transfer)
     assert {:ok, :already_rejected} = Region.apply_mining_transfer(owner, transfer)
     assert World.get_block(position) == block and World.item_snapshot(ctx.key) == %{}
-    assert File.read!(Store.container_path(ctx.base, ctx.key)) == before
+    assert Valimc.TestDisk.read(ctx.base, ctx.key, :containers) == before
     assert {:ok, {_, receipt}} = Region.item_transfer_receipt(owner, ctx.uuid)
 
     assert {:ok, :rejected} =

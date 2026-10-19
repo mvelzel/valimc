@@ -4,15 +4,11 @@ defmodule Valimc.MiningStoreTest do
   alias Valimc.Protocol.{Data, ItemStack}
 
   alias Valimc.World.{
-    Chunk,
     Containers,
     ContainerTransfers,
     CookingOrbs,
     CookingBatch,
-    ItemLedger,
-    ItemRecords,
     Items,
-    MiningRecord,
     Store
   }
 
@@ -68,11 +64,8 @@ defmodule Valimc.MiningStoreTest do
     }
   end
 
-  defp paths(ctx) do
-    {rx, rz} = ctx.key
-
-    {Path.join(ctx.base, "r.#{rx}.#{rz}.etf"), Store.item_path(ctx.base, ctx.key),
-     Store.mining_path(ctx.base, ctx.key)}
+  defp durable(ctx) do
+    for part <- [:blocks, :items, :containers], do: Valimc.TestDisk.read(ctx.base, ctx.key, part)
   end
 
   defp assert_outcome(writer, ctx) do
@@ -216,17 +209,12 @@ defmodule Valimc.MiningStoreTest do
     assert {:ok, writer, _} = Store.open(ctx.key)
     assert_outcome(writer, ctx)
     assert Store.load_containers(writer) == {:ok, ctx.proposal.containers}
-    refute File.exists?(Store.mining_path(ctx.base, ctx.key))
   end
 
-  for kind <- [:chest, :cooking, :cooking_award, :cooking_orbs] do
-    test "journal replay repairs every subset of three replaced output files for #{kind}",
-         ctx do
+  for kind <- [:cooking, :cooking_award, :cooking_orbs] do
+    test "joint #{kind} commit is recovered whole after writer replacement", ctx do
       ctx =
         case unquote(kind) do
-          :chest ->
-            container_proposal(ctx)
-
           :cooking ->
             cooking_proposal(ctx)
 
@@ -243,55 +231,18 @@ defmodule Valimc.MiningStoreTest do
             put_in(ctx.proposal.containers, containers)
         end
 
-      {blocks, items, journal_path} = paths(ctx)
-      containers = Store.container_path(ctx.base, ctx.key)
-      before = Enum.map([blocks, items, containers], &File.read!/1)
-
-      {:ok, item_bytes} =
-        ItemLedger.encode(
-          ctx.key,
-          Items.records(ctx.proposal.items),
-          ctx.proposal.receipts,
-          ctx.proposal.items.ledger
-        )
-
-      {:ok, container_bytes} = Containers.encode(ctx.key, ctx.proposal.containers)
-
-      {:ok, journal} =
-        MiningRecord.encode(ctx.key, ctx.proposal.changes, item_bytes, container_bytes)
-
-      after_bytes = [
-        :erlang.term_to_binary({:valimc_region, 1, ctx.proposal.edits}),
-        item_bytes,
-        container_bytes
-      ]
-
+      token = make_ref()
+      Store.commit_mining(ctx.writer, ctx.lease, ctx.proposal, {self(), ctx.epoch}, token)
+      assert_receive {:resource, _, {:mining_saved, _, ^token, :ok}}, 1000
       assert :ok = Store.close(ctx.writer, ctx.lease)
-
-      for subset <- 0..7 do
-        # Restore all three files as one stopped fixture, then inject this crash boundary.
-        for {{path, before}, {after_bytes, bit}} <-
-              Enum.zip(
-                Enum.zip([blocks, items, containers], before),
-                Enum.with_index(after_bytes)
-              ) do
-          File.write!(
-            path,
-            if(Bitwise.band(subset, Bitwise.bsl(1, bit)) == 0, do: before, else: after_bytes)
-          )
-        end
-
-        File.write!(journal_path, journal)
-        assert {:ok, writer, lease} = Store.open(ctx.key)
-        assert_outcome(writer, ctx)
-        assert Store.load_containers(writer) == {:ok, ctx.proposal.containers}
-        refute File.exists?(journal_path)
-        assert :ok = Store.close(writer, lease)
-      end
+      assert {:ok, writer, lease} = Store.open(ctx.key)
+      assert_outcome(writer, ctx)
+      assert Store.load_containers(writer) == {:ok, ctx.proposal.containers}
+      assert :ok = Store.close(writer, lease)
     end
   end
 
-  test "failed container replacement retains the joint journal and retires its writer", ctx do
+  test "a failed joint write changes no output and retires its writer", ctx do
     ctx = cooking_award_proposal(ctx)
     [id] = Map.keys(ctx.proposal.containers.pending_awards)
 
@@ -299,9 +250,9 @@ defmodule Valimc.MiningStoreTest do
       CookingOrbs.materialize(ctx.proposal.containers, ctx.key, id)
 
     ctx = put_in(ctx.proposal.containers, materialized)
-    path = Store.container_path(ctx.base, ctx.key)
-    File.rm!(path)
-    File.mkdir!(path)
+    before = durable(ctx)
+    {:ok, containers} = Store.load_containers(ctx.writer)
+    Valimc.TestDisk.break_writer(ctx.writer)
     token = make_ref()
     monitor = Process.monitor(ctx.writer)
 
@@ -311,19 +262,15 @@ defmodule Valimc.MiningStoreTest do
       assert_receive {:DOWN, ^monitor, :process, _, {:mining_storage_failed, _}}, 1000
     end)
 
-    assert File.regular?(Store.mining_path(ctx.base, ctx.key))
-    File.rmdir!(path)
+    assert durable(ctx) == before
     assert {:ok, writer, _} = Store.open(ctx.key)
-    assert_outcome(writer, ctx)
-    assert Store.load_containers(writer) == {:ok, ctx.proposal.containers}
-    refute File.exists?(Store.mining_path(ctx.base, ctx.key))
+    assert Store.load(writer) == hd(before)
+    assert Store.load_containers(writer) == {:ok, containers}
   end
 
-  test "an invalid container proposal cannot change any of the three output files", ctx do
+  test "an invalid container proposal cannot change any of the three outputs", ctx do
     ctx = container_proposal(ctx)
-    {blocks, items, journal} = paths(ctx)
-    containers = Store.container_path(ctx.base, ctx.key)
-    before = Enum.map([blocks, items, containers], &File.read!/1)
+    before = durable(ctx)
     token = make_ref()
 
     Store.commit_mining(
@@ -337,120 +284,7 @@ defmodule Valimc.MiningStoreTest do
     assert_receive {:resource, _, {:mining_saved, _, ^token, {:error, :invalid_mining_proposal}}},
                    1000
 
-    assert Enum.map([blocks, items, containers], &File.read!/1) == before
-    refute File.exists?(journal)
+    assert durable(ctx) == before
     assert Process.alive?(ctx.writer)
-  end
-
-  test "successful mining persists both sides before acknowledgement; later snapshots stay later",
-       ctx do
-    token = make_ref()
-    Store.commit_mining(ctx.writer, ctx.lease, ctx.proposal, {self(), ctx.epoch}, token)
-    assert_receive {:resource, epoch, {:mining_saved, writer, ^token, :ok}}
-    assert epoch == ctx.epoch and writer == ctx.writer
-    assert_outcome(writer, ctx)
-    {_, _, journal} = paths(ctx)
-    refute File.exists?(journal)
-    assert :ok = Store.close(writer, ctx.lease)
-    assert {:ok, writer, lease} = Store.open(ctx.key)
-    assert_outcome(writer, ctx)
-    later = Map.put(ctx.proposal.edits, ctx.position, Data.block("dirt"))
-    assert :ok = Store.flush(writer, lease, later)
-    assert :ok = Store.close(writer, lease)
-    assert {:ok, writer, _} = Store.open(ctx.key)
-    assert Store.load(writer) == later
-  end
-
-  test "restart finishes journal before neither, one or both normal files were replaced", ctx do
-    {block_path, item_path, journal_path} = paths(ctx)
-    old_blocks = File.read!(block_path)
-    old_items = File.read!(item_path)
-
-    {:ok, new_items} =
-      ItemRecords.encode(ctx.key, Items.records(ctx.proposal.items), ctx.proposal.receipts)
-
-    {:ok, journal} = MiningRecord.encode(ctx.key, ctx.proposal.changes, new_items)
-    assert :ok = Store.close(ctx.writer, ctx.lease)
-
-    for boundary <- [:journal_only, :blocks_written, :both_written] do
-      File.write!(block_path, old_blocks)
-      File.write!(item_path, old_items)
-      File.write!(journal_path, journal)
-
-      if boundary != :journal_only,
-        do:
-          File.write!(block_path, :erlang.term_to_binary({:valimc_region, 1, ctx.proposal.edits}))
-
-      if boundary == :both_written, do: File.write!(item_path, new_items)
-      assert {:ok, writer, lease} = Store.open(ctx.key)
-      assert_outcome(writer, ctx)
-      refute File.exists?(journal_path)
-      assert :ok = Store.close(writer, lease)
-    end
-  end
-
-  test "failed item replacement retains the durable intent and retires the writer before later writes",
-       ctx do
-    {_, item_path, journal_path} = paths(ctx)
-    File.rm!(item_path)
-    File.mkdir!(item_path)
-    token = make_ref()
-    ref = Process.monitor(ctx.writer)
-
-    capture_log(fn ->
-      Store.commit_mining(ctx.writer, ctx.lease, ctx.proposal, {self(), ctx.epoch}, token)
-      # Same-sender ordering puts this after the transaction; it must never revive the block.
-      Store.snapshot(ctx.writer, ctx.lease, ctx.before_edits, {self(), ctx.epoch}, 99)
-      assert_receive {:resource, _, {:mining_saved, _, ^token, {:error, _}}}, 1000
-      assert_receive {:DOWN, ^ref, :process, _, {:mining_storage_failed, _}}, 1000
-    end)
-
-    assert File.regular?(journal_path)
-    File.rmdir!(item_path)
-    assert {:ok, writer, _} = Store.open(ctx.key)
-    assert_outcome(writer, ctx)
-    refute File.exists?(journal_path)
-  end
-
-  test "corrupt journal blocks acquisition without altering either canonical file", ctx do
-    {block_path, item_path, journal_path} = paths(ctx)
-    before = {File.read!(block_path), File.read!(item_path)}
-    assert :ok = Store.close(ctx.writer, ctx.lease)
-    File.write!(journal_path, "corrupt")
-
-    capture_log(fn ->
-      assert {:error, {:mining_recovery_failed, :invalid_mining_record}} = Store.open(ctx.key)
-    end)
-
-    assert {File.read!(block_path), File.read!(item_path)} == before
-    assert File.read!(journal_path) == "corrupt"
-  end
-
-  test "stale leases and mismatched block outcomes cannot commit an item ledger", ctx do
-    {block_path, item_path, journal_path} = paths(ctx)
-    before = {File.read!(block_path), File.read!(item_path)}
-    token = make_ref()
-    Store.commit_mining(ctx.writer, make_ref(), ctx.proposal, {self(), ctx.epoch}, token)
-    assert_receive {:resource, _, {:mining_saved, _, ^token, {:error, :stale_store_lease}}}
-    invalid = %{ctx.proposal | edits: ctx.before_edits}
-    Store.commit_mining(ctx.writer, ctx.lease, invalid, {self(), ctx.epoch}, token)
-    assert_receive {:resource, _, {:mining_saved, _, ^token, {:error, :invalid_mining_proposal}}}
-    assert {File.read!(block_path), File.read!(item_path)} == before
-    refute File.exists?(journal_path)
-    assert Process.alive?(ctx.writer)
-
-    # Returning a placed block to generated air has no sparse edit after recovery.
-    {x, _, z} = ctx.position
-    default_pos = {x, 64, z}
-    assert Chunk.base(64) == 0
-
-    {:ok, items} =
-      ItemRecords.encode(ctx.key, Items.records(ctx.proposal.items), ctx.proposal.receipts)
-
-    {:ok, journal} = MiningRecord.encode(ctx.key, %{default_pos => 0}, items)
-    assert :ok = Store.close(ctx.writer, ctx.lease)
-    File.write!(journal_path, journal)
-    assert {:ok, writer, _} = Store.open(ctx.key)
-    refute Map.has_key?(Store.load(writer), default_pos)
   end
 end

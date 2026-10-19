@@ -1,7 +1,7 @@
 defmodule Valimc.ItemCrossMergeAutoTest do
   use ExUnit.Case, async: false
   alias Valimc.{ItemMotionState, Metrics, Protocol.ItemStack, World}
-  alias Valimc.World.{ItemLedger, Items, Region, Store}
+  alias Valimc.World.{ItemLedger, Items, Region}
 
   setup tags do
     n = System.unique_integer([:positive])
@@ -93,7 +93,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
 
     for {k, records} <- [{key, donors}, {target_key, recipients}] do
       {:ok, bytes} = ItemLedger.encode(k, records, %{}, %ItemLedger{})
-      File.write!(Store.item_path(base, k), bytes)
+      Valimc.TestDisk.write(base, k, :items, bytes)
     end
 
     {:ok, source} = World.item_owner(key)
@@ -163,7 +163,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
   defp converged(c), do: map_size(state(c.source).items.entries) == 0 and idle(c)
 
   defp disk(c, k) do
-    {:ok, saved} = ItemLedger.decode(File.read!(Store.item_path(c.base, k)), k)
+    {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, k, :items), k)
     saved
   end
 

@@ -14,7 +14,7 @@ defmodule Valimc.ContainerRecoveryConnectionTest do
   }
 
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{Containers, ContainerTransfers, Store}
+  alias Valimc.World.{Containers, ContainerTransfers}
   alias Valimc.TestClient, as: Client
 
   setup do
@@ -140,7 +140,7 @@ defmodule Valimc.ContainerRecoveryConnectionTest do
           ContainerTransfers.plan(ctx.containers, ctx.key, ctx.pending.outbox.request, true)
 
         {:ok, bytes} = Containers.encode(ctx.key, committed)
-        File.write!(Store.container_path(ctx.base, ctx.key), bytes)
+        Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
       end
 
       {client, pid} = login(ctx)
@@ -150,7 +150,7 @@ defmodule Valimc.ContainerRecoveryConnectionTest do
       assert state.inventory.slots == expected
 
       {:ok, containers} =
-        Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+        Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
 
       assert containers.receipts[ctx.uuid].sequence == 1
       Client.close(client)
@@ -168,7 +168,7 @@ defmodule Valimc.ContainerRecoveryConnectionTest do
       assert :sys.get_state(next).inventory.slots == expected
 
       {:ok, after_reconnect} =
-        Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+        Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
 
       assert after_reconnect == containers
     end

@@ -3,7 +3,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
   @moduletag :tcp
   alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore, World}
   alias Valimc.Protocol.{Data, ItemStack, Wire}
-  alias Valimc.World.{ItemLedger, Region, Store}
+  alias Valimc.World.{ItemLedger, Region}
   alias Valimc.TestClient, as: Client
 
   setup do
@@ -115,7 +115,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
   end
 
   defp records(c, key) do
-    {:ok, saved} = ItemLedger.decode(File.read!(Store.item_path(c.base, key)), key)
+    {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, key, :items), key)
     saved.records
   end
 

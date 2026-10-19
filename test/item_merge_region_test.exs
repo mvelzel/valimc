@@ -2,7 +2,7 @@ defmodule Valimc.ItemMergeRegionTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
   alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
-  alias Valimc.World.{ItemLedger, Items, Region, Store}
+  alias Valimc.World.{ItemLedger, Items, Region}
 
   setup tags do
     n = System.unique_integer([:positive])
@@ -26,12 +26,11 @@ defmodule Valimc.ItemMergeRegionTest do
           }
 
     receipts = %{<<99::128>> => %{sequence: 4, digest: :crypto.hash(:sha256, "birth")}}
-    path = Store.item_path(base, key)
 
     {:ok, bytes} =
       ItemLedger.encode(key, records, receipts, %ItemLedger{generations: %{<<2::128>> => 3}})
 
-    File.write!(path, bytes)
+    Valimc.TestDisk.write(base, key, :items, bytes)
     {:ok, owner} = World.item_owner(key)
 
     on_exit(fn ->
@@ -49,7 +48,7 @@ defmodule Valimc.ItemMergeRegionTest do
       File.rm_rf!(base)
     end)
 
-    %{owner: owner, key: key, base: base, path: path, records: records, receipts: receipts}
+    %{owner: owner, key: key, base: base, records: records, receipts: receipts}
   end
 
   defp state({pid, _}), do: :sys.get_state(pid).resource
@@ -73,8 +72,10 @@ defmodule Valimc.ItemMergeRegionTest do
     end
   end
 
+  defp items_bytes(ctx), do: Valimc.TestDisk.read(ctx.base, ctx.key, :items)
+
   defp disk(ctx) do
-    {:ok, saved} = ItemLedger.decode(File.read!(ctx.path), ctx.key)
+    {:ok, saved} = ItemLedger.decode(items_bytes(ctx), ctx.key)
     saved
   end
 
@@ -119,9 +120,8 @@ defmodule Valimc.ItemMergeRegionTest do
   test "storage failure never publishes replacement and recovery retains the complete prior pair",
        ctx do
     writer = state(ctx.owner).store
-    File.write!(Path.join(ctx.base, "blocked"), "file")
-    :sys.replace_state(writer, &%{&1 | items: Path.join(ctx.base, "blocked/items")})
-    original = File.read!(ctx.path)
+    Valimc.TestDisk.break_writer(writer)
+    original = items_bytes(ctx)
     {pid, _} = ctx.owner
     ref = Process.monitor(pid)
 
@@ -130,7 +130,7 @@ defmodule Valimc.ItemMergeRegionTest do
       assert_receive {:DOWN, ^ref, :process, ^pid, _}, 1500
     end)
 
-    assert File.read!(ctx.path) == original
+    assert items_bytes(ctx) == original
     assert {:ok, next} = World.item_owner(ctx.key)
     assert Items.records(state(next).items) == ctx.records
     assert state(next).item_receipts == ctx.receipts
@@ -138,7 +138,7 @@ defmodule Valimc.ItemMergeRegionTest do
 
   test "epoch/deadline/invalid batches refuse before storage", ctx do
     {pid, epoch} = ctx.owner
-    original = File.read!(ctx.path)
+    original = items_bytes(ctx)
     proposal = pairs(ctx.owner)
     assert {:error, :stale_region} = Region.merge_items({pid, make_ref()}, proposal)
 
@@ -149,7 +149,7 @@ defmodule Valimc.ItemMergeRegionTest do
              )
 
     assert {:error, :invalid_item_merges} = Region.merge_items(ctx.owner, proposal ++ proposal)
-    assert File.read!(ctx.path) == original and state(ctx.owner).item_pending == nil
+    assert items_bytes(ctx) == original and state(ctx.owner).item_pending == nil
   end
 
   test "bounded worker saturation refuses without a queued merge", ctx do

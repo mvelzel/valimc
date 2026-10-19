@@ -3,7 +3,7 @@ defmodule Valimc.ChestConnectionTest do
   @moduletag :tcp
   alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore, World}
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
-  alias Valimc.World.{Containers, Region, Store}
+  alias Valimc.World.{Containers, Region}
   alias Valimc.TestClient, as: Client
   @chest hd(JSON.decode!(File.read!("priv/protocol/chest_states.json"))["single_states"])
 
@@ -73,23 +73,19 @@ defmodule Valimc.ChestConnectionTest do
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
 
-    if present do
-      {:ok, containers, entry} = Containers.create(%Containers{}, ctx.key, ctx.position, 3)
-      slots = put_elem(entry.slots, 0, stock)
-      {:ok, containers, _} = Containers.replace(containers, ctx.position, entry.revision, slots)
-      {:ok, containers, _} = Valimc.World.ContainerTransfers.reserve(containers, ctx.uuid)
-      {:ok, bytes} = Containers.encode(ctx.key, containers)
-      path = Store.container_path(ctx.base, ctx.key)
-      File.mkdir_p!(Path.dirname(path))
-      File.write!(path, bytes)
+    # A live owner keeps its loaded region; durable fixtures only seed a cold one.
+    unless match?({:ok, _}, World.existing_owner(ctx.key)) do
+      if present do
+        {:ok, containers, entry} = Containers.create(%Containers{}, ctx.key, ctx.position, 3)
+        slots = put_elem(entry.slots, 0, stock)
+        {:ok, containers, _} = Containers.replace(containers, ctx.position, entry.revision, slots)
+        {:ok, containers, _} = Valimc.World.ContainerTransfers.reserve(containers, ctx.uuid)
+        {:ok, bytes} = Containers.encode(ctx.key, containers)
+        Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
+      end
+
+      Valimc.TestDisk.write(ctx.base, ctx.key, :blocks, %{ctx.position => @chest})
     end
-
-    {rx, rz} = ctx.key
-
-    File.write!(
-      Path.join(ctx.base, "r.#{rx}.#{rz}.etf"),
-      :erlang.term_to_binary({:valimc_region, 1, %{ctx.position => @chest}})
-    )
 
     :ok = World.set_block(ctx.position, @chest)
   end
@@ -179,7 +175,7 @@ defmodule Valimc.ChestConnectionTest do
 
   defp stored(ctx) do
     {:ok, containers} =
-      Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+      Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
 
     containers
   end
@@ -325,7 +321,7 @@ defmodule Valimc.ChestConnectionTest do
     use_chest(client, ctx)
     {_, _client} = Client.await(client, :play, "block_changed_ack")
     assert :sys.get_state(pid).table_menu == nil
-    refute File.exists?(Store.container_path(ctx.base, ctx.key))
+    assert Valimc.TestDisk.read(ctx.base, ctx.key, :containers) == nil
   end
 
   test "close waits for a prepared action and conflicting inventory input cannot interleave",
@@ -749,7 +745,7 @@ defmodule Valimc.ChestConnectionTest do
   test "removal, relocation and replacement owner retire their view without changing stored items",
        ctx do
     seed(ctx, :survival, true, nil)
-    before = File.read!(Store.container_path(ctx.base, ctx.key))
+    before = Valimc.TestDisk.read(ctx.base, ctx.key, :containers)
     {client, pid} = login(ctx)
     client = open(client, ctx)
     :ok = World.remove_block(ctx.position)

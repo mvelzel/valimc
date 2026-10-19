@@ -21,8 +21,7 @@ defmodule Valimc.ExperienceTransfersTest do
     CookingOrbConsumptions,
     ExperienceTransfers,
     PendingCookingAwards,
-    Region,
-    Store
+    Region
   }
 
   setup do
@@ -66,7 +65,7 @@ defmodule Valimc.ExperienceTransfersTest do
     {:ok, cs, :materialized} = CookingOrbs.materialize(cs, key, id)
     [{orb, record}] = Map.to_list(cs.cooking_orbs[id])
     {:ok, bytes} = Containers.encode(key, cs)
-    File.write!(Store.container_path(base, key), bytes)
+    Valimc.TestDisk.write(base, key, :containers, bytes)
     {:ok, owner} = World.item_owner(key)
 
     player = %{
@@ -331,7 +330,7 @@ defmodule Valimc.ExperienceTransfersTest do
     {:ok, recovered} = World.item_owner(ctx.key)
     assert resource(recovered).containers.orb_consumption.counts[ctx.orb] == 2
     assert resource(recovered).containers.cooking_orbs == ctx.cs.cooking_orbs
-    {:ok, disk} = Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+    {:ok, disk} = Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
     assert disk.orb_consumption.counts[ctx.orb] == 2
   end
 

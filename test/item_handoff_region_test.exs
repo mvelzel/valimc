@@ -4,7 +4,7 @@ defmodule Valimc.ItemHandoffRegionTest do
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.ItemStack
   alias Valimc.World
-  alias Valimc.World.{ItemLedger, ItemRecords, Items, Region, Store}
+  alias Valimc.World.{ItemLedger, ItemRecords, Items, Region}
 
   setup tags do
     nonce = System.unique_integer([:positive])
@@ -34,9 +34,9 @@ defmodule Valimc.ItemHandoffRegionTest do
     source_records = records.(key, 1)
     destination_records = if count == 1, do: [], else: records.(destination, 1000)
     {:ok, bytes} = ItemRecords.encode(key, source_records, receipts)
-    File.write!(Store.item_path(base, key), bytes)
+    Valimc.TestDisk.write(base, key, :items, bytes)
     {:ok, bytes} = ItemRecords.encode(destination, destination_records)
-    File.write!(Store.item_path(base, destination), bytes)
+    Valimc.TestDisk.write(base, destination, :items, bytes)
     {:ok, owner} = World.item_owner(key)
     {:ok, other} = World.item_owner(destination)
 
@@ -108,10 +108,9 @@ defmodule Valimc.ItemHandoffRegionTest do
       end)
 
   defp published(owner, uuid), do: match?({:ok, _}, Region.find_item(owner, uuid))
-  defp file(ctx, key), do: Store.item_path(ctx.base, key)
 
   defp disk(ctx, key) do
-    assert {:ok, snapshot} = ItemLedger.decode(File.read!(file(ctx, key)), key)
+    assert {:ok, snapshot} = ItemLedger.decode(Valimc.TestDisk.read(ctx.base, key, :items), key)
     snapshot
   end
 
@@ -297,8 +296,8 @@ defmodule Valimc.ItemHandoffRegionTest do
   end
 
   test "failed source withdrawal never publishes or delivers an uncommitted item", ctx do
-    tmp = file(ctx, ctx.key) <> ".tmp"
-    File.mkdir!(tmp)
+    writer = resource(ctx.owner).store
+    Valimc.TestDisk.break_writer(writer)
 
     capture_log(fn ->
       assert {:error, :item_commit_uncertain} =
@@ -312,7 +311,7 @@ defmodule Valimc.ItemHandoffRegionTest do
     end)
 
     refute published(ctx.other, ctx.uuid)
-    File.rmdir!(tmp)
+    Valimc.TestDisk.await_exit(writer)
     assert {:ok, owner} = World.item_owner(ctx.key)
     assert published(owner, ctx.uuid)
     assert disk(ctx, ctx.key).ledger.sequence == 0
@@ -330,8 +329,8 @@ defmodule Valimc.ItemHandoffRegionTest do
              )
 
     wait(fn -> match?(%{phase: :writing}, resource(ctx.other).item_pending) end)
-    tmp = file(ctx, ctx.key) <> ".tmp"
-    File.mkdir!(tmp)
+    source_writer = resource(ctx.owner).store
+    Valimc.TestDisk.break_writer(source_writer)
 
     capture_log(fn ->
       :sys.resume(writer)
@@ -340,7 +339,7 @@ defmodule Valimc.ItemHandoffRegionTest do
 
     assert published(ctx.other, ctx.uuid)
     assert disk(ctx, ctx.key).ledger.outgoing != nil
-    File.rmdir!(tmp)
+    Valimc.TestDisk.await_exit(source_writer)
     assert {:ok, owner} = World.item_owner(ctx.key)
     complete(owner)
     refute published(owner, ctx.uuid)
@@ -416,8 +415,8 @@ defmodule Valimc.ItemHandoffRegionTest do
   end
 
   test "destination write failure leaves the source intent available for a fresh owner", ctx do
-    tmp = file(ctx, ctx.destination) <> ".tmp"
-    File.mkdir!(tmp)
+    writer = resource(ctx.other).store
+    Valimc.TestDisk.break_writer(writer)
 
     capture_log(fn ->
       assert {:ok, 1} =
@@ -430,7 +429,7 @@ defmodule Valimc.ItemHandoffRegionTest do
       wait(fn -> not Process.alive?(elem(ctx.other, 0)) end)
       assert disk(ctx, ctx.key).ledger.outgoing != nil
       assert disk(ctx, ctx.destination).records == []
-      File.rmdir!(tmp)
+      Valimc.TestDisk.await_exit(writer)
       complete(ctx.owner)
     end)
 

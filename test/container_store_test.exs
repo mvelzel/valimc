@@ -49,7 +49,7 @@ defmodule Valimc.ContainerStoreTest do
     assert saved == ctx.filled
 
     assert {:ok, saved} =
-             Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+             Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
 
     assert saved == ctx.filled
     assert :ok = Store.close(writer, lease)
@@ -103,28 +103,30 @@ defmodule Valimc.ContainerStoreTest do
        ctx do
     {:ok, writer, lease} = Store.open(ctx.key)
     assert :ok = Store.flush_containers(writer, lease, ctx.filled)
-    path = Store.container_path(ctx.base, ctx.key)
-    before = File.read!(path)
+    before = Valimc.TestDisk.read(ctx.base, ctx.key, :containers)
 
     assert {:error, :invalid_container_snapshot} =
              Store.flush_containers(writer, lease, %{ctx.filled | sequence: 0})
 
-    assert File.read!(path) == before
-    File.write!(path, <<>>)
-    assert {:error, :invalid_container_snapshot} = Store.load_containers(writer)
-    File.write!(path, :binary.copy(<<0>>, Containers.max_bytes() + 1))
-    assert {:error, :invalid_container_snapshot} = Store.load_containers(writer)
+    assert Valimc.TestDisk.read(ctx.base, ctx.key, :containers) == before
+    assert :ok = Store.close(writer, lease)
+
+    for corrupt <- [<<>>, :binary.copy(<<0>>, Containers.max_bytes() + 1)] do
+      Valimc.TestDisk.write(ctx.base, ctx.key, :containers, corrupt)
+      {:ok, writer, lease} = Store.open(ctx.key)
+      assert {:error, :invalid_container_snapshot} = Store.load_containers(writer)
+      assert :ok = Store.close(writer, lease)
+    end
   end
 
   test "I/O failure is reported instead of acknowledging a container commit", ctx do
-    File.mkdir_p!(ctx.base)
-    File.mkdir_p!(Store.container_path(ctx.base, ctx.key))
     {:ok, writer, lease} = Store.open(ctx.key)
+    Valimc.TestDisk.break_writer(writer)
     epoch = make_ref()
     token = make_ref()
     Store.commit_containers(writer, lease, ctx.filled, {self(), epoch}, token)
     assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, {:error, _}}}, 1000
-    refute File.regular?(Store.container_path(ctx.base, ctx.key))
+    assert Valimc.TestDisk.read(ctx.base, ctx.key, :containers) == nil
   end
 
   test "contents and withdrawal receipt survive writer death before the source consumes its acknowledgment",

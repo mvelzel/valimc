@@ -3,7 +3,7 @@ defmodule Valimc.CookingConnectionTest do
   @moduletag :tcp
   alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore, World}
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
-  alias Valimc.World.{Containers, Region, Store}
+  alias Valimc.World.{Containers, Region}
   alias Valimc.TestClient, as: Client
 
   setup do
@@ -80,17 +80,10 @@ defmodule Valimc.CookingConnectionTest do
 
     {:ok, containers, _} = Valimc.World.ContainerTransfers.reserve(containers, ctx.uuid)
     {:ok, bytes} = Containers.encode(ctx.key, containers)
-    path = Store.container_path(ctx.base, ctx.key)
-    File.mkdir_p!(Path.dirname(path))
-    File.write!(path, bytes)
+    Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
     {:ok, block} = Valimc.Physics.CookingBlocks.placement(kind, 0.0)
     block = if cooking.burn_left > 0, do: block - 1, else: block
-    {rx, rz} = ctx.key
-
-    File.write!(
-      Path.join(ctx.base, "r.#{rx}.#{rz}.etf"),
-      :erlang.term_to_binary({:valimc_region, 1, %{ctx.position => block}})
-    )
+    Valimc.TestDisk.write(ctx.base, ctx.key, :blocks, %{ctx.position => block})
 
     :ok = World.set_block(ctx.position, block)
   end
@@ -185,7 +178,7 @@ defmodule Valimc.CookingConnectionTest do
 
   defp stored(ctx) do
     {:ok, containers} =
-      Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+      Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
 
     containers
   end

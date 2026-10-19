@@ -95,7 +95,9 @@ defmodule Valimc.CookingOrbRuntimeTest do
   end
 
   defp disk(ctx) do
-    {:ok, state} = Containers.decode(File.read!(Store.container_path(ctx.base, ctx.key)), ctx.key)
+    {:ok, state} =
+      Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
+
     state
   end
 
@@ -278,9 +280,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
 
   test "I/O failure exposes no orb and retires the owner instead of acknowledging XP", ctx do
     state = seed(ctx) |> start()
-    path = Store.container_path(ctx.base, ctx.key)
-    File.rm!(path)
-    File.mkdir!(path)
+    Valimc.TestDisk.break_writer(state.store)
     state = result(state)
     assert {:stop, {:cooking_orb_storage_failed, _}, stopped} = saved(state)
     assert stopped.containers.cooking_orbs == %{} and published(stopped) == %{}
@@ -428,7 +428,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
     assert_receive {^tag, {:ok, :applied}}
     assert map_size(accepted.containers.orb_transfers.incoming) == 1
     assert map_size(published(accepted)) == 2
-    {:ok, source_bytes} = File.read(Store.container_path(ctx.base, source_key))
+    source_bytes = Valimc.TestDisk.read(ctx.base, source_key, :containers)
     assert {:ok, ^routed} = Containers.decode(source_bytes, source_key)
     RegionData.terminate(:shutdown, accepted)
   end
@@ -481,7 +481,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
     assert disk(ctx) == expected
 
     {:ok, stored} =
-      Valimc.World.ItemRecords.decode(File.read!(Store.item_path(ctx.base, ctx.key)), ctx.key)
+      Valimc.World.ItemRecords.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :items), ctx.key)
 
     assert stored.records == Items.records(state.items)
   end

@@ -2,7 +2,7 @@ defmodule Valimc.LoginRecoveryTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
   alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, PlayerTransfers, World}
-  alias Valimc.World.{Region, Store}
+  alias Valimc.World.Region
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
   import ExUnit.CaptureLog
@@ -266,9 +266,9 @@ defmodule Valimc.LoginRecoveryTest do
       fixture = seed(ctx)
 
       if kind == :corrupt do
-        File.write!(Store.item_path(ctx.base, ctx.key), "bad-destination")
+        Valimc.TestDisk.write(ctx.base, ctx.key, :items, "bad-destination")
       else
-        File.rm!(Store.item_path(ctx.base, ctx.key))
+        Valimc.TestDisk.write(ctx.base, ctx.key, :items, nil)
         Application.put_env(:valimc, :world_path, nil)
         {:ok, _} = World.item_owner(ctx.key)
         Application.put_env(:valimc, :world_path, ctx.base)
