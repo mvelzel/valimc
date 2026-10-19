@@ -60,7 +60,7 @@ defmodule Valimc.StepMovementTest do
       })
 
     assert {:ok, [0.25, 0.5]} = StepMovement.candidate_heights(@box, [grid, grid], 0.6, 0)
-    assert {:ok, [0.0, 0.5]} = StepMovement.candidate_heights(@box, [grid], 0.6, 0.25)
+    assert {:ok, [+0.0, 0.5]} = StepMovement.candidate_heights(@box, [grid], 0.6, 0.25)
     close = VoxelOps.box({1, 0, -1, 2, 0.500000001, 1})
     assert {:ok, [0.5]} = StepMovement.candidate_heights(@box, [slab(), close], 0.6, 0)
   end

@@ -60,7 +60,8 @@ defmodule Valimc.MenuOverflowTest do
           absorption: 0.0,
           food: %Valimc.PlayerFood{},
           flying: false,
-          game_mode: %Valimc.GameMode{}
+          game_mode: %Valimc.GameMode{},
+          progression: %Valimc.PlayerProgression{}
         })
       )
 
