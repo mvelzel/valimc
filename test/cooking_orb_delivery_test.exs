@@ -1,5 +1,6 @@
 defmodule Valimc.CookingOrbDeliveryTest do
-  use ExUnit.Case, async: true
+  # Timing-based owner/worker waits flake under concurrent load (seen October 20, 2026).
+  use ExUnit.Case, async: false
   alias Valimc.TestScope
   alias Valimc.CookingAwards
   alias Valimc.Protocol.ItemStack

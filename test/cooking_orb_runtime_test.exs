@@ -31,8 +31,10 @@ defmodule Valimc.CookingOrbRuntimeTest do
     File.mkdir_p!(base)
 
     on_exit(fn ->
+      # Transfers start neighbouring owners too; none may still write into `base`.
       for reg <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
-          {pid, _} <- Registry.lookup(reg, key),
+          neighbour <- TestScope.neighborhood(key),
+          {pid, _} <- Registry.lookup(reg, neighbour),
           do: TestScope.kill(pid)
 
       File.rm_rf!(base)
