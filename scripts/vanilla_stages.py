@@ -45,6 +45,15 @@ STAGES = [
         ('java', 'AnvilContentOracle', 'verify', '@content.json', '@imported'),
         ('java', 'AnvilContentOracle', 'export', '@content.json', '@imported/exported-world', '@server'),
     ]),
+    ('light_facts', [
+        ('java', 'LightFactsOracle', '@light-blocks.json'),
+        ('same', '@light-blocks.json', 'priv/physics/light_blocks.json'),
+    ]),
+    ('light', [
+        ('java', 'ChunkOracle', 'generate', '@world', '@chunks.json'),
+        ('java', 'LightOracle', '@chunks.json', '@light.json', '@light.bin'),
+        ('check', 'check_light.exs', '@chunks.json', '@light.json', '@light.bin'),
+    ]),
     ('block_registry', [
         ('java', 'BlockRegistryMetadata', '@block-registry.json'),
         ('same', '@block-registry.json', 'priv/registry/blocks.json'),

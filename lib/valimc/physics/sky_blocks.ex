@@ -14,6 +14,9 @@ defmodule Valimc.Physics.SkyBlocks do
            Enum.all?(:binary.bin_to_list(@states), &(&1 < @classes)),
          do: raise("Wrong or incomplete sky-source block facts")
 
+  @doc "The raw facts: per-state class bytes, class count and the pair bitmap."
+  def facts, do: {@states, @classes, @pairs}
+
   def blocked?(above, below)
       when is_integer(above) and above >= 0 and above < @count and
              is_integer(below) and below >= 0 and below < @count do

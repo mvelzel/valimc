@@ -12,6 +12,13 @@ defmodule Valimc.Native do
     mode: :release
 
   def flags_init(_flags), do: :erlang.nif_error(:nif_not_loaded)
+
+  def light_facts_init(_properties, _faces, _sizes, _occludes, _sky, _sky_size, _sky_pairs),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def light_columns(_images, _min_cx, _min_cz, _chunks_x, _chunks_z),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def nbt_read(_bytes, _byte_limit, _nodes, _depth), do: :erlang.nif_error(:nif_not_loaded)
   def lz4_decode_stream(_bytes, _max), do: :erlang.nif_error(:nif_not_loaded)
   def lz4_decode_stream_dirty(_bytes, _max), do: :erlang.nif_error(:nif_not_loaded)

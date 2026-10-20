@@ -3,6 +3,7 @@
 
 pub mod column;
 pub mod flags;
+pub mod light;
 pub mod lz4;
 pub mod nbt;
 pub mod section;

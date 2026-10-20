@@ -571,4 +571,97 @@ fn put_column_image(
     Ok(atoms::ok())
 }
 
+// ---- Light (VMC-022) ----
+
+static LIGHT: OnceLock<valimc_core::light::LightFacts> = OnceLock::new();
+
+/// Install the light facts once per VM.
+#[rustler::nif]
+#[allow(clippy::too_many_arguments)]
+fn light_facts_init(
+    properties: Binary,
+    faces: Vec<Binary>,
+    sizes: Vec<usize>,
+    occludes: Vec<Binary>,
+    sky_states: Binary,
+    sky_size: usize,
+    sky_pairs: Binary,
+) -> Result<Atom, Atom> {
+    if faces.len() != 6 || sizes.len() != 6 || occludes.len() != 6 {
+        return Err(atoms::invalid_state());
+    }
+    let facts = valimc_core::light::LightFacts::new(
+        properties.as_slice().to_vec(),
+        std::array::from_fn(|d| faces[d].as_slice().to_vec()),
+        std::array::from_fn(|d| sizes[d]),
+        std::array::from_fn(|d| occludes[d].as_slice().to_vec()),
+        sky_states.as_slice().to_vec(),
+        sky_size,
+        sky_pairs.as_slice().to_vec(),
+    )
+    .ok_or(atoms::invalid_state())?;
+    let installed = LIGHT.get_or_init(|| facts);
+    if installed.state_count() == properties.len() {
+        Ok(atoms::ok())
+    } else {
+        Err(atoms::flags_mismatch())
+    }
+}
+
+/// Light of chunks given as column images over the chunk rectangle starting at
+/// (`min_cx`, `min_cz`); absent chunks are air. Returns, per given chunk,
+/// 24 sections of sky then block nibble arrays (vanilla layout).
+#[rustler::nif(schedule = "DirtyCpu")]
+fn light_columns<'a>(
+    env: Env<'a>,
+    images: Vec<(i32, i32, Binary)>,
+    min_cx: i32,
+    min_cz: i32,
+    chunks_x: usize,
+    chunks_z: usize,
+) -> Result<Vec<(i32, i32, Term<'a>)>, Atom> {
+    use valimc_core::column::{Column, SECTIONS};
+    use valimc_core::light::{block_light, nibbles, sky_light, Area, HEIGHT};
+    let facts = LIGHT.get().ok_or(atoms::flags_missing())?;
+    let (wx, wz) = (chunks_x * 16, chunks_z * 16);
+    let mut states = vec![0u16; wx * wz * HEIGHT];
+    let mut chunks = Vec::new();
+    for (cx, cz, image) in &images {
+        let column = Column::from_image(image.as_slice()).ok_or(atoms::invalid_layers())?;
+        let (ox, oz) = ((cx - min_cx) as usize * 16, (cz - min_cz) as usize * 16);
+        if *cx < min_cx || *cz < min_cz || ox >= wx || oz >= wz {
+            return Err(atoms::out_of_region());
+        }
+        for (s, storage) in column.sections.iter().enumerate() {
+            storage.for_each(|i, state| {
+                let (x, y, z) = (i & 15, s * 16 + (i >> 8), (i >> 4) & 15);
+                states[((ox + x) * wz + oz + z) * HEIGHT + y] = state;
+            });
+        }
+        chunks.push((*cx, *cz, ox, oz));
+    }
+    let area = Area {
+        wx,
+        wz,
+        states: &states,
+    };
+    let sky = sky_light(&area, facts);
+    let block = block_light(&area, facts);
+    Ok(chunks
+        .into_iter()
+        .map(|(cx, cz, ox, oz)| {
+            let mut out = Vec::with_capacity(SECTIONS * 4096);
+            for s in 0..SECTIONS {
+                for levels in [&sky, &block] {
+                    out.extend(nibbles(|i| {
+                        let (x, y, z) = (i & 15, s * 16 + (i >> 8), (i >> 4) & 15);
+                        levels[((ox + x) * wz + oz + z) * HEIGHT + y]
+                    }));
+                }
+            }
+            (cx, cz, binary(env, &out))
+        })
+        .collect())
+}
+
 rustler::init!("Elixir.Valimc.Native");

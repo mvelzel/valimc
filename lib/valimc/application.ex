@@ -8,6 +8,7 @@ defmodule Valimc.Application do
     Valimc.Protocol.Data.load!()
     Valimc.World.Chunk.load!()
     Valimc.World.Blocks.init!()
+    Valimc.World.Light.init!()
     Valimc.World.Spawn.load!()
     Valimc.LoginKeys.init!()
 
