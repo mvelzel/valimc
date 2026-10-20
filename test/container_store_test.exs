@@ -29,7 +29,7 @@ defmodule Valimc.ContainerStoreTest do
       for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
           do: TestScope.kill(pid)
 
-      File.rm_rf!(base)
+      File.rm_rf(base)
     end)
 
     %{key: key, base: base, position: position, filled: filled, empty: empty}
@@ -66,8 +66,7 @@ defmodule Valimc.ContainerStoreTest do
   end
 
   test "checkpoints run beside appends, prune covered segments and recover exactly", ctx do
-    Application.put_env(:valimc, :store_checkpoint_bytes, 1)
-    on_exit(fn -> Application.delete_env(:valimc, :store_checkpoint_bytes) end)
+    Valimc.TestScope.isolate(ctx.key, store_checkpoint_bytes: 1)
     {:ok, writer, lease} = Store.open(ctx.key)
     dir = Store.log_dir(ctx.base, ctx.key)
     {x, _, z} = ctx.position

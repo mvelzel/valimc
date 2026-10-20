@@ -118,7 +118,7 @@ defmodule Valimc.World.Store do
        log: nil,
        values: @empty,
        appended: 0,
-       checkpoint_bytes: Application.get_env(:valimc, :store_checkpoint_bytes, 32 * 1024 * 1024),
+       checkpoint_bytes: Valimc.config(:store_checkpoint_bytes, key),
        checkpointing: nil,
        recovered: false,
        owner: owner,

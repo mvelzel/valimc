@@ -47,7 +47,7 @@ defmodule Valimc.CookingOrbTransferStoreTest do
           {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
           do: TestScope.kill(pid)
 
-      File.rm_rf!(base)
+      File.rm_rf(base)
     end)
 
     %{

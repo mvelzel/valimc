@@ -52,7 +52,7 @@ defmodule Valimc.ItemSimulationRegionTest do
         TestScope.kill(pid)
       end
 
-      File.rm_rf!(base)
+      File.rm_rf(base)
     end)
 
     %{key: key, owner: owner, base: base, records: records, receipts: receipts}

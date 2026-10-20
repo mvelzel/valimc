@@ -61,7 +61,7 @@ defmodule Valimc.ItemLedgerStoreTest do
           {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, region),
           do: TestScope.kill(pid)
 
-      File.rm_rf!(base)
+      File.rm_rf(base)
     end)
 
     %{key: key, base: base, record: record, ledger: ledger, receipts: receipts}

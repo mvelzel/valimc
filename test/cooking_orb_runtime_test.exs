@@ -37,7 +37,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
           {pid, _} <- Registry.lookup(reg, neighbour),
           do: TestScope.kill(pid)
 
-      File.rm_rf!(base)
+      File.rm_rf(base)
     end)
 
     %{key: key, position: position, base: base}

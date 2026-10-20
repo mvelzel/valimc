@@ -1,5 +1,6 @@
 defmodule Valimc.CookingRegionRuntimeTest do
-  use ExUnit.Case, async: true
+  # Timing-based flush/clock assertions flake under concurrent load (seen October 20, 2026).
+  use ExUnit.Case, async: false
   alias Valimc.TestScope
   alias Valimc.{Cooking, Inventory, ItemMotionState}
   alias Valimc.Physics.CookingBlocks
@@ -22,7 +23,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
       for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
           do: TestScope.kill(pid)
 
-      File.rm_rf!(base)
+      File.rm_rf(base)
     end)
 
     {:ok, unlit} = CookingBlocks.placement(:furnace, 0.0)

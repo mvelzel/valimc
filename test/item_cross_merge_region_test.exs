@@ -55,7 +55,7 @@ defmodule Valimc.ItemCrossMergeRegionTest do
             do: TestScope.kill(pid)
       end
 
-      File.rm_rf!(base)
+      File.rm_rf(base)
     end)
 
     %{

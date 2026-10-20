@@ -47,7 +47,7 @@ defmodule Valimc.ItemMergeRegionTest do
       for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
           do: TestScope.kill(pid)
 
-      File.rm_rf!(base)
+      File.rm_rf(base)
     end)
 
     %{owner: owner, key: key, base: base, records: records, receipts: receipts}

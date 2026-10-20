@@ -1,5 +1,6 @@
 defmodule Valimc.PickupRegionTest do
-  use ExUnit.Case, async: true
+  # Grant deadlines (hundreds of ms) expire under concurrent load (seen October 20, 2026).
+  use ExUnit.Case, async: false
   alias Valimc.TestScope
   alias Valimc.{GameMode, Inventory, ItemMotionState, PlayerFood, PlayerSnapshot, PlayerStore}
   alias Valimc.{TransferDelivery, World}
@@ -68,7 +69,7 @@ defmodule Valimc.PickupRegionTest do
       for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
           do: TestScope.kill(pid)
 
-      File.rm_rf!(base)
+      File.rm_rf(base)
     end)
 
     %{

@@ -83,7 +83,7 @@ defmodule Valimc.PlayerContainerStoreTest do
           {pid, _} <- Registry.lookup(registry, key),
           do: TestScope.kill(pid)
 
-      File.rm_rf!(base)
+      File.rm_rf(base)
     end)
 
     %{

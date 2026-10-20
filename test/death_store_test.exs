@@ -20,7 +20,7 @@ defmodule Valimc.DeathStoreTest do
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
           do: TestScope.kill(pid)
 
-      File.rm_rf!(base)
+      File.rm_rf(base)
     end)
 
     %{base: base, key: key, uuid: uuid, writer: writer, fence: fence}

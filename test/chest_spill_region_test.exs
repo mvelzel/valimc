@@ -73,7 +73,7 @@ defmodule Valimc.ChestSpillRegionTest do
       for {live, _} <- Registry.lookup(Valimc.RegionRegistry, key),
           do: TestScope.kill(live)
 
-      File.rm_rf!(base)
+      File.rm_rf(base)
     end)
 
     %{

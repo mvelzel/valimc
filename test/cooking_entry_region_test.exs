@@ -19,7 +19,7 @@ defmodule Valimc.CookingEntryRegionTest do
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
           do: TestScope.kill(pid)
 
-      File.rm_rf!(base)
+      File.rm_rf(base)
     end)
 
     {:ok, containers, entry} = Containers.create_cooking(%Containers{}, key, pos, :furnace)

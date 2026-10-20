@@ -15,7 +15,7 @@ defmodule Valimc.ColumnRegionTest do
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
           do: TestScope.kill(pid)
 
-      File.rm_rf!(base)
+      File.rm_rf(base)
     end)
 
     {:ok, owner} = World.owner(key)
