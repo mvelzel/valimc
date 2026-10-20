@@ -4,21 +4,13 @@
 # points and volumes, through uncached and cached sampling contexts.
 [samples_path] = System.argv()
 cases = (samples_path |> File.read!() |> JSON.decode!())["cases"]
-facts = fn name -> "priv/worldgen/#{name}.json" |> File.read!() |> JSON.decode!() end
-
-{:ok, registry} =
-  Valimc.Native.worldgen_registry(
-    facts.("noises"),
-    facts.("density_functions"),
-    facts.("noise_settings")
-  )
 
 states =
   cases
   |> Enum.map(&{&1["seed"], &1["settings"]})
   |> Enum.uniq()
   |> Map.new(fn {seed, settings} = key ->
-    {:ok, state} = Valimc.Native.worldgen_new(registry, String.to_integer(seed), settings)
+    {:ok, state} = Valimc.Worldgen.new(String.to_integer(seed), settings)
     {key, state}
   end)
 

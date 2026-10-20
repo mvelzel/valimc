@@ -14,6 +14,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use super::climate::{quantize, ParameterList};
 use super::density::{
     Axis, Binary, Df, Env, ShiftKind, Simple, Spline, Tiling, ALL_AXES, AXIS_X, AXIS_Y, AXIS_Z,
 };
@@ -21,7 +22,8 @@ use super::interval::{Interval, NAI};
 use super::json::Json;
 use super::noise::{BlendedParameters, NormalNoise, Simplex, Stack};
 use super::random::{Positional, Random};
-use super::sampler::{Field, GradientKind, Sampler, SplineNode};
+use super::sampler::{Context, Field, GradientKind, Sampler, SplineNode};
+use super::volume::Volume;
 
 /// Noise settings: vertical bounds, random algorithm and the named functions
 /// of the noise router and aquifers.
@@ -40,7 +42,29 @@ pub struct Registry {
     pub noises: HashMap<String, NormalNoise>,
     pub functions: HashMap<String, Df>,
     pub settings: HashMap<String, Settings>,
+    /// Multi-noise biome parameter presets.
+    pub biome_parameters: HashMap<String, Arc<ParameterList>>,
 }
+
+/// One chunk's biomes as `fill_biomes` computes them.
+#[derive(Clone, Debug)]
+pub struct ChunkBiomes {
+    /// Per section from the bottom, 64 entries in index order (y, z, x):
+    /// indices into the parameter list's biomes.
+    pub biomes: Vec<u16>,
+    /// The climate target of every lookup, in lookup order.
+    pub targets: Vec<[i64; 6]>,
+}
+
+/// The climate functions of the noise router, in vanilla's sampling order.
+const CLIMATE: [&str; 6] = [
+    "temperature",
+    "vegetation",
+    "continents",
+    "erosion",
+    "depth",
+    "ridges",
+];
 
 fn named_functions(json: Option<&Json>) -> Result<Vec<(String, Df)>, String> {
     match json {
@@ -59,9 +83,20 @@ fn named_functions(json: Option<&Json>) -> Result<Vec<(String, Df)>, String> {
 }
 
 impl Registry {
-    /// Parses `noises.json`, `density_functions.json` and `noise_settings.json`.
-    pub fn parse(noises: &Json, functions: &Json, settings: &Json) -> Result<Registry, String> {
+    /// Parses `noises.json`, `density_functions.json`, `noise_settings.json`
+    /// and `biome_parameters.json`.
+    pub fn parse(
+        noises: &Json,
+        functions: &Json,
+        settings: &Json,
+        biome_parameters: &Json,
+    ) -> Result<Registry, String> {
         let mut registry = Registry::default();
+        for (id, rows) in biome_parameters.entries()? {
+            let list =
+                ParameterList::parse(rows).map_err(|e| format!("biome parameters {id}: {e}"))?;
+            registry.biome_parameters.insert(id.clone(), Arc::new(list));
+        }
         for (id, json) in noises.entries()? {
             registry.noises.insert(
                 id.clone(),
@@ -209,6 +244,60 @@ impl Worldgen {
             self.function(name)?;
             Ok(Df::Ref(name.to_string()))
         }
+    }
+
+    /// A chunk's multi-noise biomes, as vanilla's chunk generation fills them
+    /// (`createResolverForChunk` and `fillBiomesFromNoise`): the six climate
+    /// functions sampled over the chunk's quart volume through one cached
+    /// context, then one lookup per quart, section by section, X outer and Z
+    /// inner. `last` carries the lookup history between chunks.
+    pub fn fill_biomes(
+        &mut self,
+        list: &ParameterList,
+        chunk_x: i32,
+        chunk_z: i32,
+        last: &mut Option<usize>,
+    ) -> Result<ChunkBiomes, String> {
+        let (min_y, height) = (self.settings.min_y, self.settings.height);
+        let volume = Volume::new(
+            [4, height / 4, 4],
+            [chunk_x.wrapping_mul(16), min_y, chunk_z.wrapping_mul(16)],
+            [4, 4, 4],
+        )?;
+        let mut ctx = Context::cached();
+        let mut climate = Vec::with_capacity(CLIMATE.len());
+        for field in CLIMATE {
+            let function = self.named(&format!("router:{field}"))?;
+            let sampler = self.sampler(&function)?;
+            let mut values = vec![0.0f32; volume.len()];
+            sampler.fill(&mut ctx, &mut values, &volume);
+            climate.push(values);
+        }
+        let sections = height / 16;
+        let mut biomes = vec![0u16; sections as usize * 64];
+        let mut targets = Vec::with_capacity(volume.len());
+        for section in 0..sections {
+            for x in 0..4 {
+                for y in 0..4 {
+                    for z in 0..4 {
+                        let i = volume.index(x, section * 4 + y, z);
+                        let target: [i64; 6] = std::array::from_fn(|c| quantize(climate[c][i]));
+                        let biome = list.find(&target, last);
+                        biomes[(section * 64 + (y * 4 + z) * 4 + x) as usize] = biome;
+                        targets.push(target);
+                    }
+                }
+            }
+        }
+        Ok(ChunkBiomes { biomes, targets })
+    }
+
+    pub fn biome_parameters(&self, preset: &str) -> Result<Arc<ParameterList>, String> {
+        self.registry
+            .biome_parameters
+            .get(preset)
+            .cloned()
+            .ok_or_else(|| format!("unknown biome parameter preset {preset}"))
     }
 
     /// The compiled sampler of a function (vanilla's `getSampler`).

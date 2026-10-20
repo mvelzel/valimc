@@ -860,18 +860,20 @@ fn json_of(term: Term) -> Result<valimc_core::worldgen::json::Json, String> {
     })
 }
 
-/// Parse worldgen facts (decoded `noises.json`, `density_functions.json` and
-/// `noise_settings.json`).
+/// Parse worldgen facts (decoded `noises.json`, `density_functions.json`,
+/// `noise_settings.json` and `biome_parameters.json`).
 #[rustler::nif(schedule = "DirtyCpu")]
 fn worldgen_registry(
     noises: Term,
     functions: Term,
     settings: Term,
+    biome_parameters: Term,
 ) -> Result<ResourceArc<WorldgenRegistry>, String> {
     let registry = valimc_core::worldgen::compiler::Registry::parse(
         &json_of(noises)?,
         &json_of(functions)?,
         &json_of(settings)?,
+        &json_of(biome_parameters)?,
     )?;
     Ok(ResourceArc::new(WorldgenRegistry {
         registry: std::sync::Arc::new(registry),
@@ -903,6 +905,60 @@ fn worldgen_density_samples(
 ) -> Result<Vec<Vec<u32>>, String> {
     let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
     valimc_core::worldgen::trace::density(&mut state, &function, cached, &ops)
+}
+
+/// Biome names, then per chunk its biome and climate target binaries.
+type ChunkBiomeBinaries<'a> = (Vec<String>, Vec<(Binary<'a>, Binary<'a>)>);
+
+/// Multi-noise biomes of chunks in order (lookup history carries from one
+/// chunk to the next, starting empty): the preset's biome names, and per chunk
+/// its biome indices (one byte per quart, sections from the bottom, index
+/// order y, z, x) and its climate targets (six big-endian i64 per lookup, in
+/// lookup order).
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_chunk_biomes<'a>(
+    env: rustler::Env<'a>,
+    state: ResourceArc<WorldgenState>,
+    preset: String,
+    chunks: Vec<(i32, i32)>,
+) -> Result<ChunkBiomeBinaries<'a>, String> {
+    let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+    let list = state.biome_parameters(&preset)?;
+    let mut last = None;
+    let mut out = Vec::with_capacity(chunks.len());
+    for (x, z) in chunks {
+        let filled = state.fill_biomes(&list, x, z, &mut last)?;
+        let mut biomes = NewBinary::new(env, filled.biomes.len());
+        for (b, &v) in biomes.as_mut_slice().iter_mut().zip(&filled.biomes) {
+            *b = u8::try_from(v).map_err(|_| "more than 256 biomes")?;
+        }
+        let mut targets = NewBinary::new(env, filled.targets.len() * 48);
+        for (chunk, target) in targets.as_mut_slice().chunks_mut(48).zip(&filled.targets) {
+            for (bytes, value) in chunk.chunks_mut(8).zip(target) {
+                bytes.copy_from_slice(&value.to_be_bytes());
+            }
+        }
+        out.push((biomes.into(), targets.into()));
+    }
+    Ok((list.biomes.clone(), out))
+}
+
+/// The biomes at the minimal climate distance from a target: the answers a
+/// lookup can give, depending on lookup history.
+#[rustler::nif]
+fn worldgen_closest_biomes(
+    state: ResourceArc<WorldgenState>,
+    preset: String,
+    target: Vec<i64>,
+) -> Result<Vec<String>, String> {
+    let state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+    let list = state.biome_parameters(&preset)?;
+    let target: [i64; 6] = target.try_into().map_err(|_| "a target has six values")?;
+    Ok(list
+        .closest_biomes(&target)
+        .into_iter()
+        .map(|b| list.biomes[b as usize].clone())
+        .collect())
 }
 
 rustler::init!("Elixir.Valimc.Native");

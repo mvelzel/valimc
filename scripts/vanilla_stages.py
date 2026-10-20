@@ -59,10 +59,12 @@ STAGES = [
         ('check', 'check_random.exs', '@random.json'),
     ]),
     ('worldgen_facts', [
-        ('java', 'WorldgenFactsOracle', '@noises.json', '@density_functions.json', '@noise_settings.json'),
+        ('java', 'WorldgenFactsOracle', '@noises.json', '@density_functions.json', '@noise_settings.json',
+         '@biome_parameters.json'),
         ('same', '@noises.json', 'priv/worldgen/noises.json'),
         ('same', '@density_functions.json', 'priv/worldgen/density_functions.json'),
         ('same', '@noise_settings.json', 'priv/worldgen/noise_settings.json'),
+        ('same', '@biome_parameters.json', 'priv/worldgen/biome_parameters.json'),
     ]),
     ('worldgen_noise', [
         ('java', 'NoiseOracle', '@noise.json'),
@@ -71,6 +73,10 @@ STAGES = [
     ('worldgen_density', [
         ('java', 'DensityOracle', '@density.json'),
         ('check', 'check_density.exs', '@density.json'),
+    ]),
+    ('worldgen_biomes', [
+        ('java', 'BiomeOracle', 'generate', '@world', '@biomes.json'),
+        ('check', 'check_biomes.exs', '@biomes.json'),
     ]),
     ('block_registry', [
         ('java', 'BlockRegistryMetadata', '@block-registry.json'),

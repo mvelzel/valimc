@@ -30,11 +30,16 @@ defmodule Valimc.Native do
   def worldgen_noise_samples(_random, _noise, _params, _points, _volumes),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def worldgen_registry(_noises, _functions, _settings), do: :erlang.nif_error(:nif_not_loaded)
+  def worldgen_registry(_noises, _functions, _settings, _biome_parameters),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def worldgen_new(_registry, _seed, _settings), do: :erlang.nif_error(:nif_not_loaded)
 
   def worldgen_density_samples(_state, _function, _cached, _ops),
     do: :erlang.nif_error(:nif_not_loaded)
+
+  def worldgen_chunk_biomes(_state, _preset, _chunks), do: :erlang.nif_error(:nif_not_loaded)
+  def worldgen_closest_biomes(_state, _preset, _target), do: :erlang.nif_error(:nif_not_loaded)
 
   def nbt_read(_bytes, _byte_limit, _nodes, _depth), do: :erlang.nif_error(:nif_not_loaded)
   def lz4_decode_stream(_bytes, _max), do: :erlang.nif_error(:nif_not_loaded)

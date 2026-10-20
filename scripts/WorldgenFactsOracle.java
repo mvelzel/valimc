@@ -6,6 +6,7 @@ import net.minecraft.SharedConstants;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.server.Bootstrap;
+import net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterList;
 import net.minecraft.world.level.levelgen.NoiseGeneratorSettings;
 import net.minecraft.world.level.levelgen.densityfunction.DensityFunctions;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
@@ -18,7 +19,11 @@ import net.minecraft.world.level.levelgen.synth.NormalNoise;
  * - noises.json: the `worldgen/noise` registry;
  * - density_functions.json: the `worldgen/density_function` registry;
  * - noise_settings.json: per `worldgen/noise_settings` entry, its noise
- *   bounds, legacy random flag, noise router and aquifer functions.
+ *   bounds, legacy random flag, noise router and aquifer functions;
+ * - biome_parameters.json: per multi-noise preset, its climate parameter list
+ *   in order, one row per entry: the biome, then the quantized minimum and
+ *   maximum of temperature, humidity, continentalness, erosion, depth and
+ *   weirdness, then the offset.
  *
  * Float values are written as their exact double value, so reading them as a
  * double and narrowing to float is exact.
@@ -53,8 +58,31 @@ public class WorldgenFactsOracle {
     write(args[0], noises);
     write(args[1], functions);
     write(args[2], settings);
+
+    var presets = new TreeMap<String, List<String>>();
+    MultiNoiseBiomeSourceParameterList.knownPresets().forEach((preset, list) -> {
+      var rows = new ArrayList<String>();
+      for (var entry : list.values()) {
+        var p = entry.getFirst();
+        var row = new StringBuilder("[\"" + entry.getSecond().identifier() + "\"");
+        for (var parameter : List.of(p.temperature(), p.humidity(), p.continentalness(), p.erosion(), p.depth(), p.weirdness())) {
+          row.append(", ").append(parameter.min()).append(", ").append(parameter.max());
+        }
+        rows.add(row.append(", ").append(p.offset()).append("]").toString());
+      }
+      presets.put(preset.id().toString(), rows);
+    });
+    var text = new StringBuilder("{\n");
+    var names = new ArrayList<>(presets.keySet());
+    for (int i = 0; i < names.size(); i++) {
+      text.append("  \"").append(names.get(i)).append("\": [\n    ");
+      text.append(String.join(",\n    ", presets.get(names.get(i))));
+      text.append("\n  ]").append(i + 1 < names.size() ? ",\n" : "\n");
+    }
+    Files.writeString(Path.of(args[3]), text.append("}\n").toString());
     System.out.println("PASS: " + noises.size() + " noise parameter sets, " + functions.size()
-        + " density functions, " + settings.size() + " noise settings");
+        + " density functions, " + settings.size() + " noise settings, "
+        + presets.size() + " biome parameter presets");
   }
 
   static void write(String path, Map<String, JsonElement> entries) throws Exception {
