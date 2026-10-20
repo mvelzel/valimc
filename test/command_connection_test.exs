@@ -192,6 +192,20 @@ defmodule Valimc.CommandConnectionTest do
     {body, b} = Client.await(b, :play, "disguised_chat")
     assert :binary.match(body, "hello there") != :nomatch
 
+    # Commands with a message argument arrive as signed commands from the client.
+    signed = [
+      Wire.string("say signed"),
+      <<0::64, 0::64>>,
+      Wire.varint(0),
+      Wire.varint(0),
+      <<0, 0, 0, 0>>
+    ]
+
+    Client.send_packet(a, :play, "chat_command_signed", signed)
+    {body, a} = Client.await(a, :play, "disguised_chat")
+    assert :binary.match(body, "signed") != :nomatch
+    {_, b} = Client.await(b, :play, "disguised_chat")
+
     Client.send_packet(a, :play, "chat_command", Wire.string("msg #{second} psst"))
     {_outgoing, _a} = Client.await(a, :play, "disguised_chat")
     {body, _b} = Client.await(b, :play, "disguised_chat")

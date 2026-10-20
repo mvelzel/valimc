@@ -336,12 +336,30 @@ defmodule Valimc.Net.Serverbound do
 
       "chat_command" ->
         {command, <<>>} = Wire.take_string(payload, 256)
+        run_command(state, command)
 
-        # Vanilla `isChatMessageIllegal`: section signs, control characters and DEL.
-        if String.match?(command, ~r/[\x{A7}\x{00}-\x{1F}\x{7F}]/u),
-          do: reject(state, "Illegal characters in chat")
+      "chat_command_signed" ->
+        # Commands with a signable `message` argument (`/say`, `/msg`, `/kick`
+        # reasons). ValiMC has no secure chat sessions yet (VMC-009): argument
+        # signatures and last-seen acknowledgements are read and not verified.
+        {command, payload} = Wire.take_string(payload, 256)
+        <<_timestamp::signed-64, _salt::signed-64, payload::binary>> = payload
+        {count, payload} = Wire.take_varint(payload)
+        if count not in 0..8, do: reject(state, "Invalid command signatures")
 
-        state |> Commands.throttle_chat() |> Commands.command(command)
+        payload =
+          Enum.reduce(1..count//1, payload, fn _, payload ->
+            {_name, <<_signature::binary-size(256), rest::binary>>} =
+              Wire.take_string(payload, 16)
+
+            rest
+          end)
+
+        {_offset, <<_acknowledged::binary-size(3), _checksum, rest::binary>>} =
+          Wire.take_varint(payload)
+
+        if rest != <<>>, do: reject(state, "Invalid signed command")
+        run_command(state, command)
 
       nil ->
         reject(state, "Unknown packet ID")
@@ -352,4 +370,12 @@ defmodule Valimc.Net.Serverbound do
   end
 
   def handle_packet(state, _, _), do: reject(state, "Unexpected protocol state")
+
+  defp run_command(state, command) do
+    # Vanilla `isChatMessageIllegal`: section signs, control characters and DEL.
+    if String.match?(command, ~r/[\x{A7}\x{00}-\x{1F}\x{7F}]/u),
+      do: reject(state, "Illegal characters in chat")
+
+    state |> Commands.throttle_chat() |> Commands.command(command)
+  end
 end

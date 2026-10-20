@@ -714,7 +714,13 @@ public class VanillaOracle implements AutoCloseable {
         && d.chatType().decorate(d.message()).getString().equals("You whisper to OracleTwo: psst"));
       second.await(p -> p instanceof ClientboundDisguisedChatPacket d
         && d.chatType().decorate(d.message()).getString().equals("OracleOne whispers to you: psst"));
-      System.out.println("PASS: Mojang decodes /say and /msg as disguised chat with vanilla's decorations.");
+      // The vanilla client sends commands with a message argument as signed commands.
+      first.send(gameOut,new net.minecraft.network.protocol.game.ServerboundChatCommandSignedPacket("say signed hello",
+        java.time.Instant.now(), 0L, net.minecraft.commands.arguments.ArgumentSignatures.EMPTY,
+        new net.minecraft.network.chat.LastSeenMessages.Update(0, new java.util.BitSet(), (byte) 0)));
+      second.await(p -> p instanceof ClientboundDisguisedChatPacket d
+        && d.chatType().decorate(d.message()).getString().equals("[OracleOne] signed hello"));
+      System.out.println("PASS: Mojang decodes /say and /msg as disguised chat with vanilla's decorations; signed commands run.");
       System.out.println("PASS: Mojang 26.3 codecs validated compressed login, network registry/tag dependency loading, command graph/local completion, " + first.chunks + " chunks, inventory/selection/hand swaps, authoritative pickup/split/merge/shift/swap/quick-craft/collect/clone/fill with forged predictions, menu-close return, creative scalar stacks/corrections, two-player visibility, movement, block placement/breaking and commands.");
       System.out.println(first.seen);
     }
