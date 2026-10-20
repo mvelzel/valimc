@@ -23,6 +23,17 @@ case System.get_env("VALIMC_ENCRYPTION") do
   _ -> raise "VALIMC_ENCRYPTION must be true or false"
 end
 
+case System.get_env("VALIMC_OPERATORS") do
+  nil ->
+    :ok
+
+  "*" ->
+    config :valimc, operators: :all
+
+  names ->
+    config :valimc, operators: names |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+end
+
 if port = System.get_env("VALIMC_PORT") do
   config :valimc, port: String.to_integer(port)
 end

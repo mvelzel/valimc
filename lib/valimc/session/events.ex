@@ -184,6 +184,17 @@ defmodule Valimc.Session.Events do
     state
   end
 
+  def event(%{phase: :play} = state, {:set_game_mode, mode, notice}) do
+    case Valimc.Player.GameModes.set(state, mode) do
+      {:changed, state} ->
+        if notice, do: send_packets(state, [Packets.chat(notice)])
+        state
+
+      {:unchanged, state} ->
+        state
+    end
+  end
+
   def event(%{phase: :play} = state, {:block, {x, _, z} = pos, block}) do
     if MapSet.member?(state.chunks, World.chunk_key(x, z)),
       do: send_packets(state, [Packets.block(pos, block)])

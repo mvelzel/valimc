@@ -355,7 +355,14 @@ defmodule Valimc.Protocol.Packets do
       when is_integer(level) and level in 0..3 and is_boolean(locked),
       do: packet("change_difficulty", <<level, if(locked, do: 1, else: 0)>>)
 
-  def commands, do: packet("commands", Valimc.Commands.graph_payload())
+  def commands(level), do: packet("commands", Valimc.Commands.graph_payload(level))
+
+  @doc "The entity event that sets the client's permission level (24..28)."
+  def permission_level(entity_id, level) do
+    life_entity_id!(entity_id)
+    packet("entity_event", <<entity_id::signed-32, Valimc.Permissions.entity_event(level)>>)
+  end
+
   def center({x, z}), do: packet("set_chunk_cache_center", [Wire.varint(x), Wire.varint(z)])
   def unload({x, z}), do: packet("forget_level_chunk", <<z::signed-32, x::signed-32>>)
   def chat(text), do: packet("system_chat", [Wire.text_component(text), <<0>>])

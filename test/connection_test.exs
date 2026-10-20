@@ -48,7 +48,7 @@ defmodule Valimc.ConnectionTest do
     {_body, _} = Client.await(second, :play, "system_chat")
   end
 
-  test "literal commands match Brigadier whitespace and reject arguments and unknown names" do
+  test "commands follow Brigadier whitespace and report vanilla failures" do
     {_, client} = Client.login(name("Commands"))
     on_exit(fn -> Client.close(client) end)
     client = Client.load_world(client)
@@ -59,21 +59,27 @@ defmodule Valimc.ConnectionTest do
 
     client =
       Enum.reduce(
-        ["stats extra", "stats ", "stats  ", "STATS", "missing", "stats\t"],
+        ["stats extra", "stats ", "stats  ", "STATS", "missing"],
         client,
         fn input, client ->
           Client.send_packet(client, :play, "chat_command", Wire.string(input))
           {body, client} = Client.await(client, :play, "system_chat")
-          assert :binary.match(body, "Unknown command") != :nomatch
+          assert :binary.match(body, "command.unknown.") != :nomatch
+          {context, client} = Client.await(client, :play, "system_chat")
+          assert :binary.match(context, "command.context.here") != :nomatch
           client
         end
       )
 
     Client.send_packet(client, :play, "chat_command", Wire.string("help"))
-    {body, _} = Client.await(client, :play, "system_chat")
 
-    for literal <- ["/help", "/stats", "/spawn"],
-        do: assert(:binary.match(body, literal) != :nomatch)
+    {lines, _} =
+      Enum.map_reduce(1..length(Valimc.Commands.root().children), client, fn _, client ->
+        Client.await(client, :play, "system_chat")
+      end)
+
+    for literal <- ["/help [<command>]", "/stats", "/spawn", "/gamemode <gamemode> [<target>]"],
+        do: assert(Enum.any?(lines, &(:binary.match(&1, literal) != :nomatch)))
   end
 
   test "malformed and wrong-version clients do not affect the listener" do

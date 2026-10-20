@@ -328,6 +328,11 @@ defmodule Valimc.Net.Serverbound do
 
       "chat_command" ->
         {command, <<>>} = Wire.take_string(payload, 256)
+
+        # Vanilla `isChatMessageIllegal`: section signs, control characters and DEL.
+        if String.match?(command, ~r/[\x{A7}\x{00}-\x{1F}\x{7F}]/u),
+          do: reject(state, "Illegal characters in chat")
+
         state |> Commands.throttle_chat() |> Commands.command(command)
 
       nil ->

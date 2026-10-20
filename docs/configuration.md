@@ -12,8 +12,10 @@
 | `VALIMC_GAME_MODE` | New/legacy player mode: survival, creative, adventure, spectator |
 | `VALIMC_ENCRYPTION` | Offline RSA/AES transport test; does not authenticate accounts |
 | `VALIMC_ONLINE_MODE` | Mojang account verification; login uses encryption |
+| `VALIMC_OPERATORS` | Command operators: comma-separated names, or `*` for every player; none by default, everyone under `mix run` in development |
 
-Saved modes take precedence. Non-creative gameplay remains incomplete. Online and
+Operators get permission level 4 (`operator_level`) and vanilla's gamemaster
+commands; other players get level 0. Saved modes take precedence. Non-creative gameplay remains incomplete. Online and
 offline UUID saves are separate; mode changes do not migrate files. Signed chat,
 proxy-IP policy and duplicate-session replacement remain unfinished.
 

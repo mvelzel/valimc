@@ -263,7 +263,11 @@ defmodule Valimc.Net.LoginFlow do
       Packets.abilities(state.player.abilities),
       Packets.health(state.player.health, state.player.food),
       Packets.spawn_position(),
-      Packets.commands(),
+      Packets.permission_level(
+        state.player.entity_id,
+        Valimc.Permissions.level(state.player.name)
+      ),
+      Packets.commands(Valimc.Permissions.level(state.player.name)),
       Packets.inventory(state.inventory),
       Packets.cursor(state.inventory.carried),
       Packets.held_slot(state.inventory.selected),

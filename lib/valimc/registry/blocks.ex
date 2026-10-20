@@ -85,6 +85,9 @@ defmodule Valimc.Registry.Blocks do
     pairs
   end
 
+  @doc "Property names and value tuples of block `name`, in state order."
+  def definitions(name), do: elem(@blocks, Map.fetch!(@ids, name)).properties
+
   @doc "The state of block `name` with `changes` applied to its default properties."
   def state(name, changes \\ %{}) when is_map(changes) do
     block = elem(@blocks, Map.fetch!(@ids, name))

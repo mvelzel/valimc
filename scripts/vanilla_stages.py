@@ -114,6 +114,13 @@ STAGES = [
          'minecraft:block_blob'),
         ('check', 'check_decoration.exs', '@decoration.json'),
     ]),
+    ('commands', [
+        ('java', 'CommandTreeOracle', 'tree', '@tree.json'),
+        ('same', '@tree.json', 'priv/commands/tree.json'),
+        ('java', 'CommandTreeOracle', 'cases', '@cases.json'),
+        ('check', 'check_commands.exs', '@cases.json', '@graphs', '@results.json'),
+        ('java', 'CommandTreeOracle', 'verify', '@graphs', '@results.json'),
+    ]),
     ('block_registry', [
         ('java', 'BlockRegistryMetadata', '@block-registry.json'),
         ('same', '@block-registry.json', 'priv/registry/blocks.json'),
