@@ -36,6 +36,16 @@ import net.minecraft.world.level.chunk.storage.*;
  * stored entity it records the type, UUID and stored compound digest, and for
  * items the stack's encoding.
  *
+ * `export OUT EXPORTED DIR` compares ValiMC's export of the imported world with
+ * the original as vanilla loads both (section blocks and biomes, block entities
+ * through `loadStatic` and `saveWithFullMetadata`, preserved entities unchanged,
+ * items' UUID, position, motion, age, delay and stack, orbs' UUID, position,
+ * motion, age, value and count). Then the pinned server
+ * runs on copies of the export and of the original reduced to what an import
+ * keeps (full chunks, no POI) alike (ticking frozen, every
+ * exported chunk force-loaded, saved, any logged error refused) and both saves
+ * must hold the same chunks and entities.
+ *
  * `verify OUT DIR` decodes ValiMC's chunk packets (`chunk.X.Z.bin`, packet bodies)
  * with vanilla's codec and requires exactly vanilla's block entity list per chunk:
  * positions, types and update tags.
@@ -59,6 +69,8 @@ public class AnvilContentOracle {
     switch (args[0]) {
       case "generate" -> generate(Path.of(args[1]).toAbsolutePath(), Path.of(args[2]), fixtures(0, 0));
       case "verify" -> verify(Path.of(args[1]), Path.of(args[2]));
+      case "client" -> client(Path.of(args[1]).toAbsolutePath());
+      case "export" -> export(Path.of(args[1]), Path.of(args[2]).toAbsolutePath(), Path.of(args[3]).toAbsolutePath());
       default -> throw new IllegalArgumentException(args[0]);
     }
   }
@@ -136,6 +148,23 @@ public class AnvilContentOracle {
     c.add(String.format("summon minecraft:villager %d.5 100 %d.5 {NoAI:1b}", x0 + 33, z0 + 55));
     c.add("#sleep 8000");
     return c;
+  }
+
+  // ---- client world ----
+
+  /**
+   * The VMC-021e client test world: full chunks for x −160..191 and z −160..159
+   * (spawn and the savanna village around x 110, z 30) plus the fixture platform
+   * at y 100 over x 128..191, z −64..−1. Not a stage; a dataset for the client run.
+   */
+  static void client(Path dir) throws Exception {
+    var commands = new ArrayList<String>();
+    commands.add("forceload add -160 -160 15 159");
+    commands.add("forceload add 16 -160 191 159");
+    commands.add("#sleep 45000");
+    commands.addAll(fixtures(128, -64));
+    WorldNbtOracle.runServer(dir, Map.of(), commands);
+    System.out.println("PASS: client world in " + dir.resolve("universe/w"));
   }
 
   // ---- generate ----
@@ -219,6 +248,10 @@ public class AnvilContentOracle {
             var stack = ItemStack.CODEC.parse(ops, entity.get("Item")).getOrThrow();
             row.addProperty("item", itemHex(stack));
           }
+          if (type.equals("minecraft:experience_orb")) {
+            row.addProperty("value", entity.getShortOr("Value", (short) 0));
+            row.addProperty("count", entity.getIntOr("Count", 1));
+          }
           entities.add(row);
         }
       }
@@ -268,7 +301,12 @@ public class AnvilContentOracle {
           .put(p.get(0) + "," + p.get(1) + "," + p.get(2), row.get("type").getAsString() + " " + row.get("update").getAsString());
     }
     var empty = digest(new CompoundTag());
-    int checked = 0;
+    // The stored light of every checked chunk, as ValiMC must send it.
+    var stored = new HashMap<String, CompoundTag>();
+    var info = new RegionStorageInfo("oracle", Level.OVERWORLD, "chunk");
+    for (var file : files(Path.of(facts.get("world").getAsString()).resolve("dimensions/minecraft/overworld/region")))
+      for (var chunk : chunks(info, file)) stored.put(chunk.getKey().x() + "." + chunk.getKey().z(), chunk.getValue());
+    int checked = 0, lit = 0;
     for (var entry : expected.entrySet()) {
       var file = dir.resolve("chunk." + entry.getKey() + ".bin");
       var buffer = new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(Files.readAllBytes(file)), access);
@@ -286,8 +324,174 @@ public class AnvilContentOracle {
       if (!actual.equals(entry.getValue()))
         throw new AssertionError("chunk " + entry.getKey() + " block entities differ:\n vanilla " + entry.getValue() + "\n valimc  " + actual);
       checked += actual.size();
+      var tag = stored.get(entry.getKey());
+      if (tag.getBooleanOr("isLightOn", false)) {
+        lit++;
+        var light = packet.lightData();
+        for (var kind : List.of("SkyLight", "BlockLight")) {
+          var mask = kind.equals("SkyLight") ? light.skyYMask() : light.blockYMask();
+          var updates = kind.equals("SkyLight") ? light.skyUpdates() : light.blockUpdates();
+          var storedMask = new BitSet();
+          var arrays = new ArrayList<byte[]>();
+          var sections = new TreeMap<Integer, byte[]>();
+          for (var section : tag.getListOrEmpty("sections"))
+            if (section instanceof CompoundTag c && c.getByteArray(kind).isPresent()) sections.put((int) c.getByteOr("Y", (byte) 0), c.getByteArray(kind).get());
+          sections.forEach((y, data) -> { if (y >= -5 && y <= 20) { storedMask.set(y + 5); arrays.add(data); } });
+          if (!mask.equals(storedMask) || !light.emptySkyYMask().isEmpty() || !light.emptyBlockYMask().isEmpty() || updates.size() != arrays.size())
+            throw new AssertionError("chunk " + entry.getKey() + " " + kind + " masks differ from the stored light");
+          for (int i = 0; i < arrays.size(); i++)
+            if (!Arrays.equals(updates.get(i), arrays.get(i))) throw new AssertionError("chunk " + entry.getKey() + " " + kind + " data differ");
+        }
+      }
     }
+    if (lit == 0) throw new AssertionError("no lit chunk checked");
     System.out.println("PASS: vanilla decodes ValiMC's chunk packets for " + expected.size() + " chunks with exactly vanilla's "
-        + checked + " block entities, types and update tags");
+        + checked + " block entities, types and update tags, and the stored sky and block light of " + lit + " chunks");
+  }
+
+  // ---- export ----
+
+  /** Per full chunk: section digests and canonical block entity digests by position. */
+  static Map<ChunkPos, List<String>> chunkFacts(Path regionDir) throws Exception {
+    var result = new TreeMap<ChunkPos, List<String>>(Comparator.comparingLong(ChunkPos::pack));
+    var info = new RegionStorageInfo("oracle", Level.OVERWORLD, "chunk");
+    for (var file : files(regionDir))
+      for (var chunk : chunks(info, file)) {
+        var tag = chunk.getValue();
+        if (SerializableChunkData.getChunkStatusFromTag(tag) != ChunkStatus.FULL) continue;
+        var data = SerializableChunkData.parse(ChunkOracle.HEIGHT, factory, tag);
+        var sections = new HashMap<Integer, LevelChunkSection>();
+        for (var section : data.sectionData()) if (section.chunkSection() != null) sections.put(section.y(), section.chunkSection());
+        var facts = new ArrayList<String>();
+        for (int y = -4; y < 20; y++) facts.add(ChunkOracle.digest(sections.getOrDefault(y, new LevelChunkSection(factory))));
+        var entities = new TreeMap<String, String>();
+        for (var stored : data.blockEntities()) {
+          var at = BlockEntity.getPosFromTag(chunk.getKey(), stored);
+          var section = sections.get(at.getY() >> 4);
+          var state = section == null ? Block.stateById(0) : section.getBlockState(at.getX() & 15, at.getY() & 15, at.getZ() & 15);
+          var entity = state.hasBlockEntity() ? BlockEntity.loadStatic(at, state, stored, access) : null;
+          if (entity != null) entities.put(at.toShortString(), digest(entity.saveWithFullMetadata(access)));
+        }
+        facts.add(entities.toString());
+        result.put(chunk.getKey(), facts);
+      }
+    return result;
+  }
+
+  /** Every stored entity by UUID: the stored digest, or for items the modelled fields. */
+  static Map<String, String> entityFacts(Path entityDir) throws Exception { return entityFacts(entityDir, null); }
+
+  /** As above, for the entities stored in `only` chunks (all when null). */
+  static Map<String, String> entityFacts(Path entityDir, Set<ChunkPos> only) throws Exception {
+    var result = new TreeMap<String, String>();
+    if (!Files.isDirectory(entityDir)) return result;
+    var ops = access.createSerializationContext(NbtOps.INSTANCE);
+    for (var file : files(entityDir))
+      for (var chunk : chunks(new RegionStorageInfo("oracle", Level.OVERWORLD, "entities"), file)) {
+        if (only != null && !only.contains(chunk.getKey())) continue;
+        var list = chunk.getValue().getListOrEmpty("Entities");
+        for (int k = 0; k < list.size(); k++) {
+          var entity = list.getCompoundOrEmpty(k);
+          var uuid = HEX.formatHex(java.nio.ByteBuffer.allocate(16).putInt(entity.getIntArray("UUID").orElseThrow()[0])
+              .putInt(entity.getIntArray("UUID").orElseThrow()[1]).putInt(entity.getIntArray("UUID").orElseThrow()[2])
+              .putInt(entity.getIntArray("UUID").orElseThrow()[3]).array());
+          String fact;
+          if (entity.getStringOr("id", "").equals("minecraft:item") && !entity.contains("Owner")) {
+            var stack = ItemStack.CODEC.parse(ops, entity.get("Item")).getOrThrow();
+            fact = "item " + entity.get("Pos") + " " + entity.get("Motion") + " " + entity.getShortOr("Age", (short) 0) + " "
+                + entity.getShortOr("PickupDelay", (short) 0) + " " + entity.getBooleanOr("OnGround", false) + " "
+                + entity.getBooleanOr("NoGravity", false) + " " + itemHex(stack);
+          } else if (entity.getStringOr("id", "").equals("minecraft:experience_orb"))
+            fact = "orb " + entity.get("Pos") + " " + entity.get("Motion") + " " + entity.getShortOr("Age", (short) 0) + " "
+                + entity.getShortOr("Value", (short) 0) + " " + entity.getIntOr("Count", 1) + " "
+                + entity.getBooleanOr("OnGround", false) + " " + entity.getBooleanOr("NoGravity", false);
+          else fact = digest(entity);
+          if (result.put(uuid, fact) != null) throw new AssertionError("repeated UUID " + uuid);
+        }
+      }
+    return result;
+  }
+
+  static void compare(String what, Map<ChunkPos, List<String>> original, Map<ChunkPos, List<String>> exported) {
+    for (var entry : original.entrySet()) {
+      var other = exported.get(entry.getKey());
+      if (other == null) throw new AssertionError(what + ": chunk " + entry.getKey() + " missing");
+      for (int i = 0; i < 24; i++)
+        if (!entry.getValue().get(i).equals(other.get(i)))
+          throw new AssertionError(what + ": chunk " + entry.getKey() + " section " + (i - 4) + " differs");
+      if (!entry.getValue().get(24).equals(other.get(24)))
+        throw new AssertionError(what + ": chunk " + entry.getKey() + " block entities differ:\n vanilla " + entry.getValue().get(24) + "\n export  " + other.get(24));
+    }
+  }
+
+  /**
+   * Copy `world` into `dir` and run the pinned server on it; returns its overworld
+   * folder. With `fullOnly`, overworld region files keep only full chunks and POI
+   * files are left out, which is what an import keeps of the world.
+   */
+  static Path run(Path world, Path dir, List<String> commands, boolean fullOnly) throws Exception {
+    var target = dir.resolve("universe/w");
+    var regions = world.resolve("dimensions/minecraft/overworld/region");
+    var info = new RegionStorageInfo("oracle", Level.OVERWORLD, "chunk");
+    try (var walk = Files.walk(world)) {
+      for (var path : walk.toList()) {
+        if (path.getFileName().toString().equals("session.lock")) continue;
+        var copy = target.resolve(world.relativize(path).toString());
+        if (Files.isDirectory(path)) { Files.createDirectories(copy); continue; }
+        if (fullOnly && path.getParent().getFileName().toString().equals("poi")) continue;
+        if (fullOnly && path.getParent().equals(regions)) {
+          try (var region = new RegionFile(info, copy, copy.getParent(), true)) {
+            for (var chunk : chunks(info, path))
+              if (SerializableChunkData.getChunkStatusFromTag(chunk.getValue()) == ChunkStatus.FULL)
+                try (var out = region.getChunkDataOutputStream(chunk.getKey())) { NbtIo.write(chunk.getValue(), out); }
+          }
+        } else Files.copy(path, copy);
+      }
+    }
+    WorldNbtOracle.runServer(dir, Map.of(), commands);
+    return target.resolve("dimensions/minecraft/overworld");
+  }
+
+  static void export(Path factsPath, Path exported, Path dir) throws Exception {
+    var facts = JsonParser.parseString(Files.readString(factsPath)).getAsJsonObject();
+    var original = Path.of(facts.get("world").getAsString()).resolve("dimensions/minecraft/overworld");
+    var ours = exported.resolve("dimensions/minecraft/overworld");
+    var chunks = chunkFacts(original.resolve("region"));
+    var entities = entityFacts(original.resolve("entities"));
+    var written = chunkFacts(ours.resolve("region"));
+    compare("export", chunks, written);
+    if (!entityFacts(ours.resolve("entities")).equals(entities)) throw new AssertionError("exported entities differ from vanilla's");
+
+    // Vanilla loads the export as it loads the original: copies of both (the
+    // original reduced to what an import keeps: its full chunks, no POI) run on
+    // the pinned server, frozen, with every exported chunk force-loaded, and save.
+    // Loading applies vanilla's pending post-processing to both alike.
+    var commands = new ArrayList<String>();
+    commands.add("tick freeze");
+    for (var chunk : written.keySet()) commands.add("forceload add " + chunk.getMinBlockX() + " " + chunk.getMinBlockZ());
+    commands.add("#sleep 5000");
+    var vanilla = run(original.getParent().getParent().getParent(), dir.resolve("original"), commands, true);
+    var loaded = run(exported, dir.resolve("export"), commands, false);
+    // Generating a missing neighbour may place features into a bordering chunk,
+    // and parallel generation need not do that the same way twice; only chunks
+    // whose eight neighbours were exported too are beyond its reach.
+    var reloaded = chunkFacts(vanilla.resolve("region"));
+    reloaded.keySet().removeIf(pos -> {
+      for (int dx = -1; dx <= 1; dx++)
+        for (int dz = -1; dz <= 1; dz++)
+          if (!written.containsKey(new ChunkPos(pos.x() + dx, pos.z() + dz))) return true;
+      return false;
+    });
+    if (reloaded.size() < 16) throw new AssertionError("too few interior chunks: " + reloaded.size());
+    compare("vanilla's save of the export", reloaded, chunkFacts(loaded.resolve("region")));
+    // Chunks vanilla generates around both spawn their own animals; only the
+    // exported chunks' entities are compared.
+    var mine = entityFacts(loaded.resolve("entities"), written.keySet());
+    var theirs = entityFacts(vanilla.resolve("entities"), written.keySet());
+    if (!mine.equals(theirs) || !mine.keySet().containsAll(entities.keySet()))
+      throw new AssertionError("vanilla's saves of the export and the original hold different entities:\n " + theirs + "\n " + mine);
+    System.out.println("PASS: ValiMC's export holds vanilla's blocks, biomes and " + chunks.values().stream().mapToInt(c -> c.get(24).split("=").length - 1).sum()
+        + " block entities in " + chunks.size() + " full chunks and its " + entities.size() + " entities; the pinned server loads it without errors and saves what it saves for the original ("
+        + reloaded.size() + " interior chunks compared)");
   }
 }

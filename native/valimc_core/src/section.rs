@@ -144,6 +144,37 @@ pub fn index(x: usize, y: usize, z: usize) -> usize {
     (y << 8) | (z << 4) | x
 }
 
+/// Vanilla `PalettedContainer` storage for a world file (export): the distinct
+/// values in first-appearance order and their indices packed
+/// `max(min_bits, ⌈log2 n⌉)` bits each, low bits first, never spanning longs;
+/// no longs for a single value. `None` beyond 8,192 values or 31 bits.
+pub fn pack_vanilla(values: &[u16], min_bits: u32) -> Option<(Vec<u16>, Vec<u64>)> {
+    if values.len() > 8192 || min_bits > 31 {
+        return None;
+    }
+    let mut palette: Vec<u16> = Vec::new();
+    let mut lookup = std::collections::HashMap::with_capacity(64);
+    let indices: Vec<u64> = values
+        .iter()
+        .map(|&v| {
+            *lookup.entry(v).or_insert_with(|| {
+                palette.push(v);
+                (palette.len() - 1) as u64
+            })
+        })
+        .collect();
+    if palette.len() <= 1 {
+        return Some((palette, Vec::new()));
+    }
+    let bits = min_bits.max(32 - (palette.len() as u32 - 1).leading_zeros());
+    let per = (64 / bits) as usize;
+    let mut longs = vec![0u64; indices.len().div_ceil(per)];
+    for (k, index) in indices.iter().enumerate() {
+        longs[k / per] |= index << ((k % per) as u32 * bits);
+    }
+    Some((palette, longs))
+}
+
 /// Unpack `count` entries of `bits` each from big-endian longs, entries never
 /// spanning two longs (vanilla `SimpleBitStorage`). `None` unless `data` holds
 /// exactly the longs that layout needs.
@@ -244,6 +275,22 @@ impl Biomes {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn vanilla_packing_round_trips_through_unpack() {
+        let values: Vec<u16> = (0..4096).map(|i| [7u16, 9, 7, 300, 2][i % 5]).collect();
+        let (palette, longs) = super::pack_vanilla(&values, 4).unwrap();
+        assert_eq!(palette, vec![7, 9, 300, 2]);
+        let bytes: Vec<u8> = longs.iter().flat_map(|l| l.to_be_bytes()).collect();
+        let indices = super::unpack(&bytes, 4, 4096).unwrap();
+        let back: Vec<u16> = indices.iter().map(|&i| palette[i as usize]).collect();
+        assert_eq!(back, values);
+        // Biomes: 5 entries need 3 bits; one value has no data.
+        let (_, longs) = super::pack_vanilla(&[1, 2, 3, 4, 5, 1, 1, 1], 0).unwrap();
+        assert_eq!(longs, vec![0o43210]);
+        assert_eq!(super::pack_vanilla(&[3; 64], 0).unwrap(), (vec![3], vec![]));
+        assert!(super::pack_vanilla(&vec![0; 8193], 4).is_none());
+    }
+
     use super::*;
 
     #[test]

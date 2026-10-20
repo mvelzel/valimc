@@ -76,4 +76,43 @@ defmodule Valimc.AnvilEntityTest do
     {:item, record} = Entity.convert(item())
     assert Entity.convert(Entity.item_tag(record)) == {:item, record}
   end
+
+  test "an XP orb becomes an imported birth with its body; its compound converts back" do
+    orb = fn extra ->
+      {:compound,
+       Map.merge(
+         %{
+           "id" => {:string, "minecraft:experience_orb"},
+           "UUID" => {:int_array, @uuid},
+           "Pos" => doubles([4.5, 64.0, 4.5]),
+           "Motion" => doubles([0.0, -0.08, 0.0]),
+           "Age" => {:short, 150},
+           "Value" => {:short, 7},
+           "Count" => {:int, 3},
+           "OnGround" => {:byte, 1}
+         },
+         extra
+       )}
+    end
+
+    assert {:orb, converted} = Entity.convert(orb.(%{}))
+
+    assert %{uuid: @uuid, position: {4.5, 64.0, 4.5}, age: 150, value: 7, count: 3} = converted
+    assert converted.on_ground and not converted.no_gravity
+    assert {:orb, %{age: 5999}} = Entity.convert(orb.(%{"Age" => {:short, 7000}}))
+    assert {:orb, %{count: 1}} = Entity.convert(orb.(%{"Count" => nil}) |> drop_nil())
+
+    for bad <- [
+          %{"Value" => {:short, 0}},
+          %{"Count" => {:int, 0}},
+          %{"Passengers" => NBT.list([])}
+        ],
+        do: assert(Entity.convert(orb.(bad)) == :preserve)
+
+    tag = Entity.orb_tag(@uuid, 7, 3, converted)
+    assert Entity.convert(tag) == {:orb, converted}
+  end
+
+  defp drop_nil({:compound, fields}),
+    do: {:compound, Map.reject(fields, fn {_, v} -> v == nil end)}
 end

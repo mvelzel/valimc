@@ -17,7 +17,7 @@ defmodule Valimc.World.Store do
   # Imported parts (VMC-021e): `block_entities` (`position => {type_id, nbt}`,
   # owner-loaded); `chunk_extras` (`chunk => nbt`, vanilla chunk data ValiMC does
   # not model) and `entities` (`chunk => nbt`, preserved vanilla entities) are kept
-  # for export only.
+  # for export only; `light` (`chunk => image`, VMC-021e5) is owner-loaded.
   @empty %{
     blocks: %{},
     columns: %{},
@@ -26,9 +26,10 @@ defmodule Valimc.World.Store do
     ticks: nil,
     block_entities: %{},
     chunk_extras: %{},
-    entities: %{}
+    entities: %{},
+    light: %{}
   }
-  @imported [:columns, :items, :containers, :block_entities, :chunk_extras, :entities]
+  @imported [:columns, :items, :containers, :block_entities, :chunk_extras, :entities, :light]
   def start_link({key, owner}),
     do:
       GenServer.start_link(__MODULE__, {key, owner},
@@ -106,6 +107,9 @@ defmodule Valimc.World.Store do
     end
   end
 
+  @doc "Imported chunks' stored light (`chunk => image`, VMC-021e5)."
+  def load_light(pid), do: GenServer.call(pid, :load_light)
+
   @doc "Preserved vanilla block entities (`position => {type_id, nbt}`, VMC-021e)."
   def load_block_entities(pid), do: GenServer.call(pid, :load_block_entities)
 
@@ -159,7 +163,8 @@ defmodule Valimc.World.Store do
              :containers,
              :block_entities,
              :chunk_extras,
-             :entities
+             :entities,
+             :light
            ] do
     dir = log_dir(base, key)
 
@@ -208,6 +213,8 @@ defmodule Valimc.World.Store do
 
   def handle_call(:load, _from, state), do: {:reply, state.values.blocks, state}
   def handle_call(:load_columns, _from, state), do: {:reply, state.values.columns, state}
+
+  def handle_call(:load_light, _from, state), do: {:reply, state.values.light, state}
 
   def handle_call(:load_block_entities, _from, state),
     do: {:reply, state.values.block_entities, state}

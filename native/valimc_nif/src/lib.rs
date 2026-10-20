@@ -500,6 +500,24 @@ fn column_image_of<'a>(env: Env<'a>, sections: Vec<SectionSpec>) -> Result<Term<
     Ok(binary(env, &column.to_image()))
 }
 
+/// Vanilla paletted storage of big-endian u16 `values` (export, VMC-021e3): the
+/// palette and the packed longs as a big-endian binary.
+#[rustler::nif]
+fn pack_paletted<'a>(env: Env<'a>, values: Binary<'a>, min_bits: u32) -> Result<Term<'a>, Atom> {
+    if !values.len().is_multiple_of(2) {
+        return Err(atoms::invalid_layers());
+    }
+    let values: Vec<u16> = values
+        .as_slice()
+        .chunks_exact(2)
+        .map(|b| u16::from_be_bytes([b[0], b[1]]))
+        .collect();
+    let (palette, longs) =
+        valimc_core::section::pack_vanilla(&values, min_bits).ok_or(atoms::invalid_layers())?;
+    let data: Vec<u8> = longs.iter().flat_map(|l| l.to_be_bytes()).collect();
+    Ok((palette, binary(env, &data)).encode(env))
+}
+
 /// A chunk's states and biomes as big-endian u16 binaries (section index order).
 #[rustler::nif]
 fn dump_column<'a>(

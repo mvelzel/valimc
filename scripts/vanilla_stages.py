@@ -43,6 +43,7 @@ STAGES = [
         ('java', 'AnvilContentOracle', 'generate', '@vanilla', '@content.json'),
         ('check', 'check_anvil_content.exs', '@content.json', '@imported'),
         ('java', 'AnvilContentOracle', 'verify', '@content.json', '@imported'),
+        ('java', 'AnvilContentOracle', 'export', '@content.json', '@imported/exported-world', '@server'),
     ]),
     ('block_registry', [
         ('java', 'BlockRegistryMetadata', '@block-registry.json'),

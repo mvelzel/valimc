@@ -42,6 +42,7 @@ defmodule Valimc.World.RegionData do
 
   defstruct [
     :block_entities,
+    :light,
     :key,
     :containers,
     :container_viewers,
@@ -120,6 +121,11 @@ defmodule Valimc.World.RegionData do
         {:error, reason} -> exit({:block_entity_load_failed, reason})
       end
 
+    light = Store.load_light(store)
+
+    unless Enum.all?(light, fn {_, image} -> Valimc.Anvil.Light.valid?(image) end),
+      do: exit({:light_load_failed, :invalid_light_image})
+
     {items, receipts, persistent} =
       case Store.load_items(store) do
         {:ok, %{records: records, receipts: receipts, ledger: ledger, persistent: persistent}} ->
@@ -156,6 +162,7 @@ defmodule Valimc.World.RegionData do
       item_receipts: receipts,
       containers: containers,
       block_entities: block_entities,
+      light: light,
       container_viewers: %ContainerViewers{},
       cooking_progress: %{},
       cooking: %CookingRuntime{enabled: Valimc.config(:cooking_simulation, key)},
@@ -2630,6 +2637,7 @@ defmodule Valimc.World.RegionData do
       encoded = Blocks.encode(state.blocks, key)
       entities = if encoded == :flat, do: %{}, else: Blocks.chunk_entities(state.blocks, key)
       preserved = preserved_entities(state, key)
+      light = state.light[key]
       sections_microseconds = System.monotonic_time(:microsecond) - started
       version = Map.get(state.versions, key, 0)
       threshold = Valimc.config(:compression_threshold)
@@ -2640,7 +2648,7 @@ defmodule Valimc.World.RegionData do
              packet =
                if encoded == :flat,
                  do: Chunk.encode(key, %{}),
-                 else: Chunk.packet(encoded, entities, preserved)
+                 else: Chunk.packet(encoded, entities, preserved, light)
 
              frame = Packets.frame(packet, threshold)
              Valimc.Metrics.add(:chunks_encoded)

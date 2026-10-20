@@ -68,6 +68,13 @@ defmodule Valimc.Protocol.Data do
   def registry_id(registry, entry),
     do: @registry_index[registry][entry] || raise("unknown registry entry")
 
+  @registry_names Map.new(@registries, fn {registry, entries} ->
+                    {registry, List.to_tuple(entries)}
+                  end)
+
+  @doc "The entry of a registry at a network id."
+  def registry_name(registry, id), do: elem(Map.fetch!(@registry_names, registry), id)
+
   @doc "The network id of a registry entry, or nil."
   def find_registry_id(registry, entry), do: @registry_index[registry][entry]
 

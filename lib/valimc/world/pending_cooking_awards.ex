@@ -18,6 +18,41 @@ defmodule Valimc.World.PendingCookingAwards do
   def max_bytes, do: @max_bytes
   def max_record_bytes, do: @max_record_bytes
 
+  # Imported vanilla XP orbs (VMC-021e4) are births of their own: one record per
+  # orb under this reserved source, holding the orb's UUID, value and count in
+  # place of recipe rows. No player has the nil UUID.
+  @import_source <<0::128>>
+  def import_source, do: @import_source
+
+  @doc """
+  Add an imported vanilla orb (`%{uuid, value, count}`) at `position` as the
+  `sequence`-th import record; `{:ok, awards, id}`.
+  """
+  def put_imported(awards, key, sequence, {x, y, z}, %{uuid: <<_::128>> = uuid} = orb)
+      when is_map(awards) and map_size(awards) < @max_awards do
+    digest = :crypto.hash(:sha256, ["VMCIMPORTORB", uuid])
+
+    record = %{
+      source: @import_source,
+      sequence: sequence,
+      digest: digest,
+      position: {x * 1.0, y * 1.0, z * 1.0},
+      award: %{orb: Map.take(orb, [:uuid, :value, :count])}
+    }
+
+    id = identity(key, @import_source, sequence, digest)
+    _bytes = record_bytes(record)
+    if Map.has_key?(awards, id), do: invalid(), else: {:ok, Map.put(awards, id, record), id}
+  rescue
+    _ -> invalid()
+  end
+
+  def put_imported(_, _, _, _, _), do: invalid()
+
+  @doc "The import source's receipt covering the last imported record (`sequence`, `digest`)."
+  def import_receipt(sequence, digest),
+    do: %{sequence: sequence, digest: ContainerTransfers.result_digest(digest, :applied)}
+
   @doc "Canonical immutable decision for owner transfers; this is not a player receipt."
   def encode_record(key, <<_::256>> = id, record) do
     ^id = identity(key, record.source, record.sequence, record.digest)
@@ -127,6 +162,25 @@ defmodule Valimc.World.PendingCookingAwards do
 
   defp record_bytes(
          %{
+           source: @import_source,
+           sequence: sequence,
+           digest: <<_::256>> = digest,
+           position: {x, y, z},
+           award: %{orb: %{uuid: <<_::128>> = uuid, value: value, count: count} = orb}
+         } = record
+       )
+       when map_size(record) == 5 and map_size(orb) == 3 and is_integer(sequence) and
+              sequence in 1..@max_sequence and is_float(x) and abs(x) <= 29_999_984 and
+              is_float(z) and abs(z) <= 29_999_984 and is_float(y) and abs(y) <= 1_000_000 and
+              is_integer(value) and value in 1..32_767 and is_integer(count) and
+              count in 1..2_147_483_647 do
+    # No recipe rows: the orb itself follows.
+    <<@import_source::binary, sequence::64, digest::binary, x::float-64, y::float-64, z::float-64,
+      0::32, 0, uuid::binary, value::32, count::32>>
+  end
+
+  defp record_bytes(
+         %{
            source: <<_::128>> = source,
            sequence: sequence,
            digest: <<_::256>> = digest,
@@ -178,6 +232,29 @@ defmodule Valimc.World.PendingCookingAwards do
 
     <<source::binary-size(16), sequence::64, digest::binary-size(32), x::float-64, y::float-64,
       z::float-64, total::32, recipe_count, rows::binary>> = bytes
+
+    if recipe_count == 0 do
+      @import_source = source
+      0 = total
+      <<uuid::binary-size(16), value::32, orbs::32>> = rows
+
+      record = %{
+        source: source,
+        sequence: sequence,
+        digest: digest,
+        position: {x, y, z},
+        award: %{orb: %{uuid: uuid, value: value, count: orbs}}
+      }
+
+      take(rest, count - 1, Map.put(awards, id, record))
+    else
+      header = {source, sequence, digest, {x, y, z}, total, recipe_count}
+      take_recipes(rest, count, awards, id, header, rows)
+    end
+  end
+
+  defp take_recipes(rest, count, awards, id, header, rows) do
+    {source, sequence, digest, {x, y, z}, total, recipe_count} = header
 
     true = recipe_count in 1..107 and byte_size(rows) == recipe_count * 14
 

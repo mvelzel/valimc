@@ -125,13 +125,34 @@ preserved_entities =
       entry <- entries,
       do: NbtCanon.digest({:compound, entry})
 
+# XP orbs become imported births with vanilla's UUID, value and count, and a
+# body at vanilla's position.
+orbs =
+  for key <- entity_regions,
+      bytes = Store.durable(imported, key, :containers),
+      bytes != nil,
+      {:ok, containers} = Containers.decode(bytes, key),
+      {id, births} <- Valimc.World.CookingOrbs.owned_records(containers),
+      {uuid, birth} <- births,
+      into: %{},
+      do: {Base.encode16(uuid, case: :lower), {birth, containers.orb_bodies.awards[id][uuid]}}
+
 {imported_items, expected_preserved} =
   Enum.reduce(facts["entities"], {0, []}, fn row, {items, rest} ->
-    case records[row["uuid"]] do
-      nil ->
+    case {records[row["uuid"]], orbs[row["uuid"]]} do
+      {nil, {birth, body}} ->
+        [x, y, z] = row["pos"]
+
+        unless birth.value == row["value"] and birth.count == row["count"] and
+                 body.position == {x, y, z},
+               do: raise("orb #{row["uuid"]}: #{inspect({birth, body})} differs from vanilla's")
+
+        {items, rest}
+
+      {nil, nil} ->
         {items, [row["stored"] | rest]}
 
-      record ->
+      {record, _} ->
         {:ok, stack} = ItemStack.decode(Base.decode16!(row["item"], case: :lower), :untrusted)
         [x, y, z] = row["pos"]
 
@@ -145,8 +166,11 @@ preserved_entities =
 unless Enum.sort(preserved_entities) == Enum.sort(expected_preserved),
   do: raise("preserved entities differ from vanilla's stored compounds")
 
-unless imported_items >= 4 and map_size(records) == imported_items,
-  do: raise("item coverage: #{imported_items} of #{map_size(records)}")
+unless imported_items >= 4 and map_size(records) == imported_items and map_size(orbs) >= 4,
+  do:
+    raise(
+      "item and orb coverage: #{imported_items} of #{map_size(records)}, #{map_size(orbs)} orbs"
+    )
 
 chunks =
   facts["block_entities"]
@@ -165,14 +189,22 @@ for {cx, cz} = chunk <- chunks do
     )
 
   encoded = Blocks.encode(region.blocks, chunk)
-  {_id, payload} = Chunk.packet(encoded, Blocks.chunk_entities(region.blocks, chunk), preserved)
+  light = Store.durable(imported, Valimc.World.region_key(chunk), :light)[chunk]
+
+  {_id, payload} =
+    Chunk.packet(encoded, Blocks.chunk_entities(region.blocks, chunk), preserved, light)
+
   File.write!(Path.join(out_dir, "chunk.#{cx}.#{cz}.bin"), payload)
 end
+
+# The imported world exports back to Anvil files for `AnvilContentOracle export`.
+{:ok, exported} = Valimc.Anvil.Export.run(imported, Path.join(out_dir, "exported-world"))
 
 IO.puts(
   "PASS: #{length(facts["block_entities"])} vanilla block entities import as vanilla loads them " <>
     "(#{counts.owned} owned containers with vanilla's stacks, #{counts.locked} locked and " <>
-    "#{counts.preserved} preserved compounds); #{imported_items} dropped items become item records " <>
-    "and #{length(expected_preserved)} other entities are preserved; chunk packets written for " <>
-    "#{length(chunks)} chunks"
+    "#{counts.preserved} preserved compounds); #{imported_items} dropped items become item records, " <>
+    "#{map_size(orbs)} XP orbs imported births and #{length(expected_preserved)} other entities " <>
+    "are preserved; chunk packets written for " <>
+    "#{length(chunks)} chunks; exported #{exported.chunks} chunks and #{exported.entities} entities"
 )

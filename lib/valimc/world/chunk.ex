@@ -70,16 +70,15 @@ defmodule Valimc.World.Chunk do
 
   @doc """
   A chunk packet from encoded sections/heightmaps; owned block entities come from
-  `edits`, imported ones from `preserved` (see `ChestBlockEntity.chunk_entries/3`).
+  `edits`, imported ones from `preserved` (see `ChestBlockEntity.chunk_entries/3`);
+  `light` is an imported chunk's stored light (`Valimc.Anvil.Light`), else full sky.
   """
   def packet(
         %{chunk: {cx, cz} = key, sections: data, surface: surface, motion: motion},
         edits,
-        preserved \\ []
+        preserved \\ [],
+        light \\ nil
       ) do
-    full_mask = (1 <<< 26) - 1
-    light = :binary.copy(<<255>>, 2048)
-
     Packets.packet("level_chunk_with_light", [
       <<cx::signed-32, cz::signed-32>>,
       <<2, 1>>,
@@ -91,10 +90,7 @@ defmodule Valimc.World.Chunk do
       Wire.varint(IO.iodata_length(data)),
       data,
       Valimc.Protocol.ChestBlockEntity.chunk_entries(key, edits, preserved),
-      <<4, full_mask::little-32, 0, 0, 4, full_mask::little-32>>,
-      <<26>>,
-      List.duplicate([Wire.varint(2048), light], 26),
-      <<0>>
+      Valimc.Anvil.Light.packet(light)
     ])
   end
 

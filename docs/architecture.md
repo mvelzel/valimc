@@ -73,7 +73,7 @@ over a pure `valimc_core` crate) owns dense data and CPU-heavy pure work:
 | World generation (M2) | The most CPU per chunk; pure; runs on dirty CPU schedulers behind a bounded pool |
 | Lighting (M2) | Breadth-first propagation over nibble arrays on the section resource |
 | Disk NBT reading (VMC-020) | 3.5–4× the Elixir reader on vanilla chunks; values are sub-binaries of the input |
-| Anvil import (VMC-021) | LZ4 chunk streams; packed palette indices into sections; compact column images for the region log |
+| Anvil import and export (VMC-021) | LZ4 chunk streams; packed palette indices into sections; compact column images for the region log; vanilla palette packing for export (5.7× the Elixir reference) |
 
 Kept in Elixir: packet and file compression (`:zlib`), AES-CFB8
 (`:crypto`/OpenSSL), network item/text NBT, NBT writing (zlib deflate costs more
@@ -95,7 +95,9 @@ pinned vanilla behavior. See [research](research.md).
 ## Durability and failure
 
 Region state lives in a per-region log of checksummed frames plus checkpoints, not
-Anvil (until M2); player snapshots are files group-committed through partitioned
+Anvil: vanilla worlds are imported into it and exported from it offline
+(`mix valimc.import`, `mix valimc.export`, VMC-021), and what ValiMC does not model
+yet is preserved for export. Player snapshots are files group-committed through partitioned
 player logs (`Valimc.PlayerLog`). Acknowledged writes survive a
 crash; volatile state (item motion, cooking progress, raw creative edits) is saved
 periodically and at clean shutdown, so a hard crash can lose its recent tail. Item transfers

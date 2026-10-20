@@ -30,6 +30,73 @@ defmodule Valimc.World.CookingOrbs do
 
   def split(_), do: {:error, :invalid_experience}
 
+  @doc """
+  Add imported vanilla XP orbs to a new region's containers (VMC-021e4, offline):
+  each orb (`%{uuid, position, velocity, age, value, count, on_ground,
+  no_gravity}`) becomes an import award, its birth and its body, as if
+  materialized and launched. Takes orbs while award capacity lasts; returns
+  `{:ok, containers, left_over}`.
+  """
+  def import_orbs(%Containers{} = cs, key, orbs) when is_list(orbs) do
+    capacity = @max_awards - map_size(cs.pending_awards)
+    {taken, left} = Enum.split(orbs, max(capacity, 0))
+
+    {awards, ledger, rows, _} =
+      Enum.reduce(taken, {cs.pending_awards, cs.cooking_orbs, cs.orb_bodies.awards, 0}, fn orb,
+                                                                                           {awards,
+                                                                                            ledger,
+                                                                                            rows,
+                                                                                            n} ->
+        {:ok, awards, id} =
+          Valimc.World.PendingCookingAwards.put_imported(awards, key, n + 1, orb.position, orb)
+
+        body = %{
+          revision: 1,
+          position: orb.position,
+          velocity: orb.velocity,
+          age: orb.age,
+          on_ground: orb.on_ground,
+          no_gravity: orb.no_gravity,
+          expired: 0
+        }
+
+        {awards, Map.put(ledger, id, records(id, awards[id])),
+         Map.put(rows, id, %{orb.uuid => body}), n + 1}
+      end)
+
+    case taken do
+      [] ->
+        {:ok, cs, left}
+
+      _ ->
+        source = Valimc.World.PendingCookingAwards.import_source()
+
+        last =
+          awards
+          |> Map.values()
+          |> Enum.filter(&(&1.source == source))
+          |> Enum.max_by(& &1.sequence)
+
+        next = %{
+          cs
+          | pending_awards: awards,
+            cooking_orbs: ledger,
+            receipts:
+              Map.put(
+                cs.receipts,
+                source,
+                Valimc.World.PendingCookingAwards.import_receipt(last.sequence, last.digest)
+              ),
+            orb_bodies: %{revision: max(cs.orb_bodies.revision, map_size(rows)), awards: rows}
+        }
+
+        case Containers.encode(key, next) do
+          {:ok, _} -> {:ok, next, left}
+          {:error, _} -> {:error, :invalid_imported_orbs}
+        end
+    end
+  end
+
   @doc "Pure successor; its owning region must durably commit it before publishing effects."
   def materialize(%Containers{} = containers, key, <<_::256>> = id) do
     with {:ok, _} <- Containers.encode(key, containers),
@@ -105,6 +172,10 @@ defmodule Valimc.World.CookingOrbs do
   def decode(_, _, _), do: invalid()
 
   @doc "Derive frozen creation records from a validated immutable award decision."
+  # An imported vanilla orb (VMC-021e4) is its own single record.
+  def records(_id, %{position: position, award: %{orb: %{uuid: uuid, value: value, count: count}}}),
+      do: %{uuid => %{position: position, value: value, count: count}}
+
   def records(id, %{position: position, award: %{recipes: recipes}}) do
     # The furnace awards each recipe separately. Splitting their sum would change
     # denominations (for example, XP 3 + 4 becomes 3,3,1, never one value-7 orb).

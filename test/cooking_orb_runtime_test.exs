@@ -155,6 +155,51 @@ defmodule Valimc.CookingOrbRuntimeTest do
     RegionData.terminate(:shutdown, refreshed)
   end
 
+  test "imported vanilla orbs publish at their bodies, keep their UUIDs and expire", ctx do
+    {x, y, z} = ctx.position
+
+    orbs =
+      for {value, n} <- Enum.with_index([7, 3, 17], 1) do
+        %{
+          uuid: <<n::128>>,
+          position: {x + n, y, z},
+          velocity: {0.0, 0.0, 0.0},
+          age: 100 * n,
+          value: value,
+          count: n,
+          on_ground: true,
+          no_gravity: false
+        }
+      end
+
+    {:ok, cs, []} = Valimc.World.CookingOrbs.import_orbs(%Containers{}, ctx.key, orbs)
+
+    {:ok, ^cs} =
+      Containers.encode(ctx.key, cs) |> then(fn {:ok, b} -> Containers.decode(b, ctx.key) end)
+
+    {:ok, writer, lease} = Store.open(ctx.key)
+    :ok = Store.flush_containers(writer, lease, cs)
+    :ok = Store.close(writer, lease)
+
+    state = RegionData.load(ctx.key) |> start() |> result()
+    views = published(state) |> Map.values()
+    assert length(views) == 3
+
+    assert Enum.sort(Enum.map(views, &{&1.at, &1.value, &1.count})) ==
+             Enum.sort(for o <- orbs, do: {o.position, o.value, o.count})
+
+    assert Valimc.World.CookingOrbConsumptions.births(state.containers)
+           |> Map.keys()
+           |> Enum.sort() ==
+             Enum.map(orbs, & &1.uuid)
+
+    expiring = RegionData.orb_lifetime(%{state | orb_age_ticks: 5999})
+    {:noreply, durable} = saved(expiring)
+    # Ages 100, 200 and 300 plus 6,000 ticks: every orb has expired.
+    assert CookingOrbBodies.project(durable.containers) |> Enum.all?(fn {_, r} -> r == %{} end)
+    RegionData.terminate(:shutdown, durable)
+  end
+
   test "rebase preserves concurrent slots, timers, receipts and new awards", ctx do
     state = seed(ctx) |> start()
     {x, _, z} = ctx.position

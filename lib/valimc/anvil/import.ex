@@ -14,8 +14,13 @@ defmodule Valimc.Anvil.Import do
 
   Entities (VMC-021e2, `Valimc.Anvil.Entity`): dropped items become item records
   in the region their position falls in (at most 256 per region, as owners
-  allow; vanilla skips a repeated UUID); every other entity is preserved per
-  chunk for export. Light, POI and the other dimensions are not imported.
+  allow; vanilla skips a repeated UUID), XP orbs become imported orb births
+  (VMC-021e4, 256 awards per region); every other entity is preserved per chunk
+  for export. Every other vanilla file except chunk storage (`level.dat`,
+  world and dimension data such as world generation settings, game rules,
+  weather and world border) is kept under `vanilla/` for export. Stored light
+  (VMC-021e5, `Valimc.Anvil.Light`) lights imported chunks as vanilla does; POI
+  and the other dimensions are not imported.
 
   Run with the server stopped, into a new or empty directory:
 
@@ -24,7 +29,17 @@ defmodule Valimc.Anvil.Import do
   """
   alias Valimc.Anvil.{BlockEntity, Chunk, Entity, RegionFile}
   alias Valimc.{NBT, Native}
-  alias Valimc.World.{BlockEntities, Blocks, Containers, ItemLedger, Schema, Spawn, Store}
+
+  alias Valimc.World.{
+    BlockEntities,
+    Blocks,
+    Containers,
+    CookingOrbs,
+    ItemLedger,
+    Schema,
+    Spawn,
+    Store
+  }
 
   @overworld "dimensions/minecraft/overworld/region"
   @entities "dimensions/minecraft/overworld/entities"
@@ -64,6 +79,7 @@ defmodule Valimc.Anvil.Import do
         [] ->
           {position, yaw} = spawn
           :ok = Spawn.write(destination, position, yaw)
+          :ok = keep_world_data(source, Path.join(destination, "vanilla"))
 
           {:ok,
            %{
@@ -177,7 +193,7 @@ defmodule Valimc.Anvil.Import do
   # Chunks and entities grouped by ValiMC region: an imported item belongs to
   # the region of its position, a preserved entity to that of its stored chunk.
   defp regions(chunks, entities) do
-    empty = %{chunks: [], items: [], preserved: []}
+    empty = %{chunks: [], items: [], orbs: [], preserved: []}
 
     groups =
       Enum.reduce(chunks, %{}, fn %{chunk: chunk} = entry, groups ->
@@ -192,6 +208,9 @@ defmodule Valimc.Anvil.Import do
           {:item, record} ->
             key = Valimc.World.region_key(Valimc.World.chunk_key(record.x, record.z))
             {key, :items, {chunk, tag, record}}
+
+          {:orb, %{position: {x, _, z}} = orb} ->
+            {Valimc.World.region_key(Valimc.World.chunk_key(x, z)), :orbs, {chunk, tag, orb}}
 
           :preserve ->
             {Valimc.World.region_key(chunk), :preserved, {chunk, tag}}
@@ -248,7 +267,8 @@ defmodule Valimc.Anvil.Import do
           chunk: chunk,
           image: image,
           block_entities: block_entity_tags(root["block_entities"]),
-          extras: extras(root)
+          extras: extras(root),
+          light: Valimc.Anvil.Light.image({:compound, root})
         }
 
         %{acc | chunks: [entry | acc.chunks]}
@@ -262,6 +282,24 @@ defmodule Valimc.Anvil.Import do
     do: %{acc | skipped: Map.update(acc.skipped, status, 1, &(&1 + 1))}
 
   defp add(acc, pos, {:error, reason}), do: %{acc | errors: [{pos, reason} | acc.errors]}
+
+  # World data ValiMC does not model, kept for export (VMC-021e3): everything but
+  # chunk storage (region, entities and POI files), the lock and backups.
+  defp keep_world_data(source, kept) do
+    source
+    |> Path.join("**")
+    |> Path.wildcard(match_dot: false)
+    |> Enum.filter(&File.regular?/1)
+    |> Enum.reject(fn path ->
+      Path.extname(path) in [".mca", ".mcc"] or
+        Path.basename(path) in ["session.lock", "level.dat_old"]
+    end)
+    |> Enum.each(fn path ->
+      target = Path.join(kept, Path.relative_to(path, source))
+      File.mkdir_p!(Path.dirname(target))
+      File.cp!(path, target)
+    end)
+  end
 
   defp block_entity_tags({:list, {:compound, entries}}), do: Enum.map(entries, &{:compound, &1})
   defp block_entity_tags(_), do: []
@@ -285,13 +323,15 @@ defmodule Valimc.Anvil.Import do
           place(key, chunk, blocks, tag, containers, preserved, counts)
       end
 
-    {records, counts, entities} = entities(group, counts)
+    {records, counts, extra} = entities(group, counts)
+    {containers, counts, entities} = orbs(key, containers, group.orbs, counts, extra)
 
     parts = %{
       columns: images,
       block_entities: preserved,
       chunk_extras: Map.new(chunks, &{&1.chunk, &1.extras}),
-      entities: entities
+      entities: entities,
+      light: for(%{light: light} = c <- chunks, light != nil, into: %{}, do: {c.chunk, light})
     }
 
     result =
@@ -301,6 +341,40 @@ defmodule Valimc.Anvil.Import do
            do: Store.import_region(destination, key, parts)
 
     {key, result, counts}
+  end
+
+  # XP orbs in stored order while the region's award capacity lasts; the rest are
+  # preserved with the other entities. A repeated UUID is skipped.
+  defp orbs(key, containers, orbs, counts, kept) do
+    {unique, _} =
+      orbs
+      |> Enum.reverse()
+      |> Enum.flat_map_reduce(MapSet.new(), fn {_, _, orb} = entry, seen ->
+        if MapSet.member?(seen, orb.uuid),
+          do: {[], seen},
+          else: {[entry], MapSet.put(seen, orb.uuid)}
+      end)
+
+    {:ok, containers, left} =
+      CookingOrbs.import_orbs(containers, key, Enum.map(unique, &elem(&1, 2)))
+
+    imported = length(unique) - length(left)
+    {_, rest} = Enum.split(unique, imported)
+
+    entities =
+      Enum.reduce(rest, kept, fn {chunk, tag, _}, acc ->
+        Map.update(acc, chunk, [tag], &(&1 ++ [tag]))
+      end)
+      |> Map.new(fn {chunk, tags} ->
+        {chunk, IO.iodata_to_binary(NBT.write({:compound, %{"Entities" => NBT.list(tags)}}))}
+      end)
+
+    counts =
+      counts
+      |> Map.update(:orbs, imported, &(&1 + imported))
+      |> Map.update(:entities_preserved, length(rest), &(&1 + length(rest)))
+
+    {containers, counts, entities}
   end
 
   # Items in stored order up to the owner's bound; a repeated UUID is skipped as
@@ -319,12 +393,7 @@ defmodule Valimc.Anvil.Import do
 
     kept = Enum.reverse(preserved) ++ Enum.reverse(extra)
 
-    stored =
-      kept
-      |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-      |> Map.new(fn {chunk, tags} ->
-        {chunk, IO.iodata_to_binary(NBT.write({:compound, %{"Entities" => NBT.list(tags)}}))}
-      end)
+    stored = Enum.group_by(kept, &elem(&1, 0), &elem(&1, 1))
 
     counts =
       counts
@@ -341,8 +410,9 @@ defmodule Valimc.Anvil.Import do
          do: {:ok, Map.put(parts, :items, bytes)}
   end
 
-  defp container_part(_key, %Containers{entries: entries}, parts) when map_size(entries) == 0,
-    do: {:ok, parts}
+  defp container_part(_key, %Containers{} = containers, parts)
+       when containers == %Containers{},
+       do: {:ok, parts}
 
   defp container_part(key, containers, parts) do
     with {:ok, bytes} <- Containers.encode(key, containers),
