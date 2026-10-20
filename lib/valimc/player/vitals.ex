@@ -130,7 +130,7 @@ defmodule Valimc.Player.Vitals do
     if before.health.value != health.value do
       packet = Packets.player_health(state.player)
       send_packets(state, [packet])
-      Valimc.Connection.broadcast_player_packet(state, packet)
+      Valimc.Player.Movement.broadcast_player_packet(state, packet)
     end
 
     if effect.damage > 0 do
@@ -177,37 +177,39 @@ defmodule Valimc.Player.Vitals do
             %{state | player: player}
           else
             %{state | player: player, inventory: inventory}
-            |> Valimc.Connection.resync_inventory()
-            |> Valimc.Connection.publish_equipment()
+            |> Valimc.Player.CreativeInventory.resync_inventory()
+            |> Valimc.Player.ItemUse.publish_equipment()
           end
 
         for {slot, _stack} <- broken do
           packet = Packets.armor_break(player.entity_id, slot)
           send_packets(state, [packet])
-          Valimc.Connection.broadcast_player_packet(state, packet)
+          Valimc.Player.Movement.broadcast_player_packet(state, packet)
         end
 
         state =
           if health.value <= 0 do
             state =
               state
-              |> Valimc.Connection.cancel_pose_job()
-              |> Valimc.Connection.cancel_motion_job()
-              |> Valimc.Connection.stop_item_use()
-              |> Valimc.Connection.cancel_mining()
+              |> Valimc.Player.Movement.cancel_pose_job()
+              |> Valimc.Player.Movement.cancel_motion_job()
+              |> Valimc.Player.ItemUse.stop_item_use()
+              |> Valimc.Player.Mining.cancel_mining()
 
             dead_state(state)
           else
             state
           end
 
-        state = if health.value <= 0, do: Valimc.Connection.begin_table_close(state), else: state
+        state =
+          if health.value <= 0, do: Valimc.Player.Menus.begin_table_close(state), else: state
+
         Players.update(self(), state.player)
 
         if selected.notify do
           packet = Packets.damage_event(state.player.entity_id, source)
           send_packets(state, [packet])
-          Valimc.Connection.broadcast_player_packet(state, packet)
+          Valimc.Player.Movement.broadcast_player_packet(state, packet)
         end
 
         send_packets(state, [
@@ -215,7 +217,7 @@ defmodule Valimc.Player.Vitals do
           Packets.player_health(state.player)
         ])
 
-        state = Valimc.Connection.publish_absorption(state)
+        state = Valimc.Player.Movement.publish_absorption(state)
         state = if health.value <= 0, do: death_notice(state, true, source), else: state
         send(self(), :drain)
         {if(health.value <= 0, do: :dead, else: :hurt), continue_life(state)}
@@ -250,7 +252,7 @@ defmodule Valimc.Player.Vitals do
       Packets.death_animation(state.player.entity_id)
     ])
 
-    Valimc.Connection.broadcast_player_packet(
+    Valimc.Player.Movement.broadcast_player_packet(
       state,
       Packets.death_animation(state.player.entity_id)
     )
@@ -287,7 +289,7 @@ defmodule Valimc.Player.Vitals do
       ref = make_ref()
 
       recovery = %{
-        Valimc.Connection.new_recovery(:death, :prepare, nil)
+        Valimc.Player.Transfers.new_recovery(:death, :prepare, nil)
         | ref: ref,
           plan: %{key: key, records: records, inventory: after_snapshot.inventory}
       }
@@ -384,10 +386,10 @@ defmodule Valimc.Player.Vitals do
 
     state =
       state
-      |> Valimc.Connection.publish_movement_speed()
-      |> Valimc.Connection.publish_absorption()
-      |> Valimc.Connection.publish_jump_boost()
-      |> Valimc.Connection.relocate(player)
+      |> Valimc.Player.Movement.publish_movement_speed()
+      |> Valimc.Player.Movement.publish_absorption()
+      |> Valimc.Player.Movement.publish_jump_boost()
+      |> Valimc.Player.Movement.relocate(player)
 
     for pid <- Players.nearby(state.regions),
         pid != self(),
@@ -426,7 +428,7 @@ defmodule Valimc.Player.Vitals do
 
   def tick_effects(%{life_stage: :alive, player: %{effects: effects}} = state)
       when map_size(effects) > 0 do
-    before_level = Valimc.Connection.absorption_level(effects)
+    before_level = Valimc.Player.Movement.absorption_level(effects)
     depleted = Map.has_key?(effects, @absorption) and state.player.absorption == 0
     effects = if depleted, do: Map.delete(effects, @absorption), else: effects
     {:ok, after_effects, events} = PlayerEffects.tick(effects)
@@ -470,7 +472,7 @@ defmodule Valimc.Player.Vitals do
     # clamps it to the final maximum without starting another dose.
     player =
       if next.life_stage == :alive and
-           before_level != Valimc.Connection.absorption_level(next.player.effects),
+           before_level != Valimc.Player.Movement.absorption_level(next.player.effects),
          do: PlayerAbsorption.reconcile(next.player),
          else: next.player
 
@@ -485,9 +487,9 @@ defmodule Valimc.Player.Vitals do
     send_packets(next, packets)
 
     next
-    |> Valimc.Connection.publish_movement_speed()
-    |> Valimc.Connection.publish_absorption()
-    |> Valimc.Connection.publish_jump_boost()
+    |> Valimc.Player.Movement.publish_movement_speed()
+    |> Valimc.Player.Movement.publish_absorption()
+    |> Valimc.Player.Movement.publish_jump_boost()
   end
 
   def tick_effects(state), do: state
@@ -524,7 +526,7 @@ defmodule Valimc.Player.Vitals do
       Players.update(self(), player)
       packet = Packets.player_health(player)
       send_packets(state, [Packets.health(health, player.food), packet])
-      Valimc.Connection.broadcast_player_packet(state, packet)
+      Valimc.Player.Movement.broadcast_player_packet(state, packet)
     end
   end
 
@@ -689,14 +691,14 @@ defmodule Valimc.Player.Vitals do
     if air != previous do
       packet = Packets.player_air(player)
       send_packets(state, [packet])
-      Valimc.Connection.broadcast_player_packet(state, packet)
+      Valimc.Player.Movement.broadcast_player_packet(state, packet)
       Players.update(self(), player)
     end
 
     if damage > 0 do
       bubbles = Packets.drowning_bubbles(player.entity_id)
       send_packets(state, [bubbles])
-      Valimc.Connection.broadcast_player_packet(state, bubbles)
+      Valimc.Player.Movement.broadcast_player_packet(state, bubbles)
       {:ok, selected} = PlayerHealth.hurt_window(player.health, damage)
       {_, state} = apply_damage(state, selected, :drown, state.environment_effects)
       state
