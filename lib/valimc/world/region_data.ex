@@ -3025,7 +3025,7 @@ defmodule Valimc.World.RegionData do
 
   def handle_info(
         {:DOWN, ref, :process, worker, _},
-        %{cooking_orbs: %{delivery: %{worker: worker, monitor: ref}}} = state
+        %{cooking_orbs: %{delivery: %{pid: worker, monitor: ref}}} = state
       ),
       do: CookingOrbDelivery.down(state)
 

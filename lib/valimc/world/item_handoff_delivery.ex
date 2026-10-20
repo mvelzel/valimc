@@ -4,16 +4,18 @@ defmodule Valimc.World.ItemHandoffDelivery do
   alias Valimc.World.{ItemHandoffs, ItemMergeTransfer, Region}
 
   def start(owner, epoch, token, key, ledger) do
-    case Task.Supervisor.start_child(Valimc.TransferWorkers, fn ->
-           Process.link(owner)
-           result = deliver(key, ledger)
-           send(owner, {:resource, epoch, {:item_handoff_delivered, self(), token, result}})
-         end) do
-      {:ok, worker} -> {:ok, worker, Process.monitor(worker)}
+    case Valimc.Txn.Delivery.start(
+           owner,
+           fn worker, token, result ->
+             {:resource, epoch, {:item_handoff_delivered, worker, token, result}}
+           end,
+           fn -> deliver(key, ledger) end,
+           token: token,
+           link: true
+         ) do
+      {:ok, job} -> {:ok, job.pid, job.monitor}
       {:error, _} -> {:error, :item_handoff_workers_busy}
     end
-  catch
-    :exit, _ -> {:error, :item_handoff_workers_busy}
   end
 
   defp deliver(key, %{outgoing: %{kind: :merge, request: request}}) do

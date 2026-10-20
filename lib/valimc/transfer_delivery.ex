@@ -4,38 +4,18 @@ defmodule Valimc.TransferDelivery do
   alias Valimc.World.Region
 
   def start(owner, token, uuid, intent) do
-    case Task.Supervisor.start_child(Valimc.TransferWorkers, fn ->
-           result = deliver(uuid, intent)
-           send(owner, {:transfer_delivered, self(), token, result})
-         end) do
-      {:ok, worker} -> {:ok, %{pid: worker, monitor: Process.monitor(worker), token: token}}
-      {:error, :max_children} -> {:error, :transfer_workers_busy}
-      {:error, _} -> {:error, :region_restarting}
+    case Valimc.Txn.Delivery.start(
+           owner,
+           fn worker, token, result -> {:transfer_delivered, worker, token, result} end,
+           fn -> deliver(uuid, intent) end,
+           token: token
+         ) do
+      {:ok, job} -> {:ok, job}
+      {:error, :transfer_workers_busy} = error -> error
     end
-  catch
-    :exit, _ -> {:error, :region_restarting}
   end
 
-  def retryable?({:error, reason}),
-    do:
-      reason in [
-        :transfer_workers_busy,
-        :item_workers_busy,
-        :item_storage_busy,
-        :mining_storage_busy,
-        :region_restarting,
-        :stale_region,
-        :item_commit_uncertain,
-        :container_commit_uncertain,
-        :max_children,
-        :item_count_limit,
-        :item_byte_limit,
-        :transfer_source_limit,
-        :transfer_destination_unavailable,
-        :transfer_not_applied
-      ]
-
-  def retryable?(_), do: false
+  defdelegate retryable?(result), to: Valimc.Txn.Delivery
 
   def completed?(%{outbox: %{kind: kind}}, result)
       when kind in [:mining, :placement, :pickup, :container],

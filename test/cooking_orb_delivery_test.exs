@@ -353,7 +353,7 @@ defmodule Valimc.CookingOrbDeliveryTest do
       assert source.item_pending == nil and source.cooking_orbs.delivery != nil
       assert source.containers.orb_transfers.outgoing[id] == :pending
       assert source.cooking_orbs.views == %{}
-      worker = source.cooking_orbs.delivery.worker
+      worker = source.cooking_orbs.delivery.pid
       Process.exit(ap, :kill)
       wait(fn -> not Process.alive?(ap) and not Process.alive?(worker) end)
       :sys.resume(writer)
@@ -465,7 +465,7 @@ defmodule Valimc.CookingOrbDeliveryTest.Serial do
       assert {:noreply, ^expired} =
                CookingOrbDelivery.returned(
                  expired,
-                 job.worker,
+                 job.pid,
                  job.token,
                  {:ok, job.id, <<0::256>>}
                )

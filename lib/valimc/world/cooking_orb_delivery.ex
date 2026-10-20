@@ -1,5 +1,6 @@
 defmodule Valimc.World.CookingOrbDelivery do
   @moduledoc "One bounded remote spawn delivery per owner; durable intent survives any uncertain attempt."
+  alias Valimc.Txn.Delivery
   alias Valimc.World
   alias Valimc.World.{CookingOrbTransfers, Region}
 
@@ -33,33 +34,25 @@ defmodule Valimc.World.CookingOrbDelivery do
   end
 
   defp start(state, id, now) do
-    owner = self()
     epoch = state.items.epoch
-    token = make_ref()
     cs = state.containers
     key = state.key
 
-    case Task.Supervisor.start_child(Valimc.TransferWorkers, fn ->
-           Process.link(owner)
-           result = deliver(cs, key, id)
-           send(owner, {:resource, epoch, {:cooking_orb_delivered, self(), token, result}})
-         end) do
-      {:ok, worker} ->
-        job = %{
-          worker: worker,
-          token: token,
-          monitor: Process.monitor(worker),
-          id: id,
-          award: cs.pending_awards[id],
-          timer:
-            Process.send_after(
-              owner,
-              {:resource, epoch, {:cooking_orb_delivery_deadline, token}},
-              8000
-            )
-        }
-
-        put_in(state.cooking_orbs.delivery, job)
+    case Delivery.start(
+           self(),
+           fn worker, token, result ->
+             {:resource, epoch, {:cooking_orb_delivered, worker, token, result}}
+           end,
+           fn -> deliver(cs, key, id) end,
+           link: true,
+           deadline: 8000,
+           deadline_message: &{:resource, epoch, {:cooking_orb_delivery_deadline, &1}}
+         ) do
+      {:ok, job} ->
+        put_in(
+          state.cooking_orbs.delivery,
+          Map.merge(job, %{id: id, award: cs.pending_awards[id]})
+        )
 
       {:error, _} ->
         retry(state, id, now + 100)
@@ -80,8 +73,8 @@ defmodule Valimc.World.CookingOrbDelivery do
 
   def returned(state, worker, token, result) do
     case state.cooking_orbs.delivery do
-      %{worker: ^worker, token: ^token} = job ->
-        clear(job)
+      %{pid: ^worker, token: ^token} = job ->
+        Delivery.finish(job)
         state = put_in(state.cooking_orbs.delivery, nil)
 
         case result do
@@ -105,8 +98,7 @@ defmodule Valimc.World.CookingOrbDelivery do
   def expired(state, token) do
     case state.cooking_orbs.delivery do
       %{token: ^token} = job ->
-        clear(job)
-        Process.exit(job.worker, :kill)
+        Delivery.abort(job)
 
         state = put_in(state.cooking_orbs.delivery, nil)
         {:noreply, retry(state, job.id, now() + 1000)}
@@ -118,16 +110,13 @@ defmodule Valimc.World.CookingOrbDelivery do
 
   def down(state) do
     job = state.cooking_orbs.delivery
-    clear(job)
+    Delivery.finish(job)
     state = put_in(state.cooking_orbs.delivery, nil)
     {:noreply, retry(state, job.id, now() + 1000)}
   end
 
   def terminate(runtime) do
-    if runtime.delivery do
-      clear(runtime.delivery)
-      Process.exit(runtime.delivery.worker, :kill)
-    end
+    if runtime.delivery, do: Delivery.abort(runtime.delivery)
   end
 
   defp retry(state, id, at),
@@ -140,11 +129,6 @@ defmodule Valimc.World.CookingOrbDelivery do
             delivery_seen: nil
         }
     }
-
-  defp clear(job) do
-    Process.cancel_timer(job.timer)
-    Process.demonitor(job.monitor, [:flush])
-  end
 
   defp now, do: System.monotonic_time(:millisecond)
 end
