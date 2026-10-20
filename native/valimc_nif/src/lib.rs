@@ -446,23 +446,15 @@ fn lz4_decode_stream_dirty<'a>(
 /// One section as imported: block palette, packed data, bits; biome palette, data, bits.
 type SectionSpec<'a> = (Vec<u16>, Binary<'a>, u32, Vec<u16>, Binary<'a>, u32);
 
-/// Replace a chunk's column with 24 imported sections (bottom to top).
-#[rustler::nif]
-fn put_column(
-    region: ResourceArc<Region>,
-    cx: i32,
-    cz: i32,
-    sections: Vec<SectionSpec>,
-) -> Result<Atom, Atom> {
+fn imported_column(sections: &[SectionSpec]) -> Result<valimc_core::column::Column, Atom> {
     use valimc_core::column::{Column, SECTIONS};
     use valimc_core::section::Biomes;
-    let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
     if sections.len() != SECTIONS {
         return Err(atoms::invalid_y());
     }
     let mut storages = Vec::with_capacity(SECTIONS);
     let mut biomes = Vec::with_capacity(SECTIONS);
-    for (palette, data, bits, biome_palette, biome_data, biome_bits) in &sections {
+    for (palette, data, bits, biome_palette, biome_data, biome_bits) in sections {
         storages.push(
             Storage::from_palette(palette, data.as_slice(), *bits).ok_or(atoms::invalid_layers())?,
         );
@@ -471,14 +463,41 @@ fn put_column(
                 .ok_or(atoms::invalid_layers())?,
         );
     }
-    let column = Column {
+    Ok(Column {
         sections: storages,
         biomes: Some(biomes),
-    };
+    })
+}
+
+/// Replace a chunk's column with 24 imported sections (bottom to top).
+#[rustler::nif]
+fn put_column(
+    region: ResourceArc<Region>,
+    cx: i32,
+    cz: i32,
+    sections: Vec<SectionSpec>,
+) -> Result<Atom, Atom> {
+    let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
+    let column = imported_column(&sections)?;
     with_store(&region, |store| {
         store.put_column((cx, cz), column, flags).map_err(error)
     })?;
     Ok(atoms::ok())
+}
+
+/// The column image of 24 imported sections, without a region (imports).
+#[rustler::nif]
+fn column_image_of<'a>(env: Env<'a>, sections: Vec<SectionSpec>) -> Result<Term<'a>, Atom> {
+    let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
+    let column = imported_column(&sections)?;
+    let mut valid = true;
+    for storage in &column.sections {
+        storage.for_each(|_, state| valid &= flags.valid(state as u32));
+    }
+    if !valid {
+        return Err(atoms::invalid_state());
+    }
+    Ok(binary(env, &column.to_image()))
 }
 
 /// A chunk's states and biomes as big-endian u16 binaries (section index order).

@@ -63,7 +63,41 @@ end
     end
   end)
 
+# The whole import path: Valimc.Anvil.Import writes region logs, which load back
+# (as an owner loads them) to the same sections.
+world =
+  facts["chunks"] |> hd() |> Map.fetch!("path") |> Path.join("../../../../..") |> Path.expand()
+
+imported = Path.join(out_dir, "imported-world")
+{:ok, report} = Valimc.Anvil.Import.run(world, imported)
+
+unless report.chunks == counts.full and report.error_count == 0,
+  do: raise("import report differs: #{inspect(report)}")
+
+loaded =
+  for %{"sections" => expected, "x" => x, "z" => z} <- facts["chunks"], reduce: %{} do
+    loaded ->
+      chunk = {x, z}
+      key = Valimc.World.region_key(chunk)
+
+      loaded =
+        Map.put_new_lazy(loaded, key, fn ->
+          images = Valimc.World.Store.durable(imported, key, :columns)
+          {:ok, blocks} = Blocks.new(key, %{}, images)
+          blocks
+        end)
+
+      {:ok, states, biomes} = Blocks.dump_column(loaded[key], chunk)
+
+      for {digest_expected, s} <- Enum.with_index(expected),
+          digest.(states, biomes, s) != digest_expected,
+          do: raise("imported chunk #{inspect(chunk)} section #{s - 4} differs after reloading")
+
+      loaded
+  end
+
 IO.puts(
   "PASS: #{counts.full} full vanilla chunks import with vanilla's blocks and biomes in every section; " <>
-    "#{counts.skipped} chunks of other statuses are skipped as vanilla's status says"
+    "#{counts.skipped} chunks of other statuses are skipped as vanilla's status says; " <>
+    "Valimc.Anvil.Import wrote #{map_size(loaded)} region logs that reload to the same sections"
 )

@@ -104,11 +104,21 @@ impl Column {
                     out.push(0);
                     out.extend(state.to_be_bytes());
                 }
-                _ => {
-                    let mut cells = [0u16; VOLUME];
-                    storage.for_each(|i, state| cells[i] = state);
-                    image_palette(&mut out, &cells);
+                // An indexed section already has a palette and indices: pack them as
+                // they are (unused palette entries cost two bytes each).
+                Storage::Indexed { palette, cells } => {
+                    out.push(1);
+                    out.extend((palette.len() as u16).to_be_bytes());
+                    for state in palette {
+                        out.extend(state.to_be_bytes());
+                    }
+                    wire::pack_longs(
+                        &mut out,
+                        cells.iter().map(|c| *c as u64),
+                        palette_bits(palette.len()),
+                    );
                 }
+                Storage::Dense(cells) => image_palette(&mut out, &cells[..]),
             }
         }
         for biomes in self.biomes.iter().flatten() {
@@ -177,8 +187,12 @@ fn image_palette(out: &mut Vec<u8>, cells: &[u16]) {
     for state in &palette {
         out.extend(state.to_be_bytes());
     }
-    let bits = (u16::BITS - (palette.len() as u16).saturating_sub(1).leading_zeros()).max(1);
-    wire::pack_longs(out, slots.into_iter(), bits);
+    wire::pack_longs(out, slots.into_iter(), palette_bits(palette.len()));
+}
+
+/// Image index width for a palette of `n` entries: `max(1, ⌈log2 n⌉)`.
+fn palette_bits(n: usize) -> u32 {
+    (usize::BITS - n.saturating_sub(1).leading_zeros()).max(1)
 }
 
 fn take<const N: usize>(input: &mut &[u8]) -> Option<[u8; N]> {
@@ -198,7 +212,7 @@ fn read_palette<'a>(input: &mut &'a [u8], count: usize) -> Option<(Vec<u16>, &'a
             for _ in 0..n {
                 palette.push(u16::from_be_bytes(take::<2>(input)?));
             }
-            let bits = (usize::BITS - n.saturating_sub(1).leading_zeros()).max(1);
+            let bits = palette_bits(n);
             let len = count.div_ceil((64 / bits) as usize) * 8;
             let (data, rest) = input.split_at_checked(len)?;
             *input = rest;

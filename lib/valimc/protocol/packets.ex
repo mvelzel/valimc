@@ -195,8 +195,8 @@ defmodule Valimc.Protocol.Packets do
   def spawn_position do
     packet("set_default_spawn_position", [
       Wire.string("minecraft:overworld"),
-      Wire.position({0, 64, 0}),
-      <<0.0::float-32, 0.0::float-32>>
+      Wire.position(Valimc.World.Spawn.position()),
+      <<Valimc.World.Spawn.yaw()::float-32, 0.0::float-32>>
     ])
   end
 

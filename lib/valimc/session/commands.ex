@@ -46,7 +46,11 @@ defmodule Valimc.Session.Commands do
 
   def execute_command(state, :spawn) do
     if state.life_stage == :alive,
-      do: Movement.relocate(state, %{state.player | x: 0.5, y: 64.0, z: 0.5}),
+      do:
+        Movement.relocate(
+          state,
+          Map.merge(state.player, Map.take(Valimc.World.Spawn.pose(), [:x, :y, :z]))
+        ),
       else: state
   end
 

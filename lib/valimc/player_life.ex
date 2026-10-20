@@ -28,12 +28,14 @@ defmodule Valimc.PlayerLife do
   end
 
   def respawn(player) do
+    spawn = Valimc.World.Spawn.pose()
+
     %{
       player
-      | x: 0.5,
-        y: 64.0,
-        z: 0.5,
-        yaw: 0.0,
+      | x: spawn.x,
+        y: spawn.y,
+        z: spawn.z,
+        yaw: spawn.yaw,
         pitch: 0.0,
         health: %PlayerHealth{maximum: player.health.maximum, value: player.health.maximum},
         abilities: GameMode.abilities(player.game_mode, false),

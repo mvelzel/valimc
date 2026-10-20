@@ -26,6 +26,7 @@ defmodule Valimc.Native do
   def put_column(_region, _cx, _cz, _sections), do: :erlang.nif_error(:nif_not_loaded)
   def dump_column(_region, _cx, _cz, _default_biome), do: :erlang.nif_error(:nif_not_loaded)
   def column_image(_region, _cx, _cz), do: :erlang.nif_error(:nif_not_loaded)
+  def column_image_of(_sections), do: :erlang.nif_error(:nif_not_loaded)
   def put_column_image(_region, _cx, _cz, _image), do: :erlang.nif_error(:nif_not_loaded)
   def chunk_find(_region, _cx, _cz, _states), do: :erlang.nif_error(:nif_not_loaded)
   def diff(_region), do: :erlang.nif_error(:nif_not_loaded)

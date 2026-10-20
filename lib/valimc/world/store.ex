@@ -122,7 +122,7 @@ defmodule Valimc.World.Store do
   The durable value of `part` (`:blocks` edit map, `:items` or `:containers` bytes)
   as recovery would see it, without opening the log for writing. For tests/tools.
   """
-  def durable(base, key, part) when part in [:blocks, :items, :containers] do
+  def durable(base, key, part) when part in [:blocks, :columns, :items, :containers] do
     dir = log_dir(base, key)
 
     values =
@@ -134,7 +134,7 @@ defmodule Valimc.World.Store do
         values
       end
 
-    Map.fetch!(values, part)
+    Map.fetch!(Map.merge(@empty, values), part)
   end
 
   @impl true
