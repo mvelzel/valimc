@@ -270,7 +270,10 @@ defmodule Valimc.Connection do
        chunks: MapSet.new(),
        regions: MapSet.new(),
        pending: [],
-       batch_pending: false,
+       # Vanilla refills the quota in the tick a player joins (VMC-070).
+       chunk_sender: Valimc.Session.ChunkSender.tick(%Valimc.Session.ChunkSender{}),
+       # Vanilla's default until the client sends its settings (VMC-070).
+       requested_view_distance: 2,
        peers: %{},
        player_flags_view: 0,
        equipment_source: nil,
@@ -307,7 +310,7 @@ defmodule Valimc.Connection do
        teleport: 1,
        teleport_pending: true,
        login_velocity_pending: false,
-       center: nil,
+       view: nil,
        active: false
      }}
   end

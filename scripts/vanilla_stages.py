@@ -39,6 +39,10 @@ STAGES = [
         ('check', 'check_chunk_sections.exs', '@chunks.json', '@encoded'),
         ('java', 'ChunkOracle', 'verify', '@chunks.json', '@encoded'),
     ]),
+    ('chunk_view', [
+        ('java', 'ChunkViewOracle', '@chunk-view.json'),
+        ('check', 'check_chunk_view.exs', '@chunk-view.json'),
+    ]),
     ('anvil_content', [
         ('java', 'AnvilContentOracle', 'generate', '@vanilla', '@content.json'),
         ('check', 'check_anvil_content.exs', '@content.json', '@imported'),

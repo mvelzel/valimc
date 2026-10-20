@@ -142,14 +142,12 @@ defmodule Valimc.Protocol.Packets do
   end
 
   def login(player) do
-    d = Valimc.config(:view_distance)
-
     packet("login", [
       <<player.entity_id::signed-32, 0, 1>>,
       Wire.string("minecraft:overworld"),
       Wire.varint(Valimc.config(:max_players)),
-      Wire.varint(d),
-      Wire.varint(d),
+      Wire.varint(Valimc.Session.ChunkView.server_distance()),
+      Wire.varint(Valimc.config(:simulation_distance)),
       <<0, 1, 0>>,
       spawn_info(player, Map.get(player, :last_death)),
       <<0, 0>>

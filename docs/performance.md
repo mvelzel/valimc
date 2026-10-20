@@ -40,7 +40,7 @@ worker-admission/host-load finding remains open; no stable 512 capacity is estab
 
 The samples below use this macOS ARM64 host with **10 BEAM schedulers**, Elixir 1.20.4 and OTP 29.1.1. These are short development measurements, not production capacity limits or cross-server comparisons.
 
-A separate Python process opens real loopback TCP connections, completes compressed Minecraft 26.3 login/configuration, loads nine flat spawn chunks, acknowledges batches and keepalives, and sends 100 movement packets per client. Both runs use view distance **1**; normal development configuration uses **3**, requiring 49 spawn chunks per client.
+A separate Python process opens real loopback TCP connections, completes compressed Minecraft 26.3 login/configuration, loads its flat spawn chunks, acknowledges batches and keepalives, and sends 100 movement packets per client. Both runs used view distance **1** (nine chunks); since VMC-070 the vanilla minimum is **2** (49 chunks), which the loader now uses, and the default server view distance **10** sends up to 473 chunks per client.
 
 | Scenario | Connected clients | Disconnects | Movement packets sent | Measured movement interval | Login p95 | Final BEAM memory |
 |---|---:|---:|---:|---:|---:|---:|

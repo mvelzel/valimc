@@ -41,6 +41,33 @@ defmodule Valimc.World do
     GenServer.call(pid, {:chunk, key}, 15_000)
   end
 
+  @doc """
+  The packets of the chunks in `keys` that are ready to send, as `[{key, frame}]`
+  in `keys` order (VMC-070). Their owners are asked at once, so encodes overlap. A
+  chunk whose region is still loading, cannot be admitted or dies meanwhile is
+  left out (its load starts), as vanilla sends only loaded chunks.
+  """
+  def ready_chunks(keys) do
+    deadline = System.monotonic_time(:millisecond) + 15_000
+
+    keys
+    |> Enum.flat_map(fn key ->
+      with {:ok, pid} <- region(region_key(key)),
+           {^pid, _, %{}} <- Directory.lookup(region_key(key)) do
+        [{key, :gen_server.send_request(pid, {:chunk, key})}]
+      else
+        _ -> []
+      end
+    end)
+    |> Enum.flat_map(fn {key, request} ->
+      case :gen_server.receive_response(request, {:abs, deadline}) do
+        {:reply, frame} -> [{key, frame}]
+        {:error, _} -> []
+        :timeout -> exit({:timeout, {__MODULE__, :ready_chunks, [key]}})
+      end
+    end)
+  end
+
   def get_block({x, _, z} = position) do
     {:ok, pid} = region(region_key(chunk_key(x, z)))
     GenServer.call(pid, {:get_block, position})

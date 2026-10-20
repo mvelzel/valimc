@@ -51,7 +51,8 @@ defmodule Valimc.InitialStreamConnectionTest do
     state = :sys.get_state(owner)
     {client, names} = drain(client)
     refute Enum.any?(names, &(&1 in @chunks))
-    assert state.teleport_pending and state.pending != [] and not state.batch_pending
+    assert state.teleport_pending and state.pending != [] and
+             state.chunk_sender.unacknowledged == 0
     assert state.chunks == MapSet.new()
 
     packets = state.packets
@@ -72,7 +73,7 @@ defmodule Valimc.InitialStreamConnectionTest do
     client = Client.load_world(client)
     state = :sys.get_state(owner)
     refute state.teleport_pending
-    assert MapSet.size(state.chunks) >= 9
+    assert MapSet.size(state.chunks) >= 49
     Client.close(client)
   end
 end

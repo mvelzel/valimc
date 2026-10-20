@@ -3,6 +3,7 @@ defmodule Valimc.Net.Serverbound do
 
   alias Valimc.Protocol.{
     ClientCommand,
+    ClientInformation,
     ClientTick,
     Data,
     Encryption,
@@ -10,7 +11,7 @@ defmodule Valimc.Net.Serverbound do
     Wire
   }
 
-  alias Valimc.Session.Commands
+  alias Valimc.Session.{ChunkSender, Commands, Replication}
   alias Valimc.Net.LoginFlow
   alias Valimc.Player.Placement
   alias Valimc.Player.Menus
@@ -139,7 +140,10 @@ defmodule Valimc.Net.Serverbound do
       {"finish_configuration", :finish} when payload == <<>> ->
         LoginFlow.enter_world(state)
 
-      {name, _} when name in ["client_information", "custom_payload"] ->
+      {"client_information", _} ->
+        client_information(state, payload)
+
+      {"custom_payload", _} ->
         state
 
       _ ->
@@ -240,10 +244,10 @@ defmodule Valimc.Net.Serverbound do
         %{state | client_tick: ClientTick.finish(state.client_tick), player: player}
 
       "chunk_batch_received" ->
-        <<desired::float-32>> = payload
-        if desired <= 0, do: reject(state, "Invalid chunk batch feedback")
-        send(self(), :send_chunks)
-        %{state | batch_pending: false}
+        %{state | chunk_sender: ChunkSender.acknowledged(state.chunk_sender, payload)}
+
+      "client_information" ->
+        state |> client_information(payload) |> Replication.update_view()
 
       "player_abilities" ->
         {:ok, abilities} = PlayerAbilities.request_flight(state.player.abilities, payload)
@@ -370,6 +374,15 @@ defmodule Valimc.Net.Serverbound do
   end
 
   def handle_packet(state, _, _), do: reject(state, "Unexpected protocol state")
+
+  # The view distance the client asks for, in configuration and whenever it changes
+  # in play (VMC-070); vanilla's tracking clamps it to the server's.
+  defp client_information(state, payload) do
+    case ClientInformation.decode(payload) do
+      {:ok, information} -> %{state | requested_view_distance: information.view_distance}
+      {:error, _} -> reject(state, "Invalid client information")
+    end
+  end
 
   defp run_command(state, command) do
     # Vanilla `isChatMessageIllegal`: section signs, control characters and DEL.

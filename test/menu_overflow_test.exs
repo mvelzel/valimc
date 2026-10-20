@@ -161,9 +161,10 @@ defmodule Valimc.MenuOverflowTest do
 
   defp close_menu(client), do: Client.send_packet(client, :play, "container_close", <<99>>)
 
+  # 252 fixture items alone send more packets than `await`'s default budget.
   defp barrier(client) do
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, client} = Client.await(client, :play, "system_chat")
+    {_, client} = Client.await(client, :play, "system_chat", 5000)
     client
   end
 

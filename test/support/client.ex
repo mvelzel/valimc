@@ -123,8 +123,9 @@ defmodule Valimc.TestClient do
     ])
   end
 
+  # The fastest rate vanilla accepts keeps test streams short (VMC-070).
   def auto_reply(client, :play, "chunk_batch_finished", _),
-    do: send_packet(client, :play, "chunk_batch_received", <<8.0::float-32>>)
+    do: send_packet(client, :play, "chunk_batch_received", <<64.0::float-32>>)
 
   def auto_reply(client, :play, "keep_alive", body),
     do: send_packet(client, :play, "keep_alive", body)
@@ -295,7 +296,8 @@ defmodule Valimc.TestClient do
     {uuid, client}
   end
 
-  def load_world(client, expected \\ 9, count \\ 0)
+  # View distance 2, the vanilla minimum the test server allows: 7×7 chunks.
+  def load_world(client, expected \\ 49, count \\ 0)
   def load_world(client, expected, expected), do: client
 
   def load_world(client, expected, count) do

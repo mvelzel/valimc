@@ -64,6 +64,17 @@ if seed = System.get_env("VALIMC_SEED") do
   end
 end
 
+for {variable, key} <- [
+      {"VALIMC_VIEW_DISTANCE", :view_distance},
+      {"VALIMC_SIMULATION_DISTANCE", :simulation_distance}
+    ],
+    distance = System.get_env(variable) do
+  case Integer.parse(distance) do
+    {value, ""} when value in 2..32 -> config :valimc, [{key, value}]
+    _ -> raise "#{variable} must be an integer in 2..32"
+  end
+end
+
 if speed = System.get_env("VALIMC_RANDOM_TICK_SPEED") do
   case Integer.parse(speed) do
     {value, ""} when value in 0..4096 -> config :valimc, random_tick_speed: value

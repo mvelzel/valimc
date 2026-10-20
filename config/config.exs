@@ -7,7 +7,11 @@ config :valimc,
   max_connections: 2048,
   max_players: 512,
   max_regions: 1024,
-  view_distance: 3,
+  # server.properties `view-distance` (2..32): clients track the distance they
+  # request, at least 2 and at most this (VMC-070). `simulation-distance` is what
+  # clients are told; regions still simulate every loaded chunk.
+  view_distance: 10,
+  simulation_distance: 10,
   region_size: 8,
   item_simulation: true,
   cooking_simulation: true,

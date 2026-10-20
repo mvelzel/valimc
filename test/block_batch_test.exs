@@ -96,7 +96,8 @@ defmodule Valimc.BlockBatchTest do
     on_exit(fn -> Client.close(client) end)
     client = Client.load_world(client)
     {:ok, owner} = World.owner({0, 0})
-    changes = %{{0, 64, 2} => 1, {1, 65, 2} => 2, {16, 64, 2} => 3, {32, 64, 2} => 4}
+    # Chunk 4 lies outside the minimum view distance 2 (VMC-070).
+    changes = %{{0, 64, 2} => 1, {1, 65, 2} => 2, {16, 64, 2} => 3, {64, 64, 2} => 4}
     {:ok, before} = Region.observe_blocks(owner, Map.keys(changes))
 
     on_exit(fn ->

@@ -43,6 +43,13 @@ defmodule Valimc.Session.Messages do
   alias Valimc.World.TickClock
 
   alias Valimc.World.{ChestLidReplication, EntityReplication, WeatherReplication}
+
+  # Vanilla tracking ranges, in chunks, of the entity kinds regions own (VMC-070).
+  @tracking_ranges %{
+    item: Valimc.Protocol.EntityTypes.tracking_range("item"),
+    orb: Valimc.Protocol.EntityTypes.tracking_range("experience_orb")
+  }
+  @entity_range @tracking_ranges |> Map.values() |> Enum.max()
   @resistance EffectTypes.id("resistance")
 
   defguardp inventory_busy(state)
@@ -728,6 +735,7 @@ defmodule Valimc.Session.Messages do
           )
           |> Movement.start_motion()
           |> Movement.sample_pose()
+          |> Replication.chunk_tick()
 
         state =
           if state.player_flags_view != Packets.shared_flags(state.player) do
@@ -757,8 +765,21 @@ defmodule Valimc.Session.Messages do
               }
           end)
 
-        # One tracker for every entity kind; unchanged chunks are not re-read.
-        {desired, cache} = World.visible_entities(state.regions, state.chunks, state.entity_cache)
+        # One tracker for every entity kind; unchanged chunks are not re-read. Only
+        # entities within vanilla's tracking range of their type are seen.
+        {desired, cache} =
+          World.visible_entities(
+            state.regions,
+            Replication.entity_chunks(state, @entity_range),
+            state.entity_cache
+          )
+
+        desired =
+          for {_, %{kind: kind, at: {x, _, z}}} = entry <- desired,
+              Replication.sees?(state, {x, z}, @tracking_ranges[kind]),
+              into: %{},
+              do: entry
+
         state = %{state | entity_cache: cache}
 
         state =

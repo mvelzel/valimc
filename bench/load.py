@@ -95,7 +95,7 @@ class Client:
                 elif name=='chunk_batch_finished': await self.send('play','chunk_batch_received',struct.pack('>f',8))
                 elif name=='level_chunk_with_light':
                     self.chunks+=1
-                    if self.chunks>=9: self.loaded.set()
+                    if self.chunks>=49: self.loaded.set()
                 elif name=='keep_alive': await self.send('play','keep_alive',body)
                 elif name=='disconnect': raise RuntimeError('Server disconnected client')
         except (asyncio.IncompleteReadError,ConnectionError,RuntimeError) as error:
@@ -154,7 +154,7 @@ async def benchmark(port,metrics,args):
         result={'measured_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 'platform':platform.platform(),'implementation_sha256':fingerprint_after,
                 'stable_implementation':fingerprint_before==fingerprint_after,
-                'elixir':'1.20.4','erlang_otp':'29.1.1','minecraft':'26.3','view_distance':1,
+                'elixir':'1.20.4','erlang_otp':'29.1.1','minecraft':'26.3','view_distance':2,
                 'scenario':'spread' if args.scatter else 'dense','clients':len(clients),
                 'fluid_swimming':args.fluid,
                 'disconnected':sum(c.error is not None for c in clients),'movement_packets_sent':moves,
@@ -169,7 +169,7 @@ async def benchmark(port,metrics,args):
                 'login_p50_ms':round(latencies[len(latencies)//2],2),
                 'login_p95_ms':round(latencies[min(len(latencies)-1,int(len(latencies)*.95))],2),
                 'server_before':before,'server_loaded':loaded,'server_after':after,
-                'scope':'Separate Python loopback TCP clients, nine chunks each, authoritative creative movement/pose and geometry, final accepted-position verification. Spread players use saved spawn fixtures. No survival/AI/redstone workload.'}
+                'scope':'Separate Python loopback TCP clients, 49 chunks each (view distance 2), authoritative creative movement/pose and geometry, final accepted-position verification. Spread players use saved spawn fixtures. No survival/AI/redstone workload.'}
         if args.fluid:
             result['scope']+=' Static 3x3x3 source-water pools, loaded forward/sprint intent and every final swimming flag/pose verified. Horizontal positions are scripted; no client prediction, propagation, oxygen/damage or survival capacity claim.'
         print(json.dumps(result,indent=2))

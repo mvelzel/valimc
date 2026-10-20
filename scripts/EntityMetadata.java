@@ -30,8 +30,12 @@ public class EntityMetadata {
     SharedConstants.tryDetectVersion();
     Bootstrap.bootStrap();
     var types = new TreeMap<String,Integer>();
-    for (var type : BuiltInRegistries.ENTITY_TYPE)
-      types.put(BuiltInRegistries.ENTITY_TYPE.getKey(type).toString(), BuiltInRegistries.ENTITY_TYPE.getId(type));
+    var trackingRanges = new TreeMap<String,Integer>();
+    for (var type : BuiltInRegistries.ENTITY_TYPE) {
+      var name = BuiltInRegistries.ENTITY_TYPE.getKey(type).toString();
+      types.put(name, BuiltInRegistries.ENTITY_TYPE.getId(type));
+      trackingRanges.put(name, type.clientTrackingRange());
+    }
     var serializers = new TreeMap<String,Integer>();
     for (var field : EntityDataSerializers.class.getFields())
       if (Modifier.isStatic(field.getModifiers()) && EntityDataSerializer.class.isAssignableFrom(field.getType()))
@@ -51,6 +55,7 @@ public class EntityMetadata {
     facts.put("version", "26.3"); facts.put("protocol", 777);
     facts.put("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
     facts.put("types", types); facts.put("serializers", serializers); facts.put("fields", fields);
+    facts.put("tracking_ranges", trackingRanges);
     Files.writeString(Path.of(args[0]), new GsonBuilder().setPrettyPrinting().create().toJson(facts) + "\n");
   }
 }
