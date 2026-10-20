@@ -184,6 +184,8 @@ defmodule Valimc.Session.Events do
     state
   end
 
+  def event(%{phase: :play} = state, {:kick, reason}), do: Valimc.Net.Codec.reject(state, reason)
+
   def event(%{phase: :play} = state, {:packet, packet}) do
     send_packets(state, [packet])
     state

@@ -9,12 +9,17 @@ defmodule Valimc.Commands do
   `Valimc.Command.Source`; it returns `{result, state}` or throws a command
   syntax error (`Valimc.Command.Error`).
   """
-  alias Valimc.Command.{Arguments, Dispatcher, Error, Feedback, Source, Tree}
-  alias Valimc.Commands.{Chat, Players, Preview, World}
+  require Logger
+  alias Valimc.Command.{Arguments, Dispatcher, Error, Feedback, Source, Text, Tree}
+  alias Valimc.Commands.{Admin, Chat, Players, Preview, World}
 
   @handlers %{
     ["help"] => {Chat, :help},
     ["help", "command"] => {Chat, :help_command},
+    ["version"] => {Admin, :version},
+    ["kick", "targets"] => {Admin, :kick},
+    ["kick", "targets", "reason"] => {Admin, :kick},
+    ["stop"] => {Admin, :stop},
     ["time", "set", "time"] => {World, :time_set},
     ["time", "set", "timemarker"] => {World, :time_set_marker},
     ["time", "add", "time"] => {World, :time_add},
@@ -181,6 +186,24 @@ defmodule Valimc.Commands do
   defp run(source, module, function, arguments) do
     {_result, state} = apply(module, function, [arguments, source])
     state
+  rescue
+    exception ->
+      # Vanilla's `command.failed`, with the exception on hover; the session lives on.
+      Logger.error("Command failed: " <> Exception.format(:error, exception, __STACKTRACE__))
+
+      hover =
+        {:compound,
+         %{
+           "action" => {:string, "show_text"},
+           "value" => Text.literal(Exception.message(exception))
+         }}
+
+      Feedback.failure(
+        source,
+        Text.translatable("command.failed") |> Text.style([{"hover_event", hover}])
+      )
+
+      source.state
   catch
     {:command_syntax, %Error{} = error} ->
       Feedback.failure(source, error.message)

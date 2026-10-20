@@ -173,6 +173,13 @@ defmodule Valimc.Connection do
       try do
         {reply, next} = Valimc.Player.CommandOps.apply(state, op)
         {:reply, {:ok, reply}, next}
+      rescue
+        exception ->
+          Logger.error(
+            "Command operation failed: " <> Exception.format(:error, exception, __STACKTRACE__)
+          )
+
+          {:reply, {:error, :failed}, state}
       catch
         {:disconnect, _, current} -> {:stop, :normal, {:error, :disconnected}, current}
         {:command_syntax, error} -> {:reply, {:error, error}, state}

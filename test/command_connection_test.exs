@@ -164,4 +164,25 @@ defmodule Valimc.CommandConnectionTest do
     {body, _b} = Client.await(b, :play, "disguised_chat")
     assert :binary.match(body, "psst") != :nomatch
   end
+
+  test "version lines and kicking another player" do
+    first = name("Admin")
+    second = name("Kicked")
+    {_, a} = Client.login(first)
+    on_exit(fn -> Client.close(a) end)
+    {_, b} = Client.login(second)
+    on_exit(fn -> Client.close(b) end)
+    a = Client.load_world(a)
+    b = Client.load_world(b)
+
+    a = command(a, "version", "commands.version.header")
+    {lines, a} = Enum.map_reduce(1..9, a, fn _, a -> Client.await(a, :play, "system_chat") end)
+    assert :binary.match(hd(lines), "commands.version.id") != :nomatch
+    assert :binary.match(List.last(lines), "commands.version.stable.yes") != :nomatch
+
+    a = command(a, "kick #{second} bye", "commands.kick.success")
+    {body, _b} = Client.await(b, :play, "disconnect")
+    assert :binary.match(body, "bye") != :nomatch
+    _ = a
+  end
 end

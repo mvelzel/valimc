@@ -170,6 +170,17 @@ public class CommandTreeOracle {
       });
     });
     out.add("timelines", timelines);
+    var info = new JsonObject();
+    info.addProperty("id", version.id());
+    info.addProperty("name", version.name());
+    info.addProperty("data", version.dataVersion().version());
+    info.addProperty("series", version.dataVersion().series());
+    info.addProperty("protocol", version.protocolVersion());
+    info.addProperty("build_time_ms", version.buildTime().getTime());
+    info.addProperty("resource_pack", version.packVersion(net.minecraft.server.packs.PackType.CLIENT_RESOURCES).toString());
+    info.addProperty("data_pack", version.packVersion(net.minecraft.server.packs.PackType.SERVER_DATA).toString());
+    info.addProperty("stable", version.stable());
+    out.add("server_version", info);
     out.add("time_markers", markers);
     return out;
   }

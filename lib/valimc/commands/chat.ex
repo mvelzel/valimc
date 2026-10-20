@@ -139,8 +139,8 @@ defmodule Valimc.Commands.Chat do
     ])
   end
 
-  # `MessageArgument.Message.toComponent`: selectors become the names they match.
-  defp resolve(source, {:message, text, parts}) do
+  @doc "`MessageArgument.Message.toComponent`: selectors become the names they match."
+  def resolve(source, {:message, text, parts}) do
     if parts != [] and source.level >= 2 do
       reader = Reader.new(text)
       [{first, _, _} | _] = parts
