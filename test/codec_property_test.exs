@@ -3,7 +3,8 @@ defmodule Valimc.CodecPropertyTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
   @moduletag timeout: 300_000
-  alias Valimc.Protocol.{ItemStack, NBT, Wire}
+  alias Valimc.Protocol.{ItemStack, Wire}
+  alias Valimc.NBT
 
   property "VarInts round-trip across the signed and unsigned 32-bit range" do
     check all(n <- integer(-2_147_483_648..4_294_967_295)) do

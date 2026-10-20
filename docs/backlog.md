@@ -84,7 +84,7 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 
 | ID | Slice | Acceptance gate |
 |---|---|---|
-| VMC-020 | NBT and versioned world schemas | Bounded corrupt/malicious input; golden vanilla round trips |
+| [VMC-020](tickets/VMC-020.md) | NBT and versioned world schemas | Bounded corrupt/malicious input; golden vanilla round trips |
 | VMC-021 | Anvil chunk/entity/region storage | Import/export, sector reuse, negative coordinates, crash-safe writes |
 | VMC-022 | Heightmaps and light propagation | Skylight/block light, emissive/opaque edits and chunk-boundary parity |
 | VMC-023 | Biome/noise sampling and seed RNG | Same seed/settings/arithmetic match vanilla sample fixtures |

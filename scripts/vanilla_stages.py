@@ -25,6 +25,11 @@ STAGES = [
         ('java', 'VersionMetadata', '@version.json'),
         ('same', '@version.json', 'priv/version.json'),
     ]),
+    ('world_nbt', [
+        ('java', 'WorldNbtOracle', 'generate', '@vanilla', '@world-nbt.json'),
+        ('check', 'check_world_nbt.exs', '@world-nbt.json', '@reencoded'),
+        ('java', 'WorldNbtOracle', 'verify', '@world-nbt.json', '@reencoded'),
+    ]),
     ('block_registry', [
         ('java', 'BlockRegistryMetadata', '@block-registry.json'),
         ('same', '@block-registry.json', 'priv/registry/blocks.json'),

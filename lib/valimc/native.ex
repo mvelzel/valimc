@@ -12,6 +12,8 @@ defmodule Valimc.Native do
     mode: :release
 
   def flags_init(_flags), do: :erlang.nif_error(:nif_not_loaded)
+  def nbt_read(_bytes, _byte_limit, _nodes, _depth), do: :erlang.nif_error(:nif_not_loaded)
+  def nbt_read_dirty(_bytes, _byte_limit, _nodes, _depth), do: :erlang.nif_error(:nif_not_loaded)
   def region_new(_cx, _cz, _size, _layers, _budget), do: :erlang.nif_error(:nif_not_loaded)
   def get_blocks(_region, _positions), do: :erlang.nif_error(:nif_not_loaded)
   def set_blocks(_region, _changes), do: :erlang.nif_error(:nif_not_loaded)

@@ -1,7 +1,8 @@
 defmodule Valimc.Protocol.TextComponentTest do
   use ExUnit.Case, async: true
   alias Valimc.{Inventory, PlayerSnapshot, PlayerTransfers}
-  alias Valimc.Protocol.{ItemStack, ItemTypes, NBT, TextComponent, Wire}
+  alias Valimc.Protocol.{ItemStack, ItemTypes, TextComponent, Wire}
+  alias Valimc.NBT
   alias Valimc.World.{ItemRecords, ItemTransfers}
 
   defp literal(value), do: {:compound, %{"text" => {:string, value}}}

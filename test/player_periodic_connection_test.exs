@@ -217,7 +217,7 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
     {_entity, message} = Wire.take_varint(body)
 
     assert {:ok, {:compound, %{"translate" => {:string, "death.attack.wither"}}}, <<>>} =
-             Valimc.Protocol.NBT.take(message)
+             Valimc.NBT.take(message)
 
     assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 0.0 and saved.effects[id] == [{39, 0, false, true, true}]

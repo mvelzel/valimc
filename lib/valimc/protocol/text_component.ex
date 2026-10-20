@@ -1,7 +1,8 @@
 defmodule Valimc.Protocol.TextComponent do
   @moduledoc "Bounded vanilla text semantics, separate from the retained network NBT."
   import Bitwise
-  alias Valimc.Protocol.{NBT, Wire}
+  alias Valimc.Protocol.{Wire}
+  alias Valimc.NBT
 
   @booleans ~w(bold italic underlined strikethrough obfuscated)
   @colors Map.new(

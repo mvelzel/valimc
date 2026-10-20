@@ -22,7 +22,7 @@ defmodule Valimc.PlayerDeathMessage do
             {:compound,
              %{
                "translate" => {:string, "death.attack.indirectMagic.item"},
-               "with" => Valimc.Protocol.NBT.list([{:string, name}, {:string, name}, display])
+               "with" => Valimc.NBT.list([{:string, name}, {:string, name}, display])
              }}
         }
     end

@@ -71,7 +71,7 @@ defmodule Valimc.Protocol.Packets do
     packet("open_screen", [
       Wire.varint(container),
       Wire.varint(type),
-      Valimc.Protocol.NBT.encode({:compound, %{"translate" => {:string, title}}})
+      Valimc.NBT.encode({:compound, %{"translate" => {:string, title}}})
     ])
   end
 

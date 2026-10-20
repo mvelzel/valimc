@@ -1,5 +1,6 @@
 alias Valimc.PlayerDeathMessage
-alias Valimc.Protocol.{ItemData, ItemStack, NBT, Packets, Wire}
+alias Valimc.Protocol.{ItemData, ItemStack, Packets, Wire}
+alias Valimc.NBT
 [input, output] = System.argv()
 rows = input |> File.read!() |> JSON.decode!()
 

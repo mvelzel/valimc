@@ -2,7 +2,8 @@ defmodule Valimc.TextInventoryConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
   alias Valimc.TestClient, as: Client
-  alias Valimc.Protocol.{ItemStack, ItemTypes, NBT, TextComponent, Wire}
+  alias Valimc.Protocol.{ItemStack, ItemTypes, TextComponent, Wire}
+  alias Valimc.NBT
 
   test "normal creative packets accept named/lore stacks and restore unsupported text without publication" do
     username = "Text" <> Integer.to_string(System.unique_integer([:positive]))

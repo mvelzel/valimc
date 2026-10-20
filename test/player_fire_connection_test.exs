@@ -476,7 +476,7 @@ defmodule Valimc.PlayerFireConnectionTest do
     {_entity, message} = Wire.take_varint(body)
 
     assert {:ok, {:compound, %{"translate" => {:string, "death.attack.cactus"}}}, <<>>} =
-             Valimc.Protocol.NBT.take(message)
+             Valimc.NBT.take(message)
 
     {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 0.0 and saved.fire_ticks == -1

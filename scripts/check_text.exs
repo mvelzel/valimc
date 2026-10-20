@@ -1,4 +1,5 @@
-alias Valimc.Protocol.{ItemStack, NBT, TextComponent}
+alias Valimc.Protocol.{ItemStack, TextComponent}
+alias Valimc.NBT
 [path, output] = System.argv()
 facts = :json.decode(File.read!(path))
 

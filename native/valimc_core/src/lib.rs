@@ -3,6 +3,7 @@
 
 pub mod column;
 pub mod flags;
+pub mod nbt;
 pub mod section;
 pub mod wire;
 

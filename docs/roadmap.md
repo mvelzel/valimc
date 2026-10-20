@@ -28,9 +28,13 @@ resumes on these foundations alongside M2.
 | [VMC-068](tickets/VMC-068.md) | Unified generated block/item registry, block behaviours, protocol constants | Done |
 | [VMC-069](tickets/VMC-069.md) | Connection hot path (slim peers, frame once, counters), then split | Done |
 
-## M2 — Real worlds (next)
+## M2 — Real worlds (in progress)
 
-Anvil import/export (Rust, VMC-020/021), lighting (Rust, VMC-022), clean-room
+| Ticket | Slice | Status |
+|---|---|---|
+| [VMC-020](tickets/VMC-020.md) | One bounded NBT codec (native disk reads), world schemas, golden vanilla world | Foundation |
+
+Anvil import/export (Rust, VMC-021), lighting (Rust, VMC-022), clean-room
 vanilla worldgen in Rust (noise, biomes, surface, carvers, then features and
 structures; VMC-023..026) with stage-hash parity against vanilla dumps, dimensions
 and portals (VMC-027/028). Performance target: generation throughput and tick time

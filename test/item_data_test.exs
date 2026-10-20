@@ -1,7 +1,8 @@
 defmodule Valimc.Protocol.ItemDataTest do
   use ExUnit.Case, async: true
   alias Valimc.PlayerDeathMessage
-  alias Valimc.Protocol.{ItemData, ItemStack, NBT, Packets, ServerText, TextComponent}
+  alias Valimc.Protocol.{ItemData, ItemStack, Packets, ServerText, TextComponent}
+  alias Valimc.NBT
 
   test "composed hover exceeds input budgets without widening client text admission" do
     stack = %{

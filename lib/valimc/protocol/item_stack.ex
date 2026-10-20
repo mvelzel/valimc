@@ -4,12 +4,13 @@ defmodule Valimc.Protocol.ItemStack do
     Enchantments,
     FoodProperties,
     ItemTypes,
-    NBT,
     PotionContents,
     TextComponent,
     TooltipDisplay,
     Wire
   }
+
+  alias Valimc.NBT
 
   defstruct [:item_id, count: 1, components: %{}, removed: MapSet.new()]
 

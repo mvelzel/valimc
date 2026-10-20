@@ -39,8 +39,8 @@ defmodule Valimc.Protocol.ItemTypes do
                         Valimc.Protocol.TextComponent.lore_key(lines)
 
                       "minecraft:custom_data" ->
-                        {:ok, tag} = Valimc.Protocol.NBT.decode(bytes)
-                        Valimc.Protocol.NBT.identity_key(tag)
+                        {:ok, tag} = Valimc.NBT.decode(bytes)
+                        Valimc.NBT.identity_key(tag)
 
                       "minecraft:tooltip_display" ->
                         {value, <<>>} = Valimc.Protocol.TooltipDisplay.take(bytes)

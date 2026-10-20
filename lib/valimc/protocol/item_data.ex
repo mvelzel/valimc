@@ -5,10 +5,11 @@ defmodule Valimc.Protocol.ItemData do
     Enchantments,
     ItemStack,
     ItemTypes,
-    NBT,
     TextComponent,
     Wire
   }
+
+  alias Valimc.NBT
 
   @colors ["white", "yellow", "aqua", "light_purple"]
   @transient ~w(minecraft:additional_trade_cost minecraft:creative_slot_lock minecraft:map_post_processing)

@@ -816,7 +816,7 @@ defmodule Valimc.PlayerUseConnectionTest do
                %{
                  "translate" => {:string, "death.attack.indirectMagic"},
                  "with" => {:list, {:string, names}}
-               }}, <<>>} = Valimc.Protocol.NBT.take(message)
+               }}, <<>>} = Valimc.NBT.take(message)
 
       assert names == [ctx.name, ctx.name]
       assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
@@ -864,7 +864,7 @@ defmodule Valimc.PlayerUseConnectionTest do
       wait(fn -> state(pid).life_stage == :dead end)
       {body, _client} = Client.await(client, :play, "player_combat_kill")
       {_entity, body} = Wire.take_varint(body)
-      assert {:ok, tag, <<>>} = Valimc.Protocol.NBT.take(body)
+      assert {:ok, tag, <<>>} = Valimc.NBT.take(body)
 
       assert %Valimc.Protocol.ServerText{tag: ^tag} =
                Valimc.PlayerDeathMessage.component(ctx.name, {:self_magic, named})

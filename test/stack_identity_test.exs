@@ -1,7 +1,8 @@
 defmodule Valimc.StackIdentityTest do
   use ExUnit.Case, async: true
   alias Valimc.{Inventory, PlayerSnapshot, PlayerTransfers}
-  alias Valimc.Protocol.{ItemStack, ItemTypes, NBT}
+  alias Valimc.Protocol.{ItemStack, ItemTypes}
+  alias Valimc.NBT
   alias Valimc.World.{ItemRecords, Items, ItemTransfers}
 
   defp redundant(count) do
