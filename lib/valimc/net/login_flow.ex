@@ -302,7 +302,7 @@ defmodule Valimc.Net.LoginFlow do
 
     state =
       Enum.reduce(existing, state, fn player, acc ->
-        Valimc.Connection.event(acc, {:player_joined, player})
+        Valimc.Session.Events.event(acc, {:player_joined, player})
       end)
 
     clock = TickClock.new(make_ref(), System.monotonic_time(:millisecond))
