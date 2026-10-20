@@ -13,7 +13,7 @@ for row <- rows do
   }
 
   {:ok, items} = Items.restore({0, 0}, [record])
-  {_, expired} = Items.age(items, row["minimum"])
+  {_, expired} = Items.age(items, 1, row["minimum"])
 
   unless expired != [] == row["removed"] and
            (not row["removed"] or row["reason"] == "DISCARDED"),

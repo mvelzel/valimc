@@ -15,7 +15,7 @@ machinery, owner-mailbox block reads and a 5,800-line connection process. M1
 replaced them (October 2026); see [architecture](architecture.md). Gameplay work
 resumes on these foundations alongside M2.
 
-## M1 — Foundations
+## M1 — Foundations (complete)
 
 | Ticket | Slice | Status |
 |---|---|---|
@@ -23,13 +23,10 @@ resumes on these foundations alongside M2.
 | [VMC-063](tickets/VMC-063.md) | Region log with group commit; no tick pauses | Done |
 | [VMC-064](tickets/VMC-064.md) | One owner-transaction engine and section fencing | Done |
 | [VMC-065](tickets/VMC-065.md) | Published section snapshots for lock-free collision/observation reads | Done |
-| [VMC-066](tickets/VMC-066.md) | Tick pipeline on game time: steppable clock, scheduled and random ticks | Awaiting client |
+| [VMC-066](tickets/VMC-066.md) | Tick pipeline on game time: steppable clock, scheduled and random ticks | Done |
 | [VMC-067](tickets/VMC-067.md) | Generic entity model; items and XP orbs migrate onto it | Done |
 | [VMC-068](tickets/VMC-068.md) | Unified generated block/item registry, block behaviours, protocol constants | Done |
 | [VMC-069](tickets/VMC-069.md) | Connection hot path (slim peers, frame once, counters), then split | Done |
-
-VMC-066's first block behaviours (coral dying away from water, budding amethyst
-growing buds) await the client run.
 
 ## M2 — Real worlds (next)
 
@@ -61,7 +58,8 @@ experience exist ([VMC-034f](tickets/VMC-034f.md)).
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Server CLONE/type-2 fill from a creative container menu (VMC-032) |
 
 The M1 milestone client run passed on `127934a` (see [VMC-069](tickets/VMC-069.md)),
-with the item despawn fix checked on `6243c8c` ([VMC-067](tickets/VMC-067.md)).
+with the item despawn fix checked on `6243c8c` ([VMC-067](tickets/VMC-067.md)) and
+block ticks, survival XP orbs and flight stop on `fdca2df` ([VMC-066](tickets/VMC-066.md)).
 
 ## Retrieve and update
 

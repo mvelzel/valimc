@@ -185,4 +185,5 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-064](../tickets/VMC-064.md) | `782d86c`; shared permits, receipts, delivery and source operations for every transfer kind; per-section fences |
 | [VMC-068](../tickets/VMC-068.md) | `127934a`; one version module, generated block registry, class-dispatched block behaviours |
 | [VMC-069](../tickets/VMC-069.md) | `127934a`; slim peers, frame-once broadcasts, counters; connection split into Net/Session/Player modules |
+| [VMC-066](../tickets/VMC-066.md) | `fdca2df`; game-tick pipeline, scheduled/random ticks, shape updates; coral and budding amethyst live |
 | [VMC-067](../tickets/VMC-067.md) | `6243c8c`; shared entity view, per-chunk publication, one replication tracker, orb lifetime, despawn under contention |
