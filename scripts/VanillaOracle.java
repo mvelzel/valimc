@@ -276,19 +276,23 @@ public class VanillaOracle implements AutoCloseable {
     var root = packet.getRoot(CommandBuildContext.simple(registries, FeatureFlags.DEFAULT_FLAGS),
       new ClientboundCommandsPacket.NodeBuilder<Object>() {
         public ArgumentBuilder<Object, ?> createLiteral(String name) { return LiteralArgumentBuilder.literal(name); }
+        @SuppressWarnings("unchecked")
         public ArgumentBuilder<Object, ?> createArgument(String name, ArgumentType<?> type, Identifier suggestion) {
-          throw new AssertionError("Unexpected argument node in literal-only preview");
+          return com.mojang.brigadier.builder.RequiredArgumentBuilder.argument(name, (ArgumentType<Object>) type);
         }
         public ArgumentBuilder<Object, ?> configure(ArgumentBuilder<Object, ?> builder, boolean executable, boolean restricted) {
-          if (restricted) throw new AssertionError("Public preview command marked restricted");
+          if (restricted && builder instanceof LiteralArgumentBuilder<?> literal
+              && List.of("help", "spawn", "stats").contains(literal.getLiteral()))
+            throw new AssertionError("Public command marked restricted");
           return executable ? builder.executes(context -> 1) : builder;
         }
       });
-    var names = root.getChildren().stream().map(n -> n.getName()).sorted().toList();
-    if (!names.equals(List.of("help", "spawn", "stats"))) throw new AssertionError("Wrong command graph: " + names);
+    // The full graph is CommandTreeOracle's; here the client must rebuild it and run ValiMC's literals.
+    var names = root.getChildren().stream().map(n -> n.getName()).toList();
+    if (!names.containsAll(List.of("help", "spawn", "stats"))) throw new AssertionError("Wrong command graph: " + names);
     var dispatcher = new CommandDispatcher<Object>(root);
     Object source = new Object();
-    for (String name : names) {
+    for (String name : List.of("help", "spawn", "stats")) {
       if (dispatcher.execute(name, source) != 1) throw new AssertionError("Non-executable command: " + name);
     }
     var suggestions = dispatcher.getCompletionSuggestions(dispatcher.parse("sta", source)).join()
