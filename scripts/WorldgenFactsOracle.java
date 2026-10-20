@@ -19,7 +19,8 @@ import net.minecraft.world.level.levelgen.synth.NormalNoise;
  * - noises.json: the `worldgen/noise` registry;
  * - density_functions.json: the `worldgen/density_function` registry;
  * - noise_settings.json: per `worldgen/noise_settings` entry, its noise
- *   bounds, legacy random flag, noise router and aquifer functions;
+ *   bounds, sea level, default block and fluid, legacy random flag, noise
+ *   router and aquifer functions;
  * - biome_parameters.json: per multi-noise preset, its climate parameter list
  *   in order, one row per entry: the biome, then the quantized minimum and
  *   maximum of temperature, humidity, continentalness, erosion, depth and
@@ -49,7 +50,8 @@ public class WorldgenFactsOracle {
     lookup.lookupOrThrow(Registries.NOISE_SETTINGS).listElements().forEach(holder -> {
       var full = NoiseGeneratorSettings.DIRECT_CODEC.encodeStart(ops, holder.value()).getOrThrow().getAsJsonObject();
       var kept = new JsonObject();
-      for (var key : List.of("noise", "legacy_random_source", "noise_router", "aquifers")) {
+      for (var key : List.of("noise", "sea_level", "default_block", "default_fluid", "legacy_random_source",
+          "noise_router", "aquifers")) {
         if (full.has(key)) kept.add(key, full.get(key));
       }
       settings.put(holder.key().identifier().toString(), kept);

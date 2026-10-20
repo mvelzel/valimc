@@ -78,6 +78,10 @@ STAGES = [
         ('java', 'BiomeOracle', 'generate', '@world', '@biomes.json'),
         ('check', 'check_biomes.exs', '@biomes.json'),
     ]),
+    ('worldgen_terrain', [
+        ('java', 'TerrainOracle', '@terrain.json'),
+        ('check', 'check_terrain.exs', '@terrain.json'),
+    ]),
     ('block_registry', [
         ('java', 'BlockRegistryMetadata', '@block-registry.json'),
         ('same', '@block-registry.json', 'priv/registry/blocks.json'),

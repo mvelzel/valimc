@@ -23,6 +23,7 @@ use super::json::Json;
 use super::noise::{BlendedParameters, NormalNoise, Simplex, Stack};
 use super::random::{Positional, Random};
 use super::sampler::{Context, Field, GradientKind, Sampler, SplineNode};
+use super::terrain::{self, AquiferSamplers, FilledChunk, TerrainBlocks};
 use super::volume::Volume;
 
 /// Noise settings: vertical bounds, random algorithm and the named functions
@@ -31,6 +32,10 @@ use super::volume::Volume;
 pub struct Settings {
     pub min_y: i32,
     pub height: i32,
+    pub sea_level: i32,
+    /// Global state ids.
+    pub default_block: u16,
+    pub default_fluid: u16,
     pub legacy_random_source: bool,
     pub router: Vec<(String, Df)>,
     pub aquifers: Vec<(String, Df)>,
@@ -44,6 +49,8 @@ pub struct Registry {
     pub settings: HashMap<String, Settings>,
     /// Multi-noise biome parameter presets.
     pub biome_parameters: HashMap<String, Arc<ParameterList>>,
+    /// Global state ids of air, water and lava.
+    pub fluids: [u16; 3],
 }
 
 /// One chunk's biomes as `fill_biomes` computes them.
@@ -84,14 +91,25 @@ fn named_functions(json: Option<&Json>) -> Result<Vec<(String, Df)>, String> {
 
 impl Registry {
     /// Parses `noises.json`, `density_functions.json`, `noise_settings.json`
-    /// and `biome_parameters.json`.
+    /// (with default blocks and fluids as global state ids) and
+    /// `biome_parameters.json`, with the state ids of `air`, `water` and
+    /// `lava` in `blocks`.
     pub fn parse(
         noises: &Json,
         functions: &Json,
         settings: &Json,
         biome_parameters: &Json,
+        blocks: &Json,
     ) -> Result<Registry, String> {
         let mut registry = Registry::default();
+        let state = |json: &Json| -> Result<u16, String> {
+            u16::try_from(json.as_i32()?).map_err(|_| "state id out of range".to_string())
+        };
+        registry.fluids = [
+            state(blocks.field("air")?)?,
+            state(blocks.field("water")?)?,
+            state(blocks.field("lava")?)?,
+        ];
         for (id, rows) in biome_parameters.entries()? {
             let list =
                 ParameterList::parse(rows).map_err(|e| format!("biome parameters {id}: {e}"))?;
@@ -114,6 +132,9 @@ impl Registry {
             let parsed = Settings {
                 min_y: noise.field("min_y")?.as_i32()?,
                 height: noise.field("height")?.as_i32()?,
+                sea_level: json.field("sea_level")?.as_i32()?,
+                default_block: state(json.field("default_block")?)?,
+                default_fluid: state(json.field("default_fluid")?)?,
                 legacy_random_source: json.field("legacy_random_source")?.as_bool()?,
                 router: named_functions(Some(json.field("noise_router")?))?,
                 aquifers: named_functions(json.get("aquifers"))?,
@@ -146,6 +167,7 @@ pub struct Worldgen {
 const TEMPERATURE_NETHER: &str = "minecraft:nether/temperature";
 const VEGETATION_NETHER: &str = "minecraft:nether/vegetation";
 const TERRAIN_SEED: &str = "minecraft:terrain";
+const AQUIFER_SEED: &str = "minecraft:aquifer";
 
 impl Env for Worldgen {
     fn function(&self, id: &str) -> Result<&Df, String> {
@@ -290,6 +312,55 @@ impl Worldgen {
             }
         }
         Ok(ChunkBiomes { biomes, targets })
+    }
+
+    /// A chunk's noise terrain (vanilla's `doFill`, without structures):
+    /// final density over the chunk at block resolution, then the aquifer.
+    pub fn fill_terrain(&mut self, chunk_x: i32, chunk_z: i32) -> Result<FilledChunk, String> {
+        let volume = Volume::new(
+            [16, self.settings.height, 16],
+            [
+                chunk_x.wrapping_mul(16),
+                self.settings.min_y,
+                chunk_z.wrapping_mul(16),
+            ],
+            [1, 1, 1],
+        )?;
+        let [air, water, lava] = self.registry.fluids;
+        let blocks = TerrainBlocks {
+            air,
+            water,
+            lava,
+            default_block: self.settings.default_block,
+            default_fluid: self.settings.default_fluid,
+        };
+        let aquifer = if self.settings.aquifers.is_empty() {
+            None
+        } else {
+            let mut compile = |field: &str| -> Result<Arc<Sampler>, String> {
+                let function = self.named(&format!("aquifers:{field}"))?;
+                self.sampler(&function)
+            };
+            let samplers = AquiferSamplers {
+                barrier: compile("barrier")?,
+                floodedness: compile("fluid_level_floodedness")?,
+                spread: compile("fluid_level_spread")?,
+                lava: compile("lava")?,
+                exclusion: compile("exclusion")?,
+                surface_level: compile("surface_level")?,
+            };
+            let positional = self.positional.from_hash_of(AQUIFER_SEED).fork_positional();
+            Some((samplers, positional))
+        };
+        let final_density = self.named("router:final_density")?;
+        let final_density = self.sampler(&final_density)?;
+        Ok(terrain::fill(
+            &final_density,
+            aquifer.as_ref().map(|(s, p)| (s, *p)),
+            &volume,
+            self.settings.sea_level,
+            blocks,
+        ))
     }
 
     pub fn biome_parameters(&self, preset: &str) -> Result<Arc<ParameterList>, String> {

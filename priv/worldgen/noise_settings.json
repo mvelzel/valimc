@@ -4,6 +4,9 @@
       "min_y": -64,
       "height": 384
     },
+    "sea_level": 63,
+    "default_block": "minecraft:stone",
+    "default_fluid": "minecraft:water",
     "legacy_random_source": false,
     "noise_router": {
       "temperature": "minecraft:overworld/temperature",
@@ -65,6 +68,9 @@
       "min_y": -64,
       "height": 192
     },
+    "sea_level": 32,
+    "default_block": "minecraft:stone",
+    "default_fluid": "minecraft:water",
     "legacy_random_source": true,
     "noise_router": {
       "temperature": 0.0,
@@ -127,6 +133,9 @@
       "min_y": 0,
       "height": 128
     },
+    "sea_level": 0,
+    "default_block": "minecraft:end_stone",
+    "default_fluid": "minecraft:air",
     "legacy_random_source": true,
     "noise_router": {
       "temperature": 0.0,
@@ -189,6 +198,9 @@
       "min_y": 0,
       "height": 256
     },
+    "sea_level": -64,
+    "default_block": "minecraft:stone",
+    "default_fluid": "minecraft:water",
     "legacy_random_source": true,
     "noise_router": {
       "temperature": 0.0,
@@ -251,6 +263,9 @@
       "min_y": -64,
       "height": 384
     },
+    "sea_level": 63,
+    "default_block": "minecraft:stone",
+    "default_fluid": "minecraft:water",
     "legacy_random_source": false,
     "noise_router": {
       "temperature": "minecraft:overworld_large_biomes/temperature",
@@ -312,6 +327,9 @@
       "min_y": 0,
       "height": 128
     },
+    "sea_level": 32,
+    "default_block": "minecraft:netherrack",
+    "default_fluid": "minecraft:lava",
     "legacy_random_source": true,
     "noise_router": {
       "temperature": {
@@ -384,6 +402,9 @@
       "min_y": -64,
       "height": 384
     },
+    "sea_level": 63,
+    "default_block": "minecraft:stone",
+    "default_fluid": "minecraft:water",
     "legacy_random_source": false,
     "noise_router": {
       "temperature": "minecraft:overworld/temperature",

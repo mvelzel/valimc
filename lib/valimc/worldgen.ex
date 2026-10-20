@@ -7,6 +7,7 @@ defmodule Valimc.Worldgen do
   a noise settings entry (`valimc_core::worldgen`).
   """
   alias Valimc.Native
+  alias Valimc.Registry.Blocks
 
   @facts ~w(noises density_functions noise_settings biome_parameters)
 
@@ -21,7 +22,20 @@ defmodule Valimc.Worldgen do
             |> JSON.decode!()
           end)
 
-        {:ok, registry} = apply(Native, :worldgen_registry, facts)
+        [noises, functions, settings, biomes] = facts
+
+        settings =
+          Map.new(settings, fn {id, entry} ->
+            {id,
+             %{
+               entry
+               | "default_block" => state_id(entry["default_block"]),
+                 "default_fluid" => state_id(entry["default_fluid"])
+             }}
+          end)
+
+        fluids = Map.new(~w(air water lava), &{&1, Blocks.default_state(&1)})
+        {:ok, registry} = Native.worldgen_registry(noises, functions, settings, biomes, fluids)
         :persistent_term.put({__MODULE__, :registry}, registry)
         registry
 
@@ -29,6 +43,13 @@ defmodule Valimc.Worldgen do
         registry
     end
   end
+
+  # A block state as vanilla's codec encodes it: a name, or a name with
+  # properties.
+  defp state_id("minecraft:" <> name), do: Blocks.default_state(name)
+
+  defp state_id(%{"Name" => "minecraft:" <> name} = state),
+    do: Blocks.state(name, Map.get(state, "Properties", %{}))
 
   @doc "Worldgen state for `seed` and a noise settings entry."
   def new(seed, settings \\ "minecraft:overworld"),

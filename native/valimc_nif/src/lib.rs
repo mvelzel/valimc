@@ -861,19 +861,22 @@ fn json_of(term: Term) -> Result<valimc_core::worldgen::json::Json, String> {
 }
 
 /// Parse worldgen facts (decoded `noises.json`, `density_functions.json`,
-/// `noise_settings.json` and `biome_parameters.json`).
+/// `noise_settings.json` with default blocks as state ids, and
+/// `biome_parameters.json`) and the state ids of air, water and lava.
 #[rustler::nif(schedule = "DirtyCpu")]
 fn worldgen_registry(
     noises: Term,
     functions: Term,
     settings: Term,
     biome_parameters: Term,
+    blocks: Term,
 ) -> Result<ResourceArc<WorldgenRegistry>, String> {
     let registry = valimc_core::worldgen::compiler::Registry::parse(
         &json_of(noises)?,
         &json_of(functions)?,
         &json_of(settings)?,
         &json_of(biome_parameters)?,
+        &json_of(blocks)?,
     )?;
     Ok(ResourceArc::new(WorldgenRegistry {
         registry: std::sync::Arc::new(registry),
@@ -959,6 +962,31 @@ fn worldgen_closest_biomes(
         .into_iter()
         .map(|b| list.biomes[b as usize].clone())
         .collect())
+}
+
+/// A chunk's state ids and fluid update positions.
+type FilledBinary<'a> = (Binary<'a>, Vec<(i32, i32, i32)>);
+
+/// Noise terrain of chunks (`Worldgen::fill_terrain`): per chunk its state ids
+/// (big-endian u16, Y fastest from the bottom, then X, then Z) and the fluid
+/// positions marked for updates.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_fill_terrain<'a>(
+    env: rustler::Env<'a>,
+    state: ResourceArc<WorldgenState>,
+    chunks: Vec<(i32, i32)>,
+) -> Result<Vec<FilledBinary<'a>>, String> {
+    let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+    let mut out = Vec::with_capacity(chunks.len());
+    for (x, z) in chunks {
+        let filled = state.fill_terrain(x, z)?;
+        let mut blocks = NewBinary::new(env, filled.blocks.len() * 2);
+        for (bytes, id) in blocks.as_mut_slice().chunks_mut(2).zip(&filled.blocks) {
+            bytes.copy_from_slice(&id.to_be_bytes());
+        }
+        out.push((blocks.into(), filled.fluid_updates));
+    }
+    Ok(out)
 }
 
 rustler::init!("Elixir.Valimc.Native");

@@ -10,5 +10,6 @@ pub mod json;
 pub mod noise;
 pub mod random;
 pub mod sampler;
+pub mod terrain;
 pub mod trace;
 pub mod volume;
