@@ -326,6 +326,14 @@ defmodule Valimc.Net.Serverbound do
         Players.broadcast({:chat, "<#{state.player.name}> #{message}"})
         state
 
+      "command_suggestion" ->
+        {id, payload} = Wire.take_varint(payload)
+        {text, <<>>} = Wire.take_string(payload, 32_500)
+        source = Valimc.Command.Source.player(state)
+        reply = Valimc.Command.Suggestions.suggest(text, source)
+        send_packets(state, [Valimc.Command.Suggestions.packet(id, reply)])
+        state
+
       "chat_command" ->
         {command, <<>>} = Wire.take_string(payload, 256)
 

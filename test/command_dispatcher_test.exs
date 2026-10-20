@@ -38,4 +38,33 @@ defmodule Valimc.CommandDispatcherTest do
     assert Reader.slice(reader, 3, 4) == "x"
     assert Text.literal("a") == {:compound, %{"text" => {:string, "a"}}}
   end
+
+  test "server suggestions answer ask_server time markers and timelines" do
+    source = Source.parse_only(4)
+    assert {10, 0, markers} = Valimc.Command.Suggestions.suggest("/time set ", source)
+    assert markers == ~w(minecraft:day minecraft:midnight minecraft:night minecraft:noon)
+
+    assert {10, 1, ["minecraft:night", "minecraft:noon"]} =
+             Valimc.Command.Suggestions.suggest("/time set n", source)
+
+    assert {12, 11, ["minecraft:day"]} =
+             Valimc.Command.Suggestions.suggest("/time query minecraft:d", source)
+
+    assert {12, 0,
+            [
+              "gametime",
+              "minecraft:day",
+              "minecraft:early_game",
+              "minecraft:moon",
+              "minecraft:villager_schedule",
+              "time"
+            ]} =
+             Valimc.Command.Suggestions.suggest("/time query ", source)
+
+    assert {_, _, []} =
+             Valimc.Command.Suggestions.suggest("/time of minecraft:the_end set ", source)
+
+    assert {1, 4, ["time"]} = Valimc.Command.Suggestions.suggest("/time", source)
+    assert Valimc.Command.Suggestions.matches_sub_str?("sch", "villager_schedule")
+  end
 end

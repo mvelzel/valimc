@@ -332,6 +332,13 @@ public class CommandTreeOracle {
       collect(root, "", paths);
       covered.put(level, paths);
     }
+    var suggestionBytes = HexFormat.of().parseHex(Files.readString(graphs.resolve("suggestions.hex")).strip());
+    var suggestionBuffer = new net.minecraft.network.RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(suggestionBytes), RegistryAccess.EMPTY);
+    var suggestions = net.minecraft.network.protocol.game.ClientboundCommandSuggestionsPacket.STREAM_CODEC.decode(suggestionBuffer);
+    var texts = suggestions.toSuggestions().getList().stream().map(x -> x.getText()).toList();
+    if (suggestionBuffer.isReadable() || suggestions.id() != 7 || !texts.equals(List.of("minecraft:night", "minecraft:noon"))
+        || suggestions.toSuggestions().getRange().getStart() != 10 || suggestions.toSuggestions().getRange().getEnd() != 11)
+      throw new AssertionError("Suggestion packet differs: " + texts);
     var vanillaPaths = new IdentityHashMap<CommandNode<CommandSourceStack>, List<String>>();
     collectPaths(dispatcher.getRoot(), List.of(), vanillaPaths);
     int outside = 0, unsupported = 0;
@@ -376,7 +383,7 @@ public class CommandTreeOracle {
     System.out.println("PASS: Mojang decoded ValiMC's graphs (" + nodes + " nodes at levels 0 and 4) as vanilla's "
       + "usable tree pruned to implemented commands; " + compared + " parse outcomes equal vanilla's; " + outside
       + " inputs reach commands ValiMC does not implement yet and fail; " + unsupported
-      + " need SNBT (VMC-053g) and are refused.");
+      + " need SNBT (VMC-053g) and are refused; Mojang decodes ValiMC's suggestion reply.");
   }
 
   /** ValiMC's explicit refusal of syntax it does not implement yet: red literal "... not supported yet". */
