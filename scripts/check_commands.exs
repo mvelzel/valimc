@@ -15,9 +15,15 @@ end
 
 # One suggestion reply for Mojang's packet decoder.
 {_id, body} =
-  Valimc.Command.Suggestions.packet(7, Valimc.Command.Suggestions.suggest("/time set n", Source.parse_only(4)))
+  Valimc.Command.Suggestions.packet(
+    7,
+    Valimc.Command.Suggestions.suggest("/time set n", Source.parse_only(4))
+  )
 
-File.write!(Path.join(out_dir, "suggestions.hex"), Base.encode16(IO.iodata_to_binary(body), case: :lower))
+File.write!(
+  Path.join(out_dir, "suggestions.hex"),
+  Base.encode16(IO.iodata_to_binary(body), case: :lower)
+)
 
 cases = :json.decode(File.read!(cases_path))
 

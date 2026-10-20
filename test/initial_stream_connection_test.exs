@@ -51,8 +51,10 @@ defmodule Valimc.InitialStreamConnectionTest do
     state = :sys.get_state(owner)
     {client, names} = drain(client)
     refute Enum.any?(names, &(&1 in @chunks))
+
     assert state.teleport_pending and state.pending != [] and
              state.chunk_sender.unacknowledged == 0
+
     assert state.chunks == MapSet.new()
 
     packets = state.packets

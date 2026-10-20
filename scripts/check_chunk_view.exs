@@ -7,6 +7,7 @@ alias Valimc.Session.ChunkView
 facts = facts_path |> File.read!() |> JSON.decode!()
 
 pairs = fn flat -> flat |> Enum.chunk_every(2) |> Enum.map(fn [x, z] -> {x, z} end) end
+
 view = fn
   nil -> nil
   %{"x" => x, "z" => z, "distance" => distance} -> {{x, z}, distance}
@@ -17,7 +18,10 @@ for %{"chunks" => chunks} = facts <- facts["views"] do
   actual = ChunkView.chunks(view.(facts))
 
   if length(actual) != length(expected) or MapSet.new(actual) != MapSet.new(expected),
-    do: raise("view #{inspect(view.(facts))}: #{length(actual)} chunks, vanilla #{length(expected)}")
+    do:
+      raise(
+        "view #{inspect(view.(facts))}: #{length(actual)} chunks, vanilla #{length(expected)}"
+      )
 end
 
 for %{"from" => from, "to" => to, "entering" => entering, "leaving" => leaving} <-
@@ -31,7 +35,8 @@ for %{"from" => from, "to" => to, "entering" => entering, "leaving" => leaving} 
      do: raise("change #{inspect(view.(from))} -> #{inspect(view.(to))} differs from vanilla")
 end
 
-counts = Enum.map_join(facts["views"], ", ", &"#{&1["distance"]}: #{div(length(&1["chunks"]), 2)}")
+counts =
+  Enum.map_join(facts["views"], ", ", &"#{&1["distance"]}: #{div(length(&1["chunks"]), 2)}")
 
 IO.puts(
   "PASS: #{length(facts["views"])} views and #{length(facts["differences"])} view changes equal vanilla's " <>
