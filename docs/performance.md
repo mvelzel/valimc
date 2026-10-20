@@ -20,6 +20,11 @@ carvers) takes 5.7–5.9 ms in ValiMC and 5.7–5.9 ms in Pumpkin; Pumpkin's
 blocks differ from vanilla's in 28 of 6.3 million. The ticket explains why
 vanilla's 12.5 ms for the whole step is not a matched number.
 
+[Decoration](tickets/VMC-025.md) (`bench/worldgen_decoration.exs`, matched with
+vanilla's own features: 64 chunks at seed 20261020, one thread, terrain
+excluded): the 115 placed features ValiMC implements take a median 0.48 ms per
+chunk against 1.14 ms in vanilla.
+
 [Cooking activity indexing](tickets/VMC-034m.md): 1,024 stored processors,
 100 alternating equal-result samples. With 64 active, p50/p95 falls from
 8.295/11.967 to 6.942/9.078 ms; with 1,024 active, from 44.097/51.686 to

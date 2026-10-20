@@ -1,0 +1,174 @@
+{
+  "minecraft:cave_vines_body": {
+    "entries": [
+      {
+        "data": "minecraft:cave_vines_plant",
+        "weight": 4
+      },
+      {
+        "data": {
+          "properties": {
+            "berries": "true"
+          },
+          "id": "minecraft:cave_vines_plant"
+        },
+        "weight": 1
+      }
+    ],
+    "type": "minecraft:weighted"
+  },
+  "minecraft:cave_vines_head": {
+    "source": {
+      "entries": [
+        {
+          "data": "minecraft:cave_vines",
+          "weight": 4
+        },
+        {
+          "data": {
+            "properties": {
+              "berries": "true",
+              "age": "0"
+            },
+            "id": "minecraft:cave_vines"
+          },
+          "weight": 1
+        }
+      ],
+      "type": "minecraft:weighted"
+    },
+    "property": "age",
+    "values": {
+      "min_inclusive": 23,
+      "max_inclusive": 25,
+      "type": "minecraft:uniform"
+    },
+    "type": "minecraft:randomized_int"
+  },
+  "minecraft:flower_flower_forest": {
+    "seed": 2345,
+    "noise": {
+      "base_amplitude": 0.955388882960065,
+      "base_octave": 0
+    },
+    "scale": 0.02083333395421505,
+    "states": [
+      "minecraft:dandelion",
+      "minecraft:poppy",
+      "minecraft:allium",
+      "minecraft:azure_bluet",
+      "minecraft:red_tulip",
+      "minecraft:orange_tulip",
+      "minecraft:white_tulip",
+      "minecraft:pink_tulip",
+      "minecraft:oxeye_daisy",
+      "minecraft:cornflower",
+      "minecraft:lily_of_the_valley"
+    ],
+    "type": "minecraft:noise"
+  },
+  "minecraft:flower_meadow": {
+    "variety": [
+      1,
+      3
+    ],
+    "slow_noise": {
+      "base_amplitude": 0.955388882960065,
+      "base_octave": -10
+    },
+    "slow_scale": 1.0,
+    "seed": 2345,
+    "noise": {
+      "base_amplitude": 0.955388882960065,
+      "base_octave": -3
+    },
+    "scale": 1.0,
+    "states": [
+      "minecraft:tall_grass",
+      "minecraft:allium",
+      "minecraft:poppy",
+      "minecraft:azure_bluet",
+      "minecraft:dandelion",
+      "minecraft:cornflower",
+      "minecraft:oxeye_daisy",
+      "minecraft:short_grass"
+    ],
+    "type": "minecraft:dual_noise"
+  },
+  "minecraft:flower_plain": {
+    "seed": 2345,
+    "noise": {
+      "base_amplitude": 0.955388882960065,
+      "base_octave": 0
+    },
+    "scale": 0.004999999888241291,
+    "threshold": -0.800000011920929,
+    "high_chance": 0.3333333432674408,
+    "default_state": "minecraft:dandelion",
+    "low_states": [
+      "minecraft:orange_tulip",
+      "minecraft:red_tulip",
+      "minecraft:pink_tulip",
+      "minecraft:white_tulip"
+    ],
+    "high_states": [
+      "minecraft:poppy",
+      "minecraft:azure_bluet",
+      "minecraft:oxeye_daisy",
+      "minecraft:cornflower"
+    ],
+    "type": "minecraft:noise_threshold"
+  },
+  "minecraft:mangrove_propagule": {
+    "source": {
+      "properties": {
+        "waterlogged": "false",
+        "stage": "0",
+        "hanging": "true",
+        "age": "0"
+      },
+      "id": "minecraft:mangrove_propagule"
+    },
+    "property": "age",
+    "values": {
+      "min_inclusive": 0,
+      "max_inclusive": 4,
+      "type": "minecraft:uniform"
+    },
+    "type": "minecraft:randomized_int"
+  },
+  "minecraft:podzol_beneath_tree": {
+    "rules": [
+      {
+        "if_true": {
+          "tag": "minecraft:beneath_tree_podzol_replaceable",
+          "type": "minecraft:matching_block_tag"
+        },
+        "then": {
+          "properties": {
+            "snowy": "false"
+          },
+          "id": "minecraft:podzol"
+        }
+      }
+    ],
+    "type": "minecraft:rule_based"
+  },
+  "minecraft:soil_beneath_tree": {
+    "rules": [
+      {
+        "if_true": {
+          "predicate": {
+            "tag": "minecraft:cannot_replace_below_tree_trunk",
+            "type": "minecraft:matching_block_tag"
+          },
+          "type": "minecraft:not"
+        },
+        "then": {
+          "id": "minecraft:dirt"
+        }
+      }
+    ],
+    "type": "minecraft:rule_based"
+  }
+}

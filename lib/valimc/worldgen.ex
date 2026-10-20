@@ -13,7 +13,8 @@ defmodule Valimc.Worldgen do
   alias Valimc.Registry.Blocks
 
   @facts ~w(noises density_functions noise_settings biome_parameters material_rules
-            material_conditions biomes carvers)
+            material_conditions biomes carvers features placed_features block_state_providers
+            feature_order)
   @rule_states ~w(result_state ore_block raw_ore_block filler_block)
   @terracotta ~w(terracotta orange_terracotta yellow_terracotta brown_terracotta red_terracotta
                  white_terracotta light_gray_terracotta)
@@ -44,6 +45,15 @@ defmodule Valimc.Worldgen do
           end)
           |> Map.update!("material_rules", &Map.new(&1, fn {id, rule} -> {id, states(rule)} end))
           |> Map.put("blocks", blocks())
+          |> Map.put(
+            "support",
+            read_json!(Application.app_dir(:valimc, "priv/worldgen/survival.json"))
+          )
+          |> Map.put(
+            "block_registry",
+            read_json!(Application.app_dir(:valimc, "priv/registry/blocks.json"))
+          )
+          |> Map.put("block_facts", block_facts())
 
         {:ok, registry} = Native.worldgen_registry(facts)
         :persistent_term.put({__MODULE__, :registry}, registry)
@@ -52,6 +62,48 @@ defmodule Valimc.Worldgen do
       registry ->
         registry
     end
+  end
+
+  defp read_json!(path), do: path |> File.read!() |> JSON.decode!()
+
+  # Per state, what decoration reads (VMC-025): the worldgen flags, the
+  # fluid (vanilla's fluid registry ids: empty, flowing water, water, flowing
+  # lava, lava), its amount with the falling flag at bit 4, the heightmap
+  # predicates, and the block and fluid tags.
+  defp block_facts do
+    flags = read_json!(Application.app_dir(:valimc, "priv/worldgen/blocks.json"))
+    states = 0..(Blocks.state_count() - 1)
+
+    fluids =
+      Enum.map(states, fn id ->
+        {:ok, fluid} = FluidBlocks.fetch(id)
+
+        fluid_id =
+          case {fluid.kind, fluid.source} do
+            {:empty, _} -> 0
+            {:water, false} -> 1
+            {:water, true} -> 2
+            {:lava, false} -> 3
+            {:lava, true} -> 4
+          end
+
+        {fluid_id, fluid.amount + if(fluid.falling, do: 16, else: 0)}
+      end)
+
+    tags = Data.tags()
+
+    %{
+      "flags" => flags["flags"],
+      "fluid" => Enum.map(fluids, &elem(&1, 0)),
+      "fluid_level" => Enum.map(fluids, &elem(&1, 1)),
+      "heightmaps" =>
+        Enum.map(states, fn id ->
+          {:ok, mask} = Valimc.Physics.HeightmapBlocks.mask(id)
+          mask
+        end),
+      "block_tags" => tags["minecraft:block"],
+      "fluid_tags" => tags["minecraft:fluid"]
+    }
   end
 
   @doc "Biome names in the native registry's order (registry ids index this list)."

@@ -27,7 +27,10 @@ import net.minecraft.world.level.block.state.BlockState;
  * whether an update breaks the state at once, schedules its tick or does nothing while it
  * cannot survive, and which neighbours break it although it can (two-block halves). Light
  * reads are existential: a state survives if bright or dark light lets it.
- * Usage: SupportOracle FACTS.json CASES.json
+ * Usage: SupportOracle FACTS.json CASES.json, or SupportOracle worldgen SURVIVAL.json: survival
+ * as decoration checks it (VMC-025), before the block is placed, so the block's own position
+ * is read like any neighbour, under the light of unlit chunks (sky 15, block 0); per state its
+ * rule, with the same partitions and tables.
  */
 public class SupportOracle {
   static final class Unsupported extends RuntimeException {
@@ -38,6 +41,7 @@ public class SupportOracle {
   // Offsets within ±R of the origin are small indexes into a W³ cube.
   static final int R=4,W=2*R+1,CELLS=W*W*W,SELF=index(0,0,0);
   static final int MAX_OFFSETS=8,FULL_CONTEXTS=64,MAX_TABLE=65536;
+  static boolean WORLDGEN;
   static BlockState[] STATES;static int COUNT;static BlockState AIR;
   static int index(int dx,int dy,int dz){return ((dx+R)*W+(dy+R))*W+(dz+R);}
   static int index(Direction d){return index(d.getStepX(),d.getStepY(),d.getStepZ());}
@@ -59,7 +63,7 @@ public class SupportOracle {
     BlockState at(BlockPos p){
       int dx=p.getX()-ORIGIN.getX(),dy=p.getY()-ORIGIN.getY(),dz=p.getZ()-ORIGIN.getZ();
       if(Math.abs(dx)>R||Math.abs(dy)>R||Math.abs(dz)>R)throw new Unsupported("far read");
-      int i=index(dx,dy,dz);if(i==SELF)return self;
+      int i=index(dx,dy,dz);if(i==SELF&&!WORLDGEN)return self;
       if(stamp[i]!=generation){stamp[i]=generation;reads[readCount++]=i;trace=trace*31+i;}
       var s=cells[i];return s==null?AIR:s;
     }
@@ -73,8 +77,9 @@ public class SupportOracle {
         case "isClientSide":return false;
         case "getSeaLevel":return 63;
         case "enabledFeatures":return FeatureFlags.DEFAULT_FLAGS;
-        case "getRawBrightness":case "getMaxLocalRawBrightness":case "getBrightness":light=true;return bright?15:0;
-        case "canSeeSky":light=true;return bright;
+        case "getRawBrightness":case "getMaxLocalRawBrightness":light=true;return WORLDGEN||bright?15:0;
+        case "getBrightness":light=true;return WORLDGEN?(a[0]==net.minecraft.world.level.LightLayer.BLOCK?0:15):bright?15:0;
+        case "canSeeSky":light=true;return WORLDGEN||bright;
         case "getSkyDarken":return 0;
         case "hashCode":return System.identityHashCode(proxy);
         case "equals":return proxy==a[0];
@@ -89,6 +94,7 @@ public class SupportOracle {
     void begin(){generation++;readCount=0;trace=1;}
     /** canSurvive of `self` in the current cells: bright light, else dark if light was read. */
     boolean survive(){
+      if(WORLDGEN){begin();light=false;return self.canSurvive(level,ORIGIN);}
       begin();light=false;bright=true;
       if(self.canSurvive(level,ORIGIN))return true;
       if(!light)return false;
@@ -204,8 +210,14 @@ public class SupportOracle {
   static int[] intern(int[] classes){return INTERNED.computeIfAbsent(new Classes(classes),Classes::values);}
   static long warmKey(BlockState s,int offset){return (long)BuiltInRegistries.BLOCK.getId(s.getBlock())<<32|offset;}
   static void start(BlockState s,int offset,List<List<BlockState>> reps,List<int[]> classes){
-    var warm=WARM.get(warmKey(s,offset));
-    if(warm==null){reps.add(List.of(AIR));classes.add(null);return;}
+    var warm=WORLDGEN?null:WARM.get(warmKey(s,offset));
+    if(warm==null){
+      // Worldgen rules read the block's own cell too, so a rule may need two cells right at
+      // once (tall seagrass: a sturdy floor and water in place): common states seed the search.
+      reps.add(WORLDGEN?List.of(AIR,Blocks.STONE.defaultBlockState(),Blocks.WATER.defaultBlockState(),Blocks.LAVA.defaultBlockState(),
+          Blocks.GRASS_BLOCK.defaultBlockState(),Blocks.DIRT.defaultBlockState(),Blocks.SAND.defaultBlockState()):List.of(AIR));
+      classes.add(null);return;
+    }
     var first=new ArrayList<BlockState>();
     for(int n=0;n<COUNT;n++)if(warm[n]==first.size())first.add(STATES[n]);
     reps.add(first);classes.add(warm);
@@ -431,6 +443,7 @@ public class SupportOracle {
     COUNT=Block.BLOCK_STATE_REGISTRY.size();STATES=new BlockState[COUNT];AIR=Blocks.AIR.defaultBlockState();
     for(int n=0;n<COUNT;n++){STATES[n]=Block.stateById(n);if(Block.getId(STATES[n])!=n)throw new AssertionError("Sparse state id "+n);}
     var probes=ThreadLocal.withInitial(Probe::new);
+    if(args[0].equals("worldgen")){WORLDGEN=true;worldgen(Path.of(args[1]),probes);return;}
     var facts=new Facts[COUNT];var excluded=new String[COUNT];var done=new AtomicInteger();
     // Each block's first state runs first and warms the partitions for its other states;
     // many-property blocks (multiface, vines) cost the most and start first in each phase.
@@ -498,6 +511,78 @@ public class SupportOracle {
     Files.writeString(Path.of(args[1]),gson.toJson(cases)+"\n");
     System.out.println("PASS: "+dependent+" dependent states, "+rules.size()+" survival rules, "+profiles.size()+" profiles, "
       +partitions.list.size()+" partitions, "+cases.get("updates").getAsJsonArray().size()+" differential updates; excluded "+excludedJson);
+  }
+
+  /** The worldgen survival facts: every non-air state whose survival reads a cell gets a rule. */
+  static void worldgen(Path out,ThreadLocal<Probe> probes)throws Exception{
+    var rules=new Rule[COUNT];var excluded=new String[COUNT];
+    var pool=Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    Comparator<Integer> heavy=Comparator.comparingInt((Integer n)->-STATES[n].getProperties().size()).thenComparingInt(n->n);
+    var firsts=IntStream.range(0,COUNT).boxed().filter(n->n==0||STATES[n-1].getBlock()!=STATES[n].getBlock()).sorted(heavy).toList();
+    var rest=IntStream.range(0,COUNT).boxed().filter(n->n>0&&STATES[n-1].getBlock()==STATES[n].getBlock()).sorted(heavy).toList();
+    for(var phase:List.of(firsts,rest)){
+      var tasks=new ArrayList<Future<?>>();
+      for(int n:phase)tasks.add(pool.submit(()->{
+        var p=probes.get();var s=STATES[n];
+        try{if(!s.isAir())rules[n]=rule(p,s);}
+        catch(Unsupported e){excluded[n]=e.getMessage();}
+        catch(RuntimeException e){excluded[n]=e.getClass().getSimpleName();}
+      }));
+      for(var task:tasks)task.get();
+      warming=false;
+    }
+    // Validation: on random neighbourhoods (seed states and any state at each read cell), the
+    // table must give vanilla's answer, and survival must read no other cell; else excluded.
+    var seeds=List.of(AIR,Blocks.STONE.defaultBlockState(),Blocks.WATER.defaultBlockState(),Blocks.LAVA.defaultBlockState(),
+        Blocks.GRASS_BLOCK.defaultBlockState(),Blocks.DIRT.defaultBlockState(),Blocks.SAND.defaultBlockState());
+    var checks=new ArrayList<Future<?>>();var checked=new java.util.concurrent.atomic.AtomicLong();
+    for(int n0=0;n0<COUNT;n0++){
+      final int n=n0;var rule=rules[n];if(rule==null||rule.offsets.length==0)continue;
+      checks.add(pool.submit(()->{
+        var p=probes.get();var s=STATES[n];var random=new Random(n);
+        for(int k=0;k<128;k++){
+          var context=new HashMap<Integer,BlockState>();int index=0;
+          for(int i=0;i<rule.offsets.length;i++){
+            var state=random.nextBoolean()?seeds.get(random.nextInt(seeds.size())):STATES[random.nextInt(COUNT)];
+            context.put(rule.offsets[i],state);index=index*rule.radix[i]+rule.classes[i][Block.getId(state)];
+          }
+          boolean alive=p.survive(s,context);
+          for(int r=0;r<p.readCount;r++){int cell=p.reads[r];boolean known=false;for(int o:rule.offsets)known|=o==cell;
+            if(!known){synchronized(excluded){excluded[n]="validation read";rules[n]=null;}return;}}
+          if(alive!=rule.table.get(index)){synchronized(excluded){excluded[n]="validation table";rules[n]=null;}return;}
+          checked.incrementAndGet();
+        }
+      }));
+    }
+    for(var task:checks)task.get();
+    pool.shutdown();
+    System.out.println("validated "+checked.get()+" worldgen survival neighbourhoods");
+    var partitions=new Partitions();var json=new JsonArray();var index=new HashMap<String,Integer>();var runs=new JsonArray();
+    var gson=new Gson();int dependent=0;int[] ruleOf=new int[COUNT];Arrays.fill(ruleOf,-1);
+    for(int n=0;n<COUNT;n++){
+      var rule=rules[n];if(rule==null)continue;dependent++;
+      var r=new JsonObject();var offs=new JsonArray();var parts=new JsonArray();
+      for(int i=0;i<rule.offsets.length;i++){offs.add(json(offset(rule.offsets[i])));parts.add(partitions.index(rule.classes[i]));}
+      r.add("offsets",offs);r.add("partitions",parts);r.addProperty("table",bits(rule.table,rule.size));
+      var key=gson.toJson(r);Integer id=index.get(key);
+      if(id==null){id=json.size();index.put(key,id);json.add(r);}
+      ruleOf[n]=id;
+    }
+    for(int n=0;n<COUNT;n++){
+      if(ruleOf[n]<0)continue;
+      if(runs.size()>0){var last=runs.get(runs.size()-1).getAsJsonArray();
+        if(last.get(1).getAsInt()==n-1&&last.get(2).getAsInt()==ruleOf[n]){last.set(1,new JsonPrimitive(n));continue;}}
+      var run=new JsonArray();run.add(n);run.add(n);run.add(ruleOf[n]);runs.add(run);
+    }
+    var excludedBlocks=new TreeMap<String,Integer>();
+    for(int n=0;n<COUNT;n++)if(excluded[n]!=null)excludedBlocks.merge(BuiltInRegistries.BLOCK.getKey(STATES[n].getBlock())+": "+excluded[n],1,Integer::sum);
+    var excludedJson=new JsonArray();
+    for(var e:excludedBlocks.entrySet()){var a=new JsonArray();a.add(e.getKey());a.add(e.getValue());excludedJson.add(a);}
+    var o=new JsonObject();o.addProperty("version","26.3");o.addProperty("data_version",5023);o.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
+    o.addProperty("state_count",COUNT);o.addProperty("dependent_states",dependent);
+    o.add("partitions",partitions.json());o.add("rules",json);o.add("states",runs);o.add("excluded",excludedJson);
+    Files.writeString(out,gson.toJson(o)+"\n");
+    System.out.println("PASS: worldgen survival of "+dependent+" states, "+json.size()+" rules, "+partitions.list.size()+" partitions; excluded "+excludedJson);
   }
 
   /**

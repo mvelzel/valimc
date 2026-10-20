@@ -1,0 +1,594 @@
+import com.google.gson.*;
+import java.lang.reflect.*;
+import java.nio.file.*;
+import java.util.*;
+import java.util.function.Function;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.core.HolderGetter;
+import net.minecraft.core.SectionPos;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.data.registries.VanillaRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.flag.FeatureFlags;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.LevelHeightAccessor;
+import net.minecraft.world.level.StructureManager;
+import net.minecraft.world.level.WorldGenLevel;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.biome.BiomeManager;
+import net.minecraft.world.level.biome.BiomeSource;
+import net.minecraft.world.level.biome.FeatureSorter;
+import net.minecraft.world.level.biome.MultiNoiseBiomeSource;
+import net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterList;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.EntityBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.ProtoChunk;
+import net.minecraft.world.level.chunk.UpgradeData;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
+import net.minecraft.world.level.dimension.BuiltinDimensionTypes;
+import net.minecraft.world.level.levelgen.Aquifer;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.levelgen.NoiseBasedChunkGenerator;
+import net.minecraft.world.level.levelgen.NoiseChunk;
+import net.minecraft.world.level.levelgen.NoiseGeneratorSettings;
+import net.minecraft.world.level.levelgen.RandomState;
+import net.minecraft.world.level.levelgen.WorldOptions;
+import net.minecraft.world.level.levelgen.WorldgenRandom;
+import net.minecraft.world.level.levelgen.XoroshiroRandomSource;
+import net.minecraft.world.level.levelgen.RandomSupport;
+import net.minecraft.world.level.levelgen.blending.Blender;
+import net.minecraft.world.level.levelgen.densityfunction.DensityVolume;
+import net.minecraft.world.level.levelgen.feature.Feature;
+import net.minecraft.world.level.levelgen.material.rule.MaterialRule;
+import net.minecraft.world.level.levelgen.placement.FeaturePlacer;
+import net.minecraft.world.level.levelgen.placement.PlacedFeature;
+import net.minecraft.world.level.storage.LevelData;
+import net.minecraft.world.ticks.WorldGenTickAccess;
+
+/**
+ * Vanilla decoration (VMC-025). For each case (seed, centre chunk), the 5 × 5
+ * chunks around the centre get vanilla's overworld terrain as TerrainOracle
+ * builds it (fill, surface, carvers; chunk biomes and carver biomes from
+ * fresh lookup histories), their biomes stored as chunk generation stores
+ * them, and the final heightmaps primed as the terrain step primes them; the
+ * chunks then hold status `terrain`. The 3 × 3 chunks around the centre are
+ * decorated in order (Z outer, X inner) by vanilla's features step: the loop
+ * of `ChunkGenerator.applyBiomeDecoration` (decoration seed, possible biomes
+ * of the 3 × 3 around the chunk, feature order and seeds, `FeaturePlacer`
+ * with the biome check), without structures, restricted to the placed
+ * features whose features (with sub-features) all have a type from the
+ * argument list. `WorldGenRegion` needs a running server, so the level is a
+ * `WorldGenLevel` over the proto chunks that follows `WorldGenRegion` (3 × 3 write
+ * zone, block reads up to the region's bounds, biomes of the 3 × 3 through
+ * `BiomeManager`, setBlock with block entities and post-processing marks,
+ * heightmaps of the chunks, ticks into the chunks' tick containers at game
+ * time 0) and fails on anything a feature asks that it does not implement.
+ *
+ * Usage: DecorationOracle OUT TYPE,TYPE,... (`*`: every type; a placed feature's identifier
+ * includes that placed feature). Output: the included
+ * placed features per step (vanilla's global index and identifier), and per
+ * chunk of the 5 × 5 its states run-length encoded in volume order (Y fastest
+ * from the bottom, then X, then Z) as [id, count] pairs, its post-processing
+ * marks, scheduled block and fluid ticks (position, type, delay, priority) and
+ * block entity positions.
+ */
+public class DecorationOracle {
+  static final int MIN_Y = -64, HEIGHT = 384;
+
+  public static void main(String[] args) throws Exception {
+    if (args[0].equals("trig")) {
+      // Ore shapes take Math.sin and Math.cos of nextFloat() * (float) PI, a float with 2^24
+      // possible values: the SHA-256 of all their results (doubles, little-endian bits) on this
+      // JVM, and how many differ from StrictMath (Math may differ by platform within an ulp).
+      var digest = java.security.MessageDigest.getInstance("SHA-256");
+      var buffer = java.nio.ByteBuffer.allocate(16).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+      for (int k = 0; k < (1 << 24); k++) {
+        float dir = k * 5.9604645E-8F * (float) Math.PI;
+        buffer.clear();
+        buffer.putLong(Double.doubleToRawLongBits(Math.sin(dir))).putLong(Double.doubleToRawLongBits(Math.cos(dir)));
+        digest.update(buffer.array());
+      }
+      int strictDiffers = 0;
+      for (int k = 0; k < (1 << 24); k++) {
+        float dir = k * 5.9604645E-8F * (float) Math.PI;
+        if (Math.sin(dir) != StrictMath.sin(dir) || Math.cos(dir) != StrictMath.cos(dir)) strictDiffers++;
+      }
+      System.out.println("PASS: ore trig digest " + java.util.HexFormat.of().formatHex(digest.digest())
+          + "; Math differs from StrictMath on " + strictDiffers + " inputs");
+      return;
+    }
+    var factory = ChunkOracle.factory();
+    // Fluid tags, as a server binds them (survival and water checks read them).
+    SupportOracle.bindFluidTags();
+    net.minecraft.core.RegistryAccess registries;
+    try (var resources = new net.minecraft.server.packs.resources.MultiPackResourceManager(net.minecraft.server.packs.PackType.SERVER_DATA,
+        List.of(net.minecraft.server.packs.repository.ServerPacksSource.createVanillaPackSource().fullResources()))) {
+      registries = net.minecraft.resources.RegistryDataLoader.load(resources,
+          MiningToolOracle.initialize().listRegistries().toList(), net.minecraft.resources.RegistryDataLoader.WORLD_REGISTRIES, Runnable::run).join();
+    }
+    var types = new HashSet<>(Arrays.asList(args[1].split(",")));
+    var lookup = VanillaRegistries.createWorldLookup();
+    var noises = lookup.lookupOrThrow(Registries.NOISE);
+    var biomeLookup = lookup.lookupOrThrow(Registries.BIOME);
+    var holder = lookup.lookupOrThrow(Registries.NOISE_SETTINGS).getOrThrow(NoiseGeneratorSettings.OVERWORLD);
+    var settings = holder.value();
+    var doFill = NoiseBasedChunkGenerator.class.getDeclaredMethod("doFill", NoiseChunk.class, ChunkAccess.class);
+    doFill.setAccessible(true);
+    var buildSurface = NoiseBasedChunkGenerator.class.getDeclaredMethod("buildSurface", ChunkAccess.class, NoiseChunk.class,
+        RandomState.class, BiomeManager.class, Set.class, MaterialRule.class);
+    buildSurface.setAccessible(true);
+    var generateCarvers = NoiseBasedChunkGenerator.class.getDeclaredMethod("generateCarvers", ChunkAccess.class, Blender.class,
+        NoiseChunk.class, RandomState.class, BiomeManager.class, net.minecraft.server.level.WorldGenRegion.class, MaterialRule.class);
+    generateCarvers.setAccessible(true);
+    var createFluidPicker = NoiseBasedChunkGenerator.class.getDeclaredMethod("createFluidPicker", NoiseGeneratorSettings.class);
+    createFluidPicker.setAccessible(true);
+    var picker = (Aquifer.FluidPicker) createFluidPicker.invoke(null, settings);
+    var heights = LevelHeightAccessor.create(MIN_Y, HEIGHT);
+    // Vanilla's feature order, from the preset's biomes in parameter order.
+    var steps = FeatureSorter.buildFeaturesPerStep(List.copyOf(MultiNoiseBiomeSource.createFromList(
+            TerrainOracle.freshList(MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD, biomeLookup)).possibleBiomes()),
+        b -> b.value().getGenerationSettings().features(), true);
+    var placedIds = new IdentityHashMap<PlacedFeature, String>();
+    lookup.lookupOrThrow(Registries.PLACED_FEATURE).listElements()
+        .forEach(h -> placedIds.put(h.value(), h.key().identifier().toString()));
+    // Included placed features per step: (global index, feature).
+    var included = new ArrayList<Map<Integer, PlacedFeature>>();
+    var includedJson = new JsonArray();
+    for (var step : steps) {
+      var map = new TreeMap<Integer, PlacedFeature>();
+      var ids = new JsonArray();
+      for (int i = 0; i < step.features().size(); i++) {
+        var placed = step.features().get(i);
+        if (types.contains("*") || types.contains(placedIds.get(placed))
+            || placed.getFeatures().allMatch(f -> types.contains(typeOf(f.value())))) {
+          map.put(i, placed);
+          var entry = new JsonArray();
+          entry.add(i);
+          entry.add(placedIds.get(placed));
+          ids.add(entry);
+        }
+      }
+      included.add(map);
+      includedJson.add(ids);
+    }
+
+    if (args.length > 2 && args[2].equals("bench")) {
+      bench(Path.of(args[0]), factory, registries, lookup, noises, biomeLookup, holder, settings, doFill, buildSurface, generateCarvers,
+          picker, heights, steps, included, includedJson);
+      return;
+    }
+    var gen = new Random(20261020L);
+    long[] seeds = {20261020L, -8172645723L, gen.nextLong()};
+    var cases = new JsonArray();
+    long blocks = 0;
+    int features = 0;
+    for (long seed : seeds) {
+      var state = RandomState.create(noises, seed, settings);
+      BiomeSource biomeSource = MultiNoiseBiomeSource.createFromList(
+          TerrainOracle.freshList(MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD, biomeLookup));
+      var generator = new NoiseBasedChunkGenerator(biomeSource, holder);
+      var centres = new ArrayList<>(List.of(new ChunkPos(0, 0), new ChunkPos(-3, 5)));
+      for (int i = 0; i < 2; i++) centres.add(new ChunkPos(gen.nextInt(4001) - 2000, gen.nextInt(4001) - 2000));
+      centres.add(new ChunkPos(gen.nextInt(3_750_001) - 1_875_000, gen.nextInt(3_750_001) - 1_875_000));
+      for (var centre : centres) {
+       // The first area is also decorated by vanilla's own
+       // applyBiomeDecoration when every placed feature is included, and must
+       // come out the same as this oracle's loop.
+       boolean selfCheck = cases.isEmpty() && included.stream().mapToInt(Map::size).sum()
+           == steps.stream().mapToInt(st -> st.features().size()).sum();
+       JsonArray reference = null;
+       for (int run = selfCheck ? 0 : 1; run < 2; run++) {
+        var biomeCache = new HashMap<ChunkPos, Holder<Biome>[]>();
+        Function<ChunkPos, Holder<Biome>[]> biomesOf = p -> biomeCache.computeIfAbsent(p,
+            q -> TerrainOracle.chunkBiomes(state, "overworld", biomeLookup, q, MIN_Y, HEIGHT));
+        var biomeManager = new BiomeManager((qx, qy, qz) -> biomeAt(biomesOf, qx, qy, qz), BiomeManager.obfuscateSeed(seed));
+        var chunks = new LinkedHashMap<ChunkPos, ProtoChunk>();
+        for (int dz = -2; dz <= 2; dz++) {
+          for (int dx = -2; dx <= 2; dx++) {
+            var pos = new ChunkPos(centre.x() + dx, centre.z() + dz);
+            var chunk = new ProtoChunk(pos, UpgradeData.EMPTY, heights, factory, null);
+            var volume = new DensityVolume(16, HEIGHT, 16, pos.getMinBlockX(), MIN_Y, pos.getMinBlockZ());
+            try (var noiseChunk = new NoiseChunk(state, null, settings, picker, Blender.empty(), volume)) {
+              doFill.invoke(generator, noiseChunk, chunk);
+              buildSurface.invoke(generator, chunk, noiseChunk, state, biomeManager, null, settings.materialRule().value());
+              generateCarvers.invoke(generator, chunk, Blender.empty(), noiseChunk, state, biomeManager, null,
+                  settings.materialRule().value());
+            }
+            chunk.fillBiomesFromNoise((qx, qy, qz) -> biomeAt(biomesOf, qx, qy, qz));
+            Heightmap.primeHeightmaps(chunk, EnumSet.of(Heightmap.Types.MOTION_BLOCKING,
+                Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, Heightmap.Types.OCEAN_FLOOR, Heightmap.Types.WORLD_SURFACE));
+            chunk.setPersistedStatus(ChunkStatus.TERRAIN);
+            chunks.put(pos, chunk);
+          }
+        }
+        var order = new JsonArray();
+        for (int dz = -1; dz <= 1; dz++) {
+          for (int dx = -1; dx <= 1; dx++) {
+            var pos = new ChunkPos(centre.x() + dx, centre.z() + dz);
+            var region = new Region(chunks, pos, seed, state, biomeSource, lookup);
+            region.registries = registries;
+            WorldGenLevel level = region;
+            if (run == 0) {
+              generator.applyBiomeDecoration(level, chunks.get(pos), new StructureManager(level, new WorldOptions(seed, false, false), null));
+            } else {
+              features += decorate(level, generator, chunks.get(pos), steps, included);
+            }
+            var p = new JsonArray();
+            p.add(pos.x());
+            p.add(pos.z());
+            order.add(p);
+          }
+        }
+        var rows = new JsonArray();
+        for (var entry : chunks.entrySet()) {
+          rows.add(chunkJson(entry.getKey(), entry.getValue()));
+          if (run == 1) blocks += 16 * 16 * HEIGHT;
+        }
+        if (run == 0) {
+          reference = rows;
+          continue;
+        }
+        if (reference != null && !reference.equals(rows)) {
+          throw new IllegalStateException("the oracle's decoration loop differs from applyBiomeDecoration");
+        }
+        if (reference != null) System.out.println("PASS: the decoration loop equals vanilla's applyBiomeDecoration on the first area");
+        var row = new JsonObject();
+        row.addProperty("seed", Long.toString(seed));
+        row.addProperty("x", centre.x());
+        row.addProperty("z", centre.z());
+        row.add("order", order);
+        row.add("chunks", rows);
+        cases.add(row);
+       }
+      }
+    }
+    var out = new JsonObject();
+    out.add("features", includedJson);
+    out.add("cases", cases);
+    Files.writeString(Path.of(args[0]), new Gson().toJson(out));
+    System.out.println("PASS: " + cases.size() + " vanilla decorated areas (" + blocks + " blocks, " + features
+        + " placed features run) over " + seeds.length + " seeds");
+  }
+
+  /**
+   * `OUT TYPES bench`: one thread, seed 20261020, the 8 × 8 chunks from (0, 0) decorated (Z
+   * outer, X inner) in a 10 × 10 terrain area from (-1, -1); the terrain is rebuilt for every
+   * pass and not timed. Two warm-up and five timed passes; nanoseconds per pass.
+   */
+  static void bench(Path out, net.minecraft.world.level.chunk.PalettedContainerFactory factory, net.minecraft.core.RegistryAccess registries,
+      HolderGetter.Provider lookup, HolderGetter<net.minecraft.world.level.levelgen.synth.NormalNoise> noises, HolderGetter<Biome> biomeLookup,
+      Holder<NoiseGeneratorSettings> holder, NoiseGeneratorSettings settings, Method doFill, Method buildSurface, Method generateCarvers,
+      Aquifer.FluidPicker picker, LevelHeightAccessor heights, List<FeatureSorter.StepFeatureData> steps,
+      List<Map<Integer, PlacedFeature>> included, JsonArray includedJson) throws Exception {
+    long seed = 20261020L;
+    var state = RandomState.create(noises, seed, settings);
+    BiomeSource biomeSource = MultiNoiseBiomeSource.createFromList(
+        TerrainOracle.freshList(MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD, biomeLookup));
+    var generator = new NoiseBasedChunkGenerator(biomeSource, holder);
+    var passes = new JsonArray();
+    for (int pass = 0; pass < 7; pass++) {
+      var biomeCache = new HashMap<ChunkPos, Holder<Biome>[]>();
+      Function<ChunkPos, Holder<Biome>[]> biomesOf = p -> biomeCache.computeIfAbsent(p,
+          q -> TerrainOracle.chunkBiomes(state, "overworld", biomeLookup, q, MIN_Y, HEIGHT));
+      var biomeManager = new BiomeManager((qx, qy, qz) -> biomeAt(biomesOf, qx, qy, qz), BiomeManager.obfuscateSeed(seed));
+      var chunks = new LinkedHashMap<ChunkPos, ProtoChunk>();
+      for (int z = -1; z <= 8; z++) {
+        for (int x = -1; x <= 8; x++) {
+          var pos = new ChunkPos(x, z);
+          var chunk = new ProtoChunk(pos, UpgradeData.EMPTY, heights, factory, null);
+          var volume = new DensityVolume(16, HEIGHT, 16, pos.getMinBlockX(), MIN_Y, pos.getMinBlockZ());
+          try (var noiseChunk = new NoiseChunk(state, null, settings, picker, Blender.empty(), volume)) {
+            doFill.invoke(generator, noiseChunk, chunk);
+            buildSurface.invoke(generator, chunk, noiseChunk, state, biomeManager, null, settings.materialRule().value());
+            generateCarvers.invoke(generator, chunk, Blender.empty(), noiseChunk, state, biomeManager, null, settings.materialRule().value());
+          }
+          chunk.fillBiomesFromNoise((qx, qy, qz) -> biomeAt(biomesOf, qx, qy, qz));
+          Heightmap.primeHeightmaps(chunk, EnumSet.of(Heightmap.Types.MOTION_BLOCKING,
+              Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, Heightmap.Types.OCEAN_FLOOR, Heightmap.Types.WORLD_SURFACE));
+          chunk.setPersistedStatus(ChunkStatus.TERRAIN);
+          chunks.put(pos, chunk);
+        }
+      }
+      long start = System.nanoTime();
+      for (int z = 0; z < 8; z++) {
+        for (int x = 0; x < 8; x++) {
+          var pos = new ChunkPos(x, z);
+          var region = new Region(chunks, pos, seed, state, biomeSource, lookup);
+          region.registries = registries;
+          WorldGenLevel level = region;
+          decorate(level, generator, chunks.get(pos), steps, included);
+        }
+      }
+      long elapsed = System.nanoTime() - start;
+      if (pass >= 2) passes.add(elapsed);
+    }
+    var result = new JsonObject();
+    result.add("features", includedJson);
+    result.add("vanilla_decoration_ns", passes);
+    result.addProperty("java", System.getProperty("java.vm.name") + " " + System.getProperty("java.version"));
+    Files.writeString(out, new Gson().toJson(result));
+    System.out.println("PASS: vanilla decoration timings for 64 chunks");
+  }
+
+  static String typeOf(Feature feature) {
+    var key = net.minecraft.core.registries.BuiltInRegistries.FEATURE_TYPE.getKey(feature.codec());
+    return Objects.requireNonNull(key, "feature type").toString();
+  }
+
+  static Holder<Biome> biomeAt(Function<ChunkPos, Holder<Biome>[]> biomesOf, int qx, int qy, int qz) {
+    var column = biomesOf.apply(new ChunkPos(qx >> 2, qz >> 2));
+    int clamped = Math.clamp(qy, MIN_Y >> 2, (MIN_Y >> 2) + HEIGHT / 4 - 1) - (MIN_Y >> 2);
+    return column[(clamped >> 2) * 64 + ((clamped & 3) * 4 + (qz & 3)) * 4 + (qx & 3)];
+  }
+
+  /**
+   * The features part of `ChunkGenerator.applyBiomeDecoration` (structures
+   * off), with only the included placed features; returns how many ran.
+   */
+  static int decorate(WorldGenLevel level, NoiseBasedChunkGenerator generator, ChunkAccess chunk,
+      List<FeatureSorter.StepFeatureData> steps, List<Map<Integer, PlacedFeature>> included) {
+    var centerPos = chunk.getPos();
+    var sectionPos = SectionPos.of(centerPos, level.getMinSectionY());
+    var origin = sectionPos.origin();
+    var random = new WorldgenRandom(new XoroshiroRandomSource(RandomSupport.generateUniqueSeed()));
+    long decorationSeed = random.setDecorationSeed(level.getSeed(), origin.getX(), origin.getZ());
+    Set<Holder<Biome>> possibleBiomes = new it.unimi.dsi.fastutil.objects.ObjectArraySet<>();
+    ChunkPos.rangeClosed(sectionPos.chunk(), 1).forEach(chunkPos -> {
+      var chunkInRange = level.getChunk(chunkPos.x(), chunkPos.z());
+      for (var section : chunkInRange.getSections()) section.getBiomes().getAll(possibleBiomes::add);
+    });
+    possibleBiomes.retainAll(generator.getBiomeSource().possibleBiomes());
+    var placer = new FeaturePlacer(level, generator);
+    int ran = 0;
+    for (int stepIndex = 0; stepIndex < steps.size(); stepIndex++) {
+      var possible = new it.unimi.dsi.fastutil.ints.IntArraySet();
+      var stepData = steps.get(stepIndex);
+      for (var biome : possibleBiomes) {
+        var featuresInBiome = biome.value().getGenerationSettings().features();
+        if (stepIndex < featuresInBiome.size()) {
+          featuresInBiome.get(stepIndex).stream().map(Holder::value)
+              .forEach(f -> possible.add(stepData.indexMapping().applyAsInt(f)));
+        }
+      }
+      int[] indices = possible.toIntArray();
+      Arrays.sort(indices);
+      for (int index : indices) {
+        var feature = included.get(stepIndex).get(index);
+        if (feature == null) continue;
+        random.setFeatureSeed(decorationSeed, index, stepIndex);
+        placer.placeWithBiomeCheck(feature, random, origin);
+        ran++;
+      }
+    }
+    return ran;
+  }
+
+  static JsonObject chunkJson(ChunkPos pos, ProtoChunk chunk) {
+    var runs = new JsonArray();
+    int last = -1, count = 0;
+    var cursor = new BlockPos.MutableBlockPos();
+    for (int z = 0; z < 16; z++)
+      for (int x = 0; x < 16; x++)
+        for (int y = 0; y < HEIGHT; y++) {
+          int id = Block.getId(chunk.getBlockState(cursor.set(pos.getMinBlockX() + x, MIN_Y + y, pos.getMinBlockZ() + z)));
+          if (id != last && count > 0) {
+            runs.add(last);
+            runs.add(count);
+            count = 0;
+          }
+          last = id;
+          count++;
+        }
+    runs.add(last);
+    runs.add(count);
+    var marks = new TreeSet<String>();
+    var lists = chunk.getPostProcessing();
+    for (int i = 0; i < lists.length; i++) {
+      if (lists[i] == null) continue;
+      for (short packed : lists[i]) {
+        var p = ProtoChunk.unpackOffsetCoordinates(packed, chunk.getSectionYFromSectionIndex(i), pos);
+        marks.add(p.getX() + "," + p.getY() + "," + p.getZ());
+      }
+    }
+    var blockTicks = new JsonArray();
+    for (var tick : ((net.minecraft.world.ticks.ProtoChunkTicks<Block>) chunk.getBlockTicks()).scheduledTicks()) {
+      blockTicks.add(tick.pos().getX() + "," + tick.pos().getY() + "," + tick.pos().getZ() + ","
+          + net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(tick.type()) + "," + tick.delay() + "," + tick.priority().getValue());
+    }
+    var fluidTicks = new JsonArray();
+    for (var tick : ((net.minecraft.world.ticks.ProtoChunkTicks<net.minecraft.world.level.material.Fluid>) chunk.getFluidTicks()).scheduledTicks()) {
+      fluidTicks.add(tick.pos().getX() + "," + tick.pos().getY() + "," + tick.pos().getZ() + ","
+          + net.minecraft.core.registries.BuiltInRegistries.FLUID.getKey(tick.type()) + "," + tick.delay() + "," + tick.priority().getValue());
+    }
+    var entities = new TreeSet<String>();
+    chunk.getBlockEntityNbts().keySet().forEach(p -> entities.add(p.getX() + "," + p.getY() + "," + p.getZ()));
+    chunk.getBlockEntities().keySet().forEach(p -> entities.add(p.getX() + "," + p.getY() + "," + p.getZ()));
+    var row = new JsonObject();
+    row.addProperty("x", pos.x());
+    row.addProperty("z", pos.z());
+    row.add("runs", runs);
+    row.add("marks", new Gson().toJsonTree(marks));
+    row.add("block_ticks", blockTicks);
+    row.add("fluid_ticks", fluidTicks);
+    row.add("block_entities", new Gson().toJsonTree(entities));
+    return row;
+  }
+
+  /** The features step's `WorldGenRegion`, over proto chunks. */
+  static final class Region implements WorldGenLevel {
+    final Map<ChunkPos, ProtoChunk> chunks;
+    final ChunkPos center;
+    final long seed;
+    final RandomState state;
+    final BiomeSource biomeSource;
+    final HolderGetter.Provider lookup;
+    final net.minecraft.util.RandomSource random;
+    final WorldGenTickAccess<Block> blockTicks;
+    final WorldGenTickAccess<net.minecraft.world.level.material.Fluid> fluidTicks;
+    final LevelData levelData;
+    long subTickCount;
+    net.minecraft.core.RegistryAccess registries;
+    // No chunk is lit during decoration: sky light 15, block light 0.
+    final net.minecraft.world.level.lighting.LevelLightEngine lightEngine = new net.minecraft.world.level.lighting.LevelLightEngine(
+        (net.minecraft.world.level.chunk.LightChunkGetter) Proxy.newProxyInstance(DecorationOracle.class.getClassLoader(),
+            new Class<?>[] {net.minecraft.world.level.chunk.LightChunkGetter.class}, (proxy, method, args) -> switch (method.getName()) {
+              case "getChunkForLighting" -> null;
+              case "getLevel" -> net.minecraft.world.level.EmptyBlockGetter.INSTANCE;
+              default -> throw new UnsupportedOperationException("LightChunkGetter." + method.getName());
+            }), true, true);
+    WorldGenLevel self = this;
+    BiomeManager biomeManager;
+
+    Region(Map<ChunkPos, ProtoChunk> chunks, ChunkPos center, long seed, RandomState state, BiomeSource biomeSource,
+        HolderGetter.Provider lookup) {
+      this.chunks = chunks;
+      this.center = center;
+      this.seed = seed;
+      this.state = state;
+      this.biomeSource = biomeSource;
+      this.lookup = lookup;
+      this.random = state.getOrCreateRandomFactory(net.minecraft.resources.Identifier.withDefaultNamespace("worldgen_region_random"))
+          .at(center.getWorldPosition());
+      this.blockTicks = new WorldGenTickAccess<>(pos -> chunk(pos).getBlockTicks());
+      this.fluidTicks = new WorldGenTickAccess<>(pos -> chunk(pos).getFluidTicks());
+      this.levelData = (LevelData) Proxy.newProxyInstance(DecorationOracle.class.getClassLoader(), new Class<?>[] {LevelData.class},
+          (proxy, method, args) -> switch (method.getName()) {
+            case "getGameTime" -> 0L;
+            default -> throw new UnsupportedOperationException("LevelData." + method.getName());
+          });
+      this.biomeManager = new BiomeManager(this, BiomeManager.obfuscateSeed(seed));
+    }
+
+    int distance(int chunkX, int chunkZ) {
+      return Math.max(Math.abs(chunkX - center.x()), Math.abs(chunkZ - center.z()));
+    }
+
+    ProtoChunk chunk(int chunkX, int chunkZ) {
+      var chunk = chunks.get(new ChunkPos(chunkX, chunkZ));
+      if (chunk == null || distance(chunkX, chunkZ) > 8) {
+        throw new IllegalStateException("Requested chunk unavailable during world generation: " + chunkX + ", " + chunkZ);
+      }
+      return chunk;
+    }
+
+    ProtoChunk chunk(BlockPos pos) {
+      return chunk(SectionPos.blockToSectionCoord(pos.getX()), SectionPos.blockToSectionCoord(pos.getZ()));
+    }
+
+    static UnsupportedOperationException unsupported(String what) {
+      return new UnsupportedOperationException("WorldGenLevel." + what);
+    }
+
+    public boolean isOldChunkAround(ChunkPos pos, int range) { return false; }
+    @Override public void setCurrentlyGenerating(java.util.function.Supplier<String> currentlyGenerating) {}
+    @Override public ChunkAccess getChunk(int chunkX, int chunkZ) { return chunk(chunkX, chunkZ); }
+    @Override public ChunkAccess getChunk(int x, int z, ChunkStatus status, boolean loadOrGenerate) {
+      var allowed = distance(x, z) <= 1 ? ChunkStatus.TERRAIN : distance(x, z) <= 8 ? ChunkStatus.STRUCTURE_STARTS : null;
+      if (allowed != null && status.isOrBefore(allowed)) return chunk(x, z);
+      throw new IllegalStateException("Requested chunk unavailable during world generation: " + x + ", " + z + " " + status);
+    }
+    @Override public boolean hasChunk(int chunkX, int chunkZ) { return distance(chunkX, chunkZ) <= 8; }
+    @Override public BlockState getBlockState(BlockPos pos) { return chunk(pos).getBlockState(pos); }
+    @Override public net.minecraft.world.level.material.FluidState getFluidState(BlockPos pos) { return chunk(pos).getFluidState(pos); }
+    @Override public net.minecraft.world.entity.player.Player getNearestPlayer(double x, double y, double z, double maxDist,
+        java.util.function.Predicate<net.minecraft.world.entity.Entity> predicate) { return null; }
+    @Override public int getSkyDarken() { return 0; }
+    @Override public BiomeManager getBiomeManager() { return biomeManager; }
+    @Override public Holder<Biome> getUncachedNoiseBiome(int quartX, int quartY, int quartZ) {
+      return biomeSource.createResolver(state.createClimateSampler(
+          net.minecraft.world.level.levelgen.densityfunction.SamplerContext.builder().build())).getNoiseBiome(quartX, quartY, quartZ);
+    }
+    @Override public net.minecraft.world.level.lighting.LevelLightEngine getLightEngine() { return lightEngine; }
+    @Override public boolean destroyBlock(BlockPos pos, boolean dropResources, net.minecraft.world.entity.Entity breaker, int updateLimit) {
+      var blockState = getBlockState(pos);
+      return blockState.isAir() ? false : setBlock(pos, Blocks.AIR.defaultBlockState(), 3, updateLimit);
+    }
+    @Override public net.minecraft.world.level.block.entity.BlockEntity getBlockEntity(BlockPos pos) {
+      var chunk = chunk(pos);
+      var blockEntity = chunk.getBlockEntity(pos);
+      if (blockEntity != null) return blockEntity;
+      var tag = chunk.getBlockEntityNbt(pos);
+      var blockState = chunk.getBlockState(pos);
+      if (tag != null && "DUMMY".equals(tag.getStringOr("id", "")) && blockState.hasBlockEntity()) {
+        blockEntity = ((EntityBlock) blockState.getBlock()).newBlockEntity(pos, blockState);
+        if (blockEntity != null) {
+          chunk.setBlockEntity(blockEntity);
+          return blockEntity;
+        }
+      }
+      if (tag != null) throw unsupported("getBlockEntity of " + tag);
+      return null;
+    }
+    @Override public boolean ensureCanWrite(BlockPos pos) {
+      return distance(SectionPos.blockToSectionCoord(pos.getX()), SectionPos.blockToSectionCoord(pos.getZ())) <= 1;
+    }
+    @Override public boolean setBlock(BlockPos pos, BlockState blockState, int flags, int updateLimit) {
+      if (!ensureCanWrite(pos)) return false;
+      var chunk = chunk(pos);
+      var oldState = chunk.setBlockState(pos, blockState, flags);
+      if (blockState.hasBlockEntity()) {
+        var tag = new CompoundTag();
+        tag.putInt("x", pos.getX());
+        tag.putInt("y", pos.getY());
+        tag.putInt("z", pos.getZ());
+        tag.putString("id", "DUMMY");
+        chunk.setBlockEntityNbt(tag);
+      } else if (oldState != null && oldState.hasBlockEntity()) {
+        chunk.removeBlockEntity(pos);
+      }
+      if ((flags & 16) == 0) {
+        var postProcessPos = blockState.getPostProcessPos(this, pos);
+        if (postProcessPos != null) chunk(postProcessPos).markPosForPostProcessing(postProcessPos);
+      }
+      return true;
+    }
+    @Override public boolean removeBlock(BlockPos pos, boolean movedByPiston) { return setBlock(pos, Blocks.AIR.defaultBlockState(), 3); }
+    @Override public net.minecraft.world.level.border.WorldBorder getWorldBorder() { throw unsupported("getWorldBorder"); }
+    @Override public boolean isClientSide() { return false; }
+    @Override public net.minecraft.server.level.ServerLevel getLevel() { throw unsupported("getLevel"); }
+    @Override public net.minecraft.core.RegistryAccess registryAccess() { return registries; }
+    @Override public net.minecraft.world.flag.FeatureFlagSet enabledFeatures() { return FeatureFlags.DEFAULT_FLAGS; }
+    @Override public LevelData getLevelData() { return levelData; }
+    @Override public net.minecraft.world.DifficultyInstance getCurrentDifficultyAt(BlockPos pos) { throw unsupported("getCurrentDifficultyAt"); }
+    @Override public net.minecraft.server.MinecraftServer getServer() { throw unsupported("getServer"); }
+    @Override public net.minecraft.world.level.chunk.ChunkSource getChunkSource() { throw unsupported("getChunkSource"); }
+    @Override public long getSeed() { return seed; }
+    @Override public net.minecraft.world.ticks.LevelTickAccess<Block> getBlockTicks() { return blockTicks; }
+    @Override public net.minecraft.world.ticks.LevelTickAccess<net.minecraft.world.level.material.Fluid> getFluidTicks() { return fluidTicks; }
+    @Override public int getSeaLevel() { return 63; }
+    @Override public net.minecraft.util.RandomSource getRandom() { return random; }
+    @Override public int getHeight(Heightmap.Types type, int x, int z) {
+      return chunk(SectionPos.blockToSectionCoord(x), SectionPos.blockToSectionCoord(z)).getHeight(type, x & 15, z & 15) + 1;
+    }
+    @Override public void playSound(net.minecraft.world.entity.Entity except, BlockPos pos, net.minecraft.sounds.SoundEvent sound,
+        net.minecraft.sounds.SoundSource source, float volume, float pitch) {}
+    @Override public void addParticle(net.minecraft.core.particles.ParticleOptions particle, double x, double y, double z,
+        double xd, double yd, double zd) {}
+    @Override public void levelEvent(net.minecraft.world.entity.Entity source, int type, BlockPos pos, int data) {}
+    @Override public void gameEvent(Holder<net.minecraft.world.level.gameevent.GameEvent> gameEvent, net.minecraft.world.phys.Vec3 position,
+        net.minecraft.world.level.gameevent.GameEvent.Context context) {}
+    @Override public net.minecraft.world.level.dimension.DimensionType dimensionType() {
+      return lookup.lookupOrThrow(Registries.DIMENSION_TYPE).getOrThrow(BuiltinDimensionTypes.OVERWORLD).value();
+    }
+    @Override public boolean isStateAtPosition(BlockPos pos, java.util.function.Predicate<BlockState> predicate) {
+      return predicate.test(getBlockState(pos));
+    }
+    @Override public boolean isFluidAtPosition(BlockPos pos, java.util.function.Predicate<net.minecraft.world.level.material.FluidState> predicate) {
+      return predicate.test(getFluidState(pos));
+    }
+    @Override public <T extends net.minecraft.world.entity.Entity> List<T> getEntities(
+        net.minecraft.world.level.entity.EntityTypeTest<net.minecraft.world.entity.Entity, T> type, net.minecraft.world.phys.AABB bb,
+        java.util.function.Predicate<? super T> selector) { return Collections.emptyList(); }
+    @Override public List<net.minecraft.world.entity.Entity> getEntities(net.minecraft.world.entity.Entity except, net.minecraft.world.phys.AABB bb,
+        java.util.function.Predicate<? super net.minecraft.world.entity.Entity> selector) { return Collections.emptyList(); }
+    @Override public List<net.minecraft.world.entity.player.Player> players() { return Collections.emptyList(); }
+    @Override public int getMinY() { return MIN_Y; }
+    @Override public int getHeight() { return HEIGHT; }
+    @Override public long nextSubTickCount() { return subTickCount++; }
+    @Override public net.minecraft.world.attribute.EnvironmentAttributeReader environmentAttributes() { throw unsupported("environmentAttributes"); }
+  }
+}

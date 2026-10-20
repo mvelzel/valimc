@@ -1,13 +1,12 @@
 //! Carvers (VMC-024c): vanilla's cave and canyon carvers, which mark a
-//! chunk's carving mask from the carvers started in the chunks around it, and
-//! the value providers they draw their shapes from. Applying the mask to the
-//! chunk is `Worldgen::build_terrain`'s last step.
+//! chunk's carving mask from the carvers started in the chunks around it,
+//! drawing their shapes from value providers (`providers`). Applying the mask
+//! to the chunk is `Worldgen::build_terrain`'s last step.
 
 use std::sync::OnceLock;
 
 use super::json::Json;
 use super::random::Random;
-use super::surface::Anchor;
 
 /// `Mth.SIN`: 65,536 sines of a full turn, as floats.
 fn sin_table() -> &'static [f32] {
@@ -33,138 +32,7 @@ const PI_F: f32 = std::f64::consts::PI as f32;
 const TAU_F: f32 = (std::f64::consts::PI * 2.0) as f32;
 const HALF_PI_F: f32 = (std::f64::consts::PI / 2.0) as f32;
 
-#[derive(Clone, Debug)]
-pub enum FloatProvider {
-    Constant(f32),
-    Uniform { min: f32, max: f32 },
-    Trapezoid { min: f32, max: f32, plateau: f32 },
-}
-
-impl FloatProvider {
-    fn parse(json: &Json) -> Result<FloatProvider, String> {
-        if let Json::Number(n) = json {
-            return Ok(FloatProvider::Constant(*n as f32));
-        }
-        let f = |k: &str| Ok::<f32, String>(json.field(k)?.as_f64()? as f32);
-        match json.field("type")?.as_str()? {
-            "minecraft:constant" => Ok(FloatProvider::Constant(f("value")?)),
-            "minecraft:uniform" => Ok(FloatProvider::Uniform {
-                min: f("min_inclusive")?,
-                max: f("max_exclusive")?,
-            }),
-            "minecraft:trapezoid" => Ok(FloatProvider::Trapezoid {
-                min: f("min")?,
-                max: f("max")?,
-                plateau: f("plateau")?,
-            }),
-            other => Err(format!("unsupported float provider {other}")),
-        }
-    }
-
-    fn sample(&self, random: &mut Random) -> f32 {
-        match *self {
-            FloatProvider::Constant(v) => v,
-            FloatProvider::Uniform { min, max } => random.next_float() * (max - min) + min,
-            FloatProvider::Trapezoid { min, max, plateau } => {
-                let range = max - min;
-                let start = (range - plateau) / 2.0;
-                let end = range - start;
-                let a = random.next_float() * end;
-                min + a + random.next_float() * start
-            }
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum IntProvider {
-    Constant(i32),
-    Uniform { min: i32, max: i32 },
-    VeryBiasedToBottom { min: i32, max: i32 },
-}
-
-impl IntProvider {
-    fn parse(json: &Json) -> Result<IntProvider, String> {
-        if let Json::Number(_) = json {
-            return Ok(IntProvider::Constant(json.as_i32()?));
-        }
-        let i = |k: &str| json.field(k)?.as_i32();
-        match json.field("type")?.as_str()? {
-            "minecraft:constant" => Ok(IntProvider::Constant(i("value")?)),
-            "minecraft:uniform" => Ok(IntProvider::Uniform {
-                min: i("min_inclusive")?,
-                max: i("max_inclusive")?,
-            }),
-            "minecraft:very_biased_to_bottom" => Ok(IntProvider::VeryBiasedToBottom {
-                min: i("min_inclusive")?,
-                max: i("max_inclusive")?,
-            }),
-            other => Err(format!("unsupported int provider {other}")),
-        }
-    }
-
-    fn sample(&self, random: &mut Random) -> i32 {
-        match *self {
-            IntProvider::Constant(v) => v,
-            IntProvider::Uniform { min, max } => random.next_int_bounded(max - min + 1) + min,
-            IntProvider::VeryBiasedToBottom { min, max } => {
-                let a = random.next_int_bounded(max - min + 1) + 1;
-                let b = random.next_int_bounded(a) + 1;
-                min + random.next_int_bounded(b)
-            }
-        }
-    }
-}
-
-/// A height provider: a constant anchor or uniform between two anchors.
-#[derive(Clone, Debug)]
-pub enum HeightProvider {
-    Constant(Anchor),
-    Uniform { min: Anchor, max: Anchor },
-}
-
-/// The generation context carvers resolve anchors against.
-#[derive(Clone, Copy, Debug)]
-pub struct GenContext {
-    pub min_y: i32,
-    pub height: i32,
-    pub sea_level: i32,
-}
-
-impl HeightProvider {
-    fn parse(json: &Json) -> Result<HeightProvider, String> {
-        match json.get("type") {
-            None => Ok(HeightProvider::Constant(Anchor::parse_json(json)?)),
-            Some(t) => match t.as_str()? {
-                "minecraft:constant" => Ok(HeightProvider::Constant(Anchor::parse_json(
-                    json.field("value")?,
-                )?)),
-                "minecraft:uniform" => Ok(HeightProvider::Uniform {
-                    min: Anchor::parse_json(json.field("min_inclusive")?)?,
-                    max: Anchor::parse_json(json.field("max_inclusive")?)?,
-                }),
-                other => Err(format!("unsupported height provider {other}")),
-            },
-        }
-    }
-
-    fn sample(&self, random: &mut Random, c: GenContext) -> i32 {
-        match self {
-            HeightProvider::Constant(a) => a.resolve(c.min_y, c.height, c.sea_level),
-            HeightProvider::Uniform { min, max } => {
-                let (min, max) = (
-                    min.resolve(c.min_y, c.height, c.sea_level),
-                    max.resolve(c.min_y, c.height, c.sea_level),
-                );
-                if min > max {
-                    min
-                } else {
-                    random.next_int_bounded(max - min + 1) + min
-                }
-            }
-        }
-    }
-}
+pub use super::providers::{FloatProvider, GenContext, HeightProvider, IntProvider};
 
 #[derive(Clone, Debug)]
 pub struct Cave {

@@ -96,6 +96,11 @@ fn temperature_noises() -> &'static TemperatureNoises {
     })
 }
 
+/// `Biome.BIOME_INFO_NOISE.get(x, z)`.
+pub fn biome_info_noise(x: f64, z: f64) -> f32 {
+    temperature_noises().info.get_2d(x, z)
+}
+
 /// `Biome.getTemperature`: the frozen modifier, then cooling above the snow
 /// line.
 pub fn temperature(climate: &BiomeClimate, x: i32, y: i32, z: i32, sea_level: i32) -> f32 {

@@ -6,8 +6,17 @@ import net.minecraft.SharedConstants;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.server.Bootstrap;
+import net.minecraft.core.Holder;
 import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.biome.BiomeSource;
+import net.minecraft.world.level.biome.Climate;
+import net.minecraft.world.level.biome.FeatureSorter;
+import net.minecraft.world.level.biome.MultiNoiseBiomeSource;
 import net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterList;
+import net.minecraft.world.level.biome.TheEndBiomeSource;
+import net.minecraft.world.level.levelgen.feature.Feature;
+import net.minecraft.world.level.levelgen.feature.stateproviders.BlockStateProvider;
+import net.minecraft.world.level.levelgen.placement.PlacedFeature;
 import net.minecraft.world.level.levelgen.NoiseGeneratorSettings;
 import net.minecraft.world.level.levelgen.carver.WorldCarver;
 import net.minecraft.world.level.levelgen.densityfunction.DensityFunctions;
@@ -28,8 +37,14 @@ import net.minecraft.world.level.levelgen.synth.NormalNoise;
  * - material_rules.json and material_conditions.json: the
  *   `worldgen/material_rule` and `worldgen/material_condition` registries;
  * - biomes.json: per biome, its climate (precipitation, temperature and its
- *   modifier, downfall) and carvers;
+ *   modifier, downfall), carvers and placed features per decoration step;
  * - carvers.json: the `worldgen/carver` registry;
+ * - features.json, placed_features.json and block_state_providers.json: the
+ *   `worldgen/feature`, `worldgen/placed_feature` and
+ *   `worldgen/block_state_provider` registries (VMC-025);
+ * - feature_order.json: per biome source (the overworld and nether presets,
+ *   the End), the placed features of each decoration step in the order
+ *   vanilla's `FeatureSorter` gives them, whose index seeds each feature;
  * - biome_parameters.json: per multi-noise preset, its climate parameter list
  *   in order, one row per entry: the biome, then the quantized minimum and
  *   maximum of temperature, humidity, continentalness, erosion, depth and
@@ -76,7 +91,7 @@ public class WorldgenFactsOracle {
     lookup.lookupOrThrow(Registries.BIOME).listElements().forEach(holder -> {
       var full = Biome.DIRECT_CODEC.encodeStart(ops, holder.value()).getOrThrow().getAsJsonObject();
       var kept = new JsonObject();
-      for (var key : List.of("has_precipitation", "temperature", "temperature_modifier", "downfall", "carvers")) {
+      for (var key : List.of("has_precipitation", "temperature", "temperature_modifier", "downfall", "carvers", "features")) {
         if (full.has(key)) kept.add(key, full.get(key));
       }
       biomes.put(holder.key().identifier().toString(), kept);
@@ -86,6 +101,41 @@ public class WorldgenFactsOracle {
     lookup.lookupOrThrow(Registries.CARVER).listElements().forEach(holder ->
         carvers.put(holder.key().identifier().toString(), WorldCarver.DIRECT_CODEC.encodeStart(ops, holder.value()).getOrThrow()));
 
+    var features = new TreeMap<String, JsonElement>();
+    lookup.lookupOrThrow(Registries.FEATURE).listElements().forEach(holder ->
+        features.put(holder.key().identifier().toString(), Feature.DIRECT_CODEC.encodeStart(ops, holder.value()).getOrThrow()));
+    var placed = new TreeMap<String, JsonElement>();
+    var placedIds = new IdentityHashMap<PlacedFeature, String>();
+    lookup.lookupOrThrow(Registries.PLACED_FEATURE).listElements().forEach(holder -> {
+      placedIds.put(holder.value(), holder.key().identifier().toString());
+      placed.put(holder.key().identifier().toString(), PlacedFeature.DIRECT_CODEC.encodeStart(ops, holder.value()).getOrThrow());
+    });
+    var providers = new TreeMap<String, JsonElement>();
+    lookup.lookupOrThrow(Registries.BLOCK_STATE_PROVIDER).listElements().forEach(holder ->
+        providers.put(holder.key().identifier().toString(), BlockStateProvider.DIRECT_CODEC.encodeStart(ops, holder.value()).getOrThrow()));
+
+    var biomeLookup = lookup.lookupOrThrow(Registries.BIOME);
+    var sources = new TreeMap<String, BiomeSource>();
+    for (var preset : List.of(MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD, MultiNoiseBiomeSourceParameterList.Preset.NETHER)) {
+      var values = new ArrayList<com.mojang.datafixers.util.Pair<Climate.ParameterPoint, Holder<Biome>>>();
+      for (var pair : MultiNoiseBiomeSourceParameterList.knownPresets().get(preset).values()) {
+        values.add(com.mojang.datafixers.util.Pair.of(pair.getFirst(), biomeLookup.getOrThrow(pair.getSecond())));
+      }
+      sources.put(preset.id().toString(), MultiNoiseBiomeSource.createFromList(new Climate.ParameterList<>(values)));
+    }
+    sources.put("minecraft:the_end", TheEndBiomeSource.create(biomeLookup));
+    var order = new TreeMap<String, JsonElement>();
+    sources.forEach((name, source) -> {
+      var steps = new JsonArray();
+      for (var step : FeatureSorter.buildFeaturesPerStep(List.copyOf(source.possibleBiomes()),
+          b -> b.value().getGenerationSettings().features(), true)) {
+        var ids = new JsonArray();
+        step.features().forEach(feature -> ids.add(Objects.requireNonNull(placedIds.get(feature))));
+        steps.add(ids);
+      }
+      order.put(name, steps);
+    });
+
     write(args[0], noises);
     write(args[1], functions);
     write(args[2], settings);
@@ -93,6 +143,10 @@ public class WorldgenFactsOracle {
     write(args[5], conditions);
     write(args[6], biomes);
     write(args[7], carvers);
+    write(args[8], features);
+    write(args[9], placed);
+    write(args[10], providers);
+    write(args[11], order);
 
     var presets = new TreeMap<String, List<String>>();
     MultiNoiseBiomeSourceParameterList.knownPresets().forEach((preset, list) -> {
@@ -118,7 +172,9 @@ public class WorldgenFactsOracle {
     System.out.println("PASS: " + noises.size() + " noise parameter sets, " + functions.size()
         + " density functions, " + settings.size() + " noise settings, "
         + presets.size() + " biome parameter presets, " + rules.size() + " material rules, " + conditions.size()
-        + " material conditions, " + biomes.size() + " biomes, " + carvers.size() + " carvers");
+        + " material conditions, " + biomes.size() + " biomes, " + carvers.size() + " carvers, "
+        + features.size() + " features, " + placed.size() + " placed features, " + providers.size()
+        + " block state providers, feature order for " + order.size() + " biome sources");
   }
 
   static void write(String path, Map<String, JsonElement> entries) throws Exception {

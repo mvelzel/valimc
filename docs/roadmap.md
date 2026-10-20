@@ -38,11 +38,12 @@ resumes on these foundations alongside M2.
 | [VMC-029c](tickets/VMC-029c.md) | Blocks that lose their support break (plants, torches, two-block halves), found in imported terrain | Done |
 | [VMC-023](tickets/VMC-023.md) | Seeded noise and biomes: random sources, noises, compiled density functions and chunk biomes equal vanilla's | Foundation |
 | [VMC-024](tickets/VMC-024.md) | Vanilla terrain: noise fill with aquifers, material rules and carvers equal to vanilla's, generated live in new worlds | Done |
+| [VMC-025](tickets/VMC-025.md) | Features and structures: the decoration pipeline and the first features equal vanilla's; trees, the remaining features, live decoration and structures next | In progress |
 
-Next: features and structures (VMC-025) with parity against vanilla, then
-dimensions and portals (VMC-026..028). Performance target: generation
-throughput and tick time benchmarked against the same seed on vanilla and on
-Pumpkin, staying at least in Pumpkin's range.
+Next: trees and the remaining features (VMC-025b, c), features live
+(VMC-025d) and structures, then dimensions and portals (VMC-026..028).
+Performance target: generation throughput and tick time benchmarked against
+the same seed on vanilla and on Pumpkin, staying at least in Pumpkin's range.
 
 ## M3 onward
 

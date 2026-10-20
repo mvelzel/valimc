@@ -66,6 +66,9 @@ enum State {
     Xoroshiro(u64, u64),
     /// The 48-bit LCG seed.
     Legacy(u64),
+    /// `WorldgenRandom` over a Xoroshiro source (lo, hi): the legacy
+    /// algorithms on `next(bits)`, the top bits of Xoroshiro's `nextLong`.
+    Worldgen(u64, u64),
 }
 
 /// A random source, as vanilla's `RandomSource` implementations behave.
@@ -106,11 +109,52 @@ impl Random {
         }
     }
 
+    /// `new WorldgenRandom(new XoroshiroRandomSource(seed))`.
+    pub fn worldgen(seed: i64) -> Self {
+        let (lo, hi) = upgrade_seed(seed);
+        Random {
+            state: State::Worldgen(lo, hi),
+            gaussian: Gaussian::new(),
+        }
+    }
+
     pub fn set_seed(&mut self, seed: i64) {
         *self = match self.state {
             State::Xoroshiro(..) => Self::xoroshiro(seed),
             State::Legacy(_) => Self::legacy(seed),
+            // Vanilla reseeds the inner source only; the Gaussian state stays.
+            State::Worldgen(..) => {
+                let (lo, hi) = upgrade_seed(seed);
+                Random {
+                    state: State::Worldgen(lo, hi),
+                    gaussian: self.gaussian.clone(),
+                }
+            }
         };
+    }
+
+    /// `WorldgenRandom.setDecorationSeed`: reseeds for a chunk origin and
+    /// returns the decoration seed.
+    pub fn set_decoration_seed(&mut self, seed: i64, x: i32, z: i32) -> i64 {
+        self.set_seed(seed);
+        let a = self.next_long() | 1;
+        let b = self.next_long() | 1;
+        let result = ((x as i64).wrapping_mul(a)).wrapping_add((z as i64).wrapping_mul(b)) ^ seed;
+        self.set_seed(result);
+        result
+    }
+
+    /// `WorldgenRandom.setFeatureSeed`.
+    pub fn set_feature_seed(&mut self, seed: i64, index: i32, step: i32) {
+        self.set_seed(
+            seed.wrapping_add(index as i64)
+                .wrapping_add(10000i32.wrapping_mul(step) as i64),
+        );
+    }
+
+    /// The legacy `next(bits)` of a `WorldgenRandom` over Xoroshiro.
+    fn next_bits_worldgen(lo: &mut u64, hi: &mut u64, bits: u32) -> i32 {
+        (Self::xoroshiro_next(lo, hi) >> (64 - bits)) as i32
     }
 
     fn xoroshiro_next(lo: &mut u64, hi: &mut u64) -> u64 {
@@ -136,6 +180,11 @@ impl Random {
                 let low = Self::next_bits_legacy(seed, 32) as i64;
                 (high << 32).wrapping_add(low)
             }
+            State::Worldgen(lo, hi) => {
+                let high = Self::next_bits_worldgen(lo, hi, 32) as i64;
+                let low = Self::next_bits_worldgen(lo, hi, 32) as i64;
+                (high << 32).wrapping_add(low)
+            }
         }
     }
 
@@ -143,6 +192,7 @@ impl Random {
         match &mut self.state {
             State::Xoroshiro(lo, hi) => Self::xoroshiro_next(lo, hi) as i32,
             State::Legacy(seed) => Self::next_bits_legacy(seed, 32),
+            State::Worldgen(lo, hi) => Self::next_bits_worldgen(lo, hi, 32),
         }
     }
 
@@ -174,6 +224,19 @@ impl Random {
                     }
                 }
             }
+            State::Worldgen(lo, hi) => {
+                if bound & (bound - 1) == 0 {
+                    return ((bound as i64 * Self::next_bits_worldgen(lo, hi, 31) as i64) >> 31)
+                        as i32;
+                }
+                loop {
+                    let bits = Self::next_bits_worldgen(lo, hi, 31);
+                    let value = bits % bound;
+                    if bits.wrapping_sub(value).wrapping_add(bound - 1) >= 0 {
+                        return value;
+                    }
+                }
+            }
         }
     }
 
@@ -181,6 +244,7 @@ impl Random {
         match &mut self.state {
             State::Xoroshiro(lo, hi) => Self::xoroshiro_next(lo, hi) & 1 != 0,
             State::Legacy(seed) => Self::next_bits_legacy(seed, 1) != 0,
+            State::Worldgen(lo, hi) => Self::next_bits_worldgen(lo, hi, 1) != 0,
         }
     }
 
@@ -190,6 +254,9 @@ impl Random {
                 (Self::xoroshiro_next(lo, hi) >> 40) as f32 * 5.960_464_5e-8_f32
             }
             State::Legacy(seed) => Self::next_bits_legacy(seed, 24) as f32 * 5.960_464_5e-8_f32,
+            State::Worldgen(lo, hi) => {
+                Self::next_bits_worldgen(lo, hi, 24) as f32 * 5.960_464_5e-8_f32
+            }
         }
     }
 
@@ -201,6 +268,11 @@ impl Random {
             State::Legacy(seed) => {
                 let high = Self::next_bits_legacy(seed, 26) as i64;
                 let low = Self::next_bits_legacy(seed, 27) as i64;
+                ((high << 27) + low) as f64 * 1.110_223_024_625_156_5e-16
+            }
+            State::Worldgen(lo, hi) => {
+                let high = Self::next_bits_worldgen(lo, hi, 26) as i64;
+                let low = Self::next_bits_worldgen(lo, hi, 27) as i64;
                 ((high << 27) + low) as f64 * 1.110_223_024_625_156_5e-16
             }
         }
@@ -230,7 +302,7 @@ impl Random {
                 State::Xoroshiro(lo, hi) => {
                     Self::xoroshiro_next(lo, hi);
                 }
-                State::Legacy(_) => {
+                State::Legacy(_) | State::Worldgen(..) => {
                     self.next_int();
                 }
             }
@@ -239,20 +311,31 @@ impl Random {
 
     pub fn fork(&mut self) -> Random {
         match self.state {
-            State::Xoroshiro(..) => {
-                let lo = self.next_long() as u64;
-                let hi = self.next_long() as u64;
+            // `WorldgenRandom` forks its inner Xoroshiro source.
+            State::Xoroshiro(..) | State::Worldgen(..) => {
+                let (lo, hi) = self.inner_longs();
                 Random::xoroshiro128(lo, hi)
             }
             State::Legacy(_) => Random::legacy(self.next_long()),
         }
     }
 
+    /// Two longs of the (inner) Xoroshiro source, for its forks.
+    fn inner_longs(&mut self) -> (u64, u64) {
+        match &mut self.state {
+            State::Xoroshiro(lo, hi) | State::Worldgen(lo, hi) => {
+                let a = Self::xoroshiro_next(lo, hi);
+                let b = Self::xoroshiro_next(lo, hi);
+                (a, b)
+            }
+            State::Legacy(_) => unreachable!("legacy sources fork from their own longs"),
+        }
+    }
+
     pub fn fork_positional(&mut self) -> Positional {
         match self.state {
-            State::Xoroshiro(..) => {
-                let lo = self.next_long() as u64;
-                let hi = self.next_long() as u64;
+            State::Xoroshiro(..) | State::Worldgen(..) => {
+                let (lo, hi) = self.inner_longs();
                 Positional::Xoroshiro(lo, hi)
             }
             State::Legacy(_) => Positional::Legacy(self.next_long()),

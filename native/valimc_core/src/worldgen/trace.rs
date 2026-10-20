@@ -5,7 +5,9 @@
 //! Random operations: `int`, `bounded:N`, `long`, `bool`, `float`, `double`,
 //! `gaussian`, `consume:N`, `fork` (continue on the fork), `at:X,Y,Z`,
 //! `hash:TEXT` and `seed:N` (continue on that random of a positional factory
-//! forked from the current source). Floats and doubles are their raw bits.
+//! forked from the current source); for `WorldgenRandom` (kind `worldgen`)
+//! also `reseed:N`, `decoration:SEED,X,Z` (its result) and
+//! `feature:SEED,INDEX,STEP`. Floats and doubles are their raw bits.
 
 use super::compiler::Worldgen;
 use super::noise::{BlendedParameters, NoiseParameters, NormalNoise, Normalization, Stack};
@@ -17,12 +19,15 @@ fn random(kind: &str, seed: i64) -> Result<Random, String> {
     match kind {
         "xoroshiro" => Ok(Random::xoroshiro(seed)),
         "legacy" => Ok(Random::legacy(seed)),
+        "worldgen" => Ok(Random::worldgen(seed)),
         other => Err(format!("unknown kind {other}")),
     }
 }
 
 pub fn run(kind: &str, seed: i64, ops: &[String]) -> Result<Vec<String>, String> {
     let mut random = random(kind, seed)?;
+    // Forks continue on plain sources, which have no decoration seeds.
+    let mut worldgen = kind == "worldgen";
     let mut out = Vec::with_capacity(ops.len());
     for op in ops {
         let (name, arg) = op.split_once(':').unwrap_or((op.as_str(), ""));
@@ -43,21 +48,47 @@ pub fn run(kind: &str, seed: i64, ops: &[String]) -> Result<Vec<String>, String>
                 "-".to_string()
             }
             "fork" => {
+                worldgen = false;
                 random = random.fork();
                 "-".to_string()
             }
             "at" => {
+                worldgen = false;
                 let parts: Vec<i32> = arg.split(',').map(|p| p.parse().unwrap_or(0)).collect();
                 random = random.fork_positional().at(parts[0], parts[1], parts[2]);
                 "-".to_string()
             }
             "hash" => {
+                worldgen = false;
                 random = random.fork_positional().from_hash_of(arg);
                 "-".to_string()
             }
             "seed" => {
+                worldgen = false;
                 random = random.fork_positional().from_seed(number(arg)?);
                 "-".to_string()
+            }
+            "reseed" => {
+                random.set_seed(number(arg)?);
+                "-".to_string()
+            }
+            "decoration" | "feature" if !worldgen => "skip".to_string(),
+            "decoration" | "feature" => {
+                let parts = arg
+                    .split(',')
+                    .map(number)
+                    .collect::<Result<Vec<i64>, String>>()?;
+                if parts.len() != 3 {
+                    return Err(format!("bad argument in {op}"));
+                }
+                if name == "decoration" {
+                    random
+                        .set_decoration_seed(parts[0], parts[1] as i32, parts[2] as i32)
+                        .to_string()
+                } else {
+                    random.set_feature_seed(parts[0], parts[1] as i32, parts[2] as i32);
+                    "-".to_string()
+                }
             }
             other => return Err(format!("unknown operation {other}")),
         };

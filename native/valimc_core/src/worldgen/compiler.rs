@@ -11,18 +11,21 @@
 //! 3. The result compiles to samplers, taking vanilla's shortcuts (constant
 //!    operands, `min`/`max` decided by ranges, constant lerp ends).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use super::blocks::BlockTable;
 use super::carver::{self, Carver, CarvingMask, GenContext};
 use super::climate::{quantize, ParameterList};
 use super::density::{
     Axis, Binary, Df, Env, ShiftKind, Simple, Spline, Tiling, ALL_AXES, AXIS_X, AXIS_Y, AXIS_Z,
 };
+use super::feature::{Decoration, DecorationFacts};
 use super::interval::{Interval, NAI};
 use super::json::Json;
 use super::noise::{BlendedParameters, NormalNoise, Simplex, Stack};
 use super::random::{Positional, Random};
+use super::region::{Area, ProtoChunk, Region};
 use super::sampler::{Context, Field, GradientKind, Sampler, SplineNode};
 use super::surface::{
     self, Biomes, ChunkBlocks, MaterialRegistry, MaterialSystem, Rule, SurfaceEnv, SurfaceInput,
@@ -75,6 +78,20 @@ pub struct Facts<'a> {
     pub biomes: &'a Json,
     pub carvers: &'a Json,
     pub blocks: &'a Json,
+    /// Decoration (VMC-025), when present: features, placed features, state
+    /// providers, the feature order, survival facts, the block registry and
+    /// per-state block facts.
+    pub decoration: Option<DecorationJson<'a>>,
+}
+
+pub struct DecorationJson<'a> {
+    pub features: &'a Json,
+    pub placed_features: &'a Json,
+    pub block_state_providers: &'a Json,
+    pub feature_order: &'a Json,
+    pub support: &'a Json,
+    pub block_registry: &'a Json,
+    pub block_facts: &'a Json,
 }
 
 impl<'a> Facts<'a> {
@@ -90,6 +107,18 @@ impl<'a> Facts<'a> {
             biomes: json.field("biomes")?,
             carvers: json.field("carvers")?,
             blocks: json.field("blocks")?,
+            decoration: match json.get("features") {
+                None => None,
+                Some(features) => Some(DecorationJson {
+                    features,
+                    placed_features: json.field("placed_features")?,
+                    block_state_providers: json.field("block_state_providers")?,
+                    feature_order: json.field("feature_order")?,
+                    support: json.field("support")?,
+                    block_registry: json.field("block_registry")?,
+                    block_facts: json.field("block_facts")?,
+                }),
+            },
         })
     }
 }
@@ -108,6 +137,8 @@ pub struct Registry {
     pub carvers: HashMap<String, Carver>,
     /// Per biome registry id, its carvers in order.
     pub biome_carvers: Vec<Vec<String>>,
+    /// The overworld's decoration (VMC-025), when its facts were given.
+    pub decoration: Option<Arc<Decoration>>,
 }
 
 /// One chunk's biomes as `fill_biomes` computes them.
@@ -211,6 +242,39 @@ impl Registry {
             registry
                 .biome_parameters
                 .insert(id.clone(), (Arc::new(list), ids));
+        }
+        if let Some(json) = &facts.decoration {
+            let table = Arc::new(BlockTable::parse(json.block_registry, json.block_facts)?);
+            let (_, source) = registry
+                .biome_parameters
+                .get("minecraft:overworld")
+                .ok_or("no overworld biome parameters")?;
+            let mut source_biomes = source.clone();
+            source_biomes.sort_unstable();
+            source_biomes.dedup();
+            let biomes = registry.biomes.clone();
+            let decoration = Decoration::parse(
+                table,
+                DecorationFacts {
+                    features: json.features,
+                    placed_features: json.placed_features,
+                    block_state_providers: json.block_state_providers,
+                    order: json.feature_order.field("minecraft:overworld")?,
+                    biomes: facts.biomes,
+                    support: json.support,
+                    biome_ids: &|name| biomes.id(name),
+                    biome_count: biomes.names.len(),
+                    source_biomes: &source_biomes,
+                    climates: biomes.climate.clone(),
+                },
+                GenContext {
+                    min_y: -64,
+                    height: 384,
+                    sea_level: 63,
+                },
+            )
+            .map_err(|e| format!("decoration: {e}"))?;
+            registry.decoration = Some(Arc::new(decoration));
         }
         let (noises, functions, settings) =
             (facts.noises, facts.density_functions, facts.noise_settings);
@@ -738,6 +802,70 @@ impl Worldgen {
         }
         self.chunk_biomes.insert(key, biomes.clone());
         Ok(biomes)
+    }
+
+    /// Decoration over an area (VMC-025): the `size` × `size` chunks from
+    /// (`x`, `z`) get their terrain (as `build_terrain` with carvers, with
+    /// its fluid post-processing marks) and chunk biomes, then each chunk in
+    /// `order` is decorated through a region centred on it. `included`
+    /// limits the placed features by (step, global index).
+    pub fn decorate_area(
+        &mut self,
+        biome_source: &str,
+        (x, z): (i32, i32),
+        size: i32,
+        order: &[(i32, i32)],
+        included: Option<&HashSet<(usize, usize)>>,
+    ) -> Result<Area, String> {
+        Ok(self
+            .decorate_area_timed(biome_source, (x, z), size, order, included)?
+            .0)
+    }
+
+    /// `decorate_area`, with the time decoration took (terrain excluded).
+    pub fn decorate_area_timed(
+        &mut self,
+        biome_source: &str,
+        (x, z): (i32, i32),
+        size: i32,
+        order: &[(i32, i32)],
+        included: Option<&HashSet<(usize, usize)>>,
+    ) -> Result<(Area, std::time::Duration), String> {
+        let decoration = self
+            .registry
+            .decoration
+            .clone()
+            .ok_or("no decoration facts")?;
+        let mut chunks = Vec::with_capacity((size * size) as usize);
+        for dz in 0..size {
+            for dx in 0..size {
+                let (cx, cz) = (x + dx, z + dz);
+                let filled = self.build_terrain(cx, cz, biome_source, true)?;
+                let biomes = self.cached_chunk_biomes(biome_source, cx, cz)?;
+                let mut chunk = ProtoChunk::new(cx, cz, filled.blocks, biomes, &decoration.table);
+                for (fx, fy, fz) in filled.fluid_updates {
+                    chunk.mark([fx, fy, fz]);
+                }
+                chunks.push(chunk);
+            }
+        }
+        let mut area = Area { x, z, size, chunks };
+        let zoom_seed = surface::biome_zoom_seed(self.seed);
+        let start = std::time::Instant::now();
+        for &(cx, cz) in order {
+            let mut region = Region::new(
+                &mut area,
+                &decoration.table,
+                (cx, cz),
+                self.seed,
+                zoom_seed,
+                self.settings.sea_level,
+            )?;
+            decoration
+                .decorate(&mut region, included)
+                .map_err(|e| format!("decorating {cx}, {cz}: {e}"))?;
+        }
+        Ok((area, start.elapsed()))
     }
 
     /// A generated chunk as a ValiMC column (VMC-024d): the carved terrain in

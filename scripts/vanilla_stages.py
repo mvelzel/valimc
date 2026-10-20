@@ -61,7 +61,8 @@ STAGES = [
     ('worldgen_facts', [
         ('java', 'WorldgenFactsOracle', '@noises.json', '@density_functions.json', '@noise_settings.json',
          '@biome_parameters.json', '@material_rules.json', '@material_conditions.json', '@biomes.json',
-         '@carvers.json'),
+         '@carvers.json', '@features.json', '@placed_features.json', '@block_state_providers.json',
+         '@feature_order.json'),
         ('same', '@noises.json', 'priv/worldgen/noises.json'),
         ('same', '@density_functions.json', 'priv/worldgen/density_functions.json'),
         ('same', '@noise_settings.json', 'priv/worldgen/noise_settings.json'),
@@ -70,6 +71,12 @@ STAGES = [
         ('same', '@material_conditions.json', 'priv/worldgen/material_conditions.json'),
         ('same', '@biomes.json', 'priv/worldgen/biomes.json'),
         ('same', '@carvers.json', 'priv/worldgen/carvers.json'),
+        ('same', '@features.json', 'priv/worldgen/features.json'),
+        ('same', '@placed_features.json', 'priv/worldgen/placed_features.json'),
+        ('same', '@block_state_providers.json', 'priv/worldgen/block_state_providers.json'),
+        ('same', '@feature_order.json', 'priv/worldgen/feature_order.json'),
+        ('java', 'WorldgenBlocksOracle', '@blocks.json'),
+        ('same', '@blocks.json', 'priv/worldgen/blocks.json'),
     ]),
     ('worldgen_noise', [
         ('java', 'NoiseOracle', '@noise.json'),
@@ -94,6 +101,18 @@ STAGES = [
     ('worldgen_carvers', [
         ('java', 'TerrainOracle', 'carve', '@carve.json'),
         ('check', 'check_terrain.exs', 'carve', '@carve.json'),
+    ]),
+    ('worldgen_survival', [
+        ('java', 'SupportOracle', 'worldgen', '@survival.json'),
+        ('same', '@survival.json', 'priv/worldgen/survival.json'),
+    ]),
+    ('worldgen_decoration', [
+        ('java', 'DecorationOracle', '@decoration.json',
+         'minecraft:ore,minecraft:disk,minecraft:spring_feature,minecraft:simple_block,minecraft:random_selector,'
+         'minecraft:simple_random_selector,minecraft:weighted_random_selector,minecraft:random_boolean_selector,'
+         'minecraft:sequence,minecraft:block_column,minecraft:lake,minecraft:freeze_top_layer,minecraft:blue_ice,'
+         'minecraft:block_blob'),
+        ('check', 'check_decoration.exs', '@decoration.json'),
     ]),
     ('block_registry', [
         ('java', 'BlockRegistryMetadata', '@block-registry.json'),

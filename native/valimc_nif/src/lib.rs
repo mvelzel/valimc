@@ -1030,4 +1030,90 @@ fn worldgen_columns<'a>(
     Ok(out)
 }
 
+/// A scheduled tick: position, block id or fluid name, delay and priority.
+type BlockTick = ((i32, i32, i32), u16, i32, i32);
+type FluidTick = ((i32, i32, i32), String, i32, i32);
+
+/// One decorated chunk for `check_decoration.exs`.
+#[derive(rustler::NifMap)]
+struct DecoratedChunk<'a> {
+    x: i32,
+    z: i32,
+    blocks: Binary<'a>,
+    marks: Vec<(i32, i32, i32)>,
+    block_ticks: Vec<BlockTick>,
+    fluid_ticks: Vec<FluidTick>,
+    block_entities: Vec<(i32, i32, i32)>,
+}
+
+/// Decoration parity (VMC-025): the 5 × 5 chunks around `centre` with their
+/// terrain, the chunks in `order` decorated with the placed features in
+/// `features` ((step, global index) pairs), and every chunk's blocks (big
+/// endian), post-processing marks, scheduled ticks and block entities.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_decorate<'a>(
+    env: rustler::Env<'a>,
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    centre: (i32, i32),
+    order: Vec<(i32, i32)>,
+    features: Vec<(usize, usize)>,
+) -> Result<Vec<DecoratedChunk<'a>>, String> {
+    use valimc_core::worldgen::blocks::FLUID_NAMES;
+    let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+    let included: std::collections::HashSet<(usize, usize)> = features.into_iter().collect();
+    let area = state.decorate_area(
+        &biome_source,
+        (centre.0 - 2, centre.1 - 2),
+        5,
+        &order,
+        Some(&included),
+    )?;
+    let mut out = Vec::with_capacity(area.chunks.len());
+    for chunk in &area.chunks {
+        let mut blocks = NewBinary::new(env, chunk.blocks.len() * 2);
+        for (bytes, id) in blocks.as_mut_slice().chunks_mut(2).zip(&chunk.blocks) {
+            bytes.copy_from_slice(&id.to_be_bytes());
+        }
+        let p = |p: &[i32; 3]| (p[0], p[1], p[2]);
+        out.push(DecoratedChunk {
+            x: chunk.x,
+            z: chunk.z,
+            blocks: blocks.into(),
+            marks: chunk.marks.iter().map(p).collect(),
+            block_ticks: chunk
+                .block_ticks
+                .iter()
+                .map(|(pos, b)| (p(pos), *b, 0, 0))
+                .collect(),
+            fluid_ticks: chunk
+                .fluid_ticks
+                .iter()
+                .map(|(pos, f)| (p(pos), FLUID_NAMES[*f as usize].to_string(), 0, 0))
+                .collect(),
+            block_entities: chunk.block_entities.iter().map(p).collect(),
+        });
+    }
+    Ok(out)
+}
+
+/// Decoration benchmark (VMC-025): the `size` × `size` area from `origin`,
+/// the chunks in `order` decorated with `features`; nanoseconds of decoration
+/// (terrain excluded).
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_decoration_time(
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    origin: (i32, i32),
+    size: i32,
+    order: Vec<(i32, i32)>,
+    features: Vec<(usize, usize)>,
+) -> Result<u64, String> {
+    let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+    let included: std::collections::HashSet<(usize, usize)> = features.into_iter().collect();
+    let (_, elapsed) =
+        state.decorate_area_timed(&biome_source, origin, size, &order, Some(&included))?;
+    Ok(elapsed.as_nanos() as u64)
+}
+
 rustler::init!("Elixir.Valimc.Native");
