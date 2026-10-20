@@ -525,22 +525,29 @@ impl Worldgen {
             return Ok(filled);
         };
 
-        let mut biomes = HashMap::new();
+        // The 3 × 3 chunks' biomes, x major.
+        let mut biomes = Vec::with_capacity(9);
         for dx in -1..=1 {
             for dz in -1..=1 {
-                let (x, z) = (chunk_x + dx, chunk_z + dz);
-                biomes.insert((x, z), self.cached_chunk_biomes(biome_source, x, z)?);
+                biomes.push(self.cached_chunk_biomes(biome_source, chunk_x + dx, chunk_z + dz)?);
             }
         }
         let point_biomes = self.point_biomes(biome_source)?;
         let system = self.material_system()?;
         let registry = self.registry.clone();
         let settings = self.settings.clone();
-        let zoom_seed = surface::biome_zoom_seed(self.seed);
+        let zoom = surface::ChunkZoom::new(
+            surface::biome_zoom_seed(self.seed),
+            chunk_x,
+            chunk_z,
+            settings.min_y,
+            settings.height,
+        );
         let (min_quart, quart_height) = (settings.min_y >> 2, settings.height >> 2);
         let biome_at = |x: i32, y: i32, z: i32| -> u16 {
-            let (qx, qy, qz) = surface::zoom(zoom_seed, x, y, z);
-            let column = &biomes[&(qx >> 2, qz >> 2)];
+            let (qx, qy, qz) = zoom.zoom(x, y, z);
+            let column = &biomes
+                [((qx >> 2) - chunk_x + 1) as usize * 3 + ((qz >> 2) - chunk_z + 1) as usize];
             let qy = qy.clamp(min_quart, min_quart + quart_height - 1) - min_quart;
             column[((qy >> 2) * 64 + ((qy & 3) * 4 + (qz & 3)) * 4 + (qx & 3)) as usize]
         };
@@ -631,7 +638,7 @@ impl Worldgen {
             }
             if !mask.is_empty() {
                 let carver_biome_at = |x: i32, y: i32, z: i32| -> u16 {
-                    let (qx, qy, qz) = surface::zoom(zoom_seed, x, y, z);
+                    let (qx, qy, qz) = zoom.zoom(x, y, z);
                     point_biomes.biome(qx, qy, qz)
                 };
                 input.biome_at = &carver_biome_at;

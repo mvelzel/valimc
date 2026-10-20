@@ -147,6 +147,97 @@ fn fiddle(value: i64) -> f64 {
     ((value >> 24).rem_euclid(1024) as f64 / 1024.0 - 0.5) * 0.9
 }
 
+/// A quart corner's fiddle offsets (x, y, z) for `zoom`.
+fn corner_fiddles(seed: i64, cx: i32, cy: i32, cz: i32) -> [f64; 3] {
+    let mut r = seed;
+    for c in [cx, cy, cz, cx, cy, cz] {
+        r = lcg(r, c as i64);
+    }
+    let fx = fiddle(r);
+    r = lcg(r, seed);
+    let fy = fiddle(r);
+    r = lcg(r, seed);
+    [fx, fy, fiddle(r)]
+}
+
+/// `zoom` for the blocks of one chunk column, each quart corner's fiddles
+/// computed once instead of once per block (the same arithmetic, so the same
+/// results); positions outside the column fall back to `zoom`.
+pub struct ChunkZoom {
+    seed: i64,
+    min: (i32, i32, i32),
+    size: (i32, i32, i32),
+    corners: std::cell::RefCell<Vec<[f64; 3]>>,
+}
+
+impl ChunkZoom {
+    pub fn new(seed: i64, chunk_x: i32, chunk_z: i32, min_y: i32, height: i32) -> Self {
+        let corner = |block: i32| (block - 2) >> 2;
+        let min = (corner(chunk_x * 16), corner(min_y), corner(chunk_z * 16));
+        let size = (
+            corner(chunk_x * 16 + 15) - min.0 + 2,
+            corner(min_y + height - 1) - min.1 + 2,
+            corner(chunk_z * 16 + 15) - min.2 + 2,
+        );
+        let cells = (size.0 * size.1 * size.2) as usize;
+        Self {
+            seed,
+            min,
+            size,
+            corners: std::cell::RefCell::new(vec![[f64::NAN; 3]; cells]),
+        }
+    }
+
+    pub fn zoom(&self, x: i32, y: i32, z: i32) -> (i32, i32, i32) {
+        let (ax, ay, az) = (x - 2, y - 2, z - 2);
+        let (px, py, pz) = (ax >> 2, ay >> 2, az >> 2);
+        let (ox, oy, oz) = (px - self.min.0, py - self.min.1, pz - self.min.2);
+        if ox < 0
+            || oy < 0
+            || oz < 0
+            || ox + 1 >= self.size.0
+            || oy + 1 >= self.size.1
+            || oz + 1 >= self.size.2
+        {
+            return zoom(self.seed, x, y, z);
+        }
+        let (fx, fy, fz) = (
+            (ax & 3) as f64 / 4.0,
+            (ay & 3) as f64 / 4.0,
+            (az & 3) as f64 / 4.0,
+        );
+        let mut corners = self.corners.borrow_mut();
+        let mut best = 0;
+        let mut best_distance = f64::INFINITY;
+        for i in 0..8 {
+            let (xe, ye, ze) = (i & 4 == 0, i & 2 == 0, i & 1 == 0);
+            let (cx, cy, cz) = (ox + !xe as i32, oy + !ye as i32, oz + !ze as i32);
+            let slot = ((cx * self.size.1 + cy) * self.size.2 + cz) as usize;
+            if corners[slot][0].is_nan() {
+                corners[slot] =
+                    corner_fiddles(self.seed, cx + self.min.0, cy + self.min.1, cz + self.min.2);
+            }
+            let [fx2, fy2, fz2] = corners[slot];
+            let (dx, dy, dz) = (
+                if xe { fx } else { fx - 1.0 },
+                if ye { fy } else { fy - 1.0 },
+                if ze { fz } else { fz - 1.0 },
+            );
+            let sq = |v: f64| v * v;
+            let distance = sq(dz + fz2) + sq(dy + fy2) + sq(dx + fx2);
+            if best_distance > distance {
+                best = i;
+                best_distance = distance;
+            }
+        }
+        (
+            px + (best & 4 != 0) as i32,
+            py + (best & 2 != 0) as i32,
+            pz + (best & 1 != 0) as i32,
+        )
+    }
+}
+
 /// `BiomeManager.getBiome`: the quart whose fiddled corner is closest to a
 /// block.
 pub fn zoom(seed: i64, x: i32, y: i32, z: i32) -> (i32, i32, i32) {
@@ -167,15 +258,7 @@ pub fn zoom(seed: i64, x: i32, y: i32, z: i32) -> (i32, i32, i32) {
             if ye { fy } else { fy - 1.0 },
             if ze { fz } else { fz - 1.0 },
         );
-        let mut r = seed;
-        for c in [cx, cy, cz, cx, cy, cz] {
-            r = lcg(r, c as i64);
-        }
-        let fx2 = fiddle(r);
-        r = lcg(r, seed);
-        let fy2 = fiddle(r);
-        r = lcg(r, seed);
-        let fz2 = fiddle(r);
+        let [fx2, fy2, fz2] = corner_fiddles(seed, cx, cy, cz);
         let sq = |v: f64| v * v;
         let distance = sq(dz + fz2) + sq(dy + fy2) + sq(dx + fx2);
         if best_distance > distance {
@@ -428,8 +511,27 @@ struct Densities {
     prefilled: Option<Vec<f32>>,
 }
 
+/// Biome registry ids as a bitset.
+struct BiomeSet(Vec<u64>);
+
+impl BiomeSet {
+    fn new(ids: &[u16]) -> Self {
+        let mut words = vec![0u64; ids.iter().map(|&b| b as usize / 64 + 1).max().unwrap_or(0)];
+        for &b in ids {
+            words[b as usize / 64] |= 1 << (b % 64);
+        }
+        Self(words)
+    }
+
+    fn contains(&self, biome: u16) -> bool {
+        self.0
+            .get(biome as usize / 64)
+            .is_some_and(|word| word & (1 << (biome % 64)) != 0)
+    }
+}
+
 enum CompiledCondition {
-    Biome(Vec<u16>),
+    Biome(BiomeSet),
     Noise {
         slot: usize,
         min: f64,
@@ -525,7 +627,7 @@ impl Compiler<'_, '_> {
                     .ok_or_else(|| format!("unknown material condition {id}"))?;
                 self.condition(env, target)?
             }
-            Condition::Biome(set) => CompiledCondition::Biome(set.clone()),
+            Condition::Biome(set) => CompiledCondition::Biome(BiomeSet::new(set)),
             Condition::Noise {
                 noise,
                 min,
@@ -898,7 +1000,7 @@ impl RuleContext<'_> {
         match condition {
             CompiledCondition::Biome(set) => {
                 let biome = self.biome();
-                set.contains(&biome)
+                set.contains(biome)
             }
             CompiledCondition::Noise {
                 slot,
@@ -1444,6 +1546,21 @@ mod tests {
         assert_eq!(java_round(2.4), 2);
         assert_eq!(java_round(f32::NAN), 0);
         assert_eq!(java_round(1.0e10), i32::MAX);
+    }
+
+    #[test]
+    fn chunk_zoom_equals_zoom() {
+        let seed = biome_zoom_seed(20261020);
+        for (cx, cz) in [(0, 0), (-3, 7), (1875, -1875)] {
+            let cached = ChunkZoom::new(seed, cx, cz, -64, 384);
+            for x in cx * 16 - 3..cx * 16 + 19 {
+                for z in cz * 16 - 3..cz * 16 + 19 {
+                    for y in (-70..330).step_by(3) {
+                        assert_eq!(cached.zoom(x, y, z), zoom(seed, x, y, z), "{x} {y} {z}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

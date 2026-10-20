@@ -12,11 +12,13 @@ after warm-up): the climate volumes and 1,536 biome lookups per chunk take a
 median 222 µs in ValiMC against 388 µs in vanilla.
 
 [Terrain generation](tickets/VMC-024.md) (`bench/worldgen_terrain.exs`, matched
-with vanilla's `doFill`: the same 64 overworld chunks, one thread, ten timed
-passes after warm-up): the noise fill with aquifers takes a median 2.54 ms per
-chunk in ValiMC against 3.59 ms in vanilla. The whole generation step (fill,
-surfaces, carvers, column image) takes 6.71 ms per chunk; the ticket explains
-why vanilla's 12.46 ms for its counterpart is not a matched number.
+with vanilla and Pumpkin: the same 64 overworld chunks at seed 20261020, one
+thread, ten timed passes after warm-up; medians over runs). The noise fill
+with aquifers takes 2.5–2.8 ms per chunk in ValiMC, 2.4–2.5 ms in Pumpkin and
+3.6 ms in vanilla. Terrain through carvers (chunk biomes, noise, surfaces,
+carvers) takes 5.7–5.9 ms in ValiMC and 5.7–5.9 ms in Pumpkin; Pumpkin's
+blocks differ from vanilla's in 28 of 6.3 million. The ticket explains why
+vanilla's 12.5 ms for the whole step is not a matched number.
 
 [Cooking activity indexing](tickets/VMC-034m.md): 1,024 stored processors,
 100 alternating equal-result samples. With 64 active, p50/p95 falls from
