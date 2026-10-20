@@ -173,6 +173,41 @@ defmodule Valimc.RegionLightTest do
            end)
   end
 
+  test "a neighbour sends border light updates only for chunks a client asked for", ctx do
+    {rx, rz} = ctx.key
+    east = {rx + 1, rz}
+
+    TestScope.isolate(east,
+      world_path: Valimc.config(:world_path, ctx.key),
+      region_ticks: :manual
+    )
+
+    on_exit(fn ->
+      for reg <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
+          {pid, _} <- Registry.lookup(reg, east),
+          do: TestScope.kill(pid)
+    end)
+
+    {:ok, neighbour} = World.owner(east)
+    {x0, z0} = ctx.origin
+    edge = x0 + Valimc.config(:region_size) * 16 - 1
+    sent = World.chunk_key(edge + 2, z0 + 40)
+    unsent = World.chunk_key(edge + 2, z0 + 48)
+    _ = packet_light(sent)
+    World.subscribe(MapSet.new([east]), MapSet.new())
+    set(ctx.owner, %{{edge, 70, z0 + 44} => BlockRegistry.default_state("glowstone")})
+
+    assert eventually(fn ->
+             level(image(neighbour, unsent), :block, {edge + 2, 70, z0 + 48}) > 0
+           end)
+
+    assert_receive {:event, {:block_batch, frames}}, 2000
+    light = for {chunk, frame} <- frames, light_update?(frame), do: chunk
+    assert sent in light
+    refute unsent in light
+    refute_received {:event, {:block_batch, _}}
+  end
+
   # The light data a freshly joining client gets: the tail of the chunk packet.
   defp packet_light(key) do
     frame = World.chunk(key)

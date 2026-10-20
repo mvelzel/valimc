@@ -91,8 +91,14 @@ defmodule Valimc.World.LightHalo do
 
   defp adopt(state, {:ok, []}), do: state
 
+  # Only chunks a client has asked for need a light update; neighbours loading
+  # around fresh terrain relight many chunks nobody has yet (VMC-071).
   defp adopt(state, {:ok, chunks}) do
-    World.publish(state.key, {:block_batch, frames(state, chunks)})
+    case Enum.filter(chunks, &MapSet.member?(state.served, &1)) do
+      [] -> :ok
+      served -> World.publish(state.key, {:block_batch, frames(state, served)})
+    end
+
     Valimc.World.RegionData.light_changed(state, chunks)
   end
 

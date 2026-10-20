@@ -19,6 +19,9 @@ defmodule Valimc.World.Generator do
 
   @settings "minecraft:overworld"
   @biome_source "minecraft:overworld"
+  # A batch is one native call of about 0.1 s; a region runs up to four at once.
+  @batch 16
+  @batches 4
 
   @doc """
   Create the configured world's metadata when it has none and remember its
@@ -82,29 +85,84 @@ defmodule Valimc.World.Generator do
     end
   end
 
-  @doc "Column images (`chunk => image`) of generated `chunks` of a vanilla world."
+  @doc """
+  Column images (`chunk => image`) of generated `chunks` of a vanilla world, in
+  batches of #{@batch} generated at once on the seed's pool of states (VMC-071).
+  """
   def columns({:vanilla, seed}, chunks) do
-    Map.new(generate(seed, chunks), fn {cx, cz, image, _heights} -> {{cx, cz}, image} end)
+    chunks
+    |> Enum.chunk_every(@batch)
+    |> Task.async_stream(&generate(seed, &1),
+      max_concurrency: @batches,
+      ordered: false,
+      timeout: :infinity
+    )
+    |> Enum.reduce(%{}, fn {:ok, generated}, acc ->
+      Enum.reduce(generated, acc, fn {cx, cz, image, _heights}, acc ->
+        Map.put(acc, {cx, cz}, image)
+      end)
+    end)
   end
 
   defp generate(seed, chunks) do
-    {:ok, generated} =
-      Native.worldgen_columns(state(seed), @biome_source, protocol_biomes(), chunks)
+    checked_out(seed, fn state ->
+      {:ok, generated} =
+        Native.worldgen_columns(state, @biome_source, protocol_biomes(), chunks)
 
-    generated
+      generated
+    end)
   end
 
-  # One worldgen state per seed and VM: noises and compiled functions are
-  # built once.
-  defp state(seed) do
+  # A worldgen state compiles its samplers once and keeps bounded pure caches
+  # behind its own lock, so one state serialises every caller. Each seed has one
+  # state per dirty CPU scheduler; a call checks a free one out and waits briefly
+  # while all are busy. Any state gives the same chunks.
+  defp checked_out(seed, fun) do
+    {states, busy} = pool(seed)
+    slot = take(busy, tuple_size(states), :erlang.phash2(self(), tuple_size(states)), 0)
+
+    try do
+      fun.(elem(states, slot))
+    after
+      :atomics.put(busy, slot + 1, 0)
+    end
+  end
+
+  defp take(busy, size, start, tried) do
+    slot = rem(start + tried, size)
+
+    cond do
+      :atomics.compare_exchange(busy, slot + 1, 0, 1) == :ok ->
+        slot
+
+      tried + 1 < size ->
+        take(busy, size, start, tried + 1)
+
+      true ->
+        Process.sleep(2)
+        take(busy, size, start, 0)
+    end
+  end
+
+  defp pool(seed) do
     case :persistent_term.get({__MODULE__, seed}, nil) do
       nil ->
-        {:ok, state} = Worldgen.new(seed, @settings)
-        :persistent_term.put({__MODULE__, seed}, state)
-        state
+        size = :erlang.system_info(:dirty_cpu_schedulers_online)
 
-      state ->
-        state
+        states =
+          List.to_tuple(
+            for _ <- 1..size do
+              {:ok, state} = Worldgen.new(seed, @settings)
+              state
+            end
+          )
+
+        pool = {states, :atomics.new(size, signed: false)}
+        :persistent_term.put({__MODULE__, seed}, pool)
+        pool
+
+      pool ->
+        pool
     end
   end
 

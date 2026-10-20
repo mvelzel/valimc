@@ -27,6 +27,14 @@ chunk against 2.4–2.7 ms in vanilla. Pumpkin's features stage on the same
 chunks takes 0.83 ms; it also places structure pieces, so the comparison is
 matched apart from structures.
 
+[Fresh terrain](tickets/VMC-071.md) (`bench/fresh_terrain.exs`, one loopback
+client at view distance 10 teleported three times into terrain no region has
+generated, alternating runs on the same 10-core host under other load): with one
+locked worldgen state the first new chunk took a median 4.1 s and the whole
+473-chunk view 7.7 s; with a state per dirty scheduler, parallel batches and the
+nearest regions first, 0.86 s and 3.1 s. Each fresh view generates 1,024 chunks
+(whole regions).
+
 [Cooking activity indexing](tickets/VMC-034m.md): 1,024 stored processors,
 100 alternating equal-result samples. With 64 active, p50/p95 falls from
 8.295/11.967 to 6.942/9.078 ms; with 1,024 active, from 44.097/51.686 to

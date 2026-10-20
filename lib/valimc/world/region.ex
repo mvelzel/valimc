@@ -307,7 +307,10 @@ defmodule Valimc.World.Region do
 
   @impl true
   def handle_continue(:load, %{key: key, admission: token}) do
+    started = System.monotonic_time(:microsecond)
     resource = key |> RegionData.load() |> Valimc.World.LightHalo.hello()
+    Valimc.Metrics.add(:region_loads)
+    Valimc.Metrics.add(:region_load_microseconds, System.monotonic_time(:microsecond) - started)
 
     case Valimc.World.Directory.publish(key, token, %{
            items: resource.item_publication,

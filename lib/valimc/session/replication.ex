@@ -47,8 +47,7 @@ defmodule Valimc.Session.Replication do
 
       regions = regions(view)
       World.subscribe(regions, state.regions)
-      # Start loading every region of the view now, as vanilla's player tickets do.
-      for key <- MapSet.difference(regions, state.regions), do: World.region(key)
+      load_regions(MapSet.difference(regions, state.regions), center)
       chunks = MapSet.difference(state.chunks, MapSet.new(forgotten))
       leaving = MapSet.new(leaving)
       {cx, cz} = center
@@ -69,6 +68,18 @@ defmodule Valimc.Session.Replication do
           pending: pending
       }
     end
+  end
+
+  # Start loading a view's new regions now, as vanilla's player tickets do, nearest
+  # first so the player's own terrain generates before the edge's (VMC-071).
+  defp load_regions(keys, {cx, cz}) do
+    size = Valimc.config(:region_size)
+
+    keys
+    |> Enum.sort_by(fn {rx, rz} ->
+      (rx * size + div(size, 2) - cx) ** 2 + (rz * size + div(size, 2) - cz) ** 2
+    end)
+    |> Enum.each(&World.region/1)
   end
 
   # The regions holding any chunk of the view.

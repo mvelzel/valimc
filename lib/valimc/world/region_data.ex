@@ -82,6 +82,9 @@ defmodule Valimc.World.RegionData do
     :cache,
     :jobs,
     :versions,
+    # Chunks a client has asked for since load: only their light changes are
+    # published (VMC-071); a later request carries the current light.
+    :served,
     :revision,
     :section_revisions,
     :game_tick,
@@ -120,11 +123,23 @@ defmodule Valimc.World.RegionData do
         if missing == [] do
           images
         else
+          started = System.monotonic_time(:microsecond)
           generated = Generator.columns(generator, missing)
+          generated_at = System.monotonic_time(:microsecond)
+          Valimc.Metrics.add(:worldgen_chunks, length(missing))
+          Valimc.Metrics.add(:worldgen_microseconds, generated_at - started)
 
           case Store.put_columns(store, lease, generated) do
-            :ok -> Map.merge(images, generated)
-            {:error, reason} -> exit({:generated_columns_failed, reason})
+            :ok ->
+              Valimc.Metrics.add(
+                :column_persist_microseconds,
+                System.monotonic_time(:microsecond) - generated_at
+              )
+
+              Map.merge(images, generated)
+
+            {:error, reason} ->
+              exit({:generated_columns_failed, reason})
           end
         end
     end
@@ -231,6 +246,7 @@ defmodule Valimc.World.RegionData do
       cache: %{},
       jobs: %{},
       versions: %{},
+      served: MapSet.new(),
       revision: 0,
       section_revisions: %{},
       game_tick: 0,
@@ -1203,6 +1219,8 @@ defmodule Valimc.World.RegionData do
   end
 
   def handle_call({:chunk, key}, from, state) do
+    state = %{state | served: MapSet.put(state.served, key)}
+
     cond do
       Valimc.World.region_key(key) != state.key ->
         {:reply, {:error, :wrong_region}, state}
