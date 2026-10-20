@@ -21,7 +21,7 @@ lands. See [architecture](architecture.md) for the target design.
 |---|---|---|
 | [VMC-062](tickets/VMC-062.md) | Rust NIF toolchain and paletted section storage replacing the edit map | Done |
 | [VMC-063](tickets/VMC-063.md) | Region log with group commit; no tick pauses | Done |
-| [VMC-064](tickets/VMC-064.md) | One owner-transaction engine and section fencing | Awaiting client |
+| [VMC-064](tickets/VMC-064.md) | One owner-transaction engine and section fencing | Done |
 | [VMC-065](tickets/VMC-065.md) | Published section snapshots for lock-free collision/observation reads | Done |
 | [VMC-066](tickets/VMC-066.md) | Tick pipeline on game time: steppable clock, scheduled and random ticks | Foundation |
 | VMC-067 | Generic entity model; items and XP orbs migrate onto it | Planned |

@@ -182,3 +182,4 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-065](../tickets/VMC-065.md) | `959dcfc`; owner-published chunk snapshots for lock-free collision reads; partitioned collision pool; M1 client baseline at `68c98da` |
 | [VMC-005b2a](../tickets/VMC-005b2a.md) | `220dea1`; client-generated left-even/right-one multi-slot drags in an ordinary survival menu, persisted across reconnect |
 | [VMC-063](../tickets/VMC-063.md) | `4cc6091`; region log, owner-side adoption with held effects, writer and player-log group commit, backpressure, background checkpoints, `F_FULLFSYNC` on macOS |
+| [VMC-064](../tickets/VMC-064.md) | `782d86c`; shared permits, receipts, delivery and source operations for every transfer kind; per-section fences |
