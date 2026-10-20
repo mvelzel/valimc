@@ -2,10 +2,12 @@ defmodule Valimc.World.ContainerTransfers do
   @moduledoc "Receipt-backed container decisions; fresh owner eligibility is supplied by the region."
   alias Valimc.{Cooking, CookingAwards}
   alias Valimc.Physics.CookingBlocks
-  alias Valimc.World.{ContainerRequest, Containers, ItemReceipts, PendingCookingAwards}
+  alias Valimc.Txn.Receipts
+  alias Valimc.World.{ContainerRequest, Containers, PendingCookingAwards}
+  @scheme {:prefix, "VMCCONTAINER-RESULT"}
 
   def reserve(%Containers{} = containers, source) do
-    with {:ok, receipts, result} <- ItemReceipts.reserve(containers.receipts, source),
+    with {:ok, receipts, result} <- Receipts.reserve(containers.receipts, source),
          do: {:ok, %{containers | receipts: receipts}, result}
   end
 
@@ -40,22 +42,21 @@ defmodule Valimc.World.ContainerTransfers do
     with {:ok, digest} <- ContainerRequest.digest(key, request) do
       base = %{containers: containers, result: nil}
 
-      case containers.receipts[request.source] do
-        %{sequence: prior} when request.sequence < prior ->
-          {:error, :stale_transfer}
+      receipts = containers.receipts
 
-        %{sequence: sequence} = receipt when sequence == request.sequence ->
-          case outcome(digest, receipt.digest) do
-            :applied -> {:ok, %{base | result: :already_applied}}
-            :rejected -> {:ok, %{base | result: :already_rejected}}
-            :conflict -> {:error, :transfer_conflict}
-          end
-
+      # A grant follows durable receipt-slot reservation, never speculative capacity.
+      case receipts[request.source] &&
+             Receipts.classify(receipts, request.source, request.sequence, digest, @scheme) do
         nil ->
-          # A grant follows durable receipt-slot reservation, never speculative capacity.
           {:error, :missing_container_receipt_slot}
 
-        _ ->
+        {:duplicate, result} ->
+          {:ok, %{base | result: result}}
+
+        {:error, _} = error ->
+          error
+
+        :new ->
           {result, next} =
             case eligible && exchange.(digest) do
               {:ok, next} -> {:applied, next}
@@ -80,20 +81,10 @@ defmodule Valimc.World.ContainerTransfers do
     end
   end
 
-  def receipt_result(key, request, %{sequence: sequence, digest: actual}) do
+  def receipt_result(key, request, receipt) do
     with {:ok, digest} <- ContainerRequest.digest(key, request),
-         true <- request.sequence == sequence do
-      case outcome(digest, actual) do
-        :conflict -> {:error, :transfer_conflict}
-        result -> {:ok, result}
-      end
-    else
-      false -> {:error, :stale_transfer}
-      error -> error
-    end
+         do: Receipts.outcome(receipt, request.sequence, digest, @scheme)
   end
-
-  def receipt_result(_, _, _), do: {:error, :transfer_conflict}
 
   defp exchange_cooking_award(
          containers,
@@ -173,25 +164,21 @@ defmodule Valimc.World.ContainerTransfers do
          do: {:ok, next}
   end
 
-  defp outcome(digest, actual) do
-    cond do
-      actual == result_digest(digest, :applied) -> :applied
-      actual == result_digest(digest, :rejected) -> :rejected
-      true -> :conflict
-    end
-  end
-
   defp with_receipt(containers, request, digest, result) do
-    receipt = %{sequence: request.sequence, digest: result_digest(digest, result)}
-    %{containers | receipts: Map.put(containers.receipts, request.source, receipt)}
+    receipts =
+      Receipts.record(
+        containers.receipts,
+        request.source,
+        request.sequence,
+        digest,
+        @scheme,
+        result
+      )
+
+    %{containers | receipts: receipts}
   end
 
   @doc false
   def result_digest(<<_::256>> = digest, result) when result in [:applied, :rejected],
-    do:
-      :crypto.hash(:sha256, [
-        "VMCCONTAINER-RESULT",
-        if(result == :applied, do: <<1>>, else: <<0>>),
-        digest
-      ])
+    do: Receipts.stored(@scheme, digest, result)
 end

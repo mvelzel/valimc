@@ -18,7 +18,6 @@ defmodule Valimc.World.RegionData do
     Items,
     ItemHandoffs,
     ItemHandoffDelivery,
-    ItemReceipts,
     ItemMerges,
     ItemMergeEscrow,
     ItemMergeInbox,
@@ -929,8 +928,7 @@ defmodule Valimc.World.RegionData do
                System.monotonic_time(:millisecond)
              ) do
           {:ok, permits, token} ->
-            {:reply, {:ok, %{permit: token, expected: blocks}},
-             %{state | permits: permits}}
+            {:reply, {:ok, %{permit: token, expected: blocks}}, %{state | permits: permits}}
 
           error ->
             {:reply, error, state}
@@ -954,9 +952,7 @@ defmodule Valimc.World.RegionData do
 
   def handle_call({:release_mining, epoch, permit}, _from, state) do
     if epoch == state.items.epoch,
-      do:
-        {:reply, :ok,
-         %{state | permits: Valimc.Txn.Permits.release(state.permits, permit)}},
+      do: {:reply, :ok, %{state | permits: Valimc.Txn.Permits.release(state.permits, permit)}},
       else: {:reply, {:error, :stale_owner}, state}
   end
 
@@ -999,8 +995,7 @@ defmodule Valimc.World.RegionData do
                System.monotonic_time(:millisecond)
              ) do
           {:ok, permits, token} ->
-            {:reply, {:ok, %{permit: token, expected: expected}},
-             %{state | permits: permits}}
+            {:reply, {:ok, %{permit: token, expected: expected}}, %{state | permits: permits}}
 
           error ->
             {:reply, error, state}
@@ -1010,9 +1005,7 @@ defmodule Valimc.World.RegionData do
 
   def handle_call({:release_placement, epoch, permit}, _from, state) do
     if epoch == state.items.epoch,
-      do:
-        {:reply, :ok,
-         %{state | permits: Valimc.Txn.Permits.release(state.permits, permit)}},
+      do: {:reply, :ok, %{state | permits: Valimc.Txn.Permits.release(state.permits, permit)}},
       else: {:reply, {:error, :stale_owner}, state}
   end
 
@@ -1883,7 +1876,7 @@ defmodule Valimc.World.RegionData do
   defp item_plan(:pickup_admission, items, receipts, _key, {actor, item_uuid, deadline}) do
     reply = {:pickup_grant, actor, item_uuid, deadline}
 
-    case ItemReceipts.reserve(receipts, actor.uuid) do
+    case Valimc.Txn.Receipts.reserve(receipts, actor.uuid) do
       {:ok, _, :existing} -> {:reply, reply}
       {:ok, reserved, :reserved} -> {:write, items, reserved, reply}
       error -> error
@@ -2639,9 +2632,7 @@ defmodule Valimc.World.RegionData do
   def handle_info({:item_cross_deadline, _}, state), do: {:noreply, state}
 
   def handle_info({:release_pickup, token, source}, state),
-    do:
-      {:noreply,
-       %{state | permits: Valimc.Txn.Permits.release(state.permits, token, source)}}
+    do: {:noreply, %{state | permits: Valimc.Txn.Permits.release(state.permits, token, source)}}
 
   def handle_info(
         {:item_simulation, worker, token, result},

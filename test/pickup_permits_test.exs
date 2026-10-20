@@ -3,7 +3,7 @@ defmodule Valimc.PickupPermitsTest do
   alias Valimc.{GameMode, ItemMotionState}
   alias Valimc.Physics.{ItemPickup, PlayerPose}
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{ItemLedger, ItemReceipts, Items, PickupPermits, PickupRequest}
+  alias Valimc.World.{ItemLedger, Items, PickupPermits, PickupRequest}
 
   defp fixture do
     {:ok, body} = PlayerPose.geometry(:standing, {8.5, 64.0, 8.5})
@@ -25,7 +25,7 @@ defmodule Valimc.PickupPermitsTest do
     }
 
     {:ok, items} = Items.restore({0, 0}, [record], %ItemLedger{generations: %{record.uuid => 3}})
-    {:ok, receipts, :reserved} = ItemReceipts.reserve(%{}, actor.uuid)
+    {:ok, receipts, :reserved} = Valimc.Txn.Receipts.reserve(%{}, actor.uuid)
     {actor, record, items, receipts}
   end
 

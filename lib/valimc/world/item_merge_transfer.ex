@@ -102,12 +102,7 @@ defmodule Valimc.World.ItemMergeTransfer do
       {:ok,
        %{
          sequence: request.sequence,
-         digest:
-           :crypto.hash(:sha256, [
-             "VMCXMRG-RESULT",
-             digest,
-             <<if(result == :applied, do: 1, else: 0)>>
-           ])
+         digest: Valimc.Txn.Receipts.stored({:suffix, "VMCXMRG-RESULT"}, digest, result)
        }}
     end
   end

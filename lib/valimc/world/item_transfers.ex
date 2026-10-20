@@ -1,30 +1,24 @@
 defmodule Valimc.World.ItemTransfers do
   @moduledoc "Pure region inbox plans. Callers must enforce a durable, fenced source outbox."
+  alias Valimc.Txn.Receipts
   alias Valimc.World.{ItemRecords, Items}
   @max_batch 5
   @max_sequence 18_446_744_073_709_551_615
-  @max_sources ItemRecords.max_sources()
 
   def plan(items, receipts, key, %{source: <<_::128>> = source, sequence: sequence} = transfer)
       when is_integer(sequence) and sequence in 1..@max_sequence do
     with {:ok, digest} <- digest(key, transfer) do
-      case receipts[source] do
-        %{sequence: prior} when sequence < prior ->
-          {:error, :stale_transfer}
+      case Receipts.classify(receipts, source, sequence, digest, :plain) do
+        {:duplicate, result} ->
+          {:ok, items, receipts, result}
 
-        %{sequence: ^sequence, digest: ^digest} ->
-          {:ok, items, receipts, :already_applied}
+        {:error, _} = error ->
+          error
 
-        %{sequence: ^sequence} ->
-          {:error, :transfer_conflict}
-
-        nil when map_size(receipts) >= @max_sources ->
-          {:error, :transfer_source_limit}
-
-        _ ->
+        :new ->
           with {:ok, next} <- add_items(items, key, transfer.records) do
-            receipt = %{sequence: sequence, digest: digest}
-            {:ok, next, Map.put(receipts, source, receipt), :applied}
+            {:ok, next, Receipts.record(receipts, source, sequence, digest, :plain, :applied),
+             :applied}
           end
       end
     end

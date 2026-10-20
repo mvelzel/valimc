@@ -1,7 +1,8 @@
 defmodule Valimc.World.PlacementTransfers do
   @moduledoc "Typed terminal placement receipts; block mutation remains fenced by its owner."
-  alias Valimc.World.{ItemRecords, PlacementRequest}
-  @max_sources ItemRecords.max_sources()
+  alias Valimc.Txn.Receipts
+  alias Valimc.World.PlacementRequest
+  @scheme {:prefix, "VMCPLACE-RESULT"}
 
   def plan(items, receipts, key, transfer, eligible) when is_boolean(eligible) do
     with {:ok, digest} <- PlacementRequest.digest(key, transfer) do
@@ -17,21 +18,14 @@ defmodule Valimc.World.PlacementTransfers do
         result: nil
       }
 
-      case receipts[transfer.source] do
-        %{sequence: prior} when transfer.sequence < prior ->
-          {:error, :stale_transfer}
+      case Receipts.classify(receipts, transfer.source, transfer.sequence, digest, @scheme) do
+        {:duplicate, result} ->
+          {:ok, %{base | result: result}}
 
-        %{sequence: sequence} = receipt when sequence == transfer.sequence ->
-          case outcome(digest, receipt.digest) do
-            :applied -> {:ok, %{base | result: :already_applied}}
-            :rejected -> {:ok, %{base | result: :already_rejected}}
-            :conflict -> {:error, :transfer_conflict}
-          end
+        {:error, _} = error ->
+          error
 
-        nil when map_size(receipts) >= @max_sources ->
-          {:error, :transfer_source_limit}
-
-        _ ->
+        :new ->
           {:ok, finish(base, if(eligible, do: :applied, else: :rejected), items, receipts)}
       end
     end
@@ -40,39 +34,13 @@ defmodule Valimc.World.PlacementTransfers do
   def reject(%{result: :applied} = plan, items, receipts),
     do: finish(plan, :rejected, items, receipts)
 
-  def receipt_result(key, transfer, %{sequence: sequence, digest: result}) do
+  def receipt_result(key, transfer, receipt) do
     with {:ok, digest} <- PlacementRequest.digest(key, transfer),
-         true <- sequence == transfer.sequence do
-      case outcome(digest, result) do
-        :conflict -> {:error, :transfer_conflict}
-        value -> {:ok, value}
-      end
-    else
-      false -> {:error, :stale_transfer}
-      error -> error
-    end
+         do: Receipts.outcome(receipt, transfer.sequence, digest, @scheme)
   end
-
-  def receipt_result(_, _, _), do: {:error, :transfer_conflict}
 
   defp finish(plan, result, items, receipts) do
-    receipt = %{sequence: plan.sequence, digest: result_digest(plan.digest, result)}
-    %{plan | result: result, items: items, receipts: Map.put(receipts, plan.source, receipt)}
+    receipts = Receipts.record(receipts, plan.source, plan.sequence, plan.digest, @scheme, result)
+    %{plan | result: result, items: items, receipts: receipts}
   end
-
-  defp outcome(digest, actual) do
-    cond do
-      actual == result_digest(digest, :applied) -> :applied
-      actual == result_digest(digest, :rejected) -> :rejected
-      true -> :conflict
-    end
-  end
-
-  defp result_digest(digest, result),
-    do:
-      :crypto.hash(:sha256, [
-        "VMCPLACE-RESULT",
-        if(result == :applied, do: <<1>>, else: <<0>>),
-        digest
-      ])
 end

@@ -1,60 +1,39 @@
 defmodule Valimc.World.PickupTransfers do
   @moduledoc "Pure receipt-backed withdrawal; only the region's fresh permit can authorize eligibility."
-  alias Valimc.World.{ItemRecords, Items, PickupRequest}
-  @max_sources ItemRecords.max_sources()
+  alias Valimc.Txn.Receipts
+  alias Valimc.World.{Items, PickupRequest}
+  @scheme {:prefix, "VMCPICK-RESULT"}
 
   def plan(items, receipts, key, request, eligible) when is_boolean(eligible) do
     with {:ok, digest} <- PickupRequest.digest(key, request) do
       base = %{items: items, receipts: receipts, result: nil}
 
-      case receipts[request.source] do
-        %{sequence: prior} when request.sequence < prior ->
-          {:error, :stale_transfer}
+      case Receipts.classify(receipts, request.source, request.sequence, digest, @scheme) do
+        {:duplicate, result} ->
+          {:ok, %{base | result: result}}
 
-        %{sequence: sequence} = receipt when sequence == request.sequence ->
-          case outcome(digest, receipt.digest) do
-            :applied -> {:ok, %{base | result: :already_applied}}
-            :rejected -> {:ok, %{base | result: :already_rejected}}
-            :conflict -> {:error, :transfer_conflict}
-          end
+        {:error, _} = error ->
+          error
 
-        nil when map_size(receipts) >= @max_sources ->
-          {:error, :transfer_source_limit}
-
-        _ ->
+        :new ->
           {result, next} =
             case eligible && withdraw(items, key, request) do
               {:ok, next} -> {:applied, next}
               _ -> {:rejected, items}
             end
 
-          receipt = %{sequence: request.sequence, digest: result_digest(digest, result)}
+          receipts =
+            Receipts.record(receipts, request.source, request.sequence, digest, @scheme, result)
 
-          {:ok,
-           %{
-             base
-             | items: next,
-               result: result,
-               receipts: Map.put(receipts, request.source, receipt)
-           }}
+          {:ok, %{base | items: next, result: result, receipts: receipts}}
       end
     end
   end
 
-  def receipt_result(key, request, %{sequence: sequence, digest: actual}) do
-    with {:ok, digest} <- PickupRequest.digest(key, request),
-         true <- sequence == request.sequence do
-      case outcome(digest, actual) do
-        :conflict -> {:error, :transfer_conflict}
-        result -> {:ok, result}
-      end
-    else
-      false -> {:error, :stale_transfer}
-      error -> error
-    end
+  def receipt_result(key, transfer, receipt) do
+    with {:ok, digest} <- PickupRequest.digest(key, transfer),
+         do: Receipts.outcome(receipt, transfer.sequence, digest, @scheme)
   end
-
-  def receipt_result(_, _, _), do: {:error, :transfer_conflict}
 
   defp withdraw(items, key, request) do
     with {:ok, {epoch, id, revision}} <- Items.find(items, request.item_uuid),
@@ -75,20 +54,4 @@ defmodule Valimc.World.PickupTransfers do
       _ -> {:error, :stale_pickup_item}
     end
   end
-
-  defp outcome(digest, actual) do
-    cond do
-      actual == result_digest(digest, :applied) -> :applied
-      actual == result_digest(digest, :rejected) -> :rejected
-      true -> :conflict
-    end
-  end
-
-  defp result_digest(digest, result),
-    do:
-      :crypto.hash(:sha256, [
-        "VMCPICK-RESULT",
-        if(result == :applied, do: <<1>>, else: <<0>>),
-        digest
-      ])
 end

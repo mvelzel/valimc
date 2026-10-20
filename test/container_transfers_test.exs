@@ -2,7 +2,7 @@ defmodule Valimc.ContainerTransfersTest do
   use ExUnit.Case, async: true
   alias Valimc.Inventory
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{ContainerRequest, Containers, ContainerTransfers, ItemReceipts}
+  alias Valimc.World.{ContainerRequest, Containers, ContainerTransfers}
   @key {0, 0}
   @position {1, 64, 1}
 
@@ -210,7 +210,10 @@ defmodule Valimc.ContainerTransfersTest do
     assert player_after.carried == ItemStack.new("stone", 4) and player_after.slots == %{}
 
     receipts =
-      Map.new(1..ItemReceipts.max_sources(), &{<<&1::128>>, %{sequence: 0, digest: <<0::256>>}})
+      Map.new(
+        1..Valimc.Txn.Receipts.max_sources(),
+        &{<<&1::128>>, %{sequence: 0, digest: <<0::256>>}}
+      )
 
     full = %{containers | receipts: receipts}
     assert {:error, :transfer_source_limit} = ContainerTransfers.reserve(full, <<10_000::128>>)

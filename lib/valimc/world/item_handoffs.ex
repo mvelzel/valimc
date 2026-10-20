@@ -1,5 +1,6 @@
 defmodule Valimc.World.ItemHandoffs do
   @moduledoc "Pure bounded owner handoffs; callers persist each plan before publishing or delivering it."
+  alias Valimc.Txn.Receipts
   alias Valimc.World.{ItemLedger, Items}
   @max_sequence 18_446_744_073_709_551_615
 
@@ -77,27 +78,25 @@ defmodule Valimc.World.ItemHandoffs do
     with {:ok, digest} <- digest(key, transfer) do
       %{source: source, sequence: sequence} = transfer
 
-      case items.ledger.incoming[source] do
-        %{sequence: prior} when sequence < prior ->
+      case Receipts.classify(items.ledger.incoming, source, sequence, digest, :plain) do
+        {:error, :stale_transfer} ->
           {:error, :stale_item_handoff}
 
-        %{sequence: ^sequence, digest: ^digest} ->
-          {:ok, items, :already_applied}
+        {:duplicate, result} ->
+          {:ok, items, result}
 
-        %{sequence: ^sequence} ->
+        {:error, :transfer_conflict} ->
           {:error, :item_handoff_conflict}
 
-        nil when map_size(items.ledger.incoming) >= 4096 ->
+        {:error, :transfer_source_limit} ->
           {:error, :item_handoff_source_limit}
 
-        _ ->
+        :new ->
           with :ok <- unreserved(items, transfer.records),
                {:ok, next} <- adopt(items, key, transfer),
-               ledger = %{
-                 next.ledger
-                 | incoming:
-                     Map.put(next.ledger.incoming, source, %{sequence: sequence, digest: digest})
-               },
+               incoming =
+                 Receipts.record(next.ledger.incoming, source, sequence, digest, :plain, :applied),
+               ledger = %{next.ledger | incoming: incoming},
                {:ok, _} <- ItemLedger.encode(key, Items.records(next), %{}, ledger),
                do: {:ok, %{next | ledger: ledger}, :applied}
       end

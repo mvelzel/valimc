@@ -1,9 +1,9 @@
 defmodule Valimc.World.ContainerPermitsTest do
   use ExUnit.Case, async: true
-  alias Valimc.World.{ContainerPermits, ItemReceipts}
+  alias Valimc.World.{ContainerPermits}
 
   defp fixture(source \\ <<1::128>>, sequence \\ 7, token \\ <<2::128>>) do
-    {:ok, receipts, _} = ItemReceipts.reserve(%{}, source)
+    {:ok, receipts, _} = Valimc.Txn.Receipts.reserve(%{}, source)
 
     {receipts, %{source: source, sequence: sequence, permit: token, position: {0, 64, 0}},
      <<3::256>>}
@@ -16,7 +16,9 @@ defmodule Valimc.World.ContainerPermitsTest do
 
   test "a reserved source receives one exact single-use action grant" do
     {receipts, request, digest} = fixture()
-    {:ok, permits} = ContainerPermits.issue(Valimc.Txn.Permits.new(), receipts, request, digest, 100)
+
+    {:ok, permits} =
+      ContainerPermits.issue(Valimc.Txn.Permits.new(), receipts, request, digest, 100)
 
     assert {:error, :container_already_pending} =
              ContainerPermits.issue(
@@ -34,7 +36,9 @@ defmodule Valimc.World.ContainerPermitsTest do
 
   test "expiry includes its exact boundary and replacement has no surviving authority" do
     {receipts, request, digest} = fixture()
-    {:ok, permits} = ContainerPermits.issue(Valimc.Txn.Permits.new(), receipts, request, digest, -100)
+
+    {:ok, permits} =
+      ContainerPermits.issue(Valimc.Txn.Permits.new(), receipts, request, digest, -100)
 
     assert {%Valimc.Txn.Permits{entries: entries}, false} =
              consume(permits, request, digest, 4900)
@@ -49,7 +53,9 @@ defmodule Valimc.World.ContainerPermitsTest do
 
   test "altered payload or sequence burns its source token; another source cannot steal it" do
     {receipts, request, digest} = fixture()
-    {:ok, permits} = ContainerPermits.issue(Valimc.Txn.Permits.new(), receipts, request, digest, 0)
+
+    {:ok, permits} =
+      ContainerPermits.issue(Valimc.Txn.Permits.new(), receipts, request, digest, 0)
 
     assert {^permits, false} =
              consume(permits, %{request | source: <<99::128>>}, digest, 1)
@@ -86,7 +92,10 @@ defmodule Valimc.World.ContainerPermitsTest do
 
   test "a target block edit invalidates authority even when its state is replaced identically" do
     {receipts, request, digest} = fixture()
-    {:ok, permits} = ContainerPermits.issue(Valimc.Txn.Permits.new(), receipts, request, digest, 0)
+
+    {:ok, permits} =
+      ContainerPermits.issue(Valimc.Txn.Permits.new(), receipts, request, digest, 0)
+
     assert Valimc.Txn.Permits.invalidate(permits, %{{1, 64, 0} => 0}) == permits
     invalidated = Valimc.Txn.Permits.invalidate(permits, %{request.position => 1234})
     assert invalidated.entries == %{}

@@ -49,20 +49,23 @@ defmodule Valimc.World.ExperienceTransfers do
   def plan(containers, key, request, eligible) do
     with {:ok, digest} <- ContainerRequest.digest(key, request),
          {:ok, reserved, _} <- ContainerTransfers.reserve(containers, request.source) do
-      case reserved.receipts[request.source] do
-        %{sequence: n} when n > request.sequence ->
-          {:error, :stale_transfer}
+      case Valimc.Txn.Receipts.classify(
+             reserved.receipts,
+             request.source,
+             request.sequence,
+             digest,
+             {:prefix, "VMCCONTAINER-RESULT"}
+           ) do
+        {:duplicate, result} ->
+          {:ok, %{containers: reserved, result: result}}
 
-        %{sequence: n} = receipt when n == request.sequence ->
-          with {:ok, result} <- ContainerTransfers.receipt_result(key, request, receipt),
-               do:
-                 {:ok,
-                  %{
-                    containers: reserved,
-                    result: if(result == :applied, do: :already_applied, else: :already_rejected)
-                  }}
+        {:error, :transfer_source_limit} ->
+          {:error, :transfer_source_limit}
 
-        _ ->
+        {:error, _} = error ->
+          error
+
+        :new ->
           {result, next} =
             case eligible &&
                    CookingOrbConsumptions.take(

@@ -1,7 +1,6 @@
 defmodule Valimc.World.ContainerPermits do
   @moduledoc "Action grants in the owner's `Valimc.Txn.Permits`, bound to a canonical request digest."
   alias Valimc.Txn.Permits
-  alias Valimc.World.ItemReceipts
 
   def issue(%Permits{} = permits, receipts, request, digest, now) when is_integer(now) do
     with %{
@@ -13,7 +12,7 @@ defmodule Valimc.World.ContainerPermits do
          true <- is_integer(sequence) and sequence > 0,
          true <- is_binary(digest) and byte_size(digest) == 32,
          %{sequence: prior} = receipt <- Map.get(receipts, source),
-         true <- ItemReceipts.valid?(receipt) and prior < sequence do
+         true <- Valimc.Txn.Receipts.valid?(receipt) and prior < sequence do
       grant = %{sequence: sequence, digest: digest}
 
       case Permits.issue(permits, :container, token, source, [position], grant, now) do

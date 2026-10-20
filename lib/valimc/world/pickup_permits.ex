@@ -2,12 +2,20 @@ defmodule Valimc.World.PickupPermits do
   @moduledoc "Short contact grants in the owner's `Valimc.Txn.Permits`; their source receipt slot must already be durable."
   alias Valimc.Physics.ItemPickup
   alias Valimc.Txn.Permits
-  alias Valimc.World.{ItemReceipts, Items}
+  alias Valimc.World.{Items}
 
-  def issue(%Permits{} = permits, receipts, items, %{uuid: <<_::128>> = source} = actor, item_uuid, now)
+  def issue(
+        %Permits{} = permits,
+        receipts,
+        items,
+        %{uuid: <<_::128>> = source} = actor,
+        item_uuid,
+        now
+      )
       when is_integer(now) do
     with :ok <- Permits.admit(permits, :pickup, source, now),
-         true <- ItemReceipts.valid?(receipts[source]) || {:error, :pickup_receipt_slot_required},
+         true <-
+           Valimc.Txn.Receipts.valid?(receipts[source]) || {:error, :pickup_receipt_slot_required},
          {:ok, {_, id, _}} <- Items.find(items, item_uuid),
          entry = items.entries[id],
          true <- ItemPickup.eligible?(actor, entry) do
@@ -26,7 +34,9 @@ defmodule Valimc.World.PickupPermits do
       }
 
       {:ok, permits, token} = Permits.issue(permits, :pickup, nil, source, [], grant, now)
-      {:ok, permits, %{permit: token, item_uuid: item_uuid, generation: grant.generation, before: entry.stack}}
+
+      {:ok, permits,
+       %{permit: token, item_uuid: item_uuid, generation: grant.generation, before: entry.stack}}
     else
       {:error, _} = error -> error
       _ -> {:error, :pickup_not_available}

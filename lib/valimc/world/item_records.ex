@@ -4,11 +4,10 @@ defmodule Valimc.World.ItemRecords do
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.{ItemStack, ItemTypes}
   alias Valimc.World.Items
-  alias Valimc.World.ItemReceipts
   @data_version 5023
   @max_count 256
   @item_bytes 524_288
-  @max_sources ItemReceipts.max_sources()
+  @max_sources Valimc.Txn.Receipts.max_sources()
   @max_bytes @item_bytes + 57 + @max_sources * 56
   def max_bytes, do: @max_bytes
   def max_sources, do: @max_sources
@@ -110,7 +109,7 @@ defmodule Valimc.World.ItemRecords do
   def valid_receipts?(receipts) when is_map(receipts) and map_size(receipts) <= @max_sources do
     Enum.all?(receipts, fn
       {<<_::128>>, receipt} ->
-        ItemReceipts.valid?(receipt)
+        Valimc.Txn.Receipts.valid?(receipt)
 
       _ ->
         false
@@ -127,7 +126,7 @@ defmodule Valimc.World.ItemRecords do
          receipts
        ) do
     check(
-      ItemReceipts.valid?(%{sequence: sequence, digest: digest}) and
+      Valimc.Txn.Receipts.valid?(%{sequence: sequence, digest: digest}) and
         not Map.has_key?(receipts, source)
     )
 
