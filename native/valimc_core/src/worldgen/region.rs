@@ -5,7 +5,7 @@
 //! heightmaps, post-processing marks, scheduled ticks and pending block
 //! entities.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use super::blocks::{BlockTable, Heightmap, BLOCK_ENTITY, POST_PROCESS, POST_PROCESS_ABOVE};
@@ -33,8 +33,34 @@ pub struct ProtoChunk {
     /// Scheduled ticks, unique per position and type: block ids and fluid ids.
     pub block_ticks: BTreeSet<([i32; 3], u16)>,
     pub fluid_ticks: BTreeSet<([i32; 3], u8)>,
-    /// Positions with a pending block entity (vanilla's "DUMMY" entries).
+    /// Positions with a block entity, pending (vanilla's "DUMMY" entries)
+    /// or created.
     pub block_entities: BTreeSet<[i32; 3]>,
+    /// The block entities a feature asked for (`getBlockEntity` creates them
+    /// from the pending entries), with what features write into them.
+    pub block_entity_data: BTreeMap<[i32; 3], BlockEntityData>,
+}
+
+/// A created block entity (VMC-025c): its type and what decoration writes
+/// into it (a container's loot table and seed, a spawner's entity).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BlockEntityData {
+    pub kind: &'static str,
+    pub loot_table: Option<String>,
+    pub loot_seed: i64,
+    pub spawner_entity: Option<String>,
+}
+
+/// The block entity type a block creates, for the blocks decoration fills.
+fn block_entity_kind(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "minecraft:chest" => "minecraft:chest",
+        "minecraft:trapped_chest" => "minecraft:trapped_chest",
+        "minecraft:spawner" => "minecraft:mob_spawner",
+        "minecraft:bee_nest" | "minecraft:beehive" => "minecraft:beehive",
+        "minecraft:suspicious_sand" | "minecraft:suspicious_gravel" => "minecraft:brushable_block",
+        _ => return None,
+    })
 }
 
 fn index(x: i32, y: i32, z: i32) -> usize {
@@ -71,6 +97,7 @@ impl ProtoChunk {
             block_ticks: BTreeSet::new(),
             fluid_ticks: BTreeSet::new(),
             block_entities: BTreeSet::new(),
+            block_entity_data: BTreeMap::new(),
         };
         for kind in Heightmap::ALL {
             for column in 0..256 {
@@ -313,10 +340,13 @@ impl<'a> Region<'a> {
             return false;
         };
         let old = chunk.set(table, pos[0], pos[1], pos[2], state, air);
+        // A created block entity stays when a block with one replaces it
+        // (`setBlockEntityNbt` keeps it).
         if table.flag(state, BLOCK_ENTITY) {
             chunk.block_entities.insert(pos);
         } else if old.is_some_and(|old| table.flag(old, BLOCK_ENTITY)) {
             chunk.block_entities.remove(&pos);
+            chunk.block_entity_data.remove(&pos);
         }
         if flags & 16 == 0 && table.flag(state, POST_PROCESS) {
             chunk.mark(pos);
@@ -325,6 +355,41 @@ impl<'a> Region<'a> {
             self.mark([pos[0], pos[1] + 1, pos[2]]);
         }
         true
+    }
+
+    /// `getBlockEntity`: the block entity at `pos`, created from its pending
+    /// entry when the block has one; `None` without one.
+    pub fn block_entity(&mut self, pos: [i32; 3]) -> Result<Option<&mut BlockEntityData>, String> {
+        let state = self.get(pos);
+        let table = self.table;
+        let Some(chunk) = self.area.chunk_mut(pos[0] >> 4, pos[2] >> 4) else {
+            return Ok(None);
+        };
+        if !chunk.block_entity_data.contains_key(&pos) {
+            if !chunk.block_entities.contains(&pos) || !table.flag(state, BLOCK_ENTITY) {
+                return Ok(None);
+            }
+            let name = &table.names[table.block_of(state) as usize];
+            let kind = block_entity_kind(name)
+                .ok_or_else(|| format!("the block entity of {name} is not modelled"))?;
+            chunk.block_entity_data.insert(
+                pos,
+                BlockEntityData {
+                    kind,
+                    loot_table: None,
+                    loot_seed: 0,
+                    spawner_entity: None,
+                },
+            );
+        }
+        Ok(chunk.block_entity_data.get_mut(&pos))
+    }
+
+    /// `getBlockTicks().hasScheduledTick(pos, block)`.
+    pub fn has_block_tick(&self, pos: [i32; 3], block: u16) -> bool {
+        self.area
+            .chunk(pos[0] >> 4, pos[2] >> 4)
+            .is_some_and(|c| c.block_ticks.contains(&(pos, block)))
     }
 
     /// A section write without heightmaps, marks or block entities.

@@ -483,6 +483,39 @@ impl NormalNoise {
         p.base_amplitude * 0.5 * TARGET_DEVIATION / expected_deviation
     }
 
+    /// `NormalNoise.createParity`: per-octave amplitudes from `first_octave`,
+    /// with the base amplitude that keeps earlier releases' normalisation
+    /// (geodes, VMC-025c).
+    pub fn create_parity(first_octave: i32, amplitudes: &[f64]) -> Result<NormalNoise, String> {
+        if amplitudes.is_empty() {
+            return Err("a parity noise needs an amplitude".into());
+        }
+        let probe = NoiseParameters {
+            base_amplitude: 1.0,
+            base_octave: first_octave,
+            octave_count: amplitudes.len() as i32,
+            normalize: Normalization::Enabled,
+            amplitude_modifiers: amplitudes.to_vec(),
+        };
+        let octaves = Self::octaves(&probe, true);
+        let target = stream_sum(octaves.iter().map(|o| o.amplitude.abs()));
+        let normalization = Self::normalization(target, &octaves);
+        let base_amplitude = if normalization == 0.0 {
+            1.0
+        } else {
+            Self::parity_normalization(&probe) / normalization
+        };
+        NormalNoise::new(NoiseParameters {
+            base_amplitude,
+            amplitude_modifiers: if amplitudes.iter().all(|&a| a == 1.0) {
+                vec![]
+            } else {
+                amplitudes.to_vec()
+            },
+            ..probe
+        })
+    }
+
     pub fn parameters(&self) -> &NoiseParameters {
         &self.parameters
     }

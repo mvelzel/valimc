@@ -147,9 +147,11 @@ pub fn parse(
         "minecraft:random_block" => {
             // The holder set's elements in order.
             let blocks = match json.field("blocks")? {
-                Json::String(s) if s.starts_with('#') => {
-                    return Err(format!("random_block over the tag {s}"));
-                }
+                Json::String(s) if s.starts_with('#') => table
+                    .tag_blocks(&s[1..])?
+                    .iter()
+                    .map(|&b| table.default[b as usize])
+                    .collect(),
                 Json::String(s) => vec![table.default_state(s)?],
                 Json::Array(items) => items
                     .iter()

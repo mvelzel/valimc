@@ -1,8 +1,9 @@
 # VMC-025: ValiMC's decoration equals vanilla's (DecorationOracle). For each
 # case, ValiMC builds the same 5 × 5 chunks of terrain, decorates the same 3 × 3
 # chunks in the same order with the same placed features, and every block,
-# post-processing mark, scheduled tick and block entity position of the 25
-# chunks must equal vanilla's.
+# post-processing mark, scheduled tick and block entity of the 25 chunks
+# (position, and for created ones their loot table and seed or spawned entity)
+# must equal vanilla's.
 [facts_path] = System.argv()
 facts = facts_path |> File.read!() |> JSON.decode!()
 
@@ -42,15 +43,15 @@ first_difference = fn ours, want, {cx, cz} ->
   end
 end
 
-{failures, blocks, marks, ticks, entities} =
+{failures, blocks, marks, ticks, entities, data} =
   for %{"seed" => seed, "x" => x, "z" => z, "order" => order, "chunks" => chunks} <-
         facts["cases"],
-      reduce: {[], 0, 0, 0, 0} do
-    {failures, blocks, marks, ticks, entities} ->
+      reduce: {[], 0, 0, 0, 0, 0} do
+    {failures, blocks, marks, ticks, entities, data} ->
       seed = String.to_integer(seed)
       {:ok, state} = Valimc.Worldgen.new(seed)
 
-      {:ok, decorated} =
+      result =
         Valimc.Native.worldgen_decorate(
           state,
           "minecraft:overworld",
@@ -59,11 +60,20 @@ end
           features
         )
 
-      ours = Map.new(decorated, fn %{x: cx, z: cz} = chunk -> {{cx, cz}, chunk} end)
+      # An area ValiMC cannot decorate fails as a whole.
+      {decorated, failures} =
+        case result do
+          {:ok, decorated} -> {decorated, failures}
+          {:error, reason} -> {[], [{seed, {x, z}, :area, [error: reason]} | failures]}
+        end
 
-      Enum.reduce(chunks, {failures, blocks, marks, ticks, entities}, fn expected,
-                                                                         {failures, blocks, marks,
-                                                                          ticks, entities} ->
+      ours = Map.new(decorated, fn %{x: cx, z: cz} = chunk -> {{cx, cz}, chunk} end)
+      chunks = if decorated == [], do: [], else: chunks
+
+      Enum.reduce(chunks, {failures, blocks, marks, ticks, entities, data}, fn expected,
+                                                                               {failures, blocks,
+                                                                                marks, ticks,
+                                                                                entities, data} ->
         key = {expected["x"], expected["z"]}
         chunk = ours[key]
         want = expand.(expected["runs"])
@@ -102,6 +112,11 @@ end
               do:
                 {:block_entities, Enum.map(chunk.block_entities, position),
                  expected["block_entities"]}
+            ),
+            if(Enum.sort(chunk.block_entity_data) != Enum.sort(expected["block_entity_data"]),
+              do:
+                {:block_entity_data, chunk.block_entity_data -- expected["block_entity_data"],
+                 expected["block_entity_data"] -- chunk.block_entity_data}
             )
           ]
           |> Enum.reject(&is_nil/1)
@@ -111,7 +126,8 @@ end
 
         {failures, blocks + div(byte_size(want), 2), marks + length(expected["marks"]),
          ticks + length(expected["block_ticks"]) + length(expected["fluid_ticks"]),
-         entities + length(expected["block_entities"])}
+         entities + length(expected["block_entities"]),
+         data + length(expected["block_entity_data"])}
       end)
   end
 
@@ -123,7 +139,10 @@ if failures != [] do
     |> Enum.frequencies_by(fn {seed, centre, _, _} -> {seed, centre} end)
     |> Enum.sort()
 
-  IO.puts("FAIL: #{length(failures)} decorated chunks differ from vanilla's, per area: #{inspect(areas)}")
+  IO.puts(
+    "FAIL: #{length(failures)} decorated chunks differ from vanilla's, per area: #{inspect(areas)}"
+  )
+
   System.halt(1)
 end
 
@@ -131,5 +150,6 @@ included = length(features)
 
 IO.puts(
   "PASS: #{length(facts["cases"])} decorated areas with #{included} placed features equal vanilla's " <>
-    "(#{blocks} blocks, #{marks} post-processing marks, #{ticks} scheduled ticks, #{entities} block entities)"
+    "(#{blocks} blocks, #{marks} post-processing marks, #{ticks} scheduled ticks, #{entities} block entities, " <>
+    "#{data} of them filled in)"
 )

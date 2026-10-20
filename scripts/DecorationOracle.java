@@ -50,8 +50,10 @@ import net.minecraft.world.ticks.WorldGenTickAccess;
 
 /**
  * Vanilla decoration (VMC-025). Cases: per seed, two areas near the origin, two within 32,000
- * blocks and one far out; on the first seed also one area per biome in BIOME_AREAS. Worldgen
- * comes from the vanilla data pack, as a server loads it. For each case (seed, centre chunk),
+ * blocks and one far out; on the first seed also one area per entry of BIOME_AREAS (a biome
+ * at the centre chunk's surface or cave depth, for some also a placed feature that must pass
+ * its rarity filter there or change blocks there on its own). Worldgen comes from the vanilla
+ * data pack, as a server loads it (static registries' tags first). For each case (seed, centre chunk),
  * the 5 × 5 chunks around the centre get vanilla's overworld terrain as TerrainOracle
  * builds it (fill, surface, carvers; chunk biomes and carver biomes from
  * fresh lookup histories), their biomes stored as chunk generation stores
@@ -68,18 +70,22 @@ import net.minecraft.world.ticks.WorldGenTickAccess;
  * `BiomeManager`, setBlock with block entities and post-processing marks,
  * heightmaps of the chunks, ticks into the chunks' tick containers at game
  * time 0, the region's own random) and fails on anything a feature asks that it does not
- * implement; `getLevel` holds only the generator, which trees' pale moss decorator asks for.
+ * implement; `getLevel` holds only the generator, which trees' pale moss decorator asks for, and
+ * a server with a structure template manager over the vanilla data pack (template and fossil
+ * features).
  *
  * Usage: DecorationOracle OUT TYPE,TYPE,... (`*`: every type; a placed feature's identifier
  * includes that placed feature). Output: the included
  * placed features per step (vanilla's global index and identifier), and per
  * chunk of the 5 × 5 its states run-length encoded in volume order (Y fastest
  * from the bottom, then X, then Z) as [id, count] pairs, its post-processing
- * marks, scheduled block and fluid ticks (position, type, delay, priority) and
- * block entity positions.
+ * marks, scheduled block and fluid ticks (position, type, delay, priority),
+ * block entity positions and, for the block entities features created, their type,
+ * loot table and seed and spawned entity.
  */
 public class DecorationOracle {
   static final int MIN_Y = -64, HEIGHT = 384;
+  static net.minecraft.core.RegistryAccess REGISTRIES;
 
   public static void main(String[] args) throws Exception {
     if (args[0].equals("trig")) {
@@ -109,9 +115,19 @@ public class DecorationOracle {
     net.minecraft.core.RegistryAccess registries;
     try (var resources = new net.minecraft.server.packs.resources.MultiPackResourceManager(net.minecraft.server.packs.PackType.SERVER_DATA,
         List.of(net.minecraft.server.packs.repository.ServerPacksSource.createVanillaPackSource().fullResources()))) {
-      registries = net.minecraft.resources.RegistryDataLoader.load(resources,
-          MiningToolOracle.initialize().listRegistries().toList(), net.minecraft.resources.RegistryDataLoader.WORLD_REGISTRIES, Runnable::run).join();
+      MiningToolOracle.initialize();
+      // As a server loads them (`WorldLoader`): the static registries' tags from the pack first,
+      // so that tag holder sets in worldgen entries (random blocks of a tag) have contents.
+      var layered = net.minecraft.server.RegistryLayer.createRegistryAccess();
+      var pending = net.minecraft.tags.TagLoader.loadTagsForExistingRegistries(resources,
+          layered.getLayer(net.minecraft.server.RegistryLayer.STATIC));
+      var context = net.minecraft.tags.TagLoader.buildUpdatedLookups(
+          layered.getAccessForLoading(net.minecraft.server.RegistryLayer.WORLD), pending);
+      registries = net.minecraft.resources.RegistryDataLoader.load(resources, context,
+          net.minecraft.resources.RegistryDataLoader.WORLD_REGISTRIES, Runnable::run).join();
+      pending.forEach(net.minecraft.core.Registry.PendingTags::apply);
     }
+    REGISTRIES = registries;
     var types = new HashSet<>(Arrays.asList(args[1].split(",")));
     // Worldgen as a server loads it, from the vanilla data pack: its JSON is what the code's
     // registries encode to, which differs where a codec writes another field (the cherry foliage
@@ -176,12 +192,28 @@ public class DecorationOracle {
       BiomeSource biomeSource = MultiNoiseBiomeSource.createFromList(
           TerrainOracle.freshList(MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD, biomeLookup));
       var generator = new NoiseBasedChunkGenerator(biomeSource, holder);
+      var terrain = new Terrain(factory, seed, state, settings, picker, generator, heights, biomeLookup, doFill, buildSurface, generateCarvers);
       var centres = new ArrayList<>(List.of(new ChunkPos(0, 0), new ChunkPos(-3, 5)));
       for (int i = 0; i < 2; i++) centres.add(new ChunkPos(gen.nextInt(4001) - 2000, gen.nextInt(4001) - 2000));
       centres.add(new ChunkPos(gen.nextInt(3_750_001) - 1_875_000, gen.nextInt(3_750_001) - 1_875_000));
       if (seed == seeds[0]) {
         var search = new Random(seed);
-        for (var biome : BIOME_AREAS) centres.add(findBiome(search, generator, biomeSource, state, heights, biome));
+        for (var area : BIOME_AREAS) {
+          var target = TARGETED.get(area);
+          String biome = target == null ? area : target[0];
+          java.util.function.Predicate<ChunkPos> cheap = p -> true, accept = p -> true;
+          if (target != null) {
+            var placed = lookup.lookupOrThrow(Registries.PLACED_FEATURE)
+                .getOrThrow(net.minecraft.resources.ResourceKey.create(Registries.PLACED_FEATURE,
+                    net.minecraft.resources.Identifier.parse(target[1]))).value();
+            if (target[2].equals("rarity")) {
+              cheap = p -> rarityPasses(seed, p, steps, placed);
+            } else {
+              accept = p -> places(terrain, p, seed, state, biomeSource, lookup, registries, generator, steps, placed);
+            }
+          }
+          centres.add(findBiome(search, generator, biomeSource, state, heights, biome, cheap, accept));
+        }
       }
       for (var centre : centres) {
        // The first area is also decorated by vanilla's own
@@ -191,29 +223,7 @@ public class DecorationOracle {
            == steps.stream().mapToInt(st -> st.features().size()).sum();
        JsonArray reference = null;
        for (int run = selfCheck ? 0 : 1; run < 2; run++) {
-        var biomeCache = new HashMap<ChunkPos, Holder<Biome>[]>();
-        Function<ChunkPos, Holder<Biome>[]> biomesOf = p -> biomeCache.computeIfAbsent(p,
-            q -> TerrainOracle.chunkBiomes(state, "overworld", biomeLookup, q, MIN_Y, HEIGHT));
-        var biomeManager = new BiomeManager((qx, qy, qz) -> biomeAt(biomesOf, qx, qy, qz), BiomeManager.obfuscateSeed(seed));
-        var chunks = new LinkedHashMap<ChunkPos, ProtoChunk>();
-        for (int dz = -2; dz <= 2; dz++) {
-          for (int dx = -2; dx <= 2; dx++) {
-            var pos = new ChunkPos(centre.x() + dx, centre.z() + dz);
-            var chunk = new ProtoChunk(pos, UpgradeData.EMPTY, heights, factory, null);
-            var volume = new DensityVolume(16, HEIGHT, 16, pos.getMinBlockX(), MIN_Y, pos.getMinBlockZ());
-            try (var noiseChunk = new NoiseChunk(state, null, settings, picker, Blender.empty(), volume)) {
-              doFill.invoke(generator, noiseChunk, chunk);
-              buildSurface.invoke(generator, chunk, noiseChunk, state, biomeManager, null, settings.materialRule().value());
-              generateCarvers.invoke(generator, chunk, Blender.empty(), noiseChunk, state, biomeManager, null,
-                  settings.materialRule().value());
-            }
-            chunk.fillBiomesFromNoise((qx, qy, qz) -> biomeAt(biomesOf, qx, qy, qz));
-            Heightmap.primeHeightmaps(chunk, EnumSet.of(Heightmap.Types.MOTION_BLOCKING,
-                Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, Heightmap.Types.OCEAN_FLOOR, Heightmap.Types.WORLD_SURFACE));
-            chunk.setPersistedStatus(ChunkStatus.TERRAIN);
-            chunks.put(pos, chunk);
-          }
-        }
+        var chunks = terrain.area(centre, 2);
         var order = new JsonArray();
         for (int dz = -1; dz <= 1; dz++) {
           for (int dx = -1; dx <= 1; dx++) {
@@ -344,30 +354,139 @@ public class DecorationOracle {
   static final List<String> BIOME_AREAS = List.of("jungle", "bamboo_jungle", "sparse_jungle", "dark_forest", "pale_garden",
       "mushroom_fields", "old_growth_spruce_taiga", "old_growth_pine_taiga", "cherry_grove", "mangrove_swamp", "savanna",
       "windswept_savanna", "dappled_forest", "birch_forest", "old_growth_birch_forest", "swamp", "snowy_taiga", "flower_forest",
-      "meadow", "wooded_badlands", "grove", "lush_caves");
-  static final Set<String> CAVE_BIOMES = Set.of("lush_caves");
+      "meadow", "wooded_badlands", "grove", "lush_caves",
+      // VMC-025c: the remaining features' biomes, and areas where a rare feature's first placement
+      // draw passes in the centre chunk.
+      "deep_dark", "dripstone_caves", "sulfur_caves", "ice_spikes", "warm_ocean", "frozen_ocean", "deep_frozen_ocean",
+      "desert", "desert_fossil", "swamp_fossil", "plains_geode", "lush_caves_roots", "sulfur_caves_spring");
+  /**
+   * Area name: biome, a placed feature, and whether its rarity filter must pass in the centre chunk
+   * ("rarity") or the feature alone must change blocks when it decorates the centre chunk ("places").
+   */
+  static final Map<String, String[]> TARGETED = Map.of(
+      "frozen_ocean", new String[] {"frozen_ocean", "minecraft:iceberg_packed", "rarity"},
+      "deep_frozen_ocean", new String[] {"deep_frozen_ocean", "minecraft:iceberg_blue", "rarity"},
+      "desert", new String[] {"desert", "minecraft:desert_well", "rarity"},
+      "desert_fossil", new String[] {"desert", "minecraft:fossil_lower", "rarity"},
+      "swamp_fossil", new String[] {"swamp", "minecraft:fossil_upper", "rarity"},
+      "plains_geode", new String[] {"plains", "minecraft:amethyst_geode", "rarity"},
+      "lush_caves_roots", new String[] {"lush_caves", "minecraft:rooted_azalea_tree", "places"},
+      "sulfur_caves_spring", new String[] {"sulfur_caves", "minecraft:rooted_sulfur_spring", "places"});
+  /** Cave biomes, found at a depth instead of the surface. */
+  static final Map<String, Integer> CAVE_BIOMES = Map.of("lush_caves", 0, "dripstone_caves", 0, "sulfur_caves", 0,
+      "deep_dark", -48);
 
-  /** A seeded random search for a chunk whose centre has the biome. */
+
+  /** One seed's terrain for decoration areas, as TerrainOracle builds it. */
+  record Terrain(net.minecraft.world.level.chunk.PalettedContainerFactory factory, long seed, RandomState state,
+      NoiseGeneratorSettings settings, Aquifer.FluidPicker picker, NoiseBasedChunkGenerator generator, LevelHeightAccessor heights,
+      HolderGetter<Biome> biomeLookup, Method doFill, Method buildSurface, Method generateCarvers) {
+    /** The (2r + 1)² chunks around `centre` at status `terrain`, Z outer and X inner. */
+    LinkedHashMap<ChunkPos, ProtoChunk> area(ChunkPos centre, int r) throws ReflectiveOperationException {
+      var biomeCache = new HashMap<ChunkPos, Holder<Biome>[]>();
+      Function<ChunkPos, Holder<Biome>[]> biomesOf = p -> biomeCache.computeIfAbsent(p,
+          q -> TerrainOracle.chunkBiomes(state, "overworld", biomeLookup, q, MIN_Y, HEIGHT));
+      var biomeManager = new BiomeManager((qx, qy, qz) -> biomeAt(biomesOf, qx, qy, qz), BiomeManager.obfuscateSeed(seed));
+      var chunks = new LinkedHashMap<ChunkPos, ProtoChunk>();
+      for (int dz = -r; dz <= r; dz++) {
+        for (int dx = -r; dx <= r; dx++) {
+          var pos = new ChunkPos(centre.x() + dx, centre.z() + dz);
+          var chunk = new ProtoChunk(pos, UpgradeData.EMPTY, heights, factory, null);
+          var volume = new DensityVolume(16, HEIGHT, 16, pos.getMinBlockX(), MIN_Y, pos.getMinBlockZ());
+          try (var noiseChunk = new NoiseChunk(state, null, settings, picker, Blender.empty(), volume)) {
+            doFill.invoke(generator, noiseChunk, chunk);
+            buildSurface.invoke(generator, chunk, noiseChunk, state, biomeManager, null, settings.materialRule().value());
+            generateCarvers.invoke(generator, chunk, Blender.empty(), noiseChunk, state, biomeManager, null,
+                settings.materialRule().value());
+          }
+          chunk.fillBiomesFromNoise((qx, qy, qz) -> biomeAt(biomesOf, qx, qy, qz));
+          Heightmap.primeHeightmaps(chunk, EnumSet.of(Heightmap.Types.MOTION_BLOCKING,
+              Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, Heightmap.Types.OCEAN_FLOOR, Heightmap.Types.WORLD_SURFACE));
+          chunk.setPersistedStatus(ChunkStatus.TERRAIN);
+          chunks.put(pos, chunk);
+        }
+      }
+      return chunks;
+    }
+  }
+
+  /** Whether the placed feature alone changes any block when it decorates the chunk. */
+  static boolean places(Terrain terrain, ChunkPos pos, long seed, RandomState state, BiomeSource biomeSource, HolderGetter.Provider lookup,
+      net.minecraft.core.RegistryAccess registries, NoiseBasedChunkGenerator generator, List<FeatureSorter.StepFeatureData> steps,
+      PlacedFeature feature) {
+    try {
+      var chunks = terrain.area(pos, 2);
+      var before = new JsonArray();
+      chunks.forEach((p, c) -> before.add(chunkJson(p, c).get("runs")));
+      var only = new ArrayList<Map<Integer, PlacedFeature>>();
+      for (var step : steps) {
+        var map = new TreeMap<Integer, PlacedFeature>();
+        if (step.features().contains(feature)) map.put(step.indexMapping().applyAsInt(feature), feature);
+        only.add(map);
+      }
+      var region = new Region(chunks, pos, seed, state, biomeSource, lookup);
+      region.registries = registries;
+      region.generator = generator;
+      decorate(region, generator, chunks.get(pos), steps, only);
+      var after = new JsonArray();
+      chunks.forEach((p, c) -> after.add(chunkJson(p, c).get("runs")));
+      return !before.equals(after);
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
+  /**
+   * Whether a placed feature's first modifier, a rarity filter, passes in a chunk: its feature seed
+   * and draw as `applyBiomeDecoration` makes them.
+   */
+  static boolean rarityPasses(long seed, ChunkPos pos, List<FeatureSorter.StepFeatureData> steps, PlacedFeature feature) {
+    for (int step = 0; step < steps.size(); step++) {
+      var data = steps.get(step);
+      if (!data.features().contains(feature)) continue;
+      var random = new WorldgenRandom(new XoroshiroRandomSource(RandomSupport.generateUniqueSeed()));
+      long decorationSeed = random.setDecorationSeed(seed, pos.getMinBlockX(), pos.getMinBlockZ());
+      random.setFeatureSeed(decorationSeed, data.indexMapping().applyAsInt(feature), step);
+      var rarity = (net.minecraft.world.level.levelgen.placement.RarityFilter) feature.placement().get(0);
+      try {
+        var chance = net.minecraft.world.level.levelgen.placement.RarityFilter.class.getDeclaredField("chance");
+        chance.setAccessible(true);
+        return random.nextFloat() < 1.0F / chance.getInt(rarity);
+      } catch (ReflectiveOperationException e) {
+        throw new IllegalStateException(e);
+      }
+    }
+    throw new IllegalStateException("placed feature in no step");
+  }
+
+  /**
+   * A seeded random search for a chunk whose centre has the biome (and, when given, where the
+   * placed feature's rarity filter passes).
+   */
   static ChunkPos findBiome(Random search, NoiseBasedChunkGenerator generator, BiomeSource source, RandomState state,
-      LevelHeightAccessor heights, String biome) {
+      LevelHeightAccessor heights, String biome, java.util.function.Predicate<ChunkPos> cheap, java.util.function.Predicate<ChunkPos> accept) {
     var key = net.minecraft.resources.ResourceKey.create(Registries.BIOME, net.minecraft.resources.Identifier.withDefaultNamespace(biome));
     var resolver = source.createResolver(
         state.createClimateSampler(net.minecraft.world.level.levelgen.densityfunction.SamplerContext.builder().enableCaches().build()));
-    for (int attempt = 0; attempt < 200_000; attempt++) {
+    for (int attempt = 0; attempt < 2_000_000; attempt++) {
       int cx = search.nextInt(8001) - 4000;
       int cz = search.nextInt(8001) - 4000;
+      if (!cheap.test(new ChunkPos(cx, cz))) continue;
       int x = cx * 16 + 8;
       int z = cz * 16 + 8;
       int qx = net.minecraft.core.QuartPos.fromBlock(x);
       int qz = net.minecraft.core.QuartPos.fromBlock(z);
-      if (CAVE_BIOMES.contains(biome)) {
-        if (resolver.getNoiseBiome(qx, 0, qz).is(key)) return new ChunkPos(cx, cz);
+      if (CAVE_BIOMES.containsKey(biome)) {
+        if (resolver.getNoiseBiome(qx, net.minecraft.core.QuartPos.fromBlock(CAVE_BIOMES.get(biome)), qz).is(key)
+            && accept.test(new ChunkPos(cx, cz))) return new ChunkPos(cx, cz);
         continue;
       }
       // A cheap look at sea level first, then at the surface.
       if (!resolver.getNoiseBiome(qx, net.minecraft.core.QuartPos.fromBlock(64), qz).is(key)) continue;
       int y = generator.getBaseHeight(x, z, Heightmap.Types.WORLD_SURFACE_WG, heights, state);
-      if (resolver.getNoiseBiome(qx, net.minecraft.core.QuartPos.fromBlock(y), qz).is(key)) return new ChunkPos(cx, cz);
+      if (resolver.getNoiseBiome(qx, net.minecraft.core.QuartPos.fromBlock(y), qz).is(key) && accept.test(new ChunkPos(cx, cz))) {
+        return new ChunkPos(cx, cz);
+      }
     }
     throw new IllegalStateException("no " + biome + " found");
   }
@@ -454,6 +573,16 @@ public class DecorationOracle {
     var entities = new TreeSet<String>();
     chunk.getBlockEntityNbts().keySet().forEach(p -> entities.add(p.getX() + "," + p.getY() + "," + p.getZ()));
     chunk.getBlockEntities().keySet().forEach(p -> entities.add(p.getX() + "," + p.getY() + "," + p.getZ()));
+    // What features wrote into the block entities they created: loot table and seed, spawned entity.
+    var entityData = new TreeSet<String>();
+    chunk.getBlockEntities().forEach((p, be) -> {
+      var tag = be.saveWithoutMetadata(REGISTRIES);
+      String loot = tag.getString("LootTable").orElse("-");
+      long lootSeed = tag.getLongOr("LootTableSeed", 0L);
+      String mob = tag.getCompound("SpawnData").flatMap(d -> d.getCompound("entity")).flatMap(e -> e.getString("id")).orElse("-");
+      entityData.add(p.getX() + "," + p.getY() + "," + p.getZ() + ","
+          + net.minecraft.core.registries.BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(be.getType()) + "," + loot + "," + lootSeed + "," + mob);
+    });
     var row = new JsonObject();
     row.addProperty("x", pos.x());
     row.addProperty("z", pos.z());
@@ -462,6 +591,7 @@ public class DecorationOracle {
     row.add("block_ticks", blockTicks);
     row.add("fluid_ticks", fluidTicks);
     row.add("block_entities", new Gson().toJsonTree(entities));
+    row.add("block_entity_data", new Gson().toJsonTree(entityData));
     return row;
   }
 
@@ -538,10 +668,41 @@ public class DecorationOracle {
         set(cache, net.minecraft.server.level.ServerChunkCache.class, "chunkMap", map);
         var level = unsafe.allocateInstance(net.minecraft.server.level.ServerLevel.class);
         set(level, net.minecraft.server.level.ServerLevel.class, "chunkSource", cache);
+        // Template and fossil features ask its server for the structure template manager.
+        var server = templateServer();
+        set(level, net.minecraft.server.level.ServerLevel.class, "server", server);
         return (net.minecraft.server.level.ServerLevel) level;
       } catch (ReflectiveOperationException e) {
         throw new IllegalStateException(e);
       }
+    }
+
+    static net.minecraft.server.MinecraftServer TEMPLATE_SERVER;
+
+    /**
+     * A server allocated without construction that holds only a structure template manager, which
+     * loads templates from the vanilla data pack (kept open) as a server's does and caches them.
+     */
+    static synchronized net.minecraft.server.MinecraftServer templateServer() throws ReflectiveOperationException {
+      if (TEMPLATE_SERVER == null) {
+        var f = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+        f.setAccessible(true);
+        var unsafe = (sun.misc.Unsafe) f.get(null);
+        var resources = new net.minecraft.server.packs.resources.MultiPackResourceManager(net.minecraft.server.packs.PackType.SERVER_DATA,
+            List.of(net.minecraft.server.packs.repository.ServerPacksSource.createVanillaPackSource().fullResources()));
+        var managerClass = net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager.class;
+        var manager = unsafe.allocateInstance(managerClass);
+        var templates = new net.minecraft.world.level.levelgen.structure.templatesystem.loader.ResourceManagerTemplateSource(
+            net.minecraft.util.datafix.DataFixers.getDataFixer(), net.minecraft.core.registries.BuiltInRegistries.BLOCK, resources,
+            new net.minecraft.resources.FileToIdConverter("structure", ".nbt"));
+        set(manager, managerClass, "structureRepository", new java.util.concurrent.ConcurrentHashMap<>());
+        set(manager, managerClass, "resourceManagerSource", templates);
+        set(manager, managerClass, "sources", List.of(templates));
+        var server = unsafe.allocateInstance(net.minecraft.server.dedicated.DedicatedServer.class);
+        set(server, net.minecraft.server.MinecraftServer.class, "structureTemplateManager", manager);
+        TEMPLATE_SERVER = (net.minecraft.server.MinecraftServer) server;
+      }
+      return TEMPLATE_SERVER;
     }
 
     static void set(Object target, Class<?> owner, String name, Object value) throws ReflectiveOperationException {

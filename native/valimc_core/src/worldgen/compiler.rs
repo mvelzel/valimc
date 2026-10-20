@@ -91,6 +91,8 @@ pub struct DecorationJson<'a> {
     pub feature_order: &'a Json,
     pub support: &'a Json,
     pub shapes: Option<&'a Json>,
+    /// Structure templates and processor lists (VMC-025c), when given.
+    pub templates: Option<(&'a Json, &'a Json)>,
     pub block_registry: &'a Json,
     pub block_facts: &'a Json,
 }
@@ -117,6 +119,7 @@ impl<'a> Facts<'a> {
                     feature_order: json.field("feature_order")?,
                     support: json.field("support")?,
                     shapes: json.get("shapes"),
+                    templates: json.get("templates").zip(json.get("processor_lists")),
                     block_registry: json.field("block_registry")?,
                     block_facts: json.field("block_facts")?,
                 }),
@@ -265,6 +268,7 @@ impl Registry {
                     biomes: facts.biomes,
                     support: json.support,
                     shapes: json.shapes,
+                    templates: json.templates,
                     biome_ids: &|name| biomes.id(name),
                     biome_count: biomes.names.len(),
                     source_biomes: &source_biomes,

@@ -86,6 +86,24 @@ pub enum Feature {
     FallenTree(Box<super::tree::FallenTree>),
     HugeMushroom(Box<super::plants::HugeMushroom>),
     Bamboo(super::plants::Bamboo),
+    RootSystem(Box<super::plants::RootSystem>),
+    Vines(super::plants::Vines),
+    CoralTree(super::plants::CoralTree),
+    CoralClaw(super::plants::CoralClaw),
+    Iceberg(Box<super::formations::Iceberg>),
+    Spike(Box<super::formations::Spike>),
+    Geode(Box<super::formations::Geode>),
+    UnderwaterMagma(Box<super::formations::UnderwaterMagma>),
+    MonsterRoom(Box<super::formations::MonsterRoom>),
+    LargeDripstone(Box<super::speleothem::LargeDripstone>),
+    SpeleothemCluster(Box<super::speleothem::SpeleothemCluster>),
+    Speleothem(Box<super::speleothem::Speleothem>),
+    MultifaceGrowth(Box<super::sculk::MultifaceGrowth>),
+    SculkPatch(Box<super::sculk::SculkPatch>),
+    Template(Box<super::template::TemplateFeature>),
+    Fossil(Box<super::template::Fossil>),
+    Overlay(Vec<Arc<PlacedFeature>>),
+    NoOp,
     /// A feature type this slice does not implement; placing it fails.
     Unsupported(String),
 }
@@ -104,21 +122,23 @@ struct Known {
     ice_block: u16,
     blue_ice_block: u16,
     snow_block: u16,
+    speleothems: BlockSet,
 }
 
 pub struct Decoration {
     pub table: Arc<BlockTable>,
     support: Support,
     shapes: Option<super::shapes::Shapes>,
+    templates: Option<super::template::Templates>,
     pub features: HashMap<String, Arc<Feature>>,
     pub placed: HashMap<String, Arc<PlacedFeature>>,
     /// Per step, the placed features in vanilla's order (`FeatureSorter`),
     /// whose index seeds each feature.
     pub order: Vec<Vec<Arc<PlacedFeature>>>,
     /// Per biome registry id: per step, the global indices of its placed
-    /// features; and the identifiers of all of them (`hasFeature`).
+    /// features; and all of them (`hasFeature`) as bits by placed feature key.
     biome_steps: Vec<Vec<Vec<usize>>>,
-    biome_features: Vec<HashSet<String>>,
+    biome_features: Vec<Vec<u64>>,
     /// The biome source's biomes (`possibleBiomes`).
     source_biomes: Vec<bool>,
     climates: Vec<BiomeClimate>,
@@ -142,11 +162,14 @@ impl std::fmt::Debug for Decoration {
 /// Lazily parsed registry entries.
 struct Parser<'a> {
     table: &'a BlockTable,
+    templates: Option<&'a super::template::Templates>,
     features_json: &'a Json,
     placed_json: &'a Json,
     providers_json: &'a Json,
     features: HashMap<String, Arc<Feature>>,
     placed: HashMap<String, Arc<PlacedFeature>>,
+    /// Dense keys of registry placed features, for biome checks.
+    keys: HashMap<String, u32>,
     providers: std::cell::RefCell<HashMap<String, Arc<StateProvider>>>,
 }
 
@@ -217,8 +240,13 @@ impl<'a> Parser<'a> {
             .iter()
             .map(|m| Modifier::parse(m, self.table))
             .collect::<Result<_, _>>()?;
+        let key = id.as_ref().map(|id| {
+            let next = self.keys.len() as u32;
+            *self.keys.entry(id.clone()).or_insert(next)
+        });
         Ok(Arc::new(PlacedFeature {
             id,
+            key,
             feature,
             placement,
         }))
@@ -390,6 +418,72 @@ impl<'a> Parser<'a> {
                 )?))
             }
             "minecraft:bamboo" => Feature::Bamboo(super::plants::Bamboo::parse(json, table)?),
+            "minecraft:root_system" => {
+                let tree = self.placed(json.field("feature")?)?;
+                let mut provider = |j: &Json| self.provider(j);
+                Feature::RootSystem(Box::new(super::plants::RootSystem::parse(
+                    json,
+                    table,
+                    tree,
+                    &mut provider,
+                )?))
+            }
+            "minecraft:vines" => Feature::Vines(super::plants::Vines::new(table)?),
+            "minecraft:coral_tree" => Feature::CoralTree(super::plants::CoralTree::new(
+                self.placed(json.field("feature")?)?,
+            )),
+            "minecraft:coral_claw" => Feature::CoralClaw(super::plants::CoralClaw::new(
+                self.placed(json.field("feature")?)?,
+            )),
+            "minecraft:iceberg" => {
+                Feature::Iceberg(Box::new(super::formations::Iceberg::parse(json, table)?))
+            }
+            "minecraft:spike" => {
+                Feature::Spike(Box::new(super::formations::Spike::parse(json, table)?))
+            }
+            "minecraft:geode" => {
+                let mut provider = |j: &Json| self.provider(j);
+                Feature::Geode(Box::new(super::formations::Geode::parse(
+                    json,
+                    table,
+                    &mut provider,
+                )?))
+            }
+            "minecraft:underwater_magma" => Feature::UnderwaterMagma(Box::new(
+                super::formations::UnderwaterMagma::parse(json, table)?,
+            )),
+            "minecraft:monster_room" => {
+                Feature::MonsterRoom(Box::new(super::formations::MonsterRoom::new(table)?))
+            }
+            "minecraft:large_dripstone" => Feature::LargeDripstone(Box::new(
+                super::speleothem::LargeDripstone::parse(json, table)?,
+            )),
+            "minecraft:speleothem_cluster" => Feature::SpeleothemCluster(Box::new(
+                super::speleothem::SpeleothemCluster::parse(json, table)?,
+            )),
+            "minecraft:speleothem" => {
+                Feature::Speleothem(Box::new(super::speleothem::Speleothem::parse(json, table)?))
+            }
+            "minecraft:multiface_growth" => Feature::MultifaceGrowth(Box::new(
+                super::sculk::MultifaceGrowth::parse(json, table)?,
+            )),
+            "minecraft:sculk_patch" => {
+                Feature::SculkPatch(Box::new(super::sculk::SculkPatch::parse(json, table)?))
+            }
+            "minecraft:template" => {
+                let templates = self.templates.ok_or("no structure templates")?;
+                Feature::Template(Box::new(super::template::TemplateFeature::parse(
+                    json, table, templates,
+                )?))
+            }
+            "minecraft:fossil" => {
+                let templates = self.templates.ok_or("no structure templates")?;
+                Feature::Fossil(Box::new(super::template::Fossil::parse(
+                    json, table, templates,
+                )?))
+            }
+            "minecraft:overlay" => Feature::Overlay(self.placed_list(json.field("features")?)?),
+            "minecraft:no_op" => Feature::NoOp,
             "minecraft:tree" => {
                 let mut provider = |j: &Json| self.provider(j);
                 Feature::Tree(Box::new(super::tree::Tree::parse(
@@ -422,6 +516,8 @@ pub struct DecorationFacts<'a> {
     pub support: &'a Json,
     /// Shape update facts, when given.
     pub shapes: Option<&'a Json>,
+    /// Structure templates and processor lists, when given.
+    pub templates: Option<(&'a Json, &'a Json)>,
     /// Biome registry ids by name, and the biome source's biomes.
     pub biome_ids: &'a dyn Fn(&str) -> Result<u16, String>,
     pub biome_count: usize,
@@ -437,13 +533,19 @@ impl Decoration {
     ) -> Result<Decoration, String> {
         let support = Support::parse(facts.support)?;
         let shapes = facts.shapes.map(super::shapes::Shapes::parse).transpose()?;
+        let templates = facts
+            .templates
+            .map(|(t, l)| super::template::Templates::parse(t, l, &table))
+            .transpose()?;
         let mut parser = Parser {
             table: &table,
+            templates: templates.as_ref(),
             features_json: facts.features,
             placed_json: facts.placed_features,
             providers_json: facts.block_state_providers,
             features: HashMap::new(),
             placed: HashMap::new(),
+            keys: HashMap::new(),
             providers: std::cell::RefCell::new(HashMap::new()),
         };
         let mut order = Vec::new();
@@ -458,7 +560,7 @@ impl Decoration {
             order.push(list);
         }
         let mut biome_steps = vec![Vec::new(); facts.biome_count];
-        let mut biome_features = vec![HashSet::new(); facts.biome_count];
+        let mut biome_features = vec![Vec::new(); facts.biome_count];
         let mut precipitation = vec![true; facts.biome_count];
         for (name, biome) in facts.biomes.entries()? {
             let id = (facts.biome_ids)(name)? as usize;
@@ -472,7 +574,16 @@ impl Decoration {
                 let mut indices = Vec::new();
                 for placed in list.as_array()? {
                     let placed = placed.as_str()?;
-                    biome_features[id].insert(placed.to_string());
+                    // Placed features the order does not name never take a
+                    // biome check here.
+                    if let Some(&key) = parser.keys.get(placed) {
+                        let bits: &mut Vec<u64> = &mut biome_features[id];
+                        let word = key as usize / 64;
+                        if bits.len() <= word {
+                            bits.resize(word + 1, 0);
+                        }
+                        bits[word] |= 1 << (key % 64);
+                    }
                     if let Some(&(s, index)) = index_of.get(placed) {
                         if s == step {
                             indices.push(index);
@@ -498,6 +609,7 @@ impl Decoration {
             ice_block: table.block("ice")?,
             blue_ice_block: table.block("blue_ice")?,
             snow_block: table.block("snow")?,
+            speleothems: table.tag("minecraft:speleothems")?.clone(),
         };
         // Trees' pale moss decorator places this feature by name.
         if facts.features.get("minecraft:pale_moss_patch").is_some() {
@@ -510,6 +622,7 @@ impl Decoration {
             table,
             support,
             shapes,
+            templates,
             features,
             placed,
             order,
@@ -525,6 +638,13 @@ impl Decoration {
 
     pub fn context(&self) -> GenContext {
         self.context
+    }
+
+    /// The structure templates features place.
+    pub fn templates(&self) -> Result<&super::template::Templates, String> {
+        self.templates
+            .as_ref()
+            .ok_or_else(|| "no structure templates".into())
     }
 
     /// `state.canSurvive(level, pos)` in decoration's light.
@@ -556,6 +676,9 @@ impl Decoration {
                 d,
             ));
         }
+        if self.table.in_tag(state, &self.known.speleothems) {
+            return super::speleothem::update_shape(&self.table, region, state, pos, d);
+        }
         if self.table.flag(state, MOSSY_CARPET) {
             let carpet = super::multiface::MossyCarpet::new(&self.table)?;
             let air = self.table.default_state("air")?;
@@ -574,11 +697,12 @@ impl Decoration {
         Ok(new_state)
     }
 
-    /// `BiomeGenerationSettings.hasFeature`.
-    pub fn biome_has_feature(&self, biome: u16, placed: &str) -> bool {
+    /// `BiomeGenerationSettings.hasFeature`, by placed feature key.
+    pub fn biome_has_feature(&self, biome: u16, key: u32) -> bool {
         self.biome_features
             .get(biome as usize)
-            .is_some_and(|set| set.contains(placed))
+            .and_then(|bits| bits.get(key as usize / 64))
+            .is_some_and(|word| word & (1 << (key % 64)) != 0)
     }
 
     fn temperature(&self, biome: u16, pos: [i32; 3]) -> f32 {
@@ -876,6 +1000,33 @@ impl Feature {
             Feature::FallenTree(tree) => return tree.place(d, region, random, origin),
             Feature::HugeMushroom(m) => return m.place(d, region, random, origin),
             Feature::Bamboo(b) => return b.place(d, region, random, origin),
+            Feature::RootSystem(f) => return f.place(d, region, random, origin),
+            Feature::Vines(f) => return f.place(d, region, origin),
+            Feature::CoralTree(f) => return f.place(d, region, random, origin),
+            Feature::CoralClaw(f) => return f.place(d, region, random, origin),
+
+            Feature::UnderwaterMagma(f) => return f.place(d, region, random, origin),
+            Feature::MonsterRoom(f) => return f.place(d, region, random, origin),
+
+            Feature::SpeleothemCluster(f) => return f.place(d, region, random, origin),
+            Feature::Speleothem(f) => return f.place(d, region, random, origin),
+            Feature::MultifaceGrowth(f) => return f.place(d, region, random, origin),
+
+            Feature::Template(f) => return f.place(d, region, random, origin),
+            Feature::Fossil(f) => return f.place(d, region, random, origin),
+            Feature::Iceberg(f) => return f.place(d, region, random, origin),
+            Feature::Spike(f) => return f.place(d, region, random, origin),
+            Feature::Geode(f) => return f.place(d, region, random, origin),
+            Feature::LargeDripstone(f) => return f.place(d, region, random, origin),
+            Feature::SculkPatch(f) => return f.place(d, region, random, origin),
+            Feature::Overlay(features) => {
+                let mut placed = false;
+                for feature in features {
+                    placed |= feature.place(d, region, random, origin, false)?;
+                }
+                placed
+            }
+            Feature::NoOp => true,
             Feature::Ore {
                 targets,
                 size,

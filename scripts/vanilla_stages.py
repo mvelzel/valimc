@@ -81,6 +81,9 @@ STAGES = [
         ('same', '@feature_order.json', 'priv/worldgen/feature_order.json'),
         ('java', 'WorldgenBlocksOracle', '@blocks.json'),
         ('same', '@blocks.json', 'priv/worldgen/blocks.json'),
+        ('java', 'StructureTemplateOracle', '@templates.json', '@processor_lists.json'),
+        ('same', '@templates.json', 'priv/worldgen/templates.json'),
+        ('same', '@processor_lists.json', 'priv/worldgen/processor_lists.json'),
     ]),
     ('worldgen_noise', [
         ('java', 'NoiseOracle', '@noise.json'),
@@ -121,7 +124,11 @@ STAGES = [
          'minecraft:sequence,minecraft:block_column,minecraft:lake,minecraft:freeze_top_layer,minecraft:blue_ice,'
          'minecraft:block_blob,minecraft:tree,minecraft:fallen_tree,minecraft:huge_red_mushroom,'
          'minecraft:huge_brown_mushroom,minecraft:bamboo,minecraft:vegetation_patch,'
-         'minecraft:waterlogged_vegetation_patch'),
+         'minecraft:waterlogged_vegetation_patch,minecraft:root_system,minecraft:iceberg,minecraft:geode,'
+         'minecraft:large_dripstone,minecraft:speleothem_cluster,minecraft:speleothem,minecraft:fossil,'
+         'minecraft:monster_room,minecraft:spike,minecraft:overlay,minecraft:template,minecraft:no_op,'
+         'minecraft:coral_tree,minecraft:coral_claw,minecraft:underwater_magma,minecraft:multiface_growth,'
+         'minecraft:sculk_patch,minecraft:vines'),
         ('check', 'check_decoration.exs', '@decoration.json'),
     ]),
     ('commands', [

@@ -26,6 +26,13 @@ pub const POST_PROCESS_ABOVE: u32 = 1 << 15;
 pub const SOLID_RENDER: u32 = 1 << 16;
 /// A full collision face, shifted by the direction's index.
 pub const COLLISION_FULL: u32 = 1 << 17;
+/// `isCollisionShapeFullBlock`.
+pub const FULL_COLLISION: u32 = 1 << 23;
+/// A full face occlusion shape, shifted by the direction's index.
+pub const OCCLUDES: u32 = 1 << 24;
+/// A `LiquidBlockContainer`, and a `SimpleWaterloggedBlock`.
+pub const LIQUID_CONTAINER: u32 = 1 << 30;
+pub const SIMPLE_WATERLOGGED: u32 = 1 << 31;
 
 /// Fluid registry ids.
 pub const FLUID_EMPTY: u8 = 0;
@@ -125,6 +132,8 @@ pub struct BlockTable {
     pub fluid_level: Vec<u8>,
     pub heightmaps: Vec<u8>,
     tags: HashMap<String, BlockSet>,
+    /// Each block tag's blocks in vanilla's order (a holder set's contents).
+    tag_lists: HashMap<String, Vec<u16>>,
     fluid_tags: HashMap<String, Vec<u8>>,
 }
 
@@ -172,6 +181,7 @@ impl BlockTable {
             fluid_level: bytes(facts.field("fluid_level")?, count)?,
             heightmaps: bytes(facts.field("heightmaps")?, count)?,
             tags: HashMap::new(),
+            tag_lists: HashMap::new(),
             fluid_tags: HashMap::new(),
         };
         for (id, row) in registry.field("blocks")?.as_array()?.iter().enumerate() {
@@ -204,7 +214,8 @@ impl BlockTable {
                 .collect::<Result<Vec<_>, _>>()?;
             table
                 .tags
-                .insert(tag.clone(), BlockSet::from_blocks(blocks));
+                .insert(tag.clone(), BlockSet::from_blocks(blocks.iter().copied()));
+            table.tag_lists.insert(tag.clone(), blocks);
         }
         for (tag, fluids) in facts.field("fluid_tags")?.entries()? {
             let fluids = fluids
@@ -263,6 +274,14 @@ impl BlockTable {
         self.tags
             .get(name)
             .ok_or_else(|| format!("unknown block tag {name}"))
+    }
+
+    /// A block tag's blocks in vanilla's order.
+    pub fn tag_blocks(&self, name: &str) -> Result<&[u16], String> {
+        self.tag_lists
+            .get(name)
+            .map(Vec::as_slice)
+            .ok_or_else(|| format!("no block tag {name}"))
     }
 
     pub fn in_tag(&self, state: u16, tag: &BlockSet) -> bool {

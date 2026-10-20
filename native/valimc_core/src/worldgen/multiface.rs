@@ -20,7 +20,7 @@ const DIRECTIONS: [[i32; 3]; 6] = [
 
 /// `MultifaceBlock.canAttachTo(level, d, neighbour)`: the neighbour's face
 /// opposite `d` is full.
-fn attaches(table: &BlockTable, neighbour: u16, d: usize) -> bool {
+pub(crate) fn attaches(table: &BlockTable, neighbour: u16, d: usize) -> bool {
     let face = d ^ 1;
     table.flag(neighbour, STURDY << face) || table.flag(neighbour, COLLISION_FULL << face)
 }

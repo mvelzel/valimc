@@ -1663,8 +1663,10 @@ impl<'a> Placing<'a, '_> {
                             .ok_or("bee nest facing")?;
                         self.set_decoration(p, nest);
                         // The hive's block entity, there only if the nest
-                        // was written, takes 2 or 3 bees.
-                        if self.region.can_write(p) {
+                        // was written, takes 2 or 3 bees (their data is not
+                        // modelled).
+                        let hive = self.region.block_entity(p)?;
+                        if hive.is_some_and(|be| be.kind == "minecraft:beehive") {
                             let bees = 2 + self.random.next_int_bounded(2);
                             for _ in 0..bees {
                                 self.random.next_int_bounded(599);
@@ -2079,14 +2081,14 @@ fn tree_shape(height: i32, y: i32) -> f32 {
 }
 
 /// A box of positions (`BoundingBox`), with a voxel shape over it.
-struct Shape {
+pub(crate) struct Shape {
     min: [i32; 3],
     size: [i32; 3],
     full: Vec<bool>,
 }
 
 impl Shape {
-    fn new(min: [i32; 3], max: [i32; 3]) -> Shape {
+    pub(crate) fn new(min: [i32; 3], max: [i32; 3]) -> Shape {
         let size = [
             max[0] - min[0] + 1,
             max[1] - min[1] + 1,
@@ -2111,7 +2113,7 @@ impl Shape {
         self.full[self.cell(x, y, z)]
     }
 
-    fn fill(&mut self, pos: [i32; 3]) {
+    pub(crate) fn fill(&mut self, pos: [i32; 3]) {
         let c = self.cell(
             pos[0] - self.min[0],
             pos[1] - self.min[1],
@@ -2395,34 +2397,43 @@ impl Placing<'_, '_> {
 
     /// `StructureTemplate.updateShapeAtEdge(level, 3, shape, …)`.
     fn update_edges(&mut self, shape: &Shape) -> Result<(), String> {
-        for (direction, cell) in shape.faces() {
-            let pos = [
-                shape.min[0] + cell[0],
-                shape.min[1] + cell[1],
-                shape.min[2] + cell[2],
-            ];
-            let neighbor = moved(pos, direction, 1);
-            let state = self.get(pos);
-            let neighbor_state = self.get(neighbor);
-            let new_state = self
-                .d
-                .update_shape(self.region, state, pos, direction, None)?;
-            if new_state != state {
-                self.region.set(pos, new_state, 2);
-            }
-            let new_neighbor = self.d.update_shape(
-                self.region,
-                neighbor_state,
-                neighbor,
-                opposite(direction),
-                Some((pos, new_state)),
-            )?;
-            if new_neighbor != neighbor_state {
-                self.region.set(neighbor, new_neighbor, 2);
-            }
-        }
-        Ok(())
+        update_shape_at_edge(self.d, self.region, shape)
     }
+}
+
+/// `StructureTemplate.updateShapeAtEdge` (trees and templates): along every
+/// face of the shape, the block inside and its neighbour outside update
+/// toward each other, written with flags that keep post-processing marks.
+pub(crate) fn update_shape_at_edge(
+    d: &Decoration,
+    region: &mut Region,
+    shape: &Shape,
+) -> Result<(), String> {
+    for (direction, cell) in shape.faces() {
+        let pos = [
+            shape.min[0] + cell[0],
+            shape.min[1] + cell[1],
+            shape.min[2] + cell[2],
+        ];
+        let neighbor = moved(pos, direction, 1);
+        let state = region.get(pos);
+        let neighbor_state = region.get(neighbor);
+        let new_state = d.update_shape(region, state, pos, direction, None)?;
+        if new_state != state {
+            region.set(pos, new_state, 2);
+        }
+        let new_neighbor = d.update_shape(
+            region,
+            neighbor_state,
+            neighbor,
+            opposite(direction),
+            Some((pos, new_state)),
+        )?;
+        if new_neighbor != neighbor_state {
+            region.set(neighbor, new_neighbor, 2);
+        }
+    }
+    Ok(())
 }
 
 /// `FallenTreeFeature`: a stump, and a log lying beside it when the ground

@@ -28,9 +28,10 @@ import net.minecraft.world.level.material.Fluid;
  *
  * Analyzed: the states of blocks whose class overrides `updateShape` and that the generated
  * worldgen facts (features, placed features, state providers, material rules, noise settings,
- * with block tags expanded) or ValiMC's worldgen code name, except fire, chorus plants, pale
- * moss carpets and vines. Blocks that do not override it keep their state and schedule nothing, as vanilla's
- * default does; the other overriding blocks are listed as unmodelled.
+ * with block tags expanded), the structure templates and processor lists features place, or
+ * ValiMC's worldgen code name, except fire, chorus plants, pale moss carpets, vines and
+ * speleothems. Blocks that do not override it keep their state and schedule nothing, as
+ * vanilla's default does; the other overriding blocks are listed as unmodelled.
  *
  * Usage: ShapeOracle OUT.json. Output: partitions (runs), outcomes ([new state or -1 for
  * unchanged, [[dx, dy, dz, kind (0 block, 1 fluid), id, delay], ...]]), rules (offsets,
@@ -263,7 +264,8 @@ public class ShapeOracle {
   static Set<Block> worldgenBlocks() throws Exception {
     var out = new HashSet<Block>();
     var pattern = java.util.regex.Pattern.compile("\"(#?)minecraft:([a-z0-9_/]+)\"");
-    for (var name : List.of("features", "placed_features", "block_state_providers", "material_rules", "noise_settings")) {
+    for (var name : List.of("features", "placed_features", "block_state_providers", "material_rules", "noise_settings",
+        "processor_lists")) {
       var matcher = pattern.matcher(Files.readString(Path.of("priv/worldgen/" + name + ".json")));
       while (matcher.find()) {
         var id = net.minecraft.resources.Identifier.withDefaultNamespace(matcher.group(2));
@@ -276,6 +278,13 @@ public class ShapeOracle {
       }
     }
     for (var block : List.of(Blocks.AIR, Blocks.CAVE_AIR, Blocks.WATER, Blocks.LAVA, Blocks.STONE, Blocks.BEDROCK)) out.add(block);
+    // The blocks of the structure templates features place (VMC-025c).
+    var templates = JsonParser.parseString(Files.readString(Path.of("priv/worldgen/templates.json"))).getAsJsonObject();
+    for (var template : templates.getAsJsonObject("templates").entrySet()) {
+      for (var palette : template.getValue().getAsJsonObject().getAsJsonArray("palettes")) {
+        for (var block : palette.getAsJsonArray()) out.add(Block.stateById(block.getAsJsonArray().get(3).getAsInt()).getBlock());
+      }
+    }
     // And the blocks ValiMC's worldgen code places by name (tree decorators, bamboo, huge mushrooms).
     var named = java.util.regex.Pattern.compile("(?:default_state|block)\\(\"([a-z0-9_]+)\"\\)");
     try (var files = Files.list(Path.of("native/valimc_core/src/worldgen"))) {
@@ -297,6 +306,9 @@ public class ShapeOracle {
     // code (VMC-025b).
     out.remove(Blocks.PALE_MOSS_CARPET);
     out.remove(Blocks.VINE);
+    // Speleothems read scheduled ticks; ValiMC implements their updates in code (VMC-025c).
+    out.remove(Blocks.POINTED_DRIPSTONE);
+    out.remove(Blocks.SULFUR_SPIKE);
     return out;
   }
 

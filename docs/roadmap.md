@@ -39,11 +39,11 @@ resumes on these foundations alongside M2.
 | [VMC-023](tickets/VMC-023.md) | Seeded noise and biomes: random sources, noises, compiled density functions and chunk biomes equal vanilla's | Foundation |
 | [VMC-024](tickets/VMC-024.md) | Vanilla terrain: noise fill with aquifers, material rules and carvers equal to vanilla's, generated live in new worlds | Done |
 | [VMC-053](tickets/VMC-053.md) | Vanilla commands: parse, permissions, suggestions, SNBT and the player, world, chat and basic admin commands are live; operator, entity and data-pack commands remain | In progress |
-| [VMC-025](tickets/VMC-025.md) | Features and structures: the decoration pipeline, the first features and all trees and large plants equal vanilla's; the remaining features, live decoration and structures next | In progress |
+| [VMC-025](tickets/VMC-025.md) | Features and structures: all 171 overworld placed features (with structure templates and block entities) equal vanilla's; live decoration and structures next | In progress |
 | [VMC-070](tickets/VMC-070.md) | The client's view distance (clamped to the server's, default 10) picks vanilla's chunk view, applied live; vanilla chunk send pacing and entity tracking ranges | Awaiting client |
 
-Next: the remaining features (VMC-025c), features live
-(VMC-025d) and structures, then dimensions and portals (VMC-026..028).
+Next: features live (VMC-025d) and structures (VMC-025e/f), then dimensions
+and portals (VMC-026..028).
 Performance target: generation throughput and tick time benchmarked against
 the same seed on vanilla and on Pumpkin, staying at least in Pumpkin's range.
 

@@ -1,0 +1,2389 @@
+{
+  "minecraft:ancient_city_generic_degradation": {
+    "processors": [
+      {
+        "rottable_blocks": "#minecraft:ancient_city_replaceable",
+        "integrity": 0.949999988079071,
+        "processor_type": "minecraft:block_rot"
+      },
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:deepslate_bricks",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_deepslate_bricks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:deepslate_tiles",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_deepslate_tiles"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:soul_lantern",
+              "probability": 0.05000000074505806,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      },
+      {
+        "value": "#minecraft:features_cannot_replace",
+        "processor_type": "minecraft:protected_blocks"
+      }
+    ]
+  },
+  "minecraft:ancient_city_start_degradation": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:deepslate_bricks",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_deepslate_bricks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:deepslate_tiles",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_deepslate_tiles"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:soul_lantern",
+              "probability": 0.05000000074505806,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      },
+      {
+        "value": "#minecraft:features_cannot_replace",
+        "processor_type": "minecraft:protected_blocks"
+      }
+    ]
+  },
+  "minecraft:ancient_city_walls_degradation": {
+    "processors": [
+      {
+        "rottable_blocks": "#minecraft:ancient_city_replaceable",
+        "integrity": 0.949999988079071,
+        "processor_type": "minecraft:block_rot"
+      },
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:deepslate_bricks",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_deepslate_bricks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:deepslate_tiles",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_deepslate_tiles"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:deepslate_tile_slab",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:soul_lantern",
+              "probability": 0.05000000074505806,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      },
+      {
+        "value": "#minecraft:features_cannot_replace",
+        "processor_type": "minecraft:protected_blocks"
+      }
+    ]
+  },
+  "minecraft:bastion_generic_degradation": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:polished_blackstone_bricks",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_polished_blackstone_bricks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:blackstone",
+              "probability": 9.999999747378752E-5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:gold_block",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_polished_blackstone_bricks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:gilded_blackstone",
+              "probability": 0.5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:blackstone"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:blackstone",
+              "probability": 0.009999999776482582,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:gilded_blackstone"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:bottom_rampart": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:magma_block",
+              "probability": 0.75,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_polished_blackstone_bricks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:cracked_polished_blackstone_bricks",
+              "probability": 0.15000000596046448,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:polished_blackstone_bricks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:gilded_blackstone",
+              "probability": 0.5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:blackstone"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:blackstone",
+              "probability": 0.009999999776482582,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:gilded_blackstone"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:bridge": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:polished_blackstone_bricks",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_polished_blackstone_bricks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:blackstone",
+              "probability": 9.999999747378752E-5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:empty": {
+    "processors": []
+  },
+  "minecraft:entrance_replacement": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:chiseled_polished_blackstone",
+              "probability": 0.5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:gold_block",
+              "probability": 0.6000000238418579,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_polished_blackstone_bricks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:gilded_blackstone",
+              "probability": 0.5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:blackstone"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:blackstone",
+              "probability": 0.009999999776482582,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:gilded_blackstone"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:farm_desert": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.20000000298023224,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:beetroots"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:melon_stem"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:farm_plains": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:carrots"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.20000000298023224,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:potatoes"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:beetroots"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:farm_savanna": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:melon_stem"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:farm_snowy": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:carrots"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.800000011920929,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:potatoes"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:farm_taiga": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:pumpkin_stem"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.20000000298023224,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:potatoes"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:fossil_coal": {
+    "processors": [
+      {
+        "integrity": 0.10000000149011612,
+        "processor_type": "minecraft:block_rot"
+      },
+      {
+        "value": "#minecraft:features_cannot_replace",
+        "processor_type": "minecraft:protected_blocks"
+      }
+    ]
+  },
+  "minecraft:fossil_diamonds": {
+    "processors": [
+      {
+        "integrity": 0.10000000149011612,
+        "processor_type": "minecraft:block_rot"
+      },
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:coal_ore",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:deepslate_diamond_ore"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      },
+      {
+        "value": "#minecraft:features_cannot_replace",
+        "processor_type": "minecraft:protected_blocks"
+      }
+    ]
+  },
+  "minecraft:fossil_rot": {
+    "processors": [
+      {
+        "integrity": 0.8999999761581421,
+        "processor_type": "minecraft:block_rot"
+      },
+      {
+        "value": "#minecraft:features_cannot_replace",
+        "processor_type": "minecraft:protected_blocks"
+      }
+    ]
+  },
+  "minecraft:high_rampart": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:gold_block",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_polished_blackstone_bricks"
+          },
+          {
+            "input_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "position_predicate": {
+              "max_chance": 0.05000000074505806,
+              "max_dist": 100,
+              "predicate_type": "minecraft:axis_aligned_linear_pos"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:gilded_blackstone",
+              "probability": 0.5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:blackstone"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:high_wall": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:polished_blackstone_bricks",
+              "probability": 0.009999999776482582,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:polished_blackstone_bricks",
+              "probability": 0.5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_polished_blackstone_bricks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:polished_blackstone_bricks",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:blackstone"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:gilded_blackstone",
+              "probability": 0.5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:blackstone"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:housing": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:polished_blackstone_bricks",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_polished_blackstone_bricks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:blackstone",
+              "probability": 9.999999747378752E-5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:gilded_blackstone",
+              "probability": 0.5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:blackstone"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:blackstone",
+              "probability": 0.009999999776482582,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:gilded_blackstone"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:mossify_10_percent": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:cobblestone",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:mossy_cobblestone"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:mossify_20_percent": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:cobblestone",
+              "probability": 0.20000000298023224,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:mossy_cobblestone"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:mossify_70_percent": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:cobblestone",
+              "probability": 0.699999988079071,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:mossy_cobblestone"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:outpost_rot": {
+    "processors": [
+      {
+        "integrity": 0.05000000074505806,
+        "processor_type": "minecraft:block_rot"
+      }
+    ]
+  },
+  "minecraft:rampart_degradation": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:polished_blackstone_bricks",
+              "probability": 0.4000000059604645,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_polished_blackstone_bricks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:blackstone",
+              "probability": 0.009999999776482582,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_polished_blackstone_bricks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:polished_blackstone_bricks",
+              "probability": 9.999999747378752E-5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:blackstone",
+              "probability": 9.999999747378752E-5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:gold_block",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_polished_blackstone_bricks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:gilded_blackstone",
+              "probability": 0.5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:blackstone"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:blackstone",
+              "probability": 0.009999999776482582,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:gilded_blackstone"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:roof": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:polished_blackstone_bricks",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_polished_blackstone_bricks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:polished_blackstone_bricks",
+              "probability": 0.15000000596046448,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:polished_blackstone_bricks",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:blackstone"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:side_wall_degradation": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:chiseled_polished_blackstone",
+              "probability": 0.5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:gold_block",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_polished_blackstone_bricks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:gilded_blackstone",
+              "probability": 0.5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:blackstone"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:blackstone",
+              "probability": 0.009999999776482582,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:gilded_blackstone"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:stable_degradation": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:polished_blackstone_bricks",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_polished_blackstone_bricks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:blackstone",
+              "probability": 9.999999747378752E-5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:gilded_blackstone",
+              "probability": 0.5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:blackstone"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:blackstone",
+              "probability": 0.009999999776482582,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:gilded_blackstone"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:street_plains": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:dirt_path",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "block": "minecraft:water",
+              "predicate_type": "minecraft:block_match"
+            },
+            "output_state": "minecraft:oak_planks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:dirt_path",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:grass_block"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:grass_block",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "block": "minecraft:water",
+              "predicate_type": "minecraft:block_match"
+            },
+            "output_state": "minecraft:water"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:dirt",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "block": "minecraft:water",
+              "predicate_type": "minecraft:block_match"
+            },
+            "output_state": "minecraft:water"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:street_savanna": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:dirt_path",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "block": "minecraft:water",
+              "predicate_type": "minecraft:block_match"
+            },
+            "output_state": "minecraft:acacia_planks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:dirt_path",
+              "probability": 0.20000000298023224,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:grass_block"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:grass_block",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "block": "minecraft:water",
+              "predicate_type": "minecraft:block_match"
+            },
+            "output_state": "minecraft:water"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:dirt",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "block": "minecraft:water",
+              "predicate_type": "minecraft:block_match"
+            },
+            "output_state": "minecraft:water"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:street_snowy_or_taiga": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:dirt_path",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "block": "minecraft:water",
+              "predicate_type": "minecraft:block_match"
+            },
+            "output_state": "minecraft:spruce_planks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:dirt_path",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "block": "minecraft:ice",
+              "predicate_type": "minecraft:block_match"
+            },
+            "output_state": "minecraft:spruce_planks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:dirt_path",
+              "probability": 0.20000000298023224,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:grass_block"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:grass_block",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "block": "minecraft:water",
+              "predicate_type": "minecraft:block_match"
+            },
+            "output_state": "minecraft:water"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:dirt",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "block": "minecraft:water",
+              "predicate_type": "minecraft:block_match"
+            },
+            "output_state": "minecraft:water"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:trail_ruins_houses_archaeology": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:gravel",
+              "probability": 0.20000000298023224,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:dirt"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:gravel",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:coarse_dirt"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:mud_bricks",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:packed_mud"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      },
+      {
+        "delegate": {
+          "rules": [
+            {
+              "input_predicate": {
+                "tag": "minecraft:trail_ruins_replaceable",
+                "predicate_type": "minecraft:tag_match"
+              },
+              "location_predicate": {
+                "predicate_type": "minecraft:always_true"
+              },
+              "output_state": "minecraft:suspicious_gravel",
+              "block_entity_modifier": {
+                "loot_table": "minecraft:archaeology/trail_ruins_common",
+                "type": "minecraft:append_loot"
+              }
+            }
+          ],
+          "processor_type": "minecraft:rule"
+        },
+        "limit": 6,
+        "processor_type": "minecraft:capped"
+      },
+      {
+        "delegate": {
+          "rules": [
+            {
+              "input_predicate": {
+                "tag": "minecraft:trail_ruins_replaceable",
+                "predicate_type": "minecraft:tag_match"
+              },
+              "location_predicate": {
+                "predicate_type": "minecraft:always_true"
+              },
+              "output_state": "minecraft:suspicious_gravel",
+              "block_entity_modifier": {
+                "loot_table": "minecraft:archaeology/trail_ruins_rare",
+                "type": "minecraft:append_loot"
+              }
+            }
+          ],
+          "processor_type": "minecraft:rule"
+        },
+        "limit": 3,
+        "processor_type": "minecraft:capped"
+      }
+    ]
+  },
+  "minecraft:trail_ruins_roads_archaeology": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:gravel",
+              "probability": 0.20000000298023224,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:dirt"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:gravel",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:coarse_dirt"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:mud_bricks",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:packed_mud"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      },
+      {
+        "delegate": {
+          "rules": [
+            {
+              "input_predicate": {
+                "tag": "minecraft:trail_ruins_replaceable",
+                "predicate_type": "minecraft:tag_match"
+              },
+              "location_predicate": {
+                "predicate_type": "minecraft:always_true"
+              },
+              "output_state": "minecraft:suspicious_gravel",
+              "block_entity_modifier": {
+                "loot_table": "minecraft:archaeology/trail_ruins_common",
+                "type": "minecraft:append_loot"
+              }
+            }
+          ],
+          "processor_type": "minecraft:rule"
+        },
+        "limit": 2,
+        "processor_type": "minecraft:capped"
+      }
+    ]
+  },
+  "minecraft:trail_ruins_tower_top_archaeology": {
+    "processors": [
+      {
+        "delegate": {
+          "rules": [
+            {
+              "input_predicate": {
+                "tag": "minecraft:trail_ruins_replaceable",
+                "predicate_type": "minecraft:tag_match"
+              },
+              "location_predicate": {
+                "predicate_type": "minecraft:always_true"
+              },
+              "output_state": "minecraft:suspicious_gravel",
+              "block_entity_modifier": {
+                "loot_table": "minecraft:archaeology/trail_ruins_common",
+                "type": "minecraft:append_loot"
+              }
+            }
+          ],
+          "processor_type": "minecraft:rule"
+        },
+        "limit": 2,
+        "processor_type": "minecraft:capped"
+      }
+    ]
+  },
+  "minecraft:treasure_rooms": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:polished_blackstone_bricks",
+              "probability": 0.3499999940395355,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_polished_blackstone_bricks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:chiseled_polished_blackstone",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cracked_polished_blackstone_bricks"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:gilded_blackstone",
+              "probability": 0.5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:blackstone"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:blackstone",
+              "probability": 0.009999999776482582,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:gilded_blackstone"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:trial_chambers_copper_bulb_degradation": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:waxed_copper_bulb",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": {
+              "properties": {
+                "powered": "false",
+                "lit": "true"
+              },
+              "id": "minecraft:waxed_oxidized_copper_bulb"
+            }
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:waxed_copper_bulb",
+              "probability": 0.3333333432674408,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": {
+              "properties": {
+                "powered": "false",
+                "lit": "true"
+              },
+              "id": "minecraft:waxed_weathered_copper_bulb"
+            }
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:waxed_copper_bulb",
+              "probability": 0.5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": {
+              "properties": {
+                "powered": "false",
+                "lit": "true"
+              },
+              "id": "minecraft:waxed_exposed_copper_bulb"
+            }
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      },
+      {
+        "value": "#minecraft:features_cannot_replace",
+        "processor_type": "minecraft:protected_blocks"
+      }
+    ]
+  },
+  "minecraft:zombie_desert": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "tag": "minecraft:doors",
+              "predicate_type": "minecraft:tag_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:torch",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wall_torch",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:smooth_sandstone",
+              "probability": 0.07999999821186066,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:cut_sandstone",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:terracotta",
+              "probability": 0.07999999821186066,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:smooth_sandstone_stairs",
+              "probability": 0.07999999821186066,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:smooth_sandstone_slab",
+              "probability": 0.07999999821186066,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.20000000298023224,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:beetroots"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:melon_stem"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:zombie_plains": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:cobblestone",
+              "probability": 0.800000011920929,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:mossy_cobblestone"
+          },
+          {
+            "input_predicate": {
+              "tag": "minecraft:doors",
+              "predicate_type": "minecraft:tag_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:torch",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wall_torch",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:cobblestone",
+              "probability": 0.07000000029802322,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:mossy_cobblestone",
+              "probability": 0.07000000029802322,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:white_terracotta",
+              "probability": 0.07000000029802322,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:oak_log",
+              "probability": 0.05000000074505806,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:oak_planks",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:oak_stairs",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:stripped_oak_log",
+              "probability": 0.019999999552965164,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:glass_pane",
+              "probability": 0.5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block_state": {
+                "properties": {
+                  "west": "false",
+                  "waterlogged": "false",
+                  "south": "true",
+                  "north": "true",
+                  "east": "false"
+                },
+                "id": "minecraft:glass_pane"
+              },
+              "predicate_type": "minecraft:blockstate_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": {
+              "properties": {
+                "west": "false",
+                "waterlogged": "false",
+                "south": "true",
+                "north": "true",
+                "east": "false"
+              },
+              "id": "minecraft:brown_stained_glass_pane"
+            }
+          },
+          {
+            "input_predicate": {
+              "block_state": {
+                "properties": {
+                  "west": "true",
+                  "waterlogged": "false",
+                  "south": "false",
+                  "north": "false",
+                  "east": "true"
+                },
+                "id": "minecraft:glass_pane"
+              },
+              "predicate_type": "minecraft:blockstate_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": {
+              "properties": {
+                "west": "true",
+                "waterlogged": "false",
+                "south": "false",
+                "north": "false",
+                "east": "true"
+              },
+              "id": "minecraft:brown_stained_glass_pane"
+            }
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:carrots"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.20000000298023224,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:potatoes"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:beetroots"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:zombie_savanna": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "tag": "minecraft:doors",
+              "predicate_type": "minecraft:tag_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:torch",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wall_torch",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:acacia_planks",
+              "probability": 0.20000000298023224,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:acacia_stairs",
+              "probability": 0.20000000298023224,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:acacia_log",
+              "probability": 0.05000000074505806,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:acacia_wood",
+              "probability": 0.05000000074505806,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:orange_terracotta",
+              "probability": 0.05000000074505806,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:yellow_terracotta",
+              "probability": 0.05000000074505806,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:red_terracotta",
+              "probability": 0.05000000074505806,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:glass_pane",
+              "probability": 0.5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block_state": {
+                "properties": {
+                  "west": "false",
+                  "waterlogged": "false",
+                  "south": "true",
+                  "north": "true",
+                  "east": "false"
+                },
+                "id": "minecraft:glass_pane"
+              },
+              "predicate_type": "minecraft:blockstate_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": {
+              "properties": {
+                "west": "false",
+                "waterlogged": "false",
+                "south": "true",
+                "north": "true",
+                "east": "false"
+              },
+              "id": "minecraft:brown_stained_glass_pane"
+            }
+          },
+          {
+            "input_predicate": {
+              "block_state": {
+                "properties": {
+                  "west": "true",
+                  "waterlogged": "false",
+                  "south": "false",
+                  "north": "false",
+                  "east": "true"
+                },
+                "id": "minecraft:glass_pane"
+              },
+              "predicate_type": "minecraft:blockstate_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": {
+              "properties": {
+                "west": "true",
+                "waterlogged": "false",
+                "south": "false",
+                "north": "false",
+                "east": "true"
+              },
+              "id": "minecraft:brown_stained_glass_pane"
+            }
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:melon_stem"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:zombie_snowy": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "tag": "minecraft:doors",
+              "predicate_type": "minecraft:tag_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:torch",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wall_torch",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:lantern",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:spruce_planks",
+              "probability": 0.20000000298023224,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:spruce_slab",
+              "probability": 0.4000000059604645,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:stripped_spruce_log",
+              "probability": 0.05000000074505806,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:stripped_spruce_wood",
+              "probability": 0.05000000074505806,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:glass_pane",
+              "probability": 0.5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block_state": {
+                "properties": {
+                  "west": "false",
+                  "waterlogged": "false",
+                  "south": "true",
+                  "north": "true",
+                  "east": "false"
+                },
+                "id": "minecraft:glass_pane"
+              },
+              "predicate_type": "minecraft:blockstate_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": {
+              "properties": {
+                "west": "false",
+                "waterlogged": "false",
+                "south": "true",
+                "north": "true",
+                "east": "false"
+              },
+              "id": "minecraft:brown_stained_glass_pane"
+            }
+          },
+          {
+            "input_predicate": {
+              "block_state": {
+                "properties": {
+                  "west": "true",
+                  "waterlogged": "false",
+                  "south": "false",
+                  "north": "false",
+                  "east": "true"
+                },
+                "id": "minecraft:glass_pane"
+              },
+              "predicate_type": "minecraft:blockstate_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": {
+              "properties": {
+                "west": "true",
+                "waterlogged": "false",
+                "south": "false",
+                "north": "false",
+                "east": "true"
+              },
+              "id": "minecraft:brown_stained_glass_pane"
+            }
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.10000000149011612,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:carrots"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.800000011920929,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:potatoes"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  },
+  "minecraft:zombie_taiga": {
+    "processors": [
+      {
+        "rules": [
+          {
+            "input_predicate": {
+              "block": "minecraft:cobblestone",
+              "probability": 0.800000011920929,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:mossy_cobblestone"
+          },
+          {
+            "input_predicate": {
+              "tag": "minecraft:doors",
+              "predicate_type": "minecraft:tag_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:torch",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wall_torch",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:air"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:campfire",
+              "predicate_type": "minecraft:block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": {
+              "properties": {
+                "waterlogged": "false",
+                "signal_fire": "false",
+                "lit": "false",
+                "facing": "north"
+              },
+              "id": "minecraft:campfire"
+            }
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:cobblestone",
+              "probability": 0.07999999821186066,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:spruce_log",
+              "probability": 0.07999999821186066,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:glass_pane",
+              "probability": 0.5,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:cobweb"
+          },
+          {
+            "input_predicate": {
+              "block_state": {
+                "properties": {
+                  "west": "false",
+                  "waterlogged": "false",
+                  "south": "true",
+                  "north": "true",
+                  "east": "false"
+                },
+                "id": "minecraft:glass_pane"
+              },
+              "predicate_type": "minecraft:blockstate_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": {
+              "properties": {
+                "west": "false",
+                "waterlogged": "false",
+                "south": "true",
+                "north": "true",
+                "east": "false"
+              },
+              "id": "minecraft:brown_stained_glass_pane"
+            }
+          },
+          {
+            "input_predicate": {
+              "block_state": {
+                "properties": {
+                  "west": "true",
+                  "waterlogged": "false",
+                  "south": "false",
+                  "north": "false",
+                  "east": "true"
+                },
+                "id": "minecraft:glass_pane"
+              },
+              "predicate_type": "minecraft:blockstate_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": {
+              "properties": {
+                "west": "true",
+                "waterlogged": "false",
+                "south": "false",
+                "north": "false",
+                "east": "true"
+              },
+              "id": "minecraft:brown_stained_glass_pane"
+            }
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.30000001192092896,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:pumpkin_stem"
+          },
+          {
+            "input_predicate": {
+              "block": "minecraft:wheat",
+              "probability": 0.20000000298023224,
+              "predicate_type": "minecraft:random_block_match"
+            },
+            "location_predicate": {
+              "predicate_type": "minecraft:always_true"
+            },
+            "output_state": "minecraft:potatoes"
+          }
+        ],
+        "processor_type": "minecraft:rule"
+      }
+    ]
+  }
+}

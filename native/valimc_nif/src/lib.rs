@@ -1044,6 +1044,8 @@ struct DecoratedChunk<'a> {
     block_ticks: Vec<BlockTick>,
     fluid_ticks: Vec<FluidTick>,
     block_entities: Vec<(i32, i32, i32)>,
+    /// Created block entities: "x,y,z,type,loot table,seed,spawned entity".
+    block_entity_data: Vec<String>,
 }
 
 /// Decoration parity (VMC-025): the 5 × 5 chunks around `centre` with their
@@ -1092,6 +1094,22 @@ fn worldgen_decorate<'a>(
                 .map(|(pos, f)| (p(pos), FLUID_NAMES[*f as usize].to_string(), 0, 0))
                 .collect(),
             block_entities: chunk.block_entities.iter().map(p).collect(),
+            block_entity_data: chunk
+                .block_entity_data
+                .iter()
+                .map(|(pos, data)| {
+                    format!(
+                        "{},{},{},{},{},{},{}",
+                        pos[0],
+                        pos[1],
+                        pos[2],
+                        data.kind,
+                        data.loot_table.as_deref().unwrap_or("-"),
+                        data.loot_seed,
+                        data.spawner_entity.as_deref().unwrap_or("-")
+                    )
+                })
+                .collect(),
         });
     }
     Ok(out)

@@ -1,10 +1,15 @@
-//! Large plants that are not trees (VMC-025b): huge mushrooms and bamboo.
+//! Large plants that are not trees: huge mushrooms and bamboo (VMC-025b);
+//! root systems, vines and coral trees and claws (VMC-025c).
 
 use std::sync::Arc;
 
-use super::blocks::{BlockSet, BlockTable, Heightmap};
+use super::blocks::{
+    BlockSet, BlockTable, Heightmap, FLUID_FLOWING_LAVA, FLUID_FLOWING_WATER, FLUID_LAVA,
+    FLUID_WATER, SOLID, STURDY,
+};
 use super::feature::Decoration;
 use super::json::Json;
+use super::placement::PlacedFeature;
 use super::predicate::{offset, BlockPredicate};
 use super::random::Random;
 use super::region::Region;
@@ -284,6 +289,345 @@ impl Bamboo {
                 region.set(pos, self.top_large, 2);
                 pos[1] -= 1;
                 region.set(pos, self.top_small, 2);
+            }
+        }
+        Ok(true)
+    }
+}
+
+/// `RootSystemFeature`: a tree on the surface above a cave, a column of
+/// root blocks down to the cave's ceiling and hanging roots beneath it.
+#[derive(Debug)]
+pub struct RootSystem {
+    tree: Arc<PlacedFeature>,
+    required_space: i32,
+    level_test_distance: i32,
+    max_level_deviation: i32,
+    root_radius: i32,
+    root_replaceable: BlockSet,
+    root_provider: Arc<StateProvider>,
+    root_attempts: i32,
+    root_column_max_height: i32,
+    hanging_radius: i32,
+    hanging_span: i32,
+    hanging_provider: Arc<StateProvider>,
+    hanging_attempts: i32,
+    allowed_water: i32,
+    allowed_tree_position: BlockPredicate,
+}
+
+/// `Direction.from2DDataValue`: south, west, north, east.
+const BY_2D: [[i32; 3]; 4] = [[0, 0, 1], [-1, 0, 0], [0, 0, -1], [1, 0, 0]];
+
+impl RootSystem {
+    pub fn parse(
+        json: &Json,
+        table: &BlockTable,
+        tree: Arc<PlacedFeature>,
+        provider: &mut dyn FnMut(&Json) -> Result<Arc<StateProvider>, String>,
+    ) -> Result<RootSystem, String> {
+        let i = |k: &str| json.field(k)?.as_i32();
+        Ok(RootSystem {
+            tree,
+            required_space: i("required_vertical_space_for_tree")?,
+            level_test_distance: i("level_test_distance")?,
+            max_level_deviation: i("max_level_deviation")?,
+            root_radius: i("root_radius")?,
+            root_replaceable: table.block_set(json.field("root_replaceable")?)?,
+            root_provider: provider(json.field("root_state_provider")?)?,
+            root_attempts: i("root_placement_attempts")?,
+            root_column_max_height: i("root_column_max_height")?,
+            hanging_radius: i("hanging_root_radius")?,
+            hanging_span: i("hanging_roots_vertical_span")?,
+            hanging_provider: provider(json.field("hanging_root_state_provider")?)?,
+            hanging_attempts: i("hanging_root_placement_attempts")?,
+            allowed_water: i("allowed_vertical_water_for_tree")?,
+            allowed_tree_position: BlockPredicate::parse(
+                json.field("allowed_tree_position")?,
+                table,
+            )?,
+        })
+    }
+
+    pub fn place(
+        &self,
+        d: &Decoration,
+        region: &mut Region,
+        random: &mut Random,
+        origin: [i32; 3],
+    ) -> Result<bool, String> {
+        if !region.is_air_at(origin) {
+            return Ok(false);
+        }
+        if self.place_dirt_and_tree(d, region, random, origin)? {
+            self.place_roots(d, region, random, origin);
+        }
+        Ok(true)
+    }
+
+    fn water(table: &BlockTable, state: u16) -> bool {
+        matches!(table.fluid(state), FLUID_WATER | FLUID_FLOWING_WATER)
+    }
+
+    fn space_for_tree(&self, d: &Decoration, region: &mut Region, pos: [i32; 3]) -> bool {
+        let table = d.table.as_ref();
+        for i in 1..=self.required_space {
+            let state = region.get(offset(pos, [0, i, 0]));
+            let allowed =
+                table.is_air(state) || (i < self.allowed_water && Self::water(table, state));
+            if !allowed {
+                return false;
+            }
+        }
+        if self.level_test_distance > 0 {
+            for step in BY_2D {
+                let n = self.level_test_distance;
+                let corner = offset(pos, [step[0] * n, 0, step[2] * n]);
+                let below = region.get(offset(corner, [0, -self.max_level_deviation, 0]));
+                let above = region.get(offset(corner, [0, self.max_level_deviation, 0]));
+                if table.is_air(below) || !table.is_air(above) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    fn place_dirt_and_tree(
+        &self,
+        d: &Decoration,
+        region: &mut Region,
+        random: &mut Random,
+        origin: [i32; 3],
+    ) -> Result<bool, String> {
+        let table = d.table.as_ref();
+        let mut pos = origin;
+        for y in 0..self.root_column_max_height {
+            pos[1] += 1;
+            if region.height_at(Heightmap::WorldSurface, pos[0], pos[2]) < pos[1] {
+                return Ok(false);
+            }
+            if self.allowed_tree_position.test(d, region, pos)
+                && self.space_for_tree(d, region, pos)
+            {
+                let below = region.get(offset(pos, [0, -1, 0]));
+                let lava = matches!(table.fluid(below), FLUID_LAVA | FLUID_FLOWING_LAVA);
+                if lava || !table.flag(below, SOLID) {
+                    return Ok(false);
+                }
+                if self.tree.place(d, region, random, pos, false)? {
+                    for dirt_y in origin[1]..origin[1] + y {
+                        self.place_rooted_dirt(d, region, random, [origin[0], dirt_y, origin[2]]);
+                    }
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    fn place_rooted_dirt(
+        &self,
+        d: &Decoration,
+        region: &mut Region,
+        random: &mut Random,
+        at: [i32; 3],
+    ) {
+        let r = self.root_radius;
+        for _ in 0..self.root_attempts {
+            let dx = random.next_int_bounded(r) - random.next_int_bounded(r);
+            let dz = random.next_int_bounded(r) - random.next_int_bounded(r);
+            let pos = offset(at, [dx, 0, dz]);
+            let state = region.get(pos);
+            if d.table.in_tag(state, &self.root_replaceable) {
+                let root = self.root_provider.state(d, region, random, pos);
+                region.set(pos, root, 2);
+            }
+        }
+    }
+
+    fn place_roots(
+        &self,
+        d: &Decoration,
+        region: &mut Region,
+        random: &mut Random,
+        origin: [i32; 3],
+    ) {
+        let (r, v) = (self.hanging_radius, self.hanging_span);
+        for _ in 0..self.hanging_attempts {
+            let dx = random.next_int_bounded(r) - random.next_int_bounded(r);
+            let dy = random.next_int_bounded(v) - random.next_int_bounded(v);
+            let dz = random.next_int_bounded(r) - random.next_int_bounded(r);
+            let pos = offset(origin, [dx, dy, dz]);
+            if !region.is_air_at(pos) {
+                continue;
+            }
+            let state = self.hanging_provider.state(d, region, random, pos);
+            if d.survives(region, state, pos) {
+                let above = region.get(offset(pos, [0, 1, 0]));
+                if d.table.flag(above, STURDY) {
+                    region.set(pos, state, 2);
+                }
+            }
+        }
+    }
+}
+
+/// `VinesFeature`: a vine on the first face around an air block that holds
+/// one.
+#[derive(Debug)]
+pub struct Vines {
+    vine: u16,
+}
+
+impl Vines {
+    pub fn new(table: &BlockTable) -> Result<Vines, String> {
+        Ok(Vines {
+            vine: table.default_state("vine")?,
+        })
+    }
+
+    pub fn place(
+        &self,
+        d: &Decoration,
+        region: &mut Region,
+        origin: [i32; 3],
+    ) -> Result<bool, String> {
+        let table = d.table.as_ref();
+        if !region.is_air_at(origin) {
+            return Ok(false);
+        }
+        const FACES: [(usize, [i32; 3], &str); 5] = [
+            (1, [0, 1, 0], "up"),
+            (2, [0, 0, -1], "north"),
+            (3, [0, 0, 1], "south"),
+            (4, [-1, 0, 0], "west"),
+            (5, [1, 0, 0], "east"),
+        ];
+        for (dir, step, face) in FACES {
+            let neighbour = region.get(offset(origin, step));
+            if super::multiface::attaches(table, neighbour, dir) {
+                let state = table.with(self.vine, face, "true").ok_or("vine face")?;
+                region.set(origin, state, 2);
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+}
+
+/// North, east, south, west.
+const PLANE: [[i32; 3]; 4] = [[0, 0, -1], [1, 0, 0], [0, 0, 1], [-1, 0, 0]];
+
+/// `Util.shuffle` of a list, in place.
+pub fn shuffle<T>(list: &mut [T], random: &mut Random) {
+    for i in (2..=list.len()).rev() {
+        let swap = random.next_int_bounded(i as i32) as usize;
+        list.swap(i - 1, swap);
+    }
+}
+
+/// `CoralTreeFeature`: a trunk and branches of the coral block feature.
+#[derive(Debug)]
+pub struct CoralTree {
+    feature: Arc<PlacedFeature>,
+}
+
+impl CoralTree {
+    pub fn new(feature: Arc<PlacedFeature>) -> CoralTree {
+        CoralTree { feature }
+    }
+
+    pub fn place(
+        &self,
+        d: &Decoration,
+        region: &mut Region,
+        random: &mut Random,
+        origin: [i32; 3],
+    ) -> Result<bool, String> {
+        let mut pos = origin;
+        let trunk = random.next_int_bounded(3) + 1;
+        for _ in 0..trunk {
+            if !self.feature.place(d, region, random, pos, false)? {
+                return Ok(true);
+            }
+            pos[1] += 1;
+        }
+        let top = pos;
+        let branches = random.next_int_bounded(3) + 2;
+        let mut directions = PLANE;
+        shuffle(&mut directions, random);
+        for branch in &directions[..branches as usize] {
+            let mut pos = offset(top, *branch);
+            let height = random.next_int_bounded(5) + 2;
+            let mut segment = 0;
+            let mut j = 0;
+            while j < height && self.feature.place(d, region, random, pos, false)? {
+                segment += 1;
+                pos[1] += 1;
+                if j == 0 || segment >= 2 && random.next_float() < 0.25 {
+                    pos = offset(pos, *branch);
+                    segment = 0;
+                }
+                j += 1;
+            }
+        }
+        Ok(true)
+    }
+}
+
+/// `CoralClawFeature`: a coral block with two or three claws.
+#[derive(Debug)]
+pub struct CoralClaw {
+    feature: Arc<PlacedFeature>,
+}
+
+impl CoralClaw {
+    pub fn new(feature: Arc<PlacedFeature>) -> CoralClaw {
+        CoralClaw { feature }
+    }
+
+    pub fn place(
+        &self,
+        d: &Decoration,
+        region: &mut Region,
+        random: &mut Random,
+        origin: [i32; 3],
+    ) -> Result<bool, String> {
+        if !self.feature.place(d, region, random, origin, false)? {
+            return Ok(false);
+        }
+        // Indices into PLANE; clockwise is the next, counterclockwise the previous.
+        let claw = random.next_int_bounded(4) as usize;
+        let branches = random.next_int_bounded(2) + 2;
+        let mut possible = [claw, (claw + 1) % 4, (claw + 3) % 4];
+        shuffle(&mut possible, random);
+        for &branch in &possible[..branches as usize] {
+            let mut pos = offset(origin, PLANE[branch]);
+            let sideways = random.next_int_bounded(2) + 1;
+            let (segment, inward): ([i32; 3], i32) = if branch == claw {
+                (PLANE[claw], random.next_int_bounded(3) + 2)
+            } else {
+                pos[1] += 1;
+                let choices = [PLANE[branch], [0, 1, 0]];
+                let segment = choices[random.next_int_bounded(2) as usize];
+                (segment, random.next_int_bounded(3) + 3)
+            };
+            let mut i = 0;
+            while i < sideways && self.feature.place(d, region, random, pos, false)? {
+                pos = offset(pos, segment);
+                i += 1;
+            }
+            pos = offset(pos, [-segment[0], -segment[1], -segment[2]]);
+            pos[1] += 1;
+            for _ in 0..inward {
+                pos = offset(pos, PLANE[claw]);
+                if !self.feature.place(d, region, random, pos, false)? {
+                    break;
+                }
+                if random.next_float() < 0.25 {
+                    pos[1] += 1;
+                }
             }
         }
         Ok(true)

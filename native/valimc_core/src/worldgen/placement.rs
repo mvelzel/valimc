@@ -47,6 +47,12 @@ pub enum Modifier {
     RandomChance(f32),
     Fixed(Vec<[i32; 3]>),
     RandomlySelected(Vec<Modifier>),
+    Cuboid {
+        xz_size: IntProvider,
+        y_size: IntProvider,
+        edges: bool,
+        interior: bool,
+    },
     /// A modifier this slice does not implement; applying it fails.
     Unsupported(String),
 }
@@ -126,6 +132,14 @@ impl Modifier {
                     .map(|m| Modifier::parse(m, table))
                     .collect::<Result<_, _>>()?,
             ),
+            "minecraft:cuboid" => Modifier::Cuboid {
+                xz_size: IntProvider::parse(json.field("xz_size")?)?,
+                y_size: IntProvider::parse(json.field("y_size")?)?,
+                edges: json.get("include_edges").map_or(Ok(true), Json::as_bool)?,
+                interior: json
+                    .get("include_interior")
+                    .map_or(Ok(true), Json::as_bool)?,
+            },
             other => Modifier::Unsupported(other.to_string()),
         })
     }
@@ -138,7 +152,7 @@ impl Modifier {
         region: &mut Region,
         random: &mut Random,
         origin: [i32; 3],
-        top: Option<&str>,
+        top: Option<u32>,
         out: &mut Vec<[i32; 3]>,
     ) -> Result<(), String> {
         match self {
@@ -266,6 +280,35 @@ impl Modifier {
             Modifier::Unsupported(kind) => {
                 return Err(format!("placement modifier {kind} is not implemented"));
             }
+            Modifier::Cuboid {
+                xz_size,
+                y_size,
+                edges,
+                interior,
+            } => {
+                let height = y_size.sample(random);
+                let width = xz_size.sample(random);
+                let length = xz_size.sample(random);
+                for x in 0..=width {
+                    for y in 0..=height {
+                        for z in 0..=length {
+                            let (x_edge, y_edge, z_edge) = (
+                                x == 0 || x == width,
+                                y == 0 || y == height,
+                                z == 0 || z == length,
+                            );
+                            // Two coordinates on their edges make an edge of the cuboid.
+                            let corner =
+                                [x_edge, y_edge, z_edge].iter().filter(|e| **e).count() >= 2;
+                            let keep =
+                                (*edges || !corner) && (*interior || x_edge || y_edge || z_edge);
+                            if keep {
+                                out.push([origin[0] + x, origin[1] + y, origin[2] + z]);
+                            }
+                        }
+                    }
+                }
+            }
             Modifier::RandomlySelected(placements) => {
                 let pick = random.next_int_bounded(placements.len() as i32) as usize;
                 placements[pick].modify(d, region, random, origin, top, out)?;
@@ -277,8 +320,9 @@ impl Modifier {
 
 #[derive(Debug)]
 pub struct PlacedFeature {
-    /// The registry identifier, for top-level biome checks.
+    /// The registry identifier, and a dense key for top-level biome checks.
     pub id: Option<String>,
+    pub key: Option<u32>,
     pub feature: Arc<Feature>,
     pub placement: Vec<Modifier>,
 }
@@ -294,11 +338,7 @@ impl PlacedFeature {
         origin: [i32; 3],
         biome_check: bool,
     ) -> Result<bool, String> {
-        let top = if biome_check {
-            self.id.as_deref()
-        } else {
-            None
-        };
+        let top = if biome_check { self.key } else { None };
         if self.placement.is_empty() {
             return self.feature.place(d, region, random, origin);
         }
