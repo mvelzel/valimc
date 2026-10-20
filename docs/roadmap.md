@@ -32,11 +32,11 @@ resumes on these foundations alongside M2.
 
 | Ticket | Slice | Status |
 |---|---|---|
-| [VMC-020](tickets/VMC-020.md) | One bounded NBT codec (native disk reads), world schemas, golden vanilla world | Foundation |
+| [VMC-020](tickets/VMC-020.md) | One bounded NBT codec (native disk reads), world schemas, golden vanilla world | Done |
 | [VMC-021](tickets/VMC-021.md) | Anvil import (region files, chunks, biomes, block entities, entities, XP orbs, stored light) and export vanilla loads | Done |
 | [VMC-022](tickets/VMC-022.md) | Light equal to vanilla's engine, live on edits and across region borders, in all packets | Done |
 | [VMC-029c](tickets/VMC-029c.md) | Blocks that lose their support break (plants, torches, two-block halves), found in imported terrain | Done |
-| [VMC-023](tickets/VMC-023.md) | Seeded noise and biomes: random sources, noises, compiled density functions and chunk biomes equal vanilla's | Foundation |
+| [VMC-023](tickets/VMC-023.md) | Seeded noise and biomes: random sources, noises, compiled density functions and chunk biomes equal vanilla's | Done |
 | [VMC-024](tickets/VMC-024.md) | Vanilla terrain: noise fill with aquifers, material rules and carvers equal to vanilla's, generated live in new worlds | Done |
 | [VMC-053](tickets/VMC-053.md) | Vanilla commands: parse, permissions, suggestions, SNBT and the player, world, chat and basic admin commands are live; operator, entity and data-pack commands remain | In progress |
 | [VMC-025](tickets/VMC-025.md) | Features and structures: all 171 overworld placed features (with structure templates and block entities) equal vanilla's; live decoration and structures next | In progress |

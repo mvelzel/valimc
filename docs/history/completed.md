@@ -5,6 +5,9 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-024 Vanilla terrain](../tickets/VMC-024.md) | `513c27f`: noise fill with aquifers, material rules and carvers equal vanilla's (stages `worldgen_terrain`, `worldgen_surface`, `worldgen_carvers`), generated live in new vanilla worlds; actual client run on generated worlds; matched with Pumpkin (`73563bc`) |
+| [VMC-023 Seeded noise and biomes](../tickets/VMC-023.md) | Random sources, gradient noises, compiled density functions and chunk biomes equal vanilla's (stages `worldgen_random`, `worldgen_noise`, `worldgen_density`, `worldgen_biomes`); live through VMC-024 |
+| [VMC-020 NBT and world schemas](../tickets/VMC-020.md) | `acea498`: one bounded NBT codec with native disk reads, world schemas and the golden vanilla world (stage `world_nbt`); live through the Anvil import and export (VMC-021) |
 | [VMC-022 Light](../tickets/VMC-022.md) | `d031f56`: generated light facts and a Rust engine equal to vanilla's `LevelLightEngine` (stages `light_facts`, `light`), incremental relighting on edits and across region borders, light in chunk and `light_update` packets; client runs on an imported world, including fresh rejoins |
 | [VMC-021 Anvil import and export](../tickets/VMC-021.md) | `64cb44c`: vanilla worlds import with blocks, biomes, block entities (owned containers or preserved compounds), items, XP orbs and stored light, and export to files the pinned server loads (oracle stage `anvil_content`); actual village dataset, containers, refusals, survival orbs/items and restart |
 | [VMC-029c blocks that lose their support break](../tickets/VMC-029c.md) | `248a539`: generated survival rules for 7,337 states (oracle stage `support`, 44,022 differential neighbourhoods), durable breaks with popping drops; actual plants, tall grass, cane column, torches, reconnect and restart |
