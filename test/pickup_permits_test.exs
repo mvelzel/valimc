@@ -33,33 +33,38 @@ defmodule Valimc.PickupPermitsTest do
     {actor, record, items, receipts} = fixture()
 
     {:ok, permits, grant} =
-      PickupPermits.issue(PickupPermits.new(), receipts, items, actor, record.uuid, 1000)
+      PickupPermits.issue(Valimc.Txn.Permits.new(), receipts, items, actor, record.uuid, 1000)
 
     request = Map.merge(grant, %{source: actor.uuid, sequence: 1, remainder: nil})
     {:ok, _} = PickupRequest.encode({0, 0}, request)
     {actor, record, items, receipts, permits, request}
   end
 
+  defp consume(permits, items, request, now) do
+    {permits, _grant, eligible} = PickupPermits.consume(permits, items, request, now)
+    {permits, eligible}
+  end
+
   test "grant requires receipt capacity, expires strictly and is single use despite counter revisions" do
     {actor, record, items, receipts} = fixture()
 
     assert {:error, :pickup_receipt_slot_required} =
-             PickupPermits.issue(PickupPermits.new(), %{}, items, actor, record.uuid, 1000)
+             PickupPermits.issue(Valimc.Txn.Permits.new(), %{}, items, actor, record.uuid, 1000)
 
     {_, _, _, _, permits, request} = issue()
     assert byte_size(request.permit) == 16
     {aged, []} = Items.age(items)
-    assert {empty, true} = PickupPermits.consume(permits, aged, request, 1249)
+    assert {empty, true} = consume(permits, aged, request, 1249)
     assert empty.entries == %{}
-    assert {^empty, false} = PickupPermits.consume(empty, aged, request, 1249)
-    assert {expired, false} = PickupPermits.consume(permits, items, request, 1250)
+    assert {^empty, false} = consume(empty, aged, request, 1249)
+    assert {expired, false} = consume(permits, items, request, 1250)
     assert expired.entries == %{}
 
     assert {:error, :pickup_already_pending} =
              PickupPermits.issue(permits, receipts, items, actor, record.uuid, 1100)
 
-    assert PickupPermits.release(permits, request.permit, <<2::128>>) == permits
-    released = PickupPermits.release(permits, request.permit, actor.uuid)
+    assert Valimc.Txn.Permits.release(permits, request.permit, <<2::128>>) == permits
+    released = Valimc.Txn.Permits.release(permits, request.permit, actor.uuid)
     assert released.entries == %{}
     assert {:ok, _, _} = PickupPermits.issue(released, receipts, items, actor, record.uuid, 1100)
   end
@@ -89,7 +94,7 @@ defmodule Valimc.PickupPermitsTest do
     {:ok, removed} = Items.remove(items, epoch, id, revision)
 
     for current <- [moved, changed, delayed, returned, removed] do
-      assert {consumed, false} = PickupPermits.consume(permits, current, request, 1100)
+      assert {consumed, false} = consume(permits, current, request, 1100)
       assert consumed.entries == %{}
     end
   end
@@ -98,14 +103,14 @@ defmodule Valimc.PickupPermitsTest do
     {_, _, items, _, permits, request} = issue()
 
     assert {^permits, false} =
-             PickupPermits.consume(permits, items, %{request | source: <<2::128>>}, 1100)
+             consume(permits, items, %{request | source: <<2::128>>}, 1100)
 
     for changed <- [
           %{request | before: ItemStack.new("stone", 6)},
           %{request | generation: 4},
           %{request | item_uuid: <<3::128>>}
         ] do
-      assert {consumed, false} = PickupPermits.consume(permits, items, changed, 1100)
+      assert {consumed, false} = consume(permits, items, changed, 1100)
       assert consumed.entries == %{}
     end
   end
@@ -115,7 +120,7 @@ defmodule Valimc.PickupPermitsTest do
     receipts = Map.new(1..129, &{<<&1::128>>, %{sequence: 0, digest: <<0::256>>}})
 
     permits =
-      Enum.reduce(1..128, PickupPermits.new(), fn n, perms ->
+      Enum.reduce(1..128, Valimc.Txn.Permits.new(), fn n, perms ->
         {:ok, next, _} =
           PickupPermits.issue(
             perms,

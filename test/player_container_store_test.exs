@@ -428,7 +428,7 @@ defmodule Valimc.PlayerContainerStoreTest do
       assert {:ok, {_, %{sequence: 0}}} = Region.container_transfer_receipt(owner, source)
 
       refute Map.has_key?(
-               Valimc.TestConn.state(pid).resource.container_permits.entries,
+               Valimc.TestConn.state(pid).resource.permits.entries,
                admitted.permit
              )
     after

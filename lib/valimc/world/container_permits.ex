@@ -1,45 +1,25 @@
 defmodule Valimc.World.ContainerPermits do
-  @moduledoc "Bounded owner-local action grants bound to a canonical request digest."
+  @moduledoc "Action grants in the owner's `Valimc.Txn.Permits`, bound to a canonical request digest."
+  alias Valimc.Txn.Permits
   alias Valimc.World.ItemReceipts
-  defstruct entries: %{}
-  @limit 128
-  @lifetime_ms 5000
 
-  def issue(%__MODULE__{} = permits, receipts, request, digest, now)
-      when is_integer(now) do
-    permits = prune(permits, now)
-
+  def issue(%Permits{} = permits, receipts, request, digest, now) when is_integer(now) do
     with %{
            source: <<_::128>> = source,
            permit: <<_::128>> = token,
            sequence: sequence,
            position: {_, _, _} = position
-         } <-
-           request,
+         } <- request,
          true <- is_integer(sequence) and sequence > 0,
          true <- is_binary(digest) and byte_size(digest) == 32,
          %{sequence: prior} = receipt <- Map.get(receipts, source),
          true <- ItemReceipts.valid?(receipt) and prior < sequence do
-      cond do
-        Map.has_key?(permits.entries, token) ->
-          {:error, :container_permit_collision}
+      grant = %{sequence: sequence, digest: digest}
 
-        Enum.any?(permits.entries, fn {_, entry} -> entry.source == source end) ->
-          {:error, :container_already_pending}
-
-        map_size(permits.entries) >= @limit ->
-          {:error, :container_permits_full}
-
-        true ->
-          grant = %{
-            source: source,
-            position: position,
-            sequence: sequence,
-            digest: digest,
-            expires: now + @lifetime_ms
-          }
-
-          {:ok, %{permits | entries: Map.put(permits.entries, token, grant)}}
+      case Permits.issue(permits, :container, token, source, [position], grant, now) do
+        {:ok, permits, _} -> {:ok, permits}
+        {:error, :permit_collision} -> {:error, :container_permit_collision}
+        error -> error
       end
     else
       _ -> {:error, :invalid_container_permit}
@@ -48,46 +28,15 @@ defmodule Valimc.World.ContainerPermits do
 
   def issue(_, _, _, _, _), do: {:error, :invalid_container_permit}
 
-  # The caller computes the canonical digest in a bounded worker. Consuming a
-  # matching source token is irreversible even when its payload was altered.
-  def consume(%__MODULE__{} = permits, request, digest, now) when is_integer(now) do
-    permits = prune(permits, now)
+  @doc """
+  Take the presented permit in the owner (irreversible even when the payload was
+  altered); the grant goes to the planning worker, which checks `eligible?/3`.
+  """
+  def take(%Permits{} = permits, %{source: source, permit: token}, now),
+    do: Permits.take(permits, :container, token, source, now)
 
-    case request do
-      %{source: source, permit: token, sequence: sequence} ->
-        case permits.entries[token] do
-          %{source: ^source} = grant ->
-            next = %{permits | entries: Map.delete(permits.entries, token)}
-            {next, grant.sequence == sequence and grant.digest == digest}
+  def take(permits, _, _), do: {permits, nil}
 
-          _ ->
-            {permits, false}
-        end
-
-      _ ->
-        {permits, false}
-    end
-  end
-
-  def consume(permits, _, _, _), do: {permits, false}
-
-  def release(%__MODULE__{} = permits, token, source) do
-    case permits.entries[token] do
-      %{source: ^source} -> %{permits | entries: Map.delete(permits.entries, token)}
-      _ -> permits
-    end
-  end
-
-  def invalidate(%__MODULE__{} = permits, edits),
-    do: %{
-      permits
-      | entries:
-          Map.reject(permits.entries, fn {_, grant} -> Map.has_key?(edits, grant.position) end)
-    }
-
-  defp prune(permits, now),
-    do: %{
-      permits
-      | entries: Map.reject(permits.entries, fn {_, grant} -> grant.expires <= now end)
-    }
+  def eligible?(%{sequence: sequence, digest: digest}, %{sequence: sequence}, digest), do: true
+  def eligible?(_, _, _), do: false
 end

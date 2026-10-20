@@ -435,7 +435,7 @@ defmodule Valimc.PlacementRegionTest do
 
   test "placement fences bound capacity and expire without revival" do
     blocks = %{{0, 64, 0} => 0}
-    {:ok, first, token} = PlacementPermits.reserve(%PlacementPermits{}, blocks, 0)
+    {:ok, first, token} = PlacementPermits.reserve(%Valimc.Txn.Permits{}, blocks, 0)
     assert {:ok, ^blocks} = PlacementPermits.lookup(first, token, 9999)
     assert {:error, :stale_placement_permit} = PlacementPermits.lookup(first, token, 10_000)
 

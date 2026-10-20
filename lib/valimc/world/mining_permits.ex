@@ -1,48 +1,29 @@
 defmodule Valimc.World.MiningPermits do
-  @moduledoc "Bounded owner-local block reservations; unrelated edits do not interrupt another miner."
-  @limit 128
-  @lifetime 10_000
-  defstruct entries: %{}
+  @moduledoc "Mining reservations in the owner's `Valimc.Txn.Permits`: the expected blocks, revoked by their edits."
+  alias Valimc.Txn.Permits
 
-  def reserve(%__MODULE__{} = permits, blocks, now)
+  def reserve(%Permits{} = permits, blocks, now)
       when is_map(blocks) and map_size(blocks) in 1..128 and is_integer(now) do
-    entries = Map.reject(permits.entries, fn {_, entry} -> entry.expires <= now end)
-
-    if map_size(entries) >= @limit do
-      {:error, :mining_permit_limit}
-    else
-      token = :crypto.strong_rand_bytes(16)
-      entry = %{blocks: blocks, expires: now + @lifetime}
-      {:ok, %{permits | entries: Map.put(entries, token, entry)}, token}
+    case Permits.issue(permits, :mining, nil, nil, Map.keys(blocks), blocks, now) do
+      {:ok, permits, token} -> {:ok, permits, token}
+      error -> error
     end
   end
 
   def reserve(_, _, _), do: {:error, :invalid_mining_reservation}
 
-  def lookup(%__MODULE__{} = permits, token, now) do
-    case permits.entries[token] do
-      %{blocks: blocks, expires: expires} when expires > now -> {:ok, blocks}
-      _ -> {:error, :stale_mining_permit}
+  def lookup(%Permits{} = permits, token, now) do
+    case Permits.lookup(permits, :mining, token, now) do
+      {:ok, blocks} -> {:ok, blocks}
+      :error -> {:error, :stale_mining_permit}
     end
   end
-
-  def remove(%__MODULE__{} = permits, token),
-    do: %{permits | entries: Map.delete(permits.entries, token)}
 
   @doc "Extend only a still-live reservation; expired, mutated and released identities never revive."
-  def renew(%__MODULE__{} = permits, token, now) when is_integer(now) do
-    with {:ok, blocks} <- lookup(permits, token, now) do
-      entry = %{permits.entries[token] | expires: now + @lifetime}
-      {:ok, %{permits | entries: Map.put(permits.entries, token, entry)}, blocks}
+  def renew(%Permits{} = permits, token, now) when is_integer(now) do
+    case Permits.renew(permits, :mining, token, now) do
+      {:ok, permits, blocks} -> {:ok, permits, blocks}
+      :error -> {:error, :stale_mining_permit}
     end
-  end
-
-  def invalidate(%__MODULE__{} = permits, edits) do
-    entries =
-      Map.reject(permits.entries, fn {_, entry} ->
-        Enum.any?(entry.blocks, fn {position, _} -> Map.has_key?(edits, position) end)
-      end)
-
-    %{permits | entries: entries}
   end
 end

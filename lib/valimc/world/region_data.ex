@@ -40,15 +40,12 @@ defmodule Valimc.World.RegionData do
   defstruct [
     :key,
     :containers,
-    :container_permits,
     :container_viewers,
     :cooking_progress,
     :cooking,
     :cooking_orbs,
     :items,
     :item_receipts,
-    :pickup_permits,
-    :item_merge_permits,
     :item_storage_enabled,
     :item_publication,
     :item_pending,
@@ -68,8 +65,7 @@ defmodule Valimc.World.RegionData do
     :item_saved_generation,
     :item_checkpoint,
     :item_checkpoint_timer,
-    :mining_permits,
-    :placement_permits,
+    :permits,
     :store,
     :store_lease,
     :store_monitor,
@@ -128,13 +124,10 @@ defmodule Valimc.World.RegionData do
       items: items,
       item_receipts: receipts,
       containers: containers,
-      container_permits: %ContainerPermits{},
       container_viewers: %ContainerViewers{},
       cooking_progress: %{},
       cooking: %CookingRuntime{enabled: Valimc.config(:cooking_simulation, key)},
       cooking_orbs: %CookingOrbRuntime{},
-      pickup_permits: PickupPermits.new(),
-      item_merge_permits: ItemMergePermits.new(),
       item_storage_enabled: persistent,
       item_publication: publication,
       item_pending: nil,
@@ -154,8 +147,7 @@ defmodule Valimc.World.RegionData do
       item_saved_generation: 0,
       item_checkpoint: nil,
       item_checkpoint_timer: nil,
-      mining_permits: %MiningPermits{},
-      placement_permits: %PlacementPermits{},
+      permits: Valimc.Txn.Permits.new(),
       store: store,
       store_lease: store_lease,
       store_monitor: store_monitor,
@@ -388,8 +380,11 @@ defmodule Valimc.World.RegionData do
         items: plan.items,
         cooking: runtime,
         cooking_progress: Map.take(state.cooking_progress, Map.keys(plan.containers.entries)),
-        container_permits:
-          ContainerPermits.invalidate(state.container_permits, Map.new(plan.content, &{&1, nil}))
+        permits:
+          Valimc.Txn.Permits.invalidate(state.permits, Map.new(plan.content, &{&1, nil}), [
+            :mining,
+            :placement
+          ])
     }
 
     state = release_when_durable(state, Enum.map(plan.content, &{:container_changed, &1}))
@@ -611,7 +606,7 @@ defmodule Valimc.World.RegionData do
 
       true ->
         case PickupPermits.issue(
-               state.pickup_permits,
+               state.permits,
                state.item_receipts,
                state.items,
                actor,
@@ -619,7 +614,7 @@ defmodule Valimc.World.RegionData do
                System.monotonic_time(:millisecond)
              ) do
           {:ok, permits, grant} ->
-            {:reply, {:ok, grant}, %{state | pickup_permits: permits}}
+            {:reply, {:ok, grant}, %{state | permits: permits}}
 
           {:error, :pickup_receipt_slot_required} ->
             with {:ok, {_, id, _}} <- Items.find(state.items, item_uuid),
@@ -648,15 +643,9 @@ defmodule Valimc.World.RegionData do
         {:reply, {:error, busy}, state}
 
       true ->
-        grant =
-          case request do
-            %{permit: token} -> state.pickup_permits.entries[token]
-            _ -> nil
-          end
-
-        {permits, eligible} =
+        {permits, grant, eligible} =
           PickupPermits.consume(
-            state.pickup_permits,
+            state.permits,
             state.items,
             request,
             System.monotonic_time(:millisecond)
@@ -667,7 +656,7 @@ defmodule Valimc.World.RegionData do
         effect = pickup_effect(state.items, request, grant, eligible)
 
         case plan_item_change(:item_pickup, {request, eligible, effect}, from, state) do
-          {:noreply, next} -> {:noreply, %{next | pickup_permits: permits}}
+          {:noreply, next} -> {:noreply, %{next | permits: permits}}
           reply -> reply
         end
     end
@@ -717,7 +706,7 @@ defmodule Valimc.World.RegionData do
     with :ok <- cross_merge_ready(state, epoch) do
       {permits, permitted} =
         ItemMergePermits.consume(
-          state.item_merge_permits,
+          state.permits,
           state.items,
           request,
           System.monotonic_time(:millisecond)
@@ -734,7 +723,7 @@ defmodule Valimc.World.RegionData do
       # The source owner authorized this snapshot. Its publication only fences it;
       # this admission orders the counter effect before later source changes.
       case plan_item_change(:cross_merge_counters, {request, valid}, from, state) do
-        {:noreply, next} -> {:noreply, %{next | item_merge_permits: permits}}
+        {:noreply, next} -> {:noreply, %{next | permits: permits}}
         reply -> reply
       end
     else
@@ -753,7 +742,7 @@ defmodule Valimc.World.RegionData do
 
     with :ok <- cross_merge_ready(state, epoch),
          true <- is_integer(deadline) and now < deadline,
-         :ok <- ItemMergePermits.available?(state.item_merge_permits, source, now) do
+         :ok <- ItemMergePermits.available?(state.permits, source, now) do
       plan_item_change(:cross_merge_admission, {proposal, deadline}, from, state)
     else
       false -> {:reply, {:error, :expired_item_step}, state}
@@ -771,14 +760,14 @@ defmodule Valimc.World.RegionData do
     with :ok <- cross_merge_ready(state, epoch) do
       {permits, allowed} =
         ItemMergePermits.consume(
-          state.item_merge_permits,
+          state.permits,
           state.items,
           request,
           System.monotonic_time(:millisecond)
         )
 
       case plan_item_change(:cross_merge_in, {request, allowed}, from, state) do
-        {:noreply, next} -> {:noreply, %{next | item_merge_permits: permits}}
+        {:noreply, next} -> {:noreply, %{next | permits: permits}}
         reply -> reply
       end
     else
@@ -935,13 +924,13 @@ defmodule Valimc.World.RegionData do
         blocks = Map.new(positions, &{&1, Blocks.get(state.blocks, &1)})
 
         case MiningPermits.reserve(
-               state.mining_permits,
+               state.permits,
                blocks,
                System.monotonic_time(:millisecond)
              ) do
           {:ok, permits, token} ->
             {:reply, {:ok, %{permit: token, expected: blocks}},
-             %{state | mining_permits: permits}}
+             %{state | permits: permits}}
 
           error ->
             {:reply, error, state}
@@ -951,9 +940,9 @@ defmodule Valimc.World.RegionData do
 
   def handle_call({:renew_mining, epoch, permit}, _from, state) do
     if epoch == state.items.epoch do
-      case MiningPermits.renew(state.mining_permits, permit, System.monotonic_time(:millisecond)) do
+      case MiningPermits.renew(state.permits, permit, System.monotonic_time(:millisecond)) do
         {:ok, permits, blocks} ->
-          {:reply, {:ok, blocks}, %{state | mining_permits: permits}}
+          {:reply, {:ok, blocks}, %{state | permits: permits}}
 
         error ->
           {:reply, error, state}
@@ -967,7 +956,7 @@ defmodule Valimc.World.RegionData do
     if epoch == state.items.epoch,
       do:
         {:reply, :ok,
-         %{state | mining_permits: MiningPermits.remove(state.mining_permits, permit)}},
+         %{state | permits: Valimc.Txn.Permits.release(state.permits, permit)}},
       else: {:reply, {:error, :stale_owner}, state}
   end
 
@@ -1005,13 +994,13 @@ defmodule Valimc.World.RegionData do
 
       true ->
         case PlacementPermits.reserve(
-               state.placement_permits,
+               state.permits,
                expected,
                System.monotonic_time(:millisecond)
              ) do
           {:ok, permits, token} ->
             {:reply, {:ok, %{permit: token, expected: expected}},
-             %{state | placement_permits: permits}}
+             %{state | permits: permits}}
 
           error ->
             {:reply, error, state}
@@ -1023,7 +1012,7 @@ defmodule Valimc.World.RegionData do
     if epoch == state.items.epoch,
       do:
         {:reply, :ok,
-         %{state | placement_permits: PlacementPermits.remove(state.placement_permits, permit)}},
+         %{state | permits: Valimc.Txn.Permits.release(state.permits, permit)}},
       else: {:reply, {:error, :stale_owner}, state}
   end
 
@@ -1058,32 +1047,27 @@ defmodule Valimc.World.RegionData do
   def handle_call({:container_transfer, epoch, request}, from, state) do
     container_request(state, epoch, fn ->
       containers = state.containers
-      permits = state.container_permits
       key = state.key
       block = container_block(state, request)
+
+      {permits, grant} =
+        ContainerPermits.take(state.permits, request, System.monotonic_time(:millisecond))
+
+      state = %{state | permits: permits}
 
       start_container_work(state, from, :deliver, container_position(request), fn ->
         with {:ok, digest} <- ContainerRequest.digest(key, request),
              {:ok, reserved, _} <- ContainerTransfers.reserve(containers, request.source) do
-          {permits, eligible} =
-            ContainerPermits.consume(
-              permits,
-              request,
-              digest,
-              System.monotonic_time(:millisecond)
-            )
-
-          eligible = eligible and container_block_matches?(request, block)
+          eligible =
+            ContainerPermits.eligible?(grant, request, digest) and
+              container_block_matches?(request, block)
 
           plan =
             if request[:kind] == :experience,
               do: Valimc.World.ExperienceTransfers.plan(reserved, key, request, eligible),
               else: ContainerTransfers.plan(reserved, key, request, eligible)
 
-          case plan do
-            {:ok, decision} -> {:ok, Map.put(decision, :permits, permits)}
-            error -> error
-          end
+          plan
         end
       end)
     end)
@@ -1370,12 +1354,7 @@ defmodule Valimc.World.RegionData do
             %{
               state
               | unsaved: Map.put(state.unsaved, position, block),
-                mining_permits:
-                  MiningPermits.invalidate(state.mining_permits, %{position => block}),
-                container_permits:
-                  ContainerPermits.invalidate(state.container_permits, %{position => block}),
-                placement_permits:
-                  PlacementPermits.invalidate(state.placement_permits, %{position => block}),
+                permits: Valimc.Txn.Permits.invalidate(state.permits, %{position => block}),
                 column_index:
                   ColumnIndex.update(
                     state.column_index,
@@ -1787,23 +1766,19 @@ defmodule Valimc.World.RegionData do
         with :ok <- container_access(state, request, actor),
              {:ok, permits} <-
                ContainerPermits.issue(
-                 state.container_permits,
+                 state.permits,
                  state.containers.receipts,
                  request,
                  digest,
                  System.monotonic_time(:millisecond)
                ) do
-          {{:ok, request}, %{state | container_permits: permits}}
+          {{:ok, request}, %{state | permits: permits}}
         else
           error -> {error, state}
         end
 
       {_, result} ->
-        {{:ok, result},
-         %{
-           state
-           | container_permits: Map.get(pending.decision, :permits, state.container_permits)
-         }}
+        {{:ok, result}, state}
     end
   end
 
@@ -2020,8 +1995,8 @@ defmodule Valimc.World.RegionData do
   end
 
   defp permit_matches?(_, _, _), do: false
-  defp permit_store(state, :mining), do: {MiningPermits, state.mining_permits}
-  defp permit_store(state, :placement), do: {PlacementPermits, state.placement_permits}
+  defp permit_store(state, :mining), do: {MiningPermits, state.permits}
+  defp permit_store(state, :placement), do: {PlacementPermits, state.permits}
   defp transfer_module(:mining), do: MiningTransfers
   defp transfer_module(:placement), do: PlacementTransfers
 
@@ -2252,13 +2227,13 @@ defmodule Valimc.World.RegionData do
             do: Map.merge(state.unsaved, proposal.changes),
             else: Map.drop(state.unsaved, Map.keys(proposal.changes))
           ),
-        mining_permits: MiningPermits.invalidate(state.mining_permits, batch.edits),
-        container_permits:
-          if(cooking,
-            do: state.container_permits,
-            else: ContainerPermits.invalidate(state.container_permits, batch.edits)
-          ),
-        placement_permits: PlacementPermits.invalidate(state.placement_permits, batch.edits)
+        # Lit changes keep container grants: cooking does not change what a viewer sees.
+        permits:
+          Valimc.Txn.Permits.invalidate(
+            state.permits,
+            batch.edits,
+            if(cooking, do: [:container], else: [])
+          )
       })
 
     {state, %{batch: batch, previous: previous, chunks: chunks, cooking: cooking}}
@@ -2389,9 +2364,7 @@ defmodule Valimc.World.RegionData do
   end
 
   defp commit_rejected_block_transfer(plan, from, state) do
-    {module, permits} = permit_store(state, plan.kind)
-    field = if plan.kind == :mining, do: :mining_permits, else: :placement_permits
-    state = Map.put(state, field, module.remove(permits, plan.permit))
+    state = %{state | permits: Valimc.Txn.Permits.release(state.permits, plan.permit)}
 
     # The rejection receipt is an ordinary queued item write; its reply waits for
     # it. The planning slot of the block operation is released first.
@@ -2668,7 +2641,7 @@ defmodule Valimc.World.RegionData do
   def handle_info({:release_pickup, token, source}, state),
     do:
       {:noreply,
-       %{state | pickup_permits: PickupPermits.release(state.pickup_permits, token, source)}}
+       %{state | permits: Valimc.Txn.Permits.release(state.permits, token, source)}}
 
   def handle_info(
         {:item_simulation, worker, token, result},
@@ -2700,7 +2673,7 @@ defmodule Valimc.World.RegionData do
       {:noreply,
        %{
          state
-         | item_merge_permits: ItemMergePermits.release(state.item_merge_permits, token, source)
+         | permits: Valimc.Txn.Permits.release(state.permits, token, source)
        }}
 
   def handle_info(
@@ -3464,7 +3437,7 @@ defmodule Valimc.World.RegionData do
       if now < deadline,
         do:
           PickupPermits.issue(
-            state.pickup_permits,
+            state.permits,
             state.item_receipts,
             state.items,
             actor,
@@ -3476,7 +3449,7 @@ defmodule Valimc.World.RegionData do
     case result do
       {:ok, permits, grant} ->
         reply_item(from, {:ok, grant})
-        %{state | pickup_permits: permits}
+        %{state | permits: permits}
 
       error ->
         reply_item(from, error)
@@ -3491,7 +3464,7 @@ defmodule Valimc.World.RegionData do
       if now < deadline,
         do:
           ItemMergePermits.grant(
-            state.item_merge_permits,
+            state.permits,
             state.items.ledger.incoming,
             request,
             now
@@ -3501,7 +3474,7 @@ defmodule Valimc.World.RegionData do
     case result do
       {:ok, permits, request} ->
         reply_item(from, {:ok, request})
-        %{state | item_merge_permits: permits}
+        %{state | permits: permits}
 
       error ->
         reply_item(from, error)

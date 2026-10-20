@@ -212,7 +212,7 @@ defmodule Valimc.PickupRegionTest do
       :sys.resume(writer)
       assert {:error, :expired_item_step} = Task.await(task, 2000)
       assert disk(ctx).records == [ctx.record]
-      assert state(ctx.owner).pickup_permits.entries == %{}
+      assert state(ctx.owner).permits.entries == %{}
       assert disk(ctx).receipts[ctx.uuid] == %{sequence: 0, digest: <<0::256>>}
       assert {:ok, _} = Region.reserve_pickup(ctx.owner, ctx.actor, ctx.record.uuid)
     after

@@ -35,10 +35,10 @@ defmodule Valimc.ItemMergePermitsTest do
     {items, _, request, incoming} = fixture()
 
     assert {:error, :item_merge_reservation_required} =
-             ItemMergePermits.grant(ItemMergePermits.new(), %{}, request, 1000)
+             ItemMergePermits.grant(Valimc.Txn.Permits.new(), %{}, request, 1000)
 
     assert {:ok, permits, ^request} =
-             ItemMergePermits.grant(ItemMergePermits.new(), incoming, request, 1000)
+             ItemMergePermits.grant(Valimc.Txn.Permits.new(), incoming, request, 1000)
 
     assert {:error, :item_merge_already_pending} =
              ItemMergePermits.available?(permits, {0, 0}, 1100)
@@ -59,13 +59,13 @@ defmodule Valimc.ItemMergePermitsTest do
 
   test "other owners cannot burn a grant; source identity and recipient state remain fenced" do
     {items, _, request, incoming} = fixture()
-    {:ok, permits, _} = ItemMergePermits.grant(ItemMergePermits.new(), incoming, request, 1000)
+    {:ok, permits, _} = ItemMergePermits.grant(Valimc.Txn.Permits.new(), incoming, request, 1000)
 
     assert {^permits, false} =
              ItemMergePermits.consume(permits, items, %{request | source: {0, -1}}, 1100)
 
-    assert ItemMergePermits.release(permits, request.permit, {0, -1}) == permits
-    assert ItemMergePermits.release(permits, request.permit, {0, 0}).entries == %{}
+    assert Valimc.Txn.Permits.release(permits, request.permit, {0, -1}) == permits
+    assert Valimc.Txn.Permits.release(permits, request.permit, {0, 0}).entries == %{}
 
     for mutated <- [
           %{request | sequence: 2},

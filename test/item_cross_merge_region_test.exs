@@ -139,7 +139,7 @@ defmodule Valimc.ItemCrossMergeRegionTest do
       task = Task.async(fn -> grant(c) end)
       wait(fn -> Valimc.TestRegion.in_flight?(state(c.target)) end)
       assert disk(c, c.destination).ledger.incoming == %{}
-      assert state(c.target).item_merge_permits.entries == %{}
+      assert state(c.target).permits.entries == %{}
       Process.sleep(260)
       :sys.resume(writer)
       assert {:error, :expired_item_step} = Task.await(task, 2000)

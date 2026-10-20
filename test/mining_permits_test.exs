@@ -4,11 +4,11 @@ defmodule Valimc.MiningPermitsTest do
 
   test "bounded permits expire, reject target ABA, and retain unrelated work" do
     blocks = %{{0, 63, 0} => 1}
-    {:ok, first, token} = MiningPermits.reserve(%MiningPermits{}, blocks, 0)
+    {:ok, first, token} = MiningPermits.reserve(Valimc.Txn.Permits.new(), blocks, 0)
     assert {:ok, ^blocks} = MiningPermits.lookup(first, token, 9999)
     assert {:error, :stale_mining_permit} = MiningPermits.lookup(first, token, 10_000)
-    assert MiningPermits.invalidate(first, %{{1, 63, 0} => 1}) == first
-    invalidated = MiningPermits.invalidate(first, %{{0, 63, 0} => 1})
+    assert Valimc.Txn.Permits.invalidate(first, %{{1, 63, 0} => 1}) == first
+    invalidated = Valimc.Txn.Permits.invalidate(first, %{{0, 63, 0} => 1})
     assert {:error, :stale_mining_permit} = MiningPermits.lookup(invalidated, token, 1)
 
     full =
@@ -24,19 +24,19 @@ defmodule Valimc.MiningPermitsTest do
 
   test "renewal retains the original blocks and cannot revive expired, mutated or released tokens" do
     blocks = %{{0, 63, 0} => 1}
-    {:ok, permits, token} = MiningPermits.reserve(%MiningPermits{}, blocks, 0)
+    {:ok, permits, token} = MiningPermits.reserve(Valimc.Txn.Permits.new(), blocks, 0)
     {:ok, renewed, ^blocks} = MiningPermits.renew(permits, token, 9999)
     assert map_size(renewed.entries) == 1
     assert {:ok, ^blocks} = MiningPermits.lookup(renewed, token, 19_998)
     assert {:error, :stale_mining_permit} = MiningPermits.renew(renewed, token, 19_999)
     assert {:error, :stale_mining_permit} = MiningPermits.renew(permits, token, 10_000)
 
-    unrelated = MiningPermits.invalidate(renewed, %{{1, 63, 0} => 1})
+    unrelated = Valimc.Txn.Permits.invalidate(renewed, %{{1, 63, 0} => 1})
     assert {:ok, _, ^blocks} = MiningPermits.renew(unrelated, token, 10_001)
-    mutated = MiningPermits.invalidate(renewed, blocks)
+    mutated = Valimc.Txn.Permits.invalidate(renewed, blocks)
     assert {:error, :stale_mining_permit} = MiningPermits.renew(mutated, token, 10_001)
-    released = MiningPermits.remove(renewed, token)
+    released = Valimc.Txn.Permits.release(renewed, token)
     assert {:error, :stale_mining_permit} = MiningPermits.renew(released, token, 10_001)
-    assert MiningPermits.remove(released, token) == released
+    assert Valimc.Txn.Permits.release(released, token) == released
   end
 end
