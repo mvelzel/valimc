@@ -298,7 +298,12 @@ defmodule Valimc.PlayerMotionConnectionTest do
 
     assert :ok = Connection.set_velocity(pid, {0.4, -1.0, 0.0})
     wait(fn -> state(pid).player.motion.velocity == {0.0, -0.0784000015258789, 0.0} end)
-    for y <- 65..68, do: :ok = World.set_block({x, y, z}, 24298)
+    # A sweet berry bush needs soil below it (VMC-029c), so it stands on dirt.
+    dirt = Valimc.Registry.Blocks.default_state("dirt")
+
+    for {y, block} <- [{65, dirt}, {66, 24298}, {67, 0}, {68, 0}],
+        do: :ok = World.set_block({x, y, z}, block)
+
     wait(fn -> elem(state(pid).player.motion.stuck_multiplier, 0) == 0.800000011920929 end)
     Client.send_packet(client, :play, "player_abilities", <<2>>)
     wait(fn -> state(pid).player.abilities.flying end)

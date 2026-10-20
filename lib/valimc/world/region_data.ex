@@ -107,8 +107,11 @@ defmodule Valimc.World.RegionData do
 
     blocks =
       case Blocks.new(key, edits, images) do
-        {:ok, blocks} -> blocks
-        {:error, reason} -> exit({:block_load_failed, reason})
+        {:ok, blocks} ->
+          blocks
+
+        {:error, reason} ->
+          exit({:block_load_failed, reason})
       end
 
     containers =
@@ -1229,6 +1232,9 @@ defmodule Valimc.World.RegionData do
 
     {:reply, result, state}
   end
+
+  def handle_call({:light_image, epoch, chunk}, _from, %{items: %{epoch: epoch}} = state),
+    do: {:reply, Blocks.light_image(state.blocks, chunk), state}
 
   def handle_call({:observe_columns, epoch, columns, expected_revision}, _from, state) do
     result =
@@ -2643,7 +2649,10 @@ defmodule Valimc.World.RegionData do
       })
 
     state = if cooking, do: state, else: shape_updates(state, proposal.changes)
-    {state, %{batch: batch, previous: previous, chunks: chunks, cooking: cooking}}
+    # Light follows every change, cooking too (a lit furnace emits light).
+    lit = Blocks.light_update(state.blocks, Map.keys(proposal.changes))
+
+    {state, %{batch: batch, previous: previous, chunks: chunks, cooking: cooking, light: lit}}
   end
 
   defp release_blocks(state, effects) do
@@ -2652,7 +2661,12 @@ defmodule Valimc.World.RegionData do
         do: state,
         else: retire_container_changes(state, effects.batch.edits, effects.previous)
 
-    Valimc.World.publish(state.key, {:block_batch, effects.batch.frames})
+    light = Valimc.World.LightHalo.frames(state, Map.get(effects, :light, []))
+
+    # Clients relight from the light packets after the block updates; neighbours
+    # relight their ring from the changed blocks.
+    Valimc.World.publish(state.key, {:block_batch, effects.batch.frames ++ light})
+    Valimc.World.LightHalo.forward(state, effects.batch.edits)
     Valimc.Metrics.add(:block_edits, map_size(effects.batch.edits))
     publish_block_snapshots(state, effects.chunks)
   end
@@ -2794,7 +2808,7 @@ defmodule Valimc.World.RegionData do
       encoded = Blocks.encode(state.blocks, key)
       entities = if encoded == :flat, do: %{}, else: Blocks.chunk_entities(state.blocks, key)
       preserved = preserved_entities(state, key)
-      light = state.light[key]
+      light = Blocks.light_image(state.blocks, key)
       sections_microseconds = System.monotonic_time(:microsecond) - started
       version = Map.get(state.versions, key, 0)
       threshold = Valimc.config(:compression_threshold)
@@ -2804,7 +2818,7 @@ defmodule Valimc.World.RegionData do
 
              packet =
                if encoded == :flat,
-                 do: Chunk.encode(key, %{}),
+                 do: Chunk.encode(key, %{}, light),
                  else: Chunk.packet(encoded, entities, preserved, light)
 
              frame = Packets.frame(packet, threshold)
@@ -3140,6 +3154,9 @@ defmodule Valimc.World.RegionData do
       end
     end
   end
+
+  def handle_info({:halo, message}, state),
+    do: {:noreply, Valimc.World.LightHalo.handle(message, state)}
 
   def handle_info({:item_handoff_wake, _}, state), do: {:noreply, state}
 

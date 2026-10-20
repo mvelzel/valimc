@@ -19,6 +19,13 @@ defmodule Valimc.Native do
   def light_columns(_images, _min_cx, _min_cz, _chunks_x, _chunks_z),
     do: :erlang.nif_error(:nif_not_loaded)
 
+  def light_compute(_region), do: :erlang.nif_error(:nif_not_loaded)
+  def light_update(_region, _positions), do: :erlang.nif_error(:nif_not_loaded)
+  def light_update_dirty(_region, _positions), do: :erlang.nif_error(:nif_not_loaded)
+  def light_image(_region, _cx, _cz), do: :erlang.nif_error(:nif_not_loaded)
+  def halo_put(_region, _chunks), do: :erlang.nif_error(:nif_not_loaded)
+  def halo_edits(_region, _edits), do: :erlang.nif_error(:nif_not_loaded)
+
   def nbt_read(_bytes, _byte_limit, _nodes, _depth), do: :erlang.nif_error(:nif_not_loaded)
   def lz4_decode_stream(_bytes, _max), do: :erlang.nif_error(:nif_not_loaded)
   def lz4_decode_stream_dirty(_bytes, _max), do: :erlang.nif_error(:nif_not_loaded)

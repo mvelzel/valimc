@@ -192,6 +192,15 @@ defmodule Valimc.Protocol.Packets do
     ])
   end
 
+  @doc "Light of one chunk (VMC-022c): its light image as `level_chunk_with_light` carries it."
+  def light_update({cx, cz}, image) do
+    packet("light_update", [
+      Wire.varint(cx),
+      Wire.varint(cz),
+      Valimc.Anvil.Light.packet(image)
+    ])
+  end
+
   def spawn_position do
     packet("set_default_spawn_position", [
       Wire.string("minecraft:overworld"),

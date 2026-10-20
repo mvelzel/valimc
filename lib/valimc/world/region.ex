@@ -45,6 +45,10 @@ defmodule Valimc.World.Region do
 
   def observe_blocks(_, _, _), do: {:error, :invalid_block_query}
 
+  @doc "A chunk's current light image (VMC-022c), for diagnostics and tests."
+  def light_image({pid, epoch}, chunk) when is_pid(pid) and is_reference(epoch),
+    do: GenServer.call(pid, {:light_image, epoch, chunk}, 1000)
+
   @doc "Observe bounded native column heights at the same fence as block observations."
   def observe_columns(owner, columns, expected_revision \\ :any)
 
@@ -303,7 +307,7 @@ defmodule Valimc.World.Region do
 
   @impl true
   def handle_continue(:load, %{key: key, admission: token}) do
-    resource = RegionData.load(key)
+    resource = key |> RegionData.load() |> Valimc.World.LightHalo.hello()
 
     case Valimc.World.Directory.publish(key, token, %{
            items: resource.item_publication,
@@ -373,6 +377,9 @@ defmodule Valimc.World.Region do
     do: RegionData.handle_info(message, state.resource) |> wrap(state)
 
   def handle_info({:DOWN, _, :process, _, _} = message, state),
+    do: RegionData.handle_info(message, state.resource) |> wrap(state)
+
+  def handle_info({:halo, _} = message, state),
     do: RegionData.handle_info(message, state.resource) |> wrap(state)
 
   # Untagged/stale callbacks never select a resource or change its data.

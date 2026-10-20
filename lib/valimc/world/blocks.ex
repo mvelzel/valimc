@@ -66,6 +66,40 @@ defmodule Valimc.World.Blocks do
     with :ok <- restored, :ok <- put(blocks, edits), do: {:ok, blocks}
   end
 
+  @doc "Light the region and its one-chunk ring from scratch (VMC-022c)."
+  def light_compute(%__MODULE__{} = blocks) do
+    {:ok, :ok} = Native.light_compute(blocks.ref)
+    :ok
+  end
+
+  @doc """
+  Relight after the blocks at `positions` changed; returns the region's chunks
+  whose light changed. Large batches run on a dirty scheduler.
+  """
+  def light_update(%__MODULE__{} = blocks, positions) when is_list(positions) do
+    update =
+      if length(positions) > 64, do: &Native.light_update_dirty/2, else: &Native.light_update/2
+
+    {:ok, chunks} = update.(blocks.ref, positions)
+    chunks
+  end
+
+  @doc """
+  A chunk's light image (`Valimc.Anvil.Light` layout). The region is lit on the
+  first request (until then edits need no relighting: the first light computation
+  sees them).
+  """
+  def light_image(%__MODULE__{} = blocks, {cx, cz} = chunk) do
+    case Native.light_image(blocks.ref, cx, cz) do
+      {:ok, :flat} ->
+        :ok = light_compute(blocks)
+        light_image(blocks, chunk)
+
+      {:ok, image} ->
+        image
+    end
+  end
+
   @doc "A chunk's column image for the region log, or `:flat` for the base profile."
   def column_image(%__MODULE__{} = blocks, {cx, cz}) do
     case Native.column_image(blocks.ref, cx, cz) do

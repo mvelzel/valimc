@@ -39,13 +39,13 @@ defmodule Valimc.AnvilLightTest do
     # Uniform arrays are kept as one byte.
     assert byte_size(image) < 2 * 26 + 2048 + 10
 
-    # Masks: sky in sections 3 and 7 (bits 8 and 12), block in section -5 (bit 0).
-    zeros = :binary.copy(<<0>>, 2048)
+    # Masks: sky in section 7 (bit 12), block in section -5 (bit 0); the all-zero
+    # sky array of section 3 goes in the empty sky mask (bit 8), as vanilla sends it.
     full = :binary.copy(<<255>>, 2048)
 
     assert IO.iodata_to_binary(Light.packet(image)) ==
-             <<2, 0x00, 0x11, 1, 1, 0, 0, 2, 0x80, 0x10, zeros::binary, 0x80, 0x10, full::binary,
-               1, 0x80, 0x10, mixed::binary>>
+             <<2, 0x00, 0x10, 1, 1, 2, 0x00, 0x01, 0, 1, 0x80, 0x10, full::binary, 1, 0x80, 0x10,
+               mixed::binary>>
   end
 
   test "chunks without valid light keep full sky; damaged images are refused" do

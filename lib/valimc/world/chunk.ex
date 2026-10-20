@@ -26,17 +26,26 @@ defmodule Valimc.World.Chunk do
   def load! do
     {_id, payload} = encode_full({0, 0}, %{})
     <<_coordinates::binary-size(8), tail::binary>> = IO.iodata_to_binary(payload)
-    :persistent_term.put({__MODULE__, :flat_tail}, tail)
+    light = IO.iodata_length(Valimc.Anvil.Light.packet(nil))
+    # The flat chunk's heightmaps, sections and (no) block entities; light follows.
+    :persistent_term.put({__MODULE__, :flat_body}, binary_part(tail, 0, byte_size(tail) - light))
   end
 
-  def encode({cx, cz}, edits) when map_size(edits) == 0 do
+  @doc """
+  A chunk packet. With no edits, the flat chunk's cached body plus `light` (a
+  computed light image, VMC-022c; nil sends full sky light).
+  """
+  def encode(key, edits, light \\ nil)
+
+  def encode({cx, cz}, edits, light) when map_size(edits) == 0 do
     Packets.packet("level_chunk_with_light", [
       <<cx::signed-32, cz::signed-32>>,
-      :persistent_term.get({__MODULE__, :flat_tail})
+      :persistent_term.get({__MODULE__, :flat_body}),
+      Valimc.Anvil.Light.packet(light)
     ])
   end
 
-  def encode(key, edits), do: encode_full(key, edits)
+  def encode(key, edits, _light), do: encode_full(key, edits)
 
   defp encode_full({cx, cz} = key, edits) do
     sections =
@@ -71,7 +80,7 @@ defmodule Valimc.World.Chunk do
   @doc """
   A chunk packet from encoded sections/heightmaps; owned block entities come from
   `edits`, imported ones from `preserved` (see `ChestBlockEntity.chunk_entries/3`);
-  `light` is an imported chunk's stored light (`Valimc.Anvil.Light`), else full sky.
+  `light` is the chunk's light image (`Valimc.Anvil.Light` layout), else full sky.
   """
   def packet(
         %{chunk: {cx, cz} = key, sections: data, surface: surface, motion: motion},

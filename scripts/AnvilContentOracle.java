@@ -304,11 +304,6 @@ public class AnvilContentOracle {
           .put(p.get(0) + "," + p.get(1) + "," + p.get(2), row.get("type").getAsString() + " " + row.get("update").getAsString());
     }
     var empty = digest(new CompoundTag());
-    // The stored light of every checked chunk, as ValiMC must send it.
-    var stored = new HashMap<String, CompoundTag>();
-    var info = new RegionStorageInfo("oracle", Level.OVERWORLD, "chunk");
-    for (var file : files(Path.of(facts.get("world").getAsString()).resolve("dimensions/minecraft/overworld/region")))
-      for (var chunk : chunks(info, file)) stored.put(chunk.getKey().x() + "." + chunk.getKey().z(), chunk.getValue());
     int checked = 0, lit = 0;
     for (var entry : expected.entrySet()) {
       var file = dir.resolve("chunk." + entry.getKey() + ".bin");
@@ -327,25 +322,21 @@ public class AnvilContentOracle {
       if (!actual.equals(entry.getValue()))
         throw new AssertionError("chunk " + entry.getKey() + " block entities differ:\n vanilla " + entry.getValue() + "\n valimc  " + actual);
       checked += actual.size();
-      var tag = stored.get(entry.getKey());
-      if (tag.getBooleanOr("isLightOn", false)) {
-        lit++;
-        var light = packet.lightData();
-        for (var kind : List.of("SkyLight", "BlockLight")) {
-          var mask = kind.equals("SkyLight") ? light.skyYMask() : light.blockYMask();
-          var updates = kind.equals("SkyLight") ? light.skyUpdates() : light.blockUpdates();
-          var storedMask = new BitSet();
-          var arrays = new ArrayList<byte[]>();
-          var sections = new TreeMap<Integer, byte[]>();
-          for (var section : tag.getListOrEmpty("sections"))
-            if (section instanceof CompoundTag c && c.getByteArray(kind).isPresent()) sections.put((int) c.getByteOr("Y", (byte) 0), c.getByteArray(kind).get());
-          sections.forEach((y, data) -> { if (y >= -5 && y <= 20) { storedMask.set(y + 5); arrays.add(data); } });
-          if (!mask.equals(storedMask) || !light.emptySkyYMask().isEmpty() || !light.emptyBlockYMask().isEmpty() || updates.size() != arrays.size())
-            throw new AssertionError("chunk " + entry.getKey() + " " + kind + " masks differ from the stored light");
-          for (int i = 0; i < arrays.size(); i++)
-            if (!Arrays.equals(updates.get(i), arrays.get(i))) throw new AssertionError("chunk " + entry.getKey() + " " + kind + " data differ");
-        }
+      // Computed light (VMC-022c): every section of both kinds is sent, as data or
+      // as an empty (all-zero) section; the light stage checks the values against
+      // vanilla's engine.
+      var light = packet.lightData();
+      for (var kind : List.of("SkyLight", "BlockLight")) {
+        var mask = kind.equals("SkyLight") ? light.skyYMask() : light.blockYMask();
+        var emptyMask = kind.equals("SkyLight") ? light.emptySkyYMask() : light.emptyBlockYMask();
+        var updates = kind.equals("SkyLight") ? light.skyUpdates() : light.blockUpdates();
+        var all = (BitSet) mask.clone();
+        all.or(emptyMask);
+        if (mask.intersects(emptyMask) || all.cardinality() != 26 || all.nextClearBit(0) != 26 || updates.size() != mask.cardinality()
+            || updates.stream().anyMatch(data -> data.length != 2048))
+          throw new AssertionError("chunk " + entry.getKey() + " " + kind + " does not cover every light section");
       }
+      if (!light.skyYMask().isEmpty()) lit++;
     }
     if (lit == 0) throw new AssertionError("no lit chunk checked");
     // Block entity update packets (corrections after refused changes).
@@ -365,7 +356,7 @@ public class AnvilContentOracle {
     }
     if (updates < 10) throw new AssertionError("too few update packets: " + updates);
     System.out.println("PASS: vanilla decodes ValiMC's chunk packets for " + expected.size() + " chunks with exactly vanilla's "
-        + checked + " block entities, types and update tags, the stored sky and block light of " + lit + " chunks, and "
+        + checked + " block entities, types and update tags, light in every section of " + expected.size() + " chunks (" + lit + " with sky data), and "
         + updates + " block entity update packets");
   }
 

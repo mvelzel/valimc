@@ -100,14 +100,18 @@ defmodule Valimc.Anvil.Light do
   def packet(image) do
     {:ok, layers} = decode(image)
     indexed = Enum.with_index(layers)
-    sky = for {{data, _}, i} <- indexed, data != nil, do: {i, data}
-    block = for {{_, data}, i} <- indexed, data != nil, do: {i, data}
+    # All-zero layers go in the empty masks, as vanilla sends them.
+    zero = :binary.copy(<<0>>, 2048)
+    sky = for {{data, _}, i} <- indexed, data not in [nil, zero], do: {i, data}
+    block = for {{_, data}, i} <- indexed, data not in [nil, zero], do: {i, data}
+    empty_sky = for {{^zero, _}, i} <- indexed, do: {i, nil}
+    empty_block = for {{_, ^zero}, i} <- indexed, do: {i, nil}
 
     [
       bitset(mask(sky)),
       bitset(mask(block)),
-      bitset(0),
-      bitset(0),
+      bitset(mask(empty_sky)),
+      bitset(mask(empty_block)),
       Wire.varint(length(sky)),
       Enum.map(sky, fn {_, data} -> [Wire.varint(2048), data] end),
       Wire.varint(length(block)),

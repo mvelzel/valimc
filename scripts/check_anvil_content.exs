@@ -15,6 +15,7 @@ File.rm_rf!(out_dir)
 File.mkdir_p!(out_dir)
 Data.load!()
 Blocks.init!()
+Valimc.World.Light.init!()
 facts = facts_path |> File.read!() |> JSON.decode!()
 imported = Path.join(out_dir, "imported-world")
 {:ok, report} = Import.run(facts["world"], imported)
@@ -189,7 +190,8 @@ for {cx, cz} = chunk <- chunks do
     )
 
   encoded = Blocks.encode(region.blocks, chunk)
-  light = Store.durable(imported, Valimc.World.region_key(chunk), :light)[chunk]
+  # Packets carry computed light (VMC-022c), as owners send it.
+  light = Blocks.light_image(region.blocks, chunk)
 
   {_id, payload} =
     Chunk.packet(encoded, Blocks.chunk_entities(region.blocks, chunk), preserved, light)

@@ -1,6 +1,8 @@
 //! Chunk columns (24 sections, y −64..319) owned by one region.
 
 use crate::flags::{BlockFlags, MOTION_BLOCKING, WORLD_SURFACE};
+use crate::light::LightFacts;
+use crate::light_grid::{Kind, Layer, LightBlocks, LightGrid};
 use crate::section::{index, Biomes, Storage, VOLUME};
 use crate::wire;
 use std::collections::HashMap;
@@ -242,6 +244,60 @@ pub struct ColumnStore {
     pub ticking: Vec<bool>,
     /// xorshift64 state for random tick positions.
     pub rng: u64,
+    /// Light over the region plus a one-chunk ring (VMC-022c), once computed.
+    pub light: Option<LightGrid>,
+    /// Neighbour chunks of the ring; absent ones read the base profile.
+    pub halo: HashMap<(i32, i32), Column>,
+}
+
+/// Dense block states for a full light computation.
+struct Dense {
+    wx: usize,
+    wz: usize,
+    states: Vec<u16>,
+}
+
+impl LightBlocks for Dense {
+    fn wx(&self) -> usize {
+        self.wx
+    }
+    fn wz(&self) -> usize {
+        self.wz
+    }
+    #[inline]
+    fn state(&self, x: usize, y: usize, z: usize) -> u16 {
+        self.states[(x * self.wz + z) * HEIGHT + y]
+    }
+}
+
+/// The region and its one-chunk ring as light sees them: area coordinates start
+/// at the ring's corner chunk.
+struct LightView<'a> {
+    store: &'a ColumnStore,
+}
+
+impl LightBlocks for LightView<'_> {
+    fn wx(&self) -> usize {
+        (self.store.chunk_size as usize + 2) * 16
+    }
+    fn wz(&self) -> usize {
+        (self.store.chunk_size as usize + 2) * 16
+    }
+    #[inline]
+    fn state(&self, x: usize, y: usize, z: usize) -> u16 {
+        let (mx, mz) = self.store.chunk_min;
+        let chunk = (mx - 1 + (x / 16) as i32, mz - 1 + (z / 16) as i32);
+        let inside = self.store.check_chunk(chunk).is_ok();
+        let column = if inside {
+            self.store.columns.get(&chunk)
+        } else {
+            self.store.halo.get(&chunk)
+        };
+        match column {
+            Some(column) => column.sections[y / 16].get(index(x & 15, y & 15, z & 15)),
+            None => self.store.layers[y],
+        }
+    }
 }
 
 impl ColumnStore {
@@ -261,7 +317,195 @@ impl ColumnStore {
             budget_bytes,
             ticking: Vec::new(),
             rng: rng.max(1),
+            light: None,
+            halo: HashMap::new(),
         }
+    }
+
+    /// Light the region (and its ring) from scratch, over a dense copy of their
+    /// blocks (filled section by section; dropped afterwards).
+    pub fn light_compute(&mut self, facts: &LightFacts) {
+        let view = LightView { store: self };
+        let (wx, wz) = (view.wx(), view.wz());
+        let mut states = vec![0u16; wx * wz * HEIGHT];
+        let (mx, mz) = self.chunk_min;
+        for cx in 0..wx / 16 {
+            for cz in 0..wz / 16 {
+                let chunk = (mx - 1 + cx as i32, mz - 1 + cz as i32);
+                let column = if self.check_chunk(chunk).is_ok() {
+                    self.columns.get(&chunk)
+                } else {
+                    self.halo.get(&chunk)
+                };
+                for x in 0..16 {
+                    for z in 0..16 {
+                        let base = ((cx * 16 + x) * wz + cz * 16 + z) * HEIGHT;
+                        match column {
+                            None => states[base..base + HEIGHT].copy_from_slice(&self.layers[..]),
+                            Some(column) => {
+                                for (s, storage) in column.sections.iter().enumerate() {
+                                    for y in 0..16 {
+                                        states[base + s * 16 + y] = storage.get(index(x, y, z));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let grid = LightGrid::compute(&Dense { wx, wz, states }, facts);
+        self.light = Some(grid);
+    }
+
+    /// Relight after blocks at `positions` changed (in the region or its ring);
+    /// returns the region's chunks whose light changed.
+    pub fn light_update(
+        &mut self,
+        facts: &LightFacts,
+        positions: &[(i32, i32, i32)],
+    ) -> Vec<(i32, i32)> {
+        let Some(mut grid) = self.light.take() else {
+            return Vec::new();
+        };
+        let (mx, mz) = self.chunk_min;
+        let (ox, oz) = ((mx - 1) * 16, (mz - 1) * 16);
+        let span = (self.chunk_size + 2) * 16;
+        let cells: Vec<(usize, usize, usize)> = positions
+            .iter()
+            .filter(|(x, y, z)| {
+                (ox..ox + span).contains(x)
+                    && (oz..oz + span).contains(z)
+                    && (MIN_Y..MIN_Y + HEIGHT as i32).contains(y)
+            })
+            .map(|(x, y, z)| ((x - ox) as usize, (y - MIN_Y) as usize, (z - oz) as usize))
+            .collect();
+        grid.update(&LightView { store: self }, facts, &cells);
+        let changed = grid
+            .take_dirty()
+            .into_iter()
+            .map(|(cx, cz)| (mx - 1 + cx as i32, mz - 1 + cz as i32))
+            .filter(|chunk| self.check_chunk(*chunk).is_ok())
+            .collect();
+        self.light = Some(grid);
+        changed
+    }
+
+    /// Whether `chunk` is in the one-chunk ring around the region.
+    pub fn in_ring(&self, chunk: (i32, i32)) -> bool {
+        let (mx, mz) = self.chunk_min;
+        let n = self.chunk_size;
+        self.check_chunk(chunk).is_err()
+            && (mx - 1..=mx + n).contains(&chunk.0)
+            && (mz - 1..=mz + n).contains(&chunk.1)
+    }
+
+    /// Replace ring chunks (a neighbour's columns, or `None` for the base
+    /// profile) and relight once; returns the region's chunks whose light changed.
+    pub fn halo_put(
+        &mut self,
+        facts: &LightFacts,
+        chunks: Vec<((i32, i32), Option<Column>)>,
+    ) -> Result<Vec<(i32, i32)>, StoreError> {
+        if chunks.iter().any(|(chunk, _)| !self.in_ring(*chunk)) {
+            return Err(StoreError::OutOfRegion);
+        }
+        let mut changed = Vec::new();
+        for (chunk, column) in chunks {
+            for s in 0..SECTIONS {
+                for i in 0..VOLUME {
+                    let base = self.layers[s * 16 + (i >> 8)];
+                    let old = self.halo.get(&chunk).map_or(base, |c| c.sections[s].get(i));
+                    let new = column.as_ref().map_or(base, |c| c.sections[s].get(i));
+                    if old != new {
+                        let (x, y, z) = (i & 15, i >> 8, (i >> 4) & 15);
+                        changed.push((
+                            chunk.0 * 16 + x as i32,
+                            MIN_Y + (s * 16 + y) as i32,
+                            chunk.1 * 16 + z as i32,
+                        ));
+                    }
+                }
+            }
+            match column {
+                Some(column) => self.halo.insert(chunk, column),
+                None => self.halo.remove(&chunk),
+            };
+        }
+        Ok(self.relight_cells(facts, &changed))
+    }
+
+    /// Apply a neighbour's block changes in the ring and relight.
+    pub fn halo_edits(
+        &mut self,
+        facts: &LightFacts,
+        edits: &[(i32, i32, i32, u16)],
+    ) -> Vec<(i32, i32)> {
+        let mut positions = Vec::with_capacity(edits.len());
+        for &(x, y, z, state) in edits {
+            let chunk = (x >> 4, z >> 4);
+            if !(self.in_ring(chunk) && (MIN_Y..MIN_Y + HEIGHT as i32).contains(&y)) {
+                continue;
+            }
+            let layers = &self.layers;
+            let column = self
+                .halo
+                .entry(chunk)
+                .or_insert_with(|| Column::from_layers(layers));
+            column.set(x, y, z, state);
+            positions.push((x, y, z));
+        }
+        self.light_update(facts, &positions)
+    }
+
+    /// Relight many cells: incrementally, or from scratch when most of a chunk changed.
+    fn relight_cells(&mut self, facts: &LightFacts, cells: &[(i32, i32, i32)]) -> Vec<(i32, i32)> {
+        if cells.len() <= 16_384 {
+            return self.light_update(facts, cells);
+        }
+        self.light_compute(facts);
+        let (mx, mz) = self.chunk_min;
+        (0..self.chunk_size)
+            .flat_map(|x| (0..self.chunk_size).map(move |z| (mx + x, mz + z)))
+            .collect()
+    }
+
+    /// A chunk's light image (VMC-021e5 layout): 26 sections from one below the
+    /// world to one above, each sky then block as tag 1 + repeated byte (uniform)
+    /// or tag 2 + 2,048 bytes.
+    pub fn light_image(&self, chunk: (i32, i32)) -> Result<Option<Vec<u8>>, StoreError> {
+        self.check_chunk(chunk)?;
+        let Some(grid) = &self.light else {
+            return Ok(None);
+        };
+        let (cx, cz) = (
+            (chunk.0 - self.chunk_min.0 + 1) as usize,
+            (chunk.1 - self.chunk_min.1 + 1) as usize,
+        );
+        let mut out = Vec::with_capacity(26 * 4);
+        let uniform = |out: &mut Vec<u8>, level: u8| out.extend([1, level | level << 4]);
+        // Below the world: dark.
+        uniform(&mut out, 0);
+        uniform(&mut out, 0);
+        let (sky, block) = (
+            grid.chunk(Kind::Sky, cx, cz),
+            grid.chunk(Kind::Block, cx, cz),
+        );
+        for s in 0..SECTIONS {
+            for layer in [&sky[s], &block[s]] {
+                match layer {
+                    Layer::Uniform(level) => uniform(&mut out, *level),
+                    Layer::Nibbles(bytes) => {
+                        out.push(2);
+                        out.extend_from_slice(&bytes[..]);
+                    }
+                }
+            }
+        }
+        // Above the world: open sky.
+        uniform(&mut out, 15);
+        uniform(&mut out, 0);
+        Ok(Some(out))
     }
 
     fn chunk_of(&self, x: i32, z: i32) -> Result<(i32, i32), StoreError> {
