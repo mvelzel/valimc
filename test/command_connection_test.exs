@@ -134,6 +134,9 @@ defmodule Valimc.CommandConnectionTest do
     {difficulty, _} = Valimc.World.Clock.difficulty()
 
     on_exit(fn ->
+      # `weather rain 600` below would otherwise outlive the test.
+      Valimc.World.Clock.configure({:weather, :clear, 0})
+
       Valimc.World.Clock.configure(
         {"minecraft:overworld", :ticks, before.clocks["minecraft:overworld"].total_ticks}
       )
@@ -142,6 +145,8 @@ defmodule Valimc.CommandConnectionTest do
       Valimc.World.Clock.configure({:difficulty, difficulty.level, true})
     end)
 
+    # Stopped time keeps the exact tick counts below (restored on exit).
+    assert :ok = Valimc.World.Clock.configure({:advance_time, false})
     client = command(client, "time set 1234", "commands.time.set.absolute")
     assert Valimc.World.Clock.snapshot().clocks["minecraft:overworld"].total_ticks == 1234
     client = command(client, "time set 1234", "commands.time.set.already_at_time")
@@ -151,7 +156,7 @@ defmodule Valimc.CommandConnectionTest do
     level = if difficulty.level == 3, do: "easy", else: "hard"
     client = command(client, "difficulty #{level}", "commands.difficulty.success")
     client = command(client, "difficulty #{level}", "commands.difficulty.failure")
-    value = not before.advance_time
+    value = not Valimc.World.Clock.snapshot().advance_time
     _client = command(client, "gamerule advance_time #{value}", "commands.gamerule.set")
     assert Valimc.World.Clock.snapshot().advance_time == value
   end

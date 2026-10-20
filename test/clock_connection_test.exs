@@ -3,7 +3,7 @@ defmodule Valimc.ClockConnectionTest do
   @moduletag :tcp
   alias Valimc.TestClient, as: Client
   alias Valimc.Protocol.Wire
-  alias Valimc.World.Clock
+  alias Valimc.World.{Clock, ClockRecord}
 
   # Probe totals are small positive values. Independent Mojang value fixtures
   # cover signed VarLong boundaries; its TCP oracle checks negotiated holders.
@@ -21,6 +21,22 @@ defmodule Valimc.ClockConnectionTest do
   end
 
   test "real TCP login and periodic clock maps, immediate pause updates and continuing session actions" do
+    # Earlier tests may have set or stopped the clocks; running ones keep a fixed
+    # offset from the game time.
+    assert :ok = Clock.configure({:advance_time, true})
+
+    for name <- ClockRecord.names() do
+      assert :ok = Clock.configure({name, :paused, false})
+      assert :ok = Clock.configure({name, :rate, 1.0})
+    end
+
+    before = Clock.snapshot()
+
+    offsets =
+      ClockRecord.names()
+      |> Enum.with_index()
+      |> Map.new(fn {name, id} -> {id, before.clocks[name].total_ticks - before.game_time} end)
+
     client = Client.begin_login("ClockProbe")
     {_uuid, client} = Client.configure_session(client, "ClockProbe")
     client = Client.send_packet(client, :configuration, "finish_configuration", <<>>)
@@ -35,11 +51,14 @@ defmodule Valimc.ClockConnectionTest do
     {body, client} = Client.await(client, :play, "set_time")
     {time, clocks} = decode(body)
     assert Map.keys(clocks) |> Enum.sort() == [0, 1]
-    assert clocks[0] == {time, 0.0, 1.0} and clocks[1] == {time, 0.0, 1.0}
+
+    assert clocks[0] == {time + offsets[0], 0.0, 1.0} and
+             clocks[1] == {time + offsets[1], 0.0, 1.0}
+
     {body, client} = Client.await(client, :play, "set_time")
     {next, clocks} = decode(body)
     assert next >= time and next - time <= 20
-    assert clocks[0] == {next, 0.0, 1.0}
+    assert clocks[0] == {next + offsets[0], 0.0, 1.0}
     {body, client} = Client.await(client, :play, "set_time")
     {later, _} = decode(body)
     assert later - next == 20
