@@ -51,10 +51,10 @@ defmodule Valimc.World.Items do
   def snapshot(state), do: %{records: records(state), ledger: state.ledger}
 
   @doc "Advance counters and identify expired/below-world items; removal waits for the owner's durable commit."
-  def age(state, minimum_y \\ Valimc.World.Chunk.min_y()) do
+  def age(state, ticks \\ 1, minimum_y \\ Valimc.World.Chunk.min_y()) do
     Enum.reduce(state.entries, {state, []}, fn {id, entry}, {items, expired} ->
       motion = Map.get(entry, :motion, %ItemMotionState{no_gravity: entry.no_gravity})
-      next = ItemMotionState.tick(motion)
+      next = ItemMotionState.advance(motion, ticks)
 
       items =
         if Map.get(entry, :motion) == next do

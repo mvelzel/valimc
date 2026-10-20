@@ -80,6 +80,7 @@ defmodule Valimc.World.RegionData do
     :section_revisions,
     :game_tick,
     :orb_age_ticks,
+    :item_age_debt,
     :scheduled_ticks,
     :ticks_dirty,
     :tick_index,
@@ -180,6 +181,7 @@ defmodule Valimc.World.RegionData do
       section_revisions: %{},
       game_tick: 0,
       orb_age_ticks: 0,
+      item_age_debt: 0,
       scheduled_ticks: scheduled,
       ticks_dirty: false,
       tick_index: tick_index,
@@ -195,15 +197,18 @@ defmodule Valimc.World.RegionData do
   end
 
   def item_tick(state, now) do
+    # A planning worker's result replaces the item map, so ageing waits while one
+    # runs (and, under backpressure, while expiries cannot be written); the skipped
+    # ticks are owed and applied at once, so despawn timing never stalls.
+    ticks = state.item_age_debt + 1
+
     {items, expired} =
       if state.item_simulation_enabled and state.item_pending == nil,
-        do: Items.age(state.items),
+        do: Items.age(state.items, ticks),
         else: {nil, []}
 
-    # Under backpressure a tick with expiries (durable removals) is retried on
-    # the next tick instead of growing the write queue.
     if items != nil and (expired == [] or write_busy(state) == nil) do
-      state = remember_item_counters(state, items)
+      state = remember_item_counters(%{state | item_age_debt: 0}, items)
       state = %{state | item_resting: Map.take(state.item_resting, Map.keys(items.entries))}
 
       if expired == [] do
@@ -221,7 +226,9 @@ defmodule Valimc.World.RegionData do
         state
       end
     else
-      state
+      if state.item_simulation_enabled,
+        do: %{state | item_age_debt: min(ticks, 6000)},
+        else: state
     end
   end
 

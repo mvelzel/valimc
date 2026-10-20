@@ -6,14 +6,17 @@ defmodule Valimc.ItemMotionState do
             on_ground: false,
             no_gravity: false
 
-  def tick(%__MODULE__{} = state),
+  def tick(%__MODULE__{} = state), do: advance(state, 1)
+
+  @doc "Age by `ticks` game ticks at once (the infinite markers never change)."
+  def advance(%__MODULE__{} = state, ticks) when is_integer(ticks) and ticks >= 1,
     do: %{
       state
-      | age: if(state.age == -32_768, do: state.age, else: min(6000, state.age + 1)),
+      | age: if(state.age == -32_768, do: state.age, else: min(6000, state.age + ticks)),
         pickup_delay:
           if(state.pickup_delay == 32_767,
             do: state.pickup_delay,
-            else: max(0, state.pickup_delay - 1)
+            else: max(0, state.pickup_delay - ticks)
           )
     }
 

@@ -26,7 +26,7 @@ defmodule Valimc.ItemVoidTest do
       }
 
       {:ok, items} = Items.restore({0, 0}, [record], ledger)
-      {aged, expired} = Items.age(items, minimum)
+      {aged, expired} = Items.age(items, 1, minimum)
       assert expired != [] == y < minimum - 64
       assert map_size(aged.entries) == 1 and aged.ledger == ledger
 
