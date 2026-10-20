@@ -1,7 +1,7 @@
 //! Network encodings for chunk data (26.3 `LevelChunkSection.write`).
 
 use crate::flags::{BlockFlags, AIR, FLUID};
-use crate::section::{Storage, VOLUME};
+use crate::section::{Biomes, Storage, VOLUME};
 
 pub fn varint(out: &mut Vec<u8>, value: u32) {
     let mut v = value;
@@ -42,16 +42,25 @@ fn ceil_log2(n: usize) -> u32 {
     }
 }
 
-/// Encode one section: block count, fluid count, block states and a uniform biome.
+/// Section biomes for encoding: the section's own, or one biome for all cells.
+#[derive(Clone, Copy)]
+pub enum SectionBiomes<'a> {
+    Uniform(u32),
+    Stored(&'a Biomes),
+}
+
+/// Encode one section: block count, fluid count, block states and biomes.
 ///
 /// The palette lists states in order of first appearance; 1 state is a single-value
 /// container, up to 8 bits is indexed (at least 4) and wider uses `global_bits`.
+/// Biomes are a single value, 1–3-bit indexed, or `biome_bits` global ids.
 pub fn encode_section(
     out: &mut Vec<u8>,
     storage: &Storage,
     flags: &BlockFlags,
-    biome: u32,
+    biomes: SectionBiomes,
     global_bits: u32,
+    biome_bits: u32,
 ) {
     let mut non_air: u16 = 0;
     let mut fluids: u16 = 0;
@@ -96,9 +105,46 @@ pub fn encode_section(
             );
         }
     }
-    // Uniform biome: a single-value container.
-    out.push(0);
-    varint(out, biome);
+    encode_biomes(out, biomes, biome_bits);
+}
+
+fn encode_biomes(out: &mut Vec<u8>, biomes: SectionBiomes, biome_bits: u32) {
+    let cells = match biomes {
+        SectionBiomes::Uniform(biome) => {
+            out.push(0);
+            varint(out, biome);
+            return;
+        }
+        SectionBiomes::Stored(Biomes::Single(biome)) => {
+            out.push(0);
+            varint(out, *biome as u32);
+            return;
+        }
+        SectionBiomes::Stored(Biomes::Cells(cells)) => cells,
+    };
+    let mut palette: Vec<u16> = Vec::new();
+    let slots: Vec<u64> = cells
+        .iter()
+        .map(|biome| match palette.iter().position(|b| b == biome) {
+            Some(slot) => slot as u64,
+            None => {
+                palette.push(*biome);
+                (palette.len() - 1) as u64
+            }
+        })
+        .collect();
+    let bits = ceil_log2(palette.len());
+    if bits <= 3 {
+        out.push(bits as u8);
+        varint(out, palette.len() as u32);
+        for biome in &palette {
+            varint(out, *biome as u32);
+        }
+        pack_longs(out, slots.into_iter(), bits);
+    } else {
+        out.push(biome_bits as u8);
+        pack_longs(out, cells.iter().map(|b| *b as u64), biome_bits);
+    }
 }
 
 #[cfg(test)]
@@ -132,7 +178,47 @@ mod tests {
     fn single_air_section() {
         let flags = BlockFlags::new(vec![AIR, 0]).unwrap();
         let mut out = Vec::new();
-        encode_section(&mut out, &Storage::Single(0), &flags, 40, 15);
+        encode_section(
+            &mut out,
+            &Storage::Single(0),
+            &flags,
+            SectionBiomes::Uniform(40),
+            15,
+            7,
+        );
         assert_eq!(out, [0, 0, 0, 0, 0, 0, 0, 40]);
+    }
+
+    #[test]
+    fn stored_biomes_use_small_palettes_then_global_ids() {
+        let flags = BlockFlags::new(vec![AIR, 0]).unwrap();
+        let mut two = Box::new([5u16; 64]);
+        two[1] = 9;
+        let mut out = Vec::new();
+        let biomes = Biomes::Cells(two);
+        encode_section(
+            &mut out,
+            &Storage::Single(0),
+            &flags,
+            SectionBiomes::Stored(&biomes),
+            15,
+            7,
+        );
+        // After counts and the single-state blocks: 1 bit, palette [5, 9], one long
+        // with only cell 1 set.
+        assert_eq!(out[6..], [1, 2, 5, 9, 0, 0, 0, 0, 0, 0, 0, 2]);
+        let many = Biomes::Cells(Box::new(std::array::from_fn(|i| (i % 10) as u16)));
+        let mut out = Vec::new();
+        encode_section(
+            &mut out,
+            &Storage::Single(0),
+            &flags,
+            SectionBiomes::Stored(&many),
+            15,
+            7,
+        );
+        // Ten biomes need 4 bits: global ids at 7 bits, 9 per long, 8 longs.
+        assert_eq!(out[6..].len(), 1 + 8 * 8);
+        assert_eq!(out[6], 7);
     }
 }

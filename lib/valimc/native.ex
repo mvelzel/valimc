@@ -19,7 +19,12 @@ defmodule Valimc.Native do
   def region_new(_cx, _cz, _size, _layers, _budget), do: :erlang.nif_error(:nif_not_loaded)
   def get_blocks(_region, _positions), do: :erlang.nif_error(:nif_not_loaded)
   def set_blocks(_region, _changes), do: :erlang.nif_error(:nif_not_loaded)
-  def encode_chunk(_region, _cx, _cz, _biome, _bits), do: :erlang.nif_error(:nif_not_loaded)
+
+  def encode_chunk(_region, _cx, _cz, _biome, _bits, _biome_bits),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def put_column(_region, _cx, _cz, _sections), do: :erlang.nif_error(:nif_not_loaded)
+  def dump_column(_region, _cx, _cz, _default_biome), do: :erlang.nif_error(:nif_not_loaded)
   def chunk_find(_region, _cx, _cz, _states), do: :erlang.nif_error(:nif_not_loaded)
   def diff(_region), do: :erlang.nif_error(:nif_not_loaded)
   def compact(_region), do: :erlang.nif_error(:nif_not_loaded)

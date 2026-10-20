@@ -1,7 +1,7 @@
 //! Chunk columns (24 sections, y −64..319) owned by one region.
 
 use crate::flags::{BlockFlags, MOTION_BLOCKING, WORLD_SURFACE};
-use crate::section::{index, Storage, VOLUME};
+use crate::section::{index, Biomes, Storage, VOLUME};
 use crate::wire;
 use std::collections::HashMap;
 
@@ -15,6 +15,8 @@ pub type EncodedChunk = (Vec<u8>, Vec<u8>, Vec<u8>);
 #[derive(Clone, Debug)]
 pub struct Column {
     pub sections: Vec<Storage>,
+    /// Per-section biomes; `None` uses the region's default biome everywhere.
+    pub biomes: Option<Vec<Biomes>>,
 }
 
 impl Column {
@@ -38,7 +40,10 @@ impl Column {
                 }
             })
             .collect();
-        Self { sections }
+        Self {
+            sections,
+            biomes: None,
+        }
     }
 
     #[inline]
@@ -89,7 +94,12 @@ impl Column {
     }
 
     pub fn heap_bytes(&self) -> usize {
-        self.sections.iter().map(Storage::heap_bytes).sum()
+        let biomes = self.biomes.as_ref().map_or(0, |b| {
+            b.iter()
+                .map(|s| if let Biomes::Cells(_) = s { 128 } else { 0 })
+                .sum()
+        });
+        self.sections.iter().map(Storage::heap_bytes).sum::<usize>() + biomes
     }
 }
 
@@ -203,6 +213,7 @@ impl ColumnStore {
         flags: &BlockFlags,
         biome: u32,
         global_bits: u32,
+        biome_bits: u32,
     ) -> Result<EncodedChunk, StoreError> {
         self.chunk_of(chunk.0 * 16, chunk.1 * 16)?;
         let owned;
@@ -214,8 +225,19 @@ impl ColumnStore {
             }
         };
         let mut sections = Vec::with_capacity(SECTIONS * 16);
-        for storage in &column.sections {
-            wire::encode_section(&mut sections, storage, flags, biome, global_bits);
+        for (s, storage) in column.sections.iter().enumerate() {
+            let biomes = match &column.biomes {
+                Some(stored) => wire::SectionBiomes::Stored(&stored[s]),
+                None => wire::SectionBiomes::Uniform(biome),
+            };
+            wire::encode_section(
+                &mut sections,
+                storage,
+                flags,
+                biomes,
+                global_bits,
+                biome_bits,
+            );
         }
         let mut surface = Vec::with_capacity(37 * 8);
         wire::pack_longs(
@@ -394,16 +416,76 @@ impl ColumnStore {
         let layers = &self.layers;
         self.columns.retain(|_, column| {
             column.sections.iter_mut().for_each(Storage::normalize);
-            !column.sections.iter().enumerate().all(|(s, storage)| {
-                let mut same = true;
-                storage.for_each(|i, state| same &= layers[s * 16 + (i >> 8)] == state);
-                same
-            })
+            column.biomes.is_some()
+                || !column.sections.iter().enumerate().all(|(s, storage)| {
+                    let mut same = true;
+                    storage.for_each(|i, state| same &= layers[s * 16 + (i >> 8)] == state);
+                    same
+                })
         });
     }
 
     pub fn heap_bytes(&self) -> usize {
         self.columns.values().map(Column::heap_bytes).sum()
+    }
+
+    /// Replace one chunk's column (an imported chunk). States must be valid.
+    pub fn put_column(
+        &mut self,
+        chunk: (i32, i32),
+        column: Column,
+        flags: &BlockFlags,
+    ) -> Result<(), StoreError> {
+        self.check_chunk(chunk)?;
+        if column.sections.len() != SECTIONS
+            || column.biomes.as_ref().is_some_and(|b| b.len() != SECTIONS)
+        {
+            return Err(StoreError::InvalidY);
+        }
+        let mut valid = true;
+        for storage in &column.sections {
+            storage.for_each(|_, state| valid &= flags.valid(state as u32));
+        }
+        if !valid {
+            return Err(StoreError::InvalidState);
+        }
+        let previous = self.columns.get(&chunk).map_or(0, Column::heap_bytes);
+        if self.heap_bytes() - previous + column.heap_bytes() > self.budget_bytes {
+            return Err(StoreError::MemoryBudget);
+        }
+        self.columns.insert(chunk, column);
+        Ok(())
+    }
+
+    /// One chunk's states (24 × 4096, section index order) and biomes (24 × 64);
+    /// biomes are `default_biome` where the column has none.
+    pub fn dump_column(
+        &self,
+        chunk: (i32, i32),
+        default_biome: u16,
+    ) -> Result<(Vec<u16>, Vec<u16>), StoreError> {
+        self.check_chunk(chunk)?;
+        let owned;
+        let column = match self.columns.get(&chunk) {
+            Some(column) => column,
+            None => {
+                owned = Column::from_layers(&self.layers);
+                &owned
+            }
+        };
+        let mut states = Vec::with_capacity(SECTIONS * VOLUME);
+        for storage in &column.sections {
+            storage.for_each(|_, state| states.push(state));
+        }
+        let biomes = (0..SECTIONS)
+            .flat_map(|s| {
+                (0..64).map(move |i| match &column.biomes {
+                    Some(b) => b[s].get(i),
+                    None => default_biome,
+                })
+            })
+            .collect();
+        Ok((states, biomes))
     }
 }
 

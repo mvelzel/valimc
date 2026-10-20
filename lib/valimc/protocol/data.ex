@@ -68,6 +68,9 @@ defmodule Valimc.Protocol.Data do
   def registry_id(registry, entry),
     do: @registry_index[registry][entry] || raise("unknown registry entry")
 
+  @doc "The network id of a registry entry, or nil."
+  def find_registry_id(registry, entry), do: @registry_index[registry][entry]
+
   # Items place the default state of the block with the same registry name.
   @item_blocks for id <- 0..(Valimc.Protocol.ItemTypes.count() - 1),
                    "minecraft:" <> name = Valimc.Protocol.ItemTypes.item(id)["name"],
@@ -81,5 +84,11 @@ defmodule Valimc.Protocol.Data do
   def item_block(id), do: Map.get(@item_blocks, id)
   def player_type, do: Valimc.Protocol.EntityTypes.id("player")
   def global_block_bits, do: @global_block_bits
+
+  @global_biome_bits (length(@registries["minecraft:worldgen/biome"]) - 1)
+                     |> Integer.digits(2)
+                     |> length()
+  @doc "Bits of a global biome id in chunk packets (ceil log2 of the biome registry size)."
+  def global_biome_bits, do: @global_biome_bits
   def block_state_count, do: Blocks.state_count()
 end

@@ -130,9 +130,10 @@ fn encode_chunk<'a>(
     cz: i32,
     biome: u32,
     global_bits: u32,
+    biome_bits: u32,
 ) -> Result<Term<'a>, Atom> {
     let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
-    if !(1..=16).contains(&global_bits) {
+    if !(1..=16).contains(&global_bits) || !(1..=16).contains(&biome_bits) {
         return Err(atoms::invalid_state());
     }
     let encoded = with_store(&region, |store| {
@@ -142,7 +143,7 @@ fn encode_chunk<'a>(
             return Ok(None);
         }
         store
-            .encode_chunk((cx, cz), flags, biome, global_bits)
+            .encode_chunk((cx, cz), flags, biome, global_bits, biome_bits)
             .map(Some)
             .map_err(error)
     })?;
@@ -438,6 +439,67 @@ fn lz4_decode_stream_dirty<'a>(
     max: usize,
 ) -> Result<Term<'a>, Atom> {
     lz4_decode(env, input, max)
+}
+
+// ---- Imported columns (VMC-021b) ----
+
+/// One section as imported: block palette, packed data, bits; biome palette, data, bits.
+type SectionSpec<'a> = (Vec<u16>, Binary<'a>, u32, Vec<u16>, Binary<'a>, u32);
+
+/// Replace a chunk's column with 24 imported sections (bottom to top).
+#[rustler::nif]
+fn put_column(
+    region: ResourceArc<Region>,
+    cx: i32,
+    cz: i32,
+    sections: Vec<SectionSpec>,
+) -> Result<Atom, Atom> {
+    use valimc_core::column::{Column, SECTIONS};
+    use valimc_core::section::Biomes;
+    let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
+    if sections.len() != SECTIONS {
+        return Err(atoms::invalid_y());
+    }
+    let mut storages = Vec::with_capacity(SECTIONS);
+    let mut biomes = Vec::with_capacity(SECTIONS);
+    for (palette, data, bits, biome_palette, biome_data, biome_bits) in &sections {
+        storages.push(
+            Storage::from_palette(palette, data.as_slice(), *bits).ok_or(atoms::invalid_layers())?,
+        );
+        biomes.push(
+            Biomes::from_palette(biome_palette, biome_data.as_slice(), *biome_bits)
+                .ok_or(atoms::invalid_layers())?,
+        );
+    }
+    let column = Column {
+        sections: storages,
+        biomes: Some(biomes),
+    };
+    with_store(&region, |store| {
+        store.put_column((cx, cz), column, flags).map_err(error)
+    })?;
+    Ok(atoms::ok())
+}
+
+/// A chunk's states and biomes as big-endian u16 binaries (section index order).
+#[rustler::nif]
+fn dump_column<'a>(
+    env: Env<'a>,
+    region: ResourceArc<Region>,
+    cx: i32,
+    cz: i32,
+    default_biome: u16,
+) -> Result<Term<'a>, Atom> {
+    let (states, biomes) = with_store(&region, |store| {
+        store.dump_column((cx, cz), default_biome).map_err(error)
+    })?;
+    let be = |values: &[u16]| {
+        values
+            .iter()
+            .flat_map(|v| v.to_be_bytes())
+            .collect::<Vec<u8>>()
+    };
+    Ok((binary(env, &be(&states)), binary(env, &be(&biomes))).encode(env))
 }
 
 rustler::init!("Elixir.Valimc.Native");

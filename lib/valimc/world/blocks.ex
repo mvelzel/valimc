@@ -112,12 +112,43 @@ defmodule Valimc.World.Blocks do
   def encode(%__MODULE__{} = blocks, {cx, cz} = chunk) do
     biome = Data.registry_id("minecraft:worldgen/biome", "minecraft:plains")
 
-    case Native.encode_chunk(blocks.ref, cx, cz, biome, Data.global_block_bits()) do
+    case Native.encode_chunk(
+           blocks.ref,
+           cx,
+           cz,
+           biome,
+           Data.global_block_bits(),
+           Data.global_biome_bits()
+         ) do
       {:ok, :flat} ->
         :flat
 
       {:ok, {sections, surface, motion}} ->
         %{chunk: chunk, sections: sections, surface: surface, motion: motion}
+    end
+  end
+
+  @doc """
+  Replace a chunk's column with imported sections (VMC-021b): 24 specs from
+  `Valimc.Anvil.Chunk`, bottom to top.
+  """
+  def put_column(%__MODULE__{} = blocks, {cx, cz}, sections) do
+    case Native.put_column(blocks.ref, cx, cz, sections) do
+      {:ok, :ok} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  @doc """
+  A chunk's states (24 × 4096 big-endian u16, section index order) and biome
+  registry ids (24 × 64); flat columns report plains.
+  """
+  def dump_column(%__MODULE__{} = blocks, {cx, cz}) do
+    plains = Data.registry_id("minecraft:worldgen/biome", "minecraft:plains")
+
+    case Native.dump_column(blocks.ref, cx, cz, plains) do
+      {:ok, {states, biomes}} -> {:ok, states, biomes}
+      {:error, _} = error -> error
     end
   end
 

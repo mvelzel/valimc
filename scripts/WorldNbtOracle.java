@@ -147,8 +147,8 @@ public class WorldNbtOracle {
 
   /**
    * Run the pinned dedicated server headless in DIR (seed 20261020, extra
-   * server.properties), send `commands` on its console, save, stop, and refuse any
-   * error or rejected command. The world is DIR/universe/w.
+   * server.properties), send `commands` on its console ("#sleep MS" pauses), save,
+   * stop, and refuse any error or rejected command. The world is DIR/universe/w.
    */
   static void runServer(Path dir, Map<String, String> properties, List<String> commands) throws Exception {
     Files.createDirectories(dir);
@@ -176,7 +176,11 @@ public class WorldNbtOracle {
     var console = new PrintWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8), true);
     try {
       await(lines, "Done (", log);
-      for (var command : commands) console.println(command);
+      for (var command : commands) {
+        // "#sleep MS" waits, e.g. for force-loaded chunks to generate.
+        if (command.startsWith("#sleep ")) Thread.sleep(Long.parseLong(command.substring(7)));
+        else console.println(command);
+      }
       console.println("save-all flush");
       await(lines, "Saved the game", log);
       console.println("stop");

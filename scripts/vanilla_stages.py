@@ -34,6 +34,11 @@ STAGES = [
         ('java', 'RegionOracle', '@worlds', '@regions.json'),
         ('check', 'check_region.exs', '@regions.json'),
     ]),
+    ('chunk_sections', [
+        ('java', 'ChunkOracle', 'generate', '@world', '@chunks.json'),
+        ('check', 'check_chunk_sections.exs', '@chunks.json', '@encoded'),
+        ('java', 'ChunkOracle', 'verify', '@chunks.json', '@encoded'),
+    ]),
     ('block_registry', [
         ('java', 'BlockRegistryMetadata', '@block-registry.json'),
         ('same', '@block-registry.json', 'priv/registry/blocks.json'),
