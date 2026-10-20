@@ -38,12 +38,22 @@ defmodule Valimc.Block.Behaviour do
 
   @doc """
   Region tick reactions (VMC-066), optional: effects for a random or scheduled
-  tick of this state at `position`; `read` returns the block at a position in the
-  same region (nil elsewhere). See `Valimc.World.TickBehaviours` for the effects.
+  tick of this state at `position`. `read` returns the block at a position in the
+  same region (nil elsewhere) and `random.(n)` draws an integer in `0..n-1`. See
+  `Valimc.World.TickBehaviours` for the effects.
   """
-  @callback random_tick(position :: tuple(), state, read :: function()) :: [tuple()]
-  @callback scheduled_tick(position :: tuple(), state, read :: function()) :: [tuple()]
-  @optional_callbacks random_tick: 3, scheduled_tick: 3
+  @callback random_tick(position :: tuple(), state, read :: function(), random :: function()) ::
+              [tuple()]
+  @callback scheduled_tick(position :: tuple(), state, read :: function(), random :: function()) ::
+              [tuple()]
+
+  @doc """
+  Vanilla `updateShape`, scheduling half (optional): called after the block at
+  `position` or one of its six neighbours changed. It may only schedule ticks.
+  """
+  @callback shape_update(position :: tuple(), state, read :: function(), random :: function()) ::
+              [tuple()]
+  @optional_callbacks random_tick: 4, scheduled_tick: 4, shape_update: 4
 
   defmacro __using__(_) do
     quote do

@@ -28,7 +28,7 @@ defmodule Valimc.Physics.Placement do
                |> Map.new()
   unless byte_size(@replace) == @count and
            Enum.all?(:binary.bin_to_list(@replace), &(&1 in 0..3)) and
-           map_size(@plain) == 184 and map_size(@slabs) == 101 and map_size(@pillars) == 60 and
+           map_size(@plain) == 190 and map_size(@slabs) == 101 and map_size(@pillars) == 60 and
            map_size(@slab_states) == 606 and
            Enum.all?(@slabs, fn {_item, states} -> tuple_size(states) == 6 end) and
            Enum.all?(@plain, fn {_item, state} ->
@@ -52,7 +52,14 @@ defmodule Valimc.Physics.Placement do
              Map.keys(@pillars),
              &(Valimc.Block.item_behaviour(&1) == Valimc.Block.Pillar)
            ) and
-           Enum.all?(Map.keys(@plain), &(Valimc.Block.item_behaviour(&1) == Valimc.Block.Default)) and
+           Enum.all?(
+             Map.keys(@plain),
+             &(Valimc.Block.item_behaviour(&1) in [
+                 Valimc.Block.Default,
+                 Valimc.Block.Coral,
+                 Valimc.Block.BuddingAmethyst
+               ])
+           ) and
            Valimc.Block.item_behaviour(@chest_item) == Valimc.Block.Chest and
            Enum.all?(@cooking_items, &(Valimc.Block.item_behaviour(&1) == Valimc.Block.Cooking)) and
            Enum.all?(Map.keys(@slab_states), &(Valimc.Block.behaviour(&1) == Valimc.Block.Slab)),

@@ -25,8 +25,6 @@ defmodule Valimc.Session.JobHandlers do
     World
   }
 
-  alias Valimc.World.{}
-
   def job_result(:pose, job, result, state) do
     Valimc.Connection.guard_connection(state, fn ->
       case result do

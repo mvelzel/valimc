@@ -26,6 +26,9 @@ public class PlacementOracle {
     private ProbeLevel(){super(null,null,null,null,null,null,false,0,null,false);}
     public BlockState getBlockState(BlockPos pos){return pos.equals(clickedPos)?clicked:adjacent;}
     public FluidState getFluidState(BlockPos pos){return getBlockState(pos).getFluidState();}
+    // CoralBlock schedules its death tick while choosing a placement; ignore it here.
+    public net.minecraft.util.RandomSource getRandom(){return net.minecraft.util.RandomSource.create(0);}
+    public void scheduleTick(BlockPos pos, Block block, int delay){}
   }
   static class Context extends BlockPlaceContext {
     Context(Level level, ItemStack stack, BlockHitResult hit){super(level,null,InteractionHand.MAIN_HAND,stack,hit);}
@@ -51,13 +54,16 @@ public class PlacementOracle {
     var level=(ProbeLevel)((sun.misc.Unsafe)field.get(null)).allocateInstance(ProbeLevel.class);
     level.clickedPos=BlockPos.ZERO;level.adjacent=Blocks.AIR.defaultBlockState();
     var plain=new JsonObject();
+    // Tick-reacting full blocks whose placement is still their default state: ValiMC's
+    // block behaviour supplies CoralBlock's placement-time tick scheduling (shape_update).
+    var ticking=Set.<Class<?>>of(net.minecraft.world.level.block.CoralBlock.class,net.minecraft.world.level.block.BuddingAmethystBlock.class);
     for(var block:BuiltInRegistries.BLOCK){
-      boolean ordinary=block.getClass()==Block.class&&block.getStateDefinition().getPossibleStates().size()==1&&block.asItem().getClass()==BlockItem.class&&!block.defaultBlockState().canBeReplaced()&&block.defaultBlockState().isCollisionShapeFullBlock(net.minecraft.world.level.EmptyBlockGetter.INSTANCE,BlockPos.ZERO);
+      boolean ordinary=(block.getClass()==Block.class||ticking.contains(block.getClass()))&&block.getStateDefinition().getPossibleStates().size()==1&&block.asItem().getClass()==BlockItem.class&&!block.defaultBlockState().canBeReplaced()&&block.defaultBlockState().isCollisionShapeFullBlock(net.minecraft.world.level.EmptyBlockGetter.INSTANCE,BlockPos.ZERO);
       if(!ordinary&&block!=Blocks.GLASS&&block!=Blocks.CRAFTING_TABLE)continue;
-      if(owner(block.getClass(),"getStateForPlacement",BlockPlaceContext.class)!=Block.class||block.defaultBlockState().canBeReplaced()||block.asItem().getClass()!=BlockItem.class)throw new AssertionError("Plain placement needs context: "+block);
+      if(!Set.of(Block.class,net.minecraft.world.level.block.CoralBlock.class).contains(owner(block.getClass(),"getStateForPlacement",BlockPlaceContext.class))||block.defaultBlockState().canBeReplaced()||block.asItem().getClass()!=BlockItem.class)throw new AssertionError("Plain placement needs context: "+block);
       plain.addProperty(Integer.toString(BuiltInRegistries.ITEM.getId(block.asItem())),Block.getId(block.defaultBlockState()));
     }
-    if(plain.size()!=184)throw new AssertionError("Changed plain placement catalog");
+    if(plain.size()!=190)throw new AssertionError("Changed plain placement catalog");
     var slabs=new JsonArray();var slabItems=new ArrayList<Item>();
     for(var block:BuiltInRegistries.BLOCK)if(block.builtInRegistryHolder().is(BlockTags.SLABS)){
       if(owner(block.getClass(),"getStateForPlacement",BlockPlaceContext.class)!=SlabBlock.class||owner(block.getClass(),"canBeReplaced",BlockState.class,BlockPlaceContext.class)!=SlabBlock.class||block.asItem().getClass()!=BlockItem.class)throw new AssertionError("Specialized slab placement: "+block);

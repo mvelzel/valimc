@@ -26,7 +26,6 @@ defmodule Valimc.Player.Mining do
     World
   }
 
-  alias Valimc.World.{}
   @basic_mining Enum.map(~w(stone dirt grass_block cobblestone oak_planks glass), &Data.block/1)
   @slab_tags Path.expand("../../../priv/protocol/tags.json", __DIR__)
   @slab_blocks :json.decode(File.read!(@slab_tags))["minecraft:block"]["minecraft:slabs"]

@@ -6,7 +6,7 @@ defmodule Valimc.Block do
   compiles to one byte per state. `block_entity/1` is a pure function of the state,
   so its callback results are tabulated at compile time as well.
   """
-  alias Valimc.Block.{Chest, Cooking, Default, Pillar, Slab}
+  alias Valimc.Block.{BuddingAmethyst, Chest, Cooking, Coral, Default, Pillar, Slab}
   alias Valimc.Physics.CookingBlocks
   alias Valimc.Registry.Blocks
 
@@ -17,7 +17,9 @@ defmodule Valimc.Block do
     "BlastFurnaceBlock" => Cooking,
     "SlabBlock" => Slab,
     "WeatheringCopperSlabBlock" => Slab,
-    "RotatedPillarBlock" => Pillar
+    "RotatedPillarBlock" => Pillar,
+    "CoralBlock" => Coral,
+    "BuddingAmethystBlock" => BuddingAmethyst
   }
   @modules List.to_tuple([Default | Enum.uniq(Enum.sort(Map.values(@classes)))])
   @module_index @modules |> Tuple.to_list() |> Enum.with_index() |> Map.new()
@@ -53,8 +55,10 @@ defmodule Valimc.Block do
   @tick_states for(
                  {module, index} <- @module_index,
                  Code.ensure_compiled!(module),
-                 function_exported?(module, :random_tick, 3) or
-                   function_exported?(module, :scheduled_tick, 3),
+                 Enum.any?(
+                   [:random_tick, :scheduled_tick, :shape_update],
+                   &function_exported?(module, &1, 4)
+                 ),
                  state <- 0..(@count - 1),
                  :binary.at(@by_state, state) == index,
                  do: {state, module}

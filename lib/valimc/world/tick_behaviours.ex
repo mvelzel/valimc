@@ -8,8 +8,10 @@ defmodule Valimc.World.TickBehaviours do
   - `{:set, position, block}` replaces a block in the same region;
   - `{:schedule, position, block, delay, priority}` schedules a tick.
 
-  `read` returns the current block at a position (`nil` outside the region).
-  Behaviours are pure: they never touch storage or other owners.
+  `read` returns the current block at a position (`nil` outside the region) and
+  `random.(n)` draws from the owner's random source. Behaviours never touch storage
+  or other owners. After any block edit the owner calls `shape_update` for the
+  edited positions and their neighbours in the region; it may only schedule.
   """
 
   @type effect ::
@@ -17,11 +19,11 @@ defmodule Valimc.World.TickBehaviours do
           | {:schedule, tuple(), non_neg_integer(), pos_integer(), integer()}
 
   @callback states() :: Enumerable.t()
-  @callback scheduled_tick(position :: tuple(), block :: integer(), read :: function()) :: [
-              effect
-            ]
-  @callback random_tick(position :: tuple(), block :: integer(), read :: function()) :: [effect]
-  @optional_callbacks scheduled_tick: 3, random_tick: 3
+  @callback scheduled_tick(tuple(), block :: integer(), read :: function(), function()) ::
+              [effect]
+  @callback random_tick(tuple(), block :: integer(), read :: function(), function()) :: [effect]
+  @callback shape_update(tuple(), block :: integer(), read :: function(), function()) :: [effect]
+  @optional_callbacks scheduled_tick: 4, random_tick: 4, shape_update: 4
 
   @doc "Extra configured behaviour modules (`:tick_behaviours`, scoped per region; tests)."
   def modules(key), do: Valimc.config(:tick_behaviours, key)
@@ -32,6 +34,9 @@ defmodule Valimc.World.TickBehaviours do
   """
   def index(modules) do
     configured = for module <- modules, state <- module.states(), into: %{}, do: {state, module}
-    Map.merge(Map.new(Valimc.Block.tick_states()), configured)
+    index = Map.merge(Map.new(Valimc.Block.tick_states()), configured)
+    # Owners test callbacks with `function_exported?/3`, which does not load modules.
+    index |> Map.values() |> Enum.uniq() |> Enum.each(&Code.ensure_loaded!/1)
+    index
   end
 end

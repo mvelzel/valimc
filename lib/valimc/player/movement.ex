@@ -26,7 +26,6 @@ defmodule Valimc.Player.Movement do
     PlayerStore
   }
 
-  alias Valimc.World.{}
   import Bitwise
   @absorption EffectTypes.id("absorption")
 

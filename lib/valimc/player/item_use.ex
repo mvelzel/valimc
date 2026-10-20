@@ -26,7 +26,6 @@ defmodule Valimc.Player.ItemUse do
     PlayerUse
   }
 
-  alias Valimc.World.{}
   @fire_resistance EffectTypes.id("fire_resistance")
   @resistance EffectTypes.id("resistance")
   @absorption EffectTypes.id("absorption")

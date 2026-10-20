@@ -21,7 +21,7 @@ public class PlacementConsumptionOracle {
     for(var key:facts.getAsJsonObject("plain").keySet())items.add(Integer.parseInt(key));
     for(var slab:facts.getAsJsonArray("slabs"))items.add(slab.getAsJsonObject().get("item").getAsInt());
     for(var pillar:facts.getAsJsonArray("pillars"))items.add(pillar.getAsJsonObject().get("item").getAsInt());
-    if(items.size()!=345)throw new AssertionError("Changed placement admission");
+    if(items.size()!=351)throw new AssertionError("Changed placement admission");
     var rows=new JsonArray();
     for(int item:items)for(int count:new int[]{1,2,17,64,99})for(boolean infinite:new boolean[]{false,true}){
       abilities.instabuild=infinite;var stack=new ItemStack(BuiltInRegistries.ITEM.byId(item),count);
@@ -31,6 +31,6 @@ public class PlacementConsumptionOracle {
       var row=new JsonObject();row.addProperty("item",item);row.addProperty("before",count);row.addProperty("infinite",infinite);row.addProperty("after",stack.getCount());row.addProperty("empty",stack.isEmpty());rows.add(row);
     }
     Files.writeString(Path.of(args[1]),new Gson().toJson(rows));
-    System.out.println("PASS: "+rows.size()+" actual native placement-item consume calls across 345 admitted items; exact nonempty components retained.");
+    System.out.println("PASS: "+rows.size()+" actual native placement-item consume calls across 351 admitted items; exact nonempty components retained.");
   }
 }

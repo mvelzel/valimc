@@ -11,11 +11,11 @@ defmodule Valimc.TickPipelineTest do
     def states, do: [Data.block("grass_block"), Data.block("dirt")]
 
     # A sampled grass block turns to dirt and schedules itself to become stone.
-    def random_tick(position, 9, _read),
+    def random_tick(position, 9, _read, _random),
       do: [{:set, position, Data.block("dirt")}, {:schedule, position, Data.block("dirt"), 2, 0}]
 
-    def random_tick(_, _, _), do: []
-    def scheduled_tick(position, 10, _read), do: [{:set, position, Data.block("stone")}]
+    def random_tick(_, _, _, _), do: []
+    def scheduled_tick(position, 10, _read, _random), do: [{:set, position, Data.block("stone")}]
   end
 
   setup do
@@ -78,7 +78,11 @@ defmodule Valimc.TickPipelineTest do
 
     # Restart before the scheduled ticks fire: they are saved with the region.
     {pid, _} = owner
+    [{store, _}] = Registry.lookup(Valimc.RegionStoreRegistry, ctx.key)
+    watch = Process.monitor(store)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+    # The fresh region's writer stores the final save, scheduled ticks included.
+    assert_receive {:DOWN, ^watch, :process, _, :normal}
     {:ok, owner} = World.owner(ctx.key)
     assert {:ok, 2} = Region.step(owner, 2)
     stone = blocks(owner, ctx.key, Data.block("stone"))

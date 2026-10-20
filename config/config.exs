@@ -22,6 +22,8 @@ config :valimc,
   # Region tick behaviours (VMC-066) and whether owners tick on a timer or by `Region.step/2`.
   tick_behaviours: [],
   region_ticks: :timer,
+  # The vanilla `randomTickSpeed` gamerule: random ticks per section per game tick.
+  random_tick_speed: 3,
   # macOS `fsync` stops at the drive cache; flush through it (F_FULLFSYNC).
   full_fsync: match?({:unix, :darwin}, :os.type()),
   packets_per_second: 400,

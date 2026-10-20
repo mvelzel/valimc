@@ -15,8 +15,6 @@ defmodule Valimc.Session.Commands do
     Metrics
   }
 
-  alias Valimc.World.{}
-
   def throttle_chat(state) do
     case ChatThrottle.record(state.chat_throttle) do
       {:ok, throttle} -> %{state | chat_throttle: throttle}

@@ -332,7 +332,8 @@ defmodule Valimc.World.Store do
       with {:ok, log, recovered} <- RegionLog.open(dir),
            do: {:ok, %{state | log: log, values: fold(recovered)}}
     else
-      with {:ok, values} <- import_v1(state.base, state.key),
+      with {:ok, imported} <- import_v1(state.base, state.key),
+           values = Map.merge(@empty, imported),
            {:ok, log, _} <- RegionLog.open(dir),
            {:ok, log} <- RegionLog.checkpoint(log, values) do
         retire_v1(state.base, state.key)

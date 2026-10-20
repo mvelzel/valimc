@@ -84,6 +84,7 @@ defmodule Valimc.World.RegionData do
     :scheduled_ticks,
     :ticks_dirty,
     :tick_index,
+    :random_tick_speed,
     :dirty,
     :unsaved,
     :item_writes,
@@ -130,7 +131,7 @@ defmodule Valimc.World.RegionData do
     :ok =
       Blocks.random_ticking(
         blocks,
-        for({state, module} <- tick_index, function_exported?(module, :random_tick, 3), do: state)
+        for({state, module} <- tick_index, function_exported?(module, :random_tick, 4), do: state)
       )
 
     publication = :ets.new(:region_items, [:set, :protected, read_concurrency: true])
@@ -185,6 +186,7 @@ defmodule Valimc.World.RegionData do
       scheduled_ticks: scheduled,
       ticks_dirty: false,
       tick_index: tick_index,
+      random_tick_speed: Valimc.config(:random_tick_speed, key),
       dirty: false,
       unsaved: %{},
       item_writes: [],
@@ -1490,8 +1492,8 @@ defmodule Valimc.World.RegionData do
       for {position, block} <- due,
           Blocks.get(state.blocks, position) == block,
           module = state.tick_index[block],
-          module != nil and function_exported?(module, :scheduled_tick, 3),
-          effect <- module.scheduled_tick(position, block, read),
+          module != nil and function_exported?(module, :scheduled_tick, 4),
+          effect <- module.scheduled_tick(position, block, read, &random/1),
           do: effect
 
     {random_effects, state} = random_ticks(state, read)
@@ -1540,49 +1542,69 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  @random_tick_speed 3
-
-  # Vanilla picks `randomTickSpeed` positions per section per tick; the native
-  # sampler skips sections without handled states and returns only hits.
+  # Vanilla picks `randomTickSpeed` positions per section per tick (the gamerule,
+  # `:random_tick_speed`); the native sampler skips sections without handled
+  # states and returns only hits.
   defp random_ticks(%{tick_index: index} = state, _read) when map_size(index) == 0,
     do: {[], state}
 
   defp random_ticks(state, read) do
     effects =
-      for {position, block} <- Blocks.random_ticks(state.blocks, @random_tick_speed),
+      for {position, block} <- Blocks.random_ticks(state.blocks, state.random_tick_speed),
           module = state.tick_index[block],
-          effect <- module.random_tick(position, block, read),
+          effect <- module.random_tick(position, block, read, &random/1),
           do: effect
 
     {effects, state}
   end
 
-  defp read_block(state, {x, y, z} = position) do
-    if Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == state.key and Chunk.valid_y?(y),
-      do: Blocks.get(state.blocks, position)
+  defp random(bound), do: :rand.uniform(bound) - 1
+
+  # Vanilla `updateShape` scheduling: each edited position and its neighbours in
+  # the region whose behaviour defines `shape_update` may schedule ticks.
+  defp shape_updates(%{tick_index: index} = state, _changes) when map_size(index) == 0,
+    do: state
+
+  defp shape_updates(state, changes) do
+    read = &read_block(state, &1)
+
+    positions =
+      for {x, y, z} <- Map.keys(changes),
+          position <- [
+            {x, y, z},
+            {x, y - 1, z},
+            {x, y + 1, z},
+            {x, y, z - 1},
+            {x, y, z + 1},
+            {x - 1, y, z},
+            {x + 1, y, z}
+          ],
+          in_region?(state, position),
+          uniq: true,
+          do: position
+
+    effects =
+      for {position, block} <- Blocks.get_many(state.blocks, positions),
+          module = state.tick_index[block],
+          module != nil and function_exported?(module, :shape_update, 4),
+          {:schedule, _, _, _, _} = effect <-
+            module.shape_update(position, block, read, &random/1),
+          do: effect
+
+    schedule_ticks(state, effects)
   end
+
+  defp read_block(state, position) do
+    if in_region?(state, position), do: Blocks.get(state.blocks, position)
+  end
+
+  defp in_region?(state, {x, y, z}),
+    do: Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == state.key and Chunk.valid_y?(y)
 
   defp apply_tick_effects(state, []), do: state
 
   defp apply_tick_effects(state, effects) do
-    state =
-      Enum.reduce(effects, state, fn
-        {:schedule, position, block, delay, priority}, acc ->
-          case ScheduledTicks.schedule(
-                 acc.scheduled_ticks,
-                 position,
-                 block,
-                 acc.game_tick + delay,
-                 priority
-               ) do
-            {:ok, ticks} -> %{acc | scheduled_ticks: ticks, ticks_dirty: true}
-            {:error, _} -> acc
-          end
-
-        _, acc ->
-          acc
-      end)
-
+    state = schedule_ticks(state, effects)
     edits = for {:set, position, block} <- effects, into: %{}, do: {position, block}
 
     with true <- map_size(edits) > 0,
@@ -1592,6 +1614,25 @@ defmodule Valimc.World.RegionData do
     else
       _ -> state
     end
+  end
+
+  defp schedule_ticks(state, effects) do
+    Enum.reduce(effects, state, fn
+      {:schedule, position, block, delay, priority}, acc ->
+        case ScheduledTicks.schedule(
+               acc.scheduled_ticks,
+               position,
+               block,
+               acc.game_tick + delay,
+               priority
+             ) do
+          {:ok, ticks} -> %{acc | scheduled_ticks: ticks, ticks_dirty: true}
+          {:error, _} -> acc
+        end
+
+      _, acc ->
+        acc
+    end)
   end
 
   defp flush_cooking(%{cooking: %{dirty: true}} = state, containers),
@@ -2393,6 +2434,7 @@ defmodule Valimc.World.RegionData do
           )
       })
 
+    state = if cooking, do: state, else: shape_updates(state, proposal.changes)
     {state, %{batch: batch, previous: previous, chunks: chunks, cooking: cooking}}
   end
 

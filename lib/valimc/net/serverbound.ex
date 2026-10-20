@@ -32,8 +32,6 @@ defmodule Valimc.Net.Serverbound do
     PlayerUse
   }
 
-  alias Valimc.World.{}
-
   def handle_packet(%{phase: :handshake} = state, 0, payload) do
     {version, payload} = Wire.take_varint(payload)
     {_host, payload} = Wire.take_string(payload, 255)

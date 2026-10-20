@@ -20,8 +20,6 @@ defmodule Valimc.Player.CreativeInventory do
     PlayerStore
   }
 
-  alias Valimc.World.{}
-
   defguardp inventory_busy(state)
             when state.recovery != nil or state.creative_input.queued > 0 or state.use_save != nil or
                    state.table_job != nil or

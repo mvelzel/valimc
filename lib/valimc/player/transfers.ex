@@ -1,8 +1,6 @@
 defmodule Valimc.Player.Transfers do
   @moduledoc "Item transfers a connection starts and recovers: drops, inventory transfers, pickups, experience and recovery delivery (VMC-069)."
 
-  alias Valimc.Protocol.{}
-
   alias Valimc.Session.Jobs
   alias Valimc.Player.Movement
 
@@ -18,8 +16,6 @@ defmodule Valimc.Player.Transfers do
     TransferDelivery,
     World
   }
-
-  alias Valimc.World.{}
 
   defguardp inventory_busy(state)
             when state.recovery != nil or state.creative_input.queued > 0 or state.use_save != nil or

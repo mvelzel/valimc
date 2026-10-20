@@ -35,3 +35,10 @@ end
 if path = System.get_env("VALIMC_WORLD") do
   config :valimc, world_path: path
 end
+
+if speed = System.get_env("VALIMC_RANDOM_TICK_SPEED") do
+  case Integer.parse(speed) do
+    {value, ""} when value in 0..4096 -> config :valimc, random_tick_speed: value
+    _ -> raise "VALIMC_RANDOM_TICK_SPEED must be an integer in 0..4096"
+  end
+end
