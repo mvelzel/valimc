@@ -1411,7 +1411,12 @@ defmodule Valimc.World.RegionData do
         if Valimc.World.region_key(key) == state.key and Chunk.valid_y?(y) and block >= 0 and
              block < Valimc.Protocol.Data.block_state_count() and
              Blocks.put(state.blocks, %{position => block}) == :ok do
-          state = release_when_durable(state, [{:raw_block, position, block, previous_blocks}])
+          lit = Blocks.light_update(state.blocks, [position])
+
+          state =
+            state
+            |> light_changed(lit -- [key])
+            |> release_when_durable([{:raw_block, position, block, previous_blocks, lit}])
 
           next =
             %{
@@ -1964,9 +1969,15 @@ defmodule Valimc.World.RegionData do
   defp release_effect(state, {:cooking_orbs, durable}),
     do: CookingOrbRuntime.durable(state, durable)
 
-  defp release_effect(state, {:raw_block, position, block, previous}) do
+  defp release_effect(state, {:raw_block, position, block, previous, lit}) do
     state = retire_container_changes(state, %{position => block}, previous)
     Valimc.World.publish(state.key, {:block, position, block})
+
+    if lit != [],
+      do:
+        Valimc.World.publish(state.key, {:block_batch, Valimc.World.LightHalo.frames(state, lit)})
+
+    Valimc.World.LightHalo.forward(state, %{position => block})
     Valimc.Metrics.add(:block_edits)
     state
   end
@@ -2651,8 +2662,25 @@ defmodule Valimc.World.RegionData do
     state = if cooking, do: state, else: shape_updates(state, proposal.changes)
     # Light follows every change, cooking too (a lit furnace emits light).
     lit = Blocks.light_update(state.blocks, Map.keys(proposal.changes))
+    # Edited chunks were invalidated with their blocks above; others only lit.
+    state = light_changed(state, lit -- batch.chunks)
 
     {state, %{batch: batch, previous: previous, chunks: chunks, cooking: cooking, light: lit}}
+  end
+
+  @doc """
+  Chunks whose light changed without (necessarily) a block change: their cached
+  packets are dropped and their version moves on, so an encode already running
+  is discarded as stale (VMC-022c).
+  """
+  def light_changed(state, []), do: state
+
+  def light_changed(state, chunks) do
+    %{
+      state
+      | cache: Map.drop(state.cache, chunks),
+        versions: Enum.reduce(chunks, state.versions, &Map.update(&2, &1, 1, fn n -> n + 1 end))
+    }
   end
 
   defp release_blocks(state, effects) do

@@ -145,11 +145,15 @@ defmodule Valimc.RegionLightTest do
     glowstone = BlockRegistry.default_state("glowstone")
     lamp = {edge, 70, z0 + 40}
     across = {edge + 2, 70, z0 + 40}
+    across_chunk = World.chunk_key(edge + 2, z0 + 40)
+    # The neighbour's chunk was sent before the lamp, as to a player nearby.
+    _ = packet_light(across_chunk)
     set(ctx.owner, %{lamp => glowstone})
 
-    assert eventually(fn ->
-             level(image(neighbour, World.chunk_key(edge + 2, z0 + 40)), :block, across) == 13
-           end)
+    assert eventually(fn -> level(image(neighbour, across_chunk), :block, across) == 13 end)
+    # A freshly joining player gets that light too, not a cached packet.
+    expected = IO.iodata_to_binary(Valimc.Anvil.Light.packet(image(neighbour, across_chunk)))
+    assert String.ends_with?(packet_light(across_chunk), expected)
 
     set(ctx.owner, %{lamp => 0})
 
@@ -167,6 +171,53 @@ defmodule Valimc.RegionLightTest do
              level(image(owner, World.chunk_key(edge, z0 + 40)), :block, {edge - 1, 70, z0 + 40}) ==
                13
            end)
+  end
+
+  # The light data a freshly joining client gets: the tail of the chunk packet.
+  defp packet_light(key) do
+    frame = World.chunk(key)
+
+    {:ok, _id, payload, <<>>} =
+      Wire.next_frame(
+        IO.iodata_to_binary(frame),
+        2_097_152,
+        Valimc.config(:compression_threshold)
+      )
+
+    payload
+  end
+
+  test "fresh chunk packets carry current light after edits in and beside the chunk", ctx do
+    {x0, z0} = ctx.origin
+    here = World.chunk_key(x0 + 40, z0 + 40)
+    east = World.chunk_key(x0 + 48, z0 + 40)
+    # Both chunks were sent (and cached) before the edit, as for a player nearby.
+    _ = packet_light(here)
+    _ = packet_light(east)
+    lamp = {x0 + 47, 70, z0 + 40}
+    set(ctx.owner, %{lamp => BlockRegistry.default_state("glowstone")})
+
+    for {role, chunk} <- [lamp_chunk: here, neighbour: east] do
+      expected = IO.iodata_to_binary(Valimc.Anvil.Light.packet(image(ctx.owner, chunk)))
+
+      assert String.ends_with?(packet_light(chunk), expected),
+             "stale light in the #{role} #{inspect(chunk)}"
+    end
+
+    assert level(image(ctx.owner, east), :block, {x0 + 48, 70, z0 + 40}) == 14
+  end
+
+  test "a raw single-block set (creative torch placement) relights and refreshes packets", ctx do
+    {x0, z0} = ctx.origin
+    chunk = World.chunk_key(x0 + 20, z0 + 20)
+    _ = packet_light(chunk)
+    torch = {x0 + 20, 64, z0 + 20}
+    assert :ok = World.set_block(torch, BlockRegistry.default_state("torch"))
+    light = image(ctx.owner, chunk)
+    assert level(light, :block, torch) == 14
+    assert level(light, :block, {x0 + 21, 64, z0 + 20}) == 13
+    expected = IO.iodata_to_binary(Valimc.Anvil.Light.packet(light))
+    assert String.ends_with?(packet_light(chunk), expected)
   end
 
   defp light_update?(frame) do

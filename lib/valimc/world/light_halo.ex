@@ -89,9 +89,11 @@ defmodule Valimc.World.LightHalo do
   def handle({:edits, _from, edits}, state),
     do: adopt(state, Native.halo_edits(state.blocks.ref, edits))
 
+  defp adopt(state, {:ok, []}), do: state
+
   defp adopt(state, {:ok, chunks}) do
-    if chunks != [], do: World.publish(state.key, {:block_batch, frames(state, chunks)})
-    state
+    World.publish(state.key, {:block_batch, frames(state, chunks)})
+    Valimc.World.RegionData.light_changed(state, chunks)
   end
 
   defp adopt(state, {:error, _}), do: state
