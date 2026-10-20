@@ -74,6 +74,7 @@ defmodule Valimc.World.RegionData do
     :jobs,
     :versions,
     :revision,
+    :section_revisions,
     :dirty,
     :unsaved,
     :item_writes,
@@ -156,6 +157,7 @@ defmodule Valimc.World.RegionData do
       jobs: %{},
       versions: %{},
       revision: 0,
+      section_revisions: %{},
       dirty: false,
       unsaved: %{},
       item_writes: [],
@@ -976,7 +978,7 @@ defmodule Valimc.World.RegionData do
       not valid_block_query?(Map.keys(expected), revision) ->
         {:reply, {:error, :invalid_placement_reservation}, state}
 
-      revision != state.revision ->
+      not fence_current?(state, revision) ->
         {:reply, {:error, :stale_revision}, state}
 
       not Enum.all?(expected, fn {{x, y, z}, block} ->
@@ -1152,7 +1154,7 @@ defmodule Valimc.World.RegionData do
         epoch != state.items.epoch ->
           {:error, :stale_owner}
 
-        expected_revision != :any and expected_revision != state.revision ->
+        not fence_current?(state, expected_revision) ->
           {:error, :stale_revision}
 
         Enum.any?(positions, fn {x, _, z} ->
@@ -1166,6 +1168,8 @@ defmodule Valimc.World.RegionData do
              owner: {self(), state.items.epoch},
              region: state.key,
              revision: state.revision,
+             # The sections read: edits elsewhere in the region do not stale it.
+             fence: fence(state, positions),
              blocks: Map.new(positions, &{&1, Blocks.get(state.blocks, &1)})
            }}
       end
@@ -1210,7 +1214,7 @@ defmodule Valimc.World.RegionData do
       epoch != state.items.epoch ->
         {:reply, {:error, :stale_owner}, state}
 
-      revision != state.revision ->
+      not fence_current?(state, revision) ->
         {:reply, {:error, :stale_revision}, state}
 
       not (is_integer(deadline) and now < deadline and deadline <= now + 250) ->
@@ -1264,7 +1268,7 @@ defmodule Valimc.World.RegionData do
       batch.region != state.key ->
         {:reply, {:error, :wrong_region}, state}
 
-      revision != state.revision ->
+      not fence_current?(state, revision) ->
         {:reply, {:error, :stale_revision}, state}
 
       block_transfer_writing?(state) ->
@@ -1301,7 +1305,7 @@ defmodule Valimc.World.RegionData do
       epoch != state.items.epoch ->
         {:reply, {:error, :stale_owner}, state}
 
-      revision != state.revision ->
+      not fence_current?(state, revision) ->
         {:reply, {:error, :stale_revision}, state}
 
       batch.region != state.key ->
@@ -1352,6 +1356,7 @@ defmodule Valimc.World.RegionData do
                   ),
                 dirty: true,
                 revision: state.revision + 1,
+                section_revisions: touch_sections(state, [position], state.revision + 1),
                 cache: Map.delete(state.cache, key),
                 versions: Map.update(state.versions, key, 1, &(&1 + 1))
             }
@@ -2191,6 +2196,12 @@ defmodule Valimc.World.RegionData do
     state =
       state
       |> struct!(Map.take(proposal, [:column_index, :versions, :revision]))
+      |> then(
+        &%{
+          &1
+          | section_revisions: touch_sections(&1, Map.keys(proposal.changes), proposal.revision)
+        }
+      )
       |> Map.merge(%{
         cache: Map.drop(state.cache, batch.chunks),
         dirty: dirty or state.dirty,
@@ -2774,6 +2785,7 @@ defmodule Valimc.World.RegionData do
               apply_blocks(%{state | item_pending: nil}, pending.batch, proposal, false, false)
 
             state = %{state | containers: containers}
+
             reply = if pending.reply == :ok, do: :ok, else: {:ok, state.revision}
 
             {:noreply,
@@ -3292,9 +3304,41 @@ defmodule Valimc.World.RegionData do
   end
 
   def valid_block_query?(positions, revision),
+    do: valid_fence?(revision) and valid_block_positions?(positions, 0)
+
+  # `:any`, a region-wide revision, or a section fence from an observation.
+  defp valid_fence?(:any), do: true
+  defp valid_fence?(revision) when is_integer(revision), do: revision >= 0
+
+  defp valid_fence?(fence) when is_map(fence) and map_size(fence) <= 128,
     do:
-      (revision == :any or (is_integer(revision) and revision >= 0)) and
-        valid_block_positions?(positions, 0)
+      Enum.all?(fence, fn
+        {{cx, sy, cz}, rev} ->
+          is_integer(cx) and is_integer(sy) and is_integer(cz) and is_integer(rev)
+
+        _ ->
+          false
+      end)
+
+  defp valid_fence?(_), do: false
+
+  # Section fencing (VMC-064): each 16x16x16 section remembers the region revision
+  # of its last edit. An observation's fence holds those values for the sections
+  # it read, so only edits to those sections stale it.
+  defp section({x, y, z}),
+    do: {Integer.floor_div(x, 16), Integer.floor_div(y, 16), Integer.floor_div(z, 16)}
+
+  defp fence(state, positions),
+    do: Map.new(positions, &{section(&1), Map.get(state.section_revisions, section(&1), 0)})
+
+  defp fence_current?(_state, :any), do: true
+  defp fence_current?(state, revision) when is_integer(revision), do: revision == state.revision
+
+  defp fence_current?(state, fence) when is_map(fence),
+    do: Enum.all?(fence, fn {s, rev} -> Map.get(state.section_revisions, s, 0) == rev end)
+
+  defp touch_sections(state, positions, revision),
+    do: Enum.reduce(positions, state.section_revisions, &Map.put(&2, section(&1), revision))
 
   def valid_column_query?(columns, revision),
     do:

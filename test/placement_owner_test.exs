@@ -37,10 +37,9 @@ defmodule Valimc.PlacementOwnerTest do
     assert prepared.candidate == %{position: c.position, state: 15_179, replace_clicked: true}
     assert World.get_block(c.position) == 89
 
-    assert {:ok, revision} =
+    assert {:ok, _} =
              Region.place_block(c.owner, prepared.revision, prepared.batch, prepared.deadline)
 
-    assert revision == prepared.revision + 1
     assert World.get_block(c.position) == 15_179
 
     assert {:error, :stale_revision} =
@@ -50,6 +49,19 @@ defmodule Valimc.PlacementOwnerTest do
     assert merged.candidate.state == 15_182
     assert {:ok, _} = Region.place_block(c.owner, merged.revision, merged.batch, merged.deadline)
     assert World.get_block(c.position) == 15_182
+  end
+
+  test "a plan stays valid across edits in other sections of the region", c do
+    assert {:ok, prepared} = plan(c)
+    {x, y, z} = c.position
+    # Same region, other sections: one chunk over, and one section up.
+    assert :ok = World.set_block({x + 16, y, z}, 1)
+    assert :ok = World.set_block({x, y + 16, z}, 1)
+
+    assert {:ok, _} =
+             Region.place_block(c.owner, prepared.revision, prepared.batch, prepared.deadline)
+
+    assert World.get_block(c.position) == prepared.candidate.state
   end
 
   test "target ABA cannot authorize an old placement plan", c do
@@ -81,8 +93,7 @@ defmodule Valimc.PlacementOwnerTest do
       assert Valimc.TestRegion.published_block(c.owner, c.position) == 0
       assert Task.yield(task, 10) == nil
       :sys.resume(writer)
-      assert {:ok, revision} = Task.await(task)
-      assert revision == prepared.revision + 1
+      assert {:ok, _} = Task.await(task)
     after
       if Process.alive?(writer), do: :sys.resume(writer)
       Task.shutdown(task, :brutal_kill)

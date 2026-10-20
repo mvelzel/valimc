@@ -66,7 +66,7 @@ defmodule Valimc.PlayerPlacementQuery do
             {:ok, observed} <- Region.observe_blocks(owner, [position]) do
          outcome =
            if now() < expires and Valimc.PlayerInteraction.within_block?(:creative, eye, position),
-             do: Region.destroy_block(owner, observed.revision, position, expires),
+             do: Region.destroy_block(owner, observed.fence, position, expires),
              else: {:refused, :expired_destruction}
 
          with :ok <- Region.correct_blocks(owner, [position], connection), do: {:ok, outcome}
@@ -184,14 +184,14 @@ defmodule Valimc.PlayerPlacementQuery do
              request
            ),
          {:ok, batch} <- BlockBatch.prepare(%{candidate.position => candidate.state}),
-         :ok <- isolated_chest(owner, key, candidate, observed.revision),
-         {:ok, _} <- Region.observe_blocks(owner, [], observed.revision),
+         :ok <- isolated_chest(owner, key, candidate, observed.fence),
+         {:ok, _} <- Region.observe_blocks(owner, [], observed.fence),
          true <- World.existing_owner(key) == {:ok, owner} and now() < deadline do
       {:ok,
        %{
          owner: owner,
          region: key,
-         revision: observed.revision,
+         revision: observed.fence,
          candidate: candidate,
          expected: observed.blocks,
          batch: batch,

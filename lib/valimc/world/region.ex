@@ -84,9 +84,13 @@ defmodule Valimc.World.Region do
     :ok
   end
 
-  @doc "Commit a prepared owner-local block batch at an exact observed revision. No cross-owner atomicity."
+  @doc """
+  Commit a prepared owner-local block batch if the observation it was planned on
+  (`revision`: an observation's section `fence`, or its region revision) is still
+  current. Returns the new region revision. No cross-owner atomicity.
+  """
   def set_blocks({pid, epoch}, revision, edits)
-      when is_pid(pid) and is_reference(epoch) and is_integer(revision) and revision >= 0 do
+      when is_pid(pid) and is_reference(epoch) and (is_map(revision) or is_integer(revision)) do
     with {:ok, batch} <- BlockBatch.prepare(edits),
          do: GenServer.call(pid, {:set_blocks, epoch, revision, batch}, 1000)
   catch
@@ -98,7 +102,7 @@ defmodule Valimc.World.Region do
 
   @doc "Internal creative placement commit; caller must freshly admit its player and held item."
   def place_block({pid, epoch}, revision, %BlockBatch{} = batch, deadline)
-      when is_pid(pid) and is_reference(epoch) and is_integer(revision) and revision >= 0 and
+      when is_pid(pid) and is_reference(epoch) and (is_map(revision) or is_integer(revision)) and
              is_integer(deadline) do
     GenServer.call(pid, {:place_block, epoch, revision, batch, deadline}, 1000)
   catch
