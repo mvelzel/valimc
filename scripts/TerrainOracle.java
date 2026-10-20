@@ -19,7 +19,9 @@ import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.LevelHeightAccessor;
 import net.minecraft.world.level.biome.Biomes;
-import net.minecraft.world.level.biome.FixedBiomeSource;
+import net.minecraft.server.level.WorldGenRegion;
+import net.minecraft.world.level.biome.BiomeSource;
+import net.minecraft.world.level.biome.MultiNoiseBiomeSource;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ProtoChunk;
@@ -42,9 +44,13 @@ import net.minecraft.world.level.levelgen.densityfunction.DensityVolume;
  * settings' material rule through the same noise chunk; its biome manager
  * reads chunk biomes filled as chunk generation fills them (multi-noise
  * presets: overworld, or nether for the nether settings; the End's biome
- * source for the end settings), each chunk from a fresh lookup history. Per chunk: the state ids run-length encoded in volume order (Y
- * fastest from the bottom, then X, then Z) as [id, count] pairs, and the
- * positions marked for fluid post-processing.
+ * source for the end settings), each chunk from a fresh lookup history.
+ * `carve OUT` then runs vanilla's `generateCarvers` for the chunk; the
+ * generator's biome source (carver biomes, biomes for grass over carved dirt)
+ * starts every lookup from a fresh lookup history. Per chunk: the state ids
+ * run-length encoded in volume order (Y fastest from the bottom, then X, then
+ * Z) as [id, count] pairs, and the positions marked for fluid
+ * post-processing.
  */
 public class TerrainOracle {
   public static void main(String[] args) throws Exception {
@@ -54,12 +60,16 @@ public class TerrainOracle {
     var plains = lookup.lookupOrThrow(Registries.BIOME).getOrThrow(Biomes.PLAINS);
     var settingsList = lookup.lookupOrThrow(Registries.NOISE_SETTINGS).listElements()
         .sorted(Comparator.comparing(h -> h.key().identifier().toString())).toList();
-    boolean surface = args[0].equals("surface");
+    boolean carve = args[0].equals("carve");
+    boolean surface = carve || args[0].equals("surface");
     var doFill = NoiseBasedChunkGenerator.class.getDeclaredMethod("doFill", NoiseChunk.class, ChunkAccess.class);
     doFill.setAccessible(true);
     var buildSurface = NoiseBasedChunkGenerator.class.getDeclaredMethod("buildSurface", ChunkAccess.class, NoiseChunk.class,
         RandomState.class, BiomeManager.class, Set.class, MaterialRule.class);
     buildSurface.setAccessible(true);
+    var generateCarvers = NoiseBasedChunkGenerator.class.getDeclaredMethod("generateCarvers", ChunkAccess.class, Blender.class,
+        NoiseChunk.class, RandomState.class, BiomeManager.class, WorldGenRegion.class, MaterialRule.class);
+    generateCarvers.setAccessible(true);
     var biomeLookup = lookup.lookupOrThrow(Registries.BIOME);
     var createFluidPicker = NoiseBasedChunkGenerator.class.getDeclaredMethod("createFluidPicker", NoiseGeneratorSettings.class);
     createFluidPicker.setAccessible(true);
@@ -72,7 +82,12 @@ public class TerrainOracle {
       for (var holder : settingsList) {
         var settings = holder.value();
         var state = RandomState.create(noises, seed, settings);
-        var generator = new NoiseBasedChunkGenerator(new FixedBiomeSource(plains), holder);
+        var settingsId = holder.key().identifier().toString();
+        BiomeSource biomeSource = settingsId.equals("minecraft:end")
+            ? TheEndBiomeSource.create(biomeLookup)
+            : MultiNoiseBiomeSource.createFromList(freshList(settingsId.equals("minecraft:nether")
+                ? MultiNoiseBiomeSourceParameterList.Preset.NETHER : MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD, biomeLookup));
+        var generator = new NoiseBasedChunkGenerator(biomeSource, holder);
         var picker = (Aquifer.FluidPicker) createFluidPicker.invoke(null, settings);
         int minY = settings.noiseSettings().minY(), height = settings.noiseSettings().height();
         var heights = LevelHeightAccessor.create(minY, height);
@@ -97,6 +112,10 @@ public class TerrainOracle {
               };
               var biomeManager = new BiomeManager(resolver, BiomeManager.obfuscateSeed(seed));
               buildSurface.invoke(generator, chunk, noiseChunk, state, biomeManager, null, settings.materialRule().value());
+              if (carve) {
+                generateCarvers.invoke(generator, chunk, Blender.empty(), noiseChunk, state, biomeManager, null,
+                    settings.materialRule().value());
+              }
             }
           }
           var runs = new JsonArray();
@@ -140,7 +159,7 @@ public class TerrainOracle {
     var out = new JsonObject();
     out.add("cases", cases);
     Files.writeString(Path.of(args[1]), new Gson().toJson(out));
-    System.out.println("PASS: " + cases.size() + " vanilla " + (surface ? "surfaced" : "noise-filled") + " chunks over "
+    System.out.println("PASS: " + cases.size() + " vanilla " + (carve ? "carved" : surface ? "surfaced" : "noise-filled") + " chunks over "
         + seeds.length + " seeds and " + settingsList.size() + " noise settings (" + blocks + " blocks)");
   }
 
@@ -151,50 +170,75 @@ public class TerrainOracle {
   @SuppressWarnings("unchecked")
   static Holder<Biome>[] chunkBiomes(RandomState state, String source, HolderGetter<Biome> lookup, ChunkPos pos, int minY,
       int height) {
-    try {
-      int sections = height / 16;
-      var out = (Holder<Biome>[]) new Holder[sections * 64];
-      var climate = state.createClimateSampler(SamplerContext.builder().enableCaches().build());
-      if (source.equals("end")) {
-        var resolver = TheEndBiomeSource.create(lookup).createResolver(climate);
-        for (int s = 0; s < sections; s++)
-          for (int x = 0; x < 4; x++)
-            for (int y = 0; y < 4; y++)
-              for (int z = 0; z < 4; z++)
-                out[s * 64 + (y * 4 + z) * 4 + x] = resolver.getNoiseBiome(pos.x() * 4 + x, (minY >> 2) + s * 4 + y, pos.z() * 4 + z);
-        return out;
-      }
-      var preset = source.equals("nether") ? MultiNoiseBiomeSourceParameterList.Preset.NETHER : MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD;
-      var parameters = PRESETS.computeIfAbsent(preset, p -> MultiNoiseBiomeSourceParameterList.knownPresets().get(p));
-      // A fresh lookup history: vanilla keeps the last result per thread.
-      var index = Climate.ParameterList.class.getDeclaredField("index");
-      index.setAccessible(true);
-      var tree = index.get(parameters);
-      var last = tree.getClass().getDeclaredField("lastResult");
-      last.setAccessible(true);
-      ((ThreadLocal<?>) last.get(tree)).remove();
-      var volume = new DensityVolume(4, height / 4, 4, pos.getMinBlockX(), minY, pos.getMinBlockZ(), 4, 4, 4);
-      var bound = List.of(climate.temperature(), climate.humidity(), climate.continentalness(), climate.erosion(), climate.depth(), climate.weirdness());
-      var buffers = new ArrayList<DensityBuffer>();
-      for (var sampler : bound) {
-        var buffer = DensityBuffer.createUnpooled(volume.size());
-        sampler.sampleVolume(buffer, volume);
-        buffers.add(buffer);
-      }
+    int sections = height / 16;
+    var out = (Holder<Biome>[]) new Holder[sections * 64];
+    var climate = state.createClimateSampler(SamplerContext.builder().enableCaches().build());
+    if (source.equals("end")) {
+      var resolver = TheEndBiomeSource.create(lookup).createResolver(climate);
       for (int s = 0; s < sections; s++)
         for (int x = 0; x < 4; x++)
           for (int y = 0; y < 4; y++)
-            for (int z = 0; z < 4; z++) {
-              int i = volume.indexUnchecked(x, s * 4 + y, z);
-              var target = Climate.target(buffers.get(0).get(i), buffers.get(1).get(i), buffers.get(2).get(i),
-                  buffers.get(3).get(i), buffers.get(4).get(i), buffers.get(5).get(i));
-              out[s * 64 + (y * 4 + z) * 4 + x] = lookup.getOrThrow(parameters.findValue(target));
-            }
+            for (int z = 0; z < 4; z++)
+              out[s * 64 + (y * 4 + z) * 4 + x] = resolver.getNoiseBiome(pos.x() * 4 + x, (minY >> 2) + s * 4 + y, pos.z() * 4 + z);
       return out;
+    }
+    var preset = source.equals("nether") ? MultiNoiseBiomeSourceParameterList.Preset.NETHER : MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD;
+    var parameters = PRESETS.computeIfAbsent(preset, p -> MultiNoiseBiomeSourceParameterList.knownPresets().get(p));
+    resetHistory(parameters);
+    var volume = new DensityVolume(4, height / 4, 4, pos.getMinBlockX(), minY, pos.getMinBlockZ(), 4, 4, 4);
+    var bound = List.of(climate.temperature(), climate.humidity(), climate.continentalness(), climate.erosion(), climate.depth(), climate.weirdness());
+    var buffers = new ArrayList<DensityBuffer>();
+    for (var sampler : bound) {
+      var buffer = DensityBuffer.createUnpooled(volume.size());
+      sampler.sampleVolume(buffer, volume);
+      buffers.add(buffer);
+    }
+    for (int s = 0; s < sections; s++)
+      for (int x = 0; x < 4; x++)
+        for (int y = 0; y < 4; y++)
+          for (int z = 0; z < 4; z++) {
+            int i = volume.indexUnchecked(x, s * 4 + y, z);
+            var target = Climate.target(buffers.get(0).get(i), buffers.get(1).get(i), buffers.get(2).get(i),
+                buffers.get(3).get(i), buffers.get(4).get(i), buffers.get(5).get(i));
+            out[s * 64 + (y * 4 + z) * 4 + x] = lookup.getOrThrow(parameters.findValue(target));
+          }
+    return out;
+  }
+
+  static final Map<MultiNoiseBiomeSourceParameterList.Preset, Climate.ParameterList<ResourceKey<Biome>>> PRESETS = new HashMap<>();
+
+  /** A preset's parameter list whose every lookup starts from a fresh lookup history. */
+  static Climate.ParameterList<Holder<Biome>> freshList(MultiNoiseBiomeSourceParameterList.Preset preset, HolderGetter<Biome> lookup) {
+    var values = new ArrayList<com.mojang.datafixers.util.Pair<Climate.ParameterPoint, Holder<Biome>>>();
+    for (var pair : MultiNoiseBiomeSourceParameterList.knownPresets().get(preset).values()) {
+      values.add(com.mojang.datafixers.util.Pair.of(pair.getFirst(), lookup.getOrThrow(pair.getSecond())));
+    }
+    return new FreshList<>(values);
+  }
+
+  static class FreshList<T> extends Climate.ParameterList<T> {
+    FreshList(List<com.mojang.datafixers.util.Pair<Climate.ParameterPoint, T>> values) {
+      super(values);
+    }
+
+    @Override
+    public T findValue(Climate.TargetPoint target) {
+      resetHistory(this);
+      return super.findValue(target);
+    }
+  }
+
+  /** Vanilla keeps a parameter list's last lookup result per thread; this forgets it. */
+  static void resetHistory(Climate.ParameterList<?> list) {
+    try {
+      var index = Climate.ParameterList.class.getDeclaredField("index");
+      index.setAccessible(true);
+      var tree = index.get(list);
+      var last = tree.getClass().getDeclaredField("lastResult");
+      last.setAccessible(true);
+      ((ThreadLocal<?>) last.get(tree)).remove();
     } catch (ReflectiveOperationException e) {
       throw new IllegalStateException(e);
     }
   }
-
-  static final Map<MultiNoiseBiomeSourceParameterList.Preset, Climate.ParameterList<ResourceKey<Biome>>> PRESETS = new HashMap<>();
 }

@@ -14,6 +14,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use super::carver::{self, Carver, CarvingMask, GenContext};
 use super::climate::{quantize, ParameterList};
 use super::density::{
     Axis, Binary, Df, Env, ShiftKind, Simple, Spline, Tiling, ALL_AXES, AXIS_X, AXIS_Y, AXIS_Z,
@@ -27,7 +28,7 @@ use super::surface::{
     self, Biomes, ChunkBlocks, MaterialRegistry, MaterialSystem, Rule, SurfaceEnv, SurfaceInput,
     Terracotta,
 };
-use super::terrain::{self, AquiferSamplers, FilledChunk, TerrainBlocks};
+use super::terrain::{self, Aquifer, AquiferSamplers, FilledChunk, TerrainBlocks};
 use super::volume::Volume;
 
 /// Noise settings: vertical bounds, random algorithm and the named functions
@@ -68,6 +69,7 @@ pub struct Facts<'a> {
     pub material_rules: &'a Json,
     pub material_conditions: &'a Json,
     pub biomes: &'a Json,
+    pub carvers: &'a Json,
     pub blocks: &'a Json,
 }
 
@@ -82,6 +84,7 @@ impl<'a> Facts<'a> {
             material_rules: json.field("material_rules")?,
             material_conditions: json.field("material_conditions")?,
             biomes: json.field("biomes")?,
+            carvers: json.field("carvers")?,
             blocks: json.field("blocks")?,
         })
     }
@@ -98,6 +101,9 @@ pub struct Registry {
     pub biomes: Biomes,
     pub materials: MaterialRegistry,
     pub blocks: BlockFacts,
+    pub carvers: HashMap<String, Carver>,
+    /// Per biome registry id, its carvers in order.
+    pub biome_carvers: Vec<Vec<String>>,
 }
 
 /// One chunk's biomes as `fill_biomes` computes them.
@@ -164,6 +170,27 @@ impl Registry {
                 .collect::<Result<_, _>>()?,
         };
         registry.biomes = Biomes::parse(facts.biomes)?;
+        for (id, json) in facts.carvers.entries()? {
+            registry.carvers.insert(
+                id.clone(),
+                Carver::parse(json).map_err(|e| format!("carver {id}: {e}"))?,
+            );
+        }
+        for (id, json) in facts.biomes.entries()? {
+            let carvers = match json.get("carvers") {
+                None => vec![],
+                Some(Json::String(c)) => vec![c.clone()],
+                Some(list) => list
+                    .as_array()?
+                    .iter()
+                    .map(|c| c.as_str().map(str::to_string))
+                    .collect::<Result<_, _>>()?,
+            };
+            if let Some(missing) = carvers.iter().find(|c| !registry.carvers.contains_key(*c)) {
+                return Err(format!("biome {id} has unknown carver {missing}"));
+            }
+            registry.biome_carvers.push(carvers);
+        }
         registry.materials = MaterialRegistry::parse(
             facts.material_rules,
             facts.material_conditions,
@@ -402,8 +429,23 @@ impl Worldgen {
     /// A chunk's noise terrain (vanilla's `doFill`, without structures):
     /// final density over the chunk at block resolution, then the aquifer.
     pub fn fill_terrain(&mut self, chunk_x: i32, chunk_z: i32) -> Result<FilledChunk, String> {
-        let mut ctx = Context::cached();
-        self.fill_with(&mut ctx, chunk_x, chunk_z)
+        self.terrain(chunk_x, chunk_z, None, false)
+    }
+
+    /// A chunk's terrain as vanilla's `buildTerrain` makes it, without
+    /// structures: the noise fill, the material rule, and with `carve` the
+    /// carvers of the 17 × 17 chunks around, all through one noise chunk
+    /// context. Biomes come from `biome_source` (a multi-noise preset or
+    /// `minecraft:the_end`): chunk biomes each filled from a fresh lookup
+    /// history, and single lookups (carver biomes) likewise.
+    pub fn build_terrain(
+        &mut self,
+        chunk_x: i32,
+        chunk_z: i32,
+        biome_source: &str,
+        carve: bool,
+    ) -> Result<FilledChunk, String> {
+        self.terrain(chunk_x, chunk_z, Some(biome_source), carve)
     }
 
     fn chunk_volume(&self, chunk_x: i32, chunk_z: i32) -> Result<Volume, String> {
@@ -418,11 +460,32 @@ impl Worldgen {
         )
     }
 
-    fn fill_with(
+    fn aquifer_samplers(&mut self) -> Result<Option<(AquiferSamplers, Positional)>, String> {
+        if self.settings.aquifers.is_empty() {
+            return Ok(None);
+        }
+        let mut compile = |field: &str| -> Result<Arc<Sampler>, String> {
+            let function = self.named(&format!("aquifers:{field}"))?;
+            self.sampler(&function)
+        };
+        let samplers = AquiferSamplers {
+            barrier: compile("barrier")?,
+            floodedness: compile("fluid_level_floodedness")?,
+            spread: compile("fluid_level_spread")?,
+            lava: compile("lava")?,
+            exclusion: compile("exclusion")?,
+            surface_level: compile("surface_level")?,
+        };
+        let positional = self.positional.from_hash_of(AQUIFER_SEED).fork_positional();
+        Ok(Some((samplers, positional)))
+    }
+
+    fn terrain(
         &mut self,
-        ctx: &mut Context,
         chunk_x: i32,
         chunk_z: i32,
+        biome_source: Option<&str>,
+        carve: bool,
     ) -> Result<FilledChunk, String> {
         let volume = self.chunk_volume(chunk_x, chunk_z)?;
         let b = &self.registry.blocks;
@@ -433,49 +496,22 @@ impl Worldgen {
             default_block: self.settings.default_block,
             default_fluid: self.settings.default_fluid,
         };
-        let aquifer = if self.settings.aquifers.is_empty() {
-            None
-        } else {
-            let mut compile = |field: &str| -> Result<Arc<Sampler>, String> {
-                let function = self.named(&format!("aquifers:{field}"))?;
-                self.sampler(&function)
-            };
-            let samplers = AquiferSamplers {
-                barrier: compile("barrier")?,
-                floodedness: compile("fluid_level_floodedness")?,
-                spread: compile("fluid_level_spread")?,
-                lava: compile("lava")?,
-                exclusion: compile("exclusion")?,
-                surface_level: compile("surface_level")?,
-            };
-            let positional = self.positional.from_hash_of(AQUIFER_SEED).fork_positional();
-            Some((samplers, positional))
-        };
-        let final_density = self.named("router:final_density")?;
-        let final_density = self.sampler(&final_density)?;
-        Ok(terrain::fill(
-            ctx,
-            &final_density,
-            aquifer.as_ref().map(|(s, p)| (s, *p)),
+        let mut ctx = Context::cached();
+        let aquifer_samplers = self.aquifer_samplers()?;
+        let mut aquifer = Aquifer::new(
+            &mut ctx,
+            aquifer_samplers.as_ref().map(|(s, p)| (s, *p)),
             &volume,
             self.settings.sea_level,
             blocks,
-        ))
-    }
+        );
+        let final_density = self.named("router:final_density")?;
+        let final_density = self.sampler(&final_density)?;
+        let mut filled = terrain::fill(&mut ctx, &final_density, &mut aquifer, &volume, blocks);
+        let Some(biome_source) = biome_source else {
+            return Ok(filled);
+        };
 
-    /// A chunk's terrain as vanilla's `buildTerrain` makes it (without
-    /// structures or carvers yet): the noise fill, then the material rule,
-    /// through one noise chunk context. Biomes come from `biome_source` (a
-    /// multi-noise preset or `minecraft:the_end`), each chunk filled with a
-    /// fresh lookup history.
-    pub fn build_terrain(
-        &mut self,
-        chunk_x: i32,
-        chunk_z: i32,
-        biome_source: &str,
-    ) -> Result<FilledChunk, String> {
-        let mut ctx = Context::cached();
-        let mut filled = self.fill_with(&mut ctx, chunk_x, chunk_z)?;
         let mut biomes = HashMap::new();
         for dx in -1..=1 {
             for dz in -1..=1 {
@@ -483,6 +519,7 @@ impl Worldgen {
                 biomes.insert((x, z), self.chunk_biome_ids(biome_source, x, z)?);
             }
         }
+        let point_biomes = self.point_biomes(biome_source)?;
         let system = self.material_system()?;
         let registry = self.registry.clone();
         let settings = self.settings.clone();
@@ -494,7 +531,7 @@ impl Worldgen {
             let qy = qy.clamp(min_quart, min_quart + quart_height - 1) - min_quart;
             column[((qy >> 2) * 64 + ((qy & 3) * 4 + (qz & 3)) * 4 + (qx & 3)) as usize]
         };
-        let input = SurfaceInput {
+        let mut input = SurfaceInput {
             materials: &registry.materials,
             biomes: &registry.biomes,
             system: &system,
@@ -533,8 +570,91 @@ impl Worldgen {
         ];
         let eroded = registry.biomes.id("minecraft:eroded_badlands")?;
         surface::build_surface(self, &mut ctx, &input, &mut chunk, frozen, eroded)?;
+
+        if carve {
+            let context = GenContext {
+                min_y: settings.min_y,
+                height: settings.height,
+                sea_level: settings.sea_level,
+            };
+            let mut mask =
+                CarvingMask::new(settings.min_y + 1, settings.min_y + settings.height - 1 - 7);
+            let mut random = Random::legacy(0);
+            for dx in -8..=8 {
+                for dz in -8..=8 {
+                    let source = (chunk_x + dx, chunk_z + dz);
+                    let biome = point_biomes.biome(source.0 * 4, 0, source.1 * 4);
+                    for (index, carver) in registry.biome_carvers[biome as usize].iter().enumerate()
+                    {
+                        let carver = &registry.carvers[carver];
+                        carver::set_large_feature_seed(
+                            &mut random,
+                            self.seed.wrapping_add(index as i64),
+                            source.0,
+                            source.1,
+                        );
+                        if carver.is_start(&mut random) {
+                            carver.carve(
+                                context,
+                                &mut random,
+                                (chunk_x, chunk_z),
+                                source,
+                                &mut mask,
+                            );
+                        }
+                    }
+                }
+            }
+            if !mask.is_empty() {
+                let carver_biome_at = |x: i32, y: i32, z: i32| -> u16 {
+                    let (qx, qy, qz) = surface::zoom(zoom_seed, x, y, z);
+                    point_biomes.biome(qx, qy, qz)
+                };
+                input.biome_at = &carver_biome_at;
+                apply_carving_mask(self, &mut ctx, &input, &mut chunk, &mut aquifer, &mask)?;
+            }
+        }
         filled.fluid_updates = fluid_updates;
         Ok(filled)
+    }
+
+    /// Single biome lookups for `biome_source` (vanilla's uncached biome
+    /// resolver), each from a fresh lookup history.
+    fn point_biomes(&mut self, biome_source: &str) -> Result<PointBiomes, String> {
+        if biome_source == "minecraft:the_end" {
+            let erosion = self.named("router:erosion")?;
+            let b = &self.registry.biomes;
+            let mut ids = [0u16; 5];
+            for (id, name) in ids.iter_mut().zip([
+                "minecraft:the_end",
+                "minecraft:end_highlands",
+                "minecraft:end_midlands",
+                "minecraft:small_end_islands",
+                "minecraft:end_barrens",
+            ]) {
+                *id = b.id(name)?;
+            }
+            return Ok(PointBiomes::End {
+                erosion: self.sampler(&erosion)?,
+                ids,
+            });
+        }
+        let (list, ids) = self
+            .registry
+            .biome_parameters
+            .get(biome_source)
+            .cloned()
+            .ok_or_else(|| format!("unknown biome source {biome_source}"))?;
+        let mut samplers = Vec::with_capacity(6);
+        for field in CLIMATE {
+            let function = self.named(&format!("router:{field}"))?;
+            samplers.push(self.sampler(&function)?);
+        }
+        Ok(PointBiomes::MultiNoise {
+            samplers,
+            list,
+            ids,
+        })
     }
 
     /// Vanilla's `MaterialSystem` for this seed, built once.
@@ -1084,6 +1204,106 @@ impl Worldgen {
             }
         })
     }
+}
+
+/// Single biome lookups: a multi-noise preset sampled at one quart (climate
+/// point samples, fresh lookup history), or the End's biome source.
+enum PointBiomes {
+    MultiNoise {
+        samplers: Vec<Arc<Sampler>>,
+        list: Arc<ParameterList>,
+        ids: Vec<u16>,
+    },
+    End {
+        erosion: Arc<Sampler>,
+        ids: [u16; 5],
+    },
+}
+
+impl PointBiomes {
+    fn biome(&self, qx: i32, qy: i32, qz: i32) -> u16 {
+        let mut ctx = Context::uncached();
+        let (bx, by, bz) = (qx << 2, qy << 2, qz << 2);
+        match self {
+            PointBiomes::MultiNoise {
+                samplers,
+                list,
+                ids,
+            } => {
+                let target: [i64; 6] =
+                    std::array::from_fn(|i| quantize(samplers[i].value(&mut ctx, bx, by, bz)));
+                ids[list.find(&target, &mut None) as usize]
+            }
+            PointBiomes::End { erosion, ids } => {
+                let (cx, cz) = ((bx >> 4) as i64, (bz >> 4) as i64);
+                if cx * cx + cz * cz <= 4096 {
+                    return ids[0];
+                }
+                let wx = ((bx >> 4) * 2 + 1) * 8;
+                let wz = ((bz >> 4) * 2 + 1) * 8;
+                let height = erosion.value(&mut ctx, wx, by, wz) as f64;
+                if height > 0.25 {
+                    ids[1]
+                } else if height >= -0.0625 {
+                    ids[2]
+                } else if height < -0.21875 {
+                    ids[3]
+                } else {
+                    ids[4]
+                }
+            }
+        }
+    }
+}
+
+/// `NoiseBasedChunkGenerator.applyCarvingMask`: carved positions become what
+/// the aquifer leaves at zero density; dirt uncovered below grass or mycelium
+/// gets the rule's top material.
+fn apply_carving_mask(
+    env: &mut Worldgen,
+    ctx: &mut Context,
+    input: &SurfaceInput,
+    chunk: &mut ChunkBlocks,
+    aquifer: &mut Aquifer,
+    mask: &CarvingMask,
+) -> Result<(), String> {
+    const FLUID: u8 = 2;
+    const UNCARVABLE: u8 = 8;
+    const GRASS_OR_MYCELIUM: u8 = 16;
+    const DIRT: u8 = 32;
+    let (min_x, min_z) = (chunk.chunk_x * 16, chunk.chunk_z * 16);
+    for (x, z, bottom, top) in mask.segments() {
+        let mut has_grass = false;
+        let (wx, wz) = (min_x + x, min_z + z);
+        for wy in (bottom..=top).rev() {
+            let old = chunk.state(x, wy, z);
+            if chunk.flag(old, UNCARVABLE) {
+                continue;
+            }
+            if chunk.flag(old, GRASS_OR_MYCELIUM) {
+                has_grass = true;
+            }
+            let Some(state) = aquifer.compute_substance(ctx, wx, wy, wz, 0.0) else {
+                continue;
+            };
+            chunk.put(x, wy, z, state);
+            let fluid = chunk.flag(Some(state), FLUID);
+            if aquifer.should_schedule_fluid_update() && fluid {
+                chunk.mark_fluid_update(x, wy, z);
+            }
+            if has_grass && chunk.flag(chunk.state(x, wy - 1, z), DIRT) {
+                if let Some(material) =
+                    surface::top_material(env, ctx, input, chunk, (wx, wy - 1, wz), fluid)?
+                {
+                    chunk.put(x, wy - 1, z, material);
+                    if chunk.flag(Some(material), FLUID) {
+                        chunk.mark_fluid_update(x, wy - 1, z);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn constant(function: &Df) -> Option<f32> {

@@ -2,338 +2,629 @@
   "minecraft:badlands": {
     "has_precipitation": false,
     "temperature": 2.0,
-    "downfall": 0.0
+    "downfall": 0.0,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:bamboo_jungle": {
     "has_precipitation": true,
     "temperature": 0.949999988079071,
-    "downfall": 0.8999999761581421
+    "downfall": 0.8999999761581421,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:basalt_deltas": {
     "has_precipitation": false,
     "temperature": 2.0,
-    "downfall": 0.0
+    "downfall": 0.0,
+    "carvers": "minecraft:nether_cave"
   },
   "minecraft:beach": {
     "has_precipitation": true,
     "temperature": 0.800000011920929,
-    "downfall": 0.4000000059604645
+    "downfall": 0.4000000059604645,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:birch_forest": {
     "has_precipitation": true,
     "temperature": 0.6000000238418579,
-    "downfall": 0.6000000238418579
+    "downfall": 0.6000000238418579,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:cherry_grove": {
     "has_precipitation": true,
     "temperature": 0.5,
-    "downfall": 0.800000011920929
+    "downfall": 0.800000011920929,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:cold_ocean": {
     "has_precipitation": true,
     "temperature": 0.5,
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:crimson_forest": {
     "has_precipitation": false,
     "temperature": 2.0,
-    "downfall": 0.0
+    "downfall": 0.0,
+    "carvers": "minecraft:nether_cave"
   },
   "minecraft:dappled_forest": {
     "has_precipitation": true,
     "temperature": 0.6000000238418579,
-    "downfall": 0.6000000238418579
+    "downfall": 0.6000000238418579,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:dark_forest": {
     "has_precipitation": true,
     "temperature": 0.699999988079071,
-    "downfall": 0.800000011920929
+    "downfall": 0.800000011920929,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:deep_cold_ocean": {
     "has_precipitation": true,
     "temperature": 0.5,
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:deep_dark": {
     "has_precipitation": true,
     "temperature": 0.800000011920929,
-    "downfall": 0.4000000059604645
+    "downfall": 0.4000000059604645,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:deep_frozen_ocean": {
     "has_precipitation": true,
     "temperature": 0.5,
     "temperature_modifier": "frozen",
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:deep_lukewarm_ocean": {
     "has_precipitation": true,
     "temperature": 0.5,
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:deep_ocean": {
     "has_precipitation": true,
     "temperature": 0.5,
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:desert": {
     "has_precipitation": false,
     "temperature": 2.0,
-    "downfall": 0.0
+    "downfall": 0.0,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:dripstone_caves": {
     "has_precipitation": true,
     "temperature": 0.800000011920929,
-    "downfall": 0.4000000059604645
+    "downfall": 0.4000000059604645,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:end_barrens": {
     "has_precipitation": false,
     "temperature": 0.5,
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": []
   },
   "minecraft:end_highlands": {
     "has_precipitation": false,
     "temperature": 0.5,
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": []
   },
   "minecraft:end_midlands": {
     "has_precipitation": false,
     "temperature": 0.5,
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": []
   },
   "minecraft:eroded_badlands": {
     "has_precipitation": false,
     "temperature": 2.0,
-    "downfall": 0.0
+    "downfall": 0.0,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:flower_forest": {
     "has_precipitation": true,
     "temperature": 0.699999988079071,
-    "downfall": 0.800000011920929
+    "downfall": 0.800000011920929,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:forest": {
     "has_precipitation": true,
     "temperature": 0.699999988079071,
-    "downfall": 0.800000011920929
+    "downfall": 0.800000011920929,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:frozen_ocean": {
     "has_precipitation": true,
     "temperature": 0.0,
     "temperature_modifier": "frozen",
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:frozen_peaks": {
     "has_precipitation": true,
     "temperature": -0.699999988079071,
-    "downfall": 0.8999999761581421
+    "downfall": 0.8999999761581421,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:frozen_river": {
     "has_precipitation": true,
     "temperature": 0.0,
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:grove": {
     "has_precipitation": true,
     "temperature": -0.20000000298023224,
-    "downfall": 0.800000011920929
+    "downfall": 0.800000011920929,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:ice_spikes": {
     "has_precipitation": true,
     "temperature": 0.0,
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:jagged_peaks": {
     "has_precipitation": true,
     "temperature": -0.699999988079071,
-    "downfall": 0.8999999761581421
+    "downfall": 0.8999999761581421,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:jungle": {
     "has_precipitation": true,
     "temperature": 0.949999988079071,
-    "downfall": 0.8999999761581421
+    "downfall": 0.8999999761581421,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:lukewarm_ocean": {
     "has_precipitation": true,
     "temperature": 0.5,
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:lush_caves": {
     "has_precipitation": true,
     "temperature": 0.5,
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:mangrove_swamp": {
     "has_precipitation": true,
     "temperature": 0.800000011920929,
-    "downfall": 0.8999999761581421
+    "downfall": 0.8999999761581421,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:meadow": {
     "has_precipitation": true,
     "temperature": 0.5,
-    "downfall": 0.800000011920929
+    "downfall": 0.800000011920929,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:mushroom_fields": {
     "has_precipitation": true,
     "temperature": 0.8999999761581421,
-    "downfall": 1.0
+    "downfall": 1.0,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:nether_wastes": {
     "has_precipitation": false,
     "temperature": 2.0,
-    "downfall": 0.0
+    "downfall": 0.0,
+    "carvers": "minecraft:nether_cave"
   },
   "minecraft:ocean": {
     "has_precipitation": true,
     "temperature": 0.5,
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:old_growth_birch_forest": {
     "has_precipitation": true,
     "temperature": 0.6000000238418579,
-    "downfall": 0.6000000238418579
+    "downfall": 0.6000000238418579,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:old_growth_pine_taiga": {
     "has_precipitation": true,
     "temperature": 0.30000001192092896,
-    "downfall": 0.800000011920929
+    "downfall": 0.800000011920929,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:old_growth_spruce_taiga": {
     "has_precipitation": true,
     "temperature": 0.25,
-    "downfall": 0.800000011920929
+    "downfall": 0.800000011920929,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:pale_garden": {
     "has_precipitation": true,
     "temperature": 0.699999988079071,
-    "downfall": 0.800000011920929
+    "downfall": 0.800000011920929,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:plains": {
     "has_precipitation": true,
     "temperature": 0.800000011920929,
-    "downfall": 0.4000000059604645
+    "downfall": 0.4000000059604645,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:river": {
     "has_precipitation": true,
     "temperature": 0.5,
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:savanna": {
     "has_precipitation": false,
     "temperature": 2.0,
-    "downfall": 0.0
+    "downfall": 0.0,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:savanna_plateau": {
     "has_precipitation": false,
     "temperature": 2.0,
-    "downfall": 0.0
+    "downfall": 0.0,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:small_end_islands": {
     "has_precipitation": false,
     "temperature": 0.5,
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": []
   },
   "minecraft:snowy_beach": {
     "has_precipitation": true,
     "temperature": 0.05000000074505806,
-    "downfall": 0.30000001192092896
+    "downfall": 0.30000001192092896,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:snowy_plains": {
     "has_precipitation": true,
     "temperature": 0.0,
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:snowy_slopes": {
     "has_precipitation": true,
     "temperature": -0.30000001192092896,
-    "downfall": 0.8999999761581421
+    "downfall": 0.8999999761581421,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:snowy_taiga": {
     "has_precipitation": true,
     "temperature": -0.5,
-    "downfall": 0.4000000059604645
+    "downfall": 0.4000000059604645,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:soul_sand_valley": {
     "has_precipitation": false,
     "temperature": 2.0,
-    "downfall": 0.0
+    "downfall": 0.0,
+    "carvers": "minecraft:nether_cave"
   },
   "minecraft:sparse_jungle": {
     "has_precipitation": true,
     "temperature": 0.949999988079071,
-    "downfall": 0.800000011920929
+    "downfall": 0.800000011920929,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:stony_peaks": {
     "has_precipitation": true,
     "temperature": 1.0,
-    "downfall": 0.30000001192092896
+    "downfall": 0.30000001192092896,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:stony_shore": {
     "has_precipitation": true,
     "temperature": 0.20000000298023224,
-    "downfall": 0.30000001192092896
+    "downfall": 0.30000001192092896,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:sulfur_caves": {
     "has_precipitation": true,
     "temperature": 0.800000011920929,
-    "downfall": 0.4000000059604645
+    "downfall": 0.4000000059604645,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:sunflower_plains": {
     "has_precipitation": true,
     "temperature": 0.800000011920929,
-    "downfall": 0.4000000059604645
+    "downfall": 0.4000000059604645,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:swamp": {
     "has_precipitation": true,
     "temperature": 0.800000011920929,
-    "downfall": 0.8999999761581421
+    "downfall": 0.8999999761581421,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:taiga": {
     "has_precipitation": true,
     "temperature": 0.25,
-    "downfall": 0.800000011920929
+    "downfall": 0.800000011920929,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:the_end": {
     "has_precipitation": false,
     "temperature": 0.5,
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": []
   },
   "minecraft:the_void": {
     "has_precipitation": false,
     "temperature": 0.5,
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": []
   },
   "minecraft:warm_ocean": {
     "has_precipitation": true,
     "temperature": 0.5,
-    "downfall": 0.5
+    "downfall": 0.5,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:warped_forest": {
     "has_precipitation": false,
     "temperature": 2.0,
-    "downfall": 0.0
+    "downfall": 0.0,
+    "carvers": "minecraft:nether_cave"
   },
   "minecraft:windswept_forest": {
     "has_precipitation": true,
     "temperature": 0.20000000298023224,
-    "downfall": 0.30000001192092896
+    "downfall": 0.30000001192092896,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:windswept_gravelly_hills": {
     "has_precipitation": true,
     "temperature": 0.20000000298023224,
-    "downfall": 0.30000001192092896
+    "downfall": 0.30000001192092896,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:windswept_hills": {
     "has_precipitation": true,
     "temperature": 0.20000000298023224,
-    "downfall": 0.30000001192092896
+    "downfall": 0.30000001192092896,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:windswept_savanna": {
     "has_precipitation": false,
     "temperature": 2.0,
-    "downfall": 0.0
+    "downfall": 0.0,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   },
   "minecraft:wooded_badlands": {
     "has_precipitation": false,
     "temperature": 2.0,
-    "downfall": 0.0
+    "downfall": 0.0,
+    "carvers": [
+      "minecraft:cave",
+      "minecraft:cave_extra_underground",
+      "minecraft:canyon"
+    ]
   }
 }

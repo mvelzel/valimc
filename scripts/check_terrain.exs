@@ -1,8 +1,8 @@
 # VMC-024: ValiMC's terrain equals vanilla's block for block (TerrainOracle):
 # every noise settings entry over three seeds, chunks near the origin and far
 # away, filled from the final density and the aquifer (`fill`), then with the
-# material rule applied (`surface`, VMC-024b), with the same fluid positions
-# marked for post-processing.
+# material rule applied (`surface`, VMC-024b), then carved (`carve`, VMC-024c),
+# with the same fluid positions marked for post-processing.
 alias Valimc.Registry.Blocks
 
 [mode, path] = System.argv()
@@ -34,7 +34,8 @@ results =
     {:ok, filled} =
       case mode do
         "fill" -> Valimc.Native.worldgen_fill_terrain(state, chunks)
-        "surface" -> Valimc.Native.worldgen_build_terrain(state, source.(settings), chunks)
+        "surface" -> Valimc.Native.worldgen_build_terrain(state, source.(settings), false, chunks)
+        "carve" -> Valimc.Native.worldgen_build_terrain(state, source.(settings), true, chunks)
       end
 
     Enum.zip(rows, filled)
@@ -75,7 +76,7 @@ blocks =
 updates = Enum.sum(for {row, _} <- results, do: length(row["fluid_updates"]))
 
 IO.puts(
-  "PASS: #{length(results)} #{if mode == "fill", do: "noise-filled", else: "surfaced"} chunks " <>
+  "PASS: #{length(results)} #{%{"fill" => "noise-filled", "surface" => "surfaced", "carve" => "carved"}[mode]} chunks " <>
     "(#{blocks} blocks, #{updates} fluid updates) " <>
     "equal vanilla's block for block"
 )

@@ -980,20 +980,21 @@ fn worldgen_fill_terrain<'a>(
     Ok(out)
 }
 
-/// Terrain of chunks with their material rule applied
-/// (`Worldgen::build_terrain`), biomes from `biome_source`: per chunk its
-/// state ids (as for `worldgen_fill_terrain`) and fluid update positions.
+/// Terrain of chunks with their material rule applied and, with `carve`,
+/// carved (`Worldgen::build_terrain`), biomes from `biome_source`: per chunk
+/// its state ids (as for `worldgen_fill_terrain`) and fluid update positions.
 #[rustler::nif(schedule = "DirtyCpu")]
 fn worldgen_build_terrain<'a>(
     env: rustler::Env<'a>,
     state: ResourceArc<WorldgenState>,
     biome_source: String,
+    carve: bool,
     chunks: Vec<(i32, i32)>,
 ) -> Result<Vec<FilledBinary<'a>>, String> {
     let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
     let mut out = Vec::with_capacity(chunks.len());
     for (x, z) in chunks {
-        let filled = state.build_terrain(x, z, &biome_source)?;
+        let filled = state.build_terrain(x, z, &biome_source, carve)?;
         let mut blocks = NewBinary::new(env, filled.blocks.len() * 2);
         for (bytes, id) in blocks.as_mut_slice().chunks_mut(2).zip(&filled.blocks) {
             bytes.copy_from_slice(&id.to_be_bytes());

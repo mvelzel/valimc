@@ -1,0 +1,161 @@
+{
+  "minecraft:canyon": {
+    "probability": 0.009999999776482582,
+    "y": {
+      "min_inclusive": {
+        "absolute": 10
+      },
+      "max_inclusive": {
+        "absolute": 67
+      },
+      "type": "minecraft:uniform"
+    },
+    "vertical_rotation": {
+      "min_inclusive": -0.125,
+      "max_exclusive": 0.125,
+      "type": "minecraft:uniform"
+    },
+    "shape": {
+      "distance_factor": {
+        "min_inclusive": 0.75,
+        "max_exclusive": 1.0,
+        "type": "minecraft:uniform"
+      },
+      "thickness": {
+        "min": 0.0,
+        "max": 6.0,
+        "plateau": 2.0,
+        "type": "minecraft:trapezoid"
+      },
+      "width_smoothness": 3,
+      "horizontal_radius_factor": {
+        "min_inclusive": 0.75,
+        "max_exclusive": 1.0,
+        "type": "minecraft:uniform"
+      },
+      "vertical_radius_default_factor": 1.0,
+      "vertical_radius_center_factor": 0.0,
+      "y_scale": 3.0
+    },
+    "type": "minecraft:canyon"
+  },
+  "minecraft:cave": {
+    "probability": 0.15000000596046448,
+    "y": {
+      "min_inclusive": {
+        "above_bottom": 8
+      },
+      "max_inclusive": {
+        "absolute": 180
+      },
+      "type": "minecraft:uniform"
+    },
+    "count": {
+      "min_inclusive": 0,
+      "max_inclusive": 14,
+      "type": "minecraft:very_biased_to_bottom"
+    },
+    "thickness": {
+      "min": 0.0,
+      "max": 3.0,
+      "plateau": 1.0,
+      "type": "minecraft:trapezoid"
+    },
+    "weird_thickness_bias": true,
+    "room_vertical_radius_multiplier": {
+      "min_inclusive": 0.10000000149011612,
+      "max_exclusive": 0.8999999761581421,
+      "type": "minecraft:uniform"
+    },
+    "horizontal_radius_multiplier": {
+      "min_inclusive": 0.699999988079071,
+      "max_exclusive": 1.399999976158142,
+      "type": "minecraft:uniform"
+    },
+    "vertical_radius_multiplier": {
+      "min_inclusive": 0.800000011920929,
+      "max_exclusive": 1.2999999523162842,
+      "type": "minecraft:uniform"
+    },
+    "floor_level": {
+      "min_inclusive": -1.0,
+      "max_exclusive": -0.4000000059604645,
+      "type": "minecraft:uniform"
+    },
+    "type": "minecraft:cave"
+  },
+  "minecraft:cave_extra_underground": {
+    "probability": 0.07000000029802322,
+    "y": {
+      "min_inclusive": {
+        "above_bottom": 8
+      },
+      "max_inclusive": {
+        "absolute": 47
+      },
+      "type": "minecraft:uniform"
+    },
+    "count": {
+      "min_inclusive": 0,
+      "max_inclusive": 14,
+      "type": "minecraft:very_biased_to_bottom"
+    },
+    "thickness": {
+      "min": 0.0,
+      "max": 3.0,
+      "plateau": 1.0,
+      "type": "minecraft:trapezoid"
+    },
+    "weird_thickness_bias": true,
+    "room_vertical_radius_multiplier": {
+      "min_inclusive": 0.10000000149011612,
+      "max_exclusive": 0.8999999761581421,
+      "type": "minecraft:uniform"
+    },
+    "horizontal_radius_multiplier": {
+      "min_inclusive": 0.699999988079071,
+      "max_exclusive": 1.399999976158142,
+      "type": "minecraft:uniform"
+    },
+    "vertical_radius_multiplier": {
+      "min_inclusive": 0.800000011920929,
+      "max_exclusive": 1.2999999523162842,
+      "type": "minecraft:uniform"
+    },
+    "floor_level": {
+      "min_inclusive": -1.0,
+      "max_exclusive": -0.4000000059604645,
+      "type": "minecraft:uniform"
+    },
+    "type": "minecraft:cave"
+  },
+  "minecraft:nether_cave": {
+    "probability": 0.20000000298023224,
+    "y": {
+      "min_inclusive": {
+        "absolute": 0
+      },
+      "max_inclusive": {
+        "below_top": 1
+      },
+      "type": "minecraft:uniform"
+    },
+    "count": {
+      "min_inclusive": 0,
+      "max_inclusive": 9,
+      "type": "minecraft:very_biased_to_bottom"
+    },
+    "thickness": {
+      "min": 0.0,
+      "max": 6.0,
+      "plateau": 2.0,
+      "type": "minecraft:trapezoid"
+    },
+    "room_vertical_radius_multiplier": 0.5,
+    "horizontal_radius_multiplier": 1.0,
+    "vertical_radius_multiplier": 1.0,
+    "start_vertical_radius_multiplier": 5.0,
+    "floor_level": -0.699999988079071,
+    "type": "minecraft:cave"
+  }
+}

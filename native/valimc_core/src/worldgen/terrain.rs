@@ -48,9 +48,9 @@ impl FluidStatus {
 /// The global fluid: lava below -54 (or below sea level, if that is lower),
 /// the default fluid below sea level.
 #[derive(Clone, Copy, Debug)]
-struct FluidPicker {
-    sea_level: i32,
-    blocks: TerrainBlocks,
+pub struct FluidPicker {
+    pub sea_level: i32,
+    pub blocks: TerrainBlocks,
 }
 
 impl FluidPicker {
@@ -126,7 +126,7 @@ const SURFACE_OFFSETS: [(i32, i32); 13] = [
 ];
 
 /// Vanilla's `NoiseBasedAquifer` for one noise chunk.
-struct NoiseAquifer<'a> {
+pub struct NoiseAquifer<'a> {
     samplers: &'a AquiferSamplers,
     positional: Positional,
     picker: FluidPicker,
@@ -537,19 +537,70 @@ pub struct FilledChunk {
     pub fluid_updates: Vec<(i32, i32, i32)>,
 }
 
+/// A noise chunk's aquifer: vanilla's noise-based aquifer, or the disabled
+/// one that places the global fluid wherever density is not positive.
+pub enum Aquifer<'a> {
+    Noise(Box<NoiseAquifer<'a>>),
+    Disabled(FluidPicker),
+}
+
+impl<'a> Aquifer<'a> {
+    /// Creates the aquifer as `NoiseChunk` does; the noise-based one samples
+    /// the surface level around the chunk through `ctx` immediately.
+    pub fn new(
+        ctx: &mut Context,
+        samplers: Option<(&'a AquiferSamplers, Positional)>,
+        volume: &Volume,
+        sea_level: i32,
+        blocks: TerrainBlocks,
+    ) -> Aquifer<'a> {
+        let picker = FluidPicker { sea_level, blocks };
+        match samplers {
+            Some((samplers, positional)) => Aquifer::Noise(Box::new(NoiseAquifer::new(
+                ctx, samplers, positional, volume, picker,
+            ))),
+            None => Aquifer::Disabled(picker),
+        }
+    }
+
+    /// `computeSubstance`: `None` for the default block.
+    pub fn compute_substance(
+        &mut self,
+        ctx: &mut Context,
+        x: i32,
+        y: i32,
+        z: i32,
+        density: f64,
+    ) -> Option<u16> {
+        match self {
+            Aquifer::Noise(aquifer) => aquifer.compute_substance(ctx, x, y, z, density),
+            Aquifer::Disabled(picker) => {
+                if density > 0.0 {
+                    None
+                } else {
+                    Some(picker.at(y).at(y, picker.blocks.air))
+                }
+            }
+        }
+    }
+
+    pub fn should_schedule_fluid_update(&self) -> bool {
+        match self {
+            Aquifer::Noise(aquifer) => aquifer.should_schedule_fluid_update,
+            Aquifer::Disabled(_) => false,
+        }
+    }
+}
+
 /// Fills `volume` (one chunk, block steps) from `final_density` and the
 /// aquifer, as `doFill` does, through the noise chunk's context `ctx`.
 pub fn fill(
     ctx: &mut Context,
     final_density: &Sampler,
-    aquifer: Option<(&AquiferSamplers, Positional)>,
+    aquifer: &mut Aquifer,
     volume: &Volume,
-    sea_level: i32,
     blocks: TerrainBlocks,
 ) -> FilledChunk {
-    let picker = FluidPicker { sea_level, blocks };
-    let mut noise_aquifer = aquifer
-        .map(|(samplers, positional)| NoiseAquifer::new(ctx, samplers, positional, volume, picker));
     let mut density = vec![0.0f32; volume.len()];
     final_density.fill(ctx, &mut density, volume);
     let mut out = vec![blocks.air; volume.len()];
@@ -562,25 +613,11 @@ pub fn fill(
             for iy in (0..volume.size[1]).rev() {
                 let y = volume.block(1, iy);
                 let index = volume.index(ix, iy, iz);
-                let d = density[index] as f64;
-                let (substance, schedule) = match noise_aquifer.as_mut() {
-                    Some(aquifer) => {
-                        let s = aquifer.compute_substance(ctx, x, y, z, d);
-                        (s, aquifer.should_schedule_fluid_update)
-                    }
-                    None => (
-                        if d > 0.0 {
-                            None
-                        } else {
-                            Some(picker.at(y).at(y, blocks.air))
-                        },
-                        false,
-                    ),
-                };
+                let substance = aquifer.compute_substance(ctx, x, y, z, density[index] as f64);
                 let state = substance.unwrap_or(blocks.default_block);
                 if state != blocks.air {
                     out[index] = state;
-                    if schedule && is_fluid(state) {
+                    if aquifer.should_schedule_fluid_update() && is_fluid(state) {
                         fluid_updates.push((x, y, z));
                     }
                 }

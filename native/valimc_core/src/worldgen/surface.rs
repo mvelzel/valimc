@@ -201,6 +201,10 @@ pub enum Anchor {
 }
 
 impl Anchor {
+    pub(crate) fn parse_json(json: &Json) -> Result<Anchor, String> {
+        Anchor::parse(json)
+    }
+
     fn parse(json: &Json) -> Result<Anchor, String> {
         let [(key, value)] = json.entries()? else {
             return Err("a vertical anchor has one field".into());
@@ -1091,8 +1095,17 @@ impl ChunkBlocks<'_> {
     /// `ProtoChunk.setBlockState` through a column: updates the surface
     /// heightmap and marks fluids for post-processing.
     fn set(&mut self, x: i32, y: i32, z: i32, state: u16) {
+        if self.put(x, y, z, state) && self.flags[state as usize] & 2 != 0 {
+            self.fluid_updates
+                .push((self.chunk_x * 16 + x, y, self.chunk_z * 16 + z));
+        }
+    }
+
+    /// `ProtoChunk.setBlockState` alone: the block and the surface heightmap.
+    /// False outside the chunk's height.
+    pub(crate) fn put(&mut self, x: i32, y: i32, z: i32, state: u16) -> bool {
         let Some(index) = self.index(x, y, z) else {
-            return;
+            return false;
         };
         self.blocks[index] = state;
         let column = (x + z * 16) as usize;
@@ -1113,10 +1126,20 @@ impl ChunkBlocks<'_> {
                 self.surface[column] = height;
             }
         }
-        if self.flags[state as usize] & 2 != 0 {
-            self.fluid_updates
-                .push((self.chunk_x * 16 + x, y, self.chunk_z * 16 + z));
-        }
+        true
+    }
+
+    pub(crate) fn mark_fluid_update(&mut self, x: i32, y: i32, z: i32) {
+        self.fluid_updates
+            .push((self.chunk_x * 16 + x, y, self.chunk_z * 16 + z));
+    }
+
+    pub(crate) fn state(&self, x: i32, y: i32, z: i32) -> Option<u16> {
+        self.get(x, y, z)
+    }
+
+    pub(crate) fn flag(&self, state: Option<u16>, bit: u8) -> bool {
+        state.is_some_and(|s| self.flags[s as usize] & bit != 0)
     }
 }
 
@@ -1248,6 +1271,62 @@ pub fn build_surface(
         }
     }
     Ok(())
+}
+
+/// `MaterialSystem.topMaterial`: the material the rule places at one block
+/// (a carver uncovering dirt below grass), from a context over that block
+/// alone.
+pub fn top_material(
+    env: &mut dyn SurfaceEnv,
+    ctx: &mut Context,
+    input: &SurfaceInput,
+    chunk: &ChunkBlocks,
+    (x, y, z): (i32, i32, i32),
+    under_fluid: bool,
+) -> Result<Option<u16>, String> {
+    let expected = Volume {
+        size: [1, 1, 1],
+        min: [x, y, z],
+        step: [1, 1, 1],
+    };
+    let mut compiler = Compiler {
+        input,
+        noise_slots: Vec::new(),
+        expected,
+    };
+    let rule = compiler.rule(env, ctx, input.rule)?;
+    let noise_stacks = compiler
+        .noise_slots
+        .iter()
+        .map(|n| env.noise(n))
+        .collect::<Result<Vec<_>, _>>()?;
+    let slots = noise_stacks.len();
+    let mut rc = RuleContext {
+        input,
+        expected,
+        block_x: 0,
+        block_z: 0,
+        gradient_x: 0,
+        gradient_z: 0,
+        surface_depth: 0,
+        surface_secondary: None,
+        min_surface_level: None,
+        preliminary: None,
+        noise_2d: vec![None; slots],
+        noise_3d: vec![None; slots],
+        noise_stacks,
+        biome: None,
+        block_y: 0,
+        water_height: 0,
+        stone_depth_below: 0,
+        stone_depth_above: 0,
+    };
+    let (lx, lz) = (x & 15, z & 15);
+    let gradient_x = chunk.height_at((lx + 1).min(15), lz) - chunk.height_at((lx - 1).max(0), lz);
+    let gradient_z = chunk.height_at(lx, (lz + 1).min(15)) - chunk.height_at(lx, (lz - 1).max(0));
+    rc.update_xz(x, z, gradient_x, gradient_z);
+    rc.update_y(1, 1, if under_fluid { y + 1 } else { i32::MIN }, y);
+    Ok(rc.apply(ctx, &rule))
 }
 
 fn eroded_badlands_extension(

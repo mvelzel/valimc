@@ -59,6 +59,9 @@ defmodule Valimc.Protocol.Data do
 
   def tags_payload, do: :persistent_term.get({__MODULE__, :tags})
 
+  @doc "Tag entries by registry and tag name, as registry ids (`tags.json`)."
+  def tags, do: @tags
+
   def registries, do: @registries
 
   @registry_index Map.new(@registries, fn {registry, entries} ->

@@ -9,6 +9,7 @@ import net.minecraft.server.Bootstrap;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterList;
 import net.minecraft.world.level.levelgen.NoiseGeneratorSettings;
+import net.minecraft.world.level.levelgen.carver.WorldCarver;
 import net.minecraft.world.level.levelgen.densityfunction.DensityFunctions;
 import net.minecraft.world.level.levelgen.material.condition.MaterialCondition;
 import net.minecraft.world.level.levelgen.material.rule.MaterialRule;
@@ -27,7 +28,8 @@ import net.minecraft.world.level.levelgen.synth.NormalNoise;
  * - material_rules.json and material_conditions.json: the
  *   `worldgen/material_rule` and `worldgen/material_condition` registries;
  * - biomes.json: per biome, its climate (precipitation, temperature and its
- *   modifier, downfall);
+ *   modifier, downfall) and carvers;
+ * - carvers.json: the `worldgen/carver` registry;
  * - biome_parameters.json: per multi-noise preset, its climate parameter list
  *   in order, one row per entry: the biome, then the quantized minimum and
  *   maximum of temperature, humidity, continentalness, erosion, depth and
@@ -74,11 +76,15 @@ public class WorldgenFactsOracle {
     lookup.lookupOrThrow(Registries.BIOME).listElements().forEach(holder -> {
       var full = Biome.DIRECT_CODEC.encodeStart(ops, holder.value()).getOrThrow().getAsJsonObject();
       var kept = new JsonObject();
-      for (var key : List.of("has_precipitation", "temperature", "temperature_modifier", "downfall")) {
+      for (var key : List.of("has_precipitation", "temperature", "temperature_modifier", "downfall", "carvers")) {
         if (full.has(key)) kept.add(key, full.get(key));
       }
       biomes.put(holder.key().identifier().toString(), kept);
     });
+
+    var carvers = new TreeMap<String, JsonElement>();
+    lookup.lookupOrThrow(Registries.CARVER).listElements().forEach(holder ->
+        carvers.put(holder.key().identifier().toString(), WorldCarver.DIRECT_CODEC.encodeStart(ops, holder.value()).getOrThrow()));
 
     write(args[0], noises);
     write(args[1], functions);
@@ -86,6 +92,7 @@ public class WorldgenFactsOracle {
     write(args[4], rules);
     write(args[5], conditions);
     write(args[6], biomes);
+    write(args[7], carvers);
 
     var presets = new TreeMap<String, List<String>>();
     MultiNoiseBiomeSourceParameterList.knownPresets().forEach((preset, list) -> {
@@ -111,7 +118,7 @@ public class WorldgenFactsOracle {
     System.out.println("PASS: " + noises.size() + " noise parameter sets, " + functions.size()
         + " density functions, " + settings.size() + " noise settings, "
         + presets.size() + " biome parameter presets, " + rules.size() + " material rules, " + conditions.size()
-        + " material conditions, " + biomes.size() + " biomes");
+        + " material conditions, " + biomes.size() + " biomes, " + carvers.size() + " carvers");
   }
 
   static void write(String path, Map<String, JsonElement> entries) throws Exception {

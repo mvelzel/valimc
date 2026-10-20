@@ -9,10 +9,11 @@ defmodule Valimc.Worldgen do
   """
   alias Valimc.Native
   alias Valimc.Physics.FluidBlocks
+  alias Valimc.Protocol.Data
   alias Valimc.Registry.Blocks
 
   @facts ~w(noises density_functions noise_settings biome_parameters material_rules
-            material_conditions biomes)
+            material_conditions biomes carvers)
   @rule_states ~w(result_state ore_block raw_ore_block filler_block)
   @terracotta ~w(terracotta orange_terracotta yellow_terracotta brown_terracotta red_terracotta
                  white_terracotta light_gray_terracotta)
@@ -75,17 +76,28 @@ defmodule Valimc.Worldgen do
   defp state_id(%{"Name" => "minecraft:" <> name} = state),
     do: Blocks.state(name, Map.get(state, "Properties", %{}))
 
+  # Per state: bit 0 air, 1 contains a fluid, 2 water, 3 uncarvable (block
+  # tag), 4 grass block or mycelium, 5 dirt.
   defp blocks do
     air = MapSet.new(~w(air cave_air void_air), &Blocks.id/1)
     water = Blocks.id("water")
+    uncarvable = MapSet.new(Data.tags()["minecraft:block"]["minecraft:uncarvable"])
+    grass = MapSet.new(~w(grass_block mycelium), &Blocks.id/1)
+    dirt = Blocks.id("dirt")
 
     flags =
       for id <- 0..(Blocks.state_count() - 1) do
         block = Blocks.block_id(id)
         {:ok, fluid} = FluidBlocks.fetch(id)
 
-        if(block in air, do: 1, else: 0) + if(fluid.kind != :empty, do: 2, else: 0) +
-          if block == water, do: 4, else: 0
+        Enum.sum([
+          if(block in air, do: 1, else: 0),
+          if(fluid.kind != :empty, do: 2, else: 0),
+          if(block == water, do: 4, else: 0),
+          if(block in uncarvable, do: 8, else: 0),
+          if(block in grass, do: 16, else: 0),
+          if(block == dirt, do: 32, else: 0)
+        ])
       end
 
     %{

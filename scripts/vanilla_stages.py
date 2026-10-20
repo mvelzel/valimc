@@ -60,7 +60,8 @@ STAGES = [
     ]),
     ('worldgen_facts', [
         ('java', 'WorldgenFactsOracle', '@noises.json', '@density_functions.json', '@noise_settings.json',
-         '@biome_parameters.json', '@material_rules.json', '@material_conditions.json', '@biomes.json'),
+         '@biome_parameters.json', '@material_rules.json', '@material_conditions.json', '@biomes.json',
+         '@carvers.json'),
         ('same', '@noises.json', 'priv/worldgen/noises.json'),
         ('same', '@density_functions.json', 'priv/worldgen/density_functions.json'),
         ('same', '@noise_settings.json', 'priv/worldgen/noise_settings.json'),
@@ -68,6 +69,7 @@ STAGES = [
         ('same', '@material_rules.json', 'priv/worldgen/material_rules.json'),
         ('same', '@material_conditions.json', 'priv/worldgen/material_conditions.json'),
         ('same', '@biomes.json', 'priv/worldgen/biomes.json'),
+        ('same', '@carvers.json', 'priv/worldgen/carvers.json'),
     ]),
     ('worldgen_noise', [
         ('java', 'NoiseOracle', '@noise.json'),
@@ -88,6 +90,10 @@ STAGES = [
     ('worldgen_surface', [
         ('java', 'TerrainOracle', 'surface', '@surface.json'),
         ('check', 'check_terrain.exs', 'surface', '@surface.json'),
+    ]),
+    ('worldgen_carvers', [
+        ('java', 'TerrainOracle', 'carve', '@carve.json'),
+        ('check', 'check_terrain.exs', 'carve', '@carve.json'),
     ]),
     ('block_registry', [
         ('java', 'BlockRegistryMetadata', '@block-registry.json'),
