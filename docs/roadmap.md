@@ -11,11 +11,11 @@ indexes earlier tickets. Evidence lives in tickets, not here.
 The October 2026 audit found the preview's gameplay slices sound but its
 foundations unable to carry full vanilla at scale: a flat-world edit map instead of
 chunk sections, one fsync-bound write at a time per region, per-feature transfer
-machinery, owner-mailbox block reads and a 5,800-line connection process. New
-gameplay (more effects, containers, orb simulation) is paused until milestone M1
-lands. See [architecture](architecture.md) for the target design.
+machinery, owner-mailbox block reads and a 5,800-line connection process. M1
+replaced them (October 2026); see [architecture](architecture.md). Gameplay work
+resumes on these foundations alongside M2.
 
-## M1 — Foundations (now)
+## M1 — Foundations (complete)
 
 | Ticket | Slice | Status |
 |---|---|---|
@@ -24,14 +24,14 @@ lands. See [architecture](architecture.md) for the target design.
 | [VMC-064](tickets/VMC-064.md) | One owner-transaction engine and section fencing | Done |
 | [VMC-065](tickets/VMC-065.md) | Published section snapshots for lock-free collision/observation reads | Done |
 | [VMC-066](tickets/VMC-066.md) | Tick pipeline on game time: steppable clock, scheduled and random ticks | Foundation |
-| [VMC-067](tickets/VMC-067.md) | Generic entity model; items and XP orbs migrate onto it | Awaiting client |
+| [VMC-067](tickets/VMC-067.md) | Generic entity model; items and XP orbs migrate onto it | Done |
 | [VMC-068](tickets/VMC-068.md) | Unified generated block/item registry, block behaviours, protocol constants | Done |
 | [VMC-069](tickets/VMC-069.md) | Connection hot path (slim peers, frame once, counters), then split | Done |
 
-Order matters only where tickets share code: 062 precedes 063/065; 064 precedes
-067. VMC-068 and VMC-069 can proceed in parallel with the world work.
+VMC-066 is a foundation: the pipeline runs items, cooking and orb lifetime in
+play; scheduled and random block ticks await their first gameplay behaviours.
 
-## M2 — Real worlds
+## M2 — Real worlds (next)
 
 Anvil import/export (Rust, VMC-020/021), lighting (Rust, VMC-022), clean-room
 vanilla worldgen in Rust (noise, biomes, surface, carvers, then features and
@@ -47,8 +47,10 @@ milestones C–F describe the remaining scope.
 
 ## Paused
 
-Cooking-orb simulation ([VMC-034n4c](tickets/VMC-034n4c.md)) waits for the entity
-model. Additional status effects and container variants wait for M1.
+Cooking-orb simulation ([VMC-034n4c](tickets/VMC-034n4c.md)) is unblocked by the
+entity model (orbs already age and despawn). Additional status effects and
+container variants can resume. Sugar cane and cactus growth need their placement
+survival rules first ([VMC-066](tickets/VMC-066.md)).
 Removing a furnace that holds items is refused until its spill and stored
 experience exist ([VMC-034f](tickets/VMC-034f.md)).
 
@@ -58,9 +60,8 @@ experience exist ([VMC-034f](tickets/VMC-034f.md)).
 |---|---|
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Server CLONE/type-2 fill from a creative container menu (VMC-032) |
 
-The M1 client baseline (join, terrain, building, chest, furnace, reconnect,
-restart, survival mining) passed on `68c98da`; see [VMC-062](tickets/VMC-062.md).
-Region and player group commit (VMC-063) passed its client check on `4cc6091`.
+The M1 milestone client run passed on `127934a` (see [VMC-069](tickets/VMC-069.md)),
+with the item despawn fix checked on `6243c8c` ([VMC-067](tickets/VMC-067.md)).
 
 ## Retrieve and update
 
