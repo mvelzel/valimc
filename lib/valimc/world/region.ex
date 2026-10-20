@@ -121,6 +121,17 @@ defmodule Valimc.World.Region do
     :exit, _ -> {:error, :region_unavailable}
   end
 
+  @doc """
+  The `block_entity_data` packet of a live imported block entity at `position`
+  (`{:ok, packet | nil}`): a refused change resends it after the block, since
+  the client dropped the block entity when it predicted the change (VMC-021e1).
+  """
+  def block_entity_update({pid, epoch}, position) do
+    GenServer.call(pid, {:block_entity_update, epoch, position}, 250)
+  catch
+    :exit, _ -> {:ok, nil}
+  end
+
   @doc "Send current clicked/adjacent corrections from the same sender as owner block publications."
   def correct_blocks({pid, epoch}, positions, connection) when is_pid(connection) do
     GenServer.call(pid, {:correct_blocks, epoch, positions, connection}, 250)

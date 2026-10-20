@@ -22,7 +22,8 @@ defmodule Valimc.PlayerMiningQuery do
 
       with {:ok, owner} <- World.existing_owner(key),
            {:ok, observation} <- Region.observe_blocks(owner, [position]),
-           do: {:ok, owner, Map.fetch!(observation.blocks, position)}
+           {:ok, update} <- Region.block_entity_update(owner, position),
+           do: {:ok, owner, Map.fetch!(observation.blocks, position), update}
     end)
   end
 

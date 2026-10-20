@@ -46,6 +46,15 @@ defmodule Valimc.Protocol.ChestBlockEntity do
     [<<packed, y::signed-16>>, Wire.varint(type), tag || <<0>>]
   end
 
+  @doc "A `block_entity_data` packet: a block entity's type and update tag (nil sends none)."
+  def data_packet(position, type, tag) when is_integer(type) and type >= 0 do
+    Packets.packet("block_entity_data", [
+      Wire.position(position),
+      Wire.varint(type),
+      tag || <<10, 0>>
+    ])
+  end
+
   def update({x, y, z} = position)
       when is_integer(x) and is_integer(y) and is_integer(z) and y in -64..319 and
              x in -29_999_984..29_999_984 and z in -29_999_984..29_999_984,

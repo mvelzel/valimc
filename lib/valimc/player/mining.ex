@@ -288,12 +288,14 @@ defmodule Valimc.Player.Mining do
     end
   end
 
-  def mining_result(state, %{stage: :correct} = job, {:ok, owner, block}) do
+  # An imported block entity's data follows its block: the client dropped the
+  # block entity when it predicted the break (VMC-021e1).
+  def mining_result(state, %{stage: :correct} = job, {:ok, owner, block, update}) do
     key = World.region_key(World.chunk_key(elem(job.position, 0), elem(job.position, 2)))
 
     if job.generation == state.pose_generation and World.existing_owner(key) == {:ok, owner} and
          reachable?(state, job.position),
-       do: send_packets(state, [Packets.block(job.position, block)])
+       do: send_packets(state, [Packets.block(job.position, block) | List.wrap(update)])
 
     state
   end

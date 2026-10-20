@@ -120,6 +120,21 @@ defmodule Valimc.ImportedBlockEntitiesTest do
     assert_receive {:event, {:table_admitted, ^ref, ^owner, :pass}}
   end
 
+  test "a refused change's correction resends the sign's data after its block", ctx do
+    {:ok, owner} = World.owner(ctx.key)
+    {:ok, packet} = Region.block_entity_update(owner, ctx.sign)
+    {id, payload} = packet
+    assert id == Valimc.Protocol.Data.id(:play, :clientbound, "block_entity_data")
+    assert :binary.match(IO.iodata_to_binary(payload), "Imported") != :nomatch
+    # Owned chests have no update tag; nothing is resent for them.
+    assert Region.block_entity_update(owner, ctx.chest) == {:ok, nil}
+
+    assert :ok = Region.correct_blocks(owner, [ctx.sign], self())
+    sign = ctx.sign
+    assert_receive {:event, {:block, ^sign, @sign}}
+    assert_receive {:event, {:block_entity, ^sign, ^packet}}
+  end
+
   test "an imported chest opens with its contents", ctx do
     {:ok, owner} = World.owner(ctx.key)
     World.subscribe(MapSet.new([ctx.key]), MapSet.new())

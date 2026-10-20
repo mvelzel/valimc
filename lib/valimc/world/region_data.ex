@@ -1294,12 +1294,24 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  def handle_call({:block_entity_update, epoch, position}, _from, state) do
+    cond do
+      epoch != state.items.epoch -> {:reply, {:error, :stale_owner}, state}
+      not valid_block_query?([position], :any) -> {:reply, {:error, :invalid_block_query}, state}
+      true -> {:reply, {:ok, preserved_update(state, position)}, state}
+    end
+  end
+
   def handle_call({:correct_blocks, epoch, positions, connection}, from, state) do
     if is_pid(connection) and valid_block_query?(positions, :any) and length(positions) <= 2 do
       case handle_call({:observe_blocks, epoch, positions, :any}, from, state) do
         {:reply, {:ok, observed}, state} ->
-          for {position, block} <- observed.blocks,
-              do: Valimc.Connection.deliver(connection, {:block, position, block})
+          for {position, block} <- observed.blocks do
+            Valimc.Connection.deliver(connection, {:block, position, block})
+
+            if packet = preserved_update(state, position),
+              do: Valimc.Connection.deliver(connection, {:block_entity, position, packet})
+          end
 
           {:reply, :ok, state}
 
@@ -2379,6 +2391,17 @@ defmodule Valimc.World.RegionData do
     do:
       Valimc.Physics.BlockEntities.interactive?(block) and
         BlockEntities.live(state.block_entities, position, block) != nil
+
+  # The update packet of a live imported block entity with an update tag, or nil.
+  defp preserved_update(state, {x, _, z} = position) do
+    with true <- Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == state.key,
+         %{type: type, update: update} when update != nil <-
+           BlockEntities.live(state.block_entities, position, Blocks.get(state.blocks, position)) do
+      Valimc.Protocol.ChestBlockEntity.data_packet(position, type, update)
+    else
+      _ -> nil
+    end
+  end
 
   # Live imported block entities of a chunk for its packet.
   defp preserved_entities(state, chunk) do

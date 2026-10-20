@@ -112,7 +112,7 @@ public class AnvilContentOracle {
       "oak_sign{front_text:{messages:[\"Hello\",{text:\"world\",color:\"blue\"},\"\",\"\"],color:\"red\",has_glowing_text:1b},is_waxed:1b}",
       "white_banner{patterns:[{pattern:\"minecraft:stripe_top\",color:\"red\"},{pattern:\"minecraft:cross\",color:\"blue\"}],components:{\"minecraft:custom_name\":\"Flag\"}}",
       "campfire{Items:[{Slot:0b,id:\"minecraft:beef\",count:1}],CookingTimes:[I;10,0,0,0],CookingTotalTimes:[I;600,0,0,0]}",
-      "decorated_pot{sherds:[\"minecraft:brick\",\"minecraft:angler_pottery_sherd\",\"minecraft:brick\",\"minecraft:archer_pottery_sherd\"]}",
+      "decorated_pot{sherds:{back:{id:\"minecraft:angler_pottery_sherd\"},left:{id:\"minecraft:archer_pottery_sherd\"}}}",
       "spawner{SpawnData:{entity:{id:\"minecraft:zombie\"}},Delay:20s}",
       "skeleton_skull{custom_name:\"Yorick\"}",
       "lectern[has_book=true]{Book:{id:\"minecraft:writable_book\",count:1}}",
@@ -153,15 +153,18 @@ public class AnvilContentOracle {
   // ---- client world ----
 
   /**
-   * The VMC-021e client test world: full chunks for x −160..191 and z −160..159
-   * (spawn and the savanna village around x 110, z 30) plus the fixture platform
-   * at y 100 over x 128..191, z −64..−1. Not a stage; a dataset for the client run.
+   * The VMC-021e client test world: full chunks for x −160..319 and z −160..287
+   * (spawn, a pillager outpost around x 150, z 40 and the savanna village around
+   * x 265, z 228) plus the fixture platform at y 100 over x 128..191, z −64..−1.
+   * Not a stage; a dataset for the client run.
    */
   static void client(Path dir) throws Exception {
     var commands = new ArrayList<String>();
-    commands.add("forceload add -160 -160 15 159");
-    commands.add("forceload add 16 -160 191 159");
-    commands.add("#sleep 45000");
+    // At most 256 chunks per forceload command.
+    for (var x : new int[][]{{-160, 15}, {16, 191}, {192, 319}})
+      for (var z : new int[][]{{-160, 63}, {64, 287}})
+        commands.add("forceload add " + x[0] + " " + z[0] + " " + x[1] + " " + z[1]);
+    commands.add("#sleep 90000");
     commands.addAll(fixtures(128, -64));
     WorldNbtOracle.runServer(dir, Map.of(), commands);
     System.out.println("PASS: client world in " + dir.resolve("universe/w"));
@@ -345,8 +348,25 @@ public class AnvilContentOracle {
       }
     }
     if (lit == 0) throw new AssertionError("no lit chunk checked");
+    // Block entity update packets (corrections after refused changes).
+    int updates = 0;
+    for (var element : facts.getAsJsonArray("block_entities")) {
+      var row = element.getAsJsonObject();
+      var p = row.getAsJsonArray("pos");
+      var file = dir.resolve("update." + p.get(0) + "." + p.get(1) + "." + p.get(2) + ".bin");
+      if (!Files.exists(file)) continue;
+      var buffer = new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(Files.readAllBytes(file)), access);
+      var packet = net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket.STREAM_CODEC.decode(buffer);
+      if (buffer.readableBytes() != 0 || !packet.getPos().equals(new BlockPos(p.get(0).getAsInt(), p.get(1).getAsInt(), p.get(2).getAsInt()))
+          || !BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(packet.getType()).toString().equals(row.get("type").getAsString())
+          || !digest(packet.getTag()).equals(row.get("update").getAsString()))
+        throw new AssertionError("update packet for " + p + " differs from vanilla's getUpdateTag");
+      updates++;
+    }
+    if (updates < 10) throw new AssertionError("too few update packets: " + updates);
     System.out.println("PASS: vanilla decodes ValiMC's chunk packets for " + expected.size() + " chunks with exactly vanilla's "
-        + checked + " block entities, types and update tags, and the stored sky and block light of " + lit + " chunks");
+        + checked + " block entities, types and update tags, the stored sky and block light of " + lit + " chunks, and "
+        + updates + " block entity update packets");
   }
 
   // ---- export ----

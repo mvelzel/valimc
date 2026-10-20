@@ -194,6 +194,11 @@ defmodule Valimc.Session.Events do
     |> Menus.check_table_menu()
   end
 
+  def event(%{phase: :play} = state, {:block_entity, {x, _, z}, packet}) do
+    if MapSet.member?(state.chunks, World.chunk_key(x, z)), do: send_packets(state, [packet])
+    state
+  end
+
   def event(%{phase: :play} = state, {:block_batch, updates}) do
     frames = for {chunk, frame} <- updates, MapSet.member?(state.chunks, chunk), do: frame
     send_frames(state, frames)

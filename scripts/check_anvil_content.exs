@@ -197,6 +197,24 @@ for {cx, cz} = chunk <- chunks do
   File.write!(Path.join(out_dir, "chunk.#{cx}.#{cz}.bin"), payload)
 end
 
+# Corrections resend a preserved block entity's update packet after its block.
+updates =
+  for %{"pos" => [x, y, z]} <- facts["block_entities"],
+      region = regions[Valimc.World.region_key(Valimc.World.chunk_key(x, z))],
+      entry =
+        BlockEntities.live(region.preserved, {x, y, z}, Blocks.get(region.blocks, {x, y, z})),
+      entry != nil and entry.update != nil,
+      reduce: 0 do
+    n ->
+      {_id, payload} =
+        Valimc.Protocol.ChestBlockEntity.data_packet({x, y, z}, entry.type, entry.update)
+
+      File.write!(Path.join(out_dir, "update.#{x}.#{y}.#{z}.bin"), IO.iodata_to_binary(payload))
+      n + 1
+  end
+
+unless updates >= 10, do: raise("too few update packets: #{updates}")
+
 # The imported world exports back to Anvil files for `AnvilContentOracle export`.
 {:ok, exported} = Valimc.Anvil.Export.run(imported, Path.join(out_dir, "exported-world"))
 
