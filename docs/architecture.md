@@ -2,8 +2,8 @@
 
 Processes define state ownership and failure boundaries. Parallel schedulers do
 not make coupled gameplay independent; published observations never grant
-authority. The M1 tickets on the [roadmap](roadmap.md) move the preview from its
-current shape to the target below.
+authority. The M1 foundations below are in place; later milestones on the
+[roadmap](roadmap.md) build gameplay on them.
 
 ## Owners
 
@@ -23,15 +23,16 @@ cap and mailbox checks. Overloaded connections are shut down with
 `{:shutdown, :overloaded}`, so their final save still runs. Chat follows the
 vanilla spam throttle. Runtime caps live in `config/config.exs`.
 
-## Target design (M1)
+## Foundations (M1)
 
 - **Sections, not edit maps.** Each region owns its chunk columns as paletted
   sections in a Rust resource (VMC-062): single-value or packed palette storage
   with block entities and heightmaps beside it. Chunk packets are encoded from the
   sections. The Elixir encoder remains as the parity oracle.
 - **Published reads.** After each committed batch the owner publishes immutable
-  section snapshots with revisions (VMC-065). Collision workers and other readers
-  read them directly; fences compare section revisions instead of a region-wide one.
+  chunk snapshots with revisions (VMC-065). Collision workers and other readers
+  read them directly. Block observations carry section fences, so placement and
+  destruction stale only when the sections they read change (VMC-064).
 - **Group commit.** Owners adopt every durable change in memory at once and queue
   its frame (at most 64); replies, publications and client updates wait until the
   frame is durable. The region writer drains all queued frames into one log append
@@ -39,21 +40,26 @@ vanilla spam throttle. Runtime caps live in `config/config.exs`.
   order; checkpoints run beside it (VMC-063). Simulation keeps ticking.
 - **One transaction engine.** Cross-owner effects (pickup, mining drops, container
   exchanges, merges, handoffs, XP) are idempotent operations keyed by source,
-  sequence and digest with one permit table and one outbox (VMC-064).
-- **Tick pipeline.** Region ticks follow world game time in fixed phases
-  (scheduled ticks, random ticks, entities, block updates, replication). Tests step
-  the clock instead of sleeping (VMC-066). Border effects queue to the neighbour
-  and apply at the start of its next tick.
-- **Entities.** One entity model (identity, body, motion, lifetime, replication)
-  carries items, orbs and later mobs (VMC-067).
+  sequence and digest. Shared primitives: `Txn.Permits` (one owner permit table),
+  `Txn.Receipts` (one idempotency classifier over the per-sequence-space receipt
+  tables), `Txn.Delivery` (bounded attempts) and `Txn.Operation` (the per-kind
+  source half: request, apply, receipt, proof, resolve) (VMC-064).
+- **Tick pipeline.** Each region tick runs `TickPipeline` phases on the owner's
+  game tick: scheduled block ticks, random ticks (a native per-section sampler),
+  items, cooking, orb lifetime, orbs. Block reactions are `Valimc.Block.Behaviour`
+  callbacks; `Region.step/2` drives ticks deterministically in tests (VMC-066).
+- **Entities.** Items and orbs share one view (`EntityView`), one per-chunk
+  publication with revision stamps (`EntityPublication`; observers copy only
+  changed chunks) and one replication tracker per connection (VMC-067).
 - **Data.** One generated fact source per concept and a single version module
   (`Valimc.Version`). `Valimc.Registry.Blocks` owns block identity (state runs,
   defaults, properties, vanilla classes); per-state physics facts keep their own
   dense tables. Block behaviours are `Valimc.Block.Behaviour` callbacks chosen by
   the generated class (VMC-068).
-- **Connection.** Transport, codec (persistent compression streams), login flow,
-  job registry and replication become separate modules; broadcast packets are
-  framed once and shared as binaries (VMC-069).
+- **Connection.** `Valimc.Connection` is a thin GenServer shell; `Net.*` holds
+  the codec, login flow and serverbound dispatch, `Session.*` message routing,
+  jobs, events, replication and commands, and `Player.*` each gameplay domain.
+  Broadcast packets are framed once and shared as binaries (VMC-069).
 
 ## Elixir and Rust
 
