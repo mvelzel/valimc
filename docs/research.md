@@ -41,7 +41,7 @@ Folia's neighboring-region rules are especially relevant: adjacent simulation ca
 
 ## Current version evidence
 
-The pinned Mojang manifest selects Java **26.3**. The official jar's `version.json` reports network protocol **777**, data version **5023**, and Java **25**. The jar SHA-1 is `33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c`. The manifest response is saved in `research/mojang-version.json`. [Minecraft 26.3 release](https://www.minecraft.net/en-us/article/minecraft-java-edition-26-3)
+The pinned Mojang manifest selects Java **26.3**. The official jar's `version.json` reports network protocol **777**, data version **5023**, and Java **25**. The jar SHA-1 is `33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c`. The manifest response is saved in `research/mojang-version.json`; `priv/version.json` carries the pin for the code (VMC-068). [Minecraft 26.3 release](https://www.minecraft.net/en-us/article/minecraft-java-edition-26-3)
 
 `net.minecraft.data.Main --reports` generated the current packet and registry reports. A development-only Java harness enumerated synchronized registry names/entry keys, then a TCP oracle used the official 26.3 codecs to validate the Elixir server. This caught changes in login session IDs, teleport confirmations, section fluid counts, palette storage, light bit sets and entity movement encoding that older libraries did not cover.
 

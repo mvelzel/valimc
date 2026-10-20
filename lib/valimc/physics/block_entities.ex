@@ -15,8 +15,7 @@ defmodule Valimc.Physics.BlockEntities do
   def native?(state), do: MapSet.member?(@states, state)
 
   @doc "Single chests and the furnace family are the block entities ValiMC owns today."
-  def supported?(state),
-    do: Valimc.ChestAccess.single?(state) or Valimc.Physics.CookingBlocks.kind(state) != nil
+  def supported?(state), do: Valimc.Block.block_entity(state) != nil
 
   def unsupported?(state), do: native?(state) and not supported?(state)
 end

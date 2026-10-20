@@ -25,7 +25,7 @@ lands. See [architecture](architecture.md) for the target design.
 | [VMC-065](tickets/VMC-065.md) | Published section snapshots for lock-free collision/observation reads | Done |
 | VMC-066 | Tick pipeline on game time: steppable clock, scheduled and random ticks | Planned |
 | VMC-067 | Generic entity model; items and XP orbs migrate onto it | Planned |
-| VMC-068 | Unified generated block/item registry, block behaviours, protocol constants | Planned |
+| [VMC-068](tickets/VMC-068.md) | Unified generated block/item registry, block behaviours, protocol constants | Foundation |
 | [VMC-069](tickets/VMC-069.md) | Connection hot path (slim peers, frame once, counters), then split | In progress |
 
 Order matters only where tickets share code: 062 precedes 063/065; 064 precedes

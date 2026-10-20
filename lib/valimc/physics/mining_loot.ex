@@ -1,6 +1,6 @@
 defmodule Valimc.Physics.MiningLoot do
   @moduledoc "Native-verified stock block loot; unsupported rule families stay explicit."
-  alias Valimc.Physics.{CookingBlocks, Mining, MiningTools, RandomMiningLoot}
+  alias Valimc.Physics.{Mining, MiningTools, RandomMiningLoot}
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes}
   @path Path.expand("../../../priv/physics/mining_loot.json", __DIR__)
   @external_resource @path
@@ -74,21 +74,14 @@ defmodule Valimc.Physics.MiningLoot do
       when is_integer(state) and state >= 0 and state < @count and
              is_boolean(harvest) do
     if harvest do
-      cond do
-        Valimc.ChestAccess.single?(state) ->
-          {:ok, [ItemStack.new("chest")]}
-
-        kind = CookingBlocks.kind(state) ->
-          {:ok, [ItemStack.new(Atom.to_string(kind))]}
-
-        true ->
-          case elem(
-                 @profiles,
-                 Map.get(@states, state, elem(@blocks, MiningTools.block_id(state)))
-               ) do
-            nil -> RandomMiningLoot.drops(state, tool, true)
-            profile -> {:ok, elem(profile, if(silk?(tool), do: 1, else: 0))}
-          end
+      with :default <- Valimc.Block.harvest_drops(state) do
+        case elem(
+               @profiles,
+               Map.get(@states, state, elem(@blocks, MiningTools.block_id(state)))
+             ) do
+          nil -> RandomMiningLoot.drops(state, tool, true)
+          profile -> {:ok, elem(profile, if(silk?(tool), do: 1, else: 0))}
+        end
       end
     else
       {:ok, []}

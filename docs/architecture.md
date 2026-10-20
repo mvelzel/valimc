@@ -46,9 +46,11 @@ vanilla spam throttle. Runtime caps live in `config/config.exs`.
   and apply at the start of its next tick.
 - **Entities.** One entity model (identity, body, motion, lifetime, replication)
   carries items, orbs and later mobs (VMC-067).
-- **Data.** One generated registry module per fact family and a single version
-  module; block behaviours are callbacks keyed by generated behaviour classes
-  (VMC-068).
+- **Data.** One generated fact source per concept and a single version module
+  (`Valimc.Version`). `Valimc.Registry.Blocks` owns block identity (state runs,
+  defaults, properties, vanilla classes); per-state physics facts keep their own
+  dense tables. Block behaviours are `Valimc.Block.Behaviour` callbacks chosen by
+  the generated class (VMC-068).
 - **Connection.** Transport, codec (persistent compression streams), login flow,
   job registry and replication become separate modules; broadcast packets are
   framed once and shared as binaries (VMC-069).

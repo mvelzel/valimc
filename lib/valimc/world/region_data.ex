@@ -1250,9 +1250,9 @@ defmodule Valimc.World.RegionData do
 
   def handle_call({:remove_block, position}, from, state) do
     block = Blocks.get(state.blocks, position)
-    replacement = Valimc.Physics.FluidBlocks.after_removal(block)
+    replacement = Valimc.Block.after_removal(block)
 
-    if (Valimc.ChestAccess.single?(block) or Valimc.Physics.CookingBlocks.kind(block) != nil) and
+    if Valimc.Block.block_entity(block) != nil and
          Map.has_key?(state.containers.entries, position) do
       if busy = write_busy(state) do
         {:reply, {:error, busy}, state}
@@ -2047,7 +2047,7 @@ defmodule Valimc.World.RegionData do
                      plan.edits
                    else
                      Map.new(plan.expected, fn {pos, block} ->
-                       {pos, Valimc.Physics.FluidBlocks.after_removal(block)}
+                       {pos, Valimc.Block.after_removal(block)}
                      end)
                    end
 
@@ -2089,10 +2089,8 @@ defmodule Valimc.World.RegionData do
 
   defp container_metadata_affected?(containers, expected, edits) do
     Enum.any?(edits, fn {position, block} ->
-      Map.has_key?(containers.entries, position) or Valimc.ChestAccess.single?(block) or
-        Valimc.ChestAccess.single?(expected[position]) or
-        Valimc.Physics.CookingBlocks.kind(block) != nil or
-        Valimc.Physics.CookingBlocks.kind(expected[position]) != nil
+      Map.has_key?(containers.entries, position) or Valimc.Block.block_entity(block) != nil or
+        Valimc.Block.block_entity(expected[position]) != nil
     end)
   end
 
