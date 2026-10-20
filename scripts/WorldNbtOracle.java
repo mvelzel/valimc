@@ -85,54 +85,21 @@ public class WorldNbtOracle {
 
   // ---- world generation ----
 
-  static void generate(Path dir, Path out) throws Exception {
-    Files.createDirectories(dir);
-    int port;
-    try (var socket = new ServerSocket(0)) { port = socket.getLocalPort(); }
-    Files.writeString(dir.resolve("eula.txt"), "eula=true\n");
-    Files.writeString(dir.resolve("server.properties"), String.join("\n",
-        "online-mode=false", "server-port=" + port, "level-seed=20261020",
-        "spawn-protection=0", "sync-chunk-writes=true", ""));
-    var javaBin = ProcessHandle.current().info().command().orElseThrow();
-    var process = new ProcessBuilder(javaBin, "-Dstdin.encoding=UTF-8", "-cp", System.getProperty("java.class.path"),
-        "net.minecraft.server.Main", "--nogui", "--universe", dir.resolve("universe").toString(), "--world", "w")
-        .directory(dir.toFile()).redirectErrorStream(true).start();
-    var lines = new LinkedBlockingQueue<String>();
-    var log = new StringBuilder();
-    var reader = new Thread(() -> {
-      try (var r = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-        for (String line; (line = r.readLine()) != null; ) { lines.add(line); synchronized (log) { log.append(line).append('\n'); } }
-      } catch (IOException ignored) {}
-    });
-    reader.start();
-    var console = new PrintWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8), true);
-    try {
-      await(lines, "Done (", log);
-      // Block entities, entities and points of interest near the world spawn (the console's
-      // origin). Commands stay ASCII; SNBT escapes supply NUL, accented and astral characters.
-      for (var command : List.of(
-          "forceload add ~ ~",
-          "setblock ~2 300 ~2 minecraft:chest{Items:[{Slot:0b,id:\"minecraft:diamond_sword\",count:1,components:{\"minecraft:custom_name\":\"\\u00dcn\\u00efc\\u00f8d\\u00e9 \\U0001d11e \\u2713 \\u0000\"}},{Slot:5b,id:\"minecraft:stone\",count:64}]}",
-          "setblock ~3 300 ~2 minecraft:bell",
-          "setblock ~4 300 ~2 minecraft:lectern",
-          "setblock ~5 300 ~2 minecraft:furnace",
-          "summon minecraft:armor_stand ~2 302 ~2 {CustomName:\"Stand \\u2713\",NoGravity:1b,Tags:[\"valimc\",\"\\U0001d11e\"]}",
-          "summon minecraft:villager ~4 302 ~4 {NoAI:1b,NoGravity:1b}",
-          "summon minecraft:item ~5 302 ~5 {Item:{id:\"minecraft:stone\",count:3},Age:-32768s,PickupDelay:32767s,NoGravity:1b}",
-          "summon minecraft:experience_orb ~6 302 ~6 {Value:7s,NoGravity:1b}",
-          "save-all flush")) console.println(command);
-      await(lines, "Saved the game", log);
-      console.println("stop");
-      if (!process.waitFor(120, TimeUnit.SECONDS)) throw new IllegalStateException("server did not stop");
-    } finally {
-      process.destroyForcibly();
-    }
-    synchronized (log) {
-      for (var line : log.toString().split("\n"))
-        if (line.contains("ERROR") || line.contains("Exception") || line.contains("Unknown or incomplete command")
-            || line.contains("Expected") || line.contains("Invalid")) throw new IllegalStateException("server: " + line);
-    }
+  /** The golden world's console commands: block entities, entities and points of interest. */
+  static final List<String> FIXTURES = List.of(
+      "forceload add ~ ~",
+      // Commands stay ASCII; SNBT escapes supply NUL, accented and astral characters.
+      "setblock ~2 300 ~2 minecraft:chest{Items:[{Slot:0b,id:\"minecraft:diamond_sword\",count:1,components:{\"minecraft:custom_name\":\"\\u00dcn\\u00efc\\u00f8d\\u00e9 \\U0001d11e \\u2713 \\u0000\"}},{Slot:5b,id:\"minecraft:stone\",count:64}]}",
+      "setblock ~3 300 ~2 minecraft:bell",
+      "setblock ~4 300 ~2 minecraft:lectern",
+      "setblock ~5 300 ~2 minecraft:furnace",
+      "summon minecraft:armor_stand ~2 302 ~2 {CustomName:\"Stand \\u2713\",NoGravity:1b,Tags:[\"valimc\",\"\\U0001d11e\"]}",
+      "summon minecraft:villager ~4 302 ~4 {NoAI:1b,NoGravity:1b}",
+      "summon minecraft:item ~5 302 ~5 {Item:{id:\"minecraft:stone\",count:3},Age:-32768s,PickupDelay:32767s,NoGravity:1b}",
+      "summon minecraft:experience_orb ~6 302 ~6 {Value:7s,NoGravity:1b}");
 
+  static void generate(Path dir, Path out) throws Exception {
+    runServer(dir, Map.of(), FIXTURES);
     var world = dir.resolve("universe/w");
     var files = new JsonArray();
     var kinds = new TreeMap<String, Integer>();
@@ -176,6 +143,52 @@ public class WorldNbtOracle {
     facts.add("cases", cases());
     Files.writeString(out, new Gson().toJson(facts));
     System.out.println("PASS: generated " + files.size() + " vanilla world NBT payloads " + kinds + " and " + facts.getAsJsonArray("cases").size() + " edge cases");
+  }
+
+  /**
+   * Run the pinned dedicated server headless in DIR (seed 20261020, extra
+   * server.properties), send `commands` on its console, save, stop, and refuse any
+   * error or rejected command. The world is DIR/universe/w.
+   */
+  static void runServer(Path dir, Map<String, String> properties, List<String> commands) throws Exception {
+    Files.createDirectories(dir);
+    int port;
+    try (var socket = new ServerSocket(0)) { port = socket.getLocalPort(); }
+    Files.writeString(dir.resolve("eula.txt"), "eula=true\n");
+    var props = new TreeMap<>(Map.of("online-mode", "false", "server-port", Integer.toString(port),
+        "level-seed", "20261020", "spawn-protection", "0", "sync-chunk-writes", "true"));
+    props.putAll(properties);
+    var text = new StringBuilder();
+    props.forEach((k, v) -> text.append(k).append('=').append(v).append('\n'));
+    Files.writeString(dir.resolve("server.properties"), text);
+    var javaBin = ProcessHandle.current().info().command().orElseThrow();
+    var process = new ProcessBuilder(javaBin, "-Dstdin.encoding=UTF-8", "-cp", System.getProperty("java.class.path"),
+        "net.minecraft.server.Main", "--nogui", "--universe", dir.resolve("universe").toString(), "--world", "w")
+        .directory(dir.toFile()).redirectErrorStream(true).start();
+    var lines = new LinkedBlockingQueue<String>();
+    var log = new StringBuilder();
+    var reader = new Thread(() -> {
+      try (var r = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+        for (String line; (line = r.readLine()) != null; ) { lines.add(line); synchronized (log) { log.append(line).append('\n'); } }
+      } catch (IOException ignored) {}
+    });
+    reader.start();
+    var console = new PrintWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8), true);
+    try {
+      await(lines, "Done (", log);
+      for (var command : commands) console.println(command);
+      console.println("save-all flush");
+      await(lines, "Saved the game", log);
+      console.println("stop");
+      if (!process.waitFor(120, TimeUnit.SECONDS)) throw new IllegalStateException("server did not stop");
+    } finally {
+      process.destroyForcibly();
+    }
+    synchronized (log) {
+      for (var line : log.toString().split("\n"))
+        if (line.contains("ERROR") || line.contains("Exception") || line.contains("Unknown or incomplete command")
+            || line.contains("Expected") || line.contains("Invalid")) throw new IllegalStateException("server: " + line);
+    }
   }
 
   static void await(BlockingQueue<String> lines, String marker, StringBuilder log) throws Exception {

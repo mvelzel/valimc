@@ -13,6 +13,8 @@ defmodule Valimc.Native do
 
   def flags_init(_flags), do: :erlang.nif_error(:nif_not_loaded)
   def nbt_read(_bytes, _byte_limit, _nodes, _depth), do: :erlang.nif_error(:nif_not_loaded)
+  def lz4_decode_stream(_bytes, _max), do: :erlang.nif_error(:nif_not_loaded)
+  def lz4_decode_stream_dirty(_bytes, _max), do: :erlang.nif_error(:nif_not_loaded)
   def nbt_read_dirty(_bytes, _byte_limit, _nodes, _depth), do: :erlang.nif_error(:nif_not_loaded)
   def region_new(_cx, _cz, _size, _layers, _budget), do: :erlang.nif_error(:nif_not_loaded)
   def get_blocks(_region, _positions), do: :erlang.nif_error(:nif_not_loaded)

@@ -30,6 +30,10 @@ STAGES = [
         ('check', 'check_world_nbt.exs', '@world-nbt.json', '@reencoded'),
         ('java', 'WorldNbtOracle', 'verify', '@world-nbt.json', '@reencoded'),
     ]),
+    ('region_files', [
+        ('java', 'RegionOracle', '@worlds', '@regions.json'),
+        ('check', 'check_region.exs', '@regions.json'),
+    ]),
     ('block_registry', [
         ('java', 'BlockRegistryMetadata', '@block-registry.json'),
         ('same', '@block-registry.json', 'priv/registry/blocks.json'),

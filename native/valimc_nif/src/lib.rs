@@ -409,4 +409,35 @@ fn nbt_read_dirty<'a>(
     read_nbt(env, input, bytes, nodes, depth)
 }
 
+// ---- LZ4 region chunks (VMC-021) ----
+
+mod lz4_atoms {
+    rustler::atoms! { truncated_compression, invalid_compression, nbt_byte_limit }
+}
+
+fn lz4_decode<'a>(env: Env<'a>, input: Binary<'a>, max: usize) -> Result<Term<'a>, Atom> {
+    match valimc_core::lz4::decode_stream(input.as_slice(), max) {
+        Ok(bytes) => Ok(binary(env, &bytes)),
+        Err(valimc_core::lz4::Lz4Error::Truncated) => Err(lz4_atoms::truncated_compression()),
+        Err(valimc_core::lz4::Lz4Error::Corrupt) => Err(lz4_atoms::invalid_compression()),
+        Err(valimc_core::lz4::Lz4Error::Limit) => Err(lz4_atoms::nbt_byte_limit()),
+    }
+}
+
+/// Decode an LZ4 block stream (small inputs).
+#[rustler::nif]
+fn lz4_decode_stream<'a>(env: Env<'a>, input: Binary<'a>, max: usize) -> Result<Term<'a>, Atom> {
+    lz4_decode(env, input, max)
+}
+
+/// Larger inputs on a dirty CPU scheduler.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn lz4_decode_stream_dirty<'a>(
+    env: Env<'a>,
+    input: Binary<'a>,
+    max: usize,
+) -> Result<Term<'a>, Atom> {
+    lz4_decode(env, input, max)
+}
+
 rustler::init!("Elixir.Valimc.Native");

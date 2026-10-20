@@ -186,11 +186,20 @@ defmodule Valimc.NBT do
     do: compress(write(tag, limits), compression)
 
   @doc """
-  Inflate `bytes` without producing more than `max` bytes. A stream that ends
-  early, is corrupt, or would exceed `max` is refused.
+  Inflate `bytes` (`:gzip`, `:zlib`, `:lz4` or `:none`) without producing more
+  than `max` bytes. A stream that ends early, is corrupt, or would exceed `max`
+  is refused.
   """
   def decompress(bytes, :none, max) when is_binary(bytes),
     do: if(byte_size(bytes) <= max, do: {:ok, bytes}, else: {:error, :nbt_byte_limit})
+
+  # LZ4 block streams (region chunks, VMC-021) decode natively; up to this size a
+  # call stays on a normal scheduler well under 1 ms.
+  def decompress(bytes, :lz4, max) when is_binary(bytes) do
+    if byte_size(bytes) > 262_144,
+      do: Native.lz4_decode_stream_dirty(bytes, max),
+      else: Native.lz4_decode_stream(bytes, max)
+  end
 
   def decompress(bytes, compression, max)
       when compression in [:gzip, :zlib] and is_binary(bytes) do
