@@ -1,15 +1,17 @@
 defmodule Valimc.Physics.Placement do
-  @moduledoc "Pure native placement candidates; owners still admit geometry, writes and consumption."
-  alias Valimc.Physics.{ChestPlacement, CookingBlocks, FluidBlocks}
+  @moduledoc """
+  Pure native placement candidates; owners still admit geometry, writes and
+  consumption. The placed state comes from the item's block behaviour
+  (`Valimc.Block`); this module owns the generated placement facts.
+  """
   @chest_item Valimc.Protocol.Data.item("chest")
   @cooking_items Enum.map(~w(furnace smoker blast_furnace), &Valimc.Protocol.Data.item/1)
   @facing_items [@chest_item | @cooking_items]
   @path Path.expand("../../../priv/physics/placement.json", __DIR__)
   @external_resource @path
   @facts JSON.decode!(File.read!(@path))
-  @count 35_723
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  @count Valimc.Registry.Blocks.state_count()
+  unless Valimc.Version.stamped?(@facts) and
            @facts["state_count"] == @count,
          do: raise("Wrong placement catalog version")
 
@@ -43,6 +45,18 @@ defmodule Valimc.Physics.Placement do
                end)
            end),
          do: raise("Invalid placement facts")
+
+  # Class-keyed behaviours must choose the same placement as the item tables.
+  unless Enum.all?(Map.keys(@slabs), &(Valimc.Block.item_behaviour(&1) == Valimc.Block.Slab)) and
+           Enum.all?(
+             Map.keys(@pillars),
+             &(Valimc.Block.item_behaviour(&1) == Valimc.Block.Pillar)
+           ) and
+           Enum.all?(Map.keys(@plain), &(Valimc.Block.item_behaviour(&1) == Valimc.Block.Default)) and
+           Valimc.Block.item_behaviour(@chest_item) == Valimc.Block.Chest and
+           Enum.all?(@cooking_items, &(Valimc.Block.item_behaviour(&1) == Valimc.Block.Cooking)) and
+           Enum.all?(Map.keys(@slab_states), &(Valimc.Block.behaviour(&1) == Valimc.Block.Slab)),
+         do: raise("Block behaviours disagree with the placement facts")
 
   @doc "Propose a state from an immutable clicked/adjacent sample, without granting a world write."
   def candidate(
@@ -118,13 +132,14 @@ defmodule Valimc.Physics.Placement do
   def saved_candidate(item, clicked, adjacent, request, _edits),
     do: candidate(item, clicked, adjacent, request)
 
-  defp candidate_state(@chest_item, state, _, _, request),
-    do: ChestPlacement.single_state(request[:yaw], state)
+  defp candidate_state(item, state, face, upper, request),
+    do: Valimc.Block.placement(item, state, face, upper, request)
 
-  defp candidate_state(item, _, _, _, request) when item in @cooking_items,
-    do: CookingBlocks.placement(CookingBlocks.kind_for_item(item), request[:yaw])
-
-  defp candidate_state(item, state, face, upper, _), do: {:ok, placed(item, state, face, upper)}
+  @doc "Placement facts read by the block behaviours."
+  def plain_state(item), do: Map.fetch!(@plain, item)
+  def slab_states(item), do: Map.fetch!(@slabs, item)
+  def slab_half(state), do: Map.get(@slab_states, state)
+  def pillar_states(item), do: Map.fetch!(@pillars, item)
 
   defp replaceable(state, item, face, upper, clicked) do
     case :binary.at(@replace, state) do
@@ -138,47 +153,7 @@ defmodule Valimc.Physics.Placement do
         {:ok, true}
 
       3 ->
-        {slab_item, half} = Map.fetch!(@slab_states, state)
-
-        {:ok,
-         slab_item == item and half != 2 and
-           (not clicked or (half == 1 and (face == 1 or (face >= 2 and upper))) or
-              (half == 0 and (face == 0 or (face >= 2 and not upper))))}
-    end
-  end
-
-  defp placed(item, previous, face, upper) do
-    case Map.fetch(@slabs, item) do
-      {:ok, states} ->
-        case Map.get(@slab_states, previous) do
-          {^item, _} ->
-            elem(states, 5)
-
-          _ ->
-            {:ok, fluid} = FluidBlocks.fetch(previous)
-            top = face == 0 or (face >= 2 and upper)
-
-            index =
-              if(top, do: 0, else: 2) + if(fluid.kind == :water and fluid.source, do: 0, else: 1)
-
-            elem(states, index)
-        end
-
-      :error ->
-        case Map.fetch(@pillars, item) do
-          {:ok, states} ->
-            axis =
-              cond do
-                face < 2 -> 1
-                face < 4 -> 2
-                true -> 0
-              end
-
-            elem(states, axis)
-
-          :error ->
-            Map.fetch!(@plain, item)
-        end
+        {:ok, Valimc.Block.replaceable?(state, item, face, upper, clicked)}
     end
   end
 

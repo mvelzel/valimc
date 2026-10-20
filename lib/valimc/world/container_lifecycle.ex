@@ -1,8 +1,7 @@
 defmodule Valimc.World.ContainerLifecycle do
   @moduledoc "Pure owner-local chest and empty cooking-block metadata proposal. Every removed entry must be spilled in the same joint block/item/container commit."
-  alias Valimc.{ChestAccess, World}
+  alias Valimc.World
   alias Valimc.Protocol.Data
-  alias Valimc.Physics.CookingBlocks
   alias Valimc.World.{Chunk, Containers, CookingEntry}
   @path Path.expand("../../../priv/protocol/chest_states.json", __DIR__)
   @external_resource @path
@@ -101,8 +100,7 @@ defmodule Valimc.World.ContainerLifecycle do
     end)
   end
 
-  defp kind(state),
-    do: if(ChestAccess.single?(state), do: :chest, else: CookingBlocks.kind(state))
+  defp kind(state), do: Valimc.Block.block_entity(state)
 
   defp retire_entry(current, position, entry, removed) do
     case Containers.remove(current, position, entry.revision) do

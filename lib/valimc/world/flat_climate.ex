@@ -8,8 +8,7 @@ defmodule Valimc.World.FlatClimate do
   @gradients @facts["gradients"] |> Enum.map(&List.to_tuple/1) |> List.to_tuple()
   @f2 0.5 * (:math.sqrt(3.0) - 1.0)
   @g2 (3.0 - :math.sqrt(3.0)) / 6.0
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  unless Valimc.Version.stamped?(@facts) and
            @facts["biome"] == "minecraft:plains" and @facts["sea_level"] == 63 and
            @facts["temperature"] == 0.8 and byte_size(@permutation) == 256 and
            Enum.sort(:binary.bin_to_list(@permutation)) == Enum.to_list(0..255) and

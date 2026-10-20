@@ -19,6 +19,6 @@ defmodule Valimc do
     end
   end
 
-  def version, do: "26.3"
-  def protocol_version, do: 777
+  defdelegate version, to: Valimc.Version, as: :minecraft
+  defdelegate protocol_version, to: Valimc.Version, as: :protocol
 end

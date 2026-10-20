@@ -6,8 +6,7 @@ defmodule Valimc.PlayerStatusImmunity do
   @facts :json.decode(File.read!(@path))
   @fire_sources Enum.map(@facts["fire_resistance_sources"], &String.to_atom/1)
   @fire_resistance EffectTypes.id("fire_resistance")
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  unless Valimc.Version.stamped?(@facts) and
            length(@fire_sources) == 8,
          do: raise("Wrong native status immunity reference")
 

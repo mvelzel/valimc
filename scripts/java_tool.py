@@ -6,6 +6,7 @@ need no dependency list) and only when a source is newer than the last build.
 """
 import os, pathlib, subprocess, sys
 from java_runtime import java_home as find_java_home
+from pinned import VERSION
 
 root = pathlib.Path(__file__).resolve().parent.parent
 bundle = root / 'research/vanilla-bundle'
@@ -15,7 +16,7 @@ stamp = tools / '.compiled'
 
 def classpath():
     jars = sorted((bundle / 'libraries').rglob('*.jar'))
-    jars += [bundle / 'versions/26.3/server-26.3.jar']
+    jars += [bundle / f'versions/{VERSION}/server-{VERSION}.jar']
     return os.pathsep.join(str(p) for p in jars)
 
 

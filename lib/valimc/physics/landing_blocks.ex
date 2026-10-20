@@ -5,8 +5,7 @@ defmodule Valimc.Physics.LandingBlocks do
   @external_resource @path
   @facts :json.decode(File.read!(@path))
   @count @facts["state_count"]
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  unless Valimc.Version.stamped?(@facts) and
            @count == Valimc.Protocol.Data.block_state_count(),
          do: raise("Wrong landing block catalog version")
 

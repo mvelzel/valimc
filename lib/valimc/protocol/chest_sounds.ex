@@ -7,8 +7,7 @@ defmodule Valimc.Protocol.ChestSounds do
   @source @facts["blocks_source"]
   @open @facts["sounds"]["minecraft:block.chest.open"]
   @close @facts["sounds"]["minecraft:block.chest.close"]
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  unless Valimc.Version.stamped?(@facts) and
            @source == 4 and @open == 349 and @close == 347,
          do: raise("Wrong ordinary chest sound facts")
 

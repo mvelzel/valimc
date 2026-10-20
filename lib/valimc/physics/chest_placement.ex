@@ -8,8 +8,7 @@ defmodule Valimc.Physics.ChestPlacement do
   @states Map.new(@facts["by_heading"], fn {heading, states} ->
             {String.to_integer(heading), states}
           end)
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  unless Valimc.Version.stamped?(@facts) and
            Enum.sort(Map.keys(@states)) == [2, 3, 4, 5] and
            Enum.all?(@states, fn {_, states} ->
              Enum.sort(Map.keys(states)) == ["dry", "wet"] and

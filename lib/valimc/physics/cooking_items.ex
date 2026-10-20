@@ -8,8 +8,7 @@ defmodule Valimc.Physics.CookingItems do
   @remainders Map.new(@facts["remainders"], fn {id, result} ->
                 {String.to_integer(id), %ItemStack{item_id: result}}
               end)
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  unless Valimc.Version.stamped?(@facts) and
            Enum.all?(@remainders, fn {id, result} ->
              ItemTypes.item(id) != nil and ItemTypes.item(result.item_id) != nil
            end),

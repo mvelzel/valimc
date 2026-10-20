@@ -3,9 +3,8 @@ defmodule Valimc.Physics.ClimbBlocks do
   @path Path.expand("../../../priv/physics/climb_blocks.json", __DIR__)
   @external_resource @path
   @facts JSON.decode!(File.read!(@path))
-  @count 35_723
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  @count Valimc.Registry.Blocks.state_count()
+  unless Valimc.Version.stamped?(@facts) and
            @facts["state_count"] == @count,
          do: raise("Wrong climb block catalog version")
 

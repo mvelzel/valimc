@@ -11,8 +11,7 @@ defmodule Valimc.Protocol.PotionTypes do
                 {effect["id"], Enum.map(effect["rungs"], &List.to_tuple/1)}
               end)}
            end)
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  unless Valimc.Version.stamped?(@facts) and
            Enum.map(Tuple.to_list(@potions), & &1["id"]) == Enum.to_list(0..45) and
            map_size(@ids) == 46,
          do: raise("Wrong native potion facts")

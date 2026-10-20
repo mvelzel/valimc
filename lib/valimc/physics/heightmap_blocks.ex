@@ -4,7 +4,7 @@ defmodule Valimc.Physics.HeightmapBlocks do
   @path Path.expand("../../../priv/physics/heightmap_blocks.json", __DIR__)
   @external_resource @path
   @facts :json.decode(File.read!(@path))
-  @count 35_723
+  @count Valimc.Registry.Blocks.state_count()
   @types [
     :world_surface_wg,
     :world_surface,
@@ -13,8 +13,7 @@ defmodule Valimc.Physics.HeightmapBlocks do
     :motion_blocking,
     :motion_blocking_no_leaves
   ]
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  unless Valimc.Version.stamped?(@facts) and
            @facts["state_count"] == @count and
            @facts["types"] == Enum.map(@types, &(Atom.to_string(&1) |> String.upcase())),
          do: raise("Wrong heightmap block facts")

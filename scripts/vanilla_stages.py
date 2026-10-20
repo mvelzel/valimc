@@ -21,6 +21,14 @@ HELPERS = {
 }
 
 STAGES = [
+    ('version', [
+        ('java', 'VersionMetadata', '@version.json'),
+        ('same', '@version.json', 'priv/version.json'),
+    ]),
+    ('block_registry', [
+        ('java', 'BlockRegistryMetadata', '@block-registry.json'),
+        ('same', '@block-registry.json', 'priv/registry/blocks.json'),
+    ]),
     ('client_tick', [
         ('java', 'ClientTickOracle', '@client-ticks.json'),
         ('check', 'check_client_tick.exs', '@client-ticks.json'),

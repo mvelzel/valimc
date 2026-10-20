@@ -79,7 +79,8 @@ public class MiningToolOracle {
         removed++;
       }
     }
-    var states=new ByteArrayOutputStream();for(var state:Block.BLOCK_STATE_REGISTRY){if(Block.getId(state)!=states.size()/2)throw new AssertionError("Noncontiguous block states");uint16(states,BuiltInRegistries.BLOCK.getId(state.getBlock()));}
+    // The state-to-block table belongs to BlockRegistryMetadata.
+    int stateCount=0;for(var state:Block.BLOCK_STATE_REGISTRY)if(Block.getId(state)!=stateCount++)throw new AssertionError("Noncontiguous block states");
     var cases=new JsonArray();int count=0;
     for(int index=0;index<representatives.size();index++){
       var stack=representatives.get(index);var speeds=new ByteArrayOutputStream();var correct=new ByteArrayOutputStream();
@@ -88,7 +89,7 @@ public class MiningToolOracle {
       var creative=new JsonArray();for(boolean infinite:new boolean[]{false,true}){player.abilities.instabuild=infinite;creative.add(stack.canDestroyBlock(net.minecraft.world.level.block.Blocks.STONE.defaultBlockState(),null,BlockPos.ZERO,player));}row.add("can_destroy",creative);cases.add(row);
     }
     var facts=new JsonObject();facts.addProperty("version","26.3");facts.addProperty("data_version",5023);facts.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
-    facts.addProperty("state_count",states.size()/2);facts.addProperty("block_count",BuiltInRegistries.BLOCK.size());facts.addProperty("item_count",items.size()/2);facts.addProperty("states",hex(states));facts.addProperty("items",hex(items));facts.add("profiles",profiles);facts.add("blocked_items",blocked);
+    facts.addProperty("state_count",stateCount);facts.addProperty("block_count",BuiltInRegistries.BLOCK.size());facts.addProperty("item_count",items.size()/2);facts.addProperty("items",hex(items));facts.add("profiles",profiles);facts.add("blocked_items",blocked);
     var observed=new JsonObject();observed.add("profiles",cases);observed.add("permissions",permissions);
     Files.writeString(Path.of(args[0]),new Gson().toJson(facts)+"\n");Files.writeString(Path.of(args[1]),new Gson().toJson(observed));
     System.out.println("PASS: "+items.size()/2+" native item method declarations, "+profiles.size()+" stock profiles, "+count+" actual state speed/harvest pairs and "+removed+" absent-tool controls; attributes/effects/loot excluded.");

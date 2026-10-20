@@ -4,12 +4,11 @@ defmodule Valimc.Physics.SkyBlocks do
   @path Path.expand("../../../priv/physics/sky_blocks.json", __DIR__)
   @external_resource @path
   @facts :json.decode(File.read!(@path))
-  @count 35_723
+  @count Valimc.Registry.Blocks.state_count()
   @classes @facts["class_count"]
   @states Base.decode16!(@facts["states"], case: :lower)
   @pairs Base.decode16!(@facts["pairs"], case: :lower)
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  unless Valimc.Version.stamped?(@facts) and
            @facts["state_count"] == @count and @classes in 1..256 and
            byte_size(@states) == @count and byte_size(@pairs) == div(@classes * @classes + 7, 8) and
            Enum.all?(:binary.bin_to_list(@states), &(&1 < @classes)),

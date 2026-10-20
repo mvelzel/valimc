@@ -7,8 +7,7 @@ defmodule Valimc.Physics.Mining do
   @float_max 3.4028234663852886e38
   @int_max 2_147_483_647
   @int_min -2_147_483_648
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  unless Valimc.Version.stamped?(@facts) and
            @count == Valimc.Protocol.Data.block_state_count(),
          do: raise("Wrong mining catalog version")
 

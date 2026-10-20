@@ -16,8 +16,7 @@ defmodule Valimc.Physics.CookingFuel do
             end)
             |> List.to_tuple()
   @items List.to_tuple(@facts["items"])
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  unless Valimc.Version.stamped?(@facts) and
            @facts["item_count"] == 1658 and tuple_size(@items) == 1658 and
            @facts["fuel_items"] == 347 and map_size(@contexts) == 24 and
            Enum.all?(@contexts, fn {state, kind} ->

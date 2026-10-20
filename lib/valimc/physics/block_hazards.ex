@@ -3,7 +3,7 @@ defmodule Valimc.Physics.BlockHazards do
   @path Path.expand("../../../priv/physics/block_hazards.json", __DIR__)
   @external_resource @path
   @facts :json.decode(File.read!(@path))
-  @count 35_723
+  @count Valimc.Registry.Blocks.state_count()
   @threshold 0.003000000026077032
   @kinds %{"magma" => :magma, "campfire" => :campfire, "cactus" => :cactus, "berry" => :berry}
   @states Map.new(@facts["states"], fn [id, kind, value] ->
@@ -13,8 +13,7 @@ defmodule Valimc.Physics.BlockHazards do
 
             {id, {Map.fetch!(@kinds, kind), value}}
           end)
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  unless Valimc.Version.stamped?(@facts) and
            @facts["state_count"] == @count and map_size(@states) == 85,
          do: raise("Wrong or incomplete hazard facts")
 
