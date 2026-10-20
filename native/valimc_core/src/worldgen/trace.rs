@@ -1,14 +1,16 @@
 //! Parity probes against vanilla: operation traces over random sources
-//! (`RandomOracle` runs the same operations on vanilla's classes) and noise
-//! samples (`NoiseOracle`).
+//! (`RandomOracle` runs the same operations on vanilla's classes), noise
+//! samples (`NoiseOracle`) and density function samples (`DensityOracle`).
 //!
 //! Random operations: `int`, `bounded:N`, `long`, `bool`, `float`, `double`,
 //! `gaussian`, `consume:N`, `fork` (continue on the fork), `at:X,Y,Z`,
 //! `hash:TEXT` and `seed:N` (continue on that random of a positional factory
 //! forked from the current source). Floats and doubles are their raw bits.
 
+use super::compiler::Worldgen;
 use super::noise::{BlendedParameters, NoiseParameters, NormalNoise, Normalization, Stack};
 use super::random::Random;
+use super::sampler::Context;
 use super::volume::Volume;
 
 fn random(kind: &str, seed: i64) -> Result<Random, String> {
@@ -166,4 +168,37 @@ fn build(random: &mut Random, noise: &str, params: &[f64]) -> Result<Stack, Stri
             "unknown noise {noise} or bad parameters {params:?}"
         )),
     }
+}
+
+/// Samples a named function (`Worldgen::named`) through one sampling context,
+/// cached or not, in order: each op is a point (x, y, z) or a volume (size,
+/// minimum and step per axis). Returns the raw float bits per op.
+pub fn density(
+    worldgen: &mut Worldgen,
+    function: &str,
+    cached: bool,
+    ops: &[Vec<i32>],
+) -> Result<Vec<Vec<u32>>, String> {
+    let named = worldgen.named(function)?;
+    let sampler = worldgen.sampler(&named)?;
+    let mut ctx = if cached {
+        Context::cached()
+    } else {
+        Context::uncached()
+    };
+    ops.iter()
+        .map(|op| match op[..] {
+            [x, y, z] => Ok(vec![sampler.value(&mut ctx, x, y, z).to_bits()]),
+            [sx, sy, sz, mx, my, mz, tx, ty, tz] => {
+                let volume = Volume::new([sx, sy, sz], [mx, my, mz], [tx, ty, tz])?;
+                if volume.len() > 1 << 22 {
+                    return Err("volume too large".into());
+                }
+                let mut out = vec![0.0f32; volume.len()];
+                sampler.fill(&mut ctx, &mut out, &volume);
+                Ok(out.into_iter().map(f32::to_bits).collect())
+            }
+            _ => Err(format!("bad density op {op:?}")),
+        })
+        .collect()
 }

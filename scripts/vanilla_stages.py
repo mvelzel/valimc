@@ -59,12 +59,18 @@ STAGES = [
         ('check', 'check_random.exs', '@random.json'),
     ]),
     ('worldgen_facts', [
-        ('java', 'WorldgenFactsOracle', '@noises.json'),
+        ('java', 'WorldgenFactsOracle', '@noises.json', '@density_functions.json', '@noise_settings.json'),
         ('same', '@noises.json', 'priv/worldgen/noises.json'),
+        ('same', '@density_functions.json', 'priv/worldgen/density_functions.json'),
+        ('same', '@noise_settings.json', 'priv/worldgen/noise_settings.json'),
     ]),
     ('worldgen_noise', [
         ('java', 'NoiseOracle', '@noise.json'),
         ('check', 'check_noise.exs', '@noise.json'),
+    ]),
+    ('worldgen_density', [
+        ('java', 'DensityOracle', '@density.json'),
+        ('check', 'check_density.exs', '@density.json'),
     ]),
     ('block_registry', [
         ('java', 'BlockRegistryMetadata', '@block-registry.json'),

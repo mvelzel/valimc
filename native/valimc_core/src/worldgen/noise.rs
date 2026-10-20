@@ -9,6 +9,8 @@
 //! the separate point (`get`) and volume (`add_to_volume`) paths, which round
 //! differently.
 
+use super::java::{clamp, fmax};
+use super::json::Json;
 use super::random::Random;
 use super::volume::{Volume, X, Y, Z};
 
@@ -68,7 +70,7 @@ fn smoothstep(x: f32) -> f32 {
     x * x * x * (x * (x * 6.0 - 15.0) + 10.0)
 }
 
-fn lerp(alpha: f32, p0: f32, p1: f32) -> f32 {
+pub(crate) fn lerp(alpha: f32, p0: f32, p1: f32) -> f32 {
     p0 + alpha * (p1 - p0)
 }
 
@@ -76,7 +78,8 @@ fn lerp2(a1: f32, a2: f32, x00: f32, x10: f32, x01: f32, x11: f32) -> f32 {
     lerp(a2, lerp(a1, x00, x10), lerp(a1, x01, x11))
 }
 
-fn lerp3(a1: f32, a2: f32, a3: f32, c: [f32; 8]) -> f32 {
+/// `Mth.lerp3`; corners in the order 000, 100, 010, 110, 001, 101, 011, 111.
+pub(crate) fn lerp3(a1: f32, a2: f32, a3: f32, c: [f32; 8]) -> f32 {
     lerp(
         a3,
         lerp2(a1, a2, c[0], c[1], c[2], c[3]),
@@ -110,6 +113,23 @@ fn stream_sum(values: impl Iterator<Item = f64>) -> f64 {
     }
 }
 
+/// `GradientNoise`'s state: a random offset per axis, then a shuffled
+/// permutation.
+fn gradient_base(random: &mut Random, offset_scale: f64) -> ([u8; 256], [f64; 3]) {
+    let ox = random.next_double() * offset_scale;
+    let oy = random.next_double() * offset_scale;
+    let oz = random.next_double() * offset_scale;
+    let mut perms = [0u8; 256];
+    for (i, p) in perms.iter_mut().enumerate() {
+        *p = i as u8;
+    }
+    for i in 0..256 {
+        let offset = random.next_int_bounded(256 - i as i32) as usize;
+        perms.swap(i, i + offset);
+    }
+    (perms, [ox, oy, oz])
+}
+
 /// One Perlin octave: a permutation and a random offset. With `smear`, it is
 /// vanilla's `SmearedPerlinNoise`, whose Y gradients use a fudged relative Y.
 #[derive(Clone, Debug)]
@@ -129,20 +149,10 @@ impl Perlin {
     }
 
     fn build(random: &mut Random, smear: Option<f64>) -> Self {
-        let ox = random.next_double() * 256.0;
-        let oy = random.next_double() * 256.0;
-        let oz = random.next_double() * 256.0;
-        let mut perms = [0u8; 256];
-        for (i, p) in perms.iter_mut().enumerate() {
-            *p = i as u8;
-        }
-        for i in 0..256 {
-            let offset = random.next_int_bounded(256 - i as i32) as usize;
-            perms.swap(i, i + offset);
-        }
+        let (perms, offset) = gradient_base(random, 256.0);
         Perlin {
             perms,
-            offset: [ox, oy, oz],
+            offset,
             smear,
         }
     }
@@ -393,6 +403,7 @@ pub struct NormalNoise {
     parameters: NoiseParameters,
     octaves: Vec<OctaveInfo>,
     normalization: f64,
+    target_amplitude: f64,
 }
 
 impl NormalNoise {
@@ -409,15 +420,18 @@ impl NormalNoise {
             ));
         }
         let octaves = Self::octaves(p, p.normalize != Normalization::Disabled);
-        let target = stream_sum(octaves.iter().map(|o| o.amplitude.abs()));
+        let mut target = stream_sum(octaves.iter().map(|o| o.amplitude.abs()));
         let mut normalization = Self::normalization(target, &octaves);
         if p.normalize == Normalization::Legacy && normalization != 0.0 {
-            normalization = Self::parity_normalization(p);
+            let parity = Self::parity_normalization(p);
+            target *= parity / normalization;
+            normalization = parity;
         }
         Ok(NormalNoise {
             parameters,
             octaves,
             normalization,
+            target_amplitude: target,
         })
     }
 
@@ -471,6 +485,37 @@ impl NormalNoise {
 
     pub fn parameters(&self) -> &NoiseParameters {
         &self.parameters
+    }
+
+    /// The bound of the noise's symmetric value range (vanilla's `range()`).
+    pub fn range_bound(&self) -> f32 {
+        (self.target_amplitude * TARGET_DEVIATION * 6.0) as f32
+    }
+
+    /// Parses vanilla's codec encoding of noise parameters (defaults omitted).
+    pub fn parse(json: &Json) -> Result<NormalNoise, String> {
+        let number = |key: &str, default: f64| json.get(key).map_or(Ok(default), Json::as_f64);
+        let normalize = match json.get("normalize") {
+            None | Some(Json::Bool(true)) => Normalization::Enabled,
+            Some(Json::Bool(false)) => Normalization::Disabled,
+            Some(Json::String(s)) if s == "legacy" => Normalization::Legacy,
+            Some(other) => return Err(format!("unknown normalization {other:?}")),
+        };
+        let amplitude_modifiers = match json.get("amplitude_modifiers") {
+            None => vec![],
+            Some(list) => list
+                .as_array()?
+                .iter()
+                .map(Json::as_f64)
+                .collect::<Result<_, _>>()?,
+        };
+        NormalNoise::new(NoiseParameters {
+            base_amplitude: number("base_amplitude", 1.0)?,
+            base_octave: json.field("base_octave")?.as_i32()?,
+            octave_count: json.get("octave_count").map_or(Ok(1), Json::as_i32)?,
+            normalize,
+            amplitude_modifiers,
+        })
     }
 
     /// The octave stack for `random` (vanilla's `NormalNoise.create`): two
@@ -608,6 +653,85 @@ fn smeared_fbm(random: &mut Random, first_octave: i32, smear_y: f64, value_facto
         value_factor *= 2.0;
     }
     stack
+}
+
+/// Two-dimensional simplex noise (vanilla's `SimplexNoise.get(x, y)`), used
+/// by the End's outer islands.
+#[derive(Clone, Debug)]
+pub struct Simplex {
+    perms: [u8; 256],
+    offset: [f64; 3],
+}
+
+impl Simplex {
+    /// `discard_offset` draws the offsets but scales them to zero, as the End
+    /// island noise does.
+    pub fn new(random: &mut Random, discard_offset: bool) -> Self {
+        let (perms, offset) = gradient_base(random, if discard_offset { 0.0 } else { 256.0 });
+        Simplex { perms, offset }
+    }
+
+    fn permute(&self, x: i32) -> i32 {
+        self.perms[(x & 0xFF) as usize] as i32
+    }
+
+    fn corner(index: i32, x: f64, y: f64, base: f64) -> f64 {
+        let mut t = base - x * x - y * y - 0.0 * 0.0;
+        if t < 0.0 {
+            return 0.0;
+        }
+        t *= t;
+        let g = GRADIENTS[index as usize];
+        t * t * (g[0] as f64 * x + g[1] as f64 * y + g[2] as f64 * 0.0)
+    }
+
+    pub fn get_2d(&self, x: f64, y: f64) -> f32 {
+        let sqrt3 = 3.0f64.sqrt();
+        let f2 = 0.5 * (sqrt3 - 1.0);
+        let g2 = (3.0 - sqrt3) / 6.0;
+        let xin = x + self.offset[X];
+        let yin = y + self.offset[Y];
+        let s = (xin + yin) * f2;
+        let i = floor(xin + s);
+        let j = floor(yin + s);
+        let t = i.wrapping_add(j) as f64 * g2;
+        let x0 = xin - (i as f64 - t);
+        let y0 = yin - (j as f64 - t);
+        let (i1, j1) = if x0 > y0 { (1, 0) } else { (0, 1) };
+        let x1 = x0 - i1 as f64 + g2;
+        let y1 = y0 - j1 as f64 + g2;
+        let x2 = x0 - 1.0 + 2.0 * g2;
+        let y2 = y0 - 1.0 + 2.0 * g2;
+        let (ii, jj) = (i & 0xFF, j & 0xFF);
+        let gi0 = self.permute(ii + self.permute(jj)) % 12;
+        let gi1 = self.permute(ii + i1 + self.permute(jj + j1)) % 12;
+        let gi2 = self.permute(ii + 1 + self.permute(jj + 1)) % 12;
+        let n0 = Self::corner(gi0, x0, y0, 0.5);
+        let n1 = Self::corner(gi1, x1, y1, 0.5);
+        let n2 = Self::corner(gi2, x2, y2, 0.5);
+        (70.0 * (n0 + n1 + n2)) as f32
+    }
+}
+
+/// The End's island height at a 8-block section (`EndIslandFunction`).
+pub fn end_island_height(noise: &Simplex, section_x: i32, section_z: i32) -> f32 {
+    let (chunk_x, chunk_z) = (section_x / 2, section_z / 2);
+    let (sub_x, sub_z) = (section_x % 2, section_z % 2);
+    let mut height = -100.0f32;
+    for xo in -12..=12 {
+        for zo in -12..=12 {
+            let tx = chunk_x.wrapping_add(xo) as i64;
+            let tz = chunk_z.wrapping_add(zo) as i64;
+            if tx * tx + tz * tz > 4096 && noise.get_2d(tx as f64, tz as f64) < -0.9 {
+                let size = ((tx as f32).abs() * 3439.0 + (tz as f32).abs() * 147.0) % 13.0 + 9.0;
+                let xd = (sub_x - xo * 2) as f32;
+                let zd = (sub_z - zo * 2) as f32;
+                let candidate = 100.0 - ((xd * xd + zd * zd) as f64).sqrt() as f32 * size;
+                height = fmax(height, clamp(candidate, -100.0, 80.0));
+            }
+        }
+    }
+    height
 }
 
 #[cfg(test)]

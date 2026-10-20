@@ -803,4 +803,106 @@ fn worldgen_noise_samples(
     Ok((samples.points, samples.points_2d, samples.volumes))
 }
 
+/// Worldgen registries parsed from the generated facts.
+pub struct WorldgenRegistry {
+    registry: std::sync::Arc<valimc_core::worldgen::compiler::Registry>,
+}
+
+#[rustler::resource_impl]
+impl rustler::Resource for WorldgenRegistry {}
+
+/// Noises and compiled samplers for one seed and noise settings; compiling is
+/// lazy, so it sits behind a lock.
+pub struct WorldgenState {
+    state: Mutex<valimc_core::worldgen::compiler::Worldgen>,
+}
+
+#[rustler::resource_impl]
+impl rustler::Resource for WorldgenState {}
+
+fn json_of(term: Term) -> Result<valimc_core::worldgen::json::Json, String> {
+    use rustler::TermType;
+    use valimc_core::worldgen::json::Json;
+    Ok(match term.get_type() {
+        TermType::Float => Json::Number(term.decode::<f64>().map_err(|_| "bad float")?),
+        TermType::Integer => {
+            Json::Number(term.decode::<i64>().map_err(|_| "integer out of range")? as f64)
+        }
+        TermType::Binary => {
+            Json::String(term.decode::<String>().map_err(|_| "string is not UTF-8")?)
+        }
+        TermType::Atom => match term.atom_to_string().map_err(|_| "bad atom")?.as_str() {
+            "true" => Json::Bool(true),
+            "false" => Json::Bool(false),
+            "nil" => Json::Null,
+            other => return Err(format!("unexpected atom {other}")),
+        },
+        TermType::List => Json::Array(
+            term.decode::<Vec<Term>>()
+                .map_err(|_| "bad list")?
+                .into_iter()
+                .map(json_of)
+                .collect::<Result<_, _>>()?,
+        ),
+        TermType::Map => {
+            let mut fields = Vec::new();
+            for (k, v) in rustler::types::map::MapIterator::new(term).ok_or("bad map")? {
+                fields.push((
+                    k.decode::<String>()
+                        .map_err(|_| "map keys must be strings")?,
+                    json_of(v)?,
+                ));
+            }
+            fields.sort_by(|a, b| a.0.cmp(&b.0));
+            Json::Object(fields)
+        }
+        other => return Err(format!("unexpected term type {other:?}")),
+    })
+}
+
+/// Parse worldgen facts (decoded `noises.json`, `density_functions.json` and
+/// `noise_settings.json`).
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_registry(
+    noises: Term,
+    functions: Term,
+    settings: Term,
+) -> Result<ResourceArc<WorldgenRegistry>, String> {
+    let registry = valimc_core::worldgen::compiler::Registry::parse(
+        &json_of(noises)?,
+        &json_of(functions)?,
+        &json_of(settings)?,
+    )?;
+    Ok(ResourceArc::new(WorldgenRegistry {
+        registry: std::sync::Arc::new(registry),
+    }))
+}
+
+/// Worldgen state for a seed and noise settings.
+#[rustler::nif]
+fn worldgen_new(
+    registry: ResourceArc<WorldgenRegistry>,
+    seed: i64,
+    settings: String,
+) -> Result<ResourceArc<WorldgenState>, String> {
+    let state =
+        valimc_core::worldgen::compiler::Worldgen::new(registry.registry.clone(), seed, &settings)?;
+    Ok(ResourceArc::new(WorldgenState {
+        state: Mutex::new(state),
+    }))
+}
+
+/// Sample a density function for parity checks
+/// (`valimc_core::worldgen::trace::density`).
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_density_samples(
+    state: ResourceArc<WorldgenState>,
+    function: String,
+    cached: bool,
+    ops: Vec<Vec<i32>>,
+) -> Result<Vec<Vec<u32>>, String> {
+    let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+    valimc_core::worldgen::trace::density(&mut state, &function, cached, &ops)
+}
+
 rustler::init!("Elixir.Valimc.Native");

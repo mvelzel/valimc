@@ -1,0 +1,443 @@
+{
+  "minecraft:amplified": {
+    "noise": {
+      "min_y": -64,
+      "height": 384
+    },
+    "legacy_random_source": false,
+    "noise_router": {
+      "temperature": "minecraft:overworld/temperature",
+      "vegetation": "minecraft:overworld/vegetation",
+      "continents": "minecraft:overworld/continents",
+      "erosion": "minecraft:overworld/erosion",
+      "depth": "minecraft:overworld_amplified/depth",
+      "ridges": "minecraft:overworld/ridges",
+      "chunk_surface_level": "minecraft:overworld_amplified/chunk_surface_level",
+      "final_density": "minecraft:overworld_amplified/final_density"
+    },
+    "aquifers": {
+      "barrier": {
+        "noise": "minecraft:aquifer_barrier",
+        "xz_scale": 1.0,
+        "y_scale": 0.5,
+        "type": "minecraft:noise"
+      },
+      "fluid_level_floodedness": {
+        "noise": "minecraft:aquifer_fluid_level_floodedness",
+        "xz_scale": 1.0,
+        "y_scale": 0.67,
+        "type": "minecraft:noise"
+      },
+      "fluid_level_spread": {
+        "noise": "minecraft:aquifer_fluid_level_spread",
+        "xz_scale": 1.0,
+        "y_scale": 0.7142857142857143,
+        "type": "minecraft:noise"
+      },
+      "lava": {
+        "noise": "minecraft:aquifer_lava",
+        "xz_scale": 1.0,
+        "y_scale": 1.0,
+        "type": "minecraft:noise"
+      },
+      "exclusion": {
+        "left": {
+          "left": -0.22499999403953552,
+          "right": "minecraft:overworld/erosion",
+          "type": "minecraft:sub"
+        },
+        "right": {
+          "left": {
+            "left": "minecraft:overworld_amplified/depth",
+            "right": 0.8999999761581421,
+            "type": "minecraft:sub"
+          },
+          "right": 0.0,
+          "type": "minecraft:max"
+        },
+        "type": "minecraft:min"
+      },
+      "surface_level": "minecraft:overworld_amplified/preliminary_surface_level"
+    }
+  },
+  "minecraft:caves": {
+    "noise": {
+      "min_y": -64,
+      "height": 192
+    },
+    "legacy_random_source": true,
+    "noise_router": {
+      "temperature": 0.0,
+      "vegetation": 0.0,
+      "continents": 0.0,
+      "erosion": 0.0,
+      "depth": 0.0,
+      "ridges": 0.0,
+      "chunk_surface_level": 0.0,
+      "final_density": {
+        "left": {
+          "input": {
+            "input": {
+              "left": {
+                "input": {
+                  "alpha": {
+                    "axis": "y",
+                    "from_coordinate": -72,
+                    "to_coordinate": -40,
+                    "from_value": 0.0,
+                    "to_value": 1.0,
+                    "type": "minecraft:gradient"
+                  },
+                  "first": 2.5,
+                  "second": {
+                    "alpha": {
+                      "axis": "y",
+                      "from_coordinate": 104,
+                      "to_coordinate": 128,
+                      "from_value": 1.0,
+                      "to_value": 0.0,
+                      "type": "minecraft:gradient"
+                    },
+                    "first": 0.9375,
+                    "second": "minecraft:nether/base_3d_noise",
+                    "type": "minecraft:lerp"
+                  },
+                  "type": "minecraft:lerp"
+                },
+                "type": "minecraft:blend_density"
+              },
+              "right": 0.6399999856948853,
+              "type": "minecraft:mul"
+            },
+            "cell_size_xz": 4,
+            "cell_size_y": 8,
+            "type": "minecraft:interpolated"
+          },
+          "type": "minecraft:squeeze"
+        },
+        "right": {
+          "type": "minecraft:beardifier"
+        },
+        "type": "minecraft:add"
+      }
+    }
+  },
+  "minecraft:end": {
+    "noise": {
+      "min_y": 0,
+      "height": 128
+    },
+    "legacy_random_source": true,
+    "noise_router": {
+      "temperature": 0.0,
+      "vegetation": 0.0,
+      "continents": 0.0,
+      "erosion": "minecraft:end/islands",
+      "depth": 0.0,
+      "ridges": 0.0,
+      "chunk_surface_level": 0.0,
+      "final_density": {
+        "left": {
+          "input": {
+            "input": {
+              "left": {
+                "input": {
+                  "alpha": {
+                    "axis": "y",
+                    "from_coordinate": 4,
+                    "to_coordinate": 32,
+                    "from_value": 0.0,
+                    "to_value": 1.0,
+                    "type": "minecraft:gradient"
+                  },
+                  "first": -0.234375,
+                  "second": {
+                    "alpha": {
+                      "axis": "y",
+                      "from_coordinate": 56,
+                      "to_coordinate": 312,
+                      "from_value": 1.0,
+                      "to_value": 0.0,
+                      "type": "minecraft:gradient"
+                    },
+                    "first": -23.4375,
+                    "second": "minecraft:end/sloped_cheese",
+                    "type": "minecraft:lerp"
+                  },
+                  "type": "minecraft:lerp"
+                },
+                "type": "minecraft:blend_density"
+              },
+              "right": 0.6399999856948853,
+              "type": "minecraft:mul"
+            },
+            "cell_size_xz": 8,
+            "cell_size_y": 4,
+            "type": "minecraft:interpolated"
+          },
+          "type": "minecraft:squeeze"
+        },
+        "right": {
+          "type": "minecraft:beardifier"
+        },
+        "type": "minecraft:add"
+      }
+    }
+  },
+  "minecraft:floating_islands": {
+    "noise": {
+      "min_y": 0,
+      "height": 256
+    },
+    "legacy_random_source": true,
+    "noise_router": {
+      "temperature": 0.0,
+      "vegetation": 0.0,
+      "continents": 0.0,
+      "erosion": 0.0,
+      "depth": 0.0,
+      "ridges": 0.0,
+      "chunk_surface_level": 0.0,
+      "final_density": {
+        "left": {
+          "input": {
+            "input": {
+              "left": {
+                "input": {
+                  "alpha": {
+                    "axis": "y",
+                    "from_coordinate": 4,
+                    "to_coordinate": 32,
+                    "from_value": 0.0,
+                    "to_value": 1.0,
+                    "type": "minecraft:gradient"
+                  },
+                  "first": -0.234375,
+                  "second": {
+                    "alpha": {
+                      "axis": "y",
+                      "from_coordinate": 184,
+                      "to_coordinate": 440,
+                      "from_value": 1.0,
+                      "to_value": 0.0,
+                      "type": "minecraft:gradient"
+                    },
+                    "first": -23.4375,
+                    "second": "minecraft:end/base_3d_noise",
+                    "type": "minecraft:lerp"
+                  },
+                  "type": "minecraft:lerp"
+                },
+                "type": "minecraft:blend_density"
+              },
+              "right": 0.6399999856948853,
+              "type": "minecraft:mul"
+            },
+            "cell_size_xz": 8,
+            "cell_size_y": 4,
+            "type": "minecraft:interpolated"
+          },
+          "type": "minecraft:squeeze"
+        },
+        "right": {
+          "type": "minecraft:beardifier"
+        },
+        "type": "minecraft:add"
+      }
+    }
+  },
+  "minecraft:large_biomes": {
+    "noise": {
+      "min_y": -64,
+      "height": 384
+    },
+    "legacy_random_source": false,
+    "noise_router": {
+      "temperature": "minecraft:overworld_large_biomes/temperature",
+      "vegetation": "minecraft:overworld_large_biomes/vegetation",
+      "continents": "minecraft:overworld_large_biomes/continents",
+      "erosion": "minecraft:overworld_large_biomes/erosion",
+      "depth": "minecraft:overworld_large_biomes/depth",
+      "ridges": "minecraft:overworld/ridges",
+      "chunk_surface_level": "minecraft:overworld_large_biomes/chunk_surface_level",
+      "final_density": "minecraft:overworld_large_biomes/final_density"
+    },
+    "aquifers": {
+      "barrier": {
+        "noise": "minecraft:aquifer_barrier",
+        "xz_scale": 1.0,
+        "y_scale": 0.5,
+        "type": "minecraft:noise"
+      },
+      "fluid_level_floodedness": {
+        "noise": "minecraft:aquifer_fluid_level_floodedness",
+        "xz_scale": 1.0,
+        "y_scale": 0.67,
+        "type": "minecraft:noise"
+      },
+      "fluid_level_spread": {
+        "noise": "minecraft:aquifer_fluid_level_spread",
+        "xz_scale": 1.0,
+        "y_scale": 0.7142857142857143,
+        "type": "minecraft:noise"
+      },
+      "lava": {
+        "noise": "minecraft:aquifer_lava",
+        "xz_scale": 1.0,
+        "y_scale": 1.0,
+        "type": "minecraft:noise"
+      },
+      "exclusion": {
+        "left": {
+          "left": -0.22499999403953552,
+          "right": "minecraft:overworld_large_biomes/erosion",
+          "type": "minecraft:sub"
+        },
+        "right": {
+          "left": {
+            "left": "minecraft:overworld_large_biomes/depth",
+            "right": 0.8999999761581421,
+            "type": "minecraft:sub"
+          },
+          "right": 0.0,
+          "type": "minecraft:max"
+        },
+        "type": "minecraft:min"
+      },
+      "surface_level": "minecraft:overworld_large_biomes/preliminary_surface_level"
+    }
+  },
+  "minecraft:nether": {
+    "noise": {
+      "min_y": 0,
+      "height": 128
+    },
+    "legacy_random_source": true,
+    "noise_router": {
+      "temperature": {
+        "noise": "minecraft:nether/temperature",
+        "xz_scale": 0.25,
+        "y_scale": 0.0,
+        "type": "minecraft:noise"
+      },
+      "vegetation": {
+        "noise": "minecraft:nether/vegetation",
+        "xz_scale": 0.25,
+        "y_scale": 0.0,
+        "type": "minecraft:noise"
+      },
+      "continents": 0.0,
+      "erosion": 0.0,
+      "depth": 0.0,
+      "ridges": 0.0,
+      "chunk_surface_level": 0.0,
+      "final_density": {
+        "left": {
+          "input": {
+            "input": {
+              "left": {
+                "input": {
+                  "alpha": {
+                    "axis": "y",
+                    "from_coordinate": -8,
+                    "to_coordinate": 24,
+                    "from_value": 0.0,
+                    "to_value": 1.0,
+                    "type": "minecraft:gradient"
+                  },
+                  "first": 2.5,
+                  "second": {
+                    "alpha": {
+                      "axis": "y",
+                      "from_coordinate": 104,
+                      "to_coordinate": 128,
+                      "from_value": 1.0,
+                      "to_value": 0.0,
+                      "type": "minecraft:gradient"
+                    },
+                    "first": 0.9375,
+                    "second": "minecraft:nether/base_3d_noise",
+                    "type": "minecraft:lerp"
+                  },
+                  "type": "minecraft:lerp"
+                },
+                "type": "minecraft:blend_density"
+              },
+              "right": 0.6399999856948853,
+              "type": "minecraft:mul"
+            },
+            "cell_size_xz": 4,
+            "cell_size_y": 8,
+            "type": "minecraft:interpolated"
+          },
+          "type": "minecraft:squeeze"
+        },
+        "right": {
+          "type": "minecraft:beardifier"
+        },
+        "type": "minecraft:add"
+      }
+    }
+  },
+  "minecraft:overworld": {
+    "noise": {
+      "min_y": -64,
+      "height": 384
+    },
+    "legacy_random_source": false,
+    "noise_router": {
+      "temperature": "minecraft:overworld/temperature",
+      "vegetation": "minecraft:overworld/vegetation",
+      "continents": "minecraft:overworld/continents",
+      "erosion": "minecraft:overworld/erosion",
+      "depth": "minecraft:overworld/depth",
+      "ridges": "minecraft:overworld/ridges",
+      "chunk_surface_level": "minecraft:overworld/chunk_surface_level",
+      "final_density": "minecraft:overworld/final_density"
+    },
+    "aquifers": {
+      "barrier": {
+        "noise": "minecraft:aquifer_barrier",
+        "xz_scale": 1.0,
+        "y_scale": 0.5,
+        "type": "minecraft:noise"
+      },
+      "fluid_level_floodedness": {
+        "noise": "minecraft:aquifer_fluid_level_floodedness",
+        "xz_scale": 1.0,
+        "y_scale": 0.67,
+        "type": "minecraft:noise"
+      },
+      "fluid_level_spread": {
+        "noise": "minecraft:aquifer_fluid_level_spread",
+        "xz_scale": 1.0,
+        "y_scale": 0.7142857142857143,
+        "type": "minecraft:noise"
+      },
+      "lava": {
+        "noise": "minecraft:aquifer_lava",
+        "xz_scale": 1.0,
+        "y_scale": 1.0,
+        "type": "minecraft:noise"
+      },
+      "exclusion": {
+        "left": {
+          "left": -0.22499999403953552,
+          "right": "minecraft:overworld/erosion",
+          "type": "minecraft:sub"
+        },
+        "right": {
+          "left": {
+            "left": "minecraft:overworld/depth",
+            "right": 0.8999999761581421,
+            "type": "minecraft:sub"
+          },
+          "right": 0.0,
+          "type": "minecraft:max"
+        },
+        "type": "minecraft:min"
+      },
+      "surface_level": "minecraft:overworld/preliminary_surface_level"
+    }
+  }
+}

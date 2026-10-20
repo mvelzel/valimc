@@ -2,6 +2,8 @@
 //! a size, minimum block and block step per axis (X, Y, Z). Buffers over a
 //! volume hold one `f32` per position, Y fastest, then X, then Z.
 
+use super::java::{floor_div, floor_mod};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Volume {
     pub size: [i32; 3],
@@ -39,5 +41,37 @@ impl Volume {
 
     pub fn index(&self, x: i32, y: i32, z: i32) -> usize {
         (y + (x + z * self.size[X]) * self.size[Y]) as usize
+    }
+
+    /// The last block coordinate on `axis`.
+    pub fn max_block(&self, axis: usize) -> i32 {
+        self.min[axis]
+            .wrapping_add(self.size[axis].wrapping_mul(self.step[axis]))
+            .wrapping_sub(1)
+    }
+
+    /// The index of a block position that lies on the volume's grid.
+    pub fn index_of_block(&self, x: i32, y: i32, z: i32) -> Option<usize> {
+        let rel = [
+            x.wrapping_sub(self.min[X]),
+            y.wrapping_sub(self.min[Y]),
+            z.wrapping_sub(self.min[Z]),
+        ];
+        if self.step == [1, 1, 1] {
+            if (0..3).all(|a| rel[a] >= 0 && rel[a] < self.size[a]) {
+                return Some(self.index(rel[X], rel[Y], rel[Z]));
+            }
+        } else if (0..3).all(|a| {
+            rel[a] >= 0
+                && rel[a] < self.size[a].wrapping_mul(self.step[a])
+                && floor_mod(rel[a], self.step[a]) == 0
+        }) {
+            return Some(self.index(
+                floor_div(rel[X], self.step[X]),
+                floor_div(rel[Y], self.step[Y]),
+                floor_div(rel[Z], self.step[Z]),
+            ));
+        }
+        None
     }
 }
