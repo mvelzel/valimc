@@ -21,6 +21,7 @@ defmodule Valimc.Connection do
   }
 
   alias Valimc.Session.Jobs
+  alias Valimc.Player.Vitals
 
   import Valimc.Net.Codec,
     only: [send_packets: 2, send_frames: 2, crypt_bytes: 3, reject: 2, reset_window: 1]
@@ -34,7 +35,6 @@ defmodule Valimc.Connection do
     GameMode,
     Inventory,
     Metrics,
-    PeriodicEffect,
     Players,
     PlayerAbilities,
     PlayerContainerQuery,
@@ -60,7 +60,6 @@ defmodule Valimc.Connection do
     PlayerPoseQuery,
     PlayerSnapshot,
     PlayerStore,
-    PlayerStatusImmunity,
     PlayerTransfers,
     PlayerUse,
     TableAccess,
@@ -76,7 +75,6 @@ defmodule Valimc.Connection do
   @basic_mining Enum.map(~w(stone dirt grass_block cobblestone oak_planks glass), &Data.block/1)
   @fire_resistance EffectTypes.id("fire_resistance")
   @resistance EffectTypes.id("resistance")
-  @hunger EffectTypes.id("hunger")
   @absorption EffectTypes.id("absorption")
   @periodic_effects Enum.sort(Enum.map(~w(regeneration hunger poison wither), &EffectTypes.id/1))
   @instant_effects Enum.map(~w(instant_health instant_damage saturation), &EffectTypes.id/1)
@@ -178,7 +176,7 @@ defmodule Valimc.Connection do
       case PlayerHealth.hurt_window(state.player.health, amount) do
         {:ok, selected} ->
           try do
-            {result, next} = apply_damage(state, selected, :fall)
+            {result, next} = Vitals.apply_damage(state, selected, :fall)
             {:reply, {:ok, result}, next}
           catch
             {:disconnect, _, current} -> {:stop, :normal, {:error, :disconnected}, current}
@@ -410,7 +408,7 @@ defmodule Valimc.Connection do
             state =
               %{state | player: player}
               |> apply_kinetic_tick(kinetics, false)
-              |> observe_environment(powder, submerged, eye_water, kinetics)
+              |> Vitals.observe_environment(powder, submerged, eye_water, kinetics)
               |> monitor_pose_sources(fences)
 
             state =
@@ -463,7 +461,7 @@ defmodule Valimc.Connection do
         {:ok, _outcome} ->
           state = if job.command.body == nil, do: resync_inventory(state), else: state
           send_packets(state, [Packets.ack(job.command.request.sequence)])
-          {:noreply, state |> continue_life() |> drain_placements()}
+          {:noreply, state |> Vitals.continue_life() |> drain_placements()}
 
         _ ->
           reject(state, "Block interaction unavailable; please reconnect")
@@ -531,12 +529,12 @@ defmodule Valimc.Connection do
 
                 next =
                   next
-                  |> apply_movement_exhaustion(exhaustion)
+                  |> Vitals.apply_movement_exhaustion(exhaustion)
                   |> apply_kinetic_tick(kinetics.tick, kinetics.packet.bounced)
-                  |> observe_environment(powder, submerged, eye_water, kinetics.tick)
+                  |> Vitals.observe_environment(powder, submerged, eye_water, kinetics.tick)
                   |> monitor_pose_sources(fences)
                   |> update_view()
-                  |> apply_landing(landing)
+                  |> Vitals.apply_landing(landing)
 
                 {:noreply,
                  if(next.life_stage == :alive,
@@ -884,7 +882,7 @@ defmodule Valimc.Connection do
       state =
         case save.kind do
           :death_mark ->
-            continue_life(%{state | life_stage: :dropping})
+            Vitals.continue_life(%{state | life_stage: :dropping})
 
           :death_done ->
             state = %{
@@ -893,10 +891,10 @@ defmodule Valimc.Connection do
                 life_stage: :dead
             }
 
-            if state.phase == :login, do: finish_login(state), else: continue_life(state)
+            if state.phase == :login, do: finish_login(state), else: Vitals.continue_life(state)
 
           :respawn ->
-            finish_respawn(state, save.player)
+            Vitals.finish_respawn(state, save.player)
         end
 
       {:noreply, state}
@@ -909,7 +907,7 @@ defmodule Valimc.Connection do
         {:noreply,
          %{state | save_ref: nil, use_save: nil}
          |> drain_creative()
-         |> continue_life()
+         |> Vitals.continue_life()
          |> continue_table_close()
          |> continue_crafting_repeat()
          |> drain_table_clicks()
@@ -1040,7 +1038,7 @@ defmodule Valimc.Connection do
        |> correct_block_recovery(recovery)
        |> drain_creative()
        |> sync_creative_result()
-       |> continue_life()
+       |> Vitals.continue_life()
        |> drain_placements()}
     end)
   end
@@ -1089,7 +1087,7 @@ defmodule Valimc.Connection do
            state
            |> drain_creative()
            |> sync_recovery_inventory(recovery)
-           |> continue_life()
+           |> Vitals.continue_life()
            |> continue_table_close()
            |> continue_crafting_repeat()
            |> drain_table_clicks()
@@ -1230,15 +1228,15 @@ defmodule Valimc.Connection do
               environment_effects: Map.take(player.effects, [@resistance])
           }
 
-          state = tick_burning(state)
-          state = tick_effects(state)
+          state = Vitals.tick_burning(state)
+          state = Vitals.tick_effects(state)
 
           {:noreply,
            state
-           |> apply_void_damage()
+           |> Vitals.apply_void_damage()
            |> tick_item_use()
-           |> tick_food()
-           |> reset_effect_fall()
+           |> Vitals.tick_food()
+           |> Vitals.reset_effect_fall()
            |> tick_mining()
            |> continue_table_close()
            |> continue_crafting_repeat()
@@ -1478,7 +1476,7 @@ defmodule Valimc.Connection do
       state = %{state | inventory: recovered_inventory(state, after_snapshot)}
 
       if state.player.health.value <= 0,
-        do: checkpoint_life(state, :death_done, after_snapshot),
+        do: Vitals.checkpoint_life(state, :death_done, after_snapshot),
         else: finish_login(state)
     else
       ref = make_ref()
@@ -1525,41 +1523,6 @@ defmodule Valimc.Connection do
         drag: nil
     }
   end
-
-  defp apply_landing(state, nil), do: state
-
-  defp apply_landing(state, call) do
-    {:ok, jump} = Valimc.PlayerJumpBoost.derive(state.player.effects)
-
-    {:ok, amount} =
-      Valimc.Physics.FallDamage.calculate(
-        call.distance,
-        call.multiplier,
-        %Valimc.Physics.FallDamage{safe_distance: jump.safe_distance}
-      )
-
-    if amount > 0 do
-      {:ok, selected} = PlayerHealth.hurt_window(state.player.health, amount)
-      {_, state} = apply_damage(state, selected, call.source)
-      state
-    else
-      state
-    end
-  end
-
-  defp apply_void_damage(%{life_stage: :alive} = state) do
-    amount = Valimc.PlayerVoid.damage(state.player.y, Valimc.World.Chunk.min_y())
-
-    if amount > 0 do
-      {:ok, selected} = PlayerHealth.hurt_window(state.player.health, amount)
-      {_, state} = apply_damage(state, selected, :out_of_world)
-      state
-    else
-      state
-    end
-  end
-
-  defp apply_void_damage(state), do: state
 
   defp use_item(state, payload) do
     case UseItem.decode(payload) do
@@ -1684,7 +1647,8 @@ defmodule Valimc.Connection do
     state
   end
 
-  defp publish_equipment(state) do
+  @doc false
+  def publish_equipment(state) do
     source = {state.inventory.selected, state.inventory.slots}
 
     if source == state.equipment_source do
@@ -1710,9 +1674,10 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp stop_item_use(%{active_use: nil} = state), do: state
+  @doc false
+  def stop_item_use(%{active_use: nil} = state), do: state
 
-  defp stop_item_use(state),
+  def stop_item_use(state),
     do: publish_item_use(%{state | active_use: nil}, PlayerUse.stop_flags(state.player.use_flags))
 
   defp tick_item_use(%{life_stage: :alive, active_use: %PlayerUse{} = use} = state) do
@@ -1750,7 +1715,7 @@ defmodule Valimc.Connection do
               use_save: ref
           }
 
-          state = if transition.death, do: dead_state(state), else: state
+          state = if transition.death, do: Vitals.dead_state(state), else: state
 
           PlayerStore.checkpoint(
             state.player_store,
@@ -1808,7 +1773,9 @@ defmodule Valimc.Connection do
           ])
 
           state =
-            if transition.death, do: death_notice(state, true, transition.death), else: state
+            if transition.death,
+              do: Vitals.death_notice(state, true, transition.death),
+              else: state
 
           send(self(), :drain)
           state
@@ -1824,321 +1791,8 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp apply_movement_exhaustion(%{player: %{abilities: %{invulnerable: true}}} = state, _),
-    do: state
-
-  defp apply_movement_exhaustion(state, %{jump: jump, travel: travel})
-       when jump == 0 and travel == 0,
-       do: state
-
-  defp apply_movement_exhaustion(state, %{jump: jump, travel: travel}) do
-    food = state.player.food |> PlayerFood.exhaust(jump) |> PlayerFood.exhaust(travel)
-    player = %{state.player | food: food}
-    if food != state.player.food, do: Players.update(self(), player)
-    %{state | player: player}
-  end
-
-  defp tick_food(%{life_stage: :alive} = state) do
-    phase = rem(state.simulation_clock.tick - state.food_tick_origin, 20)
-
-    if PlayerFood.idle?(state.player.food, state.player.health, phase),
-      do: state,
-      else: advance_food(state, phase)
-  end
-
-  defp tick_food(state), do: state
-
-  defp advance_food(state, phase) do
-    {difficulty, regeneration} = World.Clock.survival()
-    before = state.player
-
-    {food, peaceful_heal} =
-      PlayerFood.peaceful(before.food, before.health, difficulty, regeneration, phase)
-
-    health = heal(before.health, peaceful_heal)
-    {food, effect} = PlayerFood.tick(food, health, difficulty, regeneration)
-    health = heal(health, effect.heal)
-
-    state =
-      if before.food != food or before.health != health do
-        player = %{before | food: food, health: health}
-        Players.update(self(), player)
-        %{state | player: player}
-      else
-        state
-      end
-
-    # Native replication observes health, food and whether saturation crossed zero.
-    if before.health.value != health.value or before.food.level != food.level or
-         before.food.saturation == 0 != (food.saturation == 0),
-       do: send_packets(state, [Packets.health(health, food)])
-
-    if before.health.value != health.value do
-      packet = Packets.player_health(state.player)
-      send_packets(state, [packet])
-      broadcast_player_packet(state, packet)
-    end
-
-    if effect.damage > 0 do
-      {:ok, selected} = PlayerHealth.hurt_window(health, effect.damage)
-      {_, state} = apply_damage(state, selected, :starve)
-      state
-    else
-      state
-    end
-  end
-
-  defp heal(health, amount) do
-    if health.value > 0 and amount > 0 do
-      {:ok, next} = PlayerHealth.set(health, health.value + amount)
-      next
-    else
-      health
-    end
-  end
-
-  defp apply_damage(state, selected, source, effects \\ nil) do
-    result =
-      if state.life_stage != :alive,
-        do: :ignored,
-        else:
-          Valimc.PlayerDamage.resolve(
-            state.player,
-            state.inventory,
-            selected,
-            source,
-            effects || state.player.effects,
-            inventory_pending(state)
-          )
-
-    case result do
-      reason when reason in [:ignored, :immune, :deferred] ->
-        {reason, state}
-
-      {:ok, %{player: player, inventory: inventory, broken: broken}} ->
-        health = player.health
-
-        state =
-          if inventory == state.inventory do
-            %{state | player: player}
-          else
-            %{state | player: player, inventory: inventory}
-            |> resync_inventory()
-            |> publish_equipment()
-          end
-
-        for {slot, _stack} <- broken do
-          packet = Packets.armor_break(player.entity_id, slot)
-          send_packets(state, [packet])
-          broadcast_player_packet(state, packet)
-        end
-
-        state =
-          if health.value <= 0 do
-            state =
-              state
-              |> cancel_pose_job()
-              |> cancel_motion_job()
-              |> stop_item_use()
-              |> cancel_mining()
-
-            dead_state(state)
-          else
-            state
-          end
-
-        state = if health.value <= 0, do: begin_table_close(state), else: state
-        Players.update(self(), state.player)
-
-        if selected.notify do
-          packet = Packets.damage_event(state.player.entity_id, source)
-          send_packets(state, [packet])
-          broadcast_player_packet(state, packet)
-        end
-
-        send_packets(state, [
-          Packets.health(state.player.health, state.player.food),
-          Packets.player_health(state.player)
-        ])
-
-        state = publish_absorption(state)
-        state = if health.value <= 0, do: death_notice(state, true, source), else: state
-        send(self(), :drain)
-        {if(health.value <= 0, do: :dead, else: :hurt), continue_life(state)}
-    end
-  end
-
-  defp dead_state(state) do
-    %{
-      state
-      | player: PlayerLife.die(state.player),
-        motion_pending: nil,
-        motion_window: nil,
-        pose_checked: nil,
-        pose_generation: state.pose_generation + 1,
-        life_stage: :sealing_death,
-        fire_damage_due: false,
-        fire_contacts_active: false,
-        creative_input: CreativeInput.clear(state.creative_input)
-    }
-  end
-
-  defp death_notice(state, announce, source \\ :fall) do
-    message =
-      Valimc.PlayerDeathMessage.component(
-        state.player.name,
-        if(announce, do: source, else: :generic)
-      )
-
-    send_packets(state, [
-      Packets.player_pose(state.player),
-      Packets.death(state.player.entity_id, message),
-      Packets.death_animation(state.player.entity_id)
-    ])
-
-    broadcast_player_packet(state, Packets.death_animation(state.player.entity_id))
-    if announce, do: Players.broadcast({:chat, message})
-    state
-  end
-
-  defp checkpoint_life(state, kind, snapshot, player \\ nil) do
-    ref = make_ref()
-    PlayerStore.checkpoint(state.player_store, state.store_fence, snapshot, ref)
-    Process.send_after(self(), {:save_deadline, ref}, 5000)
-
-    %{
-      state
-      | save_ref: ref,
-        life_save: %{kind: kind, ref: ref, snapshot: snapshot, player: player}
-    }
-  end
-
-  defp continue_life(%{save_ref: ref} = state) when ref != nil, do: state
-  defp continue_life(%{recovery: recovery} = state) when recovery != nil, do: state
-
-  defp continue_life(%{life_stage: :sealing_death, phase: :play} = state),
-    do: checkpoint_life(state, :death_mark, PlayerSnapshot.capture(state.player, state.inventory))
-
-  defp continue_life(%{life_stage: :dropping, phase: :play} = state) do
-    before = PlayerSnapshot.capture(state.player, state.inventory)
-    {:ok, after_snapshot, key, records} = PlayerTransfers.plan_death(before)
-
-    if records == [] do
-      checkpoint_life(state, :death_done, after_snapshot)
-    else
-      ref = make_ref()
-
-      recovery = %{
-        new_recovery(:death, :prepare, nil)
-        | ref: ref,
-          plan: %{key: key, records: records, inventory: after_snapshot.inventory}
-      }
-
-      PlayerStore.prepare_death(
-        state.player_store,
-        state.store_fence,
-        before,
-        after_snapshot,
-        key,
-        records,
-        ref
-      )
-
-      %{state | recovery: recovery}
-    end
-  end
-
-  defp continue_life(%{life_stage: :dead, respawn_requested: true} = state) do
-    player = PlayerLife.respawn(state.player)
-    snapshot = PlayerSnapshot.capture(player, Inventory.new(player.abilities.infinite_materials))
-    checkpoint_life(%{state | life_stage: :respawning}, :respawn, snapshot, player)
-  end
-
-  defp continue_life(state), do: state
-
-  defp finish_respawn(state, player) do
-    old_entities = Enum.map(state.peers, fn {_, view} -> Packets.remove_entity(view) end)
-
-    old_items = Map.keys(state.entity_replication.tracked)
-
-    old_items =
-      if old_items == [], do: [], else: [Valimc.Protocol.EntityPackets.remove(old_items)]
-
-    send_packets(state, Enum.map(state.chunks, &Packets.unload/1) ++ old_entities ++ old_items)
-    {clock_version, clock_packet} = Valimc.World.Clock.initial()
-    {difficulty, difficulty_packet} = Valimc.World.Clock.difficulty()
-
-    {weather_view, weather_packets} =
-      WeatherReplication.reconcile(nil, Valimc.World.Clock.weather())
-
-    inventory = Inventory.new(player.abilities.infinite_materials)
-
-    state = %{
-      state
-      | player: player,
-        inventory: inventory,
-        life_stage: :alive,
-        air_policy: :none,
-        environment_effects: %{},
-        movement_speed_view: nil,
-        absorption_view: nil,
-        jump_boost_view: nil,
-        fire_damage_due: false,
-        fire_contacts_active: false,
-        active_use: nil,
-        respawn_requested: false,
-        food_tick_origin: state.simulation_clock.tick,
-        client_tick: %ClientTick{},
-        center: nil,
-        chunks: MapSet.new(),
-        pending: [],
-        batch_pending: false,
-        peers: %{},
-        entity_replication: EntityReplication.new(),
-        entity_cache: %{},
-        clock_version: clock_version,
-        difficulty_view: difficulty,
-        weather_view: weather_view
-    }
-
-    send_packets(
-      state,
-      [
-        Packets.respawn(player, player.last_death),
-        Packets.level_load_start(),
-        clock_packet,
-        difficulty_packet,
-        Packets.abilities(player.abilities),
-        Packets.health(player.health, player.food),
-        Packets.player_health(player),
-        Packets.player_use(player),
-        Packets.player_pose(player),
-        Packets.player_environment(player),
-        Packets.player_flags(player),
-        Packets.spawn_position(),
-        Packets.interaction_attributes(player),
-        Packets.armor_attributes(player, Valimc.PlayerArmor.attributes(inventory)),
-        Packets.inventory(inventory),
-        Packets.cursor(nil),
-        Packets.held_slot(0)
-      ] ++ weather_packets
-    )
-
-    state =
-      state
-      |> publish_movement_speed()
-      |> publish_absorption()
-      |> publish_jump_boost()
-      |> relocate(player)
-
-    for pid <- Players.nearby(state.regions),
-        pid != self(),
-        do: deliver(pid, {:player_respawned, self(), player.entity_id})
-
-    %{state | life_save: nil}
-  end
-
-  defp new_recovery(mode, stage, intent) do
+  @doc false
+  def new_recovery(mode, stage, intent) do
     id = make_ref()
 
     %{
@@ -2321,7 +1975,7 @@ defmodule Valimc.Connection do
       "client_command" ->
         case ClientCommand.decode(payload) do
           {:ok, :respawn} when state.life_stage in [:sealing_death, :dropping, :dead] ->
-            continue_life(%{state | respawn_requested: true})
+            Vitals.continue_life(%{state | respawn_requested: true})
 
           {:ok, _} ->
             state
@@ -2682,7 +2336,7 @@ defmodule Valimc.Connection do
     state = %{state | simulation_clock: clock}
     Process.send_after(self(), :publish_movement, 50)
     Process.send_after(self(), :save_player, Valimc.config(:player_save_interval_ms))
-    if state.player.health.value <= 0, do: death_notice(state, false), else: state
+    if state.player.health.value <= 0, do: Vitals.death_notice(state, false), else: state
   end
 
   defp update_player_input(state, input) do
@@ -2695,7 +2349,8 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp publish_movement_speed(state) do
+  @doc false
+  def publish_movement_speed(state) do
     {_, sprint} = signature = PlayerMovementSpeed.signature(state.player)
 
     if signature == state.movement_speed_view do
@@ -2707,7 +2362,8 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp publish_jump_boost(state) do
+  @doc false
+  def publish_jump_boost(state) do
     level = Valimc.PlayerJumpBoost.level(state.player.effects)
 
     if level == state.jump_boost_view do
@@ -2719,14 +2375,16 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp absorption_level(effects) do
+  @doc false
+  def absorption_level(effects) do
     case effects[@absorption] do
       nil -> nil
       [{_, amp, _, _, _} | _] -> amp
     end
   end
 
-  defp publish_absorption(state) do
+  @doc false
+  def publish_absorption(state) do
     view = {absorption_level(state.player.effects), state.player.absorption}
 
     if view == state.absorption_view do
@@ -2893,12 +2551,14 @@ defmodule Valimc.Connection do
     end
   end
 
-  defp cancel_pose_job(state) do
+  @doc false
+  def cancel_pose_job(state) do
     {_job, jobs} = Jobs.cancel(state.jobs, :pose)
     %{state | jobs: jobs}
   end
 
-  defp cancel_motion_job(state) do
+  @doc false
+  def cancel_motion_job(state) do
     {_job, jobs} = Jobs.cancel(state.jobs, :motion)
     input = state.motion_pending
     if input && input.retry, do: Process.cancel_timer(input.retry)
@@ -2912,7 +2572,8 @@ defmodule Valimc.Connection do
     relocate(state, player, false)
   end
 
-  defp relocate(state, player, reset_motion \\ true) do
+  @doc false
+  def relocate(state, player, reset_motion \\ true) do
     state = state |> cancel_pose_job() |> cancel_mining()
 
     state =
@@ -3014,7 +2675,8 @@ defmodule Valimc.Connection do
   end
 
   # Frame (and compress) once; peers share the refc binary and only encrypt it.
-  defp broadcast_player_packet(state, packet) do
+  @doc false
+  def broadcast_player_packet(state, packet) do
     framed = {state.threshold, IO.iodata_to_binary(Packets.frame(packet, state.threshold))}
 
     for pid <- Players.nearby(state.regions),
@@ -3022,310 +2684,6 @@ defmodule Valimc.Connection do
         do: deliver(pid, {:player_packet, self(), state.player.entity_id, packet, framed})
 
     state
-  end
-
-  defp tick_burning(%{life_stage: stage} = state) when stage != :alive,
-    do: %{state | fire_damage_due: false}
-
-  defp tick_burning(state) do
-    {:ok, burning} =
-      Valimc.PlayerBurning.tick(
-        state.player.fire_ticks,
-        false,
-        false,
-        state.player.abilities.invulnerable
-      )
-
-    player = %{state.player | fire_ticks: burning.ticks}
-    burning_now = player.fire_ticks > 0
-    burning_before = state.player.fire_ticks > 0
-    if burning_now != burning_before, do: Players.update(self(), player)
-
-    %{
-      state
-      | player: player,
-        pose_checked: if(burning_before and not burning_now, do: nil, else: state.pose_checked),
-        fire_damage_due:
-          burning.ticks > 0 and
-            not PlayerStatusImmunity.immune?(state.player.effects, :on_fire) and
-            (state.fire_damage_due or burning.damage > 0)
-    }
-  end
-
-  defp tick_effects(%{life_stage: :alive, player: %{effects: effects}} = state)
-       when map_size(effects) > 0 do
-    before_level = absorption_level(effects)
-    depleted = Map.has_key?(effects, @absorption) and state.player.absorption == 0
-    effects = if depleted, do: Map.delete(effects, @absorption), else: effects
-    {:ok, after_effects, events} = PlayerEffects.tick(effects)
-    events = if depleted, do: [{:remove, @absorption} | events], else: events
-    # Requests read pre-decrement heads. Publish the final duration map to this
-    # owner before health application can seal a durable death snapshot.
-    state = %{state | player: %{state.player | effects: after_effects}}
-    unsigned_age = band(state.simulation_clock.tick, 0xFFFFFFFF)
-    age = if unsigned_age >= 2_147_483_648, do: unsigned_age - 4_294_967_296, else: unsigned_age
-
-    next =
-      Enum.reduce_while(@periodic_effects, state, fn id, current ->
-        cond do
-          current.life_stage != :alive ->
-            {:halt, current}
-
-          not Map.has_key?(effects, id) ->
-            {:cont, current}
-
-          true ->
-            {:ok, action} =
-              if id == @hunger,
-                do: Valimc.HungerEffect.request(effects[id]),
-                else: PeriodicEffect.request(id, effects[id], age, current.player.health)
-
-            {:cont, apply_effect_action(current, action)}
-        end
-      end)
-
-    {next, events} =
-      if next.life_stage == :alive and next.player.absorption == 0 and
-           Map.has_key?(next.player.effects, @absorption) do
-        player = %{next.player | effects: Map.delete(next.player.effects, @absorption)}
-        events = Enum.reject(events, fn event -> elem(event, 1) == @absorption end)
-        {%{next | player: player}, events ++ [{:remove, @absorption}]}
-      else
-        {next, events}
-      end
-
-    # Damage requests above spend the pre-expiry pool; promotion/removal then
-    # clamps it to the final maximum without starting another dose.
-    player =
-      if next.life_stage == :alive and before_level != absorption_level(next.player.effects),
-        do: PlayerAbsorption.reconcile(next.player),
-        else: next.player
-
-    next = %{next | player: player}
-
-    packets =
-      Enum.map(events, fn
-        {:update, id, rung, _reapply} -> Packets.update_effect(player.entity_id, id, rung, false)
-        {:remove, id} -> Packets.remove_effect(player.entity_id, id)
-      end)
-
-    send_packets(next, packets)
-    next |> publish_movement_speed() |> publish_absorption() |> publish_jump_boost()
-  end
-
-  defp tick_effects(state), do: state
-
-  defp reset_effect_fall(%{life_stage: :alive} = state) do
-    player = Valimc.PlayerTravelEffects.reset_fall(state.player)
-    if player.motion != state.player.motion, do: Players.update(self(), player)
-    %{state | player: player}
-  end
-
-  defp reset_effect_fall(state), do: state
-
-  defp apply_effect_action(state, :none), do: state
-
-  defp apply_effect_action(state, {:exhaust, amount}) do
-    if state.player.abilities.invulnerable do
-      state
-    else
-      food = PlayerFood.exhaust(state.player.food, amount)
-      player = %{state.player | food: food}
-      if food != state.player.food, do: Players.update(self(), player)
-      %{state | player: player}
-    end
-  end
-
-  defp apply_effect_action(state, {:heal, amount}) do
-    health = heal(state.player.health, amount)
-
-    if health.value == state.player.health.value do
-      state
-    else
-      player = %{state.player | health: health}
-      state = %{state | player: player}
-      Players.update(self(), player)
-      packet = Packets.player_health(player)
-      send_packets(state, [Packets.health(health, player.food), packet])
-      broadcast_player_packet(state, packet)
-    end
-  end
-
-  defp apply_effect_action(state, {:hurt, source, amount}) do
-    {:ok, selected} = PlayerHealth.hurt_window(state.player.health, amount)
-    {_, state} = apply_damage(state, selected, source)
-    state
-  end
-
-  defp observe_burning(%{life_stage: stage} = state, _, _, _) when stage != :alive,
-    do: %{state | fire_damage_due: false}
-
-  defp observe_burning(state, fluid, due, _powder) do
-    # Burn requests are bounded while geometry is delayed. They are consumed only
-    # against this fresh body sample; lava suppresses the concurrent on-fire hit.
-    pending = state.fire_damage_due
-    state = %{state | fire_damage_due: false}
-
-    state =
-      if pending and not fluid.lava do
-        {:ok, selected} = PlayerHealth.hurt_window(state.player.health, 1.0)
-        {_, next} = apply_damage(state, selected, :on_fire, state.environment_effects)
-        next
-      else
-        state
-      end
-
-    if state.life_stage != :alive or state.player.game_mode.current == :spectator do
-      %{state | fire_contacts_active: false}
-    else
-      previous = state.player.fire_ticks
-      state = %{state | fire_contacts_active: fluid.fire_contacts.active}
-
-      state =
-        if due do
-          Enum.reduce_while(fluid.fire_contacts.operations, state, fn operation, state ->
-            if state.life_stage == :alive,
-              do: {:cont, apply_fire_contact(state, operation)},
-              else: {:halt, state}
-          end)
-        else
-          state
-        end
-
-      if due and state.life_stage == :alive do
-        state =
-          if Map.get(fluid, :rain, false) and Valimc.World.Clock.weather().wet,
-            do: apply_fire_contact(state, :extinguish),
-            else: state
-
-        ticks = state.player.fire_ticks
-        ticks = if ticks <= 0 and ticks <= previous, do: -20, else: ticks
-        %{state | player: %{state.player | fire_ticks: ticks}}
-      else
-        state
-      end
-    end
-  end
-
-  defp apply_fire_contact(state, :clear_freeze),
-    do: %{
-      state
-      | player: %{state.player | environment: %{state.player.environment | frozen_ticks: 0}}
-    }
-
-  defp apply_fire_contact(state, :fire_ignite) do
-    {:ok, ignition} =
-      Valimc.PlayerBurning.fire(
-        state.player.fire_ticks,
-        false,
-        Valimc.PlayerArmor.attributes(state.inventory).burning_time,
-        state.player.abilities.invulnerable
-      )
-
-    %{state | player: %{state.player | fire_ticks: ignition.ticks}}
-  end
-
-  defp apply_fire_contact(state, :lava_ignite) do
-    {:ok, ignition} =
-      Valimc.PlayerBurning.lava(
-        state.player.fire_ticks,
-        false,
-        Valimc.PlayerArmor.attributes(state.inventory).burning_time,
-        state.player.abilities.invulnerable
-      )
-
-    %{state | player: %{state.player | fire_ticks: ignition.ticks}}
-  end
-
-  defp apply_fire_contact(state, :lava_hurt),
-    do: apply_fire_contact(state, {:damage, :lava, 4.0})
-
-  defp apply_fire_contact(state, {:damage, source, amount}) do
-    {:ok, selected} = PlayerHealth.hurt_window(state.player.health, amount)
-    {_, state} = apply_damage(state, selected, source)
-    state
-  end
-
-  defp apply_fire_contact(state, :extinguish) do
-    {:ok, ticks} = Valimc.PlayerBurning.clear(state.player.fire_ticks)
-    %{state | player: %{state.player | fire_ticks: ticks}}
-  end
-
-  defp observe_environment(state, powder, submerged, eye_water, fluid) do
-    due = state.simulation_due
-    previous = state.player.environment
-    allowed = PlayerEnvironment.can_freeze?(state.player, state.inventory)
-
-    environment =
-      PlayerEnvironment.observe(
-        previous,
-        powder,
-        state.simulation_due,
-        not allowed
-      )
-
-    player = %{state.player | environment: environment}
-    state = observe_burning(%{state | player: player}, fluid, due, powder)
-
-    {damage_due, environment} =
-      PlayerEnvironment.consume_damage(state.player.environment, allowed)
-
-    player = %{state.player | environment: environment}
-
-    if environment.frozen_ticks != previous.frozen_ticks or
-         (previous.powder_snow and not powder) do
-      send_packets(state, [Packets.player_environment(player)])
-    end
-
-    Players.update(self(), player)
-    state = %{state | player: player, simulation_due: false, mining_water: eye_water}
-    state = if due, do: observe_air(state, submerged), else: state
-
-    if damage_due do
-      {:ok, selected} = PlayerHealth.hurt_window(state.player.health, 1.0)
-      {_, state} = apply_damage(state, selected, :freeze, state.environment_effects)
-      state
-    else
-      state
-    end
-  end
-
-  defp observe_air(state, submerged) do
-    previous = Valimc.PlayerAir.supply(state.player)
-    oxygen = Valimc.PlayerAir.oxygen_bonus(state.inventory)
-    spend = submerged and not state.player.abilities.invulnerable and state.air_policy == :none
-    draw = if oxygen > 0 and spend, do: :rand.uniform_real(), else: 0.0
-
-    {air, damage} =
-      Valimc.PlayerAir.tick(
-        previous,
-        submerged,
-        state.player.abilities.invulnerable,
-        oxygen,
-        draw,
-        state.air_policy
-      )
-
-    player = %{state.player | air_supply: air}
-    state = %{state | player: player}
-
-    if air != previous do
-      packet = Packets.player_air(player)
-      send_packets(state, [packet])
-      broadcast_player_packet(state, packet)
-      Players.update(self(), player)
-    end
-
-    if damage > 0 do
-      bubbles = Packets.drowning_bubbles(player.entity_id)
-      send_packets(state, [bubbles])
-      broadcast_player_packet(state, bubbles)
-      {:ok, selected} = PlayerHealth.hurt_window(player.health, damage)
-      {_, state} = apply_damage(state, selected, :drown, state.environment_effects)
-      state
-    else
-      state
-    end
   end
 
   defp monitor_pose_sources(state, fences) do
@@ -4313,7 +3671,8 @@ defmodule Valimc.Connection do
   defp mining_result(state, %{stage: :correct}, _), do: state
   defp mining_result(state, job, _), do: state |> cancel_mining() |> correct_mining(job.position)
 
-  defp cancel_mining(state) do
+  @doc false
+  def cancel_mining(state) do
     {_job, jobs} = Jobs.cancel(state.jobs, :mining)
     state = %{state | jobs: jobs}
 
@@ -4635,9 +3994,10 @@ defmodule Valimc.Connection do
     %{state | inventory: inventory}
   end
 
-  defp resync_inventory(%{table_closing: true} = state), do: state
+  @doc false
+  def resync_inventory(%{table_closing: true} = state), do: state
 
-  defp resync_inventory(state) do
+  def resync_inventory(state) do
     inventory = state.inventory |> Inventory.cancel_drag() |> Inventory.advance()
 
     packet =
@@ -5244,9 +4604,10 @@ defmodule Valimc.Connection do
 
   defp retire_container_view(_), do: :ok
 
-  defp begin_table_close(%{table_menu: nil} = state), do: continue_table_close(state)
+  @doc false
+  def begin_table_close(%{table_menu: nil} = state), do: continue_table_close(state)
 
-  defp begin_table_close(state) do
+  def begin_table_close(state) do
     send_packets(state, [Packets.packet("container_close", Wire.varint(state.table_menu.id))])
     retire_container_view(state)
     state = cancel_table_query(state)
