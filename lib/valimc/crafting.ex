@@ -7,9 +7,8 @@ defmodule Valimc.Crafting do
   @remainder_path Path.expand("../../priv/crafting/remainders.json", __DIR__)
   @external_resource @remainder_path
   @remainder_facts JSON.decode!(File.read!(@remainder_path))
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c",
-         do: raise("Wrong player crafting catalog version")
+  unless Valimc.Version.stamped?(@facts),
+    do: raise("Wrong player crafting catalog version")
 
   unless Map.take(@remainder_facts, ["version", "data_version", "server_sha1"]) ==
            Map.take(@facts, ["version", "data_version", "server_sha1"]) and

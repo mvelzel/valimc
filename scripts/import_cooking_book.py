@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Import factual native recipe display wire data, never upstream code/assets."""
 import json,pathlib,sys
+import pinned
 root=pathlib.Path(__file__).resolve().parent.parent
 raw=json.loads(pathlib.Path(sys.argv[1]).read_text())
-assert raw['version']=='26.3' and raw['server_sha1']=='33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c'
+assert pinned.stamped(raw,('version','server_sha1'))
 names=[r['recipe'] for r in json.loads((root/'priv/crafting/cooking.json').read_text())['recipes']]
 assert [r['recipe'] for r in raw['entries']]==names and len(names)==107
 entries=[]

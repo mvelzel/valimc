@@ -3,6 +3,9 @@ defmodule Valimc.Protocol.ItemTypes do
   @path Path.expand("../../../priv/protocol/items.json", __DIR__)
   @external_resource @path
   @facts :json.decode(File.read!(@path))
+  unless Valimc.Version.stamped?(@facts, ~w(version protocol)),
+    do: raise("Wrong item facts")
+
   @items @facts["items"]
   @by_id Map.new(@items, fn {name, facts} -> {facts["id"], Map.put(facts, "name", name)} end)
   @actions @facts["player_actions"]
@@ -12,7 +15,11 @@ defmodule Valimc.Protocol.ItemTypes do
                end)
   @defaults_path Path.expand("../../../priv/protocol/item_defaults.json", __DIR__)
   @external_resource @defaults_path
-  @defaults :json.decode(File.read!(@defaults_path))["items"]
+  @default_facts :json.decode(File.read!(@defaults_path))
+  unless Valimc.Version.stamped?(@default_facts, ~w(version data_version protocol server_sha1)),
+    do: raise("Wrong item default facts")
+
+  @defaults @default_facts["items"]
             |> Map.new(fn {id, facts} ->
               values =
                 Map.new(facts["values"], fn {name, bytes} ->

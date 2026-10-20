@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the dedicated vanilla 26.3 test client directly into local ValiMC; Ctrl-C stops it."""
+"""Run the dedicated pinned vanilla test client directly into local ValiMC; Ctrl-C stops it."""
 import argparse
 import fcntl
 import hashlib
@@ -12,12 +12,13 @@ import subprocess
 import sys
 import uuid
 
+from pinned import PROTOCOL, VERSION
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 INSTALLED = pathlib.Path.home() / "Library/Application Support/minecraft"
 APP = ROOT / ".local/Minecraft Client.app/Contents/MacOS/java"
 SDL = ROOT / ".local/sdl-mouse-build/libSDL3.dylib"
 INPUT = ROOT / ".local/minecraft-input.sock"
-VERSION = "26.3"
 TARGET = "127.0.0.1:25565"
 PLAYER = "ValiMCTest"
 FEATURES = {"has_quick_plays_support": True,
@@ -77,7 +78,7 @@ def command(run):
     arguments = [str(APP), "-Xmx2G", "-Dlog4j.configurationFile=" + str(logging)]
     arguments += expand(data["arguments"]["jvm"]) + [data["mainClass"]]
     arguments += expand(data["arguments"]["game"])
-    details = {"minecraft": VERSION, "protocol": 777, "target": TARGET,
+    details = {"minecraft": VERSION, "protocol": PROTOCOL, "target": TARGET,
                "player": PLAYER, "uuid": str(offline_uuid), "game_directory": values["game_directory"],
                "input_socket": str(INPUT),
                "fingerprints": {str(p): hashlib.sha256(p.read_bytes()).hexdigest()

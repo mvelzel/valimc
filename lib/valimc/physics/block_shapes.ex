@@ -3,9 +3,8 @@ defmodule Valimc.Physics.BlockShapes do
   @path Path.expand("../../../priv/physics/collision_shapes.json", __DIR__)
   @external_resource @path
   @facts JSON.decode!(File.read!(@path))
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c",
-         do: raise("Wrong collision catalog version")
+  unless Valimc.Version.stamped?(@facts),
+    do: raise("Wrong collision catalog version")
 
   @shapes @facts["shapes"] |> Enum.map(&Valimc.Physics.Shape.from_facts!/1) |> List.to_tuple()
   @states @facts["runs"]

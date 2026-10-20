@@ -4,6 +4,9 @@ defmodule Valimc.ChestAccess do
   @path Path.expand("../../priv/protocol/chest_states.json", __DIR__)
   @external_resource @path
   @facts JSON.decode!(File.read!(@path))
+  unless Valimc.Version.stamped?(@facts, ~w(version protocol server_sha1)),
+    do: raise("Wrong chest state facts")
+
   @single MapSet.new(@facts["single_states"])
   @ordinary MapSet.new(@facts["states"], & &1["state"])
   @modes [:survival, :creative, :adventure, :spectator]

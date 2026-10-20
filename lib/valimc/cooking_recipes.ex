@@ -26,8 +26,7 @@ defmodule Valimc.CookingRecipes do
            |> List.to_tuple()
   @items @facts["items"] |> Enum.map(&List.to_tuple/1) |> List.to_tuple()
   @experience @recipes |> Tuple.to_list() |> Map.new(&{&1.key, &1.experience})
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  unless Valimc.Version.stamped?(@facts) and
            Map.take(@fuel, ~w(version data_version server_sha1)) ==
              Map.take(@facts, ~w(version data_version server_sha1)) and
            tuple_size(@items) == 3 and tuple_size(@recipes) == 107 and

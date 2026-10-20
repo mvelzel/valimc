@@ -5,7 +5,11 @@ defmodule Valimc.FoodItems do
   @external_resource @path
   @empty %{food: nil, consumable: nil, remainder: nil, other_listeners: []}
   @float_max 3.4028234663852886e38
-  @defaults :json.decode(File.read!(@path))["items"]
+  @facts :json.decode(File.read!(@path))
+  unless Valimc.Version.stamped?(@facts, ~w(version protocol server_sha1)),
+    do: raise("Wrong food item facts")
+
+  @defaults @facts["items"]
             |> Map.new(fn {_name, facts} ->
               food =
                 if f = facts["food"],

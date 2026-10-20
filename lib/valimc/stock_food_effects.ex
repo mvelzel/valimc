@@ -5,7 +5,7 @@ defmodule Valimc.StockFoodEffects do
   @path Path.expand("../../priv/protocol/consume_status.json", __DIR__)
   @external_resource @path
   @facts :json.decode(File.read!(@path))
-  if @facts["version"] != "26.3" or @facts["protocol"] != 777,
+  unless Valimc.Version.stamped?(@facts, ~w(version protocol server_sha1)),
     do: raise("stock food effects do not match the supported protocol")
 
   @items Map.new(@facts["items"], fn item ->

@@ -3,7 +3,11 @@ defmodule Valimc.CookingRecipeBook do
   alias Valimc.Protocol.{Packets, Wire}
   @path Path.expand("../../priv/crafting/cooking_book.json", __DIR__)
   @external_resource @path
-  @rows JSON.decode!(File.read!(@path))["entries"]
+  @facts JSON.decode!(File.read!(@path))
+  unless Valimc.Version.stamped?(@facts, ~w(version server_sha1)),
+    do: raise("Wrong cooking recipe book facts")
+
+  @rows @facts["entries"]
         |> Enum.with_index()
         |> Map.new(fn {row, index} ->
           {row["recipe"],

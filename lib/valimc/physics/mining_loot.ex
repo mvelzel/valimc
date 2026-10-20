@@ -6,8 +6,7 @@ defmodule Valimc.Physics.MiningLoot do
   @external_resource @path
   @facts :json.decode(File.read!(@path))
   @count Data.block_state_count()
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  unless Valimc.Version.stamped?(@facts) and
            @facts["state_count"] == @count and @facts["block_count"] == MiningTools.block_count(),
          do: raise("Wrong mining loot catalog version")
 

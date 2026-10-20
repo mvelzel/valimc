@@ -6,8 +6,7 @@ defmodule Valimc.Physics.BlockEntities do
   @states @facts["runs"]
           |> Enum.flat_map(fn [_block, first, last] -> Enum.to_list(first..last) end)
           |> MapSet.new()
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  unless Valimc.Version.stamped?(@facts) and
            @facts["state_count"] == 35_723 and @facts["block_entity_states"] == 4_743 and
            MapSet.size(@states) == 4_743,
          do: raise("Wrong native block-entity facts")

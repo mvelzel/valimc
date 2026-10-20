@@ -5,8 +5,7 @@ defmodule Valimc.Protocol.EffectTypes do
   @facts :json.decode(File.read!(@path))
   @names List.to_tuple(@facts["effects"])
   @ids @facts["effects"] |> Enum.with_index() |> Map.new()
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  unless Valimc.Version.stamped?(@facts) and
            tuple_size(@names) == 40 and map_size(@ids) == 40,
          do: raise("Wrong native effect identities")
 

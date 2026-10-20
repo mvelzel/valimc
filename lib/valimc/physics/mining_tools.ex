@@ -12,8 +12,7 @@ defmodule Valimc.Physics.MiningTools do
   @blocks @facts["block_count"]
   @items @facts["item_count"]
   @float_max 3.4028234663852886e38
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  unless Valimc.Version.stamped?(@facts) and
            @count == Valimc.Protocol.Data.block_state_count() and
            Enum.all?(0..(@items - 1), &(ItemTypes.item(&1) != nil)),
          do: raise("Wrong mining tool catalog version")

@@ -3,11 +3,11 @@
 import json
 import pathlib
 import sys
+import pinned
 
 source, destination = map(pathlib.Path, sys.argv[1:])
 raw = json.loads(source.read_text())
-assert raw['version'] == '26.3' and raw['data_version'] == 5023
-assert raw['server_sha1'] == '33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c'
+assert pinned.stamped(raw)
 assert len(raw['states']) == 24 and len(raw['cases']) == 864
 states = {row['state']: row for row in raw['states']}
 assert len(states) == 24

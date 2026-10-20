@@ -7,8 +7,10 @@ defmodule Valimc.ChestOpening do
   @facts JSON.decode!(File.read!(@path))
   @count @facts["state_count"]
   @mask Base.decode64!(@facts["blocked_above_bits"])
-  if @count != Valimc.Protocol.Data.block_state_count() or byte_size(@mask) != div(@count + 7, 8),
-    do: raise("Wrong chest opening facts")
+  unless Valimc.Version.stamped?(@facts, ~w(version server_sha1)) and
+           @count == Valimc.Protocol.Data.block_state_count() and
+           byte_size(@mask) == div(@count + 7, 8),
+         do: raise("Wrong chest opening facts")
 
   def obstructed?(above, false) when is_integer(above) and above >= 0 and above < @count,
     do: (:binary.at(@mask, above >>> 3) &&& 1 <<< (above &&& 7)) != 0

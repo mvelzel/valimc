@@ -24,8 +24,7 @@ defmodule Valimc.Physics.CookingBlocks do
               end)
               |> List.to_tuple()
   @items Map.new(Tuple.to_list(@kinds), fn kind -> {Data.item(Atom.to_string(kind)), kind} end)
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  unless Valimc.Version.stamped?(@facts) and
            map_size(@states) == 24 and tuple_size(@placements) == 3 and
            Enum.all?(Tuple.to_list(@placements), fn table ->
              Enum.sort(Map.keys(table)) == [2, 3, 4, 5] and

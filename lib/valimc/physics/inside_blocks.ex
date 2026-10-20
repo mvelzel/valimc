@@ -4,8 +4,7 @@ defmodule Valimc.Physics.InsideBlocks do
   @external_resource @path
   @facts :json.decode(File.read!(@path))
   @count 35_723
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c" and
+  unless Valimc.Version.stamped?(@facts) and
            @facts["state_count"] == @count and length(@facts["fire"]) == 512 and
            length(@facts["soul_fire"]) == 1 and length(@facts["air"]) == 3,
          do: raise("Wrong inside-block facts")

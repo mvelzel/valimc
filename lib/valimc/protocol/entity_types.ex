@@ -3,7 +3,7 @@ defmodule Valimc.Protocol.EntityTypes do
   @path Path.expand("../../../priv/protocol/entities.json", __DIR__)
   @external_resource @path
   @facts :json.decode(File.read!(@path))
-  if @facts["version"] != "26.3" or @facts["protocol"] != 777,
+  unless Valimc.Version.stamped?(@facts, ~w(version protocol server_sha1)),
     do: raise("entity facts do not match the supported protocol")
 
   def id("minecraft:" <> _ = name), do: Map.fetch!(@facts["types"], name)

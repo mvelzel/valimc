@@ -5,9 +5,8 @@ defmodule Valimc.Physics.RandomMiningLoot do
   @path Path.expand("../../../priv/physics/random_mining_loot.json", __DIR__)
   @external_resource @path
   @facts :json.decode(File.read!(@path))
-  unless @facts["version"] == "26.3" and @facts["data_version"] == 5023 and
-           @facts["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c",
-         do: raise("Wrong random mining loot catalog version")
+  unless Valimc.Version.stamped?(@facts),
+    do: raise("Wrong random mining loot catalog version")
 
   @blocks Map.new(@facts["blocks"], fn profile ->
             %{"state" => state, "silk" => silk, "item" => item, "min" => low, "max" => high} =

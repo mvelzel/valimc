@@ -5,10 +5,11 @@ root = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(root / 'scripts'))
 # java_tool is a CLI, so share its file layout rather than importing its entry point.
 from java_runtime import java_home as find_java_home
+from pinned import SERVER_JAR, VERSION
 java_home = find_java_home()
 subprocess.run([sys.executable,str(root/'scripts/prepare_vanilla.py')],check=True)
 subprocess.run([java_home+'/bin/java','-DbundlerMainClass=net.minecraft.data.Main',
-                '-DbundlerRepoDir=research/vanilla-bundle','-jar','research/server-26.3.jar',
+                '-DbundlerRepoDir=research/vanilla-bundle','-jar',str(SERVER_JAR),
                 '--reports','--output','research/generated'],cwd=root,check=True)
 out = root / 'priv/protocol';reports = root / 'research/generated/reports'
 out.mkdir(parents=True,exist_ok=True)
@@ -29,4 +30,4 @@ subprocess.run([sys.executable,'scripts/java_tool.py','ItemMetadata','priv/proto
 subprocess.run([sys.executable,'scripts/java_tool.py','EntityMetadata','priv/protocol/entities.json'],cwd=root,check=True)
 subprocess.run([sys.executable,'scripts/java_tool.py','AttributeMetadata','priv/protocol/attributes.json'],cwd=root,check=True)
 subprocess.run([sys.executable,'scripts/java_tool.py','CollisionMetadata','priv/physics/collision_shapes.json'],cwd=root,check=True)
-print('Regenerated official 26.3 protocol facts')
+print(f'Regenerated official {VERSION} protocol facts')
