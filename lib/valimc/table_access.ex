@@ -49,4 +49,26 @@ defmodule Valimc.TableAccess do
   end
 
   def authorize(_, _, _, _), do: {:error, :invalid_table_grant}
+
+  @doc """
+  An opening use of a block whose interaction ValiMC cannot perform is refused;
+  a use vanilla would not send to the block (secondary use with an item) passes
+  on to placement.
+  """
+  def refuse_use(_block, position, %{kind: :open, mode: mode, expires: expires} = grant, now)
+      when mode in @modes and is_integer(expires) do
+    cond do
+      now >= expires ->
+        {:error, :expired_table_grant}
+
+      PlayerInteraction.within_block?(mode, grant.eye, position) and
+          opens?(mode, grant.hand, grant.secondary, grant.main, grant.off) ->
+        {:error, :unsupported_block_entity}
+
+      true ->
+        :pass
+    end
+  end
+
+  def refuse_use(block, position, grant, now), do: authorize(block, position, grant, now)
 end

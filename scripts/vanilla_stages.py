@@ -39,6 +39,11 @@ STAGES = [
         ('check', 'check_chunk_sections.exs', '@chunks.json', '@encoded'),
         ('java', 'ChunkOracle', 'verify', '@chunks.json', '@encoded'),
     ]),
+    ('anvil_content', [
+        ('java', 'AnvilContentOracle', 'generate', '@vanilla', '@content.json'),
+        ('check', 'check_anvil_content.exs', '@content.json', '@imported'),
+        ('java', 'AnvilContentOracle', 'verify', '@content.json', '@imported'),
+    ]),
     ('block_registry', [
         ('java', 'BlockRegistryMetadata', '@block-registry.json'),
         ('same', '@block-registry.json', 'priv/registry/blocks.json'),

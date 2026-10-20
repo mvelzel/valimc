@@ -168,11 +168,27 @@ defmodule Valimc.World.Blocks do
     end
   end
 
-  @doc "A chunk's block-entity carriers (single chests) as `position => block`."
+  @doc "A chunk's owned block-entity carriers (single chests, furnaces) as `position => block`."
   def chunk_entities(%__MODULE__{} = blocks, {cx, cz}) do
-    states = Valimc.ChestAccess.single_states() |> MapSet.to_list()
+    states = owned_states()
     {:ok, entries} = Native.chunk_find(blocks.ref, cx, cz, states)
     Map.new(entries, fn {x, y, z, block} -> {{x, y, z}, block} end)
+  end
+
+  defp owned_states do
+    case :persistent_term.get({__MODULE__, :owned_states}, nil) do
+      nil ->
+        states =
+          for state <- 0..(Data.block_state_count() - 1),
+              Valimc.Block.block_entity(state) != nil,
+              do: state
+
+        :persistent_term.put({__MODULE__, :owned_states}, states)
+        states
+
+      states ->
+        states
+    end
   end
 
   @doc "A complete chunk packet (the reference shape of `Chunk.encode/2`)."

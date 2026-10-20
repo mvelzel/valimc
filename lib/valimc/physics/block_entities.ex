@@ -1,21 +1,49 @@
 defmodule Valimc.Physics.BlockEntities do
-  @moduledoc "Pinned native block-entity states; writes refuse kinds that have no owned ValiMC record yet."
+  @moduledoc """
+  Pinned native block-entity states, the block entity type each creates (network
+  ids in registry order) and the blocks whose use vanilla may consume. Writes
+  refuse kinds that have no owned ValiMC record yet.
+  """
   @path Path.expand("../../../priv/physics/block_entities.json", __DIR__)
   @external_resource @path
   @facts JSON.decode!(File.read!(@path))
-  @states @facts["runs"]
-          |> Enum.flat_map(fn [_block, first, last] -> Enum.to_list(first..last) end)
-          |> MapSet.new()
+  @types List.to_tuple(@facts["types"])
+  @type_ids @facts["types"] |> Enum.with_index() |> Map.new()
+  @by_state @facts["runs"]
+            |> Enum.flat_map(fn [_block, first, last, type] ->
+              Enum.map(first..last, &{&1, Map.fetch!(@type_ids, type)})
+            end)
+            |> Map.new()
+  @interactive_blocks MapSet.new(@facts["interactive"])
+  @interactive @facts["runs"]
+               |> Enum.filter(fn [block | _] -> MapSet.member?(@interactive_blocks, block) end)
+               |> Enum.flat_map(fn [_, first, last, _] -> Enum.to_list(first..last) end)
+               |> MapSet.new()
   unless Valimc.Version.stamped?(@facts) and
            @facts["state_count"] == Valimc.Registry.Blocks.state_count() and
            @facts["block_entity_states"] == 4_743 and
-           MapSet.size(@states) == 4_743,
+           map_size(@by_state) == 4_743,
          do: raise("Wrong native block-entity facts")
 
-  def native?(state), do: MapSet.member?(@states, state)
+  def native?(state), do: Map.has_key?(@by_state, state)
 
   @doc "Single chests and the furnace family are the block entities ValiMC owns today."
   def supported?(state), do: Valimc.Block.block_entity(state) != nil
 
   def unsupported?(state), do: native?(state) and not supported?(state)
+
+  @doc "The network id of the block entity type a state creates, or nil."
+  def type_id(state), do: Map.get(@by_state, state)
+
+  @doc "A block entity type's name (`minecraft:sign`) by network id, or nil."
+  def type_name(id) when is_integer(id) and id >= 0 and id < tuple_size(@types),
+    do: elem(@types, id)
+
+  def type_name(_), do: nil
+
+  @doc "The network id of a block entity type name, or nil."
+  def type_named(name), do: Map.get(@type_ids, name)
+
+  @doc "Whether the state's block overrides `useItemOn`/`useWithoutItem` (vanilla may consume a use)."
+  def interactive?(state), do: MapSet.member?(@interactive, state)
 end

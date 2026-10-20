@@ -1,6 +1,7 @@
 defmodule Valimc.World.RegionData do
   @moduledoc "One storage resource's data and operations, executed by its owning process."
   alias Valimc.World.{
+    BlockEntities,
     EntityPublication,
     ScheduledTicks,
     TickBehaviours,
@@ -40,6 +41,7 @@ defmodule Valimc.World.RegionData do
   alias Valimc.Protocol.Packets
 
   defstruct [
+    :block_entities,
     :key,
     :containers,
     :container_viewers,
@@ -112,6 +114,12 @@ defmodule Valimc.World.RegionData do
         {:error, reason} -> exit({:container_load_failed, reason})
       end
 
+    block_entities =
+      case BlockEntities.new(Store.load_block_entities(store)) do
+        {:ok, block_entities} -> block_entities
+        {:error, reason} -> exit({:block_entity_load_failed, reason})
+      end
+
     {items, receipts, persistent} =
       case Store.load_items(store) do
         {:ok, %{records: records, receipts: receipts, ledger: ledger, persistent: persistent}} ->
@@ -147,6 +155,7 @@ defmodule Valimc.World.RegionData do
       items: items,
       item_receipts: receipts,
       containers: containers,
+      block_entities: block_entities,
       container_viewers: %ContainerViewers{},
       cooking_progress: %{},
       cooking: %CookingRuntime{enabled: Valimc.config(:cooking_simulation, key)},
@@ -1370,6 +1379,9 @@ defmodule Valimc.World.RegionData do
       protected_container_change?(state, %{position => block}) ->
         {:reply, {:error, :occupied_container}, state}
 
+      preserved_change?(state, %{position => block}) ->
+        {:reply, {:error, :unsupported_block_entity}, state}
+
       true ->
         previous_blocks = Blocks.get_many(state.blocks, [position])
 
@@ -2336,12 +2348,43 @@ defmodule Valimc.World.RegionData do
       protected_container_change?(state, batch.edits, removed) ->
         {:error, :occupied_container}
 
+      preserved_change?(state, batch.edits) ->
+        {:error, :unsupported_block_entity}
+
       # Without an owned record the block would be an empty, invisible shell.
       Enum.any?(batch.edits, fn {_, block} -> Valimc.Physics.BlockEntities.unsupported?(block) end) ->
         {:error, :unsupported_block_entity}
 
       true ->
         build_block_proposal(state, batch)
+    end
+  end
+
+  # An imported block entity holding data ValiMC cannot drop or spill keeps its
+  # block (VMC-021e1).
+  defp preserved_change?(state, changes),
+    do: BlockEntities.protected?(state.block_entities, changes, &Blocks.get(state.blocks, &1))
+
+  # Vanilla may consume a use of an imported block entity's block (signs, beds,
+  # lecterns, double chests...); ValiMC cannot perform it, so it refuses rather
+  # than placing against the block (VMC-021e1).
+  defp preserved_use?(state, position, block),
+    do:
+      Valimc.Physics.BlockEntities.interactive?(block) and
+        BlockEntities.live(state.block_entities, position, block) != nil
+
+  # Live imported block entities of a chunk for its packet.
+  defp preserved_entities(state, chunk) do
+    case BlockEntities.in_chunk(state.block_entities, chunk) do
+      [] ->
+        []
+
+      positions ->
+        BlockEntities.chunk_entries(
+          state.block_entities,
+          chunk,
+          Blocks.get_many(state.blocks, positions)
+        )
     end
   end
 
@@ -2586,6 +2629,7 @@ defmodule Valimc.World.RegionData do
       started = System.monotonic_time(:microsecond)
       encoded = Blocks.encode(state.blocks, key)
       entities = if encoded == :flat, do: %{}, else: Blocks.chunk_entities(state.blocks, key)
+      preserved = preserved_entities(state, key)
       sections_microseconds = System.monotonic_time(:microsecond) - started
       version = Map.get(state.versions, key, 0)
       threshold = Valimc.config(:compression_threshold)
@@ -2596,7 +2640,7 @@ defmodule Valimc.World.RegionData do
              packet =
                if encoded == :flat,
                  do: Chunk.encode(key, %{}),
-                 else: Chunk.packet(encoded, entities)
+                 else: Chunk.packet(encoded, entities, preserved)
 
              frame = Packets.frame(packet, threshold)
              Valimc.Metrics.add(:chunks_encoded)
@@ -3341,6 +3385,9 @@ defmodule Valimc.World.RegionData do
                 grant,
                 now
               )
+
+            preserved_use?(state, position, block) ->
+              Valimc.TableAccess.refuse_use(block, position, grant, now)
 
             true ->
               Valimc.TableAccess.authorize(block, position, grant, now)

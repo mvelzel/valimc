@@ -68,8 +68,15 @@ defmodule Valimc.World.Chunk do
     )
   end
 
-  @doc "A chunk packet from encoded sections/heightmaps; `edits` supplies block entities."
-  def packet(%{chunk: {cx, cz} = key, sections: data, surface: surface, motion: motion}, edits) do
+  @doc """
+  A chunk packet from encoded sections/heightmaps; owned block entities come from
+  `edits`, imported ones from `preserved` (see `ChestBlockEntity.chunk_entries/3`).
+  """
+  def packet(
+        %{chunk: {cx, cz} = key, sections: data, surface: surface, motion: motion},
+        edits,
+        preserved \\ []
+      ) do
     full_mask = (1 <<< 26) - 1
     light = :binary.copy(<<255>>, 2048)
 
@@ -83,7 +90,7 @@ defmodule Valimc.World.Chunk do
       motion,
       Wire.varint(IO.iodata_length(data)),
       data,
-      Valimc.Protocol.ChestBlockEntity.chunk_entries(key, edits),
+      Valimc.Protocol.ChestBlockEntity.chunk_entries(key, edits, preserved),
       <<4, full_mask::little-32, 0, 0, 4, full_mask::little-32>>,
       <<26>>,
       List.duplicate([Wire.varint(2048), light], 26),

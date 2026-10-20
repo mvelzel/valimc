@@ -33,6 +33,9 @@ defmodule Valimc.Protocol.ChestBlockEntityTest do
     edits =
       Map.new(0..1024, fn i -> {{rem(i, 16), 64 + div(i, 256), rem(div(i, 16), 16)}, @single} end)
 
-    assert_raise ArgumentError, fn -> ChestBlockEntity.chunk_entries({0, 0}, edits) end
+    preserved =
+      for i <- 0..98_304, do: {{rem(i, 16), -64 + div(i, 256), rem(div(i, 16), 16)}, 7, nil}
+
+    assert_raise ArgumentError, fn -> ChestBlockEntity.chunk_entries({0, 0}, edits, preserved) end
   end
 end

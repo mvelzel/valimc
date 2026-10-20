@@ -14,7 +14,21 @@ defmodule Valimc.World.Store do
   """
   @max_batch 256
   @max_commit_cells 4096
-  @empty %{blocks: %{}, columns: %{}, items: nil, containers: nil, ticks: nil}
+  # Imported parts (VMC-021e): `block_entities` (`position => {type_id, nbt}`,
+  # owner-loaded); `chunk_extras` (`chunk => nbt`, vanilla chunk data ValiMC does
+  # not model) and `entities` (`chunk => nbt`, preserved vanilla entities) are kept
+  # for export only.
+  @empty %{
+    blocks: %{},
+    columns: %{},
+    items: nil,
+    containers: nil,
+    ticks: nil,
+    block_entities: %{},
+    chunk_extras: %{},
+    entities: %{}
+  }
+  @imported [:columns, :items, :containers, :block_entities, :chunk_extras, :entities]
   def start_link({key, owner}),
     do:
       GenServer.start_link(__MODULE__, {key, owner},
@@ -67,18 +81,33 @@ defmodule Valimc.World.Store do
   Write a new region's log with imported column images (`chunk => image`), offline:
   the region must have no log yet and no owner may run (VMC-021).
   """
-  def import_columns(base, key, columns) when is_map(columns) do
+  def import_columns(base, key, columns) when is_map(columns),
+    do: import_region(base, key, %{columns: columns})
+
+  @doc """
+  Write a new region's log from imported parts (VMC-021e), offline: `columns`,
+  `items` and `containers` bytes, `block_entities`, `chunk_extras`, `entities`.
+  """
+  def import_region(base, key, parts) when is_map(parts) do
     dir = log_dir(base, key)
 
-    if File.exists?(dir) do
-      {:error, :region_exists}
-    else
-      with {:ok, log, _} <- RegionLog.open(dir),
-           {:ok, log} <- RegionLog.checkpoint(log, %{@empty | columns: columns}) do
-        RegionLog.close(log)
-      end
+    cond do
+      not Enum.all?(Map.keys(parts), &(&1 in @imported)) ->
+        {:error, :invalid_import_parts}
+
+      File.exists?(dir) ->
+        {:error, :region_exists}
+
+      true ->
+        with {:ok, log, _} <- RegionLog.open(dir),
+             {:ok, log} <- RegionLog.checkpoint(log, Map.merge(@empty, parts)) do
+          RegionLog.close(log)
+        end
     end
   end
+
+  @doc "Preserved vanilla block entities (`position => {type_id, nbt}`, VMC-021e)."
+  def load_block_entities(pid), do: GenServer.call(pid, :load_block_entities)
 
   def load_containers(pid), do: GenServer.call(pid, :load_containers)
 
@@ -122,7 +151,16 @@ defmodule Valimc.World.Store do
   The durable value of `part` (`:blocks` edit map, `:items` or `:containers` bytes)
   as recovery would see it, without opening the log for writing. For tests/tools.
   """
-  def durable(base, key, part) when part in [:blocks, :columns, :items, :containers] do
+  def durable(base, key, part)
+      when part in [
+             :blocks,
+             :columns,
+             :items,
+             :containers,
+             :block_entities,
+             :chunk_extras,
+             :entities
+           ] do
     dir = log_dir(base, key)
 
     values =
@@ -170,6 +208,9 @@ defmodule Valimc.World.Store do
 
   def handle_call(:load, _from, state), do: {:reply, state.values.blocks, state}
   def handle_call(:load_columns, _from, state), do: {:reply, state.values.columns, state}
+
+  def handle_call(:load_block_entities, _from, state),
+    do: {:reply, state.values.block_entities, state}
 
   def handle_call({:flush, lease, cells}, _from, %{lease: lease} = state) do
     {result, state} = write(state, cells_parts(cells))
@@ -377,7 +418,16 @@ defmodule Valimc.World.Store do
         {:columns, columns}, acc ->
           %{acc | columns: Map.merge(acc.columns, columns)}
 
-        {part, value}, acc when part in [:blocks, :items, :containers, :ticks] ->
+        {part, value}, acc
+        when part in [
+               :blocks,
+               :items,
+               :containers,
+               :ticks,
+               :block_entities,
+               :chunk_extras,
+               :entities
+             ] ->
           %{acc | part => value}
 
         _, acc ->
