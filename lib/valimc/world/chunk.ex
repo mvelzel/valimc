@@ -6,6 +6,7 @@ defmodule Valimc.World.Chunk do
   @max_y 319
   @air_states [0, 18_649, 18_650]
   def min_y, do: @min_y
+  def max_y, do: @max_y
   def valid_y?(y), do: y >= @min_y and y <= @max_y
 
   def base(y) do

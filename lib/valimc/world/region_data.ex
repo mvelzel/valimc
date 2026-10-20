@@ -1,6 +1,8 @@
 defmodule Valimc.World.RegionData do
   @moduledoc "One storage resource's data and operations, executed by its owning process."
   alias Valimc.World.{
+    ScheduledTicks,
+    TickBehaviours,
     BlockBatch,
     Blocks,
     BlockSnapshot,
@@ -75,6 +77,10 @@ defmodule Valimc.World.RegionData do
     :versions,
     :revision,
     :section_revisions,
+    :game_tick,
+    :scheduled_ticks,
+    :ticks_dirty,
+    :tick_index,
     :dirty,
     :unsaved,
     :item_writes,
@@ -112,6 +118,17 @@ defmodule Valimc.World.RegionData do
         {:error, reason} ->
           exit({:item_load_failed, reason})
       end
+
+    # Scheduled ticks are saved relative to the game tick; a restart resumes at 0.
+    scheduled = ScheduledTicks.load(Store.load_ticks(store), 0)
+    tick_index = TickBehaviours.index(TickBehaviours.modules(key))
+
+    # The native sampler returns only states some behaviour handles randomly.
+    :ok =
+      Blocks.random_ticking(
+        blocks,
+        for({state, module} <- tick_index, function_exported?(module, :random_tick, 3), do: state)
+      )
 
     publication = :ets.new(:region_items, [:set, :protected, read_concurrency: true])
     :ok = BlockSnapshot.publish_chunks(publication, blocks, Blocks.touched_chunks(blocks), 0)
@@ -158,6 +175,10 @@ defmodule Valimc.World.RegionData do
       versions: %{},
       revision: 0,
       section_revisions: %{},
+      game_tick: 0,
+      scheduled_ticks: scheduled,
+      ticks_dirty: false,
+      tick_index: tick_index,
       dirty: false,
       unsaved: %{},
       item_writes: [],
@@ -1424,6 +1445,100 @@ defmodule Valimc.World.RegionData do
 
     if map_size(state.unsaved) > 0,
       do: Store.snapshot(state.store, state.store_lease, state.unsaved, owner, state.revision)
+
+    save_ticks(state)
+  end
+
+  defp save_ticks(%{ticks_dirty: false} = state), do: state
+
+  defp save_ticks(state) do
+    entries = ScheduledTicks.dump(state.scheduled_ticks, state.game_tick)
+
+    Store.commit_ticks(
+      state.store,
+      state.store_lease,
+      entries,
+      {self(), state.items.epoch},
+      make_ref()
+    )
+
+    %{state | ticks_dirty: false}
+  end
+
+  @doc """
+  The block phases of one region tick (VMC-066): scheduled ticks due at `tick`,
+  then random ticks. Effects from behaviours apply as one raw batch.
+  """
+  def block_ticks(state, tick) do
+    state = %{state | game_tick: tick}
+    {due, scheduled} = ScheduledTicks.take_due(state.scheduled_ticks, tick)
+    state = %{state | scheduled_ticks: scheduled, ticks_dirty: state.ticks_dirty or due != []}
+    read = &read_block(state, &1)
+
+    scheduled_effects =
+      for {position, block} <- due,
+          Blocks.get(state.blocks, position) == block,
+          module = state.tick_index[block],
+          module != nil and function_exported?(module, :scheduled_tick, 3),
+          effect <- module.scheduled_tick(position, block, read),
+          do: effect
+
+    {random_effects, state} = random_ticks(state, read)
+    apply_tick_effects(state, scheduled_effects ++ random_effects)
+  end
+
+  @random_tick_speed 3
+
+  # Vanilla picks `randomTickSpeed` positions per section per tick; the native
+  # sampler skips sections without handled states and returns only hits.
+  defp random_ticks(%{tick_index: index} = state, _read) when map_size(index) == 0,
+    do: {[], state}
+
+  defp random_ticks(state, read) do
+    effects =
+      for {position, block} <- Blocks.random_ticks(state.blocks, @random_tick_speed),
+          module = state.tick_index[block],
+          effect <- module.random_tick(position, block, read),
+          do: effect
+
+    {effects, state}
+  end
+
+  defp read_block(state, {x, y, z} = position) do
+    if Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == state.key and Chunk.valid_y?(y),
+      do: Blocks.get(state.blocks, position)
+  end
+
+  defp apply_tick_effects(state, []), do: state
+
+  defp apply_tick_effects(state, effects) do
+    state =
+      Enum.reduce(effects, state, fn
+        {:schedule, position, block, delay, priority}, acc ->
+          case ScheduledTicks.schedule(
+                 acc.scheduled_ticks,
+                 position,
+                 block,
+                 acc.game_tick + delay,
+                 priority
+               ) do
+            {:ok, ticks} -> %{acc | scheduled_ticks: ticks, ticks_dirty: true}
+            {:error, _} -> acc
+          end
+
+        _, acc ->
+          acc
+      end)
+
+    edits = for {:set, position, block} <- effects, into: %{}, do: {position, block}
+
+    with true <- map_size(edits) > 0,
+         {:ok, batch} <- BlockBatch.prepare(edits),
+         {:ok, proposal} <- block_proposal(state, batch) do
+      publish_blocks(state, batch, proposal, true)
+    else
+      _ -> state
+    end
   end
 
   defp flush_cooking(%{cooking: %{dirty: true}} = state, containers),
@@ -3056,6 +3171,7 @@ defmodule Valimc.World.RegionData do
           state.revision
         )
 
+    state = save_ticks(state)
     Process.cancel_timer(state.save_timer)
     timer = send_after(state, :save, 30_000)
 
@@ -3080,6 +3196,10 @@ defmodule Valimc.World.RegionData do
   end
 
   def handle_info({:saved, _, _, _}, state), do: {:noreply, state}
+
+  # A failed tick save leaves `ticks_dirty` set by later changes only; the writer
+  # stops on append failure, so the owner restarts from the durable log anyway.
+  def handle_info({:ticks_saved, _, _, _}, state), do: {:noreply, state}
 
   def handle_info({:table_request, epoch, connection, ref, position, grant}, state)
       when is_pid(connection) and is_reference(ref) do

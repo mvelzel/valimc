@@ -109,6 +109,10 @@ pub struct ColumnStore {
     pub layers: Box<[u16; HEIGHT]>,
     pub columns: HashMap<(i32, i32), Column>,
     pub budget_bytes: usize,
+    /// States that react to random ticks in this region (indexed by state id).
+    pub ticking: Vec<bool>,
+    /// xorshift64 state for random tick positions.
+    pub rng: u64,
 }
 
 impl ColumnStore {
@@ -118,12 +122,16 @@ impl ColumnStore {
         layers: Box<[u16; HEIGHT]>,
         budget_bytes: usize,
     ) -> Self {
+        // Any non-zero seed; distinct per region.
+        let rng = (chunk_min.0 as u64) << 32 ^ (chunk_min.1 as u32 as u64) ^ 0x9E37_79B9_7F4A_7C15;
         Self {
             chunk_min,
             chunk_size,
             layers,
             columns: HashMap::new(),
             budget_bytes,
+            ticking: Vec::new(),
+            rng: rng.max(1),
         }
     }
 
@@ -319,6 +327,69 @@ impl ColumnStore {
     }
 
     /// Drop columns that equal the base profile and collapse uniform sections.
+    fn next_random(&mut self) -> u64 {
+        let mut x = self.rng;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.rng = x;
+        x
+    }
+
+    /// Vanilla random ticks: `per_section` uniform positions in every section of
+    /// the region, returning those whose state is in `ticking`. Sections whose
+    /// palette holds no ticking state are skipped without drawing.
+    pub fn random_ticks(&mut self, per_section: u32) -> Vec<(i32, i32, i32, u16)> {
+        let ticking = std::mem::take(&mut self.ticking);
+        let ticks = |s: u16| ticking.get(s as usize).copied().unwrap_or(false);
+        let mut hits = Vec::new();
+        if ticking.iter().any(|&t| t) {
+            let base: Vec<bool> = (0..SECTIONS)
+                .map(|s| self.layers[s * 16..s * 16 + 16].iter().any(|&b| ticks(b)))
+                .collect();
+            let (mx, mz) = self.chunk_min;
+            for dx in 0..self.chunk_size {
+                for dz in 0..self.chunk_size {
+                    let chunk = (mx + dx, mz + dz);
+                    for (s, &base_ticks) in base.iter().enumerate() {
+                        let possible = match self.columns.get(&chunk) {
+                            Some(column) => match &column.sections[s] {
+                                Storage::Single(state) => ticks(*state),
+                                Storage::Indexed { palette, .. } => {
+                                    palette.iter().any(|&b| ticks(b))
+                                }
+                                Storage::Dense(_) => true,
+                            },
+                            None => base_ticks,
+                        };
+                        if !possible {
+                            continue;
+                        }
+                        for _ in 0..per_section {
+                            let n = (self.next_random() % VOLUME as u64) as usize;
+                            let (x, z, y) =
+                                ((n & 15) as i32, ((n >> 4) & 15) as i32, (n >> 8) as i32);
+                            let state = match self.columns.get(&chunk) {
+                                Some(column) => column.sections[s].get(n),
+                                None => self.layers[s * 16 + y as usize],
+                            };
+                            if ticks(state) {
+                                hits.push((
+                                    chunk.0 * 16 + x,
+                                    MIN_Y + s as i32 * 16 + y,
+                                    chunk.1 * 16 + z,
+                                    state,
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.ticking = ticking;
+        hits
+    }
+
     pub fn compact(&mut self) {
         let layers = &self.layers;
         self.columns.retain(|_, column| {
@@ -358,6 +429,30 @@ mod tests {
         let mut bytes = vec![!AIR & !crate::flags::FLUID; 8];
         bytes[0] = AIR;
         BlockFlags::new(bytes).unwrap()
+    }
+
+    #[test]
+    fn random_ticks_sample_only_sections_that_can_tick() {
+        let mut store = ColumnStore::new((0, 0), 8, flat(), 1 << 30);
+        assert!(store.random_ticks(3).is_empty());
+        // State 4 (the surface layer, y = 63) ticks; it sits in section 7.
+        store.ticking = vec![false, false, false, false, true];
+        let flags = flags();
+        store.set_many(&[(5, 63, 5, 2)], &flags).unwrap();
+        let mut total = 0;
+        for _ in 0..200 {
+            let hits = store.random_ticks(3);
+            total += hits.len();
+            for (x, y, z, state) in hits {
+                assert_eq!(state, 4);
+                assert_eq!(y, 63);
+                assert_eq!(store.get(x, y, z), Ok(4));
+                assert!((0..128).contains(&x) && (0..128).contains(&z));
+            }
+        }
+        // 64 chunks x 3 draws hit the surface layer with probability 1/16.
+        let expected = 200 * 64 * 3 / 16;
+        assert!(total > expected / 2 && total < expected * 2, "{total}");
     }
 
     #[test]

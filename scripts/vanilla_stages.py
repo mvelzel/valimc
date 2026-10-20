@@ -372,6 +372,10 @@ STAGES = [
         ('java', 'BlockEntityOracle', '@block-entities.json'),
         ('same', '@block-entities.json', 'priv/physics/block_entities.json'),
     ]),
+    ('random_ticking', [
+        ('java', 'RandomTickOracle', '@random-ticking.json'),
+        ('same', '@random-ticking.json', 'priv/physics/random_ticking.json'),
+    ]),
     ('chest_opening', [
         ('java', 'ChestOpeningOracle', '@chest-opening.json'),
         ('check', 'check_chest_opening.exs', '@chest-opening.json'),

@@ -24,4 +24,6 @@ defmodule Valimc.Native do
   def heap_bytes(_region), do: :erlang.nif_error(:nif_not_loaded)
   def fsync_dir(_path), do: :erlang.nif_error(:nif_not_loaded)
   def full_sync(_path), do: :erlang.nif_error(:nif_not_loaded)
+  def set_random_ticking(_region, _bitmap), do: :erlang.nif_error(:nif_not_loaded)
+  def random_ticks(_region, _per_section), do: :erlang.nif_error(:nif_not_loaded)
 end

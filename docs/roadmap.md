@@ -23,7 +23,7 @@ lands. See [architecture](architecture.md) for the target design.
 | [VMC-063](tickets/VMC-063.md) | Region log with group commit; no tick pauses | Done |
 | [VMC-064](tickets/VMC-064.md) | One owner-transaction engine and section fencing | Awaiting client |
 | [VMC-065](tickets/VMC-065.md) | Published section snapshots for lock-free collision/observation reads | Done |
-| [VMC-066](tickets/VMC-066.md) | Tick pipeline on game time: steppable clock, scheduled and random ticks | Planned |
+| [VMC-066](tickets/VMC-066.md) | Tick pipeline on game time: steppable clock, scheduled and random ticks | Foundation |
 | VMC-067 | Generic entity model; items and XP orbs migrate onto it | Planned |
 | VMC-068 | Unified generated block/item registry, block behaviours, protocol constants | Planned |
 | [VMC-069](tickets/VMC-069.md) | Connection hot path (slim peers, frame once, counters), then split | In progress |

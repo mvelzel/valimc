@@ -3,11 +3,10 @@ defmodule Valimc.World.Region do
   @moduledoc "Simulation lifecycle owner; storage resources remain separate from its tick state."
   alias Valimc.World.{
     BlockBatch,
-    CookingOrbDelivery,
-    CookingOrbRuntime,
     CookingOrbTransfers,
     RegionData,
-    TickClock
+    TickClock,
+    TickPipeline
   }
 
   def start_link({key, token}),
@@ -25,6 +24,9 @@ defmodule Valimc.World.Region do
     }
 
   def flush(pid), do: GenServer.call(pid, :flush, 15_000)
+
+  @doc "Run `ticks` region ticks now, in order (deterministic tests; `:manual` owners)."
+  def step({pid, _epoch}, ticks \\ 1), do: GenServer.call(pid, {:step, ticks}, 10_000)
 
   @doc "Read one owner-local block revision; this observation does not authorize later mutations."
   def observe_blocks(owner, positions, expected_revision \\ :any)
@@ -298,7 +300,12 @@ defmodule Valimc.World.Region do
          }) do
       :ok ->
         clock = TickClock.new(resource.items.epoch, System.monotonic_time(:millisecond))
-        timer = Process.send_after(self(), {:tick, clock.token}, 50)
+
+        # `:manual` owners (tests) tick only through `step/2`.
+        timer =
+          if Valimc.config(:region_ticks, key) == :timer,
+            do: Process.send_after(self(), {:tick, clock.token}, 50)
+
         {:noreply, %{resource: resource, tick_clock: clock, tick_timer: timer}}
 
       {:error, reason} ->
@@ -309,6 +316,17 @@ defmodule Valimc.World.Region do
   @impl true
   def handle_call(:owner, _from, state),
     do: {:reply, {:ok, {self(), state.resource.items.epoch}}, state}
+
+  # Deterministic stepping: run `ticks` pipeline ticks now, in order.
+  def handle_call({:step, ticks}, _from, state) when is_integer(ticks) and ticks in 1..1200 do
+    {resource, clock} =
+      Enum.reduce(1..ticks, {state.resource, state.tick_clock}, fn _, {resource, clock} ->
+        clock = %{clock | tick: clock.tick + 1}
+        {TickPipeline.run(resource, clock.tick, System.monotonic_time(:millisecond)), clock}
+      end)
+
+    {:reply, {:ok, clock.tick}, %{state | resource: resource, tick_clock: clock}}
+  end
 
   def handle_call(message, from, state),
     do: RegionData.handle_call(message, from, state.resource) |> wrap(state)
@@ -328,13 +346,7 @@ defmodule Valimc.World.Region do
         Valimc.Metrics.add(:region_ticks)
         Valimc.Metrics.add(:region_late_milliseconds, late)
 
-        resource =
-          state.resource
-          |> RegionData.item_tick(now)
-          |> RegionData.cooking_tick(now)
-          |> CookingOrbRuntime.tick(now)
-          |> CookingOrbDelivery.tick(now)
-
+        resource = TickPipeline.run(state.resource, clock.tick, now)
         {:noreply, schedule_tick(%{state | resource: resource}, clock, delay)}
     end
   end
@@ -356,7 +368,7 @@ defmodule Valimc.World.Region do
   def handle_info(_, state), do: {:noreply, state}
 
   defp schedule_tick(state, clock, delay) do
-    Process.cancel_timer(state.tick_timer)
+    if state.tick_timer, do: Process.cancel_timer(state.tick_timer)
     timer = Process.send_after(self(), {:tick, clock.token}, delay)
     %{state | tick_clock: clock, tick_timer: timer}
   end

@@ -147,6 +147,31 @@ defmodule Valimc.World.Blocks do
     chunks
   end
 
+  @doc "Mark the states whose random ticks this region handles (VMC-066)."
+  def random_ticking(%__MODULE__{} = blocks, states) do
+    size = div(Valimc.Protocol.Data.block_state_count() + 7, 8)
+    set = MapSet.new(states)
+
+    bitmap =
+      for byte <- 0..(size - 1), into: <<>> do
+        bits =
+          for bit <- 7..0//-1,
+              into: <<>>,
+              do: <<if(MapSet.member?(set, byte * 8 + bit), do: 1, else: 0)::1>>
+
+        bits
+      end
+
+    {:ok, :ok} = Native.set_random_ticking(blocks.ref, bitmap)
+    :ok
+  end
+
+  @doc "Sampled random tick hits `{position, state}` for this tick (vanilla positions per section)."
+  def random_ticks(%__MODULE__{} = blocks, per_section) do
+    {:ok, hits} = Native.random_ticks(blocks.ref, per_section)
+    for {x, y, z, state} <- hits, do: {{x, y, z}, state}
+  end
+
   def heap_bytes(%__MODULE__{} = blocks) do
     {:ok, bytes} = Native.heap_bytes(blocks.ref)
     bytes

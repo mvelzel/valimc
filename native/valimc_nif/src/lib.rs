@@ -239,6 +239,30 @@ fn full_sync(path: String) -> Result<Atom, String> {
     Ok(atoms::ok())
 }
 
+/// Install the region's randomly ticking states: one bit per state id (LSB first).
+#[rustler::nif]
+fn set_random_ticking(region: ResourceArc<Region>, bitmap: Binary) -> Result<Atom, Atom> {
+    let bytes = bitmap.as_slice();
+    with_store(&region, |store| {
+        store.ticking = (0..bytes.len() * 8)
+            .map(|i| bytes[i / 8] & (1 << (i % 8)) != 0)
+            .collect();
+        Ok(atoms::ok())
+    })
+}
+
+/// One tick's random tick hits: `{x, y, z, state}` for sampled ticking states.
+#[rustler::nif]
+fn random_ticks(
+    region: ResourceArc<Region>,
+    per_section: u32,
+) -> Result<Vec<(i32, i32, i32, u16)>, Atom> {
+    if per_section > 4096 {
+        return Err(atoms::invalid_state());
+    }
+    with_store(&region, |store| Ok(store.random_ticks(per_section)))
+}
+
 #[rustler::nif]
 fn compact(region: ResourceArc<Region>) -> Result<Atom, Atom> {
     with_store(&region, |store| {

@@ -14,7 +14,7 @@ defmodule Valimc.World.Store do
   """
   @max_batch 256
   @max_commit_cells 4096
-  @empty %{blocks: %{}, items: nil, containers: nil}
+  @empty %{blocks: %{}, items: nil, containers: nil, ticks: nil}
   def start_link({key, owner}),
     do:
       GenServer.start_link(__MODULE__, {key, owner},
@@ -60,6 +60,13 @@ defmodule Valimc.World.Store do
   def close(pid, lease), do: GenServer.call(pid, {:close, lease}, 1000)
   def load_items(pid), do: GenServer.call(pid, :load_items)
   def load_containers(pid), do: GenServer.call(pid, :load_containers)
+
+  @doc "Scheduled block ticks (VMC-066) as saved by `commit_ticks/5`."
+  def load_ticks(pid), do: GenServer.call(pid, :load_ticks)
+
+  @doc "Persist the region's scheduled ticks (absolute list); acknowledged with `:ticks_saved`."
+  def commit_ticks(pid, lease, entries, {owner, epoch}, token) when is_list(entries),
+    do: GenServer.cast(pid, {:ticks, lease, entries, {owner, epoch}, token})
 
   def flush_containers(pid, lease, containers),
     do: GenServer.call(pid, {:flush_containers, lease, containers}, 15_000)
@@ -164,6 +171,9 @@ defmodule Valimc.World.Store do
     {:reply, result, state}
   end
 
+  def handle_call(:load_ticks, _from, state),
+    do: {:reply, Map.get(state.values, :ticks) || [], state}
+
   def handle_call(:load_containers, _from, state),
     do: {:reply, read_containers(state.values.containers, state.key), state}
 
@@ -190,7 +200,7 @@ defmodule Valimc.World.Store do
   # call, so taking commit casts ahead of other messages cannot reorder its writes.
   @impl true
   def handle_cast(message, %{lease: lease} = state)
-      when elem(message, 0) in [:snapshot, :items, :mining, :containers] and
+      when elem(message, 0) in [:snapshot, :items, :mining, :containers, :ticks] and
              elem(message, 1) == lease do
     batch = [message | drain(lease, @max_batch - 1, [])]
     Valimc.Metrics.add(:store_batches)
@@ -235,6 +245,11 @@ defmodule Valimc.World.Store do
 
   def handle_cast({:mining, _, _, {owner, epoch}, token}, state) do
     send(owner, {:resource, epoch, {:mining_saved, self(), token, {:error, :stale_store_lease}}})
+    {:noreply, state}
+  end
+
+  def handle_cast({:ticks, _, _, {owner, epoch}, token}, state) do
+    send(owner, {:resource, epoch, {:ticks_saved, self(), token, {:error, :stale_store_lease}}})
     {:noreply, state}
   end
 
@@ -330,11 +345,17 @@ defmodule Valimc.World.Store do
   end
 
   defp fold(%{checkpoint: checkpoint, frames: frames}) do
-    Enum.reduce(frames, checkpoint || @empty, fn %{ops: ops}, values ->
+    # Checkpoints written before a part existed lack its key.
+    Enum.reduce(frames, Map.merge(@empty, checkpoint || %{}), fn %{ops: ops}, values ->
       Enum.reduce(ops, values, fn
-        {:cells, cells}, acc -> %{acc | blocks: apply_cells(acc.blocks, cells)}
-        {part, value}, acc when part in [:blocks, :items, :containers] -> %{acc | part => value}
-        _, acc -> acc
+        {:cells, cells}, acc ->
+          %{acc | blocks: apply_cells(acc.blocks, cells)}
+
+        {part, value}, acc when part in [:blocks, :items, :containers, :ticks] ->
+          %{acc | part => value}
+
+        _, acc ->
+          acc
       end)
     end)
   end
@@ -421,7 +442,7 @@ defmodule Valimc.World.Store do
   defp drain(lease, left, acc) do
     receive do
       {:"$gen_cast", {tag, ^lease, _, _, _} = message}
-      when tag in [:snapshot, :mining, :containers] ->
+      when tag in [:snapshot, :mining, :containers, :ticks] ->
         drain(lease, left - 1, [message | acc])
 
       {:"$gen_cast", {:items, ^lease, _, _, _, _} = message} ->
@@ -433,7 +454,8 @@ defmodule Valimc.World.Store do
 
   defp batch_parts(key, batch) do
     folded =
-      Enum.reduce_while(batch, %{cells: %{}, items: nil, containers: nil}, fn message, acc ->
+      Enum.reduce_while(batch, %{cells: %{}, items: nil, containers: nil, ticks: nil}, fn message,
+                                                                                          acc ->
         case fold_commit(key, message, acc) do
           {:ok, acc} -> {:cont, acc}
           error -> {:halt, error}
@@ -446,7 +468,8 @@ defmodule Valimc.World.Store do
       {:ok,
        cells_parts(folded.cells) ++
          if(items, do: [{:items, items}], else: []) ++
-         if(containers, do: [{:containers, containers}], else: [])}
+         if(containers, do: [{:containers, containers}], else: []) ++
+         if(folded.ticks, do: [{:ticks, folded.ticks}], else: [])}
     else
       # A batch holding a joint commit reports it as an invalid proposal.
       {:error, reason} ->
@@ -461,6 +484,9 @@ defmodule Valimc.World.Store do
 
   defp fold_commit(_key, {:items, _, snapshot, receipts, _, _}, acc),
     do: {:ok, %{acc | items: {snapshot, receipts}}}
+
+  defp fold_commit(_key, {:ticks, _, entries, _, _}, acc) when is_list(entries),
+    do: {:ok, %{acc | ticks: entries}}
 
   defp fold_commit(_key, {:containers, _, containers, _, _}, acc),
     do: {:ok, %{acc | containers: containers}}
@@ -509,6 +535,9 @@ defmodule Valimc.World.Store do
 
   defp acknowledge({:mining, _, _, {owner, epoch}, token}, result),
     do: send(owner, {:resource, epoch, {:mining_saved, self(), token, result}})
+
+  defp acknowledge({:ticks, _, _, {owner, epoch}, token}, result),
+    do: send(owner, {:resource, epoch, {:ticks_saved, self(), token, result}})
 
   defp acknowledge({:containers, _, _, {owner, epoch}, token}, result),
     do: send(owner, {:resource, epoch, {:containers_saved, self(), token, result}})
