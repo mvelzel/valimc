@@ -183,3 +183,5 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-005b2a](../tickets/VMC-005b2a.md) | `220dea1`; client-generated left-even/right-one multi-slot drags in an ordinary survival menu, persisted across reconnect |
 | [VMC-063](../tickets/VMC-063.md) | `4cc6091`; region log, owner-side adoption with held effects, writer and player-log group commit, backpressure, background checkpoints, `F_FULLFSYNC` on macOS |
 | [VMC-064](../tickets/VMC-064.md) | `782d86c`; shared permits, receipts, delivery and source operations for every transfer kind; per-section fences |
+| [VMC-068](../tickets/VMC-068.md) | `127934a`; one version module, generated block registry, class-dispatched block behaviours |
+| [VMC-069](../tickets/VMC-069.md) | `127934a`; slim peers, frame-once broadcasts, counters; connection split into Net/Session/Player modules |
