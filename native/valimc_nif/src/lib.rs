@@ -860,24 +860,15 @@ fn json_of(term: Term) -> Result<valimc_core::worldgen::json::Json, String> {
     })
 }
 
-/// Parse worldgen facts (decoded `noises.json`, `density_functions.json`,
-/// `noise_settings.json` with default blocks as state ids, and
-/// `biome_parameters.json`) and the state ids of air, water and lava.
+/// Parse worldgen facts: a map from fact name (`noises`,
+/// `density_functions`, `noise_settings`, `biome_parameters`,
+/// `material_rules`, `material_conditions`, `biomes`, `blocks`) to its decoded
+/// contents, with block states as global state ids.
 #[rustler::nif(schedule = "DirtyCpu")]
-fn worldgen_registry(
-    noises: Term,
-    functions: Term,
-    settings: Term,
-    biome_parameters: Term,
-    blocks: Term,
-) -> Result<ResourceArc<WorldgenRegistry>, String> {
-    let registry = valimc_core::worldgen::compiler::Registry::parse(
-        &json_of(noises)?,
-        &json_of(functions)?,
-        &json_of(settings)?,
-        &json_of(biome_parameters)?,
-        &json_of(blocks)?,
-    )?;
+fn worldgen_registry(facts: Term) -> Result<ResourceArc<WorldgenRegistry>, String> {
+    let json = json_of(facts)?;
+    let facts = valimc_core::worldgen::compiler::Facts::from_object(&json)?;
+    let registry = valimc_core::worldgen::compiler::Registry::parse(&facts)?;
     Ok(ResourceArc::new(WorldgenRegistry {
         registry: std::sync::Arc::new(registry),
     }))
@@ -980,6 +971,29 @@ fn worldgen_fill_terrain<'a>(
     let mut out = Vec::with_capacity(chunks.len());
     for (x, z) in chunks {
         let filled = state.fill_terrain(x, z)?;
+        let mut blocks = NewBinary::new(env, filled.blocks.len() * 2);
+        for (bytes, id) in blocks.as_mut_slice().chunks_mut(2).zip(&filled.blocks) {
+            bytes.copy_from_slice(&id.to_be_bytes());
+        }
+        out.push((blocks.into(), filled.fluid_updates));
+    }
+    Ok(out)
+}
+
+/// Terrain of chunks with their material rule applied
+/// (`Worldgen::build_terrain`), biomes from `biome_source`: per chunk its
+/// state ids (as for `worldgen_fill_terrain`) and fluid update positions.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_build_terrain<'a>(
+    env: rustler::Env<'a>,
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    chunks: Vec<(i32, i32)>,
+) -> Result<Vec<FilledBinary<'a>>, String> {
+    let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+    let mut out = Vec::with_capacity(chunks.len());
+    for (x, z) in chunks {
+        let filled = state.build_terrain(x, z, &biome_source)?;
         let mut blocks = NewBinary::new(env, filled.blocks.len() * 2);
         for (bytes, id) in blocks.as_mut_slice().chunks_mut(2).zip(&filled.blocks) {
             bytes.copy_from_slice(&id.to_be_bytes());

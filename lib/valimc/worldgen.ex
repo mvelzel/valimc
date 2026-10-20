@@ -1,41 +1,50 @@
 defmodule Valimc.Worldgen do
   @moduledoc """
-  Vanilla world generation (VMC-023). The generated facts in `priv/worldgen`
-  (noise parameters, density functions, noise settings and biome parameter
-  presets, from `WorldgenFactsOracle`) parse once per VM into a native
-  registry; `new/2` gives one seed's noises and compiled density functions for
-  a noise settings entry (`valimc_core::worldgen`).
+  Vanilla world generation (VMC-023, VMC-024). The generated facts in
+  `priv/worldgen` (noise parameters, density functions, noise settings, biome
+  parameter presets, material rules and conditions, biomes; from
+  `WorldgenFactsOracle`) parse once per VM into a native registry, with block
+  states turned into global state ids; `new/2` gives one seed's noises and
+  compiled functions for a noise settings entry (`valimc_core::worldgen`).
   """
   alias Valimc.Native
+  alias Valimc.Physics.FluidBlocks
   alias Valimc.Registry.Blocks
 
-  @facts ~w(noises density_functions noise_settings biome_parameters)
+  @facts ~w(noises density_functions noise_settings biome_parameters material_rules
+            material_conditions biomes)
+  @rule_states ~w(result_state ore_block raw_ore_block filler_block)
+  @terracotta ~w(terracotta orange_terracotta yellow_terracotta brown_terracotta red_terracotta
+                 white_terracotta light_gray_terracotta)
 
   @doc "The native worldgen registry, parsed from the facts on first use."
   def registry do
     case :persistent_term.get({__MODULE__, :registry}, nil) do
       nil ->
         facts =
-          Enum.map(@facts, fn name ->
-            Application.app_dir(:valimc, "priv/worldgen/#{name}.json")
-            |> File.read!()
-            |> JSON.decode!()
+          Map.new(@facts, fn name ->
+            json =
+              Application.app_dir(:valimc, "priv/worldgen/#{name}.json")
+              |> File.read!()
+              |> JSON.decode!()
+
+            {name, json}
           end)
 
-        [noises, functions, settings, biomes] = facts
-
-        settings =
-          Map.new(settings, fn {id, entry} ->
-            {id,
-             %{
+        facts =
+          facts
+          |> Map.update!("noise_settings", fn settings ->
+            Map.new(settings, fn {id, entry} ->
+              {id,
                entry
-               | "default_block" => state_id(entry["default_block"]),
-                 "default_fluid" => state_id(entry["default_fluid"])
-             }}
+               |> Map.update!("default_block", &state_id/1)
+               |> Map.update!("default_fluid", &state_id/1)}
+            end)
           end)
+          |> Map.update!("material_rules", &Map.new(&1, fn {id, rule} -> {id, states(rule)} end))
+          |> Map.put("blocks", blocks())
 
-        fluids = Map.new(~w(air water lava), &{&1, Blocks.default_state(&1)})
-        {:ok, registry} = Native.worldgen_registry(noises, functions, settings, biomes, fluids)
+        {:ok, registry} = Native.worldgen_registry(facts)
         :persistent_term.put({__MODULE__, :registry}, registry)
         registry
 
@@ -44,6 +53,21 @@ defmodule Valimc.Worldgen do
     end
   end
 
+  @doc "Worldgen state for `seed` and a noise settings entry."
+  def new(seed, settings \\ "minecraft:overworld"),
+    do: Native.worldgen_new(registry(), seed, settings)
+
+  # Block states inside material rules become state ids.
+  defp states(%{} = json) do
+    Map.new(json, fn
+      {key, value} when key in @rule_states -> {key, state_id(value)}
+      {key, value} -> {key, states(value)}
+    end)
+  end
+
+  defp states(list) when is_list(list), do: Enum.map(list, &states/1)
+  defp states(other), do: other
+
   # A block state as vanilla's codec encodes it: a name, or a name with
   # properties.
   defp state_id("minecraft:" <> name), do: Blocks.default_state(name)
@@ -51,7 +75,27 @@ defmodule Valimc.Worldgen do
   defp state_id(%{"Name" => "minecraft:" <> name} = state),
     do: Blocks.state(name, Map.get(state, "Properties", %{}))
 
-  @doc "Worldgen state for `seed` and a noise settings entry."
-  def new(seed, settings \\ "minecraft:overworld"),
-    do: Native.worldgen_new(registry(), seed, settings)
+  defp blocks do
+    air = MapSet.new(~w(air cave_air void_air), &Blocks.id/1)
+    water = Blocks.id("water")
+
+    flags =
+      for id <- 0..(Blocks.state_count() - 1) do
+        block = Blocks.block_id(id)
+        {:ok, fluid} = FluidBlocks.fetch(id)
+
+        if(block in air, do: 1, else: 0) + if(fluid.kind != :empty, do: 2, else: 0) +
+          if block == water, do: 4, else: 0
+      end
+
+    %{
+      "air" => Blocks.default_state("air"),
+      "water" => Blocks.default_state("water"),
+      "lava" => Blocks.default_state("lava"),
+      "terracotta" => Enum.map(@terracotta, &Blocks.default_state/1),
+      "snow_block" => Blocks.default_state("snow_block"),
+      "packed_ice" => Blocks.default_state("packed_ice"),
+      "flags" => flags
+    }
+  end
 end

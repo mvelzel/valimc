@@ -1,0 +1,339 @@
+{
+  "minecraft:badlands": {
+    "has_precipitation": false,
+    "temperature": 2.0,
+    "downfall": 0.0
+  },
+  "minecraft:bamboo_jungle": {
+    "has_precipitation": true,
+    "temperature": 0.949999988079071,
+    "downfall": 0.8999999761581421
+  },
+  "minecraft:basalt_deltas": {
+    "has_precipitation": false,
+    "temperature": 2.0,
+    "downfall": 0.0
+  },
+  "minecraft:beach": {
+    "has_precipitation": true,
+    "temperature": 0.800000011920929,
+    "downfall": 0.4000000059604645
+  },
+  "minecraft:birch_forest": {
+    "has_precipitation": true,
+    "temperature": 0.6000000238418579,
+    "downfall": 0.6000000238418579
+  },
+  "minecraft:cherry_grove": {
+    "has_precipitation": true,
+    "temperature": 0.5,
+    "downfall": 0.800000011920929
+  },
+  "minecraft:cold_ocean": {
+    "has_precipitation": true,
+    "temperature": 0.5,
+    "downfall": 0.5
+  },
+  "minecraft:crimson_forest": {
+    "has_precipitation": false,
+    "temperature": 2.0,
+    "downfall": 0.0
+  },
+  "minecraft:dappled_forest": {
+    "has_precipitation": true,
+    "temperature": 0.6000000238418579,
+    "downfall": 0.6000000238418579
+  },
+  "minecraft:dark_forest": {
+    "has_precipitation": true,
+    "temperature": 0.699999988079071,
+    "downfall": 0.800000011920929
+  },
+  "minecraft:deep_cold_ocean": {
+    "has_precipitation": true,
+    "temperature": 0.5,
+    "downfall": 0.5
+  },
+  "minecraft:deep_dark": {
+    "has_precipitation": true,
+    "temperature": 0.800000011920929,
+    "downfall": 0.4000000059604645
+  },
+  "minecraft:deep_frozen_ocean": {
+    "has_precipitation": true,
+    "temperature": 0.5,
+    "temperature_modifier": "frozen",
+    "downfall": 0.5
+  },
+  "minecraft:deep_lukewarm_ocean": {
+    "has_precipitation": true,
+    "temperature": 0.5,
+    "downfall": 0.5
+  },
+  "minecraft:deep_ocean": {
+    "has_precipitation": true,
+    "temperature": 0.5,
+    "downfall": 0.5
+  },
+  "minecraft:desert": {
+    "has_precipitation": false,
+    "temperature": 2.0,
+    "downfall": 0.0
+  },
+  "minecraft:dripstone_caves": {
+    "has_precipitation": true,
+    "temperature": 0.800000011920929,
+    "downfall": 0.4000000059604645
+  },
+  "minecraft:end_barrens": {
+    "has_precipitation": false,
+    "temperature": 0.5,
+    "downfall": 0.5
+  },
+  "minecraft:end_highlands": {
+    "has_precipitation": false,
+    "temperature": 0.5,
+    "downfall": 0.5
+  },
+  "minecraft:end_midlands": {
+    "has_precipitation": false,
+    "temperature": 0.5,
+    "downfall": 0.5
+  },
+  "minecraft:eroded_badlands": {
+    "has_precipitation": false,
+    "temperature": 2.0,
+    "downfall": 0.0
+  },
+  "minecraft:flower_forest": {
+    "has_precipitation": true,
+    "temperature": 0.699999988079071,
+    "downfall": 0.800000011920929
+  },
+  "minecraft:forest": {
+    "has_precipitation": true,
+    "temperature": 0.699999988079071,
+    "downfall": 0.800000011920929
+  },
+  "minecraft:frozen_ocean": {
+    "has_precipitation": true,
+    "temperature": 0.0,
+    "temperature_modifier": "frozen",
+    "downfall": 0.5
+  },
+  "minecraft:frozen_peaks": {
+    "has_precipitation": true,
+    "temperature": -0.699999988079071,
+    "downfall": 0.8999999761581421
+  },
+  "minecraft:frozen_river": {
+    "has_precipitation": true,
+    "temperature": 0.0,
+    "downfall": 0.5
+  },
+  "minecraft:grove": {
+    "has_precipitation": true,
+    "temperature": -0.20000000298023224,
+    "downfall": 0.800000011920929
+  },
+  "minecraft:ice_spikes": {
+    "has_precipitation": true,
+    "temperature": 0.0,
+    "downfall": 0.5
+  },
+  "minecraft:jagged_peaks": {
+    "has_precipitation": true,
+    "temperature": -0.699999988079071,
+    "downfall": 0.8999999761581421
+  },
+  "minecraft:jungle": {
+    "has_precipitation": true,
+    "temperature": 0.949999988079071,
+    "downfall": 0.8999999761581421
+  },
+  "minecraft:lukewarm_ocean": {
+    "has_precipitation": true,
+    "temperature": 0.5,
+    "downfall": 0.5
+  },
+  "minecraft:lush_caves": {
+    "has_precipitation": true,
+    "temperature": 0.5,
+    "downfall": 0.5
+  },
+  "minecraft:mangrove_swamp": {
+    "has_precipitation": true,
+    "temperature": 0.800000011920929,
+    "downfall": 0.8999999761581421
+  },
+  "minecraft:meadow": {
+    "has_precipitation": true,
+    "temperature": 0.5,
+    "downfall": 0.800000011920929
+  },
+  "minecraft:mushroom_fields": {
+    "has_precipitation": true,
+    "temperature": 0.8999999761581421,
+    "downfall": 1.0
+  },
+  "minecraft:nether_wastes": {
+    "has_precipitation": false,
+    "temperature": 2.0,
+    "downfall": 0.0
+  },
+  "minecraft:ocean": {
+    "has_precipitation": true,
+    "temperature": 0.5,
+    "downfall": 0.5
+  },
+  "minecraft:old_growth_birch_forest": {
+    "has_precipitation": true,
+    "temperature": 0.6000000238418579,
+    "downfall": 0.6000000238418579
+  },
+  "minecraft:old_growth_pine_taiga": {
+    "has_precipitation": true,
+    "temperature": 0.30000001192092896,
+    "downfall": 0.800000011920929
+  },
+  "minecraft:old_growth_spruce_taiga": {
+    "has_precipitation": true,
+    "temperature": 0.25,
+    "downfall": 0.800000011920929
+  },
+  "minecraft:pale_garden": {
+    "has_precipitation": true,
+    "temperature": 0.699999988079071,
+    "downfall": 0.800000011920929
+  },
+  "minecraft:plains": {
+    "has_precipitation": true,
+    "temperature": 0.800000011920929,
+    "downfall": 0.4000000059604645
+  },
+  "minecraft:river": {
+    "has_precipitation": true,
+    "temperature": 0.5,
+    "downfall": 0.5
+  },
+  "minecraft:savanna": {
+    "has_precipitation": false,
+    "temperature": 2.0,
+    "downfall": 0.0
+  },
+  "minecraft:savanna_plateau": {
+    "has_precipitation": false,
+    "temperature": 2.0,
+    "downfall": 0.0
+  },
+  "minecraft:small_end_islands": {
+    "has_precipitation": false,
+    "temperature": 0.5,
+    "downfall": 0.5
+  },
+  "minecraft:snowy_beach": {
+    "has_precipitation": true,
+    "temperature": 0.05000000074505806,
+    "downfall": 0.30000001192092896
+  },
+  "minecraft:snowy_plains": {
+    "has_precipitation": true,
+    "temperature": 0.0,
+    "downfall": 0.5
+  },
+  "minecraft:snowy_slopes": {
+    "has_precipitation": true,
+    "temperature": -0.30000001192092896,
+    "downfall": 0.8999999761581421
+  },
+  "minecraft:snowy_taiga": {
+    "has_precipitation": true,
+    "temperature": -0.5,
+    "downfall": 0.4000000059604645
+  },
+  "minecraft:soul_sand_valley": {
+    "has_precipitation": false,
+    "temperature": 2.0,
+    "downfall": 0.0
+  },
+  "minecraft:sparse_jungle": {
+    "has_precipitation": true,
+    "temperature": 0.949999988079071,
+    "downfall": 0.800000011920929
+  },
+  "minecraft:stony_peaks": {
+    "has_precipitation": true,
+    "temperature": 1.0,
+    "downfall": 0.30000001192092896
+  },
+  "minecraft:stony_shore": {
+    "has_precipitation": true,
+    "temperature": 0.20000000298023224,
+    "downfall": 0.30000001192092896
+  },
+  "minecraft:sulfur_caves": {
+    "has_precipitation": true,
+    "temperature": 0.800000011920929,
+    "downfall": 0.4000000059604645
+  },
+  "minecraft:sunflower_plains": {
+    "has_precipitation": true,
+    "temperature": 0.800000011920929,
+    "downfall": 0.4000000059604645
+  },
+  "minecraft:swamp": {
+    "has_precipitation": true,
+    "temperature": 0.800000011920929,
+    "downfall": 0.8999999761581421
+  },
+  "minecraft:taiga": {
+    "has_precipitation": true,
+    "temperature": 0.25,
+    "downfall": 0.800000011920929
+  },
+  "minecraft:the_end": {
+    "has_precipitation": false,
+    "temperature": 0.5,
+    "downfall": 0.5
+  },
+  "minecraft:the_void": {
+    "has_precipitation": false,
+    "temperature": 0.5,
+    "downfall": 0.5
+  },
+  "minecraft:warm_ocean": {
+    "has_precipitation": true,
+    "temperature": 0.5,
+    "downfall": 0.5
+  },
+  "minecraft:warped_forest": {
+    "has_precipitation": false,
+    "temperature": 2.0,
+    "downfall": 0.0
+  },
+  "minecraft:windswept_forest": {
+    "has_precipitation": true,
+    "temperature": 0.20000000298023224,
+    "downfall": 0.30000001192092896
+  },
+  "minecraft:windswept_gravelly_hills": {
+    "has_precipitation": true,
+    "temperature": 0.20000000298023224,
+    "downfall": 0.30000001192092896
+  },
+  "minecraft:windswept_hills": {
+    "has_precipitation": true,
+    "temperature": 0.20000000298023224,
+    "downfall": 0.30000001192092896
+  },
+  "minecraft:windswept_savanna": {
+    "has_precipitation": false,
+    "temperature": 2.0,
+    "downfall": 0.0
+  },
+  "minecraft:wooded_badlands": {
+    "has_precipitation": false,
+    "temperature": 2.0,
+    "downfall": 0.0
+  }
+}

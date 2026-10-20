@@ -1,10 +1,18 @@
-# VMC-024a: ValiMC's noise terrain equals vanilla's block for block
-# (TerrainOracle): every noise settings entry over three seeds, chunks near the
-# origin and far away, filled from the final density and the aquifer, with the
-# same fluid positions marked for post-processing.
+# VMC-024: ValiMC's terrain equals vanilla's block for block (TerrainOracle):
+# every noise settings entry over three seeds, chunks near the origin and far
+# away, filled from the final density and the aquifer (`fill`), then with the
+# material rule applied (`surface`, VMC-024b), with the same fluid positions
+# marked for post-processing.
 alias Valimc.Registry.Blocks
 
-[path] = System.argv()
+[mode, path] = System.argv()
+
+source = fn
+  "minecraft:end" -> "minecraft:the_end"
+  "minecraft:nether" -> "minecraft:nether"
+  _ -> "minecraft:overworld"
+end
+
 cases = (path |> File.read!() |> JSON.decode!())["cases"]
 
 run_length = fn ids ->
@@ -21,8 +29,13 @@ results =
   |> Enum.flat_map(fn {{seed, settings}, rows} ->
     {:ok, state} = Valimc.Worldgen.new(String.to_integer(seed), settings)
 
+    chunks = Enum.map(rows, &{&1["x"], &1["z"]})
+
     {:ok, filled} =
-      Valimc.Native.worldgen_fill_terrain(state, Enum.map(rows, &{&1["x"], &1["z"]}))
+      case mode do
+        "fill" -> Valimc.Native.worldgen_fill_terrain(state, chunks)
+        "surface" -> Valimc.Native.worldgen_build_terrain(state, source.(settings), chunks)
+      end
 
     Enum.zip(rows, filled)
   end)
@@ -45,7 +58,7 @@ for {row, {blocks, updates}} <- results do
             "#{name.(Enum.at(ids, index))}, vanilla has #{name.(Enum.at(expected, index))}"
   end
 
-  ours = updates |> Enum.map(fn {x, y, z} -> "#{x},#{y},#{z}" end) |> Enum.sort()
+  ours = updates |> Enum.map(fn {x, y, z} -> "#{x},#{y},#{z}" end) |> Enum.sort() |> Enum.dedup()
 
   unless ours == Enum.sort(row["fluid_updates"]),
     do:
@@ -62,6 +75,7 @@ blocks =
 updates = Enum.sum(for {row, _} <- results, do: length(row["fluid_updates"]))
 
 IO.puts(
-  "PASS: #{length(results)} noise-filled chunks (#{blocks} blocks, #{updates} fluid updates) " <>
+  "PASS: #{length(results)} #{if mode == "fill", do: "noise-filled", else: "surfaced"} chunks " <>
+    "(#{blocks} blocks, #{updates} fluid updates) " <>
     "equal vanilla's block for block"
 )

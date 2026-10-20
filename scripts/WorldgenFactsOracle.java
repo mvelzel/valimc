@@ -6,9 +6,12 @@ import net.minecraft.SharedConstants;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.server.Bootstrap;
+import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterList;
 import net.minecraft.world.level.levelgen.NoiseGeneratorSettings;
 import net.minecraft.world.level.levelgen.densityfunction.DensityFunctions;
+import net.minecraft.world.level.levelgen.material.condition.MaterialCondition;
+import net.minecraft.world.level.levelgen.material.rule.MaterialRule;
 import net.minecraft.world.level.levelgen.synth.NormalNoise;
 
 /**
@@ -20,7 +23,11 @@ import net.minecraft.world.level.levelgen.synth.NormalNoise;
  * - density_functions.json: the `worldgen/density_function` registry;
  * - noise_settings.json: per `worldgen/noise_settings` entry, its noise
  *   bounds, sea level, default block and fluid, legacy random flag, noise
- *   router and aquifer functions;
+ *   router, aquifer functions and material rule;
+ * - material_rules.json and material_conditions.json: the
+ *   `worldgen/material_rule` and `worldgen/material_condition` registries;
+ * - biomes.json: per biome, its climate (precipitation, temperature and its
+ *   modifier, downfall);
  * - biome_parameters.json: per multi-noise preset, its climate parameter list
  *   in order, one row per entry: the biome, then the quantized minimum and
  *   maximum of temperature, humidity, continentalness, erosion, depth and
@@ -51,15 +58,34 @@ public class WorldgenFactsOracle {
       var full = NoiseGeneratorSettings.DIRECT_CODEC.encodeStart(ops, holder.value()).getOrThrow().getAsJsonObject();
       var kept = new JsonObject();
       for (var key : List.of("noise", "sea_level", "default_block", "default_fluid", "legacy_random_source",
-          "noise_router", "aquifers")) {
+          "noise_router", "aquifers", "material_rule")) {
         if (full.has(key)) kept.add(key, full.get(key));
       }
       settings.put(holder.key().identifier().toString(), kept);
     });
 
+    var rules = new TreeMap<String, JsonElement>();
+    lookup.lookupOrThrow(Registries.MATERIAL_RULE).listElements().forEach(holder ->
+        rules.put(holder.key().identifier().toString(), MaterialRule.DIRECT_CODEC.encodeStart(ops, holder.value()).getOrThrow()));
+    var conditions = new TreeMap<String, JsonElement>();
+    lookup.lookupOrThrow(Registries.MATERIAL_CONDITION).listElements().forEach(holder ->
+        conditions.put(holder.key().identifier().toString(), MaterialCondition.DIRECT_CODEC.encodeStart(ops, holder.value()).getOrThrow()));
+    var biomes = new TreeMap<String, JsonElement>();
+    lookup.lookupOrThrow(Registries.BIOME).listElements().forEach(holder -> {
+      var full = Biome.DIRECT_CODEC.encodeStart(ops, holder.value()).getOrThrow().getAsJsonObject();
+      var kept = new JsonObject();
+      for (var key : List.of("has_precipitation", "temperature", "temperature_modifier", "downfall")) {
+        if (full.has(key)) kept.add(key, full.get(key));
+      }
+      biomes.put(holder.key().identifier().toString(), kept);
+    });
+
     write(args[0], noises);
     write(args[1], functions);
     write(args[2], settings);
+    write(args[4], rules);
+    write(args[5], conditions);
+    write(args[6], biomes);
 
     var presets = new TreeMap<String, List<String>>();
     MultiNoiseBiomeSourceParameterList.knownPresets().forEach((preset, list) -> {
@@ -84,7 +110,8 @@ public class WorldgenFactsOracle {
     Files.writeString(Path.of(args[3]), text.append("}\n").toString());
     System.out.println("PASS: " + noises.size() + " noise parameter sets, " + functions.size()
         + " density functions, " + settings.size() + " noise settings, "
-        + presets.size() + " biome parameter presets");
+        + presets.size() + " biome parameter presets, " + rules.size() + " material rules, " + conditions.size()
+        + " material conditions, " + biomes.size() + " biomes");
   }
 
   static void write(String path, Map<String, JsonElement> entries) throws Exception {

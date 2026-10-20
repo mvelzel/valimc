@@ -2,6 +2,18 @@ import com.google.gson.*;
 import java.nio.file.*;
 import java.util.*;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
+import net.minecraft.core.HolderGetter;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.biome.BiomeManager;
+import net.minecraft.world.level.biome.BiomeResolver;
+import net.minecraft.world.level.biome.Climate;
+import net.minecraft.world.level.biome.MultiNoiseBiomeSourceParameterList;
+import net.minecraft.world.level.biome.TheEndBiomeSource;
+import net.minecraft.world.level.levelgen.densityfunction.DensityBuffer;
+import net.minecraft.world.level.levelgen.densityfunction.SamplerContext;
+import net.minecraft.world.level.levelgen.material.rule.MaterialRule;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.world.level.ChunkPos;
@@ -21,13 +33,18 @@ import net.minecraft.world.level.levelgen.blending.Blender;
 import net.minecraft.world.level.levelgen.densityfunction.DensityVolume;
 
 /**
- * Vanilla noise terrain (VMC-024a): for three seeds and every noise settings
- * entry, chunks near the origin and up to 30,000,000 blocks away are filled by
- * vanilla's own `NoiseBasedChunkGenerator.doFill` on a fresh proto chunk, with
- * a noise chunk built as chunk generation builds it but without structures
- * (no beardifier) or blending. Per chunk: the state ids run-length encoded in
- * volume order (Y fastest from the bottom, then X, then Z) as [id, count]
- * pairs, and the positions marked for fluid post-processing.
+ * Vanilla terrain (VMC-024). `fill OUT`: for three seeds and every noise
+ * settings entry, eight chunks (two next to the origin, five within 32,000
+ * blocks, one up to 30,000,000 blocks away) are filled by vanilla's own
+ * `NoiseBasedChunkGenerator.doFill` on a fresh proto chunk, with a noise chunk
+ * built as chunk generation builds it but without structures (no beardifier)
+ * or blending. `surface OUT` then runs vanilla's `buildSurface` with the
+ * settings' material rule through the same noise chunk; its biome manager
+ * reads chunk biomes filled as chunk generation fills them (multi-noise
+ * presets: overworld, or nether for the nether settings; the End's biome
+ * source for the end settings), each chunk from a fresh lookup history. Per chunk: the state ids run-length encoded in volume order (Y
+ * fastest from the bottom, then X, then Z) as [id, count] pairs, and the
+ * positions marked for fluid post-processing.
  */
 public class TerrainOracle {
   public static void main(String[] args) throws Exception {
@@ -37,8 +54,13 @@ public class TerrainOracle {
     var plains = lookup.lookupOrThrow(Registries.BIOME).getOrThrow(Biomes.PLAINS);
     var settingsList = lookup.lookupOrThrow(Registries.NOISE_SETTINGS).listElements()
         .sorted(Comparator.comparing(h -> h.key().identifier().toString())).toList();
+    boolean surface = args[0].equals("surface");
     var doFill = NoiseBasedChunkGenerator.class.getDeclaredMethod("doFill", NoiseChunk.class, ChunkAccess.class);
     doFill.setAccessible(true);
+    var buildSurface = NoiseBasedChunkGenerator.class.getDeclaredMethod("buildSurface", ChunkAccess.class, NoiseChunk.class,
+        RandomState.class, BiomeManager.class, Set.class, MaterialRule.class);
+    buildSurface.setAccessible(true);
+    var biomeLookup = lookup.lookupOrThrow(Registries.BIOME);
     var createFluidPicker = NoiseBasedChunkGenerator.class.getDeclaredMethod("createFluidPicker", NoiseGeneratorSettings.class);
     createFluidPicker.setAccessible(true);
     var gen = new Random(20261020L);
@@ -55,14 +77,27 @@ public class TerrainOracle {
         int minY = settings.noiseSettings().minY(), height = settings.noiseSettings().height();
         var heights = LevelHeightAccessor.create(minY, height);
         var positions = new ArrayList<>(List.of(new ChunkPos(0, 0), new ChunkPos(-1, 2)));
-        positions.add(new ChunkPos(gen.nextInt(4001) - 2000, gen.nextInt(4001) - 2000));
-        positions.add(new ChunkPos(gen.nextInt(4001) - 2000, gen.nextInt(4001) - 2000));
+        for (int i = 0; i < 5; i++) positions.add(new ChunkPos(gen.nextInt(4001) - 2000, gen.nextInt(4001) - 2000));
         positions.add(new ChunkPos(gen.nextInt(3_750_001) - 1_875_000, gen.nextInt(3_750_001) - 1_875_000));
         for (var pos : positions) {
           var chunk = new ProtoChunk(pos, UpgradeData.EMPTY, heights, factory, null);
           var volume = new DensityVolume(16, height, 16, pos.getMinBlockX(), minY, pos.getMinBlockZ());
           try (var noiseChunk = new NoiseChunk(state, null, settings, picker, Blender.empty(), volume)) {
             doFill.invoke(generator, noiseChunk, chunk);
+            if (surface) {
+              var id = holder.key().identifier().toString();
+              var source = id.equals("minecraft:end") ? "end" : id.equals("minecraft:nether") ? "nether" : "overworld";
+              var biomes = new HashMap<ChunkPos, Holder<Biome>[]>();
+              BiomeResolver resolver = (qx, qy, qz) -> {
+                var column = biomes.computeIfAbsent(new ChunkPos(qx >> 2, qz >> 2),
+                    p -> chunkBiomes(state, source, biomeLookup, p, minY, height));
+                int minQuart = minY >> 2;
+                int clamped = Math.clamp(qy, minQuart, minQuart + (height >> 2) - 1) - minQuart;
+                return column[(clamped >> 2) * 64 + ((clamped & 3) * 4 + (qz & 3)) * 4 + (qx & 3)];
+              };
+              var biomeManager = new BiomeManager(resolver, BiomeManager.obfuscateSeed(seed));
+              buildSurface.invoke(generator, chunk, noiseChunk, state, biomeManager, null, settings.materialRule().value());
+            }
           }
           var runs = new JsonArray();
           int last = -1, count = 0;
@@ -104,8 +139,62 @@ public class TerrainOracle {
     }
     var out = new JsonObject();
     out.add("cases", cases);
-    Files.writeString(Path.of(args[0]), new Gson().toJson(out));
-    System.out.println("PASS: " + cases.size() + " vanilla noise-filled chunks over " + seeds.length + " seeds and "
-        + settingsList.size() + " noise settings (" + blocks + " blocks)");
+    Files.writeString(Path.of(args[1]), new Gson().toJson(out));
+    System.out.println("PASS: " + cases.size() + " vanilla " + (surface ? "surfaced" : "noise-filled") + " chunks over "
+        + seeds.length + " seeds and " + settingsList.size() + " noise settings (" + blocks + " blocks)");
   }
+
+  /**
+   * A chunk's biomes (sections from the bottom, each in index order y, z, x)
+   * as chunk generation fills them, from a fresh lookup history.
+   */
+  @SuppressWarnings("unchecked")
+  static Holder<Biome>[] chunkBiomes(RandomState state, String source, HolderGetter<Biome> lookup, ChunkPos pos, int minY,
+      int height) {
+    try {
+      int sections = height / 16;
+      var out = (Holder<Biome>[]) new Holder[sections * 64];
+      var climate = state.createClimateSampler(SamplerContext.builder().enableCaches().build());
+      if (source.equals("end")) {
+        var resolver = TheEndBiomeSource.create(lookup).createResolver(climate);
+        for (int s = 0; s < sections; s++)
+          for (int x = 0; x < 4; x++)
+            for (int y = 0; y < 4; y++)
+              for (int z = 0; z < 4; z++)
+                out[s * 64 + (y * 4 + z) * 4 + x] = resolver.getNoiseBiome(pos.x() * 4 + x, (minY >> 2) + s * 4 + y, pos.z() * 4 + z);
+        return out;
+      }
+      var preset = source.equals("nether") ? MultiNoiseBiomeSourceParameterList.Preset.NETHER : MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD;
+      var parameters = PRESETS.computeIfAbsent(preset, p -> MultiNoiseBiomeSourceParameterList.knownPresets().get(p));
+      // A fresh lookup history: vanilla keeps the last result per thread.
+      var index = Climate.ParameterList.class.getDeclaredField("index");
+      index.setAccessible(true);
+      var tree = index.get(parameters);
+      var last = tree.getClass().getDeclaredField("lastResult");
+      last.setAccessible(true);
+      ((ThreadLocal<?>) last.get(tree)).remove();
+      var volume = new DensityVolume(4, height / 4, 4, pos.getMinBlockX(), minY, pos.getMinBlockZ(), 4, 4, 4);
+      var bound = List.of(climate.temperature(), climate.humidity(), climate.continentalness(), climate.erosion(), climate.depth(), climate.weirdness());
+      var buffers = new ArrayList<DensityBuffer>();
+      for (var sampler : bound) {
+        var buffer = DensityBuffer.createUnpooled(volume.size());
+        sampler.sampleVolume(buffer, volume);
+        buffers.add(buffer);
+      }
+      for (int s = 0; s < sections; s++)
+        for (int x = 0; x < 4; x++)
+          for (int y = 0; y < 4; y++)
+            for (int z = 0; z < 4; z++) {
+              int i = volume.indexUnchecked(x, s * 4 + y, z);
+              var target = Climate.target(buffers.get(0).get(i), buffers.get(1).get(i), buffers.get(2).get(i),
+                  buffers.get(3).get(i), buffers.get(4).get(i), buffers.get(5).get(i));
+              out[s * 64 + (y * 4 + z) * 4 + x] = lookup.getOrThrow(parameters.findValue(target));
+            }
+      return out;
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
+  static final Map<MultiNoiseBiomeSourceParameterList.Preset, Climate.ParameterList<ResourceKey<Biome>>> PRESETS = new HashMap<>();
 }

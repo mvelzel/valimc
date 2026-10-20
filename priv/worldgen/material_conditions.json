@@ -1,0 +1,56 @@
+{
+  "minecraft:deep_under_floor": {
+    "offset": 0,
+    "add_surface_depth": true,
+    "secondary_depth_range": 6,
+    "surface_type": "floor",
+    "type": "minecraft:stone_depth"
+  },
+  "minecraft:not_under_deep_water": {
+    "offset": -6,
+    "surface_depth_multiplier": -1,
+    "add_stone_depth": true,
+    "type": "minecraft:water"
+  },
+  "minecraft:not_underwater": {
+    "offset": -1,
+    "surface_depth_multiplier": 0,
+    "add_stone_depth": false,
+    "type": "minecraft:water"
+  },
+  "minecraft:on_ceiling": {
+    "offset": 0,
+    "add_surface_depth": false,
+    "secondary_depth_range": 0,
+    "surface_type": "ceiling",
+    "type": "minecraft:stone_depth"
+  },
+  "minecraft:on_floor": {
+    "offset": 0,
+    "add_surface_depth": false,
+    "secondary_depth_range": 0,
+    "surface_type": "floor",
+    "type": "minecraft:stone_depth"
+  },
+  "minecraft:under_ceiling": {
+    "offset": 0,
+    "add_surface_depth": true,
+    "secondary_depth_range": 0,
+    "surface_type": "ceiling",
+    "type": "minecraft:stone_depth"
+  },
+  "minecraft:under_floor": {
+    "offset": 0,
+    "add_surface_depth": true,
+    "secondary_depth_range": 0,
+    "surface_type": "floor",
+    "type": "minecraft:stone_depth"
+  },
+  "minecraft:very_deep_under_floor": {
+    "offset": 0,
+    "add_surface_depth": true,
+    "secondary_depth_range": 30,
+    "surface_type": "floor",
+    "type": "minecraft:stone_depth"
+  }
+}

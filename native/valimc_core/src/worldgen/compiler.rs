@@ -23,6 +23,10 @@ use super::json::Json;
 use super::noise::{BlendedParameters, NormalNoise, Simplex, Stack};
 use super::random::{Positional, Random};
 use super::sampler::{Context, Field, GradientKind, Sampler, SplineNode};
+use super::surface::{
+    self, Biomes, ChunkBlocks, MaterialRegistry, MaterialSystem, Rule, SurfaceEnv, SurfaceInput,
+    Terracotta,
+};
 use super::terrain::{self, AquiferSamplers, FilledChunk, TerrainBlocks};
 use super::volume::Volume;
 
@@ -39,6 +43,48 @@ pub struct Settings {
     pub legacy_random_source: bool,
     pub router: Vec<(String, Df)>,
     pub aquifers: Vec<(String, Df)>,
+    pub material_rule: Rule,
+}
+
+/// Block states worldgen places or tests, as global state ids.
+#[derive(Clone, Debug, Default)]
+pub struct BlockFacts {
+    pub air: u16,
+    pub water: u16,
+    pub lava: u16,
+    pub terracotta: Terracotta,
+    pub snow_block: u16,
+    pub packed_ice: u16,
+    /// Per state: bit 0 air, bit 1 contains a fluid, bit 2 a water block.
+    pub flags: Vec<u8>,
+}
+
+/// The generated worldgen facts, decoded.
+pub struct Facts<'a> {
+    pub noises: &'a Json,
+    pub density_functions: &'a Json,
+    pub noise_settings: &'a Json,
+    pub biome_parameters: &'a Json,
+    pub material_rules: &'a Json,
+    pub material_conditions: &'a Json,
+    pub biomes: &'a Json,
+    pub blocks: &'a Json,
+}
+
+impl<'a> Facts<'a> {
+    /// The facts from one object keyed by fact file name.
+    pub fn from_object(json: &'a Json) -> Result<Facts<'a>, String> {
+        Ok(Facts {
+            noises: json.field("noises")?,
+            density_functions: json.field("density_functions")?,
+            noise_settings: json.field("noise_settings")?,
+            biome_parameters: json.field("biome_parameters")?,
+            material_rules: json.field("material_rules")?,
+            material_conditions: json.field("material_conditions")?,
+            biomes: json.field("biomes")?,
+            blocks: json.field("blocks")?,
+        })
+    }
 }
 
 /// The worldgen registries ValiMC reads from generated facts.
@@ -47,10 +93,11 @@ pub struct Registry {
     pub noises: HashMap<String, NormalNoise>,
     pub functions: HashMap<String, Df>,
     pub settings: HashMap<String, Settings>,
-    /// Multi-noise biome parameter presets.
-    pub biome_parameters: HashMap<String, Arc<ParameterList>>,
-    /// Global state ids of air, water and lava.
-    pub fluids: [u16; 3],
+    /// Multi-noise biome parameter presets, with their biomes' registry ids.
+    pub biome_parameters: HashMap<String, (Arc<ParameterList>, Vec<u16>)>,
+    pub biomes: Biomes,
+    pub materials: MaterialRegistry,
+    pub blocks: BlockFacts,
 }
 
 /// One chunk's biomes as `fill_biomes` computes them.
@@ -90,31 +137,52 @@ fn named_functions(json: Option<&Json>) -> Result<Vec<(String, Df)>, String> {
 }
 
 impl Registry {
-    /// Parses `noises.json`, `density_functions.json`, `noise_settings.json`
-    /// (with default blocks and fluids as global state ids) and
-    /// `biome_parameters.json`, with the state ids of `air`, `water` and
-    /// `lava` in `blocks`.
-    pub fn parse(
-        noises: &Json,
-        functions: &Json,
-        settings: &Json,
-        biome_parameters: &Json,
-        blocks: &Json,
-    ) -> Result<Registry, String> {
+    /// Parses the generated facts; block states in settings and material
+    /// rules are global state ids.
+    pub fn parse(facts: &Facts) -> Result<Registry, String> {
         let mut registry = Registry::default();
         let state = |json: &Json| -> Result<u16, String> {
             u16::try_from(json.as_i32()?).map_err(|_| "state id out of range".to_string())
         };
-        registry.fluids = [
-            state(blocks.field("air")?)?,
-            state(blocks.field("water")?)?,
-            state(blocks.field("lava")?)?,
-        ];
-        for (id, rows) in biome_parameters.entries()? {
+        let blocks = facts.blocks;
+        let terracotta = blocks.field("terracotta")?.as_array()?;
+        if terracotta.len() != 7 {
+            return Err("seven terracotta states".into());
+        }
+        registry.blocks = BlockFacts {
+            air: state(blocks.field("air")?)?,
+            water: state(blocks.field("water")?)?,
+            lava: state(blocks.field("lava")?)?,
+            terracotta: std::array::from_fn(|i| state(&terracotta[i]).unwrap_or(0)),
+            snow_block: state(blocks.field("snow_block")?)?,
+            packed_ice: state(blocks.field("packed_ice")?)?,
+            flags: blocks
+                .field("flags")?
+                .as_array()?
+                .iter()
+                .map(|f| f.as_i32().map(|f| f as u8))
+                .collect::<Result<_, _>>()?,
+        };
+        registry.biomes = Biomes::parse(facts.biomes)?;
+        registry.materials = MaterialRegistry::parse(
+            facts.material_rules,
+            facts.material_conditions,
+            &registry.biomes,
+        )?;
+        for (id, rows) in facts.biome_parameters.entries()? {
             let list =
                 ParameterList::parse(rows).map_err(|e| format!("biome parameters {id}: {e}"))?;
-            registry.biome_parameters.insert(id.clone(), Arc::new(list));
+            let ids = list
+                .biomes
+                .iter()
+                .map(|b| registry.biomes.id(b))
+                .collect::<Result<Vec<_>, _>>()?;
+            registry
+                .biome_parameters
+                .insert(id.clone(), (Arc::new(list), ids));
         }
+        let (noises, functions, settings) =
+            (facts.noises, facts.density_functions, facts.noise_settings);
         for (id, json) in noises.entries()? {
             registry.noises.insert(
                 id.clone(),
@@ -138,6 +206,7 @@ impl Registry {
                 legacy_random_source: json.field("legacy_random_source")?.as_bool()?,
                 router: named_functions(Some(json.field("noise_router")?))?,
                 aquifers: named_functions(json.get("aquifers"))?,
+                material_rule: Rule::parse(json.field("material_rule")?, &registry.biomes)?,
             };
             registry.settings.insert(id.clone(), parsed);
         }
@@ -162,6 +231,21 @@ pub struct Worldgen {
     prepared: Vec<Prepared>,
     prepared_keys: HashMap<Df, usize>,
     samplers: HashMap<Df, Arc<Sampler>>,
+    material_system: Option<Arc<MaterialSystem>>,
+}
+
+impl SurfaceEnv for Worldgen {
+    fn sampler(&mut self, function: &Df) -> Result<Arc<Sampler>, String> {
+        Worldgen::sampler(self, function)
+    }
+
+    fn noise(&mut self, id: &str) -> Result<Arc<Stack>, String> {
+        Worldgen::noise(self, id)
+    }
+
+    fn random_factory(&mut self, name: &str) -> Positional {
+        self.positional.from_hash_of(name).fork_positional()
+    }
 }
 
 const TEMPERATURE_NETHER: &str = "minecraft:nether/temperature";
@@ -209,6 +293,7 @@ impl Worldgen {
             prepared: Vec::new(),
             prepared_keys: HashMap::new(),
             samplers: HashMap::new(),
+            material_system: None,
         })
     }
 
@@ -317,7 +402,12 @@ impl Worldgen {
     /// A chunk's noise terrain (vanilla's `doFill`, without structures):
     /// final density over the chunk at block resolution, then the aquifer.
     pub fn fill_terrain(&mut self, chunk_x: i32, chunk_z: i32) -> Result<FilledChunk, String> {
-        let volume = Volume::new(
+        let mut ctx = Context::cached();
+        self.fill_with(&mut ctx, chunk_x, chunk_z)
+    }
+
+    fn chunk_volume(&self, chunk_x: i32, chunk_z: i32) -> Result<Volume, String> {
+        Volume::new(
             [16, self.settings.height, 16],
             [
                 chunk_x.wrapping_mul(16),
@@ -325,12 +415,21 @@ impl Worldgen {
                 chunk_z.wrapping_mul(16),
             ],
             [1, 1, 1],
-        )?;
-        let [air, water, lava] = self.registry.fluids;
+        )
+    }
+
+    fn fill_with(
+        &mut self,
+        ctx: &mut Context,
+        chunk_x: i32,
+        chunk_z: i32,
+    ) -> Result<FilledChunk, String> {
+        let volume = self.chunk_volume(chunk_x, chunk_z)?;
+        let b = &self.registry.blocks;
         let blocks = TerrainBlocks {
-            air,
-            water,
-            lava,
+            air: b.air,
+            water: b.water,
+            lava: b.lava,
             default_block: self.settings.default_block,
             default_fluid: self.settings.default_fluid,
         };
@@ -355,6 +454,7 @@ impl Worldgen {
         let final_density = self.named("router:final_density")?;
         let final_density = self.sampler(&final_density)?;
         Ok(terrain::fill(
+            ctx,
             &final_density,
             aquifer.as_ref().map(|(s, p)| (s, *p)),
             &volume,
@@ -363,11 +463,195 @@ impl Worldgen {
         ))
     }
 
+    /// A chunk's terrain as vanilla's `buildTerrain` makes it (without
+    /// structures or carvers yet): the noise fill, then the material rule,
+    /// through one noise chunk context. Biomes come from `biome_source` (a
+    /// multi-noise preset or `minecraft:the_end`), each chunk filled with a
+    /// fresh lookup history.
+    pub fn build_terrain(
+        &mut self,
+        chunk_x: i32,
+        chunk_z: i32,
+        biome_source: &str,
+    ) -> Result<FilledChunk, String> {
+        let mut ctx = Context::cached();
+        let mut filled = self.fill_with(&mut ctx, chunk_x, chunk_z)?;
+        let mut biomes = HashMap::new();
+        for dx in -1..=1 {
+            for dz in -1..=1 {
+                let (x, z) = (chunk_x + dx, chunk_z + dz);
+                biomes.insert((x, z), self.chunk_biome_ids(biome_source, x, z)?);
+            }
+        }
+        let system = self.material_system()?;
+        let registry = self.registry.clone();
+        let settings = self.settings.clone();
+        let zoom_seed = surface::biome_zoom_seed(self.seed);
+        let (min_quart, quart_height) = (settings.min_y >> 2, settings.height >> 2);
+        let biome_at = |x: i32, y: i32, z: i32| -> u16 {
+            let (qx, qy, qz) = surface::zoom(zoom_seed, x, y, z);
+            let column = &biomes[&(qx >> 2, qz >> 2)];
+            let qy = qy.clamp(min_quart, min_quart + quart_height - 1) - min_quart;
+            column[((qy >> 2) * 64 + ((qy & 3) * 4 + (qz & 3)) * 4 + (qx & 3)) as usize]
+        };
+        let input = SurfaceInput {
+            materials: &registry.materials,
+            biomes: &registry.biomes,
+            system: &system,
+            rule: &settings.material_rule,
+            biome_at: &biome_at,
+            flags: &registry.blocks.flags,
+            min_y: settings.min_y,
+            height: settings.height,
+            sea_level: settings.sea_level,
+        };
+        let flags = &registry.blocks.flags;
+        let mut surface_heights = [settings.min_y; 256];
+        for (column, height) in surface_heights.iter_mut().enumerate() {
+            let base = column * settings.height as usize;
+            if let Some(top) = (0..settings.height as usize)
+                .rev()
+                .find(|&y| flags[filled.blocks[base + y] as usize] & 1 == 0)
+            {
+                *height = settings.min_y + top as i32 + 1;
+            }
+        }
+        let mut fluid_updates = std::mem::take(&mut filled.fluid_updates);
+        let mut chunk = ChunkBlocks {
+            blocks: &mut filled.blocks,
+            min_y: settings.min_y,
+            height: settings.height,
+            chunk_x,
+            chunk_z,
+            flags,
+            surface: surface_heights,
+            fluid_updates: &mut fluid_updates,
+        };
+        let frozen = [
+            registry.biomes.id("minecraft:frozen_ocean")?,
+            registry.biomes.id("minecraft:deep_frozen_ocean")?,
+        ];
+        let eroded = registry.biomes.id("minecraft:eroded_badlands")?;
+        surface::build_surface(self, &mut ctx, &input, &mut chunk, frozen, eroded)?;
+        filled.fluid_updates = fluid_updates;
+        Ok(filled)
+    }
+
+    /// Vanilla's `MaterialSystem` for this seed, built once.
+    fn material_system(&mut self) -> Result<Arc<MaterialSystem>, String> {
+        if let Some(system) = &self.material_system {
+            return Ok(system.clone());
+        }
+        let preliminary = self.named("router:chunk_surface_level")?;
+        let preliminary_surface = self.sampler(&preliminary)?;
+        let noise_random = self.positional;
+        let bands = surface::clay_bands(
+            &mut self.positional.from_hash_of("minecraft:clay_bands"),
+            self.registry.blocks.terracotta,
+        );
+        let system = Arc::new(MaterialSystem {
+            default_block: self.settings.default_block,
+            sea_level: self.settings.sea_level,
+            clay_bands: bands,
+            noise_random,
+            preliminary_surface,
+            clay_bands_offset: self.noise("minecraft:clay_bands_offset")?,
+            surface: self.noise("minecraft:surface")?,
+            surface_secondary: self.noise("minecraft:surface_secondary")?,
+            badlands_pillar: self.noise("minecraft:badlands_pillar")?,
+            badlands_pillar_roof: self.noise("minecraft:badlands_pillar_roof")?,
+            badlands_surface: self.noise("minecraft:badlands_surface")?,
+            iceberg_pillar: self.noise("minecraft:iceberg_pillar")?,
+            iceberg_pillar_roof: self.noise("minecraft:iceberg_pillar_roof")?,
+            iceberg_surface: self.noise("minecraft:iceberg_surface")?,
+            snow_block: self.registry.blocks.snow_block,
+            packed_ice: self.registry.blocks.packed_ice,
+        });
+        self.material_system = Some(system.clone());
+        Ok(system)
+    }
+
+    /// A chunk's biomes as registry ids (sections from the bottom, each in
+    /// index order y, z, x), with a fresh lookup history.
+    pub fn chunk_biome_ids(
+        &mut self,
+        biome_source: &str,
+        chunk_x: i32,
+        chunk_z: i32,
+    ) -> Result<Vec<u16>, String> {
+        if biome_source == "minecraft:the_end" {
+            return self.end_biomes(chunk_x, chunk_z);
+        }
+        let (list, ids) = self
+            .registry
+            .biome_parameters
+            .get(biome_source)
+            .cloned()
+            .ok_or_else(|| format!("unknown biome source {biome_source}"))?;
+        let filled = self.fill_biomes(&list, chunk_x, chunk_z, &mut None)?;
+        Ok(filled.biomes.into_iter().map(|b| ids[b as usize]).collect())
+    }
+
+    /// `TheEndBiomeSource`: the main island within 64 chunks of the origin,
+    /// elsewhere by the erosion function at the centre of the chunk.
+    fn end_biomes(&mut self, chunk_x: i32, chunk_z: i32) -> Result<Vec<u16>, String> {
+        let erosion = self.named("router:erosion")?;
+        let erosion = self.sampler(&erosion)?;
+        let b = &self.registry.biomes;
+        let [end, highlands, midlands, islands, barrens] = [
+            "minecraft:the_end",
+            "minecraft:end_highlands",
+            "minecraft:end_midlands",
+            "minecraft:small_end_islands",
+            "minecraft:end_barrens",
+        ]
+        .map(|n| b.id(n));
+        let (end, highlands, midlands, islands, barrens) =
+            (end?, highlands?, midlands?, islands?, barrens?);
+        let mut ctx = Context::cached();
+        let sections = self.settings.height / 16;
+        let min_quart = self.settings.min_y >> 2;
+        let mut out = vec![0u16; sections as usize * 64];
+        for section in 0..sections {
+            for x in 0..4 {
+                for y in 0..4 {
+                    for z in 0..4 {
+                        let (qx, qy, qz) = (
+                            chunk_x * 4 + x,
+                            min_quart + section * 4 + y,
+                            chunk_z * 4 + z,
+                        );
+                        let (bx, by, bz) = (qx << 2, qy << 2, qz << 2);
+                        let (cx, cz) = ((bx >> 4) as i64, (bz >> 4) as i64);
+                        let biome = if cx * cx + cz * cz <= 4096 {
+                            end
+                        } else {
+                            let wx = ((bx >> 4) * 2 + 1) * 8;
+                            let wz = ((bz >> 4) * 2 + 1) * 8;
+                            let height = erosion.value(&mut ctx, wx, by, wz) as f64;
+                            if height > 0.25 {
+                                highlands
+                            } else if height >= -0.0625 {
+                                midlands
+                            } else if height < -0.21875 {
+                                islands
+                            } else {
+                                barrens
+                            }
+                        };
+                        out[(section * 64 + (y * 4 + z) * 4 + x) as usize] = biome;
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+
     pub fn biome_parameters(&self, preset: &str) -> Result<Arc<ParameterList>, String> {
         self.registry
             .biome_parameters
             .get(preset)
-            .cloned()
+            .map(|(list, _)| list.clone())
             .ok_or_else(|| format!("unknown biome parameter preset {preset}"))
     }
 

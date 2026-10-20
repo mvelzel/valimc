@@ -538,21 +538,20 @@ pub struct FilledChunk {
 }
 
 /// Fills `volume` (one chunk, block steps) from `final_density` and the
-/// aquifer, as `doFill` does.
+/// aquifer, as `doFill` does, through the noise chunk's context `ctx`.
 pub fn fill(
+    ctx: &mut Context,
     final_density: &Sampler,
     aquifer: Option<(&AquiferSamplers, Positional)>,
     volume: &Volume,
     sea_level: i32,
     blocks: TerrainBlocks,
 ) -> FilledChunk {
-    let mut ctx = Context::cached();
     let picker = FluidPicker { sea_level, blocks };
-    let mut noise_aquifer = aquifer.map(|(samplers, positional)| {
-        NoiseAquifer::new(&mut ctx, samplers, positional, volume, picker)
-    });
+    let mut noise_aquifer = aquifer
+        .map(|(samplers, positional)| NoiseAquifer::new(ctx, samplers, positional, volume, picker));
     let mut density = vec![0.0f32; volume.len()];
-    final_density.fill(&mut ctx, &mut density, volume);
+    final_density.fill(ctx, &mut density, volume);
     let mut out = vec![blocks.air; volume.len()];
     let mut fluid_updates = Vec::new();
     let is_fluid = |state: u16| state == blocks.water || state == blocks.lava;
@@ -566,7 +565,7 @@ pub fn fill(
                 let d = density[index] as f64;
                 let (substance, schedule) = match noise_aquifer.as_mut() {
                     Some(aquifer) => {
-                        let s = aquifer.compute_substance(&mut ctx, x, y, z, d);
+                        let s = aquifer.compute_substance(ctx, x, y, z, d);
                         (s, aquifer.should_schedule_fluid_update)
                     }
                     None => (
