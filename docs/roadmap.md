@@ -37,8 +37,7 @@ resumes on these foundations alongside M2.
 | [VMC-022](tickets/VMC-022.md) | Light equal to vanilla's engine, live on edits and across region borders, in all packets | Done |
 | [VMC-029c](tickets/VMC-029c.md) | Blocks that lose their support break (plants, torches, two-block halves), found in imported terrain | Done |
 
-Lighting (Rust, VMC-022), clean-room
-vanilla worldgen in Rust (noise, biomes, surface, carvers, then features and
+Next: clean-room vanilla worldgen in Rust (noise, biomes, surface, carvers, then features and
 structures; VMC-023..026) with stage-hash parity against vanilla dumps, dimensions
 and portals (VMC-027/028). Performance target: generation throughput and tick time
 benchmarked against the same seed on vanilla.
