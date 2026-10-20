@@ -93,6 +93,61 @@ impl Column {
         out
     }
 
+    /// A compact, versioned image of the column for the region log (VMC-021c):
+    /// per section a single state or a first-appearance palette with indices packed
+    /// at `max(1, ⌈log2 n⌉)` bits, then the same for biomes if the column has them.
+    pub fn to_image(&self) -> Vec<u8> {
+        let mut out = vec![IMAGE_VERSION, self.biomes.is_some() as u8];
+        for storage in &self.sections {
+            match storage {
+                Storage::Single(state) => {
+                    out.push(0);
+                    out.extend(state.to_be_bytes());
+                }
+                _ => {
+                    let mut cells = [0u16; VOLUME];
+                    storage.for_each(|i, state| cells[i] = state);
+                    image_palette(&mut out, &cells);
+                }
+            }
+        }
+        for biomes in self.biomes.iter().flatten() {
+            match biomes {
+                Biomes::Single(biome) => {
+                    out.push(0);
+                    out.extend(biome.to_be_bytes());
+                }
+                Biomes::Cells(cells) => image_palette(&mut out, &cells[..]),
+            }
+        }
+        out
+    }
+
+    /// Read `to_image` output; `None` for any other bytes.
+    pub fn from_image(bytes: &[u8]) -> Option<Column> {
+        let mut input = bytes;
+        let [version, has_biomes] = take::<2>(&mut input)?;
+        if version != IMAGE_VERSION || has_biomes > 1 {
+            return None;
+        }
+        let mut sections = Vec::with_capacity(SECTIONS);
+        for _ in 0..SECTIONS {
+            let (palette, data, bits) = read_palette(&mut input, VOLUME)?;
+            sections.push(Storage::from_palette(&palette, data, bits)?);
+        }
+        let biomes = if has_biomes == 1 {
+            let mut all = Vec::with_capacity(SECTIONS);
+            for _ in 0..SECTIONS {
+                let (palette, data, bits) = read_palette(&mut input, 64)?;
+                all.push(Biomes::from_palette(&palette, data, bits)?);
+            }
+            Some(all)
+        } else {
+            None
+        };
+        input.is_empty().then_some(Column { sections, biomes })
+    }
+
     pub fn heap_bytes(&self) -> usize {
         let biomes = self.biomes.as_ref().map_or(0, |b| {
             b.iter()
@@ -100,6 +155,56 @@ impl Column {
                 .sum()
         });
         self.sections.iter().map(Storage::heap_bytes).sum::<usize>() + biomes
+    }
+}
+
+const IMAGE_VERSION: u8 = 1;
+
+fn image_palette(out: &mut Vec<u8>, cells: &[u16]) {
+    let mut palette: Vec<u16> = Vec::new();
+    let mut slot_of: HashMap<u16, u64> = HashMap::new();
+    let slots: Vec<u64> = cells
+        .iter()
+        .map(|state| {
+            *slot_of.entry(*state).or_insert_with(|| {
+                palette.push(*state);
+                (palette.len() - 1) as u64
+            })
+        })
+        .collect();
+    out.push(1);
+    out.extend((palette.len() as u16).to_be_bytes());
+    for state in &palette {
+        out.extend(state.to_be_bytes());
+    }
+    let bits = (u16::BITS - (palette.len() as u16).saturating_sub(1).leading_zeros()).max(1);
+    wire::pack_longs(out, slots.into_iter(), bits);
+}
+
+fn take<const N: usize>(input: &mut &[u8]) -> Option<[u8; N]> {
+    let (head, rest) = input.split_at_checked(N)?;
+    *input = rest;
+    head.try_into().ok()
+}
+
+/// One image palette: (palette, packed data, bits); `count` entries.
+fn read_palette<'a>(input: &mut &'a [u8], count: usize) -> Option<(Vec<u16>, &'a [u8], u32)> {
+    let [tag] = take::<1>(input)?;
+    match tag {
+        0 => Some((vec![u16::from_be_bytes(take::<2>(input)?)], &[][..], 0)),
+        1 => {
+            let n = u16::from_be_bytes(take::<2>(input)?) as usize;
+            let mut palette = Vec::with_capacity(n);
+            for _ in 0..n {
+                palette.push(u16::from_be_bytes(take::<2>(input)?));
+            }
+            let bits = (usize::BITS - n.saturating_sub(1).leading_zeros()).max(1);
+            let len = count.div_ceil((64 / bits) as usize) * 8;
+            let (data, rest) = input.split_at_checked(len)?;
+            *input = rest;
+            Some((palette, data, bits))
+        }
+        _ => None,
     }
 }
 
@@ -457,6 +562,12 @@ impl ColumnStore {
         Ok(())
     }
 
+    /// The region-log image of a chunk's column, or `None` while it is the base profile.
+    pub fn column_image(&self, chunk: (i32, i32)) -> Result<Option<Vec<u8>>, StoreError> {
+        self.check_chunk(chunk)?;
+        Ok(self.columns.get(&chunk).map(Column::to_image))
+    }
+
     /// One chunk's states (24 × 4096, section index order) and biomes (24 × 64);
     /// biomes are `default_biome` where the column has none.
     pub fn dump_column(
@@ -493,6 +604,36 @@ impl ColumnStore {
 mod tests {
     use super::*;
     use crate::flags::AIR;
+
+    #[test]
+    fn column_images_round_trip_and_refuse_other_bytes() {
+        let mut column = Column::from_layers(&flat());
+        for i in 0..300 {
+            column.set(
+                i % 16,
+                -60 + (i / 16) % 300,
+                (i / 7) % 16,
+                (i % 200) as u16 + 4,
+            );
+        }
+        let mut biomes = vec![Biomes::Single(3); SECTIONS];
+        biomes[5] = Biomes::Cells(Box::new(std::array::from_fn(|i| (i % 3) as u16)));
+        column.biomes = Some(biomes);
+        let image = column.to_image();
+        let back = Column::from_image(&image).unwrap();
+        for s in 0..SECTIONS {
+            for i in 0..VOLUME {
+                assert_eq!(back.sections[s].get(i), column.sections[s].get(i));
+            }
+        }
+        assert_eq!(back.biomes, column.biomes);
+        assert!(Column::from_image(&image[..image.len() - 1]).is_none());
+        let mut longer = image.clone();
+        longer.push(0);
+        assert!(Column::from_image(&longer).is_none());
+        let plain = Column::from_layers(&flat());
+        assert_eq!(Column::from_image(&plain.to_image()).unwrap().biomes, None);
+    }
 
     fn flat() -> Box<[u16; HEIGHT]> {
         let mut layers = Box::new([0u16; HEIGHT]);

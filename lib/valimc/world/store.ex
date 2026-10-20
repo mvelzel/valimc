@@ -14,7 +14,7 @@ defmodule Valimc.World.Store do
   """
   @max_batch 256
   @max_commit_cells 4096
-  @empty %{blocks: %{}, items: nil, containers: nil, ticks: nil}
+  @empty %{blocks: %{}, columns: %{}, items: nil, containers: nil, ticks: nil}
   def start_link({key, owner}),
     do:
       GenServer.start_link(__MODULE__, {key, owner},
@@ -59,6 +59,27 @@ defmodule Valimc.World.Store do
   def flush(pid, lease, cells), do: GenServer.call(pid, {:flush, lease, cells}, 15_000)
   def close(pid, lease), do: GenServer.call(pid, {:close, lease}, 1000)
   def load_items(pid), do: GenServer.call(pid, :load_items)
+
+  @doc "Imported column images (`chunk => image`) of the region (VMC-021c)."
+  def load_columns(pid), do: GenServer.call(pid, :load_columns)
+
+  @doc """
+  Write a new region's log with imported column images (`chunk => image`), offline:
+  the region must have no log yet and no owner may run (VMC-021).
+  """
+  def import_columns(base, key, columns) when is_map(columns) do
+    dir = log_dir(base, key)
+
+    if File.exists?(dir) do
+      {:error, :region_exists}
+    else
+      with {:ok, log, _} <- RegionLog.open(dir),
+           {:ok, log} <- RegionLog.checkpoint(log, %{@empty | columns: columns}) do
+        RegionLog.close(log)
+      end
+    end
+  end
+
   def load_containers(pid), do: GenServer.call(pid, :load_containers)
 
   @doc "Scheduled block ticks (VMC-066) as saved by `commit_ticks/5`."
@@ -148,6 +169,7 @@ defmodule Valimc.World.Store do
   end
 
   def handle_call(:load, _from, state), do: {:reply, state.values.blocks, state}
+  def handle_call(:load_columns, _from, state), do: {:reply, state.values.columns, state}
 
   def handle_call({:flush, lease, cells}, _from, %{lease: lease} = state) do
     {result, state} = write(state, cells_parts(cells))
@@ -350,7 +372,10 @@ defmodule Valimc.World.Store do
     Enum.reduce(frames, Map.merge(@empty, checkpoint || %{}), fn %{ops: ops}, values ->
       Enum.reduce(ops, values, fn
         {:cells, cells}, acc ->
-          %{acc | blocks: apply_cells(acc.blocks, cells)}
+          %{acc | blocks: apply_cells(acc.blocks, cells, acc.columns)}
+
+        {:columns, columns}, acc ->
+          %{acc | columns: Map.merge(acc.columns, columns)}
 
         {part, value}, acc when part in [:blocks, :items, :containers, :ticks] ->
           %{acc | part => value}
@@ -567,7 +592,8 @@ defmodule Valimc.World.Store do
   defp apply_parts(state, parts) do
     values =
       Enum.reduce(parts, state.values, fn
-        {:cells, cells}, acc -> %{acc | blocks: apply_cells(acc.blocks, cells)}
+        {:cells, cells}, acc -> %{acc | blocks: apply_cells(acc.blocks, cells, acc.columns)}
+        {:columns, columns}, acc -> %{acc | columns: Map.merge(acc.columns, columns)}
         {k, v}, acc -> %{acc | k => v}
       end)
 
@@ -577,12 +603,16 @@ defmodule Valimc.World.Store do
   defp cells_parts(cells) when map_size(cells) == 0, do: []
   defp cells_parts(cells) when is_map(cells), do: [{:cells, cells}]
 
-  # The sparse image omits flat-terrain blocks.
-  defp apply_cells(blocks, cells) do
-    Enum.reduce(cells, blocks, fn {{_, y, _} = pos, block}, acc ->
-      if block == Chunk.base(y), do: Map.delete(acc, pos), else: Map.put(acc, pos, block)
+  # The sparse image omits flat-terrain blocks, except in imported chunks, whose
+  # base is their column image rather than flat terrain.
+  defp apply_cells(blocks, cells, columns) do
+    Enum.reduce(cells, blocks, fn {{x, y, z} = pos, block}, acc ->
+      flat? = block == Chunk.base(y) and not Map.has_key?(columns, {div16(x), div16(z)})
+      if flat?, do: Map.delete(acc, pos), else: Map.put(acc, pos, block)
     end)
   end
+
+  defp div16(v), do: Integer.floor_div(v, 16)
 
   defp maybe_checkpoint(%{appended: appended, checkpoint_bytes: limit} = state)
        when appended < limit,

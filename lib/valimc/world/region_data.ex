@@ -98,9 +98,10 @@ defmodule Valimc.World.RegionData do
     {:ok, store, store_lease} = Store.open(key)
     store_monitor = Process.monitor(store)
     edits = Store.load(store)
+    images = Store.load_columns(store)
 
     blocks =
-      case Blocks.new(key, edits) do
+      case Blocks.new(key, edits, images) do
         {:ok, blocks} -> blocks
         {:error, reason} -> exit({:block_load_failed, reason})
       end

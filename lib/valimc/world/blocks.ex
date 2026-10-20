@@ -45,16 +45,32 @@ defmodule Valimc.World.Blocks do
     end
   end
 
-  @doc "Storage for region `key`, starting from flat terrain plus sparse `edits`."
-  def new({rx, rz} = key, edits \\ %{}) do
+  @doc """
+  Storage for region `key`: flat terrain, then imported column `images`
+  (`chunk => image`, VMC-021c), then sparse `edits` on top.
+  """
+  def new({rx, rz} = key, edits \\ %{}, images \\ %{}) do
     size = Valimc.config(:region_size)
     layers = for y <- Chunk.min_y()..319, into: <<>>, do: <<Chunk.base(y)::16>>
     {:ok, ref} = Native.region_new(rx * size, rz * size, size, layers, @budget)
     blocks = %__MODULE__{ref: ref, key: key}
 
-    case put(blocks, edits) do
-      :ok -> {:ok, blocks}
-      error -> error
+    restored =
+      Enum.reduce_while(images, :ok, fn {{cx, cz}, image}, :ok ->
+        case Native.put_column_image(ref, cx, cz, image) do
+          {:ok, :ok} -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, {:invalid_column_image, {cx, cz}, reason}}}
+        end
+      end)
+
+    with :ok <- restored, :ok <- put(blocks, edits), do: {:ok, blocks}
+  end
+
+  @doc "A chunk's column image for the region log, or `:flat` for the base profile."
+  def column_image(%__MODULE__{} = blocks, {cx, cz}) do
+    case Native.column_image(blocks.ref, cx, cz) do
+      {:ok, image} -> {:ok, image}
+      {:error, _} = error -> error
     end
   end
 

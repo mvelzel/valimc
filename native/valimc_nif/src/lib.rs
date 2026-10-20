@@ -502,4 +502,36 @@ fn dump_column<'a>(
     Ok((binary(env, &be(&states)), binary(env, &be(&biomes))).encode(env))
 }
 
+/// The region-log image of a chunk's column (VMC-021c), or `flat` for the base profile.
+#[rustler::nif]
+fn column_image<'a>(
+    env: Env<'a>,
+    region: ResourceArc<Region>,
+    cx: i32,
+    cz: i32,
+) -> Result<Term<'a>, Atom> {
+    let image = with_store(&region, |store| store.column_image((cx, cz)).map_err(error))?;
+    Ok(match image {
+        Some(bytes) => binary(env, &bytes),
+        None => atoms::flat().encode(env),
+    })
+}
+
+/// Restore a chunk's column from its image.
+#[rustler::nif]
+fn put_column_image(
+    region: ResourceArc<Region>,
+    cx: i32,
+    cz: i32,
+    image: Binary,
+) -> Result<Atom, Atom> {
+    let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
+    let column =
+        valimc_core::column::Column::from_image(image.as_slice()).ok_or(atoms::invalid_layers())?;
+    with_store(&region, |store| {
+        store.put_column((cx, cz), column, flags).map_err(error)
+    })?;
+    Ok(atoms::ok())
+}
+
 rustler::init!("Elixir.Valimc.Native");
