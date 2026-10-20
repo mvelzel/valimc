@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-021 Anvil import and export](../tickets/VMC-021.md) | `64cb44c`: vanilla worlds import with blocks, biomes, block entities (owned containers or preserved compounds), items, XP orbs and stored light, and export to files the pinned server loads (oracle stage `anvil_content`); actual village dataset, containers, refusals, survival orbs/items and restart |
 | [VMC-029c blocks that lose their support break](../tickets/VMC-029c.md) | `248a539`: generated survival rules for 7,337 states (oracle stage `support`, 44,022 differential neighbourhoods), durable breaks with popping drops; actual plants, tall grass, cane column, torches, reconnect and restart |
 | [VMC-003e dual-harness client input](../tickets/VMC-003e.md) | `5863974`: Claude background bridge and unchanged Codex CUA join/chat/menus/creative double-slab/opposite sky drags/F8/F9/cleanup pass; same SDL library, no runner changes during Codex acceptance |
 | [VMC-034n4b stored XP bodies/terminal expiry](../tickets/VMC-034n4b.md) | `1aba4ee` / `966b430`: boundedv 8 migration/capacity/recovery, component measurements and actual stored-pose contact/expired refusal/furnace/owner/full restart;25 decided =19 consumed +6 expired, source/typed51; automatic physics remains separate |
