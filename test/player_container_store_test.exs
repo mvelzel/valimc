@@ -212,7 +212,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     {:ok, owner} = World.item_owner(ctx.key)
 
     assert {:ok, :already_rejected} =
-             Region.recover_container_transfer(owner, pending.outbox.request)
+             Region.container_transfer(owner, pending.outbox.request)
 
     assert {:ok, containers} =
              Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
@@ -248,7 +248,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
     writer = Valimc.TestConn.state(pid).resource.store
     :sys.suspend(writer)
-    task = Task.async(fn -> Region.recover_container_transfer(owner, pending.outbox.request) end)
+    task = Task.async(fn -> Region.container_transfer(owner, pending.outbox.request) end)
 
     try do
       await(fn -> container_write?(pid) end)
@@ -256,13 +256,13 @@ defmodule Valimc.PlayerContainerStoreTest do
 
       # The outcome is adopted: a repeat and the receipt proof wait for durability.
       repeat =
-        Task.async(fn -> Region.recover_container_transfer(owner, pending.outbox.request) end)
+        Task.async(fn -> Region.container_transfer(owner, pending.outbox.request) end)
 
       proof = Task.async(fn -> Region.container_transfer_receipt(owner, ctx.uuid) end)
       assert Task.yield(repeat, 20) == nil and Task.yield(proof, 20) == nil
 
       assert {:error, :stale_region} =
-               Region.recover_container_transfer({pid, make_ref()}, pending.outbox.request)
+               Region.container_transfer({pid, make_ref()}, pending.outbox.request)
 
       :sys.resume(writer)
       assert Task.await(task, 1500) == {:ok, :rejected}
@@ -277,7 +277,7 @@ defmodule Valimc.PlayerContainerStoreTest do
   test "owner replacement recovers a committed rejection after its source has not sealed", ctx do
     {writer, fence, pending} = prepare(ctx)
     {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
-    assert {:ok, :rejected} = Region.recover_container_transfer(owner, pending.outbox.request)
+    assert {:ok, :rejected} = Region.container_transfer(owner, pending.outbox.request)
     monitor = Process.monitor(pid)
     Process.exit(pid, :kill)
     assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}, 1000
@@ -285,7 +285,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     assert replacement != owner
 
     assert {:ok, :already_rejected} =
-             Region.recover_container_transfer(replacement, pending.outbox.request)
+             Region.container_transfer(replacement, pending.outbox.request)
 
     ref = make_ref()
     PlayerStore.complete_transfer(writer, fence, ref)
@@ -385,7 +385,7 @@ defmodule Valimc.PlayerContainerStoreTest do
 
     :ok = World.set_block(request.position, 0)
     assert {:ok, :rejected} = Region.container_transfer(owner, request)
-    assert {:ok, :already_rejected} = Region.recover_container_transfer(owner, request)
+    assert {:ok, :already_rejected} = Region.container_transfer(owner, request)
 
     assert {:error, :invalid_container_context} =
              Region.admit_container_transfer(owner, request, actor)

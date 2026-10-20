@@ -350,7 +350,7 @@ defmodule Valimc.ExperienceTransfersTest do
     Process.exit(elem(ctx.owner, 0), :kill)
     wait(fn -> not Process.alive?(elem(ctx.owner, 0)) end)
     {:ok, owner} = World.item_owner(ctx.key)
-    assert {:ok, :rejected} = Region.recover_container_transfer(owner, request)
+    assert {:ok, :rejected} = Region.container_transfer(owner, request)
     {:ok, {_, receipt}} = Region.container_transfer_receipt(owner, ctx.uuid)
     {:ok, restored} = PlayerContainerTransfers.resolve(ctx.uuid, prepared, receipt)
     assert restored.progression == ctx.snapshot.progression

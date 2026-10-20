@@ -4,26 +4,14 @@ defmodule Valimc.PlayerStore do
 
   alias Valimc.{
     Metrics,
-    PlayerContainerIntent,
     PlayerContainerTransfers,
-    PlayerMiningIntent,
     PlayerMiningTransfers,
-    PlayerPlacementIntent,
     PlayerPlacementTransfers,
-    PlayerPickupIntent,
     PlayerPickupTransfers,
     PlayerSnapshot,
     PlayerTransfers,
     TransferDelivery,
     World
-  }
-
-  alias Valimc.World.{
-    ContainerTransfers,
-    MiningTransfers,
-    PlacementTransfers,
-    PickupTransfers,
-    Region
   }
 
   @moduledoc "A leased per-session player-state writer; serialization/I/O are outside socket owners."
@@ -357,7 +345,7 @@ defmodule Valimc.PlayerStore do
   def handle_cast({:complete, owner, fence, ref}, %{owner: owner} = state) do
     with :ok <- source_guard(state, fence),
          {:ok, result} <- destination_proof(state),
-         {:ok, next} <- resolved_snapshot(state.snapshot, result) do
+         {:ok, next} <- resolved_snapshot(state.uuid, state.snapshot, result) do
       commit_transfer(state, next, ref)
     else
       error -> transfer_reply(state, ref, error)
@@ -386,7 +374,7 @@ defmodule Valimc.PlayerStore do
 
     if TransferDelivery.completed?(state.snapshot, result) do
       with {:ok, outcome} <- destination_proof(state),
-           {:ok, next} <- resolved_snapshot(state.snapshot, outcome),
+           {:ok, next} <- resolved_snapshot(state.uuid, state.snapshot, outcome),
            :ok <- save(state, next) do
         cancel_closing(state.closing)
 
@@ -588,96 +576,35 @@ defmodule Valimc.PlayerStore do
     {:noreply, state}
   end
 
-  defp destination_proof(
-         %{snapshot: %{transfer_sequence: sequence, outbox: %{kind: :container} = intent}} = state
-       ) do
-    with {:ok, key, request, _} <- PlayerContainerIntent.request(state.uuid, sequence, intent),
+  # What the destination's durable receipt proves about the pending outbox.
+  defp destination_proof(%{snapshot: %{outbox: outbox} = snapshot} = state) when outbox != nil do
+    operation = Valimc.Txn.Operation.of(snapshot)
+
+    with {:ok, key, request, digest} <- operation.request(state.uuid, snapshot),
          {:ok, owner} <- World.item_owner(key),
-         {:ok, {^key, receipt}} <- Region.container_transfer_receipt(owner, state.uuid) do
-      if receipt.sequence == 0 do
+         {:ok, {^key, receipt}} <- operation.receipt(owner, state.uuid) do
+      # A reserved slot (sequence 0) records capacity, not this transfer.
+      if receipt.sequence == 0,
+        do: {:error, :transfer_not_applied},
+        else: operation.proof(key, request, digest, receipt)
+    else
+      {:error, missing} when missing in [:missing_transfer_receipt, :missing_container_receipt] ->
         {:error, :transfer_not_applied}
-      else
-        with {:ok, _} <- ContainerTransfers.receipt_result(key, request, receipt),
-             do: {:ok, {:container, receipt}}
-      end
-    else
-      {:error, :missing_container_receipt} -> {:error, :transfer_not_applied}
-      {:error, :transfer_storage_disabled} -> {:error, :transfer_destination_ephemeral}
-      _ -> {:error, :transfer_destination_unavailable}
+
+      {:error, :transfer_storage_disabled} ->
+        {:error, :transfer_destination_ephemeral}
+
+      _ ->
+        {:error, :transfer_destination_unavailable}
     end
   catch
     :exit, _ -> {:error, :transfer_destination_unavailable}
   end
 
-  defp destination_proof(state) do
-    with {:ok, key, request, digest, kind} <- proof_request(state.uuid, state.snapshot),
-         {:ok, owner} <- World.item_owner(key),
-         {:ok, {^key, receipt}} <- Region.item_transfer_receipt(owner, state.uuid) do
-      case kind do
-        :pickup ->
-          with {:ok, _outcome} <- PickupTransfers.receipt_result(key, request, receipt),
-               do: {:ok, {:pickup, receipt}}
+  defp destination_proof(_state), do: {:error, :no_pending_transfer}
 
-        :mining ->
-          MiningTransfers.receipt_result(key, request, receipt)
-
-        :placement ->
-          PlacementTransfers.receipt_result(key, request, receipt)
-
-        :items ->
-          if receipt == %{sequence: request.sequence, digest: digest},
-            do: {:ok, :applied},
-            else: {:error, :transfer_receipt_conflict}
-      end
-    else
-      {:error, :no_pending_transfer} = error -> error
-      {:error, :missing_transfer_receipt} -> {:error, :transfer_not_applied}
-      {:error, :transfer_storage_disabled} -> {:error, :transfer_destination_ephemeral}
-      _ -> {:error, :transfer_destination_unavailable}
-    end
-  catch
-    :exit, _ -> {:error, :transfer_destination_unavailable}
-  end
-
-  defp proof_request(uuid, %{transfer_sequence: sequence, outbox: %{kind: :mining} = intent}) do
-    with {:ok, key, request, digest} <- PlayerMiningIntent.request(uuid, sequence, intent),
-         do: {:ok, key, request, digest, :mining}
-  end
-
-  defp proof_request(uuid, %{transfer_sequence: sequence, outbox: %{kind: :placement} = intent}) do
-    with {:ok, key, request, digest} <- PlayerPlacementIntent.request(uuid, sequence, intent),
-         do: {:ok, key, request, digest, :placement}
-  end
-
-  defp proof_request(uuid, %{transfer_sequence: sequence, outbox: %{kind: :pickup} = intent}) do
-    with {:ok, key, request, digest} <- PlayerPickupIntent.request(uuid, sequence, intent),
-         do: {:ok, key, request, digest, :pickup}
-  end
-
-  defp proof_request(uuid, snapshot) do
-    with {:ok, key, request, digest} <- PlayerSnapshot.transfer_request(uuid, snapshot),
-         do: {:ok, key, request, digest, :items}
-  end
-
-  defp resolved_snapshot(%{outbox: %{kind: :mining}} = snapshot, result),
-    do: PlayerMiningTransfers.resolve(snapshot, result)
-
-  defp resolved_snapshot(%{outbox: %{kind: :placement}} = snapshot, result),
-    do: PlayerPlacementTransfers.resolve(snapshot, result)
-
-  defp resolved_snapshot(
-         %{outbox: %{kind: :pickup, request: %{source: uuid}}} = snapshot,
-         {:pickup, receipt}
-       ),
-       do: PlayerPickupTransfers.resolve(uuid, snapshot, receipt)
-
-  defp resolved_snapshot(
-         %{outbox: %{kind: :container, request: %{source: uuid}}} = snapshot,
-         {:container, receipt}
-       ),
-       do: PlayerContainerTransfers.resolve(uuid, snapshot, receipt)
-
-  defp resolved_snapshot(snapshot, :applied), do: {:ok, %{snapshot | outbox: nil}}
+  defp resolved_snapshot(uuid, snapshot, proof),
+    do: Valimc.Txn.Operation.of(snapshot).resolve(uuid, snapshot, proof)
 
   defp load(nil, _), do: {:ok, nil}
 

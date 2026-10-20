@@ -1033,10 +1033,6 @@ defmodule Valimc.World.RegionData do
     {:reply, reply, state}
   end
 
-  def handle_call({:recover_container_transfer, epoch, request}, from, state) do
-    container_request(state, epoch, fn -> start_container_recovery(state, request, from) end)
-  end
-
   def handle_call({:container_transfer, epoch, request}, from, state) do
     container_request(state, epoch, fn ->
       containers = state.containers
@@ -1735,21 +1731,6 @@ defmodule Valimc.World.RegionData do
     do: Valimc.Physics.CookingBlocks.kind(block) == kind
 
   defp container_block_matches?(_, _), do: false
-
-  defp start_container_recovery(state, request, from) do
-    containers = state.containers
-    key = state.key
-
-    start_container_work(state, from, :recover, container_position(request), fn ->
-      with {:ok, _} <- ContainerRequest.digest(key, request),
-           {:ok, reserved, _} <- ContainerTransfers.reserve(containers, request.source),
-           do:
-             if(request[:kind] == :experience,
-               do: Valimc.World.ExperienceTransfers.plan(reserved, key, request, false),
-               else: ContainerTransfers.plan(reserved, key, request, false)
-             )
-    end)
-  end
 
   # A container decision adopts its permits at once; the reply, viewer notices and
   # the orb pickup leave only once every write the decision read is durable.

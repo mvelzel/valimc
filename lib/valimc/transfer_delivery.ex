@@ -1,7 +1,7 @@
 defmodule Valimc.TransferDelivery do
   @moduledoc "Bounded destination I/O jobs; source inventory/leases remain with their owners."
+  alias Valimc.Txn.Operation
   alias Valimc.World
-  alias Valimc.World.Region
 
   def start(owner, token, uuid, intent) do
     case Valimc.Txn.Delivery.start(
@@ -17,84 +17,37 @@ defmodule Valimc.TransferDelivery do
 
   defdelegate retryable?(result), to: Valimc.Txn.Delivery
 
-  def completed?(%{outbox: %{kind: kind}}, result)
-      when kind in [:mining, :placement, :pickup, :container],
-      do:
-        result in [
-          {:ok, :applied},
-          {:ok, :already_applied},
-          {:ok, :rejected},
-          {:ok, :already_rejected}
-        ]
+  defdelegate completed?(snapshot, result), to: Valimc.Txn.Operation
 
-  def completed?(_intent, result), do: result in [{:ok, :applied}, {:ok, :already_applied}]
+  # One generic attempt: rebuild the pinned request, refuse an ephemeral
+  # destination, deliver. The region may commit before this job sees its reply,
+  # so an exit only ever leads to redelivering the same pinned intent.
+  defp deliver(uuid, snapshot) do
+    operation = Operation.of(snapshot)
 
-  defp deliver(uuid, %{transfer_sequence: sequence, outbox: %{kind: :mining} = intent}) do
-    with {:ok, key, request, _digest} <- Valimc.PlayerMiningIntent.request(uuid, sequence, intent),
-         {:ok, owner} <- World.item_owner(key),
-         :ok <- persistent_destination(owner, uuid) do
-      Region.apply_mining_transfer(owner, request)
+    try do
+      with {:ok, key, request, _digest} <- operation.request(uuid, snapshot),
+           {:ok, owner} <- World.item_owner(key),
+           :ok <- persistent_destination(operation, owner, uuid) do
+        operation.apply(owner, request)
+      end
+    rescue
+      _ -> {:error, operation.invalid()}
+    catch
+      :exit, _ -> {:error, :region_restarting}
     end
-  rescue
-    _ -> {:error, :invalid_mining_transfer}
-  catch
-    :exit, _ -> {:error, :region_restarting}
   end
 
-  defp deliver(uuid, %{transfer_sequence: sequence, outbox: %{kind: :placement} = intent}) do
-    with {:ok, key, request, _digest} <-
-           Valimc.PlayerPlacementIntent.request(uuid, sequence, intent),
-         {:ok, owner} <- World.item_owner(key),
-         :ok <- persistent_destination(owner, uuid) do
-      Region.apply_placement_transfer(owner, request)
-    end
-  rescue
-    _ -> {:error, :invalid_placement_transfer}
-  catch
-    :exit, _ -> {:error, :region_restarting}
-  end
+  defp persistent_destination(operation, owner, uuid) do
+    case operation.receipt(owner, uuid) do
+      {:ok, _} ->
+        :ok
 
-  defp deliver(uuid, %{transfer_sequence: sequence, outbox: %{kind: :pickup} = intent}) do
-    with {:ok, key, request, _digest} <- Valimc.PlayerPickupIntent.request(uuid, sequence, intent),
-         {:ok, owner} <- World.item_owner(key),
-         :ok <- persistent_destination(owner, uuid) do
-      Region.apply_pickup_transfer(owner, request)
-    end
-  rescue
-    _ -> {:error, :invalid_pickup_request}
-  catch
-    :exit, _ -> {:error, :region_restarting}
-  end
+      {:error, missing} when missing in [:missing_transfer_receipt, :missing_container_receipt] ->
+        :ok
 
-  defp deliver(uuid, %{transfer_sequence: sequence, outbox: %{kind: :container} = intent}) do
-    with {:ok, key, request, _} <- Valimc.PlayerContainerIntent.request(uuid, sequence, intent),
-         {:ok, owner} <- World.item_owner(key) do
-      Region.container_transfer(owner, request)
-    end
-  rescue
-    _ -> {:error, :invalid_container_request}
-  catch
-    :exit, _ -> {:error, :region_restarting}
-  end
-
-  defp deliver(uuid, intent) do
-    with {:ok, key, request, _digest} <- Valimc.PlayerSnapshot.transfer_request(uuid, intent),
-         {:ok, owner} <- World.item_owner(key),
-         :ok <- persistent_destination(owner, uuid) do
-      Region.apply_item_transfer(owner, request)
-    end
-  rescue
-    _ -> {:error, :invalid_transfer}
-  catch
-    # The region may commit before the job sees its reply. Retry only the pinned intent.
-    :exit, _ -> {:error, :region_restarting}
-  end
-
-  defp persistent_destination(owner, uuid) do
-    case Region.item_transfer_receipt(owner, uuid) do
-      {:ok, _} -> :ok
-      {:error, :missing_transfer_receipt} -> :ok
-      error -> error
+      error ->
+        error
     end
   end
 end

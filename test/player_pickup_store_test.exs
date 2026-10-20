@@ -150,7 +150,8 @@ defmodule Valimc.PlayerPickupStoreTest do
   test "a saved intent blocks competing writes and a reservation never grants inventory", ctx do
     {fence, pending} = prepare(ctx)
     assert {:error, :stale_player_snapshot} = complete(ctx, ctx.fence)
-    assert {:error, :stale_transfer} = complete(ctx, fence)
+    # The destination holds only the reserved slot: not applied yet, so retryable.
+    assert {:error, :transfer_not_applied} = complete(ctx, fence)
     assert read(ctx) == pending
     ref = make_ref()
     PlayerStore.checkpoint(ctx.writer, fence, ctx.snapshot, ref)
