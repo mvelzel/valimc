@@ -75,8 +75,15 @@ defmodule Valimc.World.Store do
   def close(pid, lease), do: GenServer.call(pid, {:close, lease}, 1000)
   def load_items(pid), do: GenServer.call(pid, :load_items)
 
-  @doc "Imported column images (`chunk => image`) of the region (VMC-021c)."
+  @doc "Imported and generated column images (`chunk => image`) of the region (VMC-021c)."
   def load_columns(pid), do: GenServer.call(pid, :load_columns)
+
+  @doc """
+  Persist generated column images (`chunk => image`, VMC-024d) before the region
+  serves them; with a world path the frame is durable when this returns.
+  """
+  def put_columns(pid, lease, columns) when is_map(columns),
+    do: GenServer.call(pid, {:put_columns, lease, columns}, 60_000)
 
   @doc """
   Write a new region's log with imported column images (`chunk => image`), offline:
@@ -225,6 +232,14 @@ defmodule Valimc.World.Store do
   end
 
   def handle_call({:flush, _, _}, _from, state), do: {:reply, {:error, :stale_store_lease}, state}
+
+  def handle_call({:put_columns, lease, columns}, _from, %{lease: lease} = state) do
+    {result, state} = write(state, [{:columns, columns}])
+    {:reply, result, state}
+  end
+
+  def handle_call({:put_columns, _, _}, _from, state),
+    do: {:reply, {:error, :stale_store_lease}, state}
 
   def handle_call({:close, lease}, _from, %{lease: lease} = state) do
     RegionLog.close(state.log)
@@ -634,7 +649,7 @@ defmodule Valimc.World.Store do
       {:ok, log, _lsn} ->
         bytes = :erlang.external_size(parts)
 
-        for {part, _} <- parts do
+        for {part, _} <- parts, part != :columns do
           Valimc.Metrics.add(if part == :blocks, do: :region_saves, else: :item_snapshot_saves)
         end
 

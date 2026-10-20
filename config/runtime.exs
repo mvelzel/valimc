@@ -36,6 +36,23 @@ if path = System.get_env("VALIMC_WORLD") do
   config :valimc, world_path: path
 end
 
+case System.get_env("VALIMC_GENERATOR") do
+  nil -> :ok
+  "flat" -> config :valimc, generator: :flat
+  "vanilla" -> config :valimc, generator: :vanilla
+  _ -> raise "VALIMC_GENERATOR must be flat or vanilla"
+end
+
+if seed = System.get_env("VALIMC_SEED") do
+  case Integer.parse(seed) do
+    {value, ""} when value >= -9_223_372_036_854_775_808 and value <= 9_223_372_036_854_775_807 ->
+      config :valimc, seed: value
+
+    _ ->
+      raise "VALIMC_SEED must be a 64-bit integer"
+  end
+end
+
 if speed = System.get_env("VALIMC_RANDOM_TICK_SPEED") do
   case Integer.parse(speed) do
     {value, ""} when value in 0..4096 -> config :valimc, random_tick_speed: value

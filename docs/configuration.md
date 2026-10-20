@@ -7,6 +7,8 @@
 | `VALIMC_BIND` | Listen address; default `127.0.0.1` |
 | `VALIMC_PORT` | TCP port; default `25565` |
 | `VALIMC_WORLD` | Custom preview storage directory; default `world` |
+| `VALIMC_GENERATOR` | Terrain of a new world: `flat` (default) or `vanilla`; recorded in its `world.json` |
+| `VALIMC_SEED` | Seed of a new vanilla world (64-bit integer); random by default |
 | `VALIMC_GAME_MODE` | New/legacy player mode: survival, creative, adventure, spectator |
 | `VALIMC_ENCRYPTION` | Offline RSA/AES transport test; does not authenticate accounts |
 | `VALIMC_ONLINE_MODE` | Mojang account verification; login uses encryption |

@@ -54,6 +54,15 @@ defmodule Valimc.Worldgen do
     end
   end
 
+  @doc "Biome names in the native registry's order (registry ids index this list)."
+  def biome_names do
+    Application.app_dir(:valimc, "priv/worldgen/biomes.json")
+    |> File.read!()
+    |> JSON.decode!()
+    |> Map.keys()
+    |> Enum.sort()
+  end
+
   @doc "Worldgen state for `seed` and a noise settings entry."
   def new(seed, settings \\ "minecraft:overworld"),
     do: Native.worldgen_new(registry(), seed, settings)

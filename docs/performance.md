@@ -11,6 +11,13 @@ vanilla's own code: the same 256 overworld chunks, one thread, ten timed passes
 after warm-up): the climate volumes and 1,536 biome lookups per chunk take a
 median 222 µs in ValiMC against 388 µs in vanilla.
 
+[Terrain generation](tickets/VMC-024.md) (`bench/worldgen_terrain.exs`, matched
+with vanilla's `doFill`: the same 64 overworld chunks, one thread, ten timed
+passes after warm-up): the noise fill with aquifers takes a median 2.54 ms per
+chunk in ValiMC against 3.59 ms in vanilla. The whole generation step (fill,
+surfaces, carvers, column image) takes 6.71 ms per chunk; the ticket explains
+why vanilla's 12.46 ms for its counterpart is not a matched number.
+
 [Cooking activity indexing](tickets/VMC-034m.md): 1,024 stored processors,
 100 alternating equal-result samples. With 64 active, p50/p95 falls from
 8.295/11.967 to 6.942/9.078 ms; with 1,024 active, from 44.097/51.686 to

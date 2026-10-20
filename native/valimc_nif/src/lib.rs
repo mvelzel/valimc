@@ -1004,4 +1004,30 @@ fn worldgen_build_terrain<'a>(
     Ok(out)
 }
 
+/// A generated chunk: its column image and per column its highest non-air
+/// block (`z * 16 + x`).
+type GeneratedColumn<'a> = (i32, i32, Binary<'a>, Vec<i32>);
+
+/// Generated chunks as region-log column images (`Worldgen::generate_column`),
+/// biomes as protocol ids (`protocol_biomes`, by biome registry id).
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_columns<'a>(
+    env: rustler::Env<'a>,
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    protocol_biomes: Vec<u16>,
+    chunks: Vec<(i32, i32)>,
+) -> Result<Vec<GeneratedColumn<'a>>, String> {
+    let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+    let mut out = Vec::with_capacity(chunks.len());
+    for (x, z) in chunks {
+        let (column, heights) = state.generate_column(x, z, &biome_source, &protocol_biomes)?;
+        let image = column.to_image();
+        let mut bytes = NewBinary::new(env, image.len());
+        bytes.as_mut_slice().copy_from_slice(&image);
+        out.push((x, z, bytes.into(), heights.to_vec()));
+    }
+    Ok(out)
+}
+
 rustler::init!("Elixir.Valimc.Native");

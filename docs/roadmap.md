@@ -37,9 +37,9 @@ resumes on these foundations alongside M2.
 | [VMC-022](tickets/VMC-022.md) | Light equal to vanilla's engine, live on edits and across region borders, in all packets | Done |
 | [VMC-029c](tickets/VMC-029c.md) | Blocks that lose their support break (plants, torches, two-block halves), found in imported terrain | Done |
 | [VMC-023](tickets/VMC-023.md) | Seeded noise and biomes: random sources, noises, compiled density functions and chunk biomes equal vanilla's | Foundation |
-| [VMC-024](tickets/VMC-024.md) | Vanilla terrain: noise fill with aquifers, material rules and carvers equal to vanilla's; live generation next | In progress |
+| [VMC-024](tickets/VMC-024.md) | Vanilla terrain: noise fill with aquifers, material rules and carvers equal to vanilla's, generated live in new worlds | Awaiting client |
 
-Next: vanilla terrain live in new worlds (VMC-024d), then features and
+Next: the client check of generated worlds (VMC-024d), then features and
 structures (VMC-025) with parity against vanilla, dimensions and portals
 (VMC-026..028). Performance target: generation throughput and tick time
 benchmarked against the same seed on vanilla.

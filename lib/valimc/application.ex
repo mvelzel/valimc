@@ -9,6 +9,7 @@ defmodule Valimc.Application do
     Valimc.World.Chunk.load!()
     Valimc.World.Blocks.init!()
     Valimc.World.Light.init!()
+    Valimc.World.Generator.init!()
     Valimc.World.Spawn.load!()
     Valimc.LoginKeys.init!()
 

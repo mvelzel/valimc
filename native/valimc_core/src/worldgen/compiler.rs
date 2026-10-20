@@ -30,6 +30,10 @@ use super::surface::{
 };
 use super::terrain::{self, Aquifer, AquiferSamplers, FilledChunk, TerrainBlocks};
 use super::volume::Volume;
+use crate::column::{
+    Column, HEIGHT as COLUMN_HEIGHT, MIN_Y as COLUMN_MIN_Y, SECTIONS as COLUMN_SECTIONS,
+};
+use crate::section::{index as section_index, Biomes as SectionBiomes, Storage};
 
 /// Noise settings: vertical bounds, random algorithm and the named functions
 /// of the noise router and aquifers.
@@ -259,7 +263,14 @@ pub struct Worldgen {
     prepared_keys: HashMap<Df, usize>,
     samplers: HashMap<Df, Arc<Sampler>>,
     material_system: Option<Arc<MaterialSystem>>,
+    /// Chunk biomes and carver biomes by biome source and chunk: both pure, so
+    /// neighbouring chunks share them (bounded).
+    chunk_biomes: HashMap<(String, i32, i32), Arc<Vec<u16>>>,
+    carver_biomes: HashMap<(String, i32, i32), u16>,
 }
+
+const BIOME_CACHE_LIMIT: usize = 4096;
+const CARVER_BIOME_CACHE_LIMIT: usize = 65536;
 
 impl SurfaceEnv for Worldgen {
     fn sampler(&mut self, function: &Df) -> Result<Arc<Sampler>, String> {
@@ -321,6 +332,8 @@ impl Worldgen {
             prepared_keys: HashMap::new(),
             samplers: HashMap::new(),
             material_system: None,
+            chunk_biomes: HashMap::new(),
+            carver_biomes: HashMap::new(),
         })
     }
 
@@ -516,7 +529,7 @@ impl Worldgen {
         for dx in -1..=1 {
             for dz in -1..=1 {
                 let (x, z) = (chunk_x + dx, chunk_z + dz);
-                biomes.insert((x, z), self.chunk_biome_ids(biome_source, x, z)?);
+                biomes.insert((x, z), self.cached_chunk_biomes(biome_source, x, z)?);
             }
         }
         let point_biomes = self.point_biomes(biome_source)?;
@@ -583,7 +596,18 @@ impl Worldgen {
             for dx in -8..=8 {
                 for dz in -8..=8 {
                     let source = (chunk_x + dx, chunk_z + dz);
-                    let biome = point_biomes.biome(source.0 * 4, 0, source.1 * 4);
+                    let key = (biome_source.to_string(), source.0, source.1);
+                    let biome = match self.carver_biomes.get(&key) {
+                        Some(&biome) => biome,
+                        None => {
+                            let biome = point_biomes.biome(source.0 * 4, 0, source.1 * 4);
+                            if self.carver_biomes.len() >= CARVER_BIOME_CACHE_LIMIT {
+                                self.carver_biomes.clear();
+                            }
+                            self.carver_biomes.insert(key, biome);
+                            biome
+                        }
+                    };
                     for (index, carver) in registry.biome_carvers[biome as usize].iter().enumerate()
                     {
                         let carver = &registry.carvers[carver];
@@ -689,6 +713,95 @@ impl Worldgen {
         });
         self.material_system = Some(system.clone());
         Ok(system)
+    }
+
+    fn cached_chunk_biomes(
+        &mut self,
+        biome_source: &str,
+        chunk_x: i32,
+        chunk_z: i32,
+    ) -> Result<Arc<Vec<u16>>, String> {
+        let key = (biome_source.to_string(), chunk_x, chunk_z);
+        if let Some(biomes) = self.chunk_biomes.get(&key) {
+            return Ok(biomes.clone());
+        }
+        let biomes = Arc::new(self.chunk_biome_ids(biome_source, chunk_x, chunk_z)?);
+        if self.chunk_biomes.len() >= BIOME_CACHE_LIMIT {
+            self.chunk_biomes.clear();
+        }
+        self.chunk_biomes.insert(key, biomes.clone());
+        Ok(biomes)
+    }
+
+    /// A generated chunk as a ValiMC column (VMC-024d): the carved terrain in
+    /// 24 sections and its biomes as protocol biome ids (`protocol_biomes`,
+    /// indexed by biome registry id), with each column's highest non-air block
+    /// (`WORLD_SURFACE_WG - 1`, z * 16 + x order; below the world when none).
+    pub fn generate_column(
+        &mut self,
+        chunk_x: i32,
+        chunk_z: i32,
+        biome_source: &str,
+        protocol_biomes: &[u16],
+    ) -> Result<(Column, [i32; 256]), String> {
+        if self.settings.min_y != COLUMN_MIN_Y || self.settings.height != COLUMN_HEIGHT as i32 {
+            return Err("columns hold the overworld's height only".into());
+        }
+        let filled = self.build_terrain(chunk_x, chunk_z, biome_source, true)?;
+        let biomes = self.cached_chunk_biomes(biome_source, chunk_x, chunk_z)?;
+        let height = COLUMN_HEIGHT;
+        let at = |x: usize, y: usize, z: usize| filled.blocks[y + (x + z * 16) * height];
+        let mut sections = Vec::with_capacity(COLUMN_SECTIONS);
+        let mut section_biomes = Vec::with_capacity(COLUMN_SECTIONS);
+        for s in 0..COLUMN_SECTIONS {
+            let first = at(0, s * 16, 0);
+            let mut storage = Storage::Single(first);
+            for y in 0..16 {
+                for z in 0..16 {
+                    for x in 0..16 {
+                        let state = at(x, s * 16 + y, z);
+                        if state != first {
+                            storage.set(section_index(x, y, z), state);
+                        }
+                    }
+                }
+            }
+            storage.normalize();
+            sections.push(storage);
+            let cells: Vec<u16> = biomes[s * 64..s * 64 + 64]
+                .iter()
+                .map(|&b| {
+                    protocol_biomes
+                        .get(b as usize)
+                        .copied()
+                        .ok_or("biome without protocol id")
+                })
+                .collect::<Result<_, _>>()?;
+            section_biomes.push(if cells.iter().all(|&b| b == cells[0]) {
+                SectionBiomes::Single(cells[0])
+            } else {
+                SectionBiomes::Cells(Box::new(cells.try_into().expect("64 biomes")))
+            });
+        }
+        let flags = &self.registry.blocks.flags;
+        let mut heights = [COLUMN_MIN_Y - 1; 256];
+        for z in 0..16 {
+            for x in 0..16 {
+                if let Some(top) = (0..height)
+                    .rev()
+                    .find(|&y| flags[at(x, y, z) as usize] & 1 == 0)
+                {
+                    heights[z * 16 + x] = COLUMN_MIN_Y + top as i32;
+                }
+            }
+        }
+        Ok((
+            Column {
+                sections,
+                biomes: Some(section_biomes),
+            },
+            heights,
+        ))
     }
 
     /// A chunk's biomes as registry ids (sections from the bottom, each in

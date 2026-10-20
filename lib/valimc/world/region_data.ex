@@ -2,6 +2,7 @@ defmodule Valimc.World.RegionData do
   @moduledoc "One storage resource's data and operations, executed by its owning process."
   alias Valimc.World.{
     BlockEntities,
+    Generator,
     EntityPublication,
     ScheduledTicks,
     TickBehaviours,
@@ -99,11 +100,41 @@ defmodule Valimc.World.RegionData do
     :save_timer
   ]
 
+  # A vanilla world's region generates the chunks its log has no column for and
+  # persists them before serving them (VMC-024d).
+  defp generated_columns(key, store, lease, images) do
+    case Generator.of(Valimc.config(:world_path, key)) do
+      :flat ->
+        images
+
+      generator ->
+        {rx, rz} = key
+        size = Valimc.config(:region_size)
+
+        missing =
+          for cx <- (rx * size)..(rx * size + size - 1),
+              cz <- (rz * size)..(rz * size + size - 1),
+              not Map.has_key?(images, {cx, cz}),
+              do: {cx, cz}
+
+        if missing == [] do
+          images
+        else
+          generated = Generator.columns(generator, missing)
+
+          case Store.put_columns(store, lease, generated) do
+            :ok -> Map.merge(images, generated)
+            {:error, reason} -> exit({:generated_columns_failed, reason})
+          end
+        end
+    end
+  end
+
   def load(key) do
     {:ok, store, store_lease} = Store.open(key)
     store_monitor = Process.monitor(store)
     edits = Store.load(store)
-    images = Store.load_columns(store)
+    images = generated_columns(key, store, store_lease, Store.load_columns(store))
 
     blocks =
       case Blocks.new(key, edits, images) do

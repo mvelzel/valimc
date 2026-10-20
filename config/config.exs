@@ -12,6 +12,11 @@ config :valimc,
   item_simulation: true,
   cooking_simulation: true,
   world_path: "world",
+  # Terrain of new worlds (VMC-024d): :flat or :vanilla (overworld noise terrain
+  # for `seed`, random when nil). Existing worlds keep the generator in their
+  # world.json.
+  generator: :flat,
+  seed: nil,
   player_save_interval_ms: 30_000,
   motd: "ValiMC · Elixir/OTP · 26.3 development server",
   max_packet_bytes: 2_097_152,

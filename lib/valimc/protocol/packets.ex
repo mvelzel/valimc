@@ -160,13 +160,15 @@ defmodule Valimc.Protocol.Packets do
     do: packet("respawn", [spawn_info(player, last_death), <<0>>])
 
   defp spawn_info(player, last_death) do
+    {hashed_seed, flat?} = Valimc.World.Generator.client_info(Valimc.World.Generator.current())
+
     [
       Wire.varint(Data.registry_id("minecraft:dimension_type", "minecraft:overworld")),
       Wire.string("minecraft:overworld"),
-      <<0::64>>,
+      <<hashed_seed::signed-64>>,
       Wire.varint(Valimc.GameMode.id(Map.get(player, :game_mode, %Valimc.GameMode{}).current)),
       previous_mode(Map.get(player, :game_mode, %Valimc.GameMode{}).previous),
-      <<0, 1>>,
+      <<0, if(flat?, do: 1, else: 0)>>,
       death_location(last_death),
       <<0>>,
       Wire.varint(63)

@@ -1,0 +1,129 @@
+defmodule Valimc.World.Generator do
+  @moduledoc """
+  A world's terrain generator (VMC-024d), recorded in its `world.json`: flat
+  terrain for worlds without a generator entry (and imports), or vanilla's
+  overworld terrain for a seed (`"generator": {"type": "vanilla", "seed": …}`).
+
+  New worlds take the configured generator (`:generator`, `VALIMC_GENERATOR`,
+  flat by default) and seed (`:seed`, `VALIMC_SEED`, random otherwise). A new
+  vanilla world spawns on the generated surface at the origin; vanilla's spawn
+  search is VMC-027.
+
+  Regions of a vanilla world generate the chunks their log has no column image
+  for when they load (`columns/2`), and persist them before serving them, so a
+  chunk is generated once.
+  """
+  alias Valimc.{Native, Worldgen}
+  alias Valimc.Protocol.Data
+  alias Valimc.World.Spawn
+
+  @settings "minecraft:overworld"
+  @biome_source "minecraft:overworld"
+
+  @doc """
+  Create the configured world's metadata when it has none and remember its
+  generator; call at start, before `Spawn.load!/0`.
+  """
+  def init! do
+    base = Valimc.config(:world_path)
+
+    with base when is_binary(base) <- base,
+         false <- File.exists?(Spawn.path(base)),
+         :vanilla <- Valimc.config(:generator) do
+      seed = Valimc.config(:seed) || random_seed()
+      :ok = create(base, seed)
+    end
+
+    :persistent_term.put({__MODULE__, :world}, of(base))
+  end
+
+  @doc "The configured world's generator (`init!/0`)."
+  def current, do: :persistent_term.get({__MODULE__, :world}, :flat)
+
+  @doc """
+  What the client learns about a generator in its spawn information: the hashed
+  seed (`BiomeManager.obfuscateSeed`: the first eight bytes of the SHA-256 of
+  the seed, both little-endian; 0 for flat terrain) and whether the world is
+  flat.
+  """
+  def client_info(:flat), do: {0, true}
+
+  def client_info({:vanilla, seed}) do
+    <<hashed::little-signed-64, _::binary>> = :crypto.hash(:sha256, <<seed::little-signed-64>>)
+    {hashed, false}
+  end
+
+  @doc "Write `world.json` for a new vanilla world at `base` with `seed`, its spawn on the surface."
+  def create(base, seed) when is_integer(seed) do
+    [{0, 0, _image, heights}] = generate(seed, [{0, 0}])
+    y = Enum.at(heights, 0) + 1
+    File.mkdir_p!(base)
+
+    File.write(
+      Spawn.path(base),
+      JSON.encode!(%{
+        "spawn" => [0, y, 0],
+        "yaw" => 0.0,
+        "generator" => %{"type" => "vanilla", "seed" => seed}
+      })
+    )
+  end
+
+  @doc "The generator of the world at `base`: `:flat` or `{:vanilla, seed}`."
+  def of(nil), do: :flat
+
+  def of(base) do
+    with {:ok, text} <- File.read(Spawn.path(base)),
+         {:ok, %{"generator" => %{"type" => "vanilla", "seed" => seed}}} when is_integer(seed) <-
+           JSON.decode(text) do
+      {:vanilla, seed}
+    else
+      _ -> :flat
+    end
+  end
+
+  @doc "Column images (`chunk => image`) of generated `chunks` of a vanilla world."
+  def columns({:vanilla, seed}, chunks) do
+    Map.new(generate(seed, chunks), fn {cx, cz, image, _heights} -> {{cx, cz}, image} end)
+  end
+
+  defp generate(seed, chunks) do
+    {:ok, generated} =
+      Native.worldgen_columns(state(seed), @biome_source, protocol_biomes(), chunks)
+
+    generated
+  end
+
+  # One worldgen state per seed and VM: noises and compiled functions are
+  # built once.
+  defp state(seed) do
+    case :persistent_term.get({__MODULE__, seed}, nil) do
+      nil ->
+        {:ok, state} = Worldgen.new(seed, @settings)
+        :persistent_term.put({__MODULE__, seed}, state)
+        state
+
+      state ->
+        state
+    end
+  end
+
+  defp protocol_biomes do
+    case :persistent_term.get({__MODULE__, :biomes}, nil) do
+      nil ->
+        ids =
+          Enum.map(Worldgen.biome_names(), &Data.registry_id("minecraft:worldgen/biome", &1))
+
+        :persistent_term.put({__MODULE__, :biomes}, ids)
+        ids
+
+      ids ->
+        ids
+    end
+  end
+
+  defp random_seed do
+    <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+    seed
+  end
+end
