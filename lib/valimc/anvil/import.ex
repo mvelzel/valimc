@@ -10,19 +10,25 @@ defmodule Valimc.Anvil.Import do
   Block entities (VMC-021e1, `Valimc.Anvil.BlockEntity`): chests and furnaces
   ValiMC can hold become owned containers; the others are preserved with their
   compounds. The rest of each chunk's data (structures, pending ticks, post
-  processing...) is kept for export as the region's `chunk_extras`. Light, POI
-  and the other dimensions are not imported.
+  processing...) is kept for export as the region's `chunk_extras`.
+
+  Entities (VMC-021e2, `Valimc.Anvil.Entity`): dropped items become item records
+  in the region their position falls in (at most 256 per region, as owners
+  allow; vanilla skips a repeated UUID); every other entity is preserved per
+  chunk for export. Light, POI and the other dimensions are not imported.
 
   Run with the server stopped, into a new or empty directory:
 
       mix valimc.import VANILLA_WORLD VALIMC_WORLD
       bin/valimc eval 'Valimc.Anvil.Import.cli(["VANILLA_WORLD", "VALIMC_WORLD"])'
   """
-  alias Valimc.Anvil.{BlockEntity, Chunk, RegionFile}
+  alias Valimc.Anvil.{BlockEntity, Chunk, Entity, RegionFile}
   alias Valimc.{NBT, Native}
-  alias Valimc.World.{BlockEntities, Blocks, Containers, Schema, Spawn, Store}
+  alias Valimc.World.{BlockEntities, Blocks, Containers, ItemLedger, Schema, Spawn, Store}
 
   @overworld "dimensions/minecraft/overworld/region"
+  @entities "dimensions/minecraft/overworld/entities"
+  @max_items 256
   @max_errors 20
 
   @doc "Import `source` into `destination`; returns a report or an error."
@@ -31,18 +37,26 @@ defmodule Valimc.Anvil.Import do
 
     with :ok <- empty(destination),
          {:ok, spawn} <- read_spawn(source),
-         {:ok, files} <- region_files(source) do
+         {:ok, files} <- region_files(source, @overworld, true) do
+      {:ok, entity_files} = region_files(source, @entities, false)
+
       converted =
         files
         |> Task.async_stream(&convert/1, ordered: false, timeout: :infinity)
         |> Enum.map(fn {:ok, result} -> result end)
 
+      entities =
+        entity_files
+        |> Task.async_stream(&convert_entities/1, ordered: false, timeout: :infinity)
+        |> Enum.map(fn {:ok, result} -> result end)
+
+      converted = converted ++ entities
       chunks = for %{chunks: chunks} <- converted, chunk <- chunks, do: chunk
       File.mkdir_p!(destination)
 
       written =
         chunks
-        |> Enum.group_by(fn %{chunk: chunk} -> Valimc.World.region_key(chunk) end)
+        |> regions(for(%{entities: list} <- entities, entity <- list, do: entity))
         |> Task.async_stream(&write_region(destination, &1), ordered: false, timeout: :infinity)
         |> Enum.map(fn {:ok, result} -> result end)
 
@@ -55,12 +69,16 @@ defmodule Valimc.Anvil.Import do
            %{
              regions: length(written),
              chunks: length(chunks),
-             block_entities:
+             contents:
                Enum.reduce(written, %{}, fn {_, _, counts}, acc ->
                  Map.merge(acc, counts, fn _, a, b -> a + b end)
                end),
              skipped:
-               Enum.reduce(converted, %{}, &Map.merge(&2, &1.skipped, fn _, a, b -> a + b end)),
+               Enum.reduce(
+                 converted,
+                 %{},
+                 &Map.merge(&2, Map.get(&1, :skipped, %{}), fn _, a, b -> a + b end)
+               ),
              errors: converted |> Enum.flat_map(& &1.errors) |> Enum.take(@max_errors),
              error_count: Enum.sum(Enum.map(converted, &length(&1.errors))),
              spawn: position,
@@ -102,8 +120,8 @@ defmodule Valimc.Anvil.Import do
     end
   end
 
-  defp region_files(source) do
-    dir = Path.join(source, @overworld)
+  defp region_files(source, folder, required) do
+    dir = Path.join(source, folder)
 
     case File.ls(dir) do
       {:ok, names} ->
@@ -114,9 +132,78 @@ defmodule Valimc.Anvil.Import do
            do: Path.join(dir, name)
          )}
 
+      {:error, :enoent} when not required ->
+        {:ok, []}
+
       {:error, reason} ->
         {:error, {:no_overworld_regions, reason}}
     end
+  end
+
+  # One entities region file: `{chunk, compound}` for every stored entity.
+  defp convert_entities(path) do
+    case RegionFile.chunks(path) do
+      {:ok, chunks} ->
+        Enum.reduce(chunks, %{chunks: [], entities: [], errors: []}, fn
+          {_pos, :absent}, acc ->
+            acc
+
+          {pos, {:error, reason}}, acc ->
+            %{acc | errors: [{pos, reason} | acc.errors]}
+
+          {pos, {:ok, bytes}}, acc ->
+            with {:ok, tag} <- NBT.read(bytes),
+                 {:ok, _} <- Schema.check(:entities, tag),
+                 {:compound, root} = tag,
+                 {:int_array, <<x::signed-32, z::signed-32>>} <- root["Position"] do
+              list =
+                case root["Entities"] do
+                  {:list, {:compound, entries}} -> entries
+                  _ -> []
+                end
+
+              %{acc | entities: Enum.map(list, &{{x, z}, {:compound, &1}}) ++ acc.entities}
+            else
+              {:error, reason} -> %{acc | errors: [{pos, reason} | acc.errors]}
+              _ -> %{acc | errors: [{pos, :invalid_entity_chunk} | acc.errors]}
+            end
+        end)
+
+      {:error, reason} ->
+        %{chunks: [], entities: [], errors: [{path, reason}]}
+    end
+  end
+
+  # Chunks and entities grouped by ValiMC region: an imported item belongs to
+  # the region of its position, a preserved entity to that of its stored chunk.
+  defp regions(chunks, entities) do
+    empty = %{chunks: [], items: [], preserved: []}
+
+    groups =
+      Enum.reduce(chunks, %{}, fn %{chunk: chunk} = entry, groups ->
+        Map.update(groups, Valimc.World.region_key(chunk), %{empty | chunks: [entry]}, fn g ->
+          %{g | chunks: [entry | g.chunks]}
+        end)
+      end)
+
+    Enum.reduce(entities, groups, fn {chunk, tag}, groups ->
+      {key, field, value} =
+        case Entity.convert(tag) do
+          {:item, record} ->
+            key = Valimc.World.region_key(Valimc.World.chunk_key(record.x, record.z))
+            {key, :items, {chunk, tag, record}}
+
+          :preserve ->
+            {Valimc.World.region_key(chunk), :preserved, {chunk, tag}}
+        end
+
+      Map.update(
+        groups,
+        key,
+        Map.put(empty, field, [value]),
+        &Map.update!(&1, field, fn l -> [value | l] end)
+      )
+    end)
   end
 
   # One region file: column images of its full chunks, skipped statuses, errors.
@@ -186,7 +273,7 @@ defmodule Valimc.Anvil.Import do
 
   # One ValiMC region: its column images, block entities as owned containers or
   # preserved compounds, and chunk extras, written as one checkpoint.
-  defp write_region(destination, {key, chunks}) do
+  defp write_region(destination, {key, %{chunks: chunks} = group}) do
     images = Map.new(chunks, &{&1.chunk, &1.image})
     {:ok, blocks} = Blocks.new(key, %{}, images)
 
@@ -198,18 +285,60 @@ defmodule Valimc.Anvil.Import do
           place(key, chunk, blocks, tag, containers, preserved, counts)
       end
 
+    {records, counts, entities} = entities(group, counts)
+
     parts = %{
       columns: images,
       block_entities: preserved,
-      chunk_extras: Map.new(chunks, &{&1.chunk, &1.extras})
+      chunk_extras: Map.new(chunks, &{&1.chunk, &1.extras}),
+      entities: entities
     }
 
     result =
       with {:ok, parts} <- container_part(key, containers, parts),
+           {:ok, parts} <- item_part(key, records, parts),
            {:ok, _} <- BlockEntities.new(preserved),
            do: Store.import_region(destination, key, parts)
 
     {key, result, counts}
+  end
+
+  # Items in stored order up to the owner's bound; a repeated UUID is skipped as
+  # vanilla's entity lookup skips it, an item past the bound is preserved.
+  defp entities(%{items: items, preserved: preserved}, counts) do
+    {records, extra, _} =
+      items
+      |> Enum.reverse()
+      |> Enum.reduce({[], [], MapSet.new()}, fn {chunk, tag, record}, {records, extra, seen} ->
+        cond do
+          MapSet.member?(seen, record.uuid) -> {records, extra, seen}
+          length(records) >= @max_items -> {records, [{chunk, tag} | extra], seen}
+          true -> {[record | records], extra, MapSet.put(seen, record.uuid)}
+        end
+      end)
+
+    kept = Enum.reverse(preserved) ++ Enum.reverse(extra)
+
+    stored =
+      kept
+      |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+      |> Map.new(fn {chunk, tags} ->
+        {chunk, IO.iodata_to_binary(NBT.write({:compound, %{"Entities" => NBT.list(tags)}}))}
+      end)
+
+    counts =
+      counts
+      |> Map.update(:items, length(records), &(&1 + length(records)))
+      |> Map.update(:entities_preserved, length(kept), &(&1 + length(kept)))
+
+    {Enum.reverse(records), counts, stored}
+  end
+
+  defp item_part(_key, [], parts), do: {:ok, parts}
+
+  defp item_part(key, records, parts) do
+    with {:ok, bytes} <- ItemLedger.encode(key, records, %{}),
+         do: {:ok, Map.put(parts, :items, bytes)}
   end
 
   defp container_part(_key, %Containers{entries: entries}, parts) when map_size(entries) == 0,
@@ -293,7 +422,7 @@ defmodule Valimc.Anvil.Import do
         )
 
         IO.puts("Skipped (not full): #{inspect(report.skipped)}; errors: #{report.error_count}")
-        IO.puts("Block entities: #{inspect(report.block_entities)}")
+        IO.puts("Block entities and entities: #{inspect(report.contents)}")
         if report.errors != [], do: IO.puts("First errors: #{inspect(report.errors)}")
         IO.puts("Spawn: #{inspect(report.spawn)}")
 

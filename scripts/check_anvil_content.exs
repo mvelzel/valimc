@@ -101,6 +101,53 @@ counts =
 unless counts[:owned] >= 6 and counts[:locked] >= 4 and counts[:preserved] >= 40,
   do: raise("fixture coverage: #{inspect(counts)}")
 
+# Entities: dropped items ValiMC can hold become item records with vanilla's
+# UUID, position and loaded stack; every other entity is preserved unchanged.
+entity_regions =
+  facts["entities"]
+  |> Enum.map(&Valimc.World.region_key({&1["chunk_x"], &1["chunk_z"]}))
+  |> Enum.uniq()
+
+records =
+  for key <- entity_regions,
+      bytes = Store.durable(imported, key, :items),
+      bytes != nil,
+      {:ok, %{records: records}} = Valimc.World.ItemLedger.decode(bytes, key),
+      record <- records,
+      into: %{},
+      do: {Base.encode16(record.uuid, case: :lower), record}
+
+preserved_entities =
+  for key <- entity_regions,
+      {_chunk, nbt} <- Store.durable(imported, key, :entities),
+      {:ok, {:compound, %{"Entities" => list}}} = Valimc.NBT.read(nbt),
+      {:list, {:compound, entries}} = list,
+      entry <- entries,
+      do: NbtCanon.digest({:compound, entry})
+
+{imported_items, expected_preserved} =
+  Enum.reduce(facts["entities"], {0, []}, fn row, {items, rest} ->
+    case records[row["uuid"]] do
+      nil ->
+        {items, [row["stored"] | rest]}
+
+      record ->
+        {:ok, stack} = ItemStack.decode(Base.decode16!(row["item"], case: :lower), :untrusted)
+        [x, y, z] = row["pos"]
+
+        unless record.stack == stack and {record.x, record.y, record.z} == {x, y, z},
+          do: raise("item #{row["uuid"]}: #{inspect(record)} differs from vanilla's")
+
+        {items + 1, rest}
+    end
+  end)
+
+unless Enum.sort(preserved_entities) == Enum.sort(expected_preserved),
+  do: raise("preserved entities differ from vanilla's stored compounds")
+
+unless imported_items >= 4 and map_size(records) == imported_items,
+  do: raise("item coverage: #{imported_items} of #{map_size(records)}")
+
 chunks =
   facts["block_entities"]
   |> Enum.map(&{&1["chunk_x"], &1["chunk_z"]})
@@ -125,5 +172,7 @@ end
 IO.puts(
   "PASS: #{length(facts["block_entities"])} vanilla block entities import as vanilla loads them " <>
     "(#{counts.owned} owned containers with vanilla's stacks, #{counts.locked} locked and " <>
-    "#{counts.preserved} preserved compounds); chunk packets written for #{length(chunks)} chunks"
+    "#{counts.preserved} preserved compounds); #{imported_items} dropped items become item records " <>
+    "and #{length(expected_preserved)} other entities are preserved; chunk packets written for " <>
+    "#{length(chunks)} chunks"
 )

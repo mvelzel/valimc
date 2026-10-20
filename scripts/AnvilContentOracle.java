@@ -210,6 +210,11 @@ public class AnvilContentOracle {
           row.addProperty("chunk_z", chunk.getKey().z());
           row.addProperty("type", type);
           row.addProperty("stored", digest(entity));
+          var uuid = java.nio.ByteBuffer.allocate(16);
+          for (int part : entity.getIntArray("UUID").orElseThrow()) uuid.putInt(part);
+          row.addProperty("uuid", HEX.formatHex(uuid.array()));
+          var pos = entity.getListOrEmpty("Pos");
+          row.add("pos", new Gson().toJsonTree(new double[]{pos.getDoubleOr(0, 0), pos.getDoubleOr(1, 0), pos.getDoubleOr(2, 0)}));
           if (type.equals("minecraft:item")) {
             var stack = ItemStack.CODEC.parse(ops, entity.get("Item")).getOrThrow();
             row.addProperty("item", itemHex(stack));
