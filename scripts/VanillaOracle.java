@@ -702,6 +702,19 @@ public class VanillaOracle implements AutoCloseable {
       first.send(gameOut,new ServerboundChatCommandPacket("spawn"));
       first.await(p -> p instanceof ClientboundPlayerPositionPacket t && t.change().position().equals(new Vec3(.5,64,.5)));
       System.out.println("PASS: native TCP forged creative wall entry/large delta corrections, acknowledgment, resumed walking and spawn teleport.");
+      // VMC-053d: command chat is unsigned disguised chat bound to vanilla's chat types.
+      first.send(gameOut,new ServerboundChatCommandPacket("say hello @a"));
+      for (var receiver : List.of(first, second))
+        receiver.await(p -> p instanceof ClientboundDisguisedChatPacket d
+          && d.chatType().decorate(d.message()).getString().equals("[OracleOne] hello OracleOne, OracleTwo")
+          || p instanceof ClientboundDisguisedChatPacket e
+          && e.chatType().decorate(e.message()).getString().equals("[OracleOne] hello OracleTwo, OracleOne"));
+      first.send(gameOut,new ServerboundChatCommandPacket("msg OracleTwo psst"));
+      first.await(p -> p instanceof ClientboundDisguisedChatPacket d
+        && d.chatType().decorate(d.message()).getString().equals("You whisper to OracleTwo: psst"));
+      second.await(p -> p instanceof ClientboundDisguisedChatPacket d
+        && d.chatType().decorate(d.message()).getString().equals("OracleOne whispers to you: psst"));
+      System.out.println("PASS: Mojang decodes /say and /msg as disguised chat with vanilla's decorations.");
       System.out.println("PASS: Mojang 26.3 codecs validated compressed login, network registry/tag dependency loading, command graph/local completion, " + first.chunks + " chunks, inventory/selection/hand swaps, authoritative pickup/split/merge/shift/swap/quick-craft/collect/clone/fill with forged predictions, menu-close return, creative scalar stacks/corrections, two-player visibility, movement, block placement/breaking and commands.");
       System.out.println(first.seen);
     }
