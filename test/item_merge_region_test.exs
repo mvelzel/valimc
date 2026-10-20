@@ -107,7 +107,7 @@ defmodule Valimc.ItemMergeRegionTest do
       task = Task.async(fn -> Region.merge_items(ctx.owner, proposal) end)
       wait(fn -> Valimc.TestRegion.in_flight?(state(ctx.owner)) end)
       assert length(disk(ctx).records) == 2
-      assert [{:items, views}] = :ets.lookup(s.item_publication, :items)
+      views = Valimc.World.EntityPublication.source(s.item_publication, :items)
       assert map_size(views) == 2
       assert Task.yield(task, 10) == nil
       # The pair is already merged in owner memory; a second merge cannot apply.

@@ -10,12 +10,12 @@ defmodule Valimc.World.EntityReplication do
   def new, do: %__MODULE__{}
   def max_visible, do: @max_visible
 
-  def reconcile(state, desired), do: reconcile(state, desired, false)
-
-  @doc "Continuously correct client-predicted motion within the same rotating batch budget."
-  def reconcile_predicted(state, desired), do: reconcile(state, desired, true)
-
-  defp reconcile(state, desired, predicted?) when map_size(desired) <= @max_visible do
+  @doc """
+  Bring one observer's tracked entities toward `desired` views of any kind,
+  within a rotating batch budget. Orb views are client-predicted: their motion is
+  corrected every pass rather than only when it changed.
+  """
+  def reconcile(state, desired) when map_size(desired) <= @max_visible do
     desired = newest_owners(desired)
 
     removed =
@@ -35,6 +35,7 @@ defmodule Valimc.World.EntityReplication do
       Enum.reduce_while(later ++ earlier, {retained, state.cursor, [], bytes, 0}, fn id, acc ->
         {tracked, _cursor, packets, bytes, changes} = acc
         view = desired[id]
+        predicted? = Map.get(view, :kind) == :orb
         version = {view.epoch, {view.metadata_revision, view.motion_revision}}
 
         delta =

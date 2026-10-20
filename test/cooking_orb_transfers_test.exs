@@ -120,8 +120,7 @@ defmodule Valimc.CookingOrbTransfersTest do
                views: publication.views
              })
 
-    assert empty.views == %{} and empty.rows == []
-    assert empty.retired == [{8, 0}]
+    assert empty.views == %{}
     assert empty.ledger[id] == records
     assert consumed.orb_transfers == adopted.orb_transfers
     assert consumed.pending_awards == %{} and consumed.cooking_orbs == %{}

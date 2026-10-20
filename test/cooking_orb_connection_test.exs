@@ -113,8 +113,8 @@ defmodule Valimc.CookingOrbConnectionTest do
       Client.send_packet(client, :play, "player_loaded", <<>>)
       player = Enum.find(Players.all(), &(&1.name == hd(names))).pid
       wait(fn -> Valimc.PlayerInput.loaded?(:sys.get_state(player).player.input) end)
-      assert map_size(:sys.get_state(player).orb_replication.tracked) == 2
-      assert :sys.get_state(player).item_replication.tracked == %{}
+      # Only the two orbs are tracked; there are no items.
+      assert map_size(:sys.get_state(player).entity_replication.tracked) == 2
 
       {body, client} = Client.await(client, :play, "entity_position_sync")
 
@@ -157,7 +157,8 @@ defmodule Valimc.CookingOrbConnectionTest do
         assert map_size(installed.cooking_orbs[id]) == 2
       end
 
-      assert map_size(:sys.get_state(player).orb_replication.tracked) == 2
+      # One tracker for every kind: the two orbs and the dropped stone item.
+      assert map_size(:sys.get_state(player).entity_replication.tracked) == 3
 
       {_, late} = Client.login(List.last(names))
       on_exit(fn -> Client.close(late) end)

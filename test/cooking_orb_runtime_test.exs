@@ -91,9 +91,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
   end
 
   def published(state) do
-    :ets.match_object(state.item_publication, {{:orbs, :_}, :_, :_})
-    |> Enum.flat_map(fn {_, _, views} -> Map.to_list(views) end)
-    |> Map.new()
+    Valimc.World.EntityPublication.source(state.item_publication, :orbs)
   end
 
   defp disk(ctx) do

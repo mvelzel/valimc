@@ -424,6 +424,7 @@ defmodule Valimc.World.Items do
     if bytes + return_bytes(state) <= @max_bytes do
       view =
         %{
+          kind: :item,
           entity_id: id,
           uuid: uuid,
           ownership_generation: Map.get(state.ledger.generations, uuid, 0),

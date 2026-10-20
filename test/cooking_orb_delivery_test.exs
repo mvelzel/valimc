@@ -117,10 +117,7 @@ defmodule Valimc.CookingOrbDeliveryTest do
   end
 
   defp published(state),
-    do:
-      :ets.match_object(state.item_publication, {{:orbs, :_}, :_, :_})
-      |> Enum.flat_map(fn {_, _, views} -> Map.to_list(views) end)
-      |> Map.new()
+    do: Valimc.World.EntityPublication.source(state.item_publication, :orbs)
 
   def disk(ctx, key),
     do: Containers.decode(Valimc.TestDisk.read(ctx.base, key, :containers), key)

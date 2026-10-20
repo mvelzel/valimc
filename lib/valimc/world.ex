@@ -116,8 +116,8 @@ defmodule Valimc.World do
 
     case Directory.lookup(key) do
       {^pid, _, %{epoch: ^epoch, items: table}} ->
-        case :ets.lookup(table, :items) do
-          [{:items, %{^id => view}}] ->
+        case Valimc.World.EntityPublication.source(table, :items) do
+          %{^id => view} ->
             Process.alive?(pid) and view.uuid == uuid and view.merge_open and
               view.physical_revision == versions
 
@@ -137,10 +137,7 @@ defmodule Valimc.World do
   def item_snapshot(key) do
     case Directory.lookup(key) do
       {_, _, %{items: table}} ->
-        case :ets.lookup(table, :items) do
-          [{:items, views}] -> views
-          [] -> %{}
-        end
+        Valimc.World.EntityPublication.source(table, :items)
 
       _ ->
         %{}
@@ -169,68 +166,76 @@ defmodule Valimc.World do
     ArgumentError -> :empty
   end
 
-  def visible_items(regions, chunks) do
-    limit = Valimc.World.EntityReplication.max_visible()
-
-    regions
-    |> Enum.sort()
-    |> Enum.take(64)
-    |> Enum.reduce_while(%{}, fn key, acc ->
-      if map_size(acc) == limit do
-        {:halt, acc}
-      else
-        views =
-          item_snapshot(key)
-          |> Enum.filter(fn {_, view} -> MapSet.member?(chunks, view.chunk) end)
-          |> Enum.sort_by(&elem(&1, 0))
-          |> Enum.take(limit - map_size(acc))
-
-        {:cont, Map.merge(acc, Map.new(views))}
-      end
-    end)
-  end
-
-  @doc "Chunk-local XP presentation only; it cannot authorize pickup or a transfer."
-  def orb_snapshot(chunk) do
-    case Directory.lookup(region_key(chunk)) do
-      {_, _, %{epoch: epoch, items: table}} ->
-        case :ets.lookup(table, {:orbs, chunk}) do
-          [{{:orbs, ^chunk}, ^epoch, views}] -> views
-          _ -> %{}
-        end
-
-      _ ->
-        %{}
-    end
-  rescue
-    ArgumentError -> %{}
-  end
-
-  def visible_orbs(regions, chunks) do
+  @doc """
+  The entity views (every kind) an observer may see: at most 64 regions and
+  `EntityReplication.max_visible/0` views, in chunk order. `cache` maps a chunk to
+  its last `{stamp, views}`; a chunk's views are copied only when its stamp
+  changed. Returns `{views, cache}`.
+  """
+  def visible_entities(regions, chunks, cache \\ %{}) do
     limit = Valimc.World.EntityReplication.max_visible()
     regions = regions |> Enum.sort() |> Enum.take(64) |> MapSet.new()
+
+    tables =
+      Map.new(regions, fn key ->
+        case Directory.lookup(key) do
+          {_, _, %{items: table}} -> {key, table}
+          _ -> {key, nil}
+        end
+      end)
 
     chunks
     |> Enum.sort()
     |> Enum.take(4096)
-    |> Enum.reduce_while(%{}, fn chunk, acc ->
+    |> Enum.reduce_while({%{}, %{}}, fn chunk, {acc, next_cache} ->
+      table = tables[region_key(chunk)]
+
       cond do
         map_size(acc) == limit ->
-          {:halt, acc}
+          {:halt, {acc, next_cache}}
 
-        not MapSet.member?(regions, region_key(chunk)) ->
-          {:cont, acc}
+        table == nil ->
+          {:cont, {acc, next_cache}}
 
         true ->
-          visible =
-            orb_snapshot(chunk)
-            |> Enum.sort_by(&elem(&1, 0))
-            |> Enum.take(limit - map_size(acc))
-            |> Map.new()
-
-          {:cont, Map.merge(acc, visible)}
+          {views, next_cache} = chunk_views(table, chunk, cache, next_cache)
+          visible = views |> Enum.sort_by(&elem(&1, 0)) |> Enum.take(limit - map_size(acc))
+          {:cont, {Map.merge(acc, Map.new(visible)), next_cache}}
       end
     end)
+  end
+
+  defp chunk_views(table, chunk, cache, next_cache) do
+    stamp = :ets.lookup_element(table, {:entities, chunk}, 2)
+
+    case cache do
+      %{^chunk => {^stamp, views}} ->
+        {views, Map.put(next_cache, chunk, {stamp, views})}
+
+      _ ->
+        case :ets.lookup(table, {:entities, chunk}) do
+          [{_, stamp, views}] -> {views, Map.put(next_cache, chunk, {stamp, views})}
+          [] -> {%{}, next_cache}
+        end
+    end
+  rescue
+    # No row (no entities) or the region table died after the directory lookup.
+    ArgumentError -> {%{}, next_cache}
+  end
+
+  def visible_items(regions, chunks), do: visible_kind(regions, chunks, :item)
+
+  @doc "Chunk-local XP presentation only; it cannot authorize pickup or a transfer."
+  def orb_snapshot(chunk) do
+    {views, _} = visible_entities([region_key(chunk)], [chunk])
+    for {id, %{kind: :orb} = view} <- views, into: %{}, do: {id, view}
+  end
+
+  def visible_orbs(regions, chunks), do: visible_kind(regions, chunks, :orb)
+
+  defp visible_kind(regions, chunks, kind) do
+    {views, _} = visible_entities(regions, chunks)
+    for {id, %{kind: ^kind} = view} <- views, into: %{}, do: {id, view}
   end
 
   def publish(key, event) do

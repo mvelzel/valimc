@@ -357,14 +357,16 @@ defmodule Valimc.World.CookingOrbRuntime do
   defp publish(state, %{
          ledger: ledger,
          views: views,
-         rows: rows,
          revision: revision,
          consumption_revision: consumed,
-         body_revision: body_revision,
-         retired: retired
+         body_revision: body_revision
        }) do
-    for chunk <- retired, do: :ets.delete(state.item_publication, {:orbs, chunk})
-    :ets.insert(state.item_publication, rows)
+    Valimc.World.EntityPublication.publish(
+      state.item_publication,
+      state.items.epoch,
+      :orbs,
+      views
+    )
 
     %{
       state
@@ -391,23 +393,12 @@ defmodule Valimc.World.CookingOrbRuntime do
       views(active, existing, epoch)
       |> Map.new(fn {id, v} -> {id, Map.put(v, :consumed, Map.get(counts, v.uuid, 0))} end)
 
-    rows =
-      views
-      |> Enum.group_by(fn {_, view} -> view.chunk end)
-      |> Enum.map(fn {chunk, entries} -> {{:orbs, chunk}, epoch, Map.new(entries)} end)
-
-    old_chunks = MapSet.new(existing, fn {_, v} -> v.chunk end)
-    new_chunks = MapSet.new(rows, fn {{:orbs, chunk}, _, _} -> chunk end)
-    retired = MapSet.difference(old_chunks, new_chunks) |> MapSet.to_list()
-
     %{
       views: views,
-      rows: rows,
       ledger: ledger,
       revision: containers.orb_transfers.revision,
       consumption_revision: containers.orb_consumption.revision,
-      body_revision: containers.orb_bodies.revision,
-      retired: retired
+      body_revision: containers.orb_bodies.revision
     }
   end
 
@@ -449,6 +440,7 @@ defmodule Valimc.World.CookingOrbRuntime do
 
     {id,
      %{
+       kind: :orb,
        uuid: uuid,
        epoch: epoch,
        entity_id: id,

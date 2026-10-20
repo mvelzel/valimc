@@ -29,7 +29,7 @@ defmodule Valimc.RegionDirectoryTest do
       assert World.region(ctx.key) == {:ok, pid}
       assert World.owner(ctx.key) == {:ok, {pid, epoch}}
       assert World.existing_owner(ctx.key) == {:ok, owner}
-      assert World.item_snapshot(ctx.key) == elem(hd(:ets.lookup(table, :items)), 1)
+      assert World.item_snapshot(ctx.key) == Valimc.World.EntityPublication.source(table, :items)
       assert World.get_block(position) == 1
       assert :ok = World.set_block(position, 0)
       assert World.existing_owner(ctx.other) == {:error, :region_unavailable}

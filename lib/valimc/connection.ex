@@ -343,8 +343,8 @@ defmodule Valimc.Connection do
        fire_damage_due: false,
        fire_contacts_active: false,
        armor_view: nil,
-       item_replication: EntityReplication.new(),
-       orb_replication: EntityReplication.new(),
+       entity_replication: EntityReplication.new(),
+       entity_cache: %{},
        clock_version: nil,
        weather_view: nil,
        difficulty_view: nil,
@@ -1294,27 +1294,24 @@ defmodule Valimc.Connection do
               }
           end)
 
-        desired_items = World.visible_items(state.regions, state.chunks)
-
-        state = start_pickup_query(state, desired_items)
-
-        {item_replication, item_packets} =
-          EntityReplication.reconcile(state.item_replication, desired_items)
+        # One tracker for every entity kind; unchanged chunks are not re-read.
+        {desired, cache} = World.visible_entities(state.regions, state.chunks, state.entity_cache)
+        state = %{state | entity_cache: cache}
 
         state =
-          emit_peer_packets(%{state | item_replication: item_replication}, item_packets, :buffer)
-
-        desired_orbs = World.visible_orbs(state.regions, state.chunks)
-        state = start_experience_query(state, desired_orbs)
-
-        {orb_replication, orb_packets} =
-          EntityReplication.reconcile_predicted(
-            state.orb_replication,
-            desired_orbs
+          start_pickup_query(
+            state,
+            for({id, %{kind: :item} = v} <- desired, into: %{}, do: {id, v})
           )
 
         state =
-          emit_peer_packets(%{state | orb_replication: orb_replication}, orb_packets, :buffer)
+          start_experience_query(
+            state,
+            for({id, %{kind: :orb} = v} <- desired, into: %{}, do: {id, v})
+          )
+
+        {replication, packets} = EntityReplication.reconcile(state.entity_replication, desired)
+        state = emit_peer_packets(%{state | entity_replication: replication}, packets, :buffer)
 
         {version, clock_packet} = Valimc.World.Clock.publication()
 
@@ -2062,8 +2059,7 @@ defmodule Valimc.Connection do
   defp finish_respawn(state, player) do
     old_entities = Enum.map(state.peers, fn {_, view} -> Packets.remove_entity(view) end)
 
-    old_items =
-      Map.keys(state.item_replication.tracked) ++ Map.keys(state.orb_replication.tracked)
+    old_items = Map.keys(state.entity_replication.tracked)
 
     old_items =
       if old_items == [], do: [], else: [Valimc.Protocol.EntityPackets.remove(old_items)]
@@ -2098,8 +2094,8 @@ defmodule Valimc.Connection do
         pending: [],
         batch_pending: false,
         peers: %{},
-        item_replication: EntityReplication.new(),
-        orb_replication: EntityReplication.new(),
+        entity_replication: EntityReplication.new(),
+        entity_cache: %{},
         clock_version: clock_version,
         difficulty_view: difficulty,
         weather_view: weather_view
@@ -3632,14 +3628,14 @@ defmodule Valimc.Connection do
   defp event(%{phase: :play} = state, {:player_joined, player}), do: track_peer(state, player)
 
   defp event(%{phase: :play} = state, {:experience_pickup, epoch, id, collector}) do
-    if match?({^epoch, _}, state.orb_replication.tracked[id]),
+    if match?({^epoch, _}, state.entity_replication.tracked[id]),
       do: send_packets(state, [Valimc.Protocol.EntityPackets.pickup(id, collector, 1)])
 
     state
   end
 
   defp event(%{phase: :play} = state, {:item_pickup, epoch, id, collector, count}) do
-    if match?({^epoch, _}, state.item_replication.tracked[id]),
+    if match?({^epoch, _}, state.entity_replication.tracked[id]),
       do: send_packets(state, [Valimc.Protocol.EntityPackets.pickup(id, collector, count)])
 
     state

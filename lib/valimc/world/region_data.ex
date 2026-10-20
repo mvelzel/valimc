@@ -1,6 +1,7 @@
 defmodule Valimc.World.RegionData do
   @moduledoc "One storage resource's data and operations, executed by its owning process."
   alias Valimc.World.{
+    EntityPublication,
     ScheduledTicks,
     TickBehaviours,
     BlockBatch,
@@ -132,7 +133,8 @@ defmodule Valimc.World.RegionData do
 
     publication = :ets.new(:region_items, [:set, :protected, read_concurrency: true])
     :ok = BlockSnapshot.publish_chunks(publication, blocks, Blocks.touched_chunks(blocks), 0)
-    :ets.insert(publication, [{:items, items.views}, {:block_fence, items.epoch, 0}])
+    :ets.insert(publication, {:block_fence, items.epoch, 0})
+    EntityPublication.publish(publication, items.epoch, :items, items.views)
 
     save_timer = Process.send_after(self(), {:resource, items.epoch, :save}, 30_000)
 
@@ -1740,7 +1742,13 @@ defmodule Valimc.World.RegionData do
   # Views are published only when no item write is in flight; the last durable
   # acknowledgement publishes the current views.
   defp publish_item_views(%{item_writes: []} = state),
-    do: :ets.insert(state.item_publication, {:items, state.items.views})
+    do:
+      EntityPublication.publish(
+        state.item_publication,
+        state.items.epoch,
+        :items,
+        state.items.views
+      )
 
   defp publish_item_views(_state), do: true
 

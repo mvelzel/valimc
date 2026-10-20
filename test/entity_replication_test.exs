@@ -86,11 +86,12 @@ defmodule Valimc.EntityReplicationTest do
   end
 
   test "predicted entities receive bounded rotating corrections even at unchanged revisions" do
-    desired = views(200)
+    # Orb views are client-predicted.
+    desired = Map.new(views(200), fn {id, view} -> {id, Map.put(view, :kind, :orb)} end)
 
     tracked =
       Enum.reduce(1..4, EntityReplication.new(), fn _, state ->
-        {next, packets} = EntityReplication.reconcile_predicted(state, desired)
+        {next, packets} = EntityReplication.reconcile(state, desired)
         assert length(packets) == 128
         next
       end)
@@ -99,7 +100,7 @@ defmodule Valimc.EntityReplicationTest do
 
     {corrected, ids} =
       Enum.reduce(1..4, {tracked, MapSet.new()}, fn _, {state, seen} ->
-        {next, packets} = EntityReplication.reconcile_predicted(state, desired)
+        {next, packets} = EntityReplication.reconcile(state, desired)
         assert length(packets) == 128
 
         assert names(packets) ==
@@ -114,7 +115,7 @@ defmodule Valimc.EntityReplicationTest do
       end)
 
     assert ids == MapSet.new(Map.keys(desired))
-    {cleared, [packet]} = EntityReplication.reconcile_predicted(corrected, %{})
+    {cleared, [packet]} = EntityReplication.reconcile(corrected, %{})
     assert cleared.tracked == %{}
     assert names([packet]) == ["remove_entities"]
   end
