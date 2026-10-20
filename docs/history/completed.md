@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-070 client view distance](../tickets/VMC-070.md) | `04ca075`: requested render distance clamped to 2..server's (default 10) picks vanilla's chunk view live (oracle stage `chunk_view`), vanilla send pacing and entity tracking ranges; actual render distances 2, 4, 6 and 16, mid-game changes, a long flight and a reconnect |
 | [VMC-024 Vanilla terrain](../tickets/VMC-024.md) | `513c27f`: noise fill with aquifers, material rules and carvers equal vanilla's (stages `worldgen_terrain`, `worldgen_surface`, `worldgen_carvers`), generated live in new vanilla worlds; actual client run on generated worlds; matched with Pumpkin (`73563bc`) |
 | [VMC-023 Seeded noise and biomes](../tickets/VMC-023.md) | Random sources, gradient noises, compiled density functions and chunk biomes equal vanilla's (stages `worldgen_random`, `worldgen_noise`, `worldgen_density`, `worldgen_biomes`); live through VMC-024 |
 | [VMC-020 NBT and world schemas](../tickets/VMC-020.md) | `acea498`: one bounded NBT codec with native disk reads, world schemas and the golden vanilla world (stage `world_nbt`); live through the Anvil import and export (VMC-021) |

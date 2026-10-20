@@ -72,6 +72,7 @@ public class VanillaOracle implements AutoCloseable {
   private int chunks;
   private int playerId;
   private int expectedChunks;
+  private static final int VIEW_DISTANCE = 4;
   private ClientboundContainerSetContentPacket initialInventory;
   private final Map<Integer,ItemStack> observedItems = new HashMap<>();
 
@@ -103,6 +104,10 @@ public class VanillaOracle implements AutoCloseable {
       Object packet = read(ConfigurationProtocols.CLIENTBOUND);
       if (packet instanceof ClientboundSelectKnownPacks packs) {
         if (!packs.knownPacks().equals(List.of(new KnownPack("minecraft", "core", "26.3")))) throw new AssertionError("Wrong known pack");
+        // Like the vanilla client, send its settings; the view distance decides the chunks (VMC-070).
+        send(ConfigurationProtocols.SERVERBOUND, new ServerboundClientInformationPacket(new net.minecraft.server.level.ClientInformation(
+            "en_us", VIEW_DISTANCE, net.minecraft.world.entity.player.ChatVisiblity.FULL, true, 0x7F,
+            net.minecraft.world.entity.HumanoidArm.RIGHT, false, true, net.minecraft.server.level.ParticleStatus.ALL)));
         send(ConfigurationProtocols.SERVERBOUND, new ServerboundSelectKnownPacks(packs.knownPacks()));
       }
       if (packet instanceof ClientboundRegistryDataPacket registry) entries.put(registry.registry(), registry.entries());
@@ -116,7 +121,12 @@ public class VanillaOracle implements AutoCloseable {
     while (expectedChunks == 0 || chunks < expectedChunks) {
       Object packet = readGame();
       if (packet instanceof ClientboundLoginPacket world) {
-        expectedChunks = (world.chunkRadius() * 2 + 1) * (world.chunkRadius() * 2 + 1);
+        // Vanilla tracks the requested distance clamped to 2..the server's (VMC-070).
+        int distance = Math.max(2, Math.min(VIEW_DISTANCE, world.chunkRadius()));
+        int[] tracked = {0};
+        net.minecraft.server.level.ChunkTrackingView.of(new net.minecraft.world.level.ChunkPos(0, 0), distance)
+            .forEach(pos -> tracked[0]++);
+        expectedChunks = tracked[0];
         if (world.commonPlayerSpawnInfo().gameType() != net.minecraft.world.level.GameType.CREATIVE) throw new AssertionError("Wrong game type");
         if (world.commonPlayerSpawnInfo().dimensionType().value().minY() != -64) throw new AssertionError("Wrong dimension");
       }
