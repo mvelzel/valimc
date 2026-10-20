@@ -31,6 +31,9 @@ defmodule Valimc.Command.Error do
   def throw!(%__MODULE__{} = error), do: throw({:command_syntax, error})
 
   def fail!(key, args \\ []), do: throw!(new(key, args))
+
+  @doc "Refuses something ValiMC does not implement yet with a plain red message."
+  def refuse!(text), do: throw!(%__MODULE__{message: Text.literal(text)})
   def fail_at!(key, args, reader), do: throw!(with_context(key, args, reader))
 
   @doc "Runs `fun`, returning `{:ok, value}` or `{:error, error}` for syntax errors."

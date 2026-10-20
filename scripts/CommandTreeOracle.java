@@ -182,6 +182,16 @@ public class CommandTreeOracle {
     info.addProperty("stable", version.stable());
     out.add("server_version", info);
     out.add("time_markers", markers);
+    // Item component types a command may name (`ItemParser.readComponentType`).
+    var components = new JsonArray();
+    BuiltInRegistries.DATA_COMPONENT_TYPE.keySet().stream().map(Object::toString).sorted().forEach(id -> {
+      var type = BuiltInRegistries.DATA_COMPONENT_TYPE.getValue(Identifier.parse(id));
+      if (!type.isTransient()) components.add(id);
+    });
+    out.add("item_components", components);
+    var predicates = new JsonArray();
+    BuiltInRegistries.DATA_COMPONENT_PREDICATE_TYPE.keySet().stream().map(Object::toString).sorted().forEach(predicates::add);
+    out.add("item_predicates", predicates);
     return out;
   }
 
@@ -299,7 +309,23 @@ public class CommandTreeOracle {
     "list uuids", "msg @a hi", "me waves at @p", "say hi @e[", "say hi @", "say hi @z there", "msg Alice @a[limit=",
     "locate biome minecraft:plains extra", "setworldspawn ~ ~ ~ ~ ~",
     "xp add Alice 10 points", "xp set @a 0 levels", "xp query @a points", "effect give @a speed infinite",
-    "give @a minecraft:stone 6400", "clear @a minecraft:stone 2147483648", "kill @a[limit=1]", "tp @e[type=item] ~ ~ ~",
+    "give @a minecraft:stone 6400",
+    "give @s diamond_sword[damage=5]", "give @s diamond_sword[damage=-1]", "give @s diamond_sword[damage=\"x\"]",
+    "give @s diamond_sword[damage=5b]", "give @s stone[max_stack_size=100]", "give @s stone[max_stack_size=64]",
+    "give @s stone[unbreakable={}]", "give @s stone[enchantment_glint_override=true]", "give @s stone[custom_data={a:1,b:[1,2]}]",
+    "give @s stone[!max_stack_size]", "give @s stone[damage=1,damage=2]", "give @s stone[damage=1,]", "give @s stone[ minecraft:damage = 3 ]",
+    "give @s stone[damage=1", "give @s stone[damage=]", "give @s stone[damage=1 2]", "give @s stone[max_damage=0]", "give @s stone[damage=3.7]",
+    "give @s stone[damage=1]]", "give @s stone[]", "give @s stone[,]", "give @s stone[!]", "give @s stone[damage=01]",
+    "setblock 1 2 3 chest{}", "setblock 1 2 3 chest{Items:[]}", "setblock 1 2 3 chest{", "setblock 1 2 3 chest{a:1}x",
+    "setblock 1 2 3 stone[]{}", "fill 0 0 0 1 1 1 chest{a:\"b\"} replace",
+    "gamemode creative @a[nbt={}]", "gamemode creative @a[nbt=!{a:1b}]", "gamemode creative @a[nbt=5]", "gamemode creative @a[nbt={a:]",
+    "kill @e[nbt={Tags:[\"x\"]},type=item]",
+    "setblock 1 2 3 chest{v:1}", "setblock 1 2 3 chest{v:-1}", "setblock 1 2 3 chest{v:+5}", "setblock 1 2 3 chest{v:1b}", "setblock 1 2 3 chest{v:1B}", "setblock 1 2 3 chest{v:1s}", "setblock 1 2 3 chest{v:1L}", "setblock 1 2 3 chest{v:1ub}", "setblock 1 2 3 chest{v:1sb}", "setblock 1 2 3 chest{v:1us}", "setblock 1 2 3 chest{v:1ui}", "setblock 1 2 3 chest{v:1ul}", "setblock 1 2 3 chest{v:255ub}", "setblock 1 2 3 chest{v:256ub}", "setblock 1 2 3 chest{v:-1ub}", "setblock 1 2 3 chest{v:128b}", "setblock 1 2 3 chest{v:127b}", "setblock 1 2 3 chest{v:32768s}", "setblock 1 2 3 chest{v:2147483648}", "setblock 1 2 3 chest{v:2147483648L}", "setblock 1 2 3 chest{v:9223372036854775808L}", "setblock 1 2 3 chest{v:18446744073709551615ul}", "setblock 1 2 3 chest{v:18446744073709551616ul}", "setblock 1 2 3 chest{v:0x}", "setblock 1 2 3 chest{v:0xFF}", "setblock 1 2 3 chest{v:0xffb}", "setblock 1 2 3 chest{v:0xFFFFFFFF}", "setblock 1 2 3 chest{v:0x1_00}", "setblock 1 2 3 chest{v:0x_1}", "setblock 1 2 3 chest{v:0b101}", "setblock 1 2 3 chest{v:0b2}", "setblock 1 2 3 chest{v:0b}", "setblock 1 2 3 chest{v:01}", "setblock 1 2 3 chest{v:00}", "setblock 1 2 3 chest{v:0_1}", "setblock 1 2 3 chest{v:1_000}", "setblock 1 2 3 chest{v:1__0}", "setblock 1 2 3 chest{v:1_}", "setblock 1 2 3 chest{v:_1}", "setblock 1 2 3 chest{v:1.5}", "setblock 1 2 3 chest{v:1.}", "setblock 1 2 3 chest{v:.5}", "setblock 1 2 3 chest{v:.}", "setblock 1 2 3 chest{v:1e3}", "setblock 1 2 3 chest{v:1E-3}", "setblock 1 2 3 chest{v:1e}", "setblock 1 2 3 chest{v:1.5f}", "setblock 1 2 3 chest{v:1.5F}", "setblock 1 2 3 chest{v:1.5d}", "setblock 1 2 3 chest{v:1e3f}", "setblock 1 2 3 chest{v:3.4e39f}", "setblock 1 2 3 chest{v:1e309}", "setblock 1 2 3 chest{v:1.5b}", "setblock 1 2 3 chest{v:1fb}", "setblock 1 2 3 chest{v:-.5}", "setblock 1 2 3 chest{v:+.5e+2}", "setblock 1 2 3 chest{v:1.5e1_0}", "setblock 1 2 3 chest{v:1i}", "setblock 1 2 3 chest{v:1.0i}", "setblock 1 2 3 chest{v:\"a\"}", "setblock 1 2 3 chest{v:'a'}", "setblock 1 2 3 chest{v:\"a'b\"}", "setblock 1 2 3 chest{v:'a\"b'}", "setblock 1 2 3 chest{v:\"a\\\"b\"}", "setblock 1 2 3 chest{v:'a\\'b'}", "setblock 1 2 3 chest{v:\"\\n\\t\\s\\b\"}", "setblock 1 2 3 chest{v:\"\\x41\"}", "setblock 1 2 3 chest{v:\"\\x4\"}", "setblock 1 2 3 chest{v:\"é\"}", "setblock 1 2 3 chest{v:\"\\U0001F600\"}", "setblock 1 2 3 chest{v:\"\\U00110000\"}", "setblock 1 2 3 chest{v:\"\\q\"}", "setblock 1 2 3 chest{v:\"\\N{SPACE}\"}", "setblock 1 2 3 chest{v:\"unterminated}", "setblock 1 2 3 chest{v:''}", "setblock 1 2 3 chest{v:abc}", "setblock 1 2 3 chest{v:true}", "setblock 1 2 3 chest{v:FALSE}", "setblock 1 2 3 chest{v:True}", "setblock 1 2 3 chest{v:bool(1)}", "setblock 1 2 3 chest{v:bool(0)}", "setblock 1 2 3 chest{v:bool(\"x\")}", "setblock 1 2 3 chest{v:bool(1.5)}", "setblock 1 2 3 chest{v:bool(256)}", "setblock 1 2 3 chest{v:bool()}", "setblock 1 2 3 chest{v:bool(1,2)}", "setblock 1 2 3 chest{v:uuid(\"dd12be42-52a9-4a91-a8a1-11c01849e498\")}", "setblock 1 2 3 chest{v:uuid(\"x\")}", "setblock 1 2 3 chest{v:uuid(1)}", "setblock 1 2 3 chest{v:foo(1)}", "setblock 1 2 3 chest{v:foo(}", "setblock 1 2 3 chest{v:1abc}", "setblock 1 2 3 chest{v:[]}", "setblock 1 2 3 chest{v:[1,2,3]}", "setblock 1 2 3 chest{v:[1,\"a\"]}", "setblock 1 2 3 chest{v:[1,]}", "setblock 1 2 3 chest{v:[,]}", "setblock 1 2 3 chest{v:[1 2]}", "setblock 1 2 3 chest{v:[B;1b,2b]}", "setblock 1 2 3 chest{v:[B;1,2]}", "setblock 1 2 3 chest{v:[B;1s]}", "setblock 1 2 3 chest{v:[I;1,2b,3s]}", "setblock 1 2 3 chest{v:[I;1L]}", "setblock 1 2 3 chest{v:[L;1,2L]}", "setblock 1 2 3 chest{v:[B;]}", "setblock 1 2 3 chest{v:[X;1]}", "setblock 1 2 3 chest{v:[B;1}", "setblock 1 2 3 chest{v:[I;1b,]}", "setblock 1 2 3 chest{v:{}}", "setblock 1 2 3 chest{v:{a:1}}", "setblock 1 2 3 chest{v:{a:1,}}", "setblock 1 2 3 chest{v:{\"a b\":1}}", "setblock 1 2 3 chest{v:{'':1}}", "setblock 1 2 3 chest{v:{:1}}", "setblock 1 2 3 chest{v:{a:1,a:2}}", "setblock 1 2 3 chest{v:{a b:1}}", "setblock 1 2 3 chest{v:{a:{b:{c:[1]}}}}", "setblock 1 2 3 chest{v:{ a : 1 }}", "setblock 1 2 3 chest{v:{a:1 b:2}}", "setblock 1 2 3 chest{v:{a}", "setblock 1 2 3 chest{v:{1:2}}", "setblock 1 2 3 chest{v:{+:1}}", "setblock 1 2 3 chest{v:1}", "setblock 1 2 3 chest[facing=east]{v:1}", "setblock 1 2 3 chest{}{}", "setblock 1 2 3 chest[]{", "setblock 1 2 3 chest 1", "setblock 1 2 3 chest{  }",
+    "clear @s nonsense", "clear @s *[damage=1]", "clear @s stone[count=5]", "clear @s stone[count={min:2,max:5}]",
+    "clear @s stone[count={min:5,max:2}]", "clear @s stone[count=\"x\"]", "clear @s stone[damage]", "clear @s stone[!damage]",
+    "clear @s stone[damage=1|damage=2,unbreakable]", "clear @s stone[damage~{durability:1}]", "clear @s stone[unbreakable~{}]",
+    "clear @s stone[nonsense=1]", "clear @s stone[nonsense~1]", "clear @s stone[damage=", "clear @s stone[damage=1", "clear @s stone[",
+    "clear @s stone[]", "clear @s #minecraft:logs[count=1]", "clear @s stone[count~5]", "clear @s stone[ damage = 2 ]", "clear @s *[!count=1|damage]", "clear @a minecraft:stone 2147483648", "kill @a[limit=1]", "tp @e[type=item] ~ ~ ~",
   };
 
   static JsonArray cases() {
@@ -383,7 +409,7 @@ public class CommandTreeOracle {
     System.out.println("PASS: Mojang decoded ValiMC's graphs (" + nodes + " nodes at levels 0 and 4) as vanilla's "
       + "usable tree pruned to implemented commands; " + compared + " parse outcomes equal vanilla's; " + outside
       + " inputs reach commands ValiMC does not implement yet and fail; " + unsupported
-      + " need SNBT (VMC-053g) and are refused; Mojang decodes ValiMC's suggestion reply.");
+      + " are refused as not supported yet; Mojang decodes ValiMC's suggestion reply.");
   }
 
   /** ValiMC's explicit refusal of syntax it does not implement yet: red literal "... not supported yet". */

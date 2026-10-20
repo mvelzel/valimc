@@ -23,7 +23,8 @@ defmodule Valimc.Command.Arguments do
     brigadier:string minecraft:entity minecraft:gamemode minecraft:vec3 minecraft:block_pos
     minecraft:rotation minecraft:entity_anchor minecraft:time minecraft:message
     minecraft:item_stack minecraft:item_predicate minecraft:block_state minecraft:block_predicate
-    minecraft:resource minecraft:resource_or_tag minecraft:resource_location)
+    minecraft:resource minecraft:resource_or_tag minecraft:resource_location
+    minecraft:nbt_compound_tag minecraft:nbt_tag)
 
   def supported, do: @supported
 
@@ -135,7 +136,7 @@ defmodule Valimc.Command.Arguments do
   def parse("minecraft:item_stack", _props, reader, _source), do: ItemInput.parse_stack(reader)
 
   def parse("minecraft:item_predicate", _props, reader, _source),
-    do: ItemInput.parse_predicate(reader)
+    do: Valimc.Command.ItemPredicate.parse(reader)
 
   def parse("minecraft:block_state", _props, reader, _source), do: BlockInput.parse_state(reader)
 
@@ -171,6 +172,11 @@ defmodule Valimc.Command.Arguments do
   end
 
   def parse("minecraft:resource_location", _props, reader, _source), do: Identifier.read(reader)
+
+  def parse("minecraft:nbt_compound_tag", _props, reader, _source),
+    do: Valimc.Command.Snbt.parse_compound(reader)
+
+  def parse("minecraft:nbt_tag", _props, reader, _source), do: Valimc.Command.Snbt.parse(reader)
 
   defp bounded(reader, type, min, max, name) do
     start = reader.cursor

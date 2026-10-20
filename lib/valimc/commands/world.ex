@@ -304,8 +304,9 @@ defmodule Valimc.Commands.World do
   end
 
   @doc "`/setblock <pos> <block> [keep|replace|strict]`."
-  def setblock(%{"pos" => pos, "block" => %BlockInput{state: state}} = arguments, source) do
+  def setblock(%{"pos" => pos, "block" => %BlockInput{state: state} = block} = arguments, source) do
     position = loaded_block!(source, pos)
+    no_block_data!(block)
     current = Valimc.World.get_block(position)
 
     if arguments[:mode] == :keep and not air?(current),
@@ -327,6 +328,10 @@ defmodule Valimc.Commands.World do
   end
 
   def setblock_keep(arguments, source), do: setblock(Map.put(arguments, :mode, :keep), source)
+
+  # Block-entity data from commands needs owner support per block entity.
+  defp no_block_data!(%BlockInput{nbt: nbt}) when nbt in [nil, {:compound, %{}}], do: :ok
+  defp no_block_data!(_), do: Error.refuse!("Block entity data in commands is not supported yet")
 
   @air ~w(air cave_air void_air)
   defp air?(state),

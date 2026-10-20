@@ -432,9 +432,10 @@ defmodule Valimc.Command.Selector do
     {add(s, {:predicate, id, inverted}), reader}
   end
 
-  defp option("nbt", reader, _s) do
-    # SNBT (vanilla's packrat `TagParser`) is VMC-053g; the option stays pending.
-    Error.throw!(Error.unsupported("Selector nbt= (SNBT) is not supported yet", reader))
+  defp option("nbt", reader, s) do
+    {inverted, reader} = invert(reader)
+    {tag, reader} = Valimc.Command.Snbt.parse_compound(reader)
+    {add(s, {:nbt, tag, inverted}), reader}
   end
 
   defp scores(reader, acc) do
@@ -508,6 +509,10 @@ defmodule Valimc.Command.Selector do
   `players` are the online player maps, `self` the source's player map or nil.
   """
   def find(%__MODULE__{} = s, players, self, origin) do
+    # Players have no saved entity data to compare yet.
+    if Enum.any?(s.predicates, &match?({:nbt, _, _}, &1)),
+      do: Error.refuse!("Selector nbt= is not supported yet")
+
     cond do
       s.player_name ->
         players

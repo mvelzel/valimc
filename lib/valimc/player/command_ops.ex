@@ -6,7 +6,7 @@ defmodule Valimc.Player.CommandOps do
   (`Valimc.Commands.Remote`), so feedback reports what the target did.
   """
   alias Valimc.{Inventory, PlayerExperience, PlayerHealth, StatusEffect, World}
-  alias Valimc.Command.{Error, ItemInput}
+  alias Valimc.Command.{Error, ItemPredicate}
 
   alias Valimc.Player.{
     CreativeInventory,
@@ -68,7 +68,7 @@ defmodule Valimc.Player.CommandOps do
       Enum.reduce(slots, {state.inventory, 0}, fn slot, {inventory, total} ->
         case Inventory.get(inventory, slot) do
           %ItemStack{} = stack ->
-            if ItemInput.matches?(predicate, stack) do
+            if ItemPredicate.matches?(predicate, stack) do
               if counting do
                 {inventory, total + stack.count}
               else
@@ -93,7 +93,7 @@ defmodule Valimc.Player.CommandOps do
       case inventory.carried do
         %ItemStack{} = stack ->
           cond do
-            not ItemInput.matches?(predicate, stack) ->
+            not ItemPredicate.matches?(predicate, stack) ->
               {inventory, total}
 
             counting ->

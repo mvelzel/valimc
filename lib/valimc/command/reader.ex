@@ -170,6 +170,7 @@ defmodule Valimc.Command.Reader do
 
   def to_float32(value) do
     case <<value::float-32>> do
+      <<_sign::1, 0xFF::8, _::23>> -> if value > 0, do: :infinity, else: :neg_infinity
       <<f::float-32>> -> f
     end
   rescue

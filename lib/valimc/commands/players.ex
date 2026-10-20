@@ -222,7 +222,7 @@ defmodule Valimc.Commands.Players do
   @doc "`/give <targets> <item> [<count>]` (`GiveCommand`)."
   def give(%{"targets" => selector, "item" => item} = arguments, source) do
     count = Map.get(arguments, "count", 1)
-    stack = ItemStack.new(item.item, 1)
+    stack = %{ItemStack.new(item.item, 1) | components: item.components, removed: item.removed}
     limit = ItemStack.max_stack_size(stack) * 100
     display = Names.item(item.item_id)
 
@@ -252,7 +252,7 @@ defmodule Valimc.Commands.Players do
         _ -> [source.player]
       end
 
-    predicate = Map.get(arguments, "item", %Valimc.Command.ItemInput{any: true})
+    predicate = Map.get(arguments, "item", {:all, []})
     max_count = Map.get(arguments, "maxCount", -1)
     {tracked, state} = on_targets(source, targets, fn _ -> {:clear, predicate, max_count} end)
     tracked = Enum.map(tracked, fn {target, n} -> {target, if(is_integer(n), do: n, else: 0)} end)

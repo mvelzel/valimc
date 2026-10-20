@@ -51,6 +51,39 @@ defmodule Valimc.CommandConnectionTest do
     _client = command(client, "clear @s minecraft:stone", "clear.failed.single")
   end
 
+  test "item components in give and clear" do
+    {client, pid} = join()
+
+    client =
+      command(
+        client,
+        "give @s diamond_sword[damage=5,unbreakable={}] 2",
+        "commands.give.success.single"
+      )
+
+    swords =
+      for %Valimc.Protocol.ItemStack{} = stack <-
+            Valimc.Inventory.contents(:sys.get_state(pid).inventory),
+          stack.item_id == Valimc.Protocol.ItemTypes.id("diamond_sword"),
+          do: stack.components
+
+    assert swords == [
+             %{"minecraft:damage" => 5, "minecraft:unbreakable" => :unit},
+             %{"minecraft:damage" => 5, "minecraft:unbreakable" => :unit}
+           ]
+
+    client = command(client, "clear @s diamond_sword[damage=4]", "clear.failed.single")
+
+    _client =
+      command(
+        client,
+        "clear @s diamond_sword[damage=5,unbreakable]",
+        "commands.clear.success.single"
+      )
+
+    assert count(pid, "diamond_sword") == 0
+  end
+
   test "an operator's own experience, effects, teleport and death" do
     {client, pid} = join()
 

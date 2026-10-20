@@ -137,6 +137,31 @@ defmodule Valimc.Protocol.ItemStack do
     bytes
   end
 
+  @doc "Whether the stack has component `name`, by default or patch (VMC-053 item predicates)."
+  def has_component?(%__MODULE__{} = stack, name),
+    do:
+      not MapSet.member?(stack.removed, name) and
+        (Map.has_key?(stack.components, name) or
+           MapSet.member?(ItemTypes.defaults(stack.item_id).present, name))
+
+  @doc "The effective value of component `name`: nil when absent, `:unknown` without a codec."
+  def component(%__MODULE__{} = stack, name) do
+    cond do
+      MapSet.member?(stack.removed, name) ->
+        nil
+
+      Map.has_key?(stack.components, name) ->
+        stack.components[name]
+
+      true ->
+        case {ItemTypes.defaults(stack.item_id).values[name], @codecs[name]} do
+          {nil, _} -> nil
+          {_, nil} -> :unknown
+          {bytes, codec} -> elem(read_component(codec, bytes), 0)
+        end
+    end
+  end
+
   def max_stack_size(%__MODULE__{} = stack) do
     effective(
       stack,

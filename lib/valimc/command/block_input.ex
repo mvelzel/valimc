@@ -2,7 +2,7 @@ defmodule Valimc.Command.BlockInput do
   @moduledoc """
   Vanilla `BlockStateParser` (VMC-053): `block_state` (`id[prop=value]`) and
   `block_predicate` (also `#tag[prop=value]`), with vanilla's errors and cursors.
-  Block-entity data (`{...}`) needs SNBT (VMC-053g) and is refused until then.
+  Block-entity data (`{...}`) is SNBT (`Valimc.Command.Snbt`).
   """
   alias Valimc.Command.{Error, Identifier, Reader, Registries}
   alias Valimc.Registry.Blocks
@@ -32,10 +32,12 @@ defmodule Valimc.Command.BlockInput do
             else: {input, reader}
         end
 
-      if Reader.at?(reader, ?{),
-        do:
-          Error.throw!(Error.unsupported("Block entity data (SNBT) is not supported yet", reader)),
-        else: {input, reader}
+      if Reader.at?(reader, ?{) do
+        {nbt, reader} = Valimc.Command.Snbt.parse_compound(reader)
+        {%{input | nbt: nbt}, reader}
+      else
+        {input, reader}
+      end
     catch
       {:command_syntax, error} ->
         _ = cursor
