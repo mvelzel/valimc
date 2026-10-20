@@ -39,6 +39,8 @@ defmodule Valimc.World.RegionData do
   }
 
   alias Valimc.Protocol.Packets
+  alias Valimc.Block.Support
+  import Bitwise, only: [bxor: 2]
 
   defstruct [
     :block_entities,
@@ -1426,6 +1428,7 @@ defmodule Valimc.World.RegionData do
                 cache: Map.delete(state.cache, key),
                 versions: Map.update(state.versions, key, 1, &(&1 + 1))
             }
+            |> shape_updates(%{position => block})
 
           {:reply, :ok, publish_block_snapshots(next, [key])}
         else
@@ -1520,16 +1523,25 @@ defmodule Valimc.World.RegionData do
     state = %{state | scheduled_ticks: scheduled, ticks_dirty: state.ticks_dirty or due != []}
     read = &read_block(state, &1)
 
+    # A dependent block whose tick finds it unsupported breaks (VMC-029c) instead
+    # of running its behaviour.
+    {breaks, due} =
+      due
+      |> Enum.filter(fn {position, block} -> Blocks.get(state.blocks, position) == block end)
+      |> Enum.split_with(fn {position, block} -> Support.breaks?(position, block, read) end)
+
     scheduled_effects =
       for {position, block} <- due,
-          Blocks.get(state.blocks, position) == block,
           module = state.tick_index[block],
           module != nil and function_exported?(module, :scheduled_tick, 4),
           effect <- module.scheduled_tick(position, block, read, &random/1),
           do: effect
 
     {random_effects, state} = random_ticks(state, read)
-    apply_tick_effects(state, scheduled_effects ++ random_effects)
+
+    state
+    |> apply_tick_effects(scheduled_effects ++ random_effects)
+    |> support_breaks(breaks)
   end
 
   @orb_save_ticks 600
@@ -1592,14 +1604,19 @@ defmodule Valimc.World.RegionData do
 
   defp random(bound), do: :rand.uniform(bound) - 1
 
-  # Vanilla `updateShape` scheduling: each edited position and its neighbours in
-  # the region whose behaviour defines `shape_update` may schedule ticks.
-  defp shape_updates(%{tick_index: index} = state, _changes) when map_size(index) == 0,
-    do: state
-
+  # Vanilla `updateShape` after a block commit: behaviours of the edited positions
+  # and their neighbours may schedule ticks, and dependent neighbours that can no
+  # longer survive schedule the tick that breaks them (VMC-029c).
   defp shape_updates(state, changes) do
     read = &read_block(state, &1)
+    state |> behaviour_shape_updates(changes, read) |> support_updates(changes, read)
+  end
 
+  defp behaviour_shape_updates(%{tick_index: index} = state, _changes, _read)
+       when map_size(index) == 0,
+       do: state
+
+  defp behaviour_shape_updates(state, changes, read) do
     positions =
       for {x, y, z} <- Map.keys(changes),
           position <- [
@@ -1624,6 +1641,122 @@ defmodule Valimc.World.RegionData do
           do: effect
 
     schedule_ticks(state, effects)
+  end
+
+  # Each neighbour of an edited position sees the update from the opposite side.
+  # Vanilla breaks at once where this waits for the next tick: the break is one
+  # durable commit with its drops, and a cascade advances one block per tick.
+  defp support_updates(state, changes, read) do
+    directions =
+      for {x, y, z} <- Map.keys(changes), d <- 0..5, reduce: %{} do
+        acc ->
+          {dx, dy, dz} = Support.direction(d)
+          Map.update(acc, {x + dx, y + dy, z + dz}, [bxor(d, 1)], &[bxor(d, 1) | &1])
+      end
+
+    positions = for position <- Map.keys(directions), in_region?(state, position), do: position
+
+    effects =
+      for {position, block} <- Blocks.get_many(state.blocks, positions),
+          Support.dependent?(block),
+          delay = support_delay(Support.update(position, block, directions[position], read)),
+          delay != nil,
+          do: {:schedule, position, block, delay, 0}
+
+    schedule_ticks(state, effects)
+  end
+
+  defp support_delay(:keep), do: nil
+  defp support_delay(:break), do: 1
+  defp support_delay({:tick, delay}), do: delay
+
+  @max_support_breaks 4096
+
+  # Blocks that lost their support break like vanilla `destroyBlock`: they leave
+  # their fluid and drop their tool-less loot. One durable frame holds the removal
+  # and the items (the mining commit); its shape updates schedule the next level
+  # of a cascade. Behind a planning transfer, a full write queue or more than one
+  # batch of breaks, the rest wait a tick.
+  defp support_breaks(state, []), do: state
+
+  defp support_breaks(state, breaks) do
+    breaks =
+      for {position, block} = due <- breaks, Blocks.get(state.blocks, position) == block, do: due
+
+    {now, later} = Enum.split(breaks, @max_support_breaks)
+
+    if now == [] or write_busy(state) != nil do
+      schedule_ticks(state, for({p, b} <- breaks, do: {:schedule, p, b, 1, 0}))
+    else
+      state = schedule_ticks(state, for({p, b} <- later, do: {:schedule, p, b, 1, 0}))
+
+      # A block whose contents or preserved data cannot go stays (a sign, a bed).
+      edits =
+        for {position, block} <- now,
+            edit = %{position => Valimc.Block.after_removal(block)},
+            not protected_container_change?(state, edit) and not preserved_change?(state, edit),
+            into: %{},
+            do: {position, edit[position]}
+
+      now = Enum.filter(now, fn {position, _} -> Map.has_key?(edits, position) end)
+
+      items = Enum.reduce(now, state.items, &add_support_drops(&2, state.key, &1))
+
+      with {:ok, batch} <- BlockBatch.prepare(edits),
+           {:ok, proposal} <- block_proposal(state, batch) do
+        token = make_ref()
+
+        Store.commit_mining(
+          state.store,
+          state.store_lease,
+          %{changes: batch.edits, items: items, receipts: state.item_receipts},
+          {self(), state.items.epoch},
+          token
+        )
+
+        {state, effects} = apply_blocks(state, batch, proposal, false, false)
+        timer = send_after(state, {:item_commit_deadline, token}, 5000)
+
+        state
+        |> queue_item_write(token, timer, items, state.item_receipts, nil, nil, effects)
+        |> release_when_durable([{:level_events, for({p, b} <- now, do: {p, 2001, b})}])
+      else
+        _ -> state
+      end
+    end
+  end
+
+  # Loot rules this tool-less break cannot evaluate yet drop nothing. Each stack
+  # pops like vanilla `Block.popResource` (javap of the pinned `Block` and
+  # `ItemEntity`): up to 0.25 off the block centre, lowered by half the item's
+  # 0.25 height, launched at (±0.1, 0.2, ±0.1) with a 10-tick pickup delay.
+  defp add_support_drops(items, key, {{x, y, z}, block}) do
+    stacks =
+      case Valimc.Physics.MiningLoot.drops(block, nil, true) do
+        {:ok, stacks} -> stacks
+        {:error, _} -> []
+      end
+
+    Enum.reduce(stacks, items, fn stack, acc ->
+      [dx, dy, dz, vx, vz] = for _ <- 1..5, do: :rand.uniform_real()
+
+      record = %{
+        uuid: :crypto.strong_rand_bytes(16),
+        x: x + 0.5 + (dx * 0.5 - 0.25),
+        y: y + 0.5 + (dy * 0.5 - 0.25) - 0.125,
+        z: z + 0.5 + (dz * 0.5 - 0.25),
+        stack: stack,
+        motion: %Valimc.ItemMotionState{
+          velocity: {vx * 0.2 - 0.1, 0.2, vz * 0.2 - 0.1},
+          pickup_delay: 10
+        }
+      }
+
+      case Items.create_record(acc, key, record) do
+        {:ok, next, _} -> next
+        {:error, _} -> acc
+      end
+    end)
   end
 
   defp read_block(state, position) do
@@ -1818,6 +1951,11 @@ defmodule Valimc.World.RegionData do
 
   defp release_effect(state, {:deliver, pid, message}) do
     Valimc.Connection.deliver(pid, message)
+    state
+  end
+
+  defp release_effect(state, {:level_events, events}) do
+    Valimc.World.publish(state.key, {:level_events, events})
     state
   end
 

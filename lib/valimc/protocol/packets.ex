@@ -354,6 +354,11 @@ defmodule Valimc.Protocol.Packets do
 
   def ack(sequence), do: packet("block_changed_ack", Wire.varint(sequence))
 
+  @doc "A local level event (vanilla `levelEvent`); type 2001 is a block's break particles and sound."
+  def level_event(type, position, data)
+      when type in 0..2_147_483_647 and data in -2_147_483_648..2_147_483_647,
+      do: packet("level_event", [<<type::32>>, Wire.position(position), <<data::signed-32, 0>>])
+
   def block_destruction(entity_id, position, stage)
       when entity_id in 0..2_147_483_647 and stage in -1..9,
       do:

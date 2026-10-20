@@ -34,6 +34,7 @@ resumes on these foundations alongside M2.
 |---|---|---|
 | [VMC-020](tickets/VMC-020.md) | One bounded NBT codec (native disk reads), world schemas, golden vanilla world | Foundation |
 | [VMC-021](tickets/VMC-021.md) | Anvil import (region files, chunks, biomes, block entities, entities, XP orbs, stored light) and export vanilla loads | Awaiting client |
+| [VMC-029c](tickets/VMC-029c.md) | Blocks that lose their support break (plants, torches, two-block halves), found in imported terrain | Done |
 
 Lighting (Rust, VMC-022), clean-room
 vanilla worldgen in Rust (noise, biomes, surface, carvers, then features and

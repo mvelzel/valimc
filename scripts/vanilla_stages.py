@@ -404,6 +404,11 @@ STAGES = [
         ('java', 'RandomTickOracle', '@random-ticking.json'),
         ('same', '@random-ticking.json', 'priv/physics/random_ticking.json'),
     ]),
+    ('support', [
+        ('java', 'SupportOracle', '@support.json', '@support-cases.json'),
+        ('same', '@support.json', 'priv/physics/support.json'),
+        ('check', 'check_support.exs', '@support-cases.json'),
+    ]),
     ('chest_opening', [
         ('java', 'ChestOpeningOracle', '@chest-opening.json'),
         ('check', 'check_chest_opening.exs', '@chest-opening.json'),

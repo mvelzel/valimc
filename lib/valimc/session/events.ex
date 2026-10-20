@@ -209,6 +209,18 @@ defmodule Valimc.Session.Events do
     |> Menus.check_table_menu()
   end
 
+  # Vanilla broadcasts level events to players within 64 blocks of the block corner.
+  def event(%{phase: :play, player: %{x: px, y: py, z: pz}} = state, {:level_events, events}) do
+    packets =
+      for {{x, y, z} = position, type, data} <- events,
+          MapSet.member?(state.chunks, World.chunk_key(x, z)),
+          (x - px) * (x - px) + (y - py) * (y - py) + (z - pz) * (z - pz) < 4096.0,
+          do: Packets.level_event(type, position, data)
+
+    if packets != [], do: send_packets(state, packets)
+    state
+  end
+
   def event(%{phase: :play} = state, {:player_joined, player}),
     do: Replication.track_peer(state, player)
 
