@@ -73,11 +73,12 @@ over a pure `valimc_core` crate) owns dense data and CPU-heavy pure work:
 | World generation (M2) | The most CPU per chunk; pure; runs on dirty CPU schedulers behind a bounded pool |
 | Lighting (M2) | Breadth-first propagation over nibble arrays on the section resource |
 | Disk NBT reading (VMC-020) | 3.5–4× the Elixir reader on vanilla chunks; values are sub-binaries of the input |
-| Anvil chunk read/write (M2) | Parses chunk NBT straight into the section resource |
+| Anvil import (VMC-021) | LZ4 chunk streams; packed palette indices into sections; compact column images for the region log |
 
 Kept in Elixir: packet and file compression (`:zlib`), AES-CFB8
 (`:crypto`/OpenSSL), network item/text NBT, NBT writing (zlib deflate costs more
-per chunk), player physics, redstone (until profiled). `Valimc.NBT` is the one
+per chunk), region file headers and palette-name mapping (VMC-021, about 80 µs
+per chunk; not yet compared with Rust), player physics, redstone (until profiled). `Valimc.NBT` is the one
 NBT codec: network and disk framing, explicit limits, and an Elixir reader that
 is the native reader's parity reference.
 

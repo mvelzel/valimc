@@ -33,7 +33,7 @@ resumes on these foundations alongside M2.
 | Ticket | Slice | Status |
 |---|---|---|
 | [VMC-020](tickets/VMC-020.md) | One bounded NBT codec (native disk reads), world schemas, golden vanilla world | Foundation |
-| [VMC-021](tickets/VMC-021.md) | Anvil import: region files (021a Foundation), chunks to sections, persistence, playable imports | In progress |
+| [VMC-021](tickets/VMC-021.md) | Anvil import: region files, chunks and biomes to sections, persistence, playable imports (021a–d); block entities, entities, export (021e) | In progress |
 
 Anvil export, lighting (Rust, VMC-022), clean-room
 vanilla worldgen in Rust (noise, biomes, surface, carvers, then features and

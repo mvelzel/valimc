@@ -99,7 +99,7 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 
 | ID | Slice | Acceptance gate |
 |---|---|---|
-| VMC-029 | Placement, use, mining and neighbor updates | Replaceable/oriented blocks, reach, tools/speeds/drops and authoritative acknowledgments |
+| VMC-029 | Placement, use, mining and neighbor updates | Replaceable/oriented blocks, reach, tools/speeds/drops and authoritative acknowledgments; blocks that lose support (plants, torches) break as in vanilla |
 | VMC-030 | Scheduled/random ticks and behavior catalog | Priority/order/RNG/chunk activation; every 26.3 block tracked in a coverage matrix |
 | VMC-031 | Fluids, waterlogging and fire | Propagation, sources, mixing, spread/extinguishing, cross-region fixtures |
 | VMC-032 | Block entities and container menus | Persistent contents, transactional interactions and correct lifecycle/metadata |
