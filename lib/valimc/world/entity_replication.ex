@@ -1,7 +1,7 @@
 defmodule Valimc.World.EntityReplication do
   @moduledoc "Bounded observer-local entity updates; position and metadata revisions are independent."
   alias Valimc.Protocol.EntityPackets
-  alias Valimc.World.Items
+  alias Valimc.World.EntityView
   defstruct tracked: %{}, cursor: 0
   @max_visible 1024
   @max_changes 64
@@ -29,7 +29,7 @@ defmodule Valimc.World.EntityReplication do
     retained = Map.drop(state.tracked, removed)
     ids = desired |> Map.keys() |> Enum.sort()
     {earlier, later} = Enum.split_while(ids, &(&1 <= state.cursor))
-    bytes = Enum.reduce(removal, 0, &(Items.packet_bytes(&1) + &2))
+    bytes = Enum.reduce(removal, 0, &(EntityView.packet_bytes(&1) + &2))
 
     {tracked, cursor, packets, _bytes, _changes} =
       Enum.reduce_while(later ++ earlier, {retained, state.cursor, [], bytes, 0}, fn id, acc ->
@@ -56,7 +56,7 @@ defmodule Valimc.World.EntityReplication do
                 if(metadata_revision == view.metadata_revision, do: [], else: [view.metadata])
           end
 
-        cost = Enum.reduce(delta, 0, &(Items.packet_bytes(&1) + &2))
+        cost = Enum.reduce(delta, 0, &(EntityView.packet_bytes(&1) + &2))
 
         if delta != [] and (changes >= @max_changes or bytes + cost > @max_bytes) do
           {:halt, acc}

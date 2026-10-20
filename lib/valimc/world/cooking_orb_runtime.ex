@@ -6,7 +6,7 @@ defmodule Valimc.World.CookingOrbRuntime do
     CookingOrbs,
     CookingOrbTransfers,
     CookingOrbBodies,
-    Items,
+    EntityView,
     RegionData,
     Store
   }
@@ -419,11 +419,7 @@ defmodule Valimc.World.CookingOrbRuntime do
             view
           end
 
-        cost =
-          Enum.sum(
-            for packet <- [view.spawn, view.metadata, view.position, view.motion],
-                do: Items.packet_bytes(packet)
-          )
+        cost = EntityView.bytes(view)
 
         {{id, %{view | count: record.count}}, size + cost}
       end)
@@ -432,33 +428,20 @@ defmodule Valimc.World.CookingOrbRuntime do
     Map.new(entries)
   end
 
-  defp view(uuid, record, epoch),
-    do: view(uuid, record, epoch, System.unique_integer([:positive]))
+  defp view(uuid, record, epoch) do
+    {:ok, id} = EntityView.id()
+    view(uuid, record, epoch, id)
+  end
 
   defp view(uuid, %{position: {x, y, z}, value: value, count: count}, epoch, id) do
     entity = %{entity_id: id, uuid: uuid, x: x, y: y, z: z, on_ground: false}
 
-    {id,
-     %{
-       kind: :orb,
-       uuid: uuid,
-       epoch: epoch,
-       entity_id: id,
-       ownership_generation: 0,
-       metadata_revision: 1,
-       motion_revision: 1,
-       value: value,
-       count: count,
-       chunk: Valimc.World.chunk_key(x, z),
-       at: {x, y, z},
-       spawn: packet(EntityPackets.spawn_experience_orb(entity)),
-       metadata: packet(EntityPackets.metadata(id, no_gravity: true, experience_value: value)),
-       position: packet(EntityPackets.position(entity)),
-       motion: packet(EntityPackets.motion(id, {0.0, 0.0, 0.0}))
-     }}
+    metadata =
+      EntityView.packet(EntityPackets.metadata(id, no_gravity: true, experience_value: value))
+
+    {id, Map.merge(EntityView.new(:orb, entity, metadata, epoch), %{value: value, count: count})}
   end
 
-  defp packet({id, body}), do: {id, IO.iodata_to_binary(body)}
   # Only append-only creation sets and transfer status change in this lifecycle.
   # The revision fences settlement as well as adoption without deep idle comparisons.
   defp stamp(cs),

@@ -1,8 +1,8 @@
 defmodule Valimc.World.Items do
   @moduledoc "Bounded scene items and accepted steps. Only the enclosing region mutates these."
   alias Valimc.ItemMotionState
-  alias Valimc.Protocol.{EntityPackets, ItemStack, ItemTypes, Wire}
-  alias Valimc.World.ItemLedger
+  alias Valimc.Protocol.{EntityPackets, ItemStack, ItemTypes}
+  alias Valimc.World.{EntityView, ItemLedger}
   defstruct epoch: nil, entries: %{}, views: %{}, bytes: 0, ledger: %ItemLedger{}
   @max_items 256
   @max_bytes 524_288
@@ -385,7 +385,7 @@ defmodule Valimc.World.Items do
     do:
       Enum.sum(Enum.map([view.spawn, view.metadata, view.position, view.motion], &packet_bytes/1))
 
-  def packet_bytes({id, payload}), do: byte_size(Wire.varint(id)) + byte_size(payload)
+  defdelegate packet_bytes(packet), to: EntityView
 
   defp current(state, epoch, id, revision) do
     cond do
@@ -398,49 +398,41 @@ defmodule Valimc.World.Items do
 
   defp build_new(state, stack, {x, y, z}) do
     # Validate before allocating IDs/entropy. IDs share the VM-wide source used by players.
-    with {:ok, _} <- metadata(1, stack) do
-      id = System.unique_integer([:positive])
+    with {:ok, _} <- metadata(1, stack),
+         {:ok, id} <- EntityView.id() do
       build_entity(state, stack, {x, y, z}, id, :crypto.strong_rand_bytes(16))
     end
   end
 
   defp build_entity(state, stack, position, id, uuid, motion \\ nil)
 
-  defp build_entity(state, stack, {x, y, z}, id, uuid, motion) when id in 1..2_147_483_647 do
+  defp build_entity(state, stack, {x, y, z}, id, uuid, motion)
+       when id in 1..2_147_483_647 do
     entity = %{entity_id: id, uuid: uuid, x: x, y: y, z: z}
     entity = if motion, do: Map.put(entity, :velocity, motion.velocity), else: entity
     no_gravity = if motion, do: motion.no_gravity, else: true
     on_ground = if motion, do: motion.on_ground, else: false
-    spawn = binary_packet(EntityPackets.spawn_item(entity))
     {:ok, metadata} = metadata(id, stack, no_gravity)
-    position = binary_packet(EntityPackets.position(Map.put(entity, :on_ground, on_ground)))
 
-    velocity =
-      binary_packet(EntityPackets.motion(id, Map.get(entity, :velocity, {0.0, 0.0, 0.0})))
+    base =
+      EntityView.new(
+        :item,
+        Map.put(entity, :on_ground, on_ground),
+        metadata,
+        state.epoch,
+        Map.get(state.ledger.generations, uuid, 0)
+      )
 
-    bytes =
-      state.bytes + Enum.sum(Enum.map([spawn, metadata, position, velocity], &packet_bytes/1))
+    bytes = state.bytes + EntityView.bytes(base)
 
     if bytes + return_bytes(state) <= @max_bytes do
       view =
-        %{
-          kind: :item,
-          entity_id: id,
-          uuid: uuid,
-          ownership_generation: Map.get(state.ledger.generations, uuid, 0),
-          epoch: state.epoch,
+        base
+        |> Map.merge(%{
           revision: 1,
           physical_revision: 1,
-          metadata_revision: 1,
-          motion_revision: 1,
-          chunk: Valimc.World.chunk_key(x, z),
-          at: {x, y, z},
-          pickup_delay: if(motion, do: motion.pickup_delay, else: 0),
-          spawn: spawn,
-          metadata: metadata,
-          position: position,
-          motion: velocity
-        }
+          pickup_delay: if(motion, do: motion.pickup_delay, else: 0)
+        })
         |> Map.merge(merge_hints(stack, motion || %ItemMotionState{no_gravity: no_gravity}))
 
       entry = %{
