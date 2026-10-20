@@ -36,6 +36,15 @@ defmodule Valimc.Block.Behaviour do
   @doc "The state left behind when this state's block is removed."
   @callback after_removal(state) :: state
 
+  @doc """
+  Region tick reactions (VMC-066), optional: effects for a random or scheduled
+  tick of this state at `position`; `read` returns the block at a position in the
+  same region (nil elsewhere). See `Valimc.World.TickBehaviours` for the effects.
+  """
+  @callback random_tick(position :: tuple(), state, read :: function()) :: [tuple()]
+  @callback scheduled_tick(position :: tuple(), state, read :: function()) :: [tuple()]
+  @optional_callbacks random_tick: 3, scheduled_tick: 3
+
   defmacro __using__(_) do
     quote do
       @behaviour Valimc.Block.Behaviour

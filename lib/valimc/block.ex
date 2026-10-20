@@ -50,6 +50,19 @@ defmodule Valimc.Block do
   @entity_index @entity_kinds |> Tuple.to_list() |> Enum.with_index() |> Map.new()
   @entities for(kind <- @entity_values, into: <<>>, do: <<Map.fetch!(@entity_index, kind)>>)
 
+  @tick_states for(
+                 {module, index} <- @module_index,
+                 Code.ensure_compiled!(module),
+                 function_exported?(module, :random_tick, 3) or
+                   function_exported?(module, :scheduled_tick, 3),
+                 state <- 0..(@count - 1),
+                 :binary.at(@by_state, state) == index,
+                 do: {state, module}
+               )
+
+  @doc "States whose behaviour reacts to region ticks (VMC-066), with that module."
+  def tick_states, do: @tick_states
+
   @doc "The behaviour module of a block state."
   def behaviour(state) when is_integer(state) and state >= 0 and state < @count,
     do: elem(@modules, :binary.at(@by_state, state))

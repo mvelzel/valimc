@@ -23,11 +23,15 @@ defmodule Valimc.World.TickBehaviours do
   @callback random_tick(position :: tuple(), block :: integer(), read :: function()) :: [effect]
   @optional_callbacks scheduled_tick: 3, random_tick: 3
 
-  @doc "The configured behaviour modules (`:tick_behaviours`, scoped per region)."
+  @doc "Extra configured behaviour modules (`:tick_behaviours`, scoped per region; tests)."
   def modules(key), do: Valimc.config(:tick_behaviours, key)
 
-  @doc "State id => module for every configured behaviour, built once per owner."
+  @doc """
+  State id => module, built once per owner: `Valimc.Block` behaviours that react
+  to ticks, plus any extra configured modules (tests).
+  """
   def index(modules) do
-    for module <- modules, state <- module.states(), into: %{}, do: {state, module}
+    configured = for module <- modules, state <- module.states(), into: %{}, do: {state, module}
+    Map.merge(Map.new(Valimc.Block.tick_states()), configured)
   end
 end
