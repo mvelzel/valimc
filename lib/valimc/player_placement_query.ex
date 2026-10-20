@@ -45,7 +45,7 @@ defmodule Valimc.PlayerPlacementQuery do
              {:refused, reason}
          end
 
-       with :ok <- correct(request, connection), do: {:ok, outcome}
+       with {:ok, after_ack} <- correct(request, connection), do: {:ok, outcome, after_ack}
      end)}
   rescue
     RuntimeError -> {:error, :placement_workers_busy}
@@ -69,7 +69,9 @@ defmodule Valimc.PlayerPlacementQuery do
              do: Region.destroy_block(owner, observed.fence, position, expires),
              else: {:refused, :expired_destruction}
 
-         with :ok <- Region.correct_blocks(owner, [position], connection), do: {:ok, outcome}
+         with :ok <- Region.correct_blocks(owner, [position], connection),
+              {:ok, update} <- Region.block_entity_update(owner, position),
+              do: {:ok, outcome, List.wrap(update)}
        end
      end)}
   rescue
@@ -104,8 +106,11 @@ defmodule Valimc.PlayerPlacementQuery do
          end
 
        case result do
-         {:reserved, _} -> result
-         outcome -> with :ok <- correct(request, connection), do: {:ok, outcome}
+         {:reserved, _} ->
+           result
+
+         outcome ->
+           with {:ok, after_ack} <- correct(request, connection), do: {:ok, outcome, after_ack}
        end
      end)}
   rescue
@@ -127,7 +132,7 @@ defmodule Valimc.PlayerPlacementQuery do
          end
        end
 
-       with :ok <- correct(request, connection), do: {:ok, :corrected}
+       with {:ok, after_ack} <- correct(request, connection), do: {:ok, :corrected, after_ack}
      end)}
   rescue
     RuntimeError -> {:error, :placement_workers_busy}
@@ -153,14 +158,23 @@ defmodule Valimc.PlayerPlacementQuery do
     end
   end
 
+  # Corrections go out now; imported block entity data (VMC-021e1) is returned
+  # to follow the acknowledgement, since the client drops block entity data that
+  # arrives while its prediction for the sequence is pending.
   defp correct(request, connection) do
     [request.position, Placement.adjacent(request)]
     |> Enum.uniq()
     |> Enum.group_by(fn {x, _, z} -> World.region_key(World.chunk_key(x, z)) end)
-    |> Enum.reduce_while(:ok, fn {key, positions}, :ok ->
+    |> Enum.reduce_while({:ok, []}, fn {key, positions}, {:ok, packets} ->
       with {:ok, owner} <- World.existing_owner(key),
            :ok <- Region.correct_blocks(owner, positions, connection) do
-        {:cont, :ok}
+        updates =
+          for position <- positions,
+              {:ok, update} = Region.block_entity_update(owner, position),
+              update != nil,
+              do: update
+
+        {:cont, {:ok, packets ++ updates}}
       else
         error -> {:halt, error}
       end

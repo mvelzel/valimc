@@ -120,7 +120,7 @@ defmodule Valimc.ImportedBlockEntitiesTest do
     assert_receive {:event, {:table_admitted, ^ref, ^owner, :pass}}
   end
 
-  test "a refused change's correction resends the sign's data after its block", ctx do
+  test "a refused change's correction can resend the sign's data", ctx do
     {:ok, owner} = World.owner(ctx.key)
     {:ok, packet} = Region.block_entity_update(owner, ctx.sign)
     {id, payload} = packet
@@ -129,10 +129,11 @@ defmodule Valimc.ImportedBlockEntitiesTest do
     # Owned chests have no update tag; nothing is resent for them.
     assert Region.block_entity_update(owner, ctx.chest) == {:ok, nil}
 
+    # Correction sends the block now; the data follows the acknowledgement.
     assert :ok = Region.correct_blocks(owner, [ctx.sign], self())
     sign = ctx.sign
     assert_receive {:event, {:block, ^sign, @sign}}
-    assert_receive {:event, {:block_entity, ^sign, ^packet}}
+    refute_received {:event, {:block_entity, _, _}}
   end
 
   test "an imported chest opens with its contents", ctx do

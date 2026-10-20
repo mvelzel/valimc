@@ -106,11 +106,11 @@ defmodule Valimc.Session.JobHandlers do
         {:reserved, reservation} ->
           {:noreply, Placement.prepare_survival_placement(state, job.command, reservation)}
 
-        {:ok, _outcome} ->
+        {:ok, _outcome, after_ack} ->
           state =
             if job.command.body == nil, do: CreativeInventory.resync_inventory(state), else: state
 
-          send_packets(state, [Packets.ack(job.command.request.sequence)])
+          send_packets(state, [Packets.ack(job.command.request.sequence) | after_ack])
           {:noreply, state |> Vitals.continue_life() |> Placement.drain_placements()}
 
         _ ->

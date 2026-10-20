@@ -1308,12 +1308,8 @@ defmodule Valimc.World.RegionData do
     if is_pid(connection) and valid_block_query?(positions, :any) and length(positions) <= 2 do
       case handle_call({:observe_blocks, epoch, positions, :any}, from, state) do
         {:reply, {:ok, observed}, state} ->
-          for {position, block} <- observed.blocks do
-            Valimc.Connection.deliver(connection, {:block, position, block})
-
-            if packet = preserved_update(state, position),
-              do: Valimc.Connection.deliver(connection, {:block_entity, position, packet})
-          end
+          for {position, block} <- observed.blocks,
+              do: Valimc.Connection.deliver(connection, {:block, position, block})
 
           {:reply, :ok, state}
 

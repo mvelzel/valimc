@@ -62,7 +62,7 @@ experience exist ([VMC-034f](tickets/VMC-034f.md)).
 | Ticket | Remaining gate |
 |---|---|
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Server CLONE/type-2 fill from a creative container menu (VMC-032) |
-| [VMC-021](tickets/VMC-021.md) | VMC-021e recheck: refused sign break keeps its text, pot sherds, the village, survival orbs and items |
+| [VMC-021](tickets/VMC-021.md) | VMC-021e: a refused creative break keeps the sign's text and the banner's patterns |
 
 The M1 milestone client run passed on `127934a` (see [VMC-069](tickets/VMC-069.md)),
 with the item despawn fix checked on `6243c8c` ([VMC-067](tickets/VMC-067.md)) and
