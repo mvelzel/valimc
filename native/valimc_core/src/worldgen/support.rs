@@ -7,15 +7,33 @@
 
 use super::json::Json;
 
-struct Partition {
+/// A partition of all states into classes, from runs `[first state, class,
+/// …]` (shared with the shape update facts).
+pub(crate) struct Partition {
     /// Run starts and their classes.
     starts: Vec<u16>,
     classes: Vec<u8>,
-    radix: usize,
+    pub(crate) radix: usize,
 }
 
 impl Partition {
-    fn class(&self, state: u16) -> usize {
+    pub(crate) fn parse(runs: &Json) -> Result<Partition, String> {
+        let runs = runs.as_array()?;
+        let mut starts = Vec::with_capacity(runs.len() / 2);
+        let mut classes = Vec::with_capacity(runs.len() / 2);
+        for pair in runs.chunks(2) {
+            starts.push(pair[0].as_i32()? as u16);
+            classes.push(pair[1].as_i32()? as u8);
+        }
+        let radix = classes.iter().copied().max().unwrap_or(0) as usize + 1;
+        Ok(Partition {
+            starts,
+            classes,
+            radix,
+        })
+    }
+
+    pub(crate) fn class(&self, state: u16) -> usize {
         let run = self.starts.partition_point(|&s| s <= state) - 1;
         self.classes[run] as usize
     }
@@ -39,21 +57,7 @@ impl Support {
             .field("partitions")?
             .as_array()?
             .iter()
-            .map(|runs| {
-                let runs = runs.as_array()?;
-                let mut starts = Vec::with_capacity(runs.len() / 2);
-                let mut classes = Vec::with_capacity(runs.len() / 2);
-                for pair in runs.chunks(2) {
-                    starts.push(pair[0].as_i32()? as u16);
-                    classes.push(pair[1].as_i32()? as u8);
-                }
-                let radix = classes.iter().copied().max().unwrap_or(0) as usize + 1;
-                Ok(Partition {
-                    starts,
-                    classes,
-                    radix,
-                })
-            })
+            .map(Partition::parse)
             .collect::<Result<Vec<_>, String>>()?;
         let bits = |text: &str| text.bytes().map(|b| b == b'1').collect::<Vec<bool>>();
         let rules = json

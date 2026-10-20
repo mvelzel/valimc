@@ -90,6 +90,7 @@ pub struct DecorationJson<'a> {
     pub block_state_providers: &'a Json,
     pub feature_order: &'a Json,
     pub support: &'a Json,
+    pub shapes: Option<&'a Json>,
     pub block_registry: &'a Json,
     pub block_facts: &'a Json,
 }
@@ -115,6 +116,7 @@ impl<'a> Facts<'a> {
                     block_state_providers: json.field("block_state_providers")?,
                     feature_order: json.field("feature_order")?,
                     support: json.field("support")?,
+                    shapes: json.get("shapes"),
                     block_registry: json.field("block_registry")?,
                     block_facts: json.field("block_facts")?,
                 }),
@@ -262,6 +264,7 @@ impl Registry {
                     order: json.feature_order.field("minecraft:overworld")?,
                     biomes: facts.biomes,
                     support: json.support,
+                    shapes: json.shapes,
                     biome_ids: &|name| biomes.id(name),
                     biome_count: biomes.names.len(),
                     source_biomes: &source_biomes,

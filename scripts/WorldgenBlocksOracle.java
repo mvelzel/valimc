@@ -19,10 +19,12 @@ import net.minecraft.world.level.block.state.BlockState;
  * 5..10 a sturdy full face (`isFaceSturdy`) down, up, north, south, west, east, 11 a liquid
  * block, 12 `liquid()` (legacy liquid), 13 a double plant (`DoublePlantBlock` or a subclass),
  * 14 a mossy carpet (`MossyCarpetBlock`), 15 a post-processing position above the block
- * (soul sand, magma: bubble columns). Every question runs against a level that fails on
+ * (soul sand, magma: bubble columns), 16 `isSolidRender`, 17..22 a full collision face down, up,
+ * north, south, west, east (`Block.isFaceFull` of the collision shape; mossy carpets attach to
+ * it or to a sturdy face). Every question runs against a level that fails on
  * any read, so none of them depends on the neighbourhood; a state whose sturdiness reads the
  * level (a moving piston's block entity) is listed as excluded, without sturdy faces. Output:
- * the flags, two bytes per state in hex.
+ * the flags, four bytes per state in hex.
  */
 public class WorldgenBlocksOracle {
   static final BlockPos ORIGIN = new BlockPos(0, 64, 0);
@@ -40,8 +42,8 @@ public class WorldgenBlocksOracle {
           default -> throw new IllegalStateException("level read: " + method.getName());
         });
     int count = Block.BLOCK_STATE_REGISTRY.size();
-    var hex = new StringBuilder(count * 4);
-    int[] totals = new int[16];
+    var hex = new StringBuilder(count * 8);
+    int[] totals = new int[23];
     var excluded = new TreeSet<String>();
     for (int id = 0; id < count; id++) {
       BlockState state = Block.BLOCK_STATE_REGISTRY.byId(id);
@@ -63,12 +65,19 @@ public class WorldgenBlocksOracle {
         flags &= ~(63 << 5);
         excluded.add(BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
       }
+      try {
+        var collision = state.getCollisionShape(level, ORIGIN);
+        for (int d = 0; d < 6; d++) if (Block.isFaceFull(collision, directions[d])) flags |= 1 << (17 + d);
+      } catch (IllegalStateException e) {
+        excluded.add(BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
+      }
       if (state.getBlock() instanceof LiquidBlock) flags |= 2048;
       if (state.liquid()) flags |= 4096;
       if (state.getBlock() instanceof net.minecraft.world.level.block.DoublePlantBlock) flags |= 8192;
       if (state.getBlock() instanceof net.minecraft.world.level.block.MossyCarpetBlock) flags |= 16384;
-      for (int b = 0; b < 16; b++) if ((flags & (1 << b)) != 0) totals[b]++;
-      hex.append(String.format("%04x", flags));
+      if (state.isSolidRender()) flags |= 1 << 16;
+      for (int b = 0; b < 23; b++) if ((flags & (1 << b)) != 0) totals[b]++;
+      hex.append(String.format("%08x", flags));
     }
     var out = new JsonObject();
     out.addProperty("version", "26.3");
@@ -77,7 +86,8 @@ public class WorldgenBlocksOracle {
     out.addProperty("state_count", count);
     out.add("bits", new Gson().toJsonTree(List.of("air", "replaceable", "solid", "block_entity", "post_process",
         "sturdy_down", "sturdy_up", "sturdy_north", "sturdy_south", "sturdy_west", "sturdy_east", "liquid_block",
-        "liquid", "double_plant", "mossy_carpet", "post_process_above")));
+        "liquid", "double_plant", "mossy_carpet", "post_process_above", "solid_render", "collision_down",
+        "collision_up", "collision_north", "collision_south", "collision_west", "collision_east")));
     out.addProperty("flags", hex.toString());
     out.add("excluded", new Gson().toJsonTree(excluded));
     Files.writeString(Path.of(args[0]), new Gson().toJson(out) + "\n");

@@ -54,6 +54,10 @@ defmodule Valimc.Worldgen do
             read_json!(Application.app_dir(:valimc, "priv/registry/blocks.json"))
           )
           |> Map.put("block_facts", block_facts())
+          |> Map.put(
+            "shapes",
+            read_json!(Application.app_dir(:valimc, "priv/worldgen/shapes.json"))
+          )
 
         {:ok, registry} = Native.worldgen_registry(facts)
         :persistent_term.put({__MODULE__, :registry}, registry)

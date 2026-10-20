@@ -7,8 +7,9 @@ use std::sync::Arc;
 
 use super::blocks::{
     BlockSet, BlockTable, Heightmap, DOUBLE_PLANT, FLUID_WATER, LIQUID, LIQUID_BLOCK, MOSSY_CARPET,
-    REPLACEABLE, SOLID,
+    REPLACEABLE, SOLID, STURDY,
 };
+use super::javahash::JavaHashSet;
 use super::json::Json;
 use super::placement::{Modifier, PlacedFeature};
 use super::predicate::{offset, BlockPredicate, RuleTest};
@@ -80,6 +81,11 @@ pub enum Feature {
         state: u16,
         can_place_on: BlockPredicate,
     },
+    Tree(Box<super::tree::Tree>),
+    VegetationPatch(Box<VegetationPatch>),
+    FallenTree(Box<super::tree::FallenTree>),
+    HugeMushroom(Box<super::plants::HugeMushroom>),
+    Bamboo(super::plants::Bamboo),
     /// A feature type this slice does not implement; placing it fails.
     Unsupported(String),
 }
@@ -88,6 +94,8 @@ pub enum Feature {
 #[derive(Debug)]
 struct Known {
     cave_air: u16,
+    vine_block: u16,
+    water: u16,
     ice: u16,
     snow: u16,
     blue_ice: u16,
@@ -101,6 +109,7 @@ struct Known {
 pub struct Decoration {
     pub table: Arc<BlockTable>,
     support: Support,
+    shapes: Option<super::shapes::Shapes>,
     pub features: HashMap<String, Arc<Feature>>,
     pub placed: HashMap<String, Arc<PlacedFeature>>,
     /// Per step, the placed features in vanilla's order (`FeatureSorter`),
@@ -345,6 +354,50 @@ impl<'a> Parser<'a> {
                 state: table.state(json.field("state")?)?,
                 can_place_on: BlockPredicate::parse(json.field("can_place_on")?, table)?,
             },
+            "minecraft:vegetation_patch" | "minecraft:waterlogged_vegetation_patch" => {
+                Feature::VegetationPatch(Box::new(VegetationPatch {
+                    replaceable: table.block_set(json.field("replaceable")?)?,
+                    ground: self.provider(json.field("ground_state")?)?,
+                    vegetation: self.placed(json.field("vegetation_feature")?)?,
+                    ceiling: match json.field("surface")?.as_str()? {
+                        "floor" => false,
+                        "ceiling" => true,
+                        other => return Err(format!("unknown cave surface {other}")),
+                    },
+                    depth: IntProvider::parse(json.field("depth")?)?,
+                    extra_bottom: json.field("extra_bottom_block_chance")?.as_f64()? as f32,
+                    vertical_range: i("vertical_range")?,
+                    vegetation_chance: json.field("vegetation_chance")?.as_f64()? as f32,
+                    xz_radius: IntProvider::parse(json.field("xz_radius")?)?,
+                    extra_edge: json.field("extra_edge_column_chance")?.as_f64()? as f32,
+                    waterlogged: kind == "minecraft:waterlogged_vegetation_patch",
+                }))
+            }
+            "minecraft:fallen_tree" => {
+                let mut provider = |j: &Json| self.provider(j);
+                Feature::FallenTree(Box::new(super::tree::FallenTree::parse(
+                    json,
+                    &mut provider,
+                )?))
+            }
+            "minecraft:huge_red_mushroom" | "minecraft:huge_brown_mushroom" => {
+                let mut provider = |j: &Json| self.provider(j);
+                Feature::HugeMushroom(Box::new(super::plants::HugeMushroom::parse(
+                    json,
+                    table,
+                    kind == "minecraft:huge_red_mushroom",
+                    &mut provider,
+                )?))
+            }
+            "minecraft:bamboo" => Feature::Bamboo(super::plants::Bamboo::parse(json, table)?),
+            "minecraft:tree" => {
+                let mut provider = |j: &Json| self.provider(j);
+                Feature::Tree(Box::new(super::tree::Tree::parse(
+                    json,
+                    table,
+                    &mut provider,
+                )?))
+            }
             other => Feature::Unsupported(other.to_string()),
         };
         Ok(Arc::new(feature))
@@ -367,6 +420,8 @@ pub struct DecorationFacts<'a> {
     pub order: &'a Json,
     pub biomes: &'a Json,
     pub support: &'a Json,
+    /// Shape update facts, when given.
+    pub shapes: Option<&'a Json>,
     /// Biome registry ids by name, and the biome source's biomes.
     pub biome_ids: &'a dyn Fn(&str) -> Result<u16, String>,
     pub biome_count: usize,
@@ -381,6 +436,7 @@ impl Decoration {
         context: GenContext,
     ) -> Result<Decoration, String> {
         let support = Support::parse(facts.support)?;
+        let shapes = facts.shapes.map(super::shapes::Shapes::parse).transpose()?;
         let mut parser = Parser {
             table: &table,
             features_json: facts.features,
@@ -432,6 +488,8 @@ impl Decoration {
         }
         let known = Known {
             cave_air: table.default_state("cave_air")?,
+            vine_block: table.block("vine")?,
+            water: table.default_state("water")?,
             ice: table.default_state("ice")?,
             snow: table.default_state("snow")?,
             blue_ice: table.default_state("blue_ice")?,
@@ -441,12 +499,17 @@ impl Decoration {
             blue_ice_block: table.block("blue_ice")?,
             snow_block: table.block("snow")?,
         };
+        // Trees' pale moss decorator places this feature by name.
+        if facts.features.get("minecraft:pale_moss_patch").is_some() {
+            parser.feature(&Json::String("minecraft:pale_moss_patch".into()))?;
+        }
         let features = std::mem::take(&mut parser.features);
         let placed = std::mem::take(&mut parser.placed);
         drop(parser);
         Ok(Decoration {
             table,
             support,
+            shapes,
             features,
             placed,
             order,
@@ -467,6 +530,48 @@ impl Decoration {
     /// `state.canSurvive(level, pos)` in decoration's light.
     pub fn survives(&self, region: &mut Region, state: u16, pos: [i32; 3]) -> bool {
         self.support.survives(state, pos, &mut |p| region.get(p))
+    }
+
+    /// `state.updateShape(level, level, pos, d, …)` through the region (the
+    /// cell at `replaced` reads as its given state): the new state, with the
+    /// ticks it schedules.
+    pub fn update_shape(
+        &self,
+        region: &mut Region,
+        state: u16,
+        pos: [i32; 3],
+        d: usize,
+        replaced: Option<([i32; 3], u16)>,
+    ) -> Result<u16, String> {
+        let mut read = |p: [i32; 3]| match replaced {
+            Some((at, s)) if at == p => s,
+            _ => region.get(p),
+        };
+        if self.table.block_of(state) == self.known.vine_block {
+            return Ok(super::multiface::vine_update(
+                &self.table,
+                &mut read,
+                state,
+                pos,
+                d,
+            ));
+        }
+        if self.table.flag(state, MOSSY_CARPET) {
+            let carpet = super::multiface::MossyCarpet::new(&self.table)?;
+            let air = self.table.default_state("air")?;
+            return Ok(carpet.update_shape(&self.support, &mut read, state, pos, air));
+        }
+        let shapes = self.shapes.as_ref().ok_or("no shape update facts")?;
+        let (new_state, ticks) = shapes.update(state, d, pos, &mut read)?;
+        for tick in ticks {
+            let at = offset(pos, tick.offset);
+            if tick.fluid {
+                region.schedule_fluid_tick(at, tick.id as u8);
+            } else {
+                region.schedule_block_tick(at, tick.id);
+            }
+        }
+        Ok(new_state)
     }
 
     /// `BiomeGenerationSettings.hasFeature`.
@@ -513,7 +618,7 @@ impl Decoration {
     }
 
     /// `Feature.markAboveForPostProcessing`.
-    fn mark_above(&self, region: &mut Region, pos: [i32; 3]) {
+    pub(crate) fn mark_above(&self, region: &mut Region, pos: [i32; 3]) {
         let mut p = pos;
         for _ in 0..2 {
             p[1] += 1;
@@ -577,6 +682,182 @@ impl Decoration {
     }
 }
 
+/// `VegetationPatchFeature` and its waterlogged variant.
+#[derive(Debug)]
+pub struct VegetationPatch {
+    replaceable: BlockSet,
+    ground: Arc<StateProvider>,
+    vegetation: Arc<PlacedFeature>,
+    /// The surface: a ceiling grows down from above, a floor up.
+    ceiling: bool,
+    depth: IntProvider,
+    extra_bottom: f32,
+    vertical_range: i32,
+    vegetation_chance: f32,
+    xz_radius: IntProvider,
+    extra_edge: f32,
+    waterlogged: bool,
+}
+
+impl VegetationPatch {
+    /// The surface's direction (`CaveSurface.getDirection`) as an index.
+    fn inwards(&self) -> usize {
+        if self.ceiling {
+            1
+        } else {
+            0
+        }
+    }
+
+    fn place(
+        &self,
+        d: &Decoration,
+        region: &mut Region,
+        random: &mut Random,
+        origin: [i32; 3],
+    ) -> Result<bool, String> {
+        let x_radius = self.xz_radius.sample(random) + 1;
+        let z_radius = self.xz_radius.sample(random) + 1;
+        let mut surface = self.ground_patch(d, region, random, origin, x_radius, z_radius);
+        if self.waterlogged {
+            surface = self.flood(d, region, &surface);
+        }
+        if surface.unordered {
+            return Err("a vegetation patch's position set needs identity hash order".into());
+        }
+        for pos in surface.iter() {
+            if self.vegetation_chance > 0.0 && random.next_float() < self.vegetation_chance {
+                self.place_vegetation(d, region, random, pos)?;
+            }
+        }
+        Ok(!surface.is_empty())
+    }
+
+    fn ground_patch(
+        &self,
+        d: &Decoration,
+        region: &mut Region,
+        random: &mut Random,
+        origin: [i32; 3],
+        x_radius: i32,
+        z_radius: i32,
+    ) -> JavaHashSet {
+        let table = d.table.as_ref();
+        let inwards = DIRECTIONS[self.inwards()];
+        let outwards = DIRECTIONS[self.inwards() ^ 1];
+        let mut surface = JavaHashSet::new();
+        for dx in -x_radius..=x_radius {
+            let x_edge = dx == -x_radius || dx == x_radius;
+            for dz in -z_radius..=z_radius {
+                let z_edge = dz == -z_radius || dz == z_radius;
+                if x_edge && z_edge {
+                    continue;
+                }
+                if (x_edge || z_edge)
+                    && (self.extra_edge == 0.0 || random.next_float() > self.extra_edge)
+                {
+                    continue;
+                }
+                let mut pos = offset(origin, [dx, 0, dz]);
+                let mut steps = 0;
+                while region.is_air_at(pos) && steps < self.vertical_range {
+                    pos = offset(pos, inwards);
+                    steps += 1;
+                }
+                steps = 0;
+                while !region.is_air_at(pos) && steps < self.vertical_range {
+                    pos = offset(pos, outwards);
+                    steps += 1;
+                }
+                let below = offset(pos, inwards);
+                let below_state = region.get(below);
+                if region.is_air_at(pos) && table.flag(below_state, STURDY << (self.inwards() ^ 1))
+                {
+                    let depth = self.depth.sample(random);
+                    let extra = self.extra_bottom > 0.0 && random.next_float() < self.extra_bottom;
+                    let depth = depth + i32::from(extra);
+                    if self.place_ground(d, region, random, below, depth) {
+                        surface.insert(below);
+                    }
+                }
+            }
+        }
+        surface
+    }
+
+    fn place_ground(
+        &self,
+        d: &Decoration,
+        region: &mut Region,
+        random: &mut Random,
+        mut pos: [i32; 3],
+        depth: i32,
+    ) -> bool {
+        let table = d.table.as_ref();
+        for i in 0..depth {
+            let state = self.ground.state(d, region, random, pos);
+            let current = region.get(pos);
+            if table.block_of(state) != table.block_of(current) {
+                if !table.in_tag(current, &self.replaceable) {
+                    return i != 0;
+                }
+                region.set(pos, state, 2);
+                pos = offset(pos, DIRECTIONS[self.inwards()]);
+            }
+        }
+        true
+    }
+
+    /// `WaterloggedVegetationPatchFeature.placeGroundPatch`: the enclosed
+    /// surface positions become water.
+    fn flood(&self, d: &Decoration, region: &mut Region, surface: &JavaHashSet) -> JavaHashSet {
+        let table = d.table.as_ref();
+        let mut water = JavaHashSet::new();
+        for pos in surface.iter() {
+            // North, east, south, west, down.
+            let exposed = [2, 5, 3, 4, 0].iter().any(|&dir| {
+                let state = region.get(offset(pos, DIRECTIONS[dir]));
+                !table.flag(state, STURDY << (dir ^ 1))
+            });
+            if !exposed {
+                water.insert(pos);
+            }
+        }
+        for pos in water.iter() {
+            region.set(pos, d.known.water, 2);
+        }
+        water
+    }
+
+    fn place_vegetation(
+        &self,
+        d: &Decoration,
+        region: &mut Region,
+        random: &mut Random,
+        pos: [i32; 3],
+    ) -> Result<bool, String> {
+        let outwards = DIRECTIONS[self.inwards() ^ 1];
+        if !self.waterlogged {
+            return self
+                .vegetation
+                .place(d, region, random, offset(pos, outwards), false);
+        }
+        let at = offset(offset(pos, [0, -1, 0]), outwards);
+        if !self.vegetation.place(d, region, random, at, false)? {
+            return Ok(false);
+        }
+        let table = d.table.as_ref();
+        let placed = region.get(pos);
+        if table.value(placed, "waterlogged") == Some("false") {
+            let wet = table
+                .with(placed, "waterlogged", "true")
+                .ok_or("waterlogged")?;
+            region.set(pos, wet, 2);
+        }
+        Ok(true)
+    }
+}
+
 impl Feature {
     pub fn place(
         &self,
@@ -590,6 +871,11 @@ impl Feature {
             Feature::Unsupported(kind) => {
                 return Err(format!("feature type {kind} is not implemented"))
             }
+            Feature::Tree(tree) => return tree.place(d, region, random, origin),
+            Feature::VegetationPatch(patch) => return patch.place(d, region, random, origin),
+            Feature::FallenTree(tree) => return tree.place(d, region, random, origin),
+            Feature::HugeMushroom(m) => return m.place(d, region, random, origin),
+            Feature::Bamboo(b) => return b.place(d, region, random, origin),
             Feature::Ore {
                 targets,
                 size,
@@ -706,7 +992,7 @@ impl Feature {
                         region.set(pos, s, 2);
                     }
                 } else if table.flag(state, MOSSY_CARPET) {
-                    return Err("mossy carpet placement is not implemented".into());
+                    super::multiface::MossyCarpet::new(table)?.place_at(region, origin);
                 } else {
                     region.set(origin, state, 2);
                 }

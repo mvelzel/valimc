@@ -8,7 +8,6 @@ import net.minecraft.core.Holder;
 import net.minecraft.core.HolderGetter;
 import net.minecraft.core.SectionPos;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.flag.FeatureFlags;
 import net.minecraft.world.level.ChunkPos;
@@ -50,8 +49,10 @@ import net.minecraft.world.level.storage.LevelData;
 import net.minecraft.world.ticks.WorldGenTickAccess;
 
 /**
- * Vanilla decoration (VMC-025). For each case (seed, centre chunk), the 5 × 5
- * chunks around the centre get vanilla's overworld terrain as TerrainOracle
+ * Vanilla decoration (VMC-025). Cases: per seed, two areas near the origin, two within 32,000
+ * blocks and one far out; on the first seed also one area per biome in BIOME_AREAS. Worldgen
+ * comes from the vanilla data pack, as a server loads it. For each case (seed, centre chunk),
+ * the 5 × 5 chunks around the centre get vanilla's overworld terrain as TerrainOracle
  * builds it (fill, surface, carvers; chunk biomes and carver biomes from
  * fresh lookup histories), their biomes stored as chunk generation stores
  * them, and the final heightmaps primed as the terrain step primes them; the
@@ -66,7 +67,8 @@ import net.minecraft.world.ticks.WorldGenTickAccess;
  * zone, block reads up to the region's bounds, biomes of the 3 × 3 through
  * `BiomeManager`, setBlock with block entities and post-processing marks,
  * heightmaps of the chunks, ticks into the chunks' tick containers at game
- * time 0) and fails on anything a feature asks that it does not implement.
+ * time 0, the region's own random) and fails on anything a feature asks that it does not
+ * implement; `getLevel` holds only the generator, which trees' pale moss decorator asks for.
  *
  * Usage: DecorationOracle OUT TYPE,TYPE,... (`*`: every type; a placed feature's identifier
  * includes that placed feature). Output: the included
@@ -111,7 +113,10 @@ public class DecorationOracle {
           MiningToolOracle.initialize().listRegistries().toList(), net.minecraft.resources.RegistryDataLoader.WORLD_REGISTRIES, Runnable::run).join();
     }
     var types = new HashSet<>(Arrays.asList(args[1].split(",")));
-    var lookup = VanillaRegistries.createWorldLookup();
+    // Worldgen as a server loads it, from the vanilla data pack: its JSON is what the code's
+    // registries encode to, which differs where a codec writes another field (the cherry foliage
+    // placer's corner hole chance is written as its wide bottom layer hole chance, 0.25, not 0.5).
+    net.minecraft.core.HolderLookup.Provider lookup = registries;
     var noises = lookup.lookupOrThrow(Registries.NOISE);
     var biomeLookup = lookup.lookupOrThrow(Registries.BIOME);
     var holder = lookup.lookupOrThrow(Registries.NOISE_SETTINGS).getOrThrow(NoiseGeneratorSettings.OVERWORLD);
@@ -174,6 +179,10 @@ public class DecorationOracle {
       var centres = new ArrayList<>(List.of(new ChunkPos(0, 0), new ChunkPos(-3, 5)));
       for (int i = 0; i < 2; i++) centres.add(new ChunkPos(gen.nextInt(4001) - 2000, gen.nextInt(4001) - 2000));
       centres.add(new ChunkPos(gen.nextInt(3_750_001) - 1_875_000, gen.nextInt(3_750_001) - 1_875_000));
+      if (seed == seeds[0]) {
+        var search = new Random(seed);
+        for (var biome : BIOME_AREAS) centres.add(findBiome(search, generator, biomeSource, state, heights, biome));
+      }
       for (var centre : centres) {
        // The first area is also decorated by vanilla's own
        // applyBiomeDecoration when every placed feature is included, and must
@@ -211,6 +220,7 @@ public class DecorationOracle {
             var pos = new ChunkPos(centre.x() + dx, centre.z() + dz);
             var region = new Region(chunks, pos, seed, state, biomeSource, lookup);
             region.registries = registries;
+            region.generator = generator;
             WorldGenLevel level = region;
             if (run == 0) {
               generator.applyBiomeDecoration(level, chunks.get(pos), new StructureManager(level, new WorldOptions(seed, false, false), null));
@@ -299,6 +309,7 @@ public class DecorationOracle {
           var pos = new ChunkPos(x, z);
           var region = new Region(chunks, pos, seed, state, biomeSource, lookup);
           region.registries = registries;
+          region.generator = generator;
           WorldGenLevel level = region;
           decorate(level, generator, chunks.get(pos), steps, included);
         }
@@ -323,6 +334,42 @@ public class DecorationOracle {
     var column = biomesOf.apply(new ChunkPos(qx >> 2, qz >> 2));
     int clamped = Math.clamp(qy, MIN_Y >> 2, (MIN_Y >> 2) + HEIGHT / 4 - 1) - (MIN_Y >> 2);
     return column[(clamped >> 2) * 64 + ((clamped & 3) * 4 + (qz & 3)) * 4 + (qx & 3)];
+  }
+
+  /**
+   * Biomes that get an area of their own on the first seed, so that every tree, trunk, foliage
+   * and root placer, decorator and large plant is decorated: the centre chunk has the biome at its
+   * surface (at y 0 for cave biomes).
+   */
+  static final List<String> BIOME_AREAS = List.of("jungle", "bamboo_jungle", "sparse_jungle", "dark_forest", "pale_garden",
+      "mushroom_fields", "old_growth_spruce_taiga", "old_growth_pine_taiga", "cherry_grove", "mangrove_swamp", "savanna",
+      "windswept_savanna", "dappled_forest", "birch_forest", "old_growth_birch_forest", "swamp", "snowy_taiga", "flower_forest",
+      "meadow", "wooded_badlands", "grove", "lush_caves");
+  static final Set<String> CAVE_BIOMES = Set.of("lush_caves");
+
+  /** A seeded random search for a chunk whose centre has the biome. */
+  static ChunkPos findBiome(Random search, NoiseBasedChunkGenerator generator, BiomeSource source, RandomState state,
+      LevelHeightAccessor heights, String biome) {
+    var key = net.minecraft.resources.ResourceKey.create(Registries.BIOME, net.minecraft.resources.Identifier.withDefaultNamespace(biome));
+    var resolver = source.createResolver(
+        state.createClimateSampler(net.minecraft.world.level.levelgen.densityfunction.SamplerContext.builder().enableCaches().build()));
+    for (int attempt = 0; attempt < 200_000; attempt++) {
+      int cx = search.nextInt(8001) - 4000;
+      int cz = search.nextInt(8001) - 4000;
+      int x = cx * 16 + 8;
+      int z = cz * 16 + 8;
+      int qx = net.minecraft.core.QuartPos.fromBlock(x);
+      int qz = net.minecraft.core.QuartPos.fromBlock(z);
+      if (CAVE_BIOMES.contains(biome)) {
+        if (resolver.getNoiseBiome(qx, 0, qz).is(key)) return new ChunkPos(cx, cz);
+        continue;
+      }
+      // A cheap look at sea level first, then at the surface.
+      if (!resolver.getNoiseBiome(qx, net.minecraft.core.QuartPos.fromBlock(64), qz).is(key)) continue;
+      int y = generator.getBaseHeight(x, z, Heightmap.Types.WORLD_SURFACE_WG, heights, state);
+      if (resolver.getNoiseBiome(qx, net.minecraft.core.QuartPos.fromBlock(y), qz).is(key)) return new ChunkPos(cx, cz);
+    }
+    throw new IllegalStateException("no " + biome + " found");
   }
 
   /**
@@ -479,6 +526,30 @@ public class DecorationOracle {
       return chunk(SectionPos.blockToSectionCoord(pos.getX()), SectionPos.blockToSectionCoord(pos.getZ()));
     }
 
+    static net.minecraft.server.level.ServerLevel generatorOnlyLevel(net.minecraft.world.level.chunk.ChunkGenerator generator) {
+      try {
+        var f = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+        f.setAccessible(true);
+        var unsafe = (sun.misc.Unsafe) f.get(null);
+        var map = unsafe.allocateInstance(net.minecraft.server.level.ChunkMap.class);
+        set(map, net.minecraft.server.level.ChunkMap.class, "worldGenContext",
+            new net.minecraft.world.level.chunk.status.WorldGenContext(null, generator, null, null, null, null));
+        var cache = unsafe.allocateInstance(net.minecraft.server.level.ServerChunkCache.class);
+        set(cache, net.minecraft.server.level.ServerChunkCache.class, "chunkMap", map);
+        var level = unsafe.allocateInstance(net.minecraft.server.level.ServerLevel.class);
+        set(level, net.minecraft.server.level.ServerLevel.class, "chunkSource", cache);
+        return (net.minecraft.server.level.ServerLevel) level;
+      } catch (ReflectiveOperationException e) {
+        throw new IllegalStateException(e);
+      }
+    }
+
+    static void set(Object target, Class<?> owner, String name, Object value) throws ReflectiveOperationException {
+      var field = owner.getDeclaredField(name);
+      field.setAccessible(true);
+      field.set(target, value);
+    }
+
     static UnsupportedOperationException unsupported(String what) {
       return new UnsupportedOperationException("WorldGenLevel." + what);
     }
@@ -549,7 +620,14 @@ public class DecorationOracle {
     @Override public boolean removeBlock(BlockPos pos, boolean movedByPiston) { return setBlock(pos, Blocks.AIR.defaultBlockState(), 3); }
     @Override public net.minecraft.world.level.border.WorldBorder getWorldBorder() { throw unsupported("getWorldBorder"); }
     @Override public boolean isClientSide() { return false; }
-    @Override public net.minecraft.server.level.ServerLevel getLevel() { throw unsupported("getLevel"); }
+    net.minecraft.server.level.ServerLevel serverLevel;
+    net.minecraft.world.level.chunk.ChunkGenerator generator;
+    // Only trees' pale moss decorator asks, for the generator it hands its moss patch: a level
+    // allocated without construction whose chunk source holds just the generator.
+    @Override public net.minecraft.server.level.ServerLevel getLevel() {
+      if (serverLevel == null) serverLevel = generatorOnlyLevel(generator);
+      return serverLevel;
+    }
     @Override public net.minecraft.core.RegistryAccess registryAccess() { return registries; }
     @Override public net.minecraft.world.flag.FeatureFlagSet enabledFeatures() { return FeatureFlags.DEFAULT_FLAGS; }
     @Override public LevelData getLevelData() { return levelData; }

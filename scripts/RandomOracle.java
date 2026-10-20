@@ -10,7 +10,8 @@ import net.minecraft.world.level.levelgen.XoroshiroRandomSource;
  * Vanilla random sources (VMC-023a): operation traces on XoroshiroRandomSource
  * and LegacyRandomSource across seeds, and on WorldgenRandom over Xoroshiro
  * as decoration uses it (VMC-025a: reseeding, decoration and feature seeds),
- * with the values vanilla returns (floats and doubles as raw bits). See
+ * with the values vanilla returns (floats and doubles as raw bits); and the iteration order of
+ * HashSet<BlockPos> under additions, removals and iterator removals (VMC-025b). See
  * valimc_core::worldgen::trace for the operations.
  */
 public class RandomOracle {
@@ -97,9 +98,63 @@ public class RandomOracle {
       row.add("results", results);
       cases.add(row);
     }
+    // HashSet<BlockPos> traces (VMC-025b): features iterate hash sets of positions, so their
+    // order is part of vanilla's behaviour. Clustered positions, with runs that share a bin, make
+    // bins long enough to become trees. No two positions share a hash code (Java would order those by
+    // identity hash codes): the runs lie 1,000 blocks south of the cluster.
+    for (int c = 0; c < 200; c++) {
+      int bx = gen.nextInt(60_000_001) - 30_000_000, by = gen.nextInt(384) - 64, bz = gen.nextInt(60_000_001) - 30_000_000;
+      var set = new HashSet<net.minecraft.core.BlockPos>();
+      var added = new ArrayList<net.minecraft.core.BlockPos>();
+      var ops = new ArrayList<String>();
+      var results = new JsonArray();
+      int length = 100 + gen.nextInt(700);
+      for (int i = 0; i < length; i++) {
+        int r = gen.nextInt(100);
+        if (r < 60) {
+          var pos = gen.nextInt(3) == 0
+              ? new net.minecraft.core.BlockPos(bx + 1024 * gen.nextInt(48), by, bz + 1000)
+              : new net.minecraft.core.BlockPos(bx + gen.nextInt(17) - 8, by + gen.nextInt(17) - 8, bz + gen.nextInt(17) - 8);
+          ops.add("add:" + pos.getX() + "," + pos.getY() + "," + pos.getZ());
+          results.add(Boolean.toString(set.add(pos)));
+          added.add(pos);
+        } else if (r < 72 && !added.isEmpty()) {
+          var pos = added.get(gen.nextInt(added.size()));
+          ops.add("remove:" + pos.getX() + "," + pos.getY() + "," + pos.getZ());
+          results.add(Boolean.toString(set.remove(pos)));
+        } else if (r < 92) {
+          ops.add("poll");
+          var it = set.iterator();
+          if (it.hasNext()) {
+            var pos = it.next();
+            it.remove();
+            results.add(pos.getX() + "," + pos.getY() + "," + pos.getZ());
+          } else {
+            results.add("none");
+          }
+        } else {
+          ops.add("order");
+          results.add(order(set));
+        }
+      }
+      ops.add("order");
+      results.add(order(set));
+      var row = new JsonObject();
+      row.addProperty("kind", "hash_set");
+      row.addProperty("seed", "0");
+      row.add("ops", new Gson().toJsonTree(ops));
+      row.add("results", results);
+      cases.add(row);
+    }
     var facts = new JsonObject();
     facts.add("cases", cases);
     Files.writeString(Path.of(args[0]), new Gson().toJson(facts));
-    System.out.println("PASS: " + cases.size() + " vanilla random traces of 40 operations (Xoroshiro, legacy and WorldgenRandom, positional factories, Gaussians, decoration and feature seeds)");
+    System.out.println("PASS: " + cases.size() + " vanilla traces (Xoroshiro, legacy and WorldgenRandom, positional factories, Gaussians, decoration and feature seeds; HashSet<BlockPos> orders)");
+  }
+
+  static String order(Set<net.minecraft.core.BlockPos> set) {
+    var out = new StringBuilder();
+    for (var pos : set) out.append(pos.getX()).append(',').append(pos.getY()).append(',').append(pos.getZ()).append(';');
+    return out.toString();
   }
 }

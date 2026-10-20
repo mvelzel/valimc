@@ -8,21 +8,24 @@ use std::collections::HashMap;
 use super::json::Json;
 
 /// Worldgen flags per state (`WorldgenBlocksOracle`).
-pub const AIR: u16 = 1;
-pub const REPLACEABLE: u16 = 1 << 1;
-pub const SOLID: u16 = 1 << 2;
-pub const BLOCK_ENTITY: u16 = 1 << 3;
-pub const POST_PROCESS: u16 = 1 << 4;
+pub const AIR: u32 = 1;
+pub const REPLACEABLE: u32 = 1 << 1;
+pub const SOLID: u32 = 1 << 2;
+pub const BLOCK_ENTITY: u32 = 1 << 3;
+pub const POST_PROCESS: u32 = 1 << 4;
 /// Sturdy full face, shifted by the direction's index (down, up, north,
 /// south, west, east).
-pub const STURDY: u16 = 1 << 5;
-pub const LIQUID_BLOCK: u16 = 1 << 11;
+pub const STURDY: u32 = 1 << 5;
+pub const LIQUID_BLOCK: u32 = 1 << 11;
 /// `BlockState.liquid()`.
-pub const LIQUID: u16 = 1 << 12;
-pub const DOUBLE_PLANT: u16 = 1 << 13;
-pub const MOSSY_CARPET: u16 = 1 << 14;
+pub const LIQUID: u32 = 1 << 12;
+pub const DOUBLE_PLANT: u32 = 1 << 13;
+pub const MOSSY_CARPET: u32 = 1 << 14;
 /// A post-processing position above the block (soul sand, magma).
-pub const POST_PROCESS_ABOVE: u16 = 1 << 15;
+pub const POST_PROCESS_ABOVE: u32 = 1 << 15;
+pub const SOLID_RENDER: u32 = 1 << 16;
+/// A full collision face, shifted by the direction's index.
+pub const COLLISION_FULL: u32 = 1 << 17;
 
 /// Fluid registry ids.
 pub const FLUID_EMPTY: u8 = 0;
@@ -116,7 +119,7 @@ pub struct BlockTable {
     pub properties: Vec<Vec<Property>>,
     /// Per state.
     pub block_of: Vec<u16>,
-    pub flags: Vec<u16>,
+    pub flags: Vec<u32>,
     pub fluid: Vec<u8>,
     /// Fluid amount (0..8) and the falling flag (bit 4).
     pub fluid_level: Vec<u8>,
@@ -164,7 +167,7 @@ impl BlockTable {
             classes,
             properties: Vec::new(),
             block_of: vec![0; count],
-            flags: hex_u16(facts.field("flags")?.as_str()?, count)?,
+            flags: hex_u32(facts.field("flags")?.as_str()?, count)?,
             fluid: bytes(facts.field("fluid")?, count)?,
             fluid_level: bytes(facts.field("fluid_level")?, count)?,
             heightmaps: bytes(facts.field("heightmaps")?, count)?,
@@ -238,7 +241,7 @@ impl BlockTable {
         &self.classes[self.class[self.block_of(state) as usize] as usize]
     }
 
-    pub fn flag(&self, state: u16, flag: u16) -> bool {
+    pub fn flag(&self, state: u16, flag: u32) -> bool {
         self.flags[state as usize] & flag != 0
     }
 
@@ -418,12 +421,12 @@ impl BlockTable {
     }
 }
 
-fn hex_u16(hex: &str, count: usize) -> Result<Vec<u16>, String> {
-    if hex.len() != count * 4 {
+fn hex_u32(hex: &str, count: usize) -> Result<Vec<u32>, String> {
+    if hex.len() != count * 8 {
         return Err("flag count".into());
     }
     (0..count)
-        .map(|i| u16::from_str_radix(&hex[i * 4..i * 4 + 4], 16).map_err(|e| e.to_string()))
+        .map(|i| u32::from_str_radix(&hex[i * 8..i * 8 + 8], 16).map_err(|e| e.to_string()))
         .collect()
 }
 

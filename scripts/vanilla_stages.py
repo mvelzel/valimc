@@ -106,12 +106,18 @@ STAGES = [
         ('java', 'SupportOracle', 'worldgen', '@survival.json'),
         ('same', '@survival.json', 'priv/worldgen/survival.json'),
     ]),
+    ('worldgen_shapes', [
+        ('java', 'ShapeOracle', '@shapes.json'),
+        ('same', '@shapes.json', 'priv/worldgen/shapes.json'),
+    ]),
     ('worldgen_decoration', [
         ('java', 'DecorationOracle', '@decoration.json',
          'minecraft:ore,minecraft:disk,minecraft:spring_feature,minecraft:simple_block,minecraft:random_selector,'
          'minecraft:simple_random_selector,minecraft:weighted_random_selector,minecraft:random_boolean_selector,'
          'minecraft:sequence,minecraft:block_column,minecraft:lake,minecraft:freeze_top_layer,minecraft:blue_ice,'
-         'minecraft:block_blob'),
+         'minecraft:block_blob,minecraft:tree,minecraft:fallen_tree,minecraft:huge_red_mushroom,'
+         'minecraft:huge_brown_mushroom,minecraft:bamboo,minecraft:vegetation_patch,'
+         'minecraft:waterlogged_vegetation_patch'),
         ('check', 'check_decoration.exs', '@decoration.json'),
     ]),
     ('commands', [

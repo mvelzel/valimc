@@ -10,10 +10,41 @@
 //! `feature:SEED,INDEX,STEP`. Floats and doubles are their raw bits.
 
 use super::compiler::Worldgen;
+use super::javahash::JavaHashSet;
 use super::noise::{BlendedParameters, NoiseParameters, NormalNoise, Normalization, Stack};
 use super::random::Random;
 use super::sampler::Context;
 use super::volume::Volume;
+
+/// A `HashSet<BlockPos>` trace: `add:X,Y,Z` and `remove:X,Y,Z` (whether the
+/// set changed), `poll` (the first element, removed through the iterator, or
+/// `none`) and `order` (the elements in iteration order).
+fn hash_set(ops: &[String]) -> Result<Vec<String>, String> {
+    let mut set = JavaHashSet::new();
+    let text = |p: [i32; 3]| format!("{},{},{}", p[0], p[1], p[2]);
+    let mut out = Vec::with_capacity(ops.len());
+    for op in ops {
+        let (name, arg) = op.split_once(':').unwrap_or((op.as_str(), ""));
+        let pos = || -> Result<[i32; 3], String> {
+            let v: Vec<i32> = arg
+                .split(',')
+                .map(|n| n.parse().map_err(|_| format!("bad position in {op}")))
+                .collect::<Result<_, _>>()?;
+            Ok([v[0], v[1], v[2]])
+        };
+        out.push(match name {
+            "add" => set.insert(pos()?).to_string(),
+            "remove" => set.remove(pos()?).to_string(),
+            "poll" => set.poll_first().map_or("none".to_string(), text),
+            "order" => set.iter().map(|p| text(p) + ";").collect(),
+            other => return Err(format!("unknown hash set operation {other}")),
+        });
+    }
+    if set.unordered {
+        return Err("the trace needs identity hash order".into());
+    }
+    Ok(out)
+}
 
 fn random(kind: &str, seed: i64) -> Result<Random, String> {
     match kind {
@@ -25,6 +56,9 @@ fn random(kind: &str, seed: i64) -> Result<Random, String> {
 }
 
 pub fn run(kind: &str, seed: i64, ops: &[String]) -> Result<Vec<String>, String> {
+    if kind == "hash_set" {
+        return hash_set(ops);
+    }
     let mut random = random(kind, seed)?;
     // Forks continue on plain sources, which have no decoration seeds.
     let mut worldgen = kind == "worldgen";

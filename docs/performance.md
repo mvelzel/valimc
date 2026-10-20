@@ -22,8 +22,10 @@ vanilla's 12.5 ms for the whole step is not a matched number.
 
 [Decoration](tickets/VMC-025.md) (`bench/worldgen_decoration.exs`, matched with
 vanilla's own features: 64 chunks at seed 20261020, one thread, terrain
-excluded): the 115 placed features ValiMC implements take a median 0.48 ms per
-chunk against 1.14 ms in vanilla.
+excluded): the 148 placed features ValiMC implements (trees included) take a
+median 0.53 ms per chunk against 1.31 ms in vanilla. Pumpkin's whole features
+stage (all features and structure pieces) takes 0.77 ms per chunk on the same
+chunks; the matched comparison waits for the remaining features.
 
 [Cooking activity indexing](tickets/VMC-034m.md): 1,024 stored processors,
 100 alternating equal-result samples. With 64 active, p50/p95 falls from

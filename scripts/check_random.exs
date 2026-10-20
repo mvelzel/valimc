@@ -1,4 +1,5 @@
-# VMC-023a: ValiMC's random sources return vanilla's values (RandomOracle traces).
+# VMC-023a: ValiMC's random sources return vanilla's values (RandomOracle traces),
+# and (VMC-025b) its Java hash sets of block positions iterate in Java's order.
 # Gaussians go through Java's `Math.log`, a platform intrinsic allowed to differ
 # from a correctly rounded logarithm, so they are compared within 4 ulps (and the
 # inexact ones counted); every other value must be exact. Worldgen draws no
@@ -32,7 +33,10 @@ if mismatches != [] do
   raise "#{length(mismatches)} values differ; first (kind, seed, op, ValiMC, vanilla): #{inspect(List.last(mismatches))}"
 end
 
+operations = cases |> Enum.map(&length(&1["ops"])) |> Enum.sum()
+hash_sets = Enum.count(cases, &(&1["kind"] == "hash_set"))
+
 IO.puts(
-  "PASS: #{length(cases)} random traces (#{length(cases) * 40} operations) equal vanilla's; " <>
+  "PASS: #{length(cases)} traces (#{operations} operations, #{hash_sets} of them HashSet<BlockPos> orders) equal vanilla's; " <>
     "#{gaussians - inexact} of #{gaussians} Gaussians exact, the rest within 4 ulps (Java Math.log)"
 )

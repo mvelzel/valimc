@@ -1,0 +1,437 @@
+import com.google.gson.*;
+import java.lang.reflect.*;
+import java.nio.file.*;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.flag.FeatureFlags;
+import net.minecraft.world.level.LevelReader;
+import net.minecraft.world.level.ScheduledTickAccess;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.material.Fluid;
+
+/**
+ * Vanilla's `updateShape` as decoration and structure templates call it (VMC-025): for a
+ * state at a position, a direction and the neighbour there, the state it becomes and the
+ * block and fluid ticks it schedules. Per state and direction a rule like the survival
+ * facts' (`SupportOracle`): the cells the call reads (the neighbour always among them), a
+ * partition of all states per cell, and a table over the class combinations, here of
+ * outcome indices. Light reads answer as unlit chunks do (sky 15, block 0); a call that
+ * reads scheduled ticks, draws randoms or reads more than eight cells, or a state whose search
+ * takes more than the probe budget, is excluded.
+ *
+ * Analyzed: the states of blocks whose class overrides `updateShape` and that the generated
+ * worldgen facts (features, placed features, state providers, material rules, noise settings,
+ * with block tags expanded) or ValiMC's worldgen code name, except fire, chorus plants, pale
+ * moss carpets and vines. Blocks that do not override it keep their state and schedule nothing, as vanilla's
+ * default does; the other overriding blocks are listed as unmodelled.
+ *
+ * Usage: ShapeOracle OUT.json. Output: partitions (runs), outcomes ([new state or -1 for
+ * unchanged, [[dx, dy, dz, kind (0 block, 1 fluid), id, delay], ...]]), rules (offsets,
+ * partitions, table of outcome indices), per analyzed state its six rule ids (-1 unchanged,
+ * -2 excluded), and the runs of states whose class overrides `updateShape` but which are not
+ * analyzed (unmodelled).
+ */
+public class ShapeOracle {
+  static final BlockPos ORIGIN = new BlockPos(0, 64, 0);
+  static final int R = 4, W = 2 * R + 1, CELLS = W * W * W, SELF = index(0, 0, 0);
+  static final int MAX_OFFSETS = 8, FULL_CONTEXTS = 64, MAX_TABLE = 65536;
+  static final Direction[] DIRS = Direction.values();
+  static BlockState[] STATES;
+  static int COUNT;
+  static BlockState AIR;
+
+  static int index(int dx, int dy, int dz) { return ((dx + R) * W + (dy + R)) * W + (dz + R); }
+  static int index(Direction d) { return index(d.getStepX(), d.getStepY(), d.getStepZ()); }
+  static int[] offset(int i) { return new int[] {i / (W * W) - R, i / W % W - R, i % W - R}; }
+
+  static final class Unsupported extends RuntimeException {
+    Unsupported(String reason) { super(reason, null, false, false); }
+  }
+
+  /** One thread's synthetic world: cells by offset index, air elsewhere. */
+  static final class Probe implements InvocationHandler {
+    final BlockState[] cells = new BlockState[CELLS];
+    final int[] set = new int[CELLS];
+    int setCount;
+    final int[] stamp = new int[CELLS];
+    int generation, trace, readCount;
+    final int[] reads = new int[CELLS];
+    final List<String> ticks = new ArrayList<>();
+    final LevelReader level = (LevelReader) Proxy.newProxyInstance(LevelReader.class.getClassLoader(), new Class<?>[] {LevelReader.class}, this);
+    final ScheduledTickAccess tickAccess = (ScheduledTickAccess) Proxy.newProxyInstance(ScheduledTickAccess.class.getClassLoader(),
+        new Class<?>[] {ScheduledTickAccess.class}, (proxy, m, a) -> {
+          if (!m.getName().equals("scheduleTick")) throw new Unsupported("ticks." + m.getName());
+          var p = (BlockPos) a[0];
+          var o = offsetOf(p);
+          if (a[1] instanceof Block block) ticks.add(o[0] + "," + o[1] + "," + o[2] + ",0," + BuiltInRegistries.BLOCK.getId(block) + "," + a[2]);
+          else ticks.add(o[0] + "," + o[1] + "," + o[2] + ",1," + BuiltInRegistries.FLUID.getId((Fluid) a[1]) + "," + a[2]);
+          return null;
+        });
+    final RandomSource random = (RandomSource) Proxy.newProxyInstance(RandomSource.class.getClassLoader(), new Class<?>[] {RandomSource.class},
+        (proxy, m, a) -> { throw new Unsupported("random"); });
+
+    static int[] offsetOf(BlockPos p) {
+      return new int[] {p.getX() - ORIGIN.getX(), p.getY() - ORIGIN.getY(), p.getZ() - ORIGIN.getZ()};
+    }
+
+    BlockState at(BlockPos p) {
+      int dx = p.getX() - ORIGIN.getX(), dy = p.getY() - ORIGIN.getY(), dz = p.getZ() - ORIGIN.getZ();
+      if (Math.abs(dx) > R || Math.abs(dy) > R || Math.abs(dz) > R) throw new Unsupported("far read");
+      int i = index(dx, dy, dz);
+      if (stamp[i] != generation) { stamp[i] = generation; reads[readCount++] = i; trace = trace * 31 + i; }
+      var s = cells[i];
+      return s == null ? AIR : s;
+    }
+
+    @Override
+    public Object invoke(Object proxy, Method m, Object[] a) throws Throwable {
+      switch (m.getName()) {
+        case "getBlockState": return at((BlockPos) a[0]);
+        case "getFluidState": return at((BlockPos) a[0]).getFluidState();
+        case "getBlockEntity": return null;
+        case "getMinY": if (a == null) return -64; break;
+        case "getHeight": if (a == null) return 384; break;
+        case "isClientSide": return false;
+        case "getSeaLevel": return 63;
+        case "enabledFeatures": return FeatureFlags.DEFAULT_FLAGS;
+        case "getRawBrightness": case "getMaxLocalRawBrightness": return 15;
+        case "getBrightness": return a[0] == net.minecraft.world.level.LightLayer.BLOCK ? 0 : 15;
+        case "canSeeSky": return true;
+        case "getSkyDarken": return 0;
+        // Lava's tick delay reads it; a proto chunk keeps no delays.
+        case "environmentAttributes": return net.minecraft.world.attribute.EnvironmentAttributeReader.EMPTY;
+        case "hashCode": return System.identityHashCode(proxy);
+        case "equals": return proxy == a[0];
+        case "toString": return "ShapeProbe";
+        default:
+      }
+      if (m.isDefault()) {
+        try { return InvocationHandler.invokeDefault(proxy, m, a); } catch (InvocationTargetException e) { throw e.getCause(); }
+      }
+      throw new Unsupported("level." + m.getName());
+    }
+
+    void clear() { for (int k = 0; k < setCount; k++) cells[set[k]] = null; setCount = 0; }
+    void put(int i, BlockState s) { if (cells[i] == null) set[setCount++] = i; cells[i] = s; }
+    void begin() { generation++; readCount = 0; trace = 1; ticks.clear(); }
+
+    /**
+     * The outcome of `state.updateShape` toward `d` in the current cells: the new state id
+     * (-1 unchanged) when nothing is scheduled, else an interned outcome above 2^32.
+     */
+    long outcome(BlockState state, Direction d) {
+      begin();
+      var neighborPos = ORIGIN.relative(d);
+      var neighbor = at(neighborPos);
+      var result = state.updateShape(level, tickAccess, ORIGIN, d, neighborPos, neighbor, random);
+      int id = result == state ? -1 : Block.getId(result);
+      if (ticks.isEmpty()) return id;
+      return (1L << 32) + outcomeId(id + "|" + String.join(";", ticks));
+    }
+  }
+
+  record Rule(int[] offsets, int[][] classes, int[] radix, long[] table) {}
+
+  static final ConcurrentHashMap<String, Integer> OUTCOMES = new ConcurrentHashMap<>();
+  static final ConcurrentHashMap<Integer, String> OUTCOME_KEYS = new ConcurrentHashMap<>();
+  static final java.util.concurrent.atomic.AtomicInteger NEXT = new java.util.concurrent.atomic.AtomicInteger();
+
+  static int outcomeId(String key) {
+    Integer id = OUTCOMES.get(key);
+    if (id != null) return id;
+    return OUTCOMES.computeIfAbsent(key, k -> { int n = NEXT.getAndIncrement(); OUTCOME_KEYS.put(n, k); return n; });
+  }
+
+  /** An outcome code's key: new state id, then ticks. */
+  static String key(long code) {
+    return code >= (1L << 32) ? OUTCOME_KEYS.get((int) (code - (1L << 32))) : code + "|";
+  }
+
+  static final List<BlockState> SEEDS = new ArrayList<>();
+
+  static void place(Probe p, List<Integer> offsets, List<List<BlockState>> reps, int[] choice) {
+    p.clear();
+    for (int i = 0; i < choice.length; i++) p.put(offsets.get(i), reps.get(i).get(choice[i]));
+  }
+
+  /** A combination of representatives whose outcome differs from `base`, if any. */
+  static int[] interesting(Probe p, BlockState s, Direction d, List<Integer> offsets, List<List<BlockState>> reps, long base, Random random) {
+    int[] radix = new int[reps.size()];
+    long product = 1;
+    for (int i = 0; i < radix.length; i++) { radix[i] = reps.get(i).size(); product *= radix[i]; }
+    int[] choice = new int[radix.length];
+    if (product <= 4096) {
+      do { place(p, offsets, reps, choice); if (p.outcome(s, d) != base) return choice; } while (SupportOracle.next(choice, radix));
+      return null;
+    }
+    for (int k = 0; k < 4096; k++) {
+      for (int i = 0; i < radix.length; i++) choice[i] = random.nextInt(radix[i]);
+      place(p, offsets, reps, choice);
+      if (p.outcome(s, d) != base) return choice;
+    }
+    return null;
+  }
+
+  /** The rule of `s` toward `d`, or null when it keeps its state and schedules nothing. */
+  static Rule rule(Probe p, BlockState s, Direction d) {
+    int neighbor = index(d);
+    p.clear();
+    long base = p.outcome(s, d);
+    var offsets = new ArrayList<Integer>();
+    offsets.add(neighbor);
+    for (int k = 0; k < p.readCount; k++) if (!offsets.contains(p.reads[k])) offsets.add(p.reads[k]);
+    var reps = new ArrayList<List<BlockState>>();
+    var classes = new ArrayList<int[]>();
+    for (int i = 0; i < offsets.size(); i++) { reps.add(SEEDS); classes.add(null); }
+    var dirty = new ArrayDeque<Integer>();
+    for (int i = 0; i < offsets.size(); i++) dirty.add(i);
+    var random = new Random(Block.getId(s) * 6L + d.ordinal());
+    int rounds = 0;
+    // A state whose neighbourhood takes more probes than this (chorus plants) stays unmodelled.
+    long probes = 0;
+    while (!dirty.isEmpty()) {
+      if (++rounds > 64) throw new Unsupported("unstable partition");
+      int o = dirty.poll();
+      int known = offsets.size();
+      var contexts = SupportOracle.contexts(reps, o, interesting(p, s, d, offsets, reps, base, random));
+      probes += (long) contexts.size() * COUNT;
+      if (probes > 400_000_000L) throw new Unsupported("search budget");
+      // Per state and context: the outcome and the trace of reads.
+      var signatures = new long[COUNT][contexts.size() * 2];
+      for (int c = 0; c < contexts.size(); c++) {
+        place(p, offsets, reps, contexts.get(c));
+        int key = offsets.get(o);
+        for (int n = 0; n < COUNT; n++) {
+          p.put(key, STATES[n]);
+          long outcome = p.outcome(s, d);
+          signatures[n][2 * c] = outcome;
+          signatures[n][2 * c + 1] = p.trace;
+          for (int k = 0; k < p.readCount; k++) if (!offsets.contains(p.reads[k])) offsets.add(p.reads[k]);
+        }
+      }
+      if (offsets.size() > MAX_OFFSETS) throw new Unsupported("offsets");
+      var seen = new HashMap<List<Long>, Integer>();
+      int[] cls = new int[COUNT];
+      var found = new ArrayList<BlockState>();
+      for (int n = 0; n < COUNT; n++) {
+        var sig = Arrays.stream(signatures[n]).boxed().toList();
+        Integer c = seen.get(sig);
+        if (c == null) { c = seen.size(); seen.put(sig, c); found.add(STATES[n]); }
+        cls[n] = c;
+      }
+      boolean grown = offsets.size() > known;
+      for (int i = known; i < offsets.size(); i++) { reps.add(SEEDS); classes.add(null); }
+      cls = SupportOracle.intern(cls);
+      boolean changed = classes.get(o) == null || !Arrays.equals(classes.get(o), cls);
+      classes.set(o, cls);
+      reps.set(o, found);
+      if (found.size() > 255) throw new Unsupported("classes");
+      if (changed || grown) for (int i = 0; i < offsets.size(); i++) if (i != o && !dirty.contains(i)) dirty.add(i);
+      if (grown && !dirty.contains(o)) dirty.add(o);
+    }
+    int[] keys = offsets.stream().mapToInt(Integer::intValue).toArray();
+    int[] radix = new int[keys.length];
+    long size = 1;
+    for (int i = 0; i < keys.length; i++) { radix[i] = reps.get(i).size(); size *= radix[i]; }
+    if (size > MAX_TABLE) throw new Unsupported("table");
+    long[] table = new long[(int) size];
+    int[] choice = new int[radix.length];
+    int index = 0;
+    boolean trivial = true;
+    do {
+      place(p, offsets, reps, choice);
+      long outcome = p.outcome(s, d);
+      if (outcome != -1) trivial = false;
+      table[index++] = outcome;
+      for (int k = 0; k < p.readCount; k++) {
+        int r = p.reads[k];
+        if (Arrays.stream(keys).noneMatch(x -> x == r)) throw new Unsupported("unstable reads");
+      }
+    } while (SupportOracle.next(choice, radix));
+    if (trivial) return null;
+    return new Rule(keys, classes.toArray(int[][]::new), radix, table);
+  }
+
+  /** Blocks the worldgen facts name, with block tags expanded. */
+  static Set<Block> worldgenBlocks() throws Exception {
+    var out = new HashSet<Block>();
+    var pattern = java.util.regex.Pattern.compile("\"(#?)minecraft:([a-z0-9_/]+)\"");
+    for (var name : List.of("features", "placed_features", "block_state_providers", "material_rules", "noise_settings")) {
+      var matcher = pattern.matcher(Files.readString(Path.of("priv/worldgen/" + name + ".json")));
+      while (matcher.find()) {
+        var id = net.minecraft.resources.Identifier.withDefaultNamespace(matcher.group(2));
+        if (matcher.group(1).isEmpty()) {
+          BuiltInRegistries.BLOCK.getOptional(id).ifPresent(out::add);
+        } else {
+          var tag = net.minecraft.tags.TagKey.create(net.minecraft.core.registries.Registries.BLOCK, id);
+          BuiltInRegistries.BLOCK.get(tag).ifPresent(set -> set.forEach(h -> out.add(h.value())));
+        }
+      }
+    }
+    for (var block : List.of(Blocks.AIR, Blocks.CAVE_AIR, Blocks.WATER, Blocks.LAVA, Blocks.STONE, Blocks.BEDROCK)) out.add(block);
+    // And the blocks ValiMC's worldgen code places by name (tree decorators, bamboo, huge mushrooms).
+    var named = java.util.regex.Pattern.compile("(?:default_state|block)\\(\"([a-z0-9_]+)\"\\)");
+    try (var files = Files.list(Path.of("native/valimc_core/src/worldgen"))) {
+      for (var file : files.filter(f -> f.toString().endsWith(".rs")).sorted().toList()) {
+        var matcher = named.matcher(Files.readString(file));
+        while (matcher.find()) {
+          BuiltInRegistries.BLOCK.getOptional(net.minecraft.resources.Identifier.withDefaultNamespace(matcher.group(1))).ifPresent(out::add);
+        }
+      }
+    }
+    // Fire reads all six neighbours' flammability, too many contexts to enumerate; the Nether's
+    // fire patches are the only features that place it, never beside a tree, so it stays unmodelled.
+    out.remove(Blocks.FIRE);
+    out.remove(Blocks.SOUL_FIRE);
+    // Chorus plants read whole stems of neighbours (more than eight cells); only the End has them.
+    out.remove(Blocks.CHORUS_PLANT);
+    out.remove(Blocks.CHORUS_FLOWER);
+    // Pale moss carpets and vines read up to six neighbours too; ValiMC implements their updates in
+    // code (VMC-025b).
+    out.remove(Blocks.PALE_MOSS_CARPET);
+    out.remove(Blocks.VINE);
+    return out;
+  }
+
+  static boolean overridesUpdateShape(Block block) {
+    for (Class<?> k = block.getClass(); k != null && k != net.minecraft.world.level.block.state.BlockBehaviour.class; k = k.getSuperclass()) {
+      for (var m : k.getDeclaredMethods()) if (m.getName().equals("updateShape") && m.getParameterCount() == 8) return true;
+    }
+    return false;
+  }
+
+  public static void main(String[] args) throws Exception {
+    MiningToolOracle.initialize();
+    SupportOracle.bindFluidTags();
+    COUNT = Block.BLOCK_STATE_REGISTRY.size();
+    STATES = new BlockState[COUNT];
+    AIR = Blocks.AIR.defaultBlockState();
+    for (int n = 0; n < COUNT; n++) STATES[n] = Block.stateById(n);
+    SupportOracle.COUNT = COUNT;
+    SupportOracle.STATES = STATES;
+    SupportOracle.AIR = AIR;
+    SEEDS.addAll(List.of(AIR, Blocks.STONE.defaultBlockState(), Blocks.WATER.defaultBlockState(), Blocks.LAVA.defaultBlockState(),
+        Blocks.GRASS_BLOCK.defaultBlockState(), Blocks.DIRT.defaultBlockState(), Blocks.SAND.defaultBlockState(),
+        Blocks.OAK_LOG.defaultBlockState(), Blocks.OAK_LEAVES.defaultBlockState(), Blocks.SNOW.defaultBlockState()));
+    var blocks = worldgenBlocks();
+    var targets = new ArrayList<Integer>();
+    var unmodelled = new JsonArray();
+    for (int n = 0; n < COUNT; n++) {
+      var block = STATES[n].getBlock();
+      if (!overridesUpdateShape(block)) continue;
+      if (blocks.contains(block)) targets.add(n);
+      else if (unmodelled.size() > 0 && unmodelled.get(unmodelled.size() - 1).getAsJsonArray().get(1).getAsInt() == n - 1) {
+        unmodelled.get(unmodelled.size() - 1).getAsJsonArray().set(1, new JsonPrimitive(n));
+      } else {
+        var run = new JsonArray(); run.add(n); run.add(n); unmodelled.add(run);
+      }
+    }
+    var ruleOf = new Rule[COUNT][6];
+    var excluded = new ConcurrentHashMap<String, Integer>();
+    var probes = ThreadLocal.withInitial(Probe::new);
+    var pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    var tasks = new ArrayList<Future<?>>();
+    var done = new AtomicLong();
+    for (int n : targets) {
+      tasks.add(pool.submit(() -> {
+        var p = probes.get();
+        for (var d : DIRS) {
+          try {
+            ruleOf[n][d.ordinal()] = rule(p, STATES[n], d);
+          } catch (Unsupported e) {
+            excluded.merge(BuiltInRegistries.BLOCK.getKey(STATES[n].getBlock()) + ": " + e.getMessage(), 1, Integer::sum);
+            ruleOf[n][d.ordinal()] = null;
+            markExcluded(n, d);
+          } catch (RuntimeException e) {
+            excluded.merge(BuiltInRegistries.BLOCK.getKey(STATES[n].getBlock()) + ": " + e.getClass().getSimpleName(), 1, Integer::sum);
+            markExcluded(n, d);
+          }
+        }
+        long k = done.incrementAndGet();
+        if (k % 500 == 0) System.err.println("states " + k + "/" + targets.size());
+      }));
+    }
+    for (var task : tasks) task.get();
+    pool.shutdown();
+    var partitions = new SupportOracle.Partitions();
+    var rules = new JsonArray();
+    var ruleIndex = new HashMap<String, Integer>();
+    var gson = new Gson();
+    var states = new JsonArray();
+    // Outcome ids in order of first use, so the output does not depend on thread timing.
+    var renumber = new LinkedHashMap<Long, Integer>();
+    int analyzed = 0;
+    for (int n : targets) {
+      var row = new JsonArray();
+      row.add(n);
+      boolean any = false;
+      for (int d = 0; d < 6; d++) {
+        var rule = ruleOf[n][d];
+        if (EXCLUDED.contains((long) n * 6 + d)) { row.add(-2); continue; }
+        if (rule == null) { row.add(-1); continue; }
+        any = true;
+        var r = new JsonObject();
+        var offs = new JsonArray();
+        var parts = new JsonArray();
+        for (int i = 0; i < rule.offsets.length; i++) {
+          offs.add(SupportOracle.json(offset(rule.offsets[i])));
+          parts.add(partitions.index(rule.classes[i]));
+        }
+        r.add("offsets", offs);
+        r.add("partitions", parts);
+        var table = new JsonArray();
+        for (long t : rule.table) table.add(renumber.computeIfAbsent(t, k -> renumber.size()));
+        r.add("table", table);
+        var key = gson.toJson(r);
+        Integer id = ruleIndex.get(key);
+        if (id == null) { id = rules.size(); ruleIndex.put(key, id); rules.add(r); }
+        row.add(id);
+      }
+      if (any || row.asList().stream().anyMatch(e -> e.getAsInt() == -2)) { states.add(row); analyzed++; }
+    }
+    var outcomes = new JsonArray();
+    for (long old : renumber.keySet()) {
+      var key = key(old);
+      var parts = key.split("\\|", -1);
+      var o = new JsonArray();
+      o.add(Integer.parseInt(parts[0]));
+      var ticks = new JsonArray();
+      if (!parts[1].isEmpty()) {
+        for (var t : parts[1].split(";")) {
+          var tick = new JsonArray();
+          for (var v : t.split(",")) tick.add(Integer.parseInt(v));
+          ticks.add(tick);
+        }
+      }
+      o.add(ticks);
+      outcomes.add(o);
+    }
+    var excludedJson = new JsonArray();
+    new TreeMap<>(excluded).forEach((k, v) -> { var a = new JsonArray(); a.add(k); a.add(v); excludedJson.add(a); });
+    var out = new JsonObject();
+    out.addProperty("version", "26.3");
+    out.addProperty("data_version", 5023);
+    out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
+    out.addProperty("state_count", COUNT);
+    out.add("partitions", partitions.json());
+    out.add("outcomes", outcomes);
+    out.add("rules", rules);
+    out.add("states", states);
+    out.add("unmodelled", unmodelled);
+    out.add("excluded", excludedJson);
+    Files.writeString(Path.of(args[0]), gson.toJson(out) + "\n");
+    System.out.println("PASS: shape updates of " + targets.size() + " states (" + analyzed + " with rules), " + rules.size()
+        + " rules, " + outcomes.size() + " outcomes; excluded " + excludedJson);
+  }
+
+  static final Set<Long> EXCLUDED = ConcurrentHashMap.newKeySet();
+
+  static void markExcluded(int n, Direction d) { EXCLUDED.add((long) n * 6 + d.ordinal()); }
+}

@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use super::blocks::{BlockTable, Heightmap, BLOCK_ENTITY, POST_PROCESS, POST_PROCESS_ABOVE};
+use super::random::Random;
 use super::surface::ChunkZoom;
 
 pub const MIN_Y: i32 = -64;
@@ -218,6 +219,10 @@ pub struct Region<'a> {
     zoom: ChunkZoom,
     pub air: u16,
     pub void_air: u16,
+    /// `WorldGenRegion.getRandom`: positional from the seed by the name
+    /// `worldgen_region_random`, at the centre chunk's origin; features that
+    /// ask the level for its random (mossy carpets) share it.
+    pub random: Random,
     /// The first read or request vanilla would refuse (a chunk outside the
     /// area or a biome outside the 3 × 3); decoration fails with it.
     pub fault: Option<String>,
@@ -241,6 +246,11 @@ impl<'a> Region<'a> {
             zoom: ChunkZoom::new(zoom_seed, centre.0, centre.1, MIN_Y, HEIGHT),
             air: table.default_state("air")?,
             void_air: table.default_state("void_air")?,
+            random: Random::xoroshiro(seed)
+                .fork_positional()
+                .from_hash_of("minecraft:worldgen_region_random")
+                .fork_positional()
+                .at(centre.0 * 16, 0, centre.1 * 16),
             fault: None,
         })
     }

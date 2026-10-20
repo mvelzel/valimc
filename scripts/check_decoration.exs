@@ -117,7 +117,13 @@ end
 
 if failures != [] do
   for failure <- failures |> Enum.reverse() |> Enum.take(8), do: IO.inspect(failure, limit: 20)
-  IO.puts("FAIL: #{length(failures)} decorated chunks differ from vanilla's")
+
+  areas =
+    failures
+    |> Enum.frequencies_by(fn {seed, centre, _, _} -> {seed, centre} end)
+    |> Enum.sort()
+
+  IO.puts("FAIL: #{length(failures)} decorated chunks differ from vanilla's, per area: #{inspect(areas)}")
   System.halt(1)
 end
 
