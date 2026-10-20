@@ -58,6 +58,14 @@ STAGES = [
         ('java', 'RandomOracle', '@random.json'),
         ('check', 'check_random.exs', '@random.json'),
     ]),
+    ('worldgen_facts', [
+        ('java', 'WorldgenFactsOracle', '@noises.json'),
+        ('same', '@noises.json', 'priv/worldgen/noises.json'),
+    ]),
+    ('worldgen_noise', [
+        ('java', 'NoiseOracle', '@noise.json'),
+        ('check', 'check_noise.exs', '@noise.json'),
+    ]),
     ('block_registry', [
         ('java', 'BlockRegistryMetadata', '@block-registry.json'),
         ('same', '@block-registry.json', 'priv/registry/blocks.json'),

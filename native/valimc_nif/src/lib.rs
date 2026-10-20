@@ -770,4 +770,37 @@ fn worldgen_random_trace(kind: String, seed: i64, ops: Vec<String>) -> Result<Ve
     valimc_core::worldgen::trace::run(&kind, seed, &ops)
 }
 
+type NoiseSamples = (Vec<u32>, Vec<u32>, Vec<Vec<u32>>);
+
+/// Sample a noise for parity checks (`valimc_core::worldgen::trace::noise`):
+/// float bits of 3D points, 2D points and volumes.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_noise_samples(
+    random: (String, i64, String),
+    noise: String,
+    params: Vec<f64>,
+    points: Vec<(f64, f64, f64)>,
+    volumes: Vec<(Vec<i32>, f64, f64)>,
+) -> Result<NoiseSamples, String> {
+    let volumes = volumes
+        .into_iter()
+        .map(|(v, xz, y)| {
+            Ok((
+                <[i32; 9]>::try_from(v).map_err(|_| "volume needs 9 integers")?,
+                xz,
+                y,
+            ))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let (kind, seed, source) = random;
+    let samples = valimc_core::worldgen::trace::noise(
+        (&kind, seed, &source),
+        &noise,
+        &params,
+        &points,
+        &volumes,
+    )?;
+    Ok((samples.points, samples.points_2d, samples.volumes))
+}
+
 rustler::init!("Elixir.Valimc.Native");

@@ -36,6 +36,7 @@ resumes on these foundations alongside M2.
 | [VMC-021](tickets/VMC-021.md) | Anvil import (region files, chunks, biomes, block entities, entities, XP orbs, stored light) and export vanilla loads | Done |
 | [VMC-022](tickets/VMC-022.md) | Light equal to vanilla's engine, live on edits and across region borders, in all packets | Done |
 | [VMC-029c](tickets/VMC-029c.md) | Blocks that lose their support break (plants, torches, two-block halves), found in imported terrain | Done |
+| [VMC-023](tickets/VMC-023.md) | Seeded noise and biomes: random sources and gradient noises equal vanilla's; density functions and biome lookup next | In progress |
 
 Next: clean-room vanilla worldgen in Rust (noise, biomes, surface, carvers, then features and
 structures; VMC-023..026) with stage-hash parity against vanilla dumps, dimensions

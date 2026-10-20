@@ -1,0 +1,445 @@
+{
+  "minecraft:aquifer_barrier": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -3
+  },
+  "minecraft:aquifer_fluid_level_floodedness": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -7
+  },
+  "minecraft:aquifer_fluid_level_spread": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -5
+  },
+  "minecraft:aquifer_lava": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -1
+  },
+  "minecraft:badlands_pillar": {
+    "base_amplitude": 0.939546696581729,
+    "base_octave": -2,
+    "octave_count": 4
+  },
+  "minecraft:badlands_pillar_roof": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -8
+  },
+  "minecraft:badlands_surface": {
+    "base_amplitude": 0.9381732587751008,
+    "base_octave": -6,
+    "octave_count": 3
+  },
+  "minecraft:calcite": {
+    "base_amplitude": 0.939546696581729,
+    "base_octave": -9,
+    "octave_count": 4
+  },
+  "minecraft:cave_cheese": {
+    "base_amplitude": 0.8361300524356068,
+    "base_octave": -8,
+    "octave_count": 9,
+    "amplitude_modifiers": [
+      0.5,
+      1.0,
+      2.0,
+      1.0,
+      2.0,
+      1.0,
+      0.0,
+      2.0,
+      0.0
+    ]
+  },
+  "minecraft:cave_entrance": {
+    "base_amplitude": 0.8500634887071167,
+    "base_octave": -7,
+    "octave_count": 3,
+    "amplitude_modifiers": [
+      0.4,
+      0.5,
+      1.0
+    ]
+  },
+  "minecraft:cave_layer": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -8
+  },
+  "minecraft:clay_bands_offset": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -8
+  },
+  "minecraft:continentalness": {
+    "base_amplitude": 0.8880832896205223,
+    "base_octave": -9,
+    "octave_count": 9,
+    "amplitude_modifiers": [
+      1.0,
+      1.0,
+      2.0,
+      2.0,
+      2.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ]
+  },
+  "minecraft:continentalness_large": {
+    "base_amplitude": 0.8880832896205223,
+    "base_octave": -11,
+    "octave_count": 9,
+    "amplitude_modifiers": [
+      1.0,
+      1.0,
+      2.0,
+      2.0,
+      2.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ]
+  },
+  "minecraft:erosion": {
+    "base_amplitude": 1.063180125160734,
+    "base_octave": -9,
+    "octave_count": 5,
+    "amplitude_modifiers": [
+      1.0,
+      1.0,
+      0.0,
+      1.0,
+      1.0
+    ]
+  },
+  "minecraft:erosion_large": {
+    "base_amplitude": 1.063180125160734,
+    "base_octave": -11,
+    "octave_count": 5,
+    "amplitude_modifiers": [
+      1.0,
+      1.0,
+      0.0,
+      1.0,
+      1.0
+    ]
+  },
+  "minecraft:gravel": {
+    "base_amplitude": 0.939546696581729,
+    "base_octave": -8,
+    "octave_count": 4
+  },
+  "minecraft:gravel_layer": {
+    "base_amplitude": 1.0569606747151457,
+    "base_octave": -8,
+    "octave_count": 9,
+    "amplitude_modifiers": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.013333333333333334
+    ]
+  },
+  "minecraft:ice": {
+    "base_amplitude": 0.939546696581729,
+    "base_octave": -4,
+    "octave_count": 4
+  },
+  "minecraft:iceberg_pillar": {
+    "base_amplitude": 0.939546696581729,
+    "base_octave": -6,
+    "octave_count": 4
+  },
+  "minecraft:iceberg_pillar_roof": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -3
+  },
+  "minecraft:iceberg_surface": {
+    "base_amplitude": 0.9381732587751008,
+    "base_octave": -6,
+    "octave_count": 3
+  },
+  "minecraft:jagged": {
+    "base_amplitude": 1.0383104856073737,
+    "base_octave": -16,
+    "octave_count": 16
+  },
+  "minecraft:nether/temperature": {
+    "base_amplitude": 0.9494731054427981,
+    "base_octave": -7,
+    "octave_count": 2
+  },
+  "minecraft:nether/vegetation": {
+    "base_amplitude": 0.9494731054427981,
+    "base_octave": -7,
+    "octave_count": 2
+  },
+  "minecraft:nether_state_selector": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -4
+  },
+  "minecraft:nether_wart": {
+    "base_amplitude": 1.3827102115748344,
+    "base_octave": -3,
+    "octave_count": 4,
+    "amplitude_modifiers": [
+      1.0,
+      0.0,
+      0.0,
+      0.9
+    ]
+  },
+  "minecraft:netherrack": {
+    "base_amplitude": 1.4659491761370222,
+    "base_octave": -3,
+    "octave_count": 4,
+    "amplitude_modifiers": [
+      1.0,
+      0.0,
+      0.0,
+      0.35
+    ]
+  },
+  "minecraft:noodle": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -8
+  },
+  "minecraft:noodle_ridge_a": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -7
+  },
+  "minecraft:noodle_ridge_b": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -7
+  },
+  "minecraft:noodle_thickness": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -8
+  },
+  "minecraft:offset": {
+    "base_amplitude": 0.9381732587751005,
+    "base_octave": -3,
+    "octave_count": 4,
+    "amplitude_modifiers": [
+      1.0,
+      1.0,
+      1.0,
+      0.0
+    ]
+  },
+  "minecraft:ore_gap": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -5
+  },
+  "minecraft:ore_vein_a": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -7
+  },
+  "minecraft:ore_vein_b": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -7
+  },
+  "minecraft:ore_veininess": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -8
+  },
+  "minecraft:packed_ice": {
+    "base_amplitude": 0.939546696581729,
+    "base_octave": -7,
+    "octave_count": 4
+  },
+  "minecraft:patch": {
+    "base_amplitude": 1.637127519350388,
+    "base_octave": -5,
+    "octave_count": 6,
+    "amplitude_modifiers": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.013333333333333334
+    ]
+  },
+  "minecraft:pillar": {
+    "base_amplitude": 0.9494731054427981,
+    "base_octave": -7,
+    "octave_count": 2
+  },
+  "minecraft:pillar_rareness": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -8
+  },
+  "minecraft:pillar_thickness": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -8
+  },
+  "minecraft:powder_snow": {
+    "base_amplitude": 0.939546696581729,
+    "base_octave": -6,
+    "octave_count": 4
+  },
+  "minecraft:ridge": {
+    "base_amplitude": 0.9147152149950137,
+    "base_octave": -7,
+    "octave_count": 6,
+    "amplitude_modifiers": [
+      1.0,
+      2.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "minecraft:small_patch": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -3,
+    "amplitude_modifiers": [
+      3.0
+    ]
+  },
+  "minecraft:soul_sand_layer": {
+    "base_amplitude": 1.0569606747151457,
+    "base_octave": -8,
+    "octave_count": 9,
+    "amplitude_modifiers": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.013333333333333334
+    ]
+  },
+  "minecraft:spaghetti_2d": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -7
+  },
+  "minecraft:spaghetti_2d_elevation": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -8
+  },
+  "minecraft:spaghetti_2d_modulator": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -11
+  },
+  "minecraft:spaghetti_2d_thickness": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -11
+  },
+  "minecraft:spaghetti_3d_1": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -7
+  },
+  "minecraft:spaghetti_3d_2": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -7
+  },
+  "minecraft:spaghetti_3d_rarity": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -11
+  },
+  "minecraft:spaghetti_3d_thickness": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -8
+  },
+  "minecraft:spaghetti_roughness": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -5
+  },
+  "minecraft:spaghetti_roughness_modulator": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -8
+  },
+  "minecraft:sulfur_cave_gradient": {
+    "base_amplitude": 1.1817507833955654,
+    "base_octave": -5,
+    "octave_count": 3,
+    "amplitude_modifiers": [
+      1.0,
+      0.0,
+      1.0
+    ]
+  },
+  "minecraft:surface": {
+    "base_amplitude": 0.9381732587751008,
+    "base_octave": -6,
+    "octave_count": 3
+  },
+  "minecraft:surface_secondary": {
+    "base_amplitude": 1.0582769165096106,
+    "base_octave": -6,
+    "octave_count": 4,
+    "amplitude_modifiers": [
+      1.0,
+      1.0,
+      0.0,
+      1.0
+    ]
+  },
+  "minecraft:surface_swamp": {
+    "base_amplitude": 0.955388882960065,
+    "base_octave": -2
+  },
+  "minecraft:temperature": {
+    "base_amplitude": 1.2453007926713473,
+    "base_octave": -10,
+    "octave_count": 6,
+    "amplitude_modifiers": [
+      1.5,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "minecraft:temperature_large": {
+    "base_amplitude": 1.2453007926713473,
+    "base_octave": -12,
+    "octave_count": 6,
+    "amplitude_modifiers": [
+      1.5,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "minecraft:vegetation": {
+    "base_amplitude": 0.9494731054427978,
+    "base_octave": -8,
+    "octave_count": 6,
+    "amplitude_modifiers": [
+      1.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "minecraft:vegetation_large": {
+    "base_amplitude": 0.9494731054427978,
+    "base_octave": -10,
+    "octave_count": 6,
+    "amplitude_modifiers": [
+      1.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  }
+}

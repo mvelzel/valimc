@@ -27,6 +27,9 @@ defmodule Valimc.Native do
   def halo_edits(_region, _edits), do: :erlang.nif_error(:nif_not_loaded)
   def worldgen_random_trace(_kind, _seed, _ops), do: :erlang.nif_error(:nif_not_loaded)
 
+  def worldgen_noise_samples(_random, _noise, _params, _points, _volumes),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def nbt_read(_bytes, _byte_limit, _nodes, _depth), do: :erlang.nif_error(:nif_not_loaded)
   def lz4_decode_stream(_bytes, _max), do: :erlang.nif_error(:nif_not_loaded)
   def lz4_decode_stream_dirty(_bytes, _max), do: :erlang.nif_error(:nif_not_loaded)
