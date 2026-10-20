@@ -4,7 +4,7 @@ defmodule Valimc.Physics.HeightmapBlocks do
   @path Path.expand("../../../priv/physics/heightmap_blocks.json", __DIR__)
   @external_resource @path
   @facts :json.decode(File.read!(@path))
-  @count 35_723
+  @count Valimc.Registry.Blocks.state_count()
   @types [
     :world_surface_wg,
     :world_surface,

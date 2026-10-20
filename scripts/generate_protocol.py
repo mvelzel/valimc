@@ -14,17 +14,9 @@ subprocess.run([java_home+'/bin/java','-DbundlerMainClass=net.minecraft.data.Mai
 out = root / 'priv/protocol';reports = root / 'research/generated/reports'
 out.mkdir(parents=True,exist_ok=True)
 packets=json.loads((reports/'packets.json').read_text())
-blocks=json.loads((reports/'blocks.json').read_text())
-registries=json.loads((reports/'registries.json').read_text())
-names=['air','stone','grass_block','dirt','bedrock','oak_planks','glass','cobblestone']
-def state(name):return next(s['id'] for s in blocks[name]['states'] if s.get('default'))
-facts={'states':{n:state('minecraft:'+n) for n in names},
-       'items':{n:registries['minecraft:item']['entries']['minecraft:'+n]['protocol_id'] for n in names if n!='air'},
-       'item_blocks':{str(v['protocol_id']):state(k) for k,v in registries['minecraft:item']['entries'].items() if k in blocks},
-       'player_entity_type':registries['minecraft:entity_type']['entries']['minecraft:player']['protocol_id'],
-       'state_count':max(s['id'] for b in blocks.values() for s in b['states'])+1}
-for name,data in [('packets',packets),('blocks',facts)]:
-    (out/(name+'.json')).write_text(json.dumps(data,indent=2)+'\n')
+(out/'packets.json').write_text(json.dumps(packets,indent=2)+'\n')
+subprocess.run([sys.executable,'scripts/java_tool.py','VersionMetadata','priv/version.json'],cwd=root,check=True)
+subprocess.run([sys.executable,'scripts/java_tool.py','BlockRegistryMetadata','priv/registry/blocks.json'],cwd=root,check=True)
 subprocess.run([sys.executable,'scripts/java_tool.py','ProtocolMetadata','priv/protocol/registries.json','priv/protocol/tags.json'],cwd=root,check=True)
 subprocess.run([sys.executable,'scripts/java_tool.py','ItemMetadata','priv/protocol/items.json','priv/protocol/item_defaults.json'],cwd=root,check=True)
 subprocess.run([sys.executable,'scripts/java_tool.py','EntityMetadata','priv/protocol/entities.json'],cwd=root,check=True)

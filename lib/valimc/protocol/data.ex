@@ -1,13 +1,13 @@
 defmodule Valimc.Protocol.Data do
-  @moduledoc "Pinned official 26.3 protocol facts; immutable across connections."
+  @moduledoc "Pinned official protocol facts; immutable across connections."
+  alias Valimc.Registry.Blocks
   @path Path.expand("../../../priv/protocol", __DIR__)
-  for file <- ~w(packets registries blocks tags) do
+  for file <- ~w(packets registries tags) do
     @external_resource Path.join(@path, file <> ".json")
   end
 
   @packets :json.decode(File.read!(Path.join(@path, "packets.json")))
   @registries :json.decode(File.read!(Path.join(@path, "registries.json")))
-  @blocks :json.decode(File.read!(Path.join(@path, "blocks.json")))
   @tags :json.decode(File.read!(Path.join(@path, "tags.json")))
 
   # Packet ids and names compile to function clauses (binary/integer pattern
@@ -68,10 +68,18 @@ defmodule Valimc.Protocol.Data do
   def registry_id(registry, entry),
     do: @registry_index[registry][entry] || raise("unknown registry entry")
 
-  def block(name), do: Map.fetch!(@blocks["states"], name)
+  # Items place the default state of the block with the same registry name.
+  @item_blocks for id <- 0..(Valimc.Protocol.ItemTypes.count() - 1),
+                   "minecraft:" <> name = Valimc.Protocol.ItemTypes.item(id)["name"],
+                   Blocks.id(name) != nil,
+                   into: %{},
+                   do: {id, Blocks.default_state(name)}
+  @global_block_bits ceil(:math.log2(Blocks.state_count()))
+
+  def block(name), do: Blocks.default_state(name)
   def item(name), do: Valimc.Protocol.ItemTypes.id(name)
-  def item_block(id), do: @blocks["item_blocks"][Integer.to_string(id)]
-  def player_type, do: @blocks["player_entity_type"]
-  def global_block_bits, do: ceil(:math.log2(@blocks["state_count"]))
-  def block_state_count, do: @blocks["state_count"]
+  def item_block(id), do: Map.get(@item_blocks, id)
+  def player_type, do: Valimc.Protocol.EntityTypes.id("player")
+  def global_block_bits, do: @global_block_bits
+  def block_state_count, do: Blocks.state_count()
 end

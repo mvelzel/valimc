@@ -3,7 +3,7 @@ defmodule Valimc.Physics.StuckBlocks do
   @path Path.expand("../../../priv/physics/stuck_blocks.json", __DIR__)
   @external_resource @path
   @facts JSON.decode!(File.read!(@path))
-  @count 35_723
+  @count Valimc.Registry.Blocks.state_count()
   unless Valimc.Version.stamped?(@facts) and
            @facts["state_count"] == @count and
            Enum.sort(Map.keys(@facts["states"])) == ["berry_bush", "cobweb", "powder_snow"],

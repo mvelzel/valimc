@@ -9,11 +9,11 @@ defmodule Valimc.Physics.MiningTools do
   @external_resource @path
   @facts :json.decode(File.read!(@path))
   @count @facts["state_count"]
-  @blocks @facts["block_count"]
+  @blocks Valimc.Registry.Blocks.block_count()
   @items @facts["item_count"]
   @float_max 3.4028234663852886e38
   unless Valimc.Version.stamped?(@facts) and
-           @count == Valimc.Protocol.Data.block_state_count() and
+           @count == Valimc.Registry.Blocks.state_count() and @facts["block_count"] == @blocks and
            Enum.all?(0..(@items - 1), &(ItemTypes.item(&1) != nil)),
          do: raise("Wrong mining tool catalog version")
 
@@ -52,11 +52,9 @@ defmodule Valimc.Physics.MiningTools do
                 }
             end)
             |> List.to_tuple()
-  @states Base.decode16!(@facts["states"], case: :lower)
   @item_profiles Base.decode16!(@facts["items"], case: :lower)
   @blocked MapSet.new(@facts["blocked_items"])
-  unless byte_size(@states) == @count * 2 and byte_size(@item_profiles) == @items * 2 and
-           Enum.all?(for(<<id::16 <- @states>>, do: id), &(&1 < @blocks)) and
+  unless byte_size(@item_profiles) == @items * 2 and
            Enum.all?(for(<<id::16 <- @item_profiles>>, do: id), &(&1 < tuple_size(@profiles))) and
            Enum.all?(@blocked, &(&1 >= 0 and &1 < @items)),
          do: raise("Incomplete mining tool catalog")
@@ -126,9 +124,7 @@ defmodule Valimc.Physics.MiningTools do
   end
 
   def block_count, do: @blocks
-
-  def block_id(state) when is_integer(state) and state >= 0 and state < @count,
-    do: uint16(@states, state)
+  defdelegate block_id(state), to: Valimc.Registry.Blocks
 
   defp uint16(binary, index) do
     <<value::16>> = binary_part(binary, index * 2, 2)

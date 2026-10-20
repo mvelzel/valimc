@@ -3,7 +3,7 @@ defmodule Valimc.Physics.BlockHazards do
   @path Path.expand("../../../priv/physics/block_hazards.json", __DIR__)
   @external_resource @path
   @facts :json.decode(File.read!(@path))
-  @count 35_723
+  @count Valimc.Registry.Blocks.state_count()
   @threshold 0.003000000026077032
   @kinds %{"magma" => :magma, "campfire" => :campfire, "cactus" => :cactus, "berry" => :berry}
   @states Map.new(@facts["states"], fn [id, kind, value] ->

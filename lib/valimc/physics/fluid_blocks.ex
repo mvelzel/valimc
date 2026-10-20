@@ -3,7 +3,7 @@ defmodule Valimc.Physics.FluidBlocks do
   @path Path.expand("../../../priv/physics/fluid_blocks.json", __DIR__)
   @external_resource @path
   @facts JSON.decode!(File.read!(@path))
-  @count 35_723
+  @count Valimc.Registry.Blocks.state_count()
   unless Valimc.Version.stamped?(@facts) and
            @facts["state_count"] == @count,
          do: raise("Wrong fluid block catalog version")

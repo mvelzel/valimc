@@ -3,7 +3,7 @@ defmodule Valimc.Physics.InsideBlocks do
   @path Path.expand("../../../priv/physics/inside_blocks.json", __DIR__)
   @external_resource @path
   @facts :json.decode(File.read!(@path))
-  @count 35_723
+  @count Valimc.Registry.Blocks.state_count()
   unless Valimc.Version.stamped?(@facts) and
            @facts["state_count"] == @count and length(@facts["fire"]) == 512 and
            length(@facts["soul_fire"]) == 1 and length(@facts["air"]) == 3,

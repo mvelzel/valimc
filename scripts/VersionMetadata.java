@@ -8,12 +8,16 @@ import net.minecraft.SharedConstants;
 public class VersionMetadata {
   public static void main(String[] args)throws Exception{
     SharedConstants.tryDetectVersion();var version=SharedConstants.getCurrentVersion();
-    var jar=Path.of("research/server-"+version.id()+".jar");
-    var sha1=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-1").digest(Files.readAllBytes(jar)));
     var facts=new JsonObject();facts.addProperty("minecraft",version.id());
     facts.addProperty("data_version",version.dataVersion().version());
-    facts.addProperty("protocol",version.protocolVersion());facts.addProperty("server_sha1",sha1);
+    facts.addProperty("protocol",version.protocolVersion());facts.addProperty("server_sha1",serverSha1());
     Files.writeString(Path.of(args[0]),new Gson().toJson(facts)+"\n");
     System.out.println("PASS: "+facts);
+  }
+
+  /** SHA-1 of the official server jar the oracles run on. */
+  static String serverSha1()throws Exception{
+    var jar=Path.of("research/server-"+SharedConstants.getCurrentVersion().id()+".jar");
+    return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-1").digest(Files.readAllBytes(jar)));
   }
 }

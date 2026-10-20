@@ -4,7 +4,7 @@ defmodule Valimc.Physics.SkyBlocks do
   @path Path.expand("../../../priv/physics/sky_blocks.json", __DIR__)
   @external_resource @path
   @facts :json.decode(File.read!(@path))
-  @count 35_723
+  @count Valimc.Registry.Blocks.state_count()
   @classes @facts["class_count"]
   @states Base.decode16!(@facts["states"], case: :lower)
   @pairs Base.decode16!(@facts["pairs"], case: :lower)

@@ -66,6 +66,7 @@ defmodule Valimc.Protocol.ItemTypes do
             end)
 
   def item(id), do: @by_id[id]
+  def count, do: unquote(map_size(@by_id))
   def id(name), do: Map.fetch!(@items, qualified(name))["id"]
   def component(id), do: Valimc.Protocol.ComponentTypes.name(id)
   def component_id(name), do: Valimc.Protocol.ComponentTypes.id(name)
