@@ -33,9 +33,9 @@ resumes on these foundations alongside M2.
 | Ticket | Slice | Status |
 |---|---|---|
 | [VMC-020](tickets/VMC-020.md) | One bounded NBT codec (native disk reads), world schemas, golden vanilla world | Foundation |
-| [VMC-021](tickets/VMC-021.md) | Anvil import: region files, chunks and biomes to sections, persistence, playable imports (021a–d); block entities, entities, export (021e) | In progress |
+| [VMC-021](tickets/VMC-021.md) | Anvil import (region files, chunks, biomes, block entities, entities, XP orbs, stored light) and export vanilla loads | Awaiting client |
 
-Anvil export, lighting (Rust, VMC-022), clean-room
+Lighting (Rust, VMC-022), clean-room
 vanilla worldgen in Rust (noise, biomes, surface, carvers, then features and
 structures; VMC-023..026) with stage-hash parity against vanilla dumps, dimensions
 and portals (VMC-027/028). Performance target: generation throughput and tick time
@@ -61,6 +61,7 @@ experience exist ([VMC-034f](tickets/VMC-034f.md)).
 | Ticket | Remaining gate |
 |---|---|
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Server CLONE/type-2 fill from a creative container menu (VMC-032) |
+| [VMC-021](tickets/VMC-021.md) | Imported block entities, items, XP orbs and light in play (VMC-021e; computer-use access was denied) |
 
 The M1 milestone client run passed on `127934a` (see [VMC-069](tickets/VMC-069.md)),
 with the item despawn fix checked on `6243c8c` ([VMC-067](tickets/VMC-067.md)) and
