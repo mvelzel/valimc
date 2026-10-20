@@ -57,6 +57,7 @@ public class CommandTreeOracle {
     initialize();
     switch (args[0]) {
       case "tree" -> write(args[1], tree());
+      case "facts" -> write(args[1], facts());
       case "cases" -> write(args[1], cases());
       case "verify" -> verify(Path.of(args[1]), Path.of(args[2]));
       default -> throw new IllegalArgumentException(args[0]);
@@ -119,9 +120,57 @@ public class CommandTreeOracle {
     }
   }
 
+  // Game rule literals come from an identity hash map, so vanilla's own order varies by run.
   static JsonArray children(CommandNode<CommandSourceStack> node, Map<CommandNode<CommandSourceStack>, List<String>> paths) {
     var out = new JsonArray();
-    for (var child : node.getChildren()) out.add(node(child, paths));
+    var children = new ArrayList<>(node.getChildren());
+    if (paths.get(node).equals(List.of("gamerule"))) children.sort(Comparator.comparing(CommandNode::getName));
+    for (var child : children) out.add(node(child, paths));
+    return out;
+  }
+
+  // ---- facts: game rules, timelines and time markers ----
+
+  static <T> String serialize(net.minecraft.world.level.gamerules.GameRule<T> rule) {
+    return rule.serialize(rule.defaultValue());
+  }
+
+  static JsonObject facts() throws Exception {
+    var version = SharedConstants.getCurrentVersion();
+    var out = new JsonObject();
+    out.addProperty("version", version.name());
+    out.addProperty("data_version", version.dataVersion().version());
+    out.addProperty("server_sha1", VersionMetadata.serverSha1());
+    var rules = new JsonArray();
+    for (var rule : BuiltInRegistries.GAME_RULE) {
+      if (!rule.requiredFeatures().isSubsetOf(FeatureFlags.DEFAULT_FLAGS)) continue;
+      var row = new JsonObject();
+      row.addProperty("id", rule.id());
+      row.addProperty("type", rule.valueClass() == Boolean.class ? "bool" : "int");
+      row.addProperty("default", serialize(rule));
+      rules.add(row);
+    }
+    out.add("game_rules", rules);
+    var timelines = new JsonObject();
+    var markers = new JsonObject();
+    var registry = lookup.lookupOrThrow(net.minecraft.core.registries.Registries.TIMELINE);
+    registry.listElements().sorted(Comparator.comparing(h -> h.key().identifier().toString())).forEach(holder -> {
+      var timeline = holder.value();
+      var row = new JsonObject();
+      row.addProperty("clock", timeline.clock().unwrapKey().orElseThrow().identifier().toString());
+      timeline.periodTicks().ifPresent(p -> row.addProperty("period", p));
+      timelines.add(holder.key().identifier().toString(), row);
+      timeline.registerTimeMarkers((key, marker) -> {
+        var m = new JsonObject();
+        m.addProperty("clock", marker.clock().unwrapKey().orElseThrow().identifier().toString());
+        m.addProperty("ticks", marker.ticks());
+        marker.periodTicks().ifPresent(p -> m.addProperty("period", p));
+        m.addProperty("suggested", marker.showInCommands());
+        markers.add(key.identifier().toString(), m);
+      });
+    });
+    out.add("timelines", timelines);
+    out.add("time_markers", markers);
     return out;
   }
 
@@ -231,6 +280,15 @@ public class CommandTreeOracle {
     "locate structure village_plains", "locate structure #minecraft:village", "locate poi",
     "help", "help gamemode", "help nonsense", "help gamemode creative",
     "stats", "spawn", "stats extra", "/gamemode creative",
+    "time of minecraft:overworld query time", "time of minecraft:nonsense set 5", "time of the_end pause",
+    "time query minecraft:day repetition", "time query minecraft:nonsense", "time rate 0", "time rate 1001",
+    "time set minecraft:wake_up_from_sleep", "time set Noon", "time add 1.5d", "weather rain 0.5",
+    "gamerule minecraft:advance_time false", "gamerule advance_time maybe", "gamerule natural_health_regeneration",
+    "fill 0 0 0 1 1 1 stone destroy", "setblock 1 2 3 stone destroy", "fill 0 0 0 1 1 stone", "fill ~ ~ ~ ~1 ~1 ~1 glass outline",
+    "list uuids", "msg @a hi", "me waves at @p", "say hi @e[", "say hi @", "say hi @z there", "msg Alice @a[limit=",
+    "locate biome minecraft:plains extra", "setworldspawn ~ ~ ~ ~ ~",
+    "xp add Alice 10 points", "xp set @a 0 levels", "xp query @a points", "effect give @a speed infinite",
+    "give @a minecraft:stone 6400", "clear @a minecraft:stone 2147483648", "kill @a[limit=1]", "tp @e[type=item] ~ ~ ~",
   };
 
   static JsonArray cases() {
@@ -265,7 +323,7 @@ public class CommandTreeOracle {
     }
     var vanillaPaths = new IdentityHashMap<CommandNode<CommandSourceStack>, List<String>>();
     collectPaths(dispatcher.getRoot(), List.of(), vanillaPaths);
-    int outside = 0;
+    int outside = 0, unsupported = 0;
     int compared = 0;
     for (var element : results) {
       var result = element.getAsJsonObject();
@@ -287,6 +345,10 @@ public class CommandTreeOracle {
         outside++;
         continue;
       }
+      if (result.has("messages") && unsupported(decode(result.getAsJsonArray("messages").get(0).getAsString()))) {
+        unsupported++;
+        continue;
+      }
       var actual = new JsonObject();
       if (result.has("path")) actual.add("path", result.get("path"));
       if (result.has("arguments")) actual.add("arguments", result.get("arguments"));
@@ -299,10 +361,16 @@ public class CommandTreeOracle {
         throw new AssertionError("Parse differs at level " + level + " for /" + input + "\n vanilla " + expected + "\n valimc  " + actual);
       compared++;
     }
-    if (compared + outside != INPUTS.length * 2) throw new AssertionError("Missing parse results: " + compared);
+    if (compared + outside + unsupported != INPUTS.length * 2) throw new AssertionError("Missing parse results: " + compared);
     System.out.println("PASS: Mojang decoded ValiMC's graphs (" + nodes + " nodes at levels 0 and 4) as vanilla's "
       + "usable tree pruned to implemented commands; " + compared + " parse outcomes equal vanilla's; " + outside
-      + " inputs reach commands ValiMC does not implement yet and fail.");
+      + " inputs reach commands ValiMC does not implement yet and fail; " + unsupported
+      + " need SNBT (VMC-053g) and are refused.");
+  }
+
+  /** ValiMC's explicit refusal of syntax it does not implement yet: red literal "... not supported yet". */
+  static boolean unsupported(Component message) {
+    return message.getSiblings().size() == 1 && message.getSiblings().get(0).getString().endsWith("not supported yet");
   }
 
   static void collect(CommandNode<Object> node, String path, Set<String> out) {

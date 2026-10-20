@@ -117,6 +117,8 @@ STAGES = [
     ('commands', [
         ('java', 'CommandTreeOracle', 'tree', '@tree.json'),
         ('same', '@tree.json', 'priv/commands/tree.json'),
+        ('java', 'CommandTreeOracle', 'facts', '@facts.json'),
+        ('same', '@facts.json', 'priv/commands/facts.json'),
         ('java', 'CommandTreeOracle', 'cases', '@cases.json'),
         ('check', 'check_commands.exs', '@cases.json', '@graphs', '@results.json'),
         ('java', 'CommandTreeOracle', 'verify', '@graphs', '@results.json'),

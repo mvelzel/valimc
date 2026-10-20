@@ -1,6 +1,12 @@
 defmodule Valimc.Commands.Chat do
-  @moduledoc "Chat and information commands (VMC-053): `/help`."
-  alias Valimc.Command.{Dispatcher, Error, Feedback, Text}
+  @moduledoc """
+  Chat and information commands (VMC-053d): `help`, `say`, `me`, `msg`/`tell`/`w`
+  and `list`. Command chat is unsigned, so vanilla sends it as disguised chat
+  bound to the command's chat type and the sender's display name.
+  """
+  alias Valimc.Command.{Dispatcher, Error, Feedback, Reader, Source, Text}
+  alias Valimc.Protocol.{Data, Packets, Wire}
+  import Valimc.Net.Codec, only: [send_packets: 2]
 
   @doc "`/help`: vanilla's smart usage of every command the source may use."
   def help(_arguments, source) do
@@ -84,4 +90,139 @@ defmodule Valimc.Commands.Chat do
 
   defp text(%{type: :argument, name: name}), do: "<#{name}>"
   defp text(%{name: name}), do: name
+
+  # ---- chat ----
+
+  @doc "`/say <message>`: an announcement to every player."
+  def say(%{"message" => message}, source),
+    do: broadcast(source, message, "minecraft:say_command")
+
+  @doc "`/me <action>`: an emote to every player."
+  def me(%{"action" => message}, source),
+    do: broadcast(source, message, "minecraft:emote_command")
+
+  defp broadcast(source, message, chat_type) do
+    content = resolve(source, message)
+    packet = disguised(content, chat_type, Source.display_name(source), nil)
+    send_packets(source.state, [packet])
+    Valimc.Players.broadcast({:packet, packet}, self())
+    {1, source.state}
+  end
+
+  @doc "`/msg <targets> <message>`: whispers, echoed to the sender."
+  def msg(%{"targets" => selector, "message" => message}, source) do
+    targets = Source.required_players(source, selector)
+    content = resolve(source, message)
+    sender = Source.display_name(source)
+
+    for target <- targets do
+      outgoing =
+        disguised(content, "minecraft:msg_command_outgoing", sender, Source.display_name(target))
+
+      send_packets(source.state, [outgoing])
+      incoming = disguised(content, "minecraft:msg_command_incoming", sender, nil)
+
+      if target.pid == self(),
+        do: send_packets(source.state, [incoming]),
+        else: Valimc.Connection.deliver(target.pid, {:packet, incoming})
+    end
+
+    {length(targets), source.state}
+  end
+
+  defp disguised(content, chat_type, name, target) do
+    Packets.packet("disguised_chat", [
+      Wire.text_component(Text.encode(content)),
+      Wire.varint(Data.registry_id("minecraft:chat_type", chat_type) + 1),
+      Wire.text_component(Text.encode(name)),
+      if(target, do: [<<1>>, Wire.text_component(Text.encode(target))], else: <<0>>)
+    ])
+  end
+
+  # `MessageArgument.Message.toComponent`: selectors become the names they match.
+  defp resolve(source, {:message, text, parts}) do
+    if parts != [] and source.level >= 2 do
+      reader = Reader.new(text)
+      [{first, _, _} | _] = parts
+
+      {component, read_to} =
+        Enum.reduce(parts, {Text.literal(Reader.slice(reader, 0, first)), first}, fn {from, to,
+                                                                                      selector},
+                                                                                     {acc,
+                                                                                      read_to} ->
+          names = join_names(Source.players(source, selector))
+
+          acc =
+            if read_to < from,
+              do: Text.append(acc, Text.literal(Reader.slice(reader, read_to, from))),
+              else: acc
+
+          {Text.append(acc, names), to}
+        end)
+
+      if read_to < reader.size,
+        do: Text.append(component, Text.literal(Reader.slice(reader, read_to, reader.size))),
+        else: component
+    else
+      Text.literal(text)
+    end
+  end
+
+  # `EntitySelector.joinNames` (`ComponentUtils.formatList` with a gray ", ").
+  defp join_names([]), do: Text.empty()
+  defp join_names([one]), do: Source.display_name(one)
+
+  defp join_names([first | rest]) do
+    separator = Text.literal(", ") |> Text.color("gray")
+
+    Enum.reduce(rest, Text.empty() |> Text.append(Source.display_name(first)), fn player, acc ->
+      acc |> Text.append(separator) |> Text.append(Source.display_name(player))
+    end)
+  end
+
+  # ---- list ----
+
+  def list(_arguments, source), do: list_players(source, &Source.display_name/1)
+
+  def list_uuids(_arguments, source) do
+    list_players(source, fn player ->
+      Text.translatable("commands.list.nameAndId", [
+        Text.literal(player.name),
+        Text.literal(uuid(player.uuid))
+      ])
+    end)
+  end
+
+  defp list_players(source, format) do
+    players = Valimc.Players.all() |> Enum.sort_by(& &1.entity_id)
+
+    names =
+      case players do
+        [] ->
+          Text.empty()
+
+        [one] ->
+          format.(one)
+
+        [first | rest] ->
+          separator = Text.literal(", ") |> Text.color("gray")
+
+          Enum.reduce(rest, Text.empty() |> Text.append(format.(first)), fn player, acc ->
+            acc |> Text.append(separator) |> Text.append(format.(player))
+          end)
+      end
+
+    message =
+      Text.translatable("commands.list.players", [
+        length(players),
+        Valimc.config(:max_players),
+        names
+      ])
+
+    Feedback.success(source, message, false)
+    {length(players), source.state}
+  end
+
+  defp uuid(<<a::binary-4, b::binary-2, c::binary-2, d::binary-2, e::binary-6>>),
+    do: Enum.map_join([a, b, c, d, e], "-", &Base.encode16(&1, case: :lower))
 end

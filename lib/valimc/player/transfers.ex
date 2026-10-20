@@ -26,6 +26,10 @@ defmodule Valimc.Player.Transfers do
   defguardp inventory_pending(state)
             when inventory_busy(state) or state.table_closing or state.crafting_repeat != nil
 
+  @doc "Whether an inventory transaction is in flight (commands then refuse to edit it)."
+  def inventory_pending?(state) when inventory_pending(state), do: true
+  def inventory_pending?(_state), do: false
+
   def deliver_recovery(state) do
     token = make_ref()
 

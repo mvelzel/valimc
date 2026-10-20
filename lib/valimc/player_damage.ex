@@ -11,6 +11,23 @@ defmodule Valimc.PlayerDamage do
     PlayerStatusImmunity
   }
 
+  # `/kill` (vanilla `genericKill`): bypasses invulnerability, armour, effects
+  # and absorption with Float.MAX_VALUE damage; exhaustion is zero.
+  def resolve(player, inventory, selected, :generic_kill, _effects, _inventory_pending) do
+    if player.health.value <= 0 or not selected.accepted do
+      :ignored
+    else
+      {:ok, health} = PlayerHealth.reduce(selected.state, 3.4028234663852886e38)
+
+      {:ok,
+       %{
+         player: Map.merge(player, %{health: health, absorption: 0.0}),
+         inventory: inventory,
+         broken: []
+       }}
+    end
+  end
+
   def resolve(player, inventory, selected, source, effects, inventory_pending) do
     cond do
       player.health.value <= 0 or not selected.accepted ->

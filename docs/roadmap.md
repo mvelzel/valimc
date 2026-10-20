@@ -38,6 +38,7 @@ resumes on these foundations alongside M2.
 | [VMC-029c](tickets/VMC-029c.md) | Blocks that lose their support break (plants, torches, two-block halves), found in imported terrain | Done |
 | [VMC-023](tickets/VMC-023.md) | Seeded noise and biomes: random sources, noises, compiled density functions and chunk biomes equal vanilla's | Foundation |
 | [VMC-024](tickets/VMC-024.md) | Vanilla terrain: noise fill with aquifers, material rules and carvers equal to vanilla's, generated live in new worlds | Done |
+| [VMC-053](tickets/VMC-053.md) | Vanilla commands: Brigadier parse, permissions and the player, world and chat commands for manual testing | In progress |
 | [VMC-025](tickets/VMC-025.md) | Features and structures: the decoration pipeline and the first features equal vanilla's; trees, the remaining features, live decoration and structures next | In progress |
 
 Next: trees and the remaining features (VMC-025b, c), features live
@@ -65,6 +66,7 @@ experience exist ([VMC-034f](tickets/VMC-034f.md)).
 | Ticket | Remaining gate |
 |---|---|
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Server CLONE/type-2 fill from a creative container menu (VMC-032) |
+| [VMC-053](tickets/VMC-053.md) | Commands VMC-053a–d: completion, execution, errors and a non-operator's graph |
 
 The M1 milestone client run passed on `127934a` (see [VMC-069](tickets/VMC-069.md)),
 with the item despawn fix checked on `6243c8c` ([VMC-067](tickets/VMC-067.md)) and

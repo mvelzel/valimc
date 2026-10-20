@@ -5,7 +5,7 @@ defmodule Valimc.PlayerDeathMessage do
   @facts :json.decode(File.read!(@path))
   @keys @facts["keys"]
   unless Valimc.Version.stamped?(@facts) and
-           map_size(@keys) == 16,
+           map_size(@keys) == 17,
          do: raise("Wrong native death message keys")
 
   @doc "Environmental messages or self magic; the original mainhand selects named-item text."

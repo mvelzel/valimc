@@ -29,6 +29,7 @@ defmodule Valimc.Command.Text do
     do: {:int, value}
 
   def arg(value) when is_integer(value), do: {:long, value}
+  def arg({:long, value}), do: {:long, value}
   def arg({:float, value}), do: {:float, float_bytes(value, 32)}
   def arg({:double, value}), do: {:double, float_bytes(value, 64)}
   def arg(value) when is_float(value), do: {:double, float_bytes(value, 64)}

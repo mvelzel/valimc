@@ -32,6 +32,41 @@ defmodule Valimc.World.Spawn do
     File.write(path(base), JSON.encode!(%{"spawn" => [x, y, z], "yaw" => yaw * 1.0}))
   end
 
+  @doc """
+  `/setworldspawn`: the new spawn for this run and in `world.json` (other
+  metadata such as the generator is kept); every player gets the new position.
+  """
+  def set({x, y, z} = position, yaw) do
+    current = :persistent_term.get(@key, @default)
+    spawn = %{position: position, yaw: yaw * 1.0}
+
+    if spawn != current do
+      :persistent_term.put(@key, spawn)
+
+      with base when is_binary(base) <- Valimc.config(:world_path) do
+        metadata =
+          case File.read(path(base)) do
+            {:ok, text} ->
+              with({:ok, map} when is_map(map) <- JSON.decode(text), do: map, else: (_ -> %{}))
+
+            _ ->
+              %{}
+          end
+
+        File.mkdir_p!(base)
+
+        File.write!(
+          path(base),
+          JSON.encode!(Map.merge(metadata, %{"spawn" => [x, y, z], "yaw" => yaw * 1.0}))
+        )
+      end
+
+      Valimc.Players.broadcast(:spawn_position)
+    end
+
+    :ok
+  end
+
   def position, do: :persistent_term.get(@key, @default).position
   def yaw, do: :persistent_term.get(@key, @default).yaw
 

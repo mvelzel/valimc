@@ -167,8 +167,11 @@ defmodule Valimc.Command.Coordinates do
 
   defp scale({x, y, z}, f), do: {x * f, y * f, z * f}
 
-  @doc "`getRotation`: `{yaw, pitch}` (local coordinates rotate to zero)."
-  def rotation_of({:world, [x, y | _]}, {yaw, pitch}), do: {f32(get(x, yaw)), f32(get(y, pitch))}
+  @doc """
+  `getRotation` as `{yaw, pitch}`: a rotation argument stores pitch as its x and
+  yaw as its y coordinate; local coordinates rotate to zero.
+  """
+  def rotation_of({:world, [x, y | _]}, {yaw, pitch}), do: {f32(get(y, yaw)), f32(get(x, pitch))}
   def rotation_of({:local, _, _, _}, _), do: {0.0, 0.0}
 
   @doc "`getBlockPos`: the floored position."

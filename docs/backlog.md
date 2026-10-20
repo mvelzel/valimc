@@ -133,7 +133,7 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 
 | ID | Slice | Acceptance gate |
 |---|---|---|
-| VMC-053 | Vanilla command families | Parsers/selectors/permissions/suggestions, command blocks/functions and exact errors |
+| [VMC-053](tickets/VMC-053.md) | Vanilla command families | Parsers/selectors/permissions/suggestions, command blocks/functions and exact errors |
 | VMC-054 | Resource packs, dialogs and custom payloads | Current negotiation/UI codecs and bounded processing |
 | VMC-055 | Upgrades, backups, recovery and shutdown | Tested migration/rollback and durable acknowledged world/player state |
 | VMC-056 | Metrics, tracing and tick profiling | Per-owner queues, reductions/GC, latency and reproducible workload records |

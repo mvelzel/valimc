@@ -5,7 +5,7 @@ defmodule Valimc.PlayerExperience do
 
   def valid?(%__MODULE__{level: level, progress: progress, total: total}),
     do:
-      is_integer(level) and level in 0..1_000_000 and is_float(progress) and
+      is_integer(level) and level in 0..@max and is_float(progress) and
         progress >= 0.0 and progress < 1.0 and f32(progress) == progress and is_integer(total) and
         total in 0..@max
 
@@ -28,6 +28,57 @@ defmodule Valimc.PlayerExperience do
 
   def give(_, _), do: {:error, :invalid_experience_grant}
 
+  @doc "Vanilla `Player.giveExperiencePoints` for any int amount (`/experience add`)."
+  def add_points(%__MODULE__{} = xp, 0), do: xp
+
+  def add_points(%__MODULE__{} = xp, amount) when is_integer(amount) do
+    progress = f32(xp.progress + f32(amount / needed(xp.level)))
+    xp = %{xp | progress: progress, total: min(max(xp.total + amount, 0), @max)}
+    xp |> lower() |> advance()
+  end
+
+  defp lower(%{progress: progress} = xp) when progress < 0.0 do
+    remainder = f32(progress * needed(xp.level))
+
+    if xp.level > 0 do
+      xp = add_levels(xp, -1)
+      lower(%{xp | progress: f32(1.0 + f32(remainder / needed(xp.level)))})
+    else
+      lower(%{add_levels(xp, -1) | progress: 0.0})
+    end
+  end
+
+  defp lower(xp), do: xp
+
+  @doc "Vanilla `giveExperienceLevels`: saturating; below zero everything resets."
+  def add_levels(%__MODULE__{} = xp, 0), do: xp
+
+  def add_levels(%__MODULE__{} = xp, levels) when is_integer(levels) do
+    level = min(max(xp.level + levels, -2_147_483_648), @max)
+
+    if level < 0,
+      do: %{xp | level: 0, progress: 0.0, total: 0},
+      else: %{xp | level: level}
+  end
+
+  @doc "Vanilla `setExperiencePoints`: `:error` when not below the current level's need."
+  def set_points(%__MODULE__{} = xp, amount) when is_integer(amount) do
+    limit = needed(xp.level)
+
+    if amount < limit do
+      top = f32((limit - 1.0) / limit)
+      {:ok, %{xp | progress: f32(amount / limit) |> max(0.0) |> min(top)}}
+    else
+      :error
+    end
+  end
+
+  def set_levels(%__MODULE__{} = xp, level) when is_integer(level) and level >= 0,
+    do: %{xp | level: level}
+
+  @doc "`/experience query points`: progress times the current level's need, floored."
+  def points(%__MODULE__{} = xp), do: floor(f32(xp.progress * needed(xp.level)))
+
   def encode(xp) do
     if valid?(xp),
       do: {:ok, <<xp.level::32, xp.progress::float-32, xp.total::32>>},
@@ -43,7 +94,8 @@ defmodule Valimc.PlayerExperience do
 
   defp advance(%{progress: progress} = xp) when progress >= 1.0 do
     remainder = f32(f32(progress - 1.0) * needed(xp.level))
-    advance(%{xp | level: xp.level + 1, progress: f32(remainder / needed(xp.level + 1))})
+    xp = add_levels(xp, 1)
+    advance(%{xp | progress: f32(remainder / needed(xp.level))})
   end
 
   defp advance(xp), do: xp

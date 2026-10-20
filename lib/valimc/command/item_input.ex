@@ -21,14 +21,15 @@ defmodule Valimc.Command.ItemInput do
     if Reader.at?(reader, ?[), do: components(reader, input), else: {input, reader}
   end
 
-  defp components(reader, _input) do
+  # Vanilla `readComponents`; any component entry needs SNBT (VMC-053g).
+  defp components(reader, input) do
     reader = Reader.expect(reader, ?[)
-    reader = Reader.skip_whitespace(reader)
 
-    if Reader.at?(reader, ?]) do
-      Error.throw!(Error.unsupported("Item components are not supported yet", reader))
-    else
-      reader = if Reader.at?(reader, ?!), do: Reader.skip(reader), else: reader
+    if Reader.can_read?(reader) and Reader.peek(reader) != ?] do
+      reader = Reader.skip_whitespace(reader)
+
+      {removal, reader} =
+        if Reader.at?(reader, ?!), do: {true, Reader.skip(reader)}, else: {false, reader}
 
       unless Reader.can_read?(reader),
         do: Error.fail_at!("arguments.item.component.expected", [], reader)
@@ -36,7 +37,7 @@ defmodule Valimc.Command.ItemInput do
       start = reader.cursor
       {id, reader} = Identifier.read(reader)
 
-      unless Valimc.Command.Registries.component?(id),
+      unless Registries.component?(id),
         do:
           Error.fail_at!(
             "arguments.item.component.unknown",
@@ -44,7 +45,15 @@ defmodule Valimc.Command.ItemInput do
             Reader.set_cursor(reader, start)
           )
 
+      reader =
+        if removal,
+          do: reader,
+          else:
+            reader |> Reader.skip_whitespace() |> Reader.expect(?=) |> Reader.skip_whitespace()
+
       Error.throw!(Error.unsupported("Item components are not supported yet", reader))
+    else
+      {input, Reader.expect(reader, ?])}
     end
   end
 
@@ -64,7 +73,7 @@ defmodule Valimc.Command.ItemInput do
               Error.fail_at!(
                 "arguments.item.tag.unknown",
                 [id],
-                Reader.set_cursor(after_id, start + 1)
+                after_id
               )
 
             members ->

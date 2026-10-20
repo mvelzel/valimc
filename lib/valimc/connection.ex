@@ -8,7 +8,6 @@ defmodule Valimc.Connection do
     ClientTick,
     Data,
     EffectTypes,
-    Packets,
     Wire
   }
 
@@ -24,7 +23,7 @@ defmodule Valimc.Connection do
   alias Valimc.Player.Vitals
 
   import Valimc.Net.Codec,
-    only: [send_packets: 2, reject: 2, reset_window: 1]
+    only: [reject: 2, reset_window: 1]
 
   alias Valimc.{
     ChatThrottle,
@@ -32,8 +31,6 @@ defmodule Valimc.Connection do
     Inventory,
     Metrics,
     Players,
-    PlayerAbsorption,
-    PlayerEffects,
     PlayerHealth,
     PlayerKinetics,
     PlayerSnapshot,
@@ -52,6 +49,9 @@ defmodule Valimc.Connection do
                     &EffectTypes.id/1
                   ) ++
                   @periodic_effects
+  @doc "Status effects the live game applies; others are refused (login, commands)."
+  def live_effects, do: @live_effects
+
   @use_item_packet Data.id(:play, :serverbound, "use_item")
   @slab_tags Path.expand("../../priv/protocol/tags.json", __DIR__)
   @external_resource @slab_tags
@@ -155,51 +155,34 @@ defmodule Valimc.Connection do
         %{phase: :play, life_stage: :alive} = state
       ) do
     if System.monotonic_time(:millisecond) < deadline and id in @live_effects do
-      result =
-        if incoming == :remove,
-          do: PlayerEffects.remove(state.player.effects, id),
-          else: PlayerEffects.add(state.player.effects, id, incoming)
-
-      case result do
-        {:ok, effects, changed} ->
-          new = not Map.has_key?(state.player.effects, id)
-          player = %{state.player | effects: effects}
-
-          player =
-            if id == @absorption and incoming != :remove,
-              do: PlayerAbsorption.reconcile(player, elem(hd(incoming), 1)),
-              else: PlayerAbsorption.reconcile(player)
-
-          next = %{state | player: player}
-
-          try do
-            if changed do
-              packet =
-                if incoming == :remove,
-                  do: Packets.remove_effect(player.entity_id, id),
-                  else: Packets.update_effect(player.entity_id, id, hd(effects[id]), new)
-
-              send_packets(next, [packet])
-            end
-
-            Players.update(self(), player)
-
-            {:reply, {:ok, changed},
-             next
-             |> Movement.publish_movement_speed()
-             |> Movement.publish_absorption()
-             |> Movement.publish_jump_boost()}
-          catch
-            {:disconnect, _, current} -> {:stop, :normal, {:error, :disconnected}, current}
-          end
-
-        error ->
-          {:reply, error, state}
+      try do
+        case Valimc.Player.StatusEffects.apply(state, id, incoming) do
+          {:ok, changed, next} -> {:reply, {:ok, changed}, next}
+          {:error, _} = error -> {:reply, error, state}
+        end
+      catch
+        {:disconnect, _, current} -> {:stop, :normal, {:error, :disconnected}, current}
       end
     else
       {:reply, {:error, :invalid_or_expired_effect}, state}
     end
   end
+
+  def handle_call({:command_op, op, deadline}, _, %{phase: :play} = state) do
+    if System.monotonic_time(:millisecond) < deadline do
+      try do
+        {reply, next} = Valimc.Player.CommandOps.apply(state, op)
+        {:reply, {:ok, reply}, next}
+      catch
+        {:disconnect, _, current} -> {:stop, :normal, {:error, :disconnected}, current}
+        {:command_syntax, error} -> {:reply, {:error, error}, state}
+      end
+    else
+      {:reply, {:error, :expired}, state}
+    end
+  end
+
+  def handle_call({:command_op, _, _}, _, state), do: {:reply, {:error, :not_playing}, state}
 
   def handle_call({:effect, _, _, _}, _, state), do: {:reply, {:error, :not_playing}, state}
 

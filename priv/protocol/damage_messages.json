@@ -18,6 +18,7 @@
     "sweet_berry_bush": "death.attack.sweetBerryBush",
     "generic": "death.attack.generic",
     "magic": "death.attack.magic",
-    "wither": "death.attack.wither"
+    "wither": "death.attack.wither",
+    "generic_kill": "death.attack.genericKill"
   }
 }

@@ -287,6 +287,7 @@ defmodule Valimc.Protocol.Packets do
     life_entity_id!(entity_id)
 
     unless source in [
+             :generic_kill,
              :fall,
              :stalagmite,
              :freeze,
