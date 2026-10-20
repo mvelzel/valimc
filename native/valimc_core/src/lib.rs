@@ -9,6 +9,7 @@ pub mod lz4;
 pub mod nbt;
 pub mod section;
 pub mod wire;
+pub mod worldgen;
 
 pub use column::{Column, ColumnStore, StoreError};
 pub use flags::BlockFlags;

@@ -762,4 +762,12 @@ fn halo_edits(
     with_store(&region, |store| Ok(store.halo_edits(facts, &edits)))
 }
 
+// ---- World generation (VMC-023) ----
+
+/// Run a random-source operation trace (`valimc_core::worldgen::trace`).
+#[rustler::nif]
+fn worldgen_random_trace(kind: String, seed: i64, ops: Vec<String>) -> Result<Vec<String>, String> {
+    valimc_core::worldgen::trace::run(&kind, seed, &ops)
+}
+
 rustler::init!("Elixir.Valimc.Native");

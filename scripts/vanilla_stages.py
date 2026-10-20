@@ -54,6 +54,10 @@ STAGES = [
         ('java', 'LightOracle', '@chunks.json', '@light.json', '@light.bin'),
         ('check', 'check_light.exs', '@chunks.json', '@light.json', '@light.bin'),
     ]),
+    ('worldgen_random', [
+        ('java', 'RandomOracle', '@random.json'),
+        ('check', 'check_random.exs', '@random.json'),
+    ]),
     ('block_registry', [
         ('java', 'BlockRegistryMetadata', '@block-registry.json'),
         ('same', '@block-registry.json', 'priv/registry/blocks.json'),
