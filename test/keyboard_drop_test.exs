@@ -48,6 +48,13 @@ defmodule Valimc.KeyboardDropTest do
     %{base: base, key: key, name: name, uuid: uuid, pose: pose, stone: stone, path: path}
   end
 
+  # A suspended owner may stop between a liveness check and the resume.
+  defp resume(pid) do
+    :sys.resume(pid)
+  catch
+    :exit, _ -> :ok
+  end
+
   defp login(ctx) do
     {uuid, client} = Client.login(ctx.name)
     assert uuid == ctx.uuid
@@ -287,8 +294,8 @@ defmodule Valimc.KeyboardDropTest do
       assert Valimc.TestConn.state(pid).inventory.slots[45] == %{ctx.stone | count: 6}
       Client.close(client)
     after
-      if Process.alive?(source), do: :sys.resume(source)
-      if Process.alive?(destination), do: :sys.resume(destination)
+      resume(source)
+      resume(destination)
       Client.close(client)
       departed(ctx)
     end
@@ -345,7 +352,7 @@ defmodule Valimc.KeyboardDropTest do
       completed(ctx, 1)
       Client.close(client)
     after
-      if Process.alive?(state.player_store), do: :sys.resume(state.player_store)
+      resume(state.player_store)
       Client.close(client)
       departed(ctx)
     end
@@ -484,7 +491,7 @@ defmodule Valimc.KeyboardDropTest do
       assert length(records(ctx)) == 1 and saved(ctx).transfer_sequence == 1
       Client.close(fresh)
     after
-      if Process.alive?(state.player_store), do: :sys.resume(state.player_store)
+      resume(state.player_store)
       Client.close(client)
       departed(ctx)
     end
@@ -521,7 +528,7 @@ defmodule Valimc.KeyboardDropTest do
       Client.close(second)
       departed(ctx)
     after
-      if Process.alive?(writer), do: :sys.resume(writer)
+      resume(writer)
       Client.close(client)
       departed(ctx)
     end
@@ -612,7 +619,7 @@ defmodule Valimc.KeyboardDropTest do
       Client.close(second)
       departed(ctx)
     after
-      if Process.alive?(writer), do: :sys.resume(writer)
+      resume(writer)
       Client.close(client)
       departed(ctx)
     end
