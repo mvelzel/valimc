@@ -101,7 +101,7 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 |---|---|---|
 | VMC-029 | Placement, use, mining and neighbor updates | Replaceable/oriented blocks, reach, tools/speeds/drops and authoritative acknowledgments; blocks that lose support (plants, torches) break as in vanilla |
 | VMC-030 | Scheduled/random ticks and behavior catalog | Priority/order/RNG/chunk activation; every 26.3 block tracked in a coverage matrix |
-| VMC-031 | Fluids, waterlogging and fire | Propagation, sources, mixing, spread/extinguishing, cross-region fixtures |
+| VMC-031 | Fluids, waterlogging and fire | Propagation, sources, mixing, spread/extinguishing, cross-region fixtures; generated chunks' fluid post-processing marks (VMC-024d) |
 | VMC-032 | Block entities and container menus | Persistent contents, transactional interactions and correct lifecycle/metadata |
 | VMC-033 | Crafting and recipe-book synchronization | Every recipe family, consumption/remainders, UI state agreement |
 | VMC-034 | Furnaces, brewing and processing blocks | Fuel/progress/output, concurrent automation, restart behavior |
