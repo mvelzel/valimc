@@ -79,6 +79,7 @@ defmodule Valimc.World.RegionData do
     :revision,
     :section_revisions,
     :game_tick,
+    :orb_age_ticks,
     :scheduled_ticks,
     :ticks_dirty,
     :tick_index,
@@ -178,6 +179,7 @@ defmodule Valimc.World.RegionData do
       revision: 0,
       section_revisions: %{},
       game_tick: 0,
+      orb_age_ticks: 0,
       scheduled_ticks: scheduled,
       ticks_dirty: false,
       tick_index: tick_index,
@@ -1487,6 +1489,48 @@ defmodule Valimc.World.RegionData do
 
     {random_effects, state} = random_ticks(state, read)
     apply_tick_effects(state, scheduled_effects ++ random_effects)
+  end
+
+  @orb_save_ticks 600
+
+  @doc """
+  Orb lifetime (VMC-067): orbs age with the region tick; ages accumulate in
+  memory and are written when an orb reaches 6000 ticks (it despawns) or every
+  30 s. Runs only when no planning worker holds a container snapshot.
+  """
+  def orb_lifetime(
+        %{containers: %{cooking_orbs: births, orb_transfers: %{incoming: incoming}}} = state
+      )
+      when map_size(births) == 0 and map_size(incoming) == 0,
+      do: %{state | orb_age_ticks: 0}
+
+  def orb_lifetime(state) do
+    pending = state.orb_age_ticks + 1
+
+    due =
+      pending >= 6000 - Valimc.World.CookingOrbBodies.oldest(state.containers) or
+        pending >= @orb_save_ticks
+
+    if not due or write_busy(state) != nil do
+      %{state | orb_age_ticks: pending}
+    else
+      case Valimc.World.CookingOrbBodies.advance(state.containers, state.key, pending) do
+        {:ok, :unchanged} ->
+          %{state | orb_age_ticks: 0}
+
+        {:ok, containers} ->
+          token = make_ref()
+          owner = {self(), state.items.epoch}
+          Store.commit_containers(state.store, state.store_lease, containers, owner, token)
+          state = %{state | containers: containers, orb_age_ticks: 0}
+          queue_container_write(state, token, nil, nil, [])
+
+        {:error, reason} ->
+          require Logger
+          Logger.warning("Orb ageing refused: #{inspect(reason)}")
+          %{state | orb_age_ticks: 0}
+      end
+    end
   end
 
   @random_tick_speed 3

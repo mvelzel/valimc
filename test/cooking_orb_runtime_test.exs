@@ -132,6 +132,29 @@ defmodule Valimc.CookingOrbRuntimeTest do
     end
   end
 
+  test "orbs age with the region tick and despawn durably at 6000 ticks", ctx do
+    {:noreply, installed} = seed(ctx) |> start() |> result() |> saved()
+    assert map_size(published(installed)) == 2
+
+    # Ages accumulate in memory; no write until one reaches 6000 (or 30 s pass).
+    aging = Enum.reduce(1..5, installed, fn _, s -> RegionData.orb_lifetime(s) end)
+    assert aging.orb_age_ticks == 5 and aging.item_writes == []
+
+    expiring = RegionData.orb_lifetime(%{aging | orb_age_ticks: 5999})
+    assert expiring.orb_age_ticks == 0 and expiring.item_writes != []
+    assert published(expiring) == published(installed)
+    {:noreply, durable} = saved(expiring)
+    assert disk(ctx) == durable.containers
+
+    assert Valimc.World.CookingOrbBodies.project(durable.containers)
+           |> Enum.all?(fn {_, r} -> r == %{} end)
+
+    # The orb runtime republishes after the body revision changed: nothing left.
+    refreshed = durable |> start() |> result()
+    assert published(refreshed) == %{}
+    RegionData.terminate(:shutdown, refreshed)
+  end
+
   test "rebase preserves concurrent slots, timers, receipts and new awards", ctx do
     state = seed(ctx) |> start()
     {x, _, z} = ctx.position

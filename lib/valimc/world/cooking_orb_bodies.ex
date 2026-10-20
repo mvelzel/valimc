@@ -103,6 +103,94 @@ defmodule Valimc.World.CookingOrbBodies do
 
   def checkpoint(_, _, _), do: invalid()
 
+  @doc """
+  Lifetime without motion (VMC-067): awards without bodies first rest at their
+  births (age 0), then every live row ages by `ticks`; age 6000 retires its
+  remaining units. Returns the containers with the new bodies (`:unchanged` when
+  nothing is alive).
+  """
+  def advance(cs, key, ticks) when is_integer(ticks) and ticks > 0 do
+    births = CookingOrbs.owned_records(cs)
+    resting = Map.drop(births, Map.keys(cs.orb_bodies.awards))
+
+    with {:ok, cs} <- rest(cs, key, resting) do
+      revision = cs.orb_bodies.revision + 1
+
+      {awards, changed} =
+        Enum.map_reduce(cs.orb_bodies.awards, false, fn {id, rows}, changed ->
+          {rows, changed} =
+            Enum.map_reduce(rows, changed, fn {uuid, row}, changed ->
+              left = births[id][uuid].count - consumed(cs, uuid) - row.expired
+
+              if left > 0 and row.expired == 0 do
+                age = min(row.age + ticks, 6000)
+
+                {{uuid,
+                  %{
+                    row
+                    | revision: revision,
+                      age: age,
+                      expired: if(age == 6000, do: left, else: 0)
+                  }}, true}
+              else
+                {{uuid, row}, changed}
+              end
+            end)
+
+          {{id, Map.new(rows)}, changed}
+        end)
+
+      cond do
+        changed -> apply_proposal(cs, key, %{revision: revision, awards: Map.new(awards)})
+        map_size(resting) > 0 -> {:ok, cs}
+        true -> {:ok, :unchanged}
+      end
+    end
+  end
+
+  @doc "The oldest live body's age (0 without bodies): ticks left until an expiry."
+  def oldest(cs) do
+    for {_, rows} <- cs.orb_bodies.awards, {_, row} <- rows, row.expired == 0, reduce: 0 do
+      age -> max(age, row.age)
+    end
+  end
+
+  defp rest(cs, _key, resting) when map_size(resting) == 0, do: {:ok, cs}
+
+  defp rest(cs, key, resting) do
+    revision = cs.orb_bodies.revision + 1
+
+    rows =
+      Map.new(resting, fn {id, births} ->
+        {id,
+         Map.new(births, fn {uuid, birth} ->
+           {uuid,
+            %{
+              position: doubles(birth.position),
+              velocity: {0.0, 0.0, 0.0},
+              revision: revision,
+              age: 0,
+              on_ground: false,
+              no_gravity: false,
+              expired: 0
+            }}
+         end)}
+      end)
+
+    with {:ok, cs} <-
+           apply_proposal(cs, key, %{
+             revision: revision,
+             awards: Map.merge(cs.orb_bodies.awards, rows)
+           }),
+         do: {:ok, cs}
+  end
+
+  defp apply_proposal(cs, key, bodies) do
+    with {:ok, proposal} <- propose(cs, key, bodies),
+         {:ok, next, :applied} <- install(cs, key, proposal),
+         do: {:ok, next}
+  end
+
   @doc "Rebase only body state after its read fence matches. Call on a bounded worker before durable owner commit."
   def install(
         cs,

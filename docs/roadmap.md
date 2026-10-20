@@ -24,7 +24,7 @@ lands. See [architecture](architecture.md) for the target design.
 | [VMC-064](tickets/VMC-064.md) | One owner-transaction engine and section fencing | Done |
 | [VMC-065](tickets/VMC-065.md) | Published section snapshots for lock-free collision/observation reads | Done |
 | [VMC-066](tickets/VMC-066.md) | Tick pipeline on game time: steppable clock, scheduled and random ticks | Foundation |
-| [VMC-067](tickets/VMC-067.md) | Generic entity model; items and XP orbs migrate onto it | In progress |
+| [VMC-067](tickets/VMC-067.md) | Generic entity model; items and XP orbs migrate onto it | Awaiting client |
 | VMC-068 | Unified generated block/item registry, block behaviours, protocol constants | Planned |
 | [VMC-069](tickets/VMC-069.md) | Connection hot path (slim peers, frame once, counters), then split | In progress |
 
