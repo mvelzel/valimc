@@ -126,7 +126,7 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | VMC-048 | Repeaters, comparators, observers and pistons | Tick timing, moving blocks, sticky behavior and block-entity moves |
 | VMC-049 | Hoppers, dispensers and droppers | Ordered inventory transfers; no duplication with parallel region ticks |
 | VMC-050 | Explosions, TNT and falling blocks | Ray selection, damage/knockback/drops and consistent affected-state publication |
-| VMC-051 | Maps, books, signs, sounds and game events | Bounded content, client metadata updates, banners and persistent data |
+| VMC-051 | Maps, books, signs, sounds and game events | Bounded content, client metadata updates, banners and persistent data; exploration maps from container loot (VMC-072c) |
 | VMC-052 | Advancements, statistics and scoreboards | Triggers/rewards/criteria, objectives, persistence and visibility |
 
 ### F — Operations, extensibility and qualification
