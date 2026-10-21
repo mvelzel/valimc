@@ -150,6 +150,16 @@ defmodule Valimc.WorldgenProtoOwnerTest do
     assert Proto.full_chunks(ctx.key) == {:error, :handed_over}
   end
 
+  test "a stopped owner closes its log for the next one", ctx do
+    want = sequential(ctx.worldgen, [ctx.key])
+    owner = pid(ctx.key)
+    writer = :sys.get_state(owner).log
+    watch = Process.monitor(writer)
+    :ok = GenServer.stop(owner, :normal)
+    assert_receive {:DOWN, ^watch, :process, ^writer, _}
+    assert_same(full(ctx.key), want[ctx.key])
+  end
+
   describe "crashes" do
     # The last participant in key order (the region north-east... south-east).
     defp last(key), do: key |> TestScope.neighborhood() |> Enum.max()

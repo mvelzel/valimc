@@ -66,7 +66,9 @@ defmodule Valimc.Worldgen.Proto do
     resolving: %{},
     monitors: %{},
     attempts: 0,
-    waiters: []
+    waiters: [],
+    calls: 0,
+    quiet: {0, 0}
   ]
 
   @biome_source "minecraft:overworld"
@@ -76,6 +78,9 @@ defmodule Valimc.Worldgen.Proto do
   @max_requests 32
   @terrain_batch 4
   @resolve_every 30_000
+  # An owner with nothing in flight stops after this many quiet resolve rounds
+  # (its state is durable; untouched terrain is generated again if needed).
+  @idle_rounds 10
   @max_attempts 40
 
   ## API
@@ -212,6 +217,7 @@ defmodule Valimc.Worldgen.Proto do
   # Full chunks for the live region.
   @impl true
   def handle_call(:full_chunks, from, state) do
+    state = %{state | calls: state.calls + 1}
     own = chunks_of(state.key)
 
     cond do
@@ -233,6 +239,8 @@ defmodule Valimc.Worldgen.Proto do
         from,
         state
       ) do
+    state = %{state | calls: state.calls + 1}
+
     cond do
       not Enum.all?(chunks, &(region_of(&1) == state.key)) ->
         {:reply, {:error, :invalid_generation_lock}, state}
@@ -261,6 +269,8 @@ defmodule Valimc.Worldgen.Proto do
 
   # Participant: a committed transaction's part.
   def handle_call({:apply, request}, from, state) do
+    state = %{state | calls: state.calls + 1}
+
     case apply_part_locally(state, request, {:call, from}) do
       {:reply, reply, state} -> {:reply, reply, state}
       {:noreply, state} -> {:noreply, state}
@@ -272,6 +282,8 @@ defmodule Valimc.Worldgen.Proto do
 
   # Coordinator: what became of `txn` (presumed abort).
   def handle_call({:status, txn, asker}, _from, state) do
+    state = %{state | calls: state.calls + 1}
+
     reply =
       cond do
         state.txn != nil and state.txn.id == txn -> {:running, self()}
@@ -370,7 +382,13 @@ defmodule Valimc.Worldgen.Proto do
 
   def handle_info(:resolve, state) do
     Process.send_after(self(), :resolve, @resolve_every)
-    {:noreply, resolve_locks(state, fn grant -> grant.durable and grant.watch == nil end)}
+    state = resolve_locks(state, fn grant -> grant.durable and grant.watch == nil end)
+    {calls, rounds} = state.quiet
+    rounds = if calls == state.calls and quiescent?(state), do: rounds + 1, else: 0
+
+    if rounds >= @idle_rounds,
+      do: {:stop, :normal, state},
+      else: {:noreply, %{state | quiet: {state.calls, rounds}}}
   end
 
   def handle_info({:DOWN, monitor, :process, _, reason}, state) do
@@ -380,8 +398,23 @@ defmodule Valimc.Worldgen.Proto do
   def handle_info({:EXIT, _, _}, state), do: {:noreply, state}
   def handle_info(_, state), do: {:noreply, state}
 
+  # A linked writer ignores a normal exit; stop it, so a later owner of the
+  # region is the log's only writer.
   @impl true
+  def terminate(_reason, %{log: log}) when is_pid(log) do
+    GenServer.stop(log, :normal, 10_000)
+  catch
+    :exit, _ -> :ok
+  end
+
   def terminate(_reason, _state), do: :ok
+
+  defp quiescent?(state) do
+    state.txn == nil and state.retry == nil and state.full_job == nil and state.waiters == [] and
+      state.requests == [] and map_size(state.grants) == 0 and map_size(state.outbox) == 0 and
+      map_size(state.writes) == 0 and map_size(state.terrain.jobs) == 0 and
+      state.terrain.queue == []
+  end
 
   # A watched coordinator died: ask its next incarnation. A delivery worker
   # died without reporting: its attempt failed.

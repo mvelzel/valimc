@@ -8,6 +8,13 @@
 # the work. Start with `elixir --erl "+SDcpu 1" -S mix run …` for one thread.
 #
 #     VALIMC_PORT=0 mix run bench/worldgen_live.exs bench/results/live.json [N] [PASSES]
+#
+# It first times the stages on one thread over the 64 chunks of the bench area
+# of `worldgen_terrain.exs` and `worldgen_decoration.exs` (seed 20261020, the
+# 8 × 8 from (0, 0) decorated Z outer, X inner in a 10 × 10 terrain area): the
+# proto NIFs (terrain encoded, decoration over encoded chunks, full chunks)
+# against `worldgen_build_terrain` and `worldgen_decoration_time`, so the cost
+# of encoding is separate from that of transactions and logs.
 alias Valimc.Worldgen.Proto
 
 [output | rest] = System.argv()
@@ -30,23 +37,119 @@ run = fn pass ->
   # Each pass uses regions of its own, so no owner of an earlier pass answers.
   offset = pass * (n + 4)
   regions = for rz <- 0..(n - 1), rx <- 0..(n - 1), do: {rx + offset, rz}
-  :ets.insert(Valimc.ScopedConfig, for(rx <- (offset - 2)..(offset + n + 1), rz <- -2..(n + 1), do: {{{rx, rz}, :world_path}, base}))
+
+  :ets.insert(
+    Valimc.ScopedConfig,
+    for(
+      rx <- (offset - 2)..(offset + n + 1),
+      rz <- -2..(n + 1),
+      do: {{{rx, rz}, :world_path}, base}
+    )
+  )
 
   {micros, results} =
     :timer.tc(fn ->
       regions
-      |> Task.async_stream(&Proto.full_chunks/1, max_concurrency: length(regions), timeout: :infinity)
+      |> Task.async_stream(&Proto.full_chunks/1,
+        max_concurrency: length(regions),
+        timeout: :infinity
+      )
       |> Enum.map(fn {:ok, {:ok, full}} -> length(full) end)
     end)
 
   File.rm_rf(base)
   final = Enum.sum(results)
   side = 8 * n
-  %{micros: micros, final: final, terrain: (side + 4) * (side + 4), decorated: (side + 2) * (side + 2)}
+
+  %{
+    micros: micros,
+    final: final,
+    terrain: (side + 4) * (side + 4),
+    decorated: (side + 2) * (side + 2)
+  }
 end
 
 if :ets.whereis(Valimc.ScopedConfig) == :undefined,
   do: :ets.new(Valimc.ScopedConfig, [:named_table, :public])
+
+# One thread: each NIF call runs on one dirty scheduler.
+alias Valimc.Native
+source = "minecraft:overworld"
+area = for z <- -1..8, x <- -1..8, do: {x, z}
+inner = for z <- 0..7, x <- 0..7, do: {x, z}
+
+order =
+  Application.app_dir(:valimc, "priv/worldgen/feature_order.json")
+  |> File.read!()
+  |> JSON.decode!()
+  |> Map.fetch!(source)
+
+features =
+  for {step, s} <- Enum.with_index(order), i <- 0..(length(step) - 1)//1, do: {s, i}
+
+median = fn list -> list |> Enum.sort() |> Enum.at(div(length(list), 2)) end
+
+stage = fn f ->
+  # A fresh state per pass, as a new region's generation starts.
+  for pass <- 0..5 do
+    {:ok, state} = Valimc.Worldgen.new(seed)
+    {micros, _} = :timer.tc(fn -> f.(state) end)
+    {pass, micros}
+  end
+  |> Enum.drop(1)
+  |> Enum.map(&elem(&1, 1))
+  |> median.()
+end
+
+terrain_us = stage.(fn s -> {:ok, _} = Native.worldgen_build_terrain(s, source, true, area) end)
+proto_us = stage.(fn s -> {:ok, _} = Native.worldgen_proto_terrain(s, source, area) end)
+{:ok, warm} = Valimc.Worldgen.new(seed)
+{:ok, terrain} = Native.worldgen_proto_terrain(warm, source, area)
+images = Enum.map(terrain, &elem(&1, 2))
+
+decorate_us =
+  median.(
+    for _ <- 1..5 do
+      {micros, {:ok, _}} =
+        :timer.tc(fn -> Native.worldgen_proto_decorate(warm, images, inner) end)
+
+      micros
+    end
+  )
+
+parity_ns =
+  median.(
+    for _ <- 1..5 do
+      {:ok, ns} = Native.worldgen_decoration_time(warm, source, {-1, -1}, 10, inner, features)
+      ns
+    end
+  )
+
+{:ok, {touched, _}} = Native.worldgen_proto_decorate(warm, images, inner)
+decorated = Map.new(touched, fn {x, z, image} -> {{x, z}, image} end)
+own = Enum.map(inner, &decorated[&1])
+
+full_us =
+  median.(
+    for _ <- 1..5 do
+      {micros, {:ok, _}} =
+        :timer.tc(fn ->
+          Native.worldgen_proto_full(warm, own, Valimc.World.Generator.protocol_biomes())
+        end)
+
+      micros
+    end
+  )
+
+stages = %{
+  build_terrain_ms_per_chunk: terrain_us / 100 / 1000,
+  proto_terrain_ms_per_chunk: proto_us / 100 / 1000,
+  proto_decorate_ms_per_chunk: decorate_us / 64 / 1000,
+  decoration_ms_per_chunk: parity_ns / 64 / 1_000_000,
+  proto_full_ms_per_chunk: full_us / 64 / 1000
+}
+
+IO.inspect(stages, label: "one thread")
 
 # One warm-up pass compiles the worldgen states.
 _ = run.(0)
@@ -69,6 +172,7 @@ File.write!(
   output,
   JSON.encode!(%{
     regions: n * n,
+    stages: stages,
     passes: Enum.map(measured, &Map.new(&1)),
     dirty_cpu_schedulers: :erlang.system_info(:dirty_cpu_schedulers_online),
     schedulers: System.schedulers_online(),
