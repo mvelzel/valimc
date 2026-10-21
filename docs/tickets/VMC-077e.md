@@ -106,7 +106,10 @@ generation and the TCP sessions) all pass; `mix test.fast` and the player,
 portal, dimension-travel and flight socket files.
 `portal_connection_test.exs` sometimes fails its cleanup (`File.rm_rf!` while
 a late write lands); it does the same on the commit before this slice (2 of 5
-runs), so it is not caused here. Rain slice: `cargo test -p valimc_core column`,
+runs), so it is not caused here. The late writers were the stores of the world
+spawn's regions, which the credits' respawn loads and the teardown left running;
+it now stops them (`TestScope.stop_neighbourhood(key, spawn: true)`), and ten
+runs in a row pass. Rain slice: `cargo test -p valimc_core column`,
 `cargo clippy --all-targets`, `mix test.fast` (490 passed) and
 `check_vanilla.py --changed` (63 stages, including sky column, flat climate,
 heightmap, rain contact, light and TCP) pass.

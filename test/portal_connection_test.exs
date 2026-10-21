@@ -37,19 +37,10 @@ defmodule Valimc.PortalConnectionTest do
       for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
           do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
-      for dx <- -2..2,
-          dz <- -2..2,
-          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, {rx + dx, rz + dz}),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-
-      elsewhere = [{{{:"$1", :_}, :"$2", :_}, [{:is_atom, :"$1"}], [:"$2"]}]
-
-      for pid <- Registry.select(Valimc.RegionRegistry, elsewhere),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-
-      for pid <- Registry.select(Valimc.ProtoRegistry, elsewhere),
-          do: DynamicSupervisor.terminate_child(Valimc.ProtoSupervisor, pid)
-
+      # The overworld regions and stores around the portal and the world spawn
+      # (the credits' respawn lands there, and its owners may still be loading).
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_dimensions()
       Application.put_env(:valimc, :world_path, old)
       File.rm_rf!(base)
     end)

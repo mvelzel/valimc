@@ -636,6 +636,33 @@ defmodule Valimc.TestScope do
   end
 
   @doc """
+  Teardown for serial suites whose every Nether and End owner is their own: stop
+  the region owners, proto owners and stores of other dimensions. Their chunks may
+  still be generating (VMC-075), and a region or a transaction can start a proto
+  owner again, so this repeats until none is left.
+  """
+  def stop_dimensions do
+    elsewhere = [{{{:"$1", :_}, :"$2", :_}, [{:is_atom, :"$1"}], [:"$2"]}]
+
+    running =
+      for {registry, supervisor} <- [
+            {Valimc.RegionRegistry, Valimc.RegionSupervisor},
+            {Valimc.ProtoRegistry, Valimc.ProtoSupervisor},
+            {Valimc.RegionStoreRegistry, Valimc.RegionStoreSupervisor}
+          ],
+          pid <- Registry.select(registry, elsewhere),
+          Process.alive?(pid),
+          do: {supervisor, pid}
+
+    if running == [] do
+      :ok
+    else
+      for {supervisor, pid} <- running, do: DynamicSupervisor.terminate_child(supervisor, pid)
+      stop_dimensions()
+    end
+  end
+
+  @doc """
   Stop the connections and player stores writing under the world `base`: a store
   writes its player file when its session closes, which can race `File.rm_rf!`
   (VMC-073).

@@ -39,33 +39,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
       # (a respawn lands there).
       Valimc.TestScope.stop_neighbourhood(key, spawn: true)
 
-      # Every Nether and End owner is this suite's. Their chunks may still be
-      # generating (VMC-075), and a region or a transaction can start a proto
-      # owner again: stop them all until none is left.
-      elsewhere = [{{{:"$1", :_}, :"$2", :_}, [{:is_atom, :"$1"}], [:"$2"]}]
-
-      supervisors = [
-        {Valimc.RegionRegistry, Valimc.RegionSupervisor},
-        {Valimc.ProtoRegistry, Valimc.ProtoSupervisor},
-        {Valimc.RegionStoreRegistry, Valimc.RegionStoreSupervisor}
-      ]
-
-      stop_elsewhere = fn stop_elsewhere ->
-        running =
-          for {registry, supervisor} <- supervisors,
-              pid <- Registry.select(registry, elsewhere),
-              Process.alive?(pid),
-              do: {supervisor, pid}
-
-        if running != [] do
-          for {supervisor, pid} <- running,
-              do: DynamicSupervisor.terminate_child(supervisor, pid)
-
-          stop_elsewhere.(stop_elsewhere)
-        end
-      end
-
-      stop_elsewhere.(stop_elsewhere)
+      Valimc.TestScope.stop_dimensions()
 
       Application.put_env(:valimc, :world_path, old)
       Valimc.TestScope.stop_players(base)
