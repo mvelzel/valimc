@@ -404,8 +404,7 @@ defmodule Valimc.TestDisk do
   @moduledoc """
   Durable region state for tests, independent of the on-disk layout. Writes are
   fixtures for a region whose store is not running (a stopping store is awaited):
-  before the region log exists they become legacy files (imported on first open),
-  afterwards a log frame.
+  one region log frame, as the store itself writes.
   """
   alias Valimc.World.{RegionLog, Store}
 
@@ -414,35 +413,10 @@ defmodule Valimc.TestDisk do
   def write(base, key, part, value) when part in [:blocks, :items, :containers] do
     # A store stopping after its owner's death must not race this fixture.
     for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key), do: await_exit(pid)
-    dir = Store.log_dir(base, key)
-
-    if File.dir?(dir) do
-      {:ok, log, _} = RegionLog.open(dir)
-      {:ok, log, _} = RegionLog.append(log, [[{part, value}]])
-      :ok = RegionLog.close(log)
-    else
-      File.mkdir_p!(base)
-
-      case part do
-        :blocks ->
-          File.write!(
-            Store.block_path(base, key),
-            :erlang.term_to_binary({:valimc_region, 1, value})
-          )
-
-        :items ->
-          write_v1(Store.item_path(base, key), value)
-
-        :containers ->
-          write_v1(Store.container_path(base, key), value)
-      end
-    end
-
-    :ok
+    {:ok, log, _} = RegionLog.open(Store.log_dir(base, key))
+    {:ok, log, _} = RegionLog.append(log, [[{part, value}]])
+    :ok = RegionLog.close(log)
   end
-
-  defp write_v1(path, nil), do: File.rm(path)
-  defp write_v1(path, bytes), do: File.write!(path, bytes)
 
   @doc """
   Make the running store's next append fail with an I/O error (its segment is
@@ -475,30 +449,13 @@ defmodule Valimc.TestDisk do
 end
 
 defmodule Valimc.TestConn do
-  @moduledoc """
-  A connection's state for assertions, with legacy flat views of jobs that moved
-  into `Valimc.Session.Jobs` (e.g. `pose_job`), so tests stay independent of the
-  internal layout.
-  """
-  @legacy_jobs [
-    pose: :pose_job,
-    pickup: :pickup_job,
-    mining: :mining_job,
-    placement: :placement_job,
-    motion: :motion_job,
-    experience: :experience_job
-  ]
+  @moduledoc "A connection's state for assertions; its asynchronous jobs live in `Valimc.Session.Jobs`."
 
   # Generous on a loaded host; a free owner answers at once (VMC-073).
-  def state(pid), do: view(:sys.get_state(pid, 30_000))
+  def state(pid), do: :sys.get_state(pid, 30_000)
 
-  def view(%{jobs: %Valimc.Session.Jobs{} = jobs} = state) do
-    Enum.reduce(@legacy_jobs, state, fn {kind, key}, acc ->
-      Map.put(acc, key, Valimc.Session.Jobs.get(jobs, kind))
-    end)
-  end
-
-  def view(state), do: state
+  @doc "The connection's active job of `kind` (`:pose`, `:motion`, `:mining`, ...), or nil."
+  def job(state, kind), do: Valimc.Session.Jobs.get(state.jobs, kind)
 end
 
 defmodule Valimc.TestRegion do
@@ -883,7 +840,7 @@ defmodule Valimc.TestPlayer do
         s = state(pid)
 
         (settle == :alive and s.life_stage != :alive) or
-          (s.pose_job == nil and s.motion_job == nil and
+          (Valimc.TestConn.job(s, :pose) == nil and Valimc.TestConn.job(s, :motion) == nil and
              (settle != :simulation or not s.simulation_due))
       end)
     end

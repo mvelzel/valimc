@@ -96,7 +96,11 @@ defmodule Valimc.PlayerMiningConnectionTest do
     send(pid, {:player_tick, before.simulation_clock.token})
     assert state(pid).simulation_clock.tick == before.simulation_clock.tick + 1
     park(pid)
-    wait(fn -> state(pid).pose_job == nil and state(pid).motion_job == nil end)
+
+    wait(fn ->
+      Valimc.TestConn.job(state(pid), :pose) == nil and
+        Valimc.TestConn.job(state(pid), :motion) == nil
+    end)
   end
 
   defp ticks(pid, count), do: Enum.each(1..count, fn _ -> tick(pid) end)
@@ -273,10 +277,10 @@ defmodule Valimc.PlayerMiningConnectionTest do
 
     try do
       action(client, "start_destroy_block", ctx.target, 1)
-      job = wait(fn -> state(pid).mining_job end)
+      job = wait(fn -> Valimc.TestConn.job(state(pid), :mining) end)
       # The job's own deadline timer, fired now instead of after its budget.
       send(pid, {:job_timeout, :mining, job.ref})
-      wait(fn -> state(pid).mining == nil and state(pid).mining_job == nil end)
+      wait(fn -> state(pid).mining == nil and Valimc.TestConn.job(state(pid), :mining) == nil end)
 
       send(
         pid,
@@ -307,7 +311,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
     {:ok, {region, _}} = World.existing_owner(ctx.key)
     :ok = Valimc.TestRegionGate.stall(region)
     action(client, "start_destroy_block", ctx.target, 1)
-    wait(fn -> state(pid).mining_job != nil end)
+    wait(fn -> Valimc.TestConn.job(state(pid), :mining) != nil end)
     :ok = :sys.suspend(pid)
 
     try do
@@ -324,7 +328,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
       :ok = :sys.resume(pid)
     end
 
-    wait(fn -> finished(pid) and state(pid).mining_job == nil end)
+    wait(fn -> finished(pid) and Valimc.TestConn.job(state(pid), :mining) == nil end)
     assert World.get_block(ctx.target) == Data.block("stone")
     assert World.item_snapshot(ctx.key) == %{}
     assert Inventory.held(state(pid).inventory, :main) == instant("iron_pickaxe")

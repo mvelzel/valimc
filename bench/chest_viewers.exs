@@ -17,9 +17,7 @@ results =
     {x, _, z} = position
     {:ok, containers, entry} = Containers.create(%Containers{}, key, position, 3)
     {:ok, bytes} = Containers.encode(key, containers)
-    path = Store.container_path(dataset, key)
-    File.mkdir_p!(Path.dirname(path))
-    File.write!(path, bytes)
+    :ok = Store.import_region(dataset, key, %{containers: bytes})
     {:ok, owner} = World.owner(key)
     :ok = World.set_block(position, block)
     parent = self()

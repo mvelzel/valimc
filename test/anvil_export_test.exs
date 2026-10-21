@@ -70,7 +70,7 @@ defmodule Valimc.AnvilExportTest do
         :binary.copy(<<0, 9>>, 4096),
         for(i <- 0..4095, into: <<>>, do: <<rem(i * 7, 3)::16>>),
         for(i <- 0..4095, into: <<>>, do: <<rem(i * 31, 300)::16>>),
-        for(i <- 0..4095, into: <<>>, do: <<:rand.uniform(35_000)::16>>),
+        for(_ <- 0..4095, into: <<>>, do: <<:rand.uniform(35_000)::16>>),
         for(i <- 0..63, into: <<>>, do: <<rem(i, 5)::16>>)
       ]
 

@@ -6,7 +6,12 @@ File.mkdir_p!(base)
 old = Valimc.config(:world_path)
 Application.put_env(:valimc, :world_path, base)
 {:ok, hot} = World.owner({709, 710})
-bytes = :erlang.term_to_binary({:valimc_region, 1, %{}})
+# A cold region's checkpoint, as a FIFO stalls its read: the bytes of an empty one.
+seed = Path.join(base, "seed")
+{:ok, log, _} = Valimc.World.RegionLog.open(seed)
+{:ok, _} = Valimc.World.RegionLog.checkpoint(log, %{})
+[checkpoint] = seed |> File.ls!() |> Enum.filter(&String.starts_with?(&1, "ckpt."))
+bytes = File.read!(Path.join(seed, checkpoint))
 
 registered = fn key ->
   Enum.reduce_while(1..1000, nil, fn _, _ ->
@@ -33,7 +38,9 @@ results =
   for n <- 0..4 do
     cold_key = {710 + n * 2, 710}
     other_key = {711 + n * 2, 710}
-    path = Path.join(base, "r.#{elem(cold_key, 0)}.710.etf")
+    dir = Valimc.World.Store.log_dir(base, cold_key)
+    File.mkdir_p!(dir)
+    path = Path.join(dir, checkpoint)
     {_, 0} = System.cmd("mkfifo", [path])
     cold = Task.async(fn -> measure.(fn -> World.owner(cold_key) end) end)
     pid = registered.(cold_key)

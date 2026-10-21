@@ -45,21 +45,7 @@ defmodule Valimc.WeatherTest do
     end
   end
 
-  test "record migration preserves old clocks, weather schema and native load preparation" do
-    data = %{ClockRecord.new() | game_time: 12, advance_time: false}
-    names = ClockRecord.names()
-
-    body =
-      IO.iodata_to_binary([
-        <<"VMCLOCK", 1, 5023::32, 12::signed-64, 0, length(names)>>,
-        Enum.map(names, fn _ -> <<0::signed-64, 0.0::float-32, 1.0::float-32, 0>> end)
-      ])
-
-    legacy = body <> :crypto.hash(:sha256, body)
-    assert {:ok, loaded} = ClockRecord.decode(legacy)
-    assert loaded.clocks == data.clocks and loaded.game_time == 12 and not loaded.advance_time
-    assert loaded.weather.rain_level == 0.0 and Weather.valid?(loaded.weather)
-
+  test "saved weather loads prepared as vanilla loads it; invalid random state rejects" do
     weather = %Weather{
       clear_time: 0,
       rain_time: 300,
@@ -72,17 +58,16 @@ defmodule Valimc.WeatherTest do
       random_seed: Weather.seed(44)
     }
 
-    assert {:ok, bytes} = ClockRecord.encode(%{loaded | weather: weather})
-    assert <<"VMCLOCK", 5, _::binary>> = bytes
+    data = ClockRecord.new()
+    assert {:ok, bytes} = ClockRecord.encode(%{data | weather: weather})
     assert {:ok, recovered} = ClockRecord.decode(bytes)
-    assert recovered.weather == Weather.prepare(weather)
-    assert recovered.clocks == loaded.clocks
+    assert recovered.weather == Weather.prepare(weather) and recovered.clocks == data.clocks
     # Vanilla prepares no initial thunder intensity when only the thunder flag is saved.
     assert Weather.prepare(%{weather | raining: false}).thunder_level == 0.0
     refute Weather.valid?(%{weather | random_seed: 0x1000000000000})
 
     assert {:error, :invalid_clock_state} =
-             ClockRecord.encode(%{loaded | weather: %{weather | random_seed: -1}})
+             ClockRecord.encode(%{data | weather: %{weather | random_seed: -1}})
   end
 
   test "new world controls publish levels without per-player tick messages and persist weather" do

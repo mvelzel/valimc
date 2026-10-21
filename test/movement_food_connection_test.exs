@@ -44,7 +44,8 @@ defmodule Valimc.MovementFoodConnectionTest do
     wait(fn ->
       s = state(pid)
 
-      Map.take(s.player, [:x, :y, :z]) == Map.take(position, [:x, :y, :z]) and s.motion_job == nil and
+      Map.take(s.player, [:x, :y, :z]) == Map.take(position, [:x, :y, :z]) and
+        Valimc.TestConn.job(s, :motion) == nil and
         s.motion_pending == nil
     end)
   end
@@ -95,7 +96,7 @@ defmodule Valimc.MovementFoodConnectionTest do
     try do
       target = %{ctx.pose | x: ctx.pose.x + 0.2}
       move(client, target)
-      _old = wait(fn -> state(pid).motion_job end)
+      _old = wait(fn -> Valimc.TestConn.job(state(pid), :motion) end)
       Client.send_packet(client, :play, "player_command", <<0, 2, 0>>)
       assert state(pid).player.food == %PlayerFood{}
       Valimc.TestRegionGate.resume(region)
@@ -132,7 +133,7 @@ defmodule Valimc.MovementFoodConnectionTest do
 
     try do
       move(client, %{ctx.pose | z: ctx.pose.z + 0.1})
-      job = wait(fn -> state(pid).motion_job end)
+      job = wait(fn -> Valimc.TestConn.job(state(pid), :motion) end)
       :ok = Connection.teleport(pid, %{ctx.pose | z: ctx.pose.z + 0.2})
       send(pid, {job.task.ref, {:ok, %{accepted: true, exhaustion: %{jump: 40.0, travel: 40.0}}}})
       assert state(pid).player.food == %PlayerFood{}
@@ -153,7 +154,7 @@ defmodule Valimc.MovementFoodConnectionTest do
     try do
       target = %{ctx.pose | x: ctx.pose.x + 0.2}
       move(client, target)
-      _job = wait(fn -> state(pid).motion_job end)
+      _job = wait(fn -> Valimc.TestConn.job(state(pid), :motion) end)
       tick(pid)
       spent = %PlayerFood{level: 19, saturation: 0.0, exhaustion: 0.125}
       assert state(pid).player.food == spent

@@ -6,19 +6,25 @@ defmodule Valimc.RegionLoadingTest do
   alias Valimc.World.Region
   import ExUnit.CaptureLog
 
-  test "a failed cold legacy block import preserves its file and leaves unrelated owners available" do
+  test "a region saved before the region log fails clearly, keeps its file and leaves others available" do
     nonce = rem(System.unique_integer([:positive]), 10_000) + 1
-    base = Path.join(System.tmp_dir!(), "valimc-bad-cold-#{nonce}")
+    base = Path.join(System.tmp_dir!(), "valimc-pre-log-#{nonce}")
     key = {-752, -nonce}
     independent = {-753, -nonce}
-    path = Valimc.World.Store.block_path(base, key)
+    {rx, rz} = key
+    # A pre-M1 per-file snapshot: no longer read, never replaced by an empty region.
+    path = Path.join(base, "r.#{rx}.#{rz}.etf")
     File.mkdir_p!(base)
-    File.write!(path, <<0>>)
+    File.write!(path, :erlang.term_to_binary({:valimc_region, 1, %{{0, 70, 0} => 1}}))
     TestScope.isolate([key, independent], world_path: base)
 
     try do
-      capture_log(fn -> assert {:error, _} = World.owner(key) end)
-      assert File.read!(path) == <<0>>
+      assert capture_log(fn -> assert {:error, _} = World.owner(key) end) =~
+               "saved before the region log"
+
+      assert File.read!(path) == :erlang.term_to_binary({:valimc_region, 1, %{{0, 70, 0} => 1}})
+      refute File.exists?(Valimc.World.Store.log_dir(base, key))
+      assert_raise ArgumentError, fn -> Valimc.World.Store.durable(base, key, :blocks) end
       assert World.existing_owner(key) == {:error, :region_unavailable}
       assert World.item_snapshot(key) == %{}
       assert {:ok, owner} = World.owner(independent)
@@ -40,8 +46,15 @@ defmodule Valimc.RegionLoadingTest do
     base = Path.join(System.tmp_dir!(), "valimc-cold-#{nonce}")
     key = {-750, -nonce}
     independent = {-751, -nonce}
-    path = Valimc.World.Store.block_path(base, key)
-    File.mkdir_p!(base)
+    # The region's checkpoint is a FIFO: its cold read blocks until bytes arrive.
+    seed = Path.join(base, "seed")
+    {:ok, log, _} = Valimc.World.RegionLog.open(seed)
+    {:ok, _} = Valimc.World.RegionLog.checkpoint(log, %{})
+    [checkpoint] = seed |> File.ls!() |> Enum.filter(&String.starts_with?(&1, "ckpt."))
+    bytes = File.read!(Path.join(seed, checkpoint))
+    dir = Valimc.World.Store.log_dir(base, key)
+    File.mkdir_p!(dir)
+    path = Path.join(dir, checkpoint)
     assert {_, 0} = System.cmd("mkfifo", [path])
     TestScope.isolate([key, independent], world_path: base)
     loading = Task.async(fn -> World.owner(key) end)
@@ -80,8 +93,7 @@ defmodule Valimc.RegionLoadingTest do
         Task.shutdown(healthy, :brutal_kill)
       end
 
-      # The writer receives actual persisted bytes, not a fake completion message.
-      bytes = :erlang.term_to_binary({:valimc_region, 1, %{}})
+      # The reader receives actual persisted bytes, not a fake completion message.
       File.write!(path, bytes, [:raw])
       assert {:ok, {^pid, epoch}} = Task.await(loading, 60_000)
       for task <- waiters, do: assert(Task.await(task, 60_000) == {:ok, {pid, epoch}})
@@ -92,9 +104,7 @@ defmodule Valimc.RegionLoadingTest do
       # Unblock File.read even when the assertion above fails against a regression.
       if Process.alive?(loading.pid) do
         release =
-          Task.async(fn ->
-            File.write(path, :erlang.term_to_binary({:valimc_region, 1, %{}}), [:raw])
-          end)
+          Task.async(fn -> File.write(path, bytes, [:raw]) end)
 
         Task.yield(loading, 1000)
         Task.shutdown(release, :brutal_kill)

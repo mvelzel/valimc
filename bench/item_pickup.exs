@@ -150,7 +150,7 @@ defmodule Valimc.PickupBench do
       for {key, grouped} <- Enum.group_by(sources, &elem(&1, 0)) do
         records = Enum.flat_map(grouped, &elem(&1, 2))
         {:ok, bytes} = ItemLedger.encode(key, records, %{}, %ItemLedger{})
-        File.write!(Store.item_path(base, key), bytes)
+        :ok = Store.import_region(base, key, %{items: bytes})
         {:ok, owner} = Valimc.World.item_owner(key)
         {key, owner}
       end
@@ -174,7 +174,7 @@ defmodule Valimc.PickupBench do
     for {key, {pid, _}} <- owners do
       :ok = Region.flush(pid)
       true = Items.records(:sys.get_state(pid).resource.items) == []
-      {:ok, saved} = ItemLedger.decode(File.read!(Store.item_path(base, key)), key)
+      {:ok, saved} = ItemLedger.decode(Store.durable(base, key, :items), key)
       true = saved.records == [] and map_size(saved.receipts) == 4
       DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
     end

@@ -45,7 +45,7 @@ results =
       end
 
     {:ok, initial} = ItemRecords.encode(key, records)
-    File.write!(Store.item_path(Path.expand(base), key), initial, [:binary, :sync])
+    :ok = Store.import_region(Path.expand(base), key, %{items: initial})
     {:ok, {pid, _} = owner} = World.item_owner(key)
     original = :sys.get_state(pid).resource.items
     origin = Map.new(original.entries, fn {id, %{entity: e}} -> {id, {e.x, e.y, e.z}} end)
@@ -81,7 +81,7 @@ results =
 
     {flush_us, :ok} = :timer.tc(fn -> Region.flush(pid) end)
     elapsed = System.monotonic_time(:microsecond) - started
-    {:ok, disk} = ItemRecords.decode(File.read!(Store.item_path(Path.expand(base), key)), key)
+    {:ok, disk} = ItemRecords.decode(Store.durable(Path.expand(base), key, :items), key)
     true = disk.records == Items.records(:sys.get_state(pid).resource.items)
     true = Enum.all?(disk.records, &(&1.motion.age == 100))
     sorted = Enum.sort(times)

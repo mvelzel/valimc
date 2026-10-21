@@ -210,7 +210,7 @@ defmodule Valimc.Portal.Access do
 
           world ->
             base = Valimc.Dimension.storage(world, Valimc.Dimension.current())
-            File.dir?(Store.log_dir(base, key)) or File.exists?(Store.block_path(base, key))
+            File.dir?(Store.log_dir(base, key)) or Store.pre_log_files(base, key) != []
         end
     end
   end

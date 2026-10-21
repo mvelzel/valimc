@@ -331,7 +331,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
 
       wait(fn ->
         state = Valimc.TestConn.state(pid)
-        state.table_job != nil or state.placement_job != nil
+        state.table_job != nil or Valimc.TestConn.job(state, :placement) != nil
       end)
 
       Client.send_packet(client, :play, "set_carried_item", <<1::signed-16>>)

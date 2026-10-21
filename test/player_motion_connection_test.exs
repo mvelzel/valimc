@@ -112,7 +112,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
 
     try do
       assert :ok = Connection.set_velocity(pid, {0.4, 0.8, 0.0})
-      job = wait(fn -> state(pid).pose_job end)
+      job = wait(fn -> Valimc.TestConn.job(state(pid), :pose) end)
       assert :ok = Connection.set_velocity(pid, {0.2, 0.5, 0.0})
       refute Process.alive?(job.task.pid)
 
@@ -218,7 +218,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
 
     try do
       move(client, %{ctx.pos | x: ctx.pos.x + 0.2})
-      wait(fn -> state(pid).motion_job end)
+      wait(fn -> Valimc.TestConn.job(state(pid), :motion) end)
 
       Client.send_packet(client, :play, "player_action", [
         <<4>>,
@@ -273,7 +273,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
 
     try do
       move(client, %{ctx.pos | x: ctx.pos.x + 0.1})
-      job = wait(fn -> state(pid).motion_job end)
+      job = wait(fn -> Valimc.TestConn.job(state(pid), :motion) end)
       move(other, %{other_pos | x: other_pos.x + 0.2})
       wait(fn -> state(independent).player.x == other_pos.x + 0.2 end)
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
@@ -296,7 +296,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
 
     try do
       move(client, %{ctx.pos | x: ctx.pos.x + 0.1})
-      job = wait(fn -> state(pid).motion_job end)
+      job = wait(fn -> Valimc.TestConn.job(state(pid), :motion) end)
       destination = %{ctx.pos | x: ctx.pos.x + 0.3}
       :ok = Connection.teleport(pid, destination)
       refute Process.alive?(job.task.pid)
@@ -324,7 +324,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
 
     try do
       move(client, %{ctx.pos | x: ctx.pos.x + 0.2})
-      job = wait(fn -> state(pid).motion_job end)
+      job = wait(fn -> Valimc.TestConn.job(state(pid), :motion) end)
       :sys.suspend(pid)
 
       try do
@@ -353,16 +353,16 @@ defmodule Valimc.PlayerMotionConnectionTest do
 
     try do
       move(client, %{ctx.pos | x: ctx.pos.x + 0.01})
-      job = wait(fn -> state(pid).motion_job end)
+      job = wait(fn -> Valimc.TestConn.job(state(pid), :motion) end)
       for n <- 2..34, do: move(client, %{ctx.pos | x: ctx.pos.x + n * 0.01})
-      assert state(pid).motion_job.task.ref == job.task.ref
+      assert Valimc.TestConn.job(state(pid), :motion).task.ref == job.task.ref
       assert state(pid).motion_pending.position.x == ctx.pos.x + 0.01
       refute state(pid).active
       Valimc.TestRegionGate.resume(owner)
       wait(fn -> state(pid).player.x == ctx.pos.x + 0.34 end)
       Valimc.TestRegionGate.stall(owner)
       move(client, %{ctx.pos | x: ctx.pos.x + 0.4})
-      job = wait(fn -> state(pid).motion_job end)
+      job = wait(fn -> Valimc.TestConn.job(state(pid), :motion) end)
       ref = Process.monitor(job.task.pid)
       Client.close(client)
       assert_receive {:DOWN, ^ref, :process, _, _}
@@ -383,7 +383,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     client = correction(client, pid, pos)
     :erlang.trace(pid, false, [:receive])
     retries = trace_retries(pid, [])
-    assert state(pid).motion_job == nil
+    assert Valimc.TestConn.job(state(pid), :motion) == nil
 
     case retries do
       [token | _] -> {client, token}
@@ -404,7 +404,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     # The play admission window, which this test exhausts (VMC-073).
     Valimc.TestScope.isolate(Connection.offline_uuid(hd(ctx.names)), owner_call_scale: 1)
     {client, pid} = login(hd(ctx.names))
-    wait(fn -> state(pid).pose_job == nil end)
+    wait(fn -> Valimc.TestConn.job(state(pid), :pose) == nil end)
 
     holders = Valimc.TestPool.fill(pid)
 
@@ -427,7 +427,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
 
     try do
       move(client, %{ctx.pos | x: ctx.pos.x + 0.1})
-      wait(fn -> state(pid).motion_job end)
+      wait(fn -> Valimc.TestConn.job(state(pid), :motion) end)
       Client.send_packet(client, :play, "player_input", <<32>>)
       assert state(pid).player.input.shared_flags == 0
       Valimc.TestRegionGate.resume(owner)
@@ -440,7 +440,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
       refute state(pid).teleport_pending
       Valimc.TestRegionGate.stall(owner)
       move(client, %{ctx.pos | x: ctx.pos.x + 0.2})
-      wait(fn -> state(pid).motion_job end)
+      wait(fn -> Valimc.TestConn.job(state(pid), :motion) end)
       Process.exit(owner, :kill)
       client = correction(client, pid, %{ctx.pos | x: ctx.pos.x + 0.1})
       {:ok, {replacement, _}} = World.owner(ctx.key)
@@ -455,7 +455,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
   test "an authoritative mode change invalidates geometry prepared while admission waits", ctx do
     {client, pid} = login(hd(ctx.names))
     :ok = World.set_block({floor(ctx.pos.x) + 1, 64, floor(ctx.pos.z)}, 1)
-    wait(fn -> state(pid).pose_job == nil end)
+    wait(fn -> Valimc.TestConn.job(state(pid), :pose) == nil end)
 
     holders = Valimc.TestPool.fill(pid)
 

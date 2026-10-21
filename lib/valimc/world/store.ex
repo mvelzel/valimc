@@ -1,6 +1,6 @@
 defmodule Valimc.World.Store do
   use GenServer, restart: :temporary
-  alias Valimc.World.{Chunk, Containers, ItemLedger, Items, MiningRecord, RegionLog}
+  alias Valimc.World.{Chunk, Containers, ItemLedger, Items, RegionLog}
 
   @moduledoc """
   Independently supervised resource I/O with one monitored owner and fenced writes.
@@ -9,8 +9,9 @@ defmodule Valimc.World.Store do
   frame: block changes as `{:cells, %{position => block}}` and full values for
   `{:items, bytes}` and `{:containers, bytes}`, so a mining commit changing all
   three is atomic with one fsync. Checkpoints hold the sparse block image.
-  The log is checkpointed once appended frames exceed `:store_checkpoint_bytes`. Legacy
-  per-file snapshots (`r.X.Z.etf/.items/.containers/.mining`) are imported once.
+  The log is checkpointed once appended frames exceed `:store_checkpoint_bytes`. A
+  region saved before the region log (per-file `r.X.Z.etf/.items/.containers/.mining`
+  snapshots, before M1) is refused with `{:pre_log_region_files, paths}`, never read.
   """
   @max_batch 256
   @max_commit_cells 4096
@@ -185,16 +186,18 @@ defmodule Valimc.World.Store do
     GenServer.cast(pid, {:mining, lease, proposal, owner, token})
   end
 
-  def item_path(nil, _), do: nil
-  def item_path(base, {rx, rz}), do: Path.join(base, "r.#{rx}.#{rz}.items")
-  def mining_path(nil, _), do: nil
-  def mining_path(base, {rx, rz}), do: Path.join(base, "r.#{rx}.#{rz}.mining")
-  def container_path(nil, _), do: nil
-  def container_path(base, {rx, rz}), do: Path.join(base, "r.#{rx}.#{rz}.containers")
-  def block_path(nil, _), do: nil
-  def block_path(base, {rx, rz}), do: Path.join(base, "r.#{rx}.#{rz}.etf")
   def log_dir(nil, _), do: nil
   def log_dir(base, {rx, rz}), do: Path.join(base, "r.#{rx}.#{rz}")
+
+  @doc "The files a region saved before the region log left (none are read any more)."
+  def pre_log_files(nil, _), do: []
+
+  def pre_log_files(base, {rx, rz}) do
+    for suffix <- ~w(etf items containers mining),
+        path = Path.join(base, "r.#{rx}.#{rz}.#{suffix}"),
+        File.exists?(path, [:raw]),
+        do: path
+  end
 
   @doc """
   The durable value of `part` (`:blocks` edit map, `:items` or `:containers` bytes)
@@ -215,12 +218,16 @@ defmodule Valimc.World.Store do
     dir = log_dir(base, key)
 
     values =
-      if File.dir?(dir, [:raw]) do
-        {:ok, recovered} = RegionLog.read(dir)
-        fold(recovered)
-      else
-        {:ok, values} = import_v1(base, key)
-        values
+      cond do
+        File.dir?(dir, [:raw]) ->
+          {:ok, recovered} = RegionLog.read(dir)
+          fold(recovered)
+
+        (old = pre_log_files(base, key)) != [] ->
+          raise ArgumentError, "region saved before the region log: #{Enum.join(old, ", ")}"
+
+        true ->
+          @empty
       end
 
     Map.fetch!(Map.merge(@empty, values), part)
@@ -498,23 +505,32 @@ defmodule Valimc.World.Store do
     end
   end
 
-  # Open the region log (importing legacy files once) and fold it into values.
+  # Open the region log and fold it into values; a new region starts one, unless
+  # it still holds files from before the log.
   defp recover(%{base: nil} = state), do: {:ok, state}
 
   defp recover(state) do
     dir = log_dir(state.base, state.key)
 
-    if File.dir?(dir, [:raw]) do
-      with {:ok, log, recovered} <- RegionLog.open(dir),
-           do: {:ok, %{state | log: log, values: fold(recovered)}}
-    else
-      with {:ok, imported} <- import_v1(state.base, state.key),
-           values = Map.merge(@empty, imported),
-           {:ok, log, _} <- RegionLog.open(dir),
-           {:ok, log} <- RegionLog.checkpoint(log, values) do
-        retire_v1(state.base, state.key)
-        {:ok, %{state | log: log, values: values}}
-      end
+    cond do
+      File.dir?(dir, [:raw]) ->
+        with {:ok, log, recovered} <- RegionLog.open(dir),
+             do: {:ok, %{state | log: log, values: fold(recovered)}}
+
+      (old = pre_log_files(state.base, state.key)) != [] ->
+        require Logger
+
+        Logger.error(
+          "Region #{inspect(state.key)} was saved before the region log (before M1); " <>
+            "its files are kept but no longer read: #{Enum.join(old, ", ")}"
+        )
+
+        {:error, {:pre_log_region_files, old}}
+
+      true ->
+        with {:ok, log, _} <- RegionLog.open(dir),
+             {:ok, log} <- RegionLog.checkpoint(log, @empty),
+             do: {:ok, %{state | log: log, values: @empty}}
     end
   rescue
     error in [File.Error, MatchError, ArgumentError] ->
@@ -553,83 +569,6 @@ defmodule Valimc.World.Store do
           acc
       end)
     end)
-  end
-
-  # Legacy whole-file snapshots plus a pending mining journal, merged as the old
-  # store recovered them.
-  defp import_v1(base, key) do
-    with {:ok, blocks} <- read_v1_blocks(block_path(base, key)),
-         {:ok, items} <- read_v1(item_path(base, key), ItemLedger.max_bytes()),
-         {:ok, containers} <- read_v1(container_path(base, key), Containers.max_bytes()),
-         {:ok, journal} <- read_mining(mining_path(base, key), key) do
-      values = %{blocks: blocks, items: items, containers: containers}
-
-      case journal do
-        nil ->
-          {:ok, values}
-
-        proposal ->
-          edits =
-            Enum.reduce(proposal.edits, blocks, fn {{_, y, _} = pos, block}, acc ->
-              if block == Chunk.base(y), do: Map.delete(acc, pos), else: Map.put(acc, pos, block)
-            end)
-
-          if map_size(edits) <= 131_072,
-            do:
-              {:ok,
-               %{
-                 blocks: edits,
-                 items: proposal.item_bytes,
-                 containers: Map.get(proposal, :container_bytes) || containers
-               }},
-            else: {:error, :region_edit_limit}
-      end
-    end
-  end
-
-  defp retire_v1(base, key) do
-    for path <- [block_path(base, key), item_path(base, key), container_path(base, key)],
-        File.exists?(path),
-        do: File.rename(path, path <> ".v1")
-
-    File.rm(mining_path(base, key))
-  end
-
-  defp read_v1(path, limit) do
-    case File.open(path, [:read, :raw, :binary], &:file.read(&1, limit + 1)) do
-      {:ok, {:ok, bytes}} when byte_size(bytes) <= limit -> {:ok, bytes}
-      {:ok, {:ok, _}} -> {:error, :oversized_region_file}
-      {:error, :enoent} -> {:ok, nil}
-      {:ok, :eof} -> {:error, :invalid_region_file}
-      {:ok, {:error, reason}} -> {:error, reason}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  # Raw reads keep a slow or blocked file off the global file server.
-  defp read_v1_blocks(path) do
-    case File.read(path, [:raw]) do
-      {:ok, data} ->
-        {:valimc_region, 1, edits} = :erlang.binary_to_term(data, [:safe])
-        true = is_map(edits)
-        {:ok, edits}
-
-      {:error, :enoent} ->
-        {:ok, %{}}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp read_mining(path, key) do
-    case File.open(path, [:read, :raw, :binary], &:file.read(&1, MiningRecord.max_bytes() + 1)) do
-      {:ok, {:ok, bytes}} -> MiningRecord.decode(bytes, key)
-      {:error, :enoent} -> {:ok, nil}
-      {:ok, :eof} -> {:error, :invalid_mining_record}
-      {:ok, {:error, reason}} -> {:error, reason}
-      {:error, reason} -> {:error, reason}
-    end
   end
 
   defp drain(_lease, 0, acc), do: Enum.reverse(acc)

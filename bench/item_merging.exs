@@ -52,7 +52,7 @@ results =
             }
 
       {:ok, bytes} = ItemLedger.encode(key, records, %{}, %ItemLedger{})
-      File.write!(Store.item_path(base, key), bytes)
+      :ok = Store.import_region(base, key, %{items: bytes})
     end
 
     before = Valimc.Metrics.snapshot()
@@ -86,7 +86,7 @@ results =
         s = :sys.get_state(pid).resource
         records = Items.records(s.items)
         ^count = Enum.sum(Enum.map(records, & &1.stack.count))
-        {:ok, disk} = ItemLedger.decode(File.read!(Store.item_path(base, s.key)), s.key)
+        {:ok, disk} = ItemLedger.decode(Store.durable(base, s.key, :items), s.key)
 
         true =
           Enum.map(disk.records, &{&1.uuid, &1.stack}) == Enum.map(records, &{&1.uuid, &1.stack})

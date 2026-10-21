@@ -110,7 +110,11 @@ defmodule Valimc.PlayerLandingConnectionTest do
     p = state(pid).player
     target = max(bottom, p.y - 2.0)
     move(client, pid, target, if(target == bottom, do: 1, else: 0))
-    wait(fn -> state(pid).player.y == target and state(pid).motion_job == nil end)
+
+    wait(fn ->
+      state(pid).player.y == target and Valimc.TestConn.job(state(pid), :motion) == nil
+    end)
+
     if target != bottom, do: fall(client, pid, bottom)
     :ok
   end
@@ -182,7 +186,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
 
     try do
       move(client, pid, 64.0, 1)
-      job = wait(fn -> state(pid).motion_job end)
+      job = wait(fn -> Valimc.TestConn.job(state(pid), :motion) end)
       assert :ok = Connection.teleport(pid, %{ctx.pose | y: 80.0})
 
       send(

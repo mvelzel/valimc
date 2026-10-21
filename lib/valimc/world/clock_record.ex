@@ -82,12 +82,16 @@ defmodule Valimc.World.ClockRecord do
     end
   end
 
+  # Records written before M1 (versions 1–3) are no longer read (VMC-076g).
+  def decode(<<"VMCLOCK", version, _::binary>>) when version in 1..3,
+    do: {:error, :unsupported_clock_file}
+
   def decode(bytes) when is_binary(bytes) and byte_size(bytes) <= @max_bytes do
     body_size = byte_size(bytes) - 32
     <<body::binary-size(^body_size), checksum::binary-size(32)>> = bytes
     true = checksum == :crypto.hash(:sha256, body)
     <<"VMCLOCK", version, 5023::32, time::signed-64, advance, count, entries::binary>> = body
-    true = version in [1, 2, 3, 4, 5]
+    true = version in [4, 5]
     true = advance in [0, 1] and count == length(@names)
 
     {clocks, weather_bytes} =
@@ -111,16 +115,10 @@ defmodule Valimc.World.ClockRecord do
         {%{"minecraft:overworld" => Border.new()}, weather_bytes}
       end
 
-    {regeneration, weather_bytes} =
-      if version >= 4 do
-        <<environment::binary-size(25), regeneration>> = weather_bytes
-        true = regeneration in [0, 1]
-        {regeneration == 1, environment}
-      else
-        {true, weather_bytes}
-      end
-
-    {weather, difficulty} = read_environment(min(version, 3), weather_bytes)
+    <<weather_bytes::binary-size(23), level, locked, regeneration>> = weather_bytes
+    true = locked in [0, 1] and regeneration in [0, 1]
+    weather = read_weather(weather_bytes)
+    difficulty = %Difficulty{level: level, locked: locked == 1}
 
     data = %{
       game_time: time,
@@ -128,7 +126,7 @@ defmodule Valimc.World.ClockRecord do
       clocks: clocks,
       weather: weather,
       difficulty: difficulty,
-      natural_regeneration: regeneration,
+      natural_regeneration: regeneration == 1,
       borders: borders
     }
 
@@ -167,18 +165,7 @@ defmodule Valimc.World.ClockRecord do
       weather.random_seed::64>>
   end
 
-  defp read_environment(version, bytes) when version in [1, 2],
-    do: {read_weather(version, bytes), %Difficulty{}}
-
-  defp read_environment(3, <<weather::binary-size(23), level, locked>>) do
-    true = locked in [0, 1]
-    {read_weather(2, weather), %Difficulty{level: level, locked: locked == 1}}
-  end
-
-  defp read_weather(1, <<>>), do: Weather.new()
-
   defp read_weather(
-         2,
          <<clear::signed-32, rain::signed-32, thunder::signed-32, raining, thundering, advance,
            seed::64>>
        ) do

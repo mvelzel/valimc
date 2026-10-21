@@ -47,7 +47,7 @@ rows =
           end
 
         {:ok, bytes} = ItemRecords.encode(key, records)
-        File.write!(Store.item_path(base, key), bytes)
+        :ok = Store.import_region(base, key, %{items: bytes})
         {:ok, owner} = World.item_owner(key)
         owner
       end

@@ -5,34 +5,38 @@ defmodule Valimc.DifficultyTest do
 
   defp signed(body), do: body <> :crypto.hash(:sha256, body)
 
-  test "version 2 migration preserves clocks and weather; version 3 rejects invalid fields" do
+  test "v4 records load with the default border; v1–v3 (before M1) and invalid fields reject" do
     data = %{
       ClockRecord.new()
       | game_time: 49,
         advance_time: false,
-        difficulty: %Difficulty{level: 3, locked: true}
+        difficulty: %Difficulty{level: 3, locked: true},
+        natural_regeneration: false
     }
 
     assert {:ok, bytes} = ClockRecord.encode(data)
-    assert byte_size(bytes) == 199
     assert {:ok, ^data} = ClockRecord.decode(bytes)
 
-    <<"VMCLOCK", 5, prior::binary-size(71), 3, 1, 1, _borders::binary-size(85),
+    # Version 5 appends the world borders (one overworld entry: 85 bytes) to version 4.
+    <<"VMCLOCK", 5, prior::binary-size(71), 3, 1, 0, _borders::binary-size(85),
       _checksum::binary-size(32)>> = bytes
 
-    legacy = signed(<<"VMCLOCK", 2, prior::binary>>)
-    assert {:ok, loaded} = ClockRecord.decode(legacy)
-    assert loaded == %{data | difficulty: %Difficulty{}}
+    assert {:ok, ^data} = ClockRecord.decode(signed(<<"VMCLOCK", 4, prior::binary, 3, 1, 0>>))
 
-    for {level, locked} <- [{4, 0}, {255, 0}, {2, 2}, {2, 255}] do
-      corrupt = signed(<<"VMCLOCK", 3, prior::binary, level, locked>>)
-      assert {:error, :invalid_clock_file} = ClockRecord.decode(corrupt)
+    for version <- 1..3 do
+      assert {:error, :unsupported_clock_file} =
+               ClockRecord.decode(signed(<<"VMCLOCK", version, prior::binary, 3, 1>>))
     end
 
-    assert {:error, :invalid_clock_file} =
-             ClockRecord.decode(signed(<<"VMCLOCK", 3, prior::binary, 3>>))
+    for {level, locked, rule} <- [{4, 0, 1}, {255, 0, 1}, {2, 2, 1}, {2, 0, 2}] do
+      assert {:error, :invalid_clock_file} =
+               ClockRecord.decode(signed(<<"VMCLOCK", 4, prior::binary, level, locked, rule>>))
+    end
 
     assert {:error, :invalid_clock_state} = ClockRecord.encode(%{data | difficulty: nil})
+
+    assert {:error, :invalid_clock_state} =
+             ClockRecord.encode(%{data | natural_regeneration: nil})
   end
 
   test "owner ignores locked changes without republishing; persisted setting survives owner reload" do
@@ -61,25 +65,6 @@ defmodule Valimc.DifficultyTest do
     state = :sys.get_state(recovered)
     assert [{:difficulty, {difficulty, packet}}] = :ets.lookup(state.table, :difficulty)
     assert difficulty == saved.difficulty and packet == Packets.difficulty(difficulty)
-  end
-
-  test "v4 stores the regeneration rule; v3 migrates to native true and invalid values reject" do
-    data = %{ClockRecord.new() | natural_regeneration: false}
-    assert {:ok, <<"VMCLOCK", 5, _::binary>> = bytes} = ClockRecord.encode(data)
-    assert {:ok, ^data} = ClockRecord.decode(bytes)
-    # Version 5 appends the world borders (one overworld entry: 85 bytes).
-    size = byte_size(bytes) - 8 - 1 - 85 - 32
-    <<"VMCLOCK", 5, prior::binary-size(^size), 0, _::binary-size(85), _::binary-size(32)>> = bytes
-    assert {:ok, legacy} = ClockRecord.decode(signed(<<"VMCLOCK", 3, prior::binary>>))
-    assert legacy.natural_regeneration
-
-    for invalid <- [2, 255] do
-      assert {:error, :invalid_clock_file} =
-               ClockRecord.decode(signed(<<"VMCLOCK", 4, prior::binary, invalid>>))
-    end
-
-    assert {:error, :invalid_clock_state} =
-             ClockRecord.encode(%{data | natural_regeneration: nil})
   end
 
   test "published difficulty/rule pair changes together and survives world-owner restart" do

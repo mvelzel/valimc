@@ -122,7 +122,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
         <<p.x + 0.1::float-64, p.y::float-64, p.z::float-64, 1>>
       )
 
-      job = wait(fn -> state(pid).motion_job end)
+      job = wait(fn -> Valimc.TestConn.job(state(pid), :motion) end)
       assert {:ok, :dead} = Connection.fall_damage(pid, 100)
       wait(fn -> match?(%{stage: :delivery}, state(pid).recovery) end)
       send(pid, {job.task.ref, {:ok, %{accepted: true}}})
@@ -140,7 +140,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
       wait(fn -> state(pid).respawn_requested end)
       blocked = state(pid)
       assert blocked.player.health.value == 0 and blocked.life_stage == :dropping
-      assert blocked.motion_job == nil and blocked.motion_pending == nil
+      assert Valimc.TestConn.job(blocked, :motion) == nil and blocked.motion_pending == nil
       assert {blocked.player.x, blocked.player.y, blocked.player.z} == {p.x, p.y, p.z}
       assert {:ok, stored} = saved(ctx, name)
       assert stored.health.value == 0 and stored.outbox != nil

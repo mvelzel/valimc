@@ -107,8 +107,8 @@ defmodule Valimc.PlayerAirConnectionTest do
       Valimc.TestRegionGate.resume(region)
 
       wait(fn ->
-        not state(pid).simulation_due and state(pid).pose_job == nil and
-          state(pid).motion_job == nil
+        not state(pid).simulation_due and Valimc.TestConn.job(state(pid), :pose) == nil and
+          Valimc.TestConn.job(state(pid), :motion) == nil
       end)
 
       assert state(pid).player.health.value == 18.0 and state(pid).player.air_supply == 0
@@ -132,7 +132,7 @@ defmodule Valimc.PlayerAirConnectionTest do
 
     try do
       tick(pid, false)
-      job = wait(fn -> state(pid).pose_job end)
+      job = wait(fn -> Valimc.TestConn.job(state(pid), :pose) end)
       _client = Client.teleport(client, pid, %{ctx.pose | x: ctx.pose.x + 3})
       send(pid, {job.task.ref, {:ok, %{submerged: true}}})
       assert state(pid).player.health.value == 20.0

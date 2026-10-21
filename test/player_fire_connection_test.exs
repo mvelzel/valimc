@@ -127,7 +127,12 @@ defmodule Valimc.PlayerFireConnectionTest do
        ctx do
     seed(ctx, fire: 100, material: "air")
     {_client, pid} = login(ctx)
-    wait(fn -> state(pid).pose_job == nil and state(pid).motion_job == nil end)
+
+    wait(fn ->
+      Valimc.TestConn.job(state(pid), :pose) == nil and
+        Valimc.TestConn.job(state(pid), :motion) == nil
+    end)
+
     {:ok, {owner, _epoch}} = World.existing_owner(ctx.key)
     Valimc.TestRegionGate.stall(owner)
 
@@ -136,13 +141,16 @@ defmodule Valimc.PlayerFireConnectionTest do
       pending = state(pid)
       assert pending.player.fire_ticks == 79 and pending.fire_damage_due
       assert pending.player.health.value == 20.0
-      assert pending.pose_job != nil or pending.motion_job != nil
+
+      assert Valimc.TestConn.job(pending, :pose) != nil or
+               Valimc.TestConn.job(pending, :motion) != nil
     after
       Valimc.TestRegionGate.resume(owner)
     end
 
     wait(fn ->
-      state(pid).pose_job == nil and state(pid).motion_job == nil and
+      Valimc.TestConn.job(state(pid), :pose) == nil and
+        Valimc.TestConn.job(state(pid), :motion) == nil and
         not state(pid).simulation_due
     end)
 
@@ -183,8 +191,8 @@ defmodule Valimc.PlayerFireConnectionTest do
       Client.send_packet(client, :play, "client_tick_end", <<>>)
 
       wait(fn ->
-        state(pid).player.x == target and state(pid).motion_job == nil and
-          state(pid).pose_job == nil
+        state(pid).player.x == target and Valimc.TestConn.job(state(pid), :motion) == nil and
+          Valimc.TestConn.job(state(pid), :pose) == nil
       end)
 
       assert state(pid).player.fire_ticks == -20 and state(pid).player.health.value == 20.0
@@ -224,7 +232,7 @@ defmodule Valimc.PlayerFireConnectionTest do
     assert state(pid).player.fire_ticks == 160
     assert state(pid).player.health.value == 19.0
     :ok = World.remove_block(roof)
-    wait(fn -> state(pid).pose_job == nil end)
+    wait(fn -> Valimc.TestConn.job(state(pid), :pose) == nil end)
     assert state(pid).player.fire_ticks == 160
     tick(pid)
     assert state(pid).player.fire_ticks == -20

@@ -1,5 +1,5 @@
 defmodule Valimc.PlayerSnapshot do
-  @moduledoc "Bounded player state/outbox; legacy pose/inventory migration, not vanilla NBT."
+  @moduledoc "Bounded player state/outbox, not vanilla NBT."
   alias Valimc.{
     Inventory,
     PlayerAbsorption,
@@ -360,6 +360,9 @@ defmodule Valimc.PlayerSnapshot do
 
   def encode(_, _), do: {:error, :invalid_player_state}
 
+  # Pose-only files from before M1 are no longer read (VMC-076g); the file is kept.
+  def decode(<<"VMCPOSE", 1, _::binary>>, _uuid), do: {:error, :unsupported_player_file}
+
   def decode(bytes, uuid) when is_binary(bytes) and byte_size(bytes) in 88..@max_bytes do
     payload_bytes = byte_size(bytes) - 32
     <<payload::binary-size(^payload_bytes), checksum::binary-size(32)>> = bytes
@@ -473,10 +476,6 @@ defmodule Valimc.PlayerSnapshot do
 
   defp decode_payload(payload, uuid, table_bytes, table_inputs, progression) do
     case payload do
-      <<"VMCPOSE", 1, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
-        yaw::float-32, pitch::float-32>> ->
-        snapshot(%{x: x, y: y, z: z, yaw: yaw, pitch: pitch}, Inventory.new())
-
       <<"VMCPOSE", 2, ^uuid::binary-size(16), x::float-64, y::float-64, z::float-64,
         yaw::float-32, pitch::float-32, @data_version::32, body::binary>> ->
         snapshot(

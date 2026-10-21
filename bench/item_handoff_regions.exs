@@ -58,7 +58,7 @@ rows =
           }
 
     {:ok, bytes} = ItemRecords.encode(a_key, records)
-    File.write!(Store.item_path(base, a_key), bytes)
+    :ok = Store.import_region(base, a_key, %{items: bytes})
     {:ok, a} = World.item_owner(a_key)
     {:ok, b} = World.item_owner(b_key)
     saves = Map.get(Valimc.Metrics.snapshot(), :item_snapshot_saves, 0)
@@ -99,7 +99,7 @@ rows =
         true = source_items.entries == %{} and map_size(destination_items.entries) == count
 
         for {key, expected} <- [{source_key, source_items}, {destination_key, destination_items}] do
-          {:ok, saved} = ItemLedger.decode(File.read!(Store.item_path(base, key)), key)
+          {:ok, saved} = ItemLedger.decode(Store.durable(base, key, :items), key)
           true = saved.records == Items.records(expected) and saved.ledger == expected.ledger
         end
 

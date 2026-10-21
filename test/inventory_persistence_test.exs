@@ -189,8 +189,7 @@ defmodule Valimc.InventoryPersistenceTest do
     close(next, username, uuid)
   end
 
-  test "legacy login is read-only until a valid save and rejected configuration does not migrate",
-       %{base: base} do
+  test "a player file from before M1 refuses the login and stays as it was", %{base: base} do
     username = name()
     uuid = Valimc.Connection.offline_uuid(username)
 
@@ -202,30 +201,23 @@ defmodule Valimc.InventoryPersistenceTest do
     path = PlayerStore.path(base, uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, legacy)
-    {^uuid, client} = Client.configure(username)
-    assert File.read!(path) == legacy
-    pid = player(username).pid
-    ref = Process.monitor(pid)
-    Client.send_packet(client, :configuration, "finish_configuration", <<1>>)
-    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+    client = Client.connect()
+
+    assert capture_log(fn ->
+             Client.send_packet(client, :handshake, "intention", [
+               Wire.varint(777),
+               Wire.string("localhost"),
+               <<25565::16, 2>>
+             ])
+
+             Client.send_packet(client, :login, "hello", [Wire.string(username), <<0::128>>])
+             {id, body, _} = Client.read(client)
+             assert id == Data.id(:login, :clientbound, "login_disconnect")
+             assert :binary.match(body, "Player save unavailable") != :nomatch
+           end) =~ "unsupported_player_file"
+
     Client.close(client)
-    departed(uuid)
     assert File.read!(path) == legacy
-    {^uuid, client} = login(username)
-    assert client.pose.x == -3.25 and client.pose.yaw == 90.0
-    assert client.inventory.items == List.duplicate(nil, 46)
-    close(client, username, uuid)
-
-    assert <<"VMCPOSE", 21, _::binary-size(52), 19, _::binary-size(26), 18, 0::32, 17, 0, 12,
-             0::signed-32, _::binary>> =
-             bytes = File.read!(path)
-
-    assert {:ok, saved} = PlayerSnapshot.decode(bytes, uuid)
-    assert saved.air_supply == 300 and saved.health.value == 20.0
-    assert saved.fire_ticks == 0
-    assert saved.effects == %{}
-    assert saved.absorption == 0.0
-    assert saved.food == %Valimc.PlayerFood{}
   end
 
   test "foreign writers and invalid snapshots cannot overwrite a valid saved inventory", %{

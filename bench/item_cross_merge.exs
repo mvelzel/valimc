@@ -44,7 +44,7 @@ defmodule Valimc.CrossMergeBench do
         owners =
           for {k, records} <- [{key, donors}, {target, recipients}] do
             {:ok, bytes} = ItemLedger.encode(k, records, %{}, %ItemLedger{})
-            File.write!(Store.item_path(base, k), bytes)
+            :ok = Store.import_region(base, k, %{items: bytes})
             {:ok, owner} = World.item_owner(k)
             {k, owner}
           end
@@ -77,14 +77,14 @@ defmodule Valimc.CrossMergeBench do
 
     for g <- groups, {k, {pid, _}} <- g.owners do
       :ok = Region.flush(pid)
-      {:ok, saved} = ItemLedger.decode(File.read!(Store.item_path(base, k)), k)
+      {:ok, saved} = ItemLedger.decode(Store.durable(base, k, :items), k)
 
       if k == g.key do
         true = saved.records == [] and saved.ledger.sequence >= 32
       else
         true = length(saved.records) == 32 and Enum.all?(saved.records, &(&1.stack.count == 5))
         true = MapSet.new(saved.records, & &1.uuid) == g.recipients
-        {:ok, source} = ItemLedger.decode(File.read!(Store.item_path(base, g.key)), g.key)
+        {:ok, source} = ItemLedger.decode(Store.durable(base, g.key, :items), g.key)
         true = saved.ledger.incoming[g.key].sequence == source.ledger.sequence
       end
     end

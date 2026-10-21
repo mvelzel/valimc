@@ -345,12 +345,9 @@ defmodule Valimc.PlayerSnapshotTest do
              PlayerSnapshot.encode(uuid(), PlayerSnapshot.capture(restored_pose, restored))
   end
 
-  test "legacy poses migrate to empty inventory and version 2 on encoding" do
+  test "pose-only files from before M1 are refused, not migrated to an empty inventory" do
     assert byte_size(legacy()) == 88
-    assert {:ok, snapshot} = PlayerSnapshot.decode(legacy(), uuid())
-    assert snapshot.pose == pose() and snapshot.inventory == Inventory.new()
-    assert {:ok, <<"VMCPOSE", 2, _::binary>>} = PlayerSnapshot.encode(uuid(), snapshot)
-    assert {:error, :invalid_player_file} = PlayerSnapshot.decode(legacy(<<0::128>>), uuid())
+    assert PlayerSnapshot.decode(legacy(), uuid()) == {:error, :unsupported_player_file}
   end
 
   test "checksummed but malformed modern state is rejected with no partial recovery" do

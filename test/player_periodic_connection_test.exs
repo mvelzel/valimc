@@ -126,7 +126,8 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
       Valimc.TestRegionGate.resume(region)
 
       wait(fn ->
-        state(pid).pose_job == nil and state(pid).motion_job == nil and
+        Valimc.TestConn.job(state(pid), :pose) == nil and
+          Valimc.TestConn.job(state(pid), :motion) == nil and
           not state(pid).simulation_due
       end)
 
