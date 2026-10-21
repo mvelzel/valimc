@@ -404,7 +404,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     food = %PlayerFood{}
     slow = Valimc.Protocol.EffectTypes.id("slow_falling")
     levitation = Valimc.Protocol.EffectTypes.id("levitation")
-    night = Valimc.Protocol.EffectTypes.id("night_vision")
+    night = Valimc.Protocol.EffectTypes.id("invisibility")
 
     effects = %{
       slow => [{300, 0, false, true, true}],
@@ -554,7 +554,7 @@ defmodule Valimc.PlayerUseConnectionTest do
        ctx do
     food = %PlayerFood{}
     fire = potion("fire_resistance")
-    unsupported = potion("night_vision")
+    unsupported = potion("invisibility")
     seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => fire, 45 => unsupported}})
     {client, pid} = login(ctx, 20.0, food)
     client = use_hand(client, pid)
@@ -1236,7 +1236,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     id = Valimc.Protocol.EffectTypes.id("resistance")
     contents = %{PotionContents.empty() | effects: [{id, [{200, 0, false, true, true}]}]}
     drink = %{ItemStack.new("potion") | components: %{"minecraft:potion_contents" => contents}}
-    night_vision = Valimc.Protocol.EffectTypes.id("night_vision")
+    night_vision = Valimc.Protocol.EffectTypes.id("invisibility")
 
     mixed = %{
       contents
@@ -1908,7 +1908,7 @@ defmodule Valimc.PlayerUseConnectionTest do
 
   test "unexpected food listeners refuse before nutrition, use or any RNG draw", ctx do
     food = %PlayerFood{level: 5, saturation: 0.0}
-    fish = %{ItemStack.new("pufferfish") | components: potion("night_vision").components}
+    fish = %{ItemStack.new("pufferfish") | components: potion("invisibility").components}
     seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => fish}})
     {client, pid} = login(ctx, 20.0, food)
     {before, _} = seed_chance(pid, false)

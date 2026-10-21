@@ -7,7 +7,6 @@ defmodule Valimc.Connection do
   alias Valimc.Protocol.{
     ClientTick,
     Data,
-    EffectTypes,
     Wire
   }
 
@@ -39,16 +38,7 @@ defmodule Valimc.Connection do
 
   alias Valimc.World.{ChestLidReplication, EntityReplication}
   import Bitwise
-  @fire_resistance EffectTypes.id("fire_resistance")
-  @resistance EffectTypes.id("resistance")
-  @absorption EffectTypes.id("absorption")
-  @periodic_effects Enum.sort(Enum.map(~w(regeneration hunger poison wither), &EffectTypes.id/1))
-  @live_effects [@fire_resistance, @resistance, @absorption, EffectTypes.id("water_breathing")] ++
-                  Enum.map(
-                    ~w(speed slowness nausea jump_boost slow_falling levitation),
-                    &EffectTypes.id/1
-                  ) ++
-                  @periodic_effects
+  @live_effects Valimc.LiveEffects.ids()
   @doc "Status effects the live game applies; others are refused (login, commands)."
   def live_effects, do: @live_effects
 
@@ -432,7 +422,8 @@ defmodule Valimc.Connection do
   end
 
   @impl true
-  def terminate(_reason, state) do
+  def terminate(reason, state) do
+    Valimc.Session.Presence.left(state, reason)
     Menus.retire_container_view(state)
     Menus.cancel_table_query(state)
     Transfers.cancel_pickup_query(state)

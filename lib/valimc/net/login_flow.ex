@@ -4,7 +4,6 @@ defmodule Valimc.Net.LoginFlow do
   require Logger
 
   alias Valimc.Protocol.{
-    EffectTypes,
     Packets,
     Wire
   }
@@ -37,16 +36,7 @@ defmodule Valimc.Net.LoginFlow do
   alias Valimc.World.TickClock
 
   alias Valimc.World.{BorderReplication, WeatherReplication}
-  @fire_resistance EffectTypes.id("fire_resistance")
-  @resistance EffectTypes.id("resistance")
-  @absorption EffectTypes.id("absorption")
-  @periodic_effects Enum.sort(Enum.map(~w(regeneration hunger poison wither), &EffectTypes.id/1))
-  @live_effects [@fire_resistance, @resistance, @absorption, EffectTypes.id("water_breathing")] ++
-                  Enum.map(
-                    ~w(speed slowness nausea jump_boost slow_falling levitation),
-                    &EffectTypes.id/1
-                  ) ++
-                  @periodic_effects
+  @live_effects Valimc.LiveEffects.ids()
 
   def finish_login(state) do
     threshold = Valimc.config(:compression_threshold)
@@ -328,7 +318,7 @@ defmodule Valimc.Net.LoginFlow do
       |> Movement.publish_jump_boost()
 
     existing = Players.ready(self())
-    state = Replication.update_view(state)
+    state = state |> Valimc.Session.Presence.joined() |> Replication.update_view()
 
     state =
       Enum.reduce(existing, state, fn player, acc ->

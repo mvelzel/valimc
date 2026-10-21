@@ -221,7 +221,7 @@ defmodule Valimc.PlayerFireConnectionTest do
     assert {:ok, false} = Connection.remove_effect(pid, 11)
     assert state(pid).player.effects == %{}
     assert {:error, :invalid_player_effects} = Connection.add_effect(pid, 11, [])
-    assert {:error, :invalid_or_expired_effect} = Connection.add_effect(pid, 15, weak)
+    assert {:error, :invalid_or_expired_effect} = Connection.add_effect(pid, 13, weak)
 
     assert {:error, :invalid_or_expired_effect} =
              GenServer.call(pid, {:effect, 11, weak, System.monotonic_time(:millisecond) - 1})

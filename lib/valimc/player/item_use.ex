@@ -26,17 +26,8 @@ defmodule Valimc.Player.ItemUse do
     PlayerUse
   }
 
-  @fire_resistance EffectTypes.id("fire_resistance")
-  @resistance EffectTypes.id("resistance")
-  @absorption EffectTypes.id("absorption")
-  @periodic_effects Enum.sort(Enum.map(~w(regeneration hunger poison wither), &EffectTypes.id/1))
   @instant_effects Enum.map(~w(instant_health instant_damage saturation), &EffectTypes.id/1)
-  @live_effects [@fire_resistance, @resistance, @absorption, EffectTypes.id("water_breathing")] ++
-                  Enum.map(
-                    ~w(speed slowness nausea jump_boost slow_falling levitation),
-                    &EffectTypes.id/1
-                  ) ++
-                  @periodic_effects
+  @live_effects Valimc.LiveEffects.ids()
 
   defguardp inventory_busy(state)
             when state.recovery != nil or state.creative_input.queued > 0 or state.use_save != nil or

@@ -60,6 +60,7 @@ defmodule Valimc.Net.Codec do
 
   def reject(state, message) do
     Metrics.add(:connections_rejected)
+    Valimc.Session.Presence.record(message)
     if state.phase in [:handshake, :status], do: throw({:disconnect, message, state})
 
     payload =
