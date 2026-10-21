@@ -1,6 +1,6 @@
 //! Disk formats: NBT, LZ4 region chunks and column images.
 
-use crate::region::FLAGS;
+use crate::facts::FLAGS;
 use crate::{atoms, binary, bytes};
 use rustler::{Atom, Binary, Encoder, Env, NewBinary, Term};
 use valimc_core::column::HEIGHT;

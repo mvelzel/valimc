@@ -2,8 +2,8 @@
 //! built only with the `parity` feature (dev, test and bench builds).
 
 use crate::codec::{imported_column, SectionSpec};
-use crate::light::LIGHT;
-use crate::region::{error, with_owned, with_store, Region, FLAGS};
+use crate::facts::{FLAGS, LIGHT};
+use crate::region::{error, with_owned, with_store, Region};
 use crate::worldgen::{WorldgenRegistry, WorldgenState};
 use crate::{atoms, bytes, done, reply};
 use rustler::{Atom, Binary, Env, NewBinary, NifResult, ResourceArc};

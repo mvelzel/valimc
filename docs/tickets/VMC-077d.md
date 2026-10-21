@@ -1,6 +1,6 @@
 # VMC-077d — One block fact table
 
-Status: In progress
+Status: Done
 Milestone: foundations II (between M2 and M3)
 Depends on: [VMC-077](VMC-077.md) (the audit and plan), [VMC-068](VMC-068.md)
 (the block registry).
@@ -44,8 +44,29 @@ Acceptance:
   at compile time and checks its release stamps; `Valimc.Registry.BlockFacts`
   decodes the table and is the only reader. State ids are trusted: the table
   raises on an id outside it instead of returning `:unknown_block_state`.
-- Scaffolding, shulker box and piston states, and the air states, come from the
-  registry and the flags; the case oracles iterate vanilla's states themselves.
+- Scaffolding, shulker box, piston and bubble column states, and the air
+  states, come from the registry and the flags; no state id is hard-coded. The
+  case oracles iterate vanilla's states themselves.
+- One NIF, `block_facts_init`, installs the columns the Rust core reads (flags,
+  heightmaps, fluid id and level, light and sky) once per VM
+  (`BlockFacts.install!/0`); the storage flags, the light facts and worldgen's
+  block table are built from it. It replaces `flags_init`, `light_facts_init`
+  and the per-state arrays worldgen took as JSON (the two flag words, flammable,
+  fluid, fluid level, heightmaps); worldgen's registry now passes only tags and
+  block entity types. Terrain's own byte per state (air and fluid from the
+  table, plus water, the `uncarvable` tag, grass and dirt) stays a derived
+  table of the worldgen registry, since its tags come from the pack.
+- Damage types are names with registry ids and tags (`Registry.DamageTypes`,
+  from the generated registries and tags); the rules ask tags: armor applies
+  unless `bypasses_armor`, Resistance and enchantments follow vanilla's
+  `bypasses_effects`, `bypasses_resistance` and `bypasses_enchantments`,
+  invulnerability yields to `bypasses_invulnerability`, fire-resistant gear
+  resists `is_fire`. Enchantment protection and immunity come from the pinned
+  data pack's enchantment definitions (`EnchantmentMetadata`,
+  `priv/registry/enchantments.json`, the `enchantments` stage): each effect's
+  level-based value, its damage-source tag requirements and the enchantment's
+  slot groups, over every equipped slot as `EnchantmentHelper` visits them.
+  Forms the pinned definitions do not use fail the build.
 - Survival stays in its two files. The partitions are not the same: decoration
   reads survival before placement with the block's own cell as a neighbour under
   unlit-chunk light (`worldgen/survival.json`, 142 partitions), live updates read
@@ -75,17 +96,30 @@ the dense-dump checks `check_{climb,fluid,motion}_blocks.exs` and
 `collision_shapes` and `inside_block_metadata` is `fire_geometry` (old names stay
 as aliases). Net: lib −214 lines, Java −275, check scripts −126, tests −10.
 
+Then the damage slice removed the source lists of `PlayerDamageProtection`,
+`ArmorDurability`, `PlayerEnchantmentImmunity` and `Packets.damage_event`, and
+`PlayerResistance`'s own tag decoding (lib +80 net: the two registry modules
+replace them); the Rust install removed `flags_init`, `light_facts_init`,
+`World.Blocks.init!/flags`, the whole `World.Light` module, worldgen's six
+per-state JSON arrays and their hex and run parsers (lib −55, native +117 with
+the new `facts` modules and their test).
+
 Reference: Minecraft 26.3 (`Block.isExceptionForConnection`,
 `BlockBehaviour.BlockStateBase` cache, `LightEngine.getOcclusionShape`,
-`ChunkSkyLightSources.isEdgeOccluded`, `Heightmap.Types`, `FireBlock.canBurn`).
+`ChunkSkyLightSources.isEdgeOccluded`, `Heightmap.Types`, `FireBlock.canBurn`,
+`LivingEntity.getDamageAfterArmorAbsorb` and `getDamageAfterMagicAbsorb`,
+`EnchantmentHelper.getDamageProtection` and `isImmuneToDamage`, the data pack's
+`enchantment/*.json` and `tags/damage_type/*.json`).
 
 Checks: the comparison script (every column equal, the 102 shulker box states
-apart); `block_facts --regen` passed; `mix test.fast` (the two failures were
-item tests main had already fixed); `check_vanilla.py --changed`: 116 of 127
-passed, every stage reading the facts among them; the 11 failures are check
-scripts calling `Spawn.path/1`, `Generator.spec/1` or an unset `World.Spec` after
-VMC-077a, reported to that session.
+apart); `block_facts` and `enchantments` with `--regen`; `cargo test -p
+valimc_core`, `cargo clippy --all-targets` (with and without `parity`), `cargo
+fmt --check`; on the final base (after VMC-077a's and VMC-077b's runtime and NIF
+changes) `mix test.fast` 502 passed and `check_vanilla.py --changed` passed all
+133 selected stages, live generation, spawn, world settings and tcp among them.
 
-Next: data-driven damage types and enchantment effects; one Rust install of the
-table's columns replacing `flags_init`, `light_facts_init` and the worldgen
-block flags.
+Next: move the other ~70 modules that decode `priv` JSON onto `Valimc.Facts`
+with one decoding module per file (tags, attributes, cooking and items are each
+decoded more than once); one survival rule set for decoration and live updates
+(VMC-077m); terrain's derived per-state byte could read the installed flags
+once the worldgen registry has the pack's tags in Rust.

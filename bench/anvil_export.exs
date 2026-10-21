@@ -16,7 +16,7 @@ alias Valimc.World.{Blocks, Store}
 
 [world, scratch | _] = System.argv()
 Valimc.Protocol.Data.load!()
-Blocks.init!()
+Valimc.Registry.BlockFacts.install!()
 File.rm_rf!(scratch)
 imported = Path.join(scratch, "imported")
 {:ok, report} = Import.run(world, imported)

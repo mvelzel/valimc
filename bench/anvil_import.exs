@@ -11,7 +11,7 @@ alias Valimc.{NBT, Native}
 
 [world, scratch | rest] = System.argv()
 Valimc.Protocol.Data.load!()
-Valimc.World.Blocks.init!()
+Valimc.Registry.BlockFacts.install!()
 File.rm_rf!(scratch)
 
 import_once = fn n ->

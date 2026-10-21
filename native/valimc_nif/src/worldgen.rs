@@ -144,7 +144,10 @@ fn worldgen_registry(facts: Term) -> NifResult<(Atom, ResourceArc<WorldgenRegist
     reply((|| {
         let json = json_of(facts)?;
         let facts = valimc_core::worldgen::compiler::Facts::from_object(&json)?;
-        let registry = valimc_core::worldgen::compiler::Registry::parse(&facts)?;
+        let states = crate::facts::STATES
+            .get()
+            .ok_or("block facts not installed")?;
+        let registry = valimc_core::worldgen::compiler::Registry::parse(&facts, states)?;
         Ok(ResourceArc::new(WorldgenRegistry {
             registry: std::sync::Arc::new(registry),
         }))

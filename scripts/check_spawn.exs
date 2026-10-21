@@ -9,7 +9,7 @@ alias Valimc.World.Generator
 
 Valimc.Protocol.Data.load!()
 Valimc.World.Chunk.load!()
-Valimc.World.Blocks.init!()
+Valimc.Registry.BlockFacts.install!()
 
 {mode, path, features} =
   case System.argv() do

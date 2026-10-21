@@ -4,11 +4,9 @@
 # so those decide it).
 alias Valimc.Anvil.{Chunk, RegionFile}
 alias Valimc.{NBT, Native}
-alias Valimc.World.Light
 
 [facts_path, light_path, light_bin] = System.argv()
-Valimc.World.Blocks.init!()
-Light.init!()
+Valimc.Registry.BlockFacts.install!()
 facts = facts_path |> File.read!() |> JSON.decode!()
 
 images =

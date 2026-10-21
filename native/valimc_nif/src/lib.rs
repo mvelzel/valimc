@@ -1,6 +1,7 @@
-//! Rustler shim over valimc_core, one module per domain: `region` (the Region
-//! resource each region owner holds), `light`, `codec` (disk NBT, LZ4 and
-//! column images), `sys`, `worldgen`, `loot` and, in dev, test and bench
+//! Rustler shim over valimc_core, one module per domain: `facts` (the block
+//! fact table, installed once), `region` (the Region resource each region
+//! owner holds), `light`, `codec` (disk NBT, LZ4 and column images), `sys`,
+//! `worldgen`, `loot` and, in dev, test and bench
 //! builds, `parity` (oracle and benchmark entry points). Inputs are validated
 //! by valimc_core.
 //!
@@ -16,6 +17,7 @@
 use rustler::{Atom, Binary, Env, NewBinary, NifResult, ResourceArc};
 
 mod codec;
+mod facts;
 mod light;
 mod loot;
 #[cfg(feature = "parity")]

@@ -6,13 +6,12 @@
 //! adds `<<state::16>>`, a change to write `<<state::32>>` (so an out-of-range
 //! state is refused, not wrapped).
 
+use crate::facts::FLAGS;
 use crate::{atoms, binary, bytes, done};
 use rustler::{Atom, Binary, Encoder, Env, LocalPid, NewBinary, NifResult, ResourceArc, Term};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use valimc_core::column::HEIGHT;
-use valimc_core::{BlockFlags, ColumnStore, Storage, StoreError};
-
-pub(crate) static FLAGS: OnceLock<BlockFlags> = OnceLock::new();
+use valimc_core::{ColumnStore, Storage, StoreError};
 
 pub struct Region {
     owner: LocalPid,
@@ -29,22 +28,6 @@ pub(crate) fn error(e: StoreError) -> Atom {
         StoreError::InvalidState => atoms::invalid_state(),
         StoreError::MemoryBudget => atoms::memory_budget(),
     }
-}
-
-/// Install the per-state flag bytes once per VM (idempotent for identical bytes).
-#[rustler::nif]
-fn flags_init(bytes: Binary) -> NifResult<Atom> {
-    done((|| {
-        let flags = BlockFlags::new(bytes.as_slice().to_vec()).ok_or(atoms::invalid_state())?;
-        let installed = FLAGS.get_or_init(|| flags.clone());
-        if installed.state_count() == flags.state_count()
-            && (0..flags.state_count()).all(|s| installed.get(s as u16) == flags.get(s as u16))
-        {
-            Ok(())
-        } else {
-            Err(atoms::flags_mismatch())
-        }
-    })())
 }
 
 /// A region owned by the calling process. `layers` is 384 big-endian u16

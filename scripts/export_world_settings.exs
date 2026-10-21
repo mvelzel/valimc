@@ -7,7 +7,7 @@
 alias Valimc.World.Generator
 
 Valimc.Protocol.Data.load!()
-Valimc.World.Blocks.init!()
+Valimc.Registry.BlockFacts.install!()
 
 # A flat world without structures (VMC-025f places them): vanilla generates its spawn chunks
 # from the exported settings, and they must hold ValiMC's flat column (VMC-028b).

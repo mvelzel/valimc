@@ -47,6 +47,7 @@ use super::volume::Volume;
 use crate::column::{
     Column, HEIGHT as COLUMN_HEIGHT, MIN_Y as COLUMN_MIN_Y, SECTIONS as COLUMN_SECTIONS,
 };
+use crate::facts::StateFacts;
 use crate::section::{index as section_index, Biomes as SectionBiomes, Storage};
 
 /// Noise settings: vertical bounds, random algorithm and the named functions
@@ -290,8 +291,9 @@ fn named_functions(json: Option<&Json>) -> Result<Vec<(String, Df)>, String> {
 
 impl Registry {
     /// Parses the generated facts; block states in settings and material
-    /// rules are global state ids.
-    pub fn parse(facts: &Facts) -> Result<Registry, String> {
+    /// rules are global state ids, and `states` is the installed per-state
+    /// block facts.
+    pub fn parse(facts: &Facts, states: &StateFacts) -> Result<Registry, String> {
         let mut registry = Registry::default();
         let state = |json: &Json| -> Result<u16, String> {
             u16::try_from(json.as_i32()?).map_err(|_| "state id out of range".to_string())
@@ -409,7 +411,11 @@ impl Registry {
             }
         }
         if let Some(json) = &facts.decoration {
-            let table = Arc::new(BlockTable::parse(json.block_registry, json.block_facts)?);
+            let table = Arc::new(BlockTable::parse(
+                json.block_registry,
+                json.block_facts,
+                states,
+            )?);
             let support = Arc::new(Support::parse(json.support)?);
             let shapes = json.shapes.map(Shapes::parse).transpose()?.map(Arc::new);
             let templates = json

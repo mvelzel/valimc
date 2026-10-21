@@ -10,7 +10,7 @@ alias Valimc.World.Blocks
 
 [facts_path, out_dir] = System.argv()
 File.mkdir_p!(out_dir)
-Blocks.init!()
+Valimc.Registry.BlockFacts.install!()
 facts = facts_path |> File.read!() |> JSON.decode!()
 names = Data.registries()["minecraft:worldgen/biome"] |> List.to_tuple()
 

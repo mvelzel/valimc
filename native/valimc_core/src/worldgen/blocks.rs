@@ -1,13 +1,14 @@
 //! The block registry as decoration reads it (VMC-025): blocks with their
 //! state runs and properties (`priv/registry/blocks.json`), block and fluid
-//! tags, and per state the worldgen flags (`WorldgenBlocksOracle`), fluid
-//! (`fluid_blocks`) and heightmap predicates (`heightmap_blocks`).
+//! tags, and per state the block fact table's flags, fluid and heightmap
+//! predicates (`crate::facts`, VMC-077d).
 
 use std::collections::HashMap;
 
 use super::json::Json;
+use crate::facts::{StateFacts, FLAMMABLE};
 
-/// Worldgen flags per state (`WorldgenBlocksOracle`).
+/// Worldgen flags per state: the block fact table's flag bits 0..31.
 pub const AIR: u32 = 1;
 pub const REPLACEABLE: u32 = 1 << 1;
 pub const SOLID: u32 = 1 << 2;
@@ -153,7 +154,7 @@ pub struct BlockTable {
     /// Per state.
     pub block_of: Vec<u16>,
     pub flags: Vec<u32>,
-    /// The second flag word (`FULL_SHAPE`, …), when the facts have it.
+    /// The second flag word (`FULL_SHAPE`, …): the table's flag bits 32..48.
     pub flags2: Vec<u32>,
     /// Per block, the block entity type it creates.
     pub block_entity_types: Vec<Option<&'static str>>,
@@ -170,11 +171,14 @@ pub struct BlockTable {
 }
 
 impl BlockTable {
-    /// `registry` is `priv/registry/blocks.json`; `facts` holds the per-state
-    /// arrays and tags Elixir passes (`flags`, `fluid`, `fluid_level`,
-    /// `heightmaps`, `block_tags`, `fluid_tags`).
-    pub fn parse(registry: &Json, facts: &Json) -> Result<BlockTable, String> {
+    /// `registry` is `priv/registry/blocks.json`; `facts` holds the tags and
+    /// block entity types Elixir passes (`block_tags`, `fluid_tags`,
+    /// `block_entity_types`); `states` is the installed per-state facts.
+    pub fn parse(registry: &Json, facts: &Json, states: &StateFacts) -> Result<BlockTable, String> {
         let count = registry.field("state_count")?.as_i32()? as usize;
+        if states.state_count() != count {
+            return Err("block facts and the block registry differ in state count".into());
+        }
         let definitions: Vec<Property> = registry
             .field("properties")?
             .as_array()?
@@ -208,15 +212,16 @@ impl BlockTable {
             classes,
             properties: Vec::new(),
             block_of: vec![0; count],
-            flags: hex_u32(facts.field("flags")?.as_str()?, count)?,
-            flags2: match facts.get("flags2") {
-                Some(Json::String(hex)) => hex_u32(hex, count)?,
-                _ => vec![0; count],
-            },
+            flags: states.flags.iter().map(|&f| f as u32).collect(),
+            flags2: states
+                .flags
+                .iter()
+                .map(|&f| (f >> 32) as u32 & 0x1_ffff)
+                .collect(),
             block_entity_types: Vec::new(),
-            fluid: bytes(facts.field("fluid")?, count)?,
-            fluid_level: bytes(facts.field("fluid_level")?, count)?,
-            heightmaps: bytes(facts.field("heightmaps")?, count)?,
+            fluid: states.fluid.clone(),
+            fluid_level: states.fluid_level.clone(),
+            heightmaps: states.heightmaps.clone(),
             flammable: vec![0; count.div_ceil(64)],
             tags: HashMap::new(),
             tag_lists: HashMap::new(),
@@ -244,17 +249,9 @@ impl BlockTable {
             table.class.push(class.as_i32()? as u16);
             table.properties.push(properties);
         }
-        if let Some(runs) = facts.get("flammable") {
-            for run in runs.as_array()? {
-                let [first, last] = run.as_array()? else {
-                    return Err("flammable run".into());
-                };
-                for state in first.as_i32()? as usize..=last.as_i32()? as usize {
-                    *table
-                        .flammable
-                        .get_mut(state / 64)
-                        .ok_or("flammable state")? |= 1 << (state % 64);
-                }
+        for (state, &flags) in states.flags.iter().enumerate() {
+            if flags & FLAMMABLE != 0 {
+                table.flammable[state / 64] |= 1 << (state % 64);
             }
         }
         for (tag, blocks) in facts.field("block_tags")?.entries()? {
@@ -528,25 +525,4 @@ impl BlockTable {
             .ok_or("fluid level")?;
         Ok((state, fluid))
     }
-}
-
-fn hex_u32(hex: &str, count: usize) -> Result<Vec<u32>, String> {
-    if hex.len() != count * 8 {
-        return Err("flag count".into());
-    }
-    (0..count)
-        .map(|i| u32::from_str_radix(&hex[i * 8..i * 8 + 8], 16).map_err(|e| e.to_string()))
-        .collect()
-}
-
-fn bytes(json: &Json, count: usize) -> Result<Vec<u8>, String> {
-    let out = json
-        .as_array()?
-        .iter()
-        .map(|v| v.as_i32().map(|v| v as u8))
-        .collect::<Result<Vec<_>, _>>()?;
-    if out.len() != count {
-        return Err("per-state array length".into());
-    }
-    Ok(out)
 }

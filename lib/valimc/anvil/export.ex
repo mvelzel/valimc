@@ -392,7 +392,7 @@ defmodule Valimc.Anvil.Export do
   @doc "Command-line entry: prints the report; exits non-zero on failure."
   def cli([source, destination]) do
     Valimc.Protocol.Data.load!()
-    Valimc.World.Blocks.init!()
+    Valimc.Registry.BlockFacts.install!()
 
     case run(Path.expand(source), Path.expand(destination)) do
       {:ok, report} ->

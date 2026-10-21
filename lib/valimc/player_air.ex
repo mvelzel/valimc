@@ -3,18 +3,20 @@ defmodule Valimc.PlayerAir do
   alias Valimc.Inventory
   alias Valimc.Protocol.ItemStack
   alias Valimc.Physics.FluidContact
+  alias Valimc.Registry.Blocks
   @maximum 300
-  @bubble_states [18651, 18652]
+  @bubble_column Blocks.id("bubble_column")
 
   def maximum, do: @maximum
   def valid?(air), do: is_integer(air) and air in -20..@maximum
-  def bubble_states, do: @bubble_states
+  def bubble_states, do: Enum.to_list(Blocks.states("bubble_column"))
   def supply(player), do: Map.get(player, :air_supply, @maximum)
 
   def contact(frame, %{box: box, eye: {x, y, z} = eye}) do
     with {:ok, eyes} <- FluidContact.eyes(frame, box, eye),
          {:ok, state} <- Map.fetch(frame.states, {floor(x), floor(y), floor(z)}) do
-      {:ok, %{water: eyes.water, submerged: eyes.water and state not in @bubble_states}}
+      submerged = eyes.water and Blocks.block_id(state) != @bubble_column
+      {:ok, %{water: eyes.water, submerged: submerged}}
     else
       :error -> {:error, :incomplete_air_frame}
       error -> error

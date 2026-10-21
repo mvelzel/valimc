@@ -11,36 +11,14 @@ defmodule Valimc.World.Blocks do
   """
   alias Valimc.Native
   alias Valimc.Protocol.Data
-  alias Valimc.Registry.BlockFacts
   alias Valimc.World.Chunk
-  import Bitwise
 
   @enforce_keys [:ref, :key]
   defstruct [:ref, :key]
 
-  @air 1 <<< 6
-  @fluid 1 <<< 7
   # Upper bound on one region's section memory (64 chunks of fully dense sections
   # need about 12.6 MiB).
   @budget 64 * 1024 * 1024
-
-  @doc "Install the per-state flag table in the NIF; call once at application start."
-  def init! do
-    :ok =
-      case Native.flags_init(flags()) do
-        :ok -> :ok
-        other -> raise "block flag initialization failed: #{inspect(other)}"
-      end
-  end
-
-  @doc "One byte per state: heightmap predicate bits 0..5, air bit 6, fluid bit 7."
-  def flags do
-    for id <- 0..(BlockFacts.count() - 1), into: <<>> do
-      air = if BlockFacts.air?(id), do: @air, else: 0
-      wet = if BlockFacts.fluid(id).kind == :empty, do: 0, else: @fluid
-      <<BlockFacts.heightmap(id) ||| air ||| wet>>
-    end
-  end
 
   @doc """
   Storage for region `key`: flat terrain, then imported column `images`

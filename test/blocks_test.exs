@@ -29,7 +29,9 @@ defmodule Valimc.World.BlocksTest do
       # >256 distinct states in a section: the direct (global) encoding.
       {3, 6_000, Enum.to_list(0..(count - 1))},
       # Water/lava levels and every air variant affect the vanilla section counts.
-      {4, 500, [0, 18_649, 18_650] ++ Enum.to_list(86..117) ++ few}
+      {4, 500,
+       Enum.map(~w(air cave_air void_air), &Valimc.Registry.Blocks.default_state/1) ++
+         Enum.flat_map(~w(water lava), &Enum.to_list(Valimc.Registry.Blocks.states(&1))) ++ few}
     ]
 
     for {seed, n, states} <- cases do

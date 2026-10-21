@@ -45,7 +45,6 @@ defmodule Valimc.Native do
 
   ## Region
 
-  def flags_init(_flags), do: :erlang.nif_error(:nif_not_loaded)
   def region_new(_cx, _cz, _size, _layers, _budget), do: :erlang.nif_error(:nif_not_loaded)
   def get_blocks(_region, _positions), do: :erlang.nif_error(:nif_not_loaded)
   def set_blocks(_region, _changes), do: :erlang.nif_error(:nif_not_loaded)
@@ -76,8 +75,7 @@ defmodule Valimc.Native do
 
   ## Light
 
-  def light_facts_init(_properties, _faces, _sizes, _occludes, _sky, _sky_size, _sky_pairs),
-    do: :erlang.nif_error(:nif_not_loaded)
+  def block_facts_init(_columns), do: :erlang.nif_error(:nif_not_loaded)
 
   def light_sky(_region, _sky), do: :erlang.nif_error(:nif_not_loaded)
   def light_compute(_region), do: :erlang.nif_error(:nif_not_loaded)

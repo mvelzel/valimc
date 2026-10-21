@@ -9,10 +9,12 @@ defmodule Valimc.Registry.BlockFacts do
   landing, mining, placement replaceability, heightmap predicates, sky-source
   edge classes and light (emission, dampening and face occlusion classes). The
   oracle's comment describes each. State ids are trusted: they come from the
-  world or the registry, and an id outside the table raises.
+  world or the registry, and an id outside the table raises. `install!/0`
+  gives the Rust core the columns it reads.
   """
   import Bitwise
   use Valimc.Facts, "registry/block_facts.json"
+  alias Valimc.Native
   alias Valimc.Physics.{Box, Shape}
 
   @count @facts["state_count"]
@@ -188,7 +190,6 @@ defmodule Valimc.Registry.BlockFacts do
                       Base.decode16!(column["occludes"], case: :lower)}
 
   @block_entity_types @facts["block_entity_types"]
-  @level_dependent @facts["level_dependent"]
 
   def count, do: @count
 
@@ -276,26 +277,59 @@ defmodule Valimc.Registry.BlockFacts do
   @doc "The block entity type each block with one creates, by block name."
   def block_entity_types, do: @block_entity_types
 
-  @doc "Blocks whose flags cannot be decided without their block entity."
-  def level_dependent, do: @level_dependent
-
   @doc """
-  The light columns for the Rust core: per state `emission << 4 | dampening`,
-  per face the occlusion classes and their pair tables, and the sky-source
-  classes and pairs.
+  Install the table in the Rust core once per VM (later calls do nothing): the
+  flags, heightmap predicates, the fluid as vanilla's fluid registry id and its
+  level, and the light and sky columns. The storage flags, the light engine and
+  worldgen's block table read only this install.
   """
-  def light_columns do
-    {faces, sizes, occludes} =
+  def install! do
+    if not :persistent_term.get({__MODULE__, :installed}, false) do
+      case Native.block_facts_init(native_columns()) do
+        :ok -> :persistent_term.put({__MODULE__, :installed}, true)
+        other -> raise "block fact installation failed: #{inspect(other)}"
+      end
+    end
+
+    :ok
+  end
+
+  defp native_columns do
+    states = 0..(@count - 1)
+
+    fluids =
+      for id <- states do
+        fluid = fluid(id)
+
+        kind =
+          case {fluid.kind, fluid.source} do
+            {:empty, _} -> 0
+            {:water, false} -> 1
+            {:water, true} -> 2
+            {:lava, false} -> 3
+            {:lava, true} -> 4
+          end
+
+        {kind, fluid.amount + if(fluid.falling, do: 16, else: 0)}
+      end
+
+    {faces, classes, occludes} =
       Enum.reduce(Enum.reverse(@light_faces), {[], [], []}, fn {s, n, o}, {fs, ns, os} ->
         {[s | fs], [n | ns], [o | os]}
       end)
 
     %{
-      properties: @light,
-      faces: faces,
-      sizes: sizes,
-      occludes: occludes,
-      sky: {@sky, @sky_classes, @sky_pairs}
+      flags: for(id <- states, into: <<>>, do: <<flags(id)::64>>),
+      heightmaps: @heightmap_states,
+      fluid: for({kind, _} <- fluids, into: <<>>, do: <<kind>>),
+      fluid_level: for({_, level} <- fluids, into: <<>>, do: <<level>>),
+      light: @light,
+      light_faces: faces,
+      light_classes: classes,
+      light_occludes: occludes,
+      sky: @sky,
+      sky_classes: @sky_classes,
+      sky_pairs: @sky_pairs
     }
   end
 end

@@ -9,8 +9,7 @@ alias Valimc.NBT
 alias Valimc.World.DataFix
 
 Valimc.Protocol.Data.load!()
-Valimc.World.Blocks.init!()
-Valimc.World.Light.init!()
+Valimc.Registry.BlockFacts.install!()
 
 defmodule Diff do
   # The first path where two tags differ, with both values.

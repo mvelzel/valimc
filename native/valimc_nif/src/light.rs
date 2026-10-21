@@ -1,45 +1,9 @@
 //! Block and sky light over the Region resource.
 
-use crate::region::{error, with_owned, with_store, Region, FLAGS};
+use crate::facts::{FLAGS, LIGHT};
+use crate::region::{error, with_owned, with_store, Region};
 use crate::{atoms, bytes, done};
 use rustler::{Atom, Binary, Encoder, Env, NifResult, ResourceArc, Term};
-use std::sync::OnceLock;
-
-pub(crate) static LIGHT: OnceLock<valimc_core::light::LightFacts> = OnceLock::new();
-
-/// Install the light facts once per VM.
-#[rustler::nif]
-#[allow(clippy::too_many_arguments)]
-fn light_facts_init(
-    properties: Binary,
-    faces: Vec<Binary>,
-    sizes: Vec<usize>,
-    occludes: Vec<Binary>,
-    sky_states: Binary,
-    sky_size: usize,
-    sky_pairs: Binary,
-) -> NifResult<Atom> {
-    if faces.len() != 6 || sizes.len() != 6 || occludes.len() != 6 {
-        return done(Err(atoms::invalid_state()));
-    }
-    let Some(facts) = valimc_core::light::LightFacts::new(
-        properties.as_slice().to_vec(),
-        std::array::from_fn(|d| faces[d].as_slice().to_vec()),
-        std::array::from_fn(|d| sizes[d]),
-        std::array::from_fn(|d| occludes[d].as_slice().to_vec()),
-        sky_states.as_slice().to_vec(),
-        sky_size,
-        sky_pairs.as_slice().to_vec(),
-    ) else {
-        return done(Err(atoms::invalid_state()));
-    };
-    let installed = LIGHT.get_or_init(|| facts);
-    done(if installed.state_count() == properties.len() {
-        Ok(())
-    } else {
-        Err(atoms::flags_mismatch())
-    })
-}
 
 /// Whether the region's dimension has sky light (VMC-026b); set before lighting.
 #[rustler::nif]

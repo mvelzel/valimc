@@ -8,7 +8,6 @@ defmodule Valimc.Worldgen do
   compiled functions for a noise settings entry (`valimc_core::worldgen`).
   """
   alias Valimc.Native
-  import Bitwise
   alias Valimc.Protocol.Data
   alias Valimc.Registry.{BlockFacts, Blocks}
 
@@ -99,6 +98,7 @@ defmodule Valimc.Worldgen do
         )
       )
 
+    BlockFacts.install!()
     Native.worldgen_registry(facts)
   rescue
     error in [File.Error, JSON.DecodeError, KeyError, MatchError, ArgumentError] ->
@@ -111,39 +111,12 @@ defmodule Valimc.Worldgen do
 
   defp read_json!(path), do: path |> File.read!() |> JSON.decode!()
 
-  # Per state, what decoration reads (VMC-025): the block fact table's flags
-  # (decoration's 49 bits as two words), the states fire can burn (VMC-026a),
-  # the fluid (vanilla's fluid registry ids: empty, flowing water, water,
-  # flowing lava, lava), its amount with the falling flag at bit 4, the
-  # heightmap predicates, and the block and fluid tags.
+  # What decoration reads besides the installed per-state facts
+  # (`BlockFacts.install!/0`): each block's block entity type and the block and
+  # fluid tags.
   defp block_facts(tags) do
-    states = 0..(BlockFacts.count() - 1)
-    flags = Enum.map(states, &BlockFacts.flags/1)
-
-    fluids =
-      Enum.map(states, fn id ->
-        fluid = BlockFacts.fluid(id)
-
-        fluid_id =
-          case {fluid.kind, fluid.source} do
-            {:empty, _} -> 0
-            {:water, false} -> 1
-            {:water, true} -> 2
-            {:lava, false} -> 3
-            {:lava, true} -> 4
-          end
-
-        {fluid_id, fluid.amount + if(fluid.falling, do: 16, else: 0)}
-      end)
-
     %{
-      "flags" => Enum.map_join(flags, &hex32(&1 &&& 0xFFFFFFFF)),
-      "flags2" => Enum.map_join(flags, &hex32(&1 >>> 32 &&& 0x1FFFF)),
       "block_entity_types" => BlockFacts.block_entity_types(),
-      "flammable" => runs(Enum.filter(states, &BlockFacts.flag?(&1, :flammable))),
-      "fluid" => Enum.map(fluids, &elem(&1, 0)),
-      "fluid_level" => Enum.map(fluids, &elem(&1, 1)),
-      "heightmaps" => Enum.map(states, &BlockFacts.heightmap/1),
       "block_tags" => tags["minecraft:block"],
       "fluid_tags" => tags["minecraft:fluid"]
     }
@@ -216,24 +189,5 @@ defmodule Valimc.Worldgen do
       "packed_ice" => Blocks.default_state("packed_ice"),
       "flags" => flags
     }
-  end
-
-  defp hex32(word), do: Base.encode16(<<word::32>>, case: :lower)
-
-  # Sorted ids as `[first, last]` runs.
-  defp runs(ids) do
-    ids
-    |> Enum.chunk_while(
-      nil,
-      fn
-        id, nil -> {:cont, [id, id]}
-        id, [first, last] when id == last + 1 -> {:cont, [first, id]}
-        id, run -> {:cont, run, [id, id]}
-      end,
-      fn
-        nil -> {:cont, nil}
-        run -> {:cont, run, nil}
-      end
-    )
   end
 end
