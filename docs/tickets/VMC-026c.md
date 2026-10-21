@@ -1,6 +1,6 @@
 # VMC-026c — Items through portals
 
-Status: Awaiting client
+Status: Done
 Milestone: M2 real worlds
 Depends on: [VMC-026b](VMC-026b.md) (live dimensions and portals),
 [VMC-067](VMC-067.md) (the entity model), the item handoffs of VMC-064.
@@ -109,8 +109,15 @@ Acceptance:
       contact swept from the old position. Every server teleport now starts
       contact anew, as vanilla checks no movement across one.
       `test/portal_connection_test.exs` teleports across a portal and stays.
-  - Pending: block changes in the End after travelling there, a `/tp`
-    across a portal, and a steep drop into a gateway found at its exit.
+- Recheck, October 21, 2026: checkpoint 57c30ff, a fresh world; evidence in
+  `run-04`. All three passed with no warnings.
+  - After travelling into the End, a `/setblock`, a `/fill`, a hand-placed
+    block and a hand-mined floor block each showed at once.
+  - A `/tp` across a lit portal's plane stayed in the overworld, and one
+    across the exit portal in the Nether stayed there; walking in still
+    travelled.
+  - Twice, a diamond dropped steeply into a gateway went in on the first try,
+    and the player walking in after it picked it up on arrival.
 
 ## Limits
 

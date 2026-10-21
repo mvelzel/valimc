@@ -18,12 +18,12 @@ model and a generated registry; see [architecture](architecture.md).
 | Ticket | Open slice | Status |
 |---|---|---|
 | [VMC-025](tickets/VMC-025.md) | Structures: every family placed as vanilla places it and live in new worlds, over terrain with beards; client check pending | In progress |
-| [VMC-026](tickets/VMC-026.md) | Nether, End and portals: live; items through portals (VMC-026c) awaiting client; stronghold portal rooms, the dragon fight (M3) remain | In progress |
+| [VMC-026](tickets/VMC-026.md) | Nether, End and portals: live, items through portals too; stronghold portal rooms, orbs and mobs through portals, the dragon fight (M3) remain | In progress |
 | [VMC-028](tickets/VMC-028.md) | Generation settings, world presets, data-pack worldgen and 26.2 world upgrades | Awaiting client |
 | [VMC-010](tickets/VMC-010.md) | Administration: lists, admin commands, save control, idle timeout and console live; RCON remains | In progress |
 | [VMC-053](tickets/VMC-053.md) | Commands: world and administration commands live; `place` waits for structures | In progress |
 
-Done in M2: VMC-020..024, 026a, 026b, 027, 029c, 070..075 (see [completed](history/completed.md)).
+Done in M2: VMC-020..024, 026a..c, 027, 029c, 070..075 (see [completed](history/completed.md)).
 Commands on M3 systems (VMC-053h, k–n) move with those systems. Generation and tick
 time stay matched against vanilla and Pumpkin, at least in Pumpkin's range.
 
@@ -45,7 +45,6 @@ until its spill and stored experience exist ([VMC-034f](tickets/VMC-034f.md)).
 
 | Ticket | Remaining gate |
 |---|---|
-| [VMC-026c](tickets/VMC-026c.md) | End block changes after travel, a `/tp` across a portal, a steep drop into a gateway |
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Server CLONE/type-2 fill from a creative container menu (VMC-032) |
 | [VMC-028](tickets/VMC-028.md) | An amplified world and an imported 26.2 world in the client |
 
