@@ -17,9 +17,8 @@ model and a generated registry; see [architecture](architecture.md).
 
 | Ticket | Open slice | Status |
 |---|---|---|
-| [VMC-053](tickets/VMC-053.md) | Commands: world and administration commands live; `place` waits for structures | In progress |
 
-Done in M2: VMC-010, 020..025, 026, 027, 028, 029c, 070..075 (see [completed](history/completed.md)).
+Done in M2: VMC-010, 020..025, 026, 027, 028, 029c, 053, 070..075 (see [completed](history/completed.md)).
 Commands on M3 systems (VMC-053h, k–n) move with those systems. Generation and tick
 time stay matched against vanilla and Pumpkin, at least in Pumpkin's range.
 
