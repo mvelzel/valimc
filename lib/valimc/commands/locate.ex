@@ -25,6 +25,10 @@ defmodule Valimc.Commands.Locate do
 
     unless members, do: Error.fail!("commands.locate.structure.invalid", [printable])
 
+    # A world created without structures finds none (`generate-structures`).
+    if match?(%{"generate_structures" => false}, Valimc.World.Generator.current_settings()),
+      do: Error.fail!("commands.locate.structure.not_found", [printable])
+
     seed =
       case Valimc.World.Generator.current() do
         {:vanilla, seed} -> seed
