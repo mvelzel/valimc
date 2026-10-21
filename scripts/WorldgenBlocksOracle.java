@@ -27,7 +27,9 @@ import net.minecraft.world.level.block.state.BlockState;
  * templates fill them with water, VMC-025c). Every question runs against a level that fails on
  * any read, so none of them depends on the neighbourhood; a state whose sturdiness reads the
  * level (a moving piston's block entity) is listed as excluded, without sturdy faces. Output:
- * the flags, four bytes per state in hex.
+ * the flags, four bytes per state in hex; and the states fire can burn (`FireBlock.canBurn`:
+ * ignite odds above zero, none while waterlogged) as runs of state ids, which fire's shape
+ * reads of its six neighbours (VMC-026a).
  */
 public class WorldgenBlocksOracle {
   static final BlockPos ORIGIN = new BlockPos(0, 64, 0);
@@ -105,8 +107,27 @@ public class WorldgenBlocksOracle {
         "occludes_down", "occludes_up", "occludes_north", "occludes_south", "occludes_west", "occludes_east",
         "liquid_container", "simple_waterlogged")));
     out.addProperty("flags", hex.toString());
+    var canBurn = net.minecraft.world.level.block.FireBlock.class.getDeclaredMethod("canBurn", BlockState.class);
+    canBurn.setAccessible(true);
+    var flammable = new JsonArray();
+    int burning = 0;
+    for (int id = 0; id < count; id++) {
+      if (!(boolean) canBurn.invoke(net.minecraft.world.level.block.Blocks.FIRE, Block.BLOCK_STATE_REGISTRY.byId(id))) continue;
+      burning++;
+      int last = flammable.size() - 1;
+      if (last >= 0 && flammable.get(last).getAsJsonArray().get(1).getAsInt() == id - 1) {
+        flammable.get(last).getAsJsonArray().set(1, new JsonPrimitive(id));
+      } else {
+        var run = new JsonArray();
+        run.add(id);
+        run.add(id);
+        flammable.add(run);
+      }
+    }
+    out.add("flammable", flammable);
     out.add("excluded", new Gson().toJsonTree(excluded));
     Files.writeString(Path.of(args[0]), new Gson().toJson(out) + "\n");
-    System.out.println("PASS: worldgen flags of " + count + " block states " + Arrays.toString(totals) + "; excluded " + excluded);
+    System.out.println("PASS: worldgen flags of " + count + " block states " + Arrays.toString(totals) + ", " + burning
+        + " flammable; excluded " + excluded);
   }
 }

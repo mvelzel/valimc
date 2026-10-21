@@ -131,6 +131,8 @@ pub struct BlockTable {
     /// Fluid amount (0..8) and the falling flag (bit 4).
     pub fluid_level: Vec<u8>,
     pub heightmaps: Vec<u8>,
+    /// States fire can burn (`FireBlock.canBurn`), a bit per state.
+    flammable: Vec<u64>,
     tags: HashMap<String, BlockSet>,
     /// Each block tag's blocks in vanilla's order (a holder set's contents).
     tag_lists: HashMap<String, Vec<u16>>,
@@ -180,6 +182,7 @@ impl BlockTable {
             fluid: bytes(facts.field("fluid")?, count)?,
             fluid_level: bytes(facts.field("fluid_level")?, count)?,
             heightmaps: bytes(facts.field("heightmaps")?, count)?,
+            flammable: vec![0; count.div_ceil(64)],
             tags: HashMap::new(),
             tag_lists: HashMap::new(),
             fluid_tags: HashMap::new(),
@@ -205,6 +208,19 @@ impl BlockTable {
             table.default.push(default.as_i32()? as u16);
             table.class.push(class.as_i32()? as u16);
             table.properties.push(properties);
+        }
+        if let Some(runs) = facts.get("flammable") {
+            for run in runs.as_array()? {
+                let [first, last] = run.as_array()? else {
+                    return Err("flammable run".into());
+                };
+                for state in first.as_i32()? as usize..=last.as_i32()? as usize {
+                    *table
+                        .flammable
+                        .get_mut(state / 64)
+                        .ok_or("flammable state")? |= 1 << (state % 64);
+                }
+            }
         }
         for (tag, blocks) in facts.field("block_tags")?.entries()? {
             let blocks = blocks
@@ -254,6 +270,11 @@ impl BlockTable {
 
     pub fn flag(&self, state: u16, flag: u32) -> bool {
         self.flags[state as usize] & flag != 0
+    }
+
+    /// `FireBlock.canBurn`.
+    pub fn flammable(&self, state: u16) -> bool {
+        self.flammable[state as usize / 64] & (1 << (state % 64)) != 0
     }
 
     pub fn is_air(&self, state: u16) -> bool {

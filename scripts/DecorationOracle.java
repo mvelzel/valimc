@@ -74,18 +74,78 @@ import net.minecraft.world.ticks.WorldGenTickAccess;
  * a server with a structure template manager over the vanilla data pack (template and fossil
  * features).
  *
- * Usage: DecorationOracle OUT TYPE,TYPE,... (`*`: every type; a placed feature's identifier
- * includes that placed feature). Output: the included
+ * VMC-026a: with `nether` or `end`, the same for that dimension of the normal world preset: its
+ * noise settings and biome source (the Nether preset, the End's), dimension type, sea level and
+ * build bounds (0 to 256, the noise filling the lower 128), and its own areas (see
+ * `NETHER_AREAS` and `END_AREAS`; the End's main island instead of the areas near the origin).
+ * The level records the entities features add (the End spikes' crystals).
+ *
+ * Usage: DecorationOracle OUT TYPE,TYPE,... [nether|end] [bench|live] (`*`: every type; a placed
+ * feature's identifier includes that placed feature). Output: the dimension, its noise settings,
+ * biome source and bounds, the included
  * placed features per step (vanilla's global index and identifier), and per
  * chunk of the 5 × 5 its states run-length encoded in volume order (Y fastest
  * from the bottom, then X, then Z) as [id, count] pairs, its post-processing
  * marks, scheduled block and fluid ticks (position, type, delay, priority),
  * block entity positions and, for the block entities features created, their type,
- * loot table and seed, spawned entity and a beehive's bees (ticks in the hive).
+ * loot table and seed, spawned entity, a beehive's bees (ticks in the hive) and an end
+ * gateway's exit; and the entities features added (type, position, yaw).
  */
 public class DecorationOracle {
-  static final int MIN_Y = -64, HEIGHT = 384;
+  /**
+   * The dimension decorated (VMC-026a): its name, build bounds, noise settings, dimension type
+   * and sea level, as the normal world preset's dimensions have them.
+   */
+  static String DIMENSION = "overworld";
+  static int MIN_Y = -64, HEIGHT = 384, SEA_LEVEL = 63;
+  static net.minecraft.resources.ResourceKey<NoiseGeneratorSettings> SETTINGS;
+  static net.minecraft.resources.ResourceKey<net.minecraft.world.level.dimension.DimensionType> TYPE;
   static net.minecraft.core.RegistryAccess REGISTRIES;
+  /** The entities features added to each proto chunk: type, position, yaw. */
+  static final Map<ProtoChunk, List<String>> ENTITIES = Collections.synchronizedMap(new IdentityHashMap<>());
+
+  static void selectDimension(String name) {
+    DIMENSION = name;
+    switch (name) {
+      case "nether" -> {
+        MIN_Y = 0;
+        HEIGHT = 256;
+        SETTINGS = NoiseGeneratorSettings.NETHER;
+        TYPE = BuiltinDimensionTypes.NETHER;
+      }
+      case "end" -> {
+        MIN_Y = 0;
+        HEIGHT = 256;
+        SETTINGS = NoiseGeneratorSettings.END;
+        TYPE = BuiltinDimensionTypes.END;
+      }
+      default -> {
+        MIN_Y = -64;
+        HEIGHT = 384;
+        SETTINGS = NoiseGeneratorSettings.OVERWORLD;
+        TYPE = BuiltinDimensionTypes.OVERWORLD;
+      }
+    }
+  }
+
+  /** The dimension's biome source, its multi-noise lists with a fresh lookup history. */
+  static BiomeSource biomeSource(HolderGetter<Biome> biomeLookup) {
+    return switch (DIMENSION) {
+      case "end" -> net.minecraft.world.level.biome.TheEndBiomeSource.create(biomeLookup);
+      case "nether" -> MultiNoiseBiomeSource.createFromList(
+          TerrainOracle.freshList(MultiNoiseBiomeSourceParameterList.Preset.NETHER, biomeLookup));
+      default -> MultiNoiseBiomeSource.createFromList(
+          TerrainOracle.freshList(MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD, biomeLookup));
+    };
+  }
+
+  static String biomeSourceId() {
+    return switch (DIMENSION) {
+      case "end" -> "minecraft:the_end";
+      case "nether" -> "minecraft:nether";
+      default -> "minecraft:overworld";
+    };
+  }
 
   public static void main(String[] args) throws Exception {
     if (args[0].equals("trig")) {
@@ -110,6 +170,13 @@ public class DecorationOracle {
       return;
     }
     var factory = ChunkOracle.factory();
+    boolean bench = false, live = false;
+    selectDimension("overworld");
+    for (int i = 2; i < args.length; i++) {
+      if (args[i].equals("bench")) bench = true;
+      else if (args[i].equals("live")) live = true;
+      else selectDimension(args[i]);
+    }
     // Fluid tags, as a server binds them (survival and water checks read them).
     SupportOracle.bindFluidTags();
     net.minecraft.core.RegistryAccess registries;
@@ -135,8 +202,9 @@ public class DecorationOracle {
     net.minecraft.core.HolderLookup.Provider lookup = registries;
     var noises = lookup.lookupOrThrow(Registries.NOISE);
     var biomeLookup = lookup.lookupOrThrow(Registries.BIOME);
-    var holder = lookup.lookupOrThrow(Registries.NOISE_SETTINGS).getOrThrow(NoiseGeneratorSettings.OVERWORLD);
+    var holder = lookup.lookupOrThrow(Registries.NOISE_SETTINGS).getOrThrow(SETTINGS);
     var settings = holder.value();
+    SEA_LEVEL = settings.seaLevel();
     var doFill = NoiseBasedChunkGenerator.class.getDeclaredMethod("doFill", NoiseChunk.class, ChunkAccess.class);
     doFill.setAccessible(true);
     var buildSurface = NoiseBasedChunkGenerator.class.getDeclaredMethod("buildSurface", ChunkAccess.class, NoiseChunk.class,
@@ -150,8 +218,7 @@ public class DecorationOracle {
     var picker = (Aquifer.FluidPicker) createFluidPicker.invoke(null, settings);
     var heights = LevelHeightAccessor.create(MIN_Y, HEIGHT);
     // Vanilla's feature order, from the preset's biomes in parameter order.
-    var steps = FeatureSorter.buildFeaturesPerStep(List.copyOf(MultiNoiseBiomeSource.createFromList(
-            TerrainOracle.freshList(MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD, biomeLookup)).possibleBiomes()),
+    var steps = FeatureSorter.buildFeaturesPerStep(List.copyOf(biomeSource(biomeLookup).possibleBiomes()),
         b -> b.value().getGenerationSettings().features(), true);
     var placedIds = new IdentityHashMap<PlacedFeature, String>();
     lookup.lookupOrThrow(Registries.PLACED_FEATURE).listElements()
@@ -177,12 +244,12 @@ public class DecorationOracle {
       includedJson.add(ids);
     }
 
-    if (args.length > 2 && args[2].equals("live")) {
+    if (live) {
       live(Path.of(args[0]), factory, registries, lookup, noises, biomeLookup, holder, settings, doFill, buildSurface,
           generateCarvers, picker, heights, steps, included, includedJson);
       return;
     }
-    if (args.length > 2 && args[2].equals("bench")) {
+    if (bench) {
       bench(Path.of(args[0]), factory, registries, lookup, noises, biomeLookup, holder, settings, doFill, buildSurface, generateCarvers,
           picker, heights, steps, included, includedJson);
       return;
@@ -194,17 +261,21 @@ public class DecorationOracle {
     int features = 0;
     for (long seed : seeds) {
       var state = RandomState.create(noises, seed, settings);
-      BiomeSource biomeSource = MultiNoiseBiomeSource.createFromList(
-          TerrainOracle.freshList(MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD, biomeLookup));
+      BiomeSource biomeSource = biomeSource(biomeLookup);
       var generator = new NoiseBasedChunkGenerator(biomeSource, holder);
       var terrain = new Terrain(factory, seed, state, settings, picker, generator, heights, biomeLookup, doFill, buildSurface, generateCarvers);
-      var centres = new ArrayList<>(List.of(new ChunkPos(0, 0), new ChunkPos(-3, 5)));
+      var centres = new ArrayList<>(DIMENSION.equals("end")
+          // The main island: its spikes (all ten over four areas on the first seed) and the
+          // arrival platform's chunk.
+          ? (seed == seeds[0] ? List.of(new ChunkPos(1, 1), new ChunkPos(-2, 1), new ChunkPos(-2, -2), new ChunkPos(1, -2),
+              new ChunkPos(6, 0)) : List.of(new ChunkPos(1, 1)))
+          : List.of(new ChunkPos(0, 0), new ChunkPos(-3, 5)));
       for (int i = 0; i < 2; i++) centres.add(new ChunkPos(gen.nextInt(4001) - 2000, gen.nextInt(4001) - 2000));
       centres.add(new ChunkPos(gen.nextInt(3_750_001) - 1_875_000, gen.nextInt(3_750_001) - 1_875_000));
       if (seed == seeds[0]) {
         var search = new Random(seed);
-        for (var area : BIOME_AREAS) {
-          var target = TARGETED.get(area);
+        for (var area : biomeAreas()) {
+          var target = DIMENSION.equals("end") ? END_TARGETED.get(area) : TARGETED.get(area);
           String biome = target == null ? area : target[0];
           java.util.function.Predicate<ChunkPos> cheap = p -> true, accept = p -> true;
           if (target != null) {
@@ -272,17 +343,23 @@ public class DecorationOracle {
       }
     }
     var out = new JsonObject();
+    out.addProperty("dimension", DIMENSION);
+    out.addProperty("noise_settings", SETTINGS.identifier().toString());
+    out.addProperty("biome_source", biomeSourceId());
+    out.addProperty("min_y", MIN_Y);
+    out.addProperty("height", HEIGHT);
     out.add("features", includedJson);
     out.add("cases", cases);
     Files.writeString(Path.of(args[0]), new Gson().toJson(out));
-    System.out.println("PASS: " + cases.size() + " vanilla decorated areas (" + blocks + " blocks, " + features
+    System.out.println("PASS: " + cases.size() + " vanilla decorated " + DIMENSION + " areas (" + blocks + " blocks, " + features
         + " placed features run) over " + seeds.length + " seeds");
   }
 
   /**
-   * `OUT TYPES bench`: one thread, seed 20261020, the 8 × 8 chunks from (0, 0) decorated (Z
-   * outer, X inner) in a 10 × 10 terrain area from (-1, -1); the terrain is rebuilt for every
-   * pass and not timed. Two warm-up and five timed passes; nanoseconds per pass.
+   * `OUT TYPES [DIMENSION] bench`: one thread, seed 20261020, the 8 × 8 chunks from the
+   * dimension's `BENCH_ORIGIN` decorated (Z outer, X inner) in the 10 × 10 terrain area around
+   * them; the terrain is rebuilt for every pass and not timed. Two warm-up and five timed passes;
+   * nanoseconds per pass.
    */
   static void bench(Path out, net.minecraft.world.level.chunk.PalettedContainerFactory factory, net.minecraft.core.RegistryAccess registries,
       HolderGetter.Provider lookup, HolderGetter<net.minecraft.world.level.levelgen.synth.NormalNoise> noises, HolderGetter<Biome> biomeLookup,
@@ -291,21 +368,22 @@ public class DecorationOracle {
       List<Map<Integer, PlacedFeature>> included, JsonArray includedJson) throws Exception {
     long seed = 20261020L;
     var state = RandomState.create(noises, seed, settings);
-    BiomeSource biomeSource = MultiNoiseBiomeSource.createFromList(
-        TerrainOracle.freshList(MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD, biomeLookup));
+    BiomeSource biomeSource = biomeSource(biomeLookup);
     var generator = new NoiseBasedChunkGenerator(biomeSource, holder);
+    int x0 = BENCH_ORIGIN.get(DIMENSION).x(), z0 = BENCH_ORIGIN.get(DIMENSION).z();
     var passes = new JsonArray();
     for (int pass = 0; pass < 7; pass++) {
       var biomeCache = new HashMap<ChunkPos, Holder<Biome>[]>();
       Function<ChunkPos, Holder<Biome>[]> biomesOf = p -> biomeCache.computeIfAbsent(p,
-          q -> TerrainOracle.chunkBiomes(state, "overworld", biomeLookup, q, MIN_Y, HEIGHT));
+          q -> TerrainOracle.chunkBiomes(state, DIMENSION, biomeLookup, q, MIN_Y, HEIGHT));
       var biomeManager = new BiomeManager((qx, qy, qz) -> biomeAt(biomesOf, qx, qy, qz), BiomeManager.obfuscateSeed(seed));
       var chunks = new LinkedHashMap<ChunkPos, ProtoChunk>();
-      for (int z = -1; z <= 8; z++) {
-        for (int x = -1; x <= 8; x++) {
+      var noise = settings.noiseSettings().clampToHeightAccessor(heights);
+      for (int z = z0 - 1; z <= z0 + 8; z++) {
+        for (int x = x0 - 1; x <= x0 + 8; x++) {
           var pos = new ChunkPos(x, z);
           var chunk = new ProtoChunk(pos, UpgradeData.EMPTY, heights, factory, null);
-          var volume = new DensityVolume(16, HEIGHT, 16, pos.getMinBlockX(), MIN_Y, pos.getMinBlockZ());
+          var volume = new DensityVolume(16, noise.height(), 16, pos.getMinBlockX(), noise.minY(), pos.getMinBlockZ());
           try (var noiseChunk = new NoiseChunk(state, null, settings, picker, Blender.empty(), volume)) {
             doFill.invoke(generator, noiseChunk, chunk);
             buildSurface.invoke(generator, chunk, noiseChunk, state, biomeManager, null, settings.materialRule().value());
@@ -319,8 +397,8 @@ public class DecorationOracle {
         }
       }
       long start = System.nanoTime();
-      for (int z = 0; z < 8; z++) {
-        for (int x = 0; x < 8; x++) {
+      for (int z = z0; z < z0 + 8; z++) {
+        for (int x = x0; x < x0 + 8; x++) {
           var pos = new ChunkPos(x, z);
           var region = new Region(chunks, pos, seed, state, biomeSource, lookup);
           region.registries = registries;
@@ -333,11 +411,16 @@ public class DecorationOracle {
       if (pass >= 2) passes.add(elapsed);
     }
     var result = new JsonObject();
+    result.addProperty("dimension", DIMENSION);
+    result.addProperty("noise_settings", SETTINGS.identifier().toString());
+    result.addProperty("biome_source", biomeSourceId());
+    result.addProperty("x", x0);
+    result.addProperty("z", z0);
     result.add("features", includedJson);
     result.add("vanilla_decoration_ns", passes);
     result.addProperty("java", System.getProperty("java.vm.name") + " " + System.getProperty("java.version"));
     Files.writeString(out, new Gson().toJson(result));
-    System.out.println("PASS: vanilla decoration timings for 64 chunks");
+    System.out.println("PASS: vanilla " + DIMENSION + " decoration timings for 64 chunks");
   }
 
   /** ValiMC's region size in chunks (`:region_size`), which live generation finalizes at once. */
@@ -520,6 +603,30 @@ public class DecorationOracle {
   static final Map<String, Integer> CAVE_BIOMES = Map.of("lush_caves", 0, "dripstone_caves", 0, "sulfur_caves", 0,
       "deep_dark", -48);
 
+  /**
+   * VMC-026a: one area per Nether biome (its biome at y 64 in the centre chunk), and in the End
+   * the outer islands' biomes, with the end gateway and the small islands' extra island where
+   * their rarity filters pass in the centre chunk.
+   */
+  static final List<String> NETHER_AREAS = List.of("nether_wastes", "soul_sand_valley", "crimson_forest", "warped_forest",
+      "basalt_deltas");
+  static final List<String> END_AREAS = List.of("end_highlands", "end_midlands", "end_barrens", "small_end_islands_island",
+      "end_highlands_gateway");
+  static final Map<String, String[]> END_TARGETED = Map.of(
+      "small_end_islands_island", new String[] {"small_end_islands", "minecraft:end_island_decorated", "rarity"},
+      "end_highlands_gateway", new String[] {"end_highlands", "minecraft:end_gateway_return", "rarity"});
+  /** Benchmark areas: 8 × 8 chunks from here (the End's outer islands, past its main island). */
+  static final Map<String, ChunkPos> BENCH_ORIGIN = Map.of("overworld", new ChunkPos(0, 0), "nether", new ChunkPos(0, 0),
+      "end", new ChunkPos(100, 0));
+
+  static List<String> biomeAreas() {
+    return switch (DIMENSION) {
+      case "nether" -> NETHER_AREAS;
+      case "end" -> END_AREAS;
+      default -> BIOME_AREAS;
+    };
+  }
+
 
   /** One seed's terrain for decoration areas, as TerrainOracle builds it. */
   record Terrain(net.minecraft.world.level.chunk.PalettedContainerFactory factory, long seed, RandomState state,
@@ -538,12 +645,15 @@ public class DecorationOracle {
     LinkedHashMap<ChunkPos, ProtoChunk> build(Collection<ChunkPos> positions) throws ReflectiveOperationException {
       var biomeCache = new HashMap<ChunkPos, Holder<Biome>[]>();
       Function<ChunkPos, Holder<Biome>[]> biomesOf = p -> biomeCache.computeIfAbsent(p,
-          q -> TerrainOracle.chunkBiomes(state, "overworld", biomeLookup, q, MIN_Y, HEIGHT));
+          q -> TerrainOracle.chunkBiomes(state, DIMENSION, biomeLookup, q, MIN_Y, HEIGHT));
       var biomeManager = new BiomeManager((qx, qy, qz) -> biomeAt(biomesOf, qx, qy, qz), BiomeManager.obfuscateSeed(seed));
       var chunks = new LinkedHashMap<ChunkPos, ProtoChunk>();
+      // The noise fills the generator's bounds within the chunk's (the Nether's and the End's
+      // lower 128 of 256 blocks), as `doFill` clamps them.
+      var noise = settings.noiseSettings().clampToHeightAccessor(heights);
       for (var pos : positions) {
         var chunk = new ProtoChunk(pos, UpgradeData.EMPTY, heights, factory, null);
-        var volume = new DensityVolume(16, HEIGHT, 16, pos.getMinBlockX(), MIN_Y, pos.getMinBlockZ());
+        var volume = new DensityVolume(16, noise.height(), 16, pos.getMinBlockX(), noise.minY(), pos.getMinBlockZ());
         try (var noiseChunk = new NoiseChunk(state, null, settings, picker, Blender.empty(), volume)) {
           doFill.invoke(generator, noiseChunk, chunk);
           buildSurface.invoke(generator, chunk, noiseChunk, state, biomeManager, null, settings.materialRule().value());
@@ -631,8 +741,12 @@ public class DecorationOracle {
             && accept.test(new ChunkPos(cx, cz))) return new ChunkPos(cx, cz);
         continue;
       }
-      // A cheap look at sea level first, then at the surface.
+      // A cheap look at sea level first, then at the surface; the Nether's and the End's at y 64.
       if (!resolver.getNoiseBiome(qx, net.minecraft.core.QuartPos.fromBlock(64), qz).is(key)) continue;
+      if (!DIMENSION.equals("overworld")) {
+        if (accept.test(new ChunkPos(cx, cz))) return new ChunkPos(cx, cz);
+        continue;
+      }
       int y = generator.getBaseHeight(x, z, Heightmap.Types.WORLD_SURFACE_WG, heights, state);
       if (resolver.getNoiseBiome(qx, net.minecraft.core.QuartPos.fromBlock(y), qz).is(key) && accept.test(new ChunkPos(cx, cz))) {
         return new ChunkPos(cx, cz);
@@ -722,6 +836,8 @@ public class DecorationOracle {
     }
     var entities = new TreeSet<String>();
     chunk.getBlockEntityNbts().keySet().forEach(p -> entities.add(p.getX() + "," + p.getY() + "," + p.getZ()));
+    var added = new JsonArray();
+    ENTITIES.getOrDefault(chunk, List.of()).forEach(added::add);
     chunk.getBlockEntities().keySet().forEach(p -> entities.add(p.getX() + "," + p.getY() + "," + p.getZ()));
     // What features wrote into the block entities they created: loot table and seed, spawned entity.
     var entityData = new TreeSet<String>();
@@ -734,9 +850,12 @@ public class DecorationOracle {
       var bees = new ArrayList<String>();
       tag.getList("bees").ifPresent(list -> list.forEach(bee ->
           bees.add(String.valueOf(((net.minecraft.nbt.CompoundTag) bee).getIntOr("ticks_in_hive", -1)))));
+      // An end gateway's exit and exact teleport (VMC-026a).
+      String exit = tag.getIntArray("exit_portal").map(a -> a[0] + ";" + a[1] + ";" + a[2] + ";"
+          + tag.getBooleanOr("ExactTeleport", false)).orElse("-");
       entityData.add(p.getX() + "," + p.getY() + "," + p.getZ() + ","
           + net.minecraft.core.registries.BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(be.getType()) + "," + loot + "," + lootSeed + "," + mob
-          + "," + (bees.isEmpty() ? "-" : String.join("/", bees)));
+          + "," + (bees.isEmpty() ? "-" : String.join("/", bees)) + "," + exit);
     });
     var row = new JsonObject();
     row.addProperty("x", pos.x());
@@ -747,6 +866,7 @@ public class DecorationOracle {
     row.add("fluid_ticks", fluidTicks);
     row.add("block_entities", new Gson().toJsonTree(entities));
     row.add("block_entity_data", new Gson().toJsonTree(entityData));
+    row.add("entities", added);
     return row;
   }
 
@@ -819,6 +939,8 @@ public class DecorationOracle {
         var map = unsafe.allocateInstance(net.minecraft.server.level.ChunkMap.class);
         set(map, net.minecraft.server.level.ChunkMap.class, "worldGenContext",
             new net.minecraft.world.level.chunk.status.WorldGenContext(null, generator, null, null, null, null));
+        // A new entity (the End spikes' crystals) takes an id no tracked entity has.
+        set(map, net.minecraft.server.level.ChunkMap.class, "entityMap", new it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap<>());
         var cache = unsafe.allocateInstance(net.minecraft.server.level.ServerChunkCache.class);
         set(cache, net.minecraft.server.level.ServerChunkCache.class, "chunkMap", map);
         var level = unsafe.allocateInstance(net.minecraft.server.level.ServerLevel.class);
@@ -855,6 +977,14 @@ public class DecorationOracle {
         set(manager, managerClass, "sources", List.of(templates));
         var server = unsafe.allocateInstance(net.minecraft.server.dedicated.DedicatedServer.class);
         set(server, net.minecraft.server.MinecraftServer.class, "structureTemplateManager", manager);
+        // The End spikes create their crystals through the level, which asks the server's world
+        // data for its enabled features (VMC-026a).
+        set(server, net.minecraft.server.MinecraftServer.class, "worldData", Proxy.newProxyInstance(
+            DecorationOracle.class.getClassLoader(), new Class<?>[] {net.minecraft.world.level.storage.WorldData.class},
+            (proxy, method, a) -> switch (method.getName()) {
+              case "enabledFeatures" -> FeatureFlags.DEFAULT_FLAGS;
+              default -> throw new UnsupportedOperationException("WorldData." + method.getName());
+            }));
         TEMPLATE_SERVER = (net.minecraft.server.MinecraftServer) server;
       }
       return TEMPLATE_SERVER;
@@ -934,6 +1064,15 @@ public class DecorationOracle {
       return true;
     }
     @Override public boolean removeBlock(BlockPos pos, boolean movedByPiston) { return setBlock(pos, Blocks.AIR.defaultBlockState(), 3); }
+    // `WorldGenRegion.addFreshEntity`: into the chunk at the entity's block position (the End
+    // spikes' crystals); recorded as type, position and yaw.
+    @Override public boolean addFreshEntity(net.minecraft.world.entity.Entity entity) {
+      var chunk = chunk(SectionPos.blockToSectionCoord(entity.getBlockX()), SectionPos.blockToSectionCoord(entity.getBlockZ()));
+      ENTITIES.computeIfAbsent(chunk, c -> new ArrayList<>()).add(
+          net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()) + "," + entity.getX() + ","
+              + entity.getY() + "," + entity.getZ() + "," + entity.getYRot());
+      return true;
+    }
     @Override public net.minecraft.world.level.border.WorldBorder getWorldBorder() { throw unsupported("getWorldBorder"); }
     @Override public boolean isClientSide() { return false; }
     net.minecraft.server.level.ServerLevel serverLevel;
@@ -953,7 +1092,7 @@ public class DecorationOracle {
     @Override public long getSeed() { return seed; }
     @Override public net.minecraft.world.ticks.LevelTickAccess<Block> getBlockTicks() { return blockTicks; }
     @Override public net.minecraft.world.ticks.LevelTickAccess<net.minecraft.world.level.material.Fluid> getFluidTicks() { return fluidTicks; }
-    @Override public int getSeaLevel() { return 63; }
+    @Override public int getSeaLevel() { return SEA_LEVEL; }
     @Override public net.minecraft.util.RandomSource getRandom() { return random; }
     @Override public int getHeight(Heightmap.Types type, int x, int z) {
       return chunk(SectionPos.blockToSectionCoord(x), SectionPos.blockToSectionCoord(z)).getHeight(type, x & 15, z & 15) + 1;
@@ -966,7 +1105,7 @@ public class DecorationOracle {
     @Override public void gameEvent(Holder<net.minecraft.world.level.gameevent.GameEvent> gameEvent, net.minecraft.world.phys.Vec3 position,
         net.minecraft.world.level.gameevent.GameEvent.Context context) {}
     @Override public net.minecraft.world.level.dimension.DimensionType dimensionType() {
-      return lookup.lookupOrThrow(Registries.DIMENSION_TYPE).getOrThrow(BuiltinDimensionTypes.OVERWORLD).value();
+      return lookup.lookupOrThrow(Registries.DIMENSION_TYPE).getOrThrow(TYPE).value();
     }
     @Override public boolean isStateAtPosition(BlockPos pos, java.util.function.Predicate<BlockState> predicate) {
       return predicate.test(getBlockState(pos));

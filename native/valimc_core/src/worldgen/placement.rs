@@ -15,6 +15,7 @@ use super::region::Region;
 #[derive(Debug)]
 pub enum Modifier {
     Count(IntProvider),
+    CountOnEveryLayer(IntProvider),
     InSquare,
     Biome,
     Heightmap(Heightmap),
@@ -62,6 +63,9 @@ impl Modifier {
         let i = |k: &str| json.field(k)?.as_i32();
         Ok(match json.field("type")?.as_str()? {
             "minecraft:count" => Modifier::Count(IntProvider::parse(json.field("count")?)?),
+            "minecraft:count_on_every_layer" => {
+                Modifier::CountOnEveryLayer(IntProvider::parse(json.field("count")?)?)
+            }
             "minecraft:in_square" => Modifier::InSquare,
             "minecraft:biome" => Modifier::Biome,
             "minecraft:heightmap" => {
@@ -159,6 +163,29 @@ impl Modifier {
             Modifier::Count(count) => {
                 let n = count.sample(random);
                 out.extend(std::iter::repeat_n(origin, n.max(0) as usize));
+            }
+            Modifier::CountOnEveryLayer(count) => {
+                // Layer by layer while any column has a floor at that layer;
+                // the count is sampled again for every column.
+                let mut layer = 0;
+                loop {
+                    let mut found = false;
+                    let mut i = 0;
+                    while i < count.sample(random) {
+                        let x = random.next_int_bounded(16) + origin[0];
+                        let z = random.next_int_bounded(16) + origin[2];
+                        let start = region.height_at(Heightmap::MotionBlocking, x, z);
+                        if let Some(y) = floor_at_layer(d, region, x, start, z, layer) {
+                            out.push([x, y, z]);
+                            found = true;
+                        }
+                        i += 1;
+                    }
+                    layer += 1;
+                    if !found {
+                        break;
+                    }
+                }
             }
             Modifier::InSquare => {
                 let x = random.next_int_bounded(16) + origin[0];
@@ -318,6 +345,39 @@ impl Modifier {
     }
 }
 
+/// `CountOnEveryLayerPlacement.findOnGroundYPosition`: going down from
+/// `start`, the `layer`-th empty block above a non-empty one other than
+/// bedrock (air, water and lava blocks are empty).
+fn floor_at_layer(
+    d: &Decoration,
+    region: &mut Region,
+    x: i32,
+    start: i32,
+    z: i32,
+    layer: i32,
+) -> Option<i32> {
+    let known = d.known();
+    let empty = |state: u16| {
+        let block = d.table.block_of(state);
+        d.table.is_air(state) || block == known.water_block || block == known.lava_block
+    };
+    let mut current_layer = 0;
+    let mut current = region.get([x, start, z]);
+    let mut y = start;
+    while y > region.min_y() {
+        let below = region.get([x, y - 1, z]);
+        if !empty(below) && empty(current) && d.table.block_of(below) != known.bedrock_block {
+            if current_layer == layer {
+                return Some(y);
+            }
+            current_layer += 1;
+        }
+        current = below;
+        y -= 1;
+    }
+    None
+}
+
 #[derive(Debug)]
 pub struct PlacedFeature {
     /// The registry identifier, and a dense key for top-level biome checks.
@@ -343,8 +403,9 @@ impl PlacedFeature {
             return self.feature.place(d, region, random, origin);
         }
         let mut placed = false;
-        let mut stack: Vec<([i32; 3], usize)> = vec![(origin, 0)];
-        let mut out = Vec::new();
+        let mut stack: Vec<([i32; 3], usize)> = Vec::with_capacity(64);
+        stack.push((origin, 0));
+        let mut out = Vec::with_capacity(64);
         while let Some((pos, index)) = stack.pop() {
             out.clear();
             self.placement[index].modify(d, region, random, pos, top, &mut out)?;

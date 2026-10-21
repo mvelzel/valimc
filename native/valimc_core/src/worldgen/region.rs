@@ -12,23 +12,29 @@ use super::blocks::{BlockTable, Heightmap, BLOCK_ENTITY, POST_PROCESS, POST_PROC
 use super::random::Random;
 use super::surface::ChunkZoom;
 
+/// The overworld's bounds, which live generation's proto chunk logs hold
+/// (VMC-025d); decoration takes each dimension's (VMC-026a).
 pub const MIN_Y: i32 = -64;
 pub const HEIGHT: i32 = 384;
-const SECTIONS: usize = (HEIGHT / 16) as usize;
+/// The most sections a dimension's chunk has (the overworld's 24).
+pub(crate) const MAX_SECTIONS: usize = 24;
 
-/// A proto chunk after the terrain step.
+/// A proto chunk after the terrain step, as tall as its dimension.
 #[derive(Clone)]
 pub struct ProtoChunk {
     pub x: i32,
     pub z: i32,
-    /// States, Y fastest from `MIN_Y`, then X, then Z.
+    /// The dimension's bottom and height (a multiple of 16).
+    pub min_y: i32,
+    pub height: i32,
+    /// States, Y fastest from `min_y`, then X, then Z.
     pub blocks: Vec<u16>,
     /// Biome registry ids: per section from the bottom, 64 in (y, z, x) order.
     pub biomes: Arc<Vec<u16>>,
     /// Per heightmap type, per column (z * 16 + x): the first free Y.
     pub(crate) heightmaps: [Box<[i32; 256]>; 6],
     /// Per section, its non-air blocks (`LevelChunkSection.hasOnlyAir`).
-    pub(crate) non_air: [u16; SECTIONS],
+    pub(crate) non_air: [u16; MAX_SECTIONS],
     pub marks: BTreeSet<[i32; 3]>,
     /// Scheduled ticks, unique per position and type: block ids and fluid ids.
     pub block_ticks: BTreeSet<([i32; 3], u16)>,
@@ -39,9 +45,19 @@ pub struct ProtoChunk {
     /// The block entities a feature asked for (`getBlockEntity` creates them
     /// from the pending entries), with what features write into them.
     pub block_entity_data: BTreeMap<[i32; 3], BlockEntityData>,
+    /// Entities features added (`addFreshEntity`), in order.
+    pub entities: Vec<Entity>,
     /// Whether a decoration wrote anything into the chunk since it was made
     /// or decoded (live generation re-encodes only those, VMC-025d).
     pub touched: bool,
+}
+
+/// An entity a feature added (VMC-026a: the End spikes' crystals).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Entity {
+    pub kind: &'static str,
+    pub pos: [f64; 3],
+    pub yaw: f32,
 }
 
 /// A created block entity (VMC-025c): its type and what decoration writes
@@ -55,6 +71,8 @@ pub struct BlockEntityData {
     /// A beehive's occupants: each bee's ticks in the hive
     /// (`BeehiveBlockEntity.Occupant.create`).
     pub bees: Vec<i32>,
+    /// An end gateway's exit and whether it teleports exactly there.
+    pub exit: Option<([i32; 3], bool)>,
 }
 
 /// The block entity type a block creates, for the blocks decoration fills.
@@ -65,29 +83,29 @@ pub fn block_entity_kind(name: &str) -> Option<&'static str> {
         "minecraft:spawner" => "minecraft:mob_spawner",
         "minecraft:bee_nest" | "minecraft:beehive" => "minecraft:beehive",
         "minecraft:suspicious_sand" | "minecraft:suspicious_gravel" => "minecraft:brushable_block",
+        "minecraft:end_gateway" => "minecraft:end_gateway",
         _ => return None,
     })
 }
 
-fn index(x: i32, y: i32, z: i32) -> usize {
-    ((y - MIN_Y) + ((x & 15) + (z & 15) * 16) * HEIGHT) as usize
-}
-
 impl ProtoChunk {
-    /// A chunk from its terrain, with every heightmap primed from it (the
-    /// worldgen ones as the terrain step leaves them, the final ones as it
-    /// primes them).
+    /// A chunk from its terrain (`blocks` as tall as the dimension, `min_y`
+    /// up), with every heightmap primed from it (the worldgen ones as the
+    /// terrain step leaves them, the final ones as it primes them).
     pub fn new(
         x: i32,
         z: i32,
+        (min_y, height): (i32, i32),
         blocks: Vec<u16>,
         biomes: Arc<Vec<u16>>,
         table: &BlockTable,
     ) -> ProtoChunk {
-        let mut non_air = [0u16; SECTIONS];
+        assert!(height % 16 == 0 && height as usize <= MAX_SECTIONS * 16);
+        assert_eq!(blocks.len(), 256 * height as usize);
+        let mut non_air = [0u16; MAX_SECTIONS];
         for column in 0..256 {
-            for y in 0..HEIGHT as usize {
-                if !table.is_air(blocks[column * HEIGHT as usize + y]) {
+            for y in 0..height as usize {
+                if !table.is_air(blocks[column * height as usize + y]) {
                     non_air[y / 16] += 1;
                 }
             }
@@ -95,27 +113,30 @@ impl ProtoChunk {
         let mut chunk = ProtoChunk {
             x,
             z,
+            min_y,
+            height,
             blocks,
             biomes,
-            heightmaps: std::array::from_fn(|_| Box::new([MIN_Y; 256])),
+            heightmaps: std::array::from_fn(|_| Box::new([min_y; 256])),
             non_air,
             marks: BTreeSet::new(),
             block_ticks: BTreeSet::new(),
             fluid_ticks: BTreeSet::new(),
             block_entities: BTreeSet::new(),
             block_entity_data: BTreeMap::new(),
+            entities: Vec::new(),
             touched: false,
         };
         // Every heightmap in one scan down each column.
         for column in 0..256 {
-            let base = column * HEIGHT as usize;
+            let base = column * height as usize;
             let mut missing = Heightmap::ALL.len();
-            for y in (0..HEIGHT as usize).rev() {
+            for y in (0..height as usize).rev() {
                 let state = chunk.blocks[base + y];
                 for kind in Heightmap::ALL {
-                    let height = &mut chunk.heightmaps[kind as usize][column];
-                    if *height == MIN_Y && table.heightmap(state, kind) {
-                        *height = MIN_Y + y as i32 + 1;
+                    let first_free = &mut chunk.heightmaps[kind as usize][column];
+                    if *first_free == min_y && table.heightmap(state, kind) {
+                        *first_free = min_y + y as i32 + 1;
                         missing -= 1;
                     }
                 }
@@ -127,11 +148,19 @@ impl ProtoChunk {
         chunk
     }
 
+    fn index(&self, x: i32, y: i32, z: i32) -> usize {
+        ((y - self.min_y) + ((x & 15) + (z & 15) * 16) * self.height) as usize
+    }
+
+    fn contains_y(&self, y: i32) -> bool {
+        (self.min_y..self.min_y + self.height).contains(&y)
+    }
+
     pub fn get(&self, x: i32, y: i32, z: i32) -> Option<u16> {
-        if !(MIN_Y..MIN_Y + HEIGHT).contains(&y) {
+        if !self.contains_y(y) {
             return None;
         }
-        Some(self.blocks[index(x, y, z)])
+        Some(self.blocks[self.index(x, y, z)])
     }
 
     /// The first free Y of a column (`getHeight + 1`).
@@ -149,10 +178,10 @@ impl ProtoChunk {
         state: u16,
         air: u16,
     ) -> Option<u16> {
-        if !(MIN_Y..MIN_Y + HEIGHT).contains(&y) {
+        if !self.contains_y(y) {
             return None;
         }
-        let section = ((y - MIN_Y) / 16) as usize;
+        let section = ((y - self.min_y) / 16) as usize;
         if self.non_air[section] == 0 && state == air {
             return Some(state);
         }
@@ -171,10 +200,10 @@ impl ProtoChunk {
     /// A section write without heightmaps (`LevelChunkSection.setBlockState`,
     /// as ore placement writes).
     pub fn set_raw(&mut self, table: &BlockTable, x: i32, y: i32, z: i32, state: u16) -> u16 {
-        let i = index(x, y, z);
+        let i = self.index(x, y, z);
         let old = self.blocks[i];
         self.touched = true;
-        let section = ((y - MIN_Y) / 16) as usize;
+        let section = ((y - self.min_y) / 16) as usize;
         match (table.is_air(old), table.is_air(state)) {
             (true, false) => self.non_air[section] += 1,
             (false, true) => self.non_air[section] -= 1,
@@ -204,10 +233,10 @@ impl ProtoChunk {
                 self.heightmaps[kind as usize][column] = y + 1;
             }
         } else if first - 1 == y {
-            let base = column * HEIGHT as usize;
-            let mut height = MIN_Y;
-            for below in (MIN_Y..y).rev() {
-                if table.heightmap(self.blocks[base + (below - MIN_Y) as usize], kind) {
+            let base = column * self.height as usize;
+            let mut height = self.min_y;
+            for below in (self.min_y..y).rev() {
+                if table.heightmap(self.blocks[base + (below - self.min_y) as usize], kind) {
                     height = below + 1;
                     break;
                 }
@@ -217,19 +246,21 @@ impl ProtoChunk {
     }
 
     pub fn mark(&mut self, pos: [i32; 3]) {
-        if (MIN_Y..MIN_Y + HEIGHT).contains(&pos[1]) {
+        if self.contains_y(pos[1]) {
             self.touched |= self.marks.insert(pos);
         }
     }
 }
 
 /// The chunks of a decoration area, `size` × `size` from (`x`, `z`), Z
-/// outer and X inner; live generation leaves out chunks it does not hold
-/// (VMC-025d).
+/// outer and X inner, all of one dimension's bounds; live generation leaves
+/// out chunks it does not hold (VMC-025d).
 pub struct Area {
     pub x: i32,
     pub z: i32,
     pub size: i32,
+    pub min_y: i32,
+    pub height: i32,
     pub chunks: Vec<Option<ProtoChunk>>,
 }
 
@@ -245,10 +276,19 @@ impl Area {
         if size > 64 {
             return Err("an area spans at most 64 chunks".into());
         }
+        let (min_y, height) = (first.min_y, first.height);
+        if chunks
+            .iter()
+            .any(|c| (c.min_y, c.height) != (min_y, height))
+        {
+            return Err("an area's chunks have one dimension's bounds".into());
+        }
         let mut area = Area {
             x: x0,
             z: z0,
             size,
+            min_y,
+            height,
             chunks: (0..size * size).map(|_| None).collect(),
         };
         for c in chunks {
@@ -291,6 +331,8 @@ pub struct Region<'a> {
     pub centre: (i32, i32),
     pub seed: i64,
     pub sea_level: i32,
+    min_y: i32,
+    height: i32,
     zoom: ChunkZoom,
     pub air: u16,
     pub void_air: u16,
@@ -318,13 +360,16 @@ impl<'a> Region<'a> {
         zoom_seed: i64,
         sea_level: i32,
     ) -> Result<Region<'a>, String> {
+        let (min_y, height) = (area.min_y, area.height);
         Ok(Region {
             area,
             table,
             centre,
             seed,
             sea_level,
-            zoom: ChunkZoom::new(zoom_seed, centre.0, centre.1, MIN_Y, HEIGHT),
+            min_y,
+            height,
+            zoom: ChunkZoom::new(zoom_seed, centre.0, centre.1, min_y, height),
             air: table.default_state("air")?,
             void_air: table.default_state("void_air")?,
             random: Random::xoroshiro(seed)
@@ -351,15 +396,15 @@ impl<'a> Region<'a> {
     }
 
     pub fn min_y(&self) -> i32 {
-        MIN_Y
+        self.min_y
     }
 
     pub fn height(&self) -> i32 {
-        HEIGHT
+        self.height
     }
 
     pub fn is_outside_build_height(&self, y: i32) -> bool {
-        !(MIN_Y..MIN_Y + HEIGHT).contains(&y)
+        !(self.min_y..self.min_y + self.height).contains(&y)
     }
 
     /// `getBlockState`.
@@ -444,6 +489,7 @@ impl<'a> Region<'a> {
                     loot_seed: 0,
                     spawner_entity: None,
                     bees: Vec::new(),
+                    exit: None,
                 },
             );
         }
@@ -462,7 +508,7 @@ impl<'a> Region<'a> {
     pub fn set_raw(&mut self, pos: [i32; 3], state: u16) {
         let table = self.table;
         if let Some(chunk) = self.area.chunk_mut(pos[0] >> 4, pos[2] >> 4) {
-            if (MIN_Y..MIN_Y + HEIGHT).contains(&pos[1]) {
+            if chunk.contains_y(pos[1]) {
                 chunk.set_raw(table, pos[0], pos[1], pos[2], state);
             }
         }
@@ -484,11 +530,11 @@ impl<'a> Region<'a> {
             Some(chunk) if self.distance(cx, cz) <= 8 => chunk.height(kind, x, z),
             None if self.lenient && self.distance(cx, cz) <= 8 => {
                 self.lenient_reads += 1;
-                MIN_Y
+                self.min_y
             }
             _ => {
                 self.fail(format!("heightmap of chunk {cx}, {cz} outside the area"));
-                MIN_Y
+                self.min_y
             }
         }
     }
@@ -505,8 +551,8 @@ impl<'a> Region<'a> {
             self.fail(format!("biome of chunk {cx}, {cz} outside the area"));
             return 0;
         };
-        let min_quart = MIN_Y >> 2;
-        let qy = qy.clamp(min_quart, min_quart + HEIGHT / 4 - 1) - min_quart;
+        let min_quart = self.min_y >> 2;
+        let qy = qy.clamp(min_quart, min_quart + self.height / 4 - 1) - min_quart;
         chunk.biomes[((qy >> 2) * 64 + ((qy & 3) * 4 + (qz & 3)) * 4 + (qx & 3)) as usize]
     }
 
@@ -515,6 +561,22 @@ impl<'a> Region<'a> {
     pub fn schedule_block_tick(&mut self, pos: [i32; 3], block: u16) {
         if let Some(chunk) = self.area.chunk_mut(pos[0] >> 4, pos[2] >> 4) {
             chunk.touched |= chunk.block_ticks.insert((pos, block));
+        }
+    }
+
+    /// `addFreshEntity`: into the chunk holding the entity's block position.
+    pub fn add_entity(&mut self, entity: Entity) {
+        let (cx, cz) = (
+            (entity.pos[0].floor() as i32) >> 4,
+            (entity.pos[2].floor() as i32) >> 4,
+        );
+        let near = self.distance(cx, cz) <= 1;
+        match self.area.chunk_mut(cx, cz) {
+            Some(chunk) if near => {
+                chunk.entities.push(entity);
+                chunk.touched = true;
+            }
+            _ => self.fail(format!("entity in chunk {cx}, {cz} outside the 3 × 3")),
         }
     }
 

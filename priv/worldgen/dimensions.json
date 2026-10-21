@@ -1,0 +1,23 @@
+{
+  "minecraft:overworld": {
+    "min_y": -64,
+    "height": 384,
+    "logical_height": 384,
+    "noise_settings": "minecraft:overworld",
+    "biome_source": "minecraft:overworld"
+  },
+  "minecraft:the_end": {
+    "min_y": 0,
+    "height": 256,
+    "logical_height": 256,
+    "noise_settings": "minecraft:end",
+    "biome_source": "minecraft:the_end"
+  },
+  "minecraft:the_nether": {
+    "min_y": 0,
+    "height": 256,
+    "logical_height": 128,
+    "noise_settings": "minecraft:nether",
+    "biome_source": "minecraft:nether"
+  }
+}

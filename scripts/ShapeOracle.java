@@ -30,8 +30,14 @@ import net.minecraft.world.level.material.Fluid;
  * worldgen facts (features, placed features, state providers, material rules, noise settings,
  * with block tags expanded), the structure templates and processor lists features place, or
  * ValiMC's worldgen code name, except fire, chorus plants, pale moss carpets, vines and
- * speleothems. Blocks that do not override it keep their state and schedule nothing, as
- * vanilla's default does; the other overriding blocks are listed as unmodelled.
+ * speleothems (their updates are code). Blocks that do not override it keep their state and
+ * schedule nothing, as vanilla's default does; the other overriding blocks are listed as
+ * unmodelled.
+ *
+ * `ShapeOracle code OUT.json` (VMC-026a): cases for the blocks whose update ValiMC implements
+ * in code instead (fire, soul fire, chorus plants and flowers): per case a state of one of them,
+ * a direction, the cells around it (a random neighbourhood of states those updates read, air
+ * elsewhere) and vanilla's outcome (the new state and the ticks scheduled).
  *
  * Usage: ShapeOracle OUT.json. Output: partitions (runs), outcomes ([new state or -1 for
  * unchanged, [[dx, dy, dz, kind (0 block, 1 fluid), id, delay], ...]]), rules (offsets,
@@ -295,11 +301,10 @@ public class ShapeOracle {
         }
       }
     }
-    // Fire reads all six neighbours' flammability, too many contexts to enumerate; the Nether's
-    // fire patches are the only features that place it, never beside a tree, so it stays unmodelled.
+    // Fire reads all six neighbours' flammability (too many contexts to enumerate) and chorus plants
+    // read up to ten cells; ValiMC implements their updates in code, checked by `code` (VMC-026a).
     out.remove(Blocks.FIRE);
     out.remove(Blocks.SOUL_FIRE);
-    // Chorus plants read whole stems of neighbours (more than eight cells); only the End has them.
     out.remove(Blocks.CHORUS_PLANT);
     out.remove(Blocks.CHORUS_FLOWER);
     // Pale moss carpets and vines read up to six neighbours too; ValiMC implements their updates in
@@ -326,6 +331,10 @@ public class ShapeOracle {
     STATES = new BlockState[COUNT];
     AIR = Blocks.AIR.defaultBlockState();
     for (int n = 0; n < COUNT; n++) STATES[n] = Block.stateById(n);
+    if (args[0].equals("code")) {
+      code(Path.of(args[1]));
+      return;
+    }
     SupportOracle.COUNT = COUNT;
     SupportOracle.STATES = STATES;
     SupportOracle.AIR = AIR;
@@ -444,6 +453,80 @@ public class ShapeOracle {
   }
 
   static final Set<Long> EXCLUDED = ConcurrentHashMap.newKeySet();
+
+  /** Cases per block for `code`, and the chance a neighbour cell is not air. */
+  static final int CODE_CASES = 3000;
+  static final double CODE_FILL = 0.55;
+
+  static Block named(String name) {
+    return BuiltInRegistries.BLOCK.getValue(net.minecraft.resources.Identifier.withDefaultNamespace(name));
+  }
+
+  static void code(Path out) throws Exception {
+    var random = new Random(20261021L);
+    // Neighbours those updates tell apart: flammable or not (waterlogged ones do not burn), sturdy
+    // tops, soul fire bases, chorus plants and flowers and what supports them, fluids, fire.
+    var pool = new ArrayList<BlockState>();
+    for (var block : List.of(Blocks.AIR, Blocks.CAVE_AIR, Blocks.NETHERRACK, Blocks.BEDROCK, Blocks.SOUL_SAND, Blocks.SOUL_SOIL,
+        Blocks.OBSIDIAN, Blocks.END_STONE, Blocks.OAK_PLANKS, Blocks.OAK_LOG, Blocks.OAK_LEAVES, named("white_wool"),
+        named("white_carpet"), Blocks.TNT, Blocks.GLASS, Blocks.STONE, Blocks.WATER, Blocks.LAVA, Blocks.MAGMA_BLOCK,
+        Blocks.GRASS_BLOCK, Blocks.FIRE, Blocks.SOUL_FIRE, Blocks.CHORUS_FLOWER, Blocks.SHORT_GRASS, Blocks.VINE)) {
+      pool.add(block.defaultBlockState());
+    }
+    pool.add(Blocks.OAK_LEAVES.defaultBlockState().setValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.WATERLOGGED, true));
+    pool.add(Blocks.OAK_SLAB.defaultBlockState());
+    pool.add(Blocks.OAK_SLAB.defaultBlockState().setValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.WATERLOGGED, true));
+    pool.add(Blocks.OAK_SLAB.defaultBlockState().setValue(net.minecraft.world.level.block.SlabBlock.TYPE,
+        net.minecraft.world.level.block.state.properties.SlabType.TOP));
+    for (int i = 0; i < 6; i++) pool.add(Blocks.CHORUS_PLANT.defaultBlockState());
+    for (int i = 0; i < 3; i++) pool.add(Blocks.END_STONE.defaultBlockState());
+    var p = new Probe();
+    var cases = new JsonArray();
+    int changed = 0, ticking = 0;
+    for (var block : List.of(Blocks.FIRE, Blocks.SOUL_FIRE, Blocks.CHORUS_PLANT, Blocks.CHORUS_FLOWER)) {
+      var states = block.getStateDefinition().getPossibleStates();
+      for (int k = 0; k < CODE_CASES; k++) {
+        var state = states.get(random.nextInt(states.size()));
+        var d = DIRS[random.nextInt(6)];
+        p.clear();
+        var cells = new JsonArray();
+        for (int dx = -1; dx <= 1; dx++)
+          for (int dy = -1; dy <= 1; dy++)
+            for (int dz = -1; dz <= 1; dz++) {
+              if ((dx == 0 && dy == 0 && dz == 0) || random.nextDouble() >= CODE_FILL) continue;
+              var cell = pool.get(random.nextInt(pool.size()));
+              if (cell.is(Blocks.CHORUS_PLANT) || cell.is(Blocks.CHORUS_FLOWER)) {
+                var choices = cell.getBlock().getStateDefinition().getPossibleStates();
+                cell = choices.get(random.nextInt(choices.size()));
+              }
+              p.put(index(dx, dy, dz), cell);
+              var c = new JsonArray();
+              c.add(dx);
+              c.add(dy);
+              c.add(dz);
+              c.add(Block.getId(cell));
+              cells.add(c);
+            }
+        p.begin();
+        var neighbourPos = ORIGIN.relative(d);
+        var result = state.updateShape(p.level, p.tickAccess, ORIGIN, d, neighbourPos, p.at(neighbourPos), p.random);
+        var row = new JsonArray();
+        row.add(Block.getId(state));
+        row.add(d.ordinal());
+        row.add(cells);
+        row.add(Block.getId(result));
+        row.add(new Gson().toJsonTree(List.copyOf(p.ticks)));
+        cases.add(row);
+        if (result != state) changed++;
+        if (!p.ticks.isEmpty()) ticking++;
+      }
+    }
+    var json = new JsonObject();
+    json.add("cases", cases);
+    Files.writeString(out, new Gson().toJson(json) + "\n");
+    System.out.println("PASS: " + cases.size() + " shape update cases of fire, soul fire and chorus (" + changed + " change the state, "
+        + ticking + " schedule ticks)");
+  }
 
   static void markExcluded(int n, Direction d) { EXCLUDED.add((long) n * 6 + d.ordinal()); }
 }

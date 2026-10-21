@@ -45,6 +45,9 @@ import net.minecraft.world.level.levelgen.synth.NormalNoise;
  * - feature_order.json: per biome source (the overworld and nether presets,
  *   the End), the placed features of each decoration step in the order
  *   vanilla's `FeatureSorter` gives them, whose index seeds each feature;
+ * - dimensions.json: the dimensions of the normal world preset (VMC-026a), each
+ *   with its dimension type's build bounds (bottom, height, logical height),
+ *   noise settings and biome source (a multi-noise preset, or the End's);
  * - biome_parameters.json: per multi-noise preset, its climate parameter list
  *   in order, one row per entry: the biome, then the quantized minimum and
  *   maximum of temperature, humidity, continentalness, erosion, depth and
@@ -148,6 +151,24 @@ public class WorldgenFactsOracle {
     write(args[10], providers);
     write(args[11], order);
 
+    var dimensions = new TreeMap<String, JsonElement>();
+    var normal = lookup.lookupOrThrow(Registries.WORLD_PRESET)
+        .getOrThrow(net.minecraft.world.level.levelgen.presets.WorldPresets.NORMAL).value();
+    normal.createWorldDimensions().dimensions().forEach((key, stem) -> {
+      var generator = net.minecraft.world.level.dimension.LevelStem.CODEC.encodeStart(ops, stem).getOrThrow()
+          .getAsJsonObject().getAsJsonObject("generator");
+      var source = generator.getAsJsonObject("biome_source");
+      var type = stem.type().value();
+      var entry = new JsonObject();
+      entry.addProperty("min_y", type.minY());
+      entry.addProperty("height", type.height());
+      entry.addProperty("logical_height", type.logicalHeight());
+      entry.add("noise_settings", generator.get("settings"));
+      entry.add("biome_source", source.has("preset") ? source.get("preset") : source.get("type"));
+      dimensions.put(key.identifier().toString(), entry);
+    });
+    write(args[12], dimensions);
+
     var presets = new TreeMap<String, List<String>>();
     MultiNoiseBiomeSourceParameterList.knownPresets().forEach((preset, list) -> {
       var rows = new ArrayList<String>();
@@ -174,7 +195,8 @@ public class WorldgenFactsOracle {
         + presets.size() + " biome parameter presets, " + rules.size() + " material rules, " + conditions.size()
         + " material conditions, " + biomes.size() + " biomes, " + carvers.size() + " carvers, "
         + features.size() + " features, " + placed.size() + " placed features, " + providers.size()
-        + " block state providers, feature order for " + order.size() + " biome sources");
+        + " block state providers, feature order for " + order.size() + " biome sources, "
+        + dimensions.size() + " dimensions");
   }
 
   static void write(String path, Map<String, JsonElement> entries) throws Exception {

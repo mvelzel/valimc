@@ -90,7 +90,7 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | VMC-023 | Biome/noise sampling and seed RNG | Same seed/settings/arithmetic match vanilla sample fixtures |
 | VMC-024 | Terrain, carvers, aquifers and surfaces | Block-for-block differential chunks across seeds/dimensions |
 | VMC-025 | Structures and decorations | Seed/order parity for structures, features, ores and bounded generation dependencies |
-| VMC-026 | Nether, End and portals | Dimension lifecycle, coordinates/tickets, beds/anchors, entity/player transitions |
+| [VMC-026](tickets/VMC-026.md) | Nether, End and portals | Dimension lifecycle, coordinates/tickets, beds/anchors, entity/player transitions |
 | [VMC-027](tickets/VMC-027.md) | World border and spawn search | Vanilla border ticks, packets, damage and commands; vanilla world spawn for several seeds |
 | [VMC-027a](tickets/VMC-027a.md) | Supplied stationary border geometry | Native bounds/containment/proximity and collision planes; live synchronization/resizing remain |
 | VMC-028 | Generation/data-pack configuration | Registry reload/version upgrade with deterministic generation caches |

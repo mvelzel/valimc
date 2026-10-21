@@ -66,7 +66,7 @@ STAGES = [
         ('java', 'WorldgenFactsOracle', '@noises.json', '@density_functions.json', '@noise_settings.json',
          '@biome_parameters.json', '@material_rules.json', '@material_conditions.json', '@biomes.json',
          '@carvers.json', '@features.json', '@placed_features.json', '@block_state_providers.json',
-         '@feature_order.json'),
+         '@feature_order.json', '@dimensions.json'),
         ('same', '@noises.json', 'priv/worldgen/noises.json'),
         ('same', '@density_functions.json', 'priv/worldgen/density_functions.json'),
         ('same', '@noise_settings.json', 'priv/worldgen/noise_settings.json'),
@@ -79,6 +79,7 @@ STAGES = [
         ('same', '@placed_features.json', 'priv/worldgen/placed_features.json'),
         ('same', '@block_state_providers.json', 'priv/worldgen/block_state_providers.json'),
         ('same', '@feature_order.json', 'priv/worldgen/feature_order.json'),
+        ('same', '@dimensions.json', 'priv/worldgen/dimensions.json'),
         ('java', 'WorldgenBlocksOracle', '@blocks.json'),
         ('same', '@blocks.json', 'priv/worldgen/blocks.json'),
         ('java', 'StructureTemplateOracle', '@templates.json', '@processor_lists.json'),
@@ -122,6 +123,8 @@ STAGES = [
     ('worldgen_shapes', [
         ('java', 'ShapeOracle', '@shapes.json'),
         ('same', '@shapes.json', 'priv/worldgen/shapes.json'),
+        ('java', 'ShapeOracle', 'code', '@shape-code.json'),
+        ('check', 'check_shape_code.exs', '@shape-code.json'),
     ]),
     ('worldgen_decoration', [
         ('java', 'DecorationOracle', '@decoration.json',
@@ -135,6 +138,15 @@ STAGES = [
          'minecraft:monster_room,minecraft:spike,minecraft:overlay,minecraft:template,minecraft:no_op,'
          'minecraft:coral_tree,minecraft:coral_claw,minecraft:underwater_magma,minecraft:multiface_growth,'
          'minecraft:sculk_patch,minecraft:vines'),
+        ('check', 'check_decoration.exs', '@decoration.json'),
+    ]),
+    # VMC-026a: every placed feature of the Nether's and the End's biome sources.
+    ('worldgen_decoration_nether', [
+        ('java', 'DecorationOracle', '@decoration.json', '*', 'nether'),
+        ('check', 'check_decoration.exs', '@decoration.json'),
+    ]),
+    ('worldgen_decoration_end', [
+        ('java', 'DecorationOracle', '@decoration.json', '*', 'end'),
         ('check', 'check_decoration.exs', '@decoration.json'),
     ]),
     ('worldgen_structures', [

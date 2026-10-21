@@ -25,8 +25,15 @@ const VERSION: u8 = 1;
 const SECTIONS: usize = (HEIGHT / 16) as usize;
 const COLUMN: usize = HEIGHT as usize;
 
-/// The binary form of `chunk`.
+/// The binary form of `chunk`, an overworld chunk (live generation holds the
+/// overworld only; the other dimensions' bounds, entities and gateway exits
+/// wait for VMC-026b).
 pub fn encode(chunk: &ProtoChunk) -> Vec<u8> {
+    assert_eq!(
+        (chunk.min_y, chunk.height),
+        (MIN_Y, HEIGHT),
+        "proto chunks hold the overworld's bounds"
+    );
     // Sections in index order (y, z, x), from the chunk's Y-fastest columns.
     let mut cells = vec![0u16; SECTIONS * VOLUME];
     for z in 0..16 {
@@ -252,6 +259,7 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
                 loot_seed,
                 spawner_entity,
                 bees,
+                exit: None,
             },
         );
     }
@@ -261,6 +269,8 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
     Ok(ProtoChunk {
         x,
         z,
+        min_y: MIN_Y,
+        height: HEIGHT,
         blocks,
         biomes: Arc::new(biomes),
         heightmaps,
@@ -270,6 +280,7 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
         fluid_ticks,
         block_entities,
         block_entity_data,
+        entities: Vec::new(),
         touched: false,
     })
 }

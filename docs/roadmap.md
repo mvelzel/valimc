@@ -40,11 +40,13 @@ resumes on these foundations alongside M2.
 | [VMC-024](tickets/VMC-024.md) | Vanilla terrain: noise fill with aquifers, material rules and carvers equal to vanilla's, generated live in new worlds | Done |
 | [VMC-053](tickets/VMC-053.md) | Vanilla commands: parse, permissions, suggestions, SNBT and the player, world, chat, text, effect, area, tick and basic admin commands are live; operator, entity and data-pack commands remain | In progress |
 | [VMC-025](tickets/VMC-025.md) | Features and structures: all 171 overworld placed features equal vanilla's and decorate new worlds live across region borders (client check pending); the starts of all 52 structures in three dimensions equal vanilla's; structure placement next | In progress |
+| [VMC-026](tickets/VMC-026.md) | Nether, End and portals: every Nether and End placed feature (spikes with crystals, gateways, chorus) equal vanilla's at the dimensions' heights; live dimensions and portals next | In progress |
 | [VMC-027](tickets/VMC-027.md) | World border live (moving, damage outside, `/worldborder`) and vanilla's world and player spawn search | Awaiting client |
 | [VMC-070](tickets/VMC-070.md) | The client's view distance (clamped to the server's, default 10) picks vanilla's chunk view, applied live; vanilla chunk send pacing and entity tracking ranges | Done |
 | [VMC-071](tickets/VMC-071.md) | New terrain reaches a moving player sooner: parallel worldgen states, nearest regions first, no light-update flood | Done |
 
-Next: structure placement (VMC-025f), then dimensions and portals (VMC-026..028).
+Next: structure placement (VMC-025f), then live dimensions and portals
+(VMC-026b) and generation configuration (VMC-028).
 Performance target: generation throughput and tick time benchmarked against
 the same seed on vanilla and on Pumpkin, staying at least in Pumpkin's range.
 

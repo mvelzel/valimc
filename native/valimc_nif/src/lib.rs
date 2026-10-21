@@ -1117,8 +1117,11 @@ struct DecoratedChunk<'a> {
     block_ticks: Vec<BlockTick>,
     fluid_ticks: Vec<FluidTick>,
     block_entities: Vec<(i32, i32, i32)>,
-    /// Created block entities: "x,y,z,type,loot table,seed,spawned entity".
+    /// Created block entities: "x,y,z,type,loot table,seed,spawned entity,
+    /// bees,gateway exit" (the exit as "x;y;z;exact").
     block_entity_data: Vec<String>,
+    /// Entities features added: "type,x,y,z,yaw".
+    entities: Vec<String>,
 }
 
 /// Decoration parity (VMC-025): the 5 × 5 chunks around `centre` with their
@@ -1183,7 +1186,7 @@ fn decorated_chunk<'a>(
             .map(|(pos, data)| {
                 let bees: Vec<String> = data.bees.iter().map(|t| t.to_string()).collect();
                 format!(
-                    "{},{},{},{},{},{},{},{}",
+                    "{},{},{},{},{},{},{},{},{}",
                     pos[0],
                     pos[1],
                     pos[2],
@@ -1195,11 +1198,67 @@ fn decorated_chunk<'a>(
                         "-".to_string()
                     } else {
                         bees.join("/")
+                    },
+                    match data.exit {
+                        Some((e, exact)) => format!("{};{};{};{exact}", e[0], e[1], e[2]),
+                        None => "-".to_string(),
                     }
                 )
             })
             .collect(),
+        entities: chunk
+            .entities
+            .iter()
+            .map(|e| {
+                // Shortest round-trip decimals, as Java's `toString` writes them.
+                format!(
+                    "{},{:?},{:?},{:?},{:?}",
+                    e.kind, e.pos[0], e.pos[1], e.pos[2], e.yaw
+                )
+            })
+            .collect(),
     }
+}
+
+/// A shape update case: state, direction (`Direction` order) and the
+/// neighbours as (dx, dy, dz, state).
+type ShapeCase = (u16, usize, Vec<(i32, i32, i32, u16)>);
+/// Its outcome: the new state and the scheduled ticks (dx, dy, dz, fluid?, id).
+type ShapeOutcome = (u16, Vec<(i32, i32, i32, bool, u16)>);
+
+/// Shape update parity (VMC-026a): `Decoration::shape_cases` through the
+/// overworld's decoration (the updates read only the cells around).
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_shape_cases(
+    registry: ResourceArc<WorldgenRegistry>,
+    cases: Vec<ShapeCase>,
+) -> Result<Vec<ShapeOutcome>, String> {
+    let decoration = registry
+        .registry
+        .decorations
+        .get("minecraft:overworld")
+        .ok_or("no decoration facts")?;
+    let cases: Vec<_> = cases
+        .into_iter()
+        .map(|(state, d, cells)| {
+            let cells = cells
+                .into_iter()
+                .map(|(x, y, z, s)| ([x, y, z], s))
+                .collect();
+            (state, d, cells)
+        })
+        .collect();
+    Ok(decoration
+        .shape_cases(&cases)?
+        .into_iter()
+        .map(|(state, ticks)| {
+            let ticks = ticks
+                .into_iter()
+                .map(|(o, fluid, id)| (o[0], o[1], o[2], fluid, id))
+                .collect();
+            (state, ticks)
+        })
+        .collect())
 }
 
 /// Decoration benchmark (VMC-025): the `size` × `size` area from `origin`,
@@ -1393,7 +1452,9 @@ fn worldgen_proto_decorate<'a>(
         )?);
     }
     let mut area = valimc_core::worldgen::region::Area::of(decoded)?;
-    let lenient_reads = state.decorate_held(&mut area, &order, None, true)?;
+    // Live generation holds the overworld only so far (VMC-026b).
+    let lenient_reads =
+        state.decorate_held("minecraft:overworld", &mut area, &order, None, true)?;
     Ok((
         area.held()
             .filter(|c| c.touched)

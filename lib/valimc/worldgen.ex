@@ -14,7 +14,7 @@ defmodule Valimc.Worldgen do
 
   @facts ~w(noises density_functions noise_settings biome_parameters material_rules
             material_conditions biomes carvers features placed_features block_state_providers
-            feature_order)
+            feature_order dimensions)
   @rule_states ~w(result_state ore_block raw_ore_block filler_block)
   @terracotta ~w(terracotta orange_terracotta yellow_terracotta brown_terracotta red_terracotta
                  white_terracotta light_gray_terracotta)
@@ -94,10 +94,10 @@ defmodule Valimc.Worldgen do
 
   defp read_json!(path), do: path |> File.read!() |> JSON.decode!()
 
-  # Per state, what decoration reads (VMC-025): the worldgen flags, the
-  # fluid (vanilla's fluid registry ids: empty, flowing water, water, flowing
-  # lava, lava), its amount with the falling flag at bit 4, the heightmap
-  # predicates, and the block and fluid tags.
+  # Per state, what decoration reads (VMC-025): the worldgen flags, the states
+  # fire can burn (VMC-026a), the fluid (vanilla's fluid registry ids: empty,
+  # flowing water, water, flowing lava, lava), its amount with the falling flag
+  # at bit 4, the heightmap predicates, and the block and fluid tags.
   defp block_facts do
     flags = read_json!(Application.app_dir(:valimc, "priv/worldgen/blocks.json"))
     states = 0..(Blocks.state_count() - 1)
@@ -122,6 +122,7 @@ defmodule Valimc.Worldgen do
 
     %{
       "flags" => flags["flags"],
+      "flammable" => flags["flammable"],
       "fluid" => Enum.map(fluids, &elem(&1, 0)),
       "fluid_level" => Enum.map(fluids, &elem(&1, 1)),
       "heightmaps" =>

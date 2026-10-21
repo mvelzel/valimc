@@ -103,6 +103,19 @@ pub enum Feature {
     Template(Box<super::template::TemplateFeature>),
     Fossil(Box<super::template::Fossil>),
     Overlay(Vec<Arc<PlacedFeature>>),
+    Delta(Box<super::nether::Delta>),
+    SteppedColumnCluster(Box<super::nether::SteppedColumnCluster>),
+    SingleBlockPillar(Box<super::nether::SingleBlockPillar>),
+    PatchySquare(Box<super::nether::PatchySquare>),
+    ReplaceBlobs(super::nether::ReplaceBlobs),
+    NeighborSpread(Box<super::nether::NeighborSpread>),
+    HugeFungus(Box<super::nether::HugeFungus>),
+    ScatteredOre(super::nether::ScatteredOre),
+    EndIsland,
+    EndSpikes(super::end::EndSpikes),
+    EndGateway(super::end::EndGateway),
+    EndPlatform,
+    ChorusPlant,
     NoOp,
     /// A feature type this slice does not implement; placing it fails.
     Unsupported(String),
@@ -110,26 +123,37 @@ pub enum Feature {
 
 /// States and blocks features name directly.
 #[derive(Debug)]
-struct Known {
+pub(crate) struct Known {
     cave_air: u16,
     vine_block: u16,
     water: u16,
     ice: u16,
     snow: u16,
     blue_ice: u16,
-    water_block: u16,
+    pub(crate) water_block: u16,
     packed_ice_block: u16,
     ice_block: u16,
     blue_ice_block: u16,
     snow_block: u16,
     speleothems: BlockSet,
+    pub(crate) bedrock_block: u16,
+    pub(crate) lava_block: u16,
+    pub(crate) end_stone: u16,
+    pub(crate) obsidian: u16,
+    pub(crate) bedrock: u16,
+    pub(crate) iron_bars: u16,
+    pub(crate) end_gateway: u16,
+    pub(crate) fire: super::fire::Fire,
+    pub(crate) chorus: super::end::Chorus,
 }
 
 pub struct Decoration {
     pub table: Arc<BlockTable>,
-    support: Support,
-    shapes: Option<super::shapes::Shapes>,
-    templates: Option<super::template::Templates>,
+    /// The dimension's build bounds (bottom, height) its chunks have.
+    pub dimension: (i32, i32),
+    support: Arc<Support>,
+    shapes: Option<Arc<super::shapes::Shapes>>,
+    templates: Option<Arc<super::template::Templates>>,
     pub features: HashMap<String, Arc<Feature>>,
     pub placed: HashMap<String, Arc<PlacedFeature>>,
     /// Per step, the placed features in vanilla's order (`FeatureSorter`),
@@ -271,24 +295,14 @@ impl<'a> Parser<'a> {
         let kind = json.field("type")?.as_str()?;
         let i = |k: &str| json.field(k)?.as_i32();
         let feature = match kind {
-            "minecraft:ore" => Feature::Ore {
-                targets: json
-                    .field("targets")?
-                    .as_array()?
-                    .iter()
-                    .map(|t| {
-                        Ok((
-                            RuleTest::parse(t.field("target")?, table)?,
-                            table.state(t.field("state")?)?,
-                        ))
-                    })
-                    .collect::<Result<_, String>>()?,
-                size: i("size")?,
-                discard_on_air: match json.get("discard_chance_on_air_exposure") {
-                    Some(v) => v.as_f64()? as f32,
-                    None => 0.0,
-                },
-            },
+            "minecraft:ore" => {
+                let (targets, size, discard_on_air) = ore_config(json, table)?;
+                Feature::Ore {
+                    targets,
+                    size,
+                    discard_on_air,
+                }
+            }
             "minecraft:disk" => Feature::Disk {
                 provider: self.provider(json.field("state_provider")?)?,
                 target: BlockPredicate::parse(json.field("target")?, table)?,
@@ -483,6 +497,61 @@ impl<'a> Parser<'a> {
                 )?))
             }
             "minecraft:overlay" => Feature::Overlay(self.placed_list(json.field("features")?)?),
+            "minecraft:delta_feature" => {
+                Feature::Delta(Box::new(super::nether::Delta::parse(json, table)?))
+            }
+            "minecraft:stepped_column_cluster" => {
+                let mut provider = |j: &Json| self.provider(j);
+                Feature::SteppedColumnCluster(Box::new(super::nether::SteppedColumnCluster::parse(
+                    json,
+                    table,
+                    &mut provider,
+                )?))
+            }
+            "minecraft:single_block_pillar" => {
+                let cap = json
+                    .get("cap_feature")
+                    .map(|c| self.placed(c))
+                    .transpose()?;
+                let mut provider = |j: &Json| self.provider(j);
+                Feature::SingleBlockPillar(Box::new(super::nether::SingleBlockPillar::parse(
+                    json,
+                    table,
+                    &mut provider,
+                    cap,
+                )?))
+            }
+            "minecraft:projected_random_patchy_square" => {
+                let mut provider = |j: &Json| self.provider(j);
+                Feature::PatchySquare(Box::new(super::nether::PatchySquare::parse(
+                    json,
+                    table,
+                    &mut provider,
+                )?))
+            }
+            "minecraft:netherrack_replace_blobs" => {
+                Feature::ReplaceBlobs(super::nether::ReplaceBlobs::parse(json, table)?)
+            }
+            "minecraft:random_neighbor_spread" => {
+                let mut provider = |j: &Json| self.provider(j);
+                Feature::NeighborSpread(Box::new(super::nether::NeighborSpread::parse(
+                    json,
+                    table,
+                    &mut provider,
+                )?))
+            }
+            "minecraft:huge_fungus" => {
+                Feature::HugeFungus(Box::new(super::nether::HugeFungus::parse(json, table)?))
+            }
+            "minecraft:scattered_ore" => {
+                let (targets, size, discard) = ore_config(json, table)?;
+                Feature::ScatteredOre(super::nether::ScatteredOre::new(targets, size, discard))
+            }
+            "minecraft:end_island" => Feature::EndIsland,
+            "minecraft:end_spike" => Feature::EndSpikes(super::end::EndSpikes::parse(json)?),
+            "minecraft:end_gateway" => Feature::EndGateway(super::end::EndGateway::parse(json)?),
+            "minecraft:end_platform" => Feature::EndPlatform,
+            "minecraft:chorus_plant" => Feature::ChorusPlant,
             "minecraft:no_op" => Feature::NoOp,
             "minecraft:tree" => {
                 let mut provider = |j: &Json| self.provider(j);
@@ -505,6 +574,29 @@ impl<'a> Parser<'a> {
     }
 }
 
+/// An ore feature's targets, size and discard chance on air exposure
+/// (`AbstractOreFeature`).
+type OreConfig = (Vec<(RuleTest, u16)>, i32, f32);
+
+fn ore_config(json: &Json, table: &BlockTable) -> Result<OreConfig, String> {
+    let targets = json
+        .field("targets")?
+        .as_array()?
+        .iter()
+        .map(|t| {
+            Ok((
+                RuleTest::parse(t.field("target")?, table)?,
+                table.state(t.field("state")?)?,
+            ))
+        })
+        .collect::<Result<_, String>>()?;
+    let discard = match json.get("discard_chance_on_air_exposure") {
+        Some(v) => v.as_f64()? as f32,
+        None => 0.0,
+    };
+    Ok((targets, json.field("size")?.as_i32()?, discard))
+}
+
 /// The inputs `Decoration::parse` reads.
 pub struct DecorationFacts<'a> {
     pub features: &'a Json,
@@ -513,11 +605,11 @@ pub struct DecorationFacts<'a> {
     /// Vanilla's feature order for the biome source.
     pub order: &'a Json,
     pub biomes: &'a Json,
-    pub support: &'a Json,
-    /// Shape update facts, when given.
-    pub shapes: Option<&'a Json>,
-    /// Structure templates and processor lists, when given.
-    pub templates: Option<(&'a Json, &'a Json)>,
+    /// Survival facts; shape update facts and structure templates, when given
+    /// (shared by every biome source's decoration).
+    pub support: Arc<Support>,
+    pub shapes: Option<Arc<super::shapes::Shapes>>,
+    pub templates: Option<Arc<super::template::Templates>>,
     /// Biome registry ids by name, and the biome source's biomes.
     pub biome_ids: &'a dyn Fn(&str) -> Result<u16, String>,
     pub biome_count: usize,
@@ -530,16 +622,14 @@ impl Decoration {
         table: Arc<BlockTable>,
         facts: DecorationFacts,
         context: GenContext,
+        dimension: (i32, i32),
     ) -> Result<Decoration, String> {
-        let support = Support::parse(facts.support)?;
-        let shapes = facts.shapes.map(super::shapes::Shapes::parse).transpose()?;
-        let templates = facts
-            .templates
-            .map(|(t, l)| super::template::Templates::parse(t, l, &table))
-            .transpose()?;
+        let support = facts.support;
+        let shapes = facts.shapes;
+        let templates = facts.templates;
         let mut parser = Parser {
             table: &table,
-            templates: templates.as_ref(),
+            templates: templates.as_deref(),
             features_json: facts.features,
             placed_json: facts.placed_features,
             providers_json: facts.block_state_providers,
@@ -610,6 +700,15 @@ impl Decoration {
             blue_ice_block: table.block("blue_ice")?,
             snow_block: table.block("snow")?,
             speleothems: table.tag("minecraft:speleothems")?.clone(),
+            bedrock_block: table.block("bedrock")?,
+            lava_block: table.block("lava")?,
+            end_stone: table.default_state("end_stone")?,
+            obsidian: table.default_state("obsidian")?,
+            bedrock: table.default_state("bedrock")?,
+            iron_bars: table.default_state("iron_bars")?,
+            end_gateway: table.default_state("end_gateway")?,
+            fire: super::fire::Fire::new(&table)?,
+            chorus: super::end::Chorus::new(&table)?,
         };
         // Trees' pale moss decorator places this feature by name.
         if facts.features.get("minecraft:pale_moss_patch").is_some() {
@@ -620,6 +719,7 @@ impl Decoration {
         drop(parser);
         Ok(Decoration {
             table,
+            dimension,
             support,
             shapes,
             templates,
@@ -640,10 +740,14 @@ impl Decoration {
         self.context
     }
 
+    pub(crate) fn known(&self) -> &Known {
+        &self.known
+    }
+
     /// The structure templates features place.
     pub fn templates(&self) -> Result<&super::template::Templates, String> {
         self.templates
-            .as_ref()
+            .as_deref()
             .ok_or_else(|| "no structure templates".into())
     }
 
@@ -667,6 +771,23 @@ impl Decoration {
             Some((at, s)) if at == p => s,
             _ => region.get(p),
         };
+        if let Some(new_state) = self
+            .known
+            .fire
+            .update_shape(&self.table, &mut read, state, pos)
+        {
+            return Ok(new_state);
+        }
+        if let Some((new_state, tick)) =
+            self.known
+                .chorus
+                .update_shape(&self.table, &mut read, state, pos, d)
+        {
+            if let Some(block) = tick {
+                region.schedule_block_tick(pos, block);
+            }
+            return Ok(new_state);
+        }
         if self.table.block_of(state) == self.known.vine_block {
             return Ok(super::multiface::vine_update(
                 &self.table,
@@ -695,6 +816,58 @@ impl Decoration {
             }
         }
         Ok(new_state)
+    }
+
+    /// Shape update parity cases (VMC-026a, `ShapeOracle code`): per case a
+    /// state, a direction and its neighbours (offset, state; air elsewhere),
+    /// updated at the centre of an otherwise empty chunk. Per case the new
+    /// state and the ticks scheduled (offset, fluid, id).
+    #[allow(clippy::type_complexity)]
+    pub fn shape_cases(
+        &self,
+        cases: &[(u16, usize, Vec<([i32; 3], u16)>)],
+    ) -> Result<Vec<(u16, Vec<([i32; 3], bool, u16)>)>, String> {
+        let (min_y, height) = (-64, 384);
+        let air = self.table.default_state("air")?;
+        let chunk = super::region::ProtoChunk::new(
+            0,
+            0,
+            (min_y, height),
+            vec![air; 256 * height as usize],
+            Arc::new(vec![0; (height / 16 * 64) as usize]),
+            &self.table,
+        );
+        let mut area = super::region::Area::of(vec![chunk])?;
+        let origin = [8, 64, 8];
+        let mut out = Vec::with_capacity(cases.len());
+        for (state, d, cells) in cases {
+            let mut region = Region::new(&mut area, &self.table, (0, 0), 0, 0, 63)?;
+            for (o, cell) in cells {
+                region.set_raw(offset(origin, *o), *cell);
+            }
+            let new_state = self.update_shape(&mut region, *state, origin, *d, None)?;
+            for (o, _) in cells {
+                region.set_raw(offset(origin, *o), air);
+            }
+            let chunk = area.chunks[0].as_mut().ok_or("the case's chunk")?;
+            let relative = |p: [i32; 3]| [p[0] - origin[0], p[1] - origin[1], p[2] - origin[2]];
+            let mut ticks: Vec<_> = chunk
+                .block_ticks
+                .iter()
+                .map(|(p, b)| (relative(*p), false, *b))
+                .chain(
+                    chunk
+                        .fluid_ticks
+                        .iter()
+                        .map(|(p, f)| (relative(*p), true, *f as u16)),
+                )
+                .collect();
+            ticks.sort_unstable();
+            chunk.block_ticks.clear();
+            chunk.fluid_ticks.clear();
+            out.push((new_state, ticks));
+        }
+        Ok(out)
     }
 
     /// `BiomeGenerationSettings.hasFeature`, by placed feature key.
@@ -762,7 +935,7 @@ impl Decoration {
         included: Option<&HashSet<(usize, usize)>>,
     ) -> Result<(), String> {
         let (cx, cz) = region.centre;
-        let origin = [cx * 16, self.context.min_y, cz * 16];
+        let origin = [cx * 16, region.min_y(), cz * 16];
         let mut random = Random::worldgen(0);
         let decoration_seed = random.set_decoration_seed(region.seed, origin[0], origin[2]);
         let mut possible = vec![false; self.source_biomes.len()];
@@ -1019,6 +1192,25 @@ impl Feature {
             Feature::Geode(f) => return f.place(d, region, random, origin),
             Feature::LargeDripstone(f) => return f.place(d, region, random, origin),
             Feature::SculkPatch(f) => return f.place(d, region, random, origin),
+            Feature::Delta(f) => return f.place(d, region, random, origin),
+            Feature::SteppedColumnCluster(f) => return f.place(d, region, random, origin),
+            Feature::SingleBlockPillar(f) => return f.place(d, region, random, origin),
+            Feature::PatchySquare(f) => return f.place(d, region, random, origin),
+            Feature::ReplaceBlobs(f) => return f.place(d, region, random, origin),
+            Feature::NeighborSpread(f) => return f.place(d, region, random, origin),
+            Feature::HugeFungus(f) => return f.place(d, region, random, origin),
+            Feature::ScatteredOre(f) => return f.place(d, region, random, origin),
+            Feature::EndIsland => {
+                super::end::place_island(d, region, random, origin);
+                true
+            }
+            Feature::EndSpikes(f) => return f.place(d, region, random, origin),
+            Feature::EndGateway(f) => return f.place(d, region, origin),
+            Feature::EndPlatform => {
+                super::end::place_platform(d, region, origin);
+                true
+            }
+            Feature::ChorusPlant => d.known.chorus.place_plant(d, region, random, origin),
             Feature::Overlay(features) => {
                 let mut placed = false;
                 for feature in features {
@@ -1467,7 +1659,7 @@ fn ore_do_place(
         }
     }
     // `BulkSectionAccess.getBlockState`: air outside the world's height.
-    let air = table.default_state("air").unwrap_or(0);
+    let air = region.air;
     let bulk = |region: &mut Region, p: [i32; 3]| {
         if region.is_outside_build_height(p[1]) {
             air

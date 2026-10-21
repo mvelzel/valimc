@@ -27,11 +27,14 @@ use super::noise::{BlendedParameters, NormalNoise, Simplex, Stack};
 use super::random::{Positional, Random};
 use super::region::{Area, ProtoChunk, Region};
 use super::sampler::{Context, Field, GradientKind, Sampler, SplineNode};
+use super::shapes::Shapes;
 use super::structure::{ClimateBiomes, Heights, StructureEnv, StructureRegistry};
+use super::support::Support;
 use super::surface::{
     self, Biomes, ChunkBlocks, MaterialRegistry, MaterialSystem, Rule, SurfaceEnv, SurfaceInput,
     Terracotta,
 };
+use super::template::Templates;
 use super::terrain::{self, Aquifer, AquiferSamplers, FilledChunk, TerrainBlocks};
 use super::volume::Volume;
 use crate::column::{
@@ -81,6 +84,8 @@ pub struct Facts<'a> {
     pub biomes: &'a Json,
     pub carvers: &'a Json,
     pub blocks: &'a Json,
+    /// The normal world preset's dimensions (VMC-026a), when given.
+    pub dimensions: Option<&'a Json>,
     /// Decoration (VMC-025), when present: features, placed features, state
     /// providers, the feature order, survival facts, the block registry and
     /// per-state block facts.
@@ -116,6 +121,7 @@ impl<'a> Facts<'a> {
             biomes: json.field("biomes")?,
             carvers: json.field("carvers")?,
             blocks: json.field("blocks")?,
+            dimensions: json.get("dimensions"),
             decoration: match json.get("features") {
                 None => None,
                 Some(features) => Some(DecorationJson {
@@ -172,11 +178,33 @@ pub struct Registry {
     pub carvers: HashMap<String, Carver>,
     /// Per biome registry id, its carvers in order.
     pub biome_carvers: Vec<Vec<String>>,
-    /// The overworld's decoration (VMC-025), when its facts were given.
-    pub decoration: Option<Arc<Decoration>>,
+    /// The normal world preset's dimensions (VMC-026a), by dimension id.
+    pub dimensions: HashMap<String, Dimension>,
+    /// Decoration per biome source of those dimensions (VMC-025, VMC-026a),
+    /// when its facts were given.
+    pub decorations: HashMap<String, Arc<Decoration>>,
     /// Structures and structure sets (VMC-025e), when their facts were given.
     pub structures: Option<Arc<StructureRegistry>>,
 }
+
+/// A dimension of the normal world preset (`dimensions.json`): its dimension
+/// type's build bounds, its noise settings and biome source.
+#[derive(Clone, Debug)]
+pub struct Dimension {
+    pub min_y: i32,
+    pub height: i32,
+    pub noise_settings: String,
+    pub biome_source: String,
+}
+
+/// `TheEndBiomeSource.possibleBiomes`.
+const END_BIOMES: [&str; 5] = [
+    "minecraft:the_end",
+    "minecraft:end_highlands",
+    "minecraft:end_midlands",
+    "minecraft:small_end_islands",
+    "minecraft:end_barrens",
+];
 
 /// One chunk's biomes as `fill_biomes` computes them.
 #[derive(Clone, Debug)]
@@ -311,41 +339,6 @@ impl Registry {
                 .biome_parameters
                 .insert(id.clone(), (Arc::new(list), ids));
         }
-        if let Some(json) = &facts.decoration {
-            let table = Arc::new(BlockTable::parse(json.block_registry, json.block_facts)?);
-            let (_, source) = registry
-                .biome_parameters
-                .get("minecraft:overworld")
-                .ok_or("no overworld biome parameters")?;
-            let mut source_biomes = source.clone();
-            source_biomes.sort_unstable();
-            source_biomes.dedup();
-            let biomes = registry.biomes.clone();
-            let decoration = Decoration::parse(
-                table,
-                DecorationFacts {
-                    features: json.features,
-                    placed_features: json.placed_features,
-                    block_state_providers: json.block_state_providers,
-                    order: json.feature_order.field("minecraft:overworld")?,
-                    biomes: facts.biomes,
-                    support: json.support,
-                    shapes: json.shapes,
-                    templates: json.templates,
-                    biome_ids: &|name| biomes.id(name),
-                    biome_count: biomes.names.len(),
-                    source_biomes: &source_biomes,
-                    climates: biomes.climate.clone(),
-                },
-                GenContext {
-                    min_y: -64,
-                    height: 384,
-                    sea_level: 63,
-                },
-            )
-            .map_err(|e| format!("decoration: {e}"))?;
-            registry.decoration = Some(Arc::new(decoration));
-        }
         if let Some(json) = &facts.structures {
             let biomes = &registry.biomes;
             let parsed = StructureRegistry::parse(
@@ -387,6 +380,89 @@ impl Registry {
             };
             registry.settings.insert(id.clone(), parsed);
         }
+        if let Some(json) = facts.dimensions {
+            for (id, dimension) in json.entries()? {
+                registry.dimensions.insert(
+                    id.clone(),
+                    Dimension {
+                        min_y: dimension.field("min_y")?.as_i32()?,
+                        height: dimension.field("height")?.as_i32()?,
+                        noise_settings: dimension.field("noise_settings")?.as_str()?.to_string(),
+                        biome_source: dimension.field("biome_source")?.as_str()?.to_string(),
+                    },
+                );
+            }
+        }
+        if let Some(json) = &facts.decoration {
+            let table = Arc::new(BlockTable::parse(json.block_registry, json.block_facts)?);
+            let support = Arc::new(Support::parse(json.support)?);
+            let shapes = json.shapes.map(Shapes::parse).transpose()?.map(Arc::new);
+            let templates = json
+                .templates
+                .map(|(t, l)| Templates::parse(t, l, &table))
+                .transpose()?
+                .map(Arc::new);
+            let biomes = registry.biomes.clone();
+            let mut dimensions: Vec<_> = registry.dimensions.values().cloned().collect();
+            dimensions.sort_by(|a, b| a.biome_source.cmp(&b.biome_source));
+            for dimension in dimensions {
+                let source = &dimension.biome_source;
+                let Some(order) = json.feature_order.get(source) else {
+                    continue;
+                };
+                let mut source_biomes = if source == "minecraft:the_end" {
+                    END_BIOMES
+                        .iter()
+                        .map(|b| biomes.id(b))
+                        .collect::<Result<Vec<_>, _>>()?
+                } else {
+                    registry
+                        .biome_parameters
+                        .get(source)
+                        .ok_or_else(|| format!("no biome parameters {source}"))?
+                        .1
+                        .clone()
+                };
+                source_biomes.sort_unstable();
+                source_biomes.dedup();
+                let settings = registry
+                    .settings
+                    .get(&dimension.noise_settings)
+                    .ok_or_else(|| {
+                        format!("unknown noise settings {}", dimension.noise_settings)
+                    })?;
+                // `WorldGenerationContext`: the dimension's bounds within the
+                // generator's, and the generator's sea level.
+                let context = GenContext {
+                    min_y: dimension.min_y.max(settings.min_y),
+                    height: dimension.height.min(settings.height),
+                    sea_level: settings.sea_level,
+                };
+                let decoration = Decoration::parse(
+                    table.clone(),
+                    DecorationFacts {
+                        features: json.features,
+                        placed_features: json.placed_features,
+                        block_state_providers: json.block_state_providers,
+                        order,
+                        biomes: facts.biomes,
+                        support: support.clone(),
+                        shapes: shapes.clone(),
+                        templates: templates.clone(),
+                        biome_ids: &|name| biomes.id(name),
+                        biome_count: biomes.names.len(),
+                        source_biomes: &source_biomes,
+                        climates: biomes.climate.clone(),
+                    },
+                    context,
+                    (dimension.min_y, dimension.height),
+                )
+                .map_err(|e| format!("decoration of {source}: {e}"))?;
+                registry
+                    .decorations
+                    .insert(source.clone(), Arc::new(decoration));
+            }
+        }
         Ok(registry)
     }
 }
@@ -415,6 +491,10 @@ pub struct Worldgen {
     carver_biomes: HashMap<(String, i32, i32), u16>,
     /// Structure generation per biome source (VMC-025e).
     structure_envs: HashMap<String, Arc<StructureEnv>>,
+    /// The bounds chunk biomes cover: those of the dimension whose generator
+    /// uses these noise settings (a chunk holds biomes for all its
+    /// sections), else the noise settings' own.
+    biome_bounds: (i32, i32),
 }
 
 const BIOME_CACHE_LIMIT: usize = 4096;
@@ -460,11 +540,20 @@ impl Env for Worldgen {
 
 impl Worldgen {
     pub fn new(registry: Arc<Registry>, seed: i64, settings: &str) -> Result<Worldgen, String> {
+        let settings_id = settings;
         let settings = registry
             .settings
             .get(settings)
             .ok_or_else(|| format!("unknown noise settings {settings}"))?
             .clone();
+        let mut dimensions: Vec<_> = registry.dimensions.iter().collect();
+        dimensions.sort_by(|a, b| a.0.cmp(b.0));
+        let biome_bounds = dimensions
+            .into_iter()
+            .find(|(_, d)| d.noise_settings == settings_id)
+            .map_or((settings.min_y, settings.height), |(_, d)| {
+                (d.min_y, d.height)
+            });
         let mut base = if settings.legacy_random_source {
             Random::legacy(seed)
         } else {
@@ -483,6 +572,7 @@ impl Worldgen {
             chunk_biomes: HashMap::new(),
             carver_biomes: HashMap::new(),
             structure_envs: HashMap::new(),
+            biome_bounds,
         })
     }
 
@@ -554,7 +644,7 @@ impl Worldgen {
         chunk_z: i32,
         last: &mut Option<usize>,
     ) -> Result<ChunkBiomes, String> {
-        let (min_y, height) = (self.settings.min_y, self.settings.height);
+        let (min_y, height) = self.biome_bounds;
         let volume = Volume::new(
             [4, height / 4, 4],
             [chunk_x.wrapping_mul(16), min_y, chunk_z.wrapping_mul(16)],
@@ -692,7 +782,7 @@ impl Worldgen {
             settings.min_y,
             settings.height,
         );
-        let (min_quart, quart_height) = (settings.min_y >> 2, settings.height >> 2);
+        let (min_quart, quart_height) = (self.biome_bounds.0 >> 2, self.biome_bounds.1 >> 2);
         let biome_at = |x: i32, y: i32, z: i32| -> u16 {
             let (qx, qy, qz) = zoom.zoom(x, y, z);
             let column = &biomes
@@ -1009,7 +1099,7 @@ impl Worldgen {
         }
         let mut area = Area::of(chunks)?;
         let start = std::time::Instant::now();
-        self.decorate_held(&mut area, order, included, false)?;
+        self.decorate_held(biome_source, &mut area, order, included, false)?;
         Ok((area, start.elapsed()))
     }
 
@@ -1024,12 +1114,27 @@ impl Worldgen {
     ) -> Result<ProtoChunk, String> {
         let decoration = self
             .registry
-            .decoration
-            .clone()
-            .ok_or("no decoration facts")?;
+            .decorations
+            .get(biome_source)
+            .cloned()
+            .ok_or_else(|| format!("no decoration facts for {biome_source}"))?;
+        let (min_y, height) = decoration.dimension;
         let filled = self.build_terrain(chunk_x, chunk_z, biome_source, true)?;
+        let blocks = self.dimension_blocks(filled.blocks, min_y, height)?;
         let biomes = self.cached_chunk_biomes(biome_source, chunk_x, chunk_z)?;
-        let mut chunk = ProtoChunk::new(chunk_x, chunk_z, filled.blocks, biomes, &decoration.table);
+        if biomes.len() != (height / 16 * 64) as usize {
+            return Err(format!(
+                "chunk biomes do not cover {biome_source}'s dimension"
+            ));
+        }
+        let mut chunk = ProtoChunk::new(
+            chunk_x,
+            chunk_z,
+            (min_y, height),
+            blocks,
+            biomes,
+            &decoration.table,
+        );
         for (fx, fy, fz) in filled.fluid_updates {
             chunk.mark([fx, fy, fz]);
         }
@@ -1037,12 +1142,13 @@ impl Worldgen {
         Ok(chunk)
     }
 
-    /// Decorate the chunks in `order` through regions over `area`, every
-    /// placed feature (or those in `included`). `lenient` (live generation)
-    /// lets reads of chunks the area does not hold see empty chunks; the
-    /// count of such reads is returned.
+    /// Decorate the chunks in `order` through regions over `area` with
+    /// `biome_source`'s decoration, every placed feature (or those in
+    /// `included`). `lenient` (live generation) lets reads of chunks the area
+    /// does not hold see empty chunks; the count of such reads is returned.
     pub fn decorate_held(
         &mut self,
+        biome_source: &str,
         area: &mut Area,
         order: &[(i32, i32)],
         included: Option<&HashSet<(usize, usize)>>,
@@ -1050,9 +1156,10 @@ impl Worldgen {
     ) -> Result<u32, String> {
         let decoration = self
             .registry
-            .decoration
-            .clone()
-            .ok_or("no decoration facts")?;
+            .decorations
+            .get(biome_source)
+            .cloned()
+            .ok_or_else(|| format!("no decoration facts for {biome_source}"))?;
         let zoom_seed = surface::biome_zoom_seed(self.seed);
         let mut lenient_reads = 0;
         for &(cx, cz) in order {
@@ -1073,14 +1180,41 @@ impl Worldgen {
         Ok(lenient_reads)
     }
 
-    /// The block table decoration uses (proto chunk encoding).
+    /// The block table decoration uses (proto chunk encoding; every biome
+    /// source's decoration shares it).
     pub fn block_table(&self) -> Result<&BlockTable, String> {
         Ok(&self
             .registry
-            .decoration
-            .as_ref()
+            .decorations
+            .get("minecraft:overworld")
             .ok_or("no decoration facts")?
             .table)
+    }
+
+    /// A chunk's terrain (noise settings' bounds) within its dimension's
+    /// bounds: air above and below what the generator fills (the Nether and
+    /// the End fill 128 of their 256 blocks).
+    fn dimension_blocks(
+        &self,
+        blocks: Vec<u16>,
+        min_y: i32,
+        height: i32,
+    ) -> Result<Vec<u16>, String> {
+        let (gen_min, gen_height) = (self.settings.min_y, self.settings.height);
+        if (gen_min, gen_height) == (min_y, height) {
+            return Ok(blocks);
+        }
+        if gen_min < min_y || gen_min + gen_height > min_y + height {
+            return Err("noise settings outside their dimension's bounds".into());
+        }
+        let (gen_height, height) = (gen_height as usize, height as usize);
+        let below = (gen_min - min_y) as usize;
+        let mut out = vec![self.registry.blocks.air; 256 * height];
+        for column in 0..256 {
+            out[column * height + below..column * height + below + gen_height]
+                .copy_from_slice(&blocks[column * gen_height..(column + 1) * gen_height]);
+        }
+        Ok(out)
     }
 
     /// A generated chunk as a ValiMC column (VMC-024d): the carved terrain in
@@ -1216,8 +1350,8 @@ impl Worldgen {
         let (end, highlands, midlands, islands, barrens) =
             (end?, highlands?, midlands?, islands?, barrens?);
         let mut ctx = Context::cached();
-        let sections = self.settings.height / 16;
-        let min_quart = self.settings.min_y >> 2;
+        let sections = self.biome_bounds.1 / 16;
+        let min_quart = self.biome_bounds.0 >> 2;
         let mut out = vec![0u16; sections as usize * 64];
         for section in 0..sections {
             for x in 0..4 {
