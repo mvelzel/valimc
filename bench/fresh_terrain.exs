@@ -178,7 +178,9 @@ fill = fn fill, client, view, have, started, first ->
 end
 
 counters = ~w(worldgen_chunks worldgen_microseconds column_persist_microseconds region_loads
-              region_load_microseconds chunks_encoded chunk_encode_microseconds)a
+              region_load_microseconds chunks_encoded chunk_encode_microseconds
+              proto_terrain_chunks proto_decorated_chunks proto_transactions proto_aborts proto_busy
+              proto_lock_microseconds proto_decorate_microseconds proto_commit_microseconds)a
 
 delta = fn before ->
   snapshot = Valimc.Metrics.snapshot()

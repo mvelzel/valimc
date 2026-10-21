@@ -102,6 +102,20 @@ defmodule Valimc.World.Blocks do
     end
   end
 
+  @doc """
+  Install generated column images (`chunk => image`, VMC-075), all or nothing,
+  and relight once; returns the region's chunks whose light changed (none before
+  the region is lit: its first computation sees them).
+  """
+  def put_columns(%__MODULE__{} = blocks, images) when is_map(images) do
+    list = for {{cx, cz}, image} <- images, do: {cx, cz, image}
+
+    case Native.put_columns_lit(blocks.ref, list) do
+      {:ok, chunks} -> {:ok, chunks}
+      {:error, _} = error -> error
+    end
+  end
+
   @doc "A chunk's column image for the region log, or `:flat` for the base profile."
   def column_image(%__MODULE__{} = blocks, {cx, cz}) do
     case Native.column_image(blocks.ref, cx, cz) do

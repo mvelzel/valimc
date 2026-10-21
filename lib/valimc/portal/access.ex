@@ -13,8 +13,10 @@ defmodule Valimc.Portal.Access do
   @deadline 30_000
 
   # A busy owner (one still generating or writing) is asked again until the
-  # deadline; a refused change is final.
+  # deadline; a refused change is final. An observation of a chunk not
+  # generated yet asks for it (VMC-075).
   @busy [
+    :chunk_generating,
     :stale_revision,
     :block_query_timeout,
     :block_commit_uncertain,
@@ -26,7 +28,7 @@ defmodule Valimc.Portal.Access do
 
   @doc """
   A block reader of the caller's dimension (`fn position -> state end`). It
-  starts the owners it reads (generating their regions if needed) and caches
+  starts the owners it reads (generating the chunks if needed) and caches
   chunk sections for the calling process's lifetime.
   """
   def reader do
@@ -73,18 +75,34 @@ defmodule Valimc.Portal.Access do
     end
   end
 
-  defp fetch(chunk, deadline) do
+  # A chunk not generated yet is asked for once (VMC-075) and read again; with
+  # `generate: false` it reads as holding nothing.
+  defp fetch(chunk, deadline, generate \\ true, asked \\ false) do
     if now() > deadline, do: exit(:portal_read_deadline)
     key = World.region_key(chunk)
 
     with {:ok, {pid, epoch}} <- World.owner(key),
-         {^pid, _, %{epoch: ^epoch, items: table}} <- Directory.lookup(key),
-         {:ok, sections} <- BlockSnapshot.chunk(table, epoch, chunk) do
-      sections
+         {^pid, _, %{epoch: ^epoch, items: table}} <- Directory.lookup(key) do
+      case BlockSnapshot.chunk(table, epoch, chunk) do
+        {:ok, sections} ->
+          sections
+
+        {:error, :chunk_generating} when not generate ->
+          nil
+
+        {:error, :chunk_generating} ->
+          unless asked, do: send(pid, {:want, self(), chunk, [chunk]})
+          Process.sleep(5)
+          fetch(chunk, deadline, generate, true)
+
+        _ ->
+          Process.sleep(5)
+          fetch(chunk, deadline, generate, asked)
+      end
     else
       _ ->
         Process.sleep(5)
-        fetch(chunk, deadline)
+        fetch(chunk, deadline, generate, asked)
     end
   end
 
@@ -167,7 +185,7 @@ defmodule Valimc.Portal.Access do
   Portal blocks (`{position, state}`) in `chunks` of the caller's dimension
   that are stored: of loaded regions and of regions on disk (which this
   loads). Chunks never generated hold none, as vanilla's POIs only exist for
-  saved chunks.
+  saved chunks; that includes a stored region's chunks not generated yet.
   """
   def portal_blocks(chunks, states) do
     deadline = now() + @deadline
@@ -176,7 +194,7 @@ defmodule Valimc.Portal.Access do
     |> Enum.group_by(&World.region_key/1)
     |> Enum.filter(fn {key, _} -> stored?(key) end)
     |> Enum.flat_map(fn {_key, chunks} ->
-      Enum.flat_map(chunks, &BlockSnapshot.find(fetch(&1, deadline), &1, states))
+      Enum.flat_map(chunks, &BlockSnapshot.find(fetch(&1, deadline, false), &1, states))
     end)
   end
 

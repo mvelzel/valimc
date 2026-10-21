@@ -7,7 +7,7 @@ defmodule Valimc.DecoratedWorldTest do
   # Serial: finalize transactions saturate the worldgen workers and dirty schedulers.
   use ExUnit.Case, async: false
   alias Valimc.{Native, TestScope, World}
-  alias Valimc.World.{Generator, ScheduledTicks, Spawn, Store}
+  alias Valimc.World.{BlockSnapshot, Directory, Generator, ScheduledTicks, Spawn, Store}
   alias Valimc.Worldgen.{FullChunk, Proto}
 
   @seed 20_261_020
@@ -74,7 +74,7 @@ defmodule Valimc.DecoratedWorldTest do
     full
   end
 
-  # A region's load waits for its proto owner's transaction.
+  # Under load a region's start can take longer than a call's default timeout.
   defp owner!(key, attempts \\ 600) do
     case World.owner(key) do
       {:ok, owner} ->
@@ -84,6 +84,22 @@ defmodule Valimc.DecoratedWorldTest do
         Process.sleep(100)
         owner!(key, attempts - 1)
     end
+  end
+
+  # The region finalized whole by its proto owner (the order the expectations
+  # follow), then all its chunks wanted, generated and stored by the live
+  # region, which asks for them a few at a time (VMC-075).
+  defp generate_all(key) do
+    {:ok, _} = Proto.full_chunks(key)
+    {:ok, {pid, _}} = owner!(key)
+    {cx, cz} = hd(Proto.chunks_of(key))
+    send(pid, {:want, self(), {cx, cz}, Proto.chunks_of(key)})
+    {_, _, %{items: table}} = Directory.lookup(key)
+
+    Valimc.TestWait.until(
+      fn -> not Enum.any?(Proto.chunks_of(key), &BlockSnapshot.absent?(table, &1)) end,
+      240_000
+    )
   end
 
   # Terrain of `chunks` in parallel batches.
@@ -133,12 +149,12 @@ defmodule Valimc.DecoratedWorldTest do
     full = expected(ctx.worldgen, @key)
     {:ok, parts} = FullChunk.parts(full, %{}, [])
     assert map_size(parts.block_entities) > 0
-    {:ok, _} = owner!(@key)
+    generate_all(@key)
 
     assert Store.durable(ctx.base, @key, :columns) == parts.columns
     assert Store.durable(ctx.base, @key, :block_entities) == parts.block_entities
     assert Store.durable(ctx.base, @key, :post_processing) == parts.post_processing
-    assert Proto.full_chunks(@key) == {:error, :handed_over}
+    Valimc.TestWait.until(fn -> Proto.full_chunks(@key) == {:error, :handed_over} end)
 
     # Block ticks wait in the region's queue, due at its first tick.
     {:ok, {pid, _}} = owner!(@key)
@@ -161,7 +177,7 @@ defmodule Valimc.DecoratedWorldTest do
   test "a restart serves the same chunks without generating them again", ctx do
     full = expected(ctx.worldgen, @key)
     {:ok, parts} = FullChunk.parts(full, %{}, [])
-    {:ok, _} = owner!(@key)
+    generate_all(@key)
     {cx, cz} = List.last(Proto.chunks_of(@key))
     position = {cx * 16 + 3, 70, cz * 16 + 3}
     glass = Valimc.Registry.Blocks.default_state("glass")
@@ -173,10 +189,10 @@ defmodule Valimc.DecoratedWorldTest do
   end
 
   test "a neighbouring region continues from the durable ring", ctx do
-    {:ok, _} = owner!(@key)
+    generate_all(@key)
     stop(ctx.keys)
     east = {elem(@key, 0) + 1, elem(@key, 1)}
-    {:ok, _} = owner!(east)
+    generate_all(east)
 
     # As if the two regions were finalized one after the other in one area.
     area = Enum.uniq(Proto.around(@key, 2) ++ Proto.around(east, 2))

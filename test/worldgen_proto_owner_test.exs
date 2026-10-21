@@ -221,6 +221,57 @@ defmodule Valimc.WorldgenProtoOwnerTest do
     assert_same(full(ctx.key), want[ctx.key])
   end
 
+  # VMC-075: the live region asks for a few chunks at a time.
+  test "finalizing some chunks decorates the chunks within one of them, in order, over terrain",
+       ctx do
+    # Two batches at the region's corner (their areas reach three neighbours),
+    # the second within two of the first.
+    {cx, cz} = hd(Proto.chunks_of(ctx.key))
+    first = [{cx, cz}, {cx + 1, cz}]
+    second = [{cx + 3, cz + 1}]
+    {:ok, ours_first} = Proto.full_chunks(ctx.key, first, 120_000)
+    {:ok, ours_second} = Proto.full_chunks(ctx.key, second, 120_000)
+
+    images = terrain(ctx.worldgen, Proto.within(first ++ second, 2))
+
+    decorate = fn images, order ->
+      {:ok, {touched, 0}} =
+        Native.worldgen_proto_decorate(ctx.worldgen, Map.values(images), order)
+
+      Map.merge(images, Map.new(touched, fn {x, z, image} -> {{x, z}, image} end))
+    end
+
+    order = Proto.within(first, 1)
+    images = decorate.(images, order)
+    images = decorate.(images, Proto.within(second, 1) -- order)
+
+    for {chunks, ours} <- [{first, ours_first}, {second, ours_second}] do
+      {:ok, want} =
+        Native.worldgen_proto_full(
+          ctx.worldgen,
+          Enum.map(chunks, &images[&1]),
+          Generator.protocol_biomes()
+        )
+
+      assert ours == want
+    end
+
+    # Only what the two batches needed was decorated; the rest of the region
+    # is still terrain or not generated.
+    state = :sys.get_state(pid(ctx.key))
+    decorated = for {chunk, {:decorated, _}} <- state.chunks, do: chunk
+
+    assert Enum.sort(decorated) ==
+             Enum.sort(
+               Enum.filter(
+                 Proto.within(first ++ second, 1),
+                 &(Valimc.World.region_key(&1) == ctx.key)
+               )
+             )
+
+    assert MapSet.new(first ++ second) == state.final
+  end
+
   test "handing over drops the images and refuses later requests", ctx do
     _ = full(ctx.key)
     :ok = Proto.handed_over(ctx.key)

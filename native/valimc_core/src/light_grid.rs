@@ -58,6 +58,15 @@ impl Layer {
         }
     }
 
+    /// Whether two layers hold the same levels, whatever their representation.
+    pub fn same(&self, other: &Layer) -> bool {
+        match (self, other) {
+            (Layer::Uniform(a), Layer::Uniform(b)) => a == b,
+            (Layer::Nibbles(a), Layer::Nibbles(b)) => a == b,
+            _ => self.nibbles() == other.nibbles(),
+        }
+    }
+
     /// Collapse to `Uniform` when every cell holds one level.
     pub fn compact(&mut self) {
         if let Layer::Nibbles(bytes) = self {

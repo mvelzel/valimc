@@ -91,20 +91,14 @@ defmodule Valimc.World.Store do
   def load_columns(pid), do: GenServer.call(pid, :load_columns)
 
   @doc """
-  Persist generated column images (`chunk => image`, VMC-024d) before the region
-  serves them; with a world path the frame is durable when this returns.
+  Persist chunks generated while the region runs (VMC-075) in one frame: their
+  `columns` and `post_processing`, their `block_entities` added to the region's
+  and their block `ticks` appended to its saved ticks. Acknowledged to the owner
+  with `{:generated_saved, store, token, result}`.
   """
-  def put_columns(pid, lease, columns) when is_map(columns),
-    do: GenServer.call(pid, {:put_columns, lease, columns}, 60_000)
-
-  @doc """
-  Persist generated full chunks (VMC-025d) in one frame before the region serves
-  them: `columns` and `post_processing` (`chunk => …`, merged), and the region's
-  whole `block_entities` and `ticks` with the generated ones added; durable when
-  this returns.
-  """
-  def put_generated(pid, lease, %{columns: columns} = parts) when is_map(columns),
-    do: GenServer.call(pid, {:put_generated, lease, parts}, 60_000)
+  def commit_generated(pid, lease, %{columns: columns} = parts, {owner, epoch}, token)
+      when is_map(columns),
+      do: GenServer.cast(pid, {:generated, lease, parts, {owner, epoch}, token})
 
   @doc "Generated chunks' pending post-processing (`chunk => {marks, fluid_ticks}`)."
   def load_post_processing(pid), do: GenServer.call(pid, :load_post_processing)
@@ -282,29 +276,6 @@ defmodule Valimc.World.Store do
 
   def handle_call({:flush, _, _}, _from, state), do: {:reply, {:error, :stale_store_lease}, state}
 
-  def handle_call({:put_columns, lease, columns}, _from, %{lease: lease} = state) do
-    {result, state} = write(state, [{:columns, columns}])
-    written_reply(result, state)
-  end
-
-  def handle_call({:put_columns, _, _}, _from, state),
-    do: {:reply, {:error, :stale_store_lease}, state}
-
-  def handle_call({:put_generated, lease, parts}, _from, %{lease: lease} = state) do
-    {result, state} =
-      write(state, [
-        {:columns, parts.columns},
-        {:post_processing, parts.post_processing},
-        {:block_entities, parts.block_entities},
-        {:ticks, parts.ticks}
-      ])
-
-    written_reply(result, state)
-  end
-
-  def handle_call({:put_generated, _, _}, _from, state),
-    do: {:reply, {:error, :stale_store_lease}, state}
-
   def handle_call(:load_post_processing, _from, state),
     do: {:reply, state.values.post_processing, state}
 
@@ -396,6 +367,45 @@ defmodule Valimc.World.Store do
       _ ->
         {:noreply, state}
     end
+  end
+
+  # Generated chunks are one frame of their own; the frame holds the region's
+  # block entities and ticks as absolute values, like every other frame.
+  def handle_cast({:generated, lease, parts, {owner, epoch}, token}, %{lease: lease} = state) do
+    values = state.values
+
+    {result, state} =
+      write(
+        state,
+        [{:columns, parts.columns}] ++
+          if(parts.post_processing == %{},
+            do: [],
+            else: [{:post_processing, parts.post_processing}]
+          ) ++
+          if(parts.block_entities == %{},
+            do: [],
+            else: [{:block_entities, Map.merge(values.block_entities, parts.block_entities)}]
+          ) ++
+          if(parts.ticks == [], do: [], else: [{:ticks, (values.ticks || []) ++ parts.ticks}])
+      )
+
+    send(owner, {:resource, epoch, {:generated_saved, self(), token, result}})
+
+    # A frame that wrote nothing (out of descriptors, VMC-074) is generated again.
+    case result do
+      {:error, {:unwritten, _}} -> {:noreply, state}
+      {:error, reason} when state.log != nil -> {:stop, {:storage_failed, reason}, state}
+      _ -> {:noreply, state}
+    end
+  end
+
+  def handle_cast({:generated, _, _, {owner, epoch}, token}, state) do
+    send(
+      owner,
+      {:resource, epoch, {:generated_saved, self(), token, {:error, :stale_store_lease}}}
+    )
+
+    {:noreply, state}
   end
 
   def handle_cast({:snapshot, _, _, {owner, epoch}, revision}, state) do

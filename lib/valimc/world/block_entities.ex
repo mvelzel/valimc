@@ -63,6 +63,17 @@ defmodule Valimc.World.BlockEntities do
 
   def new(_), do: {:error, :invalid_block_entities}
 
+  @doc "The set with generated entries (`position => {type_id, nbt}`, VMC-075) added."
+  def add(%__MODULE__{entries: entries} = entities, stored) do
+    with {:ok, %{entries: added}} <- new(stored) do
+      merged = Map.merge(entries, added)
+
+      if map_size(merged) <= @max_entries,
+        do: {:ok, %{entities | entries: merged}},
+        else: {:error, :block_entity_limit}
+    end
+  end
+
   @doc "The persisted form: `position => {type_id, nbt}`."
   def stored(%__MODULE__{entries: entries}),
     do: Map.new(entries, fn {position, entry} -> {position, {entry.type, entry.nbt}} end)

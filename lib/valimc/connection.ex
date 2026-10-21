@@ -263,6 +263,8 @@ defmodule Valimc.Connection do
        creative_drain_scheduled: false,
        chunks: MapSet.new(),
        regions: MapSet.new(),
+       # Region => owner told which chunks the view wants (VMC-075).
+       wanted: %{},
        pending: [],
        # Vanilla refills the quota in the tick a player joins (VMC-070).
        chunk_sender: Valimc.Session.ChunkSender.tick(%Valimc.Session.ChunkSender{}),

@@ -4,7 +4,7 @@ defmodule Valimc.World.ForcedChunks do
   set (VMC-026b), saved in that dimension's folder as `forced_chunks.json` and
   loaded again at startup. Callers act on their own dimension. ValiMC does not
   unload region owners yet (VMC-013), so a forced chunk's region is started and
-  simply stays loaded.
+  simply stays loaded; the chunk is generated as vanilla loads it (VMC-075).
   """
   use GenServer
   alias Valimc.Dimension
@@ -36,7 +36,7 @@ defmodule Valimc.World.ForcedChunks do
 
   @impl true
   def handle_continue(:load, sets) do
-    for {dimension, chunks} <- sets, chunk <- chunks, do: load(dimension, chunk)
+    for {dimension, chunks} <- sets, do: load(dimension, chunks, chunks)
     {:noreply, sets}
   end
 
@@ -44,8 +44,9 @@ defmodule Valimc.World.ForcedChunks do
   def handle_call({:add, dimension, requested}, _from, sets) do
     chunks = sets[dimension]
     changed = Enum.reject(requested, &MapSet.member?(chunks, &1))
-    Enum.each(changed, &load(dimension, &1))
-    {:reply, changed, save(sets, dimension, Enum.into(changed, chunks))}
+    chunks = Enum.into(changed, chunks)
+    load(dimension, changed, chunks)
+    {:reply, changed, save(sets, dimension, chunks)}
   end
 
   def handle_call({:remove, dimension, requested}, _from, sets) do
@@ -60,8 +61,17 @@ defmodule Valimc.World.ForcedChunks do
   def handle_call({:all, dimension}, _from, sets),
     do: {:reply, MapSet.to_list(sets[dimension]), sets}
 
-  defp load(dimension, chunk),
-    do: Dimension.within(dimension, fn -> Valimc.World.region(Valimc.World.region_key(chunk)) end)
+  # Start the regions of `changed` chunks and want all `forced` chunks in them
+  # generated (a region keeps one want per requester).
+  defp load(dimension, changed, forced) do
+    Dimension.within(dimension, fn ->
+      for key <- changed |> Enum.map(&Valimc.World.region_key/1) |> Enum.uniq(),
+          {:ok, pid} <- [Valimc.World.region(key)] do
+        wanted = Enum.filter(forced, &(Valimc.World.region_key(&1) == key))
+        send(pid, {:want, self(), hd(wanted), wanted})
+      end
+    end)
+  end
 
   defp save(sets, dimension, chunks) when :erlang.map_get(dimension, sets) == chunks, do: sets
 

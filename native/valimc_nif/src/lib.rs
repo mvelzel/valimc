@@ -828,6 +828,26 @@ fn halo_put(
     })
 }
 
+/// Install generated columns (VMC-075) from their images, all or nothing, and
+/// relight once; returns the region's chunks whose light changed.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn put_columns_lit(
+    region: ResourceArc<Region>,
+    images: Vec<(i32, i32, Binary)>,
+) -> Result<Vec<(i32, i32)>, Atom> {
+    let facts = LIGHT.get().ok_or(atoms::flags_missing())?;
+    let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
+    let mut columns = Vec::with_capacity(images.len());
+    for (cx, cz, image) in images {
+        let column = valimc_core::column::Column::from_image(image.as_slice())
+            .ok_or(atoms::invalid_layers())?;
+        columns.push(((cx, cz), column));
+    }
+    with_store(&region, |store| {
+        store.put_columns(facts, flags, columns).map_err(error)
+    })
+}
+
 /// Apply a neighbour's block changes in the ring and relight.
 #[rustler::nif]
 fn halo_edits(

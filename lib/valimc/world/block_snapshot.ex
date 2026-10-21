@@ -6,7 +6,8 @@ defmodule Valimc.World.BlockSnapshot do
   chunk before it bumps `{:block_fence, epoch, revision}`. A reader takes the fence
   first and rejects any row newer than it, so an accepted observation equals the
   owner's state at that revision. Untouched chunks have no row and read the flat
-  base profile. Observations never grant authority; commits stay fenced.
+  base profile; a chunk not generated yet (VMC-075) has an `:absent` row and
+  cannot be read. Observations never grant authority; commits stay fenced.
   """
   alias Valimc.World.{Blocks, Chunk}
 
@@ -22,6 +23,19 @@ defmodule Valimc.World.BlockSnapshot do
 
     :ets.insert(table, rows)
     :ok
+  end
+
+  @doc "Mark `chunks` as not generated yet: reads of them fail until they are published."
+  def publish_absent(table, chunks) do
+    :ets.insert(table, for(chunk <- chunks, do: {{:chunk, chunk}, 0, :absent}))
+    :ok
+  end
+
+  @doc "Whether `chunk` is not generated yet (or its owner's table is gone)."
+  def absent?(table, chunk) do
+    match?([{_, _, :absent}], :ets.lookup(table, {:chunk, chunk}))
+  rescue
+    ArgumentError -> true
   end
 
   def publish_fence(table, epoch, revision),
@@ -49,6 +63,9 @@ defmodule Valimc.World.BlockSnapshot do
         [{_, row_revision, _}] when row_revision > revision ->
           {:halt, {:error, :stale_revision}}
 
+        [{_, _, :absent}] ->
+          {:halt, {:error, :chunk_generating}}
+
         [{_, _, sections}] ->
           {:cont, {:ok, revision, Enum.reduce(members, acc, &Map.put(&2, &1, at(sections, &1)))}}
 
@@ -61,13 +78,15 @@ defmodule Valimc.World.BlockSnapshot do
   @doc """
   One chunk's published sections at the owner's current fence (VMC-026b2):
   `{:ok, sections}` (nil for an untouched chunk, which reads the base
-  profile) for `state_at/2`, or `{:error, reason}`.
+  profile) for `state_at/2`, or `{:error, reason}` (`:chunk_generating` for a
+  chunk not generated yet, VMC-075).
   """
   def chunk(table, epoch, chunk) do
     case :ets.lookup(table, :block_fence) do
       [{:block_fence, ^epoch, revision}] ->
         case :ets.lookup(table, {:chunk, chunk}) do
           [{_, row_revision, _}] when row_revision > revision -> {:error, :stale_revision}
+          [{_, _, :absent}] -> {:error, :chunk_generating}
           [{_, _, sections}] -> {:ok, sections}
           [] -> {:ok, nil}
         end

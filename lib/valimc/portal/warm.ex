@@ -2,18 +2,19 @@ defmodule Valimc.Portal.Warm do
   @moduledoc """
   Portal destinations admitted ahead of a traveller (VMC-026b2, VMC-026b3).
 
-  A region owner generates its whole region when it loads, which takes
+  A region generates the chunks it is asked for (VMC-075), which takes
   seconds on a loaded host the first time a dimension is visited. A portal's
   destination job would wait for that. So a lit nether portal, an opened end
   portal and a portal process that starts admit the owners of the regions
-  their destination will read: the exit portal's search and creation square
-  around the scaled position, or the End's arrival platform. Admission starts
-  an owner's load and returns, so the load overlaps the time before the player
-  steps in (or a survival player's portal ticks).
+  their destination will read and want those chunks: the exit portal's search
+  and creation square around the scaled position, or the End's arrival
+  platform. Admission starts an owner's load and returns, so the load and the
+  generation overlap the time before the player steps in (or a survival
+  player's portal ticks).
 
-  This only starts loads; it reads nothing and commits nothing. It is best
-  effort: with the worker pool full it is skipped, and the destination job
-  then loads the owners itself.
+  This only starts loads and generation; it reads nothing and commits nothing.
+  It is best effort: with the worker pool full it is skipped, and the
+  destination job then loads the owners and asks for the chunks itself.
   """
   alias Valimc.Portal.{Destination, EndPortal}
   alias Valimc.World
@@ -60,9 +61,20 @@ defmodule Valimc.Portal.Warm do
         do: World.region_key({cx, cz})
   end
 
-  defp admit(dimension, area) do
+  defp admit(dimension, {x0, z0, x1, z1} = area) do
+    center = World.chunk_key(div(x0 + x1, 2), div(z0 + z1, 2))
+
+    chunks =
+      for cx <- Integer.floor_div(x0, 16)..Integer.floor_div(x1, 16),
+          cz <- Integer.floor_div(z0, 16)..Integer.floor_div(z1, 16),
+          do: {cx, cz}
+
+    by_region = Enum.group_by(chunks, &World.region_key/1)
+
     Valimc.Dimension.within(dimension, fn ->
-      for key <- regions(area), do: World.region(key)
+      for key <- regions(area),
+          {:ok, pid} <- [World.region(key)],
+          do: send(pid, {:want, self(), center, Map.get(by_region, key, [])})
     end)
   end
 end

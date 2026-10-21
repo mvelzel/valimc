@@ -55,11 +55,15 @@ vanilla and 373–437 µs in Pumpkin's structure start stage.
 
 [Fresh terrain](tickets/VMC-071.md) (`bench/fresh_terrain.exs`, one loopback
 client at view distance 10 teleported three times into terrain no region has
-generated, alternating runs on the same 10-core host under other load): with one
-locked worldgen state the first new chunk took a median 4.1 s and the whole
-473-chunk view 7.7 s; with a state per dirty scheduler, parallel batches and the
-nearest regions first, 0.86 s and 3.1 s. Each fresh view generates 1,024 chunks
-(whole regions).
+generated, alternating runs on the same 10-core host under other load). Terrain
+worlds: with one locked worldgen state the first new chunk took a median 4.1 s
+and the whole 473-chunk view 7.7 s; with a state per dirty scheduler, parallel
+batches and the nearest regions first, 0.86 s and 3.1 s. Decorated worlds
+([VMC-075](tickets/VMC-075.md), load 23–34): whole regions finalized at load
+(with VMC-025d4's parallel transactions) took a median 3.5 s to the first new
+chunk and 5.3 s to the whole view, generating 896–1,024 final and about 1,100
+terrain chunks; chunks generated as views want them, nearest first, take 1.0 s
+and 3.6 s, generating 473 final and about 660 terrain chunks.
 
 [Cooking activity indexing](tickets/VMC-034m.md): 1,024 stored processors,
 100 alternating equal-result samples. With 64 active, p50/p95 falls from

@@ -64,6 +64,16 @@ defmodule Valimc.World.LightHalo do
     state
   end
 
+  @doc "Send loaded neighbours the generated columns (VMC-075) of chunks in their rings."
+  def columns_changed(state, columns) do
+    for key <- neighbours(state.key), pid = owner(key), pid != nil do
+      list = for {{cx, cz} = chunk, image} <- columns, ring?(key, chunk), do: {cx, cz, image}
+      if list != [], do: send(pid, {:halo, {:images, state.key, list}})
+    end
+
+    state
+  end
+
   @doc "Forward durable block changes in neighbours' rings."
   def forward(state, edits) do
     for key <- neighbours(state.key), pid = owner(key), pid != nil do

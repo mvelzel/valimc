@@ -25,6 +25,7 @@ defmodule Valimc.Native do
   def light_update_dirty(_region, _positions), do: :erlang.nif_error(:nif_not_loaded)
   def light_image(_region, _cx, _cz), do: :erlang.nif_error(:nif_not_loaded)
   def halo_put(_region, _chunks), do: :erlang.nif_error(:nif_not_loaded)
+  def put_columns_lit(_region, _images), do: :erlang.nif_error(:nif_not_loaded)
   def halo_edits(_region, _edits), do: :erlang.nif_error(:nif_not_loaded)
   def worldgen_random_trace(_kind, _seed, _ops), do: :erlang.nif_error(:nif_not_loaded)
 

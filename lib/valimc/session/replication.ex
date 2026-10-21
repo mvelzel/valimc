@@ -15,7 +15,7 @@ defmodule Valimc.Session.Replication do
     World
   }
 
-  alias Valimc.World.{ChestLidReplication}
+  alias Valimc.World.{ChestLidReplication, Directory}
   alias Valimc.Session.{ChunkSender, ChunkView}
 
   @player_range Valimc.Protocol.EntityTypes.tracking_range("player")
@@ -67,8 +67,52 @@ defmodule Valimc.Session.Replication do
           chest_lids: ChestLidReplication.retain(state.chest_lids, chunks),
           pending: pending
       }
+      |> want_chunks(Map.keys(state.wanted))
     end
   end
+
+  # Tell each region of the view which of its chunks the view wants and where
+  # the player is, so it generates them nearest first (VMC-075); regions the
+  # view left withdraw. `wanted` remembers which owner was told.
+  defp want_chunks(%{view: {center, _} = view} = state, told) do
+    by_region = view |> ChunkView.chunks() |> Enum.group_by(&World.region_key/1)
+
+    for key <- told,
+        not Map.has_key?(by_region, key),
+        pid = state.wanted[key],
+        pid != nil,
+        do: send(pid, {:want, self(), center, []})
+
+    wanted =
+      for {key, chunks} <- by_region, into: %{} do
+        case World.region(key) do
+          {:ok, pid} ->
+            send(pid, {:want, self(), center, chunks})
+            {key, pid}
+
+          _ ->
+            {key, nil}
+        end
+      end
+
+    %{state | wanted: wanted}
+  end
+
+  # An owner that restarted since it was told lost the view's wants.
+  defp refresh_wants(%{view: {_, _}} = state) do
+    current = fn key ->
+      case Directory.lookup(key) do
+        {pid, _, _} -> pid
+        nil -> nil
+      end
+    end
+
+    if Enum.all?(state.wanted, fn {key, pid} -> pid != nil and current.(key) == pid end),
+      do: state,
+      else: want_chunks(state, [])
+  end
+
+  defp refresh_wants(state), do: state
 
   # Start loading a view's new regions now, as vanilla's player tickets do, nearest
   # first so the player's own terrain generates before the edge's (VMC-071).
@@ -108,23 +152,24 @@ defmodule Valimc.Session.Replication do
   confirms its play teleport.
   """
   def stream_chunks(%{phase: :play, teleport_pending: false, pending: [_ | _]} = state) do
+    state = refresh_wants(state)
+
     case ChunkSender.batch_size(state.chunk_sender) do
       0 ->
         state
 
       size ->
-        {candidates, rest} = Enum.split(state.pending, size)
-
-        case World.ready_chunks(candidates) do
+        # The nearest chunks that are ready, as vanilla sends from loaded ones.
+        case World.ready_chunks(World.sendable(state.pending, size)) do
           [] -> state
-          ready -> send_batch(state, ready, candidates, rest)
+          ready -> send_batch(state, ready)
         end
     end
   end
 
   def stream_chunks(state), do: state
 
-  defp send_batch(state, ready, candidates, rest) do
+  defp send_batch(state, ready) do
     {chunk_frames, lids} =
       Enum.map_reduce(ready, state.chest_lids, fn {chunk, frame}, lids ->
         case World.chest_lid_snapshot(chunk) do
@@ -160,7 +205,7 @@ defmodule Valimc.Session.Replication do
 
     %{
       state
-      | pending: Enum.reject(candidates, &MapSet.member?(sent, &1)) ++ rest,
+      | pending: Enum.reject(state.pending, &MapSet.member?(sent, &1)),
         chunks: MapSet.union(state.chunks, sent),
         chest_lids: lids,
         chunk_sender: ChunkSender.sent(state.chunk_sender, length(ready))

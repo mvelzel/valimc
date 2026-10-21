@@ -438,6 +438,13 @@ defmodule Valimc.World.Region do
   def handle_info({:halo, _} = message, state),
     do: RegionData.handle_info(message, state.resource) |> wrap(state)
 
+  # A view's wanted chunks, and proto owners' answers to generation requests (VMC-075).
+  def handle_info({:want, _, _, _} = message, state),
+    do: RegionData.handle_info(message, state.resource) |> wrap(state)
+
+  def handle_info({[:alias | ref], _} = message, state) when is_reference(ref),
+    do: RegionData.handle_info(message, state.resource) |> wrap(state)
+
   # Untagged/stale callbacks never select a resource or change its data.
   def handle_info(_, state), do: {:noreply, state}
 

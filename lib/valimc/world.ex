@@ -1,6 +1,6 @@
 defmodule Valimc.World do
   @moduledoc "Region ownership and spatial topics. There is no global world mutation process."
-  alias Valimc.World.Directory
+  alias Valimc.World.{BlockSnapshot, Directory}
   def chunk_key(x, z), do: {Integer.floor_div(floor(x), 16), Integer.floor_div(floor(z), 16)}
 
   def region_key({cx, cz}) do
@@ -42,10 +42,49 @@ defmodule Valimc.World do
   end
 
   @doc """
+  The first `limit` of `keys` (in order) whose region is loaded and has
+  generated them (VMC-075), read from published tables without asking an owner;
+  a region not running is started.
+  """
+  def sendable(keys, limit), do: sendable(keys, limit, %{}, [])
+
+  defp sendable(_keys, 0, _tables, acc), do: Enum.reverse(acc)
+  defp sendable([], _limit, _tables, acc), do: Enum.reverse(acc)
+
+  defp sendable([key | rest], limit, tables, acc) do
+    region = region_key(key)
+
+    {table, tables} =
+      case tables do
+        %{^region => table} -> {table, tables}
+        _ -> {published_table(region), Map.put(tables, region, published_table(region))}
+      end
+
+    if table != nil and not BlockSnapshot.absent?(table, key),
+      do: sendable(rest, limit - 1, tables, [key | acc]),
+      else: sendable(rest, limit, tables, acc)
+  end
+
+  defp published_table(region) do
+    case Directory.lookup(region) do
+      {_, _, %{items: table}} ->
+        table
+
+      {_, _, _} ->
+        nil
+
+      nil ->
+        region(region)
+        nil
+    end
+  end
+
+  @doc """
   The packets of the chunks in `keys` that are ready to send, as `[{key, frame}]`
   in `keys` order (VMC-070). Their owners are asked at once, so encodes overlap. A
   chunk whose region is still loading, cannot be admitted or dies meanwhile is
-  left out (its load starts), as vanilla sends only loaded chunks.
+  left out (its load starts), as vanilla sends only loaded chunks; so is a chunk
+  not generated yet (VMC-075), without asking its owner.
   """
   def ready_chunks(keys) do
     deadline = System.monotonic_time(:millisecond) + 15_000
@@ -53,7 +92,8 @@ defmodule Valimc.World do
     keys
     |> Enum.flat_map(fn key ->
       with {:ok, pid} <- region(region_key(key)),
-           {^pid, _, %{}} <- Directory.lookup(region_key(key)) do
+           {^pid, _, %{items: table}} <- Directory.lookup(region_key(key)),
+           false <- BlockSnapshot.absent?(table, key) do
         [{key, :gen_server.send_request(pid, {:chunk, key})}]
       else
         _ -> []

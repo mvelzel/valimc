@@ -23,7 +23,7 @@ model and a generated registry; see [architecture](architecture.md).
 | [VMC-010](tickets/VMC-010.md) | Administration: lists, admin commands, save control, idle timeout and console live; RCON remains | In progress |
 | [VMC-053](tickets/VMC-053.md) | Commands: world and administration commands live; `place` waits for structures | In progress |
 
-Done in M2: VMC-020..024, 026a, 026b, 027, 029c, 070..074 (see [completed](history/completed.md)).
+Done in M2: VMC-020..024, 026a, 026b, 027, 029c, 070..075 (see [completed](history/completed.md)).
 Commands on M3 systems (VMC-053h, k–n) move with those systems. Generation and tick
 time stay matched against vanilla and Pumpkin, at least in Pumpkin's range.
 

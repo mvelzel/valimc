@@ -64,20 +64,32 @@ vanilla spam throttle. Runtime caps live in `config/config.exs`.
 
 ## Generation (M2)
 
-A decorated world's region becomes full through its proto owner (VMC-025d). A
+A region of a generated world loads without generating: the chunks its log has
+no column for are absent (VMC-075). Views and forced chunks tell each region
+which of its chunks they want and how far from the player; the owner generates
+the wanted absent chunks nearest first, in bounded batches and never on itself
+(terrain worlds on the worldgen workers, decorated worlds through their proto
+owner), persists each batch as one frame and installs it once durable, relit
+once. Until then an absent chunk is like a chunk of an unloaded neighbour
+region: block reads in the owner see nothing there, edits and observations are
+refused, published snapshots fail closed and the chunk stream skips it.
+
+A decorated world's chunks become full through proto owners (VMC-025d). A
 chunk is decorated once its 3 × 3 has terrain and is full once its 3 × 3 is
 decorated; decoration reads and writes only that 3 × 3, so a full chunk is
-never touched again. Finalizing a region is one transaction over the nine
-proto owners around it: their terrain first, then all nine locks at once
-(`Txn.Permits`), each granted at once or refused as busy, so a transaction
-never waits while it holds locks and transactions with disjoint areas run
-together (a refused one gives its locks back and retries); foreign locks are
-made durable while one decoration call runs, then one commit frame with an
-outbox, then idempotent parts (`Txn.Receipts`, `Txn.Delivery`). A participant
-left with a durable lock asks the coordinator, a lock not yet durable dies
-with its coordinator, and anything not committed is aborted. The live
-region persists the full chunks with their block entities and ticks in one
-frame and the proto owner drops them.
+never touched again. Finalizing chunks `T` of a region (the chunks its live
+region asked for; the whole region for `full_chunks/1`) is one transaction
+over the proto owners within two chunks of `T`: their terrain first, then all
+their locks at once (`Txn.Permits`), each granted at once or refused as busy,
+so a transaction never waits while it holds locks and transactions with
+disjoint areas run together (a refused one gives its locks back and retries);
+foreign locks are made durable while one decoration call over the chunks
+within one of `T` runs, then one commit frame with an outbox, then idempotent
+parts (`Txn.Receipts`, `Txn.Delivery`). A participant left with a durable lock
+asks the coordinator, a lock not yet durable dies with its coordinator, and
+anything not committed is aborted. The live region persists the full chunks
+with their block entities and ticks in one frame and the proto owner drops
+them.
 
 ## Elixir and Rust
 

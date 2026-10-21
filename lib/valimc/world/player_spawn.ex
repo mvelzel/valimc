@@ -154,17 +154,30 @@ defmodule Valimc.World.PlayerSpawn do
     read(key, positions, deadline)
   end
 
-  defp read(key, positions, deadline) do
+  defp read(key, positions, deadline, asked \\ false) do
     if System.monotonic_time(:millisecond) > deadline, do: throw(:deadline)
 
     with {:ok, {pid, epoch}} <- World.owner(key),
-         {^pid, _, %{epoch: ^epoch, items: table}} <- Directory.lookup(key),
-         {:ok, _revision, blocks} <- BlockSnapshot.read(table, epoch, positions) do
-      positions |> Enum.map(&Map.fetch!(blocks, &1)) |> List.to_tuple()
+         {^pid, _, %{epoch: ^epoch, items: table}} <- Directory.lookup(key) do
+      case BlockSnapshot.read(table, epoch, positions) do
+        {:ok, _revision, blocks} ->
+          positions |> Enum.map(&Map.fetch!(blocks, &1)) |> List.to_tuple()
+
+        # Not generated yet (VMC-075): want the chunks once, then read again.
+        {:error, :chunk_generating} ->
+          chunks = positions |> Enum.map(fn {x, _, z} -> World.chunk_key(x, z) end) |> Enum.uniq()
+          unless asked, do: send(pid, {:want, self(), hd(chunks), chunks})
+          Process.sleep(5)
+          read(key, positions, deadline, true)
+
+        _ ->
+          Process.sleep(5)
+          read(key, positions, deadline, asked)
+      end
     else
       _ ->
         Process.sleep(5)
-        read(key, positions, deadline)
+        read(key, positions, deadline, asked)
     end
   end
 end

@@ -17,11 +17,12 @@ defmodule Valimc.World.Generator do
   its imported chunks.
 
   Regions of a vanilla world generate the chunks their log has no column image
-  for when they load (`columns/2`), and persist them before serving them, so a
-  chunk is generated once. New vanilla worlds are decorated (VMC-025d,
-  `"features": true`): their regions take full chunks from their proto owner
-  (`Valimc.Worldgen.Proto`) instead. Worlds generated before keep terrain
-  only, so no chunk of theirs is decorated after it was sent.
+  for when a view or a reader wants them, nearest first (`columns/2`,
+  `Valimc.World.RegionGeneration`, VMC-075), and persist them before serving
+  them, so a chunk is generated once. New vanilla worlds are decorated
+  (VMC-025d, `"features": true`): their regions take full chunks from their
+  proto owner (`Valimc.Worldgen.Proto`) instead. Worlds generated before keep
+  terrain only, so no chunk of theirs is decorated after it was sent.
 
   The Nether and the End (VMC-026b) generate as vanilla's presets keep them in
   every world type: noise terrain of the world's seed (ValiMC's flat profile

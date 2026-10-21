@@ -1,5 +1,5 @@
 defmodule Valimc.GeneratedWorldTest do
-  @moduledoc "Vanilla worlds generate their regions' terrain once and keep it (VMC-024d; terrain-only worlds)."
+  @moduledoc "Vanilla worlds generate their chunks' terrain once and keep it (VMC-024d, VMC-075; terrain-only worlds)."
   use ExUnit.Case, async: true
   import Bitwise
   alias Valimc.TestScope
@@ -44,8 +44,7 @@ defmodule Valimc.GeneratedWorldTest do
 
   defp at(states, {x, y, z}), do: Enum.at(states, y + 64 + ((x &&& 15) + (z &&& 15) * 16) * 384)
 
-  # A region's load generates its chunks first; under load that can take longer
-  # than a call's default timeout.
+  # Under load a region's start can take longer than a call's default timeout.
   defp owner!(key, attempts \\ 600) do
     case World.owner(key) do
       {:ok, owner} ->
@@ -100,8 +99,9 @@ defmodule Valimc.GeneratedWorldTest do
     assert Enum.any?(positions, &(at(states, &1) != World.Chunk.base(elem(&1, 1)))),
            "the sampled terrain differs from flat terrain"
 
+    # Only the chunk read was generated (VMC-075), as the generator makes it.
     columns = Store.durable(ctx.base, ctx.key, :columns)
-    assert map_size(columns) == ctx.size * ctx.size
+    assert Map.keys(columns) == [ctx.chunk]
     assert columns[ctx.chunk] == Generator.columns({:vanilla, @seed}, [ctx.chunk])[ctx.chunk]
 
     edited = {cx * 16 + 4, 20, cz * 16 + 4}
@@ -111,6 +111,6 @@ defmodule Valimc.GeneratedWorldTest do
     assert World.get_block(edited) == glass
     untouched = {cx * 16 + 9, 40, cz * 16 + 2}
     assert World.get_block(untouched) == at(states, untouched)
-    assert map_size(Store.durable(ctx.base, ctx.key, :columns)) == ctx.size * ctx.size
+    assert Map.keys(Store.durable(ctx.base, ctx.key, :columns)) == [ctx.chunk]
   end
 end

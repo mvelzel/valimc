@@ -38,6 +38,7 @@ defmodule Valimc.World.RegionData do
     MiningTransfers,
     PlacementPermits,
     PlacementTransfers,
+    RegionGeneration,
     Store
   }
 
@@ -89,6 +90,8 @@ defmodule Valimc.World.RegionData do
     # Chunks a client has asked for since load: only their light changes are
     # published (VMC-071); a later request carries the current light.
     :served,
+    # Chunks not generated yet and their generation (VMC-075).
+    :generation,
     :revision,
     :section_revisions,
     :game_tick,
@@ -107,91 +110,9 @@ defmodule Valimc.World.RegionData do
     :save_timer
   ]
 
-  # A vanilla world's region generates the chunks its log has no column for and
-  # persists them before serving them (VMC-024d). A decorated world's region
-  # takes its full chunks from its proto owner (VMC-025d) with their block
-  # entities, block ticks and pending post-processing, all in one frame, then
-  # lets the proto owner drop them.
-  defp generated_columns(key, store, lease, images) do
-    base = Valimc.config(:world_path, key)
-    dimension = Valimc.Dimension.current()
-
-    case Generator.generates?(base, dimension) do
-      false ->
-        images
-
-      true ->
-        {rx, rz} = key
-        size = Valimc.config(:region_size)
-
-        missing =
-          for cx <- (rx * size)..(rx * size + size - 1),
-              cz <- (rz * size)..(rz * size + size - 1),
-              not Map.has_key?(images, {cx, cz}),
-              do: {cx, cz}
-
-        cond do
-          missing == [] ->
-            images
-
-          Generator.decorated?(base, dimension) ->
-            started = System.monotonic_time(:microsecond)
-            images = decorated_columns(key, store, lease, images, missing)
-            Valimc.Metrics.add(:worldgen_chunks, length(missing))
-
-            Valimc.Metrics.add(
-              :worldgen_microseconds,
-              System.monotonic_time(:microsecond) - started
-            )
-
-            images
-
-          true ->
-            started = System.monotonic_time(:microsecond)
-
-            generated =
-              case Generator.spec(base, dimension) do
-                {:ok, spec} -> Generator.columns(spec, missing)
-                {:error, reason} -> exit({:generated_columns_failed, reason})
-              end
-
-            generated_at = System.monotonic_time(:microsecond)
-            Valimc.Metrics.add(:worldgen_chunks, length(missing))
-            Valimc.Metrics.add(:worldgen_microseconds, generated_at - started)
-
-            case Store.put_columns(store, lease, generated) do
-              :ok ->
-                Valimc.Metrics.add(
-                  :column_persist_microseconds,
-                  System.monotonic_time(:microsecond) - generated_at
-                )
-
-                Map.merge(images, generated)
-
-              {:error, reason} ->
-                exit({:generated_columns_failed, reason})
-            end
-        end
-    end
-  end
-
-  defp decorated_columns(key, store, lease, images, missing) do
-    with {:ok, full} <- Valimc.Worldgen.Proto.full_chunks(key),
-         full = Enum.filter(full, &({&1.x, &1.z} in missing)),
-         {:ok, parts} <-
-           Valimc.Worldgen.FullChunk.parts(
-             full,
-             Store.load_block_entities(store),
-             Store.load_ticks(store)
-           ),
-         :ok <- Store.put_generated(store, lease, parts) do
-      Valimc.Worldgen.Proto.handed_over(key)
-      Map.merge(images, parts.columns)
-    else
-      {:error, reason} -> exit({:generated_columns_failed, reason})
-    end
-  end
-
+  # A generated world's region loads without generating: chunks its log has no
+  # column for are absent until they are wanted and generated (VMC-075,
+  # `RegionGeneration`).
   def load(key) do
     # Out of file descriptors, recovery waits and tries again (VMC-074).
     {store, store_lease} =
@@ -202,7 +123,8 @@ defmodule Valimc.World.RegionData do
 
     store_monitor = Process.monitor(store)
     edits = Store.load(store)
-    images = generated_columns(key, store, store_lease, Store.load_columns(store))
+    images = Store.load_columns(store)
+    generation = RegionGeneration.new(key, images)
 
     blocks =
       case Blocks.new(key, edits, images) do
@@ -255,6 +177,7 @@ defmodule Valimc.World.RegionData do
 
     publication = :ets.new(:region_items, [:set, :protected, read_concurrency: true])
     :ok = BlockSnapshot.publish_chunks(publication, blocks, Blocks.touched_chunks(blocks), 0)
+    :ok = BlockSnapshot.publish_absent(publication, MapSet.to_list(generation.absent))
     :ets.insert(publication, {:block_fence, items.epoch, 0})
     EntityPublication.publish(publication, items.epoch, :items, items.views)
 
@@ -301,6 +224,7 @@ defmodule Valimc.World.RegionData do
       jobs: %{},
       versions: %{},
       served: MapSet.new(),
+      generation: generation,
       revision: 0,
       section_revisions: %{},
       game_tick: 0,
@@ -1284,36 +1208,30 @@ defmodule Valimc.World.RegionData do
     {:noreply, finish_when_durable(state, from, result)}
   end
 
-  def handle_call({:chunk, key}, from, state) do
-    state = %{state | served: MapSet.put(state.served, key)}
-
+  def handle_call({:chunk, key} = message, from, state) do
     cond do
       Valimc.World.region_key(key) != state.key ->
         {:reply, {:error, :wrong_region}, state}
 
-      Map.has_key?(state.cache, key) ->
-        Valimc.Metrics.add(:chunk_cache_hits)
-        # Cached sections may include blocks whose write is still in flight.
-        {:noreply, finish_when_durable(state, from, state.cache[key])}
-
-      Map.has_key?(state.jobs, key) ->
-        Valimc.Metrics.add(:chunk_requests_coalesced)
-        jobs = Map.update!(state.jobs, key, &%{&1 | waiters: [from | &1.waiters]})
-        {:noreply, %{state | jobs: jobs}}
+      RegionGeneration.absent?(state.generation, key) ->
+        RegionGeneration.defer(state, key, message, from)
 
       true ->
-        jobs = Map.put(state.jobs, key, %{waiters: [from], pid: nil, monitor: nil, token: nil})
-        {:noreply, start_job(%{state | jobs: jobs}, key)}
+        serve_chunk(%{state | served: MapSet.put(state.served, key)}, key, from)
     end
   end
 
   # Adopted blocks are visible outside the owner only once durable.
-  def handle_call({:get_block, position}, from, state) do
-    block = Blocks.get(state.blocks, position)
+  def handle_call({:get_block, {x, _, z} = position} = message, from, state) do
+    if RegionGeneration.absent?(state.generation, Valimc.World.chunk_key(x, z)) do
+      RegionGeneration.defer(state, Valimc.World.chunk_key(x, z), message, from)
+    else
+      block = Blocks.get(state.blocks, position)
 
-    if Enum.any?(state.item_writes, &(&1.kind == :blocks)),
-      do: {:noreply, finish_when_durable(state, from, block)},
-      else: {:reply, block, state}
+      if Enum.any?(state.item_writes, &(&1.kind == :blocks)),
+        do: {:noreply, finish_when_durable(state, from, block)},
+        else: {:reply, block, state}
+    end
   end
 
   def handle_call({:observe_blocks, epoch, positions, expected_revision}, _from, state) do
@@ -1333,6 +1251,9 @@ defmodule Valimc.World.RegionData do
         end) ->
           {:error, :wrong_region}
 
+        absent_positions?(state, positions) ->
+          {:error, :chunk_generating}
+
         true ->
           {:ok,
            %{
@@ -1345,7 +1266,9 @@ defmodule Valimc.World.RegionData do
            }}
       end
 
-    {:reply, result, state}
+    if result == {:error, :chunk_generating},
+      do: {:reply, result, want_positions(state, positions)},
+      else: {:reply, result, state}
   end
 
   def handle_call({:light_image, epoch, chunk}, _from, %{items: %{epoch: epoch}} = state),
@@ -1367,6 +1290,9 @@ defmodule Valimc.World.RegionData do
           Valimc.World.region_key(Valimc.World.chunk_key(x, z)) != state.key
         end) ->
           {:error, :wrong_region}
+
+        absent_positions?(state, for({x, z} <- columns, do: {x, 0, z})) ->
+          {:error, :chunk_generating}
 
         true ->
           {:ok,
@@ -1395,32 +1321,18 @@ defmodule Valimc.World.RegionData do
                deadline <= now + Valimc.Txn.Permits.window(250)) ->
         {:reply, {:error, :expired_destruction}, state}
 
+      absent_positions?(state, [position]) ->
+        {:reply, {:error, :chunk_generating}, want_positions(state, [position])}
+
       true ->
         handle_call({:remove_block, position}, from, state)
     end
   end
 
-  def handle_call({:remove_block, position}, from, state) do
-    block = Blocks.get(state.blocks, position)
-    replacement = Valimc.Block.after_removal(block)
-
-    state =
-      if in_region?(state, position) and write_busy(state) == nil,
-        do: unpack_loot(state, position, 0.0),
-        else: state
-
-    if Valimc.Block.block_entity(block) != nil and
-         Map.has_key?(state.containers.entries, position) do
-      if busy = write_busy(state) do
-        {:reply, {:error, busy}, state}
-      else
-        with {:ok, batch} <- BlockBatch.prepare(%{position => replacement}),
-             do: start_container_blocks(state, from, batch, %{position => block}, :ok),
-             else: (error -> {:reply, error, state})
-      end
-    else
-      handle_call({:set_block, position, replacement}, from, state)
-    end
+  def handle_call({:remove_block, {x, _, z} = position} = message, from, state) do
+    if RegionGeneration.absent?(state.generation, Valimc.World.chunk_key(x, z)),
+      do: RegionGeneration.defer(state, Valimc.World.chunk_key(x, z), message, from),
+      else: remove_block(state, position, from)
   end
 
   def handle_call({:block_entity, epoch, position}, _from, state) do
@@ -1560,10 +1472,14 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  def handle_call({:set_block, {x, y, z} = position, block}, _from, state) do
+  def handle_call({:set_block, {x, y, z} = position, block} = message, from, state) do
     key = Valimc.World.chunk_key(x, z)
 
     cond do
+      # Raw calls (tests, administration) wait for an absent chunk (VMC-075).
+      RegionGeneration.absent?(state.generation, key) ->
+        RegionGeneration.defer(state, key, message, from)
+
       block_transfer_writing?(state) ->
         {:reply, {:error, :mining_storage_busy}, state}
 
@@ -1636,6 +1552,47 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  defp remove_block(state, position, from) do
+    block = Blocks.get(state.blocks, position)
+    replacement = Valimc.Block.after_removal(block)
+
+    state =
+      if in_region?(state, position) and write_busy(state) == nil,
+        do: unpack_loot(state, position, 0.0),
+        else: state
+
+    if Valimc.Block.block_entity(block) != nil and
+         Map.has_key?(state.containers.entries, position) do
+      if busy = write_busy(state) do
+        {:reply, {:error, busy}, state}
+      else
+        with {:ok, batch} <- BlockBatch.prepare(%{position => replacement}),
+             do: start_container_blocks(state, from, batch, %{position => block}, :ok),
+             else: (error -> {:reply, error, state})
+      end
+    else
+      handle_call({:set_block, position, replacement}, from, state)
+    end
+  end
+
+  defp serve_chunk(state, key, from) do
+    cond do
+      Map.has_key?(state.cache, key) ->
+        Valimc.Metrics.add(:chunk_cache_hits)
+        # Cached sections may include blocks whose write is still in flight.
+        {:noreply, finish_when_durable(state, from, state.cache[key])}
+
+      Map.has_key?(state.jobs, key) ->
+        Valimc.Metrics.add(:chunk_requests_coalesced)
+        jobs = Map.update!(state.jobs, key, &%{&1 | waiters: [from | &1.waiters]})
+        {:noreply, %{state | jobs: jobs}}
+
+      true ->
+        jobs = Map.put(state.jobs, key, %{waiters: [from], pid: nil, monitor: nil, token: nil})
+        {:noreply, start_job(%{state | jobs: jobs}, key)}
+    end
+  end
+
   defp flush_item_motion(state) do
     if state.item_saved_generation < state.item_motion_generation,
       do: Store.flush_items(state.store, state.store_lease, state.items, state.item_receipts),
@@ -1675,7 +1632,10 @@ defmodule Valimc.World.RegionData do
   defp save_ticks(%{ticks_dirty: false} = state), do: state
 
   defp save_ticks(state) do
-    entries = ScheduledTicks.dump(state.scheduled_ticks, state.game_tick)
+    # Ticks of generated chunks still being persisted stay in the saved list.
+    entries =
+      ScheduledTicks.dump(state.scheduled_ticks, state.game_tick) ++
+        RegionGeneration.saving_ticks(state.generation)
 
     Store.commit_ticks(
       state.store,
@@ -1770,6 +1730,7 @@ defmodule Valimc.World.RegionData do
   defp random_ticks(state, read) do
     effects =
       for {position, block} <- Blocks.random_ticks(state.blocks, state.random_tick_speed),
+          in_region?(state, position),
           module = state.tick_index[block],
           effect <- module.random_tick(position, block, read, &random/1),
           do: effect
@@ -1938,8 +1899,27 @@ defmodule Valimc.World.RegionData do
     if in_region?(state, position), do: Blocks.get(state.blocks, position)
   end
 
-  defp in_region?(state, {x, y, z}),
-    do: Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == state.key and Chunk.valid_y?(y)
+  # A chunk not generated yet is outside, like a neighbour region's (VMC-075).
+  defp in_region?(state, {x, y, z}) do
+    chunk = Valimc.World.chunk_key(x, z)
+
+    Valimc.World.region_key(chunk) == state.key and Chunk.valid_y?(y) and
+      not RegionGeneration.absent?(state.generation, chunk)
+  end
+
+  defp absent_positions?(state, positions),
+    do:
+      RegionGeneration.any_absent?(
+        state.generation,
+        Enum.map(positions, fn {x, _, z} -> Valimc.World.chunk_key(x, z) end)
+      )
+
+  defp want_positions(state, positions),
+    do:
+      RegionGeneration.urgent(
+        state,
+        positions |> Enum.map(fn {x, _, z} -> Valimc.World.chunk_key(x, z) end) |> Enum.uniq()
+      )
 
   defp apply_tick_effects(state, []), do: state
 
@@ -2833,6 +2813,12 @@ defmodule Valimc.World.RegionData do
   end
 
   defp build_block_proposal(state, batch) do
+    if RegionGeneration.any_absent?(state.generation, batch.chunks),
+      do: {:error, :chunk_generating},
+      else: build_present_proposal(state, batch)
+  end
+
+  defp build_present_proposal(state, batch) do
     versions =
       Enum.reduce(batch.chunks, state.versions, &Map.update(&2, &1, 1, fn n -> n + 1 end))
 
@@ -3785,17 +3771,25 @@ defmodule Valimc.World.RegionData do
       ),
       do: CookingOrbRuntime.down(state)
 
-  def handle_info({:DOWN, ref, :process, pid, reason}, state) do
-    state =
-      apply_container_viewers(state, ContainerViewers.down(state.container_viewers, pid, ref))
+  # Generation (VMC-075): job results, durable batches, retries and wants.
+  def handle_info({:generated, ref, result}, state),
+    do: {:noreply, RegionGeneration.generated(state, ref, result)}
 
-    case Enum.find(state.jobs, fn {_, job} -> job.monitor == ref end) do
-      {key, job} ->
-        for from <- job.waiters, do: GenServer.reply(from, {:error, {:encoder_failed, reason}})
-        {:noreply, %{state | jobs: Map.delete(state.jobs, key)}}
+  def handle_info({:generated_saved, writer, token, result}, %{store: writer} = state),
+    do: {:noreply, RegionGeneration.saved(state, token, result)}
 
-      nil ->
-        {:noreply, state}
+  def handle_info({:generated_saved, _, _, _}, state), do: {:noreply, state}
+  def handle_info(:generation_retry, state), do: {:noreply, RegionGeneration.retry(state)}
+
+  def handle_info({:want, requester, center, chunks}, state) when is_pid(requester),
+    do: {:noreply, RegionGeneration.want(state, requester, center, chunks)}
+
+  def handle_info({:DOWN, ref, :process, pid, reason} = message, state) do
+    with :no_reply <- RegionGeneration.proto_response(state, message),
+         :error <- RegionGeneration.down(state, ref) do
+      down(state, ref, pid, reason)
+    else
+      {:ok, state} -> {:noreply, state}
     end
   end
 
@@ -3895,7 +3889,31 @@ defmodule Valimc.World.RegionData do
      )}
   end
 
+  # A proto owner's answer to a generation request (VMC-075; `gen_server`
+  # replies to `send_request/2` are tagged with the request's alias).
+  def handle_info({[:alias | ref], _} = message, state) when is_reference(ref) do
+    case RegionGeneration.proto_response(state, message) do
+      {:ok, state} -> {:noreply, state}
+      :no_reply -> {:noreply, state}
+    end
+  end
+
   def handle_info(_, state), do: {:noreply, state}
+
+  # A monitored worker or viewer went down.
+  defp down(state, ref, pid, reason) do
+    state =
+      apply_container_viewers(state, ContainerViewers.down(state.container_viewers, pid, ref))
+
+    case Enum.find(state.jobs, fn {_, job} -> job.monitor == ref end) do
+      {key, job} ->
+        for from <- job.waiters, do: GenServer.reply(from, {:error, {:encoder_failed, reason}})
+        {:noreply, %{state | jobs: Map.delete(state.jobs, key)}}
+
+      nil ->
+        {:noreply, state}
+    end
+  end
 
   defp container_view_decision(state, connection, position, grant, decision) do
     generation = Map.get(state.cooking_progress, position, 0)

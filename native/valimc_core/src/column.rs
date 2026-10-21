@@ -294,6 +294,47 @@ pub enum StoreError {
     MemoryBudget,
 }
 
+/// Changed cells beyond which a relight starts from scratch.
+const RELIGHT_LIMIT: usize = 16_384;
+
+/// The world positions where `new` differs from `old` in `chunk` (`None` reads
+/// the base profile `layers`).
+fn changed_cells(
+    layers: &[u16; HEIGHT],
+    chunk: (i32, i32),
+    old: Option<&Column>,
+    new: Option<&Column>,
+    out: &mut Vec<(i32, i32, i32)>,
+) {
+    for s in 0..SECTIONS {
+        let base = &layers[s * 16..s * 16 + 16];
+        let single = |column: Option<&Column>| match column {
+            Some(column) => match column.sections[s] {
+                Storage::Single(state) => Some(state),
+                _ => None,
+            },
+            None => base.iter().all(|b| *b == base[0]).then_some(base[0]),
+        };
+        if let (Some(a), Some(b)) = (single(old), single(new)) {
+            if a == b {
+                continue;
+            }
+        }
+        for i in 0..VOLUME {
+            let at =
+                |column: Option<&Column>| column.map_or(base[i >> 8], |c| c.sections[s].get(i));
+            if at(old) != at(new) {
+                let (x, y, z) = (i & 15, i >> 8, (i >> 4) & 15);
+                out.push((
+                    chunk.0 * 16 + x as i32,
+                    MIN_Y + (s * 16 + y) as i32,
+                    chunk.1 * 16 + z as i32,
+                ));
+            }
+        }
+    }
+}
+
 /// The block storage of one region: lazily materialized columns over a base layer
 /// profile. Columns that were never touched read from the base profile.
 pub struct ColumnStore {
@@ -493,27 +534,61 @@ impl ColumnStore {
         }
         let mut changed = Vec::new();
         for (chunk, column) in chunks {
-            for s in 0..SECTIONS {
-                for i in 0..VOLUME {
-                    let base = self.layers[s * 16 + (i >> 8)];
-                    let old = self.halo.get(&chunk).map_or(base, |c| c.sections[s].get(i));
-                    let new = column.as_ref().map_or(base, |c| c.sections[s].get(i));
-                    if old != new {
-                        let (x, y, z) = (i & 15, i >> 8, (i >> 4) & 15);
-                        changed.push((
-                            chunk.0 * 16 + x as i32,
-                            MIN_Y + (s * 16 + y) as i32,
-                            chunk.1 * 16 + z as i32,
-                        ));
-                    }
-                }
-            }
+            changed_cells(
+                &self.layers,
+                chunk,
+                self.halo.get(&chunk),
+                column.as_ref(),
+                &mut changed,
+            );
             match column {
                 Some(column) => self.halo.insert(chunk, column),
                 None => self.halo.remove(&chunk),
             };
         }
         Ok(self.relight_cells(facts, &changed))
+    }
+
+    /// Install generated columns (VMC-075), all or nothing, and relight once;
+    /// returns the region's chunks whose light changed (none before the region
+    /// is lit, since the first computation sees them).
+    pub fn put_columns(
+        &mut self,
+        facts: &LightFacts,
+        flags: &BlockFlags,
+        columns: Vec<((i32, i32), Column)>,
+    ) -> Result<Vec<(i32, i32)>, StoreError> {
+        let (mut added, mut replaced) = (0, 0);
+        for (i, (chunk, column)) in columns.iter().enumerate() {
+            self.check_chunk(*chunk)?;
+            if columns[..i].iter().any(|(other, _)| other == chunk) {
+                return Err(StoreError::OutOfRegion);
+            }
+            Self::validate(column, flags)?;
+            added += column.heap_bytes();
+            replaced += self.columns.get(chunk).map_or(0, Column::heap_bytes);
+        }
+        if self.heap_bytes() - replaced + added > self.budget_bytes {
+            return Err(StoreError::MemoryBudget);
+        }
+        let mut changed = Vec::new();
+        for (chunk, column) in columns {
+            if self.light.is_some() {
+                changed_cells(
+                    &self.layers,
+                    chunk,
+                    self.columns.get(&chunk),
+                    Some(&column),
+                    &mut changed,
+                );
+            }
+            self.columns.insert(chunk, column);
+        }
+        Ok(if changed.is_empty() {
+            Vec::new()
+        } else {
+            self.relight_cells(facts, &changed)
+        })
     }
 
     /// Apply a neighbour's block changes in the ring and relight.
@@ -539,15 +614,28 @@ impl ColumnStore {
         self.light_update(facts, &positions)
     }
 
-    /// Relight many cells: incrementally, or from scratch when most of a chunk changed.
+    /// Relight many cells: incrementally, or from scratch when most of a chunk
+    /// changed; either way only the chunks whose light changed are reported.
     fn relight_cells(&mut self, facts: &LightFacts, cells: &[(i32, i32, i32)]) -> Vec<(i32, i32)> {
-        if cells.len() <= 16_384 {
+        if cells.len() <= RELIGHT_LIMIT {
             return self.light_update(facts, cells);
         }
+        let before = self.light.take();
         self.light_compute(facts);
+        let (Some(before), Some(after)) = (before, self.light.as_ref()) else {
+            return Vec::new();
+        };
         let (mx, mz) = self.chunk_min;
         (0..self.chunk_size)
-            .flat_map(|x| (0..self.chunk_size).map(move |z| (mx + x, mz + z)))
+            .flat_map(|x| (0..self.chunk_size).map(move |z| (x, z)))
+            .filter(|&(x, z)| {
+                let (ax, az) = (x as usize + 1, z as usize + 1);
+                [Kind::Sky, Kind::Block].iter().any(|&kind| {
+                    let (old, new) = (before.chunk(kind, ax, az), after.chunk(kind, ax, az));
+                    old.iter().zip(new).any(|(a, b)| !a.same(b))
+                })
+            })
+            .map(|(x, z)| (mx + x, mz + z))
             .collect()
     }
 
@@ -901,6 +989,16 @@ impl ColumnStore {
         flags: &BlockFlags,
     ) -> Result<(), StoreError> {
         self.check_chunk(chunk)?;
+        Self::validate(&column, flags)?;
+        let previous = self.columns.get(&chunk).map_or(0, Column::heap_bytes);
+        if self.heap_bytes() - previous + column.heap_bytes() > self.budget_bytes {
+            return Err(StoreError::MemoryBudget);
+        }
+        self.columns.insert(chunk, column);
+        Ok(())
+    }
+
+    fn validate(column: &Column, flags: &BlockFlags) -> Result<(), StoreError> {
         if column.sections.len() != SECTIONS
             || column.biomes.as_ref().is_some_and(|b| b.len() != SECTIONS)
         {
@@ -910,15 +1008,11 @@ impl ColumnStore {
         for storage in &column.sections {
             storage.for_each(|_, state| valid &= flags.valid(state as u32));
         }
-        if !valid {
-            return Err(StoreError::InvalidState);
+        if valid {
+            Ok(())
+        } else {
+            Err(StoreError::InvalidState)
         }
-        let previous = self.columns.get(&chunk).map_or(0, Column::heap_bytes);
-        if self.heap_bytes() - previous + column.heap_bytes() > self.budget_bytes {
-            return Err(StoreError::MemoryBudget);
-        }
-        self.columns.insert(chunk, column);
-        Ok(())
     }
 
     /// The region-log image of a chunk's column, or `None` while it is the base profile.
@@ -1115,6 +1209,121 @@ mod tests {
         store.compact();
         assert!(store.columns.is_empty());
         assert!(store.diff().is_empty());
+    }
+
+    /// The light facts of `light_grid`'s tests: 0 air, 1 stone, 2 torch
+    /// (emission 14), 3 glass-like, 4 leaves-like, 5 slab-like, 6 lamp.
+    fn light_facts() -> LightFacts {
+        let full = [0u8, 1, 0, 1, 0, 0, 1];
+        let faces: [Vec<u8>; 6] = std::array::from_fn(|d| {
+            (0..7)
+                .map(|s| if s == 5 { (d == 0) as u8 } else { full[s] })
+                .collect()
+        });
+        LightFacts::new(
+            vec![0x00, 0x0F, 0xE0, 0x00, 0x01, 0x00, 0xF0],
+            faces,
+            [2; 6],
+            std::array::from_fn(|_| vec![0b1110]),
+            vec![0u8, 1, 0, 1, 1, 1, 1],
+            2,
+            vec![0b1110],
+        )
+        .unwrap()
+    }
+
+    /// Air with a stone floor at y 60, a cave of air under it and a lamp in it.
+    fn terrain(lamp: (usize, usize, usize)) -> Column {
+        let mut layers = [0u16; HEIGHT];
+        for layer in layers.iter_mut().take((60 - MIN_Y) as usize) {
+            *layer = 1;
+        }
+        let mut column = Column::from_layers(&layers);
+        for x in 2..14 {
+            for z in 2..14 {
+                for y in 20..30 {
+                    column.set(x, y, z, 0);
+                }
+            }
+        }
+        column.set(lamp.0 as i32, lamp.1 as i32, lamp.2 as i32, 6);
+        column
+    }
+
+    fn light_of(store: &ColumnStore, chunk: (i32, i32)) -> Vec<u8> {
+        store.light_image(chunk).unwrap().unwrap()
+    }
+
+    #[test]
+    fn put_columns_relights_once_and_reports_the_chunks_whose_light_changed() {
+        let (facts, flags) = (light_facts(), flags());
+        let mut store = ColumnStore::new((0, 0), 8, flat(), 1 << 30);
+        store.light_compute(&facts);
+        let before: Vec<Vec<u8>> = (0..8)
+            .flat_map(|x| (0..8).map(move |z| (x, z)))
+            .map(|c| light_of(&store, c))
+            .collect();
+
+        // All or nothing: a chunk outside the region installs neither.
+        let outside = vec![((2, 2), terrain((5, 25, 5))), ((9, 2), terrain((5, 25, 5)))];
+        assert_eq!(
+            store.put_columns(&facts, &flags, outside),
+            Err(StoreError::OutOfRegion)
+        );
+        assert!(store.columns.is_empty());
+
+        // Two columns differ from flat terrain in far more cells than an
+        // incremental relight takes: the region relights from scratch.
+        let columns = vec![((2, 2), terrain((5, 25, 5))), ((6, 5), terrain((8, 22, 3)))];
+        let mut changed = store.put_columns(&facts, &flags, columns).unwrap();
+        changed.sort();
+
+        let mut fresh = ColumnStore::new((0, 0), 8, flat(), 1 << 30);
+        fresh.columns = store.columns.clone();
+        fresh.light_compute(&facts);
+        let mut differs = Vec::new();
+        for (i, chunk) in (0..8).flat_map(|x| (0..8).map(move |z| (x, z))).enumerate() {
+            assert_eq!(
+                light_of(&store, chunk),
+                light_of(&fresh, chunk),
+                "{chunk:?}"
+            );
+            if light_of(&store, chunk) != before[i] {
+                differs.push(chunk);
+            }
+        }
+        assert_eq!(changed, differs);
+        assert!(changed.contains(&(2, 2)) && changed.contains(&(6, 5)));
+        assert!(changed.len() < 64, "{changed:?}");
+
+        // A small change relights incrementally, equal to a full computation.
+        let mut column = store.columns[&(2, 2)].clone();
+        column.set(40, 25, 40, 1);
+        column.set(36, 25, 36, 6);
+        let changed = store
+            .put_columns(&facts, &flags, vec![((2, 2), column)])
+            .unwrap();
+        fresh.columns = store.columns.clone();
+        fresh.light_compute(&facts);
+        assert!(changed.contains(&(2, 2)));
+        for chunk in (0..8).flat_map(|x| (0..8).map(move |z| (x, z))) {
+            assert_eq!(
+                light_of(&store, chunk),
+                light_of(&fresh, chunk),
+                "{chunk:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn put_columns_before_the_first_light_computation_only_stores_them() {
+        let (facts, flags) = (light_facts(), flags());
+        let mut store = ColumnStore::new((0, 0), 8, flat(), 1 << 30);
+        let changed = store
+            .put_columns(&facts, &flags, vec![((1, 1), terrain((5, 25, 5)))])
+            .unwrap();
+        assert!(changed.is_empty() && store.light.is_none());
+        assert_eq!(store.get(16, 0, 16), Ok(1));
     }
 
     #[test]

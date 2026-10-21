@@ -14,14 +14,15 @@ defmodule Valimc.Worldgen.Proto do
   reads and writes only its 3 × 3 (VMC-025 measured it), so a final chunk is
   never touched again, and every undecorated chunk's 3 × 3 is non-final.
 
-  Finalizing region `R` (coordinated by `R`'s owner, presumed abort with
-  durable prepare):
+  Finalizing chunks `T` of region `R` (coordinated by `R`'s owner, presumed
+  abort with durable prepare; `T` is what the live region asked for, VMC-075,
+  and the whole region is the transaction of VMC-025d):
 
-  1. Terrain: each of the nine owners around `R` generates the terrain it
-     lacks among its chunks of the 12 × 12 around `R` (ordered by when `R`
-     first tried to finalize) and answers once they exist. Nothing is locked
-     yet.
-  2. Lock, all nine at once and never waiting: an owner locks its non-final
+  1. Terrain: each owner of chunks within 2 of `T` (the nine owners around
+     `R` for the whole region) generates the terrain it lacks among them
+     (ordered by when `R` first tried to finalize) and answers once they
+     exist. Nothing is locked yet.
+  2. Lock, all of them at once and never waiting: an owner locks its non-final
      chunks for the transaction (`Txn.Permits` kind `:generation`) and
      answers with their images and which are final, or answers busy if any
      is locked. One busy owner and the coordinator gives every lock back and
@@ -29,11 +30,11 @@ defmodule Valimc.Worldgen.Proto do
      lock. A transaction never holds locks while it waits for another, so
      transactions whose areas do not overlap run at once.
   3. Prepare and decorate together: each foreign owner that locked chunks
-     makes its lock durable, while every undecorated chunk of the 10 × 10
-     around `R` is decorated, Z outer and X inner, in one native call over the
-     locked images (waiting while its worker pool is full).
-  4. Commit, once decorated and prepared, one frame: `R`'s changed chunks, its
-     64 chunks final, and an outbox entry per foreign participant
+     makes its lock durable, while every undecorated chunk within 1 of `T` (the
+     10 × 10 around `R`) is decorated, Z outer and X inner, in one native call
+     over the locked images (waiting while its worker pool is full).
+  4. Commit, once decorated and prepared, one frame: `R`'s changed chunks, `T`
+     final, and an outbox entry per foreign participant
      (`Txn.Receipts` sequence from the log incarnation and transaction count,
      digest of the part).
   5. Deliver each part (`Txn.Delivery`); the participant applies it, unlocks
@@ -48,8 +49,9 @@ defmodule Valimc.Worldgen.Proto do
   unlocked. Transaction identities carry the coordinator's log incarnation,
   so an aborted one is never confused with a later one.
 
-  The live region takes its final chunks with `full_chunks/1` and, once it
-  has persisted them, `handed_over/1` drops their images here.
+  The live region takes final chunks with `request_full_chunks/2` (or the
+  whole region with `full_chunks/1`) and, once it has persisted them,
+  `handed_over/2` drops their images here.
   """
   use GenServer, restart: :temporary
   require Logger
@@ -157,15 +159,28 @@ defmodule Valimc.Worldgen.Proto do
   end
 
   @doc """
-  The region's 64 chunks made full (`worldgen_proto_full` maps), finalizing
-  the region first if needed. `{:error, :handed_over}` once the live region
-  holds them.
+  The region's 64 chunks made full (`worldgen_proto_full` maps, Z outer and X
+  inner), finalizing the region first if needed. `{:error, :handed_over}` once
+  the live region holds them.
   """
-  def full_chunks(key, timeout \\ 600_000), do: call(key, :full_chunks, timeout)
+  def full_chunks(key), do: full_chunks(key, :all, 600_000)
+  def full_chunks(key, timeout) when is_integer(timeout), do: full_chunks(key, :all, timeout)
 
-  @doc "The live region persisted its final chunks: drop their images."
-  def handed_over(key) do
-    with {:ok, pid} <- owner(key), do: GenServer.cast(pid, :handed_over)
+  @doc "`chunks` of the region (or `:all`) made full, in that order, finalizing them first."
+  def full_chunks(key, chunks, timeout), do: call(key, {:full_chunks, chunks}, timeout)
+
+  @doc """
+  Ask for `chunks` of the region made full without waiting (VMC-075): the
+  reply arrives as a `:gen_server` response to the returned request id.
+  """
+  def request_full_chunks(key, chunks) do
+    with {:ok, pid} <- owner(key),
+         do: {:ok, :gen_server.send_request(pid, {:full_chunks, chunks})}
+  end
+
+  @doc "The live region persisted these final chunks (all of them by default): drop their images."
+  def handed_over(key, chunks \\ :all) do
+    with {:ok, pid} <- owner(key), do: GenServer.cast(pid, {:handed_over, chunks})
   end
 
   @doc false
@@ -198,6 +213,17 @@ defmodule Valimc.Worldgen.Proto do
     for cz <- (rz * size - r)..(rz * size + size - 1 + r),
         cx <- (rx * size - r)..(rx * size + size - 1 + r),
         do: {cx, cz}
+  end
+
+  @doc """
+  The chunks within `r` of any of `chunks`, Z outer and X inner (for a whole
+  region, `around/2`).
+  """
+  def within(chunks, r) do
+    chunks
+    |> Enum.flat_map(fn {x, z} -> for dz <- -r..r, dx <- -r..r, do: {x + dx, z + dz} end)
+    |> Enum.uniq()
+    |> Enum.sort_by(fn {x, z} -> {z, x} end)
   end
 
   defp region_of(chunk), do: Valimc.World.region_key(chunk)
@@ -263,22 +289,24 @@ defmodule Valimc.Worldgen.Proto do
   defp handed_over?(state),
     do: Enum.all?(chunks_of(state.key), &MapSet.member?(state.dropped, &1))
 
-  # Full chunks for the live region.
+  # Full chunks for the live region: the whole region, or some of its chunks.
   @impl true
-  def handle_call(:full_chunks, from, state) do
+  def handle_call({:full_chunks, wanted}, from, state) do
     state = %{state | calls: state.calls + 1}
     own = chunks_of(state.key)
+    chunks = if wanted == :all, do: own, else: wanted
 
     cond do
-      Enum.any?(own, &MapSet.member?(state.dropped, &1)) ->
+      not (is_list(chunks) and chunks != [] and Enum.all?(chunks, &(&1 in own))) ->
+        {:reply, {:error, :invalid_chunks}, state}
+
+      Enum.any?(chunks, &MapSet.member?(state.dropped, &1)) ->
         {:reply, {:error, :handed_over}, state}
 
       true ->
-        state = %{state | waiters: [from | state.waiters]}
-
-        if Enum.all?(own, &MapSet.member?(state.final, &1)),
-          do: {:noreply, start_full(state)},
-          else: {:noreply, maybe_finalize(state)}
+        waiter = %{from: from, chunks: Enum.uniq(chunks)}
+        state = %{state | waiters: state.waiters ++ [waiter]}
+        {:noreply, state |> start_full() |> maybe_finalize()}
     end
   end
 
@@ -351,21 +379,29 @@ defmodule Valimc.Worldgen.Proto do
     {:reply, reply, state}
   end
 
+  # Only final chunks are dropped; a final chunk is never read again.
   @impl true
-  def handle_cast(:handed_over, state) do
+  def handle_cast({:handed_over, wanted}, state) do
     own = chunks_of(state.key)
+    chunks = if wanted == :all, do: own, else: Enum.filter(wanted, &(&1 in own))
 
-    if Enum.all?(own, &MapSet.member?(state.final, &1)) and
-         not Enum.all?(own, &MapSet.member?(state.dropped, &1)) do
+    drop =
+      Enum.filter(
+        chunks,
+        &(MapSet.member?(state.final, &1) and not MapSet.member?(state.dropped, &1))
+      )
+
+    if drop != [] and (wanted != :all or Enum.all?(own, &MapSet.member?(state.final, &1))) do
       {:noreply,
-       write(state, [{:dropped, own}], fn state, :ok ->
-         Process.send_after(self(), :retire, @retire_after)
-
-         %{
+       write(state, [{:dropped, drop}], fn state, :ok ->
+         state = %{
            state
-           | chunks: Map.drop(state.chunks, own),
-             dropped: MapSet.union(state.dropped, MapSet.new(own))
+           | chunks: Map.drop(state.chunks, drop),
+             dropped: MapSet.union(state.dropped, MapSet.new(drop))
          }
+
+         if handed_over?(state), do: Process.send_after(self(), :retire, @retire_after)
+         state
        end)}
     else
       {:noreply, state}
@@ -408,6 +444,7 @@ defmodule Valimc.Worldgen.Proto do
     case result do
       {:ok, generated} ->
         made = Map.new(generated, fn {x, z, image} -> {{x, z}, {:terrain, image}} end)
+        Valimc.Metrics.add(:proto_terrain_chunks, map_size(made))
         # A chunk a transaction applied meanwhile keeps its newer image.
         chunks = Map.merge(made, state.chunks)
         pending = MapSet.difference(terrain.pending, MapSet.new(Map.keys(made)))
@@ -441,9 +478,19 @@ defmodule Valimc.Worldgen.Proto do
   defp info({:decorated, id, result}, %{txn: %{id: id, phase: :decorating} = txn} = state),
     do: {:noreply, maybe_commit(%{state | txn: %{txn | decorated: result}})}
 
-  defp info({:full_done, ref, result}, %{full_job: ref} = state) do
-    for from <- state.waiters, do: GenServer.reply(from, result)
-    {:noreply, %{state | waiters: [], full_job: nil}}
+  defp info({:full_done, ref, result}, %{full_job: {ref, served}} = state) do
+    {done, waiting} = Enum.split_with(state.waiters, &(&1 in served))
+
+    case result do
+      {:ok, full} ->
+        by_chunk = Map.new(full, &{{&1.x, &1.z}, &1})
+        for w <- done, do: GenServer.reply(w.from, {:ok, Enum.map(w.chunks, &by_chunk[&1])})
+
+      error ->
+        for w <- done, do: GenServer.reply(w.from, error)
+    end
+
+    {:noreply, %{state | waiters: waiting, full_job: nil} |> start_full() |> maybe_finalize()}
   end
 
   defp info(:retry_finalize, state),
@@ -937,22 +984,30 @@ defmodule Valimc.Worldgen.Proto do
 
   ## Coordinator: the finalize transaction
 
+  # One transaction at a time finalizes what the waiters still lack, in their
+  # order (the whole region for `full_chunks/1`).
   defp maybe_finalize(%{txn: nil, retry: nil} = state) do
-    if Enum.all?(chunks_of(state.key), &MapSet.member?(state.final, &1)),
-      do: start_full(state),
-      else: start_finalize(state)
+    target =
+      state.waiters
+      |> Enum.flat_map(& &1.chunks)
+      |> Enum.uniq()
+      |> Enum.reject(&MapSet.member?(state.final, &1))
+
+    if target == [], do: start_full(state), else: start_finalize(state, target)
   end
 
   defp maybe_finalize(state), do: state
 
-  defp start_finalize(state) do
+  defp start_finalize(state, target) do
     n = state.txn_count + 1
     id = {state.key, state.incarnation, n}
     since = state.since || System.monotonic_time(:microsecond)
-    participants = state.key |> around(2) |> Enum.group_by(&region_of/1) |> Enum.sort()
+    participants = target |> within(2) |> Enum.group_by(&region_of/1) |> Enum.sort()
 
     txn = %{
       id: id,
+      target: target,
+      started: System.monotonic_time(:microsecond),
       sequence: state.incarnation * 4_294_967_296 + n,
       phase: :terrain,
       participants: participants,
@@ -1085,7 +1140,9 @@ defmodule Valimc.Worldgen.Proto do
           into: MapSet.new(),
           do: key
 
-    state = %{state | txn: %{txn | phase: :decorating, prepare: keys}}
+    now = System.monotonic_time(:microsecond)
+    Valimc.Metrics.add(:proto_lock_microseconds, now - txn.started)
+    state = %{state | txn: %{txn | phase: :decorating, prepare: keys, started: now}}
     state = Enum.reduce(keys, state, &ask(&2, &1, {:prepare, txn.id}))
     decorate(state)
   end
@@ -1094,6 +1151,7 @@ defmodule Valimc.Worldgen.Proto do
   # delay that grows with consecutive busy attempts (or sooner, when woken).
   # Busy attempts do not count as failures.
   defp back_off(state) do
+    Valimc.Metrics.add(:proto_busy)
     txn = state.txn
     Process.cancel_timer(txn.timer)
     state = release_all(%{state | txn: nil}, txn, false)
@@ -1128,7 +1186,7 @@ defmodule Valimc.Worldgen.Proto do
       Enum.reduce(state.txn.granted, %{}, fn {_, chunks}, acc -> Map.merge(acc, chunks) end)
 
     order =
-      for chunk <- around(state.key, 1),
+      for chunk <- within(state.txn.target, 1),
           match?({:terrain, _}, images[chunk]),
           do: chunk
 
@@ -1170,11 +1228,15 @@ defmodule Valimc.Worldgen.Proto do
     if lenient > 0,
       do:
         Logger.warning(
-          "Decorating around region #{inspect(state.key)} read #{lenient} blocks of chunks it did not hold"
+          "Decorating around #{length(state.txn.target)} chunks of region #{inspect(state.key)} read #{lenient} blocks of chunks it did not hold"
         )
 
     touched = Map.new(touched, fn {x, z, image} -> {{x, z}, image} end)
     decorated = MapSet.new(order)
+    committing = System.monotonic_time(:microsecond)
+    Valimc.Metrics.add(:proto_decorated_chunks, length(order))
+    Valimc.Metrics.add(:proto_transactions)
+    Valimc.Metrics.add(:proto_decorate_microseconds, committing - state.txn.started)
 
     changed =
       for {chunk, {status, image}} <- images,
@@ -1184,7 +1246,7 @@ defmodule Valimc.Worldgen.Proto do
           into: %{},
           do: {chunk, {new_status, new_image}}
 
-    own = chunks_of(state.key)
+    target = state.txn.target
     {mine, foreign} = Enum.split_with(changed, fn {chunk, _} -> region_of(chunk) == state.key end)
 
     parts =
@@ -1206,7 +1268,8 @@ defmodule Valimc.Worldgen.Proto do
     id = state.txn.id
 
     ops =
-      [{:chunks, mine}, {:final, own}] ++ if(parts == %{}, do: [], else: [{:outbox, id, parts}])
+      [{:chunks, mine}, {:final, target}] ++
+        if(parts == %{}, do: [], else: [{:outbox, id, parts}])
 
     Process.cancel_timer(state.txn.timer)
 
@@ -1217,9 +1280,14 @@ defmodule Valimc.Worldgen.Proto do
     }
 
     write(state, ops, fn state, :ok ->
+      Valimc.Metrics.add(
+        :proto_commit_microseconds,
+        System.monotonic_time(:microsecond) - committing
+      )
+
       state = %{
         state
-        | final: MapSet.union(state.final, MapSet.new(own)),
+        | final: MapSet.union(state.final, MapSet.new(target)),
           outbox: if(parts == %{}, do: state.outbox, else: Map.put(state.outbox, id, parts)),
           txn: nil,
           attempts: 0,
@@ -1229,18 +1297,22 @@ defmodule Valimc.Worldgen.Proto do
 
       state = unhold(state, id)
       state = deliver_all(state, id)
-      start_full(state)
+      state |> start_full() |> maybe_finalize()
     end)
   end
 
   defp commit(state, {_images, _order, error}) do
-    Logger.error("Decorating around region #{inspect(state.key)} failed: #{inspect(error)}")
+    Logger.error(
+      "Decorating around #{length(state.txn.target)} chunks of region #{inspect(state.key)} failed: #{inspect(error)}"
+    )
+
     abort(state, error)
   end
 
   defp locked_any?(chunks), do: map_size(chunks) > 0
 
   defp abort(state, reason) do
+    Valimc.Metrics.add(:proto_aborts)
     txn = state.txn
     Process.cancel_timer(txn.timer)
     # Locks of a transaction that got as far as decorating were real holds.
@@ -1249,7 +1321,7 @@ defmodule Valimc.Worldgen.Proto do
 
     if attempts >= @max_attempts do
       Logger.error("Finalizing region #{inspect(state.key)} failed: #{inspect(reason)}")
-      for from <- state.waiters, do: GenServer.reply(from, {:error, reason})
+      for w <- state.waiters, do: GenServer.reply(w.from, {:error, reason})
       %{state | waiters: [], attempts: 0}
     else
       delay = min(5000, 20 * attempts) + :rand.uniform(50)
@@ -1323,12 +1395,21 @@ defmodule Valimc.Worldgen.Proto do
 
   ## Full chunks
 
-  defp start_full(%{waiters: []} = state), do: state
-  defp start_full(%{full_job: ref} = state) when ref != nil, do: state
+  # One job makes the chunks of every waiter whose chunks are all final.
+  defp start_full(%{full_job: job} = state) when job != nil, do: state
 
   defp start_full(state) do
-    own = chunks_of(state.key)
-    images = Enum.map(own, fn chunk -> elem(Map.fetch!(state.chunks, chunk), 1) end)
+    case Enum.filter(state.waiters, fn w ->
+           Enum.all?(w.chunks, &MapSet.member?(state.final, &1))
+         end) do
+      [] -> state
+      ready -> run_full(state, ready)
+    end
+  end
+
+  defp run_full(state, ready) do
+    chunks = ready |> Enum.flat_map(& &1.chunks) |> Enum.uniq()
+    images = Enum.map(chunks, fn chunk -> elem(Map.fetch!(state.chunks, chunk), 1) end)
     owner = self()
     worldgen = state.worldgen
     ref = make_ref()
@@ -1344,7 +1425,7 @@ defmodule Valimc.Worldgen.Proto do
            send(owner, {:full_done, ref, result})
          end) do
       {:ok, _} ->
-        %{state | full_job: ref}
+        %{state | full_job: {ref, ready}}
 
       {:error, _} ->
         %{state | retry: state.retry || Process.send_after(self(), :retry_finalize, 20)}

@@ -50,8 +50,12 @@ defmodule Valimc.OpenFilesTest do
     assert FileBudget.cap() > 0
   end
 
+  # The budget counts what owners took; one killed while it held some (tests
+  # kill owners) never gives them back, so caps are set above what is counted.
+  defp set_cap_above_counted(cap), do: FileBudget.set_cap(FileBudget.in_use() + cap)
+
   test "the budget bounds what is open at once" do
-    FileBudget.set_cap(2)
+    set_cap_above_counted(2)
     # [inside now, most inside at once]; other tests' owners may share the budget.
     inside = :atomics.new(2, [])
 
@@ -67,7 +71,8 @@ defmodule Valimc.OpenFilesTest do
             i
           end)
         end,
-        max_concurrency: 24
+        max_concurrency: 24,
+        timeout: 60_000
       )
       |> Enum.map(fn {:ok, i} -> i end)
 
@@ -91,7 +96,7 @@ defmodule Valimc.OpenFilesTest do
   end
 
   test "logs hold no descriptor: hundreds open and append under a budget of 4", %{base: base} do
-    FileBudget.set_cap(4)
+    set_cap_above_counted(4)
     before = descriptors()
 
     logs =
