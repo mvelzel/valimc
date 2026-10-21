@@ -5,9 +5,10 @@ defmodule Valimc.Worldgen.Proto do
   `:decorated`) and of the finalize transaction that makes the region final.
   Its durable state is a `Valimc.Worldgen.ProtoLog`; terrain runs on
   `Valimc.WorldgenWorkers`, decoration and full chunks on
-  `Valimc.DecorationWorkers` (dirty NIFs), never in here. Each owner
-  generates the terrain of the earliest-started transaction first, so areas
-  complete one after another and decorate while other terrain is generated.
+  `Valimc.DecorationWorkers` (dirty NIFs), never in here. Terrain goes
+  earliest-started transaction first, within an owner and across owners
+  (`Valimc.Worldgen.TerrainBoard`), so areas complete one after another and
+  decorate while other terrain is generated.
 
   A chunk is final once every chunk of its 3 × 3 is decorated. A decoration
   reads and writes only its 3 × 3 (VMC-025 measured it), so a final chunk is
@@ -54,7 +55,7 @@ defmodule Valimc.Worldgen.Proto do
   require Logger
   alias Valimc.Native
   alias Valimc.Txn.{Delivery, Permits, Receipts}
-  alias Valimc.Worldgen.ProtoLog
+  alias Valimc.Worldgen.{ProtoLog, TerrainBoard}
   alias Valimc.World.Generator
 
   defstruct [
@@ -85,6 +86,8 @@ defmodule Valimc.Worldgen.Proto do
     busy: 0,
     # When this owner first tried to finalize: its terrain requests' priority.
     since: nil,
+    # The priority this owner published on the terrain board.
+    board: nil,
     waiters: [],
     calls: 0,
     quiet: {0, 0},
@@ -499,7 +502,8 @@ defmodule Valimc.Worldgen.Proto do
   # A linked writer ignores a normal exit; stop it, so a later owner of the
   # region is the log's only writer.
   @impl true
-  def terminate(_reason, %{log: log}) when is_pid(log) do
+  def terminate(_reason, %{log: log} = state) when is_pid(log) do
+    TerrainBoard.put(state.board, nil)
     GenServer.stop(log, :normal, 10_000)
   catch
     :exit, _ -> :ok
@@ -591,9 +595,18 @@ defmodule Valimc.Worldgen.Proto do
     end
   end
 
-  defp pump_terrain(%{terrain: %{queue: []}} = state), do: state
+  defp pump_terrain(%{terrain: %{queue: []}} = state), do: publish(state)
 
-  defp pump_terrain(%{terrain: terrain} = state) do
+  defp pump_terrain(%{terrain: %{queue: [{since, _} | _]} = terrain} = state) do
+    state = publish(state)
+
+    # Only the most urgent owners start jobs; the others look again shortly.
+    if TerrainBoard.urgent?(since, :erlang.system_info(:dirty_cpu_schedulers_online)),
+      do: start_terrain(state, terrain),
+      else: retry_terrain(state, terrain)
+  end
+
+  defp start_terrain(state, terrain) do
     {batch, rest} = Enum.split(terrain.queue, @terrain_batch)
     batch = Enum.map(batch, fn {_, {z, x}} -> {x, z} end)
     owner = self()
@@ -618,10 +631,26 @@ defmodule Valimc.Worldgen.Proto do
         })
 
       {:error, _} ->
-        # Every worker is busy: try again shortly.
-        timer = terrain.timer || Process.send_after(self(), :pump_terrain, 5)
-        %{state | terrain: %{terrain | timer: timer}}
+        # Every worker is busy.
+        retry_terrain(state, terrain)
     end
+  end
+
+  defp retry_terrain(state, terrain) do
+    timer = terrain.timer || Process.send_after(self(), :pump_terrain, 5)
+    %{state | terrain: %{terrain | timer: timer}}
+  end
+
+  # Publish the earliest priority still queued here.
+  defp publish(state) do
+    head =
+      case state.terrain.queue do
+        [] -> nil
+        [{since, _} | _] -> since
+      end
+
+    TerrainBoard.put(state.board, head)
+    %{state | board: head}
   end
 
   defp fail_requests(state, chunks, reason) do

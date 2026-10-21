@@ -62,6 +62,7 @@ defmodule Valimc.Application do
       {Task.Supervisor,
        name: Valimc.DecorationWorkers,
        max_children: max(:erlang.system_info(:dirty_cpu_schedulers_online), 1)},
+      Valimc.Worldgen.TerrainBoard,
       {Registry, keys: :unique, name: Valimc.ProtoRegistry},
       {DynamicSupervisor,
        strategy: :one_for_one,
