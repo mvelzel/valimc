@@ -7,7 +7,7 @@ defmodule Valimc.World.RegionGeneration do
   from their player (`want/4`); calls that need an absent chunk want it first
   (`urgent/2`). The owner generates the wanted absent chunks nearest first, in
   bounded batches and never on itself: a terrain world on
-  `Valimc.WorldgenWorkers` (`Generator.columns/2`), a decorated world through
+  `Valimc.Worldgen.Pool` (`Generator.columns/2`), a decorated world through
   its proto owner (`Proto.request_full_chunks/2`). A batch is persisted as one
   store frame (`Store.commit_generated/5`) and installed once durable: its
   columns relit once, its block entities and ticks added, its snapshots
@@ -22,7 +22,7 @@ defmodule Valimc.World.RegionGeneration do
   alias Valimc.World
   alias Valimc.World.{BlockEntities, BlockSnapshot, Blocks, Generator, RegionData}
   alias Valimc.World.{ScheduledTicks, Store}
-  alias Valimc.Worldgen.{FullChunk, Proto}
+  alias Valimc.Worldgen.{FullChunk, Pool, Proto}
 
   # Terrain: jobs of a few chunks, so the nearest chunks are not stuck behind a
   # long batch. A decorated world's proto owner runs one transaction at a time,
@@ -214,7 +214,7 @@ defmodule Valimc.World.RegionGeneration do
         send(owner, {:resource, epoch, {:generated, ref, result}})
       end)
 
-    case Task.Supervisor.start_child(Valimc.WorldgenWorkers, job) do
+    case Pool.start_bulk(job) do
       {:ok, pid} ->
         entry = %{chunks: chunks, monitor: Process.monitor(pid), started: now()}
         pump(%{state | generation: %{gen | jobs: Map.put(gen.jobs, ref, entry)}})

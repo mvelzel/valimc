@@ -38,7 +38,6 @@ defmodule Valimc.Application do
       do: raise("Invalid default game mode")
 
     schedulers = max(System.schedulers_online(), 1)
-    dirty = max(:erlang.system_info(:dirty_cpu_schedulers_online), 1)
 
     infrastructure = [
       Valimc.World.TickRate,
@@ -50,11 +49,8 @@ defmodule Valimc.Application do
       {Task.Supervisor, name: Valimc.ChunkWorkers, max_children: schedulers},
       {Task.Supervisor, name: Valimc.ItemWorkers, max_children: schedulers},
       {Task.Supervisor, name: Valimc.TransferWorkers, max_children: schedulers * 4},
-      # Generation (VMC-025d): proto owners' terrain jobs, and their decoration
-      # and full-chunk jobs in a pool of their own (so a region whose terrain is
-      # ready never waits behind other terrain), all on dirty schedulers.
-      {Task.Supervisor, name: Valimc.WorldgenWorkers, max_children: dirty},
-      {Task.Supervisor, name: Valimc.DecorationWorkers, max_children: dirty},
+      # The one pool of generation jobs, below the dirty scheduler count (VMC-077b).
+      Valimc.Worldgen.Pool,
       Valimc.Workers.partitioned(
         Valimc.CollisionWorkers,
         Valimc.Physics.CollisionQuery.worker_limit()

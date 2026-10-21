@@ -3,9 +3,9 @@ defmodule Valimc.Worldgen.Proto do
   One region's proto chunks in a decorated vanilla world (VMC-025d2): the
   owner of its chunks before they are final, of their statuses (`:terrain`,
   `:decorated`) and of the finalize transaction that makes the region final.
-  Its durable state is a `Valimc.Worldgen.ProtoLog`; terrain runs on
-  `Valimc.WorldgenWorkers`, decoration and full chunks on
-  `Valimc.DecorationWorkers` (dirty NIFs), never in here. Terrain goes
+  Its durable state is a `Valimc.Worldgen.ProtoLog`; terrain (as bulk work),
+  decoration and full chunks run on `Valimc.Worldgen.Pool` (dirty NIFs), never
+  in here. Terrain goes
   earliest-started transaction first, within an owner and across owners
   (`Valimc.Worldgen.TerrainBoard`), so areas complete one after another and
   decorate while other terrain is generated.
@@ -57,7 +57,7 @@ defmodule Valimc.Worldgen.Proto do
   require Logger
   alias Valimc.Native
   alias Valimc.Txn.{Delivery, Permits, Receipts}
-  alias Valimc.Worldgen.{ProtoLog, TerrainBoard}
+  alias Valimc.Worldgen.{Pool, ProtoLog, TerrainBoard}
   alias Valimc.World.Generator
 
   defstruct [
@@ -651,7 +651,7 @@ defmodule Valimc.Worldgen.Proto do
     state = publish(state)
 
     # Only the most urgent owners start jobs; the others look again shortly.
-    if TerrainBoard.urgent?(since, :erlang.system_info(:dirty_cpu_schedulers_online)),
+    if TerrainBoard.urgent?(since, Pool.size()),
       do: start_terrain(state, terrain),
       else: retry_terrain(state, terrain)
   end
@@ -665,7 +665,7 @@ defmodule Valimc.Worldgen.Proto do
     structures = state.structures
     ref = make_ref()
 
-    case Task.Supervisor.start_child(Valimc.WorldgenWorkers, fn ->
+    case Pool.start_bulk(fn ->
            result =
              try do
                Native.worldgen_proto_terrain(worldgen, source, batch, structures)
@@ -1201,7 +1201,7 @@ defmodule Valimc.Worldgen.Proto do
     structures = state.structures
     list = Enum.map(images, fn {_, {_, image}} -> image end)
 
-    case Task.Supervisor.start_child(Valimc.DecorationWorkers, fn ->
+    case Pool.start(fn ->
            result =
              try do
                if order == [],
@@ -1419,7 +1419,7 @@ defmodule Valimc.Worldgen.Proto do
     worldgen = state.worldgen
     ref = make_ref()
 
-    case Task.Supervisor.start_child(Valimc.DecorationWorkers, fn ->
+    case Pool.start(fn ->
            result =
              try do
                Native.worldgen_proto_full(worldgen, images, Generator.protocol_biomes())

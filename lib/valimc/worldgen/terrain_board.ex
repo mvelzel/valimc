@@ -4,7 +4,7 @@ defmodule Valimc.Worldgen.TerrainBoard do
   queued terrain publishes the earliest `since` in its queue (when the
   transaction that asked for it first tried to finalize); an owner starts
   terrain jobs only while its own entry is among the most urgent, as many as
-  `Valimc.WorldgenWorkers` holds. So the areas of transactions complete in
+  `Valimc.Worldgen.Pool` holds. So the areas of transactions complete in
   the order they started, and decorate while later terrain is generated,
   instead of all at once at the end.
 
