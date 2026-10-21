@@ -29,6 +29,48 @@ Acceptance (parent):
   arrival platform, gateway exits), ValiMC's results equal vanilla's in
   oracle stages registered in `scripts/vanilla_stages.py`.
 
+## Client check
+
+First run, October 21, 2026: checkpoint c8dcb04, Java 26.3 on a fresh flat
+creative world. The evidence stays ignored in `.local/client-tests/VMC-026b`.
+
+- Passed:
+  - Lighting a portal; an incomplete frame makes only fire.
+  - Walking into the portal to a new Nether portal, and back to the first.
+  - A restart and reconnect in the Nether, at the same place.
+  - The twelfth eye opening an end portal; the End's platform.
+  - A gateway's exit search out to (1028.5, 71, -5.5), and back to
+    (93.5, 57, -6.5).
+  - The credits, then the respawn at spawn with the inventory kept.
+  - A broken frame putting the portal out.
+- Failed twice, and both trace to a first visit's destination taking
+  seconds. Regions generate whole on first use, slowly on that loaded host
+  (load 40–70 with the client).
+  - The first walk through a freshly lit portal seemed not to travel. A
+    `/tp` into the portal 14 s later (the client's log) then ended in the
+    Nether at the typed coordinates, inside netherrack. The walk's job had
+    meanwhile finished, so the `/tp` ran in the Nether. In tests, a command
+    teleport into a portal arrives at the scaled exit.
+  - A player dropped into the new end portal travelled after about 14 s,
+    just after a nudge. In tests the End's first platform takes 0.8 to 4.3 s
+    under a load of 47.
+  - The gateway case that looked the same was a position mistake. The player
+    stood beside the exit gateway: this seed's is at (1028, 80, -7), and a
+    test reproduces the run's arrivals exactly. The `/tp` went to x 1029.5.
+- Fixes:
+  - Portals warm their destinations (VMC-026b2, VMC-026b3).
+  - A failed destination lets the player try again.
+  - `/spawn` from another dimension travels to the overworld's spawn (it
+    moved the player within the Nether).
+- Observed:
+  - The exit gateway cannot be flown into, as in vanilla: bedrock above and
+    below.
+  - "Loading terrain" lasted 6 to 22 s on overworld arrivals. Tests deliver
+    a return's 49 chunks in 34 to 68 ms; the rerun times it.
+- Pending: a rerun walks into a portal right after lighting it, drops into
+  an end portal right after opening it, enters a gateway at its block, and
+  times the overworld arrivals.
+
 Remaining after VMC-026b: the dragon fight (the dragon, respawning crystals,
 new gateways after each kill, the exit portal's activation) needs mobs (M3);
 respawn points in other dimensions (beds, anchors) are VMC-040.

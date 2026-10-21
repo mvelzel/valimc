@@ -296,6 +296,27 @@ defmodule Valimc.DimensionTravelConnectionTest do
     assert saved.death_dimension == :the_nether and saved.dimension == :overworld
   end
 
+  test "/spawn from the Nether travels to the overworld's spawn", ctx do
+    seed(ctx)
+    {client, pid} = enter(ctx)
+    travel(pid, :the_nether, %{x: 8.5, y: 120.0, z: 8.5, yaw: 0.0, pitch: 0.0})
+    {_respawn, client} = arrive(client, pid)
+    Client.send_packet(client, :play, "chat_command", Wire.string("spawn"))
+    {respawn, client} = arrive(client, pid)
+    {info, _} = spawn_info(respawn)
+    assert info.level == "minecraft:overworld"
+    spawn = Valimc.World.Spawn.pose()
+
+    assert Map.take(state(pid).player, [:dimension, :x, :y, :z]) == %{
+             dimension: :overworld,
+             x: spawn.x,
+             y: spawn.y,
+             z: spawn.z
+           }
+
+    _ = client
+  end
+
   test "players see each other only in the same dimension", ctx do
     seed(ctx)
     other = ctx.name <> "b"

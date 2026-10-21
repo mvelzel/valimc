@@ -26,6 +26,8 @@ defmodule Valimc.Player.Portals do
   alias Valimc.World.{BlockSnapshot, Directory}
 
   @cooldown Travel.cooldown()
+  # Ticks before a failed destination is tried again.
+  @retry 20
   @nether [Blocks.portal(:x), Blocks.portal(:z)]
   @end_portal Valimc.Registry.Blocks.default_state("end_portal")
   @end_gateway Valimc.Registry.Blocks.default_state("end_gateway")
@@ -63,14 +65,35 @@ defmodule Valimc.Player.Portals do
 
   defp tick(state, player, portal, position, touch) do
     {player, process, due} = step(player, portal.process, touch)
-    state = %{state | player: player, portal: %{process: process, last: position}}
+    retry = max(Map.get(portal, :retry, 0) - 1, 0)
+    state = %{state | player: player, portal: %{process: process, last: position, retry: retry}}
 
-    if due do
+    # A process that starts has its destination's regions admitted (`Valimc.Portal.Warm`).
+    if process && (portal.process == nil or portal.process.kind != process.kind),
+      do: Valimc.Portal.Warm.start(process.kind, process.entry)
+
+    if due and retry == 0 do
       player = %{state.player | portal_cooldown: @cooldown}
       start_destination(%{state | player: player}, process)
     else
       state
     end
+  end
+
+  @doc """
+  A destination job that failed (an error, a crash or its deadline): vanilla
+  finds destinations synchronously and never gets here. The player's cooldown
+  ends, so a player still in the portal tries again after `@retry` ticks
+  rather than renewing the cooldown until it steps out.
+  """
+  def failed(state) do
+    portal = Map.get(state, :portal) || %{process: nil, last: nil}
+
+    %{
+      state
+      | player: %{state.player | portal_cooldown: 0},
+        portal: Map.put(portal, :retry, @retry)
+    }
   end
 
   @doc """
@@ -253,7 +276,7 @@ defmodule Valimc.Player.Portals do
   def arrived(state, result) do
     require Logger
     Logger.warning("Portal destination unavailable: #{inspect(result, limit: 12)}")
-    state
+    failed(state)
   end
 
   # The first portal block the player's box met on its way from `from` (an

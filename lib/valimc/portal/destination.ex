@@ -19,16 +19,9 @@ defmodule Valimc.Portal.Destination do
   `:none` (a spectator with no portal to arrive at) or `{:error, reason}`.
   """
   def nether(entry) do
-    from = Valimc.Dimension.current()
-    to = if from == :the_nether, do: :overworld, else: :the_nether
     {axis, offset} = entry_place(entry)
-    {x, y, z} = entry.position
-
-    scale =
-      Valimc.Dimension.facts(from).coordinate_scale / Valimc.Dimension.facts(to).coordinate_scale
-
+    {to, approx} = approx(Valimc.Dimension.current(), entry.position)
     border = Valimc.World.Border.bounds(Valimc.World.Clock.border(Valimc.Dimension.name(to)))
-    approx = Forcer.clamp(border, {x * scale, y, z * scale})
 
     Valimc.Dimension.within(to, fn ->
       with {:ok, rectangle} <-
@@ -36,6 +29,20 @@ defmodule Valimc.Portal.Destination do
         {:ok, transition(rectangle, axis, offset, entry, to)}
       end
     end)
+  end
+
+  @doc """
+  The dimension a nether portal in `from` leads to, and `position` scaled by
+  the dimensions' coordinate scales and clamped to the destination's border.
+  """
+  def approx(from, {x, y, z}) do
+    to = if from == :the_nether, do: :overworld, else: :the_nether
+
+    scale =
+      Valimc.Dimension.facts(from).coordinate_scale / Valimc.Dimension.facts(to).coordinate_scale
+
+    border = Valimc.World.Border.bounds(Valimc.World.Clock.border(Valimc.Dimension.name(to)))
+    {to, Forcer.clamp(border, {x * scale, y, z * scale})}
   end
 
   # The entry portal's rectangle and the player's place in it

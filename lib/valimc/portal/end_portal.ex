@@ -104,6 +104,12 @@ defmodule Valimc.Portal.EndPortal do
     end
   end
 
+  @doc "The block square (`{x0, z0, x1, z1}`) the End's arrival platform covers."
+  def platform_area do
+    {x, _y, z} = @spawn
+    {x - 2, z - 2, x + 2, z + 2}
+  end
+
   @doc "`EndPlatformFeature.createEndPlatform` at `origin`: the blocks it changes, in order."
   def platform(read, {ox, oy, oz}) do
     air = Registry.default_state("air")

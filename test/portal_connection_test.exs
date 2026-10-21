@@ -16,7 +16,7 @@ defmodule Valimc.PortalConnectionTest do
   alias Valimc.Portal.Blocks
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
-  alias Valimc.World.Region
+  alias Valimc.World.Directory
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -121,6 +121,15 @@ defmodule Valimc.PortalConnectionTest do
   # Owners still generating answer late; the portal commits retry them.
   defp set(edits), do: :ok = Valimc.Portal.Access.commit(Map.to_list(edits))
 
+  # The destination's regions a lit or opened portal admits ahead of the player.
+  defp warmed?(kind, position) do
+    {dimension, area} = Valimc.Portal.Warm.area(kind, position)
+
+    Dimension.within(dimension, fn ->
+      Enum.all?(Valimc.Portal.Warm.regions(area), &Directory.lookup/1)
+    end)
+  end
+
   defp blocks(positions, dimension \\ :overworld) do
     Dimension.within(dimension, fn ->
       read = Valimc.Portal.Access.reader()
@@ -165,6 +174,8 @@ defmodule Valimc.PortalConnectionTest do
     opening = for dx <- 0..1, dy <- 0..2, do: {x + dx, y + dy, z}
     wait(fn -> Enum.all?(blocks(opening), fn {_, s} -> s == Blocks.portal(:x) end) end)
     assert state(pid).inventory.slots[36] == ItemStack.new("flint_and_steel", 1)
+    # The Nether's regions around the scaled position start loading before anyone steps in.
+    wait(fn -> warmed?(:nether_portal, bottom) end)
 
     # A creative player travels at once; the Nether has no portal yet, so one is made.
     client = move(client, pid, {x + 1.0, y * 1.0, z + 0.5})
@@ -211,6 +222,14 @@ defmodule Valimc.PortalConnectionTest do
     |> Map.new(fn {{cell, facing}, n} -> {cell, frame.(facing, n < eyes)} end)
   end
 
+  # Other game events (level loading, weather) may come first.
+  defp await_credits(client) do
+    case Client.await(client, :play, "game_event", 2000) do
+      {<<4, +0.0::float-32>>, client} -> client
+      {_other, client} -> await_credits(client)
+    end
+  end
+
   test "an eye completes an end portal frame; the portal leads to the End's platform, then the credits",
        ctx do
     {x, y, z} = ctx.origin
@@ -235,6 +254,7 @@ defmodule Valimc.PortalConnectionTest do
     portal = Valimc.Registry.Blocks.default_state("end_portal")
     wait(fn -> Enum.all?(blocks(cells), fn {_, s} -> s == portal end) end)
     assert state(pid).inventory.slots[36] == ItemStack.new("ender_eye", 3)
+    wait(fn -> warmed?(:end_portal, interior) end)
 
     client = move(client, pid, {x + 1.5, y + 0.0, z + 1.5})
     {level, {ex, ey, ez}, client} = arrive(client, pid)
@@ -250,7 +270,7 @@ defmodule Valimc.PortalConnectionTest do
     Dimension.within(:the_end, fn -> set(%{{102, 49, 2} => portal}) end)
     wait(fn -> state(pid).player.portal_cooldown == 0 end)
     client = move(client, pid, {102.5, 49.0, 2.5})
-    {<<4, +0.0::float-32>>, client} = Client.await(client, :play, "game_event", 2000)
+    client = await_credits(client)
     assert state(pid).player.seen_credits
     Client.send_packet(client, :play, "client_command", <<0>>)
     {respawn, client} = Client.await(client, :play, "respawn", 2000)

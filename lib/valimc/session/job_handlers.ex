@@ -275,7 +275,10 @@ defmodule Valimc.Session.JobHandlers do
     do:
       Valimc.Connection.guard_connection(state, fn -> {:noreply, Mining.cancel_mining(state)} end)
 
-  def job_down(kind, _job, _reason, state) when kind in [:pose, :pickup, :experience, :portal],
+  def job_down(:portal, _job, _reason, state),
+    do: {:noreply, Valimc.Player.Portals.failed(state)}
+
+  def job_down(kind, _job, _reason, state) when kind in [:pose, :pickup, :experience],
     do: {:noreply, state}
 
   def job_timeout(:motion, _job, state),
@@ -294,5 +297,6 @@ defmodule Valimc.Session.JobHandlers do
     do:
       Valimc.Connection.guard_connection(state, fn -> {:noreply, Mining.cancel_mining(state)} end)
 
+  def job_timeout(:portal, _job, state), do: {:noreply, Valimc.Player.Portals.failed(state)}
   def job_timeout(_kind, _job, state), do: {:noreply, state}
 end

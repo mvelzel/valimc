@@ -78,6 +78,7 @@ defmodule Valimc.Portal.Items do
                 :ok = Access.commit(EndPortal.portal_edits(cells))
                 {cx, cy, cz} = Enum.at(cells, 4)
                 Valimc.Players.broadcast({:global_level_event, 1038, {cx, cy, cz}, 0})
+                Valimc.Portal.Warm.start(:end_portal, {cx, cy, cz})
                 true
             end
 
@@ -120,9 +121,15 @@ defmodule Valimc.Portal.Items do
               []
           end
 
+        portal = match?([_, _ | _], edits)
+
         case Access.commit(edits) do
-          :ok -> {:ignited, %{item: command.item, portal: match?([_, _ | _], edits)}}
-          error -> {:refused, error}
+          :ok ->
+            if portal, do: Valimc.Portal.Warm.start(:nether_portal, elem(hd(edits), 0))
+            {:ignited, %{item: command.item, portal: portal}}
+
+          error ->
+            {:refused, error}
         end
     end
   catch

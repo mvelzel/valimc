@@ -16,12 +16,17 @@ defmodule Valimc.Commands.Preview do
     {1, source.state}
   end
 
+  # The world spawn is the overworld's; from another dimension the player travels there.
   def spawn(_arguments, source) do
     state = source.state
 
     if state.life_stage == :alive do
-      pose = Map.take(Valimc.World.Spawn.pose(), [:x, :y, :z])
-      {1, Valimc.Player.Movement.relocate(state, Map.merge(state.player, pose))}
+      pose =
+        Valimc.World.Spawn.pose()
+        |> Map.take([:x, :y, :z])
+        |> Map.merge(%{yaw: state.player.yaw, pitch: state.player.pitch, dimension: :overworld})
+
+      {1, Valimc.Player.Teleports.apply(state, pose)}
     else
       {0, state}
     end
