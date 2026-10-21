@@ -28,7 +28,10 @@ regions =
   end)
   |> Enum.uniq()
   |> Map.new(fn key ->
-    {:ok, blocks} = Blocks.new(key, %{}, Store.durable(imported, key, :columns))
+    # Lit as an owner lights it: chunks the import has not are unknown (VMC-077c).
+    images = Store.durable(imported, key, :columns)
+    absent = for c <- Valimc.Worldgen.Proto.chunks_of(key), not Map.has_key?(images, c), do: c
+    {:ok, blocks} = Blocks.new(key, %{}, images, absent)
 
     {:ok, containers} =
       case Store.durable(imported, key, :containers) do

@@ -9,9 +9,11 @@ defmodule Valimc.World.RegionGeneration do
   chunks nearest first, in
   bounded batches and never on itself: a terrain world on
   `Valimc.Worldgen.Pool` (`Generator.columns/2`), a decorated world through
-  its proto owner (`Proto.request_full_chunks/2`). A batch is persisted as one
-  store frame (`Store.commit_generated/5`) and installed once durable: its
-  columns relit once, its block entities and ticks added, its snapshots
+  its proto owner (`Proto.request_full_chunks/2`). Each chunk is lit alone
+  where it is generated and its column image keeps that light (VMC-077c). A
+  batch is persisted as one store frame (`Store.commit_generated/5`) and
+  installed once durable: its columns adopt their light and light crosses
+  their faces, its block entities and ticks are added, its snapshots
   published, neighbours' rings and served chunks' light updated, and the calls
   that waited for it run again. A failed batch stays wanted and is retried
   after a backoff.
@@ -173,12 +175,13 @@ defmodule Valimc.World.RegionGeneration do
     epoch = state.items.epoch
     ref = make_ref()
     spec = gen.spec
+    sky = Valimc.Dimension.facts().sky_light
 
     job =
       Valimc.Dimension.bind(fn ->
         result =
           try do
-            {:ok, Generator.columns(spec, chunks)}
+            {:ok, Blocks.lit_images(Generator.columns(spec, chunks), sky)}
           rescue
             error -> {:error, Exception.message(error)}
           catch
@@ -349,7 +352,7 @@ defmodule Valimc.World.RegionGeneration do
     columns = Map.filter(parts.columns, fn {chunk, _} -> absent?(gen, chunk) end)
     chunks = Map.keys(columns)
 
-    {:ok, lit} =
+    {:ok, changes} =
       case Blocks.put_columns(state.blocks, columns) do
         {:ok, _} = ok -> ok
         {:error, reason} -> exit({:generated_install_failed, reason})
@@ -395,16 +398,20 @@ defmodule Valimc.World.RegionGeneration do
 
     Valimc.Metrics.add(:worldgen_chunks, length(chunks))
 
-    # Served chunks next to the new ones were lit with them absent.
-    state = RegionData.light_changed(state, lit)
+    # Served chunks next to the new ones were lit with them unknown.
+    state = RegionData.light_changed(state, Blocks.changed_chunks(changes))
 
-    case Enum.filter(lit, &(MapSet.member?(state.served, &1) and &1 not in chunks)) do
-      [] ->
-        :ok
+    served =
+      for {chunk, _, _} = change <- changes,
+          MapSet.member?(state.served, chunk) and chunk not in chunks,
+          do: change
 
-      served ->
-        World.publish(state.key, {:block_batch, Valimc.World.LightHalo.frames(state, served)})
-    end
+    if served != [],
+      do:
+        World.publish(
+          state.key,
+          {:block_batch, Valimc.World.LightHalo.frames(state, served, :all)}
+        )
 
     state = Valimc.World.LightHalo.columns_changed(state, columns)
     if gen.mode == :decorated, do: Proto.handed_over(state.key, chunks)

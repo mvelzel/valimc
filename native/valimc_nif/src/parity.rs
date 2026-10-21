@@ -9,8 +9,10 @@ use crate::{atoms, bytes, done, reply};
 use rustler::{Atom, Binary, Env, NewBinary, NifResult, ResourceArc};
 
 /// Light of chunks given as column images over the chunk rectangle starting at
-/// (`min_cx`, `min_cz`); absent chunks are air. Returns, per given chunk,
-/// 24 sections of sky then block nibble arrays (vanilla layout).
+/// (`min_cx`, `min_cz`), lit as a live region lights generated chunks: one at a
+/// time in the given order, each with its light alone, then across its faces;
+/// absent chunks are unknown. Returns, per given chunk, 24 sections of sky then
+/// block nibble arrays (vanilla layout).
 #[rustler::nif(schedule = "DirtyCpu")]
 fn light_columns<'a>(
     env: Env<'a>,
@@ -21,43 +23,48 @@ fn light_columns<'a>(
     chunks_z: usize,
 ) -> Result<Vec<(i32, i32, Binary<'a>)>, Atom> {
     use valimc_core::column::{Column, SECTIONS};
-    use valimc_core::light::{block_light, nibbles, sky_light, Area, HEIGHT};
+    use valimc_core::light_grid::{light_alone, Blocks, Kind, LightGrid};
     let facts = LIGHT.get().ok_or(atoms::light_facts_missing())?;
-    let (wx, wz) = (chunks_x * 16, chunks_z * 16);
-    let mut states = vec![0u16; wx * wz * HEIGHT];
-    let mut chunks = Vec::new();
+    if chunks_x > 128 || chunks_z > 128 {
+        return Err(atoms::out_of_region());
+    }
+    let mut columns: Vec<Option<Column>> = (0..chunks_x * chunks_z).map(|_| None).collect();
+    let mut order = Vec::new();
     for (cx, cz, image) in &images {
         let column = Column::from_image(image.as_slice()).ok_or(atoms::invalid_layers())?;
-        let (ox, oz) = ((cx - min_cx) as usize * 16, (cz - min_cz) as usize * 16);
-        if *cx < min_cx || *cz < min_cz || ox >= wx || oz >= wz {
+        let (ax, az) = (cx - min_cx, cz - min_cz);
+        if ax < 0 || az < 0 || ax as usize >= chunks_x || az as usize >= chunks_z {
             return Err(atoms::out_of_region());
         }
-        for (s, storage) in column.sections.iter().enumerate() {
-            storage.for_each(|i, state| {
-                let (x, y, z) = (i & 15, s * 16 + (i >> 8), (i >> 4) & 15);
-                states[((ox + x) * wz + oz + z) * HEIGHT + y] = state;
-            });
-        }
-        chunks.push((*cx, *cz, ox, oz));
+        columns[ax as usize * chunks_z + az as usize] = Some(column);
+        order.push((*cx, *cz, ax as usize, az as usize));
     }
-    let area = Area {
-        wx,
-        wz,
-        states: &states,
+    let blocks = Blocks {
+        nx: chunks_x,
+        nz: chunks_z,
+        chunks: columns
+            .iter()
+            .map(|c| c.as_ref().map(|c| &c.sections[..]))
+            .collect(),
+        sky: true,
     };
-    let sky = sky_light(&area, facts);
-    let block = block_light(&area, facts);
-    Ok(chunks
+    let mut grid = LightGrid::new(chunks_x, chunks_z);
+    for &(_, _, ax, az) in &order {
+        let sections = blocks.chunks[ax * chunks_z + az].unwrap();
+        let alone = light_alone(sections, facts, true);
+        grid.install(&blocks, facts, vec![((ax, az), Some(alone))]);
+    }
+    Ok(order
         .into_iter()
-        .map(|(cx, cz, ox, oz)| {
+        .map(|(cx, cz, ax, az)| {
+            let (sky, block) = (
+                grid.layers(Kind::Sky, ax, az).unwrap(),
+                grid.layers(Kind::Block, ax, az).unwrap(),
+            );
             let mut out = Vec::with_capacity(SECTIONS * 4096);
             for s in 0..SECTIONS {
-                for levels in [&sky, &block] {
-                    out.extend(nibbles(|i| {
-                        let (x, y, z) = (i & 15, s * 16 + (i >> 8), (i >> 4) & 15);
-                        levels[((ox + x) * wz + oz + z) * HEIGHT + y]
-                    }));
-                }
+                out.extend(sky[s].nibbles());
+                out.extend(block[s].nibbles());
             }
             (cx, cz, bytes(env, out))
         })

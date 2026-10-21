@@ -1,63 +1,18 @@
 defmodule Valimc.Anvil.Light do
   @moduledoc """
-  Stored vanilla light of imported chunks (VMC-021e5), until ValiMC computes light
-  itself (VMC-022).
+  A chunk's light as packets carry it (VMC-021e5, VMC-077c): the image a
+  region's light gives (`Valimc.World.Blocks.light_image/3`) and its encoding
+  as the light part of `level_chunk_with_light` and `light_update`.
 
-  A chunk saved with `isLightOn` holds, per light section (y −5..20, one beyond
-  the world on each side), optional `SkyLight` and `BlockLight` nibble arrays.
-  Vanilla stores sky light only around the surface and block light only where
-  it is not zero; the client derives the rest (a missing sky section takes the
-  light at the bottom of the next stored section above, or full sky; missing
-  block light is zero). Sending exactly the stored arrays therefore lights an
-  imported chunk as vanilla does.
-
-  The image keeps each array as absent, one repeated byte, or its 2,048 bytes.
-  Light is not recomputed when blocks change: the client relights what it sees
-  change, but a later join sees the imported light.
+  The image holds 26 light sections (y −5..20, one beyond the world on each
+  side), each its sky then its block layer as absent (tag 0), one repeated
+  byte (tag 1) or its 2,048 bytes (tag 2). An absent layer is left out of the
+  packet: for a light update that is a section that did not change.
   """
   import Bitwise
   alias Valimc.Protocol.Wire
 
   @sections 26
-  @min -5
-
-  @doc "The light image of a chunk root, or nil when it has no valid stored light."
-  def image({:compound, root}) do
-    with {:byte, on} when on != 0 <- root["isLightOn"],
-         {:list, {:compound, sections}} <- root["sections"] do
-      by_y =
-        for %{"Y" => {:byte, y}} = section <- sections,
-            y >= @min and y < @min + @sections,
-            into: %{},
-            do: {y, section}
-
-      parts =
-        for y <- @min..(@min + @sections - 1) do
-          section = Map.get(by_y, y, %{})
-          [layer(section["SkyLight"]), layer(section["BlockLight"])]
-        end
-
-      if Enum.all?(List.flatten(parts), &(&1 != :invalid)),
-        do: IO.iodata_to_binary(parts),
-        else: nil
-    else
-      _ -> nil
-    end
-  end
-
-  def image(_), do: nil
-
-  defp layer(nil), do: <<0>>
-
-  defp layer({:byte_array, <<first, _::binary>> = bytes}) when byte_size(bytes) == 2048 do
-    if bytes == :binary.copy(<<first>>, 2048), do: <<1, first>>, else: [<<2>>, bytes]
-  end
-
-  defp layer(_), do: :invalid
-
-  @doc "Whether `image` is a well-formed light image."
-  def valid?(image) when is_binary(image), do: match?({:ok, _}, decode(image))
-  def valid?(_), do: false
 
   # `[{sky, block}]` per section, each nil or 2,048 bytes.
   defp decode(image), do: decode(image, @sections, [])

@@ -42,6 +42,8 @@ mod atoms {
         not_owner,
         flat,
         dense,
+        too_large,
+        old_column_image,
     }
 }
 

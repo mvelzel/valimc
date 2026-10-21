@@ -1,5 +1,5 @@
 defmodule Valimc.RegionLightTest do
-  @moduledoc "Region owners keep vanilla light current and send it (VMC-022c)."
+  @moduledoc "Region owners keep vanilla light current and send it (VMC-022c, VMC-077c)."
   use ExUnit.Case, async: true
   import Bitwise
   alias Valimc.Protocol.{Data, Wire}
@@ -60,17 +60,22 @@ defmodule Valimc.RegionLightTest do
   test "edits relight their surroundings, across chunk borders, and send light updates", ctx do
     {x0, z0} = ctx.origin
     World.subscribe(MapSet.new([ctx.key]), MapSet.new())
-    # A viewed chunk has been lit (lighting starts with the first light request).
-    image(ctx.owner, World.chunk_key(x0 + 47, z0 + 40))
+    # Served chunks get light updates.
+    _ = packet_light(World.chunk_key(x0 + 47, z0 + 40))
+    _ = packet_light(World.chunk_key(x0 + 48, z0 + 40))
     glowstone = BlockRegistry.default_state("glowstone")
     # At the east edge of its chunk, so the light crosses into the next chunk.
     lamp = {x0 + 47, 70, z0 + 40}
     set(ctx.owner, %{lamp => glowstone})
 
     assert_receive {:event, {:block_batch, updates}}
-    light_chunks = for {chunk, frame} <- updates, light_update?(frame), do: chunk
-    assert World.chunk_key(x0 + 47, z0 + 40) in light_chunks
-    assert World.chunk_key(x0 + 48, z0 + 40) in light_chunks
+    # After block changes, for clients that have the chunk at the edge of their view.
+    light = for {{:light, chunk}, frame} <- updates, light_update?(frame), do: {chunk, frame}
+    assert World.chunk_key(x0 + 47, z0 + 40) in Enum.map(light, &elem(&1, 0))
+    assert World.chunk_key(x0 + 48, z0 + 40) in Enum.map(light, &elem(&1, 0))
+    # Each carries only its changed sections around the lamp, not the 26 of a
+    # chunk packet.
+    for {_, frame} <- light, do: assert(byte_size(payload(frame)) < 5 * 2048)
 
     here = image(ctx.owner, World.chunk_key(x0 + 47, z0 + 40))
     east = image(ctx.owner, World.chunk_key(x0 + 48, z0 + 40))
@@ -176,7 +181,7 @@ defmodule Valimc.RegionLightTest do
            end)
 
     assert_receive {:event, {:block_batch, frames}}
-    light = for {chunk, frame} <- frames, light_update?(frame), do: chunk
+    light = for {{:light, chunk}, frame} <- frames, light_update?(frame), do: chunk
     assert sent in light
     refute unsent in light
     refute_received {:event, {:block_batch, _}}
@@ -218,14 +223,19 @@ defmodule Valimc.RegionLightTest do
 
   defp light_update?(frame) do
     id = Data.id(:play, :clientbound, "light_update")
-
-    case Wire.next_frame(
-           IO.iodata_to_binary(frame),
-           2_097_152,
-           Valimc.config(:compression_threshold)
-         ) do
-      {:ok, ^id, _payload, <<>>} -> true
-      _ -> false
-    end
+    match?({:ok, ^id, _payload, <<>>}, next_frame(frame))
   end
+
+  defp payload(frame) do
+    {:ok, _id, payload, <<>>} = next_frame(frame)
+    payload
+  end
+
+  defp next_frame(frame),
+    do:
+      Wire.next_frame(
+        IO.iodata_to_binary(frame),
+        2_097_152,
+        Valimc.config(:compression_threshold)
+      )
 end

@@ -8,15 +8,23 @@ defmodule Valimc.World.LightHalo do
   owner ever waits on another): after loading, an owner sends every loaded
   neighbour the column images of its chunks in that neighbour's ring
   (`{:halo, {:hello, ...}}`); the neighbour adopts them and answers with its own
-  (`{:halo, {:images, ...}}`). Durable block changes in ring chunks are forwarded
-  (`{:halo, {:edits, ...}}`). Every adoption relights and sends `light_update`
-  for the owner's chunks whose light changed. A ring chunk of an unloaded
-  neighbour keeps its last known blocks (flat terrain until first heard of).
+  (`{:halo, {:images, ...}}`). Generated columns follow as images, durable block
+  changes in ring chunks as edits (`{:halo, {:edits, ...}}`). A ring chunk is
+  unknown to light until its owner sends it (VMC-077c), and so is a chunk its
+  owner has not generated: light neither enters nor leaves it. A ring chunk of
+  a neighbour that unloads keeps its last known blocks.
+
+  Light changes go to clients as `light_update` packets carrying only the
+  changed sections (`frames/3`). Those that follow block changes reach only the
+  clients for whom the chunk is on the edge of what they have, as vanilla sends
+  them (`ChunkMap.isChunkOnTrackedBorder`): inside it the client relights from
+  the block updates itself. Those from adopted images reach every client that
+  has the chunk, since no block update tells a client about them.
   """
   alias Valimc.Native
   alias Valimc.Protocol.Packets
   alias Valimc.World
-  alias Valimc.World.Blocks
+  alias Valimc.World.{Blocks, RegionGeneration}
 
   def neighbours({rx, rz}),
     do: for(dx <- -1..1, dz <- -1..1, {dx, dz} != {0, 0}, do: {rx + dx, rz + dz})
@@ -29,19 +37,20 @@ defmodule Valimc.World.LightHalo do
     not inside and cx in (mx - 1)..(mx + size) and cz in (mz - 1)..(mz + size)
   end
 
-  # This region's chunks that lie in `other`'s ring.
-  defp ring_chunks(key, other) do
+  # This region's generated chunks that lie in `other`'s ring.
+  defp ring_chunks(state, other) do
     size = Valimc.config(:region_size)
-    {rx, rz} = key
+    {rx, rz} = state.key
 
     for cx <- (rx * size)..(rx * size + size - 1),
         cz <- (rz * size)..(rz * size + size - 1),
         ring?(other, {cx, cz}),
+        not RegionGeneration.absent?(state.generation, {cx, cz}),
         do: {cx, cz}
   end
 
   defp images(state, other) do
-    for chunk <- ring_chunks(state.key, other) do
+    for chunk <- ring_chunks(state, other) do
       {:ok, image} = Blocks.column_image(state.blocks, chunk)
       {elem(chunk, 0), elem(chunk, 1), image}
     end
@@ -88,38 +97,53 @@ defmodule Valimc.World.LightHalo do
 
   @doc "Handle a neighbour's message."
   def handle({:hello, from, pid, images}, state) do
-    state = adopt(state, Native.halo_put(state.blocks.ref, images))
+    state = adopt(state, Native.halo_put(state.blocks.ref, images), :all)
     send(pid, {:halo, {:images, state.key, images(state, from)}})
     state
   end
 
   def handle({:images, _from, images}, state),
-    do: adopt(state, Native.halo_put(state.blocks.ref, images))
+    do: adopt(state, Native.halo_put(state.blocks.ref, images), :all)
 
-  def handle({:edits, _from, edits}, state),
-    do: adopt(state, Native.halo_edits(state.blocks.ref, edits))
+  def handle({:edits, _from, edits}, state) do
+    case Native.halo_set(state.blocks.ref, edits) do
+      {:ok, positions} ->
+        adopt(state, {:ok, Blocks.light_update(state.blocks, positions)}, :border)
 
-  defp adopt(state, {:ok, []}), do: state
+      {:error, _} ->
+        state
+    end
+  end
+
+  defp adopt(state, {:ok, []}, _scope), do: state
 
   # Only chunks a client has asked for need a light update; neighbours loading
   # around fresh terrain relight many chunks nobody has yet (VMC-071).
-  defp adopt(state, {:ok, chunks}) do
-    case Enum.filter(chunks, &MapSet.member?(state.served, &1)) do
+  defp adopt(state, {:ok, changes}, scope) do
+    case Enum.filter(changes, &MapSet.member?(state.served, elem(&1, 0))) do
       [] -> :ok
-      served -> World.publish(state.key, {:block_batch, frames(state, served)})
+      served -> World.publish(state.key, {:block_batch, frames(state, served, scope)})
     end
 
-    Valimc.World.RegionData.light_changed(state, chunks)
+    Valimc.World.RegionData.light_changed(state, Blocks.changed_chunks(changes))
   end
 
-  defp adopt(state, {:error, _}), do: state
+  defp adopt(state, {:error, _}, _scope), do: state
 
-  @doc "`light_update` frames for the region's chunks whose light changed."
-  def frames(state, chunks) do
+  @doc """
+  `light_update` frames for the region's light `changes` (`Blocks.light_update/2`),
+  each with only its changed sections. `:border` frames (after block changes)
+  go only to clients for whom the chunk is on the edge of what they have,
+  `:all` frames to every client that has it.
+  """
+  def frames(state, changes, scope) do
     threshold = Valimc.config(:compression_threshold)
 
-    for chunk <- chunks,
-        image = Blocks.light_image(state.blocks, chunk),
-        do: {chunk, Packets.frame(Packets.light_update(chunk, image), threshold)}
+    for {chunk, sky, block} <- changes,
+        image = Blocks.light_image(state.blocks, chunk, {sky, block}),
+        do: {target(scope, chunk), Packets.frame(Packets.light_update(chunk, image), threshold)}
   end
+
+  defp target(:border, chunk), do: {:light, chunk}
+  defp target(:all, chunk), do: chunk
 end

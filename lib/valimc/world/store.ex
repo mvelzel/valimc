@@ -19,7 +19,7 @@ defmodule Valimc.World.Store do
   # owner-loaded; written whole, or shrunk by a `block_entities_drop` frame part
   # when a loot chest unpacks, VMC-072b); `chunk_extras` (`chunk => nbt`, vanilla chunk data ValiMC does
   # not model) and `entities` (`chunk => nbt`, preserved vanilla entities) are kept
-  # for export only; `light` (`chunk => image`, VMC-021e5) is owner-loaded.
+  # for export only. A column image holds its chunk's light (VMC-077c).
   # `post_processing` (`chunk => {marks, fluid_ticks}`, VMC-025d) holds what a
   # generated chunk leaves for fluids (VMC-031): its post-processing marks and
   # fluid ticks.
@@ -32,10 +32,9 @@ defmodule Valimc.World.Store do
     block_entities: %{},
     chunk_extras: %{},
     entities: %{},
-    light: %{},
     post_processing: %{}
   }
-  @imported [:columns, :items, :containers, :block_entities, :chunk_extras, :entities, :light]
+  @imported [:columns, :items, :containers, :block_entities, :chunk_extras, :entities]
   # A store is named by its region key scoped by the opener's dimension.
   def start_link({key, owner}), do: start_link({key, owner, Valimc.Dimension.current()})
 
@@ -133,9 +132,6 @@ defmodule Valimc.World.Store do
     end
   end
 
-  @doc "Imported chunks' stored light (`chunk => image`, VMC-021e5)."
-  def load_light(pid), do: GenServer.call(pid, :load_light)
-
   @doc "Preserved vanilla block entities (`position => {type_id, nbt}`, VMC-021e)."
   def load_block_entities(pid), do: GenServer.call(pid, :load_block_entities)
 
@@ -212,7 +208,6 @@ defmodule Valimc.World.Store do
              :block_entities,
              :chunk_extras,
              :entities,
-             :light,
              :post_processing
            ] do
     dir = log_dir(base, key)
@@ -270,8 +265,6 @@ defmodule Valimc.World.Store do
 
   def handle_call(:load, _from, state), do: {:reply, state.values.blocks, state}
   def handle_call(:load_columns, _from, state), do: {:reply, state.values.columns, state}
-
-  def handle_call(:load_light, _from, state), do: {:reply, state.values.light, state}
 
   def handle_call(:load_block_entities, _from, state),
     do: {:reply, state.values.block_entities, state}

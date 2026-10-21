@@ -37,7 +37,11 @@ defmodule Valimc.RegionGenerationTest do
     table
   end
 
-  defp column({x, z}), do: Generator.columns({:vanilla, @seed}, [{x, z}])[{x, z}]
+  # Generated columns as regions store them: each with its light alone (VMC-077c).
+  defp columns(chunks),
+    do: World.Blocks.lit_images(Generator.columns({:vanilla, @seed}, chunks), true)
+
+  defp column(chunk), do: columns([chunk])[chunk]
 
   # A block of `chunk` as the generator makes it.
   defp generated_block(chunk, position) do
@@ -155,7 +159,7 @@ defmodule Valimc.RegionGenerationTest do
 
     columns = Store.durable(ctx.base, ctx.key, :columns)
     assert Enum.sort(Map.keys(columns)) == Enum.sort(wanted)
-    assert columns == Generator.columns({:vanilla, @seed}, wanted)
+    assert columns == columns(wanted)
 
     # A withdrawn ticket generates nothing more; an edit over generated terrain is kept.
     Region.ticket(pid, :player_loading, {cx, cz}, [])
@@ -216,8 +220,9 @@ defmodule Valimc.RegionGenerationTest do
     |> Task.async_stream(&Valimc.TestBlocks.get(inside(&1)), timeout: 120_000)
     |> Stream.run()
 
-    # Lit first with absent (flat) neighbours, relit as they arrived, equal to
-    # lighting the generated 3 × 3 from scratch; clients got the change.
+    # Lit first with its neighbours unknown, then across each face as they
+    # arrived, equal to lighting the generated 3 × 3 together; clients got the
+    # change.
     lit = Region.light_image(owner, chunk)
     assert lit != before
     assert sections(lit) == reference_light(chunk)

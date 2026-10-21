@@ -226,8 +226,8 @@ defmodule Valimc.Session.Events do
   end
 
   def event(%{phase: :play} = state, {:block_batch, updates}) do
-    state = forget_ready(state, Enum.map(updates, &elem(&1, 0)))
-    frames = for {chunk, frame} <- updates, MapSet.member?(state.chunks, chunk), do: frame
+    state = forget_ready(state, Enum.map(updates, &chunk_of(elem(&1, 0))))
+    frames = for {target, frame} <- updates, sends?(state.chunks, target), do: frame
     send_frames(state, frames)
 
     state
@@ -325,4 +325,20 @@ defmodule Valimc.Session.Events do
 
   defp forget_ready(state, chunks),
     do: %{state | chunk_sender: Valimc.Session.ChunkSender.forget(state.chunk_sender, chunks)}
+
+  # Light after block changes reaches a client only for a chunk on the edge of
+  # what it has, as vanilla sends it (`ChunkMap.isChunkOnTrackedBorder`):
+  # inside it the client relights from the block updates itself (VMC-077c).
+  defp sends?(chunks, {:light, {cx, cz} = chunk}) do
+    MapSet.member?(chunks, chunk) and
+      Enum.any?(
+        for(dx <- -1..1, dz <- -1..1, {dx, dz} != {0, 0}, do: {cx + dx, cz + dz}),
+        &(not MapSet.member?(chunks, &1))
+      )
+  end
+
+  defp sends?(chunks, chunk), do: MapSet.member?(chunks, chunk)
+
+  defp chunk_of({:light, chunk}), do: chunk
+  defp chunk_of(chunk), do: chunk
 end

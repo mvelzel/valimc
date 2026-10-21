@@ -1418,11 +1418,14 @@ defmodule Valimc.Worldgen.Proto do
     owner = self()
     worldgen = state.worldgen
     ref = make_ref()
+    sky = Valimc.Dimension.facts().sky_light
 
     case Pool.start(fn ->
            result =
              try do
-               Native.worldgen_proto_full(worldgen, images, Generator.protocol_biomes())
+               with {:ok, full} <-
+                      Native.worldgen_proto_full(worldgen, images, Generator.protocol_biomes()),
+                    do: {:ok, lit(full, sky)}
              rescue
                error -> {:error, Exception.message(error)}
              end
@@ -1435,6 +1438,12 @@ defmodule Valimc.Worldgen.Proto do
       {:error, _} ->
         %{state | retry: state.retry || Process.send_after(self(), :retry_finalize, 20)}
     end
+  end
+
+  # Full chunks with their light alone stored in their images (VMC-077c).
+  defp lit(full, sky) do
+    lit = Valimc.World.Blocks.lit_images(Map.new(full, &{{&1.x, &1.z}, &1.image}), sky)
+    Enum.map(full, &%{&1 | image: Map.fetch!(lit, {&1.x, &1.z})})
   end
 
   defp now, do: System.monotonic_time(:millisecond)

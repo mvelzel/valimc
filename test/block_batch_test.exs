@@ -64,12 +64,13 @@ defmodule Valimc.BlockBatchTest do
     assert_receive {:event, {:block_batch, frames}}
     assert Enum.all?(frames, fn {_, frame} -> is_binary(frame) end)
 
-    # Two section updates, then light updates for the lit chunks the blocks shade (VMC-022c).
+    # Two section updates, then light updates for the lit chunks the blocks shade
+    # (VMC-022c), for clients with those chunks at the edge of their view (VMC-077c).
     kinds = Enum.group_by(frames, fn {_, frame} -> frame_name(frame) end, &elem(&1, 0))
     assert length(kinds["section_blocks_update"]) == 2
 
-    assert {div(x, 16), div(z, 16)} in kinds["light_update"] and
-             {div(x, 16) + 1, div(z, 16)} in kinds["light_update"]
+    assert {:light, {div(x, 16), div(z, 16)}} in kinds["light_update"] and
+             {:light, {div(x, 16) + 1, div(z, 16)}} in kinds["light_update"]
 
     assert Map.keys(kinds) -- ["section_blocks_update", "light_update"] == []
     refute_receive {:event, _}, 10

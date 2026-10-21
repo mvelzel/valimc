@@ -22,9 +22,10 @@ defmodule Valimc.Anvil.Import do
   world and dimension data such as world generation settings, game rules,
   weather and world border) is kept under `vanilla/` for export; the world's
   generation settings are also recorded in `world.json` (VMC-028a), so clients
-  get its hashed seed and `/seed` its seed. Stored light
-  (VMC-021e5, `Valimc.Anvil.Light`) lights imported chunks as vanilla does; POI
-  and the other dimensions are not imported.
+  get its hashed seed and `/seed` its seed. Each imported chunk is lit alone
+  and keeps that light in its column image (VMC-077c), as a generated chunk
+  does; vanilla's stored light is not read. POI and the other dimensions are
+  not imported.
 
   Run with the server stopped, into a new or empty directory:
 
@@ -304,20 +305,18 @@ defmodule Valimc.Anvil.Import do
   end
 
   defp add(acc, _pos, {:ok, %{chunk: chunk, sections: sections}, {:compound, root}}) do
-    case Native.column_image_of(sections) do
-      {:ok, image} ->
-        entry = %{
-          chunk: chunk,
-          image: image,
-          block_entities: block_entity_tags(root["block_entities"]),
-          extras: extras(root),
-          light: Valimc.Anvil.Light.image({:compound, root})
-        }
+    with {:ok, image} <- Native.column_image_of(sections),
+         {:ok, image} <- Native.light_column_image(image, true) do
+      entry = %{
+        chunk: chunk,
+        image: image,
+        block_entities: block_entity_tags(root["block_entities"]),
+        extras: extras(root)
+      }
 
-        %{acc | chunks: [entry | acc.chunks]}
-
-      {:error, reason} ->
-        %{acc | errors: [{chunk, reason} | acc.errors]}
+      %{acc | chunks: [entry | acc.chunks]}
+    else
+      {:error, reason} -> %{acc | errors: [{chunk, reason} | acc.errors]}
     end
   end
 
@@ -373,8 +372,7 @@ defmodule Valimc.Anvil.Import do
       columns: images,
       block_entities: preserved,
       chunk_extras: Map.new(chunks, &{&1.chunk, &1.extras}),
-      entities: entities,
-      light: for(%{light: light} = c <- chunks, light != nil, into: %{}, do: {c.chunk, light})
+      entities: entities
     }
 
     result =

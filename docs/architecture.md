@@ -121,7 +121,7 @@ over a pure `valimc_core` crate) owns dense data and CPU-heavy pure work:
 |---|---|
 | Section/column storage and chunk packet encoding | Mutable 4096-entry arrays and bit packing; large memory win |
 | World generation (M2) | The most CPU per chunk; pure; runs on dirty CPU schedulers behind a bounded pool |
-| Lighting (M2) | Breadth-first propagation over nibble arrays on the section resource |
+| Lighting (M2) | Per chunk (VMC-077c): each chunk lit alone where it is generated and stored in its column image; a region adopts that light, propagates only across chunk faces and then updates incrementally within a work budget, over nibble arrays on the section resource |
 | Disk NBT reading (VMC-020) | 3.5–4× the Elixir reader on vanilla chunks; values are sub-binaries of the input |
 | Anvil import and export (VMC-021) | LZ4 chunk streams; packed palette indices into sections; compact column images for the region log; vanilla palette packing for export (5.7× the Elixir reference) |
 

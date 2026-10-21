@@ -25,12 +25,16 @@ defmodule Valimc.Native do
 
   # NIFs with a dirty twin: worst-case nanoseconds per unit (VMC-077b) and the
   # twin. Disk NBT per input byte (terms included); LZ4 per output byte; block
-  # changes per change; random ticks per draw.
+  # changes per change; random ticks per draw. A light update's cost is not
+  # bounded by its positions: past 64 it runs dirty, and on a normal scheduler
+  # Rust stops it at a budget of work and undoes it (`{:error, :too_large}`)
+  # for the caller to run dirty (VMC-077c).
   @twins %{
     nbt_read: {8, :nbt_read_dirty},
     lz4_decode_stream: {0.5, :lz4_decode_stream_dirty},
     set_blocks: {40, :set_blocks_dirty},
-    random_ticks: {5, :random_ticks_dirty}
+    random_ticks: {5, :random_ticks_dirty},
+    light_update: {15_625, :light_update_dirty}
   }
 
   @doc """
@@ -78,13 +82,14 @@ defmodule Valimc.Native do
   def block_facts_init(_columns), do: :erlang.nif_error(:nif_not_loaded)
 
   def light_sky(_region, _sky), do: :erlang.nif_error(:nif_not_loaded)
-  def light_compute(_region), do: :erlang.nif_error(:nif_not_loaded)
+  def light_init(_region, _absent), do: :erlang.nif_error(:nif_not_loaded)
   def light_update(_region, _positions), do: :erlang.nif_error(:nif_not_loaded)
   def light_update_dirty(_region, _positions), do: :erlang.nif_error(:nif_not_loaded)
-  def light_image(_region, _cx, _cz), do: :erlang.nif_error(:nif_not_loaded)
+  def light_image(_region, _cx, _cz, _sections), do: :erlang.nif_error(:nif_not_loaded)
+  def light_column_image(_image, _sky), do: :erlang.nif_error(:nif_not_loaded)
   def halo_put(_region, _chunks), do: :erlang.nif_error(:nif_not_loaded)
+  def halo_set(_region, _edits), do: :erlang.nif_error(:nif_not_loaded)
   def put_columns_lit(_region, _images), do: :erlang.nif_error(:nif_not_loaded)
-  def halo_edits(_region, _edits), do: :erlang.nif_error(:nif_not_loaded)
 
   ## Codec
 

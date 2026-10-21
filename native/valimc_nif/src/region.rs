@@ -436,7 +436,7 @@ fn column_image<'a>(
     })
 }
 
-/// Restore a chunk's column from its image.
+/// Restore a chunk's column from its image, with the light it was stored with.
 #[rustler::nif]
 fn put_column_image(
     env: Env,
@@ -447,10 +447,16 @@ fn put_column_image(
 ) -> NifResult<Atom> {
     done((|| {
         let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
-        let column = valimc_core::column::Column::from_image(image.as_slice())
+        // Images from before stored light (VMC-077c) are refused, not read (D4).
+        if image.first() < Some(&valimc_core::column::IMAGE_VERSION) {
+            return Err(atoms::old_column_image());
+        }
+        let (column, light) = valimc_core::column::Column::read_image(image.as_slice())
             .ok_or(atoms::invalid_layers())?;
         with_owned(env, &region, |store| {
-            store.put_column((cx, cz), column, flags).map_err(error)
+            store
+                .restore_column((cx, cz), column, light, flags)
+                .map_err(error)
         })
     })())
 }

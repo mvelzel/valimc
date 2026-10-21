@@ -21,10 +21,14 @@ defmodule Valimc.World.Blocks do
   @budget 64 * 1024 * 1024
 
   @doc """
-  Storage for region `key`: flat terrain, then imported column `images`
-  (`chunk => image`, VMC-021c), then sparse `edits` on top.
+  Storage for region `key`: flat terrain, then column `images` (`chunk =>
+  image`, VMC-021c), then sparse `edits` on top. A region owner passes its
+  `absent` chunks (not generated yet, VMC-075) to light the rest as well
+  (VMC-077c): before the edits, each chunk from the light its image was
+  stored with (or lit alone) and the light across the faces between them;
+  then the edits relight incrementally.
   """
-  def new({rx, rz} = key, edits \\ %{}, images \\ %{}) do
+  def new({rx, rz} = key, edits \\ %{}, images \\ %{}, absent \\ nil) do
     size = Valimc.config(:region_size)
     layers = for y <- Chunk.min_y()..319, into: <<>>, do: <<Chunk.base(y)::16>>
     {:ok, ref} = Native.region_new(rx * size, rz * size, size, layers, @budget)
@@ -40,52 +44,86 @@ defmodule Valimc.World.Blocks do
         end
       end)
 
-    with :ok <- restored, :ok <- put(blocks, edits), do: {:ok, blocks}
+    with :ok <- restored,
+         :ok <- light_init(blocks, absent),
+         :ok <- put(blocks, edits) do
+      if absent != nil, do: light_update(blocks, Map.keys(edits))
+      {:ok, blocks}
+    end
   end
 
-  @doc "Light the region and its one-chunk ring from scratch (VMC-022c)."
-  def light_compute(%__MODULE__{} = blocks) do
-    :ok = Native.light_compute(blocks.ref)
-  end
+  defp light_init(_blocks, nil), do: :ok
 
-  @doc """
-  Relight after the blocks at `positions` changed; returns the region's chunks
-  whose light changed. Large batches run on a dirty scheduler.
-  """
-  def light_update(%__MODULE__{} = blocks, positions) when is_list(positions) do
-    update =
-      if length(positions) > 64, do: &Native.light_update_dirty/2, else: &Native.light_update/2
-
-    {:ok, chunks} = update.(blocks.ref, positions)
-    chunks
-  end
-
-  @doc """
-  A chunk's light image (`Valimc.Anvil.Light` layout). The region is lit on the
-  first request (until then edits need no relighting: the first light computation
-  sees them).
-  """
-  def light_image(%__MODULE__{} = blocks, {cx, cz} = chunk) do
-    case Native.light_image(blocks.ref, cx, cz) do
-      {:ok, :flat} ->
-        :ok = light_compute(blocks)
-        light_image(blocks, chunk)
-
-      {:ok, image} ->
-        image
+  defp light_init(blocks, absent) do
+    case Native.light_init(blocks.ref, Enum.to_list(absent)) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:light_init, reason}}
     end
   end
 
   @doc """
+  Relight after the blocks at `positions` changed; returns the region's light
+  changes, `{chunk, sky_sections, block_sections}` with a bit per stored
+  section. A few positions relight on a normal scheduler within a budget of
+  work; past it (undone in Rust), or for a larger batch, on a dirty one.
+  """
+  def light_update(%__MODULE__{}, []), do: []
+
+  def light_update(%__MODULE__{} = blocks, positions) when is_list(positions) do
+    case Native.dispatch(:light_update, length(positions), [blocks.ref, positions]) do
+      {:ok, changes} ->
+        changes
+
+      {:error, :too_large} ->
+        {:ok, changes} = Native.light_update_dirty(blocks.ref, positions)
+        changes
+    end
+  end
+
+  @doc """
+  Column images (`chunk => image`) with each chunk's light alone stored in
+  them (VMC-077c), for a dimension with or without `sky` light: generation
+  and import light each chunk where it is made, and a region adopts that light
+  when it installs or loads the column, so it only lets light cross the
+  chunk's faces. Long work: run it in a generation job or offline, never in an
+  owner. Identical images are lit once.
+  """
+  def lit_images(images, sky) when is_map(images) and is_boolean(sky) do
+    lit =
+      images
+      |> Map.values()
+      |> Enum.uniq()
+      |> Map.new(fn image ->
+        {:ok, lit} = Native.light_column_image(image, sky)
+        {image, lit}
+      end)
+
+    Map.new(images, fn {chunk, image} -> {chunk, Map.fetch!(lit, image)} end)
+  end
+
+  @doc "The chunks of light changes."
+  def changed_chunks(changes), do: for({chunk, _, _} <- changes, do: chunk)
+
+  @doc """
+  A chunk's light image (`Valimc.Anvil.Light` layout), nil while light does
+  not know the chunk; with `sections` (`{sky_bits, block_bits}`, a bit per
+  stored section) only those layers.
+  """
+  def light_image(%__MODULE__{} = blocks, {cx, cz}, sections \\ nil) do
+    {:ok, image} = Native.light_image(blocks.ref, cx, cz, sections)
+    image
+  end
+
+  @doc """
   Install generated column images (`chunk => image`, VMC-075), all or nothing,
-  and relight once; returns the region's chunks whose light changed (none before
-  the region is lit: its first computation sees them).
+  with the light they were generated with; returns the region's light changes
+  (`light_update/2`).
   """
   def put_columns(%__MODULE__{} = blocks, images) when is_map(images) do
     list = for {{cx, cz}, image} <- images, do: {cx, cz, image}
 
     case Native.put_columns_lit(blocks.ref, list) do
-      {:ok, chunks} -> {:ok, chunks}
+      {:ok, changes} -> {:ok, changes}
       {:error, _} = error -> error
     end
   end

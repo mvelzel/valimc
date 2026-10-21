@@ -49,7 +49,6 @@ defmodule Valimc.World.RegionData do
 
   defstruct [
     :block_entities,
-    :light,
     :key,
     :containers,
     :container_viewers,
@@ -131,7 +130,7 @@ defmodule Valimc.World.RegionData do
     generation = RegionGeneration.new(key, images)
 
     blocks =
-      case Blocks.new(key, edits, images) do
+      case Blocks.new(key, edits, images, generation.absent) do
         {:ok, blocks} ->
           blocks
 
@@ -150,11 +149,6 @@ defmodule Valimc.World.RegionData do
         {:ok, block_entities} -> block_entities
         {:error, reason} -> exit({:block_entity_load_failed, reason})
       end
-
-    light = Store.load_light(store)
-
-    unless Enum.all?(light, fn {_, image} -> Valimc.Anvil.Light.valid?(image) end),
-      do: exit({:light_load_failed, :invalid_light_image})
 
     {items, receipts, persistent} =
       case Store.load_items(store) do
@@ -193,7 +187,6 @@ defmodule Valimc.World.RegionData do
       item_receipts: receipts,
       containers: containers,
       block_entities: block_entities,
-      light: light,
       container_viewers: %ContainerViewers{},
       cooking_progress: %{},
       cooking: %CookingRuntime{enabled: Valimc.config(:cooking_simulation, key)},
@@ -1597,7 +1590,7 @@ defmodule Valimc.World.RegionData do
 
           state =
             state
-            |> light_changed(lit -- [key])
+            |> light_changed(Blocks.changed_chunks(lit) -- [key])
             |> release_when_durable([{:raw_block, position, block, previous_blocks, lit}])
 
           next =
@@ -2228,7 +2221,10 @@ defmodule Valimc.World.RegionData do
 
     if lit != [],
       do:
-        Valimc.World.publish(state.key, {:block_batch, Valimc.World.LightHalo.frames(state, lit)})
+        Valimc.World.publish(
+          state.key,
+          {:block_batch, Valimc.World.LightHalo.frames(state, lit, :border)}
+        )
 
     Valimc.World.LightHalo.forward(state, %{position => block})
     Valimc.Metrics.add(:block_edits)
@@ -3021,7 +3017,7 @@ defmodule Valimc.World.RegionData do
     # Light follows every change, cooking too (a lit furnace emits light).
     lit = Blocks.light_update(state.blocks, Map.keys(proposal.changes))
     # Edited chunks were invalidated with their blocks above; others only lit.
-    state = light_changed(state, lit -- batch.chunks)
+    state = light_changed(state, Blocks.changed_chunks(lit) -- batch.chunks)
 
     {state, %{batch: batch, previous: previous, chunks: chunks, cooking: cooking, light: lit}}
   end
@@ -3056,7 +3052,7 @@ defmodule Valimc.World.RegionData do
         do: state,
         else: retire_container_changes(state, effects.batch.edits, effects.previous)
 
-    light = Valimc.World.LightHalo.frames(state, Map.get(effects, :light, []))
+    light = Valimc.World.LightHalo.frames(state, Map.get(effects, :light, []), :border)
 
     # Clients relight from the light packets after the block updates; neighbours
     # relight their ring from the changed blocks.

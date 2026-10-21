@@ -1,4 +1,4 @@
-# Anvil export throughput and stored-light cost (VMC-021e3/e5) on a vanilla world.
+# Anvil export throughput and light cost (VMC-021e3/e5) on a vanilla world.
 #
 #   python3 scripts/java_tool.py ChunkOracle generate <dir> <dir>/chunks.json
 #   MIX_ENV=prod mix run --no-start bench/anvil_export.exs <dir>/universe/w <scratch>
@@ -7,8 +7,8 @@
 # parallel per vanilla region, crash-safe writes) after one warmup, then a
 # one-process phase breakdown per chunk: column dump, chunk NBT, NBT write, zlib,
 # and block palette packing in Rust against its Elixir reference.
-# Finally every imported chunk's packet with its stored light against the
-# full-bright packet: bytes before and after network compression, and encode time.
+# Finally every imported chunk's packet with its light (each chunk's own, stored
+# at import, then lit across the faces, VMC-077c) against the full-bright packet: bytes before and after network compression, and encode time.
 alias Valimc.Anvil.{Chunk, Export, Import}
 alias Valimc.NBT
 alias Valimc.Protocol.Packets
@@ -38,7 +38,6 @@ keys =
       do: {String.to_integer(x), String.to_integer(z)}
 
 columns = Map.new(keys, fn key -> {key, Store.durable(imported, key, :columns)} end)
-light = Enum.reduce(keys, %{}, &Map.merge(&2, Store.durable(imported, &1, :light)))
 
 phases =
   for {key, images} <- columns,
@@ -74,7 +73,8 @@ phases =
 packets =
   for {key, images} <- columns, reduce: %{lit: [], bright: [], lit_us: 0, bright_us: 0} do
     acc ->
-      {:ok, blocks} = Blocks.new(key, %{}, images)
+      absent = for c <- Valimc.Worldgen.Proto.chunks_of(key), not Map.has_key?(images, c), do: c
+      {:ok, blocks} = Blocks.new(key, %{}, images, absent)
 
       Enum.reduce(Map.keys(images), acc, fn chunk, acc ->
         encoded = Blocks.encode(blocks, chunk)
@@ -87,7 +87,7 @@ packets =
           end)
         end
 
-        {lit_us, lit} = frame.(light[chunk])
+        {lit_us, lit} = frame.(Blocks.light_image(blocks, chunk))
         {bright_us, bright} = frame.(nil)
 
         %{
@@ -103,7 +103,7 @@ packets =
 per = fn total -> Float.round(total / phases.chunks, 1) end
 mean = fn list -> div(Enum.sum(list), length(list)) end
 
-IO.puts("Imported #{report.chunks} chunks (#{map_size(light)} with stored light)")
+IO.puts("Imported #{report.chunks} chunks")
 IO.puts("Export of #{hd(runs).chunks} chunks: median #{Enum.at(ms, 2)} ms (runs #{inspect(ms)})")
 
 IO.puts(
@@ -117,6 +117,6 @@ IO.puts(
 )
 
 IO.puts(
-  "Chunk frames: stored light #{mean.(packets.lit)} B, full bright #{mean.(packets.bright)} B; " <>
+  "Chunk frames: lit #{mean.(packets.lit)} B, full bright #{mean.(packets.bright)} B; " <>
     "encode #{per.(packets.lit_us)} µs vs #{per.(packets.bright_us)} µs"
 )
