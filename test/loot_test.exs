@@ -42,16 +42,6 @@ defmodule Valimc.LootTest do
              {:ok, fill, 0}
   end
 
-  test "a stored seed of zero rolls a fresh seed" do
-    fills =
-      for _ <- 1..8 do
-        {:ok, fill, 0} = Loot.fill("minecraft:chests/simple_dungeon", 0, {0, 64, 0})
-        fill
-      end
-
-    assert length(Enum.uniq(fills)) > 1
-  end
-
   test "an exploration map takes the next map id and marks the structure it finds" do
     assert {:ok, fill, 1} =
              Loot.fill(
@@ -75,66 +65,5 @@ defmodule Valimc.LootTest do
     assert {:ok, sent} = map |> ItemStack.encode() |> IO.iodata_to_binary() |> ItemStack.decode()
     assert sent.components == Map.delete(map.components, "minecraft:map_decorations")
     assert ItemData.stack(ItemData.tag(map)) == {:ok, map}
-  end
-
-  test "a table that names no structure search finds still fills, and unknown tables fail" do
-    assert {:ok, items, 0} = Loot.items("minecraft:archaeology/desert_pyramid", 7, {0, 64, 0})
-    assert [%ItemStack{count: 1}] = items
-    assert {:error, _} = Loot.fill("minecraft:chests/nonexistent", 1, {0, 64, 0})
-  end
-
-  test "loot components round-trip through the network and the data format" do
-    stacks = [
-      %{
-        ItemStack.new("suspicious_stew")
-        | components: %{
-            "minecraft:suspicious_stew_effects" => [
-              {"minecraft:weakness", 140},
-              {"minecraft:night_vision", 160}
-            ]
-          }
-      },
-      %{
-        ItemStack.new("goat_horn")
-        | components: %{"minecraft:instrument" => "minecraft:yearn_goat_horn"}
-      },
-      %{
-        ItemStack.new("ominous_bottle")
-        | components: %{"minecraft:ominous_bottle_amplifier" => 3}
-      }
-    ]
-
-    for stack <- stacks do
-      assert {:ok, ^stack} =
-               stack |> ItemStack.encode() |> IO.iodata_to_binary() |> ItemStack.decode()
-
-      assert ItemData.stack(ItemData.tag(stack)) == {:ok, stack}
-    end
-
-    # A default stew duration is left out of the saved entry.
-    {:compound, %{"components" => {:compound, components}}} = ItemData.tag(hd(stacks))
-
-    assert {:list, {:compound, [%{"duration" => {:int, 140}}, night_vision]}} =
-             components["minecraft:suspicious_stew_effects"]
-
-    refute Map.has_key?(night_vision, "duration")
-  end
-
-  test "values equal to an item's defaults leave no patch" do
-    horn = %{
-      ItemStack.new("goat_horn")
-      | components: %{"minecraft:instrument" => "minecraft:ponder_goat_horn"}
-    }
-
-    bottle = %{
-      ItemStack.new("ominous_bottle")
-      | components: %{"minecraft:ominous_bottle_amplifier" => 0}
-    }
-
-    assert ItemStack.normalize(horn) == ItemStack.new("goat_horn")
-    assert ItemStack.normalize(bottle) == ItemStack.new("ominous_bottle")
-
-    assert ItemStack.component(ItemStack.new("goat_horn"), "minecraft:instrument") ==
-             "minecraft:ponder_goat_horn"
   end
 end

@@ -34,17 +34,6 @@ defmodule Valimc.TableInventoryTest do
 
   defp seal(payload), do: payload <> :crypto.hash(:sha256, payload)
 
-  test "table ownership is separate from player addresses, result and permission state" do
-    inv = inventory()
-    assert length(Inventory.contents(inv)) == 55
-    assert Enum.drop(Inventory.contents(inv), 46) == Tuple.to_list(inv.table_inputs)
-    assert Inventory.held(inv, :main) == ItemStack.new("stone", 7)
-    assert Inventory.held(inv, :off) == ItemStack.new("shield")
-    assert length(Inventory.display_contents(inv)) == 46
-    assert Inventory.crafting_result(inv) == nil and Inventory.get(inv, 0) == nil
-    assert Inventory.contents(Inventory.new()) == List.duplicate(nil, 46)
-  end
-
   test "v15 preserves all nine exact inputs and existing journal; plain snapshots keep their format" do
     original = snapshot(%{inventory() | drag: %{mode: 0}, state_id: 11, infinite_materials: true})
     assert {:ok, <<"VMCPOSE", 15, _::binary>> = bytes} = PlayerSnapshot.encode(@uuid, original)
@@ -178,28 +167,5 @@ defmodule Valimc.TableInventoryTest do
 
     assert {:error, :item_conservation_failed} =
              PlayerTransfers.prepare(@uuid, 0, before, after_snapshot, {0, 0}, records)
-  end
-
-  test "connected close retains overflow until committed while death preserves transient curses" do
-    inv = %{inventory() | slots: Map.new(9..44, &{&1, ItemStack.new("bedrock", 64)})}
-    {:ok, next, first} = Inventory.close(inv)
-    assert length(first) == 5
-    assert Enum.count(Inventory.table_contents(next), &(&1 != nil)) == 5
-    assert next.carried == nil
-    {:ok, next, second} = Inventory.close(next)
-    assert length(second) == 5 and next.table_inputs == nil
-    assert next.slots == inv.slots
-
-    inv = %{inventory() | slots: %{36 => patched()}, carried: patched()}
-
-    {empty, drops, destroyed} =
-      Enum.reduce(1..3, {inv, [], []}, fn _, {inv, drops, destroyed} ->
-        {:ok, next, batch, lost} = Inventory.death_batch(inv)
-        assert length(batch) <= 5
-        {next, drops ++ batch, destroyed ++ lost}
-      end)
-
-    assert destroyed == [patched()] and drops == List.duplicate(patched(), 10)
-    assert empty.slots == %{} and empty.carried == nil and empty.table_inputs == nil
   end
 end

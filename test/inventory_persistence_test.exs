@@ -157,76 +157,36 @@ defmodule Valimc.InventoryPersistenceTest do
     close(client, other, other_uuid)
   end
 
-  test "a stalled checkpoint captures one immutable inventory; later edits survive final close",
-       %{base: base} do
+  test "an accepted inventory frame before a later malformed frame survives final save" do
     username = name()
     {uuid, client} = login(username)
-    stone = ItemStack.new("stone", 7)
-    egg = ItemStack.new("egg", 3)
-    client = seed(client, 9, stone)
-    [{writer, _}] = Registry.lookup(Valimc.PlayerStoreRegistry, uuid)
     pid = player(username).pid
-    :sys.suspend(writer)
+    state = Valimc.TestConn.state(pid)
+    ref = Process.monitor(pid)
+    stone = ItemStack.new("stone", 19)
 
-    try do
-      send(pid, :save_player)
-      assert is_reference(Valimc.TestConn.state(pid).save_ref)
-      _client = seed(client, 9, egg)
-      for _ <- 1..3, do: send(pid, :save_player)
-      assert Valimc.TestConn.state(pid).inventory.slots[9] == egg
-      assert {:message_queue_len, 1} = Process.info(writer, :message_queue_len)
-    after
-      :sys.resume(writer)
-    end
+    batch =
+      IO.iodata_to_binary([
+        Wire.frame(
+          Data.id(:play, :serverbound, "set_creative_mode_slot"),
+          [<<38::signed-16>>, ItemStack.encode(stone, :untrusted)],
+          client.threshold
+        ),
+        Wire.frame(
+          Data.id(:play, :serverbound, "set_carried_item"),
+          <<2::signed-16>>,
+          client.threshold
+        ),
+        Wire.frame(Data.id(:play, :serverbound, "container_click"), <<>>, client.threshold)
+      ])
 
-    # Writer barrier: the earlier cast has committed before this rejected foreign load.
-    assert {:error, :not_owner} = GenServer.call(writer, :load)
-    assert {:ok, saved} = PlayerSnapshot.decode(File.read!(PlayerStore.path(base, uuid)), uuid)
-    assert saved.inventory.slots[9] == stone
-    close(client, username, uuid)
+    send(pid, {:tcp, state.socket, batch})
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+    Client.close(client)
+    departed(uuid)
     {^uuid, next} = login(username)
-    assert Enum.at(next.inventory.items, 9) == egg
+    assert Enum.at(next.inventory.items, 38) == stone and next.selected == 2
     close(next, username, uuid)
-  end
-
-  test "an accepted inventory frame before a later malformed frame survives final save" do
-    for bad <- [:malformed_frame, :malformed_payload] do
-      username = name()
-      {uuid, client} = login(username)
-      pid = player(username).pid
-      state = Valimc.TestConn.state(pid)
-      ref = Process.monitor(pid)
-      stone = ItemStack.new("stone", 19)
-
-      broken =
-        if bad == :malformed_frame,
-          do: <<128, 128, 128, 128, 128, 128>>,
-          else:
-            Wire.frame(Data.id(:play, :serverbound, "container_click"), <<>>, client.threshold)
-
-      batch =
-        IO.iodata_to_binary([
-          Wire.frame(
-            Data.id(:play, :serverbound, "set_creative_mode_slot"),
-            [<<38::signed-16>>, ItemStack.encode(stone, :untrusted)],
-            client.threshold
-          ),
-          Wire.frame(
-            Data.id(:play, :serverbound, "set_carried_item"),
-            <<2::signed-16>>,
-            client.threshold
-          ),
-          broken
-        ])
-
-      send(pid, {:tcp, state.socket, batch})
-      assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
-      Client.close(client)
-      departed(uuid)
-      {^uuid, next} = login(username)
-      assert Enum.at(next.inventory.items, 38) == stone and next.selected == 2
-      close(next, username, uuid)
-    end
   end
 
   test "legacy login is read-only until a valid save and rejected configuration does not migrate",

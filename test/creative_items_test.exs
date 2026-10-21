@@ -2,7 +2,7 @@ defmodule Valimc.CreativeItemsTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
   alias Valimc.TestClient, as: Client
-  alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
+  alias Valimc.Protocol.{ItemStack, ItemTypes, TooltipDisplay, Wire}
 
   defp name, do: "Item" <> Integer.to_string(System.unique_integer([:positive]))
 
@@ -25,27 +25,52 @@ defmodule Valimc.CreativeItemsTest do
   end
 
   test "hotbar corrections preserve stacks and components; non-block items do not place blocks" do
-    {_, client} = Client.login(name())
+    username = name()
+    {_, client} = Client.login(username)
     on_exit(fn -> Client.close(client) end)
     client = Client.load_world(client)
     Client.send_packet(client, :play, "player_loaded", <<>>)
+
+    # Text, enchantment and tooltip components round-trip exactly (their codecs
+    # are compared with vanilla by the text, enchantment and tooltip oracles).
+    rich = %{
+      ItemStack.new("stone", 7)
+      | components: %{
+          "minecraft:custom_name" =>
+            {:compound, %{"text" => {:string, "ValiMC\0🚀"}, "color" => {:string, "gold"}}},
+          "minecraft:lore" => [
+            {:string, "First lore"},
+            {:compound, %{"text" => {:string, "Second"}, "italic" => {:byte, 0}}}
+          ],
+          "minecraft:enchantments" => %{"minecraft:unbreaking" => 3},
+          "minecraft:stored_enchantments" => %{"minecraft:sharpness" => 5},
+          "minecraft:tooltip_display" => %TooltipDisplay{
+            hide: true,
+            hidden: MapSet.new(["minecraft:lore"])
+          }
+        }
+    }
+
+    {^rich, _, client} = set_slot(client, 37, rich)
+    player = Enum.find(Valimc.Players.all(), &(&1.name == username))
+    assert :sys.get_state(player.pid).inventory.slots[37] == rich
 
     stack = %{
       ItemStack.new("stone", 17)
       | components: %{"minecraft:enchantment_glint_override" => true}
     }
 
-    {^stack, 1, client} = set_slot(client, 36, stack)
+    {^stack, 2, client} = set_slot(client, 36, stack)
     position = {3, 64, 3}
     Valimc.World.set_block(position, 0)
     use = [<<0>>, Wire.position({3, 63, 3}), <<1, 0::96, 0, 0, 11>>]
     Client.send_packet(client, :play, "use_item_on", use)
     {<<11>>, client} = Client.await(client, :play, "block_changed_ack")
     assert Valimc.World.get_block(position) == Valimc.Protocol.Data.block("stone")
-    {nil, 2, client} = set_slot(client, 36, nil)
+    {nil, 3, client} = set_slot(client, 36, nil)
     Valimc.World.set_block(position, 0)
     egg = ItemStack.new("egg", 16)
-    {^egg, 3, client} = set_slot(client, 36, egg)
+    {^egg, 4, client} = set_slot(client, 36, egg)
     Client.send_packet(client, :play, "use_item_on", use)
     {<<11>>, _} = Client.await(client, :play, "block_changed_ack")
     assert Valimc.World.get_block(position) == 0

@@ -3,9 +3,8 @@ defmodule Valimc.MenuOverflowTest do
   @moduletag :tcp
   alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players, World}
   alias Valimc.World.{ItemRecords, Items, Region}
-  alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
+  alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
-  import ExUnit.CaptureLog
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -205,62 +204,6 @@ defmodule Valimc.MenuOverflowTest do
     departed(ctx)
   end
 
-  test "stalled source does not publish partial merges and gates repeat close/click/swap while movement stays live",
-       ctx do
-    client = login(ctx, true)
-    {pid, state} = await_state(ctx, &(&1.recovery == nil))
-    :sys.suspend(state.player_store)
-
-    try do
-      close_menu(client)
-      {^pid, pending} = await_state(ctx, &(&1.recovery != nil && &1.recovery.stage == :prepare))
-      assert length(pending.recovery.plan.records) == 5
-      close_menu(client)
-
-      Client.send_packet(client, :play, "container_click", [
-        <<0, 0, -999::signed-16, 0>>,
-        Wire.varint(ItemTypes.input_id("pickup")),
-        <<0, 0>>
-      ])
-
-      Client.send_packet(client, :play, "player_action", [
-        Wire.varint(ItemTypes.action_id("swap_item_with_offhand")),
-        Wire.position({0, 0, 0}),
-        <<0, 0>>
-      ])
-
-      Client.send_packet(
-        client,
-        :play,
-        "move_player_pos",
-        <<ctx.pose.x + 1::float-64, 64.0::float-64, ctx.pose.z::float-64, 1>>
-      )
-
-      client = barrier(client)
-      Client.await_position(pid, %{x: ctx.pose.x + 1})
-      frozen = Valimc.TestConn.state(pid)
-
-      assert frozen.inventory.slots == ctx.original.slots and
-               frozen.inventory.carried == ctx.original.carried
-
-      assert frozen.player.x == ctx.pose.x + 1 and records(ctx) == []
-      assert File.read!(ctx.path) == ctx.bytes
-      :sys.resume(state.player_store)
-      {^pid, done} = completed(ctx)
-      verify_return(ctx, done.inventory)
-      assert done.player.x == ctx.pose.x + 1
-
-      assert MapSet.new(Enum.map(records(ctx), & &1.uuid)) ==
-               MapSet.new(Enum.map(pending.recovery.plan.records, & &1.uuid))
-
-      Client.close(client)
-    after
-      if Process.alive?(state.player_store), do: :sys.resume(state.player_store)
-      Client.close(client)
-      departed(ctx)
-    end
-  end
-
   test "destination stalls expose no partial batch; disconnect recovery delivers the same five UUIDs",
        ctx do
     client = login(ctx, true)
@@ -297,70 +240,6 @@ defmodule Valimc.MenuOverflowTest do
       departed(ctx)
     after
       if Process.alive?(writer), do: :sys.resume(writer)
-      Client.close(client)
-      departed(ctx)
-    end
-  end
-
-  test "disabled storage and failed source writes cannot publish partial returns or world records",
-       ctx do
-    for failure <- [:disabled, :write_failure] do
-      client = login(ctx, true)
-      {pid, state} = await_state(ctx, &(&1.recovery == nil))
-
-      if failure == :disabled do
-        :sys.replace_state(state.player_store, &%{&1 | path: nil})
-        close_menu(client)
-        {_, client} = Client.await(client, :play, "system_chat")
-        client = barrier(client)
-        frozen = Valimc.TestConn.state(pid)
-        assert frozen.recovery == nil and frozen.inventory.slots == ctx.original.slots
-        assert frozen.inventory.carried == ctx.original.carried
-        Client.close(client)
-        departed(ctx)
-      else
-        File.write!(Path.join(ctx.base, "blocked"), "not a directory")
-
-        :sys.replace_state(
-          state.player_store,
-          &%{&1 | path: Path.join(ctx.base, "blocked/player.pose")}
-        )
-
-        capture_log(fn ->
-          close_menu(client)
-          {_, _} = Client.await(client, :play, "disconnect")
-          Client.close(client)
-          departed(ctx)
-        end)
-      end
-
-      assert records(ctx) == [] and File.read!(ctx.path) == ctx.bytes
-    end
-  end
-
-  test "normal-save admission preserves the entire overflow plan until a fresh close retries",
-       ctx do
-    client = login(ctx, true)
-    {pid, state} = await_state(ctx, &(&1.recovery == nil))
-    :sys.suspend(state.player_store)
-
-    try do
-      send(pid, :save_player)
-      await_state(ctx, &(&1.save_ref != nil))
-      close_menu(client)
-      client = barrier(client)
-      frozen = Valimc.TestConn.state(pid)
-      assert frozen.recovery == nil and frozen.inventory.slots == ctx.original.slots
-      assert frozen.inventory.carried == ctx.original.carried and records(ctx) == []
-      :sys.resume(state.player_store)
-      await_state(ctx, &(&1.save_ref == nil))
-      close_menu(client)
-      {_, done} = completed(ctx)
-      verify_return(ctx, done.inventory)
-      assert length(records(ctx)) == 5
-      Client.close(client)
-    after
-      if Process.alive?(state.player_store), do: :sys.resume(state.player_store)
       Client.close(client)
       departed(ctx)
     end

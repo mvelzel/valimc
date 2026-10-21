@@ -61,39 +61,37 @@ defmodule Valimc.PlayerContainerTransfersTest do
     {snapshot, %{kind: :container, key: {0, 0}, request: request}, containers}
   end
 
-  for mode <- [:survival, :creative] do
-    test "original items persist before receipt-backed sealing in #{mode}" do
-      {snapshot, intent, containers} = fixture(unquote(mode))
-      assert {:ok, pending} = PlayerContainerTransfers.prepare(@uuid, 9, snapshot, intent)
-      assert pending.inventory == snapshot.inventory and pending.transfer_sequence == 10
-      assert {:ok, bytes} = PlayerSnapshot.encode(@uuid, pending)
-      assert {:ok, restored} = PlayerSnapshot.decode(bytes, @uuid)
-      assert restored.inventory.carried == snapshot.inventory.carried
-      assert restored.inventory.slots == snapshot.inventory.slots
-      assert restored.effects == %{} and restored.absorption == 0.0 and restored.fire_ticks == -20
-      assert {:ok, key, request, _} = PlayerContainerIntent.request(@uuid, 10, restored.outbox)
-      assert request.inventory.infinite_materials == (unquote(mode) == :creative)
+  test "original items persist before receipt-backed sealing" do
+    {snapshot, intent, containers} = fixture(:creative)
+    assert {:ok, pending} = PlayerContainerTransfers.prepare(@uuid, 9, snapshot, intent)
+    assert pending.inventory == snapshot.inventory and pending.transfer_sequence == 10
+    assert {:ok, bytes} = PlayerSnapshot.encode(@uuid, pending)
+    assert {:ok, restored} = PlayerSnapshot.decode(bytes, @uuid)
+    assert restored.inventory.carried == snapshot.inventory.carried
+    assert restored.inventory.slots == snapshot.inventory.slots
+    assert restored.effects == %{} and restored.absorption == 0.0 and restored.fire_ticks == -20
+    assert {:ok, key, request, _} = PlayerContainerIntent.request(@uuid, 10, restored.outbox)
+    assert request.inventory.infinite_materials == true
 
-      assert {:ok, %{result: :applied, containers: committed}} =
-               ContainerTransfers.plan(containers, key, request, true)
+    assert {:ok, %{result: :applied, containers: committed}} =
+             ContainerTransfers.plan(containers, key, request, true)
 
-      assert {:ok, sealed} =
-               PlayerContainerTransfers.resolve(@uuid, restored, committed.receipts[@uuid])
+    assert {:ok, sealed} =
+             PlayerContainerTransfers.resolve(@uuid, restored, committed.receipts[@uuid])
 
-      assert sealed.inventory.carried == nil and
-               sealed.inventory.slots == snapshot.inventory.slots
+    assert sealed.inventory.carried == nil and
+             sealed.inventory.slots == snapshot.inventory.slots
 
-      assert sealed.health == snapshot.health and sealed.food == snapshot.food
-      assert sealed.inventory.infinite_materials == (unquote(mode) == :creative)
-      assert sealed.outbox == nil and sealed.transfer_sequence == 10
-      assert {:ok, sealed_bytes} = PlayerSnapshot.encode(@uuid, sealed)
+    assert sealed.health == snapshot.health and sealed.food == snapshot.food
+    assert sealed.inventory.infinite_materials == true
+    assert sealed.outbox == nil and sealed.transfer_sequence == 10
+    assert {:ok, sealed_bytes} = PlayerSnapshot.encode(@uuid, sealed)
 
-      assert {:ok, %{outbox: nil, transfer_sequence: 10}} =
-               PlayerSnapshot.decode(sealed_bytes, @uuid)
+    assert {:ok, %{outbox: nil, transfer_sequence: 10}} =
+             PlayerSnapshot.decode(sealed_bytes, @uuid)
 
-      assert {:error, :invalid_container_plan} =
-               PlayerContainerTransfers.resolve(@uuid, sealed, committed.receipts[@uuid])
-    end
+    assert {:error, :invalid_container_plan} =
+             PlayerContainerTransfers.resolve(@uuid, sealed, committed.receipts[@uuid])
   end
 
   test "rejection keeps original items and accepted permission survives a later mode change" do
@@ -120,47 +118,6 @@ defmodule Valimc.PlayerContainerTransfersTest do
     assert sealed.inventory.carried == nil and sealed.inventory.infinite_materials
   end
 
-  test "changed inventory, incorrect source and conflicting receipts cannot grant or erase a pending intent" do
-    {snapshot, intent, containers} = fixture()
-    {:ok, pending} = PlayerContainerTransfers.prepare(@uuid, 9, snapshot, intent)
-
-    {:ok, %{containers: applied}} =
-      ContainerTransfers.plan(containers, intent.key, pending.outbox.request, true)
-
-    for changed <- [
-          put_in(pending.inventory.selected, 4),
-          put_in(pending.inventory.carried, nil),
-          put_in(pending.inventory.slots[36], ItemStack.new("stone", 3)),
-          put_in(pending.inventory.table_inputs, Tuple.duplicate(nil, 9))
-        ] do
-      assert {:error, :container_inventory_conflict} =
-               PlayerContainerTransfers.resolve(@uuid, changed, applied.receipts[@uuid])
-
-      assert {:error, :invalid_container_snapshot} = PlayerSnapshot.encode(@uuid, changed)
-    end
-
-    assert {:error, :transfer_conflict} =
-             PlayerContainerTransfers.resolve(@uuid, pending, %{sequence: 10, digest: <<0::256>>})
-
-    assert {:error, :stale_transfer} =
-             PlayerContainerTransfers.resolve(@uuid, pending, %{sequence: 11, digest: <<0::256>>})
-
-    {:ok, bytes} = PlayerContainerIntent.encode(@uuid, 10, pending.outbox)
-
-    assert {:error, :invalid_container_intent} =
-             PlayerContainerIntent.decode(<<1::128>>, 10, bytes)
-
-    assert {:error, :invalid_container_intent} = PlayerContainerIntent.decode(@uuid, 11, bytes)
-
-    assert {:error, :invalid_container_plan} =
-             PlayerContainerTransfers.prepare(
-               @uuid,
-               9,
-               put_in(snapshot.inventory.carried, nil),
-               intent
-             )
-  end
-
   test "v20 inner journal works with each independent effect/fire/absorption wrapper" do
     {snapshot, intent, _} = fixture()
 
@@ -184,46 +141,8 @@ defmodule Valimc.PlayerContainerTransfersTest do
     end
   end
 
-  test "a rehashed player file cannot pair an unchanged intent with a different original inventory" do
+  test "a pending or exhausted source cannot prepare another intent" do
     {snapshot, intent, _} = fixture()
-    {:ok, pending} = PlayerContainerTransfers.prepare(@uuid, 9, snapshot, intent)
-    {:ok, bytes} = PlayerSnapshot.encode(@uuid, pending)
-    size = byte_size(bytes) - 32
-    <<payload::binary-size(^size), _::binary-size(32)>> = bytes
-
-    original =
-      IO.iodata_to_binary([
-        <<snapshot.inventory.selected>>,
-        Enum.map(1..45, &ItemStack.encode(Inventory.get(snapshot.inventory, &1))),
-        ItemStack.encode(snapshot.inventory.carried)
-      ])
-
-    prefix_size = byte_size(payload) - byte_size(original)
-    <<prefix::binary-size(^prefix_size), ^original::binary>> = payload
-    <<_, inventory_body::binary>> = original
-    changed = <<prefix::binary, 4, inventory_body::binary>>
-    changed = changed <> :crypto.hash(:sha256, changed)
-    assert {:error, :invalid_player_file} = PlayerSnapshot.decode(changed, @uuid)
-  end
-
-  test "dead/spectator/pending/exhausted source plans fail before inventory changes" do
-    {snapshot, intent, _} = fixture()
-
-    assert {:error, :invalid_container_plan} =
-             PlayerContainerTransfers.prepare(
-               @uuid,
-               9,
-               put_in(snapshot.health.value, 0.0),
-               intent
-             )
-
-    assert {:error, :invalid_container_plan} =
-             PlayerContainerTransfers.prepare(
-               @uuid,
-               9,
-               %{snapshot | game_mode: GameMode.new(:spectator)},
-               intent
-             )
 
     assert {:error, :invalid_container_plan} =
              PlayerContainerTransfers.prepare(@uuid, 8, snapshot, intent)

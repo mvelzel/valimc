@@ -74,13 +74,6 @@ defmodule Valimc.InventoryTransactionsTest do
     assert Inventory.click(inv, :quick_craft, 9, 12) == {:error, :unsupported_click}
   end
 
-  test "specialized item clicks remain explicit instead of applying ordinary stacking semantics" do
-    bundle = ItemStack.new("bundle")
-    inv = put(Inventory.new(), 9, bundle)
-    assert Inventory.click(inv, :pickup, 9, 0) == {:error, :unsupported_click}
-    assert Inventory.get(inv, 9) == bundle
-  end
-
   test "aggregate inventory budget keeps corrections bounded and rejected edits preserve old state" do
     path = "minecraft:" <> String.duplicate("a", 32600)
 

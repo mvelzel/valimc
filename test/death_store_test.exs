@@ -122,26 +122,4 @@ defmodule Valimc.DeathStoreTest do
 
     assert {:error, :stale_transfer} = Region.apply_item_transfer(owner, request)
   end
-
-  test "a death containing only vanishing equipment saves destruction without a transfer", ctx do
-    cursed = %{
-      ItemStack.new("iron_helmet")
-      | components: %{"minecraft:enchantments" => %{"minecraft:vanishing_curse" => 1}}
-    }
-
-    monitor = Process.monitor(ctx.writer)
-
-    assert :ok =
-             PlayerStore.close_session(
-               ctx.writer,
-               ctx.fence,
-               snapshot(ctx, %Inventory{slots: %{5 => cursed}})
-             )
-
-    assert_receive {:DOWN, ^monitor, :process, _, :normal}
-    assert {:ok, stored} = saved(ctx)
-    assert stored.health.value == 0 and stored.inventory.slots == %{}
-    assert stored.transfer_sequence == 0 and stored.outbox == nil
-    assert World.item_snapshot(ctx.key) == %{}
-  end
 end

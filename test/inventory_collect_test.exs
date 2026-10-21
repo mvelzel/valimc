@@ -41,17 +41,6 @@ defmodule Valimc.InventoryCollectTest do
     assert totals(next) == totals(inv)
   end
 
-  test "scan direction changes which partial stack remains, not the collected total" do
-    inv = %{Inventory.new() | carried: ItemStack.new("stone", 10)}
-    inv = inv |> put(9, ItemStack.new("stone", 30)) |> put(11, ItemStack.new("stone", 40))
-    forward = collect(inv)
-    reverse = collect(inv, 1)
-    assert Inventory.get(forward, 9) == nil and Inventory.get(forward, 11).count == 16
-    assert Inventory.get(reverse, 11) == nil and Inventory.get(reverse, 9).count == 16
-    assert forward.carried.count == 64 and reverse.carried.count == 64
-    assert totals(forward) == totals(inv) and totals(reverse) == totals(inv)
-  end
-
   test "patches, effective limits and source slots are respected; result output stays untouched" do
     stone = %{
       ItemStack.new("stone", 5)

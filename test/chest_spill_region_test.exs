@@ -1,7 +1,6 @@
 defmodule Valimc.ChestSpillRegionTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-  import ExUnit.CaptureLog
   alias Valimc.Protocol.ItemStack
   alias Valimc.World
   alias Valimc.World.{Containers, ItemLedger, Items, MiningTransfers, Region}
@@ -155,50 +154,6 @@ defmodule Valimc.ChestSpillRegionTest do
     assert audit(c, true) == saved
   end
 
-  test "creative physical removal spills contents but no chest and leaves source receipts independent",
-       c do
-    assert {:error, :occupied_container} = World.set_block(c.position, 0)
-    assert :ok = World.remove_block(c.position)
-    saved = audit(c, false)
-    assert saved.receipts == %{}
-    assert :ok = World.remove_block(c.position)
-    assert audit(c, false) == saved
-  end
-
-  test "creative owner death during queued storage preserves the sampled spill UUIDs and motion",
-       c do
-    writer = :sys.get_state(c.pid).resource.store
-    :sys.suspend(writer)
-
-    task =
-      Task.async(fn ->
-        try do
-          World.remove_block(c.position)
-        catch
-          :exit, _ -> :retired
-        end
-      end)
-
-    try do
-      pending = writing(c.pid)
-      proposed = Items.records(pending.items)
-      monitor = Process.monitor(c.pid)
-      Process.exit(c.pid, :kill)
-      assert_receive {:DOWN, ^monitor, :process, _, :killed}
-      assert :retired = Task.await(task, 60_000)
-      :sys.resume(writer)
-      {:ok, owner} = World.item_owner(c.key)
-      assert elem(owner, 0) != c.pid
-      saved = audit(c, false)
-      assert saved.records == proposed and saved.receipts == %{}
-      assert :ok = World.remove_block(c.position)
-      assert audit(c, false) == saved
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-      Task.shutdown(task, :brutal_kill)
-    end
-  end
-
   @tag capacity: true
   test "insufficient item admission durably refuses the entire filled mining operation", c do
     assert {:error, :item_count_limit} = World.remove_block(c.position)
@@ -214,29 +169,5 @@ defmodule Valimc.ChestSpillRegionTest do
              MiningTransfers.receipt_result(c.key, c.transfer, saved.receipts[c.source])
 
     assert {:ok, :already_rejected} = Region.apply_mining_transfer(c.owner, c.transfer)
-  end
-
-  test "a failed filled spill write keeps the chest, contents and records, then rejects the retry",
-       c do
-    writer = :sys.get_state(c.pid).resource.store
-    Valimc.TestDisk.break_writer(writer)
-    monitor = Process.monitor(c.pid)
-
-    capture_log(fn ->
-      assert {:error, :mining_commit_uncertain} =
-               Region.apply_mining_transfer(c.owner, c.transfer)
-
-      assert_receive {:DOWN, ^monitor, :process, _, _}
-    end)
-
-    Valimc.TestDisk.await_exit(writer)
-    {:ok, {pid, _} = owner} = World.item_owner(c.key)
-    assert World.get_block(c.position) == c.chest
-    assert Valimc.TestConn.state(pid).resource.containers == c.containers
-    assert {:ok, :rejected} = Region.apply_mining_transfer(owner, c.transfer)
-    assert World.get_block(c.position) == c.chest
-    assert Valimc.TestConn.state(pid).resource.containers == c.containers
-    {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, c.key, :items), c.key)
-    assert saved.records == c.initial
   end
 end

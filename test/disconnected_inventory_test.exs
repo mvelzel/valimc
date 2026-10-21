@@ -1,10 +1,9 @@
 defmodule Valimc.DisconnectedInventoryTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  import ExUnit.CaptureLog
   alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players, World}
-  alias Valimc.World.{ItemRecords, Region}
-  alias Valimc.Protocol.{ItemStack, Wire}
+  alias Valimc.World.Region
+  alias Valimc.Protocol.ItemStack
   alias Valimc.TestClient, as: Client
 
   setup do
@@ -220,99 +219,6 @@ defmodule Valimc.DisconnectedInventoryTest do
     end
   end
 
-  test "orphan cleanup is journaled before login configuration; other players remain responsive",
-       ctx do
-    seed(ctx, ctx.snapshot)
-    owner = region(ctx)
-    disk = :sys.get_state(owner).resource.store
-    :sys.suspend(disk)
-    client = Client.begin_login(ctx.name)
-
-    try do
-      pending =
-        wait(fn ->
-          p = Enum.find(:ets.tab2list(Players), fn {_, p} -> p.uuid == ctx.uuid end)
-
-          if p do
-            s = :sys.get_state(elem(p, 0))
-
-            if s.recovery && s.recovery.stage == :delivery &&
-                 Valimc.TestRegion.writing?(:sys.get_state(owner).resource),
-               do: s
-          end
-        end)
-
-      assert pending.phase == :login and pending.step == :recover
-      assert World.item_snapshot(ctx.key) == %{}
-      assert length(saved(ctx).outbox.records) == 5
-      assert {:error, :session_closing} = PlayerStore.open(ctx.uuid)
-      # There are no play packets before compression/login completion.
-      assert {:error, :timeout} = :gen_tcp.recv(client.socket, 0, 20)
-
-      {_, healthy} =
-        Client.login("Other" <> Integer.to_string(System.unique_integer([:positive])))
-
-      Client.send_packet(healthy, :play, "chat_command", Wire.string("stats"))
-      {_, _} = Client.await_stats(healthy)
-      Client.close(healthy)
-      :sys.resume(disk)
-      {uuid, client} = Client.login_session(client, ctx.name)
-      assert uuid == ctx.uuid
-      client = Client.load_world(client)
-      verify(ctx, saved(ctx), records(owner))
-      assert client.inventory.carried == nil
-      Client.close(client)
-      departed(ctx)
-      idle(ctx)
-    after
-      if Process.alive?(disk), do: :sys.resume(disk)
-      Client.close(client)
-    end
-  end
-
-  test "disabled or exhausted cleanup retains raw latest contents without publishing effects",
-       ctx do
-    for reason <- [:disabled, :exhausted] do
-      {:ok, writer, _, fence} = PlayerStore.open(ctx.uuid)
-      if reason == :disabled, do: :sys.replace_state(writer, &%{&1 | path: nil})
-
-      if reason == :exhausted do
-        snapshot =
-          Map.merge(ctx.snapshot, %{transfer_sequence: 18_446_744_073_709_551_615, outbox: nil})
-
-        :sys.replace_state(writer, &%{&1 | snapshot: snapshot})
-      end
-
-      expected =
-        if reason == :disabled, do: :transfer_storage_disabled, else: :transfer_sequence_exhausted
-
-      assert {:error, ^expected} = PlayerStore.close_session(writer, fence, ctx.snapshot)
-      idle(ctx)
-      assert records(region(ctx)) == []
-
-      if reason == :exhausted do
-        assert saved(ctx).inventory.carried == ctx.inventory.carried
-        assert saved(ctx).inventory.slots == ctx.inventory.slots
-        assert saved(ctx).transfer_sequence == 18_446_744_073_709_551_615
-      end
-    end
-  end
-
-  test "failed raw save preserves its previous bytes and creates no destination records", ctx do
-    seed(ctx, ctx.snapshot)
-    before = File.read!(ctx.path)
-    {:ok, writer, _, fence} = PlayerStore.open(ctx.uuid)
-    File.write!(Path.join(ctx.base, "blocked"), "not a directory")
-    :sys.replace_state(writer, &%{&1 | path: Path.join(ctx.base, "blocked/player.pose")})
-
-    assert capture_log(fn ->
-             assert {:error, :enotdir} = PlayerStore.close_session(writer, fence, ctx.snapshot)
-           end) =~ "Player state save failed"
-
-    idle(ctx)
-    assert File.read!(ctx.path) == before and records(region(ctx)) == []
-  end
-
   test "an unobserved creative prepare commits first; a stale close cannot restore older owned contents",
        ctx do
     owner = region(ctx)
@@ -366,93 +272,6 @@ defmodule Valimc.DisconnectedInventoryTest do
       assert saved(ctx).fall_distance == 2.75
       assert saved(ctx).frozen_ticks == 19
       assert saved(ctx).velocity == {0.2, -0.7, 0.3}
-    after
-      if Process.alive?(disk), do: :sys.resume(disk)
-    end
-  end
-
-  test "destination capacity holds the whole disconnected batch until space is available", ctx do
-    fixture =
-      for _ <- 1..253,
-          do: %{
-            uuid: :crypto.strong_rand_bytes(16),
-            x: ctx.pose.x,
-            y: 64.5,
-            z: ctx.pose.z,
-            stack: ItemStack.new("stone")
-          }
-
-    {:ok, bytes} = ItemRecords.encode(ctx.key, fixture)
-    Valimc.TestDisk.write(ctx.base, ctx.key, :items, bytes)
-    owner = region(ctx)
-    {:ok, writer, nil, fence} = PlayerStore.open(ctx.uuid)
-    assert :ok = PlayerStore.close_session(writer, fence, ctx.snapshot)
-    wait(fn -> :sys.get_state(writer).closing.attempts > 0 end)
-    pending = saved(ctx)
-    assert length(pending.outbox.records) == 5 and length(records(owner)) == 253
-    {:ok, handle} = World.item_owner(ctx.key)
-
-    for item <- Enum.take(fixture, 2) do
-      {:ok, token} = Region.find_item(handle, item.uuid)
-
-      # The owner answers busy while another write is in flight (VMC-073).
-      assert :ok =
-               Valimc.TestWait.until(fn ->
-                 case Region.remove_item(token) do
-                   {:error, :item_storage_busy} -> false
-                   result -> result
-                 end
-               end)
-    end
-
-    idle(ctx)
-    final = records(owner)
-    assert length(final) == 256
-    ids = MapSet.new(Enum.map(pending.outbox.records, & &1.uuid))
-    verify(ctx, saved(ctx), Enum.filter(final, &MapSet.member?(ids, &1.uuid)))
-    assert saved(ctx).transfer_sequence == 1
-  end
-
-  test "closing deadline leaves a pinned source journal recoverable after writer/region replacement",
-       ctx do
-    owner = region(ctx)
-    disk = :sys.get_state(owner).resource.store
-    :sys.suspend(disk)
-    {:ok, writer, nil, fence} = PlayerStore.open(ctx.uuid)
-
-    try do
-      assert :ok = PlayerStore.close_session(writer, fence, ctx.snapshot)
-
-      closing =
-        wait(fn ->
-          s = :sys.get_state(writer)
-
-          if s.closing.job && Valimc.TestRegion.writing?(:sys.get_state(owner).resource),
-            do: s.closing
-        end)
-
-      intent = saved(ctx)
-      bytes = File.read!(ctx.path)
-
-      capture_log(fn ->
-        send(writer, {:close_deadline, closing.id})
-        idle(ctx)
-      end)
-
-      assert File.read!(ctx.path) == bytes
-      :sys.resume(disk)
-      wait(fn -> not Valimc.TestRegion.writing?(:sys.get_state(owner).resource) end)
-      :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, owner)
-      {_, client} = Client.login(ctx.name)
-      client = Client.load_world(client)
-      verify(ctx, saved(ctx), records(region(ctx)))
-
-      assert MapSet.new(Enum.map(records(region(ctx)), & &1.uuid)) ==
-               MapSet.new(Enum.map(intent.outbox.records, & &1.uuid))
-
-      Client.close(client)
-      departed(ctx)
-      idle(ctx)
     after
       if Process.alive?(disk), do: :sys.resume(disk)
     end

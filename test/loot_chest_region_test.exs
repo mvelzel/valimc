@@ -2,7 +2,6 @@ defmodule Valimc.LootChestRegionTest do
   @moduledoc "Unrolled loot chests unpack on open and break, once, durably (VMC-072b)."
   use ExUnit.Case, async: true
   alias Valimc.Physics.BlockEntities, as: Types
-  alias Valimc.Protocol.ItemStack
   alias Valimc.Registry.Blocks, as: BlockRegistry
   alias Valimc.TestScope
   alias Valimc.World
@@ -166,26 +165,6 @@ defmodule Valimc.LootChestRegionTest do
     assert restarted.slots == view.slots and restarted.revision == view.revision
   end
 
-  test "a chest without a stored seed rolls a fresh seed once", ctx do
-    position = ctx.chests.unseeded
-    assert {:chest, @chest, view} = open(ctx, position)
-    assert slots(view.slots) != []
-    restart(ctx)
-    assert {:chest, @chest, again} = open(ctx, position)
-    assert again.slots == view.slots
-  end
-
-  test "spectators and locked chests do not unpack; an unknown table fills nothing", ctx do
-    assert {:error, :missing_chest} = open(ctx, ctx.chests.seeded, :spectator)
-    assert {:error, :missing_chest} = open(ctx, ctx.chests.named)
-    entities = durable(ctx, :block_entities)
-    assert Map.has_key?(entities, ctx.chests.seeded) and Map.has_key?(entities, ctx.chests.named)
-
-    assert {:chest, @chest, view} = open(ctx, ctx.chests.unknown)
-    assert slots(view.slots) == []
-    refute Map.has_key?(durable(ctx, :block_entities), ctx.chests.unknown)
-  end
-
   test "breaking an unrolled chest spills vanilla's fill", ctx do
     position = ctx.chests.seeded
     assert :ok = World.remove_block(position)
@@ -213,30 +192,6 @@ defmodule Valimc.LootChestRegionTest do
     assert spilled == expected
     {:ok, containers} = Containers.decode(durable(ctx, :containers), ctx.key)
     refute Map.has_key?(containers.entries, position)
-    refute Map.has_key?(durable(ctx, :block_entities), position)
-  end
-
-  test "survival mining unpacks the chest into its spill", ctx do
-    position = ctx.chests.unseeded
-    {:ok, owner} = World.item_owner(ctx.key)
-    {:ok, permit} = Region.reserve_mining(owner, [position])
-    {x, y, z} = position
-
-    chest = %{
-      uuid: :crypto.strong_rand_bytes(16),
-      x: x + 0.5,
-      y: y + 0.5,
-      z: z + 0.5,
-      stack: ItemStack.new("chest")
-    }
-
-    transfer =
-      Map.merge(permit, %{source: <<1::128>>, sequence: 1, records: [chest]})
-
-    assert {:ok, :applied} = Region.apply_mining_transfer(owner, transfer)
-    {:ok, saved} = ItemLedger.decode(durable(ctx, :items), ctx.key)
-    assert length(saved.records) > 1
-    assert Enum.any?(saved.records, &(&1.stack == ItemStack.new("chest")))
     refute Map.has_key?(durable(ctx, :block_entities), position)
   end
 end

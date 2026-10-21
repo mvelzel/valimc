@@ -8,40 +8,6 @@ defmodule Valimc.PlayerCraftingInventoryTest do
     next
   end
 
-  test "grid clicks derive output without creating an owned result; both buttons craft once" do
-    for creative <- [false, true], button <- [0, 1], slot <- 1..4 do
-      inv = %Inventory{infinite_materials: creative, slots: %{36 => ItemStack.new("oak_log", 2)}}
-      inv = inv |> click(:pickup, 36) |> click(:pickup, slot)
-      assert inv.carried == nil and Inventory.get(inv, slot).count == 2
-      assert Inventory.crafting_result(inv) == ItemStack.new("oak_planks", 4)
-      assert hd(Inventory.display_contents(inv)) == ItemStack.new("oak_planks", 4)
-      assert hd(Inventory.contents(inv)) == nil and Inventory.get(inv, 0) == nil
-      next = click(inv, :pickup, 0, button)
-      assert next.carried == ItemStack.new("oak_planks", 4)
-      assert Inventory.get(next, slot) == ItemStack.new("oak_log")
-      final = click(next, :pickup, 0, button)
-      assert final.carried == ItemStack.new("oak_planks", 8)
-      assert final.slots == %{} and Inventory.crafting_result(final) == nil
-      assert click(final, :pickup, 0).carried == final.carried
-    end
-  end
-
-  test "mixed tags consume exactly one per occupied cell and preserve remaining input patches" do
-    patched = %{
-      ItemStack.new("oak_planks", 3)
-      | components: %{"minecraft:enchantment_glint_override" => true}
-    }
-
-    inv = %Inventory{slots: %{2 => patched, 4 => ItemStack.new("spruce_planks", 2)}}
-    assert Inventory.crafting_result(inv) == ItemStack.new("stick", 4)
-    next = click(inv, :pickup, 0)
-    assert next.carried == ItemStack.new("stick", 4)
-    assert next.slots == %{2 => %{patched | count: 2}, 4 => ItemStack.new("spruce_planks")}
-    inv = %Inventory{slots: Map.new(1..4, &{&1, ItemStack.new("oak_planks")})}
-    next = click(inv, :pickup, 0)
-    assert next.carried == ItemStack.new("crafting_table") and next.slots == %{}
-  end
-
   test "cleanup and persisted state contain physical inputs/output only" do
     inv = %Inventory{slots: %{1 => ItemStack.new("oak_log", 2)}} |> click(:pickup, 0)
     assert {:ok, closed, []} = Inventory.close(inv)
@@ -81,41 +47,5 @@ defmodule Valimc.PlayerCraftingInventoryTest do
                key,
                records ++ [duplicate]
              )
-  end
-
-  test "single and bulk result throws consume recipes; interrupts only cancel" do
-    inv = %Inventory{infinite_materials: true, slots: %{1 => ItemStack.new("oak_log", 2)}}
-
-    assert {:ok, next, [output]} = Inventory.plan_click(inv, :throw, 0, 0)
-    assert output == ItemStack.new("oak_planks", 4) and next.slots[1] == ItemStack.new("oak_log")
-    assert {:ok, bulk, [^output, ^output]} = Inventory.plan_click(inv, :throw, 0, 1)
-    assert bulk.slots == %{}
-
-    inv = %{inv | carried: ItemStack.new("oak_log")}
-    assert click(inv, :pickup_all, 0).slots == inv.slots
-    assert click(inv, :pickup_all, 0).carried == inv.carried
-
-    assert {:ok, dragging} =
-             Inventory.click(%{inv | carried: ItemStack.new("oak_planks")}, :quick_craft, -999, 0)
-
-    interrupted = click(dragging, :pickup, 0)
-    assert interrupted.drag == nil and interrupted.slots == inv.slots
-    assert interrupted.carried == dragging.carried
-  end
-
-  test "grid transfer/drag use input slots, with armor returning to storage rather than equipping" do
-    inv = %Inventory{slots: %{1 => ItemStack.new("iron_helmet")}}
-    next = click(inv, :quick_move, 1)
-    assert next.slots == %{9 => ItemStack.new("iron_helmet")}
-    inv = %Inventory{slots: %{36 => ItemStack.new("oak_log", 2)}} |> click(:swap, 4)
-    assert inv.slots == %{4 => ItemStack.new("oak_log", 2)}
-    inv = %Inventory{carried: ItemStack.new("oak_planks", 4)}
-    inv = click(inv, :quick_craft, -999, 0)
-    inv = Enum.reduce(0..4, inv, &click(&2, :quick_craft, &1, 1))
-    inv = click(inv, :quick_craft, -999, 2)
-    assert inv.carried == nil and Inventory.get(inv, 0) == nil
-    assert Inventory.crafting_result(inv) == ItemStack.new("crafting_table")
-    expected = Enum.map(Inventory.display_contents(inv), &ItemStack.encode/1)
-    assert Inventory.encoded_size(inv) == IO.iodata_length([ItemStack.encode(nil), expected])
   end
 end

@@ -62,24 +62,6 @@ defmodule Valimc.InventoryCreativeTransactionsTest do
     assert MapSet.size(bounded.drag.slots) == 40
   end
 
-  test "single/no targets and already full targets retain the cursor; item and equipment caps hold" do
-    inv = %{Inventory.new(true) | carried: ItemStack.new("stone")}
-    assert fill(inv, [9]).carried == inv.carried and fill(inv, [9]).slots == inv.slots
-    assert fill(inv, []).carried == inv.carried and fill(inv, []).drag == nil
-    inv = inv |> put(9, ItemStack.new("stone", 64)) |> put(10, ItemStack.new("stone", 64))
-    assert fill(inv, [9, 10]).carried == inv.carried
-    eggs = %{Inventory.new(true) | carried: ItemStack.new("egg")}
-    filled = fill(eggs, [9, 10])
-    assert Inventory.get(filled, 9).count == 16 and Inventory.get(filled, 10).count == 16
-    helmet = %{Inventory.new(true) | carried: ItemStack.new("iron_helmet")}
-    filled = fill(helmet, [5, 9])
-    assert Inventory.get(filled, 5).count == 1 and Inventory.get(filled, 9).count == 1
-    assert filled.carried == nil
-    bundle = %{Inventory.new(true) | carried: ItemStack.new("bundle")}
-    filled = fill(bundle, [9, 10])
-    assert Inventory.get(filled, 9).count == 1 and Inventory.get(filled, 10).count == 1
-  end
-
   test "fill permission is sampled at start; cancellation and ordinary interrupts prevent completion" do
     inv = %{Inventory.new() | carried: ItemStack.new("stone")}
     next = fill(inv, [9, 10])

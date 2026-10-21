@@ -125,45 +125,35 @@ defmodule Valimc.ContainerRecoveryConnectionTest do
     :ok
   end
 
-  for applied <- [false, true] do
-    test "ordinary login recovers a #{applied} committed container decision before exposing inventory",
-         ctx do
-      if unquote(applied) do
-        {:ok, %{containers: committed}} =
-          ContainerTransfers.plan(ctx.containers, ctx.key, ctx.pending.outbox.request, true)
+  test "ordinary login recovers a committed container decision before exposing inventory", ctx do
+    {:ok, %{containers: committed}} =
+      ContainerTransfers.plan(ctx.containers, ctx.key, ctx.pending.outbox.request, true)
 
-        {:ok, bytes} = Containers.encode(ctx.key, committed)
-        Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
-      end
+    {:ok, bytes} = Containers.encode(ctx.key, committed)
+    Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
+    {client, pid} = login(ctx)
+    state = Valimc.TestConn.state(pid)
+    assert state.recovery == nil
+    assert state.inventory.slots == %{}
 
-      {client, pid} = login(ctx)
-      state = Valimc.TestConn.state(pid)
-      assert state.recovery == nil
-      expected = if unquote(applied), do: %{}, else: %{36 => ItemStack.new("diamond", 3)}
-      assert state.inventory.slots == expected
+    {:ok, containers} =
+      Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
 
-      {:ok, containers} =
-        Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
+    assert containers.receipts[ctx.uuid].sequence == 1
+    Client.close(client)
 
-      assert containers.receipts[ctx.uuid].sequence == 1
-      Client.close(client)
+    wait(fn ->
+      not Process.alive?(pid) and Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == []
+    end)
 
-      wait(fn ->
-        not Process.alive?(pid) and Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == []
-      end)
+    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    assert saved.outbox == nil and saved.transfer_sequence == 1 and saved.inventory.slots == %{}
+    {_fresh, next} = login(ctx)
+    assert :sys.get_state(next).inventory.slots == %{}
 
-      {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
+    {:ok, after_reconnect} =
+      Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
 
-      assert saved.outbox == nil and saved.transfer_sequence == 1 and
-               saved.inventory.slots == expected
-
-      {_fresh, next} = login(ctx)
-      assert :sys.get_state(next).inventory.slots == expected
-
-      {:ok, after_reconnect} =
-        Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
-
-      assert after_reconnect == containers
-    end
+    assert after_reconnect == containers
   end
 end

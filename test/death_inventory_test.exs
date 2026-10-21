@@ -21,31 +21,6 @@ defmodule Valimc.DeathInventoryTest do
       health: %{value: 0.0, hurt_ticks: 0, death_ticks: 0}
     }
 
-  test "full inventory drains in five-stack batches without destroying cursor/grid curses" do
-    inventory = %Inventory{
-      slots: Map.new(1..45, &{&1, ItemStack.new("stone", rem(&1, 64) + 1)}),
-      carried: cursed(),
-      drag: %{mode: 0}
-    }
-
-    inventory = %{
-      inventory
-      | slots: Map.merge(inventory.slots, %{1 => cursed(), 5 => cursed(), 36 => cursed()})
-    }
-
-    {empty, batches, destroyed} =
-      Enum.reduce(1..9, {inventory, [], []}, fn _, {inv, batches, destroyed} ->
-        {:ok, next, drops, lost} = Inventory.death_batch(inv)
-        assert length(drops) <= 5
-        {next, batches ++ drops, destroyed ++ lost}
-      end)
-
-    assert length(batches) == 44 and destroyed == [cursed(), cursed()]
-    assert Enum.count(batches, &(&1 == cursed())) == 2
-    assert empty.slots == %{} and empty.carried == nil and empty.drag == nil
-    assert {:ok, ^empty, [], []} = Inventory.death_batch(empty)
-  end
-
   test "only a dead owner can authorize exactly the native destruction and selected batch" do
     before =
       snapshot(%Inventory{

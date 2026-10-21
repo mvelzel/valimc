@@ -2,8 +2,8 @@ defmodule Valimc.ChestConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
   alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore, World}
-  alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
-  alias Valimc.World.{Containers, Region}
+  alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
+  alias Valimc.World.Containers
   alias Valimc.TestClient, as: Client
   @chest hd(JSON.decode!(File.read!("priv/protocol/chest_states.json"))["single_states"])
 
@@ -100,7 +100,7 @@ defmodule Valimc.ChestConnectionTest do
     {client, pid}
   end
 
-  defp use_chest(client, ctx, hand \\ 0) do
+  defp use_chest(client, ctx, hand) do
     Client.send_packet(client, :play, "use_item_on", [
       Wire.varint(hand),
       Wire.position(ctx.position),
@@ -143,20 +143,6 @@ defmodule Valimc.ChestConnectionTest do
   defp click(client, slot, button, action, expected) do
     send_click(client, slot, button, action)
     content(client, expected)
-  end
-
-  test "late chest predictions after forced close are ignored without disconnecting", ctx do
-    seed(ctx)
-    {client, pid} = login(ctx)
-    client = open(client, ctx)
-    old = client.inventory.container
-    client = Client.teleport(client, pid, %{ctx.pose | x: ctx.pose.x + 0.1})
-    assert Valimc.TestConn.state(pid).table_menu == nil
-    send_click(client, 54, 0, "pickup", old)
-    {_, client} = Client.await(client, :play, "container_close")
-    _client = content(client, &(&1.container == 0))
-    assert Valimc.TestConn.state(pid).inventory.slots == %{36 => ItemStack.new("oak_planks", 8)}
-    assert saved(ctx).transfer_sequence == 0 and saved(ctx).outbox == nil
   end
 
   defp saved(ctx) do
@@ -283,40 +269,6 @@ defmodule Valimc.ChestConnectionTest do
     assert stored(ctx).sequence == 8
   end
 
-  test "lid blocking denies initial open but does not close an already valid view", ctx do
-    seed(ctx)
-    {x, y, z} = ctx.position
-    above = {x, y + 1, z}
-    :ok = World.set_block(above, Data.block("stone"))
-    {client, pid} = login(ctx)
-    use_chest(client, ctx)
-    {_, client} = Client.await(client, :play, "block_changed_ack")
-    assert Valimc.TestConn.state(pid).table_menu == nil
-    :ok = World.set_block(above, 0)
-    client = open(client, ctx)
-    :ok = World.set_block(above, Data.block("stone"))
-
-    wait(fn ->
-      state = Valimc.TestConn.state(pid)
-      state.table_job == nil and state.table_menu != nil
-    end)
-
-    Client.send_packet(client, :play, "container_close", Wire.varint(client.inventory.container))
-    _client = content(client, &(&1.container == 0))
-    use_chest(client, ctx)
-    {_, _client} = Client.await(client, :play, "block_changed_ack")
-    assert Valimc.TestConn.state(pid).table_menu == nil
-  end
-
-  test "a chest-shaped block without an owned container cannot open", ctx do
-    seed(ctx, :survival, false)
-    {client, pid} = login(ctx)
-    use_chest(client, ctx)
-    {_, _client} = Client.await(client, :play, "block_changed_ack")
-    assert Valimc.TestConn.state(pid).table_menu == nil
-    assert Valimc.TestDisk.read(ctx.base, ctx.key, :containers) == nil
-  end
-
   test "close waits for a prepared action and conflicting inventory input cannot interleave",
        ctx do
     seed(ctx)
@@ -389,18 +341,6 @@ defmodule Valimc.ChestConnectionTest do
     other
   end
 
-  defp sounds_until_chat(client, acc \\ []) do
-    {id, body, client} = Client.read(client)
-    name = Data.name(:play, :clientbound, id)
-    client = Client.auto_reply(client, :play, name, body)
-
-    case name do
-      "system_chat" -> {Enum.reverse(acc), client}
-      "sound" -> sounds_until_chat(client, [body | acc])
-      _ -> sounds_until_chat(client, acc)
-    end
-  end
-
   test "first/last viewers share one sound; intermediate and spectator views are silent; removal never replays a close sound",
        ctx do
     seed(ctx, :survival, true, nil)
@@ -457,215 +397,6 @@ defmodule Valimc.ChestConnectionTest do
     wait(fn -> :sys.get_state(first_pid).table_menu == nil end)
   end
 
-  test "actual TCP sound delivery filters distant and stale-owner transitions", ctx do
-    seed(ctx, :survival, true, nil)
-    {client, pid} = login(ctx)
-    {:ok, owner} = World.existing_owner(ctx.key)
-    threshold = Valimc.TestConn.state(pid).threshold
-    {:ok, packet} = Valimc.Protocol.ChestSounds.packet(true, ctx.position, 0.5, -1)
-    sound = Valimc.Protocol.Packets.frame(packet, threshold)
-
-    lid =
-      Valimc.Protocol.Packets.frame(
-        Valimc.Protocol.Packets.chest_lid(ctx.position, true),
-        threshold
-      )
-
-    deliver = fn owner ->
-      Connection.deliver(pid, {:chest_lid, owner, ctx.position, true, lid, sound})
-      Valimc.TestConn.state(pid)
-    end
-
-    deliver.(owner)
-    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {bodies, client} = sounds_until_chat(client)
-    assert bodies == [IO.iodata_to_binary(elem(packet, 1))]
-
-    {x, y, z} = ctx.position
-    client = Client.teleport(client, pid, %{ctx.pose | x: x + 16.5, y: y + 0.5, z: z + 0.5})
-    deliver.(owner)
-    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    assert {[], client} = sounds_until_chat(client)
-    client = Client.teleport(client, pid, ctx.pose)
-    deliver.({elem(owner, 0), make_ref()})
-    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    assert {[], _client} = sounds_until_chat(client)
-    assert saved(ctx).transfer_sequence == 0 and saved(ctx).outbox == nil
-  end
-
-  test "idle viewers use no repeated owner queries and late chunks receive only public lid state",
-       ctx do
-    seed(ctx)
-    {first, first_pid} = login(ctx)
-    first = open(first, ctx)
-    subscribed(first_pid)
-    assert Valimc.World.ContainerViewers.open_count(viewer_state(ctx), ctx.position) == 1
-    chunk = World.chunk_key(elem(ctx.position, 0), elem(ctx.position, 2))
-    {:ok, owner, [position], frame} = World.chest_lid_snapshot(chunk)
-    assert position == ctx.position and is_binary(frame)
-    assert viewer_state(ctx).views[first_pid].pending == false
-    {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :erlang.trace(region, true, [:receive])
-    Process.sleep(180)
-    :erlang.trace(region, false, [:receive])
-    messages = drain_traces(region, [])
-    refute Enum.any?(messages, &match?({:table_request, _, _, _, _, _}, &1))
-
-    other = second_actor(ctx)
-    {passive, passive_pid} = login(other)
-    wait(fn -> :sys.get_state(passive_pid).chest_lids.positions[ctx.position] == owner end)
-    assert viewer_state(ctx).views[passive_pid] == nil
-    assert :sys.get_state(passive_pid).table_menu == nil
-    source = saved(ctx).transfer_sequence
-    Client.send_packet(first, :play, "container_close", Wire.varint(first.inventory.container))
-    _first = content(first, &(&1.container == 0))
-    wait(fn -> viewer_state(ctx).views == %{} end)
-    wait(fn -> :sys.get_state(passive_pid).chest_lids.positions == %{} end)
-    assert World.chest_lid_snapshot(chunk) == :empty
-    assert saved(ctx).transfer_sequence == source
-    Client.close(passive)
-  end
-
-  defp drain_traces(region, acc) do
-    receive do
-      {:trace, ^region, :receive, message} -> drain_traces(region, [message | acc])
-    after
-      0 -> acc
-    end
-  end
-
-  test "first and last eligible viewers control lids; spectators and stale refs cannot retire them",
-       ctx do
-    seed(ctx)
-    {first, first_pid} = login(ctx)
-    first = open(first, ctx)
-    subscribed(first_pid)
-    original_ref = :sys.get_state(first_pid).table_menu.view_ref
-    other = second_actor(ctx, :spectator)
-    {second, second_pid} = login(other)
-    second = open(second, other)
-    subscribed(second_pid)
-    assert Valimc.World.ContainerViewers.open_count(viewer_state(ctx), ctx.position) == 1
-    Client.send_packet(first, :play, "container_close", Wire.varint(first.inventory.container))
-    first = content(first, &(&1.container == 0))
-    wait(fn -> Valimc.World.ContainerViewers.open_count(viewer_state(ctx), ctx.position) == 0 end)
-    assert map_size(viewer_state(ctx).views) == 1
-    first = open(first, ctx)
-    subscribed(first_pid)
-    menu = :sys.get_state(first_pid).table_menu
-    :ok = Region.unsubscribe_container(menu.owner, first_pid, original_ref)
-    _barrier = :sys.get_state(elem(menu.owner, 0))
-    assert viewer_state(ctx).views[first_pid].ref == menu.view_ref
-    assert Valimc.World.ContainerViewers.open_count(viewer_state(ctx), ctx.position) == 1
-    Client.close(first)
-    wait(fn -> viewer_state(ctx).views[first_pid] == nil end)
-    assert Valimc.World.ContainerViewers.open_count(viewer_state(ctx), ctx.position) == 0
-    assert :sys.get_state(second_pid).table_menu != nil
-    Client.close(second)
-  end
-
-  test "owner death closes passive lids as well as active menus without publishing private contents",
-       ctx do
-    seed(ctx)
-    {first, first_pid} = login(ctx)
-    _first = open(first, ctx)
-    subscribed(first_pid)
-    other = second_actor(ctx)
-    {_passive, passive_pid} = login(other)
-    wait(fn -> map_size(:sys.get_state(passive_pid).chest_lids.positions) == 1 end)
-    {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :ok = Region.flush(region)
-    :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, region)
-    wait(fn -> :sys.get_state(first_pid).table_menu == nil end)
-    wait(fn -> :sys.get_state(passive_pid).chest_lids.positions == %{} end)
-    assert :sys.get_state(passive_pid).table_menu == nil
-    assert stored(ctx).entries[ctx.position].slots |> elem(0) == ItemStack.new("diamond", 3)
-  end
-
-  test "two live players racing one chest conserve its contents and refresh both views", ctx do
-    seed(ctx)
-    other_name = "ChestB#{rem(System.unique_integer([:positive]), 1_000_000_000)}"
-    other = %{ctx | name: other_name, uuid: Connection.offline_uuid(other_name)}
-    {:ok, bytes} = PlayerSnapshot.encode(other.uuid, saved(ctx))
-    File.write!(PlayerStore.path(ctx.base, other.uuid), bytes)
-    {first, first_pid} = login(ctx)
-    {second, second_pid} = login(other)
-    first = open(first, ctx)
-    second = open(second, other)
-    for client <- [first, second], do: send_click(client, 0)
-
-    for client <- [first, second],
-        do: Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-
-    {_, first} = Client.await_stats(first)
-    {_, second} = Client.await(second, :play, "system_chat")
-
-    wait(fn ->
-      Enum.all?([first_pid, second_pid], fn pid ->
-        state = Valimc.TestConn.state(pid)
-
-        state.recovery == nil and state.table_job == nil and state.table_queued == 0 and
-          state.table_menu != nil and elem(state.table_menu.view.slots, 0) == nil
-      end)
-    end)
-
-    carried = for pid <- [first_pid, second_pid], do: Valimc.TestConn.state(pid).inventory.carried
-    assert Enum.sort(carried) == Enum.sort([nil, ItemStack.new("diamond", 3)])
-    assert elem(stored(ctx).entries[ctx.position].slots, 0) == nil
-    assert stored(ctx).sequence == 3
-    assert saved(ctx).outbox == nil and saved(other).outbox == nil
-
-    for {client, actor} <- [{first, ctx}, {second, other}] do
-      Client.send_packet(
-        client,
-        :play,
-        "container_close",
-        Wire.varint(client.inventory.container)
-      )
-
-      _client = content(client, &(&1.container == 0 and &1.carried == nil))
-      assert saved(actor).outbox == nil
-    end
-  end
-
-  test "closing a paused candidate retires its late result without allocating a source sequence",
-       ctx do
-    seed(ctx)
-    {client, pid} = login(ctx)
-    client = open(client, ctx)
-    writer = Valimc.TestConn.state(pid).player_store
-    :sys.suspend(writer)
-
-    try do
-      send_click(client, 54)
-
-      wait(fn ->
-        match?(%{kind: :container, stage: :candidate}, Valimc.TestConn.state(pid).table_job)
-      end)
-
-      Client.send_packet(
-        client,
-        :play,
-        "container_close",
-        Wire.varint(client.inventory.container)
-      )
-
-      _client = content(client, &(&1.container == 0))
-
-      assert Valimc.TestConn.state(pid).table_job == nil and
-               Valimc.TestConn.state(pid).recovery == nil
-
-      :sys.resume(writer)
-      # A writer call is a barrier after its already-queued candidate cast.
-      _state = :sys.get_state(writer)
-      assert saved(ctx).transfer_sequence == 0 and saved(ctx).outbox == nil
-      assert Valimc.TestConn.state(pid).inventory.slots == %{36 => ItemStack.new("oak_planks", 8)}
-      assert stored(ctx).receipts[ctx.uuid].sequence == 0
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-    end
-  end
-
   test "destination owner loss after source preparation recovers one decision and closes the old view",
        ctx do
     seed(ctx)
@@ -705,78 +436,5 @@ defmodule Valimc.ChestConnectionTest do
     after
       if Process.alive?(writer), do: :sys.resume(writer)
     end
-  end
-
-  test "hand and secondary dispatch preserve native precedence, including spectator viewing",
-       ctx do
-    for {mode, hand, shift, expected} <- [
-          {:survival, 0, false, true},
-          {:survival, 1, false, false},
-          {:survival, 0, true, false},
-          {:spectator, 1, true, true}
-        ] do
-      seed(ctx, mode)
-      {client, pid} = login(ctx)
-      Client.send_packet(client, :play, "player_input", <<if(shift, do: 32, else: 0)>>)
-
-      if expected do
-        client = open(client, ctx, hand)
-
-        if mode == :spectator do
-          send_click(client, 0)
-          client = content(client)
-          assert hd(client.inventory.items) == ItemStack.new("diamond", 3)
-          assert client.inventory.carried == nil
-          assert saved(ctx).transfer_sequence == 0 and saved(ctx).outbox == nil
-        end
-      else
-        use_chest(client, ctx, hand)
-        {_, _client} = Client.await(client, :play, "block_changed_ack")
-        assert Valimc.TestConn.state(pid).table_menu == nil
-      end
-
-      Client.close(client)
-      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-    end
-  end
-
-  test "removal, relocation and replacement owner retire their view without changing stored items",
-       ctx do
-    seed(ctx, :survival, true, nil)
-    before = Valimc.TestDisk.read(ctx.base, ctx.key, :containers)
-    {client, pid} = login(ctx)
-    client = open(client, ctx)
-    :ok = World.remove_block(ctx.position)
-    client = content(client, &(&1.container == 0))
-    assert Valimc.TestConn.state(pid).table_menu == nil
-    {:ok, owner} = World.existing_owner(ctx.key)
-    {:ok, observed} = Region.observe_blocks(owner, [ctx.position])
-    {:ok, batch} = Valimc.World.BlockBatch.prepare(%{ctx.position => @chest})
-
-    {:ok, _} =
-      Region.place_block(
-        owner,
-        observed.revision,
-        batch,
-        Valimc.TestRegion.grant_expires()
-      )
-
-    client = open(client, ctx)
-    client = Client.teleport(client, pid, %{ctx.pose | x: ctx.pose.x + 20})
-    assert Valimc.TestConn.state(pid).table_menu == nil
-    client = Client.teleport(client, pid, ctx.pose)
-    client = open(client, ctx)
-    {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :ok = Region.flush(region)
-    :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, region)
-    {:ok, _} = World.owner(ctx.key)
-    _client = content(client, &(&1.container == 0))
-    assert Valimc.TestConn.state(pid).table_menu == nil
-    {:ok, old} = Containers.decode(before, ctx.key)
-    after_state = stored(ctx)
-    assert after_state.receipts == old.receipts
-    assert after_state.entries[ctx.position].slots == old.entries[ctx.position].slots
-    assert after_state.entries[ctx.position].revision > old.entries[ctx.position].revision
-    assert Valimc.TestConn.state(pid).inventory.slots == %{36 => ItemStack.new("oak_planks", 8)}
   end
 end

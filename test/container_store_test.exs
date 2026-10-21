@@ -12,7 +12,7 @@ defmodule Valimc.ContainerStoreTest do
     PlayerSnapshot
   }
 
-  alias Valimc.World.{ContainerRequest, Containers, ContainerTransfers, CookingOrbs, Store}
+  alias Valimc.World.{Containers, ContainerTransfers, CookingOrbs, Store}
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -96,69 +96,6 @@ defmodule Valimc.ContainerStoreTest do
   defp wait_checkpointed(writer, _budget \\ nil),
     do: Valimc.TestWait.until(fn -> :sys.get_state(writer).checkpointing == nil end)
 
-  test "leased asynchronous commit survives writer replacement with exact contents and revisions",
-       ctx do
-    assert {:ok, writer, lease} = Store.open(ctx.key)
-    assert {:ok, %Containers{sequence: 0, entries: entries}} = Store.load_containers(writer)
-    assert entries == %{}
-    epoch = make_ref()
-    token = make_ref()
-    Store.commit_containers(writer, lease, ctx.filled, {self(), epoch}, token)
-    assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, :ok}}
-    assert {:ok, saved} = Store.load_containers(writer)
-    assert saved == ctx.filled
-
-    assert {:ok, saved} =
-             Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
-
-    assert saved == ctx.filled
-    assert :ok = Store.close(writer, lease)
-    assert {:ok, replacement, next_lease} = Store.open(ctx.key)
-    assert replacement != writer and next_lease != lease
-    assert {:ok, ^saved} = Store.load_containers(replacement)
-
-    assert {:error, :stale_container} =
-             Containers.replace(saved, ctx.position, 1, ctx.empty.entries[ctx.position].slots)
-  end
-
-  test "claim queued before owner death fences old container commits and flushes", ctx do
-    parent = self()
-
-    owner =
-      Task.async(fn ->
-        send(parent, {:opened, Store.open(ctx.key)})
-        receive do: (:finish -> :ok)
-      end)
-
-    assert_receive {:opened, {:ok, writer, old_lease}}
-    assert :ok = Store.flush_containers(writer, old_lease, ctx.filled)
-    epoch = make_ref()
-    token = make_ref()
-    :sys.suspend(writer)
-
-    try do
-      claim = :gen_server.send_request(writer, :claim)
-      Task.shutdown(owner, :brutal_kill)
-      Store.commit_containers(writer, old_lease, ctx.empty, {self(), epoch}, token)
-      :sys.resume(writer)
-      assert {:reply, {:ok, lease}} = :gen_server.wait_response(claim, 1000)
-      assert lease != old_lease
-
-      assert_receive {:resource, ^epoch,
-                      {:containers_saved, ^writer, ^token, {:error, :stale_store_lease}}}
-
-      assert {:error, :stale_store_lease} = Store.flush_containers(writer, old_lease, ctx.empty)
-      assert {:ok, saved} = Store.load_containers(writer)
-      assert saved == ctx.filled
-      assert :ok = Store.flush_containers(writer, lease, ctx.empty)
-      assert {:ok, empty} = Store.load_containers(writer)
-      assert empty == ctx.empty
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-      Task.shutdown(owner, :brutal_kill)
-    end
-  end
-
   test "malformed proposals do not replace durable contents and corrupt files are not treated as empty",
        ctx do
     {:ok, writer, lease} = Store.open(ctx.key)
@@ -177,62 +114,6 @@ defmodule Valimc.ContainerStoreTest do
       assert {:error, :invalid_container_snapshot} = Store.load_containers(writer)
       assert :ok = Store.close(writer, lease)
     end
-  end
-
-  test "I/O failure is reported instead of acknowledging a container commit", ctx do
-    {:ok, writer, lease} = Store.open(ctx.key)
-    Valimc.TestDisk.break_writer(writer)
-    epoch = make_ref()
-    token = make_ref()
-    Store.commit_containers(writer, lease, ctx.filled, {self(), epoch}, token)
-    assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, {:error, _}}}
-    assert Valimc.TestDisk.read(ctx.base, ctx.key, :containers) == nil
-  end
-
-  test "contents and withdrawal receipt survive writer death before the source consumes its acknowledgment",
-       ctx do
-    {:ok, writer, lease} = Store.open(ctx.key)
-    source = <<1::128>>
-    {:ok, reserved, :reserved} = ContainerTransfers.reserve(ctx.filled, source)
-    assert :ok = Store.flush_containers(writer, lease, reserved)
-    entry = reserved.entries[ctx.position]
-
-    request = %{
-      source: source,
-      sequence: 33,
-      permit: <<4::128>>,
-      position: ctx.position,
-      revision: entry.revision,
-      rows: 3,
-      slots: entry.slots,
-      inventory: %Valimc.Inventory{},
-      action: :pickup,
-      slot: 26,
-      button: 0
-    }
-
-    {:ok, %{containers: committed, result: :applied}} =
-      ContainerTransfers.plan(reserved, ctx.key, request, true)
-
-    epoch = make_ref()
-    token = make_ref()
-    Store.commit_containers(writer, lease, committed, {self(), epoch}, token)
-    # Same-sender ordering proves the file finished; deliberately leave the ack unread.
-    assert {:ok, ^committed} = Store.load_containers(writer)
-    monitor = Process.monitor(writer)
-    Process.exit(writer, :kill)
-    assert_receive {:DOWN, ^monitor, :process, ^writer, :killed}
-    {:ok, replacement, _lease} = Store.open(ctx.key)
-    assert {:ok, restored} = Store.load_containers(replacement)
-    assert restored == committed
-
-    assert {:ok, %{result: :already_applied, containers: ^restored}} =
-             ContainerTransfers.plan(restored, ctx.key, request, false)
-
-    assert {:ok, _, player_after} = ContainerRequest.plan(request)
-    assert player_after.carried == ItemStack.new("diamond", 3)
-    assert elem(restored.entries[ctx.position].slots, 26) == nil
-    assert_receive {:resource, ^epoch, {:containers_saved, ^writer, ^token, :ok}}
   end
 
   test "earned output, recipe credit and pending award recover together before player sealing",

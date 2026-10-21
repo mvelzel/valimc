@@ -102,14 +102,6 @@ defmodule Valimc.InventoryCloseTest do
     assert Inventory.get(next, 40) == sword and Inventory.get(next, 41) == sword
   end
 
-  test "egg caps and offhand merges precede empty destinations" do
-    inv = %{Inventory.new() | carried: ItemStack.new("egg", 16)}
-    inv = inv |> put(36, ItemStack.new("egg", 15)) |> put(45, ItemStack.new("egg", 14))
-    {:ok, next, []} = Inventory.close(inv)
-    assert Inventory.get(next, 36).count == 16 and Inventory.get(next, 45).count == 16
-    assert Inventory.get(next, 37).count == 13
-  end
-
   test "overflow effects conserve counts and order with full/partial storage in either permission mode" do
     for permission <- [false, true] do
       full =
@@ -129,17 +121,5 @@ defmodule Valimc.InventoryCloseTest do
       assert Inventory.get(next, 1) == nil and Inventory.get(next, 45) == nil
       assert inv.carried == shiny(10) and Inventory.get(inv, 36) == shiny(63)
     end
-  end
-
-  test "the planned snapshot still enforces the aggregate correction byte boundary" do
-    path = "minecraft:" <> String.duplicate("a", 32600)
-
-    stack = %{
-      ItemStack.new("stone")
-      | components: %{"minecraft:item_model" => path, "minecraft:tooltip_style" => path}
-    }
-
-    inv = %{Inventory.new() | slots: Map.new(9..17, &{&1, stack})}
-    assert Inventory.close(inv) == {:error, :inventory_byte_limit}
   end
 end

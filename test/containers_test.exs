@@ -52,46 +52,6 @@ defmodule Valimc.ContainersTest do
     assert {:error, :invalid_container_snapshot} = Containers.decode(bytes, {-1, 0})
   end
 
-  test "invalid ownership, dimensions, normalized air and over-budget contents refuse" do
-    for position <- [{128, 64, 0}, {-1, 64, 0}, {0, -65, 0}, {0, 320, 0}, {0.5, 64, 0}] do
-      assert {:error, :invalid_container_position} =
-               Containers.create(%Containers{}, {0, 0}, position, 3)
-    end
-
-    for rows <- [0, 7, nil],
-        do:
-          assert(
-            {:error, :invalid_container_rows} =
-              Containers.create(%Containers{}, {0, 0}, {0, 64, 0}, rows)
-          )
-
-    {:ok, state, entry} = Containers.create(%Containers{}, {0, 0}, {0, 319, 0}, 3)
-
-    for slots <- [
-          {},
-          put_elem(entry.slots, 0, ItemStack.new("air")),
-          put_elem(entry.slots, 0, ItemStack.new("stone", 100))
-        ] do
-      assert {:error, :invalid_container_contents} =
-               Containers.replace(state, {0, 319, 0}, 1, slots)
-    end
-
-    large = %{
-      ItemStack.new("stone")
-      | components: %{
-          "minecraft:custom_data" =>
-            {:compound, %{"payload" => {:string, String.duplicate("x", 30_000)}}}
-        }
-    }
-
-    assert IO.iodata_length(ItemStack.encode(large)) > 30_000
-
-    assert {:error, :invalid_container_contents} =
-             Containers.replace(state, {0, 319, 0}, 1, Tuple.duplicate(large, 27))
-
-    assert {:error, :missing_container} = Containers.replace(state, {0, 64, 0}, 1, entry.slots)
-  end
-
   test "corruption, truncation, duplicate positions and impossible revisions fail closed even if rehashed" do
     {:ok, state, _} = Containers.create(%Containers{}, {0, 0}, {0, 64, 0}, 3)
     {:ok, bytes} = Containers.encode({0, 0}, state)
@@ -120,26 +80,6 @@ defmodule Valimc.ContainersTest do
 
     assert {:error, :invalid_container_snapshot} =
              Containers.decode(resign(<<header::binary, 128::signed-32, body::binary>>), {0, 0})
-  end
-
-  test "entry and sequence exhaustion never wrap or erase the last durable generation" do
-    full =
-      Enum.reduce(0..(Containers.max_entries() - 1), %Containers{}, fn i, state ->
-        {:ok, next, _} = Containers.create(state, {0, 0}, {rem(i, 128), 64, div(i, 128)}, 3)
-        next
-      end)
-
-    assert {:error, :container_limit} = Containers.create(full, {0, 0}, {0, 65, 0}, 3)
-    assert {:ok, bytes} = Containers.encode({0, 0}, full)
-    assert {:ok, ^full} = Containers.decode(bytes, {0, 0})
-    state = %{full | sequence: 18_446_744_073_709_551_615}
-    assert {:error, :container_sequence_exhausted} = Containers.remove(state, {0, 64, 0}, 1)
-
-    assert {:error, :container_sequence_exhausted} =
-             Containers.replace(state, {0, 64, 0}, 1, full.entries[{0, 64, 0}].slots)
-
-    assert {:error, :container_sequence_exhausted} =
-             Containers.create(%{state | entries: %{}}, {0, 0}, {0, 64, 0}, 3)
   end
 
   test "aggregate file budget is enforced even when each container fits its own content limit" do

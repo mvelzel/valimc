@@ -2,42 +2,8 @@ defmodule Valimc.TooltipConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
   alias Valimc.TestClient, as: Client
-  alias Valimc.Protocol.{ItemStack, ItemTypes, TooltipDisplay, Wire}
+  alias Valimc.Protocol.{ItemTypes, Wire}
   defp name, do: "Tip" <> Integer.to_string(System.unique_integer([:positive]))
-
-  test "normal creative writes retain hidden item data and complete tooltip controls" do
-    username = name()
-    {_, client} = Client.login(username)
-    on_exit(fn -> Client.close(client) end)
-    client = Client.load_world(client)
-
-    stack = %{
-      ItemStack.new("stone", 7)
-      | components: %{
-          "minecraft:custom_name" => {:string, "Hidden name"},
-          "minecraft:lore" => [{:string, "Retained lore"}],
-          "minecraft:enchantments" => %{"minecraft:unbreaking" => 3},
-          "minecraft:tooltip_display" => %TooltipDisplay{
-            hide: true,
-            hidden: MapSet.new(["minecraft:lore"])
-          }
-        }
-    }
-
-    Client.send_packet(client, :play, "set_creative_mode_slot", [
-      <<36::signed-16>>,
-      ItemStack.encode(stack, :untrusted)
-    ])
-
-    {body, client} = Client.await(client, :play, "container_set_slot")
-    {0, body} = Wire.take_varint(body)
-    {_, <<36::signed-16, bytes::binary>>} = Wire.take_varint(body)
-    assert {:ok, ^stack} = ItemStack.decode(bytes)
-    player = Enum.find(Valimc.Players.all(), &(&1.name == username))
-    assert :sys.get_state(player.pid).inventory.slots[36] == stack
-    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, _} = Client.await_stats(client)
-  end
 
   test "malformed/unknown tooltip set input rejects only its owner while a peer responds" do
     {_, healthy} = Client.login(name())

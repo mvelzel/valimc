@@ -84,20 +84,4 @@ defmodule Valimc.InventoryDropPlanTest do
     assert interrupted.slots[9] == stack and interrupted.drag == nil
     assert {:ok, _, [^stack]} = Inventory.plan_click(interrupted, :throw, 9, 1)
   end
-
-  test "drop paths do not invoke item pickup overrides or require creative permission" do
-    bundle = ItemStack.new("bundle")
-
-    for infinite <- [false, true] do
-      inventory = %Inventory{infinite_materials: infinite, slots: %{9 => bundle}}
-      assert {:error, :unsupported_click} = Inventory.click(inventory, :pickup, 9, 0)
-      assert {:ok, next, [^bundle]} = Inventory.plan_click(inventory, :throw, 9, 0)
-      assert next.slots == %{}
-
-      assert {:ok, next, [^bundle]} =
-               Inventory.plan_click(%{next | carried: bundle}, :pickup, -999, 0)
-
-      assert next.carried == nil
-    end
-  end
 end

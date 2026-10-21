@@ -1,7 +1,6 @@
 defmodule Valimc.InventoryConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.Inventory
   alias Valimc.TestClient, as: Client
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
 
@@ -20,9 +19,26 @@ defmodule Valimc.InventoryConnectionTest do
     {id, client}
   end
 
+  defp seed(client, slot, stack) do
+    {_, client} = slot(client, slot, stack)
+    client
+  end
+
   defp snapshot(client) do
     {body, client} = Client.await(client, :play, "container_set_content")
-    Client.auto_reply(client, :play, "container_set_content", body)
+    client = Client.auto_reply(client, :play, "container_set_content", body)
+    {_, client} = Client.await(client, :play, "set_cursor_item")
+    client
+  end
+
+  defp pickup(client, slot) do
+    Client.send_packet(client, :play, "container_click", [
+      <<0, 0, slot::signed-16, 0>>,
+      Wire.varint(ItemTypes.input_id("pickup")),
+      <<0, 0>>
+    ])
+
+    snapshot(client)
   end
 
   test "startup, full player slots, unsupported clicks and out-of-range edits resynchronize" do
@@ -45,11 +61,9 @@ defmodule Valimc.InventoryConnectionTest do
     ])
 
     client = snapshot(client)
-    assert client.inventory.state_id == 3
+    assert client.inventory.state_id == 3 and client.inventory.carried == nil
     assert Enum.at(client.inventory.items, 9) == stone
     assert Enum.at(client.inventory.items, 45) == stone
-    {body, client} = Client.await(client, :play, "set_cursor_item")
-    assert ItemStack.decode(body) == {:ok, nil}
 
     Client.send_packet(client, :play, "set_creative_mode_slot", [
       <<0::signed-16>>,
@@ -63,83 +77,117 @@ defmodule Valimc.InventoryConnectionTest do
     assert map_size(:sys.get_state(player.pid).inventory.slots) == 2
   end
 
-  test "26.3 abort and direction actions preserve blocks; completed creative breaking removes them" do
-    {_, client} = Client.login(name())
-    on_exit(fn -> Client.close(client) end)
-    client = Client.load_world(client)
-    position = {2, 64, 2}
-    stone = Valimc.Protocol.Data.block("stone")
-    Valimc.World.set_block(position, stone)
-
-    client =
-      Enum.reduce(["change_destroy_direction", "abort_destroy_block"], client, fn action,
-                                                                                  client ->
-        Client.send_packet(client, :play, "player_action", [
-          Wire.varint(ItemTypes.action_id(action)),
-          Wire.position(position),
-          <<1, 92>>
-        ])
-
-        {<<92>>, client} = Client.await(client, :play, "block_changed_ack")
-        assert Valimc.World.get_block(position) == stone
-        client
-      end)
-
-    Client.send_packet(client, :play, "player_action", [
-      Wire.varint(ItemTypes.action_id("stop_destroy_block")),
-      Wire.position(position),
-      <<1, 93>>
-    ])
-
-    {<<93>>, _} = Client.await(client, :play, "block_changed_ack")
-    assert Valimc.World.get_block(position) == 0
-  end
-
-  test "hotbar selection, offhand placement and hand swap use only their owner's slots" do
+  test "stale clicks use owned stacks; forged predictions cannot create items; malformed clicks stay isolated" do
     username = name()
     {_, client} = Client.login(username)
     on_exit(fn -> Client.close(client) end)
     client = Client.load_world(client)
-    Client.send_packet(client, :play, "player_loaded", <<>>)
+    {_, healthy} = Client.login(name())
+    on_exit(fn -> Client.close(healthy) end)
+    eggs = ItemStack.new("egg", 9)
+
+    Client.send_packet(client, :play, "set_creative_mode_slot", [
+      <<9::16>>,
+      ItemStack.encode(eggs, :untrusted)
+    ])
+
+    {_, client} = Client.await(client, :play, "container_set_slot")
+    # Predict unrelated stone with a nonempty hash map and an invented diamond cursor.
+    forged = [
+      <<0, 0, 9::16, 1>>,
+      Wire.varint(ItemTypes.input_id("pickup")),
+      <<1, 9::16, 1>>,
+      Wire.varint(ItemTypes.id("stone")),
+      <<17, 1>>,
+      Wire.varint(ItemTypes.component_id("enchantment_glint_override")),
+      <<0x12345678::32, 0>>,
+      <<1>>,
+      Wire.varint(ItemTypes.id("diamond")),
+      <<99, 0, 1>>,
+      Wire.varint(ItemTypes.component_id("item_name"))
+    ]
+
+    Client.send_packet(client, :play, "container_click", forged)
+    {body, client} = Client.await(client, :play, "container_set_content")
+    client = Client.auto_reply(client, :play, "container_set_content", body)
+    assert client.inventory.carried.item_id == eggs.item_id
+    assert client.inventory.carried.count == 5
+    assert Enum.at(client.inventory.items, 9).count == 4
+    {cursor, client} = Client.await(client, :play, "set_cursor_item")
+    assert ItemStack.decode(cursor) == {:ok, %{eggs | count: 5}}
+    player = Enum.find(Valimc.Players.all(), &(&1.name == username))
+    ref = Process.monitor(player.pid)
+    Client.send_packet(client, :play, "container_click", <<0, 0, 9::16, 0, 0, 0, 0, 99>>)
+    {body, _} = Client.await(client, :play, "disconnect")
+    assert :binary.match(body, "Malformed inventory click") != :nomatch
+    assert_receive {:DOWN, ^ref, :process, _, :normal}
+    Client.send_packet(healthy, :play, "chat_command", Wire.string("stats"))
+    {_, _} = Client.await_stats(healthy)
+    assert Process.alive?(Process.whereis(Valimc.Listener))
+  end
+
+  test "close returns owned cursor, cleans grid and ignores reported container ID without touching peers" do
+    {_, client} = Client.login(name())
+    on_exit(fn -> Client.close(client) end)
+    client = Client.load_world(client)
     {_, peer} = Client.login(name())
     on_exit(fn -> Client.close(peer) end)
     peer = Client.load_world(peer)
-    assert peer.inventory.items == List.duplicate(nil, 46)
-    main = ItemStack.new("stone", 4)
-    off = ItemStack.new("oak_planks", 8)
-    {_, client} = slot(client, 44, main)
-    {_, client} = slot(client, 45, off)
-    Client.send_packet(client, :play, "set_carried_item", <<8::signed-16>>)
-    {<<8>>, client} = Client.await(client, :play, "set_held_slot")
-    position = {4, 64, 0}
-    Valimc.World.set_block(position, 0)
 
-    Client.send_packet(client, :play, "use_item_on", [
-      <<1>>,
-      Wire.position({4, 63, 0}),
-      <<1, 0::96, 0, 0, 71>>
-    ])
+    stone = %{
+      ItemStack.new("stone", 7)
+      | components: %{"minecraft:enchantment_glint_override" => true}
+    }
 
-    {<<71>>, client} = Client.await(client, :play, "block_changed_ack")
-    assert Valimc.World.get_block(position) == Valimc.Protocol.Data.block("oak_planks")
+    client = client |> seed(9, stone) |> seed(1, ItemStack.new("egg", 3)) |> pickup(9)
+    assert client.inventory.carried == stone
 
-    Client.send_packet(client, :play, "player_action", [
-      Wire.varint(ItemTypes.action_id("swap_item_with_offhand")),
-      Wire.position({0, 0, 0}),
+    client =
+      Enum.reduce([{-999, 0}, {9, 1}], client, fn {slot, button}, client ->
+        Client.send_packet(client, :play, "container_click", [
+          <<0, 0, slot::signed-16, button>>,
+          Wire.varint(ItemTypes.input_id("quick_craft")),
+          <<0, 0>>
+        ])
+
+        snapshot(client)
+      end)
+
+    Client.send_packet(client, :play, "container_close", Wire.varint(99))
+    client = snapshot(client)
+    assert client.inventory.carried == nil
+    assert Enum.at(client.inventory.items, 36) == stone
+    assert Enum.at(client.inventory.items, 37) == ItemStack.new("egg", 3)
+    assert Enum.at(client.inventory.items, 1) == nil
+    before_late_end = client.inventory.items
+
+    Client.send_packet(client, :play, "container_click", [
+      <<0, 0, -999::signed-16, 2>>,
+      Wire.varint(ItemTypes.input_id("quick_craft")),
       <<0, 0>>
     ])
 
-    Enum.reduce([{44, off}, {45, main}], client, fn {expected_slot, stack}, client ->
-      {body, client} = Client.await(client, :play, "container_set_slot")
-      {0, body} = Wire.take_varint(body)
-      {_, <<^expected_slot::signed-16, bytes::binary>>} = Wire.take_varint(body)
-      assert ItemStack.decode(bytes) == {:ok, stack}
-      client
-    end)
+    client = snapshot(client)
+    assert client.inventory.items == before_late_end and client.inventory.carried == nil
+    Client.send_packet(peer, :play, "container_close", <<0>>)
+    peer = snapshot(peer)
+    assert Enum.all?(peer.inventory.items, &is_nil/1) and peer.inventory.carried == nil
+  end
 
-    player = Enum.find(Valimc.Players.all(), &(&1.name == username))
-    inventory = :sys.get_state(player.pid).inventory
-    assert Inventory.held(inventory, :main) == off
-    assert Inventory.held(inventory, :off) == main
+  test "malformed close disconnects only its sender" do
+    username = name()
+    {_, client} = Client.login(username)
+    on_exit(fn -> Client.close(client) end)
+    client = Client.load_world(client)
+    {_, peer} = Client.login(name())
+    on_exit(fn -> Client.close(peer) end)
+    peer = Client.load_world(peer)
+    pid = Enum.find(Valimc.Players.all(), &(&1.name == username)).pid
+    ref = Process.monitor(pid)
+    Client.send_packet(client, :play, "container_close", <<0, 1>>)
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+    Client.send_packet(peer, :play, "chat_command", Wire.string("stats"))
+    {_, _} = Client.await_stats(peer)
+    assert Process.alive?(Process.whereis(Valimc.Listener))
   end
 end

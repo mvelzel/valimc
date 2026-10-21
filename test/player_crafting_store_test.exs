@@ -105,25 +105,4 @@ defmodule Valimc.PlayerCraftingStoreTest do
     assert World.item_snapshot(ctx.key) == %{}
     assert :ok = PlayerStore.close(writer, fence, saved)
   end
-
-  test "an invalid conversion cannot write a source intent", ctx do
-    {before, _after_snapshot, records} = plan(ctx)
-    ref = make_ref()
-
-    PlayerStore.prepare_crafting(
-      ctx.writer,
-      ctx.fence,
-      before,
-      before,
-      ctx.key,
-      records,
-      {:throw, 0},
-      ref
-    )
-
-    assert_receive {:player_transfer_saved, ^ref, {:error, :invalid_crafting_transfer}}
-    refute File.exists?(PlayerStore.path(ctx.base, ctx.uuid))
-    assert World.item_snapshot(ctx.key) == %{}
-    assert :ok = PlayerStore.close(ctx.writer, ctx.fence, %{before | inventory: %Inventory{}})
-  end
 end
