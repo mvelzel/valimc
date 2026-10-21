@@ -21,7 +21,13 @@ Keep the default small windowed size and automatic UI scale; do not maximize or 
 The dedicated client starts muted (`soundCategory_master:0.0`).
 
 It runs from the main checkout or any Git worktree; worktrees use the main
-checkout's wrapper and lock, so one client runs at a time across checkouts.
+checkout's wrapper and lock, so one client runs at a time across checkouts. A
+launch while another client holds the lock exits with "Another dedicated test
+client is running; stop it first": wait and launch again, and stop your own
+server release meanwhile so the port stays free. Do not wait on
+`pgrep -f minecraft_client.py`: it matches the waiting shell's own command line
+and never clears. To check for a running client, use
+`pgrep -f '[M]inecraft Client.app'` or `pgrep -f 'Python.*[s]cripts/minecraft_client.py'`.
 
 After testing, interrupt the owning process and wait for its completion; the
 helper terminates/waits for its own JVM and removes the input socket. Confirm zero
