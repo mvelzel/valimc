@@ -1,6 +1,6 @@
 # VMC-026b — Live Nether and End with portals
 
-Status: In progress
+Status: Done
 Milestone: M2 real worlds
 Depends on: [VMC-026a](VMC-026a.md) (Nether and End generation),
 [VMC-025](VMC-025.md) (live decoration, VMC-025d; structure placement,
@@ -14,10 +14,10 @@ Subtickets:
 
 | Ticket | Slice | Status |
 |---|---|---|
-| [VMC-026b1](VMC-026b1.md) | Dimension lifecycle: owners, storage, generation and light per dimension, the client's dimension switch, travel that keeps the player's state, reconnects and deaths elsewhere | Awaiting client |
-| [VMC-026b2](VMC-026b2.md) | Nether portals: lighting with flint and steel or fire charges, portal blocks and their collapse, entering after the portal time, the scaled destination, portal search and creation, cooldowns | Awaiting client |
-| [VMC-026b3](VMC-026b3.md) | End portals: frames filled with eyes of ender, travel to the End's arrival platform, the exit portal (credits, return to spawn) | Awaiting client |
-| [VMC-026b4](VMC-026b4.md) | End gateways: teleport to the outer islands with vanilla's exit search, the exit gateway they generate | Awaiting client |
+| [VMC-026b1](VMC-026b1.md) | Dimension lifecycle: owners, storage, generation and light per dimension, the client's dimension switch, travel that keeps the player's state, reconnects and deaths elsewhere | Done |
+| [VMC-026b2](VMC-026b2.md) | Nether portals: lighting with flint and steel or fire charges, portal blocks and their collapse, entering after the portal time, the scaled destination, portal search and creation, cooldowns | Done |
+| [VMC-026b3](VMC-026b3.md) | End portals: frames filled with eyes of ender, travel to the End's arrival platform, the exit portal (credits, return to spawn) | Done |
+| [VMC-026b4](VMC-026b4.md) | End gateways: teleport to the outer islands with vanilla's exit search, the exit gateway they generate | Done |
 
 Acceptance (parent):
 
@@ -94,8 +94,12 @@ stays ignored in `run-03`, `run-04`.
 - Observed: arriving from a gateway with a walk's momentum, the player walked
   off the small island into the void. Vanilla's gateway keeps the motion
   (`Relative.DELTA`).
-- Pending: the gateway's way back, by `/tp` into its block, and an end portal
-  after a gateway was placed in the platform's space.
+
+Recheck, October 21, 2026: checkpoint 71ffc41, a fresh world; the evidence is
+in `run-05`. Both checks passed with no warnings. The gateway's way back by
+`/tp` into its block returned to (93.5, 57, -6.5) without a disconnect. An
+end portal entered after a gateway was set in the platform's space arrived on
+the platform, and the gateway was cleared.
 
 Remaining after VMC-026b: the dragon fight (the dragon, respawning crystals,
 new gateways after each kill, the exit portal's activation) needs mobs (M3);

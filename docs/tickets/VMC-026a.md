@@ -1,6 +1,6 @@
 # VMC-026a — Nether and End generation beyond terrain
 
-Status: Foundation
+Status: Done
 Milestone: M2 real worlds
 Depends on: [VMC-024](VMC-024.md) (Nether and End terrain), [VMC-025](VMC-025.md)
 (the decoration pipeline, VMC-025a–c).
@@ -192,4 +192,5 @@ other sessions; the 3 failures (item handoff, imported sign, item merge
 timing; earlier runs under heavier load failed 17 such deadline tests) pass
 on rerun.
 
-Next: VMC-026b (live Nether and End worlds).
+Live since VMC-026b: Nether and End regions decorate as they generate
+(VMC-026b1), and the client runs saw both dimensions' features in play.

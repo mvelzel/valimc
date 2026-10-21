@@ -5,6 +5,8 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-026b Live Nether and End with portals](../tickets/VMC-026b.md) | `71ffc41`: dimensions with their own owners, storage, generation, light and travel; nether portals, end portals with the credits, and end gateways, with parity stages (`worldgen_live_nether`, `worldgen_live_end`, `portals`); client runs on c8dcb04, c0f9a7d and 71ffc41 |
+| [VMC-026a Nether and End generation](../tickets/VMC-026a.md) | Every Nether and End feature equal vanilla's at the dimensions' heights; live since VMC-026b |
 | [VMC-073 suite on a loaded host](../tickets/VMC-073.md) | Condition waits, explicit expiry, manual player ticks and per-scope `owner_call_scale` (1 in play) replace wall-clock timing in tests; stats barriers skip join lines; teardowns stop neighbouring regions and player stores; two consecutive full runs pass (1779 each) |
 | [VMC-071 fresh terrain sooner](../tickets/VMC-071.md) | `f53e23d`: a worldgen state per dirty scheduler, parallel region batches, nearest regions first, border light only for served chunks (`bench/fresh_terrain.exs`: first chunk 4.1 → 0.86 s, whole view 7.7 → 3.1 s); actual spawn, flights and far teleports |
 | [VMC-070 client view distance](../tickets/VMC-070.md) | `04ca075`: requested render distance clamped to 2..server's (default 10) picks vanilla's chunk view live (oracle stage `chunk_view`), vanilla send pacing and entity tracking ranges; actual render distances 2, 4, 6 and 16, mid-game changes, a long flight and a reconnect |
