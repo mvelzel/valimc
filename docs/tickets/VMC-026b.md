@@ -67,9 +67,35 @@ creative world. The evidence stays ignored in `.local/client-tests/VMC-026b`.
     below.
   - "Loading terrain" lasted 6 to 22 s on overworld arrivals. Tests deliver
     a return's 49 chunks in 34 to 68 ms; the rerun times it.
-- Pending: a rerun walks into a portal right after lighting it, drops into
-  an end portal right after opening it, enters a gateway at its block, and
-  times the overworld arrivals.
+
+Rerun, October 21, 2026: checkpoint c0f9a7d, a fresh world. The evidence
+stays ignored in `run-03`, `run-04`.
+
+- Passed:
+  - Walking into a portal right after lighting it travelled in 2 to 5 s.
+  - A `/tp` into a freshly lit portal arrived in the Nether in a new portal
+    near the scaled position.
+  - A player dropped into a just-opened end portal reached the platform in
+    4 to 5 s without moving.
+  - `/spawn` from the Nether travelled to the overworld's spawn.
+  - "Loading terrain" lasted about 1 s on each overworld arrival.
+- Failed:
+  - The command `/tp` into the exit gateway, then the gateway's own teleport,
+    disconnected the client with "Invalid teleport confirmation". The client
+    had confirmed the command's teleport after the server sent the next one.
+    Vanilla ignores a confirmation of any teleport but the awaited one, and
+    now so does ValiMC.
+  - A gateway placed inside the platform's space (x 98..102, y 49..51,
+    z -2..2) kept every later end portal from travelling, with
+    `unsupported_block_entity` once a second. Region owners refuse to replace
+    preserved block entities holding data. An end gateway's exit is data
+    ValiMC writes itself, and removing one drops nothing in vanilla, so
+    gateways now change like plain blocks.
+- Observed: arriving from a gateway with a walk's momentum, the player walked
+  off the small island into the void. Vanilla's gateway keeps the motion
+  (`Relative.DELTA`).
+- Pending: the gateway's way back, by `/tp` into its block, and an end portal
+  after a gateway was placed in the platform's space.
 
 Remaining after VMC-026b: the dragon fight (the dragon, respawning crystals,
 new gateways after each kill, the exit portal's activation) needs mobs (M3);

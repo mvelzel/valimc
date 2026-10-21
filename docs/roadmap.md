@@ -47,7 +47,7 @@ until its spill and stored experience exist ([VMC-034f](tickets/VMC-034f.md)).
 |---|---|
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Server CLONE/type-2 fill from a creative container menu (VMC-032) |
 | [VMC-028](tickets/VMC-028.md) | An amplified world and an imported 26.2 world in the client |
-| [VMC-026](tickets/VMC-026.md) | VMC-026b rerun: a portal entered right after lighting, an end portal right after opening, a gateway at its block, overworld arrival times |
+| [VMC-026](tickets/VMC-026.md) | VMC-026b: a gateway's way back by `/tp` into its block; an end portal after a gateway in the platform's space |
 
 ## Retrieve and update
 

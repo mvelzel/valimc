@@ -256,6 +256,15 @@ defmodule Valimc.PortalConnectionTest do
     assert state(pid).inventory.slots[36] == ItemStack.new("ender_eye", 3)
     wait(fn -> warmed?(:end_portal, interior) end)
 
+    # A gateway with an exit in the platform's space is cleared like any block.
+    gateway = Valimc.Registry.Blocks.default_state("end_gateway")
+    {:ok, exit} = Valimc.Worldgen.FullChunk.gateway_entry({98, 50, -2}, {{1000, 80, 0}, false})
+
+    Dimension.within(:the_end, fn ->
+      set(%{{98, 50, -2} => gateway})
+      :ok = Valimc.Portal.Access.put_block_entities(%{{98, 50, -2} => exit})
+    end)
+
     client = move(client, pid, {x + 1.5, y + 0.0, z + 1.5})
     {level, {ex, ey, ez}, client} = arrive(client, pid)
     assert level == "minecraft:the_end"
@@ -327,14 +336,24 @@ defmodule Valimc.PortalConnectionTest do
     assert exit_of(exit) == entry
     assert abs(x - (ex + 0.5)) <= 6 and abs(z - (ez + 0.5)) <= 6
 
-    # And back through the exit gateway, near the first one.
+    # And back through the exit gateway, near the first one. The gateway's
+    # teleport follows the command's before the client confirms that one; the
+    # stale confirmation is ignored, as vanilla's.
     wait(fn -> state(pid).player.portal_cooldown == 0 end)
-    _client = move(client, pid, {ex + 0.5, ey * 1.0, ez + 0.5})
+    deadline = System.monotonic_time(:millisecond) + 2000
+    pose = %{x: ex + 0.5, y: ey * 1.0, z: ez + 0.5, yaw: 0.0, pitch: 0.0}
+    :ok = GenServer.call(pid, {:teleport, pose, deadline})
+    {command, client} = Client.await(client, :play, "player_position")
+    {gateway_teleport, client} = Client.await(client, :play, "player_position", 4000)
+    client = Client.auto_reply(client, :play, "player_position", command)
+    _client = Client.auto_reply(client, :play, "player_position", gateway_teleport)
 
     wait(fn ->
       p = state(pid).player
       abs(p.x - 92.5) <= 6 and abs(p.z - 0.5) <= 6
     end)
+
+    wait(fn -> not state(pid).teleport_pending end)
 
     # Both exits survive their regions reloading from disk.
     for {x, _, z} <- [entry, exit],

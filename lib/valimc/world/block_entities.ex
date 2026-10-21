@@ -20,6 +20,9 @@ defmodule Valimc.World.BlockEntities do
   # A larger update tag is sent empty rather than refused (the block still renders).
   @max_update 262_144
   @update_limits %{NBT.disk_limits() | bytes: @max_update, duplicates: :refuse}
+  # Kinds whose removal vanilla drops nothing for and whose data ValiMC writes
+  # itself (an end gateway's exit, VMC-026b4): their blocks change freely.
+  @replaceable ["minecraft:end_gateway"]
 
   defstruct entries: %{}
 
@@ -37,7 +40,7 @@ defmodule Valimc.World.BlockEntities do
             type: type,
             nbt: nbt,
             update: update(name, tag),
-            data: BlockEntity.holds_data?(tag)
+            data: name not in @replaceable and BlockEntity.holds_data?(tag)
           }
 
           bytes = bytes + byte_size(nbt)

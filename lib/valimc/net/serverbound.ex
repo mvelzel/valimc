@@ -237,23 +237,28 @@ defmodule Valimc.Net.Serverbound do
         {id, <<x::float-64, y::float-64, z::float-64, _yaw::float-32, _pitch::float-32>>} =
           Wire.take_varint(payload)
 
-        if id != state.teleport, do: reject(state, "Invalid teleport confirmation")
-
-        if abs(x - state.player.x) + abs(y - state.player.y) + abs(z - state.player.z) > 0.01,
-          do: reject(state, "Invalid teleport position")
-
-        confirmed = state.teleport_pending
-        resume = confirmed and state.login_velocity_pending
-
-        state = %{
+        # Vanilla's `handleAcceptTeleportPacket` ignores any but the awaited
+        # teleport: a client confirms one the server already replaced (a
+        # command's, then a portal's or a travel's) before it sees the next.
+        if id != state.teleport do
           state
-          | teleport_pending: false,
-            motion_window: nil,
-            login_velocity_pending: false
-        }
+        else
+          if abs(x - state.player.x) + abs(y - state.player.y) + abs(z - state.player.z) > 0.01,
+            do: reject(state, "Invalid teleport position")
 
-        if confirmed, do: send(self(), :send_chunks)
-        if resume, do: Movement.send_velocity(state, state.player.motion.velocity), else: state
+          confirmed = state.teleport_pending
+          resume = confirmed and state.login_velocity_pending
+
+          state = %{
+            state
+            | teleport_pending: false,
+              motion_window: nil,
+              login_velocity_pending: false
+          }
+
+          if confirmed, do: send(self(), :send_chunks)
+          if resume, do: Movement.send_velocity(state, state.player.motion.velocity), else: state
+        end
 
       "keep_alive" ->
         <<id::signed-64>> = payload
