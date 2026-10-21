@@ -127,7 +127,7 @@ chosen by area. No client run: the milestone handoff covers `/setworldspawn`
 in the Nether, creative placement of an unmodelled block item and a command
 whose owner is slow.
 
-Size: lib and config +1,546 / −1,154 lines over three commits (new: `World.Spec`,
+Size: lib and config +1,551 / −1,156 lines over four commits (new: `World.Spec`,
 `World.Settings`, `DurableFile`, the command job; gone: the world.json
 re-readers, the raw block API, the preview placement path, the
 connection-state threading through every command handler and its self-target
