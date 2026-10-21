@@ -13,14 +13,20 @@ per-feature transfers, mailbox block reads and monolithic connection with sectio
 group commit, one transaction engine, snapshots, a game-time tick pipeline, the entity
 model and a generated registry; see [architecture](architecture.md).
 
-## M2 — Real worlds (in progress)
+## M2 — Real worlds (complete)
+
+VMC-010, 020..025, 026, 027, 028, 029c, 053 and 070..075 generate vanilla's
+overworld, Nether and End live (terrain, features, structures, loot) with
+portals, world settings and the world-generation commands; the gate is in
+[VMC-025](tickets/VMC-025.md#m2-milestone-gate-october-21-2026). Commands on M3
+systems (VMC-053h, k–n) move with those systems. Generation and tick time stay
+matched against vanilla and Pumpkin, at least in Pumpkin's range.
+
+## Next: development tooling
 
 | Ticket | Open slice | Status |
 |---|---|---|
-
-Done in M2: VMC-010, 020..025, 026, 027, 028, 029c, 053, 070..075 (see [completed](history/completed.md)).
-Commands on M3 systems (VMC-053h, k–n) move with those systems. Generation and tick
-time stay matched against vanilla and Pumpkin, at least in Pumpkin's range.
+| [VMC-076](tickets/VMC-076.md) | Fast feedback: dev Rust profile, heavy-job slots, test tiers, cached oracles | Planned |
 
 ## M3 onward
 

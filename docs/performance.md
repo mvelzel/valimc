@@ -32,11 +32,12 @@ matched apart from structures.
 at once through its proto owners: 1,296 terrain chunks, 1,156 decorated, 1,024
 final, every proto log write durable; against Pumpkin generating the same area
 through its chunk stages with all threads, nothing written to disk). The host
-is shared, so ValiMC and Pumpkin ran back to back in five pairs of three
-passes at load averages 11–38 on 10 cores. ValiMC finalized a median 179 final
-chunks per second (104–260, standard deviation 42) against Pumpkin's 250
-(154–320, deviation 55); the median pair ratio is 0.77 × Pumpkin (pairs 0.43–
-1.12 as the load moved). On one thread the two are level (70–90 against
+is shared, so ValiMC and Pumpkin ran back to back in three pairs of three
+passes at load averages 10–20 on 10 cores (M2 gate, e2c81e8,
+`bench/results/m2-gate-*.json`). ValiMC finalized a median 292 final chunks
+per second (257–331, faster on each later pass) against Pumpkin's 395
+(316–418); the median pair ratio is 0.74 × Pumpkin (pairs 0.73–0.79), and
+ValiMC's third passes reach 0.83 ×. On one thread the two are level (70–90 against
 68–90 final chunks per second at load 11–19), and so are the stages (terrain
 through carvers 54.6 ms per chunk against Pumpkin's 51.2, decoration 6.4
 against 6.4, under the same load). Finalize transactions never wait while
