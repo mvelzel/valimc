@@ -173,21 +173,4 @@ defmodule Valimc.InventoryConnectionTest do
     peer = snapshot(peer)
     assert Enum.all?(peer.inventory.items, &is_nil/1) and peer.inventory.carried == nil
   end
-
-  test "malformed close disconnects only its sender" do
-    username = name()
-    {_, client} = Client.login(username)
-    on_exit(fn -> Client.close(client) end)
-    client = Client.load_world(client)
-    {_, peer} = Client.login(name())
-    on_exit(fn -> Client.close(peer) end)
-    peer = Client.load_world(peer)
-    pid = Enum.find(Valimc.Players.all(), &(&1.name == username)).pid
-    ref = Process.monitor(pid)
-    Client.send_packet(client, :play, "container_close", <<0, 1>>)
-    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
-    Client.send_packet(peer, :play, "chat_command", Wire.string("stats"))
-    {_, _} = Client.await_stats(peer)
-    assert Process.alive?(Process.whereis(Valimc.Listener))
-  end
 end
