@@ -3,6 +3,7 @@ defmodule Valimc.World.RegionData do
   alias Valimc.World.{
     BlockEntities,
     Generator,
+    LootChests,
     EntityPublication,
     ScheduledTicks,
     TickBehaviours,
@@ -1108,7 +1109,7 @@ defmodule Valimc.World.RegionData do
       epoch != state.items.epoch -> {:reply, {:error, :stale_region}, state}
       not state.item_storage_enabled -> {:reply, {:error, :transfer_storage_disabled}, state}
       busy = write_busy(state) -> {:reply, {:error, busy}, state}
-      true -> plan_block_transfer(:mining, transfer, from, state)
+      true -> plan_block_transfer(:mining, transfer, from, unpack_to_break(state, transfer))
     end
   end
 
@@ -1378,6 +1379,11 @@ defmodule Valimc.World.RegionData do
   def handle_call({:remove_block, position}, from, state) do
     block = Blocks.get(state.blocks, position)
     replacement = Valimc.Block.after_removal(block)
+
+    state =
+      if in_region?(state, position) and write_busy(state) == nil,
+        do: unpack_loot(state, position, 0.0),
+        else: state
 
     if Valimc.Block.block_entity(block) != nil and
          Map.has_key?(state.containers.entries, position) do
@@ -2621,6 +2627,88 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  # Unrolled loot becomes the chest's contents before anything reads or removes
+  # them (VMC-072b): the containers and the preserved entry's removal commit in
+  # one frame, queued ahead of whatever follows, so replies wait for it.
+  defp unpack_loot(state, position, luck) do
+    block = Blocks.get(state.blocks, position)
+
+    biome = fn ->
+      {zoom_seed, _} = Generator.client_info()
+      Blocks.biome(state.blocks, zoom_seed, position)
+    end
+
+    case LootChests.unpack(
+           state.containers,
+           state.block_entities,
+           state.key,
+           position,
+           block,
+           luck: luck,
+           biome: biome
+         ) do
+      {:ok, containers, entities, _entry} ->
+        token = make_ref()
+
+        Store.commit_unpack(
+          state.store,
+          state.store_lease,
+          containers,
+          [position],
+          {self(), state.items.epoch},
+          token
+        )
+
+        Valimc.Metrics.add(:loot_unpacks)
+        state = %{state | containers: containers, block_entities: entities}
+        queue_container_write(state, token, nil, nil, [])
+
+      :error ->
+        state
+    end
+  end
+
+  # Vanilla unpacks when a player who may open the chest opens it: not a
+  # spectator, and only where the open itself succeeds (`createMenu`). The
+  # opener's luck attribute has no source in ValiMC yet, so it is 0.
+  defp unpack_to_open(state, {x, y, z} = position, %{kind: :open, mode: mode} = grant)
+       when mode != :spectator do
+    block = Blocks.get(state.blocks, position)
+
+    if write_busy(state) == nil and
+         LootChests.unrolled?(state.containers, state.block_entities, position, block) do
+      provisional = %{rows: 3, slots: Tuple.duplicate(nil, 27), revision: 0}
+      above = Blocks.get(state.blocks, {x, y + 1, z})
+      now = System.monotonic_time(:millisecond)
+
+      case Valimc.ChestOpening.authorize(block, provisional, above, position, grant, now) do
+        {:chest, _, _} -> unpack_loot(state, position, 0.0)
+        _ -> state
+      end
+    else
+      state
+    end
+  end
+
+  defp unpack_to_open(state, _, _), do: state
+
+  # Breaking a chest reads its contents to drop them, which unpacks it with no
+  # player (luck 0), as `Containers.dropContents` does.
+  defp unpack_to_break(state, %{expected: expected} = transfer) when is_map(expected) do
+    if permit_matches?(state, :mining, transfer) do
+      Enum.reduce(expected, state, fn {position, block}, acc ->
+        if in_region?(acc, position) and Blocks.get(acc.blocks, position) == block and
+             not Valimc.ChestAccess.single?(Valimc.Block.after_removal(block)),
+           do: unpack_loot(acc, position, 0.0),
+           else: acc
+      end)
+    else
+      state
+    end
+  end
+
+  defp unpack_to_break(state, _), do: state
+
   # An imported block entity holding data ValiMC cannot drop or spill keeps its
   # block (VMC-021e1).
   defp preserved_change?(state, changes),
@@ -3626,6 +3714,12 @@ defmodule Valimc.World.RegionData do
 
   def handle_info({:table_request, epoch, connection, ref, position, grant}, state)
       when is_pid(connection) and is_reference(ref) do
+    state =
+      if epoch == state.items.epoch and valid_block_query?([position], :any) and
+           in_region?(state, position),
+         do: unpack_to_open(state, position, grant),
+         else: state
+
     decision =
       cond do
         epoch != state.items.epoch ->

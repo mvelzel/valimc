@@ -116,6 +116,9 @@ defmodule Valimc.Native do
   def set_random_ticking(_region, _bitmap), do: :erlang.nif_error(:nif_not_loaded)
   def random_ticks(_region, _per_section), do: :erlang.nif_error(:nif_not_loaded)
 
+  def region_biome(_region, _zoom_seed, _position, _default_biome),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   # Container loot tables (VMC-072a).
   def loot_registry(_tables, _registries), do: :erlang.nif_error(:nif_not_loaded)
 

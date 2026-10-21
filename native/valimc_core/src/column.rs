@@ -723,6 +723,23 @@ impl ColumnStore {
         self.chunk_of(chunk.0 * 16, chunk.1 * 16).map(|_| ())
     }
 
+    /// The biome of quart `(qx, qy, qz)` as `getNoiseBiome` reads it (y
+    /// clamped to the column), `default_biome` for a flat column; None outside
+    /// the region.
+    pub fn noise_biome(&self, (qx, qy, qz): (i32, i32, i32), default_biome: u16) -> Option<u16> {
+        let chunk = (qx >> 2, qz >> 2);
+        self.check_chunk(chunk).ok()?;
+        let min = MIN_Y >> 2;
+        let qy = qy.clamp(min, min + (HEIGHT as i32 >> 2) - 1) - min;
+        Some(
+            match self.columns.get(&chunk).and_then(|c| c.biomes.as_ref()) {
+                Some(biomes) => biomes[(qy >> 2) as usize]
+                    .get((((qy & 3) * 4 + (qz & 3)) * 4 + (qx & 3)) as usize),
+                None => default_biome,
+            },
+        )
+    }
+
     pub fn touched(&self, chunk: (i32, i32)) -> bool {
         self.columns.contains_key(&chunk)
     }
@@ -990,6 +1007,27 @@ mod tests {
         // 64 chunks x 3 draws hit the surface layer with probability 1/16.
         let expected = 200 * 64 * 3 / 16;
         assert!(total > expected / 2 && total < expected * 2, "{total}");
+    }
+
+    #[test]
+    fn noise_biomes_index_quarts_as_paletted_containers_do() {
+        let mut store = ColumnStore::new((0, 0), 8, flat(), 1 << 30);
+        let mut column = Column::from_layers(&flat());
+        let mut biomes = vec![Biomes::Single(1); SECTIONS];
+        // Section 5 (y 16..31): biome = its cell index, (y * 4 + z) * 4 + x.
+        biomes[5] = Biomes::Cells(Box::new(std::array::from_fn(|i| 100 + i as u16)));
+        column.biomes = Some(biomes);
+        store.put_column((2, 3), column, &flags()).unwrap();
+        // Quart (x 9, y 5, z 14): chunk (2, 3), local (1, 1, 2), section 5.
+        assert_eq!(
+            store.noise_biome((9, 5, 14), 7),
+            Some(100 + (4 + 2) * 4 + 1)
+        );
+        // y clamps to the column; a flat column reads the default; outside is None.
+        assert_eq!(store.noise_biome((9, -40, 14), 7), Some(1));
+        assert_eq!(store.noise_biome((9, 200, 14), 7), Some(1));
+        assert_eq!(store.noise_biome((0, 5, 0), 7), Some(7));
+        assert_eq!(store.noise_biome((-1, 5, 0), 7), None);
     }
 
     #[test]

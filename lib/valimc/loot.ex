@@ -24,15 +24,21 @@ defmodule Valimc.Loot do
           Application.app_dir(:valimc, "priv/loot/#{name}.json") |> File.read!() |> JSON.decode!()
         end
 
-        {:ok, registry} =
-          Native.loot_registry(read.("tables"), read.("registries"))
-
+        tables = read.("tables")
+        {:ok, registry} = Native.loot_registry(tables, read.("registries"))
+        :persistent_term.put({__MODULE__, :tables}, MapSet.new(Map.keys(tables)))
         :persistent_term.put({__MODULE__, :registry}, registry)
         registry
 
       registry ->
         registry
     end
+  end
+
+  @doc "Whether the facts hold `table` (vanilla fills nothing from an unknown one)."
+  def known?(table) do
+    registry()
+    MapSet.member?(:persistent_term.get({__MODULE__, :tables}), table)
   end
 
   @doc """

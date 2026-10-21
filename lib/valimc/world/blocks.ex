@@ -202,6 +202,21 @@ defmodule Valimc.World.Blocks do
     end
   end
 
+  @doc """
+  The biome identifier at a block as vanilla's `Level.getBiome` reads it (the
+  fuzzed zoom with the world's hashed seed), or nil when the quart it picks lies
+  outside the region.
+  """
+  def biome(%__MODULE__{} = blocks, zoom_seed, {x, y, z}) do
+    plains = Data.registry_id("minecraft:worldgen/biome", "minecraft:plains")
+
+    case Native.region_biome(blocks.ref, zoom_seed, {x, y, z}, plains) do
+      {:ok, nil} -> nil
+      {:ok, id} -> Data.registry_name("minecraft:worldgen/biome", id)
+      {:error, _} -> nil
+    end
+  end
+
   @doc "A chunk's owned block-entity carriers (single chests, furnaces) as `position => block`."
   def chunk_entities(%__MODULE__{} = blocks, {cx, cz}) do
     states = owned_states()

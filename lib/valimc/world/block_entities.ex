@@ -8,7 +8,8 @@ defmodule Valimc.World.BlockEntities do
 
   An entry is live only while the block at its position still creates its type;
   readers check that (`live/3`) instead of the owner rewriting the set on every
-  block change. The set changes only by import, so it is persisted whole.
+  block change. The set grows only by import and generation, which persist it
+  whole; an unpacked loot chest (VMC-072b) leaves it by a dropped position.
   """
   alias Valimc.Anvil.BlockEntity
   alias Valimc.NBT
@@ -93,6 +94,10 @@ defmodule Valimc.World.BlockEntities do
         nil
     end
   end
+
+  @doc "The set without the entry at `position`."
+  def drop(%__MODULE__{entries: entries} = entities, position),
+    do: %{entities | entries: Map.delete(entries, position)}
 
   @doc "Positions of entries in chunk `{cx, cz}`."
   def in_chunk(%__MODULE__{entries: entries}, {cx, cz}) do

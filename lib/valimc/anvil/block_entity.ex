@@ -10,7 +10,8 @@ defmodule Valimc.Anvil.BlockEntity do
   (`Valimc.World.BlockEntities`): it renders through vanilla's update tag, stays
   for export, and its block refuses interactions ValiMC cannot perform. That
   includes chests and furnaces with a custom name, lock, unrolled loot table or
-  items with components ValiMC cannot hold ("locked" containers).
+  items with components ValiMC cannot hold ("locked" containers); a single
+  chest with only an unrolled loot table unpacks in play (VMC-072b).
 
   As vanilla's `LevelChunk` does, a compound whose `id` is not the type the block
   at its position creates is dropped.

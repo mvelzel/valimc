@@ -15,7 +15,8 @@ defmodule Valimc.World.Store do
   @max_batch 256
   @max_commit_cells 4096
   # Imported parts (VMC-021e): `block_entities` (`position => {type_id, nbt}`,
-  # owner-loaded); `chunk_extras` (`chunk => nbt`, vanilla chunk data ValiMC does
+  # owner-loaded; written whole, or shrunk by a `block_entities_drop` frame part
+  # when a loot chest unpacks, VMC-072b); `chunk_extras` (`chunk => nbt`, vanilla chunk data ValiMC does
   # not model) and `entities` (`chunk => nbt`, preserved vanilla entities) are kept
   # for export only; `light` (`chunk => image`, VMC-021e5) is owner-loaded.
   # `post_processing` (`chunk => {marks, fluid_ticks}`, VMC-025d) holds what a
@@ -150,6 +151,18 @@ defmodule Valimc.World.Store do
 
   def commit_containers(pid, lease, containers, {owner, epoch}, token),
     do: GenServer.cast(pid, {:containers, lease, containers, {owner, epoch}, token})
+
+  @doc """
+  Persist containers with preserved block entities at `dropped` removed, in one
+  frame (a loot chest unpacked into an owned container, VMC-072b);
+  acknowledged with `:containers_saved`.
+  """
+  def commit_unpack(pid, lease, containers, dropped, {owner, epoch}, token) when is_list(dropped),
+    do:
+      GenServer.cast(
+        pid,
+        {:unpack, lease, %{containers: containers, dropped: dropped}, {owner, epoch}, token}
+      )
 
   def flush_items(pid, lease, items, receipts),
     do: GenServer.call(pid, {:flush_items, lease, Items.snapshot(items), receipts}, 15_000)
@@ -320,7 +333,7 @@ defmodule Valimc.World.Store do
   # call, so taking commit casts ahead of other messages cannot reorder its writes.
   @impl true
   def handle_cast(message, %{lease: lease} = state)
-      when elem(message, 0) in [:snapshot, :items, :mining, :containers, :ticks] and
+      when elem(message, 0) in [:snapshot, :items, :mining, :containers, :ticks, :unpack] and
              elem(message, 1) == lease do
     batch = [message | drain(lease, @max_batch - 1, [])]
     Valimc.Metrics.add(:store_batches)
@@ -373,7 +386,7 @@ defmodule Valimc.World.Store do
     {:noreply, state}
   end
 
-  def handle_cast({:containers, _, _, {owner, epoch}, token}, state) do
+  def handle_cast({tag, _, _, {owner, epoch}, token}, state) when tag in [:containers, :unpack] do
     send(
       owner,
       {:resource, epoch, {:containers_saved, self(), token, {:error, :stale_store_lease}}}
@@ -478,6 +491,9 @@ defmodule Valimc.World.Store do
         {:post_processing, chunks}, acc ->
           %{acc | post_processing: Map.merge(acc.post_processing, chunks)}
 
+        {:block_entities_drop, positions}, acc ->
+          %{acc | block_entities: Map.drop(acc.block_entities, positions)}
+
         {part, value}, acc
         when part in [
                :blocks,
@@ -578,7 +594,7 @@ defmodule Valimc.World.Store do
   defp drain(lease, left, acc) do
     receive do
       {:"$gen_cast", {tag, ^lease, _, _, _} = message}
-      when tag in [:snapshot, :mining, :containers, :ticks] ->
+      when tag in [:snapshot, :mining, :containers, :ticks, :unpack] ->
         drain(lease, left - 1, [message | acc])
 
       {:"$gen_cast", {:items, ^lease, _, _, _, _} = message} ->
@@ -590,13 +606,16 @@ defmodule Valimc.World.Store do
 
   defp batch_parts(key, batch) do
     folded =
-      Enum.reduce_while(batch, %{cells: %{}, items: nil, containers: nil, ticks: nil}, fn message,
-                                                                                          acc ->
-        case fold_commit(key, message, acc) do
-          {:ok, acc} -> {:cont, acc}
-          error -> {:halt, error}
+      Enum.reduce_while(
+        batch,
+        %{cells: %{}, items: nil, containers: nil, ticks: nil, dropped: []},
+        fn message, acc ->
+          case fold_commit(key, message, acc) do
+            {:ok, acc} -> {:cont, acc}
+            error -> {:halt, error}
+          end
         end
-      end)
+      )
 
     with %{} <- folded,
          {:ok, items} <- encode_items(key, folded.items),
@@ -605,7 +624,8 @@ defmodule Valimc.World.Store do
        cells_parts(folded.cells) ++
          if(items, do: [{:items, items}], else: []) ++
          if(containers, do: [{:containers, containers}], else: []) ++
-         if(folded.ticks, do: [{:ticks, folded.ticks}], else: [])}
+         if(folded.ticks, do: [{:ticks, folded.ticks}], else: []) ++
+         if(folded.dropped == [], do: [], else: [{:block_entities_drop, folded.dropped}])}
     else
       # A batch holding a joint commit reports it as an invalid proposal.
       {:error, reason} ->
@@ -626,6 +646,13 @@ defmodule Valimc.World.Store do
 
   defp fold_commit(_key, {:containers, _, containers, _, _}, acc),
     do: {:ok, %{acc | containers: containers}}
+
+  defp fold_commit(key, {:unpack, _, %{containers: containers, dropped: dropped}, _, _}, acc)
+       when is_list(dropped) and length(dropped) <= @max_commit_cells do
+    if Enum.all?(dropped, &valid_cell?(key, {&1, 0})),
+      do: {:ok, %{acc | containers: containers, dropped: Enum.uniq(acc.dropped ++ dropped)}},
+      else: {:error, :invalid_unpack}
+  end
 
   defp fold_commit(key, {:mining, _, %{changes: changes} = proposal, _, _}, acc)
        when is_map(changes) and map_size(changes) <= @max_commit_cells do
@@ -675,7 +702,7 @@ defmodule Valimc.World.Store do
   defp acknowledge({:ticks, _, _, {owner, epoch}, token}, result),
     do: send(owner, {:resource, epoch, {:ticks_saved, self(), token, result}})
 
-  defp acknowledge({:containers, _, _, {owner, epoch}, token}, result),
+  defp acknowledge({tag, _, _, {owner, epoch}, token}, result) when tag in [:containers, :unpack],
     do: send(owner, {:resource, epoch, {:containers_saved, self(), token, result}})
 
   # Append one frame of full values; without a world path, keep them in memory.
@@ -710,6 +737,9 @@ defmodule Valimc.World.Store do
 
         {:post_processing, chunks}, acc ->
           %{acc | post_processing: Map.merge(acc.post_processing, chunks)}
+
+        {:block_entities_drop, positions}, acc ->
+          %{acc | block_entities: Map.drop(acc.block_entities, positions)}
 
         {k, v}, acc ->
           %{acc | k => v}

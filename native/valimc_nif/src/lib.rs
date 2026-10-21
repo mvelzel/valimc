@@ -562,6 +562,20 @@ fn dump_column<'a>(
     Ok((binary(env, &be(&states)), binary(env, &be(&biomes))).encode(env))
 }
 
+/// The biome registry id at a block as `Level.getBiome` reads it (vanilla's
+/// fuzzed zoom with the hashed seed), or nil when the quart it picks lies
+/// outside the region (VMC-072b).
+#[rustler::nif]
+fn region_biome(
+    region: ResourceArc<Region>,
+    zoom_seed: i64,
+    position: (i32, i32, i32),
+    default_biome: u16,
+) -> Result<Option<u16>, Atom> {
+    let quart = valimc_core::worldgen::surface::zoom(zoom_seed, position.0, position.1, position.2);
+    with_store(&region, |store| Ok(store.noise_biome(quart, default_biome)))
+}
+
 /// The region-log image of a chunk's column (VMC-021c), or `flat` for the base profile.
 #[rustler::nif]
 fn column_image<'a>(
@@ -1208,7 +1222,9 @@ fn worldgen_decorate_structures<'a>(
         Some(&included),
     )?;
     Ok((
-        area.held().map(|chunk| decorated_chunk(env, chunk)).collect(),
+        area.held()
+            .map(|chunk| decorated_chunk(env, chunk))
+            .collect(),
         starts.iter().map(|s| s.save(&registry).snbt()).collect(),
     ))
 }
