@@ -462,10 +462,7 @@ pub fn generate(gc: &mut GenContext, mesa: bool) -> Result<Option<Vec<Piece>>, S
     let bb = encapsulating(pieces.iter().map(|p| &p.bbox)).expect("a room");
     let dy = if mesa {
         let (cx, cy, cz) = bb.center();
-        let surface = gc
-            .env
-            .heights
-            .base_height(cx, cz, Heightmap::WorldSurfaceWg)?;
+        let surface = gc.base_height(cx, cz, Heightmap::WorldSurfaceWg)?;
         let target = if surface <= sea_level {
             sea_level
         } else {

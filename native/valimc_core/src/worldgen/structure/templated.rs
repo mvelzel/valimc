@@ -483,11 +483,7 @@ pub fn ruined_portal(
     let base = [gc.min_block_x(), 0, gc.min_block_z()];
     let bbox = template_box(size, base, rotation, pivot, mirror);
     let (cx, _, cz) = bbox.center();
-    let surface_y = gc
-        .env
-        .heights
-        .base_height(cx, cz, setup.placement.heightmap())?
-        - 1;
+    let surface_y = gc.base_height(cx, cz, setup.placement.heightmap())? - 1;
     let projected_y = suitable_y(
         gc,
         setup.placement,
@@ -567,14 +563,13 @@ fn suitable_y(
         Vertical::PartlyBuried => surface_y - y_span + between_inclusive(r, 2, 8),
         Vertical::OnLandSurface | Vertical::OnOceanFloor => surface_y,
     };
-    let heights = &gc.env.heights;
     let columns = [
-        heights.base_column(bbox.min_x, bbox.min_z)?,
-        heights.base_column(bbox.max_x, bbox.min_z)?,
-        heights.base_column(bbox.min_x, bbox.max_z)?,
-        heights.base_column(bbox.max_x, bbox.max_z)?,
+        gc.base_column(bbox.min_x, bbox.min_z)?,
+        gc.base_column(bbox.max_x, bbox.min_z)?,
+        gc.base_column(bbox.min_x, bbox.max_z)?,
+        gc.base_column(bbox.max_x, bbox.max_z)?,
     ];
-    let flags = &heights.flags;
+    let flags = &gc.env.heights.flags;
     let ocean_floor = placement == Vertical::OnOceanFloor;
     let opaque = |state: u16| {
         let f = flags[state as usize];
@@ -635,7 +630,8 @@ pub fn nether_fossil(
         sea_level,
     };
     let mut y = height.sample(&mut gc.random, context);
-    let column = heights.base_column(x, z)?;
+    let column = gc.base_column(x, z)?;
+    let heights = &gc.env.heights;
     let ground = heights.blocks.default_block;
     let flags = &heights.flags;
     while y > sea_level {

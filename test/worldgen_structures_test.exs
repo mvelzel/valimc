@@ -60,6 +60,46 @@ defmodule Valimc.WorldgenStructuresTest do
              ~s({Children:[{BB:[I;87202,63,429218,87210,68,429224],GD:0,O:2,Rot:"CLOCKWISE_90",TPX:87200,TPY:63,TPZ:429214,)
   end
 
+  test "strongholds, mansions and monuments start as vanilla's", %{state: state} do
+    {:ok, {starts, _skipped}} =
+      Native.worldgen_structure_starts(state, @source, [
+        {-119, -64},
+        {-24454, -14613},
+        {28685, -19096}
+      ])
+
+    assert [
+             {-119, -64, "minecraft:stronghold", stronghold},
+             {-24454, -14613, "minecraft:mansion", mansion},
+             {28685, -19096, "minecraft:monument", monument}
+           ] = starts
+
+    assert length(String.split(stronghold, ~s(id:"minecraft:sh))) == 217
+
+    assert stronghold =~
+             ~s({Children:[{BB:[I;-1902,14,-1022,-1898,24,-1018],EntryDoor:"OPENING",GD:0,O:2,Source:1b,)
+
+    assert length(String.split(mansion, ~s(id:"minecraft:wmp"))) == 595
+
+    assert mansion =~
+             ~s(Rot:"COUNTERCLOCKWISE_90",TPX:-391257,TPY:67,TPZ:-233792,Template:"entrance")
+
+    assert monument =~
+             ~s({Children:[{BB:[I;458931,39,-305565,458988,61,-305508],GD:0,O:1,id:"minecraft:omb"}])
+  end
+
+  test "nether fortresses start as vanilla's" do
+    {:ok, nether} = Valimc.Worldgen.new(@seed, "minecraft:nether")
+
+    {:ok, {[{-16457, 29276, "minecraft:fortress", fortress}], _}} =
+      Native.worldgen_structure_starts(nether, "minecraft:nether", [{-16457, 29276}])
+
+    assert length(String.split(fortress, ~s(id:"minecraft:ne))) == 139
+
+    assert fortress =~
+             ~s({Children:[{BB:[I;-263310,62,468418,-263292,71,468436],GD:0,O:0,id:"minecraft:nebcr"})
+  end
+
   test "placement chunks follow the sets' grids", %{state: state} do
     {:ok, {placements, _references}} =
       Native.worldgen_structure_window(state, @source, {-5, -15}, 17)

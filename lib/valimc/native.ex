@@ -72,6 +72,9 @@ defmodule Valimc.Native do
   def worldgen_proto_full(_state, _chunks, _protocol_biomes),
     do: :erlang.nif_error(:nif_not_loaded)
 
+  def worldgen_structure_time(_state, _biome_source, _origin, _size),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def nbt_read(_bytes, _byte_limit, _nodes, _depth), do: :erlang.nif_error(:nif_not_loaded)
   def lz4_decode_stream(_bytes, _max), do: :erlang.nif_error(:nif_not_loaded)
   def lz4_decode_stream_dirty(_bytes, _max), do: :erlang.nif_error(:nif_not_loaded)

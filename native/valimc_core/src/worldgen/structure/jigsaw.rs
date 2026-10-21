@@ -724,7 +724,7 @@ pub fn generate(gc: &mut GenContext, config: &JigsawConfig) -> Result<Option<Vec
             if !gc.could_exist_in_column(center_x, center_z, level_min_y, level_max_y)? {
                 return Ok(None);
             }
-            position[1] + gc.env.heights.base_height(center_x, center_z, heightmap)?
+            position[1] + gc.base_height(center_x, center_z, heightmap)?
         }
     };
     let dy = bottom_y - (center_box.min_y + center_piece.ground_level_delta);
@@ -995,8 +995,6 @@ impl Placer<'_, '_, '_> {
         }
         let h = self
             .gc
-            .env
-            .heights
             .base_height(pos[0], pos[2], Heightmap::WorldSurfaceWg)?;
         *cache = Some(h);
         Ok(h)

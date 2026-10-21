@@ -1510,4 +1510,60 @@ fn worldgen_proto_full<'a>(
     Ok(out)
 }
 
+/// This thread's CPU time in nanoseconds (`clock_gettime` with the thread
+/// CPU clock), so benchmarks on a shared host count only their own work.
+fn thread_cpu_ns() -> u64 {
+    #[repr(C)]
+    struct Timespec {
+        tv_sec: i64,
+        tv_nsec: i64,
+    }
+    extern "C" {
+        fn clock_gettime(clock: i32, time: *mut Timespec) -> i32;
+    }
+    #[cfg(target_os = "macos")]
+    const THREAD_CPUTIME: i32 = 16;
+    #[cfg(not(target_os = "macos"))]
+    const THREAD_CPUTIME: i32 = 3;
+    let mut time = Timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: clock_gettime writes one timespec through the pointer it gets.
+    if unsafe { clock_gettime(THREAD_CPUTIME, &mut time) } == 0 {
+        time.tv_sec as u64 * 1_000_000_000 + time.tv_nsec as u64
+    } else {
+        0
+    }
+}
+
+/// Structure start benchmark (VMC-025e): the wall and thread CPU
+/// nanoseconds `createStructures` takes over the `size` × `size` chunks from
+/// `origin`, and the starts made.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_structure_time(
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    origin: (i32, i32),
+    size: i32,
+) -> Result<(u64, u64, usize), String> {
+    let env = {
+        let mut state = state.lease()?;
+        state.structure_env(&biome_source)?
+    };
+    let mut elapsed = std::time::Duration::ZERO;
+    let mut cpu = 0;
+    let mut starts = 0;
+    for dz in 0..size {
+        for dx in 0..size {
+            let (begin, begin_cpu) = (std::time::Instant::now(), thread_cpu_ns());
+            let (made, _) = env.create_structures(origin.0 + dx, origin.1 + dz)?;
+            cpu += thread_cpu_ns() - begin_cpu;
+            elapsed += begin.elapsed();
+            starts += made.len();
+        }
+    }
+    Ok((elapsed.as_nanos() as u64, cpu, starts))
+}
+
 rustler::init!("Elixir.Valimc.Native");

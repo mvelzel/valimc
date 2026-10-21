@@ -38,8 +38,9 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
  * `facts STRUCTURES.json STRUCTURE_SETS.json POOLS.json TEMPLATES.json`: the `worldgen/structure`,
  * `worldgen/structure_set` and `worldgen/template_pool` registries as vanilla's codecs encode
  * them, keyed by identifier, each pool element also as the NBT a jigsaw piece saves, and each
- * biome holder set (a structure's biomes, a concentric ring placement's preferred biomes)
- * resolved to its sorted biome identifiers. The registries list their entries in identifier
+ * biome holder set (a structure's biomes, a concentric ring placement's preferred biomes, the
+ * ocean monument's required surroundings as `surrounding_biomes`) resolved to its sorted biome
+ * identifiers. The registries list their entries in identifier
  * order, which is the order in which chunk generation tries structure sets. Templates: see
  * `templates`.
  *
@@ -68,6 +69,7 @@ public class StructureOracle {
     switch (args[0]) {
       case "facts" -> facts(Path.of(args[1]), Path.of(args[2]), Path.of(args[3]), Path.of(args[4]));
       case "starts" -> starts(Path.of(args[1]));
+      case "bench" -> bench(Path.of(args[1]));
       default -> throw new IllegalArgumentException("usage: StructureOracle facts|starts ...");
     }
   }
@@ -104,6 +106,11 @@ public class StructureOracle {
     registries.lookupOrThrow(Registries.STRUCTURE).listElements().forEach(holder -> {
       var json = Structure.DIRECT_CODEC.encodeStart(ops, holder.value()).getOrThrow().getAsJsonObject();
       json.add("biomes", biomeIds(holder.value().biomes()));
+      // Ocean monuments need every biome around them in this tag.
+      if (holder.value() instanceof net.minecraft.world.level.levelgen.structure.structures.OceanMonumentStructure) {
+        json.add("surrounding_biomes", biomeIds(registries.lookupOrThrow(Registries.BIOME)
+            .getOrThrow(net.minecraft.tags.BiomeTags.REQUIRED_OCEAN_MONUMENT_SURROUNDING)));
+      }
       structures.put(holder.key().identifier().toString(), json);
     });
     var sets = new TreeMap<String, JsonElement>();
@@ -397,6 +404,46 @@ public class StructureOracle {
     Files.writeString(out, new Gson().toJson(result));
     System.out.println("PASS: " + startCount + " vanilla structure starts in " + chunkCount + " chunks and " + referenceCount
         + " references over " + seeds.length + " seeds");
+  }
+
+  /**
+   * `bench OUT`: one thread, seed 20261020, the overworld's 40 × 40 chunks from (-20, -20), each a
+   * fresh proto chunk through `createStructures`; two warm-up and five timed passes (the structure
+   * state, ring positions included, is built during the warm-up), wall and thread CPU nanoseconds
+   * per pass.
+   */
+  static void bench(Path out) throws Exception {
+    var registries = serverRegistries();
+    var world = World.create(20261020L, "minecraft:overworld", registries, ChunkOracle.factory());
+    var passes = new JsonArray();
+    var cpuPasses = new JsonArray();
+    var threads = java.lang.management.ManagementFactory.getThreadMXBean();
+    int starts = 0;
+    for (int pass = 0; pass < 7; pass++) {
+      long total = 0, cpu = 0;
+      starts = 0;
+      for (int z = -20; z < 20; z++) {
+        for (int x = -20; x < 20; x++) {
+          long start = System.nanoTime(), startCpu = threads.getCurrentThreadCpuTime();
+          var chunk = world.createStructures(x, z);
+          cpu += threads.getCurrentThreadCpuTime() - startCpu;
+          total += System.nanoTime() - start;
+          starts += chunk.getAllStarts().size();
+        }
+      }
+      if (pass >= 2) {
+        passes.add(total);
+        cpuPasses.add(cpu);
+      }
+    }
+    var result = new JsonObject();
+    result.addProperty("chunks", 1600);
+    result.addProperty("starts", starts);
+    result.add("vanilla_structure_start_ns", passes);
+    result.add("vanilla_structure_start_cpu_ns", cpuPasses);
+    result.addProperty("java", System.getProperty("java.vm.name") + " " + System.getProperty("java.version"));
+    Files.writeString(out, new Gson().toJson(result));
+    System.out.println("PASS: vanilla structure start timings for 1600 chunks (" + starts + " starts)");
   }
 
   static int addStarts(World world, ProtoChunk chunk, JsonArray starts) {

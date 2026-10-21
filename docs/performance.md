@@ -40,6 +40,12 @@ encode the touched ones) takes 1.8 × the decoration alone; full chunks add
 about 7% of the terrain's cost. Throughput was 18–58 final chunks per second
 across those runs.
 
+[Structure starts](tickets/VMC-025.md) (`bench/worldgen_structures.exs`,
+matched with vanilla's own generator: the overworld's 40 × 40 chunks around the
+origin at seed 20261020 through `createStructures`, one thread, thread CPU time
+on a host loaded by other sessions): 46–49 µs per chunk in ValiMC, 105–121 µs in
+vanilla and 373–437 µs in Pumpkin's structure start stage.
+
 [Fresh terrain](tickets/VMC-071.md) (`bench/fresh_terrain.exs`, one loopback
 client at view distance 10 teleported three times into terrain no region has
 generated, alternating runs on the same 10-core host under other load): with one

@@ -2,9 +2,8 @@
 # (StructureOracle). Per seed: the structure sets that can occur, every
 # concentric ring position, every start in the oracle's chunks (as canonical
 # NBT: pieces with type, box, orientation, depth and their own fields), and per
-# window every set's placement chunks and every chunk's references. Sets with
-# a structure type ValiMC does not generate yet are skipped, and so are their
-# starts and references; the summary names them.
+# window every set's placement chunks and every chunk's references. A set with
+# a structure type ValiMC does not generate fails the check.
 [facts_path] = System.argv()
 facts = facts_path |> File.read!() |> JSON.decode!()
 
@@ -115,8 +114,12 @@ end
 
 skipped = totals |> Map.get(:skipped, MapSet.new()) |> Enum.sort()
 
+if skipped != [] do
+  IO.puts("FAIL: structure sets ValiMC does not generate: #{Enum.join(skipped, ", ")}")
+  System.halt(1)
+end
+
 IO.puts(
   "PASS: #{length(facts["cases"])} seeds and dimensions: #{totals.rings} ring positions, #{totals.placements} placement chunks, " <>
-    "#{totals.starts} structure starts and #{totals.references} references equal vanilla's" <>
-    if(skipped == [], do: "", else: " (sets not generated yet: #{Enum.join(skipped, ", ")})")
+    "#{totals.starts} structure starts and #{totals.references} references equal vanilla's"
 )

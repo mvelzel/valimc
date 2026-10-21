@@ -409,6 +409,10 @@ pub enum PieceKind {
     /// `PoolElementStructurePiece`s.
     Jigsaw(super::jigsaw::JigsawPiece),
     Mineshaft(super::mineshaft::MineshaftPiece),
+    Stronghold(super::stronghold::StrongholdPiece),
+    Fortress(super::fortress::FortressPiece),
+    /// An ocean monument's building (its rooms are not saved).
+    Monument,
 }
 
 /// A template piece: the template's saved name, its position and placement
@@ -447,6 +451,8 @@ pub enum TemplateKind {
     EndCity {
         overwrite: bool,
     },
+    /// A woodland mansion piece (template `woodland_mansion/NAME`).
+    Mansion,
 }
 
 /// `Rotation.LEGACY_CODEC`: the enum constant's name.
@@ -502,9 +508,13 @@ impl Piece {
                 TemplateKind::RuinedPortal { .. } => "minecraft:rupo",
                 TemplateKind::NetherFossil => "minecraft:nefos",
                 TemplateKind::EndCity { .. } => "minecraft:ecp",
+                TemplateKind::Mansion => "minecraft:wmp",
             },
             PieceKind::Jigsaw(_) => "minecraft:jigsaw",
             PieceKind::Mineshaft(m) => m.id(),
+            PieceKind::Stronghold(s) => s.id(),
+            PieceKind::Fortress(f) => f.id(),
+            PieceKind::Monument => "minecraft:omb",
         }
     }
 
@@ -573,6 +583,9 @@ impl Piece {
             PieceKind::BuriedTreasure => {}
             PieceKind::Jigsaw(j) => j.save(&mut put),
             PieceKind::Mineshaft(m) => m.save(&mut put),
+            PieceKind::Stronghold(s) => s.save(&mut put),
+            PieceKind::Fortress(f) => f.save(&mut put),
+            PieceKind::Monument => {}
             PieceKind::Template(t) => {
                 put("TPX", Nbt::Int(t.position[0]));
                 put("TPY", Nbt::Int(t.position[1]));
@@ -632,6 +645,10 @@ impl Piece {
                     TemplateKind::EndCity { overwrite } => {
                         put("Rot", rot);
                         put("OW", Nbt::bool(*overwrite));
+                    }
+                    TemplateKind::Mansion => {
+                        put("Rot", rot);
+                        put("Mi", Nbt::string(mirror_name(t.mirror)));
                     }
                 }
             }

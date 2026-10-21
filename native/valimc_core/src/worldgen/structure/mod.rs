@@ -17,14 +17,20 @@
 //! Biome lookups go through one cached climate context per chunk, as
 //! vanilla's do, each from a fresh lookup history.
 
+pub mod fortress;
 pub mod jigsaw;
+pub mod mansion;
 pub mod mineshaft;
+pub mod monument;
 pub mod piece;
 pub mod placement;
 pub mod scattered;
+pub mod stronghold;
 pub mod templated;
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
 
 use super::blocks::Heightmap;
@@ -76,6 +82,13 @@ pub enum StructureKind {
     Mineshaft {
         mesa: bool,
     },
+    Stronghold,
+    Fortress,
+    OceanMonument {
+        /// The biomes allowed around a monument.
+        surrounding: BiomeSet,
+    },
+    WoodlandMansion,
     /// A type this slice does not generate yet.
     Unsupported(String),
 }
@@ -329,6 +342,18 @@ fn parse_structure(
         },
         "minecraft:end_city" => StructureKind::EndCity,
         "minecraft:jigsaw" => StructureKind::Jigsaw(Box::new(jigsaw::JigsawConfig::parse(json)?)),
+        "minecraft:stronghold" => StructureKind::Stronghold,
+        "minecraft:fortress" => StructureKind::Fortress,
+        "minecraft:ocean_monument" => StructureKind::OceanMonument {
+            surrounding: BiomeSet::from_ids(
+                json.field("surrounding_biomes")?
+                    .as_array()?
+                    .iter()
+                    .map(|b| biome(b.as_str()?))
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+        },
+        "minecraft:woodland_mansion" => StructureKind::WoodlandMansion,
         "minecraft:mineshaft" => StructureKind::Mineshaft {
             mesa: match json.field("mineshaft_type")?.as_str()? {
                 "normal" => false,
@@ -747,6 +772,7 @@ impl StructureEnv {
     /// type ValiMC does not generate yet.
     pub fn create_structures(&self, x: i32, z: i32) -> Result<(Vec<Start>, Vec<usize>), String> {
         let mut ctx = Context::cached();
+        let memo = RefCell::new(Memo::default());
         let mut starts: Vec<Start> = Vec::new();
         let mut skipped = Vec::new();
         for &set_index in &self.possible {
@@ -771,7 +797,7 @@ impl StructureEnv {
                 continue;
             }
             if let [(structure, _)] = set.structures[..] {
-                if let Some(start) = self.try_generate(&mut ctx, structure, x, z)? {
+                if let Some(start) = self.try_generate(&mut ctx, &memo, structure, x, z)? {
                     starts.push(start);
                 }
                 continue;
@@ -791,7 +817,7 @@ impl StructureEnv {
                     index += 1;
                 }
                 let (structure, weight) = options[index];
-                if let Some(start) = self.try_generate(&mut ctx, structure, x, z)? {
+                if let Some(start) = self.try_generate(&mut ctx, &memo, structure, x, z)? {
                     starts.push(start);
                     break;
                 }
@@ -806,6 +832,7 @@ impl StructureEnv {
     fn try_generate(
         &self,
         ctx: &mut Context,
+        memo: &RefCell<Memo>,
         structure: usize,
         x: i32,
         z: i32,
@@ -816,6 +843,7 @@ impl StructureEnv {
         let mut gc = GenContext {
             env: self,
             ctx,
+            memo,
             random,
             chunk: (x, z),
             valid: &def.biomes,
@@ -837,6 +865,12 @@ impl StructureEnv {
             StructureKind::EndCity => templated::end_city(&mut gc)?,
             StructureKind::Jigsaw(config) => jigsaw::generate(&mut gc, config)?,
             StructureKind::Mineshaft { mesa } => mineshaft::generate(&mut gc, *mesa)?,
+            StructureKind::Stronghold => stronghold::generate(&mut gc)?,
+            StructureKind::Fortress => fortress::generate(&mut gc)?,
+            StructureKind::OceanMonument { surrounding } => {
+                monument::generate(&mut gc, surrounding)?
+            }
+            StructureKind::WoodlandMansion => mansion::generate(&mut gc)?,
             StructureKind::Unsupported(kind) => {
                 return Err(format!("structure type {kind} is not generated yet"))
             }
@@ -887,9 +921,19 @@ impl StructureEnv {
 }
 
 /// `Structure.GenerationContext`: one structure's attempt in a chunk.
+/// Noise column results of one chunk's structure attempts: each comes from
+/// its own fresh noise chunk, so the several structures of a set tried in a
+/// chunk can share them.
+#[derive(Default)]
+pub struct Memo {
+    heights: HashMap<(i32, i32, u8), i32>,
+    columns: HashMap<(i32, i32), Rc<NoiseColumn>>,
+}
+
 pub struct GenContext<'a> {
     pub env: &'a StructureEnv,
     pub ctx: &'a mut Context,
+    pub memo: &'a RefCell<Memo>,
     /// The chunk's large feature random (legacy).
     pub random: Random,
     pub chunk: (i32, i32),
@@ -915,7 +959,28 @@ impl GenContext<'_> {
         z: i32,
         heightmap: Heightmap,
     ) -> Result<i32, String> {
-        Ok(self.env.heights.base_height(x, z, heightmap)? - 1)
+        Ok(self.base_height(x, z, heightmap)? - 1)
+    }
+
+    /// `ChunkGenerator.getBaseHeight`, memoized for the chunk.
+    pub fn base_height(&self, x: i32, z: i32, heightmap: Heightmap) -> Result<i32, String> {
+        let key = (x, z, heightmap as u8);
+        if let Some(&h) = self.memo.borrow().heights.get(&key) {
+            return Ok(h);
+        }
+        let h = self.env.heights.base_height(x, z, heightmap)?;
+        self.memo.borrow_mut().heights.insert(key, h);
+        Ok(h)
+    }
+
+    /// `ChunkGenerator.getBaseColumn`, memoized for the chunk.
+    pub fn base_column(&self, x: i32, z: i32) -> Result<Rc<NoiseColumn>, String> {
+        if let Some(c) = self.memo.borrow().columns.get(&(x, z)) {
+            return Ok(c.clone());
+        }
+        let c = Rc::new(self.env.heights.base_column(x, z)?);
+        self.memo.borrow_mut().columns.insert((x, z), c.clone());
+        Ok(c)
     }
 
     fn corner_heights(
