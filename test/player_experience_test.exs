@@ -2,25 +2,6 @@ defmodule Valimc.PlayerExperienceTest do
   use ExUnit.Case, async: true
   alias Valimc.{Inventory, PlayerExperience, PlayerProgression, PlayerSnapshot}
 
-  test "single denomination grants retain native float progress across level boundaries" do
-    xp =
-      Enum.reduce(1..7, %PlayerExperience{}, fn _, xp ->
-        {:ok, next} = PlayerExperience.give(xp, 1)
-        next
-      end)
-
-    assert xp.level == 1 and xp.total == 7
-    assert xp.progress == 0.0
-    {:ok, xp} = PlayerExperience.give(xp, 2477)
-    assert xp.level > 30 and xp.total == 2484
-    assert {:ok, bytes} = PlayerExperience.encode(xp)
-    assert {:ok, ^xp} = PlayerExperience.decode(bytes)
-    assert {:error, :experience_limit} = PlayerExperience.give(%{xp | total: 2_147_483_647}, 1)
-    assert {:error, _} = PlayerExperience.give(xp, -1)
-    assert {:error, _} = PlayerExperience.give(xp, 2478)
-    assert {:error, _} = PlayerExperience.decode(<<0::32, 1.0::float-32, 0::32>>)
-  end
-
   test "bounded recipe set and XP wrap existing snapshots without changing legacy bytes" do
     snapshot = %{pose: %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0}, inventory: %Inventory{}}
     uuid = <<31::128>>

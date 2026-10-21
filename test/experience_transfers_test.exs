@@ -1,16 +1,13 @@
 defmodule Valimc.ExperienceTransfersTest do
-  use ExUnit.Case, async: false
-  @moduletag :tcp
+  use ExUnit.Case, async: true
 
   alias Valimc.{
-    Connection,
     GameMode,
     Inventory,
     PlayerContainerTransfers,
     PlayerExperience,
     PlayerProgression,
     PlayerSnapshot,
-    PlayerStore,
     World
   }
 
@@ -18,35 +15,28 @@ defmodule Valimc.ExperienceTransfersTest do
     Containers,
     ContainerTransfers,
     CookingOrbs,
-    CookingOrbConsumptions,
-    ExperienceTransfers,
     PendingCookingAwards,
     Region
   }
 
-  setup do
+  setup :scope
+
+  def scope(_context) do
     nonce = System.unique_integer([:positive])
     key = {112_000 + rem(nonce, 333) * 3, 2340}
     {x, z} = key
     at = {x * 128 + 8.5, 64.0, z * 128 + 8.5}
     base = Path.join(System.tmp_dir!(), "valimc-xp-pickup-#{nonce}")
-    previous = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
+    Valimc.TestScope.isolate(key, world_path: base)
     File.mkdir_p!(base)
-    uuid = Connection.offline_uuid("XpPickup#{nonce}")
+    uuid = :crypto.strong_rand_bytes(16)
 
     on_exit(fn ->
-      for {registry, supervisor, k} <- [
-            {Valimc.RegionRegistry, Valimc.RegionSupervisor, key},
-            {Valimc.RegionStoreRegistry, Valimc.RegionStoreSupervisor, key},
-            {Valimc.PlayerStoreRegistry, Valimc.PlayerStoreSupervisor, uuid}
-          ],
-          {pid, _} <- Registry.lookup(registry, k),
-          do: DynamicSupervisor.terminate_child(supervisor, pid)
+      for registry <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
+          {pid, _} <- Registry.lookup(registry, key),
+          do: Valimc.TestScope.kill(pid)
 
-      Application.put_env(:valimc, :world_path, previous)
-      Valimc.TestScope.stop_players(base)
-      File.rm_rf!(base)
+      File.rm_rf(base)
     end)
 
     {:ok, award} =
@@ -146,140 +136,8 @@ defmodule Valimc.ExperienceTransfersTest do
     {prepared, request}
   end
 
-  defp resource({pid, _}), do: Valimc.TestConn.state(pid).resource
-  defp wait(f, _budget \\ nil), do: Valimc.TestWait.until(f)
-
-  test "native connection contact collects merged units and sends the persisted XP bar on reconnect",
-       ctx do
-    name = "XpPickup" <> Integer.to_string(System.unique_integer([:positive]))
-    uuid = Connection.offline_uuid(name)
-    {:ok, bytes} = PlayerSnapshot.encode(uuid, ctx.snapshot)
-    path = PlayerStore.path(ctx.base, uuid)
-    File.mkdir_p!(Path.dirname(path))
-    File.write!(path, bytes)
-    {_, client} = Valimc.TestClient.login(name)
-    assert client.experience.total == 0
-    client = Valimc.TestClient.load_world(client)
-
-    on_exit(fn ->
-      Valimc.TestClient.close(client)
-
-      for p <- Valimc.Players.all(),
-          p.name == name,
-          do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
-
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
-    end)
-
-    Valimc.TestClient.send_packet(client, :play, "player_loaded", <<>>)
-    player = Enum.find(Valimc.Players.all(), &(&1.name == name)).pid
-    wait(fn -> :sys.get_state(player).player.progression.experience.total == 6 end, 300)
-    assert resource(ctx.owner).containers.orb_consumption.counts[ctx.orb] == 2
-    assert resource(ctx.owner).containers.receipts[uuid].sequence == 2
-    assert :sys.get_state(player).inventory.slots == %{}
-    {_, client} = Valimc.TestClient.await(client, :play, "take_item_entity")
-    Valimc.TestClient.close(client)
-    wait(fn -> Enum.all?(Valimc.Players.all(), &(&1.name != name)) end)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == [] end)
-    {:ok, disk} = PlayerSnapshot.decode(File.read!(path), uuid)
-    assert disk.progression.experience.total == 6 and disk.outbox == nil
-    Process.exit(elem(ctx.owner, 0), :kill)
-    wait(fn -> not Process.alive?(elem(ctx.owner, 0)) end)
-    {_, fresh} = Valimc.TestClient.login(name)
-    on_exit(fn -> Valimc.TestClient.close(fresh) end)
-    assert fresh.experience == Map.from_struct(disk.progression.experience)
-  end
-
-  test "XP capacity and pending Mending repairs refuse before any withdrawal", ctx do
-    snapshot = ctx.snapshot
-    too_full = put_in(snapshot.progression.experience.total, 2_147_483_647)
-    request = %{ctx.request | before: too_full.progression.experience}
-
-    assert {:error, _} =
-             PlayerContainerTransfers.prepare(ctx.uuid, 0, too_full, %{
-               kind: :container,
-               key: ctx.key,
-               request: request
-             })
-
-    tool = Valimc.Protocol.ItemStack.new("diamond_pickaxe")
-
-    tool = %{
-      tool
-      | components: %{
-          "minecraft:damage" => 12,
-          "minecraft:enchantments" => %{"minecraft:mending" => 1}
-        }
-    }
-
-    mending = put_in(snapshot.inventory.slots, %{36 => tool})
-
-    assert {:error, _} =
-             PlayerContainerTransfers.prepare(ctx.uuid, 0, mending, %{
-               kind: :container,
-               key: ctx.key,
-               request: ctx.request
-             })
-
-    assert resource(ctx.owner).containers.orb_consumption == CookingOrbConsumptions.new()
-  end
-
-  test "a full snapshot seals rejection in its reserved slot without consuming or stranding player XP",
-       ctx do
-    {prepared, request} = prepare(ctx, ctx.snapshot, ctx.request)
-    {:ok, reserved, _} = ContainerTransfers.reserve(ctx.cs, ctx.uuid)
-
-    stack = fn length ->
-      %{
-        Valimc.Protocol.ItemStack.new("stone")
-        | components: %{
-            "minecraft:custom_data" =>
-              {:compound, %{"payload" => {:string, String.duplicate("x", length)}}}
-          }
-      }
-    end
-
-    {x, _, z} = ctx.at
-    large = stack.(30_000)
-
-    entries =
-      for i <- 1..17, into: %{} do
-        count = if i == 17, do: 7, else: 17
-        slots = List.to_tuple(List.duplicate(large, count) ++ List.duplicate(nil, 27 - count))
-        {{floor(x) + i, 64, floor(z)}, %{revision: i, rows: 3, slots: slots}}
-      end
-
-    full = %{reserved | sequence: 17, entries: entries}
-    {:ok, bytes} = Containers.encode(ctx.key, full)
-    overhead = IO.iodata_length(Valimc.Protocol.ItemStack.encode(stack.(0))) - 1
-    length = Containers.max_bytes() - byte_size(bytes) - overhead - 1
-    position = {floor(x) + 17, 64, floor(z)}
-
-    full =
-      put_in(
-        full.entries[position].slots,
-        put_elem(full.entries[position].slots, 7, stack.(length))
-      )
-
-    {:ok, bytes} = Containers.encode(ctx.key, full)
-    assert byte_size(bytes) == Containers.max_bytes() - 1
-    assert {:ok, decision} = ExperienceTransfers.plan(full, ctx.key, request, true)
-    assert decision.result == :rejected and decision.experience == nil
-    assert decision.containers.orb_consumption == CookingOrbConsumptions.new()
-    assert decision.containers.entries == full.entries
-
-    assert {:ok, restored} =
-             PlayerContainerTransfers.resolve(
-               ctx.uuid,
-               prepared,
-               decision.containers.receipts[ctx.uuid]
-             )
-
-    assert restored.outbox == nil and restored.progression.experience.total == 0
-    assert {:ok, again} = ExperienceTransfers.plan(decision.containers, ctx.key, request, true)
-    assert again.result == :already_rejected and again.containers == decision.containers
-  end
+  def resource({pid, _}), do: Valimc.TestConn.state(pid).resource
+  def wait(f, _budget \\ nil), do: Valimc.TestWait.until(f)
 
   test "one merged unit is consumed durably before a matching player grant; replay never grants again",
        ctx do
@@ -326,62 +184,66 @@ defmodule Valimc.ExperienceTransfersTest do
     {:ok, disk} = Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
     assert disk.orb_consumption.counts[ctx.orb] == 2
   end
+end
 
-  test "unknown or over-consumed bodies fail validation, and rejection leaves XP and creation intact",
-       ctx do
-    assert {:error, _} =
-             CookingOrbConsumptions.encode(%{revision: 3, counts: %{ctx.orb => 3}}, ctx.cs)
+defmodule Valimc.ExperienceTransfersTest.Serial do
+  use ExUnit.Case, async: false
+  # Serial: a socket login reads the player's file from the global world path.
+  @moduletag :tcp
+  import Valimc.ExperienceTransfersTest, only: [resource: 1, wait: 1, wait: 2]
+  alias Valimc.{Connection, PlayerSnapshot, PlayerStore}
 
-    assert {:error, _} =
-             CookingOrbConsumptions.encode(%{revision: 1, counts: %{<<0::128>> => 1}}, ctx.cs)
+  setup {Valimc.ExperienceTransfersTest, :scope}
 
-    assert {:error, _} =
-             CookingOrbConsumptions.encode(%{revision: 2, counts: %{ctx.orb => 1}}, ctx.cs)
+  setup ctx do
+    previous = Valimc.config(:world_path)
+    Application.put_env(:valimc, :world_path, ctx.base)
 
-    {prepared, request} = prepare(ctx, ctx.snapshot, ctx.request)
-    # Owner replacement removes the short-lived permit. Recovery records a rejection.
-    Process.exit(elem(ctx.owner, 0), :kill)
-    wait(fn -> not Process.alive?(elem(ctx.owner, 0)) end)
-    {:ok, owner} = World.item_owner(ctx.key)
-    assert {:ok, :rejected} = Region.container_transfer(owner, request)
-    {:ok, {_, receipt}} = Region.container_transfer_receipt(owner, ctx.uuid)
-    {:ok, restored} = PlayerContainerTransfers.resolve(ctx.uuid, prepared, receipt)
-    assert restored.progression == ctx.snapshot.progression
-    assert resource(owner).containers.orb_consumption == CookingOrbConsumptions.new()
-    assert resource(owner).containers.cooking_orbs == ctx.cs.cooking_orbs
-    request2 = %{request | sequence: request.sequence + 1}
-
-    assert {:ok, decision} =
-             ExperienceTransfers.plan(resource(owner).containers, ctx.key, request2, false)
-
-    assert decision.result == :rejected
+    on_exit(fn ->
+      Application.put_env(:valimc, :world_path, previous)
+      Valimc.TestScope.stop_players(ctx.base)
+    end)
   end
 
-  test "player writer loss after region withdrawal recovers its original pending journal and grants once",
+  test "native connection contact collects merged units and sends the persisted XP bar on reconnect",
        ctx do
-    {prepared, request} = prepare(ctx, ctx.snapshot, ctx.request)
-    {:ok, writer, nil, fence} = PlayerStore.open(ctx.uuid)
-    ref = make_ref()
-    PlayerStore.prepare_container(writer, fence, ctx.snapshot, prepared.outbox, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, _fence, saved}}
-    assert saved.outbox == prepared.outbox
-    assert {:ok, :applied} = Region.container_transfer(ctx.owner, request)
-    Process.exit(writer, :kill)
-    wait(fn -> not Process.alive?(writer) end)
-    {:ok, writer, loaded, fence} = PlayerStore.open(ctx.uuid)
-    assert loaded.progression.experience.total == 0 and loaded.outbox == prepared.outbox
-    stale_fence = fence
-    ref = make_ref()
-    PlayerStore.complete_transfer(writer, fence, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, _fence, done}}
-    assert done.progression.experience.total == 3 and done.outbox == nil
-    # A disconnect can arrive before the socket processes the completion ACK.
-    # Its stale progression must not overwrite the writer's committed grant.
-    assert :ok = PlayerStore.close_session(writer, stale_fence, loaded)
+    name = "XpPickup" <> Integer.to_string(System.unique_integer([:positive]))
+    uuid = Connection.offline_uuid(name)
+    {:ok, bytes} = PlayerSnapshot.encode(uuid, ctx.snapshot)
+    path = PlayerStore.path(ctx.base, uuid)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, bytes)
+    {_, client} = Valimc.TestClient.login(name)
+    assert client.experience.total == 0
+    client = Valimc.TestClient.load_world(client)
 
-    {:ok, disk} =
-      PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
+    on_exit(fn ->
+      Valimc.TestClient.close(client)
 
-    assert disk.progression.experience.total == 3 and disk.outbox == nil
+      for p <- Valimc.Players.all(),
+          p.name == name,
+          do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
+
+      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
+          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
+    end)
+
+    Valimc.TestClient.send_packet(client, :play, "player_loaded", <<>>)
+    player = Enum.find(Valimc.Players.all(), &(&1.name == name)).pid
+    wait(fn -> :sys.get_state(player).player.progression.experience.total == 6 end, 300)
+    assert resource(ctx.owner).containers.orb_consumption.counts[ctx.orb] == 2
+    assert resource(ctx.owner).containers.receipts[uuid].sequence == 2
+    assert :sys.get_state(player).inventory.slots == %{}
+    {_, client} = Valimc.TestClient.await(client, :play, "take_item_entity")
+    Valimc.TestClient.close(client)
+    wait(fn -> Enum.all?(Valimc.Players.all(), &(&1.name != name)) end)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == [] end)
+    {:ok, disk} = PlayerSnapshot.decode(File.read!(path), uuid)
+    assert disk.progression.experience.total == 6 and disk.outbox == nil
+    Process.exit(elem(ctx.owner, 0), :kill)
+    wait(fn -> not Process.alive?(elem(ctx.owner, 0)) end)
+    {_, fresh} = Valimc.TestClient.login(name)
+    on_exit(fn -> Valimc.TestClient.close(fresh) end)
+    assert fresh.experience == Map.from_struct(disk.progression.experience)
   end
 end

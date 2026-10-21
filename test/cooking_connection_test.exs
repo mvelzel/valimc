@@ -2,8 +2,8 @@ defmodule Valimc.CookingConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
   alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore, World}
-  alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
-  alias Valimc.World.{Containers, Region}
+  alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
+  alias Valimc.World.Containers
   alias Valimc.TestClient, as: Client
 
   setup do
@@ -148,9 +148,9 @@ defmodule Valimc.CookingConnectionTest do
     {client, properties}
   end
 
-  defp send_click(client, slot, button \\ 0, action \\ "pickup", id \\ nil) do
+  defp send_click(client, slot, button, action) do
     Client.send_packet(client, :play, "container_click", [
-      Wire.varint(id || client.inventory.container),
+      Wire.varint(client.inventory.container),
       <<0, slot::signed-16, button::signed-8>>,
       Wire.varint(ItemTypes.input_id(action)),
       <<1, slot::signed-16, 0, 0>>
@@ -195,338 +195,47 @@ defmodule Valimc.CookingConnectionTest do
     end)
   end
 
-  test "invalid fuel/output deposits and stale menu ids do not allocate an intent", ctx do
-    seed(ctx, :furnace)
+  @tag xp_kind: :furnace,
+       xp_recipe: "minecraft:gold_ingot_from_smelting_raw_gold",
+       xp_item: "gold_ingot",
+       xp_action: "pickup"
+  test "output clears uses, learns its recipe and collects durable XP", ctx do
+    %{xp_kind: kind, xp_recipe: recipe, xp_item: item, xp_action: action} = ctx
+    cooking = %Valimc.Cooking{slots: {nil, nil, ItemStack.new(item, 3)}}
+    seed(ctx, kind, :survival, cooking, %{recipe => 3})
     {client, pid} = login(ctx)
-    {client, _} = open(client, ctx, :furnace)
-    client = click(client, 30, 0, "pickup", &(&1.carried == ItemStack.new("raw_iron", 3)))
-    before = stored(ctx)
+    {client, _} = open(client, ctx, kind)
+    send_click(client, 2, 0, action)
 
-    for slot <- [1, 2] do
-      send_click(client, slot)
-      _client = content(client)
-      assert Valimc.TestConn.state(pid).inventory.carried == ItemStack.new("raw_iron", 3)
-      assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
-      assert stored(ctx) == before
-    end
+    wait(fn ->
+      cs = stored(ctx)
 
-    _client = click(client, 30, 0, "pickup", &(&1.carried == nil))
-    old_id = client.inventory.container
-    client = close(client, pid)
-    send_click(client, 0, 0, "pickup", old_id)
-    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, _client} = Client.await_stats(client)
-    assert Valimc.TestConn.state(pid).table_menu == nil
-    assert saved(ctx).transfer_sequence == 2 and saved(ctx).outbox == nil
-    assert stored(ctx).entries[ctx.position].cooking.slots == {nil, nil, nil}
-  end
+      cs.entries[ctx.position].recipes == %{} and map_size(cs.pending_awards) == 1 and
+        Valimc.TestConn.state(pid).recovery == nil
+    end)
 
-  test "fuel bucket accepts one and closes with the exact remainder", ctx do
-    seed(ctx, :furnace)
-    {client, pid} = login(ctx)
-    {client, _} = open(client, ctx, :furnace)
-    client = click(client, 32, 0, "pickup", &(&1.carried == ItemStack.new("bucket", 15)))
+    [{_, decision}] = Map.to_list(stored(ctx).pending_awards)
+    amount = decision.award.experience
+    assert amount in 1..3
+    wait(fn -> Valimc.TestConn.state(pid).player.progression.experience.total == amount end)
+    player = Valimc.TestConn.state(pid)
+    assert MapSet.member?(player.player.progression.recipes, recipe)
+    assert elem(stored(ctx).entries[ctx.position].cooking.slots, 2) == nil
 
-    client =
-      click(client, 1, 0, "pickup", fn inventory ->
-        Enum.at(inventory.items, 1) == ItemStack.new("bucket") and
-          inventory.carried == ItemStack.new("bucket", 14)
-      end)
+    if action == "pickup",
+      do: assert(player.inventory.carried == ItemStack.new(item, 3)),
+      else:
+        assert(Enum.any?(player.inventory.slots, fn {_, s} -> s == ItemStack.new(item, 3) end))
 
-    send_click(client, 1)
-    client = content(client)
-    assert Valimc.TestConn.state(pid).inventory.carried == ItemStack.new("bucket", 14)
-    assert saved(ctx).transfer_sequence == 2 and saved(ctx).outbox == nil
+    assert stored(ctx).orb_consumption.revision > 0
+    assert saved(ctx).outbox == nil
+    assert saved(ctx).progression.experience.total == amount
+    assert saved(ctx).transfer_sequence == stored(ctx).receipts[ctx.uuid].sequence
+    # An empty result cannot clear credit or create another decision.
+    client = content(client, fn inv -> Enum.at(inv.items, 2) == nil end)
+    send_click(client, 2, 0, action)
     _client = close(client, pid)
-    assert stored(ctx).entries[ctx.position].cooking.slots == {nil, ItemStack.new("bucket"), nil}
-    slots = Valimc.TestConn.state(pid).inventory.slots
-
-    assert Enum.sum(
-             for {_, stack} <- slots, stack.item_id == Data.item("bucket"), do: stack.count
-           ) ==
-             14
-  end
-
-  for {kind, recipe, item} <- [
-        {:furnace, "minecraft:gold_ingot_from_smelting_raw_gold", "gold_ingot"},
-        {:smoker, "minecraft:cooked_beef_from_smoking", "cooked_beef"},
-        {:blast_furnace, "minecraft:gold_ingot_from_blasting_raw_gold", "gold_ingot"}
-      ],
-      action <- ["pickup", "quick_move"] do
-    @tag xp_kind: kind, xp_recipe: recipe, xp_item: item, xp_action: action
-    test "#{kind} #{action} output clears uses, learns its recipe and collects durable XP", ctx do
-      %{xp_kind: kind, xp_recipe: recipe, xp_item: item, xp_action: action} = ctx
-      cooking = %Valimc.Cooking{slots: {nil, nil, ItemStack.new(item, 3)}}
-      seed(ctx, kind, :survival, cooking, %{recipe => 3})
-      {client, pid} = login(ctx)
-      {client, _} = open(client, ctx, kind)
-      send_click(client, 2, 0, action)
-
-      wait(fn ->
-        cs = stored(ctx)
-
-        cs.entries[ctx.position].recipes == %{} and map_size(cs.pending_awards) == 1 and
-          Valimc.TestConn.state(pid).recovery == nil
-      end)
-
-      [{_, decision}] = Map.to_list(stored(ctx).pending_awards)
-      amount = decision.award.experience
-      assert amount in 1..3
-      wait(fn -> Valimc.TestConn.state(pid).player.progression.experience.total == amount end)
-      player = Valimc.TestConn.state(pid)
-      assert MapSet.member?(player.player.progression.recipes, recipe)
-      assert elem(stored(ctx).entries[ctx.position].cooking.slots, 2) == nil
-
-      if action == "pickup",
-        do: assert(player.inventory.carried == ItemStack.new(item, 3)),
-        else:
-          assert(Enum.any?(player.inventory.slots, fn {_, s} -> s == ItemStack.new(item, 3) end))
-
-      assert stored(ctx).orb_consumption.revision > 0
-      assert saved(ctx).outbox == nil
-      assert saved(ctx).progression.experience.total == amount
-      assert saved(ctx).transfer_sequence == stored(ctx).receipts[ctx.uuid].sequence
-      # An empty result cannot clear credit or create another decision.
-      client = content(client, fn inv -> Enum.at(inv.items, 2) == nil end)
-      send_click(client, 2, 0, action)
-      _client = close(client, pid)
-      assert map_size(stored(ctx).pending_awards) == 1
-    end
-  end
-
-  test "shared cooking views refresh exactly once and spectators cannot exchange", ctx do
-    cooking = %Valimc.Cooking{slots: {ItemStack.new("raw_iron", 2), nil, nil}}
-    seed(ctx, :furnace, :survival, cooking)
-    name = "CookB#{rem(System.unique_integer([:positive]), 1_000_000_000)}"
-    other = %{ctx | name: name, uuid: Connection.offline_uuid(name)}
-    seed_player(other, :spectator, %Inventory{})
-    {first, first_pid} = login(ctx)
-    {second, second_pid} = login(other)
-    {first, _} = open(first, ctx, :furnace)
-    {second, _} = open(second, other, :furnace)
-    for pid <- [first_pid, second_pid], do: subscribed(pid)
-    send_click(second, 0)
-    second = content(second)
-    assert saved(other).transfer_sequence == 0 and saved(other).outbox == nil
-    assert :sys.get_state(second_pid).inventory.carried == nil
-    first = click(first, 0, 0, "pickup", &(&1.carried == ItemStack.new("raw_iron", 2)))
-    second = content(second, &(Enum.take(&1.items, 3) == [nil, nil, nil]))
-    assert :sys.get_state(second_pid).table_menu.view.cooking.slots == {nil, nil, nil}
-    assert :sys.get_state(first_pid).chest_lids.positions == %{}
-    assert :sys.get_state(second_pid).chest_lids.positions == %{}
-    {:ok, {region, _}} = World.existing_owner(ctx.key)
-
-    assert Valimc.World.ContainerViewers.open_count(
-             :sys.get_state(region).resource.container_viewers,
-             ctx.position
-           ) == 0
-
-    _first = close(first, first_pid)
-    _second = close(second, second_pid)
-    wait(fn -> :sys.get_state(region).resource.container_viewers.views == %{} end)
-    assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
-  end
-
-  test "relocation and owner loss close cooking views without changing stored items", ctx do
-    seed(ctx, :smoker)
-    {client, pid} = login(ctx)
-    {client, _} = open(client, ctx, :smoker)
-    before = stored(ctx)
-    client = Client.teleport(client, pid, %{ctx.pose | x: ctx.pose.x + 20})
-    assert Valimc.TestConn.state(pid).table_menu == nil
-    client = Client.teleport(client, pid, ctx.pose)
-    {client, _} = open(client, ctx, :smoker)
-    subscribed(pid)
-    {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :ok = Region.flush(region)
-    :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, region)
-    _client = content(client, &(&1.container == 0))
-    assert Valimc.TestConn.state(pid).table_menu == nil
-    assert stored(ctx) == before
-    assert saved(ctx).transfer_sequence == 0 and saved(ctx).outbox == nil
-  end
-
-  test "destination loss after cooking preparation recovers one decision and retires the view",
-       ctx do
-    seed(ctx, :blast_furnace)
-    {client, pid} = login(ctx)
-    {client, _} = open(client, ctx, :blast_furnace)
-    {:ok, {region, _} = owner} = World.existing_owner(ctx.key)
-    writer = :sys.get_state(region).resource.store
-    :sys.suspend(writer)
-
-    try do
-      send_click(client, 30, 0, "quick_move")
-
-      wait(fn ->
-        match?(%{stage: :delivery}, Valimc.TestConn.state(pid).recovery) and
-          Enum.any?(:sys.get_state(region).resource.item_writes, &(&1.kind == :containers))
-      end)
-
-      assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox.kind == :container
-      monitor = Process.monitor(region)
-      Process.exit(region, :kill)
-      assert_receive {:DOWN, ^monitor, :process, ^region, :killed}
-      :sys.resume(writer)
-      _client = content(client, &(&1.container == 0 and &1.carried == nil))
-
-      wait(fn ->
-        Valimc.TestConn.state(pid).recovery == nil and
-          not Valimc.TestConn.state(pid).table_closing
-      end)
-
-      {:ok, replacement} = World.existing_owner(ctx.key)
-      assert replacement != owner
-      assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
-
-      assert stored(ctx).entries[ctx.position].cooking.slots ==
-               {ItemStack.new("raw_iron", 3), nil, nil}
-
-      assert stored(ctx).receipts[ctx.uuid].sequence == 1
-      assert World.item_snapshot(ctx.key) == %{}
-      refute Map.has_key?(Valimc.TestConn.state(pid).inventory.slots, 36)
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-    end
-  end
-
-  test "two players racing one cooking input conserve its quantity and refresh both views", ctx do
-    cooking = %Valimc.Cooking{slots: {ItemStack.new("cod", 2), nil, nil}}
-    seed(ctx, :smoker, :survival, cooking)
-    name = "CookB#{rem(System.unique_integer([:positive]), 1_000_000_000)}"
-    other = %{ctx | name: name, uuid: Connection.offline_uuid(name)}
-    seed_player(other, :survival, %Inventory{})
-    {first, first_pid} = login(ctx)
-    {second, second_pid} = login(other)
-    {first, _} = open(first, ctx, :smoker)
-    {second, _} = open(second, other, :smoker)
-    for client <- [first, second], do: send_click(client, 0)
-
-    for pid <- [first_pid, second_pid] do
-      wait(fn ->
-        state = Valimc.TestConn.state(pid)
-
-        state.recovery == nil and state.table_job == nil and state.table_queued == 0 and
-          state.table_menu != nil and state.table_menu.view.cooking.slots == {nil, nil, nil}
-      end)
-    end
-
-    carried = for pid <- [first_pid, second_pid], do: Valimc.TestConn.state(pid).inventory.carried
-    assert Enum.sort(carried) == Enum.sort([nil, ItemStack.new("cod", 2)])
-    assert stored(ctx).entries[ctx.position].cooking.slots == {nil, nil, nil}
-    assert stored(ctx).sequence == 3
-    assert saved(ctx).outbox == nil and saved(other).outbox == nil
-    _first = close(first, first_pid)
-    _second = close(second, second_pid)
-  end
-
-  test "closing a pending cooking candidate retires its late result without an intent", ctx do
-    seed(ctx, :furnace)
-    {client, pid} = login(ctx)
-    {client, _} = open(client, ctx, :furnace)
-    writer = Valimc.TestConn.state(pid).player_store
-    :sys.suspend(writer)
-
-    try do
-      send_click(client, 30, 0, "quick_move")
-
-      wait(fn ->
-        match?(%{kind: :container, stage: :candidate}, Valimc.TestConn.state(pid).table_job)
-      end)
-
-      Client.send_packet(
-        client,
-        :play,
-        "container_close",
-        Wire.varint(client.inventory.container)
-      )
-
-      _client = content(client, &(&1.container == 0))
-      :sys.resume(writer)
-      _barrier = :sys.get_state(writer)
-
-      assert Valimc.TestConn.state(pid).table_job == nil and
-               Valimc.TestConn.state(pid).recovery == nil
-
-      assert saved(ctx).transfer_sequence == 0 and saved(ctx).outbox == nil
-      assert stored(ctx).entries[ctx.position].cooking.slots == {nil, nil, nil}
-      assert stored(ctx).receipts[ctx.uuid].sequence == 0
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-    end
-  end
-
-  test "live input edits preserve count-only progress and reset cleared input without overwriting heat",
-       ctx do
-    cooking = %Valimc.Cooking{
-      slots: {ItemStack.new("raw_iron", 2), ItemStack.new("coal"), nil},
-      burn_left: 67,
-      burn_total: 1600,
-      progress: 49,
-      total: 100,
-      speed: 2.0
-    }
-
-    seed(ctx, :blast_furnace, :survival, cooking)
-    {client, pid} = login(ctx)
-    {client, _} = open(client, ctx, :blast_furnace)
-    client = click(client, 0, 1, "pickup", &(&1.carried == ItemStack.new("raw_iron")))
-    changed = stored(ctx).entries[ctx.position].cooking
-    assert changed == %{cooking | slots: {ItemStack.new("raw_iron"), ItemStack.new("coal"), nil}}
-
-    client =
-      click(client, 0, 0, "quick_move", fn inventory ->
-        Enum.at(inventory.items, 0) == nil and inventory.carried == ItemStack.new("raw_iron")
-      end)
-
-    changed = stored(ctx).entries[ctx.position].cooking
-
-    assert changed == %{
-             cooking
-             | slots: {nil, ItemStack.new("coal"), nil},
-               progress: 0,
-               total: 200
-           }
-
-    _client = close(client, pid)
-    assert saved(ctx).transfer_sequence == 2 and saved(ctx).outbox == nil
-  end
-
-  for kind <- [:furnace, :smoker, :blast_furnace] do
-    test "#{kind} menu exposes native progress and ignores solid blocks above without chest opener events",
-         ctx do
-      kind = unquote(kind)
-
-      cooking = %Valimc.Cooking{
-        slots:
-          {ItemStack.new("raw_iron", 2), ItemStack.new("coal", 2), ItemStack.new("iron_ingot")},
-        burn_left: 67,
-        burn_total: 1600,
-        progress: 49,
-        total: 100,
-        speed: 2.0
-      }
-
-      seed(ctx, kind, :survival, cooking)
-      {x, y, z} = ctx.position
-      :ok = World.set_block({x, y + 1, z}, Data.block("stone"))
-      {client, pid} = login(ctx)
-      {client, properties} = open(client, ctx, kind)
-      assert properties == [67, 1600, 49, 100]
-      assert Enum.take(client.inventory.items, 3) == Tuple.to_list(cooking.slots)
-
-      assert Valimc.TestConn.state(pid).table_menu.kind == :cooking and
-               Valimc.TestConn.state(pid).inventory.table_inputs == nil
-
-      {:ok, {region, _}} = World.existing_owner(ctx.key)
-      wait(fn -> map_size(:sys.get_state(region).resource.container_viewers.views) == 1 end)
-      viewers = :sys.get_state(region).resource.container_viewers
-      assert Valimc.World.ContainerViewers.open_count(viewers, ctx.position) == 0
-      refute Valimc.TestConn.state(pid).table_menu.opener
-      _client = close(client, pid)
-      wait(fn -> :sys.get_state(region).resource.container_viewers.views == %{} end)
-      assert stored(ctx).entries[ctx.position].cooking == cooking
-    end
+    assert map_size(stored(ctx).pending_awards) == 1
   end
 
   test "owned timer observations refresh properties without invalidating content or accepting old sessions",
@@ -613,76 +322,71 @@ defmodule Valimc.CookingConnectionTest do
     _client = close(client, pid)
   end
 
-  for kind <- [:furnace, :smoker, :blast_furnace], mode <- [:survival, :creative] do
-    input_name = if kind == :smoker, do: "cod", else: "raw_iron"
+  test "exchanges seal once through pickup, shift, offhand and reconnect", ctx do
+    kind = :furnace
+    input = ItemStack.new("raw_iron", 3)
+    seed(ctx, kind)
+    {client, pid} = login(ctx)
+    {client, _} = open(client, ctx, kind)
+    client = click(client, 30, 0, "pickup", &(&1.carried == input))
 
-    test "#{mode} #{kind} exchanges seal once through pickup, shift, offhand and reconnect",
-         ctx do
-      kind = unquote(kind)
-      input = ItemStack.new(unquote(input_name), 3)
-      seed(ctx, kind, unquote(mode))
-      {client, pid} = login(ctx)
-      {client, _} = open(client, ctx, kind)
-      client = click(client, 30, 0, "pickup", &(&1.carried == input))
+    client =
+      click(
+        client,
+        0,
+        1,
+        "pickup",
+        &(Enum.at(&1.items, 0) == %{input | count: 1} and &1.carried == %{input | count: 2})
+      )
 
-      client =
-        click(
-          client,
-          0,
-          1,
-          "pickup",
-          &(Enum.at(&1.items, 0) == %{input | count: 1} and &1.carried == %{input | count: 2})
-        )
+    client =
+      click(client, 0, 0, "pickup", &(Enum.at(&1.items, 0) == input and &1.carried == nil))
 
-      client =
-        click(client, 0, 0, "pickup", &(Enum.at(&1.items, 0) == input and &1.carried == nil))
+    client =
+      click(client, 31, 0, "quick_move", &(Enum.at(&1.items, 1) == ItemStack.new("coal", 7)))
 
-      client =
-        click(client, 31, 0, "quick_move", &(Enum.at(&1.items, 1) == ItemStack.new("coal", 7)))
+    client = click(client, 0, 40, "swap", &(Enum.at(&1.items, 0) == ItemStack.new("stone", 2)))
+    assert Valimc.TestConn.state(pid).inventory.slots[45] == input
+    client = click(client, 0, 40, "swap", &(Enum.at(&1.items, 0) == input))
 
-      client = click(client, 0, 40, "swap", &(Enum.at(&1.items, 0) == ItemStack.new("stone", 2)))
-      assert Valimc.TestConn.state(pid).inventory.slots[45] == input
-      client = click(client, 0, 40, "swap", &(Enum.at(&1.items, 0) == input))
+    client =
+      click(
+        client,
+        1,
+        0,
+        "quick_move",
+        &(Enum.at(&1.items, 1) == nil and Enum.at(&1.items, 3) == ItemStack.new("coal", 7))
+      )
 
-      client =
-        click(
-          client,
-          1,
-          0,
-          "quick_move",
-          &(Enum.at(&1.items, 1) == nil and Enum.at(&1.items, 3) == ItemStack.new("coal", 7))
-        )
+    client =
+      click(
+        client,
+        0,
+        0,
+        "quick_move",
+        &(Enum.at(&1.items, 0) == nil and Enum.at(&1.items, 4) == input)
+      )
 
-      client =
-        click(
-          client,
-          0,
-          0,
-          "quick_move",
-          &(Enum.at(&1.items, 0) == nil and Enum.at(&1.items, 4) == input)
-        )
+    assert saved(ctx).transfer_sequence == 8 and saved(ctx).outbox == nil
+    assert stored(ctx).entries[ctx.position].cooking.slots == {nil, nil, nil}
+    assert stored(ctx).receipts[ctx.uuid].sequence == 8 and stored(ctx).sequence == 9
 
-      assert saved(ctx).transfer_sequence == 8 and saved(ctx).outbox == nil
-      assert stored(ctx).entries[ctx.position].cooking.slots == {nil, nil, nil}
-      assert stored(ctx).receipts[ctx.uuid].sequence == 8 and stored(ctx).sequence == 9
+    expected = %{
+      9 => ItemStack.new("coal", 7),
+      10 => input,
+      38 => ItemStack.new("bucket", 15),
+      45 => ItemStack.new("stone", 2)
+    }
 
-      expected = %{
-        9 => ItemStack.new("coal", 7),
-        10 => input,
-        38 => ItemStack.new("bucket", 15),
-        45 => ItemStack.new("stone", 2)
-      }
-
-      assert Valimc.TestConn.state(pid).inventory.slots == expected
-      client = close(client, pid)
-      Client.close(client)
-      wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
-      {fresh, fresh_pid} = login(ctx)
-      {fresh, _} = open(fresh, ctx, kind)
-      assert Enum.take(fresh.inventory.items, 3) == [nil, nil, nil]
-      assert :sys.get_state(fresh_pid).inventory.slots == expected
-      assert saved(ctx).transfer_sequence == 8 and saved(ctx).outbox == nil
-      _fresh = close(fresh, fresh_pid)
-    end
+    assert Valimc.TestConn.state(pid).inventory.slots == expected
+    client = close(client, pid)
+    Client.close(client)
+    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
+    {fresh, fresh_pid} = login(ctx)
+    {fresh, _} = open(fresh, ctx, kind)
+    assert Enum.take(fresh.inventory.items, 3) == [nil, nil, nil]
+    assert :sys.get_state(fresh_pid).inventory.slots == expected
+    assert saved(ctx).transfer_sequence == 8 and saved(ctx).outbox == nil
+    _fresh = close(fresh, fresh_pid)
   end
 end

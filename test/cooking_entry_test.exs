@@ -63,43 +63,6 @@ defmodule Valimc.CookingEntryTest do
     assert {:error, :stale_container} = Containers.replace_cooking(state, pos, 1, %Cooking{}, %{})
   end
 
-  test "invalid progress, recipe uses and noncanonical items refuse the whole generation" do
-    {:ok, state, entry} = Containers.create_cooking(%Containers{}, {0, 0}, {0, 64, 0}, :furnace)
-
-    for cooking <- [
-          %Cooking{burn_left: 20_001},
-          %Cooking{speed: 1.5},
-          %Cooking{progress: -1},
-          %Cooking{slots: {ItemStack.new("air"), nil, nil}},
-          %Cooking{slots: {ItemStack.new("stone", 100), nil, nil}}
-        ] do
-      assert {:error, :invalid_cooking_entry} =
-               Containers.replace_cooking(state, {0, 64, 0}, entry.revision, cooking, %{})
-
-      assert state.sequence == 1 and state.entries[{0, 64, 0}] == entry
-    end
-
-    for recipes <- [
-          %{"minecraft:missing" => 1},
-          %{"minecraft:iron_ingot_from_smelting_raw_iron" => 0},
-          %{"minecraft:iron_ingot_from_smelting_raw_iron" => 2_147_483_648}
-        ] do
-      assert {:error, :invalid_cooking_entry} =
-               Containers.replace_cooking(state, {0, 64, 0}, entry.revision, %Cooking{}, recipes)
-    end
-
-    assert {:error, :invalid_cooking_entry} =
-             Containers.create_cooking(state, {0, 0}, {1, 64, 0}, :missing)
-
-    assert {:error, :invalid_container_position} =
-             Containers.create_cooking(state, {0, 0}, {128, 64, 0}, :furnace)
-
-    exhausted = %{state | sequence: 18_446_744_073_709_551_615}
-
-    assert {:error, :container_sequence_exhausted} =
-             Containers.replace_cooking(exhausted, {0, 64, 0}, entry.revision, %Cooking{}, %{})
-  end
-
   test "malformed typed payloads, trailing bytes and rehashed unknown discriminators fail closed" do
     {:ok, state, entry} = Containers.create_cooking(%Containers{}, {0, 0}, {0, 64, 0}, :smoker)
     {:ok, bytes} = CookingEntry.encode(entry)

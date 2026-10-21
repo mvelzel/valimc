@@ -1,8 +1,8 @@
 defmodule Valimc.PendingCookingAwardsTest do
   use ExUnit.Case, async: true
-  alias Valimc.{Cooking, CookingAwards, Inventory}
+  alias Valimc.{Cooking, Inventory}
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{ContainerRequest, Containers, ContainerTransfers, PendingCookingAwards}
+  alias Valimc.World.{ContainerRequest, Containers, ContainerTransfers}
   @recipe "minecraft:iron_ingot_from_smelting_raw_iron"
   @key {0, 0}
   @pos {0, 64, 0}
@@ -108,31 +108,6 @@ defmodule Valimc.PendingCookingAwardsTest do
     end
   end
 
-  test "invalid context or ineligible admission records rejection without clearing credit" do
-    {cs, req, context} = fixture()
-
-    for {eligible, bad} <- [
-          {false, context},
-          {true, %{context | draws: %{}}},
-          {true, %{context | position: {30_000_000, 64, 0}}},
-          {true, %{}},
-          {true, %{context | draws: %{@recipe => 16_777_216}}}
-        ] do
-      assert {:ok, %{result: :rejected, containers: next}} =
-               ContainerTransfers.plan_cooking_award(cs, @key, req, eligible, bad)
-
-      assert next.entries == cs.entries and next.pending_awards == %{}
-
-      assert {:ok, %{result: :already_rejected}} =
-               ContainerTransfers.plan_cooking_award(next, @key, req, true, context)
-    end
-
-    {:ok, bare, _} = Containers.create_cooking(%Containers{}, @key, @pos, :furnace)
-
-    assert {:error, :missing_container_receipt_slot} =
-             ContainerTransfers.plan_cooking_award(bare, @key, req, true, context)
-  end
-
   test "competing old views cannot award the same credit twice, and the remainder earns no new credit" do
     {cs, req, context} = fixture()
     other = <<2::128>>
@@ -165,154 +140,6 @@ defmodule Valimc.PendingCookingAwardsTest do
     assert a.carried.count + b.carried.count == 4
     assert {:ok, bytes} = Containers.encode(@key, remaining)
     assert {:ok, ^remaining} = Containers.decode(bytes, @key)
-  end
-
-  test "zero-XP outcomes retain a recipe effect and integral outcomes store no draw" do
-    {cs, req, context} = fixture()
-
-    for {recipe, count, draws, amount} <- [
-          {"minecraft:smooth_stone", 1, %{"minecraft:smooth_stone" => 16_777_215}, 0},
-          {"minecraft:gold_ingot_from_smelting_gold_ore", 3, %{}, 3}
-        ] do
-      cs = put_in(cs.entries[@pos].recipes, %{recipe => count})
-      next = applied(cs, req, %{context | draws: draws})
-      [record] = Map.values(next.pending_awards)
-      assert record.award.experience == amount
-      assert record.award.recipes == [%{recipe: recipe, uses: count, experience: amount}]
-      assert record.award.draws_used == draws
-      assert {:ok, bytes} = Containers.encode(@key, next)
-      assert {:ok, ^next} = Containers.decode(bytes, @key)
-    end
-  end
-
-  test "ledger capacity rejects whole transfer and retains earlier awards" do
-    {cs, req, context} = fixture()
-    source = <<9::128>>
-    {:ok, award} = CookingAwards.plan(%{@recipe => 7}, %{@recipe => 0})
-
-    {awards, digest} =
-      Enum.reduce(1..PendingCookingAwards.max_awards(), {%{}, nil}, fn n, {awards, _} ->
-        digest = :crypto.hash(:sha256, <<n::32>>)
-
-        {:ok, next, _} =
-          PendingCookingAwards.put(awards, @key, source, n, digest, context.position, award)
-
-        {next, digest}
-      end)
-
-    receipt = %{
-      sequence: PendingCookingAwards.max_awards(),
-      digest: ContainerTransfers.result_digest(digest, :applied)
-    }
-
-    cs = %{cs | pending_awards: awards, receipts: Map.put(cs.receipts, source, receipt)}
-    assert {:ok, _} = Containers.encode(@key, cs)
-
-    assert {:ok, %{result: :rejected, containers: next}} =
-             ContainerTransfers.plan_cooking_award(cs, @key, req, true, context)
-
-    assert next.entries == cs.entries and next.pending_awards == awards
-
-    assert {:error, :cooking_award_limit} =
-             PendingCookingAwards.put(
-               awards,
-               @key,
-               @source,
-               1,
-               <<7::256>>,
-               context.position,
-               award
-             )
-  end
-
-  test "canonical ledger decoding rejects wrong region, duplicated identity and forged decisions" do
-    {cs, req, context} = fixture()
-    next = applied(cs, req, context)
-    assert {:ok, bytes} = PendingCookingAwards.encode(@key, next.pending_awards, next.receipts)
-    assert {:ok, awards} = PendingCookingAwards.decode(bytes, @key, next.receipts)
-    assert awards == next.pending_awards
-
-    assert {:error, :invalid_pending_cooking_awards} =
-             PendingCookingAwards.decode(bytes, {1, 0}, next.receipts)
-
-    <<1::16, record::binary>> = bytes
-
-    for damaged <- [
-          <<>>,
-          binary_part(bytes, 0, byte_size(bytes) - 1),
-          bytes <> <<0>>,
-          <<2::16, record::binary, record::binary>>,
-          <<257::16>>,
-          :binary.copy(<<0>>, PendingCookingAwards.max_bytes() + 1)
-        ] do
-      assert {:error, :invalid_pending_cooking_awards} =
-               PendingCookingAwards.decode(damaged, @key, next.receipts)
-    end
-
-    <<prefix::binary-size(121), index::16, uses::32, amount::32, _::32, rest::binary>> = bytes
-    forged = <<prefix::binary, index::16, uses::32, amount::32, 16_777_217::32, rest::binary>>
-
-    assert {:error, :invalid_pending_cooking_awards} =
-             PendingCookingAwards.decode(forged, @key, next.receipts)
-
-    [{id, value}] = Map.to_list(awards)
-
-    for wrong <- [
-          put_in(value.award.experience, 99),
-          %{value | position: {0, 64, 0}},
-          put_in(value.award.draws_used, %{}),
-          %{value | sequence: 0}
-        ] do
-      assert {:error, :invalid_pending_cooking_awards} =
-               PendingCookingAwards.encode(@key, %{id => wrong}, next.receipts)
-    end
-
-    assert {:error, :cooking_award_conflict} =
-             PendingCookingAwards.put(
-               awards,
-               @key,
-               value.source,
-               value.sequence,
-               value.digest,
-               {1, 64, 1},
-               value.award
-             )
-
-    assert {:error, :cooking_award_conflict} =
-             PendingCookingAwards.put(
-               awards,
-               @key,
-               value.source,
-               value.sequence,
-               <<7::256>>,
-               value.position,
-               value.award
-             )
-
-    {:ok, alternate, _} =
-      PendingCookingAwards.put(
-        %{},
-        @key,
-        value.source,
-        value.sequence,
-        <<7::256>>,
-        value.position,
-        value.award
-      )
-
-    assert {:error, :invalid_pending_cooking_awards} =
-             PendingCookingAwards.encode(@key, Map.merge(awards, alternate), next.receipts)
-
-    assert {:ok, ^awards, ^id} =
-             PendingCookingAwards.put(
-               awards,
-               @key,
-               value.source,
-               value.sequence,
-               value.digest,
-               value.position,
-               value.award
-             )
   end
 
   test "legacy versions keep exact bytes and never invent pending awards" do

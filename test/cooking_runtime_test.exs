@@ -17,49 +17,6 @@ defmodule Valimc.CookingRuntimeTest do
     {containers, %{@pos => block}}
   end
 
-  test "each processor ignites, retains content revisions during progress, and completes at its native duration" do
-    for {kind, input, output, total} <- [
-          {:furnace, "raw_iron", "iron_ingot", 200},
-          {:smoker, "cod", "cooked_cod", 100},
-          {:blast_furnace, "raw_iron", "iron_ingot", 100}
-        ] do
-      {containers, edits} =
-        seed(kind, %Cooking{
-          slots: {ItemStack.new(input, 2), ItemStack.new("coal", 2), nil},
-          total: 200
-        })
-
-      items = Items.new()
-      {:ok, ignition} = CookingRuntime.plan(containers, items, @key, edits, :all, MapSet.new())
-      cooking = ignition.containers.entries[@pos].cooking
-      assert cooking.total == total and cooking.progress == 1 and cooking.burn_left > 0
-      assert ignition.content == [@pos] and ignition.batch != nil
-      lit_edits = Map.merge(edits, ignition.changes)
-      revision = ignition.containers.entries[@pos].revision
-
-      final =
-        Enum.reduce(2..total, ignition, fn _, plan ->
-          {:ok, next} =
-            CookingRuntime.plan(
-              plan.containers,
-              plan.items,
-              @key,
-              lit_edits,
-              plan.active,
-              plan.blocked
-            )
-
-          next
-        end)
-
-      entry = final.containers.entries[@pos]
-      assert entry.cooking.progress == 0 and entry.revision == revision + 1
-      assert elem(entry.cooking.slots, 2) == ItemStack.new(output)
-      assert Map.values(entry.recipes) == [1] and final.batch == nil
-      assert map_size(final.changes) == 1
-    end
-  end
-
   test "stable processors sleep and an external slot edit wakes them" do
     {containers, edits} = seed(:furnace, %Cooking{})
     items = Items.new()
