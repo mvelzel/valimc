@@ -5,6 +5,7 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-076](../tickets/VMC-076.md) | `b54d69e`; fast dev NIF builds, two heavy-job slots, test tiers, content-keyed oracle cache with `--changed` and `--regen`; test suite 312 s → 81 s and oracle runs 39–107 min → 7 min warm |
 | [VMC-026 Nether, End and portals](../tickets/VMC-026.md) | `f9b178e`: live Nether and End (VMC-026a, b), items through portals (VMC-026c), generated stronghold portal rooms to the End; terrain and decoration per dimension in Pumpkin's range; client check of a portal room, the End, the credits and a reconnect; the dragon fight, thrown eyes and orbs and mobs through portals move to M3 |
 | [VMC-026c Items through portals](../tickets/VMC-026c.md) | `57c30ff`: items through nether portals, end portals and gateways by cross-dimension item handoffs with tagged receipts; vanilla's velocity turn on arrival for players too (`portals` stage, 400 arrival poses); Nether and End block changes reach players; client runs on e92ef68 and 57c30ff |
 | [VMC-075 fresh terrain per chunk](../tickets/VMC-075.md) | Regions load without generating; views want their chunks and regions generate them nearest first, off the owner, durable before installed (decorated worlds finalize a few chunks per transaction); half the chunks per fresh view, whole view after a hop 5.3 → 3.6 s and first chunk 3.5 → 1.0 s against VMC-025d4; client runs on b186641 and 7aea186 |

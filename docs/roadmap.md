@@ -22,12 +22,6 @@ portals, world settings and the world-generation commands; the gate is in
 systems (VMC-053h, k–n) move with those systems. Generation and tick time stay
 matched against vanilla and Pumpkin, at least in Pumpkin's range.
 
-## Next: development tooling
-
-| Ticket | Open slice | Status |
-|---|---|---|
-| [VMC-076](tickets/VMC-076.md) | Fast feedback: test pruning and tiers, check_vanilla selection, cached oracles | In progress |
-
 ## M3 onward
 
 Survival core on the entity model (mobs/AI, spawning, combat, projectiles), redstone
