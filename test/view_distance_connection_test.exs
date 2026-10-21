@@ -105,24 +105,16 @@ defmodule Valimc.ViewDistanceConnectionTest do
 
   defp view(center, distance), do: MapSet.new(ChunkView.chunks({center, distance}))
 
-  test "the client's distance, clamped to 2..server's, picks the chunks; login carries the server's" do
-    for {requested, tracked, count} <- [{4, 4, 117}, {16, 10, 473}, {1, 2, 49}, {-7, 2, 49}] do
-      joined = join(requested)
-      assert joined.radius == 10 and joined.simulation == 10
-      {chunks, forgotten, batches, _} = stream(joined.client, count)
-
-      assert length(chunks) == count and forgotten == []
-      assert MapSet.new(chunks) == view(joined.center, tracked)
-      assert :sys.get_state(joined.owner).view == {joined.center, tracked}
-      # Vanilla's first batch is bounded by its starting rate, later ones by the
-      # client's; chunks of a region still loading wait for a later batch.
-      assert hd(batches) <= 9 and Enum.all?(batches, &(&1 <= 64)) and Enum.sum(batches) == count
-    end
-  end
-
-  test "changing the distance in play streams the entering chunks and forgets the leaving ones" do
+  test "the client's distance picks the chunks; changing it in play streams and forgets the difference" do
     joined = join(4)
-    {_, _, _, client} = stream(joined.client, 117)
+    # The login packet carries the server's distances; the client's own picks the view.
+    assert joined.radius == 10 and joined.simulation == 10
+    {chunks, forgotten, batches, client} = stream(joined.client, 117)
+    assert length(chunks) == 117 and forgotten == []
+    assert MapSet.new(chunks) == view(joined.center, 4)
+    # Vanilla's first batch is bounded by its starting rate, later ones by the
+    # client's; chunks of a region still loading wait for a later batch.
+    assert hd(batches) <= 9 and Enum.all?(batches, &(&1 <= 64)) and Enum.sum(batches) == 117
 
     client = Client.send_packet(client, :play, "client_information", settings(6))
     {chunks, forgotten, _, client} = stream(client, 213 - 117)

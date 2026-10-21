@@ -1,72 +1,9 @@
 defmodule Valimc.ChunkViewTest do
-  # Changes the server view distance, which every connection reads.
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   alias Valimc.Protocol.ClientInformation
   alias Valimc.Session.{ChunkSender, ChunkView}
 
-  setup do
-    old = Application.fetch_env!(:valimc, :view_distance)
-    Application.put_env(:valimc, :view_distance, 10)
-    on_exit(fn -> Application.put_env(:valimc, :view_distance, old) end)
-  end
-
-  # Vanilla's `ChunkTrackingView.isWithinDistance` with neighbours, written out.
-  defp tracked?({cx, cz}, d, {x, z}),
-    do: :math.pow(max(0, abs(x - cx) - 2), 2) + :math.pow(max(0, abs(z - cz) - 2), 2) < d * d
-
-  test "the requested distance clamps between 2 and the server's, which clamps to 2..32" do
-    assert Enum.map([-128, 0, 1, 2, 6, 10, 16, 127], &ChunkView.distance/1) ==
-             [2, 2, 2, 2, 6, 10, 10, 10]
-
-    for {setting, server} <- [{1, 2}, {2, 2}, {12, 12}, {40, 32}] do
-      Application.put_env(:valimc, :view_distance, setting)
-      assert ChunkView.server_distance() == server
-      assert ChunkView.distance(127) == server
-    end
-  end
-
-  test "views are vanilla's cylinder with a neighbour ring, nearest first" do
-    for d <- 2..12, center <- [{0, 0}, {-3, 7}, {1_000_000, -999}] do
-      {cx, cz} = center
-      chunks = ChunkView.chunks({center, d})
-
-      expected =
-        for x <- (cx - d - 2)..(cx + d + 2),
-            z <- (cz - d - 2)..(cz + d + 2),
-            tracked?(center, d, {x, z}),
-            do: {x, z}
-
-      assert Enum.sort(chunks) == Enum.sort(expected)
-      distances = Enum.map(chunks, fn {x, z} -> (x - cx) ** 2 + (z - cz) ** 2 end)
-      assert distances == Enum.sort(distances)
-    end
-
-    assert length(ChunkView.chunks({{0, 0}, 2})) == 49
-    assert length(ChunkView.chunks({{0, 0}, 10})) == 473
-    assert ChunkView.chunks(nil) == []
-  end
-
-  test "a change enters and leaves exactly the chunks of the two views' difference" do
-    cases = [
-      {nil, {{0, 0}, 4}},
-      {{{0, 0}, 4}, nil},
-      {{{0, 0}, 4}, {{1, 0}, 4}},
-      {{{0, 0}, 6}, {{0, 0}, 3}},
-      {{{0, 0}, 3}, {{0, 0}, 6}},
-      {{{0, 0}, 10}, {{500, 500}, 10}},
-      {{{5, 5}, 7}, {{5, 5}, 7}}
-    ]
-
-    for {from, to} <- cases do
-      {entering, leaving} = ChunkView.difference(from, to)
-      old = MapSet.new(ChunkView.chunks(from))
-      new = MapSet.new(ChunkView.chunks(to))
-      assert MapSet.new(entering) == MapSet.difference(new, old)
-      assert MapSet.new(leaving) == MapSet.difference(old, new)
-      assert length(entering) == MapSet.size(MapSet.new(entering))
-    end
-  end
-
+  # Views and their differences are the `chunk_view` oracle stage.
   test "a region intersects the view when any of its chunks is tracked" do
     view = {{0, 0}, 2}
     assert ChunkView.intersects?(view, {3, 3, 10, 10})
@@ -133,6 +70,29 @@ defmodule Valimc.ChunkViewTest do
           <<>>
         ] do
       assert ClientInformation.decode(bad) == {:error, :invalid_client_information}
+    end
+  end
+end
+
+defmodule Valimc.ChunkViewTest.Serial do
+  # Changes the server view distance, which every connection reads.
+  use ExUnit.Case, async: false
+  alias Valimc.Session.ChunkView
+
+  setup do
+    old = Application.fetch_env!(:valimc, :view_distance)
+    Application.put_env(:valimc, :view_distance, 10)
+    on_exit(fn -> Application.put_env(:valimc, :view_distance, old) end)
+  end
+
+  test "the requested distance clamps between 2 and the server's, which clamps to 2..32" do
+    assert Enum.map([-128, 0, 1, 2, 6, 10, 16, 127], &ChunkView.distance/1) ==
+             [2, 2, 2, 2, 6, 10, 10, 10]
+
+    for {setting, server} <- [{1, 2}, {2, 2}, {12, 12}, {40, 32}] do
+      Application.put_env(:valimc, :view_distance, setting)
+      assert ChunkView.server_distance() == server
+      assert ChunkView.distance(127) == server
     end
   end
 end

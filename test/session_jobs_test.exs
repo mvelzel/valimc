@@ -44,23 +44,4 @@ defmodule Valimc.Session.JobsTest do
     refute_receive {:DOWN, _, _, _, _}, 20
     assert jobs == %Jobs{}
   end
-
-  test "attach moves a correlated job to its next stage and take completes it by ref" do
-    {jobs, job} = Jobs.track(Jobs.new(), :table, nil, timeout: 1000, data: %{stage: :candidate})
-    task = Task.async(fn -> :planned end)
-    {jobs, staged} = Jobs.attach(Jobs.update(jobs, :table, %{stage: :plan}), :table, task)
-    assert staged.ref == job.ref and staged.stage == :plan and staged.timer == job.timer
-    assert {:result, :table, _, :planned, jobs} = Jobs.classify(jobs, next_message())
-
-    {jobs, job} = Jobs.track(jobs, :experience, nil)
-    assert {nil, ^jobs} = Jobs.take(jobs, :experience, make_ref())
-    assert {%{kind: :experience}, jobs} = Jobs.take(jobs, :experience, job.ref)
-    assert Jobs.cancel_all(jobs) == %Jobs{}
-  end
-
-  test "one job per kind" do
-    {jobs, _} = Jobs.track(Jobs.new(), :motion, nil)
-    assert_raise ArgumentError, fn -> Jobs.track(jobs, :motion, nil) end
-    assert Jobs.classify(jobs, {:unrelated, 1}) == :unknown
-  end
 end

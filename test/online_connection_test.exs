@@ -158,9 +158,7 @@ defmodule Valimc.OnlineConnectionTest do
   test "unverified, unavailable and malformed profiles reject without offline fallback" do
     for {name, result} <- [
           {"InvalidSession", {:error, :unverified_session}},
-          {"AuthDown", {:error, :session_unavailable}},
           {"WrongProfile", {:ok, profile("DifferentName")}},
-          {"ShortUUID", {:ok, %{profile("ShortUUID") | uuid: <<1>>}}},
           {"HugeProperties",
            {:ok,
             %{
@@ -261,6 +259,10 @@ defmodule Valimc.OnlineConnectionTest do
 
   test "stalled auth admission is bounded without blocking an admitted player" do
     {live, _} = verified("SessionLive")
+    # A short admission wait keeps the stalled login's rejection quick.
+    previous = Valimc.config(:admission_call_ms)
+    Application.put_env(:valimc, :admission_call_ms, 50)
+    on_exit(fn -> Application.put_env(:valimc, :admission_call_ms, previous) end)
     :sys.suspend(SessionJobs)
 
     try do

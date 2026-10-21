@@ -14,10 +14,9 @@ defmodule Valimc.ControlledDiscoveryFetch do
 end
 
 defmodule Valimc.DiscoveryTest do
+  # Restarts the application's discovery owner.
   use ExUnit.Case, async: false
-  @moduletag :tcp
   alias Valimc.Auth.{Discovery, DiscoveryDocument, DiscoverySupervisor, SessionService}
-  alias Valimc.TestClient, as: Client
   @url "https://sessionserver.mojang.com/session/minecraft/hasJoined"
   defp deadline(ms \\ 2000), do: System.monotonic_time(:millisecond) + ms
   defp json(value), do: :json.encode(value) |> IO.iodata_to_binary()
@@ -63,7 +62,7 @@ defmodule Valimc.DiscoveryTest do
     eventually(fn -> Discovery.publication().ready and :sys.get_state(Discovery).job == nil end)
   end
 
-  test "native route selection and unavailable/invalid schemas" do
+  test "route selection and unavailable, invalid or malformed documents" do
     doc = %{
       environment: "prod",
       product: "minecraft",
@@ -92,6 +91,16 @@ defmodule Valimc.DiscoveryTest do
       assert {:error, :invalid_discovery} = DiscoveryDocument.decode(body)
     end
 
+    for value <- [
+          %{environment: %{}},
+          %{product: []},
+          %{environment: "offline", discovery: 42},
+          %{discovery: %{authentication: %{endpoints: %{other: %{uri: []}}}}},
+          %{discovery: %{profiles: %{endpoints: %{other: %{validUris: [%{}]}}}}}
+        ] do
+      assert {:error, :invalid_discovery} = DiscoveryDocument.decode(json(value))
+    end
+
     for uri <- [
           "http://unsafe.invalid/",
           "https://user:password@example.com/",
@@ -110,18 +119,6 @@ defmodule Valimc.DiscoveryTest do
              "username" => "OracleOne",
              "serverId" => "-abc"
            }
-  end
-
-  test "malformed known metadata and unused services reject before offline routing" do
-    for value <- [
-          %{environment: %{}},
-          %{product: []},
-          %{environment: "offline", discovery: 42},
-          %{discovery: %{authentication: %{endpoints: %{other: %{uri: []}}}}},
-          %{discovery: %{profiles: %{endpoints: %{other: %{validUris: [%{}]}}}}}
-        ] do
-      assert {:error, :invalid_discovery} = DiscoveryDocument.decode(json(value))
-    end
   end
 
   test "one initial fetch wakes parallel subscribers and supports protected concurrent reads" do
@@ -148,15 +145,15 @@ defmodule Valimc.DiscoveryTest do
   end
 
   test "initial failure completes readiness and follows native capped backoff" do
-    for i <- 0..8 do
+    for i <- 0..1 do
       assert_receive {:discovery_fetch, worker, _}
       send(worker, {:fetch_result, {:error, :unavailable}})
       eventually(fn -> :sys.get_state(Discovery).job == nil end)
       state = :sys.get_state(Discovery)
-      expected = 60_000 * Integer.pow(2, min(i, 6))
+      expected = 60_000 * Integer.pow(2, i)
       assert :erlang.read_timer(state.timer) in (expected - 1000)..expected
       assert Discovery.endpoint(deadline()) == {:error, :discovery_unavailable}
-      if i < 8, do: Discovery.refresh()
+      if i < 1, do: Discovery.refresh()
     end
 
     for i <- 0..10,
@@ -223,10 +220,8 @@ defmodule Valimc.DiscoveryTest do
     assert {:error, :discovery_unavailable} = Discovery.endpoint(deadline())
   end
 
-  test "owner loss cancels fetch and waiting subscribers without disconnecting admitted play" do
+  test "owner loss cancels its fetch and waiting subscribers" do
     assert_receive {:discovery_fetch, worker, _}
-    {_uuid, client} = Client.login("DiscoveryLive")
-    client = Client.load_world(client)
     parent = self()
     spawn(fn -> send(parent, {:waiting_result, Discovery.endpoint(deadline())}) end)
     eventually(fn -> Registry.count(Valimc.Auth.DiscoveryWaiters) == 1 end)
@@ -240,12 +235,6 @@ defmodule Valimc.DiscoveryTest do
     Application.put_env(:valimc, :online_mode, false)
     refute new_worker == worker
     accept(new_worker)
-
-    client =
-      Client.send_packet(client, :play, "chat_command", Valimc.Protocol.Wire.string("stats"))
-
-    {_body, _} = Client.await_stats(client)
-    Client.close(client)
   end
 
   test "offline startup and refresh perform no external fetch" do

@@ -1,88 +1,9 @@
-defmodule Valimc.AuthSessionTest do
-  # TLS deadlines must not compete with the suite's CPU-heavy native geometry checks.
-  use ExUnit.Case, async: false
+defmodule Valimc.AuthProfileTest do
+  # Untrusted session-server profiles and query construction; pure.
+  use ExUnit.Case, async: true
   alias Valimc.Auth.{HTTP, Profile, SessionService}
   @id "12345678123456781234567812345678"
   defp json(value), do: value |> :json.encode() |> IO.iodata_to_binary()
-  defp deadline(ms \\ 2000), do: System.monotonic_time(:millisecond) + ms
-
-  defp certificate(host) do
-    :public_key.pkix_test_data(%{
-      root: [digest: :sha256, key: {:namedCurve, {1, 2, 840, 10045, 3, 1, 7}}],
-      peer: [
-        digest: :sha256,
-        key: {:namedCurve, {1, 2, 840, 10045, 3, 1, 7}},
-        extensions: [{:Extension, {2, 5, 29, 17}, false, [{:dNSName, String.to_charlist(host)}]}]
-      ]
-    })
-  end
-
-  defp tls_server(response, host \\ "localhost") do
-    conf = certificate(host)
-    {:ok, listener} = :ssl.listen(0, [:binary, active: false, reuseaddr: true] ++ conf)
-    {:ok, {_, port}} = :ssl.sockname(listener)
-    parent = self()
-
-    pid =
-      spawn(fn ->
-        case :ssl.transport_accept(listener, 2000) do
-          {:ok, socket} ->
-            case :ssl.handshake(socket, 2000) do
-              {:ok, socket} ->
-                {:ok, request} = :ssl.recv(socket, 0, 2000)
-                send(parent, {:tls_request, self(), request})
-                response.(socket)
-                :ssl.close(socket)
-
-              _ ->
-                :ssl.close(socket)
-            end
-
-          _ ->
-            :ok
-        end
-
-        :ssl.close(listener)
-      end)
-
-    on_exit(fn ->
-      Process.exit(pid, :kill)
-      :ssl.close(listener)
-    end)
-
-    {"https://localhost:#{port}/session", Keyword.fetch!(conf, :cacerts), pid}
-  end
-
-  test "native requested name, UUID forms and exact signed/unsigned properties" do
-    properties = [
-      %{name: "textures", value: "synthetic+/=", signature: "signed+/="},
-      %{name: "other", value: "λ\u0000😀"}
-    ]
-
-    assert {:ok, p} =
-             Profile.decode(
-               json(%{id: @id, name: "IgnoredName", properties: properties}),
-               "OracleOne"
-             )
-
-    assert p.name == "OracleOne"
-    assert p.uuid == Base.decode16!(@id, case: :mixed)
-
-    assert p.properties == [
-             %{name: "textures", value: "synthetic+/=", signature: "signed+/="},
-             %{name: "other", value: "λ\u0000😀", signature: nil}
-           ]
-
-    for properties <- [:null, []] do
-      assert {:ok, %{properties: []}} =
-               Profile.decode(
-                 json(%{id: "12345678-1234-5678-1234-567812345678", properties: properties}),
-                 "OracleOne"
-               )
-    end
-
-    assert {:ok, %{properties: []}} = Profile.decode(json(%{id: @id}), "OracleOne")
-  end
 
   test "JSON and profile limits reject ambiguous or malformed identity" do
     nested = Enum.reduce(1..9, 0, fn _, acc -> [acc] end)
@@ -136,6 +57,62 @@ defmodule Valimc.AuthSessionTest do
     assert {:error, :unverified_session} = SessionService.response(204, "", "OracleOne")
     assert {:error, :session_unavailable} = SessionService.response(503, "", "OracleOne")
     assert {:error, :session_unavailable} = SessionService.response(302, "", "OracleOne")
+  end
+end
+
+defmodule Valimc.AuthSessionTest do
+  # TLS deadlines must not compete with the suite's CPU-heavy native geometry checks.
+  use ExUnit.Case, async: false
+  alias Valimc.Auth.HTTP
+  @id "12345678123456781234567812345678"
+  defp json(value), do: value |> :json.encode() |> IO.iodata_to_binary()
+  defp deadline(ms \\ 2000), do: System.monotonic_time(:millisecond) + ms
+
+  defp certificate(host) do
+    :public_key.pkix_test_data(%{
+      root: [digest: :sha256, key: {:namedCurve, {1, 2, 840, 10045, 3, 1, 7}}],
+      peer: [
+        digest: :sha256,
+        key: {:namedCurve, {1, 2, 840, 10045, 3, 1, 7}},
+        extensions: [{:Extension, {2, 5, 29, 17}, false, [{:dNSName, String.to_charlist(host)}]}]
+      ]
+    })
+  end
+
+  defp tls_server(response, host \\ "localhost") do
+    conf = certificate(host)
+    {:ok, listener} = :ssl.listen(0, [:binary, active: false, reuseaddr: true] ++ conf)
+    {:ok, {_, port}} = :ssl.sockname(listener)
+    parent = self()
+
+    pid =
+      spawn(fn ->
+        case :ssl.transport_accept(listener, 2000) do
+          {:ok, socket} ->
+            case :ssl.handshake(socket, 2000) do
+              {:ok, socket} ->
+                {:ok, request} = :ssl.recv(socket, 0, 2000)
+                send(parent, {:tls_request, self(), request})
+                response.(socket)
+                :ssl.close(socket)
+
+              _ ->
+                :ssl.close(socket)
+            end
+
+          _ ->
+            :ok
+        end
+
+        :ssl.close(listener)
+      end)
+
+    on_exit(fn ->
+      Process.exit(pid, :kill)
+      :ssl.close(listener)
+    end)
+
+    {"https://localhost:#{port}/session", Keyword.fetch!(conf, :cacerts), pid}
   end
 
   test "HTTPS validates trusted roots and preserves the bounded exact response" do

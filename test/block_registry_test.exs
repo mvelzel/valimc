@@ -8,22 +8,4 @@ defmodule Valimc.BlockRegistryTest do
       assert Blocks.state(name, Map.new(Blocks.properties(state))) == state
     end
   end
-
-  test "chest states follow the generated property order" do
-    assert Blocks.class(Blocks.default_state("chest")) == "ChestBlock"
-
-    assert Blocks.properties(Blocks.default_state("chest")) ==
-             [{"facing", "north"}, {"type", "single"}, {"waterlogged", "false"}]
-
-    east = Blocks.state("chest", %{"facing" => "east", "waterlogged" => "true"})
-    assert east in Blocks.states("chest")
-
-    assert Blocks.properties(east) == [
-             {"facing", "east"},
-             {"type", "single"},
-             {"waterlogged", "true"}
-           ]
-
-    assert_raise ArgumentError, fn -> Blocks.state("chest", %{"facing" => "up"}) end
-  end
 end

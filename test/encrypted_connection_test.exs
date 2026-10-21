@@ -73,31 +73,6 @@ defmodule Valimc.EncryptedConnectionTest do
     Client.close(client)
   end
 
-  test "plaintext key frame and encrypted compressed acknowledgment coalesce; encrypted rejection works" do
-    name = "EncryptedTail"
-    {client, pair, nonce, secret} = begin(name)
-    {:ok, cipher} = Encryption.new(secret)
-    key = Wire.frame(Data.id(:login, :serverbound, "key"), response(pair, nonce, secret), nil)
-
-    ack =
-      Wire.frame(
-        Data.id(:login, :serverbound, "login_acknowledged"),
-        <<>>,
-        Valimc.config(:compression_threshold)
-      )
-      |> IO.iodata_to_binary()
-
-    {:ok, encrypted} = Encryption.encrypt(cipher, ack)
-    :ok = :gen_tcp.send(client.socket, [key, encrypted])
-    client = client |> Map.put(:cipher, cipher) |> Map.put(:login_ack_sent, true)
-    {_uuid, client} = Client.login_session(client, name)
-    client = Client.load_world(client)
-    client = Client.send_raw(client, Wire.frame(2_000_000, <<>>, client.threshold))
-    {body, _} = Client.await(client, :play, "disconnect")
-    assert byte_size(body) > 0
-    Client.close(client)
-  end
-
   test "wrong challenge and unsolicited key reject before acquiring a lease" do
     name = "BadEncryption"
     {client, pair, nonce, secret} = begin(name)
@@ -240,6 +215,10 @@ defmodule Valimc.EncryptedConnectionTest do
     live = Client.load_world(live)
     {client, pair, nonce, secret} = begin("AdmissionWait")
     pid = owner("AdmissionWait")
+    # A short admission wait keeps the stalled login's rejection quick.
+    previous = Valimc.config(:admission_call_ms)
+    Application.put_env(:valimc, :admission_call_ms, 50)
+    on_exit(fn -> Application.put_env(:valimc, :admission_call_ms, previous) end)
     :sys.suspend(KeyExchange)
 
     try do

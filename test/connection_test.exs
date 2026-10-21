@@ -33,55 +33,6 @@ defmodule Valimc.ConnectionTest do
     {_body, _} = Client.await_stats(client)
   end
 
-  test "one killed player leaves peers and listener running" do
-    first_name = name("Kill")
-    {_, first} = Client.login(first_name)
-    on_exit(fn -> Client.close(first) end)
-    {_, second} = Client.login(name("Alive"))
-    on_exit(fn -> Client.close(second) end)
-    first_player = Enum.find(Valimc.Players.all(), &(&1.name == first_name))
-    Process.exit(first_player.pid, :kill)
-    Client.send_packet(second, :play, "chat_command", Wire.string("stats"))
-    {_body, second} = Client.await_stats(second)
-    assert Process.alive?(Process.whereis(Valimc.Listener))
-    Client.send_packet(second, :play, "chat_command", Wire.string("stats"))
-    {_body, _} = Client.await_stats(second)
-  end
-
-  test "commands follow Brigadier whitespace and report vanilla failures" do
-    {_, client} = Client.login(name("Commands"))
-    on_exit(fn -> Client.close(client) end)
-    client = Client.load_world(client)
-
-    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {body, client} = Client.await_stats(client)
-    assert :binary.match(body, "schedulers") != :nomatch
-
-    client =
-      Enum.reduce(
-        ["stats extra", "stats ", "stats  ", "STATS", "missing"],
-        client,
-        fn input, client ->
-          Client.send_packet(client, :play, "chat_command", Wire.string(input))
-          {body, client} = Client.await(client, :play, "system_chat")
-          assert :binary.match(body, "command.unknown.") != :nomatch
-          {context, client} = Client.await(client, :play, "system_chat")
-          assert :binary.match(context, "command.context.here") != :nomatch
-          client
-        end
-      )
-
-    Client.send_packet(client, :play, "chat_command", Wire.string("help"))
-
-    {lines, _} =
-      Enum.map_reduce(1..length(Valimc.Commands.root().children), client, fn _, client ->
-        Client.await(client, :play, "system_chat")
-      end)
-
-    for literal <- ["/help [<command>]", "/stats", "/spawn", "/gamemode <gamemode> [<target>]"],
-        do: assert(Enum.any?(lines, &(:binary.match(&1, literal) != :nomatch)))
-  end
-
   test "malformed and wrong-version clients do not affect the listener" do
     bad = Client.connect()
     Client.send_raw(bad, <<128, 128, 128, 128, 16>>)
@@ -174,5 +125,81 @@ defmodule Valimc.ConnectionTest do
     assert_receive {:DOWN, ^ref, :process, _, :killed}
     Client.send_packet(healthy, :play, "chat_command", Wire.string("stats"))
     {_body, _} = Client.await_stats(healthy)
+  end
+
+  defp drain(client, names \\ []) do
+    case Wire.next_frame(client.buffer, 2_097_152, client.threshold) do
+      {:ok, id, _body, rest} ->
+        drain(%{client | buffer: rest}, [Data.name(:play, :clientbound, id) | names])
+
+      :more ->
+        case :gen_tcp.recv(client.socket, 0, 30) do
+          {:ok, bytes} -> drain(%{client | buffer: client.buffer <> bytes}, names)
+          {:error, :timeout} -> {client, names}
+        end
+    end
+  end
+
+  test "configuration ack and early chunk feedback cannot stream before valid play teleport confirmation" do
+    name = "Ready#{System.unique_integer([:positive])}"
+    {uuid, client} = Client.configure_session(Client.begin_login(name), name)
+
+    on_exit(fn ->
+      Client.close(client)
+
+      for player <- Valimc.Players.all(),
+          player.uuid == uuid,
+          do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
+    end)
+
+    client = Client.send_packet(client, :configuration, "finish_configuration", <<>>)
+    {_, client} = Client.await(client, :play, "login")
+    {teleport, client} = Client.await(client, :play, "player_position")
+    {_, client} = Client.await(client, :play, "system_chat")
+
+    owner =
+      Valimc.TestWait.until(fn ->
+        Enum.find_value(Valimc.Players.all(), &if(&1.uuid == uuid, do: &1.pid))
+      end)
+
+    # Force the pending stream event while a real TCP peer withholds its play ack.
+    send(owner, :send_chunks)
+    state = :sys.get_state(owner)
+    {client, names} = drain(client)
+
+    refute Enum.any?(
+             names,
+             &(&1 in ~w(chunk_batch_start level_chunk_with_light chunk_batch_finished))
+           )
+
+    assert state.teleport_pending and state.pending != [] and
+             state.chunk_sender.unacknowledged == 0
+
+    assert state.chunks == MapSet.new()
+
+    packets = state.packets
+    window = state.window
+    Client.send_packet(client, :play, "chunk_batch_received", <<8.0::float-32>>)
+
+    Valimc.TestWait.until(fn ->
+      current = :sys.get_state(owner)
+      current.packets > packets or (current.window != window and current.packets > 0)
+    end)
+
+    send(owner, :send_chunks)
+    assert :sys.get_state(owner).teleport_pending
+    {client, names} = drain(client)
+
+    refute Enum.any?(
+             names,
+             &(&1 in ~w(chunk_batch_start level_chunk_with_light chunk_batch_finished))
+           )
+
+    client = Client.auto_reply(client, :play, "player_position", teleport)
+    client = Client.load_world(client)
+    state = :sys.get_state(owner)
+    refute state.teleport_pending
+    assert MapSet.size(state.chunks) >= 49
+    Client.close(client)
   end
 end

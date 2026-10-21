@@ -8,7 +8,11 @@ defmodule Valimc.Auth.SessionJobs do
   def start(owner, token, name, digest) do
     deadline = System.monotonic_time(:millisecond) + Valimc.config(:authentication_timeout_ms)
 
-    case GenServer.call(__MODULE__, {:start, owner, token, name, digest, deadline}, 1000) do
+    case GenServer.call(
+           __MODULE__,
+           {:start, owner, token, name, digest, deadline},
+           Valimc.config(:admission_call_ms)
+         ) do
       {:ok, job} -> {:ok, Map.put(job, :monitor, Process.monitor(job.pid))}
       error -> error
     end

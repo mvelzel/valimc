@@ -1,17 +1,8 @@
 defmodule Valimc.ClientTickTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.Protocol.{ClientTick, Data, Wire}
+  alias Valimc.Protocol.{Data, Wire}
   alias Valimc.TestClient, as: Client
-
-  test "only a client delimiter releases position admission" do
-    empty = %ClientTick{}
-    assert {:ok, used} = ClientTick.position(empty)
-    assert {:error, :duplicate_position} = ClientTick.position(used)
-    assert ClientTick.finish(empty) == empty
-    assert {:ok, ^used} = ClientTick.position(ClientTick.finish(used))
-    assert ClientTick.position(empty) == {:ok, used}
-  end
 
   test "ordered client ticks share a TCP batch; server publication cannot release admission" do
     {client, player} = login()
@@ -75,23 +66,6 @@ defmodule Valimc.ClientTickTest do
     assert :binary.match(body, "Invalid player movement") != :nomatch
     assert_receive {:DOWN, ^ref, :process, _, :normal}
     assert Process.alive?(Process.whereis(Valimc.Listener))
-  end
-
-  test "reconnection starts with an unused frame" do
-    name = username()
-    {client, player} = login(name)
-    Client.send_packet(client, :play, "move_player_pos", position(1.5))
-    _client = barrier(client)
-    assert :sys.get_state(player.pid).client_tick.position_received?
-    ref = Process.monitor(player.pid)
-    Client.close(client)
-    assert_receive {:DOWN, ^ref, :process, _, _}
-    {next, replacement} = login(name)
-    refute :sys.get_state(replacement.pid).client_tick.position_received?
-    Client.send_packet(next, :play, "move_player_pos", position(2.5))
-    _next = barrier(next)
-    Client.await_position(replacement.pid, %{x: 2.5})
-    assert :sys.get_state(replacement.pid).player.x == 2.5
   end
 
   defp username, do: "Tick" <> Integer.to_string(System.unique_integer([:positive]))

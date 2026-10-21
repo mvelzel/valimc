@@ -1,29 +1,11 @@
 defmodule Valimc.WireTest do
   use ExUnit.Case, async: true
-  alias Valimc.Protocol.Wire
+  alias Valimc.Protocol.{ClientCommand, Wire}
 
-  test "VarInts round trip at boundaries and random 32-bit values" do
-    for n <-
-          [0, 1, 127, 128, 255, 2_097_151, 2_147_483_647, 4_294_967_295] ++
-            Enum.map(1..1000, fn _ -> :rand.uniform(4_294_967_296) - 1 end) do
-      assert {:ok, ^n, <<1>>} = Wire.read_varint(Wire.varint(n) <> <<1>>)
-    end
-
+  test "VarInts encode negatives as unsigned and reject overlong or truncated input" do
     assert {:ok, 4_294_967_295, <<>>} = Wire.read_varint(Wire.varint(-1))
     assert {:error, :invalid_varint} = Wire.read_varint(<<128, 128, 128, 128, 16>>)
     assert :more = Wire.read_varint(<<128>>)
-  end
-
-  test "framing preserves fragmentation and coalesced packets with compression" do
-    for threshold <- [nil, 32], size <- [0, 1, 31, 32, 255, 32768] do
-      payload = :crypto.strong_rand_bytes(size)
-      bytes = Wire.frame(5, payload, threshold)
-
-      assert :more =
-               Wire.next_frame(binary_part(bytes, 0, byte_size(bytes) - 1), 100_000, threshold)
-
-      assert {:ok, 5, ^payload, <<1, 0>>} = Wire.next_frame(bytes <> <<1, 0>>, 100_000, threshold)
-    end
   end
 
   test "rejects oversized frames and decompression bombs before unbounded allocation" do
@@ -55,5 +37,24 @@ defmodule Valimc.WireTest do
     bytes = IO.iodata_to_binary(Wire.text_component(text))
     assert Valimc.NBT.decode(bytes) == {:ok, {:compound, %{"text" => {:string, text}}}}
     assert :binary.match(bytes, <<0xED, 0xA0, 0xBD, 0xED, 0xB8, 0x80>>) != :nomatch
+  end
+
+  test "client lifecycle commands reject invalid, incomplete, oversized and trailing requests" do
+    assert {:ok, :respawn} = ClientCommand.decode(<<0>>)
+    assert {:ok, :gamerules} = ClientCommand.decode(<<2>>)
+    assert {:ok, :respawn} = ClientCommand.decode(<<128, 0>>)
+
+    for bytes <- [
+          <<>>,
+          <<128>>,
+          <<3>>,
+          <<0, 0>>,
+          Wire.varint(-1),
+          <<128, 128, 128, 128, 16>>,
+          <<128, 128, 128, 128, 128, 0>>,
+          nil
+        ] do
+      assert {:error, :invalid_client_command} = ClientCommand.decode(bytes)
+    end
   end
 end

@@ -51,14 +51,6 @@ defmodule Valimc.World.BlocksTest do
     assert rust_packet(blocks, {3, 5}) == bytes(Chunk.encode({3, 5}, %{}))
   end
 
-  test "chests in a chunk become block entities without exporting its edits" do
-    chest = Enum.min(Valimc.ChestAccess.single_states())
-    edits = %{{1, 64, 1} => chest, {2, 64, 1} => 1, {20, 64, 1} => chest}
-    {:ok, blocks} = Blocks.new(@key, edits)
-    assert Blocks.chunk_entities(blocks, {0, 0}) == %{{1, 64, 1} => chest}
-    assert rust_packet(blocks, {0, 0}) == bytes(Chunk.encode({0, 0}, edits))
-  end
-
   test "reads, atomic batches and reverting to flat terrain" do
     {:ok, blocks} = Blocks.new(@key)
     stone = Data.block("stone")

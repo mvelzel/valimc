@@ -84,6 +84,8 @@ config :valimc,
   authentication_timeout_ms: 5000,
   crypto_workers: 32,
   key_exchange_timeout_ms: 5000,
+  # How long a login waits for a free key-exchange or authentication slot.
+  admission_call_ms: 1000,
   max_write_batch_bytes: 4_194_304,
   login_timeout_ms: 15_000,
   keepalive_interval_ms: 10_000,
