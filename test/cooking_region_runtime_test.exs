@@ -150,6 +150,7 @@ defmodule Valimc.CookingRegionRuntimeTest.Serial do
 
     TestScope.isolate(ctx.key, item_simulation: true)
     {:ok, {pid, _} = owner} = Valimc.World.item_owner(ctx.key)
+    TestScope.simulate(owner, ctx.key)
 
     record = %{
       uuid: <<81::128>>,

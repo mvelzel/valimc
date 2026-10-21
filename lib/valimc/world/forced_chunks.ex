@@ -2,9 +2,11 @@ defmodule Valimc.World.ForcedChunks do
   @moduledoc """
   Force-loaded chunks (`/forceload`, VMC-053j): each dimension's forced chunk
   set (VMC-026b), saved in that dimension's folder as `forced_chunks.json` and
-  loaded again at startup. Callers act on their own dimension. ValiMC does not
-  unload region owners yet (VMC-013), so a forced chunk's region is started and
-  simply stays loaded; the chunk is generated as vanilla loads it (VMC-075).
+  loaded again at startup. Callers act on their own dimension. This process
+  holds a `:forced` ticket (VMC-077e) on each region with forced chunks, so they
+  stay loaded, generated (VMC-075) and ticking; a region whose last forced chunk
+  is removed is told to withdraw it. A region that restarted is told again
+  every few seconds.
   """
   use GenServer
   alias Valimc.Dimension
@@ -36,7 +38,7 @@ defmodule Valimc.World.ForcedChunks do
 
   @impl true
   def handle_continue(:load, sets) do
-    for {dimension, chunks} <- sets, do: load(dimension, chunks, chunks)
+    send(self(), :refresh)
     {:noreply, sets}
   end
 
@@ -44,9 +46,7 @@ defmodule Valimc.World.ForcedChunks do
   def handle_call({:add, dimension, requested}, _from, sets) do
     chunks = sets[dimension]
     changed = Enum.reject(requested, &MapSet.member?(chunks, &1))
-    chunks = Enum.into(changed, chunks)
-    load(dimension, changed, chunks)
-    {:reply, changed, save(sets, dimension, chunks)}
+    {:reply, changed, save(sets, dimension, Enum.into(changed, chunks))}
   end
 
   def handle_call({:remove, dimension, requested}, _from, sets) do
@@ -61,14 +61,21 @@ defmodule Valimc.World.ForcedChunks do
   def handle_call({:all, dimension}, _from, sets),
     do: {:reply, MapSet.to_list(sets[dimension]), sets}
 
-  # Start the regions of `changed` chunks and want all `forced` chunks in them
-  # generated (a region keeps one want per requester).
-  defp load(dimension, changed, forced) do
+  @impl true
+  def handle_info(:refresh, sets) do
+    for {dimension, chunks} <- sets, do: ticket(dimension, chunks, chunks)
+    Process.send_after(self(), :refresh, 5000)
+    {:noreply, sets}
+  end
+
+  # The `:forced` ticket of every region with chunks in `chunks` (the old or
+  # new set) over its chunks in `forced`; empty withdraws it.
+  defp ticket(dimension, chunks, forced) do
     Dimension.within(dimension, fn ->
-      for key <- changed |> Enum.map(&Valimc.World.region_key/1) |> Enum.uniq(),
+      for key <- chunks |> Enum.map(&Valimc.World.region_key/1) |> Enum.uniq(),
           {:ok, pid} <- [Valimc.World.region(key)] do
-        wanted = Enum.filter(forced, &(Valimc.World.region_key(&1) == key))
-        send(pid, {:want, self(), hd(wanted), wanted})
+        held = Enum.filter(forced, &(Valimc.World.region_key(&1) == key))
+        Valimc.World.Region.ticket(pid, :forced, List.first(held), held)
       end
     end)
   end
@@ -84,6 +91,7 @@ defmodule Valimc.World.ForcedChunks do
       File.rename!(temporary, path)
     end
 
+    ticket(dimension, MapSet.union(sets[dimension], chunks), chunks)
     Map.put(sets, dimension, chunks)
   end
 

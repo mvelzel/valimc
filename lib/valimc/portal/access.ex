@@ -75,9 +75,9 @@ defmodule Valimc.Portal.Access do
     end
   end
 
-  # A chunk not generated yet is asked for once (VMC-075) and read again; with
+  # A chunk not generated yet is awaited (VMC-075) and read again; with
   # `generate: false` it reads as holding nothing.
-  defp fetch(chunk, deadline, generate \\ true, asked \\ false) do
+  defp fetch(chunk, deadline, generate \\ true) do
     if now() > deadline, do: exit(:portal_read_deadline)
     key = World.region_key(chunk)
 
@@ -91,18 +91,17 @@ defmodule Valimc.Portal.Access do
           nil
 
         {:error, :chunk_generating} ->
-          unless asked, do: send(pid, {:want, self(), chunk, [chunk]})
-          Process.sleep(5)
-          fetch(chunk, deadline, generate, true)
+          Region.await_chunks({pid, epoch}, [chunk], deadline - now())
+          fetch(chunk, deadline, generate)
 
         _ ->
           Process.sleep(5)
-          fetch(chunk, deadline, generate, asked)
+          fetch(chunk, deadline, generate)
       end
     else
       _ ->
         Process.sleep(5)
-        fetch(chunk, deadline, generate, asked)
+        fetch(chunk, deadline, generate)
     end
   end
 

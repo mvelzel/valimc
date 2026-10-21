@@ -60,6 +60,7 @@ defmodule Valimc.BlockTickBehavioursTest do
       {rx, rz} = key
       span = Valimc.config(:region_size) * 16
       {:ok, owner} = World.owner(key)
+      TestScope.simulate(owner, key)
       %{owner: owner, origin: {rx * span + 40, 64, rz * span + 40}}
     end
 
@@ -109,6 +110,7 @@ defmodule Valimc.BlockTickBehavioursTest do
     span = Valimc.config(:region_size) * 16
     {x, y, z} = position = {rx * span + 40, 64, rz * span + 40}
     {:ok, owner} = World.owner(key)
+    TestScope.simulate(owner, key)
     {:ok, observed} = Region.observe_blocks(owner, [position])
     {:ok, _} = Region.set_blocks(owner, observed.fence, %{position => @budding})
     {:ok, _} = Region.step(owner, 150)

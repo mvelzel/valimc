@@ -26,10 +26,33 @@ defmodule Valimc.World.Region do
 
   def flush(pid), do: GenServer.call(pid, :flush, budget(pid, 15_000))
 
+  @doc """
+  The calling process holds a `type` ticket (`Valimc.World.Tickets`) over
+  `chunks` of the owner's region, nearest to `center` first; an empty list
+  withdraws it. Asynchronous; a later call of the same type replaces it.
+  """
+  def ticket({pid, _epoch}, type, center, chunks), do: ticket(pid, type, center, chunks)
+
+  def ticket(pid, type, center, chunks) when is_pid(pid) do
+    send(pid, {:ticket, self(), type, center, chunks})
+    :ok
+  end
+
   # Owner call budgets (and the deadlines requests carry) scale with
   # `owner_call_scale`: 1 in play; tests on a loaded host raise it, and pin it back to
   # 1 for an owner whose timeout they exercise (VMC-073).
   defp budget(pid, ms), do: ms * Valimc.config(:owner_call_scale, pid)
+
+  @doc """
+  `:ok` once `chunks` of the owner's region are generated (VMC-075), waiting at
+  most `timeout` ms; `{:error, reason}` otherwise.
+  """
+  def await_chunks({pid, _epoch}, chunks, timeout) do
+    GenServer.call(pid, {:await_chunks, chunks}, max(timeout, 0))
+  catch
+    :exit, {:timeout, _} -> {:error, :chunk_generating}
+    :exit, _ -> {:error, :region_unavailable}
+  end
 
   @doc "Run `ticks` region ticks now, in order (deterministic tests; `:manual` owners)."
   def step({pid, _epoch}, ticks \\ 1),
@@ -403,7 +426,15 @@ defmodule Valimc.World.Region do
           if Valimc.config(:region_ticks, key) == :timer,
             do: Process.send_after(self(), {:tick, clock.token}, 50)
 
-        {:noreply, %{resource: resource, tick_clock: clock, tick_timer: timer, tick_steps: nil}}
+        {:noreply,
+         %{
+           key: key,
+           admission: token,
+           resource: resource,
+           tick_clock: clock,
+           tick_timer: timer,
+           tick_steps: nil
+         }}
 
       {:error, reason} ->
         {:stop, reason, %{resource: resource}}
@@ -448,12 +479,10 @@ defmodule Valimc.World.Region do
             started = System.monotonic_time(:nanosecond)
             resource = TickPipeline.run(state.resource, clock.tick, now)
             Valimc.World.TickRate.sample(System.monotonic_time(:nanosecond) - started)
-
-            {:noreply,
-             schedule_tick(%{state | resource: resource, tick_steps: steps}, clock, delay)}
+            lifecycle(%{state | resource: resource, tick_steps: steps}, clock, delay, now)
 
           {false, steps} ->
-            {:noreply, schedule_tick(Map.put(state, :tick_steps, steps), clock, delay)}
+            lifecycle(Map.put(state, :tick_steps, steps), clock, delay, now)
         end
     end
   end
@@ -474,15 +503,35 @@ defmodule Valimc.World.Region do
   def handle_info({:halo, _} = message, state),
     do: RegionData.handle_info(message, state.resource) |> wrap(state)
 
-  # A view's wanted chunks, and proto owners' answers to generation requests (VMC-075).
-  def handle_info({:want, _, _, _} = message, state),
-    do: RegionData.handle_info(message, state.resource) |> wrap(state)
+  # Chunk tickets (VMC-077e), and proto owners' answers to generation requests (VMC-075).
+  def handle_info({:ticket, holder, type, _center, chunks} = message, state)
+      when is_pid(holder) and is_atom(type) and is_list(chunks),
+      do: RegionData.handle_info(message, state.resource) |> wrap(state)
 
   def handle_info({[:alias | ref], _} = message, state) when is_reference(ref),
     do: RegionData.handle_info(message, state.resource) |> wrap(state)
 
   # Untagged/stale callbacks never select a resource or change its data.
   def handle_info(_, state), do: {:noreply, state}
+
+  # An idle owner without tickets unloads (VMC-077e): its route goes first, then
+  # `terminate/2` saves what is volatile and closes its store.
+  defp lifecycle(state, clock, delay, now) do
+    case RegionData.lifecycle(state.resource, clock.tick, now) do
+      {:ok, resource} ->
+        {:noreply, schedule_tick(%{state | resource: resource}, clock, delay)}
+
+      {:unload, resource} ->
+        case Valimc.World.Directory.retire(state.key, state.admission) do
+          :ok ->
+            Valimc.Metrics.add(:region_unloads)
+            {:stop, :normal, %{state | resource: resource}}
+
+          {:error, _} ->
+            {:noreply, schedule_tick(%{state | resource: resource}, clock, delay)}
+        end
+    end
+  end
 
   defp schedule_tick(state, clock, delay) do
     if state.tick_timer, do: Process.cancel_timer(state.tick_timer)

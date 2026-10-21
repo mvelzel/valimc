@@ -6,11 +6,11 @@ defmodule Valimc.Portal.Warm do
   seconds on a loaded host the first time a dimension is visited. A portal's
   destination job would wait for that. So a lit nether portal, an opened end
   portal and a portal process that starts admit the owners of the regions
-  their destination will read and want those chunks: the exit portal's search
-  and creation square around the scaled position, or the End's arrival
-  platform. Admission starts an owner's load and returns, so the load and the
-  generation overlap the time before the player steps in (or a survival
-  player's portal ticks).
+  their destination will read and give them a `:portal` ticket (300 ticks,
+  VMC-077e) over those chunks: the exit portal's search and creation square
+  around the scaled position, or the End's arrival platform. Admission starts
+  an owner's load and returns, so the load and the generation overlap the time
+  before the player steps in (or a survival player's portal ticks).
 
   This only starts loads and generation; it reads nothing and commits nothing.
   It is best effort: with the worker pool full it is skipped, and the
@@ -74,7 +74,7 @@ defmodule Valimc.Portal.Warm do
     Valimc.Dimension.within(dimension, fn ->
       for key <- regions(area),
           {:ok, pid} <- [World.region(key)],
-          do: send(pid, {:want, self(), center, Map.get(by_region, key, [])})
+          do: Valimc.World.Region.ticket(pid, :portal, center, Map.get(by_region, key, []))
     end)
   end
 end

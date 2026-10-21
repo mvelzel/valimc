@@ -45,6 +45,7 @@ defmodule Valimc.BlockSupportTest do
       {rx, rz} = key
       span = Valimc.config(:region_size) * 16
       {:ok, owner} = World.owner(key)
+      TestScope.simulate(owner, key)
       %{owner: owner, key: key, base: base, origin: {rx * span + 40, 100, rz * span + 40}}
     end
 

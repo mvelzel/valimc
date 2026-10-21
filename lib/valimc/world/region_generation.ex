@@ -3,9 +3,10 @@ defmodule Valimc.World.RegionGeneration do
   Per-chunk generation of a region's chunks (VMC-075), run by its owner.
 
   A region of a generated world loads without generating: the chunks its log
-  has no column for are absent. Views say which chunks they want and how far
-  from their player (`want/4`); calls that need an absent chunk want it first
-  (`urgent/2`). The owner generates the wanted absent chunks nearest first, in
+  has no column for are absent. Loading tickets (`Valimc.World.Tickets`) say
+  which chunks are wanted and how far from their center; calls that need an
+  absent chunk want it first (`urgent/2`). The owner generates the wanted absent
+  chunks nearest first, in
   bounded batches and never on itself: a terrain world on
   `Valimc.Worldgen.Pool` (`Generator.columns/2`), a decorated world through
   its proto owner (`Proto.request_full_chunks/2`). A batch is persisted as one
@@ -21,7 +22,7 @@ defmodule Valimc.World.RegionGeneration do
   require Logger
   alias Valimc.World
   alias Valimc.World.{BlockEntities, BlockSnapshot, Blocks, Generator, RegionData, Spec}
-  alias Valimc.World.{ScheduledTicks, Store}
+  alias Valimc.World.{ScheduledTicks, Store, Tickets}
   alias Valimc.Worldgen.{FullChunk, Pool, Proto}
 
   # Terrain: jobs of a few chunks, so the nearest chunks are not stuck behind a
@@ -38,7 +39,7 @@ defmodule Valimc.World.RegionGeneration do
   defstruct mode: nil,
             spec: nil,
             absent: MapSet.new(),
-            wants: %{},
+            urgent: MapSet.new(),
             jobs: %{},
             requests: nil,
             saving: %{},
@@ -82,37 +83,13 @@ defmodule Valimc.World.RegionGeneration do
   def any_absent?(%__MODULE__{absent: absent}, chunks),
     do: map_size(absent.map) > 0 and Enum.any?(chunks, &MapSet.member?(absent, &1))
 
-  @doc """
-  `requester` (a connection) wants `chunks` of the region, as far as they are
-  from `center`; a later call replaces its wants, an empty list withdraws them.
-  """
-  def want(state, requester, {cx, cz} = center, chunks)
-      when is_integer(cx) and is_integer(cz) and is_list(chunks) do
-    gen = state.generation
-    wanted = chunks |> Enum.take(64) |> Enum.filter(&absent?(gen, &1)) |> MapSet.new()
-
-    wants =
-      if MapSet.size(wanted) == 0,
-        do: Map.delete(gen.wants, requester),
-        else: Map.put(gen.wants, requester, {center, wanted})
-
-    pump(%{state | generation: %{gen | wants: wants}})
-  end
-
-  def want(state, _requester, _center, _chunks), do: state
-
   @doc "Absent `chunks` some call needs: wanted before anything else."
   def urgent(state, chunks) do
     gen = state.generation
 
     case Enum.filter(chunks, &absent?(gen, &1)) do
-      [] ->
-        state
-
-      missing ->
-        {_, set} = Map.get(gen.wants, :urgent, {nil, MapSet.new()})
-        wants = Map.put(gen.wants, :urgent, {nil, Enum.into(missing, set)})
-        pump(%{state | generation: %{gen | wants: wants}})
+      [] -> state
+      missing -> pump(%{state | generation: %{gen | urgent: Enum.into(missing, gen.urgent)}})
     end
   end
 
@@ -135,24 +112,26 @@ defmodule Valimc.World.RegionGeneration do
   ## Batches
 
   @doc """
-  The wanted absent chunks no batch holds, nearest to a requester's center
-  first (each chunk at its smallest distance), urgent ones before all.
+  The absent chunks of loading `tickets` and urgent calls that no batch holds,
+  nearest to a ticket's center first (each chunk at its smallest distance),
+  urgent ones before all.
   """
-  def queue(%__MODULE__{} = gen) do
+  def queue(%__MODULE__{} = gen, %Tickets{} = tickets) do
     busy =
       Enum.reduce(Map.values(gen.jobs), MapSet.new(), &Enum.into(&1.chunks, &2))
       |> then(fn busy ->
         Enum.reduce(Map.values(gen.saving), busy, &Enum.into(&1.chunks, &2))
       end)
 
-    gen.wants
-    |> Enum.flat_map(fn
-      {:urgent, {_, set}} ->
-        for chunk <- set, do: {chunk, -1}
-
-      {_, {{cx, cz}, set}} ->
-        for {x, z} = chunk <- set, do: {chunk, (x - cx) * (x - cx) + (z - cz) * (z - cz)}
-    end)
+    Enum.map(gen.urgent, &{&1, -1})
+    |> Enum.concat(
+      for {center, set} <- Tickets.loading(tickets), {x, z} = chunk <- set do
+        case center do
+          {cx, cz} -> {chunk, (x - cx) * (x - cx) + (z - cz) * (z - cz)}
+          nil -> {chunk, 0}
+        end
+      end
+    )
     |> Enum.reject(fn {chunk, _} -> MapSet.member?(busy, chunk) or not absent?(gen, chunk) end)
     |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
     |> Enum.map(fn {chunk, priorities} -> {Enum.min(priorities), chunk} end)
@@ -162,13 +141,13 @@ defmodule Valimc.World.RegionGeneration do
 
   @doc "Start batches while the region's bounds allow."
   def pump(%{generation: %{retry: retry}} = state) when retry != nil, do: state
-  def pump(%{generation: %{wants: wants}} = state) when map_size(wants) == 0, do: state
+  def pump(%{generation: %{absent: absent}} = state) when map_size(absent.map) == 0, do: state
 
   def pump(%{generation: %{mode: :terrain} = gen} = state) do
     if map_size(gen.jobs) >= @terrain_jobs do
       state
     else
-      case queue(gen) do
+      case queue(gen, state.tickets) do
         [] -> state
         queue -> start_terrain(state, Enum.take(queue, @terrain_batch))
       end
@@ -179,7 +158,7 @@ defmodule Valimc.World.RegionGeneration do
     if map_size(gen.jobs) >= @proto_requests do
       state
     else
-      case queue(gen) do
+      case queue(gen, state.tickets) do
         [] -> state
         queue -> start_proto(state, Enum.take(queue, @proto_batch))
       end
@@ -392,21 +371,13 @@ defmodule Valimc.World.RegionGeneration do
       end)
 
     installed = MapSet.new(chunks)
-
-    wants =
-      for {requester, {center, set}} <- gen.wants,
-          set = MapSet.difference(set, installed),
-          MapSet.size(set) > 0,
-          into: %{},
-          do: {requester, {center, set}}
-
     {deferred, waiting} = Map.split(gen.deferred, chunks)
     count = gen.deferred_count - Enum.sum(Enum.map(deferred, fn {_, calls} -> length(calls) end))
 
     gen = %{
       gen
       | absent: MapSet.difference(gen.absent, installed),
-        wants: wants,
+        urgent: MapSet.difference(gen.urgent, installed),
         deferred: waiting,
         deferred_count: count
     }

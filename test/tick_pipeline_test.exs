@@ -68,6 +68,7 @@ defmodule Valimc.TickPipelineTest do
   test "a manual owner ticks only when stepped; random and scheduled effects apply and persist",
        ctx do
     {:ok, owner} = World.owner(ctx.key)
+    TestScope.simulate(owner, ctx.key)
     surface = blocks(owner, ctx.key, Data.block("grass_block"))
     assert length(surface) > 1000
     assert blocks(owner, ctx.key, Data.block("dirt")) |> Enum.filter(&(&1 in surface)) == []
@@ -84,6 +85,7 @@ defmodule Valimc.TickPipelineTest do
     # The fresh region's writer stores the final save, scheduled ticks included.
     assert_receive {:DOWN, ^watch, :process, _, :normal}
     {:ok, owner} = World.owner(ctx.key)
+    TestScope.simulate(owner, ctx.key)
     assert {:ok, 2} = Region.step(owner, 2)
     stone = blocks(owner, ctx.key, Data.block("stone"))
     assert Enum.all?(converted, &(&1 in stone))

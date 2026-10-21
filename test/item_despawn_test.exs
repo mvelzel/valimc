@@ -32,6 +32,7 @@ defmodule Valimc.ItemDespawnTest do
        ctx do
     {rx, rz} = ctx.key
     {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
+    Valimc.TestScope.simulate(owner, ctx.key)
 
     {:ok, _} =
       Region.create_item(owner, ItemStack.new("dirt"), {rx * 128 + 8.5, 64.0, rz * 128 + 8.5})

@@ -94,8 +94,10 @@ defmodule Valimc.ItemSimulationRegionTest do
 
   def step(ctx, ticks) do
     for key <- TestScope.neighborhood(ctx.key),
-        {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-        do: Region.step({pid, nil}, ticks)
+        {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key) do
+      TestScope.simulate(pid, key)
+      Region.step({pid, nil}, ticks)
+    end
 
     :ok
   end

@@ -95,7 +95,7 @@ defmodule Valimc.DecoratedWorldTest do
     {:ok, _} = Proto.full_chunks(key)
     {:ok, {pid, _}} = owner!(key)
     {cx, cz} = hd(Proto.chunks_of(key))
-    send(pid, {:want, self(), {cx, cz}, Proto.chunks_of(key)})
+    Valimc.World.Region.ticket(pid, :forced, {cx, cz}, Proto.chunks_of(key))
     {_, _, %{items: table}} = Directory.lookup(key)
 
     Valimc.TestWait.until(

@@ -39,7 +39,8 @@ defmodule Valimc.World.RegionData do
     PlacementPermits,
     PlacementTransfers,
     RegionGeneration,
-    Store
+    Store,
+    Tickets
   }
 
   alias Valimc.Protocol.Packets
@@ -92,6 +93,9 @@ defmodule Valimc.World.RegionData do
     :served,
     # Chunks not generated yet and their generation (VMC-075).
     :generation,
+    # Chunk tickets and since when (monotonic ms) the owner has been idle (VMC-077e).
+    :tickets,
+    :idle_since,
     :revision,
     :section_revisions,
     :game_tick,
@@ -225,6 +229,8 @@ defmodule Valimc.World.RegionData do
       versions: %{},
       served: MapSet.new(),
       generation: generation,
+      tickets: Tickets.new(0),
+      idle_since: nil,
       revision: 0,
       section_revisions: %{},
       game_tick: 0,
@@ -248,6 +254,10 @@ defmodule Valimc.World.RegionData do
 
   def item_tick(state, now) do
     state = travel_item(state)
+    if Tickets.simulating?(state.tickets), do: simulate_items(state, now), else: state
+  end
+
+  defp simulate_items(state, now) do
     # A planning worker's result replaces the item map, so ageing waits while one
     # runs (and, under backpressure, while expiries cannot be written); the skipped
     # ticks are owed and applied at once, so despawn timing never stalls.
@@ -623,7 +633,9 @@ defmodule Valimc.World.RegionData do
 
   defp start_item_simulation(%{item_simulation: nil} = state, now) do
     inputs =
-      for {id, entry} <- state.items.entries, not resting_current?(state, id) do
+      for {id, %{entity: %{x: x, z: z}} = entry} <- state.items.entries,
+          Tickets.simulated?(state.tickets, Valimc.World.chunk_key(x, z)),
+          not resting_current?(state, id) do
         %{
           id: id,
           revision: entry.revision,
@@ -1221,6 +1233,21 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  # Readers of published snapshots await generation instead of polling
+  # (VMC-077e): the reply comes once every chunk of `chunks` is installed.
+  def handle_call({:await_chunks, chunks} = message, from, state) do
+    cond do
+      Enum.any?(chunks, &(Valimc.World.region_key(&1) != state.key)) ->
+        {:reply, {:error, :wrong_region}, state}
+
+      chunk = Enum.find(chunks, &RegionGeneration.absent?(state.generation, &1)) ->
+        RegionGeneration.defer(RegionGeneration.urgent(state, chunks), chunk, message, from)
+
+      true ->
+        {:reply, :ok, state}
+    end
+  end
+
   # Adopted blocks are visible outside the owner only once durable.
   def handle_call({:get_block, {x, _, z} = position} = message, from, state) do
     if RegionGeneration.absent?(state.generation, Valimc.World.chunk_key(x, z)) do
@@ -1725,7 +1752,12 @@ defmodule Valimc.World.RegionData do
   """
   def block_ticks(state, tick) do
     state = %{state | game_tick: tick}
-    {due, scheduled} = ScheduledTicks.take_due(state.scheduled_ticks, tick)
+    # Only chunks a simulation ticket covers tick; due ticks elsewhere wait.
+    {due, scheduled} =
+      ScheduledTicks.take_due(state.scheduled_ticks, tick, fn {x, _, z} ->
+        Tickets.simulated?(state.tickets, Valimc.World.chunk_key(x, z))
+      end)
+
     state = %{state | scheduled_ticks: scheduled, ticks_dirty: state.ticks_dirty or due != []}
     read = &read_block(state, &1)
 
@@ -1800,7 +1832,9 @@ defmodule Valimc.World.RegionData do
 
   defp random_ticks(state, read) do
     effects =
-      for {position, block} <- Blocks.random_ticks(state.blocks, state.random_tick_speed),
+      for {{x, _, z} = position, block} <-
+            Blocks.random_ticks(state.blocks, state.random_tick_speed),
+          Tickets.simulated?(state.tickets, Valimc.World.chunk_key(x, z)),
           in_region?(state, position),
           module = state.tick_index[block],
           effect <- module.random_tick(position, block, read, &random/1),
@@ -3856,14 +3890,19 @@ defmodule Valimc.World.RegionData do
   def handle_info({:generated_saved, _, _, _}, state), do: {:noreply, state}
   def handle_info(:generation_retry, state), do: {:noreply, RegionGeneration.retry(state)}
 
-  def handle_info({:want, requester, center, chunks}, state) when is_pid(requester),
-    do: {:noreply, RegionGeneration.want(state, requester, center, chunks)}
+  def handle_info({:ticket, holder, type, center, chunks}, state) do
+    chunks = Enum.filter(chunks, &(Valimc.World.region_key(&1) == state.key))
+    tickets = Tickets.put(state.tickets, holder, type, center, chunks, state.game_tick)
+    {:noreply, RegionGeneration.pump(%{state | tickets: tickets})}
+  end
 
   def handle_info({:DOWN, ref, :process, pid, reason} = message, state) do
-    with :no_reply <- RegionGeneration.proto_response(state, message),
+    with :error <- Tickets.down(state.tickets, ref),
+         :no_reply <- RegionGeneration.proto_response(state, message),
          :error <- RegionGeneration.down(state, ref) do
       down(state, ref, pid, reason)
     else
+      {:ok, %Tickets{} = tickets} -> {:noreply, %{state | tickets: tickets}}
       {:ok, state} -> {:noreply, state}
     end
   end
@@ -4550,6 +4589,47 @@ defmodule Valimc.World.RegionData do
         else: state
 
     resume_item_handoff(state)
+  end
+
+  @doc """
+  After a tick at game tick `tick` (VMC-077e): expire timed tickets, and
+  `{:unload, state}` once the owner has had no ticket and no work in flight for
+  `region_unload_delay_ms` (`{:ok, state}` until then). A world without a path
+  keeps its regions, having nowhere to save them, and so does `/save-off`, as
+  vanilla's `noSave` keeps its chunks.
+  """
+  def lifecycle(state, tick, now) do
+    state = %{state | tickets: Tickets.expire(state.tickets, tick)}
+
+    cond do
+      not Tickets.empty?(state.tickets) or busy?(state) ->
+        {:ok, %{state | idle_since: nil}}
+
+      state.idle_since == nil ->
+        {:ok, %{state | idle_since: now}}
+
+      now - state.idle_since >= Valimc.config(:region_unload_delay_ms, state.key) and
+        Valimc.config(:world_path, state.key) != nil and Valimc.World.Saving.auto?() ->
+        {:unload, state}
+
+      true ->
+        {:ok, state}
+    end
+  end
+
+  # Work that an unload would cut short: queued or planned writes, jobs, an
+  # outbox still being delivered, generation, waiting calls, open containers and
+  # granted permits.
+  defp busy?(state) do
+    gen = state.generation
+
+    state.item_writes != [] or state.item_pending != nil or state.saving or
+      state.item_handoff != nil or state.item_simulation != nil or state.item_portal != nil or
+      state.item_cross_job != nil or state.item_checkpoint != nil or state.cooking.job != nil or
+      state.cooking_orbs.job != nil or state.cooking_orbs.delivery != nil or
+      state.cooking_orbs.receipt != nil or map_size(state.jobs) > 0 or
+      map_size(gen.jobs) > 0 or map_size(gen.saving) > 0 or gen.deferred_count > 0 or
+      map_size(state.container_viewers.views) > 0 or map_size(state.permits.entries) > 0
   end
 
   def terminate(reason, state) do

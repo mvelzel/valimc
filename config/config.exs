@@ -11,10 +11,12 @@ config :valimc,
   # host raise it.
   owner_call_scale: 1,
   # server.properties `view-distance` (2..32): clients track the distance they
-  # request, at least 2 and at most this (VMC-070). `simulation-distance` is what
-  # clients are told; regions still simulate every loaded chunk.
+  # request, at least 2 and at most this (VMC-070). `simulation-distance`: chunks
+  # within it of a player (and within its view) tick (VMC-077e).
   view_distance: 10,
   simulation_distance: 10,
+  # A region without tickets and work in flight saves and unloads after this long.
+  region_unload_delay_ms: 10_000,
   region_size: 8,
   item_simulation: true,
   cooking_simulation: true,

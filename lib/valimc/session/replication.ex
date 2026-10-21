@@ -15,7 +15,7 @@ defmodule Valimc.Session.Replication do
     World
   }
 
-  alias Valimc.World.{ChestLidReplication, Directory}
+  alias Valimc.World.{ChestLidReplication, Directory, Region}
   alias Valimc.Session.{ChunkSender, ChunkView}
 
   @player_range Valimc.Protocol.EntityTypes.tracking_range("player")
@@ -47,7 +47,6 @@ defmodule Valimc.Session.Replication do
 
       regions = regions(view)
       World.subscribe(regions, state.regions)
-      load_regions(MapSet.difference(regions, state.regions), center)
       chunks = MapSet.difference(state.chunks, MapSet.new(forgotten))
       leaving = MapSet.new(leaving)
       {cx, cz} = center
@@ -67,33 +66,46 @@ defmodule Valimc.Session.Replication do
           chest_lids: ChestLidReplication.retain(state.chest_lids, chunks),
           pending: pending
       }
-      |> want_chunks(Map.keys(state.wanted))
+      |> want_chunks()
     end
   end
 
-  # Tell each region of the view which of its chunks the view wants and where
-  # the player is, so it generates them nearest first (VMC-075); regions the
-  # view left withdraw. `wanted` remembers which owner was told.
-  defp want_chunks(%{view: {center, _} = view} = state, told) do
-    by_region = view |> ChunkView.chunks() |> Enum.group_by(&World.region_key/1)
-
-    for key <- told,
-        not Map.has_key?(by_region, key),
-        pid = state.wanted[key],
-        pid != nil,
-        do: send(pid, {:want, self(), center, []})
+  # The player's tickets (VMC-077e): each region of the view loads its chunks
+  # of the view (`:player_loading`, generated nearest to the player first,
+  # VMC-075) and ticks those within the simulation distance
+  # (`:player_simulation`). Regions are admitted nearest first, as vanilla's
+  # player tickets load (VMC-071). An owner told before that is no longer the
+  # one of its key (the view left it, it restarted, or the player changed
+  # dimension) withdraws. `wanted` remembers which owner was told.
+  defp want_chunks(%{view: {{cx, cz} = center, distance} = view} = state) do
+    loading = view |> ChunkView.chunks() |> Enum.group_by(&World.region_key/1)
+    reach = min(Valimc.config(:simulation_distance), distance)
+    size = Valimc.config(:region_size)
 
     wanted =
-      for {key, chunks} <- by_region, into: %{} do
+      loading
+      |> Enum.sort_by(fn {{rx, rz}, _} ->
+        (rx * size + div(size, 2) - cx) ** 2 + (rz * size + div(size, 2) - cz) ** 2
+      end)
+      |> Map.new(fn {key, chunks} ->
         case World.region(key) do
           {:ok, pid} ->
-            send(pid, {:want, self(), center, chunks})
+            simulated =
+              Enum.filter(chunks, fn {x, z} -> max(abs(x - cx), abs(z - cz)) <= reach end)
+
+            Region.ticket(pid, :player_loading, center, chunks)
+            Region.ticket(pid, :player_simulation, center, simulated)
             {key, pid}
 
           _ ->
             {key, nil}
         end
-      end
+      end)
+
+    for {key, pid} <- state.wanted, pid != nil, wanted[key] != pid do
+      Region.ticket(pid, :player_loading, nil, [])
+      Region.ticket(pid, :player_simulation, nil, [])
+    end
 
     %{state | wanted: wanted}
   end
@@ -109,22 +121,10 @@ defmodule Valimc.Session.Replication do
 
     if Enum.all?(state.wanted, fn {key, pid} -> pid != nil and current.(key) == pid end),
       do: state,
-      else: want_chunks(state, [])
+      else: want_chunks(state)
   end
 
   defp refresh_wants(state), do: state
-
-  # Start loading a view's new regions now, as vanilla's player tickets do, nearest
-  # first so the player's own terrain generates before the edge's (VMC-071).
-  defp load_regions(keys, {cx, cz}) do
-    size = Valimc.config(:region_size)
-
-    keys
-    |> Enum.sort_by(fn {rx, rz} ->
-      (rx * size + div(size, 2) - cx) ** 2 + (rz * size + div(size, 2) - cz) ** 2
-    end)
-    |> Enum.each(&World.region/1)
-  end
 
   # The regions holding any chunk of the view.
   defp regions({{cx, cz}, distance} = view) do

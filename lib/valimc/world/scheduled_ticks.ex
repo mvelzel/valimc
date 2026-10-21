@@ -40,31 +40,33 @@ defmodule Valimc.World.ScheduledTicks do
     end
   end
 
-  @doc "Remove and return the ticks due at or before `tick`, in vanilla order."
-  def take_due(%__MODULE__{} = ticks, tick, limit \\ @max_per_tick),
-    do: take(ticks, tick, limit, [])
+  @doc """
+  Remove and return the ticks due at or before `tick` whose position passes
+  `ticking?` (a chunk that ticks), in vanilla order; the others stay due.
+  """
+  def take_due(%__MODULE__{} = ticks, tick, ticking? \\ fn _ -> true end),
+    do: take(ticks, tick, ticking?, @max_per_tick, [], [])
 
-  defp take(ticks, _tick, 0, acc), do: {Enum.reverse(acc), ticks}
+  defp take(ticks, _tick, _ticking?, 0, acc, waiting), do: done(ticks, acc, waiting)
 
-  defp take(ticks, tick, left, acc) do
-    if :gb_sets.is_empty(ticks.queue) do
-      {Enum.reverse(acc), ticks}
-    else
-      case :gb_sets.smallest(ticks.queue) do
-        {due, _, _, position, block} = entry when due <= tick ->
-          ticks = %{
-            ticks
-            | queue: :gb_sets.delete(entry, ticks.queue),
-              index: Map.delete(ticks.index, {position, block})
-          }
+  defp take(ticks, tick, ticking?, left, acc, waiting) do
+    with false <- :gb_sets.is_empty(ticks.queue),
+         {due, _, _, position, block} = entry when due <= tick <- :gb_sets.smallest(ticks.queue) do
+      queue = :gb_sets.delete(entry, ticks.queue)
 
-          take(ticks, tick, left - 1, [{position, block} | acc])
-
-        _ ->
-          {Enum.reverse(acc), ticks}
+      if ticking?.(position) do
+        ticks = %{ticks | queue: queue, index: Map.delete(ticks.index, {position, block})}
+        take(ticks, tick, ticking?, left - 1, [{position, block} | acc], waiting)
+      else
+        take(%{ticks | queue: queue}, tick, ticking?, left, acc, [entry | waiting])
       end
+    else
+      _ -> done(ticks, acc, waiting)
     end
   end
+
+  defp done(ticks, acc, waiting),
+    do: {Enum.reverse(acc), %{ticks | queue: Enum.reduce(waiting, ticks.queue, &:gb_sets.add/2)}}
 
   @doc "Persisted form: entries relative to `tick`, so they survive a restart."
   def dump(%__MODULE__{queue: queue}, tick),

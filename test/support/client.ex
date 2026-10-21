@@ -672,6 +672,16 @@ defmodule Valimc.TestScope do
   @doc "`key` and the region keys within `radius` of it (owners a handoff may start)."
   def neighborhood({rx, rz}, radius \\ 1),
     do: for(x <- (rx - radius)..(rx + radius), z <- (rz - radius)..(rz + radius), do: {x, z})
+
+  @doc """
+  The calling test holds a `:forced` ticket over every chunk of region `key`
+  (owner `owner`), so its chunks tick when stepped (VMC-077e).
+  """
+  def simulate(owner, {rx, rz}) do
+    size = Valimc.config(:region_size)
+    chunks = for x <- 0..(size - 1), z <- 0..(size - 1), do: {rx * size + x, rz * size + z}
+    Valimc.World.Region.ticket(owner, :forced, nil, chunks)
+  end
 end
 
 defmodule Valimc.TestWait do

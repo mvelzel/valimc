@@ -70,6 +70,8 @@ defmodule Valimc.ItemPortalRegionTest do
 
   # Step the source owner tick by tick until `fun` holds.
   defp run(owner, fun) do
+    TestScope.simulate(owner, resource(owner).key)
+
     Valimc.TestWait.until(fn ->
       fun.() ||
         (

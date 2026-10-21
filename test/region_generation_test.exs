@@ -142,12 +142,12 @@ defmodule Valimc.RegionGenerationTest do
     assert World.get_block(position) == glass
   end
 
-  test "a view's wants generate its chunks; a restart keeps them and the rest stay absent",
+  test "a view's ticket generates its chunks; a restart keeps them and the rest stay absent",
        ctx do
     {:ok, {pid, _}} = World.owner(ctx.key)
     {cx, cz} = ctx.origin
     wanted = for x <- cx..(cx + 2), z <- cz..(cz + 2), do: {x, z}
-    send(pid, {:want, self(), {cx, cz}, wanted})
+    Region.ticket(pid, :player_loading, {cx, cz}, wanted)
 
     Valimc.TestWait.until(fn ->
       Enum.all?(wanted, &(not BlockSnapshot.absent?(table(ctx.key), &1)))
@@ -157,8 +157,8 @@ defmodule Valimc.RegionGenerationTest do
     assert Enum.sort(Map.keys(columns)) == Enum.sort(wanted)
     assert columns == Generator.columns({:vanilla, @seed}, wanted)
 
-    # Withdrawn wants generate nothing more; an edit over generated terrain is kept.
-    send(pid, {:want, self(), {cx, cz}, []})
+    # A withdrawn ticket generates nothing more; an edit over generated terrain is kept.
+    Region.ticket(pid, :player_loading, {cx, cz}, [])
     edited = inside({cx + 2, cz + 2}, 20)
     glass = Valimc.Registry.Blocks.default_state("glass")
     :ok = World.set_block(edited, glass)
@@ -172,22 +172,26 @@ defmodule Valimc.RegionGenerationTest do
     assert Store.durable(ctx.base, ctx.key, :columns) == columns
   end
 
-  test "wanted chunks are generated nearest to their requester first, urgent ones before all" do
+  test "loading tickets' chunks generate nearest to their center first, urgent ones before all" do
     absent = for x <- 0..7, z <- 0..7, into: MapSet.new(), do: {x, z}
+    a = spawn(fn -> Process.sleep(:infinity) end)
+    b = spawn(fn -> Process.sleep(:infinity) end)
+
+    tickets =
+      Valimc.World.Tickets.new(0)
+      |> Valimc.World.Tickets.put(a, :player_loading, {0, 0}, [{3, 3}, {1, 0}, {0, 2}, {7, 7}], 0)
+      |> Valimc.World.Tickets.put(b, :forced, {7, 7}, [{6, 7}, {7, 7}], 0)
+      |> Valimc.World.Tickets.put(b, :player_simulation, {7, 7}, [{4, 4}], 0)
 
     gen = %RegionGeneration{
       mode: :terrain,
       absent: absent,
-      wants: %{
-        a: {{0, 0}, MapSet.new([{3, 3}, {1, 0}, {0, 2}, {7, 7}])},
-        b: {{7, 7}, MapSet.new([{6, 7}, {7, 7}])},
-        urgent: {nil, MapSet.new([{5, 1}])}
-      },
+      urgent: MapSet.new([{5, 1}]),
       jobs: %{make_ref() => %{chunks: [{0, 2}]}}
     }
 
-    # {0, 2} is being generated; {7, 7} is nearest to b.
-    assert RegionGeneration.queue(gen) == [{5, 1}, {7, 7}, {1, 0}, {6, 7}, {3, 3}]
+    # {0, 2} is being generated; {7, 7} is nearest to b; simulation does not load.
+    assert RegionGeneration.queue(gen, tickets) == [{5, 1}, {7, 7}, {1, 0}, {6, 7}, {3, 3}]
   end
 
   # A fixed region where the chunk's light provably depends on its neighbours
