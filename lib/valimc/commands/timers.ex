@@ -3,7 +3,17 @@ defmodule Valimc.Commands.Timers do
   alias Valimc.Command.{Error, Feedback, Text}
   alias Valimc.World.Stopwatches
 
-  def stopwatch_create(%{"id" => id}, source) do
+  @doc "`/stopwatch create|query|restart|remove <id>`."
+  def stopwatch(%{literals: [mode]} = arguments, source) do
+    case mode do
+      "create" -> stopwatch_create(arguments, source)
+      "query" -> stopwatch_query(arguments, source)
+      "restart" -> stopwatch_restart(arguments, source)
+      "remove" -> stopwatch_remove(arguments, source)
+    end
+  end
+
+  defp stopwatch_create(%{"id" => id}, source) do
     if Stopwatches.create(id) == :exists,
       do: Error.fail!("commands.stopwatch.already_exists", [id])
 
@@ -11,7 +21,7 @@ defmodule Valimc.Commands.Timers do
     1
   end
 
-  def stopwatch_query(%{"id" => id} = arguments, source) do
+  defp stopwatch_query(%{"id" => id} = arguments, source) do
     ms = Stopwatches.elapsed(id) || Error.fail!("commands.stopwatch.does_not_exist", [id])
     seconds = ms / 1000.0
 
@@ -23,7 +33,7 @@ defmodule Valimc.Commands.Timers do
     java_int(seconds * Map.get(arguments, "scale", 1.0))
   end
 
-  def stopwatch_restart(%{"id" => id}, source) do
+  defp stopwatch_restart(%{"id" => id}, source) do
     if Stopwatches.restart(id) == :missing,
       do: Error.fail!("commands.stopwatch.does_not_exist", [id])
 
@@ -31,7 +41,7 @@ defmodule Valimc.Commands.Timers do
     1
   end
 
-  def stopwatch_remove(%{"id" => id}, source) do
+  defp stopwatch_remove(%{"id" => id}, source) do
     if Stopwatches.remove(id) == :missing,
       do: Error.fail!("commands.stopwatch.does_not_exist", [id])
 
@@ -49,8 +59,22 @@ defmodule Valimc.Commands.Timers do
   defp f1(value), do: :erlang.float_to_binary(value * 1.0, decimals: 1)
   defp ms(nanoseconds), do: f1(Valimc.Command.Reader.to_float32(nanoseconds / 1.0e6))
 
-  @doc "`/tick query`: status, target rate, average tick time and percentiles."
-  def tick_query(_arguments, source) do
+  @doc "`/tick query|rate|freeze|unfreeze|step [stop]|sprint [stop]`."
+  def tick(%{literals: literals} = arguments, source) do
+    case literals do
+      ["query"] -> tick_query(source)
+      ["rate"] -> tick_rate(arguments, source)
+      ["freeze"] -> tick_freeze(source)
+      ["unfreeze"] -> tick_unfreeze(source)
+      ["step"] -> tick_step(arguments, source)
+      ["step", "stop"] -> tick_step_stop(source)
+      ["sprint"] -> tick_sprint(arguments, source)
+      ["sprint", "stop"] -> tick_sprint_stop(source)
+    end
+  end
+
+  # `/tick query`: status, target rate, average tick time and percentiles.
+  defp tick_query(source) do
     state = TickRate.state()
     {samples, count} = TickRate.samples()
     average = Enum.sum(samples) / min(100, max(count, 1))
@@ -92,38 +116,38 @@ defmodule Valimc.Commands.Timers do
     trunc(state.rate)
   end
 
-  def tick_rate(%{"rate" => rate}, source) do
+  defp tick_rate(%{"rate" => rate}, source) do
     TickRate.set_rate(rate)
     Feedback.success(source, Text.translatable("commands.tick.rate.success", [f1(rate)]))
     trunc(rate)
   end
 
-  def tick_freeze(_arguments, source) do
+  defp tick_freeze(source) do
     TickRate.freeze()
     Feedback.success(source, Text.translatable("commands.tick.status.frozen"))
     1
   end
 
-  def tick_unfreeze(_arguments, source) do
+  defp tick_unfreeze(source) do
     TickRate.unfreeze()
     Feedback.success(source, Text.translatable("commands.tick.status.running"))
     0
   end
 
-  def tick_step(arguments, source) do
+  defp tick_step(arguments, source) do
     ticks = Map.get(arguments, "time", 1)
     if TickRate.step(ticks) == :not_frozen, do: Error.fail!("commands.tick.step.fail")
     Feedback.success(source, Text.translatable("commands.tick.step.success", [ticks]))
     1
   end
 
-  def tick_step_stop(_arguments, source) do
+  defp tick_step_stop(source) do
     if TickRate.stop_step() == :none, do: Error.fail!("commands.tick.step.stop.fail")
     Feedback.success(source, Text.translatable("commands.tick.step.stop.success"))
     1
   end
 
-  def tick_sprint(%{"time" => ticks}, source) do
+  defp tick_sprint(%{"time" => ticks}, source) do
     {:ok, interrupted} = TickRate.sprint(ticks)
 
     if interrupted,
@@ -133,7 +157,7 @@ defmodule Valimc.Commands.Timers do
     1
   end
 
-  def tick_sprint_stop(_arguments, source) do
+  defp tick_sprint_stop(source) do
     if TickRate.stop_sprint() == :none, do: Error.fail!("commands.tick.sprint.stop.fail")
     Feedback.success(source, Text.translatable("commands.tick.sprint.stop.success"))
     1

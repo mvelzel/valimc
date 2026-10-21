@@ -158,7 +158,10 @@ case System.argv() do
                   Enum.reduce(1..String.to_integer(n), border, fn _, b -> Border.tick(b) end)
 
                 _ ->
-                  {:ok, {Command, function}, arguments, _} = Valimc.Commands.parse(input, source)
+                  {:ok, {Command, :worldborder}, arguments, _} =
+                    Valimc.Commands.parse(input, source)
+
+                  function = Command.kind(arguments.literals)
 
                   {next, messages, result} =
                     if function == :get do

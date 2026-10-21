@@ -14,8 +14,8 @@ defmodule Valimc.Commands.Server do
   alias Valimc.Command.{Error, Feedback, Text}
   alias Valimc.World.Saving
 
-  def save_all(_arguments, source), do: save(source, false)
-  def save_all_flush(_arguments, source), do: save(source, true)
+  @doc "`/save-all [flush]`."
+  def save_all(%{literals: literals}, source), do: save(source, literals == ["flush"])
 
   defp save(source, flush) do
     Feedback.success(source, Text.translatable("commands.save.saving"), false)

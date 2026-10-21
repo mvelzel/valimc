@@ -186,9 +186,17 @@ defmodule Valimc.Commands.Operators do
     1
   end
 
-  def banlist(_arguments, source), do: list_bans(source, ban_lines(:bans) ++ ban_lines(:ip_bans))
-  def banlist_players(_arguments, source), do: list_bans(source, ban_lines(:bans))
-  def banlist_ips(_arguments, source), do: list_bans(source, ban_lines(:ip_bans))
+  @doc "`/banlist [ips|players]`."
+  def banlist(%{literals: literals}, source) do
+    lines =
+      case literals do
+        [] -> ban_lines(:bans) ++ ban_lines(:ip_bans)
+        ["players"] -> ban_lines(:bans)
+        ["ips"] -> ban_lines(:ip_bans)
+      end
+
+    list_bans(source, lines)
+  end
 
   defp ban_lines(kind) do
     for {key, entry} <- Enum.sort_by(Lists.entries(kind), &elem(&1, 1)["created"]) do
@@ -215,14 +223,26 @@ defmodule Valimc.Commands.Operators do
 
   # ---- whitelist ----
 
-  def whitelist_on(_arguments, source) do
+  @doc "`/whitelist on|off|list|add <targets>|remove <targets>|reload`."
+  def whitelist(%{literals: [mode]} = arguments, source) do
+    case mode do
+      "on" -> whitelist_on(source)
+      "off" -> whitelist_off(source)
+      "list" -> whitelist_list(source)
+      "add" -> whitelist_add(arguments, source)
+      "remove" -> whitelist_remove(arguments, source)
+      "reload" -> whitelist_reload(source)
+    end
+  end
+
+  defp whitelist_on(source) do
     switch!(true, "commands.whitelist.alreadyOn")
     Feedback.success(source, Text.translatable("commands.whitelist.enabled"))
     kick_unlisted()
     1
   end
 
-  def whitelist_off(_arguments, source) do
+  defp whitelist_off(source) do
     switch!(false, "commands.whitelist.alreadyOff")
     Feedback.success(source, Text.translatable("commands.whitelist.disabled"))
     1
@@ -239,7 +259,7 @@ defmodule Valimc.Commands.Operators do
   # The list file could not be written; nothing changed.
   defp unsaved!(reason), do: Error.refuse!("The change could not be saved (#{inspect(reason)})")
 
-  def whitelist_list(_arguments, source) do
+  defp whitelist_list(source) do
     names = Lists.entries(:whitelist) |> Map.values() |> Enum.sort()
 
     if names == [],
@@ -254,7 +274,7 @@ defmodule Valimc.Commands.Operators do
     length(names)
   end
 
-  def whitelist_add(%{"targets" => targets}, source) do
+  defp whitelist_add(%{"targets" => targets}, source) do
     changed = Lists.whitelist_add(profiles(source, targets))
 
     changed!(source, changed, "commands.whitelist.add.failed", fn profile ->
@@ -262,7 +282,7 @@ defmodule Valimc.Commands.Operators do
     end)
   end
 
-  def whitelist_remove(%{"targets" => targets}, source) do
+  defp whitelist_remove(%{"targets" => targets}, source) do
     changed = Lists.whitelist_remove(profiles(source, targets))
 
     result =
@@ -274,7 +294,7 @@ defmodule Valimc.Commands.Operators do
     result
   end
 
-  def whitelist_reload(_arguments, source) do
+  defp whitelist_reload(source) do
     Lists.reload_whitelist()
     Feedback.success(source, Text.translatable("commands.whitelist.reloaded"))
     kick_unlisted()

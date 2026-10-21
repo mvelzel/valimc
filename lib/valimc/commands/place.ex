@@ -29,9 +29,19 @@ defmodule Valimc.Commands.Place do
   @doc "Template ids, for the `place template` suggestions."
   def template_ids, do: @template_ids
 
+  @doc "`/place feature|jigsaw|structure|template …`."
+  def place(%{literals: [kind | _]} = arguments, source) do
+    case kind do
+      "feature" -> feature(arguments, source)
+      "jigsaw" -> jigsaw(arguments, source)
+      "structure" -> structure(arguments, source)
+      "template" -> template(arguments, source)
+    end
+  end
+
   # ---- feature ----
 
-  def feature(%{"feature" => id} = arguments, source) do
+  defp feature(%{"feature" => id} = arguments, source) do
     pos = position(source, arguments["pos"])
     place!(source, {"feature", [id], 0, 1.0, false}, pos, "commands.place.feature.failed")
     {x, y, z} = pos
@@ -41,7 +51,7 @@ defmodule Valimc.Commands.Place do
 
   # ---- jigsaw ----
 
-  def jigsaw(%{"pool" => pool, "target" => target, "max_depth" => depth} = arguments, source) do
+  defp jigsaw(%{"pool" => pool, "target" => target, "max_depth" => depth} = arguments, source) do
     unless pool in @pool_ids, do: Error.fail!("commands.place.jigsaw.invalid", [pool])
     pos = position(source, arguments["position"])
 
@@ -59,7 +69,7 @@ defmodule Valimc.Commands.Place do
 
   # ---- structure ----
 
-  def structure(%{"structure" => id} = arguments, source) do
+  defp structure(%{"structure" => id} = arguments, source) do
     unless id in @structure_ids, do: Error.fail!("commands.place.structure.invalid", [id])
     pos = position(source, arguments["pos"])
     place!(source, {"structure", [id], 0, 1.0, false}, pos, "commands.place.structure.failed")
@@ -70,13 +80,13 @@ defmodule Valimc.Commands.Place do
 
   # ---- template ----
 
-  def template(%{"template" => id} = arguments, source) do
+  defp template(%{"template" => id} = arguments, source) do
     pos = position(source, arguments["pos"])
     rotation = Map.get(arguments, "rotation", "none")
     mirror = Map.get(arguments, "mirror", "none")
     integrity = Map.get(arguments, "integrity", 1.0)
     seed = Map.get(arguments, "seed", 0)
-    strict = Map.get(arguments, :strict, false)
+    strict = "strict" in arguments.literals
     # `StructureBlockEntity.createRandom`: seed 0 is the current time.
     random = if seed == 0, do: System.system_time(:millisecond), else: seed
     spec = {"template", [id, rotation, mirror], 0, integrity * 1.0, strict}
@@ -100,8 +110,6 @@ defmodule Valimc.Commands.Place do
 
     1
   end
-
-  def template_strict(arguments, source), do: template(Map.put(arguments, :strict, true), source)
 
   # ---- placement ----
 

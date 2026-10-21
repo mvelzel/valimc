@@ -8,15 +8,19 @@ defmodule Valimc.Commands.Chat do
   alias Valimc.Command.{Dispatcher, Error, Feedback, Reader, Source, Text}
   alias Valimc.Protocol.{Data, Packets, Wire}
 
-  @doc "`/help`: vanilla's smart usage of every command the source may use."
+  @doc """
+  `/help`: vanilla's smart usage of every command the source may use;
+  `/help <command>`: below the deepest node the text parses to.
+  """
+  def help(%{"command" => command}, source), do: help_command(command, source)
+
   def help(_arguments, source) do
     usage = smart_usage(Valimc.Commands.root(), source)
     for line <- usage, do: Feedback.success(source, Text.literal("/" <> line), false)
     length(usage)
   end
 
-  @doc "`/help <command>`: the smart usage below the deepest node the text parses to."
-  def help_command(%{"command" => command}, source) do
+  defp help_command(command, source) do
     parse = Dispatcher.parse(Valimc.Commands.root(), command, source)
 
     case parse.context.nodes do
@@ -198,9 +202,10 @@ defmodule Valimc.Commands.Chat do
 
   # ---- list ----
 
+  def list(%{literals: ["uuids"]}, source), do: list_uuids(source)
   def list(_arguments, source), do: list_players(source, &Source.display_name/1)
 
-  def list_uuids(_arguments, source) do
+  defp list_uuids(source) do
     list_players(source, fn player ->
       Text.translatable("commands.list.nameAndId", [
         Text.literal(player.name),

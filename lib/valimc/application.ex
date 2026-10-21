@@ -31,6 +31,7 @@ defmodule Valimc.Application do
     Valimc.Registry.BlockFacts.install!()
     Valimc.World.Generator.init!()
     Valimc.LoginKeys.init!()
+    Valimc.Commands.init!()
     Valimc.Metrics.init!()
     Valimc.World.Saving.init!()
     Valimc.Worldgen.TerrainBoard.init!()

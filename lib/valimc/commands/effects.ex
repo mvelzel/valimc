@@ -40,7 +40,7 @@ defmodule Valimc.Commands.Effects do
 
     speed = Map.get(arguments, "speed", 0.0)
     count = Map.get(arguments, "count", 0)
-    force = arguments[:mode] == :force
+    force = "force" in arguments.literals
 
     viewers =
       case arguments do
@@ -75,8 +75,6 @@ defmodule Valimc.Commands.Effects do
     length(sent)
   end
 
-  def particle_force(arguments, source), do: particle(Map.put(arguments, :mode, :force), source)
-
   # Distance from the centre of the viewer's block, strictly below the range.
   defp within?(player, {x, y, z}, range) do
     cx = floor(player.x) + 0.5
@@ -88,8 +86,8 @@ defmodule Valimc.Commands.Effects do
   # ---- sounds ----
 
   @doc "`/playsound <sound> [<source> [<targets> [<pos> [<volume> [<pitch> [<minVolume>]]]]]]`."
-  def playsound(%{"sound" => id} = arguments, source) do
-    category = Map.get(arguments, :source, "master")
+  def playsound(%{"sound" => id, literals: literals} = arguments, source) do
+    category = List.first(literals, "master")
 
     targets =
       case arguments do
@@ -134,14 +132,6 @@ defmodule Valimc.Commands.Effects do
     length(sent)
   end
 
-  for category <- @sources do
-    def unquote(:"playsound_#{category}")(arguments, source),
-      do: playsound(Map.put(arguments, :source, unquote(category)), source)
-
-    def unquote(:"stopsound_#{category}")(arguments, source),
-      do: stopsound(Map.put(arguments, :source, unquote(category)), source)
-  end
-
   defp sound_packet(id, category, {x, y, z}, volume, pitch, seed) do
     Packets.packet("sound", [
       Wire.varint(0),
@@ -154,9 +144,9 @@ defmodule Valimc.Commands.Effects do
   end
 
   @doc "`/stopsound <targets> [* <sound> | <source> [<sound>]]`."
-  def stopsound(%{"targets" => selector} = arguments, source) do
+  def stopsound(%{"targets" => selector, literals: literals} = arguments, source) do
     targets = Source.required_players(source, selector)
-    category = arguments[:source]
+    category = Enum.find(literals, &(&1 in @sources))
     sound = arguments["sound"]
 
     flags = if(category, do: 1, else: 0) + if(sound, do: 2, else: 0)
@@ -192,7 +182,10 @@ defmodule Valimc.Commands.Effects do
   # ---- dialog ----
 
   @doc "`/dialog show <targets> <dialog>` and `/dialog clear <targets>`."
-  def dialog_show(%{"targets" => selector, "dialog" => {_id, network_id}}, source) do
+  def dialog(%{literals: ["show"]} = arguments, source), do: dialog_show(arguments, source)
+  def dialog(%{literals: ["clear"]} = arguments, source), do: dialog_clear(arguments, source)
+
+  defp dialog_show(%{"targets" => selector, "dialog" => {_id, network_id}}, source) do
     targets = Source.required_players(source, selector)
 
     for target <- targets,
@@ -201,7 +194,7 @@ defmodule Valimc.Commands.Effects do
     dialog_feedback(source, targets, "commands.dialog.show")
   end
 
-  def dialog_clear(%{"targets" => selector}, source) do
+  defp dialog_clear(%{"targets" => selector}, source) do
     targets = Source.required_players(source, selector)
     for target <- targets, do: deliver(target, Packets.packet("clear_dialog", <<>>))
     dialog_feedback(source, targets, "commands.dialog.clear")

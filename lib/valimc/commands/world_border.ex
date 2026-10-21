@@ -10,19 +10,25 @@ defmodule Valimc.Commands.WorldBorder do
   alias Valimc.Command.{Error, Feedback, Text}
   alias Valimc.World.{Border, Clock}
 
-  def add(arguments, source), do: change(:add, arguments, source)
-  def set(arguments, source), do: change(:set, arguments, source)
-  def center(arguments, source), do: change(:center, arguments, source)
-  def damage_amount(arguments, source), do: change(:damage_amount, arguments, source)
-  def damage_buffer(arguments, source), do: change(:damage_buffer, arguments, source)
-  def warning_distance(arguments, source), do: change(:warning_distance, arguments, source)
-  def warning_time(arguments, source), do: change(:warning_time, arguments, source)
+  @doc "`/worldborder …`, its form named by the parsed literals (`kind/1`)."
+  def worldborder(arguments, source) do
+    case kind(arguments.literals) do
+      :get ->
+        {component, result} = query(Clock.border())
+        Feedback.success(source, component, false)
+        result
 
-  def get(_arguments, source) do
-    {component, result} = query(Clock.border())
-    Feedback.success(source, component, false)
-    result
+      kind ->
+        change(kind, arguments, source)
+    end
   end
+
+  @doc "The form of a parsed `/worldborder`: `:get`, `:add`, `:set`, `:center`, …"
+  def kind(["damage", "amount"]), do: :damage_amount
+  def kind(["damage", "buffer"]), do: :damage_buffer
+  def kind(["warning", "distance"]), do: :warning_distance
+  def kind(["warning", "time"]), do: :warning_time
+  def kind([form]) when form in ~w(get add set center), do: String.to_existing_atom(form)
 
   defp change(kind, arguments, source) do
     operation = operation(kind, arguments, source.position)

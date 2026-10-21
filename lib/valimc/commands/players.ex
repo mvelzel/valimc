@@ -282,14 +282,17 @@ defmodule Valimc.Commands.Players do
 
   # ---- effect ----
 
-  @doc "`/effect give ...` (`EffectCommands`)."
-  def effect_give(%{"targets" => selector, "effect" => effect} = arguments, source) do
+  @doc "`/effect give <targets> <effect> [<seconds>|infinite …]` and `/effect clear` (`EffectCommands`)."
+  def effect(%{literals: ["clear"]} = arguments, source), do: effect_clear(arguments, source)
+  def effect(%{literals: ["give" | _]} = arguments, source), do: effect_give(arguments, source)
+
+  defp effect_give(%{"targets" => selector, "effect" => effect} = arguments, source) do
     id = live_effect!(effect)
 
     ticks =
       cond do
         Map.has_key?(arguments, "seconds") -> arguments["seconds"] * 20
-        infinite?(arguments) -> -1
+        "infinite" in arguments.literals -> -1
         true -> 600
       end
 
@@ -321,13 +324,8 @@ defmodule Valimc.Commands.Players do
     total
   end
 
-  def effect_infinite(arguments, source),
-    do: effect_give(Map.put(arguments, :infinite, true), source)
-
-  defp infinite?(arguments), do: Map.get(arguments, :infinite, false)
-
-  @doc "`/effect clear [<targets> [<effect>]]`."
-  def effect_clear(arguments, source) do
+  # `/effect clear [<targets> [<effect>]]`.
+  defp effect_clear(arguments, source) do
     targets =
       case arguments do
         %{"targets" => selector} -> Source.required_entities(source, selector)
@@ -396,11 +394,12 @@ defmodule Valimc.Commands.Players do
   # ---- experience ----
 
   @doc "`/experience add|set <targets> <amount> [points|levels]` and `query`."
-  def experience(arguments, source) do
-    kind = if arguments[:levels], do: :levels, else: :points
+  def experience(%{literals: [operation | kind]} = arguments, source) do
+    kind = if kind == ["levels"], do: :levels, else: :points
+    operation = String.to_existing_atom(operation)
 
     case arguments do
-      %{:operation => :query, "target" => selector} ->
+      %{"target" => selector} when operation == :query ->
         target = Source.single_player(source, selector)
         value = Remote.run!(target, {:experience, {:query, kind}})
         value = if is_integer(value), do: value, else: 0
@@ -413,7 +412,7 @@ defmodule Valimc.Commands.Players do
 
         value
 
-      %{:operation => operation, "target" => selector, "amount" => amount} ->
+      %{"target" => selector, "amount" => amount} ->
         targets = Source.required_players(source, selector)
 
         tracked = on_targets(targets, fn _ -> {:experience, {operation, amount, kind}} end)
@@ -446,24 +445,6 @@ defmodule Valimc.Commands.Players do
         total
     end
   end
-
-  def experience_add(arguments, source),
-    do: experience(Map.put(arguments, :operation, :add), source)
-
-  def experience_add_levels(arguments, source),
-    do: experience_add(Map.put(arguments, :levels, true), source)
-
-  def experience_set(arguments, source),
-    do: experience(Map.put(arguments, :operation, :set), source)
-
-  def experience_set_levels(arguments, source),
-    do: experience_set(Map.put(arguments, :levels, true), source)
-
-  def experience_query_points(arguments, source),
-    do: experience(Map.put(arguments, :operation, :query), source)
-
-  def experience_query_levels(arguments, source),
-    do: experience(arguments |> Map.put(:operation, :query) |> Map.put(:levels, true), source)
 
   # ---- kill ----
 

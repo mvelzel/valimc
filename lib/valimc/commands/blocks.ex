@@ -25,7 +25,7 @@ defmodule Valimc.Commands.Blocks do
     {min, max} = box(from_a, from_b)
     {dx, dy, dz} = sub(destination, min)
     {to_min, to_max} = {destination, add(max, {dx, dy, dz})}
-    mode = Map.get(arguments, :mode, :normal)
+    mode = Enum.find_value(arguments.literals, :normal, &mode/1)
 
     if mode == :normal and intersects?({min, max}, {to_min, to_max}),
       do: Error.fail!("commands.clone.overlap")
@@ -71,17 +71,18 @@ defmodule Valimc.Commands.Blocks do
     count
   end
 
-  for mask <- [:replace, :masked, :filtered], mode <- [:normal, :force, :move] do
-    def unquote(:"clone_#{mask}_#{mode}")(arguments, source),
-      do:
-        clone(arguments |> Map.put(:mask, unquote(mask)) |> Map.put(:mode, unquote(mode)), source)
+  defp mode("force"), do: :force
+  defp mode("move"), do: :move
+  defp mode(_), do: nil
+
+  # `replace` (the default), `masked` or `filtered <filter>`.
+  defp filter(%{literals: literals} = arguments) do
+    cond do
+      "masked" in literals -> &(Blocks.name(Blocks.block_id(&1)) not in ~w(air cave_air void_air))
+      "filtered" in literals -> &BlockInput.matches?(arguments["filter"], &1)
+      true -> fn _ -> true end
+    end
   end
-
-  defp filter(%{:mask => :masked}),
-    do: &(Blocks.name(Blocks.block_id(&1)) not in ~w(air cave_air void_air))
-
-  defp filter(%{:mask => :filtered, "filter" => filter}), do: &BlockInput.matches?(filter, &1)
-  defp filter(_), do: fn _ -> true end
 
   # Cloning within the source's dimension (VMC-026b); across dimensions is unsupported.
   defp dimension!(nil), do: :ok
@@ -208,9 +209,16 @@ defmodule Valimc.Commands.Blocks do
 
   defp chunk_text({x, z}), do: "[#{x}, #{z}]"
 
-  @doc "`/forceload add|remove <from> [<to>]`."
-  def forceload_add(arguments, source), do: change(arguments, source, :add)
-  def forceload_remove(arguments, source), do: change(arguments, source, :remove)
+  @doc "`/forceload add|remove <from> [<to>]`, `remove all` and `query [<pos>]`."
+  def forceload(%{literals: literals} = arguments, source) do
+    case {literals, arguments} do
+      {["add"], _} -> change(arguments, source, :add)
+      {["remove"], _} -> change(arguments, source, :remove)
+      {["remove", "all"], _} -> forceload_remove_all(source)
+      {["query"], %{"pos" => pos}} -> forceload_query_pos(pos, source)
+      {["query"], _} -> forceload_query(source)
+    end
+  end
 
   defp change(arguments, source, operation) do
     {ax, az} = column(source, arguments["from"])
@@ -258,13 +266,13 @@ defmodule Valimc.Commands.Blocks do
 
   defp div_floor(block), do: Integer.floor_div(block, 16)
 
-  def forceload_remove_all(_arguments, source) do
+  defp forceload_remove_all(source) do
     ForcedChunks.remove_all()
     Feedback.success(source, Text.translatable("commands.forceload.removed.all", [here()]))
     0
   end
 
-  def forceload_query_pos(%{"pos" => pos}, source) do
+  defp forceload_query_pos(pos, source) do
     {x, z} = column(source, pos)
     chunk = {div_floor(x), div_floor(z)}
 
@@ -281,7 +289,7 @@ defmodule Valimc.Commands.Blocks do
     end
   end
 
-  def forceload_query(_arguments, source) do
+  defp forceload_query(source) do
     # Sorted as the packed chunk long: z, then x as an unsigned 32-bit value.
     chunks = Enum.sort_by(ForcedChunks.all(), fn {x, z} -> {z, Bitwise.band(x, 0xFFFFFFFF)} end)
     list = Enum.map_join(chunks, ", ", &chunk_text/1)

@@ -13,8 +13,12 @@ defmodule Valimc.Commands.Locate do
   @structures MapSet.new(@facts["structures"])
   @tags @facts["structure_tags"]
 
-  @doc "`/locate structure <structure>`: a structure id or `#tag`."
-  def structure(%{"structure" => target}, source) do
+  @doc "`/locate structure <structure>` and `/locate biome <biome>`."
+  def locate(%{literals: ["structure"]} = arguments, source), do: structure(arguments, source)
+  def locate(%{literals: ["biome"]} = arguments, source), do: biome(arguments, source)
+
+  # `/locate structure <structure>`: a structure id or `#tag`.
+  defp structure(%{"structure" => target}, source) do
     {printable, members} =
       case target do
         {:key, id} -> {id, if(id in @structures, do: [id])}
@@ -107,4 +111,54 @@ defmodule Valimc.Commands.Locate do
     <<rounded::float-32>> = <<value * 1.0::float-32>>
     rounded
   end
+
+  # `/locate biome <biome>` in a flat world, whose only biome is plains.
+  defp biome(%{"biome" => biome}, source) do
+    unless Valimc.World.Spec.generation(Valimc.World.Spec.current(), source.dimension) == nil,
+      do:
+        Error.throw!(%Error{
+          message: Text.literal("Locating biomes in generated worlds is not supported yet")
+        })
+
+    {printable, found} =
+      case biome do
+        {:resource, id} -> {id, id == "minecraft:plains"}
+        {:tag, id, members} -> {"#" <> id, plains_id() in members}
+      end
+
+    unless found, do: Error.fail!("commands.locate.biome.not_found", [printable])
+    {x, y, z} = source.position
+    min_y = Valimc.World.Chunk.min_y()
+
+    {bx, by, bz} =
+      {floor(x), floor(y) |> max(min_y + 1) |> min(Valimc.World.Chunk.max_y() + 1), floor(z)}
+
+    name = if match?({:tag, _, _}, biome), do: "#{printable} (minecraft:plains)", else: printable
+
+    coordinates =
+      Text.translatable("chat.square_brackets", [
+        Text.translatable("chat.coordinates", [bx, Integer.to_string(by), bz])
+      ])
+      |> Text.style([
+        {"color", "green"},
+        {"click_event", Text.suggest_command("/tp @s #{bx} #{by} #{bz}")},
+        {"hover_event",
+         {:compound,
+          %{
+            "action" => {:string, "show_text"},
+            "value" => Text.translatable("chat.coordinates.tooltip")
+          }}}
+      ])
+
+    Feedback.success(
+      source,
+      Text.translatable("commands.locate.biome.success", [name, coordinates, 0]),
+      false
+    )
+
+    0
+  end
+
+  defp plains_id,
+    do: Valimc.Protocol.Data.registry_id("minecraft:worldgen/biome", "minecraft:plains")
 end

@@ -33,13 +33,22 @@ defmodule Valimc.Commands.PostEffects do
     end
   end
 
-  def add(%{"targets" => selector, "posteffect" => id}, source),
-    do: change(source, selector, {:add, id}, "add", id)
+  @doc "`/posteffect add|remove <targets> <posteffect>`, `clear <targets>`, `list <target>`."
+  def posteffect(%{literals: [mode]} = arguments, source) do
+    case {mode, arguments} do
+      {"add", %{"targets" => selector, "posteffect" => id}} ->
+        change(source, selector, {:add, id}, "add", id)
 
-  def remove(%{"targets" => selector, "posteffect" => id}, source),
-    do: change(source, selector, {:remove, id}, "remove", id)
+      {"remove", %{"targets" => selector, "posteffect" => id}} ->
+        change(source, selector, {:remove, id}, "remove", id)
 
-  def clear(%{"targets" => selector}, source), do: change(source, selector, :clear, "clear", nil)
+      {"clear", %{"targets" => selector}} ->
+        change(source, selector, :clear, "clear", nil)
+
+      {"list", %{"target" => selector}} ->
+        list(selector, source)
+    end
+  end
 
   defp change(source, selector, operation, key, id) do
     targets = Source.required_players(source, selector)
@@ -73,7 +82,7 @@ defmodule Valimc.Commands.PostEffects do
     length(changed)
   end
 
-  def list(%{"target" => selector}, source) do
+  defp list(selector, source) do
     target = Source.single_player(source, selector)
     ids = Map.get(target, :post_effects, [])
     name = Source.display_name(target)

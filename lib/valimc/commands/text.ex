@@ -31,11 +31,11 @@ defmodule Valimc.Commands.Text do
   defp recipient(source, _target), do: source
 
   @doc "`/title <targets> clear|reset|title|subtitle|actionbar|times`."
-  def title(%{"targets" => selector} = arguments, source) do
+  def title(%{"targets" => selector, literals: [form]} = arguments, source) do
     targets = Source.required_players(source, selector)
 
     {key, packet_for} =
-      case arguments[:form] do
+      case String.to_existing_atom(form) do
         :clear ->
           {"commands.title.cleared", fn _ -> Packets.packet("clear_titles", <<0>>) end}
 
@@ -79,10 +79,5 @@ defmodule Valimc.Commands.Text do
 
     Feedback.success(source, message)
     length(targets)
-  end
-
-  for form <- [:clear, :reset, :title, :subtitle, :actionbar, :times] do
-    def unquote(:"title_#{form}")(arguments, source),
-      do: title(Map.put(arguments, :form, unquote(form)), source)
   end
 end

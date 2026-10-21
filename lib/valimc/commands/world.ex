@@ -44,8 +44,24 @@ defmodule Valimc.Commands.World do
 
   defp wrap_long(value), do: rem(value, @int_max)
 
-  @doc "`/time set <time>`."
-  def time_set(%{"time" => time} = arguments, source) do
+  @doc "`/time [of <clock>] set|add|pause|resume|rate|query …` on 26.3's world clocks."
+  def time(%{literals: literals} = arguments, source) do
+    case {List.delete(literals, "of"), arguments} do
+      {["set"], %{"timemarker" => _}} -> time_set_marker(arguments, source)
+      {["set"], _} -> time_set(arguments, source)
+      {["add"], _} -> time_add(arguments, source)
+      {["pause"], _} -> pause(arguments, source, true)
+      {["resume"], _} -> pause(arguments, source, false)
+      {["rate"], _} -> time_rate(arguments, source)
+      {["query", "time"], _} -> time_query(arguments, source)
+      {["query", "gametime"], _} -> time_query_gametime(source)
+      {["query", "repetition"], _} -> time_query_timeline(arguments, source, true)
+      {["query"], _} -> time_query_timeline(arguments, source, false)
+    end
+  end
+
+  # `/time set <time>`.
+  defp time_set(%{"time" => time} = arguments, source) do
     id = clock_id(arguments)
 
     if clock(id).total_ticks == time,
@@ -56,8 +72,8 @@ defmodule Valimc.Commands.World do
     time
   end
 
-  @doc "`/time set <timemarker>`: forward to the marker's next occurrence."
-  def time_set_marker(%{"timemarker" => marker} = arguments, source) do
+  # `/time set <timemarker>`: forward to the marker's next occurrence.
+  defp time_set_marker(%{"timemarker" => marker} = arguments, source) do
     id = clock_id(arguments)
 
     case @markers[marker] do
@@ -87,8 +103,8 @@ defmodule Valimc.Commands.World do
     end
   end
 
-  @doc "`/time add <time>`."
-  def time_add(%{"time" => time} = arguments, source) do
+  # `/time add <time>`.
+  defp time_add(%{"time" => time} = arguments, source) do
     id = clock_id(arguments)
     total = max(clock(id).total_ticks + time, 0)
     configure!({id, :ticks, total})
@@ -100,9 +116,6 @@ defmodule Valimc.Commands.World do
 
     wrap_long(total)
   end
-
-  def time_pause(arguments, source), do: pause(arguments, source, true)
-  def time_resume(arguments, source), do: pause(arguments, source, false)
 
   defp pause(arguments, source, paused) do
     id = clock_id(arguments)
@@ -127,8 +140,8 @@ defmodule Valimc.Commands.World do
     1
   end
 
-  @doc "`/time rate <rate>`."
-  def time_rate(%{"rate" => rate} = arguments, source) do
+  # `/time rate <rate>`.
+  defp time_rate(%{"rate" => rate} = arguments, source) do
     id = clock_id(arguments)
 
     if clock(id).rate == rate,
@@ -139,8 +152,8 @@ defmodule Valimc.Commands.World do
     1
   end
 
-  @doc "`/time query time`."
-  def time_query(arguments, source) do
+  # `/time query time`.
+  defp time_query(arguments, source) do
     id = clock_id(arguments)
     total = clock(id).total_ticks
 
@@ -153,8 +166,8 @@ defmodule Valimc.Commands.World do
     wrap_long(total)
   end
 
-  @doc "`/time query <timeline> [repetition]`."
-  def time_query_timeline(%{"timeline" => timeline} = arguments, source) do
+  # `/time query <timeline> [repetition]`.
+  defp time_query_timeline(%{"timeline" => timeline} = arguments, source, repetition) do
     id = clock_id(arguments)
     facts = @timelines[timeline]
 
@@ -165,7 +178,7 @@ defmodule Valimc.Commands.World do
     period = facts["period"]
 
     {key, value} =
-      if arguments[:repetition],
+      if repetition,
         do:
           {"commands.time.query.timeline.repetitions",
            if(period, do: div(total, period), else: 0)},
@@ -175,11 +188,8 @@ defmodule Valimc.Commands.World do
     wrap_long(value)
   end
 
-  def time_query_repetition(arguments, source),
-    do: time_query_timeline(Map.put(arguments, :repetition, true), source)
-
-  @doc "`/time query gametime`."
-  def time_query_gametime(_arguments, source) do
+  # `/time query gametime`.
+  defp time_query_gametime(source) do
     game_time = Clock.snapshot().game_time
 
     Feedback.success(
@@ -193,11 +203,15 @@ defmodule Valimc.Commands.World do
 
   # ---- weather ----
 
-  def weather_clear(arguments, source), do: weather(arguments, source, :clear, 12_000..180_000)
-  def weather_rain(arguments, source), do: weather(arguments, source, :rain, 12_000..24_000)
-  def weather_thunder(arguments, source), do: weather(arguments, source, :thunder, 3_600..15_600)
+  @doc "`/weather clear|rain|thunder [<duration>]`."
+  def weather(%{literals: [kind]} = arguments, source) do
+    {kind, range} =
+      case kind do
+        "clear" -> {:clear, 12_000..180_000}
+        "rain" -> {:rain, 12_000..24_000}
+        "thunder" -> {:thunder, 3_600..15_600}
+      end
 
-  defp weather(arguments, source, kind, range) do
     duration = Map.get(arguments, "duration")
     configure!({:weather, kind, duration || Enum.random(range)})
 
@@ -216,7 +230,11 @@ defmodule Valimc.Commands.World do
 
   @levels %{"peaceful" => 0, "easy" => 1, "normal" => 2, "hard" => 3}
 
-  def difficulty_query(_arguments, source) do
+  @doc "`/difficulty [peaceful|easy|normal|hard]`."
+  def difficulty(%{literals: [name]}, source),
+    do: set_difficulty(source, Map.fetch!(@levels, name))
+
+  def difficulty(_arguments, source) do
     {difficulty, _packet} = Clock.difficulty()
 
     Feedback.success(
@@ -226,11 +244,6 @@ defmodule Valimc.Commands.World do
     )
 
     difficulty.level
-  end
-
-  for {name, level} <- @levels do
-    def unquote(String.to_atom("difficulty_" <> name))(_arguments, source),
-      do: set_difficulty(source, unquote(level))
   end
 
   defp set_difficulty(source, level) do
@@ -260,12 +273,29 @@ defmodule Valimc.Commands.World do
 
   def live_rules, do: Map.keys(@rules)
 
+  @doc "The `/gamerule` paths ValiMC runs: each live rule, short and namespaced, queried or set."
+  def gamerule_paths do
+    for rule <- live_rules(),
+        name <- [rule, "minecraft:" <> rule],
+        tail <- [[], ["value"]],
+        do: ["gamerule", name | tail]
+  end
+
   defp rule_value("advance_time"), do: Clock.snapshot().advance_time
   defp rule_value("advance_weather"), do: Clock.snapshot().weather.advance_weather
   defp rule_value("natural_health_regeneration"), do: Clock.snapshot().natural_regeneration
 
-  @doc "`/gamerule <rule>`: the rule's current value."
-  def gamerule_query(%{rule: rule}, source) do
+  @doc "`/gamerule <rule> [<value>]`: the rule's value, or a new one."
+  def gamerule(%{literals: [name]} = arguments, source) do
+    rule = String.replace_prefix(name, "minecraft:", "")
+
+    case arguments do
+      %{"value" => value} -> gamerule_set(rule, value, source)
+      _ -> gamerule_query(rule, source)
+    end
+  end
+
+  defp gamerule_query(rule, source) do
     value = rule_value(rule)
 
     Feedback.success(
@@ -277,8 +307,7 @@ defmodule Valimc.Commands.World do
     if(value, do: 1, else: 0)
   end
 
-  @doc "`/gamerule <rule> <value>`."
-  def gamerule_set(%{:rule => rule, "value" => value}, source) do
+  defp gamerule_set(rule, value, source) do
     if rule_value(rule) == value,
       do: Error.fail!("commands.gamerule.not_set", [rule, to_string(value)])
 
@@ -286,14 +315,6 @@ defmodule Valimc.Commands.World do
     configure!({operation, value})
     Feedback.success(source, Text.translatable("commands.gamerule.set", [rule, to_string(value)]))
     if(value, do: 1, else: 0)
-  end
-
-  for rule <- ["advance_time", "advance_weather", "natural_health_regeneration"] do
-    def unquote(String.to_atom("gamerule_query_" <> rule))(arguments, source),
-      do: gamerule_query(Map.put(arguments, :rule, unquote(rule)), source)
-
-    def unquote(String.to_atom("gamerule_set_" <> rule))(arguments, source),
-      do: gamerule_set(Map.put(arguments, :rule, unquote(rule)), source)
   end
 
   # ---- blocks ----
@@ -315,7 +336,8 @@ defmodule Valimc.Commands.World do
   def setblock(%{"pos" => pos, "block" => %BlockInput{state: state} = block} = arguments, source) do
     {x, y, z} = position = loaded_block!(source, pos)
     no_block_data!(block)
-    set_block!(position, state, arguments[:mode], 3)
+    mode = if arguments.literals == ["keep"], do: :keep, else: :replace
+    set_block!(position, state, mode, 3)
     Feedback.success(source, Text.translatable("commands.setblock.success", [x, y, z]))
     1
   end
@@ -351,8 +373,6 @@ defmodule Valimc.Commands.World do
         message: Text.literal("That block change is not supported yet (#{inspect(reason)})")
       })
 
-  def setblock_keep(arguments, source), do: setblock(Map.put(arguments, :mode, :keep), source)
-
   # Block-entity data from commands needs owner support per block entity.
   defp no_block_data!(%BlockInput{nbt: nbt}) when nbt in [nil, {:compound, %{}}], do: :ok
   defp no_block_data!(_), do: Error.refuse!("Block entity data in commands is not supported yet")
@@ -374,7 +394,15 @@ defmodule Valimc.Commands.World do
     area = (xb - xa + 1) * (yb - ya + 1) * (zb - za + 1)
     limit = 32_768
     if area > limit, do: Error.fail!("commands.fill.toobig", [limit, {:long, area}])
-    mode = Map.get(arguments, :mode, :replace)
+    # `[replace [<filter>]] [strict]`, or one of `outline`, `hollow`, `keep`.
+    mode =
+      Enum.find_value(arguments.literals, :replace, fn
+        "outline" -> :outline
+        "hollow" -> :hollow
+        "keep" -> :keep
+        _ -> nil
+      end)
+
     filter = arguments["filter"]
     air = Valimc.Registry.Blocks.default_state("air")
 
@@ -405,11 +433,6 @@ defmodule Valimc.Commands.World do
     if count == 0, do: Error.fail!("commands.fill.failed")
     Feedback.success(source, Text.translatable("commands.fill.success", [count]))
     count
-  end
-
-  for mode <- [:outline, :hollow, :keep] do
-    def unquote(String.to_atom("fill_#{mode}"))(arguments, source),
-      do: fill(Map.put(arguments, :mode, unquote(mode)), source)
   end
 
   defp fill_region(key, edits, mode, filter, attempts \\ 3) do
@@ -548,54 +571,4 @@ defmodule Valimc.Commands.World do
         Error.throw!(%Error{message: Text.literal("This flat preview world has no seed")})
     end
   end
-
-  @doc "`/locate biome <biome>` in a flat world, whose only biome is plains."
-  def locate_biome(%{"biome" => biome}, source) do
-    unless Valimc.World.Spec.generation(Valimc.World.Spec.current(), source.dimension) == nil,
-      do:
-        Error.throw!(%Error{
-          message: Text.literal("Locating biomes in generated worlds is not supported yet")
-        })
-
-    {printable, found} =
-      case biome do
-        {:resource, id} -> {id, id == "minecraft:plains"}
-        {:tag, id, members} -> {"#" <> id, plains_id() in members}
-      end
-
-    unless found, do: Error.fail!("commands.locate.biome.not_found", [printable])
-    {x, y, z} = source.position
-    min_y = Valimc.World.Chunk.min_y()
-
-    {bx, by, bz} =
-      {floor(x), floor(y) |> max(min_y + 1) |> min(Valimc.World.Chunk.max_y() + 1), floor(z)}
-
-    name = if match?({:tag, _, _}, biome), do: "#{printable} (minecraft:plains)", else: printable
-
-    coordinates =
-      Text.translatable("chat.square_brackets", [
-        Text.translatable("chat.coordinates", [bx, Integer.to_string(by), bz])
-      ])
-      |> Text.style([
-        {"color", "green"},
-        {"click_event", Text.suggest_command("/tp @s #{bx} #{by} #{bz}")},
-        {"hover_event",
-         {:compound,
-          %{
-            "action" => {:string, "show_text"},
-            "value" => Text.translatable("chat.coordinates.tooltip")
-          }}}
-      ])
-
-    Feedback.success(
-      source,
-      Text.translatable("commands.locate.biome.success", [name, coordinates, 0]),
-      false
-    )
-
-    0
-  end
-
-  defp plains_id,
-    do: Valimc.Protocol.Data.registry_id("minecraft:worldgen/biome", "minecraft:plains")
 end
