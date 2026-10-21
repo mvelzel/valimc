@@ -84,6 +84,9 @@ STAGES = [
         ('java', 'StructureTemplateOracle', '@templates.json', '@processor_lists.json'),
         ('same', '@templates.json', 'priv/worldgen/templates.json'),
         ('same', '@processor_lists.json', 'priv/worldgen/processor_lists.json'),
+        ('java', 'StructureOracle', 'facts', '@structures.json', '@structure_sets.json'),
+        ('same', '@structures.json', 'priv/worldgen/structures.json'),
+        ('same', '@structure_sets.json', 'priv/worldgen/structure_sets.json'),
     ]),
     ('worldgen_noise', [
         ('java', 'NoiseOracle', '@noise.json'),
@@ -130,6 +133,10 @@ STAGES = [
          'minecraft:coral_tree,minecraft:coral_claw,minecraft:underwater_magma,minecraft:multiface_growth,'
          'minecraft:sculk_patch,minecraft:vines'),
         ('check', 'check_decoration.exs', '@decoration.json'),
+    ]),
+    ('worldgen_structures', [
+        ('java', 'StructureOracle', 'starts', '@starts.json'),
+        ('check', 'check_structures.exs', '@starts.json'),
     ]),
     ('commands', [
         ('java', 'CommandTreeOracle', 'tree', '@tree.json'),

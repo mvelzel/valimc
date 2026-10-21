@@ -1134,4 +1134,125 @@ fn worldgen_decoration_time(
     Ok(elapsed.as_nanos() as u64)
 }
 
+/// Structure generation for parity checks (VMC-025e): the structure sets
+/// that can occur for `biome_source`, and every concentric ring set's
+/// positions.
+type RingPositions = Vec<(String, Vec<(i32, i32)>)>;
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_structure_state(
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+) -> Result<(Vec<String>, RingPositions), String> {
+    let env = {
+        let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+        state.structure_env(&biome_source)?
+    };
+    let sets = &env.registry.sets;
+    let possible = env.possible.iter().map(|&s| sets[s].id.clone()).collect();
+    let rings = env
+        .possible
+        .iter()
+        .filter_map(|&s| {
+            env.ring_positions(s)
+                .map(|positions| (sets[s].id.clone(), positions.to_vec()))
+        })
+        .collect();
+    Ok((possible, rings))
+}
+
+/// A structure start: its chunk, structure and canonical SNBT.
+type StartRow = (i32, i32, String, String);
+
+/// `createStructures` in fresh chunks (VMC-025e): every start, and the sets
+/// skipped because ValiMC does not generate one of their structure types yet.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_structure_starts(
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    chunks: Vec<(i32, i32)>,
+) -> Result<(Vec<StartRow>, Vec<String>), String> {
+    let env = {
+        let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+        state.structure_env(&biome_source)?
+    };
+    let registry = &env.registry;
+    let mut rows = Vec::new();
+    let mut skipped = std::collections::BTreeSet::new();
+    for (x, z) in chunks {
+        let (starts, skips) = env.create_structures(x, z)?;
+        skipped.extend(skips.into_iter().map(|s| registry.sets[s].id.clone()));
+        for start in starts {
+            rows.push((
+                x,
+                z,
+                registry.structures[start.structure].id.clone(),
+                start.save(registry).snbt(),
+            ));
+        }
+    }
+    Ok((rows, skipped.into_iter().collect()))
+}
+
+/// Per structure set, its placement chunks in a window.
+type WindowPlacements = Vec<(String, Vec<(i32, i32)>)>;
+/// A chunk's references to one structure: chunk, structure, source chunks.
+type ReferenceRow = (i32, i32, String, Vec<(i32, i32)>);
+
+/// Placement and references over a `size` × `size` window from `origin`
+/// (VMC-025e): each possible set's placement chunks, and for the chunks at
+/// least 8 from the edge, their references (`createReferences`) to the
+/// window's starts.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_structure_window(
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    origin: (i32, i32),
+    size: i32,
+) -> Result<(WindowPlacements, Vec<ReferenceRow>), String> {
+    let env = {
+        let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+        state.structure_env(&biome_source)?
+    };
+    let registry = &env.registry;
+    let mut placements = Vec::new();
+    for &set in &env.possible {
+        let mut hits = Vec::new();
+        for dz in 0..size {
+            for dx in 0..size {
+                let (x, z) = (origin.0 + dx, origin.1 + dz);
+                if env.is_structure_chunk(set, x, z) {
+                    hits.push((x, z));
+                }
+            }
+        }
+        placements.push((registry.sets[set].id.clone(), hits));
+    }
+    let mut starts = std::collections::HashMap::new();
+    for dz in 0..size {
+        for dx in 0..size {
+            let (x, z) = (origin.0 + dx, origin.1 + dz);
+            starts.insert((x, z), env.create_structures(x, z)?.0);
+        }
+    }
+    let starts_at = |x: i32, z: i32| starts.get(&(x, z)).map(Vec::as_slice);
+    let mut references = Vec::new();
+    for dz in 8..size - 8 {
+        for dx in 8..size - 8 {
+            let (x, z) = (origin.0 + dx, origin.1 + dz);
+            let mut by_structure: std::collections::BTreeMap<usize, Vec<(i32, i32)>> =
+                std::collections::BTreeMap::new();
+            for (structure, source) in env.references(x, z, &starts_at)? {
+                by_structure.entry(structure).or_default().push(source);
+            }
+            for (structure, mut sources) in by_structure {
+                sources.sort_unstable();
+                sources.dedup();
+                references.push((x, z, registry.structures[structure].id.clone(), sources));
+            }
+        }
+    }
+    Ok((placements, references))
+}
+
 rustler::init!("Elixir.Valimc.Native");

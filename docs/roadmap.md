@@ -39,7 +39,7 @@ resumes on these foundations alongside M2.
 | [VMC-023](tickets/VMC-023.md) | Seeded noise and biomes: random sources, noises, compiled density functions and chunk biomes equal vanilla's | Done |
 | [VMC-024](tickets/VMC-024.md) | Vanilla terrain: noise fill with aquifers, material rules and carvers equal to vanilla's, generated live in new worlds | Done |
 | [VMC-053](tickets/VMC-053.md) | Vanilla commands: parse, permissions, suggestions, SNBT and the player, world, chat and basic admin commands are live; operator, entity and data-pack commands remain | In progress |
-| [VMC-025](tickets/VMC-025.md) | Features and structures: all 171 overworld placed features (with structure templates and block entities) equal vanilla's; live decoration and structures next | In progress |
+| [VMC-025](tickets/VMC-025.md) | Features and structures: all 171 overworld placed features (with structure templates and block entities) and structure placement with the first structure starts equal vanilla's; live decoration and the other structures next | In progress |
 | [VMC-070](tickets/VMC-070.md) | The client's view distance (clamped to the server's, default 10) picks vanilla's chunk view, applied live; vanilla chunk send pacing and entity tracking ranges | Done |
 | [VMC-071](tickets/VMC-071.md) | New terrain reaches a moving player sooner: parallel worldgen states, nearest regions first, no light-update flood | Awaiting client |
 

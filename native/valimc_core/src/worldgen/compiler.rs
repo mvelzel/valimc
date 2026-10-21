@@ -27,6 +27,7 @@ use super::noise::{BlendedParameters, NormalNoise, Simplex, Stack};
 use super::random::{Positional, Random};
 use super::region::{Area, ProtoChunk, Region};
 use super::sampler::{Context, Field, GradientKind, Sampler, SplineNode};
+use super::structure::{ClimateBiomes, Heights, StructureEnv, StructureRegistry};
 use super::surface::{
     self, Biomes, ChunkBlocks, MaterialRegistry, MaterialSystem, Rule, SurfaceEnv, SurfaceInput,
     Terracotta,
@@ -82,6 +83,8 @@ pub struct Facts<'a> {
     /// providers, the feature order, survival facts, the block registry and
     /// per-state block facts.
     pub decoration: Option<DecorationJson<'a>>,
+    /// Structures and structure sets (VMC-025e), when present.
+    pub structures: Option<(&'a Json, &'a Json)>,
 }
 
 pub struct DecorationJson<'a> {
@@ -124,6 +127,7 @@ impl<'a> Facts<'a> {
                     block_facts: json.field("block_facts")?,
                 }),
             },
+            structures: json.get("structures").zip(json.get("structure_sets")),
         })
     }
 }
@@ -144,6 +148,8 @@ pub struct Registry {
     pub biome_carvers: Vec<Vec<String>>,
     /// The overworld's decoration (VMC-025), when its facts were given.
     pub decoration: Option<Arc<Decoration>>,
+    /// Structures and structure sets (VMC-025e), when their facts were given.
+    pub structures: Option<Arc<StructureRegistry>>,
 }
 
 /// One chunk's biomes as `fill_biomes` computes them.
@@ -283,6 +289,11 @@ impl Registry {
             .map_err(|e| format!("decoration: {e}"))?;
             registry.decoration = Some(Arc::new(decoration));
         }
+        if let Some((structures, sets)) = facts.structures {
+            let biomes = &registry.biomes;
+            let parsed = StructureRegistry::parse(structures, sets, &|name| biomes.id(name))?;
+            registry.structures = Some(Arc::new(parsed));
+        }
         let (noises, functions, settings) =
             (facts.noises, facts.density_functions, facts.noise_settings);
         for (id, json) in noises.entries()? {
@@ -338,6 +349,8 @@ pub struct Worldgen {
     /// neighbouring chunks share them (bounded).
     chunk_biomes: HashMap<(String, i32, i32), Arc<Vec<u16>>>,
     carver_biomes: HashMap<(String, i32, i32), u16>,
+    /// Structure generation per biome source (VMC-025e).
+    structure_envs: HashMap<String, Arc<StructureEnv>>,
 }
 
 const BIOME_CACHE_LIMIT: usize = 4096;
@@ -405,6 +418,7 @@ impl Worldgen {
             material_system: None,
             chunk_biomes: HashMap::new(),
             carver_biomes: HashMap::new(),
+            structure_envs: HashMap::new(),
         })
     }
 
@@ -718,6 +732,61 @@ impl Worldgen {
         }
         filled.fluid_updates = fluid_updates;
         Ok(filled)
+    }
+
+    /// Structure generation for a multi-noise `biome_source` (VMC-025e):
+    /// placement, ring positions and starts, built once per source.
+    pub fn structure_env(&mut self, biome_source: &str) -> Result<Arc<StructureEnv>, String> {
+        if let Some(env) = self.structure_envs.get(biome_source) {
+            return Ok(env.clone());
+        }
+        let registry = self
+            .registry
+            .structures
+            .clone()
+            .ok_or("no structure facts")?;
+        let (list, ids) = self
+            .registry
+            .biome_parameters
+            .get(biome_source)
+            .cloned()
+            .ok_or_else(|| format!("unknown biome source {biome_source}"))?;
+        let mut samplers = Vec::with_capacity(6);
+        for field in CLIMATE {
+            let function = self.named(&format!("router:{field}"))?;
+            samplers.push(self.sampler(&function)?);
+        }
+        let final_density = self.named("router:final_density")?;
+        let b = &self.registry.blocks;
+        let blocks = TerrainBlocks {
+            air: b.air,
+            water: b.water,
+            lava: b.lava,
+            default_block: self.settings.default_block,
+            default_fluid: self.settings.default_fluid,
+        };
+        let heights = Heights {
+            final_density: self.sampler(&final_density)?,
+            aquifer: self.aquifer_samplers()?,
+            blocks,
+            min_y: self.settings.min_y,
+            height: self.settings.height,
+            sea_level: self.settings.sea_level,
+            flags: Arc::new(self.registry.blocks.flags.clone()),
+        };
+        let env = Arc::new(StructureEnv::new(
+            registry,
+            self.seed,
+            ClimateBiomes {
+                samplers,
+                list,
+                ids,
+            },
+            heights,
+        ));
+        self.structure_envs
+            .insert(biome_source.to_string(), env.clone());
+        Ok(env)
     }
 
     /// Single biome lookups for `biome_source` (vanilla's uncached biome

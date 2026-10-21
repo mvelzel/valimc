@@ -25,6 +25,7 @@ pub mod sculk;
 pub mod shapes;
 pub mod speleothem;
 pub mod state_provider;
+pub mod structure;
 pub mod support;
 pub mod surface;
 pub mod template;
