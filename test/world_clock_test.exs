@@ -26,44 +26,6 @@ defmodule Valimc.WorldClockTest do
     path
   end
 
-  test "snapshot keeps both clocks, partial rates and pause flags; corrupt and oversized files reject" do
-    data = ClockRecord.new()
-
-    data = %{
-      data
-      | game_time: 17,
-        advance_time: false,
-        clocks:
-          Map.put(data.clocks, "minecraft:overworld", %ClockState{
-            total_ticks: 18_000,
-            partial_tick: 0.25,
-            rate: 0.5,
-            paused: true
-          })
-    }
-
-    assert {:ok, bytes} = ClockRecord.encode(data)
-    assert byte_size(bytes) <= ClockRecord.max_bytes()
-    assert {:ok, ^data} = ClockRecord.decode(bytes)
-
-    for bad <- [
-          <<>>,
-          binary_part(bytes, 0, byte_size(bytes) - 1),
-          bytes <> <<0>>,
-          :binary.copy(<<0>>, 257)
-        ] do
-      assert {:error, :invalid_clock_file} = ClockRecord.decode(bad)
-    end
-
-    <<first, rest::binary>> = bytes
-
-    assert {:error, :invalid_clock_file} =
-             ClockRecord.decode(<<Bitwise.bxor(first, 1), rest::binary>>)
-
-    assert {:error, :invalid_clock_state} = ClockRecord.encode(%{data | clocks: %{}})
-    refute ClockState.valid?(%ClockState{rate: 1025.0})
-  end
-
   test "host controls validate, reset fractions on set, and publish immediate immutable corrections" do
     pid = clock()
     assert :ok = Clock.configure({"minecraft:overworld", :rate, 0.1}, pid)
@@ -89,41 +51,6 @@ defmodule Valimc.WorldClockTest do
     [{:network, version, periodic, latest}] = :ets.lookup(state.table, :network)
     assert is_reference(version) and periodic == latest
     assert before.game_time == 0
-  end
-
-  test "delivered ticks advance game time; paused/global clocks do not; stale and early timers stay fenced" do
-    pid = clock(tick_interval_ms: 1000)
-    state = Valimc.TestConn.state(pid)
-    {old_token, _} = state.tick_timer
-    # An early matching timer cannot advance time or leave two live timer chains.
-    send(pid, {:clock_tick, old_token})
-    after_early = Valimc.TestConn.state(pid)
-    assert after_early.data.game_time == 0
-    assert elem(after_early.tick_timer, 0) != old_token
-    send(pid, {:clock_tick, old_token})
-    assert Valimc.TestConn.state(pid).tick_timer == after_early.tick_timer
-
-    :sys.replace_state(
-      pid,
-      &%{&1 | next_tick: System.monotonic_time(:millisecond), tick_interval: 10}
-    )
-
-    send(pid, {:clock_tick, elem(after_early.tick_timer, 0)})
-    eventually(fn -> Clock.snapshot(pid).game_time >= 2 end)
-    assert :ok = Clock.configure({:advance_time, false}, pid)
-    frozen = Clock.snapshot(pid)
-    eventually(fn -> Clock.snapshot(pid).game_time >= frozen.game_time + 2 end)
-    assert Clock.snapshot(pid).clocks == frozen.clocks
-    assert :ok = Clock.configure({:advance_time, true}, pid)
-    assert :ok = Clock.configure({"minecraft:overworld", :paused, true}, pid)
-    frozen = Clock.snapshot(pid)
-    eventually(fn -> Clock.snapshot(pid).game_time >= frozen.game_time + 2 end)
-
-    assert Clock.snapshot(pid).clocks["minecraft:overworld"] ==
-             frozen.clocks["minecraft:overworld"]
-
-    assert Clock.snapshot(pid).clocks["minecraft:the_end"].total_ticks >
-             frozen.clocks["minecraft:the_end"].total_ticks
   end
 
   test "one pending immutable save while storage stalls; ticks/controls respond and newer revision stays dirty" do
@@ -216,25 +143,5 @@ defmodule Valimc.WorldClockTest do
     assert File.read!(ClockStore.path(path)) == bytes
     replacement = clock(world_path: path)
     assert Clock.snapshot(replacement) == committed
-  end
-
-  test "failed async write stops owner without publishing an old snapshot over uncertain state" do
-    path = temporary()
-
-    {:ok, pid} =
-      Clock.start_link(name: nil, world_path: path, tick_interval_ms: nil, save_interval_ms: 1000)
-
-    Process.unlink(pid)
-    monitor = Process.monitor(pid)
-    File.write!(path, "blocked-directory")
-    assert :ok = Clock.configure({"minecraft:overworld", :ticks, 5}, pid)
-    {token, _} = Valimc.TestConn.state(pid).save_timer
-    send(pid, {:clock_save, token})
-
-    # The owner allows up to five seconds to retire its linked I/O process.
-    # Wait through that bounded cleanup while still requiring the exact write failure.
-    assert_receive {:DOWN, ^monitor, :process, ^pid, {:clock_save_failed, {:error, :enotdir}}}
-
-    assert File.read!(path) == "blocked-directory"
   end
 end

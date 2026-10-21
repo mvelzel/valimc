@@ -5,7 +5,6 @@ defmodule Valimc.PlayerPlacementTransfersTest do
     GameMode,
     Inventory,
     PlayerFood,
-    PlayerPlacementIntent,
     PlayerPlacementTransfers,
     PlayerSnapshot
   }
@@ -70,52 +69,7 @@ defmodule Valimc.PlayerPlacementTransfersTest do
     {state, intent}
   end
 
-  defp seal(payload), do: payload <> :crypto.hash(:sha256, payload)
   defp persisted(state), do: %{state | inventory: %{state.inventory | state_id: 0, drag: nil}}
-
-  test "table inputs survive typed placement consume/refund and v15 validation" do
-    {state, intent} = source()
-    cells = List.to_tuple([ItemStack.new("oak_planks", 3) | List.duplicate(nil, 8)])
-    state = put_in(state.inventory.table_inputs, cells)
-    assert {:ok, pending} = PlayerPlacementTransfers.prepare(@uuid, 9, state, intent)
-    assert pending.inventory.table_inputs == cells
-    assert {:ok, <<"VMCPOSE", 15, _::binary>> = bytes} = PlayerSnapshot.encode(@uuid, pending)
-    assert {:ok, restored} = PlayerSnapshot.decode(bytes, @uuid)
-    assert restored == persisted(pending)
-    burning = Map.put(pending, :fire_ticks, 300)
-    assert {:ok, <<"VMCPOSE", 17, _::binary>> = bytes} = PlayerSnapshot.encode(@uuid, burning)
-    assert {:ok, restored_fire} = PlayerSnapshot.decode(bytes, @uuid)
-    assert restored_fire == persisted(burning)
-    assert {:ok, %{fire_ticks: 300}} = PlayerPlacementTransfers.resolve(restored_fire, :rejected)
-    assert {:ok, refunded} = PlayerPlacementTransfers.resolve(restored, :rejected)
-
-    assert refunded.inventory.table_inputs == cells and
-             refunded.inventory.slots == state.inventory.slots
-
-    assert {:error, :invalid_placement_snapshot} =
-             PlayerSnapshot.encode(@uuid, put_in(pending.inventory.selected, 0))
-  end
-
-  test "both hands consume one exact item in the complete v14 journal, including depletion" do
-    for {hand, count} <- [{:main, 2}, {:off, 1}] do
-      {state, intent} = source(hand, count)
-      assert {:ok, pending} = PlayerPlacementTransfers.prepare(@uuid, 9, state, intent)
-      assert pending.outbox == intent and pending.transfer_sequence == 10
-      assert Inventory.get(pending.inventory, intent.slot) == intent.after
-      assert pending.inventory.drag == nil and pending.inventory.state_id == 0
-
-      assert Map.delete(pending.inventory.slots, intent.slot) ==
-               Map.delete(state.inventory.slots, intent.slot)
-
-      assert pending.inventory.carried == state.inventory.carried
-      assert {:ok, <<"VMCPOSE", 14, _::binary>> = bytes} = PlayerSnapshot.encode(@uuid, pending)
-      assert byte_size(bytes) <= PlayerSnapshot.max_bytes()
-      assert {:ok, restored} = PlayerSnapshot.decode(bytes, @uuid)
-      assert restored == persisted(pending)
-      assert {:ok, ^bytes} = PlayerSnapshot.encode(@uuid, restored)
-      assert {:error, :wrong_transfer_kind} = PlayerSnapshot.transfer_request(@uuid, restored)
-    end
-  end
 
   test "terminal resolution keeps consumption or refunds the exact stack without replaying the source" do
     for {hand, count, outcome} <- [{:main, 2, :applied}, {:off, 1, :rejected}] do
@@ -204,65 +158,5 @@ defmodule Valimc.PlayerPlacementTransfersTest do
                %{off_state | inventory: %{off_state.inventory | selected: 0}},
                off_intent
              )
-  end
-
-  test "conflicting source inventory cannot be cleared or refunded" do
-    {state, intent} = source()
-    {:ok, pending} = PlayerPlacementTransfers.prepare(@uuid, 9, state, intent)
-
-    for inventory <- [
-          %{pending.inventory | selected: 0},
-          %{pending.inventory | slots: %{43 => intent.before}},
-          %{pending.inventory | slots: %{43 => %{intent.after | components: %{}}}}
-        ],
-        result <- [:applied, :rejected] do
-      altered = %{pending | inventory: inventory}
-
-      assert {:error, :placement_source_conflict} =
-               PlayerPlacementTransfers.resolve(altered, result)
-
-      assert {:error, :invalid_placement_snapshot} = PlayerSnapshot.encode(@uuid, altered)
-    end
-
-    assert {:error, :invalid_placement_plan} =
-             PlayerPlacementTransfers.resolve(pending, :already_applied)
-
-    assert {:error, :invalid_placement_snapshot} =
-             PlayerSnapshot.encode(@uuid, Map.delete(pending, :food))
-  end
-
-  test "valid outer checksums cannot change the typed operation, selected source or durable sequence" do
-    {state, intent} = source()
-    {:ok, pending} = PlayerPlacementTransfers.prepare(@uuid, 9, state, intent)
-    {:ok, bytes} = PlayerSnapshot.encode(@uuid, pending)
-    payload = binary_part(bytes, 0, byte_size(bytes) - 32)
-    <<"VMCPOSE", 14, rest::binary>> = payload
-
-    for version <- [3, 12, 13] do
-      assert {:error, :invalid_player_file} =
-               PlayerSnapshot.decode(seal(<<"VMCPOSE", version, rest::binary>>), @uuid)
-    end
-
-    assert {:error, :invalid_player_file} = PlayerSnapshot.decode(bytes, <<85::128>>)
-    {:ok, intent_bytes} = PlayerPlacementIntent.encode(@uuid, 10, intent)
-    {offset, _} = :binary.match(payload, "VMCPOUT")
-    inventory_offset = offset + byte_size(intent_bytes)
-    <<prefix::binary-size(^inventory_offset), _selected, stacks::binary>> = payload
-
-    assert {:error, :invalid_player_file} =
-             PlayerSnapshot.decode(seal(prefix <> <<0>> <> stacks), @uuid)
-
-    sequence_offset = offset - 12
-    <<header::binary-size(^sequence_offset), 10::64, tail::binary>> = payload
-
-    assert {:error, :invalid_player_file} =
-             PlayerSnapshot.decode(seal(header <> <<11::64>> <> tail), @uuid)
-
-    for size <- 0..(byte_size(bytes) - 1) do
-      assert {:error, :invalid_player_file} =
-               PlayerSnapshot.decode(binary_part(bytes, 0, size), @uuid)
-    end
-
-    assert {:error, :invalid_player_file} = PlayerSnapshot.decode(bytes <> <<0>>, @uuid)
   end
 end

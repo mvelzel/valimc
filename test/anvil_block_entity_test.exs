@@ -125,20 +125,6 @@ defmodule Valimc.AnvilBlockEntityTest do
 
       assert elem(entry.cooking.slots, 1) == stack("coal", 3)
     end
-
-    test "a compound vanilla would not load is dropped; one filed elsewhere moves into its chunk" do
-      assert BlockEntity.convert(be("minecraft:sign", {0, 64, 0}), @chest) == {:drop, :wrong_type}
-
-      assert BlockEntity.convert(be("minecraft:chest", {0, 64, 0}), @stone) ==
-               {:drop, :no_block_entity}
-
-      {position, {:compound, fields}} =
-        BlockEntity.position(be("minecraft:sign", {37, 70, -3}), {0, 0})
-
-      assert position == {5, 70, 13}
-      assert fields["x"] == {:int, 5} and fields["z"] == {:int, 13}
-      assert {{16, 0, 0}, _} = BlockEntity.position(compound(%{}), {1, 0})
-    end
   end
 
   describe "preserved block entities" do

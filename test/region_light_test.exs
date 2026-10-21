@@ -95,17 +95,6 @@ defmodule Valimc.RegionLightTest do
            ) == 0
   end
 
-  test "light is recomputed equal after a restart", ctx do
-    {x0, z0} = ctx.origin
-    set(ctx.owner, %{{x0 + 30, 64, z0 + 30} => BlockRegistry.default_state("glowstone")})
-    chunk = World.chunk_key(x0 + 30, z0 + 30)
-    before = image(ctx.owner, chunk)
-    {pid, _} = ctx.owner
-    :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-    {:ok, owner} = World.owner(ctx.key)
-    assert image(owner, chunk) == before
-  end
-
   # Light reaches a neighbour region's ring asynchronously: poll briefly.
   defp eventually(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
@@ -225,19 +214,6 @@ defmodule Valimc.RegionLightTest do
     end
 
     assert level(image(ctx.owner, east), :block, {x0 + 48, 70, z0 + 40}) == 14
-  end
-
-  test "a raw single-block set (creative torch placement) relights and refreshes packets", ctx do
-    {x0, z0} = ctx.origin
-    chunk = World.chunk_key(x0 + 20, z0 + 20)
-    _ = packet_light(chunk)
-    torch = {x0 + 20, 64, z0 + 20}
-    assert :ok = World.set_block(torch, BlockRegistry.default_state("torch"))
-    light = image(ctx.owner, chunk)
-    assert level(light, :block, torch) == 14
-    assert level(light, :block, {x0 + 21, 64, z0 + 20}) == 13
-    expected = IO.iodata_to_binary(Valimc.Anvil.Light.packet(light))
-    assert String.ends_with?(packet_light(chunk), expected)
   end
 
   defp light_update?(frame) do

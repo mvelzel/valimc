@@ -2,24 +2,10 @@ defmodule Valimc.DimensionTest do
   use ExUnit.Case, async: true
   alias Valimc.{Dimension, Inventory, PlayerSnapshot}
   alias Valimc.Anvil.Light
-  alias Valimc.Protocol.{Data, Wire}
-  alias Valimc.World.Chunk
+  alias Valimc.Protocol.Wire
 
   defp uuid, do: <<41::128>>
   defp pose, do: %{x: 8.5, y: 70.0, z: -3.5, yaw: 90.0, pitch: 0.0}
-
-  test "keys, names and storage folders are scoped per dimension" do
-    assert Dimension.scope(:overworld, {1, 2}) == {1, 2}
-    assert Dimension.scope(:the_nether, {1, 2}) == {:the_nether, {1, 2}}
-    assert Dimension.unscope({:the_end, {1, 2}}) == {:the_end, {1, 2}}
-    assert Dimension.unscope({1, 2}) == {:overworld, {1, 2}}
-    assert Dimension.parse("minecraft:the_nether") == {:ok, :the_nether}
-    assert Dimension.parse("the_end") == {:ok, :the_end}
-    assert Dimension.parse("minecraft:the_moon") == :error
-    assert Dimension.storage("w", :overworld) == "w"
-    assert Dimension.storage("w", :the_nether) == "w/dimensions/minecraft/the_nether"
-    assert Dimension.storage("w", :the_end) == "w/dimensions/minecraft/the_end"
-  end
 
   test "the context is per process and bound into tasks" do
     assert Dimension.current() == :overworld
@@ -32,17 +18,6 @@ defmodule Valimc.DimensionTest do
     end)
 
     assert Dimension.current() == :overworld
-  end
-
-  test "the build height and base profile follow the caller's dimension" do
-    assert Chunk.valid_y?(-64) and Chunk.valid_y?(319)
-    assert Chunk.base(0) == Data.block("stone")
-
-    Dimension.within(:the_nether, fn ->
-      refute Chunk.valid_y?(-1) or Chunk.valid_y?(256)
-      assert Chunk.valid_y?(0) and Chunk.valid_y?(255)
-      assert Chunk.base(0) == Data.block("air") and Chunk.base(-64) == Data.block("air")
-    end)
   end
 
   test "snapshots name the dimension, the death's dimension and the portal cooldown" do

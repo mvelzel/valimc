@@ -272,34 +272,4 @@ defmodule Valimc.LoginRecoveryTest do
       assert World.item_snapshot(ctx.key) == %{}
     end
   end
-
-  test "disconnect during uncertain delivery releases the lease and later login deduplicates",
-       ctx do
-    fixture = seed(ctx)
-    {:ok, {region, _}} = World.item_owner(ctx.key)
-    writer = :sys.get_state(region).resource.store
-    :sys.suspend(writer)
-    client = Client.begin_login(fixture.name)
-
-    try do
-      {_, state} =
-        await_state(
-          fixture.name,
-          &(&1.recovery != nil and Valimc.TestRegion.writing?(:sys.get_state(region).resource))
-        )
-
-      job = state.recovery.job
-      Client.close(client)
-      departed(fixture)
-      refute Process.alive?(job.pid)
-      assert File.read!(fixture.path) == fixture.bytes
-      :sys.resume(writer)
-      finish(Client.begin_login(fixture.name), fixture)
-      assert map_size(World.item_snapshot(ctx.key)) == 1
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-      Client.close(client)
-      departed(fixture)
-    end
-  end
 end

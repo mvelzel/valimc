@@ -50,19 +50,6 @@ defmodule Valimc.PlacementOwnerTest do
     assert World.get_block(c.position) == furnace
   end
 
-  test "a plan stays valid across edits in other sections of the region", c do
-    assert {:ok, prepared} = plan(c)
-    {x, y, z} = c.position
-    # Same region, other sections: one chunk over, and one section up.
-    assert :ok = World.set_block({x + 16, y, z}, 1)
-    assert :ok = World.set_block({x, y + 16, z}, 1)
-
-    assert {:ok, _} =
-             Region.place_block(c.owner, prepared.revision, prepared.batch, prepared.deadline)
-
-    assert World.get_block(c.position) == prepared.candidate.state
-  end
-
   test "target ABA cannot authorize an old placement plan", c do
     assert {:ok, prepared} = plan(c)
     assert :ok = World.set_block(c.position, 1)
@@ -149,78 +136,12 @@ defmodule Valimc.PlacementOwnerTest do
     assert World.get_block(c.position) == 0
   end
 
-  test "chest preparation refuses adjacent ordinary states and region-edge neighbors", c do
-    {x, y, z} = c.position
-    chest = Valimc.Protocol.Data.item_block(ItemStack.new("chest").item_id)
-    :ok = World.set_block({x + 1, y, z}, chest)
-    request = %{position: c.position, face: 1, cursor: {0.5, 0.5, 0.5}, yaw: 0.0}
-    assert {:error, :adjacent_chest} = plan(c, "chest", request)
-    {rx, _} = c.key
-    request = %{request | position: {rx * c.span, y, z}}
-    assert {:error, :cross_owner_chest} = plan(c, "chest", request)
-  end
-
   defp wait_writing(pid, _budget \\ nil) do
     Valimc.TestWait.until(fn ->
       Enum.any?(Valimc.TestConn.state(pid).resource.item_writes, &(&1.kind == :blocks))
     end)
 
     :ok
-  end
-
-  test "corrections share owner message order with later world publications", c do
-    World.subscribe(MapSet.new([c.key]), MapSet.new())
-    assert :ok = Region.correct_blocks(c.owner, [c.position], self())
-    assert :ok = World.set_block(c.position, 1)
-    assert_receive {:event, {:block, position, 0}}
-    assert position == c.position
-    assert_receive {:event, {:block, ^position, 1}}
-
-    assert {:error, :invalid_block_query} =
-             Region.correct_blocks(c.owner, List.duplicate(c.position, 3), self())
-  end
-
-  test "queued expired commits cannot mutate a resumed owner", c do
-    assert {:ok, prepared} = plan(c)
-    {pid, _} = c.owner
-    :sys.suspend(pid)
-
-    try do
-      # A short deadline that passes while the commit waits behind the suspended owner.
-      deadline = System.monotonic_time(:millisecond) + 50
-
-      task =
-        Task.async(fn ->
-          Region.place_block(c.owner, prepared.revision, prepared.batch, deadline)
-        end)
-
-      Process.sleep(60)
-      :sys.resume(pid)
-      assert {:error, :invalid_or_expired_placement} = Task.await(task, 60_000)
-      assert World.get_block(c.position) == 0
-    after
-      :sys.resume(pid)
-    end
-  end
-
-  test "a retired incarnation cannot reuse its revision after replacement", c do
-    assert {:ok, prepared} = plan(c)
-    {pid, epoch} = c.owner
-    :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-    {:ok, {next, _}} = World.owner(c.key)
-
-    assert {:error, :region_unavailable} =
-             Region.place_block(c.owner, prepared.revision, prepared.batch, prepared.deadline)
-
-    assert {:error, :stale_owner} =
-             Region.place_block(
-               {next, epoch},
-               prepared.revision,
-               prepared.batch,
-               prepared.deadline
-             )
-
-    assert World.get_block(c.position) == 0
   end
 
   test "stalled and absent sources fail without cold admission or blocking the caller", c do

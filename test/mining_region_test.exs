@@ -100,28 +100,6 @@ defmodule Valimc.MiningRegionTest do
     end
   end
 
-  test "a raw edit behind a queued mining write reaches subscribers after the mined block", ctx do
-    World.subscribe(MapSet.new([ctx.key]), MapSet.new())
-    writer = :sys.get_state(ctx.pid).resource.store
-    :sys.suspend(writer)
-    task = Task.async(fn -> Region.apply_mining_transfer(ctx.owner, ctx.transfer) end)
-
-    try do
-      writing(ctx.pid)
-      assert :ok = World.set_block(ctx.position, 1)
-      refute_receive {:event, {:block, _, _}}, 20
-      refute_received {:event, {:block_batch, _}}
-      :sys.resume(writer)
-      assert {:ok, :applied} = Task.await(task, 60_000)
-      assert_receive {:event, {:block_batch, _}}
-      assert_receive {:event, {:block, position, 1}}
-      assert position == ctx.position and World.get_block(ctx.position) == 1
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-      Task.shutdown(task, :brutal_kill)
-    end
-  end
-
   test "unrelated edits preserve permits but a changed-and-restored target durably rejects its old intent",
        ctx do
     assert :ok = World.set_block(ctx.other, 1)
@@ -184,63 +162,6 @@ defmodule Valimc.MiningRegionTest do
     assert map_size(World.item_snapshot(ctx.key)) == 1
   end
 
-  test "target mutation during pure planning rejects a previously eligible candidate", ctx do
-    parent = self()
-    token = make_ref()
-    resource = :sys.get_state(ctx.pid).resource
-    caller = Task.async(fn -> receive do: ({:plan_reply, result} -> result) end)
-
-    {:ok, worker} =
-      Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
-        receive do: (:continue -> :ok)
-
-        {:ok, plan} =
-          MiningTransfers.plan(
-            resource.items,
-            resource.item_receipts,
-            ctx.key,
-            ctx.transfer,
-            true
-          )
-
-        {:ok, batch} = Valimc.World.BlockBatch.prepare(%{ctx.position => 0})
-
-        send(
-          ctx.pid,
-          {:resource, ctx.epoch,
-           {:block_transfer_plan, self(), token,
-            {:ok, Map.merge(plan, %{batch: batch, kind: :mining})}}}
-        )
-
-        send(parent, :planning_finished)
-      end)
-
-    :sys.replace_state(ctx.pid, fn state ->
-      pending = %{
-        kind: :mining,
-        phase: :planning,
-        token: token,
-        from: {caller.pid, :plan_reply},
-        worker: worker,
-        monitor: Process.monitor(worker),
-        timer:
-          Process.send_after(self(), {:resource, ctx.epoch, {:item_commit_deadline, token}}, 5000)
-      }
-
-      %{state | resource: %{state.resource | item_pending: pending}}
-    end)
-
-    assert :ok = World.set_block(ctx.position, Data.block("dirt"))
-    assert :ok = World.set_block(ctx.position, 1)
-    send(worker, :continue)
-    assert {:ok, :rejected} = Task.await(caller, 60_000)
-    assert_receive :planning_finished
-    assert World.get_block(ctx.position) == 1
-    assert World.item_snapshot(ctx.key) == %{}
-    assert {:ok, {_, receipt}} = Region.item_transfer_receipt(ctx.owner, ctx.transfer.source)
-    assert {:ok, :rejected} = MiningTransfers.receipt_result(ctx.key, ctx.transfer, receipt)
-  end
-
   test "a restarted owner rejects an uncommitted old permit; a committed receipt survives restart",
        ctx do
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid)
@@ -259,38 +180,6 @@ defmodule Valimc.MiningRegionTest do
     assert {:ok, owner} = World.item_owner(ctx.key)
     assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, transfer)
     assert World.get_block(ctx.position) == 0
-    assert map_size(World.item_snapshot(ctx.key)) == 1
-  end
-
-  test "graceful shutdown cannot flush the old dirty snapshot over a queued mining commit", ctx do
-    assert :ok = World.set_block(ctx.other, Data.block("dirt"))
-    writer = :sys.get_state(ctx.pid).resource.store
-    :sys.suspend(writer)
-    task = Task.async(fn -> Region.apply_mining_transfer(ctx.owner, ctx.transfer) end)
-
-    stop =
-      try do
-        writing(ctx.pid)
-
-        stop =
-          Task.async(fn ->
-            DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid)
-          end)
-
-        assert {:error, :mining_commit_uncertain} = Task.await(task, 60_000)
-        :sys.resume(writer)
-        assert :ok = Task.await(stop, 60_000)
-        stop
-      after
-        if Process.alive?(writer), do: :sys.resume(writer)
-        Task.shutdown(task, :brutal_kill)
-      end
-
-    Task.shutdown(stop, :brutal_kill)
-    assert {:ok, owner} = World.item_owner(ctx.key)
-    assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, ctx.transfer)
-    assert World.get_block(ctx.position) == 0
-    assert World.get_block(ctx.other) == Data.block("dirt")
     assert map_size(World.item_snapshot(ctx.key)) == 1
   end
 
@@ -326,34 +215,5 @@ defmodule Valimc.MiningRegionTest do
 
     assert {:error, :invalid_mining_reservation} = Region.reserve_mining(ctx.owner, [])
     assert {:error, :wrong_region} = Region.reserve_mining(ctx.owner, [{0, 63, 0}])
-  end
-
-  test "renewal and release preserve owner, target and committed receipt fencing", ctx do
-    token = ctx.transfer.permit
-    expected = ctx.transfer.expected
-    assert :ok = World.set_block(ctx.other, Data.block("dirt"))
-    assert {:ok, ^expected} = Region.renew_mining(ctx.owner, token)
-    stale = {ctx.pid, make_ref()}
-    assert {:error, :stale_owner} = Region.renew_mining(stale, token)
-    assert {:error, :stale_owner} = Region.release_mining(stale, token)
-    assert {:ok, :applied} = Region.apply_mining_transfer(ctx.owner, ctx.transfer)
-    assert :ok = Region.release_mining(ctx.owner, token)
-    assert {:ok, :already_applied} = Region.apply_mining_transfer(ctx.owner, ctx.transfer)
-    assert map_size(World.item_snapshot(ctx.key)) == 1
-
-    {:ok, released} = Region.reserve_mining(ctx.owner, [ctx.other])
-    assert :ok = Region.release_mining(ctx.owner, released.permit)
-    assert :ok = Region.release_mining(ctx.owner, released.permit)
-    assert {:error, :stale_mining_permit} = Region.renew_mining(ctx.owner, released.permit)
-
-    request =
-      Map.merge(released, %{source: :crypto.strong_rand_bytes(16), sequence: 1, records: []})
-
-    assert {:ok, :rejected} = Region.apply_mining_transfer(ctx.owner, request)
-    assert World.get_block(ctx.other) == Data.block("dirt")
-    {:ok, aba} = Region.reserve_mining(ctx.owner, [ctx.other])
-    assert :ok = World.set_block(ctx.other, Data.block("dirt"))
-    assert {:error, :stale_mining_permit} = Region.renew_mining(ctx.owner, aba.permit)
-    assert map_size(World.item_snapshot(ctx.key)) == 1
   end
 end

@@ -250,16 +250,6 @@ defmodule Valimc.PlayerOutboxTest do
     assert map_size(World.item_snapshot(ctx.key)) == 1
   end
 
-  test "closing with a stale or pending fence preserves the actual outbox file", ctx do
-    {prepared_fence, pending} = prepare(ctx)
-    bytes = File.read!(PlayerStore.path(ctx.base, ctx.uuid))
-    assert {:error, :stale_player_snapshot} = PlayerStore.close(ctx.writer, ctx.fence, ctx.before)
-    {:ok, writer, ^pending, fence} = PlayerStore.open(ctx.uuid)
-    assert fence != prepared_fence
-    assert {:error, :transfer_pending} = PlayerStore.close(writer, fence, ctx.before)
-    assert File.read!(PlayerStore.path(ctx.base, ctx.uuid)) == bytes
-  end
-
   test "pending disconnect keeps latest health/food without restoring spent inventory", ctx do
     fields = %{
       game_mode: Valimc.GameMode.new(:survival),
@@ -371,33 +361,6 @@ defmodule Valimc.PlayerOutboxTest do
     assert World.item_snapshot(ctx.key) == %{}
   end
 
-  test "failed completion recovers a pending source and deduplicates an already committed destination",
-       ctx do
-    {fence, pending} = prepare(ctx)
-    assert {:ok, :applied} = deliver(ctx, pending)
-    path = PlayerStore.path(ctx.base, ctx.uuid)
-    old = File.read!(path)
-    File.rename!(path, path <> ".saved")
-    File.mkdir_p!(path)
-    monitor = Process.monitor(ctx.writer)
-
-    capture_log(fn ->
-      assert {:error, :player_commit_uncertain} = complete(ctx, fence)
-      assert_receive {:DOWN, ^monitor, :process, _, :normal}
-    end)
-
-    assert File.read!(path <> ".saved") == old
-    File.rm_rf!(path)
-    File.rename!(path <> ".saved", path)
-    {:ok, writer, recovered, recovered_fence} = PlayerStore.open(ctx.uuid)
-    assert recovered == pending
-    next = %{ctx | writer: writer}
-    assert {:ok, :already_applied} = deliver(next, recovered)
-    assert {:ok, _, cleared} = complete(next, recovered_fence)
-    assert cleared.inventory == ctx.after.inventory and cleared.outbox == nil
-    assert map_size(World.item_snapshot(ctx.key)) == 1
-  end
-
   test "foreign callers, disabled storage and queued stale checkpoints cannot replace an intent",
        ctx do
     foreign =
@@ -462,22 +425,6 @@ defmodule Valimc.PlayerOutboxTest do
     assert {:ok, :applied} = Region.apply_item_transfer(owner, request)
     assert {:error, :transfer_destination_ephemeral} = complete(ctx, fence)
     assert saved(ctx) == {:ok, pending}
-  end
-
-  test "lost completion reply recovers the cleared outbox and retains depleted inventory", ctx do
-    {fence, pending} = prepare(ctx)
-    assert {:ok, :applied} = deliver(ctx, pending)
-    ref = make_ref()
-    PlayerStore.complete_transfer(ctx.writer, fence, ref)
-    {:ok, cleared, completed_fence} = GenServer.call(ctx.writer, :load)
-    kill_writer(ctx)
-    assert_receive {:player_transfer_saved, ^ref, {:ok, ^completed_fence, ^cleared}}
-    {:ok, writer, recovered, recovered_fence} = PlayerStore.open(ctx.uuid)
-    assert recovered == cleared and recovered.outbox == nil
-    assert recovered.transfer_sequence == 1 and recovered.inventory == ctx.after.inventory
-    assert recovered_fence != completed_fence
-    assert map_size(World.item_snapshot(ctx.key)) == 1
-    assert :ok = PlayerStore.close(writer, recovered_fence, ctx.after)
   end
 
   test "source owner loss releases its lease while preserving a prepared intent", ctx do

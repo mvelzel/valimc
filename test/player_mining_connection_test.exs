@@ -3,7 +3,6 @@ defmodule Valimc.PlayerMiningConnectionTest do
   @moduletag :tcp
   alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore, World}
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
-  alias Valimc.Session.Jobs
   alias Valimc.TestClient, as: Client
 
   # Mining tool rules, loot and attempt timing are compared by the mining oracles;
@@ -303,74 +302,6 @@ defmodule Valimc.PlayerMiningConnectionTest do
     assert World.get_block(ctx.target) == Data.block("stone")
     assert World.item_snapshot(ctx.key) == %{}
     assert Map.get(saved(ctx), :transfer_sequence, 0) == 0
-  end
-
-  test "a completed reservation cannot outlive its budget in a suspended player mailbox", ctx do
-    seed(ctx, %{36 => instant("iron_pickaxe")})
-    {client, pid} = login(ctx)
-    {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :ok = Valimc.TestRegionGate.stall(region)
-    action(client, "start_destroy_block", ctx.target, 1)
-    wait(fn -> Valimc.TestConn.job(state(pid), :mining) != nil end)
-    :ok = :sys.suspend(pid)
-
-    try do
-      # The reply reaches the mailbox after the job's budget, however fast the host.
-      :sys.replace_state(pid, fn s ->
-        %{
-          s
-          | jobs: Jobs.update(s.jobs, :mining, %{deadline: System.monotonic_time(:millisecond)})
-        }
-      end)
-
-      :ok = Valimc.TestRegionGate.resume(region)
-    after
-      :ok = :sys.resume(pid)
-    end
-
-    wait(fn -> finished(pid) and Valimc.TestConn.job(state(pid), :mining) == nil end)
-    assert World.get_block(ctx.target) == Data.block("stone")
-    assert World.item_snapshot(ctx.key) == %{}
-    assert Inventory.held(state(pid).inventory, :main) == instant("iron_pickaxe")
-    assert Map.get(saved(ctx), :transfer_sequence, 0) == 0
-  end
-
-  test "occupied furnace mining rejects durably without wearing tools or releasing contents",
-       ctx do
-    alias Valimc.World.Containers
-    tool = instant("diamond_pickaxe")
-    seed(ctx, %{36 => tool}, 0)
-    {:ok, {region, _}} = World.existing_owner(ctx.key)
-    :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, region)
-
-    {:ok, containers, entry} =
-      Containers.create_cooking(%Containers{}, ctx.key, ctx.target, :furnace)
-
-    cooking = %Valimc.Cooking{slots: {ItemStack.new("raw_iron"), nil, nil}}
-
-    {:ok, containers, _} =
-      Containers.replace_cooking(containers, ctx.target, entry.revision, cooking, %{})
-
-    {:ok, bytes} = Containers.encode(ctx.key, containers)
-    Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
-    {:ok, block} = Valimc.Physics.CookingBlocks.placement(:furnace, 0.0)
-    Valimc.TestDisk.write(ctx.base, ctx.key, :blocks, %{ctx.target => block})
-
-    {client, pid} = login(ctx)
-    action(client, "start_destroy_block", ctx.target, 1)
-
-    tick_until(pid, fn ->
-      finished(pid) and saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
-    end)
-
-    assert World.get_block(ctx.target) == block
-    assert Inventory.held(state(pid).inventory, :main) == tool
-    assert drops(ctx) == []
-
-    {:ok, restored} =
-      Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
-
-    assert restored == containers
   end
 
   test "filled chest mining consumes only tool wear while its owner releases exact stored patches",

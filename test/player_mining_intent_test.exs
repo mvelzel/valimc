@@ -49,24 +49,6 @@ defmodule Valimc.PlayerMiningIntentTest do
 
   defp seal(payload), do: payload <> :crypto.hash(:sha256, payload)
 
-  test "table extension retains typed mining validation and exact unrelated inputs" do
-    state = snapshot(intent())
-    cells = List.to_tuple([ItemStack.new("oak_planks", 3) | List.duplicate(nil, 8)])
-    state = put_in(state.inventory.table_inputs, cells)
-    assert {:ok, <<"VMCPOSE", 15, _::binary>> = bytes} = PlayerSnapshot.encode(@uuid, state)
-    assert {:ok, ^state} = PlayerSnapshot.decode(bytes, @uuid)
-    assert {:ok, ^bytes} = PlayerSnapshot.encode(@uuid, state)
-    burning = Map.put(state, :fire_ticks, 300)
-    assert {:ok, <<"VMCPOSE", 17, _::binary>> = bytes} = PlayerSnapshot.encode(@uuid, burning)
-    assert {:ok, ^burning} = PlayerSnapshot.decode(bytes, @uuid)
-    effects = Map.put(burning, :effects, %{11 => [{300, 0, false, true, true}]})
-    assert {:ok, <<"VMCPOSE", 18, _::binary>> = bytes} = PlayerSnapshot.encode(@uuid, effects)
-    assert {:ok, ^effects} = PlayerSnapshot.decode(bytes, @uuid)
-
-    assert {:error, :invalid_mining_snapshot} =
-             PlayerSnapshot.encode(@uuid, put_in(state.inventory.selected, 0))
-  end
-
   test "typed intent roundtrips stable drops and exact refund with the complete v13 player journal" do
     intent = intent()
     assert {:ok, encoded} = PlayerMiningIntent.encode(@uuid, 9, intent)

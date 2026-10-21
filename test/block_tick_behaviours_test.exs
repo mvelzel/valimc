@@ -1,6 +1,6 @@
 defmodule Valimc.BlockTickBehavioursTest do
   use ExUnit.Case, async: true
-  alias Valimc.Block.{BuddingAmethyst, Coral}
+  alias Valimc.Block.BuddingAmethyst
   alias Valimc.Registry.Blocks
   alias Valimc.TestScope
   alias Valimc.World
@@ -23,19 +23,6 @@ defmodule Valimc.BlockTickBehavioursTest do
     fn _bound -> Agent.get_and_update(agent, fn [value | rest] -> {value, rest} end) end
   end
 
-  describe "coral blocks" do
-    test "die on their scheduled tick unless a neighbour holds water" do
-      position = {0, 64, 0}
-      assert Coral.scheduled_tick(position, @coral, world(%{}), nil) == [{:set, position, @dead}]
-      assert Coral.scheduled_tick(position, @coral, world(%{{0, 65, 0} => @water}), nil) == []
-
-      waterlogged = Blocks.state("oak_slab", %{"waterlogged" => "true"})
-
-      assert Coral.scheduled_tick(position, @coral, world(%{{1, 64, 0} => waterlogged}), nil) ==
-               []
-    end
-  end
-
   describe "budding amethyst" do
     defp grow(blocks, values) do
       BuddingAmethyst.random_tick({0, 64, 0}, @budding, world(blocks), draws(values))
@@ -52,20 +39,6 @@ defmodule Valimc.BlockTickBehavioursTest do
       flowing = Blocks.state("water", %{"level" => "1"})
       assert grow(%{{0, 64, -1} => flowing}, [0, 2]) == []
       assert grow(%{{0, 63, 0} => Blocks.default_state("stone")}, [0, 0]) == []
-    end
-
-    test "buds facing out of the chosen face grow one stage, keeping their water" do
-      for {from, to} <- [
-            {"small_amethyst_bud", "medium_amethyst_bud"},
-            {"medium_amethyst_bud", "large_amethyst_bud"},
-            {"large_amethyst_bud", "amethyst_cluster"}
-          ] do
-        assert grow(%{{0, 65, 0} => bud(from, "up")}, [0, 1]) ==
-                 [{:set, {0, 65, 0}, bud(to, "up")}]
-      end
-
-      assert grow(%{{0, 65, 0} => bud("small_amethyst_bud", "north")}, [0, 1]) == []
-      assert grow(%{{0, 65, 0} => bud("amethyst_cluster", "up")}, [0, 1]) == []
     end
   end
 

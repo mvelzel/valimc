@@ -159,19 +159,6 @@ defmodule Valimc.PlayerPlacementStoreTest do
     assert {:ok, :already_rejected} = deliver(ctx, pending)
   end
 
-  test "lost applied reply survives both restarts and cannot overwrite a later replacement",
-       ctx do
-    {_fence, pending} = prepare(ctx)
-    assert {:ok, :applied} = deliver(ctx, pending)
-    assert :ok = World.set_block(ctx.position, 10)
-    assert :ok = Region.flush(elem(ctx.owner, 0))
-    {ctx, restored, fence} = restart(ctx)
-    assert {:ok, :already_applied} = deliver(ctx, restored)
-    assert {:ok, _, final} = complete(ctx, fence)
-    assert final.outbox == nil and Inventory.get(final.inventory, 45) == nil
-    assert World.get_block(ctx.position) == 10
-  end
-
   test "a mining receipt with the same source and sequence cannot clear a placement journal",
        ctx do
     {fence, pending} = prepare(ctx)

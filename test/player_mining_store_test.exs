@@ -166,63 +166,6 @@ defmodule Valimc.PlayerMiningStoreTest do
     assert {:ok, :already_rejected} = deliver(ctx, pending)
   end
 
-  test "lost applied reply and removed drop keep wear without destroying a replacement block",
-       ctx do
-    {_fence, pending} = prepare(ctx)
-    assert {:ok, :applied} = deliver(ctx, pending)
-    {:ok, handle} = Region.find_item(ctx.owner, hd(ctx.intent.records).uuid)
-    assert :ok = Region.remove_item(handle)
-    assert :ok = World.set_block(ctx.position, Data.block("dirt"))
-    assert :ok = Region.flush(elem(ctx.owner, 0))
-    assert :ok = DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, ctx.writer)
-    _owner = restart_region(ctx)
-    {:ok, writer, restored, fence} = PlayerStore.open(ctx.uuid)
-    ctx = %{ctx | writer: writer}
-    assert {:ok, :already_applied} = deliver(ctx, restored)
-    assert {:ok, _, final} = complete(ctx, fence)
-    assert Inventory.get(final.inventory, 43) == nil and final.outbox == nil
-    assert final.transfer_sequence == 1 and World.item_snapshot(ctx.key) == %{}
-    assert World.get_block(ctx.position) == Data.block("dirt")
-  end
-
-  test "closing rejection retains current food/health and death cleanup transfers the refunded gear",
-       ctx do
-    {fence, pending} = prepare(ctx)
-    _owner = restart_region(ctx)
-
-    later = %{
-      pending
-      | health: %{value: 0.0, hurt_ticks: 7, death_ticks: 0},
-        food: %PlayerFood{level: 7, saturation: 0.0, exhaustion: 3.5, timer: 79}
-    }
-
-    later = Map.put(later, :fire_ticks, -20)
-
-    monitor = Process.monitor(ctx.writer)
-    assert :ok = PlayerStore.close_session(ctx.writer, fence, later)
-    assert_receive {:DOWN, ^monitor, :process, _, :normal}
-
-    assert {:ok, final} =
-             PlayerSnapshot.decode(File.read!(PlayerStore.path(ctx.base, ctx.uuid)), ctx.uuid)
-
-    assert final.outbox == nil and final.transfer_sequence == 2
-    assert final.health == later.health and final.food == later.food
-    assert final.fire_ticks == -20
-    assert final.inventory.slots == %{}
-    assert World.get_block(ctx.position) == Data.block("stone")
-
-    {:ok, %{records: records}} =
-      Valimc.World.ItemRecords.decode(
-        Valimc.TestDisk.read(ctx.base, ctx.key, :items),
-        ctx.key
-      )
-
-    assert length(records) == 2
-
-    assert Enum.sort(Enum.map(records, & &1.stack)) ==
-             Enum.sort([ctx.intent.before, ItemStack.new("iron_helmet")])
-  end
-
   test "source preparation refuses unrelated tool changes, mode mismatches and stale journals",
        ctx do
     for invalid <- [

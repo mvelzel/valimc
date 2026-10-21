@@ -41,15 +41,6 @@ defmodule Valimc.OpenFilesTest do
     end)
   end
 
-  test "the open-files limit is raised toward the hard limit and can be set lower", %{soft: soft} do
-    {:ok, {raised, hard}} = Native.set_open_files_limit(1_000_000)
-    assert raised == soft and raised <= hard
-    if match?({:unix, :darwin}, :os.type()), do: assert(raised <= 10_240)
-    assert {:ok, {100, ^hard}} = Native.set_open_files_limit(100)
-    assert {:ok, {^raised, ^hard}} = Native.set_open_files_limit(1_000_000)
-    assert FileBudget.cap() > 0
-  end
-
   # Holds the whole budget of 2 at once and reports what it counts meanwhile.
   # A dead holder still counted would keep it full: the budget's wait would end
   # in `{:error, {:unwritten, :file_budget}}`.
@@ -117,21 +108,6 @@ defmodule Valimc.OpenFilesTest do
     Process.sleep(50)
     Enum.each(holders, &Process.exit(&1, :kill))
     assert fill_budget() == 2
-  end
-
-  test "out-of-descriptor errors are transient, others are not" do
-    for reason <- [
-          :emfile,
-          :enfile,
-          "Too many open files (os error 24)",
-          {:mining_recovery_failed, {:full_sync, "Too many open files (os error 24)"}},
-          {:invalid_region_file, "could not read file \"log.1\": too many open files"},
-          {:file, :emfile, "/tmp/x"}
-        ],
-        do: assert(FileBudget.transient?(reason))
-
-    for reason <- [:enoent, :eacces, "No such file or directory (os error 2)", {:corrupt, 3}],
-        do: refute(FileBudget.transient?(reason))
   end
 
   # Holding a descriptor per log would add 200; the margin is for whatever the

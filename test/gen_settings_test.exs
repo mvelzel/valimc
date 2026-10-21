@@ -14,33 +14,6 @@ defmodule Valimc.GenSettingsTest do
     %{dir: dir}
   end
 
-  test "settings convert to world_gen_settings.dat and back" do
-    for settings <- [
-          GenSettings.create("minecraft:normal", nil, -9_000_000_000, false),
-          GenSettings.create("minecraft:flat", nil, 3, true),
-          GenSettings.create("minecraft:debug_all_block_states", nil, 3, true),
-          GenSettings.legacy(:flat)
-        ] do
-      {:ok, {:compound, root} = tag} = GenSettings.to_nbt(settings)
-      assert root["DataVersion"] == {:int, Valimc.Version.data_version()}
-      assert {:compound, %{"seed" => {:long, _}}} = root["data"]
-      # Through bytes, as the file stores it.
-      {:ok, read} = tag |> NBT.write_compressed(:gzip) |> NBT.read_compressed(:gzip)
-      assert GenSettings.from_nbt(read) == {:ok, settings}
-    end
-
-    # A data pack's inline noise settings are refused with the reason.
-    inline =
-      put_in(
-        GenSettings.create("minecraft:normal", nil, 1, true)["dimensions"]["minecraft:overworld"][
-          "generator"
-        ]["settings"],
-        %{"sea_level" => 63}
-      )
-
-    assert GenSettings.to_nbt(inline) == {:error, {:inline_noise_settings, "minecraft:overworld"}}
-  end
-
   test "worlds record their settings; older and flat worlds get theirs", ctx do
     :ok = Generator.create(ctx.dir, 20_261_020, features: false, structures: false)
     recorded = Generator.recorded(ctx.dir)

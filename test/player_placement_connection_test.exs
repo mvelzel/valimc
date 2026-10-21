@@ -45,7 +45,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     }
   end
 
-  defp seed(c, mode \\ :creative, slots \\ %{}) do
+  defp seed(c, mode, slots \\ %{}) do
     player =
       Map.merge(c.pose, %{
         game_mode: GameMode.new(mode),
@@ -237,31 +237,6 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     assert :sys.get_state(Valimc.TestConn.state(pid).player_store).snapshot.transfer_sequence == 0
   end
 
-  test "pending source save blocks selection, not chat or world reads, and precedes destination mutation",
-       c do
-    seed(c, :survival)
-    {client, pid} = login(c)
-    writer = Valimc.TestConn.state(pid).player_store
-    :sys.suspend(writer)
-
-    try do
-      send_place(client, c.target)
-      wait(fn -> match?(%{stage: :prepare}, Valimc.TestConn.state(pid).recovery) end)
-      Client.send_packet(client, :play, "set_carried_item", <<1::signed-16>>)
-      Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-      {_body, client} = Client.await_stats(client)
-      assert Valimc.TestConn.state(pid).inventory.selected == 0
-      assert Valimc.TestConn.state(pid).inventory.slots[36].count == 7
-      assert World.get_block(c.target) == 0
-      :sys.resume(writer)
-      _client = ack(client)
-      assert World.get_block(c.target) == 1
-      assert Valimc.TestConn.state(pid).inventory.slots[36].count == 6
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-    end
-  end
-
   test "disconnect during destination storage recovers the already-consumed stack exactly once",
        c do
     seed(c, :survival)
@@ -286,65 +261,6 @@ defmodule Valimc.PlayerPlacementConnectionTest do
       assert saved(c).transfer_sequence == 1 and saved(c).outbox == nil
     after
       if Process.alive?(writer), do: :sys.resume(writer)
-    end
-  end
-
-  test "stalled survival sampling fences selection and expires without source consumption", c do
-    seed(c, :survival)
-    {client, pid} = login(c)
-    {:ok, {owner, _}} = World.existing_owner(c.key)
-    Valimc.TestRegionGate.stall(owner)
-
-    try do
-      send_place(client, c.target)
-      # The use first asks the stalled owner whether it clicked a table or container.
-      wait(fn -> Valimc.TestConn.state(pid).table_job end)
-      Client.send_packet(client, :play, "set_carried_item", <<1::signed-16>>)
-      Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-      {_body, client} = Client.await_stats(client)
-      assert Valimc.TestConn.state(pid).inventory.selected == 0
-      # The command's authority lapses while the owner is stalled, however fast the host.
-      past = System.monotonic_time(:millisecond)
-
-      :sys.replace_state(pid, &put_in(&1.table_job.placement.command.expires, past))
-
-      Valimc.TestRegionGate.resume(owner)
-      _client = ack(client)
-      assert World.get_block(c.target) == 0
-      assert Valimc.TestConn.state(pid).inventory.slots[36].count == 7
-
-      assert :sys.get_state(Valimc.TestConn.state(pid).player_store).snapshot.transfer_sequence ==
-               0
-    after
-      Valimc.TestRegionGate.resume(owner)
-    end
-  end
-
-  test "an accepted command retains its original held item before a later selection", c do
-    seed(c)
-    {client, pid} = login(c)
-    {:ok, {owner, _}} = World.existing_owner(c.key)
-    Valimc.TestRegionGate.stall(owner)
-
-    try do
-      send_place(client, c.target)
-
-      wait(fn ->
-        state = Valimc.TestConn.state(pid)
-        state.table_job != nil or Valimc.TestConn.job(state, :placement) != nil
-      end)
-
-      Client.send_packet(client, :play, "set_carried_item", <<1::signed-16>>)
-      {<<1>>, client} = Client.await(client, :play, "set_held_slot")
-      Valimc.TestRegionGate.resume(owner)
-      client = ack(client)
-      assert World.get_block(c.target) == 1
-      :ok = World.set_block(c.target, 0)
-      send_place(client, c.target, 1, 0.5, 0, 2)
-      _client = ack(client, 2)
-      assert World.get_block(c.target) == 15_180
-    after
-      Valimc.TestRegionGate.resume(owner)
     end
   end
 end

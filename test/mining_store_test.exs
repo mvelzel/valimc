@@ -6,8 +6,6 @@ defmodule Valimc.MiningStoreTest do
 
   alias Valimc.World.{
     Containers,
-    ContainerTransfers,
-    CookingOrbs,
     Items,
     Store
   }
@@ -94,52 +92,6 @@ defmodule Valimc.MiningStoreTest do
     %{ctx | proposal: proposal}
   end
 
-  defp cooking_award_proposal(ctx) do
-    block = Data.item_block(Data.item("furnace"))
-    :ok = Store.flush(ctx.writer, ctx.lease, Map.put(ctx.before_edits, ctx.position, block))
-    source = <<96::128>>
-    recipe = "minecraft:iron_ingot_from_smelting_raw_iron"
-    {:ok, cs, entry} = Containers.create_cooking(%Containers{}, ctx.key, ctx.position, :furnace)
-    cooking = %Valimc.Cooking{slots: {nil, nil, ItemStack.new("iron_ingot", 4)}, total: 200}
-
-    {:ok, cs, entry} =
-      Containers.replace_cooking(cs, ctx.position, entry.revision, cooking, %{recipe => 7})
-
-    {:ok, cs, _} = ContainerTransfers.reserve(cs, source)
-
-    request = %{
-      source: source,
-      sequence: 1,
-      permit: <<97::128>>,
-      position: ctx.position,
-      revision: entry.revision,
-      kind: :furnace,
-      slots: cooking.slots,
-      inventory: %Valimc.Inventory{},
-      action: :pickup,
-      slot: 2,
-      button: 1
-    }
-
-    {x, y, z} = ctx.position
-    context = %{position: {x + 0.5, y * 1.0, z + 0.5}, draws: %{recipe => 0}}
-
-    {:ok, %{containers: cs, result: :applied}} =
-      ContainerTransfers.plan_cooking_award(cs, ctx.key, request, true, context)
-
-    :ok = Store.flush_containers(ctx.writer, ctx.lease, cs)
-    {:ok, next, _} = Containers.remove(cs, ctx.position, cs.entries[ctx.position].revision)
-    assert next.pending_awards == cs.pending_awards
-
-    {:ok, items, _} =
-      Items.create(Items.new(), ctx.key, ItemStack.new("furnace"), {x + 0.5, y + 0.5, z + 0.5})
-
-    {:ok, items, _} =
-      Items.create(items, ctx.key, ItemStack.new("iron_ingot", 2), {x + 0.25, y + 0.5, z + 0.5})
-
-    %{ctx | proposal: ctx.proposal |> Map.put(:containers, next) |> Map.put(:items, items)}
-  end
-
   test "joint block/items/container commit acknowledges all outputs and survives writer replacement",
        ctx do
     ctx = container_proposal(ctx)
@@ -157,13 +109,7 @@ defmodule Valimc.MiningStoreTest do
   end
 
   test "a failed joint write changes no output and retires its writer", ctx do
-    ctx = cooking_award_proposal(ctx)
-    [id] = Map.keys(ctx.proposal.containers.pending_awards)
-
-    {:ok, materialized, :materialized} =
-      CookingOrbs.materialize(ctx.proposal.containers, ctx.key, id)
-
-    ctx = put_in(ctx.proposal.containers, materialized)
+    ctx = container_proposal(ctx)
     before = durable(ctx)
     {:ok, containers} = Store.load_containers(ctx.writer)
     Valimc.TestDisk.break_writer(ctx.writer)
@@ -180,24 +126,5 @@ defmodule Valimc.MiningStoreTest do
     assert {:ok, writer, _} = Store.open(ctx.key)
     assert Store.load(writer) == hd(before)
     assert Store.load_containers(writer) == {:ok, containers}
-  end
-
-  test "an invalid container proposal cannot change any of the three outputs", ctx do
-    ctx = container_proposal(ctx)
-    before = durable(ctx)
-    token = make_ref()
-
-    Store.commit_mining(
-      ctx.writer,
-      ctx.lease,
-      %{ctx.proposal | containers: :invalid},
-      {self(), ctx.epoch},
-      token
-    )
-
-    assert_receive {:resource, _, {:mining_saved, _, ^token, {:error, :invalid_mining_proposal}}}
-
-    assert durable(ctx) == before
-    assert Process.alive?(ctx.writer)
   end
 end

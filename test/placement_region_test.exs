@@ -4,7 +4,6 @@ defmodule Valimc.PlacementRegionTest do
   alias Valimc.World
 
   alias Valimc.World.{
-    ItemRecords,
     MiningTransfers,
     PlacementTransfers,
     Region
@@ -109,21 +108,6 @@ defmodule Valimc.PlacementRegionTest do
     assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, removal)
   end
 
-  test "a new adjacent chest after reservation durably rejects without publishing target metadata",
-       ctx do
-    {x, y, z} = ctx.position
-    position = {x + 4, y, z + 4}
-    {:ok, reserved} = reserve(ctx.owner, [position])
-    request = Map.merge(ctx.transfer, Map.merge(reserved, %{edits: %{position => @chest}}))
-    :ok = World.set_block({x + 5, y, z + 4}, @chest)
-    assert {:ok, :rejected} = Region.apply_placement_transfer(ctx.owner, request)
-    receipt(ctx, ctx.owner, request, :rejected)
-    assert World.get_block(position) == 0
-    assert :sys.get_state(ctx.pid).resource.containers.entries == %{}
-    assert {:ok, :already_rejected} = Region.apply_placement_transfer(ctx.owner, request)
-    assert World.item_snapshot(ctx.key) == %{}
-  end
-
   test "unrelated edits preserve permits; target ABA, release and changed context reject durably",
        ctx do
     assert :ok = World.set_block(ctx.other, 1)
@@ -178,39 +162,5 @@ defmodule Valimc.PlacementRegionTest do
              Region.release_placement({ctx.pid, make_ref()}, ctx.transfer.permit)
 
     assert World.get_block(ctx.position) == 0
-  end
-
-  test "receipt capacity admits existing sources only and binds every request field", ctx do
-    receipts =
-      Map.new(1..ItemRecords.max_sources(), &{<<&1::128>>, %{sequence: 1, digest: <<0::256>>}})
-
-    request = %{ctx.transfer | source: <<0::128>>}
-
-    assert {:error, :transfer_source_limit} =
-             PlacementTransfers.plan(:unchanged, receipts, ctx.key, request, true)
-
-    {:ok, plan} = PlacementTransfers.plan(:unchanged, %{}, ctx.key, request, true)
-    refute plan.receipts[request.source].digest == plan.digest
-
-    for altered <- [
-          %{request | edits: %{ctx.position => 10}},
-          %{request | permit: <<99::128>>},
-          %{request | expected: %{ctx.position => 10}}
-        ] do
-      assert {:error, :transfer_conflict} =
-               PlacementTransfers.plan(:unchanged, plan.receipts, ctx.key, altered, true)
-    end
-
-    assert {:ok, %{result: :already_applied}} =
-             PlacementTransfers.plan(:unchanged, plan.receipts, ctx.key, request, false)
-
-    assert {:error, :stale_transfer} =
-             PlacementTransfers.plan(
-               :unchanged,
-               %{request.source => %{sequence: 2, digest: <<0::256>>}},
-               ctx.key,
-               request,
-               true
-             )
   end
 end

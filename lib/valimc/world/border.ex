@@ -53,12 +53,6 @@ defmodule Valimc.World.Border do
   def lerp_time(%__MODULE__{extent: {:static, _}}), do: 0
   def lerp_time(%__MODULE__{extent: %{progress: progress}}), do: progress
 
-  @doc "Blocks per tick of a moving border (`getLerpSpeed`)."
-  def lerp_speed(%__MODULE__{extent: {:static, _}}), do: 0.0
-
-  def lerp_speed(%__MODULE__{extent: %{from: from, to: to, begin: begin, end: finish}}),
-    do: abs(from - to) / (finish - begin)
-
   def status(%__MODULE__{extent: {:static, _}}), do: :stationary
   def status(%__MODULE__{extent: %{from: from, to: to}}) when to < from, do: :shrinking
   def status(%__MODULE__{}), do: :growing

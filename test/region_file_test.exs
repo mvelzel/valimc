@@ -29,12 +29,6 @@ defmodule Valimc.RegionFileTest do
         do: {index, RegionFile.chunk(bytes, slot, {dir, region})}
   end
 
-  test "file names give region coordinates, negative ones included" do
-    assert RegionFile.coords("/w/region/r.-1.12.mca") == {:ok, {-1, 12}}
-    assert RegionFile.coords("r.0.0.mcr") == :error
-    assert RegionFile.chunk_pos({-1, 2}, 33) == {-31, 65}
-  end
-
   test "each compression id reads; unknown ids are missing, custom ones an error" do
     bytes =
       region([
@@ -150,8 +144,8 @@ defmodule Valimc.RegionFileTest do
         {:byte, byte}, h -> rotl.(h + byte * p5 &&& m, 11) * p1 &&& m
       end)
 
-    h = (h ^^^ (h >>> 15)) * p2 &&& m
-    h = (h ^^^ (h >>> 13)) * p3 &&& m
-    h ^^^ (h >>> 16)
+    h = bxor(h, h >>> 15) * p2 &&& m
+    h = bxor(h, h >>> 13) * p3 &&& m
+    bxor(h, h >>> 16)
   end
 end

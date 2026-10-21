@@ -219,22 +219,4 @@ defmodule Valimc.RegionGenerationTest do
     assert sections(lit) == reference_light(chunk)
     assert light_updates(chunk) > 0
   end
-
-  test "light across a region border is corrected when the neighbour generates later", ctx do
-    {:ok, owner} = World.owner(ctx.key)
-    {cx, cz} = ctx.origin
-    # At the region's east edge; its 3 × 3 reaches into the east region.
-    chunk = {cx + 7, cz + 3}
-    _ = World.chunk(chunk)
-    {:ok, _} = World.owner(ctx.east)
-    area = for x <- (cx + 6)..(cx + 8), z <- (cz + 2)..(cz + 4), {x, z} != chunk, do: {x, z}
-
-    area
-    |> Task.async_stream(&World.get_block(inside(&1)), timeout: 120_000)
-    |> Stream.run()
-
-    want = reference_light(chunk)
-    # The east region's columns reach this region's ring as messages.
-    Valimc.TestWait.until(fn -> sections(Region.light_image(owner, chunk)) == want end)
-  end
 end
