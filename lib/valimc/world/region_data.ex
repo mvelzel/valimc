@@ -1614,9 +1614,9 @@ defmodule Valimc.World.RegionData do
                 dirty: true,
                 revision: state.revision + 1,
                 section_revisions: touch_sections(state, [position], state.revision + 1),
-                cache: Map.delete(state.cache, key),
                 versions: Map.update(state.versions, key, 1, &(&1 + 1))
             }
+            |> uncache([key])
             |> shape_updates(%{position => block})
 
           {:reply, :ok, publish_block_snapshots(next, [key])}
@@ -2998,8 +2998,8 @@ defmodule Valimc.World.RegionData do
           | section_revisions: touch_sections(&1, Map.keys(proposal.changes), proposal.revision)
         }
       )
+      |> uncache(batch.chunks)
       |> Map.merge(%{
-        cache: Map.drop(state.cache, batch.chunks),
         dirty: dirty or state.dirty,
         # Raw (non-transfer) batches are persisted by the periodic save as cells; a
         # durable commit already logged its cells and supersedes older raw ones.
@@ -3034,11 +3034,20 @@ defmodule Valimc.World.RegionData do
   def light_changed(state, []), do: state
 
   def light_changed(state, chunks) do
-    %{
-      state
-      | cache: Map.drop(state.cache, chunks),
-        versions: Enum.reduce(chunks, state.versions, &Map.update(&2, &1, 1, fn n -> n + 1 end))
-    }
+    uncache(
+      %{
+        state
+        | versions: Enum.reduce(chunks, state.versions, &Map.update(&2, &1, 1, fn n -> n + 1 end))
+      },
+      chunks
+    )
+  end
+
+  # A chunk's packet changed (VMC-077e): its cached frame goes, and so does the
+  # copy published for connections, in the same step that adopts the change.
+  defp uncache(state, chunks) do
+    for chunk <- chunks, do: :ets.delete(state.item_publication, {:frame, chunk})
+    %{state | cache: Map.drop(state.cache, chunks)}
   end
 
   defp release_blocks(state, effects) do
@@ -3197,6 +3206,8 @@ defmodule Valimc.World.RegionData do
       light = Blocks.light_image(state.blocks, key)
       sections_microseconds = System.monotonic_time(:microsecond) - started
       version = Map.get(state.versions, key, 0)
+      # Only a frame of durable blocks may be published for connections to read.
+      durable = state.item_writes == []
       threshold = Valimc.config(:compression_threshold)
 
       case Task.Supervisor.start_child(
@@ -3221,8 +3232,8 @@ defmodule Valimc.World.RegionData do
              end)
            ) do
         {:ok, pid} ->
-          job = %{job | pid: pid, monitor: Process.monitor(pid), token: token}
-          %{state | jobs: Map.put(state.jobs, key, job)}
+          job = Map.merge(job, %{pid: pid, monitor: Process.monitor(pid), token: token})
+          %{state | jobs: Map.put(state.jobs, key, Map.put(job, :durable, durable))}
 
         {:error, :max_children} ->
           send_after(state, {:retry_encode, key}, 10)
@@ -3782,6 +3793,9 @@ defmodule Valimc.World.RegionData do
         if version == Map.get(state.versions, key, 0) do
           state =
             Enum.reduce(job.waiters, state, &finish_when_durable(&2, &1, frame))
+
+          # Connections read a published frame without asking (VMC-077e).
+          if job.durable, do: :ets.insert(state.item_publication, {{:frame, key}, frame})
 
           {:noreply,
            %{state | jobs: Map.delete(state.jobs, key), cache: Map.put(state.cache, key, frame)}}

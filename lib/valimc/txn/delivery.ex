@@ -76,6 +76,8 @@ defmodule Valimc.Txn.Delivery do
         :storage_backpressure,
         :mining_storage_busy,
         :region_restarting,
+        {:region_load, :backoff},
+        :directory_unavailable,
         :stale_region,
         :item_commit_uncertain,
         :container_commit_uncertain,

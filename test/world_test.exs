@@ -67,6 +67,19 @@ defmodule Valimc.WorldTest do
     assert World.get_block({12801, 64, 12801}) == 1
   end
 
+  test "a chunk's packet is published for connections and withdrawn with a change" do
+    key = {808, 808}
+    frame = World.chunk(key)
+    assert [{^key, {:frame, ^frame}}] = World.sendable([key], 1)
+    assert :ok = World.set_block({808 * 16 + 1, 64, 808 * 16 + 1}, 1)
+    # The change withdrew it: the connection asks without waiting for the reply.
+    assert [{^key, {:owner, pid}}] = World.sendable([key], 1)
+    request = World.request_chunk(pid, key)
+    assert {:reply, changed} = :gen_server.receive_response(request, 60_000)
+    refute changed == frame
+    assert [{^key, {:frame, ^changed}}] = World.sendable([key], 1)
+  end
+
   test "separate regions continue responding when one region is suspended" do
     {:ok, a} = World.region({101, 101})
     {:ok, b} = World.region({102, 102})

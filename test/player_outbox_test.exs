@@ -503,6 +503,8 @@ defmodule Valimc.PlayerOutboxTest do
     assert Valimc.TestDisk.read(ctx.base, ctx.key, :items) == "corrupt-destination"
     assert Process.alive?(ctx.writer)
     Valimc.TestDisk.write(ctx.base, ctx.key, :items, nil)
+    # The failed load backs off before the region is admitted again (VMC-077e).
+    Valimc.TestWait.until(fn -> World.region(ctx.key) != {:error, {:region_load, :backoff}} end)
     assert {:ok, :applied} = deliver(ctx, pending)
     assert {:ok, _, cleared} = complete(ctx, fence)
     assert cleared.outbox == nil and cleared.inventory == ctx.after.inventory

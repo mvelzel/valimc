@@ -63,8 +63,10 @@ defmodule Valimc.ItemVoidRegionTest do
 
   defp state({pid, _}), do: Valimc.TestConn.state(pid).resource
 
-  defp enable({pid, _}),
-    do: :sys.replace_state(pid, &%{&1 | resource: %{&1.resource | item_simulation_enabled: true}})
+  defp enable({pid, _} = owner) do
+    Valimc.TestScope.simulate(owner, state(owner).key)
+    :sys.replace_state(pid, &%{&1 | resource: %{&1.resource | item_simulation_enabled: true}})
+  end
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 

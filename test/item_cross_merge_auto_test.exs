@@ -60,12 +60,10 @@ defmodule Valimc.ItemCrossMergeAutoTest do
   defp state({pid, _}), do: Valimc.TestConn.state(pid).resource
 
   defp start(c) do
-    for {pid, _} <- [c.source, c.target],
-        do:
-          :sys.replace_state(
-            pid,
-            &%{&1 | resource: %{&1.resource | item_simulation_enabled: true}}
-          )
+    for {pid, _} = owner <- [c.source, c.target] do
+      Valimc.TestScope.simulate(owner, state(owner).key)
+      :sys.replace_state(pid, &%{&1 | resource: %{&1.resource | item_simulation_enabled: true}})
+    end
   end
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)

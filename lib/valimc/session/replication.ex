@@ -64,7 +64,8 @@ defmodule Valimc.Session.Replication do
           regions: regions,
           chunks: chunks,
           chest_lids: ChestLidReplication.retain(state.chest_lids, chunks),
-          pending: pending
+          pending: pending,
+          chunk_sender: ChunkSender.forget(state.chunk_sender, leaving)
       }
       |> want_chunks()
     end
@@ -148,8 +149,10 @@ defmodule Valimc.Session.Replication do
 
   @doc """
   Send the nearest pending chunks the quota allows as one batch; chunks whose
-  region is still loading stay pending. Nothing streams before the client
-  confirms its play teleport.
+  region is still loading stay pending. A chunk's packet is read from its
+  owner's publication, or requested and sent once the reply came (VMC-077e):
+  the connection never waits. Nothing streams before the client confirms its
+  play teleport.
   """
   def stream_chunks(%{phase: :play, teleport_pending: false, pending: [_ | _]} = state) do
     state = refresh_wants(state)
@@ -160,14 +163,41 @@ defmodule Valimc.Session.Replication do
 
       size ->
         # The nearest chunks that are ready, as vanilla sends from loaded ones.
-        case World.ready_chunks(World.sendable(state.pending, size)) do
-          [] -> state
-          ready -> send_batch(state, ready)
-        end
+        {ready, sender} =
+          state.pending
+          |> World.sendable(size)
+          |> Enum.reduce({[], state.chunk_sender}, fn
+            {chunk, {:frame, frame}}, {ready, sender} ->
+              {[{chunk, frame} | ready], sender}
+
+            {chunk, {:owner, pid}}, {ready, sender} ->
+              case ChunkSender.take(sender, chunk) do
+                {:ok, frame, sender} -> {[{chunk, frame} | ready], sender}
+                :error -> {ready, ChunkSender.request(sender, chunk, pid)}
+              end
+          end)
+
+        state = %{state | chunk_sender: sender}
+        if ready == [], do: state, else: send_batch(state, Enum.reverse(ready))
     end
   end
 
   def stream_chunks(state), do: state
+
+  @doc """
+  A message that may answer a chunk request: `{:ok, state}` (streaming what is
+  now ready) or `:error` when it is not one.
+  """
+  def chunk_reply(state, message) do
+    case ChunkSender.response(state.chunk_sender, message) do
+      {:ok, chunk, sender} ->
+        sender = if chunk in state.pending, do: sender, else: ChunkSender.forget(sender, [chunk])
+        {:ok, stream_chunks(%{state | chunk_sender: sender})}
+
+      :error ->
+        :error
+    end
+  end
 
   defp send_batch(state, ready) do
     {chunk_frames, lids} =

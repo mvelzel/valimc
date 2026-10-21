@@ -213,7 +213,11 @@ defmodule Valimc.Session.Events do
   end
 
   # `/fillbiome` (VMC-053j4): the new biomes of chunks this player has loaded.
+  # A packet not sent yet that a reply brought is stale after a change of its
+  # chunk; it is asked for again (VMC-077e).
   def event(%{phase: :play} = state, {:chunks_biomes, entries}) do
+    state = forget_ready(state, Enum.map(entries, &elem(&1, 0)))
+
     entries =
       for {chunk, bytes} <- entries, MapSet.member?(state.chunks, chunk), do: {chunk, bytes}
 
@@ -222,6 +226,7 @@ defmodule Valimc.Session.Events do
   end
 
   def event(%{phase: :play} = state, {:block_batch, updates}) do
+    state = forget_ready(state, Enum.map(updates, &elem(&1, 0)))
     frames = for {chunk, frame} <- updates, MapSet.member?(state.chunks, chunk), do: frame
     send_frames(state, frames)
 
@@ -317,4 +322,7 @@ defmodule Valimc.Session.Events do
   end
 
   def event(state, _), do: state
+
+  defp forget_ready(state, chunks),
+    do: %{state | chunk_sender: Valimc.Session.ChunkSender.forget(state.chunk_sender, chunks)}
 end

@@ -638,22 +638,21 @@ defmodule Valimc.Session.Messages do
     do:
       Valimc.Connection.guard_connection(state, fn -> reject(state, "Player storage stopped") end)
 
-  def info({:DOWN, ref, :process, pid, _}, state) do
-    {lids, closed} = ChestLidReplication.down(state.chest_lids, ref, pid)
-    send_packets(state, Enum.map(closed, &Packets.chest_lid(&1, false)))
-    state = %{state | chest_lids: lids}
-
-    if Map.has_key?(state.pose_sources, ref) do
-      {:noreply,
-       %{
-         state
-         | pose_sources: Map.delete(state.pose_sources, ref),
-           pose_generation: state.pose_generation + 1,
-           pose_checked: nil
-       }}
-    else
-      {:noreply, state}
+  def info({:DOWN, ref, :process, pid, _} = message, state) do
+    case Replication.chunk_reply(state, message) do
+      {:ok, state} -> {:noreply, state}
+      :error -> down(state, ref, pid)
     end
+  end
+
+  # Replies to chunk requests (VMC-077e) are tagged with the request's alias.
+  def info({[:alias | ref], _} = message, state) when is_reference(ref) do
+    Valimc.Connection.guard_connection(state, fn ->
+      case Replication.chunk_reply(state, message) do
+        {:ok, state} -> {:noreply, state}
+        :error -> {:noreply, state}
+      end
+    end)
   end
 
   def info(:login_deadline, %{phase: :play} = state), do: {:noreply, state}
@@ -937,4 +936,22 @@ defmodule Valimc.Session.Messages do
 
   defp schedule_player_tick(_state, next, delay),
     do: Process.send_after(self(), {:player_tick, next.token}, delay)
+
+  defp down(state, ref, pid) do
+    {lids, closed} = ChestLidReplication.down(state.chest_lids, ref, pid)
+    send_packets(state, Enum.map(closed, &Packets.chest_lid(&1, false)))
+    state = %{state | chest_lids: lids}
+
+    if Map.has_key?(state.pose_sources, ref) do
+      {:noreply,
+       %{
+         state
+         | pose_sources: Map.delete(state.pose_sources, ref),
+           pose_generation: state.pose_generation + 1,
+           pose_checked: nil
+       }}
+    else
+      {:noreply, state}
+    end
+  end
 end

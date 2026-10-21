@@ -37,6 +37,14 @@ Acceptance:
   before the unload is there after reloading (`region_lifecycle_test.exs`).
 - On a dimension change or a restart, an owner told before that is no longer
   the one of its key is told to withdraw (by pid, not by region key).
+- Chunk batches stay vanilla's (VMC-070: 9 per tick until the first ack, then the
+  client's rate, at most 10 batches in flight). The connection never waits for a
+  chunk: an owner publishes a chunk's packet next to its snapshot once encoded
+  from durable blocks and withdraws it in the step that adopts a change of that
+  chunk (blocks, light, biomes); `World.sendable/2` returns published packets or
+  the owner to ask, requests go out with `send_request` (at most 64 in flight)
+  and replies arrive as messages. A reply kept for a later batch is dropped when
+  a change of its chunk arrives, or on a dimension change.
 - Portal and spawn readers await generation through the region's defer
   mechanism instead of polling for absent chunks.
 - A region whose owner dies while loading is refused for a doubling backoff

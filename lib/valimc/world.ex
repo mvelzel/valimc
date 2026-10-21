@@ -41,33 +41,49 @@ defmodule Valimc.World do
   end
 
   @doc """
-  The first `limit` of `keys` (in order) whose region is loaded and has
-  generated them (VMC-075), read from published tables without asking an owner;
-  a region not running is started.
+  The first `limit` of `keys` (in order) that can be sent, read from published
+  tables without asking an owner (VMC-077e): `{key, {:frame, frame}}` when the
+  owner published the chunk's packet next to its snapshot, `{key, {:owner, pid}}`
+  when it must be requested (`request_chunk/2`). A chunk not generated yet
+  (VMC-075) or of a region still loading is left out, as vanilla sends only
+  loaded chunks; a region not running is started.
   """
   def sendable(keys, limit), do: sendable(keys, limit, %{}, [])
 
-  defp sendable(_keys, 0, _tables, acc), do: Enum.reverse(acc)
-  defp sendable([], _limit, _tables, acc), do: Enum.reverse(acc)
+  defp sendable(_keys, 0, _routes, acc), do: Enum.reverse(acc)
+  defp sendable([], _limit, _routes, acc), do: Enum.reverse(acc)
 
-  defp sendable([key | rest], limit, tables, acc) do
+  defp sendable([key | rest], limit, routes, acc) do
     region = region_key(key)
 
-    {table, tables} =
-      case tables do
-        %{^region => table} -> {table, tables}
-        _ -> {published_table(region), Map.put(tables, region, published_table(region))}
+    {route, routes} =
+      case routes do
+        %{^region => route} -> {route, routes}
+        _ -> {route(region), Map.put(routes, region, route(region))}
       end
 
-    if table != nil and not BlockSnapshot.absent?(table, key),
-      do: sendable(rest, limit - 1, tables, [key | acc]),
-      else: sendable(rest, limit, tables, acc)
+    with {pid, table} <- route,
+         false <- BlockSnapshot.absent?(table, key) do
+      sendable(rest, limit - 1, routes, [{key, published_frame(table, key, pid)} | acc])
+    else
+      _ -> sendable(rest, limit, routes, acc)
+    end
   end
 
-  defp published_table(region) do
+  defp published_frame(table, key, pid) do
+    case :ets.lookup(table, {:frame, key}) do
+      [{_, frame}] -> {:frame, frame}
+      [] -> {:owner, pid}
+    end
+  rescue
+    # The owner's table went with it after the lookup; its request fails too.
+    ArgumentError -> {:owner, pid}
+  end
+
+  defp route(region) do
     case Directory.lookup(region) do
-      {_, _, %{items: table}} ->
-        table
+      {pid, _, %{items: table}} ->
+        {pid, table}
 
       {_, _, _} ->
         nil
@@ -79,33 +95,11 @@ defmodule Valimc.World do
   end
 
   @doc """
-  The packets of the chunks in `keys` that are ready to send, as `[{key, frame}]`
-  in `keys` order (VMC-070). Their owners are asked at once, so encodes overlap. A
-  chunk whose region is still loading, cannot be admitted or dies meanwhile is
-  left out (its load starts), as vanilla sends only loaded chunks; so is a chunk
-  not generated yet (VMC-075), without asking its owner.
+  Ask `owner` for `key`'s chunk packet without waiting (VMC-077e): the reply
+  (`{:reply, frame}` or an error) arrives as a message for
+  `:gen_server.check_response/3` under the returned request id.
   """
-  def ready_chunks(keys) do
-    deadline = System.monotonic_time(:millisecond) + 15_000
-
-    keys
-    |> Enum.flat_map(fn key ->
-      with {:ok, pid} <- region(region_key(key)),
-           {^pid, _, %{items: table}} <- Directory.lookup(region_key(key)),
-           false <- BlockSnapshot.absent?(table, key) do
-        [{key, :gen_server.send_request(pid, {:chunk, key})}]
-      else
-        _ -> []
-      end
-    end)
-    |> Enum.flat_map(fn {key, request} ->
-      case :gen_server.receive_response(request, {:abs, deadline}) do
-        {:reply, frame} -> [{key, frame}]
-        {:error, _} -> []
-        :timeout -> exit({:timeout, {__MODULE__, :ready_chunks, [key]}})
-      end
-    end)
-  end
+  def request_chunk(owner, key), do: :gen_server.send_request(owner, {:chunk, key})
 
   @doc "The block at `position` (a state id) or `{:error, reason}`."
   def get_block(position), do: block_call(position, {:get_block, position})

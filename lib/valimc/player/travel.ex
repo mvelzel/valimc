@@ -125,6 +125,7 @@ defmodule Valimc.Player.Travel do
         view: nil,
         chunks: MapSet.new(),
         pending: [],
+        chunk_sender: Valimc.Session.ChunkSender.reset(state.chunk_sender),
         peers: %{},
         chest_lids: %ChestLidReplication{},
         entity_replication: EntityReplication.new(),
