@@ -30,5 +30,11 @@ Acceptance:
   every exception. A planning job that overruns its deadline fails its caller
   with a retryable error instead of stopping the owner. Stopping the owner
   stops every job (before, portal workers outlived it).
+- One owner lookup (`Valimc.Owners.ensure/4`): find the registered process
+  or start one, waiting out a registration whose process just exited or a
+  predecessor still stopping, 1 ms at a time and boundedly. Region owners
+  (through the Directory), proto owners and log stripes use it; their three
+  sleep-and-retry loops are gone. `PlayerStore.open/1` keeps its own path: it
+  adopts a closing store rather than finding one and never retries.
 
 Checks: in progress.

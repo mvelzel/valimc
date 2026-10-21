@@ -8,32 +8,23 @@ defmodule Valimc.World do
     {Integer.floor_div(cx, size), Integer.floor_div(cz, size)}
   end
 
-  def region(key), do: region(key, 100)
-  defp region(_key, 0), do: {:error, :region_restarting}
-
-  defp region(key, attempts) do
-    case Directory.lookup(key) do
-      {pid, _, _} ->
-        if Process.alive?(pid) do
-          {:ok, pid}
-        else
-          admit_region(key, attempts)
+  def region(key) do
+    Valimc.Owners.ensure(
+      # A dead owner's row is the Directory's to replace: admit at once.
+      fn ->
+        case Directory.lookup(key) do
+          {pid, _, _} -> if Process.alive?(pid), do: pid
+          nil -> nil
         end
-
-      nil ->
-        admit_region(key, attempts)
-    end
-  end
-
-  defp admit_region(key, attempts) do
-    case Directory.admit(key) do
-      {:error, :region_restarting} ->
-        Process.sleep(1)
-        region(key, attempts - 1)
-
-      result ->
-        result
-    end
+      end,
+      fn ->
+        case Directory.admit(key) do
+          {:error, :region_restarting} -> :retry
+          result -> result
+        end
+      end,
+      :region_restarting
+    )
   end
 
   def chunk(key) do

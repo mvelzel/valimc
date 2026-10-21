@@ -90,25 +90,18 @@ defmodule Valimc.Storage.Log do
   @doc "The stripe directory `n` of the world at `base`."
   def dir(base, n), do: Path.join([base, "log", "wal.#{n}"])
 
-  # A stripe that just went down may stay registered for a moment.
-  defp ensure(base, owner, attempts \\ 100) do
+  defp ensure(base, owner) do
     n = stripe(owner)
 
-    case Registry.lookup(Valimc.StorageRegistry, {base, n}) do
-      [{pid, _}] ->
-        if Process.alive?(pid) or attempts == 0 do
-          pid
-        else
-          Process.sleep(1)
-          ensure(base, owner, attempts - 1)
-        end
-
-      [] ->
-        case DynamicSupervisor.start_child(Valimc.StorageSupervisor, {__MODULE__, {base, n}}) do
-          {:ok, pid} -> pid
-          {:error, {:already_started, pid}} -> pid
-          {:error, reason} -> exit({:storage_log_unavailable, reason})
-        end
+    case Valimc.Owners.ensure(
+           Valimc.Owners.registered(Valimc.StorageRegistry, {base, n}),
+           fn ->
+             DynamicSupervisor.start_child(Valimc.StorageSupervisor, {__MODULE__, {base, n}})
+           end,
+           :storage_log_restarting
+         ) do
+      {:ok, pid} -> pid
+      {:error, reason} -> exit({:storage_log_unavailable, reason})
     end
   end
 

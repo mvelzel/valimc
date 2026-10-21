@@ -133,29 +133,23 @@ defmodule Valimc.Worldgen.Proto do
     }
 
   @doc "The proto owner of region `key`, started if needed."
-  def owner(key), do: owner(key, 50)
-
-  defp owner(_key, 0), do: {:error, :proto_owner_restarting}
-
-  defp owner(key, attempts) do
+  def owner(key) do
     scoped = Valimc.Dimension.scope(key)
 
-    case Registry.lookup(Valimc.ProtoRegistry, scoped) do
-      [{pid, _}] ->
-        if Process.alive?(pid), do: {:ok, pid}, else: retry_owner(key, attempts)
-
-      [] ->
+    # A failed start (a predecessor still stopping) is tried again.
+    Valimc.Owners.ensure(
+      Valimc.Owners.registered(Valimc.ProtoRegistry, scoped),
+      fn ->
         case DynamicSupervisor.start_child(Valimc.ProtoSupervisor, {__MODULE__, scoped}) do
-          {:ok, pid} -> {:ok, pid}
-          {:error, {:already_started, pid}} -> {:ok, pid}
-          {:error, _} -> retry_owner(key, attempts)
-        end
-    end
-  end
+          {:error, reason} when not is_tuple(reason) or elem(reason, 0) != :already_started ->
+            :retry
 
-  defp retry_owner(key, attempts) do
-    Process.sleep(2)
-    owner(key, attempts - 1)
+          result ->
+            result
+        end
+      end,
+      :proto_owner_restarting
+    )
   end
 
   @doc """
