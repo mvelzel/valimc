@@ -25,7 +25,16 @@ defmodule Valimc.Command.Arguments do
     minecraft:item_stack minecraft:item_predicate minecraft:block_state minecraft:block_predicate
     minecraft:resource minecraft:resource_or_tag minecraft:resource_location
     minecraft:nbt_compound_tag minecraft:nbt_tag minecraft:component minecraft:particle
-    minecraft:dialog minecraft:column_pos minecraft:dimension minecraft:game_profile minecraft:resource_or_tag_key)
+    minecraft:dialog minecraft:column_pos minecraft:dimension minecraft:game_profile minecraft:resource_or_tag_key
+    minecraft:feature minecraft:resource_key minecraft:template_rotation minecraft:template_mirror)
+
+  @features_path Path.expand("../../../priv/worldgen/features.json", __DIR__)
+  @external_resource @features_path
+  @configured_features @features_path
+                       |> File.read!()
+                       |> JSON.decode!()
+                       |> Map.keys()
+                       |> MapSet.new()
 
   def supported, do: @supported
 
@@ -189,6 +198,57 @@ defmodule Valimc.Command.Arguments do
   end
 
   def parse("minecraft:resource_location", _props, reader, _source), do: Identifier.read(reader)
+
+  # `ResourceKeyArgument`: any identifier, checked when the command runs.
+  def parse("minecraft:resource_key", _props, reader, _source), do: Identifier.read(reader)
+
+  # `ResourceOrIdArgument.feature`: a configured feature's id, or an inline one
+  # (refused).
+  def parse("minecraft:feature", _props, reader, _source) do
+    {id, after_id} = Identifier.read(reader)
+
+    # The grammar's identifier rule must read something; otherwise the input is
+    # an inline value, which the feature codec needs as a compound.
+    if after_id.cursor == reader.cursor do
+      {tag, after_tag} = Valimc.Command.Snbt.parse(reader)
+
+      case tag do
+        {:compound, _} ->
+          Error.throw!(Error.unsupported("Inline features are not supported yet", after_tag))
+
+        _ ->
+          Error.fail_at!(
+            "argument.resource_or_id.failed_to_parse",
+            ["Not a map: " <> Valimc.Command.Snbt.to_string(tag)],
+            after_tag
+          )
+      end
+    else
+      if id in @configured_features,
+        do: {id, after_id},
+        else:
+          Error.fail_at!(
+            "argument.resource_or_id.no_such_element",
+            [id, "minecraft:worldgen/feature"],
+            after_id
+          )
+    end
+  end
+
+  # `TemplateRotationArgument` / `TemplateMirrorArgument`: an enum's name.
+  def parse(parser, _props, reader, _source)
+      when parser in ["minecraft:template_rotation", "minecraft:template_mirror"] do
+    {name, after_name} = Reader.read_unquoted_string(reader)
+
+    names =
+      if parser == "minecraft:template_rotation",
+        do: ~w(none clockwise_90 180 counterclockwise_90),
+        else: ~w(none front_back left_right)
+
+    if name in names,
+      do: {name, after_name},
+      else: Error.fail_at!("argument.enum.invalid", [name], after_name)
+  end
 
   # `ResourceOrTagKeyArgument`: a key or `#tag`, checked only when the command runs.
   def parse("minecraft:resource_or_tag_key", _props, reader, _source) do

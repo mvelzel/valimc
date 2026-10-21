@@ -159,6 +159,11 @@ impl BiomeSet {
             .get(biome as usize / 64)
             .is_some_and(|w| w & (1 << (biome % 64)) != 0)
     }
+
+    /// Every biome (`/place`'s `b -> true`).
+    pub fn all() -> BiomeSet {
+        BiomeSet(vec![u64::MAX; 1024])
+    }
 }
 
 /// A jigsaw block of a template: position, orientation (`front_top`),
@@ -912,6 +917,56 @@ impl StructureEnv {
         z: i32,
     ) -> Result<Option<Start>, String> {
         let def = &self.registry.structures[structure];
+        self.try_generate_in(ctx, memo, structure, x, z, &def.biomes)
+    }
+
+    /// `Structure.generate` at a chunk with any biome valid, as `/place
+    /// structure` asks (VMC-053): the start, or `None` when it is not valid.
+    pub fn generate_anywhere(
+        &self,
+        structure: usize,
+        x: i32,
+        z: i32,
+    ) -> Result<Option<Start>, String> {
+        let mut ctx = Context::cached();
+        let memo = RefCell::new(Memo::default());
+        self.try_generate_in(&mut ctx, &memo, structure, x, z, &BiomeSet::all())
+    }
+
+    /// `JigsawPlacement.addPieces` from a block position, as `/place jigsaw`
+    /// calls it (VMC-053): any biome, the chunk's large feature random.
+    pub fn jigsaw_anywhere(
+        &self,
+        config: &jigsaw::JigsawConfig,
+        position: [i32; 3],
+    ) -> Result<Option<Vec<piece::Piece>>, String> {
+        let mut ctx = Context::cached();
+        let memo = RefCell::new(Memo::default());
+        let all = BiomeSet::all();
+        let (x, z) = (position[0] >> 4, position[2] >> 4);
+        let mut random = Random::legacy(0);
+        super::carver::set_large_feature_seed(&mut random, self.seed, x, z);
+        let mut gc = GenContext {
+            env: self,
+            ctx: &mut ctx,
+            memo: &memo,
+            random,
+            chunk: (x, z),
+            valid: &all,
+        };
+        jigsaw::add_pieces(&mut gc, config, position)
+    }
+
+    fn try_generate_in(
+        &self,
+        ctx: &mut Context,
+        memo: &RefCell<Memo>,
+        structure: usize,
+        x: i32,
+        z: i32,
+        valid: &BiomeSet,
+    ) -> Result<Option<Start>, String> {
+        let def = &self.registry.structures[structure];
         let mut random = Random::legacy(0);
         super::carver::set_large_feature_seed(&mut random, self.seed, x, z);
         let mut gc = GenContext {
@@ -920,7 +975,7 @@ impl StructureEnv {
             memo,
             random,
             chunk: (x, z),
-            valid: &def.biomes,
+            valid,
         };
         let pieces = match &def.kind {
             StructureKind::DesertPyramid => scattered::single_piece(&mut gc, def, 21, 21)?,

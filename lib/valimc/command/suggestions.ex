@@ -81,6 +81,14 @@ defmodule Valimc.Command.Suggestions do
     Enum.filter(admin_names(path), &matches_sub_str?(contents, String.downcase(&1)))
   end
 
+  # `PlaceCommand.SUGGEST_TEMPLATES`: `suggestResource` over every template.
+  defp child(
+         %{suggestions: "minecraft:ask_server", path: ["place", "template", "template"]},
+         remaining,
+         _context
+       ),
+       do: resources(Valimc.Commands.Place.template_ids(), String.downcase(remaining))
+
   defp child(%{suggestions: "minecraft:ask_server", path: path}, remaining, context) do
     clock = clock(context)
 

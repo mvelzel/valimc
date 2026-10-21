@@ -664,10 +664,8 @@ struct Placed {
 
 /// `JigsawPlacement.addPieces` and the jigsaw structure's generation point.
 pub fn generate(gc: &mut GenContext, config: &JigsawConfig) -> Result<Option<Vec<Piece>>, String> {
-    let registry = gc.env.registry.clone();
     let heights = &gc.env.heights;
     let level_min_y = heights.level_min_y;
-    let level_max_y = heights.level_min_y + heights.level_height - 1;
     let height = config.start_height.sample(
         &mut gc.random,
         HeightContext {
@@ -677,6 +675,20 @@ pub fn generate(gc: &mut GenContext, config: &JigsawConfig) -> Result<Option<Vec
         },
     );
     let position = [gc.min_block_x(), height, gc.min_block_z()];
+    add_pieces(gc, config, position)
+}
+
+/// `JigsawPlacement.addPieces` from its start position (`/place jigsaw`
+/// starts at a block, VMC-053).
+pub fn add_pieces(
+    gc: &mut GenContext,
+    config: &JigsawConfig,
+    position: [i32; 3],
+) -> Result<Option<Vec<Piece>>, String> {
+    let registry = gc.env.registry.clone();
+    let heights = &gc.env.heights;
+    let level_min_y = heights.level_min_y;
+    let level_max_y = heights.level_min_y + heights.level_height - 1;
     let aliases = alias_lookup(&config.pool_aliases, position, gc.env.seed);
     let alias = |name: &str| -> String {
         aliases

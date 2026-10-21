@@ -11,6 +11,9 @@
 //! 3. The result compiles to samplers, taking vanilla's shortcuts (constant
 //!    operands, `min`/`max` decided by ranges, constant lerp ends).
 
+mod place;
+pub use place::{Placed, Placement, Plan};
+
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 

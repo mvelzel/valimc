@@ -161,6 +161,11 @@ STAGES = [
         ('check', 'export_world_settings.exs', '@exported'),
         ('java', 'WorldSettingsOracle', 'verify', '@exported', '@server'),
     ]),
+    # VMC-053: `/place` features, templates, structures and jigsaws with seeded randoms.
+    ('place', [
+        ('java', 'PlaceOracle', 'cases', '@place.json'),
+        ('check', 'check_place.exs', '@place.json'),
+    ]),
     # VMC-053o: `/locate structure` over every structure and tag for seeds and positions.
     ('locate', [
         ('java', 'LocateOracle', 'cases', '@locate.json'),

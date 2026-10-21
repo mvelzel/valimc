@@ -2188,4 +2188,139 @@ fn loot_items<'a>(
     ))
 }
 
+/// `/place` (VMC-053): a placement as `(kind, names, max depth, integrity,
+/// strict)`: `feature` [id], `template` [id, rotation, mirror], `structure`
+/// [id], `jigsaw` [pool, target].
+type PlaceSpec = (String, Vec<String>, i32, f64, bool);
+
+fn place_spec(spec: &PlaceSpec) -> Result<valimc_core::worldgen::compiler::Placement, String> {
+    use valimc_core::worldgen::compiler::Placement;
+    use valimc_core::worldgen::template::{Mirror, Rotation};
+    let (kind, names, max_depth, integrity, strict) = spec;
+    let name = |i: usize| -> Result<String, String> {
+        names
+            .get(i)
+            .cloned()
+            .ok_or_else(|| format!("{kind} needs {} names", i + 1))
+    };
+    Ok(match kind.as_str() {
+        "feature" => Placement::Feature(name(0)?),
+        "structure" => Placement::Structure(name(0)?),
+        "jigsaw" => Placement::Jigsaw {
+            pool: name(0)?,
+            target: name(1)?,
+            max_depth: *max_depth,
+        },
+        "template" => Placement::Template {
+            id: name(0)?,
+            rotation: match name(1)?.as_str() {
+                "none" => Rotation::None,
+                "clockwise_90" => Rotation::Clockwise90,
+                "180" => Rotation::Clockwise180,
+                "counterclockwise_90" => Rotation::Counterclockwise90,
+                other => return Err(format!("unknown rotation {other}")),
+            },
+            mirror: match name(2)?.as_str() {
+                "none" => Mirror::None,
+                "left_right" => Mirror::LeftRight,
+                "front_back" => Mirror::FrontBack,
+                other => return Err(format!("unknown mirror {other}")),
+            },
+            integrity: *integrity as f32,
+            strict: *strict,
+        },
+        other => Err(format!("unknown placement {other}"))?,
+    })
+}
+
+type ChunkRange = ((i32, i32), (i32, i32));
+
+/// `/place`'s plan (VMC-053): `chunks` with the chunks vanilla checks are
+/// loaded and every chunk the placement uses, or `invalid` (no such
+/// template) or `failed` (no valid start, no jigsaw pieces).
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_place_plan(
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    spec: PlaceSpec,
+    pos: (i32, i32, i32),
+) -> Result<(String, ChunkRange, ChunkRange), String> {
+    use valimc_core::worldgen::compiler::Plan;
+    let placement = place_spec(&spec)?;
+    let mut state = state.lease()?;
+    let none = ((0, 0), (0, 0));
+    Ok(
+        match state.place_plan(&biome_source, &placement, [pos.0, pos.1, pos.2])? {
+            Plan::Chunks { checked, area } => ("chunks".into(), checked, area),
+            Plan::Invalid => ("invalid".into(), none, none),
+            Plan::Failed => ("failed".into(), none, none),
+        },
+    )
+}
+
+/// A `/place` result: changed blocks, block entities to write, and the
+/// entities placement would have added.
+type PlacedResult = (Vec<((i32, i32, i32), u16)>, Vec<FullBlockEntity>, usize);
+
+/// `/place` (VMC-053) over the plan's chunks (`x`, `z`, column image or nil
+/// for the flat `base` profile) with the level random `seed`; nil when the
+/// placement placed nothing.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_place(
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    spec: PlaceSpec,
+    pos: (i32, i32, i32),
+    chunks: Vec<(i32, i32, Option<Binary>)>,
+    base: Vec<u16>,
+    seed: i64,
+) -> Result<Option<PlacedResult>, String> {
+    let placement = place_spec(&spec)?;
+    let mut state = state.lease()?;
+    let mut protos = Vec::with_capacity(chunks.len());
+    for (x, z, image) in &chunks {
+        protos.push(state.place_chunk(
+            &biome_source,
+            (*x, *z),
+            image.as_ref().map(|b| b.as_slice()),
+            &base,
+        )?);
+    }
+    let Some(placed) = state.place(
+        &biome_source,
+        &placement,
+        [pos.0, pos.1, pos.2],
+        protos,
+        seed,
+    )?
+    else {
+        return Ok(None);
+    };
+    let t = |p: [i32; 3]| (p[0], p[1], p[2]);
+    let block_entities = placed
+        .block_entities
+        .into_iter()
+        .map(|(p, state, data)| FullBlockEntity {
+            position: t(p),
+            state,
+            kind: data.as_ref().map(|d| d.kind.to_string()),
+            loot_table: data.as_ref().and_then(|d| d.loot_table.clone()),
+            loot_seed: data.as_ref().map_or(0, |d| d.loot_seed),
+            spawner_entity: data.as_ref().and_then(|d| d.spawner_entity.clone()),
+            bees: data.as_ref().map_or_else(Vec::new, |d| d.bees.clone()),
+            exit: data
+                .as_ref()
+                .and_then(|d| d.exit.map(|(e, exact)| ((e[0], e[1], e[2]), exact))),
+            nbt: data
+                .as_ref()
+                .and_then(|d| d.nbt.as_deref().map(str::to_string)),
+        })
+        .collect();
+    Ok(Some((
+        placed.blocks.into_iter().map(|(p, s)| (t(p), s)).collect(),
+        block_entities,
+        placed.entities,
+    )))
+}
+
 rustler::init!("Elixir.Valimc.Native");

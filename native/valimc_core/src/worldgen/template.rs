@@ -1060,6 +1060,11 @@ impl Templates {
         Ok(self.processors(json, table)?.as_ref().clone())
     }
 
+    /// Whether the template exists (`StructureTemplateManager.get`).
+    pub fn has(&self, id: &str) -> bool {
+        self.templates.contains_key(id)
+    }
+
     pub fn template(&self, id: &str) -> Result<Arc<Template>, String> {
         let Some(entry) = self.templates.get(id) else {
             return Ok(Arc::new(Template::default()));

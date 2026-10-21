@@ -48,9 +48,13 @@ defmodule Valimc.Worldgen.FullChunk do
     end)
   end
 
-  # A block entity of a type not modelled here is left out (the client makes
-  # its own); everything else must convert.
-  defp block_entities(list, entities) do
+  @doc """
+  Generated block entities (`worldgen_proto_full`'s or `/place`'s) as the
+  region keeps them, `position => {type_id, nbt}`, added to `entities`. A
+  block entity of a type not modelled here is left out (the client makes its
+  own); everything else must convert.
+  """
+  def block_entities(list, entities) do
     Enum.reduce_while(list, {:ok, entities}, fn entity, {:ok, acc} ->
       with {:ok, tag} <- block_entity_tag(entity),
            {:ok, position, held} <- BlockEntity.convert(tag, entity.state),

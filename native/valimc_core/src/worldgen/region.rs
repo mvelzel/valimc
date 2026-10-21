@@ -414,6 +414,10 @@ pub struct Region<'a> {
     /// of failing. Decorations have not been seen to read outside their 3 × 3.
     pub lenient: bool,
     pub lenient_reads: u32,
+    /// How far from the centre writes reach, in chunks: 1 for a
+    /// `WorldGenRegion`; `/place` (VMC-053) writes the level, as far as the
+    /// area it holds.
+    pub write_radius: i32,
 }
 
 impl<'a> Region<'a> {
@@ -445,6 +449,7 @@ impl<'a> Region<'a> {
             fault: None,
             lenient: false,
             lenient_reads: 0,
+            write_radius: 1,
         })
     }
 
@@ -501,9 +506,9 @@ impl<'a> Region<'a> {
         self.table.is_air(state)
     }
 
-    /// `ensureCanWrite`: the 3 × 3 around the centre.
+    /// `ensureCanWrite`: the 3 × 3 around the centre (`write_radius`).
     pub fn can_write(&self, pos: [i32; 3]) -> bool {
-        self.distance(pos[0] >> 4, pos[2] >> 4) <= 1
+        self.distance(pos[0] >> 4, pos[2] >> 4) <= self.write_radius
     }
 
     /// `WorldGenRegion.setBlock`.
@@ -613,7 +618,8 @@ impl<'a> Region<'a> {
     pub fn biome(&mut self, pos: [i32; 3]) -> u16 {
         let (qx, qy, qz) = self.zoom.zoom(pos[0], pos[1], pos[2]);
         let (cx, cz) = (qx >> 2, qz >> 2);
-        if self.distance(cx, cz) > 1 {
+        // `/place` reads the level's biomes as far as it writes.
+        if self.distance(cx, cz) > self.write_radius.max(1) {
             self.fail(format!("biome of chunk {cx}, {cz} outside the 3 × 3"));
             return 0;
         }
@@ -640,7 +646,7 @@ impl<'a> Region<'a> {
             (entity.pos[0].floor() as i32) >> 4,
             (entity.pos[2].floor() as i32) >> 4,
         );
-        let near = self.distance(cx, cz) <= 1;
+        let near = self.distance(cx, cz) <= self.write_radius.max(1);
         match self.area.chunk_mut(cx, cz) {
             Some(chunk) if near => {
                 chunk.entities.push(entity);

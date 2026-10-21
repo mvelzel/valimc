@@ -896,6 +896,24 @@ defmodule Valimc.Commands do
     ["save-on"] => {Valimc.Commands.Server, :save_on},
     ["save-off"] => {Valimc.Commands.Server, :save_off},
     ["setidletimeout", "minutes"] => {Valimc.Commands.Server, :setidletimeout},
+    ["place", "feature", "feature"] => {Valimc.Commands.Place, :feature},
+    ["place", "feature", "feature", "pos"] => {Valimc.Commands.Place, :feature},
+    ["place", "jigsaw", "pool", "target", "max_depth"] => {Valimc.Commands.Place, :jigsaw},
+    ["place", "jigsaw", "pool", "target", "max_depth", "position"] =>
+      {Valimc.Commands.Place, :jigsaw},
+    ["place", "structure", "structure"] => {Valimc.Commands.Place, :structure},
+    ["place", "structure", "structure", "pos"] => {Valimc.Commands.Place, :structure},
+    ["place", "template", "template"] => {Valimc.Commands.Place, :template},
+    ["place", "template", "template", "pos"] => {Valimc.Commands.Place, :template},
+    ["place", "template", "template", "pos", "rotation"] => {Valimc.Commands.Place, :template},
+    ["place", "template", "template", "pos", "rotation", "mirror"] =>
+      {Valimc.Commands.Place, :template},
+    ["place", "template", "template", "pos", "rotation", "mirror", "integrity"] =>
+      {Valimc.Commands.Place, :template},
+    ["place", "template", "template", "pos", "rotation", "mirror", "integrity", "seed"] =>
+      {Valimc.Commands.Place, :template},
+    ["place", "template", "template", "pos", "rotation", "mirror", "integrity", "seed", "strict"] =>
+      {Valimc.Commands.Place, :template_strict},
     ["version"] => {Admin, :version},
     ["kick", "targets"] => {Admin, :kick},
     ["kick", "targets", "reason"] => {Admin, :kick},

@@ -83,6 +83,14 @@ defmodule Valimc.World.Region do
   def light_image({pid, epoch}, chunk) when is_pid(pid) and is_reference(epoch),
     do: GenServer.call(pid, {:light_image, epoch, chunk}, budget(pid, 1000))
 
+  @doc "Column images of this region's `chunks` for `/place` (VMC-053)."
+  def column_images({pid, epoch}, chunks) when is_pid(pid) and is_reference(epoch) do
+    GenServer.call(pid, {:column_images, epoch, chunks}, budget(pid, 2000))
+  catch
+    :exit, {:timeout, _} -> {:error, :column_query_timeout}
+    :exit, _ -> {:error, :region_unavailable}
+  end
+
   @doc "Observe bounded native column heights at the same fence as block observations."
   def observe_columns(owner, columns, expected_revision \\ :any)
 

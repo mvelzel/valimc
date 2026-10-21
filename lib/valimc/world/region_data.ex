@@ -1271,6 +1271,36 @@ defmodule Valimc.World.RegionData do
       else: {:reply, result, state}
   end
 
+  # `/place` (VMC-053): the column images of chunks of this region (`nil`
+  # for the flat base profile), at the current revision; a chunk still
+  # generating is not loaded.
+  def handle_call({:column_images, epoch, chunks}, _from, state) do
+    result =
+      cond do
+        epoch != state.items.epoch ->
+          {:error, :stale_owner}
+
+        Enum.any?(chunks, fn {cx, cz} -> Valimc.World.region_key({cx, cz}) != state.key end) ->
+          {:error, :wrong_region}
+
+        absent_positions?(state, for({cx, cz} <- chunks, do: {cx * 16, 0, cz * 16})) ->
+          {:error, :chunk_generating}
+
+        true ->
+          images =
+            Map.new(chunks, fn chunk ->
+              case Blocks.column_image(state.blocks, chunk) do
+                {:ok, image} when is_binary(image) -> {chunk, image}
+                _ -> {chunk, nil}
+              end
+            end)
+
+          {:ok, %{revision: state.revision, images: images}}
+      end
+
+    {:reply, result, state}
+  end
+
   def handle_call({:light_image, epoch, chunk}, _from, %{items: %{epoch: epoch}} = state),
     do: {:reply, Blocks.light_image(state.blocks, chunk), state}
 
