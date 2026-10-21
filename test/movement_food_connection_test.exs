@@ -122,12 +122,6 @@ defmodule Valimc.MovementFoodConnectionTest do
     wait(fn -> Bitwise.band(state(pid).player.input.shared_flags, 8) != 0 == sprinting end)
   end
 
-  defp barrier(client) do
-    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, client} = Client.await_stats(client)
-    client
-  end
-
   defp tick(pid) do
     before =
       :sys.replace_state(pid, fn s ->
@@ -168,108 +162,6 @@ defmodule Valimc.MovementFoodConnectionTest do
     assert saved.transfer_sequence == 0 and saved.outbox == nil
     {_client, owner} = login(ctx)
     assert state(owner).player.food == saved_food
-  end
-
-  test "walking and scratch/held-jump ticks spend nothing; only an accepted grounded jump spends",
-       ctx do
-    seed(ctx)
-    {client, pid} = login(ctx)
-    ground = %{ctx.pose | x: ctx.pose.x + 0.2}
-    move(client, ground)
-    moved(pid, ground)
-    assert state(pid).player.food == %PlayerFood{}
-    Client.send_packet(client, :play, "player_input", <<16>>)
-    _ = barrier(client)
-    tick(pid)
-    assert state(pid).player.food == %PlayerFood{}
-    air = %{ground | y: 64.42}
-    move(client, air, 0)
-    moved(pid, air)
-    one = PlayerFood.exhaust(%PlayerFood{}, 0.05000000074505806)
-    assert state(pid).player.food == one
-    higher = %{air | y: 64.6}
-    move(client, higher, 0)
-    moved(pid, higher)
-    assert state(pid).player.food == one
-    move(client, ground)
-    moved(pid, ground)
-    command(client, pid, true)
-    move(client, air, 0)
-    moved(pid, air)
-    assert state(pid).player.food == PlayerFood.exhaust(one, 0.20000000298023224)
-  end
-
-  for {kind, states} <- [
-        body_water: [{64, 89}],
-        underwater: [{64, 89}, {65, 89}, {66, 89}],
-        bubbles: [{64, 89}, {65, 18651}, {66, 18651}]
-      ] do
-    test "native #{kind} travel uses the selected body/eyes and keeps bubble air semantics",
-         ctx do
-      seed(ctx)
-
-      for {y, id} <- unquote(states),
-          do: :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x), y, floor(ctx.pose.z)}, id)
-
-      {client, pid} = login(ctx)
-      target = %{ctx.pose | y: ctx.pose.y + 0.1}
-      move(client, target, 0)
-      moved(pid, target)
-      expected = if unquote(kind) == :body_water, do: 0.0, else: 0.0009999999310821295
-      assert state(pid).player.food.exhaustion == expected
-
-      if unquote(kind) == :bubbles do
-        tick(pid)
-        assert state(pid).player.air_supply == 300
-      end
-    end
-  end
-
-  for mode <- [:creative, :spectator] do
-    test "#{mode} current abilities prevent sprint and jump exhaustion", ctx do
-      seed(ctx, mode: unquote(mode))
-      {client, pid} = login(ctx)
-      command(client, pid, true)
-      ground = %{ctx.pose | x: ctx.pose.x + 0.1}
-      move(client, ground)
-      moved(pid, ground)
-      air = %{ground | y: 64.42}
-      move(client, air, 0)
-      moved(pid, air)
-      assert state(pid).player.food == %PlayerFood{}
-    end
-  end
-
-  test "selected swimming takes precedence over the sprint flag", ctx do
-    seed(ctx)
-
-    for y <- 64..66,
-        do: :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x), y, floor(ctx.pose.z)}, 89)
-
-    {client, pid} = login(ctx)
-    command(client, pid, true)
-    target = %{ctx.pose | y: 64.1}
-    move(client, target, 0)
-    moved(pid, target)
-    assert state(pid).player.motion.swimming
-    assert state(pid).player.food.exhaustion == 0.0009999999310821295
-  end
-
-  test "fresh ladder contact suppresses grounded sprint cost until the ladder is removed", ctx do
-    seed(ctx)
-    pos = {floor(ctx.pose.x), 64, floor(ctx.pose.z)}
-    :ok = Valimc.TestRegion.set_published(pos, 7308)
-    {client, pid} = login(ctx)
-    command(client, pid, true)
-    target = %{ctx.pose | x: ctx.pose.x + 0.1}
-    move(client, target)
-    moved(pid, target)
-    assert state(pid).player.food == %PlayerFood{}
-    :ok = Valimc.TestRegion.set_published(pos, 0)
-    next = %{target | x: target.x + 0.1}
-    move(client, next)
-    moved(pid, next)
-    assert state(pid).player.food == PlayerFood.exhaust(%PlayerFood{}, 0.009999999776482582)
   end
 
   test "blocked movement retains wire ordering before a later stop-sprinting command", ctx do

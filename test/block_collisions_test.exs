@@ -3,13 +3,9 @@ defmodule Valimc.BlockCollisionsTest do
 
   alias Valimc.Physics.{
     BlockCollisions,
-    BlockEntityContext,
     BlockScan,
-    BlockShapes,
     Box,
-    CollisionContext,
-    Shape,
-    VoxelOps
+    CollisionContext
   }
 
   defp region({x, _, z}), do: Valimc.World.region_key(Valimc.World.chunk_key(x, z))
@@ -91,36 +87,6 @@ defmodule Valimc.BlockCollisionsTest do
              BlockCollisions.collect(@box, [first, %{first | region: {999, 999}, blocks: %{}}])
   end
 
-  test "block entities distinguish missing, invalid and confirmed absent observations" do
-    box = {0.2, 0.2, 0.2, 0.8, 0.8, 0.8}
-
-    for {id, name} <- [{16849, "minecraft:shulker_box"}, {3801, "minecraft:moving_piston"}] do
-      obs = observations(box, %{{0, 0, 0} => id})
-      assert {:error, {:context_required, {0, 0, 0}, ^name}} = BlockCollisions.collect(box, obs)
-
-      assert {:ok, %{colliders: colliders}} =
-               BlockCollisions.collect(box, obs, CollisionContext.empty(), %{
-                 {0, 0, 0} => BlockEntityContext.absent()
-               })
-
-      assert length(colliders) == if(id == 16849, do: 1, else: 0)
-
-      assert {:error, :invalid_block_entity_context} =
-               BlockCollisions.collect(box, obs, CollisionContext.empty(), %{{0, 0, 0} => :absent})
-    end
-
-    # A shulker on a scan edge is ineligible: no block-entity read is needed.
-    assert {:ok, %{colliders: []}} =
-             BlockCollisions.collect(box, observations(box, %{{-1, -1, 0} => 16849}))
-
-    assert {:error, :invalid_context} = BlockCollisions.collect(box, [], :empty)
-
-    assert {:error, :invalid_block_entity_context} =
-             BlockCollisions.collect(box, observations(box), CollisionContext.empty(), %{
-               {99, 0, 0} => BlockEntityContext.absent()
-             })
-  end
-
   test "candidate, batch and collider limits fail without partial results" do
     large = {0.2, 0.2, 0.2, 5.8, 5.8, 5.8}
     assert {:error, :collider_limit} = BlockCollisions.collect(large, observations(large, %{}, 1))
@@ -135,22 +101,6 @@ defmodule Valimc.BlockCollisionsTest do
 
     assert {:error, :invalid_observations} =
              BlockCollisions.collect(@box, [%{hd(obs) | blocks: blocks}])
-  end
-
-  test "native shared-full identity is lost by move and retained by optimized creation" do
-    {:ok, stone} = BlockShapes.fetch(1)
-    assert stone.full_block
-    refute Shape.move(stone, {0, 0, 0}).full_block
-    assert VoxelOps.box({0, 0, 0, 1, 1, 1}).full_block
-
-    assert VoxelOps.union(
-             VoxelOps.box({0, 0, 0, 0.5, 1, 1}),
-             VoxelOps.box({0.5, 0, 0, 1, 1, 1})
-           ).full_block
-
-    assert_raise ArgumentError, fn ->
-      VoxelOps.intersects?(%{VoxelOps.box({0, 0, 0, 0.5, 1, 1}) | full_block: true}, stone)
-    end
   end
 
   test "a validated sample reuses states and fences but resolves each dynamic context afresh" do

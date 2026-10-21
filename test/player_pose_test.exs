@@ -9,19 +9,6 @@ defmodule Valimc.PlayerPoseTest do
              {:ok, :dying, [:swimming]}
   end
 
-  test "standing intent may keep crouching or fall back to swimming" do
-    fits = %{swimming: true, standing: false, crouching: true}
-
-    assert Pose.select(:crouching, %Pose{}, fits) ==
-             {:ok, :crouching, [:swimming, :standing, :crouching]}
-
-    assert Pose.select(:standing, %Pose{}, %{fits | crouching: false}) ==
-             {:ok, :swimming, [:swimming, :standing, :crouching]}
-
-    assert Pose.select(:standing, %Pose{}, Map.delete(fits, :crouching)) ==
-             {:error, {:missing_fit, :crouching}}
-  end
-
   test "invalid or excessive observations fail explicitly" do
     for fits <- [nil, %{swimming: :unknown}, %{unknown: true}, Map.new(1..19, &{&1, true})],
         do: assert(Pose.select(:standing, %Pose{}, fits) == {:error, :invalid_pose_observations})

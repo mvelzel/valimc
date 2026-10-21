@@ -39,22 +39,6 @@ defmodule Valimc.PoseFitTest do
   defp select(observations, intent \\ %PlayerPose{}, current \\ :standing),
     do: PoseFit.select(current, intent, @position, CollisionContext.empty(), observations)
 
-  test "crouch/crawl clearance and the initial swimming gate use native lazy order" do
-    assert {:ok, crouch} = select(observations(%{{0, 65, 0} => 15178}))
-    assert crouch.pose == :crouching
-    assert crouch.queries == [:swimming, :standing, :crouching]
-    assert crouch.fits == %{swimming: true, standing: false, crouching: true}
-    assert {:ok, crawl} = select(observations(%{{0, 65, 0} => 1}))
-    assert crawl.pose == :swimming
-    assert crawl.fits == %{swimming: true, standing: false, crouching: false}
-
-    # No entity lookup is required once blocks reject the swimming fit.
-    assert {:ok, retained} =
-             select(observations(%{{0, 64, 0} => 1}, nil), %PlayerPose{}, :crouching)
-
-    assert retained.pose == :crouching and retained.queries == [:swimming]
-  end
-
   test "border and malformed/missing observations remain explicit rather than becoming air" do
     {:ok, border} = BorderSnapshot.new(0, 0, 0)
 

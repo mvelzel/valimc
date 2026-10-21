@@ -1,12 +1,13 @@
 defmodule Valimc.CollisionQueryTest do
-  use ExUnit.Case, async: false
-  # Serial: saturates a global geometry worker pool that concurrent owners also use.
+  use ExUnit.Case, async: true
   alias Valimc.TestScope
   alias Valimc.Physics.{CollisionQuery, Collision, CollisionContext}
   alias Valimc.World
   alias Valimc.World.{Chunk, Region}
 
-  setup do
+  setup :scope
+
+  def scope(_tags) do
     keys = for x <- -402..-401, z <- -402..-401, do: {x, z}
     for key <- keys, do: assert({:ok, _} = World.owner(key))
 
@@ -19,7 +20,7 @@ defmodule Valimc.CollisionQueryTest do
     %{keys: keys, origin: -51_328}
   end
 
-  defp await(task), do: Task.await(task, 60_000)
+  def await(task), do: Task.await(task, 60_000)
 
   test "live geometry spans existing owners and retains exact snapshot fences", %{origin: n} do
     for x <- (n - 1)..(n + 1), y <- 64..65, do: :ok = World.set_block({x, y, n}, 1)
@@ -200,33 +201,6 @@ defmodule Valimc.CollisionQueryTest do
     assert {:error, {:region, {-401, -401}, :region_unavailable}} = await(dead)
   end
 
-  test "pool capacity rejects excess admission and becomes usable after release", %{origin: n} do
-    # Pools are partitioned by caller; fill this caller's partition.
-    holders =
-      Stream.repeatedly(fn ->
-        Task.Supervisor.start_child(Valimc.Workers.collision(), fn ->
-          receive do
-            :stop -> :ok
-          end
-        end)
-      end)
-      |> Enum.take_while(&match?({:ok, _}, &1))
-      |> Enum.map(fn {:ok, pid} -> pid end)
-
-    assert length(holders) >= div(CollisionQuery.worker_limit(), Valimc.Workers.partitions())
-
-    try do
-      assert {:error, :collision_workers_busy} =
-               CollisionQuery.start({n + 5.2, 64, n + 5.2, n + 5.8, 65.8, n + 5.8})
-    after
-      for pid <- holders, do: send(pid, :stop)
-    end
-
-    Process.sleep(20)
-    {:ok, task} = CollisionQuery.start({n + 5.2, 64, n + 5.2, n + 5.8, 65.8, n + 5.8})
-    assert {:ok, _} = await(task)
-  end
-
   test "an observed contextual block requires region block-entity facts", %{origin: n} do
     :ok = World.set_block({n + 5, 64, n + 5}, 16849)
 
@@ -300,5 +274,31 @@ defmodule Valimc.CollisionQueryTest do
     assert {:ok, %{colliders: [], fences: fences}} = await(task)
     assert fences[key].owner == replacement
     assert first.fences[key].owner != replacement
+  end
+end
+
+defmodule Valimc.CollisionQueryTest.Serial do
+  use ExUnit.Case, async: false
+  # Serial: saturates a global geometry worker pool that concurrent owners also use.
+  import Valimc.CollisionQueryTest, only: [await: 1]
+  alias Valimc.Physics.CollisionQuery
+
+  setup {Valimc.CollisionQueryTest, :scope}
+
+  test "pool capacity rejects excess admission and becomes usable after release", %{origin: n} do
+    # Pools are partitioned by caller; fill this caller's partition.
+    holders = Valimc.TestPool.fill(self())
+    assert length(holders) >= div(CollisionQuery.worker_limit(), Valimc.Workers.partitions())
+
+    try do
+      assert {:error, :collision_workers_busy} =
+               CollisionQuery.start({n + 5.2, 64, n + 5.2, n + 5.8, 65.8, n + 5.8})
+    after
+      Valimc.TestPool.release(holders)
+    end
+
+    Valimc.TestWait.until(fn -> Valimc.TestPool.active(self()) == 0 end)
+    {:ok, task} = CollisionQuery.start({n + 5.2, 64, n + 5.2, n + 5.8, 65.8, n + 5.8})
+    assert {:ok, _} = await(task)
   end
 end

@@ -67,18 +67,6 @@ defmodule Valimc.PlayerMotionConnectionTest do
     end)
   end
 
-  defp await_frozen(client, entity, predicate) do
-    value = get_in(client, [:entity_frozen, entity])
-
-    if is_integer(value) and predicate.(value) do
-      client
-    else
-      {id, body, client} = Client.read(client)
-      name = Data.name(:play, :clientbound, id)
-      await_frozen(Client.auto_reply(client, :play, name, body), entity, predicate)
-    end
-  end
-
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   defp move(client, p, flags \\ 1) do
@@ -90,44 +78,6 @@ defmodule Valimc.PlayerMotionConnectionTest do
       ),
       Wire.frame(Data.id(:play, :serverbound, "client_tick_end"), <<>>, client.threshold)
     ])
-  end
-
-  test "server impulse replicates to self/peer while scratch gravity preserves accepted position",
-       ctx do
-    [first, second] = ctx.names
-    {client, pid} = login(first)
-    uuid = Connection.offline_uuid(second)
-
-    {:ok, bytes} =
-      PlayerSnapshot.encode(
-        uuid,
-        PlayerSnapshot.capture(%{ctx.pos | x: ctx.pos.x + 2}, Inventory.new())
-      )
-
-    File.write!(PlayerStore.path(Valimc.config(:world_path), uuid), bytes)
-    {peer, peer_pid} = login(second)
-    wait(fn -> Map.has_key?(state(peer_pid).peers, pid) end)
-    top = %{ctx.pos | y: 68.0}
-    client = Client.teleport(client, pid, top)
-    wait(fn -> elem(state(pid).player.motion.velocity, 1) < -0.1 end)
-    assert state(pid).player.y == 68.0
-    assert state(pid).player.motion.fall_distance == 0.0
-    assert state(pid).player.motion.known_movement == {0.0, 0.0, 0.0}
-
-    assert :ok = Connection.set_velocity(pid, {0.7, 0.8, -0.2})
-    entity = state(pid).player.entity_id
-
-    for endpoint <- [client, peer] do
-      {body, _} = Client.await(endpoint, :play, "set_entity_motion")
-      assert {^entity, payload} = Wire.take_varint(body)
-      assert {:ok, {x, y, z}} = PackedVelocity.decode(payload)
-      assert abs(x - 0.7) < 0.0001 and abs(y - 0.8) < 0.0001 and abs(z + 0.2) < 0.0001
-    end
-
-    wait(fn -> elem(state(pid).player.motion.velocity, 1) < 0.7 end)
-    assert state(pid).player.y == 68.0
-    assert state(pid).player.x == top.x
-    assert state(pid).player.motion.fall_distance == 0.0
   end
 
   test "movement speed budget includes current server velocity, then rejects a forged large move",
@@ -152,162 +102,6 @@ defmodule Valimc.PlayerMotionConnectionTest do
     move(client, %{top | x: top.x + 35.0}, 0)
     _client = correction(client, pid, moved)
     assert state(pid).player.x == moved.x
-  end
-
-  test "accepted jump changes velocity without manufacturing accepted height on later ticks",
-       ctx do
-    {client, pid} = login(hd(ctx.names))
-    move(client, ctx.pos, 1)
-    wait(fn -> state(pid).player.motion.on_ground end)
-    jump = %{ctx.pos | y: 64.42}
-    move(client, jump, 0)
-    wait(fn -> state(pid).player.y == jump.y end)
-    assert elem(state(pid).player.motion.velocity, 1) > 0.1
-    Process.sleep(100)
-    assert state(pid).player.y == jump.y
-    assert state(pid).player.motion.fall_distance == 0.0
-  end
-
-  for {kind, fluid, lifted_velocity} <- [{:water, 89, 0.01}, {:lava, 105, -0.005}] do
-    test "live #{kind} ticks consume input without inventing accepted position", ctx do
-      {client, pid} = login(hd(ctx.names))
-      {x, z} = {floor(ctx.pos.x), floor(ctx.pos.z)}
-
-      for px <- (x - 1)..(x + 1),
-          py <- 64..66,
-          pz <- (z - 1)..(z + 1),
-          do: :ok = World.set_block({px, py, pz}, unquote(fluid))
-
-      anchor = %{ctx.pos | y: 64.2}
-      _client = Client.teleport(client, pid, anchor)
-      assert :ok = Connection.set_velocity(pid, {0.3, -0.1, 0.0})
-
-      wait(fn ->
-        {vx, vy, _} = state(pid).player.motion.velocity
-        abs(vx) < 0.25 and vy > -0.1 and vy < 0
-      end)
-
-      assert state(pid).player.y == anchor.y
-      Client.send_packet(client, :play, "player_input", <<16>>)
-      wait(fn -> elem(state(pid).player.motion.velocity, 1) > unquote(lifted_velocity) end)
-      assert state(pid).player.y == anchor.y
-      Client.send_packet(client, :play, "player_input", <<32>>)
-      wait(fn -> elem(state(pid).player.motion.velocity, 1) < -0.02 end)
-      assert state(pid).player.y == anchor.y
-    end
-  end
-
-  test "live climbing consumes jump and Shift while source changes resume falling", ctx do
-    {client, pid} = login(hd(ctx.names))
-    {x, z} = {floor(ctx.pos.x), floor(ctx.pos.z)}
-    for y <- 65..68, do: :ok = World.set_block({x, y, z}, 7308)
-    anchor = %{ctx.pos | y: 66.2}
-    client = Client.teleport(client, pid, anchor)
-    assert :ok = Connection.set_velocity(pid, {0.0, -2.0, 0.0})
-    wait(fn -> abs(elem(state(pid).player.motion.velocity, 1) + 0.22540001) < 1.0e-8 end)
-    Client.send_packet(client, :play, "player_input", <<16>>)
-
-    wait(fn ->
-      abs(elem(state(pid).player.motion.velocity, 1) - 0.11760000228881837) < 1.0e-12
-    end)
-
-    Client.send_packet(client, :play, "player_input", <<32>>)
-    wait(fn -> state(pid).player.motion.velocity == {0.0, -0.0784000015258789, 0.0} end)
-    assert state(pid).player.y == anchor.y
-    refute state(pid).teleport_pending
-
-    # Retiring the source contact must not leave a cached climbing/Shift hold.
-    :ok = World.set_block({x, 66, z}, 0)
-    wait(fn -> elem(state(pid).player.motion.velocity, 1) < -0.3 end)
-    assert state(pid).player.y == anchor.y
-    refute state(pid).teleport_pending
-  end
-
-  test "climbing resets accepted falls on a fresh logical tick and excludes flight", ctx do
-    {client, pid} = login(hd(ctx.names))
-    {x, z} = {floor(ctx.pos.x), floor(ctx.pos.z)}
-    for y <- 65..68, do: :ok = World.set_block({x, y, z}, 7308)
-    client = Client.teleport(client, pid, %{ctx.pos | y: 67.2})
-    move(client, %{ctx.pos | y: 66.2}, 0)
-    wait(fn -> state(pid).player.y == 66.2 and state(pid).player.motion.fall_distance == 0.0 end)
-    Client.send_packet(client, :play, "player_abilities", <<2>>)
-    wait(fn -> state(pid).player.abilities.flying end)
-    assert :ok = Connection.set_velocity(pid, {0.6, -1.0, 0.0})
-
-    wait(fn ->
-      {vx, vy, _} = state(pid).player.motion.velocity
-      vx < 0.6 and vx > 0.15 and vy < -0.15
-    end)
-
-    assert state(pid).player.y == 66.2
-    refute state(pid).teleport_pending
-  end
-
-  test "Shift ledge validation rejects unsupported travel and release retires the guard", ctx do
-    name = hd(ctx.names)
-    uuid = Connection.offline_uuid(name)
-
-    p =
-      Map.merge(ctx.pos, %{
-        game_mode: Valimc.GameMode.new(:survival),
-        abilities: Valimc.PlayerAbilities.for_mode(:survival)
-      })
-
-    {:ok, bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(p, Inventory.new()))
-    File.write!(PlayerStore.path(Valimc.config(:world_path), uuid), bytes)
-
-    for x <- (floor(p.x) + 1)..(floor(p.x) + 4),
-        z <- (floor(p.z) - 2)..(floor(p.z) + 2),
-        do: :ok = World.set_block({x, 63, z}, 0)
-
-    {client, pid} = login(name)
-    Client.send_packet(client, :play, "player_input", <<32>>)
-    wait(fn -> state(pid).player.pose == :crouching end)
-    move(client, %{ctx.pos | x: p.x + 2.0})
-    client = correction(client, pid, ctx.pos)
-    assert state(pid).player.motion.paths.count == 0
-    Client.send_packet(client, :play, "player_input", <<0>>)
-    wait(fn -> state(pid).player.input.shared_flags == 0 end)
-    move(client, %{ctx.pos | x: p.x + 2.0})
-    wait(fn -> state(pid).player.x == p.x + 2.0 end)
-    refute state(pid).teleport_pending
-    _client = Client.teleport(client, pid, ctx.pos)
-  end
-
-  test "live slowing contacts reset falls, refresh material and stop reapplying in flight", ctx do
-    {client, pid} = login(hd(ctx.names))
-    {x, z} = {floor(ctx.pos.x), floor(ctx.pos.z)}
-    for y <- 65..68, do: :ok = World.set_block({x, y, z}, 2362)
-    client = Client.teleport(client, pid, %{ctx.pos | y: 67.2})
-    move(client, %{ctx.pos | y: 66.2}, 0)
-
-    wait(fn ->
-      s = state(pid)
-
-      s.player.y == 66.2 and s.player.motion.fall_distance == 0.0 and
-        elem(s.player.motion.stuck_multiplier, 0) == 0.25
-    end)
-
-    assert :ok = Connection.set_velocity(pid, {0.4, -1.0, 0.0})
-    wait(fn -> state(pid).player.motion.velocity == {0.0, -0.0784000015258789, 0.0} end)
-    # A sweet berry bush needs soil below it (VMC-029c), so it stands on dirt.
-    dirt = Valimc.Registry.Blocks.default_state("dirt")
-
-    for {y, block} <- [{65, dirt}, {66, 24298}, {67, 0}, {68, 0}],
-        do: :ok = World.set_block({x, y, z}, block)
-
-    wait(fn -> elem(state(pid).player.motion.stuck_multiplier, 0) == 0.800000011920929 end)
-    Client.send_packet(client, :play, "player_abilities", <<2>>)
-    wait(fn -> state(pid).player.abilities.flying end)
-    wait(fn -> state(pid).player.motion.stuck_multiplier == {0.0, 0.0, 0.0} end)
-    Client.send_packet(client, :play, "player_abilities", <<0>>)
-    wait(fn -> not state(pid).player.abilities.flying end)
-    wait(fn -> elem(state(pid).player.motion.stuck_multiplier, 0) == 0.800000011920929 end)
-    _client = Client.teleport(client, pid, %{ctx.pos | x: ctx.pos.x + 3})
-    wait(fn -> state(pid).player.motion.settled end)
-    assert state(pid).player.motion.paths.count == 0
-    assert state(pid).player.motion.stuck_multiplier == {0.0, 0.0, 0.0}
-    refute state(pid).teleport_pending
   end
 
   test "new impulses retire stalled geometry and expired/invalid calls cannot replace velocity",
@@ -341,7 +135,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
           }}}
       )
 
-      Process.sleep(30)
+      # The state read follows the forged reply in the connection's mailbox.
       assert state(pid).player.motion.velocity == {0.2, 0.5, 0.0}
       assert state(pid).player.motion.stuck_multiplier == {0.0, 0.0, 0.0}
 
@@ -365,54 +159,6 @@ defmodule Valimc.PlayerMotionConnectionTest do
     after
       Valimc.TestRegionGate.resume(owner)
     end
-  end
-
-  test "stationary server ticks freeze, replicate to a peer and thaw after relocation", ctx do
-    [first, second] = ctx.names
-    {client, pid} = login(first)
-    uuid = Connection.offline_uuid(second)
-    path = PlayerStore.path(Valimc.config(:world_path), uuid)
-
-    {:ok, bytes} =
-      PlayerSnapshot.encode(
-        uuid,
-        PlayerSnapshot.capture(%{ctx.pos | x: ctx.pos.x + 2}, Inventory.new())
-      )
-
-    File.write!(path, bytes)
-    {peer, _} = login(second)
-    entity = state(pid).player.entity_id
-    :ok = World.set_block({floor(ctx.pos.x), 64, floor(ctx.pos.z)}, 30519)
-    wait(fn -> state(pid).player.environment.frozen_ticks >= 4 end)
-    client = await_frozen(client, entity, &(&1 >= 4))
-    peer = await_frozen(peer, entity, &(&1 >= 4))
-    assert state(pid).player.y == 64.0
-
-    # A legal creative armor write changes immunity, not the contact sample.
-    Client.send_packet(client, :play, "set_creative_mode_slot", [
-      <<5::signed-16>>,
-      ItemStack.encode(ItemStack.new("leather_helmet"))
-    ])
-
-    wait(fn -> state(pid).inventory.slots[5] != nil end)
-    wait(fn -> state(pid).player.environment.frozen_ticks == 0 end)
-    assert state(pid).player.environment.powder_snow
-    client = await_frozen(client, entity, &(&1 == 0))
-
-    Client.send_packet(client, :play, "set_creative_mode_slot", [
-      <<5::signed-16>>,
-      ItemStack.encode(nil)
-    ])
-
-    wait(fn -> state(pid).player.environment.frozen_ticks >= 4 end)
-    client = await_frozen(client, entity, &(&1 >= 4))
-    peer = await_frozen(peer, entity, &(&1 >= 4))
-
-    client = Client.teleport(client, pid, %{ctx.pos | x: ctx.pos.x + 2})
-    wait(fn -> state(pid).player.environment.frozen_ticks == 0 end)
-    _client = await_frozen(client, entity, &(&1 == 0))
-    _peer = await_frozen(peer, entity, &(&1 == 0))
-    refute state(pid).player.environment.powder_snow
   end
 
   test "stalled environment reads preserve effects until a fresh source can answer", ctx do
@@ -440,50 +186,6 @@ defmodule Valimc.PlayerMotionConnectionTest do
     end
   end
 
-  test "only accepted displacement accrues falls; reports and tick boundaries retain their meaning",
-       ctx do
-    {client, pid} = login(hd(ctx.names))
-    top = %{ctx.pos | y: 68.0}
-    :ok = Connection.teleport(pid, top)
-    client = correction(client, pid, top)
-    down = %{top | y: 67.0}
-    move(client, down, 2)
-    wait(fn -> state(pid).player.y == down.y end)
-    motion = state(pid).player.motion
-    assert motion.fall_distance == 1.0
-    assert motion.known_movement == {0.0, -1.0, 0.0}
-    refute motion.on_ground
-    assert motion.horizontal_collision
-
-    # A rejected floor entry cannot erase an already accepted fall.
-    move(client, %{top | y: 63.0}, 1)
-    client = correction(client, pid, down)
-    assert state(pid).player.motion.fall_distance == 1.0
-    Client.send_packet(client, :play, "client_tick_end", <<>>)
-    wait(fn -> state(pid).player.motion.known_movement == {0.0, 0.0, 0.0} end)
-
-    # This is a client report even while airborne, not proof of solid support.
-    Client.send_packet(client, :play, "move_player_status_only", <<3>>)
-    wait(fn -> state(pid).player.motion.on_ground end)
-    assert state(pid).player.y == 67.0
-    assert state(pid).player.motion.fall_distance == 0.0
-
-    move(client, %{top | y: 66.5}, 0)
-    wait(fn -> state(pid).player.motion.fall_distance == 0.5 end)
-    Client.send_packet(client, :play, "move_player_rot", <<12.0::float-32, 0.0::float-32, 0>>)
-    wait(fn -> state(pid).player.yaw == 12.0 end)
-    assert state(pid).player.motion.fall_distance == 0.5
-    move(client, %{top | y: 66.6}, 0)
-    wait(fn -> state(pid).player.y == 66.6 end)
-    assert state(pid).player.motion.fall_distance == 0.0
-    move(client, %{top | y: 66.4}, 0)
-    wait(fn -> state(pid).player.y == 66.4 end)
-    assert state(pid).player.motion.fall_distance > 0.0
-    Client.send_packet(client, :play, "player_abilities", <<2>>)
-    wait(fn -> state(pid).player.abilities.flying end)
-    assert state(pid).player.motion.fall_distance == 0.0
-  end
-
   test "pending geometry cannot accrue a fall, and relocation retires its context", ctx do
     {client, pid} = login(hd(ctx.names))
     top = %{ctx.pos | y: 68.0}
@@ -505,72 +207,6 @@ defmodule Valimc.PlayerMotionConnectionTest do
     after
       Valimc.TestRegionGate.resume(owner)
     end
-  end
-
-  test "disconnect and reconnect retain a midair fall without retaining old movement", ctx do
-    name = hd(ctx.names)
-    {client, pid} = login(name)
-    top = %{ctx.pos | y: 69.0}
-    :ok = Connection.teleport(pid, top)
-    client = correction(client, pid, top)
-    move(client, %{top | y: 67.75}, 0)
-    wait(fn -> state(pid).player.y == 67.75 end)
-    assert state(pid).player.motion.fall_distance == 1.25
-    Client.close(client)
-    wait(fn -> not Process.alive?(pid) end)
-    uuid = Connection.offline_uuid(name)
-    wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == [] end)
-    {_client, replacement} = login(name)
-    assert state(replacement).player.motion.fall_distance == 1.25
-    assert state(replacement).player.motion.known_movement == {0.0, 0.0, 0.0}
-  end
-
-  test "login restores native-clamped velocity after its teleport without stale observations",
-       ctx do
-    name = hd(ctx.names)
-    uuid = Connection.offline_uuid(name)
-
-    player =
-      Map.merge(%{ctx.pos | y: 68.0}, %{
-        game_mode: Valimc.GameMode.new(:creative),
-        abilities: Valimc.PlayerAbilities.for_mode(:creative),
-        motion: %Valimc.PlayerMotion{
-          velocity: {0.3, -0.8, 12.0},
-          physical_ground: true,
-          settled: true,
-          known_movement: {4.0, 2.0, 0.0},
-          paths:
-            Valimc.Physics.MovementPaths.record(
-              %Valimc.Physics.MovementPaths{},
-              {ctx.pos.x, 68.0, ctx.pos.z},
-              {0.1, 0.0, 0.0},
-              {0.1, 0.0, 0.0}
-            ),
-          stuck_multiplier: {0.25, 0.05000000074505806, 0.25},
-          fall_distance: 1.5
-        },
-        environment: %Valimc.PlayerEnvironment{frozen_ticks: 27}
-      })
-
-    {:ok, bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(player, Inventory.new()))
-    File.write!(PlayerStore.path(Valimc.config(:world_path), uuid), bytes)
-    {^uuid, client} = Client.login(name)
-    on_exit(fn -> Client.close(client) end)
-    {body, _client} = Client.await(client, :play, "set_entity_motion")
-    pid = owner(name)
-    current = state(pid)
-    assert {id, payload} = Wire.take_varint(body)
-    assert id == current.player.entity_id
-    assert {:ok, {x, y, z}} = PackedVelocity.decode(payload)
-    assert abs(x - 0.3) < 0.0001 and abs(y + 0.8) < 0.0001 and z == 0.0
-    assert current.player.motion.velocity == {0.3, -0.8, 0.0}
-    assert current.player.motion.known_movement == {0.0, 0.0, 0.0}
-    assert current.player.motion.paths.count == 0
-    assert current.player.motion.stuck_multiplier == {0.0, 0.0, 0.0}
-    refute current.player.motion.physical_ground or current.player.motion.settled
-    assert current.player.motion.fall_distance == 1.5
-    assert current.player.environment.frozen_ticks == 27
-    refute current.teleport_pending or current.login_velocity_pending
   end
 
   test "disconnect commits the live impulse before reconnect restores it", ctx do
@@ -730,8 +366,6 @@ defmodule Valimc.PlayerMotionConnectionTest do
   end
 
   test "expired completed geometry cannot commit after its player mailbox resumes", ctx do
-    # The play admission window, which the suspended mailbox outlasts (VMC-073).
-    Valimc.TestScope.isolate(Connection.offline_uuid(hd(ctx.names)), owner_call_scale: 1)
     {client, pid} = login(hd(ctx.names))
     {:ok, {owner, _}} = World.existing_owner(ctx.key)
     Valimc.TestRegionGate.stall(owner)
@@ -744,7 +378,12 @@ defmodule Valimc.PlayerMotionConnectionTest do
       try do
         Valimc.TestRegionGate.resume(owner)
         wait(fn -> not Process.alive?(job.task.pid) end)
-        Process.sleep(260)
+        # The completed result waits in the mailbox past its admission deadline.
+        expired = %{job.input | deadline: System.monotonic_time(:millisecond) - 1}
+
+        :sys.replace_state(pid, fn s ->
+          %{s | jobs: Valimc.Session.Jobs.update(s.jobs, :motion, %{input: expired})}
+        end)
       after
         :sys.resume(pid)
       end

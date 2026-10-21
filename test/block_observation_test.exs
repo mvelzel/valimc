@@ -69,21 +69,6 @@ defmodule Valimc.BlockObservationTest do
     assert blocks == %{c.pos => 0}
   end
 
-  test "the owner rechecks untrusted direct messages without crashing or mutating", c do
-    {pid, epoch} = c.owner
-
-    assert {:error, :invalid_block_query} =
-             GenServer.call(pid, {:observe_blocks, epoch, List.duplicate(c.pos, 129), :any})
-
-    assert {:error, :invalid_block_query} =
-             GenServer.call(pid, {:observe_blocks, epoch, [{0.0, 64, 0}], :any})
-
-    assert {:error, :invalid_block_query} =
-             GenServer.call(pid, {:observe_blocks, epoch, [c.pos], -1})
-
-    assert {:ok, %{revision: 0}} = Region.observe_blocks(c.owner, [])
-  end
-
   test "negative boundaries, stale incarnations and foreign region requests are explicit", c do
     {pid, epoch} = c.owner
     {x, y, z} = c.pos

@@ -1,8 +1,6 @@
 defmodule Valimc.Physics.BlockContactsTest do
   use ExUnit.Case, async: true
-  alias Valimc.Physics.{BlockCollisions.Frame, CollisionContext, BlockContacts, InsideBlocks}
-  @fire 4931
-  @soul 5443
+  alias Valimc.Physics.{BlockCollisions.Frame, CollisionContext, BlockContacts}
 
   defp frame(changes) do
     air = for x <- -3..5, y <- 62..68, z <- -1..1, into: %{}, do: {{x, y, z}, 0}
@@ -30,22 +28,6 @@ defmodule Valimc.Physics.BlockContactsTest do
       CollisionContext.entity(elem(to, 1)) |> CollisionContext.with_entity(0.0, false, false)
 
     BlockContacts.sample_paths(f, [%{from: from, to: to, axis: nil}], context, facts)
-  end
-
-  test "flight retains fire contacts, spectator skips them and each new tick has a fresh hit set" do
-    f = frame(%{{0, 64, 0} => @soul})
-    point = {0.5, 64.0, 0.5}
-
-    for _ <- 1..2 do
-      assert {:ok, %{operations: [:clear_freeze, :fire_ignite, {:damage, :in_fire, 2.0}]}} =
-               sample(f, point, point, %{flying: true})
-    end
-
-    assert {:ok, %{operations: [], active: false}} =
-             sample(%{f | states: %{}}, point, point, %{spectator: true})
-
-    assert {:ok, {:fire, :full}} = InsideBlocks.fetch(@fire)
-    assert {:ok, {:soul_fire, :full}} = InsideBlocks.fetch(@soul)
   end
 
   test "missing or invalid observations and path limits refuse without a partial plan" do

@@ -88,8 +88,9 @@ defmodule Valimc.PlayerInputConnectionTest do
     Client.send_packet(sender, :play, "player_command", command(1))
     Client.send_packet(sender, :play, "player_input", <<64>>)
     _sender = barrier(sender)
-    # Deliver at least three publication intervals; only packet events are examined below.
-    Process.sleep(160)
+    # Publish three times explicitly; only packet events are examined below.
+    for _ <- 1..3, do: send(player.pid, :publish_movement)
+    _ = current(player)
     Client.send_packet(receiver, :play, "chat_command", Wire.string("stats"))
     _receiver = await_stats_without_replication(receiver, player.entity_id)
   end
