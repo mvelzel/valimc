@@ -18,12 +18,13 @@ defmodule Valimc.World.Generator do
   its imported chunks.
 
   Regions of a vanilla world generate the chunks their log has no column image
-  for when a view or a reader wants them, nearest first (`columns/2`,
-  `Valimc.World.RegionGeneration`, VMC-075), and persist them before serving
-  them, so a chunk is generated once. New vanilla worlds are decorated
-  (VMC-025d, `"features": true`): their regions take full chunks from their
-  proto owner (`Valimc.Worldgen.Proto`) instead. Worlds generated before keep
-  terrain only, so no chunk of theirs is decorated after it was sent.
+  for when a view or a reader wants them, nearest first: they take full
+  chunks from their dimension's generation scheduler
+  (`Valimc.World.RegionGeneration`, `Valimc.Worldgen.Scheduler`, VMC-075,
+  VMC-077n) and persist them before serving them, so a chunk is generated
+  once. New vanilla worlds are decorated (VMC-025d, `"features": true`);
+  worlds generated before keep terrain only (their chunks are final after
+  terrain), so no chunk of theirs is decorated after it was sent.
 
   The Nether and the End (VMC-026b) generate as vanilla's presets keep them in
   every world type: noise terrain of the world's seed (ValiMC's flat profile
@@ -37,7 +38,7 @@ defmodule Valimc.World.Generator do
 
   @settings "minecraft:overworld"
   @biome_source "minecraft:overworld"
-  # A batch is one native call of about 0.1 s; a region runs up to four at once.
+  # A batch is one native call of about 0.1 s; `columns/2` runs four at once.
   @batch 16
   @batches 4
 
@@ -71,9 +72,10 @@ defmodule Valimc.World.Generator do
 
   @doc """
   Write `world.json` for a new vanilla world at `base` with `seed`, and its
-  `settings.json` with vanilla's world spawn (VMC-027d). Decorated unless `features: false` (terrain only, as
-  worlds generated before VMC-025d); a decorated world's spawn search reads the
-  full chunks its regions' first transactions make.
+  `settings.json` with vanilla's world spawn (VMC-027d). Decorated unless
+  `features: false` (terrain only, as worlds generated before VMC-025d). The
+  spawn search reads full chunks of the overworld's generation, whose state
+  it leaves for the generation scheduler (VMC-077n).
   """
   def create(base, seed, opts \\ []) when is_integer(seed) do
     with {:ok, facts} <- Valimc.World.Datapacks.facts(base),
@@ -88,19 +90,13 @@ defmodule Valimc.World.Generator do
          {:ok, spec} <- spec_of(settings, facts) do
       # Flat worlds are not decorated (their features and lakes are off).
       features = Keyword.get(opts, :features, true) and spec.kind == :noise
-      columns = if features, do: first_full_columns(spec), else: &columns/2
-
-      {x, y, z} =
-        Valimc.World.SpawnSearch.world_spawn(spec, columns,
-          origin: spawn_chunk(spec),
-          height: spawn_height(spec)
-        )
-
       generator = %{"type" => "vanilla", "seed" => seed, "settings" => settings}
       generator = if features, do: Map.put(generator, "features", true), else: generator
-      spawn = %{dimension: :overworld, position: {x, y, z}, yaw: 0.0, pitch: 0.0}
 
-      with :ok <- Settings.write(base, %{spawn: spawn}), do: Spec.write(base, generator)
+      with {:ok, {x, y, z}} <- search_spawn(base, spec, features),
+           spawn = %{dimension: :overworld, position: {x, y, z}, yaw: 0.0, pitch: 0.0},
+           :ok <- Settings.write(base, %{spawn: spawn}),
+           do: Spec.write(base, generator)
     end
   end
 
@@ -231,61 +227,44 @@ defmodule Valimc.World.Generator do
      }}
   end
 
-  # Full chunk images as region `key`'s transaction makes them when it is the
-  # first one finalized: the 10 × 10 around it decorated Z outer, X inner over
-  # terrain, memoized per region for one search. A player whose view starts
-  # other regions first may race it.
-  defp first_full_columns(%{kind: :noise} = spec) do
-    {:ok, state} = worldgen(spec.seed, spec.noise_settings, spec.facts)
-    source = spec.biome_source
-    proto = Valimc.Worldgen.Proto
+  # The world spawn over the chunks generation will serve (VMC-077n): the
+  # overworld's generation run inline, chunk by chunk as the search asks for
+  # them, its state written as the overworld's generation snapshot so the
+  # scheduler starts from exactly these chunks.
+  defp search_spawn(base, spec, features) do
+    alias Valimc.Worldgen.Frontier
+    sky = Valimc.Dimension.facts(:overworld).sky_light
+    key = {__MODULE__, :spawn_search}
+    Process.put(key, Frontier.new(spec, decorated: features, sky: sky))
 
-    fn ^spec, chunks ->
-      Map.new(chunks, fn chunk ->
-        key = Valimc.World.region_key(chunk)
+    columns = fn ^spec, chunks ->
+      {fulls, frontier} = Frontier.run(Process.get(key), chunks)
+      Process.put(key, frontier)
+      Map.new(fulls, &{{&1.x, &1.z}, &1.image})
+    end
 
-        images =
-          case Process.get({__MODULE__, :first_full, spec, key}) do
-            nil ->
-              structures = Map.get(spec, :structures, false)
+    spawn =
+      Valimc.World.SpawnSearch.world_spawn(spec, columns,
+        origin: spawn_chunk(spec),
+        height: spawn_height(spec)
+      )
 
-              {:ok, terrain} =
-                Native.worldgen_proto_terrain(state, source, proto.around(key, 2), structures)
+    case Frontier.snapshot(Process.delete(key)) do
+      nil ->
+        {:ok, spawn}
 
-              images = Map.new(terrain, fn {x, z, image} -> {{x, z}, image} end)
-
-              {:ok, {touched, _}} =
-                Native.worldgen_proto_decorate(
-                  state,
-                  source,
-                  Map.values(images),
-                  proto.around(key, 1),
-                  structures
-                )
-
-              images =
-                Map.merge(images, Map.new(touched, fn {x, z, image} -> {{x, z}, image} end))
-
-              own = Enum.map(proto.chunks_of(key), &images[&1])
-              {:ok, full} = Native.worldgen_proto_full(state, own, protocol_biomes())
-              images = Map.new(full, &{{&1.x, &1.z}, &1.image})
-              Process.put({__MODULE__, :first_full, spec, key}, images)
-              images
-
-            images ->
-              images
-          end
-
-        {chunk, Map.fetch!(images, chunk)}
-      end)
+      snapshot ->
+        path = Path.join(Valimc.Dimension.storage(base, :overworld), "generation.snapshot")
+        with :ok <- Valimc.DurableFile.write(path, snapshot), do: {:ok, spawn}
     end
   end
 
   @doc """
   Column images (`chunk => image`) of generated `chunks` of a vanilla world
   (a `spec_of/1` spec, or `{:vanilla, seed}` for the normal preset): noise
-  terrain in batches of #{@batch} generated at once on the seed's pool of
-  states (VMC-071), or a flat world's layers.
+  terrain in batches of #{@batch} generated at once over the seed's shared
+  context, or a flat world's layers. Tools and checks use it; live generation
+  goes through the generation scheduler.
   """
   def columns({:vanilla, seed}, chunks),
     do:

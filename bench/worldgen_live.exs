@@ -1,11 +1,12 @@
-# Live generation throughput (VMC-025d3): a fresh decorated world at seed
-# 20261020 finalizes an N × N block of regions from scratch through its proto
-# owners, all regions requested at once as a server loading them would: terrain
-# for the (8N + 4)² chunks around them, decoration of the (8N + 2)² chunks
-# around them in finalize transactions, full chunks, and every proto log write
-# (durable, as live). Reported: wall time, final chunks per second and
-# generated (terrain) chunks per second, with the dirty CPU schedulers that run
-# the work. Start with `elixir --erl "+SDcpu 1" -S mix run …` for one thread.
+# Live generation throughput (VMC-025d3, VMC-077n): a fresh decorated world at
+# seed 20261020 makes an N × N block of regions full from scratch through its
+# generation scheduler, all regions requested at once as a server loading them
+# would: terrain for the (8N + 4)² chunks around them, decoration of the
+# (8N + 2)² chunks around them, then full chunks (lit, as regions store them;
+# regions persisting them is not part of it, and the scheduler writes nothing).
+# Reported: wall time, final chunks per second and generated (terrain) chunks
+# per second, with the dirty CPU schedulers that run the work. Start with
+# `elixir --erl "+SDcpu 1" -S mix run …` for one thread.
 #
 #     VALIMC_PORT=0 mix run bench/worldgen_live.exs bench/results/live.json [N] [PASSES] [structures|nostructures]
 #
@@ -16,10 +17,12 @@
 # It first times the stages on one thread over the 64 chunks of the bench area
 # of `worldgen_terrain.exs` and `worldgen_decoration.exs` (seed 20261020, the
 # 8 × 8 from (0, 0) decorated Z outer, X inner in a 10 × 10 terrain area): the
-# proto NIFs (terrain encoded, decoration over encoded chunks, full chunks)
-# against `worldgen_build_terrain` and `worldgen_decoration_time`, so the cost
-# of encoding is separate from that of transactions and logs.
-alias Valimc.Worldgen.Proto
+# scheduler's job NIFs (terrain cells, a decoration per chunk over its 3 × 3,
+# full chunks) against `worldgen_build_terrain` and
+# `worldgen_decoration_time`.
+alias Valimc.Native
+alias Valimc.World.RegionGeneration
+alias Valimc.Worldgen.Scheduler
 
 [output | rest] = System.argv()
 n = rest |> Enum.at(0, "4") |> String.to_integer()
@@ -39,28 +42,25 @@ run = fn pass ->
       "settings" => Valimc.World.GenSettings.create("minecraft:normal", nil, seed, structures)
     })
 
-  # Each pass uses regions of its own, so no owner of an earlier pass answers.
+  # Each pass generates regions of its own, so the seed's shared caches do
+  # not carry an earlier pass's chunks.
   offset = pass * (n + 4)
   regions = for rz <- 0..(n - 1), rx <- 0..(n - 1), do: {rx + offset, rz}
-
-  :ets.insert(
-    Valimc.ScopedConfig,
-    for(
-      rx <- (offset - 2)..(offset + n + 1),
-      rz <- -2..(n + 1),
-      do: {{{rx, rz}, :world_path}, base}
-    )
-  )
+  {:ok, _} = Scheduler.whereis(base, :overworld)
 
   {micros, results} =
     :timer.tc(fn ->
       regions
-      |> Task.async_stream(&Proto.full_chunks/1,
+      |> Task.async_stream(
+        &Scheduler.full_chunks(base, :overworld, RegionGeneration.chunks_of(&1)),
         max_concurrency: length(regions),
         timeout: :infinity
       )
       |> Enum.map(fn {:ok, {:ok, full}} -> length(full) end)
     end)
+
+  for {pid, _} <- Registry.lookup(Valimc.Worldgen.Schedulers, {base, :overworld}),
+      do: Process.exit(pid, :kill)
 
   File.rm_rf(base)
   final = Enum.sum(results)
@@ -74,14 +74,11 @@ run = fn pass ->
   }
 end
 
-if :ets.whereis(Valimc.ScopedConfig) == :undefined,
-  do: :ets.new(Valimc.ScopedConfig, [:named_table, :public])
-
 # One thread: each NIF call runs on one dirty scheduler.
-alias Valimc.Native
 source = "minecraft:overworld"
 area = for z <- -1..8, x <- -1..8, do: {x, z}
 inner = for z <- 0..7, x <- 0..7, do: {x, z}
+around = fn {x, z} -> for dz <- -1..1, dx <- -1..1, do: {x + dx, z + dz} end
 
 order =
   Application.app_dir(:valimc, "priv/worldgen/feature_order.json")
@@ -95,7 +92,7 @@ features =
 median = fn list -> list |> Enum.sort() |> Enum.at(div(length(list), 2)) end
 
 stage = fn f ->
-  # A fresh state per pass, as a new region's generation starts.
+  # A fresh context per pass, as a new world's generation starts.
   for pass <- 0..5 do
     {:ok, state} = Valimc.Worldgen.new(seed)
     {micros, _} = :timer.tc(fn -> f.(state) end)
@@ -106,18 +103,31 @@ stage = fn f ->
   |> median.()
 end
 
+# Terrain cells of `area`, with `starts` (a start table) for beards.
+cells = fn state, starts ->
+  Map.new(area, fn {x, z} = chunk ->
+    {:ok, cell} = Native.gen_terrain(state, source, starts, x, z)
+    {chunk, cell}
+  end)
+end
+
+# Decorate `inner` in order, each chunk over its 3 × 3.
+decorate = fn state, starts, cells ->
+  for chunk <- inner do
+    {:ok, _} =
+      Native.gen_decorate(state, source, starts, chunk, Enum.map(around.(chunk), &cells[&1]))
+  end
+end
+
 terrain_us = stage.(fn s -> {:ok, _} = Native.worldgen_build_terrain(s, source, true, area) end)
-proto_us = stage.(fn s -> {:ok, _} = Native.worldgen_proto_terrain(s, source, area, false) end)
+proto_us = stage.(fn s -> cells.(s, nil) end)
 {:ok, warm} = Valimc.Worldgen.new(seed)
-{:ok, terrain} = Native.worldgen_proto_terrain(warm, source, area, false)
-images = Enum.map(terrain, &elem(&1, 2))
 
 decorate_us =
   median.(
     for _ <- 1..5 do
-      {micros, {:ok, _}} =
-        :timer.tc(fn -> Native.worldgen_proto_decorate(warm, source, images, inner, false) end)
-
+      fresh = cells.(warm, nil)
+      {micros, _} = :timer.tc(fn -> decorate.(warm, nil, fresh) end)
       micros
     end
   )
@@ -130,34 +140,30 @@ parity_ns =
     end
   )
 
-structure_terrain_us =
-  stage.(fn s -> {:ok, _} = Native.worldgen_proto_terrain(s, source, area, true) end)
-
-{:ok, structure_terrain} = Native.worldgen_proto_terrain(warm, source, area, true)
-structure_images = Enum.map(structure_terrain, &elem(&1, 2))
+structure_terrain_us = stage.(fn s -> cells.(s, Native.gen_starts_new()) end)
 
 structure_decorate_us =
   median.(
     for _ <- 1..5 do
-      {micros, {:ok, _}} =
-        :timer.tc(fn ->
-          Native.worldgen_proto_decorate(warm, source, structure_images, inner, true)
-        end)
-
+      starts = Native.gen_starts_new()
+      fresh = cells.(warm, starts)
+      {micros, _} = :timer.tc(fn -> decorate.(warm, starts, fresh) end)
       micros
     end
   )
 
-{:ok, {touched, _}} = Native.worldgen_proto_decorate(warm, source, images, inner, false)
-decorated = Map.new(touched, fn {x, z, image} -> {{x, z}, image} end)
-own = Enum.map(inner, &decorated[&1])
+decorated = cells.(warm, nil)
+decorate.(warm, nil, decorated)
 
 full_us =
   median.(
     for _ <- 1..5 do
-      {micros, {:ok, _}} =
+      {micros, _} =
         :timer.tc(fn ->
-          Native.worldgen_proto_full(warm, own, Valimc.World.Generator.protocol_biomes())
+          for chunk <- inner do
+            {:ok, _} =
+              Native.gen_full(warm, decorated[chunk], Valimc.World.Generator.protocol_biomes())
+          end
         end)
 
       micros
@@ -176,7 +182,7 @@ stages = %{
 
 IO.inspect(stages, label: "one thread")
 
-# One warm-up pass compiles the worldgen states.
+# One warm-up pass compiles the seed's context.
 _ = run.(0)
 measured = for pass <- 1..passes, do: run.(pass)
 

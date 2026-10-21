@@ -14,11 +14,11 @@
 mod place;
 pub use place::{Placed, Placement, Plan};
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use super::beard::Beardifier;
-use super::blocks::{BlockTable, Heightmap};
+use super::blocks::BlockTable;
 use super::carver::{self, Carver, CarvingMask, GenContext};
 use super::climate::{quantize, ParameterList};
 use super::density::{
@@ -29,8 +29,9 @@ use super::interval::{Interval, NAI};
 use super::json::Json;
 use super::noise::{BlendedParameters, NormalNoise, Simplex, Stack};
 use super::random::{Positional, Random};
-use super::region::{Area, PlacedOnce, ProtoChunk, Region};
+use super::region::{Area, ProtoChunk, Region};
 use super::sampler::{Context, Field, GradientKind, Sampler, SplineNode};
+use super::starts::{Around, StartTable};
 use super::structure::place::{place_in_chunk, visit_order, writable_area, Ctx, Placer};
 use super::structure::{
     ClimateBiomes, Heights, Start, StructureEnv, StructureRegistry, DECORATION_STEPS,
@@ -602,8 +603,6 @@ pub struct SeedContext {
     /// Carver biomes by biome source and chunk (each chunk's carvers look at
     /// the 17 × 17 around it).
     carver_biomes: Mutex<HashMap<ChunkKey, u16>>,
-    /// Live generation's starts by biome source and chunk (VMC-025f5).
-    live_starts: Mutex<HashMap<ChunkKey, Arc<Vec<Start>>>>,
     /// The bounds chunk biomes cover: those of the dimension whose generator
     /// uses these noise settings (a chunk holds biomes for all its
     /// sections), else the noise settings' own.
@@ -625,8 +624,6 @@ impl std::ops::Deref for Worldgen {
 
 /// Chunks whose biomes the context keeps (about 3 KB each).
 const CHUNK_BIOME_CACHE_LIMIT: usize = 8192;
-/// Chunks whose starts the context keeps for live generation.
-const LIVE_STARTS_LIMIT: usize = 16384;
 /// A fixed biome source's name: this prefix and the biome (VMC-028b).
 pub const FIXED: &str = "fixed:";
 const CARVER_BIOME_CACHE_LIMIT: usize = 65536;
@@ -695,7 +692,6 @@ impl SeedContext {
             fixed_decorations: Mutex::new(HashMap::new()),
             chunk_biomes: Mutex::new(HashMap::new()),
             carver_biomes: Mutex::new(HashMap::new()),
-            live_starts: Mutex::new(HashMap::new()),
             biome_bounds,
         })
     }
@@ -781,12 +777,7 @@ impl SeedContext {
             .lock()
             .map_or(0, |c| c.values().map(|b| b.len() * 2 + 64).sum());
         let carvers = self.carver_biomes.lock().map_or(0, |c| c.len() * 48);
-        let starts = self.live_starts.lock().map_or(0, |c| {
-            c.values()
-                .map(|s| 64 + s.iter().map(|s| 256 + s.pieces.len() * 256).sum::<usize>())
-                .sum()
-        });
-        compiled + biomes + carvers + starts
+        compiled + biomes + carvers
     }
 }
 
@@ -1339,6 +1330,47 @@ impl Worldgen {
         order: &[(i32, i32)],
         included: Option<&HashSet<usize>>,
     ) -> Result<(Area, Vec<Start>), String> {
+        self.decorate_area_with_starts(biome_source, (x, z), size, order, included, false)
+    }
+
+    /// What live generation makes of `order` decorated one after the other
+    /// over the `size` × `size` chunks from (`x`, `z`) (VMC-077n), all in one
+    /// call: the reference the generation scheduler's chunks equal, with
+    /// structures when the dimension generates them. Reads beyond the area
+    /// see empty chunks, as in live generation.
+    pub fn reference_area(
+        &mut self,
+        biome_source: &BiomeSource,
+        (x, z): (i32, i32),
+        size: i32,
+        order: &[(i32, i32)],
+        structures: bool,
+    ) -> Result<Area, String> {
+        if structures && self.registry.structures.is_some() {
+            return Ok(self
+                .decorate_area_with_starts(biome_source, (x, z), size, order, None, true)?
+                .0);
+        }
+        let mut chunks = Vec::with_capacity((size * size) as usize);
+        for dz in 0..size {
+            for dx in 0..size {
+                chunks.push(self.proto_terrain(x + dx, z + dz, biome_source)?);
+            }
+        }
+        let mut area = Area::of(chunks)?;
+        self.decorate_held(biome_source, &mut area, order, None, true)?;
+        Ok(area)
+    }
+
+    fn decorate_area_with_starts(
+        &mut self,
+        biome_source: &BiomeSource,
+        (x, z): (i32, i32),
+        size: i32,
+        order: &[(i32, i32)],
+        included: Option<&HashSet<usize>>,
+        lenient: bool,
+    ) -> Result<(Area, Vec<Start>), String> {
         let env = self.structure_env(biome_source)?;
         // Starts within 8 chunks of every chunk of the area: the references
         // of its chunks (beards in their terrain) and of the decorated ones.
@@ -1366,7 +1398,7 @@ impl Worldgen {
             }
         }
         let mut area = Area::of(chunks)?;
-        self.decorate_with_starts(biome_source, &env, &mut area, order, &mut starts, false)?;
+        self.decorate_with_starts(biome_source, &env, &mut area, order, &mut starts, lenient)?;
         let mut placed: Vec<Start> = starts.into_values().flatten().collect();
         placed.sort_by_key(|s| (s.chunk, s.structure));
         Ok((area, placed))
@@ -1382,7 +1414,7 @@ impl Worldgen {
         env: &StructureEnv,
         area: &mut Area,
         order: &[(i32, i32)],
-        starts: &mut HashMap<(i32, i32), Vec<Start>>,
+        starts: &mut dyn StartStore,
         lenient: bool,
     ) -> Result<u32, String> {
         let registry = env.registry.clone();
@@ -1396,9 +1428,7 @@ impl Worldgen {
         let (min_y, height) = (area.min_y, area.height);
         let mut lenient_reads = 0;
         for &(cx, cz) in order {
-            let references = env.references(cx, cz, &|sx, sz| {
-                starts.get(&(sx, sz)).map(|v| v.as_slice())
-            })?;
+            let references = env.references(cx, cz, &|sx, sz| starts.view((sx, sz)))?;
             let visits = visit_order(&references);
             let chunk_box = writable_area((cx, cz), min_y, height);
             let mut region = Region::new(
@@ -1414,22 +1444,18 @@ impl Worldgen {
                 for (index, structure) in by_step.get(step).into_iter().flatten().enumerate() {
                     random.set_feature_seed(seed, index as i32, step as i32);
                     for source in visits.get(structure).into_iter().flatten() {
-                        let Some(start) = starts
-                            .get_mut(source)
-                            .and_then(|list| list.iter_mut().find(|s| s.structure == *structure))
-                        else {
-                            continue;
-                        };
-                        let mut c = Ctx {
-                            placer: &placer,
-                            region: &mut *region,
-                            random: &mut *random,
-                            chunk_box,
-                            chunk: (cx, cz),
-                            reference: [0; 3],
-                        };
-                        place_in_chunk(start, &mut c, &registry)
-                            .map_err(|e| format!("{}: {e}", registry.structures[*structure].id))?;
+                        starts.place(*source, *structure, &mut |start| {
+                            let mut c = Ctx {
+                                placer: &placer,
+                                region: &mut *region,
+                                random: &mut *random,
+                                chunk_box,
+                                chunk: (cx, cz),
+                                reference: [0; 3],
+                            };
+                            place_in_chunk(start, &mut c, &registry)
+                                .map_err(|e| format!("{}: {e}", registry.structures[*structure].id))
+                        })?;
                     }
                 }
                 Ok(())
@@ -1442,69 +1468,23 @@ impl Worldgen {
         Ok(lenient_reads)
     }
 
-    /// The starts `create_structures` makes in a chunk, for live generation
-    /// (VMC-025f5): pure, kept per worldgen state.
-    fn live_chunk_starts(
-        &mut self,
-        env: &StructureEnv,
-        biome_source: &BiomeSource,
-        x: i32,
-        z: i32,
-    ) -> Result<Arc<Vec<Start>>, String> {
-        let key = (biome_source.clone(), x, z);
-        let known = self
-            .live_starts
-            .lock()
-            .map_err(|_| "live starts poisoned")?
-            .get(&key)
-            .cloned();
-        if let Some(starts) = known {
-            return Ok(starts);
-        }
-        let (found, _) = env.create_structures(x, z)?;
-        let found = Arc::new(found);
-        let mut cache = self
-            .live_starts
-            .lock()
-            .map_err(|_| "live starts poisoned")?;
-        bounded_insert(&mut cache, LIVE_STARTS_LIMIT, key, found.clone());
-        Ok(found)
-    }
-
-    /// The starts of every chunk within 8 of the chunks `x0..=x1`,
-    /// `z0..=z1`: all that can reference them.
-    fn live_starts_around(
-        &mut self,
-        env: &StructureEnv,
-        biome_source: &BiomeSource,
-        (x0, z0): (i32, i32),
-        (x1, z1): (i32, i32),
-    ) -> Result<HashMap<(i32, i32), Vec<Start>>, String> {
-        let mut out = HashMap::new();
-        for sx in x0 - 8..=x1 + 8 {
-            for sz in z0 - 8..=z1 + 8 {
-                let starts = self.live_chunk_starts(env, biome_source, sx, sz)?;
-                out.insert((sx, sz), starts.as_ref().clone());
-            }
-        }
-        Ok(out)
-    }
-
-    /// `proto_terrain` for live generation (VMC-025f5): with structures, the
-    /// chunk's beards from the starts that reference it in the noise fill.
-    pub fn proto_terrain_live(
+    /// A chunk's terrain for live generation (VMC-077n): `proto_terrain`,
+    /// with structures the beards of the starts that reach it, from the
+    /// dimension's start table.
+    pub fn generation_terrain(
         &mut self,
         chunk_x: i32,
         chunk_z: i32,
         biome_source: &BiomeSource,
-        structures: bool,
+        starts: Option<&StartTable>,
     ) -> Result<ProtoChunk, String> {
-        if !structures || self.registry.structures.is_none() {
+        let Some(table) = starts.filter(|_| self.registry.structures.is_some()) else {
             return self.proto_terrain(chunk_x, chunk_z, biome_source);
-        }
+        };
         let env = self.structure_env(biome_source)?;
-        let starts =
-            self.live_starts_around(&env, biome_source, (chunk_x, chunk_z), (chunk_x, chunk_z))?;
+        let starts = table
+            .around(&env, (chunk_x, chunk_z), (chunk_x, chunk_z))?
+            .view()?;
         let references = env.references(chunk_x, chunk_z, &|sx, sz| {
             starts.get(&(sx, sz)).map(|v| v.as_slice())
         })?;
@@ -1512,90 +1492,32 @@ impl Worldgen {
         self.proto_terrain_bearded(chunk_x, chunk_z, biome_source, beard)
     }
 
-    /// `decorate_held` for live generation (VMC-025f5): with structures,
-    /// each step places the structures whose starts reference the chunk,
-    /// from starts settled the same way in every transaction
-    /// (`scattered::settle_live`).
-    pub fn decorate_held_live(
+    /// Decorate chunk `center` over `area` (its 3 × 3) for live generation
+    /// (VMC-077n): with structures, each step first places the pieces of the
+    /// starts that reach the chunk, from the start table, changing them as
+    /// vanilla changes its saved starts; the chunk then no longer counts for
+    /// those starts. Reads of chunks the area lacks see empty chunks; their
+    /// count is returned.
+    pub fn generation_decorate(
         &mut self,
         biome_source: &BiomeSource,
         area: &mut Area,
-        order: &[(i32, i32)],
-        lenient: bool,
-        structures: bool,
+        center: (i32, i32),
+        starts: Option<&StartTable>,
     ) -> Result<u32, String> {
-        if !structures || order.is_empty() || self.registry.structures.is_none() {
-            return self.decorate_held(biome_source, area, order, None, lenient);
-        }
+        let Some(table) = starts.filter(|_| self.registry.structures.is_some()) else {
+            return self.decorate_held(biome_source, area, &[center], None, true);
+        };
         let env = self.structure_env(biome_source)?;
-        let (x0, x1) = order
-            .iter()
-            .fold((i32::MAX, i32::MIN), |(a, b), c| (a.min(c.0), b.max(c.0)));
-        let (z0, z1) = order
-            .iter()
-            .fold((i32::MAX, i32::MIN), |(a, b), c| (a.min(c.1), b.max(c.1)));
-        let mut starts = self.live_starts_around(&env, biome_source, (x0, z0), (x1, z1))?;
-        // Heights of columns the area does not hold (a desert pyramid past
-        // its edge) from the same pure terrain.
-        let seed = self.seed;
-        let mut outside: HashMap<(i32, i32), ProtoChunk> = HashMap::new();
-        for list in starts.values_mut() {
-            for start in list {
-                super::structure::scattered::settle_live(start, order, seed, &mut |x, z| {
-                    if let Some(chunk) = area.chunk(x >> 4, z >> 4) {
-                        return Ok(chunk.height(Heightmap::WorldSurfaceWg, x, z));
-                    }
-                    let key = (x >> 4, z >> 4);
-                    let chunk = match outside.entry(key) {
-                        std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-                        std::collections::hash_map::Entry::Vacant(e) => {
-                            e.insert(self.proto_terrain_live(key.0, key.1, biome_source, true)?)
-                        }
-                    };
-                    Ok(chunk.height(Heightmap::WorldSurfaceWg, x, z))
-                })?;
-            }
-        }
-        // What earlier transactions' pieces placed once (VMC-025f6).
-        let ids = &env.registry.structures;
-        let recorded: BTreeSet<PlacedOnce> = area
-            .held()
-            .flat_map(|chunk| chunk.placed_once.iter().cloned())
-            .collect();
-        for placed in &recorded {
-            for start in starts.get_mut(&placed.start).into_iter().flatten() {
-                if ids[start.structure].id == placed.structure {
-                    start.mark_placed_once(placed.piece as usize);
-                }
-            }
-        }
-        let lenient_reads =
-            self.decorate_with_starts(biome_source, &env, area, order, &mut starts, lenient)?;
-        // What this one's pieces placed, in every chunk it holds within a
-        // chunk of the piece.
-        for start in starts.values().flatten() {
-            for piece in start.placed_once() {
-                let placed = PlacedOnce {
-                    structure: ids[start.structure].id.clone(),
-                    start: start.chunk,
-                    piece: piece as u32,
-                };
-                if recorded.contains(&placed) {
-                    continue;
-                }
-                let b = start.pieces[piece].bbox;
-                for cx in (b.min_x >> 4) - 1..=(b.max_x >> 4) + 1 {
-                    for cz in (b.min_z >> 4) - 1..=(b.max_z >> 4) + 1 {
-                        if let Some(chunk) = area.chunk_mut(cx, cz) {
-                            if chunk.placed_once.insert(placed.clone()) {
-                                chunk.touched = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Ok(lenient_reads)
+        let around = table.around(&env, center, center)?;
+        let mut store = TableStarts {
+            view: around.view()?,
+            around: &around,
+        };
+        let lenient =
+            self.decorate_with_starts(biome_source, &env, area, &[center], &mut store, true)?;
+        around.decorated(center)?;
+        Ok(lenient)
     }
 
     /// A chunk at status `terrain` (VMC-025d): `build_terrain` with carvers,
@@ -2457,6 +2379,61 @@ impl Compiling<'_> {
                 }
             }
         })
+    }
+}
+
+/// Where a decoration finds structure starts: their views for references
+/// (which read nothing placement changes) and each one to place, mutably.
+pub trait StartStore {
+    fn view(&self, chunk: (i32, i32)) -> Option<&[Start]>;
+    fn place(
+        &mut self,
+        source: (i32, i32),
+        structure: usize,
+        f: &mut dyn FnMut(&mut Start) -> Result<(), String>,
+    ) -> Result<(), String>;
+}
+
+/// An area's own starts by chunk (parity and benchmarks).
+impl StartStore for HashMap<(i32, i32), Vec<Start>> {
+    fn view(&self, chunk: (i32, i32)) -> Option<&[Start]> {
+        self.get(&chunk).map(|v| v.as_slice())
+    }
+
+    fn place(
+        &mut self,
+        source: (i32, i32),
+        structure: usize,
+        f: &mut dyn FnMut(&mut Start) -> Result<(), String>,
+    ) -> Result<(), String> {
+        match self
+            .get_mut(&source)
+            .and_then(|list| list.iter_mut().find(|s| s.structure == structure))
+        {
+            Some(start) => f(start),
+            None => Ok(()),
+        }
+    }
+}
+
+/// A dimension's start table around one decoration.
+struct TableStarts<'a> {
+    view: HashMap<(i32, i32), Vec<Start>>,
+    around: &'a Around,
+}
+
+impl StartStore for TableStarts<'_> {
+    fn view(&self, chunk: (i32, i32)) -> Option<&[Start]> {
+        self.view.get(&chunk).map(|v| v.as_slice())
+    }
+
+    fn place(
+        &mut self,
+        source: (i32, i32),
+        structure: usize,
+        f: &mut dyn FnMut(&mut Start) -> Result<(), String>,
+    ) -> Result<(), String> {
+        self.around.with_start(source, structure, f)
     }
 }
 

@@ -37,7 +37,10 @@ regions =
     # Lit as an owner lights it: chunks the import has not are unknown (VMC-077c).
     parts = stored.(key)
     images = parts.columns
-    absent = for c <- Valimc.Worldgen.Proto.chunks_of(key), not Map.has_key?(images, c), do: c
+
+    absent =
+      for c <- Valimc.World.RegionGeneration.chunks_of(key), not Map.has_key?(images, c), do: c
+
     {:ok, blocks} = Blocks.new(key, %{}, images, absent)
     containers = parts.containers
     {:ok, preserved} = BlockEntities.new(parts.block_entities)

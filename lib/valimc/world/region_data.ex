@@ -147,7 +147,7 @@ defmodule Valimc.World.RegionData do
     publication = :ets.new(:region_publication, [:set, :protected, read_concurrency: true])
     # Every generated chunk has a row, with its heightmaps and biomes (VMC-077e).
     present =
-      for chunk <- Valimc.Worldgen.Proto.chunks_of(key),
+      for chunk <- RegionGeneration.chunks_of(key),
           not RegionGeneration.absent?(generation, chunk),
           do: chunk
 
@@ -2009,10 +2009,8 @@ defmodule Valimc.World.RegionData do
       else: state
   end
 
-  defp release_effect(state, {:proto_handed_over, chunks}) do
-    Valimc.Worldgen.Proto.handed_over(state.key, chunks)
-    state
-  end
+  defp release_effect(state, {:generation_handed_over, chunks}),
+    do: RegionGeneration.handed_over(state, chunks)
 
   defp release_effect(state, {:deliver, pid, message}) do
     Valimc.Connection.deliver(pid, message)
@@ -2956,9 +2954,12 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # Generation (VMC-075): job results, durable batches, retries and wants.
-  def handle_info({:generated, ref, result}, state),
-    do: {:noreply, RegionGeneration.generated(state, ref, result)}
+  # Generation (VMC-075, VMC-077n): full chunks, failures, retries and wants.
+  def handle_info({:generated_full, _scheduler, full}, state),
+    do: {:noreply, RegionGeneration.received(state, full)}
+
+  def handle_info({:generation_failed, chunks, reason}, state),
+    do: {:noreply, RegionGeneration.generation_failed(state, chunks, reason)}
 
   def handle_info(:generation_retry, state), do: {:noreply, RegionGeneration.retry(state)}
 
@@ -2968,9 +2969,8 @@ defmodule Valimc.World.RegionData do
     {:noreply, RegionGeneration.pump(%{state | tickets: tickets})}
   end
 
-  def handle_info({:DOWN, ref, :process, pid, _} = message, state) do
+  def handle_info({:DOWN, ref, :process, pid, _}, state) do
     with :error <- Tickets.down(state.tickets, ref),
-         :no_reply <- RegionGeneration.proto_response(state, message),
          :error <- RegionGeneration.down(state, ref) do
       viewer_down(state, ref, pid)
     else
@@ -3072,15 +3072,6 @@ defmodule Valimc.World.RegionData do
        state,
        ContainerViewers.unregister(state.container_viewers, connection, ref)
      )}
-  end
-
-  # A proto owner's answer to a generation request (VMC-075; `gen_server`
-  # replies to `send_request/2` are tagged with the request's alias).
-  def handle_info({[:alias | ref], _} = message, state) when is_reference(ref) do
-    case RegionGeneration.proto_response(state, message) do
-      {:ok, state} -> {:noreply, state}
-      :no_reply -> {:noreply, state}
-    end
   end
 
   def handle_info(_, state), do: {:noreply, state}
@@ -3819,12 +3810,10 @@ defmodule Valimc.World.RegionData do
   end
 
   defp busy?(state) do
-    gen = state.generation
-
     RegionStorage.busy?(state.storage) or Jobs.busy?(state.jobs) or
       state.entities.handoff != nil or state.entities.portal != nil or
       state.cooking_orbs.receipt != nil or map_size(state.encodes) > 0 or
-      map_size(gen.jobs) > 0 or gen.deferred_count > 0 or
+      RegionGeneration.busy?(state.generation) or
       map_size(state.container_viewers.views) > 0 or map_size(state.permits.entries) > 0
   end
 

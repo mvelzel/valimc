@@ -420,6 +420,127 @@ pub struct Piece {
     pub gen_depth: i32,
 }
 
+impl Piece {
+    /// What placement changes in a piece and vanilla saves with its start
+    /// (VMC-077n): its box, and a temple's ground height and what it placed
+    /// once, a template's position (a shipwreck's height adjustment), a spider
+    /// corridor's spawner, a fortress corridor's chest or throne's spawner, a
+    /// stronghold room's chest or spawner.
+    pub fn placement_state(&self) -> Vec<i32> {
+        let b = &self.bbox;
+        let mut out = vec![b.min_x, b.min_y, b.min_z, b.max_x, b.max_y, b.max_z];
+        match &self.kind {
+            PieceKind::Scattered {
+                height_position,
+                placed,
+                ..
+            } => {
+                out.push(*height_position);
+                out.extend(placed.map(i32::from));
+            }
+            PieceKind::Template(t) => {
+                out.extend(t.position);
+                if let TemplateKind::Shipwreck {
+                    height_adjusted, ..
+                } = t.kind
+                {
+                    out.push(height_adjusted.into());
+                }
+            }
+            PieceKind::Mineshaft(super::mineshaft::MineshaftPiece::Corridor {
+                placed_spider,
+                ..
+            }) => out.push((*placed_spider).into()),
+            PieceKind::Fortress(
+                super::fortress::FortressPiece::SmallCorridorLeftTurn { chest }
+                | super::fortress::FortressPiece::SmallCorridorRightTurn { chest },
+            ) => out.push((*chest).into()),
+            PieceKind::Fortress(super::fortress::FortressPiece::MonsterThrone { spawner }) => {
+                out.push((*spawner).into())
+            }
+            PieceKind::Stronghold(s) => out.push(s.placed.into()),
+            _ => {}
+        }
+        out
+    }
+
+    /// Put back a `placement_state`.
+    pub fn restore_placement_state(&mut self, state: &[i32]) -> Result<(), String> {
+        let bad = || "a piece's placement state does not fit it".to_string();
+        let (bbox, rest) = state.split_at_checked(6).ok_or_else(bad)?;
+        self.bbox = BoundingBox {
+            min_x: bbox[0],
+            min_y: bbox[1],
+            min_z: bbox[2],
+            max_x: bbox[3],
+            max_y: bbox[4],
+            max_z: bbox[5],
+        };
+        let flag = |v: i32| v != 0;
+        match (&mut self.kind, rest) {
+            (
+                PieceKind::Scattered {
+                    height_position,
+                    placed,
+                    ..
+                },
+                [h, a, b, c, d],
+            ) => {
+                *height_position = *h;
+                *placed = [flag(*a), flag(*b), flag(*c), flag(*d)];
+            }
+            (PieceKind::Template(t), [x, y, z, more @ ..]) => {
+                t.position = [*x, *y, *z];
+                match (&mut t.kind, more) {
+                    (
+                        TemplateKind::Shipwreck {
+                            height_adjusted, ..
+                        },
+                        [adjusted],
+                    ) => *height_adjusted = flag(*adjusted),
+                    (TemplateKind::Shipwreck { .. }, _) => return Err(bad()),
+                    (_, []) => {}
+                    _ => return Err(bad()),
+                }
+            }
+            (
+                PieceKind::Mineshaft(super::mineshaft::MineshaftPiece::Corridor {
+                    placed_spider,
+                    ..
+                }),
+                [v],
+            ) => *placed_spider = flag(*v),
+            (
+                PieceKind::Fortress(
+                    super::fortress::FortressPiece::SmallCorridorLeftTurn { chest }
+                    | super::fortress::FortressPiece::SmallCorridorRightTurn { chest },
+                ),
+                [v],
+            ) => *chest = flag(*v),
+            (
+                PieceKind::Fortress(super::fortress::FortressPiece::MonsterThrone { spawner }),
+                [v],
+            ) => *spawner = flag(*v),
+            (PieceKind::Stronghold(s), [v]) => s.placed = flag(*v),
+            (
+                PieceKind::Scattered { .. }
+                | PieceKind::Template(_)
+                | PieceKind::Mineshaft(super::mineshaft::MineshaftPiece::Corridor { .. })
+                | PieceKind::Fortress(
+                    super::fortress::FortressPiece::SmallCorridorLeftTurn { .. }
+                    | super::fortress::FortressPiece::SmallCorridorRightTurn { .. }
+                    | super::fortress::FortressPiece::MonsterThrone { .. },
+                )
+                | PieceKind::Stronghold(_),
+                _,
+            ) => return Err(bad()),
+            (_, []) => {}
+            _ => return Err(bad()),
+        }
+        Ok(())
+    }
+}
+
 /// The piece types with their own saved fields.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PieceKind {
@@ -752,5 +873,38 @@ mod tests {
              placedTrap1:0b,placedTrap2:0b}"
         );
         assert_eq!(Nbt::string("a<b").snbt(), "\"a\\u003cb\"");
+    }
+
+    #[test]
+    fn placement_state_restores_a_settled_temple() {
+        let fresh = || Piece {
+            kind: PieceKind::Scattered {
+                kind: ScatteredKind::DesertPyramid,
+                width: 21,
+                height: 15,
+                depth: 21,
+                height_position: -1,
+                placed: [false; 4],
+            },
+            bbox: BoundingBox::new(0, 64, 0, 20, 78, 20),
+            orientation: Some(Direction::North),
+            gen_depth: 0,
+        };
+        let mut settled = fresh();
+        settled.bbox = BoundingBox::new(0, 58, 0, 20, 72, 20);
+        if let PieceKind::Scattered {
+            height_position,
+            placed,
+            ..
+        } = &mut settled.kind
+        {
+            *height_position = 61;
+            placed[2] = true;
+        }
+        let state = settled.placement_state();
+        let mut restored = fresh();
+        restored.restore_placement_state(&state).unwrap();
+        assert_eq!(restored.save().snbt(), settled.save().snbt());
+        assert!(fresh().restore_placement_state(&state[..6]).is_err());
     }
 }

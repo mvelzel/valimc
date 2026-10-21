@@ -36,8 +36,10 @@ defmodule Valimc.ItemPortalRegionTest do
       for pid <- Registry.select(Valimc.RegionRegistry, elsewhere),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
-      for pid <- Registry.select(Valimc.ProtoRegistry, elsewhere),
-          do: DynamicSupervisor.terminate_child(Valimc.ProtoSupervisor, pid)
+      schedulers = [{{{:_, :"$1"}, :"$2", :_}, [{:"=/=", :"$1", :overworld}], [:"$2"]}]
+
+      for pid <- Registry.select(Valimc.Worldgen.Schedulers, schedulers),
+          do: DynamicSupervisor.terminate_child(Valimc.Worldgen.SchedulerSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, old)
       File.rm_rf!(base)

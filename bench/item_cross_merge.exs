@@ -46,7 +46,7 @@ defmodule Valimc.CrossMergeBench do
             :ok = RegionStorage.import(base, :overworld, k, %{items: records})
             {:ok, owner} = World.item_owner(k)
             # Items simulate and merge only while a ticket makes the region tick.
-            chunks = Valimc.Worldgen.Proto.chunks_of(k)
+            chunks = Valimc.World.RegionGeneration.chunks_of(k)
             :ok = Region.ticket(owner, :forced, hd(chunks), chunks)
             {k, owner}
           end

@@ -630,20 +630,18 @@ fn worldgen_structure_window(
     })())
 }
 
-/// Encoded proto chunks as `worldgen_decorate` reports chunks (parity).
+/// Proto cells as `worldgen_decorate` reports chunks (parity).
 #[rustler::nif(schedule = "DirtyCpu")]
-fn worldgen_proto_inspect<'a>(
+fn gen_inspect<'a>(
     env: rustler::Env<'a>,
-    state: ResourceArc<WorldgenState>,
-    chunks: Vec<Binary>,
+    cells: Vec<ResourceArc<crate::worldgen::ProtoCell>>,
 ) -> NifResult<(Atom, Vec<DecoratedChunk<'a>>)> {
     reply((|| {
-        let state = state.lease()?;
-        let mut out = Vec::with_capacity(chunks.len());
-        for bytes in &chunks {
-            let chunk =
-                valimc_core::worldgen::proto::decode(bytes.as_slice(), state.block_table()?)?;
-            out.push(decorated_chunk(env, &chunk));
+        let mut out = Vec::with_capacity(cells.len());
+        for cell in &cells {
+            let chunk = cell.chunk.lock().map_err(|_| "proto cell poisoned")?;
+            let chunk = chunk.as_ref().ok_or("a proto cell lent out")?;
+            out.push(decorated_chunk(env, chunk));
         }
         Ok(out)
     })())

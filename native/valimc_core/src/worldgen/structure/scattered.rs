@@ -135,60 +135,6 @@ fn scattered_state(piece: &mut Piece) -> (&mut BoundingBox, &mut i32, &mut [bool
     }
 }
 
-/// Live generation's ground heights (VMC-025f5): vanilla settles a temple's
-/// or hut's height in the first chunk that places it, from the surface as
-/// decoration has left it, so the value depends on which chunk comes first.
-/// Live generation settles it before any placement from the terrain's
-/// frozen `WORLD_SURFACE_WG` heights (`height`) over the whole piece (lowest
-/// for a desert pyramid, lowered by 0 to 2 from the start's own random; mean
-/// for jungle temples and swamp huts), the same in every chunk and
-/// transaction. Only pieces that a chunk of `order` places are settled.
-pub fn settle_live(
-    start: &mut super::Start,
-    order: &[(i32, i32)],
-    seed: i64,
-    height: &mut dyn FnMut(i32, i32) -> Result<i32, String>,
-) -> Result<(), String> {
-    let (sx, sz) = start.chunk;
-    for piece in &mut start.pieces {
-        let PieceKind::Scattered { kind, .. } = &piece.kind else {
-            continue;
-        };
-        let kind = *kind;
-        let (bbox, height_position, ..) = scattered_state(piece);
-        let placed = order
-            .iter()
-            .any(|&(cx, cz)| bbox.intersects_xz(cx * 16, cz * 16, cx * 16 + 15, cz * 16 + 15));
-        if *height_position >= 0 || !placed {
-            continue;
-        }
-        let mut heights = Vec::new();
-        for z in bbox.min_z..=bbox.max_z {
-            for x in bbox.min_x..=bbox.max_x {
-                heights.push(height(x, z)?);
-            }
-        }
-        let (height, offset) = match kind {
-            ScatteredKind::DesertPyramid => {
-                let mut random = Random::legacy(
-                    seed ^ (sx as i64).wrapping_mul(341_873_128_712)
-                        ^ (sz as i64).wrapping_mul(132_897_987_541),
-                );
-                (
-                    *heights.iter().min().unwrap_or(&0),
-                    -random.next_int_bounded(3),
-                )
-            }
-            ScatteredKind::JungleTemple | ScatteredKind::SwampHut => {
-                (heights.iter().sum::<i32>() / heights.len().max(1) as i32, 0)
-            }
-        };
-        *height_position = height;
-        *bbox = bbox.moved(0, height - bbox.min_y + offset, 0);
-    }
-    Ok(())
-}
-
 /// `ScatteredFeaturePiece.updateAverageGroundHeight`: once, the piece moves
 /// to the mean surface of its columns in the chunk being placed.
 fn average_ground_height(piece: &mut Piece, c: &mut Ctx, offset: i32) -> bool {

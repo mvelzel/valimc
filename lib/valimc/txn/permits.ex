@@ -34,10 +34,6 @@ defmodule Valimc.Txn.Permits do
     },
     mining: %{limit: 128, lifetime: 10_000, per_source: nil, full: :mining_permit_limit},
     placement: %{limit: 128, lifetime: 10_000, per_source: nil, full: :placement_permit_limit},
-    # A proto owner's chunk locks for finalize transactions (VMC-025d2). They
-    # end by the transaction's part or abort; the owner renews them while it
-    # asks the coordinator, so the lifetime only bounds a forgotten lock.
-    generation: %{limit: 64, lifetime: 3_600_000, per_source: nil, full: :generation_lock_limit},
     # A box edit's cells (VMC-077o), locked from its prepare to its commit or
     # abort; the lifetime only bounds a lock its command abandoned.
     box_edit: %{limit: 16, lifetime: 5000, scaled: true, per_source: nil, full: :box_edits_busy}

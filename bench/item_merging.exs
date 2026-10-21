@@ -63,7 +63,7 @@ results =
           do:
             (
               {:ok, owner} = World.item_owner(key)
-              chunks = Valimc.Worldgen.Proto.chunks_of(key)
+              chunks = Valimc.World.RegionGeneration.chunks_of(key)
               :ok = Region.ticket(owner, :forced, hd(chunks), chunks)
               owner
             )

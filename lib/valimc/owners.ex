@@ -1,7 +1,7 @@
 defmodule Valimc.Owners do
   @moduledoc """
   Finding or starting an owner process (VMC-077g): one helper for region
-  owners (through the Directory), proto owners and log stripes.
+  owners (through the Directory), generation schedulers and log stripes.
 
   A registration can outlive its process for a moment (the registry drops it
   once it sees the exit), and a starting owner can find its predecessor still

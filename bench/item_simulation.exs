@@ -49,7 +49,7 @@ rows =
         :ok = RegionStorage.import(base, :overworld, key, %{items: records})
         {:ok, owner} = World.item_owner(key)
         # Items simulate only while a ticket makes the region tick.
-        chunks = Valimc.Worldgen.Proto.chunks_of(key)
+        chunks = Valimc.World.RegionGeneration.chunks_of(key)
         :ok = Region.ticket(owner, :forced, hd(chunks), chunks)
         owner
       end

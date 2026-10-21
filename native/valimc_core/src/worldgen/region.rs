@@ -47,9 +47,6 @@ pub struct ProtoChunk {
     pub block_entity_data: BTreeMap<[i32; 3], BlockEntityData>,
     /// Entities features added (`addFreshEntity`), in order.
     pub entities: Vec<Entity>,
-    /// Structure pieces near the chunk that have placed what they place once
-    /// (VMC-025f6), recorded for later transactions.
-    pub placed_once: BTreeSet<PlacedOnce>,
     /// Whether a decoration wrote anything into the chunk since it was made
     /// or decoded (live generation re-encodes only those, VMC-025d).
     pub touched: bool,
@@ -64,22 +61,6 @@ pub struct Entity {
     pub kind: &'static str,
     pub pos: [f64; 3],
     pub yaw: f32,
-}
-
-/// A structure piece that has placed what it places once in some chunk (a
-/// mineshaft spider corridor's spawner, VMC-025f6): the structure's id, its
-/// start chunk and the piece's index in the start. Vanilla keeps the flag in
-/// the start it saves; live generation makes starts again in every
-/// transaction, so the transaction that sets one records it in every chunk it
-/// holds within a chunk of the piece. Any later transaction decorating a
-/// chunk of the piece holds that chunk's 3 × 3, which shares a chunk with
-/// the setter's (a piece spans at most three chunks), so it reads the flag;
-/// the two transactions' lock sets overlap, so they cannot run at once.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PlacedOnce {
-    pub structure: String,
-    pub start: (i32, i32),
-    pub piece: u32,
 }
 
 /// A created block entity (VMC-025c): its type and what decoration writes
@@ -165,7 +146,6 @@ impl ProtoChunk {
             block_entities: BTreeSet::new(),
             block_entity_data: BTreeMap::new(),
             entities: Vec::new(),
-            placed_once: BTreeSet::new(),
             touched: false,
         };
         // Every heightmap in one scan down each column.

@@ -1,16 +1,16 @@
 # VMC-025d: live generation equals vanilla's decoration of the same chunks in
-# the same order (DecorationOracle live). For each case ValiMC's proto owners
-# finalize the same regions one after the other in a fresh decorated world of
-# the case's seed; every block, post-processing mark, scheduled tick and block
-# entity of each final chunk must equal vanilla's, and each block entity's NBT
-# as the region stores it (`Valimc.Worldgen.FullChunk`) must equal vanilla's
-# full chunk save.
+# the same order (DecorationOracle live). For each case ValiMC's generation
+# scheduler (VMC-077n) is asked for the same regions' chunks one region after
+# the other in a fresh decorated world of the case's seed, which numbers each
+# region's undecorated 10 × 10 Z outer and X inner as the oracle decorates it;
+# every block, post-processing mark, scheduled tick and block entity of each
+# final chunk must equal vanilla's, and each block entity's NBT as the region
+# stores it (`Valimc.Worldgen.FullChunk`) must equal vanilla's full chunk save.
 # With a world (VMC-028c), every case's world takes its data packs and their
 # extracted worldgen facts.
 #
 # VMC-026b: the oracle's facts name their dimension; the Nether's and the
-# End's run in that dimension's context, as their region owners do, in a
-# normal world of the case's seed.
+# End's run in that dimension's scheduler, in a normal world of the case's seed.
 #
 # VMC-025f5: facts with `structures` (StructurePlacementOracle live) come from
 # a world that generates structures, and so do the case's worlds here. A block
@@ -26,7 +26,8 @@
 [facts_path | pack_world] = args
 facts = facts_path |> File.read!() |> JSON.decode!()
 alias Valimc.Native
-alias Valimc.Worldgen.{FullChunk, Proto}
+alias Valimc.World.RegionGeneration
+alias Valimc.Worldgen.{FullChunk, Scheduler}
 
 dimension =
   case facts["dimension"] || "overworld" do
@@ -43,10 +44,6 @@ if {facts["min_y"] || -64, facts["height"] || 384} != {min_y, height},
 
 size = Valimc.config(:region_size)
 if facts["region_size"] != size, do: raise("region size #{size}, oracle #{facts["region_size"]}")
-
-# Owners of a case's regions read its world path (as `Valimc.TestScope` does).
-scoped = Valimc.ScopedConfig
-if :ets.whereis(scoped) == :undefined, do: :ets.new(scoped, [:named_table, :public])
 
 expand = fn runs ->
   for [id, count] <- Enum.chunk_every(runs, 2), into: <<>>, do: :binary.copy(<<id::16>>, count)
@@ -99,21 +96,6 @@ root =
           "settings" => settings
         })
 
-      keys =
-        for %{"x" => rx, "z" => rz} <- regions,
-            dx <- -2..2,
-            dz <- -2..2,
-            uniq: true,
-            do: {rx + dx, rz + dz}
-
-      # Owners of an earlier case's regions (same keys, another world) stop first.
-      for key <- keys,
-          {pid, _} <- Registry.lookup(Valimc.ProtoRegistry, Valimc.Dimension.scope(key)),
-          do: GenServer.stop(pid, :normal, 30_000)
-
-      :ets.insert(scoped, for(key <- keys, do: {{key, :world_path}, base}))
-      {:ok, worldgen} = Valimc.World.Generator.worldgen(seed, entry["noise_settings"])
-
       Enum.reduce(regions, {failures, chunks, entities}, fn %{
                                                               "x" => rx,
                                                               "z" => rz,
@@ -121,7 +103,8 @@ root =
                                                             },
                                                             {failures, chunks, entities} ->
         key = {rx, rz}
-        {:ok, full} = Proto.full_chunks(key)
+        own = RegionGeneration.chunks_of(key)
+        {:ok, full} = Scheduler.full_chunks(base, dimension, own)
 
         # The region store takes them as a live region does (VMC-025f5: a
         # template's smoker once failed there).
@@ -130,12 +113,8 @@ root =
           error -> raise "region #{inspect(key)} cannot store its full chunks: #{inspect(error)}"
         end
 
-        {:ok, owner} = Proto.owner(key)
-        images = :sys.get_state(owner).chunks
-        own = Proto.chunks_of(key)
-
-        {:ok, inspected} =
-          Native.worldgen_proto_inspect(worldgen, Enum.map(own, &elem(images[&1], 1)))
+        {:ok, cells} = Scheduler.cells(base, dimension, own)
+        {:ok, inspected} = Native.gen_inspect(cells)
 
         ours = Map.new(Enum.zip(own, Enum.zip(inspected, full)))
 
@@ -238,6 +217,11 @@ root =
           failed = for {name, false, detail} <- checks, do: {seed, chunk, name, detail.()}
           {failed ++ failures, chunks + 1, entities + map_size(vanilla)}
         end)
+      end)
+      |> tap(fn _ ->
+        # Its proto chunks go with it, without a snapshot.
+        for {pid, _} <- Registry.lookup(Valimc.Worldgen.Schedulers, {base, dimension}),
+            do: Process.exit(pid, :kill)
       end)
   end
 

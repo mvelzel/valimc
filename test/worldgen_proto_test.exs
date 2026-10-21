@@ -1,8 +1,9 @@
 defmodule Valimc.WorldgenProtoTest do
   @moduledoc """
-  Encoded proto chunks (VMC-025d1): decorating through them equals the parity
-  path (`worldgen_decorate`), and a decorated chunk becomes a full column with
-  its block entities, ticks and marks.
+  Proto chunks as native cells (VMC-025d1, VMC-077n): decorating through them
+  equals the parity path (`worldgen_decorate`), a decoration reads only its
+  3 × 3, a decorated chunk becomes a full column with its block entities,
+  ticks and marks, and a cell survives its snapshot encoding.
   """
   use ExUnit.Case, async: true
   alias Valimc.{Native, Worldgen}
@@ -26,30 +27,24 @@ defmodule Valimc.WorldgenProtoTest do
 
   defp around({x, z}, r), do: for(dz <- -r..r, dx <- -r..r, do: {x + dx, z + dz})
 
-  # The 5 × 5 around `centre` through encoded chunks, its 3 × 3 decorated in
-  # `order`: every chunk as `worldgen_decorate` reports it.
-  defp through_protos(state, centre, order) do
-    {:ok, terrain} = Native.worldgen_proto_terrain(state, @source, around(centre, 2), false)
-
-    {:ok, {touched, 0}} =
-      Native.worldgen_proto_decorate(state, @source, images(terrain), order, false)
-
-    decorated = Map.merge(by_chunk(terrain), by_chunk(touched))
-
-    {:ok, chunks} =
-      Native.worldgen_proto_inspect(state, Enum.map(around(centre, 2), &decorated[&1]))
-
-    chunks
+  # The 5 × 5 around `centre` as cells, its 3 × 3 decorated in `order`.
+  defp decorated(state, {x, z}, order) do
+    {:ok, cells} = Native.gen_reference(state, @source, {x - 2, z - 2}, 5, order, false)
+    cells
   end
 
-  defp images(list), do: Enum.map(list, fn {_, _, image} -> image end)
-  defp by_chunk(list), do: Map.new(list, fn {x, z, image} -> {{x, z}, image} end)
+  defp terrain(state, chunks) do
+    Enum.map(chunks, fn {x, z} ->
+      {:ok, cell} = Native.gen_terrain(state, @source, nil, x, z)
+      cell
+    end)
+  end
 
-  test "decorating through encoded proto chunks equals the parity path", %{state: state} do
+  test "decorating through proto cells equals the parity path", %{state: state} do
     for centre <- [{-37, 112}] do
       order = around(centre, 1)
       {:ok, want} = Native.worldgen_decorate(state, @source, centre, order, features())
-      got = through_protos(state, centre, order)
+      {:ok, got} = Native.gen_inspect(decorated(state, centre, order))
       assert length(got) == 25
 
       for {ours, theirs} <- Enum.zip(got, want) do
@@ -64,29 +59,15 @@ defmodule Valimc.WorldgenProtoTest do
     end
   end
 
-  test "only the chunks decoration writes into come back, and reads stay in the 3 × 3",
-       %{state: state} do
-    # The 3 × 3 alone: decoration reads no chunk outside it.
-    {:ok, terrain} = Native.worldgen_proto_terrain(state, @source, around({-200, 40}, 1), false)
-
-    {:ok, {touched, lenient}} =
-      Native.worldgen_proto_decorate(state, @source, images(terrain), [{-200, 40}], false)
-
-    assert lenient == 0
-    assert {-200, 40} in Enum.map(touched, fn {x, z, _} -> {x, z} end)
-    assert length(touched) <= 9
+  test "a decoration reads only its 3 × 3", %{state: state} do
+    cells = terrain(state, around({-200, 40}, 1))
+    assert {:ok, 0} = Native.gen_decorate(state, @source, nil, {-200, 40}, cells)
   end
 
   test "a decorated chunk becomes a full column with its extras", %{state: state} do
     centre = {0, 0}
-    order = around(centre, 1)
-    {:ok, terrain} = Native.worldgen_proto_terrain(state, @source, around(centre, 2), false)
-
-    {:ok, {touched, 0}} =
-      Native.worldgen_proto_decorate(state, @source, images(terrain), order, false)
-
-    image = by_chunk(touched)[centre]
-    {:ok, [inspected]} = Native.worldgen_proto_inspect(state, [image])
+    cell = Enum.at(decorated(state, centre, around(centre, 1)), 12)
+    {:ok, [inspected]} = Native.gen_inspect([cell])
 
     biomes =
       Enum.map(
@@ -94,7 +75,7 @@ defmodule Valimc.WorldgenProtoTest do
         &Valimc.Protocol.Data.registry_id("minecraft:worldgen/biome", &1)
       )
 
-    {:ok, [full]} = Native.worldgen_proto_full(state, [image], biomes)
+    {:ok, full} = Native.gen_full(state, cell, biomes)
     assert {full.x, full.z} == centre
     assert length(full.heights) == 256
 
@@ -120,19 +101,21 @@ defmodule Valimc.WorldgenProtoTest do
 
   test "generations of one seed run in parallel and agree", %{state: state} do
     chunks = for x <- 0..7, do: {x, 3}
-    {:ok, serial} = Native.worldgen_proto_terrain(state, @source, chunks, false)
+    serial = Enum.map(terrain(state, chunks), &Native.gen_encode/1)
 
     parallel =
       chunks
-      |> Task.async_stream(
-        fn c ->
-          {:ok, [one]} = Native.worldgen_proto_terrain(state, @source, [c], false)
-          one
-        end,
-        timeout: 60_000
-      )
+      |> Task.async_stream(&Native.gen_encode(hd(terrain(state, [&1]))), timeout: 60_000)
       |> Enum.map(fn {:ok, one} -> one end)
 
     assert parallel == serial
+  end
+
+  test "a cell survives its snapshot encoding", %{state: state} do
+    cell = Enum.at(decorated(state, {5, -9}, around({5, -9}, 1)), 12)
+    {:ok, encoded} = Native.gen_encode(cell)
+    {:ok, decoded} = Native.gen_decode(state, encoded)
+    assert Native.gen_encode(decoded) == {:ok, encoded}
+    assert Native.gen_inspect([decoded]) == Native.gen_inspect([cell])
   end
 end

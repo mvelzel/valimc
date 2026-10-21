@@ -1,6 +1,6 @@
 # Dirty scheduler capacity under live generation (VMC-077b): a fresh decorated
-# world (seed 20261020, structures) finalizes N × N regions at once through its
-# proto owners, as `worldgen_live.exs` does, while a probe stands in for play:
+# world (seed 20261020, structures) makes N × N regions full at once through its
+# generation scheduler, as `worldgen_live.exs` does, while a probe stands in for play:
 # every 10 ms an owner-like process makes one short dirty CPU call (the disk
 # NBT reader on 20 filled chests, about 64 KB) and one short normal call
 # (the same reader on a 100-byte root), and records how long each took. A
@@ -12,7 +12,8 @@
 #
 #     VALIMC_PORT=0 MIX_ENV=bench mix run bench/dirty_capacity.exs OUT.json [N] [PASSES]
 alias Valimc.{Native, NBT}
-alias Valimc.Worldgen.Proto
+alias Valimc.World.RegionGeneration
+alias Valimc.Worldgen.Scheduler
 
 [output | rest] = System.argv()
 n = rest |> Enum.at(0, "3") |> String.to_integer()
@@ -125,9 +126,6 @@ utilization = fn s1, s2 ->
   %{normal: mean.(1..normal), dirty_cpu: mean.((normal + 1)..(normal + dirty))}
 end
 
-if :ets.whereis(Valimc.ScopedConfig) == :undefined,
-  do: :ets.new(Valimc.ScopedConfig, [:named_table, :public])
-
 run = fn pass ->
   base = Path.join(System.tmp_dir!(), "valimc-bench-dirty-#{System.unique_integer([:positive])}")
   File.mkdir_p!(base)
@@ -140,18 +138,11 @@ run = fn pass ->
       "settings" => Valimc.World.GenSettings.create("minecraft:normal", nil, seed, true)
     })
 
-  # Each pass uses regions of its own, so no owner of an earlier pass answers.
+  # Each pass generates regions of its own, so the seed's shared caches do
+  # not carry an earlier pass's chunks.
   offset = pass * (n + 4)
   regions = for rz <- 0..(n - 1), rx <- 0..(n - 1), do: {rx + offset, rz}
-
-  :ets.insert(
-    Valimc.ScopedConfig,
-    for(
-      rx <- (offset - 2)..(offset + n + 1),
-      rz <- -2..(n + 1),
-      do: {{{rx, rz}, :world_path}, base}
-    )
-  )
+  {:ok, _} = Scheduler.whereis(base, :overworld)
 
   pid = probe.(self())
   s1 = sample.()
@@ -159,7 +150,8 @@ run = fn pass ->
   {micros, results} =
     :timer.tc(fn ->
       regions
-      |> Task.async_stream(&Proto.full_chunks/1,
+      |> Task.async_stream(
+        &Scheduler.full_chunks(base, :overworld, RegionGeneration.chunks_of(&1)),
         max_concurrency: length(regions),
         timeout: :infinity
       )
@@ -168,6 +160,10 @@ run = fn pass ->
 
   s2 = sample.()
   samples = stop_probe.(pid)
+
+  for {pid, _} <- Registry.lookup(Valimc.Worldgen.Schedulers, {base, :overworld}),
+      do: Process.exit(pid, :kill)
+
   File.rm_rf(base)
   final = Enum.sum(results)
 
@@ -185,7 +181,7 @@ Process.sleep(2_000)
 idle = summarize.(stop_probe.(pid))
 IO.inspect(idle, label: "idle")
 
-# One warm-up pass compiles the worldgen states.
+# One warm-up pass compiles the seed's context.
 _ = run.(0)
 measured = for pass <- 1..passes, do: run.(pass)
 for m <- measured, do: IO.inspect(m, label: "#{n} × #{n} regions")

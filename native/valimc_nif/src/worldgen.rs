@@ -3,7 +3,10 @@
 
 use crate::{bytes, raise, reply};
 use rustler::{Atom, Binary, Encoder, Env, NifResult, ResourceArc, Term};
+use std::sync::Mutex;
 use valimc_core::worldgen::compiler::BiomeSource;
+use valimc_core::worldgen::region::{Area, ProtoChunk};
+use valimc_core::worldgen::starts::StartTable;
 
 mod atoms {
     rustler::atoms! { chunks, invalid, failed, too_large }
@@ -155,76 +158,167 @@ fn worldgen_columns<'a>(
     })())
 }
 
-/// An encoded proto chunk with its position (VMC-025d).
-type ProtoBinary<'a> = (i32, i32, Binary<'a>);
-
-fn proto_binary<'a>(
-    env: Env<'a>,
-    chunk: &valimc_core::worldgen::region::ProtoChunk,
-) -> ProtoBinary<'a> {
-    let encoded = valimc_core::worldgen::proto::encode(chunk);
-    (chunk.x, chunk.z, bytes(env, encoded))
+/// A chunk's proto state (VMC-077n): the generation scheduler owns it and
+/// lends it to one job at a time, which locks it for its call. Empty only
+/// while a decoration holds it.
+pub struct ProtoCell {
+    pub(crate) chunk: Mutex<Option<ProtoChunk>>,
 }
 
-/// Chunks at status `terrain` as encoded proto chunks (VMC-025d), biomes
-/// from `biome_source`; with `structures` (VMC-025f5), each chunk's beards
-/// from the starts that reference it.
+#[rustler::resource_impl]
+impl rustler::Resource for ProtoCell {}
+
+impl ProtoCell {
+    fn new(chunk: ProtoChunk) -> ResourceArc<ProtoCell> {
+        ResourceArc::new(ProtoCell {
+            chunk: Mutex::new(Some(chunk)),
+        })
+    }
+}
+
+/// A dimension's structure starts (`valimc_core::worldgen::starts`): the
+/// generation scheduler's, passed into its terrain and decoration jobs.
+pub struct Starts {
+    table: StartTable,
+}
+
+#[rustler::resource_impl]
+impl rustler::Resource for Starts {}
+
+/// A new, empty start table.
+#[rustler::nif]
+fn gen_starts_new() -> ResourceArc<Starts> {
+    ResourceArc::new(Starts {
+        table: StartTable::new(),
+    })
+}
+
+/// Chunks with starts left to place, those starts, and the table's
+/// approximate bytes.
+#[rustler::nif]
+fn gen_starts_stats(starts: ResourceArc<Starts>) -> (usize, usize, usize) {
+    let (chunks, live) = starts.table.len();
+    (chunks, live, starts.table.heap_bytes())
+}
+
+/// The starts left to place, for a snapshot.
 #[rustler::nif(schedule = "DirtyCpu")]
-fn worldgen_proto_terrain<'a>(
+fn gen_starts_snapshot<'a>(
     env: Env<'a>,
+    starts: ResourceArc<Starts>,
+) -> NifResult<(Atom, Binary<'a>)> {
+    reply(starts.table.encode().map(|b| bytes(env, b)))
+}
+
+/// A start table from a snapshot.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn gen_starts_restore(snapshot: Binary) -> NifResult<(Atom, ResourceArc<Starts>)> {
+    reply(StartTable::decode(snapshot.as_slice()).map(|table| ResourceArc::new(Starts { table })))
+}
+
+/// A chunk at status `terrain` (VMC-077n): its proto chunk, with `starts`
+/// the beards of the starts that reach it.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn gen_terrain(
     state: ResourceArc<WorldgenState>,
     biome_source: String,
-    chunks: Vec<(i32, i32)>,
-    structures: bool,
-) -> NifResult<(Atom, Vec<ProtoBinary<'a>>)> {
+    starts: Option<ResourceArc<Starts>>,
+    x: i32,
+    z: i32,
+) -> NifResult<(Atom, ResourceArc<ProtoCell>)> {
     reply((|| {
         let mut state = state.lease()?;
         let biome_source = BiomeSource::parse(&biome_source, state.registry())?;
-        let mut out = Vec::with_capacity(chunks.len());
-        for (x, z) in chunks {
-            let chunk = state.proto_terrain_live(x, z, &biome_source, structures)?;
-            out.push(proto_binary(env, &chunk));
-        }
-        Ok(out)
+        let table = starts.as_ref().map(|s| &s.table);
+        let chunk = state.generation_terrain(x, z, &biome_source, table)?;
+        Ok(ProtoCell::new(chunk))
     })())
 }
 
-/// Decorate the chunks in `order` (VMC-025d) over the encoded proto chunks
-/// `chunks` (each decorated chunk's 3 × 3 among them) with every placed
-/// feature of `biome_source`'s decoration (a multi-noise preset, the End or
-/// `fixed:BIOME`, VMC-028b); with `structures` (VMC-025f5), each step first
-/// places the structures whose starts reference the chunk. Returns the chunks
-/// decoration wrote into, re-encoded, and the count of reads of chunks outside
-/// `chunks` (which see empty chunks).
+/// Decorate chunk `center` (VMC-077n) over `cells`, its 3 × 3, lent to this
+/// call: with `starts`, the pieces of the starts that reach it first in each
+/// step. Returns the count of reads beyond the 3 × 3 (which see empty chunks).
 #[rustler::nif(schedule = "DirtyCpu")]
-fn worldgen_proto_decorate<'a>(
-    env: Env<'a>,
+fn gen_decorate(
     state: ResourceArc<WorldgenState>,
     biome_source: String,
-    chunks: Vec<Binary>,
-    order: Vec<(i32, i32)>,
-    structures: bool,
-) -> NifResult<(Atom, (Vec<ProtoBinary<'a>>, u32))> {
+    starts: Option<ResourceArc<Starts>>,
+    center: (i32, i32),
+    cells: Vec<ResourceArc<ProtoCell>>,
+) -> NifResult<(Atom, u32)> {
     reply((|| {
         let mut state = state.lease()?;
         let biome_source = BiomeSource::parse(&biome_source, state.registry())?;
-        let mut decoded = Vec::with_capacity(chunks.len());
-        for bytes in &chunks {
-            decoded.push(valimc_core::worldgen::proto::decode(
-                bytes.as_slice(),
-                state.block_table()?,
-            )?);
+        let mut guards = Vec::with_capacity(cells.len());
+        for cell in &cells {
+            guards.push(cell.chunk.lock().map_err(|_| "proto cell poisoned")?);
         }
-        let mut area = valimc_core::worldgen::region::Area::of(decoded)?;
-        let lenient_reads =
-            state.decorate_held_live(&biome_source, &mut area, &order, true, structures)?;
-        Ok((
-            area.held()
-                .filter(|c| c.touched)
-                .map(|c| proto_binary(env, c))
-                .collect(),
-            lenient_reads,
-        ))
+        let mut chunks = Vec::with_capacity(guards.len());
+        for guard in &mut guards {
+            chunks.push(guard.take().ok_or("a proto cell lent twice")?);
+        }
+        let positions: Vec<(i32, i32)> = chunks.iter().map(|c| (c.x, c.z)).collect();
+        let mut area = Area::of(chunks)?;
+        let table = starts.as_ref().map(|s| &s.table);
+        let result = state.generation_decorate(&biome_source, &mut area, center, table);
+        // The chunks go back to their cells whatever the decoration did.
+        for (guard, (x, z)) in guards.iter_mut().zip(positions) {
+            let slot = (z - area.z) * area.size + (x - area.x);
+            **guard = area.chunks[slot as usize].take();
+        }
+        result
+    })())
+}
+
+/// A proto chunk as `proto::encode` writes it (snapshots, parity).
+#[rustler::nif(schedule = "DirtyCpu")]
+fn gen_encode<'a>(env: Env<'a>, cell: ResourceArc<ProtoCell>) -> NifResult<(Atom, Binary<'a>)> {
+    reply((|| {
+        let chunk = cell.chunk.lock().map_err(|_| "proto cell poisoned")?;
+        let chunk = chunk.as_ref().ok_or("a proto cell lent out")?;
+        Ok(bytes(env, valimc_core::worldgen::proto::encode(chunk)))
+    })())
+}
+
+/// A proto cell from `gen_encode` output.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn gen_decode(
+    state: ResourceArc<WorldgenState>,
+    encoded: Binary,
+) -> NifResult<(Atom, ResourceArc<ProtoCell>)> {
+    reply((|| {
+        let state = state.lease()?;
+        let chunk = valimc_core::worldgen::proto::decode(encoded.as_slice(), state.block_table()?)?;
+        Ok(ProtoCell::new(chunk))
+    })())
+}
+
+/// What live generation makes of `order` decorated one after the other over
+/// the `size` × `size` chunks from `origin` (VMC-077n), in one call, with
+/// structures when `structures`: the reference the scheduler's chunks equal.
+/// Every chunk of the area as a cell, Z outer and X inner.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn gen_reference(
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    origin: (i32, i32),
+    size: i32,
+    order: Vec<(i32, i32)>,
+    structures: bool,
+) -> NifResult<(Atom, Vec<ResourceArc<ProtoCell>>)> {
+    reply((|| {
+        if !(1..=64).contains(&size) {
+            return Err("an area of 1 to 64 chunks".to_string());
+        }
+        let mut state = state.lease()?;
+        let biome_source = BiomeSource::parse(&biome_source, state.registry())?;
+        let area = state.reference_area(&biome_source, origin, size, &order, structures)?;
+        Ok(area
+            .chunks
+            .into_iter()
+            .flatten()
+            .map(ProtoCell::new)
+            .collect())
     })())
 }
 
@@ -262,29 +356,32 @@ struct FullChunk<'a> {
     marks: Vec<(i32, i32, i32)>,
 }
 
+/// A final chunk made full (VMC-077n), from its proto cell.
 #[rustler::nif(schedule = "DirtyCpu")]
-fn worldgen_proto_full<'a>(
+fn gen_full<'a>(
     env: Env<'a>,
     state: ResourceArc<WorldgenState>,
-    chunks: Vec<Binary>,
+    cell: ResourceArc<ProtoCell>,
     protocol_biomes: Vec<u16>,
-) -> NifResult<(Atom, Vec<FullChunk<'a>>)> {
-    reply(full_chunks(env, &state, &chunks, &protocol_biomes))
+) -> NifResult<(Atom, FullChunk<'a>)> {
+    reply((|| {
+        let chunk = cell.chunk.lock().map_err(|_| "proto cell poisoned")?;
+        let chunk = chunk.as_ref().ok_or("a proto cell lent out")?;
+        full_chunk(env, &state, chunk, &protocol_biomes)
+    })())
 }
 
-fn full_chunks<'a>(
+fn full_chunk<'a>(
     env: Env<'a>,
     state: &WorldgenState,
-    chunks: &[Binary],
+    chunk: &ProtoChunk,
     protocol_biomes: &[u16],
-) -> Result<Vec<FullChunk<'a>>, String> {
+) -> Result<FullChunk<'a>, String> {
     use valimc_core::worldgen::blocks::{Heightmap, BLOCK_ENTITY, FLUID_NAMES};
     let state = state.lease()?;
     let table = state.block_table()?;
-    let mut out = Vec::with_capacity(chunks.len());
-    for encoded in chunks {
-        let chunk = valimc_core::worldgen::proto::decode(encoded.as_slice(), table)?;
-        let (column, _) = state.final_column(&chunk, protocol_biomes)?;
+    {
+        let (column, _) = state.final_column(chunk, protocol_biomes)?;
         let at = |p: &[i32; 3]| chunk.get(p[0], p[1], p[2]).unwrap_or(0);
         let t = |p: &[i32; 3]| (p[0], p[1], p[2]);
         let block_entities = chunk
@@ -306,7 +403,7 @@ fn full_chunks<'a>(
                 }
             })
             .collect();
-        out.push(FullChunk {
+        Ok(FullChunk {
             x: chunk.x,
             z: chunk.z,
             image: bytes(env, column.to_image()),
@@ -326,9 +423,8 @@ fn full_chunks<'a>(
                 .map(|(p, f)| (t(p), FLUID_NAMES[*f as usize].to_string()))
                 .collect(),
             marks: chunk.marks.iter().map(t).collect(),
-        });
+        })
     }
-    Ok(out)
 }
 
 /// A located structure: its locate position and identifier.

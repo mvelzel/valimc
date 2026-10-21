@@ -9,17 +9,18 @@ defmodule Valimc.Application do
      owners and the worker pools; independent of each other (`one_for_one`).
   2. Storage: the write-ahead log's stripes (`Valimc.Storage.Log`) and the
      per-session player stores.
-  3. World: the region and proto registries, the directory, region writers,
-     region and proto owners; a directory restart restarts the writers and
+  3. World: the region registries, the directory, the generation schedulers
+     and the region owners; a directory restart restarts the schedulers and
      owners after it.
   4. Players: admission and its tables, login workers and connections.
   5. Network: the listener, the console and RCON (`one_for_one`; a listener
      restart touches no connection).
 
   The world's generation (`Valimc.World.Spec`) is read before any process
-  starts; a world that does not read stops the start. Tables nobody owns as state (metrics counters, the terrain board, the
-  autosave flag) are created here, owned by the application for its whole life,
-  instead of by a process that only holds them.
+  starts; a world that does not read stops the start. Tables nobody owns as
+  state (metrics counters, the generation pool's slots and waiters, the
+  autosave flag) are created here, owned by the application for its whole
+  life, instead of by a process that only holds them.
   """
   use Application
 
@@ -34,7 +35,7 @@ defmodule Valimc.Application do
     Valimc.Commands.init!()
     Valimc.Metrics.init!()
     Valimc.World.Saving.init!()
-    Valimc.Worldgen.TerrainBoard.init!()
+    Valimc.Worldgen.Pool.init!()
 
     if not Valimc.GameMode.valid?(Valimc.config(:default_game_mode)),
       do: raise("Invalid default game mode")
@@ -50,8 +51,6 @@ defmodule Valimc.Application do
       {Task.Supervisor, name: Valimc.ChunkWorkers, max_children: schedulers},
       {Task.Supervisor, name: Valimc.ItemWorkers, max_children: schedulers},
       {Task.Supervisor, name: Valimc.TransferWorkers, max_children: schedulers * 4},
-      # The one pool of generation jobs, below the dirty scheduler count (VMC-077b).
-      Valimc.Worldgen.Pool,
       # Placement and mining jobs: each player owns at most one, and its
       # cancelled predecessor may still retire.
       Valimc.Workers.partitioned(Valimc.ActionWorkers, Valimc.config(:max_players) * 2)
@@ -71,10 +70,12 @@ defmodule Valimc.Application do
       # Region topic => subscribed connections (duplicate keys).
       {Registry, keys: :duplicate, name: Valimc.VisibilityRegistry},
       {Valimc.World.Directory, []},
+      # One generation scheduler per generated dimension (VMC-077n), stopped
+      # after the regions that persist its chunks.
+      {Registry, keys: :unique, name: Valimc.Worldgen.Schedulers},
+      dynamic(Valimc.Worldgen.SchedulerSupervisor, Valimc.config(:max_regions)),
       dynamic(Valimc.RegionSupervisor, Valimc.config(:max_regions)),
-      {Valimc.World.ForcedChunks, []},
-      {Registry, keys: :unique, name: Valimc.ProtoRegistry},
-      dynamic(Valimc.ProtoSupervisor, Valimc.config(:max_regions) * 2)
+      {Valimc.World.ForcedChunks, []}
     ]
 
     players = [

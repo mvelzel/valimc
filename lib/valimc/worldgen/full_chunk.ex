@@ -16,7 +16,7 @@ defmodule Valimc.Worldgen.FullChunk do
   alias Valimc.World.BlockEntities
 
   @doc """
-  The region store's parts for `full` chunks (`worldgen_proto_full` maps),
+  The region store's parts for `full` chunks (`gen_full` maps),
   adding their block entities and ticks to the region's `entities` and `ticks`.
   """
   def parts(full, entities, ticks) do
@@ -49,7 +49,7 @@ defmodule Valimc.Worldgen.FullChunk do
   end
 
   @doc """
-  Generated block entities (`worldgen_proto_full`'s or `/place`'s) as the
+  Generated block entities (`gen_full`'s or `/place`'s) as the
   region keeps them, `position => {type_id, nbt}`, added to `entities`. A
   block entity of a type not modelled here is left out (the client makes its
   own); everything else must convert.

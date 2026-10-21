@@ -182,14 +182,23 @@ defmodule Valimc.Native do
   def worldgen_columns(_state, _biome_source, _protocol_biomes, _chunks),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def worldgen_proto_terrain(_state, _biome_source, _chunks, _structures),
+  # The generation scheduler's chunks and starts (VMC-077n).
+  def gen_starts_new, do: :erlang.nif_error(:nif_not_loaded)
+  def gen_starts_stats(_starts), do: :erlang.nif_error(:nif_not_loaded)
+  def gen_starts_snapshot(_starts), do: :erlang.nif_error(:nif_not_loaded)
+  def gen_starts_restore(_snapshot), do: :erlang.nif_error(:nif_not_loaded)
+  def gen_terrain(_state, _biome_source, _starts, _x, _z), do: :erlang.nif_error(:nif_not_loaded)
+
+  def gen_decorate(_state, _biome_source, _starts, _center, _cells),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def worldgen_proto_decorate(_state, _biome_source, _chunks, _order, _structures),
+  def gen_encode(_cell), do: :erlang.nif_error(:nif_not_loaded)
+  def gen_decode(_state, _encoded), do: :erlang.nif_error(:nif_not_loaded)
+
+  def gen_reference(_state, _biome_source, _origin, _size, _order, _structures),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def worldgen_proto_full(_state, _chunks, _protocol_biomes),
-    do: :erlang.nif_error(:nif_not_loaded)
+  def gen_full(_state, _cell, _protocol_biomes), do: :erlang.nif_error(:nif_not_loaded)
 
   def worldgen_structure_locate(_state, _biome_source, _structures, _pos, _radius),
     do: :erlang.nif_error(:nif_not_loaded)
@@ -269,7 +278,7 @@ defmodule Valimc.Native do
   def worldgen_structure_window(_state, _biome_source, _origin, _size),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def worldgen_proto_inspect(_state, _chunks), do: :erlang.nif_error(:nif_not_loaded)
+  def gen_inspect(_cells), do: :erlang.nif_error(:nif_not_loaded)
 
   def worldgen_structure_time(_state, _biome_source, _origin, _size),
     do: :erlang.nif_error(:nif_not_loaded)

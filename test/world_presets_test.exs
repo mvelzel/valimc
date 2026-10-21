@@ -29,7 +29,7 @@ defmodule Valimc.WorldPresetsTest do
 
   test "presets ValiMC cannot generate are refused; the structures flag reaches the generator",
        ctx do
-    # VMC-025f5: the structures flag reaches the proto owners.
+    # VMC-025f5: the structures flag reaches the generation scheduler.
     assert {:ok, %{structures: false}} =
              Generator.spec_of(GenSettings.create("minecraft:normal", nil, 3, false))
 

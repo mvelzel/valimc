@@ -14,6 +14,9 @@ defmodule Valimc.Metrics do
 
   def add(key, value \\ 1), do: :counters.add(cell(key), 1, value)
 
+  @doc "Set a gauge (a value one owner keeps current)."
+  def put(key, value), do: :counters.put(cell(key), 1, value)
+
   defp cell(key) do
     case :ets.lookup(__MODULE__, key) do
       [{_, cell}] ->

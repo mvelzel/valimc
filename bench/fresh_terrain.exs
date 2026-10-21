@@ -179,8 +179,8 @@ end
 
 counters = ~w(worldgen_chunks worldgen_microseconds column_persist_microseconds region_loads
               region_load_microseconds chunks_encoded chunk_encode_microseconds
-              proto_terrain_chunks proto_decorated_chunks proto_transactions proto_aborts proto_busy
-              proto_lock_microseconds proto_decorate_microseconds proto_commit_microseconds)a
+              worldgen_wants worldgen_refreshes worldgen_dispatch_microseconds
+              worldgen_terrain_jobs worldgen_decorate_jobs worldgen_full_jobs worldgen_alone_jobs)a
 
 delta = fn before ->
   snapshot = Valimc.Metrics.snapshot()

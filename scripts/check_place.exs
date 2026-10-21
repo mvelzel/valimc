@@ -21,8 +21,9 @@ column = fn chunk ->
       image
 
     [] ->
-      {:ok, [{_, _, proto}]} = Native.worldgen_proto_terrain(state, source, [chunk], false)
-      {:ok, [full]} = Native.worldgen_proto_full(state, [proto], protocol_biomes)
+      {x, z} = chunk
+      {:ok, cell} = Native.gen_terrain(state, source, nil, x, z)
+      {:ok, full} = Native.gen_full(state, cell, protocol_biomes)
       :ets.insert(columns, {chunk, full.image})
       full.image
   end

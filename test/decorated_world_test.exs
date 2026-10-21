@@ -1,16 +1,18 @@
 defmodule Valimc.DecoratedWorldTest do
   @moduledoc """
-  Decorated vanilla worlds (VMC-025d3): a region serves the full chunks its
-  proto owner finalized, with their block entities, block ticks and pending
-  post-processing, persists them once, and keeps them across restarts. The
-  proto owners' own transactions and durable ring are `WorldgenProtoOwnerTest`'s.
+  Decorated vanilla worlds (VMC-025d3, VMC-077n): a region serves the full
+  chunks its dimension's generation scheduler made, with their block entities,
+  block ticks and pending post-processing, persists them once, and keeps them
+  across restarts. The scheduler's own order and snapshot are
+  `WorldgenSchedulerTest`'s.
   """
-  # Serial: finalize transactions saturate the worldgen workers and dirty schedulers.
+  # Serial: generation saturates the pool and the dirty schedulers.
   use ExUnit.Case, async: false
   @moduletag :slow
   alias Valimc.{Native, TestScope, World}
-  alias Valimc.World.{BlockSnapshot, Directory, Generator, Region, RegionStorage, ScheduledTicks}
-  alias Valimc.Worldgen.{FullChunk, Proto}
+  alias Valimc.World.{BlockSnapshot, Directory, Generator, Region, RegionGeneration}
+  alias Valimc.World.{RegionStorage, ScheduledTicks}
+  alias Valimc.Worldgen.{FullChunk, Scheduler}
 
   @seed 20_261_020
   @source "minecraft:overworld"
@@ -31,6 +33,10 @@ defmodule Valimc.DecoratedWorldTest do
 
     on_exit(fn ->
       stop(keys)
+
+      for {pid, _} <- Registry.lookup(Valimc.Worldgen.Schedulers, {base, :overworld}),
+          do: TestScope.kill(pid)
+
       File.rm_rf(base)
     end)
 
@@ -40,12 +46,12 @@ defmodule Valimc.DecoratedWorldTest do
 
   defp stop(keys) do
     for key <- keys,
-        reg <- [Valimc.RegionRegistry, Valimc.ProtoRegistry],
-        {pid, _} <- Registry.lookup(reg, key),
+        {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
         do: TestScope.kill(pid)
   end
 
-  # The region's full chunks when it is the first finalized.
+  # The region's full chunks when one request wants all of them: its 10 × 10
+  # decorated Z outer, X inner over terrain.
   defp expected(worldgen, key) do
     case :persistent_term.get({__MODULE__, key}, nil) do
       nil ->
@@ -58,29 +64,21 @@ defmodule Valimc.DecoratedWorldTest do
     end
   end
 
-  defp compute_expected(worldgen, key) do
-    images = terrain(worldgen, Proto.around(key, 2))
+  defp compute_expected(worldgen, {rx, rz} = key) do
+    order = key |> RegionGeneration.chunks_of() |> Enum.flat_map(&around/1) |> Enum.uniq()
+    order = Enum.sort_by(order, fn {x, z} -> {z, x} end)
+    origin = {rx * 8 - 2, rz * 8 - 2}
+    {:ok, cells} = Native.gen_reference(worldgen, @source, origin, 12, order, true)
 
-    {:ok, {touched, 0}} =
-      Native.worldgen_proto_decorate(
-        worldgen,
-        @source,
-        Map.values(images),
-        Proto.around(key, 1),
-        true
-      )
-
-    images = Map.merge(images, Map.new(touched, fn {x, z, image} -> {{x, z}, image} end))
-    own = Enum.map(Proto.chunks_of(key), &images[&1])
-    {:ok, full} = Native.worldgen_proto_full(worldgen, own, Generator.protocol_biomes())
-    lit(full)
+    for {x, z} <- RegionGeneration.chunks_of(key) do
+      cell = Enum.at(cells, (z - rz * 8 + 2) * 12 + (x - rx * 8 + 2))
+      {:ok, full} = Native.gen_full(worldgen, cell, Generator.protocol_biomes())
+      # Lit alone, as the scheduler sends it (VMC-077c).
+      %{full | image: Map.fetch!(World.Blocks.lit_images(%{{x, z} => full.image}, true), {x, z})}
+    end
   end
 
-  # Full chunks as the proto owner stores them: each lit alone (VMC-077c).
-  defp lit(full) do
-    lit = Valimc.World.Blocks.lit_images(Map.new(full, &{{&1.x, &1.z}, &1.image}), true)
-    Enum.map(full, &%{&1 | image: Map.fetch!(lit, {&1.x, &1.z})})
-  end
+  defp around({x, z}), do: for(dz <- -1..1, dx <- -1..1, do: {x + dx, z + dz})
 
   # Under load a region's start can take longer than a call's default timeout.
   defp owner!(key, attempts \\ 600) do
@@ -94,32 +92,18 @@ defmodule Valimc.DecoratedWorldTest do
     end
   end
 
-  # The region finalized whole by its proto owner (the order the expectations
-  # follow), then all its chunks wanted, generated and stored by the live
-  # region, which asks for them a few at a time (VMC-075).
+  # All the region's chunks wanted at once, generated and stored by the live
+  # region (VMC-075).
   defp generate_all(key) do
-    {:ok, _} = Proto.full_chunks(key)
     {:ok, {pid, _}} = owner!(key)
-    {cx, cz} = hd(Proto.chunks_of(key))
-    Valimc.World.Region.ticket(pid, :forced, {cx, cz}, Proto.chunks_of(key))
+    {cx, cz} = hd(RegionGeneration.chunks_of(key))
+    Valimc.World.Region.ticket(pid, :forced, {cx, cz}, RegionGeneration.chunks_of(key))
     {_, _, %{publication: table}} = Directory.lookup(key)
 
     Valimc.TestWait.until(
-      fn -> not Enum.any?(Proto.chunks_of(key), &BlockSnapshot.absent?(table, &1)) end,
+      fn -> not Enum.any?(RegionGeneration.chunks_of(key), &BlockSnapshot.absent?(table, &1)) end,
       240_000
     )
-  end
-
-  # Terrain of `chunks` in parallel batches, with structures as a new world
-  # generates them (VMC-025f5).
-  defp terrain(worldgen, chunks) do
-    chunks
-    |> Enum.chunk_every(8)
-    |> Task.async_stream(&Native.worldgen_proto_terrain(worldgen, @source, &1, true),
-      timeout: :infinity
-    )
-    |> Enum.flat_map(fn {:ok, {:ok, list}} -> list end)
-    |> Map.new(fn {x, z, image} -> {{x, z}, image} end)
   end
 
   defp restart(key) do
@@ -147,7 +131,12 @@ defmodule Valimc.DecoratedWorldTest do
     assert stored.columns == parts.columns
     assert stored.block_entities == parts.block_entities
     assert stored.post_processing == parts.post_processing
-    Valimc.TestWait.until(fn -> Proto.full_chunks(@key) == {:error, :handed_over} end)
+
+    # The scheduler dropped the proto chunks the region made durable.
+    Valimc.TestWait.until(fn ->
+      {:ok, cells} = Scheduler.cells(ctx.base, :overworld, RegionGeneration.chunks_of(@key))
+      Enum.all?(cells, &is_nil/1)
+    end)
 
     # Block ticks wait in the region's queue, due at its first tick.
     {:ok, {pid, _}} = owner!(@key)
@@ -159,7 +148,7 @@ defmodule Valimc.DecoratedWorldTest do
 
     # The region serves the blocks of the full chunks.
     {:ok, blocks} = World.Blocks.new(@key, %{}, parts.columns)
-    {cx, cz} = hd(Proto.chunks_of(@key))
+    {cx, cz} = hd(RegionGeneration.chunks_of(@key))
 
     for x <- [0, 5, 15], z <- [0, 9, 15], y <- -64..319//7 do
       position = {cx * 16 + x, y, cz * 16 + z}
@@ -167,7 +156,7 @@ defmodule Valimc.DecoratedWorldTest do
     end
 
     # A restart serves the same chunks, edits included, without generating them again.
-    {cx, cz} = List.last(Proto.chunks_of(@key))
+    {cx, cz} = List.last(RegionGeneration.chunks_of(@key))
     position = {cx * 16 + 3, 70, cz * 16 + 3}
     glass = Valimc.Registry.Blocks.default_state("glass")
     :ok = Valimc.TestBlocks.set(position, glass)

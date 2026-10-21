@@ -343,9 +343,9 @@ public class StructurePlacementOracle {
    * 10 × 10 decorated, Z outer and X inner), on seed 20261020 in a fresh world per case. Starts
    * come from vanilla's `createStructures` and references from `createReferences`, each chunk's
    * terrain has its beards, and `applyBiomeDecoration` places structures through a
-   * `StructureManager` whose level serves those chunks, as `decorate` does. Before a region's
-   * chunks are decorated, the temples and huts they place have their height settled as ValiMC's
-   * live generation settles it (`settle`).
+   * `StructureManager` whose level serves those chunks, as `decorate` does. Placement changes the
+   * starts as vanilla's saved starts change: a temple's or hut's height settles in the first chunk
+   * that places it (VMC-077n).
    *
    * Cases: the regions at the origin, then per structure of `LIVE_TARGETS` the region holding the
    * first piece of its first start (`findStarts`) and the region of the start's far corner (or
@@ -390,7 +390,7 @@ public class StructurePlacementOracle {
     }
     var rows = new JsonArray();
     long blocks = 0;
-    int entities = 0, settled = 0;
+    int entities = 0;
     for (int index = 0; index < cases.size(); index++) {
       var regions = cases.get(index);
       var world = StructureOracle.World.create(seed, source, registries, factory);
@@ -428,25 +428,11 @@ public class StructurePlacementOracle {
       var area = new LinkedHashSet<ChunkPos>();
       for (var r : regions) area.addAll(DecorationOracle.around(r, 2));
       var chunks = terrain.build(area, beards);
-      // Columns past the area (a temple at its edge) from the same terrain.
-      var outside = new HashMap<ChunkPos, ProtoChunk>();
-      java.util.function.IntBinaryOperator height = (x, z) -> {
-        var p = new ChunkPos(x >> 4, z >> 4);
-        var chunk = chunks.containsKey(p) ? chunks.get(p) : outside.computeIfAbsent(p, q -> {
-          try {
-            return terrain.build(List.of(q), beards).get(q);
-          } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException(e);
-          }
-        });
-        return chunk.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE_WG, x & 15, z & 15) + 1;
-      };
       var decorated = new HashSet<ChunkPos>();
       var order = new JsonArray();
       for (var r : regions) {
         var regionOrder = new ArrayList<ChunkPos>();
         for (var pos : DecorationOracle.around(r, 1)) if (decorated.add(pos)) regionOrder.add(pos);
-        settled += settle(regionOrder, seed, withStarts, height);
         for (var pos : regionOrder) {
           var decoration = new PlacementRegion(chunks, pos, seed, state, world.generator().getBiomeSource(), registries, manager);
           decoration.registries = registries;
@@ -504,7 +490,7 @@ public class StructurePlacementOracle {
     result.add("cases", rows);
     Files.writeString(out, new Gson().toJson(result));
     System.out.println("PASS: " + DecorationOracle.DIMENSION + ": " + cases.size() + " live generation sequences with structures ("
-        + blocks + " blocks of final chunks, " + entities + " block entities, " + settled + " temple heights settled)");
+        + blocks + " blocks of final chunks, " + entities + " block entities)");
   }
 
   /**
@@ -579,60 +565,6 @@ public class StructurePlacementOracle {
     result.add("passes", rows);
     Files.writeString(out, new Gson().toJson(result));
     System.out.println("PASS: vanilla full generation with structures for " + n + " × " + n + " regions");
-  }
-
-  /**
-   * ValiMC's live height of temples and huts (`scattered::settle_live`): every desert pyramid,
-   * jungle temple and swamp hut piece a chunk of `order` places and that has no height yet settles
-   * on the terrain's `WORLD_SURFACE_WG` heights over its whole box (`height`: the first free Y), at
-   * the lowest for a desert pyramid (lowered by `nextInt(3)` of a legacy random seeded from the
-   * world seed and the start's chunk), at the mean for the others. The count settled.
-   */
-  static int settle(List<ChunkPos> order, long seed, java.util.function.Function<ChunkPos, ProtoChunk> withStarts,
-      java.util.function.IntBinaryOperator height) throws ReflectiveOperationException {
-    var field = net.minecraft.world.level.levelgen.structure.ScatteredFeaturePiece.class.getDeclaredField("heightPosition");
-    field.setAccessible(true);
-    int x0 = Integer.MAX_VALUE, x1 = Integer.MIN_VALUE, z0 = Integer.MAX_VALUE, z1 = Integer.MIN_VALUE;
-    for (var p : order) {
-      x0 = Math.min(x0, p.x()); x1 = Math.max(x1, p.x());
-      z0 = Math.min(z0, p.z()); z1 = Math.max(z1, p.z());
-    }
-    int count = 0;
-    for (int sz = z0 - 8; sz <= z1 + 8; sz++) {
-      for (int sx = x0 - 8; sx <= x1 + 8; sx++) {
-        for (var start : withStarts.apply(new ChunkPos(sx, sz)).getAllStarts().values()) {
-          for (var piece : start.getPieces()) {
-            if (!(piece instanceof net.minecraft.world.level.levelgen.structure.ScatteredFeaturePiece scattered)) continue;
-            var box = scattered.getBoundingBox();
-            boolean placed = order.stream().anyMatch(p -> box.intersects(p.getMinBlockX(), p.getMinBlockZ(), p.getMaxBlockX(),
-                p.getMaxBlockZ()));
-            if (field.getInt(scattered) >= 0 || !placed) continue;
-            int lowest = Integer.MAX_VALUE, total = 0, columns = 0;
-            for (int z = box.minZ(); z <= box.maxZ(); z++) {
-              for (int x = box.minX(); x <= box.maxX(); x++) {
-                int h = height.applyAsInt(x, z);
-                lowest = Math.min(lowest, h);
-                total += h;
-                columns++;
-              }
-            }
-            int settledAt, offset = 0;
-            if (scattered instanceof net.minecraft.world.level.levelgen.structure.structures.DesertPyramidPiece) {
-              settledAt = lowest;
-              var chunk = start.getChunkPos();
-              offset = -new net.minecraft.world.level.levelgen.LegacyRandomSource(
-                  seed ^ (chunk.x() * 341873128712L) ^ (chunk.z() * 132897987541L)).nextInt(3);
-            } else {
-              settledAt = total / columns;
-            }
-            field.setInt(scattered, settledAt);
-            scattered.move(0, settledAt - box.minY() + offset, 0);
-            count++;
-          }
-        }
-      }
-    }
-    return count;
   }
 
   /**

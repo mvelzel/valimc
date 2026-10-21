@@ -1,80 +1,85 @@
 defmodule Valimc.World.RegionGeneration do
   @moduledoc """
-  Per-chunk generation of a region's chunks (VMC-075), run by its owner.
+  Generation of a region's absent chunks (VMC-075), run by its owner.
 
   A region of a generated world loads without generating: the chunks its log
   has no column for are absent. Loading tickets (`Valimc.World.Tickets`) say
   which chunks are wanted and how far from their center; calls that need an
-  absent chunk want it first (`urgent/2`). The owner generates the wanted absent
-  chunks nearest first, in
-  bounded batches and never on itself: a terrain world on
-  `Valimc.Worldgen.Pool` (`Generator.columns/2`), a decorated world through
-  its proto owner (`Proto.request_full_chunks/2`). Each chunk is lit alone
-  where it is generated and its column image keeps that light (VMC-077c). A
-  batch is installed at once and its column images join the owner's next
-  frame (`RegionStorage`, VMC-077f): its columns adopt their light and light
-  crosses their faces, its block entities and ticks are added, its snapshots
-  published, neighbours' rings and served chunks' light updated, and the calls
-  that waited for it run again. The proto owner forgets the chunks only once
-  that frame is durable. A failed batch stays wanted and is retried after a
-  backoff.
+  absent chunk want it first (`urgent/2`). The owner tells its dimension's
+  generation scheduler (`Valimc.Worldgen.Scheduler`, VMC-077n) which absent
+  chunks it wants, each at its smallest squared distance to a ticket's center
+  (urgent ones at -1), whenever that changes, and reports the chunks it has
+  when it loads. The scheduler sends each chunk once it is full, lit alone
+  where it was generated (VMC-077c).
+
+  A chunk is installed when it arrives and its column image joins the
+  owner's next frame (`RegionStorage`, VMC-077f): its column adopts its light
+  and light crosses its faces, its block entities and ticks are added, its
+  snapshot published, neighbours' rings and served chunks' light updated, and
+  the calls that waited for it run again. The scheduler drops its proto state
+  once that frame is durable. A chunk whose generation failed stays absent
+  and its waiting calls fail.
 
   Until then an absent chunk is like a chunk of an unloaded neighbour region:
   the owner's block reads see nothing there and edits of it are refused.
   """
   require Logger
   alias Valimc.World
-  alias Valimc.World.{BlockEntities, BlockSnapshot, Blocks, Generator, RegionData, Spec}
+  alias Valimc.World.{BlockEntities, BlockSnapshot, Blocks, RegionData, Spec}
   alias Valimc.World.{RegionStorage, ScheduledTicks, Tickets}
-  alias Valimc.Worldgen.{FullChunk, Pool, Proto}
+  alias Valimc.Worldgen.{FullChunk, Scheduler}
 
-  # Terrain: jobs of a few chunks, so the nearest chunks are not stuck behind a
-  # long batch. A decorated world's proto owner runs one transaction at a time,
-  # whose locks dominate it: 16 chunks a request took a whole view in about
-  # 0.7 × the time of 8 (VMC-075), and a second request keeps the owner busy
-  # while the first is installed.
-  @terrain_batch 4
-  @terrain_jobs 4
-  @proto_batch 16
-  @proto_requests 2
   @max_deferred 1024
 
-  defstruct mode: nil,
-            spec: nil,
+  defstruct world: nil,
+            dimension: nil,
+            generated: false,
             absent: MapSet.new(),
             urgent: MapSet.new(),
-            jobs: %{},
-            requests: nil,
+            failed: MapSet.new(),
+            scheduler: nil,
+            sent: %{},
             deferred: %{},
             deferred_count: 0,
             retry: nil,
             failures: 0
 
+  @doc "Region `key`'s chunks, Z outer and X inner."
+  def chunks_of({rx, rz}) do
+    size = Valimc.config(:region_size)
+
+    for cz <- (rz * size)..(rz * size + size - 1),
+        cx <- (rx * size)..(rx * size + size - 1),
+        do: {cx, cz}
+  end
+
   @doc "The generation state of region `key` whose log holds column `images`."
   def new(key, images) do
-    world = Spec.fetch(Valimc.config(:world_path, key))
+    path = Valimc.config(:world_path, key)
+    world = Spec.fetch(path)
     dimension = Valimc.Dimension.current()
+    {present, absent} = Enum.split_with(chunks_of(key), &Map.has_key?(images, &1))
 
-    if generation = Spec.generation(world, dimension) do
-      absent = for chunk <- Proto.chunks_of(key), not Map.has_key?(images, chunk), do: chunk
+    case Spec.generation(world, dimension) do
+      nil ->
+        %__MODULE__{}
 
-      mode = if Spec.decorated?(world, dimension), do: :decorated, else: :terrain
+      {:error, reason} when absent != [] ->
+        exit({:generation_unavailable, reason})
 
-      spec =
-        case {mode, absent, generation} do
-          {:terrain, [_ | _], {:ok, spec}} -> spec
-          {:terrain, [_ | _], {:error, reason}} -> exit({:generation_unavailable, reason})
-          _ -> nil
-        end
+      {:error, _} ->
+        %__MODULE__{}
 
-      %__MODULE__{
-        mode: mode,
-        spec: spec,
-        absent: MapSet.new(absent),
-        requests: :gen_server.reqids_new()
-      }
-    else
-      %__MODULE__{requests: :gen_server.reqids_new()}
+      {:ok, _} ->
+        # Neighbours wanted later must know these are full (VMC-077n).
+        if Spec.decorated?(world, dimension), do: Scheduler.present(path, dimension, present)
+
+        %__MODULE__{
+          world: path,
+          dimension: dimension,
+          generated: true,
+          absent: MapSet.new(absent)
+        }
     end
   end
 
@@ -97,30 +102,34 @@ defmodule Valimc.World.RegionGeneration do
 
   @doc """
   Run `message` from `from` again once `chunk` is installed, wanting it now;
-  `{:reply, {:error, {:retry, :chunk_generating}}, state}` when too many calls wait.
+  `{:reply, {:error, {:retry, :chunk_generating}}, state}` when too many calls
+  wait, `{:error, {:reject, :chunk_generation_failed}}` when its generation
+  failed.
   """
   def defer(state, chunk, message, from) do
     gen = state.generation
 
-    if gen.deferred_count >= @max_deferred do
-      {:reply, Valimc.Error.retry(:chunk_generating), state}
-    else
-      deferred = Map.update(gen.deferred, chunk, [{message, from}], &[{message, from} | &1])
-      gen = %{gen | deferred: deferred, deferred_count: gen.deferred_count + 1}
-      {:noreply, urgent(%{state | generation: gen}, [chunk])}
+    cond do
+      MapSet.member?(gen.failed, chunk) ->
+        {:reply, Valimc.Error.reject(:chunk_generation_failed), state}
+
+      gen.deferred_count >= @max_deferred ->
+        {:reply, Valimc.Error.retry(:chunk_generating), state}
+
+      true ->
+        deferred = Map.update(gen.deferred, chunk, [{message, from}], &[{message, from} | &1])
+        gen = %{gen | deferred: deferred, deferred_count: gen.deferred_count + 1}
+        {:noreply, urgent(%{state | generation: gen}, [chunk])}
     end
   end
 
-  ## Batches
+  ## Wants
 
   @doc """
-  The absent chunks of loading `tickets` and urgent calls that no batch holds,
-  nearest to a ticket's center first (each chunk at its smallest distance),
-  urgent ones before all.
+  The absent chunks of loading `tickets` and urgent calls, each at its
+  smallest squared distance to a ticket's center (urgent ones at -1).
   """
-  def queue(%__MODULE__{} = gen, %Tickets{} = tickets) do
-    busy = Enum.reduce(Map.values(gen.jobs), MapSet.new(), &Enum.into(&1.chunks, &2))
-
+  def wanted(%__MODULE__{} = gen, %Tickets{} = tickets) do
     Enum.map(gen.urgent, &{&1, -1})
     |> Enum.concat(
       for {center, set} <- Tickets.loading(tickets), {x, z} = chunk <- set do
@@ -130,94 +139,39 @@ defmodule Valimc.World.RegionGeneration do
         end
       end
     )
-    |> Enum.reject(fn {chunk, _} -> MapSet.member?(busy, chunk) or not absent?(gen, chunk) end)
-    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-    |> Enum.map(fn {chunk, priorities} -> {Enum.min(priorities), chunk} end)
-    |> Enum.sort()
-    |> Enum.map(&elem(&1, 1))
+    |> Enum.reject(fn {chunk, _} ->
+      not absent?(gen, chunk) or MapSet.member?(gen.failed, chunk)
+    end)
+    |> Enum.reduce(%{}, fn {chunk, priority}, acc ->
+      Map.update(acc, chunk, priority, &min(&1, priority))
+    end)
   end
 
-  @doc "Start batches while the region's bounds allow."
+  @doc "Tell the scheduler what the region wants now, if that changed."
+  def pump(%{generation: %{generated: false}} = state), do: state
   def pump(%{generation: %{retry: retry}} = state) when retry != nil, do: state
-  def pump(%{generation: %{absent: absent}} = state) when map_size(absent.map) == 0, do: state
 
-  def pump(%{generation: %{mode: :terrain} = gen} = state) do
-    if map_size(gen.jobs) >= @terrain_jobs do
+  def pump(state) do
+    gen = state.generation
+    wanted = wanted(gen, state.tickets)
+
+    if wanted == gen.sent and (gen.scheduler != nil or wanted == %{}) do
       state
     else
-      case queue(gen, state.tickets) do
-        [] -> state
-        queue -> start_terrain(state, Enum.take(queue, @terrain_batch))
+      case Scheduler.want(gen.world, gen.dimension, self(), state.epoch, wanted) do
+        {:ok, pid} ->
+          scheduler =
+            case gen.scheduler do
+              {^pid, _} = known -> known
+              _ -> {pid, Process.monitor(pid)}
+            end
+
+          %{state | generation: %{gen | scheduler: scheduler, sent: wanted, failures: 0}}
+
+        {:error, reason} ->
+          failed(state, reason)
       end
     end
-  end
-
-  def pump(%{generation: %{mode: :decorated} = gen} = state) do
-    if map_size(gen.jobs) >= @proto_requests do
-      state
-    else
-      case queue(gen, state.tickets) do
-        [] -> state
-        queue -> start_proto(state, Enum.take(queue, @proto_batch))
-      end
-    end
-  end
-
-  def pump(state), do: state
-
-  defp start_terrain(state, chunks) do
-    gen = state.generation
-    owner = self()
-    epoch = state.epoch
-    ref = make_ref()
-    spec = gen.spec
-    sky = Valimc.Dimension.facts().sky_light
-
-    job =
-      Valimc.Dimension.bind(fn ->
-        result =
-          try do
-            {:ok, Blocks.lit_images(Generator.columns(spec, chunks), sky)}
-          rescue
-            error -> {:error, Exception.message(error)}
-          catch
-            :exit, reason -> {:error, reason}
-          end
-
-        send(owner, {:resource, epoch, {:generated, ref, result}})
-      end)
-
-    case Pool.start_bulk(job) do
-      {:ok, pid} ->
-        entry = %{chunks: chunks, monitor: Process.monitor(pid), started: now()}
-        pump(%{state | generation: %{gen | jobs: Map.put(gen.jobs, ref, entry)}})
-
-      {:error, _} ->
-        # Every worker is busy: try again shortly.
-        backoff(state, 10)
-    end
-  end
-
-  defp start_proto(state, chunks) do
-    gen = state.generation
-
-    case Proto.request_full_chunks(state.key, chunks) do
-      {:ok, request} ->
-        ref = make_ref()
-        requests = :gen_server.reqids_add(request, ref, gen.requests)
-        entry = %{chunks: chunks, monitor: nil, started: now()}
-        gen = %{gen | jobs: Map.put(gen.jobs, ref, entry), requests: requests}
-        pump(%{state | generation: gen})
-
-      {:error, reason} ->
-        failed(state, reason)
-    end
-  end
-
-  defp backoff(state, delay) do
-    gen = state.generation
-    timer = Process.send_after(self(), {:resource, state.epoch, :generation_retry}, delay)
-    %{state | generation: %{gen | retry: timer}}
   end
 
   defp failed(state, reason) do
@@ -227,88 +181,77 @@ defmodule Valimc.World.RegionGeneration do
     if failures in [1, 10, 100],
       do: Logger.warning("Generating in region #{inspect(state.key)}: #{inspect(reason)}")
 
-    backoff(%{state | generation: %{gen | failures: failures}}, min(5000, 50 * failures))
+    delay = min(5000, 50 * failures)
+    timer = Process.send_after(self(), {:resource, state.epoch, :generation_retry}, delay)
+    %{state | generation: %{gen | failures: failures, retry: timer}}
   end
 
-  @doc "The retry timer fired."
+  @doc "The retry timer fired: tell the scheduler again."
   def retry(state), do: pump(%{state | generation: %{state.generation | retry: nil}})
+
+  @doc "The scheduler went down: `{:ok, state}` (wanting everything again) if it was it."
+  def down(%{generation: %{scheduler: {_, monitor}}} = state, monitor) do
+    gen = %{state.generation | scheduler: nil, sent: %{}}
+    {:ok, pump(%{state | generation: gen})}
+  end
+
+  def down(_state, _monitor), do: :error
+
+  @doc "Whether chunks are wanted or calls wait for them."
+  def busy?(%__MODULE__{} = gen), do: gen.sent != %{} or gen.deferred_count > 0
+
+  @doc "These generated chunks are durable: the scheduler drops their proto state."
+  def handed_over(state, chunks) do
+    gen = state.generation
+    Scheduler.handed_over(gen.world, gen.dimension, chunks)
+    state
+  end
 
   ## Results
 
-  @doc "A terrain job's result (`{:ok, chunk => image}` or an error)."
-  def generated(state, ref, result) do
+  @doc "A full chunk from the scheduler."
+  def received(state, full) do
     gen = state.generation
+    chunk = {full.x, full.z}
+    state = %{state | generation: %{gen | sent: Map.delete(gen.sent, chunk)}}
 
-    case Map.pop(gen.jobs, ref) do
-      {nil, _} ->
-        state
-
-      {job, jobs} ->
-        if job.monitor, do: Process.demonitor(job.monitor, [:flush])
-        Valimc.Metrics.add(:worldgen_microseconds, now() - job.started)
-        state = %{state | generation: %{gen | jobs: jobs}}
-
-        case result do
-          {:ok, columns} when is_map(columns) ->
-            parts = %{columns: Map.take(columns, job.chunks), post_processing: %{}}
-            install(state, Map.merge(parts, %{block_entities: %{}, ticks: []}))
-
-          error ->
-            failed(state, error)
-        end
-    end
-  end
-
-  @doc """
-  A message that may answer a proto request: `{:ok, state}` when it did,
-  `:no_reply` otherwise.
-  """
-  def proto_response(state, message) do
-    gen = state.generation
-
-    case :gen_server.check_response(message, gen.requests, true) do
-      {response, ref, requests} ->
-        state = %{state | generation: %{gen | requests: requests}}
-        {:ok, proto_done(state, ref, response)}
-
-      _ ->
-        :no_reply
-    end
-  end
-
-  defp proto_done(state, ref, response) do
-    gen = state.generation
-    {job, jobs} = Map.pop(gen.jobs, ref)
-    Valimc.Metrics.add(:worldgen_microseconds, now() - job.started)
-    state = %{state | generation: %{gen | jobs: jobs}}
-
-    with {:reply, {:ok, full}} <- response,
-         {:ok, parts} <- FullChunk.parts(full, %{}, []) do
-      install(state, parts)
+    if absent?(gen, chunk) do
+      case FullChunk.parts([full], %{}, []) do
+        {:ok, parts} -> install(state, parts)
+        {:error, reason} -> generation_failed(state, [chunk], {:unusable_full_chunk, reason})
+      end
     else
-      {:reply, {:error, :handed_over}} ->
-        # The proto owner dropped chunks this region never stored: they cannot
-        # be generated again (a lost column), so they stay absent.
-        Logger.error("Region #{inspect(state.key)} lost generated chunks #{inspect(job.chunks)}")
-        state
-
-      error ->
-        failed(state, error)
+      state
     end
   end
 
-  @doc "A job's worker went down without reporting: `{:ok, state}` if it was one."
-  def down(state, monitor) do
+  @doc "The scheduler could not generate `chunks`: they stay absent and their calls fail."
+  def generation_failed(state, chunks, reason) do
     gen = state.generation
+    chunks = Enum.filter(chunks, &absent?(gen, &1))
 
-    case Enum.find(gen.jobs, fn {_, job} -> job.monitor == monitor end) do
-      {ref, _} ->
-        state = %{state | generation: %{gen | jobs: Map.delete(gen.jobs, ref)}}
-        {:ok, failed(state, :worker_down)}
+    Logger.error(
+      "Region #{inspect(state.key)} cannot generate #{inspect(chunks)}: #{inspect(reason)}"
+    )
 
-      nil ->
-        :error
-    end
+    {calls, waiting} = Map.split(gen.deferred, chunks)
+
+    for {_, list} <- calls,
+        {_, from} <- list,
+        do: GenServer.reply(from, Valimc.Error.reject(:chunk_generation_failed))
+
+    count = gen.deferred_count - Enum.sum(Enum.map(calls, fn {_, list} -> length(list) end))
+
+    gen = %{
+      gen
+      | failed: Enum.into(chunks, gen.failed),
+        urgent: MapSet.difference(gen.urgent, MapSet.new(chunks)),
+        sent: Map.drop(gen.sent, chunks),
+        deferred: waiting,
+        deferred_count: count
+    }
+
+    %{state | generation: gen}
   end
 
   # Install generated chunks; they were absent, so no reader saw them.
@@ -347,8 +290,7 @@ defmodule Valimc.World.RegionGeneration do
       | absent: MapSet.difference(gen.absent, installed),
         urgent: MapSet.difference(gen.urgent, installed),
         deferred: waiting,
-        deferred_count: count,
-        failures: 0
+        deferred_count: count
     }
 
     storage =
@@ -385,28 +327,19 @@ defmodule Valimc.World.RegionGeneration do
         )
 
     state = Valimc.World.LightHalo.columns_changed(state, columns)
+    state = RegionData.wait_durable(state, [{:effect, {:generation_handed_over, chunks}}])
 
-    state =
-      if gen.mode == :decorated,
-        do: RegionData.wait_durable(state, [{:effect, {:proto_handed_over, chunks}}]),
-        else: state
+    deferred
+    |> Enum.flat_map(fn {_, calls} -> Enum.reverse(calls) end)
+    |> Enum.reduce(state, fn {message, from}, acc ->
+      case RegionData.handle_call(message, from, acc) do
+        {:reply, reply, acc} ->
+          GenServer.reply(from, reply)
+          acc
 
-    state =
-      deferred
-      |> Enum.flat_map(fn {_, calls} -> Enum.reverse(calls) end)
-      |> Enum.reduce(state, fn {message, from}, acc ->
-        case RegionData.handle_call(message, from, acc) do
-          {:reply, reply, acc} ->
-            GenServer.reply(from, reply)
-            acc
-
-          {:noreply, acc} ->
-            acc
-        end
-      end)
-
-    pump(state)
+        {:noreply, acc} ->
+          acc
+      end
+    end)
   end
-
-  defp now, do: System.monotonic_time(:microsecond)
 end

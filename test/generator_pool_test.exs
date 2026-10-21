@@ -1,12 +1,12 @@
 defmodule Valimc.GeneratorPoolTest do
-  @moduledoc "Regions generate on a pool of worldgen states, in batches, with unchanged chunks (VMC-071)."
+  @moduledoc "Concurrent generations share the seed's context, in batches, with unchanged chunks (VMC-071, VMC-077n)."
   use ExUnit.Case, async: true
   alias Valimc.Protocol.Data
   alias Valimc.World.Generator
 
   @seed 70_071
 
-  test "concurrent batched generation on the pool equals one state's chunks" do
+  test "concurrent batched generation equals one call's chunks" do
     regions =
       for rx <- [-3, 5],
           rz <- [2],

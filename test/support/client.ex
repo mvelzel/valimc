@@ -623,19 +623,20 @@ defmodule Valimc.TestScope do
 
   @doc """
   Teardown for serial suites whose every Nether and End owner is their own: stop
-  the region owners, proto owners and stores of other dimensions. Their chunks may
-  still be generating (VMC-075), and a region or a transaction can start a proto
-  owner again, so this repeats until none is left.
+  the region owners and generation schedulers of other dimensions. Their chunks
+  may still be generating (VMC-075), and a region can start a scheduler again,
+  so this repeats until none is left.
   """
   def stop_dimensions do
     elsewhere = [{{{:"$1", :_}, :"$2", :_}, [{:is_atom, :"$1"}], [:"$2"]}]
+    schedulers = [{{{:_, :"$1"}, :"$2", :_}, [{:"=/=", :"$1", :overworld}], [:"$2"]}]
 
     running =
-      for {registry, supervisor} <- [
-            {Valimc.RegionRegistry, Valimc.RegionSupervisor},
-            {Valimc.ProtoRegistry, Valimc.ProtoSupervisor}
+      for {registry, supervisor, pattern} <- [
+            {Valimc.RegionRegistry, Valimc.RegionSupervisor, elsewhere},
+            {Valimc.Worldgen.Schedulers, Valimc.Worldgen.SchedulerSupervisor, schedulers}
           ],
-          pid <- Registry.select(registry, elsewhere),
+          pid <- Registry.select(registry, pattern),
           Process.alive?(pid),
           do: {supervisor, pid}
 

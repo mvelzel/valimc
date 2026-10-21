@@ -25,7 +25,7 @@ defmodule Valimc.RegionGenerationTest do
     key = {100_000 + rem(nonce, 3_333) * 3, 2_300}
     east = {elem(key, 0) + 1, elem(key, 1)}
     base = Path.join(System.tmp_dir!(), "valimc-per-chunk-#{nonce}")
-    # Terrain only: the proto owners of decorated worlds have their own tests.
+    # Terrain only: decorated worlds' generation has its own tests.
     :ok = Generator.create(base, @seed, features: false)
     TestScope.isolate([key, east], world_path: base, region_ticks: :manual)
 
@@ -234,14 +234,14 @@ defmodule Valimc.RegionGenerationTest do
       |> Valimc.World.Tickets.put(b, :player_simulation, {7, 7}, [{4, 4}], 0)
 
     gen = %RegionGeneration{
-      mode: :terrain,
-      absent: absent,
-      urgent: MapSet.new([{5, 1}]),
-      jobs: %{make_ref() => %{chunks: [{0, 2}]}}
+      generated: true,
+      absent: MapSet.delete(absent, {0, 2}),
+      urgent: MapSet.new([{5, 1}])
     }
 
-    # {0, 2} is being generated; {7, 7} is nearest to b; simulation does not load.
-    assert RegionGeneration.queue(gen, tickets) == [{5, 1}, {7, 7}, {1, 0}, {6, 7}, {3, 3}]
+    # {0, 2} is installed; {7, 7} is nearest to b; simulation does not load.
+    assert RegionGeneration.wanted(gen, tickets) ==
+             %{{5, 1} => -1, {7, 7} => 0, {1, 0} => 1, {6, 7} => 1, {3, 3} => 18}
   end
 
   # A fixed region where the chunk's light provably depends on its neighbours

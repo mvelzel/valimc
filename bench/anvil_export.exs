@@ -74,7 +74,9 @@ phases =
 packets =
   for {key, images} <- columns, reduce: %{lit: [], bright: [], lit_us: 0, bright_us: 0} do
     acc ->
-      absent = for c <- Valimc.Worldgen.Proto.chunks_of(key), not Map.has_key?(images, c), do: c
+      absent =
+        for c <- Valimc.World.RegionGeneration.chunks_of(key), not Map.has_key?(images, c), do: c
+
       {:ok, blocks} = Blocks.new(key, %{}, images, absent)
 
       Enum.reduce(Map.keys(images), acc, fn chunk, acc ->

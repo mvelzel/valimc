@@ -1,34 +1,29 @@
 //! Encoded proto chunks (VMC-025d): a chunk at status `terrain` or
-//! `features` as an immutable binary that live generation keeps, passes
-//! between owners and writes to the proto log. It holds everything a later
+//! `decorated` as a binary, for the generation scheduler's snapshot at
+//! shutdown (VMC-077n) and for parity checks. It holds everything a later
 //! decoration or the full chunk reads: blocks and chunk biomes (as a column
 //! image), all six heightmaps (the worldgen two stay frozen at the terrain's,
 //! so they cannot be recomputed from the blocks), post-processing marks,
 //! scheduled ticks, block entity positions and created block entities.
 //!
-//! Layout (big-endian), version 2 (VMC-026b): version, chunk x and z, the
-//! dimension's bottom Y and height, the column image's length and the image
-//! (the dimension's sections of states, then of biome registry ids), 6 × 256
+//! Layout (big-endian), version 5: version, chunk x and z, the dimension's
+//! bottom Y and height, the column image's length and the image (the
+//! dimension's sections of states, then of biome registry ids), 6 × 256
 //! heightmap heights above the bottom, then counted lists of marks, block
 //! ticks, fluid ticks, block entity positions, created block entities (with
-//! an end gateway's exit) and the entities features added. A position inside
-//! the chunk is one byte `z << 4 | x` and a two-byte Y. Version 1 (VMC-025d)
-//! held overworld chunks without bounds, exits or entities. Version 3
-//! (VMC-025f5) adds each created block entity's template NBT (a
-//! four-byte-length string) and allows every block entity and entity type
-//! structures place. Version 4 (VMC-025f6) ends with the structure pieces
-//! that have placed what they place once: a count, then each structure id,
-//! start chunk x and z and piece index.
+//! an end gateway's exit and a template's NBT as a four-byte-length string)
+//! and the entities features added. A position inside the chunk is one byte
+//! `z << 4 | x` and a two-byte Y. Other versions are refused.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use super::blocks::{BlockTable, Heightmap};
-use super::region::{BlockEntityData, Entity, PlacedOnce, ProtoChunk, HEIGHT, MIN_Y};
+use super::region::{BlockEntityData, Entity, ProtoChunk, HEIGHT};
 use crate::column::{image_of_cells, Column};
 use crate::section::{index as section_index, VOLUME};
 
-const VERSION: u8 = 4;
+const VERSION: u8 = 5;
 
 /// The binary form of `chunk`.
 pub fn encode(chunk: &ProtoChunk) -> Vec<u8> {
@@ -118,13 +113,6 @@ pub fn encode(chunk: &ProtoChunk) -> Vec<u8> {
             out.extend(c.to_be_bytes());
         }
         out.extend(entity.yaw.to_be_bytes());
-    }
-    out.extend((chunk.placed_once.len() as u32).to_be_bytes());
-    for placed in &chunk.placed_once {
-        string(&mut out, Some(&placed.structure));
-        out.extend(placed.start.0.to_be_bytes());
-        out.extend(placed.start.1.to_be_bytes());
-        out.extend(placed.piece.to_be_bytes());
     }
     out
 }
@@ -230,20 +218,15 @@ impl<'a> Reader<'a> {
     }
 }
 
-/// Read `encode` output (versions 1 to 3); every state must be one of
-/// `table`'s.
+/// Read `encode` output; every state must be one of `table`'s.
 pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
     let mut r = Reader { input: bytes };
     let version = r.u8()?;
-    if !(1..=VERSION).contains(&version) {
+    if version != VERSION {
         return Err("unknown proto chunk version".into());
     }
     let (x, z) = (r.i32()?, r.i32()?);
-    let (min_y, height) = if version == 1 {
-        (MIN_Y, HEIGHT)
-    } else {
-        (r.i32()?, r.u16()? as i32)
-    };
+    let (min_y, height) = (r.i32()?, r.u16()? as i32);
     if height <= 0 || height % 16 != 0 || height > HEIGHT {
         return Err("a proto chunk's height".into());
     }
@@ -320,16 +303,12 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
         let loot_seed = r.i64()?;
         let spawner_entity = r.string()?;
         let bees = (0..r.u8()?).map(|_| r.i32()).collect::<Result<_, _>>()?;
-        let exit = match if version == 1 { 0 } else { r.u8()? } {
+        let exit = match r.u8()? {
             0 => None,
             tag @ (1 | 2) => Some(([r.i32()?, r.i32()?, r.i32()?], tag == 2)),
             _ => return Err("a proto chunk gateway exit".into()),
         };
-        let nbt = if version >= 3 {
-            r.long_string()?.map(Arc::from)
-        } else {
-            None
-        };
+        let nbt = r.long_string()?.map(Arc::from);
         block_entity_data.insert(
             p,
             BlockEntityData {
@@ -344,28 +323,15 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
         );
     }
     let mut entities = Vec::new();
-    if version >= 2 {
-        for _ in 0..r.count(30)? {
-            let name = r.string()?.ok_or("an entity without a type")?;
-            let kind = super::region::entity_kind(&name);
-            let pos = [r.f64()?, r.f64()?, r.f64()?];
-            entities.push(Entity {
-                kind,
-                pos,
-                yaw: r.f32()?,
-            });
-        }
-    }
-    let mut placed_once = BTreeSet::new();
-    if version >= 4 {
-        for _ in 0..r.count(14)? {
-            let structure = r.string()?.ok_or("a placed piece without a structure")?;
-            placed_once.insert(PlacedOnce {
-                structure,
-                start: (r.i32()?, r.i32()?),
-                piece: r.u32()?,
-            });
-        }
+    for _ in 0..r.count(30)? {
+        let name = r.string()?.ok_or("an entity without a type")?;
+        let kind = super::region::entity_kind(&name);
+        let pos = [r.f64()?, r.f64()?, r.f64()?];
+        entities.push(Entity {
+            kind,
+            pos,
+            yaw: r.f32()?,
+        });
     }
     if !r.input.is_empty() {
         return Err("a proto chunk has trailing bytes".into());
@@ -385,7 +351,6 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
         block_entities,
         block_entity_data,
         entities,
-        placed_once,
         touched: false,
     })
 }

@@ -3,11 +3,11 @@ defmodule Valimc.Dimension do
   The normal world preset's dimensions (VMC-026b): the overworld, the Nether
   and the End, with their dimension types from `priv/worldgen/dimensions.json`.
 
-  Each dimension is its own world: its own region owners, stores, proto owners
-  and generator, with region keys `{rx, rz}` unchanged inside it. Durable
-  records name regions of the dimension whose store holds them. A process
-  works in one dimension at a time, its *context*: region and proto owners
-  and their stores take theirs when they start, a connection takes its
+  Each dimension is its own world: its own region owners, stores, generation
+  scheduler and generator, with region keys `{rx, rz}` unchanged inside it.
+  Durable records name regions of the dimension whose store holds them. A
+  process works in one dimension at a time, its *context*: region owners, their
+  stores and schedulers take theirs when they start, a connection takes its
   player's. World routing (`Valimc.World`, the directory and registries,
   spatial topics, the player index) scopes keys by the caller's context, so
   equal keys of two dimensions never meet. The overworld's scoped keys are the

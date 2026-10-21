@@ -13,7 +13,7 @@ authority. The M1 foundations below are in place; later milestones on the
 | Admission, names, lifecycle | Players service; never on movement or chat hot paths |
 | Nearby-player observations | Published ETS rows plus a spatial index; paced replication |
 | Blocks (Rust paletted sections), block entities, stationary items | Region owner (8×8 chunks) while chunk tickets hold it; immutable chunk snapshots and chunk packets in its ETS table for readers |
-| Generated chunks before they are full (decorated worlds) | Proto owner per region (`Worldgen.Proto`): encoded proto chunks, statuses, finalize transactions; terrain and decoration on dirty schedulers |
+| Generated chunks before they are full | Generation scheduler per dimension (`Worldgen.Scheduler`): statuses, proto chunks as native cells, structure starts; terrain, decoration and full chunks as jobs on the generation pool |
 | Item and orb observations | Region-owned protected ETS; cached immutable packet binaries |
 | World clock, weather, difficulty | Environment owner; immutable publications |
 | What the world generates per dimension | `World.Spec`, read once from `world.json` at start; a read failure stops the start |
@@ -163,31 +163,39 @@ withdraws the old dimension's tickets and abandons pending requests.
 
 A region of a generated world loads without generating: the chunks its log has
 no column for are absent (VMC-075). Loading tickets say which of its chunks are
-wanted and how far from their center; the owner generates
-the wanted absent chunks nearest first, in bounded batches and never on itself
-(terrain worlds on the worldgen workers, decorated worlds through their proto
-owner) and installs each batch at once, relit once; its column images join the
-next frame, and a proto owner forgets the chunks only once that frame is
+wanted and how far from their center; the owner tells its dimension's
+generation scheduler which absent chunks it wants, each at its distance to the
+nearest player that wants it, whenever that changes, and never generates on
+itself. It installs each full chunk as it arrives; its column image joins the
+next frame, and the scheduler forgets the chunk only once that frame is
 durable. Until then an absent chunk is like a chunk of an unloaded neighbour
 region: block reads in the owner see nothing there, edits and observations are
 refused, published snapshots fail closed and the chunk stream skips it.
 
-A decorated world's chunks become full through proto owners (VMC-025d). A
-chunk is decorated once its 3 × 3 has terrain and is full once its 3 × 3 is
-decorated; decoration reads and writes only that 3 × 3, so a full chunk is
-never touched again. Finalizing chunks `T` of a region (the chunks its live
-region asked for; the whole region for `full_chunks/1`) is one transaction
-over the proto owners within two chunks of `T`: their terrain first, then all
-their locks at once (`Txn.Permits`), each granted at once or refused as busy,
-so a transaction never waits while it holds locks and transactions with
-disjoint areas run together (a refused one gives its locks back and retries);
-foreign locks are made durable while one decoration call over the chunks
-within one of `T` runs, then one commit frame with an outbox, then idempotent
-parts (`Txn.Receipts`, `Txn.Delivery`). A participant left with a durable lock
-asks the coordinator, a lock not yet durable dies with its coordinator, and
-anything not committed is aborted. The live region persists the full chunks
-with their block entities and ticks in one frame and the proto owner drops
-them.
+One scheduler per dimension owns every chunk's generation (VMC-077n): its
+status (terrain, decorated, final once its 3 × 3 is decorated, handed over
+once its region made it durable), its proto chunk as a native cell, and the
+dimension's structure starts, which placement changes as vanilla changes its
+saved starts. Work runs on `Valimc.Worldgen.Pool` with explicit write areas:
+terrain holds its chunk, a decoration its 3 × 3, a full chunk its own cell.
+Decorations conflict within two chunks; each gets a number when a request
+first needs it (the request's chunks within one, Z outer and X inner), and
+conflicting decorations run in number order, so a chunk depends only on the
+order of requests. Work waits in priority queues (wanted final chunks,
+decorations that can run, needed terrain) whose priorities the work inherits
+from the wanted chunks; a finished job updates them around its chunk, and
+they are rebuilt only when wants change. Nothing answers busy or polls; a full
+pool wakes the scheduler when a job ends. Terrain-only worlds are final after
+terrain; flat-layer worlds are full at once.
+
+Proto chunks and starts are not durable (D3): a graceful stop snapshots them
+(`generation.snapshot`), the next start reads and deletes it, and after a
+crash chunks that were not yet full generate again. A deterministic generation
+error leaves its chunk failed (`worldgen_errors`) and fails the wanted chunks
+that need it. A chunk wanted again after it was handed over is made alone over
+fresh terrain, as vanilla regenerates a chunk missing from its region file. A
+new world's spawn search runs the same scheduler inline and leaves its state
+as the snapshot.
 
 ## Elixir and Rust
 
@@ -231,9 +239,10 @@ NIF rules ([VMC-077b](tickets/VMC-077b.md)):
   string errors for machine use.
 - Mutable state is a `ResourceArc` owned by the process that created it: the
   Region resource refuses changes from any other (`{:error, :not_owner}`).
-  Shared Rust state is only a pure memoization cache (the worldgen state pool,
-  as many states as the generation pool runs jobs); readers get immutable
-  binaries.
+  Shared Rust state is immutable and shared through an `Arc` (a seed's
+  generation context, with bounded caches of pure values), or lent to one
+  job at a time by its owner (the scheduler's proto cells and start table,
+  locked while a call uses them); readers get immutable binaries.
 - Positions cross as packed big-endian binaries; outputs are written straight
   into binaries, and large ones point into the Rust buffer without a copy.
 - Wire and disk input is validated with bounded lengths and no panicking

@@ -530,13 +530,10 @@ defmodule Valimc.World.Region do
   def handle_info({:checkpointed, _, _, _} = message, state),
     do: RegionData.handle_info(message, state.resource) |> wrap(state)
 
-  # Chunk tickets (VMC-077e), and proto owners' answers to generation requests (VMC-075).
+  # Chunk tickets (VMC-077e).
   def handle_info({:ticket, holder, type, _center, chunks} = message, state)
       when is_pid(holder) and is_atom(type) and is_list(chunks),
       do: RegionData.handle_info(message, state.resource) |> wrap(state)
-
-  def handle_info({[:alias | ref], _} = message, state) when is_reference(ref),
-    do: RegionData.handle_info(message, state.resource) |> wrap(state)
 
   # Untagged/stale callbacks never select a resource or change its data.
   def handle_info(_, state), do: {:noreply, state}
