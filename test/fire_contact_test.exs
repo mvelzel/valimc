@@ -32,8 +32,7 @@ defmodule Valimc.Physics.BlockContactsTest do
 
   test "missing or invalid observations and path limits refuse without a partial plan" do
     point = {0.5, 64.0, 0.5}
-    f = frame(%{{0, 64, 0} => 35_723})
-    assert {:error, :unknown_block_state} = sample(f, point, point)
+    f = frame(%{})
     assert {:error, :incomplete_fire_frame} = sample(%{f | states: %{}}, point, point)
 
     facts = %{

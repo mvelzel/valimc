@@ -3,15 +3,9 @@ defmodule Valimc.Physics.BlockScan do
   alias Valimc.Physics.Box
   @epsilon 1.0e-7
   @max_cells 512
-  @path Path.expand("../../../priv/physics/collision_shapes.json", __DIR__)
-  @external_resource @path
-  @facts JSON.decode!(File.read!(@path))
-  @state_count @facts["state_count"]
-  @large MapSet.new(@facts["large_collision_states"])
-  @moving MapSet.new(@facts["piston"]["moving"])
-  unless MapSet.size(@large) == length(@facts["large_collision_states"]) and
-           Enum.all?(@large, &(is_integer(&1) and &1 >= 0 and &1 < @state_count)),
-         do: raise("Invalid protruding collision state catalog")
+  alias Valimc.Registry.{BlockFacts, Blocks}
+  @state_count BlockFacts.count()
+  @moving Blocks.id("moving_piston")
 
   def plan(box, limit \\ @max_cells)
 
@@ -48,8 +42,8 @@ defmodule Valimc.Physics.BlockScan do
 
   def eligible(id, type) when is_integer(id) and id >= 0 and id < @state_count and type in 0..2 do
     {:ok,
-     type == 0 or (type == 1 and MapSet.member?(@large, id)) or
-       (type == 2 and MapSet.member?(@moving, id))}
+     type == 0 or (type == 1 and BlockFacts.flag?(id, :large_collision)) or
+       (type == 2 and Blocks.block_id(id) == @moving)}
   end
 
   def eligible(id, type)

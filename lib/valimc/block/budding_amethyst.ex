@@ -5,8 +5,7 @@ defmodule Valimc.Block.BuddingAmethyst do
   facing out of that face (small, medium, large, cluster).
   """
   use Valimc.Block.Behaviour
-  alias Valimc.Physics.FluidBlocks
-  alias Valimc.Registry.Blocks
+  alias Valimc.Registry.{BlockFacts, Blocks}
 
   # Vanilla `Direction.values()` order: offset and facing name.
   @directions List.to_tuple([
@@ -28,7 +27,7 @@ defmodule Valimc.Block.BuddingAmethyst do
          target = {x + dx, y + dy, z + dz},
          block when block != nil <- read.(target),
          stage when stage != nil <- next_stage(block, facing) do
-      {:ok, fluid} = FluidBlocks.fetch(block)
+      fluid = BlockFacts.fluid(block)
 
       [
         {:set, target,
@@ -47,7 +46,7 @@ defmodule Valimc.Block.BuddingAmethyst do
         "small_amethyst_bud"
 
       Blocks.block_id(block) == @water ->
-        if match?({:ok, %{amount: 8}}, FluidBlocks.fetch(block)), do: "small_amethyst_bud"
+        if BlockFacts.fluid(block).amount == 8, do: "small_amethyst_bud"
 
       Map.has_key?(@next, name) ->
         if List.keyfind(Blocks.properties(block), "facing", 0) == {"facing", facing},

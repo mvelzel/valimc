@@ -21,7 +21,8 @@ defmodule Valimc.World.PlayerSpawn do
   vanilla blocks on its chunk loads. The search is bounded by a deadline, after
   which the suggestion's block centre is used.
   """
-  alias Valimc.Physics.{BlockShapes, CollisionContext, FluidBlocks, Shape, VoxelOps}
+  alias Valimc.Physics.{BlockShapes, CollisionContext, Shape, VoxelOps}
+  alias Valimc.Registry.BlockFacts
   alias Valimc.World
   alias Valimc.World.{Border, BlockSnapshot, Chunk, Clock, Directory, Spawn, SpawnSearch}
 
@@ -139,10 +140,9 @@ defmodule Valimc.World.PlayerSpawn do
         true
       else
         state = elem(column, index)
-        {:ok, %{kind: fluid}} = FluidBlocks.fetch(state)
 
         cond do
-          fluid != :empty and by >= y ->
+          BlockFacts.fluid(state).kind != :empty and by >= y ->
             false
 
           true ->

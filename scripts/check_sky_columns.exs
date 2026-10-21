@@ -1,9 +1,5 @@
 alias Valimc.World.{Chunk, ColumnIndex}
-[facts_path, trace_path] = System.argv()
-facts = :json.decode(File.read!(facts_path))
-
-unless facts == :json.decode(File.read!("priv/physics/sky_blocks.json")),
-  do: raise("Native sky-source block facts differ")
+[trace_path] = System.argv()
 
 rows = :json.decode(File.read!(trace_path))
 

@@ -15,7 +15,8 @@ public class PositionCollisionOracle {
   private static JsonArray vector(double... v){var a=new JsonArray();for(double x:v)a.add(x);return a;}
   public static void main(String[] args) throws Exception {
     SharedConstants.tryDetectVersion();Bootstrap.bootStrap();
-    var catalog=JsonParser.parseString(Files.readString(Path.of(args[0]))).getAsJsonObject();
+    var maxOffset=net.minecraft.world.level.block.state.BlockBehaviour.class.getDeclaredMethod("getMaxHorizontalOffset");maxOffset.setAccessible(true);
+    var blocks=Set.of(net.minecraft.world.level.block.Blocks.BAMBOO,net.minecraft.world.level.block.Blocks.POINTED_DRIPSTONE,net.minecraft.world.level.block.Blocks.SULFUR_SPIKE);
     var positions=new ArrayList<BlockPos>();
     for(int x:new int[]{-30000000,-65536,-687,-1,0,1,687,65536,30000000})
       for(int z:new int[]{-30000000,-1,0,1,30000000}) {
@@ -24,12 +25,13 @@ public class PositionCollisionOracle {
     var random=new Random(14302);
     for(int i=0;i<64;i++)positions.add(new BlockPos(random.nextInt(60000001)-30000000,random.nextInt(769)-384,random.nextInt(60000001)-30000000));
     var cases=new JsonArray();int clipping=0;
-    for(var entry:catalog.getAsJsonArray("position_states")) {
-      int id=entry.getAsJsonArray().get(0).getAsInt();var state=Block.BLOCK_STATE_REGISTRY.byId(id);
+    for(var state:Block.BLOCK_STATE_REGISTRY) {
+      if(!blocks.contains(state.getBlock()))continue;
+      int id=Block.getId(state);double limit=((Float)maxOffset.invoke(state.getBlock())).doubleValue();
       for(var pos:positions) {
         var offset=state.getOffset(pos);var shape=state.getCollisionShape(EmptyBlockGetter.INSTANCE,pos);
-        var c=new JsonObject();c.addProperty("state",id);c.add("limit",entry.getAsJsonArray().get(2));c.add("position",vector(pos.getX(),pos.getY(),pos.getZ()));
-        c.add("offset",vector(offset.x,offset.y,offset.z));c.add("geometry",CollisionMetadata.geometry(shape));
+        var c=new JsonObject();c.addProperty("state",id);c.addProperty("limit",limit);c.add("position",vector(pos.getX(),pos.getY(),pos.getZ()));
+        c.add("offset",vector(offset.x,offset.y,offset.z));c.add("geometry",BlockFactsOracle.geometry(shape));
         var worldShape=shape.move(pos.getX(),pos.getY(),pos.getZ());var queries=new JsonArray();
         for(var axis:Axis.values()) for(int direction:new int[]{-1,1}) {
           var bounds=worldShape.bounds();double[] lo={bounds.minX+0.01,bounds.minY+0.01,bounds.minZ+0.01};
@@ -45,7 +47,7 @@ public class PositionCollisionOracle {
         c.add("queries",queries);cases.add(c);
       }
     }
-    Files.writeString(Path.of(args[1]),new Gson().toJson(cases));
+    Files.writeString(Path.of(args[0]),new Gson().toJson(cases));
     System.out.println("PASS: "+cases.size()+" native position-only shape/offset cases and "+clipping+" clipping queries.");
   }
 }

@@ -19,7 +19,7 @@ public class MovementCollisionOracle {
   private static final Gson gson=new Gson();
   private static JsonArray vector(double... values){var a=new JsonArray();for(double v:values)a.add(v);return a;}
   private static int id(VoxelShape shape) throws Exception {
-    var geometry=CollisionMetadata.geometry(shape);String key=gson.toJson(geometry);
+    var geometry=BlockFactsOracle.geometry(shape);String key=gson.toJson(geometry);
     return ids.computeIfAbsent(key,k->{shapes.add(geometry);return shapes.size()-1;});
   }
   private static void probe(AABB box,List<VoxelShape> colliders,Vec3 movement) throws Exception {
@@ -43,7 +43,7 @@ public class MovementCollisionOracle {
     for(var state:Block.BLOCK_STATE_REGISTRY) {
       var cache=cacheField.get(state);if(cache==null)continue;
       var f=cache.getClass().getDeclaredField("collisionShape");f.setAccessible(true);var shape=(VoxelShape)f.get(cache);
-      grids.putIfAbsent(gson.toJson(CollisionMetadata.geometry(shape)),shape);
+      grids.putIfAbsent(gson.toJson(BlockFactsOracle.geometry(shape)),shape);
     }
     if(grids.size()!=330)throw new AssertionError("Unexpected cached-grid coverage");
     var motions=new ArrayList<Vec3>();

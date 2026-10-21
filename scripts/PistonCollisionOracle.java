@@ -44,7 +44,7 @@ public class PistonCollisionOracle {
     var facts=new JsonObject();facts.addProperty("kind",kind);facts.addProperty("moved",Block.getId(moved));
     facts.addProperty("direction",dir.getName());facts.addProperty("extending",extending);facts.addProperty("source",source);
     facts.addProperty("progress",value);facts.addProperty("exclusion",exclusion==null?"none":exclusion.getName());
-    c.add("context",facts);c.add("geometry",CollisionMetadata.geometry(shape));var queries=new JsonArray();
+    c.add("context",facts);c.add("geometry",BlockFactsOracle.geometry(shape));var queries=new JsonArray();
     var worldShape=shape.move(pos.getX(),pos.getY(),pos.getZ());
     for(var axis:Axis.values())for(int sign:new int[]{-1,1}) {
       double[] origin={pos.getX(),pos.getY(),pos.getZ()};double[] lo={origin[0]+.2,origin[1]+.1,origin[2]+.2};
@@ -69,10 +69,8 @@ public class PistonCollisionOracle {
     progress=PistonMovingBlockEntity.class.getDeclaredField("progress");progress.setAccessible(true);
     oldProgress=PistonMovingBlockEntity.class.getDeclaredField("progressO");oldProgress.setAccessible(true);
     var f=PistonMovingBlockEntity.class.getDeclaredField("NOCLIP");f.setAccessible(true);noclip=(ThreadLocal<Direction>)f.get(null);
-    var catalog=JsonParser.parseString(Files.readString(Path.of(args[0]))).getAsJsonObject();var facts=catalog.getAsJsonObject("piston");
     var pos=new BlockPos(-17,64,17);
-    for(var id:facts.getAsJsonArray("moving")) {
-      var moving=Block.BLOCK_STATE_REGISTRY.byId(id.getAsInt());
+    for(var moving:Blocks.MOVING_PISTON.getStateDefinition().getPossibleStates()) {
       for(var kind:List.of("absent","other"))probe(moving,Blocks.STONE.defaultBlockState(),pos,Direction.UP,true,false,0,null,kind);
       for(var dir:Direction.values())for(boolean extending:new boolean[]{false,true})for(boolean source:new boolean[]{false,true})
         for(float p:new float[]{0f,0.25f,Math.nextDown(.75f),.75f,Math.nextUp(.75f),Math.nextDown(1f),1f})
@@ -81,22 +79,23 @@ public class PistonCollisionOracle {
               probe(moving,moved,pos,dir,extending,source,p,exclusion,"piston");
     }
     var moving=Blocks.MOVING_PISTON.defaultBlockState();
-    for(var base:facts.getAsJsonArray("bases"))for(var dir:Direction.values())for(float p:new float[]{0f,.5f,1f})
+    var bases=new ArrayList<BlockState>(Blocks.PISTON.getStateDefinition().getPossibleStates());bases.addAll(Blocks.STICKY_PISTON.getStateDefinition().getPossibleStates());
+    for(var base:bases)for(var dir:Direction.values())for(float p:new float[]{0f,.5f,1f})
       for(var exclusion:new Direction[]{null,dir,dir.getOpposite()})
-        probe(moving,Block.BLOCK_STATE_REGISTRY.byId(base.getAsJsonArray().get(0).getAsInt()),pos,dir,false,true,p,exclusion,"piston");
+        probe(moving,base,pos,dir,false,true,p,exclusion,"piston");
     var cache=BlockBehaviour.BlockStateBase.class.getDeclaredField("cache");cache.setAccessible(true);var grids=new HashSet<String>();int dynamic=0;
     for(var state:Block.BLOCK_STATE_REGISTRY) {
       if(state.getBlock() instanceof MovingPistonBlock)continue;
       var cached=cache.get(state);
       if(cached!=null) {
         var collision=cached.getClass().getDeclaredField("collisionShape");collision.setAccessible(true);
-        if(!grids.add(new Gson().toJson(CollisionMetadata.geometry((VoxelShape)collision.get(cached)))))continue;
+        if(!grids.add(new Gson().toJson(BlockFactsOracle.geometry((VoxelShape)collision.get(cached)))))continue;
       }else dynamic++;
       probe(moving,state,pos,Direction.EAST,true,false,.5f,null,"piston");
     }
     if(grids.size()!=330||dynamic!=187)throw new AssertionError("Moved state coverage differs");
-    Files.writeString(Path.of(args[1]),new Gson().toJson(cases));
-    if(args.length>2) {
+    Files.writeString(Path.of(args[0]),new Gson().toJson(cases));
+    if(args.length>1) {
       var registries=RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY).freeze();var fixtures=new JsonObject();
       fixtures.addProperty("freeze",encoded(registries,b->ClientboundTickingStatePacket.STREAM_CODEC.encode(b,new ClientboundTickingStatePacket(20f,true))));
       fixtures.addProperty("unfreeze",encoded(registries,b->ClientboundTickingStatePacket.STREAM_CODEC.encode(b,new ClientboundTickingStatePacket(20f,false))));
@@ -121,7 +120,7 @@ public class PistonCollisionOracle {
             net.minecraft.world.level.block.state.properties.PistonType.DEFAULT)));
         eventDemos.add(d);
       }
-      fixtures.add("event_demos",eventDemos);Files.writeString(Path.of(args[2]),new Gson().toJson(fixtures));
+      fixtures.add("event_demos",eventDemos);Files.writeString(Path.of(args[1]),new Gson().toJson(fixtures));
     }
     System.out.println("PASS: "+cases.size()+" native piston snapshots / "+cases.size()*6+" clips; 330 cached/187 dynamic moved grids.");
   }

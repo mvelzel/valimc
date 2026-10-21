@@ -6,7 +6,7 @@ defmodule Valimc.Portal.Contact do
   block walk, `Entity.checkInsideBlocks`). Players read published snapshots;
   region owners read their own blocks.
   """
-  alias Valimc.Physics.InsideBlocks
+  alias Valimc.Registry.BlockFacts
   alias Valimc.Portal.Blocks
 
   @nether [Blocks.portal(:x), Blocks.portal(:z)]
@@ -73,11 +73,11 @@ defmodule Valimc.Portal.Contact do
   end
 
   defp inside?(state, {x, y, z}, {min_x, min_y, min_z, max_x, max_y, max_z}) do
-    case InsideBlocks.fetch(state) do
-      {:ok, {_, :full}} ->
+    case BlockFacts.inside(state).shape do
+      :full ->
         true
 
-      {:ok, {_, boxes}} when is_list(boxes) ->
+      boxes when is_list(boxes) ->
         Enum.any?(boxes, fn {a, b, c, d, e, f} ->
           min_x + @deflate < x + d and max_x - @deflate > x + a and min_y + @deflate < y + e and
             max_y - @deflate > y + b and min_z + @deflate < z + f and max_z - @deflate > z + c

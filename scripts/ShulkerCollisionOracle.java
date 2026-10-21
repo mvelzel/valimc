@@ -24,7 +24,6 @@ public class ShulkerCollisionOracle {
   private static final CollisionContext CONTEXT=CollisionContext.empty();
   public static void main(String[] args) throws Exception {
     SharedConstants.tryDetectVersion();Bootstrap.bootStrap();
-    var catalog=JsonParser.parseString(Files.readString(Path.of(args[0]))).getAsJsonObject();
     var oldField=ShulkerBoxBlockEntity.class.getDeclaredField("progressOld");oldField.setAccessible(true);
     var currentField=ShulkerBoxBlockEntity.class.getDeclaredField("progress");currentField.setAccessible(true);
     var pairs=new ArrayList<float[]>();
@@ -36,8 +35,9 @@ public class ShulkerCollisionOracle {
     var random=new Random(2603144);
     for(int i=0;i<8;i++)pairs.add(new float[]{random.nextFloat(),random.nextFloat()});
     var cases=new JsonArray();
-    for(var entry:catalog.getAsJsonObject("shulker_box").getAsJsonArray("states")) {
-      int id=entry.getAsJsonArray().get(0).getAsInt();var state=Block.BLOCK_STATE_REGISTRY.byId(id);
+    for(var state:Block.BLOCK_STATE_REGISTRY) {
+      if(!(state.getBlock() instanceof ShulkerBoxBlock))continue;
+      int id=Block.getId(state);
       for(var pos:List.of(new BlockPos(0,64,0),new BlockPos(-17,-384,17),new BlockPos(1000000,1000000,-1000000))) {
         for(int variant=0;variant<pairs.size()+2;variant++) {
           var facts=new JsonObject();BlockEntity entity;
@@ -55,7 +55,7 @@ public class ShulkerCollisionOracle {
             });
           var shape=state.getCollisionShape(world,pos,CONTEXT);var worldShape=shape.move(pos.getX(),pos.getY(),pos.getZ());
           var c=new JsonObject();c.addProperty("state",id);c.add("position",vector(pos.getX(),pos.getY(),pos.getZ()));
-          c.add("context",facts);c.add("geometry",CollisionMetadata.geometry(shape));var queries=new JsonArray();
+          c.add("context",facts);c.add("geometry",BlockFactsOracle.geometry(shape));var queries=new JsonArray();
           for(var axis:Axis.values())for(int direction:new int[]{-1,1}) {
             double[] origin={pos.getX(),pos.getY(),pos.getZ()};
             double[] lo={origin[0]+0.2,origin[1]+0.1,origin[2]+0.2};
@@ -72,8 +72,8 @@ public class ShulkerCollisionOracle {
         }
       }
     }
-    Files.writeString(Path.of(args[1]),new Gson().toJson(cases));
-    if(args.length>2) {
+    Files.writeString(Path.of(args[0]),new Gson().toJson(cases));
+    if(args.length>1) {
       var registries=RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY).freeze();
       var events=new JsonObject();var state=Blocks.SHULKER_BOX.defaultBlockState().setValue(ShulkerBoxBlock.FACING,Direction.UP);
       events.addProperty("state",Block.getId(state));
@@ -92,7 +92,7 @@ public class ShulkerCollisionOracle {
           events.addProperty(count==1?"open":"close",HexFormat.of().formatHex(bytes));
         } finally {buf.release();}
       }
-      Files.writeString(Path.of(args[2]),new Gson().toJson(events));
+      Files.writeString(Path.of(args[1]),new Gson().toJson(events));
     }
     System.out.println("PASS: "+cases.size()+" native shulker snapshots / "+cases.size()*6+" clipping queries across 102 states.");
   }

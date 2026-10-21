@@ -1,6 +1,6 @@
 defmodule Valimc.World.ColumnIndex do
   @moduledoc "Sparse flat-world column words; mutations update two sky edges and two height predicates."
-  alias Valimc.Physics.{HeightmapBlocks, SkyBlocks}
+  alias Valimc.Registry.BlockFacts
   alias Valimc.World.ColumnHeight
   @flat ColumnHeight.flat()
   @default {@flat, @flat, @flat}
@@ -17,10 +17,13 @@ defmodule Valimc.World.ColumnIndex do
       {{x, y, z} = position, block}, acc ->
         key = {x, z}
         {surface, motion, sky} = Map.get(acc, key, @default)
-        {:ok, opaque} = HeightmapBlocks.opaque?(block, :world_surface)
-        {:ok, surface} = ColumnHeight.update(surface, y, opaque)
-        {:ok, opaque} = HeightmapBlocks.opaque?(block, :motion_blocking)
-        {:ok, motion} = ColumnHeight.update(motion, y, opaque)
+
+        {:ok, surface} =
+          ColumnHeight.update(surface, y, BlockFacts.heightmap?(block, :world_surface))
+
+        {:ok, motion} =
+          ColumnHeight.update(motion, y, BlockFacts.heightmap?(block, :motion_blocking))
+
         sky = sky_edge(sky, lookup, {x, y + 1, z}, position)
         sky = if y > -64, do: sky_edge(sky, lookup, position, {x, y - 1, z}), else: sky
         words = {surface, motion, sky}
@@ -37,9 +40,9 @@ defmodule Valimc.World.ColumnIndex do
   end
 
   defp sky_edge(bits, lookup, above, {_, y, _} = below) do
-    {:ok, blocked} = SkyBlocks.blocked?(lookup.(above), lookup.(below))
+    {:ok, bits} =
+      ColumnHeight.update(bits, y, BlockFacts.sky_blocked?(lookup.(above), lookup.(below)))
 
-    {:ok, bits} = ColumnHeight.update(bits, y, blocked)
     bits
   end
 end

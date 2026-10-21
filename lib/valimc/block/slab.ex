@@ -1,7 +1,8 @@
 defmodule Valimc.Block.Slab do
   @moduledoc "Slabs: top/bottom by hit face and height, waterlogged over source water, doubling."
   use Valimc.Block.Behaviour
-  alias Valimc.Physics.{FluidBlocks, Placement}
+  alias Valimc.Physics.Placement
+  alias Valimc.Registry.BlockFacts
 
   # Placement facts order each slab's states top/bottom × waterlogged, then double.
   @impl true
@@ -13,7 +14,7 @@ defmodule Valimc.Block.Slab do
         {:ok, elem(states, 5)}
 
       _ ->
-        {:ok, fluid} = FluidBlocks.fetch(previous)
+        fluid = BlockFacts.fluid(previous)
         top = face == 0 or (face >= 2 and upper)
 
         index =

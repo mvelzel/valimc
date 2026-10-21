@@ -7,14 +7,13 @@ defmodule Valimc.Physics.BlockContacts do
     BodyPaths,
     Box,
     CollisionContext,
-    FluidBlocks,
     FluidContact,
-    InsideBlocks,
     PlayerPose,
     Shape,
-    StuckBlocks,
     StuckMotion
   }
+
+  alias Valimc.Registry.BlockFacts
 
   def sample_paths(
         %Frame{states: states} = frame,
@@ -43,7 +42,7 @@ defmodule Valimc.Physics.BlockContacts do
       else
         with {:ok, _} <- PlayerPose.geometry(facts.pose, facts.feet),
              {:ok, feet_state} <- at(frame, floor_point(facts.feet)),
-             {:ok, feet_kind} <- StuckBlocks.fetch(feet_state),
+             feet_kind = BlockFacts.stuck(feet_state),
              {:ok, support} <- request(facts.support_state, facts),
              initial = %{
                context: context,
@@ -78,13 +77,13 @@ defmodule Valimc.Physics.BlockContacts do
       {:ok, acc}
     else
       with {:ok, state} <- at(frame, pos),
-           {:ok, {kind, shape}} <- InsideBlocks.fetch(state) do
-        if kind == :air do
+           %{kind: kind, shape: shape} = BlockFacts.inside(state) do
+        if BlockFacts.air?(state) do
           {:ok, acc}
         else
           with {:ok, block_hit} <- hit?(shape, state, pos, body, delta, acc.context),
                {:ok, fluid} <- fluid_hit(frame, state, pos, body, delta),
-               {:ok, slow_kind} <- StuckBlocks.fetch(state),
+               slow_kind = BlockFacts.stuck(state),
                {:ok, request} <- request(state, facts) do
             if block_hit or fluid != :empty do
               acc = advance(acc, step)
@@ -139,7 +138,7 @@ defmodule Valimc.Physics.BlockContacts do
 
   defp hit?(:full, _, _, _, _, _), do: {:ok, true}
 
-  defp hit?(:powder_snow, state, pos, body, delta, context) do
+  defp hit?(:context, state, pos, body, delta, context) do
     with {:ok, shape} <- BlockShapes.fetch(state, pos, context) do
       if Shape.empty?(shape) or shape.full_block,
         do: {:ok, true},
@@ -151,15 +150,15 @@ defmodule Valimc.Physics.BlockContacts do
     do: {:ok, Box.collided_along?(body, delta, Enum.map(boxes, &Box.move(&1, pos)))}
 
   defp fluid_hit(frame, state, {x, y, z}, body, delta) do
-    with {:ok, fluid} <- FluidBlocks.fetch(state) do
-      if fluid.kind == :empty do
-        {:ok, :empty}
-      else
-        with {:ok, above} <- FluidContact.fluid_at(frame, {x, y + 1, z}) do
-          height = if above.kind == fluid.kind, do: 1.0, else: fluid.height
-          box = {x * 1.0, y * 1.0, z * 1.0, x + 1.0, y + height, z + 1.0}
-          {:ok, if(Box.collided_along?(body, delta, [box]), do: fluid.kind, else: :empty)}
-        end
+    fluid = BlockFacts.fluid(state)
+
+    if fluid.kind == :empty do
+      {:ok, :empty}
+    else
+      with {:ok, above} <- FluidContact.fluid_at(frame, {x, y + 1, z}) do
+        height = if above.kind == fluid.kind, do: 1.0, else: fluid.height
+        box = {x * 1.0, y * 1.0, z * 1.0, x + 1.0, y + height, z + 1.0}
+        {:ok, if(Box.collided_along?(body, delta, [box]), do: fluid.kind, else: :empty)}
       end
     end
   end

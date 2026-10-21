@@ -1,9 +1,5 @@
 alias Valimc.Physics.BlockHazards
-[facts_path, path] = System.argv()
-
-unless :json.decode(File.read!(facts_path)) ==
-         :json.decode(File.read!("priv/physics/block_hazards.json")),
-       do: raise("Native hazard facts differ")
+[path] = System.argv()
 
 rows = :json.decode(File.read!(path))
 
@@ -27,5 +23,5 @@ for row <- rows do
 end
 
 IO.puts(
-  "PASS: #{length(rows)} native player hazard requests across all85 supported states; health/defenses/geometry excluded."
+  "PASS: #{length(rows)} native player hazard requests across all 85 supported states; health/defenses/geometry excluded."
 )

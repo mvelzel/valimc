@@ -2,7 +2,6 @@ defmodule Valimc.ColumnIndexTest do
   use ExUnit.Case, async: true
   alias Valimc.Protocol.Data
   alias Valimc.World.{Chunk, ColumnHeight, ColumnIndex}
-  alias Valimc.Physics.HeightmapBlocks
   import Bitwise
 
   # Per-block heightmap and sky predicates are compared by the heightmap and
@@ -62,7 +61,7 @@ defmodule Valimc.ColumnIndexTest do
     assert {:ok, -63} = ColumnHeight.height(bottom)
   end
 
-  test "column words and registry inputs have strict bounds" do
+  test "column words have strict bounds" do
     for bits <- [-1, 1 <<< 384, nil, 1.0] do
       assert {:error, :invalid_column_height} = ColumnHeight.height(bits)
       assert {:error, :invalid_column_height} = ColumnHeight.update(bits, 64, true)
@@ -71,7 +70,5 @@ defmodule Valimc.ColumnIndexTest do
     assert {:error, :invalid_column_height} = ColumnHeight.update(0, 320, true)
     assert {:error, :invalid_column_height} = ColumnHeight.update(0, -65, true)
     assert {:error, :invalid_column_height} = ColumnHeight.update(0, 64, nil)
-    assert {:error, :unknown_block_state} = HeightmapBlocks.mask(35_723)
-    assert {:error, :unknown_heightmap_type} = HeightmapBlocks.opaque?(0, :guessed)
   end
 end

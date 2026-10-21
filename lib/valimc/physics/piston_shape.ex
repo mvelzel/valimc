@@ -1,24 +1,22 @@
 defmodule Valimc.Physics.PistonShape do
   @moduledoc false
   alias Valimc.Physics.{BlockEntityContext, BlockShapes, CollisionContext, Shape, VoxelOps}
-  @path Path.expand("../../../priv/physics/collision_shapes.json", __DIR__)
-  @external_resource @path
-  @facts JSON.decode!(File.read!(@path))
-  @bases Map.new(@facts["piston"]["bases"], fn [id, extended] -> {id, extended} end)
-  @heads Map.new(@facts["piston"]["heads"], fn [dir, short, id] -> {{dir, short}, id} end)
-  unless map_size(@bases) == 24 and length(@facts["piston"]["bases"]) == 24 and
-           Enum.all?(@bases, fn {id, extended} ->
-             is_integer(id) and is_integer(extended) and id >= 0 and extended >= 0 and
-               id < @facts["state_count"] and extended < @facts["state_count"]
-           end),
-         do: raise("Invalid piston base facts")
+  alias Valimc.Registry.Blocks
 
-  unless map_size(@heads) == 12 and length(@facts["piston"]["heads"]) == 12 and
-           Enum.all?(@heads, fn {{dir, short}, id} ->
-             dir in ["down", "up", "north", "south", "west", "east"] and is_boolean(short) and
-               is_integer(id) and id >= 0 and id < @facts["state_count"]
-           end),
-         do: raise("Invalid piston head facts")
+  # A retracting base's extended state, and the piston head of each facing and shortness.
+  @bases for name <- ~w(piston sticky_piston),
+             id <- Blocks.states(name),
+             into: %{},
+             do:
+               {id,
+                Blocks.state(name, Map.put(Map.new(Blocks.properties(id)), "extended", "true"))}
+  @heads for dir <- ~w(down up north south west east),
+             short <- [false, true],
+             into: %{},
+             do:
+               {{dir, short},
+                Blocks.state("piston_head", %{"facing" => dir, "short" => "#{short}"})}
+  unless map_size(@bases) == 24 and map_size(@heads) == 12, do: raise("Piston states changed")
 
   @directions %{
     down: {0, -1, 0},

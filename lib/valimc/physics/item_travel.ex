@@ -10,9 +10,10 @@ defmodule Valimc.Physics.ItemTravel do
     CollisionContext,
     CollisionResponse,
     FluidCurrents,
-    ItemMotion,
-    MotionBlocks
+    ItemMotion
   }
+
+  alias Valimc.Registry.BlockFacts
 
   @doc "Conservative current/gravity envelope; BlockScan supplies the dependency halo."
   def query_box(%{position: position, motion: motion}) do
@@ -146,10 +147,9 @@ defmodule Valimc.Physics.ItemTravel do
          {:ok, legacy} <- below(frame, support, position, f32(0.2)),
          # ItemEntity overrides Entity's movement-material offset.
          {:ok, below} <- below(frame, support, position, f32(0.999999)),
-         {:ok, feet} <- fact(frame, {floor(x), floor(y), floor(z)}),
-         {:ok, feet_id} <- state(frame, {floor(x), floor(y), floor(z)}) do
+         {:ok, feet} <- fact(frame, {floor(x), floor(y), floor(z)}) do
       speed =
-        if MotionBlocks.uses_own_speed?(feet_id) or feet.speed_factor != 1.0,
+        if feet.speed_override or feet.speed_factor != 1.0,
           do: feet.speed_factor,
           else: below.speed_factor
 
@@ -177,9 +177,9 @@ defmodule Valimc.Physics.ItemTravel do
 
   defp below(frame, %{position: {x, _, z} = support}, {_, y, _}, offset) do
     with {:ok, id} <- state(frame, support),
-         {:ok, properties} <- MotionBlocks.fetch(id),
+         properties = BlockFacts.motion(id),
          do:
-           if(properties.support_holds_y or (offset <= 0.5 and MotionBlocks.fence?(id)),
+           if(properties.support_holds_y or (offset <= 0.5 and BlockFacts.flag?(id, :fence)),
              do: {:ok, properties},
              else: fact(frame, {x, floor(y - offset), z})
            )
@@ -192,7 +192,8 @@ defmodule Valimc.Physics.ItemTravel do
     end
   end
 
-  defp fact(frame, pos), do: with({:ok, id} <- state(frame, pos), do: MotionBlocks.fetch(id))
+  defp fact(frame, pos),
+    do: with({:ok, id} <- state(frame, pos), do: {:ok, BlockFacts.motion(id)})
 
   defp translated(position, requested, actual) do
     length = fn {x, y, z} -> x * x + y * y + z * z end

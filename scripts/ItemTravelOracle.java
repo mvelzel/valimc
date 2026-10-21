@@ -73,7 +73,7 @@ public class ItemTravelOracle {
   var o=new JsonObject();o.add("position",vec(item.position()));o.add("velocity",vec(item.getDeltaMovement()));o.addProperty("on_ground",item.onGround());o.addProperty("no_gravity",item.isNoGravity());o.addProperty("age",field(ItemEntity.class,"age").getInt(item));o.addProperty("pickup_delay",field(ItemEntity.class,"pickupDelay").getInt(item));return o;
  }
  public static void main(String[] args)throws Exception{
-  MiningToolOracle.initialize();FluidBoundaryMetadata.bindFlowTag();
+  MiningToolOracle.initialize();BlockFactsOracle.bindOnly(net.minecraft.tags.BlockTags.BLOCKS_FLUID_FLOW);
   var bind=Holder.Reference.class.getDeclaredMethod("bindTags",Collection.class);bind.setAccessible(true);
   for(var fluid:List.of(Fluids.WATER,Fluids.FLOWING_WATER))bind.invoke(fluid.builtInRegistryHolder(),List.of(FluidTags.WATER));
   for(var fluid:List.of(Fluids.LAVA,Fluids.FLOWING_LAVA))bind.invoke(fluid.builtInRegistryHolder(),List.of(FluidTags.LAVA));

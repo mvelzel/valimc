@@ -8,9 +8,9 @@ defmodule Valimc.Worldgen do
   compiled functions for a noise settings entry (`valimc_core::worldgen`).
   """
   alias Valimc.Native
-  alias Valimc.Physics.FluidBlocks
+  import Bitwise
   alias Valimc.Protocol.Data
-  alias Valimc.Registry.Blocks
+  alias Valimc.Registry.{BlockFacts, Blocks}
 
   @facts ~w(noises density_functions noise_settings biome_parameters material_rules
             material_conditions biomes carvers features placed_features block_state_providers
@@ -111,17 +111,18 @@ defmodule Valimc.Worldgen do
 
   defp read_json!(path), do: path |> File.read!() |> JSON.decode!()
 
-  # Per state, what decoration reads (VMC-025): the worldgen flags, the states
-  # fire can burn (VMC-026a), the fluid (vanilla's fluid registry ids: empty,
-  # flowing water, water, flowing lava, lava), its amount with the falling flag
-  # at bit 4, the heightmap predicates, and the block and fluid tags.
+  # Per state, what decoration reads (VMC-025): the block fact table's flags
+  # (decoration's 49 bits as two words), the states fire can burn (VMC-026a),
+  # the fluid (vanilla's fluid registry ids: empty, flowing water, water,
+  # flowing lava, lava), its amount with the falling flag at bit 4, the
+  # heightmap predicates, and the block and fluid tags.
   defp block_facts(tags) do
-    flags = read_json!(Application.app_dir(:valimc, "priv/worldgen/blocks.json"))
-    states = 0..(Blocks.state_count() - 1)
+    states = 0..(BlockFacts.count() - 1)
+    flags = Enum.map(states, &BlockFacts.flags/1)
 
     fluids =
       Enum.map(states, fn id ->
-        {:ok, fluid} = FluidBlocks.fetch(id)
+        fluid = BlockFacts.fluid(id)
 
         fluid_id =
           case {fluid.kind, fluid.source} do
@@ -136,17 +137,13 @@ defmodule Valimc.Worldgen do
       end)
 
     %{
-      "flags" => flags["flags"],
-      "flags2" => flags["flags2"],
-      "block_entity_types" => flags["block_entity_types"],
-      "flammable" => flags["flammable"],
+      "flags" => Enum.map_join(flags, &hex32(&1 &&& 0xFFFFFFFF)),
+      "flags2" => Enum.map_join(flags, &hex32(&1 >>> 32 &&& 0x1FFFF)),
+      "block_entity_types" => BlockFacts.block_entity_types(),
+      "flammable" => runs(Enum.filter(states, &BlockFacts.flag?(&1, :flammable))),
       "fluid" => Enum.map(fluids, &elem(&1, 0)),
       "fluid_level" => Enum.map(fluids, &elem(&1, 1)),
-      "heightmaps" =>
-        Enum.map(states, fn id ->
-          {:ok, mask} = Valimc.Physics.HeightmapBlocks.mask(id)
-          mask
-        end),
+      "heightmaps" => Enum.map(states, &BlockFacts.heightmap/1),
       "block_tags" => tags["minecraft:block"],
       "fluid_tags" => tags["minecraft:fluid"]
     }
@@ -191,7 +188,6 @@ defmodule Valimc.Worldgen do
   # Per state: bit 0 air, 1 contains a fluid, 2 water, 3 uncarvable (block
   # tag), 4 grass block or mycelium, 5 dirt.
   defp blocks(tags) do
-    air = MapSet.new(~w(air cave_air void_air), &Blocks.id/1)
     water = Blocks.id("water")
     uncarvable = MapSet.new(tags["minecraft:block"]["minecraft:uncarvable"])
     grass = MapSet.new(~w(grass_block mycelium), &Blocks.id/1)
@@ -200,11 +196,10 @@ defmodule Valimc.Worldgen do
     flags =
       for id <- 0..(Blocks.state_count() - 1) do
         block = Blocks.block_id(id)
-        {:ok, fluid} = FluidBlocks.fetch(id)
 
         Enum.sum([
-          if(block in air, do: 1, else: 0),
-          if(fluid.kind != :empty, do: 2, else: 0),
+          if(BlockFacts.air?(id), do: 1, else: 0),
+          if(BlockFacts.fluid(id).kind != :empty, do: 2, else: 0),
           if(block == water, do: 4, else: 0),
           if(block in uncarvable, do: 8, else: 0),
           if(block in grass, do: 16, else: 0),
@@ -221,5 +216,24 @@ defmodule Valimc.Worldgen do
       "packed_ice" => Blocks.default_state("packed_ice"),
       "flags" => flags
     }
+  end
+
+  defp hex32(word), do: Base.encode16(<<word::32>>, case: :lower)
+
+  # Sorted ids as `[first, last]` runs.
+  defp runs(ids) do
+    ids
+    |> Enum.chunk_while(
+      nil,
+      fn
+        id, nil -> {:cont, [id, id]}
+        id, [first, last] when id == last + 1 -> {:cont, [first, id]}
+        id, run -> {:cont, run, [id, id]}
+      end,
+      fn
+        nil -> {:cont, nil}
+        run -> {:cont, run, nil}
+      end
+    )
   end
 end

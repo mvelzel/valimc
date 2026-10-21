@@ -4,8 +4,7 @@ defmodule Valimc.Block.Coral do
   block schedules a tick 60–99 ticks later and dies then unless water touches it.
   """
   use Valimc.Block.Behaviour
-  alias Valimc.Physics.FluidBlocks
-  alias Valimc.Registry.Blocks
+  alias Valimc.Registry.{BlockFacts, Blocks}
 
   @dead for {_, ids} <- Map.take(Blocks.classes(), ["CoralBlock"]),
             id <- ids,
@@ -32,7 +31,7 @@ defmodule Valimc.Block.Coral do
       fn neighbour ->
         case read.(neighbour) do
           nil -> false
-          block -> match?({:ok, %{kind: :water}}, FluidBlocks.fetch(block))
+          block -> BlockFacts.fluid(block).kind == :water
         end
       end
     )

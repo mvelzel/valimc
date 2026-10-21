@@ -46,7 +46,7 @@ public class StepMovementOracle {
   private static Field field(Class<?> c,String name) throws Exception {var f=c.getDeclaredField(name);f.setAccessible(true);return f;}
   private static JsonArray shapeIds(List<VoxelShape> shapes) throws Exception {
     var a=new JsonArray();for(var shape:shapes) {
-      var geometry=CollisionMetadata.geometry(shape);String key=gson.toJson(geometry);
+      var geometry=BlockFactsOracle.geometry(shape);String key=gson.toJson(geometry);
       int id=ids.computeIfAbsent(key,k->{geometries.add(geometry);return geometries.size()-1;});a.add(id);
     }return a;
   }
@@ -77,7 +77,7 @@ public class StepMovementOracle {
     for(var state:Block.BLOCK_STATE_REGISTRY) {
       var cache=cacheField.get(state);if(cache==null)continue;
       var shape=(VoxelShape)field(cache.getClass(),"collisionShape").get(cache);
-      grids.putIfAbsent(gson.toJson(CollisionMetadata.geometry(shape)),shape);
+      grids.putIfAbsent(gson.toJson(BlockFactsOracle.geometry(shape)),shape);
     }
     if(grids.size()!=330)throw new AssertionError("Cached coverage differs");
     var floor=Shapes.box(-4,-1,-4,4,0,4);var standing=new AABB(-.3,0,-.3,.3,1.8,.3);

@@ -1,6 +1,7 @@
 defmodule Valimc.Physics.FluidFlow do
   @moduledoc "A single native fluid current from bounded neighboring observations, without propagation."
-  alias Valimc.Physics.{BlockCollisions.Frame, BlockOffset, FluidBlocks, FluidBoundaries}
+  alias Valimc.Physics.{BlockCollisions.Frame, BlockOffset, FluidBoundaries}
+  alias Valimc.Registry.BlockFacts
   # Native horizontal iteration order: north, east, south, west.
   @directions [{0, -1, 2}, {1, 0, 5}, {0, 1, 3}, {-1, 0, 4}]
 
@@ -43,9 +44,8 @@ defmodule Valimc.Physics.FluidFlow do
     do: {:ok, f32(fluid.height - height)}
 
   defp gradient(frame, {x, y, z} = p, fluid, _) do
-    with {:ok, id} <- state(frame, p),
-         {:ok, boundary} <- FluidBoundaries.fetch(id) do
-      if boundary.blocks_flow do
+    with {:ok, id} <- state(frame, p) do
+      if BlockFacts.boundary(id).blocks_flow do
         {:ok, 0.0}
       else
         with {:ok, below} <- at(frame, {x, y - 1, z}) do
@@ -76,17 +76,16 @@ defmodule Valimc.Physics.FluidFlow do
 
   defp solid(frame, p, fluid, direction) do
     with {:ok, neighbor} <- at(frame, p),
-         {:ok, id} <- state(frame, p),
-         {:ok, boundary} <- FluidBoundaries.fetch(id) do
+         {:ok, id} <- state(frame, p) do
       cond do
-        neighbor.kind == fluid.kind or boundary.ice -> {:ok, false}
+        neighbor.kind == fluid.kind or BlockFacts.boundary(id).ice -> {:ok, false}
         true -> FluidBoundaries.sturdy?(frame, p, direction)
       end
     end
   end
 
   defp at(frame, p) do
-    with {:ok, id} <- state(frame, p), do: FluidBlocks.fetch(id)
+    with {:ok, id} <- state(frame, p), do: {:ok, BlockFacts.fluid(id)}
   end
 
   defp state(%Frame{states: states}, p) do

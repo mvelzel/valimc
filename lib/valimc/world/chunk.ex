@@ -2,9 +2,9 @@ defmodule Valimc.World.Chunk do
   @moduledoc "Deterministic flat terrain and 26.3 paletted sections; sparse persisted edits."
   import Bitwise
   alias Valimc.Protocol.{Data, Packets, Wire}
+  alias Valimc.Registry.BlockFacts
   @min_y -64
   @max_y 319
-  @air_states [0, 18_649, 18_650]
   def min_y, do: @min_y
   def max_y, do: @max_y
   @doc "Whether `y` is inside the caller's dimension's build height (VMC-026b)."
@@ -128,8 +128,8 @@ defmodule Valimc.World.Chunk do
       end
 
     # Vanilla counts non-air states (air, cave air, void air) and fluid-bearing states.
-    count = Enum.count(values, &(&1 not in @air_states))
-    fluids = Enum.count(values, &fluid?/1)
+    count = Enum.count(values, &(not BlockFacts.air?(&1)))
+    fluids = Enum.count(values, &(BlockFacts.fluid(&1).kind != :empty))
     biome = Data.registry_id("minecraft:worldgen/biome", "minecraft:plains")
     [<<count::16, fluids::16>>, palette(values), <<0>>, Wire.varint(biome)]
   end
@@ -143,11 +143,6 @@ defmodule Valimc.World.Chunk do
   end
 
   defp maybe_surface(values, _), do: values
-
-  defp fluid?(block) do
-    {:ok, %{kind: kind}} = Valimc.Physics.FluidBlocks.fetch(block)
-    kind != :empty
-  end
 
   def palette(values) do
     unique = Enum.uniq(values)

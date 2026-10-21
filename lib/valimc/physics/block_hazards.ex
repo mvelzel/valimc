@@ -1,28 +1,14 @@
 defmodule Valimc.Physics.BlockHazards do
   @moduledoc "Native player hazard requests from observed block state and movement; no geometry, health or immunity."
-  @path Path.expand("../../../priv/physics/block_hazards.json", __DIR__)
-  @external_resource @path
-  @facts :json.decode(File.read!(@path))
-  @count Valimc.Registry.Blocks.state_count()
+  alias Valimc.Registry.BlockFacts
   @threshold 0.003000000026077032
-  @kinds %{"magma" => :magma, "campfire" => :campfire, "cactus" => :cactus, "berry" => :berry}
-  @states Map.new(@facts["states"], fn [id, kind, value] ->
-            unless is_integer(id) and id in 0..(@count - 1) and is_integer(value) and
-                     value in 0..3 and is_map_key(@kinds, kind),
-                   do: raise("Invalid hazard facts")
-
-            {id, {Map.fetch!(@kinds, kind), value}}
-          end)
-  unless Valimc.Version.stamped?(@facts) and
-           @facts["state_count"] == @count and map_size(@states) == 85,
-         do: raise("Wrong or incomplete hazard facts")
 
   def request(state, careful, client_authoritative, known_movement, previous_movement)
-      when is_integer(state) and state >= 0 and state < @count and is_boolean(careful) and
+      when is_integer(state) and is_boolean(careful) and
              is_boolean(client_authoritative) do
     if vector?(known_movement) and vector?(previous_movement) do
       movement = if client_authoritative, do: known_movement, else: previous_movement
-      {:ok, request(Map.get(@states, state), careful, movement)}
+      {:ok, request(BlockFacts.hazard(state), careful, movement)}
     else
       {:error, :invalid_hazard_context}
     end

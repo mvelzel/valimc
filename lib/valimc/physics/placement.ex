@@ -7,15 +7,10 @@ defmodule Valimc.Physics.Placement do
   @chest_item Valimc.Protocol.Data.item("chest")
   @cooking_items Enum.map(~w(furnace smoker blast_furnace), &Valimc.Protocol.Data.item/1)
   @facing_items [@chest_item | @cooking_items]
-  @path Path.expand("../../../priv/physics/placement.json", __DIR__)
-  @external_resource @path
-  @facts JSON.decode!(File.read!(@path))
-  @count Valimc.Registry.Blocks.state_count()
-  unless Valimc.Version.stamped?(@facts) and
-           @facts["state_count"] == @count,
-         do: raise("Wrong placement catalog version")
+  use Valimc.Facts, "physics/placement.json"
+  alias Valimc.Registry.BlockFacts
+  @count BlockFacts.count()
 
-  @replace Base.decode16!(@facts["replaceability"], case: :lower)
   @plain Map.new(@facts["plain"], fn {item, state} -> {String.to_integer(item), state} end)
   @slabs Map.new(@facts["slabs"], fn row -> {row["item"], List.to_tuple(row["states"])} end)
   @pillars Map.new(@facts["pillars"], fn row -> {row["item"], List.to_tuple(row["states"])} end)
@@ -26,22 +21,22 @@ defmodule Valimc.Physics.Placement do
                  end)
                end)
                |> Map.new()
-  unless byte_size(@replace) == @count and
-           Enum.all?(:binary.bin_to_list(@replace), &(&1 in 0..3)) and
-           map_size(@plain) == 190 and map_size(@slabs) == 101 and map_size(@pillars) == 60 and
+  unless map_size(@plain) == 190 and map_size(@slabs) == 101 and map_size(@pillars) == 60 and
            map_size(@slab_states) == 606 and
            Enum.all?(@slabs, fn {_item, states} -> tuple_size(states) == 6 end) and
            Enum.all?(@plain, fn {_item, state} ->
-             is_integer(state) and state in 0..(@count - 1) and :binary.at(@replace, state) == 1
+             is_integer(state) and state in 0..(@count - 1) and
+               BlockFacts.replaceability(state) == 1
            end) and
            Enum.all?(@slab_states, fn {state, _} ->
-             is_integer(state) and state in 0..(@count - 1) and :binary.at(@replace, state) == 3
+             is_integer(state) and state in 0..(@count - 1) and
+               BlockFacts.replaceability(state) == 3
            end) and
            Enum.all?(@pillars, fn {_item, states} ->
              tuple_size(states) == 3 and
                Enum.all?(Tuple.to_list(states), fn state ->
                  is_integer(state) and state in 0..(@count - 1) and
-                   :binary.at(@replace, state) == 1
+                   BlockFacts.replaceability(state) == 1
                end)
            end),
          do: raise("Invalid placement facts")
@@ -107,7 +102,7 @@ defmodule Valimc.Physics.Placement do
     do: offset(position, face)
 
   @doc "Whether any block item replaces `state` (air, fluids, replaceable plants)."
-  def replaceable?(state), do: :binary.at(@replace, state) == 2
+  def replaceable?(state), do: BlockFacts.replaceability(state) == 2
 
   def supported_item?(item),
     do:
@@ -152,7 +147,7 @@ defmodule Valimc.Physics.Placement do
   def pillar_states(item), do: Map.fetch!(@pillars, item)
 
   defp replaceable(state, item, face, upper, clicked) do
-    case :binary.at(@replace, state) do
+    case BlockFacts.replaceability(state) do
       0 ->
         {:error, :unsupported_replacement}
 

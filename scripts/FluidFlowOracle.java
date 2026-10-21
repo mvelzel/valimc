@@ -30,7 +30,7 @@ public class FluidFlowOracle {
     c.add("states",entries);c.add("flow",vector(flow));var needed=new JsonArray();for(var p:queries)needed.add(position(p));c.add("queries",needed);return c;
   }
   public static void main(String[] args)throws Exception{
-    SharedConstants.tryDetectVersion();Bootstrap.bootStrap();FluidBoundaryMetadata.bindFlowTag();
+    SharedConstants.tryDetectVersion();Bootstrap.bootStrap();BlockFactsOracle.bindOnly(net.minecraft.tags.BlockTags.BLOCKS_FLUID_FLOW);
     var cases=new JsonArray();var random=new Random(2603015);
     var choices=List.of(Blocks.AIR.defaultBlockState(),Blocks.STONE.defaultBlockState(),Blocks.ICE.defaultBlockState(),
       Blocks.OAK_SIGN.defaultBlockState(),Blocks.WATER.defaultBlockState(),Blocks.LAVA.defaultBlockState(),

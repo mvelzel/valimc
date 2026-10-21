@@ -7,9 +7,10 @@ defmodule Valimc.Physics.StuckContact do
     CollisionContext,
     PlayerPose,
     Shape,
-    StuckBlocks,
     StuckMotion
   }
+
+  alias Valimc.Registry.BlockFacts
 
   defstruct pose: :standing,
             feet: {0.5, 64.0, 0.5},
@@ -103,13 +104,10 @@ defmodule Valimc.Physics.StuckContact do
   end
 
   defp at(%Frame{states: states}, pos) do
-    with {:ok, state} <- Map.fetch(states, pos),
-         {:ok, kind} <- StuckBlocks.fetch(state),
-         do: {:ok, state, kind},
-         else: (
-           :error -> {:error, :incomplete_stuck_frame}
-           error -> error
-         )
+    case Map.fetch(states, pos) do
+      {:ok, state} -> {:ok, state, BlockFacts.stuck(state)}
+      :error -> {:error, :incomplete_stuck_frame}
+    end
   end
 
   defp floor_point({x, y, z}), do: {floor(x), floor(y), floor(z)}

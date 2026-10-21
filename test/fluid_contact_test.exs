@@ -11,9 +11,6 @@ defmodule Valimc.Physics.FluidContactTest do
 
     assert {:error, :incomplete_fluid_frame} ==
              FluidContact.sample(%{f | states: Map.delete(f.states, {0, 64, 0})}, @box)
-
-    assert {:error, :unknown_block_state} ==
-             FluidContact.sample(frame(%{{0, 64, 0} => 35_723}), @box)
   end
 
   test "invalid or excessive body scans fail before enumerating or consulting a frame" do

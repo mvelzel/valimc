@@ -1,47 +1,20 @@
 defmodule Valimc.Physics.Mining do
   @moduledoc "Pinned block mining arithmetic; player/tool permissions and destruction belong to their owners."
-  @path Path.expand("../../../priv/physics/mining_blocks.json", __DIR__)
-  @external_resource @path
-  @facts :json.decode(File.read!(@path))
-  @count @facts["state_count"]
+  alias Valimc.Registry.BlockFacts
   @float_max 3.4028234663852886e38
   @int_max 2_147_483_647
   @int_min -2_147_483_648
-  unless Valimc.Version.stamped?(@facts) and
-           @count == Valimc.Protocol.Data.block_state_count(),
-         do: raise("Wrong mining catalog version")
+  def hardness(id), do: elem(BlockFacts.mining(id), 0)
 
-  @properties Enum.map(@facts["properties"], fn p ->
-                hardness = p["hardness"]
-
-                unless map_size(p) == 2 and is_number(hardness) and hardness >= -1 and
-                         hardness <= @float_max and
-                         is_boolean(p["requires_correct_tool"]),
-                       do: raise("Invalid mining property")
-
-                <<rounded::float-32>> = <<hardness::float-32>>
-                unless rounded == hardness, do: raise("Noncanonical mining hardness")
-                {hardness, p["requires_correct_tool"]}
-              end)
-              |> List.to_tuple()
-  @states Base.decode16!(@facts["states"], case: :lower)
-  unless byte_size(@states) == @count and tuple_size(@properties) in 1..256 and
-           Enum.all?(:binary.bin_to_list(@states), &(&1 < tuple_size(@properties))),
-         do: raise("Incomplete mining catalog")
-
-  def hardness(id) when is_integer(id) and id >= 0 and id < @count, do: elem(property(id), 0)
-
-  def requires_tool?(id) when is_integer(id) and id >= 0 and id < @count,
-    do: elem(property(id), 1)
+  def requires_tool?(id), do: elem(BlockFacts.mining(id), 1)
 
   @doc "Actual native rate with supplied destroy speed/harvest permission; nonfinite results are explicit."
-  def rate(id, :infinity, correct)
-      when is_integer(id) and id >= 0 and id < @count and is_boolean(correct),
-      do: {:ok, if(hardness(id) == -1, do: 0.0, else: :infinity)}
+  def rate(id, :infinity, correct) when is_integer(id) and is_boolean(correct),
+    do: {:ok, if(hardness(id) == -1, do: 0.0, else: :infinity)}
 
   def rate(id, speed, correct)
-      when is_integer(id) and id >= 0 and id < @count and
-             is_number(speed) and speed >= 0 and speed <= @float_max and is_boolean(correct) do
+      when is_integer(id) and is_number(speed) and speed >= 0 and speed <= @float_max and
+             is_boolean(correct) do
     speed = f32(speed)
 
     case hardness(id) do
@@ -71,7 +44,6 @@ defmodule Valimc.Physics.Mining do
 
   def advance(_, _), do: {:error, :invalid_mining_input}
 
-  defp property(id), do: elem(@properties, :binary.at(@states, id))
   defp divide(:infinity, _), do: :infinity
   defp divide(value, divisor), do: f32(value / divisor)
   defp multiply(:nan, _), do: :nan

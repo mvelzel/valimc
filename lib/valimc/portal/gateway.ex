@@ -12,24 +12,16 @@ defmodule Valimc.Portal.Gateway do
   - A traveller arrives above the tallest block within 5 of 2 above the exit
     (bedrock excluded), or at the exit itself when it is exact.
   """
-  import Bitwise
   alias Valimc.Portal.JavaRandom
+  alias Valimc.Registry.BlockFacts
   alias Valimc.Registry.Blocks, as: Registry
-
-  @facts Path.expand("../../../priv/worldgen/blocks.json", __DIR__)
-  @external_resource @facts
-  @blocks JSON.decode!(File.read!(@facts))
-  @full_bit 1 <<< Enum.find_index(@blocks["bits"], &(&1 == "full_collision"))
-  @full (for <<hex::binary-size(8) <- @blocks["flags"]>>, into: <<>> do
-           <<if((String.to_integer(hex, 16) &&& @full_bit) != 0, do: 1, else: 0)>>
-         end)
 
   @end_stone Registry.default_state("end_stone")
   @bedrock Registry.default_state("bedrock")
-  @air Enum.map(~w(air cave_air void_air), &Registry.default_state/1)
+  @air Registry.default_state("air")
 
   @doc "Vanilla `isCollisionShapeFullBlock`."
-  def full?(state), do: :binary.at(@full, state) == 1
+  def full?(state), do: BlockFacts.flag?(state, :full_collision)
 
   @doc """
   `findExitPortalXZPosTentative`: the point 1,024 blocks out along the
@@ -130,7 +122,7 @@ defmodule Valimc.Portal.Gateway do
   """
   def structure({ox, oy, oz}) do
     gateway = Registry.default_state("end_gateway")
-    air = hd(@air)
+    air = @air
 
     for z <- (oz - 1)..(oz + 1), y <- (oy - 2)..(oy + 2), x <- (ox - 1)..(ox + 1) do
       same_x = x == ox
@@ -186,5 +178,5 @@ defmodule Valimc.Portal.Gateway do
   end
 
   @doc "Whether a chunk's sections hold only air (`getHighestFilledSectionIndex() == -1`)."
-  def air?(state), do: state in @air
+  def air?(state), do: BlockFacts.air?(state)
 end

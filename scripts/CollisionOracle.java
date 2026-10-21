@@ -10,15 +10,15 @@ import net.minecraft.world.phys.shapes.*;
 import java.nio.file.*;
 import java.util.*;
 
-/** Original native clipping/intersection probe using every cached geometry representative. */
+/** Original native clipping/intersection probe using every cached geometry, named by its first state. */
 public class CollisionOracle {
   private static final Gson gson=new Gson();
-  private static VoxelShape[] shapes;
+  private static VoxelShape[] shapes;private static int[] representatives;
   private static JsonArray vector(double... values) {var result=new JsonArray();for(double v:values)result.add(v);return result;}
   private static JsonArray box(AABB b) {return vector(b.minX,b.minY,b.minZ,b.maxX,b.maxY,b.maxZ);}
   private static JsonObject query(int[] ids, double[][] offsets, Axis axis, AABB box, double delta, boolean raw) {
     var nativeShapes=new ArrayList<VoxelShape>();var selected=new JsonArray();var shifts=new JsonArray();
-    for(int i=0;i<ids.length;i++){selected.add(ids[i]);shifts.add(vector(offsets[i]));
+    for(int i=0;i<ids.length;i++){selected.add(representatives[ids[i]]);shifts.add(vector(offsets[i]));
       nativeShapes.add(shapes[ids[i]].move(offsets[i][0],offsets[i][1],offsets[i][2]));}
     double result=raw?nativeShapes.getFirst().collide(axis,box,delta):Shapes.collide(axis,box,nativeShapes,delta);
     var c=new JsonObject();c.add("shapes",selected);c.add("offsets",shifts);c.addProperty("axis",axis.getName());
@@ -27,16 +27,14 @@ public class CollisionOracle {
   }
   public static void main(String[] args) throws Exception {
     SharedConstants.tryDetectVersion();Bootstrap.bootStrap();
-    var catalog=JsonParser.parseString(Files.readString(Path.of(args[0]))).getAsJsonObject();
-    shapes=new VoxelShape[catalog.getAsJsonArray("shapes").size()];
-    for(var item:catalog.getAsJsonArray("runs")) {
-      var run=item.getAsJsonArray();var value=run.get(2);
-      if(value.getAsJsonPrimitive().isNumber()) {
-        int index=value.getAsInt();if(shapes[index]==null)
-          shapes[index]=Block.BLOCK_STATE_REGISTRY.byId(run.get(0).getAsInt()).getCollisionShape(EmptyBlockGetter.INSTANCE,BlockPos.ZERO);
-      }
+    var cache=net.minecraft.world.level.block.state.BlockBehaviour.BlockStateBase.class.getDeclaredField("cache");cache.setAccessible(true);
+    var keys=new HashSet<String>();var found=new ArrayList<VoxelShape>();var states=new ArrayList<Integer>();
+    for(var state:Block.BLOCK_STATE_REGISTRY){
+      if(cache.get(state)==null)continue;
+      var shape=state.getCollisionShape(EmptyBlockGetter.INSTANCE,BlockPos.ZERO);
+      if(keys.add(gson.toJson(BlockFactsOracle.geometry(shape)))){found.add(shape);states.add(Block.getId(state));}
     }
-    if(Arrays.stream(shapes).anyMatch(Objects::isNull))throw new AssertionError("Missing native shape representative");
+    shapes=found.toArray(VoxelShape[]::new);representatives=states.stream().mapToInt(Integer::intValue).toArray();
     var queries=new JsonArray();var intersections=new JsonArray();var random=new Random(14301);
     for(int id=0;id<shapes.length;id++) {
       for(int i=0;i<40;i++) {
@@ -77,7 +75,7 @@ public class CollisionOracle {
     for(double delta:new double[]{-0.0,0.0,1e-8,-1e-8,1e-7,-1e-7})
       queries.add(query(new int[]{},new double[][]{},Axis.X,new AABB(0,0,0,1,1,1),delta,false));
     var output=new JsonObject();output.add("queries",queries);output.add("intersections",intersections);
-    Files.writeString(Path.of(args[1]),gson.toJson(output));
+    Files.writeString(Path.of(args[0]),gson.toJson(output));
     System.out.println("PASS: "+queries.size()+" native clipping queries across all "+shapes.length+" cached grids and "+intersections.size()+" intersections.");
   }
 }

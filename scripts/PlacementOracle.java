@@ -84,17 +84,10 @@ public class PlacementOracle {
       row.add("states",states);pillars.add(row);pillarItems.add(block.asItem());
     }
     if(pillars.size()!=60)throw new AssertionError("Changed ordinary pillar placement catalog");
-    var flags=new ByteArrayOutputStream();var unsupported=new TreeSet<String>();var cases=new JsonArray();
+    var unsupported=new TreeSet<String>();var cases=new JsonArray();
     for(var state:Block.BLOCK_STATE_REGISTRY){
-      if(Block.getId(state)!=flags.size())throw new AssertionError("Noncontiguous states");
-      var method=owner(state.getBlock().getClass(),"canBeReplaced",BlockState.class,BlockPlaceContext.class);
-      int flag=0;
-      if(method==SlabBlock.class)flag=3;
-      else if(method==BlockBehaviour.class||method==SnowLayerBlock.class){
-        level.clicked=state;var ctx=context(level,Items.STONE,Direction.UP,.5);flag=ctx.replacingClickedOnBlock()?2:1;
-        if(method==BlockBehaviour.class && (flag==2)!=state.canBeReplaced())throw new AssertionError("Plain same-item replacement needs admission");
-      }else unsupported.add(method.getSimpleName());
-      flags.write(flag);
+      int flag=BlockFactsOracle.replaceability(state);
+      if(flag==0)unsupported.add(owner(state.getBlock().getClass(),"canBeReplaced",BlockState.class,BlockPlaceContext.class).getSimpleName());
       if(flag!=0)for(var item:List.of(Items.STONE,Items.OAK_SLAB))observe(cases,level,item,state,Blocks.AIR.defaultBlockState(),Direction.UP,.5,BlockPos.ZERO);
     }
     var fixtures=new ArrayList<BlockState>();
@@ -140,7 +133,7 @@ public class PlacementOracle {
         var row=new JsonObject();row.addProperty("wire",HexFormat.of().formatHex(raw));nonfinite.add(row);
       }finally{buffer.release();}
     }
-    var facts=new JsonObject();facts.addProperty("version","26.3");facts.addProperty("data_version",5023);facts.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");facts.addProperty("state_count",flags.size());facts.addProperty("replaceability",HexFormat.of().formatHex(flags.toByteArray()));facts.add("plain",plain);facts.add("slabs",slabs);facts.add("pillars",pillars);
+    var facts=new JsonObject();facts.addProperty("version","26.3");facts.addProperty("data_version",5023);facts.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");facts.addProperty("state_count",Block.BLOCK_STATE_REGISTRY.size());facts.add("plain",plain);facts.add("slabs",slabs);facts.add("pillars",pillars);
     var observed=new JsonObject();observed.add("contexts",cases);observed.add("packets",packets);observed.add("nonfinite",nonfinite);observed.add("unsupported_replacement",new Gson().toJsonTree(unsupported));
     Files.writeString(Path.of(args[0]),new Gson().toJson(facts)+"\n");Files.writeString(Path.of(args[1]),new Gson().toJson(observed));
     System.out.println("PASS: "+cases.size()+" actual placement contexts, "+packets.size()+" native use-on packets and "+nonfinite.size()+" acknowledgeable nonfinite hits, 101 slab families; specialized replacement excluded: "+unsupported);

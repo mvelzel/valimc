@@ -1,11 +1,5 @@
 alias Valimc.{PlayerBurning, PlayerFireContacts}
-[path | facts] = System.argv()
-
-for native_path <- facts do
-  unless :json.decode(File.read!(native_path)) ==
-           :json.decode(File.read!("priv/physics/inside_blocks.json")),
-         do: raise("Native inside-block catalog differs")
-end
+[path] = System.argv()
 
 rows = :json.decode(File.read!(path))
 kinds = %{"fire" => :fire, "soul_fire" => :soul_fire, "lava" => :lava, "water" => :water}

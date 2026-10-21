@@ -67,10 +67,16 @@ on accept errors (VMC-077a).
   publication with revision stamps (`EntityPublication`; observers copy only
   changed chunks) and one replication tracker per connection (VMC-067).
 - **Data.** One generated fact source per concept and a single version module
-  (`Valimc.Version`). `Valimc.Registry.Blocks` owns block identity (state runs,
-  defaults, properties, vanilla classes); per-state physics facts keep their own
-  dense tables. Block behaviours are `Valimc.Block.Behaviour` callbacks chosen by
-  the generated class (VMC-068).
+  (`Valimc.Version`). A module reads a `priv` file with `use Valimc.Facts`,
+  which loads it once at compile time and checks its release stamps; every other
+  reader asks that module. `Valimc.Registry.Blocks` owns block identity (state
+  runs, defaults, properties, vanilla classes) and `Valimc.Registry.BlockFacts`
+  every per-state fact, as one columnar table from one oracle (VMC-077d): flags,
+  collision shape, motion, fluid, climbing, inside behaviour, hazard, landing,
+  mining, replaceability, heightmaps, sky and light. Survival keeps its two
+  tables until one rule engine serves decoration and live updates. Block
+  behaviours are `Valimc.Block.Behaviour` callbacks chosen by the generated
+  class (VMC-068).
 - **Connection.** `Valimc.Connection` is a thin GenServer shell; `Net.*` holds
   the codec, login flow and serverbound dispatch, `Session.*` message routing,
   jobs, events, replication and commands, and `Player.*` each gameplay domain.

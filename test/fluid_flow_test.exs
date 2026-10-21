@@ -29,9 +29,6 @@ defmodule Valimc.Physics.FluidFlowTest do
 
     assert {:error, :incomplete_fluid_frame} == FluidFlow.sample(%{f | states: %{}}, {0, 64, 0})
 
-    assert {:error, :unknown_block_state} ==
-             FluidFlow.sample(frame(%{{0, 64, 0} => 35_723}), {0, 64, 0})
-
     assert {:error, :invalid_fluid_position} == FluidFlow.sample(f, {0.0, 64, 0})
     assert {:error, :invalid_fluid_current} == FluidCurrents.sample(f, @box, {65, 0, 0})
   end

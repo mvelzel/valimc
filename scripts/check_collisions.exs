@@ -2,12 +2,12 @@ alias Valimc.Physics.{BlockShapes, Box, Collision, Shape}
 [file] = System.argv()
 native = file |> File.read!() |> JSON.decode!()
 axes = %{"x" => :x, "y" => :y, "z" => :z}
-grids = BlockShapes.grids()
 
 for c <- native["queries"] do
   shapes =
     Enum.zip_with(c["shapes"], c["offsets"], fn id, offset ->
-      Shape.move(elem(grids, id), List.to_tuple(offset))
+      {:ok, shape} = BlockShapes.fetch(id)
+      Shape.move(shape, List.to_tuple(offset))
     end)
 
   box = Box.new(List.to_tuple(c["box"]))

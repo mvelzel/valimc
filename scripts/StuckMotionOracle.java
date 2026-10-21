@@ -48,16 +48,6 @@ public class StuckMotionOracle {
           var c=new JsonObject();c.add("multiplier",vec(multiplier));c.add("initial",vec(velocity));c.add("requested",vec(requested));c.add("scaled",vec(p.requested));c.add("velocity",vec(p.getDeltaMovement()));c.add("remaining",vec(p.multiplier()));moves.add(c);
         }
     var out=new JsonObject();out.add("contacts",contacts);out.add("moves",moves);Files.writeString(Path.of(args[0]),new Gson().toJson(out));
-    var groups=new JsonObject();for(String kind:List.of("cobweb","berry_bush","powder_snow"))groups.add(kind,new JsonArray());
-    var lookups=new JsonArray();int count=0;
-    for(var state:Block.BLOCK_STATE_REGISTRY){
-      if(Block.getId(state)!=count++)throw new AssertionError("Noncontiguous states");var block=state.getBlock();
-      String kind=block instanceof WebBlock?"cobweb":block instanceof SweetBerryBushBlock?"berry_bush":block instanceof PowderSnowBlock?"powder_snow":"none";
-      if(!kind.equals("none"))groups.getAsJsonArray(kind).add(Block.getId(state));
-      var c=new JsonObject();c.addProperty("id",Block.getId(state));c.addProperty("kind",kind);lookups.add(c);
-    }
-    var catalog=new JsonObject();catalog.addProperty("version","26.3");catalog.addProperty("data_version",5023);catalog.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");catalog.addProperty("state_count",count);catalog.add("states",groups);
-    Files.writeString(Path.of(args[1]),new Gson().toJson(catalog)+"\n");Files.writeString(Path.of(args[2]),new Gson().toJson(lookups));
     System.out.println("PASS: "+contacts.size()+" native player slowing callbacks and "+moves.size()+" actual non-piston move prefixes, before edge/collision.");
   }
 }

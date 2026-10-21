@@ -16,11 +16,11 @@ public class VoxelUnionOracle {
     var c=new JsonObject();c.addProperty("operation",op);VoxelShape result;
     if(op.equals("box")){c.add("bounds",vector(bounds));result=left;}
     else {
-      c.add("left",CollisionMetadata.geometry(left));
+      c.add("left",BlockFactsOracle.geometry(left));
       if(right==null)result=left.optimize();
-      else{c.add("right",CollisionMetadata.geometry(right));result=Shapes.or(left,right);}
+      else{c.add("right",BlockFactsOracle.geometry(right));result=Shapes.or(left,right);}
     }
-    c.add("result",CollisionMetadata.geometry(result));var queries=new JsonArray();
+    c.add("result",BlockFactsOracle.geometry(result));var queries=new JsonArray();
     for(var axis:Axis.values())for(int direction:new int[]{-1,1}) {
       int a=axis.ordinal();double[] lo={0.2,0.1,0.2},hi={0.8,1.9,0.8};
       if(direction>0){hi[a]=-2.5;lo[a]=-3.1;}else{lo[a]=3.5;hi[a]=4.1;}
@@ -43,7 +43,7 @@ public class VoxelUnionOracle {
     for(var state:Block.BLOCK_STATE_REGISTRY) {
       var cache=cacheField.get(state);if(cache==null)continue;
       var f=cache.getClass().getDeclaredField("collisionShape");f.setAccessible(true);var shape=(VoxelShape)f.get(cache);
-      shapes.putIfAbsent(new Gson().toJson(CollisionMetadata.geometry(shape)),shape);
+      shapes.putIfAbsent(new Gson().toJson(BlockFactsOracle.geometry(shape)),shape);
     }
     if(shapes.size()!=330)throw new AssertionError("Cached grid coverage changed");
     var cases=new JsonArray();var all=new ArrayList<>(shapes.values());int index=0;

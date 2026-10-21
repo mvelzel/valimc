@@ -17,18 +17,8 @@ defmodule Valimc.World.SpawnSearch do
   """
   import Bitwise
   alias Valimc.Native
-  alias Valimc.Physics.{FluidBlocks, HeightmapBlocks}
+  alias Valimc.Registry.BlockFacts
   alias Valimc.World.{Chunk, Generator}
-
-  @blocks_path Path.expand("../../../priv/worldgen/blocks.json", __DIR__)
-  @external_resource @blocks_path
-  @facts :json.decode(File.read!(@blocks_path))
-  # `Block.isFaceFull(collision shape, UP)`: worldgen flag bit 18.
-  @full_up (for <<word::binary-size(8) <- @facts["flags"]>>, into: <<>> do
-              <<if((String.to_integer(word, 16) >>> 18 &&& 1) == 1, do: 1, else: 0)>>
-            end)
-  unless Valimc.Version.stamped?(@facts) and byte_size(@full_up) == @facts["state_count"],
-    do: raise("Wrong worldgen block facts")
 
   @world_surface 1 <<< 1
   @ocean_floor 1 <<< 3
@@ -131,11 +121,10 @@ defmodule Valimc.World.SpawnSearch do
 
   defp scan(column, index) do
     state = elem(column, index)
-    {:ok, %{kind: fluid}} = FluidBlocks.fetch(state)
 
     cond do
-      fluid != :empty -> nil
-      :binary.at(@full_up, state) == 1 -> index + 1 + Chunk.min_y()
+      BlockFacts.fluid(state).kind != :empty -> nil
+      BlockFacts.flag?(state, :collision_up) -> index + 1 + Chunk.min_y()
       true -> scan(column, index - 1)
     end
   end
@@ -149,7 +138,8 @@ defmodule Valimc.World.SpawnSearch do
   defp height(_column, _bit, index) when index < 0, do: Chunk.min_y() - 1
 
   defp height(column, bit, index) do
-    {:ok, mask} = HeightmapBlocks.mask(elem(column, index))
-    if (mask &&& bit) != 0, do: index + Chunk.min_y(), else: height(column, bit, index - 1)
+    if (BlockFacts.heightmap(elem(column, index)) &&& bit) != 0,
+      do: index + Chunk.min_y(),
+      else: height(column, bit, index - 1)
   end
 end

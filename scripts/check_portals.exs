@@ -116,7 +116,7 @@ failures =
 motion_blocking = fn blocks, min_y, height ->
   tops =
     Enum.reduce(blocks, %{}, fn {{x, y, z}, state}, acc ->
-      if Valimc.Physics.HeightmapBlocks.opaque?(state, :motion_blocking) == {:ok, true},
+      if Valimc.Registry.BlockFacts.heightmap?(state, :motion_blocking),
         do: Map.update(acc, {x, z}, y, &max(&1, y)),
         else: acc
     end)

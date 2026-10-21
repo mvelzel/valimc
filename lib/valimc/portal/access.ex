@@ -8,7 +8,7 @@ defmodule Valimc.Portal.Access do
   """
   alias Valimc.World
   alias Valimc.World.{BlockSnapshot, Directory, Region, Store}
-  alias Valimc.Physics.HeightmapBlocks
+  alias Valimc.Registry.BlockFacts
 
   @deadline 30_000
 
@@ -58,7 +58,7 @@ defmodule Valimc.Portal.Access do
   defp top(_sections, _x, _z, y, min_y, _type) when y < min_y, do: min_y
 
   defp top(sections, x, z, y, min_y, type) do
-    if HeightmapBlocks.opaque?(BlockSnapshot.state_at(sections, {x, y, z}), type) == {:ok, true},
+    if BlockFacts.heightmap?(BlockSnapshot.state_at(sections, {x, y, z}), type),
       do: y + 1,
       else: top(sections, x, z, y - 1, min_y, type)
   end

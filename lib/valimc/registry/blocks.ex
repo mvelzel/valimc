@@ -4,11 +4,9 @@ defmodule Valimc.Registry.Blocks do
   order with its contiguous state run, default state, vanilla block class and
   property definitions. A state's offset in its run is the mixed radix of its
   property values, the last property varying fastest, so properties decode without
-  a per-state table. Per-state physics facts stay in their own generated modules.
+  a per-state table. Per-state facts are `Valimc.Registry.BlockFacts`.
   """
-  @path Path.expand("../../../priv/registry/blocks.json", __DIR__)
-  @external_resource @path
-  @facts JSON.decode!(File.read!(@path))
+  use Valimc.Facts, "registry/blocks.json"
   @count @facts["state_count"]
   @classes List.to_tuple(@facts["classes"])
   @definitions @facts["properties"]
@@ -37,7 +35,7 @@ defmodule Valimc.Registry.Blocks do
                   :binary.copy(<<id::16>>, row.last - row.first + 1)
                 end)
                 |> IO.iodata_to_binary()
-  unless Valimc.Version.stamped?(@facts) and @facts["block_count"] == tuple_size(@blocks) and
+  unless @facts["block_count"] == tuple_size(@blocks) and
            map_size(@ids) == tuple_size(@blocks) and byte_size(@state_blocks) == @count * 2 and
            Enum.all?(Enum.zip(@rows, tl(@rows) ++ [%{first: @count}]), fn {row, next} ->
              row.last + 1 == next.first and row.default in row.first..row.last

@@ -2,7 +2,8 @@ defmodule Valimc.PlayerLanding do
   @moduledoc "Landing observations from the accepted movement frame; only the player owner applies damage."
   import Bitwise
   alias Valimc.{PlayerKinetics, PlayerMotion}
-  alias Valimc.Physics.{BlockCollisions, Box, CollisionContext, FluidContact, LandingBlocks}
+  alias Valimc.Physics.{BlockCollisions, Box, CollisionContext, FluidContact}
+  alias Valimc.Registry.BlockFacts
   @legacy_offset 0.20000000298023224
 
   def sample(player, target, flags, box, frame) do
@@ -24,7 +25,7 @@ defmodule Valimc.PlayerLanding do
 
           with {:ok, material} <-
                  material(frame, moved_box, {target.x, target.y, target.z}, context),
-               do: LandingBlocks.call(material.state, landed, shift)
+               do: call(material.state, landed, shift)
         else
           {:ok, nil}
         end
@@ -33,6 +34,24 @@ defmodule Valimc.PlayerLanding do
       {:ok, nil}
     end
   end
+
+  @doc "Native `fallOn`: the damage call landing on `state` from `distance` makes, or nil."
+  def call(state, distance, shift) do
+    rule = state |> BlockFacts.landing() |> elem(if(shift, do: 1, else: 0))
+
+    {:ok,
+     if rule do
+       %{
+         distance: distance * rule.distance_scale + rule.distance_offset,
+         multiplier: rule.multiplier,
+         source: rule.source
+       }
+     end}
+  end
+
+  @doc "Whether a support at `state` keeps the legacy support height (walls, fence gates, fences)."
+  def holds_y?(state),
+    do: BlockFacts.motion(state).support_holds_y or BlockFacts.flag?(state, :fence)
 
   @doc false
   def material(%BlockCollisions.Frame{} = frame, box, position, context) do
@@ -49,7 +68,7 @@ defmodule Valimc.PlayerLanding do
           {floor(x), floor(y - @legacy_offset), floor(z)}
 
         %{position: {sx, _, sz} = pos, state: state} ->
-          if LandingBlocks.support_holds_y?(state),
+          if holds_y?(state),
             do: pos,
             else: {sx, floor(y - @legacy_offset), sz}
       end

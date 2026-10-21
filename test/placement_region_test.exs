@@ -102,7 +102,7 @@ defmodule Valimc.PlacementRegionTest do
     {:ok, reserved} = Region.reserve_mining(owner, [ctx.position])
     removal = Map.merge(reserved, %{source: request.source, sequence: 2, records: []})
     assert {:ok, :applied} = Region.apply_mining_transfer(owner, removal)
-    assert Valimc.TestBlocks.get(ctx.position) == Valimc.Physics.FluidBlocks.after_removal(@chest)
+    assert Valimc.TestBlocks.get(ctx.position) == Valimc.Registry.BlockFacts.fluid_remains(@chest)
     {:ok, removed} = Valimc.World.Containers.decode(disk(ctx), ctx.key)
     assert removed.entries == %{} and removed.sequence == 2 and removed.receipts == %{}
     assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, removal)

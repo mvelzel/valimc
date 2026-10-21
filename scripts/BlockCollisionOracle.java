@@ -54,7 +54,7 @@ public class BlockCollisionOracle {
     try {
       var iterator=new BlockCollisions<JsonObject>(world,context,box,false,(pos,shape)->{
         var c=new JsonObject();c.add("position",position(pos));c.addProperty("state",Block.getId(states.get(pos)));
-        try {c.add("geometry",CollisionMetadata.geometry(shape));}catch(Exception e){throw new RuntimeException(e);}
+        try {c.add("geometry",BlockFactsOracle.geometry(shape));}catch(Exception e){throw new RuntimeException(e);}
         return c;
       });
       while(iterator.hasNext())result.add(iterator.next());
@@ -87,7 +87,7 @@ public class BlockCollisionOracle {
       var cached=cache.get(state);
       if(cached!=null) {
         var shape=(VoxelShape)field(cached.getClass(),"collisionShape").get(cached);
-        if(!grids.add(new Gson().toJson(CollisionMetadata.geometry(shape))))continue;
+        if(!grids.add(new Gson().toJson(BlockFactsOracle.geometry(shape))))continue;
         for(var pos:List.of(BlockPos.ZERO,new BlockPos(-17,64,17),new BlockPos(29999990,-384,-29999990)))
           single(state,pos,null,null,CollisionContext.empty(),empty(),null);
       } else {

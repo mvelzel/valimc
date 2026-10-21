@@ -1,101 +1,38 @@
 defmodule Valimc.Physics.BlockShapes do
-  @moduledoc "Complete pinned cached state geometry; dynamic contexts are explicit unresolved lookups."
-  @path Path.expand("../../../priv/physics/collision_shapes.json", __DIR__)
-  @external_resource @path
-  @facts JSON.decode!(File.read!(@path))
-  unless Valimc.Version.stamped?(@facts),
-    do: raise("Wrong collision catalog version")
+  @moduledoc "Collision shapes of block states from the block fact table; dynamic contexts are explicit unresolved lookups."
+  alias Valimc.Physics.{BlockOffset, Shape}
+  alias Valimc.Registry.{BlockFacts, Blocks}
 
-  @shapes @facts["shapes"] |> Enum.map(&Valimc.Physics.Shape.from_facts!/1) |> List.to_tuple()
-  @states @facts["runs"]
-          |> Enum.reduce({0, []}, fn [start, count, value], {index, values} ->
-            unless start == index and is_integer(count) and count > 0 and
-                     start + count <= @facts["state_count"] and
-                     ((is_integer(value) and value in 0..(tuple_size(@shapes) - 1)) or
-                        (is_binary(value) and String.starts_with?(value, "minecraft:"))),
-                   do: raise("Invalid collision catalog run")
+  @count BlockFacts.count()
+  @scaffolding_stable BlockFacts.contextual_shape(:scaffolding_stable)
+  @scaffolding_bottom BlockFacts.contextual_shape(:scaffolding_unstable_bottom)
+  @below_height BlockFacts.contextual_shape(:scaffolding_below_height)
+  @powder_falling BlockFacts.contextual_shape(:powder_snow_falling)
+  @full BlockFacts.contextual_shape(:full)
 
-            {index + count, [List.duplicate(value, count) | values]}
-          end)
-          |> then(fn {count, reversed} ->
-            unless count == @facts["state_count"], do: raise("Incomplete collision catalog")
-            reversed |> Enum.reverse() |> List.flatten() |> List.to_tuple()
-          end)
+  # Scaffolding distance and bottom, and shulker box facing, are block properties.
+  @scaffolding_states Map.new(Blocks.states("scaffolding"), fn id ->
+                        properties = Map.new(Blocks.properties(id))
 
-  @position_shapes @facts["position_shapes"]
-                   |> Enum.map(&Valimc.Physics.Shape.from_facts!/1)
-                   |> List.to_tuple()
-  @position_states Map.new(@facts["position_states"], fn [id, shape, limit] ->
-                     unless is_integer(id) and id in 0..(tuple_size(@states) - 1) and
-                              elem(@states, id) in [
-                                "minecraft:bamboo",
-                                "minecraft:pointed_dripstone",
-                                "minecraft:sulfur_spike"
-                              ] and is_integer(shape) and
-                              shape in 0..(tuple_size(@position_shapes) - 1) and
-                              is_number(limit) and limit > 0 and limit <= 0.25,
-                            do: raise("Invalid position-dependent shape")
-
-                     {id, {shape, limit}}
-                   end)
-  unless map_size(@position_states) == 52, do: raise("Incomplete position-dependent catalog")
-
-  @scaffolding @facts["scaffolding"]
-  @scaffolding_stable Valimc.Physics.Shape.from_facts!(@scaffolding["stable"])
-  @scaffolding_bottom Valimc.Physics.Shape.from_facts!(@scaffolding["unstable_bottom"])
-  @below_height @scaffolding["below_height"]
-  unless is_number(@below_height) and abs(@below_height) <= 16.0,
-    do: raise("Invalid scaffolding query height")
-
-  @scaffolding_states Map.new(@scaffolding["states"], fn [id, distance, bottom] ->
-                        unless is_integer(id) and id in 0..(tuple_size(@states) - 1) and
-                                 elem(@states, id) == "minecraft:scaffolding" and
-                                 is_integer(distance) and distance in 0..7 and is_boolean(bottom),
-                               do: raise("Invalid scaffolding state facts")
-
-                        {id, {distance, bottom}}
+                        {id,
+                         {String.to_integer(properties["distance"]),
+                          properties["bottom"] == "true"}}
                       end)
-  unless length(@scaffolding["states"]) == 32 and map_size(@scaffolding_states) == 32,
-    do: raise("Incomplete scaffolding catalog")
+  @shulker_states for block <- 0..(Blocks.block_count() - 1),
+                      name = Blocks.name(block),
+                      String.ends_with?(name, "shulker_box"),
+                      id <- Blocks.states(name),
+                      into: %{},
+                      do: {id, Map.new(Blocks.properties(id))["facing"]}
+  unless map_size(@scaffolding_states) == 32 and map_size(@shulker_states) == 102,
+    do: raise("Scaffolding or shulker box states changed")
 
-  @powder_snow @facts["powder_snow"]
-  @powder_falling Valimc.Physics.Shape.from_facts!(@powder_snow["falling"])
-  @powder_full Valimc.Physics.Shape.from_facts!(@powder_snow["full"])
-  @powder_state @powder_snow["state"]
-  unless is_integer(@powder_state) and @powder_state in 0..(tuple_size(@states) - 1) and
-           elem(@states, @powder_state) == "minecraft:powder_snow",
-         do: raise("Invalid powder snow state facts")
+  def state_count, do: @count
 
-  @shulker @facts["shulker_box"]
-  @shulker_full Valimc.Physics.Shape.from_facts!(@shulker["full"])
-  @shulker_states Map.new(@shulker["states"], fn [id, direction] ->
-                    unless is_integer(id) and id in 0..(tuple_size(@states) - 1) and
-                             is_binary(elem(@states, id)) and
-                             String.ends_with?(elem(@states, id), "shulker_box") and
-                             direction in ["down", "up", "north", "south", "west", "east"],
-                           do: raise("Invalid shulker state facts")
-
-                    {id, direction}
-                  end)
-  unless length(@shulker["states"]) == 102 and map_size(@shulker_states) == 102,
-    do: raise("Incomplete shulker catalog")
-
-  @moving_states @facts["piston"]["moving"]
-  unless is_list(@moving_states) and length(@moving_states) == 12 and
-           MapSet.size(MapSet.new(@moving_states)) == 12 and
-           Enum.all?(@moving_states, fn id ->
-             is_integer(id) and id in 0..(tuple_size(@states) - 1) and
-               elem(@states, id) == "minecraft:moving_piston"
-           end),
-         do: raise("Incomplete moving-piston catalog")
-
-  def state_count, do: tuple_size(@states)
-  def grids, do: @shapes
-
-  def fetch(id) when is_integer(id) and id >= 0 and id < tuple_size(@states) do
-    case elem(@states, id) do
-      index when is_integer(index) -> {:ok, elem(@shapes, index)}
-      name -> {:context_required, name}
+  def fetch(id) when is_integer(id) and id >= 0 and id < @count do
+    case BlockFacts.shape(id) do
+      %Shape{} = shape -> {:ok, shape}
+      {:context, name, _} -> {:context_required, name}
     end
   end
 
@@ -104,14 +41,15 @@ defmodule Valimc.Physics.BlockShapes do
   # Shapes are block-local, including native position offsets. Translate to world
   # coordinates only after the caller has obtained authoritative block state.
   def fetch(id, position) do
-    if Valimc.Physics.BlockOffset.valid_position?(position) do
-      case {fetch(id), Map.get(@position_states, id)} do
-        {{:context_required, _}, {index, limit}} ->
-          offset = Valimc.Physics.BlockOffset.horizontal(position, limit)
-          {:ok, Valimc.Physics.Shape.move(elem(@position_shapes, index), offset)}
+    if BlockOffset.valid_position?(position) do
+      with {:context_required, _} = result <- fetch(id) do
+        case BlockFacts.shape(id) do
+          {:context, _, {shape, limit}} ->
+            {:ok, Shape.move(shape, BlockOffset.horizontal(position, limit))}
 
-        {result, _} ->
-          result
+          _ ->
+            result
+        end
       end
     else
       {:error, :invalid_position}
@@ -139,11 +77,11 @@ defmodule Valimc.Physics.BlockShapes do
     if Valimc.Physics.BlockEntityContext.valid?(block_entity) do
       case {fetch(id, position, context), Map.get(@shulker_states, id), block_entity.kind} do
         {{:context_required, _}, direction, :shulker} when is_binary(direction) ->
-          {:ok, Valimc.Physics.ShulkerShape.shape(direction, block_entity, @shulker_full)}
+          {:ok, Valimc.Physics.ShulkerShape.shape(direction, block_entity, @full)}
 
         {{:context_required, _}, direction, kind}
         when is_binary(direction) and kind in [:absent, :other, :piston] ->
-          {:ok, @shulker_full}
+          {:ok, @full}
 
         {{:context_required, "minecraft:moving_piston"}, _, :piston} ->
           Valimc.Physics.PistonShape.fetch(block_entity.piston, position, context)
@@ -169,11 +107,11 @@ defmodule Valimc.Physics.BlockShapes do
         @powder_falling
 
       context.falling_block ->
-        @powder_full
+        @full
 
       context.powder_snow_walkable and not context.descending and
           Valimc.Physics.CollisionContext.above?(context, 1.0, y, false) ->
-        @powder_full
+        @full
 
       true ->
         %Valimc.Physics.Shape{}

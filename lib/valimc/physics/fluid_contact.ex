@@ -1,6 +1,7 @@
 defmodule Valimc.Physics.FluidContact do
   @moduledoc "Bounded fluid depths from the same immutable, fenced frame as player geometry."
-  alias Valimc.Physics.{BlockCollisions.Frame, Box, FluidBlocks, FluidBoundaries}
+  alias Valimc.Physics.{BlockCollisions.Frame, Box, FluidBoundaries}
+  alias Valimc.Registry.BlockFacts
   @inset 0.001
   @max_cells 512
 
@@ -122,7 +123,7 @@ defmodule Valimc.Physics.FluidContact do
 
   defp at(states, p) do
     case Map.fetch(states, p) do
-      {:ok, id} -> FluidBlocks.fetch(id)
+      {:ok, id} -> {:ok, BlockFacts.fluid(id)}
       :error -> {:error, :incomplete_fluid_frame}
     end
   end

@@ -12,7 +12,7 @@ defmodule Valimc.MiningTest do
     assert {:ok, %{complete: false, stoppable: true}} = Mining.advance(rate, 31)
     assert {:ok, %{complete: true}} = Mining.advance(rate, 44)
 
-    for args <- [{-1, 1, true}, {Data.block_state_count(), 1, true}, {1, -1, true}, {1, 1, nil}],
+    for args <- [{1, -1, true}, {1, 1, nil}],
         do: assert(apply(Mining, :rate, Tuple.to_list(args)) == {:error, :invalid_mining_input})
 
     assert {:error, :invalid_mining_input} = Mining.advance(rate, -1)

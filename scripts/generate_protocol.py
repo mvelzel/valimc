@@ -21,5 +21,4 @@ subprocess.run([sys.executable,'scripts/java_tool.py','ProtocolMetadata','priv/p
 subprocess.run([sys.executable,'scripts/java_tool.py','ItemMetadata','priv/protocol/items.json','priv/protocol/item_defaults.json'],cwd=root,check=True)
 subprocess.run([sys.executable,'scripts/java_tool.py','EntityMetadata','priv/protocol/entities.json'],cwd=root,check=True)
 subprocess.run([sys.executable,'scripts/java_tool.py','AttributeMetadata','priv/protocol/attributes.json'],cwd=root,check=True)
-subprocess.run([sys.executable,'scripts/java_tool.py','CollisionMetadata','priv/physics/collision_shapes.json'],cwd=root,check=True)
 print(f'Regenerated official {VERSION} protocol facts')

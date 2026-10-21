@@ -1,16 +1,12 @@
 import Bitwise
-alias Valimc.Physics.HeightmapBlocks
+alias Valimc.Registry.BlockFacts
 alias Valimc.World.ColumnHeight
-[facts_path, trace_path] = System.argv()
-facts = :json.decode(File.read!(facts_path))
-
-unless facts == :json.decode(File.read!("priv/physics/heightmap_blocks.json")),
-  do: raise("Native heightmap predicates differ")
+[trace_path] = System.argv()
 
 for row <- :json.decode(File.read!(trace_path)) do
   Enum.reduce(row["steps"], List.duplicate(ColumnHeight.flat(), 6), fn [y, id, expected],
                                                                        columns ->
-    {:ok, mask} = HeightmapBlocks.mask(id)
+    mask = BlockFacts.heightmap(id)
 
     columns =
       Enum.with_index(columns, fn bits, i ->
@@ -34,6 +30,4 @@ for row <- :json.decode(File.read!(trace_path)) do
   end)
 end
 
-IO.puts(
-  "PASS: all35723 native heightmap predicates and3360 updates /20160 height observations across six types."
-)
+IO.puts("PASS: 3360 native heightmap updates / 20160 height observations across six types.")

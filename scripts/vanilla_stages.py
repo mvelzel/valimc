@@ -29,7 +29,6 @@ HELPERS = {
 # no declaration covers.
 INPUTS = {
     'ArmorWearOracle': ['priv/protocol/tags.json', 'priv/protocol/registries.json'],
-    'BlockMotionMetadata': ['priv/protocol/tags.json'],
     'CookingExperienceOracle': ['priv/crafting/cooking.json'],
     'CookingRecipeBookOracle': ['priv/crafting/cooking.json'],
     'CraftingBulkOracle': ['priv/crafting/recipes.json'],
@@ -51,6 +50,10 @@ ALIASES = {
     **{f'damage_protection_{n}': 'damage_protection' for n in range(1, 10)},
     **{f'player_crafting_{n}': 'player_crafting' for n in range(1, 4)},
     'worldgen_surface': 'worldgen_terrain', 'worldgen_carvers': 'worldgen_terrain',
+    # VMC-077d: the per-state fact stages merged into `block_facts`.
+    **{name: 'block_facts' for name in ('light_facts', 'block_motion_metadata', 'fluid_metadata',
+                                        'fluid_boundary_metadata', 'climb_metadata')},
+    'collision_metadata': 'collision_shapes', 'inside_block_metadata': 'fire_geometry',
 }
 
 # Oracles that fill every core with their own thread pool. One runs at a time, with
@@ -63,7 +66,7 @@ ESTIMATES = {
     'worldgen_survival': 986, 'place': 703, 'worldgen_shapes': 695, 'worldgen_decoration': 671,
     'worldgen_structures': 620, 'support': 534, 'locate': 386, 'worldgen_structure_placement_jigsaw': 327,
     'worldgen_structure_placement': 310, 'worldgen_live_structures': 290, 'spawn': 283, 'world_settings': 185,
-    'collision_metadata': 182, 'anvil_content': 143, 'worldgen_structure_placement_pieces': 92,
+    'collision_shapes': 120, 'anvil_content': 143, 'worldgen_structure_placement_pieces': 92,
     'chunk_sections': 90, 'worldgen_live': 88, 'light': 87, 'worldgen_datapack': 82, 'worldgen_biomes': 79,
     'region_files': 72, 'worldgen_decoration_nether': 67, 'player_motion_persistence': 66, 'interaction_range': 64,
     'block_collision': 60, 'table_crafting': 60, 'worldgen_terrain': 90, 'worldgen_live_structures_nether': 57,
@@ -100,10 +103,6 @@ STAGES = [
         ('java', 'AnvilContentOracle', 'verify', '@content.json', '@imported'),
         ('java', 'AnvilContentOracle', 'export', '@content.json', '@imported/exported-world', '@server'),
     ]),
-    ('light_facts', [
-        ('regen', 'LightFactsOracle', '@light-blocks.json'),
-        ('same', '@light-blocks.json', 'priv/physics/light_blocks.json'),
-    ]),
     ('light', [
         ('java', 'ChunkOracle', 'generate', '@world', '@chunks.json'),
         ('java', 'LightOracle', '@chunks.json', '@light.json', '@light.bin'),
@@ -131,8 +130,6 @@ STAGES = [
         ('same', '@block_state_providers.json', 'priv/worldgen/block_state_providers.json'),
         ('same', '@feature_order.json', 'priv/worldgen/feature_order.json'),
         ('same', '@dimensions.json', 'priv/worldgen/dimensions.json'),
-        ('regen', 'WorldgenBlocksOracle', '@blocks.json'),
-        ('same', '@blocks.json', 'priv/worldgen/blocks.json'),
         ('regen', 'StructureTemplateOracle', '@block_transforms.json', '@processor_lists.json'),
         ('same', '@block_transforms.json', 'priv/worldgen/block_transforms.json'),
         ('same', '@processor_lists.json', 'priv/worldgen/processor_lists.json'),
@@ -330,6 +327,11 @@ STAGES = [
         ('regen', 'BlockRegistryMetadata', '@block-registry.json'),
         ('same', '@block-registry.json', 'priv/registry/blocks.json'),
     ]),
+    # VMC-077d: every per-state fact (flags, shapes, motion, fluids, light, ...) in one table.
+    ('block_facts', [
+        ('regen', 'BlockFactsOracle', '@block-facts.json'),
+        ('same', '@block-facts.json', 'priv/registry/block_facts.json'),
+    ]),
     ('client_tick', [
         ('java', 'ClientTickOracle', '@client-ticks.json'),
         ('check', 'check_client_tick.exs', '@client-ticks.json'),
@@ -343,13 +345,12 @@ STAGES = [
         ('check', 'check_fall_damage.exs', '@fall-damage.json'),
     ]),
     ('landing', [
-        ('java', 'LandingOracle', '@landing-blocks.json', '@landing-cases.json'),
-        ('same', '@landing-blocks.json', 'priv/physics/landing_blocks.json'),
+        ('java', 'LandingOracle', '@landing-cases.json'),
         ('check', 'check_landing.exs', '@landing-cases.json'),
     ]),
     ('mining', [
-        ('java', 'MiningOracle', '@mining-blocks.json', '@mining-cases.json', '@mining-ticks.json'),
-        ('check', 'check_mining.exs', '@mining-blocks.json', '@mining-cases.json', '@mining-ticks.json'),
+        ('java', 'MiningOracle', '@mining-cases.json', '@mining-ticks.json'),
+        ('check', 'check_mining.exs', '@mining-cases.json', '@mining-ticks.json'),
     ]),
     ('mining_tool', [
         ('java', 'MiningToolOracle', '@mining-tools.json', '@mining-tool-cases.json'),
@@ -427,20 +428,19 @@ STAGES = [
         ('java', 'FireContactOracle', '@fire-contacts.json'),
         ('check', 'check_fire_contacts.exs', '@fire-contacts.json'),
     ]),
-    ('inside_block_metadata', [
-        ('java', 'InsideBlockMetadata', '@inside-block-facts.json'),
+    ('fire_geometry', [
         ('java', 'FireGeometryOracle', '@fire-geometry.json'),
-        ('check', 'check_fire_contacts.exs', '@fire-geometry.json', '@inside-block-facts.json'),
+        ('check', 'check_fire_contacts.exs', '@fire-geometry.json'),
     ]),
     ('heightmap', [
-        ('java', 'HeightmapOracle', '@heightmap-facts.json', '@heightmap-cases.json'),
-        ('check', 'check_heightmaps.exs', '@heightmap-facts.json', '@heightmap-cases.json'),
+        ('java', 'HeightmapOracle', '@heightmap-cases.json'),
+        ('check', 'check_heightmaps.exs', '@heightmap-cases.json'),
         ('check', 'check_chunk_heightmaps.exs', '@heightmap-cases.json', '@chunk-heightmaps.json'),
         ('java', 'HeightmapPacketOracle', '@chunk-heightmaps.json'),
     ]),
     ('sky_column', [
-        ('java', 'SkyColumnOracle', '@sky-facts.json', '@sky-cases.json'),
-        ('check', 'check_sky_columns.exs', '@sky-facts.json', '@sky-cases.json'),
+        ('java', 'SkyColumnOracle', '@sky-cases.json'),
+        ('check', 'check_sky_columns.exs', '@sky-cases.json'),
     ]),
     ('flat_climate', [
         ('java', 'FlatClimateOracle', '@flat-climate-facts.json', '@flat-climate-cases.json'),
@@ -451,8 +451,8 @@ STAGES = [
         ('check', 'check_rain_contact.exs', '@rain-cases.json'),
     ]),
     ('block_hazard', [
-        ('java', 'BlockHazardOracle', '@block-hazard-facts.json', '@block-hazard-cases.json'),
-        ('check', 'check_block_hazards.exs', '@block-hazard-facts.json', '@block-hazard-cases.json'),
+        ('java', 'BlockHazardOracle', '@block-hazard-cases.json'),
+        ('check', 'check_block_hazards.exs', '@block-hazard-cases.json'),
     ]),
     ('hazard_geometry', [
         ('java', 'HazardGeometryOracle', '@hazard-geometry.json'),
@@ -496,21 +496,6 @@ STAGES = [
         ('java', 'CollisionResponseOracle', '@collision-response.json'),
         ('check', 'check_collision_response.exs', '@collision-response.json'),
     ]),
-    ('block_motion_metadata', [
-        ('java', 'BlockMotionMetadata', '@motion-blocks.json', '@motion-block-cases.json'),
-        ('same', '@motion-blocks.json', 'priv/physics/motion_blocks.json'),
-        ('check', 'check_motion_blocks.exs', '@motion-block-cases.json'),
-    ]),
-    ('fluid_metadata', [
-        ('java', 'FluidMetadata', '@fluid-blocks.json', '@fluid-block-cases.json'),
-        ('same', '@fluid-blocks.json', 'priv/physics/fluid_blocks.json'),
-        ('check', 'check_fluid_blocks.exs', '@fluid-block-cases.json'),
-    ]),
-    ('fluid_boundary_metadata', [
-        ('java', 'FluidBoundaryMetadata', '@fluid-boundaries.json', '@fluid-boundary-cases.json'),
-        ('same', '@fluid-boundaries.json', 'priv/physics/fluid_boundaries.json'),
-        ('check', 'check_fluid_boundaries.exs', '@fluid-boundary-cases.json'),
-    ]),
     ('fluid_support', [
         ('java', 'FluidSupportOracle', '@fluid-support.json'),
         ('check', 'check_fluid_support.exs', '@fluid-support.json'),
@@ -546,11 +531,6 @@ STAGES = [
     ('climb_motion', [
         ('java', 'ClimbMotionOracle', '@climb-motion.json'),
         ('check', 'check_climb_motion.exs', '@climb-motion.json'),
-    ]),
-    ('climb_metadata', [
-        ('java', 'ClimbMetadata', '@climb-blocks.json', '@climb-block-cases.json'),
-        ('same', '@climb-blocks.json', 'priv/physics/climb_blocks.json'),
-        ('check', 'check_climb_blocks.exs', '@climb-block-cases.json'),
     ]),
     ('climb_contact', [
         ('java', 'ClimbContactOracle', '@climb-contacts.json'),
@@ -593,9 +573,8 @@ STAGES = [
         ('check', 'check_sneak_edges.exs', '@sneak-edges.json'),
     ]),
     ('stuck_motion', [
-        ('java', 'StuckMotionOracle', '@stuck-motion.json', '@stuck-blocks.json', '@stuck-lookups.json'),
-        ('same', '@stuck-blocks.json', 'priv/physics/stuck_blocks.json'),
-        ('check', 'check_stuck_motion.exs', '@stuck-motion.json', '@stuck-lookups.json'),
+        ('java', 'StuckMotionOracle', '@stuck-motion.json'),
+        ('check', 'check_stuck_motion.exs', '@stuck-motion.json'),
     ]),
     ('player_kinetics', [
         ('java', 'PlayerKineticsOracle', '@player-kinetics.json'),
@@ -835,18 +814,16 @@ STAGES = [
         ('java', 'PlayerFitOracle', '@pose-fit.json'),
         ('check', 'check_pose_fit.exs', '@pose-fit.json'),
     ]),
-    ('collision_metadata', [
-        ('java', 'CollisionMetadata', '@collision-shapes.json'),
-        ('same', '@collision-shapes.json', 'priv/physics/collision_shapes.json'),
-        ('java', 'CollisionOracle', '@collision-shapes.json', '@collisions.json'),
+    ('collision_shapes', [
+        ('java', 'CollisionOracle', '@collisions.json'),
         ('check', 'check_collisions.exs', '@collisions.json'),
-        ('java', 'PositionCollisionOracle', '@collision-shapes.json', '@position-collisions.json'),
+        ('java', 'PositionCollisionOracle', '@position-collisions.json'),
         ('check', 'check_position_collisions.exs', '@position-collisions.json'),
-        ('java', 'ScaffoldingCollisionOracle', '@collision-shapes.json', '@scaffolding-collisions.json'),
+        ('java', 'ScaffoldingCollisionOracle', '@scaffolding-collisions.json'),
         ('check', 'check_scaffolding_collisions.exs', '@scaffolding-collisions.json'),
-        ('java', 'ShulkerCollisionOracle', '@collision-shapes.json', '@shulker-collisions.json'),
+        ('java', 'ShulkerCollisionOracle', '@shulker-collisions.json'),
         ('check', 'check_shulker_collisions.exs', '@shulker-collisions.json'),
-        ('java', 'PistonCollisionOracle', '@collision-shapes.json', '@piston-collisions.json'),
+        ('java', 'PistonCollisionOracle', '@piston-collisions.json'),
         ('check', 'check_piston_collisions.exs', '@piston-collisions.json'),
     ]),
     ('powder_snow_collision', [

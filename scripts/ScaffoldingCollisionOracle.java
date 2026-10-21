@@ -23,10 +23,9 @@ public class ScaffoldingCollisionOracle {
   }
   public static void main(String[] args) throws Exception {
     SharedConstants.tryDetectVersion();Bootstrap.bootStrap();
-    var catalog=JsonParser.parseString(Files.readString(Path.of(args[0]))).getAsJsonObject();
-    var cases=new JsonArray();var below=CollisionMetadata.scaffoldingField("SHAPE_BELOW_BLOCK");int clipping=0;
-    for(var entry:catalog.getAsJsonObject("scaffolding").getAsJsonArray("states")) {
-      int id=entry.getAsJsonArray().get(0).getAsInt();var state=Block.BLOCK_STATE_REGISTRY.byId(id);
+    var cases=new JsonArray();var below=BlockFactsOracle.scaffoldingField("SHAPE_BELOW_BLOCK");int clipping=0;
+    for(var state:net.minecraft.world.level.block.Blocks.SCAFFOLDING.getStateDefinition().getPossibleStates()) {
+      int id=Block.getId(state);
       for(int y:new int[]{-1000000,-384,0,64,320,1000000}) {
         var pos=new BlockPos(-17,y,17);var contexts=new ArrayList<JsonObject>();
         var empty=new JsonObject();empty.addProperty("kind","empty");contexts.add(empty);
@@ -43,7 +42,7 @@ public class ScaffoldingCollisionOracle {
             new Context(facts.get("bottom").getAsDouble(),facts.get("descending").getAsBoolean(),facts.get("placement").getAsBoolean());
           var shape=state.getCollisionShape(EmptyBlockGetter.INSTANCE,pos,ctx);var worldShape=shape.move(pos.getX(),y,pos.getZ());
           var c=new JsonObject();c.addProperty("state",id);c.add("position",vector(pos.getX(),y,pos.getZ()));c.add("context",facts);
-          c.add("geometry",CollisionMetadata.geometry(shape));
+          c.add("geometry",BlockFactsOracle.geometry(shape));
           c.addProperty("above_full",ctx.isAbove(Shapes.block(),pos,true));c.addProperty("above_below",ctx.isAbove(below,pos,true));
           c.addProperty("above_false_default",ctx.isAbove(Shapes.block(),pos,false));var queries=new JsonArray();
           for(var axis:Axis.values())for(int direction:new int[]{-1,1}) {
@@ -59,7 +58,7 @@ public class ScaffoldingCollisionOracle {
         }
       }
     }
-    Files.writeString(Path.of(args[1]),new Gson().toJson(cases));
+    Files.writeString(Path.of(args[0]),new Gson().toJson(cases));
     System.out.println("PASS: "+cases.size()+" native scaffolding contexts and "+clipping+" clipping queries across all 32 states.");
   }
 }

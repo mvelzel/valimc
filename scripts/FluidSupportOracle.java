@@ -27,13 +27,13 @@ public class FluidSupportOracle {
     SharedConstants.tryDetectVersion();Bootstrap.bootStrap();var gson=new Gson();var grids=new JsonArray();var unique=new HashSet<String>();var contexts=new JsonArray();
     for(var s:Block.BLOCK_STATE_REGISTRY){
       if(s.getBlock() instanceof MovingPistonBlock||s.getBlock() instanceof ShulkerBoxBlock)continue;
-      var shape=s.getBlockSupportShape(EmptyBlockGetter.INSTANCE,BlockPos.ZERO);var geometry=CollisionMetadata.geometry(shape);
+      var shape=s.getBlockSupportShape(EmptyBlockGetter.INSTANCE,BlockPos.ZERO);var geometry=BlockFactsOracle.geometry(shape);
       if(unique.add(gson.toJson(geometry))){var c=new JsonObject();c.add("geometry",geometry);c.add("faces",faces(shape));grids.add(c);}
     }
     for(double lo:new double[]{-1e-7,0,1e-7,.25})for(double hi:new double[]{.9999998,.9999999,1,1.5})for(var axis:Direction.Axis.values()){
       var shape=Shapes.create(axis==Direction.Axis.X?lo:0,axis==Direction.Axis.Y?lo:0,axis==Direction.Axis.Z?lo:0,
         axis==Direction.Axis.X?hi:1,axis==Direction.Axis.Y?hi:1,axis==Direction.Axis.Z?hi:1);
-      var c=new JsonObject();c.add("geometry",CollisionMetadata.geometry(shape));c.add("faces",faces(shape));grids.add(c);
+      var c=new JsonObject();c.add("geometry",BlockFactsOracle.geometry(shape));c.add("faces",faces(shape));grids.add(c);
     }
     var position=new BlockPos(0,64,0);var old=field(ShulkerBoxBlockEntity.class,"progressOld");var progress=field(ShulkerBoxBlockEntity.class,"progress");var status=field(ShulkerBoxBlockEntity.class,"animationStatus");
     for(var state:Block.BLOCK_STATE_REGISTRY)if(state.getBlock() instanceof ShulkerBoxBlock)
@@ -50,7 +50,7 @@ public class FluidSupportOracle {
           var w=world(entity,position);var c=new JsonObject();c.addProperty("state",Block.getId(moving));c.addProperty("kind","piston");
           c.addProperty("moved",Block.getId(moved));c.addProperty("direction",direction.getName());c.addProperty("extending",extending);c.addProperty("source",source);c.addProperty("progress",(double)p);
           var shape=moving.getBlockSupportShape(w,position);c.add("faces",sturdy(moving,w,position));contexts.add(c);
-          var geometry=CollisionMetadata.geometry(shape);if(unique.add(gson.toJson(geometry))){var g=new JsonObject();g.add("geometry",geometry);g.add("faces",faces(shape));grids.add(g);}
+          var geometry=BlockFactsOracle.geometry(shape);if(unique.add(gson.toJson(geometry))){var g=new JsonObject();g.add("geometry",geometry);g.add("faces",faces(shape));grids.add(g);}
         }
     var result=new JsonObject();result.add("grids",grids);result.add("contexts",contexts);Files.writeString(Path.of(args[0]),gson.toJson(result));
     System.out.println("PASS: "+grids.size()+" actual native support grids and "+contexts.size()+" shulker/piston face contexts.");

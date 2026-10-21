@@ -1,5 +1,5 @@
-alias Valimc.Physics.{StuckBlocks, StuckMotion}
-[path, lookup_path] = System.argv()
+alias Valimc.Physics.StuckMotion
+[path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 bits = fn n -> <<n::float-64>> end
 vector = fn tuple -> Enum.map(Tuple.to_list(tuple), bits) end
@@ -38,15 +38,3 @@ end
 IO.puts(
   "PASS: #{length(cases["contacts"])} native slowing contacts and #{length(cases["moves"])} actual move prefixes."
 )
-
-lookups = lookup_path |> File.read!() |> :json.decode()
-names = %{none: "none", cobweb: "cobweb", berry_bush: "berry_bush", powder_snow: "powder_snow"}
-
-for c <- lookups do
-  {:ok, kind} = StuckBlocks.fetch(c["id"])
-
-  unless names[kind] == c["kind"],
-    do: raise("Slowing block classification mismatch #{inspect(c)}")
-end
-
-IO.puts("PASS: #{length(lookups)} native slowing block class lookups.")

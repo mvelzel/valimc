@@ -108,7 +108,7 @@ public class ServerMovementOracle {
               c.add("old_box",box(oldBox));c.addProperty("mode",mode.getName());
               c.addProperty("no_physics",player.noPhysics);c.addProperty("impulse",player.impulse);
               c.addProperty("changing_dimension",player.changing);c.addProperty("old_clear",world.oldClear);
-              var shapes=new JsonArray();for(var shape:world.used)shapes.add(CollisionMetadata.geometry(shape));
+              var shapes=new JsonArray();for(var shape:world.used)shapes.add(BlockFactsOracle.geometry(shape));
               c.add("new_colliders",shapes);c.addProperty("queried_new",world.query!=null);
               c.addProperty("rejected",rejected);cases.add(c);
             }

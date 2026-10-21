@@ -42,19 +42,18 @@ public class BlockHazardOracle {
     var campfire=CampfireBlock.class.getDeclaredMethod("entityInside",insideTypes);campfire.setAccessible(true);
     var cactus=CactusBlock.class.getDeclaredMethod("entityInside",insideTypes);cactus.setAccessible(true);
     var berry=SweetBerryBushBlock.class.getDeclaredMethod("entityInside",insideTypes);berry.setAccessible(true);
-    var damageField=CampfireBlock.class.getDeclaredField("fireDamage");damageField.setAccessible(true);
     var oldX=FireContactOracle.field(Entity.class,"xOld");var oldY=FireContactOracle.field(Entity.class,"yOld");var oldZ=FireContactOracle.field(Entity.class,"zOld");
     double threshold=(double).003f;
     var moves=List.of(Vec3.ZERO,new Vec3(.003,0,0),new Vec3(threshold,0,0),new Vec3(Math.nextDown(threshold),0,0),new Vec3(0,0,threshold),new Vec3(-threshold,64,0),new Vec3(0,64,0),new Vec3(1e-12,0,1e-12),new Vec3(64,0,-64));
-    var states=new JsonArray();var rows=new JsonArray();int count=0;
+    var rows=new JsonArray();int count=0;
     for(var state:Block.BLOCK_STATE_REGISTRY){
-      String kind;int value;
-      if(state.is(Blocks.MAGMA_BLOCK)){kind="magma";value=1;}
-      else if(state.is(Blocks.CAMPFIRE)||state.is(Blocks.SOUL_CAMPFIRE)){kind="campfire";value=state.getValue(BlockStateProperties.LIT)?damageField.getInt(state.getBlock()):0;}
-      else if(state.is(Blocks.CACTUS)){kind="cactus";value=1;}
-      else if(state.is(Blocks.SWEET_BERRY_BUSH)){kind="berry";value=state.getValue(BlockStateProperties.AGE_3);}
+      String kind;
+      if(state.is(Blocks.MAGMA_BLOCK))kind="magma";
+      else if(state.is(Blocks.CAMPFIRE)||state.is(Blocks.SOUL_CAMPFIRE))kind="campfire";
+      else if(state.is(Blocks.CACTUS))kind="cactus";
+      else if(state.is(Blocks.SWEET_BERRY_BUSH))kind="berry";
       else continue;
-      var fact=new JsonArray();fact.add(Block.getId(state));fact.add(kind);fact.add(value);states.add(fact);count++;
+      count++;
       for(boolean careful:new boolean[]{false,true})for(boolean client:new boolean[]{false,true})for(int i=0;i<moves.size();i++){
         body.careful=careful;body.client=client;body.movement=moves.get(i);body.previous=moves.get(moves.size()-1-i);body.stuck=null;body.damage.clear();
         oldX.setDouble(body,body.previous.x);oldY.setDouble(body,body.previous.y);oldZ.setDouble(body,body.previous.z);
@@ -71,8 +70,7 @@ public class BlockHazardOracle {
         var row=new JsonObject();row.addProperty("state",Block.getId(state));row.addProperty("careful",careful);row.addProperty("client",client);row.add("known",vector(body.movement));row.add("previous",vector(body.previous));row.add("damage",new Gson().toJsonTree(body.damage));rows.add(row);
       }
     }
-    var facts=new JsonObject();facts.addProperty("version","26.3");facts.addProperty("data_version",5023);facts.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");facts.addProperty("state_count",Block.BLOCK_STATE_REGISTRY.size());facts.add("states",states);
-    Files.writeString(Path.of(args[0]),new Gson().toJson(facts)+"\n");Files.writeString(Path.of(args[1]),new Gson().toJson(rows));
+    Files.writeString(Path.of(args[0]),new Gson().toJson(rows));
     System.out.println("PASS: "+count+" stock hazard states and "+rows.size()+" actual player callback requests; careful/lit/age gates, native float movement boundaries and immediate/deferred distinction. Geometry, immunity, health and wear excluded.");
   }
 }

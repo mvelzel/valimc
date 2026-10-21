@@ -18,12 +18,9 @@ defmodule Valimc.Block.Support do
   import Bitwise, only: [<<<: 2, |||: 2]
   alias Valimc.Registry.Blocks
 
-  @path Path.expand("../../../priv/physics/support.json", __DIR__)
-  @external_resource @path
-  @facts JSON.decode!(File.read!(@path))
+  use Valimc.Facts, "physics/support.json"
   @count Blocks.state_count()
-  unless Valimc.Version.stamped?(@facts) and @facts["state_count"] == @count,
-    do: raise("Wrong support facts version")
+  unless @facts["state_count"] == @count, do: raise("Wrong support facts version")
 
   @directions {{0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {-1, 0, 0}, {1, 0, 0}}
 

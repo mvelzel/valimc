@@ -1,8 +1,6 @@
 alias Valimc.Physics.Mining
-[facts_path, cases_path, ticks_path] = System.argv()
-facts = facts_path |> File.read!() |> JSON.decode!()
-committed = "priv/physics/mining_blocks.json" |> File.read!() |> JSON.decode!()
-unless facts == committed, do: raise("Native mining catalog differs")
+[cases_path, ticks_path] = System.argv()
+count = Valimc.Registry.BlockFacts.count()
 
 bits = fn
   :nan -> <<0x7FC00000::32>>
@@ -17,7 +15,7 @@ for row <- rows do
   expected = Base.decode16!(row["progress_bits"], case: :lower)
 
   actual =
-    for id <- 0..(facts["state_count"] - 1), into: <<>> do
+    for id <- 0..(count - 1), into: <<>> do
       {:ok, rate} = Mining.rate(id, row["speed"], row["correct"])
       bits.(rate)
     end
@@ -39,5 +37,5 @@ for row <- ticks do
 end
 
 IO.puts(
-  "PASS: #{facts["state_count"] * length(rows)} bit-exact native mining rates and #{length(ticks)} actual elapsed/crack callback prefixes."
+  "PASS: #{count * length(rows)} bit-exact native mining rates and #{length(ticks)} actual elapsed/crack callback prefixes."
 )

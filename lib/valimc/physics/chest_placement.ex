@@ -1,7 +1,7 @@
 defmodule Valimc.Physics.ChestPlacement do
   @moduledoc "Pinned isolated single-chest orientation/water state; callers must separately admit placement and neighbors."
   import Bitwise
-  alias Valimc.Physics.FluidBlocks
+  alias Valimc.Registry.BlockFacts
   @path Path.expand("../../../priv/physics/chest_placement.json", __DIR__)
   @external_resource @path
   @facts JSON.decode!(File.read!(@path))
@@ -30,7 +30,7 @@ defmodule Valimc.Physics.ChestPlacement do
 
   def single_state(yaw, target_state) do
     with {:ok, heading} <- horizontal(yaw),
-         {:ok, fluid} <- FluidBlocks.fetch(target_state) do
+         fluid = BlockFacts.fluid(target_state) do
       {:ok, @states[heading][if(fluid.kind == :water and fluid.source, do: "wet", else: "dry")]}
     end
   end

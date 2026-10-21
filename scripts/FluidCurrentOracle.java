@@ -47,7 +47,7 @@ public class FluidCurrentOracle {
   private static JsonArray vector(double... values){var a=new JsonArray();for(double n:values)a.add(n);return a;}
   private static JsonArray position(BlockPos p){var a=new JsonArray();a.add(p.getX());a.add(p.getY());a.add(p.getZ());return a;}
   public static void main(String[] args)throws Exception{
-    SharedConstants.tryDetectVersion();Bootstrap.bootStrap();FluidBoundaryMetadata.bindFlowTag();
+    SharedConstants.tryDetectVersion();Bootstrap.bootStrap();BlockFactsOracle.bindOnly(net.minecraft.tags.BlockTags.BLOCKS_FLUID_FLOW);
     var bind=Holder.Reference.class.getDeclaredMethod("bindTags",Collection.class);bind.setAccessible(true);
     for(var fluid:List.of(Fluids.WATER,Fluids.FLOWING_WATER))bind.invoke(fluid.builtInRegistryHolder(),List.of(FluidTags.WATER));
     for(var fluid:List.of(Fluids.LAVA,Fluids.FLOWING_LAVA))bind.invoke(fluid.builtInRegistryHolder(),List.of(FluidTags.LAVA));

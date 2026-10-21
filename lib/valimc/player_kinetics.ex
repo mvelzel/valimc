@@ -2,6 +2,7 @@ defmodule Valimc.PlayerKinetics do
   @moduledoc "Player-owned server velocity, separate from accepted client displacement."
   import Bitwise
   alias Valimc.{PlayerJumpBoost, PlayerMotion, PlayerMotionQuery, PlayerTravelEffects}
+  alias Valimc.Registry.BlockFacts
 
   alias Valimc.Physics.{
     AirMotion,
@@ -16,7 +17,6 @@ defmodule Valimc.PlayerKinetics do
     FluidControls,
     FluidCurrents,
     FluidMotion,
-    MotionBlocks,
     MovementPaths,
     PlayerPose,
     SneakEdges,
@@ -620,7 +620,7 @@ defmodule Valimc.PlayerKinetics do
 
   defp fact(%BlockCollisions.Frame{states: states}, pos) do
     case Map.fetch(states, pos) do
-      {:ok, id} -> MotionBlocks.fetch(id)
+      {:ok, id} -> {:ok, BlockFacts.motion(id)}
       :error -> {:error, :incomplete_kinetic_frame}
     end
   end

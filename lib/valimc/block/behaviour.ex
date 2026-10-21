@@ -73,7 +73,7 @@ defmodule Valimc.Block.Behaviour do
       def harvest_drops(_state), do: :default
 
       @impl true
-      def after_removal(state), do: Valimc.Physics.FluidBlocks.after_removal(state)
+      def after_removal(state), do: Valimc.Registry.BlockFacts.fluid_remains(state)
 
       defoverridable block_entity: 1,
                      placement: 5,

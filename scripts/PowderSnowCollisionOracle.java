@@ -65,7 +65,7 @@ public class PowderSnowCollisionOracle {
     var shape=Blocks.POWDER_SNOW.defaultBlockState().getCollisionShape(EmptyBlockGetter.INSTANCE,pos,ctx);
     var worldShape=shape.move(pos.getX(),pos.getY(),pos.getZ());var c=new JsonObject();
     c.add("position",vector(pos.getX(),pos.getY(),pos.getZ()));c.add("context",facts);
-    c.add("geometry",CollisionMetadata.geometry(shape));var queries=new JsonArray();
+    c.add("geometry",BlockFactsOracle.geometry(shape));var queries=new JsonArray();
     for(var axis:Axis.values())for(int direction:new int[]{-1,1}) {
       double[] origin={pos.getX(),pos.getY(),pos.getZ()};
       double[] lo={origin[0]+0.2,origin[1]+0.1,origin[2]+0.2};

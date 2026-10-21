@@ -51,7 +51,7 @@ public class EntityCollisionOracle {
     var shapes=getter.getEntityCollisions(subject,box);var result=new JsonArray();
     for(int i=0;i<shapes.size();i++) {
       var e=selected.get(i);var f=new JsonObject();f.addProperty("id",e.fixtureId);f.add("box",bits(e.getBoundingBox()));
-      f.add("geometry",CollisionMetadata.geometry(shapes.get(i)));result.add(f);
+      f.add("geometry",BlockFactsOracle.geometry(shapes.get(i)));result.add(f);
     }
     if(!c.has("query_box"))c.add("query_box",JsonNull.INSTANCE);
     c.add("colliders",result);return c;

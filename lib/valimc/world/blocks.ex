@@ -10,15 +10,14 @@ defmodule Valimc.World.Blocks do
   matching the edit-map semantics this replaces; VMC-065 makes them explicit errors.
   """
   alias Valimc.Native
-  alias Valimc.Physics.{FluidBlocks, HeightmapBlocks}
   alias Valimc.Protocol.Data
+  alias Valimc.Registry.BlockFacts
   alias Valimc.World.Chunk
   import Bitwise
 
   @enforce_keys [:ref, :key]
   defstruct [:ref, :key]
 
-  @air_states [0, 18_649, 18_650]
   @air 1 <<< 6
   @fluid 1 <<< 7
   # Upper bound on one region's section memory (64 chunks of fully dense sections
@@ -36,12 +35,10 @@ defmodule Valimc.World.Blocks do
 
   @doc "One byte per state: heightmap predicate bits 0..5, air bit 6, fluid bit 7."
   def flags do
-    for id <- 0..(Data.block_state_count() - 1), into: <<>> do
-      {:ok, mask} = HeightmapBlocks.mask(id)
-      {:ok, %{kind: fluid}} = FluidBlocks.fetch(id)
-      air = if id in @air_states, do: @air, else: 0
-      wet = if fluid == :empty, do: 0, else: @fluid
-      <<mask ||| air ||| wet>>
+    for id <- 0..(BlockFacts.count() - 1), into: <<>> do
+      air = if BlockFacts.air?(id), do: @air, else: 0
+      wet = if BlockFacts.fluid(id).kind == :empty, do: 0, else: @fluid
+      <<BlockFacts.heightmap(id) ||| air ||| wet>>
     end
   end
 
