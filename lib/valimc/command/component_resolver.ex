@@ -63,25 +63,9 @@ defmodule Valimc.Command.ComponentResolver do
 
     names = Enum.map(Targets.players(source, selector), &Source.display_name/1)
 
-    separator =
-      case fields["separator"] do
-        nil -> Text.literal(", ") |> Text.color("gray")
-        separator -> resolve(separator, source, depth)
-      end
-
-    case names do
-      [] ->
-        Text.literal("")
-
-      [one] ->
-        one
-
-      [first | rest] ->
-        Enum.reduce(
-          rest,
-          Text.empty() |> Text.append(first),
-          &(&2 |> Text.append(separator) |> Text.append(&1))
-        )
+    case fields["separator"] do
+      nil -> Text.join(names)
+      separator -> Text.join(names, resolve(separator, source, depth))
     end
   end
 

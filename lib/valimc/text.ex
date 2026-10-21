@@ -66,6 +66,17 @@ defmodule Valimc.Text do
 
   def color(component, color), do: style(component, [{"color", color}])
 
+  @doc """
+  `ComponentUtils.formatList`: nothing, the one component, or the components
+  as siblings of an empty one with `separator` (a gray ", ") between them.
+  """
+  def join(components, separator \\ literal(", ") |> color("gray"))
+  def join([], _separator), do: empty()
+  def join([one], _separator), do: one
+
+  def join([first | rest], separator),
+    do: Enum.reduce(rest, empty() |> append(first), &(&2 |> append(separator) |> append(&1)))
+
   def suggest_command(command),
     do: {:compound, %{"action" => {:string, "suggest_command"}, "command" => {:string, command}}}
 

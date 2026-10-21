@@ -189,17 +189,8 @@ defmodule Valimc.Commands.Chat do
     end
   end
 
-  @doc "`EntitySelector.joinNames` (`ComponentUtils.formatList` with a gray \", \")."
-  def join_names([]), do: Text.empty()
-  def join_names([one]), do: Source.display_name(one)
-
-  def join_names([first | rest]) do
-    separator = Text.literal(", ") |> Text.color("gray")
-
-    Enum.reduce(rest, Text.empty() |> Text.append(Source.display_name(first)), fn player, acc ->
-      acc |> Text.append(separator) |> Text.append(Source.display_name(player))
-    end)
-  end
+  @doc "`EntitySelector.joinNames`."
+  def join_names(players), do: Text.join(Enum.map(players, &Source.display_name/1))
 
   # ---- list ----
 
@@ -218,21 +209,7 @@ defmodule Valimc.Commands.Chat do
   defp list_players(source, format) do
     players = Valimc.Command.Targets.online() |> Enum.sort_by(& &1.entity_id)
 
-    names =
-      case players do
-        [] ->
-          Text.empty()
-
-        [one] ->
-          format.(one)
-
-        [first | rest] ->
-          separator = Text.literal(", ") |> Text.color("gray")
-
-          Enum.reduce(rest, Text.empty() |> Text.append(format.(first)), fn player, acc ->
-            acc |> Text.append(separator) |> Text.append(format.(player))
-          end)
-      end
+    names = Text.join(Enum.map(players, format))
 
     message =
       Text.translatable("commands.list.players", [
