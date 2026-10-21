@@ -223,10 +223,7 @@ defmodule Valimc.Commands.Place do
       {owner, revision} = Map.fetch!(revisions, key)
 
       Enum.reduce(Enum.chunk_every(group, 4096), revision, fn batch, revision ->
-        case Valimc.World.Region.set_blocks(owner, revision, Map.new(batch), entity_positions) do
-          {:ok, revision} -> revision
-          {:error, reason} -> Error.refuse!("Placing could not change the world (#{reason})")
-        end
+        write_batch!(owner, revision, Map.new(batch), entity_positions, 3)
       end)
     end
 
@@ -243,5 +240,27 @@ defmodule Valimc.Commands.Place do
     end
 
     :ok
+  end
+
+  # A region's revision moves when anything in it changes (terrain generating
+  # next to the placement, a tick). Vanilla's placement writes the level as it
+  # is; the placement writes only the positions it changed, so a newer
+  # revision is taken and the batch sent again.
+  defp write_batch!(owner, revision, edits, entity_positions, attempts) do
+    case Valimc.World.Region.set_blocks(owner, revision, edits, entity_positions) do
+      {:ok, revision} ->
+        revision
+
+      {:error, :stale_revision} when attempts > 0 ->
+        {position, _} = Enum.at(edits, 0)
+
+        case Valimc.World.Region.observe_blocks(owner, [position]) do
+          {:ok, view} -> write_batch!(owner, view.revision, edits, entity_positions, attempts - 1)
+          {:error, reason} -> Error.refuse!("Placing could not change the world (#{reason})")
+        end
+
+      {:error, reason} ->
+        Error.refuse!("Placing could not change the world (#{reason})")
+    end
   end
 end
