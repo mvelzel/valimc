@@ -23,6 +23,7 @@ pub mod region;
 pub mod sampler;
 pub mod sculk;
 pub mod shapes;
+pub mod spawn;
 pub mod speleothem;
 pub mod state_provider;
 pub mod structure;

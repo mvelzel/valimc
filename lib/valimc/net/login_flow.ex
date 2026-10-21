@@ -152,6 +152,9 @@ defmodule Valimc.Net.LoginFlow do
     {store, fence, player, inventory, pending} =
       case PlayerStore.open(player.uuid) do
         {:ok, pid, nil, fence} ->
+          # A new player appears near the world spawn (VMC-027e).
+          player = Map.merge(player, Valimc.World.PlayerSpawn.find())
+
           {pid, fence, player,
            %{state.inventory | infinite_materials: player.abilities.infinite_materials}, nil}
 

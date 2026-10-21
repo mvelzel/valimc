@@ -80,7 +80,7 @@ def run_tcp(java, cp):
                 port = probe.getsockname()[1]
             env = dict(mix_env, VALIMC_PORT=str(port), VALIMC_WORLD=str(pathlib.Path(world) / mode),
                        VALIMC_ENCRYPTION=str(encrypted).lower(), VALIMC_ONLINE_MODE='false',
-                       VALIMC_GAME_MODE='creative')
+                       VALIMC_GAME_MODE='creative', VALIMC_RESPAWN_RADIUS='0')
             log_path = logs / f'tcp-{mode}-server.log'
             with log_path.open('w') as log:
                 server = subprocess.Popen(['mix', 'run', '--no-compile', '--no-deps-check', '--no-halt'], cwd=root, env=env, stdout=log,

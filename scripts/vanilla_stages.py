@@ -665,6 +665,14 @@ STAGES = [
         ('java', 'BorderCollisionOracle', '@border-collisions.json'),
         ('check', 'check_border_collisions.exs', '@border-collisions.json'),
     ]),
+    # The worlds scope is the generation ValiMC runs live: terrain until features
+    # (VMC-025d) and structures (VMC-025f) generate in new worlds.
+    ('spawn', [
+        ('java', 'SpawnOracle', 'origins', '@origins.json'),
+        ('check', 'check_spawn.exs', 'origins', '@origins.json'),
+        ('java', 'SpawnOracle', 'worlds', '@worlds.json', 'terrain'),
+        ('check', 'check_spawn.exs', 'worlds', '@worlds.json'),
+    ]),
     ('world_border', [
         ('java', 'WorldBorderOracle', 'kernel', '@border-kernel.json'),
         ('check', 'check_world_border.exs', 'kernel', '@border-kernel.json'),

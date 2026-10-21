@@ -53,6 +53,8 @@ pub struct Settings {
     pub router: Vec<(String, Df)>,
     pub aquifers: Vec<(String, Df)>,
     pub material_rule: Rule,
+    /// The spawn target (VMC-027d).
+    pub spawn_target: Vec<SpawnPoint>,
 }
 
 /// Block states worldgen places or tests, as global state ids.
@@ -195,6 +197,37 @@ const CLIMATE: [&str; 6] = [
     "depth",
     "ridges",
 ];
+
+/// A spawn target point: functions and their quantized parameter ranges.
+pub type SpawnPoint = Vec<(Df, i64, i64)>;
+
+/// `SpawnTargetPoint`s: function references with `[min, max]` parameters,
+/// quantized as `Climate.quantizeCoord` does.
+fn spawn_target(json: Option<&Json>) -> Result<Vec<SpawnPoint>, String> {
+    let Some(points) = json else {
+        return Ok(vec![]);
+    };
+    let quantize =
+        |v: &Json| -> Result<i64, String> { Ok((v.as_f64()? as f32 * 10000.0f32) as i64) };
+    points
+        .as_array()?
+        .iter()
+        .map(|point| {
+            point
+                .entries()?
+                .iter()
+                .map(|(name, range)| match range.as_array()? {
+                    [min, max] => Ok((
+                        Df::parse(&Json::String(name.clone()))?,
+                        quantize(min)?,
+                        quantize(max)?,
+                    )),
+                    _ => Err(format!("spawn target {name}: not a range")),
+                })
+                .collect()
+        })
+        .collect()
+}
 
 fn named_functions(json: Option<&Json>) -> Result<Vec<(String, Df)>, String> {
     match json {
@@ -350,6 +383,7 @@ impl Registry {
                 router: named_functions(Some(json.field("noise_router")?))?,
                 aquifers: named_functions(json.get("aquifers"))?,
                 material_rule: Rule::parse(json.field("material_rule")?, &registry.biomes)?,
+                spawn_target: spawn_target(json.get("spawn_target"))?,
             };
             registry.settings.insert(id.clone(), parsed);
         }

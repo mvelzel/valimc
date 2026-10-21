@@ -62,7 +62,53 @@
       },
       "surface_level": "minecraft:overworld_amplified/preliminary_surface_level"
     },
-    "material_rule": "minecraft:overworld"
+    "material_rule": "minecraft:overworld",
+    "spawn_target": [
+      {
+        "minecraft:overworld/continents": [
+          -0.10999999940395355,
+          1.0
+        ],
+        "minecraft:overworld/temperature": [
+          -1.0,
+          1.0
+        ],
+        "minecraft:overworld/vegetation": [
+          -1.0,
+          1.0
+        ],
+        "minecraft:overworld/ridges": [
+          -1.0,
+          -0.1599999964237213
+        ],
+        "minecraft:overworld/erosion": [
+          -1.0,
+          1.0
+        ]
+      },
+      {
+        "minecraft:overworld/continents": [
+          -0.10999999940395355,
+          1.0
+        ],
+        "minecraft:overworld/temperature": [
+          -1.0,
+          1.0
+        ],
+        "minecraft:overworld/vegetation": [
+          -1.0,
+          1.0
+        ],
+        "minecraft:overworld/ridges": [
+          0.1599999964237213,
+          1.0
+        ],
+        "minecraft:overworld/erosion": [
+          -1.0,
+          1.0
+        ]
+      }
+    ]
   },
   "minecraft:caves": {
     "noise": {
@@ -128,7 +174,8 @@
         "type": "minecraft:add"
       }
     },
-    "material_rule": "minecraft:overworld_caves"
+    "material_rule": "minecraft:overworld_caves",
+    "spawn_target": []
   },
   "minecraft:end": {
     "noise": {
@@ -194,7 +241,8 @@
         "type": "minecraft:add"
       }
     },
-    "material_rule": "minecraft:end"
+    "material_rule": "minecraft:end",
+    "spawn_target": []
   },
   "minecraft:floating_islands": {
     "noise": {
@@ -260,7 +308,8 @@
         "type": "minecraft:add"
       }
     },
-    "material_rule": "minecraft:overworld_floating_islands"
+    "material_rule": "minecraft:overworld_floating_islands",
+    "spawn_target": []
   },
   "minecraft:large_biomes": {
     "noise": {
@@ -325,7 +374,53 @@
       },
       "surface_level": "minecraft:overworld_large_biomes/preliminary_surface_level"
     },
-    "material_rule": "minecraft:overworld"
+    "material_rule": "minecraft:overworld",
+    "spawn_target": [
+      {
+        "minecraft:overworld_large_biomes/erosion": [
+          -1.0,
+          1.0
+        ],
+        "minecraft:overworld_large_biomes/temperature": [
+          -1.0,
+          1.0
+        ],
+        "minecraft:overworld/ridges": [
+          -1.0,
+          -0.1599999964237213
+        ],
+        "minecraft:overworld_large_biomes/vegetation": [
+          -1.0,
+          1.0
+        ],
+        "minecraft:overworld_large_biomes/continents": [
+          -0.10999999940395355,
+          1.0
+        ]
+      },
+      {
+        "minecraft:overworld_large_biomes/erosion": [
+          -1.0,
+          1.0
+        ],
+        "minecraft:overworld_large_biomes/temperature": [
+          -1.0,
+          1.0
+        ],
+        "minecraft:overworld/ridges": [
+          0.1599999964237213,
+          1.0
+        ],
+        "minecraft:overworld_large_biomes/vegetation": [
+          -1.0,
+          1.0
+        ],
+        "minecraft:overworld_large_biomes/continents": [
+          -0.10999999940395355,
+          1.0
+        ]
+      }
+    ]
   },
   "minecraft:nether": {
     "noise": {
@@ -401,7 +496,8 @@
         "type": "minecraft:add"
       }
     },
-    "material_rule": "minecraft:nether"
+    "material_rule": "minecraft:nether",
+    "spawn_target": []
   },
   "minecraft:overworld": {
     "noise": {
@@ -466,6 +562,52 @@
       },
       "surface_level": "minecraft:overworld/preliminary_surface_level"
     },
-    "material_rule": "minecraft:overworld"
+    "material_rule": "minecraft:overworld",
+    "spawn_target": [
+      {
+        "minecraft:overworld/continents": [
+          -0.10999999940395355,
+          1.0
+        ],
+        "minecraft:overworld/temperature": [
+          -1.0,
+          1.0
+        ],
+        "minecraft:overworld/vegetation": [
+          -1.0,
+          1.0
+        ],
+        "minecraft:overworld/ridges": [
+          -1.0,
+          -0.1599999964237213
+        ],
+        "minecraft:overworld/erosion": [
+          -1.0,
+          1.0
+        ]
+      },
+      {
+        "minecraft:overworld/continents": [
+          -0.10999999940395355,
+          1.0
+        ],
+        "minecraft:overworld/temperature": [
+          -1.0,
+          1.0
+        ],
+        "minecraft:overworld/vegetation": [
+          -1.0,
+          1.0
+        ],
+        "minecraft:overworld/ridges": [
+          0.1599999964237213,
+          1.0
+        ],
+        "minecraft:overworld/erosion": [
+          -1.0,
+          1.0
+        ]
+      }
+    ]
   }
 }

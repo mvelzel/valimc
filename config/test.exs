@@ -7,6 +7,8 @@ config :valimc,
   world_path: nil,
   acceptors: 2,
   view_distance: 2,
+  # Fixtures expect fresh players at the spawn block.
+  respawn_radius: 0,
   region_read_gates: true,
   full_fsync: false,
   overload_kill_ms: 200,

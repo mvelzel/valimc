@@ -75,6 +75,13 @@ for {variable, key} <- [
   end
 end
 
+if radius = System.get_env("VALIMC_RESPAWN_RADIUS") do
+  case Integer.parse(radius) do
+    {value, ""} when value in 0..2_147_483_647 -> config :valimc, respawn_radius: value
+    _ -> raise "VALIMC_RESPAWN_RADIUS must be a non-negative integer"
+  end
+end
+
 if speed = System.get_env("VALIMC_RANDOM_TICK_SPEED") do
   case Integer.parse(speed) do
     {value, ""} when value in 0..4096 -> config :valimc, random_tick_speed: value

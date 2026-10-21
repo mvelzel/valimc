@@ -6,8 +6,8 @@ defmodule Valimc.World.Generator do
 
   New worlds take the configured generator (`:generator`, `VALIMC_GENERATOR`,
   flat by default) and seed (`:seed`, `VALIMC_SEED`, random otherwise). A new
-  vanilla world spawns on the generated surface at the origin; vanilla's spawn
-  search is VMC-027.
+  vanilla world's spawn is vanilla's spawn search over its generated chunks
+  (`Valimc.World.SpawnSearch`, VMC-027d).
 
   Regions of a vanilla world generate the chunks their log has no column image
   for when they load (`columns/2`), and persist them before serving them, so a
@@ -56,16 +56,15 @@ defmodule Valimc.World.Generator do
     {hashed, false}
   end
 
-  @doc "Write `world.json` for a new vanilla world at `base` with `seed`, its spawn on the surface."
+  @doc "Write `world.json` for a new vanilla world at `base` with `seed` and vanilla's world spawn."
   def create(base, seed) when is_integer(seed) do
-    [{0, 0, _image, heights}] = generate(seed, [{0, 0}])
-    y = Enum.at(heights, 0) + 1
+    {x, y, z} = Valimc.World.SpawnSearch.world_spawn({:vanilla, seed})
     File.mkdir_p!(base)
 
     File.write(
       Spawn.path(base),
       JSON.encode!(%{
-        "spawn" => [0, y, 0],
+        "spawn" => [x, y, z],
         "yaw" => 0.0,
         "generator" => %{"type" => "vanilla", "seed" => seed}
       })
@@ -101,6 +100,14 @@ defmodule Valimc.World.Generator do
       Enum.reduce(generated, acc, fn {cx, cz, image, _heights}, acc ->
         Map.put(acc, {cx, cz}, image)
       end)
+    end)
+  end
+
+  @doc "The spawn target's origin column `{x, z}` of `seed`, or nil (VMC-027d)."
+  def spawn_origin(seed) do
+    checked_out(seed, fn state ->
+      {:ok, origin} = Native.worldgen_spawn_origin(state)
+      origin
     end)
   end
 

@@ -11,6 +11,7 @@
 | `VALIMC_SEED` | Seed of a new vanilla world (64-bit integer); random by default |
 | `VALIMC_VIEW_DISTANCE` | Server view distance (`view-distance`, 2..32, default 10): each client gets the distance it requests, at least 2 and at most this |
 | `VALIMC_SIMULATION_DISTANCE` | Simulation distance clients are told (`simulation-distance`, 2..32, default 10); regions still simulate every loaded chunk |
+| `VALIMC_RESPAWN_RADIUS` | The `respawn_radius` game rule: new players and bedless respawns appear within this many blocks of the world spawn; default 10 |
 | `VALIMC_GAME_MODE` | New/legacy player mode: survival, creative, adventure, spectator |
 | `VALIMC_ENCRYPTION` | Offline RSA/AES transport test; does not authenticate accounts |
 | `VALIMC_ONLINE_MODE` | Mojang account verification; login uses encryption |

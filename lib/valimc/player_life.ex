@@ -27,9 +27,8 @@ defmodule Valimc.PlayerLife do
       else: player
   end
 
-  def respawn(player) do
-    spawn = Valimc.World.Spawn.pose()
-
+  @doc "The respawned player at `spawn` (`Valimc.World.PlayerSpawn.find/1`)."
+  def respawn(player, spawn \\ Valimc.World.Spawn.pose()) do
     %{
       player
       | x: spawn.x,

@@ -33,6 +33,9 @@ config :valimc,
   region_ticks: :timer,
   # The vanilla `randomTickSpeed` gamerule: random ticks per section per game tick.
   random_tick_speed: 3,
+  # The vanilla `respawn_radius` gamerule: new players and respawns without a bed
+  # appear within this many blocks of the world spawn (VMC-027e).
+  respawn_radius: 10,
   # macOS `fsync` stops at the drive cache; flush through it (F_FULLFSYNC).
   full_fsync: match?({:unix, :darwin}, :os.type()),
   packets_per_second: 400,

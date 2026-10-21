@@ -33,7 +33,7 @@ import net.minecraft.world.level.levelgen.synth.NormalNoise;
  * - density_functions.json: the `worldgen/density_function` registry;
  * - noise_settings.json: per `worldgen/noise_settings` entry, its noise
  *   bounds, sea level, default block and fluid, legacy random flag, noise
- *   router, aquifer functions and material rule;
+ *   router, aquifer functions, material rule and spawn target (VMC-027);
  * - material_rules.json and material_conditions.json: the
  *   `worldgen/material_rule` and `worldgen/material_condition` registries;
  * - biomes.json: per biome, its climate (precipitation, temperature and its
@@ -75,7 +75,7 @@ public class WorldgenFactsOracle {
       var full = NoiseGeneratorSettings.DIRECT_CODEC.encodeStart(ops, holder.value()).getOrThrow().getAsJsonObject();
       var kept = new JsonObject();
       for (var key : List.of("noise", "sea_level", "default_block", "default_fluid", "legacy_random_source",
-          "noise_router", "aquifers", "material_rule")) {
+          "noise_router", "aquifers", "material_rule", "spawn_target")) {
         if (full.has(key)) kept.add(key, full.get(key));
       }
       settings.put(holder.key().identifier().toString(), kept);

@@ -333,7 +333,7 @@ defmodule Valimc.Player.Vitals do
   end
 
   def continue_life(%{life_stage: :dead, respawn_requested: true} = state) do
-    player = PlayerLife.respawn(state.player)
+    player = PlayerLife.respawn(state.player, Valimc.World.PlayerSpawn.find())
     snapshot = PlayerSnapshot.capture(player, Inventory.new(player.abilities.infinite_materials))
     checkpoint_life(%{state | life_stage: :respawning}, :respawn, snapshot, player)
   end

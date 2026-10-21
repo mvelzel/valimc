@@ -1008,6 +1008,14 @@ fn worldgen_build_terrain<'a>(
 /// block (`z * 16 + x`).
 type GeneratedColumn<'a> = (i32, i32, Binary<'a>, Vec<i32>);
 
+/// The shared spawn's origin column (`Worldgen::spawn_origin`, VMC-027d), or
+/// nil without a spawn target.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_spawn_origin(state: ResourceArc<WorldgenState>) -> Result<Option<(i32, i32)>, String> {
+    let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+    state.spawn_origin()
+}
+
 /// Generated chunks as region-log column images (`Worldgen::generate_column`),
 /// biomes as protocol ids (`protocol_biomes`, by biome registry id).
 #[rustler::nif(schedule = "DirtyCpu")]
