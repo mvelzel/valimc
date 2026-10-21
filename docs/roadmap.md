@@ -41,7 +41,7 @@ resumes on these foundations alongside M2.
 | [VMC-010](tickets/VMC-010.md) | Operator, whitelist and ban lists checked at login, the admin commands, save control, the idle timeout and the server console are live; RCON remains | In progress |
 | [VMC-053](tickets/VMC-053.md) | Vanilla commands: parse, permissions, suggestions, SNBT and the player, world, chat, text, effect, area, tick, operator and ban commands are live; entity, progression and data-pack commands remain | In progress |
 | [VMC-025](tickets/VMC-025.md) | Features and structures: all 171 overworld placed features equal vanilla's and decorate new worlds live across region borders; the starts of all 52 structures in three dimensions equal vanilla's; temples, swamp huts, buried treasure and every template structure (igloos, shipwrecks, ocean ruins, ruined portals, nether fossils, end cities, woodland mansions) placed as vanilla places them over terrain with beards, jigsaw and piece-built structures next | In progress |
-| [VMC-026](tickets/VMC-026.md) | Nether, End and portals: every Nether and End placed feature equal vanilla's; the Nether and the End are live worlds reached through nether and end portals as vanilla's (client check pending); end gateways next | In progress |
+| [VMC-026](tickets/VMC-026.md) | Nether, End and portals: every Nether and End placed feature equal vanilla's; the Nether and the End are live worlds reached through nether portals, end portals and end gateways as vanilla's (client check pending) | In progress |
 | [VMC-027](tickets/VMC-027.md) | World border live (moving, damage outside, `/worldborder`) and vanilla's world and player spawn search | Done |
 | [VMC-072](tickets/VMC-072.md) | Container loot tables: every container table equals vanilla's; generated and imported chests unpack on open and break, once; exploration maps follow maps (VMC-051) | Done |
 | [VMC-070](tickets/VMC-070.md) | The client's view distance (clamped to the server's, default 10) picks vanilla's chunk view, applied live; vanilla chunk send pacing and entity tracking ranges | Done |
@@ -49,7 +49,7 @@ resumes on these foundations alongside M2.
 | [VMC-028](tickets/VMC-028.md) | Generation settings as vanilla stores them, world presets (large biomes, amplified, single biome, flat) live, worldgen from a world's data packs, 26.2 worlds upgraded on import | Awaiting client |
 | [VMC-073](tickets/VMC-073.md) | The full `mix test` passes on a loaded host: condition waits, explicit expiry and manual player ticks instead of wall-clock sleeps, scaled owner budgets in tests | Done |
 
-Next: structure placement (VMC-025f), end gateways (VMC-026b4); generation and tick time stay matched against vanilla and Pumpkin (Pumpkin's range).
+Next: structure placement (VMC-025f); generation and tick time stay matched against vanilla and Pumpkin (Pumpkin's range).
 
 ## M3 onward
 
@@ -72,7 +72,7 @@ until its spill and stored experience exist ([VMC-034f](tickets/VMC-034f.md)).
 |---|---|
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Server CLONE/type-2 fill from a creative container menu (VMC-032) |
 | [VMC-028](tickets/VMC-028.md) | An amplified world and an imported 26.2 world in the client |
-| [VMC-026](tickets/VMC-026.md) | VMC-026b: portals to the Nether and back, the End and its credits, a reconnect in the Nether |
+| [VMC-026](tickets/VMC-026.md) | VMC-026b: portals to the Nether and back, the End and its credits, a gateway, a reconnect in the Nether |
 
 The M1 milestone client run passed on `127934a` (see [VMC-069](tickets/VMC-069.md)),
 with the item despawn fix checked on `6243c8c` ([VMC-067](tickets/VMC-067.md)) and

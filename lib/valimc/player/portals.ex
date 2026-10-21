@@ -211,13 +211,40 @@ defmodule Valimc.Player.Portals do
 
   defp destination(%{kind: :nether_portal} = entry), do: Valimc.Portal.Destination.nether(entry)
   defp destination(%{kind: :end_portal} = entry), do: Valimc.Portal.EndPortal.destination(entry)
+
+  defp destination(%{kind: :end_gateway} = entry),
+    do: Valimc.Portal.GatewayDestination.destination(entry)
+
   defp destination(_entry), do: :none
 
-  @doc "A destination job's result: travel there (`isAllowedToEnterPortal` permitting)."
-  def arrived(state, {:ok, target}) do
-    if target.dimension == :the_nether and not GameRules.get(:allow_entering_nether_using_portals),
-      do: state,
-      else: Travel.request(state, target)
+  @doc """
+  A destination job's result: travel there (`isAllowedToEnterPortal`
+  permitting), or teleport within the dimension (an end gateway) keeping the
+  player's motion.
+  """
+  def arrived(state, {:ok, %{dimension: dimension} = target}) do
+    cond do
+      dimension == :the_nether and not GameRules.get(:allow_entering_nether_using_portals) ->
+        state
+
+      dimension == Valimc.Dimension.current() ->
+        player = state.player
+
+        player = %{
+          player
+          | x: target.x,
+            y: target.y,
+            z: target.z,
+            yaw: target.yaw,
+            pitch: target.pitch,
+            motion: %{player.motion | velocity: target.velocity}
+        }
+
+        Valimc.Player.Movement.relocate(state, player, false, target.velocity)
+
+      true ->
+        Travel.request(state, target)
+    end
   end
 
   def arrived(state, {:credits, target}), do: arrived(state, {:ok, target})

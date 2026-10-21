@@ -171,6 +171,14 @@ defmodule Valimc.World.Store do
         {:unpack, lease, %{containers: containers, dropped: dropped}, {owner, epoch}, token}
       )
 
+  @doc """
+  Persist the region's whole preserved block entity set (`position =>
+  {type_id, nbt}`) in the next frame (a gateway's new exit, VMC-026b4);
+  acknowledged with `:containers_saved`.
+  """
+  def commit_block_entities(pid, lease, entities, {owner, epoch}, token) when is_map(entities),
+    do: GenServer.cast(pid, {:block_entities, lease, entities, {owner, epoch}, token})
+
   def flush_items(pid, lease, items, receipts),
     do: GenServer.call(pid, {:flush_items, lease, Items.snapshot(items), receipts}, 15_000)
 
@@ -344,7 +352,15 @@ defmodule Valimc.World.Store do
   # call, so taking commit casts ahead of other messages cannot reorder its writes.
   @impl true
   def handle_cast(message, %{lease: lease} = state)
-      when elem(message, 0) in [:snapshot, :items, :mining, :containers, :ticks, :unpack] and
+      when elem(message, 0) in [
+             :snapshot,
+             :items,
+             :mining,
+             :containers,
+             :ticks,
+             :unpack,
+             :block_entities
+           ] and
              elem(message, 1) == lease do
     batch = [message | drain(lease, @max_batch - 1, [])]
     Valimc.Metrics.add(:store_batches)
@@ -397,7 +413,8 @@ defmodule Valimc.World.Store do
     {:noreply, state}
   end
 
-  def handle_cast({tag, _, _, {owner, epoch}, token}, state) when tag in [:containers, :unpack] do
+  def handle_cast({tag, _, _, {owner, epoch}, token}, state)
+      when tag in [:containers, :unpack, :block_entities] do
     send(
       owner,
       {:resource, epoch, {:containers_saved, self(), token, {:error, :stale_store_lease}}}
@@ -605,7 +622,7 @@ defmodule Valimc.World.Store do
   defp drain(lease, left, acc) do
     receive do
       {:"$gen_cast", {tag, ^lease, _, _, _} = message}
-      when tag in [:snapshot, :mining, :containers, :ticks, :unpack] ->
+      when tag in [:snapshot, :mining, :containers, :ticks, :unpack, :block_entities] ->
         drain(lease, left - 1, [message | acc])
 
       {:"$gen_cast", {:items, ^lease, _, _, _, _} = message} ->
@@ -619,7 +636,7 @@ defmodule Valimc.World.Store do
     folded =
       Enum.reduce_while(
         batch,
-        %{cells: %{}, items: nil, containers: nil, ticks: nil, dropped: []},
+        %{cells: %{}, items: nil, containers: nil, ticks: nil, dropped: [], block_entities: nil},
         fn message, acc ->
           case fold_commit(key, message, acc) do
             {:ok, acc} -> {:cont, acc}
@@ -636,6 +653,7 @@ defmodule Valimc.World.Store do
          if(items, do: [{:items, items}], else: []) ++
          if(containers, do: [{:containers, containers}], else: []) ++
          if(folded.ticks, do: [{:ticks, folded.ticks}], else: []) ++
+         if(folded.block_entities, do: [{:block_entities, folded.block_entities}], else: []) ++
          if(folded.dropped == [], do: [], else: [{:block_entities_drop, folded.dropped}])}
     else
       # A batch holding a joint commit reports it as an invalid proposal.
@@ -654,6 +672,10 @@ defmodule Valimc.World.Store do
 
   defp fold_commit(_key, {:ticks, _, entries, _, _}, acc) when is_list(entries),
     do: {:ok, %{acc | ticks: entries}}
+
+  # The whole set; a drop folded into the same batch still applies after it.
+  defp fold_commit(_key, {:block_entities, _, entities, _, _}, acc) when is_map(entities),
+    do: {:ok, %{acc | block_entities: Map.drop(entities, acc.dropped)}}
 
   defp fold_commit(_key, {:containers, _, containers, _, _}, acc),
     do: {:ok, %{acc | containers: containers}}
@@ -713,8 +735,9 @@ defmodule Valimc.World.Store do
   defp acknowledge({:ticks, _, _, {owner, epoch}, token}, result),
     do: send(owner, {:resource, epoch, {:ticks_saved, self(), token, result}})
 
-  defp acknowledge({tag, _, _, {owner, epoch}, token}, result) when tag in [:containers, :unpack],
-    do: send(owner, {:resource, epoch, {:containers_saved, self(), token, result}})
+  defp acknowledge({tag, _, _, {owner, epoch}, token}, result)
+       when tag in [:containers, :unpack, :block_entities],
+       do: send(owner, {:resource, epoch, {:containers_saved, self(), token, result}})
 
   # Append one frame of full values; without a world path, keep them in memory.
   defp write(state, []), do: {:ok, state}

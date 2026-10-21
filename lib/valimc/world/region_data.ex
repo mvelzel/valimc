@@ -1413,6 +1413,52 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  def handle_call({:block_entity, epoch, position}, _from, state) do
+    cond do
+      epoch != state.items.epoch ->
+        {:reply, {:error, :stale_owner}, state}
+
+      not valid_block_query?([position], :any) or not in_region?(state, position) ->
+        {:reply, {:error, :invalid_block_query}, state}
+
+      true ->
+        entry =
+          BlockEntities.live(state.block_entities, position, Blocks.get(state.blocks, position))
+
+        {:reply, {:ok, entry && Map.take(entry, [:type, :nbt])}, state}
+    end
+  end
+
+  # Gateway exits (VMC-026b4): preserved entries join the set in one frame,
+  # queued with the owner's other writes; the caller hears once it is durable.
+  def handle_call({:put_block_entities, epoch, entries}, from, state) do
+    positions = Map.keys(entries)
+
+    cond do
+      epoch != state.items.epoch ->
+        {:reply, {:error, :stale_owner}, state}
+
+      not valid_block_query?(positions, :any) or not Enum.all?(positions, &in_region?(state, &1)) ->
+        {:reply, {:error, :invalid_block_query}, state}
+
+      busy = write_busy(state) ->
+        {:reply, {:error, busy}, state}
+
+      true ->
+        case BlockEntities.put(state.block_entities, entries, &Blocks.get(state.blocks, &1)) do
+          {:ok, entities, stored} ->
+            token = make_ref()
+            owner = {self(), state.items.epoch}
+            Store.commit_block_entities(state.store, state.store_lease, stored, owner, token)
+            state = %{state | block_entities: entities}
+            {:noreply, queue_container_write(state, token, from, {:ok, :applied}, [])}
+
+          error ->
+            {:reply, error, state}
+        end
+    end
+  end
+
   def handle_call({:block_entity_update, epoch, position}, _from, state) do
     cond do
       epoch != state.items.epoch -> {:reply, {:error, :stale_owner}, state}

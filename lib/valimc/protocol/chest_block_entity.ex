@@ -23,6 +23,9 @@ defmodule Valimc.Protocol.ChestBlockEntity do
           Valimc.Block.block_entity(block) != nil or Valimc.Physics.BlockEntities.plain?(block),
           do: {position, Valimc.Physics.BlockEntities.type_id(block), nil}
 
+    # A plain block entity with a preserved entry (a gateway's exit) is listed once.
+    kept = MapSet.new(preserved, &elem(&1, 0))
+    owned = Enum.reject(owned, fn {position, _, _} -> MapSet.member?(kept, position) end)
     entries = Enum.sort(owned ++ preserved)
     if length(entries) > @max_entries, do: raise(ArgumentError, "too many block entities")
 

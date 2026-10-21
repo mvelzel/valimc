@@ -95,6 +95,27 @@ defmodule Valimc.World.BlockEntities do
     end
   end
 
+  @doc """
+  The set with `entries` (`position => {type_id, nbt}`) added or replaced,
+  each of the type the block at its position (`current`) creates, and the
+  whole set as the store keeps it: `{:ok, entities, stored}` or an error.
+  """
+  def put(%__MODULE__{entries: entries} = entities, new, current) when is_map(new) do
+    with true <-
+           Enum.all?(new, fn {position, {type, _}} ->
+             Types.type_id(current.(position)) == type
+           end),
+         {:ok, %__MODULE__{entries: added}} <- new(new),
+         merged = Map.merge(entries, added),
+         true <- map_size(merged) <= @max_entries do
+      {:ok, %{entities | entries: merged},
+       Map.new(merged, fn {position, e} -> {position, {e.type, e.nbt}} end)}
+    else
+      false -> {:error, :invalid_block_entity}
+      error -> error
+    end
+  end
+
   @doc "The set without the entry at `position`."
   def drop(%__MODULE__{entries: entries} = entities, position),
     do: %{entities | entries: Map.delete(entries, position)}

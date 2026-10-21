@@ -35,6 +35,29 @@ defmodule Valimc.World.Region do
   def step({pid, _epoch}, ticks \\ 1),
     do: GenServer.call(pid, {:step, ticks}, budget(pid, 10_000))
 
+  @doc """
+  The live preserved block entity at `position` (`%{type: id, nbt: binary}`,
+  an end gateway's exit for one, VMC-026b4), or nil.
+  """
+  def block_entity({pid, epoch}, position) when is_pid(pid) and is_reference(epoch) do
+    GenServer.call(pid, {:block_entity, epoch, position}, 1000)
+  catch
+    :exit, {:timeout, _} -> {:error, :block_query_timeout}
+    :exit, _ -> {:error, :region_unavailable}
+  end
+
+  @doc """
+  Add or replace preserved block entities (`position => {type_id, nbt}`, each
+  of the type its block creates) in one durable frame; replies once durable.
+  """
+  def put_block_entities({pid, epoch}, entries)
+      when is_pid(pid) and is_reference(epoch) and is_map(entries) do
+    GenServer.call(pid, {:put_block_entities, epoch, entries}, 7000)
+  catch
+    :exit, {:timeout, _} -> {:error, :block_entity_commit_uncertain}
+    :exit, _ -> {:error, :region_unavailable}
+  end
+
   @doc "Read one owner-local block revision; this observation does not authorize later mutations."
   def observe_blocks(owner, positions, expected_revision \\ :any)
 

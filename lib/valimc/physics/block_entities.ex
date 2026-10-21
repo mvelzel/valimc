@@ -30,9 +30,13 @@ defmodule Valimc.Physics.BlockEntities do
   @doc "Single chests and the furnace family are the block entities ValiMC owns today."
   def supported?(state), do: Valimc.Block.block_entity(state) != nil
 
-  # Block entities that keep nothing a client or save needs (VMC-026b3): end
-  # portals. They are placed as plain blocks; chunk packets still list them.
-  @plain [Valimc.Registry.Blocks.default_state("end_portal")]
+  # Block entities placed as plain blocks (VMC-026b3/b4): end portals keep
+  # nothing; an end gateway's exit, once it has one, is a preserved entry.
+  # Chunk packets list them either way.
+  @plain [
+    Valimc.Registry.Blocks.default_state("end_portal"),
+    Valimc.Registry.Blocks.default_state("end_gateway")
+  ]
 
   @doc "Whether a state's block entity holds no data (an end portal's)."
   def plain?(state), do: state in @plain

@@ -200,6 +200,68 @@ failures =
       reduce: failures,
       do: (acc -> [{:platform, i, length(got), length(c["edits"])} | acc])
 
+# Gateway exits: each step over the oracle's level as vanilla's changed it.
+alias Valimc.Portal.Gateway
+
+failures =
+  for {c, i} <- Enum.with_index(facts["gateways"]), reduce: failures do
+    acc ->
+      blocks = level.(c["blocks"])
+      entry = to_pos.(c["entry"])
+      non_air = fn blocks -> for {pos, s} <- blocks, not Gateway.air?(s), do: pos end
+
+      top = fn blocks, {cx, cz} ->
+        ys =
+          for {x, y, z} <- non_air.(blocks),
+              Integer.floor_div(x, 16) == cx and Integer.floor_div(z, 16) == cz,
+              do: y
+
+        if ys == [], do: nil, else: Integer.floor_div(Enum.max(ys), 16) * 16 + 15
+      end
+
+      {tx, tz} =
+        Gateway.tentative(entry, fn x, z -> top.(blocks, Gateway.chunk_of({x, z})) == nil end)
+
+      chunk = Gateway.chunk_of({tx, tz})
+      valid = Gateway.valid_spawn(reader.(blocks), chunk, top.(blocks, chunk))
+
+      {spot, island} =
+        case valid do
+          nil ->
+            origin = {floor(tx + 0.5), 75, floor(tz + 0.5)}
+            {origin, Gateway.island(origin)}
+
+          found ->
+            {found, []}
+        end
+
+      blocks = Map.merge(blocks, Map.new(island))
+      tallest = Gateway.tallest(reader.(blocks), spot, 16, true, {0, 255})
+      {x, y, z} = tallest
+      structure = Gateway.structure({x, y + 10, z})
+      blocks = Map.merge(blocks, Map.new(structure))
+      arrival = Gateway.arrival(reader.(blocks), {x, y + 10, z}, false, {0, 255})
+      json = fn edits -> for {{x, y, z}, s} <- edits, do: [x, y, z, s] end
+
+      pos_json = fn
+        nil -> nil
+        {x, y, z} -> [x, y, z]
+      end
+
+      got = %{
+        "tentative" => [tx, tz],
+        "valid" => pos_json.(valid),
+        "island" => json.(island),
+        "tallest" => pos_json.(tallest),
+        "structure" => json.(structure),
+        "arrival" => pos_json.(arrival)
+      }
+
+      want = Map.take(c, Map.keys(got)) |> Map.put_new("valid", nil)
+      diff = for {k, v} <- got, v != want[k], do: {k, v, want[k]}
+      if diff == [], do: acc, else: [{:gateway, i, Enum.take(diff, 2)} | acc]
+  end
+
 if failures != [] do
   failures
   |> Enum.reverse()
@@ -220,5 +282,6 @@ IO.puts(
     "#{length(facts["fires"])} fire placements, #{length(facts["rectangles"])} rectangles, " <>
     "#{length(facts["relative"])} relative positions, #{length(facts["create"])} portal creations " <>
     "(#{edits} block sets in order), #{length(facts["closest"])} portal searches, " <>
-    "#{length(facts["frames"])} end portal frames and #{length(facts["platforms"])} End platforms equal vanilla's"
+    "#{length(facts["frames"])} end portal frames, #{length(facts["platforms"])} End platforms and " <>
+    "#{length(facts["gateways"])} gateway exits equal vanilla's"
 )

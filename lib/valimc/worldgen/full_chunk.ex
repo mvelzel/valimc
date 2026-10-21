@@ -70,6 +70,20 @@ defmodule Valimc.Worldgen.FullChunk do
     end)
   end
 
+  @doc """
+  An end gateway's preserved entry (`{type_id, nbt}`) at `position` with
+  `exit` (`{position, exact}`), as the region keeps it (VMC-026b4).
+  """
+  def gateway_entry(position, exit) do
+    state = Valimc.Registry.Blocks.default_state("end_gateway")
+    entity = %{position: position, kind: "minecraft:end_gateway", exit: exit, state: state}
+
+    with {:ok, tag} <- block_entity_tag(entity),
+         {:ok, ^position, {:preserved, type}} <- BlockEntity.convert(tag, state),
+         {:ok, nbt} <- BlockEntities.encode_nbt(tag),
+         do: {:ok, {type, nbt}}
+  end
+
   @doc "A full chunk's block entity as vanilla's full chunk saves it."
   def block_entity_tag(%{position: {x, y, z}} = entity) do
     with {:ok, id, fields} <- fields(entity) do

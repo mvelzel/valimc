@@ -12,6 +12,18 @@ defmodule Valimc.Portal.Access do
 
   @deadline 30_000
 
+  # A busy owner (one still generating or writing) is asked again until the
+  # deadline; a refused change is final.
+  @busy [
+    :stale_revision,
+    :block_query_timeout,
+    :block_commit_uncertain,
+    :mining_storage_busy,
+    :region_unavailable,
+    :region_restarting,
+    :stale_owner
+  ]
+
   @doc """
   A block reader of the caller's dimension (`fn position -> state end`). It
   starts the owners it reads (generating their regions if needed) and caches
@@ -78,6 +90,81 @@ defmodule Valimc.Portal.Access do
   end
 
   @doc """
+  The highest Y of `chunk`'s highest section holding a block other than air
+  (`getHighestSectionPosition() + 15`), or nil for a chunk of air only.
+  """
+  def chunk_top(chunk) do
+    sections = fetch(chunk, now() + @deadline)
+    {min_y, height} = Valimc.Dimension.bounds()
+    first = div(min_y + 64, 16)
+    count = div(height, 16)
+
+    Enum.find_value((first + count - 1)..first//-1, fn s ->
+      if not air_section?(sections && elem(sections, s)), do: s * 16 - 64 + 15
+    end)
+  end
+
+  @doc "Whether `chunk` holds air only (`getHighestFilledSectionIndex() == -1`)."
+  def chunk_empty?(chunk), do: chunk_top(chunk) == nil
+
+  defp air_section?(nil), do: true
+  defp air_section?(state) when is_integer(state), do: Valimc.Portal.Gateway.air?(state)
+
+  defp air_section?({:dense, cells}),
+    do: Enum.all?(for(<<v::16 <- cells>>, uniq: true, do: v), &Valimc.Portal.Gateway.air?/1)
+
+  defp air_section?({palette, cells}) do
+    used = cells |> :binary.bin_to_list() |> Enum.uniq()
+    Enum.all?(used, &Valimc.Portal.Gateway.air?(elem(palette, &1)))
+  end
+
+  @doc "The live preserved block entity at `position` (`%{type, nbt}`) or nil."
+  def block_entity({x, _, z} = position) do
+    key = World.region_key(World.chunk_key(x, z))
+
+    retry(fn ->
+      with {:ok, owner} <- World.owner(key), do: Region.block_entity(owner, position)
+    end)
+  end
+
+  @doc "Record preserved block entities (`position => {type, nbt}`), durably, per region."
+  def put_block_entities(entries) do
+    entries
+    |> Enum.group_by(fn {{x, _, z}, _} -> World.region_key(World.chunk_key(x, z)) end)
+    |> Enum.reduce_while(:ok, fn {key, entries}, :ok ->
+      result =
+        retry(fn ->
+          with {:ok, owner} <- World.owner(key),
+               {:ok, :applied} <- Region.put_block_entities(owner, Map.new(entries)),
+               do: {:ok, :ok}
+        end)
+
+      case result do
+        {:ok, :ok} -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp retry(fun, deadline \\ nil) do
+    deadline = deadline || now() + @deadline
+
+    case fun.() do
+      {:error, reason}
+      when reason in @busy or reason in [:storage_backpressure, :item_storage_busy] ->
+        if now() > deadline do
+          {:error, reason}
+        else
+          Process.sleep(20)
+          retry(fun, deadline)
+        end
+
+      other ->
+        other
+    end
+  end
+
+  @doc """
   Portal blocks (`{position, state}`) in `chunks` of the caller's dimension
   that are stored: of loaded regions and of regions on disk (which this
   loads). Chunks never generated hold none, as vanilla's POIs only exist for
@@ -128,18 +215,6 @@ defmodule Valimc.Portal.Access do
       end
     end)
   end
-
-  # A busy owner (one still generating or writing) is asked again until the
-  # deadline; a refused change is final.
-  @busy [
-    :stale_revision,
-    :block_query_timeout,
-    :block_commit_uncertain,
-    :mining_storage_busy,
-    :region_unavailable,
-    :region_restarting,
-    :stale_owner
-  ]
 
   defp commit_region(key, edits, deadline) do
     result =

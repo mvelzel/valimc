@@ -10,6 +10,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.BlockUtil;
+import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.EntityDimensions;
 import net.minecraft.world.entity.ai.village.poi.*;
@@ -24,13 +25,16 @@ import net.minecraft.world.level.portal.PortalShape;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Nether portal parity facts (VMC-026b2), from vanilla's own code over a fake level: portal
+ * Portal parity facts (VMC-026b2–b4), from vanilla's own code over a fake level: portal
  * shapes (`PortalShape.findEmptyPortalShape`, `findAnyShape`), fire placement
  * (`BaseFireBlock.canBePlacedAt`, `getState`), the largest portal rectangle around a block
  * (`BlockUtil.getLargestRectangleAround`), an entity's relative position in a portal
  * (`PortalShape.getRelativePosition`), the closest portal search (`PortalForcer
  * .findClosestPortalPosition` over the POIs of the square) and portal creation
- * (`PortalForcer.createPortal`, every block it sets, in order).
+ * (`PortalForcer.createPortal`, every block it sets, in order), end portal frames
+ * (`EndPortalFrameBlock.getOrCreatePortalShape().find`), the End's arrival platform
+ * (`EndPlatformFeature.createEndPlatform`) and end gateway exits (`TheEndGatewayBlockEntity`'s
+ * exit search, `EndIslandFeature`, `EndGatewayFeature`).
  *
  * Usage: PortalOracle OUT
  */
@@ -526,6 +530,141 @@ public class PortalOracle {
     return cases;
   }
 
+  /** A chunk of the fake level (`findValidSpawnInChunk`, `getHighestFilledSectionIndex`). */
+  static class Chunk extends net.minecraft.world.level.chunk.LevelChunk {
+    World world;
+    ChunkPos at;
+
+    protected Chunk() {
+      super(null, null);
+    }
+
+    public BlockState getBlockState(BlockPos pos) { return world.getBlockState(pos); }
+    public ChunkPos getPos() { return at; }
+
+    public int getHighestFilledSectionIndex() {
+      int highest = -1;
+      for (var e : world.blocks.entrySet()) {
+        var p = e.getKey();
+        if (!e.getValue().isAir() && (p.getX() >> 4) == at.x() && (p.getZ() >> 4) == at.z())
+          highest = Math.max(highest, (p.getY() - world.minY) >> 4);
+      }
+      return highest;
+    }
+
+    public int getHighestSectionPosition() {
+      int index = getHighestFilledSectionIndex();
+      return index == -1 ? world.minY : world.minY + index * 16;
+    }
+  }
+
+  static Method gatewayMethod(String name, Class<?>... types) throws Exception {
+    var m = net.minecraft.world.level.block.entity.TheEndGatewayBlockEntity.class.getDeclaredMethod(name, types);
+    m.setAccessible(true);
+    return m;
+  }
+
+  static JsonArray vec(Vec3 v) {
+    var a = new JsonArray();
+    a.add(v.x);
+    a.add(v.z);
+    return a;
+  }
+
+  static JsonArray editsJson(World world, int from) {
+    var edits = new JsonArray();
+    for (var e : world.edits.subList(from, world.edits.size())) {
+      var a = new JsonArray();
+      for (long v : e) a.add(v);
+      edits.add(a);
+    }
+    return edits;
+  }
+
+  /**
+   * Gateway exits over sparse outer islands (`TheEndGatewayBlockEntity.getPortalPosition` without
+   * an exit): the tentative point, the valid spawn in its chunk, the island raised when there is
+   * none, the tallest block, the exit gateway's blocks and the arrival.
+   */
+  static JsonArray gateways() throws Exception {
+    var tentativeM = gatewayMethod("findExitPortalXZPosTentative", ServerLevel.class, BlockPos.class);
+    var spawnM = gatewayMethod("findValidSpawnInChunk", net.minecraft.world.level.chunk.LevelChunk.class);
+    var tallestM = gatewayMethod("findTallestBlock", net.minecraft.world.level.BlockGetter.class, BlockPos.class, int.class, boolean.class);
+    var exitM = gatewayMethod("findExitPosition", Level.class, BlockPos.class);
+    var stone = Blocks.END_STONE.defaultBlockState();
+    var cases = new JsonArray();
+    for (int n = 0; n < 40; n++) {
+      var world = (ChunkWorld) unsafe.allocateInstance(ChunkWorld.class);
+      ChunkWorld.init(world);
+      double angle = random.nextDouble() * Math.PI * 2;
+      var entry = new BlockPos((int) Math.floor(96 * Math.cos(angle)), 75, (int) Math.floor(96 * Math.sin(angle)));
+      // Islands along the gateway's direction, some sparse, some none near 1,024.
+      int islands = n % 5 == 0 ? 0 : 1 + random.nextInt(4);
+      for (int k = 0; k < islands; k++) {
+        double r = 800 + random.nextInt(500);
+        int cx = (int) Math.floor(r * Math.cos(angle)) + random.nextInt(9) - 4;
+        int cz = (int) Math.floor(r * Math.sin(angle)) + random.nextInt(9) - 4;
+        int top = 50 + random.nextInt(25);
+        int size = 2 + random.nextInt(4);
+        for (int dx = -size; dx <= size; dx++) for (int dz = -size; dz <= size; dz++)
+          for (int y = top - 3; y <= top - (Math.abs(dx) + Math.abs(dz)) / 3; y++)
+            world.blocks.put(new BlockPos(cx + dx, y, cz + dz), stone);
+        if (random.nextInt(3) == 0) world.blocks.put(new BlockPos(cx, top + 1, cz), Blocks.CHORUS_PLANT.defaultBlockState());
+        if (random.nextInt(4) == 0) world.blocks.put(new BlockPos(cx + 1, top + 1, cz), Blocks.BEDROCK.defaultBlockState());
+      }
+      var c = new JsonObject();
+      c.add("blocks", blocks(world));
+      c.add("entry", pos(entry));
+      var tentative = (Vec3) tentativeM.invoke(null, world, entry);
+      c.add("tentative", vec(tentative));
+      var chunk = world.getChunk(Mth.floor(tentative.x / 16.0), Mth.floor(tentative.z / 16.0));
+      var valid = (BlockPos) spawnM.invoke(null, chunk);
+      c.add("valid", valid == null ? JsonNull.INSTANCE : pos(valid));
+      int before = world.edits.size();
+      var exitPos = valid;
+      if (valid == null) {
+        exitPos = BlockPos.containing(tentative.x + 0.5, 75.0, tentative.z + 0.5);
+        new net.minecraft.world.level.levelgen.feature.EndIslandFeature().place(world, null, RandomSource.create(exitPos.asLong()), exitPos);
+      }
+      c.add("island", editsJson(world, before));
+      var tallest = (BlockPos) tallestM.invoke(null, world, exitPos, 16, true);
+      c.add("tallest", pos(tallest));
+      var portal = tallest.above(10);
+      before = world.edits.size();
+      net.minecraft.world.level.levelgen.feature.EndGatewayFeature.knownExit(entry, false).place(world, null, RandomSource.create(), portal);
+      c.add("structure", editsJson(world, before));
+      c.add("arrival", pos((BlockPos) exitM.invoke(null, world, portal)));
+      cases.add(c);
+    }
+    return cases;
+  }
+
+  /** A fake End whose `getChunk` hands out `Chunk`s of its blocks. */
+  static class ChunkWorld extends World {
+    protected ChunkWorld() {}
+
+    static void init(ChunkWorld w) {
+      w.blocks = new HashMap<>();
+      w.edits = new ArrayList<>();
+      w.minY = 0;
+      w.height = 256;
+      w.logical = 256;
+      w.dimension = Level.END;
+      w.border = new WorldBorder();
+    }
+
+    public net.minecraft.world.level.chunk.LevelChunk getChunk(int x, int z) {
+      try {
+        var chunk = (Chunk) unsafe.allocateInstance(Chunk.class);
+        chunk.world = this;
+        chunk.at = new ChunkPos(x, z);
+        return chunk;
+      } catch (Exception e) {
+        throw new RuntimeException(e);
+      }
+    }
+  }
+
   public static void main(String[] args) throws Exception {
     // Block tags (the portal frame, fire, soul fire bases) and fluid tags, as a server binds them.
     MiningToolOracle.initialize();
@@ -558,6 +697,7 @@ public class PortalOracle {
     out.add("closest", closest());
     out.add("frames", frames());
     out.add("platforms", platforms());
+    out.add("gateways", gateways());
     Files.writeString(Path.of(args[0]), new Gson().toJson(out));
     int edits = 0;
     for (var c : out.getAsJsonArray("create")) edits += c.getAsJsonObject().getAsJsonArray("edits").size();
@@ -566,6 +706,7 @@ public class PortalOracle {
         + " portal rectangles, " + out.getAsJsonArray("relative").size() + " relative positions, "
         + out.getAsJsonArray("create").size() + " portal creations (" + edits + " block sets), "
         + out.getAsJsonArray("closest").size() + " portal searches, " + out.getAsJsonArray("frames").size()
-        + " end portal frames, " + out.getAsJsonArray("platforms").size() + " End platforms");
+        + " end portal frames, " + out.getAsJsonArray("platforms").size() + " End platforms, "
+        + out.getAsJsonArray("gateways").size() + " gateway exits");
   }
 }

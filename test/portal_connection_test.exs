@@ -270,4 +270,65 @@ defmodule Valimc.PortalConnectionTest do
     {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.seen_credits and Map.get(saved, :dimension, :overworld) == :overworld
   end
+
+  defp exit_of(position) do
+    Dimension.within(:the_end, fn ->
+      {:ok, %{nbt: nbt}} = Valimc.Portal.Access.block_entity(position)
+      {:ok, {:compound, tag}} = Valimc.NBT.read(nbt)
+      {:int_array, <<x::signed-32, y::signed-32, z::signed-32>>} = tag["exit_portal"]
+      {x, y, z}
+    end)
+  end
+
+  test "a gateway without an exit finds one far out, builds the exit gateway, and both lead back",
+       ctx do
+    seed(ctx, :creative)
+    {client, pid} = enter(ctx)
+    gateway = Valimc.Registry.Blocks.default_state("end_gateway")
+    entry = {92, 70, 0}
+
+    Dimension.within(:the_end, fn ->
+      set(Map.new(for(dx <- 88..94, dz <- -2..2, do: {{dx, 69, dz}, Blocks.obsidian()})))
+      set(%{entry => gateway})
+    end)
+
+    deadline = System.monotonic_time(:millisecond) + 5000
+    pose = %{x: 89.5, y: 70.0, z: 0.5, yaw: 0.0, pitch: 0.0, dimension: :the_end}
+    assert {:ok, :ok} = GenServer.call(pid, {:command_op, {:teleport, pose}, deadline}, 6000)
+    {"minecraft:the_end", _, client} = arrive(client, pid)
+
+    # Into the gateway: out along its direction, about 1,024 blocks from the origin.
+    client = move(client, pid, {92.5, 70.0, 0.5})
+    {position, client} = Client.await(client, :play, "player_position", 4000)
+    {_, <<x::float-64, _y::float-64, z::float-64, _::binary>>} = Wire.take_varint(position)
+    client = Client.auto_reply(client, :play, "player_position", position)
+    assert state(pid).player.dimension == :the_end
+    assert :math.sqrt(x * x + z * z) > 700
+    exit = exit_of(entry)
+    {ex, ey, ez} = exit
+    assert blocks([exit], :the_end)[exit] == gateway
+
+    assert blocks([{ex, ey - 2, ez}], :the_end)[{ex, ey - 2, ez}] ==
+             Valimc.Registry.Blocks.default_state("bedrock")
+
+    assert exit_of(exit) == entry
+    assert abs(x - (ex + 0.5)) <= 6 and abs(z - (ez + 0.5)) <= 6
+
+    # And back through the exit gateway, near the first one.
+    wait(fn -> state(pid).player.portal_cooldown == 0 end)
+    _client = move(client, pid, {ex + 0.5, ey * 1.0, ez + 0.5})
+
+    wait(fn ->
+      p = state(pid).player
+      abs(p.x - 92.5) <= 6 and abs(p.z - 0.5) <= 6
+    end)
+
+    # Both exits survive their regions reloading from disk.
+    for {x, _, z} <- [entry, exit],
+        key = Dimension.scope(:the_end, World.region_key(World.chunk_key(x, z))),
+        {owner, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+        do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, owner)
+
+    assert exit_of(entry) == exit and exit_of(exit) == entry
+  end
 end
