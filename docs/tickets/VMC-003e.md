@@ -88,3 +88,17 @@ Both owned clients and servers stopped/waited; JVM PIDs gone, input socket absen
 and port 25565 clear. No live player-registry count was queried on the unnamed
 server. Both Claude and Codex acceptance gates are closed; retain the cursor/
 off-Space limits above.
+
+Worktrees (2026-10-21): from `.claude/worktrees/<name>/` the bridge socket
+`.local/minecraft-input.sock` exceeded macOS's 104-byte `sun_path` (110 bytes for
+`inspiring-meitner-153143`), and the worktree had no wrapper. The socket is now
+`valimc-input-<12 hex of SHA-256 of the checkout root>.sock` in
+`getconf DARWIN_USER_TEMP_DIR` (owner-only, independent of `$TMPDIR`), derived by
+`minecraft_client.input_socket` for both scripts. The launcher takes the wrapper
+and lock from the main checkout (`git rev-parse --git-common-dir`), so one bundle
+carries the app ID and one client runs across checkouts. Unit check, no client
+launched: a 291-byte fake worktree root and this worktree both give 79-byte paths;
+`minecraft_input.py` reached a stand-in bridge on the launcher's path, the
+launcher picked the main checkout's `java`, and with the main lock held it refused
+before creating evidence. The actual-client gate rides on the next worktree
+handoff.

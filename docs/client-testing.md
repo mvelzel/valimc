@@ -20,6 +20,9 @@ client settings are untouched. Console/game logs and fingerprints stay in the ru
 Keep the default small windowed size and automatic UI scale; do not maximize or enter fullscreen.
 The dedicated client starts muted (`soundCategory_master:0.0`).
 
+It runs from the main checkout or any Git worktree; worktrees use the main
+checkout's wrapper and lock, so one client runs at a time across checkouts.
+
 After testing, interrupt the owning process and wait for its completion; the
 helper terminates/waits for its own JVM and removes the input socket. Confirm zero
 server players. Reconnect tests stop the process and launch again with `run-02`, retaining
@@ -83,5 +86,5 @@ Keep account/launcher credentials and unrelated resources intact. Preserve sourc
 journal/counters and destination receipts within a dataset; reset the whole dataset
 rather than rolling back one committed side. See [workflow](development.md).
 
-The generated Java wrapper is `.local/Minecraft Client.app`; rebuild instructions
-are in [mouse testing](mouse-testing.md). Normal Launcher profiles stay unchanged.
+The generated Java wrapper is the main checkout's `.local/Minecraft Client.app`;
+rebuild instructions are in [mouse testing](mouse-testing.md). Normal Launcher profiles stay unchanged.

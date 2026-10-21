@@ -14,6 +14,8 @@ modes or fallback flags. Minecraft classes and normal Launcher profiles are inta
 Keep SDL source/license under ignored `research/tools/SDL`, pinned to
 `ab5541ec5d4377dcc20a701897437f07ba71566f`. Build products stay in `.local/`.
 The patcher preserves unexpected source edits and refuses other revisions.
+Build in the main checkout: launches from a Git worktree use its wrapper, so one
+bundle carries the app ID.
 
 ```sh
 python3 scripts/patch_sdl_mouse.py
@@ -46,7 +48,11 @@ handling and does not promise foreground isolation.
 ## Input bridge
 
 When `VALIMC_INPUT_SOCKET` is set, which `minecraft_client.py` always does, the backend also listens on
-`.local/minecraft-input.sock`. `scripts/minecraft_input.py` sends a batch of commands
+that socket: `valimc-input-<hash>.sock` in the per-user temp directory
+(`getconf DARWIN_USER_TEMP_DIR`), hashed from the checkout root. Both scripts derive
+it the same way, so each worktree drives only its own client and the path stays
+under macOS's 104-byte socket limit; `client.json` records it.
+`scripts/minecraft_input.py` sends a batch of commands
 (click, drag, look, press/down/up, scroll, key/keydown/keyup, type, wait, release,
 state). The game consumes them as SDL events on its own event pump, with logical
 window focus and without activating the app or touching the desktop pointer or

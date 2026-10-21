@@ -15,12 +15,10 @@ shift, ctrl, alt, cmd, esc and enter. `look` only works while the game captures 
 mouse; `move`/`click` coordinates only while a screen shows the pointer.
 Example: minecraft_input.py "key t" "wait 200" "type /stats" "key Return"
 """
-import pathlib
 import socket
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
-INPUT = ROOT / ".local/minecraft-input.sock"
+from minecraft_client import ROOT, input_socket
 
 
 def main():
@@ -33,12 +31,13 @@ def main():
     if any("\n" in command for command in commands):
         raise SystemExit("One command per argument")
     batch = "\n".join(commands).encode() + b"\n"
+    path = input_socket(ROOT)
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
         client.settimeout(90)
         try:
-            client.connect(str(INPUT))
+            client.connect(str(path))
         except OSError as error:
-            raise SystemExit(f"No test client input bridge at {INPUT}: {error}. "
+            raise SystemExit(f"No test client input bridge at {path}: {error}. "
                              "Launch scripts/minecraft_client.py first.")
         client.sendall(batch)
         client.shutdown(socket.SHUT_WR)

@@ -16,13 +16,26 @@ from pinned import PROTOCOL, VERSION
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 INSTALLED = pathlib.Path.home() / "Library/Application Support/minecraft"
-APP = ROOT / ".local/Minecraft Client.app/Contents/MacOS/java"
-SDL = ROOT / ".local/sdl-mouse-build/libSDL3.dylib"
-INPUT = ROOT / ".local/minecraft-input.sock"
 TARGET = "127.0.0.1:25565"
 PLAYER = "ValiMCTest"
 FEATURES = {"has_quick_plays_support": True,
             "is_quick_play_multiplayer": True}
+
+
+def main_checkout(root):
+    """The checkout holding root's Git directory: root itself, or a worktree's main checkout."""
+    common = subprocess.run(["git", "-C", str(root), "rev-parse", "--git-common-dir"],
+                            capture_output=True, text=True, check=True).stdout.strip()
+    return (root / common).resolve().parent
+
+
+def input_socket(root):
+    """The checkout's bridge socket, in the per-user temp directory so that sun_path
+    (104 bytes) fits from any worktree; scripts/minecraft_input.py connects to it."""
+    temporary = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"],
+                               capture_output=True, text=True, check=True).stdout.strip()
+    digest = hashlib.sha256(str(root).encode()).hexdigest()[:12]
+    return pathlib.Path(temporary) / f"valimc-input-{digest}.sock"
 
 
 def allowed(entry):
@@ -36,12 +49,15 @@ def allowed(entry):
     return result
 
 
-def command(run):
+def command(run, build, bridge):
+    app = build / "Minecraft Client.app/Contents/MacOS/java"
+    sdl = build / "sdl-mouse-build/libSDL3.dylib"
     metadata = INSTALLED / "versions" / VERSION / (VERSION + ".json")
     jar = metadata.with_suffix(".jar")
     data = json.loads(metadata.read_text())
-    if not APP.is_file() or not SDL.is_file() or b"ValiMC internal-pointer backend" not in SDL.read_bytes():
-        raise RuntimeError("Build the dedicated SDL wrapper with scripts/prepare_minecraft_client.py first")
+    if not app.is_file() or not sdl.is_file() or b"ValiMC internal-pointer backend" not in sdl.read_bytes():
+        raise RuntimeError(f"Build the dedicated SDL wrapper in {build.parent} with "
+                           "scripts/prepare_minecraft_client.py first")
     if hashlib.sha1(jar.read_bytes()).hexdigest() != data["downloads"]["client"]["sha1"]:
         raise RuntimeError("Installed Minecraft client does not match its version metadata")
     libraries = [INSTALLED / "libraries" / lib["downloads"]["artifact"]["path"]
@@ -75,14 +91,14 @@ def command(run):
     logging = INSTALLED / "assets/log_configs" / data["logging"]["client"]["file"]["id"]
     if not logging.is_file():
         raise RuntimeError("Missing installed client logging configuration")
-    arguments = [str(APP), "-Xmx2G", "-Dlog4j.configurationFile=" + str(logging)]
+    arguments = [str(app), "-Xmx2G", "-Dlog4j.configurationFile=" + str(logging)]
     arguments += expand(data["arguments"]["jvm"]) + [data["mainClass"]]
     arguments += expand(data["arguments"]["game"])
     details = {"minecraft": VERSION, "protocol": PROTOCOL, "target": TARGET,
                "player": PLAYER, "uuid": str(offline_uuid), "game_directory": values["game_directory"],
-               "input_socket": str(INPUT),
+               "input_socket": str(bridge),
                "fingerprints": {str(p): hashlib.sha256(p.read_bytes()).hexdigest()
-                                for p in [metadata, jar, APP, SDL]}}
+                                for p in [metadata, jar, app, sdl]}}
     return arguments, details
 
 
@@ -98,10 +114,17 @@ def main():
     run = args.evidence.resolve()
     if not run.is_relative_to(ROOT / ".local/client-tests"):
         raise SystemExit("Client run evidence must stay under .local/client-tests/")
-    with (ROOT / ".local/minecraft-test-client.lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        arguments, details = command(run)
-        details["activates_window"] = not args.no_activate
+    # Worktrees launch the main checkout's wrapper: one bundle carries the app ID,
+    # and its lock keeps one client running across checkouts.
+    build = main_checkout(ROOT) / ".local"
+    bridge = input_socket(ROOT)
+    arguments, details = command(run, build, bridge)
+    details["activates_window"] = not args.no_activate
+    with (build / "minecraft-test-client.lock").open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SystemExit("Another dedicated test client is running; stop it first") from None
         run.mkdir(parents=True, exist_ok=False)
         (run / "game").mkdir()
         for name in ["java", "jna", "lwjgl", "netty"]:
@@ -117,7 +140,7 @@ def main():
         signal.signal(signal.SIGTERM, stop)
         with (run / "console.log").open("w") as log:
             # The patched SDL serves scripts/minecraft_input.py here; computer-use input is unchanged.
-            environment = {**os.environ, "VALIMC_INPUT_SOCKET": str(INPUT)}
+            environment = {**os.environ, "VALIMC_INPUT_SOCKET": str(bridge)}
             if args.no_activate:
                 environment |= {"SDL_MAC_BACKGROUND_APP": "1", "SDL_WINDOW_ACTIVATE_WHEN_SHOWN": "0",
                                 "SDL_WINDOW_ACTIVATE_WHEN_RAISED": "0"}
@@ -140,8 +163,8 @@ def main():
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait()
-                if INPUT.is_socket():
-                    INPUT.unlink()
+                if bridge.is_socket():
+                    bridge.unlink()
                 details["exit_code"] = process.returncode
                 (run / "client.json").write_text(json.dumps(details, indent=2) + "\n")
                 print(f"Test client stopped (exit {process.returncode})", flush=True)
@@ -151,5 +174,5 @@ def main():
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except (OSError, RuntimeError, KeyError) as error:
+    except (OSError, RuntimeError, KeyError, subprocess.CalledProcessError) as error:
         sys.exit(str(error))
