@@ -26,7 +26,7 @@ matched against vanilla and Pumpkin, at least in Pumpkin's range.
 
 | Ticket | Open slice | Status |
 |---|---|---|
-| [VMC-077](tickets/VMC-077.md) | Architecture audit done; four decisions pending, then phases 0–6 before M3 | Planned |
+| [VMC-077](tickets/VMC-077.md) | Architecture audit under review: four decisions open, then phases 0–6 before M3 | Planned |
 
 ## M3 onward
 
