@@ -11,11 +11,864 @@ defmodule Valimc.Commands do
   """
   require Logger
   alias Valimc.Command.{Arguments, Dispatcher, Error, Feedback, Source, Text, Tree}
-  alias Valimc.Commands.{Admin, Chat, Players, Preview, World, WorldBorder}
+
+  alias Valimc.Commands.{
+    Admin,
+    Chat,
+    Effects,
+    Players,
+    PostEffects,
+    Preview,
+    Timers,
+    World,
+    WorldBorder
+  }
+
+  alias Valimc.Commands.Text, as: TextCommands
+  alias Valimc.Commands.Blocks, as: BlockCommands
 
   @handlers %{
     ["help"] => {Chat, :help},
     ["help", "command"] => {Chat, :help_command},
+    ["tellraw", "targets", "message"] => {TextCommands, :tellraw},
+    ["title", "targets", "clear"] => {TextCommands, :title_clear},
+    ["title", "targets", "reset"] => {TextCommands, :title_reset},
+    ["title", "targets", "title", "title"] => {TextCommands, :title_title},
+    ["title", "targets", "subtitle", "title"] => {TextCommands, :title_subtitle},
+    ["title", "targets", "actionbar", "title"] => {TextCommands, :title_actionbar},
+    ["title", "targets", "times", "fadeIn", "stay", "fadeOut"] => {TextCommands, :title_times},
+    ["particle", "name"] => {Effects, :particle},
+    ["particle", "name", "pos"] => {Effects, :particle},
+    ["particle", "name", "pos", "delta", "speed", "count"] => {Effects, :particle},
+    ["particle", "name", "pos", "delta", "speed", "count", "force"] => {Effects, :particle_force},
+    ["particle", "name", "pos", "delta", "speed", "count", "force", "viewers"] =>
+      {Effects, :particle_force},
+    ["particle", "name", "pos", "delta", "speed", "count", "normal"] => {Effects, :particle},
+    ["particle", "name", "pos", "delta", "speed", "count", "normal", "viewers"] =>
+      {Effects, :particle},
+    ["playsound", "sound"] => {Effects, :playsound},
+    ["playsound", "sound", "master"] => {Effects, :playsound_master},
+    ["playsound", "sound", "master", "targets"] => {Effects, :playsound_master},
+    ["playsound", "sound", "master", "targets", "pos"] => {Effects, :playsound_master},
+    ["playsound", "sound", "master", "targets", "pos", "volume"] => {Effects, :playsound_master},
+    ["playsound", "sound", "master", "targets", "pos", "volume", "pitch"] =>
+      {Effects, :playsound_master},
+    ["playsound", "sound", "master", "targets", "pos", "volume", "pitch", "minVolume"] =>
+      {Effects, :playsound_master},
+    ["stopsound", "targets", "master"] => {Effects, :stopsound_master},
+    ["stopsound", "targets", "master", "sound"] => {Effects, :stopsound_master},
+    ["playsound", "sound", "music"] => {Effects, :playsound_music},
+    ["playsound", "sound", "music", "targets"] => {Effects, :playsound_music},
+    ["playsound", "sound", "music", "targets", "pos"] => {Effects, :playsound_music},
+    ["playsound", "sound", "music", "targets", "pos", "volume"] => {Effects, :playsound_music},
+    ["playsound", "sound", "music", "targets", "pos", "volume", "pitch"] =>
+      {Effects, :playsound_music},
+    ["playsound", "sound", "music", "targets", "pos", "volume", "pitch", "minVolume"] =>
+      {Effects, :playsound_music},
+    ["stopsound", "targets", "music"] => {Effects, :stopsound_music},
+    ["stopsound", "targets", "music", "sound"] => {Effects, :stopsound_music},
+    ["playsound", "sound", "record"] => {Effects, :playsound_record},
+    ["playsound", "sound", "record", "targets"] => {Effects, :playsound_record},
+    ["playsound", "sound", "record", "targets", "pos"] => {Effects, :playsound_record},
+    ["playsound", "sound", "record", "targets", "pos", "volume"] => {Effects, :playsound_record},
+    ["playsound", "sound", "record", "targets", "pos", "volume", "pitch"] =>
+      {Effects, :playsound_record},
+    ["playsound", "sound", "record", "targets", "pos", "volume", "pitch", "minVolume"] =>
+      {Effects, :playsound_record},
+    ["stopsound", "targets", "record"] => {Effects, :stopsound_record},
+    ["stopsound", "targets", "record", "sound"] => {Effects, :stopsound_record},
+    ["playsound", "sound", "weather"] => {Effects, :playsound_weather},
+    ["playsound", "sound", "weather", "targets"] => {Effects, :playsound_weather},
+    ["playsound", "sound", "weather", "targets", "pos"] => {Effects, :playsound_weather},
+    ["playsound", "sound", "weather", "targets", "pos", "volume"] =>
+      {Effects, :playsound_weather},
+    ["playsound", "sound", "weather", "targets", "pos", "volume", "pitch"] =>
+      {Effects, :playsound_weather},
+    ["playsound", "sound", "weather", "targets", "pos", "volume", "pitch", "minVolume"] =>
+      {Effects, :playsound_weather},
+    ["stopsound", "targets", "weather"] => {Effects, :stopsound_weather},
+    ["stopsound", "targets", "weather", "sound"] => {Effects, :stopsound_weather},
+    ["playsound", "sound", "block"] => {Effects, :playsound_block},
+    ["playsound", "sound", "block", "targets"] => {Effects, :playsound_block},
+    ["playsound", "sound", "block", "targets", "pos"] => {Effects, :playsound_block},
+    ["playsound", "sound", "block", "targets", "pos", "volume"] => {Effects, :playsound_block},
+    ["playsound", "sound", "block", "targets", "pos", "volume", "pitch"] =>
+      {Effects, :playsound_block},
+    ["playsound", "sound", "block", "targets", "pos", "volume", "pitch", "minVolume"] =>
+      {Effects, :playsound_block},
+    ["stopsound", "targets", "block"] => {Effects, :stopsound_block},
+    ["stopsound", "targets", "block", "sound"] => {Effects, :stopsound_block},
+    ["playsound", "sound", "hostile"] => {Effects, :playsound_hostile},
+    ["playsound", "sound", "hostile", "targets"] => {Effects, :playsound_hostile},
+    ["playsound", "sound", "hostile", "targets", "pos"] => {Effects, :playsound_hostile},
+    ["playsound", "sound", "hostile", "targets", "pos", "volume"] =>
+      {Effects, :playsound_hostile},
+    ["playsound", "sound", "hostile", "targets", "pos", "volume", "pitch"] =>
+      {Effects, :playsound_hostile},
+    ["playsound", "sound", "hostile", "targets", "pos", "volume", "pitch", "minVolume"] =>
+      {Effects, :playsound_hostile},
+    ["stopsound", "targets", "hostile"] => {Effects, :stopsound_hostile},
+    ["stopsound", "targets", "hostile", "sound"] => {Effects, :stopsound_hostile},
+    ["playsound", "sound", "neutral"] => {Effects, :playsound_neutral},
+    ["playsound", "sound", "neutral", "targets"] => {Effects, :playsound_neutral},
+    ["playsound", "sound", "neutral", "targets", "pos"] => {Effects, :playsound_neutral},
+    ["playsound", "sound", "neutral", "targets", "pos", "volume"] =>
+      {Effects, :playsound_neutral},
+    ["playsound", "sound", "neutral", "targets", "pos", "volume", "pitch"] =>
+      {Effects, :playsound_neutral},
+    ["playsound", "sound", "neutral", "targets", "pos", "volume", "pitch", "minVolume"] =>
+      {Effects, :playsound_neutral},
+    ["stopsound", "targets", "neutral"] => {Effects, :stopsound_neutral},
+    ["stopsound", "targets", "neutral", "sound"] => {Effects, :stopsound_neutral},
+    ["playsound", "sound", "player"] => {Effects, :playsound_player},
+    ["playsound", "sound", "player", "targets"] => {Effects, :playsound_player},
+    ["playsound", "sound", "player", "targets", "pos"] => {Effects, :playsound_player},
+    ["playsound", "sound", "player", "targets", "pos", "volume"] => {Effects, :playsound_player},
+    ["playsound", "sound", "player", "targets", "pos", "volume", "pitch"] =>
+      {Effects, :playsound_player},
+    ["playsound", "sound", "player", "targets", "pos", "volume", "pitch", "minVolume"] =>
+      {Effects, :playsound_player},
+    ["stopsound", "targets", "player"] => {Effects, :stopsound_player},
+    ["stopsound", "targets", "player", "sound"] => {Effects, :stopsound_player},
+    ["playsound", "sound", "ambient"] => {Effects, :playsound_ambient},
+    ["playsound", "sound", "ambient", "targets"] => {Effects, :playsound_ambient},
+    ["playsound", "sound", "ambient", "targets", "pos"] => {Effects, :playsound_ambient},
+    ["playsound", "sound", "ambient", "targets", "pos", "volume"] =>
+      {Effects, :playsound_ambient},
+    ["playsound", "sound", "ambient", "targets", "pos", "volume", "pitch"] =>
+      {Effects, :playsound_ambient},
+    ["playsound", "sound", "ambient", "targets", "pos", "volume", "pitch", "minVolume"] =>
+      {Effects, :playsound_ambient},
+    ["stopsound", "targets", "ambient"] => {Effects, :stopsound_ambient},
+    ["stopsound", "targets", "ambient", "sound"] => {Effects, :stopsound_ambient},
+    ["playsound", "sound", "voice"] => {Effects, :playsound_voice},
+    ["playsound", "sound", "voice", "targets"] => {Effects, :playsound_voice},
+    ["playsound", "sound", "voice", "targets", "pos"] => {Effects, :playsound_voice},
+    ["playsound", "sound", "voice", "targets", "pos", "volume"] => {Effects, :playsound_voice},
+    ["playsound", "sound", "voice", "targets", "pos", "volume", "pitch"] =>
+      {Effects, :playsound_voice},
+    ["playsound", "sound", "voice", "targets", "pos", "volume", "pitch", "minVolume"] =>
+      {Effects, :playsound_voice},
+    ["stopsound", "targets", "voice"] => {Effects, :stopsound_voice},
+    ["stopsound", "targets", "voice", "sound"] => {Effects, :stopsound_voice},
+    ["playsound", "sound", "ui"] => {Effects, :playsound_ui},
+    ["playsound", "sound", "ui", "targets"] => {Effects, :playsound_ui},
+    ["playsound", "sound", "ui", "targets", "pos"] => {Effects, :playsound_ui},
+    ["playsound", "sound", "ui", "targets", "pos", "volume"] => {Effects, :playsound_ui},
+    ["playsound", "sound", "ui", "targets", "pos", "volume", "pitch"] => {Effects, :playsound_ui},
+    ["playsound", "sound", "ui", "targets", "pos", "volume", "pitch", "minVolume"] =>
+      {Effects, :playsound_ui},
+    ["stopsound", "targets", "ui"] => {Effects, :stopsound_ui},
+    ["stopsound", "targets", "ui", "sound"] => {Effects, :stopsound_ui},
+    ["stopsound", "targets"] => {Effects, :stopsound},
+    ["stopsound", "targets", "*", "sound"] => {Effects, :stopsound},
+    ["dialog", "show", "targets", "dialog"] => {Effects, :dialog_show},
+    ["dialog", "clear", "targets"] => {Effects, :dialog_clear},
+    ["posteffect", "add", "targets", "posteffect"] => {PostEffects, :add},
+    ["posteffect", "remove", "targets", "posteffect"] => {PostEffects, :remove},
+    ["posteffect", "clear", "targets"] => {PostEffects, :clear},
+    ["posteffect", "list", "target"] => {PostEffects, :list},
+    ["stopwatch", "create", "id"] => {Timers, :stopwatch_create},
+    ["stopwatch", "query", "id"] => {Timers, :stopwatch_query},
+    ["stopwatch", "query", "id", "scale"] => {Timers, :stopwatch_query},
+    ["stopwatch", "restart", "id"] => {Timers, :stopwatch_restart},
+    ["stopwatch", "remove", "id"] => {Timers, :stopwatch_remove},
+    ["tick", "query"] => {Timers, :tick_query},
+    ["tick", "rate", "rate"] => {Timers, :tick_rate},
+    ["tick", "freeze"] => {Timers, :tick_freeze},
+    ["tick", "unfreeze"] => {Timers, :tick_unfreeze},
+    ["tick", "step"] => {Timers, :tick_step},
+    ["tick", "step", "time"] => {Timers, :tick_step},
+    ["tick", "step", "stop"] => {Timers, :tick_step_stop},
+    ["tick", "sprint", "time"] => {Timers, :tick_sprint},
+    ["tick", "sprint", "stop"] => {Timers, :tick_sprint_stop},
+    ["clone", "begin", "end", "destination"] => {BlockCommands, :clone_replace_normal},
+    ["clone", "begin", "end", "destination", "replace"] => {BlockCommands, :clone_replace_normal},
+    ["clone", "begin", "end", "destination", "replace", "force"] =>
+      {BlockCommands, :clone_replace_force},
+    ["clone", "begin", "end", "destination", "replace", "move"] =>
+      {BlockCommands, :clone_replace_move},
+    ["clone", "begin", "end", "destination", "replace", "normal"] =>
+      {BlockCommands, :clone_replace_normal},
+    ["clone", "begin", "end", "destination", "masked"] => {BlockCommands, :clone_masked_normal},
+    ["clone", "begin", "end", "destination", "masked", "force"] =>
+      {BlockCommands, :clone_masked_force},
+    ["clone", "begin", "end", "destination", "masked", "move"] =>
+      {BlockCommands, :clone_masked_move},
+    ["clone", "begin", "end", "destination", "masked", "normal"] =>
+      {BlockCommands, :clone_masked_normal},
+    ["clone", "begin", "end", "destination", "filtered", "filter"] =>
+      {BlockCommands, :clone_filtered_normal},
+    ["clone", "begin", "end", "destination", "filtered", "filter", "force"] =>
+      {BlockCommands, :clone_filtered_force},
+    ["clone", "begin", "end", "destination", "filtered", "filter", "move"] =>
+      {BlockCommands, :clone_filtered_move},
+    ["clone", "begin", "end", "destination", "filtered", "filter", "normal"] =>
+      {BlockCommands, :clone_filtered_normal},
+    ["clone", "begin", "end", "destination", "strict"] => {BlockCommands, :clone_replace_normal},
+    ["clone", "begin", "end", "destination", "strict", "replace"] =>
+      {BlockCommands, :clone_replace_normal},
+    ["clone", "begin", "end", "destination", "strict", "replace", "force"] =>
+      {BlockCommands, :clone_replace_force},
+    ["clone", "begin", "end", "destination", "strict", "replace", "move"] =>
+      {BlockCommands, :clone_replace_move},
+    ["clone", "begin", "end", "destination", "strict", "replace", "normal"] =>
+      {BlockCommands, :clone_replace_normal},
+    ["clone", "begin", "end", "destination", "strict", "masked"] =>
+      {BlockCommands, :clone_masked_normal},
+    ["clone", "begin", "end", "destination", "strict", "masked", "force"] =>
+      {BlockCommands, :clone_masked_force},
+    ["clone", "begin", "end", "destination", "strict", "masked", "move"] =>
+      {BlockCommands, :clone_masked_move},
+    ["clone", "begin", "end", "destination", "strict", "masked", "normal"] =>
+      {BlockCommands, :clone_masked_normal},
+    ["clone", "begin", "end", "destination", "strict", "filtered", "filter"] =>
+      {BlockCommands, :clone_filtered_normal},
+    ["clone", "begin", "end", "destination", "strict", "filtered", "filter", "force"] =>
+      {BlockCommands, :clone_filtered_force},
+    ["clone", "begin", "end", "destination", "strict", "filtered", "filter", "move"] =>
+      {BlockCommands, :clone_filtered_move},
+    ["clone", "begin", "end", "destination", "strict", "filtered", "filter", "normal"] =>
+      {BlockCommands, :clone_filtered_normal},
+    ["clone", "begin", "end", "to", "targetDimension", "destination"] =>
+      {BlockCommands, :clone_replace_normal},
+    ["clone", "begin", "end", "to", "targetDimension", "destination", "replace"] =>
+      {BlockCommands, :clone_replace_normal},
+    ["clone", "begin", "end", "to", "targetDimension", "destination", "replace", "force"] =>
+      {BlockCommands, :clone_replace_force},
+    ["clone", "begin", "end", "to", "targetDimension", "destination", "replace", "move"] =>
+      {BlockCommands, :clone_replace_move},
+    ["clone", "begin", "end", "to", "targetDimension", "destination", "replace", "normal"] =>
+      {BlockCommands, :clone_replace_normal},
+    ["clone", "begin", "end", "to", "targetDimension", "destination", "masked"] =>
+      {BlockCommands, :clone_masked_normal},
+    ["clone", "begin", "end", "to", "targetDimension", "destination", "masked", "force"] =>
+      {BlockCommands, :clone_masked_force},
+    ["clone", "begin", "end", "to", "targetDimension", "destination", "masked", "move"] =>
+      {BlockCommands, :clone_masked_move},
+    ["clone", "begin", "end", "to", "targetDimension", "destination", "masked", "normal"] =>
+      {BlockCommands, :clone_masked_normal},
+    ["clone", "begin", "end", "to", "targetDimension", "destination", "filtered", "filter"] =>
+      {BlockCommands, :clone_filtered_normal},
+    [
+      "clone",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "filtered",
+      "filter",
+      "force"
+    ] => {BlockCommands, :clone_filtered_force},
+    [
+      "clone",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "filtered",
+      "filter",
+      "move"
+    ] => {BlockCommands, :clone_filtered_move},
+    [
+      "clone",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "filtered",
+      "filter",
+      "normal"
+    ] => {BlockCommands, :clone_filtered_normal},
+    ["clone", "begin", "end", "to", "targetDimension", "destination", "strict"] =>
+      {BlockCommands, :clone_replace_normal},
+    ["clone", "begin", "end", "to", "targetDimension", "destination", "strict", "replace"] =>
+      {BlockCommands, :clone_replace_normal},
+    [
+      "clone",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict",
+      "replace",
+      "force"
+    ] => {BlockCommands, :clone_replace_force},
+    ["clone", "begin", "end", "to", "targetDimension", "destination", "strict", "replace", "move"] =>
+      {BlockCommands, :clone_replace_move},
+    [
+      "clone",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict",
+      "replace",
+      "normal"
+    ] => {BlockCommands, :clone_replace_normal},
+    ["clone", "begin", "end", "to", "targetDimension", "destination", "strict", "masked"] =>
+      {BlockCommands, :clone_masked_normal},
+    ["clone", "begin", "end", "to", "targetDimension", "destination", "strict", "masked", "force"] =>
+      {BlockCommands, :clone_masked_force},
+    ["clone", "begin", "end", "to", "targetDimension", "destination", "strict", "masked", "move"] =>
+      {BlockCommands, :clone_masked_move},
+    [
+      "clone",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict",
+      "masked",
+      "normal"
+    ] => {BlockCommands, :clone_masked_normal},
+    [
+      "clone",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict",
+      "filtered",
+      "filter"
+    ] => {BlockCommands, :clone_filtered_normal},
+    [
+      "clone",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict",
+      "filtered",
+      "filter",
+      "force"
+    ] => {BlockCommands, :clone_filtered_force},
+    [
+      "clone",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict",
+      "filtered",
+      "filter",
+      "move"
+    ] => {BlockCommands, :clone_filtered_move},
+    [
+      "clone",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict",
+      "filtered",
+      "filter",
+      "normal"
+    ] => {BlockCommands, :clone_filtered_normal},
+    ["clone", "from", "sourceDimension", "begin", "end", "destination"] =>
+      {BlockCommands, :clone_replace_normal},
+    ["clone", "from", "sourceDimension", "begin", "end", "destination", "replace"] =>
+      {BlockCommands, :clone_replace_normal},
+    ["clone", "from", "sourceDimension", "begin", "end", "destination", "replace", "force"] =>
+      {BlockCommands, :clone_replace_force},
+    ["clone", "from", "sourceDimension", "begin", "end", "destination", "replace", "move"] =>
+      {BlockCommands, :clone_replace_move},
+    ["clone", "from", "sourceDimension", "begin", "end", "destination", "replace", "normal"] =>
+      {BlockCommands, :clone_replace_normal},
+    ["clone", "from", "sourceDimension", "begin", "end", "destination", "masked"] =>
+      {BlockCommands, :clone_masked_normal},
+    ["clone", "from", "sourceDimension", "begin", "end", "destination", "masked", "force"] =>
+      {BlockCommands, :clone_masked_force},
+    ["clone", "from", "sourceDimension", "begin", "end", "destination", "masked", "move"] =>
+      {BlockCommands, :clone_masked_move},
+    ["clone", "from", "sourceDimension", "begin", "end", "destination", "masked", "normal"] =>
+      {BlockCommands, :clone_masked_normal},
+    ["clone", "from", "sourceDimension", "begin", "end", "destination", "filtered", "filter"] =>
+      {BlockCommands, :clone_filtered_normal},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "destination",
+      "filtered",
+      "filter",
+      "force"
+    ] => {BlockCommands, :clone_filtered_force},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "destination",
+      "filtered",
+      "filter",
+      "move"
+    ] => {BlockCommands, :clone_filtered_move},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "destination",
+      "filtered",
+      "filter",
+      "normal"
+    ] => {BlockCommands, :clone_filtered_normal},
+    ["clone", "from", "sourceDimension", "begin", "end", "destination", "strict"] =>
+      {BlockCommands, :clone_replace_normal},
+    ["clone", "from", "sourceDimension", "begin", "end", "destination", "strict", "replace"] =>
+      {BlockCommands, :clone_replace_normal},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "destination",
+      "strict",
+      "replace",
+      "force"
+    ] => {BlockCommands, :clone_replace_force},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "destination",
+      "strict",
+      "replace",
+      "move"
+    ] => {BlockCommands, :clone_replace_move},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "destination",
+      "strict",
+      "replace",
+      "normal"
+    ] => {BlockCommands, :clone_replace_normal},
+    ["clone", "from", "sourceDimension", "begin", "end", "destination", "strict", "masked"] =>
+      {BlockCommands, :clone_masked_normal},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "destination",
+      "strict",
+      "masked",
+      "force"
+    ] => {BlockCommands, :clone_masked_force},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "destination",
+      "strict",
+      "masked",
+      "move"
+    ] => {BlockCommands, :clone_masked_move},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "destination",
+      "strict",
+      "masked",
+      "normal"
+    ] => {BlockCommands, :clone_masked_normal},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "destination",
+      "strict",
+      "filtered",
+      "filter"
+    ] => {BlockCommands, :clone_filtered_normal},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "destination",
+      "strict",
+      "filtered",
+      "filter",
+      "force"
+    ] => {BlockCommands, :clone_filtered_force},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "destination",
+      "strict",
+      "filtered",
+      "filter",
+      "move"
+    ] => {BlockCommands, :clone_filtered_move},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "destination",
+      "strict",
+      "filtered",
+      "filter",
+      "normal"
+    ] => {BlockCommands, :clone_filtered_normal},
+    ["clone", "from", "sourceDimension", "begin", "end", "to", "targetDimension", "destination"] =>
+      {BlockCommands, :clone_replace_normal},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "replace"
+    ] => {BlockCommands, :clone_replace_normal},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "replace",
+      "force"
+    ] => {BlockCommands, :clone_replace_force},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "replace",
+      "move"
+    ] => {BlockCommands, :clone_replace_move},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "replace",
+      "normal"
+    ] => {BlockCommands, :clone_replace_normal},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "masked"
+    ] => {BlockCommands, :clone_masked_normal},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "masked",
+      "force"
+    ] => {BlockCommands, :clone_masked_force},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "masked",
+      "move"
+    ] => {BlockCommands, :clone_masked_move},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "masked",
+      "normal"
+    ] => {BlockCommands, :clone_masked_normal},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "filtered",
+      "filter"
+    ] => {BlockCommands, :clone_filtered_normal},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "filtered",
+      "filter",
+      "force"
+    ] => {BlockCommands, :clone_filtered_force},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "filtered",
+      "filter",
+      "move"
+    ] => {BlockCommands, :clone_filtered_move},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "filtered",
+      "filter",
+      "normal"
+    ] => {BlockCommands, :clone_filtered_normal},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict"
+    ] => {BlockCommands, :clone_replace_normal},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict",
+      "replace"
+    ] => {BlockCommands, :clone_replace_normal},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict",
+      "replace",
+      "force"
+    ] => {BlockCommands, :clone_replace_force},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict",
+      "replace",
+      "move"
+    ] => {BlockCommands, :clone_replace_move},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict",
+      "replace",
+      "normal"
+    ] => {BlockCommands, :clone_replace_normal},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict",
+      "masked"
+    ] => {BlockCommands, :clone_masked_normal},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict",
+      "masked",
+      "force"
+    ] => {BlockCommands, :clone_masked_force},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict",
+      "masked",
+      "move"
+    ] => {BlockCommands, :clone_masked_move},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict",
+      "masked",
+      "normal"
+    ] => {BlockCommands, :clone_masked_normal},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict",
+      "filtered",
+      "filter"
+    ] => {BlockCommands, :clone_filtered_normal},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict",
+      "filtered",
+      "filter",
+      "force"
+    ] => {BlockCommands, :clone_filtered_force},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict",
+      "filtered",
+      "filter",
+      "move"
+    ] => {BlockCommands, :clone_filtered_move},
+    [
+      "clone",
+      "from",
+      "sourceDimension",
+      "begin",
+      "end",
+      "to",
+      "targetDimension",
+      "destination",
+      "strict",
+      "filtered",
+      "filter",
+      "normal"
+    ] => {BlockCommands, :clone_filtered_normal},
+    ["forceload", "add", "from"] => {BlockCommands, :forceload_add},
+    ["forceload", "add", "from", "to"] => {BlockCommands, :forceload_add},
+    ["forceload", "remove", "from"] => {BlockCommands, :forceload_remove},
+    ["forceload", "remove", "from", "to"] => {BlockCommands, :forceload_remove},
+    ["forceload", "remove", "all"] => {BlockCommands, :forceload_remove_all},
+    ["forceload", "query"] => {BlockCommands, :forceload_query},
+    ["forceload", "query", "pos"] => {BlockCommands, :forceload_query_pos},
     ["version"] => {Admin, :version},
     ["kick", "targets"] => {Admin, :kick},
     ["kick", "targets", "reason"] => {Admin, :kick},
@@ -158,16 +1011,33 @@ defmodule Valimc.Commands do
     raise "Command handler for #{Enum.join(path, " ")} names no executable vanilla node"
   end
 
-  def root, do: @root
-  def node!(path), do: Map.fetch!(@nodes, path)
+  # The tree, its node index and the graphs are kept as one external-term
+  # literal: as code they are slow to compile. They are decoded once.
+  @tables :erlang.term_to_binary({@root, @nodes, @graphs})
+  @tables_key {__MODULE__, :erlang.md5(@tables)}
+
+  defp tables do
+    case :persistent_term.get(@tables_key, nil) do
+      nil ->
+        tables = :erlang.binary_to_term(@tables)
+        :persistent_term.put(@tables_key, tables)
+        tables
+
+      tables ->
+        tables
+    end
+  end
+
+  def root, do: elem(tables(), 0)
+  def node!(path), do: Map.fetch!(elem(tables(), 1), path)
   def handlers, do: @handlers
 
   @doc "The commands packet payload for a player at permission `level`."
-  def graph_payload(level), do: Map.fetch!(@graphs, level)
+  def graph_payload(level), do: Map.fetch!(elem(tables(), 2), level)
 
   @doc "Parses `input` for `source`: `{:ok, handler, arguments, context}` or `{:error, error}`."
   def parse(input, source) do
-    parse = Dispatcher.parse(@root, input, source)
+    parse = Dispatcher.parse(root(), input, source)
 
     case Dispatcher.finish(parse) do
       {:ok, last, context} ->

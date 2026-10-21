@@ -24,7 +24,8 @@ defmodule Valimc.Command.Arguments do
     minecraft:rotation minecraft:entity_anchor minecraft:time minecraft:message
     minecraft:item_stack minecraft:item_predicate minecraft:block_state minecraft:block_predicate
     minecraft:resource minecraft:resource_or_tag minecraft:resource_location
-    minecraft:nbt_compound_tag minecraft:nbt_tag)
+    minecraft:nbt_compound_tag minecraft:nbt_tag minecraft:component minecraft:particle
+    minecraft:dialog minecraft:column_pos minecraft:dimension)
 
   def supported, do: @supported
 
@@ -178,6 +179,51 @@ defmodule Valimc.Command.Arguments do
     do: Valimc.Command.Snbt.parse_compound(reader)
 
   def parse("minecraft:nbt_tag", _props, reader, _source), do: Valimc.Command.Snbt.parse(reader)
+
+  def parse("minecraft:particle", _props, reader, _source),
+    do: Valimc.Command.ParticleInput.parse(reader)
+
+  def parse("minecraft:column_pos", _props, reader, _source), do: Coordinates.column_pos(reader)
+  def parse("minecraft:dimension", _props, reader, _source), do: Identifier.read(reader)
+
+  # `ResourceOrIdArgument.DialogArgument`: a registered dialog; inline dialogs are refused.
+  def parse("minecraft:dialog", _props, reader, _source) do
+    if Reader.can_read?(reader) and Reader.peek(reader) in [?{, ?[, ?", ?'] do
+      {_tag, after_tag} = Valimc.Command.Snbt.parse(reader)
+      Error.throw!(Error.unsupported("Inline dialogs are not supported yet", after_tag))
+    else
+      {id, after_id} = Identifier.read(reader)
+
+      case Valimc.Protocol.Data.find_registry_id("minecraft:dialog", id) do
+        nil ->
+          Error.fail_at!(
+            "argument.resource_or_id.no_such_element",
+            [id, "minecraft:dialog"],
+            after_id
+          )
+
+        network_id ->
+          {{id, network_id}, after_id}
+      end
+    end
+  end
+
+  def parse("minecraft:component", _props, reader, _source) do
+    start = reader.cursor
+    {tag, after_tag} = Valimc.Command.Snbt.parse(reader)
+
+    case Valimc.Command.ComponentCodec.decode(tag) do
+      {:ok, component} ->
+        {component, after_tag}
+
+      {:error, message} ->
+        Error.fail_at!(
+          "argument.component.invalid",
+          [message],
+          Reader.set_cursor(after_tag, start)
+        )
+    end
+  end
 
   defp bounded(reader, type, min, max, name) do
     start = reader.cursor

@@ -274,6 +274,8 @@ defmodule Valimc.Net.LoginFlow do
         Valimc.Permissions.level(state.player.name)
       ),
       Packets.commands(Valimc.Permissions.level(state.player.name)),
+      Valimc.World.TickRate.state_packet(Valimc.World.TickRate.published()),
+      Valimc.World.TickRate.step_packet(Valimc.World.TickRate.join_steps()),
       Packets.inventory(state.inventory),
       Packets.cursor(state.inventory.carried),
       Packets.held_slot(state.inventory.selected),

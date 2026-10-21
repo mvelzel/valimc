@@ -38,7 +38,7 @@ resumes on these foundations alongside M2.
 | [VMC-029c](tickets/VMC-029c.md) | Blocks that lose their support break (plants, torches, two-block halves), found in imported terrain | Done |
 | [VMC-023](tickets/VMC-023.md) | Seeded noise and biomes: random sources, noises, compiled density functions and chunk biomes equal vanilla's | Done |
 | [VMC-024](tickets/VMC-024.md) | Vanilla terrain: noise fill with aquifers, material rules and carvers equal to vanilla's, generated live in new worlds | Done |
-| [VMC-053](tickets/VMC-053.md) | Vanilla commands: parse, permissions, suggestions, SNBT and the player, world, chat and basic admin commands are live; operator, entity and data-pack commands remain | In progress |
+| [VMC-053](tickets/VMC-053.md) | Vanilla commands: parse, permissions, suggestions, SNBT and the player, world, chat, text, effect, area, tick and basic admin commands are live; operator, entity and data-pack commands remain | In progress |
 | [VMC-025](tickets/VMC-025.md) | Features and structures: all 171 overworld placed features equal vanilla's and decorate new worlds live across region borders (client check pending); the starts of all 52 structures in three dimensions equal vanilla's; structure placement next | In progress |
 | [VMC-027](tickets/VMC-027.md) | World border live (moving, damage outside, `/worldborder`) and vanilla's world and player spawn search | In progress |
 | [VMC-070](tickets/VMC-070.md) | The client's view distance (clamped to the server's, default 10) picks vanilla's chunk view, applied live; vanilla chunk send pacing and entity tracking ranges | Done |

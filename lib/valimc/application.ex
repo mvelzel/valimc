@@ -19,7 +19,9 @@ defmodule Valimc.Application do
       {Task.Supervisor,
        name: Valimc.ItemGeometryWorkers, max_children: max(System.schedulers_online() * 8, 1)},
       Valimc.Metrics,
+      Valimc.World.TickRate,
       {Valimc.World.Clock, []},
+      {Valimc.World.Stopwatches, []},
       {Registry, keys: :unique, name: Valimc.RegionRegistry},
       {Registry, keys: :duplicate, name: Valimc.VisibilityRegistry},
       Valimc.Players,
@@ -43,6 +45,7 @@ defmodule Valimc.Application do
        strategy: :one_for_one,
        name: Valimc.RegionSupervisor,
        max_children: Valimc.config(:max_regions)},
+      {Valimc.World.ForcedChunks, []},
       {Task.Supervisor,
        name: Valimc.TransferWorkers, max_children: max(System.schedulers_online() * 4, 1)},
       # Generation (VMC-025d): proto owners, and their terrain, decoration and

@@ -349,6 +349,12 @@ defmodule Valimc.Player.Vitals do
       if old_items == [], do: [], else: [Valimc.Protocol.EntityPackets.remove(old_items)]
 
     send_packets(state, Enum.map(state.chunks, &Packets.unload/1) ++ old_entities ++ old_items)
+
+    # Post effects (`/posteffect`) do not survive a respawn, as in vanilla.
+    if Map.get(state.player, :post_effects, []) != [],
+      do: send_packets(state, [Valimc.Commands.PostEffects.packet([])])
+
+    player = Map.put(player, :post_effects, [])
     {clock_version, clock_packet} = Valimc.World.Clock.initial()
     {difficulty, difficulty_packet} = Valimc.World.Clock.difficulty()
 

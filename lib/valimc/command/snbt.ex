@@ -674,7 +674,12 @@ defmodule Valimc.Command.Snbt do
 
   defp list_tags({:list, {type, values}}), do: Enum.map(values, &{type, &1})
 
-  defp key(k), do: if(Regex.match?(~r/\A[0-9A-Za-z._+-]+\z/, k), do: k, else: quote_string(k))
+  defp key(k),
+    do:
+      if(Regex.match?(~r/\A[A-Za-z._]+[A-Za-z0-9._+-]*\z/, k) and k not in ["true", "false"],
+        do: k,
+        else: quote_string(k)
+      )
 
   defp quote_string(text) do
     quote =

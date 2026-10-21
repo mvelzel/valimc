@@ -28,6 +28,24 @@ defmodule Valimc.Command.Feedback do
     :ok
   end
 
+  @doc "A message from the server console: logged and shown to operators as `[Server: ...]`."
+  def console(component) do
+    require Logger
+    Logger.info("[Server] " <> inspect(component))
+
+    if Valimc.Command.GameRules.get(:send_command_feedback) do
+      message =
+        Text.translatable("chat.type.admin", [Text.literal("Server"), component])
+        |> Text.style([{"color", "gray"}, {"italic", true}])
+
+      for player <- Valimc.Players.all(),
+          Valimc.Permissions.operator?(player.name),
+          do: Valimc.Connection.deliver(player.pid, {:chat, Text.encode(message)})
+    end
+
+    :ok
+  end
+
   defp admins(source, component) do
     if Valimc.Command.GameRules.get(:send_command_feedback) do
       message =

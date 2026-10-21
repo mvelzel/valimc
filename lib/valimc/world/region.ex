@@ -324,7 +324,7 @@ defmodule Valimc.World.Region do
           if Valimc.config(:region_ticks, key) == :timer,
             do: Process.send_after(self(), {:tick, clock.token}, 50)
 
-        {:noreply, %{resource: resource, tick_clock: clock, tick_timer: timer}}
+        {:noreply, %{resource: resource, tick_clock: clock, tick_timer: timer, tick_steps: nil}}
 
       {:error, reason} ->
         {:stop, reason, %{resource: resource}}
@@ -361,11 +361,21 @@ defmodule Valimc.World.Region do
         {:noreply, schedule_tick(state, clock, delay)}
 
       {:ok, clock, late, delay} ->
-        Valimc.Metrics.add(:region_ticks)
-        Valimc.Metrics.add(:region_late_milliseconds, late)
+        # A frozen game (`/tick freeze`) runs only the steps it is granted.
+        case Valimc.World.TickRate.run?(Map.get(state, :tick_steps)) do
+          {true, steps} ->
+            Valimc.Metrics.add(:region_ticks)
+            Valimc.Metrics.add(:region_late_milliseconds, late)
+            started = System.monotonic_time(:nanosecond)
+            resource = TickPipeline.run(state.resource, clock.tick, now)
+            Valimc.World.TickRate.sample(System.monotonic_time(:nanosecond) - started)
 
-        resource = TickPipeline.run(state.resource, clock.tick, now)
-        {:noreply, schedule_tick(%{state | resource: resource}, clock, delay)}
+            {:noreply,
+             schedule_tick(%{state | resource: resource, tick_steps: steps}, clock, delay)}
+
+          {false, steps} ->
+            {:noreply, schedule_tick(Map.put(state, :tick_steps, steps), clock, delay)}
+        end
     end
   end
 

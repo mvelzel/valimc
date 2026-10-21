@@ -79,6 +79,9 @@ defmodule Valimc.Command.Suggestions do
         "timeline" ->
           for {id, %{"clock" => ^clock}} <- @timelines, do: id
 
+        "id" ->
+          if hd(path) == "stopwatch", do: Valimc.World.Stopwatches.ids(), else: []
+
         _ ->
           []
       end

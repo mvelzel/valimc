@@ -20,6 +20,20 @@ defmodule Valimc.Command.Coordinates do
     world(reader, :double, center, 2, "argument.pos2d.incomplete")
   end
 
+  @doc "`column_pos`: two integer (or `~`) coordinates, x then z."
+  def column_pos(reader) do
+    start = reader.cursor
+    unless Reader.can_read?(reader), do: Error.fail_at!("argument.pos2d.incomplete", [], reader)
+    {x, reader} = coordinate(reader, :int, false)
+
+    if Reader.at?(reader, ?\s) do
+      {z, reader} = coordinate(Reader.skip(reader), :int, false)
+      {{:world, [x, {true, 0.0}, z]}, reader}
+    else
+      Error.fail_at!("argument.pos2d.incomplete", [], Reader.set_cursor(reader, start))
+    end
+  end
+
   def rotation(reader) do
     start = reader.cursor
 

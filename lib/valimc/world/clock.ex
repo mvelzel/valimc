@@ -104,7 +104,9 @@ defmodule Valimc.World.Clock do
           tick_timer: nil,
           save_timer: nil,
           sync_ticks: 0,
-          tick_interval: Keyword.get(opts, :tick_interval_ms, 50),
+          # Without an explicit interval the clock follows `/tick` (`TickRate`).
+          tick_interval: Keyword.get(opts, :tick_interval_ms, :rate),
+          tick_steps: nil,
           save_interval: Keyword.get(opts, :save_interval_ms, 30_000),
           next_tick:
             System.monotonic_time(:millisecond) + (Keyword.get(opts, :tick_interval_ms, 50) || 50)
@@ -211,24 +213,28 @@ defmodule Valimc.World.Clock do
     Process.cancel_timer(timer)
     now = System.monotonic_time(:millisecond)
 
-    if now < state.next_tick do
-      {:noreply, schedule_tick(%{state | tick_timer: nil})}
-    else
-      data = ClockRecord.tick(state.data)
-      count = state.sync_ticks + 1
+    run =
+      if state.tick_interval == :rate,
+        do: Valimc.World.TickRate.run?(state.tick_steps),
+        else: {true, state.tick_steps}
 
-      next = %{
-        state
-        | data: data,
-          revision: state.revision + 1,
-          dirty: true,
-          sync_ticks: rem(count, 20),
-          tick_timer: nil,
-          next_tick: max(state.next_tick + state.tick_interval, now + 1)
-      }
+    cond do
+      now < state.next_tick ->
+        {:noreply, schedule_tick(%{state | tick_timer: nil})}
 
-      publish(next, count == 20)
-      {:noreply, schedule_tick(next)}
+      # A frozen game keeps its time; the clock ticks again when stepped or unfrozen.
+      not elem(run, 0) ->
+        next = %{
+          state
+          | tick_timer: nil,
+            tick_steps: elem(run, 1),
+            next_tick: max(state.next_tick + interval(state), now + 1)
+        }
+
+        {:noreply, schedule_tick(next)}
+
+      true ->
+        tick(%{state | tick_steps: elem(run, 1)}, now)
     end
   end
 
@@ -311,6 +317,28 @@ defmodule Valimc.World.Clock do
     ])
   end
 
+  defp interval(%{tick_interval: :rate}), do: Valimc.World.TickRate.interval()
+  defp interval(state), do: state.tick_interval
+
+  defp tick(state, now) do
+    if state.tick_interval == :rate, do: Valimc.World.TickRate.clock_ticked()
+    data = ClockRecord.tick(state.data)
+    count = state.sync_ticks + 1
+
+    next = %{
+      state
+      | data: data,
+        revision: state.revision + 1,
+        dirty: true,
+        sync_ticks: rem(count, 20),
+        tick_timer: nil,
+        next_tick: max(state.next_tick + interval(state), now + 1)
+    }
+
+    publish(next, count == 20)
+    {:noreply, schedule_tick(next)}
+  end
+
   defp schedule_tick(%{tick_interval: nil} = state), do: state
 
   defp schedule_tick(state) do
@@ -320,7 +348,7 @@ defmodule Valimc.World.Clock do
       Process.send_after(
         self(),
         {:clock_tick, token},
-        max(state.next_tick - System.monotonic_time(:millisecond), 1)
+        max(ceil(state.next_tick - System.monotonic_time(:millisecond)), 1)
       )
 
     %{state | tick_timer: {token, timer}}

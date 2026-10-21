@@ -175,6 +175,9 @@ defmodule Valimc.Player.CommandOps do
     end
   end
 
+  def apply(state, {:post_effect, operation}),
+    do: Valimc.Commands.PostEffects.apply(state, operation)
+
   def apply(state, :kill) do
     case PlayerHealth.hurt_window(state.player.health, 3.4028234663852886e38, true) do
       {:ok, selected} ->
