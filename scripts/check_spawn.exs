@@ -24,7 +24,10 @@ rows = path |> File.read!() |> JSON.decode!()
 
 created = fn seed ->
   base =
-    Path.join(System.tmp_dir!(), "valimc-spawn-#{seed}-#{System.unique_integer([:positive])}")
+    Path.join(
+      System.tmp_dir!(),
+      "valimc-spawn-#{seed}-#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
+    )
 
   try do
     :ok = Generator.create(base, seed, features: features)

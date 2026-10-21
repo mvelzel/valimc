@@ -47,7 +47,13 @@ names = fn id ->
 end
 
 block_names = fn id -> "minecraft:" <> Valimc.Registry.Blocks.name(id) end
-root = Path.join(System.tmp_dir!(), "valimc-live-#{System.unique_integer([:positive])}")
+# Random: the fresh VMs of parallel stages repeat `System.unique_integer`, and
+# one run's cleanup would remove another's worlds.
+root =
+  Path.join(
+    System.tmp_dir!(),
+    "valimc-live-#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
+  )
 
 {failures, chunks, entities} =
   for {%{"seed" => seed, "regions" => regions} = entry, index} <- Enum.with_index(facts["cases"]),

@@ -30,7 +30,10 @@ cases = [
 
 for {name, make} <- cases do
   base =
-    Path.join(System.tmp_dir!(), "valimc-settings-#{name}-#{System.unique_integer([:positive])}")
+    Path.join(
+      System.tmp_dir!(),
+      "valimc-settings-#{name}-#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
+    )
 
   File.mkdir_p!(base)
   :ok = make.(base)

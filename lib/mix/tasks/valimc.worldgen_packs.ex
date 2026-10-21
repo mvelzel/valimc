@@ -43,7 +43,13 @@ defmodule Mix.Tasks.Valimc.WorldgenPacks do
   defp extract(world, digest, dir) do
     File.rm_rf!(dir)
     File.mkdir_p!(dir)
-    unpacked = Path.join(System.tmp_dir!(), "valimc-packs-#{System.unique_integer([:positive])}")
+
+    unpacked =
+      Path.join(
+        System.tmp_dir!(),
+        "valimc-packs-#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
+      )
+
     File.mkdir_p!(unpacked)
 
     try do
