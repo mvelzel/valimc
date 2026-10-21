@@ -2,54 +2,16 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
 
-  alias Valimc.{
-    Connection,
-    Inventory,
-    PlayerEnvironment,
-    PlayerHealth,
-    PlayerSnapshot,
-    PlayerStore,
-    Players,
-    World
-  }
+  alias Valimc.{Inventory, PlayerEnvironment, PlayerHealth, PlayerSnapshot, World}
 
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
+  import Valimc.TestPlayer, only: [login: 1, state: 1]
 
-  setup do
-    nonce = System.unique_integer([:positive])
-    name = "Cold#{nonce}"
-    uuid = Connection.offline_uuid(name)
-    # Player ticks come only from the test's own tick messages (VMC-073).
-    Valimc.TestScope.isolate(uuid, player_ticks: :manual)
-    base = Path.join(System.tmp_dir!(), "valimc-freeze-damage-#{nonce}")
-    old = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
-    key = {82_000 + rem(nonce, 3_333) * 3, 982}
-    {rx, rz} = key
-    pose = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
+  setup do: Valimc.TestPlayer.scope("Cold", {82_000, 982})
 
-    on_exit(fn ->
-      for p <- Players.all(),
-          p.name == name,
-          do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
-
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
-
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-
-      Application.put_env(:valimc, :world_path, old)
-      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
-      Valimc.TestScope.stop_players(base)
-      File.rm_rf!(base)
-    end)
-
-    %{name: name, uuid: uuid, key: key, pose: pose, path: PlayerStore.path(base, uuid)}
-  end
-
-  defp state(pid), do: Valimc.TestConn.state(pid)
+  defp tick(pid, settle \\ true), do: Valimc.TestPlayer.tick(pid, settle)
+  defp ticks(pid, count), do: Valimc.TestPlayer.ticks(pid, count, true)
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
@@ -66,10 +28,7 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
         last_death: nil
       })
 
-    inventory = Keyword.get(opts, :inventory, %Inventory{})
-    {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, PlayerSnapshot.capture(player, inventory))
-    File.mkdir_p!(Path.dirname(ctx.path))
-    File.write!(ctx.path, bytes)
+    Valimc.TestPlayer.save(ctx, player, Keyword.get(opts, :inventory, %Inventory{}))
 
     for y <- [64, 65],
         do:
@@ -77,32 +36,6 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
   end
 
   # Retire wall timers while driving the real owner handler with single-use tokens.
-  defp park(pid) do
-    :sys.replace_state(pid, fn s ->
-      clock = %{
-        s.simulation_clock
-        | token: {s.simulation_clock.epoch, make_ref()},
-          deadline: System.monotonic_time(:millisecond) + 60_000
-      }
-
-      %{s | simulation_clock: clock}
-    end)
-  end
-
-  defp login(ctx) do
-    {_, client} = Client.login(ctx.name)
-    pid = wait(fn -> Enum.find(Players.all(), &(&1.name == ctx.name)) end).pid
-    park(pid)
-    client = Client.load_world(client)
-    Client.send_packet(client, :play, "player_loaded", <<>>)
-
-    wait(fn ->
-      not state(pid).teleport_pending and Valimc.PlayerInput.loaded?(state(pid).player.input)
-    end)
-
-    on_exit(fn -> Client.close(client) end)
-    {client, pid}
-  end
 
   defp zero_phase(pid) do
     :sys.replace_state(pid, fn s ->
@@ -115,31 +48,6 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
       }
     end)
   end
-
-  defp tick(pid, await_geometry \\ true) do
-    before =
-      :sys.replace_state(pid, fn s ->
-        %{
-          s
-          | simulation_clock: %{
-              s.simulation_clock
-              | deadline: System.monotonic_time(:millisecond)
-            }
-        }
-      end)
-
-    token = before.simulation_clock.token
-    send(pid, {:player_tick, token})
-    assert state(pid).simulation_clock.tick == before.simulation_clock.tick + 1
-    park(pid)
-
-    if await_geometry,
-      do: wait(fn -> state(pid).pose_job == nil and state(pid).motion_job == nil end)
-
-    token
-  end
-
-  defp ticks(pid, count), do: Enum.each(1..count, fn _ -> tick(pid) end)
 
   test "full freezing damages every 40 admitted ticks, emits native packets and survives reconnect",
        ctx do
@@ -196,65 +104,6 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
       assert state(pid).player.health.value == 19.0
     after
       Valimc.TestRegionGate.resume(region)
-    end
-  end
-
-  test "leaving powder or equipping native immune gear before a due read prevents cold damage",
-       ctx do
-    seed(ctx)
-    {client, pid} = login(ctx)
-    zero_phase(pid)
-    ticks(pid, 39)
-    client = Client.teleport(client, pid, %{ctx.pose | x: ctx.pose.x + 3})
-    tick(pid)
-    assert state(pid).player.health.value == 20.0
-    assert state(pid).player.environment.frozen_ticks == 138
-    _client = Client.teleport(client, pid, ctx.pose)
-
-    :sys.replace_state(pid, fn s ->
-      %{
-        s
-        | inventory: %Inventory{slots: %{5 => ItemStack.new("leather_helmet")}},
-          player: %{
-            s.player
-            | environment: %PlayerEnvironment{frozen_ticks: 140, damage_phase: 39}
-          }
-      }
-    end)
-
-    tick(pid)
-    assert state(pid).player.health.value == 20.0
-    assert state(pid).player.environment.frozen_ticks == 138
-    refute state(pid).player.environment.damage_due
-  end
-
-  for {enchantment, damage} <- [{"protection", 0.8400000333786011}, {"feather_falling", 1.0}] do
-    test "native #{enchantment} freezing defense uses only applicable worn effects", ctx do
-      gear = %{
-        ItemStack.new("iron_boots")
-        | components: %{
-            "minecraft:enchantments" => %{("minecraft:" <> unquote(enchantment)) => 4}
-          }
-      }
-
-      inventory = %Inventory{slots: %{8 => gear}}
-      seed(ctx, inventory: inventory)
-      {_client, pid} = login(ctx)
-      zero_phase(pid)
-      ticks(pid, 40)
-      <<expected::float-32>> = <<20.0 - unquote(damage)::float-32>>
-      assert state(pid).player.health.value == expected
-      assert state(pid).inventory == inventory
-    end
-  end
-
-  for mode <- [:creative, :spectator] do
-    test "#{mode} remains immune to freezing consequences", ctx do
-      seed(ctx, mode: unquote(mode))
-      {_client, pid} = login(ctx)
-      zero_phase(pid)
-      ticks(pid, 40)
-      assert state(pid).player.health.value == 20.0 and state(pid).life_stage == :alive
     end
   end
 

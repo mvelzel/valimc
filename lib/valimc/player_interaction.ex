@@ -6,8 +6,6 @@ defmodule Valimc.PlayerInteraction do
   @block @facts["minecraft:block_interaction_range"]
   @entity @facts["minecraft:entity_interaction_range"]
   @modes [:survival, :creative, :adventure, :spectator]
-  # Native standing eye height is a float before promotion to double.
-  @standing_eye_height 1.6200000047683716
 
   def opens_block_menu?(mode, hand, secondary, main, off)
       when mode in @modes and hand in [:main, :off] and is_boolean(secondary) and
@@ -29,8 +27,6 @@ defmodule Valimc.PlayerInteraction do
        if(mode == :creative, do: [{"minecraft:creative_mode_entity_range", 2.0, 0}], else: [])}
     ]
   end
-
-  def standing_eye(%{x: x, y: y, z: z}), do: {x, y + @standing_eye_height, z}
 
   def eye(%{x: x, y: y, z: z} = player) do
     {:ok, geometry} =

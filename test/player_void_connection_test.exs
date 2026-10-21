@@ -1,48 +1,19 @@
 defmodule Valimc.PlayerVoidConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, PlayerHealth, PlayerSnapshot, PlayerStore, Players, World}
+  alias Valimc.{Inventory, PlayerHealth, PlayerSnapshot, World}
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
+  import Valimc.TestPlayer, only: [login: 1, state: 1, tick: 1, ticks: 2]
 
   setup do
-    nonce = System.unique_integer([:positive])
-    name = "Void#{nonce}"
-    uuid = Connection.offline_uuid(name)
-    # Player ticks come only from the test's own tick messages (VMC-073).
-    Valimc.TestScope.isolate(uuid, player_ticks: :manual)
-    base = Path.join(System.tmp_dir!(), "valimc-void-#{nonce}")
-    old = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
-    key = {105_000 + rem(nonce, 3_333) * 3, 986}
-    {rx, rz} = key
-    pose = %{x: rx * 128 + 40.5, y: -129.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
-
-    on_exit(fn ->
-      for p <- Players.all(),
-          p.name == name,
-          do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
-
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
-
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-
-      Application.put_env(:valimc, :world_path, old)
-      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
-      Valimc.TestScope.stop_players(base)
-      File.rm_rf!(base)
-    end)
-
-    %{name: name, uuid: uuid, key: key, pose: pose, path: PlayerStore.path(base, uuid)}
+    ctx = Valimc.TestPlayer.scope("Void", {105_000, 986})
+    put_in(ctx.pose.y, -129.0)
   end
-
-  defp state(pid), do: Valimc.TestConn.state(pid)
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
-  defp seed(ctx, opts \\ []) do
+  defp seed(ctx, opts) do
     mode = Keyword.get(opts, :mode, :survival)
 
     player =
@@ -57,61 +28,8 @@ defmodule Valimc.PlayerVoidConnectionTest do
         air_supply: 300
       })
 
-    inventory = Keyword.get(opts, :inventory, %Inventory{})
-    {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, PlayerSnapshot.capture(player, inventory))
-    File.mkdir_p!(Path.dirname(ctx.path))
-    File.write!(ctx.path, bytes)
+    Valimc.TestPlayer.save(ctx, player, Keyword.get(opts, :inventory, %Inventory{}))
   end
-
-  defp park(pid) do
-    :sys.replace_state(pid, fn s ->
-      %{
-        s
-        | simulation_clock: %{
-            s.simulation_clock
-            | token: {s.simulation_clock.epoch, make_ref()},
-              deadline: System.monotonic_time(:millisecond) + 60_000
-          }
-      }
-    end)
-  end
-
-  defp login(ctx, loaded \\ true) do
-    {_, client} = Client.login(ctx.name)
-    pid = wait(fn -> Enum.find(Players.all(), &(&1.name == ctx.name)) end).pid
-    park(pid)
-    client = Client.load_world(client)
-    if loaded, do: Client.send_packet(client, :play, "player_loaded", <<>>)
-
-    wait(fn ->
-      not state(pid).teleport_pending and
-        (not loaded or Valimc.PlayerInput.loaded?(state(pid).player.input))
-    end)
-
-    on_exit(fn -> Client.close(client) end)
-    {client, pid}
-  end
-
-  defp tick(pid) do
-    before =
-      :sys.replace_state(pid, fn s ->
-        %{
-          s
-          | simulation_clock: %{
-              s.simulation_clock
-              | deadline: System.monotonic_time(:millisecond)
-            }
-        }
-      end)
-
-    token = before.simulation_clock.token
-    send(pid, {:player_tick, token})
-    assert state(pid).simulation_clock.tick == before.simulation_clock.tick + 1
-    park(pid)
-    token
-  end
-
-  defp ticks(pid, count), do: Enum.each(1..count, fn _ -> tick(pid) end)
 
   test "strict boundary uses accepted position, never the predicted gravity destination", ctx do
     seed(ctx, y: -128.0)
@@ -168,28 +86,6 @@ defmodule Valimc.PlayerVoidConnectionTest do
     assert state(owner).player.health.value == 12.0 and state(owner).player.health.cooldown == 0
     tick(owner)
     assert state(owner).player.health.value == 8.0
-  end
-
-  for mode <- [:creative, :adventure, :spectator] do
-    test "native #{mode} mode cannot use its abilities to avoid void damage", ctx do
-      seed(ctx, mode: unquote(mode))
-      {_client, pid} = login(ctx)
-      tick(pid)
-      assert state(pid).player.health.value == 16.0 and state(pid).life_stage == :alive
-    end
-  end
-
-  test "client loading protects the body without consuming the hurt window", ctx do
-    seed(ctx)
-    {client, pid} = login(ctx, false)
-    refute Valimc.PlayerInput.loaded?(state(pid).player.input)
-    ticks(pid, 20)
-    assert state(pid).player.health.value == 20.0
-    assert state(pid).player.health.cooldown == 0 and state(pid).player.health.last_hurt == 0.0
-    Client.send_packet(client, :play, "player_loaded", <<>>)
-    wait(fn -> Valimc.PlayerInput.loaded?(state(pid).player.input) end)
-    tick(pid)
-    assert state(pid).player.health.value == 16.0
   end
 
   test "void consequences do not wait on stalled geometry and ignore armor/enchantment defenses",

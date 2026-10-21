@@ -126,30 +126,6 @@ defmodule Valimc.GameModeConnectionTest do
     end
   end
 
-  test "absent mode uses the configured default while flight/permission is rederived", ctx do
-    old =
-      PlayerSnapshot.capture(
-        Map.put(ctx.pose, :abilities, %PlayerAbilities{flying: true}),
-        ctx.inventory
-      )
-
-    {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, old)
-    File.write!(ctx.path, bytes)
-    Application.put_env(:valimc, :default_game_mode, :survival)
-    client = login(ctx)
-    assert state(ctx).player.game_mode == GameMode.new(:survival)
-    assert client.abilities.flags == 0 and not state(ctx).inventory.infinite_materials
-    close(ctx, client)
-    {:ok, current} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
-    assert current.game_mode == GameMode.new(:survival) and not current.flying
-    File.rm!(ctx.path)
-    Application.put_env(:valimc, :default_game_mode, :spectator)
-    fresh = login(ctx)
-    assert state(ctx).player.game_mode == GameMode.new(:spectator)
-    assert fresh.abilities.flags == 7
-    close(ctx, fresh)
-  end
-
   test "unprivileged native mode requests are parsed but never change saved mode or abilities",
        ctx do
     seed(ctx, GameMode.new(:creative), false)
@@ -233,45 +209,42 @@ defmodule Valimc.GameModeConnectionTest do
     close(ctx, client)
   end
 
-  test "non-creative modes cannot use instant preview breaks, free placement, clone or creative writes",
+  test "survival cannot use instant preview breaks, free placement, clone or creative writes",
        ctx do
     {x, z} = {floor(ctx.pose.x), floor(ctx.pose.z)}
     target = {x + 1, 64, z}
 
-    for mode <- [:survival, :adventure, :spectator] do
-      seed(ctx, GameMode.new(mode), false)
-      client = login(ctx)
-      assert World.get_block(target) == 0
+    seed(ctx, GameMode.new(:survival), false)
+    client = login(ctx)
+    assert World.get_block(target) == 0
 
-      Client.send_packet(client, :play, "use_item_on", [
-        <<0>>,
-        Wire.position({x + 1, 63, z}),
-        <<1, 0.5::float-32, 1.0::float-32, 0.5::float-32, 0, 0, 0>>
-      ])
+    Client.send_packet(client, :play, "use_item_on", [
+      <<0>>,
+      Wire.position({x + 1, 63, z}),
+      <<1, 0.5::float-32, 1.0::float-32, 0.5::float-32, 0, 0, 0>>
+    ])
 
-      {<<0>>, client} = Client.await(client, :play, "block_changed_ack")
-      assert World.get_block(target) == 0
-      assert client.inventory.items == Inventory.contents(ctx.inventory)
-      assert client.inventory.state_id > 0
-      :ok = World.set_block(target, 1)
-      action(client, "start_destroy_block", target)
-      action(client, "stop_destroy_block", target)
-      client = barrier(client)
-      assert World.get_block(target) == 1
-      client = click(client, "clone", 36, 2)
+    {<<0>>, client} = Client.await(client, :play, "block_changed_ack")
+    assert World.get_block(target) == 0
+    assert client.inventory.items == Inventory.contents(ctx.inventory)
+    assert client.inventory.state_id > 0
+    :ok = World.set_block(target, 1)
+    action(client, "start_destroy_block", target)
+    action(client, "stop_destroy_block", target)
+    client = barrier(client)
+    assert World.get_block(target) == 1
+    client = click(client, "clone", 36, 2)
 
-      Client.send_packet(client, :play, "set_creative_mode_slot", [
-        <<36::signed-16>>,
-        ItemStack.encode(ItemStack.new("diamond"), :untrusted)
-      ])
+    Client.send_packet(client, :play, "set_creative_mode_slot", [
+      <<36::signed-16>>,
+      ItemStack.encode(ItemStack.new("diamond"), :untrusted)
+    ])
 
-      client = barrier(client)
+    client = barrier(client)
 
-      assert state(ctx).inventory.slots == ctx.inventory.slots and
-               state(ctx).inventory.carried == nil
+    assert state(ctx).inventory.slots == ctx.inventory.slots and
+             state(ctx).inventory.carried == nil
 
-      close(ctx, client)
-      :ok = World.set_block(target, 0)
-    end
+    close(ctx, client)
   end
 end

@@ -90,9 +90,7 @@ defmodule Valimc.Physics.BlockShapes do
          do: raise("Incomplete moving-piston catalog")
 
   def state_count, do: tuple_size(@states)
-  def shape_count, do: tuple_size(@shapes)
   def grids, do: @shapes
-  def entries, do: @states
 
   def fetch(id) when is_integer(id) and id >= 0 and id < tuple_size(@states) do
     case elem(@states, id) do

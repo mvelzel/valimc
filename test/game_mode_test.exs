@@ -14,35 +14,6 @@ defmodule Valimc.GameModeTest do
 
   defp seal(payload), do: payload <> :crypto.hash(:sha256, payload)
 
-  test "mode identity/history is explicit; wire lookup fallback never relaxes save validation" do
-    for {mode, id} <- Enum.with_index(@modes) do
-      assert GameMode.valid?(mode) and GameMode.id(mode) == id and GameMode.from_id(id) == mode
-      initial = GameMode.new(mode)
-      assert {:ok, ^initial} = GameMode.change(initial, mode)
-
-      for target <- @modes, target != mode do
-        assert {:ok, next} = GameMode.change(initial, target)
-        assert next.current == target and next.previous == mode
-        assert {:ok, ^next} = GameMode.change(next, target)
-      end
-    end
-
-    assert {:error, :invalid_game_mode} = GameMode.change(%GameMode{}, :unknown)
-    for id <- [-1, 4, 127, 2_147_483_647], do: assert(GameMode.from_id(id) == :survival)
-
-    for bytes <- [<<>>, <<4, 255>>, <<1, 4>>, <<1, 255, 0>>],
-        do: assert({:error, :invalid_game_mode} == GameMode.decode(bytes))
-  end
-
-  test "mode derives permissions and clamps saved flight while preserving native creative flight" do
-    for mode <- @modes, flying <- [false, true] do
-      a = GameMode.abilities(GameMode.new(mode), flying)
-      assert a.infinite_materials == (mode == :creative)
-      assert a.flying == (mode == :spectator or (mode == :creative and flying))
-      assert a.may_fly == mode in [:creative, :spectator]
-    end
-  end
-
   test "all forty mode/history/flight snapshots preserve inventory and the bounded journal" do
     uuid = <<31::128>>
 

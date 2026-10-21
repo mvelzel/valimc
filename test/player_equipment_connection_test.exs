@@ -138,6 +138,8 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
   test "use animation receives current held equipment first and completion clears the consumed hand",
        ctx do
     [first, second] = ctx.names
+    # The eater's ticks come only from this test, not 32 real ticks of eating.
+    Valimc.TestScope.isolate(Valimc.Connection.offline_uuid(first), player_ticks: :manual)
     soup = ItemStack.new("mushroom_stew")
     seed(ctx, first, %Inventory{slots: %{45 => soup}}, :survival)
     {sender, pid} = login(first)
@@ -147,10 +149,34 @@ defmodule Valimc.PlayerEquipmentConnectionTest do
     Client.send_packet(sender, :play, "use_item", <<1, 1, 0::float-32, 0::float-32>>)
     wait(fn -> state(pid).active_use != nil end)
     receiver = await_use(receiver, entity, 3, soup)
+    tick_until(pid, fn -> state(pid).active_use == nil end)
     receiver = await_slot(receiver, entity, 1, ItemStack.new("bowl"))
     _receiver = await_use(receiver, entity, 2, ItemStack.new("bowl"))
     assert state(pid).inventory.slots[45] == ItemStack.new("bowl")
     assert state(pid).player.food.level == 11
+  end
+
+  defp tick_until(pid, done?, remaining \\ 64) do
+    if done?.() do
+      :ok
+    else
+      assert remaining > 0, "use did not finish"
+
+      before =
+        :sys.replace_state(pid, fn s ->
+          %{
+            s
+            | simulation_clock: %{
+                s.simulation_clock
+                | deadline: System.monotonic_time(:millisecond)
+              }
+          }
+        end)
+
+      send(pid, {:player_tick, before.simulation_clock.token})
+      wait(fn -> state(pid).simulation_clock.tick > before.simulation_clock.tick end)
+      tick_until(pid, done?, remaining - 1)
+    end
   end
 
   defp await_use(client, entity, flags, held) do

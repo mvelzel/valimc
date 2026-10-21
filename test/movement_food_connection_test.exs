@@ -1,44 +1,12 @@
 defmodule Valimc.MovementFoodConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, PlayerFood, PlayerSnapshot, PlayerStore, Players, World}
+  alias Valimc.{Connection, Inventory, PlayerFood, PlayerSnapshot, World}
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
+  import Valimc.TestPlayer, only: [login: 1, state: 1, tick: 1]
 
-  setup do
-    nonce = System.unique_integer([:positive])
-    name = "Travel#{nonce}"
-    uuid = Connection.offline_uuid(name)
-    # Player ticks come only from the test's own tick messages (VMC-073).
-    Valimc.TestScope.isolate(uuid, player_ticks: :manual)
-    base = Path.join(System.tmp_dir!(), "valimc-travel-food-#{nonce}")
-    old = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
-    key = {108_000 + rem(nonce, 3_333) * 3, 988}
-    {rx, rz} = key
-    pose = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
-
-    on_exit(fn ->
-      for p <- Players.all(),
-          p.name == name,
-          do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
-
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
-
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-
-      Application.put_env(:valimc, :world_path, old)
-      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
-      Valimc.TestScope.stop_players(base)
-      File.rm_rf!(base)
-    end)
-
-    %{name: name, uuid: uuid, pose: pose, key: key, path: PlayerStore.path(base, uuid)}
-  end
-
-  defp state(pid), do: Valimc.TestConn.state(pid)
+  setup do: Valimc.TestPlayer.scope("Travel", {108_000, 988})
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
@@ -58,37 +26,7 @@ defmodule Valimc.MovementFoodConnectionTest do
       })
 
     inventory = %Inventory{slots: %{36 => ItemStack.new("stone", 7)}}
-    {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, PlayerSnapshot.capture(player, inventory))
-    File.mkdir_p!(Path.dirname(ctx.path))
-    File.write!(ctx.path, bytes)
-  end
-
-  defp park(pid) do
-    :sys.replace_state(pid, fn s ->
-      %{
-        s
-        | simulation_clock: %{
-            s.simulation_clock
-            | token: {s.simulation_clock.epoch, make_ref()},
-              deadline: System.monotonic_time(:millisecond) + 60_000
-          }
-      }
-    end)
-  end
-
-  defp login(ctx) do
-    {_, client} = Client.login(ctx.name)
-    {pid, _} = Enum.find(:ets.tab2list(Players), fn {_, p} -> p.name == ctx.name end)
-    park(pid)
-    client = Client.load_world(client)
-    Client.send_packet(client, :play, "player_loaded", <<>>)
-
-    wait(fn ->
-      not state(pid).teleport_pending and Valimc.PlayerInput.loaded?(state(pid).player.input)
-    end)
-
-    on_exit(fn -> Client.close(client) end)
-    {client, pid}
+    Valimc.TestPlayer.save(ctx, player, inventory)
   end
 
   defp move(client, position, flags \\ 1) do
@@ -120,23 +58,6 @@ defmodule Valimc.MovementFoodConnectionTest do
     )
 
     wait(fn -> Bitwise.band(state(pid).player.input.shared_flags, 8) != 0 == sprinting end)
-  end
-
-  defp tick(pid) do
-    before =
-      :sys.replace_state(pid, fn s ->
-        %{
-          s
-          | simulation_clock: %{
-              s.simulation_clock
-              | deadline: System.monotonic_time(:millisecond)
-            }
-        }
-      end)
-
-    send(pid, {:player_tick, before.simulation_clock.token})
-    assert state(pid).simulation_clock.tick == before.simulation_clock.tick + 1
-    park(pid)
   end
 
   test "accepted sprint consumes the native amount once, drains food on tick and survives reconnect",

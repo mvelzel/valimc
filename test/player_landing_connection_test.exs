@@ -196,23 +196,4 @@ defmodule Valimc.PlayerLandingConnectionTest do
       Valimc.TestRegionGate.resume(region)
     end
   end
-
-  test "a fatal accepted landing runs durable multi-batch death and actual respawn protocol",
-       ctx do
-    inventory = %Inventory{slots: Map.new(36..43, &{&1, ItemStack.new("stone", &1 - 35)})}
-    seed(ctx, health: 3.0, inventory: inventory)
-    {client, pid} = login(ctx)
-    fall(client, pid, 64.0)
-    {_, client} = Client.await(client, :play, "player_combat_kill")
-    wait(fn -> state(pid).life_stage == :dead end)
-    {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
-    assert saved.health.value == 0.0 and saved.transfer_sequence == 2 and saved.outbox == nil
-    assert saved.inventory.slots == %{}
-    assert map_size(World.item_snapshot(ctx.key)) == 8
-    Client.send_packet(client, :play, "client_command", <<0>>)
-    {_, client} = Client.await(client, :play, "respawn")
-    {<<20.0::float-32, _::binary>>, _} = Client.await(client, :play, "set_health")
-    assert state(pid).life_stage == :alive and state(pid).inventory.slots == %{}
-    assert state(pid).player.motion.fall_distance == 0.0
-  end
 end

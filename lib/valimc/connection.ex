@@ -72,12 +72,6 @@ defmodule Valimc.Connection do
     GenServer.call(pid, {:effect, effect_id, incoming, deadline}, 1500)
   end
 
-  @doc "Remove a supported effect on its player owner."
-  def remove_effect(pid, effect_id) do
-    deadline = System.monotonic_time(:millisecond) + 1000
-    GenServer.call(pid, {:effect, effect_id, :remove, deadline}, 1500)
-  end
-
   @impl true
   def handle_call(
         {:teleport, destination, deadline},

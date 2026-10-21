@@ -114,14 +114,6 @@ defmodule Valimc.Session.Jobs do
 
   def classify(%__MODULE__{}, _message), do: :unknown
 
-  @doc "Remove a job whose reply arrived by another channel (correlation ref only)."
-  def take(%__MODULE__{} = jobs, kind, ref) do
-    case get(jobs, kind) do
-      %{ref: ^ref} = job -> {job, remove(jobs, job, true)}
-      _ -> {nil, jobs}
-    end
-  end
-
   @doc "Cancel one job: timer, task/process and monitor. Returns `{job | nil, jobs}`."
   def cancel(%__MODULE__{} = jobs, kind) do
     case get(jobs, kind) do

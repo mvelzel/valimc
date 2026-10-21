@@ -742,3 +742,154 @@ defmodule Valimc.TestWait do
     end
   end
 end
+
+defmodule Valimc.TestPlayer do
+  @moduledoc """
+  One socket player in a private world whose simulation ticks only the test
+  drives (VMC-073): `scope/3` in setup, `save/3` for its saved state, `login/2`
+  to join with a parked clock and `tick/2` for one owner tick.
+  """
+  import ExUnit.Assertions
+  alias Valimc.{Connection, Players, PlayerSnapshot, PlayerStore}
+  alias Valimc.TestClient, as: Client
+  alias Valimc.World.Clock
+
+  @doc """
+  A fresh `prefix`-named player with manual ticks and a private world near region
+  `{x_base + n, z}`. `survival: {difficulty, natural_regeneration}` applies those
+  world rules for the test.
+  """
+  def scope(prefix, {x_base, z}, opts \\ []) do
+    nonce = System.unique_integer([:positive])
+    name = prefix <> Integer.to_string(nonce)
+    uuid = Connection.offline_uuid(name)
+    Valimc.TestScope.isolate(uuid, player_ticks: :manual)
+    base = Path.join(System.tmp_dir!(), "valimc-#{String.downcase(prefix)}-#{nonce}")
+    key = {x_base + rem(nonce, 3_333) * 3, z}
+    {rx, rz} = key
+    old = Valimc.config(:world_path)
+    rules = Clock.survival()
+
+    with {difficulty, regeneration} <- Keyword.get(opts, :survival) do
+      :ok = Clock.configure({:difficulty, difficulty, true})
+      :ok = Clock.configure({:natural_regeneration, regeneration})
+    end
+
+    Application.put_env(:valimc, :world_path, base)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      for p <- Players.all(),
+          p.name == name,
+          do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
+
+      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
+          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
+
+      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
+          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+
+      Application.put_env(:valimc, :world_path, old)
+
+      if Keyword.has_key?(opts, :survival) do
+        {difficulty, regeneration} = rules
+        :ok = Clock.configure({:difficulty, difficulty, true})
+        :ok = Clock.configure({:natural_regeneration, regeneration})
+      end
+
+      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
+      Valimc.TestScope.stop_players(base)
+      File.rm_rf!(base)
+    end)
+
+    %{
+      name: name,
+      uuid: uuid,
+      key: key,
+      base: base,
+      path: PlayerStore.path(base, uuid),
+      pose: %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
+    }
+  end
+
+  @doc "Write `player` (a pose and saved fields) with `inventory` as the saved player."
+  def save(ctx, player, inventory) do
+    {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, PlayerSnapshot.capture(player, inventory))
+    File.mkdir_p!(Path.dirname(ctx.path))
+    File.write!(ctx.path, bytes)
+  end
+
+  def state(pid), do: Valimc.TestConn.state(pid)
+
+  @doc "Retire the wall-clock tick, so only `tick/2` runs the owner's simulation."
+  def park(pid) do
+    :sys.replace_state(pid, fn s ->
+      clock = %{
+        s.simulation_clock
+        | token: {s.simulation_clock.epoch, make_ref()},
+          deadline: System.monotonic_time(:millisecond) + 60_000
+      }
+
+      %{s | simulation_clock: clock}
+    end)
+  end
+
+  @doc """
+  Join as the scope's player with a parked clock. `before_load` reads packets that
+  precede the world (`fn client, pid -> client end`); `loaded: false` withholds the
+  client's load acknowledgement.
+  """
+  def login(ctx, opts \\ []) do
+    {_, client} = Client.login(ctx.name)
+    pid = Valimc.TestWait.until(fn -> Enum.find(Players.all(), &(&1.name == ctx.name)) end).pid
+    park(pid)
+    client = Keyword.get(opts, :before_load, fn client, _ -> client end).(client, pid)
+    client = Client.load_world(client)
+    loaded = Keyword.get(opts, :loaded, true)
+    if loaded, do: Client.send_packet(client, :play, "player_loaded", <<>>)
+
+    Valimc.TestWait.until(fn ->
+      s = state(pid)
+      not s.teleport_pending and (not loaded or Valimc.PlayerInput.loaded?(s.player.input))
+    end)
+
+    ExUnit.Callbacks.on_exit(fn -> Client.close(client) end)
+    {client, pid}
+  end
+
+  @doc """
+  One owner tick with a single-use token, after which the clock is parked again.
+  `settle: true` then waits for the player's geometry work, `:alive` only while
+  the player lives, `:simulation` also for the owner's simulation step. Returns
+  the token.
+  """
+  def tick(pid, settle \\ false) do
+    before =
+      :sys.replace_state(pid, fn s ->
+        %{
+          s
+          | simulation_clock: %{
+              s.simulation_clock
+              | deadline: System.monotonic_time(:millisecond)
+            }
+        }
+      end)
+
+    send(pid, {:player_tick, before.simulation_clock.token})
+    assert state(pid).simulation_clock.tick == before.simulation_clock.tick + 1
+    park(pid)
+
+    if settle do
+      Valimc.TestWait.until(fn ->
+        s = state(pid)
+
+        (settle == :alive and s.life_stage != :alive) or
+          (s.pose_job == nil and s.motion_job == nil and
+             (settle != :simulation or not s.simulation_due))
+      end)
+    end
+
+    before.simulation_clock.token
+  end
+
+  def ticks(pid, count, settle \\ false), do: Enum.each(1..count, fn _ -> tick(pid, settle) end)
+end

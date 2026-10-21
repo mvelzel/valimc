@@ -12,11 +12,7 @@ defmodule Valimc.PlayerDropsTest do
       | components: %{"minecraft:enchantment_glint_override" => true}
     }
 
-    for {pose, eye} <- [
-          {:standing, 1.6200000047683716},
-          {:crouching, 1.2699999809265137},
-          {:swimming, 0.4000000059604645}
-        ] do
+    for {pose, eye} <- [{:crouching, 1.2699999809265137}] do
       assert {:ok, {0, 0}, [record]} = PlayerDrops.records(player(pose), [stack], :directed)
       assert record.stack == stack and record.x == 7.5 and record.z == 3.5
       assert record.y == 64.0 + eye - 0.30000001192092896

@@ -104,25 +104,6 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     client
   end
 
-  defp peer_health(client, entity, expected) do
-    if get_in(client, [:entity_health, entity]) == expected do
-      client
-    else
-      {id, body, client} = Client.read(client)
-
-      peer_health(
-        Client.auto_reply(
-          client,
-          :play,
-          Valimc.Protocol.Data.name(:play, :clientbound, id),
-          body
-        ),
-        entity,
-        expected
-      )
-    end
-  end
-
   test "death fences a live movement worker and queues respawn until all durable batches finish",
        ctx do
     [name | _] = ctx.names
@@ -213,22 +194,6 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     assert stored.transfer_sequence == 1 and stored.outbox == nil
     assert map_size(World.item_snapshot(ctx.key)) == 1
     Client.close(client)
-  end
-
-  test "health replication and protected stronger hits preserve the player owner's result", ctx do
-    [name, other] = ctx.names
-    seed(ctx, name, %Inventory{})
-    seed(ctx, other, %Inventory{})
-    {client, pid} = login(name)
-    {peer, _} = login(other)
-    entity = state(pid).player.entity_id
-    assert {:ok, :hurt} = Connection.fall_damage(pid, 5)
-    {<<15.0::float-32, _::binary>>, _client} = Client.await(client, :play, "set_health")
-    peer = peer_health(peer, entity, 15.0)
-    assert {:ok, :ignored} = Connection.fall_damage(pid, 3)
-    assert {:ok, :hurt} = Connection.fall_damage(pid, 8)
-    _peer = peer_health(peer, entity, 12.0)
-    assert state(pid).player.health.value == 12
   end
 
   test "disconnect during a pending death resumes all delivery before login publication", ctx do

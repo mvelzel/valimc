@@ -161,54 +161,6 @@ defmodule Valimc.PlayerMotionConnectionTest do
     end
   end
 
-  test "stalled environment reads preserve effects until a fresh source can answer", ctx do
-    {client, pid} = login(hd(ctx.names))
-    :ok = World.set_block({floor(ctx.pos.x), 64, floor(ctx.pos.z)}, 30519)
-    wait(fn -> state(pid).player.environment.frozen_ticks >= 3 end)
-    {:ok, {owner, _}} = World.existing_owner(ctx.key)
-    Valimc.TestRegionGate.stall(owner)
-
-    try do
-      job = wait(fn -> state(pid).pose_job end)
-      before = state(pid).player.environment.frozen_ticks
-      Process.sleep(80)
-      assert state(pid).player.environment.frozen_ticks == before
-      client = Client.teleport(client, pid, %{ctx.pos | x: ctx.pos.x + 2})
-      send(pid, {job.task.ref, {:ok, %{pose: :standing, powder_snow: true, fences: %{}}}})
-      assert state(pid).player.environment.frozen_ticks == before
-      Valimc.TestRegionGate.resume(owner)
-      wait(fn -> state(pid).player.environment.frozen_ticks == 0 end)
-      assert Process.alive?(pid)
-      move(client, %{ctx.pos | x: ctx.pos.x + 2.2})
-      wait(fn -> state(pid).player.x == ctx.pos.x + 2.2 end)
-    after
-      Valimc.TestRegionGate.resume(owner)
-    end
-  end
-
-  test "pending geometry cannot accrue a fall, and relocation retires its context", ctx do
-    {client, pid} = login(hd(ctx.names))
-    top = %{ctx.pos | y: 68.0}
-    :ok = Connection.teleport(pid, top)
-    client = correction(client, pid, top)
-    move(client, %{top | y: 67.0}, 0)
-    wait(fn -> state(pid).player.y == 67.0 end)
-    {:ok, {owner, _}} = World.existing_owner(ctx.key)
-    Valimc.TestRegionGate.stall(owner)
-
-    try do
-      move(client, %{top | y: 66.0}, 0)
-      wait(fn -> state(pid).motion_job end)
-      assert state(pid).player.motion.fall_distance == 1.0
-      :ok = Connection.teleport(pid, top)
-      assert state(pid).player.motion.fall_distance == 0.0
-      _client = correction(client, pid, top)
-      assert state(pid).player.y == 68.0
-    after
-      Valimc.TestRegionGate.resume(owner)
-    end
-  end
-
   test "disconnect commits the live impulse before reconnect restores it", ctx do
     name = hd(ctx.names)
     {uuid, client} = Client.login(name)

@@ -1,6 +1,6 @@
 defmodule Valimc.WireTest do
   use ExUnit.Case, async: true
-  alias Valimc.Protocol.{ClientCommand, Wire}
+  alias Valimc.Protocol.{ClientCommand, UseItem, Wire}
 
   test "VarInts encode negatives as unsigned and reject overlong or truncated input" do
     assert {:ok, 4_294_967_295, <<>>} = Wire.read_varint(Wire.varint(-1))
@@ -55,6 +55,22 @@ defmodule Valimc.WireTest do
           nil
         ] do
       assert {:error, :invalid_client_command} = ClientCommand.decode(bytes)
+    end
+  end
+
+  test "use-item requests reject malformed hands, sequences, nonfinite angles and trailing bytes" do
+    body = <<0, 0, 0::float-32, 90::float-32>>
+    assert {:ok, %{hand: :main, sequence: 0, yaw: +0.0, pitch: 90.0}} = UseItem.decode(body)
+
+    for bytes <- [
+          <<>>,
+          binary_part(body, 0, 9),
+          body <> <<0>>,
+          <<2, 0, 0::64>>,
+          <<0, 0, 0x7F800000::32, 0::32>>,
+          IO.iodata_to_binary([<<0>>, Wire.varint(2_147_483_648), <<0::64>>])
+        ] do
+      assert {:error, :invalid_use_item} = UseItem.decode(bytes)
     end
   end
 end

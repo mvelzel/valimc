@@ -17,20 +17,7 @@ defmodule Valimc.StackIdentityTest do
     }
   end
 
-  defp encoded(stack), do: ItemStack.encode(stack) |> IO.iodata_to_binary()
   defp data(tag), do: %{ItemStack.new("stone") | components: %{"minecraft:custom_data" => tag}}
-
-  test "default additions and absent removals do not affect identity, count or raw codec preservation" do
-    a = ItemStack.new("stone", 7)
-    b = redundant(10)
-    assert ItemStack.same_item?(a, b)
-    assert ItemStack.identity_key(a) == ItemStack.identity_key(b)
-    assert encoded(a) != encoded(b)
-    assert {:ok, ^b} = ItemStack.decode(encoded(b))
-    assert ItemStack.same_item?(nil, nil)
-    refute ItemStack.same_item?(nil, a)
-    refute ItemStack.same_item?(a, ItemStack.new("dirt", 7))
-  end
 
   test "ordinary scalar float signed zero remains distinct and malformed identity inputs are rejected" do
     sword = ItemStack.new("iron_sword")

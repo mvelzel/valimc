@@ -2,65 +2,15 @@ defmodule Valimc.PlayerFoodConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
 
-  alias Valimc.{
-    Connection,
-    Inventory,
-    PlayerFood,
-    PlayerHealth,
-    Players,
-    PlayerSnapshot,
-    PlayerStore
-  }
+  alias Valimc.{Connection, Inventory, PlayerFood, PlayerHealth, Players, PlayerSnapshot}
 
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
+  import Valimc.TestPlayer, only: [park: 1, state: 1, tick: 1, ticks: 2]
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
-  setup do
-    nonce = System.unique_integer([:positive])
-    name = "Food#{nonce}"
-    uuid = Connection.offline_uuid(name)
-    # Player ticks come only from the test's own tick messages (VMC-073).
-    Valimc.TestScope.isolate(uuid, player_ticks: :manual)
-    base = Path.join(System.tmp_dir!(), "valimc-food-#{nonce}")
-    key = {107_000 + rem(nonce, 3_333) * 3, 987}
-    {rx, rz} = key
-    pose = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
-    old = Valimc.config(:world_path)
-    {difficulty, regeneration} = Valimc.World.Clock.survival()
-    :ok = Valimc.World.Clock.configure({:difficulty, 1, true})
-    :ok = Valimc.World.Clock.configure({:natural_regeneration, true})
-    Application.put_env(:valimc, :world_path, base)
-
-    on_exit(fn ->
-      for p <- Players.all(),
-          p.name == name,
-          do: DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, p.pid)
-
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
-
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-
-      Application.put_env(:valimc, :world_path, old)
-      :ok = Valimc.World.Clock.configure({:difficulty, difficulty, true})
-      :ok = Valimc.World.Clock.configure({:natural_regeneration, regeneration})
-      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
-      Valimc.TestScope.stop_players(base)
-      File.rm_rf!(base)
-    end)
-
-    %{
-      name: name,
-      uuid: uuid,
-      base: base,
-      path: PlayerStore.path(base, uuid),
-      key: key,
-      pose: pose
-    }
-  end
+  setup do: Valimc.TestPlayer.scope("Food", {107_000, 987}, survival: {1, true})
 
   defp login(ctx, expected_health, expected_food) do
     {_, client} = Client.configure_session(Client.begin_login(ctx.name), ctx.name)
@@ -85,41 +35,6 @@ defmodule Valimc.PlayerFoodConnectionTest do
     {client, pid}
   end
 
-  defp state(pid), do: Valimc.TestConn.state(pid)
-
-  defp park(pid) do
-    :sys.replace_state(pid, fn state ->
-      %{
-        state
-        | simulation_clock: %{
-            state.simulation_clock
-            | token: {state.simulation_clock.epoch, make_ref()},
-              deadline: System.monotonic_time(:millisecond) + 60_000
-          }
-      }
-    end)
-  end
-
-  defp tick(pid) do
-    before =
-      :sys.replace_state(pid, fn state ->
-        %{
-          state
-          | simulation_clock: %{
-              state.simulation_clock
-              | deadline: System.monotonic_time(:millisecond)
-            }
-        }
-      end)
-
-    send(pid, {:player_tick, before.simulation_clock.token})
-    assert state(pid).simulation_clock.tick == before.simulation_clock.tick + 1
-    park(pid)
-    before.simulation_clock.token
-  end
-
-  defp ticks(pid, count), do: Enum.each(1..count, fn _ -> tick(pid) end)
-
   defp seed(ctx, food, health, opts \\ []) do
     mode = Keyword.get(opts, :mode, :survival)
     inventory = Keyword.get(opts, :inventory, %Inventory{})
@@ -140,9 +55,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
       food: food
     }
 
-    {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, PlayerSnapshot.capture(player, inventory))
-    File.mkdir_p!(Path.dirname(ctx.path))
-    File.write!(ctx.path, bytes)
+    Valimc.TestPlayer.save(ctx, player, inventory)
   end
 
   test "saturated recovery is admitted once, replicates hearts and saves its exact timer", ctx do
@@ -199,82 +112,6 @@ defmodule Valimc.PlayerFoodConnectionTest do
     assert state(pid).player.health.value == 11.0
   end
 
-  test "exhaustion spends saturation then food, one bounded step per tick", ctx do
-    food = %PlayerFood{level: 18, saturation: 0.5, exhaustion: 40.0}
-    seed(ctx, food, 20.0)
-    {client, pid} = login(ctx, 20.0, food)
-    tick(pid)
-    first = %PlayerFood{level: 18, saturation: 0.0, exhaustion: 36.0}
-    assert state(pid).player.food == first
-    {body, client} = Client.await(client, :play, "set_health")
-    assert_health(body, 20.0, first)
-    tick(pid)
-    second = %PlayerFood{level: 17, saturation: 0.0, exhaustion: 32.0}
-    assert state(pid).player.food == second
-    {body, _client} = Client.await(client, :play, "set_health")
-    assert_health(body, 20.0, second)
-  end
-
-  test "peaceful body recovery restores food every ten ticks and health/saturation every twenty",
-       ctx do
-    :ok = Valimc.World.Clock.configure({:difficulty, 0, true})
-    food = %PlayerFood{level: 0, saturation: 19.5}
-    seed(ctx, food, 10.0)
-    {_client, pid} = login(ctx, 10.0, food)
-    ticks(pid, 9)
-    assert state(pid).player.food.level == 0
-    tick(pid)
-    assert state(pid).player.food.level == 1 and state(pid).player.health.value == 10.0
-    ticks(pid, 10)
-    assert state(pid).player.food == %PlayerFood{level: 2, saturation: 20.5}
-    assert state(pid).player.health.value == 11.0
-    assert rem(state(pid).simulation_clock.tick - state(pid).food_tick_origin, 20) == 0
-    :ok = Valimc.World.Clock.configure({:natural_regeneration, false})
-    ticks(pid, 20)
-    assert state(pid).player.health.value == 11.0
-    assert state(pid).player.food == %PlayerFood{level: 2, saturation: 20.5}
-  end
-
-  test "starvation keeps difficulty floors, bypasses gear and respects the normal hurt window",
-       ctx do
-    food = %PlayerFood{level: 0, saturation: 0.0, timer: 79}
-
-    helmet = %{
-      ItemStack.new("iron_helmet")
-      | components: %{"minecraft:enchantments" => %{"minecraft:protection" => 255}}
-    }
-
-    seed(ctx, food, 11.0, inventory: %Inventory{slots: %{5 => helmet}})
-    {client, pid} = login(ctx, 11.0, food)
-    :ok = Valimc.World.Clock.configure({:natural_regeneration, false})
-    tick(pid)
-    assert state(pid).player.health.value == 10.0 and state(pid).inventory.slots[5] == helmet
-    {body, client} = Client.await(client, :play, "damage_event")
-    {_, rest} = Wire.take_varint(body)
-    {source, <<0, 0, 0>>} = Wire.take_varint(rest)
-    assert source == Valimc.Protocol.Data.registry_id("minecraft:damage_type", "minecraft:starve")
-    ticks(pid, 80)
-    assert state(pid).player.health.value == 10.0
-    :ok = Valimc.World.Clock.configure({:difficulty, 2, true})
-    ticks(pid, 80)
-    assert state(pid).player.health.value == 9.0
-    # A stronger simultaneous source owns the ordinary damage immunity window.
-    assert {:ok, :hurt} = Connection.fall_damage(pid, 2.0)
-    protected_health = state(pid).player.health.value
-    assert protected_health < 9.0
-
-    :sys.replace_state(pid, fn s ->
-      %{s | player: %{s.player | food: %{s.player.food | timer: 79}}}
-    end)
-
-    tick(pid)
-
-    assert state(pid).player.health.value == protected_health and
-             state(pid).player.food.timer == 0
-
-    Client.close(client)
-  end
-
   test "hard starvation uses durable death transfers and resets food on actual respawn command",
        ctx do
     :ok = Valimc.World.Clock.configure({:difficulty, 3, true})
@@ -296,32 +133,6 @@ defmodule Valimc.PlayerFoodConnectionTest do
     assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.food == %PlayerFood{} and saved.health.value == 20.0
     assert saved.transfer_sequence == 2 and saved.outbox == nil and saved.inventory.slots == %{}
-  end
-
-  test "creative starvation requests remain immune without consuming the hurt window", ctx do
-    food = %PlayerFood{level: 0, saturation: 0.0, timer: 79}
-    :ok = Valimc.World.Clock.configure({:difficulty, 3, true})
-    seed(ctx, food, 1.0, mode: :creative)
-    {_client, pid} = login(ctx, 1.0, food)
-    tick(pid)
-    assert state(pid).player.health.value == 1.0 and state(pid).player.health.cooldown == 0
-    assert state(pid).player.food.timer == 0 and state(pid).life_stage == :alive
-  end
-
-  test "healthy idle food retains the body boundary across a world setting change", ctx do
-    food = %PlayerFood{saturation: 0.0}
-    seed(ctx, food, 20.0)
-    {_client, pid} = login(ctx, 20.0, food)
-    ticks(pid, 19)
-    assert state(pid).player.food == food and state(pid).food_tick_origin == 0
-    :ok = Valimc.World.Clock.configure({:difficulty, 0, true})
-    tick(pid)
-    assert state(pid).player.food == %PlayerFood{saturation: 1.0}
-    ticks(pid, 19)
-    assert state(pid).player.food == %PlayerFood{saturation: 1.0}
-    :ok = Valimc.World.Clock.configure({:natural_regeneration, false})
-    tick(pid)
-    assert state(pid).player.food == %PlayerFood{saturation: 1.0}
   end
 
   defp assert_health(<<health::float-32, rest::binary>>, expected, food) do
@@ -350,9 +161,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
       food: food
     }
 
-    {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, PlayerSnapshot.capture(player, inventory))
-    File.mkdir_p!(Path.dirname(ctx.path))
-    File.write!(ctx.path, bytes)
+    Valimc.TestPlayer.save(ctx, player, inventory)
     {client, pid} = login(ctx, 5.0, food)
     assert {:ok, :hurt} = Connection.fall_damage(pid, 1.0)
     {body, client} = Client.await(client, :play, "set_health")

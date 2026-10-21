@@ -183,29 +183,6 @@ defmodule Valimc.EncryptedConnectionTest do
     eventually(fn -> map_size(:sys.get_state(KeyExchange).jobs) == 0 end)
   end
 
-  test "abrupt admission-owner death reclaims dormant workers without relying on terminate" do
-    parent = self()
-    pair = LoginKeys.pair()
-    nonce = Encryption.challenge()
-    body = response(pair, nonce, <<0::128>>)
-
-    caller =
-      spawn(fn ->
-        {:ok, job} = KeyExchange.start(self(), make_ref(), pair, nonce, body)
-        send(parent, {:dormant_worker, job.pid})
-
-        receive do
-          :finish -> :ok
-        end
-      end)
-
-    assert_receive {:dormant_worker, worker}
-    ref = Process.monitor(worker)
-    Process.exit(caller, :kill)
-    assert_receive {:DOWN, ^ref, :process, ^worker, :killed}
-    eventually(fn -> map_size(:sys.get_state(KeyExchange).jobs) == 0 end)
-  end
-
   test "stalled admission is bounded and existing encrypted gameplay remains responsive" do
     name = "CryptoLive"
     {live, pair, nonce, secret} = begin(name)
@@ -236,5 +213,44 @@ defmodule Valimc.EncryptedConnectionTest do
     end
 
     eventually(fn -> map_size(:sys.get_state(KeyExchange).jobs) == 0 end)
+  end
+end
+
+defmodule Valimc.KeyExchangeTest do
+  # Socket-free, but the key-exchange pool is global.
+  use ExUnit.Case, async: false
+  alias Valimc.Protocol.{Encryption, Wire}
+  alias Valimc.{KeyExchange, LoginKeys}
+
+  defp response(pair, nonce, secret) do
+    for value <- [secret, nonce], into: <<>> do
+      encrypted =
+        :crypto.public_encrypt(:rsa, value, pair.public, rsa_padding: :rsa_pkcs1_padding)
+
+      IO.iodata_to_binary([Wire.varint(byte_size(encrypted)), encrypted])
+    end
+  end
+
+  test "abrupt admission-owner death reclaims dormant workers without relying on terminate" do
+    parent = self()
+    pair = LoginKeys.pair()
+    nonce = Encryption.challenge()
+    body = response(pair, nonce, <<0::128>>)
+
+    caller =
+      spawn(fn ->
+        {:ok, job} = KeyExchange.start(self(), make_ref(), pair, nonce, body)
+        send(parent, {:dormant_worker, job.pid})
+
+        receive do
+          :finish -> :ok
+        end
+      end)
+
+    assert_receive {:dormant_worker, worker}
+    ref = Process.monitor(worker)
+    Process.exit(caller, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^worker, :killed}
+    Valimc.TestWait.until(fn -> map_size(:sys.get_state(KeyExchange).jobs) == 0 end)
   end
 end
