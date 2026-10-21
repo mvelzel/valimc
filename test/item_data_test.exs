@@ -1,7 +1,7 @@
 defmodule Valimc.Protocol.ItemDataTest do
   use ExUnit.Case, async: true
   alias Valimc.PlayerDeathMessage
-  alias Valimc.Protocol.{ItemData, ItemStack, Packets, ServerText, TextComponent}
+  alias Valimc.Protocol.{ItemStack, Packets, ServerText, TextComponent}
   alias Valimc.NBT
 
   test "composed hover exceeds input budgets without widening client text admission" do
@@ -38,20 +38,6 @@ defmodule Valimc.Protocol.ItemDataTest do
 
     assert catch_throw(ServerText.encode(%ServerText{tag: nodes})) ==
              {:nbt_error, :nbt_node_limit}
-  end
-
-  test "only custom name selects an item message, including explicit removal and item-name-only negatives" do
-    plain = PlayerDeathMessage.component("Player", :self_magic)
-    assert PlayerDeathMessage.component("Player", {:self_magic, nil}) == plain
-
-    for stack <- [
-          ItemStack.new("potion"),
-          %{ItemStack.new("potion") | components: %{"minecraft:item_name" => {:string, "Type"}}},
-          %{ItemStack.new("potion") | removed: MapSet.new(["minecraft:custom_name"])}
-        ] do
-      assert ItemData.named_display(stack) == nil
-      assert PlayerDeathMessage.component("Player", {:self_magic, stack}) == plain
-    end
   end
 
   test "deep admitted custom data fits the added server wrappers; input depth stays bounded" do

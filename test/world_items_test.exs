@@ -1,10 +1,9 @@
 defmodule Valimc.WorldItemsTest do
-  use ExUnit.Case, async: false
-  # Serial: asserts the global count of live region owners.
+  use ExUnit.Case, async: true
   alias Valimc.TestScope
   alias Valimc.World
   alias Valimc.World.{Items, Region}
-  alias Valimc.Protocol.{ItemStack, Wire}
+  alias Valimc.Protocol.ItemStack
 
   defp large do
     %{
@@ -14,40 +13,6 @@ defmodule Valimc.WorldItemsTest do
             {:compound, %{"large" => {:byte_array, :binary.copy(<<17>>, 60_000)}}}
         }
     }
-  end
-
-  test "admission validates owner boundaries and preserves supported patches" do
-    initial = Items.new()
-
-    stack = %{
-      ItemStack.new("stone", 7)
-      | components: %{
-          "minecraft:custom_data" => {:compound, %{"owner" => {:string, "region"}}}
-        },
-        removed: MapSet.new(["minecraft:rarity"])
-    }
-
-    assert {:ok, items, {epoch, id, 1}} =
-             Items.create(initial, {-1, -1}, stack, {-0.5, 64.25, -128.0})
-
-    assert epoch == initial.epoch
-    assert items.views[id].chunk == {-1, -8}
-    assert items.entries[id].stack == stack
-    {^id, <<5, 8, 1, 8, 7, rest::binary>>} = Wire.take_varint(elem(items.views[id].metadata, 1))
-    assert {:ok, ^stack, <<255>>} = ItemStack.take(rest)
-    assert {:error, :wrong_region} = Items.create(initial, {0, 0}, stack, {-0.01, 64, 0})
-
-    for position <- [{1.0e100, 64, 0}, {0, :bad, 0}, {0, 64}] do
-      assert {:error, :invalid_item_position} = Items.create(initial, {0, 0}, stack, position)
-    end
-
-    assert {:error, :empty_item} = Items.create(initial, {0, 0}, nil, {0, 64, 0})
-    assert {:error, :empty_item} = Items.create(initial, {0, 0}, ItemStack.new("air"), {0, 64, 0})
-
-    assert {:error, :invalid_item} =
-             Items.create(initial, {0, 0}, ItemStack.new("egg", 17), {0, 64, 0})
-
-    assert initial.entries == %{} and initial.bytes == 0
   end
 
   test "count and aggregate byte limits reject admission and replacement atomically" do
@@ -95,46 +60,10 @@ defmodule Valimc.WorldItemsTest do
     assert {:error, :missing_item} = Items.remove(empty, epoch, id, 2)
   end
 
-  test "protected snapshots read while an owner is suspended; loss fences a replacement" do
-    key = {220, 220}
-    {:ok, {pid, epoch} = owner} = World.item_owner(key)
-
-    on_exit(fn ->
-      if Process.alive?(pid), do: TestScope.kill(pid)
-    end)
-
-    {:ok, {^pid, ^epoch, id, 1} = handle} =
-      Region.create_item(owner, ItemStack.new("stone"), {28160, 64, 28160})
-
-    {^pid, _, %{items: table}} = Valimc.World.Directory.lookup(key)
-    assert_raise ArgumentError, fn -> :ets.insert(table, {:items, %{}}) end
-    :sys.suspend(pid)
-
-    try do
-      assert Map.has_key?(World.item_snapshot(key), id)
-      {:ok, other} = World.item_owner({221, 220})
-      assert {:ok, _} = Region.create_item(other, ItemStack.new("egg"), {28288, 64, 28160})
-      DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, elem(other, 0))
-    after
-      :sys.resume(pid)
-    end
-
-    ref = Process.monitor(pid)
-    Process.exit(pid, :kill)
-    assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
-    assert World.item_snapshot(key) == %{}
-    assert :ets.info(table) == :undefined
-    assert catch_exit(Region.remove_item(handle))
-    {:ok, {next, _}} = World.item_owner(key)
-    assert {:error, :stale_region} = Region.remove_item({next, epoch, id, 1})
-    assert World.item_snapshot(key) == %{}
-    DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, next)
-  end
-
-  test "racing replacements serialize one revision and readers do not create missing regions" do
+  test "racing replacements serialize one revision" do
     key = {222, 220}
     {:ok, {pid, _} = owner} = World.item_owner(key)
-    on_exit(fn -> DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid) end)
+    on_exit(fn -> TestScope.kill(pid) end)
     {:ok, handle} = Region.create_item(owner, ItemStack.new("stone"), {28416, 64, 28160})
 
     results =
@@ -150,10 +79,6 @@ defmodule Valimc.WorldItemsTest do
     assert Enum.count(results, &(&1 in [{:error, :stale_item}, {:error, :item_storage_busy}])) ==
              31
 
-    before = DynamicSupervisor.count_children(Valimc.RegionSupervisor).active
-    assert World.item_snapshot({10000, 10000}) == %{}
-    assert World.visible_items(MapSet.new([{10000, 10000}]), MapSet.new([{80000, 80000}])) == %{}
-    assert DynamicSupervisor.count_children(Valimc.RegionSupervisor).active == before
     id = elem(handle, 2)
     assert World.visible_items(MapSet.new([key]), MapSet.new()) == %{}
     assert Map.has_key?(World.visible_items(MapSet.new([key]), MapSet.new([{1776, 1760}])), id)

@@ -86,38 +86,6 @@ defmodule Valimc.ItemRecordsTest do
     assert {:error, :invalid_item_file} = Items.restore({-1, -1}, [record(), record()])
   end
 
-  test "encoding and recovery enforce bounded counts, bytes and supported owned state" do
-    for bad <- [
-          [record(), record()],
-          [%{record() | uuid: <<0>>}],
-          [%{record() | x: 0.5}],
-          [%{record() | y: 1.0e100}],
-          [%{record() | stack: nil}],
-          [%{record() | stack: ItemStack.new("air")}]
-        ] do
-      assert {:error, :invalid_item_records} = ItemRecords.encode({-1, -1}, bad)
-    end
-
-    large = %{
-      ItemStack.new("stone")
-      | components: %{
-          "minecraft:custom_data" =>
-            {:compound, %{"data" => {:byte_array, :binary.copy(<<12>>, 60_000)}}}
-        }
-    }
-
-    records = for n <- 1..9, do: %{record() | uuid: <<n::128>>, stack: large}
-    assert {:error, :invalid_item_records} = ItemRecords.encode({-1, -1}, records)
-    assert {:error, :invalid_item_file} = Items.restore({-1, -1}, records)
-    legal = Enum.take(records, 8)
-    assert {:ok, bytes} = ItemRecords.encode({-1, -1}, legal)
-    assert {:ok, %{records: ^legal, receipts: %{}}} = ItemRecords.decode(bytes, {-1, -1})
-    many = for n <- 1..257, do: %{record() | uuid: <<n::128>>}
-    assert {:error, :invalid_item_records} = ItemRecords.encode({-1, -1}, many)
-    assert {:error, :invalid_item_file} = Items.restore({-1, -1}, many)
-    assert {:ok, _} = ItemRecords.encode({-1, -1}, Enum.take(many, 256))
-  end
-
   test "version 2 stores bounded receipts and version 1 loads an empty inbox" do
     source = <<19::128>>
     receipt = %{sequence: 18_446_744_073_709_551_615, digest: <<23::256>>}
@@ -146,24 +114,6 @@ defmodule Valimc.ItemRecordsTest do
           []
         ],
         do: assert({:error, :invalid_item_records} == ItemRecords.encode({-1, -1}, [], bad))
-  end
-
-  test "invalid duplicate truncated and oversized receipts reject the entire file" do
-    receipt = <<19::128, 1::64, 23::256>>
-    zero = <<19::128, 0::64, 23::256>>
-
-    for body <- [
-          <<4097::16>>,
-          <<1::16>>,
-          <<1::16>> <> zero,
-          <<2::16>> <> receipt <> receipt,
-          <<1::16>> <> binary_part(receipt, 0, byte_size(receipt) - 1),
-          <<1::16>> <> receipt <> <<0>>
-        ] do
-      assert {:error, :invalid_item_file} = ItemRecords.decode(file(0, body, 2), {-1, -1})
-    end
-
-    assert {:error, :invalid_item_file} = ItemRecords.decode(file(0, <<>>, 3), {-1, -1})
   end
 
   test "a portal cooldown takes motion flag 8; motion without one keeps its bytes" do

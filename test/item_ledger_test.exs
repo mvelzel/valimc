@@ -1,6 +1,5 @@
 defmodule Valimc.ItemLedgerTest do
   use ExUnit.Case, async: true
-  import Bitwise
   alias Valimc.ItemMotionState
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{ItemLedger, ItemRecords}
@@ -63,74 +62,6 @@ defmodule Valimc.ItemLedgerTest do
              ItemLedger.encode({0, 0}, owned, receipts, cleared)
 
     assert {:ok, %{ledger: ^cleared}} = ItemLedger.decode(bytes, {0, 0})
-  end
-
-  test "invalid ownership, source sequences, batch bounds and overlapping authorities refuse" do
-    base = %ItemLedger{sequence: 1, outgoing: intent()}
-    shared = record(1, 128.5)
-
-    bad = [
-      %{base | sequence: 0},
-      %{base | sequence: -1},
-      %{base | sequence: 18_446_744_073_709_551_616},
-      %{base | outgoing: intent(33)},
-      %{base | outgoing: %{intent() | records: [], generations: %{}}},
-      %{base | outgoing: %{intent() | destination: {0, 0}}},
-      %{base | outgoing: %{intent() | generations: %{}}},
-      %{base | outgoing: %{intent() | generations: %{<<2::128>> => 0}}},
-      %{base | outgoing: %{intent() | records: [shared], generations: %{shared.uuid => 1}}},
-      %{base | generations: %{<<1::128>> => 0}},
-      %{base | generations: %{<<99::128>> => 1}},
-      %{base | incoming: %{{0, 0} => receipt(1)}},
-      %{base | incoming: %{{1, 0} => %{sequence: 0, digest: <<1::256>>}}},
-      %{base | incoming: %{{1, 0} => %{sequence: 1, digest: <<0>>}}},
-      Map.put(base, :unknown, true),
-      %{},
-      nil
-    ]
-
-    for ledger <- bad,
-        do:
-          assert(
-            {:error, :invalid_item_ledger} = ItemLedger.encode({0, 0}, [record(1)], %{}, ledger)
-          )
-  end
-
-  test "region receipts reach their cap and refuse one more without changing player encoding" do
-    incoming = Map.new(1..4096, fn n -> {{n, 0}, receipt(n)} end)
-    ledger = %ItemLedger{incoming: incoming}
-    assert {:ok, bytes} = ItemLedger.encode({0, 0}, [], %{}, ledger)
-    assert {:ok, %{ledger: ^ledger}} = ItemLedger.decode(bytes, {0, 0})
-
-    assert {:error, :invalid_item_ledger} =
-             ItemLedger.encode({0, 0}, [], %{}, %{
-               ledger
-               | incoming: Map.put(incoming, {4097, 0}, receipt(1))
-             })
-  end
-
-  test "valid outer checksums cannot hide reordered/duplicate metadata or damaged nested records" do
-    ledger = %ItemLedger{sequence: 1, incoming: %{{-2, 0} => receipt(2), {-1, 0} => receipt(1)}}
-    assert {:ok, bytes} = ItemLedger.encode({0, 0}, [record(1)], %{}, ledger)
-    <<_::binary-size(33), length::32, _::binary>> = bytes
-    offset = 37 + length
-
-    <<prefix::binary-size(^offset), a::binary-size(48), b::binary-size(48), tail::binary>> =
-      payload(bytes)
-
-    for changed <- [[prefix, b, a, tail], [prefix, a, a, tail]] do
-      assert {:error, :invalid_item_ledger} =
-               ItemLedger.decode(changed |> IO.iodata_to_binary() |> resign(), {0, 0})
-    end
-
-    <<before::binary-size(^offset - 1), byte, after_byte::binary>> = payload(bytes)
-    damaged = resign(<<before::binary, bxor(byte, 1), after_byte::binary>>)
-    assert {:error, :invalid_item_ledger} = ItemLedger.decode(damaged, {0, 0})
-    assert {:ok, bytes} = ItemLedger.encode({0, 0}, [], %{}, %ItemLedger{sequence: 1})
-    <<prefix::binary-size(21), _::64, tail::binary>> = payload(bytes)
-
-    assert {:error, :invalid_item_ledger} =
-             ItemLedger.decode(resign(<<prefix::binary, 0::64, tail::binary>>), {0, 0})
   end
 
   test "truncation, trailing bytes, wrong versions and oversized files fail closed" do

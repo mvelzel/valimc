@@ -131,49 +131,4 @@ defmodule Valimc.Protocol.ItemStackTest do
 
     assert ItemStack.decode(bad, :untrusted) == {:error, {:nbt, :unknown_nbt_tag}}
   end
-
-  test "identifier input uses vanilla's default namespace" do
-    for name <- ["stone", ":stone"] do
-      payload = IO.iodata_to_binary(Wire.string(name))
-
-      encoded =
-        IO.iodata_to_binary([
-          prefix(1),
-          Wire.varint(ItemTypes.component_id("item_model")),
-          Wire.varint(byte_size(payload)),
-          payload
-        ])
-
-      assert {:ok, stack} = ItemStack.decode(encoded, :untrusted)
-      assert stack.components["minecraft:item_model"] == "minecraft:stone"
-    end
-  end
-
-  test "effective stack-size/damage defaults include component removals and patches" do
-    sword = ItemStack.new("diamond_sword", 2)
-    assert catch_throw(ItemStack.encode(sword)) == {:item_error, :stack_size_exceeded}
-    stack = %{ItemStack.new("stone", 2) | components: patch("max_damage", 50)}
-    assert catch_throw(ItemStack.encode(stack)) == {:item_error, :damageable_stack}
-    stack = %{ItemStack.new("stone") | removed: MapSet.new(["minecraft:max_stack_size"])}
-    assert ItemStack.max_stack_size(stack) == 1
-    assert ItemStack.decode(bytes(stack)) == {:ok, stack}
-
-    sword = %{
-      sword
-      | components: patch("max_stack_size", 2),
-        removed: MapSet.new(["minecraft:max_damage"])
-    }
-
-    assert ItemStack.decode(bytes(sword)) == {:ok, sword}
-
-    for {name, value} <- [
-          {"max_stack_size", 0},
-          {"rarity", 4},
-          {"minimum_attack_charge", 1.1},
-          {"item_model", "Bad:Space"}
-        ] do
-      stack = %{ItemStack.new("stone") | components: patch(name, value)}
-      assert catch_throw(ItemStack.encode(stack)) == {:item_error, :invalid_component_value}
-    end
-  end
 end

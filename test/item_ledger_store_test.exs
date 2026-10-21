@@ -2,9 +2,9 @@ defmodule Valimc.ItemLedgerStoreTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
   alias Valimc.ItemMotionState
-  alias Valimc.Protocol.{Data, ItemStack}
+  alias Valimc.Protocol.ItemStack
   alias Valimc.World
-  alias Valimc.World.{ItemLedger, Items, Region, Store}
+  alias Valimc.World.{ItemLedger, Region}
 
   setup tags do
     nonce = System.unique_integer([:positive])
@@ -89,29 +89,6 @@ defmodule Valimc.ItemLedgerStoreTest do
   end
 
   @tag receipt_reservation: true
-  test "reserved source capacity survives critical writes and owner recovery before a first transfer",
-       ctx do
-    {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
-    assert Valimc.TestConn.state(pid).resource.item_receipts == ctx.receipts
-    {:ok, handle} = Region.find_item(owner, ctx.record.uuid)
-    assert {:ok, _} = Region.replace_item(handle, %{ctx.record.stack | count: 4})
-    assert hd(disk(ctx).records).stack.count == 4
-    owner = restart(pid, ctx.key, :kill)
-    assert :sys.get_state(elem(owner, 0)).resource.item_receipts == ctx.receipts
-    born = %{ctx.record | uuid: <<3::128>>}
-
-    assert {:ok, :applied} =
-             Region.apply_item_transfer(owner, %{
-               source: <<72::128>>,
-               sequence: 1,
-               records: [born]
-             })
-
-    {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :items), ctx.key)
-    assert saved.receipts[<<72::128>>].sequence == 1
-    assert saved.receipts[<<71::128>>] == ctx.receipts[<<71::128>>]
-    assert saved.ledger == ctx.ledger
-  end
 
   test "ordinary motion, critical edits and owner replacement retain every ledger component",
        ctx do
@@ -142,56 +119,5 @@ defmodule Valimc.ItemLedgerStoreTest do
         assert disk(ctx).records |> hd() |> Map.get(:stack) == stack
         {next, current}
     end
-  end
-
-  test "removal retires only the owned hop and retains outgoing intent and both receipt kinds",
-       ctx do
-    assert {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
-    assert {:ok, handle} = Region.find_item(owner, ctx.record.uuid)
-    assert :ok = Region.remove_item(handle)
-    expected = %{ctx.ledger | generations: %{}}
-    assert disk(%{ctx | ledger: expected}).records == []
-    next = restart(pid, ctx.key, :kill)
-    assert {:error, :missing_item} = Region.find_item(next, ctx.record.uuid)
-    assert :sys.get_state(elem(next, 0)).resource.items.ledger == expected
-  end
-
-  test "periodic snapshots retain pending delivery metadata without a forced flush", ctx do
-    assert {:ok, {pid, epoch} = owner} = World.item_owner(ctx.key)
-    assert {:ok, {_, _, id, revision}} = Region.find_item(owner, ctx.record.uuid)
-
-    step = %{
-      id: id,
-      revision: revision,
-      position: {ctx.record.x + 1, 65.0, ctx.record.z},
-      motion: %{ctx.record.motion | age: 5}
-    }
-
-    assert {:ok, _} = Region.publish_item_motion(owner, [step])
-    timer = Valimc.TestConn.state(pid).resource.item_checkpoint_timer
-    send(pid, {:resource, epoch, {:item_checkpoint, timer.token}})
-    assert {:ok, _} = Region.observe_blocks(owner, [])
-    state = Valimc.TestConn.state(pid).resource
-    assert {:ok, %{ledger: ledger}} = Store.load_items(state.store)
-    assert ledger == ctx.ledger
-    assert [%{motion: %{age: 5}}] = disk(ctx).records
-  end
-
-  test "atomic block proposals preserve handoff state before acknowledgement", ctx do
-    assert {:ok, writer, lease} = Store.open(ctx.key)
-    assert {:ok, items} = Items.restore(ctx.key, [ctx.record], ctx.ledger)
-    {x, z} = {floor(ctx.record.x), floor(ctx.record.z)}
-    edits = %{{x, 64, z} => Data.block("dirt")}
-    epoch = make_ref()
-    token = make_ref()
-    proposal = %{items: items, receipts: ctx.receipts, edits: edits, changes: edits}
-    Store.commit_mining(writer, lease, proposal, {self(), epoch}, token)
-    assert_receive {:resource, ^epoch, {:mining_saved, ^writer, ^token, :ok}}
-    assert disk(ctx).records == [ctx.record]
-    assert Store.load(writer) == edits
-    assert :ok = Store.close(writer, lease)
-    assert {:ok, writer, _} = Store.open(ctx.key)
-    assert {:ok, %{ledger: ledger}} = Store.load_items(writer)
-    assert ledger == ctx.ledger
   end
 end

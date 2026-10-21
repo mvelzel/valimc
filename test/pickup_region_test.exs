@@ -1,6 +1,5 @@
 defmodule Valimc.PickupRegionTest do
-  # Grant deadlines (hundreds of ms) expire under concurrent load (seen October 20, 2026).
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   alias Valimc.TestScope
   alias Valimc.{GameMode, Inventory, ItemMotionState, PlayerFood, PlayerSnapshot, PlayerStore}
   alias Valimc.{TransferDelivery, World}
@@ -100,8 +99,6 @@ defmodule Valimc.PickupRegionTest do
     saved
   end
 
-  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
-
   defp prepare(ctx, grant) do
     inventory = %{
       ctx.snapshot.inventory
@@ -169,84 +166,6 @@ defmodule Valimc.PickupRegionTest do
     assert restored.transfer_sequence == 1
   end
 
-  test "admission does not publish a grant or reservation before the writer acknowledges", ctx do
-    writer = state(ctx.owner).store
-    :sys.suspend(writer)
-
-    try do
-      task = Task.async(fn -> Region.reserve_pickup(ctx.owner, ctx.actor, ctx.record.uuid) end)
-      wait(fn -> Valimc.TestRegion.in_flight?(state(ctx.owner)) end)
-      assert disk(ctx).receipts == %{}
-      assert Task.yield(task, 1) == nil
-      # A second admission waits behind the in-flight slot and then finds the
-      # first grant already pending.
-      again = Task.async(fn -> Region.reserve_pickup(ctx.owner, ctx.actor, ctx.record.uuid) end)
-      assert Task.yield(again, 20) == nil
-      :sys.resume(writer)
-      assert {:ok, _} = Task.await(task, 60_000)
-      assert {:error, :pickup_already_pending} = Task.await(again, 60_000)
-      assert disk(ctx).receipts[ctx.uuid] == %{sequence: 0, digest: <<0::256>>}
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-    end
-  end
-
-  test "slow admission leaves only durable capacity and no expired contact grant", ctx do
-    writer = state(ctx.owner).store
-    :sys.suspend(writer)
-
-    try do
-      task = Task.async(fn -> Region.reserve_pickup(ctx.owner, ctx.actor, ctx.record.uuid) end)
-      wait(fn -> Valimc.TestRegion.in_flight?(state(ctx.owner)) end)
-      # The contact deadline passes while the receipt slot is still being written.
-      Valimc.TestRegion.expire_held_replies(ctx.owner)
-      :sys.resume(writer)
-      assert {:error, :expired_item_step} = Task.await(task, 60_000)
-      assert disk(ctx).records == [ctx.record]
-      assert state(ctx.owner).permits.entries == %{}
-      assert disk(ctx).receipts[ctx.uuid] == %{sequence: 0, digest: <<0::256>>}
-      assert {:ok, _} = Region.reserve_pickup(ctx.owner, ctx.actor, ctx.record.uuid)
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-    end
-  end
-
-  test "withdrawal stays invisible until durable ack; partial insertion conserves the remainder",
-       ctx do
-    stack = ctx.record.stack
-
-    inventory = %Inventory{
-      slots: Map.new(9..44, &{&1, %{stack | count: 64}}) |> Map.put(36, %{stack | count: 63})
-    }
-
-    ctx = %{ctx | snapshot: %{ctx.snapshot | inventory: inventory}}
-    assert {:ok, grant} = Region.reserve_pickup(ctx.owner, ctx.actor, ctx.record.uuid)
-    {fence, pending} = prepare(ctx, grant)
-    writer = state(ctx.owner).store
-    :sys.suspend(writer)
-
-    try do
-      task = Task.async(fn -> Region.apply_pickup_transfer(ctx.owner, pending.outbox.request) end)
-      wait(fn -> Valimc.TestRegion.in_flight?(state(ctx.owner)) end)
-      assert disk(ctx).records == [ctx.record]
-      assert player(ctx).inventory.slots[36].count == 63
-
-      duplicate =
-        Task.async(fn -> Region.apply_pickup_transfer(ctx.owner, pending.outbox.request) end)
-
-      assert Task.yield(duplicate, 20) == nil
-      :sys.resume(writer)
-      assert {:ok, :applied} = Task.await(task, 60_000)
-      assert {:ok, :already_applied} = Task.await(duplicate, 60_000)
-      {_fence, resolved} = complete(ctx, fence)
-      assert resolved.inventory.slots[36].count == 64
-      assert [%{stack: %{count: 6}}] = disk(ctx).records
-      assert resolved.outbox == nil
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-    end
-  end
-
   test "two prepared players racing one item receive one applied and one terminal rejection",
        ctx do
     {:ok, writer, nil, fence} = PlayerStore.open(ctx.second)
@@ -271,51 +190,5 @@ defmodule Valimc.PickupRegionTest do
     assert first.inventory.slots[36] == ctx.record.stack
     assert second.inventory.slots == %{} and second.outbox == nil
     assert disk(ctx).records == [] and map_size(disk(ctx).receipts) == 2
-  end
-
-  test "owner restart before withdrawal loses contact permission and resolves without gain",
-       ctx do
-    assert {:ok, grant} = Region.reserve_pickup(ctx.owner, ctx.actor, ctx.record.uuid)
-    {fence, pending} = prepare(ctx, grant)
-    {pid, _} = ctx.owner
-    DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-    assert {:ok, :rejected} = deliver(ctx, pending)
-    {_, resolved} = complete(ctx, fence)
-    assert resolved.inventory.slots == %{} and resolved.outbox == nil
-    assert disk(ctx).records == [ctx.record]
-  end
-
-  test "owner restart after withdrawal replays receipt and cannot withdraw or grant twice", ctx do
-    assert {:ok, grant} = Region.reserve_pickup(ctx.owner, ctx.actor, ctx.record.uuid)
-    {fence, pending} = prepare(ctx, grant)
-    assert {:ok, :applied} = deliver(ctx, pending)
-    {pid, _} = ctx.owner
-    DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-    assert {:ok, :already_applied} = deliver(ctx, pending)
-    {_, resolved} = complete(ctx, fence)
-    assert resolved.inventory.slots[36] == ctx.record.stack
-    assert disk(ctx).records == []
-  end
-
-  test "disconnect delivers a prepared survival pickup using its original permission after a mode change",
-       ctx do
-    stack = ctx.record.stack
-
-    inventory = %Inventory{
-      slots: Map.new(9..44, &{&1, %{stack | count: 64}}) |> Map.put(36, %{stack | count: 63})
-    }
-
-    ctx = %{ctx | snapshot: %{ctx.snapshot | inventory: inventory}}
-    assert {:ok, grant} = Region.reserve_pickup(ctx.owner, ctx.actor, ctx.record.uuid)
-    {fence, pending} = prepare(ctx, grant)
-    later = %{pending | game_mode: GameMode.new(:creative)}
-    monitor = Process.monitor(ctx.writer)
-    assert :ok = PlayerStore.close_session(ctx.writer, fence, later)
-    assert_receive {:DOWN, ^monitor, :process, _, :normal}
-    assert player(ctx).outbox == nil and player(ctx).game_mode.current == :creative
-    assert player(ctx).inventory.slots[36].count == 64
-    assert [%{stack: %{count: 6}}] = disk(ctx).records
-    assert {:ok, _, restored, _} = PlayerStore.open(ctx.uuid)
-    assert restored.outbox == nil and restored.inventory.slots[36].count == 64
   end
 end

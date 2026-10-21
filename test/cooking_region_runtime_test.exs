@@ -6,7 +6,9 @@ defmodule Valimc.CookingRegionRuntimeTest do
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{Blocks, Containers, RegionData}
 
-  setup do
+  setup :scope
+
+  def scope(_context) do
     nonce = System.unique_integer([:positive])
     key = {86_000 + rem(nonce, 3_333) * 3, 1992}
     {rx, rz} = key
@@ -32,7 +34,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
 
   defp queued?(state, kind), do: Enum.any?(state.item_writes, &(&1.kind == kind))
 
-  defp seed(ctx, cooking, lit \\ true) do
+  def seed(ctx, cooking, lit \\ true) do
     {:ok, containers, entry} =
       Containers.create_cooking(%Containers{}, ctx.key, ctx.position, :furnace)
 
@@ -49,7 +51,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
     RegionData.load(ctx.key)
   end
 
-  defp progress,
+  def progress,
     do: %Cooking{
       slots: {ItemStack.new("raw_iron", 2), ItemStack.new("coal", 2), nil},
       burn_left: 500,
@@ -68,7 +70,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
     next
   end
 
-  defp disk(ctx) do
+  def disk(ctx) do
     {:ok, containers} =
       Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
 
@@ -136,6 +138,24 @@ defmodule Valimc.CookingRegionRuntimeTest do
       end
     end)
   end
+
+  def eventually(fun, _budget \\ nil) do
+    Valimc.TestWait.until(fun)
+    :ok
+  end
+end
+
+defmodule Valimc.CookingRegionRuntimeTest.Serial do
+  use ExUnit.Case, async: false
+  # Serial: waits on the owner's real game ticks, which concurrent load can starve.
+  import Valimc.CookingRegionRuntimeTest, only: [seed: 2, progress: 0, eventually: 1, disk: 1]
+  alias Valimc.TestScope
+  alias Valimc.{Cooking, ItemMotionState}
+  alias Valimc.Physics.CookingBlocks
+  alias Valimc.Protocol.ItemStack
+  alias Valimc.World.{Blocks, Containers, RegionData}
+
+  setup {Valimc.CookingRegionRuntimeTest, :scope}
 
   test "the actual region clock cooks all families while dropped-item physics advances", ctx do
     state = seed(ctx, %{progress() | progress: 199})
@@ -208,10 +228,5 @@ defmodule Valimc.CookingRegionRuntimeTest do
     end)
 
     assert Enum.all?(disk(ctx).entries, fn {_, entry} -> map_size(entry.recipes) == 1 end)
-  end
-
-  defp eventually(fun, _budget \\ nil) do
-    Valimc.TestWait.until(fun)
-    :ok
   end
 end

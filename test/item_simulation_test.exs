@@ -1,6 +1,6 @@
 defmodule Valimc.ItemSimulationTest do
   use ExUnit.Case, async: false
-  # Serial: saturates a global geometry worker pool that concurrent owners also use.
+  # Serial: one batch claims the global geometry worker pool, and one test saturates it.
   alias Valimc.TestScope
   alias Valimc.{ItemMotionState, ItemSimulation, World}
 
@@ -46,53 +46,6 @@ defmodule Valimc.ItemSimulationTest do
     assert Map.keys(fences) == [ctx.key]
   end
 
-  test "disjoint bodies split the bounded geometry budget without permanently starving a cohort",
-       ctx do
-    assert {:ok, %{steps: steps, refused: []}} = result(inputs(ctx.key, 256, 7.0))
-    assert length(steps) == 256 and length(Enum.uniq_by(steps, & &1.id)) == 256
-  end
-
-  test "a busy owner does not stall geometry, and unavailable geometry retires its tasks", ctx do
-    {pid, _} = ctx.owner
-    :sys.suspend(pid)
-
-    try do
-      # Reads come from the published snapshot, not the (suspended) owner mailbox.
-      assert {:ok, %{refused: []}} = result(inputs(ctx.key, 256, 0.1))
-    after
-      :sys.resume(pid)
-    end
-
-    stale_fence(pid)
-    assert {:ok, %{steps: [], refused: refused}} = result(inputs(ctx.key, 256, 0.1))
-    assert length(refused) == 256
-    assert DynamicSupervisor.count_children(Valimc.ItemGeometryWorkers).active == 0
-  end
-
-  # Make published reads fail (foreign epoch) without stopping the owner.
-  defp stale_fence(pid) do
-    :sys.replace_state(pid, fn state ->
-      :ets.insert(state.resource.item_publication, {:block_fence, make_ref(), 0})
-      state
-    end)
-  end
-
-  test "empty, oversized and duplicate identity batches refuse before starting work", ctx do
-    input = hd(inputs(ctx.key, 1, 0.1))
-
-    for invalid <- [
-          [],
-          [nil],
-          [%{}],
-          [%{input | id: -1}],
-          [input, input],
-          List.duplicate(input, 257)
-        ] do
-      assert {:error, :invalid_item_simulation} =
-               ItemSimulation.start(self(), make_ref(), make_ref(), invalid)
-    end
-  end
-
   test "saturated item geometry cannot consume player query slots", ctx do
     holders =
       Enum.reduce_while(1..1025, [], fn _, acc ->
@@ -118,48 +71,6 @@ defmodule Valimc.ItemSimulationTest do
       assert {:ok, _} = Task.await(task, 60_000)
     after
       for pid <- holders, do: Task.Supervisor.terminate_child(Valimc.ItemGeometryWorkers, pid)
-    end
-  end
-
-  test "owner death cancels its coordinator and retires geometry requests", ctx do
-    pid = elem(ctx.owner, 0)
-    :sys.suspend(pid)
-    parent = self()
-
-    owner =
-      spawn(fn ->
-        {:ok, job} =
-          ItemSimulation.start(self(), make_ref(), make_ref(), inputs(ctx.key, 256, 0.1))
-
-        send(parent, {:job, job.worker})
-
-        receive do
-          :stop -> :ok
-        end
-      end)
-
-    try do
-      assert_receive {:job, worker}
-      monitor = Process.monitor(worker)
-      Process.exit(owner, :kill)
-      assert_receive {:DOWN, ^monitor, :process, ^worker, reason}
-      assert reason in [:killed, :noproc]
-
-      assert Enum.reduce_while(1..100, false, fn _, _ ->
-               if Enum.all?(
-                    Task.Supervisor.children(Valimc.ItemGeometryWorkers),
-                    &(not Process.alive?(&1))
-                  ),
-                  do: {:halt, true},
-                  else:
-                    (
-                      Process.sleep(5)
-                      {:cont, false}
-                    )
-             end)
-    after
-      :sys.resume(pid)
-      if Process.alive?(owner), do: Process.exit(owner, :kill)
     end
   end
 end

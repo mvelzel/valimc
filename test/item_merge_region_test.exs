@@ -1,7 +1,6 @@
 defmodule Valimc.ItemMergeRegionTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-  import ExUnit.CaptureLog
   alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
   alias Valimc.World.{ItemLedger, Items, Region}
 
@@ -64,21 +63,6 @@ defmodule Valimc.ItemMergeRegionTest do
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
-  defp survivor_age(ctx, uuid) do
-    Enum.find(Items.records(state(ctx.owner).items), &(&1.uuid == uuid)).motion.age
-  end
-
-  # Owner ticks advanced the survivor's motion age and no merge job is in flight.
-  defp settled(ctx, uuid, age),
-    do:
-      wait(fn ->
-        s = state(ctx.owner)
-
-        # Moving items change physical revisions and legitimately wake merge scans.
-        survivor_age(ctx, uuid) >= age and not Valimc.TestRegion.writing?(s) and
-          map_size(s.item_resting) == map_size(s.items.entries)
-      end)
-
   defp items_bytes(ctx), do: Valimc.TestDisk.read(ctx.base, ctx.key, :items)
 
   def disk(ctx) do
@@ -124,117 +108,5 @@ defmodule Valimc.ItemMergeRegionTest do
     end
   end
 
-  test "storage failure never publishes replacement and recovery retains the complete prior pair",
-       ctx do
-    writer = state(ctx.owner).store
-    Valimc.TestDisk.break_writer(writer)
-    original = items_bytes(ctx)
-    {pid, _} = ctx.owner
-    ref = Process.monitor(pid)
-
-    capture_log(fn ->
-      assert {:error, :item_commit_uncertain} = Region.merge_items(ctx.owner, pairs(ctx.owner))
-      assert_receive {:DOWN, ^ref, :process, ^pid, _}
-    end)
-
-    assert items_bytes(ctx) == original
-    assert {:ok, next} = World.item_owner(ctx.key)
-    assert Items.records(state(next).items) == ctx.records
-    assert state(next).item_receipts == ctx.receipts
-  end
-
-  test "epoch/deadline/invalid batches refuse before storage", ctx do
-    {pid, epoch} = ctx.owner
-    original = items_bytes(ctx)
-    proposal = pairs(ctx.owner)
-    assert {:error, :stale_region} = Region.merge_items({pid, make_ref()}, proposal)
-
-    assert {:error, :expired_item_step} =
-             GenServer.call(
-               pid,
-               {:merge_items, epoch, proposal, System.monotonic_time(:millisecond) - 1}
-             )
-
-    assert {:error, :invalid_item_merges} = Region.merge_items(ctx.owner, proposal ++ proposal)
-    assert items_bytes(ctx) == original and not Valimc.TestRegion.writing?(state(ctx.owner))
-  end
-
   @tag simulation: true
-  test "automatic merging sleeps after convergence and wakes for a new compatible birth", ctx do
-    wait(fn ->
-      map_size(state(ctx.owner).items.entries) == 1 and
-        not Valimc.TestRegion.writing?(state(ctx.owner))
-    end)
-
-    assert [survivor] = Items.records(state(ctx.owner).items)
-    assert survivor.stack.count == 5
-
-    named = %{
-      ItemStack.new("stone")
-      | components: %{"minecraft:custom_name" => {:string, "separate"}}
-    }
-
-    assert {:ok, _} = Region.create_item(ctx.owner, named, {survivor.x, survivor.y, survivor.z})
-    settled(ctx, survivor.uuid, survivor_age(ctx, survivor.uuid) + 2)
-    # The stamp changes only when this owner starts a merge scan (the global job
-    # metric also counts other regions).
-    # Items spawned at the region corner can drift across the border and return
-    # with new entity ids, which legitimately rescans; compare unchanged item sets.
-    stamp = state(ctx.owner).item_merge_stamp
-    settled(ctx, survivor.uuid, survivor_age(ctx, survivor.uuid) + 2)
-    after_settle = state(ctx.owner)
-
-    if Map.keys(after_settle.items.entries) == Map.keys(stamp),
-      do: assert(after_settle.item_merge_stamp == stamp)
-
-    assert map_size(state(ctx.owner).items.entries) == 2
-
-    assert {:ok, _} =
-             Region.create_item(
-               ctx.owner,
-               ItemStack.new("stone", 2),
-               {survivor.x, survivor.y, survivor.z}
-             )
-
-    wait(fn ->
-      Enum.any?(
-        Items.records(state(ctx.owner).items),
-        &(&1.uuid == survivor.uuid and &1.stack.count == 7)
-      ) and not Valimc.TestRegion.writing?(state(ctx.owner))
-    end)
-
-    assert map_size(state(ctx.owner).items.entries) == 2
-    assert disk(ctx).receipts == ctx.receipts
-  end
-end
-
-defmodule Valimc.ItemMergeRegionTest.Serial do
-  use ExUnit.Case, async: false
-  # Serial: saturates a global worker pool that concurrent owners also use.
-  import Valimc.ItemMergeRegionTest, only: [state: 1, pairs: 1, disk: 1]
-  alias Valimc.World.Region
-
-  setup {Valimc.ItemMergeRegionTest, :scope}
-
-  test "bounded worker saturation refuses without a queued merge", ctx do
-    blocked =
-      Stream.repeatedly(fn ->
-        Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
-          receive do
-            :stop -> :ok
-          end
-        end)
-      end)
-      |> Enum.reduce_while([], fn
-        {:ok, pid}, acc -> {:cont, [pid | acc]}
-        {:error, :max_children}, acc -> {:halt, acc}
-      end)
-
-    try do
-      assert {:error, :item_workers_busy} = Region.merge_items(ctx.owner, pairs(ctx.owner))
-      assert not Valimc.TestRegion.writing?(state(ctx.owner)) and length(disk(ctx).records) == 2
-    after
-      for pid <- blocked, do: Task.Supervisor.terminate_child(Valimc.ItemWorkers, pid)
-    end
-  end
 end

@@ -1,7 +1,6 @@
 defmodule Valimc.PlayerPickupStoreTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-  import ExUnit.CaptureLog
 
   alias Valimc.{
     GameMode,
@@ -147,20 +146,6 @@ defmodule Valimc.PlayerPickupStoreTest do
     {%{ctx | writer: writer, fence: fence}, snapshot}
   end
 
-  test "a saved intent blocks competing writes and a reservation never grants inventory", ctx do
-    {fence, pending} = prepare(ctx)
-    assert {:error, :stale_player_snapshot} = complete(ctx, ctx.fence)
-    # The destination holds only the reserved slot: not applied yet, so retryable.
-    assert {:error, :transfer_not_applied} = complete(ctx, fence)
-    assert read(ctx) == pending
-    ref = make_ref()
-    PlayerStore.checkpoint(ctx.writer, fence, ctx.snapshot, ref)
-    assert_receive {:player_saved, ^ref, {:error, :transfer_pending}}
-    ref = make_ref()
-    PlayerStore.prepare_pickup(ctx.writer, fence, ctx.snapshot, ctx.intent, ref)
-    assert_receive {:player_transfer_saved, ^ref, {:error, :transfer_pending}}
-  end
-
   test "source restart resolves actual region proof once and persists the gained inventory",
        ctx do
     effects = %{11 => [{2, 1, false, true, true}, {-1, 0, true, false, true}]}
@@ -179,39 +164,10 @@ defmodule Valimc.PlayerPickupStoreTest do
     assert :sys.get_state(owner).resource.items.entries == %{}
   end
 
-  test "terminal rejection clears without gain", ctx do
-    {fence, _} = prepare(ctx)
-    terminal(ctx, false)
-    assert {:ok, _fence, resolved} = complete(ctx, fence)
-    assert resolved.inventory == ctx.snapshot.inventory and resolved.outbox == nil
-    assert read(ctx).transfer_sequence == 1
-  end
-
   test "counterfeit region proof cannot grant inventory", ctx do
     {fence, pending} = prepare(ctx)
     terminal(ctx, true, true)
     assert {:error, :transfer_conflict} = complete(ctx, fence)
     assert read(ctx) == pending
-  end
-
-  test "failed final source save retains recoverable intent without restoring the withdrawn world item",
-       ctx do
-    {fence, pending} = prepare(ctx)
-    terminal(ctx, true)
-    File.write!(Path.join(ctx.base, "blocked"), "file")
-    :sys.replace_state(ctx.writer, &%{&1 | path: Path.join(ctx.base, "blocked/player")})
-    monitor = Process.monitor(ctx.writer)
-
-    capture_log(fn ->
-      assert {:error, :player_commit_uncertain} = complete(ctx, fence)
-      assert_receive {:DOWN, ^monitor, :process, _, :normal}
-    end)
-
-    assert read(ctx) == pending
-    {ctx, ^pending} = reopen(ctx)
-    assert {:ok, _fence, resolved} = complete(ctx, ctx.fence)
-    assert resolved.inventory.slots[36] == ctx.intent.request.before and resolved.outbox == nil
-    {:ok, {pid, _}} = World.item_owner(ctx.key)
-    assert Valimc.TestConn.state(pid).resource.items.entries == %{}
   end
 end

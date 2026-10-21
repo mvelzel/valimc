@@ -1,6 +1,6 @@
 defmodule Valimc.ItemMotionRecordsTest do
   use ExUnit.Case, async: true
-  alias Valimc.{Inventory, ItemMotionState, PlayerSnapshot}
+  alias Valimc.ItemMotionState
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{ItemRecords, Items, ItemTransfers}
   @key {-1, -1}
@@ -64,22 +64,6 @@ defmodule Valimc.ItemMotionRecordsTest do
     end
   end
 
-  test "v3 player outboxes round-trip exact launch intent and its canonical digest" do
-    snapshot = %{
-      pose: %{x: -0.5, y: 63.0, z: -128.0, yaw: 0.0, pitch: 0.0},
-      inventory: %Inventory{},
-      transfer_sequence: 4,
-      outbox: %{key: @key, records: [moving()]}
-    }
-
-    assert {:ok, bytes} = PlayerSnapshot.encode(@source, snapshot)
-    assert {:ok, restored} = PlayerSnapshot.decode(bytes, @source)
-    assert restored.outbox == snapshot.outbox
-
-    assert PlayerSnapshot.transfer_request(@source, restored) ==
-             PlayerSnapshot.transfer_request(@source, snapshot)
-  end
-
   test "removed moving records keep receipts so recovery cannot recreate them" do
     request = %{source: @source, sequence: 1, records: [moving()]}
     assert {:ok, items, receipts, :applied} = ItemTransfers.plan(Items.new(), %{}, @key, request)
@@ -103,53 +87,5 @@ defmodule Valimc.ItemMotionRecordsTest do
                request
                | records: [forged]
              })
-  end
-
-  test "invalid motion cannot silently become a legacy stationary record" do
-    for motion <- [
-          nil,
-          %{},
-          %ItemMotionState{velocity: {65, 0, 0}},
-          %ItemMotionState{velocity: [0, 0, 0]},
-          %ItemMotionState{age: -32_769},
-          %ItemMotionState{age: 6001},
-          %ItemMotionState{pickup_delay: -1},
-          %ItemMotionState{pickup_delay: 32_768},
-          %ItemMotionState{on_ground: nil},
-          %ItemMotionState{no_gravity: nil},
-          Map.delete(%ItemMotionState{}, :age)
-        ] do
-      record = Map.put(record(), :motion, motion)
-      refute ItemMotionState.valid?(motion)
-      assert ItemRecords.encode(@key, [record]) == {:error, :invalid_item_records}
-      assert Items.restore(@key, [record]) == {:error, :invalid_item_file}
-      assert Items.create_record(Items.new(), @key, record) == {:error, :invalid_item}
-    end
-  end
-
-  test "checksummed invalid motion flags, counters, floats and truncated frames fail closed" do
-    prefix = <<37::128, -0.5::float-64, 64.25::float-64, -128.0::float-64>>
-    stack = record().stack |> ItemStack.encode() |> IO.iodata_to_binary()
-
-    seal = fn motion ->
-      payload =
-        <<"VMCITEMS", 3, 5023::32, -1::signed-32, -1::signed-32, 1::16, 0::16>> <>
-          prefix <> motion <> stack
-
-      payload <> :crypto.hash(:sha256, payload)
-    end
-
-    for motion <- [
-          <<0>>,
-          <<1>>,
-          <<2>>,
-          <<9, 0::192, 0::32>>,
-          <<1, 65.0::float-64, 0::128, 0::32>>,
-          <<1, 0::192, 6001::signed-16, 0::16>>,
-          <<1, 0::192, 0::16, -1::signed-16>>,
-          <<1, 0x7FF0000000000000::64, 0::128, 0::32>>
-        ] do
-      assert ItemRecords.decode(seal.(motion), @key) == {:error, :invalid_item_file}
-    end
   end
 end

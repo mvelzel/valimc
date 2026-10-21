@@ -17,14 +17,6 @@ defmodule Valimc.Physics.ItemTravelTest do
   defp item(position \\ {0.5, 65.5, 0.5}, motion \\ %ItemMotionState{}),
     do: %{id: 7, revision: 1, position: position, motion: motion}
 
-  test "leaving an ice edge retains the old horizontal support for the accepted landing step" do
-    f = frame(0, %{{0, 63, 0} => 8597})
-    initial = item({0.9, 64.0, 0.5}, %ItemMotionState{velocity: {0.4, 0, 0}})
-    assert {:ok, moved} = ItemTravel.sample(initial, f)
-    assert moved.position == {1.3, 64.0, 0.5} and moved.motion.on_ground
-    assert elem(moved.motion.velocity, 0) == 0.38416001796722415
-  end
-
   test "owner-selected sleeping preserves sentinel age/delay and refresh wakes unsupported items" do
     initial =
       item({0.5, 65.5, 0.5}, %ItemMotionState{

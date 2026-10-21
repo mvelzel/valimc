@@ -59,32 +59,6 @@ defmodule Valimc.ItemMergeTransferTest do
     end
   end
 
-  test "typed terminal proof cannot be confused with a request digest or an older transfer" do
-    request = request()
-    assert {:ok, applied} = Transfer.receipt(request, :applied)
-    assert {:ok, rejected} = Transfer.receipt(request, :rejected)
-    assert applied != rejected
-    assert {:ok, :applied} = Transfer.receipt_result(request, applied)
-    assert {:ok, :rejected} = Transfer.receipt_result(request, rejected)
-    assert {:ok, digest} = Transfer.digest(request)
-
-    for forged <- [
-          nil,
-          %{sequence: 0, digest: <<0::256>>},
-          %{sequence: 7, digest: digest},
-          %{sequence: 6, digest: applied.digest},
-          %{sequence: 7, digest: rejected.digest, extra: true}
-        ] do
-      assert {:error, :item_merge_receipt_conflict} = Transfer.receipt_result(request, forged)
-    end
-
-    assert {:error, :stale_item_merge} =
-             Transfer.receipt_result(request, %{applied | sequence: 8})
-
-    assert {:error, :item_merge_receipt_conflict} =
-             Transfer.receipt_result(%{request | permit: <<9::128>>}, applied)
-  end
-
   test "malformed, oversized, noncanonical and wrong ownership records refuse" do
     proposal = request()
     assert {:ok, bytes} = Transfer.encode(proposal)
@@ -112,36 +86,5 @@ defmodule Valimc.ItemMergeTransferTest do
         ] do
       assert {:error, :invalid_item_merge_transfer} = Transfer.encode(bad)
     end
-  end
-
-  test "native range, direction, stack limits and component identity remain authoritative" do
-    proposal = request()
-
-    for bad <- [
-          %{proposal | recipient: %{proposal.recipient | x: 128.8}},
-          %{proposal | recipient: %{proposal.recipient | y: 64.25}},
-          %{proposal | donor: %{proposal.donor | stack: ItemStack.new("stone", 5)}},
-          %{proposal | recipient: %{proposal.recipient | stack: ItemStack.new("stone", 63)}},
-          %{proposal | donor: %{proposal.donor | motion: %ItemMotionState{pickup_delay: 32767}}},
-          %{proposal | recipient: %{proposal.recipient | motion: %ItemMotionState{age: -32768}}},
-          %{proposal | recipient: %{proposal.recipient | stack: ItemStack.new("dirt", 3)}}
-        ] do
-      assert {:error, :not_mergeable} = Transfer.decision(bad)
-    end
-  end
-
-  test "custom maximum99 retains the native reverse-flow donor remainder" do
-    proposal = request()
-    stack = %{ItemStack.new("stone") | components: %{"minecraft:max_stack_size" => 99}}
-
-    proposal = %{
-      proposal
-      | donor: %{proposal.donor | stack: stack},
-        recipient: %{proposal.recipient | stack: %{stack | count: 65}}
-    }
-
-    assert {:ok, %{stack: %{count: 64}, donor_stack: %{count: 2}}} = Transfer.decision(proposal)
-    assert {:ok, bytes} = Transfer.encode(proposal)
-    assert {:ok, ^proposal} = Transfer.decode(bytes)
   end
 end

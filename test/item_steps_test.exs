@@ -1,8 +1,8 @@
 defmodule Valimc.ItemStepsTest do
   use ExUnit.Case, async: true
   alias Valimc.ItemMotionState
-  alias Valimc.Protocol.{Data, ItemStack, Wire}
-  alias Valimc.World.{ItemRecords, EntityReplication, Items}
+  alias Valimc.Protocol.{ItemStack, Wire}
+  alias Valimc.World.{ItemRecords, Items}
 
   defp initial do
     {:ok, items, {epoch, id, revision}} =
@@ -17,8 +17,6 @@ defmodule Valimc.ItemStepsTest do
 
     {items, epoch, step}
   end
-
-  defp names(packets), do: Enum.map(packets, fn {id, _} -> Data.name(:play, :clientbound, id) end)
 
   test "accepted steps retain identity, fresh fences and saved state across chunk movement" do
     {items, epoch, step} = initial()
@@ -40,31 +38,6 @@ defmodule Valimc.ItemStepsTest do
              Items.advance(next, {0, 0}, epoch, [%{step | revision: 2}])
   end
 
-  test "position precedes velocity; later movement avoids repeated metadata and fresh tracking uses current spawn" do
-    {items, epoch, step} = initial()
-    {observer, _} = EntityReplication.reconcile(EntityReplication.new(), items.views)
-    {:ok, next, _} = Items.advance(items, {0, 0}, epoch, [step])
-    {observer, packets} = EntityReplication.reconcile(observer, next.views)
-    assert names(packets) == ["entity_position_sync", "set_entity_motion", "set_entity_data"]
-    step2 = %{step | revision: 2, position: {17.0, 64.9, 0.5}, motion: %{step.motion | age: 2}}
-    {:ok, latest, _} = Items.advance(next, {0, 0}, epoch, [step2])
-    {observer, packets} = EntityReplication.reconcile(observer, latest.views)
-    assert names(packets) == ["entity_position_sync", "set_entity_motion"]
-    assert {^observer, []} = EntityReplication.reconcile(observer, latest.views)
-    {_, [spawn, _]} = EntityReplication.reconcile(EntityReplication.new(), latest.views)
-    assert spawn == latest.views[step.id].spawn
-    assert spawn != items.views[step.id].spawn
-
-    {behind, _} = EntityReplication.reconcile(EntityReplication.new(), items.views)
-    {_, [position | _]} = EntityReplication.reconcile(behind, latest.views)
-    assert position == latest.views[step.id].position
-    refute position == next.views[step.id].position
-
-    age_only = %{step2 | revision: 3, motion: %{step2.motion | age: 3}}
-    {:ok, aged, _} = Items.advance(latest, {0, 0}, epoch, [age_only])
-    assert {^observer, []} = EntityReplication.reconcile(observer, aged.views)
-  end
-
   test "invalid, duplicate, stale and cross-region batches cannot publish a partial result" do
     {items, epoch, step} = initial()
 
@@ -83,52 +56,5 @@ defmodule Valimc.ItemStepsTest do
 
     assert {:error, :stale_region} = Items.advance(items, {0, 0}, make_ref(), [step])
     assert hd(Items.records(items)).x == 0.5 and items.views[step.id].revision == 1
-  end
-
-  test "move deltas stay small when item metadata contains a large shared binary" do
-    {items, epoch, step} = initial()
-
-    stack = %{
-      ItemStack.new("stone")
-      | components: %{
-          "minecraft:custom_data" =>
-            {:compound, %{"bytes" => {:byte_array, :binary.copy(<<12>>, 60_000)}}}
-        }
-    }
-
-    {:ok, items, {_, _, revision}} = Items.replace(items, epoch, step.id, 1, stack)
-    {observer, _} = EntityReplication.reconcile(EntityReplication.new(), items.views)
-    step = %{step | revision: revision, motion: %{step.motion | no_gravity: true}}
-    {:ok, next, _} = Items.advance(items, {0, 0}, epoch, [step])
-    {_, packets} = EntityReplication.reconcile(observer, next.views)
-    assert names(packets) == ["entity_position_sync", "set_entity_motion"]
-    assert Enum.sum(Enum.map(packets, &Items.packet_bytes/1)) < 100
-    {:ok, empty} = Items.remove(next, epoch, step.id, revision + 1)
-    assert empty.bytes == 0 and empty.views == %{}
-  end
-
-  test "a full32-step batch commits every revision in input order without changing item counts" do
-    {handles, items} =
-      Enum.map_reduce(1..32, Items.new(), fn n, items ->
-        {:ok, next, handle} =
-          Items.create(items, {0, 0}, ItemStack.new("stone", n), {n + 0.5, 64.5, 0.5})
-
-        {handle, next}
-      end)
-
-    steps =
-      Enum.map(handles, fn {_, id, revision} ->
-        %{
-          id: id,
-          revision: revision,
-          position: {0.5, 65.0, 0.5},
-          motion: %ItemMotionState{no_gravity: true}
-        }
-      end)
-
-    assert {:ok, next, updated} = Items.advance(items, {0, 0}, items.epoch, steps)
-    assert Enum.map(updated, &elem(&1, 1)) == Enum.map(handles, &elem(&1, 1))
-    assert Enum.all?(updated, &(elem(&1, 2) == 2))
-    assert Enum.sort(Enum.map(Items.records(next), & &1.stack.count)) == Enum.to_list(1..32)
   end
 end

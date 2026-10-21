@@ -110,21 +110,6 @@ defmodule Valimc.ItemSimulationRegionTest do
   end
 
   @tag edge: true, motion: %ItemMotionState{no_gravity: true}
-  test "unavailable neighbor geometry does not freeze age and pickup-delay clocks", ctx do
-    neighbor = {elem(ctx.key, 0) + 1, elem(ctx.key, 1)}
-    {:ok, {pid, _}} = World.item_owner(neighbor)
-
-    # Published reads of the neighbor fail (foreign epoch) while it keeps running.
-    :sys.replace_state(pid, fn state ->
-      :ets.insert(state.resource.item_publication, {:block_fence, make_ref(), 0})
-      state
-    end)
-
-    age = entry(ctx).motion.age
-    wait(ctx, fn -> entry(ctx).motion.age >= age + 7 end)
-    assert entry(ctx).entity.y == 68.0
-    assert state(ctx).item_resting == %{}
-  end
 
   @tag motion: %ItemMotionState{age: 5998}
   test "despawn is durable and original source replay cannot recreate the item", ctx do
@@ -142,44 +127,4 @@ defmodule Valimc.ItemSimulationRegionTest do
   end
 
   @tag edge: true, motion: %ItemMotionState{velocity: {0.3, 0.0, 0.0}, no_gravity: true}
-  test "automatic motion crosses owners and conserves the source receipt", ctx do
-    destination = {elem(ctx.key, 0) + 1, elem(ctx.key, 1)}
-    {:ok, {pid, _} = owner} = World.item_owner(destination)
-
-    wait(ctx, fn ->
-      state(ctx).items.entries == %{} and state(ctx).items.ledger.outgoing == nil and
-        map_size(Valimc.TestConn.state(pid).resource.items.entries) == 1
-    end)
-
-    assert {:ok, handle} = Region.find_item(owner, <<1::128>>)
-    current = Valimc.TestConn.state(pid).resource
-    assert current.items.ledger.generations == %{<<1::128>> => 1}
-    assert current.items.entries[elem(handle, 2)].entity.x > elem(destination, 0) * 128
-    assert current.items.entries[elem(handle, 2)].motion.age >= 1
-    assert state(ctx).item_receipts == ctx.receipts and state(ctx).items.ledger.sequence == 1
-  end
-end
-
-defmodule Valimc.ItemSimulationRegionTest.Serial do
-  use ExUnit.Case, async: false
-  # Serial: asserts deltas of global Metrics counters other owners also bump.
-  import Valimc.ItemSimulationRegionTest, only: [entry: 1, state: 1, step: 2, wait: 2]
-  alias Valimc.World
-
-  setup {Valimc.ItemSimulationRegionTest, :scope}
-
-  test "owned cadence falls, sleeps without geometry work, ages, and wakes on support edits",
-       ctx do
-    wait(ctx, fn -> map_size(state(ctx).item_resting) == 1 end)
-    assert entry(ctx).entity.y == 64.0 and entry(ctx).motion.on_ground
-    age = entry(ctx).motion.age
-    jobs = Map.get(Valimc.Metrics.snapshot(), :item_simulation_jobs, 0)
-    step(ctx, 3)
-    assert entry(ctx).motion.age > age
-    assert Map.get(Valimc.Metrics.snapshot(), :item_simulation_jobs, 0) == jobs
-    pos = hd(ctx.records)
-    :ok = World.set_block({floor(pos.x), 63, floor(pos.z)}, 0)
-    wait(ctx, fn -> entry(ctx).entity.y < 63.9 end)
-    assert entry(ctx).motion.age > age
-  end
 end

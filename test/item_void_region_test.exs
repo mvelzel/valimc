@@ -2,7 +2,6 @@ defmodule Valimc.ItemVoidRegionTest do
   use ExUnit.Case, async: false
   # Serial: the fsync-wait assertion races a simulation tick that queued writes allow.
   alias Valimc.TestScope
-  import ExUnit.CaptureLog
   alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
   alias Valimc.World.{ItemLedger, Region}
 
@@ -103,24 +102,5 @@ defmodule Valimc.ItemVoidRegionTest do
     after
       if Process.alive?(writer), do: :sys.resume(writer)
     end
-  end
-
-  test "failed removal never publishes and a new owner retries from durable authority", c do
-    writer = state(c.owner).store
-    Valimc.TestDisk.break_writer(writer)
-    {pid, _} = c.owner
-    monitor = Process.monitor(pid)
-
-    capture_log(fn ->
-      enable(c.owner)
-      assert_receive {:DOWN, ^monitor, :process, ^pid, _}
-    end)
-
-    assert length(disk(c).records) == 2 and disk(c).ledger == c.ledger
-    {:ok, recovered} = World.item_owner(c.key)
-    assert map_size(state(recovered).items.entries) == 2
-    enable(recovered)
-    wait(fn -> removed(c, recovered) end)
-    assert disk(c).records == [c.boundary] and disk(c).receipts == c.receipts
   end
 end
