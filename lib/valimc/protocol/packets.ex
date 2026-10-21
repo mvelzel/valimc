@@ -348,6 +348,10 @@ defmodule Valimc.Protocol.Packets do
     packet("entity_event", <<entity_id::signed-32, 3>>)
   end
 
+  @doc "A held item breaking (entity events 47 and 48: main and off hand)."
+  def item_break(entity_id, :main), do: packet("entity_event", <<entity_id::signed-32, 47>>)
+  def item_break(entity_id, :off), do: packet("entity_event", <<entity_id::signed-32, 48>>)
+
   def armor_break(entity_id, slot) when slot in 5..8 do
     life_entity_id!(entity_id)
     packet("entity_event", <<entity_id::signed-32, Valimc.ArmorDurability.break_event(slot)>>)
@@ -384,10 +388,19 @@ defmodule Valimc.Protocol.Packets do
 
   def ack(sequence), do: packet("block_changed_ack", Wire.varint(sequence))
 
-  @doc "A local level event (vanilla `levelEvent`); type 2001 is a block's break particles and sound."
-  def level_event(type, position, data)
-      when type in 0..2_147_483_647 and data in -2_147_483_648..2_147_483_647,
-      do: packet("level_event", [<<type::32>>, Wire.position(position), <<data::signed-32, 0>>])
+  @doc """
+  A level event (vanilla `levelEvent`; type 2001 is a block's break particles
+  and sound); a global one plays for every player at any distance.
+  """
+  def level_event(type, position, data, global \\ false)
+      when type in 0..2_147_483_647 and data in -2_147_483_648..2_147_483_647 and
+             is_boolean(global),
+      do:
+        packet("level_event", [
+          <<type::32>>,
+          Wire.position(position),
+          <<data::signed-32, if(global, do: 1, else: 0)>>
+        ])
 
   def block_destruction(entity_id, position, stage)
       when entity_id in 0..2_147_483_647 and stage in -1..9,

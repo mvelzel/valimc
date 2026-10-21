@@ -169,7 +169,7 @@ defmodule Valimc.Session.Replication do
 
   def visible?(state, player),
     do:
-      player.pid != self() and
+      player.pid != self() and not Map.get(player, :won_game, false) and
         Map.get(player, :dimension, :overworld) == Map.get(state.player, :dimension, :overworld) and
         sees?(state, {player.x, player.z}, @player_range)
 

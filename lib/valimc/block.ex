@@ -6,7 +6,7 @@ defmodule Valimc.Block do
   compiles to one byte per state. `block_entity/1` is a pure function of the state,
   so its callback results are tabulated at compile time as well.
   """
-  alias Valimc.Block.{BuddingAmethyst, Chest, Cooking, Coral, Default, Pillar, Slab}
+  alias Valimc.Block.{BuddingAmethyst, Chest, Cooking, Coral, Default, NetherPortal, Pillar, Slab}
   alias Valimc.Physics.CookingBlocks
   alias Valimc.Registry.Blocks
 
@@ -19,7 +19,8 @@ defmodule Valimc.Block do
     "WeatheringCopperSlabBlock" => Slab,
     "RotatedPillarBlock" => Pillar,
     "CoralBlock" => Coral,
-    "BuddingAmethystBlock" => BuddingAmethyst
+    "BuddingAmethystBlock" => BuddingAmethyst,
+    "NetherPortalBlock" => NetherPortal
   }
   @modules List.to_tuple([Default | Enum.uniq(Enum.sort(Map.values(@classes)))])
   @module_index @modules |> Tuple.to_list() |> Enum.with_index() |> Map.new()

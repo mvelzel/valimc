@@ -134,6 +134,7 @@ defmodule Valimc.Net.LoginFlow do
       dimension: :overworld,
       death_dimension: :overworld,
       portal_cooldown: 0,
+      seen_credits: false,
       pose: :standing,
       ready: false
     }
@@ -195,6 +196,7 @@ defmodule Valimc.Net.LoginFlow do
               dimension: Map.get(snapshot, :dimension, :overworld),
               death_dimension: Map.get(snapshot, :death_dimension, :overworld),
               portal_cooldown: Map.get(snapshot, :portal_cooldown, 0),
+              seen_credits: Map.get(snapshot, :seen_credits, false),
               motion:
                 PlayerMotion.flight(
                   %PlayerMotion{

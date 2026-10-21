@@ -214,7 +214,8 @@ defmodule Valimc.PlayerStore do
               :last_death,
               :dimension,
               :death_dimension,
-              :portal_cooldown
+              :portal_cooldown,
+              :seen_credits
             ])
           ),
         else: next

@@ -68,6 +68,19 @@ defmodule Valimc.Player.Placement do
 
     command =
       cond do
+        # Flint and steel and fire charges set fire or open portals (VMC-026b2).
+        Valimc.Portal.Items.item?(stack) ->
+          %{
+            kind: :ignite,
+            request: Map.put(request, :yaw, state.player.yaw),
+            item: stack.item_id,
+            stack: stack,
+            slot: if(request.hand == :off, do: 45, else: 36 + state.inventory.selected),
+            mode: state.player.game_mode.current,
+            body: placement_body(state, request),
+            expires: System.monotonic_time(:millisecond) + 250
+          }
+
         Valimc.Physics.Placement.supported_stack?(stack) ->
           %{
             request: Map.put(request, :yaw, state.player.yaw),
@@ -171,6 +184,9 @@ defmodule Valimc.Player.Placement do
 
             :correction ->
               PlayerPlacementQuery.start_correction(command.request, nil)
+
+            :ignite ->
+              Valimc.Portal.Items.start(command)
 
             _ ->
               start.(command.item, command.request, command.body, command.expires)

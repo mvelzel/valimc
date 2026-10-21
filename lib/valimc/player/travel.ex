@@ -45,22 +45,8 @@ defmodule Valimc.Player.Travel do
   @cooldown 10
   def cooldown, do: @cooldown
 
-  @doc """
-  One player tick: the portal cooldown runs down (vanilla's
-  `processPortalCooldown`) and a waiting travel tries again.
-  """
-  def tick(state) do
-    state =
-      case state.player do
-        %{portal_cooldown: cooldown} = player when cooldown > 0 ->
-          %{state | player: %{player | portal_cooldown: cooldown - 1}}
-
-        _ ->
-          state
-      end
-
-    continue(state)
-  end
+  @doc "One player tick: a waiting travel tries again (the portal cooldown is `Portals.tick/1`'s)."
+  def tick(state), do: continue(state)
 
   @doc "Begin a travel to `target`; it completes once the old dimension's work settles."
   def request(%{travel: nil} = state, target), do: continue(%{state | travel: target})
@@ -80,6 +66,7 @@ defmodule Valimc.Player.Travel do
 
   @doc "Save the player at the destination once settled; `finish/2` follows the save."
   def continue(%{travel: nil} = state), do: state
+  def continue(%{travel: %{saving: true}} = state), do: state
   def continue(%{phase: phase} = state) when phase != :play, do: state
   def continue(%{life_stage: stage} = state) when stage != :alive, do: %{state | travel: nil}
 
@@ -87,7 +74,13 @@ defmodule Valimc.Player.Travel do
     if settled?(state) do
       player = arrive(state.player, target)
       snapshot = PlayerSnapshot.capture(player, state.inventory)
-      Vitals.checkpoint_life(%{state | travel: nil}, :travel, snapshot, player)
+
+      Vitals.checkpoint_life(
+        %{state | travel: Map.put(target, :saving, true)},
+        :travel,
+        snapshot,
+        player
+      )
     else
       state
     end
@@ -116,6 +109,9 @@ defmodule Valimc.Player.Travel do
   `player.dimension` and place the player there.
   """
   def finish(state, player) do
+    portal = match?(%{portal: true}, state.travel)
+    # Vanilla keeps all data across a teleport; a respawn after the credits keeps attributes.
+    keep = Map.get(state.travel || %{}, :keep, 3)
     state = leave(state, player)
     {clock_version, clock_packet} = Clock.initial()
     {difficulty, difficulty_packet} = Clock.difficulty()
@@ -137,11 +133,13 @@ defmodule Valimc.Player.Travel do
         difficulty_view: difficulty,
         weather_view: weather,
         border_view: border,
-        life_save: nil
+        life_save: nil,
+        travel: nil,
+        portal: state.portal && %{state.portal | last: nil}
     }
 
     send_packets(state, [
-      Packets.respawn(player, player.last_death, 3),
+      Packets.respawn(player, player.last_death, keep),
       difficulty_packet,
       Packets.permission_level(player.entity_id, Valimc.Permissions.level(player))
     ])
@@ -173,7 +171,9 @@ defmodule Valimc.Player.Travel do
         ] ++
         Enum.map(player.effects, fn {id, [rung | _]} ->
           Packets.update_effect(player.entity_id, id, rung, false)
-        end) ++ post_effects(player)
+        end) ++
+        post_effects(player) ++
+        if(portal, do: [Packets.level_event(1032, {0, 0, 0}, 0)], else: [])
     )
 
     for pid <- Players.nearby(state.regions),

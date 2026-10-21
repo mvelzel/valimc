@@ -14,9 +14,9 @@ Subtickets:
 
 | Ticket | Slice | Status |
 |---|---|---|
-| [VMC-026b1](VMC-026b1.md) | Dimension lifecycle: owners, storage, generation and light per dimension, the client's dimension switch, travel that keeps the player's state, reconnects and deaths elsewhere | Foundation |
-| VMC-026b2 | Nether portals: lighting with flint and steel or fire charges, portal blocks and their collapse, entering after the portal time, the scaled destination, portal search and creation, cooldowns | Planned |
-| VMC-026b3 | End portals: frames filled with eyes of ender, travel to the End's arrival platform, the exit portal (credits, return to spawn) | Planned |
+| [VMC-026b1](VMC-026b1.md) | Dimension lifecycle: owners, storage, generation and light per dimension, the client's dimension switch, travel that keeps the player's state, reconnects and deaths elsewhere | Awaiting client |
+| [VMC-026b2](VMC-026b2.md) | Nether portals: lighting with flint and steel or fire charges, portal blocks and their collapse, entering after the portal time, the scaled destination, portal search and creation, cooldowns | Awaiting client |
+| [VMC-026b3](VMC-026b3.md) | End portals: frames filled with eyes of ender, travel to the End's arrival platform, the exit portal (credits, return to spawn) | Awaiting client |
 | VMC-026b4 | End gateways: teleport to the outer islands with vanilla's exit search, the exit gateway they generate | Planned |
 
 Acceptance (parent):

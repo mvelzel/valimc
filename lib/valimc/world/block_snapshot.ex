@@ -58,6 +58,69 @@ defmodule Valimc.World.BlockSnapshot do
     end)
   end
 
+  @doc """
+  One chunk's published sections at the owner's current fence (VMC-026b2):
+  `{:ok, sections}` (nil for an untouched chunk, which reads the base
+  profile) for `state_at/2`, or `{:error, reason}`.
+  """
+  def chunk(table, epoch, chunk) do
+    case :ets.lookup(table, :block_fence) do
+      [{:block_fence, ^epoch, revision}] ->
+        case :ets.lookup(table, {:chunk, chunk}) do
+          [{_, row_revision, _}] when row_revision > revision -> {:error, :stale_revision}
+          [{_, _, sections}] -> {:ok, sections}
+          [] -> {:ok, nil}
+        end
+
+      [{:block_fence, _, _}] ->
+        {:error, :stale_owner}
+
+      [] ->
+        {:error, :region_unavailable}
+    end
+  rescue
+    ArgumentError -> {:error, :region_unavailable}
+  end
+
+  @doc "The state at a position of a chunk's sections (`chunk/3`)."
+  def state_at(sections, position), do: at(sections, position)
+
+  @doc """
+  Positions and states in a chunk's sections whose state is in `states` (a
+  list), scanning only sections whose palette holds one.
+  """
+  def find(nil, _chunk, _states), do: []
+
+  def find(sections, {cx, cz}, states) do
+    for {section, s} <- Enum.with_index(Tuple.to_list(sections)),
+        {index, state} <- matches(section, states),
+        do: {position(cx, cz, s, index), state}
+  end
+
+  defp matches(state, states) when is_integer(state),
+    do: if(state in states, do: for(i <- 0..4095, do: {i, state}), else: [])
+
+  defp matches({:dense, cells}, states) do
+    for <<value::16 <- cells>>, reduce: {0, []} do
+      {i, acc} -> {i + 1, if(value in states, do: [{i, value} | acc], else: acc)}
+    end
+    |> elem(1)
+  end
+
+  defp matches({palette, cells}, states) do
+    for {state, slot} <- Enum.with_index(Tuple.to_list(palette)),
+        state in states,
+        {offset, 1} <- :binary.matches(cells, <<slot>>),
+        do: {offset, state}
+  end
+
+  defp position(cx, cz, s, index) do
+    x = Bitwise.band(index, 15)
+    z = Bitwise.band(Bitwise.bsr(index, 4), 15)
+    y = Bitwise.bsr(index, 8)
+    {cx * 16 + x, s * 16 + y - 64, cz * 16 + z}
+  end
+
   @doc "Whether the owner's fence still equals `revision` (re-check after a computation)."
   def current?(table, epoch, revision) do
     :ets.lookup(table, :block_fence) == [{:block_fence, epoch, revision}]

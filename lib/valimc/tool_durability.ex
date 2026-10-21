@@ -19,6 +19,25 @@ defmodule Valimc.ToolDurability do
     end
   end
 
+  @doc """
+  Vanilla `hurtAndBreak(cost, …)` of an item used for something else than
+  mining (a flint and steel lighting fire, VMC-026b2): the remaining stack and
+  the broken stack, if it broke.
+  """
+  def hurt(stack, cost, infinite, random \\ &next_float/0)
+
+  def hurt(nil, _cost, infinite, _random) when is_boolean(infinite), do: {nil, nil}
+
+  def hurt(%ItemStack{} = stack, cost, infinite, random) when is_boolean(infinite) do
+    case context(stack, cost, infinite) do
+      :unchanged ->
+        {stack, nil}
+
+      {cost, maximum, damage, level} ->
+        apply_wear(stack, maximum, damage, wear(cost, level, random))
+    end
+  end
+
   @doc "Validates a sampled stock mining result without consuming the owner's RNG again."
   def valid_result?(nil, _state, infinite, result) when is_boolean(infinite), do: result == nil
 
@@ -33,9 +52,10 @@ defmodule Valimc.ToolDurability do
     end
   end
 
-  defp wear_context(stack, state, infinite) do
-    cost = MiningTools.damage_per_block(stack, state)
+  defp wear_context(stack, state, infinite),
+    do: context(stack, MiningTools.damage_per_block(stack, state), infinite)
 
+  defp context(stack, cost, infinite) do
     maximum =
       component(stack, "minecraft:max_damage", ItemTypes.item(stack.item_id)["max_damage"])
 

@@ -132,6 +132,7 @@ defmodule Valimc.PlayerTransfers do
         :dimension,
         :death_dimension,
         :portal_cooldown,
+        :seen_credits,
         :progression
       ])
 

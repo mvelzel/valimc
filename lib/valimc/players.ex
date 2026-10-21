@@ -42,6 +42,7 @@ defmodule Valimc.Players do
   @replica_keys [
     :pid,
     :dimension,
+    :won_game,
     :entity_id,
     :uuid,
     :name,

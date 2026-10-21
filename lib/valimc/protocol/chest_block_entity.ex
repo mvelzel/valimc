@@ -20,7 +20,7 @@ defmodule Valimc.Protocol.ChestBlockEntity do
     owned =
       for {{x, _, z} = position, block} <- edits,
           Integer.floor_div(x, 16) == cx and Integer.floor_div(z, 16) == cz,
-          Valimc.Block.block_entity(block) != nil,
+          Valimc.Block.block_entity(block) != nil or Valimc.Physics.BlockEntities.plain?(block),
           do: {position, Valimc.Physics.BlockEntities.type_id(block), nil}
 
     entries = Enum.sort(owned ++ preserved)

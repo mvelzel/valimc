@@ -221,9 +221,12 @@ defmodule Valimc.World.Blocks do
     end
   end
 
-  @doc "A chunk's owned block-entity carriers (single chests, furnaces) as `position => block`."
+  @doc """
+  A chunk's owned block-entity carriers (single chests, furnaces) and those
+  without data (end portals) as `position => block`.
+  """
   def chunk_entities(%__MODULE__{} = blocks, {cx, cz}) do
-    states = owned_states()
+    states = owned_states() ++ Valimc.Physics.BlockEntities.plain_states()
     {:ok, entries} = Native.chunk_find(blocks.ref, cx, cz, states)
     Map.new(entries, fn {x, y, z, block} -> {{x, y, z}, block} end)
   end

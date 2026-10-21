@@ -225,6 +225,11 @@ STAGES = [
         ('java', 'DecorationOracle', '@live.json', '*', 'end', 'live'),
         ('app', 'check_live_decoration.exs', '@live.json'),
     ]),
+    # VMC-026b2: nether portal shapes, fire placement, rectangles, search and creation.
+    ('portals', [
+        ('java', 'PortalOracle', '@portals.json'),
+        ('check', 'check_portals.exs', '@portals.json'),
+    ]),
     ('commands', [
         ('java', 'CommandTreeOracle', 'tree', '@tree.json'),
         ('same', '@tree.json', 'priv/commands/tree.json'),

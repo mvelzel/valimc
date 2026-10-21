@@ -23,7 +23,7 @@ defmodule Valimc.PlayerSnapshot do
                 )
   @max_sequence 18_446_744_073_709_551_615
   @max_bytes 56 + 4 + 3 + 8 + 4 + 24 + 12 + 8 + 13 + 2 + 11 + @inventory_bytes + @outbox_bytes +
-               32 + 1 + 5 + 1 + PlayerEffects.max_bytes() + 5 + 27 + 8
+               32 + 1 + 5 + 1 + PlayerEffects.max_bytes() + 5 + 27 + 8 + 2
   @dimensions [:overworld, :the_nether, :the_end]
 
   def max_bytes, do: @max_bytes
@@ -103,7 +103,8 @@ defmodule Valimc.PlayerSnapshot do
           Map.merge(snapshot, %{
             dimension: player.dimension,
             death_dimension: Map.get(player, :death_dimension, :overworld),
-            portal_cooldown: Map.get(player, :portal_cooldown, 0)
+            portal_cooldown: Map.get(player, :portal_cooldown, 0),
+            seen_credits: Map.get(player, :seen_credits, false)
           }),
         else: snapshot
 
@@ -331,6 +332,15 @@ defmodule Valimc.PlayerSnapshot do
         do: {version, journal},
         else: {22, [<<version, index(dimension), index(death_dimension), cooldown::32>>, journal]}
 
+    # VMC-026b3: whether the player has seen the End's credits.
+    seen_credits = Map.get(snapshot, :seen_credits, false)
+    check(is_boolean(seen_credits), :invalid_seen_credits)
+
+    {version, journal} =
+      if seen_credits,
+        do: {23, [<<version, 1>>, journal]},
+        else: {version, journal}
+
     payload =
       IO.iodata_to_binary([
         <<"VMCPOSE", version, uuid::binary-size(16), pose.x::float-64, pose.y::float-64,
@@ -354,6 +364,16 @@ defmodule Valimc.PlayerSnapshot do
     payload_bytes = byte_size(bytes) - 32
     <<payload::binary-size(^payload_bytes), checksum::binary-size(32)>> = bytes
     check(:crypto.hash(:sha256, payload) == checksum, :invalid_player_file)
+
+    {payload, credits} =
+      case payload do
+        <<"VMCPOSE", 23, header::binary-size(52), base, flags, body::binary>>
+        when base in 2..22 and flags in 0..1 ->
+          {<<"VMCPOSE", base, header::binary, body::binary>>, %{seen_credits: flags == 1}}
+
+        _ ->
+          {payload, %{}}
+      end
 
     {payload, dimensions} =
       case payload do
@@ -437,7 +457,8 @@ defmodule Valimc.PlayerSnapshot do
          |> Map.merge(effects)
          |> Map.merge(absorption)
          |> Map.merge(progression)
-         |> Map.merge(dimensions)}
+         |> Map.merge(dimensions)
+         |> Map.merge(credits)}
 
       error ->
         error

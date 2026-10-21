@@ -106,9 +106,14 @@ defmodule Valimc.Session.JobHandlers do
         {:reserved, reservation} ->
           {:noreply, Placement.prepare_survival_placement(state, job.command, reservation)}
 
-        {:ok, _outcome, after_ack} ->
+        {:ok, outcome, after_ack} ->
           state =
             if job.command.body == nil, do: CreativeInventory.resync_inventory(state), else: state
+
+          state =
+            if job.command[:kind] == :ignite,
+              do: Valimc.Portal.Items.used(state, job.command, outcome),
+              else: state
 
           send_packets(state, [Packets.ack(job.command.request.sequence) | after_ack])
           {:noreply, state |> Vitals.continue_life() |> Placement.drain_placements()}
@@ -247,6 +252,13 @@ defmodule Valimc.Session.JobHandlers do
     end)
   end
 
+  # A portal's destination (VMC-026b2): travel there.
+  def job_result(:portal, _job, result, state),
+    do:
+      Valimc.Connection.guard_connection(state, fn ->
+        {:noreply, Valimc.Player.Portals.arrived(state, result)}
+      end)
+
   def job_down(:motion, _job, _reason, state),
     do:
       Valimc.Connection.guard_connection(state, fn ->
@@ -263,7 +275,7 @@ defmodule Valimc.Session.JobHandlers do
     do:
       Valimc.Connection.guard_connection(state, fn -> {:noreply, Mining.cancel_mining(state)} end)
 
-  def job_down(kind, _job, _reason, state) when kind in [:pose, :pickup, :experience],
+  def job_down(kind, _job, _reason, state) when kind in [:pose, :pickup, :experience, :portal],
     do: {:noreply, state}
 
   def job_timeout(:motion, _job, state),

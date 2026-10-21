@@ -179,6 +179,12 @@ defmodule Valimc.Session.Events do
     end
   end
 
+  # `Level.globalLevelEvent` (an end portal opening, VMC-026b3): every player hears it.
+  def event(%{phase: :play} = state, {:global_level_event, type, position, data}) do
+    send_packets(state, [Packets.level_event(type, position, data, true)])
+    state
+  end
+
   def event(%{phase: :play} = state, {:chat, message}) do
     send_packets(state, [Packets.chat(message)])
     state

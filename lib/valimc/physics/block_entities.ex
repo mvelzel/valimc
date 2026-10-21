@@ -30,7 +30,17 @@ defmodule Valimc.Physics.BlockEntities do
   @doc "Single chests and the furnace family are the block entities ValiMC owns today."
   def supported?(state), do: Valimc.Block.block_entity(state) != nil
 
-  def unsupported?(state), do: native?(state) and not supported?(state)
+  # Block entities that keep nothing a client or save needs (VMC-026b3): end
+  # portals. They are placed as plain blocks; chunk packets still list them.
+  @plain [Valimc.Registry.Blocks.default_state("end_portal")]
+
+  @doc "Whether a state's block entity holds no data (an end portal's)."
+  def plain?(state), do: state in @plain
+
+  @doc "The states whose block entity holds no data."
+  def plain_states, do: @plain
+
+  def unsupported?(state), do: native?(state) and not supported?(state) and not plain?(state)
 
   @doc "The network id of the block entity type a state creates, or nil."
   def type_id(state), do: Map.get(@by_state, state)

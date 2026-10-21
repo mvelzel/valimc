@@ -253,6 +253,8 @@ defmodule Valimc.Connection do
        life_stage: :alive,
        # A dimension change waiting for the old dimension's work (VMC-026b).
        travel: nil,
+       # Portal contact and process (`Valimc.Player.Portals`, VMC-026b2).
+       portal: nil,
        respawn_requested: false,
        recovery: nil,
        experience_after: System.monotonic_time(:millisecond),

@@ -742,6 +742,7 @@ defmodule Valimc.Session.Messages do
            |> Menus.continue_table_close()
            |> Menus.continue_crafting_repeat()
            |> Menus.check_table_menu()
+           |> Valimc.Player.Portals.tick()
            |> Valimc.Player.Travel.tick()
            |> Movement.start_motion()
            |> Movement.sample_pose()}

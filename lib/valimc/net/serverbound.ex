@@ -223,6 +223,9 @@ defmodule Valimc.Net.Serverbound do
           {:ok, :respawn} when state.life_stage in [:sealing_death, :dropping, :dead] ->
             Vitals.continue_life(%{state | respawn_requested: true})
 
+          {:ok, :respawn} ->
+            Valimc.Player.Portals.credits_done(state)
+
           {:ok, _} ->
             state
 
