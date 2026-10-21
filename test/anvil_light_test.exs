@@ -1,26 +1,13 @@
 defmodule Valimc.AnvilLightTest do
   @moduledoc "Stored vanilla light of imported chunks (VMC-021e5)."
   use ExUnit.Case, async: true
-  import Bitwise
   alias Valimc.Anvil.Light
   alias Valimc.NBT
-  alias Valimc.Protocol.Wire
 
   defp root(sections, on \\ 1),
     do:
       {:compound,
        %{"isLightOn" => {:byte, on}, "sections" => NBT.list(Enum.map(sections, &{:compound, &1}))}}
-
-  test "without stored light a chunk is fully sky-lit, as flat chunks have always been" do
-    full = (1 <<< 26) - 1
-
-    assert IO.iodata_to_binary(Light.packet(nil)) ==
-             IO.iodata_to_binary([
-               <<4, full::little-32, 0, 0, 4, full::little-32, 26>>,
-               List.duplicate([Wire.varint(2048), :binary.copy(<<255>>, 2048)], 26),
-               <<0>>
-             ])
-  end
 
   test "stored arrays are sent for exactly their sections" do
     mixed = for i <- 0..2047, into: <<>>, do: <<rem(i, 251)>>

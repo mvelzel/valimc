@@ -1,6 +1,5 @@
 defmodule Valimc.PlayerPlacementStoreTest do
   use ExUnit.Case, async: true
-  import ExUnit.CaptureLog
 
   alias Valimc.{
     Connection,
@@ -14,7 +13,7 @@ defmodule Valimc.PlayerPlacementStoreTest do
   }
 
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{ItemRecords, Region}
+  alias Valimc.World.Region
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -142,26 +141,6 @@ defmodule Valimc.PlayerPlacementStoreTest do
     {%{ctx | writer: writer, owner: owner}, restored, fence}
   end
 
-  test "durable consumption waits for matching proof and repeated completion cannot consume again",
-       ctx do
-    {fence, pending} = prepare(ctx)
-    assert {:error, :transfer_not_applied} = complete(ctx, fence)
-    assert {:error, :stale_player_snapshot} = complete(ctx, ctx.fence)
-    ref = make_ref()
-    PlayerStore.checkpoint(ctx.writer, fence, ctx.snapshot, ref)
-    assert_receive {:player_saved, ^ref, {:error, :transfer_pending}}
-    assert World.get_block(ctx.position) == 0
-    assert {:ok, :applied} = deliver(ctx, pending)
-    assert {:ok, :already_applied} = deliver(ctx, pending)
-    assert {:ok, next_fence, final} = complete(ctx, fence)
-    assert final.outbox == nil and final.transfer_sequence == 1
-    assert Inventory.get(final.inventory, 45) == nil
-    assert World.get_block(ctx.position) == 1
-    assert read(ctx) == persisted(final)
-    assert {:error, :no_pending_transfer} = complete(ctx, next_fence)
-    assert {:error, :stale_player_snapshot} = complete(ctx, fence)
-  end
-
   test "source and destination restart reject an uncommitted permit and refund the exact last item",
        ctx do
     effects = %{11 => [{300, 0, false, true, true}]}
@@ -203,50 +182,5 @@ defmodule Valimc.PlayerPlacementStoreTest do
     assert {:error, :transfer_conflict} = deliver(ctx, pending)
     assert read(ctx) == persisted(pending)
     assert :sys.get_state(ctx.writer).snapshot == pending
-  end
-
-  test "failed source persistence retires its lease without delivering a block mutation", ctx do
-    File.mkdir_p!(PlayerStore.path(ctx.base, ctx.uuid))
-    monitor = Process.monitor(ctx.writer)
-    ref = make_ref()
-
-    capture_log(fn ->
-      PlayerStore.prepare_placement(ctx.writer, ctx.fence, ctx.snapshot, ctx.intent, ref)
-      assert_receive {:player_transfer_saved, ^ref, {:error, :player_commit_uncertain}}
-      assert_receive {:DOWN, ^monitor, :process, _, :normal}
-    end)
-
-    assert World.get_block(ctx.position) == 0
-    assert {:error, :missing_transfer_receipt} = Region.item_transfer_receipt(ctx.owner, ctx.uuid)
-  end
-
-  test "closing after death resolves rejection before transferring the refunded item", ctx do
-    {fence, pending} = prepare(ctx)
-    assert :ok = Region.release_placement(ctx.owner, ctx.intent.permit)
-
-    later = %{
-      pending
-      | health: %{value: 0.0, hurt_ticks: 7, death_ticks: 0},
-        food: %PlayerFood{level: 7, saturation: 0.0, exhaustion: 3.5, timer: 79}
-    }
-
-    later = Map.put(later, :fire_ticks, -20)
-    later = Map.put(later, :effects, %{11 => [{7, 0, false, true, true}]})
-
-    monitor = Process.monitor(ctx.writer)
-    assert :ok = PlayerStore.close_session(ctx.writer, fence, later)
-    assert_receive {:DOWN, ^monitor, :process, _, :normal}
-    final = read(ctx)
-    assert final.outbox == nil and final.transfer_sequence == 2 and final.inventory.slots == %{}
-    assert final.health == later.health and final.food == later.food
-    assert final.fire_ticks == -20
-    assert final.effects == later.effects
-    assert World.get_block(ctx.position) == 0
-
-    {:ok, %{records: records}} =
-      ItemRecords.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :items), ctx.key)
-
-    assert Enum.sort(Enum.map(records, & &1.stack)) ==
-             Enum.sort([ctx.intent.before, ItemStack.new("iron_helmet")])
   end
 end

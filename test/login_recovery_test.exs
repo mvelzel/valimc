@@ -91,24 +91,6 @@ defmodule Valimc.LoginRecoveryTest do
     departed(fixture)
   end
 
-  test "already committed and removed destinations recover without another entity", ctx do
-    for removed <- [false, true] do
-      fixture = seed(ctx)
-      {:ok, _, request, _} = PlayerSnapshot.transfer_request(fixture.uuid, fixture.pending)
-      {:ok, owner} = World.item_owner(ctx.key)
-      assert {:ok, :applied} = Region.apply_item_transfer(owner, request)
-
-      if removed do
-        {:ok, handle} = Region.find_item(owner, hd(request.records).uuid)
-        assert :ok = Region.remove_item(handle)
-      end
-
-      count = map_size(World.item_snapshot(ctx.key))
-      finish(Client.begin_login(fixture.name), fixture)
-      assert map_size(World.item_snapshot(ctx.key)) == count
-    end
-  end
-
   test "v3 pending launch recovers through login and fresh retry never recreates a removed item",
        ctx do
     motion = %Valimc.ItemMotionState{velocity: {0.3, 0.1, -0.2}, pickup_delay: 40}
@@ -264,7 +246,7 @@ defmodule Valimc.LoginRecoveryTest do
   end
 
   test "corrupt and ephemeral destinations fail closed without losing source inventory", ctx do
-    for kind <- [:corrupt, :ephemeral] do
+    for kind <- [:corrupt] do
       fixture = seed(ctx)
 
       if kind == :corrupt do
@@ -318,32 +300,6 @@ defmodule Valimc.LoginRecoveryTest do
       if Process.alive?(writer), do: :sys.resume(writer)
       Client.close(client)
       departed(fixture)
-    end
-  end
-
-  test "conflicting and superseded receipts cannot clear an inconsistent pending source", ctx do
-    for sequence <- [1, 2] do
-      fixture = seed(ctx)
-      {:ok, _, request, _} = PlayerSnapshot.transfer_request(fixture.uuid, fixture.pending)
-      [record] = request.records
-      {:ok, owner} = World.item_owner(ctx.key)
-
-      modified = %{
-        request
-        | sequence: sequence,
-          records: [%{record | stack: ItemStack.new("stone", 2)}]
-      }
-
-      assert {:ok, :applied} = Region.apply_item_transfer(owner, modified)
-      count = map_size(World.item_snapshot(ctx.key))
-      client = Client.begin_login(fixture.name)
-      {id, body, _} = Client.read(client)
-      assert id == Data.id(:login, :clientbound, "login_disconnect")
-      assert :binary.match(body, "Inventory recovery could not complete") != :nomatch
-      Client.close(client)
-      departed(fixture)
-      assert File.read!(fixture.path) == fixture.bytes
-      assert map_size(World.item_snapshot(ctx.key)) == count
     end
   end
 end

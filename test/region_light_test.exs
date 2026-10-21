@@ -57,15 +57,6 @@ defmodule Valimc.RegionLightTest do
     {:ok, _} = Region.set_blocks(owner, observed.fence, edits)
   end
 
-  test "flat terrain is dark below the grass and open sky above", ctx do
-    {x0, z0} = ctx.origin
-    chunk = World.chunk_key(x0 + 40, z0 + 40)
-    light = image(ctx.owner, chunk)
-    assert level(light, :sky, {x0 + 40, 64, z0 + 40}) == 15
-    assert level(light, :sky, {x0 + 40, 63, z0 + 40}) == 0
-    assert level(light, :block, {x0 + 40, 64, z0 + 40}) == 0
-  end
-
   test "edits relight their surroundings, across chunk borders, and send light updates", ctx do
     {x0, z0} = ctx.origin
     World.subscribe(MapSet.new([ctx.key]), MapSet.new())

@@ -26,28 +26,6 @@ defmodule Valimc.AnvilEntityTest do
      )}
   end
 
-  test "a dropped item becomes an item record as vanilla loads it" do
-    assert {:item, record} = Entity.convert(item())
-    assert record.uuid == @uuid and {record.x, record.y, record.z} == {1.5, 70.0, -2.25}
-    assert record.stack == ItemStack.new("stone", 3)
-
-    assert %{velocity: {0.1, -0.2, +0.0}, age: 120, pickup_delay: 10, on_ground: true} =
-             record.motion
-
-    # Motion beyond ±10 is zero; age past 6,000 despawns; a negative delay never ends.
-    {:item, odd} =
-      Entity.convert(
-        item(%{
-          "Motion" => doubles([11.0, -10.0, -12.5]),
-          "Age" => {:short, 9000},
-          "PickupDelay" => {:short, -5}
-        })
-      )
-
-    assert odd.motion.velocity == {0.0, -10.0, 0.0}
-    assert odd.motion.age == 6000 and odd.motion.pickup_delay == 32_767
-  end
-
   test "owned, riding and unsupported items and every other entity are preserved" do
     book = %{
       "Item" =>

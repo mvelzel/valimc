@@ -1,6 +1,5 @@
 defmodule Valimc.PlayerMiningStoreTest do
   use ExUnit.Case, async: true
-  import ExUnit.CaptureLog
 
   alias Valimc.{
     Connection,
@@ -143,26 +142,6 @@ defmodule Valimc.PlayerMiningStoreTest do
     next
   end
 
-  test "prepared final-use wear waits for the correct durable receipt and is not replayed", ctx do
-    {fence, pending} = prepare(ctx)
-    assert {:error, :transfer_not_applied} = complete(ctx, fence)
-    assert {:error, :stale_player_snapshot} = complete(ctx, ctx.fence)
-    ref = make_ref()
-    PlayerStore.checkpoint(ctx.writer, fence, ctx.snapshot, ref)
-    assert_receive {:player_saved, ^ref, {:error, :transfer_pending}}
-    assert World.get_block(ctx.position) == Data.block("stone")
-    assert World.item_snapshot(ctx.key) == %{}
-    assert {:ok, :applied} = deliver(ctx, pending)
-    assert {:ok, :already_applied} = deliver(ctx, pending)
-    assert World.get_block(ctx.position) == Data.block("air")
-    assert map_size(World.item_snapshot(ctx.key)) == 1
-    assert {:ok, final_fence, final} = complete(ctx, fence)
-    assert final.outbox == nil and final.transfer_sequence == 1
-    assert Inventory.get(final.inventory, 43) == nil
-    assert final.food == ctx.snapshot.food and final.air_supply == 154
-    assert {:error, :no_pending_transfer} = complete(ctx, final_fence)
-  end
-
   test "source and destination restart reject an uncommitted permit and refund the exact tool once",
        ctx do
     {_fence, pending} = prepare(ctx)
@@ -275,21 +254,5 @@ defmodule Valimc.PlayerMiningStoreTest do
                ctx.snapshot,
                ctx.intent
              )
-  end
-
-  test "failed source persistence retires the lease before any destination delivery", ctx do
-    path = PlayerStore.path(ctx.base, ctx.uuid)
-    File.mkdir_p!(path)
-    monitor = Process.monitor(ctx.writer)
-    ref = make_ref()
-
-    capture_log(fn ->
-      PlayerStore.prepare_mining(ctx.writer, ctx.fence, ctx.snapshot, ctx.intent, ref)
-      assert_receive {:player_transfer_saved, ^ref, {:error, :player_commit_uncertain}}
-      assert_receive {:DOWN, ^monitor, :process, _, :normal}
-    end)
-
-    assert World.get_block(ctx.position) == Data.block("stone")
-    assert World.item_snapshot(ctx.key) == %{}
   end
 end

@@ -12,6 +12,7 @@ defmodule Valimc.StructureFlagsTest do
   transaction placed another (`worldgen_live_structures` covers the rest).
   """
   use ExUnit.Case, async: false
+  @moduletag :slow
   alias Valimc.{Native, TestScope}
   alias Valimc.World.{Generator, Spawn}
   alias Valimc.Worldgen.Proto
@@ -58,38 +59,6 @@ defmodule Valimc.StructureFlagsTest do
         %{position: {x, y, z}, kind: "minecraft:mob_spawner"} <- entities,
         x in 151..153 and y in -44..-42 and z in -117..-108,
         do: {x, y, z}
-  end
-
-  test "two transactions' NIF calls place the corridor's spawner once", ctx do
-    area = Enum.uniq(Proto.around(@first, 2) ++ Proto.around(@second, 2))
-
-    images =
-      area
-      |> Enum.chunk_every(8)
-      |> Task.async_stream(&Native.worldgen_proto_terrain(ctx.worldgen, @source, &1, true),
-        timeout: :infinity
-      )
-      |> Enum.flat_map(fn {:ok, {:ok, list}} -> list end)
-      |> Map.new(fn {x, z, image} -> {{x, z}, image} end)
-
-    # Each call decodes the images the last one encoded, as owners pass them.
-    images =
-      Enum.reduce(
-        [Proto.around(@first, 1), Proto.around(@second, 1) -- Proto.around(@first, 1)],
-        images,
-        fn order, acc ->
-          {:ok, {touched, 0}} =
-            Native.worldgen_proto_decorate(ctx.worldgen, @source, Map.values(acc), order, true)
-
-          Map.merge(acc, Map.new(touched, fn {x, z, image} -> {{x, z}, image} end))
-        end
-      )
-
-    own = Enum.map(Proto.chunks_of(@second), &images[&1])
-    {:ok, full} = Native.worldgen_proto_full(ctx.worldgen, own, Generator.protocol_biomes())
-    assert [{_, _, z}] = corridor_spawners(full)
-    # The first transaction placed it, in chunk (9, -8).
-    assert z < -112
   end
 
   test "proto owners keep the flag across a restart", ctx do

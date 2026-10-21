@@ -157,14 +157,18 @@ defmodule Valimc.RegionGenerationTest do
     assert Enum.sort(Map.keys(columns)) == Enum.sort(wanted)
     assert columns == Generator.columns({:vanilla, @seed}, wanted)
 
-    # Withdrawn wants generate nothing more.
+    # Withdrawn wants generate nothing more; an edit over generated terrain is kept.
     send(pid, {:want, self(), {cx, cz}, []})
+    edited = inside({cx + 2, cz + 2}, 20)
+    glass = Valimc.Registry.Blocks.default_state("glass")
+    :ok = World.set_block(edited, glass)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
     {:ok, _} = World.owner(ctx.key)
     assert Enum.all?(wanted, &(not BlockSnapshot.absent?(table(ctx.key), &1)))
     assert BlockSnapshot.absent?(table(ctx.key), {cx + 5, cz + 5})
     position = inside({cx + 1, cz + 1})
     assert World.get_block(position) == generated_block({cx + 1, cz + 1}, position)
+    assert World.get_block(edited) == glass
     assert Store.durable(ctx.base, ctx.key, :columns) == columns
   end
 

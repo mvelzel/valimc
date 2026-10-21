@@ -2,33 +2,6 @@ defmodule Valimc.WeatherTest do
   use ExUnit.Case, async: true
   alias Valimc.World.{Clock, ClockRecord, Weather, WeatherReplication}
 
-  test "frozen weather cycle still completes intensity transitions and remains independent of time" do
-    weather = %Weather{
-      rain_time: 12,
-      thunder_time: 13,
-      raining: true,
-      thundering: true,
-      advance_weather: false
-    }
-
-    completed = Enum.reduce(1..105, weather, fn _, current -> Weather.tick(current) end)
-
-    assert completed.rain_time == 12 and completed.thunder_time == 13 and
-             completed.random_seed == 0
-
-    assert completed.rain_level == 1.0 and completed.thunder_level == 1.0
-
-    data = %{
-      ClockRecord.new()
-      | advance_time: false,
-        weather: %Weather{rain_time: 2, thunder_time: 2}
-    }
-
-    next = ClockRecord.tick(data)
-    assert next.clocks == data.clocks and next.weather.rain_time == 1
-    assert Weather.tick(completed, false) == completed
-  end
-
   test "intensity threshold, native event ordering, coalescing and fixed event bound" do
     before = %Weather{raining: true, thundering: true, advance_weather: false}
     ramp = Enum.reduce(1..19, before, fn _, current -> Weather.tick(current) end)

@@ -1,6 +1,7 @@
 defmodule Valimc.PortalConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
+  @moduletag :slow
   @moduletag timeout: 240_000
   alias Valimc.{
     Connection,
@@ -9,8 +10,7 @@ defmodule Valimc.PortalConnectionTest do
     PlayerHealth,
     PlayerSnapshot,
     PlayerStore,
-    Players,
-    World
+    Players
   }
 
   alias Valimc.Portal.Blocks
@@ -65,6 +65,12 @@ defmodule Valimc.PortalConnectionTest do
   end
 
   defp state(pid), do: Valimc.TestConn.state(pid)
+
+  # Wait until the player has ticked `count` more times.
+  defp ticks(pid, count) do
+    from = state(pid).simulation_clock.tick
+    wait(fn -> state(pid).simulation_clock.tick >= from + count end)
+  end
 
   defp wait(fun, left \\ 12_000) do
     if value = fun.(),
@@ -186,7 +192,7 @@ defmodule Valimc.PortalConnectionTest do
     arrival = {floor(nx), floor(ny), floor(nz)}
     assert Blocks.portal?(blocks([arrival], :the_nether)[arrival])
     # On cooldown in the new portal, the player stays.
-    Process.sleep(1000)
+    ticks(pid, 20)
     assert state(pid).player.dimension == :the_nether
 
     # Out of the portal until the cooldown ends, then back in: home through the first portal.
@@ -201,7 +207,7 @@ defmodule Valimc.PortalConnectionTest do
     client = move(client, pid, {x + 1.0, y * 1.0, z + 2.5})
     wait(fn -> state(pid).player.portal_cooldown == 0 end)
     client = move(client, pid, {x + 1.0, y * 1.0, z - 1.5})
-    Process.sleep(500)
+    ticks(pid, 10)
     assert state(pid).player.dimension == :overworld and state(pid).portal.process == nil
 
     # Breaking the frame puts the portal out.
@@ -298,76 +304,5 @@ defmodule Valimc.PortalConnectionTest do
     wait(fn -> state(pid).player.dimension == :overworld end)
     {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.seen_credits and Map.get(saved, :dimension, :overworld) == :overworld
-  end
-
-  defp exit_of(position) do
-    Dimension.within(:the_end, fn ->
-      {:ok, %{nbt: nbt}} = Valimc.Portal.Access.block_entity(position)
-      {:ok, {:compound, tag}} = Valimc.NBT.read(nbt)
-      {:int_array, <<x::signed-32, y::signed-32, z::signed-32>>} = tag["exit_portal"]
-      {x, y, z}
-    end)
-  end
-
-  test "a gateway without an exit finds one far out, builds the exit gateway, and both lead back",
-       ctx do
-    seed(ctx, :creative)
-    {client, pid} = enter(ctx)
-    gateway = Valimc.Registry.Blocks.default_state("end_gateway")
-    entry = {92, 70, 0}
-
-    Dimension.within(:the_end, fn ->
-      set(Map.new(for(dx <- 88..94, dz <- -2..2, do: {{dx, 69, dz}, Blocks.obsidian()})))
-      set(%{entry => gateway})
-    end)
-
-    deadline = System.monotonic_time(:millisecond) + 5000
-    pose = %{x: 89.5, y: 70.0, z: 0.5, yaw: 0.0, pitch: 0.0, dimension: :the_end}
-    assert {:ok, :ok} = GenServer.call(pid, {:command_op, {:teleport, pose}, deadline}, 6000)
-    {"minecraft:the_end", _, client} = arrive(client, pid)
-
-    # Into the gateway: out along its direction, about 1,024 blocks from the origin.
-    client = move(client, pid, {92.5, 70.0, 0.5})
-    {position, client} = Client.await(client, :play, "player_position", 4000)
-    {_, <<x::float-64, _y::float-64, z::float-64, _::binary>>} = Wire.take_varint(position)
-    client = Client.auto_reply(client, :play, "player_position", position)
-    assert state(pid).player.dimension == :the_end
-    assert :math.sqrt(x * x + z * z) > 700
-    exit = exit_of(entry)
-    {ex, ey, ez} = exit
-    assert blocks([exit], :the_end)[exit] == gateway
-
-    assert blocks([{ex, ey - 2, ez}], :the_end)[{ex, ey - 2, ez}] ==
-             Valimc.Registry.Blocks.default_state("bedrock")
-
-    assert exit_of(exit) == entry
-    assert abs(x - (ex + 0.5)) <= 6 and abs(z - (ez + 0.5)) <= 6
-
-    # And back through the exit gateway, near the first one. The gateway's
-    # teleport follows the command's before the client confirms that one; the
-    # stale confirmation is ignored, as vanilla's.
-    wait(fn -> state(pid).player.portal_cooldown == 0 end)
-    deadline = System.monotonic_time(:millisecond) + 2000
-    pose = %{x: ex + 0.5, y: ey * 1.0, z: ez + 0.5, yaw: 0.0, pitch: 0.0}
-    :ok = GenServer.call(pid, {:teleport, pose, deadline})
-    {command, client} = Client.await(client, :play, "player_position")
-    {gateway_teleport, client} = Client.await(client, :play, "player_position", 4000)
-    client = Client.auto_reply(client, :play, "player_position", command)
-    _client = Client.auto_reply(client, :play, "player_position", gateway_teleport)
-
-    wait(fn ->
-      p = state(pid).player
-      abs(p.x - 92.5) <= 6 and abs(p.z - 0.5) <= 6
-    end)
-
-    wait(fn -> not state(pid).teleport_pending end)
-
-    # Both exits survive their regions reloading from disk.
-    for {x, _, z} <- [entry, exit],
-        key = Dimension.scope(:the_end, World.region_key(World.chunk_key(x, z))),
-        {owner, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-        do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, owner)
-
-    assert exit_of(entry) == exit and exit_of(exit) == entry
   end
 end

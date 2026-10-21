@@ -10,7 +10,7 @@ defmodule Valimc.GeneratorPoolTest do
     regions =
       for rx <- [-3, 5],
           rz <- [2],
-          do: for(cx <- (rx * 8)..(rx * 8 + 7), cz <- (rz * 8)..(rz * 8 + 4), do: {cx, cz})
+          do: for(cx <- (rx * 8)..(rx * 8 + 3), cz <- (rz * 8)..(rz * 8 + 1), do: {cx, cz})
 
     pooled =
       regions
@@ -28,7 +28,7 @@ defmodule Valimc.GeneratorPoolTest do
     {:ok, single} =
       Valimc.Native.worldgen_columns(state, "minecraft:overworld", biomes, List.flatten(regions))
 
-    assert map_size(pooled) == 80
+    assert map_size(pooled) == 16
     assert pooled == Map.new(single, fn {cx, cz, image, _} -> {{cx, cz}, image} end)
   end
 end

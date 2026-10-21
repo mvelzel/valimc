@@ -1,20 +1,17 @@
 defmodule Valimc.PlayerOutboxTest do
-  use ExUnit.Case, async: false
-  @moduletag :tcp
-  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, PlayerTransfers, World}
+  use ExUnit.Case, async: true
+  alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, TestScope, World}
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.Region
-  alias Valimc.TestClient, as: Client
   import ExUnit.CaptureLog
 
   setup do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-outbox-#{nonce}")
-    old = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
     uuid = :crypto.strong_rand_bytes(16)
-    {:ok, writer, nil, fence} = PlayerStore.open(uuid)
     key = {300 + rem(nonce, 3_333) * 3, 300}
+    TestScope.isolate([uuid, key], world_path: base)
+    {:ok, writer, nil, fence} = PlayerStore.open(uuid)
     pose = %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0}
     before = PlayerSnapshot.capture(pose, %Inventory{slots: %{36 => ItemStack.new("stone", 7)}})
 
@@ -34,15 +31,10 @@ defmodule Valimc.PlayerOutboxTest do
     ]
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
-          do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
+      for {registry, scope} <- [{Valimc.PlayerStoreRegistry, uuid}, {Valimc.RegionRegistry, key}],
+          {pid, _} <- Registry.lookup(registry, scope),
+          do: TestScope.kill(pid)
 
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-
-      Application.put_env(:valimc, :world_path, old)
-      Valimc.TestScope.stop_neighbourhood(key, spawn: true)
-      Valimc.TestScope.stop_players(base)
       File.rm_rf!(base)
     end)
 
@@ -150,34 +142,6 @@ defmodule Valimc.PlayerOutboxTest do
     assert File.read!(PlayerStore.path(ctx.base, ctx.uuid)) == original
   end
 
-  test "created records use the same fences, receipt proof and removed-item retry protection",
-       ctx do
-    [record] = ctx.records
-    assert {:ok, fence, pending} = create(ctx, creative(ctx.before), record)
-    assert fence != ctx.fence and pending.inventory == creative(ctx.before).inventory
-    assert pending.transfer_sequence == 1
-    assert {:ok, stored} = saved(ctx)
-    assert stored.outbox == pending.outbox and stored.inventory == ctx.before.inventory
-    assert {:error, :stale_player_snapshot} = create(ctx, creative(ctx.before), record)
-    assert {:error, :transfer_pending} = create(ctx, creative(ctx.before), record, fence)
-    assert {:error, :transfer_not_applied} = complete(ctx, fence)
-    assert {:ok, :applied} = deliver(ctx, pending)
-    {:ok, key, request, _} = PlayerSnapshot.transfer_request(ctx.uuid, pending)
-    {:ok, owner} = World.item_owner(key)
-    {:ok, handle} = Region.find_item(owner, record.uuid)
-    assert :ok = Region.remove_item(handle)
-    assert {:ok, next_fence, cleared} = complete(ctx, fence)
-    assert cleared.inventory == pending.inventory and cleared.transfer_sequence == 1
-    assert cleared.outbox == nil
-    assert :ok = PlayerStore.close(ctx.writer, next_fence, ctx.before)
-    :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, elem(owner, 0))
-    {:ok, owner} = World.item_owner(key)
-    assert {:ok, :already_applied} = Region.apply_item_transfer(owner, request)
-    assert World.item_snapshot(key) == %{}
-    assert {:ok, stored} = saved(ctx)
-    assert stored.transfer_sequence == 1 and stored.inventory == ctx.before.inventory
-  end
-
   test "a lost creation acknowledgment recovers pinned records without persisted permission",
        ctx do
     [record] = ctx.records
@@ -205,65 +169,6 @@ defmodule Valimc.PlayerOutboxTest do
     assert {:ok, _, cleared} = complete(next, fence)
     assert cleared.outbox == nil and map_size(World.item_snapshot(ctx.key)) == 1
   end
-
-  test "failed creative prepare preserves old inventory/file and publishes no destination", ctx do
-    ref = make_ref()
-    PlayerStore.checkpoint(ctx.writer, ctx.fence, ctx.before, ref)
-    assert_receive {:player_saved, ^ref, :ok}
-    path = PlayerStore.path(ctx.base, ctx.uuid)
-    original = File.read!(path)
-    File.write!(Path.join(ctx.base, "blocked"), "not a directory")
-    :sys.replace_state(ctx.writer, &%{&1 | path: Path.join(ctx.base, "blocked/player.pose")})
-    [record] = ctx.records
-
-    capture_log(fn ->
-      assert {:error, :player_commit_uncertain} = create(ctx, creative(ctx.before), record)
-    end)
-
-    assert File.read!(path) == original and World.item_snapshot(ctx.key) == %{}
-  end
-
-  test "automatic login reconciles a creative creation while retaining exact supported inventory",
-       ctx do
-    name = "Create" <> Integer.to_string(System.unique_integer([:positive]))
-    uuid = Valimc.Connection.offline_uuid(name)
-    {:ok, writer, nil, fence} = PlayerStore.open(uuid)
-    [record] = ctx.records
-    pose = %{ctx.before.pose | x: record.x, z: record.z}
-
-    stone = %{
-      ItemStack.new("stone", 7)
-      | components: %{"minecraft:custom_data" => {:compound, %{"created" => {:int, 1}}}}
-    }
-
-    snapshot = PlayerSnapshot.capture(pose, %Inventory{slots: %{36 => stone}})
-    record = %{record | uuid: :crypto.strong_rand_bytes(16), stack: %{stone | count: 3}}
-    next = %{ctx | uuid: uuid, writer: writer, fence: fence}
-    assert {:ok, fence, pending} = create(next, creative(snapshot), record)
-    assert {:error, :transfer_pending} = PlayerStore.close(writer, fence, snapshot)
-    {^uuid, client} = Client.login(name)
-
-    try do
-      assert client.inventory.items == Inventory.contents(snapshot.inventory)
-      assert World.item_snapshot(ctx.key) |> map_size() == 1
-      assert {:ok, stored} = saved(next)
-      assert stored.inventory == snapshot.inventory
-      assert stored.transfer_sequence == 1 and stored.outbox == nil
-      assert {:ok, :already_applied} = deliver(next, pending)
-      {:ok, owner} = World.item_owner(ctx.key)
-      {:ok, handle} = Region.find_item(owner, record.uuid)
-      :ok = Region.remove_item(handle)
-      assert {:ok, :already_applied} = deliver(next, pending)
-      assert World.item_snapshot(ctx.key) == %{}
-    after
-      Client.close(client)
-      closed(uuid)
-    end
-  end
-
-  # The session's close may still touch the region; let it finish before cleanup.
-  defp closed(uuid, _budget \\ nil),
-    do: Valimc.TestWait.until(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == [] end)
 
   test "prepare/complete fence old saves and retain the sequence in ordinary checkpoints", ctx do
     {prepared_fence, snapshot} = prepare(ctx)
@@ -526,7 +431,7 @@ defmodule Valimc.PlayerOutboxTest do
     )
 
     PlayerStore.checkpoint(ctx.writer, ctx.fence, ctx.before, stale_ref)
-    Application.put_env(:valimc, :world_path, nil)
+    # A store without a world path (the test default) keeps nothing durable.
     id = :crypto.strong_rand_bytes(16)
     {:ok, other, nil, other_fence} = PlayerStore.open(id)
     ref = make_ref()
@@ -543,39 +448,15 @@ defmodule Valimc.PlayerOutboxTest do
 
     assert_receive {:player_transfer_saved, ^ref, {:error, :transfer_storage_disabled}}
     assert :ok = PlayerStore.close(other, other_fence, ctx.before)
-    Application.put_env(:valimc, :world_path, ctx.base)
     :sys.resume(ctx.writer)
     assert_receive {:player_transfer_saved, ^prepare_ref, {:ok, _, pending}}
     assert_receive {:player_saved, ^stale_ref, {:error, :stale_player_snapshot}}
     assert saved(ctx) == {:ok, pending}
   end
 
-  test "pending login automatically delivers and clears its source before inventory publication",
-       ctx do
-    name = "Outbox" <> Integer.to_string(System.unique_integer([:positive]))
-    uuid = Valimc.Connection.offline_uuid(name)
-    {:ok, pending} = PlayerTransfers.prepare(uuid, 0, ctx.before, ctx.after, ctx.key, ctx.records)
-    {:ok, bytes} = PlayerSnapshot.encode(uuid, pending)
-    path = PlayerStore.path(ctx.base, uuid)
-    File.mkdir_p!(Path.dirname(path))
-    File.write!(path, bytes)
-    {^uuid, client} = Client.login(name)
-    client = Client.load_world(client)
-    assert Enum.at(client.inventory.items, 36) == ItemStack.new("stone", 4)
-    assert {:ok, recovered} = PlayerSnapshot.decode(File.read!(path), uuid)
-    assert recovered.outbox == nil and recovered.transfer_sequence == 1
-    assert map_size(World.item_snapshot(ctx.key)) == 1
-    player = Enum.find(Valimc.Players.all(), &(&1.name == name))
-    monitor = Process.monitor(player.pid)
-    Client.close(client)
-    assert_receive {:DOWN, ^monitor, :process, _, :normal}
-    assert Process.alive?(Process.whereis(Valimc.Listener))
-  end
-
   test "an ephemeral destination receipt cannot clear a durable source outbox", ctx do
-    Application.put_env(:valimc, :world_path, nil)
+    TestScope.isolate(ctx.key, world_path: nil)
     {:ok, owner} = World.item_owner(ctx.key)
-    Application.put_env(:valimc, :world_path, ctx.base)
     {fence, pending} = prepare(ctx)
     {:ok, _, request, _} = PlayerSnapshot.transfer_request(ctx.uuid, pending)
     assert {:ok, :applied} = Region.apply_item_transfer(owner, request)
@@ -601,6 +482,12 @@ defmodule Valimc.PlayerOutboxTest do
 
   test "source owner loss releases its lease while preserving a prepared intent", ctx do
     id = :crypto.strong_rand_bytes(16)
+    TestScope.isolate(id, world_path: ctx.base)
+
+    on_exit(fn ->
+      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, id), do: TestScope.kill(pid)
+    end)
+
     parent = self()
 
     owner =

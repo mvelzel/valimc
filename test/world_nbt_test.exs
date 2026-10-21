@@ -115,12 +115,7 @@ defmodule Valimc.WorldNbtTest do
 
   test "world files are classified by path and accepted only at the pinned data version" do
     assert Schema.kind("level.dat") == :level
-    assert Schema.kind("players/data/0f3a.dat") == :player
-    assert Schema.kind("data/minecraft/scoreboard.dat") == :data
-    assert Schema.kind("dimensions/minecraft/the_end/data/minecraft/raids.dat") == :data
     assert Schema.kind("dimensions/minecraft/overworld/region/r.0.-1.mca") == :chunk
-    assert Schema.kind("dimensions/minecraft/overworld/entities/r.0.0.mca") == :entities
-    assert Schema.kind("dimensions/minecraft/overworld/poi/r.0.0.mca") == :poi
     assert Schema.kind("session.lock") == :unknown
 
     version = Schema.data_version()

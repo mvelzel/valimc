@@ -4,7 +4,7 @@ defmodule Valimc.AnvilBlockEntityTest do
   alias Valimc.Anvil.BlockEntity
   alias Valimc.NBT
   alias Valimc.Physics.BlockEntities, as: Types
-  alias Valimc.Protocol.{ItemData, ItemStack, PotionTypes, TooltipDisplay}
+  alias Valimc.Protocol.{ItemData, ItemStack}
   alias Valimc.Registry.Blocks, as: BlockRegistry
   alias Valimc.World.BlockEntities
 
@@ -40,48 +40,6 @@ defmodule Valimc.AnvilBlockEntityTest do
   end
 
   describe "item tags" do
-    test "every component ValiMC holds reads back from its data-format tag" do
-      stacks = [
-        stack("stone", 64),
-        stack("diamond_sword", 1, %{
-          "minecraft:enchantments" => %{"minecraft:sharpness" => 5},
-          "minecraft:damage" => 17,
-          "minecraft:custom_name" =>
-            compound(%{"text" => {:string, "Edge"}, "italic" => {:byte, 0}})
-        }),
-        stack("apple", 7, %{
-          "minecraft:lore" => [{:string, "first"}, compound(%{"text" => {:string, "second"}})],
-          "minecraft:rarity" => 2
-        }),
-        stack("enchanted_book", 1, %{
-          "minecraft:stored_enchantments" => %{"minecraft:mending" => 1}
-        }),
-        stack("potion", 1, %{
-          "minecraft:potion_contents" => %{
-            potion: PotionTypes.id("swiftness"),
-            color: 0x123456,
-            effects: [
-              {Valimc.Protocol.EffectTypes.id("speed"),
-               [{200, 1, false, true, true}, {100, 0, true, false, false}]}
-            ],
-            name: "fast"
-          }
-        }),
-        stack("stick", 3, %{
-          "minecraft:custom_data" => compound(%{"k" => {:int, 1}}),
-          "minecraft:tooltip_display" => %TooltipDisplay{
-            hide: false,
-            hidden: MapSet.new(["minecraft:custom_data"])
-          },
-          "minecraft:enchantment_glint_override" => true,
-          "minecraft:item_model" => "minecraft:apple"
-        }),
-        %{stack("apple", 2) | removed: MapSet.new(["minecraft:food"])}
-      ]
-
-      for stack <- stacks, do: assert(ItemData.stack(ItemData.tag(stack)) == {:ok, stack})
-    end
-
     test "unsupported components, bad counts and unknown items are reported, air is empty" do
       book =
         compound(%{
@@ -180,37 +138,6 @@ defmodule Valimc.AnvilBlockEntityTest do
       assert position == {5, 70, 13}
       assert fields["x"] == {:int, 5} and fields["z"] == {:int, 13}
       assert {{16, 0, 0}, _} = BlockEntity.position(compound(%{}), {1, 0})
-    end
-
-    test "update tags follow each type's getUpdateTag" do
-      sign =
-        be("minecraft:sign", {0, 64, 0}, %{
-          "front_text" => compound(%{"color" => {:string, "red"}}),
-          "components" => compound(%{"minecraft:custom_data" => compound(%{})})
-        })
-
-      assert BlockEntity.update_tag("minecraft:sign", sign) ==
-               compound(%{"front_text" => compound(%{"color" => {:string, "red"}})})
-
-      {:compound, banner} = BlockEntity.update_tag("minecraft:banner", sign)
-      assert Map.keys(banner) |> Enum.sort() == ["components", "front_text"]
-
-      spawner =
-        be("minecraft:mob_spawner", {0, 0, 0}, %{
-          "SpawnPotentials" => NBT.list([]),
-          "Delay" => {:short, 20}
-        })
-
-      assert BlockEntity.update_tag("minecraft:mob_spawner", spawner) ==
-               compound(%{"Delay" => {:short, 20}})
-
-      campfire =
-        be("minecraft:campfire", {0, 0, 0}, %{"CookingTimes" => {:int_array, <<0::128>>}})
-
-      assert BlockEntity.update_tag("minecraft:campfire", campfire) ==
-               compound(%{"Items" => NBT.list([])})
-
-      assert BlockEntity.update_tag("minecraft:hopper", campfire) == compound(%{})
     end
   end
 

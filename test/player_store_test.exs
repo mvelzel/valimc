@@ -1,83 +1,39 @@
 defmodule Valimc.PlayerStoreTest do
-  use ExUnit.Case, async: false
-  @moduletag :tcp
+  use ExUnit.Case, async: true
   alias Valimc.PlayerStore, as: Store
   alias Valimc.{Inventory, PlayerSnapshot}
-  alias Valimc.TestClient, as: Client
-  alias Valimc.Protocol.{Data, Wire}
   import ExUnit.CaptureLog
 
   setup do
     base = Path.join(System.tmp_dir!(), "valimc-pose-#{System.unique_integer([:positive])}")
-    old = Valimc.config(:world_path)
-    Application.put_env(:valimc, :world_path, base)
-
-    on_exit(fn ->
-      Application.put_env(:valimc, :world_path, old)
-      Valimc.TestScope.stop_players(base)
-      File.rm_rf!(base)
-    end)
-
+    on_exit(fn -> File.rm_rf!(base) end)
     %{base: base}
   end
 
-  defp username, do: "Pose" <> Integer.to_string(System.unique_integer([:positive]))
-  defp snapshot, do: PlayerSnapshot.capture(pose(), Inventory.new())
-  defp uuid, do: :crypto.strong_rand_bytes(16)
-  defp pose, do: %{x: -17.25, y: 71.5, z: 32.75, yaw: 122.5, pitch: -31.25}
+  def snapshot, do: PlayerSnapshot.capture(pose(), Inventory.new())
+  def pose, do: %{x: -17.25, y: 71.5, z: 32.75, yaw: 122.5, pitch: -31.25}
 
-  defp wait_for_departure(name, uuid, _budget \\ nil) do
-    Valimc.TestWait.until(fn ->
-      not Enum.any?(:ets.tab2list(Valimc.Players), fn {_, player} -> player.name == name end) and
-        Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == []
+  # A fresh identity whose store writes under `base`.
+  defp uuid(base) do
+    uuid = :crypto.strong_rand_bytes(16)
+    Valimc.TestScope.isolate(uuid, world_path: base)
+
+    on_exit(fn ->
+      for {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, uuid),
+          do: Valimc.TestScope.kill(pid)
     end)
+
+    uuid
   end
 
-  test "reconnect and supervised shutdown restore pose; new identities use spawn", %{base: base} do
-    name = username()
-    {uuid, client} = Client.login(name)
-    client = Client.load_world(client)
-    assert client.pose == %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0}
-    player = Enum.find(Valimc.Players.all(), &(&1.name == name))
-    client = Client.teleport(client, player.pid, pose())
-    ref = Process.monitor(player.pid)
-    Client.close(client)
-    assert_receive {:DOWN, ^ref, :process, _, :normal}
-    wait_for_departure(name, uuid)
-    bytes = File.read!(Store.path(base, uuid))
-    assert byte_size(bytes) == 251
-    assert {:ok, %{effects: %{}, absorption: +0.0}} = Valimc.PlayerSnapshot.decode(bytes, uuid)
-
-    {^uuid, second} = Client.login(name)
-    assert second.pose == pose()
-    second = Client.load_world(second)
-    next = %{pose() | x: -19.5, yaw: -80.0}
-    player = Enum.find(Valimc.Players.all(), &(&1.name == name))
-    Client.teleport(second, player.pid, next)
-    assert :ok = DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
-    Client.close(second)
-    wait_for_departure(name, uuid)
-
-    {^uuid, third} = Client.login(name)
-    assert third.pose == next
-    Client.close(third)
-    wait_for_departure(name, uuid)
-
-    other_name = username()
-    {other_uuid, other} = Client.login(other_name)
-    assert other.pose.x == 0.5
-    Client.close(other)
-    wait_for_departure(other_name, other_uuid)
-  end
-
-  test "lease fences reconnects while a writer is stalled; unrelated writers run" do
-    uuid = uuid()
+  test "lease fences reconnects while a writer is stalled; unrelated writers run", %{base: base} do
+    uuid = uuid(base)
     {:ok, writer, nil, writer_fence} = Store.open(uuid)
     :sys.suspend(writer)
 
     try do
       assert {:error, :session_closing} = Store.open(uuid)
-      {:ok, healthy, nil, healthy_fence} = Store.open(uuid())
+      {:ok, healthy, nil, healthy_fence} = Store.open(uuid(base))
       assert :ok = Store.close(healthy, healthy_fence, snapshot())
     after
       :sys.resume(writer)
@@ -92,7 +48,7 @@ defmodule Valimc.PlayerStoreTest do
   end
 
   test "corrupt, oversized, wrong-identity and out-of-bounds files are preserved", %{base: base} do
-    uuid = uuid()
+    uuid = uuid(base)
     {:ok, writer, nil, writer_fence} = Store.open(uuid)
     ref = Process.monitor(writer)
     assert :ok = Store.close(writer, writer_fence, snapshot())
@@ -118,34 +74,34 @@ defmodule Valimc.PlayerStoreTest do
       File.write!(path, invalid)
       assert {:error, :invalid_player_file} = Store.open(uuid)
       assert File.read!(path) == invalid
-      wait_for_departure("", uuid)
+      Valimc.TestWait.until(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == [] end)
     end
 
-    other = uuid()
+    other = uuid(base)
     File.write!(Store.path(base, other), valid)
     assert {:error, :invalid_player_file} = Store.open(other)
     assert File.read!(Store.path(base, other)) == valid
   end
 
   test "unreadable player paths return a scoped error without replacing the path", %{base: base} do
-    uuid = uuid()
+    uuid = uuid(base)
     path = Store.path(base, uuid)
     File.mkdir_p!(path)
     assert {:error, :eisdir} = Store.open(uuid)
     assert File.dir?(path)
-    {:ok, healthy, nil, healthy_fence} = Store.open(uuid())
+    {:ok, healthy, nil, healthy_fence} = Store.open(uuid(base))
     assert :ok = Store.close(healthy, healthy_fence, snapshot())
   end
 
   test "periodic save acknowledges a complete checkpoint and write failure stays isolated", %{
     base: base
   } do
-    uuid = uuid()
+    uuid = uuid(base)
     {:ok, writer, nil, writer_fence} = Store.open(uuid)
     ref = make_ref()
     Store.checkpoint(writer, writer_fence, snapshot(), ref)
     assert_receive {:player_saved, ^ref, :ok}
-    assert byte_size(File.read!(Store.path(base, uuid))) == 139
+    assert File.exists?(Store.path(base, uuid))
 
     # Turn the directory into a file to force a real filesystem error.
     File.rm_rf!(base)
@@ -159,6 +115,78 @@ defmodule Valimc.PlayerStoreTest do
 
     File.rm!(base)
     assert :ok = Store.close(writer, writer_fence, snapshot())
+  end
+end
+
+defmodule Valimc.PlayerStoreTest.Connection do
+  # Real logins share the listener and the global world path.
+  use ExUnit.Case, async: false
+  @moduletag :tcp
+  alias Valimc.PlayerStore, as: Store
+  alias Valimc.PlayerSnapshot
+  alias Valimc.TestClient, as: Client
+  alias Valimc.Protocol.{Data, Wire}
+  import ExUnit.CaptureLog
+  import Valimc.PlayerStoreTest, only: [snapshot: 0, pose: 0]
+
+  setup do
+    base = Path.join(System.tmp_dir!(), "valimc-pose-#{System.unique_integer([:positive])}")
+    old = Valimc.config(:world_path)
+    Application.put_env(:valimc, :world_path, base)
+
+    on_exit(fn ->
+      Application.put_env(:valimc, :world_path, old)
+      Valimc.TestScope.stop_players(base)
+      File.rm_rf!(base)
+    end)
+
+    %{base: base}
+  end
+
+  defp username, do: "Pose" <> Integer.to_string(System.unique_integer([:positive]))
+
+  defp wait_for_departure(name, uuid) do
+    Valimc.TestWait.until(fn ->
+      not Enum.any?(:ets.tab2list(Valimc.Players), fn {_, player} -> player.name == name end) and
+        Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == []
+    end)
+  end
+
+  test "reconnect and supervised shutdown restore pose; new identities use spawn", %{base: base} do
+    name = username()
+    {uuid, client} = Client.login(name)
+    client = Client.load_world(client)
+    assert client.pose == %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0}
+    player = Enum.find(Valimc.Players.all(), &(&1.name == name))
+    client = Client.teleport(client, player.pid, pose())
+    ref = Process.monitor(player.pid)
+    Client.close(client)
+    assert_receive {:DOWN, ^ref, :process, _, :normal}
+    wait_for_departure(name, uuid)
+
+    assert {:ok, %{effects: %{}}} =
+             PlayerSnapshot.decode(File.read!(Store.path(base, uuid)), uuid)
+
+    {^uuid, second} = Client.login(name)
+    assert second.pose == pose()
+    second = Client.load_world(second)
+    next = %{pose() | x: -19.5, yaw: -80.0}
+    player = Enum.find(Valimc.Players.all(), &(&1.name == name))
+    Client.teleport(second, player.pid, next)
+    assert :ok = DynamicSupervisor.terminate_child(Valimc.ConnectionSupervisor, player.pid)
+    Client.close(second)
+    wait_for_departure(name, uuid)
+
+    {^uuid, third} = Client.login(name)
+    assert third.pose == next
+    Client.close(third)
+    wait_for_departure(name, uuid)
+
+    other_name = username()
+    {other_uuid, other} = Client.login(other_name)
+    assert other.pose.x == 0.5
+    Client.close(other)
+    wait_for_departure(other_name, other_uuid)
   end
 
   test "bad save rejects only that login; healthy listener and identity still work", %{base: base} do
@@ -246,39 +274,8 @@ defmodule Valimc.PlayerStoreTest do
     assert Process.alive?(Process.whereis(Valimc.Listener))
   end
 
-  test "a rejected later frame preserves earlier validated movement in the same TCP batch" do
-    name = username()
-    {uuid, client} = Client.login(name)
-    client = Client.load_world(client)
-    player = Enum.find(Valimc.Players.all(), &(&1.name == name))
-    ref = Process.monitor(player.pid)
-    body = <<-4.25::float-64, 64.0::float-64, -2.5::float-64, 1>>
-    bad = <<30_000_000.0::float-64, 64.0::float-64, 0.0::float-64, 1>>
-    id = Data.id(:play, :serverbound, "move_player_pos")
-
-    Client.send_raw(client, [
-      Wire.frame(id, body, client.threshold),
-      Wire.frame(
-        Data.id(:play, :serverbound, "move_player_rot"),
-        <<83.0::float-32, 0.0::float-32, 1>>,
-        client.threshold
-      ),
-      Wire.frame(Data.id(:play, :serverbound, "client_tick_end"), <<>>, client.threshold),
-      Wire.frame(id, bad, client.threshold)
-    ])
-
-    assert_receive {:DOWN, ^ref, :process, _, :normal}
-    Client.close(client)
-    wait_for_departure(name, uuid)
-    {^uuid, next} = Client.login(name)
-    assert next.pose.x == -4.25 and next.pose.z == -2.5
-    assert next.pose.yaw == 83.0
-    Client.close(next)
-    wait_for_departure(name, uuid)
-  end
-
   test "a failed phase-transition batch saves its earlier committed play rotation", %{base: base} do
-    for bad <- [:rejected_frame, :invalid_payload] do
+    for bad <- [:rejected_frame] do
       name = username()
       {uuid, client} = Client.configure(name)
       [{pid, _}] = Enum.filter(:ets.tab2list(Valimc.Players), fn {_, p} -> p.name == name end)

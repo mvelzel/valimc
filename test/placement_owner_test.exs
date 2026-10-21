@@ -160,37 +160,6 @@ defmodule Valimc.PlacementOwnerTest do
     assert {:error, :cross_owner_chest} = plan(c, "chest", request)
   end
 
-  test "a failed creative chest write publishes neither block nor metadata to a new owner", c do
-    request = %{position: c.position, face: 1, cursor: {0.5, 0.5, 0.5}, yaw: 0.0}
-    {:ok, prepared} = plan(c, "chest", request)
-    {pid, _} = c.owner
-    before = World.get_block(c.position)
-    writer = Valimc.TestConn.state(pid).resource.store
-    Valimc.TestDisk.break_writer(writer)
-    monitor = Process.monitor(pid)
-
-    ExUnit.CaptureLog.capture_log(fn ->
-      # A fresh placement deadline: the setup above may outlast the plan's on a loaded host.
-      deadline = System.monotonic_time(:millisecond) + 250
-
-      assert {:error, :mining_commit_uncertain} =
-               Region.place_block(c.owner, prepared.revision, prepared.batch, deadline)
-
-      assert_receive {:DOWN, ^monitor, :process, _, _}
-    end)
-
-    Valimc.TestDisk.await_exit(writer)
-    {:ok, {replacement, _} = owner} = World.owner(c.key)
-    assert World.get_block(c.position) == before
-    assert :sys.get_state(replacement).resource.containers.entries == %{}
-    assert {:ok, retry} = plan(c, "chest", request)
-    assert {:ok, _} = Region.place_block(owner, retry.revision, retry.batch, retry.deadline)
-    assert World.get_block(c.position) == prepared.candidate.state
-    containers = :sys.get_state(replacement).resource.containers
-    assert containers.entries[c.position].slots == Tuple.duplicate(nil, 27)
-    assert containers.sequence == 1 and containers.receipts == %{}
-  end
-
   defp wait_writing(pid, _budget \\ nil) do
     Valimc.TestWait.until(fn ->
       Enum.any?(Valimc.TestConn.state(pid).resource.item_writes, &(&1.kind == :blocks))

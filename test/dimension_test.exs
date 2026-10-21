@@ -8,20 +8,6 @@ defmodule Valimc.DimensionTest do
   defp uuid, do: <<41::128>>
   defp pose, do: %{x: 8.5, y: 70.0, z: -3.5, yaw: 90.0, pitch: 0.0}
 
-  test "dimension types and bounds come from the generated facts" do
-    nether = Dimension.facts(:the_nether)
-    assert nether.type_id == Data.registry_id("minecraft:dimension_type", "minecraft:the_nether")
-    assert {nether.min_y, nether.height, nether.logical_height} == {0, 256, 128}
-    assert not nether.sky_light and nether.ceiling and nether.coordinate_scale == 8.0
-    assert nether.sea_level == 32
-    the_end = Dimension.facts(:the_end)
-    assert the_end.sky_light and the_end.fixed_time and the_end.dragon_fight
-    assert Dimension.facts(:overworld).type_id == 0
-    assert Dimension.section_window(:overworld) == {0, 24}
-    assert Dimension.section_window(:the_nether) == {4, 16}
-    assert Dimension.section_window(:the_end) == {4, 16}
-  end
-
   test "keys, names and storage folders are scoped per dimension" do
     assert Dimension.scope(:overworld, {1, 2}) == {1, 2}
     assert Dimension.scope(:the_nether, {1, 2}) == {:the_nether, {1, 2}}

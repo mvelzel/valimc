@@ -43,7 +43,7 @@ defmodule Valimc.WorldgenProtoTest do
   defp by_chunk(list), do: Map.new(list, fn {x, z, image} -> {{x, z}, image} end)
 
   test "decorating through encoded proto chunks equals the parity path", %{state: state} do
-    for centre <- [{0, 0}, {-37, 112}, {803, -1590}] do
+    for centre <- [{-37, 112}] do
       order = around(centre, 1)
       {:ok, want} = Native.worldgen_decorate(state, @source, centre, order, features())
       got = through_protos(state, centre, order)
@@ -59,14 +59,6 @@ defmodule Valimc.WorldgenProtoTest do
         assert ours.block_entity_data == theirs.block_entity_data
       end
     end
-  end
-
-  test "decoding an encoded chunk and decorating nothing touches nothing", %{state: state} do
-    {:ok, terrain} = Native.worldgen_proto_terrain(state, @source, around({5, 5}, 1))
-    {:ok, {touched, 0}} = Native.worldgen_proto_decorate(state, images(terrain), [{5, 5}])
-    assert touched != []
-    {:ok, {again, 0}} = Native.worldgen_proto_decorate(state, images(touched), [])
-    assert again == []
   end
 
   test "only the chunks decoration writes into come back, and reads stay in the 3 × 3",

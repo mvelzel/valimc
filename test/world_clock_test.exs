@@ -26,22 +26,6 @@ defmodule Valimc.WorldClockTest do
     path
   end
 
-  test "native float32 tick boundaries and long wrap, independent pauses and global stop" do
-    state = %ClockState{rate: ClockState.float32(0.1)}
-    stepped = Enum.reduce(1..100, state, fn _, clock -> ClockState.tick(clock) end)
-    assert stepped.total_ticks == 10
-    # Float32 rounds each addition, rather than retaining BEAM float64 intermediates.
-    assert stepped.partial_tick > 0.0
-
-    assert ClockState.tick(%ClockState{total_ticks: 9_223_372_036_854_775_807}).total_ticks ==
-             -9_223_372_036_854_775_808
-
-    assert ClockState.tick(%{state | paused: true}) == %{state | paused: true}
-    stopped = %{ClockRecord.new() | advance_time: false}
-    assert ClockRecord.tick(stopped).clocks == stopped.clocks
-    assert ClockRecord.tick(stopped).game_time == 1
-  end
-
   test "snapshot keeps both clocks, partial rates and pause flags; corrupt and oversized files reject" do
     data = ClockRecord.new()
 

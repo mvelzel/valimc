@@ -9,12 +9,10 @@ defmodule Valimc.PlayerRainQueryTest do
     key = {982, 800}
     {:ok, owner} = World.owner(key)
     assert :ok = Clock.configure({:advance_weather, false})
-    assert :ok = Clock.configure({:weather, :rain, 600})
-    await_wet(true)
+    weather(:rain)
 
     on_exit(fn ->
-      Clock.configure({:weather, :clear, 0})
-      await_wet(false)
+      weather(:clear)
       Clock.configure({:advance_weather, true})
 
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
@@ -50,8 +48,7 @@ defmodule Valimc.PlayerRainQueryTest do
     {:ok, geometry} = PlayerPose.geometry(:swimming, position)
     empty = %BlockCollisions.Frame{states: %{}, fences: %{}, entities: %{}}
     assert PlayerRainQuery.sample(position, geometry, empty) == {:error, :rain_source_unavailable}
-    assert :ok = Clock.configure({:weather, :clear, 0})
-    await_wet(false)
+    weather(:clear)
     assert PlayerRainQuery.sample(position, geometry, empty) == {:ok, false}
   end
 
@@ -61,13 +58,11 @@ defmodule Valimc.PlayerRainQueryTest do
     frame
   end
 
-  defp await_wet(wet, remaining \\ 200)
-  defp await_wet(_, 0), do: flunk("Weather did not reach its native wet threshold")
-
-  defp await_wet(wet, remaining) do
-    if Clock.weather().wet != wet do
-      Process.sleep(10)
-      await_wet(wet, remaining - 1)
-    end
+  # Rain at its final intensity at once, instead of the 20-tick native ramp.
+  defp weather(kind) do
+    {level, duration} = if kind == :rain, do: {1.0, 600}, else: {0.0, 0}
+    :sys.replace_state(Clock, &put_in(&1.data.weather.rain_level, level))
+    assert :ok = Clock.configure({:weather, kind, duration})
+    assert Clock.weather().wet == (kind == :rain)
   end
 end

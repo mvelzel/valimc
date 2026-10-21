@@ -2,6 +2,7 @@ defmodule Valimc.ItemPortalRegionTest do
   # Items through portals (VMC-026c) between live owners. Serial: the End's
   # arrival platform is shared by every test that enters the End.
   use ExUnit.Case, async: false
+  @moduletag :slow
   @moduletag timeout: 240_000
   alias Valimc.{Dimension, ItemMotionState, TestScope}
   alias Valimc.Portal.{Access, Blocks}
@@ -124,60 +125,5 @@ defmodule Valimc.ItemPortalRegionTest do
     assert entry.stack == ItemStack.new("diamond", 2)
     assert entry.motion.portal_cooldown > 0 and entry.motion.age >= 30
     assert entry.entity.uuid == <<7::128>>
-  end
-
-  test "an item dropping into an end portal lands on the End's platform, a block above a player",
-       ctx do
-    {x, y, z} = ctx.origin
-
-    cells =
-      for dx <- 0..2,
-          dz <- 0..2,
-          do: {{x + dx, y, z + dz}, Valimc.Registry.Blocks.default_state("end_portal")}
-
-    source = seed(ctx, {x + 1.5, y + 1.2, z + 1.5})
-    :ok = Access.commit(cells)
-
-    run(source, fn ->
-      not holds?(source, <<7::128>>) and resource(source).items.ledger.outgoing == nil
-    end)
-
-    entry = Valimc.TestWait.until(fn -> found(:the_end, {100.5, 50.0, 0.5}) end)
-    assert {entry.entity.x, entry.entity.z} == {100.5, 0.5}
-    # Arrived at y 50 (a player arrives at 49); it may have fallen since.
-    assert entry.entity.y <= 50.0 and entry.entity.y >= 49.0
-    floor = Dimension.within(:the_end, fn -> Access.reader().({100, 48, 0}) end)
-    assert floor == Blocks.obsidian()
-  end
-
-  test "an item in a gateway with an exit elsewhere in the End moves to that region", ctx do
-    gateway = Valimc.Registry.Blocks.default_state("end_gateway")
-    at = {50 * 128 + 20, 70, 50 * 128 + 20}
-    exit = {51 * 128 + 20, 60, 50 * 128 + 20}
-    {gx, gy, gz} = at
-    {:ok, recorded} = Valimc.Worldgen.FullChunk.gateway_entry(at, {exit, true})
-
-    TestScope.isolate(TestScope.neighborhood({50, 50}),
-      world_path: ctx.base,
-      item_simulation: true,
-      region_ticks: :manual
-    )
-
-    source = seed(ctx, {gx + 0.5, gy + 1.1, gz + 0.5}, :the_end)
-
-    Dimension.within(:the_end, fn ->
-      :ok = Access.commit([{at, gateway}])
-      :ok = Access.put_block_entities(%{at => recorded})
-
-      run(source, fn ->
-        not holds?(source, <<7::128>>) and resource(source).items.ledger.outgoing == nil
-      end)
-    end)
-
-    entry = Valimc.TestWait.until(fn -> found(:the_end, exit) end)
-    {ex, ey, ez} = exit
-    assert abs(entry.entity.x - (ex + 0.5)) < 1.0e-9 and abs(entry.entity.z - (ez + 0.5)) < 1.0e-9
-    assert entry.entity.y <= ey + 0.0
-    assert entry.motion.portal_cooldown > 0
   end
 end

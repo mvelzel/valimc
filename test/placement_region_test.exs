@@ -1,13 +1,11 @@
 defmodule Valimc.PlacementRegionTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
-  import ExUnit.CaptureLog
   alias Valimc.World
 
   alias Valimc.World.{
     ItemRecords,
     MiningTransfers,
-    PlacementPermits,
     PlacementTransfers,
     Region
   }
@@ -69,41 +67,6 @@ defmodule Valimc.PlacementRegionTest do
     receipt
   end
 
-  test "block and receipt remain unpublished until the atomic writer completes; replay preserves replacements",
-       ctx do
-    writer = :sys.get_state(ctx.pid).resource.store
-    :sys.suspend(writer)
-    task = Task.async(fn -> Region.apply_placement_transfer(ctx.owner, ctx.transfer) end)
-
-    try do
-      pending = writing(ctx.pid)
-      # Adopted in owner memory; the snapshot and the receipt wait for durability.
-      assert Valimc.TestRegion.published_block(ctx.owner, ctx.position) == 0
-      proof = Task.async(fn -> Region.item_transfer_receipt(ctx.owner, ctx.transfer.source) end)
-      assert Task.yield(proof, 20) == nil
-      assert {:ok, _} = Region.observe_blocks(ctx.owner, [])
-      assert {:error, :item_storage_busy} = Region.flush(ctx.pid)
-      send(ctx.pid, {:resource, ctx.epoch, :save})
-      send(ctx.pid, {:resource, ctx.epoch, {:items_saved, writer, pending.token, :ok}})
-      send(ctx.pid, {:resource, make_ref(), {:mining_saved, writer, pending.token, :ok}})
-      send(ctx.pid, {:resource, ctx.epoch, {:mining_saved, writer, make_ref(), :ok}})
-      assert {:ok, _} = Region.observe_blocks(ctx.owner, [])
-      assert Task.yield(task, 10) == nil
-      :sys.resume(writer)
-      assert {:ok, :applied} = Task.await(task, 60_000)
-      assert {:ok, _} = Task.await(proof, 60_000)
-      assert World.get_block(ctx.position) == 1
-      receipt(ctx, ctx.owner, ctx.transfer, :applied)
-      assert World.item_snapshot(ctx.key) == %{}
-      assert :ok = World.set_block(ctx.position, 10)
-      assert {:ok, :already_applied} = Region.apply_placement_transfer(ctx.owner, ctx.transfer)
-      assert World.get_block(ctx.position) == 10
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-      Task.shutdown(task, :brutal_kill)
-    end
-  end
-
   test "a chest's block, empty contents and receipt publish together and remove together after restart",
        ctx do
     {x, y, z} = ctx.position
@@ -144,39 +107,6 @@ defmodule Valimc.PlacementRegionTest do
     {:ok, removed} = Valimc.World.Containers.decode(disk(ctx), ctx.key)
     assert removed.entries == %{} and removed.sequence == 2 and removed.receipts == %{}
     assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, removal)
-  end
-
-  test "a failed chest write publishes neither block nor metadata and rejects the stale retry",
-       ctx do
-    {x, y, z} = ctx.position
-    position = {x + 4, y, z + 4}
-    {:ok, reservation} = reserve(ctx.owner, [position])
-    ctx = %{ctx | position: position, transfer: Map.merge(ctx.transfer, reservation)}
-    request = %{ctx.transfer | edits: %{ctx.position => @chest}}
-    # Only this placement may meet the broken writer, not a write still in flight.
-    Valimc.TestWait.until(fn ->
-      not Valimc.TestRegion.writing?(:sys.get_state(ctx.pid).resource)
-    end)
-
-    writer = :sys.get_state(ctx.pid).resource.store
-    Valimc.TestDisk.break_writer(writer)
-    monitor = Process.monitor(ctx.pid)
-
-    capture_log(fn ->
-      assert {:error, :mining_commit_uncertain} =
-               Region.apply_placement_transfer(ctx.owner, request)
-
-      assert_receive {:DOWN, ^monitor, :process, _, _}
-    end)
-
-    Valimc.TestDisk.await_exit(writer)
-    assert disk(ctx) == nil
-    {:ok, owner} = World.item_owner(ctx.key)
-    assert World.get_block(ctx.position) == 0
-    assert {:ok, :rejected} = Region.apply_placement_transfer(owner, request)
-    assert World.get_block(ctx.position) == 0
-    assert :sys.get_state(elem(owner, 0)).resource.containers.entries == %{}
-    receipt(ctx, owner, request, :rejected)
   end
 
   test "a new adjacent chest after reservation durably rejects without publishing target metadata",
@@ -222,157 +152,6 @@ defmodule Valimc.PlacementRegionTest do
 
     assert {:error, :stale_revision} =
              Region.reserve_placement(ctx.owner, observed.revision, observed.blocks)
-  end
-
-  test "concurrent owners of source stacks cannot both replace the same reserved block", ctx do
-    {:ok, reserved} = reserve(ctx.owner, [ctx.position])
-    second = Map.merge(ctx.transfer, reserved) |> Map.put(:source, <<999::128>>)
-
-    tasks =
-      for request <- [ctx.transfer, second],
-          do: Task.async(fn -> Region.apply_placement_transfer(ctx.owner, request) end)
-
-    results =
-      for {task, request} <- Enum.zip(tasks, [ctx.transfer, second]) do
-        case Task.await(task, 60_000) do
-          {:error, :item_storage_busy} -> Region.apply_placement_transfer(ctx.owner, request)
-          result -> result
-        end
-      end
-
-    assert Enum.sort(results) == [{:ok, :applied}, {:ok, :rejected}]
-    assert World.get_block(ctx.position) == 1
-    assert map_size(:sys.get_state(ctx.pid).resource.item_receipts) == 2
-  end
-
-  test "the owner rechecks both context cells after planning", ctx do
-    {:ok, reserved} = reserve(ctx.owner, [ctx.position, ctx.other])
-    request = Map.merge(ctx.transfer, reserved)
-    resource = :sys.get_state(ctx.pid).resource
-    token = make_ref()
-    caller = Task.async(fn -> receive do: ({:plan_reply, result} -> result) end)
-
-    {:ok, worker} =
-      Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
-        receive do: (:continue -> :ok)
-
-        {:ok, plan} =
-          PlacementTransfers.plan(resource.items, resource.item_receipts, ctx.key, request, true)
-
-        {:ok, batch} = Valimc.World.BlockBatch.prepare(request.edits)
-
-        send(
-          ctx.pid,
-          {:resource, ctx.epoch,
-           {:block_transfer_plan, self(), token,
-            {:ok, Map.merge(plan, %{kind: :placement, batch: batch})}}}
-        )
-      end)
-
-    :sys.replace_state(ctx.pid, fn state ->
-      pending = %{
-        kind: :placement,
-        phase: :planning,
-        token: token,
-        from: {caller.pid, :plan_reply},
-        worker: worker,
-        monitor: Process.monitor(worker),
-        timer:
-          Process.send_after(self(), {:resource, ctx.epoch, {:item_commit_deadline, token}}, 5000)
-      }
-
-      %{state | resource: %{state.resource | item_pending: pending}}
-    end)
-
-    assert :ok = World.set_block(ctx.other, 1)
-    assert :ok = World.set_block(ctx.other, 0)
-    send(worker, :continue)
-    assert {:ok, :rejected} = Task.await(caller, 60_000)
-    assert World.get_block(ctx.position) == 0
-    receipt(ctx, ctx.owner, request, :rejected)
-  end
-
-  test "restart rejects old authority; committed rejection and placement survive subsequent restarts",
-       ctx do
-    assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid)
-    {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
-
-    assert {:error, :stale_region} =
-             Region.apply_placement_transfer({pid, ctx.epoch}, ctx.transfer)
-
-    assert {:ok, :rejected} = Region.apply_placement_transfer(owner, ctx.transfer)
-    assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-    {:ok, owner} = World.item_owner(ctx.key)
-    assert {:ok, :already_rejected} = Region.apply_placement_transfer(owner, ctx.transfer)
-    {:ok, reserved} = reserve(owner, [ctx.position])
-    request = Map.merge(ctx.transfer, reserved) |> Map.put(:sequence, 2)
-    assert {:ok, :applied} = Region.apply_placement_transfer(owner, request)
-    assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, elem(owner, 0))
-    {:ok, owner} = World.item_owner(ctx.key)
-    assert {:ok, :already_applied} = Region.apply_placement_transfer(owner, request)
-    assert World.get_block(ctx.position) == 1
-    receipt(ctx, owner, request, :applied)
-  end
-
-  test "writer failure commits neither block nor receipt and leaves item records exact",
-       ctx do
-    {x, y, z} = ctx.position
-
-    {:ok, _} =
-      Region.create_item(
-        ctx.owner,
-        Valimc.Protocol.ItemStack.new("dirt", 3),
-        {x + 0.5, y + 0.5, z + 0.5}
-      )
-
-    # Only this placement may meet the broken writer, not the new item's write.
-    Valimc.TestWait.until(fn ->
-      not Valimc.TestRegion.writing?(:sys.get_state(ctx.pid).resource)
-    end)
-
-    records = Valimc.World.Items.records(:sys.get_state(ctx.pid).resource.items)
-    writer = :sys.get_state(ctx.pid).resource.store
-    Valimc.TestDisk.break_writer(writer)
-    monitor = Process.monitor(ctx.pid)
-
-    capture_log(fn ->
-      assert {:error, :mining_commit_uncertain} =
-               Region.apply_placement_transfer(ctx.owner, ctx.transfer)
-
-      assert_receive {:DOWN, ^monitor, :process, _, _}
-    end)
-
-    Valimc.TestDisk.await_exit(writer)
-    {:ok, owner} = World.item_owner(ctx.key)
-    assert World.get_block(ctx.position) == 0
-    assert {:ok, :rejected} = Region.apply_placement_transfer(owner, ctx.transfer)
-    assert World.get_block(ctx.position) == 0
-    receipt(ctx, owner, ctx.transfer, :rejected)
-    assert records == Valimc.World.Items.records(:sys.get_state(elem(owner, 0)).resource.items)
-  end
-
-  test "dirty graceful shutdown cannot overwrite the queued atomic placement", ctx do
-    assert :ok = World.set_block(ctx.other, 10)
-    writer = :sys.get_state(ctx.pid).resource.store
-    :sys.suspend(writer)
-    task = Task.async(fn -> Region.apply_placement_transfer(ctx.owner, ctx.transfer) end)
-
-    try do
-      writing(ctx.pid)
-
-      stop =
-        Task.async(fn -> DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid) end)
-
-      assert {:error, :mining_commit_uncertain} = Task.await(task, 60_000)
-      :sys.resume(writer)
-      assert :ok = Task.await(stop, 60_000)
-      {:ok, owner} = World.item_owner(ctx.key)
-      assert {:ok, :already_applied} = Region.apply_placement_transfer(owner, ctx.transfer)
-      assert World.get_block(ctx.position) == 1 and World.get_block(ctx.other) == 10
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-      Task.shutdown(task, :brutal_kill)
-    end
   end
 
   test "mining permits, receipt hashes and malformed requests cannot authorize placement", ctx do

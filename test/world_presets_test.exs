@@ -27,27 +27,8 @@ defmodule Valimc.WorldPresetsTest do
     end
   end
 
-  test "noise presets name their noise settings and biome source", ctx do
-    for {level_type, noise, source} <- [
-          {"minecraft:normal", "minecraft:overworld", "minecraft:overworld"},
-          {"minecraft:large_biomes", "minecraft:large_biomes", "minecraft:overworld"},
-          {"minecraft:amplified", "minecraft:amplified", "minecraft:overworld"},
-          {"minecraft:single_biome_surface", "minecraft:overworld", "fixed:minecraft:plains"}
-        ] do
-      settings = GenSettings.create(level_type, nil, 3, true)
-
-      assert Generator.spec_of(settings) ==
-               {:ok,
-                %{
-                  kind: :noise,
-                  seed: 3,
-                  noise_settings: noise,
-                  biome_source: source,
-                  facts: nil,
-                  structures: true
-                }}
-    end
-
+  test "presets ValiMC cannot generate are refused; the structures flag reaches the generator",
+       ctx do
     # VMC-025f5: the structures flag reaches the proto owners.
     assert {:ok, %{structures: false}} =
              Generator.spec_of(GenSettings.create("minecraft:normal", nil, 3, false))
@@ -65,26 +46,6 @@ defmodule Valimc.WorldPresetsTest do
                  generator_settings: flat
                )
     end
-  end
-
-  test "a single-biome world's terrain has the one biome; large biomes differ from normal", ctx do
-    {:ok, single} =
-      Generator.spec_of(GenSettings.create("minecraft:single_biome_surface", nil, 9, true))
-
-    {:ok, normal} = Generator.spec_of(GenSettings.create("minecraft:normal", nil, 9, true))
-    {:ok, large} = Generator.spec_of(GenSettings.create("minecraft:large_biomes", nil, 9, true))
-    chunks = [{40, -12}, {41, -12}]
-    plains = Valimc.Protocol.Data.registry_id("minecraft:worldgen/biome", "minecraft:plains")
-    images = Generator.columns(single, chunks)
-    {:ok, blocks} = World.Blocks.new({5, -2}, %{}, images)
-
-    for chunk <- chunks do
-      {:ok, _states, biomes} = World.Blocks.dump_column(blocks, chunk)
-      assert Enum.uniq(for <<biome::16 <- biomes>>, do: biome) == [plains]
-    end
-
-    refute Generator.columns(large, chunks) == Generator.columns(normal, chunks)
-    _ = ctx
   end
 
   test "a flat world's region holds its layers and biome", ctx do

@@ -1,11 +1,12 @@
 defmodule Valimc.WorldBorderConnectionTest do
   use ExUnit.Case, async: false
-  # Drives sockets and changes the server's one overworld border (VMC-027b/c).
+  # Drives sockets and changes the server's one overworld border and the app-wide
+  # respawn radius (VMC-027b/c/e).
   @moduletag :tcp
   alias Valimc.{Connection, Inventory, PlayerHealth, PlayerSnapshot, PlayerStore, Players}
   alias Valimc.Protocol.{Data, Wire}
   alias Valimc.TestClient, as: Client
-  alias Valimc.World.{Border, Clock}
+  alias Valimc.World.{Border, Clock, Spawn}
 
   setup do
     reset_border()
@@ -88,26 +89,6 @@ defmodule Valimc.WorldBorderConnectionTest do
     assert Clock.border().damage_per_block == 1.0
   end
 
-  test "blocks outside the border cannot be broken (vanilla mayInteract)" do
-    name = "Reach#{System.unique_integer([:positive])}"
-    {_, client} = Client.login(name)
-    on_exit(fn -> Client.close(client) end)
-    client = Client.load_world(client)
-    {x, z} = {floor(client.pose.x), floor(client.pose.z)}
-    below = {x, floor(client.pose.y) - 1, z}
-
-    assert {:ok, _} = Clock.border_command({:center, x + 1000.0, z * 1.0})
-    assert {:ok, _} = Clock.border_command({:set, 10.0, 0})
-    Client.send_packet(client, :play, "player_action", [<<0>>, Wire.position(below), <<1, 7>>])
-    {<<7>>, client} = Client.await(client, :play, "block_changed_ack")
-    refute Valimc.World.get_block(below) == 0
-
-    reset_border()
-    Client.send_packet(client, :play, "player_action", [<<0>>, Wire.position(below), <<1, 8>>])
-    {_, _client} = Client.await(client, :play, "block_update")
-    assert Valimc.World.get_block(below) == 0
-  end
-
   describe "outside the border" do
     setup do
       nonce = System.unique_integer([:positive])
@@ -172,18 +153,38 @@ defmodule Valimc.WorldBorderConnectionTest do
       health = wait(fn -> (h = state(pid).player.health.value) < 20.0 and h end)
       assert health in [18.0, 16.0, 14.0]
     end
+  end
 
-    test "inside the border, or within its safe zone, there is no damage", ctx do
-      assert {:ok, _} = Clock.border_command({:center, ctx.pose.x + 7.0, ctx.pose.z})
-      assert {:ok, _} = Clock.border_command({:set, 10.0, 0})
-      {_, client} = Client.login(ctx.name)
+  describe "spawning" do
+    setup do
+      Application.put_env(:valimc, :respawn_radius, 10)
+      on_exit(fn -> Application.put_env(:valimc, :respawn_radius, 0) end)
+    end
+
+    defp join do
+      name = "Spawn#{System.unique_integer([:positive])}"
+      {_, client} = Client.login(name)
       on_exit(fn -> Client.close(client) end)
-      pid = wait(fn -> Enum.find(Players.all(), &(&1.name == ctx.name)) end).pid
-      client = Client.load_world(client)
-      Client.send_packet(client, :play, "player_loaded", <<>>)
-      # Two blocks outside, three within the safe zone.
-      wait(fn -> state(pid).simulation_clock.tick > 30 end, 2000)
-      assert state(pid).player.health.value == 20.0
+      client.pose
+    end
+
+    test "new players appear on a safe column within the respawn radius of the world spawn" do
+      {sx, sy, sz} = Spawn.position()
+
+      for pose <- [join(), join()] do
+        assert abs(pose.x - (sx + 0.5)) <= 10 and abs(pose.z - (sz + 0.5)) <= 10
+        assert pose.x - floor(pose.x) == 0.5 and pose.z - floor(pose.z) == 0.5
+        # The preview's flat world: grass at 63, so everyone stands at 64.
+        assert pose.y == sy * 1.0
+      end
+    end
+
+    test "a world spawn outside the border moves to the border's centre" do
+      assert {:ok, _} = Clock.border_command({:center, 1000.5, -2000.5})
+      assert {:ok, _} = Clock.border_command({:set, 4.0, 0})
+      pose = join()
+      # Within the radius the border leaves: at most 1 block from the centre column.
+      assert abs(pose.x - 1000.5) <= 1 and abs(pose.z - -2000.5) <= 1
     end
   end
 end

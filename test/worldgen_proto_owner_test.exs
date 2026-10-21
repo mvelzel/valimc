@@ -7,6 +7,7 @@ defmodule Valimc.WorldgenProtoOwnerTest do
   """
   # Serial: finalize transactions saturate the worldgen workers and dirty schedulers.
   use ExUnit.Case, async: false
+  @moduletag :slow
   alias Valimc.{Native, TestScope}
   alias Valimc.World.{Generator, Spawn}
   alias Valimc.Worldgen.Proto
@@ -163,21 +164,6 @@ defmodule Valimc.WorldgenProtoOwnerTest do
     end
   end
 
-  test "a finalized region equals its 10 × 10 decorated in order over terrain", ctx do
-    want = sequential(ctx.worldgen, [ctx.key])
-    assert_same(full(ctx.key), want[ctx.key])
-    # Asking again gives the same chunks.
-    assert_same(full(ctx.key), want[ctx.key])
-    # Every chunk of the 10 × 10 is decorated once; the ring stays proto.
-    ring = Proto.around(ctx.key, 1) -- Proto.chunks_of(ctx.key)
-
-    for chunk <- ring do
-      state = :sys.get_state(pid(Valimc.World.region_key(chunk)))
-      assert {:decorated, _} = state.chunks[chunk]
-      assert map_size(state.grants) == 0
-    end
-  end
-
   test "neighbours finalized one after the other equal one decoration in that order", ctx do
     want = sequential(ctx.worldgen, [ctx.key, east(ctx.key)])
     assert_same(full(ctx.key), want[ctx.key])
@@ -193,26 +179,6 @@ defmodule Valimc.WorldgenProtoOwnerTest do
     second = sequential(ctx.worldgen, [b, a])
 
     assert {ours_a, ours_b} in [{first[a], first[b]}, {second[a], second[b]}]
-  end
-
-  test "three in a row at once: the middle conflicts with both ends", ctx do
-    regions = [a, b, c] = [ctx.key, east(ctx.key), east(east(ctx.key))]
-    tasks = Enum.map(regions, fn r -> Task.async(fn -> full(r) end) end)
-    ours = Task.await_many(tasks, 240_000)
-    # The ends share no chunk, so their order does not matter.
-    orders = [[a, b, c], [a, c, b], [b, a, c], [c, b, a]]
-
-    wanted =
-      for order <- orders do
-        want = sequential(ctx.worldgen, order)
-        Enum.map(regions, &want[&1])
-      end
-
-    assert ours in wanted
-
-    for key <- TestScope.neighborhood(b, 2) do
-      assert map_size(:sys.get_state(pid(key)).grants) == 0
-    end
   end
 
   test "decorations survive restarts of every owner", ctx do

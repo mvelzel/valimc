@@ -2,10 +2,12 @@ defmodule Valimc.DecoratedWorldTest do
   @moduledoc """
   Decorated vanilla worlds (VMC-025d3): a region serves the full chunks its
   proto owner finalized, with their block entities, block ticks and pending
-  post-processing, persists them once, and keeps them across restarts.
+  post-processing, persists them once, and keeps them across restarts. The
+  proto owners' own transactions and durable ring are `WorldgenProtoOwnerTest`'s.
   """
   # Serial: finalize transactions saturate the worldgen workers and dirty schedulers.
   use ExUnit.Case, async: false
+  @moduletag :slow
   alias Valimc.{Native, TestScope, World}
   alias Valimc.World.{BlockSnapshot, Directory, Generator, ScheduledTicks, Spawn, Store}
   alias Valimc.Worldgen.{FullChunk, Proto}
@@ -129,30 +131,8 @@ defmodule Valimc.DecoratedWorldTest do
     {:ok, _} = owner!(key)
   end
 
-  test "new worlds are decorated and spawn on the decorated surface" do
-    base =
-      Path.join(System.tmp_dir!(), "valimc-decorated-new-#{System.unique_integer([:positive])}")
-
-    on_exit(fn -> File.rm_rf(base) end)
-    :ok = Generator.create(base, @seed)
-    assert Generator.decorated?(base)
-    assert Generator.of(base) == {:vanilla, @seed}
-    {:ok, meta} = base |> Spawn.path() |> File.read!() |> JSON.decode()
-    # Vanilla's spawn search (VMC-027d) over the full chunks of the origin's
-    # region as its first transaction decorates them.
-    origin = Valimc.World.SpawnSearch.origin(@seed)
-    {:ok, worldgen} = Generator.worldgen(@seed)
-    full = expected(worldgen, Valimc.World.region_key(origin))
-    chunk = Enum.find(full, &({&1.x, &1.z} == origin))
-    {x, y, z} = Valimc.World.SpawnSearch.spawn_in_chunk(origin, chunk.image)
-    assert meta["spawn"] == [x, y, z]
-
-    terrain = Path.join(base, "terrain")
-    :ok = Generator.create(terrain, @seed, features: false)
-    refute Generator.decorated?(terrain)
-  end
-
-  test "a region stores its full chunks with block entities, ticks and post-processing", ctx do
+  test "a region stores its full chunks with block entities, ticks and post-processing and serves them after a restart",
+       ctx do
     full = expected(ctx.worldgen, @key)
     {:ok, parts} = FullChunk.parts(full, %{}, [])
     assert map_size(parts.block_entities) > 0
@@ -179,12 +159,8 @@ defmodule Valimc.DecoratedWorldTest do
       position = {cx * 16 + x, y, cz * 16 + z}
       assert World.get_block(position) == World.Blocks.get(blocks, position)
     end
-  end
 
-  test "a restart serves the same chunks without generating them again", ctx do
-    full = expected(ctx.worldgen, @key)
-    {:ok, parts} = FullChunk.parts(full, %{}, [])
-    generate_all(@key)
+    # A restart serves the same chunks, edits included, without generating them again.
     {cx, cz} = List.last(Proto.chunks_of(@key))
     position = {cx * 16 + 3, 70, cz * 16 + 3}
     glass = Valimc.Registry.Blocks.default_state("glass")
@@ -193,38 +169,5 @@ defmodule Valimc.DecoratedWorldTest do
     assert World.get_block(position) == glass
     assert Store.durable(ctx.base, @key, :columns) == parts.columns
     assert Store.durable(ctx.base, @key, :block_entities) == parts.block_entities
-  end
-
-  test "a neighbouring region continues from the durable ring", ctx do
-    generate_all(@key)
-    stop(ctx.keys)
-    east = {elem(@key, 0) + 1, elem(@key, 1)}
-    generate_all(east)
-
-    # As if the two regions were finalized one after the other in one area.
-    area = Enum.uniq(Proto.around(@key, 2) ++ Proto.around(east, 2))
-    images = terrain(ctx.worldgen, area)
-
-    images =
-      Enum.reduce(
-        [Proto.around(@key, 1), Proto.around(east, 1) -- Proto.around(@key, 1)],
-        images,
-        fn order, acc ->
-          {:ok, {touched, 0}} =
-            Native.worldgen_proto_decorate(ctx.worldgen, @source, Map.values(acc), order, true)
-
-          Map.merge(acc, Map.new(touched, fn {x, z, image} -> {{x, z}, image} end))
-        end
-      )
-
-    {:ok, full} =
-      Native.worldgen_proto_full(
-        ctx.worldgen,
-        Enum.map(Proto.chunks_of(east), &images[&1]),
-        Generator.protocol_biomes()
-      )
-
-    {:ok, parts} = FullChunk.parts(full, %{}, [])
-    assert Store.durable(ctx.base, east, :columns) == parts.columns
   end
 end

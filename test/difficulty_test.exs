@@ -5,35 +5,6 @@ defmodule Valimc.DifficultyTest do
 
   defp signed(body), do: body <> :crypto.hash(:sha256, body)
 
-  test "all levels/locks and native force boundary; invalid controls preserve state" do
-    for initial <- 0..3, target <- 0..3, locked <- [false, true], force <- [false, true] do
-      state = %Difficulty{level: initial, locked: locked}
-      assert {:ok, changed} = Difficulty.change(state, target, force)
-      assert changed.level == if(locked and not force, do: initial, else: target)
-      assert changed.locked == locked
-      assert {:ok, %{state | locked: not locked}} == Difficulty.lock(state, not locked)
-    end
-
-    for level <- [-1, 4, 2.0, nil],
-        do:
-          assert({:error, :invalid_difficulty_change} == Difficulty.change(%Difficulty{}, level))
-
-    assert {:error, :invalid_difficulty_change} = Difficulty.change(%Difficulty{}, 1, 1)
-    assert {:error, :invalid_difficulty_change} = Difficulty.lock(%Difficulty{}, 1)
-    refute Difficulty.valid?(%Difficulty{level: 4})
-    refute Difficulty.valid?(%Difficulty{locked: 1})
-  end
-
-  test "packet cache reuses unchanged values and encodes all eight native settings" do
-    for level <- 0..3, locked <- [false, true] do
-      state = %Difficulty{level: level, locked: locked}
-      cache = Difficulty.cache(state, nil)
-      assert Difficulty.cache(state, cache) == cache
-      assert {^state, packet} = cache
-      assert packet == Packets.packet("change_difficulty", <<level, if(locked, do: 1, else: 0)>>)
-    end
-  end
-
   test "version 2 migration preserves clocks and weather; version 3 rejects invalid fields" do
     data = %{
       ClockRecord.new()
@@ -90,5 +61,46 @@ defmodule Valimc.DifficultyTest do
     state = :sys.get_state(recovered)
     assert [{:difficulty, {difficulty, packet}}] = :ets.lookup(state.table, :difficulty)
     assert difficulty == saved.difficulty and packet == Packets.difficulty(difficulty)
+  end
+
+  test "v4 stores the regeneration rule; v3 migrates to native true and invalid values reject" do
+    data = %{ClockRecord.new() | natural_regeneration: false}
+    assert {:ok, <<"VMCLOCK", 5, _::binary>> = bytes} = ClockRecord.encode(data)
+    assert {:ok, ^data} = ClockRecord.decode(bytes)
+    # Version 5 appends the world borders (one overworld entry: 85 bytes).
+    size = byte_size(bytes) - 8 - 1 - 85 - 32
+    <<"VMCLOCK", 5, prior::binary-size(^size), 0, _::binary-size(85), _::binary-size(32)>> = bytes
+    assert {:ok, legacy} = ClockRecord.decode(signed(<<"VMCLOCK", 3, prior::binary>>))
+    assert legacy.natural_regeneration
+
+    for invalid <- [2, 255] do
+      assert {:error, :invalid_clock_file} =
+               ClockRecord.decode(signed(<<"VMCLOCK", 4, prior::binary, invalid>>))
+    end
+
+    assert {:error, :invalid_clock_state} =
+             ClockRecord.encode(%{data | natural_regeneration: nil})
+  end
+
+  test "published difficulty/rule pair changes together and survives world-owner restart" do
+    path =
+      Path.join(System.tmp_dir!(), "valimc-survival-rules-#{System.unique_integer([:positive])}")
+
+    on_exit(fn -> File.rm_rf!(path) end)
+    opts = [name: nil, world_path: path, tick_interval_ms: nil, save_interval_ms: nil]
+    pid = start_supervised!({Clock, opts})
+    table = Valimc.TestConn.state(pid).table
+    assert [{:survival, {1, true}}] = :ets.lookup(table, :survival)
+    assert :ok = Clock.configure({:natural_regeneration, false}, pid)
+    assert :ok = Clock.configure({:difficulty, 3}, pid)
+    assert [{:survival, {3, false}}] = :ets.lookup(table, :survival)
+    before = Valimc.TestConn.state(pid)
+    assert {:error, :invalid_clock_change} = Clock.configure({:natural_regeneration, 1}, pid)
+    assert Valimc.TestConn.state(pid) == before
+    assert :ok = Clock.flush(pid)
+    stop_supervised!(Clock)
+    loaded = start_supervised!({Clock, opts})
+    assert Clock.snapshot(loaded).natural_regeneration == false
+    assert [{:survival, {3, false}}] = :ets.lookup(:sys.get_state(loaded).table, :survival)
   end
 end

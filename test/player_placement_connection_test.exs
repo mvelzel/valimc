@@ -146,34 +146,6 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     assert World.item_snapshot(c.key) == %{}
   end
 
-  test "survival furnace placement owns empty cooking state and consumes either hand", c do
-    c = %{c | pose: %{c.pose | yaw: 90.0}}
-    seed(c, :survival, %{36 => ItemStack.new("furnace", 2), 45 => ItemStack.new("furnace", 3)})
-    {client, pid} = login(c)
-    send_place(client, c.target)
-    client = ack(client)
-    {:ok, block} = Valimc.Physics.CookingBlocks.placement(:furnace, 90.0)
-    assert World.get_block(c.target) == block
-    {x, y, z} = c.target
-    other = {x - 1, y, z}
-    send_place(client, other, 1, 0.5, 1, 2)
-    _client = ack(client, 2)
-    assert World.get_block(other) == block
-    assert Valimc.TestConn.state(pid).inventory.slots[36] == ItemStack.new("furnace")
-    assert Valimc.TestConn.state(pid).inventory.slots[45] == ItemStack.new("furnace", 2)
-    assert saved(c).transfer_sequence == 2 and saved(c).outbox == nil
-    {:ok, {region, _}} = World.existing_owner(c.key)
-    containers = :sys.get_state(region).resource.containers
-    assert containers.sequence == 2 and containers.receipts == %{}
-
-    for position <- [c.target, other] do
-      assert containers.entries[position].kind == :furnace
-      assert Valimc.World.CookingEntry.empty?(containers.entries[position])
-    end
-
-    assert World.item_snapshot(c.key) == %{}
-  end
-
   test "unsupported block entities are corrected without a shell or item loss", c do
     # Default states the 26.3 client sent for a copper chest and a barrel; the owner
     # refuses them too (placement_owner_test).

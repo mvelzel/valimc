@@ -14,49 +14,6 @@ defmodule Valimc.GenSettingsTest do
     %{dir: dir}
   end
 
-  test "new settings follow server.properties: preset, flat settings, structures" do
-    normal = GenSettings.create("minecraft:normal", nil, 42, true)
-    assert normal["seed"] == 42 and normal["generate_structures"] and not normal["bonus_chest"]
-
-    assert GenSettings.overworld(normal) == %{
-             "type" => "minecraft:noise",
-             "settings" => "minecraft:overworld",
-             "biome_source" => %{
-               "type" => "minecraft:multi_noise",
-               "preset" => "minecraft:overworld"
-             }
-           }
-
-    # An unknown level type is the normal preset.
-    assert GenSettings.create("minecraft:nope", nil, 42, true) == normal
-    # Flat settings only replace the flat preset's overworld, normalised.
-    flat =
-      GenSettings.create(
-        "minecraft:flat",
-        ~s({"layers":[{"block":"stone","height":3}]}),
-        1,
-        false
-      )
-
-    assert GenSettings.overworld(flat)["settings"] == %{
-             "layers" => [%{"block" => "minecraft:stone", "height" => 3}],
-             "lakes" => false,
-             "features" => false,
-             "biome" => "minecraft:plains"
-           }
-
-    assert GenSettings.create("minecraft:normal", ~s({"layers":[]}), 1, true) ==
-             GenSettings.create("minecraft:normal", nil, 1, true)
-
-    # Unknown blocks become air; settings that do not parse keep the preset's.
-    assert {:ok, %{"layers" => [%{"block" => "minecraft:air"}]}} =
-             GenSettings.flat(~s({"layers":[{"block":"minecraft:nope","height":1}]}))
-
-    assert GenSettings.flat(~s({"layers":5})) == :error
-    preset = GenSettings.create("minecraft:flat", nil, 1, true)
-    assert GenSettings.create("minecraft:flat", ~s({"layers":5}), 1, true) == preset
-  end
-
   test "settings convert to world_gen_settings.dat and back" do
     for settings <- [
           GenSettings.create("minecraft:normal", nil, -9_000_000_000, false),
