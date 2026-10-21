@@ -2,6 +2,9 @@ alias Valimc.{GameMode, Protocol.Data, Protocol.Packets}
 [input, output] = System.argv()
 Data.load!()
 native = input |> File.read!() |> JSON.decode!()
+# The server distances the native login packets carry (VMC-070).
+Application.put_env(:valimc, :view_distance, native["view_distance"])
+Application.put_env(:valimc, :simulation_distance, native["simulation_distance"])
 
 results =
   for c <- native["logins"] do

@@ -23,6 +23,7 @@ public class GameModeOracle {
   private static String hex(RegistryFriendlyByteBuf buf) {
     byte[] bytes=new byte[buf.readableBytes()];buf.getBytes(buf.readerIndex(),bytes);return HexFormat.of().formatHex(bytes);
   }
+  private static final int VIEW_DISTANCE=10,SIMULATION_DISTANCE=10;
   public static void main(String[] args) throws Exception {
     SharedConstants.tryDetectVersion();Bootstrap.bootStrap();
     var lookup=VanillaRegistries.createWorldLookup().lookupOrThrow(Registries.DIMENSION_TYPE);
@@ -36,7 +37,8 @@ public class GameModeOracle {
     for(var current:GameType.values()) for(int previous=-1;previous<4;previous++) {
       var prior=previous==-1?Optional.<GameType>empty():Optional.of(GameType.byId(previous));
       var spawn=new CommonPlayerSpawnInfo(overworld,Level.OVERWORLD,0L,current,prior,false,true,Optional.empty(),0,63);
-      var login=new ClientboundLoginPacket(42,false,Set.of(Level.OVERWORLD),512,3,3,false,true,false,spawn,false,false);
+      // Vanilla's default view-distance and simulation-distance (VMC-070).
+      var login=new ClientboundLoginPacket(42,false,Set.of(Level.OVERWORLD),512,VIEW_DISTANCE,SIMULATION_DISTANCE,false,true,false,spawn,false,false);
       var buf=buffer();try {
         ClientboundLoginPacket.STREAM_CODEC.encode(buf,login);
         var c=new JsonObject();c.addProperty("current",current.getId());c.addProperty("previous",previous);
@@ -51,6 +53,7 @@ public class GameModeOracle {
         var c=new JsonObject();c.addProperty("id",id);c.addProperty("mode",request.mode().getId());requests.add(c);
       } finally {buf.release();}
     }
+    output.addProperty("view_distance",VIEW_DISTANCE);output.addProperty("simulation_distance",SIMULATION_DISTANCE);
     output.add("logins",logins);output.add("requests",requests);Files.writeString(Path.of(args[0]),new Gson().toJson(output));
     System.out.println("PASS: 20 native current/previous-mode login packets and nine request enum boundaries.");
   }
