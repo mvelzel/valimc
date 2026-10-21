@@ -88,8 +88,14 @@ defmodule Valimc.WorldgenProtoOwnerTest do
     Map.new(regions, fn region ->
       own = Enum.map(Proto.chunks_of(region), &images[&1])
       {:ok, full} = Native.worldgen_proto_full(worldgen, own, Generator.protocol_biomes())
-      {region, full}
+      {region, lit(full)}
     end)
+  end
+
+  # Full chunks as the proto owner stores them: each lit alone (VMC-077c).
+  defp lit(full) do
+    lit = Valimc.World.Blocks.lit_images(Map.new(full, &{{&1.x, &1.z}, &1.image}), true)
+    Enum.map(full, &%{&1 | image: Map.fetch!(lit, {&1.x, &1.z})})
   end
 
   # The terrain of the regions' 12 × 12 areas, computed once per set.
@@ -217,7 +223,7 @@ defmodule Valimc.WorldgenProtoOwnerTest do
           Generator.protocol_biomes()
         )
 
-      assert ours == want
+      assert ours == lit(want)
     end
 
     # Only what the two batches needed was decorated; the rest of the region

@@ -73,7 +73,13 @@ defmodule Valimc.DecoratedWorldTest do
     images = Map.merge(images, Map.new(touched, fn {x, z, image} -> {{x, z}, image} end))
     own = Enum.map(Proto.chunks_of(key), &images[&1])
     {:ok, full} = Native.worldgen_proto_full(worldgen, own, Generator.protocol_biomes())
-    full
+    lit(full)
+  end
+
+  # Full chunks as the proto owner stores them: each lit alone (VMC-077c).
+  defp lit(full) do
+    lit = Valimc.World.Blocks.lit_images(Map.new(full, &{{&1.x, &1.z}, &1.image}), true)
+    Enum.map(full, &%{&1 | image: Map.fetch!(lit, {&1.x, &1.z})})
   end
 
   # Under load a region's start can take longer than a call's default timeout.
