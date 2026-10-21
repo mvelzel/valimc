@@ -75,19 +75,30 @@ through `setup {Module, :scope}`, so the rest of the file stays concurrent.
 Rust code lives in `native/` (`valimc_core` pure crate, `valimc_nif` Rustler shim,
 built by `use Rustler` in `Valimc.Native`). Run `cargo fmt --check` there too.
 
-Vanilla oracles compare Elixir output with the pinned Mojang jar. Run one stage,
-or every stage in parallel (compiles all oracles once, collects every failure,
-logs under `.local/vanilla-checks/`):
+Vanilla oracles compare Elixir output with the pinned Mojang jar. Run named
+stages, or every stage in parallel (compiles all oracles once, collects every
+failure, logs under `.local/vanilla-checks/`):
 
 ```sh
-python3 scripts/check_vanilla.py --only pose_fit
-python3 scripts/check_vanilla.py --jobs 6
+python3 scripts/check_vanilla.py --only player_fit,player_pose
+python3 scripts/check_vanilla.py --only 'worldgen_structure_placement*' --only tcp
+python3 scripts/check_vanilla.py --list
 python3 scripts/check_vanilla.py --audit
 ```
 
+`--only` takes exact stage names, comma-separated or repeated; only a name with
+`*`, `?` or `[` is a glob, and a name that matches no stage is an error. `tcp` is the
+official-codec session against plain and encrypted servers; a full run includes it
+unless `--skip-tcp`. Stages start longest first, ordered by the durations of earlier
+runs (`.local/oracle-cache/timings.json` in the main checkout, shared by worktrees;
+`--list` shows them). The all-core oracles run one at a time, sized to the cores the
+other jobs leave. A run of more than six stages takes a heavy-job slot itself, so
+`heavy.py` is optional for it; smaller `--only` runs take none.
+
 Register every new `scripts/*Oracle.java` or `scripts/check_*.exs` in
 `scripts/vanilla_stages.py`; `--audit` fails otherwise. The runner compiles into a
-private build directory, so editing code during a run cannot change its result.
+private build directory, so editing code during a run cannot change its result. A
+worktree without its own `research/vanilla-bundle` or JDK uses the main checkout's.
 
 At a milestone boundary, run the broad gate in the background and fix failures:
 

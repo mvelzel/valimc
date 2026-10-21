@@ -17,7 +17,25 @@ fails on unregistered scripts.
 HELPERS = {
     "ProtocolMetadata": "registry/tag generator used by generate_protocol.py",
     "EntityMetadata": "entity metadata generator used by generate_protocol.py",
-    "VanillaOracle": "official-codec TCP client used by the final transport stage",
+    "VanillaOracle": "official-codec TCP client used by the `tcp` stage",
+}
+
+# Oracles that fill every core with their own thread pool. One runs at a time, with
+# `-XX:ActiveProcessorCount` set to the cores the run's other jobs leave free.
+THREADED = {'SupportOracle', 'ShapeOracle'}
+
+# Wall seconds of the heaviest stages (October 2026, five jobs on ten cores), used to
+# order a run until `.local/oracle-cache/timings.json` has measured ones; others 15 s.
+ESTIMATES = {
+    'worldgen_survival': 986, 'place': 703, 'worldgen_shapes': 695, 'worldgen_decoration': 671,
+    'worldgen_structures': 620, 'support': 534, 'locate': 386, 'worldgen_structure_placement_jigsaw': 327,
+    'worldgen_structure_placement': 310, 'worldgen_live_structures': 290, 'spawn': 283, 'world_settings': 185,
+    'collision_metadata': 182, 'anvil_content': 143, 'worldgen_structure_placement_pieces': 92,
+    'chunk_sections': 90, 'worldgen_live': 88, 'light': 87, 'worldgen_datapack': 82, 'worldgen_biomes': 79,
+    'region_files': 72, 'worldgen_decoration_nether': 67, 'player_motion_persistence': 66, 'interaction_range': 64,
+    'block_collision': 60, 'table_crafting': 60, 'worldgen_carvers': 59, 'worldgen_live_structures_nether': 57,
+    'worldgen_structure_placement_mansion': 57, 'worldgen_surface': 56, 'table_menu_click': 56,
+    'worldgen_facts': 54, 'world_upgrade': 53, 'item_food': 48, 'potion': 48, 'voxel_intersection': 46,
 }
 
 STAGES = [

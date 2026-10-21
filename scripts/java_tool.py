@@ -5,11 +5,14 @@ All `scripts/*.java` sources compile together in one javac call (so shared helpe
 need no dependency list) and only when a source is newer than the last build.
 """
 import os, pathlib, subprocess, sys
+from heavy import main_checkout
 from java_runtime import java_home as find_java_home
 from pinned import VERSION
 
 root = pathlib.Path(__file__).resolve().parent.parent
-bundle = root / 'research/vanilla-bundle'
+# A worktree without its own extracted bundle uses the main checkout's (`prepare_vanilla.py`).
+bundle = next((path for path in (root / 'research/vanilla-bundle', main_checkout() / 'research/vanilla-bundle')
+               if (path / f'versions/{VERSION}/server-{VERSION}.jar').exists()), root / 'research/vanilla-bundle')
 tools = root / 'research/java-tools'
 stamp = tools / '.compiled'
 # `Math.sin` and `Math.cos` as `StrictMath` gives them (fdlibm), not as this JVM's

@@ -1,11 +1,13 @@
 """Locate Java 25+ for optional protocol research/validation tools."""
 import os, pathlib, re, shutil, subprocess
+from heavy import main_checkout
 
 def java_home():
     requested = os.environ.get('VALIMC_JAVA_HOME')
     candidates = [requested] if requested else [
         os.environ.get('JAVA_HOME'),
         str(pathlib.Path(__file__).resolve().parent.parent / '.local/toolchains/jdk/Contents/Home'),
+        str(main_checkout() / '.local/toolchains/jdk/Contents/Home'),
         str(pathlib.Path(shutil.which('javac') or '/usr/bin/javac').resolve().parent.parent)]
     for candidate in candidates:
         if not candidate:
