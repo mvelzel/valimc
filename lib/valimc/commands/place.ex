@@ -166,6 +166,12 @@ defmodule Valimc.Commands.Place do
       _flat when kind == "structure" ->
         Error.refuse!("Placing structures in flat worlds is not supported yet")
 
+      # A jigsaw needs the structure registry, which fixed biome sources lack;
+      # it reads the overworld's only for template pools and level bounds.
+      _flat when kind == "jigsaw" ->
+        {:ok, state} = Valimc.World.Generator.worldgen(0)
+        {state, "minecraft:overworld"}
+
       _flat ->
         {:ok, state} = Valimc.World.Generator.worldgen(0)
         {state, "fixed:minecraft:plains"}
@@ -195,43 +201,45 @@ defmodule Valimc.Commands.Place do
   end
 
   # Blocks per region at the revision their images were read at (a change in
-  # between refuses rather than overwriting it), then the block entities.
+  # between refuses rather than overwriting it), then the block entities. The
+  # blocks of placed block entities may be types ValiMC does not model: their
+  # records follow, as generation writes them.
   defp write!(blocks, entities, revisions) do
     edits = Map.new(blocks)
+    entity_positions = MapSet.new(entities, & &1.position)
+    region_of = fn {{x, _, z}, _} -> Valimc.World.region_key(Valimc.World.chunk_key(x, z)) end
 
-    for {key, group} <-
-          Enum.group_by(edits, fn {{x, _, z}, _} ->
-            Valimc.World.region_key(Valimc.World.chunk_key(x, z))
-          end) do
+    entries =
+      case Valimc.Worldgen.FullChunk.block_entities(entities, %{}) do
+        {:ok, entries} ->
+          entries
+
+        {:error, reason} ->
+          Logger.warning("/place block entities not converted: #{inspect(reason)}")
+          %{}
+      end
+
+    for {key, group} <- Enum.group_by(edits, region_of) do
       {owner, revision} = Map.fetch!(revisions, key)
 
       Enum.reduce(Enum.chunk_every(group, 4096), revision, fn batch, revision ->
-        case Valimc.World.Region.set_blocks(owner, revision, Map.new(batch)) do
+        case Valimc.World.Region.set_blocks(owner, revision, Map.new(batch), entity_positions) do
           {:ok, revision} -> revision
           {:error, reason} -> Error.refuse!("Placing could not change the world (#{reason})")
         end
       end)
     end
 
-    case Valimc.Worldgen.FullChunk.block_entities(entities, %{}) do
-      {:ok, entries} ->
-        for {key, group} <-
-              Enum.group_by(entries, fn {{x, _, z}, _} ->
-                Valimc.World.region_key(Valimc.World.chunk_key(x, z))
-              end) do
-          {owner, _} = Map.fetch!(revisions, key)
+    for {key, group} <- Enum.group_by(entries, region_of) do
+      {owner, _} = Map.fetch!(revisions, key)
 
-          case Valimc.World.Region.put_block_entities(owner, Map.new(group)) do
-            {:ok, _} ->
-              :ok
+      case Valimc.World.Region.put_block_entities(owner, Map.new(group)) do
+        {:ok, _} ->
+          :ok
 
-            {:error, reason} ->
-              Logger.warning("/place block entities not written: #{inspect(reason)}")
-          end
-        end
-
-      {:error, reason} ->
-        Logger.warning("/place block entities not converted: #{inspect(reason)}")
+        {:error, reason} ->
+          Logger.warning("/place block entities not written: #{inspect(reason)}")
+      end
     end
 
     :ok

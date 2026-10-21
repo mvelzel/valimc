@@ -41,6 +41,13 @@ defmodule Valimc.PlaceConnectionTest do
 
     assert Valimc.World.get_block({20, 64, 4}) == Valimc.Registry.Blocks.default_state("oak_log")
     client = command(client, "place structure minecraft:igloo", "not supported yet")
+    # A town centre holds a bell and other block entities ValiMC keeps as data.
+    client =
+      command(
+        client,
+        "place jigsaw minecraft:village/plains/town_centers minecraft:bottom 1 8 64 40",
+        "commands.place.jigsaw.success"
+      )
 
     client =
       command(

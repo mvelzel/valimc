@@ -1474,7 +1474,10 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  def handle_call({:set_blocks, epoch, revision, %BlockBatch{} = batch}, _from, state) do
+  def handle_call({:set_blocks, epoch, revision, %BlockBatch{} = batch}, from, state),
+    do: handle_call({:set_blocks, epoch, revision, batch, MapSet.new()}, from, state)
+
+  def handle_call({:set_blocks, epoch, revision, %BlockBatch{} = batch, entities}, _from, state) do
     cond do
       epoch != state.items.epoch ->
         {:reply, {:error, :stale_owner}, state}
@@ -1489,7 +1492,7 @@ defmodule Valimc.World.RegionData do
         {:reply, {:error, :mining_storage_busy}, state}
 
       true ->
-        case block_proposal(state, batch) do
+        case block_proposal(state, batch, [], entities) do
           {:ok, proposal} ->
             next = publish_blocks(state, batch, proposal, true)
             {:reply, {:ok, next.revision}, next}
@@ -2742,7 +2745,7 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  defp block_proposal(state, batch, removed \\ []) do
+  defp block_proposal(state, batch, removed \\ [], entities \\ MapSet.new()) do
     cond do
       protected_container_change?(state, batch.edits, removed) ->
         {:error, :occupied_container}
@@ -2750,8 +2753,12 @@ defmodule Valimc.World.RegionData do
       preserved_change?(state, batch.edits) ->
         {:error, :unsupported_block_entity}
 
-      # Without an owned record the block would be an empty, invisible shell.
-      Enum.any?(batch.edits, fn {_, block} -> Valimc.Physics.BlockEntities.unsupported?(block) end) ->
+      # Without an owned record the block would be an empty, invisible shell,
+      # unless the caller writes its record next.
+      Enum.any?(batch.edits, fn {position, block} ->
+        Valimc.Physics.BlockEntities.unsupported?(block) and
+            not MapSet.member?(entities, position)
+      end) ->
         {:error, :unsupported_block_entity}
 
       true ->

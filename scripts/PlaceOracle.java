@@ -118,6 +118,8 @@ public class PlaceOracle {
         cases.add(new Case("feature", List.of(feature), 0, 1f, false, pos, next++, spot[0] - 2, spot[1] - 2, 5));
       }
       cases.add(new Case("feature", List.of("minecraft:ore_iron"), 0, 1f, false, pos.below(30), next++, spot[0] - 2, spot[1] - 2, 5));
+      // In mid-air: a configured tree checks no soil (its placed feature's filters do).
+      cases.add(new Case("feature", List.of("minecraft:oak"), 0, 1f, false, pos.above(40), next++, spot[0] - 2, spot[1] - 2, 5));
       cases.add(new Case("feature", List.of("minecraft:monster_room"), 0, 1f, false, pos.below(25), next++, spot[0] - 2, spot[1] - 2, 5));
       cases.add(new Case("template", List.of("minecraft:igloo/top", "none", "none"), 0, 1f, false, pos, next++, spot[0] - 1,
           spot[1] - 1, 3));

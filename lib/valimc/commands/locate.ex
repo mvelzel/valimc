@@ -31,7 +31,9 @@ defmodule Valimc.Commands.Locate do
     {state, biome_source} =
       case Valimc.World.Generator.spec(Valimc.config(:world_path)) do
         {:ok, %{kind: :noise} = spec} ->
-          {:ok, state} = Valimc.World.Generator.worldgen(spec.seed, spec.noise_settings, spec.facts)
+          {:ok, state} =
+            Valimc.World.Generator.worldgen(spec.seed, spec.noise_settings, spec.facts)
+
           {state, spec.biome_source}
 
         _ ->
