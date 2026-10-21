@@ -619,7 +619,8 @@ def main():
         old.unlink()
     warm_guess = {name: name != TCP and runner.probably_warm(steps_of[name]) for name in names}
     estimate = {name: timings.estimate(name, warm_guess[name]) for name in names}
-    units = schedule(names, steps_of, warm_guess, estimate, opts.no_batch)
+    # The TCP sessions run last, alone: their packet waits time out beside heavy stages.
+    units = schedule([n for n in names if n != TCP], steps_of, warm_guess, estimate, opts.no_batch)
 
     def run(unit):
         try:
@@ -647,20 +648,25 @@ def main():
         not warm_guess.get(name, True) and any(s[0] in ORACLE_KINDS and s[1] in THREADED for s in steps_of[name])
         for name in unit if name != TCP)]
     lane = cf.ThreadPoolExecutor(1) if threaded and opts.jobs > 1 else None
+    def report(results):
+        for name, ok, warm, skipped, seconds in results:
+            if ok and not skipped:
+                timings.record(name, seconds, warm)
+            note = f', {skipped} regeneration step{"s" * (skipped > 1)} not verified' if skipped else ''
+            print(f'{"PASS" if ok else "FAIL"} {name} ({seconds:.1f}s{note})', flush=True)
+            if not ok:
+                failed.append(name)
+            elif skipped:
+                unverified.append(name)
+
     with cf.ThreadPoolExecutor(opts.jobs - 1 if lane else opts.jobs) as pool:
         futures = [(lane if lane and unit in threaded else pool).submit(run, unit) for unit in units]
         for future in cf.as_completed(futures):
-            for name, ok, warm, skipped, seconds in future.result():
-                if ok and not skipped:
-                    timings.record(name, seconds, warm)
-                note = f', {skipped} regeneration step{"s" * (skipped > 1)} not verified' if skipped else ''
-                print(f'{"PASS" if ok else "FAIL"} {name} ({seconds:.1f}s{note})', flush=True)
-                if not ok:
-                    failed.append(name)
-                elif skipped:
-                    unverified.append(name)
+            report(future.result())
     if lane:
         lane.shutdown()
+    if TCP in names:
+        report(run([TCP]))
     timings.save()
     if private:
         private.cleanup()
