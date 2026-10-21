@@ -36,9 +36,11 @@ public class GameModeOracle {
     var output=new JsonObject();var logins=new JsonArray();var requests=new JsonArray();
     for(var current:GameType.values()) for(int previous=-1;previous<4;previous++) {
       var prior=previous==-1?Optional.<GameType>empty():Optional.of(GameType.byId(previous));
+      // A server's levels in creation order (MinecraftServer.levelKeys); the Nether and the End are live (VMC-026b).
+      var levels=new java.util.LinkedHashSet<>(List.of(Level.OVERWORLD,Level.NETHER,Level.END));
       var spawn=new CommonPlayerSpawnInfo(overworld,Level.OVERWORLD,0L,current,prior,false,true,Optional.empty(),0,63);
       // Vanilla's default view-distance and simulation-distance (VMC-070).
-      var login=new ClientboundLoginPacket(42,false,Set.of(Level.OVERWORLD),512,VIEW_DISTANCE,SIMULATION_DISTANCE,false,true,false,spawn,false,false);
+      var login=new ClientboundLoginPacket(42,false,levels,512,VIEW_DISTANCE,SIMULATION_DISTANCE,false,true,false,spawn,false,false);
       var buf=buffer();try {
         ClientboundLoginPacket.STREAM_CODEC.encode(buf,login);
         var c=new JsonObject();c.addProperty("current",current.getId());c.addProperty("previous",previous);
