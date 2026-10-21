@@ -616,6 +616,63 @@ fn region_biome(
     with_store(&region, |store| Ok(store.noise_biome(quart, default_biome)))
 }
 
+/// Column images by chunk as terms.
+type ImageTerms<'a> = Vec<(i32, i32, Term<'a>)>;
+
+/// `/fillbiome` (VMC-053j4): the changed cell count and the new column
+/// images of `chunks`, without changing the region.
+#[rustler::nif]
+#[allow(clippy::too_many_arguments)]
+fn fill_biomes<'a>(
+    env: Env<'a>,
+    region: ResourceArc<Region>,
+    chunks: Vec<(i32, i32)>,
+    min: (i32, i32, i32),
+    max: (i32, i32, i32),
+    biome: u16,
+    filter: Option<Vec<u16>>,
+    default_biome: u16,
+) -> Result<(u32, ImageTerms<'a>), Atom> {
+    let (count, images) = with_store(&region, |store| {
+        store
+            .fill_biomes(
+                &chunks,
+                [min.0, min.1, min.2],
+                [max.0, max.1, max.2],
+                biome,
+                filter.as_deref(),
+                default_biome,
+            )
+            .map_err(error)
+    })?;
+    Ok((
+        count,
+        images
+            .into_iter()
+            .map(|((x, z), image)| (x, z, binary(env, &image)))
+            .collect(),
+    ))
+}
+
+/// A chunk's biome containers for `chunks_biomes` (VMC-053j4).
+#[rustler::nif]
+fn encode_biomes<'a>(
+    env: Env<'a>,
+    region: ResourceArc<Region>,
+    cx: i32,
+    cz: i32,
+    default_biome: u32,
+    biome_bits: u32,
+    window: (usize, usize),
+) -> Result<Term<'a>, Atom> {
+    let bytes = with_store(&region, |store| {
+        store
+            .encode_biomes((cx, cz), default_biome, biome_bits, window)
+            .map_err(error)
+    })?;
+    Ok(binary(env, &bytes))
+}
+
 /// The region-log image of a chunk's column (VMC-021c), or `flat` for the base profile.
 #[rustler::nif]
 fn column_image<'a>(

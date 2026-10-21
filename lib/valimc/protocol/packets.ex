@@ -379,6 +379,16 @@ defmodule Valimc.Protocol.Packets do
     packet("entity_event", <<entity_id::signed-32, Valimc.Permissions.entity_event(level)>>)
   end
 
+  @doc "`ClientboundChunksBiomesPacket`: per chunk its packed position and biome containers."
+  def chunks_biomes(entries) do
+    packet("chunks_biomes", [
+      Wire.varint(length(entries)),
+      for {{x, z}, bytes} <- entries do
+        <<z::signed-32, x::signed-32>> |> then(&[&1, Wire.varint(byte_size(bytes)), bytes])
+      end
+    ])
+  end
+
   def center({x, z}), do: packet("set_chunk_cache_center", [Wire.varint(x), Wire.varint(z)])
   def unload({x, z}), do: packet("forget_level_chunk", <<z::signed-32, x::signed-32>>)
   def chat(text), do: packet("system_chat", [Wire.text_component(text), <<0>>])

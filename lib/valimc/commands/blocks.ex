@@ -146,6 +146,59 @@ defmodule Valimc.Commands.Blocks do
     :ok
   end
 
+  # ---- fillbiome ----
+
+  @doc "`/fillbiome <from> <to> <biome> [replace <filter>]` (VMC-053j4)."
+  def fillbiome(%{"from" => from, "to" => to, "biome" => biome} = arguments, source) do
+    {ax, ay, az} = loaded!(source, from)
+    {bx, by, bz} = loaded!(source, to)
+    # `quantize`: down to the corner of the biome cell.
+    q = fn v -> Bitwise.band(v, -4) end
+    min = {q.(min(ax, bx)), q.(min(ay, by)), q.(min(az, bz))}
+    max = {q.(max(ax, bx)), q.(max(ay, by)), q.(max(az, bz))}
+    {x0, y0, z0} = min
+    {x1, y1, z1} = max
+    volume = (x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1)
+    if volume > @limit, do: Error.fail!("commands.fillbiome.toobig", [@limit, {:long, volume}])
+
+    id = fn name -> Valimc.Protocol.Data.registry_id("minecraft:worldgen/biome", name) end
+
+    filter =
+      case arguments["filter"] do
+        nil -> nil
+        {:resource, name} -> [id.(name)]
+        {:tag, _, members} -> members
+      end
+
+    chunks =
+      for cz <- Integer.floor_div(z0, 16)..Integer.floor_div(z1, 16),
+          cx <- Integer.floor_div(x0, 16)..Integer.floor_div(x1, 16),
+          do: {cx, cz}
+
+    count =
+      chunks
+      |> Enum.group_by(&Valimc.World.region_key/1)
+      |> Enum.reduce(0, fn {key, group}, count ->
+        with {:ok, owner} <- Valimc.World.owner(key),
+             {:ok, changed} <-
+               Valimc.World.Region.fill_biomes(owner, group, {min, max}, id.(biome), filter) do
+          count + changed
+        else
+          {:error, :chunk_generating} -> Error.fail!("argument.pos.unloaded")
+          _ -> Error.fail!("argument.pos.unloaded")
+        end
+      end)
+
+    if count == 0, do: Error.fail!("commands.fillbiome.no_changes")
+
+    Feedback.success(
+      source,
+      Text.translatable("commands.fillbiome.success.count", [count, x0, y0, z0, x1, y1, z1])
+    )
+
+    {count, source.state}
+  end
+
   # ---- forceload ----
 
   defp column(source, coordinates) do

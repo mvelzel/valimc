@@ -116,6 +116,30 @@ defmodule Valimc.World.Blocks do
     end
   end
 
+  @doc """
+  `/fillbiome` (VMC-053j4): sets the biome cells of `chunks` inside the block box
+  `{min, max}` (whose biome is in `filter`, nil for any) to `biome` at once;
+  `{:ok, {changed_cells, [{cx, cz, image}]}}`, the images to persist.
+  """
+  def fill_biomes(%__MODULE__{} = blocks, chunks, {min, max}, biome, filter) do
+    plains = Data.registry_id("minecraft:worldgen/biome", "minecraft:plains")
+    Native.fill_biomes(blocks.ref, chunks, min, max, biome, filter, plains)
+  end
+
+  @doc "A chunk's biome containers as `chunks_biomes` carries them."
+  def encode_biomes(%__MODULE__{} = blocks, {cx, cz}) do
+    plains = Data.registry_id("minecraft:worldgen/biome", "minecraft:plains")
+
+    Native.encode_biomes(
+      blocks.ref,
+      cx,
+      cz,
+      plains,
+      Data.global_biome_bits(),
+      Valimc.Dimension.section_window()
+    )
+  end
+
   @doc "A chunk's column image for the region log, or `:flat` for the base profile."
   def column_image(%__MODULE__{} = blocks, {cx, cz}) do
     case Native.column_image(blocks.ref, cx, cz) do

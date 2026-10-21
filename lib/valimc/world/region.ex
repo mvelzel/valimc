@@ -83,6 +83,15 @@ defmodule Valimc.World.Region do
   def light_image({pid, epoch}, chunk) when is_pid(pid) and is_reference(epoch),
     do: GenServer.call(pid, {:light_image, epoch, chunk}, budget(pid, 1000))
 
+  @doc "`/fillbiome` in this region's `chunks` (VMC-053j4): `{:ok, changed_cells}`."
+  def fill_biomes({pid, epoch}, chunks, box, biome, filter)
+      when is_pid(pid) and is_reference(epoch) do
+    GenServer.call(pid, {:fill_biomes, epoch, chunks, box, biome, filter}, budget(pid, 2000))
+  catch
+    :exit, {:timeout, _} -> {:error, :biome_fill_timeout}
+    :exit, _ -> {:error, :region_unavailable}
+  end
+
   @doc "Column images of this region's `chunks` for `/place` (VMC-053)."
   def column_images({pid, epoch}, chunks) when is_pid(pid) and is_reference(epoch) do
     GenServer.call(pid, {:column_images, epoch, chunks}, budget(pid, 2000))

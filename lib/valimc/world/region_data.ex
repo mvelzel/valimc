@@ -1271,6 +1271,44 @@ defmodule Valimc.World.RegionData do
       else: {:reply, result, state}
   end
 
+  # `/fillbiome` (VMC-053j4): the biome change applies at once and its column
+  # images are persisted like generated ones (the store stops on a failure, so
+  # the owner restarts from the durable log); viewers get `chunks_biomes`.
+  def handle_call({:fill_biomes, epoch, chunks, box, biome, filter}, _from, state) do
+    cond do
+      epoch != state.items.epoch ->
+        {:reply, {:error, :stale_owner}, state}
+
+      Enum.any?(chunks, fn chunk -> Valimc.World.region_key(chunk) != state.key end) ->
+        {:reply, {:error, :wrong_region}, state}
+
+      absent_positions?(state, for({cx, cz} <- chunks, do: {cx * 16, 0, cz * 16})) ->
+        {:reply, {:error, :chunk_generating}, state}
+
+      true ->
+        case Blocks.fill_biomes(state.blocks, chunks, box, biome, filter) do
+          {:ok, {count, []}} ->
+            {:reply, {:ok, count}, state}
+
+          {:ok, {count, images}} ->
+            columns = Map.new(images, fn {cx, cz, image} -> {{cx, cz}, image} end)
+            owner = {self(), state.items.epoch}
+            parts = %{columns: columns, post_processing: %{}, block_entities: %{}, ticks: []}
+            Store.commit_generated(state.store, state.store_lease, parts, owner, make_ref())
+            changed = Map.keys(columns)
+            biomes = Map.new(changed, &{&1, Blocks.encode_biomes(state.blocks, &1)})
+
+            for {chunk, {:ok, bytes}} <- biomes,
+                do: Valimc.World.publish(state.key, {:chunks_biomes, [{chunk, bytes}]})
+
+            {:reply, {:ok, count}, light_changed(state, changed)}
+
+          {:error, reason} ->
+            {:reply, {:error, reason}, state}
+        end
+    end
+  end
+
   # `/place` (VMC-053): the column images of chunks of this region (`nil`
   # for the flat base profile), at the current revision; a chunk still
   # generating is not loaded.

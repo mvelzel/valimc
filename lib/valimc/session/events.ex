@@ -212,6 +212,15 @@ defmodule Valimc.Session.Events do
     |> Menus.check_table_menu()
   end
 
+  # `/fillbiome` (VMC-053j4): the new biomes of chunks this player has loaded.
+  def event(%{phase: :play} = state, {:chunks_biomes, entries}) do
+    entries =
+      for {chunk, bytes} <- entries, MapSet.member?(state.chunks, chunk), do: {chunk, bytes}
+
+    if entries != [], do: send_packets(state, [Packets.chunks_biomes(entries)])
+    state
+  end
+
   def event(%{phase: :play} = state, {:block_batch, updates}) do
     frames = for {chunk, frame} <- updates, MapSet.member?(state.chunks, chunk), do: frame
     send_frames(state, frames)

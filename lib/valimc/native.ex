@@ -26,6 +26,13 @@ defmodule Valimc.Native do
   def light_image(_region, _cx, _cz), do: :erlang.nif_error(:nif_not_loaded)
   def halo_put(_region, _chunks), do: :erlang.nif_error(:nif_not_loaded)
   def put_columns_lit(_region, _images), do: :erlang.nif_error(:nif_not_loaded)
+
+  def fill_biomes(_region, _chunks, _min, _max, _biome, _filter, _default),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def encode_biomes(_region, _cx, _cz, _default, _bits, _window),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def halo_edits(_region, _edits), do: :erlang.nif_error(:nif_not_loaded)
   def worldgen_random_trace(_kind, _seed, _ops), do: :erlang.nif_error(:nif_not_loaded)
 

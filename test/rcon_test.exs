@@ -21,7 +21,10 @@ defmodule Valimc.RconTest do
 
   defp reply(socket) do
     {:ok, <<length::little-32>>} = :gen_tcp.recv(socket, 4, 2000)
-    {:ok, <<id::little-signed-32, type::little-signed-32, rest::binary>>} = :gen_tcp.recv(socket, length, 2000)
+
+    {:ok, <<id::little-signed-32, type::little-signed-32, rest::binary>>} =
+      :gen_tcp.recv(socket, length, 2000)
+
     {id, type, binary_part(rest, 0, byte_size(rest) - 2)}
   end
 

@@ -914,6 +914,8 @@ defmodule Valimc.Commands do
       {Valimc.Commands.Place, :template},
     ["place", "template", "template", "pos", "rotation", "mirror", "integrity", "seed", "strict"] =>
       {Valimc.Commands.Place, :template_strict},
+    ["fillbiome", "from", "to", "biome"] => {BlockCommands, :fillbiome},
+    ["fillbiome", "from", "to", "biome", "replace", "filter"] => {BlockCommands, :fillbiome},
     ["version"] => {Admin, :version},
     ["kick", "targets"] => {Admin, :kick},
     ["kick", "targets", "reason"] => {Admin, :kick},

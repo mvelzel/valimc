@@ -52,4 +52,27 @@ defmodule Valimc.PlaceConnectionTest do
     _client =
       command(client, "place structure minecraft:nope", "commands.place.structure.invalid")
   end
+
+  test "fillbiome changes biome cells and resends them" do
+    {_, client} = Client.login(name("Biome"))
+    on_exit(fn -> Client.close(client) end)
+    client = Client.load_world(client)
+
+    Client.send_packet(
+      client,
+      :play,
+      "chat_command",
+      Wire.string("fillbiome 0 64 0 8 68 8 minecraft:desert")
+    )
+
+    {body, client} = Client.await(client, :play, "system_chat")
+    assert :binary.match(body, "commands.fillbiome.success.count") != :nomatch
+    {_, client} = Client.await(client, :play, "chunks_biomes")
+
+    client =
+      command(client, "fillbiome 0 64 0 8 68 8 minecraft:desert", "commands.fillbiome.no_changes")
+
+    _client =
+      command(client, "fillbiome 0 0 0 200 200 200 minecraft:desert", "commands.fillbiome.toobig")
+  end
 end

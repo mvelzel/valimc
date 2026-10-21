@@ -108,7 +108,7 @@ pub fn encode_section(
     encode_biomes(out, biomes, biome_bits);
 }
 
-fn encode_biomes(out: &mut Vec<u8>, biomes: SectionBiomes, biome_bits: u32) {
+pub fn encode_biomes(out: &mut Vec<u8>, biomes: SectionBiomes, biome_bits: u32) {
     let cells = match biomes {
         SectionBiomes::Uniform(biome) => {
             out.push(0);

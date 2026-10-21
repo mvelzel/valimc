@@ -11,6 +11,9 @@ pub const MIN_Y: i32 = -64;
 pub const HEIGHT: usize = 384;
 pub const SECTIONS: usize = HEIGHT / 16;
 
+/// Column images by chunk (`fill_biomes`).
+pub type ChunkImages = Vec<((i32, i32), Vec<u8>)>;
+
 /// Encoded chunk parts: section data, WORLD_SURFACE longs, MOTION_BLOCKING longs.
 pub type EncodedChunk = (Vec<u8>, Vec<u8>, Vec<u8>);
 
@@ -1013,6 +1016,94 @@ impl ColumnStore {
         } else {
             Err(StoreError::InvalidState)
         }
+    }
+
+    /// `/fillbiome` (VMC-053j4), vanilla's `FillBiomeCommand` resolver: in
+    /// `chunks`, every biome cell whose corner block lies in `min..=max` and
+    /// whose biome passes `filter` (`None`: any) becomes `biome`, at once. The
+    /// count of cells that changed and the column images of the chunks with
+    /// changes, for the owner to persist. Columns without stored biomes hold
+    /// `default_biome` everywhere.
+    #[allow(clippy::too_many_arguments)]
+    pub fn fill_biomes(
+        &mut self,
+        chunks: &[(i32, i32)],
+        min: [i32; 3],
+        max: [i32; 3],
+        biome: u16,
+        filter: Option<&[u16]>,
+        default_biome: u16,
+    ) -> Result<(u32, ChunkImages), StoreError> {
+        let mut count = 0;
+        let mut images = Vec::new();
+        for &chunk in chunks {
+            self.check_chunk(chunk)?;
+            let mut column = match self.columns.get(&chunk) {
+                Some(column) => column.clone(),
+                None => Column::from_layers(&self.layers),
+            };
+            let mut biomes: Vec<Biomes> = match column.biomes.take() {
+                Some(stored) => stored,
+                None => (0..SECTIONS)
+                    .map(|_| Biomes::Single(default_biome))
+                    .collect(),
+            };
+            let before = count;
+            for (section, cells) in biomes.iter_mut().enumerate() {
+                for i in 0..64usize {
+                    let qx = chunk.0 * 4 + (i & 3) as i32;
+                    let qz = chunk.1 * 4 + ((i >> 2) & 3) as i32;
+                    let qy = (MIN_Y >> 2) + section as i32 * 4 + (i >> 4) as i32;
+                    let corner = [qx * 4, qy * 4, qz * 4];
+                    let inside = (0..3).all(|a| corner[a] >= min[a] && corner[a] <= max[a]);
+                    let current = cells.get(i);
+                    if !inside || filter.is_some_and(|f| !f.contains(&current)) {
+                        continue;
+                    }
+                    if current != biome {
+                        count += 1;
+                        let mut all = match cells {
+                            Biomes::Single(b) => Box::new([*b; 64]),
+                            Biomes::Cells(c) => c.clone(),
+                        };
+                        all[i] = biome;
+                        *cells = if all.iter().all(|&b| b == all[0]) {
+                            Biomes::Single(all[0])
+                        } else {
+                            Biomes::Cells(all)
+                        };
+                    }
+                }
+            }
+            column.biomes = Some(biomes);
+            if count != before {
+                images.push((chunk, column.to_image()));
+                self.columns.insert(chunk, column);
+            }
+        }
+        Ok((count, images))
+    }
+
+    /// A chunk's biomes as `chunks_biomes` carries them: each of the stored
+    /// sections `first..first + count` as a biome container.
+    pub fn encode_biomes(
+        &self,
+        chunk: (i32, i32),
+        default_biome: u32,
+        biome_bits: u32,
+        (first, count): (usize, usize),
+    ) -> Result<Vec<u8>, StoreError> {
+        self.check_chunk(chunk)?;
+        let mut out = Vec::new();
+        let stored = self.columns.get(&chunk).and_then(|c| c.biomes.as_ref());
+        for s in first..first + count {
+            let biomes = match stored {
+                Some(stored) => wire::SectionBiomes::Stored(&stored[s]),
+                None => wire::SectionBiomes::Uniform(default_biome),
+            };
+            wire::encode_biomes(&mut out, biomes, biome_bits);
+        }
+        Ok(out)
     }
 
     /// The region-log image of a chunk's column, or `None` while it is the base profile.
