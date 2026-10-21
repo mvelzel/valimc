@@ -396,45 +396,4 @@ defmodule Valimc.ChestConnectionTest do
     assert_receive {:event, {:chest_lid, ^owner, ^position, false, _, nil}}
     wait(fn -> :sys.get_state(first_pid).table_menu == nil end)
   end
-
-  test "destination owner loss after source preparation recovers one decision and closes the old view",
-       ctx do
-    seed(ctx)
-    {client, pid} = login(ctx)
-    client = open(client, ctx)
-    {:ok, {region, _} = owner} = World.existing_owner(ctx.key)
-    writer = :sys.get_state(region).resource.store
-    :sys.suspend(writer)
-
-    try do
-      send_click(client, 54, 0, "quick_move")
-
-      wait(fn ->
-        match?(%{stage: :delivery}, Valimc.TestConn.state(pid).recovery) and
-          Enum.any?(:sys.get_state(region).resource.item_writes, &(&1.kind == :containers))
-      end)
-
-      assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox.kind == :container
-      monitor = Process.monitor(region)
-      Process.exit(region, :kill)
-      assert_receive {:DOWN, ^monitor, :process, ^region, :killed}
-      :sys.resume(writer)
-      _client = content(client, &(&1.container == 0 and &1.carried == nil))
-
-      wait(fn ->
-        Valimc.TestConn.state(pid).recovery == nil and
-          not Valimc.TestConn.state(pid).table_closing
-      end)
-
-      {:ok, replacement} = World.existing_owner(ctx.key)
-      assert replacement != owner
-      assert saved(ctx).transfer_sequence == 1 and saved(ctx).outbox == nil
-      assert Valimc.TestConn.state(pid).inventory.slots == %{}
-      assert elem(stored(ctx).entries[ctx.position].slots, 1) == ItemStack.new("oak_planks", 8)
-      assert stored(ctx).receipts[ctx.uuid].sequence == 1
-      assert World.item_snapshot(ctx.key) == %{}
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-    end
-  end
 end

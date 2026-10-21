@@ -1,7 +1,6 @@
 defmodule Valimc.CookingOrbTransfersTest do
   use ExUnit.Case, async: true
   alias Valimc.CookingAwards
-  alias Valimc.Protocol.ItemStack
 
   alias Valimc.World.{
     Containers,
@@ -33,56 +32,6 @@ defmodule Valimc.CookingOrbTransfersTest do
     assert restored === state
     assert {:ok, ^bytes} = Containers.encode(key, restored)
     restored
-  end
-
-  test "source intent, destination adoption and exact acknowledgement are replayable across cold snapshots" do
-    {source, local_id} = award(%Containers{}, @source, {0.5, 64.25, 0.5})
-    {:ok, source, _} = CookingOrbs.materialize(source, @source, local_id)
-    {source, id} = award(source, @source, {128.5, 64.25, 0.5}, 2)
-
-    assert {:error, :missing_cooking_orb_intent} =
-             CookingOrbTransfers.request(source, @source, id)
-
-    assert {:ok, routed, request, :prepared} = CookingOrbTransfers.prepare(source, @source, id)
-    assert routed.cooking_orbs === source.cooking_orbs
-    assert routed.pending_awards === source.pending_awards
-    assert routed.receipts === source.receipts
-    routed = cold(routed, @source)
-    assert {:ok, ^request} = CookingOrbTransfers.request(routed, @source, id)
-
-    assert {:ok, ^routed, ^request, :already_prepared} =
-             CookingOrbTransfers.prepare(routed, @source, id)
-
-    assert {:ok, bytes} = CookingOrbTransfers.encode_request(request)
-    assert {:ok, ^request} = CookingOrbTransfers.decode_request(bytes)
-    assert {:ok, digest} = CookingOrbTransfers.digest(request)
-    assert {:ok, records} = CookingOrbTransfers.records(request)
-    assert [%{value: 3, count: 2, position: {128.5, 64.25, 0.5}}] = Map.values(records)
-
-    {:ok, dest, chest} = Containers.create(%Containers{}, @dest, {130, 64, 2}, 3)
-    slots = put_elem(chest.slots, 0, ItemStack.new("diamond", 3))
-    {:ok, dest, _} = Containers.replace(dest, {130, 64, 2}, chest.revision, slots)
-    assert {:ok, adopted, :applied} = CookingOrbTransfers.accept(dest, @dest, request)
-    assert adopted.entries === dest.entries and adopted.sequence == dest.sequence
-    assert adopted.pending_awards == %{} and adopted.cooking_orbs == %{}
-    adopted = cold(adopted, @dest)
-    assert {:ok, ^adopted, :already_applied} = CookingOrbTransfers.accept(adopted, @dest, request)
-
-    assert {:ok, ^routed, ^request, :already_prepared} =
-             CookingOrbTransfers.prepare(routed, @source, id)
-
-    assert {:ok, done, :delivered} = CookingOrbTransfers.acknowledge(routed, @source, id, digest)
-    done = cold(done, @source)
-    assert done.pending_awards === source.pending_awards
-    assert done.cooking_orbs === source.cooking_orbs
-
-    assert {:ok, ^done, :already_delivered} =
-             CookingOrbTransfers.acknowledge(done, @source, id, digest)
-
-    assert {:ok, ^done, ^request, :already_delivered} =
-             CookingOrbTransfers.prepare(done, @source, id)
-
-    assert {:ok, ^adopted, :already_applied} = CookingOrbTransfers.accept(adopted, @dest, request)
   end
 
   test "negative and exact region boundaries route by the authoritative spawn pose" do

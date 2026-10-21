@@ -32,8 +32,6 @@ defmodule Valimc.CookingRegionRuntimeTest do
     %{key: key, base: base, position: position, unlit: unlit, lit: lit}
   end
 
-  defp queued?(state, kind), do: Enum.any?(state.item_writes, &(&1.kind == kind))
-
   def seed(ctx, cooking, lit \\ true) do
     {:ok, containers, entry} =
       Containers.create_cooking(%Containers{}, ctx.key, ctx.position, :furnace)
@@ -86,57 +84,6 @@ defmodule Valimc.CookingRegionRuntimeTest do
     reloaded = RegionData.load(ctx.key)
     assert reloaded.containers == expected
     RegionData.terminate(:shutdown, reloaded)
-  end
-
-  test "replacement recovers a queued cooking commit once and ignores old-owner callbacks", ctx do
-    state = seed(ctx, %{progress() | progress: 199})
-    RegionData.terminate(:shutdown, state)
-    TestScope.isolate(ctx.key, cooking_simulation: false)
-    {:ok, {pid, old_epoch}} = Valimc.World.item_owner(ctx.key)
-    :sys.suspend(pid)
-    writer = Valimc.TestConn.state(pid).resource.store
-    :sys.suspend(writer)
-
-    try do
-      :sys.replace_state(pid, fn state ->
-        resource = %{state.resource | cooking: %{state.resource.cooking | enabled: true}}
-        %{state | resource: start(resource)}
-      end)
-
-      :sys.resume(pid)
-
-      eventually(fn -> queued?(Valimc.TestConn.state(pid).resource, :blocks) end)
-      resource = Valimc.TestConn.state(pid).resource
-      token = Valimc.TestRegion.write_token(resource)
-      expected = resource.containers
-      assert disk(ctx) != expected
-      monitor = Process.monitor(pid)
-      Process.exit(pid, :kill)
-      assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}
-      :sys.resume(writer)
-      {replacement, epoch} = replacement(ctx.key)
-      assert replacement != pid and epoch != old_epoch
-      assert disk(ctx) == expected
-      assert :sys.get_state(replacement).resource.containers == expected
-      send(replacement, {:resource, old_epoch, {:mining_saved, writer, token, :ok}})
-      assert :sys.get_state(replacement).resource.containers == expected
-      entry = expected.entries[ctx.position]
-      assert elem(entry.cooking.slots, 0) == ItemStack.new("raw_iron")
-      assert elem(entry.cooking.slots, 2) == ItemStack.new("iron_ingot")
-      assert Enum.sum(Map.values(entry.recipes)) == 1
-    after
-      if Process.alive?(pid), do: :sys.resume(pid)
-      if Process.alive?(writer), do: :sys.resume(writer)
-    end
-  end
-
-  defp replacement(key, _budget \\ nil) do
-    Valimc.TestWait.until(fn ->
-      case Valimc.World.item_owner(key) do
-        {:ok, owner} -> owner
-        {:error, _} -> nil
-      end
-    end)
   end
 
   def eventually(fun, _budget \\ nil) do

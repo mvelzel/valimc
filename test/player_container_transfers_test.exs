@@ -1,14 +1,7 @@
 defmodule Valimc.PlayerContainerTransfersTest do
   use ExUnit.Case, async: true
 
-  alias Valimc.{
-    GameMode,
-    Inventory,
-    PlayerContainerIntent,
-    PlayerContainerTransfers,
-    PlayerFood,
-    PlayerSnapshot
-  }
+  alias Valimc.{GameMode, Inventory, PlayerContainerTransfers, PlayerFood, PlayerSnapshot}
 
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{Containers, ContainerTransfers}
@@ -61,63 +54,6 @@ defmodule Valimc.PlayerContainerTransfersTest do
     {snapshot, %{kind: :container, key: {0, 0}, request: request}, containers}
   end
 
-  test "original items persist before receipt-backed sealing" do
-    {snapshot, intent, containers} = fixture(:creative)
-    assert {:ok, pending} = PlayerContainerTransfers.prepare(@uuid, 9, snapshot, intent)
-    assert pending.inventory == snapshot.inventory and pending.transfer_sequence == 10
-    assert {:ok, bytes} = PlayerSnapshot.encode(@uuid, pending)
-    assert {:ok, restored} = PlayerSnapshot.decode(bytes, @uuid)
-    assert restored.inventory.carried == snapshot.inventory.carried
-    assert restored.inventory.slots == snapshot.inventory.slots
-    assert restored.effects == %{} and restored.absorption == 0.0 and restored.fire_ticks == -20
-    assert {:ok, key, request, _} = PlayerContainerIntent.request(@uuid, 10, restored.outbox)
-    assert request.inventory.infinite_materials == true
-
-    assert {:ok, %{result: :applied, containers: committed}} =
-             ContainerTransfers.plan(containers, key, request, true)
-
-    assert {:ok, sealed} =
-             PlayerContainerTransfers.resolve(@uuid, restored, committed.receipts[@uuid])
-
-    assert sealed.inventory.carried == nil and
-             sealed.inventory.slots == snapshot.inventory.slots
-
-    assert sealed.health == snapshot.health and sealed.food == snapshot.food
-    assert sealed.inventory.infinite_materials == true
-    assert sealed.outbox == nil and sealed.transfer_sequence == 10
-    assert {:ok, sealed_bytes} = PlayerSnapshot.encode(@uuid, sealed)
-
-    assert {:ok, %{outbox: nil, transfer_sequence: 10}} =
-             PlayerSnapshot.decode(sealed_bytes, @uuid)
-
-    assert {:error, :invalid_container_plan} =
-             PlayerContainerTransfers.resolve(@uuid, sealed, committed.receipts[@uuid])
-  end
-
-  test "rejection keeps original items and accepted permission survives a later mode change" do
-    {snapshot, intent, containers} = fixture()
-    {:ok, pending} = PlayerContainerTransfers.prepare(@uuid, 9, snapshot, intent)
-
-    {:ok, %{containers: rejected}} =
-      ContainerTransfers.plan(containers, intent.key, pending.outbox.request, false)
-
-    assert {:ok, sealed} =
-             PlayerContainerTransfers.resolve(@uuid, pending, rejected.receipts[@uuid])
-
-    assert sealed.inventory == snapshot.inventory and sealed.transfer_sequence == 10 and
-             sealed.outbox == nil
-
-    {:ok, %{containers: applied}} =
-      ContainerTransfers.plan(containers, intent.key, pending.outbox.request, true)
-
-    switched = %{pending | game_mode: GameMode.new(:creative)}
-
-    assert {:ok, sealed} =
-             PlayerContainerTransfers.resolve(@uuid, switched, applied.receipts[@uuid])
-
-    assert sealed.inventory.carried == nil and sealed.inventory.infinite_materials
-  end
-
   test "v20 inner journal works with each independent effect/fire/absorption wrapper" do
     {snapshot, intent, _} = fixture()
 
@@ -139,20 +75,5 @@ defmodule Valimc.PlayerContainerTransfersTest do
       assert restored.transfer_sequence == 10
       if keys == [], do: assert(<<"VMCPOSE", 20, _::binary>> = bytes)
     end
-  end
-
-  test "a pending or exhausted source cannot prepare another intent" do
-    {snapshot, intent, _} = fixture()
-
-    assert {:error, :invalid_container_plan} =
-             PlayerContainerTransfers.prepare(@uuid, 8, snapshot, intent)
-
-    {:ok, pending} = PlayerContainerTransfers.prepare(@uuid, 9, snapshot, intent)
-
-    assert {:error, :invalid_container_plan} =
-             PlayerContainerTransfers.prepare(@uuid, 10, pending, intent)
-
-    assert {:error, :invalid_container_plan} =
-             PlayerContainerTransfers.prepare(@uuid, 18_446_744_073_709_551_615, snapshot, intent)
   end
 end

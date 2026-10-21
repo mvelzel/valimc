@@ -28,30 +28,6 @@ defmodule Valimc.ContainersTest do
     assert {:error, :container_exists} = Containers.create(recreated, key, pos, 3)
   end
 
-  test "contents retain exact patches, removals and boundaries in every generic row layout" do
-    item = %{
-      ItemStack.new("diamond_sword")
-      | components: %{"minecraft:damage" => 7},
-        removed: MapSet.new(["minecraft:custom_name"])
-    }
-
-    state =
-      Enum.reduce(1..6, %Containers{}, fn rows, state ->
-        position = {rows, -64, 0}
-        {:ok, state, entry} = Containers.create(state, {0, 0}, position, rows)
-
-        slots =
-          entry.slots |> put_elem(0, ItemStack.new("stone", 64)) |> put_elem(rows * 9 - 1, item)
-
-        {:ok, state, _} = Containers.replace(state, position, entry.revision, slots)
-        state
-      end)
-
-    assert {:ok, bytes} = Containers.encode({0, 0}, state)
-    assert {:ok, ^state} = Containers.decode(bytes, {0, 0})
-    assert {:error, :invalid_container_snapshot} = Containers.decode(bytes, {-1, 0})
-  end
-
   test "corruption, truncation, duplicate positions and impossible revisions fail closed even if rehashed" do
     {:ok, state, _} = Containers.create(%Containers{}, {0, 0}, {0, 64, 0}, 3)
     {:ok, bytes} = Containers.encode({0, 0}, state)

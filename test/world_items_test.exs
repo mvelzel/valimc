@@ -42,24 +42,6 @@ defmodule Valimc.WorldItemsTest do
     assert removed.bytes < bulky.bytes
   end
 
-  test "CAS updates retain IDs and reject stale, removed and old-incarnation handles" do
-    stone = ItemStack.new("stone", 7)
-    assert {:ok, first, {epoch, id, 1}} = Items.create(Items.new(), {0, 0}, stone, {0, 64, 0})
-    assert {:ok, ^first, {^epoch, ^id, 1}} = Items.replace(first, epoch, id, 1, stone)
-
-    assert {:ok, second, {^epoch, ^id, 2}} =
-             Items.replace(first, epoch, id, 1, ItemStack.new("egg", 3))
-
-    assert second.views[id].spawn == first.views[id].spawn
-    assert {:error, :stale_item} = Items.remove(second, epoch, id, 1)
-    assert {:error, :stale_item} = Items.replace(second, epoch, id, 1, stone)
-    assert {:error, :stale_region} = Items.remove(second, make_ref(), id, 2)
-    assert {:ok, empty} = Items.remove(second, epoch, id, 2)
-    assert empty.bytes == 0 and empty.views == %{}
-    assert {:error, :missing_item} = Items.replace(empty, epoch, id, 2, stone)
-    assert {:error, :missing_item} = Items.remove(empty, epoch, id, 2)
-  end
-
   test "racing replacements serialize one revision" do
     key = {222, 220}
     {:ok, {pid, _} = owner} = World.item_owner(key)

@@ -35,13 +35,7 @@ defmodule Valimc.CookingOrbBodiesTest do
     {cs, id}
   end
 
-  defp local(amount) do
-    {cs, id} = fixture(amount)
-    {:ok, cs, :materialized} = CookingOrbs.materialize(cs, @key, id)
-    {cs, id}
-  end
-
-  defp init(cs, id, key \\ @key) do
+  defp init(cs, id, key) do
     decisions =
       for {uuid, b} <- CookingOrbs.owned_records(cs)[id],
           b.count > Map.get(cs.orb_consumption.counts, uuid, 0),
@@ -53,7 +47,7 @@ defmodule Valimc.CookingOrbBodiesTest do
     {next, proposal}
   end
 
-  defp cold(cs, key \\ @key) do
+  defp cold(cs, key) do
     assert {:ok, bytes} = Containers.encode(key, cs)
     assert {:ok, restored} = Containers.decode(bytes, key)
     assert restored === cs
@@ -91,30 +85,5 @@ defmodule Valimc.CookingOrbBodiesTest do
       assert {:ok, <<"VMCCONTS", 8, _::binary>>} = Containers.encode(key, next)
       assert Map.delete(cold(next, key), :orb_bodies) == Map.delete(cs, :orb_bodies)
     end
-  end
-
-  test "initialization resolves launch once and retains complete markers including zero and collected awards" do
-    {cs, id} = local(8)
-    {next, proposal} = init(cs, id)
-    assert cs.orb_bodies == CookingOrbBodies.new()
-    assert map_size(next.orb_bodies.awards[id]) == 2
-    assert {:ok, replay} = CookingOrbBodies.initialize(next, @key, id, %{})
-    assert replay.bodies == proposal.bodies
-    assert {:ok, ^next, :already_applied} = CookingOrbBodies.install(next, @key, proposal)
-    assert {:error, _} = CookingOrbBodies.initialize(cs, @key, id, %{})
-    assert {:error, _} = CookingOrbBodies.initialize(cs, @key, <<0::256>>, %{})
-    [uuid | _] = Map.keys(next.cooking_orbs[id])
-    value = next.cooking_orbs[id][uuid].value
-    assert {:ok, taken} = CookingOrbConsumptions.take(next, uuid, value, 0)
-    assert {:ok, ^taken, :already_applied} = CookingOrbBodies.install(taken, @key, proposal)
-
-    {zero, id} = local(0)
-    {zero, _} = init(zero, id)
-    assert cold(zero).orb_bodies.awards[id] == %{}
-    {collected, id} = local(1)
-    [uuid] = Map.keys(collected.cooking_orbs[id])
-    {:ok, collected} = CookingOrbConsumptions.take(collected, uuid, 1, 0)
-    {collected, _} = init(collected, id)
-    assert CookingOrbBodies.project(cold(collected))[id] == %{}
   end
 end

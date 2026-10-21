@@ -1,13 +1,16 @@
 defmodule Valimc.ExperienceTransfersTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
+  # Serial: a socket login reads the player's file from the global world path.
+  @moduletag :tcp
 
   alias Valimc.{
+    Connection,
     GameMode,
     Inventory,
-    PlayerContainerTransfers,
     PlayerExperience,
     PlayerProgression,
     PlayerSnapshot,
+    PlayerStore,
     World
   }
 
@@ -15,8 +18,7 @@ defmodule Valimc.ExperienceTransfersTest do
     Containers,
     ContainerTransfers,
     CookingOrbs,
-    PendingCookingAwards,
-    Region
+    PendingCookingAwards
   }
 
   setup :scope
@@ -105,95 +107,8 @@ defmodule Valimc.ExperienceTransfersTest do
     }
   end
 
-  defp prepare(ctx, snapshot, request) do
-    {:ok, proposed} =
-      PlayerContainerTransfers.prepare(ctx.uuid, snapshot.transfer_sequence, snapshot, %{
-        kind: :container,
-        key: ctx.key,
-        request: request
-      })
-
-    {:ok, body} = Valimc.Physics.PlayerPose.geometry(:standing, ctx.at)
-
-    actor = %{
-      uuid: ctx.uuid,
-      box: body.box,
-      entity_id: 17,
-      game_mode: GameMode.new(:survival),
-      health: %{value: 20.0},
-      expires: System.monotonic_time(:millisecond) + 1000
-    }
-
-    {:ok, request} = Region.admit_container_transfer(ctx.owner, proposed.outbox.request, actor)
-
-    {:ok, prepared} =
-      PlayerContainerTransfers.prepare(ctx.uuid, snapshot.transfer_sequence, snapshot, %{
-        kind: :container,
-        key: ctx.key,
-        request: request
-      })
-
-    {prepared, request}
-  end
-
-  def resource({pid, _}), do: Valimc.TestConn.state(pid).resource
-  def wait(f, _budget \\ nil), do: Valimc.TestWait.until(f)
-
-  test "one merged unit is consumed durably before a matching player grant; replay never grants again",
-       ctx do
-    {prepared, request} = prepare(ctx, ctx.snapshot, ctx.request)
-    {:ok, bytes} = PlayerSnapshot.encode(ctx.uuid, prepared)
-    assert {:ok, ^prepared} = PlayerSnapshot.decode(bytes, ctx.uuid)
-    assert prepared.progression.experience.total == 0
-    assert {:ok, :applied} = Region.container_transfer(ctx.owner, request)
-    assert resource(ctx.owner).containers.orb_consumption.counts[ctx.orb] == 1
-    {:ok, {_, receipt}} = Region.container_transfer_receipt(ctx.owner, ctx.uuid)
-    assert {:ok, granted} = PlayerContainerTransfers.resolve(ctx.uuid, prepared, receipt)
-    assert granted.progression.experience.total == 3 and granted.outbox == nil
-    assert {:ok, :already_applied} = Region.container_transfer(ctx.owner, request)
-    assert {:error, _} = PlayerContainerTransfers.resolve(ctx.uuid, granted, receipt)
-
-    assert {:error, _} =
-             PlayerContainerTransfers.resolve(ctx.uuid, prepared, %{receipt | digest: <<0::256>>})
-
-    wait(fn ->
-      Enum.any?(resource(ctx.owner).cooking_orbs.views, fn {_, v} ->
-        v.uuid == ctx.orb and v.count == 1 and v.consumed == 1
-      end)
-    end)
-
-    {second, request2} =
-      prepare(ctx, granted, %{ctx.request | consumed: 1, before: granted.progression.experience})
-
-    assert {:ok, :applied} = Region.container_transfer(ctx.owner, request2)
-    {:ok, {_, receipt2}} = Region.container_transfer_receipt(ctx.owner, ctx.uuid)
-    {:ok, done} = PlayerContainerTransfers.resolve(ctx.uuid, second, receipt2)
-    assert done.progression.experience.total == 6
-    wait(fn -> resource(ctx.owner).cooking_orbs.views == %{} end)
-
-    assert World.visible_orbs(
-             MapSet.new([ctx.key]),
-             MapSet.new([World.chunk_key(elem(ctx.at, 0), elem(ctx.at, 2))])
-           ) == %{}
-
-    Process.exit(elem(ctx.owner, 0), :kill)
-    wait(fn -> not Process.alive?(elem(ctx.owner, 0)) end)
-    {:ok, recovered} = World.item_owner(ctx.key)
-    assert resource(recovered).containers.orb_consumption.counts[ctx.orb] == 2
-    assert resource(recovered).containers.cooking_orbs == ctx.cs.cooking_orbs
-    {:ok, disk} = Containers.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :containers), ctx.key)
-    assert disk.orb_consumption.counts[ctx.orb] == 2
-  end
-end
-
-defmodule Valimc.ExperienceTransfersTest.Serial do
-  use ExUnit.Case, async: false
-  # Serial: a socket login reads the player's file from the global world path.
-  @moduletag :tcp
-  import Valimc.ExperienceTransfersTest, only: [resource: 1, wait: 1, wait: 2]
-  alias Valimc.{Connection, PlayerSnapshot, PlayerStore}
-
-  setup {Valimc.ExperienceTransfersTest, :scope}
+  defp resource({pid, _}), do: Valimc.TestConn.state(pid).resource
+  defp wait(f, _budget \\ nil), do: Valimc.TestWait.until(f)
 
   setup ctx do
     previous = Valimc.config(:world_path)

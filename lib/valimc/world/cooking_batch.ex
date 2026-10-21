@@ -4,7 +4,6 @@ defmodule Valimc.World.CookingBatch do
   alias Valimc.Physics.CookingBlocks
   alias Valimc.World.{Containers, ContainerSpills, CookingEntry, Items}
   @limit 1024
-  def limit, do: @limit
 
   @doc "Whether an owned processor can change on its next logical tick."
   def awake?(%{kind: kind, cooking: %Cooking{} = cooking}, block) do

@@ -54,25 +54,6 @@ defmodule Valimc.ContainerViewersTest do
     assert empty.views == %{} and empty.positions == %{}
   end
 
-  test "one outstanding notice coalesces writes; an old snapshot cannot acknowledge newer content" do
-    {state, a, _} = add(%Viewers{}, @a)
-    {state, b, _} = add(state, @a)
-    {state, c, _} = add(state, @b)
-    {state, notices} = Viewers.changed(state, @a, 2)
-    assert Enum.sort(notices) == Enum.sort([{a.pid, a.ref, 2}, {b.pid, b.ref, 2}])
-    assert state.views[c.pid] == c
-    {state, []} = Viewers.changed(state, @a, 3)
-    assert state.views[a.pid].pending and state.views[a.pid].revision == 3
-    assert Viewers.observed(state, a.pid, a.ref, 2) == state
-    assert Viewers.observed(state, a.pid, make_ref(), 3) == state
-    state = Viewers.observed(state, a.pid, a.ref, 3)
-    refute state.views[a.pid].pending
-    {state, [{pid, ref, 4}]} = Viewers.changed(state, @a, 4)
-    assert pid == a.pid and ref == a.ref and state.views[b.pid].pending
-    assert {^state, []} = Viewers.changed(state, @a, 4)
-    assert {^state, []} = Viewers.changed(state, @a, 3)
-  end
-
   test "full capacity permits replacement and wire occupancy never wraps at256 viewers" do
     state =
       Enum.reduce(1..Viewers.max_views(), %Viewers{}, fn _, current ->

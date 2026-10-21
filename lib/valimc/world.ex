@@ -297,8 +297,6 @@ defmodule Valimc.World do
 
   def visible_items(regions, chunks), do: visible_kind(regions, chunks, :item)
 
-  def visible_orbs(regions, chunks), do: visible_kind(regions, chunks, :orb)
-
   defp visible_kind(regions, chunks, kind) do
     {views, _} = visible_entities(regions, chunks)
     for {id, %{kind: ^kind} = view} <- views, into: %{}, do: {id, view}

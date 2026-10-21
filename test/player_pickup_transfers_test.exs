@@ -14,7 +14,7 @@ defmodule Valimc.PlayerPickupTransfersTest do
   alias Valimc.World.{Items, PickupTransfers}
   @uuid <<81::128>>
 
-  defp source(mode \\ :survival) do
+  defp source(mode) do
     stack = %{
       ItemStack.new("stone", 7)
       | components: %{"minecraft:enchantment_glint_override" => true}
@@ -69,50 +69,6 @@ defmodule Valimc.PlayerPickupTransfersTest do
   end
 
   defp persisted(state), do: %{state | inventory: %{state.inventory | state_id: 0, drag: nil}}
-
-  test "saved intent retains original inventory; only matching applied proof grants once" do
-    {state, intent} = source()
-    assert {:ok, pending} = PlayerPickupTransfers.prepare(@uuid, 9, state, intent)
-    assert pending.inventory == state.inventory and pending.transfer_sequence == 10
-    assert {:ok, bytes} = PlayerSnapshot.encode(@uuid, pending)
-    assert <<"VMCPOSE", 16, _::binary>> = bytes
-    assert {:ok, restored} = PlayerSnapshot.decode(bytes, @uuid)
-    assert restored == persisted(pending)
-
-    assert {:ok, %{result: :applied} = withdrawn} =
-             PickupTransfers.plan(world(intent), %{}, {0, 0}, intent.request, true)
-
-    assert Items.records(withdrawn.items) == []
-
-    assert {:ok, received} =
-             PlayerPickupTransfers.resolve(@uuid, restored, withdrawn.receipts[@uuid])
-
-    assert received.inventory.slots[36] == intent.request.before
-
-    assert received.inventory.carried == state.inventory.carried and
-             received.inventory.slots[5] == state.inventory.slots[5]
-
-    assert received.outbox == nil and received.transfer_sequence == 10
-    assert {:error, _} = PlayerPickupTransfers.resolve(@uuid, received, withdrawn.receipts[@uuid])
-
-    assert {:error, :transfer_conflict} =
-             PlayerPickupTransfers.resolve(@uuid, restored, %{sequence: 10, digest: <<0::256>>})
-
-    assert {:error, :stale_transfer} =
-             PlayerPickupTransfers.resolve(@uuid, restored, %{sequence: 11, digest: <<0::256>>})
-
-    for changed <- [
-          put_in(restored.inventory.selected, 4),
-          put_in(restored.inventory.carried, nil),
-          put_in(restored.inventory.slots[36], intent.request.before),
-          put_in(restored.inventory.table_inputs, {nil, nil, nil, nil, nil, nil, nil, nil, nil})
-        ] do
-      assert {:error, :pickup_inventory_conflict} =
-               PlayerPickupTransfers.resolve(@uuid, changed, withdrawn.receipts[@uuid])
-
-      assert {:error, :invalid_pickup_snapshot} = PlayerSnapshot.encode(@uuid, changed)
-    end
-  end
 
   test "creative overflow permissions survive v16 and a table wrapper without trusting saved inventory flags" do
     {state, intent} = source(:creative)

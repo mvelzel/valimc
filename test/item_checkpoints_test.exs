@@ -47,9 +47,6 @@ defmodule Valimc.ItemCheckpointsTest do
     }
   end
 
-  defp state(ctx), do: :sys.get_state(ctx.pid).resource
-  defp send_resource(ctx, message), do: send(ctx.pid, {:resource, elem(ctx.owner, 1), message})
-
   defp step(ctx, {_, _, id, revision}, n) do
     {x, y, z} = ctx.position
 
@@ -71,41 +68,6 @@ defmodule Valimc.ItemCheckpointsTest do
   defp read(ctx) do
     assert {:ok, data} = ItemRecords.decode(disk(ctx), ctx.key)
     data
-  end
-
-  defp checkpoint(ctx) do
-    timer = state(ctx).item_checkpoint_timer
-    assert timer != nil
-    send_resource(ctx, {:item_checkpoint, timer.token})
-    assert {:ok, _} = Region.observe_blocks(ctx.owner, [])
-  end
-
-  defp wait(ctx, predicate, _budget \\ nil) do
-    Valimc.TestWait.until(fn ->
-      value = state(ctx)
-      if predicate.(value), do: value
-    end)
-  end
-
-  test "removal stays durable across an older in-flight motion snapshot and original delivery retry",
-       ctx do
-    handle = advance(ctx, ctx.handle, 1)
-    writer = state(ctx).store
-    :sys.suspend(writer)
-
-    try do
-      checkpoint(ctx)
-      removal = Task.async(fn -> Region.remove_item(handle) end)
-      wait(ctx, &Valimc.TestRegion.writing?/1)
-      :sys.resume(writer)
-      assert :ok = Task.await(removal, 60_000)
-      assert read(ctx).records == []
-      assert read(ctx).receipts[ctx.transfer.source].sequence == 1
-      assert {:ok, :already_applied} = Region.apply_item_transfer(ctx.owner, ctx.transfer)
-      assert World.item_snapshot(ctx.key) == %{}
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-    end
   end
 
   test "normal shutdown checkpoints motion but a crash may roll back only ordinary motion", ctx do

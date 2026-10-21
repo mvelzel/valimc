@@ -1,6 +1,6 @@
 defmodule Valimc.World.CookingOrbTransfers do
   @moduledoc "Bounded remote spawn intents and immutable adoption receipts; persist before delivery/publication."
-  alias Valimc.World.{Containers, CookingOrbs, PendingCookingAwards}
+  alias Valimc.World.{Containers, PendingCookingAwards}
   @max_awards 256
   @max_sequence 18_446_744_073_709_551_615
   @max_request 16 + PendingCookingAwards.max_record_bytes()
@@ -132,11 +132,6 @@ defmodule Valimc.World.CookingOrbTransfers do
   def digest(request) do
     with {:ok, bytes} <- encode_request(request),
          do: {:ok, :crypto.hash(:sha256, ["VMCCOOKORBXFER", <<1>>, bytes])}
-  end
-
-  def records(request) do
-    with {:ok, _} <- encode_request(request),
-         do: {:ok, CookingOrbs.records(request.id, request.award)}
   end
 
   def encode_request(

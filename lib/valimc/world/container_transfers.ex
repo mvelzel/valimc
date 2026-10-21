@@ -30,14 +30,6 @@ defmodule Valimc.World.ContainerTransfers do
     end
   end
 
-  @doc "Atomic output, cleared uses and immutable XP/recipe decision; called only with a fresh owner permit."
-  def plan_cooking_award(%Containers{} = containers, key, request, eligible, context)
-      when is_boolean(eligible) do
-    decide(containers, key, request, eligible, fn digest ->
-      exchange_cooking_award(containers, key, request, digest, context)
-    end)
-  end
-
   defp decide(containers, key, request, eligible, exchange) do
     with {:ok, digest} <- ContainerRequest.digest(key, request) do
       base = %{containers: containers, result: nil}

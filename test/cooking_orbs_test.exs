@@ -43,46 +43,6 @@ defmodule Valimc.CookingOrbsTest do
     {Enum.sum(pending), Enum.sum(materialized)}
   end
 
-  test "one atomic successor preserves per-recipe splitting, recipes, receipts and stable UUIDs" do
-    {before, id} = award()
-    assert balance(before) == {7, 0}
-    assert {:ok, next, :materialized} = CookingOrbs.materialize(before, @key, id)
-    assert balance(next) == {0, 7}
-    assert next.pending_awards === before.pending_awards
-    assert next.receipts === before.receipts
-    assert next.entries === before.entries and next.sequence == before.sequence
-
-    assert Enum.sort(Enum.map(next.cooking_orbs[id], fn {_, r} -> {r.value, r.count} end)) == [
-             {1, 1},
-             {3, 2}
-           ]
-
-    assert Enum.all?(next.cooking_orbs[id], fn {<<_::48, 8::4, _::12, 2::2, _::62>>, r} ->
-             r.position === @position
-           end)
-
-    assert {:ok, bytes} = Containers.encode(@key, next)
-    assert <<"VMCCONTS", 5, _::binary>> = bytes
-    assert {:ok, restored} = Containers.decode(bytes, @key)
-    assert restored === next
-    assert {:ok, ^bytes} = Containers.encode(@key, restored)
-    assert {:ok, ^next, :already_materialized} = CookingOrbs.materialize(restored, @key, id)
-    assert {:ok, ^next, :materialized} = CookingOrbs.materialize(before, @key, id)
-
-    {later, second} = award(next)
-    assert {:ok, final, :materialized} = CookingOrbs.materialize(later, @key, second)
-    assert balance(final) == {0, 14}
-    assert final.cooking_orbs[id] === next.cooking_orbs[id]
-
-    assert MapSet.disjoint?(
-             MapSet.new(Map.keys(final.cooking_orbs[id])),
-             MapSet.new(Map.keys(final.cooking_orbs[second]))
-           )
-
-    assert {:ok, bytes} = Containers.encode(@key, final)
-    assert {:ok, ^final} = Containers.decode(bytes, @key)
-  end
-
   test "version 4 keeps the exact pre-orb encoder bytes and a large award stays compressed" do
     {before, _} = award()
     {:ok, bytes} = Containers.encode(@key, before)

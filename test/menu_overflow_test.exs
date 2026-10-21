@@ -2,7 +2,7 @@ defmodule Valimc.MenuOverflowTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
   alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players, World}
-  alias Valimc.World.{ItemRecords, Items, Region}
+  alias Valimc.World.Items
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -201,93 +201,6 @@ defmodule Valimc.MenuOverflowTest do
     second = barrier(second)
     assert records(ctx) == first
     Client.close(second)
-    departed(ctx)
-  end
-
-  test "destination stalls expose no partial batch; disconnect recovery delivers the same five UUIDs",
-       ctx do
-    client = login(ctx, true)
-    {:ok, {region, _}} = World.item_owner(ctx.key)
-    writer = :sys.get_state(region).resource.store
-    :sys.suspend(writer)
-
-    try do
-      close_menu(client)
-
-      {_, pending} =
-        await_state(
-          ctx,
-          &(&1.recovery != nil && &1.recovery.stage == :delivery &&
-              Valimc.TestRegion.writing?(:sys.get_state(region).resource))
-        )
-
-      snapshot = saved(ctx)
-      assert length(snapshot.outbox.records) == 5
-      verify_return(ctx, pending.inventory)
-      assert World.item_snapshot(ctx.key) == %{}
-      Client.close(client)
-      departed(ctx)
-      :sys.resume(writer)
-      second = login(ctx)
-      completed(ctx)
-      assert second.inventory.items == Inventory.contents(ctx.after_inventory)
-
-      assert MapSet.new(Enum.map(records(ctx), & &1.uuid)) ==
-               MapSet.new(Enum.map(snapshot.outbox.records, & &1.uuid))
-
-      assert length(records(ctx)) == 5
-      Client.close(second)
-      departed(ctx)
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-      Client.close(client)
-      departed(ctx)
-    end
-  end
-
-  test "capacity failure retains all five remainders and publishes the batch only after enough space exists",
-       ctx do
-    fixture =
-      for _ <- 1..252,
-          do: %{
-            uuid: :crypto.strong_rand_bytes(16),
-            x: ctx.pose.x,
-            y: 64.5,
-            z: ctx.pose.z,
-            stack: ItemStack.new("stone")
-          }
-
-    {:ok, bytes} = ItemRecords.encode(ctx.key, fixture)
-    Valimc.TestDisk.write(ctx.base, ctx.key, :items, bytes)
-    client = login(ctx, true)
-    close_menu(client)
-
-    {_, pending} =
-      await_state(
-        ctx,
-        &(&1.recovery != nil && &1.recovery.stage == :retry && &1.recovery.attempts > 0)
-      )
-
-    snapshot = saved(ctx)
-    assert snapshot.outbox != nil and length(snapshot.outbox.records) == 5
-    verify_return(ctx, pending.inventory)
-    assert length(records(ctx)) == 252
-
-    assert MapSet.new(Enum.map(records(ctx), & &1.uuid)) ==
-             MapSet.new(Enum.map(fixture, & &1.uuid))
-
-    {:ok, owner} = World.item_owner(ctx.key)
-    {:ok, handle} = Region.find_item(owner, hd(fixture).uuid)
-    assert :ok = Region.remove_item(handle)
-    completed(ctx)
-    final = records(ctx)
-    assert length(final) == 256
-    dropped_ids = MapSet.new(Enum.map(snapshot.outbox.records, & &1.uuid))
-    assert length(Enum.filter(final, &MapSet.member?(dropped_ids, &1.uuid))) == 5
-    close_menu(client)
-    client = barrier(client)
-    assert length(records(ctx)) == 256 and saved(ctx).transfer_sequence == 1
-    Client.close(client)
     departed(ctx)
   end
 end

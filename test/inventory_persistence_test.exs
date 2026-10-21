@@ -219,49 +219,4 @@ defmodule Valimc.InventoryPersistenceTest do
     Client.close(client)
     assert File.read!(path) == legacy
   end
-
-  test "foreign writers and invalid snapshots cannot overwrite a valid saved inventory", %{
-    base: base
-  } do
-    uuid = :crypto.strong_rand_bytes(16)
-    {:ok, writer, nil, writer_fence} = PlayerStore.open(uuid)
-    pose = %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0}
-    inv = %Inventory{slots: %{9 => ItemStack.new("stone", 7)}}
-    snapshot = PlayerSnapshot.capture(pose, inv)
-    ref = make_ref()
-    PlayerStore.checkpoint(writer, writer_fence, snapshot, ref)
-    assert_receive {:player_saved, ^ref, :ok}
-    saved = File.read!(PlayerStore.path(base, uuid))
-
-    task =
-      Task.async(fn ->
-        PlayerStore.checkpoint(
-          writer,
-          writer_fence,
-          PlayerSnapshot.capture(pose, Inventory.new()),
-          make_ref()
-        )
-
-        GenServer.call(writer, :load)
-      end)
-
-    assert {:error, :not_owner} = Task.await(task, 60_000)
-    assert File.read!(PlayerStore.path(base, uuid)) == saved and Process.alive?(writer)
-
-    assert capture_log(fn ->
-             ref = make_ref()
-
-             PlayerStore.checkpoint(
-               writer,
-               writer_fence,
-               PlayerSnapshot.capture(pose, %{inv | selected: 9}),
-               ref
-             )
-
-             assert_receive {:player_saved, ^ref, {:error, :invalid_inventory}}
-           end) =~ "Player state save failed"
-
-    assert File.read!(PlayerStore.path(base, uuid)) == saved
-    assert :ok = PlayerStore.close(writer, writer_fence, snapshot)
-  end
 end

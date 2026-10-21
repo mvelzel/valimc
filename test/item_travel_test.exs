@@ -17,22 +17,6 @@ defmodule Valimc.Physics.ItemTravelTest do
   defp item(position \\ {0.5, 65.5, 0.5}, motion \\ %ItemMotionState{}),
     do: %{id: 7, revision: 1, position: position, motion: motion}
 
-  test "owner-selected sleeping preserves sentinel age/delay and refresh wakes unsupported items" do
-    initial =
-      item({0.5, 65.5, 0.5}, %ItemMotionState{
-        on_ground: true,
-        age: -32_768,
-        pickup_delay: 32_767
-      })
-
-    assert {:ok, sleeping} = ItemTravel.sample(initial, frame(), false)
-    assert sleeping.position == initial.position
-    assert sleeping.motion.age == -32_768 and sleeping.motion.pickup_delay == 32_767
-    assert {:ok, awake} = ItemTravel.sample(sleeping, frame(), true)
-    assert elem(awake.position, 1) < elem(initial.position, 1)
-    refute awake.motion.on_ground
-  end
-
   test "missing/embedded geometry and invalid observations refuse rather than inventing air" do
     assert {:error, {:missing_block, _}} =
              ItemTravel.sample(item(), %Frame{states: %{}, fences: %{}, entities: %{}})

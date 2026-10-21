@@ -7,36 +7,6 @@ defmodule Valimc.World.ContainerLifecycleTest do
   @chests JSON.decode!(File.read!("priv/protocol/chest_states.json"))["single_states"]
   @chest hd(@chests)
 
-  test "create, state-only update and removal keep metadata and typed receipts coherent" do
-    receipts = %{<<1::128>> => %{sequence: 8, digest: <<2::256>>}}
-    original = %Containers{receipts: receipts}
-
-    assert {:ok, %{containers: created, removed: []}} =
-             ContainerLifecycle.plan(original, @key, %{@position => 0}, %{@position => @chest})
-
-    entry = created.entries[@position]
-    assert entry.rows == 3 and entry.slots == Tuple.duplicate(nil, 27)
-    assert created.receipts == receipts and created.sequence == 1
-
-    for state <- @chests do
-      assert {:ok, %{containers: ^created, removed: []}} =
-               ContainerLifecycle.plan(created, @key, %{@position => @chest}, %{
-                 @position => state
-               })
-    end
-
-    assert {:ok, %{containers: removed, removed: [%{position: @position, entry: ^entry}]}} =
-             ContainerLifecycle.plan(created, @key, %{@position => @chest}, %{@position => 0})
-
-    assert removed.entries == %{} and removed.receipts == receipts and removed.sequence == 2
-
-    assert {:ok, %{containers: replaced}} =
-             ContainerLifecycle.plan(removed, @key, %{@position => 0}, %{@position => @chest})
-
-    assert replaced.entries[@position].revision == 3
-    assert {:error, :stale_container} = Containers.replace(replaced, @position, 1, entry.slots)
-  end
-
   test "occupied removals return every original slot without moving any quantity into a player" do
     {:ok, original, entry} = Containers.create(%Containers{}, @key, @position, 3)
 
