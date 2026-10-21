@@ -26,12 +26,11 @@ matched against vanilla and Pumpkin, at least in Pumpkin's range.
 
 The pre-M3 audit's plan, decided October 21, 2026: players and everything that
 interacts share one owner (dynamic groups of 8 × 8 sections), one atomic frame per
-owner per tick, volatile proto chunks, no world migration. Phase 0 fixes four
-high bugs; wave 1 runs the phase 1 slices in parallel.
+owner per tick, volatile proto chunks, no world migration. Phase 0 (item
+rollback, shulker collision) is done; wave 1 runs the phase 1 slices in parallel.
 
 | Ticket | Open slice | Status |
 |---|---|---|
-| VMC-077 phase 0 | Item rollback, full-region kicks, cooking award cap, shulker collision | In progress |
 | VMC-077a | Runtime safety: supervision tiers, listener backoff, world spec, no blocking calls from connections, commands as jobs | In progress |
 | VMC-077b | Native scheduling policy and NIF hygiene; `lib.rs` split by domain | In progress |
 | VMC-077c | Per-chunk light at generation, incremental light, section-mask packets | In progress |
