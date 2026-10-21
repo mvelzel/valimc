@@ -47,7 +47,7 @@ use super::sampler::{Context, Sampler};
 use super::surface::BiomeClimate;
 use super::terrain::{Aquifer, AquiferSamplers, TerrainBlocks};
 use super::volume::Volume;
-use piece::{encapsulating, BoundingBox, Nbt, Piece};
+use piece::{encapsulating, BoundingBox, Nbt, Piece, PieceKind};
 use placement::{java_round, Placement};
 
 /// `TerrainAdjustment`.
@@ -435,6 +435,33 @@ pub struct Start {
 }
 
 impl Start {
+    /// The pieces that have placed what they place once, in whichever chunk
+    /// came first (a mineshaft spider corridor's spawner, `hasPlacedSpider`),
+    /// by index (VMC-025f6).
+    pub fn placed_once(&self) -> impl Iterator<Item = usize> + '_ {
+        self.pieces.iter().enumerate().filter_map(|(i, piece)| {
+            matches!(
+                piece.kind,
+                PieceKind::Mineshaft(mineshaft::MineshaftPiece::Corridor {
+                    placed_spider: true,
+                    ..
+                })
+            )
+            .then_some(i)
+        })
+    }
+
+    /// Marks piece `index` as having placed it (an earlier transaction did).
+    pub fn mark_placed_once(&mut self, index: usize) {
+        if let Some(Piece {
+            kind: PieceKind::Mineshaft(mineshaft::MineshaftPiece::Corridor { placed_spider, .. }),
+            ..
+        }) = self.pieces.get_mut(index)
+        {
+            *placed_spider = true;
+        }
+    }
+
     /// `StructureStart.createTag`.
     pub fn save(&self, registry: &StructureRegistry) -> Nbt {
         Nbt::Compound(vec![

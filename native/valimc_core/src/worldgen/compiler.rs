@@ -11,7 +11,7 @@
 //! 3. The result compiles to samplers, taking vanilla's shortcuts (constant
 //!    operands, `min`/`max` decided by ranges, constant lerp ends).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use super::beard::Beardifier;
@@ -26,7 +26,7 @@ use super::interval::{Interval, NAI};
 use super::json::Json;
 use super::noise::{BlendedParameters, NormalNoise, Simplex, Stack};
 use super::random::{Positional, Random};
-use super::region::{Area, ProtoChunk, Region};
+use super::region::{Area, PlacedOnce, ProtoChunk, Region};
 use super::sampler::{Context, Field, GradientKind, Sampler, SplineNode};
 use super::shapes::Shapes;
 use super::structure::place::{place_in_chunk, visit_order, writable_area, Ctx, Placer};
@@ -1362,7 +1362,46 @@ impl Worldgen {
                 })?;
             }
         }
-        self.decorate_with_starts(biome_source, &env, area, order, &mut starts, lenient)
+        // What earlier transactions' pieces placed once (VMC-025f6).
+        let ids = &env.registry.structures;
+        let recorded: BTreeSet<PlacedOnce> = area
+            .held()
+            .flat_map(|chunk| chunk.placed_once.iter().cloned())
+            .collect();
+        for placed in &recorded {
+            for start in starts.get_mut(&placed.start).into_iter().flatten() {
+                if ids[start.structure].id == placed.structure {
+                    start.mark_placed_once(placed.piece as usize);
+                }
+            }
+        }
+        let lenient_reads =
+            self.decorate_with_starts(biome_source, &env, area, order, &mut starts, lenient)?;
+        // What this one's pieces placed, in every chunk it holds within a
+        // chunk of the piece.
+        for start in starts.values().flatten() {
+            for piece in start.placed_once() {
+                let placed = PlacedOnce {
+                    structure: ids[start.structure].id.clone(),
+                    start: start.chunk,
+                    piece: piece as u32,
+                };
+                if recorded.contains(&placed) {
+                    continue;
+                }
+                let b = start.pieces[piece].bbox;
+                for cx in (b.min_x >> 4) - 1..=(b.max_x >> 4) + 1 {
+                    for cz in (b.min_z >> 4) - 1..=(b.max_z >> 4) + 1 {
+                        if let Some(chunk) = area.chunk_mut(cx, cz) {
+                            if chunk.placed_once.insert(placed.clone()) {
+                                chunk.touched = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(lenient_reads)
     }
 
     /// A chunk at status `terrain` (VMC-025d): `build_terrain` with carvers,

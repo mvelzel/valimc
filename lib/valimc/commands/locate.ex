@@ -3,8 +3,6 @@ defmodule Valimc.Commands.Locate do
   `/locate structure` (VMC-053o): vanilla's `findNearestMapStructure` in the
   world generator (`Native.worldgen_structure_locate`, up to 100 grid rings),
   with `LocateCommand`'s messages. Structure ids and tags are generated facts.
-  ValiMC does not place structure pieces yet (VMC-025f), so the position is
-  where vanilla's structure starts.
   """
   require Logger
   alias Valimc.Command.{Error, Feedback, Text}

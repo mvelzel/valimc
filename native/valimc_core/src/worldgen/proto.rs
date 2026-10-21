@@ -16,17 +16,19 @@
 //! held overworld chunks without bounds, exits or entities. Version 3
 //! (VMC-025f5) adds each created block entity's template NBT (a
 //! four-byte-length string) and allows every block entity and entity type
-//! structures place.
+//! structures place. Version 4 (VMC-025f6) ends with the structure pieces
+//! that have placed what they place once: a count, then each structure id,
+//! start chunk x and z and piece index.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use super::blocks::{BlockTable, Heightmap};
-use super::region::{BlockEntityData, Entity, ProtoChunk, HEIGHT, MIN_Y};
+use super::region::{BlockEntityData, Entity, PlacedOnce, ProtoChunk, HEIGHT, MIN_Y};
 use crate::column::{image_of_cells, Column};
 use crate::section::{index as section_index, VOLUME};
 
-const VERSION: u8 = 3;
+const VERSION: u8 = 4;
 
 /// The binary form of `chunk`.
 pub fn encode(chunk: &ProtoChunk) -> Vec<u8> {
@@ -116,6 +118,13 @@ pub fn encode(chunk: &ProtoChunk) -> Vec<u8> {
             out.extend(c.to_be_bytes());
         }
         out.extend(entity.yaw.to_be_bytes());
+    }
+    out.extend((chunk.placed_once.len() as u32).to_be_bytes());
+    for placed in &chunk.placed_once {
+        string(&mut out, Some(&placed.structure));
+        out.extend(placed.start.0.to_be_bytes());
+        out.extend(placed.start.1.to_be_bytes());
+        out.extend(placed.piece.to_be_bytes());
     }
     out
 }
@@ -347,6 +356,17 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
             });
         }
     }
+    let mut placed_once = BTreeSet::new();
+    if version >= 4 {
+        for _ in 0..r.count(14)? {
+            let structure = r.string()?.ok_or("a placed piece without a structure")?;
+            placed_once.insert(PlacedOnce {
+                structure,
+                start: (r.i32()?, r.i32()?),
+                piece: r.u32()?,
+            });
+        }
+    }
     if !r.input.is_empty() {
         return Err("a proto chunk has trailing bytes".into());
     }
@@ -365,6 +385,7 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
         block_entities,
         block_entity_data,
         entities,
+        placed_once,
         touched: false,
     })
 }

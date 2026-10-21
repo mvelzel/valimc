@@ -382,6 +382,12 @@ public class StructurePlacementOracle {
       cases.add(List.of(a, b));
       names.add(id);
     }
+    // A mineshaft (start at chunk 8, -8) whose spider corridors each cross from one region's
+    // decorated chunks into the next one's: its spawner flag must carry over (VMC-025f6).
+    if (DecorationOracle.DIMENSION.equals("overworld") && (only == null || List.of(only.split(",")).contains("spider"))) {
+      cases.add(List.of(new ChunkPos(0, -2), new ChunkPos(1, -2), new ChunkPos(1, -1)));
+      names.add("mineshaft spider corridors");
+    }
     var rows = new JsonArray();
     long blocks = 0;
     int entities = 0, settled = 0;
