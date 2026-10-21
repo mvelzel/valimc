@@ -1,11 +1,12 @@
 defmodule Valimc.PlayerPlacementQuery do
   @moduledoc "Bounded placement preparation; a sampled plan grants no player or world authority."
   alias Valimc.Physics.Placement
-  alias Valimc.Physics.{BlockShapes, Box, Shape}
+  alias Valimc.Physics.{CollisionContext, Kernel}
   alias Valimc.World
   alias Valimc.World.{BlockBatch, Region}
   # A plan's budget; tests on a loaded host scale it (`owner_call_scale`, VMC-073).
   defp timeout, do: 250 * Valimc.config(:owner_call_scale)
+  @placement %CollisionContext{kind: :entity, placement: true}
 
   def start(item, request) do
     with {:ok, _} <- Placement.candidate(item, 0, 0, request) do
@@ -13,7 +14,7 @@ defmodule Valimc.PlayerPlacementQuery do
 
       {:ok,
        Task.Supervisor.async_nolink(
-         Valimc.Workers.collision(),
+         Valimc.Workers.actions(),
          Valimc.Dimension.bind(fn ->
            prepare(item, request, deadline)
          end)
@@ -97,7 +98,7 @@ defmodule Valimc.PlayerPlacementQuery do
 
     {:ok,
      Task.Supervisor.async_nolink(
-       Valimc.Workers.collision(),
+       Valimc.Workers.actions(),
        Valimc.Dimension.bind(fn ->
          result =
            with {:ok, plan} <- prepare(item, request, now() + timeout()),
@@ -138,7 +139,7 @@ defmodule Valimc.PlayerPlacementQuery do
 
     {:ok,
      Task.Supervisor.async_nolink(
-       Valimc.Workers.collision(),
+       Valimc.Workers.actions(),
        Valimc.Dimension.bind(fn ->
          if reservation do
            try do
@@ -163,17 +164,12 @@ defmodule Valimc.PlayerPlacementQuery do
     {x, _, z} = plan.candidate.position
 
     now() < expires and MapSet.member?(grant.chunks, World.chunk_key(x, z)) and
-      unobstructed?(plan.candidate, grant.box)
+      unobstructed?(plan.candidate, grant.boxes)
   end
 
-  defp unobstructed?(%{state: state, position: position}, body) do
-    with {:ok, shape} <- BlockShapes.fetch(state) do
-      shape = Shape.move(shape, position)
-      not Enum.any?(shape.boxes, &Box.intersects?(body, &1))
-    else
-      _ -> false
-    end
-  end
+  # `CollisionContext.placementContext`: scaffolding and powder snow place freely.
+  defp unobstructed?(%{state: state, position: position}, bodies),
+    do: not Kernel.obstructs?(state, position, @placement, bodies)
 
   # Corrections go out now; imported block entity data (VMC-021e1) is returned
   # to follow the acknowledgement, since the client drops block entity data that
@@ -250,7 +246,7 @@ defmodule Valimc.PlayerPlacementQuery do
 
   defp isolated_chest(owner, key, candidate, revision) do
     if Valimc.ChestAccess.single?(candidate.state) do
-      neighbors = Valimc.Physics.ChestPlacement.neighbors(candidate.position)
+      neighbors = Valimc.ChestPlacement.neighbors(candidate.position)
 
       if Enum.all?(neighbors, fn {x, _, z} -> World.region_key(World.chunk_key(x, z)) == key end) do
         with {:ok, observed} <- Region.observe_blocks(owner, neighbors, revision),

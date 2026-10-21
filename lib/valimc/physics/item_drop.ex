@@ -1,5 +1,6 @@
 defmodule Valimc.Physics.ItemDrop do
   @moduledoc "Pure native launch from accepted pose and supplied random draws; no item ownership."
+  import Valimc.Physics.Kernel, only: [f32: 1]
   import Bitwise
   @sin_scale 10_430.378350470453
   @max_random 0.9999999403953552
@@ -53,9 +54,4 @@ defmodule Valimc.Physics.ItemDrop do
   defp sine(angle), do: trig(trunc(angle * @sin_scale))
   defp cosine(angle), do: trig(trunc(angle * @sin_scale + 16_384.0))
   defp trig(index), do: f32(:math.sin((index &&& 65_535) / @sin_scale))
-
-  defp f32(value) do
-    <<rounded::float-32>> = <<value::float-32>>
-    rounded
-  end
 end

@@ -41,7 +41,7 @@ defmodule Valimc.PlayerMiningQuery do
   defp start(fun) do
     {:ok,
      Task.Supervisor.async_nolink(
-       Valimc.Workers.collision(),
+       Valimc.Workers.actions(),
        Valimc.Dimension.bind(fn -> safely(fun) end)
      )}
   rescue

@@ -1,6 +1,6 @@
 defmodule Valimc.Physics.EntityCollisions do
   @moduledoc "Pure player collider policy over complete supplied entity observations, never live authority."
-  alias Valimc.Physics.{Box, VoxelOps}
+  alias Valimc.Physics.Box
   @epsilon 1.0e-7
   @max_candidates 256
 
@@ -19,11 +19,7 @@ defmodule Valimc.Physics.EntityCollisions do
               not candidate.spectator and candidate.collidable,
               is_nil(subject) or not candidate.same_vehicle,
               Box.intersects?(query, candidate.box),
-              do: %{
-                id: candidate.id,
-                box: candidate.box,
-                shape: VoxelOps.world_box(candidate.box)
-              }
+              do: %{id: candidate.id, box: candidate.box}
 
         {:ok, %{query_box: query, colliders: colliders}}
       end

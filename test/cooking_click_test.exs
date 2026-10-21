@@ -1,7 +1,7 @@
 defmodule Valimc.CookingClickTest do
   use ExUnit.Case, async: true
   alias Valimc.{CookingClick, Inventory}
-  alias Valimc.Physics.CookingBlocks
+  alias Valimc.CookingBlocks
 
   defp plan(storage, inventory, action, slot, button \\ 0, kind \\ :furnace) do
     {:ok, block} = CookingBlocks.placement(kind, 0.0)

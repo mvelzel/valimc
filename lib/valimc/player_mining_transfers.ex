@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerMiningTransfers do
   @moduledoc "Trusted source mining plans and receipt-backed compensation; no RNG or destination mutation."
   alias Valimc.{Durability, GameMode, Inventory, PlayerMiningIntent, PlayerSnapshot}
-  alias Valimc.Physics.MiningTools
+  alias Valimc.MiningTools
   @max_sequence 18_446_744_073_709_551_615
 
   @doc "The player already sampled wear/loot. Persist this result before delivering its request."

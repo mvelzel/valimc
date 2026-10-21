@@ -1,131 +1,89 @@
 defmodule Valimc.Physics.FluidContact do
-  @moduledoc "Bounded fluid depths from the same immutable, fenced frame as player geometry."
-  alias Valimc.World.View
-  alias Valimc.Physics.{Box, FluidBoundaries}
+  @moduledoc """
+  The fluid a body touches (vanilla's `updateFluidHeightAndDoFluidPushing`
+  scan and the eye test), through the physics kernel (VMC-077l).
+  """
+  alias Valimc.Physics.{Box, Kernel}
   alias Valimc.Registry.BlockFacts
+  alias Valimc.World.View
   @inset 0.001
   @max_cells 512
 
-  def fluid_at(%View{} = view, pos),
-    do: at(view, pos)
-
-  def fluid_at(_, _), do: {:error, :invalid_fluid_frame}
-
-  def sample(frame, box) do
-    with {:ok, contacts} <- contacts(frame, box) do
-      {:ok,
-       Enum.reduce(contacts, %{water: 0.0, lava: 0.0}, fn c, depths ->
-         Map.update!(depths, c.fluid.kind, &max(&1, c.depth))
-       end)}
+  @doc "The fluid of the block at a position."
+  def fluid_at(%View{} = view, pos) do
+    case View.fetch(view, pos) do
+      {:ok, id} -> {:ok, BlockFacts.fluid(id)}
+      :error -> {:error, :incomplete_fluid_frame}
     end
+  end
+
+  @doc "The deepest water and lava over the body."
+  def sample(view, box) do
+    with {:ok, fluids} <- fluids(view, box), do: {:ok, %{water: fluids.water, lava: fluids.lava}}
   end
 
   @doc "Native eye contact, including source fluid beneath a sturdy downward face."
-  def eyes(frame, box, {x, y, z})
-      when is_number(x) and abs(x) <= 30_000_000 and is_number(y) and abs(y) <= 1_000_128 and
-             is_number(z) and abs(z) <= 30_000_000 do
-    with {:ok, contacts} <- contacts(frame, box) do
-      column = {floor(x), floor(z)}
-
-      Enum.reduce_while(contacts, {:ok, %{water: false, lava: false}}, fn
-        %{position: {px, py, pz} = pos, fluid: fluid}, {:ok, eyes}
-        when {px, pz} == column and y >= py ->
-          case camera_height(frame, pos, fluid) do
-            {:ok, height} ->
-              {:cont, {:ok, Map.update!(eyes, fluid.kind, &(&1 or y <= py + height))}}
-
-            error ->
-              {:halt, error}
-          end
-
-        _, result ->
-          {:cont, result}
-      end)
-    end
-  end
-
-  def eyes(_, _, _), do: {:error, :invalid_fluid_eye}
-
-  @doc "Ordered nonempty contacts for current accumulation; all dependencies retain frame fences."
-  def contacts(%View{} = view, box) do
-    with {:ok, positions} <- positions(box) do
-      Enum.reduce_while(positions, {:ok, []}, fn {_, y, _} = p, {:ok, contacts} ->
-        with {:ok, fluid} <- at(view, p),
-             {:ok, surface} <- surface(view, p, fluid) do
-          next =
-            if fluid.kind != :empty and y + surface >= elem(box, 1) + @inset,
-              do: [%{position: p, fluid: fluid, depth: y + surface - elem(box, 1)} | contacts],
-              else: contacts
-
-          {:cont, {:ok, next}}
-        else
-          error -> {:halt, error}
-        end
-      end)
-      |> case do
-        {:ok, contacts} -> {:ok, Enum.reverse(contacts)}
-        error -> error
+  def eyes(view, box, eye) do
+    with :ok <- bounded(view, box) do
+      case Kernel.eyes(view, box, eye) do
+        {:ok, nil} -> {:error, :invalid_fluid_box}
+        result -> result
       end
     end
   end
 
-  def contacts(_, _), do: {:error, :invalid_fluid_frame}
+  @doc "The touching fluid cells in scan order: `%{position, fluid, depth}`."
+  def contacts(view, box) do
+    with {:ok, fluids} <- fluids(view, box), do: {:ok, fluids.contacts}
+  end
 
   @doc "Native escape test: any nonempty fluid cell, regardless of its surface height."
-  def any_liquid?(%View{} = view, box) do
-    with {:ok, positions} <- positions(box, 0.0) do
-      Enum.reduce_while(positions, {:ok, false}, fn p, _ ->
-        case at(view, p) do
-          {:ok, %{kind: :empty}} -> {:cont, {:ok, false}}
-          {:ok, _} -> {:halt, {:ok, true}}
-          error -> {:halt, error}
-        end
-      end)
+  def any_liquid?(view, box) do
+    with :ok <- bounded(view, box) do
+      case Kernel.any_liquid?(view, box) do
+        {:ok, nil} -> {:error, :invalid_fluid_box}
+        result -> result
+      end
     end
   end
 
-  def any_liquid?(_, _), do: {:error, :invalid_fluid_frame}
+  @doc "The cells the body scan covers, in vanilla's order (oracle coverage checks)."
+  def positions(box) do
+    with {:ok, {x0, y0, z0, x1, y1, z1}} <- range(box),
+         do: {:ok, for(x <- x0..x1, y <- y0..y1, z <- z0..z1, do: {x, y, z})}
+  end
 
-  @doc "Native body scan order, bounded independently of the supplied frame."
-  def positions(box), do: positions(box, @inset)
+  # The scan's cell range, at most `@max_cells` cells.
+  defp range({a, b, c, d, e, f} = box) do
+    if Box.valid?(box) and d - a > 2 * @inset and e - b > 2 * @inset and f - c > 2 * @inset do
+      {x0, y0, z0} = {floor(a + @inset), floor(b + @inset), floor(c + @inset)}
+      {x1, y1, z1} = {ceil(d - @inset) - 1, ceil(e - @inset) - 1, ceil(f - @inset) - 1}
 
-  defp positions(box, inset) do
-    if Box.valid?(box) do
-      {a, b, c, d, e, f} = box
-
-      if d - a > 2 * inset and e - b > 2 * inset and f - c > 2 * inset do
-        {x0, y0, z0} = {floor(a + inset), floor(b + inset), floor(c + inset)}
-        {x1, y1, z1} = {ceil(d - inset) - 1, ceil(e - inset) - 1, ceil(f - inset) - 1}
-
-        if (x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1) <= @max_cells,
-          do: {:ok, for(x <- x0..x1, y <- y0..y1, z <- z0..z1, do: {x, y, z})},
-          else: {:error, :fluid_scan_limit}
-      else
-        {:error, :invalid_fluid_box}
-      end
+      if (x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1) <= @max_cells,
+        do: {:ok, {x0, y0, z0, x1, y1, z1}},
+        else: {:error, :fluid_scan_limit}
     else
       {:error, :invalid_fluid_box}
     end
   end
 
-  defp surface(_, _, %{kind: :empty}), do: {:ok, 0.0}
+  defp range(_), do: {:error, :invalid_fluid_box}
 
-  defp surface(view, {x, y, z}, fluid) do
-    with {:ok, above} <- at(view, {x, y + 1, z}),
-         do: {:ok, if(above.kind == fluid.kind, do: 1.0, else: fluid.height)}
+  @doc false
+  # A body scan of at most 512 cells over a view.
+  def bounded(%View{}, box), do: with({:ok, _} <- range(box), do: :ok)
+  def bounded(_view, _box), do: {:error, :invalid_fluid_frame}
+
+  defp fluids(view, box) do
+    with :ok <- bounded(view, box), do: kernel_fluids(view, box)
   end
 
-  defp camera_height(frame, {x, y, z} = pos, %{source: true} = fluid) do
-    with {:ok, sturdy} <- FluidBoundaries.sturdy?(frame, {x, y + 1, z}, 0),
-         do: if(sturdy, do: {:ok, 1.0}, else: surface(frame, pos, fluid))
-  end
-
-  defp camera_height(frame, pos, fluid), do: surface(frame, pos, fluid)
-
-  defp at(view, p) do
-    case View.fetch(view, p) do
-      {:ok, id} -> {:ok, BlockFacts.fluid(id)}
-      :error -> {:error, :incomplete_fluid_frame}
+  defp kernel_fluids(view, box) do
+    case Kernel.fluids(view, box) do
+      {:ok, nil} -> {:error, :invalid_fluid_box}
+      {:ok, fluids} -> {:ok, fluids}
+      {:error, {:missing_block, _}} -> {:error, :incomplete_fluid_frame}
+      error -> error
     end
   end
 end

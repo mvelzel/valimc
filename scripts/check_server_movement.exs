@@ -1,6 +1,8 @@
-alias Valimc.Physics.{MovementValidation, Shape}
+alias Valimc.Native
+alias Valimc.Physics.{Kernel, MovementValidation}
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()
+floats = fn values -> values |> Enum.map(&(&1 * 1.0)) |> List.to_tuple() end
 
 for {fixture, index} <- Enum.with_index(cases) do
   mode =
@@ -23,10 +25,10 @@ for {fixture, index} <- Enum.with_index(cases) do
   queried = not (fixture["no_physics"] or (wrongly and fixture["old_clear"]))
   if queried != fixture["queried_new"], do: raise("Native branch differs: #{index}")
 
-  {:ok, new_collision} =
-    MovementValidation.new_collision?(
-      List.to_tuple(fixture["old_box"]),
-      Enum.map(fixture["new_colliders"], &Shape.from_world_facts!/1)
+  new_collision =
+    Native.physics_parity_new_collision(
+      floats.(fixture["old_box"]),
+      Enum.map(fixture["new_colliders"], &Kernel.shape/1)
     )
 
   {:ok, rejected} =
@@ -41,5 +43,5 @@ for {fixture, index} <- Enum.with_index(cases) do
 end
 
 IO.puts(
-  "PASS: #{length(cases)} Elixir post-move decisions match the actual native packet handler"
+  "PASS: #{length(cases)} post-move decisions (kernel new-collision test) match the actual native packet handler"
 )

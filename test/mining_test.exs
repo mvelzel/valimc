@@ -4,7 +4,9 @@ defmodule Valimc.MiningTest do
   # mining_attempt oracle stages; these tests cover ValiMC's own boundaries.
   use ExUnit.Case, async: true
   alias Valimc.PlayerMiningAttempt
-  alias Valimc.Physics.{Mining, MiningLoot, RandomMiningLoot}
+  alias Valimc.Mining
+  alias Valimc.MiningLoot
+  alias Valimc.RandomMiningLoot
   alias Valimc.Protocol.{Data, ItemStack}
 
   test "progress thresholds hold and malformed inputs are explicit errors" do

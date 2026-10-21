@@ -1,7 +1,7 @@
 defmodule Valimc.CookingOpening do
   @moduledoc "Fresh furnace-family view/action admission over region-owned metadata."
   alias Valimc.{Cooking, PlayerInteraction}
-  alias Valimc.Physics.CookingBlocks
+  alias Valimc.CookingBlocks
   @modes [:survival, :creative, :adventure, :spectator]
 
   def valid_view?(block, mode, {x, y, z} = eye, position)

@@ -1,13 +1,13 @@
-alias Valimc.Physics.{BlockScan, BodySweep, Box, CollisionQuery}
+alias Valimc.Physics.{BlockScan, Box, Kernel}
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 
 for c <- cases do
   result =
-    BodySweep.plan(
+    Kernel.sweep(
       List.to_tuple(c["from"]),
       List.to_tuple(c["to"]),
-      List.to_tuple(c["box"]),
+      c["box"] |> Enum.map(&(&1 * 1.0)) |> List.to_tuple(),
       c["stop_after"]
     )
 
@@ -26,7 +26,7 @@ for c <- cases do
   reverse = delta |> Tuple.to_list() |> Enum.map(&(-&1)) |> List.to_tuple()
   query = c["box"] |> List.to_tuple() |> Box.move(reverse) |> Box.expand_towards(delta)
 
-  case BlockScan.plan(query, CollisionQuery.frame_cell_limit()) do
+  case BlockScan.plan(query, 1024) do
     {:ok, cells} ->
       acquired = MapSet.new(cells, &elem(&1, 0))
 

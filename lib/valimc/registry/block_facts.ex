@@ -16,7 +16,7 @@ defmodule Valimc.Registry.BlockFacts do
   import Bitwise
   use Valimc.Facts, "registry/block_facts.json"
   alias Valimc.Native
-  alias Valimc.Physics.{Box, Shape}
+  alias Valimc.Physics.Box
 
   @count @facts["state_count"]
   unless @count == Valimc.Registry.Blocks.state_count(),
@@ -57,21 +57,7 @@ defmodule Valimc.Registry.BlockFacts do
   @flags palette.("flags", & &1)
 
   @shape_states states.("shape")
-  @shapes palette.("shape", fn
-            %{"context" => name, "shape" => shape, "max_offset" => limit} ->
-              {:context, name, {Shape.from_facts!(shape), limit}}
-
-            %{"context" => name} ->
-              {:context, name, nil}
-
-            geometry ->
-              Shape.from_facts!(geometry)
-          end)
-  @contextual Map.new(@facts["contextual_shapes"], fn
-                {name, height} when is_number(height) -> {String.to_atom(name), height}
-                {name, shape} -> {String.to_atom(name), Shape.from_facts!(shape)}
-              end)
-
+  @boundary_states states.("boundary")
   @motion_states states.("motion")
   @motion palette.("motion", fn m ->
             %{
@@ -96,15 +82,6 @@ defmodule Valimc.Registry.BlockFacts do
             }
           end)
   @remains palette.("fluid", & &1["replacement"])
-
-  @boundary_states states.("boundary")
-  @boundaries palette.("boundary", fn b ->
-                %{
-                  blocks_flow: b["blocks_flow"],
-                  ice: b["ice"],
-                  context: String.to_atom(b["context"])
-                }
-              end)
 
   @climb_states states.("climb")
   @climbs palette.("climb", fn c ->
@@ -207,6 +184,68 @@ defmodule Valimc.Registry.BlockFacts do
 
   @block_entity_types @facts["block_entity_types"]
 
+  # What the physics kernel reads (VMC-077l), as `block_facts_init` takes it.
+  native_shape = fn %{"axes" => axes, "sizes" => sizes, "bits" => bits} ->
+    {Enum.map(axes, fn a -> Enum.map(a, &(&1 * 1.0)) end), sizes,
+     Base.decode16!(bits, case: :lower)}
+  end
+
+  empty_shape = {[[0.0], [0.0], [0.0]], [0, 0, 0], <<>>}
+
+  @native_shapes Enum.map(columns["shape"]["palette"], fn
+                   %{"context" => _, "shape" => shape, "max_offset" => limit} ->
+                     {:offset, native_shape.(shape), false, limit * 1.0}
+
+                   %{"context" => "minecraft:scaffolding"} ->
+                     {:scaffolding, empty_shape, false, 0.0}
+
+                   %{"context" => "minecraft:powder_snow"} ->
+                     {:powder_snow, empty_shape, false, 0.0}
+
+                   %{"context" => "minecraft:moving_piston"} ->
+                     {:moving_piston, empty_shape, false, 0.0}
+
+                   %{"context" => name} ->
+                     unless String.ends_with?(name, "shulker_box"),
+                       do: raise("Unknown collision context #{name}")
+
+                     {:shulker_box, empty_shape, false, 0.0}
+
+                   geometry ->
+                     {:fixed, native_shape.(geometry), geometry["full_block"], 0.0}
+                 end)
+  contextual = @facts["contextual_shapes"]
+
+  @native_contextual %{
+    scaffolding_stable: native_shape.(contextual["scaffolding_stable"]),
+    scaffolding_bottom: native_shape.(contextual["scaffolding_unstable_bottom"]),
+    scaffolding_below_height: contextual["scaffolding_below_height"] * 1.0,
+    powder_snow_falling: native_shape.(contextual["powder_snow_falling"])
+  }
+  @native_scaffolding for id <- Valimc.Registry.Blocks.states("scaffolding"),
+                          properties = Map.new(Valimc.Registry.Blocks.properties(id)),
+                          do:
+                            {id, String.to_integer(properties["distance"]),
+                             properties["bottom"] == "true"}
+  @native_motion Enum.map(columns["motion"]["palette"], fn m ->
+                   {{m["friction"] * 1.0, m["speed_factor"] * 1.0, m["jump_factor"] * 1.0,
+                     m["bounciness"] * 1.0},
+                    {m["suppresses_bounce"], m["support_holds_y"], m["speed_override"]}}
+                 end)
+  @native_fluids Enum.map(columns["fluid"]["palette"], fn f ->
+                   {f["kind"], f["amount"], f["height"] * 1.0, f["source"], f["falling"]}
+                 end)
+  @native_boundaries Enum.map(columns["boundary"]["palette"], fn b ->
+                       context =
+                         case b["context"] do
+                           "none" -> 0
+                           "piston" -> 1
+                           "shulker" -> 2
+                         end
+
+                       {b["blocks_flow"], b["ice"], context}
+                     end)
+
   def count, do: @count
 
   @doc "The flag bit set of a state."
@@ -224,20 +263,6 @@ defmodule Valimc.Registry.BlockFacts do
   @doc "Sturdy full faces as a mask over vanilla `Direction` order (down, up, north, south, west, east)."
   def sturdy_faces(state), do: flags(state) >>> 5 &&& 63
 
-  @doc """
-  The cached collision shape, or `{:context, block, offset}` for a shape that
-  needs context; `offset` is `{unshifted shape, maximum horizontal offset}` for
-  position-offset blocks and nil otherwise.
-  """
-  def shape(state) do
-    skip = 2 * state
-    <<_::binary-size(^skip), index::16, _::binary>> = @shape_states
-    elem(@shapes, index)
-  end
-
-  @doc "A fixed shape a context picks (`scaffolding_stable`, `powder_snow_falling`, `full`, ...)."
-  def contextual_shape(name), do: Map.fetch!(@contextual, name)
-
   def motion(state), do: elem(@motion, :binary.at(@motion_states, state))
 
   @doc "The contained fluid: kind (`:empty`, `:water`, `:lava`), amount, height, source, falling."
@@ -245,9 +270,6 @@ defmodule Valimc.Registry.BlockFacts do
 
   @doc "What base block removal leaves: the state's fluid as a block (air when it has none)."
   def fluid_remains(state), do: elem(@remains, :binary.at(@fluid_states, state))
-
-  @doc "Flow barrier, ice, and the block entity (`:piston`, `:shulker`) its sturdy faces need."
-  def boundary(state), do: elem(@boundaries, :binary.at(@boundary_states, state))
 
   def climb(state), do: elem(@climbs, :binary.at(@climb_states, state))
 
@@ -347,7 +369,19 @@ defmodule Valimc.Registry.BlockFacts do
       light_occludes: occludes,
       sky: @sky,
       sky_classes: @sky_classes,
-      sky_pairs: @sky_pairs
+      sky_pairs: @sky_pairs,
+      physics:
+        Map.merge(@native_contextual, %{
+          shape_states: @shape_states,
+          shapes: @native_shapes,
+          scaffolding: @native_scaffolding,
+          motion_states: @motion_states,
+          motion: @native_motion,
+          fluid_states: @fluid_states,
+          fluids: @native_fluids,
+          boundary_states: @boundary_states,
+          boundaries: @native_boundaries
+        })
     }
   end
 end

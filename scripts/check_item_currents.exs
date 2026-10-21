@@ -1,5 +1,5 @@
 alias Valimc.World.View
-alias Valimc.Physics.{BlockEntityContext, BlockScan, FluidCurrents}
+alias Valimc.Physics.{BlockScan, FluidCurrents}
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 unless length(cases) == 12_288, do: raise("Incomplete native item current observations")
@@ -11,7 +11,7 @@ for c <- cases do
   base = Map.new(plan, fn {p, _} -> {p, 0} end)
   states = Map.merge(base, Map.new(c["states"], &{List.to_tuple(&1["position"]), &1["state"]}))
 
-  frame = View.of(states, Map.new(base, fn {p, _} -> {p, BlockEntityContext.absent()} end))
+  frame = View.of(states)
 
   {:ok, actual} =
     FluidCurrents.sample_item(

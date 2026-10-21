@@ -11,10 +11,7 @@ bits = fn vector ->
       do: Base.encode16(<<n::float-64>>, case: :lower)
 end
 
-tuple = fn
-  nil -> nil
-  list -> List.to_tuple(list)
-end
+tuple = &List.to_tuple/1
 
 Enum.each(data["launches"], fn row ->
   {:ok, result} =
@@ -25,29 +22,4 @@ Enum.each(data["launches"], fn row ->
          do: raise("Native launch differs: #{inspect({row, result})}")
 end)
 
-Enum.each(data["ticks"] ++ data["ages"], fn row ->
-  facts = %OrbMotion{
-    eye_water: row["water"],
-    embedded: row["embedded"],
-    no_gravity: row["no_gravity"],
-    lava_draws: tuple.(row["lava_draws"]),
-    target: tuple.(row["target"]),
-    on_ground: row["ground"],
-    below: row["below"],
-    friction: row["friction"]
-  }
-
-  {:ok, requested} = OrbMotion.prepare(tuple.(row["input"]), facts)
-  after_move = tuple.(row["post"]) || requested
-  {:ok, result} = OrbMotion.finish(after_move, elem(requested, 1), facts)
-  {:ok, age} = OrbMotion.tick_age(row["age"])
-
-  unless bits.(requested) == row["requested_bits"] and bits.(result) == row["velocity_bits"] and
-           age.age == row["age_after"] and age.expired == row["expired"] and
-           row["draw_calls"] == if(facts.lava_draws, do: 4, else: 0),
-         do: raise("Native tick differs: #{inspect({row, requested, result, age})}")
-end)
-
-IO.puts(
-  "PASS: 56 bit-exact native XP launches, 5,184 supplied-contact/collision ticks and 5 age/expiry boundaries. Live motion/selection/escape/merge/current/storage excluded."
-)
+IO.puts("PASS: 56 bit-exact native XP launches (orb tick motion is not live).")

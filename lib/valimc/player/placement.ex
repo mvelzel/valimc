@@ -167,14 +167,25 @@ defmodule Valimc.Player.Placement do
          not state.teleport_pending and not inventory_pending(state) and
          Mining.reachable?(state, request.position) and
          Valimc.PlayerInteraction.valid_hit?(request.position, request.cursor) do
-      {:ok, geometry} =
-        Valimc.Physics.PlayerPose.geometry(
-          state.player.pose,
-          {state.player.x, state.player.y, state.player.z}
-        )
-
-      %{box: geometry.box, chunks: state.chunks}
+      %{boxes: [body(state.player) | peer_bodies(state)], chunks: state.chunks}
     end
+  end
+
+  # Placement is obstructed by every nearby living player that is not a
+  # spectator (vanilla's `isUnobstructed`), the placing player included.
+  defp peer_bodies(state) do
+    for pid <- Valimc.Players.nearby(state.regions),
+        pid != self(),
+        {:ok, peer} <- [Valimc.Players.get(pid)],
+        peer.game_mode.current != :spectator and peer.living.health.value > 0,
+        do: body(peer)
+  end
+
+  defp body(player) do
+    {:ok, geometry} =
+      Valimc.Physics.PlayerPose.geometry(player.pose, {player.x, player.y, player.z})
+
+    geometry.box
   end
 
   @doc false

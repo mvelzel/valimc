@@ -6,7 +6,7 @@ use crate::facts::{FLAGS, LIGHT};
 use crate::region::{error, with_owned, with_store, Region};
 use crate::worldgen::{WorldgenRegistry, WorldgenState};
 use crate::{atoms, bytes, done, reply};
-use rustler::{Atom, Binary, Env, NewBinary, NifResult, ResourceArc};
+use rustler::{Atom, Binary, Encoder, Env, NewBinary, NifResult, ResourceArc, Term};
 use valimc_core::worldgen::compiler::BiomeSource;
 
 /// Light of chunks given as column images over the chunk rectangle starting at
@@ -869,4 +869,211 @@ fn rules_scene(
         ));
     }
     Ok(steps)
+}
+
+// ---- Physics kernel primitives over explicit shapes (VMC-077l) ----
+
+use crate::facts::{shape as decode_shape, ShapeT};
+use crate::physics::{aabb, context, facts as physics_facts, t3, v3, BoxT, ContextT, Vec3};
+use std::borrow::Cow;
+use valimc_core::physics::collide::{self as kernel, Collider};
+use valimc_core::physics::shape::box_shape;
+use valimc_core::physics::{Place, VoxelShape};
+
+/// A placed collider: a block-local shape, its own offset and its position
+/// (nil: not moved).
+type PlacedT<'a> = (ShapeT<'a>, Option<Vec3>, Option<Vec3>);
+
+fn placed(c: &PlacedT) -> NifResult<Collider<'static>> {
+    let (shape, offset, position) = c;
+    Ok(Collider {
+        shape: Cow::Owned(decode_shape(shape).ok_or(rustler::Error::BadArg)?),
+        place: Place {
+            offset: offset.map(v3),
+            position: position.map(v3),
+        },
+    })
+}
+
+fn placed_all(cs: &[PlacedT]) -> NifResult<Vec<Collider<'static>>> {
+    cs.iter().map(placed).collect()
+}
+
+/// A shape as `{axes, sizes, bits}` (bits LSB first).
+fn shape_term<'a>(env: Env<'a>, s: &VoxelShape, place: &Place) -> Term<'a> {
+    let axes: Vec<Vec<f64>> = (0..3)
+        .map(|a| s.axes[a].iter().map(|&v| place.coord(a, v)).collect())
+        .collect();
+    let cells = s.sizes[0] * s.sizes[1] * s.sizes[2];
+    let mut bits = vec![0u8; cells.div_ceil(8)];
+    let [_, ny, nz] = s.sizes;
+    for i in 0..cells {
+        let (x, y, z) = (i / (ny * nz), (i / nz) % ny, i % nz);
+        if s.full(x as isize, y as isize, z as isize) {
+            bits[i / 8] |= 1 << (i % 8);
+        }
+    }
+    (axes, s.sizes.to_vec(), crate::binary(env, &bits)).encode(env)
+}
+
+/// `Shapes.collide` of colliders along `axis` (0 x, 1 y, 2 z); one
+/// collider's own `VoxelShape.collide` when `raw`.
+#[rustler::nif]
+fn physics_parity_clip(
+    colliders: Vec<PlacedT>,
+    axis: usize,
+    body: BoxT,
+    delta: f64,
+    raw: bool,
+) -> NifResult<f64> {
+    let colliders = placed_all(&colliders)?;
+    let body = aabb(body);
+    Ok(match (raw, colliders.first()) {
+        (true, Some(c)) => c.collide(axis, &body, delta),
+        _ => kernel::clip(axis, &body, &colliders, delta),
+    })
+}
+
+/// `Entity.collideWithShapes`.
+#[rustler::nif]
+fn physics_parity_move(colliders: Vec<PlacedT>, body: BoxT, movement: Vec3) -> NifResult<Vec3> {
+    Ok(t3(kernel::collide_with(
+        &aabb(body),
+        &placed_all(&colliders)?,
+        v3(movement),
+    )))
+}
+
+/// `Entity.collide` with step-up, the movement's colliders `initial` and the
+/// step's `steps`: `{result, step_query}` (nil without a step).
+#[rustler::nif]
+fn physics_parity_step(
+    initial: Vec<PlacedT>,
+    steps: Vec<PlacedT>,
+    body: BoxT,
+    movement: Vec3,
+    max_step: f64,
+    grounded: bool,
+) -> NifResult<(Vec3, Option<BoxT>)> {
+    let initial = placed_all(&initial)?;
+    let steps = placed_all(&steps)?;
+    let mut calls = 0;
+    let moved = kernel::collide_by(
+        &mut |_| {
+            calls += 1;
+            Ok(if calls == 1 {
+                initial.clone()
+            } else {
+                steps.clone()
+            })
+        },
+        &aabb(body),
+        v3(movement),
+        max_step as f32,
+        grounded,
+    )
+    .map_err(|_| rustler::Error::BadArg)?;
+    let q = moved.step_query.map(|q| {
+        let a = q.to_array();
+        (a[0], a[1], a[2], a[3], a[4], a[5])
+    });
+    Ok((t3(moved.actual), q))
+}
+
+/// `collectCandidateStepUpHeights` as floats.
+#[rustler::nif]
+fn physics_parity_heights(
+    colliders: Vec<PlacedT>,
+    body: BoxT,
+    max_step: f64,
+    skip: f64,
+) -> NifResult<Vec<f64>> {
+    Ok(kernel::step_heights(
+        &aabb(body),
+        &placed_all(&colliders)?,
+        max_step as f32,
+        skip as f32,
+    )
+    .into_iter()
+    .map(|h| h as f64)
+    .collect())
+}
+
+/// `Shapes.create` of a world box.
+#[rustler::nif]
+fn physics_parity_box_shape<'a>(env: Env<'a>, body: BoxT) -> Term<'a> {
+    shape_term(env, &box_shape(&aabb(body)), &Place::ORIGIN)
+}
+
+/// `Shapes.joinIsNotEmpty(a, b, AND)` of two world shapes.
+#[rustler::nif]
+fn physics_parity_intersects(a: ShapeT, b: ShapeT) -> NifResult<bool> {
+    let a = decode_shape(&a).ok_or(rustler::Error::BadArg)?;
+    let b = decode_shape(&b).ok_or(rustler::Error::BadArg)?;
+    Ok(a.intersects(&Place::ORIGIN, &b, &Place::ORIGIN))
+}
+
+/// The collision shape the kernel picks for `state` at `pos`: `{local shape,
+/// offset}`.
+#[rustler::nif]
+fn physics_parity_shape<'a>(
+    env: Env<'a>,
+    state: u16,
+    pos: (i32, i32, i32),
+    ctx: ContextT,
+) -> NifResult<Term<'a>> {
+    let facts = physics_facts()?;
+    let picked = facts
+        .shapes
+        .shape(state, [pos.0, pos.1, pos.2], &context(ctx));
+    let offset = (picked.offset != [0.0; 3]).then(|| t3(picked.offset));
+    Ok((shape_term(env, picked.shape, &Place::ORIGIN), offset).encode(env))
+}
+
+/// The ordered block colliders of a box over a view: `{x, y, z}`, state and
+/// the shape in world coordinates.
+#[rustler::nif]
+fn physics_parity_colliders<'a>(
+    env: Env<'a>,
+    view_term: Term<'a>,
+    body: BoxT,
+    ctx: ContextT,
+) -> NifResult<Term<'a>> {
+    use valimc_core::physics::BlockSource;
+    let facts = physics_facts()?;
+    let body = aabb(body);
+    let view = crate::physics::view(view_term, facts, &body.inflate(2.0))?;
+    match kernel::block_colliders(&view, &facts.shapes, &body, &context(ctx)) {
+        Ok(found) => {
+            let out: Vec<Term> = found
+                .iter()
+                .map(|c| {
+                    let p = c.place.position.unwrap_or([0.0; 3]).map(|v| v as i32);
+                    let state = view.state(p[0], p[1], p[2]).unwrap_or(0);
+                    (
+                        (p[0], p[1], p[2]),
+                        state,
+                        shape_term(env, &c.shape, &c.place),
+                    )
+                        .encode(env)
+                })
+                .collect();
+            Ok(out.encode(env))
+        }
+        Err(u) => Ok((rustler::types::atom::error(), (u.0[0], u.0[1], u.0[2])).encode(env)),
+    }
+}
+
+/// `isEntityCollidingWithAnythingNew` over supplied new colliders (world
+/// shapes): any not meeting the old box deflated by 1e-5F.
+#[rustler::nif]
+fn physics_parity_new_collision(old: BoxT, colliders: Vec<ShapeT>) -> NifResult<bool> {
+    let previous = box_shape(&aabb(old).deflate(9.999999747378752e-6));
+    for c in &colliders {
+        let s = decode_shape(c).ok_or(rustler::Error::BadArg)?;
+        if !s.intersects(&Place::ORIGIN, &previous, &Place::ORIGIN) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }

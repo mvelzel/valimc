@@ -1,32 +1,34 @@
 defmodule Valimc.PlayerMotionQuery do
-  @moduledoc "Bounded sampled movement geometry; only the player owner accepts the result."
+  @moduledoc """
+  One move packet's validation and observations, run synchronously by the
+  player's connection over published snapshots (VMC-077l): the collision
+  with step-up, vanilla's "moved wrongly" and new-collision rules, the pose,
+  fluids, powder snow, landing and kinetics. Only the connection applies it.
+  """
   import Bitwise
 
   alias Valimc.Physics.{
-    BlockCollisions,
-    BorderSnapshot,
     Box,
-    Collision,
     CollisionContext,
-    CollisionQuery,
     ClimbContact,
+    Kernel,
     MovementFood,
     MovementValidation,
     PlayerPose,
-    PoseFit,
-    StepMovement
+    PoseFit
   }
 
-  @epsilon 9.999999747378752e-6
+  alias Valimc.World.View
+
   @support 0.001
 
-  def start(player, target, flags \\ 0) do
-    with {:ok, start} <- prepare(player, target, flags), do: start.()
-  end
-
-  def prepare(player, target, flags \\ 0) do
-    with {:ok, query} <- query_box(player, target, flags),
-         do: CollisionQuery.prepare_frame(query, &resolve_frame(player, target, flags, &1))
+  @doc "Validate a move of `player` to `target` (`%{x, y, z}`) with packet `flags`."
+  def run(player, target, flags \\ 0) do
+    with {:ok, query} <- query_box(player, target, flags) do
+      if Kernel.bounded?(query),
+        do: resolve_frame(player, target, flags, View.load(View.new(), query)),
+        else: {:error, :movement_query_limit}
+    end
   end
 
   @doc false
@@ -108,17 +110,18 @@ defmodule Valimc.PlayerMotionQuery do
          moved = Valimc.PlayerKinetics.physical_position(player, actual, step.requested),
          moved_box = Box.move(box, subtract(moved, position)),
          # Match native translation order, including cancellation at remote coordinates.
-         target_box = moved_box |> Box.move(subtract(destination, moved)) |> deflate(),
+         target_box = Box.move(moved_box, subtract(destination, moved)),
          {:ok, wrongly} <-
            MovementValidation.wrongly?(destination, moved, player.game_mode.current, false, false),
-         {:ok, old_shapes} <- shapes(box, blocks, context(player, elem(moved, 1)), moved),
-         {:ok, new_shapes} <- shapes(target_box, blocks, context, position),
-         {:ok, new_collision} <- MovementValidation.new_collision?(box, new_shapes),
+         {:ok, old_colliding} <-
+           Kernel.colliding?(blocks, box, context(player, elem(moved, 1)), extra(), moved),
+         {:ok, new_collision} <-
+           Kernel.new_collision?(blocks, box, target_box, context, extra()),
          {:ok, rejected} <-
            MovementValidation.collision_rejected?(
              intent.spectator,
              wrongly,
-             old_shapes == [],
+             not old_colliding,
              new_collision
            ),
          {:ok, swimming} <-
@@ -223,63 +226,31 @@ defmodule Valimc.PlayerMotionQuery do
   @doc false
   def displacement(_, requested, _, _, _, true), do: {:ok, requested}
 
-  def displacement(box, requested, position, blocks, context, false) do
-    sweep = Box.expand_towards(box, requested)
-    support = Box.expand_towards(box, {0, -@support, 0})
-
-    with {:ok, initial} <- shapes(sweep, blocks, context, position),
-         {:ok, below} <- shapes(support, blocks, context, position) do
-      grounded = elem(Collision.move(box, below, {0, -@support, 0}), 1) != -@support
-
-      case StepMovement.prepare(box, initial, requested, 0.6, grounded) do
-        {:resolved, actual} ->
-          {:ok, actual}
-
-        {:step, plan} ->
-          with {:ok, step_shapes} <- shapes(plan.query, blocks, context, position),
-               do: StepMovement.finish(plan, step_shapes)
-
-        error ->
-          error
-      end
-    end
-  end
-
-  defp shapes(box, blocks, context, {x, _, z}) do
-    with {:ok, result} <- BlockCollisions.collect(box, blocks, context),
-         {:ok, border} <-
-           BorderSnapshot.colliders(Valimc.World.Clock.border_snapshot(), {x, z}, box) do
-      {:ok, Enum.map(result.colliders, & &1.shape) ++ border}
-    end
+  def displacement(box, requested, _position, blocks, context, false) do
+    with {:ok, moved} <- Kernel.move(blocks, box, requested, context, extra(), 0.6, @support),
+         do: {:ok, moved.actual}
   end
 
   @doc false
   def support_free?(box, frame, context, position) do
-    with {:ok, shapes} <- shapes(box, frame, context, position), do: {:ok, shapes == []}
+    with {:ok, colliding} <- Kernel.colliding?(frame, box, context, extra(), position),
+         do: {:ok, not colliding}
   end
 
   @doc false
   def free_box?(box, frame, context, position) do
-    with {:ok, shapes} <- shapes(box, frame, context, position) do
-      if shapes == [] do
-        with {:ok, fluid} <- Valimc.Physics.FluidContact.any_liquid?(frame, box),
-             do: {:ok, not fluid}
-      else
-        {:ok, false}
-      end
+    with {:ok, false} <- Kernel.colliding?(frame, box, context, extra(), position),
+         {:ok, fluid} <- Valimc.Physics.FluidContact.any_liquid?(frame, box) do
+      {:ok, not fluid}
+    else
+      {:ok, true} -> {:ok, false}
+      error -> error
     end
   end
 
-  defp context(player, bottom),
-    do:
-      CollisionContext.entity(bottom, (player.input.shared_flags &&& 2) != 0)
-      |> CollisionContext.with_entity(Valimc.PlayerMotion.distance(player), false, false)
+  defp extra, do: Kernel.extra([], Valimc.World.Clock.border_snapshot())
 
-  defp deflate({a, b, c, d, e, f}),
-    do:
-      Box.new(
-        {a + @epsilon, b + @epsilon, c + @epsilon, d - @epsilon, e - @epsilon, f - @epsilon}
-      )
+  defp context(player, bottom), do: CollisionContext.player(player, bottom)
 
   defp point(p), do: {p.x, p.y, p.z}
   defp subtract({x, y, z}, {a, b, c}), do: {x - a, y - b, z - c}

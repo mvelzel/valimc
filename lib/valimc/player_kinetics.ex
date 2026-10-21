@@ -1,5 +1,6 @@
 defmodule Valimc.PlayerKinetics do
   @moduledoc "Player-owned server velocity, separate from accepted client displacement."
+  import Valimc.Physics.Kernel, only: [f32: 1]
   import Bitwise
   alias Valimc.{PlayerMotion, PlayerMotionQuery}
   alias Valimc.Living.Attributes
@@ -7,12 +8,11 @@ defmodule Valimc.PlayerKinetics do
 
   alias Valimc.Physics.{
     AirMotion,
-    BlockCollisions,
     Box,
     ClimbContact,
+    Kernel,
     ClimbMotion,
     CollisionContext,
-    CollisionResponse,
     BlockContacts,
     FluidContact,
     FluidControls,
@@ -180,9 +180,7 @@ defmodule Valimc.PlayerKinetics do
 
     with {:ok, geometry} <- PlayerPose.geometry(:standing, point(player)),
          {:ok, query} <- query_box(geometry.box, %{player | motion: motion}),
-         {:ok, _} <-
-           Valimc.Physics.BlockScan.plan(query, Valimc.Physics.CollisionQuery.frame_cell_limit()),
-         do: true,
+         do: Kernel.bounded?(query),
          else: (_ -> false)
   end
 
@@ -568,8 +566,9 @@ defmodule Valimc.PlayerKinetics do
   defp response(velocity, requested, actual, material, player) do
     vertical = elem(requested, 1) != elem(actual, 1)
 
-    with {:ok, result} <-
-           CollisionResponse.step(velocity, elem(actual, 1), %CollisionResponse{
+    with true <- valid_velocity?(velocity) or {:error, :invalid_collision_response},
+         result =
+           Kernel.respond(velocity, elem(actual, 1), %{
              x_collision: abs(elem(requested, 0) - elem(actual, 0)) >= @epsilon,
              z_collision: abs(elem(requested, 2) - elem(actual, 2)) >= @epsilon,
              vertical_collision: vertical,
@@ -589,52 +588,22 @@ defmodule Valimc.PlayerKinetics do
   end
 
   @doc false
-  def material(frame, {a, b, c, d, _, f}, {x, y, z} = position, ctx) do
-    thin = Box.new({a, b - 1.0e-6, c, d, b, f})
-
-    with {:ok, colliders} <- BlockCollisions.collect(thin, frame, ctx) do
-      support =
-        colliders.colliders
-        |> Enum.min_by(
-          fn %{position: {px, py, pz}} ->
-            dx = px + 0.5 - x
-            dy = py + 0.5 - y
-            dz = pz + 0.5 - z
-            {dx * dx + dy * dy + dz * dz, -py, -pz, -px}
-          end,
-          fn -> nil end
-        )
-
-      below_y = floor(y - @below)
-
-      with {:ok, below_pos} <- below_position(support, below_y, position, frame),
-           {:ok, below} <- fact(frame, below_pos),
-           {:ok, feet} <- fact(frame, {floor(x), floor(y), floor(z)}) do
-        {:ok, %{below: below, feet: feet, support: support, below_position: below_pos}}
-      end
+  # The support and the blocks below and at the feet (the kernel's footing),
+  # with the movement facts of `below` and `feet`.
+  def material(frame, box, position, ctx) do
+    with {:ok, f} <- Kernel.footing(frame, box, position, {0.0, 0.0, 0.0}, ctx) do
+      {:ok,
+       %{
+         below: BlockFacts.motion(f.below.state),
+         feet: BlockFacts.motion(f.feet.state),
+         support: f.support,
+         below_position: f.below.position,
+         legacy: f.legacy
+       }}
     end
   end
 
-  defp below_position(nil, y, {x, _, z}, _), do: {:ok, {floor(x), y, floor(z)}}
-
-  defp below_position(%{position: {x, _, z} = pos}, y, _, frame) do
-    with {:ok, f} <- fact(frame, pos), do: {:ok, if(f.support_holds_y, do: pos, else: {x, y, z})}
-  end
-
-  defp fact(%Valimc.World.View{} = view, pos) do
-    case Valimc.World.View.fetch(view, pos) do
-      {:ok, id} -> {:ok, BlockFacts.motion(id)}
-      :error -> {:error, :incomplete_kinetic_frame}
-    end
-  end
-
-  defp context(player, bottom),
-    do:
-      CollisionContext.entity(
-        bottom,
-        (player.input.shared_flags &&& 2) != 0
-      )
-      |> CollisionContext.with_entity(PlayerMotion.distance(player), false, false)
+  defp context(player, bottom), do: CollisionContext.player(player, bottom)
 
   defp point(p), do: {p.x, p.y, p.z}
   defp subtract({x, y, z}, {a, b, c}), do: {x - a, y - b, z - c}
@@ -675,11 +644,6 @@ defmodule Valimc.PlayerKinetics do
   end
 
   defp trig(index), do: f32(:math.sin((index &&& 65_535) / @sin_scale))
-
-  defp f32(value) do
-    <<rounded::float-32>> = <<value::float-32>>
-    rounded
-  end
 
   # Bodies without living state (bare physics fixtures) have no effects.
   defp effects(player), do: Map.get(player, :living, %Valimc.Living{}).effects

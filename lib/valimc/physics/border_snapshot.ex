@@ -1,9 +1,8 @@
 defmodule Valimc.Physics.BorderSnapshot do
   @moduledoc "Pure stationary border observations; no border owner, resizing or gameplay authority."
-  alias Valimc.Physics.{Box, Shape, VoxelOps}
+  alias Valimc.Physics.Box
   defstruct center_x: 0.0, center_z: 0.0, diameter: 59_999_968.0, absolute_max: 29_999_984
   @corner_epsilon 9.999999747378752e-6
-  @extent 60_000_000.0
 
   def new(x, z, diameter, absolute_max \\ 29_999_984) do
     border = %__MODULE__{center_x: x, center_z: z, diameter: diameter, absolute_max: absolute_max}
@@ -65,65 +64,24 @@ defmodule Valimc.Physics.BorderSnapshot do
 
   def distance(_, _), do: {:error, :invalid_border_query}
 
+  @doc """
+  Whether the border leaves `box` clear for a mover at `subject` (`{x, z}`,
+  or nil for an anonymous query): the kernel's border collider (VMC-077l).
+  """
   def no_collision?(border, subject, box) do
-    with {:ok, shapes} <- colliders(border, subject, box), do: {:ok, shapes == []}
-  end
-
-  def colliders(border, subject, box) do
-    with true <- query?(box) and (is_nil(subject) or match?({_, _}, subject)),
-         {:ok, bounds} <- bounds(border),
-         {:ok, close} <- close?(bounds, subject, box) do
-      if close do
-        shape = outside(bounds)
-        {:ok, if(VoxelOps.intersects?(shape, VoxelOps.world_box(box)), do: [shape], else: [])}
-      else
-        {:ok, []}
-      end
+    with true <- query?(box) and (is_nil(subject) or point?(subject)),
+         {:ok, bounds} <- bounds(border) do
+      subject = if subject, do: {elem(subject, 0) * 1.0, elem(subject, 1) * 1.0}
+      {:ok, Valimc.Native.physics_border_clear(bounds, subject, floats(box))}
     else
       false -> {:error, :invalid_border_query}
       error -> error
     end
   end
 
-  defp close?(_, nil, _), do: {:ok, false}
-
-  defp close?(bounds, {x, z}, {a, _, c, b, _, d}) do
-    if point?(x, z) do
-      margin = max(max(abs(b - a), abs(d - c)), 1.0)
-      {:ok, distance_to(bounds, x, z) < margin * 2 and within?(bounds, x, z, margin)}
-    else
-      {:error, :invalid_border_query}
-    end
-  end
-
-  defp outside({a, c, b, d}) do
-    x0 = floor(a) * 1.0
-    x1 = ceil(b) * 1.0
-    z0 = floor(c) * 1.0
-    z1 = ceil(d) * 1.0
-
-    if x0 == x1 or z0 == z1 do
-      VoxelOps.world_box({-@extent, -@extent, -@extent, @extent, @extent, @extent})
-    else
-      # Keep the union's internal planes: four independent half-space tests
-      # differ from native voxel merging at epsilon-sized corner intersections.
-      xs = {-@extent, x0, x1, @extent}
-      zs = {-@extent, z0, z1, @extent}
-
-      boxes =
-        for x <- 0..2,
-            z <- 0..2,
-            x != 1 or z != 1,
-            do: {elem(xs, x), -@extent, elem(zs, z), elem(xs, x + 1), @extent, elem(zs, z + 1)}
-
-      %Shape{
-        axes: {xs, {-@extent, @extent}, zs},
-        sizes: {3, 1, 3},
-        bits: <<239, 1>>,
-        boxes: boxes
-      }
-    end
-  end
+  defp floats(box), do: box |> Tuple.to_list() |> Enum.map(&(&1 * 1.0)) |> List.to_tuple()
+  defp point?({x, z}), do: point?(x, z)
+  defp point?(_), do: false
 
   defp within?({a, c, b, d}, x, z, margin),
     do: x >= a - margin and x < b + margin and z >= c - margin and z < d + margin

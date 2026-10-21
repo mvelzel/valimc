@@ -17,7 +17,8 @@ defmodule Valimc.Anvil.BlockEntity do
   at its position creates is dropped.
   """
   alias Valimc.Cooking
-  alias Valimc.Physics.{BlockEntities, CookingBlocks}
+  alias Valimc.Physics.BlockEntities
+  alias Valimc.CookingBlocks
   alias Valimc.Protocol.{ItemData, ItemStack}
   alias Valimc.World.CookingEntry
 

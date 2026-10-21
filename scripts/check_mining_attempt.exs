@@ -1,4 +1,4 @@
-alias Valimc.Physics.Mining
+alias Valimc.Mining
 alias Valimc.PlayerMiningAttempt
 alias Valimc.Protocol.{Data, Packets}
 [input] = System.argv()

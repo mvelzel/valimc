@@ -1,6 +1,6 @@
 [path] = System.argv()
 raw = JSON.decode!(File.read!(path))
-alias Valimc.Physics.CookingItems
+alias Valimc.CookingItems
 alias Valimc.Protocol.{Data, ItemStack}
 
 true =

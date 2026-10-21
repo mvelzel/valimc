@@ -6,7 +6,8 @@ defmodule Valimc.Living.Freezing do
   sample and current gear.
   """
   alias Valimc.Living.Armor
-  alias Valimc.Physics.{BlockShapes, Box}
+  alias Valimc.Physics.Box
+  alias Valimc.Registry.BlockFacts
   @epsilon 9.999999747378752e-6
   defstruct powder_snow: false, frozen_ticks: 0, damage_phase: 0, damage_due: false
 
@@ -64,7 +65,7 @@ defmodule Valimc.Living.Freezing do
         if Enum.all?(states, &match?({:ok, _}, &1)) do
           {:ok,
            Enum.any?(states, fn {:ok, state} ->
-             BlockShapes.fetch(state) == {:context_required, "minecraft:powder_snow"}
+             BlockFacts.stuck(state) == :powder_snow
            end)}
         else
           {:error, :incomplete_environment_frame}

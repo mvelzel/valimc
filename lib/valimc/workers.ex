@@ -4,8 +4,8 @@ defmodule Valimc.Workers do
   job never queues behind one global supervisor process.
   """
 
-  @doc "The collision/geometry pool partition for the calling process."
-  def collision, do: {:via, PartitionSupervisor, {Valimc.CollisionWorkers, self()}}
+  @doc "The placement and mining job pool partition for the calling process."
+  def actions, do: {:via, PartitionSupervisor, {Valimc.ActionWorkers, self()}}
 
   def partitions, do: max(System.schedulers_online(), 1)
 

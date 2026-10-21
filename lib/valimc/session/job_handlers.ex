@@ -9,67 +9,16 @@ defmodule Valimc.Session.JobHandlers do
   alias Valimc.Player.CreativeInventory
   alias Valimc.Player.Transfers
   alias Valimc.Player.Mining
-  alias Valimc.Session.Replication
-  alias Valimc.Player.Movement
   alias Valimc.Player.Vitals
 
   import Valimc.Net.Codec,
     only: [send_packets: 2, reject: 2]
 
   alias Valimc.{
-    PlayerKinetics,
-    PlayerMotion,
     PlayerMiningQuery,
     PlayerSnapshot,
     PlayerStore
   }
-
-  def job_result(:pose, job, result, state) do
-    Valimc.Connection.guard_connection(state, fn ->
-      case result do
-        {:ok,
-         %{
-           pose: pose,
-           swimming: swimming,
-           sources: sources,
-           powder_snow: powder,
-           submerged: submerged,
-           eye_water: eye_water,
-           kinetics: kinetics
-         }} ->
-          if System.monotonic_time(:millisecond) < job.deadline and
-               Movement.pose_signature(state) == job.signature do
-            player = %{
-              state.player
-              | pose: pose,
-                motion: %{state.player.motion | swimming: swimming}
-            }
-
-            if pose != state.player.pose do
-              send_packets(state, [Packets.player_pose(player)])
-            end
-
-            state =
-              %{state | player: player}
-              |> Movement.apply_kinetic_tick(kinetics, false)
-              |> Vitals.observe_environment(powder, submerged, eye_water, kinetics)
-              |> Movement.monitor_pose_sources(sources)
-
-            state =
-              if state.life_stage == :alive,
-                do: %{state | pose_checked: Movement.pose_signature(state)},
-                else: state
-
-            {:noreply, state}
-          else
-            {:noreply, state}
-          end
-
-        {:error, _} ->
-          {:noreply, state}
-      end
-    end)
-  end
 
   def job_result(:pickup, job, result, state) do
     Valimc.Connection.guard_connection(state, fn ->
@@ -116,90 +65,6 @@ defmodule Valimc.Session.JobHandlers do
 
         _ ->
           reject(state, "Block interaction unavailable; please reconnect")
-      end
-    end)
-  end
-
-  def job_result(:motion, job, result, state) do
-    Valimc.Connection.guard_connection(state, fn ->
-      cond do
-        System.monotonic_time(:millisecond) >= job.input.deadline ->
-          {:noreply, Movement.correct_motion(state, :movement_late_result_corrections)}
-
-        Movement.motion_signature(state) != job.signature ->
-          {:noreply, Movement.start_motion(state)}
-
-        true ->
-          case result do
-            {:ok,
-             %{
-               accepted: true,
-               pose: pose,
-               swimming: swimming,
-               sources: sources,
-               powder_snow: powder,
-               submerged: submerged,
-               eye_water: eye_water,
-               exhaustion: exhaustion,
-               kinetics: kinetics,
-               landing: landing
-             }} ->
-              player = state.player |> Map.merge(job.input.position) |> Map.put(:pose, pose)
-
-              movement =
-                {player.x - state.player.x, player.y - state.player.y, player.z - state.player.z}
-
-              motion =
-                PlayerMotion.accept(
-                  state.player.motion,
-                  movement,
-                  job.input.flags,
-                  player.abilities.flying
-                )
-
-              motion =
-                PlayerKinetics.apply_result(%{motion | swimming: swimming}, kinetics.packet)
-
-              player = %{player | motion: motion}
-
-              if pose != state.player.pose,
-                do: send_packets(state, [Packets.player_pose(player)])
-
-              next = %{
-                state
-                | player: player,
-                  motion_pending: nil,
-                  pose_checked: nil
-              }
-
-              send(self(), :drain)
-
-              next =
-                next
-                |> Vitals.apply_movement_exhaustion(exhaustion)
-                |> Movement.apply_kinetic_tick(kinetics.tick, kinetics.packet.bounced)
-                |> Vitals.observe_environment(powder, submerged, eye_water, kinetics.tick)
-                |> Movement.monitor_pose_sources(sources)
-                |> Replication.update_view()
-                |> Vitals.apply_landing(landing)
-
-              {:noreply,
-               if(next.life_stage == :alive,
-                 do: %{next | pose_checked: Movement.pose_signature(next)},
-                 else: next
-               )}
-
-            {:ok, %{accepted: false}} ->
-              {:noreply, Movement.correct_motion(state, :movement_collision_corrections)}
-
-            {:error, reason} ->
-              metric =
-                if reason == :collision_query_timeout,
-                  do: :movement_query_timeout_corrections,
-                  else: :movement_geometry_corrections
-
-              {:noreply, Movement.correct_motion(state, metric)}
-          end
       end
     end)
   end
@@ -264,12 +129,6 @@ defmodule Valimc.Session.JobHandlers do
   def job_down(:suggestion, job, _reason, state),
     do: {:noreply, Valimc.Session.Commands.suggested(state, job, nil)}
 
-  def job_down(:motion, _job, _reason, state),
-    do:
-      Valimc.Connection.guard_connection(state, fn ->
-        {:noreply, Movement.correct_motion(state, :movement_geometry_corrections)}
-      end)
-
   def job_down(:placement, _job, _reason, state),
     do:
       Valimc.Connection.guard_connection(state, fn ->
@@ -283,14 +142,8 @@ defmodule Valimc.Session.JobHandlers do
   def job_down(:portal, _job, _reason, state),
     do: {:noreply, Valimc.Player.Portals.failed(state)}
 
-  def job_down(kind, _job, _reason, state) when kind in [:pose, :pickup, :experience],
+  def job_down(kind, _job, _reason, state) when kind in [:pickup, :experience],
     do: {:noreply, state}
-
-  def job_timeout(:motion, _job, state),
-    do:
-      Valimc.Connection.guard_connection(state, fn ->
-        {:noreply, Movement.correct_motion(state, :movement_worker_deadline_corrections)}
-      end)
 
   def job_timeout(:placement, _job, state),
     do:

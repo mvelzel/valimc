@@ -21,7 +21,7 @@ defmodule Valimc.World.PlayerSpawn do
   are awaited, as vanilla blocks on its chunk loads. The search is bounded by a
   deadline, after which the suggestion's block centre is used.
   """
-  alias Valimc.Physics.{BlockShapes, CollisionContext, Shape, VoxelOps}
+  alias Valimc.Physics.{CollisionContext, Kernel}
   alias Valimc.Registry.BlockFacts
   alias Valimc.World
   alias Valimc.World.{Border, Chunk, Clock, Spawn, SpawnSearch, View}
@@ -130,8 +130,6 @@ defmodule Valimc.World.PlayerSpawn do
       {x + 0.5 - @half_width, y * 1.0, z + 0.5 - @half_width, x + 0.5 + @half_width, y + @height,
        z + 0.5 + @half_width}
 
-    world = VoxelOps.world_box(box)
-
     # Outside the world's height is air.
     Enum.all?((y - 1)..(y + 1), fn by ->
       index = by - Chunk.min_y()
@@ -146,10 +144,7 @@ defmodule Valimc.World.PlayerSpawn do
             false
 
           true ->
-            case BlockShapes.fetch(state, {x, by, z}, CollisionContext.empty()) do
-              {:ok, shape} -> not VoxelOps.intersects?(Shape.move(shape, {x, by, z}), world)
-              _ -> false
-            end
+            not Kernel.obstructs?(state, {x, by, z}, CollisionContext.empty(), [box])
         end
       end
     end)

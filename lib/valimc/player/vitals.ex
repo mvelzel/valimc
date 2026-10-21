@@ -55,10 +55,10 @@ defmodule Valimc.Player.Vitals do
     {:ok, jump} = Attributes.jump_boost(state.player.living.effects)
 
     {:ok, amount} =
-      Valimc.Physics.FallDamage.calculate(
+      Valimc.Living.FallDamage.calculate(
         call.distance,
         call.multiplier,
-        %Valimc.Physics.FallDamage{safe_distance: jump.safe_distance}
+        %Valimc.Living.FallDamage{safe_distance: jump.safe_distance}
       )
 
     if amount > 0 do
@@ -257,8 +257,6 @@ defmodule Valimc.Player.Vitals do
           if health.value <= 0 do
             state =
               state
-              |> Valimc.Player.Movement.cancel_pose_job()
-              |> Valimc.Player.Movement.cancel_motion_job()
               |> Valimc.Player.ItemUse.stop_item_use()
               |> Valimc.Player.Mining.cancel_mining()
 
@@ -294,7 +292,6 @@ defmodule Valimc.Player.Vitals do
     %{
       state
       | player: PlayerLife.die(state.player),
-        motion_pending: nil,
         motion_window: nil,
         pose_checked: nil,
         pose_generation: state.pose_generation + 1,

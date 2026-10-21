@@ -1,6 +1,6 @@
 defmodule Valimc.Physics.BodyPaths do
   @moduledoc "Bounded ordered body candidates for retained movement paths; callers resolve fenced effects."
-  alias Valimc.Physics.{BodySweep, Box, PlayerPose}
+  alias Valimc.Physics.{Box, Kernel, PlayerPose}
   @epsilon 9.999999747378752e-6
 
   def reduce(paths, pose, initial, visitor)
@@ -75,7 +75,7 @@ defmodule Valimc.Physics.BodyPaths do
   defp line(from, to, pose, acc, budget, visitor) do
     with {:ok, before} <- PlayerPose.geometry(pose, from),
          {:ok, after_move} <- PlayerPose.geometry(pose, to),
-         {:ok, sweep} <- BodySweep.plan(from, to, deflate(after_move.box)) do
+         {:ok, sweep} <- Kernel.sweep(from, to, deflate(after_move.box)) do
       result =
         Enum.reduce_while(sweep.visits, {:ok, acc, 0}, fn {pos, step}, {:ok, acc, last_step} ->
           cond do

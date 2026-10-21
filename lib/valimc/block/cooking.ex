@@ -1,7 +1,7 @@
 defmodule Valimc.Block.Cooking do
   @moduledoc "Furnace, smoker and blast furnace: an owned cooking entry and facing placement."
   use Valimc.Block.Behaviour
-  alias Valimc.Physics.CookingBlocks
+  alias Valimc.CookingBlocks
   alias Valimc.Protocol.ItemStack
 
   @impl true

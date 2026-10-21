@@ -265,8 +265,6 @@ defmodule Valimc.Player.ItemUse do
           state =
             if transition.death do
               state
-              |> Valimc.Player.Movement.cancel_pose_job()
-              |> Valimc.Player.Movement.cancel_motion_job()
               |> stop_item_use()
               |> Valimc.Player.Mining.cancel_mining()
               |> Valimc.Player.Menus.begin_table_close()

@@ -7,7 +7,7 @@ defmodule Valimc.Block do
   so its callback results are tabulated at compile time as well.
   """
   alias Valimc.Block.{BuddingAmethyst, Chest, Cooking, Coral, Default, NetherPortal, Pillar, Slab}
-  alias Valimc.Physics.CookingBlocks
+  alias Valimc.CookingBlocks
   alias Valimc.Registry.Blocks
 
   @classes %{

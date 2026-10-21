@@ -10,8 +10,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
     PlayerMotion,
     PlayerSnapshot,
     PlayerStore,
-    Players,
-    World
+    Players
   }
 
   alias Valimc.Protocol.{Data, ItemStack, Wire}
@@ -114,9 +113,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
     target = max(bottom, p.y - 2.0)
     move(client, pid, target, if(target == bottom, do: 1, else: 0))
 
-    wait(fn ->
-      state(pid).player.y == target and Valimc.TestConn.job(state(pid), :motion) == nil
-    end)
+    wait(fn -> state(pid).player.y == target end)
 
     if target != bottom, do: fall(client, pid, bottom)
     :ok
@@ -169,7 +166,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
     assert living(pid).health.value == 19.0
   end
 
-  test "scratch collision cannot cause damage; rejected or retired geometry cannot apply a landing",
+  test "scratch collision cannot cause damage; rejected geometry cannot apply a landing",
        ctx do
     seed(ctx, y: 65.0, distance: 8.0)
     {client, pid} = login(ctx)
@@ -183,24 +180,5 @@ defmodule Valimc.PlayerLandingConnectionTest do
 
     assert living(pid).health.value == 20.0 and
              state(pid).player.motion.fall_distance == 8.0
-
-    {:ok, {region, _}} = World.existing_owner(ctx.key)
-    Valimc.TestRegionGate.stall(region)
-
-    try do
-      move(client, pid, 64.0, 1)
-      job = wait(fn -> Valimc.TestConn.job(state(pid), :motion) end)
-      assert :ok = Connection.teleport(pid, %{ctx.pose | y: 80.0})
-
-      send(
-        pid,
-        {job.task.ref,
-         {:ok, %{accepted: true, landing: %{distance: 100, multiplier: 1, source: :fall}}}}
-      )
-
-      assert living(pid).health.value == 20.0 and state(pid).player.y == 80.0
-    after
-      Valimc.TestRegionGate.resume(region)
-    end
   end
 end

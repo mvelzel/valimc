@@ -73,7 +73,7 @@ defmodule Valimc.CookingConnectionTest do
     {:ok, containers, _} = Valimc.World.ContainerTransfers.reserve(containers, ctx.uuid)
     {:ok, bytes} = Containers.encode(ctx.key, containers)
     Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
-    {:ok, block} = Valimc.Physics.CookingBlocks.placement(kind, 0.0)
+    {:ok, block} = Valimc.CookingBlocks.placement(kind, 0.0)
     block = if cooking.burn_left > 0, do: block - 1, else: block
     Valimc.TestDisk.write(ctx.base, ctx.key, :blocks, %{ctx.position => block})
 

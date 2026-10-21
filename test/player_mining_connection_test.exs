@@ -94,11 +94,6 @@ defmodule Valimc.PlayerMiningConnectionTest do
     send(pid, {:player_tick, before.simulation_clock.token})
     assert state(pid).simulation_clock.tick == before.simulation_clock.tick + 1
     park(pid)
-
-    wait(fn ->
-      Valimc.TestConn.job(state(pid), :pose) == nil and
-        Valimc.TestConn.job(state(pid), :motion) == nil
-    end)
   end
 
   defp ticks(pid, count), do: Enum.each(1..count, fn _ -> tick(pid) end)
@@ -312,7 +307,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
       | components: %{"minecraft:custom_name" => {:string, "Saved diamonds"}}
     }
 
-    {:ok, chest} = Valimc.Physics.ChestPlacement.single_state(0.0, 0)
+    {:ok, chest} = Valimc.ChestPlacement.single_state(0.0, 0)
     {:ok, containers, entry} = Containers.create(%Containers{}, ctx.key, ctx.target, 3)
 
     {:ok, containers, _} =

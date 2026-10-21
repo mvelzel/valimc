@@ -2,7 +2,7 @@ defmodule Valimc.PlayerFireConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerSnapshot, World}
+  alias Valimc.{Inventory, PlayerSnapshot}
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
   import Valimc.TestPlayer, only: [living: 1, state: 1]
@@ -137,40 +137,6 @@ defmodule Valimc.PlayerFireConnectionTest do
     assert living(pid).health.value == 20.0
   end
 
-  test "a stalled body query coalesces burning requests while the owned counter keeps advancing",
-       ctx do
-    seed(ctx, fire: 100, material: "air")
-    {_client, pid} = login(ctx)
-
-    wait(fn ->
-      Valimc.TestConn.job(state(pid), :pose) == nil and
-        Valimc.TestConn.job(state(pid), :motion) == nil
-    end)
-
-    {:ok, {owner, _epoch}} = World.existing_owner(ctx.key)
-    Valimc.TestRegionGate.stall(owner)
-
-    try do
-      for _ <- 1..21, do: tick(pid, false)
-      pending = state(pid)
-      assert pending.player.living.fire_ticks == 79 and pending.fire_damage_due
-      assert pending.player.living.health.value == 20.0
-
-      assert Valimc.TestConn.job(pending, :pose) != nil or
-               Valimc.TestConn.job(pending, :motion) != nil
-    after
-      Valimc.TestRegionGate.resume(owner)
-    end
-
-    wait(fn ->
-      Valimc.TestConn.job(state(pid), :pose) == nil and
-        Valimc.TestConn.job(state(pid), :motion) == nil and
-        not state(pid).simulation_due
-    end)
-
-    assert living(pid).health.value == 19.0 and not state(pid).fire_damage_due
-  end
-
   test "unloaded lava cannot ignite or damage, and expired burning clears the visible flag",
        ctx do
     seed(ctx, fire: 1, material: "air")
@@ -209,10 +175,7 @@ defmodule Valimc.PlayerFireConnectionTest do
 
       Client.send_packet(client, :play, "client_tick_end", <<>>)
 
-      wait(fn ->
-        state(pid).player.x == target and Valimc.TestConn.job(state(pid), :motion) == nil and
-          Valimc.TestConn.job(state(pid), :pose) == nil
-      end)
+      wait(fn -> state(pid).player.x == target end)
 
       assert living(pid).fire_ticks == -20 and
                living(pid).health.value == 20.0
@@ -254,7 +217,6 @@ defmodule Valimc.PlayerFireConnectionTest do
     assert living(pid).fire_ticks == 160
     assert living(pid).health.value == 19.0
     :ok = Valimc.TestBlocks.remove(roof)
-    wait(fn -> Valimc.TestConn.job(state(pid), :pose) == nil end)
     assert living(pid).fire_ticks == 160
     tick(pid)
     assert living(pid).fire_ticks == -20

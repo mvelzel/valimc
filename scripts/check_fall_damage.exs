@@ -1,4 +1,4 @@
-alias Valimc.Physics.FallDamage
+alias Valimc.Living.FallDamage
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()
 

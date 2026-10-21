@@ -1,6 +1,6 @@
 defmodule Valimc.World.CookingRuntime do
   @moduledoc "Bounded cooking activity and proposals; simulation runs on workers, never the owner."
-  alias Valimc.Physics.CookingBlocks
+  alias Valimc.CookingBlocks
   alias Valimc.World.{BlockBatch, Chunk, CookingBatch}
 
   defstruct enabled: false,

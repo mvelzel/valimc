@@ -1,7 +1,7 @@
 defmodule Valimc.CookingClick do
   @moduledoc "Pure drop-free cooking-slot exchanges; journal, input-reset hooks and awards are external."
   alias Valimc.{Cooking, CookingMenu, CookingRecipes, Inventory}
-  alias Valimc.Physics.CookingBlocks
+  alias Valimc.CookingBlocks
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes}
   @bucket Data.item("bucket")
   @max_bytes 524_288

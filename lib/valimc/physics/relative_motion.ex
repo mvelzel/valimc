@@ -1,5 +1,6 @@
 defmodule Valimc.Physics.RelativeMotion do
   @moduledoc "Native relative-input math; callers own intent, attributes and simulation admission."
+  import Valimc.Physics.Kernel, only: [f32: 1]
   import Bitwise
   @sin_scale 10_430.378350470453
 
@@ -90,9 +91,4 @@ defmodule Valimc.Physics.RelativeMotion do
 
   defp bounded?(v, lo, hi), do: is_number(v) and v >= lo and v <= hi
   defp trig(index), do: f32(:math.sin((index &&& 65_535) / @sin_scale))
-
-  defp f32(value) do
-    <<rounded::float-32>> = <<value::float-32>>
-    rounded
-  end
 end

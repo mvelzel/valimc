@@ -1,4 +1,4 @@
-alias Valimc.Physics.Mining
+alias Valimc.Mining
 [cases_path, ticks_path] = System.argv()
 count = Valimc.Registry.BlockFacts.count()
 

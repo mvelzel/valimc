@@ -34,7 +34,7 @@ for c <- cases do
     PlayerPose.geometry(if(c["swimming"], do: :swimming, else: :standing), {0.5, 64.0, 0.5})
 
   {:ok, query} = Valimc.PlayerKinetics.query_box(standing.box, player)
-  {:ok, plan} = BlockScan.plan(query, Valimc.Physics.CollisionQuery.frame_cell_limit())
+  {:ok, plan} = BlockScan.plan(query, 1024)
   acquired = MapSet.new(plan, &elem(&1, 0))
 
   for kind <- [:water, :lava], shift <- [-0.061, 0.0, 0.061] do

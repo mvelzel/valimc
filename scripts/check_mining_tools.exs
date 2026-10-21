@@ -1,4 +1,4 @@
-alias Valimc.Physics.MiningTools
+alias Valimc.MiningTools
 alias Valimc.Protocol.ItemStack
 [facts_path, cases_path] = System.argv()
 facts = facts_path |> File.read!() |> JSON.decode!()

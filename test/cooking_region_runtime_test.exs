@@ -2,7 +2,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
   use ExUnit.Case, async: true
   alias Valimc.TestScope
   alias Valimc.{Cooking, ItemMotionState}
-  alias Valimc.Physics.CookingBlocks
+  alias Valimc.CookingBlocks
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{Blocks, Containers, RegionData}
 
@@ -95,7 +95,7 @@ defmodule Valimc.CookingRegionRuntimeTest.Serial do
   import Valimc.CookingRegionRuntimeTest, only: [seed: 2, progress: 0, eventually: 1, disk: 1]
   alias Valimc.TestScope
   alias Valimc.{Cooking, ItemMotionState}
-  alias Valimc.Physics.CookingBlocks
+  alias Valimc.CookingBlocks
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{Blocks, Containers, RegionData}
 

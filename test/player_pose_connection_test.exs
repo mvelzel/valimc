@@ -61,13 +61,6 @@ defmodule Valimc.PlayerPoseConnectionTest do
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
   # One read: the job may finish between two (VMC-073).
-  defp pose_job_replaced?(pid, job) do
-    case Valimc.TestConn.job(state(pid), :pose) do
-      nil -> true
-      current -> current.task.ref != job.task.ref
-    end
-  end
-
   defp await_pose(client, entity, pose) do
     {id, body, client} = Client.read(client)
     name = Data.name(:play, :clientbound, id)
@@ -89,39 +82,21 @@ defmodule Valimc.PlayerPoseConnectionTest do
         <<0>>
       ])
 
-  test "a delayed underwater sprint result cannot restore swimming after flight starts", ctx do
+  test "starting flight ends underwater sprint swimming", ctx do
     {client, pid} = login(hd(ctx.names))
     entity = state(pid).player.entity_id
 
     for y <- 64..66,
         do: :ok = Valimc.TestBlocks.set({floor(ctx.pos.x), y, floor(ctx.pos.z)}, 89)
 
-    wait(fn ->
-      Valimc.TestConn.job(state(pid), :pose) == nil and state(pid).pose_checked != nil
-    end)
-
-    {:ok, {owner, _}} = World.owner(ctx.key)
-    Valimc.TestRegionGate.stall(owner)
-
-    try do
-      client = sprint(client, entity, true)
-      job = wait(fn -> Valimc.TestConn.job(state(pid), :pose) end)
-      Client.send_packet(client, :play, "player_abilities", <<2>>)
-      wait(fn -> state(pid).player.abilities.flying end)
-      Valimc.TestRegionGate.resume(owner)
-      wait(fn -> pose_job_replaced?(pid, job) end)
-
-      wait(fn ->
-        Valimc.TestConn.job(state(pid), :pose) == nil and state(pid).pose_checked != nil
-      end)
-
-      assert state(pid).player.abilities.flying
-      assert state(pid).player.pose == :standing
-      refute state(pid).player.motion.swimming
-      assert Packets.shared_flags(state(pid).player) == 8
-    after
-      Valimc.TestRegionGate.resume(owner)
-    end
+    wait(fn -> state(pid).pose_checked != nil end)
+    client = sprint(client, entity, true)
+    Client.send_packet(client, :play, "player_abilities", <<2>>)
+    wait(fn -> state(pid).player.abilities.flying end)
+    wait(fn -> state(pid).pose_checked != nil end)
+    assert state(pid).player.pose == :standing
+    refute state(pid).player.motion.swimming
+    assert Packets.shared_flags(state(pid).player) == 8
   end
 
   test "live occupancy selects and replicates crouch/crawl/standing, with selected eye height",
@@ -161,36 +136,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
            )
   end
 
-  test "stalled source cannot apply stale intent or block an independent player", ctx do
-    [first, second] = ctx.names
-    {client, pid} = login(first)
-    {other, other_pid} = login(second)
-    entity = state(pid).player.entity_id
-    client = input(client, true) |> await_pose(entity, 5)
-    {:ok, {owner, _}} = World.owner(ctx.key)
-    Valimc.TestRegionGate.stall(owner)
-
-    try do
-      client = input(client, false)
-      job = wait(fn -> Valimc.TestConn.job(state(pid), :pose) end)
-      assert state(pid).player.pose == :crouching
-      Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-      {_, client} = Client.await_stats(client)
-      _other = input(other, true) |> await_pose(state(other_pid).player.entity_id, 5)
-      client = input(client, true)
-      wait(fn -> state(pid).player.input.shared_flags == 2 end)
-      Valimc.TestRegionGate.resume(owner)
-      wait(fn -> pose_job_replaced?(pid, job) end)
-      assert state(pid).player.pose == :crouching
-      assert Process.alive?(pid) and Process.alive?(other_pid)
-      Client.close(client)
-    after
-      Valimc.TestRegionGate.resume(owner)
-    end
-  end
-
-  test "source incarnation loss invalidates an idle sample and disconnect cancels a pending job",
-       ctx do
+  test "source incarnation loss invalidates an idle sample", ctx do
     {client, pid} = login(hd(ctx.names))
     entity = state(pid).player.entity_id
     roof = {floor(ctx.pos.x), 65, floor(ctx.pos.z)}
@@ -204,92 +150,6 @@ defmodule Valimc.PlayerPoseConnectionTest do
     refute replacement == owner
     # The roof was durable before the kill (VMC-077f); the new owner's change is seen.
     :ok = Valimc.TestBlocks.set(roof, 0)
-    client = await_pose(client, entity, 0)
-    Valimc.TestRegionGate.stall(replacement)
-
-    try do
-      client = input(client, true)
-      job = wait(fn -> Valimc.TestConn.job(state(pid), :pose) end)
-      ref = Process.monitor(job.task.pid)
-      Client.close(client)
-      assert_receive {:DOWN, ^ref, :process, _, _}
-      refute Process.alive?(job.task.pid)
-    after
-      Valimc.TestRegionGate.resume(replacement)
-    end
-  end
-
-  test "bounded worker saturation retains the selected pose and resumes without an input queue",
-       ctx do
-    {client, pid} = login(hd(ctx.names))
-    entity = state(pid).player.entity_id
-    client = input(client, true) |> await_pose(entity, 5)
-    wait(fn -> Valimc.TestConn.job(state(pid), :pose) == nil end)
-
-    holders = Valimc.TestPool.fill(pid)
-
-    try do
-      client = input(client, false)
-      Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-      {_, client} = Client.await_stats(client)
-
-      assert state(pid).player.pose == :crouching and
-               Valimc.TestConn.job(state(pid), :pose) == nil
-
-      assert Valimc.TestPool.active(pid) == length(holders)
-      Valimc.TestPool.release(holders)
-      _client = await_pose(client, entity, 0)
-      assert state(pid).player.pose == :standing
-    after
-      Valimc.TestPool.release(holders)
-    end
-  end
-
-  test "a completed result cannot outlive its budget while the player owner is suspended", ctx do
-    {client, pid} = login(hd(ctx.names))
-    entity = state(pid).player.entity_id
-    client = input(client, true) |> await_pose(entity, 5)
-    {:ok, {owner, _}} = World.owner(ctx.key)
-    Valimc.TestRegionGate.stall(owner)
-
-    try do
-      client = input(client, false)
-      job = wait(fn -> Valimc.TestConn.job(state(pid), :pose) end)
-      :sys.suspend(pid)
-
-      try do
-        Valimc.TestRegionGate.resume(owner)
-        wait(fn -> not Process.alive?(job.task.pid) end)
-        roof = {floor(ctx.pos.x), 65, floor(ctx.pos.z)}
-        :ok = Valimc.TestBlocks.set(roof, 15178)
-        # The completed result waits in the mailbox past its deadline.
-        expired = System.monotonic_time(:millisecond) - 1
-
-        :sys.replace_state(pid, fn s ->
-          %{s | jobs: Valimc.Session.Jobs.update(s.jobs, :pose, %{deadline: expired})}
-        end)
-      after
-        :sys.resume(pid)
-      end
-
-      # The expired standing result precedes the roof event in this mailbox.
-      Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-      await_stats_without_standing(client, entity)
-      assert state(pid).player.pose == :crouching
-    after
-      Valimc.TestRegionGate.resume(owner)
-    end
-  end
-
-  defp await_stats_without_standing(client, entity) do
-    {id, body, client} = Client.read(client)
-    name = Data.name(:play, :clientbound, id)
-
-    if name == "set_entity_data" do
-      refute Wire.read_varint(body) == {:ok, entity, <<6, 20, 0, 255>>}
-    end
-
-    if name != "system_chat",
-      do: await_stats_without_standing(Client.auto_reply(client, :play, name, body), entity)
+    _client = await_pose(client, entity, 0)
   end
 end

@@ -2,7 +2,7 @@ defmodule Valimc.Block.Chest do
   @moduledoc "Ordinary chest (`ChestBlock`): single chests own a container; yaw/water placement."
   use Valimc.Block.Behaviour
   alias Valimc.ChestAccess
-  alias Valimc.Physics.ChestPlacement
+  alias Valimc.ChestPlacement
   alias Valimc.Protocol.ItemStack
 
   @impl true

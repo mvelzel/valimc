@@ -2,7 +2,7 @@ defmodule Valimc.MovementFoodConnectionTest do
   use ExUnit.Case, async: false
   alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, PlayerFood, PlayerSnapshot, World}
+  alias Valimc.{Inventory, PlayerFood, PlayerSnapshot}
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
   import Valimc.TestPlayer, only: [login: 1, state: 1, tick: 1]
@@ -43,9 +43,7 @@ defmodule Valimc.MovementFoodConnectionTest do
     wait(fn ->
       s = state(pid)
 
-      Map.take(s.player, [:x, :y, :z]) == Map.take(position, [:x, :y, :z]) and
-        Valimc.TestConn.job(s, :motion) == nil and
-        s.motion_pending == nil
+      Map.take(s.player, [:x, :y, :z]) == Map.take(position, [:x, :y, :z])
     end)
   end
 
@@ -85,34 +83,24 @@ defmodule Valimc.MovementFoodConnectionTest do
     assert state(owner).player.food == saved_food
   end
 
-  test "blocked movement retains wire ordering before a later stop-sprinting command", ctx do
+  test "movement keeps wire order before a later stop-sprinting command", ctx do
     seed(ctx)
     {client, pid} = login(ctx)
     command(client, pid, true)
-    {:ok, {region, _}} = World.existing_owner(ctx.key)
-    Valimc.TestRegionGate.stall(region)
-
-    try do
-      target = %{ctx.pose | x: ctx.pose.x + 0.2}
-      move(client, target)
-      _old = wait(fn -> Valimc.TestConn.job(state(pid), :motion) end)
-      Client.send_packet(client, :play, "player_command", <<0, 2, 0>>)
-      assert state(pid).player.food == %PlayerFood{}
-      Valimc.TestRegionGate.resume(region)
-      moved(pid, target)
-      wait(fn -> Bitwise.band(state(pid).player.input.shared_flags, 8) == 0 end)
-      expected = PlayerFood.exhaust(%PlayerFood{}, 0.019999999552965164)
-      assert state(pid).player.food == expected
-      next = %{target | x: target.x + 0.2}
-      move(client, next)
-      moved(pid, next)
-      assert state(pid).player.food == expected
-    after
-      Valimc.TestRegionGate.resume(region)
-    end
+    target = %{ctx.pose | x: ctx.pose.x + 0.2}
+    move(client, target)
+    Client.send_packet(client, :play, "player_command", <<0, 2, 0>>)
+    moved(pid, target)
+    wait(fn -> Bitwise.band(state(pid).player.input.shared_flags, 8) == 0 end)
+    expected = PlayerFood.exhaust(%PlayerFood{}, 0.019999999552965164)
+    assert state(pid).player.food == expected
+    next = %{target | x: target.x + 0.2}
+    move(client, next)
+    moved(pid, next)
+    assert state(pid).player.food == expected
   end
 
-  test "speed and collision corrections and retired geometry cannot spend exhaustion", ctx do
+  test "speed and collision corrections cannot spend exhaustion", ctx do
     seed(ctx)
     {client, pid} = login(ctx)
     command(client, pid, true)
@@ -124,44 +112,8 @@ defmodule Valimc.MovementFoodConnectionTest do
     :ok = Valimc.TestRegion.set_published({floor(ctx.pose.x) + 1, 64, floor(ctx.pose.z)}, 1)
     move(client, %{ctx.pose | x: ctx.pose.x + 0.4})
     {body, client} = Client.await(client, :play, "player_position")
-    client = Client.auto_reply(client, :play, "player_position", body)
+    _client = Client.auto_reply(client, :play, "player_position", body)
     wait(fn -> not state(pid).teleport_pending end)
     assert state(pid).player.food == %PlayerFood{}
-    {:ok, {region, _}} = World.existing_owner(ctx.key)
-    Valimc.TestRegionGate.stall(region)
-
-    try do
-      move(client, %{ctx.pose | z: ctx.pose.z + 0.1})
-      job = wait(fn -> Valimc.TestConn.job(state(pid), :motion) end)
-      :ok = Connection.teleport(pid, %{ctx.pose | z: ctx.pose.z + 0.2})
-      send(pid, {job.task.ref, {:ok, %{accepted: true, exhaustion: %{jump: 40.0, travel: 40.0}}}})
-      assert state(pid).player.food == %PlayerFood{}
-      assert Process.alive?(pid)
-    after
-      Valimc.TestRegionGate.resume(region)
-    end
-  end
-
-  test "food ticks during blocked geometry are retained when the movement result commits", ctx do
-    food = %PlayerFood{saturation: 0.0, exhaustion: 4.125}
-    seed(ctx, food: food)
-    {client, pid} = login(ctx)
-    command(client, pid, true)
-    {:ok, {region, _}} = World.existing_owner(ctx.key)
-    Valimc.TestRegionGate.stall(region)
-
-    try do
-      target = %{ctx.pose | x: ctx.pose.x + 0.2}
-      move(client, target)
-      _job = wait(fn -> Valimc.TestConn.job(state(pid), :motion) end)
-      tick(pid)
-      spent = %PlayerFood{level: 19, saturation: 0.0, exhaustion: 0.125}
-      assert state(pid).player.food == spent
-      Valimc.TestRegionGate.resume(region)
-      moved(pid, target)
-      assert state(pid).player.food == PlayerFood.exhaust(spent, 0.019999999552965164)
-    after
-      Valimc.TestRegionGate.resume(region)
-    end
   end
 end

@@ -4,13 +4,12 @@ defmodule Valimc.Physics.BlockContacts do
 
   alias Valimc.Physics.{
     BlockHazards,
-    BlockShapes,
     BodyPaths,
     Box,
     CollisionContext,
     FluidContact,
+    Kernel,
     PlayerPose,
-    Shape,
     StuckMotion
   }
 
@@ -139,13 +138,8 @@ defmodule Valimc.Physics.BlockContacts do
 
   defp hit?(:full, _, _, _, _, _), do: {:ok, true}
 
-  defp hit?(:context, state, pos, body, delta, context) do
-    with {:ok, shape} <- BlockShapes.fetch(state, pos, context) do
-      if Shape.empty?(shape) or shape.full_block,
-        do: {:ok, true},
-        else: {:ok, Box.collided_along?(body, delta, Enum.map(shape.boxes, &Box.move(&1, pos)))}
-    end
-  end
+  defp hit?(:context, state, pos, body, delta, context),
+    do: {:ok, Kernel.inside_shape?(state, pos, context, body, delta)}
 
   defp hit?(boxes, _, pos, body, delta, _) when is_list(boxes),
     do: {:ok, Box.collided_along?(body, delta, Enum.map(boxes, &Box.move(&1, pos)))}

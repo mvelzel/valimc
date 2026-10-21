@@ -3,11 +3,9 @@ defmodule Valimc.Physics.StuckContact do
   alias Valimc.World.View
 
   alias Valimc.Physics.{
-    BlockShapes,
-    Box,
     CollisionContext,
+    Kernel,
     PlayerPose,
-    Shape,
     StuckMotion
   }
 
@@ -95,14 +93,8 @@ defmodule Valimc.Physics.StuckContact do
   defp hit?(:none, _, _, _, _, _), do: {:ok, false}
   defp hit?(kind, _, _, _, _, _) when kind in [:cobweb, :berry_bush], do: {:ok, true}
 
-  defp hit?(:powder_snow, state, pos, body, movement, context) do
-    with {:ok, shape} <- BlockShapes.fetch(state, pos, context) do
-      if Shape.empty?(shape) or shape.full_block,
-        do: {:ok, true},
-        else:
-          {:ok, Box.collided_along?(body, movement, Enum.map(shape.boxes, &Box.move(&1, pos)))}
-    end
-  end
+  defp hit?(:powder_snow, state, pos, body, movement, context),
+    do: {:ok, Kernel.inside_shape?(state, pos, context, body, movement)}
 
   defp at(%View{} = view, pos) do
     case View.fetch(view, pos) do

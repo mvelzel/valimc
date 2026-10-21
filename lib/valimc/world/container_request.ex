@@ -1,7 +1,7 @@
 defmodule Valimc.World.ContainerRequest do
   @moduledoc "Canonical bounded container action; a durable player intent must precede delivery."
   alias Valimc.{ContainerClick, CookingClick, Inventory}
-  alias Valimc.Physics.CookingBlocks
+  alias Valimc.CookingBlocks
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.Containers
   @max_sequence 18_446_744_073_709_551_615

@@ -13,7 +13,6 @@ config :valimc,
   owner_call_scale: 20,
   # Fixtures expect fresh players at the spawn block.
   respawn_radius: 0,
-  region_read_gates: true,
   full_fsync: false,
   overload_kill_ms: 200,
   operators: :all

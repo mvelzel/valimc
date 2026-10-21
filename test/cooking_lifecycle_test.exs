@@ -1,7 +1,7 @@
 defmodule Valimc.CookingLifecycleTest do
   use ExUnit.Case, async: true
   alias Valimc.Cooking
-  alias Valimc.Physics.CookingBlocks
+  alias Valimc.CookingBlocks
   alias Valimc.Protocol.ItemStack
   alias Valimc.World.{ContainerLifecycle, Containers, ContainerSpills, Items}
 

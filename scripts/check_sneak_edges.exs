@@ -1,4 +1,4 @@
-alias Valimc.Physics.{BlockScan, Box, CollisionQuery, PlayerPose, SneakEdges}
+alias Valimc.Physics.{BlockScan, Box, PlayerPose, SneakEdges}
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()
 
@@ -50,7 +50,7 @@ for c <- cases do
     {:ok, tick_box} = Valimc.PlayerKinetics.query_box(standing.box, tick_player)
 
     for box <- [packet_box, tick_box] do
-      case BlockScan.plan(box, CollisionQuery.frame_cell_limit()) do
+      case BlockScan.plan(box, 1024) do
         {:ok, plan} ->
           acquired = MapSet.new(plan, &elem(&1, 0))
 

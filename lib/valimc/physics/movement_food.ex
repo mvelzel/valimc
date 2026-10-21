@@ -1,5 +1,6 @@
 defmodule Valimc.Physics.MovementFood do
   @moduledoc "Native travel exhaustion requests; the owner supplies accepted deltas and contact predicates."
+  import Valimc.Physics.Kernel, only: [f32: 1]
 
   def jump(sprinting) when is_boolean(sprinting), do: f32(if(sprinting, do: 0.2, else: 0.05))
 
@@ -19,10 +20,5 @@ defmodule Valimc.Physics.MovementFood do
   defp distance(x, y, z, factor) do
     rounded = min(2_147_483_647, floor(f32(f32(:math.sqrt(x * x + y * y + z * z)) * 100.0) + 0.5))
     f32(f32(factor * f32(rounded)) * f32(0.01))
-  end
-
-  defp f32(number) do
-    <<value::float-32>> = <<number::float-32>>
-    value
   end
 end

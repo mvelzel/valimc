@@ -1,7 +1,13 @@
-alias Valimc.Physics.{AirMotion, Box, Collision, CollisionResponse, VoxelOps}
+alias Valimc.Native
+alias Valimc.Physics.{AirMotion, Kernel}
 [path] = System.argv()
 data = path |> File.read!() |> :json.decode()
-keys = Map.keys(%CollisionResponse{}) -- [:__struct__]
+
+keys =
+  ~w(x_collision z_collision vertical_collision below suppress_bounce block_suppresses_bounce
+     entity_bounciness block_bounciness gravity air_drag)a
+
+floats = fn values -> values |> Enum.map(&(&1 * 1.0)) |> List.to_tuple() end
 
 bits = fn tuple ->
   for n <- Tuple.to_list(tuple) do
@@ -11,8 +17,8 @@ bits = fn tuple ->
 end
 
 Enum.each(data["cases"], fn c ->
-  facts = struct!(CollisionResponse, Map.new(keys, &{&1, Map.fetch!(c, Atom.to_string(&1))}))
-  {:ok, result} = CollisionResponse.step(List.to_tuple(c["movement"]), c["moved_y"], facts)
+  facts = Map.new(keys, &{&1, Map.fetch!(c, Atom.to_string(&1))})
+  result = Kernel.respond(List.to_tuple(c["movement"]), c["moved_y"], facts)
 
   actual = bits.(result.velocity)
 
@@ -21,21 +27,22 @@ Enum.each(data["cases"], fn c ->
 end)
 
 Enum.each(data["traces"], fn trace ->
-  shapes = Enum.map(trace["obstacles"], &(List.to_tuple(&1) |> Box.new() |> VoxelOps.world_box()))
+  colliders =
+    Enum.map(trace["obstacles"], &{Native.physics_parity_box_shape(floats.(&1)), nil, nil})
 
   Enum.reduce(
     trace["steps"],
-    {List.to_tuple(trace["initial"]), List.to_tuple(trace["box"]), false},
+    {List.to_tuple(trace["initial"]), floats.(trace["box"]), false},
     fn s, {v, b, previous_ground} ->
       {x, y, z} = v
       # Native moveRelative adds its zero-input vector before collision work.
       v = {x + 0.0, y + 0.0, z + 0.0}
-      moved = Collision.move(b, shapes, v)
+      moved = Native.physics_parity_move(colliders, b, v)
       vertical = elem(moved, 1) != elem(v, 1)
       ground = vertical and elem(v, 1) < 0
 
-      {:ok, resolved} =
-        CollisionResponse.step(v, elem(moved, 1), %CollisionResponse{
+      resolved =
+        Kernel.respond(v, elem(moved, 1), %{
           x_collision: abs(elem(moved, 0) - elem(v, 0)) >= 9.999999747378752e-6,
           z_collision: abs(elem(moved, 2) - elem(v, 2)) >= 9.999999747378752e-6,
           vertical_collision: vertical,
@@ -49,7 +56,9 @@ Enum.each(data["traces"], fn trace ->
           friction: trace["friction"]
         })
 
-      body = Box.move(b, moved)
+      {dx, dy, dz} = moved
+      {x0, y0, z0, x1, y1, z1} = b
+      body = {x0 + dx, y0 + dy, z0 + dz, x1 + dx, y1 + dy, z1 + dz}
 
       if bits.(moved) != s["moved_bits"] or bits.(next) != s["velocity_bits"] or
            bits.(body) != bits.(List.to_tuple(s["box"])) or resolved.bounced != s["bounced"],

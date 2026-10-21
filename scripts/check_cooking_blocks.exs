@@ -1,6 +1,6 @@
 [path] = System.argv()
 raw = JSON.decode!(File.read!(path))
-alias Valimc.Physics.CookingBlocks
+alias Valimc.CookingBlocks
 
 true =
   raw["version"] == "26.3" and raw["data_version"] == 5023 and

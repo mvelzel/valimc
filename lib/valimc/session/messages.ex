@@ -619,14 +619,6 @@ defmodule Valimc.Session.Messages do
     end)
   end
 
-  def info({:retry_motion, token}, %{motion_pending: %{token: token} = input} = state),
-    do:
-      Valimc.Connection.guard_connection(state, fn ->
-        {:noreply, Movement.start_motion(%{state | motion_pending: %{input | retry: nil}})}
-      end)
-
-  def info({:retry_motion, _}, state), do: {:noreply, state}
-
   # Cancelling geometry retires its reference; a result already in this mailbox
   # must never become a new player input or crash a healthy connection.
   def info({ref, _}, state) when is_reference(ref), do: {:noreply, state}
@@ -737,7 +729,6 @@ defmodule Valimc.Session.Messages do
            |> Menus.check_table_menu()
            |> Valimc.Player.Portals.tick()
            |> Valimc.Player.Travel.tick()
-           |> Movement.start_motion()
            |> Movement.sample_pose()}
 
         {:early, next, delay} ->
@@ -762,7 +753,6 @@ defmodule Valimc.Session.Messages do
             ItemUse.publish_equipment(state),
             PlayerInput.tick(state.player.input)
           )
-          |> Movement.start_motion()
           |> Movement.sample_pose()
           |> Replication.chunk_tick()
 

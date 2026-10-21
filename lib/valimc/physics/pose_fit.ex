@@ -1,10 +1,10 @@
 defmodule Valimc.Physics.PoseFit do
   @moduledoc "Native pose selection from a block view, entity boxes and the border."
   alias Valimc.Physics.{
-    BlockCollisions,
     BorderSnapshot,
     CollisionContext,
     EntityCollisions,
+    Kernel,
     PlayerPose
   }
 
@@ -37,9 +37,7 @@ defmodule Valimc.Physics.PoseFit do
 
       {:error, {:missing_fit, pose}} when map_size(fits) < 3 ->
         with {:ok, geometry} <- PlayerPose.geometry(pose, position),
-             {:ok, blocks} <-
-               BlockCollisions.collect(geometry.fit_box, observations.blocks, context),
-             {:ok, clear} <- clear?(blocks.colliders, geometry.fit_box, position, observations) do
+             {:ok, clear} <- clear?(geometry.fit_box, position, context, observations) do
           resolve(current, intent, position, context, observations, Map.put(fits, pose, clear))
         end
 
@@ -48,14 +46,18 @@ defmodule Valimc.Physics.PoseFit do
     end
   end
 
-  defp clear?([_ | _], _, _, _), do: {:ok, false}
-
-  defp clear?([], box, {x, _, z}, observations) do
-    with {:ok, result} <-
-           EntityCollisions.collect(box, observations.subject, observations.entities) do
-      if result.colliders == [],
-        do: BorderSnapshot.no_collision?(observations.border, {x, z}, box),
-        else: {:ok, false}
-    end
+  # `noCollision` of the pose's box: blocks, collidable entities and the border.
+  defp clear?(box, position, context, observations) do
+    with {:ok, entities} <-
+           EntityCollisions.collect(box, observations.subject, observations.entities),
+         {:ok, colliding} <-
+           Kernel.colliding?(
+             observations.blocks,
+             box,
+             context,
+             Kernel.extra(Enum.map(entities.colliders, & &1.box), observations.border),
+             position
+           ),
+         do: {:ok, not colliding}
   end
 end

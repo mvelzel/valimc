@@ -1,5 +1,5 @@
 alias Valimc.{Cooking, CookingOpening}
-alias Valimc.Physics.CookingBlocks
+alias Valimc.CookingBlocks
 [path] = System.argv()
 raw = JSON.decode!(File.read!(path))
 

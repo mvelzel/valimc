@@ -1,85 +1,38 @@
 defmodule Valimc.Physics.FluidCurrents do
-  @moduledoc "Native player/item fluid currents, calculated outside gameplay owners."
-  alias Valimc.Physics.{FluidContact, FluidFlow}
-  @empty %{height: 0.0, sum: {0.0, 0.0, 0.0}, count: 0}
+  @moduledoc """
+  The push of fluid currents on players and items and their water and lava
+  depths, through the physics kernel (VMC-077l).
+  """
+  alias Valimc.Physics.{FluidContact, Kernel}
 
-  def sample(frame, box, velocity, pushed \\ true, fast_lava \\ false),
-    do: sample_body(frame, box, velocity, pushed, fast_lava, :player)
+  def sample(view, box, velocity, pushed \\ true, fast_lava \\ false),
+    do: run(view, box, velocity, pushed, fast_lava, :player)
 
-  def sample_item(frame, box, velocity, pushed \\ true, fast_lava \\ false),
-    do: sample_body(frame, box, velocity, pushed, fast_lava, :item)
+  def sample_item(view, box, velocity, pushed \\ true, fast_lava \\ false),
+    do: run(view, box, velocity, pushed, fast_lava, :item)
 
-  defp sample_body(frame, box, velocity, pushed, fast_lava, kind) do
-    if valid_velocity?(velocity) and is_boolean(pushed) and is_boolean(fast_lava) do
-      with {:ok, contacts} <- FluidContact.contacts(frame, box),
-           {:ok, accumulators} <- accumulate(contacts, frame, pushed),
-           next =
-             velocity
-             |> apply_current(accumulators.water, 0.014, kind)
-             |> apply_current(
-               accumulators.lava,
-               if(fast_lava, do: 0.007, else: 0.0023333333333333335),
-               kind
-             ),
-           true <- valid_velocity?(next) do
-        {:ok,
-         %{
-           depths: %{water: accumulators.water.height, lava: accumulators.lava.height},
-           velocity: next
-         }}
-      else
-        false -> {:error, :fluid_velocity_limit}
-        error -> error
+  defp run(view, box, velocity, pushed, fast_lava, kind) do
+    with true <- valid_velocity?(velocity) and is_boolean(pushed) and is_boolean(fast_lava),
+         :ok <- FluidContact.bounded(view, box) do
+      case Kernel.current(view, box, velocity, pushed, fast_lava, kind) do
+        {:ok, nil} ->
+          {:error, :invalid_fluid_box}
+
+        {:ok, %{velocity: next} = result} ->
+          if valid_velocity?(next), do: {:ok, result}, else: {:error, :fluid_velocity_limit}
+
+        {:error, {:missing_block, _}} ->
+          {:error, :incomplete_fluid_frame}
+
+        error ->
+          error
       end
     else
-      {:error, :invalid_fluid_current}
-    end
-  end
-
-  defp accumulate(contacts, frame, pushed) do
-    Enum.reduce_while(contacts, {:ok, %{water: @empty, lava: @empty}}, fn c, {:ok, all} ->
-      a = all[c.fluid.kind]
-      height = max(a.height, c.depth)
-
-      with {:ok, flow} <-
-             if(pushed, do: FluidFlow.sample(frame, c.position), else: {:ok, {0.0, 0.0, 0.0}}) do
-        flow = if height < 0.4, do: scale(flow, height), else: flow
-
-        next = %{
-          height: height,
-          sum: add(a.sum, flow),
-          count: a.count + if(pushed, do: 1, else: 0)
-        }
-
-        {:cont, {:ok, Map.put(all, c.fluid.kind, next)}}
-      else
-        error -> {:halt, error}
-      end
-    end)
-  end
-
-  defp apply_current(velocity, %{count: 0}, _, _), do: velocity
-
-  defp apply_current({x, _, z} = velocity, %{sum: {sx, sy, sz} = sum, count: count}, factor, kind) do
-    if sx * sx + sy * sy + sz * sz < 9.999999747378752e-6 do
-      velocity
-    else
-      current = if kind == :item, do: FluidFlow.normalize(sum), else: scale(sum, 1.0 / count)
-      push = scale(current, factor)
-      {a, b, c} = push
-
-      push =
-        if abs(x) < 0.003 and abs(z) < 0.003 and
-             :math.sqrt(a * a + b * b + c * c) < 0.0045000000000000005,
-           do: push |> FluidFlow.normalize() |> scale(0.0045000000000000005),
-           else: push
-
-      add(velocity, push)
+      false -> {:error, :invalid_fluid_current}
+      error -> error
     end
   end
 
   defp valid_velocity?({x, y, z}), do: Enum.all?([x, y, z], &(is_number(&1) and abs(&1) <= 64))
   defp valid_velocity?(_), do: false
-  defp scale({x, y, z}, factor), do: {x * factor, y * factor, z * factor}
-  defp add({x, y, z}, {a, b, c}), do: {x + a, y + b, z + c}
 end

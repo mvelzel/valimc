@@ -25,6 +25,7 @@ mod light;
 mod loot;
 #[cfg(feature = "parity")]
 mod parity;
+mod physics;
 mod region;
 mod rules;
 mod sys;

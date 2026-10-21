@@ -1,5 +1,6 @@
 defmodule Valimc.Physics.AirMotion do
   @moduledoc "Pure post-collision dry-air velocity update; scheduling and authority stay with owners."
+  import Valimc.Physics.Kernel, only: [f32: 1]
 
   defstruct on_ground: false,
             friction: 0.6,
@@ -51,9 +52,4 @@ defmodule Valimc.Physics.AirMotion do
 
   defp modified(base, modifier),
     do: f32(1.0 - f32(f32(1.0 - f32(base)) * f32(modifier))) |> max(0.0) |> min(1.0)
-
-  defp f32(value) do
-    <<rounded::float-32>> = <<value::float-32>>
-    rounded
-  end
 end

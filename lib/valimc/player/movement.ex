@@ -1,11 +1,14 @@
 defmodule Valimc.Player.Movement do
-  @moduledoc "Player movement inside the connection: input, position and motion admission, pose jobs, kinetics and movement attributes (VMC-069)."
+  @moduledoc """
+  Player movement inside the connection: input, position and motion
+  validation, pose sampling, kinetics and movement attributes (VMC-069).
+  A move packet is validated synchronously against published snapshots by
+  the physics kernel (VMC-077l): accepted, or corrected by a teleport.
+  """
 
   alias Valimc.Protocol.{ClientTick, Packets}
   alias Valimc.Living.Attributes
   import Bitwise, only: [&&&: 2]
-
-  alias Valimc.Session.Jobs
 
   import Valimc.Net.Codec,
     only: [send_packets: 2, reject: 2]
@@ -119,25 +122,16 @@ defmodule Valimc.Player.Movement do
 
       {vx, vy, vz} = state.player.motion.velocity
 
-      if distance - (vx * vx + vy * vy + vz * vz) > allowance do
-        correct_motion(state, :movement_speed_corrections)
-      else
-        input = %{
-          position: position,
-          flags: flags,
-          # The admission window bounds the owner round trip (scaled in tests, VMC-073).
-          deadline:
-            System.monotonic_time(:millisecond) +
-              Valimc.Txn.Permits.window(250, state.player.uuid),
-          token: make_ref(),
-          retry: nil,
-          prepared: nil
-        }
+      cond do
+        # "moved too quickly"
+        distance - (vx * vx + vy * vy + vz * vz) > allowance ->
+          correct_motion(state, :movement_speed_corrections)
 
-        state
-        |> cancel_pose_job()
-        |> Map.put(:motion_pending, input)
-        |> start_motion()
+        state.life_stage != :alive ->
+          state
+
+        true ->
+          validate(state, position, flags)
       end
     else
       motion =
@@ -161,89 +155,55 @@ defmodule Valimc.Player.Movement do
     %{state | motion_window: window}
   end
 
-  def motion_signature(state),
-    do: {pose_signature(state), state.player.game_mode.current}
+  # Vanilla's rules (`handleMovePlayer`): a move into a new collision is
+  # corrected, and so is one that "moved wrongly" from a clear box; a move the
+  # kernel cannot read (chunks not loaded) is corrected too.
+  defp validate(state, position, flags) do
+    case PlayerMotionQuery.run(state.player, position, flags) do
+      {:ok, %{accepted: true} = result} ->
+        Metrics.add(:movement_validations)
+        accept(state, position, flags, result)
 
-  def start_motion(
-        %{life_stage: :alive, teleport_pending: false, motion_pending: input, jobs: jobs} = state
+      {:ok, %{accepted: false}} ->
+        correct_motion(state, :movement_collision_corrections)
+
+      {:error, _} ->
+        correct_motion(state, :movement_geometry_corrections)
+    end
+  end
+
+  defp accept(state, position, flags, result) do
+    player = state.player |> Map.merge(position) |> Map.put(:pose, result.pose)
+    movement = {player.x - state.player.x, player.y - state.player.y, player.z - state.player.z}
+
+    motion =
+      PlayerMotion.accept(state.player.motion, movement, flags, player.abilities.flying)
+
+    motion =
+      PlayerKinetics.apply_result(%{motion | swimming: result.swimming}, result.kinetics.packet)
+
+    player = %{player | motion: motion}
+
+    if result.pose != state.player.pose,
+      do: send_packets(state, [Packets.player_pose(player)])
+
+    send(self(), :drain)
+
+    next =
+      %{state | player: player, pose_checked: nil}
+      |> Valimc.Player.Vitals.apply_movement_exhaustion(result.exhaustion)
+      |> apply_kinetic_tick(result.kinetics.tick, result.kinetics.packet.bounced)
+      |> Valimc.Player.Vitals.observe_environment(
+        result.powder_snow,
+        result.submerged,
+        result.eye_water,
+        result.kinetics.tick
       )
-      when input != nil and not is_map_key(jobs.active, :motion) do
-    remaining = input.deadline - System.monotonic_time(:millisecond)
+      |> monitor_pose_sources(result.sources)
+      |> Valimc.Session.Replication.update_view()
+      |> Valimc.Player.Vitals.apply_landing(result.landing)
 
-    if remaining <= 0 do
-      correct_motion(state, :movement_admission_timeout_corrections)
-    else
-      signature = motion_signature(state)
-
-      prepared =
-        case input.prepared do
-          %{signature: ^signature, start: start} -> {:ok, start}
-          _ -> PlayerMotionQuery.prepare(state.player, input.position, input.flags)
-        end
-
-      case prepared do
-        {:ok, start} ->
-          input = %{input | prepared: %{signature: signature, start: start}}
-          admit_motion(%{state | motion_pending: input}, input, signature, start)
-
-        {:error, _} ->
-          correct_motion(state, :movement_geometry_corrections)
-      end
-    end
-  end
-
-  def start_motion(state), do: state
-
-  def admit_motion(state, input, signature, start) do
-    remaining = input.deadline - System.monotonic_time(:millisecond)
-
-    if remaining <= 0 do
-      correct_motion(state, :movement_admission_timeout_corrections)
-    else
-      case start.() do
-        {:ok, task} ->
-          if input.retry, do: Process.cancel_timer(input.retry)
-          Metrics.add(:movement_jobs_started)
-          Metrics.add(:movement_admission_wait_ms, 250 - remaining)
-
-          {jobs, _job} =
-            Jobs.track(state.jobs, :motion, task,
-              timeout: remaining,
-              data: %{input: input, signature: signature}
-            )
-
-          %{state | motion_pending: %{input | retry: nil}, jobs: jobs}
-
-        {:error, reason}
-        when reason in [:collision_workers_busy, :collision_workers_unavailable] ->
-          Metrics.add(:movement_pool_busy)
-
-          if input.retry do
-            state
-          else
-            timer = Process.send_after(self(), {:retry_motion, input.token}, 5)
-            %{state | motion_pending: %{input | retry: timer}}
-          end
-
-        {:error, _} ->
-          correct_motion(state, :movement_geometry_corrections)
-      end
-    end
-  end
-
-  @doc false
-  def cancel_pose_job(state) do
-    {_job, jobs} = Jobs.cancel(state.jobs, :pose)
-    %{state | jobs: jobs}
-  end
-
-  @doc false
-  def cancel_motion_job(state) do
-    {_job, jobs} = Jobs.cancel(state.jobs, :motion)
-    input = state.motion_pending
-    if input && input.retry, do: Process.cancel_timer(input.retry)
-    input = if input, do: %{input | retry: nil, prepared: nil}
-    %{state | jobs: jobs, motion_pending: input}
+    if next.life_stage == :alive, do: %{next | pose_checked: pose_signature(next)}, else: next
   end
 
   def correct_motion(state, metric) do
@@ -257,7 +217,7 @@ defmodule Valimc.Player.Movement do
   # `delta` is the movement the packet hands the client (a portal keeps the
   # entering velocity, VMC-026b).
   def relocate(state, player, reset_motion \\ true, delta \\ {0.0, 0.0, 0.0}) do
-    state = state |> cancel_pose_job() |> Valimc.Player.Mining.cancel_mining()
+    state = Valimc.Player.Mining.cancel_mining(state)
 
     state =
       if state.table_job && state.table_job.kind == :open,
@@ -266,12 +226,6 @@ defmodule Valimc.Player.Movement do
 
     state = Valimc.Player.Menus.begin_table_close(state)
     player = if reset_motion, do: %{player | motion: %PlayerMotion{}}, else: player
-
-    if state.motion_pending && state.motion_pending.retry,
-      do: Process.cancel_timer(state.motion_pending.retry)
-
-    {_job, jobs} = Jobs.cancel(state.jobs, :motion)
-    state = %{state | jobs: jobs}
 
     teleport = if state.teleport == 2_147_483_647, do: 0, else: state.teleport + 1
     send_packets(state, [Packets.teleport(player, teleport, delta)])
@@ -286,7 +240,6 @@ defmodule Valimc.Player.Movement do
         teleport: teleport,
         teleport_pending: true,
         login_velocity_pending: false,
-        motion_pending: nil,
         motion_window: nil,
         pose_checked: nil,
         pose_generation: state.pose_generation + 1
@@ -296,10 +249,12 @@ defmodule Valimc.Player.Movement do
   def pose_signature(state),
     do: {PlayerPoseQuery.signature(state.player), state.pose_generation}
 
-  def sample_pose(
-        %{life_stage: :alive, motion_pending: nil, teleport_pending: false, jobs: jobs} = state
-      )
-      when not is_map_key(jobs.active, :pose) do
+  @doc """
+  The pose, fluid, powder snow and kinetics of a resting or ticking player,
+  sampled synchronously when its signature changed or a simulation is due
+  and it is in an environment that keeps acting on it.
+  """
+  def sample_pose(%{life_stage: :alive, teleport_pending: false} = state) do
     signature = pose_signature(state)
 
     active =
@@ -308,17 +263,9 @@ defmodule Valimc.Player.Movement do
            state.fire_contacts_active or not state.player.motion.settled)
 
     if PlayerInput.loaded?(state.player.input) and (signature != state.pose_checked or active) do
-      deadline = System.monotonic_time(:millisecond) + 250
-
-      case PlayerPoseQuery.start(state.player) do
-        {:ok, task} ->
-          {jobs, _job} =
-            Jobs.track(state.jobs, :pose, task, data: %{signature: signature, deadline: deadline})
-
-          %{state | jobs: jobs}
-
-        {:error, _} ->
-          state
+      case PlayerPoseQuery.run(state.player) do
+        {:ok, result} -> apply_pose(state, result)
+        {:error, _} -> state
       end
     else
       state
@@ -326,6 +273,32 @@ defmodule Valimc.Player.Movement do
   end
 
   def sample_pose(state), do: state
+
+  defp apply_pose(state, result) do
+    player = %{
+      state.player
+      | pose: result.pose,
+        motion: %{state.player.motion | swimming: result.swimming}
+    }
+
+    if result.pose != state.player.pose,
+      do: send_packets(state, [Packets.player_pose(player)])
+
+    state =
+      %{state | player: player}
+      |> apply_kinetic_tick(result.kinetics, false)
+      |> Valimc.Player.Vitals.observe_environment(
+        result.powder_snow,
+        result.submerged,
+        result.eye_water,
+        result.kinetics
+      )
+      |> monitor_pose_sources(result.sources)
+
+    if state.life_stage == :alive,
+      do: %{state | pose_checked: pose_signature(state)},
+      else: state
+  end
 
   def apply_kinetic_tick(state, result, packet_bounce) do
     {player, bounced} =

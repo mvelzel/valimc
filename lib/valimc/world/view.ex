@@ -13,20 +13,19 @@ defmodule Valimc.World.View do
   so movement into unloaded chunks fails closed. Rows carry the MOTION_BLOCKING
   heightmap, lowest sky sources and biomes Rust computes beside the sections
   (`column/3`, `biome/2`). `await/4` waits for chunks to load and generate,
-  holding a timed ticket. `of/2` is a view of supplied states
-  for oracles and tests; `entities` are block-entity contexts only they supply.
+  holding a timed ticket. `of/1` is a view of supplied states
+  for oracles and tests.
   """
   import Bitwise, only: [band: 2, bsl: 2, bsr: 2]
   alias Valimc.World
   alias Valimc.World.{Chunk, Directory, Region}
 
-  defstruct chunks: %{}, owners: %{}, supplied: nil, entities: %{}
+  defstruct chunks: %{}, owners: %{}, supplied: nil
 
   def new, do: %__MODULE__{}
 
   @doc "A view of `states` (`position => state`) only: other positions cannot be read."
-  def of(states, entities \\ %{}) when is_map(states) and is_map(entities),
-    do: %__MODULE__{supplied: states, entities: entities}
+  def of(states) when is_map(states), do: %__MODULE__{supplied: states}
 
   @doc "Load the chunks a box covers, widened by a block (shapes reach into neighbours)."
   def load(%__MODULE__{supplied: nil} = view, {x0, _, z0, x1, _, z1}) do

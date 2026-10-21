@@ -1,35 +1,39 @@
-alias Valimc.Physics.{BlockShapes, Box, Collision, Shape}
+alias Valimc.Native
+alias Valimc.Physics.{CollisionContext, Kernel}
+Valimc.Registry.BlockFacts.install!()
 [file] = System.argv()
 native = file |> File.read!() |> JSON.decode!()
-axes = %{"x" => :x, "y" => :y, "z" => :z}
+axes = %{"x" => 0, "y" => 1, "z" => 2}
+floats = fn values -> values |> Enum.map(&(&1 * 1.0)) |> List.to_tuple() end
+empty = Kernel.context(CollisionContext.empty())
 
 for c <- native["queries"] do
-  shapes =
+  colliders =
     Enum.zip_with(c["shapes"], c["offsets"], fn id, offset ->
-      {:ok, shape} = BlockShapes.fetch(id)
-      Shape.move(shape, List.to_tuple(offset))
+      {shape, block_offset} = Native.physics_parity_shape(id, {0, 0, 0}, empty)
+      {shape, block_offset, floats.(offset)}
     end)
 
-  box = Box.new(List.to_tuple(c["box"]))
-  axis = Map.fetch!(axes, c["axis"])
-
   result =
-    if c["raw"],
-      do: Shape.collide(hd(shapes), axis, box, c["delta"]),
-      else: Collision.clip(axis, box, shapes, c["delta"])
+    Native.physics_parity_clip(
+      colliders,
+      Map.fetch!(axes, c["axis"]),
+      floats.(c["box"]),
+      c["delta"] * 1.0,
+      c["raw"]
+    )
 
   bits = Base.encode16(<<result::float-64>>, case: :lower)
 
   if bits != c["result_bits"],
-    do: raise("Native clipping differs: #{inspect(c)}; Elixir #{inspect(result)} #{bits}")
+    do: raise("Native clipping differs: #{inspect(c)}; kernel #{inspect(result)} #{bits}")
 end
 
 for c <- native["intersections"] do
-  a = Box.new(List.to_tuple(c["a"]))
-  b = Box.new(List.to_tuple(c["b"]))
-  if Box.intersects?(a, b) != c["intersects"], do: raise("Native box intersection differs")
+  if Valimc.Physics.Box.intersects?(floats.(c["a"]), floats.(c["b"])) != c["intersects"],
+    do: raise("Native box intersection differs")
 end
 
 IO.puts(
-  "PASS: #{length(native["queries"])} bit-exact native clipping results and #{length(native["intersections"])} box intersections."
+  "PASS: #{length(native["queries"])} bit-exact native clipping results through the kernel and #{length(native["intersections"])} box intersections."
 )

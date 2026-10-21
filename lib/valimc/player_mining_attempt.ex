@@ -1,6 +1,6 @@
 defmodule Valimc.PlayerMiningAttempt do
   @moduledoc "One player-owned mining attempt; elapsed owner ticks never grant world mutation authority."
-  alias Valimc.Physics.Mining
+  alias Valimc.Mining
   @enforce_keys [:token, :position, :state, :started, :observed, :phase, :crack]
   defstruct [:token, :position, :state, :started, :observed, :phase, :crack]
 

@@ -327,75 +327,13 @@ end
 
 defmodule Valimc.TestRegionGate do
   @moduledoc """
-  Stall a region for tests: suspend its owner and hold published-snapshot reads
-  (compiled in only with `region_read_gates: true`), so geometry stays in flight.
+  Stall a region owner for tests (suspend it): its calls and commits wait,
+  while its published snapshots stay readable as they are.
   """
-  @table :valimc_region_read_gates
-
-  def stall(pid) do
-    ensure_table()
-    :ets.insert(@table, {key(pid), pid})
-    :sys.suspend(pid)
-  end
+  def stall(pid), do: :sys.suspend(pid)
 
   def resume(pid) do
-    ensure_table()
-    :ets.match_delete(@table, {:_, pid})
     if Process.alive?(pid), do: :sys.resume(pid)
-    :ok
-  end
-
-  defp key(pid) do
-    [key] = Registry.keys(Valimc.RegionRegistry, pid)
-    key
-  end
-
-  defp ensure_table do
-    if :ets.whereis(@table) == :undefined do
-      # Owned by a long-lived holder so the table outlives individual tests.
-      parent = self()
-
-      spawn(fn ->
-        :ets.new(@table, [:named_table, :public, :set])
-        send(parent, :gate_table_ready)
-        Process.sleep(:infinity)
-      end)
-
-      receive do
-        :gate_table_ready -> :ok
-      end
-    end
-  end
-end
-
-defmodule Valimc.TestPool do
-  @moduledoc "Saturate the collision pool partition a given caller (e.g. a connection) uses."
-  def partition(caller), do: {:via, PartitionSupervisor, {Valimc.CollisionWorkers, caller}}
-
-  def fill(caller) do
-    Stream.repeatedly(fn ->
-      Task.Supervisor.start_child(partition(caller), fn ->
-        receive do
-          :stop -> :ok
-        end
-      end)
-    end)
-    |> Enum.take_while(&match?({:ok, _}, &1))
-    |> Enum.map(fn {:ok, pid} -> pid end)
-  end
-
-  def active(caller), do: DynamicSupervisor.count_children(partition(caller)).active
-
-  def release(holders) do
-    for holder <- holders, Process.alive?(holder) do
-      ref = Process.monitor(holder)
-      send(holder, :stop)
-
-      receive do
-        {:DOWN, ^ref, _, _, _} -> :ok
-      end
-    end
-
     :ok
   end
 end
@@ -551,7 +489,7 @@ defmodule Valimc.TestConn do
   # Generous on a loaded host; a free owner answers at once (VMC-073).
   def state(pid), do: :sys.get_state(pid, 30_000)
 
-  @doc "The connection's active job of `kind` (`:pose`, `:motion`, `:mining`, ...), or nil."
+  @doc "The connection's active job of `kind` (`:mining`, `:placement`, ...), or nil."
   def job(state, kind), do: Valimc.Session.Jobs.get(state.jobs, kind)
 end
 
@@ -929,9 +867,8 @@ defmodule Valimc.TestPlayer do
       Valimc.TestWait.until(fn ->
         s = state(pid)
 
-        (settle == :alive and s.life_stage != :alive) or
-          (Valimc.TestConn.job(s, :pose) == nil and Valimc.TestConn.job(s, :motion) == nil and
-             (settle != :simulation or not s.simulation_due))
+        (settle == :alive and s.life_stage != :alive) or settle != :simulation or
+          not s.simulation_due
       end)
     end
 

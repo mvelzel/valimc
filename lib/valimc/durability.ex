@@ -6,7 +6,7 @@ defmodule Valimc.Durability do
   maximum the item breaks. Callers sample once before journaling and never
   again on delivery retry.
   """
-  alias Valimc.Physics.MiningTools
+  alias Valimc.MiningTools
   alias Valimc.Protocol.{ItemStack, ItemTypes}
   alias Valimc.Registry.EnchantmentEffects
 

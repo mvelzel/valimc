@@ -4,7 +4,6 @@ defmodule Valimc.PlayerLanding do
   alias Valimc.{PlayerKinetics, PlayerMotion}
   alias Valimc.Physics.{Box, CollisionContext, FluidContact}
   alias Valimc.Registry.BlockFacts
-  @legacy_offset 0.20000000298023224
 
   def sample(player, target, flags, box, frame) do
     if (flags &&& 1) != 0 and not player.abilities.flying and
@@ -19,12 +18,13 @@ defmodule Valimc.PlayerLanding do
         if fluid.water == 0 do
           shift = (player.input.shared_flags &&& 2) != 0
 
-          context =
-            CollisionContext.entity(target.y, shift)
-            |> CollisionContext.with_entity(PlayerMotion.distance(player), false, false)
-
           with {:ok, material} <-
-                 material(frame, moved_box, {target.x, target.y, target.z}, context),
+                 material(
+                   frame,
+                   moved_box,
+                   {target.x, target.y, target.z},
+                   CollisionContext.player(player, target.y)
+                 ),
                do: call(material.state, landed, shift)
         else
           {:ok, nil}
@@ -61,21 +61,6 @@ defmodule Valimc.PlayerLanding do
   end
 
   @doc false
-  def from_material(frame, material, {x, y, z}) do
-    below =
-      case material.support do
-        nil ->
-          {floor(x), floor(y - @legacy_offset), floor(z)}
-
-        %{position: {sx, _, sz} = pos, state: state} ->
-          if holds_y?(state),
-            do: pos,
-            else: {sx, floor(y - @legacy_offset), sz}
-      end
-
-    case Valimc.World.View.fetch(frame, below) do
-      {:ok, state} -> {:ok, %{position: below, state: state}}
-      :error -> {:error, :incomplete_landing_frame}
-    end
-  end
+  # The legacy landing block (`getOnPos(0.2F)`) of a material.
+  def from_material(_frame, material, _position), do: {:ok, material.legacy}
 end

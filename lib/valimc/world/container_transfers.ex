@@ -1,7 +1,7 @@
 defmodule Valimc.World.ContainerTransfers do
   @moduledoc "Receipt-backed container decisions; fresh owner eligibility is supplied by the region."
   alias Valimc.{Cooking, CookingAwards}
-  alias Valimc.Physics.CookingBlocks
+  alias Valimc.CookingBlocks
   alias Valimc.Txn.Receipts
   alias Valimc.World.{ContainerRequest, Containers, PendingCookingAwards}
   @scheme {:prefix, "VMCCONTAINER-RESULT"}

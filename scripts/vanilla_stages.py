@@ -500,10 +500,6 @@ STAGES = [
         ('java', 'CollisionResponseOracle', '@collision-response.json'),
         ('check', 'check_collision_response.exs', '@collision-response.json'),
     ]),
-    ('fluid_support', [
-        ('java', 'FluidSupportOracle', '@fluid-support.json'),
-        ('check', 'check_fluid_support.exs', '@fluid-support.json'),
-    ]),
     ('fluid_flow', [
         ('java', 'FluidFlowOracle', '@fluid-flows.json'),
         ('check', 'check_fluid_flow.exs', '@fluid-flows.json'),
@@ -839,10 +835,6 @@ STAGES = [
         ('java', 'PowderSnowCollisionOracle', '@powder-snow-collisions.json'),
         ('check', 'check_powder_snow_collisions.exs', '@powder-snow-collisions.json'),
     ]),
-    ('voxel_union', [
-        ('java', 'VoxelUnionOracle', '@voxel-unions.json'),
-        ('check', 'check_voxel_unions.exs', '@voxel-unions.json'),
-    ]),
     ('movement_collision', [
         ('java', 'MovementCollisionOracle', '@movement-collisions.json'),
         ('check', 'check_movement_collisions.exs', '@movement-collisions.json'),
@@ -1018,10 +1010,6 @@ STAGES = [
     ('item_travel', [
         ('java', 'ItemTravelOracle', '@item-travel.json'),
         ('check', 'check_item_travel.exs', '@item-travel.json'),
-    ]),
-    ('item_motion', [
-        ('java', 'ItemMotionOracle', '@item-motion.json'),
-        ('check', 'check_item_motion.exs', '@item-motion.json'),
     ]),
     ('item_merge', [
         ('java', 'ItemMergeOracle', '@item-merge.json'),

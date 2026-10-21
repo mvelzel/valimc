@@ -1,5 +1,6 @@
 defmodule Valimc.Physics.SneakEdges do
   @moduledoc "Bounded native player edge backoff; supplied support queries retain geometry errors."
+  import Valimc.Physics.Kernel, only: [f32: 1]
   alias Valimc.Physics.Box
 
   defstruct flying: false,
@@ -95,10 +96,5 @@ defmodule Valimc.Physics.SneakEdges do
       facts.fall_distance <= 60_000_000 and
       is_number(facts.max_step) and facts.max_step >= 0 and facts.max_step <= 4 and
       facts.mover in [:self, :player, :piston, :shulker, :shulker_box]
-  end
-
-  defp f32(value) do
-    <<rounded::float-32>> = <<value::float-32>>
-    rounded
   end
 end

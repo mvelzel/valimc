@@ -1,5 +1,5 @@
 alias Valimc.{CookingClick, Inventory}
-alias Valimc.Physics.CookingBlocks
+alias Valimc.CookingBlocks
 alias Valimc.Protocol.ItemStack
 [path] = System.argv()
 facts = path |> File.read!() |> JSON.decode!()

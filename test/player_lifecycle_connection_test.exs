@@ -105,7 +105,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     client
   end
 
-  test "death fences a live movement worker and queues respawn until all durable batches finish",
+  test "death queues respawn until all durable batches finish",
        ctx do
     [name | _] = ctx.names
     seed(ctx, name, %Inventory{slots: Map.new(36..43, &{&1, ItemStack.new("stone", &1 - 35)})})
@@ -115,18 +115,8 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
 
     try do
       p = state(pid).player
-
-      Client.send_packet(
-        client,
-        :play,
-        "move_player_pos",
-        <<p.x + 0.1::float-64, p.y::float-64, p.z::float-64, 1>>
-      )
-
-      job = wait(fn -> Valimc.TestConn.job(state(pid), :motion) end)
       assert {:ok, :dead} = Connection.fall_damage(pid, 100)
       wait(fn -> match?(%{stage: :delivery}, state(pid).recovery) end)
-      send(pid, {job.task.ref, {:ok, %{accepted: true}}})
       Client.send_packet(client, :play, "client_command", <<0>>)
 
       Client.send_packet(
@@ -141,7 +131,6 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
       wait(fn -> state(pid).respawn_requested end)
       blocked = state(pid)
       assert blocked.player.living.health.value == 0 and blocked.life_stage == :dropping
-      assert Valimc.TestConn.job(blocked, :motion) == nil and blocked.motion_pending == nil
       assert {blocked.player.x, blocked.player.y, blocked.player.z} == {p.x, p.y, p.z}
       assert {:ok, stored} = saved(ctx, name)
       assert stored.health.value == 0 and stored.outbox != nil

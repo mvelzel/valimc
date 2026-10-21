@@ -1,4 +1,4 @@
-alias Valimc.Physics.RandomMiningLoot
+alias Valimc.RandomMiningLoot
 alias Valimc.Protocol.{Data, ItemStack}
 [facts_path, cases_path] = System.argv()
 facts = facts_path |> File.read!() |> JSON.decode!()

@@ -210,7 +210,7 @@ defmodule Valimc.Player.Transfers do
       PlayerInput.loaded?(state.player.input) and not state.teleport_pending and
       not inventory_pending(state) and state.save_ref == nil and
       not Jobs.active?(state.jobs, :placement) and
-      state.pose_checked == Movement.pose_signature(state) and state.motion_pending == nil
+      state.pose_checked == Movement.pose_signature(state)
   end
 
   def start_pickup_query(%{jobs: jobs} = state, _) when is_map_key(jobs.active, :pickup),

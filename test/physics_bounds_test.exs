@@ -2,10 +2,8 @@ defmodule Valimc.PhysicsBoundsTest do
   # Work and coordinate bounds of the collision kernels that client movement drives.
   # Their vanilla behaviour is compared by the physics oracle stages.
   use ExUnit.Case, async: true
-  alias Valimc.Physics.{BlockScan, BodySweep, Box, Collision}
-  alias Valimc.Physics.{FallDamage, MovementValidation, PlayerPose, Shape}
-  alias Valimc.Physics.{SneakEdges, VoxelOps}
-  @box {-0.3, 0.0, -0.3, 0.3, 1.8, 0.3}
+  alias Valimc.Physics.{BlockScan, Box, Kernel, PlayerPose, SneakEdges}
+  alias Valimc.Living.FallDamage
   @sneak_box {-0.3, 64.0, -0.3, 0.3, 65.8, 0.3}
 
   defp body(point) do
@@ -14,60 +12,14 @@ defmodule Valimc.PhysicsBoundsTest do
     Box.new({a + epsilon, b + epsilon, c + epsilon, d - epsilon, e - epsilon, f - epsilon})
   end
 
-  test "collision work is bounded even for empty or zero movement queries" do
-    for {box, shapes, request} <- [
-          {@box, List.duplicate(%Shape{}, 129), {0, 0, 0}},
-          {@box, [], {65, 0, 0}},
-          {@box, [], {:invalid, 0, 0}},
-          {@box, [], {0, 0}},
-          {{1, 0, 0, -1, 1, 1}, [], {0, 0, 0}},
-          {{0, 0, 0, 60_000_001, 1, 1}, [], {0, 0, 0}}
-        ],
-        do: assert_raise(ArgumentError, fn -> Collision.move(box, shapes, request) end)
-
-    assert Collision.move(@box, List.duplicate(%Shape{}, 128), {1, 0, 0}) == {1.0, 0.0, 0.0}
-  end
-
-  test "body sweeps fail before an unbounded traversal" do
+  test "body sweeps and player queries fail before unbounded work" do
     p = {0.5, 64.0, 0.5}
-    assert {:error, :body_sweep_limit} = BodySweep.plan(p, {65.5, 64.0, 0.5}, body(p))
-    assert {:error, :body_sweep_limit} = BodySweep.plan(p, p, Box.new({0, 0, 0, 16, 16, 16}))
-    assert {:error, :invalid_body_sweep} = BodySweep.plan(p, p, body(p), 513)
-    assert {:error, :invalid_body_sweep} = BodySweep.plan(:bad, p, body(p))
-    from = {0.0, 64.0, 0.0}
-    to = {1.0, 64.0, -1.0e-320}
-    assert {:error, :body_sweep_limit} = BodySweep.plan(from, to, body(to))
-    edge = {-60_000_000.0, 64.0, 0.0, -59_999_999.0, 65.0, 1.0}
-    assert {:error, :body_sweep_limit} = BodySweep.plan(from, {1.0, 64.0, 0.0}, edge)
-  end
-
-  test "movement validation keeps existing overlap, rejects new overlap and bounds its facts" do
-    old = {-0.3, 0.0, -0.3, 0.3, 1.8, 0.3}
-    existing = VoxelOps.world_box({0.1, 0, -0.2, 0.2, 1, 0.2})
-    new = VoxelOps.world_box({0.75, 0, -0.2, 1.0, 2, 0.2})
-    assert MovementValidation.new_collision?(old, [existing]) == {:ok, false}
-    assert MovementValidation.new_collision?(old, [existing, new]) == {:ok, true}
-
-    for {box, shapes} <- [{old, List.duplicate(new, 129)}, {old, [:unknown]}, {nil, []}] do
-      assert MovementValidation.new_collision?(box, shapes) ==
-               {:error, :invalid_movement_observation}
-    end
-  end
-
-  test "malformed or oversized voxel grids reject before merged cell iteration" do
-    shape = VoxelOps.box({0, 0, 0, 1, 1, 1})
-
-    for bad <- [
-          nil,
-          %{shape | sizes: {33, 1, 1}},
-          %{shape | bits: <<>>},
-          %{shape | axes: {{0.0, 60_000_001.0}, {0.0, 1.0}, {0.0, 1.0}}},
-          %{shape | boxes: List.duplicate({0, 0, 0, 1, 1, 1}, 65)}
-        ] do
-      assert_raise ArgumentError, fn -> VoxelOps.intersects?(bad, shape) end
-    end
-
-    assert_raise ArgumentError, fn -> VoxelOps.world_box({0, 0, 0, 60_000_001, 1, 1}) end
+    assert {:error, :body_sweep_limit} = Kernel.sweep(p, {65.5, 64.0, 0.5}, body(p))
+    assert {:error, :body_sweep_limit} = Kernel.sweep(p, p, Box.new({0, 0, 0, 16, 16, 16}))
+    assert Kernel.bounded?({0.2, 0.2, 0.2, 5.8, 5.8, 5.8})
+    refute Kernel.bounded?({0.2, 0.2, 0.2, 9.8, 9.8, 9.8})
+    refute Kernel.bounded?({0.0, 0.0, 0.0, 60_000_001.0, 1.0, 1.0})
+    refute Kernel.bounded?({1.0, 0.0, 0.0, -1.0, 1.0, 1.0})
   end
 
   test "fall damage saturates at the largest int instead of overflowing" do

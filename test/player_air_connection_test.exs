@@ -104,61 +104,21 @@ defmodule Valimc.PlayerAirConnectionTest do
              state(owner).inventory.slots == inventory.slots
   end
 
-  test "a grant after air admission cannot reduce its older drowning request", ctx do
+  test "a grant after the drowning tick cannot reduce its damage", ctx do
     seed(ctx, air: -19)
     {_client, pid} = login(ctx)
     put_living(pid, air_supply: -19)
-    {:ok, {region, _}} = World.existing_owner(ctx.key)
-    Valimc.TestRegionGate.stall(region)
+    tick(pid, false)
+    assert state(pid).environment_effects == %{}
+    {:ok, effect} = Effects.new(-1, 4)
 
-    try do
-      tick(pid, false)
-      assert state(pid).environment_effects == %{}
-      {:ok, effect} = Effects.new(-1, 4)
+    assert {:ok, true} =
+             Connection.add_effect(pid, Valimc.Protocol.EffectTypes.id("resistance"), effect)
 
-      assert {:ok, true} =
-               Connection.add_effect(pid, Valimc.Protocol.EffectTypes.id("resistance"), effect)
-
-      Valimc.TestRegionGate.resume(region)
-
-      wait(fn ->
-        not state(pid).simulation_due and Valimc.TestConn.job(state(pid), :pose) == nil and
-          Valimc.TestConn.job(state(pid), :motion) == nil
-      end)
-
-      assert living(pid).health.value == 18.0 and
-               living(pid).air_supply == 0
-
-      put_living(pid, &%{&1 | air_supply: -19, health: %{&1.health | cooldown: 0}})
-
-      tick(pid)
-
-      assert living(pid).health.value == 18.0 and
-               living(pid).air_supply == 0
-    after
-      Valimc.TestRegionGate.resume(region)
-    end
-  end
-
-  test "retired underwater geometry cannot spend air after a dry relocation", ctx do
-    seed(ctx, air: -19)
-    {client, pid} = login(ctx)
-    {:ok, {region, _}} = World.existing_owner(ctx.key)
-    Valimc.TestRegionGate.stall(region)
-
-    try do
-      tick(pid, false)
-      job = wait(fn -> Valimc.TestConn.job(state(pid), :pose) end)
-      _client = Client.teleport(client, pid, %{ctx.pose | x: ctx.pose.x + 3})
-      send(pid, {job.task.ref, {:ok, %{submerged: true}}})
-      assert living(pid).health.value == 20.0
-      Valimc.TestRegionGate.resume(region)
-      tick(pid)
-      assert living(pid).air_supply == -15
-      assert living(pid).health.value == 20.0
-    after
-      Valimc.TestRegionGate.resume(region)
-    end
+    assert living(pid).health.value == 18.0 and living(pid).air_supply == 0
+    put_living(pid, &%{&1 | air_supply: -19, health: %{&1.health | cooldown: 0}})
+    tick(pid)
+    assert living(pid).health.value == 18.0 and living(pid).air_supply == 0
   end
 
   test "fatal drowning commits air and inventory once, then respawn restores full air", ctx do

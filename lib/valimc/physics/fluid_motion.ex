@@ -1,5 +1,7 @@
 defmodule Valimc.Physics.FluidMotion do
   @moduledoc "Pure post-collision water/lava travel and bounded surface-escape intent."
+  import Valimc.Physics.Kernel, only: [f32: 1]
+
   defstruct kind: :water,
             falling: true,
             on_ground: false,
@@ -87,9 +89,4 @@ defmodule Valimc.Physics.FluidMotion do
   defp vector?({x, y, z}), do: Enum.all?([x, y, z], &bounded?(&1, -64, 64))
   defp vector?(_), do: false
   defp bounded?(v, low, high), do: is_number(v) and v >= low and v <= high
-
-  defp f32(value) do
-    <<rounded::float-32>> = <<value::float-32>>
-    rounded
-  end
 end

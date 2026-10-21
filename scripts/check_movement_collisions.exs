@@ -1,14 +1,14 @@
-alias Valimc.Physics.{Box, Collision, Shape}
+alias Valimc.Native
+alias Valimc.Physics.Kernel
 [file] = System.argv()
 data = file |> File.read!() |> JSON.decode!()
-shapes = data["shapes"] |> Enum.map(&Shape.from_facts!/1) |> List.to_tuple()
+shapes = data["shapes"] |> Enum.map(&Kernel.shape/1) |> List.to_tuple()
+floats = fn values -> values |> Enum.map(&(&1 * 1.0)) |> List.to_tuple() end
 
 for c <- data["cases"] do
-  position = List.to_tuple(c["position"])
-  colliders = Enum.map(c["shapes"], &Shape.move(elem(shapes, &1), position))
-  box = c["box"] |> List.to_tuple() |> Box.new()
-  requested = List.to_tuple(c["requested"])
-  result = Collision.move(box, colliders, requested)
+  position = floats.(c["position"])
+  colliders = Enum.map(c["shapes"], &{elem(shapes, &1), nil, position})
+  result = Native.physics_parity_move(colliders, floats.(c["box"]), floats.(c["requested"]))
   bits = for value <- Tuple.to_list(result), do: Base.encode16(<<value::float-64>>, case: :lower)
 
   if bits != c["result_bits"],
@@ -16,5 +16,5 @@ for c <- data["cases"] do
 end
 
 IO.puts(
-  "PASS: #{length(data["cases"])} native movement vectors (all three exact result components)."
+  "PASS: #{length(data["cases"])} native movement vectors through the kernel (all three exact result components)."
 )

@@ -1,7 +1,7 @@
 alias Valimc.Living.Attributes
 alias Valimc.Physics.FluidMotion
 alias Valimc.{PlayerInput, PlayerKinetics, PlayerMotion}
-alias Valimc.Physics.{BlockScan, Box, CollisionQuery, PlayerPose}
+alias Valimc.Physics.{BlockScan, Box, PlayerPose}
 [path] = System.argv()
 data = path |> File.read!() |> :json.decode()
 fields = Map.keys(Map.from_struct(%FluidMotion{})) -- [:kind, :falling]
@@ -51,7 +51,7 @@ check = fn c ->
     }
 
     {:ok, envelope} = PlayerKinetics.query_box(geometry.box, player)
-    {:ok, acquired} = BlockScan.plan(envelope, CollisionQuery.frame_cell_limit())
+    {:ok, acquired} = BlockScan.plan(envelope, 1024)
     positions = MapSet.new(acquired, &elem(&1, 0))
     {:ok, movement} = BlockScan.plan(Box.expand_towards(geometry.box, initial))
 

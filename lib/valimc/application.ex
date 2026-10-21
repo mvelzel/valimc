@@ -47,17 +47,14 @@ defmodule Valimc.Application do
       {Valimc.World.Clock, []},
       {Valimc.World.Stopwatches, []},
       {Valimc.Admin.Lists, []},
-      {Task.Supervisor, name: Valimc.ItemSimulationWorkers, max_children: schedulers * 4},
-      {Task.Supervisor, name: Valimc.ItemGeometryWorkers, max_children: schedulers * 8},
       {Task.Supervisor, name: Valimc.ChunkWorkers, max_children: schedulers},
       {Task.Supervisor, name: Valimc.ItemWorkers, max_children: schedulers},
       {Task.Supervisor, name: Valimc.TransferWorkers, max_children: schedulers * 4},
       # The one pool of generation jobs, below the dirty scheduler count (VMC-077b).
       Valimc.Worldgen.Pool,
-      Valimc.Workers.partitioned(
-        Valimc.CollisionWorkers,
-        Valimc.Physics.CollisionQuery.worker_limit()
-      )
+      # Placement and mining jobs: each player owns at most one, and its
+      # cancelled predecessor may still retire.
+      Valimc.Workers.partitioned(Valimc.ActionWorkers, Valimc.config(:max_players) * 2)
     ]
 
     storage = [

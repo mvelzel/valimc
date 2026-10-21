@@ -1,7 +1,7 @@
 defmodule Valimc.World.CookingBatch do
   @moduledoc "Bounded owned cooking proposals; only the enclosing durable commit publishes a result."
   alias Valimc.Cooking
-  alias Valimc.Physics.CookingBlocks
+  alias Valimc.CookingBlocks
   alias Valimc.World.{Containers, ContainerSpills, CookingEntry, Items}
   @limit 1024
 

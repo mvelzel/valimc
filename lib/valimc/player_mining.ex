@@ -1,7 +1,8 @@
 defmodule Valimc.PlayerMining do
   @moduledoc "Stock player mining speed/harvest; the player owner supplies current gear and eye/ground contact."
   alias Valimc.Inventory
-  alias Valimc.Physics.{Mining, MiningTools}
+  alias Valimc.Mining
+  alias Valimc.MiningTools
   alias Valimc.Protocol.ItemStack
 
   def attributes(inventory) do

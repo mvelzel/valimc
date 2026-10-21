@@ -1,6 +1,5 @@
 defmodule Valimc.PlayerMotionQueryTest do
   use ExUnit.Case, async: false
-  # Serial: asserts production latency deadlines that concurrent CPU load can exceed.
   alias Valimc.TestScope
   alias Valimc.{GameMode, PlayerAbilities, PlayerInput, PlayerMotionQuery, World}
 
@@ -27,10 +26,7 @@ defmodule Valimc.PlayerMotionQueryTest do
     %{player: player, key: key}
   end
 
-  defp query(player, changes) do
-    {:ok, task} = PlayerMotionQuery.start(player, Map.merge(player, changes))
-    Task.await(task, 60_000)
-  end
+  defp query(player, changes), do: PlayerMotionQuery.run(player, Map.merge(player, changes))
 
   test "a newly entered wall rejects creative, while spectator retains no-physics", %{
     player: p
@@ -75,7 +71,7 @@ defmodule Valimc.PlayerMotionQueryTest do
     end
 
     assert {:ok, %{accepted: true}} = query(p, %{x: p.x + 0.2})
-    assert {:error, :movement_query_limit} = PlayerMotionQuery.start(p, %{p | x: p.x + 65})
+    assert {:error, :movement_query_limit} = PlayerMotionQuery.run(p, %{p | x: p.x + 65})
   end
 
   test "retained paths sample crossed material, fit the frame and remain owned until a tick commits",
@@ -97,6 +93,6 @@ defmodule Valimc.PlayerMotionQueryTest do
     assert packet.paths.count == 2 and tick.paths.count == 0
     assert elem(tick.stuck_multiplier, 0) == 0.25 and tick.reset_fall
     assert p.motion.paths == paths
-    assert {:error, :block_scan_limit} = PlayerMotionQuery.start(p, %{p | z: p.z + 64})
+    assert {:error, :movement_query_limit} = PlayerMotionQuery.run(p, %{p | z: p.z + 64})
   end
 end

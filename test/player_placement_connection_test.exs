@@ -105,7 +105,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     {client, pid} = login(c)
     send_place(client, c.target)
     client = ack(client)
-    {:ok, dry} = Valimc.Physics.ChestPlacement.single_state(90.0, 0)
+    {:ok, dry} = Valimc.ChestPlacement.single_state(90.0, 0)
     assert Valimc.TestBlocks.get(c.target) == dry
     assert Valimc.TestConn.state(pid).inventory.slots[36] == ItemStack.new("chest")
     {x, y, z} = c.target
@@ -113,7 +113,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     :ok = Valimc.TestBlocks.set(wet, 89)
     send_place(client, wet, 1, 0.5, 1, 2)
     client = ack(client, 2)
-    {:ok, wet_state} = Valimc.Physics.ChestPlacement.single_state(90.0, 89)
+    {:ok, wet_state} = Valimc.ChestPlacement.single_state(90.0, 89)
     assert Valimc.TestBlocks.get(wet) == wet_state
     assert Valimc.TestConn.state(pid).inventory.slots[45] == ItemStack.new("chest", 2)
 
@@ -236,6 +236,36 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     assert Valimc.TestBlocks.get({x, y + 1, z}) == 15
     assert Valimc.TestConn.state(pid).inventory.slots == before
     assert :sys.get_state(Valimc.TestConn.state(pid).player_store).snapshot.transfer_sequence == 0
+  end
+
+  test "a block cannot be placed into another player standing there", c do
+    seed(c, :survival)
+    other = "Peer#{System.unique_integer([:positive])}"
+    other_uuid = Connection.offline_uuid(other)
+    {tx, _, tz} = c.target
+
+    peer =
+      Map.merge(c.pose, %{
+        x: tx + 0.5,
+        z: tz + 0.5,
+        game_mode: GameMode.new(:survival),
+        abilities: Valimc.PlayerAbilities.for_mode(:survival)
+      })
+
+    {:ok, bytes} = PlayerSnapshot.encode(other_uuid, PlayerSnapshot.capture(peer, %Inventory{}))
+    path = PlayerStore.path(c.base, other_uuid)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, bytes)
+    {_, peer_client} = Client.login(other)
+    on_exit(fn -> Client.close(peer_client) end)
+    Client.load_world(peer_client)
+    wait(fn -> Enum.any?(Players.all(), &(&1.name == other)) end)
+    {client, pid} = login(c)
+    before = Valimc.TestConn.state(pid).inventory.slots
+    send_place(client, c.target)
+    _client = ack(client)
+    assert Valimc.TestBlocks.get(c.target) == 0
+    assert Valimc.TestConn.state(pid).inventory.slots == before
   end
 
   test "disconnect during destination storage recovers the already-consumed stack exactly once",

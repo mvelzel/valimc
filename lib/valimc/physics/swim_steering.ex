@@ -1,5 +1,6 @@
 defmodule Valimc.Physics.SwimSteering do
   @moduledoc "Native pre-travel swimming pitch blend; contact/state are supplied observations."
+  import Valimc.Physics.Kernel, only: [f32: 1]
   import Bitwise
   @sin_scale 10_430.378350470453
 
@@ -24,9 +25,4 @@ defmodule Valimc.Physics.SwimSteering do
   end
 
   def step(_, _, _, _, _, _), do: {:error, :invalid_swim_steering}
-
-  defp f32(n) do
-    <<rounded::float-32>> = <<n::float-32>>
-    rounded
-  end
 end

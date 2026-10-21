@@ -44,7 +44,7 @@ defmodule Valimc.PlacementOwnerTest do
       assert Valimc.TestBlocks.get(c.position) == 0
     end
 
-    {:ok, furnace} = Valimc.Physics.CookingBlocks.placement(:furnace, 90.0)
+    {:ok, furnace} = Valimc.CookingBlocks.placement(:furnace, 90.0)
     revision = Valimc.TestConn.state(pid).resource.revision
     assert {:ok, _} = Region.set_blocks(c.owner, revision, %{c.position => furnace})
     assert Valimc.TestBlocks.get(c.position) == furnace

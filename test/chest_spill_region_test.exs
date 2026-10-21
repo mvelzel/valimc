@@ -14,7 +14,7 @@ defmodule Valimc.ChestSpillRegionTest do
     span = Valimc.config(:region_size) * 16
     position = {rx * span + 40, 64, rz * span + 40}
     source = <<nonce::128>>
-    {:ok, chest} = Valimc.Physics.ChestPlacement.single_state(0.0, 89)
+    {:ok, chest} = Valimc.ChestPlacement.single_state(0.0, 89)
 
     named = %{
       ItemStack.new("oak_planks", 99)

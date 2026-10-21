@@ -1,7 +1,8 @@
 defmodule Valimc.Cooking do
   @moduledoc "Bounded pure cooking transitions; the region must durably admit each entire result."
   alias Valimc.{CookingRecipes, Protocol.ItemStack}
-  alias Valimc.Physics.{CookingFuel, CookingItems}
+  alias Valimc.CookingFuel
+  alias Valimc.CookingItems
   defstruct slots: {nil, nil, nil}, burn_left: 0, burn_total: 0, progress: 0, total: 0, speed: 1.0
 
   @doc "Apply externally changed slots before joint admission; no ticking, recipe-use or award effects."

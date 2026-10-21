@@ -3,7 +3,8 @@ defmodule Valimc.CookingBoundsTest do
   # the refusals for player-supplied slots, edits and item patches.
   use ExUnit.Case, async: true
   alias Valimc.{Cooking, CookingMenu, Inventory}
-  alias Valimc.Physics.{CookingBlocks, CookingFuel}
+  alias Valimc.CookingBlocks
+  alias Valimc.CookingFuel
   alias Valimc.Protocol.{Data, ItemStack}
 
   test "click sentinels, malformed edits and unsupported patches refuse whole" do

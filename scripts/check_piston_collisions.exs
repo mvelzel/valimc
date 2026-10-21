@@ -1,76 +1,25 @@
-alias Valimc.Physics.{
-  BlockEntityContext,
-  BlockShapes,
-  Box,
-  Collision,
-  CollisionContext,
-  PistonSnapshot,
-  Shape
-}
-
+Code.require_file("kernel_shapes.exs", __DIR__)
+alias Check.KernelShapes
+alias Valimc.Physics.CollisionContext
+Valimc.Registry.BlockFacts.install!()
 [file] = System.argv()
 cases = file |> File.read!() |> JSON.decode!()
 
-directions = %{
-  "down" => :down,
-  "up" => :up,
-  "north" => :north,
-  "south" => :south,
-  "west" => :west,
-  "east" => :east,
-  "none" => nil
-}
+# The kernel has no block entities (VMC-077l): a moving piston without one is
+# empty, as vanilla's is. Piston snapshots are not modelled.
+checked = Enum.filter(cases, &(&1["context"]["kind"] in ["absent", "other"]))
 
-axes = %{"x" => :x, "y" => :y, "z" => :z}
+for c <- checked do
+  position = c["position"] |> Enum.map(&trunc/1) |> List.to_tuple()
+  picked = KernelShapes.picked(c["state"], position, CollisionContext.empty())
 
-for c <- cases do
-  f = c["context"]
+  if not KernelShapes.same?(picked, c["geometry"]),
+    do: raise("Native piston differs: #{inspect(c)}")
 
-  context =
-    CollisionContext.with_piston_movement(
-      CollisionContext.empty(),
-      Map.fetch!(directions, f["exclusion"])
-    )
-
-  block_entity =
-    case f["kind"] do
-      "absent" ->
-        BlockEntityContext.absent()
-
-      "other" ->
-        BlockEntityContext.other()
-
-      "piston" ->
-        PistonSnapshot.new(
-          f["moved"],
-          Map.fetch!(directions, f["direction"]),
-          f["extending"],
-          f["source"],
-          f["progress"]
-        )
-        |> BlockEntityContext.piston()
-    end
-
-  pos = c["position"] |> Enum.map(&trunc/1) |> List.to_tuple()
-  {:ok, shape} = BlockShapes.fetch(c["state"], pos, context, block_entity)
-
-  if shape != Shape.from_facts!(c["geometry"]),
-    do: raise("Native piston differs: #{inspect(c)} actual #{inspect(shape)}")
-
-  world = Shape.move(shape, pos)
-
-  for q <- c["queries"] do
-    value =
-      Collision.clip(
-        Map.fetch!(axes, q["axis"]),
-        Box.new(List.to_tuple(q["box"])),
-        [world],
-        q["delta"]
-      )
-
-    if Base.encode16(<<value::float-64>>, case: :lower) != q["result_bits"],
-      do: raise("Native piston clipping differs: #{inspect(c)}")
-  end
+  unless KernelShapes.clips?([KernelShapes.collider(picked, position)], c["queries"]),
+    do: raise("Native piston clipping differs: #{inspect(c)}")
 end
 
-IO.puts("PASS: #{length(cases)} native piston snapshots and #{length(cases) * 6} exact clips.")
+IO.puts(
+  "PASS: #{length(checked)} native moving pistons without block entities and #{Enum.sum(Enum.map(checked, &length(&1["queries"])))} exact kernel clips (#{length(cases) - length(checked)} piston snapshots not modelled)."
+)

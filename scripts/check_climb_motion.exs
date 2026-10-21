@@ -1,4 +1,4 @@
-alias Valimc.Physics.{BlockScan, Box, ClimbMotion, CollisionQuery, PlayerPose}
+alias Valimc.Physics.{BlockScan, Box, ClimbMotion, PlayerPose}
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 bits = fn n -> <<n::float-64>> end
@@ -42,7 +42,7 @@ for c <- cases do
     }
 
     {:ok, query} = Valimc.PlayerKinetics.query_box(standing.box, player)
-    {:ok, plan} = BlockScan.plan(query, CollisionQuery.frame_cell_limit())
+    {:ok, plan} = BlockScan.plan(query, 1024)
     acquired = MapSet.new(plan, &elem(&1, 0))
     {:ok, sweep} = BlockScan.plan(Box.expand_towards(body.box, before.velocity))
     {vx, vy, vz} = before.velocity

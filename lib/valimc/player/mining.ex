@@ -143,7 +143,7 @@ defmodule Valimc.Player.Mining do
       PlayerInput.loaded?(state.player.input) and not state.teleport_pending and
       not inventory_pending(state) and reachable?(state, position) and
       inside_border?(position) and
-      Valimc.Physics.MiningTools.can_destroy?(Inventory.held(state.inventory, :main), false)
+      Valimc.MiningTools.can_destroy?(Inventory.held(state.inventory, :main), false)
   end
 
   @doc "Vanilla's `mayInteract`: blocks outside the world border cannot be broken or used."
@@ -180,7 +180,7 @@ defmodule Valimc.Player.Mining do
       mining.needs_check or now >= mining.renew_at ->
         mining_job(state, :renew, PlayerMiningQuery.renew(mining.reservation), mining.position)
 
-      state.pose_checked != Movement.pose_signature(state) or state.motion_pending != nil ->
+      state.pose_checked != Movement.pose_signature(state) ->
         state
 
       true ->
@@ -266,9 +266,9 @@ defmodule Valimc.Player.Mining do
     supported =
       block in @basic_mining or
         Valimc.Block.block_entity(block) != nil or
-        Valimc.Physics.MiningLoot.ordinary_mining?(block) or
-        Valimc.Physics.RandomMiningLoot.supported?(block) or
-        MapSet.member?(@slab_blocks, Valimc.Physics.MiningTools.block_id(block))
+        Valimc.MiningLoot.ordinary_mining?(block) or
+        Valimc.RandomMiningLoot.supported?(block) or
+        MapSet.member?(@slab_blocks, Valimc.MiningTools.block_id(block))
 
     if supported and mining_allowed?(state, position) do
       tick_mining(state)
@@ -361,7 +361,7 @@ defmodule Valimc.Player.Mining do
     before = Inventory.held(state.inventory, :main)
 
     {:ok, drops} =
-      Valimc.Physics.MiningLoot.drops(
+      Valimc.MiningLoot.drops(
         block,
         before,
         PlayerMining.harvest?(state.inventory, block)

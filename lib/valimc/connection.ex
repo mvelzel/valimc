@@ -107,14 +107,13 @@ defmodule Valimc.Connection do
       ) do
     if System.monotonic_time(:millisecond) < deadline and PlayerKinetics.valid_velocity?(velocity) and
          PlayerKinetics.admissible?(state.player, velocity) do
-      state = state |> Movement.cancel_pose_job() |> Movement.cancel_motion_job()
       velocity = velocity |> Tuple.to_list() |> Enum.map(&(&1 * 1.0)) |> List.to_tuple()
       motion = %{state.player.motion | velocity: velocity, settled: false}
       player = %{state.player | motion: motion}
       Players.update(self(), player)
       state = %{state | player: player, pose_checked: nil, login_velocity_pending: false}
       state = Movement.send_velocity(state, velocity)
-      {:reply, :ok, state |> Movement.start_motion() |> Movement.sample_pose()}
+      {:reply, :ok, Movement.sample_pose(state)}
     else
       {:reply, {:error, :invalid_or_expired_velocity}, state}
     end
@@ -287,7 +286,6 @@ defmodule Valimc.Connection do
        pose_generation: 0,
        pose_sources: %{},
        jobs: Jobs.new(),
-       motion_pending: nil,
        motion_window: nil,
        simulation_clock: nil,
        # `:manual` (tests): only explicit `{:player_tick, token}` messages tick (VMC-073).
@@ -373,12 +371,6 @@ defmodule Valimc.Connection do
   def consume(%{step: step} = state, _) when step in [:key_job, :auth_job],
     do: {:noreply, %{state | active: false}}
 
-  # Preserve wire order for movement-dependent interactions and transfers. The
-  # socket stays passive while its one input is validated; the owner itself
-  # remains responsive to timers, server calls and worker/source messages.
-  def consume(%{motion_pending: pending} = state, _) when pending != nil,
-    do: {:noreply, state}
-
   def consume(state, 0) do
     send(self(), :drain)
     {:noreply, state}
@@ -449,9 +441,6 @@ defmodule Valimc.Connection do
     Mining.cancel_mining(state)
 
     :gen_tcp.close(state.socket)
-
-    if state.motion_pending && state.motion_pending.retry,
-      do: Process.cancel_timer(state.motion_pending.retry)
 
     Jobs.cancel_all(state.jobs)
 

@@ -61,7 +61,7 @@ defmodule Valimc.PlayerPlacementIntentTest do
       | components: %{"minecraft:custom_name" => {:string, "Named"}}
     }
 
-    {:ok, state} = Valimc.Physics.ChestPlacement.single_state(0.0, 0)
+    {:ok, state} = Valimc.ChestPlacement.single_state(0.0, 0)
 
     chest = %{
       original

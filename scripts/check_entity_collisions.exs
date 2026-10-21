@@ -1,4 +1,4 @@
-alias Valimc.Physics.{EntityCollisions, Shape}
+alias Valimc.Physics.EntityCollisions
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()
 
@@ -29,7 +29,7 @@ for {c, index} <- Enum.with_index(cases) do
 
   expected =
     Enum.map(c["colliders"], fn e ->
-      %{id: e["id"], box: box.(e["box"]), shape: Shape.from_world_facts!(e["geometry"])}
+      %{id: e["id"], box: box.(e["box"])}
     end)
 
   {:ok, actual} = EntityCollisions.collect(box.(c["box"]), c["subject"], candidates)
@@ -42,4 +42,4 @@ for {c, index} <- Enum.with_index(cases) do
       )
 end
 
-IO.puts("PASS: #{length(cases)} native entity predicates, margins, thresholds, order and shapes.")
+IO.puts("PASS: #{length(cases)} native entity predicates, margins, thresholds and order.")
