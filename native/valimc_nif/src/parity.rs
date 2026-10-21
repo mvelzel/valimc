@@ -7,6 +7,7 @@ use crate::region::{error, with_owned, with_store, Region};
 use crate::worldgen::{WorldgenRegistry, WorldgenState};
 use crate::{atoms, bytes, done, reply};
 use rustler::{Atom, Binary, Env, NewBinary, NifResult, ResourceArc};
+use valimc_core::worldgen::compiler::BiomeSource;
 
 /// Light of chunks given as column images over the chunk rectangle starting at
 /// (`min_cx`, `min_cz`), lit as a live region lights generated chunks: one at a
@@ -229,6 +230,7 @@ fn worldgen_build_terrain<'a>(
 ) -> NifResult<(Atom, Vec<FilledBinary<'a>>)> {
     reply((|| {
         let mut state = state.lease()?;
+        let biome_source = BiomeSource::parse(&biome_source, state.registry())?;
         let mut out = Vec::with_capacity(chunks.len());
         for (x, z) in chunks {
             let filled = state.build_terrain(x, z, &biome_source, carve)?;
@@ -285,6 +287,7 @@ fn worldgen_decorate<'a>(
 ) -> NifResult<(Atom, Vec<DecoratedChunk<'a>>)> {
     reply((|| {
         let mut state = state.lease()?;
+        let biome_source = BiomeSource::parse(&biome_source, state.registry())?;
         let included: std::collections::HashSet<(usize, usize)> = features.into_iter().collect();
         let area = state.decorate_area(
             &biome_source,
@@ -318,6 +321,7 @@ fn worldgen_decorate_structures<'a>(
 ) -> NifResult<(Atom, DecoratedStarts<'a>)> {
     reply((|| {
         let mut state = state.lease()?;
+        let biome_source = BiomeSource::parse(&biome_source, state.registry())?;
         let registry = state.structure_env(&biome_source)?.registry.clone();
         let included = structures
             .iter()
@@ -486,6 +490,7 @@ fn worldgen_decoration_time(
 ) -> NifResult<(Atom, u64)> {
     reply((|| {
         let mut state = state.lease()?;
+        let biome_source = BiomeSource::parse(&biome_source, state.registry())?;
         let included: std::collections::HashSet<(usize, usize)> = features.into_iter().collect();
         let (_, elapsed) =
             state.decorate_area_timed(&biome_source, origin, size, &order, Some(&included))?;
@@ -506,6 +511,7 @@ fn worldgen_structure_state(
     reply((|| {
         let env = {
             let mut state = state.lease()?;
+            let biome_source = BiomeSource::parse(&biome_source, state.registry())?;
             state.structure_env(&biome_source)?
         };
         let sets = &env.registry.sets;
@@ -538,6 +544,7 @@ fn worldgen_structure_starts(
     reply((|| {
         let env = {
             let mut state = state.lease()?;
+            let biome_source = BiomeSource::parse(&biome_source, state.registry())?;
             state.structure_env(&biome_source)?
         };
         let registry = &env.registry;
@@ -578,6 +585,7 @@ fn worldgen_structure_window(
     reply((|| {
         let env = {
             let mut state = state.lease()?;
+            let biome_source = BiomeSource::parse(&biome_source, state.registry())?;
             state.structure_env(&biome_source)?
         };
         let registry = &env.registry;
@@ -681,6 +689,7 @@ fn worldgen_structure_time(
     reply((|| {
         let env = {
             let mut state = state.lease()?;
+            let biome_source = BiomeSource::parse(&biome_source, state.registry())?;
             state.structure_env(&biome_source)?
         };
         let mut elapsed = std::time::Duration::ZERO;

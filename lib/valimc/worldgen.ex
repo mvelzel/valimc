@@ -132,12 +132,13 @@ defmodule Valimc.Worldgen do
   end
 
   @doc """
-  Worldgen state for `seed` and a noise settings entry, over vanilla's facts or
-  a facts directory's (`registry/1`).
+  The generation context of `seed` and a noise settings entry (VMC-077n), over
+  vanilla's facts or a facts directory's (`registry/1`): compiled now, on a
+  dirty scheduler, and shared by every generation call of the seed.
   """
   def new(seed, settings \\ "minecraft:overworld", dir \\ nil) do
     with {:ok, registry} <- registry(dir),
-         do: Native.worldgen_new(registry, seed, settings, Valimc.Worldgen.Pool.size())
+         do: Native.worldgen_new(registry, seed, settings)
   end
 
   # Block states inside material rules become state ids.

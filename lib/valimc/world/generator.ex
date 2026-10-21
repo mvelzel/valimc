@@ -337,10 +337,9 @@ defmodule Valimc.World.Generator do
   end
 
   @doc """
-  The worldgen state of `seed` and noise settings, one per VM: noises and
-  compiled functions are built once. The native state keeps a pool of per-call
-  states (VMC-025d1), so concurrent generations of the seed run in parallel and
-  any of them gives the same chunks.
+  The generation context of `seed` and noise settings, one per VM (VMC-077n):
+  compiled once and shared by every concurrent generation of the seed, which
+  all get the same chunks.
   """
   def worldgen(seed, noise_settings \\ @settings, facts \\ nil) do
     key =

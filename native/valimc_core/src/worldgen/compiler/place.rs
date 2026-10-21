@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use super::Worldgen;
+use super::{BiomeSource, Worldgen};
 use crate::column::{Column, HEIGHT as COLUMN_HEIGHT, MIN_Y as COLUMN_MIN_Y};
 use crate::worldgen::blocks::BLOCK_ENTITY;
 use crate::worldgen::random::Random;
@@ -102,7 +102,7 @@ fn jigsaw_config(pool: &str, target: &str, max_depth: i32) -> Result<JigsawConfi
 }
 
 impl Worldgen {
-    fn structure_index(&mut self, biome_source: &str, id: &str) -> Result<usize, String> {
+    fn structure_index(&mut self, biome_source: &BiomeSource, id: &str) -> Result<usize, String> {
         let env = self.structure_env(biome_source)?;
         env.registry
             .structures
@@ -114,7 +114,7 @@ impl Worldgen {
     /// Plans `placement` at block `pos`.
     pub fn place_plan(
         &mut self,
-        biome_source: &str,
+        biome_source: &BiomeSource,
         placement: &Placement,
         pos: [i32; 3],
     ) -> Result<Plan, String> {
@@ -198,7 +198,7 @@ impl Worldgen {
     /// flat base profile `base`, one state per level from the bottom).
     pub fn place_chunk(
         &mut self,
-        biome_source: &str,
+        biome_source: &BiomeSource,
         (x, z): (i32, i32),
         image: Option<&[u8]>,
         base: &[u16],
@@ -242,7 +242,7 @@ impl Worldgen {
     /// returns false (a feature or template that placed nothing).
     pub fn place(
         &mut self,
-        biome_source: &str,
+        biome_source: &BiomeSource,
         placement: &Placement,
         pos: [i32; 3],
         chunks: Vec<ProtoChunk>,

@@ -15,7 +15,7 @@ mod place;
 pub use place::{Placed, Placement, Plan};
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use super::beard::Beardifier;
 use super::blocks::{BlockTable, Heightmap};
@@ -507,60 +507,146 @@ struct Prepared {
     sampler: Option<Arc<Sampler>>,
 }
 
-/// Noises and compiled samplers for one seed and noise settings.
-pub struct Worldgen {
-    registry: Arc<Registry>,
-    settings: Settings,
-    seed: i64,
-    positional: Positional,
+/// A dimension's biome source (VMC-077n), parsed once from its name: a
+/// multi-noise preset (`minecraft:overworld`, `minecraft:nether`, a data
+/// pack's), the End's, or one biome everywhere (`fixed:BIOME`, VMC-028b).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum BiomeSource {
+    MultiNoise(Arc<str>),
+    End,
+    Fixed(u16),
+}
+
+const END_SOURCE: &str = "minecraft:the_end";
+
+impl BiomeSource {
+    pub fn parse(name: &str, registry: &Registry) -> Result<BiomeSource, String> {
+        if name == END_SOURCE {
+            Ok(BiomeSource::End)
+        } else if let Some(biome) = name.strip_prefix(FIXED) {
+            Ok(BiomeSource::Fixed(registry.biomes.id(biome)?))
+        } else if registry.biome_parameters.contains_key(name) {
+            Ok(BiomeSource::MultiNoise(name.into()))
+        } else {
+            Err(format!("unknown biome source {name}"))
+        }
+    }
+
+    /// The name its decoration facts are kept under; none for a fixed source.
+    fn preset(&self) -> Option<&str> {
+        match self {
+            BiomeSource::MultiNoise(id) => Some(id),
+            BiomeSource::End => Some(END_SOURCE),
+            BiomeSource::Fixed(_) => None,
+        }
+    }
+
+    /// A multi-noise source's parameter list and its biomes' registry ids.
+    fn parameters(&self, registry: &Registry) -> Result<(Arc<ParameterList>, Vec<u16>), String> {
+        match self {
+            BiomeSource::MultiNoise(id) => registry
+                .biome_parameters
+                .get(&**id)
+                .cloned()
+                .ok_or_else(|| format!("unknown biome source {id}")),
+            other => Err(format!("{other} is not a multi-noise biome source")),
+        }
+    }
+}
+
+impl std::fmt::Display for BiomeSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            BiomeSource::MultiNoise(id) => f.write_str(id),
+            BiomeSource::End => f.write_str(END_SOURCE),
+            BiomeSource::Fixed(biome) => write!(f, "{FIXED}#{biome}"),
+        }
+    }
+}
+
+/// A cache key: a biome source and a chunk.
+type ChunkKey = (BiomeSource, i32, i32);
+
+/// What a seed compiles (vanilla's `RandomState`): its noises and its
+/// density functions, prepared and compiled once.
+#[derive(Default)]
+struct Compiled {
     noises: HashMap<String, Arc<Stack>>,
     prepared: Vec<Prepared>,
     prepared_keys: HashMap<Df, usize>,
     samplers: HashMap<Df, Arc<Sampler>>,
-    material_system: Option<Arc<MaterialSystem>>,
-    /// Chunk biomes and carver biomes by biome source and chunk: both pure, so
-    /// neighbouring chunks share them (bounded).
-    chunk_biomes: HashMap<(String, i32, i32), Arc<Vec<u16>>>,
-    /// Chunk biomes shared with the other states of a pool instead
-    /// (`share_chunk_biomes`).
-    shared_biomes: Option<SharedBiomes>,
-    carver_biomes: HashMap<(String, i32, i32), u16>,
+}
+
+/// One seed's generation under one noise settings (VMC-077n): compiled
+/// eagerly (`compile`), then shared by every call through an `Arc`. Besides
+/// its compile state (complete after `compile`) it holds only bounded caches
+/// of pure values, which any call may fill: every call gets the same chunks.
+pub struct SeedContext {
+    registry: Arc<Registry>,
+    settings: Settings,
+    seed: i64,
+    positional: Positional,
+    compiled: Mutex<Compiled>,
+    material_system: OnceLock<Arc<MaterialSystem>>,
     /// Structure generation per biome source (VMC-025e).
-    structure_envs: HashMap<String, Arc<StructureEnv>>,
-    /// Live generation's starts by biome source and chunk (VMC-025f5): pure,
-    /// so neighbouring chunks' terrain and decoration share them (bounded).
-    live_starts: HashMap<(String, i32, i32), Arc<Vec<Start>>>,
+    structure_envs: Mutex<HashMap<BiomeSource, Arc<StructureEnv>>>,
     /// Decorations of fixed biome sources by biome (VMC-028b), derived once.
-    fixed_decorations: HashMap<u16, Arc<Decoration>>,
+    fixed_decorations: Mutex<HashMap<u16, Arc<Decoration>>>,
+    /// Chunk biomes by biome source and chunk: each chunk's surface needs its
+    /// 3 × 3 chunks' biomes, so neighbouring chunks share them.
+    chunk_biomes: Mutex<HashMap<ChunkKey, Arc<Vec<u16>>>>,
+    /// Carver biomes by biome source and chunk (each chunk's carvers look at
+    /// the 17 × 17 around it).
+    carver_biomes: Mutex<HashMap<ChunkKey, u16>>,
+    /// Live generation's starts by biome source and chunk (VMC-025f5).
+    live_starts: Mutex<HashMap<ChunkKey, Arc<Vec<Start>>>>,
     /// The bounds chunk biomes cover: those of the dimension whose generator
     /// uses these noise settings (a chunk holds biomes for all its
     /// sections), else the noise settings' own.
     biome_bounds: (i32, i32),
 }
 
-const BIOME_CACHE_LIMIT: usize = 4096;
+/// A call's handle on a seed's context: generation methods take it mutably
+/// (they fill the context's caches) but share everything with other calls.
+pub struct Worldgen {
+    ctx: Arc<SeedContext>,
+}
 
-/// Chunk biomes several worldgen states of one seed share (VMC-025d4): live
-/// generation spreads neighbouring chunks over a pool of states, and each
-/// chunk's surface needs its 3 × 3 chunks' biomes, which a state of its own
-/// would make again and again. Pure, so sharing changes nothing but cost.
-pub type SharedBiomes = Arc<Mutex<HashMap<(String, i32, i32), Arc<Vec<u16>>>>>;
+impl std::ops::Deref for Worldgen {
+    type Target = SeedContext;
+    fn deref(&self) -> &SeedContext {
+        &self.ctx
+    }
+}
 
-/// Chunks a shared biome cache keeps (about 3 KB each).
-const SHARED_BIOME_CACHE_LIMIT: usize = 8192;
-/// Chunks whose starts a worldgen state keeps for live generation.
+/// Chunks whose biomes the context keeps (about 3 KB each).
+const CHUNK_BIOME_CACHE_LIMIT: usize = 8192;
+/// Chunks whose starts the context keeps for live generation.
 const LIVE_STARTS_LIMIT: usize = 16384;
 /// A fixed biome source's name: this prefix and the biome (VMC-028b).
 pub const FIXED: &str = "fixed:";
 const CARVER_BIOME_CACHE_LIMIT: usize = 65536;
 
+/// Insert into a bounded cache, emptying it when full.
+fn bounded_insert<K: std::hash::Hash + Eq, V>(
+    cache: &mut HashMap<K, V>,
+    limit: usize,
+    key: K,
+    value: V,
+) {
+    if cache.len() >= limit {
+        cache.clear();
+    }
+    cache.insert(key, value);
+}
+
 impl SurfaceEnv for Worldgen {
     fn sampler(&mut self, function: &Df) -> Result<Arc<Sampler>, String> {
-        Worldgen::sampler(self, function)
+        self.ctx.sampler(function)
     }
 
     fn noise(&mut self, id: &str) -> Result<Arc<Stack>, String> {
-        Worldgen::noise(self, id)
+        self.ctx.noise(id)
     }
 
     fn random_factory(&mut self, name: &str) -> Positional {
@@ -573,27 +659,8 @@ const VEGETATION_NETHER: &str = "minecraft:nether/vegetation";
 const TERRAIN_SEED: &str = "minecraft:terrain";
 const AQUIFER_SEED: &str = "minecraft:aquifer";
 
-impl Env for Worldgen {
-    fn function(&self, id: &str) -> Result<&Df, String> {
-        self.registry
-            .functions
-            .get(id)
-            .ok_or_else(|| format!("unknown density function {id}"))
-    }
-
-    fn noise_range(&self, id: &str) -> Result<f32, String> {
-        Ok(self.normal_noise(id)?.range_bound())
-    }
-
-    fn prepared(&self, index: usize) -> (Interval, u8) {
-        self.prepared
-            .get(index)
-            .map_or((NAI, 0), |p| (p.range, p.axes))
-    }
-}
-
-impl Worldgen {
-    pub fn new(registry: Arc<Registry>, seed: i64, settings: &str) -> Result<Worldgen, String> {
+impl SeedContext {
+    fn new(registry: Arc<Registry>, seed: i64, settings: &str) -> Result<SeedContext, String> {
         let settings_id = settings;
         let settings = registry
             .settings
@@ -613,35 +680,59 @@ impl Worldgen {
         } else {
             Random::xoroshiro(seed)
         };
-        Ok(Worldgen {
+        Ok(SeedContext {
             positional: base.fork_positional(),
             registry,
             settings,
             seed,
-            noises: HashMap::new(),
-            prepared: Vec::new(),
-            prepared_keys: HashMap::new(),
-            samplers: HashMap::new(),
-            material_system: None,
-            chunk_biomes: HashMap::new(),
-            shared_biomes: None,
-            carver_biomes: HashMap::new(),
-            structure_envs: HashMap::new(),
-            live_starts: HashMap::new(),
-            fixed_decorations: HashMap::new(),
+            compiled: Mutex::new(Compiled::default()),
+            material_system: OnceLock::new(),
+            structure_envs: Mutex::new(HashMap::new()),
+            fixed_decorations: Mutex::new(HashMap::new()),
+            chunk_biomes: Mutex::new(HashMap::new()),
+            carver_biomes: Mutex::new(HashMap::new()),
+            live_starts: Mutex::new(HashMap::new()),
             biome_bounds,
         })
+    }
+
+    /// The context of `seed` under the noise settings `settings`, with every
+    /// function of its noise router and aquifers compiled and its material
+    /// system built: what each chunk's terrain needs, so no call compiles.
+    pub fn compile(
+        registry: Arc<Registry>,
+        seed: i64,
+        settings: &str,
+    ) -> Result<Arc<SeedContext>, String> {
+        let ctx = Arc::new(SeedContext::new(registry, seed, settings)?);
+        let mut worldgen = Worldgen::of(&ctx);
+        let functions: Vec<Df> = ctx
+            .settings
+            .router
+            .iter()
+            .chain(&ctx.settings.aquifers)
+            .map(|(_, f)| f.clone())
+            .collect();
+        for function in &functions {
+            worldgen.sampler(function)?;
+        }
+        worldgen.material_system()?;
+        Ok(ctx)
     }
 
     pub fn settings(&self) -> &Settings {
         &self.settings
     }
 
-    /// Keep chunk biomes in `cache`, shared with the other states of a pool,
-    /// instead of in this state.
-    pub fn share_chunk_biomes(&mut self, cache: SharedBiomes) {
-        self.chunk_biomes.clear();
-        self.shared_biomes = Some(cache);
+    pub fn registry(&self) -> &Arc<Registry> {
+        &self.registry
+    }
+
+    fn function(&self, id: &str) -> Result<&Df, String> {
+        self.registry
+            .functions
+            .get(id)
+            .ok_or_else(|| format!("unknown density function {id}"))
     }
 
     fn normal_noise(&self, id: &str) -> Result<&NormalNoise, String> {
@@ -651,31 +742,66 @@ impl Worldgen {
             .ok_or_else(|| format!("unknown noise {id}"))
     }
 
-    /// The noise a density function samples (vanilla's `createNoiseSampler`):
-    /// the nether climate noises use the legacy initialiser on their own
-    /// legacy randoms; every other noise is created once per seed from the
-    /// positional random of its identifier.
-    fn noise(&mut self, id: &str) -> Result<Arc<Stack>, String> {
-        let legacy_offset = match id {
-            TEMPERATURE_NETHER => Some(0),
-            VEGETATION_NETHER => Some(1),
-            _ => None,
-        };
-        if let Some(offset) = legacy_offset {
-            let mut random = Random::legacy(self.seed.wrapping_add(offset));
-            return Ok(Arc::new(
-                self.normal_noise(id)?.create_legacy_nether(&mut random)?,
-            ));
-        }
-        if let Some(noise) = self.noises.get(id) {
-            return Ok(noise.clone());
-        }
-        let noise = Arc::new(
-            self.normal_noise(id)?
-                .create(&mut self.positional.from_hash_of(id)),
-        );
-        self.noises.insert(id.to_string(), noise.clone());
-        Ok(noise)
+    fn compiling<T>(
+        &self,
+        f: impl FnOnce(&mut Compiling) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut compiled = self
+            .compiled
+            .lock()
+            .map_err(|_| "worldgen compile state poisoned")?;
+        f(&mut Compiling {
+            ctx: self,
+            c: &mut compiled,
+        })
+    }
+
+    /// The compiled sampler of a function (vanilla's `getSampler`).
+    pub fn sampler(&self, function: &Df) -> Result<Arc<Sampler>, String> {
+        self.compiling(|c| c.sampler(function))
+    }
+
+    /// The noise a density function samples (vanilla's `createNoiseSampler`).
+    pub fn noise(&self, id: &str) -> Result<Arc<Stack>, String> {
+        self.compiling(|c| c.noise(id))
+    }
+
+    /// Approximate bytes the context holds beyond its registry: compiled
+    /// functions and noises are counted by entry, caches by their values.
+    pub fn heap_bytes(&self) -> usize {
+        let compiled = self.compiled.lock().map_or(0, |c| {
+            (c.samplers.len() + c.prepared.len()) * 512 + c.noises.len() * 4096
+        });
+        let biomes = self
+            .chunk_biomes
+            .lock()
+            .map_or(0, |c| c.values().map(|b| b.len() * 2 + 64).sum());
+        let carvers = self.carver_biomes.lock().map_or(0, |c| c.len() * 48);
+        let starts = self.live_starts.lock().map_or(0, |c| {
+            c.values()
+                .map(|s| 64 + s.iter().map(|s| 256 + s.pieces.len() * 256).sum::<usize>())
+                .sum()
+        });
+        compiled + biomes + carvers + starts
+    }
+}
+
+impl Worldgen {
+    /// A fresh context's handle, compiled lazily (tools and tests; live
+    /// generation shares a `SeedContext::compile`d one).
+    pub fn new(registry: Arc<Registry>, seed: i64, settings: &str) -> Result<Worldgen, String> {
+        Ok(Worldgen {
+            ctx: Arc::new(SeedContext::new(registry, seed, settings)?),
+        })
+    }
+
+    /// A handle on `ctx` for one call.
+    pub fn of(ctx: &Arc<SeedContext>) -> Worldgen {
+        Worldgen { ctx: ctx.clone() }
+    }
+
+    pub fn context(&self) -> &Arc<SeedContext> {
+        &self.ctx
     }
 
     /// A named function: `router:FIELD`, `aquifers:FIELD` or a registry id.
@@ -758,7 +884,7 @@ impl Worldgen {
         &mut self,
         chunk_x: i32,
         chunk_z: i32,
-        biome_source: &str,
+        biome_source: &BiomeSource,
         carve: bool,
     ) -> Result<FilledChunk, String> {
         self.terrain(chunk_x, chunk_z, Some(biome_source), carve, None)
@@ -800,7 +926,7 @@ impl Worldgen {
         &mut self,
         chunk_x: i32,
         chunk_z: i32,
-        biome_source: Option<&str>,
+        biome_source: Option<&BiomeSource>,
         carve: bool,
         beard: Option<Arc<Beardifier>>,
     ) -> Result<FilledChunk, String> {
@@ -905,39 +1031,51 @@ impl Worldgen {
             let mut mask =
                 CarvingMask::new(settings.min_y + 1, settings.min_y + settings.height - 1 - 7);
             let mut random = Random::legacy(0);
-            for dx in -8..=8 {
-                for dz in -8..=8 {
-                    let source = (chunk_x + dx, chunk_z + dz);
-                    let key = (biome_source.to_string(), source.0, source.1);
-                    let biome = match self.carver_biomes.get(&key) {
-                        Some(&biome) => biome,
-                        None => {
-                            let biome = point_biomes.biome(source.0 * 4, 0, source.1 * 4);
-                            if self.carver_biomes.len() >= CARVER_BIOME_CACHE_LIMIT {
-                                self.carver_biomes.clear();
-                            }
-                            self.carver_biomes.insert(key, biome);
-                            biome
-                        }
-                    };
-                    for (index, carver) in registry.biome_carvers[biome as usize].iter().enumerate()
-                    {
-                        let carver = &registry.carvers[carver];
-                        carver::set_large_feature_seed(
-                            &mut random,
-                            self.seed.wrapping_add(index as i64),
-                            source.0,
-                            source.1,
-                        );
-                        if carver.is_start(&mut random) {
-                            carver.carve(
-                                context,
-                                &mut random,
-                                (chunk_x, chunk_z),
-                                source,
-                                &mut mask,
-                            );
-                        }
+            let sources: Vec<(i32, i32)> = (-8..=8)
+                .flat_map(|dx| (-8..=8).map(move |dz| (chunk_x + dx, chunk_z + dz)))
+                .collect();
+            let known: Vec<Option<u16>> = {
+                let cache = self
+                    .carver_biomes
+                    .lock()
+                    .map_err(|_| "carver biomes poisoned")?;
+                sources
+                    .iter()
+                    .map(|&(x, z)| cache.get(&(biome_source.clone(), x, z)).copied())
+                    .collect()
+            };
+            let mut found = Vec::new();
+            let biomes: Vec<u16> = sources
+                .iter()
+                .zip(known)
+                .map(|(&(x, z), known)| {
+                    known.unwrap_or_else(|| {
+                        let biome = point_biomes.biome(x * 4, 0, z * 4);
+                        found.push(((biome_source.clone(), x, z), biome));
+                        biome
+                    })
+                })
+                .collect();
+            if !found.is_empty() {
+                let mut cache = self
+                    .carver_biomes
+                    .lock()
+                    .map_err(|_| "carver biomes poisoned")?;
+                for (key, biome) in found {
+                    bounded_insert(&mut cache, CARVER_BIOME_CACHE_LIMIT, key, biome);
+                }
+            }
+            for (&source, &biome) in sources.iter().zip(&biomes) {
+                for (index, carver) in registry.biome_carvers[biome as usize].iter().enumerate() {
+                    let carver = &registry.carvers[carver];
+                    carver::set_large_feature_seed(
+                        &mut random,
+                        self.seed.wrapping_add(index as i64),
+                        source.0,
+                        source.1,
+                    );
+                    if carver.is_start(&mut random) {
+                        carver.carve(context, &mut random, (chunk_x, chunk_z), source, &mut mask);
                     }
                 }
             }
@@ -958,16 +1096,25 @@ impl Worldgen {
     /// positions and starts, built once per source. The Nether's and the
     /// End's levels are 256 blocks high from y 0, the overworld's those of
     /// its noise settings.
-    pub fn structure_env(&mut self, biome_source: &str) -> Result<Arc<StructureEnv>, String> {
-        if let Some(env) = self.structure_envs.get(biome_source) {
-            return Ok(env.clone());
+    pub fn structure_env(
+        &mut self,
+        biome_source: &BiomeSource,
+    ) -> Result<Arc<StructureEnv>, String> {
+        let known = self
+            .structure_envs
+            .lock()
+            .map_err(|_| "structure envs poisoned")?
+            .get(biome_source)
+            .cloned();
+        if let Some(env) = known {
+            return Ok(env);
         }
         let registry = self
             .registry
             .structures
             .clone()
             .ok_or("no structure facts")?;
-        let biomes = if biome_source == "minecraft:the_end" {
+        let biomes = if *biome_source == BiomeSource::End {
             let erosion = self.named("router:erosion")?;
             let b = &self.registry.biomes;
             let mut ids = [0u16; 5];
@@ -985,12 +1132,7 @@ impl Worldgen {
                 ids,
             }
         } else {
-            let (list, ids) = self
-                .registry
-                .biome_parameters
-                .get(biome_source)
-                .cloned()
-                .ok_or_else(|| format!("unknown biome source {biome_source}"))?;
+            let (list, ids) = biome_source.parameters(&self.registry)?;
             let mut samplers = Vec::with_capacity(6);
             for field in CLIMATE {
                 let function = self.named(&format!("router:{field}"))?;
@@ -1002,8 +1144,8 @@ impl Worldgen {
                 ids,
             }
         };
-        let (level_min_y, level_height) = match biome_source {
-            "minecraft:nether" | "minecraft:the_end" => (0, 256),
+        let (level_min_y, level_height) = match biome_source.preset() {
+            Some("minecraft:nether" | END_SOURCE) => (0, 256),
             _ => (self.settings.min_y, self.settings.height),
         };
         let final_density = self.named("router:final_density")?;
@@ -1034,18 +1176,22 @@ impl Worldgen {
             heights,
             Arc::new(self.registry.biomes.climate.clone()),
         ));
-        self.structure_envs
-            .insert(biome_source.to_string(), env.clone());
-        Ok(env)
+        Ok(self
+            .structure_envs
+            .lock()
+            .map_err(|_| "structure envs poisoned")?
+            .entry(biome_source.clone())
+            .or_insert(env)
+            .clone())
     }
 
     /// Single biome lookups for `biome_source` (vanilla's uncached biome
     /// resolver), each from a fresh lookup history.
-    fn point_biomes(&mut self, biome_source: &str) -> Result<PointBiomes, String> {
-        if let Some(name) = biome_source.strip_prefix(FIXED) {
-            return Ok(PointBiomes::Fixed(self.registry.biomes.id(name)?));
+    fn point_biomes(&mut self, biome_source: &BiomeSource) -> Result<PointBiomes, String> {
+        if let BiomeSource::Fixed(biome) = *biome_source {
+            return Ok(PointBiomes::Fixed(biome));
         }
-        if biome_source == "minecraft:the_end" {
+        if *biome_source == BiomeSource::End {
             let erosion = self.named("router:erosion")?;
             let b = &self.registry.biomes;
             let mut ids = [0u16; 5];
@@ -1063,12 +1209,7 @@ impl Worldgen {
                 ids,
             });
         }
-        let (list, ids) = self
-            .registry
-            .biome_parameters
-            .get(biome_source)
-            .cloned()
-            .ok_or_else(|| format!("unknown biome source {biome_source}"))?;
+        let (list, ids) = biome_source.parameters(&self.registry)?;
         let mut samplers = Vec::with_capacity(6);
         for field in CLIMATE {
             let function = self.named(&format!("router:{field}"))?;
@@ -1083,7 +1224,7 @@ impl Worldgen {
 
     /// Vanilla's `MaterialSystem` for this seed, built once.
     fn material_system(&mut self) -> Result<Arc<MaterialSystem>, String> {
-        if let Some(system) = &self.material_system {
+        if let Some(system) = self.material_system.get() {
             return Ok(system.clone());
         }
         let preliminary = self.named("router:chunk_surface_level")?;
@@ -1111,39 +1252,33 @@ impl Worldgen {
             snow_block: self.registry.blocks.snow_block,
             packed_ice: self.registry.blocks.packed_ice,
         });
-        self.material_system = Some(system.clone());
-        Ok(system)
+        Ok(self.material_system.get_or_init(|| system).clone())
     }
 
     fn cached_chunk_biomes(
         &mut self,
-        biome_source: &str,
+        biome_source: &BiomeSource,
         chunk_x: i32,
         chunk_z: i32,
     ) -> Result<Arc<Vec<u16>>, String> {
-        let key = (biome_source.to_string(), chunk_x, chunk_z);
-        if let Some(shared) = self.shared_biomes.clone() {
-            if let Some(biomes) = shared.lock().map_err(|_| "biome cache poisoned")?.get(&key) {
-                return Ok(biomes.clone());
-            }
-            // Made outside the lock: another state may make the same chunk
-            // meanwhile, with the same result.
-            let biomes = Arc::new(self.chunk_biome_ids(biome_source, chunk_x, chunk_z)?);
-            let mut cache = shared.lock().map_err(|_| "biome cache poisoned")?;
-            if cache.len() >= SHARED_BIOME_CACHE_LIMIT {
-                cache.clear();
-            }
-            cache.insert(key, biomes.clone());
+        let key = (biome_source.clone(), chunk_x, chunk_z);
+        let known = self
+            .chunk_biomes
+            .lock()
+            .map_err(|_| "chunk biomes poisoned")?
+            .get(&key)
+            .cloned();
+        if let Some(biomes) = known {
             return Ok(biomes);
         }
-        if let Some(biomes) = self.chunk_biomes.get(&key) {
-            return Ok(biomes.clone());
-        }
+        // Made outside the lock: another call may make the same chunk
+        // meanwhile, with the same result.
         let biomes = Arc::new(self.chunk_biome_ids(biome_source, chunk_x, chunk_z)?);
-        if self.chunk_biomes.len() >= BIOME_CACHE_LIMIT {
-            self.chunk_biomes.clear();
-        }
-        self.chunk_biomes.insert(key, biomes.clone());
+        let mut cache = self
+            .chunk_biomes
+            .lock()
+            .map_err(|_| "chunk biomes poisoned")?;
+        bounded_insert(&mut cache, CHUNK_BIOME_CACHE_LIMIT, key, biomes.clone());
         Ok(biomes)
     }
 
@@ -1154,7 +1289,7 @@ impl Worldgen {
     /// limits the placed features by (step, global index).
     pub fn decorate_area(
         &mut self,
-        biome_source: &str,
+        biome_source: &BiomeSource,
         (x, z): (i32, i32),
         size: i32,
         order: &[(i32, i32)],
@@ -1168,7 +1303,7 @@ impl Worldgen {
     /// `decorate_area`, with the time decoration took (terrain excluded).
     pub fn decorate_area_timed(
         &mut self,
-        biome_source: &str,
+        biome_source: &BiomeSource,
         (x, z): (i32, i32),
         size: i32,
         order: &[(i32, i32)],
@@ -1194,7 +1329,7 @@ impl Worldgen {
     /// starts as placement left them, by start chunk and structure.
     pub fn decorate_area_structures(
         &mut self,
-        biome_source: &str,
+        biome_source: &BiomeSource,
         (x, z): (i32, i32),
         size: i32,
         order: &[(i32, i32)],
@@ -1239,7 +1374,7 @@ impl Worldgen {
     /// on; the reads of chunks the area lacks when `lenient`.
     fn decorate_with_starts(
         &mut self,
-        biome_source: &str,
+        biome_source: &BiomeSource,
         env: &StructureEnv,
         area: &mut Area,
         order: &[(i32, i32)],
@@ -1308,20 +1443,27 @@ impl Worldgen {
     fn live_chunk_starts(
         &mut self,
         env: &StructureEnv,
-        biome_source: &str,
+        biome_source: &BiomeSource,
         x: i32,
         z: i32,
     ) -> Result<Arc<Vec<Start>>, String> {
-        let key = (biome_source.to_string(), x, z);
-        if let Some(starts) = self.live_starts.get(&key) {
-            return Ok(starts.clone());
+        let key = (biome_source.clone(), x, z);
+        let known = self
+            .live_starts
+            .lock()
+            .map_err(|_| "live starts poisoned")?
+            .get(&key)
+            .cloned();
+        if let Some(starts) = known {
+            return Ok(starts);
         }
         let (found, _) = env.create_structures(x, z)?;
         let found = Arc::new(found);
-        if self.live_starts.len() >= LIVE_STARTS_LIMIT {
-            self.live_starts.clear();
-        }
-        self.live_starts.insert(key, found.clone());
+        let mut cache = self
+            .live_starts
+            .lock()
+            .map_err(|_| "live starts poisoned")?;
+        bounded_insert(&mut cache, LIVE_STARTS_LIMIT, key, found.clone());
         Ok(found)
     }
 
@@ -1330,7 +1472,7 @@ impl Worldgen {
     fn live_starts_around(
         &mut self,
         env: &StructureEnv,
-        biome_source: &str,
+        biome_source: &BiomeSource,
         (x0, z0): (i32, i32),
         (x1, z1): (i32, i32),
     ) -> Result<HashMap<(i32, i32), Vec<Start>>, String> {
@@ -1350,7 +1492,7 @@ impl Worldgen {
         &mut self,
         chunk_x: i32,
         chunk_z: i32,
-        biome_source: &str,
+        biome_source: &BiomeSource,
         structures: bool,
     ) -> Result<ProtoChunk, String> {
         if !structures || self.registry.structures.is_none() {
@@ -1372,7 +1514,7 @@ impl Worldgen {
     /// (`scattered::settle_live`).
     pub fn decorate_held_live(
         &mut self,
-        biome_source: &str,
+        biome_source: &BiomeSource,
         area: &mut Area,
         order: &[(i32, i32)],
         lenient: bool,
@@ -1459,7 +1601,7 @@ impl Worldgen {
         &mut self,
         chunk_x: i32,
         chunk_z: i32,
-        biome_source: &str,
+        biome_source: &BiomeSource,
     ) -> Result<ProtoChunk, String> {
         self.proto_terrain_bearded(chunk_x, chunk_z, biome_source, None)
     }
@@ -1470,7 +1612,7 @@ impl Worldgen {
         &mut self,
         chunk_x: i32,
         chunk_z: i32,
-        biome_source: &str,
+        biome_source: &BiomeSource,
         beard: Option<Arc<Beardifier>>,
     ) -> Result<ProtoChunk, String> {
         let decoration = self.decoration(biome_source)?;
@@ -1504,7 +1646,7 @@ impl Worldgen {
     /// does not hold see empty chunks; the count of such reads is returned.
     pub fn decorate_held(
         &mut self,
-        biome_source: &str,
+        biome_source: &BiomeSource,
         area: &mut Area,
         order: &[(i32, i32)],
         included: Option<&HashSet<(usize, usize)>>,
@@ -1534,17 +1676,35 @@ impl Worldgen {
     /// The decoration of `biome_source`: a preset's (multi-noise presets, the
     /// End), or for `fixed:BIOME` (VMC-028b) the one derived from the
     /// overworld's (or another preset's, the first holding the biome).
-    pub fn decoration(&mut self, biome_source: &str) -> Result<Arc<Decoration>, String> {
-        if let Some(decoration) = self.registry.decorations.get(biome_source) {
-            return Ok(decoration.clone());
-        }
-        let Some(name) = biome_source.strip_prefix(FIXED) else {
-            return Err(format!("no decoration facts for {biome_source}"));
+    pub fn decoration(&mut self, biome_source: &BiomeSource) -> Result<Arc<Decoration>, String> {
+        let biome = match biome_source {
+            BiomeSource::Fixed(biome) => *biome,
+            preset => {
+                let name = preset.preset().unwrap_or_default();
+                return self
+                    .registry
+                    .decorations
+                    .get(name)
+                    .cloned()
+                    .ok_or_else(|| format!("no decoration facts for {biome_source}"));
+            }
         };
-        let biome = self.registry.biomes.id(name)?;
-        if let Some(decoration) = self.fixed_decorations.get(&biome) {
-            return Ok(decoration.clone());
+        let known = self
+            .fixed_decorations
+            .lock()
+            .map_err(|_| "fixed decorations poisoned")?
+            .get(&biome)
+            .cloned();
+        if let Some(decoration) = known {
+            return Ok(decoration);
         }
+        let name = self
+            .registry
+            .biomes
+            .names
+            .get(biome as usize)
+            .cloned()
+            .unwrap_or_default();
         let mut sources: Vec<_> = self.registry.decorations.iter().collect();
         sources.sort_by_key(|(id, _)| (id.as_str() != "minecraft:overworld", id.to_string()));
         let base = sources
@@ -1553,8 +1713,13 @@ impl Worldgen {
             .find(|d| d.has_source_biome(biome))
             .ok_or_else(|| format!("no decoration holds the biome {name}"))?;
         let decoration = Arc::new(base.fixed(biome)?);
-        self.fixed_decorations.insert(biome, decoration.clone());
-        Ok(decoration)
+        Ok(self
+            .fixed_decorations
+            .lock()
+            .map_err(|_| "fixed decorations poisoned")?
+            .entry(biome)
+            .or_insert(decoration)
+            .clone())
     }
 
     /// The block table decoration uses (proto chunk encoding; every biome
@@ -1604,7 +1769,7 @@ impl Worldgen {
         &mut self,
         chunk_x: i32,
         chunk_z: i32,
-        biome_source: &str,
+        biome_source: &BiomeSource,
         protocol_biomes: &[u16],
     ) -> Result<(Column, [i32; 256]), String> {
         let filled = self.build_terrain(chunk_x, chunk_z, biome_source, true)?;
@@ -1721,23 +1886,18 @@ impl Worldgen {
     /// index order y, z, x), with a fresh lookup history.
     pub fn chunk_biome_ids(
         &mut self,
-        biome_source: &str,
+        biome_source: &BiomeSource,
         chunk_x: i32,
         chunk_z: i32,
     ) -> Result<Vec<u16>, String> {
-        if biome_source == "minecraft:the_end" {
-            return self.end_biomes(chunk_x, chunk_z);
+        match *biome_source {
+            BiomeSource::End => return self.end_biomes(chunk_x, chunk_z),
+            BiomeSource::Fixed(biome) => {
+                return Ok(vec![biome; (self.settings.height / 16 * 64) as usize])
+            }
+            BiomeSource::MultiNoise(_) => {}
         }
-        if let Some(name) = biome_source.strip_prefix(FIXED) {
-            let biome = self.registry.biomes.id(name)?;
-            return Ok(vec![biome; (self.settings.height / 16 * 64) as usize]);
-        }
-        let (list, ids) = self
-            .registry
-            .biome_parameters
-            .get(biome_source)
-            .cloned()
-            .ok_or_else(|| format!("unknown biome source {biome_source}"))?;
+        let (list, ids) = biome_source.parameters(&self.registry)?;
         let filled = self.fill_biomes(&list, chunk_x, chunk_z, &mut None)?;
         Ok(filled.biomes.into_iter().map(|b| ids[b as usize]).collect())
     }
@@ -1807,12 +1967,72 @@ impl Worldgen {
 
     /// The compiled sampler of a function (vanilla's `getSampler`).
     pub fn sampler(&mut self, function: &Df) -> Result<Arc<Sampler>, String> {
-        if let Some(sampler) = self.samplers.get(function) {
+        self.ctx.sampler(function)
+    }
+}
+
+/// A seed's compile state borrowed for one compilation (`SeedContext::sampler`).
+struct Compiling<'a> {
+    ctx: &'a SeedContext,
+    c: &'a mut Compiled,
+}
+
+impl Env for Compiling<'_> {
+    fn function(&self, id: &str) -> Result<&Df, String> {
+        self.ctx.function(id)
+    }
+
+    fn noise_range(&self, id: &str) -> Result<f32, String> {
+        Ok(self.ctx.normal_noise(id)?.range_bound())
+    }
+
+    fn prepared(&self, index: usize) -> (Interval, u8) {
+        self.c
+            .prepared
+            .get(index)
+            .map_or((NAI, 0), |p| (p.range, p.axes))
+    }
+}
+
+impl Compiling<'_> {
+    /// The noise a density function samples (vanilla's `createNoiseSampler`):
+    /// the nether climate noises use the legacy initialiser on their own
+    /// legacy randoms; every other noise is created once per seed from the
+    /// positional random of its identifier.
+    fn noise(&mut self, id: &str) -> Result<Arc<Stack>, String> {
+        let legacy_offset = match id {
+            TEMPERATURE_NETHER => Some(0),
+            VEGETATION_NETHER => Some(1),
+            _ => None,
+        };
+        if let Some(offset) = legacy_offset {
+            let mut random = Random::legacy(self.ctx.seed.wrapping_add(offset));
+            return Ok(Arc::new(
+                self.ctx
+                    .normal_noise(id)?
+                    .create_legacy_nether(&mut random)?,
+            ));
+        }
+        if let Some(noise) = self.c.noises.get(id) {
+            return Ok(noise.clone());
+        }
+        let noise = Arc::new(
+            self.ctx
+                .normal_noise(id)?
+                .create(&mut self.ctx.positional.from_hash_of(id)),
+        );
+        self.c.noises.insert(id.to_string(), noise.clone());
+        Ok(noise)
+    }
+
+    /// The compiled sampler of a function (vanilla's `getSampler`).
+    fn sampler(&mut self, function: &Df) -> Result<Arc<Sampler>, String> {
+        if let Some(sampler) = self.c.samplers.get(function) {
             return Ok(sampler.clone());
         }
         let optimized = self.optimize(function)?;
         let sampler = Arc::new(self.compile(&optimized)?);
-        self.samplers.insert(function.clone(), sampler.clone());
+        self.c.samplers.insert(function.clone(), sampler.clone());
         Ok(sampler)
     }
 
@@ -1833,23 +2053,23 @@ impl Worldgen {
     }
 
     fn prepare(&mut self, input: &Df) -> Result<usize, String> {
-        if let Some(&id) = self.prepared_keys.get(input) {
+        if let Some(&id) = self.c.prepared_keys.get(input) {
             return Ok(id);
         }
-        let id = self.prepared.len();
-        self.prepared.push(Prepared {
+        let id = self.c.prepared.len();
+        self.c.prepared.push(Prepared {
             range: NAI,
             axes: 0,
             sampler: None,
         });
         let optimized = self.optimize(input)?;
         let sampler = self.compile(&optimized)?;
-        self.prepared[id] = Prepared {
+        self.c.prepared[id] = Prepared {
             range: optimized.range(self)?,
             axes: optimized.axes(self)?,
             sampler: Some(Arc::new(sampler)),
         };
-        self.prepared_keys.insert(input.clone(), id);
+        self.c.prepared_keys.insert(input.clone(), id);
         Ok(id)
     }
 
@@ -1926,7 +2146,7 @@ impl Worldgen {
                 }
             }
             Df::EndIslands => {
-                let mut random = Random::legacy(self.seed);
+                let mut random = Random::legacy(self.ctx.seed);
                 random.consume_count(17292);
                 Sampler::EndIslands(Arc::new(Simplex::new(&mut random, true)))
             }
@@ -2053,7 +2273,7 @@ impl Worldgen {
             Df::Cache(_) => return Err("cache compiled before it was prepared".into()),
             Df::Prepared(id) => Sampler::Cache {
                 id: *id,
-                input: self.prepared[*id]
+                input: self.c.prepared[*id]
                     .sampler
                     .clone()
                     .ok_or("cache used while it is being prepared")?,
@@ -2121,10 +2341,10 @@ impl Worldgen {
                     y_factor: p[3].0,
                     smear_scale_multiplier: p[4].0,
                 };
-                let mut random = if self.settings.legacy_random_source {
-                    Random::legacy(self.seed)
+                let mut random = if self.ctx.settings.legacy_random_source {
+                    Random::legacy(self.ctx.seed)
                 } else {
-                    self.positional.from_hash_of(TERRAIN_SEED)
+                    self.ctx.positional.from_hash_of(TERRAIN_SEED)
                 };
                 let set = params.fbm_set(&mut random);
                 let (xz, y) = (params.xz_multiplier(), params.y_multiplier());

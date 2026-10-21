@@ -3,7 +3,7 @@
 
 use crate::{bytes, raise, reply};
 use rustler::{Atom, Binary, Encoder, Env, NifResult, ResourceArc, Term};
-use std::sync::Mutex;
+use valimc_core::worldgen::compiler::BiomeSource;
 
 mod atoms {
     rustler::atoms! { chunks, invalid, failed, too_large }
@@ -17,80 +17,21 @@ pub struct WorldgenRegistry {
 #[rustler::resource_impl]
 impl rustler::Resource for WorldgenRegistry {}
 
-/// Noises and compiled samplers for one seed and noise settings. Compiling is
-/// lazy and each state keeps caches, so a call leases a state of its own from
-/// a pool (VMC-025d): generations of one seed run in parallel, one state per
-/// concurrent call. A pure memoization cache: any state gives the same chunks.
+/// One seed's generation context (`SeedContext`, VMC-077n): compiled once
+/// and shared through an `Arc` by every call, which takes a `Worldgen`
+/// handle of its own. Nothing in it is mutable but bounded caches of pure
+/// values, so any number of calls run at once and get the same chunks.
 pub struct WorldgenState {
-    pub(crate) registry: std::sync::Arc<valimc_core::worldgen::compiler::Registry>,
-    seed: i64,
-    settings: String,
-    /// States kept for reuse: as many as the Elixir pool runs calls at once
-    /// (more concurrent calls build more and drop the rest).
-    keep: usize,
-    pool: Mutex<Vec<valimc_core::worldgen::compiler::Worldgen>>,
-    /// Chunk biomes every state of the pool shares (VMC-025d4).
-    biomes: valimc_core::worldgen::compiler::SharedBiomes,
+    pub(crate) ctx: std::sync::Arc<valimc_core::worldgen::compiler::SeedContext>,
 }
 
 #[rustler::resource_impl]
 impl rustler::Resource for WorldgenState {}
 
-/// A state leased from a pool, returned when dropped (not after a panic).
-pub(crate) struct WorldgenLease<'a> {
-    owner: &'a WorldgenState,
-    state: Option<valimc_core::worldgen::compiler::Worldgen>,
-}
-
 impl WorldgenState {
-    pub(crate) fn lease(&self) -> Result<WorldgenLease<'_>, String> {
-        let pooled = self
-            .pool
-            .lock()
-            .map_err(|_| "worldgen state poisoned")?
-            .pop();
-        let state = match pooled {
-            Some(state) => state,
-            None => {
-                let mut state = valimc_core::worldgen::compiler::Worldgen::new(
-                    self.registry.clone(),
-                    self.seed,
-                    &self.settings,
-                )?;
-                state.share_chunk_biomes(self.biomes.clone());
-                state
-            }
-        };
-        Ok(WorldgenLease {
-            owner: self,
-            state: Some(state),
-        })
-    }
-}
-
-impl std::ops::Deref for WorldgenLease<'_> {
-    type Target = valimc_core::worldgen::compiler::Worldgen;
-    fn deref(&self) -> &Self::Target {
-        self.state.as_ref().expect("leased")
-    }
-}
-
-impl std::ops::DerefMut for WorldgenLease<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.state.as_mut().expect("leased")
-    }
-}
-
-impl Drop for WorldgenLease<'_> {
-    fn drop(&mut self) {
-        if std::thread::panicking() {
-            return;
-        }
-        if let (Some(state), Ok(mut pool)) = (self.state.take(), self.owner.pool.lock()) {
-            if pool.len() < self.owner.keep {
-                pool.push(state);
-            }
-        }
+    /// A call's handle on the context.
+    pub(crate) fn lease(&self) -> Result<valimc_core::worldgen::compiler::Worldgen, String> {
+        Ok(valimc_core::worldgen::compiler::Worldgen::of(&self.ctx))
     }
 }
 
@@ -154,28 +95,29 @@ fn worldgen_registry(facts: Term) -> NifResult<(Atom, ResourceArc<WorldgenRegist
     })())
 }
 
-/// Worldgen state for a seed and noise settings, keeping `keep` states for
-/// reuse (the generation pool's size).
-#[rustler::nif]
+/// The generation context of a seed and noise settings, compiled now (every
+/// function of the noise router and aquifers, the material system), on a
+/// dirty scheduler.
+#[rustler::nif(schedule = "DirtyCpu")]
 fn worldgen_new(
     registry: ResourceArc<WorldgenRegistry>,
     seed: i64,
     settings: String,
-    keep: usize,
 ) -> NifResult<(Atom, ResourceArc<WorldgenState>)> {
-    let mut state =
-        valimc_core::worldgen::compiler::Worldgen::new(registry.registry.clone(), seed, &settings)
-            .map_err(raise)?;
-    let biomes = valimc_core::worldgen::compiler::SharedBiomes::default();
-    state.share_chunk_biomes(biomes.clone());
-    reply(Ok(ResourceArc::new(WorldgenState {
-        registry: registry.registry.clone(),
+    let ctx = valimc_core::worldgen::compiler::SeedContext::compile(
+        registry.registry.clone(),
         seed,
-        settings,
-        keep: keep.max(1),
-        pool: Mutex::new(vec![state]),
-        biomes,
-    })))
+        &settings,
+    )
+    .map_err(raise)?;
+    reply(Ok(ResourceArc::new(WorldgenState { ctx })))
+}
+
+/// Approximate bytes a generation context holds beyond its registry
+/// (compiled functions, noises and its bounded caches).
+#[rustler::nif]
+fn worldgen_memory(state: ResourceArc<WorldgenState>) -> usize {
+    state.ctx.heap_bytes()
 }
 
 /// A generated chunk: its column image and per column its highest non-air
@@ -203,6 +145,7 @@ fn worldgen_columns<'a>(
 ) -> NifResult<(Atom, Vec<GeneratedColumn<'a>>)> {
     reply((|| {
         let mut state = state.lease()?;
+        let biome_source = BiomeSource::parse(&biome_source, state.registry())?;
         let mut out = Vec::with_capacity(chunks.len());
         for (x, z) in chunks {
             let (column, heights) = state.generate_column(x, z, &biome_source, &protocol_biomes)?;
@@ -236,6 +179,7 @@ fn worldgen_proto_terrain<'a>(
 ) -> NifResult<(Atom, Vec<ProtoBinary<'a>>)> {
     reply((|| {
         let mut state = state.lease()?;
+        let biome_source = BiomeSource::parse(&biome_source, state.registry())?;
         let mut out = Vec::with_capacity(chunks.len());
         for (x, z) in chunks {
             let chunk = state.proto_terrain_live(x, z, &biome_source, structures)?;
@@ -263,6 +207,7 @@ fn worldgen_proto_decorate<'a>(
 ) -> NifResult<(Atom, (Vec<ProtoBinary<'a>>, u32))> {
     reply((|| {
         let mut state = state.lease()?;
+        let biome_source = BiomeSource::parse(&biome_source, state.registry())?;
         let mut decoded = Vec::with_capacity(chunks.len());
         for bytes in &chunks {
             decoded.push(valimc_core::worldgen::proto::decode(
@@ -413,7 +358,8 @@ fn locate(
 ) -> Result<Option<Located>, String> {
     let env = {
         let mut state = state.lease()?;
-        state.structure_env(biome_source)?
+        let biome_source = BiomeSource::parse(biome_source, state.registry())?;
+        state.structure_env(&biome_source)?
     };
     let registry = &env.registry;
     let wanted = structures
@@ -492,6 +438,7 @@ fn worldgen_place_plan<'a>(
     reply((|| {
         let placement = place_spec(&spec)?;
         let mut state = state.lease()?;
+        let biome_source = BiomeSource::parse(&biome_source, state.registry())?;
         Ok(
             match state.place_plan(&biome_source, &placement, [pos.0, pos.1, pos.2])? {
                 Plan::Chunks { checked, area } => (atoms::chunks(), checked, area).encode(env),
@@ -542,17 +489,18 @@ fn place(
 ) -> Result<Option<PlacedResult>, String> {
     let placement = place_spec(spec)?;
     let mut state = state.lease()?;
+    let biome_source = BiomeSource::parse(biome_source, state.registry())?;
     let mut protos = Vec::with_capacity(chunks.len());
     for (x, z, image) in chunks {
         protos.push(state.place_chunk(
-            biome_source,
+            &biome_source,
             (*x, *z),
             image.as_ref().map(|b| b.as_slice()),
             base,
         )?);
     }
     let Some(placed) = state.place(
-        biome_source,
+        &biome_source,
         &placement,
         [pos.0, pos.1, pos.2],
         protos,
