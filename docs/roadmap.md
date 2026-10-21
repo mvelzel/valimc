@@ -22,11 +22,25 @@ portals, world settings and the world-generation commands; the gate is in
 systems (VMC-053h, k–n) move with those systems. Generation and tick time stay
 matched against vanilla and Pumpkin, at least in Pumpkin's range.
 
-## Next: foundations II
+## Foundations II (VMC-077, in progress)
+
+The pre-M3 audit's plan, decided October 21, 2026: players and everything that
+interacts share one owner (dynamic groups of 8 × 8 sections), one atomic frame per
+owner per tick, volatile proto chunks, no world migration. Phase 0 fixes four
+high bugs; wave 1 runs the phase 1 slices in parallel.
 
 | Ticket | Open slice | Status |
 |---|---|---|
-| [VMC-077](tickets/VMC-077.md) | Architecture audit under review: four decisions open, then phases 0–6 before M3 | Planned |
+| VMC-077 phase 0 | Item rollback, full-region kicks, cooking award cap, shulker collision | In progress |
+| VMC-077a | Runtime safety: supervision tiers, listener backoff, world spec, no blocking calls from connections, commands as jobs | In progress |
+| VMC-077b | Native scheduling policy and NIF hygiene; `lib.rs` split by domain | In progress |
+| VMC-077c | Per-chunk light at generation, incremental light, section-mask packets | In progress |
+| VMC-077d | One generated block fact table shared by Elixir and Rust | In progress |
+| VMC-077e | Chunk tickets, unload, simulation distance, `World.View` | In progress |
+
+Then: VMC-077f–g storage and owner skeleton, 077h–k entity store, players in
+owners, regionizer and living rules, 077l–m Rust physics and block rules, 077n
+generation scheduler, 077o commands, layout (see [VMC-077](tickets/VMC-077.md)).
 
 ## M3 onward
 
