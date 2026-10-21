@@ -10,8 +10,10 @@ defmodule Valimc.World.View do
   revision of the world and fences nothing, since physics observations are not
   transactions (commits stay fenced on section revisions). A chunk not generated
   yet, or of a region not running, cannot be read: `fetch/2` is `:error` there,
-  so movement into unloaded chunks fails closed. `await/4` waits for chunks to
-  load and generate, holding a timed ticket. `of/2` is a view of supplied states
+  so movement into unloaded chunks fails closed. Rows carry the MOTION_BLOCKING
+  heightmap, lowest sky sources and biomes Rust computes beside the sections
+  (`column/3`, `biome/2`). `await/4` waits for chunks to load and generate,
+  holding a timed ticket. `of/2` is a view of supplied states
   for oracles and tests; `entities` are block-entity contexts only they supply.
   """
   import Bitwise, only: [band: 2, bsl: 2, bsr: 2]
@@ -62,11 +64,56 @@ defmodule Valimc.World.View do
     do: Map.fetch(supplied, position)
 
   def fetch(%__MODULE__{} = view, {x, _, z} = position) do
-    case row(view, {chunk(x), chunk(z)}) do
+    case entry(view, {chunk(x), chunk(z)}) do
       :unavailable -> :error
-      sections -> {:ok, at(sections, position)}
+      {sections, _, _} -> {:ok, at(sections, position)}
     end
   end
+
+  @doc """
+  A column's MOTION_BLOCKING height (one above its top motion-blocking state)
+  and lowest sky source (`ChunkSkyLightSources`), the build bottom when it has
+  none: `{:ok, %{motion_blocking: y, sky_source: y}}` or `:error`.
+  """
+  def column(%__MODULE__{supplied: nil} = view, x, z) do
+    case entry(view, {chunk(x), chunk(z)}) do
+      {_, heights, _} when is_binary(heights) ->
+        <<motion::16, sky::16>> = binary_part(heights, (band(z, 15) * 16 + band(x, 15)) * 4, 4)
+        {:ok, %{motion_blocking: motion - 64, sky_source: sky - 64}}
+
+      _ ->
+        :error
+    end
+  end
+
+  def column(_view, _x, _z), do: :error
+
+  @doc """
+  The biome registry id at a block as `Level.getBiome` reads it: the world's
+  fuzzed zoom, then the stored biome of that quart (plains for a column
+  without biomes): `{:ok, id}` or `:error` where the quart cannot be read.
+  """
+  def biome(%__MODULE__{supplied: nil} = view, {x, y, z}) do
+    {zoom_seed, _} =
+      Valimc.World.Spec.client_info(Valimc.World.Spec.current(), Valimc.Dimension.current())
+
+    {:ok, {qx, qy, qz}} = Valimc.Native.biome_zoom(zoom_seed, x, y, z)
+
+    case entry(view, {bsr(qx, 2), bsr(qz, 2)}) do
+      :unavailable ->
+        :error
+
+      {_, _, nil} ->
+        {:ok, Valimc.Protocol.Data.registry_id("minecraft:worldgen/biome", "minecraft:plains")}
+
+      {_, _, biomes} ->
+        local = (qy |> max(-16) |> min(79)) + 16
+        quart = bsr(local, 2) * 64 + (band(local, 3) * 4 + band(qz, 3)) * 4 + band(qx, 3)
+        {:ok, :binary.decode_unsigned(binary_part(biomes, quart * 2, 2))}
+    end
+  end
+
+  def biome(_view, _position), do: :error
 
   @doc "The state at a position, or nil where it cannot be read."
   def block(view, position) do
@@ -80,9 +127,16 @@ defmodule Valimc.World.View do
   A chunk's row: its 24 published sections, nil for an untouched chunk of a flat
   world (which reads the base profile), or `:unavailable`.
   """
-  def row(%__MODULE__{chunks: chunks}, chunk) do
+  def row(view, chunk) do
+    case entry(view, chunk) do
+      {sections, _, _} -> sections
+      :unavailable -> :unavailable
+    end
+  end
+
+  defp entry(%__MODULE__{chunks: chunks}, chunk) do
     case chunks do
-      %{^chunk => row} -> row
+      %{^chunk => entry} -> entry
       _ -> elem(lookup(chunk), 0)
     end
   end
@@ -152,9 +206,9 @@ defmodule Valimc.World.View do
     case Directory.lookup(World.region_key(chunk)) do
       {pid, _, %{epoch: epoch, items: table}} ->
         case :ets.lookup(table, {:chunk, chunk}) do
-          [{_, _, :absent}] -> {:unavailable, nil}
-          [{_, _, sections}] -> {sections, {pid, epoch}}
-          [] -> {nil, {pid, epoch}}
+          [{_, _, :absent, _, _}] -> {:unavailable, nil}
+          [{_, _, sections, heights, biomes}] -> {{sections, heights, biomes}, {pid, epoch}}
+          [] -> {{nil, nil, nil}, {pid, epoch}}
         end
 
       _ ->

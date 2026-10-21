@@ -64,6 +64,11 @@ defmodule Valimc.Native do
   def random_ticks(_region, _per_section), do: :erlang.nif_error(:nif_not_loaded)
   def random_ticks_dirty(_region, _per_section), do: :erlang.nif_error(:nif_not_loaded)
   def dump_column(_region, _cx, _cz, _default_biome), do: :erlang.nif_error(:nif_not_loaded)
+  def column_facts(_region, _cx, _cz), do: :erlang.nif_error(:nif_not_loaded)
+  def biome_zoom(_zoom_seed, _x, _y, _z), do: :erlang.nif_error(:nif_not_loaded)
+
+  def biome_temperature(_temperature, _frozen, _x, _y, _z, _sea_level),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   def region_biome(_region, _zoom_seed, _position, _default_biome),
     do: :erlang.nif_error(:nif_not_loaded)

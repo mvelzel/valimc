@@ -98,6 +98,36 @@ impl Column {
         out
     }
 
+    /// The lowest sky source of each column (`ChunkSkyLightSources`), relative
+    /// to MIN_Y in `z * 16 + x` order: one above the highest edge vertical sky
+    /// light cannot pass, 0 when there is none. Above the column is open sky
+    /// (air).
+    pub fn sky_sources(&self, facts: &LightFacts) -> [u16; 256] {
+        let mut out = [0u16; 256];
+        for (column, source) in out.iter_mut().enumerate() {
+            let (x, z) = (column & 15, column >> 4);
+            let mut above = 0u16;
+            'scan: for s in (0..SECTIONS).rev() {
+                let section = &self.sections[s];
+                if let Storage::Single(state) = section {
+                    if !facts.sky_blocked(above, *state) && !facts.sky_blocked(*state, *state) {
+                        above = *state;
+                        continue;
+                    }
+                }
+                for y in (0..16).rev() {
+                    let state = section.get(index(x, y, z));
+                    if facts.sky_blocked(above, state) {
+                        *source = (s * 16 + y + 1) as u16;
+                        break 'scan;
+                    }
+                    above = state;
+                }
+            }
+        }
+        out
+    }
+
     /// A compact, versioned image of the column for the region log (VMC-021c):
     /// a version and flags (biomes 1, light 2), per section a single state or a
     /// first-appearance palette with indices packed at `max(1, ⌈log2 n⌉)` bits,
@@ -1052,6 +1082,43 @@ impl ColumnStore {
 
     /// One chunk's states (24 × 4096, section index order) and biomes (24 × 64);
     /// biomes are `default_biome` where the column has none.
+    /// What readers of a chunk's published snapshot need beside its sections
+    /// (VMC-077e): per column (`z * 16 + x`) its MOTION_BLOCKING height and
+    /// lowest sky source, relative to MIN_Y, interleaved; and its stored biomes
+    /// (per section 64 quarts in `(y * 4 + z) * 4 + x` order), None when it
+    /// uses the region's default biome. An untouched chunk reads the base
+    /// profile.
+    pub fn column_facts(
+        &self,
+        chunk: (i32, i32),
+        flags: &BlockFlags,
+        light: &LightFacts,
+    ) -> Result<(Vec<u16>, Option<Vec<u16>>), StoreError> {
+        self.check_chunk(chunk)?;
+        let owned;
+        let column = match self.columns.get(&chunk) {
+            Some(column) => column,
+            None => {
+                owned = Column::from_layers(&self.layers);
+                &owned
+            }
+        };
+        let motion = column.heights(flags, MOTION_BLOCKING);
+        let sky = column.sky_sources(light);
+        let heights = motion
+            .iter()
+            .zip(&sky)
+            .flat_map(|(m, s)| [*m, *s])
+            .collect();
+        let biomes = column.biomes.as_ref().map(|biomes| {
+            biomes
+                .iter()
+                .flat_map(|section| (0..64).map(move |i| section.get(i)))
+                .collect()
+        });
+        Ok((heights, biomes))
+    }
+
     pub fn dump_column(
         &self,
         chunk: (i32, i32),
@@ -1439,6 +1506,17 @@ mod tests {
         assert!(store
             .put_column((0, 0), Column::from_layers(&ground()), &flags)
             .is_ok());
+    }
+
+    #[test]
+    fn sky_sources_stop_at_the_highest_blocked_edge() {
+        let mut column = Column::from_layers(&ground());
+        column.set(3, 100, 5, 4);
+        let sources = column.sky_sources(&light_facts());
+        assert_eq!(sources[5 * 16 + 3], (101 - MIN_Y) as u16);
+        assert_eq!(sources[0], (60 - MIN_Y) as u16);
+        let open = Column::from_layers(&Box::new([0u16; HEIGHT]));
+        assert_eq!(open.sky_sources(&light_facts()), [0u16; 256]);
     }
 
     #[test]

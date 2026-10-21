@@ -61,6 +61,17 @@ Acceptance:
   they read (to recheck a pose when one dies), not revisions; item simulation
   commits without a region fence, and a resting item is simulated again when a
   section around it changes.
+- Rain reads the column's MOTION_BLOCKING height and lowest sky source and the
+  biome at each point from the snapshot row: the owner publishes Rust's
+  `column_facts` (heights interleaved per column, stored biomes) beside the
+  sections; `World.Climate` takes the biome's base temperature and `frozen`
+  modifier from `priv/worldgen/biomes.json` and the native
+  `Biome.getTemperature`; the biome at a block uses the native fuzzed zoom.
+  `FlatClimate` and its facts file are deleted; generated worlds rain by biome
+  (no rain in deserts, snow in cold biomes). Parity: the `sky_column`,
+  `flat_climate` (now the native temperature) and `heightmap` stages, and a
+  test that published heights and biomes equal the owner's blocks and
+  `region_biome`.
 - Movement, pose, item motion and rain stop correcting on unrelated block
   changes: a collision job whose region changes elsewhere while it computes
   still answers (`collision_query_test.exs`), and a rain answer is neither
@@ -86,4 +97,7 @@ generation and the TCP sessions) all pass; `mix test.fast` and the player,
 portal, dimension-travel and flight socket files.
 `portal_connection_test.exs` sometimes fails its cleanup (`File.rm_rf!` while
 a late write lands); it does the same on the commit before this slice (2 of 5
-runs), so it is not caused here.
+runs), so it is not caused here. Rain slice: `cargo test -p valimc_core column`,
+`cargo clippy --all-targets`, `mix test.fast` (490 passed) and
+`check_vanilla.py --changed` (63 stages, including sky column, flat climate,
+heightmap, rain contact, light and TCP) pass.

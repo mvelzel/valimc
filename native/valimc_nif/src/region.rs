@@ -6,7 +6,7 @@
 //! adds `<<state::16>>`, a change to write `<<state::32>>` (so an out-of-range
 //! state is refused, not wrapped).
 
-use crate::facts::FLAGS;
+use crate::facts::{FLAGS, LIGHT};
 use crate::{atoms, binary, bytes, done};
 use rustler::{Atom, Binary, Encoder, Env, LocalPid, NewBinary, NifResult, ResourceArc, Term};
 use std::sync::Mutex;
@@ -334,20 +334,45 @@ fn dump_column<'a>(
     let (states, biomes) = with_store(&region, |store| {
         store.dump_column((cx, cz), default_biome).map_err(error)
     })?;
-    let be = |values: &[u16]| {
-        let mut out = NewBinary::new(env, values.len() * 2);
-        for (bytes, value) in out
-            .as_mut_slice()
-            .as_chunks_mut::<2>()
-            .0
-            .iter_mut()
-            .zip(values)
-        {
-            *bytes = value.to_be_bytes();
-        }
-        Binary::from(out)
+    Ok((be_u16(env, &states), be_u16(env, &biomes)).encode(env))
+}
+
+/// A chunk's published column facts (VMC-077e) as `{heights, biomes}`:
+/// `heights` per column (`z * 16 + x`) a big-endian u16 MOTION_BLOCKING
+/// height and lowest sky source, relative to y = -64; `biomes` its stored
+/// biomes as big-endian u16 (24 sections × 64 quarts) or nil for the region's
+/// default biome.
+#[rustler::nif]
+fn column_facts<'a>(
+    env: Env<'a>,
+    region: ResourceArc<Region>,
+    cx: i32,
+    cz: i32,
+) -> Result<Term<'a>, Atom> {
+    let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
+    let light = LIGHT.get().ok_or(atoms::light_facts_missing())?;
+    let (heights, biomes) = with_store(&region, |store| {
+        store.column_facts((cx, cz), flags, light).map_err(error)
+    })?;
+    let biomes = match biomes {
+        Some(biomes) => be_u16(env, &biomes).encode(env),
+        None => rustler::types::atom::nil().encode(env),
     };
-    Ok((be(&states), be(&biomes)).encode(env))
+    Ok((be_u16(env, &heights), biomes).encode(env))
+}
+
+fn be_u16<'a>(env: Env<'a>, values: &[u16]) -> Binary<'a> {
+    let mut out = NewBinary::new(env, values.len() * 2);
+    for (bytes, value) in out
+        .as_mut_slice()
+        .as_chunks_mut::<2>()
+        .0
+        .iter_mut()
+        .zip(values)
+    {
+        *bytes = value.to_be_bytes();
+    }
+    Binary::from(out)
 }
 
 /// The biome registry id at a block as `Level.getBiome` reads it (vanilla's

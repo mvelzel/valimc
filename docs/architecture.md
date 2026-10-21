@@ -45,10 +45,11 @@ on accept errors (VMC-077a).
   with block entities and heightmaps beside it. Chunk packets are encoded from the
   sections. The Elixir encoder remains as the parity oracle.
 - **Published reads.** After each durable batch the owner publishes immutable
-  chunk snapshots (VMC-065). Every physics, rain, portal and spawn reader reads
-  them through `World.View`, one lazy per-chunk view: no owner call, no envelope
-  to plan and no fence, since observations are not transactions; a chunk not
-  loaded or generated fails closed (VMC-077e). Only commits are fenced: block
+  chunk snapshots (VMC-065) with the MOTION_BLOCKING heightmap, lowest sky
+  sources and biomes Rust computes beside them. Every physics, rain, portal and
+  spawn reader reads them through `World.View`, one lazy per-chunk view: no
+  owner call, no envelope to plan and no fence, since observations are not
+  transactions; a chunk not loaded or generated fails closed (VMC-077e). Only commits are fenced: block
   observations for placement, mining and commands carry section revisions, so
   they stale only when the sections they read change (VMC-064).
 - **Group commit.** Owners adopt every durable change in memory at once and queue

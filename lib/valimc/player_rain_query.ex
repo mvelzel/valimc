@@ -1,11 +1,13 @@
 defmodule Valimc.PlayerRainQuery do
   @moduledoc """
   Rain at a player's feet and head (vanilla `isRainingAt`), read from the same
-  block view as its movement (VMC-077e): no owner call, no revision fence.
+  block view as its movement (VMC-077e): the column's MOTION_BLOCKING height
+  and lowest sky source and the biomes its owner publishes beside its
+  snapshot, and each point's precipitation (`Valimc.World.Climate`). No owner
+  call, no revision fence.
   """
   alias Valimc.Physics.RainContact
-  alias Valimc.Registry.BlockFacts
-  alias Valimc.World.{Clock, FlatClimate, View}
+  alias Valimc.World.{Climate, Clock, View}
 
   def sample({x, y, z}, %{box: {_, _, _, _, top, _}}, %View{} = view) do
     if Clock.weather().wet do
@@ -13,43 +15,34 @@ defmodule Valimc.PlayerRainQuery do
       feet = {x, floor(y), z}
       head = {x, floor(top), z}
 
-      with {:ok, heights} <- heights(view, x, z),
-           {:ok, feet_precipitation} <- FlatClimate.precipitation(feet),
-           {:ok, head_precipitation} <- FlatClimate.precipitation(head) do
+      with {:ok, heights} <- View.column(view, x, z),
+           {:ok, feet_precipitation} <- precipitation(view, feet),
+           {:ok, head_precipitation} <- precipitation(view, head) do
         RainContact.exposed?(
           true,
           heights.motion_blocking,
           {elem(feet, 1), elem(feet, 1) >= heights.sky_source, feet_precipitation},
           {elem(head, 1), elem(head, 1) >= heights.sky_source, head_precipitation}
         )
+      else
+        :error -> {:error, :rain_column_unavailable}
       end
     else
       {:ok, false}
     end
   end
 
-  @doc """
-  A column's MOTION_BLOCKING height and lowest sky source
-  (`ChunkSkyLightSources`: one above the top edge vertical sky light cannot
-  pass), scanned from the top down; the build minimum when there is none.
-  """
-  def heights(view, x, z), do: column(view, x, z, 319, View.fetch(view, {x, 320, z}), nil, nil)
-
-  defp column(_view, _x, _z, y, _above, motion, sky)
-       when (motion != nil and sky != nil) or y < -64,
-       do: {:ok, %{motion_blocking: motion || -64, sky_source: sky || -64}}
-
-  defp column(view, x, z, y, {:ok, above}, motion, sky) do
-    case View.fetch(view, {x, y, z}) do
-      {:ok, state} ->
-        motion = motion || if(BlockFacts.heightmap?(state, :motion_blocking), do: y + 1)
-        sky = sky || if(BlockFacts.sky_blocked?(above, state), do: y + 1)
-        column(view, x, z, y - 1, {:ok, state}, motion, sky)
-
-      :error ->
-        {:error, :rain_column_unavailable}
-    end
+  defp precipitation(view, position) do
+    with {:ok, biome} <- View.biome(view, position),
+         do: {:ok, Climate.precipitation(biome, position, sea_level())}
   end
 
-  defp column(_view, _x, _z, _y, :error, _motion, _sky), do: {:error, :rain_column_unavailable}
+  # The snow line follows the generator's sea level; the overworld's is 63, as
+  # vanilla's login tells clients.
+  defp sea_level do
+    case Valimc.Dimension.current() do
+      :overworld -> 63
+      dimension -> Valimc.Dimension.facts(dimension).sea_level
+    end
+  end
 end

@@ -291,6 +291,15 @@ defmodule Valimc.World.Blocks do
     sections
   end
 
+  @doc """
+  A chunk's column facts for its published snapshot (VMC-077e): `{heights,
+  biomes}`, see `Valimc.World.View.column/3` and `biome/2`.
+  """
+  def column_facts(%__MODULE__{} = blocks, {cx, cz}) do
+    {:ok, facts} = Native.column_facts(blocks.ref, cx, cz)
+    facts
+  end
+
   def touched_chunks(%__MODULE__{} = blocks) do
     {:ok, chunks} = Native.touched_chunks(blocks.ref)
     chunks

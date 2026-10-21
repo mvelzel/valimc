@@ -124,6 +124,37 @@ defmodule Valimc.RegionGenerationTest do
     assert Map.has_key?(Store.durable(ctx.base, ctx.key, :columns), {cx + 7, cz})
   end
 
+  test "a generated chunk's published heightmap and biomes read as its owner's blocks", ctx do
+    {:ok, {pid, _} = owner} = World.owner(ctx.key)
+    {cx, cz} = ctx.origin
+    chunk = {cx + 2, cz + 2}
+    :ok = Region.await_chunks(owner, [chunk], 120_000)
+    blocks = :sys.get_state(pid).resource.blocks
+    {zoom_seed, _} = Generator.client_info()
+    view = View.new()
+
+    for dx <- [3, 8, 12], dz <- [4, 11], y <- [-50, 20, 70, 140] do
+      {x, z} = {cx * 16 + 32 + dx, cz * 16 + 32 + dz}
+      name = World.Blocks.biome(blocks, zoom_seed, {x, y, z})
+
+      assert View.biome(view, {x, y, z}) ==
+               {:ok, Data.registry_id("minecraft:worldgen/biome", name)}
+
+      {:ok, column} = View.column(view, x, z)
+
+      top =
+        Enum.find(319..-64//-1, -65, fn y ->
+          Valimc.Registry.BlockFacts.heightmap?(
+            World.Blocks.get(blocks, {x, y, z}),
+            :motion_blocking
+          )
+        end)
+
+      assert column.motion_blocking == top + 1
+      assert column.sky_source <= column.motion_blocking
+    end
+  end
+
   test "an absent chunk refuses edits and observations until it is generated", ctx do
     {:ok, owner} = World.owner(ctx.key)
     {cx, cz} = ctx.origin

@@ -172,7 +172,13 @@ defmodule Valimc.World.RegionData do
       )
 
     publication = :ets.new(:region_items, [:set, :protected, read_concurrency: true])
-    :ok = BlockSnapshot.publish_chunks(publication, blocks, Blocks.touched_chunks(blocks), 0)
+    # Every generated chunk has a row, with its heightmaps and biomes (VMC-077e).
+    present =
+      for chunk <- Valimc.Worldgen.Proto.chunks_of(key),
+          not RegionGeneration.absent?(generation, chunk),
+          do: chunk
+
+    :ok = BlockSnapshot.publish_chunks(publication, blocks, present, 0)
     :ok = BlockSnapshot.publish_absent(publication, MapSet.to_list(generation.absent))
     EntityPublication.publish(publication, items.epoch, :items, items.views)
 
@@ -4418,7 +4424,8 @@ defmodule Valimc.World.RegionData do
             Map.put(
               cache,
               step.id,
-              {state.items.entries[step.id].physical_revision, resting_fence(state, step.position)}
+              {state.items.entries[step.id].physical_revision,
+               resting_fence(state, step.position)}
             ),
           else: Map.delete(cache, step.id)
       end)

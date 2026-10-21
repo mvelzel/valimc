@@ -1,27 +1,21 @@
-alias Valimc.World.FlatClimate
-[facts_path, path] = System.argv()
-
-unless :json.decode(File.read!(facts_path)) ==
-         :json.decode(File.read!("priv/physics/flat_climate.json")),
-       do: raise("Native flat-climate facts differ")
-
+alias Valimc.Protocol.Data
+alias Valimc.World.Climate
+# The oracle's facts describe its noise; the native temperature is checked by result.
+[_facts_path, path] = System.argv()
+plains = Data.registry_id("minecraft:worldgen/biome", "minecraft:plains")
 rows = :json.decode(File.read!(path))
 
 for [x, y, z, temperature, precipitation] <- rows do
   <<expected::float-32>> = <<temperature::float-32>>
+  actual = Climate.temperature(plains, {x, y, z}, 63)
 
-  unless FlatClimate.temperature({x, y, z}) == {:ok, expected},
-    do:
-      raise(
-        "Native temperature differs: #{inspect({x, y, z, expected, FlatClimate.temperature({x, y, z})})}"
-      )
+  unless actual == expected,
+    do: raise("Native temperature differs: #{inspect({x, y, z, expected, actual})}")
 
-  {:ok, result} = FlatClimate.precipitation({x, y, z})
-
-  unless Atom.to_string(result) == precipitation,
+  unless Atom.to_string(Climate.precipitation(plains, {x, y, z}, 63)) == precipitation,
     do: raise("Native precipitation differs at #{inspect({x, y, z})}")
 end
 
 IO.puts(
-  "PASS: #{length(rows)} exact native flat-plains temperatures and precipitation kinds; no biome generation."
+  "PASS: #{length(rows)} exact native plains temperatures and precipitation kinds at sea level 63."
 )
