@@ -27,21 +27,25 @@ defmodule Valimc.Commands.Locate do
     if match?(%{"generate_structures" => false}, Valimc.World.Generator.current_settings()),
       do: Error.fail!("commands.locate.structure.not_found", [printable])
 
-    seed =
-      case Valimc.World.Generator.current() do
-        {:vanilla, seed} -> seed
-        _ -> Error.refuse!("This flat preview world has no structures")
+    # The world's own generation (VMC-028: presets, a single biome, data packs).
+    {state, biome_source} =
+      case Valimc.World.Generator.spec(Valimc.config(:world_path)) do
+        {:ok, %{kind: :noise} = spec} ->
+          {:ok, state} = Valimc.World.Generator.worldgen(spec.seed, spec.noise_settings, spec.facts)
+          {state, spec.biome_source}
+
+        _ ->
+          Error.refuse!("This flat preview world has no structures")
       end
 
     {x, y, z} = source.position
     pos = {floor(x), floor(y), floor(z)}
-    {:ok, state} = Valimc.World.Generator.worldgen(seed)
     started = System.monotonic_time(:millisecond)
 
     found =
       case Valimc.Native.worldgen_structure_locate(
              state,
-             "minecraft:overworld",
+             biome_source,
              members,
              pos,
              100
