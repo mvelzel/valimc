@@ -1,6 +1,4 @@
 defmodule Valimc.Metrics do
-  use GenServer
-
   @moduledoc """
   Lock-free counters and BEAM resource snapshots for measurement.
 
@@ -8,11 +6,10 @@ defmodule Valimc.Metrics do
   maps keys to cells and is written once per key. Incrementing a shared ETS
   counter from every connection serializes on one row lock under load.
   """
-  def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
-  @impl true
-  def init(_) do
+  @doc "Create the table; the application owns it (`Valimc.Application`)."
+  def init! do
     :ets.new(__MODULE__, [:named_table, :public, :set, read_concurrency: true])
-    {:ok, nil}
+    :ok
   end
 
   def add(key, value \\ 1), do: :counters.add(cell(key), 1, value)

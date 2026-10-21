@@ -9,15 +9,12 @@ defmodule Valimc.Worldgen.TerrainBoard do
   instead of all at once at the end.
 
   Advisory only: the worker pool still bounds the jobs, and an entry of an
-  owner that died is skipped and removed by the next reader. This process
-  only owns the table.
+  owner that died is skipped and removed by the next reader. The application
+  owns the table.
   """
-  use GenServer
 
-  def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
-
-  @impl true
-  def init(_) do
+  @doc "Create the table at application start (`Valimc.Application`)."
+  def init! do
     :ets.new(__MODULE__, [
       :named_table,
       :public,
@@ -26,7 +23,7 @@ defmodule Valimc.Worldgen.TerrainBoard do
       write_concurrency: true
     ])
 
-    {:ok, nil}
+    :ok
   end
 
   @doc "Replace the caller's entry `old` (nil: none) with `new` (nil: none)."

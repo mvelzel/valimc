@@ -53,8 +53,13 @@ defmodule Valimc.Rcon do
                 max_children: Valimc.config(:rcon_clients)
               )
 
-            parent = self()
-            spawn_link(fn -> accept(socket, clients, password, parent) end)
+            spawn_link(fn ->
+              Valimc.Listener.accept_loop(
+                fn -> :gen_tcp.accept(socket) end,
+                &start_client(&1, clients, password)
+              )
+            end)
+
             Logger.info("RCON running on #{:inet.ntoa(ip)}:#{bound}")
             {:ok, %{socket: socket, port: bound}}
 
@@ -71,34 +76,22 @@ defmodule Valimc.Rcon do
   @impl true
   def handle_call(:port, _from, state), do: {:reply, state.port, state}
 
-  defp accept(listener, clients, password, parent) do
-    case :gen_tcp.accept(listener) do
-      {:ok, socket} ->
-        spec = %{
-          id: :client,
-          start: {Task, :start_link, [fn -> client(password) end]},
-          restart: :temporary
-        }
+  defp start_client(socket, clients, password) do
+    spec = %{
+      id: :client,
+      start: {Task, :start_link, [fn -> client(password) end]},
+      restart: :temporary
+    }
 
-        case DynamicSupervisor.start_child(clients, spec) do
-          {:ok, pid} ->
-            case :gen_tcp.controlling_process(socket, pid) do
-              :ok -> send(pid, {:socket, socket})
-              _ -> :gen_tcp.close(socket)
-            end
-
-          _full ->
-            :gen_tcp.close(socket)
+    case DynamicSupervisor.start_child(clients, spec) do
+      {:ok, pid} ->
+        case :gen_tcp.controlling_process(socket, pid) do
+          :ok -> send(pid, {:socket, socket})
+          _ -> :gen_tcp.close(socket)
         end
 
-        accept(listener, clients, password, parent)
-
-      {:error, :closed} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("RCON accept failed: #{inspect(reason)}")
-        accept(listener, clients, password, parent)
+      _full ->
+        :gen_tcp.close(socket)
     end
   end
 
