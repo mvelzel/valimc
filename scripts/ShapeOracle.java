@@ -28,14 +28,15 @@ import net.minecraft.world.level.material.Fluid;
  *
  * Analyzed: the states of blocks whose class overrides `updateShape` and that the generated
  * worldgen facts (features, placed features, state providers, material rules, noise settings,
- * with block tags expanded), the structure templates and processor lists features place, or
+ * with block tags expanded), every structure template's blocks and the processor lists, or
  * ValiMC's worldgen code (structure pieces' palettes included) name, except fire, chorus plants, pale moss carpets, vines and
  * speleothems (their updates are code). Blocks that do not override it keep their state and
  * schedule nothing, as vanilla's default does; the other overriding blocks are listed as
  * unmodelled.
  *
  * `ShapeOracle code OUT.json` (VMC-026a): cases for the blocks whose update ValiMC implements
- * in code instead (fire, soul fire, chorus plants and flowers): per case a state of one of them,
+ * in code instead (fire, soul fire, chorus plants and flowers; redstone wire, stairs, fences, bars,
+ * panes, walls, doors and coral blocks, VMC-025f): per case a state of one of them,
  * a direction, the cells around it (a random neighbourhood of states those updates read, air
  * elsewhere) and vanilla's outcome (the new state and the ticks scheduled).
  *
@@ -284,11 +285,13 @@ public class ShapeOracle {
       }
     }
     for (var block : List.of(Blocks.AIR, Blocks.CAVE_AIR, Blocks.WATER, Blocks.LAVA, Blocks.STONE, Blocks.BEDROCK)) out.add(block);
-    // The blocks of the structure templates features place (VMC-025c).
-    var templates = JsonParser.parseString(Files.readString(Path.of("priv/worldgen/templates.json"))).getAsJsonObject();
-    for (var template : templates.getAsJsonObject("templates").entrySet()) {
-      for (var palette : template.getValue().getAsJsonObject().getAsJsonArray("palettes")) {
-        for (var block : palette.getAsJsonArray()) out.add(Block.stateById(block.getAsJsonArray().get(3).getAsInt()).getBlock());
+    // The blocks of every structure template (VMC-025c features, VMC-025f structures).
+    var templates = JsonParser.parseString(Files.readString(Path.of("priv/worldgen/structure_templates.json"))).getAsJsonObject();
+    for (var template : templates.entrySet()) {
+      for (var palette : template.getValue().getAsJsonObject().getAsJsonArray("blocks")) {
+        for (var state : palette.getAsJsonObject().getAsJsonArray("states")) {
+          out.add(Block.stateById(state.getAsJsonArray().get(0).getAsInt()).getBlock());
+        }
       }
     }
     // And the blocks ValiMC's worldgen code places by name (tree decorators, bamboo, huge mushrooms).
@@ -312,6 +315,19 @@ public class ShapeOracle {
         }
       }
     }
+    // And what structure processors turn template blocks into (VMC-025f): the blackstone
+    // replacements of nether ruined portals and every state block ageing picks from.
+    var replacements = net.minecraft.world.level.levelgen.structure.templatesystem.BlackstoneReplaceProcessor.class
+        .getDeclaredField("replacements");
+    replacements.setAccessible(true);
+    var blackstone = net.minecraft.world.level.levelgen.structure.templatesystem.BlackstoneReplaceProcessor.INSTANCE;
+    ((Map<?, ?>) replacements.get(blackstone)).values().forEach(b -> out.add((Block) b));
+    for (var field : net.minecraft.world.level.levelgen.structure.templatesystem.BlockAgeProcessor.class.getDeclaredFields()) {
+      if (java.lang.reflect.Modifier.isStatic(field.getModifiers()) && field.getType() == BlockState[].class) {
+        field.setAccessible(true);
+        for (var state : (BlockState[]) field.get(null)) out.add(state.getBlock());
+      }
+    }
     // Fire reads all six neighbours' flammability (too many contexts to enumerate) and chorus plants
     // read up to ten cells; ValiMC implements their updates in code, checked by `code` (VMC-026a).
     out.remove(Blocks.FIRE);
@@ -325,12 +341,24 @@ public class ShapeOracle {
     // Speleothems read scheduled ticks; ValiMC implements their updates in code (VMC-025c).
     out.remove(Blocks.POINTED_DRIPSTONE);
     out.remove(Blocks.SULFUR_SPIKE);
-    // A jungle temple's traps (VMC-025f) lie underground where no tree updates them, and redstone
-    // wire and repeaters read too many cells to tabulate; they stay unmodelled.
-    for (var block : List.of(Blocks.REDSTONE_WIRE, Blocks.REPEATER, Blocks.TRIPWIRE, Blocks.TRIPWIRE_HOOK, Blocks.LEVER,
-        Blocks.STICKY_PISTON)) {
+    // Redstone wire reads too many cells to tabulate; ValiMC implements its update in code (a
+    // woodland mansion's, VMC-025f). Repeaters and the other traps and circuits structures place lie
+    // underground in jungle temples or come in jigsaw pieces, which place without shape updates;
+    // they stay unmodelled.
+    for (var block : List.of(Blocks.REDSTONE_WIRE, Blocks.REPEATER, Blocks.COMPARATOR, Blocks.TRIPWIRE,
+        Blocks.TRIPWIRE_HOOK, Blocks.STICKY_PISTON, Blocks.PISTON_HEAD)) {
       out.remove(block);
     }
+    // Stairs, fences, bars and panes and walls connect to their neighbours over thousands of states;
+    // ValiMC implements their updates in code, checked by `code` (VMC-025f).
+    // Doors take the other half's state, whatever door it is (VMC-025f): code as well.
+    out.removeIf(b -> b instanceof net.minecraft.world.level.block.StairBlock || b instanceof net.minecraft.world.level.block.FenceBlock
+        || b instanceof net.minecraft.world.level.block.IronBarsBlock || b instanceof net.minecraft.world.level.block.WallBlock
+        || b instanceof net.minecraft.world.level.block.DoorBlock);
+    // Live corals draw their death tick's delay from the level's random when no water is beside
+    // them (template edges in warm oceans): code as well, with the dead ones.
+    out.removeIf(b -> b instanceof net.minecraft.world.level.block.CoralBlock
+        || b instanceof net.minecraft.world.level.block.BaseCoralPlantTypeBlock);
     return out;
   }
 
@@ -497,10 +525,28 @@ public class ShapeOracle {
         net.minecraft.world.level.block.state.properties.SlabType.TOP));
     for (int i = 0; i < 6; i++) pool.add(Blocks.CHORUS_PLANT.defaultBlockState());
     for (int i = 0; i < 3; i++) pool.add(Blocks.END_STONE.defaultBlockState());
+    // What redstone wire connects to (VMC-025f): wire, repeaters and observers by facing, signal
+    // sources, conductors and the blocks it may climb.
+    for (var block : List.of(Blocks.REDSTONE_WIRE, Blocks.REDSTONE_WIRE, Blocks.REPEATER, Blocks.OBSERVER, Blocks.OAK_TRAPDOOR)) {
+      pool.add(block.defaultBlockState());
+    }
+    for (var block : List.of(Blocks.REDSTONE_TORCH, Blocks.LEVER, Blocks.HOPPER, Blocks.REDSTONE_BLOCK)) {
+      pool.add(block.defaultBlockState());
+    }
+    // What stairs, fences, bars, panes and walls connect to or test above them (VMC-025f).
+    var connecting = List.of(Blocks.OAK_STAIRS, Blocks.COBBLESTONE_STAIRS, Blocks.OAK_FENCE, Blocks.NETHER_BRICK_FENCE,
+        Blocks.OAK_FENCE_GATE, Blocks.IRON_BARS, Blocks.GLASS_PANE, Blocks.COBBLESTONE_WALL, Blocks.STONE_BRICK_WALL,
+        Blocks.OAK_SLAB, Blocks.TORCH, Blocks.LANTERN, Blocks.CARVED_PUMPKIN, Blocks.BARRIER,
+        Blocks.SCAFFOLDING, named("white_carpet"), Blocks.CHEST, Blocks.OAK_DOOR, Blocks.SPRUCE_DOOR, Blocks.IRON_DOOR);
+    for (var block : connecting) pool.add(block.defaultBlockState());
     var p = new Probe();
     var cases = new JsonArray();
     int changed = 0, ticking = 0;
-    for (var block : List.of(Blocks.FIRE, Blocks.SOUL_FIRE, Blocks.CHORUS_PLANT, Blocks.CHORUS_FLOWER)) {
+    for (var block : List.of(Blocks.FIRE, Blocks.SOUL_FIRE, Blocks.CHORUS_PLANT, Blocks.CHORUS_FLOWER, Blocks.REDSTONE_WIRE,
+        Blocks.OAK_STAIRS, Blocks.COBBLESTONE_STAIRS, Blocks.OAK_FENCE, Blocks.NETHER_BRICK_FENCE, Blocks.IRON_BARS,
+        Blocks.GLASS_PANE, Blocks.COBBLESTONE_WALL, Blocks.STONE_BRICK_WALL, Blocks.OAK_DOOR, Blocks.IRON_DOOR,
+        Blocks.HORN_CORAL_BLOCK, Blocks.HORN_CORAL, Blocks.HORN_CORAL_FAN, Blocks.HORN_CORAL_WALL_FAN, Blocks.DEAD_HORN_CORAL,
+        Blocks.DEAD_HORN_CORAL_WALL_FAN)) {
       var states = block.getStateDefinition().getPossibleStates();
       for (int k = 0; k < CODE_CASES; k++) {
         var state = states.get(random.nextInt(states.size()));
@@ -512,7 +558,9 @@ public class ShapeOracle {
             for (int dz = -1; dz <= 1; dz++) {
               if ((dx == 0 && dy == 0 && dz == 0) || random.nextDouble() >= CODE_FILL) continue;
               var cell = pool.get(random.nextInt(pool.size()));
-              if (cell.is(Blocks.CHORUS_PLANT) || cell.is(Blocks.CHORUS_FLOWER)) {
+              if (cell.is(Blocks.CHORUS_PLANT) || cell.is(Blocks.CHORUS_FLOWER) || cell.is(Blocks.REDSTONE_WIRE)
+                  || cell.is(Blocks.REPEATER) || cell.is(Blocks.OBSERVER) || cell.is(Blocks.OAK_TRAPDOOR)
+                  || connecting.contains(cell.getBlock())) {
                 var choices = cell.getBlock().getStateDefinition().getPossibleStates();
                 cell = choices.get(random.nextInt(choices.size()));
               }
@@ -526,13 +574,16 @@ public class ShapeOracle {
             }
         p.begin();
         var neighbourPos = ORIGIN.relative(d);
-        var result = state.updateShape(p.level, p.tickAccess, ORIGIN, d, neighbourPos, p.at(neighbourPos), p.random);
+        // Coral blocks draw a tick delay, which proto chunks do not keep: any random will do.
+        var result = state.updateShape(p.level, p.tickAccess, ORIGIN, d, neighbourPos, p.at(neighbourPos), RandomSource.create(k));
         var row = new JsonArray();
         row.add(Block.getId(state));
         row.add(d.ordinal());
         row.add(cells);
         row.add(Block.getId(result));
-        row.add(new Gson().toJsonTree(List.copyOf(p.ticks)));
+        // Proto chunks keep a tick once per position and type (a live coral and its parent class
+        // both schedule water).
+        row.add(new Gson().toJsonTree(List.copyOf(new LinkedHashSet<>(p.ticks))));
         cases.add(row);
         if (result != state) changed++;
         if (!p.ticks.isEmpty()) ticking++;
@@ -541,7 +592,9 @@ public class ShapeOracle {
     var json = new JsonObject();
     json.add("cases", cases);
     Files.writeString(out, new Gson().toJson(json) + "\n");
-    System.out.println("PASS: " + cases.size() + " shape update cases of fire, soul fire and chorus (" + changed + " change the state, "
+    System.out.println("PASS: " + cases.size() + " shape update cases of fire, soul fire, chorus, redstone wire, connecting blocks, doors and coral ("
+        + changed
+        + " change the state, "
         + ticking + " schedule ticks)");
   }
 

@@ -681,15 +681,27 @@ public class DecorationOracle {
 
     /** The (2r + 1)² chunks around `centre` at status `terrain`, Z outer and X inner. */
     LinkedHashMap<ChunkPos, ProtoChunk> area(ChunkPos centre, int r) throws ReflectiveOperationException {
+      return area(centre, r, pos -> null);
+    }
+
+    /** `area` with each chunk's beardifier (VMC-025f3) in its noise fill. */
+    LinkedHashMap<ChunkPos, ProtoChunk> area(ChunkPos centre, int r, Function<ChunkPos, net.minecraft.world.level.levelgen.Beardifier> beards)
+        throws ReflectiveOperationException {
       var positions = new ArrayList<ChunkPos>();
       for (int dz = -r; dz <= r; dz++) {
         for (int dx = -r; dx <= r; dx++) positions.add(new ChunkPos(centre.x() + dx, centre.z() + dz));
       }
-      return build(positions);
+      return build(positions, beards);
     }
 
     /** Chunks at status `terrain`, in the given order. */
     LinkedHashMap<ChunkPos, ProtoChunk> build(Collection<ChunkPos> positions) throws ReflectiveOperationException {
+      return build(positions, pos -> null);
+    }
+
+    /** `build` with each chunk's beardifier (or none) in its noise fill. */
+    LinkedHashMap<ChunkPos, ProtoChunk> build(Collection<ChunkPos> positions,
+        Function<ChunkPos, net.minecraft.world.level.levelgen.Beardifier> beards) throws ReflectiveOperationException {
       var biomeCache = new HashMap<ChunkPos, Holder<Biome>[]>();
       // A fixed biome source (VMC-028b) has its one biome everywhere.
       @SuppressWarnings("unchecked")
@@ -704,7 +716,7 @@ public class DecorationOracle {
       for (var pos : positions) {
         var chunk = new ProtoChunk(pos, UpgradeData.EMPTY, heights, factory, null);
         var volume = new DensityVolume(16, noise.height(), 16, pos.getMinBlockX(), noise.minY(), pos.getMinBlockZ());
-        try (var noiseChunk = new NoiseChunk(state, null, settings, picker, Blender.empty(), volume)) {
+        try (var noiseChunk = new NoiseChunk(state, beards.apply(pos), settings, picker, Blender.empty(), volume)) {
           doFill.invoke(generator, noiseChunk, chunk);
           buildSurface.invoke(generator, chunk, noiseChunk, state, biomeManager, null, settings.materialRule().value());
           generateCarvers.invoke(generator, chunk, Blender.empty(), noiseChunk, state, biomeManager, null,

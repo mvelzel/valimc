@@ -46,20 +46,26 @@ impl Projection {
 /// as.
 #[derive(Debug)]
 pub enum Element {
-    /// Single and legacy single elements: one template.
+    /// Single and legacy single elements: one template, its processors (a
+    /// list's identifier or the list itself) and whether it is legacy (air
+    /// in the template is left out).
     Single {
         location: String,
         projection: Projection,
         nbt: String,
+        legacy: bool,
+        processors: Json,
     },
     List {
         elements: Vec<Element>,
         projection: Projection,
         nbt: String,
     },
+    /// A placed feature (by identifier).
     Feature {
         projection: Projection,
         nbt: String,
+        feature: String,
     },
     Empty,
 }
@@ -68,11 +74,13 @@ impl Element {
     fn parse(json: &Json, nbt: String) -> Result<Element, String> {
         let projection = || Projection::parse(json.field("projection")?);
         Ok(match json.field("element_type")?.as_str()? {
-            "minecraft:single_pool_element" | "minecraft:legacy_single_pool_element" => {
+            kind @ ("minecraft:single_pool_element" | "minecraft:legacy_single_pool_element") => {
                 Element::Single {
                     location: json.field("location")?.as_str()?.to_string(),
                     projection: projection()?,
                     nbt,
+                    legacy: kind == "minecraft:legacy_single_pool_element",
+                    processors: json.field("processors")?.clone(),
                 }
             }
             "minecraft:list_pool_element" => {
@@ -84,14 +92,22 @@ impl Element {
                     .iter()
                     .map(|e| {
                         Ok(match Element::parse(e, String::new())? {
-                            Element::Single { location, .. } => Element::Single {
+                            Element::Single {
+                                location,
+                                legacy,
+                                processors,
+                                ..
+                            } => Element::Single {
                                 location,
                                 projection,
                                 nbt: String::new(),
+                                legacy,
+                                processors,
                             },
-                            Element::Feature { .. } => Element::Feature {
+                            Element::Feature { feature, .. } => Element::Feature {
                                 projection,
                                 nbt: String::new(),
+                                feature,
                             },
                             other => other,
                         })
@@ -109,6 +125,7 @@ impl Element {
             "minecraft:feature_pool_element" => Element::Feature {
                 projection: projection()?,
                 nbt,
+                feature: json.field("feature")?.as_str()?.to_string(),
             },
             "minecraft:empty_pool_element" => Element::Empty,
             other => return Err(format!("unknown pool element {other}")),

@@ -306,6 +306,7 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
                 spawner_entity,
                 bees,
                 exit,
+                nbt: None,
             },
         );
     }

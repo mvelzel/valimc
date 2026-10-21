@@ -532,7 +532,10 @@
     "spawn_overrides": {},
     "step": "underground_structures",
     "mineshaft_type": "normal",
-    "type": "minecraft:mineshaft"
+    "type": "minecraft:mineshaft",
+    "blocking_biomes": [
+      "minecraft:deep_dark"
+    ]
   },
   "minecraft:mineshaft_mesa": {
     "biomes": [
@@ -543,7 +546,10 @@
     "spawn_overrides": {},
     "step": "underground_structures",
     "mineshaft_type": "mesa",
-    "type": "minecraft:mineshaft"
+    "type": "minecraft:mineshaft",
+    "blocking_biomes": [
+      "minecraft:deep_dark"
+    ]
   },
   "minecraft:monument": {
     "biomes": [
@@ -624,7 +630,11 @@
     "biome_temp": "cold",
     "large_probability": 0.30000001192092896,
     "cluster_probability": 0.8999999761581421,
-    "type": "minecraft:ocean_ruin"
+    "type": "minecraft:ocean_ruin",
+    "frequent_drowned_biomes": [
+      "minecraft:frozen_river",
+      "minecraft:river"
+    ]
   },
   "minecraft:ocean_ruin_warm": {
     "biomes": [
@@ -637,7 +647,11 @@
     "biome_temp": "warm",
     "large_probability": 0.30000001192092896,
     "cluster_probability": 0.8999999761581421,
-    "type": "minecraft:ocean_ruin"
+    "type": "minecraft:ocean_ruin",
+    "frequent_drowned_biomes": [
+      "minecraft:frozen_river",
+      "minecraft:river"
+    ]
   },
   "minecraft:pillager_outpost": {
     "biomes": [

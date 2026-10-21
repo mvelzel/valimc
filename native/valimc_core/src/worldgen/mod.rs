@@ -1,10 +1,12 @@
 //! Clean-room vanilla world generation (VMC-023 onward), from `javap -c` of the
 //! pinned jar and oracle samples of vanilla's own classes.
 
+pub mod beard;
 pub mod blocks;
 pub mod carver;
 pub mod climate;
 pub mod compiler;
+pub mod connect;
 pub mod density;
 pub mod end;
 pub mod feature;
@@ -23,6 +25,7 @@ pub mod predicate;
 pub mod proto;
 pub mod providers;
 pub mod random;
+pub mod redstone;
 pub mod region;
 pub mod sampler;
 pub mod sculk;

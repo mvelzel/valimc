@@ -1172,6 +1172,9 @@ struct DecoratedChunk<'a> {
     block_entity_data: Vec<String>,
     /// Entities features added: "type,x,y,z,yaw".
     entities: Vec<String>,
+    /// Created block entities for NBT parity (VMC-025f): position, state,
+    /// type, the NBT a template gave (or ""), loot table (or "") and seed.
+    block_entity_nbt: Vec<((i32, i32, i32), u16, String, String, String, i64)>,
 }
 
 /// Decoration parity (VMC-025): the 5 × 5 chunks around `centre` with their
@@ -1304,6 +1307,20 @@ fn decorated_chunk<'a>(
                 format!(
                     "{},{:?},{:?},{:?},{:?}",
                     e.kind, e.pos[0], e.pos[1], e.pos[2], e.yaw
+                )
+            })
+            .collect(),
+        block_entity_nbt: chunk
+            .block_entity_data
+            .iter()
+            .map(|(pos, data)| {
+                (
+                    (pos[0], pos[1], pos[2]),
+                    chunk.get(pos[0], pos[1], pos[2]).unwrap_or(0),
+                    data.kind.to_string(),
+                    data.nbt.as_deref().unwrap_or("").to_string(),
+                    data.loot_table.clone().unwrap_or_default(),
+                    data.loot_seed,
                 )
             })
             .collect(),

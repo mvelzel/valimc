@@ -13,7 +13,8 @@ defmodule Valimc.World.Datapacks do
 
   What a pack may not change: the biomes (clients know vanilla's registry only).
   """
-  @facts_version 1
+  # 2: structure templates carry their palettes (VMC-025f).
+  @facts_version 2
 
   @doc "The world's data packs (paths), in the order they apply."
   def packs(nil), do: []

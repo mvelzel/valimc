@@ -22,8 +22,7 @@ defmodule Valimc.Worldgen do
   # Facts a data pack can change (VMC-028c): a world with packs reads them from
   # its facts directory (`Valimc.World.Datapacks`), the rest from `priv`.
   @pack_facts @facts ++
-                ~w(templates processor_lists structures structure_sets template_pools
-                   structure_templates)
+                ~w(processor_lists structures structure_sets template_pools structure_templates)
 
   @doc """
   The native worldgen registry of vanilla's facts (`priv/worldgen`), parsed on
@@ -94,7 +93,8 @@ defmodule Valimc.Worldgen do
       |> Map.put("shapes", fact(nil, "shapes"))
       |> Map.merge(
         Map.new(
-          ~w(templates processor_lists structures structure_sets template_pools structure_templates),
+          ~w(block_transforms processor_lists structures structure_sets template_pools
+             structure_templates),
           &{&1, fact(dir, &1)}
         )
       )
@@ -133,6 +133,8 @@ defmodule Valimc.Worldgen do
 
     %{
       "flags" => flags["flags"],
+      "flags2" => flags["flags2"],
+      "block_entity_types" => flags["block_entity_types"],
       "flammable" => flags["flammable"],
       "fluid" => Enum.map(fluids, &elem(&1, 0)),
       "fluid_level" => Enum.map(fluids, &elem(&1, 1)),

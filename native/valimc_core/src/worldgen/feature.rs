@@ -145,6 +145,8 @@ pub(crate) struct Known {
     pub(crate) end_gateway: u16,
     pub(crate) fire: super::fire::Fire,
     pub(crate) chorus: super::end::Chorus,
+    pub(crate) redstone: super::redstone::RedstoneWire,
+    pub(crate) connections: super::connect::Connections,
 }
 
 pub struct Decoration {
@@ -709,6 +711,8 @@ impl Decoration {
             end_gateway: table.default_state("end_gateway")?,
             fire: super::fire::Fire::new(&table)?,
             chorus: super::end::Chorus::new(&table)?,
+            redstone: super::redstone::RedstoneWire::new(&table)?,
+            connections: super::connect::Connections::new(&table)?,
         };
         // Trees' pale moss decorator places this feature by name.
         if facts.features.get("minecraft:pale_moss_patch").is_some() {
@@ -804,6 +808,90 @@ impl Decoration {
     /// `state.updateShape(level, level, pos, d, …)` through the region (the
     /// cell at `replaced` reads as its given state): the new state, with the
     /// ticks it schedules.
+    /// The corals' `updateShape` (VMC-025f): a live coral without water
+    /// beside it (or, for plants and fans, in it) schedules its death 60–99
+    /// ticks out, the delay from the level's random; waterlogged plants and
+    /// fans schedule water; plants and fans need a sturdy floor, wall fans
+    /// the face they hang on.
+    fn coral_update(
+        &self,
+        region: &mut Region,
+        replaced: Option<([i32; 3], u16)>,
+        class: &str,
+        state: u16,
+        pos: [i32; 3],
+        d: usize,
+    ) -> Option<u16> {
+        const STEP: [[i32; 3]; 6] = [
+            [0, -1, 0],
+            [0, 1, 0],
+            [0, 0, -1],
+            [0, 0, 1],
+            [-1, 0, 0],
+            [1, 0, 0],
+        ];
+        const NAMES: [&str; 6] = ["down", "up", "north", "south", "west", "east"];
+        let at = |d: usize| {
+            [
+                pos[0] + STEP[d][0],
+                pos[1] + STEP[d][1],
+                pos[2] + STEP[d][2],
+            ]
+        };
+        let neighbours: [u16; 6] = std::array::from_fn(|d| match replaced {
+            Some((p, s)) if p == at(d) => s,
+            _ => region.get(at(d)),
+        });
+        let read = |p: [i32; 3]| (0..6).find(|&d| at(d) == p).map_or(0, |d| neighbours[d]);
+        let table = &self.table;
+        let water = |s: u16| {
+            let fluid = table.fluid(s);
+            fluid == super::blocks::FLUID_WATER || fluid == super::blocks::FLUID_FLOWING_WATER
+        };
+        let waterlogged = table.value(state, "waterlogged") == Some("true");
+        let (live, wall) = match class {
+            "CoralBlock" => {
+                if !(0..6).any(|d| water(read(at(d)))) {
+                    region.random.next_int_bounded(40);
+                    region.schedule_block_tick(pos, table.block_of(state));
+                }
+                return Some(state);
+            }
+            "CoralPlantBlock" | "CoralFanBlock" => (true, false),
+            "CoralWallFanBlock" => (true, true),
+            "BaseCoralPlantBlock" | "BaseCoralFanBlock" => (false, false),
+            "BaseCoralWallFanBlock" => (false, true),
+            _ => return None,
+        };
+        // `canSurvive`: a sturdy top below, or the face behind a wall fan.
+        let facing = if wall {
+            NAMES
+                .iter()
+                .position(|n| Some(*n) == table.value(state, "facing"))
+                .unwrap_or(2)
+        } else {
+            1
+        };
+        let support = if wall { facing ^ 1 } else { 0 };
+        let breaks = d == support && !table.flag(read(at(support)), STURDY << facing);
+        // Live corals break before anything else; dead ones schedule water
+        // first.
+        if breaks && live {
+            return Some(table.default_state("air").ok()?);
+        }
+        if live && !waterlogged && !(0..6).any(|d| water(read(at(d)))) {
+            region.random.next_int_bounded(40);
+            region.schedule_block_tick(pos, table.block_of(state));
+        }
+        if waterlogged {
+            region.schedule_fluid_tick(pos, super::blocks::FLUID_WATER);
+        }
+        if breaks {
+            return Some(table.default_state("air").ok()?);
+        }
+        Some(state)
+    }
+
     pub fn update_shape(
         &self,
         region: &mut Region,
@@ -812,6 +900,12 @@ impl Decoration {
         d: usize,
         replaced: Option<([i32; 3], u16)>,
     ) -> Result<u16, String> {
+        let class = self.table.class_name(state);
+        if class.contains("Coral") {
+            if let Some(new_state) = self.coral_update(region, replaced, class, state, pos, d) {
+                return Ok(new_state);
+            }
+        }
         let mut read = |p: [i32; 3]| match replaced {
             Some((at, s)) if at == p => s,
             _ => region.get(p),
@@ -832,6 +926,22 @@ impl Decoration {
                 region.schedule_block_tick(pos, block);
             }
             return Ok(new_state);
+        }
+        if self.known.connections.handles(&self.table, state) {
+            let (new_state, waterlogged) =
+                self.known
+                    .connections
+                    .update_shape(&self.table, &mut read, state, pos, d);
+            if waterlogged {
+                region.schedule_fluid_tick(pos, super::blocks::FLUID_WATER);
+            }
+            return Ok(new_state);
+        }
+        if self.table.block_of(state) == self.known.redstone.wire {
+            return Ok(self
+                .known
+                .redstone
+                .update_shape(&self.table, &mut read, state, pos, d));
         }
         if self.table.block_of(state) == self.known.vine_block {
             return Ok(super::multiface::vine_update(

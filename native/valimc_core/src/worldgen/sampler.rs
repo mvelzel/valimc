@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use super::beard::Beardifier;
 use super::density::{leaky_relu, squeeze, Axis, Metric, Unary};
 use super::java::{clamp, floor_div, floor_f32, floor_mod, fmax, fmin};
 use super::noise::{end_island_height, lerp, lerp3, Simplex, Stack};
@@ -170,6 +171,8 @@ impl Default for Cell {
 #[derive(Clone, Debug, Default)]
 pub struct Context {
     cells: Option<Vec<Cell>>,
+    /// The chunk's beardifier (VMC-025f3); without one it samples 0.
+    pub beardifier: Option<Arc<Beardifier>>,
 }
 
 /// `BlockPos.asLong`: the cache key of a position.
@@ -179,12 +182,16 @@ fn block_key(x: i32, y: i32, z: i32) -> i64 {
 
 impl Context {
     pub fn uncached() -> Self {
-        Context { cells: None }
+        Context {
+            cells: None,
+            beardifier: None,
+        }
     }
 
     pub fn cached() -> Self {
         Context {
             cells: Some(Vec::new()),
+            beardifier: None,
         }
     }
 
@@ -334,6 +341,10 @@ impl Sampler {
     /// The value at one block (vanilla's `sampleValue`).
     pub fn value(&self, ctx: &mut Context, x: i32, y: i32, z: i32) -> f32 {
         match self {
+            Sampler::Field(Field::Beardifier, v) => match &ctx.beardifier {
+                Some(b) => b.value(x, y, z),
+                None => *v,
+            },
             Sampler::Constant(v) | Sampler::Field(_, v) => *v,
             Sampler::Noise { noise, xz, y: ys } => {
                 noise.get(x as f64 * xz, y as f64 * ys, z as f64 * xz)
@@ -566,6 +577,10 @@ impl Sampler {
         let v = volume;
         let temp = || vec![0.0f32; v.len()];
         match self {
+            Sampler::Field(Field::Beardifier, c) => match &ctx.beardifier {
+                Some(b) => b.fill(out, v),
+                None => out.fill(*c),
+            },
             Sampler::Constant(c) | Sampler::Field(_, c) => out.fill(*c),
             Sampler::Noise { noise, xz, y } => {
                 out.fill(0.0);

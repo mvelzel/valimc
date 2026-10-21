@@ -52,7 +52,10 @@ pub struct ProtoChunk {
     pub touched: bool,
 }
 
-/// An entity a feature added (VMC-026a: the End spikes' crystals).
+/// An entity a feature or structure added (VMC-026a: the End spikes'
+/// crystals; VMC-025f: structures' mobs). A NaN yaw is one vanilla leaves
+/// at random (a living entity's first yaw comes from `Math.random`, which
+/// end city shulkers keep).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Entity {
     pub kind: &'static str,
@@ -73,6 +76,22 @@ pub struct BlockEntityData {
     pub bees: Vec<i32>,
     /// An end gateway's exit and whether it teleports exactly there.
     pub exit: Option<([i32; 3], bool)>,
+    /// The NBT a structure template gave it (VMC-025f), as SNBT.
+    pub nbt: Option<Arc<str>>,
+}
+
+/// An entity type identifier with a static lifetime: each distinct one is
+/// kept once (entity types are a small fixed set).
+pub fn entity_kind(id: &str) -> &'static str {
+    use std::sync::Mutex;
+    static KINDS: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+    let mut kinds = KINDS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(&kind) = kinds.iter().find(|&&k| k == id) {
+        return kind;
+    }
+    let kind: &'static str = Box::leak(id.to_string().into_boxed_str());
+    kinds.push(kind);
+    kind
 }
 
 /// The block entity type a block creates, for the blocks decoration and
@@ -481,7 +500,9 @@ impl<'a> Region<'a> {
                 return Ok(None);
             }
             let name = &table.names[table.block_of(state) as usize];
-            let kind = block_entity_kind(name)
+            let kind = table
+                .block_entity_type(state)
+                .or_else(|| block_entity_kind(name))
                 .ok_or_else(|| format!("the block entity of {name} is not modelled"))?;
             chunk.block_entity_data.insert(
                 pos,
@@ -492,6 +513,7 @@ impl<'a> Region<'a> {
                     spawner_entity: None,
                     bees: Vec::new(),
                     exit: None,
+                    nbt: None,
                 },
             );
         }

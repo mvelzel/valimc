@@ -14,6 +14,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use super::beard::Beardifier;
 use super::blocks::BlockTable;
 use super::carver::{self, Carver, CarvingMask, GenContext};
 use super::climate::{quantize, ParameterList};
@@ -105,8 +106,9 @@ pub struct DecorationJson<'a> {
     pub feature_order: &'a Json,
     pub support: &'a Json,
     pub shapes: Option<&'a Json>,
-    /// Structure templates and processor lists (VMC-025c), when given.
-    pub templates: Option<(&'a Json, &'a Json)>,
+    /// Every structure template, the block transforms and the processor
+    /// lists (VMC-025c, VMC-025f), when given.
+    pub templates: Option<(&'a Json, &'a Json, &'a Json)>,
     pub block_registry: &'a Json,
     pub block_facts: &'a Json,
 }
@@ -134,7 +136,14 @@ impl<'a> Facts<'a> {
                     feature_order: json.field("feature_order")?,
                     support: json.field("support")?,
                     shapes: json.get("shapes"),
-                    templates: json.get("templates").zip(json.get("processor_lists")),
+                    templates: match (
+                        json.get("structure_templates"),
+                        json.get("block_transforms"),
+                        json.get("processor_lists"),
+                    ) {
+                        (Some(t), Some(b), Some(l)) => Some((t, b, l)),
+                        _ => None,
+                    },
                     block_registry: json.field("block_registry")?,
                     block_facts: json.field("block_facts")?,
                 }),
@@ -402,7 +411,7 @@ impl Registry {
             let shapes = json.shapes.map(Shapes::parse).transpose()?.map(Arc::new);
             let templates = json
                 .templates
-                .map(|(t, l)| Templates::parse(t, l, &table))
+                .map(|(t, b, l)| Templates::parse(t, b, l, &table))
                 .transpose()?
                 .map(Arc::new);
             let biomes = registry.biomes.clone();
@@ -689,7 +698,7 @@ impl Worldgen {
     /// A chunk's noise terrain (vanilla's `doFill`, without structures):
     /// final density over the chunk at block resolution, then the aquifer.
     pub fn fill_terrain(&mut self, chunk_x: i32, chunk_z: i32) -> Result<FilledChunk, String> {
-        self.terrain(chunk_x, chunk_z, None, false)
+        self.terrain(chunk_x, chunk_z, None, false, None)
     }
 
     /// A chunk's terrain as vanilla's `buildTerrain` makes it, without
@@ -705,7 +714,7 @@ impl Worldgen {
         biome_source: &str,
         carve: bool,
     ) -> Result<FilledChunk, String> {
-        self.terrain(chunk_x, chunk_z, Some(biome_source), carve)
+        self.terrain(chunk_x, chunk_z, Some(biome_source), carve, None)
     }
 
     fn chunk_volume(&self, chunk_x: i32, chunk_z: i32) -> Result<Volume, String> {
@@ -746,6 +755,7 @@ impl Worldgen {
         chunk_z: i32,
         biome_source: Option<&str>,
         carve: bool,
+        beard: Option<Arc<Beardifier>>,
     ) -> Result<FilledChunk, String> {
         let volume = self.chunk_volume(chunk_x, chunk_z)?;
         let b = &self.registry.blocks;
@@ -757,6 +767,7 @@ impl Worldgen {
             default_fluid: self.settings.default_fluid,
         };
         let mut ctx = Context::cached();
+        ctx.beardifier = beard;
         let aquifer_samplers = self.aquifer_samplers()?;
         let mut aquifer = Aquifer::new(
             &mut ctx,
@@ -1129,24 +1140,11 @@ impl Worldgen {
         included: Option<&HashSet<usize>>,
     ) -> Result<(Area, Vec<Start>), String> {
         let env = self.structure_env(biome_source)?;
-        let mut chunks = Vec::with_capacity((size * size) as usize);
-        for dz in 0..size {
-            for dx in 0..size {
-                chunks.push(self.proto_terrain(x + dx, z + dz, biome_source)?);
-            }
-        }
-        let mut area = Area::of(chunks)?;
-        let (min_x, max_x) = order
-            .iter()
-            .map(|c| c.0)
-            .fold((i32::MAX, i32::MIN), |(a, b), v| (a.min(v), b.max(v)));
-        let (min_z, max_z) = order
-            .iter()
-            .map(|c| c.1)
-            .fold((i32::MAX, i32::MIN), |(a, b), v| (a.min(v), b.max(v)));
+        // Starts within 8 chunks of every chunk of the area: the references
+        // of its chunks (beards in their terrain) and of the decorated ones.
         let mut starts: HashMap<(i32, i32), Vec<Start>> = HashMap::new();
-        for sx in min_x - 8..=max_x + 8 {
-            for sz in min_z - 8..=max_z + 8 {
+        for sx in x - 8..x + size + 8 {
+            for sz in z - 8..z + size + 8 {
                 let (found, _) = env.create_structures(sx, sz)?;
                 let found = found
                     .into_iter()
@@ -1156,6 +1154,18 @@ impl Worldgen {
             }
         }
         let registry = env.registry.clone();
+        let mut chunks = Vec::with_capacity((size * size) as usize);
+        for dz in 0..size {
+            for dx in 0..size {
+                let (cx, cz) = (x + dx, z + dz);
+                let references = env.references(cx, cz, &|sx, sz| {
+                    starts.get(&(sx, sz)).map(|v| v.as_slice())
+                })?;
+                let beard = beardifier(&registry, &starts, &references, (cx, cz));
+                chunks.push(self.proto_terrain_bearded(cx, cz, biome_source, beard)?);
+            }
+        }
+        let mut area = Area::of(chunks)?;
         let mut by_step: Vec<Vec<usize>> = vec![Vec::new(); DECORATION_STEPS.len()];
         for (index, def) in registry.structures.iter().enumerate() {
             by_step[def.step].push(index);
@@ -1166,7 +1176,7 @@ impl Worldgen {
             .get(biome_source)
             .cloned()
             .ok_or_else(|| format!("no decoration facts for {biome_source}"))?;
-        let placer = Placer::new(&decoration.table, decoration.templates().ok(), self.seed)?;
+        let placer = Placer::new(&decoration, self.seed)?;
         let zoom_seed = surface::biome_zoom_seed(self.seed);
         let (min_y, height) = (area.min_y, area.height);
         for &(cx, cz) in order {
@@ -1225,9 +1235,21 @@ impl Worldgen {
         chunk_z: i32,
         biome_source: &str,
     ) -> Result<ProtoChunk, String> {
+        self.proto_terrain_bearded(chunk_x, chunk_z, biome_source, None)
+    }
+
+    /// `proto_terrain` with the chunk's beardifier (VMC-025f3) in the noise
+    /// fill.
+    pub fn proto_terrain_bearded(
+        &mut self,
+        chunk_x: i32,
+        chunk_z: i32,
+        biome_source: &str,
+        beard: Option<Arc<Beardifier>>,
+    ) -> Result<ProtoChunk, String> {
         let decoration = self.decoration(biome_source)?;
         let (min_y, height) = decoration.dimension;
-        let filled = self.build_terrain(chunk_x, chunk_z, biome_source, true)?;
+        let filled = self.terrain(chunk_x, chunk_z, Some(biome_source), true, beard)?;
         let blocks = self.dimension_blocks(filled.blocks, min_y, height)?;
         let biomes = self.cached_chunk_biomes(biome_source, chunk_x, chunk_z)?;
         if biomes.len() != (height / 16 * 64) as usize {
@@ -2096,4 +2118,29 @@ fn constant(function: &Df) -> Option<f32> {
         Df::Constant(v) => Some(v.0),
         _ => None,
     }
+}
+
+/// A chunk's beardifier from the starts that reference it, per structure in
+/// structure order and per structure in the chunk's reference order (vanilla
+/// lists a chunk's structures in a hash map's order, which only changes how
+/// overlapping structures' beards round); none without terrain-adapting
+/// pieces near the chunk.
+pub fn beardifier(
+    registry: &StructureRegistry,
+    starts: &HashMap<(i32, i32), Vec<Start>>,
+    references: &[(usize, (i32, i32))],
+    chunk: (i32, i32),
+) -> Option<Arc<Beardifier>> {
+    let visits = visit_order(references);
+    let mut structures: Vec<usize> = visits.keys().copied().collect();
+    structures.sort_unstable();
+    let chunk_starts = structures.iter().flat_map(|structure| {
+        visits[structure].iter().filter_map(move |source| {
+            starts
+                .get(source)
+                .and_then(|list| list.iter().find(|s| s.structure == *structure))
+        })
+    });
+    let beard = Beardifier::for_chunk(registry, chunk_starts, chunk);
+    (!beard.is_empty()).then(|| Arc::new(beard))
 }

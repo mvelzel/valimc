@@ -19,15 +19,18 @@
 
 pub mod fortress;
 pub mod jigsaw;
+pub mod jigsaw_place;
 pub mod locate;
 pub mod mansion;
 pub mod mineshaft;
+pub mod mobs;
 pub mod monument;
 pub mod piece;
 pub mod place;
 pub mod placement;
 pub mod scattered;
 pub mod stronghold;
+pub mod template_place;
 pub mod templated;
 
 use std::cell::RefCell;
@@ -72,6 +75,9 @@ pub enum StructureKind {
         warm: bool,
         large_probability: f32,
         cluster_probability: f32,
+        /// Where drowned spawn more often (`more_frequent_drowned_spawns`):
+        /// a ruin's drowned there ride no zombie nautilus.
+        frequent_drowned: BiomeSet,
     },
     RuinedPortal {
         setups: Vec<templated::PortalSetup>,
@@ -347,6 +353,13 @@ fn parse_structure(
             },
             large_probability: json.field("large_probability")?.as_f64()? as f32,
             cluster_probability: json.field("cluster_probability")?.as_f64()? as f32,
+            frequent_drowned: BiomeSet::from_ids(
+                json.field("frequent_drowned_biomes")?
+                    .as_array()?
+                    .iter()
+                    .map(|b| biome(b.as_str()?))
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
         },
         "minecraft:ruined_portal" => StructureKind::RuinedPortal {
             setups: json
@@ -884,6 +897,7 @@ impl StructureEnv {
                 warm,
                 large_probability,
                 cluster_probability,
+                ..
             } => templated::ocean_ruin(&mut gc, *warm, *large_probability, *cluster_probability)?,
             StructureKind::RuinedPortal { setups } => templated::ruined_portal(&mut gc, setups)?,
             StructureKind::NetherFossil { height } => templated::nether_fossil(&mut gc, height)?,

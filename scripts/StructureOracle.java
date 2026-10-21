@@ -39,8 +39,9 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
  * `worldgen/structure_set` and `worldgen/template_pool` registries as vanilla's codecs encode
  * them, keyed by identifier, each pool element also as the NBT a jigsaw piece saves, and each
  * biome holder set (a structure's biomes, a concentric ring placement's preferred biomes, the
- * ocean monument's required surroundings as `surrounding_biomes`) resolved to its sorted biome
- * identifiers. The registries list their entries in identifier
+ * ocean monument's required surroundings as `surrounding_biomes`, mineshafts' blocking biomes as
+ * `blocking_biomes` and ocean ruins' frequent drowned biomes as `frequent_drowned_biomes`) resolved
+ * to its sorted biome identifiers. The registries list their entries in identifier
  * order, which is the order in which chunk generation tries structure sets. Templates: see
  * `templates`.
  *
@@ -116,6 +117,16 @@ public class StructureOracle {
         json.add("surrounding_biomes", biomeIds(registries.lookupOrThrow(Registries.BIOME)
             .getOrThrow(net.minecraft.tags.BiomeTags.REQUIRED_OCEAN_MONUMENT_SURROUNDING)));
       }
+      // Biome tags pieces read when placed (VMC-025f): a mineshaft's supports skip blocking biomes,
+      // an ocean ruin's drowned ride no zombie nautilus where drowned spawn more often.
+      if (holder.value() instanceof net.minecraft.world.level.levelgen.structure.structures.MineshaftStructure) {
+        json.add("blocking_biomes", biomeIds(registries.lookupOrThrow(Registries.BIOME)
+            .getOrThrow(net.minecraft.tags.BiomeTags.MINESHAFT_BLOCKING)));
+      }
+      if (holder.value() instanceof net.minecraft.world.level.levelgen.structure.structures.OceanRuinStructure) {
+        json.add("frequent_drowned_biomes", biomeIds(registries.lookupOrThrow(Registries.BIOME)
+            .getOrThrow(net.minecraft.tags.BiomeTags.MORE_FREQUENT_DROWNED_SPAWNS)));
+      }
       structures.put(holder.key().identifier().toString(), json);
     });
     var sets = new TreeMap<String, JsonElement>();
@@ -170,6 +181,8 @@ public class StructureOracle {
           net.minecraft.util.datafix.DataFixers.getDataFixer(), net.minecraft.core.registries.BuiltInRegistries.BLOCK, resources, converter);
       var palettesField = net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate.class.getDeclaredField("palettes");
       palettesField.setAccessible(true);
+      var entitiesField = net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate.class.getDeclaredField("entityInfoList");
+      entitiesField.setAccessible(true);
       for (var location : new TreeSet<>(converter.listMatchingResources(resources).keySet())) {
         var id = converter.fileToId(location);
         var template = source.load(id).orElseThrow(() -> new IllegalStateException("no template " + id));
@@ -201,6 +214,21 @@ public class StructureOracle {
           perPalette.add(list);
         }
         if (any) entry.add("jigsaws", perPalette);
+        entry.add("blocks", blocks(template, palettes));
+        var entities = new JsonArray();
+        for (var info : (List<net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate.StructureEntityInfo>)
+            entitiesField.get(template)) {
+          var row = new JsonArray();
+          row.add(info.pos.x);
+          row.add(info.pos.y);
+          row.add(info.pos.z);
+          row.add(info.blockPos.getX());
+          row.add(info.blockPos.getY());
+          row.add(info.blockPos.getZ());
+          row.add(parseableSnbt(info.nbt));
+          entities.add(row);
+        }
+        if (!entities.isEmpty()) entry.add("entities", entities);
         json.put(id.toString(), entry);
       }
     }
@@ -212,6 +240,78 @@ public class StructureOracle {
     }
     Files.writeString(out, text.append("}\n").toString());
     return count;
+  }
+
+  /**
+   * A template's palettes, each as its distinct states ([state id, full], where full blocks are
+   * those `StructureTemplate` lists first: no dynamic shape and a full collision shape), its
+   * volume run-length encoded in (y, x, z) order ([index + 1 or 0 where the template has no block,
+   * count] pairs) and its block entity NBT ([x, y, z, SNBT]). The palette's block order is its
+   * full blocks, other blocks and blocks with NBT, each in volume order; checked here.
+   */
+  static JsonArray blocks(net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate template,
+      List<net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate.Palette> palettes) {
+    var size = template.getSize();
+    var out = new JsonArray();
+    for (var palette : palettes) {
+      var states = new LinkedHashMap<Integer, Integer>();
+      var volume = new int[size.getX() * size.getY() * size.getZ()];
+      var nbt = new JsonArray();
+      var nbtAt = new HashSet<Integer>();
+      var full = new HashMap<Integer, Boolean>();
+      for (var info : palette.blocks()) {
+        int id = net.minecraft.world.level.block.Block.getId(info.state());
+        int index = states.computeIfAbsent(id, k -> states.size());
+        int cell = (info.pos().getY() * size.getX() + info.pos().getX()) * size.getZ() + info.pos().getZ();
+        if (volume[cell] != 0) throw new IllegalStateException("two blocks at one position of a template");
+        volume[cell] = index + 1;
+        full.put(id, !info.state().getBlock().hasDynamicShape()
+            && info.state().isCollisionShapeFullBlock(net.minecraft.world.level.EmptyBlockGetter.INSTANCE, net.minecraft.core.BlockPos.ZERO));
+        if (info.nbt() != null) {
+          nbtAt.add(cell);
+          var row = new JsonArray();
+          row.add(info.pos().getX());
+          row.add(info.pos().getY());
+          row.add(info.pos().getZ());
+          row.add(parseableSnbt(info.nbt()));
+          nbt.add(row);
+        }
+      }
+      // The order this encoding implies must be the palette's.
+      var ids = new ArrayList<>(states.keySet());
+      var order = new ArrayList<Integer>();
+      for (int pass = 0; pass < 3; pass++) {
+        for (int cell = 0; cell < volume.length; cell++) {
+          if (volume[cell] == 0) continue;
+          int kind = nbtAt.contains(cell) ? 2 : full.get(ids.get(volume[cell] - 1)) ? 0 : 1;
+          if (kind == pass) order.add(cell);
+        }
+      }
+      var listed = palette.blocks().stream()
+          .map(info -> (info.pos().getY() * size.getX() + info.pos().getX()) * size.getZ() + info.pos().getZ()).toList();
+      if (!order.equals(listed)) throw new IllegalStateException("a template's block order is not its classes in volume order");
+      var stateRows = new JsonArray();
+      for (int id : ids) {
+        var row = new JsonArray();
+        row.add(id);
+        row.add(full.get(id) ? 1 : 0);
+        stateRows.add(row);
+      }
+      var runs = new JsonArray();
+      for (int i = 0; i < volume.length; ) {
+        int j = i;
+        while (j < volume.length && volume[j] == volume[i]) j++;
+        runs.add(volume[i]);
+        runs.add(j - i);
+        i = j;
+      }
+      var entry = new JsonObject();
+      entry.add("states", stateRows);
+      entry.add("volume", runs);
+      if (!nbt.isEmpty()) entry.add("nbt", nbt);
+      out.add(entry);
+    }
+    return out;
   }
 
   /** One seed's vanilla overworld generator and structure state. */
@@ -489,11 +589,21 @@ public class StructureOracle {
   /** Canonical SNBT (see the class comment). */
   static String snbt(Tag tag) {
     var out = new StringBuilder();
-    snbt(tag, out);
+    snbt(tag, out, false);
     return out.toString();
   }
 
-  static void snbt(Tag tag, StringBuilder out) {
+  /**
+   * `snbt` with every key that is not a bare word quoted, so that `TagParser` reads it back
+   * (template block entities and entities hold item components, VMC-025f).
+   */
+  static String parseableSnbt(Tag tag) {
+    var out = new StringBuilder();
+    snbt(tag, out, true);
+    return out.toString();
+  }
+
+  static void snbt(Tag tag, StringBuilder out, boolean quoteKeys) {
     switch (tag) {
       case CompoundTag compound -> {
         out.append('{');
@@ -501,8 +611,8 @@ public class StructureOracle {
         for (var key : new TreeSet<>(compound.keySet())) {
           if (!first) out.append(',');
           first = false;
-          out.append(key).append(':');
-          snbt(compound.get(key), out);
+          out.append(quoteKeys && !key.matches("[A-Za-z0-9._+-]+") ? new Gson().toJson(key) : key).append(':');
+          snbt(compound.get(key), out, quoteKeys);
         }
         out.append('}');
       }
@@ -510,7 +620,7 @@ public class StructureOracle {
         out.append('[');
         for (int i = 0; i < list.size(); i++) {
           if (i > 0) out.append(',');
-          snbt(list.get(i), out);
+          snbt(list.get(i), out, quoteKeys);
         }
         out.append(']');
       }

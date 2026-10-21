@@ -34,6 +34,32 @@ pub const OCCLUDES: u32 = 1 << 24;
 pub const LIQUID_CONTAINER: u32 = 1 << 30;
 pub const SIMPLE_WATERLOGGED: u32 = 1 << 31;
 
+/// The second word of worldgen flags per state (VMC-025f).
+/// A full outline shape (`Block.isShapeFullBlock` of `getShape`).
+pub const FULL_SHAPE: u32 = 1;
+/// A sturdy centre on the bottom face (`SupportType.CENTER`).
+pub const CENTER_SUPPORT_DOWN: u32 = 1 << 1;
+/// A `FallingBlock`.
+pub const FALLING: u32 = 1 << 2;
+/// `isRedstoneConductor`.
+pub const REDSTONE_CONDUCTOR: u32 = 1 << 3;
+/// `isSignalSource`.
+pub const SIGNAL_SOURCE: u32 = 1 << 4;
+/// The bottom face of the collision shape covers a wall's post test shape;
+/// then its north, east, south and west side test shapes.
+pub const COVERS_WALL_POST: u32 = 1 << 5;
+pub const COVERS_WALL_SIDE: u32 = 1 << 6;
+/// `Block.isExceptionForConnection`.
+pub const CONNECTION_EXCEPTION: u32 = 1 << 10;
+/// Block classes: `IronBarsBlock` (bars and panes), `StairBlock`,
+/// `FenceGateBlock`, `WallBlock`, `FenceBlock`.
+pub const IRON_BARS: u32 = 1 << 11;
+pub const STAIRS: u32 = 1 << 12;
+pub const FENCE_GATE: u32 = 1 << 13;
+pub const WALL: u32 = 1 << 14;
+pub const FENCE: u32 = 1 << 15;
+pub const DOOR: u32 = 1 << 16;
+
 /// Fluid registry ids.
 pub const FLUID_EMPTY: u8 = 0;
 pub const FLUID_FLOWING_WATER: u8 = 1;
@@ -127,6 +153,10 @@ pub struct BlockTable {
     /// Per state.
     pub block_of: Vec<u16>,
     pub flags: Vec<u32>,
+    /// The second flag word (`FULL_SHAPE`, …), when the facts have it.
+    pub flags2: Vec<u32>,
+    /// Per block, the block entity type it creates.
+    pub block_entity_types: Vec<Option<&'static str>>,
     pub fluid: Vec<u8>,
     /// Fluid amount (0..8) and the falling flag (bit 4).
     pub fluid_level: Vec<u8>,
@@ -179,6 +209,11 @@ impl BlockTable {
             properties: Vec::new(),
             block_of: vec![0; count],
             flags: hex_u32(facts.field("flags")?.as_str()?, count)?,
+            flags2: match facts.get("flags2") {
+                Some(Json::String(hex)) => hex_u32(hex, count)?,
+                _ => vec![0; count],
+            },
+            block_entity_types: Vec::new(),
             fluid: bytes(facts.field("fluid")?, count)?,
             fluid_level: bytes(facts.field("fluid_level")?, count)?,
             heightmaps: bytes(facts.field("heightmaps")?, count)?,
@@ -241,6 +276,15 @@ impl BlockTable {
                 .collect::<Result<Vec<_>, _>>()?;
             table.fluid_tags.insert(tag.clone(), fluids);
         }
+        table.block_entity_types = vec![None; table.names.len()];
+        if let Some(types @ Json::Object(_)) = facts.get("block_entity_types") {
+            for (block, kind) in types.entries()? {
+                if let Some(&id) = table.ids.get(block) {
+                    table.block_entity_types[id as usize] =
+                        Some(super::region::entity_kind(kind.as_str()?));
+                }
+            }
+        }
         Ok(table)
     }
 
@@ -260,6 +304,18 @@ impl BlockTable {
         Ok(self.default[self.block(name)? as usize])
     }
 
+    /// A block's default state, by block id.
+    pub fn default_state_of(&self, block: u16) -> u16 {
+        self.default[block as usize]
+    }
+
+    /// The names of a state's properties, in state order.
+    pub fn property_names(&self, state: u16) -> impl Iterator<Item = &str> {
+        self.properties[self.block_of(state) as usize]
+            .iter()
+            .map(|p| p.name.as_str())
+    }
+
     pub fn block_of(&self, state: u16) -> u16 {
         self.block_of[state as usize]
     }
@@ -270,6 +326,19 @@ impl BlockTable {
 
     pub fn flag(&self, state: u16, flag: u32) -> bool {
         self.flags[state as usize] & flag != 0
+    }
+
+    /// A flag of the second word (`FULL_SHAPE`, …).
+    pub fn flag2(&self, state: u16, flag: u32) -> bool {
+        self.flags2[state as usize] & flag != 0
+    }
+
+    /// The block entity type the state's block creates, if any.
+    pub fn block_entity_type(&self, state: u16) -> Option<&'static str> {
+        self.block_entity_types
+            .get(self.block_of(state) as usize)
+            .copied()
+            .flatten()
     }
 
     /// `FireBlock.canBurn`.

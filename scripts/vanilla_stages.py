@@ -82,8 +82,8 @@ STAGES = [
         ('same', '@dimensions.json', 'priv/worldgen/dimensions.json'),
         ('java', 'WorldgenBlocksOracle', '@blocks.json'),
         ('same', '@blocks.json', 'priv/worldgen/blocks.json'),
-        ('java', 'StructureTemplateOracle', '@templates.json', '@processor_lists.json'),
-        ('same', '@templates.json', 'priv/worldgen/templates.json'),
+        ('java', 'StructureTemplateOracle', '@block_transforms.json', '@processor_lists.json'),
+        ('same', '@block_transforms.json', 'priv/worldgen/block_transforms.json'),
         ('same', '@processor_lists.json', 'priv/worldgen/processor_lists.json'),
         ('java', 'StructureOracle', 'facts', '@structures.json', '@structure_sets.json', '@template_pools.json',
          '@structure_templates.json'),
@@ -166,11 +166,32 @@ STAGES = [
         ('java', 'LocateOracle', 'cases', '@locate.json'),
         ('check', 'check_locate.exs', '@locate.json'),
     ]),
-    # VMC-025f: decoration with structures placed in their steps.
+    # VMC-025f: decoration with structures placed in their steps, block entities saved as vanilla's.
     ('worldgen_structure_placement', [
         ('java', 'StructurePlacementOracle', '@placement.json',
-         'minecraft:desert_pyramid,minecraft:jungle_pyramid,minecraft:swamp_hut,minecraft:buried_treasure'),
-        ('check', 'check_decoration.exs', '@placement.json'),
+         'minecraft:desert_pyramid,minecraft:jungle_pyramid,minecraft:swamp_hut,minecraft:buried_treasure,'
+         'minecraft:igloo,minecraft:shipwreck,minecraft:shipwreck_beached,minecraft:ocean_ruin_cold,'
+         'minecraft:ocean_ruin_warm,minecraft:ruined_portal,minecraft:ruined_portal_desert,'
+         'minecraft:ruined_portal_jungle,minecraft:ruined_portal_mountain,minecraft:ruined_portal_ocean,'
+         'minecraft:ruined_portal_swamp'),
+        ('check', 'check_decoration.exs', '@placement.json', '@ours.json'),
+        ('java', 'StructurePlacementOracle', 'verify', '@placement.json', '@ours.json'),
+    ]),
+    ('worldgen_structure_placement_mansion', [
+        ('java', 'StructurePlacementOracle', '@placement.json', 'minecraft:mansion'),
+        ('check', 'check_decoration.exs', '@placement.json', '@ours.json'),
+        ('java', 'StructurePlacementOracle', 'verify', '@placement.json', '@ours.json'),
+    ]),
+    ('worldgen_structure_placement_nether', [
+        ('java', 'StructurePlacementOracle', '@placement.json', 'minecraft:ruined_portal_nether,minecraft:nether_fossil',
+         'nether'),
+        ('check', 'check_decoration.exs', '@placement.json', '@ours.json'),
+        ('java', 'StructurePlacementOracle', 'verify', '@placement.json', '@ours.json'),
+    ]),
+    ('worldgen_structure_placement_end', [
+        ('java', 'StructurePlacementOracle', '@placement.json', 'minecraft:end_city', 'end'),
+        ('check', 'check_decoration.exs', '@placement.json', '@ours.json'),
+        ('java', 'StructurePlacementOracle', 'verify', '@placement.json', '@ours.json'),
     ]),
     # VMC-028d: a 26.2 world (made from AnvilContentOracle's) and a case for each
     # fix, upgraded by ValiMC as vanilla's fixer upgrades them; the world imports.

@@ -56,7 +56,11 @@ defmodule Mix.Tasks.Valimc.WorldgenPacks do
         packs
       )
 
-      oracle!("StructureTemplateOracle", [out.("templates"), out.("processor_lists")], packs)
+      oracle!(
+        "StructureTemplateOracle",
+        [out.("block_transforms"), out.("processor_lists")],
+        packs
+      )
 
       oracle!(
         "StructureOracle",

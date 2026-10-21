@@ -1,5 +1,7 @@
 # VMC-026a: the shape updates ValiMC implements in code (fire, soul fire,
-# chorus plants and flowers) equal vanilla's on random neighbourhoods
+# chorus plants and flowers; redstone wire, stairs, fences, bars, panes, walls,
+# doors and coral blocks, VMC-025f) equal vanilla's on
+# random neighbourhoods
 # (`ShapeOracle code`): the new state and the ticks scheduled (position, kind
 # and type; proto chunks keep no delays).
 [cases_path] = System.argv()
@@ -49,6 +51,6 @@ changed = Enum.count(cases, fn [state, _, _, want, _] -> state != want end)
 ticking = Enum.count(cases, fn [_, _, _, _, ticks] -> ticks != [] end)
 
 IO.puts(
-  "PASS: #{length(cases)} shape update cases of fire, soul fire and chorus equal vanilla's " <>
+  "PASS: #{length(cases)} shape update cases of fire, soul fire, chorus, redstone wire, connecting blocks, doors and coral equal vanilla's " <>
     "(#{changed} change the state, #{ticking} schedule ticks)"
 )

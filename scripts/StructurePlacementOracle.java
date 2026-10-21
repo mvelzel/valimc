@@ -31,16 +31,17 @@ import net.minecraft.world.level.levelgen.structure.placement.RandomSpreadStruct
  * Vanilla structure placement (VMC-025f): chunk decoration with structures on, as
  * `ChunkGenerator.applyBiomeDecoration` does it.
  *
- * For each case (seed, centre chunk) the starts of the 19 × 19 chunks around the centre come from
+ * For each case (seed, centre chunk) the starts of the 21 × 21 chunks around the centre come from
  * vanilla's `createStructures` (as `StructureOracle` makes them, kept only for the structures
- * named), each chunk of the 3 × 3 around the centre gets its references from vanilla's
- * `createReferences`, and the 5 × 5 chunks around the centre get their terrain as
- * `DecorationOracle` builds it. The 3 × 3 chunks are then decorated in order (Z outer, X inner)
+ * named), each chunk of the 5 × 5 around the centre gets its references from vanilla's
+ * `createReferences`, and those chunks get their terrain as `DecorationOracle` builds it, with
+ * each chunk's beards (`Beardifier.forStructuresInChunk`) in the noise fill (VMC-025f3). The 3 × 3 chunks are then decorated in order (Z outer, X inner)
  * by vanilla's own `applyBiomeDecoration` with every placed feature, through `DecorationOracle`'s
  * region and a `StructureManager` (structures on) whose level serves the chunks holding the starts
  * and references. Structure pieces that ask the region for the current difficulty get a normal
  * one, and for environment attributes their defaults; the server level the region hands out holds
- * that structure manager (a swamp hut's cat asks whether it stands in a structure).
+ * that structure manager (a swamp hut's cat asks whether it stands in a structure) and its server
+ * the world's seed (capped processors ask).
  *
  * Cases: per seed (`DecorationOracle`'s seeds) an area at the origin and one within 2,000 chunks,
  * and per structure named, areas whose centre holds that structure's first piece (a start found
@@ -49,13 +50,18 @@ import net.minecraft.world.level.levelgen.structure.placement.RandomSpreadStruct
  * the decorated chunks), on the others one.
  *
  * Usage: StructurePlacementOracle OUT STRUCTURE,STRUCTURE,... [nether|end]. Output: as
- * `DecorationOracle`'s (dimension, settings, every placed feature, per case the chunks), with the
- * structures named and per case the structure it targets (or none) and every start of the 19 × 19
- * as placement left it (`StructureStart.createTag`, canonical SNBT, sorted).
+ * `DecorationOracle`'s (dimension, settings, every placed feature, per case the chunks, each also
+ * with its block entities as they save), with the structures named and per case the structure it
+ * targets (or none) and every start of the 21 × 21 as placement left it
+ * (`StructureStart.createTag`, canonical SNBT, sorted). See `verify` for block entity NBT.
  */
 public class StructurePlacementOracle {
   public static void main(String[] args) throws Exception {
     var factory = ChunkOracle.factory();
+    if (args[0].equals("verify")) {
+      verify(Path.of(args[1]), Path.of(args[2]));
+      return;
+    }
     var dimension = args.length > 2 ? args[2] : "overworld";
     DecorationOracle.selectDimension(dimension);
     String source = switch (dimension) {
@@ -129,6 +135,62 @@ public class StructurePlacementOracle {
   }
 
   /**
+   * `verify FACTS.json OURS.json`: ValiMC's block entities (`check_decoration.exs` writes them: per
+   * case and position the state, the type, the NBT a template gave and the loot table and seed)
+   * each loaded into vanilla's block entity of that type and state and saved again, which must
+   * equal the block entity vanilla's placement left there.
+   */
+  static void verify(Path factsPath, Path oursPath) throws Exception {
+    var registries = StructureOracle.serverRegistries();
+    var facts = JsonParser.parseString(Files.readString(factsPath)).getAsJsonObject();
+    var ours = JsonParser.parseString(Files.readString(oursPath)).getAsJsonArray();
+    var vanilla = new HashMap<String, String>();
+    for (var area : facts.getAsJsonArray("cases")) {
+      var seed = area.getAsJsonObject().get("seed").getAsString();
+      for (var chunk : area.getAsJsonObject().getAsJsonArray("chunks")) {
+        for (var entry : chunk.getAsJsonObject().getAsJsonArray("block_entity_nbt")) {
+          var text = entry.getAsString();
+          int split = nthComma(text, 3);
+          vanilla.put(seed + ":" + area.getAsJsonObject().get("x") + ":" + area.getAsJsonObject().get("z") + ":"
+              + text.substring(0, split), text.substring(split + 1));
+        }
+      }
+    }
+    int checked = 0;
+    var failures = new ArrayList<String>();
+    for (var element : ours) {
+      var o = element.getAsJsonObject();
+      var key = o.get("case").getAsString() + ":" + o.get("pos").getAsString();
+      var p = o.get("pos").getAsString().split(",");
+      var pos = new net.minecraft.core.BlockPos(Integer.parseInt(p[0]), Integer.parseInt(p[1]), Integer.parseInt(p[2]));
+      var state = net.minecraft.world.level.block.Block.stateById(o.get("state").getAsInt());
+      var tag = o.has("nbt") ? net.minecraft.nbt.TagParser.parseCompoundFully(o.get("nbt").getAsString())
+          : new net.minecraft.nbt.CompoundTag();
+      tag.putString("id", o.get("type").getAsString());
+      if (o.has("loot_table")) {
+        tag.putString("LootTable", o.get("loot_table").getAsString());
+        tag.putLong("LootTableSeed", o.get("loot_seed").getAsLong());
+      }
+      var entity = net.minecraft.world.level.block.entity.BlockEntity.loadStatic(pos, state, tag, registries);
+      var saved = entity == null ? "-" : StructureOracle.snbt(entity.saveWithoutMetadata(registries));
+      var want = vanilla.remove(key);
+      checked++;
+      if (!saved.equals(want)) failures.add(key + "\n  ours:    " + saved + "\n  vanilla: " + want);
+    }
+    if (!failures.isEmpty()) {
+      failures.stream().limit(8).forEach(System.out::println);
+      throw new IllegalStateException(failures.size() + " block entities differ from vanilla's");
+    }
+    System.out.println("PASS: " + checked + " block entities save as vanilla's");
+  }
+
+  static int nthComma(String text, int n) {
+    int at = -1;
+    for (int i = 0; i < n; i++) at = text.indexOf(',', at + 1);
+    return at;
+  }
+
+  /**
    * Up to `wanted` starts of a structure: from a seeded search over its sets' random spread
    * placement chunks within 30,000 chunks, each through vanilla's `createStructures`.
    */
@@ -157,8 +219,8 @@ public class StructurePlacementOracle {
       Set<String> structures, RegistryAccess registries) throws ReflectiveOperationException {
     var holding = new HashMap<ChunkPos, ProtoChunk>();
     var starts = new TreeSet<String>();
-    for (int dz = -9; dz <= 9; dz++) {
-      for (int dx = -9; dx <= 9; dx++) {
+    for (int dz = -10; dz <= 10; dz++) {
+      for (int dx = -10; dx <= 10; dx++) {
         var chunk = world.createStructures(centre.x() + dx, centre.z() + dz);
         var kept = new HashMap<Structure, StructureStart>();
         chunk.getAllStarts().forEach((structure, start) -> {
@@ -169,8 +231,8 @@ public class StructurePlacementOracle {
       }
     }
     var startsLevel = StructureOracle.areaLevel(holding);
-    for (int dz = -1; dz <= 1; dz++) {
-      for (int dx = -1; dx <= 1; dx++) {
+    for (int dz = -2; dz <= 2; dz++) {
+      for (int dx = -2; dx <= 2; dx++) {
         world.generator().createReferences(startsLevel, world.manager(), holding.get(new ChunkPos(centre.x() + dx, centre.z() + dz)));
       }
     }
@@ -186,7 +248,8 @@ public class StructurePlacementOracle {
           default -> throw new UnsupportedOperationException("LevelAccessor." + method.getName());
         });
     var manager = new StructureManager(managerLevel, new WorldOptions(world.seed(), true, false), null);
-    var chunks = terrain.area(centre, 2);
+    // Terrain with each chunk's beards, from the starts that reference it (VMC-025f3).
+    var chunks = terrain.area(centre, 2, pos -> net.minecraft.world.level.levelgen.Beardifier.forStructuresInChunk(manager, pos));
     var order = new JsonArray();
     for (int dz = -1; dz <= 1; dz++) {
       for (int dx = -1; dx <= 1; dx++) {
@@ -203,7 +266,15 @@ public class StructurePlacementOracle {
       }
     }
     var rows = new JsonArray();
-    chunks.forEach((pos, chunk) -> rows.add(DecorationOracle.chunkJson(pos, chunk)));
+    chunks.forEach((pos, chunk) -> {
+      var row = DecorationOracle.chunkJson(pos, chunk);
+      // Each block entity as it saves (canonical SNBT), which `verify` compares.
+      var saved = new TreeSet<String>();
+      chunk.getBlockEntities().forEach((p, entity) -> saved.add(p.getX() + "," + p.getY() + "," + p.getZ() + ","
+          + StructureOracle.snbt(entity.saveWithoutMetadata(registries))));
+      row.add("block_entity_nbt", new Gson().toJsonTree(saved));
+      rows.add(row);
+    });
     holding.forEach((pos, chunk) -> chunk.getAllStarts().values().forEach(start ->
         starts.add(StructureOracle.snbt(start.createTag(world.context(), pos)))));
     var row = new JsonObject();
@@ -244,6 +315,13 @@ public class StructurePlacementOracle {
         try {
           set(level, net.minecraft.server.level.ServerLevel.class, "structureManager", manager);
           set(level, net.minecraft.world.level.Level.class, "registryAccess", registries);
+          // Capped processors ask the level for the world's seed, which its server keeps.
+          set(level.getServer(), net.minecraft.server.MinecraftServer.class, "worldGenSettings",
+              new net.minecraft.world.level.levelgen.WorldGenSettings(new WorldOptions(seed, true, false), null));
+          // A villager's brain reads its schedule from the level's environment attributes: their
+          // defaults.
+          ((net.minecraft.server.level.ServerLevel) level).setEnvironmentAttributes(
+              net.minecraft.world.attribute.EnvironmentAttributeSystem.builder().build());
           // Creating a mob asks the level's difficulty.
           set(level, net.minecraft.world.level.Level.class, "levelData", Proxy.newProxyInstance(
               StructurePlacementOracle.class.getClassLoader(), new Class<?>[] {net.minecraft.world.level.storage.WritableLevelData.class},

@@ -29,10 +29,33 @@ import net.minecraft.world.level.block.state.BlockState;
  * level (a moving piston's block entity) is listed as excluded, without sturdy faces. Output:
  * the flags, four bytes per state in hex; and the states fire can burn (`FireBlock.canBurn`:
  * ignite odds above zero, none while waterlogged) as runs of state ids, which fire's shape
- * reads of its six neighbours (VMC-026a).
+ * reads of its six neighbours (VMC-026a). VMC-025f: a second word per state, bit 0 a full outline
+ * shape (`Block.isShapeFullBlock` of `getShape`), 1 a sturdy centre on the bottom face
+ * (`SupportType.CENTER`, where chains hang), 2 a `FallingBlock`, 3 `isRedstoneConductor`, 4
+ * `isSignalSource` (redstone wire's connections), 5..9 the bottom face of the collision shape
+ * covers a wall's post and north, east, south and west sides (`WallBlock.isCovered`), 10
+ * `isExceptionForConnection`, 11..16 an `IronBarsBlock` (bars and panes), `StairBlock`,
+ * `FenceGateBlock`, `WallBlock`, `FenceBlock`, `DoorBlock`; and per block that has one, the block entity
+ * type it creates.
  */
 public class WorldgenBlocksOracle {
   static final BlockPos ORIGIN = new BlockPos(0, 64, 0);
+
+  /** A private test shape of `WallBlock`. */
+  static Object wallField(String name) {
+    try {
+      var field = net.minecraft.world.level.block.WallBlock.class.getDeclaredField(name);
+      field.setAccessible(true);
+      return field.get(null);
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
+  /** `WallBlock.isCovered`: the face covers the test shape. */
+  static boolean covers(net.minecraft.world.phys.shapes.VoxelShape face, net.minecraft.world.phys.shapes.VoxelShape test) {
+    return !net.minecraft.world.phys.shapes.Shapes.joinIsNotEmpty(test, face, net.minecraft.world.phys.shapes.BooleanOp.ONLY_FIRST);
+  }
 
   public static void main(String[] args) throws Exception {
     SharedConstants.tryDetectVersion();
@@ -48,7 +71,9 @@ public class WorldgenBlocksOracle {
         });
     int count = Block.BLOCK_STATE_REGISTRY.size();
     var hex = new StringBuilder(count * 8);
+    var hex2 = new StringBuilder(count * 8);
     int[] totals = new int[32];
+    int[] totals2 = new int[17];
     var excluded = new TreeSet<String>();
     for (int id = 0; id < count; id++) {
       BlockState state = Block.BLOCK_STATE_REGISTRY.byId(id);
@@ -94,7 +119,62 @@ public class WorldgenBlocksOracle {
       if (state.getBlock() instanceof net.minecraft.world.level.block.SimpleWaterloggedBlock) flags |= 1 << 31;
       for (int b = 0; b < 32; b++) if ((flags & (1 << b)) != 0) totals[b]++;
       hex.append(String.format("%08x", flags));
+      // VMC-025f: a full outline shape (lava stays around templates' other blocks), a sturdy
+      // centre under the block (chains hang there), a falling block.
+      int flags2 = 0;
+      try {
+        if (Block.isShapeFullBlock(state.getShape(level, ORIGIN))) flags2 |= 1;
+        if (state.isFaceSturdy(level, ORIGIN, Direction.DOWN, net.minecraft.world.level.block.SupportType.CENTER)) flags2 |= 2;
+      } catch (IllegalStateException e) {
+        excluded.add(BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
+      }
+      if (state.getBlock() instanceof net.minecraft.world.level.block.FallingBlock) flags2 |= 4;
+      // Redstone wire connects to signal sources and around redstone conductors.
+      try {
+        if (state.isRedstoneConductor(level, ORIGIN)) flags2 |= 8;
+      } catch (IllegalStateException e) {
+        excluded.add(BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
+      }
+      if (state.isSignalSource()) flags2 |= 16;
+      // Connections (stairs, fences, panes and bars, walls): what a wall's post and sides test on
+      // the bottom face of the block above them, and the block classes.
+      try {
+        var bottom = state.getCollisionShape(level, ORIGIN).getFaceShape(Direction.DOWN);
+        if (covers(bottom, (net.minecraft.world.phys.shapes.VoxelShape) wallField("TEST_SHAPE_POST"))) flags2 |= 32;
+        @SuppressWarnings("unchecked")
+        var sides = (Map<Direction, net.minecraft.world.phys.shapes.VoxelShape>) wallField("TEST_SHAPES_WALL");
+        int bit = 64;
+        for (var d : List.of(Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST)) {
+          if (covers(bottom, sides.get(d))) flags2 |= bit;
+          bit <<= 1;
+        }
+      } catch (IllegalStateException e) {
+        excluded.add(BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
+      }
+      var block = state.getBlock();
+      if (Block.isExceptionForConnection(state)) flags2 |= 1 << 10;
+      if (block instanceof net.minecraft.world.level.block.IronBarsBlock) flags2 |= 1 << 11;
+      if (block instanceof net.minecraft.world.level.block.StairBlock) flags2 |= 1 << 12;
+      if (block instanceof net.minecraft.world.level.block.FenceGateBlock) flags2 |= 1 << 13;
+      if (block instanceof net.minecraft.world.level.block.WallBlock) flags2 |= 1 << 14;
+      if (block instanceof net.minecraft.world.level.block.FenceBlock) flags2 |= 1 << 15;
+      if (block instanceof net.minecraft.world.level.block.DoorBlock) flags2 |= 1 << 16;
+      for (int b = 0; b < 17; b++) if ((flags2 & (1 << b)) != 0) totals2[b]++;
+      hex2.append(String.format("%08x", flags2));
     }
+    // The block entity type each block with one creates (the type that lists the block as valid).
+    var entityTypes = new JsonObject();
+    var byBlock = new TreeMap<String, String>();
+    for (var type : BuiltInRegistries.BLOCK_ENTITY_TYPE) {
+      for (var block : BuiltInRegistries.BLOCK) {
+        if (block instanceof net.minecraft.world.level.block.EntityBlock && type.isValid(block.defaultBlockState())) {
+          var previous = byBlock.put(BuiltInRegistries.BLOCK.getKey(block).toString(),
+              BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(type).toString());
+          if (previous != null) throw new IllegalStateException("two block entity types for " + block);
+        }
+      }
+    }
+    byBlock.forEach(entityTypes::addProperty);
     var out = new JsonObject();
     out.addProperty("version", "26.3");
     out.addProperty("data_version", 5023);
@@ -107,6 +187,11 @@ public class WorldgenBlocksOracle {
         "occludes_down", "occludes_up", "occludes_north", "occludes_south", "occludes_west", "occludes_east",
         "liquid_container", "simple_waterlogged")));
     out.addProperty("flags", hex.toString());
+    out.add("bits2", new Gson().toJsonTree(List.of("full_shape", "center_support_down", "falling", "redstone_conductor",
+        "signal_source", "covers_wall_post", "covers_wall_north", "covers_wall_east", "covers_wall_south", "covers_wall_west",
+        "connection_exception", "iron_bars", "stairs", "fence_gate", "wall", "fence", "door")));
+    out.addProperty("flags2", hex2.toString());
+    out.add("block_entity_types", entityTypes);
     var canBurn = net.minecraft.world.level.block.FireBlock.class.getDeclaredMethod("canBurn", BlockState.class);
     canBurn.setAccessible(true);
     var flammable = new JsonArray();
@@ -127,7 +212,8 @@ public class WorldgenBlocksOracle {
     out.add("flammable", flammable);
     out.add("excluded", new Gson().toJsonTree(excluded));
     Files.writeString(Path.of(args[0]), new Gson().toJson(out) + "\n");
-    System.out.println("PASS: worldgen flags of " + count + " block states " + Arrays.toString(totals) + ", " + burning
+    System.out.println("PASS: worldgen flags of " + count + " block states " + Arrays.toString(totals) + " "
+        + Arrays.toString(totals2) + ", " + entityTypes.size() + " blocks with block entities, " + burning
         + " flammable; excluded " + excluded);
   }
 }

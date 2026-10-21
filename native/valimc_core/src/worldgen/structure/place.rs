@@ -6,17 +6,19 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use super::super::blocks::{BlockSet, BlockTable, Heightmap, FLUID_EMPTY, LIQUID, SOLID_RENDER};
+use super::super::feature::Decoration;
 use super::super::random::Random;
 use super::super::region::Region;
 use super::super::template::{Mirror, Rotation, Templates};
 use super::piece::{BoundingBox, Direction, Piece, PieceKind};
-use super::{scattered, Start, StructureKind, StructureRegistry};
+use super::{jigsaw_place, scattered, template_place, Start, StructureKind, StructureRegistry};
 
 /// What placement shares across a decoration: the block table, state
 /// transforms and states by name.
 pub struct Placer<'d> {
+    pub decoration: &'d Decoration,
     pub table: &'d BlockTable,
-    templates: Option<&'d Templates>,
+    pub templates: Option<&'d Templates>,
     pub seed: i64,
     states: RefCell<HashMap<&'static str, u16>>,
     /// `StructurePiece.SHAPE_CHECK_BLOCKS`: placed blocks whose shape
@@ -27,11 +29,9 @@ pub struct Placer<'d> {
 }
 
 impl<'d> Placer<'d> {
-    pub fn new(
-        table: &'d BlockTable,
-        templates: Option<&'d Templates>,
-        seed: i64,
-    ) -> Result<Placer<'d>, String> {
+    pub fn new(decoration: &'d Decoration, seed: i64) -> Result<Placer<'d>, String> {
+        let table = decoration.table.as_ref();
+        let templates = decoration.templates().ok();
         let blocks = |names: &[&str]| {
             names
                 .iter()
@@ -40,6 +40,7 @@ impl<'d> Placer<'d> {
                 .map(BlockSet::from_blocks)
         };
         Ok(Placer {
+            decoration,
             table,
             templates,
             seed,
@@ -587,21 +588,24 @@ pub fn place_in_chunk(
     c.reference = [x, first.bbox.min_y, z];
     for piece in start.pieces.iter_mut() {
         if piece.bbox.intersects(&c.chunk_box) {
-            post_process(piece, c)?;
+            post_process(piece, c, &registry.structures[start.structure].kind)?;
         }
     }
     match registry.structures[start.structure].kind {
         StructureKind::DesertPyramid => scattered::desert_pyramid_after_place(&start.pieces, c),
+        StructureKind::WoodlandMansion => template_place::mansion_after_place(&start.pieces, c),
         _ => Ok(()),
     }
 }
 
 /// `StructurePiece.postProcess` by piece type.
-fn post_process(piece: &mut Piece, c: &mut Ctx) -> Result<(), String> {
+fn post_process(piece: &mut Piece, c: &mut Ctx, kind: &StructureKind) -> Result<(), String> {
     match piece.kind {
         PieceKind::Scattered { .. } | PieceKind::BuriedTreasure => {
             scattered::post_process(piece, c)
         }
+        PieceKind::Template(_) => template_place::post_process(piece, c, kind),
+        PieceKind::Jigsaw(_) => jigsaw_place::post_process(piece, c),
         _ => Err(format!("placing {} pieces is not implemented", piece.id())),
     }
 }
@@ -721,16 +725,47 @@ mod tests {
             .collect();
         assert_eq!(
             long_hash_set_order(&keys[..5]),
-            [-21474836485, -25769803781, -38654705669, -34359738373, -30064771077]
+            [
+                -21474836485,
+                -25769803781,
+                -38654705669,
+                -34359738373,
+                -30064771077
+            ]
         );
         assert_eq!(
             long_hash_set_order(&keys[..30]),
             [
-                -8589934597, 17179869179, 4294967292, -4294967301, -12884901893, -38654705669,
-                -34359738373, -30064771077, 25769803771, 8589934587, -4294967300, -21474836484,
-                -30064771076, -38654705668, -12884901892, 12884901884, -21474836485, 4294967291,
-                30064771067, -5, -25769803781, -17179869189, 8589934588, 21474836475, 12884901883,
-                -8589934596, -34359738372, -25769803780, -17179869188, -4
+                -8589934597,
+                17179869179,
+                4294967292,
+                -4294967301,
+                -12884901893,
+                -38654705669,
+                -34359738373,
+                -30064771077,
+                25769803771,
+                8589934587,
+                -4294967300,
+                -21474836484,
+                -30064771076,
+                -38654705668,
+                -12884901892,
+                12884901884,
+                -21474836485,
+                4294967291,
+                30064771067,
+                -5,
+                -25769803781,
+                -17179869189,
+                8589934588,
+                21474836475,
+                12884901883,
+                -8589934596,
+                -34359738372,
+                -25769803780,
+                -17179869188,
+                -4
             ]
         );
         let all = long_hash_set_order(&keys);

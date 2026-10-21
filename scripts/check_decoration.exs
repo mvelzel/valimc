@@ -10,8 +10,17 @@
 # VMC-025f: with structure placement facts (StructurePlacementOracle, which
 # name structures), ValiMC decorates with every placed feature and those
 # structures' starts placed in their steps, and every start as placement left
-# it must equal vanilla's too.
-[facts_path] = System.argv()
+# it must equal vanilla's too; the terrain carries each chunk's beards from the
+# starts that reference it (VMC-025f3).
+# With a second argument (structure placement facts), ValiMC's block entities
+# are written there for `StructurePlacementOracle verify`, which compares their
+# NBT as vanilla saves it.
+{facts_path, ours_path} =
+  case System.argv() do
+    [facts_path] -> {facts_path, nil}
+    [facts_path, ours_path] -> {facts_path, ours_path}
+  end
+
 facts = facts_path |> File.read!() |> JSON.decode!()
 settings = Map.get(facts, "noise_settings", "minecraft:overworld")
 biome_source = Map.get(facts, "biome_source", "minecraft:overworld")
@@ -38,6 +47,28 @@ end
 
 position = fn {x, y, z} -> "#{x},#{y},#{z}" end
 
+# ValiMC's block entities of an area, for `StructurePlacementOracle verify`.
+block_entities = fn seed, x, z, decorated ->
+  Process.get(:block_entities, []) ++
+    for chunk <- decorated,
+        {{bx, by, bz}, state, type, nbt, loot, loot_seed} <- chunk.block_entity_nbt,
+        nbt != "" or loot != "" do
+      %{
+        "case" => "#{seed}:#{x}:#{z}",
+        "pos" => "#{bx},#{by},#{bz}",
+        "state" => state,
+        "type" => type
+      }
+      |> then(&if(nbt != "", do: Map.put(&1, "nbt", nbt), else: &1))
+      |> then(
+        &if(loot != "",
+          do: Map.merge(&1, %{"loot_table" => loot, "loot_seed" => loot_seed}),
+          else: &1
+        )
+      )
+    end
+end
+
 # The first differing block (Y fastest from the bottom, then X, then Z) and the count.
 first_difference = fn ours, want, {cx, cz} ->
   pairs = Enum.zip(for(<<a::16 <- ours>>, do: a), for(<<b::16 <- want>>, do: b))
@@ -53,6 +84,18 @@ first_difference = fn ours, want, {cx, cz} ->
       z = div(index, height * 16)
       {length(differing), {cx * 16 + x, y, cz * 16 + z}, names.(a), names.(b)}
   end
+end
+
+# Entities in order; a yaw ValiMC leaves random (`NaN`: vanilla takes it from
+# `Math.random`, as end city shulkers keep it) matches any.
+same_entities = fn ours, want ->
+  length(ours) == length(want) and
+    Enum.zip(ours, want)
+    |> Enum.all?(fn {o, w} ->
+      o == w or
+        (String.ends_with?(o, ",NaN") and
+           String.replace_suffix(o, "NaN", "") == String.replace(w, ~r/[^,]*$/, ""))
+    end)
 end
 
 {failures, blocks, marks, ticks, entities, data, added} =
@@ -83,6 +126,7 @@ end
         case result do
           {:ok, {decorated, starts}} ->
             want = Map.fetch!(area, "starts")
+            if ours_path, do: Process.put(:block_entities, block_entities.(seed, x, z, decorated))
 
             failures =
               if Enum.sort(starts) == Enum.sort(want),
@@ -151,7 +195,7 @@ end
                 {:block_entity_data, chunk.block_entity_data -- expected["block_entity_data"],
                  expected["block_entity_data"] -- chunk.block_entity_data}
             ),
-            if(chunk.entities != Map.get(expected, "entities", []),
+            if(not same_entities.(chunk.entities, Map.get(expected, "entities", [])),
               do: {:entities, chunk.entities, expected["entities"]}
             )
           ]
@@ -168,6 +212,8 @@ end
       end)
   end
 
+if ours_path, do: File.write!(ours_path, JSON.encode!(Process.get(:block_entities, [])))
+
 if failures != [] do
   for failure <- failures |> Enum.reverse() |> Enum.take(8), do: IO.inspect(failure, limit: 20)
 
@@ -175,6 +221,21 @@ if failures != [] do
     failures
     |> Enum.frequencies_by(fn {seed, centre, _, _} -> {seed, centre} end)
     |> Enum.sort()
+
+  # What differs, over every failure: area errors (numbers left out) and the kinds of difference.
+  reasons =
+    failures
+    |> Enum.flat_map(fn {_, _, _, problems} ->
+      Enum.map(problems, fn
+        {:error, reason} -> String.replace(reason, ~r/-?\d+/, "N")
+        {kind, _} -> to_string(kind)
+        {kind, _, _} -> to_string(kind)
+      end)
+    end)
+    |> Enum.frequencies()
+    |> Enum.sort_by(fn {_, n} -> -n end)
+
+  IO.puts("Differences: #{inspect(reasons, limit: :infinity, printable_limit: :infinity)}")
 
   IO.puts(
     "FAIL: #{length(failures)} decorated chunks differ from vanilla's, per area: #{inspect(areas)}"
