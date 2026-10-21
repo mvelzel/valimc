@@ -43,9 +43,12 @@ defmodule Valimc.DifficultyTest do
     }
 
     assert {:ok, bytes} = ClockRecord.encode(data)
-    assert byte_size(bytes) == 114
+    assert byte_size(bytes) == 199
     assert {:ok, ^data} = ClockRecord.decode(bytes)
-    <<"VMCLOCK", 4, prior::binary-size(71), 3, 1, 1, _checksum::binary-size(32)>> = bytes
+
+    <<"VMCLOCK", 5, prior::binary-size(71), 3, 1, 1, _borders::binary-size(85),
+      _checksum::binary-size(32)>> = bytes
+
     legacy = signed(<<"VMCLOCK", 2, prior::binary>>)
     assert {:ok, loaded} = ClockRecord.decode(legacy)
     assert loaded == %{data | difficulty: %Difficulty{}}

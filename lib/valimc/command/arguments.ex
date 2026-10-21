@@ -20,7 +20,7 @@ defmodule Valimc.Command.Arguments do
   @int_max 2_147_483_647
 
   @supported ~w(brigadier:bool brigadier:integer brigadier:long brigadier:float brigadier:double
-    brigadier:string minecraft:entity minecraft:gamemode minecraft:vec3 minecraft:block_pos
+    brigadier:string minecraft:entity minecraft:gamemode minecraft:vec3 minecraft:vec2 minecraft:block_pos
     minecraft:rotation minecraft:entity_anchor minecraft:time minecraft:message
     minecraft:item_stack minecraft:item_predicate minecraft:block_state minecraft:block_predicate
     minecraft:resource minecraft:resource_or_tag minecraft:resource_location
@@ -91,6 +91,7 @@ defmodule Valimc.Command.Arguments do
   end
 
   def parse("minecraft:vec3", _props, reader, _source), do: Coordinates.vec3(reader)
+  def parse("minecraft:vec2", _props, reader, _source), do: Coordinates.vec2(reader)
   def parse("minecraft:block_pos", _props, reader, _source), do: Coordinates.block_pos(reader)
   def parse("minecraft:rotation", _props, reader, _source), do: Coordinates.rotation(reader)
 

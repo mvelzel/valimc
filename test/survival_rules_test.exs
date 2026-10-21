@@ -5,10 +5,11 @@ defmodule Valimc.SurvivalRulesTest do
 
   test "v4 stores the regeneration rule; v3 migrates to native true and invalid values reject" do
     data = %{ClockRecord.new() | natural_regeneration: false}
-    assert {:ok, <<"VMCLOCK", 4, _::binary>> = bytes} = ClockRecord.encode(data)
+    assert {:ok, <<"VMCLOCK", 5, _::binary>> = bytes} = ClockRecord.encode(data)
     assert {:ok, ^data} = ClockRecord.decode(bytes)
-    size = byte_size(bytes) - 8 - 1 - 32
-    <<"VMCLOCK", 4, prior::binary-size(^size), 0, _::binary-size(32)>> = bytes
+    # Version 5 appends the world borders (one overworld entry: 85 bytes).
+    size = byte_size(bytes) - 8 - 1 - 85 - 32
+    <<"VMCLOCK", 5, prior::binary-size(^size), 0, _::binary-size(85), _::binary-size(32)>> = bytes
     assert {:ok, legacy} = ClockRecord.decode(seal(<<"VMCLOCK", 3, prior::binary>>))
     assert legacy.natural_regeneration
 

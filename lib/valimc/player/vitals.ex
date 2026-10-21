@@ -28,7 +28,7 @@ defmodule Valimc.Player.Vitals do
     World
   }
 
-  alias Valimc.World.{EntityReplication, WeatherReplication}
+  alias Valimc.World.{BorderReplication, EntityReplication, WeatherReplication}
   import Bitwise
   @hunger EffectTypes.id("hunger")
   @absorption EffectTypes.id("absorption")
@@ -77,6 +77,30 @@ defmodule Valimc.Player.Vitals do
   end
 
   def apply_void_damage(state), do: state
+
+  @doc """
+  Damage outside the world border (VMC-027b), after the below-world check as
+  in `LivingEntity.baseTick`. Suffocation inside blocks, which vanilla checks
+  first, is not modelled yet.
+  """
+  def apply_border_damage(%{life_stage: :alive} = state) do
+    amount =
+      Valimc.World.Border.damage(
+        Valimc.World.Clock.border_physics(),
+        state.player.x,
+        state.player.z
+      )
+
+    if amount > 0 do
+      {:ok, selected} = PlayerHealth.hurt_window(state.player.health, amount)
+      {_, state} = apply_damage(state, selected, :outside_border)
+      state
+    else
+      state
+    end
+  end
+
+  def apply_border_damage(state), do: state
 
   def apply_movement_exhaustion(%{player: %{abilities: %{invulnerable: true}}} = state, _),
     do: state
@@ -331,6 +355,7 @@ defmodule Valimc.Player.Vitals do
     {weather_view, weather_packets} =
       WeatherReplication.reconcile(nil, Valimc.World.Clock.weather())
 
+    border = Valimc.World.Clock.border()
     inventory = Inventory.new(player.abilities.infinite_materials)
 
     state = %{
@@ -357,13 +382,15 @@ defmodule Valimc.Player.Vitals do
         entity_cache: %{},
         clock_version: clock_version,
         difficulty_view: difficulty,
-        weather_view: weather_view
+        weather_view: weather_view,
+        border_view: border
     }
 
     send_packets(
       state,
       [
         Packets.respawn(player, player.last_death),
+        BorderReplication.initialize(border),
         Packets.level_load_start(),
         clock_packet,
         difficulty_packet,

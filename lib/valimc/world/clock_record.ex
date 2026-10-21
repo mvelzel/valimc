@@ -1,9 +1,10 @@
 defmodule Valimc.World.ClockRecord do
   @moduledoc "Small checksummed world clock snapshots; private preview format, not vanilla saved-data NBT."
   alias Valimc.Protocol.Data
-  alias Valimc.World.{ClockState, Difficulty, Weather}
+  alias Valimc.World.{Border, ClockState, Difficulty, Weather}
   @names Data.registries()["minecraft:world_clock"]
-  @max_bytes 256
+  @dimensions ~w(minecraft:overworld minecraft:the_nether minecraft:the_end)
+  @max_bytes 1024
   def names, do: @names
   def max_bytes, do: @max_bytes
 
@@ -14,8 +15,12 @@ defmodule Valimc.World.ClockRecord do
       clocks: Map.new(@names, &{&1, %ClockState{}}),
       weather: Weather.new(),
       difficulty: %Difficulty{},
-      natural_regeneration: true
+      natural_regeneration: true,
+      borders: %{"minecraft:overworld" => Border.new()}
     }
+
+  @doc "Dimensions that can hold a world border."
+  def dimensions, do: @dimensions
 
   def valid?(%{
         game_time: time,
@@ -23,12 +28,14 @@ defmodule Valimc.World.ClockRecord do
         clocks: clocks,
         weather: weather,
         difficulty: difficulty,
-        natural_regeneration: regeneration
+        natural_regeneration: regeneration,
+        borders: borders
       }) do
     is_integer(time) and time in -9_223_372_036_854_775_808..9_223_372_036_854_775_807 and
       is_boolean(advance) and is_map(clocks) and Enum.sort(Map.keys(clocks)) == Enum.sort(@names) and
       Enum.all?(clocks, fn {_, clock} -> ClockState.valid?(clock) end) and Weather.valid?(weather) and
-      Difficulty.valid?(difficulty) and is_boolean(regeneration)
+      Difficulty.valid?(difficulty) and is_boolean(regeneration) and is_map(borders) and
+      Enum.all?(borders, fn {name, border} -> name in @dimensions and Border.valid?(border) end)
   end
 
   def valid?(_), do: false
@@ -43,7 +50,8 @@ defmodule Valimc.World.ClockRecord do
       data
       | game_time: ClockState.long(data.game_time + 1),
         clocks: clocks,
-        weather: Weather.tick(data.weather)
+        weather: Weather.tick(data.weather),
+        borders: Map.new(data.borders, fn {name, border} -> {name, Border.tick(border)} end)
     }
   end
 
@@ -59,12 +67,13 @@ defmodule Valimc.World.ClockRecord do
 
       body =
         IO.iodata_to_binary([
-          <<"VMCLOCK", 4, 5023::32, data.game_time::signed-64,
+          <<"VMCLOCK", 5, 5023::32, data.game_time::signed-64,
             if(data.advance_time, do: 1, else: 0), length(@names)>>,
           entries,
           weather_bytes(data.weather),
           <<data.difficulty.level, if(data.difficulty.locked, do: 1, else: 0),
-            if(data.natural_regeneration, do: 1, else: 0)>>
+            if(data.natural_regeneration, do: 1, else: 0)>>,
+          borders_bytes(data.borders)
         ])
 
       {:ok, body <> :crypto.hash(:sha256, body)}
@@ -78,7 +87,7 @@ defmodule Valimc.World.ClockRecord do
     <<body::binary-size(^body_size), checksum::binary-size(32)>> = bytes
     true = checksum == :crypto.hash(:sha256, body)
     <<"VMCLOCK", version, 5023::32, time::signed-64, advance, count, entries::binary>> = body
-    true = version in [1, 2, 3, 4]
+    true = version in [1, 2, 3, 4, 5]
     true = advance in [0, 1] and count == length(@names)
 
     {clocks, weather_bytes} =
@@ -93,6 +102,14 @@ defmodule Valimc.World.ClockRecord do
            paused: paused == 1
          }), tail}
       end)
+
+    {borders, weather_bytes} =
+      if version >= 5 do
+        <<environment::binary-size(26), borders::binary>> = weather_bytes
+        {read_borders(borders, time), environment}
+      else
+        {%{"minecraft:overworld" => Border.new()}, weather_bytes}
+      end
 
     {regeneration, weather_bytes} =
       if version >= 4 do
@@ -111,7 +128,8 @@ defmodule Valimc.World.ClockRecord do
       clocks: clocks,
       weather: weather,
       difficulty: difficulty,
-      natural_regeneration: regeneration
+      natural_regeneration: regeneration,
+      borders: borders
     }
 
     true = valid?(data)
@@ -121,6 +139,26 @@ defmodule Valimc.World.ClockRecord do
   end
 
   def decode(_), do: {:error, :invalid_clock_file}
+
+  defp borders_bytes(borders) do
+    entries =
+      for {name, border} <- Enum.sort(borders),
+          do: [byte_size(name), name, Border.encode(border)]
+
+    [map_size(borders) | entries]
+  end
+
+  defp read_borders(<<count, entries::binary>>, game_time) do
+    {borders, <<>>} =
+      Enum.reduce(1..count//1, {%{}, entries}, fn _, {acc, rest} ->
+        <<size, name::binary-size(size), settings::binary-size(64), tail::binary>> = rest
+        true = name in @dimensions and not is_map_key(acc, name)
+        {:ok, border} = Border.decode(settings, game_time)
+        {Map.put(acc, name, border), tail}
+      end)
+
+    Map.put_new(borders, "minecraft:overworld", Border.new())
+  end
 
   defp weather_bytes(weather) do
     <<weather.clear_time::signed-32, weather.rain_time::signed-32,

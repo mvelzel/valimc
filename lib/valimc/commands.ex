@@ -11,7 +11,7 @@ defmodule Valimc.Commands do
   """
   require Logger
   alias Valimc.Command.{Arguments, Dispatcher, Error, Feedback, Source, Text, Tree}
-  alias Valimc.Commands.{Admin, Chat, Players, Preview, World}
+  alias Valimc.Commands.{Admin, Chat, Players, Preview, World, WorldBorder}
 
   @handlers %{
     ["help"] => {Chat, :help},
@@ -131,7 +131,17 @@ defmodule Valimc.Commands do
     ["teleport", "targets", "location", "facing", "entity", "facingEntity", "facingAnchor"] =>
       {Players, :teleport},
     ["teleport", "targets", "location", "facing", "facingLocation"] => {Players, :teleport},
-    ["teleport", "targets", "location", "rotation"] => {Players, :teleport}
+    ["teleport", "targets", "location", "rotation"] => {Players, :teleport},
+    ["worldborder", "add", "distance"] => {WorldBorder, :add},
+    ["worldborder", "add", "distance", "time"] => {WorldBorder, :add},
+    ["worldborder", "set", "distance"] => {WorldBorder, :set},
+    ["worldborder", "set", "distance", "time"] => {WorldBorder, :set},
+    ["worldborder", "center", "pos"] => {WorldBorder, :center},
+    ["worldborder", "damage", "amount", "damagePerBlock"] => {WorldBorder, :damage_amount},
+    ["worldborder", "damage", "buffer", "distance"] => {WorldBorder, :damage_buffer},
+    ["worldborder", "get"] => {WorldBorder, :get},
+    ["worldborder", "warning", "distance", "distance"] => {WorldBorder, :warning_distance},
+    ["worldborder", "warning", "time", "time"] => {WorldBorder, :warning_time}
   }
 
   @extras [{"stats", {Preview, :stats}}, {"spawn", {Preview, :spawn}}]

@@ -8,6 +8,7 @@
     "freeze": "death.attack.freeze",
     "drown": "death.attack.drown",
     "out_of_world": "death.attack.outOfWorld",
+    "outside_border": "death.attack.outsideBorder",
     "starve": "death.attack.starve",
     "on_fire": "death.attack.onFire",
     "in_fire": "death.attack.inFire",

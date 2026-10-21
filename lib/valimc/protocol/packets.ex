@@ -291,6 +291,7 @@ defmodule Valimc.Protocol.Packets do
              :freeze,
              :drown,
              :out_of_world,
+             :outside_border,
              :starve,
              :on_fire,
              :in_fire,

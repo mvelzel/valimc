@@ -90,7 +90,7 @@ defmodule Valimc.PlayerMotionQuery do
       blocks: blocks,
       block_entities: %{},
       entities: [],
-      border: %BorderSnapshot{},
+      border: Valimc.World.Clock.border_snapshot(),
       subject: player.entity_id
     }
 
@@ -258,7 +258,8 @@ defmodule Valimc.PlayerMotionQuery do
 
   defp shapes(box, blocks, context, {x, _, z}) do
     with {:ok, result} <- BlockCollisions.collect_frame(box, blocks, context),
-         {:ok, border} <- BorderSnapshot.colliders(%BorderSnapshot{}, {x, z}, box) do
+         {:ok, border} <-
+           BorderSnapshot.colliders(Valimc.World.Clock.border_snapshot(), {x, z}, box) do
       {:ok, Enum.map(result.colliders, & &1.shape) ++ border}
     end
   end

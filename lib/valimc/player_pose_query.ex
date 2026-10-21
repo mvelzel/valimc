@@ -4,7 +4,6 @@ defmodule Valimc.PlayerPoseQuery do
 
   alias Valimc.Physics.{
     BlockCollisions,
-    BorderSnapshot,
     CollisionContext,
     CollisionQuery,
     PlayerPose,
@@ -46,7 +45,7 @@ defmodule Valimc.PlayerPoseQuery do
                    blocks: frame,
                    block_entities: %{},
                    entities: [],
-                   border: %BorderSnapshot{},
+                   border: Valimc.World.Clock.border_snapshot(),
                    subject: subject
                  }),
                {:ok, powder} <- Valimc.PlayerEnvironment.sample(frame, result.geometry.box),

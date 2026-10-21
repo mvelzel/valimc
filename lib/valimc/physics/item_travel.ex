@@ -117,7 +117,8 @@ defmodule Valimc.Physics.ItemTravel do
 
   defp shapes(box, frame, {x, y, z}) do
     with {:ok, found} <- BlockCollisions.collect_frame(box, frame, context(y)),
-         {:ok, border} <- BorderSnapshot.colliders(%BorderSnapshot{}, {x, z}, box),
+         {:ok, border} <-
+           BorderSnapshot.colliders(Valimc.World.Clock.border_snapshot(), {x, z}, box),
          true <- length(found.colliders) + length(border) <= 128 do
       {:ok, Enum.map(found.colliders, & &1.shape) ++ border}
     else

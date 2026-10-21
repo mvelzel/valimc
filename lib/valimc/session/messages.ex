@@ -42,7 +42,12 @@ defmodule Valimc.Session.Messages do
 
   alias Valimc.World.TickClock
 
-  alias Valimc.World.{ChestLidReplication, EntityReplication, WeatherReplication}
+  alias Valimc.World.{
+    BorderReplication,
+    ChestLidReplication,
+    EntityReplication,
+    WeatherReplication
+  }
 
   # Vanilla tracking ranges, in chunks, of the entity kinds regions own (VMC-070).
   @tracking_ranges %{
@@ -701,6 +706,7 @@ defmodule Valimc.Session.Messages do
           {:noreply,
            state
            |> Vitals.apply_void_damage()
+           |> Vitals.apply_border_damage()
            |> ItemUse.tick_item_use()
            |> Vitals.tick_food()
            |> Vitals.reset_effect_fall()
@@ -819,6 +825,16 @@ defmodule Valimc.Session.Messages do
           Replication.emit_peer_packets(
             %{state | weather_view: weather_view},
             weather_packets,
+            :buffer
+          )
+
+        {border_view, border_packets} =
+          BorderReplication.reconcile(state.border_view, Valimc.World.Clock.border())
+
+        state =
+          Replication.emit_peer_packets(
+            %{state | border_view: border_view},
+            border_packets,
             :buffer
           )
 

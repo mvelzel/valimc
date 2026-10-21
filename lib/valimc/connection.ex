@@ -299,6 +299,7 @@ defmodule Valimc.Connection do
        clock_version: nil,
        weather_view: nil,
        difficulty_view: nil,
+       border_view: nil,
        outbound: [],
        # Admission derives permissions from the server-selected or saved mode.
        inventory: Inventory.new(),

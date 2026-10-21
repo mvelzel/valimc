@@ -662,6 +662,12 @@ STAGES = [
         ('java', 'BorderCollisionOracle', '@border-collisions.json'),
         ('check', 'check_border_collisions.exs', '@border-collisions.json'),
     ]),
+    ('world_border', [
+        ('java', 'WorldBorderOracle', 'kernel', '@border-kernel.json'),
+        ('check', 'check_world_border.exs', 'kernel', '@border-kernel.json'),
+        ('java', 'WorldBorderOracle', 'commands', '@border-commands.json'),
+        ('check', 'check_world_border.exs', 'commands', '@border-commands.json'),
+    ]),
     ('player_fit', [
         ('java', 'PlayerFitOracle', '@pose-fit.json'),
         ('check', 'check_pose_fit.exs', '@pose-fit.json'),

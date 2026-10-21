@@ -36,7 +36,7 @@ defmodule Valimc.Net.LoginFlow do
 
   alias Valimc.World.TickClock
 
-  alias Valimc.World.{WeatherReplication}
+  alias Valimc.World.{BorderReplication, WeatherReplication}
   @fire_resistance EffectTypes.id("fire_resistance")
   @resistance EffectTypes.id("resistance")
   @absorption EffectTypes.id("absorption")
@@ -246,18 +246,21 @@ defmodule Valimc.Net.LoginFlow do
       WeatherReplication.reconcile(nil, Valimc.World.Clock.weather())
 
     {difficulty, difficulty_packet} = Valimc.World.Clock.difficulty()
+    border = Valimc.World.Clock.border()
 
     state = %{
       state
       | clock_version: clock_version,
         weather_view: weather_view,
-        difficulty_view: difficulty
+        difficulty_view: difficulty,
+        border_view: border
     }
 
     send_packets(state, [
       Packets.login(state.player),
       Packets.experience(state.player.progression.experience),
       Valimc.CookingRecipeBook.packet(state.player.progression.recipes, true, false),
+      BorderReplication.initialize(border),
       clock_packet,
       difficulty_packet,
       Packets.abilities(state.player.abilities),

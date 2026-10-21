@@ -122,7 +122,7 @@ public class DamageProtectionOracle {
       case "instant"->List.of(DamageTypes.INDIRECT_MAGIC);
       case "hazards"->List.of(DamageTypes.CAMPFIRE,DamageTypes.CACTUS,DamageTypes.SWEET_BERRY_BUSH);
       case "fire"->List.of(DamageTypes.IN_FIRE,DamageTypes.ON_FIRE,DamageTypes.LAVA,DamageTypes.HOT_FLOOR);
-      case "environment"->List.of(DamageTypes.FALL,DamageTypes.STALAGMITE,DamageTypes.FREEZE,DamageTypes.DROWN,DamageTypes.FELL_OUT_OF_WORLD,DamageTypes.STARVE);
+      case "environment"->List.of(DamageTypes.FALL,DamageTypes.STALAGMITE,DamageTypes.FREEZE,DamageTypes.DROWN,DamageTypes.FELL_OUT_OF_WORLD,DamageTypes.STARVE,DamageTypes.OUTSIDE_BORDER);
       default->throw new AssertionError("Unknown source matrix: "+mode);
     };
     for(var type:types){

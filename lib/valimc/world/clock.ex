@@ -3,6 +3,7 @@ defmodule Valimc.World.Clock do
   alias Valimc.Protocol.Packets
 
   alias Valimc.World.{
+    Border,
     ClockRecord,
     ClockState,
     ClockStore,
@@ -47,6 +48,34 @@ defmodule Valimc.World.Clock do
     [{:survival, view}] = :ets.lookup(__MODULE__, :survival)
     view
   end
+
+  @overworld "minecraft:overworld"
+
+  @doc "A dimension's world border (VMC-027b), for replication and commands."
+  def border(dimension \\ @overworld),
+    do: :ets.lookup_element(__MODULE__, {:border, dimension}, 2)
+
+  @doc """
+  A dimension's border as collision and damage readers need it
+  (`Border.physics/1`); vanilla's default border when no clock runs (offline
+  checks).
+  """
+  def border_physics(dimension \\ @overworld) do
+    :ets.lookup_element(__MODULE__, {:border, dimension}, 3)
+  rescue
+    ArgumentError -> Border.physics(Border.new())
+  end
+
+  @doc "The border collision observation (`Valimc.Physics.BorderSnapshot`)."
+  def border_snapshot(dimension \\ @overworld), do: border_physics(dimension).snapshot
+
+  @doc """
+  Apply one `/worldborder` change atomically against the current border
+  (`Border.command/3` at the current game time): `{:ok, result}` or
+  `{:error, reason}`.
+  """
+  def border_command(operation, dimension \\ @overworld, pid \\ __MODULE__),
+    do: GenServer.call(pid, {:border_command, dimension, operation})
 
   @impl true
   def init(opts) do
@@ -110,6 +139,19 @@ defmodule Valimc.World.Clock do
 
       error ->
         {:reply, error, state}
+    end
+  end
+
+  def handle_call({:border_command, dimension, operation}, _, state) do
+    with %Border{} = border <- Map.get(state.data.borders, dimension, :unknown_dimension),
+         {:ok, border, result} <- Border.command(border, operation, state.data.game_time) do
+      data = %{state.data | borders: Map.put(state.data.borders, dimension, border)}
+      next = %{state | data: data, revision: state.revision + 1, dirty: true}
+      publish(next)
+      {:reply, {:ok, result}, next}
+    else
+      :unknown_dimension -> {:reply, {:error, :unknown_dimension}, state}
+      error -> {:reply, error, state}
     end
   end
 
@@ -256,11 +298,16 @@ defmodule Valimc.World.Clock do
 
     difficulty = Difficulty.cache(state.data.difficulty, previous_difficulty)
 
+    borders =
+      for {dimension, border} <- state.data.borders,
+          do: {{:border, dimension}, border, Border.physics(border)}
+
     :ets.insert(state.table, [
       {:network, version, periodic, latest},
       {:weather, view},
       {:difficulty, difficulty},
       {:survival, {state.data.difficulty.level, state.data.natural_regeneration}}
+      | borders
     ])
   end
 

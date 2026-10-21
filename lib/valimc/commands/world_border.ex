@@ -1,0 +1,180 @@
+defmodule Valimc.Commands.WorldBorder do
+  @moduledoc """
+  `/worldborder` (VMC-027c), vanilla's `WorldBorderCommand`: `add`, `set`,
+  `center`, `damage amount`, `damage buffer`, `get`, `warning distance` and
+  `warning time` on the source's dimension border (the overworld in this
+  preview). Each change runs atomically in the border owner
+  (`Valimc.World.Clock.border_command/2`); feedback and return values follow
+  vanilla, numbers formatted as `String.format(Locale.ROOT, ...)` does.
+  """
+  alias Valimc.Command.{Error, Feedback, Text}
+  alias Valimc.World.{Border, Clock}
+
+  def add(arguments, source), do: change(:add, arguments, source)
+  def set(arguments, source), do: change(:set, arguments, source)
+  def center(arguments, source), do: change(:center, arguments, source)
+  def damage_amount(arguments, source), do: change(:damage_amount, arguments, source)
+  def damage_buffer(arguments, source), do: change(:damage_buffer, arguments, source)
+  def warning_distance(arguments, source), do: change(:warning_distance, arguments, source)
+  def warning_time(arguments, source), do: change(:warning_time, arguments, source)
+
+  def get(_arguments, source) do
+    {component, result} = query(Clock.border())
+    Feedback.success(source, component, false)
+    {result, source.state}
+  end
+
+  defp change(kind, arguments, source) do
+    operation = operation(kind, arguments, source.position)
+
+    case Clock.border_command(operation) do
+      {:ok, outcome} ->
+        {component, result} = success(operation, outcome)
+        Feedback.success(source, component)
+        {result, source.state}
+
+      {:error, reason} ->
+        Error.throw!(%Error{message: failure(reason)})
+    end
+  end
+
+  @doc """
+  The border operation for a handler's parsed arguments at a source position:
+  distances are doubles, damage values floats, a centre a float pair (`Vec2`).
+  """
+  def operation(:add, arguments, _), do: {:add, arguments["distance"], arguments["time"]}
+  def operation(:set, arguments, _), do: {:set, arguments["distance"], ticks(arguments)}
+
+  def operation(:center, %{"pos" => {:world, [x, z]}}, {sx, _, sz}),
+    do: {:center, float32(coordinate(x, sx)), float32(coordinate(z, sz))}
+
+  def operation(:damage_amount, arguments, _),
+    do: {:damage_amount, arguments["damagePerBlock"]}
+
+  def operation(:damage_buffer, arguments, _), do: {:damage_buffer, arguments["distance"]}
+  def operation(:warning_distance, arguments, _), do: {:warning_distance, arguments["distance"]}
+  def operation(:warning_time, arguments, _), do: {:warning_time, arguments["time"]}
+
+  defp ticks(arguments), do: Map.get(arguments, "time", 0)
+
+  defp coordinate({true, value}, origin), do: value + origin
+  defp coordinate({false, value}, _origin), do: value
+
+  @doc "`/worldborder get`: the size rounded to a whole number and `floor(size + 0.5)`."
+  def query(border) do
+    size = Border.size(border)
+
+    {Text.translatable("commands.worldborder.get", [fixed(size, 0)]),
+     java_int(Float.floor(size + 0.5))}
+  end
+
+  @doc "Feedback and return value of a successful change."
+  def success({kind, _, _}, {current, distance, ticks}) when kind in [:add, :set] do
+    formatted = fixed(distance, 1)
+
+    component =
+      cond do
+        ticks <= 0 ->
+          Text.translatable("commands.worldborder.set.immediate", [formatted])
+
+        distance > current ->
+          Text.translatable("commands.worldborder.set.grow", [formatted, seconds(ticks)])
+
+        true ->
+          Text.translatable("commands.worldborder.set.shrink", [formatted, seconds(ticks)])
+      end
+
+    {component, java_int(distance - current)}
+  end
+
+  def success({:center, x, z}, _),
+    do: {Text.translatable("commands.worldborder.center.success", [fixed(x, 2), fixed(z, 2)]), 0}
+
+  def success({:damage_amount, value}, _),
+    do:
+      {Text.translatable("commands.worldborder.damage.amount.success", [fixed(value, 2)]),
+       java_int(value)}
+
+  def success({:damage_buffer, value}, _),
+    do:
+      {Text.translatable("commands.worldborder.damage.buffer.success", [fixed(value, 2)]),
+       java_int(value)}
+
+  def success({:warning_time, ticks}, _),
+    do: {Text.translatable("commands.worldborder.warning.time.success", [seconds(ticks)]), ticks}
+
+  def success({:warning_distance, blocks}, _),
+    do: {Text.translatable("commands.worldborder.warning.distance.success", [blocks]), blocks}
+
+  @doc "The failure message of a refused change."
+  def failure(:same_center), do: Text.translatable("commands.worldborder.center.failed")
+  def failure(:same_size), do: Text.translatable("commands.worldborder.set.failed.nochange")
+  def failure(:too_small), do: Text.translatable("commands.worldborder.set.failed.small")
+
+  def failure(:too_big),
+    do: Text.translatable("commands.worldborder.set.failed.big", [{:float, Border.max_size()}])
+
+  def failure(:too_far_out),
+    do: Text.translatable("commands.worldborder.set.failed.far", [{:double, Border.max_center()}])
+
+  def failure(:same_warning_time),
+    do: Text.translatable("commands.worldborder.warning.time.failed")
+
+  def failure(:same_warning_distance),
+    do: Text.translatable("commands.worldborder.warning.distance.failed")
+
+  def failure(:same_damage_buffer),
+    do: Text.translatable("commands.worldborder.damage.buffer.failed")
+
+  def failure(:same_damage_amount),
+    do: Text.translatable("commands.worldborder.damage.amount.failed")
+
+  defp seconds(ticks), do: fixed(ticks / 20.0, 2)
+
+  @doc """
+  `String.format(Locale.ROOT, "%.<decimals>f", value)`: the shortest decimal
+  digits of the double rounded half up, keeping the sign of negative values.
+  """
+  def fixed(value, decimals) when is_float(value) do
+    {digits, exponent} = decimal(abs(value))
+    shift = exponent + decimals
+
+    scaled =
+      if shift >= 0 do
+        digits * Integer.pow(10, shift)
+      else
+        divisor = Integer.pow(10, -shift)
+        quotient = div(digits, divisor)
+        if rem(digits, divisor) * 2 >= divisor, do: quotient + 1, else: quotient
+      end
+
+    text = Integer.to_string(scaled) |> String.pad_leading(decimals + 1, "0")
+    {whole, fraction} = String.split_at(text, byte_size(text) - decimals)
+    sign = if value < 0 or <<value::float>> == <<-0.0::float>>, do: "-", else: ""
+    if decimals == 0, do: sign <> whole, else: sign <> whole <> "." <> fraction
+  end
+
+  # Shortest round-trip digits as `{integer, exponent}` (value = integer × 10^exponent).
+  defp decimal(value) do
+    [mantissa | exponent] = String.split(:erlang.float_to_binary(value, [:short]), ["e", "E"])
+    exponent = if exponent == [], do: 0, else: String.to_integer(hd(exponent))
+
+    case String.split(mantissa, ".") do
+      [whole, fraction] ->
+        {String.to_integer(whole <> fraction), exponent - byte_size(fraction)}
+
+      [whole] ->
+        {String.to_integer(whole), exponent}
+    end
+  end
+
+  defp float32(value) do
+    <<rounded::float-32>> = <<value::float-32>>
+    rounded
+  end
+
+  # `(int)` of a double: saturating, towards zero.
+  defp java_int(value) when value >= 2_147_483_647, do: 2_147_483_647
+  defp java_int(value) when value <= -2_147_483_648, do: -2_147_483_648
+  defp java_int(value), do: trunc(value)
+end
