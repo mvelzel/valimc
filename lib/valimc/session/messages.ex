@@ -318,7 +318,11 @@ defmodule Valimc.Session.Messages do
 
   def info(:save_player, state) do
     Process.send_after(self(), :save_player, Valimc.config(:player_save_interval_ms))
+    info(:save_player_now, state)
+  end
 
+  # `/save-all` (VMC-010b): a checkpoint now, outside the periodic schedule.
+  def info(:save_player_now, state) do
     if state.phase == :play and state.save_ref == nil and not inventory_pending(state) do
       ref = make_ref()
 
@@ -650,9 +654,20 @@ defmodule Valimc.Session.Messages do
         now = System.monotonic_time(:millisecond)
         timeout = Valimc.config(:keepalive_timeout_ms)
 
+        idle = Valimc.Admin.Lists.idle_timeout()
+
         case state.keepalive do
           {_, sent} when now - sent > timeout ->
             reject(state, "Keepalive timed out")
+
+          # VMC-010c: the idle kick, checked with each keepalive.
+          _ when idle > 0 and now - state.last_action > idle * 60_000 ->
+            reject(
+              state,
+              Valimc.Command.Text.encode(
+                Valimc.Command.Text.translatable("multiplayer.disconnect.idling")
+              )
+            )
 
           nil ->
             id = System.unique_integer([:positive])

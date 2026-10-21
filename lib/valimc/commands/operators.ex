@@ -266,7 +266,7 @@ defmodule Valimc.Commands.Operators do
     players =
       case arguments do
         %{"players" => selector} -> Source.required_players(source, selector)
-        _ -> [source.player]
+        _ -> [Source.player!(source)]
       end
 
     packet = Packets.packet("transfer", [Wire.string(host), Wire.varint(port)])

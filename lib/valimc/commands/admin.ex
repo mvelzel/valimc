@@ -5,7 +5,6 @@ defmodule Valimc.Commands.Admin do
   VMC-010.
   """
   alias Valimc.Command.{Error, Feedback, Source, Text}
-  import Valimc.Net.Codec, only: [send_packets: 2]
 
   @facts :json.decode(File.read!(Path.expand("../../../priv/commands/facts.json", __DIR__)))
   @external_resource Path.expand("../../../priv/commands/facts.json", __DIR__)
@@ -41,7 +40,7 @@ defmodule Valimc.Commands.Admin do
       )
     ]
 
-    send_packets(source.state, Enum.map(lines, &Valimc.Protocol.Packets.chat(Text.encode(&1))))
+    for line <- lines, do: Feedback.success(source, line, false)
     {1, source.state}
   end
 

@@ -20,6 +20,7 @@ defmodule Valimc.Application do
        name: Valimc.ItemGeometryWorkers, max_children: max(System.schedulers_online() * 8, 1)},
       Valimc.Metrics,
       Valimc.World.TickRate,
+      Valimc.World.Saving,
       {Valimc.World.Clock, []},
       {Valimc.World.Stopwatches, []},
       {Registry, keys: :unique, name: Valimc.RegionRegistry},
@@ -72,6 +73,9 @@ defmodule Valimc.Application do
        max_children: Valimc.config(:max_connections)},
       Valimc.Listener
     ]
+
+    # VMC-010f: the console reads standard input once the server listens.
+    children = children ++ if(Valimc.config(:console), do: [Valimc.Console], else: [])
 
     # Restart dependent owners after infrastructure loss; listener failures stay local.
     Supervisor.start_link(children, strategy: :rest_for_one, name: Valimc.Supervisor)

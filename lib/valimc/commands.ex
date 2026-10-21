@@ -891,6 +891,11 @@ defmodule Valimc.Commands do
     ["transfer", "hostname", "port"] => {Operators, :transfer},
     ["transfer", "hostname", "port", "players"] => {Operators, :transfer},
     ["locate", "structure", "structure"] => {Valimc.Commands.Locate, :structure},
+    ["save-all"] => {Valimc.Commands.Server, :save_all},
+    ["save-all", "flush"] => {Valimc.Commands.Server, :save_all_flush},
+    ["save-on"] => {Valimc.Commands.Server, :save_on},
+    ["save-off"] => {Valimc.Commands.Server, :save_off},
+    ["setidletimeout", "minutes"] => {Valimc.Commands.Server, :setidletimeout},
     ["version"] => {Admin, :version},
     ["kick", "targets"] => {Admin, :kick},
     ["kick", "targets", "reason"] => {Admin, :kick},
@@ -1083,6 +1088,22 @@ defmodule Valimc.Commands do
         for message <- Error.feedback(error, input), do: Feedback.success(source, message, false)
         state
     end
+  end
+
+  @doc "Runs a console line as the server (VMC-010f); a leading `/` is optional."
+  def execute_console(line) do
+    input = String.replace_prefix(line, "/", "")
+    source = Source.console()
+
+    case parse(input, source) do
+      {:ok, {module, function}, arguments, _context} ->
+        run(source, module, function, arguments)
+
+      {:error, error} ->
+        for message <- Error.feedback(error, input), do: Feedback.success(source, message, false)
+    end
+
+    :ok
   end
 
   defp run(source, module, function, arguments) do

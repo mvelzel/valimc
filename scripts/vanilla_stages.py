@@ -170,6 +170,11 @@ STAGES = [
         ('java', 'DecorationOracle', '@live.json', '*', 'live'),
         ('app', 'check_live_decoration.exs', '@live.json'),
     ]),
+    # VMC-010f: the English strings the console prints feedback with.
+    ('language', [
+        ('java', 'LanguageOracle', '@en_us.json'),
+        ('same', '@en_us.json', 'priv/lang/en_us.json'),
+    ]),
     ('commands', [
         ('java', 'CommandTreeOracle', 'tree', '@tree.json'),
         ('same', '@tree.json', 'priv/commands/tree.json'),

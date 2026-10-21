@@ -44,6 +44,15 @@ defmodule Valimc.Admin.Lists do
 
   def whitelisted?(uuid), do: lookup({:white, uuid}) != nil
   def white_list?, do: match?({_, true}, lookup(:white_list))
+
+  @doc "The player idle timeout in minutes (vanilla's `player-idle-timeout`); 0 is off."
+  def idle_timeout do
+    case lookup(:idle_timeout) do
+      {_, minutes} -> minutes
+      nil -> 0
+    end
+  end
+
   def enforce_whitelist?, do: match?({_, true}, lookup(:enforce_whitelist))
 
   @doc "An active (unexpired) ban for a UUID or IP, or nil."
@@ -81,6 +90,7 @@ defmodule Valimc.Admin.Lists do
   def whitelist_add(profiles), do: GenServer.call(__MODULE__, {:whitelist_add, profiles})
   def whitelist_remove(profiles), do: GenServer.call(__MODULE__, {:whitelist_remove, profiles})
   def set_white_list(on), do: GenServer.call(__MODULE__, {:white_list, on})
+  def set_idle_timeout(minutes), do: GenServer.call(__MODULE__, {:idle_timeout, minutes})
   def reload_whitelist, do: GenServer.call(__MODULE__, :reload_whitelist)
 
   @doc "`{kind, entries}` snapshots for listing and suggestions."
@@ -125,6 +135,7 @@ defmodule Valimc.Admin.Lists do
     if dir && not File.exists?(file(dir, :whitelist)), do: save(state, :whitelist)
 
     :ets.insert(@table, [
+      {:idle_timeout, state.settings.idle_timeout},
       {:white_list, state.settings.white_list},
       {:enforce_whitelist, state.settings.enforce_whitelist}
     ])
@@ -144,9 +155,16 @@ defmodule Valimc.Admin.Lists do
         _ -> %{}
       end
 
+    idle =
+      case saved["player-idle-timeout"] do
+        minutes when is_integer(minutes) and minutes >= 0 -> minutes
+        _ -> Valimc.config(:player_idle_timeout)
+      end
+
     %{
       white_list: Map.get(saved, "white-list", Valimc.config(:white_list) == true),
-      enforce_whitelist: Valimc.config(:enforce_whitelist) == true
+      enforce_whitelist: Valimc.config(:enforce_whitelist) == true,
+      idle_timeout: idle
     }
   end
 
@@ -155,7 +173,15 @@ defmodule Valimc.Admin.Lists do
   defp save_settings(state) do
     File.mkdir_p!(state.dir)
     path = Path.join(state.dir, "admin-settings.json")
-    File.write!(path <> ".tmp", JSON.encode!(%{"white-list" => state.settings.white_list}))
+
+    File.write!(
+      path <> ".tmp",
+      JSON.encode!(%{
+        "white-list" => state.settings.white_list,
+        "player-idle-timeout" => state.settings.idle_timeout
+      })
+    )
+
     File.rename!(path <> ".tmp", path)
   end
 
@@ -282,6 +308,13 @@ defmodule Valimc.Admin.Lists do
   def handle_call({:white_list, on}, _from, state) do
     state = put_in(state.settings.white_list, on)
     :ets.insert(@table, {:white_list, on})
+    save_settings(state)
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:idle_timeout, minutes}, _from, state) do
+    state = put_in(state.settings.idle_timeout, minutes)
+    :ets.insert(@table, {:idle_timeout, minutes})
     save_settings(state)
     {:reply, :ok, state}
   end

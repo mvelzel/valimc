@@ -48,7 +48,7 @@ defmodule Valimc.Commands.Players do
     targets =
       case arguments do
         %{"target" => selector} -> Source.required_players(source, selector)
-        _ -> [source.player]
+        _ -> [Source.player!(source)]
       end
 
     mode_name = Names.game_mode(mode)
@@ -96,7 +96,7 @@ defmodule Valimc.Commands.Players do
     targets =
       case arguments do
         %{"targets" => selector} -> Source.required_entities(source, selector)
-        _ -> [source.player]
+        _ -> [Source.player!(source)]
       end
 
     case arguments do
@@ -249,7 +249,7 @@ defmodule Valimc.Commands.Players do
     targets =
       case arguments do
         %{"targets" => selector} -> Source.required_players(source, selector)
-        _ -> [source.player]
+        _ -> [Source.player!(source)]
       end
 
     predicate = Map.get(arguments, "item", {:all, []})
@@ -330,7 +330,7 @@ defmodule Valimc.Commands.Players do
     targets =
       case arguments do
         %{"targets" => selector} -> Source.required_entities(source, selector)
-        _ -> [source.player]
+        _ -> [Source.player!(source)]
       end
 
     case arguments do
@@ -472,7 +472,7 @@ defmodule Valimc.Commands.Players do
     targets =
       case arguments do
         %{"targets" => selector} -> Source.required_entities(source, selector)
-        _ -> [source.player]
+        _ -> [Source.player!(source)]
       end
 
     {tracked, state} = on_targets(source, targets, fn _ -> :kill end)

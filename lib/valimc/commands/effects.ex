@@ -49,6 +49,7 @@ defmodule Valimc.Commands.Effects do
     viewers =
       case arguments do
         %{"viewers" => selector} -> Source.required_players(source, selector)
+        _ when source.player == nil -> Valimc.Players.all()
         _ -> [source.player | Enum.reject(Valimc.Players.all(), &(&1.pid == self()))]
       end
 
@@ -95,7 +96,7 @@ defmodule Valimc.Commands.Effects do
     targets =
       case arguments do
         %{"targets" => selector} -> Source.required_players(source, selector)
-        _ -> [source.player]
+        _ -> [Source.player!(source)]
       end
 
     {x, y, z} =

@@ -58,6 +58,10 @@ config :valimc,
   white_list: false,
   enforce_whitelist: false,
   accepts_transfers: false,
+  # VMC-010f: commands from standard input; off in tests.
+  console: config_env() != :test,
+  # VMC-010c: minutes without a player action before the idle kick; 0 is off.
+  player_idle_timeout: 0,
   session_service: Valimc.Auth.SessionService,
   discovery_service: Valimc.Auth.DiscoveryFetch,
   authentication_workers: 32,

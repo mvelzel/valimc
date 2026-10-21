@@ -4,24 +4,32 @@ defmodule Valimc.Command.Feedback do
   `sendFailure` and `broadcastToAdmins`: the source sees the message; with
   broadcast, other online operators see `[Name: message]` in gray italics.
   """
+  require Logger
   alias Valimc.Command.{Error, Source, Text}
   alias Valimc.Protocol.Packets
   import Valimc.Net.Codec, only: [send_packets: 2]
 
   def success(%Source{} = source, component, broadcast \\ true) do
-    send_packets(source.state, [Packets.chat(Text.encode(component))])
+    show(source, component)
     if broadcast, do: admins(source, component)
     :ok
   end
 
   def failure(%Source{} = source, component) do
-    send_packets(source.state, [Packets.chat(Text.encode(Error.failure(component)))])
+    show(source, Error.failure(component))
     :ok
   end
 
+  # The console prints the English text (`sendSystemMessage` logs `getString`).
+  defp show(%Source{state: nil, player: nil}, component),
+    do: Logger.info(Valimc.Command.Render.string(component))
+
+  defp show(source, component),
+    do: send_packets(source.state, [Packets.chat(Text.encode(component))])
+
   @doc "A system message to another online player (or to the source itself)."
   def tell(%Source{} = source, %{pid: pid}, component) do
-    if pid == self(),
+    if pid == self() and source.state != nil,
       do: send_packets(source.state, [Packets.chat(Text.encode(component))]),
       else: Valimc.Connection.deliver(pid, {:chat, Text.encode(component)})
 
@@ -30,8 +38,7 @@ defmodule Valimc.Command.Feedback do
 
   @doc "A message from the server console: logged and shown to operators as `[Server: ...]`."
   def console(component) do
-    require Logger
-    Logger.info("[Server] " <> log_text(component))
+    Logger.info("[Server] " <> Valimc.Command.Render.string(component))
 
     if Valimc.Command.GameRules.get(:send_command_feedback) do
       message =
@@ -46,25 +53,16 @@ defmodule Valimc.Command.Feedback do
     :ok
   end
 
-  # A readable log line: literal text, or a translation key with its arguments.
-  defp log_text({:compound, %{"translate" => {:string, key}} = fields}) do
-    case fields["with"] do
-      nil -> key
-      args -> key <> " " <> inspect(Enum.map(Text.list_items(args), &log_arg/1))
-    end
-  end
-
-  defp log_text(component), do: Text.plain(component)
-
-  defp log_arg({:compound, _} = component), do: log_text(component)
-  defp log_arg({_type, value}), do: value
-
+  # `broadcastToAdmins`: other operators see `[Name: message]`, and a player's
+  # broadcast is also logged to the console (`logAdminCommands`).
   defp admins(source, component) do
-    if Valimc.Command.GameRules.get(:send_command_feedback) do
-      message =
-        Text.translatable("chat.type.admin", [Source.display_name(source), component])
-        |> Text.style([{"color", "gray"}, {"italic", true}])
+    message =
+      Text.translatable("chat.type.admin", [Source.display_name(source), component])
+      |> Text.style([{"color", "gray"}, {"italic", true}])
 
+    unless Source.console?(source), do: Logger.info(Valimc.Command.Render.string(message))
+
+    if Valimc.Command.GameRules.get(:send_command_feedback) do
       for player <- Valimc.Players.all(),
           player.pid != self(),
           Valimc.Permissions.operator?(player),

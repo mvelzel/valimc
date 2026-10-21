@@ -308,6 +308,8 @@ defmodule Valimc.Connection do
        bytes: 0,
        logical_bytes: 0,
        keepalive: nil,
+       # VMC-010c: the last player action (`ServerPlayer.lastActionTime`), for the idle kick.
+       last_action: System.monotonic_time(:millisecond),
        teleport: 1,
        teleport_pending: true,
        login_velocity_pending: false,

@@ -19,6 +19,8 @@
 | `VALIMC_WHITE_LIST` | Whether only operators and whitelisted players may join (`false` by default; `/whitelist on` and `off` save their choice in the world) |
 | `VALIMC_ENFORCE_WHITELIST` | Whether whitelist changes disconnect players who are no longer listed (`false`) |
 | `VALIMC_ACCEPTS_TRANSFERS` | Whether players sent here by `/transfer` on another server may join (`false`) |
+| `VALIMC_PLAYER_IDLE_TIMEOUT` | Minutes without a player action before the player is disconnected; `0` (default) is off; `/setidletimeout` saves its own value in the world |
+| `VALIMC_CONSOLE` | Whether commands are read from standard input (`true` outside tests) |
 
 Operators get their `ops.json` level (4, `operator_level`, for `/op`) and the
 commands of that level; other players get level 0. The world directory holds

@@ -3602,32 +3602,10 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  def handle_info(:save, state) do
-    saving =
-      map_size(state.unsaved) > 0 and not state.saving and not block_transfer_writing?(state)
-
-    if saving,
-      do:
-        Store.snapshot(
-          state.store,
-          state.store_lease,
-          state.unsaved,
-          {self(), state.items.epoch},
-          state.revision
-        )
-
-    state = save_ticks(state)
-    Process.cancel_timer(state.save_timer)
-    timer = send_after(state, :save, 30_000)
-
-    {:noreply,
-     %{
-       state
-       | saving: state.saving or saving,
-         saving_cells: if(saving, do: state.unsaved, else: state.saving_cells),
-         save_timer: timer
-     }}
-  end
+  # The 30-second save of changed cells and scheduled ticks is the autosave
+  # that `/save-off` stops (vanilla's `noSave`); `/save-all` forces one.
+  def handle_info(:save, state), do: save(state, Valimc.World.Saving.auto?())
+  def handle_info({:save, :force}, state), do: save(state, true)
 
   def handle_info({:saved, writer, _revision, result}, %{store: writer} = state) do
     # Keep cells changed again after the snapshot was sent.
@@ -4270,5 +4248,33 @@ defmodule Valimc.World.RegionData do
         :exit, _ -> Process.exit(state.store, :kill)
       end
     end
+  end
+
+  defp save(state, enabled) do
+    saving =
+      enabled and map_size(state.unsaved) > 0 and not state.saving and
+        not block_transfer_writing?(state)
+
+    if saving,
+      do:
+        Store.snapshot(
+          state.store,
+          state.store_lease,
+          state.unsaved,
+          {self(), state.items.epoch},
+          state.revision
+        )
+
+    state = if enabled, do: save_ticks(state), else: state
+    Process.cancel_timer(state.save_timer)
+    timer = send_after(state, :save, 30_000)
+
+    {:noreply,
+     %{
+       state
+       | saving: state.saving or saving,
+         saving_cells: if(saving, do: state.unsaved, else: state.saving_cells),
+         save_timer: timer
+     }}
   end
 end

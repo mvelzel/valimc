@@ -4,6 +4,7 @@ defmodule Valimc.Commands.Chat do
   and `list`. Command chat is unsigned, so vanilla sends it as disguised chat
   bound to the command's chat type and the sender's display name.
   """
+  require Logger
   alias Valimc.Command.{Dispatcher, Error, Feedback, Reader, Source, Text}
   alias Valimc.Protocol.{Data, Packets, Wire}
   import Valimc.Net.Codec, only: [send_packets: 2]
@@ -103,9 +104,17 @@ defmodule Valimc.Commands.Chat do
 
   defp broadcast(source, message, chat_type) do
     content = resolve(source, message)
-    packet = disguised(content, chat_type, Source.display_name(source), nil)
-    send_packets(source.state, [packet])
+    name = Source.display_name(source)
+    packet = disguised(content, chat_type, name, nil)
+    if source.state, do: send_packets(source.state, [packet])
     Valimc.Players.broadcast({:packet, packet}, self())
+    # The server logs the decorated message (`logChatMessage`).
+    decoration =
+      if chat_type == "minecraft:emote_command",
+        do: "chat.type.emote",
+        else: "chat.type.announcement"
+
+    Logger.info(Valimc.Command.Render.string(Text.translatable(decoration, [name, content])))
     {1, source.state}
   end
 
@@ -119,10 +128,21 @@ defmodule Valimc.Commands.Chat do
       outgoing =
         disguised(content, "minecraft:msg_command_outgoing", sender, Source.display_name(target))
 
-      send_packets(source.state, [outgoing])
+      if source.state,
+        do: send_packets(source.state, [outgoing]),
+        else:
+          Logger.info(
+            Valimc.Command.Render.string(
+              Text.translatable("commands.message.display.outgoing", [
+                Source.display_name(target),
+                content
+              ])
+            )
+          )
+
       incoming = disguised(content, "minecraft:msg_command_incoming", sender, nil)
 
-      if target.pid == self(),
+      if target.pid == self() and source.state != nil,
         do: send_packets(source.state, [incoming]),
         else: Valimc.Connection.deliver(target.pid, {:packet, incoming})
     end

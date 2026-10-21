@@ -37,7 +37,8 @@ end
 for {variable, key} <- [
       {"VALIMC_WHITE_LIST", :white_list},
       {"VALIMC_ENFORCE_WHITELIST", :enforce_whitelist},
-      {"VALIMC_ACCEPTS_TRANSFERS", :accepts_transfers}
+      {"VALIMC_ACCEPTS_TRANSFERS", :accepts_transfers},
+      {"VALIMC_CONSOLE", :console}
     ] do
   case System.get_env(variable) do
     nil -> :ok
@@ -45,6 +46,10 @@ for {variable, key} <- [
     "false" -> config :valimc, [{key, false}]
     _ -> raise "#{variable} must be true or false"
   end
+end
+
+if minutes = System.get_env("VALIMC_PLAYER_IDLE_TIMEOUT") do
+  config :valimc, player_idle_timeout: String.to_integer(minutes)
 end
 
 if port = System.get_env("VALIMC_PORT") do

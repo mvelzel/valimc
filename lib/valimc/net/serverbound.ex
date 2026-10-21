@@ -162,7 +162,42 @@ defmodule Valimc.Net.Serverbound do
   end
 
   def handle_packet(%{phase: :play} = state, id, payload) do
-    case Data.name(:play, :serverbound, id) do
+    name = Data.name(:play, :serverbound, id)
+    after_packet = play_packet(state, name, payload)
+    if action?(name, state, after_packet), do: acted(after_packet), else: after_packet
+  end
+
+  def handle_packet(state, _, _), do: reject(state, "Unexpected protocol state")
+
+  # VMC-010c: the packets after which vanilla resets a player's idle time
+  # (`resetLastActionTime`). Input counts once the client has loaded, movement
+  # when the player moved; ValiMC does not repeat each handler's own conditions.
+  @actions ~w(player_action use_item_on use_item set_carried_item chat chat_command
+              chat_command_signed punch player_command attack interact spectator_action
+              client_command container_click place_recipe container_button_click sign_update)
+
+  defp action?(name, _before, _after) when name in @actions, do: true
+
+  defp action?("player_input", before, _after),
+    do: Valimc.PlayerInput.loaded?(before.player.input)
+
+  defp action?(name, before, after_packet)
+       when name in ["move_player_pos", "move_player_pos_rot"] do
+    dx = after_packet.player.x - before.player.x
+    dy = after_packet.player.y - before.player.y
+    dz = after_packet.player.z - before.player.z
+    dx * dx + dy * dy + dz * dz > 1.0e-5
+  end
+
+  defp action?(_name, _before, _after), do: false
+
+  defp acted(%{last_action: _} = state),
+    do: %{state | last_action: System.monotonic_time(:millisecond)}
+
+  defp acted(state), do: state
+
+  defp play_packet(state, name, payload) do
+    case name do
       name
       when state.life_stage != :alive and
              name in [
@@ -382,8 +417,6 @@ defmodule Valimc.Net.Serverbound do
         state
     end
   end
-
-  def handle_packet(state, _, _), do: reject(state, "Unexpected protocol state")
 
   # The view distance the client asks for, in configuration and whenever it changes
   # in play (VMC-070); vanilla's tracking clamps it to the server's.
