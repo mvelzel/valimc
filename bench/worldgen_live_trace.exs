@@ -2,7 +2,8 @@
 # `worldgen_live.exs` (a fresh decorated world at seed 20261020 finalizing
 # N × N regions at once) with call tracing of the proto NIFs (terrain,
 # decoration, full chunks), `:file.datasync/1` and the finalize transaction's
-# steps per region (start, all locks granted, decorated, committed, aborts),
+# steps per region (start, decorating, decorated, committed, busy back-offs,
+# aborts),
 # plus dirty CPU and normal scheduler utilization. Prints the totals, the
 # number of NIFs and decorations running in each 100 ms and each region's
 # timeline; writes the same as an Elixir term.
@@ -97,6 +98,7 @@ proto = Valimc.Worldgen.Proto
 :erlang.trace_pattern({:file, :datasync, 1}, [{[:_], [], [{:return_trace}]}], [:global])
 key = {:map_get, :key, :"$1"}
 :erlang.trace_pattern({proto, :start_finalize, 1}, [{[:"$1"], [], [{:message, key}]}], [:local])
+:erlang.trace_pattern({proto, :back_off, 1}, [{[:"$1"], [], [{:message, key}]}], [:local])
 :erlang.trace_pattern({proto, :decorate, 1}, [{[:"$1"], [], [{:message, key}]}], [:local])
 :erlang.trace_pattern({proto, :commit, 2}, [{[:"$1", :_], [], [{:message, key}]}], [:local])
 :erlang.trace_pattern({proto, :deliver_all, 2}, [{[:"$1", :_], [], [{:message, key}]}], [:local])
@@ -214,10 +216,12 @@ summary =
         commits = get.(:commit)
         delivers = get.(:deliver_all)
         aborts = for {:abort, {_, reason}, _} <- list, do: reason
+        busy = length(get.(:back_off))
 
         %{
           region: inspect(k),
           starts: length(starts),
+          busy: busy,
           aborts: length(aborts),
           abort_reasons: aborts |> Enum.map(&inspect/1) |> Enum.frequencies(),
           first_start_ms: if(starts != [], do: (hd(starts) - m.t0) / 1000),
@@ -258,6 +262,7 @@ summary =
         nc |> Enum.chunk_every(10) |> Enum.map(&Float.round(Enum.sum(&1) / length(&1), 1)),
       deco_timeline_100ms:
         dc |> Enum.chunk_every(10) |> Enum.map(&Float.round(Enum.sum(&1) / length(&1), 1)),
+      busy: per_region |> Enum.map(& &1.busy) |> Enum.sum(),
       aborts: per_region |> Enum.map(& &1.aborts) |> Enum.sum(),
       abort_reasons:
         per_region
@@ -284,7 +289,7 @@ for s <- summary do
 
   IO.puts("  NIF timeline (100 ms): #{inspect(s.nif_timeline_100ms, limit: :infinity)}")
   IO.puts("  decoration timeline (100 ms): #{inspect(s.deco_timeline_100ms, limit: :infinity)}")
-  IO.puts("  aborts #{s.aborts}: #{inspect(s.abort_reasons)}")
+  IO.puts("  busy back-offs #{s.busy}, aborts #{s.aborts}: #{inspect(s.abort_reasons)}")
   for r <- s.measured_regions, do: IO.puts("  #{inspect(r)}")
 end
 

@@ -13,18 +13,29 @@ defmodule Valimc.Worldgen.Proto do
   Finalizing region `R` (coordinated by `R`'s owner, presumed abort with
   durable prepare):
 
-  1. Lock: in region key order (no deadlock), each of the nine owners around
-     `R` generates the terrain it lacks among its chunks of the 12 × 12 around
-     `R`, reports which are final and locks the others for the transaction
-     (`Txn.Permits` kind `:generation`); a foreign lock is durable before the
-     grant is answered, a conflicting request waits (bounded).
-  2. Decorate every undecorated chunk of the 10 × 10 around `R`, Z outer and X
-     inner, in one native call over the locked images.
-  3. Commit one frame: `R`'s changed chunks, its 64 chunks final, and an
-     outbox entry per foreign participant (`Txn.Receipts` sequence from the
-     log incarnation and transaction count, digest of the part).
-  4. Deliver each part (`Txn.Delivery`); the participant applies it, unlocks
+  1. Terrain: each of the nine owners around `R` generates the terrain it
+     lacks among its chunks of the 12 × 12 around `R` and answers once they
+     exist. Nothing is locked yet.
+  2. Lock, all nine at once and never waiting: an owner locks its non-final
+     chunks for the transaction (`Txn.Permits` kind `:generation`) and
+     answers with their images and which are final, or answers busy if any
+     is locked. One busy owner and the coordinator gives every lock back and
+     tries again after a random delay, or sooner when that owner releases a
+     lock. A transaction never holds locks while it waits for another, so
+     transactions whose areas do not overlap run at once.
+  3. Prepare and decorate together: each foreign owner that locked chunks
+     makes its lock durable, while every undecorated chunk of the 10 × 10
+     around `R` is decorated, Z outer and X inner, in one native call over the
+     locked images (queued while the worker pool is full).
+  4. Commit, once decorated and prepared, one frame: `R`'s changed chunks, its
+     64 chunks final, and an outbox entry per foreign participant
+     (`Txn.Receipts` sequence from the log incarnation and transaction count,
+     digest of the part).
+  5. Deliver each part (`Txn.Delivery`); the participant applies it, unlocks
      and records the receipt in one frame, idempotently.
+
+  A lock that is not yet durable dies with its coordinator: the transaction
+  cannot have committed without it.
 
   A participant holding a durable lock whose coordinator died or restarted
   asks it (`status/2`, starting it if needed): a committed part is applied, a
@@ -67,12 +78,17 @@ defmodule Valimc.Worldgen.Proto do
     resolving: %{},
     monitors: %{},
     attempts: 0,
+    busy: 0,
     waiters: [],
     calls: 0,
-    quiet: {0, 0}
+    quiet: {0, 0},
+    # Requests to other owners (`:gen_server.send_request/4`).
+    out: nil,
+    # Coordinators this owner answered busy, woken when it releases a lock.
+    wake: MapSet.new()
   ]
 
-  # A grant may wait for terrain and for conflicting transactions.
+  # A transaction's terrain, locks and prepares must arrive within this.
   @lock_timeout 120_000
   @call_timeout 30_000
   @max_requests 32
@@ -144,11 +160,7 @@ defmodule Valimc.Worldgen.Proto do
   end
 
   @doc false
-  def lock(key, request), do: call(key, {:lock, request}, @lock_timeout)
-  @doc false
   def apply_part(key, request), do: call(key, {:apply, request}, @call_timeout)
-  @doc false
-  def release(key, txn), do: call(key, {:release, txn}, @call_timeout)
   @doc false
   def status(key, txn, asker), do: call(key, {:status, txn, asker}, @call_timeout)
 
@@ -188,7 +200,7 @@ defmodule Valimc.Worldgen.Proto do
     Process.flag(:trap_exit, true)
     {dimension, key} = Valimc.Dimension.unscope(scoped)
     Valimc.Dimension.put(dimension)
-    {:ok, %__MODULE__{key: key}, {:continue, :load}}
+    {:ok, %__MODULE__{key: key, out: :gen_server.reqids_new()}, {:continue, :load}}
   end
 
   @impl true
@@ -261,37 +273,47 @@ defmodule Valimc.Worldgen.Proto do
     end
   end
 
-  # Participant: lock chunks for a foreign (or this owner's) transaction.
-  def handle_call(
-        {:lock, %{txn: txn, coordinator: coordinator, chunks: chunks} = request},
-        from,
-        state
-      ) do
+  # Participant: answer once a transaction's chunks have terrain.
+  def handle_call({:terrain, %{txn: txn, chunks: chunks}}, from, state) do
     state = %{state | calls: state.calls + 1}
 
-    cond do
-      not Enum.all?(chunks, &(region_of(&1) == state.key)) ->
-        {:reply, {:error, :invalid_generation_lock}, state}
+    if Enum.all?(chunks, &(region_of(&1) == state.key)),
+      do: {:noreply, wait_terrain(state, %{txn: txn, chunks: chunks, reply: {:call, from}})},
+      else: {:reply, {:error, :invalid_generation_lock}, state}
+  end
 
-      Map.has_key?(state.grants, txn) ->
-        {:reply, {:ok, grant_reply(state, state.grants[txn].chunks, chunks)}, state}
+  # Participant: lock chunks for a foreign transaction now, or answer busy.
+  def handle_call({:lock, %{chunks: chunks} = request}, _from, state) do
+    state = %{state | calls: state.calls + 1}
 
-      length(state.requests) >= @max_requests ->
-        {:reply, {:error, :generation_busy}, state}
+    if Enum.all?(chunks, &(region_of(&1) == state.key)) do
+      {reply, state} = try_lock(state, request)
+      {:reply, reply, state}
+    else
+      {:reply, {:error, :invalid_generation_lock}, state}
+    end
+  end
 
-      true ->
-        entry = %{
-          txn: txn,
-          coordinator: coordinator,
-          pid: request[:pid],
-          chunks: chunks,
-          reply: {:call, from},
-          durable: coordinator != state.key
-        }
+  # Participant: make a granted lock durable before its coordinator commits.
+  def handle_call({:prepare, txn}, from, state) do
+    case state.grants do
+      %{^txn => %{durable: true}} ->
+        {:reply, {:ok, :prepared}, state}
 
-        state = %{state | requests: state.requests ++ [entry]}
-        state = ensure_terrain(state, Enum.reject(chunks, &MapSet.member?(state.final, &1)))
-        {:noreply, grant_waiting(state)}
+      %{^txn => grant} ->
+        # Durable from here on: a crash of the coordinator now asks it what
+        # became of the transaction instead of dropping the lock.
+        state = put_in(state.grants[txn], %{grant | durable: true})
+        op = {:lock, txn, %{coordinator: grant.coordinator, chunks: grant.chunks}}
+
+        {:noreply,
+         write(state, [op], fn state, :ok ->
+           GenServer.reply(from, {:ok, :prepared})
+           state
+         end)}
+
+      _ ->
+        {:reply, {:error, :generation_lock_released}, state}
     end
   end
 
@@ -304,9 +326,6 @@ defmodule Valimc.Worldgen.Proto do
       {:noreply, state} -> {:noreply, state}
     end
   end
-
-  # Participant: the coordinator aborted (or gave up waiting).
-  def handle_call({:release, txn}, _from, state), do: {:reply, :ok, release_lock(state, txn)}
 
   # Coordinator: what became of `txn` (presumed abort).
   def handle_call({:status, txn, asker}, _from, state) do
@@ -343,8 +362,26 @@ defmodule Valimc.Worldgen.Proto do
     end
   end
 
+  # Participant: a coordinator gave its lock back (`wake?`: it held it for a
+  # real transaction, not a busy attempt).
+  def handle_cast({:release, txn, wake?}, state), do: {:noreply, release_lock(state, txn, wake?)}
+
+  # Answers to this owner's requests to other owners come first.
   @impl true
-  def handle_info({:proto_saved, token, result}, state) do
+  def handle_info(message, state) do
+    case :gen_server.check_response(message, state.out, true) do
+      {{:reply, reply}, label, out} ->
+        {:noreply, txn_reply(%{state | out: out}, label, reply)}
+
+      {{:error, {reason, _}}, label, out} ->
+        {:noreply, txn_reply(%{state | out: out}, label, {:error, {:proto_owner_down, reason}})}
+
+      _ ->
+        info(message, state)
+    end
+  end
+
+  defp info({:proto_saved, token, result}, state) do
     {continuation, writes} = Map.pop(state.writes, token)
     state = %{state | writes: writes}
 
@@ -354,7 +391,7 @@ defmodule Valimc.Worldgen.Proto do
     end
   end
 
-  def handle_info({:terrain_done, ref, result}, state) do
+  defp info({:terrain_done, ref, result}, state) do
     {chunks, jobs} = Map.pop(state.terrain.jobs, ref)
     terrain = %{state.terrain | jobs: jobs}
 
@@ -365,7 +402,7 @@ defmodule Valimc.Worldgen.Proto do
         chunks = Map.merge(made, state.chunks)
         pending = MapSet.difference(terrain.pending, MapSet.new(Map.keys(made)))
         state = %{state | chunks: chunks, terrain: %{terrain | pending: pending}}
-        {:noreply, state |> pump_terrain() |> grant_waiting()}
+        {:noreply, state |> pump_terrain() |> answer_ready()}
 
       {:error, reason} ->
         Logger.error("Proto terrain of #{inspect(chunks)} failed: #{inspect(reason)}")
@@ -379,40 +416,51 @@ defmodule Valimc.Worldgen.Proto do
     end
   end
 
-  def handle_info(:pump_terrain, state),
+  defp info(:pump_terrain, state),
     do: {:noreply, pump_terrain(%{state | terrain: %{state.terrain | timer: nil}})}
 
-  def handle_info({:txn_step, id, result}, %{txn: %{id: id}} = state),
-    do: {:noreply, txn_step(state, result)}
+  defp info({:txn_reply, label, reply}, state), do: {:noreply, txn_reply(state, label, reply)}
 
-  def handle_info({:txn_step, _, _}, state), do: {:noreply, state}
+  defp info({:txn_timeout, id}, %{txn: %{id: id, phase: phase}} = state)
+       when phase != :committing,
+       do: {:noreply, abort(state, :generation_timeout)}
 
-  def handle_info({:decorated, id, result}, %{txn: %{id: id, phase: :decorating}} = state),
-    do: {:noreply, commit(state, result)}
+  defp info({:decorate, id}, %{txn: %{id: id, phase: :decorating}} = state),
+    do: {:noreply, decorate(state)}
 
-  def handle_info({:decorated, _, _}, state), do: {:noreply, state}
+  defp info({:decorated, id, result}, %{txn: %{id: id, phase: :decorating} = txn} = state),
+    do: {:noreply, maybe_commit(%{state | txn: %{txn | decorated: result}})}
 
-  def handle_info({:full_done, ref, result}, %{full_job: ref} = state) do
+  defp info({:full_done, ref, result}, %{full_job: ref} = state) do
     for from <- state.waiters, do: GenServer.reply(from, result)
     {:noreply, %{state | waiters: [], full_job: nil}}
   end
 
-  def handle_info({:full_done, _, _}, state), do: {:noreply, state}
-
-  def handle_info(:retry_finalize, state),
+  defp info(:retry_finalize, state),
     do: {:noreply, maybe_finalize(%{state | retry: nil})}
 
-  def handle_info({:delivered, worker, token, result}, state),
+  # An owner that answered busy released a lock: try again almost at once
+  # (a little spread, so the woken neighbours do not collide in step).
+  defp info({:proto_unlocked, _key}, %{txn: nil, retry: retry} = state) when retry != nil do
+    Process.cancel_timer(retry)
+    timer = Process.send_after(self(), :retry_finalize, :rand.uniform(4) - 1)
+    {:noreply, %{state | retry: timer}}
+  end
+
+  defp info({:delivered, worker, token, result}, state),
     do: {:noreply, delivered(state, worker, token, result)}
 
-  def handle_info({:redeliver, txn, key}, state), do: {:noreply, deliver(state, txn, key)}
+  defp info({:redeliver, txn, key}, state), do: {:noreply, deliver(state, txn, key)}
 
-  def handle_info({:resolved, worker, token, result}, state),
+  defp info({:resolved, worker, token, result}, state),
     do: {:noreply, resolved(state, worker, token, result)}
 
-  def handle_info(:resolve, state) do
+  defp info(:resolve, state) do
     Process.send_after(self(), :resolve, @resolve_every)
-    state = resolve_locks(state, fn grant -> grant.durable and grant.watch == nil end)
+    # Durable locks of unwatched coordinators, and locks not yet durable (a
+    # release may have been lost).
+    state = resolve_locks(state, fn grant -> not grant.durable or grant.watch == nil end)
+
     {calls, rounds} = state.quiet
     rounds = if calls == state.calls and quiescent?(state), do: rounds + 1, else: 0
 
@@ -421,7 +469,7 @@ defmodule Valimc.Worldgen.Proto do
       else: {:noreply, %{state | quiet: {state.calls, rounds}}}
   end
 
-  def handle_info(:retire, state) do
+  defp info(:retire, state) do
     cond do
       not handed_over?(state) ->
         {:noreply, state}
@@ -435,12 +483,11 @@ defmodule Valimc.Worldgen.Proto do
     end
   end
 
-  def handle_info({:DOWN, monitor, :process, _, reason}, state) do
+  defp info({:DOWN, monitor, :process, _, reason}, state) do
     {:noreply, down(state, monitor, reason)}
   end
 
-  def handle_info({:EXIT, _, _}, state), do: {:noreply, state}
-  def handle_info(_, state), do: {:noreply, state}
+  defp info(_, state), do: {:noreply, state}
 
   # A linked writer ignores a normal exit; stop it, so a later owner of the
   # region is the log's only writer.
@@ -460,15 +507,13 @@ defmodule Valimc.Worldgen.Proto do
       state.terrain.queue == []
   end
 
-  # A watched coordinator died: ask its next incarnation. A delivery worker
-  # died without reporting: its attempt failed.
-  defp down(state, monitor, reason) do
+  # A watched coordinator died: a lock not yet durable goes (the transaction
+  # cannot have committed), a durable one asks its next incarnation. A
+  # delivery worker died without reporting: its attempt failed.
+  defp down(state, monitor, _reason) do
     case Map.pop(state.monitors, monitor) do
       {nil, _} ->
         cond do
-          state.txn != nil and state.txn.job != nil and state.txn.job.monitor == monitor ->
-            abort(%{state | txn: %{state.txn | job: nil}}, {:lock_worker_down, reason})
-
           entry = Enum.find(state.deliveries, fn {_, job} -> job.monitor == monitor end) ->
             {{txn, key}, _} = entry
             Process.send_after(self(), {:redeliver, txn, key}, 500)
@@ -484,13 +529,17 @@ defmodule Valimc.Worldgen.Proto do
       {txn, monitors} ->
         state = %{state | monitors: monitors}
 
-        state =
-          case state.grants do
-            %{^txn => grant} -> put_in(state.grants[txn], %{grant | watch: nil})
-            _ -> state
-          end
+        case state.grants do
+          %{^txn => %{durable: false} = grant} ->
+            release_lock(put_in(state.grants[txn], %{grant | watch: nil}), txn, true)
 
-        resolve_locks(state, &(&1.txn == txn))
+          %{^txn => grant} ->
+            put_in(state.grants[txn], %{grant | watch: nil})
+            |> resolve_locks(&(&1.txn == txn))
+
+          _ ->
+            state
+        end
     end
   end
 
@@ -567,45 +616,54 @@ defmodule Valimc.Worldgen.Proto do
     end)
   end
 
-  ## Participant: locks
+  ## Participant: terrain and locks
 
-  # Grant waiting requests in arrival order once their terrain exists and none
-  # of their chunks is locked.
-  defp grant_waiting(state) do
-    {granted, waiting} =
-      Enum.reduce(state.requests, {[], []}, fn r, {granted, waiting} ->
-        needed = Enum.reject(r.chunks, &MapSet.member?(state.final, &1))
-        ready = Enum.all?(needed, &Map.has_key?(state.chunks, &1))
-        free = Enum.all?(needed, &(not Map.has_key?(state.locks, &1)))
-        # Earlier grants in this pass also lock their chunks.
-        free = free and not Enum.any?(granted, fn g -> Enum.any?(needed, &(&1 in g.needed)) end)
+  # A transaction waits for the terrain of its chunks here (bounded); it
+  # holds no lock meanwhile.
+  defp wait_terrain(state, entry) do
+    if length(state.requests) >= @max_requests do
+      answer(state, entry, {:error, :generation_busy})
+    else
+      state = %{state | requests: state.requests ++ [entry]}
 
-        if ready and free,
-          do: {[Map.put(r, :needed, needed) | granted], waiting},
-          else: {granted, [r | waiting]}
-      end)
-
-    state = %{state | requests: Enum.reverse(waiting)}
-    Enum.reduce(Enum.reverse(granted), state, &grant(&2, &1))
+      state
+      |> ensure_terrain(Enum.reject(entry.chunks, &MapSet.member?(state.final, &1)))
+      |> answer_ready()
+    end
   end
 
-  # Nothing to lock (every chunk asked for is final): no lock to hold.
-  defp grant(state, %{needed: []} = r),
-    do: answer(state, r, {:ok, grant_reply(state, [], r.chunks)})
-
-  defp grant(state, %{needed: needed} = r) do
-    state = hold(state, r.txn, r.coordinator, needed, r.durable)
-    state = watch(state, r.txn, r.pid)
-
-    if r.durable do
-      write(state, [{:lock, r.txn, %{coordinator: r.coordinator, chunks: needed}}], fn state,
-                                                                                       :ok ->
-        if Map.has_key?(state.grants, r.txn),
-          do: answer(state, r, {:ok, grant_reply(state, needed, r.chunks)}),
-          else: answer(state, r, {:error, :generation_lock_released})
+  defp answer_ready(state) do
+    {ready, waiting} =
+      Enum.split_with(state.requests, fn r ->
+        Enum.all?(r.chunks, &(MapSet.member?(state.final, &1) or Map.has_key?(state.chunks, &1)))
       end)
-    else
-      answer(state, r, {:ok, grant_reply(state, needed, r.chunks)})
+
+    Enum.reduce(ready, %{state | requests: waiting}, &answer(&2, &1, {:ok, :ready}))
+  end
+
+  # Lock the non-final chunks of a request now, or answer busy (remembering
+  # its coordinator, to wake it when a lock here is released). A lock for a
+  # foreign coordinator is not durable until it is prepared.
+  defp try_lock(state, %{txn: txn, coordinator: coordinator, chunks: chunks} = request) do
+    needed = Enum.reject(chunks, &MapSet.member?(state.final, &1))
+
+    cond do
+      Map.has_key?(state.grants, txn) ->
+        {{:ok, grant_reply(state, state.grants[txn].chunks, chunks)}, state}
+
+      needed == [] ->
+        {{:ok, grant_reply(state, [], chunks)}, state}
+
+      not Enum.all?(needed, &Map.has_key?(state.chunks, &1)) ->
+        {{:error, :generation_not_ready}, ensure_terrain(state, needed)}
+
+      Enum.any?(needed, &Map.has_key?(state.locks, &1)) ->
+        {{:error, :generation_busy}, %{state | wake: MapSet.put(state.wake, request.pid)}}
+
+      true ->
+        state = hold(state, txn, coordinator, needed, false)
+        state = if coordinator == state.key, do: state, else: watch(state, txn, request.pid)
+        {{:ok, grant_reply(state, needed, chunks)}, state}
     end
   end
 
@@ -638,8 +696,6 @@ defmodule Valimc.Worldgen.Proto do
     }
   end
 
-  defp watch(state, _txn, nil), do: state
-
   defp watch(state, txn, pid) do
     monitor = Process.monitor(pid)
     state = %{state | monitors: Map.put(state.monitors, monitor, txn)}
@@ -651,18 +707,20 @@ defmodule Valimc.Worldgen.Proto do
     state
   end
 
-  defp answer(state, %{reply: :self, txn: txn}, reply) do
-    send(self(), {:txn_step, txn, {:granted, state.key, reply}})
+  defp answer(state, %{reply: {:self, label}}, reply) do
+    send(self(), {:txn_reply, label, reply})
     state
   end
 
-  defp unhold(state, txn) do
+  # `wake?`: tell the coordinators this owner answered busy that a lock went.
+  defp unhold(state, txn, wake? \\ true) do
     case Map.pop(state.grants, txn) do
       {nil, _} ->
         state
 
       {grant, grants} ->
         if grant.watch, do: Process.demonitor(grant.watch, [:flush])
+        if wake?, do: for(pid <- state.wake, do: send(pid, {:proto_unlocked, state.key}))
 
         %{
           state
@@ -670,13 +728,13 @@ defmodule Valimc.Worldgen.Proto do
             monitors:
               if(grant.watch, do: Map.delete(state.monitors, grant.watch), else: state.monitors),
             permits: Permits.release(state.permits, txn),
-            locks: Map.drop(state.locks, grant.chunks)
+            locks: Map.drop(state.locks, grant.chunks),
+            wake: if(wake?, do: MapSet.new(), else: state.wake)
         }
-        |> grant_waiting()
     end
   end
 
-  defp release_lock(state, txn) do
+  defp release_lock(state, txn, wake? \\ true) do
     {dropped, kept} = Enum.split_with(state.requests, &(&1.txn == txn))
 
     state =
@@ -688,10 +746,10 @@ defmodule Valimc.Worldgen.Proto do
 
     case state.grants do
       %{^txn => %{durable: true}} ->
-        write(unhold(state, txn), [{:unlock, txn}], fn s, :ok -> s end)
+        write(unhold(state, txn, wake?), [{:unlock, txn}], fn s, :ok -> s end)
 
       %{^txn => _} ->
-        unhold(state, txn)
+        unhold(state, txn, wake?)
 
       _ ->
         state
@@ -748,10 +806,10 @@ defmodule Valimc.Worldgen.Proto do
     end
   end
 
-  # Ask the coordinators of matching durable locks what became of them.
+  # Ask the coordinators of matching foreign locks what became of them.
   defp resolve_locks(state, match?) do
     for {txn, grant} <- state.grants,
-        grant.durable,
+        grant.coordinator != state.key,
         match?.(grant),
         not Map.has_key?(state.resolving, txn),
         reduce: state do
@@ -803,7 +861,8 @@ defmodule Valimc.Worldgen.Proto do
                     permits
                 end
 
-              watch(%{state | permits: permits}, txn, pid)
+              state = %{state | permits: permits}
+              if grant.watch, do: state, else: watch(state, txn, pid)
 
             {{:committed, %{} = delivery}, _} ->
               request =
@@ -843,77 +902,172 @@ defmodule Valimc.Worldgen.Proto do
   defp start_finalize(state) do
     n = state.txn_count + 1
     id = {state.key, state.incarnation, n}
-    needed = MapSet.new(around(state.key, 2))
-
-    participants =
-      needed
-      |> Enum.group_by(&region_of/1)
-      |> Enum.sort()
+    participants = state.key |> around(2) |> Enum.group_by(&region_of/1) |> Enum.sort()
 
     txn = %{
       id: id,
       sequence: state.incarnation * 4_294_967_296 + n,
-      phase: :locking,
-      remaining: participants,
-      contacted: [],
+      phase: :terrain,
+      participants: participants,
+      waiting: MapSet.new(participants, &elem(&1, 0)),
       granted: %{},
-      job: nil
+      busy: false,
+      error: nil,
+      prepare: MapSet.new(),
+      decorated: nil,
+      timer: Process.send_after(self(), {:txn_timeout, id}, @lock_timeout)
     }
 
-    state |> Map.put(:txn_count, n) |> Map.put(:txn, txn) |> acquire_next()
+    state = %{state | txn_count: n, txn: txn}
+
+    Enum.reduce(participants, state, fn {key, chunks}, acc ->
+      ask(acc, key, {:terrain, %{txn: id, chunks: chunks}})
+    end)
   end
 
-  defp acquire_next(state) do
-    case state.txn.remaining do
-      [] -> decorate(state)
-      [{key, chunks} | rest] -> acquire(state, key, chunks, rest)
-    end
-  end
-
-  defp acquire(state, key, chunks, rest) do
-    txn = %{state.txn | remaining: rest, contacted: [key | state.txn.contacted]}
-    state = %{state | txn: txn}
+  # Send a request of the current transaction to `key`'s owner; this owner
+  # answers its own at once. Answers arrive as `txn_reply/3`.
+  defp ask(state, key, message) do
+    label = {state.txn.id, key, elem(message, 0)}
 
     if key == state.key do
-      entry = %{
-        txn: txn.id,
-        coordinator: state.key,
-        pid: nil,
-        chunks: chunks,
-        reply: :self,
-        durable: false
-      }
+      case message do
+        {:terrain, %{txn: txn, chunks: chunks}} ->
+          wait_terrain(state, %{txn: txn, chunks: chunks, reply: {:self, label}})
 
-      state = %{state | requests: state.requests ++ [entry]}
-      state = ensure_terrain(state, Enum.reject(chunks, &MapSet.member?(state.final, &1)))
-      grant_waiting(state)
+        {:lock, request} ->
+          {reply, state} = try_lock(state, request)
+          send(self(), {:txn_reply, label, reply})
+          state
+      end
     else
-      request = %{txn: txn.id, coordinator: state.key, pid: self(), chunks: chunks}
-      id = txn.id
+      case owner(key) do
+        {:ok, pid} ->
+          %{state | out: :gen_server.send_request(pid, message, label, state.out)}
 
-      case Delivery.start(
-             self(),
-             fn _worker, _token, result -> {:txn_step, id, {:granted, key, result}} end,
-             fn -> __MODULE__.lock(key, request) end,
-             link: true
-           ) do
-        {:ok, job} -> %{state | txn: %{state.txn | job: job}}
-        {:error, reason} -> abort(state, reason)
+        {:error, reason} ->
+          send(self(), {:txn_reply, label, {:error, reason}})
+          state
       end
     end
   end
 
-  defp txn_step(state, {:granted, key, {:ok, %{chunks: chunks}}}) do
-    if job = state.txn.job, do: Delivery.finish(job)
-    granted = Map.put(state.txn.granted, key, chunks)
-    acquire_next(%{state | txn: %{state.txn | granted: granted, job: nil}})
+  defp txn_reply(%{txn: %{id: id}} = state, {id, key, kind}, reply),
+    do: step(state, kind, key, reply)
+
+  # A lock granted to an attempt given up meanwhile goes back.
+  defp txn_reply(state, {id, key, :lock}, {:ok, %{chunks: chunks}}) when map_size(chunks) > 0,
+    do: release_at(state, key, id, false)
+
+  defp txn_reply(state, _label, _reply), do: state
+
+  defp step(%{txn: %{phase: :terrain} = txn} = state, :terrain, key, reply) do
+    case reply do
+      {:ok, :ready} ->
+        txn = %{txn | waiting: MapSet.delete(txn.waiting, key)}
+        state = %{state | txn: txn}
+        if MapSet.size(txn.waiting) == 0, do: lock_all(state), else: state
+
+      {:error, :generation_busy} ->
+        back_off(state)
+
+      error ->
+        abort(state, error)
+    end
   end
 
-  defp txn_step(state, {:granted, _key, error}) do
-    if job = state.txn.job, do: Delivery.finish(job)
-    abort(%{state | txn: %{state.txn | job: nil}}, error)
+  defp step(%{txn: %{phase: :locking} = txn} = state, :lock, key, reply) do
+    txn =
+      case reply do
+        {:ok, %{chunks: chunks}} -> %{txn | granted: Map.put(txn.granted, key, chunks)}
+        {:error, :generation_busy} -> %{txn | busy: true}
+        {:error, :generation_not_ready} -> %{txn | busy: true}
+        error -> %{txn | error: txn.error || error}
+      end
+
+    txn = %{txn | waiting: MapSet.delete(txn.waiting, key)}
+    state = %{state | txn: txn}
+
+    cond do
+      MapSet.size(txn.waiting) > 0 -> state
+      txn.error != nil -> abort(state, txn.error)
+      txn.busy -> back_off(state)
+      true -> prepare_all(state)
+    end
   end
 
+  defp step(%{txn: %{phase: :decorating} = txn} = state, :prepare, key, reply) do
+    case reply do
+      {:ok, :prepared} ->
+        maybe_commit(%{state | txn: %{txn | prepare: MapSet.delete(txn.prepare, key)}})
+
+      error ->
+        abort(state, error)
+    end
+  end
+
+  defp step(state, _kind, _key, _reply), do: state
+
+  # Ask every owner for its locks at once; the answers decide together.
+  defp lock_all(state) do
+    %{id: id, participants: participants} = state.txn
+    txn = %{state.txn | phase: :locking, waiting: MapSet.new(participants, &elem(&1, 0))}
+
+    Enum.reduce(participants, %{state | txn: txn}, fn {key, chunks}, acc ->
+      ask(acc, key, {:lock, %{txn: id, coordinator: state.key, pid: self(), chunks: chunks}})
+    end)
+  end
+
+  # Everything is locked: foreign locks become durable while the area is
+  # decorated.
+  defp prepare_all(state) do
+    txn = state.txn
+
+    keys =
+      for {key, chunks} <- txn.granted,
+          key != state.key,
+          locked_any?(chunks),
+          into: MapSet.new(),
+          do: key
+
+    state = %{state | txn: %{txn | phase: :decorating, prepare: keys}}
+    state = Enum.reduce(keys, state, &ask(&2, &1, {:prepare, txn.id}))
+    decorate(state)
+  end
+
+  # Some owner was busy: give every lock back and try again after a random
+  # delay that grows with consecutive busy attempts (or sooner, when woken).
+  # Busy attempts do not count as failures.
+  defp back_off(state) do
+    txn = state.txn
+    Process.cancel_timer(txn.timer)
+    state = release_all(%{state | txn: nil}, txn, false)
+    busy = state.busy + 1
+    delay = :rand.uniform(min(256, 4 * Bitwise.bsl(1, min(busy, 6))))
+    %{state | busy: busy, retry: Process.send_after(self(), :retry_finalize, delay)}
+  end
+
+  defp release_all(state, txn, wake?) do
+    Enum.reduce(txn.participants, state, fn {key, _}, acc ->
+      release_at(acc, key, txn.id, wake?)
+    end)
+  end
+
+  defp release_at(state, key, txn, wake?) do
+    if key == state.key do
+      release_lock(state, txn, wake?)
+    else
+      case Registry.lookup(Valimc.ProtoRegistry, Valimc.Dimension.scope(key)) do
+        [{pid, _}] -> GenServer.cast(pid, {:release, txn, wake?})
+        [] -> :ok
+      end
+
+      state
+    end
+  end
+
+  # While the worker pool is full, the decoration waits (holding its locks)
+  # instead of aborting the transaction.
   defp decorate(state) do
     images =
       Enum.reduce(state.txn.granted, %{}, fn {_, chunks}, acc -> Map.merge(acc, chunks) end)
@@ -941,10 +1095,21 @@ defmodule Valimc.Worldgen.Proto do
 
            send(owner, {:decorated, id, {images, order, result}})
          end) do
-      {:ok, _} -> %{state | txn: %{state.txn | phase: :decorating}}
-      {:error, _} -> abort(state, :worldgen_workers_busy)
+      {:ok, _} ->
+        state
+
+      {:error, _} ->
+        Process.send_after(self(), {:decorate, id}, 5)
+        state
     end
   end
+
+  defp maybe_commit(%{txn: %{decorated: decorated, prepare: prepare}} = state)
+       when decorated != nil do
+    if MapSet.size(prepare) == 0, do: commit(state, decorated), else: state
+  end
+
+  defp maybe_commit(state), do: state
 
   defp commit(state, {images, order, {:ok, {touched, lenient}}}) do
     if lenient > 0,
@@ -988,6 +1153,8 @@ defmodule Valimc.Worldgen.Proto do
     ops =
       [{:chunks, mine}, {:final, own}] ++ if(parts == %{}, do: [], else: [{:outbox, id, parts}])
 
+    Process.cancel_timer(state.txn.timer)
+
     state = %{
       state
       | chunks: Map.merge(state.chunks, mine),
@@ -1000,7 +1167,8 @@ defmodule Valimc.Worldgen.Proto do
         | final: MapSet.union(state.final, MapSet.new(own)),
           outbox: if(parts == %{}, do: state.outbox, else: Map.put(state.outbox, id, parts)),
           txn: nil,
-          attempts: 0
+          attempts: 0,
+          busy: 0
       }
 
       state = unhold(state, id)
@@ -1018,13 +1186,9 @@ defmodule Valimc.Worldgen.Proto do
 
   defp abort(state, reason) do
     txn = state.txn
-    if txn.job, do: Delivery.abort(txn.job)
-
-    for key <- txn.contacted, key != state.key do
-      spawn_release(key, txn.id)
-    end
-
-    state = release_lock(%{state | txn: nil}, txn.id)
+    Process.cancel_timer(txn.timer)
+    # Locks of a transaction that got as far as decorating were real holds.
+    state = release_all(%{state | txn: nil}, txn, txn.phase == :decorating)
     attempts = state.attempts + 1
 
     if attempts >= @max_attempts do
@@ -1035,15 +1199,6 @@ defmodule Valimc.Worldgen.Proto do
       delay = min(5000, 20 * attempts) + :rand.uniform(50)
       %{state | attempts: attempts, retry: Process.send_after(self(), :retry_finalize, delay)}
     end
-  end
-
-  # Releases are best effort: a participant that misses one asks for the
-  # transaction's status and learns it was aborted.
-  defp spawn_release(key, txn) do
-    Task.Supervisor.start_child(
-      Valimc.TransferWorkers,
-      Valimc.Dimension.bind(fn -> release(key, txn) end)
-    )
   end
 
   ## Coordinator: delivery

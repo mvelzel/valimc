@@ -2,8 +2,8 @@ defmodule Valimc.WorldgenProtoOwnerTest do
   @moduledoc """
   Proto owners and the finalize transaction (VMC-025d2): regions become final
   across region borders exactly as one decoration of the same chunks in the
-  same order, concurrent neighbours serialize, and decorations survive
-  restarts and crashes at each step of the transaction.
+  same order, concurrent neighbours serialize (as some order of them), and
+  decorations survive restarts and crashes at each step of the transaction.
   """
   # Serial: finalize transactions saturate the worldgen workers and dirty schedulers.
   use ExUnit.Case, async: false
@@ -67,8 +67,7 @@ defmodule Valimc.WorldgenProtoOwnerTest do
   end
 
   defp compute_sequential(worldgen, regions) do
-    area = regions |> Enum.flat_map(&Proto.around(&1, 2)) |> Enum.uniq()
-    images = terrain(worldgen, area)
+    images = area_terrain(worldgen, regions)
 
     {images, _} =
       Enum.reduce(regions, {images, MapSet.new()}, fn region, {images, decorated} ->
@@ -83,6 +82,22 @@ defmodule Valimc.WorldgenProtoOwnerTest do
       {:ok, full} = Native.worldgen_proto_full(worldgen, own, Generator.protocol_biomes())
       {region, full}
     end)
+  end
+
+  # The terrain of the regions' 12 × 12 areas, computed once per set.
+  defp area_terrain(worldgen, regions) do
+    id = {__MODULE__, :terrain, Enum.sort(regions)}
+
+    case :persistent_term.get(id, nil) do
+      nil ->
+        area = regions |> Enum.flat_map(&Proto.around(&1, 2)) |> Enum.uniq()
+        images = terrain(worldgen, area)
+        :persistent_term.put(id, images)
+        images
+
+      images ->
+        images
+    end
   end
 
   # Terrain of `chunks` in parallel batches.
@@ -114,6 +129,14 @@ defmodule Valimc.WorldgenProtoOwnerTest do
   defp pid(key) do
     {:ok, pid} = Proto.owner(key)
     pid
+  end
+
+  # The owner holds one lock and it is durable (prepared).
+  defp prepared?(pid) do
+    state = :sys.get_state(pid)
+
+    map_size(state.grants) == 1 and map_size(state.writes) == 0 and
+      Enum.all?(state.grants, fn {_, grant} -> grant.durable end)
   end
 
   defp await(fun, attempts \\ 2000) do
@@ -158,6 +181,26 @@ defmodule Valimc.WorldgenProtoOwnerTest do
     assert {ours_a, ours_b} in [{first[a], first[b]}, {second[a], second[b]}]
   end
 
+  test "three in a row at once: the middle conflicts with both ends", ctx do
+    regions = [a, b, c] = [ctx.key, east(ctx.key), east(east(ctx.key))]
+    tasks = Enum.map(regions, fn r -> Task.async(fn -> full(r) end) end)
+    ours = Task.await_many(tasks, 240_000)
+    # The ends share no chunk, so their order does not matter.
+    orders = [[a, b, c], [a, c, b], [b, a, c], [c, b, a]]
+
+    wanted =
+      for order <- orders do
+        want = sequential(ctx.worldgen, order)
+        Enum.map(regions, &want[&1])
+      end
+
+    assert ours in wanted
+
+    for key <- TestScope.neighborhood(b, 2) do
+      assert map_size(:sys.get_state(pid(key)).grants) == 0
+    end
+  end
+
   test "decorations survive restarts of every owner", ctx do
     want = sequential(ctx.worldgen, [ctx.key, east(ctx.key)])
     assert_same(full(ctx.key), want[ctx.key])
@@ -198,17 +241,18 @@ defmodule Valimc.WorldgenProtoOwnerTest do
 
     test "a coordinator dying before its commit leaves no lock behind", ctx do
       want = sequential(ctx.worldgen, [ctx.key])
-      participant = pid(last(ctx.key))
+      writer = :sys.get_state(pid(last(ctx.key))).log
       coordinator = pid(ctx.key)
-      :ok = :sys.suspend(participant)
+      :ok = :sys.suspend(writer)
       task = Task.async(fn -> Proto.full_chunks(ctx.key, 120_000) end)
 
-      # Earlier participants hold durable locks while the last one stalls.
+      # The other participants' locks are durable while the last one's
+      # prepare stalls, so the coordinator cannot commit.
       first = Enum.min(TestScope.neighborhood(ctx.key))
-      await(fn -> map_size(:sys.get_state(pid(first)).grants) == 1 end)
+      await(fn -> prepared?(pid(first)) end)
       Process.unlink(task.pid)
       TestScope.kill(coordinator)
-      :ok = :sys.resume(participant)
+      :ok = :sys.resume(writer)
       Task.shutdown(task, :brutal_kill)
 
       # They ask the coordinator's next incarnation, which never committed.
@@ -225,13 +269,11 @@ defmodule Valimc.WorldgenProtoOwnerTest do
       participant = pid(last(ctx.key))
       writer = :sys.get_state(participant).log
       task = Task.async(fn -> Proto.full_chunks(ctx.key, 120_000) end)
-      # Once the last participant holds its lock, the coordinator stops before
-      # its decoration lands and that participant's writer stalls, so its part
-      # cannot be applied: the commit leaves an outbox entry.
-      await(fn -> map_size(:sys.get_state(participant).grants) == 1 end)
-      :ok = :sys.suspend(coordinator)
+      # Once the last participant's lock is durable (the decoration is still
+      # running), its writer stalls, so its part cannot be applied: the commit
+      # leaves an outbox entry.
+      await(fn -> prepared?(participant) end)
       :ok = :sys.suspend(writer)
-      :ok = :sys.resume(coordinator)
       await(fn -> map_size(:sys.get_state(coordinator).outbox) == 1 end)
       Process.unlink(task.pid)
       TestScope.kill(coordinator)
@@ -249,7 +291,7 @@ defmodule Valimc.WorldgenProtoOwnerTest do
       coordinator = pid(ctx.key)
       victim = pid(Enum.min(TestScope.neighborhood(ctx.key)))
       task = Task.async(fn -> Proto.full_chunks(ctx.key, 120_000) end)
-      await(fn -> map_size(:sys.get_state(victim).grants) == 1 end)
+      await(fn -> prepared?(victim) end)
       :ok = :sys.suspend(coordinator)
       TestScope.kill(victim)
       :ok = :sys.resume(coordinator)
