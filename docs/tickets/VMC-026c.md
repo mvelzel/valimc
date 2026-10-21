@@ -84,6 +84,34 @@ Acceptance:
   without one keeps its bytes. `test/portal_test.exs`: a quarter turn turns
   the motion; facing west into the End from the west, or a gateway, keeps it.
 
+- Client run, October 21, 2026: checkpoint e92ef68, a fresh world; the
+  evidence stays ignored in `.local/client-tests/VMC-026c`.
+  - Passed: a diamond dropped into a lit nether portal vanished and lay in
+    the new Nether portal, where it stayed. One dropped back through came out
+    at the first portal. One dropped into an end portal waited at the End
+    platform's centre, and one dropped onto an end portal in the End lay at
+    the world spawn.
+  - The gateway case looked failed and is vanilla's. The tester's throws
+    landed under the gateway; the user threw the one that went in. It
+    reached the exit at (1048.2, 73.1, -63.5) two ticks after touching the
+    gateway, with its westward throw: a gateway keeps motion
+    (`Relative.DELTA`). It slid off the single chorus column it arrived on
+    and fell out of the world within about 4 s. A copy of the dataset
+    replays it tick by tick. All three crossings reached the exit's region.
+  - Found and fixed here:
+    - Players in the Nether or the End saw no broadcast block changes, block
+      batches or level events until they reconnected. A tagged event of the
+      player's own dimension went to the untagged handler, which drops region
+      events outside the overworld (VMC-026b). It now applies directly, and
+      `test/dimension_travel_connection_test.exs` sees a Nether block change
+      arrive.
+    - A `/tp` across a lit portal's plane sent the player through, because
+      contact swept from the old position. Every server teleport now starts
+      contact anew, as vanilla checks no movement across one.
+      `test/portal_connection_test.exs` teleports across a portal and stays.
+  - Pending: block changes in the End after travelling there, a `/tp`
+    across a portal, and a steep drop into a gateway found at its exit.
+
 ## Limits
 
 - A destination found just before its owner stops is lost with the owner:

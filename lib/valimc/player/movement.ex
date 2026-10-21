@@ -294,6 +294,8 @@ defmodule Valimc.Player.Movement do
     Valimc.Session.Replication.update_view(%{
       state
       | player: player,
+        # A teleport is no movement through portals (VMC-026c): contact starts anew.
+        portal: Map.get(state, :portal) && %{state.portal | last: nil},
         teleport: teleport,
         teleport_pending: true,
         login_velocity_pending: false,

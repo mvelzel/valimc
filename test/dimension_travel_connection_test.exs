@@ -242,6 +242,20 @@ defmodule Valimc.DimensionTravelConnectionTest do
     # The client's level is the Nether's 16 sections, without sky light.
     {chunk, client} = Client.await(client, :play, "level_chunk_with_light", 3000)
     assert chunk_sections(chunk) == {16, 0}
+
+    # Block changes in the Nether reach the client there.
+    client = Client.load_world(client, 48)
+    stone = Valimc.Registry.Blocks.default_state("stone")
+
+    Dimension.within(:the_nether, fn ->
+      :ok = Valimc.Portal.Access.commit([{{9, 118, 9}, stone}])
+    end)
+
+    # A committed batch reaches the client as a section update.
+    {update, client} = Client.await(client, :play, "section_blocks_update", 3000)
+    <<section::signed-64, _::binary>> = update
+    # The section of (9, 118, 9): x 0, z 0, y 7 (packed as vanilla's SectionPos).
+    assert section == Bitwise.bsl(0, 42) + Bitwise.bsl(0, 20) + 7
     assert [_] = Registry.lookup(Valimc.RegionRegistry, {:the_nether, {0, 0}})
     assert File.dir?(Path.join(ctx.base, "dimensions/minecraft/the_nether"))
 

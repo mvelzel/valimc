@@ -197,6 +197,13 @@ defmodule Valimc.PortalConnectionTest do
     assert level == "minecraft:overworld"
     assert {floor(hx), floor(hy), floor(hz)} in opening
 
+    # A teleport across the portal's plane is no walk through it (VMC-026c).
+    client = move(client, pid, {x + 1.0, y * 1.0, z + 2.5})
+    wait(fn -> state(pid).player.portal_cooldown == 0 end)
+    client = move(client, pid, {x + 1.0, y * 1.0, z - 1.5})
+    Process.sleep(500)
+    assert state(pid).player.dimension == :overworld and state(pid).portal.process == nil
+
     # Breaking the frame puts the portal out.
     _client = move(client, pid, {x + 6.5, y * 1.0, z + 0.5})
     set(%{{x - 1, y + 1, z} => Valimc.Registry.Blocks.default_state("air")})

@@ -896,13 +896,18 @@ defmodule Valimc.Session.Messages do
         {:noreply, Replication.stream_chunks(state)}
       end)
 
-  # Region events of a dimension the player no longer is in are stale (VMC-026b).
+  # Region events of a dimension the player no longer is in are stale (VMC-026b);
+  # those of its own dimension apply as they are.
   def info({:event, {:in_dimension, dimension, event}}, state) do
     if dimension == Valimc.Dimension.current(),
-      do: info({:event, event}, state),
+      do:
+        Valimc.Connection.guard_connection(state, fn ->
+          {:noreply, Events.event(state, event)}
+        end),
       else: {:noreply, state}
   end
 
+  # An untagged region event is the overworld's, stale for a player elsewhere.
   def info({:event, event}, state) do
     if is_tuple(event) and elem(event, 0) in @region_events and
          Valimc.Dimension.current() != :overworld,
