@@ -17,10 +17,9 @@ model and a generated registry; see [architecture](architecture.md).
 
 | Ticket | Open slice | Status |
 |---|---|---|
-| [VMC-026](tickets/VMC-026.md) | Nether, End and portals: live, with items through portals and stronghold portal rooms; client check of a generated portal room pending | Awaiting client |
 | [VMC-053](tickets/VMC-053.md) | Commands: world and administration commands live; `place` waits for structures | In progress |
 
-Done in M2: VMC-010, 020..025, 026a..c, 027, 028, 029c, 070..075 (see [completed](history/completed.md)).
+Done in M2: VMC-010, 020..025, 026, 027, 028, 029c, 070..075 (see [completed](history/completed.md)).
 Commands on M3 systems (VMC-053h, k–n) move with those systems. Generation and tick
 time stay matched against vanilla and Pumpkin, at least in Pumpkin's range.
 
@@ -44,7 +43,6 @@ until its spill and stored experience exist ([VMC-034f](tickets/VMC-034f.md)).
 | Ticket | Remaining gate |
 |---|---|
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Server CLONE/type-2 fill from a creative container menu (VMC-032) |
-| [VMC-026](tickets/VMC-026.md) | A generated stronghold's portal room: frames filled, the End, the credits and back |
 
 ## Retrieve and update
 
