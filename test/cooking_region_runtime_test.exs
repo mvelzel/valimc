@@ -59,7 +59,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
 
   defp result(state) do
     %{token: token} = Valimc.World.Jobs.get(state.jobs, :cooking)
-    epoch = state.items.epoch
+    epoch = state.epoch
     assert_receive {:resource, ^epoch, {:job, :cooking, ^token, _} = message}
     {:noreply, next} = RegionData.handle_info(message, state)
     next
@@ -169,7 +169,8 @@ defmodule Valimc.CookingRegionRuntimeTest.Serial do
 
       Enum.all?(current.containers.entries, fn {_, entry} ->
         Enum.sum(Map.values(entry.recipes)) == 1
-      end) and Enum.any?(current.items.entries, fn {_, entry} -> entry.entity.y < 69.9 end)
+      end) and
+        Enum.any?(current.entities.items.entries, fn {_, entry} -> entry.entity.y < 69.9 end)
     end)
 
     assert Enum.all?(disk(ctx).entries, fn {_, entry} -> map_size(entry.recipes) == 1 end)

@@ -123,7 +123,7 @@ defmodule Valimc.InventoryPersistenceTest do
 
     expected = %{original | slots: Map.drop(original.slots, [1]), carried: nil}
     {:ok, {region, _}} = World.item_owner(key)
-    records = Items.records(:sys.get_state(region).resource.items)
+    records = Items.records(:sys.get_state(region).resource.entities.items)
 
     assert Enum.map(records, & &1.stack) |> MapSet.new() ==
              MapSet.new([stone, ItemStack.new("egg", 3)])
@@ -148,7 +148,7 @@ defmodule Valimc.InventoryPersistenceTest do
     assert third.inventory.items == Inventory.contents(expected) and
              third.inventory.carried == nil
 
-    assert Items.records(:sys.get_state(region).resource.items) == records
+    assert Items.records(:sys.get_state(region).resource.entities.items) == records
 
     close(third, username, uuid)
     other = name()

@@ -61,7 +61,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
   defp start(c) do
     for {pid, _} = owner <- [c.source, c.target] do
       Valimc.TestScope.simulate(owner, state(owner).key)
-      :sys.replace_state(pid, &%{&1 | resource: %{&1.resource | item_simulation_enabled: true}})
+      :sys.replace_state(pid, &put_in(&1.resource.entities.simulate, true))
     end
   end
 
@@ -72,15 +72,19 @@ defmodule Valimc.ItemCrossMergeAutoTest do
       Enum.all?([c.source, c.target], fn owner ->
         s = state(owner)
 
-        s.items.ledger.outgoing == nil and not Valimc.TestRegion.writing?(s) and
+        s.entities.items.ledger.outgoing == nil and not Valimc.TestRegion.writing?(s) and
           not Valimc.World.Jobs.running?(s.jobs, :cross_merge)
       end)
 
   defp total(c),
     do:
-      Enum.sum(for o <- [c.source, c.target], {_, e} <- state(o).items.entries, do: e.stack.count)
+      Enum.sum(
+        for o <- [c.source, c.target],
+            {_, e} <- state(o).entities.items.entries,
+            do: e.stack.count
+      )
 
-  defp converged(c), do: map_size(state(c.source).items.entries) == 0 and idle(c)
+  defp converged(c), do: map_size(state(c.source).entities.items.entries) == 0 and idle(c)
 
   defp disk(c, k) do
     {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, k, :items), k)
@@ -93,7 +97,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     assert total(c) == 5
 
     assert [%{uuid: uuid, stack: %{count: 5}, motion: motion}] =
-             Items.records(state(c.target).items)
+             Items.records(state(c.target).entities.items)
 
     assert uuid == c.recipient.uuid and motion.age < 90
     assert disk(c, c.key).records == [] and disk(c, c.key).ledger.sequence == 1
@@ -102,6 +106,6 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     assert :ok = Region.flush(pid)
     DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
     {:ok, restarted} = World.item_owner(c.target_key)
-    assert [%{uuid: ^uuid, stack: %{count: 5}}] = Items.records(state(restarted).items)
+    assert [%{uuid: ^uuid, stack: %{count: 5}}] = Items.records(state(restarted).entities.items)
   end
 end

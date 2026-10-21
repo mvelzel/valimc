@@ -45,7 +45,7 @@ defmodule Valimc.RegionLifecycleTest do
       edit =
         {rx * Valimc.config(:region_size) * 16 + 3, 70, rz * Valimc.config(:region_size) * 16}
 
-      table = fn key -> elem(Directory.lookup(key), 2).items end
+      table = fn key -> elem(Directory.lookup(key), 2).publication end
 
       tables =
         ctx.keys

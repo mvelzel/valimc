@@ -124,7 +124,7 @@ defmodule Valimc.ChestSpillRegionTest do
       resource = Valimc.TestConn.state(c.pid).resource
       assert resource.containers.entries == %{}
 
-      assert quantities(Enum.map(Items.records(resource.items), & &1.stack)) ==
+      assert quantities(Enum.map(Items.records(resource.entities.items), & &1.stack)) ==
                quantities([ItemStack.new("chest") | c.stock])
 
       # Adopted and shown at once (D2); the reply, the player's proof, waits.

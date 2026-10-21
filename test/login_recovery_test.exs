@@ -97,7 +97,10 @@ defmodule Valimc.LoginRecoveryTest do
     fixture = seed(ctx, motion)
     finish(Client.begin_login(fixture.name), fixture)
     {:ok, owner} = World.item_owner(ctx.key)
-    assert [record] = Valimc.World.Items.records(:sys.get_state(elem(owner, 0)).resource.items)
+
+    assert [record] =
+             Valimc.World.Items.records(:sys.get_state(elem(owner, 0)).resource.entities.items)
+
     assert record.motion == motion
     assert {:ok, handle} = Region.find_item(owner, record.uuid)
     assert :ok = Region.remove_item(handle)
@@ -106,7 +109,7 @@ defmodule Valimc.LoginRecoveryTest do
     File.write!(fixture.path, fixture.bytes)
     finish(Client.begin_login(fixture.name), fixture)
     assert World.item_snapshot(ctx.key) == %{}
-    assert :sys.get_state(elem(owner, 0)).resource.item_receipts[fixture.uuid].sequence == 1
+    assert :sys.get_state(elem(owner, 0)).resource.entities.receipts[fixture.uuid].sequence == 1
   end
 
   test "stalled delivery leaves login unpublished and sockets/other identities responsive", ctx do

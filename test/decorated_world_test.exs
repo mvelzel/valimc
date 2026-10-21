@@ -102,7 +102,7 @@ defmodule Valimc.DecoratedWorldTest do
     {:ok, {pid, _}} = owner!(key)
     {cx, cz} = hd(Proto.chunks_of(key))
     Valimc.World.Region.ticket(pid, :forced, {cx, cz}, Proto.chunks_of(key))
-    {_, _, %{items: table}} = Directory.lookup(key)
+    {_, _, %{publication: table}} = Directory.lookup(key)
 
     Valimc.TestWait.until(
       fn -> not Enum.any?(Proto.chunks_of(key), &BlockSnapshot.absent?(table, &1)) end,

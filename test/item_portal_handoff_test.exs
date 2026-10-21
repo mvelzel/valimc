@@ -48,7 +48,7 @@ defmodule Valimc.ItemPortalHandoffTest do
 
   # One step of `uuid` to `position`, as a portal's destination places it.
   defp step(owner, uuid, position, cooldown) do
-    {:ok, {_epoch, id, revision}} = Items.find(resource(owner).items, uuid)
+    {:ok, {_epoch, id, revision}} = Items.find(resource(owner).entities.items, uuid)
 
     %{
       id: id,
@@ -66,11 +66,11 @@ defmodule Valimc.ItemPortalHandoffTest do
   defp settled(owner) do
     wait(fn ->
       s = resource(owner)
-      s.items.ledger.outgoing == nil and not Valimc.TestRegion.writing?(s)
+      s.entities.items.ledger.outgoing == nil and not Valimc.TestRegion.writing?(s)
     end)
   end
 
-  defp holds?(owner, uuid), do: match?({:ok, _}, Items.find(resource(owner).items, uuid))
+  defp holds?(owner, uuid), do: match?({:ok, _}, Items.find(resource(owner).entities.items, uuid))
 
   test "an overworld item crosses into the Nether, durably, and survives both owners' restarts",
        ctx do
@@ -90,11 +90,11 @@ defmodule Valimc.ItemPortalHandoffTest do
     wait(fn -> holds?(target, <<1::128>>) end)
     refute holds?(source, <<1::128>>)
 
-    {:ok, {_, id, _}} = Items.find(resource(target).items, <<1::128>>)
-    entry = resource(target).items.entries[id]
+    {:ok, {_, id, _}} = Items.find(resource(target).entities.items, <<1::128>>)
+    entry = resource(target).entities.items.entries[id]
     assert {entry.entity.x, entry.entity.y, entry.entity.z} == arrival
     assert entry.motion.portal_cooldown > 0 and entry.motion.age >= 9
-    assert Map.keys(resource(target).items.ledger.incoming) == [{:overworld, ctx.key}]
+    assert Map.keys(resource(target).entities.items.ledger.incoming) == [{:overworld, ctx.key}]
 
     # Both owners restart from disk: the item stays in the Nether, once.
     for {pid, _} <- [source, target], do: TestScope.kill(pid)
@@ -102,7 +102,7 @@ defmodule Valimc.ItemPortalHandoffTest do
     target = owner(:the_nether, ctx.beside)
     wait(fn -> holds?(target, <<1::128>>) end)
     refute holds?(source, <<1::128>>)
-    assert Map.keys(resource(target).items.ledger.incoming) == [{:overworld, ctx.key}]
+    assert Map.keys(resource(target).entities.items.ledger.incoming) == [{:overworld, ctx.key}]
   end
 
   test "a same-coordinate Nether neighbour and the overworld region keep separate receipts",
@@ -133,7 +133,7 @@ defmodule Valimc.ItemPortalHandoffTest do
     settled(source)
     wait(fn -> holds?(target, <<1::128>>) and holds?(target, <<2::128>>) end)
 
-    assert Enum.sort(Map.keys(resource(target).items.ledger.incoming)) ==
+    assert Enum.sort(Map.keys(resource(target).entities.items.ledger.incoming)) ==
              Enum.sort([ctx.key, {:overworld, ctx.key}])
   end
 

@@ -48,7 +48,7 @@ defmodule Valimc.ItemMergeRegionTest do
   def state({pid, _}), do: Valimc.TestConn.state(pid).resource
 
   def pairs(owner) do
-    items = state(owner).items
+    items = state(owner).entities.items
     {:ok, {_, a, ar}} = Items.find(items, <<1::128>>)
     {:ok, {_, b, br}} = Items.find(items, <<2::128>>)
     [%{a: {a, ar}, b: {b, br}}]
@@ -66,7 +66,7 @@ defmodule Valimc.ItemMergeRegionTest do
     proposal = pairs(ctx.owner)
     assert {:ok, [_]} = Region.merge_items(ctx.owner, proposal)
     s = state(ctx.owner)
-    assert map_size(Valimc.World.EntityPublication.source(s.item_publication, :items)) == 1
+    assert map_size(Valimc.World.EntityPublication.source(s.publication, :items)) == 1
     assert {:error, :stale_item} = Region.merge_items(ctx.owner, proposal)
 
     {pid, _} = ctx.owner
@@ -82,8 +82,8 @@ defmodule Valimc.ItemMergeRegionTest do
     Process.exit(pid, :kill)
     assert_receive {:DOWN, ^ref, :process, ^pid, _}
     assert {:ok, next} = World.item_owner(ctx.key)
-    assert Items.records(state(next).items) == [record]
-    assert state(next).item_receipts == ctx.receipts
+    assert Items.records(state(next).entities.items) == [record]
+    assert state(next).entities.receipts == ctx.receipts
   end
 
   @tag simulation: true

@@ -73,7 +73,9 @@ defmodule Valimc.ItemStoreTest do
                {elem(owner, 0), elem(updated, 1), elem(updated, 2), elem(updated, 3)}
              )
 
-    assert :sys.get_state(elem(owner, 0)).resource.items.entries[elem(current, 2)].stack == egg
+    assert :sys.get_state(elem(owner, 0)).resource.entities.items.entries[elem(current, 2)].stack ==
+             egg
+
     assert :ok = Region.remove_item(current)
     next = replace_owner(%{ctx | pid: elem(owner, 0)}, :shutdown)
     assert {:error, :missing_item} = Region.find_item(next, uuid)
@@ -102,7 +104,10 @@ defmodule Valimc.ItemStoreTest do
     assert disk(ctx) == old
     {:ok, owner} = World.item_owner(ctx.key)
     {:ok, current} = Region.find_item(owner, uuid)
-    assert :sys.get_state(elem(owner, 0)).resource.items.entries[elem(current, 2)].stack == stone
+
+    assert :sys.get_state(elem(owner, 0)).resource.entities.items.entries[elem(current, 2)].stack ==
+             stone
+
     assert Process.alive?(Process.whereis(Valimc.Listener))
   end
 

@@ -79,7 +79,7 @@ defmodule Valimc.World.Directory do
   end
 
   def handle_call(
-        {:publish, key, token, %{epoch: epoch, items: table} = publication},
+        {:publish, key, token, %{epoch: epoch, publication: table} = publication},
         {pid, _},
         state
       )

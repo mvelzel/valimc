@@ -31,7 +31,7 @@ defmodule Valimc.World.CookingOrbRuntime do
     cs = state.containers
 
     cond do
-      not state.item_storage_enabled or Jobs.running?(state.jobs, :orb_plan) or
+      not state.entities.persistent or Jobs.running?(state.jobs, :orb_plan) or
           RegionData.write_busy(state) != nil ->
         state
 
@@ -55,10 +55,10 @@ defmodule Valimc.World.CookingOrbRuntime do
 
   def adopt(state, epoch, bytes, deadline, from) do
     cond do
-      epoch != state.items.epoch ->
+      epoch != state.epoch ->
         {:reply, Valimc.Error.retry(:stale_owner), state}
 
-      not state.item_storage_enabled ->
+      not state.entities.persistent ->
         {:reply, {:error, :transfer_storage_disabled}, state}
 
       not is_binary(bytes) or byte_size(bytes) > CookingOrbTransfers.max_request_bytes() ->
@@ -81,7 +81,7 @@ defmodule Valimc.World.CookingOrbRuntime do
 
   # The plan runs as the owner's `:orb_plan` job; a crash is a failed plan.
   defp start(state, now, operation, from, deadline) do
-    epoch = state.items.epoch
+    epoch = state.epoch
     containers = state.containers
     runtime = state.cooking_orbs
     key = state.key
@@ -326,8 +326,8 @@ defmodule Valimc.World.CookingOrbRuntime do
          body_revision: body_revision
        }) do
     Valimc.World.EntityPublication.publish(
-      state.item_publication,
-      state.items.epoch,
+      state.publication,
+      state.epoch,
       :orbs,
       views
     )

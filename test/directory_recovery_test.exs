@@ -48,8 +48,8 @@ defmodule Valimc.DirectoryRecoveryTest do
     :ok = Valimc.TestBlocks.set({2, 64, 2}, 1)
     :ok = Region.flush(pid)
     {:ok, _handle} = Region.create_item(owner, ItemStack.new("stone", 7), {2.5, 64.5, 3.5})
-    [record] = Items.records(:sys.get_state(pid).resource.items)
-    {^pid, admission, %{items: publication}} = Directory.lookup({0, 0})
+    [record] = Items.records(:sys.get_state(pid).resource.entities.items)
+    {^pid, admission, %{publication: publication}} = Directory.lookup({0, 0})
     [{_, ^pid, ^admission, monitor, _}] = :ets.lookup(Valimc.RegionRoutes, {0, 0})
     name = "DirRecovery"
     uuid = Valimc.Connection.offline_uuid(name)
@@ -95,7 +95,7 @@ defmodule Valimc.DirectoryRecoveryTest do
     assert Enum.map(committed, & &1.uuid) |> Enum.sort() == Enum.sort([record.uuid, drop.uuid])
     assert receipts[uuid].sequence == 1
     # The owner adopted and shows the drop at once (D2); only the player's reply waited.
-    assert length(Items.records(:sys.get_state(pid).resource.items)) == 2
+    assert length(Items.records(:sys.get_state(pid).resource.entities.items)) == 2
     assert map_size(World.item_snapshot({0, 0})) == 2
     assert {:ok, ^intent} = PlayerSnapshot.decode(File.read!(source_path), uuid)
 
@@ -136,12 +136,12 @@ defmodule Valimc.DirectoryRecoveryTest do
     {:ok, replacement = {next, next_epoch}} = World.owner({0, 0})
     assert next != pid and next_epoch != epoch
     assert Valimc.TestBlocks.get({2, 64, 2}) == 1
-    recovered_records = Items.records(:sys.get_state(next).resource.items)
+    recovered_records = Items.records(:sys.get_state(next).resource.entities.items)
     assert Enum.sort_by(recovered_records, & &1.uuid) == Enum.sort_by([record, drop], & &1.uuid)
     {:ok, recovered} = Region.find_item(replacement, record.uuid)
 
     assert {:error, :stale_admission} =
-             Directory.publish({0, 0}, admission, %{epoch: epoch, items: publication})
+             Directory.publish({0, 0}, admission, %{epoch: epoch, publication: publication})
 
     send(Directory, {:DOWN, monitor, :process, pid, :killed})
     assert {:ok, ^next} = Directory.admit({0, 0})
@@ -158,7 +158,7 @@ defmodule Valimc.DirectoryRecoveryTest do
     assert {:ok, :already_applied} =
              Region.apply_item_transfer(replacement, %{source: uuid, sequence: 1, records: [drop]})
 
-    assert Items.records(:sys.get_state(next).resource.items) == recovered_records
+    assert Items.records(:sys.get_state(next).resource.entities.items) == recovered_records
     :ok = Region.remove_item(recovered)
     {:ok, dropped} = Region.find_item(replacement, drop.uuid)
     :ok = Region.remove_item(dropped)

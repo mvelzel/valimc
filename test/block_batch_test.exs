@@ -89,7 +89,7 @@ defmodule Valimc.BlockBatchTest do
       refute_receive {:event, _}, 10
     end
 
-    assert epoch == after_commit.items.epoch
+    assert epoch == after_commit.epoch
   end
 
   test "a blocked owner cannot serialize a different owner's batch" do

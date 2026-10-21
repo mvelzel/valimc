@@ -73,7 +73,7 @@ defmodule Valimc.World do
 
   defp route(region) do
     case Directory.lookup(region) do
-      {pid, _, %{items: table}} ->
+      {pid, _, %{publication: table}} ->
         {pid, table}
 
       {_, _, _} ->
@@ -141,7 +141,7 @@ defmodule Valimc.World do
     true = is_integer(expires) and System.monotonic_time(:millisecond) < expires
 
     case Directory.lookup(key) do
-      {^pid, _, %{epoch: ^epoch, items: table}} ->
+      {^pid, _, %{epoch: ^epoch, publication: table}} ->
         case Valimc.World.EntityPublication.source(table, :items) do
           %{^id => view} ->
             Process.alive?(pid) and view.uuid == uuid and view.merge_open and
@@ -162,7 +162,7 @@ defmodule Valimc.World do
 
   def item_snapshot(key) do
     case Directory.lookup(key) do
-      {_, _, %{items: table}} ->
+      {_, _, %{publication: table}} ->
         Valimc.World.EntityPublication.source(table, :items)
 
       _ ->
@@ -176,7 +176,7 @@ defmodule Valimc.World do
   @doc "Public lid presentation for a loaded chunk; never contains storage contents."
   def chest_lid_snapshot(chunk) do
     case Directory.lookup(region_key(chunk)) do
-      {pid, _, %{epoch: epoch, items: table}} ->
+      {pid, _, %{epoch: epoch, publication: table}} ->
         case :ets.lookup(table, {:container_lids, chunk}) do
           [{{:container_lids, ^chunk}, ^epoch, positions, frame}] ->
             if Process.alive?(pid), do: {:ok, {pid, epoch}, positions, frame}, else: :empty
@@ -205,7 +205,7 @@ defmodule Valimc.World do
     tables =
       Map.new(regions, fn key ->
         case Directory.lookup(key) do
-          {_, _, %{items: table}} -> {key, table}
+          {_, _, %{publication: table}} -> {key, table}
           _ -> {key, nil}
         end
       end)

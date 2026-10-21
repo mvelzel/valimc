@@ -20,7 +20,7 @@ authority. The M1 foundations below are in place; later milestones on the
 | World spawn (with dimension and pitch), default game mode, admin switches | Settings owner; writes `settings.json` crash-safely, then publishes |
 | Commands and suggestions | A job per command (`Session.Commands`), or the console's or RCON client's process, over a `Command.Source` value; blocks change through region owners, players through their own connections |
 | Encoding, placement and mining jobs, auth/crypto, transfer recovery | Bounded worker pools (the placement and mining pool partitioned per caller) |
-| Region files and player snapshots | Leased writers; disk outside sensitive owners |
+| Region checkpoints, the write-ahead log and player snapshots | Log stripes (`Storage.Log`) and checkpoint tasks; disk outside sensitive owners |
 
 Ingress is bounded by `active: :once`, packet/byte rate windows, per-phase
 frame and receive-buffer caps (small before configuration), a connection heap
@@ -37,6 +37,18 @@ lists, worker pools), storage, world, players and network. A crash loop stays
 in its domain; only a domain's restart restarts the domains after it. Tables
 that hold no owned state belong to the application itself. Acceptors back off
 on accept errors (VMC-077a).
+
+A region owner's state is its key and epoch (its incarnation: handles and
+messages of an older one are stale), its publication table, its blocks and
+block entities, its entities (`RegionEntities`: items, receipts and the item
+work it schedules), its commit state (`RegionStorage`) and its job table
+(`Jobs`). Every piece of background work runs on that table: at most one job
+per kind under a bounded pool, each with a token, a monitor and a deadline,
+reported, overrun and lost through one path; a crashed worker is a failed job.
+Owner processes are found or started through one helper (`Owners.ensure/4`).
+Errors are `{:error, {:retry | :reject | :conflict | :invalid, detail}}`,
+classified where they are made (`Valimc.Error`): a caller retries
+`{:retry, _}` without a list of atoms (VMC-077g).
 
 ## Foundations (M1)
 

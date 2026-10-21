@@ -428,13 +428,13 @@ defmodule Valimc.World.Region do
     Valimc.Metrics.add(:region_load_microseconds, System.monotonic_time(:microsecond) - started)
 
     case Valimc.World.Directory.publish(key, token, %{
-           items: resource.item_publication,
-           epoch: resource.items.epoch
+           publication: resource.publication,
+           epoch: resource.epoch
          }) do
       :ok ->
         # The region's game tick continues from its last frame (VMC-077f).
         clock = %{
-          TickClock.new(resource.items.epoch, System.monotonic_time(:millisecond))
+          TickClock.new(resource.epoch, System.monotonic_time(:millisecond))
           | tick: resource.game_tick
         }
 
@@ -460,7 +460,7 @@ defmodule Valimc.World.Region do
 
   @impl true
   def handle_call(:owner, _from, state),
-    do: {:reply, {:ok, {self(), state.resource.items.epoch}}, state}
+    do: {:reply, {:ok, {self(), state.resource.epoch}}, state}
 
   # Deterministic stepping: run `ticks` pipeline ticks now, in order.
   def handle_call({:step, ticks}, _from, state) when is_integer(ticks) and ticks in 1..1200 do
@@ -506,7 +506,7 @@ defmodule Valimc.World.Region do
 
   def handle_info(:tick, state), do: {:noreply, state}
 
-  def handle_info({:resource, epoch, message}, %{resource: %{items: %{epoch: epoch}}} = state),
+  def handle_info({:resource, epoch, message}, %{resource: %{epoch: epoch}} = state),
     do: RegionData.handle_info(message, state.resource) |> wrap(state)
 
   def handle_info({:resource, _, _}, state), do: {:noreply, state}

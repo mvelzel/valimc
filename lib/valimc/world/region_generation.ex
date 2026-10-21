@@ -168,7 +168,7 @@ defmodule Valimc.World.RegionGeneration do
   defp start_terrain(state, chunks) do
     gen = state.generation
     owner = self()
-    epoch = state.items.epoch
+    epoch = state.epoch
     ref = make_ref()
     spec = gen.spec
     sky = Valimc.Dimension.facts().sky_light
@@ -216,7 +216,7 @@ defmodule Valimc.World.RegionGeneration do
 
   defp backoff(state, delay) do
     gen = state.generation
-    timer = Process.send_after(self(), {:resource, state.items.epoch, :generation_retry}, delay)
+    timer = Process.send_after(self(), {:resource, state.epoch, :generation_retry}, delay)
     %{state | generation: %{gen | retry: timer}}
   end
 
@@ -365,7 +365,7 @@ defmodule Valimc.World.RegionGeneration do
     }
 
     :ok =
-      BlockSnapshot.publish_chunks(state.item_publication, state.blocks, chunks, state.revision)
+      BlockSnapshot.publish_chunks(state.publication, state.blocks, chunks, state.revision)
 
     Valimc.Metrics.add(:worldgen_chunks, length(chunks))
 

@@ -21,7 +21,7 @@ defmodule Valimc.RegionDirectoryTest do
     size = Valimc.config(:region_size) * 16
     position = {elem(ctx.key, 0) * size, 64, elem(ctx.key, 1) * size}
     assert :ok = Valimc.TestBlocks.set(position, 1)
-    {^pid, _, %{items: table}} = Directory.lookup(ctx.key)
+    {^pid, _, %{publication: table}} = Directory.lookup(ctx.key)
     assert_raise ArgumentError, fn -> :ets.insert(Valimc.RegionRoutes, {:bad, self()}) end
     :sys.suspend(Directory)
 

@@ -7,7 +7,7 @@ defmodule Valimc.World.CookingOrbDelivery do
     runtime = state.cooking_orbs
 
     cond do
-      not state.item_storage_enabled or Jobs.running?(state.jobs, :orb_delivery) or
+      not state.entities.persistent or Jobs.running?(state.jobs, :orb_delivery) or
           runtime.receipt != nil ->
         state
 

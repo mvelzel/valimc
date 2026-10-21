@@ -42,7 +42,7 @@ defmodule Valimc.RegionGenerationTest do
   defp stop(keys), do: Enum.each(keys, &TestScope.stop_neighbourhood/1)
 
   defp table(key) do
-    {_, _, %{items: table}} = Directory.lookup(key)
+    {_, _, %{publication: table}} = Directory.lookup(key)
     table
   end
 

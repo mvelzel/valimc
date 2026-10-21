@@ -202,7 +202,7 @@ defmodule Valimc.World.View do
 
   defp lookup(chunk) do
     case Directory.lookup(World.region_key(chunk)) do
-      {pid, _, %{epoch: epoch, items: table}} ->
+      {pid, _, %{epoch: epoch, publication: table}} ->
         case :ets.lookup(table, {:chunk, chunk}) do
           [{_, _, :absent, _, _}] -> {:unavailable, nil}
           [{_, _, sections, heights, biomes}] -> {{sections, heights, biomes}, {pid, epoch}}

@@ -81,7 +81,7 @@ defmodule Valimc.ItemPortalRegionTest do
     end)
   end
 
-  defp holds?(owner, uuid), do: match?({:ok, _}, Items.find(resource(owner).items, uuid))
+  defp holds?(owner, uuid), do: match?({:ok, _}, Items.find(resource(owner).entities.items, uuid))
 
   # The item, searched in the regions around `position` of `dimension`.
   defp found(dimension, {x, _, z}) do
@@ -91,8 +91,8 @@ defmodule Valimc.ItemPortalRegionTest do
       |> Enum.find_value(fn key ->
         {:ok, owner} = World.item_owner(key)
 
-        case Items.find(resource(owner).items, <<7::128>>) do
-          {:ok, {_, id, _}} -> resource(owner).items.entries[id]
+        case Items.find(resource(owner).entities.items, <<7::128>>) do
+          {:ok, {_, id, _}} -> resource(owner).entities.items.entries[id]
           _ -> nil
         end
       end)
@@ -113,7 +113,7 @@ defmodule Valimc.ItemPortalRegionTest do
     :ok = Access.commit(frame(ctx.origin) ++ portal)
 
     run(source, fn ->
-      not holds?(source, <<7::128>>) and resource(source).items.ledger.outgoing == nil
+      not holds?(source, <<7::128>>) and resource(source).entities.items.ledger.outgoing == nil
     end)
 
     approx = {(x + 1.0) / 8, 64.0, (z + 0.5) / 8}

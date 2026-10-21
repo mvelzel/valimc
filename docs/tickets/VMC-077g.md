@@ -1,6 +1,6 @@
 # VMC-077g — Owner skeleton: one job table, one error taxonomy, owner lookup
 
-Status: In progress
+Status: Done
 Milestone: foundations II (between M2 and M3)
 Depends on: [VMC-077](VMC-077.md) (the plan), [VMC-077f](VMC-077f.md) (storage).
 
@@ -21,7 +21,9 @@ act on generically; the region owner's other refusals (rules, races, bad
 input) keep their atoms until their modules are rewritten (the entity store,
 transfers, commands). The planning slot and block-transfer guards are one
 function each (`write_busy/1`, `block_transfer_writing?/1`) rather than a
-general admission guard.
+general admission guard. The block fields (sections handle, caches, versions,
+revisions, generation) stay at the top of the owner's state: VMC-077m's block
+rules hook into them while it is in flight.
 
 Acceptance:
 
@@ -57,4 +59,25 @@ Acceptance:
   `:container_commit_uncertain`, `:mining_commit_uncertain`); the portal
   reader retries `{:retry, _}` and lost races instead of its own list.
 
-Checks: in progress.
+- The region owner's state is split into owned parts: its key and `epoch`
+  (no longer `items.epoch`), its `publication` table (the ETS table
+  `:region_publication`, the Directory's `publication:`; was `:region_items`
+  and `item_publication`), its blocks and block entities, its `entities`
+  (`Valimc.World.RegionEntities`: the items, receipts and the item work it
+  schedules, without the `item_` prefixes), its commit state (`storage`) and
+  its `jobs`.
+
+Checks: per commit, `mix test.fast` (471 passed) and the affected files; for
+the taxonomy and the state split, every socket and slow suite (`mix test
+--only tcp --only slow`: 198/201). The three failures are not this ticket's
+and fail on main without it: `player_fire_connection_test.exs` (two tests)
+seeds fire on fire, which VMC-077m's block rules remove, and
+`player_freeze_damage_connection_test.exs` "blocked geometry coalesces…"
+stalls the region to block geometry reads, which VMC-077l made synchronous
+over published rows. `check_vanilla.py --changed origin/main` (26 stages)
+after the taxonomy; `bench/item_cross_merge.exs` (8 boundaries, conserved)
+after the job table.
+
+Next: the entity store (VMC-077h) replaces `RegionEntities` and classifies
+the item refusals; transfers (VMC-077i) the transfer receipts and their
+errors; the block fields join one block part once VMC-077m settles.

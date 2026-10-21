@@ -151,7 +151,7 @@ defmodule Valimc.MenuOverflowTest do
 
   defp records(ctx) do
     {:ok, {pid, _}} = World.item_owner(ctx.key)
-    Items.records(Valimc.TestConn.state(pid).resource.items)
+    Items.records(Valimc.TestConn.state(pid).resource.entities.items)
   end
 
   defp completed(ctx) do

@@ -191,7 +191,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
         state(pid).recovery == nil
     end)
 
-    [record] = Valimc.World.Items.records(:sys.get_state(owner).resource.items)
+    [record] = Valimc.World.Items.records(:sys.get_state(owner).resource.entities.items)
     assert record.x == ctx.pos.x + 0.2 and record.z == ctx.pos.z
     uuid = state(pid).player.uuid
 
