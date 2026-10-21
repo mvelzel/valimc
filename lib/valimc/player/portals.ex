@@ -18,9 +18,8 @@ defmodule Valimc.Player.Portals do
   Spectators touch no blocks (vanilla's `noPhysics`), so never travel.
   """
   alias Valimc.Command.GameRules
-  alias Valimc.Physics.{InsideBlocks, PlayerPose}
+  alias Valimc.Physics.PlayerPose
   alias Valimc.Player.Travel
-  alias Valimc.Portal.Blocks
   alias Valimc.Session.Jobs
   alias Valimc.World
   alias Valimc.World.{BlockSnapshot, Directory}
@@ -28,16 +27,9 @@ defmodule Valimc.Player.Portals do
   @cooldown Travel.cooldown()
   # Ticks before a failed destination is tried again.
   @retry 20
-  @nether [Blocks.portal(:x), Blocks.portal(:z)]
-  @end_portal Valimc.Registry.Blocks.default_state("end_portal")
-  @end_gateway Valimc.Registry.Blocks.default_state("end_gateway")
-  @deflate 1.0e-5
 
   @doc "The portal kind of a block state, or nil."
-  def kind(state) when state in @nether, do: :nether_portal
-  def kind(@end_portal), do: :end_portal
-  def kind(@end_gateway), do: :end_gateway
-  def kind(_state), do: nil
+  defdelegate kind(state), to: Valimc.Portal.Contact
 
   @doc "One player tick of portal contact, cooldown and process."
   def tick(%{life_stage: :alive, phase: :play, player: %{won_game: true}} = state), do: state
@@ -279,67 +271,16 @@ defmodule Valimc.Player.Portals do
     failed(state)
   end
 
-  # The first portal block the player's box met on its way from `from` (an
-  # approximation of vanilla's ordered block walk along the movement).
+  # The first portal block the player's box met on its way from `from`.
   defp touched(player, from) do
-    to = {player.x, player.y, player.z}
     pose = Map.get(player, :pose, :standing)
 
-    cells =
-      for point <- path(from, to),
-          {:ok, %{box: box}} = PlayerPose.geometry(pose, point),
-          cell <- cells(box),
-          uniq: true,
-          do: {cell, box}
-
-    states = read(Enum.map(cells, &elem(&1, 0)))
-
-    Enum.find_value(cells, fn {cell, box} ->
-      state = Map.get(states, cell)
-
-      with kind when kind != nil <- state && kind(state),
-           true <- inside?(state, cell, box),
-           do: {kind, cell},
-           else: (_ -> nil)
-    end)
-  end
-
-  # Points along a movement, at most half a block apart (16 at most).
-  defp path({x0, y0, z0} = from, {x1, y1, z1} = to) do
-    distance = :math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2 + (z1 - z0) ** 2)
-    steps = distance |> Kernel.*(2) |> ceil() |> max(1) |> min(16)
-
-    if from == to,
-      do: [to],
-      else:
-        for(
-          i <- 1..steps,
-          t = i / steps,
-          do: {x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, z0 + (z1 - z0) * t}
-        )
-  end
-
-  defp cells({min_x, min_y, min_z, max_x, max_y, max_z}) do
-    for x <- floor(min_x + @deflate)..floor(max_x - @deflate),
-        y <- floor(min_y + @deflate)..floor(max_y - @deflate),
-        z <- floor(min_z + @deflate)..floor(max_z - @deflate),
-        do: {x, y, z}
-  end
-
-  defp inside?(state, {x, y, z}, {min_x, min_y, min_z, max_x, max_y, max_z}) do
-    case InsideBlocks.fetch(state) do
-      {:ok, {_, :full}} ->
-        true
-
-      {:ok, {_, boxes}} when is_list(boxes) ->
-        Enum.any?(boxes, fn {a, b, c, d, e, f} ->
-          min_x + @deflate < x + d and max_x - @deflate > x + a and min_y + @deflate < y + e and
-            max_y - @deflate > y + b and min_z + @deflate < z + f and max_z - @deflate > z + c
-        end)
-
-      _ ->
-        false
+    box_at = fn point ->
+      {:ok, %{box: box}} = PlayerPose.geometry(pose, point)
+      box
     end
+
+    Valimc.Portal.Contact.touched(box_at, from, {player.x, player.y, player.z}, &read/1)
   end
 
   # States at `positions` from the loaded owners' published snapshots.

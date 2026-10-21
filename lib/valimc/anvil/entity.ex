@@ -58,7 +58,8 @@ defmodule Valimc.Anvil.Entity do
         age: age(fields["Age"]),
         pickup_delay: delay(fields["PickupDelay"]),
         on_ground: flag(fields["OnGround"]),
-        no_gravity: flag(fields["NoGravity"])
+        no_gravity: flag(fields["NoGravity"]),
+        portal_cooldown: cooldown(fields["PortalCooldown"])
       }
 
       {:item, %{uuid: uuid, x: x, y: y, z: z, stack: stack, motion: state}}
@@ -101,6 +102,9 @@ defmodule Valimc.Anvil.Entity do
   defp delay({:short, delay}), do: delay
   defp delay(_), do: 0
 
+  defp cooldown({:int, ticks}), do: ticks |> max(0) |> min(32_767)
+  defp cooldown(_), do: 0
+
   defp flag({:byte, value}), do: value != 0
   defp flag(_), do: false
 
@@ -118,12 +122,20 @@ defmodule Valimc.Anvil.Entity do
         motion.no_gravity
       )
 
+    # Vanilla saves the portal cooldown only while it runs.
+    cooldown =
+      if motion.portal_cooldown > 0,
+        do: %{"PortalCooldown" => {:int, motion.portal_cooldown}},
+        else: %{}
+
     {:compound,
-     Map.merge(fields, %{
+     fields
+     |> Map.merge(%{
        "Age" => {:short, motion.age},
        "PickupDelay" => {:short, motion.pickup_delay},
        "Item" => ItemData.tag(stack)
-     })}
+     })
+     |> Map.merge(cooldown)}
   end
 
   @doc "An XP orb's compound for an entities file (export)."

@@ -169,7 +169,13 @@ defmodule Valimc.World.ItemRecords do
         check(ItemMotionState.valid?(state))
         %{velocity: {x, y, z}, age: age, pickup_delay: delay} = state
         flags = 1 + if(state.on_ground, do: 2, else: 0) + if(state.no_gravity, do: 4, else: 0)
-        <<flags, x::float-64, y::float-64, z::float-64, age::signed-16, delay::signed-16>>
+        motion = <<x::float-64, y::float-64, z::float-64, age::signed-16, delay::signed-16>>
+
+        # A portal cooldown (VMC-026c) takes flag 8; records without one keep their bytes.
+        case state.portal_cooldown do
+          0 -> <<flags, motion::binary>>
+          cooldown -> <<flags + 8, motion::binary, cooldown::16>>
+        end
     end
   end
 
@@ -181,13 +187,23 @@ defmodule Valimc.World.ItemRecords do
            body::binary>>,
          3
        )
-       when flags in [1, 3, 5, 7] do
+       when flags in 1..15 and (flags &&& 1) == 1 do
+    {cooldown, body} =
+      if (flags &&& 8) != 0 do
+        <<cooldown::16, body::binary>> = body
+        check(cooldown > 0)
+        {cooldown, body}
+      else
+        {0, body}
+      end
+
     state = %ItemMotionState{
       velocity: {x, y, z},
       age: age,
       pickup_delay: delay,
       on_ground: (flags &&& 2) != 0,
-      no_gravity: (flags &&& 4) != 0
+      no_gravity: (flags &&& 4) != 0,
+      portal_cooldown: cooldown
     }
 
     check(ItemMotionState.valid?(state))

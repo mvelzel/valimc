@@ -57,7 +57,7 @@ defmodule Valimc.Portal.Destination do
 
       axis ->
         rectangle = Forcer.largest_rectangle(entry.entry, axis, 21, :y, 21, &(read.(&1) == state))
-        {axis, Forcer.relative(rectangle, axis, entry.position, dimensions(entry.pose))}
+        {axis, Forcer.relative(rectangle, axis, entry.position, dimensions(entry))}
     end
   end
 
@@ -99,7 +99,8 @@ defmodule Valimc.Portal.Destination do
   end
 
   # `createDimensionTransition`: the same relative place in the exit portal,
-  # turned a quarter when the portals' axes differ, with the player's motion.
+  # turned a quarter when the portals' axes differ, with the traveller's motion
+  # turned alike (`Relative.DELTA`, `ROTATION`).
   defp transition(
          {{bx, by, bz} = bottom_left, width, height},
          entry_axis,
@@ -109,7 +110,7 @@ defmodule Valimc.Portal.Destination do
        ) do
     read = Access.reader()
     axis = Blocks.portal_axis(read.(bottom_left)) || :x
-    {w, h} = dimensions(entry.pose)
+    {w, h} = dimensions(entry)
     rotation = if entry_axis == axis, do: 0.0, else: 90.0
     offset_right = w / 2.0 + (width - w) * right
     offset_up = (height - h) * up
@@ -120,19 +121,32 @@ defmodule Valimc.Portal.Destination do
         do: {bx + offset_right, bz + offset_forward},
         else: {bx + offset_forward, bz + offset_right}
 
+    arrival =
+      Valimc.Portal.Motion.absolute(
+        %{position: entry.position, delta: entry.velocity, yaw: entry.yaw, pitch: entry.pitch},
+        %{position: {x, by + offset_up, z}, delta: {0.0, 0.0, 0.0}, yaw: rotation, pitch: 0.0},
+        Valimc.Portal.Motion.portal()
+      )
+
+    {ax, ay, az} = arrival.position
+
     %{
       dimension: to,
-      x: x,
-      y: by + offset_up,
-      z: z,
-      yaw: entry.yaw + rotation,
-      pitch: entry.pitch,
-      velocity: entry.velocity,
+      x: ax,
+      y: ay,
+      z: az,
+      yaw: arrival.yaw,
+      pitch: arrival.pitch,
+      velocity: arrival.delta,
       portal: true
     }
   end
 
-  defp dimensions(pose) do
+  @doc "A traveller's size: an entity's own (`dimensions`), or a player's pose's."
+  def dimensions(%{dimensions: {width, height}}), do: {width, height}
+
+  def dimensions(entry) do
+    pose = Map.get(entry, :pose, :standing)
     {:ok, %{"width" => width, "height" => height}} = Valimc.Physics.PlayerPose.dimensions(pose)
     {width, height}
   end

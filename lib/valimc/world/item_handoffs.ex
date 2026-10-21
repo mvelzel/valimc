@@ -1,7 +1,16 @@
 defmodule Valimc.World.ItemHandoffs do
-  @moduledoc "Pure bounded owner handoffs; callers persist each plan before publishing or delivering it."
+  @moduledoc """
+  Pure bounded owner handoffs; callers persist each plan before publishing or
+  delivering it.
+
+  A handoff to another dimension's region (a portal, VMC-026c) names both ends
+  absolutely, `{dimension, key}`: its records are in the destination's
+  coordinates, and the destination keeps its receipt under the tagged source,
+  apart from its own dimension's neighbours. Within a dimension keys stay
+  plain, with their original bytes.
+  """
   alias Valimc.Txn.Receipts
-  alias Valimc.World.{ItemLedger, Items}
+  alias Valimc.World.{ItemLedger, ItemRecords, Items}
   @max_sequence 18_446_744_073_709_551_615
 
   @doc "Withdraw a freshly fenced cohort into one durable destination intent."
@@ -11,12 +20,24 @@ defmodule Valimc.World.ItemHandoffs do
       items.ledger.outgoing != nil -> {:error, :item_handoff_busy}
       items.ledger.sequence == @max_sequence -> {:error, :item_handoff_sequence_limit}
       source == destination -> {:error, :invalid_item_handoff}
+      crossing?(destination) and own?(destination) -> {:error, :invalid_item_handoff}
       true -> plan_departure(items, source, destination, steps)
     end
   end
 
+  defp crossing?(key), do: Valimc.Dimension.address?(key)
+  defp own?({dimension, _}), do: dimension == Valimc.Dimension.current()
+  defp plain({_dimension, key}), do: key
+
+  # The owner's own address for a handoff to `destination`.
+  defp address(key, destination),
+    do: if(crossing?(destination), do: {Valimc.Dimension.current(), key}, else: key)
+
   defp plan_departure(items, source, destination, steps) do
-    with {:ok, moved, handles} <- Items.advance(items, destination, items.epoch, steps),
+    # Steps of a crossing are in the destination's coordinates.
+    region = if crossing?(destination), do: plain(destination), else: destination
+
+    with {:ok, moved, handles} <- Items.advance(items, region, items.epoch, steps),
          {:ok, withdrawn} <- withdraw(moved, handles) do
       uuids = MapSet.new(handles, fn {_, id, _} -> moved.entries[id].entity.uuid end)
       records = moved |> Items.records() |> Enum.filter(&MapSet.member?(uuids, &1.uuid))
@@ -49,6 +70,7 @@ defmodule Valimc.World.ItemHandoffs do
   def request(%{ledger: %{outgoing: %{kind: :merge}}}, _), do: {:error, :not_item_handoff}
 
   def request(%{ledger: ledger}, source) do
+    source = address(source, ledger.outgoing.destination)
     transfer = Map.merge(ledger.outgoing, %{source: source, sequence: ledger.sequence})
     with {:ok, _} <- digest(transfer.destination, transfer), do: {:ok, transfer}
   end
@@ -64,6 +86,14 @@ defmodule Valimc.World.ItemHandoffs do
         } = transfer
       )
       when map_size(transfer) == 5 do
+    if crossing?(destination) or crossing?(source),
+      do: crossing_digest(source, sequence, destination, records, generations),
+      else: plain_digest(source, sequence, destination, records, generations)
+  end
+
+  def digest(_, _), do: {:error, :invalid_item_handoff}
+
+  defp plain_digest(source, sequence, destination, records, generations) do
     outgoing = %{destination: destination, records: records, generations: generations}
     ledger = %ItemLedger{sequence: sequence, outgoing: outgoing}
 
@@ -71,11 +101,47 @@ defmodule Valimc.World.ItemHandoffs do
          do: {:ok, :crypto.hash(:sha256, bytes)}
   end
 
-  def digest(_, _), do: {:error, :invalid_item_handoff}
+  # A crossing's digest: both tagged ends in different dimensions, the
+  # sequence, the records in the destination's coordinates and their hops.
+  defp crossing_digest(
+         {from, {sx, sz}} = source,
+         sequence,
+         {to, {dx, dz}} = destination,
+         records,
+         generations
+       )
+       when from != to do
+    with true <- crossing?(source) and crossing?(destination),
+         true <- is_integer(sequence) and sequence in 1..@max_sequence,
+         true <- is_list(records) and length(Enum.take(records, 33)) in 1..32,
+         true <- map_size(generations) == length(records),
+         records = Enum.sort_by(records, & &1.uuid),
+         true <- Enum.all?(records, &Map.has_key?(generations, &1.uuid)),
+         {:ok, bytes} <- ItemRecords.encode({dx, dz}, records) do
+      hops =
+        generations |> Enum.sort() |> Enum.map(fn {uuid, hop} -> <<uuid::binary, hop::64>> end)
+
+      {:ok,
+       :crypto.hash(:sha256, [
+         <<"VMCITRIP", 1, Valimc.Dimension.code(from), sx::signed-32, sz::signed-32, sequence::64,
+           Valimc.Dimension.code(to), dx::signed-32, dz::signed-32, byte_size(bytes)::32>>,
+         bytes,
+         hops
+       ])}
+    else
+      _ -> {:error, :invalid_item_handoff}
+    end
+  rescue
+    _ -> {:error, :invalid_item_handoff}
+  end
+
+  defp crossing_digest(_, _, _, _, _), do: {:error, :invalid_item_handoff}
 
   @doc "Record adoption and its region receipt together; duplicate retries never recreate departed items."
   def accept(items, key, transfer) do
-    with {:ok, digest} <- digest(key, transfer) do
+    destination = if is_map(transfer), do: Map.get(transfer, :destination)
+
+    with {:ok, digest} <- digest(address(key, destination), transfer) do
       %{source: source, sequence: sequence} = transfer
 
       case Receipts.classify(items.ledger.incoming, source, sequence, digest, :plain) do

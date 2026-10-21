@@ -262,6 +262,41 @@ failures =
       if diff == [], do: acc, else: [{:gateway, i, Enum.take(diff, 2)} | acc]
   end
 
+# Arrival poses (VMC-026c): position, velocity turned with the rotation, yaw and pitch.
+alias Valimc.Portal.Motion
+vec = fn [x, y, z] -> {x, y, z} end
+
+failures =
+  for {c, i} <- Enum.with_index(facts["motions"]), reduce: failures do
+    acc ->
+      relatives = if c["relatives"] == "into_end", do: Motion.into_end(), else: Motion.portal()
+
+      source = %{
+        position: vec.(c["position"]),
+        delta: vec.(c["delta"]),
+        yaw: c["yaw"],
+        pitch: c["pitch"]
+      }
+
+      change = %{
+        position: vec.(c["target"]),
+        delta: {0.0, 0.0, 0.0},
+        yaw: c["change_yaw"],
+        pitch: c["change_pitch"]
+      }
+
+      got = Motion.absolute(source, change, relatives)
+
+      want = %{
+        position: vec.(c["result_position"]),
+        delta: vec.(c["result_delta"]),
+        yaw: c["result_yaw"] * 1.0,
+        pitch: c["result_pitch"] * 1.0
+      }
+
+      if got == want, do: acc, else: [{:motion, i, got, want} | acc]
+  end
+
 if failures != [] do
   failures
   |> Enum.reverse()
@@ -282,6 +317,6 @@ IO.puts(
     "#{length(facts["fires"])} fire placements, #{length(facts["rectangles"])} rectangles, " <>
     "#{length(facts["relative"])} relative positions, #{length(facts["create"])} portal creations " <>
     "(#{edits} block sets in order), #{length(facts["closest"])} portal searches, " <>
-    "#{length(facts["frames"])} end portal frames, #{length(facts["platforms"])} End platforms and " <>
-    "#{length(facts["gateways"])} gateway exits equal vanilla's"
+    "#{length(facts["frames"])} end portal frames, #{length(facts["platforms"])} End platforms, " <>
+    "#{length(facts["gateways"])} gateway exits and #{length(facts["motions"])} arrival poses equal vanilla's"
 )

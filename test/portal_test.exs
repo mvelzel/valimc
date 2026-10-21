@@ -65,6 +65,24 @@ defmodule Valimc.PortalTest do
     assert Warm.regions(platform) == [{0, -1}, {0, 0}]
   end
 
+  test "arrival poses turn the traveller's motion with its rotation (ROTATE_DELTA)" do
+    alias Valimc.Portal.Motion
+    source = %{position: {1.0, 64.0, 2.0}, delta: {1.0, -0.5, 0.0}, yaw: 0.0, pitch: 10.0}
+
+    # A nether portal of the other axis turns the yaw a quarter, and the motion with it.
+    change = %{position: {8.5, 70.0, 3.5}, delta: {0.0, 0.0, 0.0}, yaw: 90.0, pitch: 0.0}
+    turned = Motion.absolute(source, change, Motion.portal())
+    assert turned.position == {8.5, 70.0, 3.5}
+    assert turned.yaw == 90.0 and turned.pitch == 10.0
+    assert turned.delta == {0.0, -0.5, 1.0}
+
+    # Into the End: west, whatever the yaw; a gateway keeps the motion as it is.
+    into = Motion.absolute(%{source | yaw: 90.0}, %{change | yaw: 90.0}, Motion.into_end())
+    assert into.yaw == 90.0 and into.delta == source.delta
+    same = Motion.absolute(source, %{change | yaw: 0.0}, Motion.portal())
+    assert same.delta == source.delta and same.yaw == 0.0
+  end
+
   test "a shape's opening runs as vanilla's betweenClosed" do
     air = Valimc.Registry.Blocks.default_state("air")
     # A 2 × 3 frame along Z at x 5.

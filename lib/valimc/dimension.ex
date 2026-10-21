@@ -23,6 +23,20 @@ defmodule Valimc.Dimension do
 
   def ids, do: @ids
 
+  @doc "A dimension's stored code (0 overworld, 1 the Nether, 2 the End)."
+  def code(dimension) when dimension in @ids,
+    do: Enum.find_index(@ids, &(&1 == dimension))
+
+  @doc "The dimension of a stored code, or nil."
+  def of_code(code) when is_integer(code), do: Enum.at(@ids, code)
+
+  @doc """
+  An absolute region address across dimensions (`{dimension, key}`, the
+  overworld's too), as cross-dimension transfers name their ends (VMC-026c).
+  """
+  def address?({dimension, {x, z}}) when dimension in @ids, do: is_integer(x) and is_integer(z)
+  def address?(_), do: false
+
   @doc "The calling process's dimension (the overworld unless set)."
   def current, do: Process.get(@context, :overworld)
 

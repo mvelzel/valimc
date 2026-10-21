@@ -17,7 +17,7 @@ defmodule Valimc.Portal.EndPortal do
   Blocks a new portal or platform replaces drop nothing yet (vanilla drops
   their loot); eyes thrown into the air (towards a stronghold) are not handled.
   """
-  alias Valimc.Portal.{Access, Blocks}
+  alias Valimc.Portal.{Access, Blocks, Motion}
   alias Valimc.Registry.Blocks, as: Registry
 
   @spawn {100, 50, 0}
@@ -76,7 +76,12 @@ defmodule Valimc.Portal.EndPortal do
   `{:credits, target}` (the credits first; then the target) or `{:error, reason}`.
   """
   def destination(entry) do
+    item = Map.get(entry, :entity) == :item
+
     case Valimc.Dimension.current() do
+      :the_end when item ->
+        world_spawn(entry)
+
       :the_end ->
         target = respawn_target()
         if Map.get(entry, :seen_credits, false), do: {:ok, target}, else: {:credits, target}
@@ -87,21 +92,50 @@ defmodule Valimc.Portal.EndPortal do
           read = Access.reader()
 
           with :ok <- Access.commit(platform(read, {x, y - 1, z})) do
+            # A player arrives a block lower, on the platform's floor; facing
+            # west turns its motion alike (`DELTA ∪ {X_ROT}`).
+            height = if item, do: y * 1.0, else: y - 1.0
+
             {:ok,
-             %{
-               dimension: :the_end,
-               x: x + 0.5,
-               # A player arrives a block lower, on the platform's floor.
-               y: y - 1.0,
-               z: z + 0.5,
-               yaw: 90.0,
-               pitch: entry.pitch,
-               velocity: entry.velocity,
-               portal: true
-             }}
+             arrival(entry, {x + 0.5, height, z + 0.5}, 90.0, 0.0, Motion.into_end(), :the_end)}
           end
         end)
     end
+  end
+
+  # An entity leaving the End (VMC-026c): the world spawn's column on its
+  # MOTION_BLOCKING_NO_LEAVES surface (`adjustSpawnLocation`), with the
+  # spawn's rotation added (`DELTA ∪ ROTATION`).
+  defp world_spawn(entry) do
+    Valimc.Dimension.within(:overworld, fn ->
+      spawn = Valimc.World.Spawn.pose()
+      {sx, sz} = {floor(spawn.x), floor(spawn.z)}
+      top = Access.heights(:motion_blocking_no_leaves).(sx, sz)
+      position = {sx + 0.5, top * 1.0, sz + 0.5}
+      {:ok, arrival(entry, position, spawn.yaw, spawn.pitch, Motion.portal(), :overworld)}
+    end)
+  end
+
+  defp arrival(entry, position, yaw, pitch, relatives, dimension) do
+    pose =
+      Motion.absolute(
+        %{position: entry.position, delta: entry.velocity, yaw: entry.yaw, pitch: entry.pitch},
+        %{position: position, delta: {0.0, 0.0, 0.0}, yaw: yaw, pitch: pitch},
+        relatives
+      )
+
+    {x, y, z} = pose.position
+
+    %{
+      dimension: dimension,
+      x: x,
+      y: y,
+      z: z,
+      yaw: pose.yaw,
+      pitch: pose.pitch,
+      velocity: pose.delta,
+      portal: true
+    }
   end
 
   @doc "The block square (`{x0, z0, x1, z1}`) the End's arrival platform covers."

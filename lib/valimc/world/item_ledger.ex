@@ -8,6 +8,8 @@ defmodule Valimc.World.ItemLedger do
   @max_bytes ItemRecords.max_bytes() + @outgoing_bytes + @max_receipts * 48 + 288 * 24 + 96
   def max_bytes, do: @max_bytes
 
+  # Version 2 (VMC-026c) names other dimensions' regions: receipts from them and
+  # an outgoing intent to one. Ledgers without either keep version 1's bytes.
   @doc "Empty ledger state keeps the exact v1/v2/v3 ItemRecords representation."
   def encode(key, records, receipts, ledger \\ %__MODULE__{}) do
     with true <- valid?(key, records, ledger),
@@ -16,18 +18,17 @@ defmodule Valimc.World.ItemLedger do
         {:ok, owned}
       else
         {rx, rz} = key
+        version = if crossing?(ledger), do: 2, else: 1
 
         payload =
           IO.iodata_to_binary([
-            <<"VMCLEDGR", 1, 5023::32, rx::signed-32, rz::signed-32, ledger.sequence::64,
+            <<"VMCLEDGR", version, 5023::32, rx::signed-32, rz::signed-32, ledger.sequence::64,
               map_size(ledger.incoming)::16, map_size(ledger.generations)::16,
               byte_size(owned)::32>>,
             owned,
             ledger.incoming
             |> Enum.sort()
-            |> Enum.map(fn {{sx, sz}, r} ->
-              <<sx::signed-32, sz::signed-32, r.sequence::64, r.digest::binary-size(32)>>
-            end),
+            |> Enum.map(&receipt(&1, version)),
             generations(ledger.generations),
             outgoing(ledger.outgoing)
           ])
@@ -62,18 +63,37 @@ defmodule Valimc.World.ItemLedger do
 
   def decode(_, _), do: invalid()
 
+  defp crossing?(ledger),
+    do:
+      Enum.any?(Map.keys(ledger.incoming), &Valimc.Dimension.address?/1) or
+        match?(%{destination: destination} when is_tuple(elem(destination, 1)), ledger.outgoing)
+
+  # Version 2 receipts lead with the source's dimension code, or 255 for one of
+  # the owner's own dimension.
+  defp receipt({{sx, sz}, r}, 1),
+    do: <<sx::signed-32, sz::signed-32, r.sequence::64, r.digest::binary-size(32)>>
+
+  defp receipt({{dimension, {sx, sz}}, r}, 2),
+    do:
+      <<Valimc.Dimension.code(dimension), sx::signed-32, sz::signed-32, r.sequence::64,
+        r.digest::binary-size(32)>>
+
+  defp receipt({{sx, sz}, r}, 2),
+    do: <<255, sx::signed-32, sz::signed-32, r.sequence::64, r.digest::binary-size(32)>>
+
   defp decode_ledger(bytes, {rx, rz} = key) do
     size = byte_size(bytes) - 32
     <<payload::binary-size(^size), checksum::binary-size(32)>> = bytes
     true = :crypto.hash(:sha256, payload) == checksum
 
-    <<"VMCLEDGR", 1, 5023::32, ^rx::signed-32, ^rz::signed-32, sequence::64, count::16,
+    <<"VMCLEDGR", version, 5023::32, ^rx::signed-32, ^rz::signed-32, sequence::64, count::16,
       owners::16, length::32, rest::binary>> = payload
 
+    true = version in [1, 2]
     true = count <= @max_receipts and owners <= 256 and length <= ItemRecords.max_bytes()
     <<owned::binary-size(^length), rest::binary>> = rest
     {:ok, %{records: records, receipts: receipts}} = ItemRecords.decode(owned, key)
-    {incoming, rest} = take_receipts(rest, count, %{})
+    {incoming, rest} = take_receipts(rest, count, %{}, version)
     {generations, rest} = take_generations(rest, owners, %{})
     outgoing = take_outgoing(rest)
 
@@ -89,15 +109,29 @@ defmodule Valimc.World.ItemLedger do
     {:ok, %{records: records, receipts: receipts, ledger: ledger}}
   end
 
-  defp take_receipts(rest, 0, acc), do: {acc, rest}
+  defp take_receipts(rest, 0, acc, _version), do: {acc, rest}
 
   defp take_receipts(
          <<x::signed-32, z::signed-32, sequence::64, digest::binary-size(32), rest::binary>>,
          n,
-         acc
+         acc,
+         1
        ) do
     false = Map.has_key?(acc, {x, z})
-    take_receipts(rest, n - 1, Map.put(acc, {x, z}, %{sequence: sequence, digest: digest}))
+    take_receipts(rest, n - 1, Map.put(acc, {x, z}, %{sequence: sequence, digest: digest}), 1)
+  end
+
+  defp take_receipts(
+         <<code, x::signed-32, z::signed-32, sequence::64, digest::binary-size(32),
+           rest::binary>>,
+         n,
+         acc,
+         2
+       ) do
+    source = if code == 255, do: {x, z}, else: {Valimc.Dimension.of_code(code), {x, z}}
+    true = code == 255 or Valimc.Dimension.address?(source)
+    false = Map.has_key?(acc, source)
+    take_receipts(rest, n - 1, Map.put(acc, source, %{sequence: sequence, digest: digest}), 2)
   end
 
   defp take_generations(rest, 0, acc), do: {acc, rest}
@@ -112,6 +146,18 @@ defmodule Valimc.World.ItemLedger do
   defp outgoing(%{kind: :merge, request: request}) do
     {:ok, bytes} = ItemMergeTransfer.encode(request)
     <<2, byte_size(bytes)::32, bytes::binary>>
+  end
+
+  defp outgoing(%{destination: {dimension, {x, z}}, records: records, generations: hops}) do
+    records = Enum.sort_by(records, & &1.uuid)
+    {:ok, bytes} = ItemRecords.encode({x, z}, records)
+
+    [
+      <<3, Valimc.Dimension.code(dimension), x::signed-32, z::signed-32, byte_size(bytes)::32>>,
+      bytes,
+      <<map_size(hops)>>,
+      generations(hops)
+    ]
   end
 
   defp outgoing(%{destination: {x, z}, records: records, generations: hops}) do
@@ -136,6 +182,17 @@ defmodule Valimc.World.ItemLedger do
     escrow
   end
 
+  # Another dimension's region (VMC-026c): its records are in its coordinates.
+  defp take_outgoing(<<3, code, x::signed-32, z::signed-32, length::32, rest::binary>>) do
+    dimension = Valimc.Dimension.of_code(code)
+    true = dimension != nil
+
+    %{destination: plain} =
+      outgoing = take_outgoing(<<1, x::signed-32, z::signed-32, length::32, rest::binary>>)
+
+    %{outgoing | destination: {dimension, plain}}
+  end
+
   defp take_outgoing(<<1, x::signed-32, z::signed-32, length::32, rest::binary>>) do
     true = length <= @outgoing_bytes
     <<bytes::binary-size(^length), count, rest::binary>> = rest
@@ -154,7 +211,8 @@ defmodule Valimc.World.ItemLedger do
       is_list(records) and length(Enum.take(records, 257)) + return_slots(ledger.outgoing) <= 256 and
       is_map(ledger.incoming) and map_size(ledger.incoming) <= @max_receipts and
       Enum.all?(ledger.incoming, fn {source, r} ->
-        region?(source) and source != key and OwnerItemReceipts.valid?(r)
+        (region?(source) or Valimc.Dimension.address?(source)) and source != key and
+          OwnerItemReceipts.valid?(r)
       end) and valid_generations?(ledger.generations, records, false) and
       valid_outgoing?(ledger.outgoing, key, ledger.sequence) and
       disjoint?(records, ledger.outgoing)
@@ -177,10 +235,12 @@ defmodule Valimc.World.ItemLedger do
          key,
          sequence
        ) do
-    map_size(outgoing) == 3 and sequence > 0 and region?(destination) and destination != key and
+    plain = if Valimc.Dimension.address?(destination), do: elem(destination, 1), else: destination
+
+    map_size(outgoing) == 3 and sequence > 0 and region?(plain) and destination != key and
       is_list(records) and length(Enum.take(records, 33)) in 1..32 and
       valid_generations?(hops, records, true) and
-      case ItemRecords.encode(destination, records) do
+      case ItemRecords.encode(plain, records) do
         {:ok, bytes} -> byte_size(bytes) <= @outgoing_bytes
         _ -> false
       end

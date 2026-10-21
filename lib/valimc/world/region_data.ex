@@ -24,6 +24,7 @@ defmodule Valimc.World.RegionData do
     Items,
     ItemHandoffs,
     ItemHandoffDelivery,
+    ItemPortals,
     ItemMerges,
     ItemMergeEscrow,
     ItemMergeInbox,
@@ -61,6 +62,7 @@ defmodule Valimc.World.RegionData do
     :item_handoff,
     :item_simulation,
     :item_simulation_enabled,
+    :item_portal,
     :item_merge_stamp,
     :item_merge_next,
     :item_cross_job,
@@ -274,6 +276,7 @@ defmodule Valimc.World.RegionData do
       item_pending: nil,
       item_handoff: nil,
       item_simulation: nil,
+      item_portal: nil,
       item_simulation_enabled: Valimc.config(:item_simulation, key),
       item_merge_stamp: nil,
       item_merge_next: nil,
@@ -320,6 +323,7 @@ defmodule Valimc.World.RegionData do
   end
 
   def item_tick(state, now) do
+    state = travel_item(state)
     # A planning worker's result replaces the item map, so ageing waits while one
     # runs (and, under backpressure, while expiries cannot be written); the skipped
     # ticks are owed and applied at once, so despawn timing never stalls.
@@ -3379,6 +3383,22 @@ defmodule Valimc.World.RegionData do
 
   def handle_info({:item_simulation, _, _, _}, state), do: {:noreply, state}
 
+  def handle_info({:item_portal, token, result}, %{item_portal: %{token: token} = job} = state) do
+    Process.demonitor(job.monitor, [:flush])
+
+    case result do
+      {:ok, target} ->
+        {:noreply, travel_item(%{state | item_portal: %{job | target: target}})}
+
+      other ->
+        require Logger
+        Logger.warning("Item portal destination unavailable: #{inspect(other, limit: 12)}")
+        {:noreply, %{state | item_portal: nil}}
+    end
+  end
+
+  def handle_info({:item_portal, _, _}, state), do: {:noreply, state}
+
   def handle_info({:release_item_merge, token, source}, state),
     do:
       {:noreply,
@@ -3704,6 +3724,12 @@ defmodule Valimc.World.RegionData do
     Valimc.Metrics.add(:item_cross_failures)
     {:noreply, %{state | item_cross_job: nil}}
   end
+
+  def handle_info(
+        {:DOWN, ref, :process, worker, _},
+        %{item_portal: %{monitor: ref, worker: worker, target: nil}} = state
+      ),
+      do: {:noreply, %{state | item_portal: nil}}
 
   def handle_info(
         {:DOWN, ref, :process, worker, _},
@@ -4252,7 +4278,12 @@ defmodule Valimc.World.RegionData do
               %{
                 step
                 | revision: entry.revision,
-                  motion: %{step.motion | age: counters.age, pickup_delay: counters.pickup_delay}
+                  motion: %{
+                    step.motion
+                    | age: counters.age,
+                      pickup_delay: counters.pickup_delay,
+                      portal_cooldown: counters.portal_cooldown
+                  }
               }
             ]
 
@@ -4265,6 +4296,8 @@ defmodule Valimc.World.RegionData do
       Enum.split_with(steps, fn %{position: {x, _, z}} ->
         Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == state.key
       end)
+
+    {local, state} = portal_contacts(state, local)
 
     state =
       Enum.reduce(Enum.chunk_every(local, 32), state, fn batch, acc ->
@@ -4310,6 +4343,66 @@ defmodule Valimc.World.RegionData do
       {:noreply, start_item_merging(state, System.monotonic_time(:millisecond))}
     end
   end
+
+  # Items in portals (VMC-026c): local steps meeting a portal renew their
+  # cooldown; one off cooldown starts this owner's single destination job.
+  defp portal_contacts(state, local) do
+    read = fn cells ->
+      Blocks.get_many(state.blocks, Enum.filter(cells, &in_region?(state, &1)))
+    end
+
+    case ItemPortals.contacts(local, state.items.entries, read, state.item_portal == nil) do
+      {local, nil} ->
+        {local, state}
+
+      {local, {step, _, _} = travel} ->
+        case ItemPortals.start(self(), state.items.epoch, travel) do
+          {:ok, job} ->
+            local = Enum.map(local, &if(&1.id == step.id, do: ItemPortals.renew(&1), else: &1))
+            {local, %{state | item_portal: job}}
+
+          {:error, _} ->
+            {local, state}
+        end
+    end
+  end
+
+  # A travelled item moves once this owner's item plans and outgoing intent are free.
+  defp travel_item(%{item_portal: %{target: nil} = job} = state) do
+    if ItemPortals.expired?(job) do
+      Process.demonitor(job.monitor, [:flush])
+      Process.exit(job.worker, :kill)
+      %{state | item_portal: nil}
+    else
+      state
+    end
+  end
+
+  defp travel_item(%{item_portal: %{target: target, uuid: uuid}} = state)
+       when state.item_pending == nil and state.items.ledger.outgoing == nil and
+              state.item_storage_enabled do
+    state = %{state | item_portal: nil}
+    deadline = System.monotonic_time(:millisecond) + 250
+
+    case ItemPortals.arrival(state.items, state.key, uuid, target) do
+      :gone ->
+        state
+
+      {:local, step} ->
+        {:reply, _, next} =
+          handle_call({:publish_item_motion, state.items.epoch, [step], deadline}, nil, state)
+
+        next
+
+      {:handoff, destination, step} ->
+        case plan_item_change(:item_handoff_out, {destination, [step], deadline}, nil, state) do
+          {:noreply, next} -> next
+          {:reply, _, next} -> next
+        end
+    end
+  end
+
+  defp travel_item(state), do: state
 
   defp rests?(%{velocity: {x, y, z}, on_ground: ground, no_gravity: floating}),
     do: (ground or floating) and y == 0.0 and x * x + z * z <= 1.0e-10

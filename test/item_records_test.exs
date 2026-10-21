@@ -165,4 +165,22 @@ defmodule Valimc.ItemRecordsTest do
 
     assert {:error, :invalid_item_file} = ItemRecords.decode(file(0, <<>>, 3), {-1, -1})
   end
+
+  test "a portal cooldown takes motion flag 8; motion without one keeps its bytes" do
+    motion = %Valimc.ItemMotionState{velocity: {0.1, -0.2, 0.0}, age: 40, pickup_delay: 3}
+    plain = Map.put(record(), :motion, motion)
+    cooling = Map.put(record(), :motion, %{motion | portal_cooldown: 300})
+    assert {:ok, before} = ItemRecords.encode({-1, -1}, [plain])
+    assert {:ok, after_portal} = ItemRecords.encode({-1, -1}, [cooling])
+    assert byte_size(after_portal) == byte_size(before) + 2
+
+    assert ItemRecords.decode(after_portal, {-1, -1}) ==
+             {:ok, %{records: [cooling], receipts: %{}}}
+
+    assert ItemRecords.decode(before, {-1, -1}) == {:ok, %{records: [plain], receipts: %{}}}
+
+    # The cooldown runs down with the item's age.
+    assert Valimc.ItemMotionState.advance(%{motion | portal_cooldown: 300}, 7).portal_cooldown ==
+             293
+  end
 end

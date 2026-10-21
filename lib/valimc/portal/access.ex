@@ -39,27 +39,26 @@ defmodule Valimc.Portal.Access do
   end
 
   @doc """
-  The MOTION_BLOCKING heightmap of the caller's dimension (`fn x, z -> y end`):
-  one above the top state that blocks motion or holds a fluid, else the bottom.
+  A heightmap of the caller's dimension (`fn x, z -> y end`), MOTION_BLOCKING
+  unless named: one above the top state it counts, else the bottom.
   """
-  def heights do
+  def heights(type \\ :motion_blocking) do
     cache = make_ref()
     deadline = now() + @deadline
     {min_y, height} = Valimc.Dimension.bounds()
 
     fn x, z ->
       sections = sections(cache, World.chunk_key(x, z), deadline)
-      top(sections, x, z, min_y + height - 1, min_y)
+      top(sections, x, z, min_y + height - 1, min_y, type)
     end
   end
 
-  defp top(_sections, _x, _z, y, min_y) when y < min_y, do: min_y
+  defp top(_sections, _x, _z, y, min_y, _type) when y < min_y, do: min_y
 
-  defp top(sections, x, z, y, min_y) do
-    if HeightmapBlocks.opaque?(BlockSnapshot.state_at(sections, {x, y, z}), :motion_blocking) ==
-         {:ok, true},
-       do: y + 1,
-       else: top(sections, x, z, y - 1, min_y)
+  defp top(sections, x, z, y, min_y, type) do
+    if HeightmapBlocks.opaque?(BlockSnapshot.state_at(sections, {x, y, z}), type) == {:ok, true},
+      do: y + 1,
+      else: top(sections, x, z, y - 1, min_y, type)
   end
 
   defp sections(cache, chunk, deadline) do

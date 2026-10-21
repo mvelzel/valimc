@@ -34,11 +34,20 @@ defmodule Valimc.World.ItemHandoffDelivery do
   defp deliver(key, ledger) do
     with {:ok, request} <- ItemHandoffs.request(%{ledger: ledger}, key),
          {:ok, digest} <- ItemHandoffs.digest(request.destination, request),
-         {:ok, owner} <- World.item_owner(request.destination),
+         {:ok, owner} <- owner(request.destination),
          {:ok, result} when result in [:applied, :already_applied] <-
            Region.apply_item_handoff(owner, request),
          do: {:ok, request.sequence, digest}
   catch
     :exit, _ -> {:error, :item_handoff_uncertain}
   end
+
+  # Another dimension's region (VMC-026c) is found, and loaded, in that dimension.
+  defp owner({dimension, key} = destination) when is_atom(dimension) do
+    if Valimc.Dimension.address?(destination),
+      do: Valimc.Dimension.within(dimension, fn -> World.item_owner(key) end),
+      else: {:error, :invalid_item_handoff}
+  end
+
+  defp owner(key), do: World.item_owner(key)
 end

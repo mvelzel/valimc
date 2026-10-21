@@ -296,6 +296,61 @@ public class PortalOracle {
     return cases;
   }
 
+  static JsonArray vec3(Vec3 v) {
+    var a = new JsonArray();
+    a.add(v.x);
+    a.add(v.y);
+    a.add(v.z);
+    return a;
+  }
+
+  /**
+   * Arrival poses (VMC-026c): `PositionMoveRotation.calculateAbsolute` over random travellers and
+   * the transitions portals make (a nether portal turning 0 or 90, into the End facing west, out of
+   * it with the spawn's rotation, a gateway), with their relative flags.
+   */
+  static JsonArray motions() {
+    var portal = net.minecraft.world.entity.Relative.union(
+        net.minecraft.world.entity.Relative.DELTA, net.minecraft.world.entity.Relative.ROTATION);
+    var intoEnd = net.minecraft.world.entity.Relative.union(
+        net.minecraft.world.entity.Relative.DELTA, java.util.Set.of(net.minecraft.world.entity.Relative.X_ROT));
+    var cases = new JsonArray();
+    for (int n = 0; n < 400; n++) {
+      var position = new Vec3(random.nextDouble() * 200 - 100, random.nextDouble() * 100, random.nextDouble() * 200 - 100);
+      var delta = new Vec3(random.nextGaussian() * 0.3, random.nextGaussian() * 0.3, random.nextGaussian() * 0.3);
+      float yaw = random.nextFloat() * 720 - 360;
+      float pitch = random.nextFloat() * 180 - 90;
+      var source = new net.minecraft.world.entity.PositionMoveRotation(position, delta, yaw, pitch);
+      int kind = n % 4;
+      float changeYaw = switch (kind) {
+        case 0 -> random.nextBoolean() ? 0.0F : 90.0F;
+        case 1 -> 90.0F;
+        case 2 -> random.nextFloat() * 360 - 180;
+        default -> 0.0F;
+      };
+      float changePitch = kind == 2 ? random.nextFloat() * 60 - 30 : 0.0F;
+      var target = new Vec3(random.nextDouble() * 200 - 100, random.nextDouble() * 100, random.nextDouble() * 200 - 100);
+      var change = new net.minecraft.world.entity.PositionMoveRotation(target, Vec3.ZERO, changeYaw, changePitch);
+      var relatives = kind == 1 ? intoEnd : portal;
+      var result = net.minecraft.world.entity.PositionMoveRotation.calculateAbsolute(source, change, relatives);
+      var c = new JsonObject();
+      c.addProperty("relatives", kind == 1 ? "into_end" : "portal");
+      c.add("position", vec3(position));
+      c.add("delta", vec3(delta));
+      c.addProperty("yaw", (double) yaw);
+      c.addProperty("pitch", (double) pitch);
+      c.add("target", vec3(target));
+      c.addProperty("change_yaw", (double) changeYaw);
+      c.addProperty("change_pitch", (double) changePitch);
+      c.add("result_position", vec3(result.position()));
+      c.add("result_delta", vec3(result.deltaMovement()));
+      c.addProperty("result_yaw", (double) result.yRot());
+      c.addProperty("result_pitch", (double) result.xRot());
+      cases.add(c);
+    }
+    return cases;
+  }
+
   static JsonArray relative() {
     var cases = new JsonArray();
     for (int n = 0; n < 300; n++) {
@@ -698,6 +753,7 @@ public class PortalOracle {
     out.add("frames", frames());
     out.add("platforms", platforms());
     out.add("gateways", gateways());
+    out.add("motions", motions());
     Files.writeString(Path.of(args[0]), new Gson().toJson(out));
     int edits = 0;
     for (var c : out.getAsJsonArray("create")) edits += c.getAsJsonObject().getAsJsonArray("edits").size();
@@ -707,6 +763,7 @@ public class PortalOracle {
         + out.getAsJsonArray("create").size() + " portal creations (" + edits + " block sets), "
         + out.getAsJsonArray("closest").size() + " portal searches, " + out.getAsJsonArray("frames").size()
         + " end portal frames, " + out.getAsJsonArray("platforms").size() + " End platforms, "
-        + out.getAsJsonArray("gateways").size() + " gateway exits");
+        + out.getAsJsonArray("gateways").size() + " gateway exits, "
+        + out.getAsJsonArray("motions").size() + " arrival poses");
   }
 }
