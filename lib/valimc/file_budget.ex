@@ -13,8 +13,16 @@ defmodule Valimc.FileBudget do
   limit as the JVM does for vanilla (macOS starts processes at 256, at most
   `OPEN_MAX` 10240), and the cap is half of what remains after a reserve for
   sockets and the runtime, between 8 and 1024 (`:open_files_budget` overrides
-  it). The budget is an atomic counter, not a process: a caller that finds it
-  full backs off and tries again.
+  it).
+
+  The budget is a public ETS table of slots, not a process: holding a
+  descriptor is owning a row `{slot, pid}`, taken with `:ets.insert_new/2`, so
+  every descriptor taken names its holder. A holder killed inside `with_files/2`
+  (`Process.exit(pid, :kill)`, a brutal shutdown) never runs its `after`, and
+  its rows stay; a caller that finds the budget full deletes the rows of dead
+  holders, then backs off and tries again. Rows are deleted as whole objects,
+  so a slot taken again since is never freed by mistake. The table belongs to
+  the process that creates the budget, the application's start (`init!/0`).
 
   Running out of descriptors anyway (other processes, a lower limit) is
   transient: `transient?/1` recognises `EMFILE`/`ENFILE` in file and native
@@ -59,34 +67,45 @@ defmodule Valimc.FileBudget do
     %{soft: soft, hard: hard, cap: cap}
   end
 
-  @doc "Set the cap (tests use a tiny one); descriptors in use are kept."
+  @doc """
+  Set the cap (tests use a tiny one); descriptors in use are kept. Creates the
+  budget, owned by the caller, if there is none (or its owner has stopped).
+  """
   def set_cap(cap) when is_integer(cap) and cap > 0 do
     case :persistent_term.get(@key, nil) do
-      nil ->
-        counter = :atomics.new(2, signed: true)
-        :atomics.put(counter, 1, cap)
-        :persistent_term.put(@key, counter)
+      {table, settings} ->
+        if :ets.info(table, :size) == :undefined,
+          do: create(cap),
+          else: :atomics.put(settings, 1, cap)
 
-      counter ->
-        :atomics.put(counter, 1, cap)
+      _ ->
+        create(cap)
     end
 
     :ok
+  end
+
+  # Settings: [cap, the slot the next caller probes first].
+  defp create(cap) do
+    table = :ets.new(__MODULE__, [:set, :public, write_concurrency: true])
+    settings = :atomics.new(2, signed: false)
+    :atomics.put(settings, 1, cap)
+    :persistent_term.put(@key, {table, settings})
   end
 
   @doc "The cap, or nil before `init!/0`."
   def cap do
     case :persistent_term.get(@key, nil) do
       nil -> nil
-      counter -> :atomics.get(counter, 1)
+      {_, settings} -> :atomics.get(settings, 1)
     end
   end
 
-  @doc "Descriptors taken from the budget now."
+  @doc "Descriptors taken from the budget now, dead holders' not yet reclaimed among them."
   def in_use do
     case :persistent_term.get(@key, nil) do
       nil -> 0
-      counter -> :atomics.get(counter, 2)
+      {table, _} -> :ets.info(table, :size)
     end
   end
 
@@ -94,39 +113,80 @@ defmodule Valimc.FileBudget do
   Run `fun` holding `count` descriptors of the budget (waiting while it is
   full, up to a minute), then give them back. Without a budget (tools that do
   not start the server) `fun` just runs. `{:error, {:unwritten, :file_budget}}`
-  if the budget stays full.
+  if the budget stays full. Descriptors of a caller killed meanwhile go back
+  once the budget is next found full.
   """
   def with_files(count \\ 1, fun) do
     case :persistent_term.get(@key, nil) do
       nil ->
         fun.()
 
-      counter ->
-        if acquire(counter, count, System.monotonic_time(:millisecond) + @budget_wait, 1) do
-          try do
-            fun.()
-          after
-            :atomics.sub(counter, 2, count)
-          end
-        else
-          {:error, {:unwritten, :file_budget}}
+      {table, settings} ->
+        deadline = System.monotonic_time(:millisecond) + @budget_wait
+
+        case acquire(table, settings, count, deadline, 1) do
+          {:ok, slots} ->
+            try do
+              fun.()
+            after
+              Enum.each(slots, &:ets.delete_object(table, {&1, self()}))
+            end
+
+          :full ->
+            {:error, {:unwritten, :file_budget}}
         end
     end
   end
 
-  defp acquire(counter, count, deadline, delay) do
-    if :atomics.add_get(counter, 2, count) <= max(:atomics.get(counter, 1), count) do
-      true
-    else
-      :atomics.sub(counter, 2, count)
+  # More than the cap at once fits only an otherwise empty budget.
+  defp acquire(table, settings, count, deadline, delay) do
+    slots = max(:atomics.get(settings, 1), count)
 
-      if System.monotonic_time(:millisecond) >= deadline do
-        false
-      else
-        Process.sleep(delay)
-        acquire(counter, count, deadline, min(delay * 2, 50))
-      end
+    with true <- :ets.info(table, :size) + count <= slots,
+         {:ok, _} = taken <-
+           take(table, slots, rem(:atomics.add_get(settings, 2, 1), slots), slots, count, []) do
+      taken
+    else
+      _full ->
+        cond do
+          reclaim(table) > 0 ->
+            acquire(table, settings, count, deadline, delay)
+
+          System.monotonic_time(:millisecond) >= deadline ->
+            :full
+
+          true ->
+            Process.sleep(delay)
+            acquire(table, settings, count, deadline, min(delay * 2, 50))
+        end
     end
+  end
+
+  # Probe slots from `at` round the ring of `slots`, inserting rows that name
+  # this process, until `count` are taken; give them back if they are not.
+  defp take(_table, _slots, _at, _left, 0, taken), do: {:ok, taken}
+
+  defp take(table, _slots, _at, 0, _count, taken) do
+    Enum.each(taken, &:ets.delete_object(table, {&1, self()}))
+    :full
+  end
+
+  defp take(table, slots, at, left, count, taken) do
+    slot = at + 1
+    next = rem(slot, slots)
+
+    if :ets.insert_new(table, {slot, self()}),
+      do: take(table, slots, next, left - 1, count - 1, [slot | taken]),
+      else: take(table, slots, next, left - 1, count, taken)
+  end
+
+  # Free the slots of holders that died holding them; how many were freed.
+  defp reclaim(table) do
+    table
+    |> :ets.tab2list()
+    |> Enum.count(fn {_slot, pid} = row ->
+      not Process.alive?(pid) and :ets.delete_object(table, row)
+    end)
   end
 
   @doc """

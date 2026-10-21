@@ -50,19 +50,16 @@ defmodule Valimc.OpenFilesTest do
     assert FileBudget.cap() > 0
   end
 
-  # The budget counts what owners took; one killed while it held some (tests
-  # kill owners) never gives them back, so caps are set above what is counted.
-  defp set_cap_above_counted(cap) do
-    cap = FileBudget.in_use() + cap
-    FileBudget.set_cap(cap)
-    cap
-  end
+  # Holds the whole budget of 2 at once and reports what it counts meanwhile.
+  # A dead holder still counted would keep it full: the budget's wait would end
+  # in `{:error, {:unwritten, :file_budget}}`.
+  defp fill_budget, do: FileBudget.with_files(2, fn -> FileBudget.in_use() end)
 
   # Holders together never exceed the cap, whatever other tests' owners hold or
   # give back meanwhile, so this test's own holders never do either.
   @tag timeout: 300_000
   test "the budget bounds what is open at once" do
-    cap = set_cap_above_counted(2)
+    FileBudget.set_cap(2)
     # [inside now, most inside at once]
     inside = :atomics.new(2, [])
 
@@ -84,7 +81,42 @@ defmodule Valimc.OpenFilesTest do
       |> Enum.map(fn {:ok, i} -> i end)
 
     assert results == Enum.to_list(1..24)
-    assert :atomics.get(inside, 2) in 1..cap
+    assert :atomics.get(inside, 2) in 1..2
+  end
+
+  @tag timeout: 300_000
+  test "a holder killed mid-operation gives its descriptors back" do
+    FileBudget.set_cap(2)
+    parent = self()
+
+    holder =
+      spawn(fn ->
+        FileBudget.with_files(2, fn ->
+          send(parent, :holding)
+          Process.sleep(:infinity)
+        end)
+      end)
+
+    assert_receive :holding
+    assert FileBudget.in_use() == 2
+    Process.exit(holder, :kill)
+    assert fill_budget() == 2
+  end
+
+  @tag timeout: 300_000
+  test "holders killed at any point of taking, holding or giving back leak nothing" do
+    FileBudget.set_cap(2)
+
+    holders =
+      for _ <- 1..32 do
+        spawn(fn ->
+          Stream.repeatedly(fn -> FileBudget.with_files(fn -> :ok end) end) |> Stream.run()
+        end)
+      end
+
+    Process.sleep(50)
+    Enum.each(holders, &Process.exit(&1, :kill))
+    assert fill_budget() == 2
   end
 
   test "out-of-descriptor errors are transient, others are not" do
@@ -105,7 +137,8 @@ defmodule Valimc.OpenFilesTest do
   # Holding a descriptor per log would add 200; the margin is for whatever the
   # rest of the VM (other tests' owners, the logger) opens meanwhile.
   @tag timeout: 300_000
-  test "logs hold no descriptor: hundreds open and append", %{base: base} do
+  test "logs hold no descriptor: hundreds open and append under a budget of 4", %{base: base} do
+    FileBudget.set_cap(4)
     before = descriptors()
 
     logs =
