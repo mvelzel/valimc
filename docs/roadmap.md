@@ -46,20 +46,16 @@ resumes on these foundations alongside M2.
 | [VMC-070](tickets/VMC-070.md) | The client's view distance (clamped to the server's, default 10) picks vanilla's chunk view, applied live; vanilla chunk send pacing and entity tracking ranges | Done |
 | [VMC-071](tickets/VMC-071.md) | New terrain reaches a moving player sooner: parallel worldgen states, nearest regions first, no light-update flood | Done |
 
-Next: structure placement (VMC-025f), then live dimensions and portals
-(VMC-026b) and generation configuration (VMC-028).
-Performance target: generation throughput and tick time benchmarked against
-the same seed on vanilla and on Pumpkin, staying at least in Pumpkin's range.
+Next: structure placement (VMC-025f), live dimensions and portals (VMC-026b),
+then generation configuration (VMC-028). Generation and tick time stay matched
+against vanilla and Pumpkin on the same seed, at least in Pumpkin's range.
 
 ## M3 onward
 
 Survival core on the entity model (mobs/AI, spawning, combat, projectiles),
-redstone and block updates, then commands/admin and certification. Backlog
-milestones C–F describe the remaining scope. The commands that act on those
-systems move with them: entity commands (VMC-053k) with the entity work,
-advancements and scoreboards (053l) with VMC-052, `spawnpoint` (053n) with
-VMC-040, and `execute`/`function` and the data-pack commands (053h, 053m)
-with data packs (VMC-008); M2 finishes the world and administration commands.
+redstone and block updates, then commands/admin and certification; backlog
+milestones C–F hold the rest. Commands on those systems (VMC-053h, k–n) move
+with them; M2 finishes the world and administration commands.
 
 ## Paused
 
