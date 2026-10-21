@@ -485,3 +485,137 @@ defmodule Valimc.PlayerSnapshotTest do
         do: assert({:error, :invalid_player_file} == PlayerSnapshot.decode(corrupt, uuid()))
   end
 end
+
+defmodule Valimc.PlayerSnapshotTest.TableLayer do
+  # An open crafting table wraps whatever journal the player has pending (layer 15).
+  use ExUnit.Case, async: true
+  alias Valimc.{GameMode, Inventory, PlayerFood, PlayerSnapshot}
+  alias Valimc.Protocol.{Data, ItemStack}
+  @uuid <<31::128>>
+
+  defp cells, do: List.to_tuple([ItemStack.new("oak_planks", 3) | List.duplicate(nil, 8)])
+
+  # The player's inventory with three planks in the open table's grid.
+  defp table(inventory), do: %{inventory | table_inputs: cells()}
+
+  defp player(inventory) do
+    %{
+      pose: %{x: 1.5, y: 64.0, z: 1.5, yaw: 0.0, pitch: 0.0},
+      inventory: table(inventory),
+      game_mode: GameMode.new(:survival),
+      flying: false,
+      fall_distance: 0.0,
+      frozen_ticks: 0,
+      velocity: {0.0, 0.0, 0.0},
+      health: %{value: 19.0, hurt_ticks: 0, death_ticks: 0},
+      last_death: nil,
+      air_supply: 300,
+      food: %PlayerFood{},
+      transfer_sequence: 9,
+      outbox: nil
+    }
+  end
+
+  defp record(stack), do: %{uuid: <<11::128>>, x: 1.5, y: 64.5, z: 1.5, stack: stack}
+
+  # One pending journal of each outbox kind, as each transfer prepares it.
+  defp pending(:items) do
+    before = player(%Inventory{slots: %{36 => ItemStack.new("stone", 7)}})
+    kept = put_in(before.inventory.slots[36], ItemStack.new("stone", 4))
+    records = [record(ItemStack.new("stone", 3))]
+    {:ok, pending} = Valimc.PlayerTransfers.prepare(@uuid, 9, before, kept, {0, 0}, records)
+    pending
+  end
+
+  defp pending(:mining) do
+    intent = %{
+      kind: :mining,
+      key: {0, 0},
+      permit: <<73::128>>,
+      target: {1, 63, 1},
+      slot: 43,
+      before: ItemStack.new("iron_pickaxe"),
+      after: nil,
+      expected: %{{1, 63, 1} => Data.block("stone")},
+      records: [record(ItemStack.new("cobblestone"))]
+    }
+
+    %{player(%Inventory{selected: 7}) | outbox: intent}
+  end
+
+  defp pending(:placement) do
+    stack = ItemStack.new("stone", 2)
+    state = player(%Inventory{selected: 7, slots: %{43 => stack}})
+
+    intent = %{
+      kind: :placement,
+      key: {0, 0},
+      permit: <<84::128>>,
+      slot: 43,
+      before: stack,
+      after: %{stack | count: 1},
+      request: %{
+        hand: :main,
+        position: {1, 64, 1},
+        face: 1,
+        cursor: {0.5, 0.5, 0.5},
+        inside: false,
+        border: false,
+        sequence: 17
+      },
+      expected: %{{1, 64, 1} => 0},
+      edits: %{{1, 64, 1} => 1}
+    }
+
+    {:ok, pending} = Valimc.PlayerPlacementTransfers.prepare(@uuid, 9, state, intent)
+    pending
+  end
+
+  defp pending(:pickup) do
+    request = %{
+      source: @uuid,
+      sequence: 10,
+      permit: <<82::128>>,
+      item_uuid: <<83::128>>,
+      generation: 0,
+      before: ItemStack.new("stone", 7),
+      remainder: nil
+    }
+
+    intent = %{kind: :pickup, key: {0, 0}, request: request}
+    {:ok, pending} = Valimc.PlayerPickupTransfers.prepare(@uuid, 9, player(%Inventory{}), intent)
+    pending
+  end
+
+  # An XP orb pickup: a container journal without a menu, so a table can be open.
+  defp pending(:experience) do
+    state = Map.put(player(%Inventory{}), :progression, %Valimc.PlayerProgression{})
+
+    request = %{
+      kind: :experience,
+      position: {1, 64, 1},
+      permit: <<0::128>>,
+      orb_uuid: <<85::128>>,
+      value: 7,
+      consumed: 0,
+      before: %Valimc.PlayerExperience{},
+      collector: 17
+    }
+
+    intent = %{kind: :container, key: {0, 0}, request: request}
+    {:ok, pending} = Valimc.PlayerContainerTransfers.prepare(@uuid, 9, state, intent)
+    pending
+  end
+
+  test "every pending journal kind round-trips while a crafting table is open" do
+    for kind <- [:items, :mining, :placement, :pickup, :experience] do
+      state = pending(kind)
+      assert {:ok, bytes} = PlayerSnapshot.encode(@uuid, state)
+      assert {:ok, restored} = PlayerSnapshot.decode(bytes, @uuid), "#{kind} did not decode"
+      assert restored.inventory.table_inputs == cells()
+      assert restored.outbox == state.outbox
+      assert restored.transfer_sequence == state.transfer_sequence
+      assert {:ok, ^bytes} = PlayerSnapshot.encode(@uuid, restored)
+    end
+  end
+end

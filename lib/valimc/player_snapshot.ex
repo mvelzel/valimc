@@ -440,8 +440,10 @@ defmodule Valimc.PlayerSnapshot do
 
     {payload, table_inputs, table_bytes} =
       case payload do
+        # Every journal the encoder wraps: ordinary 2..12, mining 13, placement 14,
+        # pickup 16 and container or XP pickup 20.
         <<"VMCPOSE", 15, header::binary-size(52), base, rest::binary>>
-        when base in 2..14 or base == 16 ->
+        when base in 2..14 or base in [16, 20] ->
           {cells, body} = take_stacks(rest, 9)
           table_bytes = byte_size(rest) - byte_size(body)
           {<<"VMCPOSE", base, header::binary, body::binary>>, List.to_tuple(cells), table_bytes}
