@@ -37,12 +37,20 @@ defmodule Valimc.World.SpawnSearch do
   @radius 5
 
   @doc """
-  The world spawn `{x, y, z}` of vanilla `generator` (`{:vanilla, seed}`).
-  `columns` returns `{chunk => image}` for chunks (default: the generator).
+  The world spawn `{x, y, z}` of vanilla `generator` (`{:vanilla, seed}`, or a
+  `Generator.spec_of/1` spec). `columns` returns `{chunk => image}` for chunks
+  (default: the generator). Options (VMC-028b): `:origin`, the generator's
+  origin chunk (default: the normal preset's spawn target for the seed), and
+  `:height`, its spawn height (`ChunkGenerator.getSpawnHeight`, default 64).
   """
-  def world_spawn({:vanilla, seed} = generator, columns \\ &Generator.columns/2) do
-    {ox, oz} = origin(seed)
-    initial = {ox * 16 + 8, @spawn_height, oz * 16 + 8}
+  def world_spawn(generator, columns \\ &Generator.columns/2, opts \\ []) do
+    {ox, oz} =
+      Keyword.get_lazy(opts, :origin, fn ->
+        {:vanilla, seed} = generator
+        origin(seed)
+      end)
+
+    initial = {ox * 16 + 8, Keyword.get(opts, :height, @spawn_height), oz * 16 + 8}
 
     Enum.reduce_while(spiral(), initial, fn {dx, dz}, spawn ->
       chunk = {ox + dx, oz + dz}

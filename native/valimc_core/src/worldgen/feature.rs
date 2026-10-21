@@ -168,7 +168,7 @@ pub struct Decoration {
     climates: Vec<BiomeClimate>,
     precipitation: Vec<bool>,
     context: GenContext,
-    known: Known,
+    known: Arc<Known>,
 }
 
 impl std::fmt::Debug for Decoration {
@@ -732,7 +732,7 @@ impl Decoration {
             climates: facts.climates,
             precipitation,
             context,
-            known,
+            known: Arc::new(known),
         })
     }
 
@@ -742,6 +742,51 @@ impl Decoration {
 
     pub(crate) fn known(&self) -> &Known {
         &self.known
+    }
+
+    /// Whether `biome` is one of the biome source's biomes.
+    pub fn has_source_biome(&self, biome: u16) -> bool {
+        self.source_biomes.get(biome as usize) == Some(&true)
+    }
+
+    /// The decoration of a fixed biome source over `biome`, one of this
+    /// source's biomes (VMC-028b, `FixedBiomeSource`): `FeatureSorter` over the
+    /// one biome orders each step as the biome lists it, so a placed
+    /// feature's index (its seed) is its place in that list.
+    pub fn fixed(&self, biome: u16) -> Result<Decoration, String> {
+        let b = biome as usize;
+        if !self.has_source_biome(biome) {
+            return Err(format!("biome {biome} is not one of the source's biomes"));
+        }
+        let steps = &self.biome_steps[b];
+        let order: Vec<Vec<Arc<PlacedFeature>>> = (0..self.order.len())
+            .map(|s| {
+                steps.get(s).map_or_else(Vec::new, |indices| {
+                    indices.iter().map(|&i| self.order[s][i].clone()).collect()
+                })
+            })
+            .collect();
+        let mut biome_steps = vec![Vec::new(); self.biome_steps.len()];
+        biome_steps[b] = order.iter().map(|list| (0..list.len()).collect()).collect();
+        let mut source_biomes = vec![false; self.source_biomes.len()];
+        source_biomes[b] = true;
+        Ok(Decoration {
+            table: self.table.clone(),
+            dimension: self.dimension,
+            support: self.support.clone(),
+            shapes: self.shapes.clone(),
+            templates: self.templates.clone(),
+            features: self.features.clone(),
+            placed: self.placed.clone(),
+            order,
+            biome_steps,
+            biome_features: self.biome_features.clone(),
+            source_biomes,
+            climates: self.climates.clone(),
+            precipitation: self.precipitation.clone(),
+            context: self.context,
+            known: self.known.clone(),
+        })
     }
 
     /// The structure templates features place.

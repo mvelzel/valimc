@@ -500,6 +500,29 @@ fn column_image_of<'a>(env: Env<'a>, sections: Vec<SectionSpec>) -> Result<Term<
     Ok(binary(env, &column.to_image()))
 }
 
+/// The column image of a flat world's chunk (VMC-028b): every column holds
+/// `layers` (384 big-endian states from the bottom), its biome `biome`.
+#[rustler::nif]
+fn column_layers_image<'a>(env: Env<'a>, layers: Binary<'a>, biome: u16) -> Result<Term<'a>, Atom> {
+    let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
+    if layers.len() != HEIGHT * 2 {
+        return Err(atoms::invalid_layers());
+    }
+    let mut states = [0u16; HEIGHT];
+    for (state, bytes) in states.iter_mut().zip(layers.as_slice().chunks_exact(2)) {
+        *state = u16::from_be_bytes([bytes[0], bytes[1]]);
+        if !flags.valid(*state as u32) {
+            return Err(atoms::invalid_state());
+        }
+    }
+    let mut column = valimc_core::column::Column::from_layers(&states);
+    column.biomes = Some(vec![
+        valimc_core::section::Biomes::Single(biome);
+        valimc_core::column::SECTIONS
+    ]);
+    Ok(binary(env, &column.to_image()))
+}
+
 /// Vanilla paletted storage of big-endian u16 `values` (export, VMC-021e3): the
 /// palette and the packed longs as a big-endian binary.
 #[rustler::nif]
@@ -1443,6 +1466,29 @@ fn worldgen_proto_decorate<'a>(
     chunks: Vec<Binary>,
     order: Vec<(i32, i32)>,
 ) -> Result<(Vec<ProtoBinary<'a>>, u32), String> {
+    decorate_protos(env, state, "minecraft:overworld", chunks, order)
+}
+
+/// `worldgen_proto_decorate` with a biome source's decoration: a multi-noise
+/// preset, the End, or `fixed:BIOME` (VMC-028b).
+#[rustler::nif(schedule = "DirtyCpu", name = "worldgen_proto_decorate")]
+fn worldgen_proto_decorate_in<'a>(
+    env: rustler::Env<'a>,
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    chunks: Vec<Binary>,
+    order: Vec<(i32, i32)>,
+) -> Result<(Vec<ProtoBinary<'a>>, u32), String> {
+    decorate_protos(env, state, &biome_source, chunks, order)
+}
+
+fn decorate_protos<'a>(
+    env: rustler::Env<'a>,
+    state: ResourceArc<WorldgenState>,
+    biome_source: &str,
+    chunks: Vec<Binary>,
+    order: Vec<(i32, i32)>,
+) -> Result<(Vec<ProtoBinary<'a>>, u32), String> {
     let mut state = state.lease()?;
     let mut decoded = Vec::with_capacity(chunks.len());
     for bytes in &chunks {
@@ -1452,9 +1498,7 @@ fn worldgen_proto_decorate<'a>(
         )?);
     }
     let mut area = valimc_core::worldgen::region::Area::of(decoded)?;
-    // Live generation holds the overworld only so far (VMC-026b).
-    let lenient_reads =
-        state.decorate_held("minecraft:overworld", &mut area, &order, None, true)?;
+    let lenient_reads = state.decorate_held(biome_source, &mut area, &order, None, true)?;
     Ok((
         area.held()
             .filter(|c| c.touched)

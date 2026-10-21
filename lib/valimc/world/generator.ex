@@ -101,8 +101,6 @@ defmodule Valimc.World.Generator do
   full chunks its regions' first transactions make.
   """
   def create(base, seed, opts \\ []) when is_integer(seed) do
-    features = Keyword.get(opts, :features, true)
-
     settings =
       GenSettings.create(
         Keyword.get(opts, :level_type),
@@ -111,28 +109,118 @@ defmodule Valimc.World.Generator do
         Keyword.get(opts, :structures, true)
       )
 
-    with :ok <- generated?(settings) do
-      columns = if features, do: first_full_columns(seed), else: &columns/2
-      {x, y, z} = Valimc.World.SpawnSearch.world_spawn({:vanilla, seed}, columns)
+    with {:ok, spec} <- spec_of(settings) do
+      # Flat worlds are not decorated (their features and lakes are off).
+      features = Keyword.get(opts, :features, true) and spec.kind == :noise
+      columns = if features, do: first_full_columns(spec), else: &columns/2
+
+      {x, y, z} =
+        Valimc.World.SpawnSearch.world_spawn(spec, columns,
+          origin: spawn_chunk(spec),
+          height: spawn_height(spec)
+        )
+
       File.mkdir_p!(base)
       generator = %{"type" => "vanilla", "seed" => seed, "settings" => settings}
       write_metadata(base, {x, y, z}, generator, features)
     end
   end
 
-  # The overworld generators ValiMC generates live.
-  defp generated?(settings) do
-    case GenSettings.overworld(settings) do
-      %{
-        "type" => "minecraft:noise",
-        "settings" => "minecraft:overworld",
-        "biome_source" => %{"type" => "minecraft:multi_noise", "preset" => "minecraft:overworld"}
-      } ->
-        :ok
-
-      generator ->
-        {:error, {:unsupported_generator, generator}}
+  # `ChunkGenerator.getOrigin`: a noise generator's spawn target, else chunk
+  # (0, 0); `getSpawnHeight`: 64 for noise, the bottom plus the flat layers.
+  defp spawn_chunk(%{kind: :noise} = spec) do
+    case spawn_origin(spec.seed, spec.noise_settings) do
+      {x, z} -> {Bitwise.bsr(x, 4), Bitwise.bsr(z, 4)}
+      nil -> {0, 0}
     end
+  end
+
+  defp spawn_chunk(_), do: {0, 0}
+
+  defp spawn_height(%{kind: :noise}), do: 64
+  defp spawn_height(%{kind: :flat, height: height}), do: -64 + min(height, 384)
+
+  @noise_settings ~w(minecraft:overworld minecraft:large_biomes minecraft:amplified)
+
+  @doc """
+  What generation needs for the world at `base` (VMC-028b): `:flat` for
+  ValiMC's flat profile and imports, else `{:ok, spec}` (`spec_of/1`) or why
+  ValiMC cannot generate it.
+  """
+  def spec(base) do
+    case of(base) do
+      :flat -> :flat
+      {:vanilla, seed} -> spec_of(recorded(base) || GenSettings.legacy({:vanilla, seed}))
+    end
+  end
+
+  @doc """
+  The overworld generation of `settings`: a noise generator over the overworld,
+  large biomes or amplified noise settings and the overworld preset's or a
+  fixed biome (`%{kind: :noise, seed, noise_settings, biome_source}`, the biome
+  source as the native worldgen names it: `minecraft:overworld` or
+  `fixed:BIOME`), or a flat one without features or lakes (`%{kind: :flat,
+  seed, layers, height, biome}`: the states from the bottom up and the
+  biome's protocol id). Anything else is `{:error, reason}`.
+  """
+  def spec_of(%{"seed" => seed} = settings) do
+    case GenSettings.overworld(settings) do
+      %{"type" => "minecraft:noise", "settings" => noise, "biome_source" => source}
+      when noise in @noise_settings ->
+        case source do
+          %{"type" => "minecraft:multi_noise", "preset" => "minecraft:overworld"} ->
+            {:ok,
+             %{
+               kind: :noise,
+               seed: seed,
+               noise_settings: noise,
+               biome_source: "minecraft:overworld"
+             }}
+
+          %{"type" => "minecraft:fixed", "biome" => biome} ->
+            if biome in Worldgen.biome_names(),
+              do:
+                {:ok,
+                 %{
+                   kind: :noise,
+                   seed: seed,
+                   noise_settings: noise,
+                   biome_source: "fixed:" <> biome
+                 }},
+              else: {:error, {:unknown_biome, biome}}
+
+          other ->
+            {:error, {:unsupported_biome_source, other}}
+        end
+
+      %{"type" => "minecraft:flat", "settings" => %{"features" => false, "lakes" => false} = flat} ->
+        flat_spec(seed, flat)
+
+      %{"type" => "minecraft:flat"} ->
+        {:error, {:unsupported_generator, :flat_features_or_lakes}}
+
+      other ->
+        {:error, {:unsupported_generator, other}}
+    end
+  end
+
+  defp flat_spec(seed, %{"layers" => layers, "biome" => biome}) do
+    states =
+      for %{"block" => "minecraft:" <> name, "height" => height} <- layers,
+          _ <- 1..height//1,
+          do: Valimc.Registry.Blocks.default_state(name)
+
+    air = Valimc.Registry.Blocks.default_state("air")
+    column = states |> Enum.take(384) |> then(&(&1 ++ List.duplicate(air, 384 - length(&1))))
+
+    {:ok,
+     %{
+       kind: :flat,
+       seed: seed,
+       layers: for(state <- column, into: <<>>, do: <<state::16>>),
+       height: length(states),
+       biome: Data.registry_id("minecraft:worldgen/biome", biome)
+     }}
   end
 
   defp write_metadata(base, {x, y, z}, generator, features) do
@@ -150,24 +238,30 @@ defmodule Valimc.World.Generator do
   # first one finalized: the 10 × 10 around it decorated Z outer, X inner over
   # terrain, memoized per region for one search. A player whose view starts
   # other regions first may race it.
-  defp first_full_columns(seed) do
-    {:ok, state} = worldgen(seed)
+  defp first_full_columns(%{kind: :noise} = spec) do
+    {:ok, state} = worldgen(spec.seed, spec.noise_settings)
+    source = spec.biome_source
     proto = Valimc.Worldgen.Proto
 
-    fn {:vanilla, ^seed}, chunks ->
+    fn ^spec, chunks ->
       Map.new(chunks, fn chunk ->
         key = Valimc.World.region_key(chunk)
 
         images =
-          case Process.get({__MODULE__, :first_full, seed, key}) do
+          case Process.get({__MODULE__, :first_full, spec, key}) do
             nil ->
               {:ok, terrain} =
-                Native.worldgen_proto_terrain(state, @biome_source, proto.around(key, 2))
+                Native.worldgen_proto_terrain(state, source, proto.around(key, 2))
 
               images = Map.new(terrain, fn {x, z, image} -> {{x, z}, image} end)
 
               {:ok, {touched, _}} =
-                Native.worldgen_proto_decorate(state, Map.values(images), proto.around(key, 1))
+                Native.worldgen_proto_decorate(
+                  state,
+                  source,
+                  Map.values(images),
+                  proto.around(key, 1)
+                )
 
               images =
                 Map.merge(images, Map.new(touched, fn {x, z, image} -> {{x, z}, image} end))
@@ -175,7 +269,7 @@ defmodule Valimc.World.Generator do
               own = Enum.map(proto.chunks_of(key), &images[&1])
               {:ok, full} = Native.worldgen_proto_full(state, own, protocol_biomes())
               images = Map.new(full, &{{&1.x, &1.z}, &1.image})
-              Process.put({__MODULE__, :first_full, seed, key}, images)
+              Process.put({__MODULE__, :first_full, spec, key}, images)
               images
 
             images ->
@@ -267,13 +361,27 @@ defmodule Valimc.World.Generator do
   end
 
   @doc """
-  Column images (`chunk => image`) of generated `chunks` of a vanilla world, in
-  batches of #{@batch} generated at once on the seed's pool of states (VMC-071).
+  Column images (`chunk => image`) of generated `chunks` of a vanilla world
+  (a `spec_of/1` spec, or `{:vanilla, seed}` for the normal preset): noise
+  terrain in batches of #{@batch} generated at once on the seed's pool of
+  states (VMC-071), or a flat world's layers.
   """
-  def columns({:vanilla, seed}, chunks) do
+  def columns({:vanilla, seed}, chunks),
+    do:
+      columns(
+        %{kind: :noise, seed: seed, noise_settings: @settings, biome_source: @biome_source},
+        chunks
+      )
+
+  def columns(%{kind: :flat, layers: layers, biome: biome}, chunks) do
+    {:ok, image} = Native.column_layers_image(layers, biome)
+    Map.new(chunks, &{&1, image})
+  end
+
+  def columns(%{kind: :noise} = spec, chunks) do
     chunks
     |> Enum.chunk_every(@batch)
-    |> Task.async_stream(&generate(seed, &1),
+    |> Task.async_stream(&generate(spec, &1),
       max_concurrency: @batches,
       ordered: false,
       timeout: :infinity
@@ -286,32 +394,40 @@ defmodule Valimc.World.Generator do
   end
 
   @doc "The spawn target's origin column `{x, z}` of `seed`, or nil (VMC-027d)."
-  def spawn_origin(seed) do
-    {:ok, state} = worldgen(seed)
+  def spawn_origin(seed, noise_settings \\ @settings) do
+    {:ok, state} = worldgen(seed, noise_settings)
     {:ok, origin} = Native.worldgen_spawn_origin(state)
     origin
   end
 
-  defp generate(seed, chunks) do
-    {:ok, state} = worldgen(seed)
-    {:ok, generated} = Native.worldgen_columns(state, @biome_source, protocol_biomes(), chunks)
+  defp generate(spec, chunks) do
+    {:ok, state} = worldgen(spec.seed, spec.noise_settings)
+
+    {:ok, generated} =
+      Native.worldgen_columns(state, spec.biome_source, protocol_biomes(), chunks)
+
     generated
   end
 
   @doc """
-  The worldgen state of `seed`, one per VM: noises and compiled functions are
-  built once. The native state keeps a pool of per-call states (VMC-025d1), so
-  concurrent generations of the seed run in parallel and any of them gives the
-  same chunks.
+  The worldgen state of `seed` and noise settings, one per VM: noises and
+  compiled functions are built once. The native state keeps a pool of per-call
+  states (VMC-025d1), so concurrent generations of the seed run in parallel and
+  any of them gives the same chunks.
   """
-  def worldgen(seed) do
-    case :persistent_term.get({__MODULE__, seed}, nil) do
+  def worldgen(seed, noise_settings \\ @settings) do
+    key =
+      if noise_settings == @settings,
+        do: {__MODULE__, seed},
+        else: {__MODULE__, seed, noise_settings}
+
+    case :persistent_term.get(key, nil) do
       nil ->
-        :global.trans({{__MODULE__, seed}, self()}, fn ->
-          case :persistent_term.get({__MODULE__, seed}, nil) do
+        :global.trans({key, self()}, fn ->
+          case :persistent_term.get(key, nil) do
             nil ->
-              {:ok, state} = Worldgen.new(seed, @settings)
-              :persistent_term.put({__MODULE__, seed}, state)
+              {:ok, state} = Worldgen.new(seed, noise_settings)
+              :persistent_term.put(key, state)
               {:ok, state}
 
             state ->

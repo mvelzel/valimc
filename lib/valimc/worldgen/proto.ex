@@ -45,6 +45,7 @@ defmodule Valimc.Worldgen.Proto do
   defstruct [
     :key,
     :worldgen,
+    :biome_source,
     :log,
     :txn,
     :retry,
@@ -71,7 +72,6 @@ defmodule Valimc.Worldgen.Proto do
     quiet: {0, 0}
   ]
 
-  @biome_source "minecraft:overworld"
   # A grant may wait for terrain and for conflicting transactions.
   @lock_timeout 120_000
   @call_timeout 30_000
@@ -182,15 +182,16 @@ defmodule Valimc.Worldgen.Proto do
   def handle_continue(:load, %__MODULE__{key: {rx, rz} = key} = empty) do
     base = Valimc.config(:world_path, key)
 
-    case Generator.of(base) do
-      {:vanilla, seed} ->
+    case Generator.spec(base) do
+      {:ok, %{kind: :noise} = spec} ->
         dir = base && Path.join([base, "gen", "r.#{rx}.#{rz}"])
         {:ok, log, durable, incarnation} = ProtoLog.open(dir)
-        {:ok, worldgen} = Generator.worldgen(seed)
+        {:ok, worldgen} = Generator.worldgen(spec.seed, spec.noise_settings)
 
         state = %{
           empty
           | worldgen: worldgen,
+            biome_source: spec.biome_source,
             log: log,
             incarnation: incarnation,
             chunks: durable.chunks,
@@ -488,12 +489,13 @@ defmodule Valimc.Worldgen.Proto do
     {batch, rest} = Enum.split(terrain.queue, @terrain_batch)
     owner = self()
     worldgen = state.worldgen
+    source = state.biome_source
     ref = make_ref()
 
     case Task.Supervisor.start_child(Valimc.WorldgenWorkers, fn ->
            result =
              try do
-               Native.worldgen_proto_terrain(worldgen, @biome_source, batch)
+               Native.worldgen_proto_terrain(worldgen, source, batch)
              rescue
                error -> {:error, Exception.message(error)}
              end
@@ -881,6 +883,7 @@ defmodule Valimc.Worldgen.Proto do
     owner = self()
     id = state.txn.id
     worldgen = state.worldgen
+    source = state.biome_source
     list = Enum.map(images, fn {_, {_, image}} -> image end)
 
     case Task.Supervisor.start_child(Valimc.WorldgenWorkers, fn ->
@@ -888,7 +891,7 @@ defmodule Valimc.Worldgen.Proto do
              try do
                if order == [],
                  do: {:ok, {[], 0}},
-                 else: Native.worldgen_proto_decorate(worldgen, list, order)
+                 else: Native.worldgen_proto_decorate(worldgen, source, list, order)
              rescue
                error -> {:error, Exception.message(error)}
              end

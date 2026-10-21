@@ -69,6 +69,10 @@ defmodule Valimc.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   def worldgen_proto_decorate(_state, _chunks, _order), do: :erlang.nif_error(:nif_not_loaded)
+
+  def worldgen_proto_decorate(_state, _biome_source, _chunks, _order),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def worldgen_proto_inspect(_state, _chunks), do: :erlang.nif_error(:nif_not_loaded)
 
   def worldgen_proto_full(_state, _chunks, _protocol_biomes),
@@ -96,6 +100,7 @@ defmodule Valimc.Native do
   def pack_paletted(_values, _min_bits), do: :erlang.nif_error(:nif_not_loaded)
   def column_image(_region, _cx, _cz), do: :erlang.nif_error(:nif_not_loaded)
   def column_image_of(_sections), do: :erlang.nif_error(:nif_not_loaded)
+  def column_layers_image(_layers, _biome), do: :erlang.nif_error(:nif_not_loaded)
   def put_column_image(_region, _cx, _cz, _image), do: :erlang.nif_error(:nif_not_loaded)
   def chunk_find(_region, _cx, _cz, _states), do: :erlang.nif_error(:nif_not_loaded)
   def diff(_region), do: :erlang.nif_error(:nif_not_loaded)

@@ -115,7 +115,7 @@ defmodule Valimc.World.RegionData do
       :flat ->
         images
 
-      generator ->
+      _generator ->
         {rx, rz} = key
         size = Valimc.config(:region_size)
 
@@ -143,7 +143,13 @@ defmodule Valimc.World.RegionData do
 
           true ->
             started = System.monotonic_time(:microsecond)
-            generated = Generator.columns(generator, missing)
+
+            generated =
+              case Generator.spec(base) do
+                {:ok, spec} -> Generator.columns(spec, missing)
+                {:error, reason} -> exit({:generated_columns_failed, reason})
+              end
+
             generated_at = System.monotonic_time(:microsecond)
             Valimc.Metrics.add(:worldgen_chunks, length(missing))
             Valimc.Metrics.add(:worldgen_microseconds, generated_at - started)

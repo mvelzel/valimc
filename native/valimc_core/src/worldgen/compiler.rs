@@ -491,6 +491,8 @@ pub struct Worldgen {
     carver_biomes: HashMap<(String, i32, i32), u16>,
     /// Structure generation per biome source (VMC-025e).
     structure_envs: HashMap<String, Arc<StructureEnv>>,
+    /// Decorations of fixed biome sources by biome (VMC-028b), derived once.
+    fixed_decorations: HashMap<u16, Arc<Decoration>>,
     /// The bounds chunk biomes cover: those of the dimension whose generator
     /// uses these noise settings (a chunk holds biomes for all its
     /// sections), else the noise settings' own.
@@ -498,6 +500,8 @@ pub struct Worldgen {
 }
 
 const BIOME_CACHE_LIMIT: usize = 4096;
+/// A fixed biome source's name: this prefix and the biome (VMC-028b).
+pub const FIXED: &str = "fixed:";
 const CARVER_BIOME_CACHE_LIMIT: usize = 65536;
 
 impl SurfaceEnv for Worldgen {
@@ -572,6 +576,7 @@ impl Worldgen {
             chunk_biomes: HashMap::new(),
             carver_biomes: HashMap::new(),
             structure_envs: HashMap::new(),
+            fixed_decorations: HashMap::new(),
             biome_bounds,
         })
     }
@@ -976,6 +981,9 @@ impl Worldgen {
     /// Single biome lookups for `biome_source` (vanilla's uncached biome
     /// resolver), each from a fresh lookup history.
     fn point_biomes(&mut self, biome_source: &str) -> Result<PointBiomes, String> {
+        if let Some(name) = biome_source.strip_prefix(FIXED) {
+            return Ok(PointBiomes::Fixed(self.registry.biomes.id(name)?));
+        }
         if biome_source == "minecraft:the_end" {
             let erosion = self.named("router:erosion")?;
             let b = &self.registry.biomes;
@@ -1112,12 +1120,7 @@ impl Worldgen {
         chunk_z: i32,
         biome_source: &str,
     ) -> Result<ProtoChunk, String> {
-        let decoration = self
-            .registry
-            .decorations
-            .get(biome_source)
-            .cloned()
-            .ok_or_else(|| format!("no decoration facts for {biome_source}"))?;
+        let decoration = self.decoration(biome_source)?;
         let (min_y, height) = decoration.dimension;
         let filled = self.build_terrain(chunk_x, chunk_z, biome_source, true)?;
         let blocks = self.dimension_blocks(filled.blocks, min_y, height)?;
@@ -1154,12 +1157,7 @@ impl Worldgen {
         included: Option<&HashSet<(usize, usize)>>,
         lenient: bool,
     ) -> Result<u32, String> {
-        let decoration = self
-            .registry
-            .decorations
-            .get(biome_source)
-            .cloned()
-            .ok_or_else(|| format!("no decoration facts for {biome_source}"))?;
+        let decoration = self.decoration(biome_source)?;
         let zoom_seed = surface::biome_zoom_seed(self.seed);
         let mut lenient_reads = 0;
         for &(cx, cz) in order {
@@ -1178,6 +1176,32 @@ impl Worldgen {
             lenient_reads += region.lenient_reads;
         }
         Ok(lenient_reads)
+    }
+
+    /// The decoration of `biome_source`: a preset's (multi-noise presets, the
+    /// End), or for `fixed:BIOME` (VMC-028b) the one derived from the
+    /// overworld's (or another preset's, the first holding the biome).
+    pub fn decoration(&mut self, biome_source: &str) -> Result<Arc<Decoration>, String> {
+        if let Some(decoration) = self.registry.decorations.get(biome_source) {
+            return Ok(decoration.clone());
+        }
+        let Some(name) = biome_source.strip_prefix(FIXED) else {
+            return Err(format!("no decoration facts for {biome_source}"));
+        };
+        let biome = self.registry.biomes.id(name)?;
+        if let Some(decoration) = self.fixed_decorations.get(&biome) {
+            return Ok(decoration.clone());
+        }
+        let mut sources: Vec<_> = self.registry.decorations.iter().collect();
+        sources.sort_by_key(|(id, _)| (id.as_str() != "minecraft:overworld", id.to_string()));
+        let base = sources
+            .into_iter()
+            .map(|(_, d)| d)
+            .find(|d| d.has_source_biome(biome))
+            .ok_or_else(|| format!("no decoration holds the biome {name}"))?;
+        let decoration = Arc::new(base.fixed(biome)?);
+        self.fixed_decorations.insert(biome, decoration.clone());
+        Ok(decoration)
     }
 
     /// The block table decoration uses (proto chunk encoding; every biome
@@ -1322,6 +1346,10 @@ impl Worldgen {
     ) -> Result<Vec<u16>, String> {
         if biome_source == "minecraft:the_end" {
             return self.end_biomes(chunk_x, chunk_z);
+        }
+        if let Some(name) = biome_source.strip_prefix(FIXED) {
+            let biome = self.registry.biomes.id(name)?;
+            return Ok(vec![biome; (self.settings.height / 16 * 64) as usize]);
         }
         let (list, ids) = self
             .registry
@@ -1830,6 +1858,8 @@ impl Worldgen {
 /// Single biome lookups: a multi-noise preset sampled at one quart (climate
 /// point samples, fresh lookup history), or the End's biome source.
 enum PointBiomes {
+    /// A fixed biome source (VMC-028b).
+    Fixed(u16),
     MultiNoise {
         samplers: Vec<Arc<Sampler>>,
         list: Arc<ParameterList>,
@@ -1846,6 +1876,7 @@ impl PointBiomes {
         let mut ctx = Context::uncached();
         let (bx, by, bz) = (qx << 2, qy << 2, qz << 2);
         match self {
+            PointBiomes::Fixed(biome) => *biome,
             PointBiomes::MultiNoise {
                 samplers,
                 list,

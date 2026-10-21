@@ -31,18 +31,33 @@ block_names = fn id -> "minecraft:" <> Valimc.Registry.Blocks.name(id) end
 root = Path.join(System.tmp_dir!(), "valimc-live-#{System.unique_integer([:positive])}")
 
 {failures, chunks, entities} =
-  for {%{"seed" => seed, "regions" => regions}, index} <- Enum.with_index(facts["cases"]),
+  for {%{"seed" => seed, "regions" => regions} = entry, index} <- Enum.with_index(facts["cases"]),
       reduce: {[], 0, 0} do
     {failures, chunks, entities} ->
       seed = String.to_integer(seed)
       base = Path.join(root, "case-#{index}")
       File.mkdir_p!(base)
 
+      # The world preset of the case's noise settings and biome source (VMC-028b).
+      level_type =
+        case {entry["noise_settings"], entry["fixed_biome"]} do
+          {"minecraft:overworld", nil} -> "minecraft:normal"
+          {"minecraft:overworld", "minecraft:plains"} -> "minecraft:single_biome_surface"
+          {noise, nil} -> noise
+        end
+
+      settings = Valimc.World.GenSettings.create(level_type, nil, seed, true)
+
       File.write!(
         Valimc.World.Spawn.path(base),
         JSON.encode!(%{
           "spawn" => [0, 100, 0],
-          "generator" => %{"type" => "vanilla", "seed" => seed, "features" => true}
+          "generator" => %{
+            "type" => "vanilla",
+            "seed" => seed,
+            "features" => true,
+            "settings" => settings
+          }
         })
       )
 
@@ -53,8 +68,13 @@ root = Path.join(System.tmp_dir!(), "valimc-live-#{System.unique_integer([:posit
             uniq: true,
             do: {rx + dx, rz + dz}
 
+      # Owners of an earlier case's regions (same keys, another world) stop first.
+      for key <- keys,
+          {pid, _} <- Registry.lookup(Valimc.ProtoRegistry, key),
+          do: GenServer.stop(pid, :normal, 30_000)
+
       :ets.insert(scoped, for(key <- keys, do: {{key, :world_path}, base}))
-      {:ok, worldgen} = Valimc.World.Generator.worldgen(seed)
+      {:ok, worldgen} = Valimc.World.Generator.worldgen(seed, entry["noise_settings"])
 
       Enum.reduce(regions, {failures, chunks, entities}, fn %{
                                                               "x" => rx,

@@ -441,21 +441,45 @@ public class DecorationOracle {
       Holder<NoiseGeneratorSettings> holder, NoiseGeneratorSettings settings, Method doFill, Method buildSurface, Method generateCarvers,
       Aquifer.FluidPicker picker, LevelHeightAccessor heights, List<FeatureSorter.StepFeatureData> steps,
       List<Map<Integer, PlacedFeature>> included, JsonArray includedJson) throws Exception {
-    record Case(long seed, List<ChunkPos> regions) {}
+    // World presets (VMC-028b): noise settings, and a fixed biome or the overworld preset.
+    record Case(long seed, List<ChunkPos> regions, String noise, String fixed) {}
     var cases = List.of(
-        new Case(20261020L, List.of(new ChunkPos(0, 0), new ChunkPos(1, 0), new ChunkPos(1, 1))),
-        new Case(-8172645723L, List.of(new ChunkPos(-3, 7), new ChunkPos(-4, 7))),
-        new Case(20261020L, List.of(new ChunkPos(25000, -18000))));
+        new Case(20261020L, List.of(new ChunkPos(0, 0), new ChunkPos(1, 0), new ChunkPos(1, 1)), "overworld", null),
+        new Case(-8172645723L, List.of(new ChunkPos(-3, 7), new ChunkPos(-4, 7)), "overworld", null),
+        new Case(20261020L, List.of(new ChunkPos(25000, -18000)), "overworld", null),
+        new Case(20261020L, List.of(new ChunkPos(2, -3), new ChunkPos(3, -3)), "large_biomes", null),
+        new Case(12345L, List.of(new ChunkPos(0, 0)), "amplified", null),
+        new Case(20261020L, List.of(new ChunkPos(-5, 4)), "overworld", "plains"));
+    var createFluidPicker = NoiseBasedChunkGenerator.class.getDeclaredMethod("createFluidPicker", NoiseGeneratorSettings.class);
+    createFluidPicker.setAccessible(true);
     var rows = new JsonArray();
     long blocks = 0;
     int entities = 0;
     for (var c : cases) {
-      var state = RandomState.create(noises, c.seed(), settings);
-      BiomeSource biomeSource = MultiNoiseBiomeSource.createFromList(
-          TerrainOracle.freshList(MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD, biomeLookup));
-      var generator = new NoiseBasedChunkGenerator(biomeSource, holder);
-      var terrain = new Terrain(factory, c.seed(), state, settings, picker, generator, heights, biomeLookup,
-          doFill, buildSurface, generateCarvers);
+      var caseHolder = lookup.lookupOrThrow(Registries.NOISE_SETTINGS).getOrThrow(net.minecraft.resources.ResourceKey.create(
+          Registries.NOISE_SETTINGS, net.minecraft.resources.Identifier.withDefaultNamespace(c.noise())));
+      var caseSettings = caseHolder.value();
+      var casePicker = (Aquifer.FluidPicker) createFluidPicker.invoke(null, caseSettings);
+      var state = RandomState.create(noises, c.seed(), caseSettings);
+      Holder<Biome> fixed = c.fixed() == null ? null : biomeLookup.getOrThrow(net.minecraft.resources.ResourceKey.create(
+          Registries.BIOME, net.minecraft.resources.Identifier.withDefaultNamespace(c.fixed())));
+      BiomeSource biomeSource = fixed != null ? new net.minecraft.world.level.biome.FixedBiomeSource(fixed)
+          : MultiNoiseBiomeSource.createFromList(TerrainOracle.freshList(MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD, biomeLookup));
+      // A fixed source's feature order: FeatureSorter over its one biome.
+      var caseSteps = fixed == null ? steps : FeatureSorter.buildFeaturesPerStep(List.of(fixed),
+          b -> b.value().getGenerationSettings().features(), true);
+      var caseIncluded = included;
+      if (fixed != null) {
+        caseIncluded = new ArrayList<>();
+        for (var step : caseSteps) {
+          var map = new TreeMap<Integer, PlacedFeature>();
+          for (int i = 0; i < step.features().size(); i++) map.put(i, step.features().get(i));
+          caseIncluded.add(map);
+        }
+      }
+      var generator = new NoiseBasedChunkGenerator(biomeSource, caseHolder);
+      var terrain = new Terrain(factory, c.seed(), state, caseSettings, casePicker, generator, heights, biomeLookup,
+          doFill, buildSurface, generateCarvers, fixed);
       var area = new LinkedHashSet<ChunkPos>();
       for (var r : c.regions()) area.addAll(around(r, 2));
       var chunks = terrain.build(area);
@@ -467,7 +491,7 @@ public class DecorationOracle {
           var region = new Region(chunks, pos, c.seed(), state, biomeSource, lookup);
           region.registries = registries;
           region.generator = generator;
-          decorate(region, generator, chunks.get(pos), steps, included);
+          decorate(region, generator, chunks.get(pos), caseSteps, caseIncluded);
           var p = new JsonArray();
           p.add(pos.x());
           p.add(pos.z());
@@ -504,6 +528,8 @@ public class DecorationOracle {
       }
       var row = new JsonObject();
       row.addProperty("seed", Long.toString(c.seed()));
+      row.addProperty("noise_settings", "minecraft:" + c.noise());
+      if (fixed != null) row.addProperty("fixed_biome", "minecraft:" + c.fixed());
       row.add("order", order);
       row.add("regions", regions);
       rows.add(row);
@@ -631,7 +657,13 @@ public class DecorationOracle {
   /** One seed's terrain for decoration areas, as TerrainOracle builds it. */
   record Terrain(net.minecraft.world.level.chunk.PalettedContainerFactory factory, long seed, RandomState state,
       NoiseGeneratorSettings settings, Aquifer.FluidPicker picker, NoiseBasedChunkGenerator generator, LevelHeightAccessor heights,
-      HolderGetter<Biome> biomeLookup, Method doFill, Method buildSurface, Method generateCarvers) {
+      HolderGetter<Biome> biomeLookup, Method doFill, Method buildSurface, Method generateCarvers, Holder<Biome> fixed) {
+    Terrain(net.minecraft.world.level.chunk.PalettedContainerFactory factory, long seed, RandomState state,
+        NoiseGeneratorSettings settings, Aquifer.FluidPicker picker, NoiseBasedChunkGenerator generator, LevelHeightAccessor heights,
+        HolderGetter<Biome> biomeLookup, Method doFill, Method buildSurface, Method generateCarvers) {
+      this(factory, seed, state, settings, picker, generator, heights, biomeLookup, doFill, buildSurface, generateCarvers, null);
+    }
+
     /** The (2r + 1)² chunks around `centre` at status `terrain`, Z outer and X inner. */
     LinkedHashMap<ChunkPos, ProtoChunk> area(ChunkPos centre, int r) throws ReflectiveOperationException {
       var positions = new ArrayList<ChunkPos>();
@@ -644,8 +676,11 @@ public class DecorationOracle {
     /** Chunks at status `terrain`, in the given order. */
     LinkedHashMap<ChunkPos, ProtoChunk> build(Collection<ChunkPos> positions) throws ReflectiveOperationException {
       var biomeCache = new HashMap<ChunkPos, Holder<Biome>[]>();
-      Function<ChunkPos, Holder<Biome>[]> biomesOf = p -> biomeCache.computeIfAbsent(p,
-          q -> TerrainOracle.chunkBiomes(state, DIMENSION, biomeLookup, q, MIN_Y, HEIGHT));
+      // A fixed biome source (VMC-028b) has its one biome everywhere.
+      @SuppressWarnings("unchecked")
+      Function<ChunkPos, Holder<Biome>[]> biomesOf = fixed != null
+          ? p -> { Holder<Biome>[] all = new Holder[HEIGHT * 4]; Arrays.fill(all, fixed); return all; }
+          : p -> biomeCache.computeIfAbsent(p, q -> TerrainOracle.chunkBiomes(state, DIMENSION, biomeLookup, q, MIN_Y, HEIGHT));
       var biomeManager = new BiomeManager((qx, qy, qz) -> biomeAt(biomesOf, qx, qy, qz), BiomeManager.obfuscateSeed(seed));
       var chunks = new LinkedHashMap<ChunkPos, ProtoChunk>();
       // The noise fills the generator's bounds within the chunk's (the Nether's and the End's
