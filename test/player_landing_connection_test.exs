@@ -1,11 +1,12 @@
 defmodule Valimc.PlayerLandingConnectionTest do
   use ExUnit.Case, async: false
+  import Valimc.TestPlayer, only: [living: 1]
+  alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
 
   alias Valimc.{
     Connection,
     Inventory,
-    PlayerHealth,
     PlayerMotion,
     PlayerSnapshot,
     PlayerStore,
@@ -63,13 +64,15 @@ defmodule Valimc.PlayerLandingConnectionTest do
 
     player =
       Map.merge(ctx.pose, %{
+        living: %Valimc.Living{
+          health: %Health{value: Keyword.get(opts, :health, 20.0)},
+          freezing: %Freezing{},
+          effects: Keyword.get(opts, :effects, %{})
+        },
         y: Keyword.get(opts, :y, ctx.pose.y),
-        health: %PlayerHealth{value: Keyword.get(opts, :health, 20.0)},
         motion: %PlayerMotion{fall_distance: Keyword.get(opts, :distance, 0.0)},
-        environment: %Valimc.PlayerEnvironment{},
         game_mode: Valimc.GameMode.new(mode),
         abilities: Valimc.PlayerAbilities.for_mode(mode),
-        effects: Keyword.get(opts, :effects, %{}),
         last_death: nil
       })
 
@@ -128,7 +131,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
 
     {client, pid} = login(ctx)
     fall(client, pid, 64.0)
-    assert state(pid).player.health.value == 15.0
+    assert living(pid).health.value == 15.0
     assert state(pid).player.motion.fall_distance == 0.0
 
     {body, client} = Client.await(client, :play, "damage_event")
@@ -142,13 +145,13 @@ defmodule Valimc.PlayerLandingConnectionTest do
     Client.send_packet(client, :play, "move_player_status_only", <<1>>)
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
     {_, client} = Client.await_stats(client)
-    assert state(pid).player.health.value == 15.0
+    assert living(pid).health.value == 15.0
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
     {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 15.0
     {second, owner} = login(ctx)
-    assert state(owner).player.health.value == saved.health.value
+    assert living(owner).health.value == saved.health.value
     assert Enum.at(second.inventory.items, 36) == ItemStack.new("stone", 7)
     assert saved.transfer_sequence == 0 and saved.outbox == nil
   end
@@ -158,12 +161,12 @@ defmodule Valimc.PlayerLandingConnectionTest do
     seed(ctx, y: 64.0, distance: 4.0)
     {client, pid} = login(ctx)
     Client.send_packet(client, :play, "move_player_status_only", <<1>>)
-    wait(fn -> state(pid).player.health.value == 19.0 end)
+    wait(fn -> living(pid).health.value == 19.0 end)
     Client.send_packet(client, :play, "move_player_status_only", <<1>>)
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
     {_, _} = Client.await_stats(client)
     assert state(pid).player.motion.fall_distance == 0.0
-    assert state(pid).player.health.value == 19.0
+    assert living(pid).health.value == 19.0
   end
 
   test "scratch collision cannot cause damage; rejected or retired geometry cannot apply a landing",
@@ -172,13 +175,13 @@ defmodule Valimc.PlayerLandingConnectionTest do
     {client, pid} = login(ctx)
     assert :ok = Connection.set_velocity(pid, {0.0, -2.0, 0.0})
     wait(fn -> state(pid).player.motion.physical_ground end)
-    assert state(pid).player.health.value == 20.0 and state(pid).player.y == 65.0
+    assert living(pid).health.value == 20.0 and state(pid).player.y == 65.0
     move(client, pid, 63.0, 1)
     {body, client} = Client.await(client, :play, "player_position")
     client = Client.auto_reply(client, :play, "player_position", body)
     wait(fn -> not state(pid).teleport_pending end)
 
-    assert state(pid).player.health.value == 20.0 and
+    assert living(pid).health.value == 20.0 and
              state(pid).player.motion.fall_distance == 8.0
 
     {:ok, {region, _}} = World.existing_owner(ctx.key)
@@ -195,7 +198,7 @@ defmodule Valimc.PlayerLandingConnectionTest do
          {:ok, %{accepted: true, landing: %{distance: 100, multiplier: 1, source: :fall}}}}
       )
 
-      assert state(pid).player.health.value == 20.0 and state(pid).player.y == 80.0
+      assert living(pid).health.value == 20.0 and state(pid).player.y == 80.0
     after
       Valimc.TestRegionGate.resume(region)
     end

@@ -1,10 +1,11 @@
-alias Valimc.{InstantEffect, PlayerConsumption, PlayerHealth}
+alias Valimc.Living.{Effects, Health}
+alias Valimc.{PlayerConsumption}
 [path] = System.argv()
 rows = path |> File.read!() |> JSON.decode!()
 
 for row <- rows do
-  {:ok, {:heal, amount}} = InstantEffect.drink_request(5, row["amplifier"])
-  {:ok, health} = PlayerHealth.heal(%PlayerHealth{value: row["before"]}, amount)
+  {:ok, {:heal, amount}} = Effects.instant(5, row["amplifier"])
+  {:ok, health} = Health.heal(%Health{value: row["before"]}, amount)
 
   admitted =
     PlayerConsumption.admitted_effects?([{5, [{1, row["amplifier"], false, true, true}]}])

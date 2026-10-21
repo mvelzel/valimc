@@ -1,3 +1,4 @@
+alias Valimc.Living.Attributes
 alias Valimc.Physics.FluidMotion
 alias Valimc.{PlayerInput, PlayerKinetics, PlayerMotion}
 alias Valimc.Physics.{BlockScan, Box, CollisionQuery, PlayerPose}
@@ -11,7 +12,7 @@ check = fn c ->
   resolved = List.to_tuple(c["resolved"])
 
   {:ok, gravity} =
-    Valimc.PlayerTravelEffects.gravity(c["gravity"], elem(initial, 1), c["slow_falling"])
+    Attributes.gravity(c["gravity"], elem(initial, 1), c["slow_falling"])
 
   facts =
     fields

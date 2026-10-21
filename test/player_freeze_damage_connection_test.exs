@@ -1,12 +1,13 @@
 defmodule Valimc.PlayerFreezeDamageConnectionTest do
   use ExUnit.Case, async: false
+  alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
 
-  alias Valimc.{Inventory, PlayerEnvironment, PlayerHealth, PlayerSnapshot, World}
+  alias Valimc.{Inventory, PlayerSnapshot, World}
 
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
-  import Valimc.TestPlayer, only: [login: 1, state: 1]
+  import Valimc.TestPlayer, only: [living: 1, login: 1, put_living: 2, state: 1]
 
   setup do: Valimc.TestPlayer.scope("Cold", {82_000, 982})
 
@@ -20,11 +21,13 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
 
     player =
       Map.merge(ctx.pose, %{
+        living: %Valimc.Living{
+          freezing: %Freezing{frozen_ticks: 140},
+          health: %Health{value: Keyword.get(opts, :health, 20.0)}
+        },
         game_mode: Valimc.GameMode.new(mode),
         abilities: Valimc.PlayerAbilities.for_mode(mode),
         motion: %Valimc.PlayerMotion{},
-        environment: %PlayerEnvironment{frozen_ticks: 140},
-        health: %PlayerHealth{value: Keyword.get(opts, :health, 20.0)},
         last_death: nil
       })
 
@@ -37,17 +40,8 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
 
   # Retire wall timers while driving the real owner handler with single-use tokens.
 
-  defp zero_phase(pid) do
-    :sys.replace_state(pid, fn s ->
-      %{
-        s
-        | player: %{
-            s.player
-            | environment: %{s.player.environment | damage_phase: 0, damage_due: false}
-          }
-      }
-    end)
-  end
+  defp zero_phase(pid),
+    do: put_living(pid, &%{&1 | freezing: %{&1.freezing | damage_phase: 0, damage_due: false}})
 
   test "full freezing damages every 40 admitted ticks, emits native packets and survives reconnect",
        ctx do
@@ -56,9 +50,9 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
     {client, pid} = login(ctx)
     zero_phase(pid)
     ticks(pid, 39)
-    assert state(pid).player.health.value == 20.0
+    assert living(pid).health.value == 20.0
     stale = tick(pid)
-    assert state(pid).player.health.value == 19.0
+    assert living(pid).health.value == 19.0
     {body, client} = Client.await(client, :play, "damage_event")
     {entity, rest} = Wire.take_varint(body)
     {source, <<0, 0, 0>>} = Wire.take_varint(rest)
@@ -66,9 +60,9 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
     assert source == Data.registry_id("minecraft:damage_type", "minecraft:freeze")
     {<<19.0::float-32, _::binary>>, client} = Client.await(client, :play, "set_health")
     send(pid, {:player_tick, stale})
-    assert state(pid).player.health.value == 19.0
+    assert living(pid).health.value == 19.0
     ticks(pid, 40)
-    assert state(pid).player.health.value == 18.0
+    assert living(pid).health.value == 18.0
     assert state(pid).inventory == inventory
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
@@ -79,9 +73,9 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
              saved.outbox == nil
 
     {_client, owner} = login(ctx)
-    assert state(owner).player.health.value == 18.0
-    assert state(owner).player.environment.damage_phase < 4
-    refute state(owner).player.environment.damage_due
+    assert living(owner).health.value == 18.0
+    assert living(owner).freezing.damage_phase < 4
+    refute living(owner).freezing.damage_due
   end
 
   test "blocked geometry coalesces due periods and a fresh observation consumes only once", ctx do
@@ -93,15 +87,15 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
 
     try do
       for _ <- 1..80, do: tick(pid, false)
-      assert state(pid).player.environment.damage_due
-      assert state(pid).player.health.value == 20.0
+      assert living(pid).freezing.damage_due
+      assert living(pid).health.value == 20.0
       Valimc.TestRegionGate.resume(region)
       # An expired query is discarded; an admitted tick starts a fresh one.
       tick(pid)
-      assert state(pid).player.health.value == 19.0
-      refute state(pid).player.environment.damage_due
+      assert living(pid).health.value == 19.0
+      refute living(pid).freezing.damage_due
       tick(pid)
-      assert state(pid).player.health.value == 19.0
+      assert living(pid).health.value == 19.0
     after
       Valimc.TestRegionGate.resume(region)
     end
@@ -120,14 +114,14 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
     assert saved.health.value == 0.0 and saved.transfer_sequence == 2 and saved.outbox == nil
     assert saved.inventory.slots == %{} and map_size(World.item_snapshot(ctx.key)) == 8
     assert state(pid).pose_checked == nil
-    assert state(pid).player.environment.damage_phase == 0
-    refute state(pid).player.environment.damage_due
+    assert living(pid).freezing.damage_phase == 0
+    refute living(pid).freezing.damage_due
     Client.send_packet(client, :play, "client_command", <<0>>)
     {_, client} = Client.await(client, :play, "respawn")
     {<<20.0::float-32, _::binary>>, _client} = Client.await(client, :play, "set_health")
     assert state(pid).life_stage == :alive and state(pid).inventory.slots == %{}
-    assert state(pid).player.environment == %PlayerEnvironment{}
+    assert living(pid).freezing == %Freezing{}
     tick(pid)
-    assert state(pid).player.health.value == 20.0
+    assert living(pid).health.value == 20.0
   end
 end

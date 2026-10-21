@@ -29,9 +29,6 @@ defmodule Valimc.Session.Messages do
     Metrics,
     Players,
     PlayerContainerQuery,
-    PlayerAirEffects,
-    PlayerEnvironment,
-    PlayerHealth,
     PlayerInput,
     PlayerPickupIntent,
     PlayerSnapshot,
@@ -706,23 +703,22 @@ defmodule Valimc.Session.Messages do
 
           player = %{
             state.player
-            | health: PlayerHealth.tick(state.player.health),
-              environment:
-                PlayerEnvironment.tick(state.player.environment, state.life_stage == :alive)
+            | living: Valimc.Living.tick(state.player.living, state.life_stage == :alive)
           }
 
-          if state.player.health.death_ticks < 20 and player.health.death_ticks == 20,
-            do: Movement.broadcast_player_packet(state, Packets.remove_entity(player))
+          if state.player.living.health.death_ticks < 20 and
+               player.living.health.death_ticks == 20,
+             do: Movement.broadcast_player_packet(state, Packets.remove_entity(player))
 
           state = %{
             state
             | player: player,
               simulation_clock: next,
               simulation_due: true,
-              air_policy: PlayerAirEffects.policy(player.effects),
+              air_policy: Valimc.Living.Air.policy(player.living.effects),
               # Base-step damage precedes expiry; retain only its relevant level
               # while bounded geometry samples coalesce to the latest admitted tick.
-              environment_effects: Map.take(player.effects, [@resistance])
+              environment_effects: Map.take(player.living.effects, [@resistance])
           }
 
           state = Vitals.tick_burning(state)

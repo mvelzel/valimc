@@ -7,7 +7,7 @@ defmodule Valimc.PlayerPickupQuery do
   def signature(player),
     do:
       {player.uuid, player.x, player.y, player.z, player.pose, player.game_mode.current,
-       player.health.value}
+       player.living.health.value}
 
   def actor(player) do
     with {:ok, body} <- PlayerPose.geometry(player.pose, {player.x, player.y, player.z}) do
@@ -17,7 +17,7 @@ defmodule Valimc.PlayerPickupQuery do
          entity_id: player.entity_id,
          box: body.box,
          game_mode: player.game_mode,
-         health: %{value: player.health.value}
+         health: %{value: player.living.health.value}
        }}
     end
   end

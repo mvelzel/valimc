@@ -139,8 +139,8 @@ defmodule Valimc.PlayerMotionQuery do
              context(player, target.y),
              observations
            ),
-         {:ok, powder} <- Valimc.PlayerEnvironment.sample(blocks, after_move.geometry.box),
-         {:ok, air} <- Valimc.PlayerAir.contact(blocks, after_move.geometry),
+         {:ok, powder} <- Valimc.Living.Freezing.sample(blocks, after_move.geometry.box),
+         {:ok, air} <- Valimc.Living.Air.contact(blocks, after_move.geometry),
          {:ok, packet} <- Valimc.PlayerKinetics.packet(player, target, actual, flags, box, blocks),
          {:ok, landing} <- Valimc.PlayerLanding.sample(player, target, flags, box, blocks),
          accepted_motion =

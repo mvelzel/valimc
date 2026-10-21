@@ -1,4 +1,4 @@
-alias Valimc.PlayerTravelEffects
+alias Valimc.Living.Attributes
 alias Valimc.Protocol.EffectTypes
 [path] = System.argv()
 facts = :json.decode(File.read!(path))
@@ -10,7 +10,7 @@ unless facts["version"] == "26.3" and facts["protocol"] == 777 and
 
 for row <- facts["gravity"] do
   {:ok, gravity} =
-    PlayerTravelEffects.gravity(row["base"], row["velocity_y"], row["slow_falling"])
+    Attributes.gravity(row["base"], row["velocity_y"], row["slow_falling"])
 
   unless gravity == row["gravity"], do: raise("Native gravity selection differs: #{inspect(row)}")
 end
@@ -25,7 +25,7 @@ for row <- facts["reset"] do
         into: %{},
         do: {EffectTypes.id(name), [{200, 0, false, true, true}]}
 
-  {:ok, travel} = PlayerTravelEffects.derive(effects, row["velocity_y"])
+  {:ok, travel} = Attributes.travel(effects, row["velocity_y"])
   distance = if travel.reset_fall, do: 0.0, else: row["initial"]
 
   unless distance == row["distance"],

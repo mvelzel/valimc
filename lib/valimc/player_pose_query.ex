@@ -45,8 +45,8 @@ defmodule Valimc.PlayerPoseQuery do
                  border: Valimc.World.Clock.border_snapshot(),
                  subject: subject
                }),
-             {:ok, powder} <- Valimc.PlayerEnvironment.sample(frame, result.geometry.box),
-             {:ok, air} <- Valimc.PlayerAir.contact(frame, result.geometry),
+             {:ok, powder} <- Valimc.Living.Freezing.sample(frame, result.geometry.box),
+             {:ok, air} <- Valimc.Living.Air.contact(frame, result.geometry),
              candidate =
                Map.put(player, :motion, %{
                  Map.get(player, :motion, %Valimc.PlayerMotion{})

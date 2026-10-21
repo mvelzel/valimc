@@ -1,4 +1,4 @@
-alias Valimc.ToolDurability
+alias Valimc.Durability
 alias Valimc.Protocol.{ItemStack, ItemTypes}
 [path] = System.argv()
 facts = path |> File.read!() |> JSON.decode!()
@@ -48,9 +48,9 @@ for row <- facts["cases"] do
     value * 1.0
   end
 
-  {next, broken} = ToolDurability.mine(stack, row["state"], false, random)
+  {next, broken} = Durability.mine(stack, row["state"], false, random)
 
-  unless ToolDurability.valid_result?(stack, row["state"], false, next),
+  unless Durability.valid_mine?(stack, row["state"], false, next),
     do: raise("Native mining outcome rejected by source validation #{inspect(row)}")
 
   count = if next, do: next.count, else: 0
@@ -81,7 +81,7 @@ for row <- facts["cases"] do
            )
 
   # Immunity must not sample randomness, including an already damaged/final-use tool.
-  unless ToolDurability.mine(stack, row["state"], true, fn -> raise "Immune RNG" end) ==
+  unless Durability.mine(stack, row["state"], true, fn -> raise "Immune RNG" end) ==
            {stack, nil},
          do: raise("Infinite-material mining changed the stack")
 end

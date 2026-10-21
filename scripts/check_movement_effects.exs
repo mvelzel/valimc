@@ -1,4 +1,4 @@
-alias Valimc.PlayerMovementSpeed
+alias Valimc.Living.Attributes
 alias Valimc.Protocol.EffectTypes
 [path] = System.argv()
 rows = path |> File.read!() |> JSON.decode!()
@@ -9,7 +9,7 @@ for row <- rows do
       {EffectTypes.id(name), [{-1, row[name], false, true, true}]}
     end
 
-  {:ok, result} = PlayerMovementSpeed.derive(effects, row["sprint"])
+  {:ok, result} = Attributes.movement_speed(effects, row["sprint"])
   {26, base, modifiers} = result.attribute
   expected = row["modifiers"] |> Enum.map(&List.to_tuple/1) |> Enum.sort()
 
@@ -18,7 +18,7 @@ for row <- rows do
            result.value == row["value"] and result.travel_speed == row["travel_speed"],
          do: raise("Native movement attribute differs #{inspect(row)}: #{inspect(result)}")
 
-  {:ok, removed} = PlayerMovementSpeed.derive(%{}, row["sprint"])
+  {:ok, removed} = Attributes.movement_speed(%{}, row["sprint"])
   unless removed.value == row["removed"], do: raise("Native effect removal differs")
 end
 

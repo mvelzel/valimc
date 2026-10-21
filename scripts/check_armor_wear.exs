@@ -1,4 +1,5 @@
-alias Valimc.{ArmorDurability, Inventory}
+alias Valimc.Living.{Armor, DamageSource}
+alias Valimc.{Inventory}
 alias Valimc.Protocol.{ItemStack, Packets}
 [facts_path, cases_path] = System.argv()
 facts = facts_path |> File.read!() |> JSON.decode!()
@@ -7,14 +8,15 @@ unless facts == JSON.decode!(File.read!("priv/protocol/item_armor_wear.json")),
   do: raise("Pinned native armor-wear facts differ")
 
 for {slot, event} <- facts["break_events"] do
-  {_, body} = Packets.armor_break(128, String.to_integer(slot))
+  slot = Map.fetch!(%{"5" => :head, "6" => :chest, "7" => :legs, "8" => :feet}, slot)
+  {_, body} = Packets.armor_break(128, slot)
 
   unless IO.iodata_to_binary(body) == <<128::signed-32, event>>,
     do: raise("Native armor-break packet differs")
 end
 
 for {source, exhaustion} <- facts["exhaustion"] do
-  unless Valimc.PlayerDamageProtection.exhaustion(String.to_existing_atom(source)) == exhaustion,
+  unless DamageSource.exhaustion(String.to_existing_atom(source)) == exhaustion,
     do: raise("Native environmental damage exhaustion differs")
 end
 
@@ -59,14 +61,18 @@ for c <- cases do
     c["random"]
   end
 
-  {:ok, inventory, broken} =
-    ArmorDurability.damage(
-      %Inventory{slots: %{c["slot"] => stack}},
+  before = %Inventory{slots: %{c["slot"] => stack}}
+
+  {:ok, equipment, broken} =
+    Armor.wear(
+      Armor.equipment(before),
       String.to_existing_atom(c["source"]),
       c["amount"],
       false,
       random
     )
+
+  inventory = Armor.put_equipment(before, equipment)
 
   actual = Inventory.get(inventory, c["slot"])
 

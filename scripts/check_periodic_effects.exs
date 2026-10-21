@@ -1,4 +1,4 @@
-alias Valimc.{PeriodicEffect, PlayerHealth, StatusEffect}
+alias Valimc.Living.{Effects, Health}
 [path] = System.argv()
 rows = path |> File.read!() |> JSON.decode!()
 
@@ -9,8 +9,8 @@ end
 
 for row <- rows do
   initial = Enum.map(row["initial"], &List.to_tuple/1)
-  health = %PlayerHealth{value: f32.(row["health"]), maximum: f32.(row["maximum"])}
-  {:ok, action} = PeriodicEffect.request(row["id"], initial, row["age"], health)
+  health = %Health{value: f32.(row["health"]), maximum: f32.(row["maximum"])}
+  {:ok, action} = Effects.periodic(row["id"], initial, row["age"], health)
 
   actions =
     case action do
@@ -19,7 +19,7 @@ for row <- rows do
       {:hurt, source, amount} -> [["hurt", Atom.to_string(source), amount]]
     end
 
-  {:ok, next, remains, promoted} = StatusEffect.tick(initial)
+  {:ok, next, remains, promoted} = Effects.tick_instance(initial)
 
   unless actions == row["actions"] and Enum.map(next, &Tuple.to_list/1) == row["next"] and
            remains == row["remains"] and if(promoted, do: 1, else: 0) == row["promotions"],

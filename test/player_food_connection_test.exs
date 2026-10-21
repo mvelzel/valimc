@@ -1,12 +1,13 @@
 defmodule Valimc.PlayerFoodConnectionTest do
   use ExUnit.Case, async: false
+  alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
 
-  alias Valimc.{Connection, Inventory, PlayerFood, PlayerHealth, Players, PlayerSnapshot}
+  alias Valimc.{Connection, Inventory, PlayerFood, Players, PlayerSnapshot}
 
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
-  import Valimc.TestPlayer, only: [park: 1, state: 1, tick: 1, ticks: 2]
+  import Valimc.TestPlayer, only: [living: 1, park: 1, state: 1, tick: 1, ticks: 2]
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
@@ -40,6 +41,11 @@ defmodule Valimc.PlayerFoodConnectionTest do
     inventory = Keyword.get(opts, :inventory, %Inventory{})
 
     player = %{
+      living: %Valimc.Living{
+        freezing: %Freezing{},
+        health: %Health{value: health},
+        air_supply: 300
+      },
       x: ctx.pose.x,
       y: 64.0,
       z: ctx.pose.z,
@@ -48,10 +54,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
       game_mode: Valimc.GameMode.new(mode),
       abilities: Valimc.PlayerAbilities.for_mode(mode),
       motion: %Valimc.PlayerMotion{},
-      environment: %Valimc.PlayerEnvironment{},
-      health: %PlayerHealth{value: health},
       last_death: nil,
-      air_supply: 300,
       food: food
     }
 
@@ -73,10 +76,10 @@ defmodule Valimc.PlayerFoodConnectionTest do
     assert Map.take(state(pid).player, fields) == before
     assert state(pid).simulation_clock.tick == before_tick
     ticks(pid, 8)
-    assert state(pid).player.health.value == 10.0
+    assert living(pid).health.value == 10.0
     tick(pid)
     expected = 10.833333015441895
-    assert state(pid).player.health.value == expected
+    assert living(pid).health.value == expected
     assert state(pid).player.food == %PlayerFood{exhaustion: 5.0}
     {body, client} = Client.await(client, :play, "set_health")
     assert_health(body, expected, food)
@@ -100,7 +103,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
 
     try do
       tick(pid)
-      assert state(pid).player.health.value == 11.0
+      assert living(pid).health.value == 11.0
       assert state(pid).player.food == %PlayerFood{level: 18, saturation: 0.0, exhaustion: 6.0}
     after
       :sys.resume(Valimc.World.Clock)
@@ -109,7 +112,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
     :ok = Valimc.World.Clock.configure({:natural_regeneration, false})
     tick(pid)
     assert state(pid).player.food == %PlayerFood{level: 17, saturation: 0.0, exhaustion: 2.0}
-    assert state(pid).player.health.value == 11.0
+    assert living(pid).health.value == 11.0
   end
 
   test "hard starvation uses durable death transfers and resets food on actual respawn command",
@@ -146,6 +149,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
     inventory = %Inventory{slots: %{36 => ItemStack.new("stone", 7)}}
 
     player = %{
+      living: %Valimc.Living{freezing: %Freezing{}, health: %Health{value: 5.0}, air_supply: 17},
       x: ctx.pose.x,
       y: 64.0,
       z: ctx.pose.z,
@@ -154,10 +158,7 @@ defmodule Valimc.PlayerFoodConnectionTest do
       game_mode: Valimc.GameMode.new(:survival),
       abilities: Valimc.PlayerAbilities.for_mode(:survival),
       motion: %Valimc.PlayerMotion{},
-      environment: %Valimc.PlayerEnvironment{},
-      health: %PlayerHealth{value: 5.0},
       last_death: nil,
-      air_supply: 17,
       food: food
     }
 

@@ -1,4 +1,5 @@
-alias Valimc.{Inventory, PlayerEnchantmentImmunity}
+alias Valimc.Living.{Armor, Damage}
+alias Valimc.{Inventory}
 alias Valimc.Protocol.ItemStack
 [path] = System.argv()
 facts = :json.decode(File.read!(path))
@@ -22,7 +23,7 @@ for row <- facts["cases"] do
 
   actual =
     Enum.filter(facts["sources"], fn source ->
-      PlayerEnchantmentImmunity.immune?(inventory, String.to_atom(source))
+      Damage.enchantment_immune?(Armor.equipment(inventory), String.to_atom(source))
     end)
 
   unless actual == row["immune"],

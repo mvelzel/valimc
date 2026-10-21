@@ -1,4 +1,4 @@
-alias Valimc.StatusEffect
+alias Valimc.Living.Effects
 [path] = System.argv()
 facts = :json.decode(File.read!(path))
 
@@ -13,21 +13,21 @@ for row <- facts["cases"] do
     {actual, extra} =
       case operation["op"] do
         "update" ->
-          {:ok, next, changed} = StatusEffect.refresh(state, decode.(operation["input"]))
+          {:ok, next, changed} = Effects.refresh(state, decode.(operation["input"]))
           {next, changed == operation["changed"]}
 
         "tick" ->
           {next, remains, promotions} =
             Enum.reduce(1..operation["count"], {state, false, 0}, fn _,
                                                                      {current, _, promotions} ->
-              {:ok, next, remains, promoted} = StatusEffect.tick(current)
+              {:ok, next, remains, promoted} = Effects.tick_instance(current)
               {next, remains, promotions + if(promoted, do: 1, else: 0)}
             end)
 
           {next, remains == operation["remains"] and promotions == operation["promotions"]}
       end
 
-    unless extra and actual == decode.(operation["state"]) and StatusEffect.valid?(actual),
+    unless extra and actual == decode.(operation["state"]) and Effects.valid_instance?(actual),
       do: raise("Native status transition differs: #{inspect({state, operation, actual})}")
 
     actual

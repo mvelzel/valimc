@@ -1,6 +1,6 @@
 defmodule Valimc.PlayerMiningTransfers do
   @moduledoc "Trusted source mining plans and receipt-backed compensation; no RNG or destination mutation."
-  alias Valimc.{GameMode, Inventory, PlayerMiningIntent, PlayerSnapshot, ToolDurability}
+  alias Valimc.{Durability, GameMode, Inventory, PlayerMiningIntent, PlayerSnapshot}
   alias Valimc.Physics.MiningTools
   @max_sequence 18_446_744_073_709_551_615
 
@@ -21,7 +21,7 @@ defmodule Valimc.PlayerMiningTransfers do
          true <- intent.slot == 36 + inventory.selected and intent.before == before,
          true <- MiningTools.can_destroy?(before, false),
          true <-
-           ToolDurability.valid_result?(
+           Durability.valid_mine?(
              before,
              Map.fetch!(intent.expected, intent.target),
              false,

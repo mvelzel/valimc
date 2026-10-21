@@ -1,6 +1,6 @@
 defmodule Valimc.Protocol.ItemDataTest do
   use ExUnit.Case, async: true
-  alias Valimc.PlayerDeathMessage
+  alias Valimc.Living.DamageSource
   alias Valimc.Text.Codec
   alias Valimc.Protocol.{ItemStack, Packets, ServerText}
   alias Valimc.NBT
@@ -18,7 +18,7 @@ defmodule Valimc.Protocol.ItemDataTest do
     assert IO.iodata_length(ItemStack.encode(stack)) < 65_536
 
     assert %ServerText{tag: tag} =
-             message = PlayerDeathMessage.component("Player", {:self_magic, stack})
+             message = DamageSource.death_message("Player", {:self_magic, stack})
 
     assert IO.iodata_length(ServerText.encode(message)) > 65_536
     assert {_, _} = Packets.death(1, message)
@@ -55,7 +55,7 @@ defmodule Valimc.Protocol.ItemDataTest do
     assert {:ok, ^stack} =
              stack |> ItemStack.encode() |> IO.iodata_to_binary() |> ItemStack.decode()
 
-    message = PlayerDeathMessage.component("Player", {:self_magic, stack})
+    message = DamageSource.death_message("Player", {:self_magic, stack})
     assert IO.iodata_length(ServerText.encode(message)) > 0
 
     assert {:error, :nbt_depth_limit} =

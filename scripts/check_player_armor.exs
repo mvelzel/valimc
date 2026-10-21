@@ -1,4 +1,5 @@
-alias Valimc.{Inventory, PlayerArmor, Protocol.ItemStack}
+alias Valimc.Living.Armor
+alias Valimc.{Inventory, Protocol.ItemStack}
 [facts_path, cases_path] = System.argv()
 
 unless :json.decode(File.read!(facts_path)) ==
@@ -26,7 +27,7 @@ for row <- rows do
       {gear["slot"], stack}
     end)
 
-  actual = PlayerArmor.attributes(%Inventory{slots: slots})
+  actual = Armor.attributes(Armor.equipment(%Inventory{slots: slots}))
 
   unless actual == %{
            armor: row["armor"],

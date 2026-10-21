@@ -1,4 +1,4 @@
-alias Valimc.PlayerDeathMessage
+alias Valimc.Living.DamageSource
 alias Valimc.Protocol.{Packets, Wire}
 [input, output] = System.argv()
 rows = input |> File.read!() |> JSON.decode!()
@@ -16,7 +16,7 @@ encoded =
     if row["held"] == "named_potion" do
       result
     else
-      component = PlayerDeathMessage.component(row["name"], :self_magic)
+      component = DamageSource.death_message(row["name"], :self_magic)
       {:compound, fields} = component
 
       unless fields["translate"] == {:string, row["message"]["translate"]} and

@@ -1,4 +1,5 @@
-alias Valimc.{ConsumableRemoval, FoodItems}
+alias Valimc.Living.Effects
+alias Valimc.{FoodItems}
 alias Valimc.Protocol.ItemStack
 [path] = System.argv()
 data = path |> File.read!() |> JSON.decode!()
@@ -6,7 +7,7 @@ data = path |> File.read!() |> JSON.decode!()
 for fact <- data["facts"] do
   stack = ItemStack.new(fact["item"])
   props = FoodItems.properties(stack)
-  {:ok, policy} = ConsumableRemoval.policy(stack, props)
+  {:ok, policy} = Effects.removal_policy(stack, props)
 
   unless Atom.to_string(policy) == fact["policy"] and props.consumable["ticks"] == fact["ticks"],
     do: raise("Native removal stock facts differ #{inspect(fact)}")
@@ -14,7 +15,7 @@ end
 
 for row <- data["cases"] do
   stack = ItemStack.new(row["item"])
-  {:ok, policy} = ConsumableRemoval.policy(stack, FoodItems.properties(stack))
+  {:ok, policy} = Effects.removal_policy(stack, FoodItems.properties(stack))
 
   effects =
     Map.new(
@@ -22,7 +23,7 @@ for row <- data["cases"] do
       &{&1["id"], Enum.map(&1["rungs"], fn rung -> List.to_tuple(rung) end)}
     )
 
-  {:ok, next, removed} = ConsumableRemoval.apply(effects, policy)
+  {:ok, next, removed} = Effects.apply_removal(effects, policy)
 
   expected =
     Map.new(row["next"], &{&1["id"], Enum.map(&1["rungs"], fn rung -> List.to_tuple(rung) end)})

@@ -1,4 +1,4 @@
-alias Valimc.StatusEffect
+alias Valimc.Living.Effects
 [path] = System.argv()
 facts = :json.decode(File.read!(path))
 
@@ -11,7 +11,7 @@ unless facts["version"] == "26.3" and facts["protocol"] == 777 and
 decode = fn rows -> Enum.map(rows, &List.to_tuple/1) end
 
 for row <- facts["ticks"] do
-  {:ok, after_tick, remains, promoted} = StatusEffect.tick(decode.(row["before"]))
+  {:ok, after_tick, remains, promoted} = Effects.tick_instance(decode.(row["before"]))
 
   unless after_tick == decode.(row["after"]) and remains == row["remains"] and
            promoted == (row["promotions"] == 1),

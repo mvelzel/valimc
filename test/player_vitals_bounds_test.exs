@@ -2,10 +2,10 @@ defmodule Valimc.PlayerVitalsBoundsTest do
   # Bounds and fail-closed checks of health, food, armor, air, fire and consumable
   # rules. Their vanilla numbers are the vitals and effect oracle stages.
   use ExUnit.Case, async: true
+  alias Valimc.Living.{Air, Burning, Effects, Health}
   alias Valimc.World.View
-  alias Valimc.{ConsumableRemoval, FoodItems, PlayerAir}
-  alias Valimc.{PlayerFireContacts, PlayerFood, PlayerHealth}
-  alias Valimc.StockFoodEffects
+  alias Valimc.{FoodItems}
+  alias Valimc.{PlayerFood}
   alias Valimc.Physics.{PlayerPose}
   alias Valimc.Protocol.{FoodProperties, ItemStack, ItemTypes, PotionContents, Wire}
 
@@ -14,16 +14,16 @@ defmodule Valimc.PlayerVitalsBoundsTest do
   defp props, do: %{nutrition: 5, saturation: 6.0, can_always_eat: false}
 
   test "saved health clamps at zero/max, persists native fields and rejects invalid records" do
-    assert {:ok, damaged} = PlayerHealth.set(%PlayerHealth{}, 7.25)
+    assert {:ok, damaged} = Health.set(%Health{}, 7.25)
     damaged = %{damaged | hurt_ticks: 7, death_ticks: 11, cooldown: 17, last_hurt: 5.0}
-    assert {:ok, saved} = PlayerHealth.saved(damaged)
+    assert {:ok, saved} = Health.saved(damaged)
     assert saved == %{value: 7.25, hurt_ticks: 7, death_ticks: 11}
-    assert {:ok, restored} = PlayerHealth.restore(saved)
+    assert {:ok, restored} = Health.restore(saved)
     assert restored == %{damaged | cooldown: 0, last_hurt: 0.0}
-    assert {:ok, %{value: 5.0, maximum: 5.0}} = PlayerHealth.restore(saved, 5.0)
-    assert {:ok, %{value: 1024.0, maximum: 1024.0}} = PlayerHealth.restore(nil, 1024)
-    assert {:ok, %{value: +0.0}} = PlayerHealth.reduce(damaged, 8)
-    assert {:ok, %{value: 20.0}} = PlayerHealth.set(damaged, 200)
+    assert {:ok, %{value: 5.0, maximum: 5.0}} = Health.restore(saved, 5.0)
+    assert {:ok, %{value: 1024.0, maximum: 1024.0}} = Health.restore(nil, 1024)
+    assert {:ok, %{value: +0.0}} = Health.reduce(damaged, 8)
+    assert {:ok, %{value: 20.0}} = Health.set(damaged, 200)
 
     for invalid <- [
           nil,
@@ -33,11 +33,11 @@ defmodule Valimc.PlayerVitalsBoundsTest do
           %{saved | hurt_ticks: 32768},
           %{saved | death_ticks: -1}
         ] do
-      refute PlayerHealth.valid_saved?(invalid)
+      refute Health.valid_saved?(invalid)
     end
 
     for maximum <- [0, 1025, :bad] do
-      assert {:error, :invalid_health} = PlayerHealth.restore(saved, maximum)
+      assert {:error, :invalid_health} = Health.restore(saved, maximum)
     end
   end
 
@@ -67,29 +67,29 @@ defmodule Valimc.PlayerVitalsBoundsTest do
 
     {:ok, standing} = PlayerPose.geometry(:standing, {0.5, 64.0, 0.5})
     {:ok, swimming} = PlayerPose.geometry(:swimming, {0.5, 64.0, 0.5})
-    assert {:ok, %{water: false, submerged: false}} = PlayerAir.contact(frame, standing)
-    assert {:ok, %{water: true, submerged: true}} = PlayerAir.contact(frame, swimming)
+    assert {:ok, %{water: false, submerged: false}} = Air.contact(frame, standing)
+    assert {:ok, %{water: true, submerged: true}} = Air.contact(frame, swimming)
     full = %{frame | supplied: Map.put(frame.supplied, {0, 65, 0}, 89)}
-    assert {:ok, %{water: true, submerged: true}} = PlayerAir.contact(full, standing)
+    assert {:ok, %{water: true, submerged: true}} = Air.contact(full, standing)
 
-    for id <- PlayerAir.bubble_states() do
+    for id <- Air.bubble_states() do
       assert {:ok, %{water: true, submerged: false}} =
-               PlayerAir.contact(
+               Air.contact(
                  %{full | supplied: Map.put(full.supplied, {0, 65, 0}, id)},
                  standing
                )
     end
 
     assert {:error, _} =
-             PlayerAir.contact(
+             Air.contact(
                %{frame | supplied: Map.delete(frame.supplied, {0, 65, 0})},
                standing
              )
   end
 
   test "fire contact work is bounded and unknown or malformed samples refuse" do
-    assert {:ok, []} = PlayerFireContacts.plan([])
-    assert {:ok, [:extinguish]} = PlayerFireContacts.plan([List.duplicate(:water, 2048)])
+    assert {:ok, []} = Burning.plan([])
+    assert {:ok, [:extinguish]} = Burning.plan([List.duplicate(:water, 2048)])
 
     for invalid <- [
           List.duplicate([], 2049),
@@ -98,7 +98,7 @@ defmodule Valimc.PlayerVitalsBoundsTest do
           [nil],
           nil
         ] do
-      assert {:error, :invalid_fire_contacts} = PlayerFireContacts.plan(invalid)
+      assert {:error, :invalid_fire_contacts} = Burning.plan(invalid)
     end
   end
 
@@ -200,23 +200,20 @@ defmodule Valimc.PlayerVitalsBoundsTest do
   test "draw count/precision boundaries and non-stock listener policies cannot silently lose callbacks" do
     item = ItemStack.new("enchanted_golden_apple")
     props = FoodItems.properties(item)
-    {:ok, callbacks} = StockFoodEffects.policy(item, props)
+    {:ok, callbacks} = Effects.food_policy(item, props)
 
     for draws <- [[], [0.0, 0.0], [-0.1], [1.0], [nil], [0.1]],
-        do:
-          assert(
-            StockFoodEffects.resolve(callbacks, draws) == {:error, :invalid_food_effect_draws}
-          )
+        do: assert(Effects.food_effects(callbacks, draws) == {:error, :invalid_food_effect_draws})
 
-    assert StockFoodEffects.policy(item, %{props | other_listeners: ["minecraft:potion_contents"]}) ==
+    assert Effects.food_policy(item, %{props | other_listeners: ["minecraft:potion_contents"]}) ==
              :unsupported
 
-    assert StockFoodEffects.policy(item, %{
+    assert Effects.food_policy(item, %{
              props
              | consumable: Map.put(props.consumable, "effects", 0)
            }) == :unsupported
 
-    assert StockFoodEffects.policy(
+    assert Effects.food_policy(
              ItemStack.new("apple"),
              FoodItems.properties(ItemStack.new("apple"))
            ) == :unsupported
@@ -226,23 +223,23 @@ defmodule Valimc.PlayerVitalsBoundsTest do
     for {name, policy} <- [{"milk_bucket", :all}, {"honey_bottle", :poison}] do
       stack = ItemStack.new(name)
       props = FoodItems.properties(stack)
-      assert {:ok, ^policy} = ConsumableRemoval.policy(stack, props)
-      assert :unsupported = ConsumableRemoval.policy(stack, %{props | consumable: nil})
+      assert {:ok, ^policy} = Effects.removal_policy(stack, props)
+      assert :unsupported = Effects.removal_policy(stack, %{props | consumable: nil})
 
       assert :unsupported =
-               ConsumableRemoval.policy(stack, %{
+               Effects.removal_policy(stack, %{
                  props
                  | consumable: Map.put(props.consumable, "effects", 0)
                })
 
       assert :unsupported =
-               ConsumableRemoval.policy(stack, %{
+               Effects.removal_policy(stack, %{
                  props
                  | other_listeners: ["minecraft:potion_contents"]
                })
     end
 
     apple = ItemStack.new("golden_apple")
-    assert :unsupported = ConsumableRemoval.policy(apple, FoodItems.properties(apple))
+    assert :unsupported = Effects.removal_policy(apple, FoodItems.properties(apple))
   end
 end

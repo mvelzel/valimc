@@ -1,5 +1,6 @@
 defmodule Valimc.MovementFoodConnectionTest do
   use ExUnit.Case, async: false
+  alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
   alias Valimc.{Connection, Inventory, PlayerFood, PlayerSnapshot, World}
   alias Valimc.Protocol.{Data, ItemStack, Wire}
@@ -15,13 +16,11 @@ defmodule Valimc.MovementFoodConnectionTest do
 
     player =
       Map.merge(ctx.pose, %{
+        living: %Valimc.Living{freezing: %Freezing{}, health: %Health{}, air_supply: 300},
         game_mode: Valimc.GameMode.new(mode),
         abilities: Valimc.PlayerAbilities.for_mode(mode),
         motion: %Valimc.PlayerMotion{},
-        environment: %Valimc.PlayerEnvironment{},
-        health: %Valimc.PlayerHealth{},
         last_death: nil,
-        air_supply: 300,
         food: Keyword.get(opts, :food, %PlayerFood{})
       })
 

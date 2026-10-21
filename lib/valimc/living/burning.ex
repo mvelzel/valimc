@@ -1,5 +1,13 @@
-defmodule Valimc.PlayerBurning do
-  @moduledoc "Native burning counters and damage requests; fresh contact, health and persistence belong to the player owner."
+defmodule Valimc.Living.Burning do
+  @moduledoc """
+  A living entity's burning counter (vanilla `Entity.remainingFireTicks` with
+  `LivingEntity` fire immunity): ignition by fire and lava scaled by the burning
+  time attribute, ticking down with damage every second, and the ordered
+  fire, lava and extinguish operations of a movement step's contacts. Fresh
+  contact, health and persistence belong to the owner.
+  """
+  @limit 2048
+  @kinds [:fire, :soul_fire, :lava, :water, :powder_snow]
   @minimum -2_147_483_648
   @maximum 2_147_483_647
   @float_max 3.4028234663852886e38
@@ -108,5 +116,37 @@ defmodule Valimc.PlayerBurning do
   defp f32(number) do
     <<value::float-32>> = <<number::float-32>>
     value
+  end
+
+  @doc "Bounded ordered fire and fluid operations from a step's contacts; owners apply them while alive."
+  def plan(steps) when is_list(steps) and length(steps) <= @limit do
+    with {:ok, _count} <-
+           Enum.reduce_while(steps, {:ok, 0}, fn contacts, {:ok, count} ->
+             if is_list(contacts) and length(contacts) + count <= @limit and
+                  Enum.all?(contacts, &(&1 in @kinds)),
+                do: {:cont, {:ok, count + length(contacts)}},
+                else: {:halt, {:error, :invalid_fire_contacts}}
+           end) do
+      {:ok, Enum.flat_map(steps, &step/1)}
+    end
+  end
+
+  def plan(_), do: {:error, :invalid_fire_contacts}
+
+  defp step(contacts) do
+    fire = Enum.filter(contacts, &(&1 in [:fire, :soul_fire]))
+    lava = Enum.count(contacts, &(&1 == :lava))
+
+    # Ignitions deduplicate within a movement step; each contacted block retains
+    # its damage callback. Extinguishing follows both kinds of ignition.
+    if(fire != [] or lava > 0, do: [:clear_freeze], else: []) ++
+      if(fire != [],
+        do: [
+          :fire_ignite | Enum.map(fire, &{:damage, :in_fire, if(&1 == :fire, do: 1.0, else: 2.0)})
+        ],
+        else: []
+      ) ++
+      if(lava > 0, do: [:lava_ignite | List.duplicate(:lava_hurt, lava)], else: []) ++
+      if(:water in contacts or :powder_snow in contacts, do: [:extinguish], else: [])
   end
 end

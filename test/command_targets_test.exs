@@ -30,7 +30,7 @@ defmodule Valimc.CommandTargetsTest do
           z: 0.5,
           yaw: 0.0,
           pitch: 0.0,
-          health: %Valimc.PlayerHealth{value: health},
+          living: %Valimc.Living{health: %Valimc.Living.Health{value: health}},
           game_mode: %Valimc.GameMode{current: :survival},
           progression: %Valimc.PlayerProgression{}
         }

@@ -1,9 +1,14 @@
 defmodule Valimc.PlayerLifeTest do
   use ExUnit.Case, async: true
-  alias Valimc.{Inventory, PlayerHealth, PlayerLife, PlayerSnapshot}
+  alias Valimc.Living.{Freezing, Health}
+  alias Valimc.{Inventory, PlayerLife, PlayerSnapshot}
 
   defp player do
     %{
+      living: %Valimc.Living{
+        freezing: %Freezing{frozen_ticks: 77, damage_phase: 39, damage_due: true},
+        health: %Health{value: 0.0, hurt_ticks: 10, cooldown: 20}
+      },
       x: -3.25,
       y: 64.5,
       z: 17.75,
@@ -13,15 +18,17 @@ defmodule Valimc.PlayerLifeTest do
       abilities: Valimc.PlayerAbilities.for_mode(:survival),
       input: %Valimc.PlayerInput{buttons: 33, shared_flags: 2, load_ticks: 0},
       motion: %Valimc.PlayerMotion{fall_distance: 15.0, velocity: {0.1, -2.0, 0.2}},
-      environment: %Valimc.PlayerEnvironment{frozen_ticks: 77, damage_phase: 39, damage_due: true},
-      health: %PlayerHealth{value: 0.0, hurt_ticks: 10, cooldown: 20},
       pose: :crouching,
       last_death: {1, 2, 3}
     }
   end
 
   test "last death is checksummed with health and journal; sealed invalid coordinates are rejected" do
-    snapshot = PlayerSnapshot.capture(PlayerLife.die(player()), %Inventory{})
+    # The last-death layer (v10) predates air, burning, effects and absorption.
+    snapshot =
+      PlayerSnapshot.capture(PlayerLife.die(player()), %Inventory{})
+      |> Map.drop([:air_supply, :fire_ticks, :effects, :absorption])
+
     uuid = <<7::128>>
     assert {:ok, <<"VMCPOSE", 10, _::binary>> = bytes} = PlayerSnapshot.encode(uuid, snapshot)
     assert {:ok, decoded} = PlayerSnapshot.decode(bytes, uuid)

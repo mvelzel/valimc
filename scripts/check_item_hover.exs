@@ -1,4 +1,4 @@
-alias Valimc.PlayerDeathMessage
+alias Valimc.Living.DamageSource
 alias Valimc.Protocol.{ItemData, ItemStack, Packets, Wire}
 alias Valimc.NBT
 [input, output] = System.argv()
@@ -12,7 +12,7 @@ encoded =
   Enum.map(rows, fn row ->
     {:ok, stack} = row["stack"] |> Base.decode16!(case: :lower) |> ItemStack.decode()
     data = stack |> ItemData.tag() |> NBT.encode_server_component() |> IO.iodata_to_binary()
-    death = PlayerDeathMessage.component("ValiMCTest", {:self_magic, stack})
+    death = DamageSource.death_message("ValiMCTest", {:self_magic, stack})
     death_packet = packet.(Packets.death(1, death))
     chat_packet = packet.(Packets.chat(death))
     death = death |> Wire.text_component() |> IO.iodata_to_binary()

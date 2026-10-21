@@ -1,6 +1,7 @@
 defmodule Valimc.PlayerEffectSnapshotTest do
   use ExUnit.Case, async: true
-  alias Valimc.{Inventory, PlayerEffects, PlayerSnapshot}
+  alias Valimc.Living.Effects
+  alias Valimc.{Inventory, PlayerSnapshot}
   alias Valimc.Protocol.ItemStack
   @uuid <<94::128>>
   @pose %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0}
@@ -10,10 +11,10 @@ defmodule Valimc.PlayerEffectSnapshotTest do
   test "bounded canonical effect payload refuses duplicate IDs, chains, flags and truncation" do
     full_chain = Enum.map(255..0//-1, &{-1, &1, false, true, true})
     full = Map.new(0..39, &{&1, full_chain})
-    assert {:ok, bytes} = PlayerEffects.encode(full)
-    assert byte_size(bytes) == PlayerEffects.max_bytes()
-    assert {:ok, ^full, <<7, 8>>} = PlayerEffects.take(bytes <> <<7, 8>>)
-    assert {:ok, <<0>>} = PlayerEffects.encode(%{})
+    assert {:ok, bytes} = Effects.encode(full)
+    assert byte_size(bytes) == Effects.max_bytes()
+    assert {:ok, ^full, <<7, 8>>} = Effects.take(bytes <> <<7, 8>>)
+    assert {:ok, <<0>>} = Effects.encode(%{})
 
     for bytes <- [
           <<>>,
@@ -27,7 +28,7 @@ defmodule Valimc.PlayerEffectSnapshotTest do
           <<2, 11, 1::16, 1::signed-32, 0, 6, 11, 1::16, 1::signed-32, 0, 6>>,
           binary_part(bytes, 0, byte_size(bytes) - 1)
         ] do
-      assert PlayerEffects.take(bytes) == {:error, :invalid_player_effects}
+      assert Effects.take(bytes) == {:error, :invalid_player_effects}
     end
   end
 
@@ -68,12 +69,10 @@ defmodule Valimc.PlayerEffectSnapshotTest do
     end
   end
 
-  test "capture, maximum payload and malformed wrappers retain snapshot boundaries" do
-    snapshot = PlayerSnapshot.capture(Map.put(@pose, :effects, @effects), %Inventory{})
-    assert snapshot.effects == @effects
-    refute Map.has_key?(PlayerSnapshot.capture(@pose, %Inventory{}), :effects)
+  test "maximum payload and malformed wrappers retain snapshot boundaries" do
+    snapshot = PlayerSnapshot.capture(@pose, %Inventory{}) |> Map.put(:effects, @effects)
     {:ok, bytes} = PlayerSnapshot.encode(@uuid, snapshot)
-    {:ok, effect_bytes} = PlayerEffects.encode(@effects)
+    {:ok, effect_bytes} = Effects.encode(@effects)
     effect_size = byte_size(effect_bytes)
     body_size = byte_size(bytes) - 93 - effect_size
 

@@ -168,9 +168,9 @@ defmodule Valimc.Player.Travel do
           Packets.cursor(state.inventory.carried),
           Packets.held_slot(state.inventory.selected),
           Packets.experience(player.progression.experience),
-          Packets.health(player.health, player.food)
+          Packets.health(player.living.health, player.food)
         ] ++
-        Enum.map(player.effects, fn {id, [rung | _]} ->
+        Enum.map(player.living.effects, fn {id, [rung | _]} ->
           Packets.update_effect(player.entity_id, id, rung, false)
         end) ++
         post_effects(player) ++

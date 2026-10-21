@@ -139,7 +139,7 @@ defmodule Valimc.Player.Mining do
 
   def mining_allowed?(state, position) do
     state.phase == :play and state.life_stage == :alive and
-      state.player.game_mode.current == :survival and state.player.health.value > 0 and
+      state.player.game_mode.current == :survival and state.player.living.health.value > 0 and
       PlayerInput.loaded?(state.player.input) and not state.teleport_pending and
       not inventory_pending(state) and reachable?(state, position) and
       inside_border?(position) and
@@ -367,7 +367,7 @@ defmodule Valimc.Player.Mining do
         PlayerMining.harvest?(state.inventory, block)
       )
 
-    {after_tool, _broken} = Valimc.ToolDurability.mine(before, block, false)
+    {after_tool, _broken} = Valimc.Durability.mine(before, block, false)
     {x, y, z} = mining.position
 
     records =

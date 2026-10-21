@@ -20,10 +20,7 @@ defmodule Valimc.Net.LoginFlow do
   alias Valimc.{
     GameMode,
     Players,
-    PlayerAbsorption,
-    PlayerEnvironment,
     PlayerFood,
-    PlayerHealth,
     PlayerInput,
     PlayerKinetics,
     PlayerLife,
@@ -36,7 +33,7 @@ defmodule Valimc.Net.LoginFlow do
   alias Valimc.World.TickClock
 
   alias Valimc.World.{BorderReplication, WeatherReplication}
-  @live_effects Valimc.LiveEffects.ids()
+  @live_effects Valimc.Living.Effects.live()
 
   def finish_login(state) do
     threshold = Valimc.config(:compression_threshold)
@@ -70,7 +67,7 @@ defmodule Valimc.Net.LoginFlow do
     if records == [] do
       state = %{state | inventory: Transfers.recovered_inventory(state, after_snapshot)}
 
-      if state.player.health.value <= 0,
+      if state.player.living.health.value <= 0,
         do: Vitals.checkpoint_life(state, :death_done, after_snapshot),
         else: finish_login(state)
     else
@@ -83,7 +80,7 @@ defmodule Valimc.Net.LoginFlow do
       }
 
       prepare =
-        if state.player.health.value <= 0,
+        if state.player.living.health.value <= 0,
           do: &PlayerStore.prepare_death/7,
           else: &PlayerStore.prepare_transfer/7
 
@@ -148,16 +145,11 @@ defmodule Valimc.Net.LoginFlow do
       abilities: GameMode.abilities(mode, false),
       input: %PlayerInput{},
       motion: %PlayerMotion{},
-      environment: %PlayerEnvironment{},
-      air_supply: Valimc.PlayerAir.maximum(),
-      fire_ticks: 0,
-      effects: %{},
-      absorption: 0.0,
+      living: %Valimc.Living{},
       progression: %Valimc.PlayerProgression{},
       food: %PlayerFood{},
       use_flags: 0,
       equipment: %{},
-      health: %PlayerHealth{},
       last_death: nil,
       dimension: Valimc.World.Spawn.dimension(),
       death_dimension: :overworld,
@@ -203,7 +195,7 @@ defmodule Valimc.Net.LoginFlow do
           {:ok, velocity} =
             PlayerKinetics.restore_velocity(Map.get(snapshot, :velocity, {0.0, 0.0, 0.0}))
 
-          {:ok, health} = PlayerHealth.restore(Map.get(snapshot, :health))
+          {:ok, living} = Valimc.Living.restore(snapshot)
 
           inventory = %{
             snapshot.inventory
@@ -217,7 +209,7 @@ defmodule Valimc.Net.LoginFlow do
             Map.merge(player, snapshot.pose)
             | game_mode: mode,
               abilities: abilities,
-              health: health,
+              living: living,
               last_death: Map.get(snapshot, :last_death),
               dimension: Map.get(snapshot, :dimension, :overworld),
               death_dimension: Map.get(snapshot, :death_dimension, :overworld),
@@ -231,19 +223,13 @@ defmodule Valimc.Net.LoginFlow do
                   },
                   abilities.flying
                 ),
-              environment: %PlayerEnvironment{frozen_ticks: Map.get(snapshot, :frozen_ticks, 0)},
-              air_supply: Map.get(snapshot, :air_supply, Valimc.PlayerAir.maximum()),
-              fire_ticks: Map.get(snapshot, :fire_ticks, 0),
-              effects: Map.get(snapshot, :effects, %{}),
-              absorption: Map.get(snapshot, :absorption, 0.0),
               progression: Map.get(snapshot, :progression, %Valimc.PlayerProgression{}),
               food: Map.get(snapshot, :food, %PlayerFood{})
           }
 
-          player = PlayerAbsorption.reconcile(player)
-          player = if health.value <= 0, do: PlayerLife.dead(player), else: player
+          player = if living.health.value <= 0, do: PlayerLife.dead(player), else: player
 
-          unless Enum.all?(player.effects, fn {id, _} -> id in @live_effects end),
+          unless Enum.all?(player.living.effects, fn {id, _} -> id in @live_effects end),
             do: reject(state, "Saved status effect is not implemented in this preview")
 
           {pid, fence, player, inventory, pending}
@@ -260,7 +246,7 @@ defmodule Valimc.Net.LoginFlow do
     state = %{
       state
       | player: player,
-        life_stage: if(player.health.value <= 0, do: :sealing_death, else: :alive),
+        life_stage: if(player.living.health.value <= 0, do: :sealing_death, else: :alive),
         player_store: store,
         store_fence: fence,
         inventory: inventory,
@@ -311,7 +297,7 @@ defmodule Valimc.Net.LoginFlow do
       clock_packet,
       difficulty_packet,
       Packets.abilities(state.player.abilities),
-      Packets.health(state.player.health, state.player.food),
+      Packets.health(state.player.living.health, state.player.food),
       Packets.spawn_position(),
       Packets.permission_level(
         state.player.entity_id,
@@ -327,7 +313,10 @@ defmodule Valimc.Net.LoginFlow do
       Packets.level_load_start(),
       Packets.player_info(state.player),
       Packets.interaction_attributes(state.player),
-      Packets.armor_attributes(state.player, Valimc.PlayerArmor.attributes(state.inventory)),
+      Packets.armor_attributes(
+        state.player.entity_id,
+        Valimc.Living.Armor.attributes(Valimc.Living.Armor.equipment(state.inventory))
+      ),
       Packets.player_environment(state.player),
       Packets.player_flags(state.player),
       Packets.player_pose(state.player),
@@ -342,7 +331,7 @@ defmodule Valimc.Net.LoginFlow do
 
     send_packets(
       state,
-      Enum.map(state.player.effects, fn {id, [rung | _]} ->
+      Enum.map(state.player.living.effects, fn {id, [rung | _]} ->
         Packets.update_effect(state.player.entity_id, id, rung, false)
       end)
     )
@@ -367,6 +356,6 @@ defmodule Valimc.Net.LoginFlow do
     state = %{state | simulation_clock: clock, player_ticks: ticks}
     Process.send_after(self(), :publish_movement, 50)
     Process.send_after(self(), :save_player, Valimc.config(:player_save_interval_ms))
-    if state.player.health.value <= 0, do: Vitals.death_notice(state, false), else: state
+    if state.player.living.health.value <= 0, do: Vitals.death_notice(state, false), else: state
   end
 end

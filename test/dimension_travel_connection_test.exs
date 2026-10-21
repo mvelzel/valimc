@@ -1,5 +1,7 @@
 defmodule Valimc.DimensionTravelConnectionTest do
   use ExUnit.Case, async: false
+  import Valimc.TestPlayer, only: [living: 1]
+  alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
   @moduletag :slow
   @moduletag timeout: 180_000
@@ -7,7 +9,6 @@ defmodule Valimc.DimensionTravelConnectionTest do
     Connection,
     Dimension,
     Inventory,
-    PlayerHealth,
     PlayerSnapshot,
     PlayerStore,
     Players
@@ -63,13 +64,15 @@ defmodule Valimc.DimensionTravelConnectionTest do
   defp seed(ctx) do
     player =
       Map.merge(ctx.pose, %{
+        living: %Valimc.Living{
+          freezing: %Freezing{},
+          health: %Health{value: 13.0},
+          air_supply: 300
+        },
         game_mode: Valimc.GameMode.new(:creative),
         abilities: Valimc.PlayerAbilities.for_mode(:creative),
         motion: %Valimc.PlayerMotion{},
-        environment: %Valimc.PlayerEnvironment{},
-        health: %PlayerHealth{value: 13.0},
-        last_death: nil,
-        air_supply: 300
+        last_death: nil
       })
 
     inventory = %Inventory{slots: %{36 => ItemStack.new("obsidian", 12)}}
@@ -211,7 +214,7 @@ defmodule Valimc.DimensionTravelConnectionTest do
     client = Client.auto_reply(client, :play, "player_position", position)
     assert context(pid) == :the_nether
     assert state(pid).player.dimension == :the_nether
-    assert state(pid).player.health.value == 13.0
+    assert living(pid).health.value == 13.0
     assert state(pid).inventory.slots[36] == ItemStack.new("obsidian", 12)
 
     # The client's level is the Nether's 16 sections, without sky light.

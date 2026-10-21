@@ -152,11 +152,11 @@ defmodule Valimc.Protocol.EntityPackets do
           Wire.varint(Valimc.Physics.PlayerPose.id(value))
 
         :frozen_ticks ->
-          check(Valimc.PlayerEnvironment.valid_ticks?(value), "invalid frozen ticks")
+          check(Valimc.Living.Freezing.valid_ticks?(value), "invalid frozen ticks")
           Wire.varint(value)
 
         :air_supply ->
-          check(Valimc.PlayerAir.valid?(value), "invalid air supply")
+          check(Valimc.Living.Air.valid?(value), "invalid air supply")
           Wire.varint(value)
 
         :experience_value ->

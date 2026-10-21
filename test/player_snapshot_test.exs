@@ -1,5 +1,6 @@
 defmodule Valimc.PlayerSnapshotTest do
   use ExUnit.Case, async: true
+  alias Valimc.Living.{Air, Health}
   alias Valimc.{Inventory, PlayerSnapshot}
   alias Valimc.Protocol.{ItemStack, Wire}
   defp pose, do: %{x: -3.25, y: 64.0, z: 17.75, yaw: 123.5, pitch: -25.0}
@@ -15,7 +16,7 @@ defmodule Valimc.PlayerSnapshotTest do
       fall_distance: 0.0,
       frozen_ticks: 0,
       velocity: {0.0, 0.0, 0.0},
-      health: %Valimc.PlayerHealth{},
+      health: %Health{},
       last_death: nil,
       air_supply: 17
     }
@@ -65,7 +66,7 @@ defmodule Valimc.PlayerSnapshotTest do
       fall_distance: 0.0,
       frozen_ticks: 0,
       velocity: {0.0, 0.0, 0.0},
-      health: %Valimc.PlayerHealth{},
+      health: %Health{},
       last_death: nil,
       air_supply: -19
     }
@@ -79,7 +80,7 @@ defmodule Valimc.PlayerSnapshotTest do
     assert {:ok, <<"VMCPOSE", 10, _::binary>> = old} = PlayerSnapshot.encode(uuid(), legacy)
     assert byte_size(bytes) == byte_size(old) + 2
     assert {:ok, decoded} = PlayerSnapshot.decode(old, uuid())
-    assert Map.get(decoded, :air_supply, Valimc.PlayerAir.maximum()) == 300
+    assert Map.get(decoded, :air_supply, Air.maximum()) == 300
 
     for air <- [-21, 301, 0.5, nil] do
       assert {:error, :invalid_air_supply} =
@@ -145,8 +146,9 @@ defmodule Valimc.PlayerSnapshotTest do
         game_mode: state.game_mode,
         abilities: Valimc.PlayerAbilities.for_mode(:survival),
         motion: %Valimc.PlayerMotion{},
-        environment: %Valimc.PlayerEnvironment{},
-        health: %Valimc.PlayerHealth{value: 7.25, hurt_ticks: 7, cooldown: 17, last_hurt: 5.0}
+        living: %Valimc.Living{
+          health: %Health{value: 7.25, hurt_ticks: 7, cooldown: 17, last_hurt: 5.0}
+        }
       })
 
     assert PlayerSnapshot.capture(player, %Inventory{}).health == %{
@@ -161,11 +163,14 @@ defmodule Valimc.PlayerSnapshotTest do
       Map.merge(pose(), %{
         game_mode: Valimc.GameMode.new(:creative),
         abilities: Valimc.PlayerAbilities.for_mode(:creative),
-        motion: %Valimc.PlayerMotion{fall_distance: 3.25},
-        environment: %Valimc.PlayerEnvironment{frozen_ticks: 88}
+        motion: %Valimc.PlayerMotion{fall_distance: 3.25}
       })
 
-    original = PlayerSnapshot.capture(player, %Inventory{}) |> Map.delete(:velocity)
+    original =
+      PlayerSnapshot.capture(player, %Inventory{})
+      |> Map.delete(:velocity)
+      |> Map.put(:frozen_ticks, 88)
+
     assert {:ok, <<"VMCPOSE", 7, _::binary>> = bytes} = PlayerSnapshot.encode(uuid(), original)
     assert {:ok, decoded} = PlayerSnapshot.decode(bytes, uuid())
     assert decoded.frozen_ticks == 88 and decoded.fall_distance == 3.25

@@ -11,7 +11,6 @@ defmodule Valimc.Session.Replication do
 
   alias Valimc.{
     Players,
-    PlayerAbsorption,
     World
   }
 
@@ -331,7 +330,7 @@ defmodule Valimc.Session.Replication do
           case state.peers[player.pid] do
             nil ->
               body =
-                if player.health.value <= 0 and player.health.death_ticks >= 20,
+                if player.living.health.value <= 0 and player.living.health.death_ticks >= 20,
                   do: [],
                   else:
                     [
@@ -342,9 +341,9 @@ defmodule Valimc.Session.Replication do
                       Packets.player_use(player),
                       Packets.player_health(player),
                       Packets.player_absorption(player),
-                      Packets.absorption_attributes(
-                        player,
-                        elem(PlayerAbsorption.derive(player.effects), 1).attribute
+                      Packets.attribute(
+                        player.entity_id,
+                        elem(Valimc.Living.Attributes.absorption(player.living.effects), 1).attribute
                       )
                     ] ++ Packets.player_equipment(player)
 

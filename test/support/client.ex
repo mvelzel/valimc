@@ -810,6 +810,18 @@ defmodule Valimc.TestPlayer do
 
   def state(pid), do: Valimc.TestConn.state(pid)
 
+  @doc "The connection's `%Valimc.Living{}`."
+  def living(pid), do: state(pid).player.living
+
+  @doc "Replace fields of the connection's living state (`fields`, or a function of it)."
+  def put_living(pid, fields) do
+    update = if is_function(fields, 1), do: fields, else: &struct!(&1, fields)
+
+    :sys.replace_state(pid, fn s ->
+      %{s | player: %{s.player | living: update.(s.player.living)}}
+    end)
+  end
+
   @doc "Retire the wall-clock tick, so only `tick/2` runs the owner's simulation."
   def park(pid) do
     :sys.replace_state(pid, fn s ->

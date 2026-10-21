@@ -1,3 +1,4 @@
+alias Valimc.Living.{Attributes, Health}
 alias Valimc.Protocol.{EntityPackets, ItemStack, PackedVelocity, Packets, Wire}
 [input, output] = System.argv()
 fixtures = :json.decode(File.read!(input))
@@ -94,8 +95,8 @@ packets =
                 Valimc.Protocol.EffectTypes.id("jump_boost") => [{200, amp, false, true, true}]
               }
 
-          {:ok, derived} = Valimc.PlayerJumpBoost.derive(effects)
-          Packets.jump_attributes(base, derived.attribute)
+          {:ok, derived} = Attributes.jump_boost(effects)
+          Packets.attribute(base.entity_id, derived.attribute)
 
         "absorption_maximum_" <> amp ->
           amp = String.to_integer(amp)
@@ -107,8 +108,8 @@ packets =
                 Valimc.Protocol.EffectTypes.id("absorption") => [{200, amp, false, true, true}]
               }
 
-          {:ok, derived} = Valimc.PlayerAbsorption.derive(effects)
-          Packets.absorption_attributes(base, derived.attribute)
+          {:ok, derived} = Attributes.absorption(effects)
+          Packets.attribute(base.entity_id, derived.attribute)
 
         "absorption_" <> points ->
           EntityPackets.metadata(300, absorption: String.to_float(points))
@@ -121,8 +122,8 @@ packets =
 
         "health_" <> points ->
           {:ok, health} =
-            Valimc.PlayerHealth.set(
-              %Valimc.PlayerHealth{maximum: 1024.0},
+            Health.set(
+              %Health{maximum: 1024.0},
               String.to_float(points)
             )
 

@@ -1,5 +1,6 @@
 defmodule Valimc.DeathStoreTest do
   use ExUnit.Case, async: true
+  alias Valimc.Living.{Freezing, Health}
   alias Valimc.TestScope
   alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, World}
   alias Valimc.Protocol.ItemStack
@@ -29,6 +30,7 @@ defmodule Valimc.DeathStoreTest do
     {rx, rz} = ctx.key
 
     player = %{
+      living: %Valimc.Living{freezing: %Freezing{}, health: %Health{value: 0.0}},
       x: rx * 128 + 0.5,
       y: 64.0,
       z: rz * 128 + 0.5,
@@ -37,8 +39,7 @@ defmodule Valimc.DeathStoreTest do
       game_mode: Valimc.GameMode.new(:survival),
       abilities: Valimc.PlayerAbilities.for_mode(:survival),
       motion: %Valimc.PlayerMotion{},
-      environment: %Valimc.PlayerEnvironment{},
-      health: %Valimc.PlayerHealth{value: 0.0}
+      last_death: nil
     }
 
     PlayerSnapshot.capture(player, inventory)

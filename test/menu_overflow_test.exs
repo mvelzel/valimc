@@ -1,5 +1,6 @@
 defmodule Valimc.MenuOverflowTest do
   use ExUnit.Case, async: false
+  alias Valimc.Living.Health
   @moduletag :tcp
   alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players, World}
   alias Valimc.World.Items
@@ -49,15 +50,15 @@ defmodule Valimc.MenuOverflowTest do
       PlayerSnapshot.encode(
         uuid,
         Map.merge(PlayerSnapshot.capture(pose, original), %{
-          fall_distance: 0.0,
-          frozen_ticks: 0,
-          velocity: {0.0, 0.0, 0.0},
-          health: %Valimc.PlayerHealth{},
-          last_death: nil,
+          health: %Health{},
           air_supply: 300,
           fire_ticks: 0,
           effects: %{},
           absorption: 0.0,
+          fall_distance: 0.0,
+          frozen_ticks: 0,
+          velocity: {0.0, 0.0, 0.0},
+          last_death: nil,
           food: %Valimc.PlayerFood{},
           flying: false,
           game_mode: %Valimc.GameMode{},

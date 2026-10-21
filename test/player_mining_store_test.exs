@@ -1,5 +1,6 @@
 defmodule Valimc.PlayerMiningStoreTest do
   use ExUnit.Case, async: true
+  alias Valimc.Durability
 
   alias Valimc.{
     Connection,
@@ -8,7 +9,6 @@ defmodule Valimc.PlayerMiningStoreTest do
     PlayerFood,
     PlayerSnapshot,
     PlayerStore,
-    ToolDurability,
     TransferDelivery,
     World
   }
@@ -40,7 +40,7 @@ defmodule Valimc.PlayerMiningStoreTest do
         }
     }
 
-    {after_tool, _} = ToolDurability.mine(before_tool, Data.block("stone"), false)
+    {after_tool, _} = Durability.mine(before_tool, Data.block("stone"), false)
     {x, _, z} = position
 
     record = %{

@@ -1,10 +1,11 @@
-alias Valimc.{PlayerInput, PlayerVoid}
+alias Valimc.Living.Damage
+alias Valimc.{PlayerInput}
 [path] = System.argv()
 data = path |> File.read!() |> JSON.decode!()
 cases = data["boundaries"]
 
 for c <- cases do
-  damage = PlayerVoid.damage(c["y"], c["minimum"])
+  damage = Damage.void(c["y"], c["minimum"])
   calls = if damage > 0, do: 2, else: 0
   source = if damage > 0, do: "minecraft:out_of_world", else: nil
 

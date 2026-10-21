@@ -1,10 +1,11 @@
 defmodule Valimc.PlayerFireConnectionTest do
   use ExUnit.Case, async: false
+  alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Inventory, PlayerHealth, PlayerSnapshot, World}
+  alias Valimc.{Inventory, PlayerSnapshot, World}
   alias Valimc.Protocol.{Data, ItemStack, Wire}
   alias Valimc.TestClient, as: Client
-  import Valimc.TestPlayer, only: [state: 1]
+  import Valimc.TestPlayer, only: [living: 1, state: 1]
 
   setup do: Valimc.TestPlayer.scope("Fire", {170_000, 983})
 
@@ -37,15 +38,17 @@ defmodule Valimc.PlayerFireConnectionTest do
 
     player =
       Map.merge(ctx.pose, %{
+        living: %Valimc.Living{
+          freezing: %Freezing{frozen_ticks: 140},
+          health: %Health{value: Keyword.get(opts, :health, 20.0)},
+          air_supply: 300,
+          fire_ticks: Keyword.get(opts, :fire, 0),
+          effects: Keyword.get(opts, :effects, %{})
+        },
         game_mode: Valimc.GameMode.new(mode),
         abilities: Valimc.PlayerAbilities.for_mode(mode),
         motion: %Valimc.PlayerMotion{},
-        environment: %Valimc.PlayerEnvironment{frozen_ticks: 140},
-        health: %PlayerHealth{value: Keyword.get(opts, :health, 20.0)},
         last_death: nil,
-        air_supply: 300,
-        fire_ticks: Keyword.get(opts, :fire, 0),
-        effects: Keyword.get(opts, :effects, %{}),
         food: %Valimc.PlayerFood{level: 5, saturation: 0.0}
       })
 
@@ -70,11 +73,11 @@ defmodule Valimc.PlayerFireConnectionTest do
     {client, pid} = login(ctx)
     tick(pid)
     s = state(pid)
-    assert s.player.fire_ticks == 300 and s.player.environment.frozen_ticks == 0
+    assert s.player.living.fire_ticks == 300 and s.player.living.freezing.frozen_ticks == 0
     assert s.inventory.slots[5].components["minecraft:damage"] == 1
-    assert s.player.health.value == 16.06399917602539
+    assert s.player.living.health.value == 16.06399917602539
     assert s.player.food.exhaustion == 0.10000000149011612
-    assert s.player.health.cooldown == 20 and not s.fire_damage_due
+    assert s.player.living.health.cooldown == 20 and not s.fire_damage_due
     {body, client} = Client.await(client, :play, "damage_event")
     {entity, rest} = Wire.take_varint(body)
     {source, <<0, 0, 0>>} = Wire.take_varint(rest)
@@ -86,7 +89,7 @@ defmodule Valimc.PlayerFireConnectionTest do
     assert state(pid).inventory.slots[5].components["minecraft:damage"] == 1
     tick(pid)
     assert state(pid).inventory.slots[5].components["minecraft:damage"] == 2
-    assert state(pid).player.health.value < s.player.health.value
+    assert living(pid).health.value < s.player.living.health.value
     Client.close(client)
   end
 
@@ -97,14 +100,25 @@ defmodule Valimc.PlayerFireConnectionTest do
     {_client, pid} = login(ctx)
     :sys.replace_state(pid, &%{&1 | use_save: make_ref()})
     tick(pid)
-    assert state(pid).player.health.value == 20.0 and state(pid).inventory.slots[5] == helmet
+
+    assert living(pid).health.value == 20.0 and
+             state(pid).inventory.slots[5] == helmet
+
     material(ctx, "air")
-    :sys.replace_state(pid, &%{&1 | use_save: nil, player: %{&1.player | fire_ticks: 19}})
+
+    :sys.replace_state(
+      pid,
+      &%{&1 | use_save: nil, player: %{&1.player | living: %{&1.player.living | fire_ticks: 19}}}
+    )
+
     tick(pid)
-    assert state(pid).player.health.value == 20.0 and state(pid).inventory.slots[5] == helmet
+
+    assert living(pid).health.value == 20.0 and
+             state(pid).inventory.slots[5] == helmet
+
     material(ctx, "lava")
     tick(pid)
-    assert state(pid).player.health.value < 20.0
+    assert living(pid).health.value < 20.0
     assert state(pid).inventory.slots[5].components["minecraft:damage"] == 1
   end
 
@@ -113,14 +127,14 @@ defmodule Valimc.PlayerFireConnectionTest do
     {client, pid} = login(ctx)
     tick(pid, false)
     wait(fn -> state(pid).life_stage == :dead end)
-    assert state(pid).player.fire_ticks == 0
+    assert living(pid).fire_ticks == 0
     {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 0.0 and saved.fire_ticks == 0 and saved.outbox == nil
     assert saved.transfer_sequence == 1 and saved.inventory.slots == %{}
     Client.send_packet(client, :play, "client_command", <<0>>)
     {_, _client} = Client.await(client, :play, "respawn")
-    assert state(pid).player.fire_ticks == 0 and not state(pid).fire_damage_due
-    assert state(pid).player.health.value == 20.0
+    assert living(pid).fire_ticks == 0 and not state(pid).fire_damage_due
+    assert living(pid).health.value == 20.0
   end
 
   test "a stalled body query coalesces burning requests while the owned counter keeps advancing",
@@ -139,8 +153,8 @@ defmodule Valimc.PlayerFireConnectionTest do
     try do
       for _ <- 1..21, do: tick(pid, false)
       pending = state(pid)
-      assert pending.player.fire_ticks == 79 and pending.fire_damage_due
-      assert pending.player.health.value == 20.0
+      assert pending.player.living.fire_ticks == 79 and pending.fire_damage_due
+      assert pending.player.living.health.value == 20.0
 
       assert Valimc.TestConn.job(pending, :pose) != nil or
                Valimc.TestConn.job(pending, :motion) != nil
@@ -154,7 +168,7 @@ defmodule Valimc.PlayerFireConnectionTest do
         not state(pid).simulation_due
     end)
 
-    assert state(pid).player.health.value == 19.0 and not state(pid).fire_damage_due
+    assert living(pid).health.value == 19.0 and not state(pid).fire_damage_due
   end
 
   test "unloaded lava cannot ignite or damage, and expired burning clears the visible flag",
@@ -162,7 +176,10 @@ defmodule Valimc.PlayerFireConnectionTest do
     seed(ctx, fire: 1, material: "air")
     {_client, pid} = login(ctx)
     tick(pid)
-    assert state(pid).player.fire_ticks == -20 and state(pid).player.health.value == 20.0
+
+    assert living(pid).fire_ticks == -20 and
+             living(pid).health.value == 20.0
+
     assert Bitwise.band(Valimc.Protocol.Packets.shared_flags(state(pid).player), 1) == 0
     material(ctx, "lava")
 
@@ -171,7 +188,9 @@ defmodule Valimc.PlayerFireConnectionTest do
     end)
 
     tick(pid, false)
-    assert state(pid).player.fire_ticks == -20 and state(pid).player.health.value == 20.0
+
+    assert living(pid).fire_ticks == -20 and
+             living(pid).health.value == 20.0
   end
 
   test "movement packets cannot advance ignition or damage without an admitted owner tick", ctx do
@@ -195,11 +214,14 @@ defmodule Valimc.PlayerFireConnectionTest do
           Valimc.TestConn.job(state(pid), :pose) == nil
       end)
 
-      assert state(pid).player.fire_ticks == -20 and state(pid).player.health.value == 20.0
+      assert living(pid).fire_ticks == -20 and
+               living(pid).health.value == 20.0
     end
 
     tick(pid)
-    assert state(pid).player.fire_ticks == -19 and state(pid).player.health.value == 19.0
+
+    assert living(pid).fire_ticks == -19 and
+             living(pid).health.value == 19.0
   end
 
   defp rain do
@@ -229,13 +251,13 @@ defmodule Valimc.PlayerFireConnectionTest do
     :ok = Valimc.TestRegion.set_published(roof, Data.block("glass"))
     {_client, pid} = login(ctx)
     tick(pid)
-    assert state(pid).player.fire_ticks == 160
-    assert state(pid).player.health.value == 19.0
+    assert living(pid).fire_ticks == 160
+    assert living(pid).health.value == 19.0
     :ok = Valimc.TestBlocks.remove(roof)
     wait(fn -> Valimc.TestConn.job(state(pid), :pose) == nil end)
-    assert state(pid).player.fire_ticks == 160
+    assert living(pid).fire_ticks == 160
     tick(pid)
-    assert state(pid).player.fire_ticks == -20
+    assert living(pid).fire_ticks == -20
     assert state(pid).fire_contacts_active
   end
 end

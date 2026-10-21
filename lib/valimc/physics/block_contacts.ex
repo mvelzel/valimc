@@ -62,7 +62,7 @@ defmodule Valimc.Physics.BlockContacts do
                BodyPaths.reduce(paths, facts.pose, initial, fn acc, pos, step, body, delta ->
                  visit(frame, pos, step, body, delta, facts, feet_kind, acc)
                end),
-             {:ok, operations} <- Valimc.PlayerFireContacts.plan(finish(acc)) do
+             {:ok, operations} <- Valimc.Living.Burning.plan(finish(acc)) do
           {:ok, %{operations: Enum.reverse(acc.immediate, operations), active: acc.active}}
         end
       end

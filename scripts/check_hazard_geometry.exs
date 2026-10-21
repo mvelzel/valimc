@@ -1,5 +1,5 @@
+alias Valimc.Living.Burning
 alias Valimc.World.View
-alias Valimc.PlayerBurning
 alias Valimc.Physics.{BlockContacts, CollisionContext}
 [path] = System.argv()
 rows = :json.decode(File.read!(path))
@@ -56,11 +56,11 @@ for row <- rows do
               {ticks, 0, damage}
 
             :fire_ignite ->
-              {:ok, next} = PlayerBurning.fire(ticks, false, 1.0, false, random)
+              {:ok, next} = Burning.fire(ticks, false, 1.0, false, random)
               {next.ticks, if(next.clear_freeze, do: 0, else: frozen), damage}
 
             :lava_ignite ->
-              {:ok, next} = PlayerBurning.lava(ticks, false, 1.0, false)
+              {:ok, next} = Burning.lava(ticks, false, 1.0, false)
               {next.ticks, if(next.clear_freeze, do: 0, else: frozen), damage}
 
             :lava_hurt ->
@@ -70,7 +70,7 @@ for row <- rows do
               {ticks, frozen, damage ++ ["#{source}:#{amount}"]}
 
             :extinguish ->
-              {:ok, next} = PlayerBurning.clear(ticks)
+              {:ok, next} = Burning.clear(ticks)
               {next, frozen, damage}
           end
 

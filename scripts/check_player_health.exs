@@ -1,4 +1,5 @@
-alias Valimc.{GameMode, PlayerHealth}
+alias Valimc.Living.Health
+alias Valimc.{GameMode}
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()
 
@@ -9,9 +10,9 @@ end
 
 for c <- cases["health"] do
   maximum = f32.(c["maximum"])
-  {:ok, health} = PlayerHealth.set(%PlayerHealth{maximum: maximum, value: 0.0}, c["input"])
+  {:ok, health} = Health.set(%Health{maximum: maximum, value: 0.0}, c["input"])
   unless health.value == c["health"], do: raise("Native health clamp mismatch #{inspect(c)}")
-  {:ok, saved} = PlayerHealth.saved(%{health | hurt_ticks: 7, death_ticks: 11, cooldown: 17})
+  {:ok, saved} = Health.saved(%{health | hurt_ticks: 7, death_ticks: 11, cooldown: 17})
 
   unless saved == %{
            value: c["saved"]["Health"],
@@ -21,7 +22,7 @@ for c <- cases["health"] do
          do: raise("Native health save mismatch #{inspect(c)}")
 
   for {key, value} <- [{"loaded", saved}, {"missing", nil}] do
-    {:ok, loaded} = PlayerHealth.restore(value, c["maximum"])
+    {:ok, loaded} = Health.restore(value, c["maximum"])
 
     actual = %{
       value: loaded.value,
@@ -43,14 +44,14 @@ for c <- cases["health"] do
 end
 
 for c <- cases["windows"] do
-  state = %PlayerHealth{
+  state = %Health{
     value: c["health"],
     cooldown: c["cooldown"],
     last_hurt: c["last"],
     hurt_ticks: 7
   }
 
-  {:ok, result} = PlayerHealth.hurt_window(state, c["amount"], c["bypass"])
+  {:ok, result} = Health.hurt_window(state, c["amount"], c["bypass"])
 
   unless result.accepted == c["accepted"] and result.damage == c["damage"] and
            result.state.cooldown == c["next_cooldown"] and
@@ -63,14 +64,14 @@ for c <- cases["mode_windows"] do
   mode = GameMode.new(String.to_existing_atom(c["mode"]))
   immune = GameMode.abilities(mode, false).invulnerable and not c["bypass_abilities"]
 
-  state = %PlayerHealth{
+  state = %Health{
     value: c["health"],
     cooldown: c["cooldown"],
     last_hurt: 2.0,
     hurt_ticks: 7
   }
 
-  {:ok, result} = PlayerHealth.hurt_window(state, 4.0)
+  {:ok, result} = Health.hurt_window(state, 4.0)
   accepted = not immune and result.accepted
   damage = if accepted, do: result.damage, else: 0.0
 

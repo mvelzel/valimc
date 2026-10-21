@@ -43,11 +43,8 @@ defmodule Valimc.PlayerAbsorptionSnapshotTest do
     end
   end
 
-  test "capture and checksummed malformed pools/wrappers remain bounded" do
-    bare = PlayerSnapshot.capture(@pose, %Inventory{})
-    refute Map.has_key?(bare, :absorption)
-    snapshot = PlayerSnapshot.capture(Map.put(@pose, :absorption, 3.25), %Inventory{})
-    assert snapshot.absorption == 3.25
+  test "checksummed malformed pools and wrappers remain bounded" do
+    snapshot = PlayerSnapshot.capture(@pose, %Inventory{}) |> Map.put(:absorption, 3.25)
     {:ok, bytes} = PlayerSnapshot.encode(@uuid, snapshot)
     <<header::binary-size(60), base, _pool::32, rest::binary>> = bytes
     body = binary_part(rest, 0, byte_size(rest) - 32)

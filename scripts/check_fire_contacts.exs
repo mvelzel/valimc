@@ -1,5 +1,5 @@
+alias Valimc.Living.Burning
 alias Valimc.World.View
-alias Valimc.{PlayerBurning, PlayerFireContacts}
 [path] = System.argv()
 
 rows = :json.decode(File.read!(path))
@@ -19,7 +19,7 @@ for row <- rows do
         for step <- String.split(row["pattern"], "|"),
             do: Enum.map(String.split(step, ","), &Map.fetch!(kinds, &1))
 
-      {:ok, operations} = PlayerFireContacts.plan(steps)
+      {:ok, operations} = Burning.plan(steps)
       operations
     else
       alias Valimc.Physics.{CollisionContext, BlockContacts}
@@ -75,13 +75,13 @@ for row <- rows do
 
         :fire_ignite ->
           {:ok, next} =
-            PlayerBurning.fire(ticks, row["immune"], row["factor"], row["invulnerable"], random)
+            Burning.fire(ticks, row["immune"], row["factor"], row["invulnerable"], random)
 
           {next.ticks, if(next.clear_freeze, do: 0, else: frozen), damage}
 
         :lava_ignite ->
           {:ok, next} =
-            PlayerBurning.lava(ticks, row["immune"], row["factor"], row["invulnerable"])
+            Burning.lava(ticks, row["immune"], row["factor"], row["invulnerable"])
 
           {next.ticks, if(next.clear_freeze, do: 0, else: frozen), damage}
 
@@ -92,7 +92,7 @@ for row <- rows do
           {ticks, frozen, damage ++ ["in_fire:#{amount}"]}
 
         :extinguish ->
-          {:ok, next} = PlayerBurning.clear(ticks)
+          {:ok, next} = Burning.clear(ticks)
           {next, frozen, damage}
       end
     end)

@@ -1,7 +1,9 @@
 defmodule Valimc.PlayerLifecycleConnectionTest do
   use ExUnit.Case, async: false
+  import Valimc.TestPlayer, only: [living: 1]
+  alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, PlayerHealth, PlayerSnapshot, Players, PlayerStore, World}
+  alias Valimc.{Connection, Inventory, PlayerSnapshot, Players, PlayerStore, World}
   alias Valimc.Protocol.{ItemStack, Packets, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -39,11 +41,10 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
   defp seed(ctx, name, inventory, mode \\ :survival) do
     player =
       Map.merge(ctx.pose, %{
+        living: %Valimc.Living{freezing: %Freezing{}, health: %Health{}},
         game_mode: Valimc.GameMode.new(mode),
         abilities: Valimc.PlayerAbilities.for_mode(mode),
         motion: %Valimc.PlayerMotion{},
-        environment: %Valimc.PlayerEnvironment{},
-        health: %PlayerHealth{},
         last_death: nil
       })
 
@@ -139,7 +140,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
       Client.send_packet(client, :play, "chat_command", Wire.string("spawn"))
       wait(fn -> state(pid).respawn_requested end)
       blocked = state(pid)
-      assert blocked.player.health.value == 0 and blocked.life_stage == :dropping
+      assert blocked.player.living.health.value == 0 and blocked.life_stage == :dropping
       assert Valimc.TestConn.job(blocked, :motion) == nil and blocked.motion_pending == nil
       assert {blocked.player.x, blocked.player.y, blocked.player.z} == {p.x, p.y, p.z}
       assert {:ok, stored} = saved(ctx, name)
@@ -153,7 +154,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
 
     # The queued request is delivered automatically after the blocked destination.
     client = respawn(client, pid)
-    assert state(pid).life_stage == :alive and state(pid).player.health.value == 20
+    assert state(pid).life_stage == :alive and living(pid).health.value == 20
     assert state(pid).inventory.slots == %{} and state(pid).inventory.carried == nil
     assert {:ok, stored} = saved(ctx, name)
     assert stored.health.value == 20 and stored.transfer_sequence == 2 and stored.outbox == nil
@@ -181,7 +182,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     {_, client} = Client.await(client, :play, "player_combat_kill")
     client = Client.load_world(client)
     pid = Enum.find(Players.all(), &(&1.name == name)).pid
-    assert state(pid).life_stage == :dead and state(pid).player.health.value == 0
+    assert state(pid).life_stage == :dead and living(pid).health.value == 0
     assert state(pid).player.pose == :dying and state(pid).inventory.slots == %{}
     client = respawn(client, pid)
     assert state(pid).player.last_death == {floor(ctx.pose.x), 64, floor(ctx.pose.z)}
@@ -225,7 +226,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
             end
           end)
 
-        assert recovering.phase == :login and recovering.player.health.value == 0
+        assert recovering.phase == :login and recovering.player.living.health.value == 0
         refute recovering.player.ready
         refute Enum.any?(Players.all(), &(&1.name == name))
         assert {:ok, source} = saved(ctx, name)
@@ -283,7 +284,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
              source.transfer_sequence == 0
 
     {_client, new_pid} = login(name)
-    assert state(new_pid).player.health.value == 20 and state(new_pid).life_stage == :alive
+    assert living(new_pid).health.value == 20 and state(new_pid).life_stage == :alive
   end
 
   test "death behind an in-flight ordinary drop retains the old receipt and all remaining items",
@@ -378,7 +379,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     [name | _] = ctx.names
     seed(ctx, name, %Inventory{}, :creative)
     {client, pid} = login(name)
-    health = state(pid).player.health
+    health = living(pid).health
     assert {:ok, :immune} = Connection.fall_damage(pid, 100)
     assert {:error, :invalid_health} = Connection.fall_damage(pid, :bad)
 
@@ -389,7 +390,7 @@ defmodule Valimc.PlayerLifecycleConnectionTest do
     Client.send_packet(client, :play, "client_command", <<0>>)
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
     {_, client} = Client.await_stats(client)
-    assert state(pid).life_stage == :alive and state(pid).player.health == health
+    assert state(pid).life_stage == :alive and living(pid).health == health
     Client.send_packet(client, :play, "client_command", <<0, 0>>)
     {_, _} = Client.await(client, :play, "disconnect")
     assert Process.alive?(Process.whereis(Valimc.Listener))

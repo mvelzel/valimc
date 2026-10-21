@@ -1,7 +1,8 @@
 defmodule Valimc.PlayerKinetics do
   @moduledoc "Player-owned server velocity, separate from accepted client displacement."
   import Bitwise
-  alias Valimc.{PlayerJumpBoost, PlayerMotion, PlayerMotionQuery, PlayerTravelEffects}
+  alias Valimc.{PlayerMotion, PlayerMotionQuery}
+  alias Valimc.Living.Attributes
   alias Valimc.Registry.BlockFacts
 
   alias Valimc.Physics.{
@@ -57,8 +58,7 @@ defmodule Valimc.PlayerKinetics do
      motion.known_movement, motion.stuck_multiplier, sprint, player.input.buttons,
      Valimc.PlayerInput.loaded?(player.input), Map.get(player, :yaw, 0.0),
      if(motion.swimming or sprint, do: Map.get(player, :pitch, 0.0)),
-     PlayerJumpBoost.level(Map.get(player, :effects, %{})),
-     PlayerTravelEffects.signature(Map.get(player, :effects, %{}))}
+     Attributes.jump_boost_level(effects(player)), Attributes.travel_signature(effects(player))}
   end
 
   def apply_result(motion, result) do
@@ -92,7 +92,7 @@ defmodule Valimc.PlayerKinetics do
                    1.0,
                    (player.input.shared_flags &&& 8) != 0,
                    Map.get(player, :yaw, 0.0),
-                   PlayerJumpBoost.level(Map.get(player, :effects, %{}))
+                   Attributes.jump_boost_level(effects(player))
                  ),
                else: {:ok, v}
              ),
@@ -228,12 +228,15 @@ defmodule Valimc.PlayerKinetics do
   def tick(player, pose, frame) do
     motion = Map.get(player, :motion, %PlayerMotion{})
     player = Map.put_new(player, :motion, motion)
-    {slow, levitation} = PlayerTravelEffects.signature(Map.get(player, :effects, %{}))
+    {slow, levitation} = Attributes.travel_signature(effects(player))
     reset_fall = slow or levitation != nil
 
     # Native aiStep resets before travel/collision observations, independently
     # of rising/falling. Only the owner applies this scratch result.
-    player = PlayerTravelEffects.reset_fall(player)
+    player =
+      if Attributes.resets_fall?(effects(player)),
+        do: %{player | motion: %{player.motion | fall_distance: 0.0}},
+        else: player
 
     position = point(player)
 
@@ -442,8 +445,8 @@ defmodule Valimc.PlayerKinetics do
   defp travel(player, {velocity, requested}, result, actual, _box, frame, before, _depths, false) do
     horizontal = horizontal_collision?(requested, actual)
 
-    {slow, levitation} = PlayerTravelEffects.signature(Map.get(player, :effects, %{}))
-    {:ok, gravity} = PlayerTravelEffects.gravity(0.08, elem(result.velocity, 1), slow)
+    {slow, levitation} = Attributes.travel_signature(effects(player))
+    {:ok, gravity} = Attributes.gravity(0.08, elem(result.velocity, 1), slow)
 
     jump =
       Valimc.PlayerInput.loaded?(player.input) and
@@ -476,8 +479,8 @@ defmodule Valimc.PlayerKinetics do
     moved = physical_position(player, actual, requested)
 
     horizontal = horizontal_collision?(requested, actual)
-    {slow, _levitation} = PlayerTravelEffects.signature(Map.get(player, :effects, %{}))
-    {:ok, gravity} = PlayerTravelEffects.gravity(0.08, elem(velocity, 1), slow)
+    {slow, _levitation} = Attributes.travel_signature(effects(player))
+    {:ok, gravity} = Attributes.gravity(0.08, elem(velocity, 1), slow)
 
     with {:ok, climbing} <-
            climbable?(frame, player, moved, horizontal and depths.water > 0),
@@ -553,7 +556,7 @@ defmodule Valimc.PlayerKinetics do
               factor,
               (player.input.shared_flags &&& 8) != 0,
               Map.get(player, :yaw, 0.0),
-              PlayerJumpBoost.level(Map.get(player, :effects, %{}))
+              Attributes.jump_boost_level(effects(player))
             ),
           else: {:ok, motion.velocity}
       end
@@ -644,7 +647,7 @@ defmodule Valimc.PlayerKinetics do
              is_number(yaw) and abs(yaw) <= 1_000_000 and
              is_integer(amplifier) and amplifier >= -1 and amplifier <= 255 do
     if valid_velocity?(velocity) do
-      {:ok, power} = PlayerJumpBoost.power(factor, amplifier)
+      {:ok, power} = Attributes.jump_power(factor, amplifier)
 
       cond do
         power <= @epsilon ->
@@ -677,4 +680,7 @@ defmodule Valimc.PlayerKinetics do
     <<rounded::float-32>> = <<value::float-32>>
     rounded
   end
+
+  # Bodies without living state (bare physics fixtures) have no effects.
+  defp effects(player), do: Map.get(player, :living, %Valimc.Living{}).effects
 end

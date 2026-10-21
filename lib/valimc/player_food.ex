@@ -1,6 +1,6 @@
 defmodule Valimc.PlayerFood do
   @moduledoc "Player-owned food transitions; the owner commits health effects on its admitted clock."
-  alias Valimc.PlayerHealth
+  alias Valimc.Living.Health
   defstruct level: 20, saturation: 5.0, exhaustion: 0.0, timer: 0
   @float_max 3.4028234663852886e38
 
@@ -17,7 +17,7 @@ defmodule Valimc.PlayerFood do
   def needs?(%__MODULE__{level: level}), do: level < 20
 
   @doc "Rule-independent no-op outside peaceful recovery boundaries; phase comes from the body clock."
-  def idle?(%__MODULE__{} = food, %PlayerHealth{} = health, phase) when phase in 0..19,
+  def idle?(%__MODULE__{} = food, %Health{} = health, phase) when phase in 0..19,
     do:
       health.value == health.maximum and food.level > 0 and food.exhaustion <= 4.0 and
         food.timer == 0 and phase != 0 and (food.level == 20 or phase != 10)
@@ -36,7 +36,7 @@ defmodule Valimc.PlayerFood do
     %{food | level: level, saturation: min(level * 1.0, f32(food.saturation + f32(saturation)))}
   end
 
-  def tick(%__MODULE__{} = food, %PlayerHealth{} = health, difficulty, regeneration)
+  def tick(%__MODULE__{} = food, %Health{} = health, difficulty, regeneration)
       when difficulty in 0..3 and is_boolean(regeneration) do
     food = spend(food, difficulty)
     injured = health.value > 0 and health.value < health.maximum
@@ -68,7 +68,7 @@ defmodule Valimc.PlayerFood do
   end
 
   @doc "Peaceful recovery precedes FoodData's tick; the owner supplies its unsaved body age."
-  def peaceful(%__MODULE__{} = food, %PlayerHealth{} = health, difficulty, regeneration, tick)
+  def peaceful(%__MODULE__{} = food, %Health{} = health, difficulty, regeneration, tick)
       when difficulty in 0..3 and is_boolean(regeneration) and is_integer(tick) and tick >= 0 do
     if difficulty == 0 and regeneration do
       twentieth = rem(tick, 20) == 0

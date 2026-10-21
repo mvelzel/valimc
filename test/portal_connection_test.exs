@@ -1,5 +1,6 @@
 defmodule Valimc.PortalConnectionTest do
   use ExUnit.Case, async: false
+  alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
   @moduletag :slow
   @moduletag timeout: 240_000
@@ -7,7 +8,6 @@ defmodule Valimc.PortalConnectionTest do
     Connection,
     Dimension,
     Inventory,
-    PlayerHealth,
     PlayerSnapshot,
     PlayerStore,
     Players
@@ -78,6 +78,7 @@ defmodule Valimc.PortalConnectionTest do
     {x, y, z} = ctx.origin
 
     player = %{
+      living: %Valimc.Living{freezing: %Freezing{}, health: %Health{}, air_supply: 300},
       x: x + 3.5,
       y: y * 1.0,
       z: z + 0.5,
@@ -86,10 +87,7 @@ defmodule Valimc.PortalConnectionTest do
       game_mode: Valimc.GameMode.new(mode),
       abilities: Valimc.PlayerAbilities.for_mode(mode),
       motion: %Valimc.PlayerMotion{},
-      environment: %Valimc.PlayerEnvironment{},
-      health: %PlayerHealth{},
-      last_death: nil,
-      air_supply: 300
+      last_death: nil
     }
 
     inventory = %Inventory{slots: %{36 => ItemStack.new("flint_and_steel", 1)}}

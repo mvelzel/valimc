@@ -1,5 +1,6 @@
 defmodule Valimc.ExperienceTransfersTest do
   use ExUnit.Case, async: false
+  alias Valimc.Living.{Freezing, Health}
   # Serial: a socket login reads the player's file from the global world path.
   @moduletag :tcp
 
@@ -62,6 +63,7 @@ defmodule Valimc.ExperienceTransfersTest do
     {:ok, owner} = World.item_owner(key)
 
     player = %{
+      living: %Valimc.Living{health: %Health{}, freezing: %Freezing{}, air_supply: 300},
       x: elem(at, 0),
       y: 64.0,
       z: elem(at, 2),
@@ -69,12 +71,9 @@ defmodule Valimc.ExperienceTransfersTest do
       pitch: 0.0,
       game_mode: GameMode.new(:survival),
       abilities: Valimc.PlayerAbilities.for_mode(:survival),
-      health: %Valimc.PlayerHealth{},
       food: %Valimc.PlayerFood{},
       motion: %Valimc.PlayerMotion{},
-      environment: %Valimc.PlayerEnvironment{},
       last_death: nil,
-      air_supply: 300,
       progression: %PlayerProgression{}
     }
 

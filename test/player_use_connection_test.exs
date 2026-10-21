@@ -1,12 +1,13 @@
 defmodule Valimc.PlayerUseConnectionTest do
   use ExUnit.Case, async: false
+  alias Valimc.Living.{Attributes, Effects, Freezing, Health}
   @moduletag :tcp
 
-  alias Valimc.{Connection, Inventory, PlayerFood, PlayerHealth, Players, PlayerSnapshot}
+  alias Valimc.{Connection, Inventory, PlayerFood, Players, PlayerSnapshot}
 
   alias Valimc.Protocol.{Data, ItemStack, PotionContents, PotionTypes, UseItemOn, Wire}
   alias Valimc.TestClient, as: Client
-  import Valimc.TestPlayer, only: [park: 1, state: 1, tick: 1, ticks: 2]
+  import Valimc.TestPlayer, only: [living: 1, park: 1, state: 1, tick: 1, ticks: 2]
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
@@ -40,6 +41,13 @@ defmodule Valimc.PlayerUseConnectionTest do
     inventory = Keyword.get(opts, :inventory, %Inventory{})
 
     player = %{
+      living: %Valimc.Living{
+        freezing: %Freezing{},
+        health: %Health{value: health},
+        air_supply: 300,
+        effects: Keyword.get(opts, :effects, %{}),
+        absorption: Keyword.get(opts, :absorption, 0.0)
+      },
       x: ctx.pose.x,
       y: 64.0,
       z: ctx.pose.z,
@@ -48,12 +56,7 @@ defmodule Valimc.PlayerUseConnectionTest do
       game_mode: Valimc.GameMode.new(mode),
       abilities: Valimc.PlayerAbilities.for_mode(mode),
       motion: %Valimc.PlayerMotion{},
-      environment: %Valimc.PlayerEnvironment{},
-      health: %PlayerHealth{value: health},
       last_death: nil,
-      air_supply: 300,
-      effects: Keyword.get(opts, :effects, %{}),
-      absorption: Keyword.get(opts, :absorption, 0.0),
       food: food
     }
 
@@ -126,8 +129,8 @@ defmodule Valimc.PlayerUseConnectionTest do
     client = Client.auto_reply(client, :play, "update_attributes", body)
 
     {:ok, derived} =
-      Valimc.PlayerMovementSpeed.derive(
-        state(pid).player.effects,
+      Attributes.movement_speed(
+        living(pid).effects,
         Bitwise.band(state(pid).player.input.shared_flags, 8) != 0
       )
 
@@ -181,7 +184,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     wait(fn -> state(pid).active_use != nil end)
     assert state(pid).active_use.remaining == 32
     ticks(pid, 32)
-    assert state(pid).player.effects == %{11 => [{3600, 0, false, true, true}]}
+    assert living(pid).effects == %{11 => [{3600, 0, false, true, true}]}
     assert state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
   end
 
@@ -199,14 +202,14 @@ defmodule Valimc.PlayerUseConnectionTest do
       wait(fn -> state(pid).table_job != nil end)
       assert byte_size(state(pid).buffer) > 0 and not state(pid).active
       tick(pid)
-      assert state(pid).active_use == nil and state(pid).player.effects == %{}
+      assert state(pid).active_use == nil and living(pid).effects == %{}
       {<<1>>, client} = Client.await(client, :play, "block_changed_ack")
       {<<2>>, _client} = Client.await(client, :play, "block_changed_ack")
       wait(fn -> state(pid).active_use != nil end)
       assert state(pid).table_job == nil and state(pid).active_use.remaining == 32
       :sys.resume(region)
       ticks(pid, 32)
-      assert state(pid).player.effects == %{11 => [{3600, 0, false, true, true}]}
+      assert living(pid).effects == %{11 => [{3600, 0, false, true, true}]}
       assert state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
     after
       if Process.alive?(region), do: :sys.resume(region)
@@ -223,12 +226,12 @@ defmodule Valimc.PlayerUseConnectionTest do
     client = use_hand(client, pid)
     assert state(pid).active_use.remaining == 32
     ticks(pid, 31)
-    assert state(pid).inventory.slots[36] == fire and state(pid).player.effects == %{}
+    assert state(pid).inventory.slots[36] == fire and living(pid).effects == %{}
     tick(pid)
     {<<entity::signed-32, 9>>, client} = Client.await(client, :play, "entity_event")
     {{^entity, 11, 0, 3600, 14}, client} = effect_packet(client)
     assert state(pid).inventory.slots[36] == ItemStack.new("glass_bottle")
-    assert state(pid).player.effects == %{11 => [{3600, 0, false, true, true}]}
+    assert living(pid).effects == %{11 => [{3600, 0, false, true, true}]}
     assert state(pid).player.food == food
     wait(fn -> state(pid).use_save == nil end)
 
@@ -238,16 +241,16 @@ defmodule Valimc.PlayerUseConnectionTest do
     {<<^entity::signed-32, 9>>, client} = Client.await(client, :play, "entity_event")
     {{^entity, 11, 0, 9600, 6}, client} = effect_packet(client)
     assert state(pid).inventory.slots[45] == ItemStack.new("glass_bottle")
-    assert state(pid).player.effects == %{11 => [{9600, 0, false, true, true}]}
+    assert living(pid).effects == %{11 => [{9600, 0, false, true, true}]}
     wait(fn -> state(pid).use_save == nil end)
     assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
-    assert saved.effects == state(pid).player.effects
+    assert saved.effects == living(pid).effects
     assert saved.inventory.slots == state(pid).inventory.slots
     assert saved.outbox == nil and saved.transfer_sequence == 0
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
     {_client, owner} = login(ctx, 20.0, food)
-    assert state(owner).player.effects == saved.effects
+    assert living(owner).effects == saved.effects
     assert state(owner).inventory.slots == saved.inventory.slots
     assert state(owner).active_use == nil
   end
@@ -263,7 +266,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     ticks(pid, 8)
     action(client, "release_use_item")
     wait(fn -> state(pid).active_use == nil end)
-    assert state(pid).player.effects == %{} and state(pid).inventory.slots[36] == fire
+    assert living(pid).effects == %{} and state(pid).inventory.slots[36] == fire
     client = use_hand(client, pid, :off, 2)
     assert state(pid).active_use == nil and state(pid).inventory.slots[45] == unsupported
     _client = use_hand(client, pid, :main, 3)
@@ -275,7 +278,9 @@ defmodule Valimc.PlayerUseConnectionTest do
 
     tick(pid)
     assert state(pid).active_use == nil and state(pid).use_save == nil
-    assert state(pid).player.effects == %{} and state(pid).inventory.slots[36] == unsupported
+
+    assert living(pid).effects == %{} and
+             state(pid).inventory.slots[36] == unsupported
   end
 
   test "unsupported bottle overflow rejects potion effects and consumption together", ctx do
@@ -294,7 +299,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     {client, pid} = login(ctx, 20.0, food)
     _client = use_hand(client, pid)
     ticks(pid, 32)
-    assert state(pid).player.effects == %{} and state(pid).inventory.slots == slots
+    assert living(pid).effects == %{} and state(pid).inventory.slots == slots
     assert state(pid).active_use == nil and state(pid).use_save == nil
   end
 
@@ -310,18 +315,18 @@ defmodule Valimc.PlayerUseConnectionTest do
     try do
       ticks(pid, 32)
       assert state(pid).use_save != nil
-      assert state(pid).player.effects == %{11 => [{3600, 0, false, true, true}]}
+      assert living(pid).effects == %{11 => [{3600, 0, false, true, true}]}
       _client = use_hand(client, pid, :main, 2)
       ticks(pid, 9)
       assert state(pid).active_use == nil
-      assert state(pid).player.effects == %{11 => [{3591, 0, false, true, true}]}
+      assert living(pid).effects == %{11 => [{3591, 0, false, true, true}]}
       assert {:ok, observed} = Players.get(pid)
       # Other owner work can publish a newer observation; ETS is not the clock authority.
-      assert %{11 => [{observed_ticks, 0, false, true, true}]} = observed.effects
+      assert %{11 => [{observed_ticks, 0, false, true, true}]} = observed.living.effects
       assert observed_ticks in 3591..3600
       :sys.resume(store)
       wait(fn -> state(pid).use_save == nil end)
-      assert state(pid).player.effects == %{11 => [{3591, 0, false, true, true}]}
+      assert living(pid).effects == %{11 => [{3591, 0, false, true, true}]}
       assert state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
       Client.close(client)
       wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
@@ -345,7 +350,9 @@ defmodule Valimc.PlayerUseConnectionTest do
 
     try do
       ticks(pid, 32)
-      assert state(pid).player.health.value == 0.0 and state(pid).life_stage == :sealing_death
+
+      assert living(pid).health.value == 0.0 and
+               state(pid).life_stage == :sealing_death
 
       assert state(pid).use_save != nil and
                state(pid).inventory.slots == %{36 => ItemStack.new("glass_bottle")}
@@ -372,7 +379,7 @@ defmodule Valimc.PlayerUseConnectionTest do
       wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
       {_client, restored} = login(ctx, 0.0, food)
 
-      assert state(restored).player.health.value == 0.0
+      assert living(restored).health.value == 0.0
       assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
       assert saved.transfer_sequence == 1 and saved.outbox == nil
 
@@ -437,7 +444,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     assert state(pid).active_use != nil
     ticks(pid, 32)
     client = speed_attribute(client, pid)
-    assert state(pid).player.effects == %{}
+    assert living(pid).effects == %{}
     assert state(pid).inventory.slots[45] == ItemStack.new("bucket")
     assert {:ok, true} = Connection.add_effect(pid, 1, [{1, 3, false, true, true}])
     client = speed_attribute(client, pid)
@@ -462,15 +469,18 @@ defmodule Valimc.PlayerUseConnectionTest do
         )
 
       for id <- ids do
-        {:ok, effect} = Valimc.StatusEffect.new(600, 0)
+        {:ok, effect} = Effects.new(600, 0)
         assert {:ok, true} = Connection.add_effect(pid, id, effect)
       end
 
-      {:ok, hidden} = Valimc.StatusEffect.new(200, 2)
+      {:ok, hidden} = Effects.new(200, 2)
       assert {:ok, true} = Connection.add_effect(pid, 11, hidden)
       client = use_hand(client, pid, unquote(hand))
       ticks(pid, 31)
-      assert map_size(state(pid).player.effects) == 4 and state(pid).inventory.slots == slots
+
+      assert map_size(living(pid).effects) == 4 and
+               state(pid).inventory.slots == slots
+
       tick(pid)
       {<<entity::signed-32, 9>>, client} = Client.await(client, :play, "entity_event")
 
@@ -482,11 +492,11 @@ defmodule Valimc.PlayerUseConnectionTest do
           client
         end)
 
-      assert state(pid).player.effects == %{} and state(pid).player.food == food
+      assert living(pid).effects == %{} and state(pid).player.food == food
       assert state(pid).inventory.slots == Map.put(slots, unquote(slot), ItemStack.new("bucket"))
-      health = state(pid).player.health.value
+      health = living(pid).health.value
       ticks(pid, 50)
-      assert state(pid).player.health.value == health
+      assert living(pid).health.value == health
       wait(fn -> state(pid).use_save == nil end)
       Client.close(client)
       wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)

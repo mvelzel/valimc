@@ -240,8 +240,8 @@ defmodule Valimc.Protocol.Packets do
     ])
   end
 
-  def health(health \\ %Valimc.PlayerHealth{}, food \\ %Valimc.PlayerFood{}) do
-    unless Valimc.PlayerHealth.valid?(health) and Valimc.PlayerFood.valid?(food),
+  def health(health \\ %Valimc.Living.Health{}, food \\ %Valimc.PlayerFood{}) do
+    unless Valimc.Living.Health.valid?(health) and Valimc.PlayerFood.valid?(food),
       do: raise(ArgumentError, "invalid health/food")
 
     packet("set_health", [
@@ -256,7 +256,8 @@ defmodule Valimc.Protocol.Packets do
   def update_effect(entity_id, effect_id, {ticks, level, ambient, particles, icon} = rung, blend) do
     life_entity_id!(entity_id)
 
-    unless Valimc.Protocol.EffectTypes.valid_id?(effect_id) and Valimc.StatusEffect.valid?([rung]) and
+    unless Valimc.Protocol.EffectTypes.valid_id?(effect_id) and
+             Valimc.Living.Effects.valid_instance?([rung]) and
              is_boolean(blend),
            do: raise(ArgumentError, "invalid effect packet")
 
@@ -332,9 +333,9 @@ defmodule Valimc.Protocol.Packets do
   def item_break(entity_id, :main), do: packet("entity_event", <<entity_id::signed-32, 47>>)
   def item_break(entity_id, :off), do: packet("entity_event", <<entity_id::signed-32, 48>>)
 
-  def armor_break(entity_id, slot) when slot in 5..8 do
+  def armor_break(entity_id, slot) when slot in [:head, :chest, :legs, :feet] do
     life_entity_id!(entity_id)
-    packet("entity_event", <<entity_id::signed-32, Valimc.ArmorDurability.break_event(slot)>>)
+    packet("entity_event", <<entity_id::signed-32, Valimc.Living.Armor.break_event(slot)>>)
   end
 
   def use_item_finished(entity_id) do
@@ -420,15 +421,11 @@ defmodule Valimc.Protocol.Packets do
     attribute_packet(player.entity_id, attributes)
   end
 
-  def armor_attributes(player, attributes),
-    do: attribute_packet(player.entity_id, Valimc.PlayerArmor.protocol_attributes(attributes))
+  def armor_attributes(entity_id, attributes),
+    do: attribute_packet(entity_id, Valimc.Living.Armor.protocol_attributes(attributes))
 
-  def movement_attributes(player, attribute), do: attribute_packet(player.entity_id, [attribute])
-
-  def absorption_attributes(player, attribute),
-    do: attribute_packet(player.entity_id, [attribute])
-
-  def jump_attributes(player, attribute), do: attribute_packet(player.entity_id, [attribute])
+  @doc "One derived attribute `{id, base, modifiers}` of a living entity."
+  def attribute(entity_id, attribute), do: attribute_packet(entity_id, [attribute])
 
   defp attribute_packet(entity_id, attributes) do
     packet("update_attributes", [
@@ -484,8 +481,8 @@ defmodule Valimc.Protocol.Packets do
     do:
       {player.entity_id, player.uuid, round(player.x * 4096), round(player.y * 4096),
        round(player.z * 4096), angle(player.yaw), angle(player.pitch), shared_flags(player),
-       Map.get(player, :pose, :standing), Valimc.PlayerEnvironment.frozen(player),
-       player_health_value(player), Map.get(player, :equipment, %{})}
+       Map.get(player, :pose, :standing), living(player).freezing.frozen_ticks,
+       living(player).health.value, Map.get(player, :equipment, %{})}
 
   def player_flags(player),
     do: EntityPackets.metadata(player.entity_id, shared_flags: shared_flags(player))
@@ -494,10 +491,10 @@ defmodule Valimc.Protocol.Packets do
     do: EntityPackets.metadata(player.entity_id, pose: Map.get(player, :pose, :standing))
 
   def player_health(player),
-    do: EntityPackets.metadata(player.entity_id, health: player_health_value(player))
+    do: EntityPackets.metadata(player.entity_id, health: living(player).health.value)
 
   def player_absorption(player),
-    do: EntityPackets.metadata(player.entity_id, absorption: Map.get(player, :absorption, 0.0))
+    do: EntityPackets.metadata(player.entity_id, absorption: living(player).absorption)
 
   def player_use(player),
     do: EntityPackets.metadata(player.entity_id, living_flags: Map.get(player, :use_flags, 0))
@@ -509,17 +506,18 @@ defmodule Valimc.Protocol.Packets do
     end
   end
 
-  defp player_health_value(player), do: Map.get(player, :health, %Valimc.PlayerHealth{}).value
+  # Players and their peer replicas carry `living`; bare test bodies default to a fresh one.
+  defp living(player), do: Map.get(player, :living, %Valimc.Living{})
 
   def player_environment(player),
     do:
       EntityPackets.metadata(player.entity_id,
-        frozen_ticks: Valimc.PlayerEnvironment.frozen(player),
-        air_supply: Valimc.PlayerAir.supply(player)
+        frozen_ticks: living(player).freezing.frozen_ticks,
+        air_supply: living(player).air_supply
       )
 
   def player_air(player),
-    do: EntityPackets.metadata(player.entity_id, air_supply: Valimc.PlayerAir.supply(player))
+    do: EntityPackets.metadata(player.entity_id, air_supply: living(player).air_supply)
 
   def drowning_bubbles(entity_id) do
     life_entity_id!(entity_id)
@@ -528,7 +526,7 @@ defmodule Valimc.Protocol.Packets do
 
   def shared_flags(player) do
     flags = Map.get(player, :input, %Valimc.PlayerInput{}).shared_flags &&& bnot(17)
-    flags = if Map.get(player, :fire_ticks, 0) > 0, do: flags ||| 1, else: flags
+    flags = if living(player).fire_ticks > 0, do: flags ||| 1, else: flags
     if Map.get(player, :motion, %Valimc.PlayerMotion{}).swimming, do: flags ||| 16, else: flags
   end
 
@@ -570,12 +568,12 @@ defmodule Valimc.Protocol.Packets do
           if Map.get(player, :pose, :standing) == pose, do: [], else: [player_pose(player)]
 
         environment =
-          if Valimc.PlayerEnvironment.frozen(player) == frozen,
+          if living(player).freezing.frozen_ticks == frozen,
             do: [],
             else: [player_environment(player)]
 
         health_update =
-          if player_health_value(player) == health, do: [], else: [player_health(player)]
+          if living(player).health.value == health, do: [], else: [player_health(player)]
 
         movement ++
           metadata ++

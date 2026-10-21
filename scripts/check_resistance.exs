@@ -1,6 +1,6 @@
-alias Valimc.PlayerResistance
+alias Valimc.Living.Damage
 alias Valimc.Protocol.EffectTypes
-Code.ensure_loaded!(PlayerResistance)
+Code.ensure_loaded!(Damage)
 [path] = System.argv()
 rows = path |> File.read!() |> JSON.decode!()
 id = EffectTypes.id("resistance")
@@ -12,7 +12,7 @@ for row <- rows do
       else: %{id => [{row["duration"], row["amplifier"], false, true, true}]}
 
   {:ok, actual} =
-    PlayerResistance.reduce(row["amount"], String.to_existing_atom(row["source"]), effects)
+    Damage.resistance(row["amount"], String.to_existing_atom(row["source"]), effects)
 
   expected = if row["reduced"] == "infinity", do: 3.4028234663852886e38, else: row["reduced"]
   unless actual == expected, do: raise("Native resistance differs #{inspect(row)}; got #{actual}")

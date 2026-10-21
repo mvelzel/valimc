@@ -1,4 +1,5 @@
-alias Valimc.{PlayerFood, PlayerHealth}
+alias Valimc.Living.Health
+alias Valimc.{PlayerFood}
 [path] = System.argv()
 data = path |> File.read!() |> JSON.decode!()
 unless data["default_regeneration"], do: raise("Native regeneration default changed")
@@ -31,7 +32,7 @@ for c <- data["ticks"] do
   {next, effects} =
     PlayerFood.tick(
       food.(c),
-      %PlayerHealth{value: c["health"]},
+      %Health{value: c["health"]},
       c["difficulty"],
       c["regeneration"]
     )
@@ -39,7 +40,7 @@ for c <- data["ticks"] do
   check.(next, c["next"])
 
   for phase <- [0, 1, 9, 10, 19],
-      PlayerFood.idle?(food.(c), %PlayerHealth{value: c["health"]}, phase) do
+      PlayerFood.idle?(food.(c), %Health{value: c["health"]}, phase) do
     unless next == food.(c) and effects == %{heal: 0.0, damage: 0.0},
       do: raise("Idle food skipped a native transition #{inspect(c)}")
   end
@@ -52,7 +53,7 @@ for c <- data["peaceful"] do
   {next, heal} =
     PlayerFood.peaceful(
       food.(c),
-      %PlayerHealth{value: c["health"]},
+      %Health{value: c["health"]},
       c["difficulty"],
       c["regeneration"],
       c["tick"]
@@ -60,7 +61,7 @@ for c <- data["peaceful"] do
 
   check.(next, c["next"])
 
-  if PlayerFood.idle?(food.(c), %PlayerHealth{value: c["health"]}, rem(c["tick"], 20)) do
+  if PlayerFood.idle?(food.(c), %Health{value: c["health"]}, rem(c["tick"], 20)) do
     unless next == food.(c) and heal == 0.0,
       do: raise("Idle food skipped peaceful recovery #{inspect(c)}")
   end

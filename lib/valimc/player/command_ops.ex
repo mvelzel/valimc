@@ -6,14 +6,14 @@ defmodule Valimc.Player.CommandOps do
   command's job (`Valimc.Commands.Remote`), so feedback reports what the
   target did.
   """
-  alias Valimc.{Inventory, PlayerExperience, PlayerHealth, StatusEffect, World}
+  alias Valimc.{Inventory, PlayerExperience, World}
+  alias Valimc.Living.{Effects, Health}
   alias Valimc.Command.{Error, ItemPredicate}
 
   alias Valimc.Player.{
     CreativeInventory,
     GameModes,
     ItemUse,
-    StatusEffects,
     Teleports,
     Transfers,
     Vitals
@@ -125,7 +125,7 @@ defmodule Valimc.Player.CommandOps do
     if state.life_stage != :alive do
       {false, state}
     else
-      case StatusEffects.apply(state, id, incoming) do
+      case Vitals.apply_effect(state, id, incoming) do
         {:ok, changed, state} -> {changed, state}
         {:error, _} -> {false, state}
       end
@@ -133,7 +133,7 @@ defmodule Valimc.Player.CommandOps do
   end
 
   def apply(state, :clear_effects) do
-    Enum.reduce(Map.keys(state.player.effects), {false, state}, fn id, {changed, state} ->
+    Enum.reduce(Map.keys(state.player.living.effects), {false, state}, fn id, {changed, state} ->
       {removed, state} = apply(state, {:effect, id, :remove})
       {changed or removed, state}
     end)
@@ -180,7 +180,7 @@ defmodule Valimc.Player.CommandOps do
     do: Valimc.Player.PostEffects.apply(state, operation)
 
   def apply(state, :kill) do
-    case PlayerHealth.hurt_window(state.player.health, 3.4028234663852886e38, true) do
+    case Health.hurt_window(state.player.living.health, 3.4028234663852886e38, true) do
       {:ok, selected} ->
         {_result, state} = Vitals.apply_damage(state, selected, :generic_kill)
         {:ok, state}
@@ -212,5 +212,5 @@ defmodule Valimc.Player.CommandOps do
 
   @doc "A fresh effect rung for `/effect give`."
   def rung(ticks, amplifier, hide),
-    do: StatusEffect.new(ticks, amplifier, false, not hide, not hide)
+    do: Effects.new(ticks, amplifier, false, not hide, not hide)
 end

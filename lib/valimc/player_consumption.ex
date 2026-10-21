@@ -1,15 +1,7 @@
 defmodule Valimc.PlayerConsumption do
   @moduledoc "Pure consumption transition; the player owner checkpoints it before publishing any outcome."
-  alias Valimc.{
-    ConsumableRemoval,
-    InstantEffect,
-    Inventory,
-    PlayerAbsorption,
-    PlayerDamage,
-    PlayerEffects,
-    PlayerFood,
-    PlayerHealth
-  }
+  alias Valimc.{Inventory, PlayerFood}
+  alias Valimc.Living.{Effects, Health}
 
   alias Valimc.Protocol.EffectTypes
   @heal EffectTypes.id("instant_health")
@@ -22,7 +14,7 @@ defmodule Valimc.PlayerConsumption do
   def admitted_effects?(effects) when is_list(effects) do
     Enum.all?(effects, fn
       {@heal, [{_, amp, _, _, _} | _]} ->
-        {:ok, {:heal, amount}} = InstantEffect.drink_request(@heal, amp)
+        {:ok, {:heal, amount}} = Effects.instant(@heal, amp)
         amount >= 0
 
       _ ->
@@ -54,11 +46,14 @@ defmodule Valimc.PlayerConsumption do
   end
 
   defp consume(transition, {:remove, policy}, _) do
-    {:ok, effects, removed} = ConsumableRemoval.apply(transition.player.effects, policy)
+    living = transition.player.living
+    {:ok, effects, removed} = Effects.apply_removal(living.effects, policy)
+    absorption = Health.reconcile_absorption(living.absorption, effects)
+    living = %{living | effects: effects, absorption: absorption}
 
     %{
       transition
-      | player: PlayerAbsorption.reconcile(%{transition.player | effects: effects}),
+      | player: %{transition.player | living: living},
         effects: Enum.map(removed, &{:remove, &1})
     }
   end
@@ -66,25 +61,25 @@ defmodule Valimc.PlayerConsumption do
   defp consume(transition, additions, hand) when is_list(additions) do
     Enum.reduce(additions, transition, fn {id, [head | _] = value}, current ->
       if id in @instant do
-        {:ok, action} = InstantEffect.drink_request(id, elem(head, 1))
+        {:ok, action} = Effects.instant(id, elem(head, 1))
         instant(current, action, hand)
       else
-        new = not Map.has_key?(current.player.effects, id)
-        {:ok, effects, changed} = PlayerEffects.add(current.player.effects, id, value)
+        living = current.player.living
+        new = not Map.has_key?(living.effects, id)
+        {:ok, effects, changed} = Effects.add(living.effects, id, value)
 
         events =
           if changed,
             do: current.effects ++ [{:update, id, hd(effects[id]), new}],
             else: current.effects
 
-        player = %{current.player | effects: effects}
-
-        player =
+        absorption =
           if id == @absorption,
-            do: PlayerAbsorption.reconcile(player, elem(head, 1)),
-            else: player
+            do: Health.reconcile_absorption(living.absorption, effects, elem(head, 1)),
+            else: living.absorption
 
-        %{current | player: player, effects: events}
+        living = %{living | effects: effects, absorption: absorption}
+        %{current | player: %{current.player | living: living}, effects: events}
       end
     end)
   end
@@ -95,26 +90,26 @@ defmodule Valimc.PlayerConsumption do
   end
 
   defp instant(transition, {:heal, amount}, _) do
-    {:ok, health} = PlayerHealth.heal(transition.player.health, amount)
-
-    %{transition | player: %{transition.player | health: health}}
+    living = transition.player.living
+    {:ok, health} = Health.heal(living.health, amount)
+    %{transition | player: %{transition.player | living: %{living | health: health}}}
   end
 
   defp instant(transition, {:hurt, source, amount}, hand) do
-    {:ok, selected} = PlayerHealth.hurt_window(transition.player.health, amount)
+    {:ok, selected} = Health.hurt_window(transition.player.living.health, amount)
 
-    case PlayerDamage.resolve(
+    case Valimc.Player.Vitals.resolve_damage(
            transition.player,
            transition.inventory,
            selected,
            source,
-           transition.player.effects,
+           transition.player.living.effects,
            false
          ) do
       {:ok, %{player: player, inventory: inventory, broken: []}} ->
         context = {:self_magic, hand}
         damage = if selected.notify, do: transition.damage ++ [context], else: transition.damage
-        death = if player.health.value <= 0, do: context, else: transition.death
+        death = if player.living.health.value <= 0, do: context, else: transition.death
         %{transition | player: player, inventory: inventory, damage: damage, death: death}
 
       result when result in [:ignored, :immune] ->

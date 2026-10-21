@@ -1,4 +1,5 @@
-alias Valimc.{PlayerAbsorption, PlayerFood, PlayerHealth}
+alias Valimc.Living.Health
+alias Valimc.{PlayerFood}
 [path] = System.argv()
 rows = path |> File.read!() |> JSON.decode!()
 
@@ -10,8 +11,8 @@ end
 for row <- rows do
   armored = f32.(row["amount"] * row["armor_factor"])
   defended = f32.(armored * row["magic_factor"])
-  {:ok, next} = PlayerAbsorption.spend(row["pool"], defended)
-  {:ok, health} = PlayerHealth.reduce(%PlayerHealth{value: row["health"]}, next.damage)
+  {:ok, next} = Health.spend_absorption(row["pool"], defended)
+  {:ok, health} = Health.reduce(%Health{value: row["health"]}, next.damage)
 
   food =
     if next.damage > 0,

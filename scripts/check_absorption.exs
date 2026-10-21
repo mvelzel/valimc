@@ -1,4 +1,4 @@
-alias Valimc.{PlayerAbsorption, PlayerEffects}
+alias Valimc.Living.{Attributes, Effects, Health}
 alias Valimc.Protocol.EffectTypes
 [path] = System.argv()
 data = path |> File.read!() |> JSON.decode!()
@@ -12,29 +12,29 @@ end
 
 for row <- data["setters"] do
   {:ok, derived} =
-    PlayerAbsorption.derive(%{id => [{200, row["amplifier"], false, true, true}]}, row["base"])
+    Attributes.absorption(%{id => [{200, row["amplifier"], false, true, true}]}, row["base"])
 
   {22, base, modifiers} = derived.attribute
   assert.(base == row["base"] and Enum.map(modifiers, &Tuple.to_list/1) == row["modifiers"], row)
   assert.(derived.maximum == row["set"]["maximum"], row)
-  {:ok, pool} = PlayerAbsorption.set(row["requested"], derived.maximum)
+  {:ok, pool} = Health.set_absorption(row["requested"], derived.maximum)
   assert.(pool == row["set"]["pool"], row)
-  {:ok, started} = PlayerAbsorption.start(pool, derived.maximum, row["amplifier"])
+  {:ok, started} = Health.start_absorption(pool, derived.maximum, row["amplifier"])
   assert.(started == row["started"]["pool"], row)
-  {:ok, removed} = PlayerAbsorption.derive(%{}, row["base"])
-  {:ok, pool} = PlayerAbsorption.set(started, removed.maximum)
+  {:ok, removed} = Attributes.absorption(%{}, row["base"])
+  {:ok, pool} = Health.set_absorption(started, removed.maximum)
   assert.(pool == row["removed"]["pool"] and removed.maximum == row["removed"]["maximum"], row)
 end
 
 for row <- data["additions"] do
   {:ok, effects, changed} =
-    PlayerEffects.add(state.(row["before"]), id, [
+    Effects.add(state.(row["before"]), id, [
       {row["incoming_ticks"], row["incoming_amplifier"], false, true, true}
     ])
 
-  {:ok, derived} = PlayerAbsorption.derive(effects)
-  {:ok, clamped} = PlayerAbsorption.set(row["before"]["pool"], derived.maximum)
-  {:ok, pool} = PlayerAbsorption.start(clamped, derived.maximum, row["incoming_amplifier"])
+  {:ok, derived} = Attributes.absorption(effects)
+  {:ok, clamped} = Health.set_absorption(row["before"]["pool"], derived.maximum)
+  {:ok, pool} = Health.start_absorption(clamped, derived.maximum, row["incoming_amplifier"])
 
   assert.(
     changed == row["changed"] and effects[id] == rungs.(row["after"]["rungs"]) and
@@ -45,7 +45,7 @@ end
 
 for row <- data["ticks"] do
   {:ok, next, remains, promoted} =
-    PlayerAbsorption.tick(rungs.(row["before"]["rungs"]), row["before"]["pool"])
+    Health.tick_absorption(rungs.(row["before"]["rungs"]), row["before"]["pool"])
 
   assert.(
     remains == row["remains"] and elem(hd(next), 0) == row["next_ticks"] and
@@ -56,10 +56,10 @@ end
 
 for row <- data["promotions"] do
   {:ok, next, remains, promoted} =
-    PlayerAbsorption.tick(rungs.(row["before"]["rungs"]), row["before"]["pool"])
+    Health.tick_absorption(rungs.(row["before"]["rungs"]), row["before"]["pool"])
 
-  {:ok, derived} = PlayerAbsorption.derive(%{id => next})
-  {:ok, pool} = PlayerAbsorption.set(row["before"]["pool"], derived.maximum)
+  {:ok, derived} = Attributes.absorption(%{id => next})
+  {:ok, pool} = Health.set_absorption(row["before"]["pool"], derived.maximum)
 
   assert.(
     remains == row["remains"] and promoted == remains and next == rungs.(row["after"]["rungs"]) and
@@ -69,8 +69,8 @@ for row <- data["promotions"] do
 end
 
 for row <- data["removals"] do
-  {:ok, derived} = PlayerAbsorption.derive(%{}, row["base"])
-  {:ok, pool} = PlayerAbsorption.set(row["before"]["pool"], derived.maximum)
+  {:ok, derived} = Attributes.absorption(%{}, row["base"])
+  {:ok, pool} = Health.set_absorption(row["before"]["pool"], derived.maximum)
 
   assert.(
     row["removed"] and row["after"]["rungs"] == [] and pool == row["after"]["pool"] and

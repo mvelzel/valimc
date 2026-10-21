@@ -1,9 +1,11 @@
 defmodule Valimc.WorldBorderConnectionTest do
   use ExUnit.Case, async: false
+  import Valimc.TestPlayer, only: [living: 1]
+  alias Valimc.Living.{Freezing, Health}
   # Drives sockets and changes the server's one overworld border and the app-wide
   # respawn radius (VMC-027b/c/e).
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, PlayerHealth, PlayerSnapshot, PlayerStore, Players}
+  alias Valimc.{Connection, Inventory, PlayerSnapshot, PlayerStore, Players}
   alias Valimc.Protocol.{Data, Wire}
   alias Valimc.TestClient, as: Client
   alias Valimc.World.{Border, Clock, Spawn}
@@ -25,8 +27,6 @@ defmodule Valimc.WorldBorderConnectionTest do
         ],
         do: Clock.border_command(operation)
   end
-
-  defp state(pid), do: Valimc.TestConn.state(pid)
 
   defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
 
@@ -120,13 +120,15 @@ defmodule Valimc.WorldBorderConnectionTest do
 
       player =
         Map.merge(pose, %{
+          living: %Valimc.Living{
+            freezing: %Freezing{},
+            health: %Health{value: 20.0},
+            air_supply: 300
+          },
           game_mode: Valimc.GameMode.new(:survival),
           abilities: Valimc.PlayerAbilities.for_mode(:survival),
           motion: %Valimc.PlayerMotion{},
-          environment: %Valimc.PlayerEnvironment{},
-          health: %PlayerHealth{value: 20.0},
-          last_death: nil,
-          air_supply: 300
+          last_death: nil
         })
 
       path = PlayerStore.path(base, uuid)
@@ -150,7 +152,7 @@ defmodule Valimc.WorldBorderConnectionTest do
       {_, rest} = Wire.take_varint(body)
       {type, _} = Wire.take_varint(rest)
       assert type == Data.registry_id("minecraft:damage_type", "minecraft:outside_border")
-      health = wait(fn -> (h = state(pid).player.health.value) < 20.0 and h end)
+      health = wait(fn -> (h = living(pid).health.value) < 20.0 and h end)
       assert health in [18.0, 16.0, 14.0]
     end
   end

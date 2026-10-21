@@ -1,6 +1,6 @@
 defmodule Valimc.PlayerLife do
   @moduledoc "Player-local death/respawn state preparation; persistence and effects belong to the owner."
-  alias Valimc.{GameMode, PlayerEnvironment, PlayerHealth, PlayerInput, PlayerMotion}
+  alias Valimc.{GameMode, Living, PlayerInput, PlayerMotion}
 
   def valid_location?(nil), do: true
 
@@ -18,16 +18,12 @@ defmodule Valimc.PlayerLife do
           Map.get(player, :last_death) || {floor(player.x), floor(player.y), floor(player.z)},
         input: %PlayerInput{load_ticks: player.input.load_ticks},
         motion: %PlayerMotion{settled: true},
-        environment: PlayerEnvironment.tick(player.environment, false),
+        living: Living.die(player.living),
         pose: :dying
     }
 
     # The death location names its dimension (VMC-026b).
-    player = Map.put_new(player, :death_dimension, Map.get(player, :dimension, :overworld))
-
-    if Map.has_key?(player, :fire_ticks),
-      do: %{player | fire_ticks: min(0, player.fire_ticks)},
-      else: player
+    Map.put_new(player, :death_dimension, Map.get(player, :dimension, :overworld))
   end
 
   @doc """
@@ -43,17 +39,12 @@ defmodule Valimc.PlayerLife do
         z: spawn.z,
         yaw: spawn.yaw,
         pitch: spawn.pitch,
-        health: %PlayerHealth{maximum: player.health.maximum, value: player.health.maximum},
+        living: Living.respawn(player.living),
         abilities: GameMode.abilities(player.game_mode, false),
         input: %PlayerInput{},
         motion: %PlayerMotion{},
-        environment: %PlayerEnvironment{},
         pose: :standing
     }
-    |> Map.put(:air_supply, Valimc.PlayerAir.maximum())
-    |> Map.put(:fire_ticks, 0)
-    |> Map.put(:effects, %{})
-    |> Map.put(:absorption, 0.0)
     |> Map.put(:food, %Valimc.PlayerFood{})
     |> Map.put(:use_flags, 0)
     |> Map.put(:equipment, %{})

@@ -1,3 +1,4 @@
+alias Valimc.Living.Attributes
 alias Valimc.Physics.AirMotion
 [path] = System.argv()
 data = path |> File.read!() |> :json.decode()
@@ -14,7 +15,7 @@ Enum.each(cases, fn c ->
     |> Map.update!(:levitation, fn value -> if value < 0, do: nil, else: value end)
 
   {:ok, gravity} =
-    Valimc.PlayerTravelEffects.gravity(c["gravity"], Enum.at(c["movement"], 1), c["slow_falling"])
+    Attributes.gravity(c["gravity"], Enum.at(c["movement"], 1), c["slow_falling"])
 
   facts = Map.put(facts, :gravity, gravity)
 
@@ -27,7 +28,7 @@ end)
 Enum.each(data["traces"], fn trace ->
   Enum.reduce(trace["steps"], List.to_tuple(trace["initial"]), fn step, previous ->
     {:ok, gravity} =
-      Valimc.PlayerTravelEffects.gravity(step["gravity"], elem(previous, 1), step["slow_falling"])
+      Attributes.gravity(step["gravity"], elem(previous, 1), step["slow_falling"])
 
     facts = %AirMotion{
       on_ground: step["ground"],

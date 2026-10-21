@@ -52,18 +52,15 @@ defmodule Valimc.Players do
     :yaw,
     :pitch,
     :pose,
-    :health,
     :equipment,
-    :use_flags,
-    :absorption,
-    :fire_ticks,
-    :environment
+    :use_flags
   ]
 
   defp publish_replica(player) do
     replica =
       player
       |> Map.take(@replica_keys)
+      |> Map.put(:living, Valimc.Living.replica(Map.get(player, :living, %Valimc.Living{})))
       |> Map.put(:input, %{
         shared_flags: Map.get(player, :input, %Valimc.PlayerInput{}).shared_flags
       })

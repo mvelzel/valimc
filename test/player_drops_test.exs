@@ -1,5 +1,6 @@
 defmodule Valimc.PlayerDropsTest do
   use ExUnit.Case, async: true
+  alias Valimc.Living.{Freezing, Health}
   alias Valimc.{Inventory, ItemMotionState, PlayerDrops, PlayerSnapshot, PlayerTransfers}
   alias Valimc.Protocol.ItemStack
 
@@ -42,11 +43,11 @@ defmodule Valimc.PlayerDropsTest do
     source =
       PlayerSnapshot.capture(
         Map.merge(player(), %{
+          living: %Valimc.Living{freezing: %Freezing{}, health: %Health{}},
           motion: %Valimc.PlayerMotion{},
-          environment: %Valimc.PlayerEnvironment{},
           game_mode: Valimc.GameMode.new(:survival),
           abilities: Valimc.PlayerAbilities.for_mode(:survival),
-          health: %Valimc.PlayerHealth{}
+          last_death: nil
         }),
         %Inventory{slots: %{36 => stone}}
       )

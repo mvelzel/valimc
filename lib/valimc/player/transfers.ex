@@ -205,7 +205,7 @@ defmodule Valimc.Player.Transfers do
   def pickup_allowed?(state, own_experience \\ false) do
     (own_experience or not Jobs.active?(state.jobs, :experience)) and state.phase == :play and
       state.life_stage == :alive and
-      state.player.health.value > 0 and
+      state.player.living.health.value > 0 and
       state.player.game_mode.current in [:survival, :adventure, :creative] and
       PlayerInput.loaded?(state.player.input) and not state.teleport_pending and
       not inventory_pending(state) and state.save_ref == nil and

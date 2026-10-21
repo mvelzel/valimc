@@ -63,10 +63,8 @@ defmodule Valimc.PlayerBurningSnapshotTest do
     end
   end
 
-  test "capture preserves optional fire state; malformed, recursive and truncated wrappers refuse" do
-    snapshot = PlayerSnapshot.capture(Map.put(@pose, :fire_ticks, 300), %Inventory{})
-    assert snapshot.fire_ticks == 300
-    refute Map.has_key?(PlayerSnapshot.capture(@pose, %Inventory{}), :fire_ticks)
+  test "fire state: malformed, recursive and truncated wrappers refuse" do
+    snapshot = PlayerSnapshot.capture(@pose, %Inventory{}) |> Map.put(:fire_ticks, 300)
     {:ok, bytes} = PlayerSnapshot.encode(@uuid, snapshot)
     body_size = byte_size(bytes) - 97
 

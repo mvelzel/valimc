@@ -1,4 +1,4 @@
-alias Valimc.{PlayerEffects, StatusEffect}
+alias Valimc.Living.Effects
 [path] = System.argv()
 facts = :json.decode(File.read!(path))
 
@@ -17,7 +17,7 @@ for trace <- facts["traces"] do
           flags = row["flags"]
 
           {:ok, incoming} =
-            StatusEffect.new(
+            Effects.new(
               row["ticks"],
               row["amplifier"],
               Bitwise.band(flags, 1) != 0,
@@ -25,7 +25,7 @@ for trace <- facts["traces"] do
               Bitwise.band(flags, 4) != 0
             )
 
-          {:ok, next, changed} = PlayerEffects.add(previous, id, incoming)
+          {:ok, next, changed} = Effects.add(previous, id, incoming)
           kind = if Map.has_key?(previous, id), do: "update", else: "add"
 
           events =
@@ -34,11 +34,11 @@ for trace <- facts["traces"] do
           {next, changed, events}
 
         "remove" ->
-          {:ok, next, changed} = PlayerEffects.remove(previous, id)
+          {:ok, next, changed} = Effects.remove(previous, id)
           {next, changed, if(changed, do: [["remove", id, false, :null]], else: [])}
 
         "tick" ->
-          {:ok, next, events} = PlayerEffects.tick(previous)
+          {:ok, next, events} = Effects.tick(previous)
 
           {next, nil,
            Enum.map(events, fn

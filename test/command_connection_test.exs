@@ -125,7 +125,7 @@ defmodule Valimc.CommandConnectionTest do
     client = command(client, "effect give @s speed 10 1", "commands.effect.give.success.single")
 
     assert Map.has_key?(
-             :sys.get_state(pid).player.effects,
+             :sys.get_state(pid).player.living.effects,
              Valimc.Protocol.EffectTypes.id("speed")
            )
 

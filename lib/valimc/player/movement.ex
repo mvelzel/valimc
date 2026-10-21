@@ -1,11 +1,9 @@
 defmodule Valimc.Player.Movement do
   @moduledoc "Player movement inside the connection: input, position and motion admission, pose jobs, kinetics and movement attributes (VMC-069)."
 
-  alias Valimc.Protocol.{
-    ClientTick,
-    EffectTypes,
-    Packets
-  }
+  alias Valimc.Protocol.{ClientTick, Packets}
+  alias Valimc.Living.Attributes
+  import Bitwise, only: [&&&: 2]
 
   alias Valimc.Session.Jobs
 
@@ -15,9 +13,6 @@ defmodule Valimc.Player.Movement do
   alias Valimc.{
     Metrics,
     Players,
-    PlayerAbsorption,
-    PlayerMovementSpeed,
-    PlayerEnvironment,
     PlayerInput,
     PlayerKinetics,
     PlayerMotion,
@@ -25,9 +20,6 @@ defmodule Valimc.Player.Movement do
     PlayerPoseQuery,
     PlayerStore
   }
-
-  import Bitwise
-  @absorption EffectTypes.id("absorption")
 
   def update_player_input(state, input) do
     if input == state.player.input do
@@ -41,51 +33,46 @@ defmodule Valimc.Player.Movement do
 
   @doc false
   def publish_movement_speed(state) do
-    {_, sprint} = signature = PlayerMovementSpeed.signature(state.player)
+    effects = state.player.living.effects
+    sprint = Attributes.sprinting?(state.player.input.shared_flags)
+    signature = Attributes.movement_signature(effects, sprint)
 
     if signature == state.movement_speed_view do
       state
     else
-      {:ok, derived} = PlayerMovementSpeed.derive(state.player.effects, sprint)
-      send_packets(state, [Packets.movement_attributes(state.player, derived.attribute)])
+      {:ok, derived} = Attributes.movement_speed(effects, sprint)
+      send_packets(state, [Packets.attribute(state.player.entity_id, derived.attribute)])
       %{state | movement_speed_view: signature}
     end
   end
 
   @doc false
   def publish_jump_boost(state) do
-    level = Valimc.PlayerJumpBoost.level(state.player.effects)
+    level = Attributes.jump_boost_level(state.player.living.effects)
 
     if level == state.jump_boost_view do
       state
     else
-      {:ok, derived} = Valimc.PlayerJumpBoost.derive(state.player.effects)
-      send_packets(state, [Packets.jump_attributes(state.player, derived.attribute)])
+      {:ok, derived} = Attributes.jump_boost(state.player.living.effects)
+      send_packets(state, [Packets.attribute(state.player.entity_id, derived.attribute)])
       %{state | jump_boost_view: level}
     end
   end
 
   @doc false
-  def absorption_level(effects) do
-    case effects[@absorption] do
-      nil -> nil
-      [{_, amp, _, _, _} | _] -> amp
-    end
-  end
-
-  @doc false
   def publish_absorption(state) do
-    view = {absorption_level(state.player.effects), state.player.absorption}
+    living = state.player.living
+    view = {Attributes.absorption_level(living.effects), living.absorption}
 
     if view == state.absorption_view do
       state
     else
       previous = state.absorption_view
-      {:ok, derived} = PlayerAbsorption.derive(state.player.effects)
+      {:ok, derived} = Attributes.absorption(living.effects)
 
       packets =
         if previous == nil or elem(previous, 0) != elem(view, 0),
-          do: [Packets.absorption_attributes(state.player, derived.attribute)],
+          do: [Packets.attribute(state.player.entity_id, derived.attribute)],
           else: []
 
       packets =
@@ -317,11 +304,8 @@ defmodule Valimc.Player.Movement do
 
     active =
       state.simulation_due and
-        (PlayerEnvironment.active?(state.player.environment) or
-           state.player.fire_ticks > 0 or state.fire_damage_due or
-           state.fire_contacts_active or
-           Valimc.PlayerAir.supply(state.player) < Valimc.PlayerAir.maximum() or
-           not state.player.motion.settled)
+        (Valimc.Living.environment_active?(state.player.living) or state.fire_damage_due or
+           state.fire_contacts_active or not state.player.motion.settled)
 
     if PlayerInput.loaded?(state.player.input) and (signature != state.pose_checked or active) do
       deadline = System.monotonic_time(:millisecond) + 250

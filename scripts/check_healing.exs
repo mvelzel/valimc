@@ -1,10 +1,10 @@
-alias Valimc.PlayerHealth
+alias Valimc.Living.Health
 [path] = System.argv()
 rows = path |> File.read!() |> JSON.decode!()
 
 for row <- rows do
-  health = %PlayerHealth{value: row["health"], maximum: row["maximum"]}
-  {:ok, next} = PlayerHealth.heal(health, row["amount"])
+  health = %Health{value: row["health"], maximum: row["maximum"]}
+  {:ok, next} = Health.heal(health, row["amount"])
   unless next.value == row["next"], do: raise("Native healing differs #{inspect(row)}")
 end
 

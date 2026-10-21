@@ -1,7 +1,8 @@
 defmodule Valimc.PlayerHealthConnectionTest do
   use ExUnit.Case, async: false
+  alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, PlayerHealth, Players, PlayerSnapshot, PlayerStore}
+  alias Valimc.{Connection, Inventory, Players, PlayerSnapshot, PlayerStore}
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -50,6 +51,11 @@ defmodule Valimc.PlayerHealthConnectionTest do
   test "login health comes from the same saved inventory state and survives another session",
        ctx do
     player = %{
+      living: %Valimc.Living{
+        freezing: %Freezing{},
+        fire_ticks: 300,
+        health: %Health{value: 7.25, hurt_ticks: 7, cooldown: 17, last_hurt: 5.0}
+      },
       x: 0.5,
       y: 64.0,
       z: 0.5,
@@ -58,9 +64,7 @@ defmodule Valimc.PlayerHealthConnectionTest do
       game_mode: Valimc.GameMode.new(:survival),
       abilities: Valimc.PlayerAbilities.for_mode(:survival),
       motion: %Valimc.PlayerMotion{},
-      environment: %Valimc.PlayerEnvironment{},
-      fire_ticks: 300,
-      health: %PlayerHealth{value: 7.25, hurt_ticks: 7, cooldown: 17, last_hurt: 5.0}
+      last_death: nil
     }
 
     inventory = %Inventory{slots: %{36 => ItemStack.new("stone", 7)}}
@@ -73,10 +77,13 @@ defmodule Valimc.PlayerHealthConnectionTest do
       {health, client, pid} = health_login(ctx.name)
       assert health == 7.25
       state = Valimc.TestConn.state(pid)
-      assert state.player.health.value == 7.25
-      assert state.player.fire_ticks in 1..300
-      assert state.player.health.cooldown == 0 and state.player.health.last_hurt == 0
-      assert state.player.health.hurt_ticks <= 7
+      assert state.player.living.health.value == 7.25
+      assert state.player.living.fire_ticks in 1..300
+
+      assert state.player.living.health.cooldown == 0 and
+               state.player.living.health.last_hurt == 0
+
+      assert state.player.living.health.hurt_ticks <= 7
       client = Client.load_world(client)
       assert Bitwise.band(client.entity_flags[state.player.entity_id], 1) == 1
       assert Enum.at(client.inventory.items, 36) == ItemStack.new("stone", 7)
@@ -105,11 +112,17 @@ defmodule Valimc.PlayerHealthConnectionTest do
     on_exit(fn -> Client.close(client) end)
 
     :sys.replace_state(pid, fn state ->
-      health = %{state.player.health | value: 7.25, hurt_ticks: 10, cooldown: 20, last_hurt: 5.0}
+      health = %{
+        state.player.living.health
+        | value: 7.25,
+          hurt_ticks: 10,
+          cooldown: 20,
+          last_hurt: 5.0
+      }
 
       %{
         state
-        | player: %{state.player | health: health},
+        | player: %{state.player | living: %{state.player.living | health: health}},
           simulation_clock: %{
             state.simulation_clock
             | token: {state.simulation_clock.epoch, make_ref()},
@@ -122,10 +135,16 @@ defmodule Valimc.PlayerHealthConnectionTest do
     token = state.simulation_clock.token
     send(pid, {:player_tick, token})
     next = Valimc.TestConn.state(pid)
-    assert next.player.health == %{state.player.health | hurt_ticks: 9, cooldown: 19}
+
+    assert next.player.living.health == %{
+             state.player.living.health
+             | hurt_ticks: 9,
+               cooldown: 19
+           }
+
     assert next.simulation_clock.tick == state.simulation_clock.tick + 1
     send(pid, {:player_tick, token})
-    assert Valimc.TestConn.state(pid).player.health == next.player.health
+    assert Valimc.TestPlayer.living(pid).health == next.player.living.health
 
     :sys.replace_state(pid, fn state ->
       %{
@@ -140,9 +159,9 @@ defmodule Valimc.PlayerHealthConnectionTest do
     token = Valimc.TestConn.state(pid).simulation_clock.token
     send(pid, {:player_tick, token})
     early = Valimc.TestConn.state(pid)
-    assert early.player.health == next.player.health
+    assert early.player.living.health == next.player.living.health
     assert early.simulation_clock.tick == next.simulation_clock.tick
     send(pid, {:player_tick, token})
-    assert Valimc.TestConn.state(pid).player.health == next.player.health
+    assert Valimc.TestPlayer.living(pid).health == next.player.living.health
   end
 end

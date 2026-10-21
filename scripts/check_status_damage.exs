@@ -1,4 +1,4 @@
-alias Valimc.{PlayerStatusImmunity, StatusEffect}
+alias Valimc.Living.{Damage, Effects}
 [facts_path, cases_path] = System.argv()
 facts = :json.decode(File.read!(facts_path))
 pinned = :json.decode(File.read!("priv/protocol/status_damage.json"))
@@ -11,11 +11,11 @@ for row <- cases do
     if row["effect"] == -1 do
       %{}
     else
-      {:ok, state} = StatusEffect.new(row["ticks"], row["amplifier"])
+      {:ok, state} = Effects.new(row["ticks"], row["amplifier"])
       %{row["effect"] => state}
     end
 
-  unless PlayerStatusImmunity.immune?(effects, String.to_atom(row["source"])) == row["rejected"],
+  unless Damage.status_immune?(effects, String.to_atom(row["source"])) == row["rejected"],
     do: raise("Native status immunity differs: #{inspect(row)}")
 end
 

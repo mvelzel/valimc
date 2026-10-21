@@ -175,7 +175,7 @@ defmodule Valimc.Portal.Items do
     else
       {next, broken} =
         if stack.item_id == @flint,
-          do: Valimc.ToolDurability.hurt(stack, 1, false),
+          do: Valimc.Durability.hurt_and_break(stack, 1, false),
           else: {if(stack.count > 1, do: %{stack | count: stack.count - 1}), nil}
 
       {:ok, inventory} = Valimc.Inventory.creative(inventory, slot, next)

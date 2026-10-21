@@ -14,8 +14,9 @@ defmodule Valimc.Player.ItemUse do
   import Valimc.Net.Codec,
     only: [send_packets: 2, reject: 2]
 
+  alias Valimc.Living.{Armor, Effects}
+
   alias Valimc.{
-    ConsumableRemoval,
     FoodItems,
     Inventory,
     Players,
@@ -27,7 +28,7 @@ defmodule Valimc.Player.ItemUse do
   }
 
   @instant_effects Enum.map(~w(instant_health instant_damage saturation), &EffectTypes.id/1)
-  @live_effects Valimc.LiveEffects.ids()
+  @live_effects Effects.live()
 
   defguardp inventory_busy(state)
             when state.recovery != nil or state.creative_input.queued > 0 or state.use_save != nil or
@@ -121,12 +122,12 @@ defmodule Valimc.Player.ItemUse do
            else: :unsupported
 
       true ->
-        case ConsumableRemoval.policy(stack, props) do
+        case Effects.removal_policy(stack, props) do
           {:ok, policy} ->
             {:ok, {:remove, policy}}
 
           :unsupported ->
-            with {:ok, callbacks} <- Valimc.StockFoodEffects.policy(stack, props),
+            with {:ok, callbacks} <- Effects.food_policy(stack, props),
                  true <-
                    Enum.all?(callbacks, fn callback ->
                      Enum.all?(callback.effects, fn {id, _} -> id in @live_effects end)
@@ -143,7 +144,7 @@ defmodule Valimc.Player.ItemUse do
     # One unbiased 24-bit native-float draw per group, in this socket owner's RNG.
     # Preflight/cancellation never draw; the accepted outcome shares the meal's save.
     draws = Enum.map(callbacks, fn _ -> (:rand.uniform(16_777_216) - 1) / 16_777_216 end)
-    {:ok, effects} = Valimc.StockFoodEffects.resolve(callbacks, draws)
+    {:ok, effects} = Effects.food_effects(callbacks, draws)
     effects
   end
 
@@ -181,10 +182,10 @@ defmodule Valimc.Player.ItemUse do
           %{state | player: player, equipment_source: source}
         end
 
-      attributes = Valimc.PlayerArmor.attributes(state.inventory)
+      attributes = Armor.attributes(Armor.equipment(state.inventory))
 
       if attributes != state.armor_view and state.phase == :play,
-        do: send_packets(state, [Packets.armor_attributes(state.player, attributes)])
+        do: send_packets(state, [Packets.armor_attributes(state.player.entity_id, attributes)])
 
       %{state | armor_view: attributes}
     end
@@ -282,7 +283,7 @@ defmodule Valimc.Player.ItemUse do
             |> Valimc.Player.Movement.publish_jump_boost()
 
           send_packets(state, [
-            Packets.health(state.player.health, state.player.food),
+            Packets.health(state.player.living.health, state.player.food),
             Packets.player_health(state.player),
             Packets.inventory(state.inventory),
             Packets.cursor(state.inventory.carried)

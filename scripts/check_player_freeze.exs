@@ -1,9 +1,9 @@
-alias Valimc.PlayerEnvironment
+alias Valimc.Living.Freezing
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 
 Enum.each(cases, fn c ->
-  expected = PlayerEnvironment.freeze_effect(c["initial"], c["allowed"])
+  expected = Freezing.freeze_effect(c["initial"], c["allowed"])
 
   if expected != c["frozen"] or c["inside"] != true,
     do: raise("Native freeze effect differs: #{inspect(c)}")

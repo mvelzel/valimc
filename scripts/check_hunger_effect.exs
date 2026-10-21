@@ -1,9 +1,10 @@
-alias Valimc.{HungerEffect, PlayerFood, StatusEffect}
+alias Valimc.Living.Effects
+alias Valimc.{PlayerFood}
 [path, timing_path] = System.argv()
 rows = path |> File.read!() |> JSON.decode!()
 
 for row <- rows do
-  {:ok, {:exhaust, amount}} = HungerEffect.request([{-1, row["amplifier"], false, true, true}])
+  {:ok, {:exhaust, amount}} = Effects.hunger([{-1, row["amplifier"], false, true, true}])
   food = %PlayerFood{exhaustion: row["before"]}
   next = if row["invulnerable"], do: food, else: PlayerFood.exhaust(food, amount)
 
@@ -15,7 +16,7 @@ timing = timing_path |> File.read!() |> JSON.decode!()
 
 for row <- timing do
   effect = [{row["ticks"], row["amplifier"], false, true, true}]
-  {:ok, request} = HungerEffect.request(effect)
+  {:ok, request} = Effects.hunger(effect)
 
   exhaustion =
     case request do
@@ -23,7 +24,7 @@ for row <- timing do
       {:exhaust, amount} -> amount
     end
 
-  {:ok, [{ticks, _, _, _, _}], remains, false} = StatusEffect.tick(effect)
+  {:ok, [{ticks, _, _, _, _}], remains, false} = Effects.tick_instance(effect)
 
   unless exhaustion == row["exhaustion"] and ticks == row["next_ticks"] and
            remains == row["remains"],

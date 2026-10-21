@@ -1,6 +1,12 @@
-defmodule Valimc.PlayerHealth do
-  @moduledoc "Player-owned health and hurt timers; damage selection and health application are separate phases."
+defmodule Valimc.Living.Health do
+  @moduledoc """
+  Health, its hurt timers and the golden-heart absorption pool of a living
+  entity (vanilla `LivingEntity`). Damage selection (the hurt window), defenses
+  and application are separate steps; the owner commits and replicates.
+  """
+  alias Valimc.Living.{Attributes, Effects}
   @float_max 3.4028234663852886e38
+  @max_absorption Attributes.max_absorption()
   defstruct value: 20.0, maximum: 20.0, hurt_ticks: 0, death_ticks: 0, cooldown: 0, last_hurt: 0.0
 
   def valid?(%__MODULE__{} = state),
@@ -13,7 +19,7 @@ defmodule Valimc.PlayerHealth do
 
   def valid?(_), do: false
 
-  @doc "Advance hurt/cooldown once on the player owner's admitted logical tick."
+  @doc "Advance hurt/cooldown once on the owner's admitted logical tick."
   def tick(%__MODULE__{} = state),
     do: %{
       state
@@ -29,7 +35,7 @@ defmodule Valimc.PlayerHealth do
       else: {:error, :invalid_health}
   end
 
-  @doc "Native float healing, including signed requests, without reviving a dead player."
+  @doc "Native float healing, including signed requests, without reviving the dead."
   def heal(%__MODULE__{} = state, amount) do
     if valid?(state) and bounded?(amount, -@float_max, @float_max) do
       if state.value > 0,
@@ -73,7 +79,7 @@ defmodule Valimc.PlayerHealth do
     end
   end
 
-  @doc "Apply already-resolved damage; invulnerability, armor, absorption and death effects belong to the owner."
+  @doc "Apply already-resolved damage; invulnerability, armor, absorption and death belong to the caller."
   def reduce(%__MODULE__{} = state, amount) do
     if valid?(state) and bounded?(amount, 0, @float_max),
       do: set(state, f32(state.value - f32(amount))),
@@ -114,6 +120,60 @@ defmodule Valimc.PlayerHealth do
   end
 
   def restore(_, _), do: {:error, :invalid_health}
+
+  # ---- absorption (golden hearts) ----
+
+  def valid_absorption?(pool), do: bounded?(pool, 0, @max_absorption) and f32(pool) == pool
+
+  @doc "Clamp the pool to the effects' maximum; `incoming` starts a newly applied dose's amplifier."
+  def reconcile_absorption(pool, effects, incoming \\ nil) do
+    {:ok, derived} = Attributes.absorption(effects)
+    {:ok, pool} = set_absorption(pool, derived.maximum)
+
+    if incoming == nil do
+      pool
+    else
+      {:ok, started} = start_absorption(pool, derived.maximum, incoming)
+      started
+    end
+  end
+
+  def set_absorption(amount, maximum) do
+    if bounded?(amount, -@float_max, @float_max) and bounded?(maximum, 0, @max_absorption),
+      do: {:ok, min(f32(maximum), max(0.0, f32(amount)))},
+      else: {:error, :invalid_absorption}
+  end
+
+  @doc "Every accepted application starts its incoming dose, including an unchanged refresh."
+  def start_absorption(pool, maximum, amplifier) when amplifier in 0..255 do
+    if bounded?(pool, 0, @max_absorption),
+      do: set_absorption(max(pool, (amplifier + 1) * 4.0), maximum),
+      else: {:error, :invalid_absorption}
+  end
+
+  def start_absorption(_, _, _), do: {:error, :invalid_absorption}
+
+  @doc "Spend after defenses using native float subtraction, retaining rounding at large damage."
+  def spend_absorption(pool, damage) do
+    if bounded?(pool, 0, @max_absorption) and bounded?(damage, 0, @float_max) do
+      pool = f32(pool)
+      damage = f32(damage)
+      remaining = max(0.0, f32(damage - pool))
+      consumed = f32(damage - remaining)
+      {:ok, %{pool: max(0.0, f32(pool - consumed)), damage: remaining}}
+    else
+      {:error, :invalid_absorption}
+    end
+  end
+
+  @doc "A depleted pool ends the whole Absorption instance before duration decrement or promotion."
+  def tick_absorption(effect, pool) do
+    if Effects.valid_instance?(effect) and bounded?(pool, 0, @max_absorption) do
+      if pool > 0, do: Effects.tick_instance(effect), else: {:ok, effect, false, false}
+    else
+      {:error, :invalid_absorption}
+    end
+  end
 
   defp clamp(value, lo, hi), do: min(max(value, lo), hi)
   defp bounded?(n, lo, hi), do: is_number(n) and n >= lo and n <= hi

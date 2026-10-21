@@ -446,7 +446,7 @@ defmodule Valimc.Player.Menus do
       when kind in [:chest, :cooking] and id == job.menu and owner == job.owner,
       state.table_menu
     ) and container_signature(state) == job.signature and
-      table_player_valid?(state) and state.player.health.value > 0 and
+      table_player_valid?(state) and state.player.living.health.value > 0 and
       World.existing_owner(
         World.region_key(
           World.chunk_key(
@@ -468,7 +468,7 @@ defmodule Valimc.Player.Menus do
       mode: state.player.game_mode.current,
       position: {state.player.x, state.player.y, state.player.z},
       eye: Valimc.PlayerInteraction.eye(state.player),
-      health: state.player.health.value,
+      health: state.player.living.health.value,
       expires:
         System.monotonic_time(:millisecond) + Valimc.Txn.Permits.window(250, state.player.uuid)
     }

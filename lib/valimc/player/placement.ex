@@ -160,7 +160,7 @@ defmodule Valimc.Player.Placement do
   def placement_body(state, request) do
     mode = state.player.game_mode.current
 
-    if state.life_stage == :alive and state.player.health.value > 0 and
+    if state.life_stage == :alive and state.player.living.health.value > 0 and
          ((mode == :creative and state.inventory.infinite_materials) or
             (mode == :survival and not state.inventory.infinite_materials)) and
          PlayerInput.loaded?(state.player.input) and
@@ -231,7 +231,7 @@ defmodule Valimc.Player.Placement do
   end
 
   def prepare_survival_placement(state, command, reservation) do
-    if command.body != nil and state.life_stage == :alive and state.player.health.value > 0 and
+    if command.body != nil and state.life_stage == :alive and state.player.living.health.value > 0 and
          state.player.game_mode.current == :survival and not state.inventory.infinite_materials and
          not state.teleport_pending and not inventory_pending(state) and state.save_ref == nil and
          System.monotonic_time(:millisecond) < command.expires and

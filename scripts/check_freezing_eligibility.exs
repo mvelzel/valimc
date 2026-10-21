@@ -1,14 +1,15 @@
-alias Valimc.{GameMode, Inventory, PlayerEnvironment}
+alias Valimc.Living.{Armor, Freezing}
+alias Valimc.{GameMode, Inventory}
 alias Valimc.Protocol.ItemStack
 [path] = System.argv()
 data = path |> File.read!() |> JSON.decode!()
 unless data["required"] == 140, do: raise("Native freeze threshold changed")
 
 for c <- data["equipment"] do
-  player = %{game_mode: GameMode.new(String.to_existing_atom(c["mode"]))}
+  spectator = GameMode.new(String.to_existing_atom(c["mode"])).current == :spectator
   inventory = %Inventory{slots: %{c["slot"] => %ItemStack{item_id: c["item_id"]}}}
 
-  unless PlayerEnvironment.can_freeze?(player, inventory) == c["allowed"],
+  unless Freezing.can_freeze?(spectator, Armor.equipment(inventory)) == c["allowed"],
     do: raise("Native freeze eligibility differs #{inspect(c)}")
 end
 

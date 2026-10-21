@@ -2,17 +2,16 @@ defmodule Valimc.PlayerSnapshot do
   @moduledoc "Bounded player state/outbox, not vanilla NBT."
   alias Valimc.{
     Inventory,
-    PlayerAbsorption,
     PlayerContainerIntent,
-    PlayerEffects,
     PlayerFood,
-    PlayerHealth,
     PlayerMiningIntent,
     PlayerPlacementIntent,
     PlayerPickupIntent,
     PlayerStore
   }
 
+  alias Valimc.Living
+  alias Valimc.Living.{Air, Burning, Effects, Freezing, Health}
   alias Valimc.Protocol.{ItemStack, ItemTypes}
   alias Valimc.World.{ItemRecords, ItemTransfers}
   @data_version 5023
@@ -23,7 +22,7 @@ defmodule Valimc.PlayerSnapshot do
                 )
   @max_sequence 18_446_744_073_709_551_615
   @max_bytes 56 + 4 + 3 + 8 + 4 + 24 + 12 + 8 + 13 + 2 + 11 + @inventory_bytes + @outbox_bytes +
-               32 + 1 + 5 + 1 + PlayerEffects.max_bytes() + 5 + 27 + 8 + 2
+               32 + 1 + 5 + 1 + Effects.max_bytes() + 5 + 27 + 8 + 2
   @dimensions [:overworld, :the_nether, :the_end]
 
   def max_bytes, do: @max_bytes
@@ -37,11 +36,6 @@ defmodule Valimc.PlayerSnapshot do
         else: snapshot
 
     snapshot =
-      if Map.has_key?(player, :absorption),
-        do: Map.put(snapshot, :absorption, player.absorption),
-        else: snapshot
-
-    snapshot =
       if Map.has_key?(player, :motion),
         do:
           Map.merge(snapshot, %{
@@ -51,16 +45,9 @@ defmodule Valimc.PlayerSnapshot do
         else: snapshot
 
     snapshot =
-      if Map.has_key?(player, :environment),
-        do: Map.put(snapshot, :frozen_ticks, player.environment.frozen_ticks),
-        else: snapshot
-
-    snapshot =
-      if Map.has_key?(player, :health) do
-        {:ok, health} = PlayerHealth.saved(player.health)
-        Map.put(snapshot, :health, health)
-      else
-        snapshot
+      case player do
+        %{living: %Living{} = living} -> Map.merge(snapshot, Living.saved(living))
+        _ -> snapshot
       end
 
     snapshot =
@@ -78,23 +65,8 @@ defmodule Valimc.PlayerSnapshot do
       end
 
     snapshot =
-      if Map.has_key?(player, :air_supply),
-        do: Map.put(snapshot, :air_supply, player.air_supply),
-        else: snapshot
-
-    snapshot =
       if Map.has_key?(player, :food),
         do: Map.put(snapshot, :food, player.food),
-        else: snapshot
-
-    snapshot =
-      if Map.has_key?(player, :fire_ticks),
-        do: Map.put(snapshot, :fire_ticks, player.fire_ticks),
-        else: snapshot
-
-    snapshot =
-      if Map.has_key?(player, :effects),
-        do: Map.put(snapshot, :effects, player.effects),
         else: snapshot
 
     snapshot =
@@ -167,7 +139,7 @@ defmodule Valimc.PlayerSnapshot do
     {version, journal} =
       if Map.has_key?(snapshot, :frozen_ticks) do
         check(
-          version == 6 and Valimc.PlayerEnvironment.valid_ticks?(snapshot.frozen_ticks),
+          version == 6 and Freezing.valid_ticks?(snapshot.frozen_ticks),
           :invalid_frozen_ticks
         )
 
@@ -192,7 +164,7 @@ defmodule Valimc.PlayerSnapshot do
 
     {version, journal} =
       if Map.has_key?(snapshot, :health) do
-        check(version == 8 and PlayerHealth.valid_saved?(snapshot.health), :invalid_health)
+        check(version == 8 and Health.valid_saved?(snapshot.health), :invalid_health)
         health = snapshot.health
         {9, [<<health.value::float-32, health.hurt_ticks::16, health.death_ticks::16>>, journal]}
       else
@@ -219,7 +191,7 @@ defmodule Valimc.PlayerSnapshot do
 
     {version, journal} =
       if Map.has_key?(snapshot, :air_supply) do
-        check(version == 10 and Valimc.PlayerAir.valid?(snapshot.air_supply), :invalid_air_supply)
+        check(version == 10 and Air.valid?(snapshot.air_supply), :invalid_air_supply)
         {11, [<<snapshot.air_supply::signed-16>>, journal]}
       else
         {version, journal}
@@ -288,7 +260,7 @@ defmodule Valimc.PlayerSnapshot do
 
     {version, journal} =
       if Map.has_key?(snapshot, :fire_ticks) do
-        check(Valimc.PlayerBurning.valid?(snapshot.fire_ticks), :invalid_fire_ticks)
+        check(Burning.valid?(snapshot.fire_ticks), :invalid_fire_ticks)
         {17, [<<version, snapshot.fire_ticks::signed-32>>, journal]}
       else
         {version, journal}
@@ -296,8 +268,8 @@ defmodule Valimc.PlayerSnapshot do
 
     {version, journal} =
       if Map.has_key?(snapshot, :effects) do
-        check(PlayerEffects.valid?(snapshot.effects), :invalid_player_effects)
-        {:ok, effects} = PlayerEffects.encode(snapshot.effects)
+        check(Effects.valid?(snapshot.effects), :invalid_player_effects)
+        {:ok, effects} = Effects.encode(snapshot.effects)
         {18, [<<version>>, effects, journal]}
       else
         {version, journal}
@@ -305,7 +277,7 @@ defmodule Valimc.PlayerSnapshot do
 
     {version, journal} =
       if Map.has_key?(snapshot, :absorption) do
-        check(PlayerAbsorption.valid?(snapshot.absorption), :invalid_absorption)
+        check(Health.valid_absorption?(snapshot.absorption), :invalid_absorption)
         {19, [<<version, snapshot.absorption::float-32>>, journal]}
       else
         {version, journal}
@@ -410,7 +382,7 @@ defmodule Valimc.PlayerSnapshot do
       case payload do
         <<"VMCPOSE", 19, header::binary-size(52), base, pool::float-32, body::binary>>
         when base in 2..18 or base == 20 ->
-          check(PlayerAbsorption.valid?(pool), :invalid_absorption)
+          check(Health.valid_absorption?(pool), :invalid_absorption)
           {<<"VMCPOSE", base, header::binary, body::binary>>, %{absorption: pool}}
 
         _ ->
@@ -421,7 +393,7 @@ defmodule Valimc.PlayerSnapshot do
       case payload do
         <<"VMCPOSE", 18, header::binary-size(52), base, rest::binary>>
         when base in 2..17 or base == 20 ->
-          {:ok, effects, body} = PlayerEffects.take(rest)
+          {:ok, effects, body} = Effects.take(rest)
           {<<"VMCPOSE", base, header::binary, body::binary>>, %{effects: effects}}
 
         _ ->
@@ -539,7 +511,7 @@ defmodule Valimc.PlayerSnapshot do
         {air, rest} =
           if version >= 11 do
             <<supply::signed-16, rest::binary>> = rest
-            check(Valimc.PlayerAir.valid?(supply), :invalid_player_file)
+            check(Air.valid?(supply), :invalid_player_file)
             {%{air_supply: supply}, rest}
           else
             {%{}, rest}
@@ -566,7 +538,7 @@ defmodule Valimc.PlayerSnapshot do
           if version >= 9 do
             <<value::float-32, hurt::16, death::16, rest::binary>> = rest
             health = %{value: value, hurt_ticks: hurt, death_ticks: death}
-            check(PlayerHealth.valid_saved?(health), :invalid_player_file)
+            check(Health.valid_saved?(health), :invalid_player_file)
             {%{health: health}, rest}
           else
             {%{}, rest}
@@ -584,7 +556,7 @@ defmodule Valimc.PlayerSnapshot do
         {environment, rest} =
           if version >= 7 do
             <<frozen::32, rest::binary>> = rest
-            check(Valimc.PlayerEnvironment.valid_ticks?(frozen), :invalid_player_file)
+            check(Freezing.valid_ticks?(frozen), :invalid_player_file)
             {%{frozen_ticks: frozen}, rest}
           else
             {%{}, rest}

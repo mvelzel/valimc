@@ -1,4 +1,5 @@
-alias Valimc.{InstantEffect, PlayerFood}
+alias Valimc.Living.Effects
+alias Valimc.{PlayerFood}
 alias Valimc.Protocol.EffectTypes
 [path] = System.argv()
 rows = path |> File.read!() |> JSON.decode!()
@@ -12,7 +13,7 @@ for row <- rows do
   }
 
   {:ok, {:eat, nutrition, saturation}} =
-    InstantEffect.drink_request(EffectTypes.id("saturation"), row["amplifier"])
+    Effects.instant(EffectTypes.id("saturation"), row["amplifier"])
 
   next = PlayerFood.eat(food, nutrition, saturation)
 

@@ -1,9 +1,9 @@
-alias Valimc.InstantEffect
+alias Valimc.Living.Effects
 [path] = System.argv()
 rows = path |> File.read!() |> JSON.decode!()
 
 for row <- rows do
-  {:ok, request} = InstantEffect.drink_request(row["id"], row["amplifier"])
+  {:ok, request} = Effects.instant(row["id"], row["amplifier"])
 
   expected =
     case request do

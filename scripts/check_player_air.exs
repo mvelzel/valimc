@@ -1,16 +1,17 @@
-alias Valimc.{Inventory, PlayerAir}
+alias Valimc.Living.{Air, Armor}
+alias Valimc.{Inventory}
 alias Valimc.Protocol.ItemStack
 [path] = System.argv()
 data = path |> File.read!() |> JSON.decode!()
-unless data["maximum"] == PlayerAir.maximum(), do: raise("Native air maximum changed")
+unless data["maximum"] == Air.maximum(), do: raise("Native air maximum changed")
 
-unless data["bubble_states"] == PlayerAir.bubble_states(),
+unless data["bubble_states"] == Air.bubble_states(),
   do: raise("Native bubble-column states changed")
 
 for c <- data["cases"] do
-  unless PlayerAir.decrease(c["air"], c["oxygen"], c["draw"]) == c["decrease"] and
-           PlayerAir.increase(c["air"]) == c["increase"] and
-           PlayerAir.drowning?(c["air"]) == c["drowning"],
+  unless Air.decrease(c["air"], c["oxygen"], c["draw"]) == c["decrease"] and
+           Air.increase(c["air"]) == c["increase"] and
+           Air.drowning?(c["air"]) == c["drowning"],
          do: raise("Native air primitive differs #{inspect(c)}")
 end
 
@@ -24,7 +25,7 @@ for c <- data["equipment"] do
 
   inventory = %Inventory{slots: %{c["slot"] => stack}}
 
-  unless PlayerAir.oxygen_bonus(inventory) == c["oxygen"],
+  unless Armor.oxygen_bonus(Armor.equipment(inventory)) == c["oxygen"],
     do: raise("Native oxygen equipment differs #{inspect(c)}")
 end
 

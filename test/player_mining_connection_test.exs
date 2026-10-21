@@ -1,5 +1,6 @@
 defmodule Valimc.PlayerMiningConnectionTest do
   use ExUnit.Case, async: false
+  alias Valimc.Living.{Freezing, Health}
   @moduletag :tcp
   alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore, World}
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes, Wire}
@@ -48,13 +49,11 @@ defmodule Valimc.PlayerMiningConnectionTest do
   defp seed(ctx, slots, block \\ Data.block("stone")) do
     player =
       Map.merge(ctx.pose, %{
+        living: %Valimc.Living{freezing: %Freezing{}, health: %Health{}, air_supply: 300},
         game_mode: GameMode.new(:survival),
         abilities: Valimc.PlayerAbilities.for_mode(:survival),
         motion: %Valimc.PlayerMotion{},
-        environment: %Valimc.PlayerEnvironment{},
-        health: %Valimc.PlayerHealth{},
         last_death: nil,
-        air_supply: 300,
         food: %Valimc.PlayerFood{}
       })
 

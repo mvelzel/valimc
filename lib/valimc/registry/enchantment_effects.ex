@@ -83,6 +83,86 @@ defmodule Valimc.Registry.EnchantmentEffects do
   unless map_size(@definitions) == 6,
     do: raise("Damage effect enchantments changed: #{inspect(Map.keys(@definitions))}")
 
+  # vanilla `LevelBasedValue.Fraction` of two linear values, as float32.
+  fraction = fn
+    %{"type" => "minecraft:fraction", "numerator" => n, "denominator" => d} ->
+      {linear.(n), linear.(d)}
+
+    other ->
+      raise "Unsupported item damage chance #{inspect(other)}"
+  end
+
+  # An item tag the tool must be in (true) or not (false).
+  match_tool = fn
+    %{"type" => "minecraft:match_tool", "predicate" => %{"items" => "#minecraft:" <> tag} = p}
+    when map_size(p) == 1 ->
+      tag
+
+    other ->
+      raise "Unsupported item damage requirement #{inspect(other)}"
+  end
+
+  tool = fn
+    %{"type" => "minecraft:inverted", "term" => term} -> {match_tool.(term), false}
+    requirement -> {match_tool.(requirement), true}
+  end
+
+  # Item damage (vanilla `RemoveBinomial`): per enchantment, the removal chance by
+  # the tool's item tag. Only Unbreaking has one in the pinned pack.
+  @item_damage @facts["enchantments"]
+               |> Enum.flat_map(fn {name, definition} ->
+                 case Map.get(definition["effects"], "minecraft:item_damage") do
+                   nil ->
+                     []
+
+                   effects ->
+                     [
+                       {name,
+                        Enum.map(effects, fn
+                          %{"effect" => %{"type" => "minecraft:remove_binomial", "chance" => c}} =
+                              entry ->
+                            {fraction.(c), tool.(entry["requirements"])}
+
+                          other ->
+                            raise "Unsupported item damage #{inspect(other)}"
+                        end)}
+                     ]
+                 end
+               end)
+               |> Map.new()
+
+  unless Map.keys(@item_damage) == ["minecraft:unbreaking"],
+    do: raise("Item damage enchantments changed: #{inspect(Map.keys(@item_damage))}")
+
+  @item_tags Map.new(Valimc.Protocol.Data.tags()["minecraft:item"], fn {"minecraft:" <> tag, ids} ->
+               {tag, MapSet.new(ids)}
+             end)
+
+  @doc """
+  The chance that each point of wear on item `item_id` with `enchantments`
+  (levels by name) is removed (vanilla `EnchantmentHelper.processDurabilityChange`
+  with `RemoveBinomial`), as float32; 0.0 without such an enchantment.
+  """
+  def item_damage_chance(enchantments, item_id) do
+    Enum.reduce(enchantments, 0.0, fn {name, level}, chance ->
+      case Map.get(@item_damage, name) do
+        nil ->
+          chance
+
+        effects ->
+          Enum.find_value(effects, chance, fn {{{nb, np}, {db, dp}}, {tag, expected}} ->
+            if MapSet.member?(Map.fetch!(@item_tags, tag), item_id) == expected and level > 0,
+              do: f32(f32(nb + f32(np * (level - 1))) / f32(db + f32(dp * (level - 1))))
+          end)
+      end
+    end)
+  end
+
+  defp f32(number) do
+    <<value::float-32>> = <<number::float-32>>
+    value
+  end
+
   @doc "Vanilla `EnchantmentHelper.getDamageProtection`: the protection points against `source`."
   def protection(equipment, source) do
     for {slot, enchantments} <- equipment,

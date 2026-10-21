@@ -1,4 +1,5 @@
-alias Valimc.{PlayerJumpBoost, Physics.FallDamage}
+alias Valimc.Living.Attributes
+alias Valimc.{Physics.FallDamage}
 alias Valimc.Protocol.EffectTypes
 [path] = System.argv()
 facts = :json.decode(File.read!(path))
@@ -13,7 +14,7 @@ for row <- facts["cases"] do
       do: %{},
       else: %{EffectTypes.id("jump_boost") => [{200, row["amplifier"], false, true, true}]}
 
-  {:ok, derived} = PlayerJumpBoost.derive(effects)
+  {:ok, derived} = Attributes.jump_boost(effects)
   {id, base, modifiers} = derived.attribute
 
   unless id == row["attribute_id"] and base == row["safe_base"] and
@@ -23,7 +24,7 @@ for row <- facts["cases"] do
          do: raise("Native Jump Boost attribute differs: #{inspect(row)}")
 
   for [factor, expected] <- row["powers"] do
-    {:ok, ^expected} = PlayerJumpBoost.power(factor, row["amplifier"])
+    {:ok, ^expected} = Attributes.jump_power(factor, row["amplifier"])
   end
 
   for [distance, material, expected] <- row["falls"] do

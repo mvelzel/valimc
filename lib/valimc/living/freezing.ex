@@ -1,15 +1,16 @@
-defmodule Valimc.PlayerEnvironment do
-  @moduledoc "Player-owned freeze state; contact comes from complete fenced body samples."
+defmodule Valimc.Living.Freezing do
+  @moduledoc """
+  A living entity's freezing (vanilla `Entity.ticksFrozen` and powder snow's
+  cold damage): contact comes from complete body samples, the counter advances
+  on the owner's admitted clock, and a due hit is consumed against a fresh
+  sample and current gear.
+  """
+  alias Valimc.Living.Armor
   alias Valimc.Physics.{BlockShapes, Box}
-  @tags Path.expand("../../priv/protocol/tags.json", __DIR__)
-  @external_resource @tags
-  @immune :json.decode(File.read!(@tags))["minecraft:item"]["minecraft:freeze_immune_wearables"]
-          |> MapSet.new()
   @epsilon 9.999999747378752e-6
   defstruct powder_snow: false, frozen_ticks: 0, damage_phase: 0, damage_due: false
 
   def valid_ticks?(value), do: is_integer(value) and value in 0..140
-  def frozen(player), do: Map.get(player, :environment, %__MODULE__{}).frozen_ticks
   def active?(%__MODULE__{} = env), do: env.powder_snow or env.frozen_ticks > 0
 
   @doc "Advance only on the player's admitted clock; delayed geometry retains at most one consequence."
@@ -29,15 +30,9 @@ defmodule Valimc.PlayerEnvironment do
   def freeze_effect(ticks, allowed) when ticks in 0..140 and is_boolean(allowed),
     do: if(allowed, do: min(140, ticks + 1), else: ticks)
 
-  def can_freeze?(player, inventory) do
-    player.game_mode.current != :spectator and
-      not Enum.any?(5..8, fn slot ->
-        case inventory.slots[slot] do
-          nil -> false
-          stack -> MapSet.member?(@immune, stack.item_id)
-        end
-      end)
-  end
+  @doc "Whether the entity can freeze: not a spectator and wearing no freeze-immune wearable."
+  def can_freeze?(spectator, equipment) when is_boolean(spectator),
+    do: not spectator and not Armor.freeze_immune?(equipment)
 
   def observe(%__MODULE__{} = env, powder, due, immune)
       when is_boolean(powder) and is_boolean(due) and is_boolean(immune) do

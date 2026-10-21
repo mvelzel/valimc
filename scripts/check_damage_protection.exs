@@ -1,7 +1,7 @@
-alias Valimc.{Inventory, PlayerArmor, PlayerDamageProtection}
-alias Valimc.Physics.ArmorDamage
+alias Valimc.Living.{Armor, Damage, DamageSource}
+alias Valimc.{Inventory}
 alias Valimc.Protocol.{EffectTypes, ItemStack, ItemTypes}
-Code.ensure_loaded!(PlayerDamageProtection)
+Code.ensure_loaded!(Damage)
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()
 
@@ -34,25 +34,25 @@ for c <- cases do
       do: %{EffectTypes.id("resistance") => [{-1, c["resistance"], false, true, true}]},
       else: %{}
 
-  {:ok, damage} = PlayerDamageProtection.damage(inventory, source, c["amount"], effects)
+  {:ok, damage} = Damage.protect(Armor.equipment(inventory), source, c["amount"], effects)
   matches = if c["damage"] == "infinity", do: damage > 1024, else: damage == c["damage"]
 
-  unless PlayerDamageProtection.points(inventory, source) == c["protection"] and
+  unless Damage.protection(Armor.equipment(inventory), source) == c["protection"] and
            matches and
-           PlayerDamageProtection.exhaustion(source) == c["exhaustion"],
+           DamageSource.exhaustion(source) == c["exhaustion"],
          do: raise("Native environmental protection differs #{inspect({c, damage})}")
 
   if Map.has_key?(c, "armored") do
-    attributes = PlayerArmor.attributes(inventory)
+    attributes = Armor.attributes(Armor.equipment(inventory))
 
     {:ok, armored} =
-      if PlayerDamageProtection.wears_armor?(source),
-        do: ArmorDamage.reduce(c["amount"], attributes.armor, attributes.toughness),
+      if DamageSource.wears_armor?(source),
+        do: Damage.armor_absorb(c["amount"], attributes.armor, attributes.toughness),
         else: {:ok, c["amount"]}
 
     unless attributes.armor == c["armor"] and attributes.toughness == c["toughness"] and
              armored == c["armored"] and
-             c["wear_calls"] == if(PlayerDamageProtection.wears_armor?(source), do: 1, else: 0) and
+             c["wear_calls"] == if(DamageSource.wears_armor?(source), do: 1, else: 0) and
              (c["wear_calls"] == 0 or c["wear_amount"] == c["amount"]),
            do: raise("Native fire armor/selection order differs #{inspect(c)}")
   end

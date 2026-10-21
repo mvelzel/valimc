@@ -1,4 +1,4 @@
-alias Valimc.PlayerDeathMessage
+alias Valimc.Living.DamageSource
 alias Valimc.Protocol.{Packets, Wire}
 [facts_path, path, output] = System.argv()
 
@@ -11,7 +11,7 @@ cases = :json.decode(File.read!(path))
 rows =
   for row <- cases, entity <- [1, 127, 128, 2_147_483_647], kind <- ["death", "chat"] do
     source = String.to_atom(row["source"])
-    message = PlayerDeathMessage.component(row["name"], source)
+    message = DamageSource.death_message(row["name"], source)
     {:compound, %{"translate" => {:string, key}, "with" => {:list, {:string, names}}}} = message
 
     unless key == row["message"]["translate"] and names == row["message"]["with"],

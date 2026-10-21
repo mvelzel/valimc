@@ -30,7 +30,6 @@ defmodule Valimc.Connection do
     Inventory,
     Metrics,
     Players,
-    PlayerHealth,
     PlayerKinetics,
     PlayerSnapshot,
     PlayerStore
@@ -38,7 +37,7 @@ defmodule Valimc.Connection do
 
   alias Valimc.World.{ChestLidReplication, EntityReplication}
   import Bitwise
-  @live_effects Valimc.LiveEffects.ids()
+  @live_effects Valimc.Living.Effects.live()
   @doc "Status effects the live game applies; others are refused (login, commands)."
   def live_effects, do: @live_effects
 
@@ -125,7 +124,7 @@ defmodule Valimc.Connection do
 
   def handle_call({:fall_damage, amount, deadline}, _, %{phase: :play} = state) do
     if System.monotonic_time(:millisecond) < deadline do
-      case PlayerHealth.hurt_window(state.player.health, amount) do
+      case Valimc.Living.Health.hurt_window(state.player.living.health, amount) do
         {:ok, selected} ->
           try do
             {result, next} = Vitals.apply_damage(state, selected, :fall)
@@ -151,7 +150,7 @@ defmodule Valimc.Connection do
       ) do
     if System.monotonic_time(:millisecond) < deadline and id in @live_effects do
       try do
-        case Valimc.Player.StatusEffects.apply(state, id, incoming) do
+        case Vitals.apply_effect(state, id, incoming) do
           {:ok, changed, next} -> {:reply, {:ok, changed}, next}
           {:error, _} = error -> {:reply, error, state}
         end

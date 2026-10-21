@@ -1,16 +1,21 @@
-defmodule Valimc.PlayerAir do
-  @moduledoc "Bounded player air primitives; the owner supplies fresh contact, ticks and random draws."
-  alias Valimc.Inventory
-  alias Valimc.Protocol.ItemStack
+defmodule Valimc.Living.Air do
+  @moduledoc """
+  A living entity's air supply (vanilla `LivingEntity.baseTick` air): eye
+  contact with water, Respiration, the breathing effects, drowning and
+  refilling. The owner supplies fresh contact, ticks and random draws.
+  """
   alias Valimc.Physics.FluidContact
+  alias Valimc.Protocol.EffectTypes
   alias Valimc.Registry.Blocks
   @maximum 300
   @bubble_column Blocks.id("bubble_column")
+  @water_breathing EffectTypes.id("water_breathing")
+  @conduit EffectTypes.id("conduit_power")
+  @nautilus EffectTypes.id("breath_of_the_nautilus")
 
   def maximum, do: @maximum
   def valid?(air), do: is_integer(air) and air in -20..@maximum
   def bubble_states, do: Enum.to_list(Blocks.states("bubble_column"))
-  def supply(player), do: Map.get(player, :air_supply, @maximum)
 
   def contact(frame, %{box: box, eye: {x, y, z} = eye}) do
     with {:ok, eyes} <- FluidContact.eyes(frame, box, eye),
@@ -23,6 +28,22 @@ defmodule Valimc.PlayerAir do
     end
   end
 
+  @doc "The breathing effects' policy: `:none`, `:hold` (no drain) or `:refill`."
+  def policy(effects) when is_map(effects) do
+    if breathes?(effects), do: if(refills?(effects), do: :refill, else: :hold), else: :none
+  end
+
+  def breathes?(effects) when is_map(effects),
+    do:
+      Map.has_key?(effects, @water_breathing) or Map.has_key?(effects, @conduit) or
+        Map.has_key?(effects, @nautilus)
+
+  def refills?(effects) when is_map(effects),
+    do:
+      not Map.has_key?(effects, @nautilus) or Map.has_key?(effects, @water_breathing) or
+        Map.has_key?(effects, @conduit)
+
+  @doc "One tick of air: `{air, drowning damage}`."
   def tick(air, submerged, immune, oxygen, draw, policy \\ :none)
 
   def tick(air, true, false, oxygen, draw, :none) do
@@ -34,20 +55,6 @@ defmodule Valimc.PlayerAir do
 
   def tick(air, _submerged, _immune, _oxygen, _draw, policy)
       when policy in [:none, :refill, :hold], do: {increase(air), 0.0}
-
-  # The pinned Respiration attribute effect applies to the head slot only.
-  # Other native items/enchantments contribute no default oxygen modifier.
-  def oxygen_bonus(%Inventory{slots: slots}) do
-    case slots[5] do
-      %ItemStack{components: components} ->
-        components
-        |> Map.get("minecraft:enchantments", %{})
-        |> Map.get("minecraft:respiration", 0)
-
-      nil ->
-        0
-    end
-  end
 
   def decrease(air, oxygen, draw)
       when is_integer(air) and air in -20..@maximum and is_number(oxygen) and

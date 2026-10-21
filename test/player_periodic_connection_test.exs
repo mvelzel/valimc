@@ -1,10 +1,11 @@
 defmodule Valimc.PlayerPeriodicConnectionTest do
   use ExUnit.Case, async: false
+  alias Valimc.Living.{Effects, Freezing, Health}
   @moduletag :tcp
-  alias Valimc.{Connection, Inventory, PlayerHealth, PlayerSnapshot, World}
+  alias Valimc.{Connection, Inventory, PlayerSnapshot, World}
   alias Valimc.Protocol.{ItemStack, Wire}
   alias Valimc.TestClient, as: Client
-  import Valimc.TestPlayer, only: [state: 1]
+  import Valimc.TestPlayer, only: [living: 1, state: 1]
 
   setup do: Valimc.TestPlayer.scope("Effect", {200_000, 981}, survival: {1, false})
 
@@ -30,15 +31,17 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
 
     player =
       Map.merge(ctx.pose, %{
+        living: %Valimc.Living{
+          freezing: %Freezing{},
+          health: %Health{value: Keyword.get(opts, :health, 20.0)},
+          air_supply: 300,
+          fire_ticks: Keyword.get(opts, :fire, 0),
+          effects: Keyword.get(opts, :effects, %{})
+        },
         game_mode: Valimc.GameMode.new(mode),
         abilities: Valimc.PlayerAbilities.for_mode(mode),
         motion: %Valimc.PlayerMotion{},
-        environment: %Valimc.PlayerEnvironment{},
-        health: %PlayerHealth{value: Keyword.get(opts, :health, 20.0)},
         last_death: nil,
-        air_supply: 300,
-        fire_ticks: Keyword.get(opts, :fire, 0),
-        effects: Keyword.get(opts, :effects, %{}),
         food: %Valimc.PlayerFood{level: 5, saturation: 0.0}
       })
 
@@ -60,7 +63,7 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
 
   defp effect(pid, name, duration, amplifier \\ 0) do
     id = Valimc.Protocol.EffectTypes.id(name)
-    {:ok, incoming} = Valimc.StatusEffect.new(duration, amplifier)
+    {:ok, incoming} = Effects.new(duration, amplifier)
     assert {:ok, true} = Connection.add_effect(pid, id, incoming)
     id
   end
@@ -71,22 +74,22 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
     {client, pid} = login(ctx)
     id = effect(pid, "regeneration", 200)
     stale = tick(pid)
-    assert state(pid).player.health.value == 11.0
+    assert living(pid).health.value == 11.0
     assert state(pid).player.food.exhaustion == 0.0
     send(pid, {:player_tick, stale})
-    assert state(pid).player.health.value == 11.0
+    assert living(pid).health.value == 11.0
     for _ <- 1..49, do: tick(pid)
-    assert state(pid).player.health.value == 11.0
+    assert living(pid).health.value == 11.0
     tick(pid)
-    assert state(pid).player.health.value == 12.0
-    assert state(pid).player.effects[id] == [{149, 0, false, true, true}]
+    assert living(pid).health.value == 12.0
+    assert living(pid).effects[id] == [{149, 0, false, true, true}]
     Client.close(client)
     wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, ctx.uuid) == [] end)
     assert {:ok, saved} = PlayerSnapshot.decode(File.read!(ctx.path), ctx.uuid)
     assert saved.health.value == 12.0 and saved.effects[id] == [{149, 0, false, true, true}]
     {_client, owner} = login(ctx, {id, 149, 0, 6})
-    assert state(owner).player.health.value == 12.0
-    assert elem(hd(state(owner).player.effects[id]), 0) in 148..149
+    assert living(owner).health.value == 12.0
+    assert elem(hd(living(owner).effects[id]), 0) in 148..149
   end
 
   test "wither can kill and seals post-tick effects with one unchanged durable death drop", ctx do
@@ -122,7 +125,10 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
 
     try do
       for _ <- 1..50, do: tick(pid, false)
-      assert state(pid).player.health.value == 11.0 and state(pid).player.effects == %{}
+
+      assert living(pid).health.value == 11.0 and
+               living(pid).effects == %{}
+
       Valimc.TestRegionGate.resume(region)
 
       wait(fn ->
@@ -131,7 +137,7 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
           not state(pid).simulation_due
       end)
 
-      assert state(pid).player.health.value == 11.0
+      assert living(pid).health.value == 11.0
     after
       Valimc.TestRegionGate.resume(region)
     end
