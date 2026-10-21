@@ -17,9 +17,8 @@ defmodule Valimc.ItemDespawnTest do
     )
 
     on_exit(fn ->
-      for reg <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
-          k <- TestScope.neighborhood(key),
-          {pid, _} <- Registry.lookup(reg, k),
+      for k <- TestScope.neighborhood(key),
+          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, k),
           do: TestScope.kill(pid)
 
       File.rm_rf(base)

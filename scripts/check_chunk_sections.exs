@@ -82,8 +82,8 @@ loaded =
 
       loaded =
         Map.put_new_lazy(loaded, key, fn ->
-          images = Valimc.World.Store.durable(imported, key, :columns)
-          {:ok, blocks} = Blocks.new(key, %{}, images)
+          {:ok, parts} = Valimc.World.RegionStorage.read(imported, :overworld, key)
+          {:ok, blocks} = Blocks.new(key, %{}, parts.columns)
           blocks
         end)
 

@@ -64,8 +64,7 @@ defmodule Valimc.WorldPresetsTest do
     TestScope.isolate(key, world_path: ctx.base, region_ticks: :manual)
 
     on_exit(fn ->
-      for reg <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
-          {pid, _} <- Registry.lookup(reg, key),
+      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
           do: TestScope.kill(pid)
     end)
 

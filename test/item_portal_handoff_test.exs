@@ -33,10 +33,6 @@ defmodule Valimc.ItemPortalHandoffTest do
           {pid, _} <- Registry.lookup(Valimc.RegionRegistry, region),
           do: TestScope.kill(pid)
 
-      for region <- [key, beside, {:the_nether, key}, {:the_nether, beside}],
-          {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, region),
-          do: TestScope.kill(pid)
-
       File.rm_rf(base)
     end)
 

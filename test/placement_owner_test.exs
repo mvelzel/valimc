@@ -61,65 +61,30 @@ defmodule Valimc.PlacementOwnerTest do
     assert Valimc.TestBlocks.get(c.position) == 0
   end
 
-  test "creative chest block and metadata wait for one joint writer on creation and removal", c do
+  test "creative chest block and metadata apply together on creation and removal", c do
     request = %{position: c.position, face: 1, cursor: {0.5, 0.5, 0.5}, yaw: 180.0}
     assert {:ok, prepared} = plan(c, "chest", request)
     {pid, _} = c.owner
-    writer = Valimc.TestConn.state(pid).resource.store
-    :sys.suspend(writer)
 
-    task =
-      Task.async(fn ->
-        Region.place_block(c.owner, prepared.revision, prepared.batch, prepared.deadline)
-      end)
-
-    try do
-      wait_writing(pid)
-      # Adopted in owner memory; readers see the chest only once durable.
-      assert Valimc.TestRegion.published_block(c.owner, c.position) == 0
-      assert Task.yield(task, 10) == nil
-      :sys.resume(writer)
-      assert {:ok, _} = Task.await(task, 60_000)
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-      Task.shutdown(task, :brutal_kill)
-    end
+    assert {:ok, _} =
+             Region.place_block(c.owner, prepared.revision, prepared.batch, prepared.deadline)
 
     chest = Valimc.TestBlocks.get(c.position)
+    assert Valimc.TestRegion.published_block(c.owner, c.position) == chest
     old = Valimc.TestConn.state(pid).resource.containers
     assert old.entries[c.position].slots == Tuple.duplicate(nil, 27)
-    :sys.suspend(writer)
     {:ok, current} = Region.observe_blocks(c.owner, [c.position])
 
-    removal =
-      Task.async(fn ->
-        Region.destroy_block(
-          c.owner,
-          current.revision,
-          c.position,
-          System.monotonic_time(:millisecond) + 250
-        )
-      end)
-
-    try do
-      wait_writing(pid)
-      assert Valimc.TestRegion.published_block(c.owner, c.position) == chest
-
-      assert Valimc.World.Containers.decode(
-               Valimc.TestDisk.read(c.path, c.key, :containers),
-               c.key
-             ) ==
-               {:ok, old}
-
-      assert Task.yield(removal, 10) == nil
-      :sys.resume(writer)
-      assert :ok = Task.await(removal, 60_000)
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-      Task.shutdown(removal, :brutal_kill)
-    end
+    assert :ok =
+             Region.destroy_block(
+               c.owner,
+               current.revision,
+               c.position,
+               System.monotonic_time(:millisecond) + 250
+             )
 
     assert Valimc.TestBlocks.get(c.position) == 0
+    assert :ok = Region.flush(pid)
 
     {:ok, containers} =
       Valimc.World.Containers.decode(
@@ -134,14 +99,6 @@ defmodule Valimc.PlacementOwnerTest do
     {:ok, {replacement, _}} = World.owner(c.key)
     assert :sys.get_state(replacement).resource.containers == containers
     assert Valimc.TestBlocks.get(c.position) == 0
-  end
-
-  defp wait_writing(pid, _budget \\ nil) do
-    Valimc.TestWait.until(fn ->
-      Enum.any?(Valimc.TestConn.state(pid).resource.item_writes, &(&1.kind == :blocks))
-    end)
-
-    :ok
   end
 
   test "stalled and absent sources fail without cold admission or blocking the caller", c do

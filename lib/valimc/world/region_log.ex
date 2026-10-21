@@ -1,8 +1,9 @@
 defmodule Valimc.World.RegionLog do
   @moduledoc """
-  Append-only durability log for one region (VMC-063): checkpoints plus log
-  segments of CRC-checked frames. Pure functions over files; the region writer
-  process owns one `%RegionLog{}`.
+  Append-only durability log (VMC-063): checkpoints plus log segments of
+  CRC-checked frames. Pure functions over files; the process that writes a
+  directory owns one `%RegionLog{}`: a stripe of the world's write-ahead log
+  (`Valimc.Storage.Log`, VMC-077f) or a proto owner.
 
   Layout of a region directory:
 
@@ -19,13 +20,12 @@ defmodule Valimc.World.RegionLog do
 
   No descriptor stays open between operations (VMC-074): an append opens the
   segment, writes, syncs and closes it, and reads, truncation and checkpoints
-  likewise, each holding descriptors of `Valimc.FileBudget`. Running out of
-  descriptors is retried with backoff; an append whose segment would still not
-  open wrote nothing and returns `{:error, {:unwritten, reason}}`, after which
-  the log may append again. Any other failed append may have left a torn frame:
-  only recovery (`open/1`) may continue.
+  likewise. The writers are a few stripes, so descriptors are O(stripes). An
+  append whose segment would not open wrote nothing and returns
+  `{:error, {:unwritten, reason}}`, after which the log may append again. Any
+  other failed append may have left a torn frame: only recovery (`open/1`) may
+  continue. A frame is at most 64 MiB, asserted on encode.
   """
-  alias Valimc.FileBudget
 
   @ckpt_magic "VMCCKPT1"
   @max_frame 64 * 1024 * 1024
@@ -46,9 +46,16 @@ defmodule Valimc.World.RegionLog do
 
   ## Frames
 
-  @doc "Encode one frame of `ops` at `lsn`."
+  @doc "The largest frame `decode_frames/2` accepts."
+  def max_frame, do: @max_frame
+
+  @doc "Encode one frame of `ops` at `lsn`; a frame over `max_frame/0` raises (world-core E1)."
   def encode_frame(lsn, incarnation, ops) when is_list(ops) do
     payload = <<lsn::64, incarnation::32, :erlang.term_to_binary(ops)::binary>>
+
+    if byte_size(payload) > @max_frame,
+      do: raise(ArgumentError, "region log frame of #{byte_size(payload)} bytes over the cap")
+
     <<byte_size(payload)::32, :erlang.crc32(payload)::32, payload::binary>>
   end
 
@@ -217,7 +224,7 @@ defmodule Valimc.World.RegionLog do
 
     bytes = encode_checkpoint(lsn, incarnation, state)
 
-    with :ok <- with_retry(fn -> File.write(tmp, bytes, [:binary, :sync]) end),
+    with :ok <- File.write(tmp, bytes, [:binary, :sync]),
          :ok <- File.rename(tmp, path),
          :ok <- fsync_dir(dir) do
       for file <- list(dir, "ckpt."),
@@ -230,6 +237,22 @@ defmodule Valimc.World.RegionLog do
     end
   rescue
     error in File.Error -> {:error, {:file, error.reason, error.path}}
+  end
+
+  @doc """
+  Delete the segments whose every frame is at or below `lsn`, never the one
+  being appended to (`Valimc.Storage.Log` prunes what owners' checkpoints cover).
+  """
+  def prune(%__MODULE__{} = log, lsn) do
+    files = segments(log.dir)
+
+    removed =
+      for {{_, file}, {next, _}} <- Enum.zip(files, Enum.drop(files, 1)),
+          next <= lsn + 1,
+          Path.join(log.dir, file) != log.segment,
+          do: File.rm(Path.join(log.dir, file))
+
+    if removed == [], do: :ok, else: fsync_dir(log.dir)
   end
 
   @doc "Nothing stays open between operations; kept for the writers' lifecycle."
@@ -330,38 +353,31 @@ defmodule Valimc.World.RegionLog do
            with :ok <- :file.write(fd, frames), do: :file.datasync(fd)
          end) do
       {:error, {:open, reason}} ->
-        if FileBudget.transient?(reason),
-          do: {:error, {:unwritten, reason}},
-          else: {:error, {:open, reason}}
+        {:error, {:unwritten, reason}}
 
       result ->
         result
     end
   end
 
-  # Open `path` (retrying while descriptors run out), run `fun` on it, close it,
-  # all holding one descriptor of the budget. `{:error, {:open, reason}}` when
-  # it does not open.
+  # Open `path`, run `fun` on it, close it; `{:error, {:open, reason}}` when it
+  # does not open.
   defp with_file(path, modes, fun) do
-    FileBudget.with_files(fn ->
-      case FileBudget.retry(fn -> File.open(path, modes) end) do
-        {:ok, fd} ->
-          try do
-            fun.(fd)
-          after
-            File.close(fd)
-          end
+    case File.open(path, modes) do
+      {:ok, fd} ->
+        try do
+          fun.(fd)
+        after
+          File.close(fd)
+        end
 
-        {:error, reason} ->
-          {:error, {:open, reason}}
-      end
-    end)
+      {:error, reason} ->
+        {:error, {:open, reason}}
+    end
   end
 
-  defp with_retry(fun), do: FileBudget.with_files(fn -> FileBudget.retry(fun) end)
-
   defp read!(path) do
-    case with_retry(fn -> File.read(path, [:raw]) end) do
+    case File.read(path, [:raw]) do
       {:ok, bytes} -> bytes
       {:error, reason} -> raise File.Error, reason: reason, action: "read file", path: path
     end
@@ -378,7 +394,7 @@ defmodule Valimc.World.RegionLog do
   # A missing directory holds nothing; one that cannot be listed (out of
   # descriptors past the retries) must not pass for empty.
   defp list(dir, prefix) do
-    case with_retry(fn -> File.ls(dir) end) do
+    case File.ls(dir) do
       {:ok, files} -> Enum.filter(files, &String.starts_with?(&1, prefix))
       {:error, :enoent} -> []
       {:error, reason} -> raise File.Error, reason: reason, action: "list directory", path: dir
@@ -391,14 +407,14 @@ defmodule Valimc.World.RegionLog do
   defp drive_flush(%{full_sync: false}), do: :ok
 
   defp drive_flush(%{segment: segment}) do
-    case with_retry(fn -> Valimc.Native.full_sync(segment) end) do
+    case Valimc.Native.full_sync(segment) do
       :ok -> :ok
       {:error, reason} -> {:error, {:full_sync, reason}}
     end
   end
 
   defp fsync_dir(dir) do
-    case with_retry(fn -> Valimc.Native.fsync_dir(dir) end) do
+    case Valimc.Native.fsync_dir(dir) do
       :ok -> :ok
       {:error, reason} -> {:error, {:fsync_dir, reason}}
     end

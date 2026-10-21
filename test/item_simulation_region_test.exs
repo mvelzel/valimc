@@ -119,6 +119,8 @@ defmodule Valimc.ItemSimulationRegionTest do
       state(ctx).items.entries == %{} and not Valimc.TestRegion.writing?(state(ctx))
     end)
 
+    assert :ok = Region.flush(elem(ctx.owner, 0))
+
     assert {:ok, saved} =
              ItemLedger.decode(Valimc.TestDisk.read(ctx.base, ctx.key, :items), ctx.key)
 

@@ -110,34 +110,32 @@ defmodule Valimc.ChestSpillRegionTest do
     saved
   end
 
-  defp writing(pid, _budget \\ nil),
-    do:
-      Valimc.TestWait.until(fn ->
-        Valimc.TestRegion.in_flight(Valimc.TestConn.state(pid).resource)
-      end)
-
-  test "survival self loot and region-owned component stacks publish together, then replay once",
+  test "survival self loot and region-owned component stacks show at once, reply once durable, then replay once",
        c do
-    writer = :sys.get_state(c.pid).resource.store
-    :sys.suspend(writer)
+    stripe = Valimc.TestDisk.stripe(c.base, c.key)
+    :sys.suspend(stripe)
     task = Task.async(fn -> Region.apply_mining_transfer(c.owner, c.transfer) end)
 
     try do
-      pending = writing(c.pid)
-      assert pending.containers.entries == %{}
+      Valimc.TestWait.until(fn ->
+        Valimc.TestRegion.in_flight?(Valimc.TestConn.state(c.pid).resource)
+      end)
 
-      assert quantities(Enum.map(Items.records(pending.items), & &1.stack)) ==
+      resource = Valimc.TestConn.state(c.pid).resource
+      assert resource.containers.entries == %{}
+
+      assert quantities(Enum.map(Items.records(resource.items), & &1.stack)) ==
                quantities([ItemStack.new("chest") | c.stock])
 
-      # Adopted in owner memory; the published block and items wait for durability.
-      assert Valimc.TestRegion.published_block(c.owner, c.position) == c.chest and
-               World.item_snapshot(c.key) == %{}
+      # Adopted and shown at once (D2); the reply, the player's proof, waits.
+      assert Valimc.TestRegion.published_block(c.owner, c.position) == 89 and
+               World.item_snapshot(c.key) != %{}
 
       assert Task.yield(task, 10) == nil
-      :sys.resume(writer)
+      :sys.resume(stripe)
       assert {:ok, :applied} = Task.await(task, 60_000)
     after
-      if Process.alive?(writer), do: :sys.resume(writer)
+      :sys.resume(stripe)
       Task.shutdown(task, :brutal_kill)
     end
 

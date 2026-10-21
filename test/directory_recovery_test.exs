@@ -5,7 +5,7 @@ defmodule Valimc.DirectoryRecoveryTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
   alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players, World}
-  alias Valimc.World.{Directory, Items, Region, Store}
+  alias Valimc.World.{Directory, Items, Region, RegionStorage}
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.TestClient, as: Client
 
@@ -68,7 +68,7 @@ defmodule Valimc.DirectoryRecoveryTest do
     {^uuid, client} = Client.login(name)
     client = Client.load_world(client)
     [player] = Enum.filter(Players.all(), &(&1.name == name))
-    writer = :sys.get_state(pid).resource.store
+    writer = Valimc.TestDisk.stripe(base, {0, 0})
     :sys.suspend(writer)
 
     Client.send_packet(client, :play, "player_action", [
@@ -90,12 +90,13 @@ defmodule Valimc.DirectoryRecoveryTest do
     # Commit on disk while the destination owner cannot acknowledge or publish it.
     :sys.suspend(pid)
     :sys.resume(writer)
-    {:ok, %{records: committed, receipts: receipts}} = Store.load_items(writer)
-    assert Enum.sort_by(committed, & &1.uuid) == Enum.sort_by([record, drop], & &1.uuid)
+    :ok = Valimc.Storage.Log.sync(base, {:region, :overworld, {0, 0}})
+    {:ok, %{items: committed, receipts: receipts}} = RegionStorage.read(base, :overworld, {0, 0})
+    assert Enum.map(committed, & &1.uuid) |> Enum.sort() == Enum.sort([record.uuid, drop.uuid])
     assert receipts[uuid].sequence == 1
-    # The owner adopted the drop in memory, but nothing is published before the ACK.
+    # The owner adopted and shows the drop at once (D2); only the player's reply waited.
     assert length(Items.records(:sys.get_state(pid).resource.items)) == 2
-    assert map_size(World.item_snapshot({0, 0})) == 1
+    assert map_size(World.item_snapshot({0, 0})) == 2
     assert {:ok, ^intent} = PlayerSnapshot.decode(File.read!(source_path), uuid)
 
     old_directory = Process.whereis(Directory)
@@ -103,9 +104,6 @@ defmodule Valimc.DirectoryRecoveryTest do
 
     old_owners =
       for {_, p, _, _} <- DynamicSupervisor.which_children(Valimc.RegionSupervisor), do: p
-
-    old_writers =
-      for {_, p, _, _} <- DynamicSupervisor.which_children(Valimc.RegionStoreSupervisor), do: p
 
     Process.exit(old_directory, :kill)
 
@@ -115,7 +113,7 @@ defmodule Valimc.DirectoryRecoveryTest do
                listener = Process.whereis(Valimc.Listener)
 
                is_pid(directory) and directory != old_directory and listener == old_listener and
-                 Enum.all?(old_owners ++ old_writers, &(not Process.alive?(&1)))
+                 Enum.all?(old_owners, &(not Process.alive?(&1)))
              end,
              500,
              10

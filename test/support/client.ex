@@ -402,48 +402,145 @@ end
 
 defmodule Valimc.TestDisk do
   @moduledoc """
-  Durable region state for tests, independent of the on-disk layout. Writes are
-  fixtures for a region whose store is not running (a stopping store is awaited):
-  one region log frame, as the store itself writes.
+  Durable region state for tests, in the owners' codec formats: what a region's
+  checkpoint and log frames hold (`RegionStorage.records/3`), and fixtures
+  written as its checkpoint while the region does not run.
   """
-  alias Valimc.World.{RegionLog, Store}
+  alias Valimc.Storage.{Checkpoint, Log}
+  alias Valimc.World.{Containers, ItemLedger, Items, RegionStorage}
 
-  def read(base, key, part), do: Store.durable(base, key, part)
+  @junk "corrupt"
 
-  def write(base, key, part, value) when part in [:blocks, :items, :containers] do
-    # A store stopping after its owner's death must not race this fixture.
-    for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key), do: await_exit(pid)
-    {:ok, log, _} = RegionLog.open(Store.log_dir(base, key))
-    {:ok, log, _} = RegionLog.append(log, [[{part, value}]])
-    :ok = RegionLog.close(log)
+  @doc """
+  `:items` and `:containers` as their codecs encode them (nil while empty),
+  `:blocks` the cells not folded into column images; `:corrupt` when the
+  checkpoint is unreadable.
+  """
+  def read(base, key, part) do
+    case RegionStorage.read(base, :overworld, key) do
+      {:ok, parts} -> encode(part, key, parts)
+      {:error, :invalid_checkpoint} -> :corrupt
+    end
+  end
+
+  defp encode(:blocks, _key, parts), do: parts.cells
+
+  defp encode(:items, key, parts) do
+    if parts.items == [] and parts.receipts == %{} and parts.ledger == %ItemLedger{} do
+      nil
+    else
+      {:ok, bytes} = ItemLedger.encode(key, parts.items, parts.receipts, parts.ledger)
+      bytes
+    end
+  end
+
+  defp encode(:containers, key, parts) do
+    if parts.containers == %Containers{} do
+      nil
+    else
+      {:ok, bytes} = Containers.encode(key, parts.containers)
+      bytes
+    end
   end
 
   @doc """
-  Make the running store's next append fail with an I/O error (its segment is
-  moved to a directory that does not exist, so it will not open). The store
-  reports the failure exactly as for a failing disk and stops; nothing reaches
-  the log.
+  Replace `part` of a region that is not running: `:items` or `:containers`
+  bytes of their codecs (nil for none), `:blocks` cells to add.
   """
-  def break_writer(writer) do
-    :sys.replace_state(writer, fn
-      %{log: %RegionLog{} = log} = state ->
-        %{state | log: %{log | segment: Path.join([log.dir, "missing", "log"])}}
+  def write(base, key, part, value) when part in [:blocks, :items, :containers] do
+    {:ok, seq, records} = RegionStorage.records(base, :overworld, key)
+
+    records =
+      records
+      |> Map.reject(fn {record, _} -> part != :blocks and owns?(part, record) end)
+      |> Map.merge(records(part, key, value))
+
+    :ok = Checkpoint.write(path(base, key), seq, records)
+  end
+
+  defp owns?(:items, {kind, _}) when kind in [:item, :receipt, :ledger, :ledger_in, :generation],
+    do: true
+
+  defp owns?(:containers, {kind, _}) when kind in [:container, :container_receipt, :containers],
+    do: true
+
+  defp owns?(_, _), do: false
+
+  defp records(_part, _key, nil), do: %{}
+
+  defp records(:blocks, _key, cells),
+    do: Map.new(cells, fn {pos, block} -> {{:cell, pos}, block} end)
+
+  defp records(:items, key, bytes) do
+    {:ok, data} = ItemLedger.decode(bytes, key)
+    {:ok, items} = Items.restore(key, data.records, data.ledger)
+
+    Map.merge(
+      RegionStorage.part_records(:items, items),
+      RegionStorage.part_records(:receipts, data.receipts)
+    )
+  end
+
+  defp records(:containers, key, bytes) do
+    {:ok, containers} = Containers.decode(bytes, key)
+    RegionStorage.part_records(:containers, containers)
+  end
+
+  @doc "Make a stopped region's checkpoint unreadable; `repair/2` undoes it."
+  def corrupt(base, key) do
+    path = path(base, key)
+
+    original =
+      case File.read(path) do
+        {:ok, bytes} -> bytes
+        {:error, :enoent} -> ""
+      end
+
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, original <> @junk)
+  end
+
+  def repair(base, key) do
+    path = path(base, key)
+    bytes = File.read!(path)
+
+    case binary_part(bytes, 0, byte_size(bytes) - byte_size(@junk)) do
+      "" -> File.rm!(path)
+      original -> File.write!(path, original)
+    end
+  end
+
+  defp path(base, key), do: Checkpoint.path(base, {:region, :overworld, key})
+
+  @doc "The log stripe region `key` of the world at `base` commits to (started if needed)."
+  def stripe(base, key) do
+    owner = {:region, :overworld, key}
+    :ok = Log.sync(base, owner)
+    [{pid, _}] = Registry.lookup(Valimc.StorageRegistry, {base, Log.stripe(owner)})
+    pid
+  end
+
+  @doc """
+  Make the next append of region `key`'s stripe fail with an I/O error (its
+  segment moved to a directory that does not exist, so it will not open): the
+  owners whose frames it held stop, as for a failing disk; nothing reaches the
+  log. The stripe appends again once the directory exists.
+  """
+  def break_log(base, key) do
+    :sys.replace_state(stripe(base, key), fn %{log: log} = state ->
+      %{state | log: %{log | segment: Path.join([log.dir, "missing", "log"])}}
     end)
 
     :ok
   end
 
-  @doc """
-  Wait until a broken writer has stopped, so the next owner opens a fresh store
-  instead of reclaiming the broken one.
-  """
-  def await_exit(writer, timeout \\ 30_000) do
-    ref = Process.monitor(writer)
+  def await_exit(pid, timeout \\ 30_000) do
+    ref = Process.monitor(pid)
 
     receive do
-      {:DOWN, ^ref, :process, ^writer, _} -> :ok
+      {:DOWN, ^ref, :process, ^pid, _} -> :ok
     after
-      timeout -> raise "store #{inspect(writer)} did not stop"
+      timeout -> raise "#{inspect(pid)} did not stop"
     end
   end
 end
@@ -460,24 +557,12 @@ end
 
 defmodule Valimc.TestRegion do
   @moduledoc "Region owner probes that do not depend on how durable writes are queued."
-  @doc "Whether a durable item/block/container write is planned or in flight."
+  @doc "Whether a durable mutation is being planned or a frame (or a reply on one) is in flight."
   def writing?(resource),
-    do: resource.item_pending != nil or Map.get(resource, :item_writes, []) != []
+    do: resource.item_pending != nil or Valimc.World.RegionStorage.busy?(resource.storage)
 
-  @doc "Whether a durable write is in flight (not merely being planned)."
-  def in_flight?(resource),
-    do:
-      Map.get(resource, :item_writes, []) != [] or
-        match?(%{phase: :writing}, resource.item_pending)
-
-  @doc "The oldest in-flight write: a queued item write or the writing slot."
-  def in_flight(resource) do
-    case Map.get(resource, :item_writes, []) do
-      # Queued writes were adopted in memory: their proposal is the owner state.
-      [write | _] -> Map.merge(%{items: resource.items, containers: resource.containers}, write)
-      [] -> if match?(%{phase: :writing}, resource.item_pending), do: resource.item_pending
-    end
-  end
+  @doc "Whether a frame of the owner is on its way to the log."
+  def in_flight?(resource), do: map_size(resource.storage.in_flight) > 0
 
   @doc """
   The expiry of a contact grant a test builds itself (container contexts, table
@@ -524,33 +609,6 @@ defmodule Valimc.TestRegion do
   def published_block({_pid, _epoch}, position),
     do: Valimc.World.View.block(Valimc.World.View.new(), position)
 
-  @doc """
-  Expire, now, the deadlines of the grants an owner answers once its in-flight
-  writes are durable (pickup and item-merge grants): a test reaches the deadline
-  without sleeping past it, however loaded the host (VMC-073).
-  """
-  def expire_held_replies({pid, _epoch}), do: expire_held_replies(pid)
-
-  def expire_held_replies(pid) do
-    past = System.monotonic_time(:millisecond) - 1
-
-    :sys.replace_state(pid, fn s ->
-      writes =
-        Enum.map(s.resource.item_writes, fn write ->
-          held = Enum.map(write.held, fn {from, reply} -> {from, expire(reply, past)} end)
-          %{write | reply: expire(write.reply, past), held: held}
-        end)
-
-      %{s | resource: %{s.resource | item_writes: writes}}
-    end)
-
-    :ok
-  end
-
-  defp expire({:pickup_grant, actor, uuid, _}, past), do: {:pickup_grant, actor, uuid, past}
-  defp expire({:item_merge_grant, request, _}, past), do: {:item_merge_grant, request, past}
-  defp expire(reply, _past), do: reply
-
   @doc "Expire every permit an owner holds, now (grant lifetimes without sleeping, VMC-073)."
   def expire_permits({pid, _epoch}), do: expire_permits(pid)
 
@@ -565,14 +623,6 @@ defmodule Valimc.TestRegion do
     end)
 
     :ok
-  end
-
-  @doc "The token of the oldest in-flight item write, or of the pending slot."
-  def write_token(resource) do
-    case Map.get(resource, :item_writes, []) do
-      [write | _] -> write.token
-      [] -> resource.item_pending && resource.item_pending[:token]
-    end
   end
 end
 
@@ -613,7 +663,7 @@ defmodule Valimc.TestScope do
   end
 
   @doc """
-  Teardown before removing a test world: stop the region owners and stores around
+  Teardown before removing a test world: stop the region owners around
   `key`, gracefully so their final writes finish first. A player's view (distance
   2) loads the neighbouring regions, which would otherwise keep writing into the
   removed directory (VMC-073).
@@ -625,12 +675,8 @@ defmodule Valimc.TestScope do
       if opts[:spawn], do: neighborhood(key) ++ neighborhood({0, 0}), else: neighborhood(key)
 
     for region <- Enum.uniq(regions),
-        {registry, supervisor} <- [
-          {Valimc.RegionRegistry, Valimc.RegionSupervisor},
-          {Valimc.RegionStoreRegistry, Valimc.RegionStoreSupervisor}
-        ],
-        {pid, _} <- Registry.lookup(registry, region),
-        do: DynamicSupervisor.terminate_child(supervisor, pid)
+        {pid, _} <- Registry.lookup(Valimc.RegionRegistry, region),
+        do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
     :ok
   end
@@ -647,8 +693,7 @@ defmodule Valimc.TestScope do
     running =
       for {registry, supervisor} <- [
             {Valimc.RegionRegistry, Valimc.RegionSupervisor},
-            {Valimc.ProtoRegistry, Valimc.ProtoSupervisor},
-            {Valimc.RegionStoreRegistry, Valimc.RegionStoreSupervisor}
+            {Valimc.ProtoRegistry, Valimc.ProtoSupervisor}
           ],
           pid <- Registry.select(registry, elsewhere),
           Process.alive?(pid),

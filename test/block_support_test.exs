@@ -22,8 +22,7 @@ defmodule Valimc.BlockSupportTest do
       TestScope.isolate(key, world_path: base, region_ticks: :manual, random_tick_speed: 0)
 
       on_exit(fn ->
-        for reg <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
-            {pid, _} <- Registry.lookup(reg, key),
+        for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
             do: TestScope.kill(pid)
 
         File.rm_rf(base)
@@ -94,8 +93,7 @@ defmodule Valimc.BlockSupportTest do
       set(owner, %{soil => @air})
       settle(owner)
 
-      for reg <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
-          {pid, _} <- Registry.lookup(reg, key),
+      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
           do: TestScope.kill(pid)
 
       {:ok, owner} = World.owner(key)

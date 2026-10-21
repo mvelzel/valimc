@@ -7,7 +7,16 @@ defmodule Valimc.RegionGenerationTest do
   alias Valimc.Protocol.{Data, Wire}
   alias Valimc.{Native, TestScope}
   alias Valimc.World
-  alias Valimc.World.{BlockSnapshot, Directory, Generator, Region, RegionGeneration, Store, View}
+
+  alias Valimc.World.{
+    BlockSnapshot,
+    Directory,
+    Generator,
+    Region,
+    RegionGeneration,
+    RegionStorage,
+    View
+  }
 
   @seed 20_261_020
 
@@ -99,19 +108,26 @@ defmodule Valimc.RegionGenerationTest do
     end
   end
 
+  # The columns a running owner has made durable.
+  defp durable_columns(ctx) do
+    for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, ctx.key), do: :ok = Region.flush(pid)
+    {:ok, parts} = RegionStorage.read(ctx.base, :overworld, ctx.key)
+    parts.columns
+  end
+
   test "a region loads without generating and generates the chunk a call needs", ctx do
     {:ok, _} = World.owner(ctx.key)
     {cx, cz} = ctx.origin
     chunk = {cx + 3, cz + 5}
     position = inside(chunk)
-    assert Store.durable(ctx.base, ctx.key, :columns) == %{}
+    assert durable_columns(ctx) == %{}
     assert BlockSnapshot.absent?(table(ctx.key), chunk)
     assert View.fetch(View.new(), position) == :error
 
     # A raw read waits for its chunk; only that chunk is generated, equal to
     # the generator's column byte for byte.
     assert Valimc.TestBlocks.get(position) == generated_block(chunk, position)
-    assert Store.durable(ctx.base, ctx.key, :columns) == %{chunk => column(chunk)}
+    assert durable_columns(ctx) == %{chunk => column(chunk)}
     refute BlockSnapshot.absent?(table(ctx.key), chunk)
     assert BlockSnapshot.absent?(table(ctx.key), {cx + 4, cz + 5})
 
@@ -121,7 +137,7 @@ defmodule Valimc.RegionGenerationTest do
     # A chunk packet waits for its chunk as well.
     frame = World.chunk({cx + 7, cz})
     assert IO.iodata_length(frame) > 0
-    assert Map.has_key?(Store.durable(ctx.base, ctx.key, :columns), {cx + 7, cz})
+    assert Map.has_key?(durable_columns(ctx), {cx + 7, cz})
   end
 
   test "a generated chunk's published heightmap and biomes read as its owner's blocks", ctx do
@@ -183,7 +199,7 @@ defmodule Valimc.RegionGenerationTest do
       Enum.all?(wanted, &(not BlockSnapshot.absent?(table(ctx.key), &1)))
     end)
 
-    columns = Store.durable(ctx.base, ctx.key, :columns)
+    columns = durable_columns(ctx)
     assert Enum.sort(Map.keys(columns)) == Enum.sort(wanted)
     assert columns == columns(wanted)
 
@@ -199,7 +215,9 @@ defmodule Valimc.RegionGenerationTest do
     position = inside({cx + 1, cz + 1})
     assert Valimc.TestBlocks.get(position) == generated_block({cx + 1, cz + 1}, position)
     assert Valimc.TestBlocks.get(edited) == glass
-    assert Store.durable(ctx.base, ctx.key, :columns) == columns
+    # The checkpoint folded the edit into its chunk's image; the others are as generated.
+    assert Map.delete(durable_columns(ctx), {cx + 2, cz + 2}) ==
+             Map.delete(columns, {cx + 2, cz + 2})
   end
 
   test "loading tickets' chunks generate nearest to their center first, urgent ones before all" do

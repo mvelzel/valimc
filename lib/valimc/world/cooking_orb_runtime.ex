@@ -7,8 +7,7 @@ defmodule Valimc.World.CookingOrbRuntime do
     CookingOrbTransfers,
     CookingOrbBodies,
     EntityView,
-    RegionData,
-    Store
+    RegionData
   }
 
   defstruct job: nil,
@@ -296,16 +295,6 @@ defmodule Valimc.World.CookingOrbRuntime do
     # Adopted at once, so the snapshot must be storable before it replaces state.
     case Valimc.World.Containers.encode(state.key, containers) do
       {:ok, _} ->
-        token = make_ref()
-
-        Store.commit_containers(
-          state.store,
-          state.store_lease,
-          containers,
-          {self(), state.items.epoch},
-          token
-        )
-
         runtime = state.cooking_orbs
         receipt = if settled, do: nil, else: runtime.receipt
 
@@ -315,9 +304,12 @@ defmodule Valimc.World.CookingOrbRuntime do
             cooking_orbs: %{runtime | cursor: id, seen: nil, retry_at: nil, receipt: receipt}
         }
 
+        # The orbs leave for another owner: the reply and the views wait for
+        # the frame that records it.
         {:noreply,
-         RegionData.queue_container_write(state, token, job.from, {:ok, :applied}, [
-           {:cooking_orbs, views}
+         RegionData.wait_durable(state, [
+           {:effect, {:cooking_orbs, views}},
+           {:reply, job.from, {:ok, :applied}}
          ])}
 
       {:error, _} ->

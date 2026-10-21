@@ -7,7 +7,8 @@ defmodule Valimc.Application do
 
   1. Infrastructure: the world settings, tick rate, clock, stopwatch and admin
      owners and the worker pools; independent of each other (`one_for_one`).
-  2. Storage: the player logs and the per-session player stores.
+  2. Storage: the write-ahead log's stripes (`Valimc.Storage.Log`) and the
+     per-session player stores.
   3. World: the region and proto registries, the directory, region writers,
      region and proto owners; a directory restart restarts the writers and
      owners after it.
@@ -24,8 +25,7 @@ defmodule Valimc.Application do
 
   @impl true
   def start(_type, _args) do
-    # VMC-074: the open-files limit and the logs' share of it, before any log opens.
-    Valimc.FileBudget.init!()
+    raise_open_files_limit()
     Valimc.Protocol.Data.load!()
     Valimc.World.Chunk.load!()
     Valimc.Registry.BlockFacts.install!()
@@ -61,7 +61,9 @@ defmodule Valimc.Application do
     ]
 
     storage = [
-      Valimc.PlayerLog,
+      # The write-ahead log's stripes, per world folder (VMC-077f).
+      {Registry, keys: :unique, name: Valimc.StorageRegistry},
+      dynamic(Valimc.StorageSupervisor, 1024),
       {Registry, keys: :unique, name: Valimc.PlayerStoreRegistry},
       dynamic(Valimc.PlayerStoreSupervisor, Valimc.config(:max_connections))
     ]
@@ -72,8 +74,6 @@ defmodule Valimc.Application do
       # Region topic => subscribed connections (duplicate keys).
       {Registry, keys: :duplicate, name: Valimc.VisibilityRegistry},
       {Valimc.World.Directory, []},
-      {Registry, keys: :unique, name: Valimc.RegionStoreRegistry},
-      dynamic(Valimc.RegionStoreSupervisor, Valimc.config(:max_regions)),
       dynamic(Valimc.RegionSupervisor, Valimc.config(:max_regions)),
       {Valimc.World.ForcedChunks, []},
       {Registry, keys: :unique, name: Valimc.ProtoRegistry},
@@ -123,6 +123,17 @@ defmodule Valimc.Application do
         {Supervisor, :start_link,
          [children, [strategy: strategy, max_restarts: 10, max_seconds: 10, name: name]]}
     }
+  end
+
+  # Vanilla's JVM raises the soft open-files limit toward the hard one; sockets
+  # need it (the logs open O(stripes) files, VMC-077f).
+  defp raise_open_files_limit do
+    require Logger
+
+    case Valimc.Native.set_open_files_limit(1_048_576) do
+      {:ok, {soft, hard}} -> Logger.info("Open files: limit #{soft} (hard #{hard})")
+      {:error, reason} -> Logger.warning("Open files limit unchanged: #{inspect(reason)}")
+    end
   end
 
   defp dynamic(name, max_children),

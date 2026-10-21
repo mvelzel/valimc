@@ -1,6 +1,6 @@
 Code.require_file("blocks.exs", __DIR__)
 alias Valimc.{ChestOpening, World}
-alias Valimc.World.{Containers, Region, Store}
+alias Valimc.World.{Containers, Region, RegionStorage}
 [output] = System.argv()
 dataset = Path.join(System.tmp_dir!(), "valimc-viewer-bench-#{System.os_time(:nanosecond)}")
 Application.put_env(:valimc, :world_path, dataset)
@@ -17,8 +17,7 @@ results =
     position = {elem(key, 0) * span + 40, 64, elem(key, 1) * span + 40}
     {x, _, z} = position
     {:ok, containers, entry} = Containers.create(%Containers{}, key, position, 3)
-    {:ok, bytes} = Containers.encode(key, containers)
-    :ok = Store.import_region(dataset, key, %{containers: bytes})
+    :ok = RegionStorage.import(dataset, :overworld, key, %{containers: containers})
     {:ok, owner} = World.owner(key)
     :ok = Bench.Blocks.set(position, block)
     parent = self()

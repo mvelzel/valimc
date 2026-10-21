@@ -156,7 +156,7 @@ defmodule Valimc.DisconnectedInventoryTest do
   test "reconnect adopts a closing writer, fences old messages and replays its exact journal",
        ctx do
     owner = region(ctx)
-    disk = :sys.get_state(owner).resource.store
+    disk = Valimc.TestDisk.stripe(ctx.base, ctx.key)
     :sys.suspend(disk)
     parent = self()
 

@@ -15,8 +15,7 @@ defmodule Valimc.RegionLightTest do
     TestScope.isolate(key, world_path: base, region_ticks: :manual)
 
     on_exit(fn ->
-      for reg <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
-          {pid, _} <- Registry.lookup(reg, key),
+      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
           do: TestScope.kill(pid)
 
       File.rm_rf(base)
@@ -113,8 +112,7 @@ defmodule Valimc.RegionLightTest do
     )
 
     on_exit(fn ->
-      for reg <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
-          {pid, _} <- Registry.lookup(reg, east),
+      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, east),
           do: TestScope.kill(pid)
     end)
 
@@ -162,8 +160,7 @@ defmodule Valimc.RegionLightTest do
     )
 
     on_exit(fn ->
-      for reg <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
-          {pid, _} <- Registry.lookup(reg, east),
+      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, east),
           do: TestScope.kill(pid)
     end)
 

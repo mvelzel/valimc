@@ -40,8 +40,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
     on_exit(fn ->
       for x <- (elem(key, 0) - 1)..(elem(key, 0) + 2),
           z <- (elem(key, 1) - 1)..(elem(key, 1) + 1),
-          registry <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
-          {pid, _} <- Registry.lookup(registry, {x, z}),
+          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, {x, z}),
           do: TestScope.kill(pid)
 
       File.rm_rf!(base)

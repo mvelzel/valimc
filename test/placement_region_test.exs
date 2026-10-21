@@ -51,11 +51,13 @@ defmodule Valimc.PlacementRegionTest do
     Region.reserve_placement(owner, observed.revision, observed.blocks)
   end
 
-  defp writing(pid, _budget \\ nil),
-    do:
-      Valimc.TestWait.until(fn ->
-        Valimc.TestRegion.in_flight(Valimc.TestConn.state(pid).resource)
-      end)
+  defp writing(pid) do
+    Valimc.TestWait.until(fn ->
+      Valimc.TestRegion.in_flight?(Valimc.TestConn.state(pid).resource)
+    end)
+
+    Valimc.TestConn.state(pid).resource
+  end
 
   defp disk(ctx), do: Valimc.TestDisk.read(ctx.base, ctx.key, :containers)
 
@@ -66,27 +68,27 @@ defmodule Valimc.PlacementRegionTest do
     receipt
   end
 
-  test "a chest's block, empty contents and receipt publish together and remove together after restart",
+  test "a chest's block, empty contents and receipt apply together; the reply waits for them",
        ctx do
     {x, y, z} = ctx.position
     position = {x + 4, y, z + 4}
     {:ok, reservation} = reserve(ctx.owner, [position])
     ctx = %{ctx | position: position, transfer: Map.merge(ctx.transfer, reservation)}
     request = %{ctx.transfer | edits: %{ctx.position => @chest}}
-    writer = :sys.get_state(ctx.pid).resource.store
-    :sys.suspend(writer)
+    stripe = Valimc.TestDisk.stripe(ctx.base, ctx.key)
+    :sys.suspend(stripe)
     task = Task.async(fn -> Region.apply_placement_transfer(ctx.owner, request) end)
 
     try do
       pending = writing(ctx.pid)
       assert pending.containers.entries[ctx.position].rows == 3
-      # Adopted in owner memory; the published block waits for durability.
-      assert Valimc.TestRegion.published_block(ctx.owner, ctx.position) == 0
+      # Shown at once (D2); the reply, the player's proof, waits for the frame.
+      assert Valimc.TestRegion.published_block(ctx.owner, ctx.position) == @chest
       assert Task.yield(task, 10) == nil
-      :sys.resume(writer)
+      :sys.resume(stripe)
       assert {:ok, :applied} = Task.await(task, 60_000)
     after
-      if Process.alive?(writer), do: :sys.resume(writer)
+      :sys.resume(stripe)
       Task.shutdown(task, :brutal_kill)
     end
 

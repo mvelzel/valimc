@@ -1,13 +1,13 @@
 alias Valimc.{ItemMotionState, World}
 alias Valimc.Protocol.ItemStack
-alias Valimc.World.{ItemRecords, Items, Region, Store}
+alias Valimc.World.{Items, Region, RegionStorage}
 
 [base] = System.argv()
 File.mkdir_p!(base)
 Application.put_env(:valimc, :port, 0)
 Application.put_env(:valimc, :world_path, Path.expand(base))
 {:ok, _} = Application.ensure_all_started(:valimc)
-count_saves = fn -> Map.get(Valimc.Metrics.snapshot(), :item_snapshot_saves, 0) end
+metric = fn key -> Map.get(Valimc.Metrics.snapshot(), key, 0) end
 
 workloads =
   for mode <- [:durable, :coalesced],
@@ -44,12 +44,11 @@ results =
         }
       end
 
-    {:ok, initial} = ItemRecords.encode(key, records)
-    :ok = Store.import_region(Path.expand(base), key, %{items: initial})
+    :ok = RegionStorage.import(Path.expand(base), :overworld, key, %{items: records})
     {:ok, {pid, _} = owner} = World.item_owner(key)
     original = :sys.get_state(pid).resource.items
     origin = Map.new(original.entries, fn {id, %{entity: e}} -> {id, {e.x, e.y, e.z}} end)
-    saves = count_saves.()
+    {frames, checkpoints} = {metric.(:storage_records), metric.(:region_checkpoints)}
     started = System.monotonic_time(:microsecond)
 
     times =
@@ -81,9 +80,9 @@ results =
 
     {flush_us, :ok} = :timer.tc(fn -> Region.flush(pid) end)
     elapsed = System.monotonic_time(:microsecond) - started
-    {:ok, disk} = ItemRecords.decode(Store.durable(Path.expand(base), key, :items), key)
-    true = disk.records == Items.records(:sys.get_state(pid).resource.items)
-    true = Enum.all?(disk.records, &(&1.motion.age == 100))
+    {:ok, disk} = RegionStorage.read(Path.expand(base), :overworld, key)
+    true = disk.items == Items.records(:sys.get_state(pid).resource.items)
+    true = Enum.all?(disk.items, &(&1.motion.age == 100))
     sorted = Enum.sort(times)
 
     %{
@@ -95,7 +94,8 @@ results =
       p95_us: Enum.at(sorted, 94),
       flush_us: flush_us,
       total_us: elapsed,
-      item_snapshot_saves: count_saves.() - saves
+      log_frames: metric.(:storage_records) - frames,
+      checkpoints: metric.(:region_checkpoints) - checkpoints
     }
   end
 

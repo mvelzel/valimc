@@ -1,5 +1,5 @@
 alias Valimc.{ItemMotionState, Protocol.ItemStack, World}
-alias Valimc.World.{ItemLedger, Items, Region, Store}
+alias Valimc.World.{Items, Region, RegionStorage}
 [base] = System.argv()
 base = Path.expand(base)
 false = File.exists?(base)
@@ -51,18 +51,20 @@ results =
               motion: %ItemMotionState{no_gravity: true, on_ground: true}
             }
 
-      {:ok, bytes} = ItemLedger.encode(key, records, %{}, %ItemLedger{})
-      :ok = Store.import_region(base, key, %{items: bytes})
+      :ok = RegionStorage.import(base, :overworld, key, %{items: records})
     end
 
     before = Valimc.Metrics.snapshot()
     started = System.monotonic_time(:microsecond)
 
+    # Items simulate and merge only while a ticket makes the region tick.
     owners =
       for key <- keys,
           do:
             (
               {:ok, owner} = World.item_owner(key)
+              chunks = Valimc.Worldgen.Proto.chunks_of(key)
+              :ok = Region.ticket(owner, :forced, hd(chunks), chunks)
               owner
             )
 
@@ -86,10 +88,10 @@ results =
         s = :sys.get_state(pid).resource
         records = Items.records(s.items)
         ^count = Enum.sum(Enum.map(records, & &1.stack.count))
-        {:ok, disk} = ItemLedger.decode(Store.durable(base, s.key, :items), s.key)
+        {:ok, disk} = RegionStorage.read(base, :overworld, s.key)
 
         true =
-          Enum.map(disk.records, &{&1.uuid, &1.stack}) == Enum.map(records, &{&1.uuid, &1.stack})
+          Enum.map(disk.items, &{&1.uuid, &1.stack}) == Enum.map(records, &{&1.uuid, &1.stack})
 
         row = %{
           region: Tuple.to_list(s.key),

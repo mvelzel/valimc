@@ -1,6 +1,7 @@
 defmodule Valimc.WorldTest do
   use ExUnit.Case, async: false
   alias Valimc.World
+  alias Valimc.World.Region
   alias Valimc.Protocol.Wire
 
   test "negative chunk/region boundaries use floor division" do
@@ -82,11 +83,12 @@ defmodule Valimc.WorldTest do
 
   test "separate regions continue responding when one region is suspended" do
     {:ok, a} = World.region({101, 101})
-    {:ok, b} = World.region({102, 102})
+    {:ok, b} = World.owner({102, 102})
     :sys.suspend(a)
+    position = {13056, 63, 13056}
 
     try do
-      assert GenServer.call(b, {:get_block, {13056, 63, 13056}}, 500) == 9
+      assert {:ok, %{blocks: %{^position => 9}}} = Region.observe_blocks(b, [position])
     after
       :sys.resume(a)
     end

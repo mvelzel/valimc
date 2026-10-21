@@ -1,5 +1,8 @@
 defmodule Valimc.GroupCommitTest do
-  @moduledoc "Owner-level guarantees of the region write queue (VMC-063)."
+  @moduledoc """
+  Owner-level guarantees of the shared log (VMC-077f): changes show at once
+  (D2) and a crash loses only a suffix of an owner's frames.
+  """
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog, only: [with_log: 1]
   alias Valimc.Protocol.ItemStack
@@ -18,9 +21,6 @@ defmodule Valimc.GroupCommitTest do
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
           do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
-      for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
-          do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
-
       Application.put_env(:valimc, :world_path, previous)
       Valimc.TestScope.stop_neighbourhood(key)
       File.rm_rf!(base)
@@ -33,73 +33,69 @@ defmodule Valimc.GroupCommitTest do
     }
   end
 
-  defp writer({pid, _}), do: :sys.get_state(pid).resource.store
-
   defp uuids(key), do: MapSet.new(for {_, view} <- World.item_snapshot(key), do: view.uuid)
 
-  test "nothing a queued write changed is observable before it is durable", ctx do
+  test "changes are observable at once while their frame waits for the disk", ctx do
     {:ok, owner} = World.item_owner(ctx.key)
     World.subscribe(MapSet.new([ctx.key]), MapSet.new())
-    views = World.item_snapshot(ctx.key)
     {cx, _, cz} = ctx.block
     chunk = World.chunk({div(cx, 16), div(cz, 16)})
-    writer = writer(owner)
-    :sys.suspend(writer)
+    stripe = Valimc.TestDisk.stripe(Valimc.config(:world_path), ctx.key)
+    :sys.suspend(stripe)
 
     try do
-      created =
-        Task.async(fn -> Region.create_item(owner, ItemStack.new("stone"), ctx.position) end)
-
-      wait(fn -> Valimc.TestRegion.in_flight?(:sys.get_state(elem(owner, 0)).resource) end)
-      # A block edit after the queued write reaches subscribers after it, too.
+      assert {:ok, _} = Region.create_item(owner, ItemStack.new("stone"), ctx.position)
       assert :ok = Valimc.TestBlocks.set(ctx.block, 1)
-      packet = Task.async(fn -> World.chunk({div(cx, 16), div(cz, 16)}) end)
-      refute_receive {:event, _}, 30
-      assert Task.yield(created, 0) == nil
-      assert Task.yield(packet, 0) == nil
-      assert World.item_snapshot(ctx.key) == views
-      assert Valimc.TestRegion.published_block(owner, ctx.block) == 0
-      :sys.resume(writer)
-      assert {:ok, _} = Task.await(created, 60_000)
-      assert Task.await(packet, 60_000) != chunk
+      wait(fn -> Valimc.TestRegion.in_flight?(:sys.get_state(elem(owner, 0)).resource) end)
       assert_receive {:event, {:block_batch, _}}
+      assert World.chunk({div(cx, 16), div(cz, 16)}) != chunk
       assert map_size(World.item_snapshot(ctx.key)) == 1
+      assert Valimc.TestRegion.published_block(owner, ctx.block) == 1
     after
-      if Process.alive?(writer), do: :sys.resume(writer)
+      :sys.resume(stripe)
     end
   end
 
-  test "a writer crash at any point loses no acknowledged write", ctx do
+  test "a log crash at any point loses only a suffix of an owner's changes", ctx do
+    base = Valimc.config(:world_path)
+
     for round <- 1..5 do
-      {:ok, owner} = World.item_owner(ctx.key)
-      writer = writer(owner)
+      {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
+      :ok = Region.flush(pid)
       before = uuids(ctx.key)
+      stripe = Valimc.TestDisk.stripe(base, ctx.key)
 
       killer =
         Task.async(fn ->
           Process.sleep(:rand.uniform(15))
-          Process.exit(writer, :kill)
+          Process.exit(stripe, :kill)
         end)
 
-      {handles, _log} = with_log(fn -> ack_until_failure(owner, ctx.position, 200, []) end)
+      {created, _log} = with_log(fn -> create_until_down(owner, ctx, 200, []) end)
       Task.await(killer, 60_000)
-      {:ok, _} = await_owner(ctx.key, elem(owner, 0))
-      recovered = uuids(ctx.key)
-      # Each acknowledged create added one item; unacknowledged ones may or may not
-      # have reached the log, but nothing acknowledged or earlier is lost.
-      assert MapSet.subset?(before, recovered)
-      assert MapSet.size(recovered) >= MapSet.size(before) + length(handles), "round #{round}"
+      # What only the owner's memory held goes with it, as in a crash.
+      if Process.alive?(pid), do: Valimc.TestScope.kill(pid)
+      {:ok, _} = await_owner(ctx.key, pid)
+      kept = MapSet.difference(uuids(ctx.key), before)
+      created = Enum.reverse(created)
+      assert MapSet.subset?(before, uuids(ctx.key)), "round #{round}"
+      assert kept == MapSet.new(Enum.take(created, MapSet.size(kept))), "round #{round}"
     end
   end
 
-  defp ack_until_failure(_owner, _position, 0, acc), do: acc
+  defp create_until_down(_owner, _ctx, 0, acc), do: acc
 
-  defp ack_until_failure(owner, position, left, acc) do
-    case Region.create_item(owner, ItemStack.new("stone"), position) do
-      {:ok, handle} -> ack_until_failure(owner, position, left - 1, [handle | acc])
-      {:error, :storage_backpressure} -> ack_until_failure(owner, position, left, acc)
-      {:error, :item_storage_busy} -> ack_until_failure(owner, position, left, acc)
-      {:error, _} -> acc
+  defp create_until_down(owner, ctx, left, acc) do
+    case Region.create_item(owner, ItemStack.new("stone"), ctx.position) do
+      {:ok, handle} ->
+        uuid = World.item_snapshot(ctx.key)[elem(handle, 2)].uuid
+        create_until_down(owner, ctx, left - 1, [uuid | acc])
+
+      {:error, :item_storage_busy} ->
+        create_until_down(owner, ctx, left, acc)
+
+      {:error, _} ->
+        acc
     end
   catch
     :exit, _ -> acc

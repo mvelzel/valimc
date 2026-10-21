@@ -30,14 +30,12 @@ defmodule Valimc.Anvil.Export do
   alias Valimc.World.{
     BlockEntities,
     Blocks,
-    Containers,
     CookingOrbs,
     GenSettings,
-    ItemLedger,
+    RegionStorage,
     Schema,
     Settings,
-    Spec,
-    Store
+    Spec
   }
 
   @dimension "dimensions/minecraft/overworld"
@@ -92,19 +90,9 @@ defmodule Valimc.Anvil.Export do
   end
 
   defp region_keys(source) do
-    case File.ls(source) do
-      {:ok, names} ->
-        keys =
-          for name <- Enum.sort(names),
-              [_, x, z] <- [Regex.run(~r/\Ar\.(-?\d+)\.(-?\d+)\z/, name)],
-              File.dir?(Path.join(source, name)),
-              do: {String.to_integer(x), String.to_integer(z)}
-
-        {:ok, keys}
-
-      {:error, reason} ->
-        {:error, {:no_world, reason}}
-    end
+    if File.dir?(source),
+      do: RegionStorage.keys(source, :overworld),
+      else: {:error, {:no_world, :enoent}}
   end
 
   # One vanilla region: the chunks and entity chunks of its ValiMC regions.
@@ -153,34 +141,15 @@ defmodule Valimc.Anvil.Export do
 
   # A ValiMC region's chunks (`chunk => nbt`) and entities (`chunk => [compound]`).
   defp region_contents(source, key) do
-    edits = Store.durable(source, key, :blocks)
-    {:ok, blocks} = Blocks.new(key, edits, Store.durable(source, key, :columns))
-
-    containers =
-      case Store.durable(source, key, :containers) do
-        nil ->
-          %Containers{}
-
-        bytes ->
-          {:ok, containers} = Containers.decode(bytes, key)
-          containers
-      end
-
-    {:ok, preserved} = BlockEntities.new(Store.durable(source, key, :block_entities))
-    extras = Store.durable(source, key, :chunk_extras)
-
-    records =
-      case Store.durable(source, key, :items) do
-        nil ->
-          []
-
-        bytes ->
-          {:ok, %{records: records}} = ItemLedger.decode(bytes, key)
-          records
-      end
+    {:ok, stored} = RegionStorage.read(source, :overworld, key)
+    {:ok, blocks} = Blocks.new(key, stored.cells, stored.columns)
+    containers = stored.containers
+    {:ok, preserved} = BlockEntities.new(stored.block_entities)
+    %{chunk_extras: extras, entities: kept} = RegionStorage.extra(source, :overworld, key)
+    records = stored.items
 
     entities =
-      Enum.reduce(Store.durable(source, key, :entities), %{}, fn {chunk, nbt}, acc ->
+      Enum.reduce(kept, %{}, fn {chunk, nbt}, acc ->
         {:ok, {:compound, %{"Entities" => list}}} = NBT.read(nbt)
         Map.update(acc, chunk, elements(list), &(&1 ++ elements(list)))
       end)

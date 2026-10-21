@@ -17,8 +17,7 @@ defmodule Valimc.RegionLifecycleTest do
 
     on_exit(fn ->
       for key <- keys,
-          registry <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
-          {pid, _} <- Registry.lookup(registry, key),
+          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
           do: TestScope.kill(pid)
 
       File.rm_rf(base)
@@ -32,10 +31,7 @@ defmodule Valimc.RegionLifecycleTest do
     for x <- 0..(size - 1), z <- 0..(size - 1), do: {rx * size + x, rz * size + z}
   end
 
-  defp gone?(key),
-    do:
-      Registry.lookup(Valimc.RegionRegistry, key) == [] and
-        Registry.lookup(Valimc.RegionStoreRegistry, key) == []
+  defp gone?(key), do: Registry.lookup(Valimc.RegionRegistry, key) == []
 
   test "a long walk never reaches max_regions; regions left behind save and unload", ctx do
     limit = Valimc.config(:max_regions)

@@ -44,7 +44,7 @@ on accept errors (VMC-077a).
   sections in a Rust resource (VMC-062): single-value or packed palette storage
   with block entities and heightmaps beside it. Chunk packets are encoded from the
   sections. The Elixir encoder remains as the parity oracle.
-- **Published reads.** After each durable batch the owner publishes immutable
+- **Published reads.** After each block change the owner publishes immutable
   chunk snapshots (VMC-065) with the MOTION_BLOCKING heightmap, lowest sky
   sources and biomes Rust computes beside them. Every physics, rain, portal and
   spawn reader reads them through `World.View`, one lazy per-chunk view: no
@@ -52,11 +52,18 @@ on accept errors (VMC-077a).
   transactions; a chunk not loaded or generated fails closed (VMC-077e). Only commits are fenced: block
   observations for placement, mining and commands carry section revisions, so
   they stale only when the sections they read change (VMC-064).
-- **Group commit.** Owners adopt every durable change in memory at once and queue
-  its frame (at most 64); replies, publications and client updates wait until the
-  frame is durable. The region writer drains all queued frames into one log append
-  with one `datasync` (plus `F_FULLFSYNC` on macOS), then acknowledges them in
-  order; checkpoints run beside it (VMC-063). Simulation keeps ticking.
+- **Shared write-ahead log (D2).** Every owner commits to one striped log per
+  world (`Valimc.Storage.Log`, VMC-077f): eight stripes, region frames on six
+  and player files on two, each written by one process that drains its queue
+  into one append with one `datasync` (plus `F_FULLFSYNC` on macOS). An owner
+  adopts, publishes and answers every change at once and cuts one frame of
+  keyed records every 50 ms (cells, items by UUID, receipts, container entries
+  by position, scheduled ticks, block entities); only a cross-owner transfer's
+  reply (its receipt, the proof the other owner acts on) waits for its frame. A
+  crash loses at most a suffix of an owner's frames, never one half of a
+  transfer. A region's checkpoint file folds its cells into column images
+  relit alone, so a load replays nothing older; the log then drops the frames
+  it holds. Simulation never waits for the disk.
 - **One transaction engine.** Cross-owner effects (pickup, mining drops, container
   exchanges, merges, handoffs, XP) are idempotent operations keyed by source,
   sequence and digest. Shared primitives: `Txn.Permits` (one owner permit table),
@@ -125,7 +132,7 @@ Admission errors are values.
 
 Chunks stream as vanilla's acknowledged batches (VMC-070). The connection never
 waits for a chunk: an owner publishes each chunk's packet beside its snapshot
-once encoded from durable blocks and withdraws it in the step that adopts a
+once encoded and withdraws it in the step that adopts a
 change; the connection reads published packets directly, asks for the others
 with `send_request` and sends replies when they arrive. A dimension change
 withdraws the old dimension's tickets and abandons pending requests.
@@ -137,8 +144,9 @@ no column for are absent (VMC-075). Loading tickets say which of its chunks are
 wanted and how far from their center; the owner generates
 the wanted absent chunks nearest first, in bounded batches and never on itself
 (terrain worlds on the worldgen workers, decorated worlds through their proto
-owner), persists each batch as one frame and installs it once durable, relit
-once. Until then an absent chunk is like a chunk of an unloaded neighbour
+owner) and installs each batch at once, relit once; its column images join the
+next frame, and a proto owner forgets the chunks only once that frame is
+durable. Until then an absent chunk is like a chunk of an unloaded neighbour
 region: block reads in the owner see nothing there, edits and observations are
 refused, published snapshots fail closed and the chunk stream skips it.
 
@@ -171,7 +179,7 @@ over a pure `valimc_core` crate) owns dense data and CPU-heavy pure work:
 | World generation (M2) | The most CPU per chunk; pure; runs on dirty CPU schedulers behind a bounded pool |
 | Lighting (M2) | Per chunk (VMC-077c): each chunk lit alone where it is generated and stored in its column image; a region adopts that light, propagates only across chunk faces and then updates incrementally within a work budget, over nibble arrays on the section resource |
 | Disk NBT reading (VMC-020) | 3.5–4× the Elixir reader on vanilla chunks; values are sub-binaries of the input |
-| Anvil import and export (VMC-021) | LZ4 chunk streams; packed palette indices into sections; compact column images for the region log; vanilla palette packing for export (5.7× the Elixir reference) |
+| Anvil import and export (VMC-021) | LZ4 chunk streams; packed palette indices into sections; compact column images for region checkpoints; vanilla palette packing for export (5.7× the Elixir reference) |
 
 Kept in Elixir: packet and file compression (`:zlib`), AES-CFB8
 (`:crypto`/OpenSSL), network item/text NBT, NBT writing (zlib deflate costs more
@@ -212,16 +220,21 @@ pinned vanilla behavior. See [research](research.md).
 
 ## Durability and failure
 
-Region state lives in a per-region log of checksummed frames plus checkpoints, not
-Anvil: vanilla worlds are imported into it and exported from it offline
+Region state lives in per-region checkpoint files and the world's write-ahead log
+of checksummed frames, not Anvil: vanilla worlds are imported into checkpoints
+and exported from them offline
 (`mix valimc.import`, `mix valimc.export`, VMC-021; 26.2 chunks upgraded as vanilla's
 data fixers upgrade them, VMC-028d), and what ValiMC does not model
-yet is preserved for export. Player snapshots are files group-committed through partitioned
-player logs (`Valimc.PlayerLog`). Logs hold no file descriptor between operations; what
-they open at once is bounded by `Valimc.FileBudget`, and running out of descriptors is
-retried, never fatal (VMC-074). Acknowledged writes survive a
-crash; volatile state (item motion, cooking progress, raw creative edits) is saved
-periodically and at clean shutdown, so a hard crash can lose its recent tail. Item transfers
+yet is preserved for export in a side file. Player snapshots are files whose
+bytes are logged on the player stripes before the file is written. The log holds
+no file descriptor between operations, so descriptors are bounded by its
+stripes; an append that cannot open its segment wrote nothing and is retried
+for 30 seconds. Worlds stored before the shared log are refused with a clear
+error, never migrated (D4). A crash loses at most the last frames (about 50 ms
+of changes); item motion reaches a frame at most once a second, and tick
+counters (item age and delays, furnace burn and progress) are saved by
+checkpoints, at the latest five minutes after they move, as vanilla's autosave.
+Transfer proofs are always durable before they are sent. Item transfers
 journal a reduced source inventory plus one outbox before delivery; the region
 commits records and retry receipts before publication. Source clearing requires
 destination receipt proof. UUID writer leases, owner incarnations and revisions

@@ -24,8 +24,7 @@ defmodule Valimc.CommandBoxEditTest do
 
     on_exit(fn ->
       for key <- @keys,
-          registry <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
-          {pid, _} <- Registry.lookup(registry, key),
+          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
           do: Valimc.TestScope.kill(pid)
     end)
 

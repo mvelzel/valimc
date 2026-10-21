@@ -1,7 +1,7 @@
 alias Valimc.ItemMotionState
 alias Valimc.Protocol.ItemStack
 alias Valimc.World
-alias Valimc.World.{ItemLedger, ItemRecords, Items, Region, Store}
+alias Valimc.World.{Items, Region, RegionStorage}
 
 [base] = System.argv()
 base = Path.expand(base)
@@ -20,6 +20,14 @@ wait = fn predicate ->
           Process.sleep(1)
           {:cont, :timeout}
         )
+  end)
+end
+
+# Ages and delays reach the log only with checkpoints; frames hold the rest.
+uncounted = fn records ->
+  Enum.map(records, fn
+    %{motion: m} = r -> %{r | motion: %{m | age: 0, pickup_delay: 0, portal_cooldown: 0}}
+    r -> r
   end)
 end
 
@@ -57,11 +65,10 @@ rows =
             motion: %ItemMotionState{no_gravity: true}
           }
 
-    {:ok, bytes} = ItemRecords.encode(a_key, records)
-    :ok = Store.import_region(base, a_key, %{items: bytes})
+    :ok = RegionStorage.import(base, :overworld, a_key, %{items: records})
     {:ok, a} = World.item_owner(a_key)
     {:ok, b} = World.item_owner(b_key)
-    saves = Map.get(Valimc.Metrics.snapshot(), :item_snapshot_saves, 0)
+    frames = Map.get(Valimc.Metrics.snapshot(), :storage_records, 0)
 
     samples =
       for turn <- 1..60 do
@@ -98,9 +105,15 @@ rows =
         destination_items = :sys.get_state(elem(destination, 0)).resource.items
         true = source_items.entries == %{} and map_size(destination_items.entries) == count
 
+        # The last steps are durable within a commit tick of settling.
         for {key, expected} <- [{source_key, source_items}, {destination_key, destination_items}] do
-          {:ok, saved} = ItemLedger.decode(Store.durable(base, key, :items), key)
-          true = saved.records == Items.records(expected) and saved.ledger == expected.ledger
+          :ok =
+            wait.(fn ->
+              {:ok, saved} = RegionStorage.read(base, :overworld, key)
+
+              uncounted.(saved.items) == uncounted.(Items.records(expected)) and
+                saved.ledger == expected.ledger
+            end)
         end
 
         %{withdrawal: withdrawal, settled: settled}
@@ -115,7 +128,7 @@ rows =
       samples: 50,
       withdrawal: percentiles.(Enum.map(measured, & &1.withdrawal)),
       settled: percentiles.(Enum.map(measured, & &1.settled)),
-      durable_writes: Map.get(Valimc.Metrics.snapshot(), :item_snapshot_saves, 0) - saves,
+      log_frames: Map.get(Valimc.Metrics.snapshot(), :storage_records, 0) - frames,
       last_generations:
         Map.values(:sys.get_state(elem(a, 0)).resource.items.ledger.generations) |> Enum.uniq()
     }
@@ -124,7 +137,7 @@ rows =
 IO.puts(
   :json.encode(%{
     scope:
-      "alternating durable region handoffs including three synced writes, worker dispatch and 1ms completion polling; no geometry, client sockets or automatic clock",
+      "alternating durable region handoffs including their synced log frames, worker dispatch and 1ms completion polling; no geometry, client sockets or automatic clock",
     runtime: %{
       elixir: System.version(),
       otp: System.otp_release(),

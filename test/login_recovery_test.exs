@@ -112,7 +112,7 @@ defmodule Valimc.LoginRecoveryTest do
   test "stalled delivery leaves login unpublished and sockets/other identities responsive", ctx do
     fixture = seed(ctx)
     {:ok, {region, _}} = World.item_owner(ctx.key)
-    writer = :sys.get_state(region).resource.store
+    writer = Valimc.TestDisk.stripe(ctx.base, ctx.key)
     :sys.suspend(writer)
     client = Client.begin_login(fixture.name)
 
@@ -126,7 +126,8 @@ defmodule Valimc.LoginRecoveryTest do
       assert state.phase == :login and state.step == :recover
       assert not Enum.any?(Valimc.Players.all(), &(&1.name == fixture.name))
       assert File.read!(fixture.path) == fixture.bytes
-      assert World.item_snapshot(ctx.key) == %{}
+      # The region shows the delivered items at once (D2); the login waits for its proof.
+      assert map_size(World.item_snapshot(ctx.key)) == 1
       job = state.recovery.job
       send(pid, {:transfer_delivered, self(), job.token, {:ok, :applied}})
       send(pid, {:retry_recovery, state.recovery.id, make_ref()})
@@ -153,7 +154,7 @@ defmodule Valimc.LoginRecoveryTest do
   test "worker loss after submission retries the identical uncertain delivery", ctx do
     fixture = seed(ctx)
     {:ok, {region, _}} = World.item_owner(ctx.key)
-    writer = :sys.get_state(region).resource.store
+    writer = Valimc.TestDisk.stripe(ctx.base, ctx.key)
     :sys.suspend(writer)
     client = Client.begin_login(fixture.name)
 
@@ -216,7 +217,7 @@ defmodule Valimc.LoginRecoveryTest do
   test "deadline cancels jobs and preserves pending source even if region later commits", ctx do
     fixture = seed(ctx)
     {:ok, {region, _}} = World.item_owner(ctx.key)
-    writer = :sys.get_state(region).resource.store
+    writer = Valimc.TestDisk.stripe(ctx.base, ctx.key)
     :sys.suspend(writer)
     client = Client.begin_login(fixture.name)
 
@@ -250,7 +251,7 @@ defmodule Valimc.LoginRecoveryTest do
       fixture = seed(ctx)
 
       if kind == :corrupt do
-        Valimc.TestDisk.write(ctx.base, ctx.key, :items, "bad-destination")
+        Valimc.TestDisk.corrupt(ctx.base, ctx.key)
       else
         Valimc.TestDisk.write(ctx.base, ctx.key, :items, nil)
         Application.put_env(:valimc, :world_path, nil)

@@ -9,7 +9,7 @@ defmodule Valimc.DecoratedWorldTest do
   use ExUnit.Case, async: false
   @moduletag :slow
   alias Valimc.{Native, TestScope, World}
-  alias Valimc.World.{BlockSnapshot, Directory, Generator, ScheduledTicks, Store}
+  alias Valimc.World.{BlockSnapshot, Directory, Generator, Region, RegionStorage, ScheduledTicks}
   alias Valimc.Worldgen.{FullChunk, Proto}
 
   @seed 20_261_020
@@ -40,7 +40,7 @@ defmodule Valimc.DecoratedWorldTest do
 
   defp stop(keys) do
     for key <- keys,
-        reg <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry, Valimc.ProtoRegistry],
+        reg <- [Valimc.RegionRegistry, Valimc.ProtoRegistry],
         {pid, _} <- Registry.lookup(reg, key),
         do: TestScope.kill(pid)
   end
@@ -124,11 +124,16 @@ defmodule Valimc.DecoratedWorldTest do
 
   defp restart(key) do
     {:ok, {pid, _}} = owner!(key)
-    [{store, _}] = Registry.lookup(Valimc.RegionStoreRegistry, key)
-    watch = Process.monitor(store)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-    assert_receive {:DOWN, ^watch, :process, _, :normal}, 30_000
     {:ok, _} = owner!(key)
+  end
+
+  # What the running owner has made durable.
+  defp durable(ctx, key) do
+    {:ok, {pid, _}} = owner!(key)
+    :ok = Region.flush(pid)
+    {:ok, parts} = RegionStorage.read(ctx.base, :overworld, key)
+    parts
   end
 
   test "a region stores its full chunks with block entities, ticks and post-processing and serves them after a restart",
@@ -138,9 +143,10 @@ defmodule Valimc.DecoratedWorldTest do
     assert map_size(parts.block_entities) > 0
     generate_all(@key)
 
-    assert Store.durable(ctx.base, @key, :columns) == parts.columns
-    assert Store.durable(ctx.base, @key, :block_entities) == parts.block_entities
-    assert Store.durable(ctx.base, @key, :post_processing) == parts.post_processing
+    stored = durable(ctx, @key)
+    assert stored.columns == parts.columns
+    assert stored.block_entities == parts.block_entities
+    assert stored.post_processing == parts.post_processing
     Valimc.TestWait.until(fn -> Proto.full_chunks(@key) == {:error, :handed_over} end)
 
     # Block ticks wait in the region's queue, due at its first tick.
@@ -167,7 +173,9 @@ defmodule Valimc.DecoratedWorldTest do
     :ok = Valimc.TestBlocks.set(position, glass)
     restart(@key)
     assert Valimc.TestBlocks.get(position) == glass
-    assert Store.durable(ctx.base, @key, :columns) == parts.columns
-    assert Store.durable(ctx.base, @key, :block_entities) == parts.block_entities
+    # The edit is folded into its chunk's image; the other chunks are as generated.
+    stored = durable(ctx, @key)
+    assert Map.delete(stored.columns, {cx, cz}) == Map.delete(parts.columns, {cx, cz})
+    assert stored.block_entities == parts.block_entities
   end
 end

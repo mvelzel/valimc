@@ -1,7 +1,7 @@
 alias Valimc.ItemMotionState
 alias Valimc.Protocol.ItemStack
 alias Valimc.World
-alias Valimc.World.{ItemRecords, Region, Store}
+alias Valimc.World.{Region, RegionStorage}
 
 [base] = System.argv()
 base = Path.expand(base)
@@ -46,9 +46,11 @@ rows =
             }
           end
 
-        {:ok, bytes} = ItemRecords.encode(key, records)
-        :ok = Store.import_region(base, key, %{items: bytes})
+        :ok = RegionStorage.import(base, :overworld, key, %{items: records})
         {:ok, owner} = World.item_owner(key)
+        # Items simulate only while a ticket makes the region tick.
+        chunks = Valimc.Worldgen.Proto.chunks_of(key)
+        :ok = Region.ticket(owner, :forced, hd(chunks), chunks)
         owner
       end
 
@@ -92,7 +94,8 @@ rows =
       timeouts: metric.(:item_simulation_timeouts),
       refused: metric.(:item_simulation_refusals),
       busy: metric.(:item_simulation_busy),
-      item_snapshot_saves: metric.(:item_snapshot_saves),
+      log_frames: metric.(:storage_records),
+      checkpoints: metric.(:region_checkpoints),
       merge_jobs: metric.(:item_merge_jobs)
     }
 

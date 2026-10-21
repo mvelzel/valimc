@@ -35,8 +35,7 @@ defmodule Valimc.ExperienceTransfersTest do
     uuid = :crypto.strong_rand_bytes(16)
 
     on_exit(fn ->
-      for registry <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
-          {pid, _} <- Registry.lookup(registry, key),
+      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
           do: Valimc.TestScope.kill(pid)
 
       File.rm_rf(base)

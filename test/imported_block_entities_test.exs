@@ -7,7 +7,7 @@ defmodule Valimc.ImportedBlockEntitiesTest do
   alias Valimc.Registry.Blocks, as: BlockRegistry
   alias Valimc.TestScope
   alias Valimc.World
-  alias Valimc.World.{BlockEntities, Blocks, Containers, Region, Store}
+  alias Valimc.World.{BlockEntities, Blocks, Containers, Region, RegionStorage}
 
   @sign BlockRegistry.default_state("oak_sign")
   @chest BlockRegistry.default_state("chest")
@@ -19,8 +19,7 @@ defmodule Valimc.ImportedBlockEntitiesTest do
     TestScope.isolate(key, world_path: base, region_ticks: :manual)
 
     on_exit(fn ->
-      for reg <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
-          {pid, _} <- Registry.lookup(reg, key),
+      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
           do: TestScope.kill(pid)
 
       File.rm_rf(base)
@@ -63,12 +62,11 @@ defmodule Valimc.ImportedBlockEntitiesTest do
     {:ok, containers, entry} = Containers.create(%Containers{}, key, chest, 3)
     slots = put_elem(entry.slots, 4, ItemStack.new("stone", 9))
     {:ok, containers, _} = Containers.replace(containers, chest, entry.revision, slots)
-    {:ok, bytes} = Containers.encode(key, containers)
 
     :ok =
-      Store.import_region(base, key, %{
+      RegionStorage.import(base, :overworld, key, %{
         columns: %{chunk => image},
-        containers: bytes,
+        containers: containers,
         block_entities: %{sign => {Types.type_id(@sign), nbt}}
       })
 

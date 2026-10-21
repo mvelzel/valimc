@@ -37,14 +37,7 @@ defmodule Valimc.ItemMergeRegionTest do
     {:ok, owner} = World.item_owner(key)
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key) do
-        state = Valimc.TestConn.state(pid).resource
-        if Process.alive?(state.store), do: :sys.resume(state.store)
-        TestScope.kill(pid)
-      end
-
-      for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
-          do: TestScope.kill(pid)
+      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key), do: TestScope.kill(pid)
 
       File.rm_rf(base)
     end)
@@ -61,8 +54,6 @@ defmodule Valimc.ItemMergeRegionTest do
     [%{a: {a, ar}, b: {b, br}}]
   end
 
-  defp wait(fun, _budget \\ nil), do: Valimc.TestWait.until(fun)
-
   defp items_bytes(ctx), do: Valimc.TestDisk.read(ctx.base, ctx.key, :items)
 
   def disk(ctx) do
@@ -70,42 +61,29 @@ defmodule Valimc.ItemMergeRegionTest do
     saved
   end
 
-  test "publication waits for durable merge; competing mutation refuses and restart keeps one stack",
+  test "a merge applies and publishes at once; a competing merge refuses; restart keeps one stack",
        ctx do
+    proposal = pairs(ctx.owner)
+    assert {:ok, [_]} = Region.merge_items(ctx.owner, proposal)
     s = state(ctx.owner)
-    writer = s.store
-    :sys.suspend(writer)
+    assert map_size(Valimc.World.EntityPublication.source(s.item_publication, :items)) == 1
+    assert {:error, :stale_item} = Region.merge_items(ctx.owner, proposal)
 
-    try do
-      proposal = pairs(ctx.owner)
-      task = Task.async(fn -> Region.merge_items(ctx.owner, proposal) end)
-      wait(fn -> Valimc.TestRegion.in_flight?(state(ctx.owner)) end)
-      assert length(disk(ctx).records) == 2
-      views = Valimc.World.EntityPublication.source(s.item_publication, :items)
-      assert map_size(views) == 2
-      assert Task.yield(task, 10) == nil
-      # The pair is already merged in owner memory; a second merge cannot apply.
-      assert {:error, _} = Region.merge_items(ctx.owner, proposal)
-      :sys.resume(writer)
-      assert {:ok, [_]} = Task.await(task, 60_000)
-      assert [record] = disk(ctx).records
-      assert record.uuid == <<2::128>> and record.stack.count == 5
-      assert record.motion.age == 100 and record.motion.pickup_delay == 20
+    {pid, _} = ctx.owner
+    assert :ok = Region.flush(pid)
+    assert [record] = disk(ctx).records
+    assert record.uuid == <<2::128>> and record.stack.count == 5
+    assert record.motion.age == 100 and record.motion.pickup_delay == 20
 
-      assert disk(ctx).receipts == ctx.receipts and
-               disk(ctx).ledger.generations == %{record.uuid => 3}
+    assert disk(ctx).receipts == ctx.receipts and
+             disk(ctx).ledger.generations == %{record.uuid => 3}
 
-      assert {:error, :stale_item} = Region.merge_items(ctx.owner, proposal)
-      {pid, _} = ctx.owner
-      ref = Process.monitor(pid)
-      Process.exit(pid, :kill)
-      assert_receive {:DOWN, ^ref, :process, ^pid, _}
-      assert {:ok, next} = World.item_owner(ctx.key)
-      assert Items.records(state(next).items) == [record]
-      assert state(next).item_receipts == ctx.receipts
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-    end
+    ref = Process.monitor(pid)
+    Process.exit(pid, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^pid, _}
+    assert {:ok, next} = World.item_owner(ctx.key)
+    assert Items.records(state(next).items) == [record]
+    assert state(next).item_receipts == ctx.receipts
   end
 
   @tag simulation: true

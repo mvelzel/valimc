@@ -12,7 +12,6 @@
 | `VALIMC_LEVEL_TYPE` | World preset of a new vanilla world (`level-type`): `minecraft:normal` (default), `large_biomes`, `amplified`, `single_biome_surface` or `flat`; an unknown one is normal, debug worlds are refused |
 | `VALIMC_GENERATOR_SETTINGS` | A flat world's layers and biome (`generator-settings`, vanilla's flat settings JSON); flat worlds with features or lakes are refused |
 | `VALIMC_GENERATE_STRUCTURES` | `generate-structures` (`true` by default), recorded in the world's generation settings |
-| `VALIMC_OPEN_FILES_BUDGET` | Files the durability logs may hold open at once; by default half of the open-files limit (which the server raises toward the hard limit at start, at most 10240 on macOS) after a reserve, between 8 and 1024 |
 | `VALIMC_VIEW_DISTANCE` | Server view distance (`view-distance`, 2..32, default 10): each client gets the distance it requests, at least 2 and at most this |
 | `VALIMC_SIMULATION_DISTANCE` | Simulation distance clients are told (`simulation-distance`, 2..32, default 10); regions still simulate every loaded chunk |
 | `VALIMC_RESPAWN_RADIUS` | The `respawn_radius` game rule: new players and bedless respawns appear within this many blocks of the world spawn; default 10 |

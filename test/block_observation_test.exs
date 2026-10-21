@@ -82,11 +82,9 @@ defmodule Valimc.BlockObservationTest do
   end
 
   test "concurrent reads pair the committed block state with its revision", c do
-    {pid, _} = c.owner
-
     writer =
       Task.async(fn ->
-        for i <- 1..100, do: :ok = GenServer.call(pid, {:set_block, c.pos, rem(i, 2)})
+        for i <- 1..100, do: :ok = Valimc.TestBlocks.set(c.pos, rem(i, 2))
       end)
 
     reads =

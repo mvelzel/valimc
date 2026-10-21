@@ -5,7 +5,7 @@ defmodule Valimc.ImportedRegionTest do
   alias Valimc.Registry.Blocks, as: BlockRegistry
   alias Valimc.TestScope
   alias Valimc.World
-  alias Valimc.World.{Blocks, Region, Store}
+  alias Valimc.World.{Blocks, Region, RegionStorage}
 
   @plains Data.registry_id("minecraft:worldgen/biome", "minecraft:plains")
   @desert Data.registry_id("minecraft:worldgen/biome", "minecraft:desert")
@@ -17,8 +17,7 @@ defmodule Valimc.ImportedRegionTest do
     TestScope.isolate(key, world_path: base, region_ticks: :manual)
 
     on_exit(fn ->
-      for reg <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
-          {pid, _} <- Registry.lookup(reg, key),
+      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
           do: TestScope.kill(pid)
 
       File.rm_rf(base)
@@ -48,21 +47,17 @@ defmodule Valimc.ImportedRegionTest do
 
   defp restart(key) do
     {:ok, {pid, _}} = World.owner(key)
-    [{store, _}] = Registry.lookup(Valimc.RegionStoreRegistry, key)
-    watch = Process.monitor(store)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-    assert_receive {:DOWN, ^watch, :process, _, :normal}
     {:ok, owner} = World.owner(key)
     owner
   end
 
-  test "an imported column loads from the log and edits equal to flat terrain persist", ctx do
+  test "an imported column loads from its checkpoint and edits equal to flat terrain persist",
+       ctx do
     {cx, cz} = ctx.chunk
-
-    assert Store.import_columns(ctx.base, ctx.key, %{ctx.chunk => image(ctx.key, ctx.chunk)}) ==
-             :ok
-
-    assert Store.import_columns(ctx.base, ctx.key, %{}) == {:error, :region_exists}
+    columns = %{ctx.chunk => image(ctx.key, ctx.chunk)}
+    assert RegionStorage.import(ctx.base, :overworld, ctx.key, %{columns: columns}) == :ok
+    assert RegionStorage.import(ctx.base, :overworld, ctx.key, %{}) == {:error, :region_exists}
 
     {:ok, owner} = World.owner(ctx.key)
     cave = {cx * 16 + 5, 10 - 30, cz * 16 + 5}

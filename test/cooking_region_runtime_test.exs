@@ -21,9 +21,6 @@ defmodule Valimc.CookingRegionRuntimeTest do
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
           do: TestScope.kill(pid)
 
-      for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
-          do: TestScope.kill(pid)
-
       File.rm_rf(base)
     end)
 

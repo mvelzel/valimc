@@ -9,8 +9,7 @@ defmodule Valimc.ItemCheckpointsTest do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-item-checkpoints-#{nonce}")
     key = {20_000 + rem(nonce, 3_333) * 3, 320}
-    # Checkpoints run only when a test sends the armed token (VMC-073).
-    TestScope.isolate(key, world_path: base, item_checkpoint_ms: :timer.hours(1))
+    TestScope.isolate(key, world_path: base)
     {:ok, {pid, _} = owner} = World.item_owner(key)
     {rx, rz} = key
     position = {rx * 128 + 8.5, 65.5, rz * 128 + 8.5}
@@ -70,6 +69,7 @@ defmodule Valimc.ItemCheckpointsTest do
     data
   end
 
+  # Motion waits up to a second for a frame (VMC-077f); the kill comes sooner.
   test "normal shutdown checkpoints motion but a crash may roll back only ordinary motion", ctx do
     _first = advance(ctx, ctx.handle, 1)
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid)

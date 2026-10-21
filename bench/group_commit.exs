@@ -1,13 +1,16 @@
-# Group commit (VMC-063): durable throughput and commits per datasync.
+# Group commit (VMC-063, VMC-077f): durable throughput and records per datasync
+# on the world's shared write-ahead log (`Valimc.Storage.Log`).
 #
 #   MIX_ENV=prod mix run --no-start bench/group_commit.exs <scratch-dir> [results.json]
 #
-# Region workload: C concurrent callers each create and remove items in one
-# region (two durable writes per cycle); every reply means the frame is durable. Player workload: P processes each save
-# a player snapshot repeatedly through `Valimc.PlayerLog`.
+# Region workload: R owners each edit a block every 5 ms for two seconds; each
+# replies at once and cuts one frame per 50 ms, and the frames of owners on one
+# stripe share its datasyncs. The interval ends with a flush of every owner.
+# Player workload: P processes each save a player file under `players/`
+# repeatedly through `Valimc.Storage.Log.commit_file/3`; every reply means the
+# bytes are durable.
 alias Valimc.World
 alias Valimc.World.Region
-alias Valimc.Protocol.ItemStack
 
 [base | rest] = System.argv()
 File.mkdir_p!(base)
@@ -17,61 +20,67 @@ Application.put_env(:valimc, :item_simulation, false)
 {:ok, _} = Application.ensure_all_started(:valimc)
 metric = fn key -> Map.get(Valimc.Metrics.snapshot(), key, 0) end
 
-# Only the retryable refusals are retried.
-retry = fn op ->
-  Stream.repeatedly(op)
-  |> Enum.find(
-    &(not match?({:error, busy} when busy in [:item_storage_busy, :storage_backpressure], &1))
-  )
-end
-
 region =
-  for {callers, index} <- Enum.with_index([1, 8, 64]) do
-    key = {9300 + index, 9300}
-    {rx, rz} = key
-    {:ok, owner} = World.item_owner(key)
-    per = div(512, callers)
-    {batches, commits} = {metric.(:store_batches), metric.(:store_batch_commits)}
+  for owners <- [1, 8, 64] do
+    handles =
+      for i <- 1..owners do
+        key = {9300 + owners * 100 + i, 9300}
+        {:ok, owner} = World.owner(key)
+        {key, owner}
+      end
 
-    {us, _} =
+    {batches, frames} = {metric.(:storage_batches), metric.(:storage_records)}
+
+    {us, edits} =
       :timer.tc(fn ->
-        1..callers
-        |> Task.async_stream(
-          fn c ->
-            position = {rx * 128 + 0.5 + rem(c, 100), 64.5, rz * 128 + 0.5}
+        total =
+          handles
+          |> Task.async_stream(
+            fn {{rx, rz}, owner} ->
+              deadline = System.monotonic_time(:millisecond) + 2000
 
-            for _ <- 1..per do
-              {:ok, handle} =
-                retry.(fn -> Region.create_item(owner, ItemStack.new("stone"), position) end)
+              Stream.iterate(0, &(&1 + 1))
+              |> Enum.reduce_while(0, fn i, edits ->
+                if System.monotonic_time(:millisecond) >= deadline do
+                  {:halt, edits}
+                else
+                  position = {rx * 128 + rem(i, 16), 64, rz * 128}
+                  {:ok, view} = Region.observe_blocks(owner, [position])
+                  {:ok, _} = Region.set_blocks(owner, view.revision, %{position => rem(i, 2)})
+                  Process.sleep(5)
+                  {:cont, edits + 1}
+                end
+              end)
+            end,
+            max_concurrency: owners,
+            timeout: :infinity
+          )
+          |> Enum.reduce(0, fn {:ok, n}, acc -> acc + n end)
 
-              :ok = retry.(fn -> Region.remove_item(handle) end)
-            end
-          end,
-          max_concurrency: callers,
-          timeout: :infinity
-        )
-        |> Stream.run()
+        for {_, {pid, _}} <- handles, do: :ok = Region.flush(pid)
+        total
       end)
 
-    n = 2 * per * callers
-    batches = metric.(:store_batches) - batches
-    commits = metric.(:store_batch_commits) - commits
+    batches = metric.(:storage_batches) - batches
+    frames = metric.(:storage_records) - frames
 
     %{
-      workload: "region_creates",
-      callers: callers,
-      operations: n,
+      workload: "region_frames",
+      owners: owners,
+      operations: edits,
       seconds: us / 1.0e6,
-      ops_per_second: round(n / (us / 1.0e6)),
-      commits_per_datasync: Float.round(commits / max(batches, 1), 2)
+      frames: frames,
+      datasyncs: batches,
+      commits_per_datasync: Float.round(frames / max(batches, 1), 2)
     }
   end
 
 players =
   for players <- [1, 64, 512] do
-    dir = Path.join([Path.expand(base), "players"])
+    world = Path.expand(base)
+    dir = Path.join(world, "players")
     rounds = div(4096, players)
-    {batches, commits} = {metric.(:player_log_batches), metric.(:player_log_commits)}
+    {batches, commits} = {metric.(:storage_batches), metric.(:storage_records)}
     bytes = :crypto.strong_rand_bytes(2048)
 
     {us, _} =
@@ -80,7 +89,7 @@ players =
         |> Task.async_stream(
           fn p ->
             path = Path.join(dir, "bench-#{players}-#{p}.pose")
-            for _ <- 1..rounds, do: :ok = Valimc.PlayerLog.commit(path, bytes)
+            for _ <- 1..rounds, do: :ok = Valimc.Storage.Log.commit_file(world, path, bytes)
           end,
           max_concurrency: players,
           timeout: :infinity
@@ -89,8 +98,8 @@ players =
       end)
 
     n = rounds * players
-    batches = metric.(:player_log_batches) - batches
-    commits = metric.(:player_log_commits) - commits
+    batches = metric.(:storage_batches) - batches
+    commits = metric.(:storage_records) - commits
 
     %{
       workload: "player_saves",

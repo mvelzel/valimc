@@ -55,38 +55,23 @@ defmodule Valimc.MiningRegionTest do
     }
   end
 
-  defp writing(pid, _budget \\ nil),
-    do:
-      Valimc.TestWait.until(fn ->
-        Valimc.TestRegion.in_flight(Valimc.TestConn.state(pid).resource)
-      end)
-
-  test "pending write publishes neither blocks nor drops, ignores foreign completions and retries exactly once",
+  test "the block and drops show at once, the reply waits for its frame, and a retry applies nothing twice",
        ctx do
-    writer = :sys.get_state(ctx.pid).resource.store
-    :sys.suspend(writer)
+    stripe = Valimc.TestDisk.stripe(ctx.base, ctx.key)
+    :sys.suspend(stripe)
     task = Task.async(fn -> Region.apply_mining_transfer(ctx.owner, ctx.transfer) end)
 
     try do
-      pending = writing(ctx.pid)
-      # Adopted in owner memory; readers and clients see nothing before durability.
-      assert Valimc.TestRegion.published_block(ctx.owner, ctx.position) == Data.block("stone")
-      assert World.item_snapshot(ctx.key) == %{}
-      assert {:ok, _} = Region.observe_blocks(ctx.owner, [ctx.position])
-      assert {:error, :item_storage_busy} = Region.flush(ctx.pid)
-      send(ctx.pid, {:resource, ctx.epoch, :save})
-      send(ctx.pid, {:resource, ctx.epoch, {:items_saved, writer, pending.token, :ok}})
-      send(ctx.pid, {:mining_saved, writer, pending.token, :ok})
-      send(ctx.pid, {:resource, make_ref(), {:mining_saved, writer, pending.token, :ok}})
-      send(ctx.pid, {:resource, ctx.epoch, {:mining_saved, writer, make_ref(), :ok}})
-      assert {:ok, _} = Region.observe_blocks(ctx.owner, [])
-      assert Valimc.TestRegion.write_token(:sys.get_state(ctx.pid).resource) == pending.token
-      assert Task.yield(task, 10) == nil
-      assert World.item_snapshot(ctx.key) == %{}
-      :sys.resume(writer)
-      assert {:ok, :applied} = Task.await(task, 60_000)
-      assert Valimc.TestBlocks.get(ctx.position) == 0
+      Valimc.TestWait.until(fn ->
+        Valimc.TestRegion.in_flight?(Valimc.TestConn.state(ctx.pid).resource)
+      end)
+
+      # Adopted and shown at once (D2); the reply, the player's proof, waits.
+      assert Valimc.TestRegion.published_block(ctx.owner, ctx.position) == 0
       assert map_size(World.item_snapshot(ctx.key)) == 1
+      assert Task.yield(task, 10) == nil
+      :sys.resume(stripe)
+      assert {:ok, :applied} = Task.await(task, 60_000)
       assert {:ok, {_, receipt}} = Region.item_transfer_receipt(ctx.owner, ctx.transfer.source)
       assert {:ok, :applied} = MiningTransfers.receipt_result(ctx.key, ctx.transfer, receipt)
       # A retry cannot break a replacement block after its permit was consumed.
@@ -95,7 +80,7 @@ defmodule Valimc.MiningRegionTest do
       assert Valimc.TestBlocks.get(ctx.position) == 1
       assert map_size(World.item_snapshot(ctx.key)) == 1
     after
-      if Process.alive?(writer), do: :sys.resume(writer)
+      :sys.resume(stripe)
       Task.shutdown(task, :brutal_kill)
     end
   end
@@ -183,20 +168,24 @@ defmodule Valimc.MiningRegionTest do
     assert map_size(World.item_snapshot(ctx.key)) == 1
   end
 
-  test "real writer failure commits neither block nor receipt and rejects the stale retry", ctx do
+  test "a log failure under the frame commits neither block nor receipt and rejects the stale retry",
+       ctx do
     before = Valimc.TestBlocks.get(ctx.position)
-    writer = :sys.get_state(ctx.pid).resource.store
-    Valimc.TestDisk.break_writer(writer)
+    stripe = Valimc.TestDisk.stripe(ctx.base, ctx.key)
+    :sys.suspend(stripe)
     ref = Process.monitor(ctx.pid)
+    task = Task.async(fn -> Region.apply_mining_transfer(ctx.owner, ctx.transfer) end)
 
     capture_log(fn ->
-      assert {:error, :mining_commit_uncertain} =
-               Region.apply_mining_transfer(ctx.owner, ctx.transfer)
+      Valimc.TestWait.until(fn ->
+        Valimc.TestRegion.in_flight?(Valimc.TestConn.state(ctx.pid).resource)
+      end)
 
+      Process.exit(stripe, :kill)
+      assert {:error, :item_commit_uncertain} = Task.await(task, 60_000)
       assert_receive {:DOWN, ^ref, :process, _, _}
     end)
 
-    Valimc.TestDisk.await_exit(writer)
     assert {:ok, owner} = World.item_owner(ctx.key)
     assert Valimc.TestBlocks.get(ctx.position) == before and World.item_snapshot(ctx.key) == %{}
     assert {:ok, :rejected} = Region.apply_mining_transfer(owner, ctx.transfer)

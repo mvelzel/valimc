@@ -1,5 +1,6 @@
+alias Valimc.Storage.Checkpoint
 alias Valimc.World
-alias Valimc.World.Region
+alias Valimc.World.{Region, RegionStorage}
 [output] = System.argv()
 base = Path.join(System.tmp_dir!(), "valimc-cold-bench-#{System.unique_integer([:positive])}")
 File.mkdir_p!(base)
@@ -8,10 +9,8 @@ Application.put_env(:valimc, :world_path, base)
 {:ok, hot} = World.owner({709, 710})
 # A cold region's checkpoint, as a FIFO stalls its read: the bytes of an empty one.
 seed = Path.join(base, "seed")
-{:ok, log, _} = Valimc.World.RegionLog.open(seed)
-{:ok, _} = Valimc.World.RegionLog.checkpoint(log, %{})
-[checkpoint] = seed |> File.ls!() |> Enum.filter(&String.starts_with?(&1, "ckpt."))
-bytes = File.read!(Path.join(seed, checkpoint))
+:ok = RegionStorage.import(seed, :overworld, {0, 0}, %{})
+bytes = File.read!(Checkpoint.path(seed, {:region, :overworld, {0, 0}}))
 
 registered = fn key ->
   Enum.reduce_while(1..1000, nil, fn _, _ ->
@@ -38,9 +37,7 @@ results =
   for n <- 0..4 do
     cold_key = {710 + n * 2, 710}
     other_key = {711 + n * 2, 710}
-    dir = Valimc.World.Store.log_dir(base, cold_key)
-    File.mkdir_p!(dir)
-    path = Path.join(dir, checkpoint)
+    path = Checkpoint.path(base, {:region, :overworld, cold_key})
     {_, 0} = System.cmd("mkfifo", [path])
     cold = Task.async(fn -> measure.(fn -> World.owner(cold_key) end) end)
     pid = registered.(cold_key)
@@ -58,6 +55,9 @@ results =
     {{:ok, {other_pid, _}}, independent_us} = Task.await(other, 4000)
     {{:ok, {^pid, _}}, cold_us} = Task.await(cold, 4000)
     :ok = Task.await(release, 1000)
+    # The unload checkpoint reads the previous one: a plain file again.
+    File.rm!(path)
+    File.write!(path, bytes)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, other_pid)
 

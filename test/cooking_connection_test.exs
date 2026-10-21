@@ -28,8 +28,7 @@ defmodule Valimc.CookingConnectionTest do
 
       for {registry, supervisor, identity} <- [
             {Valimc.PlayerStoreRegistry, Valimc.PlayerStoreSupervisor, uuid},
-            {Valimc.RegionRegistry, Valimc.RegionSupervisor, key},
-            {Valimc.RegionStoreRegistry, Valimc.RegionStoreSupervisor, key}
+            {Valimc.RegionRegistry, Valimc.RegionSupervisor, key}
           ],
           {pid, _} <- Registry.lookup(registry, identity),
           do: DynamicSupervisor.terminate_child(supervisor, pid)

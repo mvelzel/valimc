@@ -31,9 +31,6 @@ defmodule Valimc.PlayerPickupConnectionTest do
       for x <- (rx - 1)..(rx + 1), z <- (rz - 1)..(rz + 1) do
         for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, {x, z}),
             do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-
-        for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, {x, z}),
-            do: DynamicSupervisor.terminate_child(Valimc.RegionStoreSupervisor, pid)
       end
 
       Application.put_env(:valimc, :world_path, previous)

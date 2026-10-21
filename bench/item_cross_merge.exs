@@ -1,6 +1,6 @@
 defmodule Valimc.CrossMergeBench do
   alias Valimc.{ItemMotionState, Metrics, Protocol.ItemStack, World}
-  alias Valimc.World.{ItemLedger, Region, Store}
+  alias Valimc.World.{Region, RegionStorage}
 
   def run(base, boundaries, component_bytes) do
     stack = ItemStack.new("stone", 2)
@@ -43,9 +43,11 @@ defmodule Valimc.CrossMergeBench do
 
         owners =
           for {k, records} <- [{key, donors}, {target, recipients}] do
-            {:ok, bytes} = ItemLedger.encode(k, records, %{}, %ItemLedger{})
-            :ok = Store.import_region(base, k, %{items: bytes})
+            :ok = RegionStorage.import(base, :overworld, k, %{items: records})
             {:ok, owner} = World.item_owner(k)
+            # Items simulate and merge only while a ticket makes the region tick.
+            chunks = Valimc.Worldgen.Proto.chunks_of(k)
+            :ok = Region.ticket(owner, :forced, hd(chunks), chunks)
             {k, owner}
           end
 
@@ -77,14 +79,14 @@ defmodule Valimc.CrossMergeBench do
 
     for g <- groups, {k, {pid, _}} <- g.owners do
       :ok = Region.flush(pid)
-      {:ok, saved} = ItemLedger.decode(Store.durable(base, k, :items), k)
+      {:ok, saved} = RegionStorage.read(base, :overworld, k)
 
       if k == g.key do
-        true = saved.records == [] and saved.ledger.sequence >= 32
+        true = saved.items == [] and saved.ledger.sequence >= 32
       else
-        true = length(saved.records) == 32 and Enum.all?(saved.records, &(&1.stack.count == 5))
-        true = MapSet.new(saved.records, & &1.uuid) == g.recipients
-        {:ok, source} = ItemLedger.decode(Store.durable(base, g.key, :items), g.key)
+        true = length(saved.items) == 32 and Enum.all?(saved.items, &(&1.stack.count == 5))
+        true = MapSet.new(saved.items, & &1.uuid) == g.recipients
+        {:ok, source} = RegionStorage.read(base, :overworld, g.key)
         true = saved.ledger.incoming[g.key].sequence == source.ledger.sequence
       end
     end

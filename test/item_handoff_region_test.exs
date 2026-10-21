@@ -43,14 +43,8 @@ defmodule Valimc.ItemHandoffRegionTest do
       for region <- [key, destination],
           {pid, _} <- Registry.lookup(Valimc.RegionRegistry, region) do
         :sys.resume(pid)
-        resource = Valimc.TestConn.state(pid).resource
-        if Process.alive?(resource.store), do: :sys.resume(resource.store)
         TestScope.kill(pid)
       end
-
-      for region <- [key, destination],
-          {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, region),
-          do: TestScope.kill(pid)
 
       File.rm_rf(base)
     end)
@@ -88,12 +82,15 @@ defmodule Valimc.ItemHandoffRegionTest do
     end)
   end
 
-  defp complete(owner),
-    do:
-      wait(fn ->
-        s = resource(owner)
-        s.items.ledger.outgoing == nil and not Valimc.TestRegion.writing?(s)
-      end)
+  # The handoff finished and the source's side of it is durable.
+  defp complete({pid, _} = owner) do
+    wait(fn ->
+      s = resource(owner)
+      s.items.ledger.outgoing == nil and not Valimc.TestRegion.writing?(s)
+    end)
+
+    :ok = Region.flush(pid)
+  end
 
   # Durably present in that owner's region (what a restart or any reader would see).
   defp published({pid, _}, uuid) do

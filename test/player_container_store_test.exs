@@ -14,7 +14,7 @@ defmodule Valimc.PlayerContainerStoreTest do
   }
 
   alias Valimc.Protocol.ItemStack
-  alias Valimc.World.{Containers, ContainerTransfers, Region, Store}
+  alias Valimc.World.{Containers, ContainerTransfers, Region}
 
   setup do
     nonce = System.unique_integer([:positive])
@@ -77,8 +77,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     on_exit(fn ->
       for {registry, key} <- [
             {Valimc.PlayerStoreRegistry, uuid},
-            {Valimc.RegionRegistry, key},
-            {Valimc.RegionStoreRegistry, key}
+            {Valimc.RegionRegistry, key}
           ],
           {pid, _} <- Registry.lookup(registry, key),
           do: TestScope.kill(pid)
@@ -113,9 +112,8 @@ defmodule Valimc.PlayerContainerStoreTest do
   defp write_decision(ctx, pending, eligible) do
     {:ok, _, request, _} = PlayerContainerIntent.request(ctx.uuid, 1, pending.outbox)
     {:ok, decision} = ContainerTransfers.plan(ctx.containers, ctx.key, request, eligible)
-    {:ok, writer, lease} = Store.open(ctx.key)
-    assert :ok = Store.flush_containers(writer, lease, decision.containers)
-    assert :ok = Store.close(writer, lease)
+    {:ok, bytes} = Containers.encode(ctx.key, decision.containers)
+    Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
     decision
   end
 

@@ -36,14 +36,7 @@ defmodule Valimc.ItemVoidRegionTest do
     {:ok, owner} = World.item_owner(key)
 
     on_exit(fn ->
-      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key) do
-        writer = state({pid, nil}).store
-        if Process.alive?(writer), do: :sys.resume(writer)
-        TestScope.kill(pid)
-      end
-
-      for {pid, _} <- Registry.lookup(Valimc.RegionStoreRegistry, key),
-          do: TestScope.kill(pid)
+      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key), do: TestScope.kill(pid)
 
       Valimc.TestScope.stop_neighbourhood(key)
 
@@ -75,34 +68,25 @@ defmodule Valimc.ItemVoidRegionTest do
     saved
   end
 
-  defp removed(_c, owner) do
-    s = state(owner)
-    not Valimc.TestRegion.writing?(s) and map_size(s.items.entries) == 1
-  end
+  test "void removal applies at once, retains receipts and survives owner reopening", c do
+    enable(c.owner)
+    wait(fn -> map_size(state(c.owner).items.entries) == 1 end)
 
-  test "void removal waits for fsync, retains receipts and survives owner reopening", c do
-    writer = state(c.owner).store
-    :sys.suspend(writer)
+    wait(fn ->
+      Enum.map(Map.values(World.item_snapshot(c.key)), & &1.uuid) == [c.boundary.uuid]
+    end)
 
-    try do
-      enable(c.owner)
-      wait(fn -> Valimc.TestRegion.in_flight?(state(c.owner)) end)
-      assert map_size(World.item_snapshot(c.key)) == 2 and length(disk(c).records) == 2
-      assert state(c.owner).item_simulation == nil and state(c.owner).item_cross_job == nil
-      :sys.resume(writer)
-      wait(fn -> removed(c, c.owner) end)
-      assert Enum.map(Map.values(World.item_snapshot(c.key)), & &1.uuid) == [c.boundary.uuid]
-      saved = disk(c)
-      assert saved.records == [c.boundary] and saved.receipts == c.receipts
-      assert saved.ledger == %{c.ledger | generations: %{c.boundary.uuid => 4}}
-      {pid, _} = c.owner
-      assert :ok = Region.flush(pid)
-      DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-      {:ok, reopened} = World.item_owner(c.key)
-      assert map_size(state(reopened).items.entries) == 1
-      assert disk(c).records == [c.boundary]
-    after
-      if Process.alive?(writer), do: :sys.resume(writer)
-    end
+    {pid, _} = c.owner
+    assert :ok = Region.flush(pid)
+    saved = disk(c)
+
+    assert Enum.map(saved.records, & &1.uuid) == [c.boundary.uuid] and
+             saved.receipts == c.receipts
+
+    assert saved.ledger == %{c.ledger | generations: %{c.boundary.uuid => 4}}
+    DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
+    {:ok, reopened} = World.item_owner(c.key)
+    assert map_size(state(reopened).items.entries) == 1
+    assert Enum.map(disk(c).records, & &1.uuid) == [c.boundary.uuid]
   end
 end

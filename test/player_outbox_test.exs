@@ -493,16 +493,16 @@ defmodule Valimc.PlayerOutboxTest do
 
   test "an unreadable destination preserves the source intent until repair", ctx do
     {fence, pending} = prepare(ctx)
-    Valimc.TestDisk.write(ctx.base, ctx.key, :items, "corrupt-destination")
+    Valimc.TestDisk.corrupt(ctx.base, ctx.key)
 
     capture_log(fn ->
       assert {:error, :transfer_destination_unavailable} = complete(ctx, fence)
     end)
 
     assert saved(ctx) == {:ok, pending}
-    assert Valimc.TestDisk.read(ctx.base, ctx.key, :items) == "corrupt-destination"
+    assert Valimc.TestDisk.read(ctx.base, ctx.key, :items) == :corrupt
     assert Process.alive?(ctx.writer)
-    Valimc.TestDisk.write(ctx.base, ctx.key, :items, nil)
+    Valimc.TestDisk.repair(ctx.base, ctx.key)
     # The failed load backs off before the region is admitted again (VMC-077e).
     Valimc.TestWait.until(fn -> World.region(ctx.key) != {:error, {:region_load, :backoff}} end)
     assert {:ok, :applied} = deliver(ctx, pending)

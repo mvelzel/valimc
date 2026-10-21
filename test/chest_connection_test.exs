@@ -29,8 +29,7 @@ defmodule Valimc.ChestConnectionTest do
 
       for {registry, supervisor, identity} <- [
             {Valimc.PlayerStoreRegistry, Valimc.PlayerStoreSupervisor, uuid},
-            {Valimc.RegionRegistry, Valimc.RegionSupervisor, key},
-            {Valimc.RegionStoreRegistry, Valimc.RegionStoreSupervisor, key}
+            {Valimc.RegionRegistry, Valimc.RegionSupervisor, key}
           ],
           {pid, _} <- Registry.lookup(registry, identity),
           do: DynamicSupervisor.terminate_child(supervisor, pid)
@@ -275,7 +274,7 @@ defmodule Valimc.ChestConnectionTest do
     {client, pid} = login(ctx)
     client = open(client, ctx)
     {:ok, {region, _}} = World.existing_owner(ctx.key)
-    writer = :sys.get_state(region).resource.store
+    writer = Valimc.TestDisk.stripe(ctx.base, ctx.key)
     :sys.suspend(writer)
 
     try do

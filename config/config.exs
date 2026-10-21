@@ -38,9 +38,6 @@ config :valimc,
   max_mailbox: 256,
   # Overloaded connections stop gracefully; a stuck one is killed after this delay.
   overload_kill_ms: 5_000,
-  store_checkpoint_bytes: 32 * 1024 * 1024,
-  # How long ordinary item motion stays unsaved before its owner checkpoints it.
-  item_checkpoint_ms: 1000,
   # Region tick behaviours (VMC-066) and whether owners tick on a timer or by `Region.step/2`.
   tick_behaviours: [],
   region_ticks: :timer,
@@ -53,9 +50,6 @@ config :valimc,
   respawn_radius: 10,
   # macOS `fsync` stops at the drive cache; flush through it (F_FULLFSYNC).
   full_fsync: match?({:unix, :darwin}, :os.type()),
-  # Files the durability logs may hold open at once (VMC-074); nil: half of
-  # the raised open-files limit after a reserve, between 8 and 1024.
-  open_files_budget: nil,
   packets_per_second: 400,
   bytes_per_second: 4_194_304,
   compression_threshold: 256,

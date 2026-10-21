@@ -11,12 +11,13 @@ defmodule Valimc.World.RegionGeneration do
   `Valimc.Worldgen.Pool` (`Generator.columns/2`), a decorated world through
   its proto owner (`Proto.request_full_chunks/2`). Each chunk is lit alone
   where it is generated and its column image keeps that light (VMC-077c). A
-  batch is persisted as one store frame (`Store.commit_generated/5`) and
-  installed once durable: its columns adopt their light and light crosses
-  their faces, its block entities and ticks are added, its snapshots
+  batch is installed at once and its column images join the owner's next
+  frame (`RegionStorage`, VMC-077f): its columns adopt their light and light
+  crosses their faces, its block entities and ticks are added, its snapshots
   published, neighbours' rings and served chunks' light updated, and the calls
-  that waited for it run again. A failed batch stays wanted and is retried
-  after a backoff.
+  that waited for it run again. The proto owner forgets the chunks only once
+  that frame is durable. A failed batch stays wanted and is retried after a
+  backoff.
 
   Until then an absent chunk is like a chunk of an unloaded neighbour region:
   the owner's block reads see nothing there and edits of it are refused.
@@ -24,14 +25,14 @@ defmodule Valimc.World.RegionGeneration do
   require Logger
   alias Valimc.World
   alias Valimc.World.{BlockEntities, BlockSnapshot, Blocks, Generator, RegionData, Spec}
-  alias Valimc.World.{ScheduledTicks, Store, Tickets}
+  alias Valimc.World.{RegionStorage, ScheduledTicks, Tickets}
   alias Valimc.Worldgen.{FullChunk, Pool, Proto}
 
   # Terrain: jobs of a few chunks, so the nearest chunks are not stuck behind a
   # long batch. A decorated world's proto owner runs one transaction at a time,
   # whose locks dominate it: 16 chunks a request took a whole view in about
   # 0.7 × the time of 8 (VMC-075), and a second request keeps the owner busy
-  # while the first is persisted.
+  # while the first is installed.
   @terrain_batch 4
   @terrain_jobs 4
   @proto_batch 16
@@ -44,7 +45,6 @@ defmodule Valimc.World.RegionGeneration do
             urgent: MapSet.new(),
             jobs: %{},
             requests: nil,
-            saving: %{},
             deferred: %{},
             deferred_count: 0,
             retry: nil,
@@ -119,11 +119,7 @@ defmodule Valimc.World.RegionGeneration do
   urgent ones before all.
   """
   def queue(%__MODULE__{} = gen, %Tickets{} = tickets) do
-    busy =
-      Enum.reduce(Map.values(gen.jobs), MapSet.new(), &Enum.into(&1.chunks, &2))
-      |> then(fn busy ->
-        Enum.reduce(Map.values(gen.saving), busy, &Enum.into(&1.chunks, &2))
-      end)
+    busy = Enum.reduce(Map.values(gen.jobs), MapSet.new(), &Enum.into(&1.chunks, &2))
 
     Enum.map(gen.urgent, &{&1, -1})
     |> Enum.concat(
@@ -255,7 +251,7 @@ defmodule Valimc.World.RegionGeneration do
         case result do
           {:ok, columns} when is_map(columns) ->
             parts = %{columns: Map.take(columns, job.chunks), post_processing: %{}}
-            persist(state, job.chunks, Map.merge(parts, %{block_entities: %{}, ticks: []}))
+            install(state, Map.merge(parts, %{block_entities: %{}, ticks: []}))
 
           error ->
             failed(state, error)
@@ -288,7 +284,7 @@ defmodule Valimc.World.RegionGeneration do
 
     with {:reply, {:ok, full}} <- response,
          {:ok, parts} <- FullChunk.parts(full, %{}, []) do
-      persist(state, job.chunks, parts)
+      install(state, parts)
     else
       {:reply, {:error, :handed_over}} ->
         # The proto owner dropped chunks this region never stored: they cannot
@@ -315,38 +311,7 @@ defmodule Valimc.World.RegionGeneration do
     end
   end
 
-  defp persist(state, chunks, parts) do
-    gen = state.generation
-    token = make_ref()
-    owner = {self(), state.items.epoch}
-    Store.commit_generated(state.store, state.store_lease, parts, owner, token)
-    saving = Map.put(gen.saving, token, %{chunks: chunks, parts: parts, started: now()})
-    pump(%{state | generation: %{gen | saving: saving, failures: 0}})
-  end
-
-  @doc "The store acknowledged a batch's frame: install it once durable."
-  def saved(state, token, result) do
-    gen = state.generation
-
-    case Map.pop(gen.saving, token) do
-      {nil, _} ->
-        state
-
-      {entry, saving} ->
-        state = %{state | generation: %{gen | saving: saving}}
-
-        case result do
-          :ok ->
-            Valimc.Metrics.add(:column_persist_microseconds, now() - entry.started)
-            install(state, entry.parts)
-
-          error ->
-            failed(state, error)
-        end
-    end
-  end
-
-  # Install durable generated chunks; they were absent, so no reader saw them.
+  # Install generated chunks; they were absent, so no reader saw them.
   defp install(state, parts) do
     gen = state.generation
     columns = Map.filter(parts.columns, fn {chunk, _} -> absent?(gen, chunk) end)
@@ -382,15 +347,21 @@ defmodule Valimc.World.RegionGeneration do
       | absent: MapSet.difference(gen.absent, installed),
         urgent: MapSet.difference(gen.urgent, installed),
         deferred: waiting,
-        deferred_count: count
+        deferred_count: count,
+        failures: 0
     }
+
+    storage =
+      state.storage
+      |> RegionStorage.columns(columns)
+      |> RegionStorage.post_processing(Map.take(parts.post_processing, chunks))
 
     state = %{
       state
       | generation: gen,
         block_entities: entities,
         scheduled_ticks: ticks,
-        ticks_dirty: state.ticks_dirty or parts.ticks != []
+        storage: storage
     }
 
     :ok =
@@ -414,7 +385,11 @@ defmodule Valimc.World.RegionGeneration do
         )
 
     state = Valimc.World.LightHalo.columns_changed(state, columns)
-    if gen.mode == :decorated, do: Proto.handed_over(state.key, chunks)
+
+    state =
+      if gen.mode == :decorated,
+        do: RegionData.wait_durable(state, [{:effect, {:proto_handed_over, chunks}}]),
+        else: state
 
     state =
       deferred
@@ -434,8 +409,4 @@ defmodule Valimc.World.RegionGeneration do
   end
 
   defp now, do: System.monotonic_time(:microsecond)
-
-  @doc "Ticks of batches still being persisted (`Store.commit_ticks/5` entries)."
-  def saving_ticks(%__MODULE__{saving: saving}),
-    do: Enum.flat_map(saving, fn {_, entry} -> entry.parts.ticks end)
 end

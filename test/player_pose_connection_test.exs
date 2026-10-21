@@ -202,6 +202,8 @@ defmodule Valimc.PlayerPoseConnectionTest do
     assert Process.alive?(pid)
     {:ok, {replacement, _}} = World.owner(ctx.key)
     refute replacement == owner
+    # The roof was durable before the kill (VMC-077f); the new owner's change is seen.
+    :ok = Valimc.TestBlocks.set(roof, 0)
     client = await_pose(client, entity, 0)
     Valimc.TestRegionGate.stall(replacement)
 

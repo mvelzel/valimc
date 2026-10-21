@@ -110,8 +110,6 @@ defmodule Valimc.Worldgen.Proto do
   # An owner with nothing in flight stops after this many quiet resolve rounds
   # (its state is durable; untouched terrain is generated again if needed).
   @idle_rounds 10
-  # Recovery that runs out of file descriptors waits this long at most.
-  @recovery_wait 30_000
   # An owner whose chunks are all final and handed over stops this soon after,
   # once nothing is in flight (VMC-074); neighbours start it again if needed.
   @retire_after 5_000
@@ -250,8 +248,7 @@ defmodule Valimc.Worldgen.Proto do
       {:ok, %{kind: :noise} = spec} ->
         dir = base && Path.join([base, "gen", "r.#{rx}.#{rz}"])
 
-        # Out of file descriptors, recovery waits and tries again (VMC-074).
-        case Valimc.FileBudget.retry(fn -> ProtoLog.open(dir) end, @recovery_wait) do
+        case ProtoLog.open(dir) do
           {:ok, log, durable, incarnation} -> loaded(empty, spec, log, durable, incarnation)
           {:error, reason} -> {:stop, {:shutdown, {:proto_log_recovery_failed, reason}}, empty}
         end

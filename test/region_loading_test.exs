@@ -1,12 +1,13 @@
 defmodule Valimc.RegionLoadingTest do
   use ExUnit.Case, async: false
   # Serial: asserts production latency deadlines that concurrent CPU load can exceed.
+  alias Valimc.Storage.Checkpoint
   alias Valimc.TestScope
   alias Valimc.World
   alias Valimc.World.Region
   import ExUnit.CaptureLog
 
-  test "a region saved before the region log fails clearly, keeps its file and leaves others available" do
+  test "a region stored before the shared log fails clearly, keeps its file and leaves others available" do
     nonce = rem(System.unique_integer([:positive]), 10_000) + 1
     base = Path.join(System.tmp_dir!(), "valimc-pre-log-#{nonce}")
     key = {-752, -nonce}
@@ -20,11 +21,10 @@ defmodule Valimc.RegionLoadingTest do
 
     try do
       assert capture_log(fn -> assert {:error, _} = World.owner(key) end) =~
-               "saved before the region log"
+               "format from before VMC-077f"
 
       assert File.read!(path) == :erlang.term_to_binary({:valimc_region, 1, %{{0, 70, 0} => 1}})
-      refute File.exists?(Valimc.World.Store.log_dir(base, key))
-      assert_raise ArgumentError, fn -> Valimc.World.Store.durable(base, key, :blocks) end
+      refute File.exists?(Checkpoint.path(base, {:region, :overworld, key}))
       assert World.existing_owner(key) == {:error, :region_unavailable}
       assert World.item_snapshot(key) == %{}
       assert {:ok, owner} = World.owner(independent)
@@ -85,14 +85,10 @@ defmodule Valimc.RegionLoadingTest do
     key = {-750, -nonce}
     independent = {-751, -nonce}
     # The region's checkpoint is a FIFO: its cold read blocks until bytes arrive.
-    seed = Path.join(base, "seed")
-    {:ok, log, _} = Valimc.World.RegionLog.open(seed)
-    {:ok, _} = Valimc.World.RegionLog.checkpoint(log, %{})
-    [checkpoint] = seed |> File.ls!() |> Enum.filter(&String.starts_with?(&1, "ckpt."))
-    bytes = File.read!(Path.join(seed, checkpoint))
-    dir = Valimc.World.Store.log_dir(base, key)
-    File.mkdir_p!(dir)
-    path = Path.join(dir, checkpoint)
+    seed = Path.join([base, "seed", "r.0.0.vmc"])
+    :ok = Checkpoint.write(seed, 0, %{})
+    bytes = File.read!(seed)
+    path = Checkpoint.path(base, {:region, :overworld, key})
     assert {_, 0} = System.cmd("mkfifo", [path])
     TestScope.isolate([key, independent], world_path: base)
     loading = Task.async(fn -> World.owner(key) end)
@@ -111,7 +107,7 @@ defmodule Valimc.RegionLoadingTest do
         assert {:ok, {:ok, {other, epoch}}} = Task.yield(healthy, 1000)
         size = Valimc.config(:region_size) * 16
         position = {elem(independent, 0) * size, 64, elem(independent, 1) * size}
-        assert :ok = GenServer.call(other, {:set_block, position, 1}, 250)
+        assert :ok = Valimc.TestBlocks.set(position, 1)
 
         assert {:ok, %{blocks: %{^position => 1}}} =
                  Region.observe_blocks({other, epoch}, [position])

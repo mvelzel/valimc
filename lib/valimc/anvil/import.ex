@@ -4,8 +4,8 @@ defmodule Valimc.Anvil.Import do
   Region and entity chunks of 26.2 and 26.3's snapshots are upgraded first, as
   vanilla's data fixers upgrade them (`Valimc.World.DataFix`, VMC-028d).
 
-  Every full overworld chunk becomes a column image in its ValiMC region's log
-  (`Store.import_region/3`); chunks of other statuses are left out (ValiMC shows
+  Every full overworld chunk becomes a column image in its ValiMC region's
+  checkpoint (`RegionStorage.import/4`); chunks of other statuses are left out (ValiMC shows
   flat terrain there until generation exists). The spawn comes from `level.dat`.
   Region files convert in parallel, one bounded task per file.
 
@@ -43,9 +43,9 @@ defmodule Valimc.Anvil.Import do
     DataFix,
     GenSettings,
     ItemLedger,
+    RegionStorage,
     Settings,
-    Spec,
-    Store
+    Spec
   }
 
   @overworld "dimensions/minecraft/overworld/region"
@@ -379,7 +379,7 @@ defmodule Valimc.Anvil.Import do
       with {:ok, parts} <- container_part(key, containers, parts),
            {:ok, parts} <- item_part(key, records, parts),
            {:ok, _} <- BlockEntities.new(preserved),
-           do: Store.import_region(destination, key, parts)
+           do: RegionStorage.import(destination, :overworld, key, parts)
 
     {key, result, counts}
   end
@@ -446,9 +446,10 @@ defmodule Valimc.Anvil.Import do
 
   defp item_part(_key, [], parts), do: {:ok, parts}
 
+  # The codecs check the owners' bounds; the checkpoint keeps the values.
   defp item_part(key, records, parts) do
-    with {:ok, bytes} <- ItemLedger.encode(key, records, %{}),
-         do: {:ok, Map.put(parts, :items, bytes)}
+    with {:ok, _} <- ItemLedger.encode(key, records, %{}),
+         do: {:ok, Map.put(parts, :items, records)}
   end
 
   defp container_part(_key, %Containers{} = containers, parts)
@@ -456,8 +457,8 @@ defmodule Valimc.Anvil.Import do
        do: {:ok, parts}
 
   defp container_part(key, containers, parts) do
-    with {:ok, bytes} <- Containers.encode(key, containers),
-         do: {:ok, Map.put(parts, :containers, bytes)}
+    with {:ok, _} <- Containers.encode(key, containers),
+         do: {:ok, Map.put(parts, :containers, containers)}
   end
 
   defp place(key, chunk, blocks, tag, containers, preserved, counts) do

@@ -656,9 +656,10 @@ defmodule Valimc.PlayerStore do
 
   defp write(nil, _), do: :ok
 
-  # Group-committed with other players' saves (`Valimc.PlayerLog`).
+  # Group-committed with every owner's records (`Valimc.Storage.Log`); the
+  # world folder is two levels up (`players/<uuid>.pose`).
   defp write(path, bytes) do
-    with :ok <- Valimc.PlayerLog.commit(path, bytes) do
+    with :ok <- Valimc.Storage.Log.commit_file(Path.dirname(Path.dirname(path)), path, bytes) do
       Metrics.add(:player_saves)
       :ok
     end

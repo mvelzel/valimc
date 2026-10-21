@@ -7,7 +7,7 @@ defmodule Valimc.Portal.Access do
   There is no cross-owner atomicity, as vanilla's chunks save independently.
   """
   alias Valimc.World
-  alias Valimc.World.{Directory, Region, Store, View}
+  alias Valimc.World.{Directory, Region, View}
   alias Valimc.Registry.BlockFacts
 
   @deadline 30_000
@@ -191,8 +191,7 @@ defmodule Valimc.Portal.Access do
             false
 
           world ->
-            base = Valimc.Dimension.storage(world, Valimc.Dimension.current())
-            File.dir?(Store.log_dir(base, key)) or Store.pre_log_files(base, key) != []
+            Valimc.World.RegionStorage.stored?(world, Valimc.Dimension.current(), key)
         end
     end
   end

@@ -6,7 +6,7 @@
 # for `AnvilContentOracle verify`, which requires vanilla's block entity list.
 alias Valimc.Anvil.Import
 alias Valimc.Protocol.{Data, ItemStack}
-alias Valimc.World.{BlockEntities, Blocks, Chunk, Containers, Store}
+alias Valimc.World.{BlockEntities, Blocks, Chunk, RegionStorage}
 
 Code.require_file("nbt_canon.exs", __DIR__)
 
@@ -17,6 +17,12 @@ Data.load!()
 Valimc.Registry.BlockFacts.install!()
 facts = facts_path |> File.read!() |> JSON.decode!()
 imported = Path.join(out_dir, "imported-world")
+
+stored = fn key ->
+  {:ok, parts} = RegionStorage.read(imported, :overworld, key)
+  parts
+end
+
 {:ok, report} = Import.run(facts["world"], imported)
 
 unless report.error_count == 0, do: raise("import errors: #{inspect(report.errors)}")
@@ -29,17 +35,12 @@ regions =
   |> Enum.uniq()
   |> Map.new(fn key ->
     # Lit as an owner lights it: chunks the import has not are unknown (VMC-077c).
-    images = Store.durable(imported, key, :columns)
+    parts = stored.(key)
+    images = parts.columns
     absent = for c <- Valimc.Worldgen.Proto.chunks_of(key), not Map.has_key?(images, c), do: c
     {:ok, blocks} = Blocks.new(key, %{}, images, absent)
-
-    {:ok, containers} =
-      case Store.durable(imported, key, :containers) do
-        nil -> {:ok, %Containers{}}
-        bytes -> Containers.decode(bytes, key)
-      end
-
-    {:ok, preserved} = BlockEntities.new(Store.durable(imported, key, :block_entities))
+    containers = parts.containers
+    {:ok, preserved} = BlockEntities.new(parts.block_entities)
     {key, %{blocks: blocks, containers: containers, preserved: preserved}}
   end)
 
@@ -113,16 +114,13 @@ entity_regions =
 
 records =
   for key <- entity_regions,
-      bytes = Store.durable(imported, key, :items),
-      bytes != nil,
-      {:ok, %{records: records}} = Valimc.World.ItemLedger.decode(bytes, key),
-      record <- records,
+      record <- stored.(key).items,
       into: %{},
       do: {Base.encode16(record.uuid, case: :lower), record}
 
 preserved_entities =
   for key <- entity_regions,
-      {_chunk, nbt} <- Store.durable(imported, key, :entities),
+      {_chunk, nbt} <- RegionStorage.extra(imported, :overworld, key).entities,
       {:ok, {:compound, %{"Entities" => list}}} = Valimc.NBT.read(nbt),
       {:list, {:compound, entries}} = list,
       entry <- entries,
@@ -132,9 +130,7 @@ preserved_entities =
 # body at vanilla's position.
 orbs =
   for key <- entity_regions,
-      bytes = Store.durable(imported, key, :containers),
-      bytes != nil,
-      {:ok, containers} = Containers.decode(bytes, key),
+      containers = stored.(key).containers,
       {id, births} <- Valimc.World.CookingOrbs.owned_records(containers),
       {uuid, birth} <- births,
       into: %{},

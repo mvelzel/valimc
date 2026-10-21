@@ -39,13 +39,9 @@ defmodule Valimc.CookingOrbConnectionTest do
           {pid, _} <- Registry.lookup(Valimc.PlayerStoreRegistry, Connection.offline_uuid(name)),
           do: DynamicSupervisor.terminate_child(Valimc.PlayerStoreSupervisor, pid)
 
-      for {registry, supervisor} <- [
-            {Valimc.RegionRegistry, Valimc.RegionSupervisor},
-            {Valimc.RegionStoreRegistry, Valimc.RegionStoreSupervisor}
-          ],
-          owned_key <- [key, source_key],
-          {pid, _} <- Registry.lookup(registry, owned_key),
-          do: DynamicSupervisor.terminate_child(supervisor, pid)
+      for owned_key <- [key, source_key],
+          {pid, _} <- Registry.lookup(Valimc.RegionRegistry, owned_key),
+          do: DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
 
       Application.put_env(:valimc, :world_path, previous)
       Valimc.TestScope.stop_players(base)

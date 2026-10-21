@@ -1112,8 +1112,6 @@ impl ColumnStore {
         Ok(self.columns.get(&chunk).map(Column::to_image))
     }
 
-    /// One chunk's states (24 × 4096, section index order) and biomes (24 × 64);
-    /// biomes are `default_biome` where the column has none.
     /// What readers of a chunk's published snapshot need beside its sections
     /// (VMC-077e): per column (`z * 16 + x`) its MOTION_BLOCKING height and
     /// lowest sky source, relative to MIN_Y, interleaved; and its stored biomes
@@ -1151,6 +1149,8 @@ impl ColumnStore {
         Ok((heights, biomes))
     }
 
+    /// One chunk's states (24 × 4096, section index order) and biomes (24 × 64);
+    /// biomes are `default_biome` where the column has none.
     pub fn dump_column(
         &self,
         chunk: (i32, i32),

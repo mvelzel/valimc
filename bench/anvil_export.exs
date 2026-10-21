@@ -12,7 +12,7 @@
 alias Valimc.Anvil.{Chunk, Export, Import}
 alias Valimc.NBT
 alias Valimc.Protocol.Packets
-alias Valimc.World.{Blocks, Store}
+alias Valimc.World.{Blocks, RegionStorage}
 
 [world, scratch | _] = System.argv()
 Valimc.Protocol.Data.load!()
@@ -32,12 +32,13 @@ export_once.(0)
 runs = for n <- 1..5, do: export_once.(n)
 ms = runs |> Enum.map(& &1.milliseconds) |> Enum.sort()
 
-keys =
-  for name <- File.ls!(imported),
-      [_, x, z] <- [Regex.run(~r/\Ar\.(-?\d+)\.(-?\d+)\z/, name)],
-      do: {String.to_integer(x), String.to_integer(z)}
+{:ok, keys} = RegionStorage.keys(imported, :overworld)
 
-columns = Map.new(keys, fn key -> {key, Store.durable(imported, key, :columns)} end)
+columns =
+  Map.new(keys, fn key ->
+    {:ok, parts} = RegionStorage.read(imported, :overworld, key)
+    {key, parts.columns}
+  end)
 
 phases =
   for {key, images} <- columns,

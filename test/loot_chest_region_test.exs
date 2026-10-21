@@ -5,7 +5,7 @@ defmodule Valimc.LootChestRegionTest do
   alias Valimc.Registry.Blocks, as: BlockRegistry
   alias Valimc.TestScope
   alias Valimc.World
-  alias Valimc.World.{BlockEntities, Blocks, Containers, ItemLedger, Region, Store}
+  alias Valimc.World.{BlockEntities, Blocks, Containers, ItemLedger, Region, RegionStorage}
 
   @chest BlockRegistry.default_state("chest")
   @seed 5_530_731_629_134_945_404
@@ -36,8 +36,7 @@ defmodule Valimc.LootChestRegionTest do
     TestScope.isolate(key, world_path: base, region_ticks: :manual)
 
     on_exit(fn ->
-      for reg <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
-          {pid, _} <- Registry.lookup(reg, key),
+      for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),
           do: TestScope.kill(pid)
 
       File.rm_rf(base)
@@ -92,7 +91,10 @@ defmodule Valimc.LootChestRegionTest do
       end)
 
     :ok =
-      Store.import_region(base, key, %{columns: %{chunk => image}, block_entities: entities})
+      RegionStorage.import(base, :overworld, key, %{
+        columns: %{chunk => image},
+        block_entities: entities
+      })
 
     %{key: key, base: base, chests: chests}
   end
@@ -138,7 +140,14 @@ defmodule Valimc.LootChestRegionTest do
            ), stack.count}
   end
 
-  defp durable(ctx, part), do: Store.durable(ctx.base, ctx.key, part)
+  defp durable(ctx, part) do
+    for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, ctx.key), do: :ok = Region.flush(pid)
+
+    case part do
+      :block_entities -> elem(RegionStorage.read(ctx.base, :overworld, ctx.key), 1).block_entities
+      _ -> Valimc.TestDisk.read(ctx.base, ctx.key, part)
+    end
+  end
 
   defp restart(ctx) do
     for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, ctx.key),

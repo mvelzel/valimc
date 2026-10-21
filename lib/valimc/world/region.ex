@@ -71,7 +71,7 @@ defmodule Valimc.World.Region do
 
   @doc """
   Add or replace preserved block entities (`position => {type_id, nbt}`, each
-  of the type its block creates) in one durable frame; replies once durable.
+  of the type its block creates); they join the owner's next frame.
   """
   def put_block_entities({pid, epoch}, entries)
       when is_pid(pid) and is_reference(epoch) and is_map(entries) do
@@ -432,7 +432,11 @@ defmodule Valimc.World.Region do
            epoch: resource.items.epoch
          }) do
       :ok ->
-        clock = TickClock.new(resource.items.epoch, System.monotonic_time(:millisecond))
+        # The region's game tick continues from its last frame (VMC-077f).
+        clock = %{
+          TickClock.new(resource.items.epoch, System.monotonic_time(:millisecond))
+          | tick: resource.game_tick
+        }
 
         # `:manual` owners (tests) tick only through `step/2`.
         timer =
@@ -514,6 +518,16 @@ defmodule Valimc.World.Region do
     do: RegionData.handle_info(message, state.resource) |> wrap(state)
 
   def handle_info({:halo, _} = message, state),
+    do: RegionData.handle_info(message, state.resource) |> wrap(state)
+
+  # The write-ahead log's acknowledgements and checkpoint tasks (VMC-077f).
+  def handle_info({:storage_durable, _} = message, state),
+    do: RegionData.handle_info(message, state.resource) |> wrap(state)
+
+  def handle_info({:storage_failed, _, _} = message, state),
+    do: RegionData.handle_info(message, state.resource) |> wrap(state)
+
+  def handle_info({:checkpointed, _, _, _} = message, state),
     do: RegionData.handle_info(message, state.resource) |> wrap(state)
 
   # Chunk tickets (VMC-077e), and proto owners' answers to generation requests (VMC-075).
