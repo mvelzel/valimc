@@ -18,7 +18,7 @@ authority. The M1 foundations below are in place; later milestones on the
 | World clock, weather, difficulty | Environment owner; immutable publications |
 | What the world generates per dimension | `World.Spec`, read once from `world.json` at start; a read failure stops the start |
 | World spawn (with dimension and pitch), default game mode, admin switches | Settings owner; writes `settings.json` crash-safely, then publishes |
-| Commands and suggestions | A job per connection (`Session.Commands`), or the console's or RCON client's process; players change through their own connections |
+| Commands and suggestions | A job per command (`Session.Commands`), or the console's or RCON client's process, over a `Command.Source` value; blocks change through region owners, players through their own connections |
 | Encoding, collision queries, auth/crypto, transfer recovery | Bounded worker pools (collision pool partitioned per caller) |
 | Region files and player snapshots | Leased writers; disk outside sensitive owners |
 
@@ -87,6 +87,24 @@ on accept errors (VMC-077a).
   the codec, login flow and serverbound dispatch, `Session.*` message routing,
   jobs, events, replication and commands, and `Player.*` each gameplay domain.
   Broadcast packets are framed once and shared as binaries (VMC-069).
+- **Commands.** `Valimc.Commands.registry/0` maps each top-level command to
+  one handler function, which receives the parsed literals; the
+  Brigadier tree is built from `tree.json` at start, so the command
+  packet needs no compile-time handler table (nodes keep redirects and a
+  modifier slot for `execute`). A command runs in layers: parse
+  (pure), resolve over published snapshots (`Command.Targets` selects
+  over the player projections and the spatial index), execute through owner
+  operations, and feedback through the source's sink (a connection, the
+  log or an RCON reply). `Command.Source` is a plain value: entity,
+  dimension, position, rotation, anchor, level, sink and silent flag.
+  `/fill`, `/clone` and `/place` are box edits (`World.BoxEdit`): each
+  region owner locks its cells (`Txn.Permits` `:box_edit`) and checks
+  them, then all commit or all abort; an unloaded region fails with
+  `argument.pos.unloaded` (VMC-077o).
+- **Text.** `Valimc.Text` builds components, `Text.Render` renders them as
+  English strings and `Text.Codec` converts the command and item-component
+  forms (one colour table, item identity bytes unchanged). Gameplay
+  depends on `Valimc.Text`, not on the command layer.
 
 ## Chunk lifecycle
 
