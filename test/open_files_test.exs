@@ -187,8 +187,8 @@ defmodule Valimc.OpenFilesTest do
 
     starve(soft, 400)
     assert {:ok, {pid, _}} = World.owner(second)
-    assert :ok = World.set_block({x, 70, z}, 1)
-    assert World.get_block({x, 70, z}) == 1
+    assert :ok = Valimc.TestBlocks.set({x, 70, z}, 1)
+    assert Valimc.TestBlocks.get({x, 70, z}) == 1
     assert Process.alive?(pid)
   end
 end

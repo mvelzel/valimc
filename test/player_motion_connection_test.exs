@@ -254,7 +254,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
   test "creative wall entry and impossible deltas correct to the last accepted position", ctx do
     {client, pid} = login(hd(ctx.names))
     wall = {floor(ctx.pos.x) + 1, 64, floor(ctx.pos.z)}
-    :ok = World.set_block(wall, 1)
+    :ok = Valimc.TestBlocks.set(wall, 1)
     move(client, %{ctx.pos | x: ctx.pos.x + 0.5})
     client = correction(client, pid, ctx.pos)
     move(client, %{ctx.pos | x: ctx.pos.x + 100})
@@ -454,7 +454,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
 
   test "an authoritative mode change invalidates geometry prepared while admission waits", ctx do
     {client, pid} = login(hd(ctx.names))
-    :ok = World.set_block({floor(ctx.pos.x) + 1, 64, floor(ctx.pos.z)}, 1)
+    :ok = Valimc.TestBlocks.set({floor(ctx.pos.x) + 1, 64, floor(ctx.pos.z)}, 1)
     wait(fn -> Valimc.TestConn.job(state(pid), :pose) == nil end)
 
     holders = Valimc.TestPool.fill(pid)

@@ -43,8 +43,19 @@ defmodule Valimc.Connection do
   def live_effects, do: @live_effects
 
   @use_item_packet Data.id(:play, :serverbound, "use_item")
-  @slab_tags Path.expand("../../priv/protocol/tags.json", __DIR__)
-  @external_resource @slab_tags
+
+  # Before configuration a client sends only small frames (VMC-077a): the
+  # handshake and status are a few hundred bytes, login its name, key and
+  # cookie answers (at most 5 KiB) and the first configuration packets behind
+  # them. Configuration and play keep `:max_packet_bytes`.
+  @small_frames %{handshake: 1024, status: 1024, login: 32_768}
+  # A connection's heap beyond this is a defect or an attack: it is killed
+  # (VMC-077a). A player measured about 110 KB at view distance 2.
+  @max_heap_bytes 64 * 1024 * 1024
+
+  @doc "The largest inbound frame (and receive buffer) the connection's phase accepts."
+  def frame_limit(%{phase: phase}),
+    do: Map.get(@small_frames, phase) || Valimc.config(:max_packet_bytes)
 
   def start_link(socket), do: GenServer.start_link(__MODULE__, socket)
 
@@ -204,6 +215,12 @@ defmodule Valimc.Connection do
   def init(socket) do
     Process.flag(:trap_exit, true)
     Process.flag(:message_queue_data, :off_heap)
+
+    Process.flag(:max_heap_size, %{
+      size: div(@max_heap_bytes, :erlang.system_info(:wordsize)),
+      kill: true,
+      error_logger: true
+    })
 
     {:ok,
      %{
@@ -378,7 +395,7 @@ defmodule Valimc.Connection do
   end
 
   defp consume_packet(state) do
-    case Wire.next_frame(state.buffer, Valimc.config(:max_packet_bytes), state.threshold) do
+    case Wire.next_frame(state.buffer, frame_limit(state), state.threshold) do
       :more ->
         :ok = :inet.setopts(state.socket, active: :once)
         {:noreply, %{state | active: true}}

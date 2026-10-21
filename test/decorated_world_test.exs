@@ -151,16 +151,16 @@ defmodule Valimc.DecoratedWorldTest do
 
     for x <- [0, 5, 15], z <- [0, 9, 15], y <- -64..319//7 do
       position = {cx * 16 + x, y, cz * 16 + z}
-      assert World.get_block(position) == World.Blocks.get(blocks, position)
+      assert Valimc.TestBlocks.get(position) == World.Blocks.get(blocks, position)
     end
 
     # A restart serves the same chunks, edits included, without generating them again.
     {cx, cz} = List.last(Proto.chunks_of(@key))
     position = {cx * 16 + 3, 70, cz * 16 + 3}
     glass = Valimc.Registry.Blocks.default_state("glass")
-    :ok = World.set_block(position, glass)
+    :ok = Valimc.TestBlocks.set(position, glass)
     restart(@key)
-    assert World.get_block(position) == glass
+    assert Valimc.TestBlocks.get(position) == glass
     assert Store.durable(ctx.base, @key, :columns) == parts.columns
     assert Store.durable(ctx.base, @key, :block_entities) == parts.block_entities
   end

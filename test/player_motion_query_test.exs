@@ -37,7 +37,7 @@ defmodule Valimc.PlayerMotionQueryTest do
   } do
     x = floor(p.x) + 1
     z = floor(p.z)
-    for y <- 64..65, do: :ok = World.set_block({x, y, z}, 1)
+    for y <- 64..65, do: :ok = Valimc.TestBlocks.set({x, y, z}, 1)
 
     assert {:ok, %{accepted: false}} = query(p, %{x: p.x + 0.5})
 
@@ -49,7 +49,7 @@ defmodule Valimc.PlayerMotionQueryTest do
 
     assert {:ok, %{accepted: true}} = query(spectator, %{x: p.x + 0.5})
     # An existing overlap may be escaped; it is not itself a newly entered shape.
-    :ok = World.set_block({floor(p.x), 64, z}, 1)
+    :ok = Valimc.TestBlocks.set({floor(p.x), 64, z}, 1)
     assert {:ok, %{accepted: true}} = query(p, %{z: p.z - 0.1})
   end
 
@@ -86,7 +86,7 @@ defmodule Valimc.PlayerMotionQueryTest do
         {3.0, 0.0, 0.0}
       )
 
-    :ok = World.set_block({floor(p.x) - 2, 64, floor(p.z)}, 2362)
+    :ok = Valimc.TestBlocks.set({floor(p.x) - 2, 64, floor(p.z)}, 2362)
     p = Map.put(p, :motion, %Valimc.PlayerMotion{paths: paths})
 
     assert {:ok, %{accepted: true, kinetics: %{packet: packet, tick: tick}}} =

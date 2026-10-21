@@ -111,8 +111,8 @@ defmodule Valimc.ImportedBlockEntitiesTest do
     body = payload(IO.iodata_to_binary(frame))
     assert :binary.match(body, "Imported") != :nomatch
 
-    assert World.set_block(ctx.sign, 0) == {:error, :unsupported_block_entity}
-    assert World.get_block(ctx.sign) == @sign
+    assert Valimc.TestBlocks.set(ctx.sign, 0) == {:error, :unsupported_block_entity}
+    assert Valimc.TestBlocks.get(ctx.sign) == @sign
 
     World.subscribe(MapSet.new([ctx.key]), MapSet.new())
     ref = make_ref()

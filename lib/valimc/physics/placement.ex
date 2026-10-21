@@ -106,6 +106,9 @@ defmodule Valimc.Physics.Placement do
   def adjacent(%{position: position, face: face}) when face in 0..5,
     do: offset(position, face)
 
+  @doc "Whether any block item replaces `state` (air, fluids, replaceable plants)."
+  def replaceable?(state), do: :binary.at(@replace, state) == 2
+
   def supported_item?(item),
     do:
       item in @facing_items or Map.has_key?(@plain, item) or Map.has_key?(@slabs, item) or

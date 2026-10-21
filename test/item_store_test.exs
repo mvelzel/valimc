@@ -136,8 +136,8 @@ defmodule Valimc.ItemStoreTest do
       assert map_size(World.item_snapshot(ctx.key)) == 1
       assert World.item_snapshot(ctx.key)[elem(handle, 2)].revision == 1
       {x, _, z} = ctx.position
-      assert :ok = World.set_block({floor(x), 64, floor(z)}, 1)
-      assert World.get_block({floor(x), 64, floor(z)}) == 1
+      assert :ok = Valimc.TestBlocks.set({floor(x), 64, floor(z)}, 1)
+      assert Valimc.TestBlocks.get({floor(x), 64, floor(z)}) == 1
       send_resource(ctx, {:items_saved, writer, make_ref(), :ok})
       send_resource(ctx, {:items_saved, self(), pending.token, :ok})
       send_resource(ctx, {:item_commit_deadline, make_ref()})

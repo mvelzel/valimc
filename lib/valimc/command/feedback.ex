@@ -3,11 +3,11 @@ defmodule Valimc.Command.Feedback do
   Command feedback (VMC-053), vanilla's `CommandSourceStack.sendSuccess`,
   `sendFailure` and `broadcastToAdmins`: the source sees the message; with
   broadcast, other online operators see `[Name: message]` in gray italics.
+  A player sees messages through its connection's mailbox, in the order the
+  command sent them (commands run beside the connection, VMC-077a).
   """
   require Logger
   alias Valimc.Command.{Error, Source, Text}
-  alias Valimc.Protocol.Packets
-  import Valimc.Net.Codec, only: [send_packets: 2]
 
   def success(%Source{} = source, component, broadcast \\ true) do
     show(source, component)
@@ -33,15 +33,11 @@ defmodule Valimc.Command.Feedback do
     ])
   end
 
-  defp show(source, component),
-    do: send_packets(source.state, [Packets.chat(Text.encode(component))])
+  defp show(%Source{player: player}, component), do: tell(player, component)
 
-  @doc "A system message to another online player (or to the source itself)."
-  def tell(%Source{} = source, %{pid: pid}, component) do
-    if pid == self() and source.state != nil,
-      do: send_packets(source.state, [Packets.chat(Text.encode(component))]),
-      else: Valimc.Connection.deliver(pid, {:chat, Text.encode(component)})
-
+  @doc "A system message to an online player."
+  def tell(%{pid: pid}, component) do
+    Valimc.Connection.deliver(pid, {:chat, Text.encode(component)})
     :ok
   end
 
@@ -77,7 +73,7 @@ defmodule Valimc.Command.Feedback do
 
     if inform_admins?(source) do
       for player <- Valimc.Players.all(),
-          player.pid != self(),
+          source.player == nil or player.pid != source.player.pid,
           Valimc.Permissions.operator?(player),
           do: Valimc.Connection.deliver(player.pid, {:chat, Text.encode(message)})
     end

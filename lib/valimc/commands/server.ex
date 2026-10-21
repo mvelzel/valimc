@@ -6,9 +6,10 @@ defmodule Valimc.Commands.Server do
   ValiMC's durable state is its region, player and clock logs, written with
   group commit as things happen. What vanilla's autosave does, the periodic
   save of changed cells and scheduled ticks in each region owner, is what
-  `/save-off` stops (`Valimc.World.Saving`). `/save-all` makes every region
-  owner save now (with `flush`, waiting until each region's writes are
-  durable), checkpoints every online player and writes the world clock.
+  `/save-off` stops (`Valimc.World.Saving`). `/save-all` makes every running
+  region owner of every dimension save now (with `flush`, waiting until each
+  region's writes are durable), checkpoints every online player and writes the
+  world clock. It starts no region, whatever the source's dimension.
   """
   alias Valimc.Command.{Error, Feedback, Text}
   alias Valimc.World.Saving
@@ -20,7 +21,7 @@ defmodule Valimc.Commands.Server do
     Feedback.success(source, Text.translatable("commands.save.saving"), false)
 
     for player <- Valimc.Players.all(), do: send(player.pid, :save_player_now)
-    regions = Enum.flat_map(region_keys(), &owner/1)
+    regions = owners()
 
     saved =
       if flush do
@@ -39,17 +40,19 @@ defmodule Valimc.Commands.Server do
     clock = Valimc.World.Clock.flush()
     unless saved and clock == :ok, do: Error.fail!("commands.save.failed")
     Feedback.success(source, Text.translatable("commands.save.success"))
-    {1, source.state}
+    1
   end
 
-  defp region_keys,
-    do: Registry.select(Valimc.RegionRegistry, [{{:"$1", :_, :_}, [], [:"$1"]}])
-
-  defp owner(key) do
-    case Valimc.World.owner(key) do
-      {:ok, owner} -> [owner]
-      _ -> []
-    end
+  # The registry holds scoped keys (VMC-026b); each is looked up in its own
+  # dimension, never admitted.
+  @doc false
+  def owners do
+    for scoped <- Registry.select(Valimc.RegionRegistry, [{{:"$1", :_, :_}, [], [:"$1"]}]),
+        {dimension, key} = Valimc.Dimension.unscope(scoped),
+        {:ok, owner} <- [
+          Valimc.Dimension.within(dimension, fn -> Valimc.World.existing_owner(key) end)
+        ],
+        do: owner
   end
 
   # Item or block writes already in flight become durable through their own
@@ -75,7 +78,7 @@ defmodule Valimc.Commands.Server do
         else: Text.translatable("commands.setidletimeout.success.disabled")
 
     Feedback.success(source, message)
-    {minutes, source.state}
+    minutes
   end
 
   def save_on(_arguments, source),
@@ -87,6 +90,6 @@ defmodule Valimc.Commands.Server do
   defp auto(source, on, already, done) do
     if Saving.set_auto(on) == :unchanged, do: Error.fail!(already)
     Feedback.success(source, Text.translatable(done))
-    {1, source.state}
+    1
   end
 end

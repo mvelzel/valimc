@@ -208,7 +208,7 @@ defmodule Valimc.PlayerPlacementQuery do
          {:ok, owner} <- World.existing_owner(key),
          {:ok, observed} <- Region.observe_blocks(owner, positions),
          {:ok, candidate} <-
-           Placement.candidate(
+           candidate(
              item,
              observed.blocks[request.position],
              observed.blocks[Placement.adjacent(request)],
@@ -236,6 +236,17 @@ defmodule Valimc.PlayerPlacementQuery do
   catch
     :exit, _ -> {:error, :placement_region_unavailable}
   end
+
+  # A creative block item without modelled placement (VMC-077a): its block on
+  # a replaceable block beside the clicked face.
+  defp candidate({:block, block}, _clicked, adjacent, request) do
+    if Placement.replaceable?(adjacent),
+      do: {:ok, %{position: Placement.adjacent(request), state: block, replace_clicked: false}},
+      else: {:error, :occupied}
+  end
+
+  defp candidate(item, clicked, adjacent, request),
+    do: Placement.candidate(item, clicked, adjacent, request)
 
   defp isolated_chest(owner, key, candidate, revision) do
     if Valimc.ChestAccess.single?(candidate.state) do

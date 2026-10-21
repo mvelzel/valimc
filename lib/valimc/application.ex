@@ -7,8 +7,10 @@ defmodule Valimc.Application do
 
   1. Infrastructure: the world settings, tick rate, clock, stopwatch and admin
      owners and the worker pools; independent of each other (`one_for_one`).
-  2. Storage: the player logs and the per-session and per-region stores.
-  3. World: region and proto registries, the directory, region and proto owners.
+  2. Storage: the player logs and the per-session player stores.
+  3. World: the region and proto registries, the directory, region writers,
+     region and proto owners; a directory restart restarts the writers and
+     owners after it.
   4. Players: admission and its tables, login workers and connections.
   5. Network: the listener, the console and RCON (`one_for_one`; a listener
      restart touches no connection).
@@ -61,16 +63,17 @@ defmodule Valimc.Application do
     storage = [
       Valimc.PlayerLog,
       {Registry, keys: :unique, name: Valimc.PlayerStoreRegistry},
-      dynamic(Valimc.PlayerStoreSupervisor, Valimc.config(:max_connections)),
-      {Registry, keys: :unique, name: Valimc.RegionStoreRegistry},
-      dynamic(Valimc.RegionStoreSupervisor, Valimc.config(:max_regions))
+      dynamic(Valimc.PlayerStoreSupervisor, Valimc.config(:max_connections))
     ]
 
+    # A directory restart fences every region owner and its writer (VMC-019b3a).
     world = [
       {Registry, keys: :unique, name: Valimc.RegionRegistry},
       # Region topic => subscribed connections (duplicate keys).
       {Registry, keys: :duplicate, name: Valimc.VisibilityRegistry},
       {Valimc.World.Directory, []},
+      {Registry, keys: :unique, name: Valimc.RegionStoreRegistry},
+      dynamic(Valimc.RegionStoreSupervisor, Valimc.config(:max_regions)),
       dynamic(Valimc.RegionSupervisor, Valimc.config(:max_regions)),
       {Valimc.World.ForcedChunks, []},
       {Registry, keys: :unique, name: Valimc.ProtoRegistry},
@@ -82,6 +85,9 @@ defmodule Valimc.Application do
       {Valimc.KeyExchange, []},
       {Valimc.Auth.DiscoverySupervisor, []},
       {Valimc.Auth.SessionJobs, []},
+      # Players' command jobs: at most one per connection (VMC-077a).
+      {Task.Supervisor,
+       name: Valimc.CommandWorkers, max_children: Valimc.config(:max_connections)},
       dynamic(Valimc.ConnectionSupervisor, Valimc.config(:max_connections))
     ]
 

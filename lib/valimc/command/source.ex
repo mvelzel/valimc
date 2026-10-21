@@ -1,19 +1,20 @@
 defmodule Valimc.Command.Source do
   @moduledoc """
-  A command source (VMC-053): vanilla's `CommandSourceStack` for a player — its
-  permission level, position, rotation and display name, plus the owning
-  connection state that executes the command.
+  A command source (VMC-053): vanilla's `CommandSourceStack` — its permission
+  level, position, rotation, dimension and display name, and the player (with
+  its connection's `pid`) for a player's command. A source is a plain value:
+  a command runs in its own process (VMC-077a), never in a connection.
   """
   alias Valimc.Command.{Text, Coordinates, Selector, Error}
 
-  defstruct [:level, :state, :player, :name, :position, :rotation, :dimension, kind: :player]
+  defstruct [:level, :player, :name, :position, :rotation, :dimension, kind: :player]
 
+  @doc "The source of a command its connection's player runs (called in that connection)."
   def player(state) do
     player = Map.put(state.player, :pid, self())
 
     %__MODULE__{
       level: Valimc.Permissions.level(player),
-      state: state,
       player: player,
       name: player.name,
       position: {player.x, player.y, player.z},
@@ -66,16 +67,15 @@ defmodule Valimc.Command.Source do
   def display_name(%__MODULE__{player: player}), do: Text.player_name(player.name, player.uuid)
   def display_name(%{name: name, uuid: uuid}), do: Text.player_name(name, uuid)
 
-  @doc "Online players a selector picks, the source itself included (`findPlayers`)."
-  def players(%__MODULE__{} = source, selector) do
-    candidates =
-      case source.player do
-        nil -> Valimc.Players.all()
-        player -> [player | Enum.reject(Valimc.Players.all(), &(&1.pid == self()))]
-      end
+  @doc "Online players, the source's own player first."
+  def online(%__MODULE__{player: nil}), do: Valimc.Players.all()
 
-    Selector.find(selector, candidates, source.player, source.position)
-  end
+  def online(%__MODULE__{player: player}),
+    do: [player | Enum.reject(Valimc.Players.all(), &(&1.pid == player.pid))]
+
+  @doc "Online players a selector picks, the source itself included (`findPlayers`)."
+  def players(%__MODULE__{} = source, selector),
+    do: Selector.find(selector, online(source), source.player, source.position)
 
   @doc "`EntityArgument.getPlayers`: at least one player or `argument.entity.notfound.player`."
   def required_players(source, selector) do

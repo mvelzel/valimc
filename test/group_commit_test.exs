@@ -51,8 +51,8 @@ defmodule Valimc.GroupCommitTest do
         Task.async(fn -> Region.create_item(owner, ItemStack.new("stone"), ctx.position) end)
 
       wait(fn -> Valimc.TestRegion.in_flight?(:sys.get_state(elem(owner, 0)).resource) end)
-      # A raw edit after the queued write reaches subscribers after it, too.
-      assert :ok = World.set_block(ctx.block, 1)
+      # A block edit after the queued write reaches subscribers after it, too.
+      assert :ok = Valimc.TestBlocks.set(ctx.block, 1)
       packet = Task.async(fn -> World.chunk({div(cx, 16), div(cz, 16)}) end)
       refute_receive {:event, _}, 30
       assert Task.yield(created, 0) == nil
@@ -62,7 +62,7 @@ defmodule Valimc.GroupCommitTest do
       :sys.resume(writer)
       assert {:ok, _} = Task.await(created, 60_000)
       assert Task.await(packet, 60_000) != chunk
-      assert_receive {:event, {:block, _, 1}}
+      assert_receive {:event, {:block_batch, _}}
       assert map_size(World.item_snapshot(ctx.key)) == 1
     after
       if Process.alive?(writer), do: :sys.resume(writer)

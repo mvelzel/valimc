@@ -2,12 +2,16 @@ defmodule Valimc.Commands do
   @moduledoc """
   The command catalog (VMC-053): vanilla's command tree pruned to the executable
   paths below, plus ValiMC's own `/stats` and `/spawn`. Graphs, parsing and
-  dispatch all come from this one immutable tree; commands run in the player's
-  connection process.
+  dispatch all come from this one immutable tree.
 
-  A handler is `{module, function}` called with the parsed arguments and the
-  `Valimc.Command.Source`; it returns `{result, state}` or throws a command
-  syntax error (`Valimc.Command.Error`).
+  A command runs in its own process (VMC-077a): a player's as a command job of
+  its connection (`Valimc.Session.Commands`), the console's in the console
+  reader and RCON's in its client. Owner calls happen there; players are
+  changed through their connections (`Valimc.Commands.Remote`). A handler is
+  `{module, function}` called with the parsed arguments and the
+  `Valimc.Command.Source`; it returns its result or throws a command syntax
+  error (`Valimc.Command.Error`). Any other exception or exit is vanilla's
+  `command.failed`, and the source's session lives on.
   """
   require Logger
   alias Valimc.Command.{Arguments, Dispatcher, Error, Feedback, Source, Text, Tree}
@@ -1096,36 +1100,16 @@ defmodule Valimc.Commands do
     end
   end
 
-  @doc "Executes a chat command (without `/`) as the connection's player."
-  def execute(state, input) do
-    source = Source.player(state)
+  @doc """
+  Runs `input` (without `/`) as `source` in the calling process, in the
+  source's dimension; parse errors and failures become feedback.
+  """
+  def run(%Source{} = source, input) do
+    Valimc.Dimension.put(source.dimension)
 
     case parse(input, source) do
       {:ok, {module, function}, arguments, _context} ->
-        run(source, module, function, arguments)
-
-      {:error, error} ->
-        for message <- Error.feedback(error, input), do: Feedback.success(source, message, false)
-        state
-    end
-  end
-
-  @doc "Runs an RCON command (VMC-010g) and returns its output text."
-  def execute_rcon(line) do
-    Process.put(:valimc_rcon_output, [])
-    run_server(line, Source.rcon())
-    IO.iodata_to_binary(Process.delete(:valimc_rcon_output) || [])
-  end
-
-  @doc "Runs a console line as the server (VMC-010f); a leading `/` is optional."
-  def execute_console(line), do: run_server(line, Source.console())
-
-  defp run_server(line, source) do
-    input = String.replace_prefix(line, "/", "")
-
-    case parse(input, source) do
-      {:ok, {module, function}, arguments, _context} ->
-        run(source, module, function, arguments)
+        execute(source, module, function, arguments)
 
       {:error, error} ->
         for message <- Error.feedback(error, input), do: Feedback.success(source, message, false)
@@ -1134,30 +1118,50 @@ defmodule Valimc.Commands do
     :ok
   end
 
-  defp run(source, module, function, arguments) do
-    {_result, state} = apply(module, function, [arguments, source])
-    state
+  @doc "Runs an RCON command (VMC-010g) and returns its output text."
+  def execute_rcon(line) do
+    Process.put(:valimc_rcon_output, [])
+    run(Source.rcon(), String.replace_prefix(line, "/", ""))
+    IO.iodata_to_binary(Process.delete(:valimc_rcon_output) || [])
+  end
+
+  @doc "Runs a console line as the server (VMC-010f); a leading `/` is optional."
+  def execute_console(line), do: run(Source.console(), String.replace_prefix(line, "/", ""))
+
+  defp execute(source, module, function, arguments) do
+    apply(module, function, [arguments, source])
   rescue
     exception ->
-      # Vanilla's `command.failed`, with the exception on hover; the session lives on.
-      Logger.error("Command failed: " <> Exception.format(:error, exception, __STACKTRACE__))
-
-      hover =
-        {:compound,
-         %{
-           "action" => {:string, "show_text"},
-           "value" => Text.literal(Exception.message(exception))
-         }}
-
-      Feedback.failure(
+      failed(
         source,
-        Text.translatable("command.failed") |> Text.style([{"hover_event", hover}])
+        Exception.message(exception),
+        Exception.format(:error, exception, __STACKTRACE__)
       )
-
-      source.state
   catch
     {:command_syntax, %Error{} = error} ->
       Feedback.failure(source, error.message)
-      source.state
+
+    :exit, reason ->
+      failed(
+        source,
+        Exception.format_exit(reason),
+        Exception.format(:exit, reason, __STACKTRACE__)
+      )
+  end
+
+  @doc """
+  Vanilla's `command.failed`, with the reason on hover, for a command that
+  raised, exited or ran out of time.
+  """
+  def failed(source, reason, log) do
+    Logger.error("Command failed: " <> log)
+
+    hover =
+      {:compound, %{"action" => {:string, "show_text"}, "value" => Text.literal(reason)}}
+
+    Feedback.failure(
+      source,
+      Text.translatable("command.failed") |> Text.style([{"hover_event", hover}])
+    )
   end
 end

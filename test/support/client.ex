@@ -498,9 +498,9 @@ defmodule Valimc.TestRegion do
     :ok
   end
 
-  @doc "`World.set_block/2`, then `await_published/2`: the edit as collision readers will see it."
+  @doc "`TestBlocks.set/2`, then `await_published/2`: the edit as collision readers will see it."
   def set_published(position, block) do
-    with :ok <- Valimc.World.set_block(position, block), do: await_published(position, block)
+    with :ok <- Valimc.TestBlocks.set(position, block), do: await_published(position, block)
   end
 
   @doc """
@@ -859,4 +859,70 @@ defmodule Valimc.TestPlayer do
   end
 
   def ticks(pid, count, settle \\ false), do: Enum.each(1..count, fn _ -> tick(pid, settle) end)
+end
+
+defmodule Valimc.TestBlocks do
+  @moduledoc """
+  Block reads and writes for tests through the fenced owner API (VMC-077a):
+  `Valimc.World` has no raw block calls. A read or write of a chunk that is
+  still generating waits for it, as the region generates the chunks it is
+  asked about.
+  """
+  alias Valimc.World
+  alias Valimc.World.Region
+
+  @doc "The block at `position`, read by its owner (`Region.observe_blocks/2`)."
+  def get(position) do
+    {_owner, view} = observe(position)
+    view.blocks[position]
+  end
+
+  @doc """
+  Write `block` at `position` at the fence it was read at: `:ok` or `{:error,
+  reason}`. A block entity type ValiMC does not model is written without its
+  record, as fixtures need.
+  """
+  def set(position, block, attempts \\ 3) do
+    {owner, view} = observe(position)
+
+    case Region.set_blocks(owner, view.fence, %{position => block}, MapSet.new([position])) do
+      {:ok, _revision} -> :ok
+      {:error, :stale_revision} when attempts > 0 -> set(position, block, attempts - 1)
+      error -> error
+    end
+  end
+
+  @doc "Remove the block at `position` as creative destruction does (keeping contained fluid)."
+  def remove(position) do
+    {owner, view} = observe(position)
+    deadline = System.monotonic_time(:millisecond) + Valimc.Txn.Permits.window(250)
+
+    case Region.destroy_block(owner, view.fence, position, deadline) do
+      {:ok, _} -> :ok
+      other -> other
+    end
+  end
+
+  defp observe({x, _, z} = position) do
+    key = World.region_key(World.chunk_key(x, z))
+
+    Valimc.TestWait.until(
+      fn ->
+        with {:ok, owner} <- World.owner(key),
+             {:ok, view} <- Region.observe_blocks(owner, [position]) do
+          {owner, view}
+        else
+          {:error, reason}
+          when reason in [
+                 :chunk_generating,
+                 :region_unavailable,
+                 :region_restarting,
+                 :stale_owner
+               ] ->
+            nil
+        end
+      end,
+      120_000
+    )
+  end
 end

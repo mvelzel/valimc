@@ -62,18 +62,31 @@ defmodule Valimc.CreativeItemsTest do
 
     {^stack, 2, client} = set_slot(client, 36, stack)
     position = {3, 64, 3}
-    Valimc.World.set_block(position, 0)
+    Valimc.TestBlocks.set(position, 0)
     use = [<<0>>, Wire.position({3, 63, 3}), <<1, 0::96, 0, 0, 11>>]
     Client.send_packet(client, :play, "use_item_on", use)
     {<<11>>, client} = Client.await(client, :play, "block_changed_ack")
-    assert Valimc.World.get_block(position) == Valimc.Protocol.Data.block("stone")
+    assert Valimc.TestBlocks.get(position) == Valimc.Protocol.Data.block("stone")
     {nil, 3, client} = set_slot(client, 36, nil)
-    Valimc.World.set_block(position, 0)
+    Valimc.TestBlocks.set(position, 0)
     egg = ItemStack.new("egg", 16)
     {^egg, 4, client} = set_slot(client, 36, egg)
     Client.send_packet(client, :play, "use_item_on", use)
+    {<<11>>, client} = Client.await(client, :play, "block_changed_ack")
+    assert Valimc.TestBlocks.get(position) == 0
+
+    # A block item without modelled placement goes through the fenced owner
+    # commit (VMC-077a): placed on air, never over an occupied block.
+    pane = ItemStack.new("glass_pane", 1)
+    pane_block = Valimc.Protocol.Data.item_block(ItemTypes.id("glass_pane"))
+    {^pane, _, client} = set_slot(client, 36, pane)
+    Client.send_packet(client, :play, "use_item_on", use)
+    {<<11>>, client} = Client.await(client, :play, "block_changed_ack")
+    assert Valimc.TestBlocks.get(position) == pane_block
+    :ok = Valimc.TestBlocks.set(position, Valimc.Protocol.Data.block("stone"))
+    Client.send_packet(client, :play, "use_item_on", use)
     {<<11>>, _} = Client.await(client, :play, "block_changed_ack")
-    assert Valimc.World.get_block(position) == 0
+    assert Valimc.TestBlocks.get(position) == Valimc.Protocol.Data.block("stone")
   end
 
   test "unsupported delimited components restore the prior authoritative slot and keep session alive" do

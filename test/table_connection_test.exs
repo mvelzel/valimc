@@ -55,7 +55,7 @@ defmodule Valimc.TableConnectionTest do
     File.write!(path, bytes)
 
     :ok =
-      World.set_block(
+      Valimc.TestBlocks.set(
         target(ctx),
         Valimc.Protocol.Data.item_block(Valimc.Protocol.Data.item("crafting_table"))
       )

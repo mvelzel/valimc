@@ -8,11 +8,7 @@ defmodule Valimc.Commands.Effects do
 
   @sources ~w(master music record weather block hostile neutral player ambient voice ui)
 
-  defp send(source, %{pid: pid}, packet) do
-    if pid == self(),
-      do: Valimc.Net.Codec.send_packets(source.state, [packet]),
-      else: Valimc.Connection.deliver(pid, {:packet, packet})
-  end
+  defp deliver(%{pid: pid}, packet), do: Valimc.Connection.deliver(pid, {:packet, packet})
 
   defp tracked(source, sent, key, id_arg) do
     case sent do
@@ -49,8 +45,7 @@ defmodule Valimc.Commands.Effects do
     viewers =
       case arguments do
         %{"viewers" => selector} -> Source.required_players(source, selector)
-        _ when source.player == nil -> Valimc.Players.all()
-        _ -> [source.player | Enum.reject(Valimc.Players.all(), &(&1.pid == self()))]
+        _ -> Source.online(source)
       end
 
     packet =
@@ -66,15 +61,18 @@ defmodule Valimc.Commands.Effects do
 
     range = if force, do: 512, else: 32
 
+    # `ServerLevel.sendParticles`: viewers in the source's level only.
     sent =
-      for viewer <- viewers, within?(viewer, {x, y, z}, range) do
-        send(source, viewer, packet)
+      for viewer <- viewers,
+          Map.get(viewer, :dimension, :overworld) == source.dimension,
+          within?(viewer, {x, y, z}, range) do
+        deliver(viewer, packet)
         viewer
       end
 
     if sent == [], do: Error.fail!("commands.particle.failed")
     Feedback.success(source, Text.translatable("commands.particle.success", [id]))
-    {length(sent), source.state}
+    length(sent)
   end
 
   def particle_force(arguments, source), do: particle(Map.put(arguments, :mode, :force), source)
@@ -115,7 +113,7 @@ defmodule Valimc.Commands.Effects do
 
         cond do
           distance * distance <= range * range ->
-            send(source, target, sound_packet(id, category, {x, y, z}, volume, pitch, seed))
+            deliver(target, sound_packet(id, category, {x, y, z}, volume, pitch, seed))
             [target]
 
           min_volume <= 0 ->
@@ -126,14 +124,14 @@ defmodule Valimc.Commands.Effects do
               {target.x + dx / distance * 2, target.y + dy / distance * 2,
                target.z + dz / distance * 2}
 
-            send(source, target, sound_packet(id, category, at, min_volume, pitch, seed))
+            deliver(target, sound_packet(id, category, at, min_volume, pitch, seed))
             [target]
         end
       end)
 
     if sent == [], do: Error.fail!("commands.playsound.failed")
     tracked(source, sent, "commands.playsound.success", id)
-    {length(sent), source.state}
+    length(sent)
   end
 
   for category <- @sources do
@@ -170,7 +168,7 @@ defmodule Valimc.Commands.Effects do
         if(sound, do: Wire.string(sound), else: [])
       ])
 
-    for target <- targets, do: send(source, target, packet)
+    for target <- targets, do: deliver(target, packet)
 
     message =
       case {category, sound} do
@@ -188,7 +186,7 @@ defmodule Valimc.Commands.Effects do
       end
 
     Feedback.success(source, message)
-    {length(targets), source.state}
+    length(targets)
   end
 
   # ---- dialog ----
@@ -198,14 +196,14 @@ defmodule Valimc.Commands.Effects do
     targets = Source.required_players(source, selector)
 
     for target <- targets,
-        do: send(source, target, Packets.packet("show_dialog", Wire.varint(network_id + 1)))
+        do: deliver(target, Packets.packet("show_dialog", Wire.varint(network_id + 1)))
 
     dialog_feedback(source, targets, "commands.dialog.show")
   end
 
   def dialog_clear(%{"targets" => selector}, source) do
     targets = Source.required_players(source, selector)
-    for target <- targets, do: send(source, target, Packets.packet("clear_dialog", <<>>))
+    for target <- targets, do: deliver(target, Packets.packet("clear_dialog", <<>>))
     dialog_feedback(source, targets, "commands.dialog.clear")
   end
 
@@ -217,6 +215,6 @@ defmodule Valimc.Commands.Effects do
       end
 
     Feedback.success(source, message)
-    {length(targets), source.state}
+    length(targets)
   end
 end

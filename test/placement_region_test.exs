@@ -93,7 +93,7 @@ defmodule Valimc.PlacementRegionTest do
     {:ok, containers} = Valimc.World.Containers.decode(disk(ctx), ctx.key)
     assert containers.entries[ctx.position].slots == Tuple.duplicate(nil, 27)
     assert containers.sequence == 1 and containers.receipts == %{}
-    assert World.get_block(ctx.position) == @chest
+    assert Valimc.TestBlocks.get(ctx.position) == @chest
     receipt(ctx, ctx.owner, request, :applied)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid)
     {:ok, owner} = World.item_owner(ctx.key)
@@ -102,7 +102,7 @@ defmodule Valimc.PlacementRegionTest do
     {:ok, reserved} = Region.reserve_mining(owner, [ctx.position])
     removal = Map.merge(reserved, %{source: request.source, sequence: 2, records: []})
     assert {:ok, :applied} = Region.apply_mining_transfer(owner, removal)
-    assert World.get_block(ctx.position) == Valimc.Physics.FluidBlocks.after_removal(@chest)
+    assert Valimc.TestBlocks.get(ctx.position) == Valimc.Physics.FluidBlocks.after_removal(@chest)
     {:ok, removed} = Valimc.World.Containers.decode(disk(ctx), ctx.key)
     assert removed.entries == %{} and removed.sequence == 2 and removed.receipts == %{}
     assert {:ok, :already_applied} = Region.apply_mining_transfer(owner, removal)
@@ -110,18 +110,18 @@ defmodule Valimc.PlacementRegionTest do
 
   test "unrelated edits preserve permits; target ABA, release and changed context reject durably",
        ctx do
-    assert :ok = World.set_block(ctx.other, 1)
+    assert :ok = Valimc.TestBlocks.set(ctx.other, 1)
     assert {:ok, :applied} = Region.apply_placement_transfer(ctx.owner, ctx.transfer)
     {:ok, reserved} = reserve(ctx.owner, [ctx.other])
 
     request =
       Map.merge(ctx.transfer, reserved) |> Map.merge(%{sequence: 2, edits: %{ctx.other => 10}})
 
-    assert :ok = World.set_block(ctx.other, 10)
-    assert :ok = World.set_block(ctx.other, 1)
+    assert :ok = Valimc.TestBlocks.set(ctx.other, 10)
+    assert :ok = Valimc.TestBlocks.set(ctx.other, 1)
     assert {:ok, :rejected} = Region.apply_placement_transfer(ctx.owner, request)
     assert {:ok, :already_rejected} = Region.apply_placement_transfer(ctx.owner, request)
-    assert World.get_block(ctx.other) == 1
+    assert Valimc.TestBlocks.get(ctx.other) == 1
     receipt(ctx, ctx.owner, request, :rejected)
     {:ok, released} = reserve(ctx.owner, [ctx.other])
     assert :ok = Region.release_placement(ctx.owner, released.permit)
@@ -132,7 +132,7 @@ defmodule Valimc.PlacementRegionTest do
     assert {:error, :placement_context_changed} =
              Region.reserve_placement(ctx.owner, observed.revision, %{ctx.other => 0})
 
-    assert :ok = World.set_block(ctx.position, 10)
+    assert :ok = Valimc.TestBlocks.set(ctx.position, 10)
 
     assert {:error, :stale_revision} =
              Region.reserve_placement(ctx.owner, observed.revision, observed.blocks)
@@ -161,6 +161,6 @@ defmodule Valimc.PlacementRegionTest do
     assert {:error, :stale_owner} =
              Region.release_placement({ctx.pid, make_ref()}, ctx.transfer.permit)
 
-    assert World.get_block(ctx.position) == 0
+    assert Valimc.TestBlocks.get(ctx.position) == 0
   end
 end

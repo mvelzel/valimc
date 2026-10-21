@@ -169,7 +169,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     {:ok, bytes} = Containers.encode(ctx.key, %{ctx.containers | receipts: %{}})
     Valimc.TestDisk.write(ctx.base, ctx.key, :containers, bytes)
     block = hd(JSON.decode!(File.read!("priv/protocol/chest_states.json"))["single_states"])
-    :ok = World.set_block(ctx.intent.request.position, block)
+    :ok = Valimc.TestBlocks.set(ctx.intent.request.position, block)
     {:ok, owner} = World.item_owner(ctx.key)
     {x, y, z} = ctx.intent.request.position
     # The player's 250 ms grant starts now: not while the owner still writes the block.

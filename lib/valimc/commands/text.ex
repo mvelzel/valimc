@@ -6,11 +6,8 @@ defmodule Valimc.Commands.Text do
   alias Valimc.Command.{ComponentResolver, Feedback, Source, Text}
   alias Valimc.Protocol.{Packets, Wire}
 
-  defp send(source, %{pid: pid}, packets) do
-    if pid == self(),
-      do: Valimc.Net.Codec.send_packets(source.state, packets),
-      else: for(packet <- packets, do: Valimc.Connection.deliver(pid, {:packet, packet}))
-  end
+  defp deliver(%{pid: pid}, packets),
+    do: for(packet <- packets, do: Valimc.Connection.deliver(pid, {:packet, packet}))
 
   defp component_packet(name, component),
     do: Packets.packet(name, Wire.text_component(Text.encode(component)))
@@ -21,13 +18,13 @@ defmodule Valimc.Commands.Text do
 
     for target <- targets,
         do:
-          send(source, target, [
+          deliver(target, [
             Packets.chat(
               Text.encode(ComponentResolver.resolve(message, recipient(source, target)))
             )
           ])
 
-    {length(targets), source.state}
+    length(targets)
   end
 
   # The recipient is the default score holder; ValiMC has no scores yet.
@@ -72,7 +69,7 @@ defmodule Valimc.Commands.Text do
            end}
       end
 
-    for target <- targets, do: send(source, target, [packet_for.(target)])
+    for target <- targets, do: deliver(target, [packet_for.(target)])
 
     message =
       case targets do
@@ -81,7 +78,7 @@ defmodule Valimc.Commands.Text do
       end
 
     Feedback.success(source, message)
-    {length(targets), source.state}
+    length(targets)
   end
 
   for form <- [:clear, :reset, :title, :subtitle, :actionbar, :times] do

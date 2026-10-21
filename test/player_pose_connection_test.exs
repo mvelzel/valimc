@@ -94,7 +94,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
     entity = state(pid).player.entity_id
 
     for y <- 64..66,
-        do: :ok = World.set_block({floor(ctx.pos.x), y, floor(ctx.pos.z)}, 89)
+        do: :ok = Valimc.TestBlocks.set({floor(ctx.pos.x), y, floor(ctx.pos.z)}, 89)
 
     wait(fn ->
       Valimc.TestConn.job(state(pid), :pose) == nil and state(pid).pose_checked != nil
@@ -136,14 +136,14 @@ defmodule Valimc.PlayerPoseConnectionTest do
     client = input(client, false) |> await_pose(entity, 0)
 
     roof = {floor(ctx.pos.x), 65, floor(ctx.pos.z)}
-    :ok = World.set_block(roof, 15178)
+    :ok = Valimc.TestBlocks.set(roof, 15178)
     client = await_pose(client, entity, 5)
     assert state(pid).player.pose == :crouching
-    :ok = World.set_block(roof, 1)
+    :ok = Valimc.TestBlocks.set(roof, 1)
     client = await_pose(client, entity, 3)
     assert state(pid).player.pose == :swimming
     assert elem(Valimc.PlayerInteraction.eye(state(pid).player), 1) == 64.40000000596046
-    :ok = World.set_block(roof, 0)
+    :ok = Valimc.TestBlocks.set(roof, 0)
     _client = await_pose(client, entity, 0)
 
     p = %{state(pid).player | x: 0.5, z: 0.5}
@@ -194,7 +194,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
     {client, pid} = login(hd(ctx.names))
     entity = state(pid).player.entity_id
     roof = {floor(ctx.pos.x), 65, floor(ctx.pos.z)}
-    :ok = World.set_block(roof, 1)
+    :ok = Valimc.TestBlocks.set(roof, 1)
     client = await_pose(client, entity, 3)
     {:ok, {owner, _}} = World.owner(ctx.key)
     Process.exit(owner, :kill)
@@ -259,7 +259,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
         Valimc.TestRegionGate.resume(owner)
         wait(fn -> not Process.alive?(job.task.pid) end)
         roof = {floor(ctx.pos.x), 65, floor(ctx.pos.z)}
-        :ok = World.set_block(roof, 15178)
+        :ok = Valimc.TestBlocks.set(roof, 15178)
         # The completed result waits in the mailbox past its deadline.
         expired = System.monotonic_time(:millisecond) - 1
 

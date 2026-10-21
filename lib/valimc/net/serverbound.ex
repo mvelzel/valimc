@@ -379,6 +379,7 @@ defmodule Valimc.Net.Serverbound do
 
       "chat" ->
         {message, _metadata} = Wire.take_string(payload, 256)
+        legal!(state, message)
         state = Commands.throttle_chat(state)
         Players.broadcast({:chat, "<#{state.player.name}> #{message}"})
         state
@@ -386,10 +387,7 @@ defmodule Valimc.Net.Serverbound do
       "command_suggestion" ->
         {id, payload} = Wire.take_varint(payload)
         {text, <<>>} = Wire.take_string(payload, 32_500)
-        source = Valimc.Command.Source.player(state)
-        reply = Valimc.Command.Suggestions.suggest(text, source)
-        send_packets(state, [Valimc.Command.Suggestions.packet(id, reply)])
-        state
+        Commands.suggest(state, id, text)
 
       "chat_command" ->
         {command, <<>>} = Wire.take_string(payload, 256)
@@ -436,10 +434,14 @@ defmodule Valimc.Net.Serverbound do
   end
 
   defp run_command(state, command) do
-    # Vanilla `isChatMessageIllegal`: section signs, control characters and DEL.
-    if String.match?(command, ~r/[\x{A7}\x{00}-\x{1F}\x{7F}]/u),
-      do: reject(state, "Illegal characters in chat")
-
+    legal!(state, command)
     state |> Commands.throttle_chat() |> Commands.command(command)
+  end
+
+  # Vanilla `isChatMessageIllegal`, for chat and commands alike: section signs,
+  # control characters and DEL end the session.
+  defp legal!(state, text) do
+    if String.match?(text, ~r/[\x{A7}\x{00}-\x{1F}\x{7F}]/u),
+      do: reject(state, "Illegal characters in chat")
   end
 end

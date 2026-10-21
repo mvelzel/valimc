@@ -23,7 +23,7 @@ defmodule Valimc.CollisionQueryTest do
   defp await(task), do: Task.await(task, 60_000)
 
   test "live geometry spans existing owners and retains exact snapshot fences", %{origin: n} do
-    for x <- (n - 1)..(n + 1), y <- 64..65, do: :ok = World.set_block({x, y, n}, 1)
+    for x <- (n - 1)..(n + 1), y <- 64..65, do: :ok = Valimc.TestBlocks.set({x, y, n}, 1)
     box = {n - 0.3, 64.0, n - 2.3, n + 0.3, 65.8, n + 2.3}
     {:ok, task} = CollisionQuery.start(box)
     assert {:ok, result} = await(task)
@@ -96,7 +96,7 @@ defmodule Valimc.CollisionQueryTest do
 
     {:ok, task} =
       CollisionQuery.start_batch_frame([box], fn observations ->
-        :ok = World.set_block({n + 5, 64, n + 5}, 1)
+        :ok = Valimc.TestBlocks.set({n + 5, 64, n + 5}, 1)
         {:ok, observations}
       end)
 
@@ -105,7 +105,7 @@ defmodule Valimc.CollisionQueryTest do
 
   test "a suspended owner does not delay reads of its published snapshot", %{origin: n} do
     {:ok, {pid, _}} = World.existing_owner({-401, -401})
-    :ok = World.set_block({n + 1, 64, n + 1}, 1)
+    :ok = Valimc.TestBlocks.set({n + 1, 64, n + 1}, 1)
     :sys.suspend(pid)
 
     try do
@@ -161,7 +161,7 @@ defmodule Valimc.CollisionQueryTest do
   end
 
   test "a shulker box without observed block-entity facts collides as a full block", %{origin: n} do
-    :ok = World.set_block({n + 5, 64, n + 5}, 16849)
+    :ok = Valimc.TestBlocks.set({n + 5, 64, n + 5}, 16849)
 
     {:ok, task} =
       CollisionQuery.start(
@@ -192,7 +192,7 @@ defmodule Valimc.CollisionQueryTest do
 
     {:ok, changed} = CollisionQuery.start_frame(box, CollisionContext.empty(), finish)
     assert_receive {:sampled, worker, _}
-    :ok = World.set_block({n - 1, 64, n - 1}, 1)
+    :ok = Valimc.TestBlocks.set({n - 1, 64, n - 1}, 1)
     send(worker, :computed)
     assert await(changed) == {:error, {:region, {-402, -402}, :stale_revision}}
 
@@ -220,7 +220,7 @@ defmodule Valimc.CollisionQueryTest do
         &Valimc.Physics.BlockCollisions.collect(box, &1, context)
       )
 
-    :ok = World.set_block(pos, 1)
+    :ok = Valimc.TestBlocks.set(pos, 1)
     {:ok, task} = start.()
     assert {:ok, first} = await(task)
     assert [%{position: ^pos, state: 1}] = first.colliders
@@ -228,7 +228,7 @@ defmodule Valimc.CollisionQueryTest do
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, old)
     {:ok, replacement} = World.owner(key)
     refute elem(replacement, 0) == old
-    :ok = World.set_block(pos, 0)
+    :ok = Valimc.TestBlocks.set(pos, 0)
     {:ok, task} = start.()
     assert {:ok, %{colliders: [], fences: fences}} = await(task)
     assert fences[key].owner == replacement

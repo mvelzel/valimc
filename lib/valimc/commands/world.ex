@@ -53,7 +53,7 @@ defmodule Valimc.Commands.World do
 
     configure!({id, :ticks, time})
     Feedback.success(source, Text.translatable("commands.time.set.absolute", [id, time]))
-    {time, source.state}
+    time
   end
 
   @doc "`/time set <timemarker>`: forward to the marker's next occurrence."
@@ -80,7 +80,7 @@ defmodule Valimc.Commands.World do
 
         configure!({id, :ticks, next})
         Feedback.success(source, Text.translatable("commands.time.set.time_marker", [id, marker]))
-        {wrap_long(next), source.state}
+        wrap_long(next)
 
       _ ->
         Error.fail!("commands.time.no_time_marker_found", [marker, id])
@@ -98,7 +98,7 @@ defmodule Valimc.Commands.World do
       Text.translatable("commands.time.set.absolute", [id, {:long, total}])
     )
 
-    {wrap_long(total), source.state}
+    wrap_long(total)
   end
 
   def time_pause(arguments, source), do: pause(arguments, source, true)
@@ -124,7 +124,7 @@ defmodule Valimc.Commands.World do
       Text.translatable(if(paused, do: "commands.time.pause", else: "commands.time.resume"), [id])
     )
 
-    {1, source.state}
+    1
   end
 
   @doc "`/time rate <rate>`."
@@ -136,7 +136,7 @@ defmodule Valimc.Commands.World do
 
     configure!({id, :rate, rate})
     Feedback.success(source, Text.translatable("commands.time.rate", [id, {:float, rate}]))
-    {1, source.state}
+    1
   end
 
   @doc "`/time query time`."
@@ -150,7 +150,7 @@ defmodule Valimc.Commands.World do
       false
     )
 
-    {wrap_long(total), source.state}
+    wrap_long(total)
   end
 
   @doc "`/time query <timeline> [repetition]`."
@@ -172,7 +172,7 @@ defmodule Valimc.Commands.World do
         else: {"commands.time.query.timeline", if(period, do: rem(total, period), else: total)}
 
     Feedback.success(source, Text.translatable(key, [timeline, {:long, value}]), false)
-    {wrap_long(value), source.state}
+    wrap_long(value)
   end
 
   def time_query_repetition(arguments, source),
@@ -188,7 +188,7 @@ defmodule Valimc.Commands.World do
       false
     )
 
-    {wrap_long(game_time), source.state}
+    wrap_long(game_time)
   end
 
   # ---- weather ----
@@ -209,7 +209,7 @@ defmodule Valimc.Commands.World do
       }[kind]
 
     Feedback.success(source, Text.translatable(key))
-    {duration || -1, source.state}
+    duration || -1
   end
 
   # ---- difficulty ----
@@ -225,7 +225,7 @@ defmodule Valimc.Commands.World do
       false
     )
 
-    {difficulty.level, source.state}
+    difficulty.level
   end
 
   for {name, level} <- @levels do
@@ -246,7 +246,7 @@ defmodule Valimc.Commands.World do
       Text.translatable("commands.difficulty.success", [Names.difficulty(level)])
     )
 
-    {0, source.state}
+    0
   end
 
   # ---- game rules ----
@@ -274,7 +274,7 @@ defmodule Valimc.Commands.World do
       false
     )
 
-    {if(value, do: 1, else: 0), source.state}
+    if(value, do: 1, else: 0)
   end
 
   @doc "`/gamerule <rule> <value>`."
@@ -285,7 +285,7 @@ defmodule Valimc.Commands.World do
     {operation, _} = Map.fetch!(@rules, rule)
     configure!({operation, value})
     Feedback.success(source, Text.translatable("commands.gamerule.set", [rule, to_string(value)]))
-    {if(value, do: 1, else: 0), source.state}
+    if(value, do: 1, else: 0)
   end
 
   for rule <- ["advance_time", "advance_weather", "natural_health_regeneration"] do
@@ -308,34 +308,48 @@ defmodule Valimc.Commands.World do
     {x, y, z}
   end
 
-  @doc "`/setblock <pos> <block> [keep|replace|strict]`."
+  @doc """
+  `/setblock <pos> <block> [keep|replace|strict]`: one fenced batch at the
+  sections it read (VMC-077a), read again when they changed in between.
+  """
   def setblock(%{"pos" => pos, "block" => %BlockInput{state: state} = block} = arguments, source) do
-    position = loaded_block!(source, pos)
+    {x, y, z} = position = loaded_block!(source, pos)
     no_block_data!(block)
+    set_block!(position, state, arguments[:mode], 3)
+    Feedback.success(source, Text.translatable("commands.setblock.success", [x, y, z]))
+    1
+  end
 
-    current =
-      case Valimc.World.get_block(position) do
-        {:error, _} -> Error.fail!("argument.pos.unloaded")
-        current -> current
+  defp set_block!({x, _, z} = position, state, mode, attempts) do
+    key = Valimc.World.region_key(Valimc.World.chunk_key(x, z))
+
+    with {:ok, owner} <- Valimc.World.owner(key),
+         {:ok, view} <- Valimc.World.Region.observe_blocks(owner, [position]) do
+      current = view.blocks[position]
+      if mode == :keep and not air?(current), do: Error.fail!("commands.setblock.failed")
+      if current == state, do: Error.fail!("commands.setblock.failed")
+
+      case Valimc.World.Region.set_blocks(owner, view.fence, %{position => state}) do
+        {:ok, _revision} ->
+          :ok
+
+        {:error, :stale_revision} when attempts > 0 ->
+          set_block!(position, state, mode, attempts - 1)
+
+        {:error, reason} ->
+          unsupported!(reason)
       end
-
-    if arguments[:mode] == :keep and not air?(current),
-      do: Error.fail!("commands.setblock.failed")
-
-    if current == state, do: Error.fail!("commands.setblock.failed")
-
-    case Valimc.World.set_block(position, state) do
-      :ok ->
-        {x, y, z} = position
-        Feedback.success(source, Text.translatable("commands.setblock.success", [x, y, z]))
-        {1, source.state}
-
-      {:error, reason} ->
-        Error.throw!(%Error{
-          message: Text.literal("That block change is not supported yet (#{reason})")
-        })
+    else
+      {:error, :chunk_generating} -> Error.fail!("argument.pos.unloaded")
+      {:error, reason} -> unsupported!(reason)
     end
   end
+
+  defp unsupported!(reason),
+    do:
+      Error.throw!(%Error{
+        message: Text.literal("That block change is not supported yet (#{inspect(reason)})")
+      })
 
   def setblock_keep(arguments, source), do: setblock(Map.put(arguments, :mode, :keep), source)
 
@@ -390,7 +404,7 @@ defmodule Valimc.Commands.World do
 
     if count == 0, do: Error.fail!("commands.fill.failed")
     Feedback.success(source, Text.translatable("commands.fill.success", [count]))
-    {count, source.state}
+    count
   end
 
   for mode <- [:outline, :hollow, :keep] do
@@ -493,7 +507,7 @@ defmodule Valimc.Commands.World do
       ])
     )
 
-    {1, source.state}
+    1
   end
 
   @doc "`/seed`: the world seed, copyable on click."
@@ -528,7 +542,7 @@ defmodule Valimc.Commands.World do
 
         Feedback.success(source, Text.translatable("commands.seed.success", [copy]), false)
         <<low::signed-32>> = <<seed::32>>
-        {low, source.state}
+        low
 
       _ ->
         Error.throw!(%Error{message: Text.literal("This flat preview world has no seed")})
@@ -579,7 +593,7 @@ defmodule Valimc.Commands.World do
       false
     )
 
-    {0, source.state}
+    0
   end
 
   defp plains_id,

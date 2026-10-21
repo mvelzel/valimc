@@ -44,18 +44,13 @@ defmodule Valimc.Commands.PostEffects do
   defp change(source, selector, operation, key, id) do
     targets = Source.required_players(source, selector)
 
-    {changed, state} =
-      Enum.reduce(targets, {[], source.state}, fn target, {changed, state} ->
-        case Remote.run(state, target, {:post_effect, operation}) do
-          {true, state} -> {[target | changed], state}
-          {_, state} -> {changed, state}
-        end
-      end)
+    changed =
+      for {target, true} <- Remote.run_all!(targets, fn _ -> {:post_effect, operation} end),
+          do: target
 
-    source = %{source | state: state}
     args = if id, do: [id], else: []
 
-    case Enum.reverse(changed) do
+    case changed do
       [] ->
         Error.fail!("commands.posteffect.#{key}.failed")
 
@@ -75,7 +70,7 @@ defmodule Valimc.Commands.PostEffects do
         )
     end
 
-    {length(changed), state}
+    length(changed)
   end
 
   def list(%{"target" => selector}, source) do
@@ -94,6 +89,6 @@ defmodule Valimc.Commands.PostEffects do
           ])
 
     Feedback.success(source, message, false)
-    {length(ids), source.state}
+    length(ids)
   end
 end

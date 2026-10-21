@@ -89,7 +89,7 @@ defmodule Valimc.Session.Messages do
       bytes = state.bytes + byte_size(data)
       if bytes > Valimc.config(:bytes_per_second), do: reject(state, "Inbound byte rate exceeded")
 
-      if byte_size(state.buffer) + byte_size(data) > Valimc.config(:max_packet_bytes) + 5,
+      if byte_size(state.buffer) + byte_size(data) > Valimc.Connection.frame_limit(state) + 5,
         do: reject(state, "Receive buffer exceeded")
 
       data = crypt_bytes(state.cipher, :decrypt, data)

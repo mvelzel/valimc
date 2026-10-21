@@ -36,7 +36,7 @@ defmodule Valimc.Commands.Place do
     place!(source, {"feature", [id], 0, 1.0, false}, pos, "commands.place.feature.failed")
     {x, y, z} = pos
     Feedback.success(source, Text.translatable("commands.place.feature.success", [id, x, y, z]))
-    {1, source.state}
+    1
   end
 
   # ---- jigsaw ----
@@ -54,7 +54,7 @@ defmodule Valimc.Commands.Place do
 
     {x, y, z} = pos
     Feedback.success(source, Text.translatable("commands.place.jigsaw.success", [x, y, z]))
-    {1, source.state}
+    1
   end
 
   # ---- structure ----
@@ -65,7 +65,7 @@ defmodule Valimc.Commands.Place do
     place!(source, {"structure", [id], 0, 1.0, false}, pos, "commands.place.structure.failed")
     {x, y, z} = pos
     Feedback.success(source, Text.translatable("commands.place.structure.success", [id, x, y, z]))
-    {1, source.state}
+    1
   end
 
   # ---- template ----
@@ -98,7 +98,7 @@ defmodule Valimc.Commands.Place do
       Text.translatable("commands.place.template.success", [id, x, y, z])
     )
 
-    {1, source.state}
+    1
   end
 
   def template_strict(arguments, source), do: template(Map.put(arguments, :strict, true), source)
@@ -122,7 +122,7 @@ defmodule Valimc.Commands.Place do
   defp place!(source, spec, pos, failed, random \\ nil, invalid \\ nil, id \\ nil) do
     {state, biome_source} = generator!(source.dimension, elem(spec, 0))
 
-    case Native.worldgen_place_plan(state, biome_source, spec, pos) do
+    case generate!(fn -> Native.worldgen_place_plan(state, biome_source, spec, pos) end) do
       {:ok, {"invalid", _, _}} ->
         Error.fail!(invalid, [id])
 
@@ -137,7 +137,9 @@ defmodule Valimc.Commands.Place do
         input = for {cx, cz} = c <- chunks, do: {cx, cz, Map.fetch!(images, c)}
         seed = random || :rand.uniform(1 <<< 62)
 
-        case Native.worldgen_place(state, biome_source, spec, pos, input, base(), seed) do
+        case generate!(fn ->
+               Native.worldgen_place(state, biome_source, spec, pos, input, base(), seed)
+             end) do
           {:ok, nil} ->
             Error.fail!(failed)
 
@@ -155,11 +157,24 @@ defmodule Valimc.Commands.Place do
     end
   end
 
+  # The generator's calls run as generation jobs (VMC-077b's pool), never in
+  # the command's own process.
+  defp generate!(fun) do
+    case Valimc.Worldgen.Pool.run(fun, 50_000) do
+      {:ok, result} -> result
+      {:error, reason} -> Error.refuse!("Placing failed (#{inspect(reason)})")
+    end
+  end
+
   # The executing dimension's generation (VMC-077a).
   defp generator!(dimension, kind) do
     case Valimc.World.Spec.generation(Valimc.World.Spec.current(), dimension) do
       {:ok, %{kind: :noise} = spec} ->
-        {:ok, state} = Valimc.World.Generator.worldgen(spec.seed, spec.noise_settings, spec.facts)
+        {:ok, state} =
+          generate!(fn ->
+            Valimc.World.Generator.worldgen(spec.seed, spec.noise_settings, spec.facts)
+          end)
+
         {state, spec.biome_source}
 
       # Flat worlds (ValiMC's profile and flat presets): plains features and
@@ -170,11 +185,11 @@ defmodule Valimc.Commands.Place do
       # A jigsaw needs the structure registry, which fixed biome sources lack;
       # it reads the overworld's only for template pools and level bounds.
       _flat when kind == "jigsaw" ->
-        {:ok, state} = Valimc.World.Generator.worldgen(0)
+        {:ok, state} = generate!(fn -> Valimc.World.Generator.worldgen(0) end)
         {state, "minecraft:overworld"}
 
       _flat ->
-        {:ok, state} = Valimc.World.Generator.worldgen(0)
+        {:ok, state} = generate!(fn -> Valimc.World.Generator.worldgen(0) end)
         {state, "fixed:minecraft:plains"}
     end
   end

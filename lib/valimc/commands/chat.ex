@@ -7,13 +7,12 @@ defmodule Valimc.Commands.Chat do
   require Logger
   alias Valimc.Command.{Dispatcher, Error, Feedback, Reader, Source, Text}
   alias Valimc.Protocol.{Data, Packets, Wire}
-  import Valimc.Net.Codec, only: [send_packets: 2]
 
   @doc "`/help`: vanilla's smart usage of every command the source may use."
   def help(_arguments, source) do
     usage = smart_usage(Valimc.Commands.root(), source)
     for line <- usage, do: Feedback.success(source, Text.literal("/" <> line), false)
-    {length(usage), source.state}
+    length(usage)
   end
 
   @doc "`/help <command>`: the smart usage below the deepest node the text parses to."
@@ -31,7 +30,7 @@ defmodule Valimc.Commands.Chat do
         for line <- usage,
             do: Feedback.success(source, Text.literal("/#{command} #{line}"), false)
 
-        {length(usage), source.state}
+        length(usage)
     end
   end
 
@@ -106,8 +105,7 @@ defmodule Valimc.Commands.Chat do
     content = resolve(source, message)
     name = Source.display_name(source)
     packet = disguised(content, chat_type, name, nil)
-    if source.state, do: send_packets(source.state, [packet])
-    Valimc.Players.broadcast({:packet, packet}, self())
+    Valimc.Players.broadcast({:packet, packet})
     # The server logs the decorated message (`logChatMessage`).
     decoration =
       if chat_type == "minecraft:emote_command",
@@ -115,7 +113,7 @@ defmodule Valimc.Commands.Chat do
         else: "chat.type.announcement"
 
     Logger.info(Valimc.Command.Render.string(Text.translatable(decoration, [name, content])))
-    {1, source.state}
+    1
   end
 
   @doc "`/msg <targets> <message>`: whispers, echoed to the sender."
@@ -128,8 +126,8 @@ defmodule Valimc.Commands.Chat do
       outgoing =
         disguised(content, "minecraft:msg_command_outgoing", sender, Source.display_name(target))
 
-      if source.state,
-        do: send_packets(source.state, [outgoing]),
+      if source.player,
+        do: Valimc.Connection.deliver(source.player.pid, {:packet, outgoing}),
         else:
           Logger.info(
             Valimc.Command.Render.string(
@@ -142,12 +140,10 @@ defmodule Valimc.Commands.Chat do
 
       incoming = disguised(content, "minecraft:msg_command_incoming", sender, nil)
 
-      if target.pid == self() and source.state != nil,
-        do: send_packets(source.state, [incoming]),
-        else: Valimc.Connection.deliver(target.pid, {:packet, incoming})
+      Valimc.Connection.deliver(target.pid, {:packet, incoming})
     end
 
-    {length(targets), source.state}
+    length(targets)
   end
 
   defp disguised(content, chat_type, name, target) do
@@ -240,7 +236,7 @@ defmodule Valimc.Commands.Chat do
       ])
 
     Feedback.success(source, message, false)
-    {length(players), source.state}
+    length(players)
   end
 
   defp uuid(<<a::binary-4, b::binary-2, c::binary-2, d::binary-2, e::binary-6>>),

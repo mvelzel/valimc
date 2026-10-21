@@ -106,7 +106,7 @@ defmodule Valimc.ChestSpillRegionTest do
     {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, c.key, :items), c.key)
     expected = if self_loot, do: [ItemStack.new("chest") | c.stock], else: c.stock
     assert quantities(Enum.map(saved.records, & &1.stack)) == quantities(expected)
-    assert World.get_block(c.position) == 89
+    assert Valimc.TestBlocks.get(c.position) == 89
     saved
   end
 
@@ -156,11 +156,11 @@ defmodule Valimc.ChestSpillRegionTest do
 
   @tag capacity: true
   test "insufficient item admission durably refuses the entire filled mining operation", c do
-    assert {:error, :item_count_limit} = World.remove_block(c.position)
-    assert World.get_block(c.position) == c.chest
+    assert {:error, :item_count_limit} = Valimc.TestBlocks.remove(c.position)
+    assert Valimc.TestBlocks.get(c.position) == c.chest
     assert :sys.get_state(c.pid).resource.containers == c.containers
     assert {:ok, :rejected} = Region.apply_mining_transfer(c.owner, c.transfer)
-    assert World.get_block(c.position) == c.chest
+    assert Valimc.TestBlocks.get(c.position) == c.chest
     assert :sys.get_state(c.pid).resource.containers == c.containers
     {:ok, saved} = ItemLedger.decode(Valimc.TestDisk.read(c.base, c.key, :items), c.key)
     assert saved.records == c.initial

@@ -1,7 +1,7 @@
 defmodule Valimc.CookingConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore, World}
+  alias Valimc.{Connection, GameMode, Inventory, Players, PlayerSnapshot, PlayerStore}
   alias Valimc.Protocol.{ItemStack, ItemTypes, Wire}
   alias Valimc.World.Containers
   alias Valimc.TestClient, as: Client
@@ -78,7 +78,7 @@ defmodule Valimc.CookingConnectionTest do
     block = if cooking.burn_left > 0, do: block - 1, else: block
     Valimc.TestDisk.write(ctx.base, ctx.key, :blocks, %{ctx.position => block})
 
-    :ok = World.set_block(ctx.position, block)
+    :ok = Valimc.TestBlocks.set(ctx.position, block)
   end
 
   defp seed_player(ctx, mode, inventory) do

@@ -20,7 +20,7 @@ defmodule Valimc.RegionDirectoryTest do
     assert {:ok, {pid, epoch} = owner} = World.owner(ctx.key)
     size = Valimc.config(:region_size) * 16
     position = {elem(ctx.key, 0) * size, 64, elem(ctx.key, 1) * size}
-    assert :ok = World.set_block(position, 1)
+    assert :ok = Valimc.TestBlocks.set(position, 1)
     {^pid, _, %{items: table}} = Directory.lookup(ctx.key)
     assert_raise ArgumentError, fn -> :ets.insert(Valimc.RegionRoutes, {:bad, self()}) end
     :sys.suspend(Directory)
@@ -30,8 +30,8 @@ defmodule Valimc.RegionDirectoryTest do
       assert World.owner(ctx.key) == {:ok, {pid, epoch}}
       assert World.existing_owner(ctx.key) == {:ok, owner}
       assert World.item_snapshot(ctx.key) == Valimc.World.EntityPublication.source(table, :items)
-      assert World.get_block(position) == 1
-      assert :ok = World.set_block(position, 0)
+      assert Valimc.TestBlocks.get(position) == 1
+      assert :ok = Valimc.TestBlocks.set(position, 0)
       assert World.existing_owner(ctx.other) == {:error, :region_unavailable}
       assert World.item_snapshot(ctx.other) == %{}
       assert Registry.lookup(Valimc.RegionRegistry, ctx.other) == []

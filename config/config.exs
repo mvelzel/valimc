@@ -75,6 +75,8 @@ config :valimc,
   rcon_port: 25_575,
   rcon_password: nil,
   rcon_clients: 16,
+  # A client silent this long is closed (VMC-077a).
+  rcon_idle_ms: 60_000,
   broadcast_rcon_to_ops: true,
   # VMC-010f: commands from standard input; off in tests.
   console: config_env() != :test,

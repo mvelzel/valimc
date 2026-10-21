@@ -73,3 +73,66 @@ defmodule Valimc.WorldSettingsTest do
     assert {:error, {:world_metadata_unreadable, _, :eisdir}} = Spec.load(dir)
   end
 end
+
+defmodule Valimc.WorldSettingsTest.Serial do
+  @moduledoc "Commands that change the running world's settings or read every region."
+  # The spawn, the default game mode and the region registry are global.
+  use ExUnit.Case, async: false
+  alias Valimc.Command.Source
+  alias Valimc.World.{Settings, Spawn}
+
+  # An RCON source in `dimension`: its output is the command's feedback text.
+  defp run(dimension, input) do
+    Process.put(:valimc_rcon_output, [])
+    Valimc.Commands.run(%{Source.rcon() | dimension: dimension}, input)
+    IO.iodata_to_binary(Process.delete(:valimc_rcon_output))
+  end
+
+  test "setworldspawn keeps the executing dimension and pitch; defaultgamemode persists" do
+    previous = Settings.get(:spawn)
+    mode = Settings.get(:default_game_mode)
+    on_exit(fn -> Settings.put(spawn: previous, default_game_mode: mode) end)
+
+    log = run(:the_nether, "setworldspawn 1 70 2 90 10")
+    assert log =~ "minecraft:the_nether"
+    assert Spawn.dimension() == :the_nether
+    assert {Spawn.position(), Spawn.yaw(), Spawn.pitch()} == {{1, 70, 2}, 90.0, 10.0}
+    assert Source.console().dimension == :the_nether
+
+    run(:overworld, "defaultgamemode adventure")
+    assert Settings.get(:default_game_mode) == :adventure
+  end
+
+  test "save-all from the Nether saves every dimension's regions and starts none" do
+    {overworld, nether} = {{-31_001, 9}, {-31_002, 9}}
+    {:ok, _} = Valimc.World.owner(overworld)
+    {:ok, _} = Valimc.Dimension.within(:the_nether, fn -> Valimc.World.owner(nether) end)
+    scoped = [overworld, {:the_nether, nether}]
+
+    on_exit(fn ->
+      for key <- scoped,
+          registry <- [Valimc.RegionRegistry, Valimc.RegionStoreRegistry],
+          {pid, _} <- Registry.lookup(registry, key),
+          do: Valimc.TestScope.kill(pid)
+    end)
+
+    before = Registry.select(Valimc.RegionRegistry, [{{:"$1", :_, :_}, [], [:"$1"]}])
+    assert run(:the_nether, "save-all flush") =~ "Saved the game"
+    after_save = Registry.select(Valimc.RegionRegistry, [{{:"$1", :_, :_}, [], [:"$1"]}])
+    assert Enum.sort(after_save) == Enum.sort(before)
+
+    owners = Valimc.Commands.Server.owners() |> Enum.map(&elem(&1, 0)) |> MapSet.new()
+
+    for key <- scoped,
+        [{pid, _}] = Registry.lookup(Valimc.RegionRegistry, key),
+        do: assert(MapSet.member?(owners, pid))
+  end
+
+  test "locate searches the executing dimension's generator" do
+    # ValiMC's flat profile has no overworld structures, but its Nether has fortresses.
+    assert run(:overworld, "locate structure minecraft:fortress") =~ "flat preview"
+
+    assert run(:the_nether, "locate structure minecraft:fortress") =~
+             "The nearest minecraft:fortress"
+  end
+end

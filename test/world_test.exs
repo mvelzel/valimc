@@ -24,8 +24,8 @@ defmodule Valimc.WorldTest do
     try do
       task = Task.async(fn -> World.chunk({880, 880}) end)
       assert Task.yield(task, 20) == nil
-      assert :ok = World.set_block({14081, 64, 14081}, 1)
-      assert World.get_block({14081, 64, 14081}) == 1
+      assert :ok = Valimc.TestBlocks.set({14081, 64, 14081}, 1)
+      assert Valimc.TestBlocks.get({14081, 64, 14081}) == 1
       for pid <- blockers, do: send(pid, :release)
       assert is_binary(Task.await(task, 60_000))
     after
@@ -60,18 +60,18 @@ defmodule Valimc.WorldTest do
 
     assert length(Enum.uniq(frames)) == 1
     assert (Valimc.Metrics.snapshot()[:chunks_encoded] || 0) - before_count == 1
-    assert :ok = World.set_block({12801, 64, 12801}, 1)
+    assert :ok = Valimc.TestBlocks.set({12801, 64, 12801}, 1)
     changed = World.chunk(key)
     refute changed == hd(frames)
     assert {:ok, 46, _, <<>>} = Wire.next_frame(changed, 2_097_152, 256)
-    assert World.get_block({12801, 64, 12801}) == 1
+    assert Valimc.TestBlocks.get({12801, 64, 12801}) == 1
   end
 
   test "a chunk's packet is published for connections and withdrawn with a change" do
     key = {808, 808}
     frame = World.chunk(key)
     assert [{^key, {:frame, ^frame}}] = World.sendable([key], 1)
-    assert :ok = World.set_block({808 * 16 + 1, 64, 808 * 16 + 1}, 1)
+    assert :ok = Valimc.TestBlocks.set({808 * 16 + 1, 64, 808 * 16 + 1}, 1)
     # The change withdrew it: the connection asks without waiting for the reply.
     assert [{^key, {:owner, pid}}] = World.sendable([key], 1)
     request = World.request_chunk(pid, key)
@@ -100,14 +100,14 @@ defmodule Valimc.WorldTest do
     try do
       {:ok, pid} = World.region({103, 103})
       pos = {13184, 65, 13184}
-      assert :ok = World.set_block(pos, 1)
+      assert :ok = Valimc.TestBlocks.set(pos, 1)
       assert :ok = World.Region.flush(pid)
       ref = Process.monitor(pid)
       assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
       assert_receive {:DOWN, ^ref, :process, ^pid, _}
       {:ok, replacement} = World.region({103, 103})
       assert replacement != pid
-      assert World.get_block(pos) == 1
+      assert Valimc.TestBlocks.get(pos) == 1
       DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, replacement)
     after
       Application.put_env(:valimc, :world_path, old)

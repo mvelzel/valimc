@@ -108,7 +108,10 @@ defmodule Valimc.CommandConnectionTest do
     assert %{x: 3.5, y: 70.0, z: 4.5} = Map.take(:sys.get_state(pid).player, [:x, :y, :z])
     client = command(client, "tp 0 30000000 0", "commands.teleport.invalidPosition")
 
-    _client = command(client, "kill", "commands.kill.success.single")
+    # As in vanilla, the death message comes before the command's feedback.
+    client = command(client, "kill", "death.attack.genericKill")
+    {body, _client} = Client.await(client, :play, "system_chat")
+    assert :binary.match(body, "commands.kill.success.single") != :nomatch
     assert :sys.get_state(pid).life_stage != :alive
   end
 
@@ -126,6 +129,46 @@ defmodule Valimc.CommandConnectionTest do
     {body, _b} = Client.await(b, :play, "system_chat")
     assert :binary.match(body, "gameMode.changed") != :nomatch
     assert :sys.get_state(pid(second)).player.game_mode.current == :adventure
+  end
+
+  test "two operators giving to each other at once both get their items" do
+    {first, second} = {name("Mutual"), name("Mutual")}
+    {_, a} = Client.login(first)
+    on_exit(fn -> Client.close(a) end)
+    {_, b} = Client.login(second)
+    on_exit(fn -> Client.close(b) end)
+    {a, b} = {Client.load_world(a), Client.load_world(b)}
+
+    # Each command calls the other's connection; neither connection waits (VMC-077a).
+    Client.send_packet(a, :play, "chat_command", Wire.string("give #{second} diamond 3"))
+    Client.send_packet(b, :play, "chat_command", Wire.string("give #{first} emerald 2"))
+    {body_a, _a} = Client.await(a, :play, "system_chat")
+    {body_b, _b} = Client.await(b, :play, "system_chat")
+    assert :binary.match(body_a, "commands.give.success.single") != :nomatch
+    assert :binary.match(body_b, "commands.give.success.single") != :nomatch
+    assert count(pid(second), "diamond") == 3
+    assert count(pid(first), "emerald") == 2
+  end
+
+  test "a command whose owner does not answer fails and the session lives on" do
+    {client, pid} = join()
+    owner = Process.whereis(Valimc.World.Stopwatches)
+    :sys.suspend(owner)
+    on_exit(fn -> if Process.alive?(owner), do: :sys.resume(owner) end)
+    id = "minecraft:" <> String.downcase(name("held"))
+    Client.send_packet(client, :play, "chat_command", Wire.string("stopwatch create #{id}"))
+
+    # The command waits in its job; the connection keeps answering meanwhile.
+    Valimc.TestWait.until(fn ->
+      Valimc.Session.Jobs.active?(:sys.get_state(pid, 1000).jobs, :command)
+    end)
+
+    # The owner call exits (5 s); before VMC-077a that exit ended the session.
+    {body, client} = Client.await(client, :play, "system_chat")
+    assert :binary.match(body, "command.failed") != :nomatch
+    :sys.resume(owner)
+    _client = command(client, "stopwatch remove #{id}", "commands.stopwatch")
+    assert Process.alive?(pid)
   end
 
   test "world commands: clocks, weather, difficulty, game rules and blocks" do
@@ -195,17 +238,17 @@ defmodule Valimc.CommandConnectionTest do
     stone = Valimc.Registry.Blocks.default_state("stone")
     glass = Valimc.Registry.Blocks.default_state("glass")
     client = command(client, "setblock 40 100 40 stone", "commands.setblock.success")
-    assert Valimc.World.get_block({40, 100, 40}) == stone
+    assert Valimc.TestBlocks.get({40, 100, 40}) == stone
     client = command(client, "setblock 40 100 40 stone", "commands.setblock.failed")
     client = command(client, "setblock 40 100 40 glass keep", "commands.setblock.failed")
     client = command(client, "fill 40 101 40 42 103 42 glass hollow", "commands.fill.success")
-    assert Valimc.World.get_block({40, 101, 40}) == glass
-    assert Valimc.World.get_block({41, 102, 41}) == Valimc.Registry.Blocks.default_state("air")
+    assert Valimc.TestBlocks.get({40, 101, 40}) == glass
+    assert Valimc.TestBlocks.get({41, 102, 41}) == Valimc.Registry.Blocks.default_state("air")
 
     client =
       command(client, "fill 40 101 40 42 103 42 stone replace glass", "commands.fill.success")
 
-    assert Valimc.World.get_block({42, 103, 42}) == stone
+    assert Valimc.TestBlocks.get({42, 103, 42}) == stone
     _client = command(client, "fill 0 0 0 40 40 40 stone", "commands.fill.toobig")
   end
 

@@ -28,7 +28,7 @@ defmodule Valimc.PlayerMiningStoreTest do
     Valimc.TestScope.isolate([uuid | Valimc.TestScope.neighborhood(key)], world_path: base)
     {:ok, writer, nil, fence} = PlayerStore.open(uuid)
     {:ok, {pid, _} = owner} = World.item_owner(key)
-    assert :ok = World.set_block(position, Data.block("stone"))
+    assert :ok = Valimc.TestBlocks.set(position, Data.block("stone"))
     assert :ok = Region.flush(pid)
     {:ok, reservation} = Region.reserve_mining(owner, [position])
 
@@ -155,7 +155,7 @@ defmodule Valimc.PlayerMiningStoreTest do
     assert {:ok, _, final} = complete(ctx, fence)
     assert final.transfer_sequence == 1 and final.outbox == nil
     assert Inventory.get(final.inventory, 43) == ctx.intent.before
-    assert World.get_block(ctx.position) == Data.block("stone")
+    assert Valimc.TestBlocks.get(ctx.position) == Data.block("stone")
     assert World.item_snapshot(ctx.key) == %{}
 
     assert {:ok, saved} =

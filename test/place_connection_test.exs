@@ -29,7 +29,7 @@ defmodule Valimc.PlaceConnectionTest do
       )
 
     placed =
-      for x <- 8..14, y <- 64..68, z <- 8..15, Valimc.World.get_block({x, y, z}) != air, do: 1
+      for x <- 8..14, y <- 64..68, z <- 8..15, Valimc.TestBlocks.get({x, y, z}) != air, do: 1
 
     assert length(placed) > 20
 
@@ -39,7 +39,7 @@ defmodule Valimc.PlaceConnectionTest do
     client =
       command(client, "place feature minecraft:oak 20 64 4", "commands.place.feature.success")
 
-    assert Valimc.World.get_block({20, 64, 4}) == Valimc.Registry.Blocks.default_state("oak_log")
+    assert Valimc.TestBlocks.get({20, 64, 4}) == Valimc.Registry.Blocks.default_state("oak_log")
     client = command(client, "place structure minecraft:igloo", "not supported yet")
     # A town centre holds a bell and other block entities ValiMC keeps as data.
     client =
@@ -72,9 +72,10 @@ defmodule Valimc.PlaceConnectionTest do
       Wire.string("fillbiome 0 64 0 8 68 8 minecraft:desert")
     )
 
+    # As in vanilla, viewers get the biomes before the command's feedback.
+    {_, client} = Client.await(client, :play, "chunks_biomes")
     {body, client} = Client.await(client, :play, "system_chat")
     assert :binary.match(body, "commands.fillbiome.success.count") != :nomatch
-    {_, client} = Client.await(client, :play, "chunks_biomes")
 
     client =
       command(client, "fillbiome 0 64 0 8 68 8 minecraft:desert", "commands.fillbiome.no_changes")

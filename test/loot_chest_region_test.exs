@@ -167,8 +167,8 @@ defmodule Valimc.LootChestRegionTest do
 
   test "breaking an unrolled chest spills vanilla's fill", ctx do
     position = ctx.chests.seeded
-    assert :ok = World.remove_block(position)
-    assert World.get_block(position) != @chest
+    assert :ok = Valimc.TestBlocks.remove(position)
+    assert Valimc.TestBlocks.get(position) != @chest
 
     {:ok, saved} = ItemLedger.decode(durable(ctx, :items), ctx.key)
 

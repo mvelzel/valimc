@@ -68,7 +68,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     path = PlayerStore.path(c.base, c.uuid)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, bytes)
-    :ok = World.set_block(c.target, 0)
+    :ok = Valimc.TestBlocks.set(c.target, 0)
   end
 
   defp login(c, loaded \\ true) do
@@ -106,21 +106,21 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     send_place(client, c.target)
     client = ack(client)
     {:ok, dry} = Valimc.Physics.ChestPlacement.single_state(90.0, 0)
-    assert World.get_block(c.target) == dry
+    assert Valimc.TestBlocks.get(c.target) == dry
     assert Valimc.TestConn.state(pid).inventory.slots[36] == ItemStack.new("chest")
     {x, y, z} = c.target
     wet = {x - 2, y, z}
-    :ok = World.set_block(wet, 89)
+    :ok = Valimc.TestBlocks.set(wet, 89)
     send_place(client, wet, 1, 0.5, 1, 2)
     client = ack(client, 2)
     {:ok, wet_state} = Valimc.Physics.ChestPlacement.single_state(90.0, 89)
-    assert World.get_block(wet) == wet_state
+    assert Valimc.TestBlocks.get(wet) == wet_state
     assert Valimc.TestConn.state(pid).inventory.slots[45] == ItemStack.new("chest", 2)
 
     # Horizontal neighbors would need double-chest behavior, so refuse before spending a source sequence.
     send_place(client, {x + 1, y, z}, 1, 0.5, 0, 3)
     client = ack(client, 3)
-    assert World.get_block({x + 1, y, z}) == 0
+    assert Valimc.TestBlocks.get({x + 1, y, z}) == 0
     assert saved(c).transfer_sequence == 2 and saved(c).outbox == nil
     assert Valimc.TestConn.state(pid).inventory.slots[36] == ItemStack.new("chest")
 
@@ -153,16 +153,17 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     seed(c, :survival, held)
     {x, y, z} = c.target
     floor = {x, y - 1, z}
-    :ok = World.set_block(floor, 1)
+    :ok = Valimc.TestBlocks.set(floor, 1)
     {client, pid} = login(c)
 
     # Click the solid floor's top face, as the client did, so the item targets the air above it.
     Enum.reduce([{0, 1}, {1, 2}], client, fn {hand, seq}, client ->
       send_place(client, floor, 1, 0.5, hand, seq)
-      client |> ack(seq) |> corrected(c.target)
+      # The corrections precede the acknowledgement, as vanilla sends them.
+      client |> corrected(c.target) |> ack(seq)
     end)
 
-    assert World.get_block(c.target) == 0
+    assert Valimc.TestBlocks.get(c.target) == 0
     assert Map.take(Valimc.TestConn.state(pid).inventory.slots, [36, 45]) == held
     {:ok, {region, _}} = World.existing_owner(c.key)
     assert :sys.get_state(region).resource.containers.entries == %{}
@@ -183,16 +184,16 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     {client, pid} = login(c)
     send_place(client, c.target)
     client = ack(client)
-    assert World.get_block(c.target) == 1
+    assert Valimc.TestBlocks.get(c.target) == 1
     assert Valimc.TestConn.state(pid).inventory.slots[36].count == 6
-    :ok = World.set_block(c.target, 89)
+    :ok = Valimc.TestBlocks.set(c.target, 89)
     send_place(client, c.target, 1, 0.5, 1, 2)
     client = ack(client, 2)
-    assert World.get_block(c.target) == 15_179
+    assert Valimc.TestBlocks.get(c.target) == 15_179
     assert Valimc.TestConn.state(pid).inventory.slots[45].count == 10
     send_place(client, c.target, 1, 0.5, 1, 3)
     client = ack(client, 3)
-    assert World.get_block(c.target) == 15_182
+    assert Valimc.TestBlocks.get(c.target) == 15_182
     assert Valimc.TestConn.state(pid).inventory.slots[45].count == 9
     assert saved(c).transfer_sequence == 3 and saved(c).outbox == nil
     assert World.item_snapshot(c.key) == %{}
@@ -205,7 +206,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     {_fresh, fresh_pid} = login(c)
     assert :sys.get_state(fresh_pid).inventory.slots[36].count == 6
     assert :sys.get_state(fresh_pid).inventory.slots[45].count == 9
-    assert World.get_block(c.target) == 15_182
+    assert Valimc.TestBlocks.get(c.target) == 15_182
   end
 
   defp saved(c) do
@@ -224,15 +225,15 @@ defmodule Valimc.PlayerPlacementConnectionTest do
     feet = {floor(c.pose.x), 64, floor(c.pose.z)}
     send_place(client, feet, 1, 0.5, 0, 2)
     client = ack(client, 2)
-    assert World.get_block(feet) == 0
+    assert Valimc.TestBlocks.get(feet) == 0
     {x, y, z} = c.target
-    assert :ok = World.set_block(c.target, 1)
-    assert :ok = World.set_block({x, y + 1, z}, 15)
+    assert :ok = Valimc.TestBlocks.set(c.target, 1)
+    assert :ok = Valimc.TestBlocks.set({x, y + 1, z}, 15)
     send_place(client, c.target, 1, 0.5, 0, 3)
     client = ack(client, 3)
     send_place(client, {x, y, z + 40}, 1, 0.5, 0, 4)
     _client = ack(client, 4)
-    assert World.get_block({x, y + 1, z}) == 15
+    assert Valimc.TestBlocks.get({x, y + 1, z}) == 15
     assert Valimc.TestConn.state(pid).inventory.slots == before
     assert :sys.get_state(Valimc.TestConn.state(pid).player_store).snapshot.transfer_sequence == 0
   end
@@ -256,7 +257,7 @@ defmodule Valimc.PlayerPlacementConnectionTest do
       :sys.resume(writer)
       wait(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, c.uuid) == [] end)
       {_fresh, fresh_pid} = login(c)
-      assert World.get_block(c.target) == 1
+      assert Valimc.TestBlocks.get(c.target) == 1
       assert :sys.get_state(fresh_pid).inventory.slots[36].count == 6
       assert saved(c).transfer_sequence == 1 and saved(c).outbox == nil
     after

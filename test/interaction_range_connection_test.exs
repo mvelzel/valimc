@@ -77,14 +77,14 @@ defmodule Valimc.InteractionRangeConnectionTest do
        ctx do
     clicked = {ctx.x + 6, 65, ctx.z}
     target = {ctx.x + 7, 65, ctx.z}
-    :ok = World.set_block(clicked, 1)
-    assert World.get_block(target) == 0
+    :ok = Valimc.TestBlocks.set(clicked, 1)
+    assert Valimc.TestBlocks.get(target) == 0
     client = place(ctx.client, clicked, 5, {1.0, 0.5, 0.5})
-    assert World.get_block(target) == 1
+    assert Valimc.TestBlocks.get(target) == 1
     client = break(client, target)
-    assert World.get_block(target) == 1
+    assert Valimc.TestBlocks.get(target) == 1
     _client = break(client, clicked)
-    assert World.get_block(clicked) == 0
+    assert Valimc.TestBlocks.get(clicked) == 0
     assert :sys.get_state(ctx.pid).inventory.slots[36].count == 7
   end
 

@@ -1,6 +1,7 @@
 defmodule Valimc.Commands.Preview do
   @moduledoc "ValiMC's own commands beside vanilla's: `/stats` and `/spawn` (VMC-002)."
-  alias Valimc.Command.{Feedback, Text}
+  alias Valimc.Command.{Feedback, Source, Text}
+  alias Valimc.Commands.Remote
 
   def stats(_arguments, source) do
     stats = Valimc.Metrics.snapshot()
@@ -13,22 +14,23 @@ defmodule Valimc.Commands.Preview do
       false
     )
 
-    {1, source.state}
+    1
   end
 
-  # The world spawn is the overworld's; from another dimension the player travels there.
+  # The world spawn, in its dimension; from another dimension the player travels there.
   def spawn(_arguments, source) do
-    state = source.state
+    player = Source.player!(source)
 
-    if state.life_stage == :alive do
-      pose =
-        Valimc.World.Spawn.pose()
-        |> Map.take([:x, :y, :z])
-        |> Map.merge(%{yaw: state.player.yaw, pitch: state.player.pitch, dimension: :overworld})
+    pose =
+      Valimc.World.Spawn.pose()
+      |> Map.take([:x, :y, :z])
+      |> Map.merge(%{
+        yaw: player.yaw,
+        pitch: player.pitch,
+        dimension: Valimc.World.Spawn.dimension()
+      })
 
-      {1, Valimc.Player.Teleports.apply(state, pose)}
-    else
-      {0, state}
-    end
+    # Dead players stay where they are.
+    if player.health.value > 0 and Remote.run!(player, {:teleport, pose}) == :ok, do: 1, else: 0
   end
 end

@@ -33,4 +33,47 @@ defmodule Valimc.Worldgen.Pool do
       do: {:error, :busy},
       else: start(fun)
   end
+
+  @doc """
+  Run `fun` as a job and wait for its value (`/locate`, `/place`, VMC-077a):
+  `{:ok, value}`, or `{:error, reason}` when no slot frees up, the job fails or
+  `timeout` milliseconds pass (the job is then stopped).
+  """
+  def run(fun, timeout) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+    {caller, ref} = {self(), make_ref()}
+
+    with {:ok, pid} <- start_by(fn -> send(caller, {ref, fun.()}) end, deadline) do
+      monitor = Process.monitor(pid)
+
+      receive do
+        {^ref, value} ->
+          Process.demonitor(monitor, [:flush])
+          {:ok, value}
+
+        {:DOWN, ^monitor, :process, ^pid, reason} ->
+          {:error, reason}
+      after
+        max(deadline - System.monotonic_time(:millisecond), 0) ->
+          Process.exit(pid, :kill)
+          Process.demonitor(monitor, [:flush])
+          {:error, :timeout}
+      end
+    end
+  end
+
+  defp start_by(fun, deadline) do
+    case start(fun) do
+      {:error, :busy} ->
+        if System.monotonic_time(:millisecond) < deadline do
+          Process.sleep(10)
+          start_by(fun, deadline)
+        else
+          {:error, :busy}
+        end
+
+      started ->
+        started
+    end
+  end
 end

@@ -231,7 +231,7 @@ defmodule Valimc.PlayerFireConnectionTest do
     tick(pid)
     assert state(pid).player.fire_ticks == 160
     assert state(pid).player.health.value == 19.0
-    :ok = World.remove_block(roof)
+    :ok = Valimc.TestBlocks.remove(roof)
     wait(fn -> Valimc.TestConn.job(state(pid), :pose) == nil end)
     assert state(pid).player.fire_ticks == 160
     tick(pid)

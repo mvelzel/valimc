@@ -51,6 +51,55 @@ defmodule Valimc.ConnectionTest do
     assert :binary.match(body, "26.3") != :nomatch
   end
 
+  # Reads until the server closes the socket (a disconnect packet may come first).
+  defp closed?(client) do
+    case :gen_tcp.recv(client.socket, 0, 5000) do
+      {:ok, _} -> closed?(client)
+      {:error, :closed} -> true
+      {:error, _} -> false
+    end
+  end
+
+  test "frames before configuration are small; a larger one closes the connection" do
+    # A handshake frame announcing 2 KiB ends the connection before its body (VMC-077a).
+    big = Client.connect()
+    Client.send_raw(big, Wire.varint(2048) <> :binary.copy(<<0>>, 64))
+    assert closed?(big)
+
+    # A 40 KiB frame in login exceeds the login buffer.
+    login = Client.connect()
+
+    Client.send_packet(login, :handshake, "intention", [
+      Wire.varint(777),
+      Wire.string("localhost"),
+      <<25565::16, 2>>
+    ])
+
+    Client.send_raw(login, Wire.frame(0, :binary.copy(<<0>>, 40_000)))
+    assert closed?(login)
+
+    # A player in play may still send frames up to `max_packet_bytes`.
+    {_, client} = Client.login(name("Frames"))
+    on_exit(fn -> Client.close(client) end)
+    client = Client.load_world(client)
+    assert Valimc.Connection.frame_limit(%{phase: :play}) == Valimc.config(:max_packet_bytes)
+    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
+    {_body, _} = Client.await_stats(client)
+  end
+
+  test "chat with illegal characters ends the session, as commands do" do
+    {_, client} = Client.login(name("Illegal"))
+    client = Client.load_world(client)
+
+    Client.send_packet(client, :play, "chat", [
+      Wire.string("hi \u00a7cred"),
+      <<0::64, 0::64, 0, 0, 0, 0, 0>>
+    ])
+
+    {body, _} = Client.await(client, :play, "disconnect")
+    assert :binary.match(body, "Illegal characters") != :nomatch
+  end
+
   test "unreachable block actions cannot allocate regions" do
     {_, client} = Client.login(name("Reach"))
     on_exit(fn -> Client.close(client) end)

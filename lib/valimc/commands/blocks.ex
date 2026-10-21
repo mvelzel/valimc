@@ -68,7 +68,7 @@ defmodule Valimc.Commands.Blocks do
 
     write(Map.merge(cleared, placed))
     Feedback.success(source, Text.translatable("commands.clone.success", [count]))
-    {count, source.state}
+    count
   end
 
   for mask <- [:replace, :masked, :filtered], mode <- [:normal, :force, :move] do
@@ -196,7 +196,7 @@ defmodule Valimc.Commands.Blocks do
       Text.translatable("commands.fillbiome.success.count", [count, x0, y0, z0, x1, y1, z1])
     )
 
-    {count, source.state}
+    count
   end
 
   # ---- forceload ----
@@ -253,7 +253,7 @@ defmodule Valimc.Commands.Blocks do
         )
     end
 
-    {length(changed), source.state}
+    length(changed)
   end
 
   defp div_floor(block), do: Integer.floor_div(block, 16)
@@ -261,7 +261,7 @@ defmodule Valimc.Commands.Blocks do
   def forceload_remove_all(_arguments, source) do
     ForcedChunks.remove_all()
     Feedback.success(source, Text.translatable("commands.forceload.removed.all", [here()]))
-    {0, source.state}
+    0
   end
 
   def forceload_query_pos(%{"pos" => pos}, source) do
@@ -275,7 +275,7 @@ defmodule Valimc.Commands.Blocks do
         false
       )
 
-      {1, source.state}
+      1
     else
       Error.fail!("commands.forceload.query.failure", [chunk_text(chunk), here()])
     end
@@ -305,6 +305,6 @@ defmodule Valimc.Commands.Blocks do
         )
     end
 
-    {length(chunks), source.state}
+    length(chunks)
   end
 end

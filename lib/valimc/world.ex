@@ -102,19 +102,6 @@ defmodule Valimc.World do
   def request_chunk(owner, key), do: :gen_server.send_request(owner, {:chunk, key})
 
   @doc "The block at `position` (a state id) or `{:error, reason}`."
-  def get_block(position), do: block_call(position, {:get_block, position})
-
-  def set_block(position, block), do: block_call(position, {:set_block, position, block})
-
-  @doc "Base removal reads and replaces the current block inside its owner, retaining contained fluid."
-  def remove_block(position), do: block_call(position, {:remove_block, position})
-
-  defp block_call({x, _, z}, message) do
-    with {:ok, pid} <- region(region_key(chunk_key(x, z))), do: GenServer.call(pid, message)
-  catch
-    :exit, _ -> {:error, :region_unavailable}
-  end
-
   def item_owner(key), do: owner(key)
 
   @doc "Find an existing incarnation without loading or starting a region."

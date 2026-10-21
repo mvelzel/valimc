@@ -12,7 +12,9 @@ defmodule Valimc.Rcon do
   packets of at most 4,096 characters, and any other type answers "Unknown
   request". Commands before a login answer the login failure. At most
   `rcon_clients` (16) are connected at once; each client runs its commands
-  itself, one at a time.
+  itself, one at a time (a failing command answers vanilla's
+  `command.failed`). A client silent for `rcon_idle_ms` (60 s) is closed, so
+  idle sockets cannot hold every client slot (VMC-077a); vanilla has no limit.
   """
   use GenServer
   require Logger
@@ -76,6 +78,8 @@ defmodule Valimc.Rcon do
   @impl true
   def handle_call(:port, _from, state), do: {:reply, state.port, state}
 
+  defp idle, do: Valimc.config(:rcon_idle_ms)
+
   defp start_client(socket, clients, password) do
     spec = %{
       id: :client,
@@ -109,9 +113,9 @@ defmodule Valimc.Rcon do
   end
 
   defp serve(socket, password, authed) do
-    with {:ok, <<length::little-signed-32>>} <- :gen_tcp.recv(socket, 4),
+    with {:ok, <<length::little-signed-32>>} <- :gen_tcp.recv(socket, 4, idle()),
          true <- length + 4 >= 10 and length + 4 <= @max_packet,
-         {:ok, body} <- :gen_tcp.recv(socket, length) do
+         {:ok, body} <- :gen_tcp.recv(socket, length, idle()) do
       # `intFromByteArray` reads a missing int as 0.
       padded = body <> <<0::64>>
       <<request::little-signed-32, type::little-signed-32, _::binary>> = padded

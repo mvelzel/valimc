@@ -59,4 +59,31 @@ defmodule Valimc.RconTest do
     request(socket, 1, 3, String.duplicate("x", 1500))
     assert {:error, :closed} = :gen_tcp.recv(socket, 4, 2000)
   end
+
+  test "an idle client is closed, so idle sockets cannot hold every slot" do
+    previous = Valimc.config(:rcon_idle_ms)
+    Application.put_env(:valimc, :rcon_idle_ms, 200)
+    on_exit(fn -> Application.put_env(:valimc, :rcon_idle_ms, previous) end)
+    socket = connect()
+    assert {:error, :closed} = :gen_tcp.recv(socket, 4, 5000)
+  end
+
+  test "a command whose owner exits answers command.failed and the client goes on" do
+    owner = Process.whereis(Valimc.World.Stopwatches)
+    :sys.suspend(owner)
+    on_exit(fn -> if Process.alive?(owner), do: :sys.resume(owner) end)
+    socket = connect()
+    request(socket, 1, 3, "secret")
+    assert reply(socket) == {1, 2, ""}
+    request(socket, 2, 2, "stopwatch create minecraft:rcon_held")
+    {:ok, <<length::little-32>>} = :gen_tcp.recv(socket, 4, 15_000)
+
+    {:ok, <<2::little-signed-32, 0::little-32, text::binary>>} =
+      :gen_tcp.recv(socket, length, 2000)
+
+    assert text =~ "An unexpected error occurred while trying to execute that command"
+    :sys.resume(owner)
+    request(socket, 3, 2, "stopwatch remove minecraft:rcon_held")
+    assert {3, 0, _} = reply(socket)
+  end
 end

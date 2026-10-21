@@ -2,7 +2,7 @@ defmodule Valimc.Commands.Players do
   @moduledoc """
   Player commands (VMC-053b): `gamemode`, `defaultgamemode`, `teleport`/`tp`,
   `give`, `clear`, `effect`, `experience`/`xp` and `kill`, after vanilla's command
-  classes. Each target applies its change in its own connection
+  classes. Each target applies its change in its own connection, all at once
   (`Valimc.Commands.Remote`); messages follow `CommandResponseTracker`.
   """
   alias Valimc.Command.{Coordinates, Error, Feedback, GameRules, Names, Source, Text}
@@ -32,17 +32,14 @@ defmodule Valimc.Commands.Players do
   defp call(fun, subject, _total) when is_function(fun, 1), do: fun.(subject)
   defp call(fun, subject, total), do: fun.(subject, total)
 
-  defp on_targets(source, targets, op_fun) do
-    Enum.map_reduce(targets, source.state, fn target, state ->
-      {reply, state} = Remote.run(state, target, op_fun.(target))
-      {{target, reply}, state}
-    end)
+  # Targets that did not answer are not counted (`:unavailable`).
+  defp on_targets(targets, op_fun) do
+    targets
+    |> Remote.run_all!(op_fun)
+    |> Enum.reject(&(elem(&1, 1) == :unavailable))
   end
 
   defp name(target), do: Source.display_name(target)
-
-  defp source_dimension(%{player: %{dimension: dimension}}), do: dimension
-  defp source_dimension(_source), do: Valimc.Dimension.current()
 
   # ---- gamemode ----
 
@@ -56,28 +53,24 @@ defmodule Valimc.Commands.Players do
 
     mode_name = Names.game_mode(mode)
 
-    Enum.reduce(targets, {0, source.state}, fn target, {count, state} ->
-      self = Source.self?(source, target)
+    changed =
+      for {target, :changed} <-
+            on_targets(targets, fn target ->
+              notice =
+                if not Source.self?(source, target) and GameRules.get(:send_command_feedback),
+                  do: Text.encode(Text.translatable("gameMode.changed", [mode_name]))
 
-      notice =
-        if not self and GameRules.get(:send_command_feedback),
-          do: Text.encode(Text.translatable("gameMode.changed", [mode_name]))
+              {:game_mode, mode, notice}
+            end) do
+        message =
+          if Source.self?(source, target),
+            do: Text.translatable("commands.gamemode.success.self", [mode_name]),
+            else: Text.translatable("commands.gamemode.success.other", [name(target), mode_name])
 
-      case Remote.run(state, target, {:game_mode, mode, notice}) do
-        {:changed, state} ->
-          message =
-            if self,
-              do: Text.translatable("commands.gamemode.success.self", [mode_name]),
-              else:
-                Text.translatable("commands.gamemode.success.other", [name(target), mode_name])
-
-          Feedback.success(%{source | state: state}, message)
-          {count + 1, state}
-
-        {_unchanged, state} ->
-          {count, state}
+        Feedback.success(source, message)
       end
-    end)
+
+    length(changed)
   end
 
   @doc "`/defaultgamemode <gamemode>`: new players' mode (no `force-gamemode`)."
@@ -90,7 +83,7 @@ defmodule Valimc.Commands.Players do
       Text.translatable("commands.defaultgamemode.success", [Names.game_mode(mode)])
     )
 
-    {0, source.state}
+    0
   end
 
   # ---- teleport ----
@@ -117,10 +110,10 @@ defmodule Valimc.Commands.Players do
           dimension: Map.get(destination, :dimension, :overworld)
         }
 
-        {tracked, state} = on_targets(source, targets, fn _ -> {:teleport, pose} end)
+        tracked = on_targets(targets, fn _ -> {:teleport, pose} end)
 
         total =
-          respond(%{source | state: state}, Enum.map(tracked, &{elem(&1, 0), 1}), true,
+          respond(source, Enum.map(tracked, &{elem(&1, 0), 1}), true,
             single:
               &Text.translatable("commands.teleport.success.entity.single", [
                 name(&1),
@@ -134,7 +127,7 @@ defmodule Valimc.Commands.Players do
             end
           )
 
-        {total, state}
+        total
 
       %{"location" => location} ->
         {x, y, z} = Source.position(source, location)
@@ -145,8 +138,8 @@ defmodule Valimc.Commands.Players do
         unless spawnable?({x, y, z}), do: Error.fail!("commands.teleport.invalidPosition")
         facing = facing(arguments, source)
 
-        {tracked, state} =
-          on_targets(source, targets, fn target ->
+        tracked =
+          on_targets(targets, fn target ->
             {yaw, pitch} =
               case rotation do
                 nil ->
@@ -160,13 +153,13 @@ defmodule Valimc.Commands.Players do
             pose = %{x: x, y: y, z: z, yaw: yaw, pitch: clamp_pitch(pitch)}
             pose = if(facing, do: look_at(pose, facing), else: pose)
             # A location is in the source's dimension.
-            {:teleport, Map.put(pose, :dimension, source_dimension(source))}
+            {:teleport, Map.put(pose, :dimension, source.dimension)}
           end)
 
         coordinates = Enum.map([x, y, z], &format_double/1)
 
         total =
-          respond(%{source | state: state}, Enum.map(tracked, &{elem(&1, 0), 1}), true,
+          respond(source, Enum.map(tracked, &{elem(&1, 0), 1}), true,
             single:
               &Text.translatable("commands.teleport.success.location.single", [
                 name(&1) | coordinates
@@ -178,7 +171,7 @@ defmodule Valimc.Commands.Players do
             end
           )
 
-        {total, state}
+        total
     end
   end
 
@@ -238,16 +231,16 @@ defmodule Valimc.Commands.Players do
       do: Error.fail!("commands.give.failed.toomanyitems", [limit, display])
 
     targets = Source.required_players(source, selector)
-    {tracked, state} = on_targets(source, targets, fn _ -> {:give, stack, count} end)
+    tracked = on_targets(targets, fn _ -> {:give, stack, count} end)
 
-    respond(%{source | state: state}, Enum.map(tracked, &{elem(&1, 0), 1}), true,
+    respond(source, Enum.map(tracked, &{elem(&1, 0), 1}), true,
       single: &Text.translatable("commands.give.success.single", [count, display, name(&1)]),
       multiple: fn players, _ ->
         Text.translatable("commands.give.success.multiple", [count, display, players])
       end
     )
 
-    {length(targets), state}
+    length(targets)
   end
 
   # ---- clear ----
@@ -262,7 +255,7 @@ defmodule Valimc.Commands.Players do
 
     predicate = Map.get(arguments, "item", {:all, []})
     max_count = Map.get(arguments, "maxCount", -1)
-    {tracked, state} = on_targets(source, targets, fn _ -> {:clear, predicate, max_count} end)
+    tracked = on_targets(targets, fn _ -> {:clear, predicate, max_count} end)
     tracked = Enum.map(tracked, fn {target, n} -> {target, if(is_integer(n), do: n, else: 0)} end)
 
     if Enum.all?(tracked, &(elem(&1, 1) == 0)) do
@@ -275,7 +268,7 @@ defmodule Valimc.Commands.Players do
     kind = if max_count == 0, do: "test", else: "success"
 
     total =
-      respond(%{source | state: state}, tracked, true,
+      respond(source, tracked, true,
         single: fn target, total ->
           Text.translatable("commands.clear.#{kind}.single", [total, name(target)])
         end,
@@ -284,7 +277,7 @@ defmodule Valimc.Commands.Players do
         end
       )
 
-    {total, state}
+    total
   end
 
   # ---- effect ----
@@ -304,13 +297,13 @@ defmodule Valimc.Commands.Players do
     hide = Map.get(arguments, "hideParticles", false)
     {:ok, incoming} = CommandOps.rung(ticks, amplifier, hide)
     targets = Source.required_entities(source, selector)
-    {tracked, state} = on_targets(source, targets, fn _ -> {:effect, id, incoming} end)
+    tracked = on_targets(targets, fn _ -> {:effect, id, incoming} end)
     effect_name = Names.effect(effect)
     seconds = if ticks < 0, do: 0, else: div(ticks, 20)
 
     total =
       respond(
-        %{source | state: state},
+        source,
         Enum.map(tracked, &{elem(&1, 0), value(elem(&1, 1))}),
         true,
         zero: Error.new("commands.effect.give.failed"),
@@ -325,7 +318,7 @@ defmodule Valimc.Commands.Players do
         end
       )
 
-    {total, state}
+    total
   end
 
   def effect_infinite(arguments, source),
@@ -344,12 +337,12 @@ defmodule Valimc.Commands.Players do
     case arguments do
       %{"effect" => effect} ->
         id = live_effect!(effect)
-        {tracked, state} = on_targets(source, targets, fn _ -> {:effect, id, :remove} end)
+        tracked = on_targets(targets, fn _ -> {:effect, id, :remove} end)
         effect_name = Names.effect(effect)
 
         total =
           respond(
-            %{source | state: state},
+            source,
             Enum.map(tracked, &{elem(&1, 0), value(elem(&1, 1))}),
             true,
             zero: Error.new("commands.effect.clear.specific.failed"),
@@ -366,14 +359,14 @@ defmodule Valimc.Commands.Players do
             end
           )
 
-        {total, state}
+        total
 
       _ ->
-        {tracked, state} = on_targets(source, targets, fn _ -> :clear_effects end)
+        tracked = on_targets(targets, fn _ -> :clear_effects end)
 
         total =
           respond(
-            %{source | state: state},
+            source,
             Enum.map(tracked, &{elem(&1, 0), value(elem(&1, 1))}),
             true,
             zero: Error.new("commands.effect.clear.everything.failed"),
@@ -384,7 +377,7 @@ defmodule Valimc.Commands.Players do
             end
           )
 
-        {total, state}
+        total
     end
   end
 
@@ -409,22 +402,21 @@ defmodule Valimc.Commands.Players do
     case arguments do
       %{:operation => :query, "target" => selector} ->
         target = Source.single_player(source, selector)
-        {value, state} = Remote.run(source.state, target, {:experience, {:query, kind}})
+        value = Remote.run!(target, {:experience, {:query, kind}})
         value = if is_integer(value), do: value, else: 0
 
         Feedback.success(
-          %{source | state: state},
+          source,
           Text.translatable("commands.experience.query.#{kind}", [name(target), value]),
           false
         )
 
-        {value, state}
+        value
 
       %{:operation => operation, "target" => selector, "amount" => amount} ->
         targets = Source.required_players(source, selector)
 
-        {tracked, state} =
-          on_targets(source, targets, fn _ -> {:experience, {operation, amount, kind}} end)
+        tracked = on_targets(targets, fn _ -> {:experience, {operation, amount, kind}} end)
 
         tracked =
           Enum.map(tracked, fn {target, reply} ->
@@ -436,7 +428,7 @@ defmodule Valimc.Commands.Players do
             do: Error.new("commands.experience.set.points.invalid")
 
         total =
-          respond(%{source | state: state}, tracked, true,
+          respond(source, tracked, true,
             zero: zero,
             single:
               &Text.translatable("commands.experience.#{operation}.#{kind}.success.single", [
@@ -451,7 +443,7 @@ defmodule Valimc.Commands.Players do
             end
           )
 
-        {total, state}
+        total
     end
   end
 
@@ -483,15 +475,15 @@ defmodule Valimc.Commands.Players do
         _ -> [Source.player!(source)]
       end
 
-    {tracked, state} = on_targets(source, targets, fn _ -> :kill end)
+    tracked = on_targets(targets, fn _ -> :kill end)
 
     total =
-      respond(%{source | state: state}, Enum.map(tracked, &{elem(&1, 0), 1}), true,
+      respond(source, Enum.map(tracked, &{elem(&1, 0), 1}), true,
         single: &Text.translatable("commands.kill.success.single", [name(&1)]),
         multiple: fn count, _ -> Text.translatable("commands.kill.success.multiple", [count]) end
       )
 
-    {total, state}
+    total
   end
 
   defp f32(value), do: Valimc.Command.Reader.to_float32(value)

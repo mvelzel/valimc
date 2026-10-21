@@ -21,7 +21,7 @@ defmodule Valimc.Commands.WorldBorder do
   def get(_arguments, source) do
     {component, result} = query(Clock.border())
     Feedback.success(source, component, false)
-    {result, source.state}
+    result
   end
 
   defp change(kind, arguments, source) do
@@ -31,7 +31,7 @@ defmodule Valimc.Commands.WorldBorder do
       {:ok, outcome} ->
         {component, result} = success(operation, outcome)
         Feedback.success(source, component)
-        {result, source.state}
+        result
 
       {:error, reason} ->
         Error.throw!(%Error{message: failure(reason)})

@@ -80,7 +80,7 @@ defmodule Valimc.ChestConnectionTest do
       Valimc.TestDisk.write(ctx.base, ctx.key, :blocks, %{ctx.position => @chest})
     end
 
-    :ok = World.set_block(ctx.position, @chest)
+    :ok = Valimc.TestBlocks.set(ctx.position, @chest)
   end
 
   defp login(ctx) do
@@ -188,7 +188,7 @@ defmodule Valimc.ChestConnectionTest do
         &(Enum.at(&1.items, 1) == ItemStack.new("oak_planks", 8) and &1.carried == nil)
       )
 
-    assert {:error, :occupied_container} = World.set_block(ctx.position, 0)
+    assert {:error, :occupied_container} = Valimc.TestBlocks.set(ctx.position, 0)
 
     client =
       click(
@@ -392,7 +392,7 @@ defmodule Valimc.ChestConnectionTest do
     subscribed(first_pid)
     assert_receive {:event, {:chest_lid, ^owner, ^position, true, _, sound}}
     assert is_binary(sound)
-    assert :ok = World.remove_block(position)
+    assert :ok = Valimc.TestBlocks.remove(position)
     assert_receive {:event, {:chest_lid, ^owner, ^position, false, _, nil}}
     wait(fn -> :sys.get_state(first_pid).table_menu == nil end)
   end

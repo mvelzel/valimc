@@ -28,14 +28,12 @@ defmodule Valimc.Commands.Operators do
     do: Valimc.Connection.deliver(player.pid, {:kick, Text.encode(reason)})
 
   # `PlayerList.sendPlayerPermissionLevel`: the level event and a new command tree.
-  defp push_level(source, uuid) do
+  defp push_level(uuid) do
     with %{} = player <- online(uuid) do
       level = Valimc.Permissions.level(player)
-      packets = [Packets.permission_level(player.entity_id, level), Packets.commands(level)]
 
-      if player.pid == self(),
-        do: Valimc.Net.Codec.send_packets(source.state, packets),
-        else: for(packet <- packets, do: Valimc.Connection.deliver(player.pid, {:packet, packet}))
+      for packet <- [Packets.permission_level(player.entity_id, level), Packets.commands(level)],
+          do: Valimc.Connection.deliver(player.pid, {:packet, packet})
     end
   end
 
@@ -53,14 +51,14 @@ defmodule Valimc.Commands.Operators do
 
   defp changed!(source, changed, _key, message) do
     for profile <- changed, do: Feedback.success(source, message.(profile))
-    {length(changed), source.state}
+    length(changed)
   end
 
   # ---- op, deop ----
 
   def op(%{"targets" => targets}, source) do
     changed = Lists.add_ops(profiles(source, targets), Valimc.config(:operator_level))
-    for profile <- changed, do: push_level(source, profile.uuid)
+    for profile <- changed, do: push_level(profile.uuid)
 
     changed!(source, changed, "commands.op.failed", fn profile ->
       Text.translatable("commands.op.success", [profile.name])
@@ -69,7 +67,7 @@ defmodule Valimc.Commands.Operators do
 
   def deop(%{"targets" => targets}, source) do
     changed = Lists.remove_ops(profiles(source, targets))
-    for profile <- changed, do: push_level(source, profile.uuid)
+    for profile <- changed, do: push_level(profile.uuid)
 
     result =
       changed!(source, changed, "commands.deop.failed", fn profile ->
@@ -172,7 +170,7 @@ defmodule Valimc.Commands.Operators do
     for player <- players,
         do: disconnect(player, Text.translatable("multiplayer.disconnect.ip_banned"))
 
-    {length(players), source.state}
+    length(players)
   end
 
   def pardon_ip(%{"target" => target}, source) do
@@ -185,7 +183,7 @@ defmodule Valimc.Commands.Operators do
     end
 
     Feedback.success(source, Text.translatable("commands.pardonip.success", [target]))
-    {1, source.state}
+    1
   end
 
   def banlist(_arguments, source), do: list_bans(source, ban_lines(:bans) ++ ban_lines(:ip_bans))
@@ -206,13 +204,13 @@ defmodule Valimc.Commands.Operators do
 
   defp list_bans(source, []) do
     Feedback.success(source, Text.translatable("commands.banlist.none"), false)
-    {0, source.state}
+    0
   end
 
   defp list_bans(source, lines) do
     Feedback.success(source, Text.translatable("commands.banlist.list", [length(lines)]), false)
     for line <- lines, do: Feedback.success(source, line, false)
-    {length(lines), source.state}
+    length(lines)
   end
 
   # ---- whitelist ----
@@ -221,13 +219,13 @@ defmodule Valimc.Commands.Operators do
     switch!(true, "commands.whitelist.alreadyOn")
     Feedback.success(source, Text.translatable("commands.whitelist.enabled"))
     kick_unlisted()
-    {1, source.state}
+    1
   end
 
   def whitelist_off(_arguments, source) do
     switch!(false, "commands.whitelist.alreadyOff")
     Feedback.success(source, Text.translatable("commands.whitelist.disabled"))
-    {1, source.state}
+    1
   end
 
   defp switch!(on, already) do
@@ -253,7 +251,7 @@ defmodule Valimc.Commands.Operators do
           false
         )
 
-    {length(names), source.state}
+    length(names)
   end
 
   def whitelist_add(%{"targets" => targets}, source) do
@@ -280,7 +278,7 @@ defmodule Valimc.Commands.Operators do
     Lists.reload_whitelist()
     Feedback.success(source, Text.translatable("commands.whitelist.reloaded"))
     kick_unlisted()
-    {1, source.state}
+    1
   end
 
   # ---- transfer ----
@@ -296,11 +294,7 @@ defmodule Valimc.Commands.Operators do
 
     packet = Packets.packet("transfer", [Wire.string(host), Wire.varint(port)])
 
-    for player <- players do
-      if player.pid == self(),
-        do: Valimc.Net.Codec.send_packets(source.state, [packet]),
-        else: Valimc.Connection.deliver(player.pid, {:packet, packet})
-    end
+    for player <- players, do: Valimc.Connection.deliver(player.pid, {:packet, packet})
 
     message =
       case players do
@@ -316,6 +310,6 @@ defmodule Valimc.Commands.Operators do
       end
 
     Feedback.success(source, message)
-    {length(players), source.state}
+    length(players)
   end
 end

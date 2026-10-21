@@ -1,9 +1,10 @@
 defmodule Valimc.Player.CommandOps do
   @moduledoc """
   Command effects on one player, run by that player's connection (VMC-053b):
-  game mode, teleport, items, effects, experience and `/kill`. A command's own
-  player applies them inline; other players get them through a bounded call
-  (`Valimc.Commands.Remote`), so feedback reports what the target did.
+  game mode, teleport, items, effects, experience and `/kill`. Every target,
+  the command's own player too, gets them through a bounded call from the
+  command's job (`Valimc.Commands.Remote`), so feedback reports what the
+  target did.
   """
   alias Valimc.{Inventory, PlayerExperience, PlayerHealth, StatusEffect, World}
   alias Valimc.Command.{Error, ItemPredicate}

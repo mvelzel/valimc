@@ -67,8 +67,8 @@ defmodule Valimc.CommandPresentationConnectionTest do
     client = command(client, "fill 60 100 60 61 101 61 stone", "commands.fill.success")
     client = command(client, "setblock 60 100 60 glass", "commands.setblock.success")
     client = command(client, "clone 60 100 60 61 101 61 70 100 70", "commands.clone.success")
-    assert Valimc.World.get_block({70, 100, 70}) == glass
-    assert Valimc.World.get_block({71, 101, 71}) == stone
+    assert Valimc.TestBlocks.get({70, 100, 70}) == glass
+    assert Valimc.TestBlocks.get({71, 101, 71}) == stone
     client = command(client, "clone 60 100 60 61 101 61 61 100 60", "commands.clone.overlap")
 
     client =
@@ -78,9 +78,9 @@ defmodule Valimc.CommandPresentationConnectionTest do
         "commands.clone.success"
       )
 
-    assert Valimc.World.get_block({80, 100, 80}) == glass
-    assert Valimc.World.get_block({60, 100, 60}) == air
-    assert Valimc.World.get_block({81, 100, 80}) == air
+    assert Valimc.TestBlocks.get({80, 100, 80}) == glass
+    assert Valimc.TestBlocks.get({60, 100, 60}) == air
+    assert Valimc.TestBlocks.get({81, 100, 80}) == air
     _client = command(client, "clone 0 0 0 40 40 40 50 50 50", "commands.clone.toobig")
   end
 
@@ -104,14 +104,21 @@ defmodule Valimc.CommandPresentationConnectionTest do
     client = command(client, "stopwatch query #{id}", "commands.stopwatch.query")
     client = command(client, "stopwatch remove #{id}", "commands.stopwatch.remove.success")
 
+    # As in vanilla, the tick state reaches players before the command's feedback.
     client = command(client, "tick step", "commands.tick.step.fail")
-    client = command(client, "tick freeze", "commands.tick.status.frozen")
+    Client.send_packet(client, :play, "chat_command", Wire.string("tick freeze"))
     {<<_rate::float-32, frozen>>, client} = Client.await(client, :play, "ticking_state")
     assert frozen == 1
-    client = command(client, "tick step 5", "commands.tick.step.success")
+    {body, client} = Client.await(client, :play, "system_chat")
+    assert :binary.match(body, "commands.tick.status.frozen") != :nomatch
+    Client.send_packet(client, :play, "chat_command", Wire.string("tick step 5"))
     {_steps, client} = Client.await(client, :play, "ticking_step")
-    client = command(client, "tick unfreeze", "commands.tick.status.running")
-    {<<_rate::float-32, frozen>>, _client} = Client.await(client, :play, "ticking_state")
+    {body, client} = Client.await(client, :play, "system_chat")
+    assert :binary.match(body, "commands.tick.step.success") != :nomatch
+    Client.send_packet(client, :play, "chat_command", Wire.string("tick unfreeze"))
+    {<<_rate::float-32, frozen>>, client} = Client.await(client, :play, "ticking_state")
     assert frozen == 0
+    {body, _client} = Client.await(client, :play, "system_chat")
+    assert :binary.match(body, "commands.tick.status.running") != :nomatch
   end
 end

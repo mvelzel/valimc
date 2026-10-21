@@ -29,14 +29,14 @@ defmodule Valimc.PlayerRainQueryTest do
     before = frame(ctx.owner)
     assert PlayerRainQuery.sample(position, geometry, before) == {:ok, true}
     roof = {ctx.x, 66, ctx.z}
-    assert :ok = World.set_block(roof, 1)
+    assert :ok = Valimc.TestBlocks.set(roof, 1)
     assert PlayerRainQuery.sample(position, geometry, before) == {:error, :stale_revision}
     assert PlayerRainQuery.sample(position, geometry, frame(ctx.owner)) == {:ok, false}
-    assert :ok = World.remove_block(roof)
+    assert :ok = Valimc.TestBlocks.remove(roof)
     assert PlayerRainQuery.sample(position, geometry, frame(ctx.owner)) == {:ok, true}
-    assert :ok = World.set_block(roof, Valimc.Protocol.Data.block("glass"))
+    assert :ok = Valimc.TestBlocks.set(roof, Valimc.Protocol.Data.block("glass"))
     assert PlayerRainQuery.sample(position, geometry, frame(ctx.owner)) == {:ok, false}
-    assert :ok = World.remove_block(roof)
+    assert :ok = Valimc.TestBlocks.remove(roof)
     high = {ctx.x + 0.5, 1024.0, ctx.z + 0.5}
     {:ok, geometry} = PlayerPose.geometry(:standing, high)
     assert PlayerRainQuery.sample(high, geometry, frame(ctx.owner)) == {:ok, false}

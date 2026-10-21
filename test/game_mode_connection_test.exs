@@ -216,7 +216,7 @@ defmodule Valimc.GameModeConnectionTest do
 
     seed(ctx, GameMode.new(:survival), false)
     client = login(ctx)
-    assert World.get_block(target) == 0
+    assert Valimc.TestBlocks.get(target) == 0
 
     Client.send_packet(client, :play, "use_item_on", [
       <<0>>,
@@ -225,14 +225,14 @@ defmodule Valimc.GameModeConnectionTest do
     ])
 
     {<<0>>, client} = Client.await(client, :play, "block_changed_ack")
-    assert World.get_block(target) == 0
+    assert Valimc.TestBlocks.get(target) == 0
     assert client.inventory.items == Inventory.contents(ctx.inventory)
     assert client.inventory.state_id > 0
-    :ok = World.set_block(target, 1)
+    :ok = Valimc.TestBlocks.set(target, 1)
     action(client, "start_destroy_block", target)
     action(client, "stop_destroy_block", target)
     client = barrier(client)
-    assert World.get_block(target) == 1
+    assert Valimc.TestBlocks.get(target) == 1
     client = click(client, "clone", 36, 2)
 
     Client.send_packet(client, :play, "set_creative_mode_slot", [

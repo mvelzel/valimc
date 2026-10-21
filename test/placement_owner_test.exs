@@ -41,24 +41,24 @@ defmodule Valimc.PlacementOwnerTest do
       assert {:error, :unsupported_block_entity} =
                Region.set_blocks(c.owner, revision, %{c.position => state})
 
-      assert World.get_block(c.position) == 0
+      assert Valimc.TestBlocks.get(c.position) == 0
     end
 
     {:ok, furnace} = Valimc.Physics.CookingBlocks.placement(:furnace, 90.0)
     revision = Valimc.TestConn.state(pid).resource.revision
     assert {:ok, _} = Region.set_blocks(c.owner, revision, %{c.position => furnace})
-    assert World.get_block(c.position) == furnace
+    assert Valimc.TestBlocks.get(c.position) == furnace
   end
 
   test "target ABA cannot authorize an old placement plan", c do
     assert {:ok, prepared} = plan(c)
-    assert :ok = World.set_block(c.position, 1)
-    assert :ok = World.set_block(c.position, 0)
+    assert :ok = Valimc.TestBlocks.set(c.position, 1)
+    assert :ok = Valimc.TestBlocks.set(c.position, 0)
 
     assert {:error, :stale_revision} =
              Region.place_block(c.owner, prepared.revision, prepared.batch, prepared.deadline)
 
-    assert World.get_block(c.position) == 0
+    assert Valimc.TestBlocks.get(c.position) == 0
   end
 
   test "creative chest block and metadata wait for one joint writer on creation and removal", c do
@@ -85,7 +85,7 @@ defmodule Valimc.PlacementOwnerTest do
       Task.shutdown(task, :brutal_kill)
     end
 
-    chest = World.get_block(c.position)
+    chest = Valimc.TestBlocks.get(c.position)
     old = Valimc.TestConn.state(pid).resource.containers
     assert old.entries[c.position].slots == Tuple.duplicate(nil, 27)
     :sys.suspend(writer)
@@ -119,7 +119,7 @@ defmodule Valimc.PlacementOwnerTest do
       Task.shutdown(removal, :brutal_kill)
     end
 
-    assert World.get_block(c.position) == 0
+    assert Valimc.TestBlocks.get(c.position) == 0
 
     {:ok, containers} =
       Valimc.World.Containers.decode(
@@ -133,7 +133,7 @@ defmodule Valimc.PlacementOwnerTest do
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
     {:ok, {replacement, _}} = World.owner(c.key)
     assert :sys.get_state(replacement).resource.containers == containers
-    assert World.get_block(c.position) == 0
+    assert Valimc.TestBlocks.get(c.position) == 0
   end
 
   defp wait_writing(pid, _budget \\ nil) do

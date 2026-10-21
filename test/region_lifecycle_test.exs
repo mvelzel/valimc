@@ -60,7 +60,7 @@ defmodule Valimc.RegionLifecycleTest do
               acc ->
                 assert {:ok, pid} = World.region(key)
                 Region.ticket(pid, :player_loading, hd(chunks(key)), chunks(key))
-                if key == first, do: assert(:ok = World.set_block(edit, @coral))
+                if key == first, do: assert(:ok = Valimc.TestBlocks.set(edit, @coral))
                 {:ok, _} = World.owner(key)
                 [table.(key) | acc]
             end
@@ -83,7 +83,7 @@ defmodule Valimc.RegionLifecycleTest do
 
       # What was edited before the unload is there when the region loads again.
       Application.put_env(:valimc, :max_regions, limit)
-      assert World.get_block(edit) == @coral
+      assert Valimc.TestBlocks.get(edit) == @coral
     after
       Application.put_env(:valimc, :max_regions, limit)
     end
@@ -102,11 +102,11 @@ defmodule Valimc.RegionLifecycleTest do
     {:ok, _} = Region.set_blocks(owner, observed.fence, %{ticking => @coral, idle => @coral})
     Region.ticket(owner, :player_simulation, nil, [World.chunk_key(8 + rx * span, 8 + rz * span)])
     {:ok, _} = Region.step(owner, 100)
-    assert World.get_block(ticking) == @dead
-    assert World.get_block(idle) == @coral
+    assert Valimc.TestBlocks.get(ticking) == @dead
+    assert Valimc.TestBlocks.get(idle) == @coral
 
     Region.ticket(owner, :forced, nil, [World.chunk_key(elem(idle, 0), elem(idle, 2))])
     {:ok, _} = Region.step(owner, 1)
-    assert World.get_block(idle) == @dead
+    assert Valimc.TestBlocks.get(idle) == @dead
   end
 end

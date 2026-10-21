@@ -31,7 +31,7 @@ defmodule Valimc.BlockObservationTest do
     assert {:ok, first} = Region.observe_blocks(c.owner, [c.pos, floor, c.pos])
     assert first.owner == c.owner and first.region == c.key and first.revision == 0
     assert first.blocks == %{c.pos => 0, floor => Valimc.Protocol.Data.block("grass_block")}
-    assert :ok = World.set_block(c.pos, 1)
+    assert :ok = Valimc.TestBlocks.set(c.pos, 1)
     assert {:error, :stale_revision} = Region.observe_blocks(c.owner, [c.pos], first.revision)
     assert {:ok, next} = Region.observe_blocks(c.owner, [c.pos], first.revision + 1)
     assert next.blocks == %{c.pos => 1} and first.blocks[c.pos] == 0
@@ -128,7 +128,7 @@ defmodule Valimc.BlockObservationTest do
   test "replacement preserves flushed terrain and changes the incarnation even at revision zero",
        c do
     {pid, epoch} = c.owner
-    assert :ok = World.set_block(c.pos, 1)
+    assert :ok = Valimc.TestBlocks.set(c.pos, 1)
     assert :ok = Region.flush(pid)
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
     assert {:ok, {replacement, new_epoch} = fresh} = World.owner(c.key)

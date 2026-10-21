@@ -16,13 +16,27 @@ authority. The M1 foundations below are in place; later milestones on the
 | Generated chunks before they are full (decorated worlds) | Proto owner per region (`Worldgen.Proto`): encoded proto chunks, statuses, finalize transactions; terrain and decoration on dirty schedulers |
 | Item and orb observations | Region-owned protected ETS; cached immutable packet binaries |
 | World clock, weather, difficulty | Environment owner; immutable publications |
+| What the world generates per dimension | `World.Spec`, read once from `world.json` at start; a read failure stops the start |
+| World spawn (with dimension and pitch), default game mode, admin switches | Settings owner; writes `settings.json` crash-safely, then publishes |
+| Commands and suggestions | A job per connection (`Session.Commands`), or the console's or RCON client's process; players change through their own connections |
 | Encoding, collision queries, auth/crypto, transfer recovery | Bounded worker pools (collision pool partitioned per caller) |
 | Region files and player snapshots | Leased writers; disk outside sensitive owners |
 
-Ingress is bounded by `active: :once`, packet/byte rate windows, a receive-buffer
-cap and mailbox checks. Overloaded connections are shut down with
+Ingress is bounded by `active: :once`, packet/byte rate windows, per-phase
+frame and receive-buffer caps (small before configuration), a connection heap
+limit and mailbox checks. Overloaded connections are shut down with
 `{:shutdown, :overloaded}`, so their final save still runs. Chat follows the
-vanilla spam throttle. Runtime caps live in `config/config.exs`.
+vanilla spam throttle. Runtime caps live in `config/config.exs`. A connection
+never calls another owner synchronously: commands, suggestions and block
+interactions run as its jobs (`Session.Jobs`) and their results arrive as
+messages (VMC-077a).
+
+Supervision is five domain supervisors under a `rest_for_one` root, each with
+its own restart intensity: infrastructure (settings, clock, tick rate, admin
+lists, worker pools), storage, world, players and network. A crash loop stays
+in its domain; only a domain's restart restarts the domains after it. Tables
+that hold no owned state belong to the application itself. Acceptors back off
+on accept errors (VMC-077a).
 
 ## Foundations (M1)
 

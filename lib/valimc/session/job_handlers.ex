@@ -259,6 +259,22 @@ defmodule Valimc.Session.JobHandlers do
         {:noreply, Valimc.Player.Portals.arrived(state, result)}
       end)
 
+  # Command and suggestion jobs (`Valimc.Session.Commands`): the next one starts.
+  def job_result(:command, job, _result, state),
+    do: {:noreply, Valimc.Session.Commands.finished(state, job, :ok)}
+
+  def job_result(:suggestion, job, packet, state),
+    do:
+      Valimc.Connection.guard_connection(state, fn ->
+        {:noreply, Valimc.Session.Commands.suggested(state, job, packet)}
+      end)
+
+  def job_down(:command, job, reason, state),
+    do: {:noreply, Valimc.Session.Commands.finished(state, job, reason)}
+
+  def job_down(:suggestion, job, _reason, state),
+    do: {:noreply, Valimc.Session.Commands.suggested(state, job, nil)}
+
   def job_down(:motion, _job, _reason, state),
     do:
       Valimc.Connection.guard_connection(state, fn ->
@@ -298,5 +314,12 @@ defmodule Valimc.Session.JobHandlers do
       Valimc.Connection.guard_connection(state, fn -> {:noreply, Mining.cancel_mining(state)} end)
 
   def job_timeout(:portal, _job, state), do: {:noreply, Valimc.Player.Portals.failed(state)}
+
+  def job_timeout(:command, job, state),
+    do: {:noreply, Valimc.Session.Commands.finished(state, job, :timeout)}
+
+  def job_timeout(:suggestion, job, state),
+    do: {:noreply, Valimc.Session.Commands.suggested(state, job, nil)}
+
   def job_timeout(_kind, _job, state), do: {:noreply, state}
 end

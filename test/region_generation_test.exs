@@ -106,7 +106,7 @@ defmodule Valimc.RegionGenerationTest do
 
     # A raw read waits for its chunk; only that chunk is generated, equal to
     # the generator's column byte for byte.
-    assert World.get_block(position) == generated_block(chunk, position)
+    assert Valimc.TestBlocks.get(position) == generated_block(chunk, position)
     assert Store.durable(ctx.base, ctx.key, :columns) == %{chunk => column(chunk)}
     refute BlockSnapshot.absent?(table(ctx.key), chunk)
     assert BlockSnapshot.absent?(table(ctx.key), {cx + 4, cz + 5})
@@ -139,7 +139,7 @@ defmodule Valimc.RegionGenerationTest do
     {:ok, observed} = Region.observe_blocks(owner, [position])
     assert observed.blocks[position] == generated_block(chunk, position)
     {:ok, _} = Region.set_blocks(owner, observed.fence, %{position => glass})
-    assert World.get_block(position) == glass
+    assert Valimc.TestBlocks.get(position) == glass
   end
 
   test "a view's ticket generates its chunks; a restart keeps them and the rest stay absent",
@@ -161,14 +161,14 @@ defmodule Valimc.RegionGenerationTest do
     Region.ticket(pid, :player_loading, {cx, cz}, [])
     edited = inside({cx + 2, cz + 2}, 20)
     glass = Valimc.Registry.Blocks.default_state("glass")
-    :ok = World.set_block(edited, glass)
+    :ok = Valimc.TestBlocks.set(edited, glass)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
     {:ok, _} = World.owner(ctx.key)
     assert Enum.all?(wanted, &(not BlockSnapshot.absent?(table(ctx.key), &1)))
     assert BlockSnapshot.absent?(table(ctx.key), {cx + 5, cz + 5})
     position = inside({cx + 1, cz + 1})
-    assert World.get_block(position) == generated_block({cx + 1, cz + 1}, position)
-    assert World.get_block(edited) == glass
+    assert Valimc.TestBlocks.get(position) == generated_block({cx + 1, cz + 1}, position)
+    assert Valimc.TestBlocks.get(edited) == glass
     assert Store.durable(ctx.base, ctx.key, :columns) == columns
   end
 
@@ -213,7 +213,7 @@ defmodule Valimc.RegionGenerationTest do
     neighbours = for x <- (cx - 1)..(cx + 1), z <- (cz - 1)..(cz + 1), {x, z} != chunk, do: {x, z}
 
     neighbours
-    |> Task.async_stream(&World.get_block(inside(&1)), timeout: 120_000)
+    |> Task.async_stream(&Valimc.TestBlocks.get(inside(&1)), timeout: 120_000)
     |> Stream.run()
 
     # Lit first with absent (flat) neighbours, relit as they arrived, equal to

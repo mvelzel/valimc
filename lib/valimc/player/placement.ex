@@ -97,16 +97,42 @@ defmodule Valimc.Player.Placement do
         stack != nil and Valimc.Physics.Placement.supported_item?(stack.item_id) ->
           %{kind: :correction, mode: :correction, request: request, body: nil}
 
+        # Creative placement of a block item without modelled placement: its
+        # block's default state beside the clicked face, through the same fenced
+        # owner commit as modelled placement (VMC-077a).
+        block = creative_block(state, stack) ->
+          %{
+            request: request,
+            item: {:block, block},
+            stack: stack,
+            slot: if(request.hand == :off, do: 45, else: 36 + state.inventory.selected),
+            mode: :creative,
+            body: placement_body(state, request),
+            expires:
+              System.monotonic_time(:millisecond) +
+                Valimc.Txn.Permits.window(250, state.player.uuid)
+          }
+
+        # Anything else changes no block: vanilla still sends both blocks back.
         true ->
-          nil
+          %{kind: :correction, mode: :correction, request: request, body: nil}
       end
 
     %{stack: stack, command: command}
   end
 
+  # Container variants without an owned record are corrected, never written as empty shells.
+  defp creative_block(state, stack) do
+    with %{item_id: item} <- stack,
+         :creative <- state.player.game_mode.current,
+         block when is_integer(block) <- Data.item_block(item),
+         false <- Valimc.Physics.BlockEntities.unsupported?(block),
+         do: block,
+         else: (_ -> nil)
+  end
+
   def execute_placement(state, request, captured \\ nil) do
     captured = captured || capture_placement(state, request)
-    stack = captured.stack
 
     cond do
       not Valimc.PlayerInteraction.valid_hit?(request.position, request.cursor) or
@@ -114,7 +140,7 @@ defmodule Valimc.Player.Placement do
         send_packets(state, [Packets.ack(request.sequence)])
         CreativeInventory.resync_inventory(state)
 
-      captured.command != nil ->
+      true ->
         if state.placement_queued >= 16,
           do: reject(state, "Too many pending block interactions")
 
@@ -128,9 +154,6 @@ defmodule Valimc.Player.Placement do
           | placement_queue: :queue.in(captured.command, state.placement_queue),
             placement_queued: state.placement_queued + 1
         })
-
-      true ->
-        preview_placement(state, request, stack)
     end
   end
 
@@ -282,41 +305,5 @@ defmodule Valimc.Player.Placement do
       {:error, _} ->
         reject(state, "Block correction capacity reached; please reconnect")
     end
-  end
-
-  def preview_placement(
-        state,
-        %{position: position, cursor: cursor, sequence: sequence} = request,
-        stack
-      ) do
-    target = Valimc.Physics.Placement.adjacent(request)
-
-    item = if stack, do: Data.item_block(stack.item_id)
-    # Container variants without an owned record are corrected, never written as empty shells.
-    item = if item != nil and Valimc.Physics.BlockEntities.unsupported?(item), do: nil, else: item
-
-    allowed =
-      Valimc.PlayerInteraction.valid_hit?(position, cursor) and Mining.reachable?(state, position)
-
-    if not inventory_pending(state) and state.player.game_mode.current == :creative and
-         item != nil and allowed and World.Chunk.valid_y?(elem(target, 1)),
-       do: World.set_block(target, item)
-
-    updates =
-      if allowed and World.Chunk.valid_y?(elem(target, 1)),
-        do:
-          for(
-            at <- [position, target],
-            block = World.get_block(at),
-            is_integer(block),
-            do: Packets.block(at, block)
-          ),
-        else: []
-
-    send_packets(state, [Packets.ack(sequence) | updates])
-
-    if inventory_pending(state) or state.player.game_mode.current != :creative,
-      do: CreativeInventory.resync_inventory(state),
-      else: state
   end
 end

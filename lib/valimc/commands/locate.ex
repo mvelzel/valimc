@@ -31,32 +31,27 @@ defmodule Valimc.Commands.Locate do
 
     # The executing dimension's own generation (VMC-028: presets, a single
     # biome, data packs; VMC-077a: the source's dimension).
-    {state, biome_source} =
+    spec =
       case Valimc.World.Spec.generation(world, source.dimension) do
-        {:ok, %{kind: :noise} = spec} ->
-          {:ok, state} =
-            Valimc.World.Generator.worldgen(spec.seed, spec.noise_settings, spec.facts)
-
-          {state, spec.biome_source}
-
-        _ ->
-          Error.refuse!("This flat preview world has no structures")
+        {:ok, %{kind: :noise} = spec} -> spec
+        _ -> Error.refuse!("This flat preview world has no structures")
       end
 
     {x, y, z} = source.position
     pos = {floor(x), floor(y), floor(z)}
     started = System.monotonic_time(:millisecond)
 
+    # A generation job (VMC-077b pool), never the command's own dirty call.
+    search = fn ->
+      {:ok, state} = Valimc.World.Generator.worldgen(spec.seed, spec.noise_settings, spec.facts)
+      Valimc.Native.worldgen_structure_locate(state, spec.biome_source, members, pos, 100)
+    end
+
     found =
-      case Valimc.Native.worldgen_structure_locate(
-             state,
-             biome_source,
-             members,
-             pos,
-             100
-           ) do
-        {:ok, found} -> found
-        {:error, reason} -> Error.refuse!("Locating structures failed (#{reason})")
+      case Valimc.Worldgen.Pool.run(search, 50_000) do
+        {:ok, {:ok, found}} -> found
+        {:ok, {:error, reason}} -> Error.refuse!("Locating structures failed (#{reason})")
+        {:error, reason} -> Error.refuse!("Locating structures failed (#{inspect(reason)})")
       end
 
     elapsed = System.monotonic_time(:millisecond) - started
@@ -98,7 +93,7 @@ defmodule Valimc.Commands.Locate do
 
     Feedback.success(source, Text.translatable(key, [name, coordinates, distance]), false)
     Logger.info("Locating element #{name} took #{elapsed_ms} ms")
-    {distance, source.state}
+    distance
   end
 
   # `Mth.sqrt(float)`: the argument and the root are both floats.

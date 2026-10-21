@@ -155,7 +155,7 @@ defmodule Valimc.PlayerPlacementStoreTest do
     assert Inventory.get(final.inventory, 45) == ctx.intent.before
     assert read(ctx) == persisted(final)
     assert final.effects == effects
-    assert World.get_block(ctx.position) == 0
+    assert Valimc.TestBlocks.get(ctx.position) == 0
     assert {:ok, :already_rejected} = deliver(ctx, pending)
   end
 

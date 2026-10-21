@@ -41,7 +41,7 @@ defmodule Valimc.Commands.Admin do
     ]
 
     for line <- lines, do: Feedback.success(source, line, false)
-    {1, source.state}
+    1
   end
 
   @doc "`/kick <targets> [<reason>]`."
@@ -56,9 +56,8 @@ defmodule Valimc.Commands.Admin do
 
     if targets == [], do: Error.fail!("commands.kick.owner.failed")
 
-    {others, self} = Enum.split_with(targets, &(&1.pid != self()))
-
-    for target <- others do
+    # `KickCommand`: the disconnect, then the feedback (which a kicked source misses).
+    for target <- targets do
       Valimc.Connection.deliver(target.pid, {:kick, Text.encode(reason)})
 
       Feedback.success(
@@ -67,22 +66,13 @@ defmodule Valimc.Commands.Admin do
       )
     end
 
-    if self != [] do
-      Feedback.success(
-        source,
-        Text.translatable("commands.kick.success", [Source.display_name(source), reason])
-      )
-
-      Valimc.Net.Codec.reject(source.state, Text.encode(reason))
-    end
-
-    {length(targets), source.state}
+    length(targets)
   end
 
   @doc "`/stop`: announce, then a graceful shutdown that saves the world."
   def stop(_arguments, source) do
     Feedback.success(source, Text.translatable("commands.stop.stopping"))
     spawn(fn -> System.stop() end)
-    {1, source.state}
+    1
   end
 end

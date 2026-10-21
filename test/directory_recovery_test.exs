@@ -1,7 +1,7 @@
 defmodule Valimc.DirectoryRecoveryTest do
-  # Kills the global region directory, which restarts every region owner, writer and
-  # the listener, and drives real sockets: serial. Until VMC-076d this was the
-  # `directory_recovery` vanilla stage (no oracle took part).
+  # Kills the global region directory, which restarts every region owner and writer
+  # (but not the listener or connections: VMC-077a), and drives real sockets:
+  # serial. Until VMC-076d this was the `directory_recovery` vanilla stage.
   use ExUnit.Case, async: false
   @moduletag :tcp
   alias Valimc.{Inventory, PlayerSnapshot, PlayerStore, Players, World}
@@ -45,7 +45,7 @@ defmodule Valimc.DirectoryRecoveryTest do
   test "directory loss fences owners, writers and routes, restores durable state, replays an unacknowledged committed transfer once and permits reconnect",
        %{base: base} do
     {:ok, owner = {pid, epoch}} = World.owner({0, 0})
-    :ok = World.set_block({2, 64, 2}, 1)
+    :ok = Valimc.TestBlocks.set({2, 64, 2}, 1)
     :ok = Region.flush(pid)
     {:ok, _handle} = Region.create_item(owner, ItemStack.new("stone", 7), {2.5, 64.5, 3.5})
     [record] = Items.records(:sys.get_state(pid).resource.items)
@@ -114,14 +114,15 @@ defmodule Valimc.DirectoryRecoveryTest do
                directory = Process.whereis(Directory)
                listener = Process.whereis(Valimc.Listener)
 
-               is_pid(directory) and directory != old_directory and is_pid(listener) and
-                 listener != old_listener and not Process.alive?(player.pid) and
+               is_pid(directory) and directory != old_directory and listener == old_listener and
                  Enum.all?(old_owners ++ old_writers, &(not Process.alive?(&1)))
              end,
              500,
              10
            )
 
+    # The session outlives the world domain's restart.
+    assert Process.alive?(player.pid)
     Client.close(client)
     assert :ets.info(publication) == :undefined
     assert {:error, :region_unavailable} = Region.observe_blocks(owner, [])
@@ -136,7 +137,7 @@ defmodule Valimc.DirectoryRecoveryTest do
 
     {:ok, replacement = {next, next_epoch}} = World.owner({0, 0})
     assert next != pid and next_epoch != epoch
-    assert World.get_block({2, 64, 2}) == 1
+    assert Valimc.TestBlocks.get({2, 64, 2}) == 1
     recovered_records = Items.records(:sys.get_state(next).resource.items)
     assert Enum.sort_by(recovered_records, & &1.uuid) == Enum.sort_by([record, drop], & &1.uuid)
     {:ok, recovered} = Region.find_item(replacement, record.uuid)
@@ -147,6 +148,8 @@ defmodule Valimc.DirectoryRecoveryTest do
     send(Directory, {:DOWN, monitor, :process, pid, :killed})
     assert {:ok, ^next} = Directory.admit({0, 0})
     assert {:ok, ^replacement} = World.existing_owner({0, 0})
+    # The closed session delivers its outbox and closes its store first.
+    Valimc.TestWait.until(fn -> Registry.lookup(Valimc.PlayerStoreRegistry, uuid) == [] end)
     {^uuid, reconnected} = Client.login(name)
     reconnected = Client.load_world(reconnected)
     {:ok, saved} = PlayerSnapshot.decode(File.read!(PlayerStore.path(base, uuid)), uuid)
@@ -161,7 +164,7 @@ defmodule Valimc.DirectoryRecoveryTest do
     :ok = Region.remove_item(recovered)
     {:ok, dropped} = Region.find_item(replacement, drop.uuid)
     :ok = Region.remove_item(dropped)
-    :ok = World.set_block({2, 64, 2}, 0)
+    :ok = Valimc.TestBlocks.set({2, 64, 2}, 0)
     Client.close(reconnected)
   end
 end

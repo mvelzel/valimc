@@ -73,10 +73,10 @@ defmodule Valimc.WorldPresetsTest do
     {rx, rz} = key
     {x, z} = {rx * 128 + 37, rz * 128 + 90}
     block = &Valimc.Registry.Blocks.default_state/1
-    assert World.get_block({x, -64, z}) == block.("bedrock")
-    assert World.get_block({x, -63, z}) == block.("clay")
-    assert World.get_block({x, -62, z}) == block.("clay")
-    assert World.get_block({x, -61, z}) == block.("moss_block")
-    assert World.get_block({x, -60, z}) == block.("air")
+    assert Valimc.TestBlocks.get({x, -64, z}) == block.("bedrock")
+    assert Valimc.TestBlocks.get({x, -63, z}) == block.("clay")
+    assert Valimc.TestBlocks.get({x, -62, z}) == block.("clay")
+    assert Valimc.TestBlocks.get({x, -61, z}) == block.("moss_block")
+    assert Valimc.TestBlocks.get({x, -60, z}) == block.("air")
   end
 end

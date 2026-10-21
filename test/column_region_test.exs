@@ -40,7 +40,7 @@ defmodule Valimc.ColumnRegionTest do
              Region.observe_columns(ctx.owner, [column], 1)
 
     assert heights == %{world_surface: 92, motion_blocking: 92, sky_source: 91}
-    assert :ok = World.remove_block({x, 90, z})
+    assert :ok = Valimc.TestBlocks.remove({x, 90, z})
 
     assert {:ok, %{revision: 2, columns: %{^column => heights}}} =
              Region.observe_columns(ctx.owner, [column], 2)
@@ -50,7 +50,9 @@ defmodule Valimc.ColumnRegionTest do
     assert {:ok, %{revision: 2, blocks: %{{^x, 90, ^z} => 0}}} =
              Region.observe_blocks(ctx.owner, [{x, 90, z}], 2)
 
-    assert {:error, :invalid_block} = World.set_block({x, 90, z}, Data.block_state_count())
+    assert {:error, :invalid_block_batch} =
+             Valimc.TestBlocks.set({x, 90, z}, Data.block_state_count())
+
     assert {:ok, %{revision: 2}} = Region.observe_columns(ctx.owner, [], 2)
   end
 
@@ -58,7 +60,7 @@ defmodule Valimc.ColumnRegionTest do
        ctx do
     {pid, epoch} = ctx.owner
     column = {ctx.x, ctx.z}
-    assert :ok = World.set_block({ctx.x, 319, ctx.z}, 1)
+    assert :ok = Valimc.TestBlocks.set({ctx.x, 319, ctx.z}, 1)
     assert :ok = Region.flush(pid)
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
     assert {:ok, {next, next_epoch} = owner} = World.owner(ctx.key)
@@ -69,7 +71,7 @@ defmodule Valimc.ColumnRegionTest do
              Region.observe_columns(owner, [column])
 
     assert heights == %{world_surface: 320, motion_blocking: 320, sky_source: 320}
-    assert :ok = World.remove_block({ctx.x, 319, ctx.z})
+    assert :ok = Valimc.TestBlocks.remove({ctx.x, 319, ctx.z})
 
     assert {:ok, %{columns: %{^column => %{sky_source: 64}}}} =
              Region.observe_columns(owner, [column])
