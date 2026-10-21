@@ -906,7 +906,7 @@ public class DecorationOracle {
   }
 
   /** The features step's `WorldGenRegion`, over proto chunks. */
-  static final class Region implements WorldGenLevel {
+  static class Region implements WorldGenLevel {
     final Map<ChunkPos, ProtoChunk> chunks;
     final ChunkPos center;
     final long seed;

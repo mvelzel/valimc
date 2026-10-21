@@ -166,6 +166,12 @@ STAGES = [
         ('java', 'LocateOracle', 'cases', '@locate.json'),
         ('check', 'check_locate.exs', '@locate.json'),
     ]),
+    # VMC-025f: decoration with structures placed in their steps.
+    ('worldgen_structure_placement', [
+        ('java', 'StructurePlacementOracle', '@placement.json',
+         'minecraft:desert_pyramid,minecraft:jungle_pyramid,minecraft:buried_treasure'),
+        ('check', 'check_decoration.exs', '@placement.json'),
+    ]),
     ('worldgen_live', [
         ('java', 'DecorationOracle', '@live.json', '*', 'live'),
         ('app', 'check_live_decoration.exs', '@live.json'),

@@ -224,6 +224,35 @@ impl Direction {
         }
     }
 
+    /// The (x, z) step of a block in this direction.
+    pub fn step(self) -> (i32, i32) {
+        match self {
+            Direction::North => (0, -1),
+            Direction::South => (0, 1),
+            Direction::West => (-1, 0),
+            Direction::East => (1, 0),
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Direction::North => "north",
+            Direction::South => "south",
+            Direction::West => "west",
+            Direction::East => "east",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Direction> {
+        Some(match name {
+            "north" => Direction::North,
+            "south" => Direction::South,
+            "west" => Direction::West,
+            "east" => Direction::East,
+            _ => return None,
+        })
+    }
+
     pub fn counter_clockwise(self) -> Direction {
         match self {
             Direction::North => Direction::West,
@@ -395,13 +424,17 @@ pub struct Piece {
 #[derive(Clone, Debug, PartialEq)]
 pub enum PieceKind {
     /// `ScatteredFeaturePiece`s: desert and jungle temples and swamp huts,
-    /// with their size and ground height (-1 until placed).
+    /// with their size, ground height (-1 until placed) and what placement
+    /// has done once (`placed`, in saved order: a desert pyramid's chests by
+    /// direction, a jungle temple's main and hidden chests and its traps, a
+    /// swamp hut's witch and cat).
     Scattered {
         kind: ScatteredKind,
         width: i32,
         height: i32,
         depth: i32,
         height_position: i32,
+        placed: [bool; 4],
     },
     BuriedTreasure,
     /// `TemplateStructurePiece`s.
@@ -556,6 +589,7 @@ impl Piece {
                 height,
                 depth,
                 height_position,
+                placed,
             } => {
                 put("Width", Nbt::Int(*width));
                 put("Height", Nbt::Int(*height));
@@ -576,8 +610,8 @@ impl Piece {
                     ],
                     ScatteredKind::SwampHut => &["Witch", "Cat"],
                 };
-                for flag in flags {
-                    put(flag, Nbt::bool(false));
+                for (flag, done) in flags.iter().zip(placed) {
+                    put(flag, Nbt::bool(*done));
                 }
             }
             PieceKind::BuriedTreasure => {}
@@ -705,6 +739,7 @@ mod tests {
                 height: 10,
                 depth: 15,
                 height_position: -1,
+                placed: [false; 4],
             },
             bbox: BoundingBox::new(-51344, 64, -317936, -51333, 73, -317922),
             orientation: Some(Direction::South),

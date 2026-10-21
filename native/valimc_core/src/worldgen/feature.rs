@@ -979,6 +979,19 @@ impl Decoration {
         region: &mut Region,
         included: Option<&HashSet<(usize, usize)>>,
     ) -> Result<(), String> {
+        self.decorate_with(region, included, None)
+    }
+
+    /// `decorate` with structures (VMC-025f): every step, the eleven of
+    /// `GenerationStep.Decoration` at least, first places its structures
+    /// through `structures` (given the step, the decoration random and
+    /// seed), then its features.
+    pub fn decorate_with(
+        &self,
+        region: &mut Region,
+        included: Option<&HashSet<(usize, usize)>>,
+        mut structures: Option<&mut StructureStep>,
+    ) -> Result<(), String> {
         let (cx, cz) = region.centre;
         let origin = [cx * 16, region.min_y(), cz * 16];
         let mut random = Random::worldgen(0);
@@ -995,7 +1008,20 @@ impl Decoration {
                 }
             }
         }
-        for (step, features) in self.order.iter().enumerate() {
+        let steps = match structures {
+            Some(_) => self.order.len().max(11),
+            None => self.order.len(),
+        };
+        for step in 0..steps {
+            if let Some(place) = structures.as_deref_mut() {
+                place(step, region, &mut random, decoration_seed)?;
+                if let Some(fault) = &region.fault {
+                    return Err(format!("structures of step {step}: {fault}"));
+                }
+            }
+            let Some(features) = self.order.get(step) else {
+                continue;
+            };
             let mut indices: Vec<usize> = Vec::new();
             for (biome, &on) in possible.iter().enumerate() {
                 if on {
@@ -1023,6 +1049,10 @@ impl Decoration {
         Ok(())
     }
 }
+
+/// A decoration step's structure placement (see `Decoration::decorate_with`).
+pub type StructureStep<'s> =
+    dyn FnMut(usize, &mut Region, &mut Random, i64) -> Result<(), String> + 's;
 
 /// `VegetationPatchFeature` and its waterlogged variant.
 #[derive(Debug)]

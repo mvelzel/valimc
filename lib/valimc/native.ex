@@ -52,6 +52,9 @@ defmodule Valimc.Native do
   def worldgen_decorate(_state, _biome_source, _centre, _order, _features),
     do: :erlang.nif_error(:nif_not_loaded)
 
+  def worldgen_decorate_structures(_state, _biome_source, _centre, _order, _structures),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def worldgen_shape_cases(_registry, _cases), do: :erlang.nif_error(:nif_not_loaded)
 
   def worldgen_decoration_time(_state, _biome_source, _origin, _size, _order, _features),

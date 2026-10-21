@@ -6,14 +6,21 @@
 # and seed, spawned entity, bees or gateway exit) and added entity of the 25
 # chunks
 # must equal vanilla's.
+#
+# VMC-025f: with structure placement facts (StructurePlacementOracle, which
+# name structures), ValiMC decorates with every placed feature and those
+# structures' starts placed in their steps, and every start as placement left
+# it must equal vanilla's too.
 [facts_path] = System.argv()
 facts = facts_path |> File.read!() |> JSON.decode!()
 settings = Map.get(facts, "noise_settings", "minecraft:overworld")
 biome_source = Map.get(facts, "biome_source", "minecraft:overworld")
 {min_y, height} = {Map.get(facts, "min_y", -64), Map.get(facts, "height", 384)}
 
+structures = facts["structures"]
+
 features =
-  for {step, index} <- Enum.with_index(facts["features"]),
+  for {step, index} <- Enum.with_index(Map.get(facts, "features", [])),
       [global, _id] <- step,
       do: {index, global}
 
@@ -49,27 +56,49 @@ first_difference = fn ours, want, {cx, cz} ->
 end
 
 {failures, blocks, marks, ticks, entities, data, added} =
-  for %{"seed" => seed, "x" => x, "z" => z, "order" => order, "chunks" => chunks} <-
+  for %{"seed" => seed, "x" => x, "z" => z, "order" => order, "chunks" => chunks} = area <-
         facts["cases"],
       reduce: {[], 0, 0, 0, 0, 0, 0} do
     {failures, blocks, marks, ticks, entities, data, added} ->
       seed = String.to_integer(seed)
       {:ok, state} = Valimc.Worldgen.new(seed, settings)
 
+      order = Enum.map(order, fn [cx, cz] -> {cx, cz} end)
+
       result =
-        Valimc.Native.worldgen_decorate(
-          state,
-          biome_source,
-          {x, z},
-          Enum.map(order, fn [cx, cz] -> {cx, cz} end),
-          features
-        )
+        if structures do
+          Valimc.Native.worldgen_decorate_structures(
+            state,
+            biome_source,
+            {x, z},
+            order,
+            structures
+          )
+        else
+          Valimc.Native.worldgen_decorate(state, biome_source, {x, z}, order, features)
+        end
 
       # An area ValiMC cannot decorate fails as a whole.
       {decorated, failures} =
         case result do
-          {:ok, decorated} -> {decorated, failures}
-          {:error, reason} -> {[], [{seed, {x, z}, :area, [error: reason]} | failures]}
+          {:ok, {decorated, starts}} ->
+            want = Map.fetch!(area, "starts")
+
+            failures =
+              if Enum.sort(starts) == Enum.sort(want),
+                do: failures,
+                else: [
+                  {seed, {x, z}, :starts, [ours: starts -- want, vanilla: want -- starts]}
+                  | failures
+                ]
+
+            {decorated, failures}
+
+          {:ok, decorated} ->
+            {decorated, failures}
+
+          {:error, reason} ->
+            {[], [{seed, {x, z}, :area, [error: reason]} | failures]}
         end
 
       ours = Map.new(decorated, fn %{x: cx, z: cz} = chunk -> {{cx, cz}, chunk} end)
@@ -154,10 +183,18 @@ if failures != [] do
   System.halt(1)
 end
 
-included = length(features)
+included = if structures, do: "every placed feature", else: "#{length(features)} placed features"
+
+placed =
+  if structures do
+    starts = facts["cases"] |> Enum.map(&length(&1["starts"])) |> Enum.sum()
+    " and #{length(structures)} structures' starts (#{starts} starts as placement left them)"
+  else
+    ""
+  end
 
 IO.puts(
   "PASS: #{length(facts["cases"])} decorated #{Map.get(facts, "dimension", "overworld")} areas with " <>
-    "#{included} placed features equal vanilla's (#{blocks} blocks, #{marks} post-processing marks, " <>
+    "#{included}#{placed} equal vanilla's (#{blocks} blocks, #{marks} post-processing marks, " <>
     "#{ticks} scheduled ticks, #{entities} block entities, #{data} of them filled in, #{added} entities)"
 )

@@ -111,4 +111,26 @@ defmodule Valimc.WorldgenStructuresTest do
     assert placed["minecraft:jungle_temples"] == [{8, -13}]
     assert placed["minecraft:villages"] == []
   end
+
+  # VMC-025f1: placement into chunks; the full check is the
+  # `worldgen_structure_placement` stage (StructurePlacementOracle, which also
+  # gives these entities).
+  test "a swamp hut is placed with its witch and cat" do
+    {:ok, state} = Valimc.Worldgen.new(-8_172_645_723)
+    order = for dz <- -1..1, dx <- -1..1, do: {19117 + dx, -29081 + dz}
+
+    {:ok, {chunks, [hut]}} =
+      Native.worldgen_decorate_structures(state, @source, {19117, -29081}, order, [
+        "minecraft:swamp_hut"
+      ])
+
+    assert Enum.flat_map(chunks, & &1.entities) == [
+             "minecraft:witch,305874.5,68.0,-465290.5,0.0",
+             "minecraft:cat,305874.5,68.0,-465290.5,0.0"
+           ]
+
+    assert hut =~ "Witch:1b"
+    assert hut =~ "Cat:1b"
+    refute hut =~ "HPos:-1"
+  end
 end

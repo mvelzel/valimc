@@ -1175,6 +1175,44 @@ fn worldgen_decorate<'a>(
         .collect())
 }
 
+/// Structure placement parity (VMC-025f): the 5 × 5 chunks around `centre`
+/// with their terrain, the chunks in `order` decorated with every placed
+/// feature and the starts of `structures` (identifiers) placed in their
+/// steps; also each start as placement left it (canonical SNBT).
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_decorate_structures<'a>(
+    env: rustler::Env<'a>,
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    centre: (i32, i32),
+    order: Vec<(i32, i32)>,
+    structures: Vec<String>,
+) -> Result<(Vec<DecoratedChunk<'a>>, Vec<String>), String> {
+    let mut state = state.lease()?;
+    let registry = state.structure_env(&biome_source)?.registry.clone();
+    let included = structures
+        .iter()
+        .map(|id| {
+            registry
+                .structures
+                .iter()
+                .position(|s| &s.id == id)
+                .ok_or_else(|| format!("unknown structure {id}"))
+        })
+        .collect::<Result<std::collections::HashSet<_>, _>>()?;
+    let (area, starts) = state.decorate_area_structures(
+        &biome_source,
+        (centre.0 - 2, centre.1 - 2),
+        5,
+        &order,
+        Some(&included),
+    )?;
+    Ok((
+        area.held().map(|chunk| decorated_chunk(env, chunk)).collect(),
+        starts.iter().map(|s| s.save(&registry).snbt()).collect(),
+    ))
+}
+
 /// A chunk's blocks (big endian), post-processing marks, scheduled ticks and
 /// block entities, as `check_decoration.exs` compares them.
 fn decorated_chunk<'a>(

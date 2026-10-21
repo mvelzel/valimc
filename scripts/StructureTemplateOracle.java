@@ -27,8 +27,9 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.loader.Resour
  * Usage: StructureTemplateOracle TEMPLATES.json PROCESSOR_LISTS.json. Templates: per id its
  * size, its palettes (each block as [x, y, z, state id] in the loaded order: full blocks,
  * then other blocks, then block entities, each sorted by y, x, z; a block entity's NBT as a
- * fifth SNBT element) and its entity count; and per state that a template or processor names,
- * its rotations (clockwise 90, 180, counterclockwise 90) and mirrors (left-right, front-back).
+ * fifth SNBT element) and its entity count; and per block state that a rotation or mirror
+ * changes (VMC-025f: structure pieces orient any state), its rotations (clockwise 90, 180,
+ * counterclockwise 90) and mirrors (left-right, front-back).
  */
 public class StructureTemplateOracle {
   public static void main(String[] args) throws Exception {
@@ -43,7 +44,6 @@ public class StructureTemplateOracle {
     lookup.lookupOrThrow(Registries.FEATURE).listElements().forEach(holder ->
         collect(Feature.DIRECT_CODEC.encodeStart(ops, holder.value()).getOrThrow(), ids));
 
-    var states = new TreeSet<Integer>();
     var templates = new JsonObject();
     try (var resources = new MultiPackResourceManager(PackType.SERVER_DATA,
         List.of(ServerPacksSource.createVanillaPackSource().fullResources()))) {
@@ -71,7 +71,6 @@ public class StructureTemplateOracle {
             row.add(info.pos().getZ());
             int state = Block.getId(info.state());
             row.add(state);
-            states.add(state);
             if (info.nbt() != null) row.add(info.nbt().toString());
             blocks.add(row);
           }
@@ -82,21 +81,25 @@ public class StructureTemplateOracle {
         templates.add(id, entry);
       }
     }
-    // Rule processors' outputs are placed rotated too.
-    var outputs = new ArrayList<JsonElement>();
-    lists.values().forEach(list -> collectOutputs(list, outputs));
-    for (var output : outputs) states.add(Block.getId(BlockState.CODEC.parse(JsonOps.INSTANCE, output).getOrThrow()));
+    // Every block state that a rotation or mirror changes (structure pieces orient any state);
+    // the others are their own transforms.
     var transforms = new JsonArray();
-    for (int id : states) {
-      var state = Block.stateById(id);
+    for (var state : Block.BLOCK_STATE_REGISTRY) {
+      int id = Block.getId(state);
       var row = new JsonArray();
       row.add(id);
+      boolean changes = false;
       for (var rotation : List.of(Rotation.CLOCKWISE_90, Rotation.CLOCKWISE_180, Rotation.COUNTERCLOCKWISE_90)) {
-        row.add(Block.getId(state.rotate(rotation)));
+        int to = Block.getId(state.rotate(rotation));
+        changes |= to != id;
+        row.add(to);
       }
-      row.add(Block.getId(state.mirror(Mirror.LEFT_RIGHT)));
-      row.add(Block.getId(state.mirror(Mirror.FRONT_BACK)));
-      transforms.add(row);
+      for (var mirror : List.of(Mirror.LEFT_RIGHT, Mirror.FRONT_BACK)) {
+        int to = Block.getId(state.mirror(mirror));
+        changes |= to != id;
+        row.add(to);
+      }
+      if (changes) transforms.add(row);
     }
     var out = new JsonObject();
     out.addProperty("version", "26.3");
@@ -107,21 +110,11 @@ public class StructureTemplateOracle {
     var listsOut = new JsonObject();
     lists.forEach((k, v) -> listsOut.add(k, WorldgenFactsOracle.widenFloats(v)));
     Files.writeString(Path.of(args[1]), new GsonBuilder().setPrettyPrinting().create().toJson(listsOut) + "\n");
-    System.out.println("PASS: " + templates.size() + " structure templates (" + states.size() + " states with transforms), "
+    System.out.println("PASS: " + templates.size() + " structure templates (" + transforms.size() + " states that rotate or mirror), "
         + lists.size() + " processor lists");
   }
 
-  /** Every `output_state` in an encoding. */
-  static void collectOutputs(JsonElement element, List<JsonElement> out) {
-    if (element.isJsonArray()) {
-      element.getAsJsonArray().forEach(e -> collectOutputs(e, out));
-    } else if (element.isJsonObject()) {
-      element.getAsJsonObject().entrySet().forEach(e -> {
-        if (e.getKey().equals("output_state")) out.add(e.getValue());
-        else collectOutputs(e.getValue(), out);
-      });
-    }
-  }
+
 
   /** Template ids in a feature's encoding: template features' templates, fossil structures. */
   static void collect(JsonElement element, Set<String> ids) {

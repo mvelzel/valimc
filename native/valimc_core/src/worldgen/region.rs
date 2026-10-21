@@ -75,11 +75,13 @@ pub struct BlockEntityData {
     pub exit: Option<([i32; 3], bool)>,
 }
 
-/// The block entity type a block creates, for the blocks decoration fills.
+/// The block entity type a block creates, for the blocks decoration and
+/// structure pieces fill.
 pub fn block_entity_kind(name: &str) -> Option<&'static str> {
     Some(match name {
         "minecraft:chest" => "minecraft:chest",
         "minecraft:trapped_chest" => "minecraft:trapped_chest",
+        "minecraft:dispenser" => "minecraft:dispenser",
         "minecraft:spawner" => "minecraft:mob_spawner",
         "minecraft:bee_nest" | "minecraft:beehive" => "minecraft:beehive",
         "minecraft:suspicious_sand" | "minecraft:suspicious_gravel" => "minecraft:brushable_block",

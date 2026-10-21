@@ -24,6 +24,7 @@ pub mod mansion;
 pub mod mineshaft;
 pub mod monument;
 pub mod piece;
+pub mod place;
 pub mod placement;
 pub mod scattered;
 pub mod stronghold;
@@ -100,8 +101,25 @@ pub struct StructureDef {
     /// Allowed biomes by registry id.
     pub biomes: BiomeSet,
     pub terrain_adaptation: TerrainAdjustment,
+    /// The decoration step it is placed in (`GenerationStep.Decoration`).
+    pub step: usize,
     pub kind: StructureKind,
 }
+
+/// `GenerationStep.Decoration`, in order.
+pub const DECORATION_STEPS: [&str; 11] = [
+    "raw_generation",
+    "lakes",
+    "local_modifications",
+    "underground_structures",
+    "surface_structures",
+    "strongholds",
+    "underground_ores",
+    "underground_decoration",
+    "fluid_springs",
+    "vegetal_decoration",
+    "top_layer_modification",
+];
 
 #[derive(Clone, Debug)]
 pub struct StructureSetDef {
@@ -364,10 +382,16 @@ fn parse_structure(
         },
         other => StructureKind::Unsupported(other.to_string()),
     };
+    let step = json.field("step")?.as_str()?;
+    let step = DECORATION_STEPS
+        .iter()
+        .position(|s| *s == step)
+        .ok_or_else(|| format!("unknown decoration step {step}"))?;
     Ok(StructureDef {
         id: id.to_string(),
         biomes: BiomeSet::from_ids(biomes),
         terrain_adaptation,
+        step,
         kind,
     })
 }

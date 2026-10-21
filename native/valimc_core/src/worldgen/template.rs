@@ -433,35 +433,23 @@ impl Templates {
             .ok_or_else(|| format!("no structure template {id}"))
     }
 
-    /// `state.mirror(mirror).rotate(rotation)`.
-    fn transform_state(
-        &self,
-        state: u16,
-        mirror: Mirror,
-        rotation: Rotation,
-    ) -> Result<u16, String> {
+    /// `state.mirror(mirror).rotate(rotation)`; states without a row are
+    /// their own transforms.
+    pub fn transform_state(&self, state: u16, mirror: Mirror, rotation: Rotation) -> u16 {
         if mirror == Mirror::None && rotation == Rotation::None {
-            return Ok(state);
+            return state;
         }
-        let row = self
-            .transforms
-            .get(&state)
-            .ok_or_else(|| format!("no transforms of state {state}"))?;
-        let mirrored = match mirror {
-            Mirror::None => state,
-            Mirror::LeftRight => row[3],
-            Mirror::FrontBack => row[4],
+        let mirrored = match (mirror, self.transforms.get(&state)) {
+            (Mirror::LeftRight, Some(row)) => row[3],
+            (Mirror::FrontBack, Some(row)) => row[4],
+            _ => state,
         };
-        let row = self
-            .transforms
-            .get(&mirrored)
-            .ok_or_else(|| format!("no transforms of state {mirrored}"))?;
-        Ok(match rotation {
-            Rotation::None => mirrored,
-            Rotation::Clockwise90 => row[0],
-            Rotation::Clockwise180 => row[1],
-            Rotation::Counterclockwise90 => row[2],
-        })
+        match (rotation, self.transforms.get(&mirrored)) {
+            (Rotation::Clockwise90, Some(row)) => row[0],
+            (Rotation::Clockwise180, Some(row)) => row[1],
+            (Rotation::Counterclockwise90, Some(row)) => row[2],
+            _ => mirrored,
+        }
     }
 }
 
@@ -556,7 +544,7 @@ impl Templates {
                 continue;
             }
             let previous = table.fluid(region.get(pos));
-            let state = self.transform_state(info.state, settings.mirror, settings.rotation)?;
+            let state = self.transform_state(info.state, settings.mirror, settings.rotation);
             if info.nbt.is_some() {
                 region.set(pos, barrier, 820);
             }

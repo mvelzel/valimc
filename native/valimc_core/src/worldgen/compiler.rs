@@ -28,7 +28,10 @@ use super::random::{Positional, Random};
 use super::region::{Area, ProtoChunk, Region};
 use super::sampler::{Context, Field, GradientKind, Sampler, SplineNode};
 use super::shapes::Shapes;
-use super::structure::{ClimateBiomes, Heights, StructureEnv, StructureRegistry};
+use super::structure::place::{place_in_chunk, visit_order, writable_area, Ctx, Placer};
+use super::structure::{
+    ClimateBiomes, Heights, Start, StructureEnv, StructureRegistry, DECORATION_STEPS,
+};
 use super::support::Support;
 use super::surface::{
     self, Biomes, ChunkBlocks, MaterialRegistry, MaterialSystem, Rule, SurfaceEnv, SurfaceInput,
@@ -1109,6 +1112,108 @@ impl Worldgen {
         let start = std::time::Instant::now();
         self.decorate_held(biome_source, &mut area, order, included, false)?;
         Ok((area, start.elapsed()))
+    }
+
+    /// Decoration with structures over an area (VMC-025f), as
+    /// `decorate_area` with every placed feature: the starts of every chunk
+    /// within 8 of a chunk in `order` (of the structures in `included`, when
+    /// given), each chunk's references, then each chunk in `order` decorated
+    /// with its structures placed in their steps. Returns the area and the
+    /// starts as placement left them, by start chunk and structure.
+    pub fn decorate_area_structures(
+        &mut self,
+        biome_source: &str,
+        (x, z): (i32, i32),
+        size: i32,
+        order: &[(i32, i32)],
+        included: Option<&HashSet<usize>>,
+    ) -> Result<(Area, Vec<Start>), String> {
+        let env = self.structure_env(biome_source)?;
+        let mut chunks = Vec::with_capacity((size * size) as usize);
+        for dz in 0..size {
+            for dx in 0..size {
+                chunks.push(self.proto_terrain(x + dx, z + dz, biome_source)?);
+            }
+        }
+        let mut area = Area::of(chunks)?;
+        let (min_x, max_x) = order
+            .iter()
+            .map(|c| c.0)
+            .fold((i32::MAX, i32::MIN), |(a, b), v| (a.min(v), b.max(v)));
+        let (min_z, max_z) = order
+            .iter()
+            .map(|c| c.1)
+            .fold((i32::MAX, i32::MIN), |(a, b), v| (a.min(v), b.max(v)));
+        let mut starts: HashMap<(i32, i32), Vec<Start>> = HashMap::new();
+        for sx in min_x - 8..=max_x + 8 {
+            for sz in min_z - 8..=max_z + 8 {
+                let (found, _) = env.create_structures(sx, sz)?;
+                let found = found
+                    .into_iter()
+                    .filter(|s| included.is_none_or(|set| set.contains(&s.structure)))
+                    .collect();
+                starts.insert((sx, sz), found);
+            }
+        }
+        let registry = env.registry.clone();
+        let mut by_step: Vec<Vec<usize>> = vec![Vec::new(); DECORATION_STEPS.len()];
+        for (index, def) in registry.structures.iter().enumerate() {
+            by_step[def.step].push(index);
+        }
+        let decoration = self
+            .registry
+            .decorations
+            .get(biome_source)
+            .cloned()
+            .ok_or_else(|| format!("no decoration facts for {biome_source}"))?;
+        let placer = Placer::new(&decoration.table, decoration.templates().ok(), self.seed)?;
+        let zoom_seed = surface::biome_zoom_seed(self.seed);
+        let (min_y, height) = (area.min_y, area.height);
+        for &(cx, cz) in order {
+            let references = env.references(cx, cz, &|sx, sz| {
+                starts.get(&(sx, sz)).map(|v| v.as_slice())
+            })?;
+            let visits = visit_order(&references);
+            let chunk_box = writable_area((cx, cz), min_y, height);
+            let mut region = Region::new(
+                &mut area,
+                &decoration.table,
+                (cx, cz),
+                self.seed,
+                zoom_seed,
+                self.settings.sea_level,
+            )?;
+            let mut place = |step: usize, region: &mut Region, random: &mut Random, seed: i64| {
+                for (index, structure) in by_step.get(step).into_iter().flatten().enumerate() {
+                    random.set_feature_seed(seed, index as i32, step as i32);
+                    for source in visits.get(structure).into_iter().flatten() {
+                        let Some(start) = starts
+                            .get_mut(source)
+                            .and_then(|list| list.iter_mut().find(|s| s.structure == *structure))
+                        else {
+                            continue;
+                        };
+                        let mut c = Ctx {
+                            placer: &placer,
+                            region: &mut *region,
+                            random: &mut *random,
+                            chunk_box,
+                            chunk: (cx, cz),
+                            reference: [0; 3],
+                        };
+                        place_in_chunk(start, &mut c, &registry)
+                            .map_err(|e| format!("{}: {e}", registry.structures[*structure].id))?;
+                    }
+                }
+                Ok(())
+            };
+            decoration
+                .decorate_with(&mut region, None, Some(&mut place))
+                .map_err(|e| format!("decorating {cx}, {cz}: {e}"))?;
+        }
+        let mut placed: Vec<Start> = starts.into_values().flatten().collect();
+        placed.sort_by_key(|s| (s.chunk, s.structure));
+        Ok((area, placed))
     }
 
     /// A chunk at status `terrain` (VMC-025d): `build_terrain` with carvers,
