@@ -55,7 +55,11 @@ the same seed on vanilla and on Pumpkin, staying at least in Pumpkin's range.
 
 Survival core on the entity model (mobs/AI, spawning, combat, projectiles),
 redstone and block updates, then commands/admin and certification. Backlog
-milestones C–F describe the remaining scope.
+milestones C–F describe the remaining scope. The commands that act on those
+systems move with them: entity commands (VMC-053k) with the entity work,
+advancements and scoreboards (053l) with VMC-052, `spawnpoint` (053n) with
+VMC-040, and `execute`/`function` and the data-pack commands (053h, 053m)
+with data packs (VMC-008); M2 finishes the world and administration commands.
 
 ## Paused
 
