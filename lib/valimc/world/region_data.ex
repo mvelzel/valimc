@@ -43,6 +43,7 @@ defmodule Valimc.World.RegionData do
   }
 
   alias Valimc.Protocol.Packets
+  alias Valimc.Txn.Permits
   alias Valimc.Block.Support
   import Bitwise, only: [bxor: 2]
 
@@ -1502,6 +1503,96 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  # ---- box edits (VMC-077o) ----
+  #
+  # `/setblock`, `/fill`, `/clone` and `/place` read boxes (`:read_box`, never
+  # generating an absent chunk: that is an unloaded position) and commit their
+  # edits in every owner they touch all or nothing (`Valimc.World.BoxEdit`):
+  # each owner first checks that the cells it was planned on still hold the
+  # states read, that it can commit the edits (and block entity records), and
+  # locks the cells (`Txn.Permits` `:box_edit`); the commit follows once every
+  # owner prepared, and an abort releases the lock.
+
+  def handle_call({:read_box, epoch, min, max}, _from, state) do
+    cond do
+      epoch != state.items.epoch -> {:reply, {:error, :stale_owner}, state}
+      not box_in_region?(state, min, max) -> {:reply, {:error, :wrong_region}, state}
+      box_absent?(state, min, max) -> {:reply, {:error, :chunk_generating}, state}
+      true -> {:reply, Blocks.read_box(state.blocks, min, max), state}
+    end
+  end
+
+  def handle_call({:prepare_box, epoch, token, edits, expected, entries}, _from, state) do
+    now = System.monotonic_time(:millisecond)
+    positions = Enum.uniq(Map.keys(edits) ++ Map.keys(expected))
+    entities = MapSet.new(Map.keys(entries))
+
+    planned = fn position ->
+      Map.get_lazy(edits, position, fn -> Blocks.get(state.blocks, position) end)
+    end
+
+    result =
+      cond do
+        epoch != state.items.epoch ->
+          {:error, :stale_owner}
+
+        not Enum.all?(positions, &owns?(state, &1)) ->
+          {:error, :wrong_region}
+
+        absent_positions?(state, positions) ->
+          {:error, :chunk_generating}
+
+        Blocks.get_many(state.blocks, Map.keys(expected)) != expected ->
+          {:error, :stale_revision}
+
+        true ->
+          with {:ok, batch} <- BlockBatch.prepare(edits),
+               {:ok, _proposal} <- block_proposal(state, batch, [], entities),
+               {:ok, _, _} <- BlockEntities.put(state.block_entities, entries, planned) do
+            grant = %{batch: batch, entities: entities, cells: MapSet.new(Map.keys(edits))}
+            Permits.issue(state.permits, :box_edit, token, self(), [], grant, now)
+          end
+      end
+
+    case result do
+      {:ok, permits, ^token} -> {:reply, :ok, %{state | permits: permits}}
+      {:error, _} = error -> {:reply, error, state}
+      _ -> {:reply, {:error, :unsupported_block_entity}, state}
+    end
+  end
+
+  # A transient write in flight answers `:retry` and keeps the lock.
+  def handle_call({:commit_box, epoch, token, entries}, from, state) do
+    now = System.monotonic_time(:millisecond)
+
+    case Permits.lookup(state.permits, :box_edit, token, now) do
+      {:ok, grant} when epoch == state.items.epoch ->
+        if block_transfer_writing?(state) or (entries != %{} and write_busy(state) != nil) do
+          {:reply, {:error, :retry}, state}
+        else
+          state = %{state | permits: Permits.release(state.permits, token)}
+
+          case block_proposal(state, grant.batch, [], grant.entities) do
+            {:ok, proposal} ->
+              next = publish_blocks(state, grant.batch, proposal, true)
+
+              if entries == %{},
+                do: {:reply, {:ok, :applied}, next},
+                else: handle_call({:put_block_entities, epoch, entries}, from, next)
+
+            error ->
+              {:reply, error, state}
+          end
+        end
+
+      _ ->
+        {:reply, {:error, :box_edit_expired}, state}
+    end
+  end
+
+  def handle_call({:abort_box, token}, _from, state),
+    do: {:reply, :ok, %{state | permits: Permits.release(state.permits, token)}}
+
   def handle_call({:place_block, epoch, revision, %BlockBatch{} = batch, deadline}, from, state) do
     now = System.monotonic_time(:millisecond)
 
@@ -1549,6 +1640,9 @@ defmodule Valimc.World.RegionData do
       # Raw calls (tests, administration) wait for an absent chunk (VMC-075).
       RegionGeneration.absent?(state.generation, key) ->
         RegionGeneration.defer(state, key, message, from)
+
+      Permits.locked?(state.permits, [position], System.monotonic_time(:millisecond)) ->
+        {:reply, {:error, :box_edit_pending}, state}
 
       block_transfer_writing?(state) ->
         {:reply, {:error, :mining_storage_busy}, state}
@@ -2750,6 +2844,9 @@ defmodule Valimc.World.RegionData do
 
   defp block_proposal(state, batch, removed \\ [], entities \\ MapSet.new()) do
     cond do
+      Permits.locked?(state.permits, Map.keys(batch.edits), System.monotonic_time(:millisecond)) ->
+        {:error, :box_edit_pending}
+
       protected_container_change?(state, batch.edits, removed) ->
         {:error, :occupied_container}
 
@@ -4186,6 +4283,22 @@ defmodule Valimc.World.RegionData do
   # it read, so only edits to those sections stale it.
   defp section({x, y, z}),
     do: {Integer.floor_div(x, 16), Integer.floor_div(y, 16), Integer.floor_div(z, 16)}
+
+  defp box_in_region?(state, {x0, _, z0} = min, {x1, _, z1} = max),
+    do: owns?(state, min) and owns?(state, max) and x0 <= x1 and z0 <= z1
+
+  # A position of this region (generated or not) within the build height.
+  defp owns?(state, {x, y, z}),
+    do: Valimc.World.region_key(Valimc.World.chunk_key(x, z)) == state.key and Chunk.valid_y?(y)
+
+  defp box_absent?(state, {x0, _, z0}, {x1, _, z1}) do
+    chunks =
+      for cx <- Integer.floor_div(x0, 16)..Integer.floor_div(x1, 16),
+          cz <- Integer.floor_div(z0, 16)..Integer.floor_div(z1, 16),
+          do: {cx, cz}
+
+    RegionGeneration.any_absent?(state.generation, chunks)
+  end
 
   defp fence(state, positions),
     do: Map.new(positions, &{section(&1), Map.get(state.section_revisions, section(&1), 0)})

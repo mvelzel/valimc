@@ -136,6 +136,25 @@ fn get_blocks<'a>(
     Ok(out.into())
 }
 
+/// The states of a box (`ColumnStore::read_box`), as big-endian u16 x fastest,
+/// then y, then z; at most 32,768 cells, so a call stays well under 1 ms.
+#[rustler::nif]
+fn read_box<'a>(
+    env: Env<'a>,
+    region: ResourceArc<Region>,
+    min: (i32, i32, i32),
+    max: (i32, i32, i32),
+) -> Result<Binary<'a>, Atom> {
+    let cells = (i64::from(max.0) - i64::from(min.0) + 1)
+        * (i64::from(max.1) - i64::from(min.1) + 1)
+        * (i64::from(max.2) - i64::from(min.2) + 1);
+    if !(1..=32_768).contains(&cells) {
+        return Err(atoms::invalid_positions());
+    }
+    let states = with_store(&region, |store| store.read_box(min, max).map_err(error))?;
+    Ok(be_u16(env, &states))
+}
+
 /// Apply packed `{x, y, z, state::32}` changes, all or none
 /// (`Valimc.Native.dispatch/3` picks this or the dirty twin).
 #[rustler::nif]

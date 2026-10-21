@@ -715,6 +715,38 @@ impl ColumnStore {
         })
     }
 
+    /// The states of the box `min..=max` (inside the region and the build
+    /// height) in vanilla's `BlockPos.betweenClosed` order: x fastest, then y,
+    /// then z (VMC-077o box edits).
+    pub fn read_box(
+        &self,
+        min: (i32, i32, i32),
+        max: (i32, i32, i32),
+    ) -> Result<Vec<u16>, StoreError> {
+        let ((x0, y0, z0), (x1, y1, z1)) = (min, max);
+        if x0 > x1 || y0 > y1 || z0 > z1 {
+            return Err(StoreError::OutOfRegion);
+        }
+        self.chunk_of(x0, z0)?;
+        self.chunk_of(x1, z1)?;
+        Self::check_y(y0)?;
+        Self::check_y(y1)?;
+        let mut out = Vec::with_capacity(
+            ((x1 - x0 + 1) as usize) * ((y1 - y0 + 1) as usize) * ((z1 - z0 + 1) as usize),
+        );
+        for z in z0..=z1 {
+            for y in y0..=y1 {
+                for x in x0..=x1 {
+                    out.push(match self.columns.get(&self.chunk_of(x, z)?) {
+                        Some(column) => column.get(x, y, z),
+                        None => self.layers[(y - MIN_Y) as usize],
+                    });
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// Validate every change first, then apply all of them; returns previous states.
     pub fn set_many(
         &mut self,
@@ -1201,6 +1233,22 @@ mod tests {
         let mut bytes = vec![!AIR & !crate::flags::FLUID; 8];
         bytes[0] = AIR;
         BlockFlags::new(bytes).unwrap()
+    }
+
+    #[test]
+    fn a_box_reads_x_fastest_then_y_then_z() {
+        let mut store = ColumnStore::new((0, 0), 8, flat(), 1 << 30);
+        let f = flags();
+        store
+            .set_many(&[(17, 64, 3, 5), (16, 65, 4, 6)], &f)
+            .unwrap();
+        let states = store.read_box((16, 64, 3), (17, 65, 4)).unwrap();
+        // (16,64,3) (17,64,3) (16,65,3) (17,65,3) (16,64,4) (17,64,4) (16,65,4) (17,65,4)
+        assert_eq!(states, vec![0, 5, 0, 0, 0, 0, 6, 0]);
+        assert_eq!(store.read_box((0, 63, 0), (0, 63, 0)).unwrap(), vec![4]);
+        assert!(store.read_box((0, 64, 0), (128, 64, 0)).is_err());
+        assert!(store.read_box((0, 400, 0), (0, 401, 0)).is_err());
+        assert!(store.read_box((3, 64, 0), (2, 64, 0)).is_err());
     }
 
     #[test]

@@ -1,9 +1,9 @@
 defmodule Valimc.Commands.Blocks do
   @moduledoc """
-  Area commands (VMC-053j): `clone` within the overworld (block entities are
-  refused until their contents can be copied) and `forceload` over
-  `Valimc.World.ForcedChunks`. Block writes are fenced per region owner, as
-  `/fill` does.
+  Area commands (VMC-053j): `clone` within the source's dimension (block
+  entities are refused until their contents can be copied), `fillbiome` and
+  `forceload` over `Valimc.World.ForcedChunks`. A clone is one box edit over
+  its source and destination, all or nothing (`Valimc.World.BoxEdit`).
   """
   alias Valimc.Command.{BlockInput, Error, Feedback, Source}
   alias Valimc.Text
@@ -34,40 +34,53 @@ defmodule Valimc.Commands.Blocks do
     area = volume(min, max)
     if area > @limit, do: Error.fail!("commands.clone.toobig", [@limit, {:long, area}])
 
-    positions =
-      for z <- elem(min, 2)..elem(max, 2),
-          y <- elem(min, 1)..elem(max, 1),
-          x <- elem(min, 0)..elem(max, 0),
-          do: {x, y, z}
-
-    states = observe(source, positions)
-
     filter = filter(arguments)
-
-    entries =
-      for position <- positions, filter.(states[position]), do: {position, states[position]}
-
-    if Enum.any?(entries, fn {_, state} -> Valimc.Block.block_entity(state) != nil end),
-      do: Error.refuse!("Cloning block entities is not supported yet")
-
-    # Destinations above or below the world are skipped and not counted.
-    placed =
-      for {position, state} <- entries,
-          destination = add(position, {dx, dy, dz}),
-          Valimc.World.Chunk.valid_y?(elem(destination, 1)),
-          into: %{},
-          do: {destination, state}
-
     barrier = Blocks.default_state("barrier")
-    count = Enum.count(placed, fn {_, state} -> state != barrier end)
-    if count == 0, do: Error.fail!("commands.clone.failed")
-
     air = Blocks.default_state("air")
+    # Destinations above or below the world are skipped and not counted.
+    to_min = put_elem(to_min, 1, max(elem(to_min, 1), Valimc.World.Chunk.min_y()))
+    to_max = put_elem(to_max, 1, min(elem(to_max, 1), Valimc.World.Chunk.max_y()))
 
-    cleared =
-      if mode == :move, do: Map.new(entries, fn {position, _} -> {position, air} end), else: %{}
+    boxes = [
+      {min, max} | if(elem(to_min, 1) <= elem(to_max, 1), do: [{to_min, to_max}], else: [])
+    ]
 
-    write(source, Map.merge(cleared, placed))
+    # One box edit over the source and destination: a refused part (a chest
+    # with items, an unsupported block entity) leaves both as they were.
+    edit = fn current ->
+      entries =
+        for {{x, y, z} = position, state} <- current,
+            x in elem(min, 0)..elem(max, 0) and y in elem(min, 1)..elem(max, 1) and
+              z in elem(min, 2)..elem(max, 2),
+            filter.(state),
+            do: {position, state}
+
+      if Enum.any?(entries, fn {_, state} -> Valimc.Block.block_entity(state) != nil end),
+        do: Error.refuse!("Cloning block entities is not supported yet")
+
+      placed =
+        for {position, state} <- entries,
+            destination = add(position, {dx, dy, dz}),
+            Valimc.World.Chunk.valid_y?(elem(destination, 1)),
+            into: %{},
+            do: {destination, state}
+
+      count = Enum.count(placed, fn {_, state} -> state != barrier end)
+      if count == 0, do: Error.fail!("commands.clone.failed")
+
+      cleared =
+        if mode == :move, do: Map.new(entries, fn {position, _} -> {position, air} end), else: %{}
+
+      edits =
+        for {position, state} <- Map.merge(cleared, placed),
+            current[position] != state,
+            into: %{},
+            do: {position, state}
+
+      {edits, count}
+    end
+
+    count = Valimc.Commands.World.edit!(source, boxes, edit)
     Feedback.success(source, Text.translatable("commands.clone.success", [count]))
     count
   end
@@ -103,40 +116,6 @@ defmodule Valimc.Commands.Blocks do
 
   defp intersects?({{a0, b0, c0}, {a1, b1, c1}}, {{x0, y0, z0}, {x1, y1, z1}}),
     do: a0 <= x1 and x0 <= a1 and b0 <= y1 and y0 <= b1 and c0 <= z1 and z0 <= c1
-
-  defp region(position) do
-    {x, _, z} = position
-    Valimc.World.region_key(Valimc.World.chunk_key(x, z))
-  end
-
-  defp observe(source, positions) do
-    positions
-    |> Enum.group_by(&region/1)
-    |> Enum.reduce(%{}, fn {key, positions}, acc ->
-      {:ok, owner} = Source.owner(source, key)
-
-      Enum.reduce(Enum.chunk_every(positions, 128), acc, fn batch, acc ->
-        {:ok, view} = Valimc.World.Region.observe_blocks(owner, batch)
-        Map.merge(acc, view.blocks)
-      end)
-    end)
-  end
-
-  defp write(source, edits) do
-    for {key, edits} <- Enum.group_by(edits, fn {position, _} -> region(position) end) do
-      {:ok, owner} = Source.owner(source, key)
-      {:ok, view} = Valimc.World.Region.observe_blocks(owner, [elem(hd(edits), 0)])
-
-      Enum.reduce(Enum.chunk_every(edits, 4096), view.revision, fn batch, revision ->
-        case Valimc.World.Region.set_blocks(owner, revision, Map.new(batch)) do
-          {:ok, revision} -> revision
-          {:error, reason} -> Error.refuse!("Clone could not change the world (#{reason})")
-        end
-      end)
-    end
-
-    :ok
-  end
 
   # ---- fillbiome ----
 

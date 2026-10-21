@@ -167,6 +167,9 @@ defmodule Valimc.World.Blocks do
     end
   end
 
+  @doc "The states of the box `min..max` in this region, x fastest, then y, then z."
+  def read_box(%__MODULE__{} = blocks, min, max), do: Native.read_box(blocks.ref, min, max)
+
   @doc "A `position => block` map; out-of-region positions read the base profile."
   def get_many(%__MODULE__{} = blocks, positions) do
     positions = Enum.uniq(positions)

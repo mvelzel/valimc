@@ -147,6 +147,36 @@ defmodule Valimc.World.Region do
     :ok
   end
 
+  @doc "The states of a box of this region, x fastest (`Valimc.World.BoxEdit`)."
+  def read_box({pid, epoch}, min, max) when is_pid(pid) and is_reference(epoch) do
+    GenServer.call(pid, {:read_box, epoch, min, max}, budget(pid, 1000))
+  catch
+    :exit, {:timeout, _} -> {:error, :block_query_timeout}
+    :exit, _ -> {:error, :region_unavailable}
+  end
+
+  @doc "Check and lock a box edit's part in this owner (`Valimc.World.BoxEdit`)."
+  def prepare_box({pid, epoch}, token, edits, expected, entries) when is_pid(pid) do
+    GenServer.call(pid, {:prepare_box, epoch, token, edits, expected, entries}, budget(pid, 2000))
+  catch
+    :exit, _ -> {:error, :region_unavailable}
+  end
+
+  @doc "Commit a prepared box edit part (`:retry` while a write is in flight)."
+  def commit_box({pid, epoch}, token, entries) when is_pid(pid) do
+    GenServer.call(pid, {:commit_box, epoch, token, entries}, budget(pid, 7000))
+  catch
+    :exit, {:timeout, _} -> {:error, :block_commit_uncertain}
+    :exit, _ -> {:error, :region_unavailable}
+  end
+
+  @doc "Release a prepared box edit part."
+  def abort_box({pid, _epoch}, token) when is_pid(pid) do
+    GenServer.call(pid, {:abort_box, token}, budget(pid, 1000))
+  catch
+    :exit, _ -> :ok
+  end
+
   @doc """
   Commit a prepared owner-local block batch if the observation it was planned on
   (`revision`: an observation's section `fence`, or its region revision) is still

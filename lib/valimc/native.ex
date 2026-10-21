@@ -51,6 +51,7 @@ defmodule Valimc.Native do
 
   def region_new(_cx, _cz, _size, _layers, _budget), do: :erlang.nif_error(:nif_not_loaded)
   def get_blocks(_region, _positions), do: :erlang.nif_error(:nif_not_loaded)
+  def read_box(_region, _min, _max), do: :erlang.nif_error(:nif_not_loaded)
   def set_blocks(_region, _changes), do: :erlang.nif_error(:nif_not_loaded)
   def set_blocks_dirty(_region, _changes), do: :erlang.nif_error(:nif_not_loaded)
 

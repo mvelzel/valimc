@@ -123,8 +123,12 @@ defmodule Valimc.Command.Source do
     {x, y, z}
   end
 
-  @doc "The region owner of `key` in the source's dimension (`World.owner/1` of its address)."
-  def owner(%__MODULE__{dimension: dimension}, key), do: Valimc.World.owner({dimension, key})
+  @doc """
+  The running region owner of `key` in the source's dimension; a region that
+  is not loaded is not started (`argument.pos.unloaded` for the caller).
+  """
+  def owner(%__MODULE__{dimension: dimension}, key),
+    do: Valimc.World.existing_owner({dimension, key})
 
   def self?(%__MODULE__{player: nil}, _target), do: false
   def self?(%__MODULE__{player: player}, target), do: target.pid == player.pid

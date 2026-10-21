@@ -9,7 +9,8 @@ defmodule Valimc.World.BlockBatch do
 
   def prepare(edits, threshold \\ Valimc.config(:compression_threshold))
 
-  def prepare(edits, threshold) when is_map(edits) and map_size(edits) in 1..4096 do
+  # Up to vanilla's `max_block_modifications` (32,768), a box edit's cells in one owner.
+  def prepare(edits, threshold) when is_map(edits) and map_size(edits) in 1..32_768 do
     if Enum.all?(edits, &valid_edit?/1) do
       sections =
         Enum.group_by(edits, fn {{x, y, z}, _} ->

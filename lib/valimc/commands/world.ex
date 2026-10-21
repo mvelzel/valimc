@@ -2,11 +2,13 @@ defmodule Valimc.Commands.World do
   @moduledoc """
   World commands (VMC-053c) after vanilla's command classes: `time` on 26.3's
   world clocks, `weather`, `difficulty`, the game rules ValiMC applies,
-  `setblock`, `fill`, `setworldspawn`, `seed` and `locate biome`. Clock, weather
-  and difficulty changes go through the environment owner (`World.Clock`);
-  blocks go through region owners with fenced batches.
+  `setblock`, `fill`, `setworldspawn` and `seed`. Clock, weather and
+  difficulty changes go through the environment owner (`World.Clock`); block
+  changes are box edits, all or nothing across region owners
+  (`Valimc.World.BoxEdit`).
   """
   alias Valimc.Command.{BlockInput, Error, Facts, Feedback, Names, Source}
+  alias Valimc.World.BoxEdit
   alias Valimc.Text
   alias Valimc.World.Clock
 
@@ -326,39 +328,51 @@ defmodule Valimc.Commands.World do
   # ---- blocks ----
 
   @doc """
-  `/setblock <pos> <block> [keep|replace|strict]`: one fenced batch at the
-  sections it read (VMC-077a), read again when they changed in between.
+  `/setblock <pos> <block> [keep|replace|strict]`: a box edit of one cell
+  (`Valimc.World.BoxEdit`), refused at an unloaded position.
   """
   def setblock(%{"pos" => pos, "block" => %BlockInput{state: state} = block} = arguments, source) do
     {x, y, z} = position = Source.block_in_world!(source, pos)
     no_block_data!(block)
-    mode = if arguments.literals == ["keep"], do: :keep, else: :replace
-    set_block!(source, position, state, mode, 3)
+    keep = arguments.literals == ["keep"]
+
+    edit!(source, [{position, position}], fn current ->
+      if (keep and not air?(current[position])) or current[position] == state,
+        do: Error.fail!("commands.setblock.failed")
+
+      {%{position => state}, 1}
+    end)
+
     Feedback.success(source, Text.translatable("commands.setblock.success", [x, y, z]))
     1
   end
 
-  defp set_block!(source, {x, _, z} = position, state, mode, attempts) do
-    key = Valimc.World.region_key(Valimc.World.chunk_key(x, z))
+  @doc """
+  A box edit in the source's dimension: `plan` turns the current states of
+  `boxes` (`[{min, max}]`) into `{edits, result}`; the edits commit all or
+  nothing (planned again, at most three times, when a cell changed in between)
+  and the result is returned.
+  """
+  def edit!(source, boxes, plan, attempts \\ 3) do
+    current =
+      Enum.reduce(boxes, %{}, fn {min, max}, current ->
+        case BoxEdit.read(source.dimension, min, max) do
+          {:ok, states} -> Map.merge(current, states)
+          {:error, :unloaded} -> Error.fail!("argument.pos.unloaded")
+        end
+      end)
 
-    with {:ok, owner} <- Source.owner(source, key),
-         {:ok, view} <- Valimc.World.Region.observe_blocks(owner, [position]) do
-      current = view.blocks[position]
-      if mode == :keep and not air?(current), do: Error.fail!("commands.setblock.failed")
-      if current == state, do: Error.fail!("commands.setblock.failed")
+    {edits, result} = plan.(current)
 
-      case Valimc.World.Region.set_blocks(owner, view.fence, %{position => state}) do
-        {:ok, _revision} ->
-          :ok
+    parts =
+      Map.new(BoxEdit.by_region(edits), fn {key, cells} ->
+        {key, %{edits: cells, expected: Map.take(current, Map.keys(cells))}}
+      end)
 
-        {:error, :stale_revision} when attempts > 0 ->
-          set_block!(source, position, state, mode, attempts - 1)
-
-        {:error, reason} ->
-          unsupported!(reason)
-      end
-    else
-      {:error, :chunk_generating} -> Error.fail!("argument.pos.unloaded")
+    case BoxEdit.commit(source.dimension, parts) do
+      :ok -> result
+      {:error, :stale_revision} when attempts > 1 -> edit!(source, boxes, plan, attempts - 1)
+      {:error, :unloaded} -> Error.fail!("argument.pos.unloaded")
       {:error, reason} -> unsupported!(reason)
     end
   end
@@ -377,7 +391,11 @@ defmodule Valimc.Commands.World do
   defp air?(state),
     do: Valimc.Registry.Blocks.name(Valimc.Registry.Blocks.block_id(state)) in @air
 
-  @doc "`/fill <from> <to> <block> [mode]`, one fenced batch per region."
+  @doc """
+  `/fill <from> <to> <block> [mode]`: one box edit, all or nothing across the
+  owners it spans; conditions (`keep`, the `replace` filter) hold for the
+  states the edit commits over.
+  """
   def fill(
         %{"from" => from, "to" => to, "block" => %BlockInput{state: state}} = arguments,
         source
@@ -402,80 +420,30 @@ defmodule Valimc.Commands.World do
     filter = arguments["filter"]
     air = Valimc.Registry.Blocks.default_state("air")
 
-    planned =
-      for z <- za..zb, y <- ya..yb, x <- xa..xb do
-        shell = x in [xa, xb] or y in [ya, yb] or z in [za, zb]
-
-        target =
-          case mode do
-            :outline -> if shell, do: state
-            :hollow -> if shell, do: state, else: air
-            _ -> state
-          end
-
-        {{x, y, z}, target}
-      end
-      |> Enum.reject(&is_nil(elem(&1, 1)))
-
     count =
-      planned
-      |> Enum.group_by(fn {{x, _, z}, _} ->
-        Valimc.World.region_key(Valimc.World.chunk_key(x, z))
-      end)
-      |> Enum.reduce(0, fn {key, edits}, count ->
-        count + fill_region(source, key, edits, mode, filter)
+      edit!(source, [{{xa, ya, za}, {xb, yb, zb}}], fn current ->
+        edits =
+          for {{x, y, z} = position, block} <- current,
+              shell = x in [xa, xb] or y in [ya, yb] or z in [za, zb],
+              target =
+                (case mode do
+                   :outline -> if shell, do: state
+                   :hollow -> if shell, do: state, else: air
+                   _ -> state
+                 end),
+              target != nil,
+              filter == nil or BlockInput.matches?(filter, block),
+              mode != :keep or air?(block),
+              block != target,
+              into: %{},
+              do: {position, target}
+
+        {edits, map_size(edits)}
       end)
 
     if count == 0, do: Error.fail!("commands.fill.failed")
     Feedback.success(source, Text.translatable("commands.fill.success", [count]))
     count
-  end
-
-  defp fill_region(source, key, edits, mode, filter, attempts \\ 3) do
-    {:ok, owner} = Source.owner(source, key)
-    positions = Enum.map(edits, &elem(&1, 0))
-
-    observed =
-      Enum.reduce_while(Enum.chunk_every(positions, 128), {:ok, :any, %{}}, fn batch,
-                                                                               {:ok, revision,
-                                                                                blocks} ->
-        case Valimc.World.Region.observe_blocks(owner, batch, revision) do
-          {:ok, view} -> {:cont, {:ok, view.revision, Map.merge(blocks, view.blocks)}}
-          error -> {:halt, error}
-        end
-      end)
-
-    with {:ok, revision, blocks} <- observed do
-      changes =
-        for {position, target} <- edits,
-            current = blocks[position],
-            filter == nil or BlockInput.matches?(filter, current),
-            mode != :keep or air?(current),
-            current != target,
-            into: %{},
-            do: {position, target}
-
-      commit(owner, revision, Enum.chunk_every(changes, 4096), map_size(changes))
-    end
-    |> case do
-      {:ok, count} ->
-        count
-
-      {:error, :stale_revision} when attempts > 0 ->
-        fill_region(source, key, edits, mode, filter, attempts - 1)
-
-      {:error, reason} ->
-        Error.throw!(%Error{message: Text.literal("Fill could not change the world (#{reason})")})
-    end
-  end
-
-  defp commit(_owner, _revision, [], count), do: {:ok, count}
-
-  defp commit(owner, revision, [batch | rest], count) do
-    case Valimc.World.Region.set_blocks(owner, revision, Map.new(batch)) do
-      {:ok, revision} -> commit(owner, revision, rest, count)
-      error -> error
-    end
   end
 
   # ---- spawn, seed, locate ----

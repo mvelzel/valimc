@@ -37,7 +37,10 @@ defmodule Valimc.Txn.Permits do
     # A proto owner's chunk locks for finalize transactions (VMC-025d2). They
     # end by the transaction's part or abort; the owner renews them while it
     # asks the coordinator, so the lifetime only bounds a forgotten lock.
-    generation: %{limit: 64, lifetime: 3_600_000, per_source: nil, full: :generation_lock_limit}
+    generation: %{limit: 64, lifetime: 3_600_000, per_source: nil, full: :generation_lock_limit},
+    # A box edit's cells (VMC-077o), locked from its prepare to its commit or
+    # abort; the lifetime only bounds a lock its command abandoned.
+    box_edit: %{limit: 16, lifetime: 5000, scaled: true, per_source: nil, full: :box_edits_busy}
   }
 
   def new, do: %__MODULE__{}
@@ -146,14 +149,33 @@ defmodule Valimc.Txn.Permits do
     end
   end
 
-  @doc "Revoke permits bound to any edited position, except the listed kinds."
+  @doc """
+  Whether a live box-edit lock other than `token` holds any of `positions`:
+  writes to locked cells are refused until the lock's commit or abort.
+  """
+  def locked?(%__MODULE__{} = permits, positions, token \\ nil, now) do
+    Enum.any?(permits.entries, fn
+      {held, %{kind: :box_edit, expires: expires, grant: %{cells: cells}}}
+      when held != token and expires > now ->
+        Enum.any?(positions, &MapSet.member?(cells, &1))
+
+      _ ->
+        false
+    end)
+  end
+
+  @doc """
+  Revoke permits bound to any edited position, except the listed kinds. Box
+  edit locks are never revoked: edits to their cells are refused instead.
+  """
   def invalidate(%__MODULE__{} = permits, edits, except \\ []) when is_map(edits) do
     if map_size(edits) == 0 do
       permits
     else
       entries =
         Map.reject(permits.entries, fn {_, entry} ->
-          entry.kind not in except and Enum.any?(entry.positions, &Map.has_key?(edits, &1))
+          entry.kind not in [:box_edit | except] and
+            Enum.any?(entry.positions, &Map.has_key?(edits, &1))
         end)
 
       %{permits | entries: entries}
