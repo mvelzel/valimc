@@ -53,19 +53,28 @@ defmodule Valimc.Worldgen.FullChunk do
   defp block_entities(list, entities) do
     Enum.reduce_while(list, {:ok, entities}, fn entity, {:ok, acc} ->
       with {:ok, tag} <- block_entity_tag(entity),
-           {:ok, position, {:preserved, type}} <- BlockEntity.convert(tag, entity.state),
+           {:ok, position, held} <- BlockEntity.convert(tag, entity.state),
+           {:ok, type} <- preserved_type(held, entity.state),
            {:ok, nbt} <- BlockEntities.encode_nbt(tag) do
         {:cont, {:ok, Map.put(acc, position, {type, nbt})}}
       else
+        :fresh ->
+          {:cont, {:ok, acc}}
+
+        # One vanilla would not load either (VMC-025f5).
+        {:drop, reason} ->
+          Logger.warning(
+            "Generated block entity at #{inspect(entity.position)} dropped: #{inspect(reason)}"
+          )
+
+          {:cont, {:ok, acc}}
+
         {:error, {:unsupported_block_entity, id}} ->
           Logger.warning("Generated block entity #{id} at #{inspect(entity.position)} left out")
           {:cont, {:ok, acc}}
 
         {:error, reason} ->
           {:halt, {:error, {:generated_block_entity, entity.position, reason}}}
-
-        other ->
-          {:halt, {:error, {:generated_block_entity, entity.position, other}}}
       end
     end)
   end
@@ -83,6 +92,31 @@ defmodule Valimc.Worldgen.FullChunk do
          {:ok, nbt} <- BlockEntities.encode_nbt(tag),
          do: {:ok, {type, nbt}}
   end
+
+  # A container a template gave contents ValiMC owns (VMC-025f5: a village's
+  # furnaces and smokers, an empty chest). Empty, it is the block's fresh
+  # block entity, which the region makes when it is used; with contents it is
+  # kept as data, as an import keeps one it cannot own.
+  defp preserved_type({:preserved, type}, _state), do: {:ok, type}
+
+  defp preserved_type({:chest, slots}, state),
+    do: if(empty?(slots), do: :fresh, else: kept(state))
+
+  defp preserved_type({:cooking, %{cooking: cooking, recipes: recipes}}, state) do
+    if empty?(cooking.slots) and cooking.burn_left == 0 and cooking.progress == 0 and
+         recipes == %{},
+       do: :fresh,
+       else: kept(state)
+  end
+
+  defp kept(state) do
+    case Valimc.Physics.BlockEntities.type_id(state) do
+      nil -> {:error, :no_block_entity}
+      type -> {:ok, type}
+    end
+  end
+
+  defp empty?(slots), do: Enum.all?(Tuple.to_list(slots), &is_nil/1)
 
   @doc "A full chunk's block entity as vanilla's full chunk saves it."
   def block_entity_tag(%{position: {x, y, z}} = entity) do

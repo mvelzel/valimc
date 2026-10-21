@@ -127,6 +127,14 @@ root =
                                                             {failures, chunks, entities} ->
         key = {rx, rz}
         {:ok, full} = Proto.full_chunks(key)
+
+        # The region store takes them as a live region does (VMC-025f5: a
+        # template's smoker once failed there).
+        case FullChunk.parts(full, %{}, []) do
+          {:ok, _} -> :ok
+          error -> raise "region #{inspect(key)} cannot store its full chunks: #{inspect(error)}"
+        end
+
         {:ok, owner} = Proto.owner(key)
         images = :sys.get_state(owner).chunks
         own = Proto.chunks_of(key)
