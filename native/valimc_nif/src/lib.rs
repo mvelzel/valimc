@@ -121,8 +121,10 @@ fn set_blocks(
     })
 }
 
-/// `{sections, world_surface_longs, motion_blocking_longs}` for one chunk.
+/// `{sections, world_surface_longs, motion_blocking_longs}` for one chunk's
+/// stored sections `first..first + count` (the dimension's window).
 #[rustler::nif]
+#[allow(clippy::too_many_arguments)]
 fn encode_chunk<'a>(
     env: Env<'a>,
     region: ResourceArc<Region>,
@@ -131,19 +133,21 @@ fn encode_chunk<'a>(
     biome: u32,
     global_bits: u32,
     biome_bits: u32,
+    window: (usize, usize),
 ) -> Result<Term<'a>, Atom> {
     let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
     if !(1..=16).contains(&global_bits) || !(1..=16).contains(&biome_bits) {
         return Err(atoms::invalid_state());
     }
+    let whole = window == (0, valimc_core::column::SECTIONS);
     let encoded = with_store(&region, |store| {
-        if !store.touched((cx, cz)) {
+        if whole && !store.touched((cx, cz)) {
             // Callers keep a cached packet for the unmodified base profile.
             store.check_chunk((cx, cz)).map_err(error)?;
             return Ok(None);
         }
         store
-            .encode_chunk((cx, cz), flags, biome, global_bits, biome_bits)
+            .encode_chunk((cx, cz), flags, biome, global_bits, biome_bits, window)
             .map(Some)
             .map_err(error)
     })?;
@@ -699,6 +703,15 @@ fn light_columns<'a>(
             (cx, cz, binary(env, &out))
         })
         .collect())
+}
+
+/// Whether the region's dimension has sky light (VMC-026b); set before lighting.
+#[rustler::nif]
+fn light_sky(region: ResourceArc<Region>, sky: bool) -> Result<Atom, Atom> {
+    with_store(&region, |store| {
+        store.sky = sky;
+        Ok(atoms::ok())
+    })
 }
 
 /// Light the region and its ring from scratch (VMC-022c).
@@ -1589,6 +1602,8 @@ struct FullBlockEntity {
     loot_seed: i64,
     spawner_entity: Option<String>,
     bees: Vec<i32>,
+    /// An end gateway's exit and exact teleport (VMC-026b).
+    exit: Option<((i32, i32, i32), bool)>,
 }
 
 /// A decorated chunk made full (VMC-025d): its column image (protocol biome
@@ -1641,6 +1656,7 @@ fn worldgen_proto_full<'a>(
                     loot_seed: data.map_or(0, |d| d.loot_seed),
                     spawner_entity: data.and_then(|d| d.spawner_entity.clone()),
                     bees: data.map_or_else(Vec::new, |d| d.bees.clone()),
+                    exit: data.and_then(|d| d.exit.map(|(e, exact)| ((e[0], e[1], e[2]), exact))),
                 }
             })
             .collect();

@@ -48,7 +48,7 @@ defmodule Valimc.World.LightHalo do
   end
 
   defp owner(key) do
-    case Registry.lookup(Valimc.RegionRegistry, key) do
+    case Registry.lookup(Valimc.RegionRegistry, Valimc.Dimension.scope(key)) do
       [{pid, _}] when pid != self() -> pid
       _ -> nil
     end

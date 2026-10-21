@@ -104,14 +104,17 @@ defmodule Valimc.Physics.CollisionQuery do
     deadline = now() + @timeout
 
     {:ok,
-     Task.Supervisor.async_nolink(workers, fn ->
-       with {:ok, sources} <- resolve(groups, admit),
-            {:ok, observations} <- observe(sources, deadline),
-            {:ok, result} <- finish.(observations),
-            :ok <- verify_frame(verify, observations, sources) do
-         if now() < deadline, do: {:ok, result}, else: {:error, :collision_query_timeout}
-       end
-     end)}
+     Task.Supervisor.async_nolink(
+       workers,
+       Valimc.Dimension.bind(fn ->
+         with {:ok, sources} <- resolve(groups, admit),
+              {:ok, observations} <- observe(sources, deadline),
+              {:ok, result} <- finish.(observations),
+              :ok <- verify_frame(verify, observations, sources) do
+           if now() < deadline, do: {:ok, result}, else: {:error, :collision_query_timeout}
+         end
+       end)
+     )}
   rescue
     RuntimeError -> {:error, :collision_workers_busy}
   catch

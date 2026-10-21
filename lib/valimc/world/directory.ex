@@ -7,19 +7,23 @@ defmodule Valimc.World.Directory do
 
   def start_link(_), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
+  # Rows are keyed by the region key scoped by the caller's dimension
+  # (`Valimc.Dimension.scope/1`, VMC-026b).
   def lookup(key) do
-    case :ets.lookup(@table, key) do
-      [{^key, pid, token, _monitor, publication}] -> {pid, token, publication}
+    scoped = Valimc.Dimension.scope(key)
+
+    case :ets.lookup(@table, scoped) do
+      [{^scoped, pid, token, _monitor, publication}] -> {pid, token, publication}
       [] -> nil
     end
   rescue
     ArgumentError -> nil
   end
 
-  def admit(key), do: GenServer.call(__MODULE__, {:admit, key})
+  def admit(key), do: GenServer.call(__MODULE__, {:admit, Valimc.Dimension.scope(key)})
 
   def publish(key, token, publication),
-    do: GenServer.call(__MODULE__, {:publish, key, token, publication})
+    do: GenServer.call(__MODULE__, {:publish, Valimc.Dimension.scope(key), token, publication})
 
   @impl true
   def init(_) do

@@ -98,6 +98,10 @@ defmodule Valimc.Worldgen.FullChunk do
     {:ok, "minecraft:beehive", %{"bees" => Valimc.NBT.list(Enum.map(bees, &bee/1))}}
   end
 
+  # An end gateway with its exit (VMC-026b, `TheEndGatewayBlockEntity.saveAdditional`).
+  defp fields(%{kind: "minecraft:end_gateway", exit: exit}),
+    do: {:ok, "minecraft:end_gateway", gateway(exit)}
+
   # A pending block entity: its block's new one.
   defp fields(%{kind: nil, state: state}) do
     case Valimc.Physics.BlockEntities.type_id(state) do
@@ -107,6 +111,17 @@ defmodule Valimc.Worldgen.FullChunk do
   end
 
   defp fields(entity), do: {:error, {:unsupported_block_entity, entity.kind}}
+
+  defp gateway(nil), do: %{"Age" => {:long, 0}}
+
+  defp gateway({{x, y, z}, exact}) do
+    exit = %{
+      "Age" => {:long, 0},
+      "exit_portal" => {:int_array, <<x::signed-32, y::signed-32, z::signed-32>>}
+    }
+
+    if exact, do: Map.put(exit, "ExactTeleport", {:byte, 1}), else: exit
+  end
 
   # `RandomizableContainer.trySaveLootTable`: the table, and its seed unless 0.
   defp loot(%{loot_table: nil}), do: %{}
@@ -153,6 +168,8 @@ defmodule Valimc.Worldgen.FullChunk do
 
   defp default("minecraft:brushable_block" = id), do: {:ok, id, %{}}
   defp default("minecraft:mob_spawner" = id), do: {:ok, id, spawner(nil)}
+  defp default("minecraft:end_gateway" = id), do: {:ok, id, gateway(nil)}
+  defp default("minecraft:end_portal" = id), do: {:ok, id, %{}}
   defp default("minecraft:creaking_heart" = id), do: {:ok, id, %{}}
   defp default("minecraft:potent_sulfur" = id), do: {:ok, id, %{"countdown" => {:int, -1}}}
 

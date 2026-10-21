@@ -23,7 +23,8 @@ defmodule Valimc.PlayerSnapshot do
                 )
   @max_sequence 18_446_744_073_709_551_615
   @max_bytes 56 + 4 + 3 + 8 + 4 + 24 + 12 + 8 + 13 + 2 + 11 + @inventory_bytes + @outbox_bytes +
-               32 + 1 + 5 + 1 + PlayerEffects.max_bytes() + 5 + 27
+               32 + 1 + 5 + 1 + PlayerEffects.max_bytes() + 5 + 27 + 8
+  @dimensions [:overworld, :the_nether, :the_end]
 
   def max_bytes, do: @max_bytes
 
@@ -94,6 +95,16 @@ defmodule Valimc.PlayerSnapshot do
     snapshot =
       if Map.has_key?(player, :effects),
         do: Map.put(snapshot, :effects, player.effects),
+        else: snapshot
+
+    snapshot =
+      if Map.has_key?(player, :dimension),
+        do:
+          Map.merge(snapshot, %{
+            dimension: player.dimension,
+            death_dimension: Map.get(player, :death_dimension, :overworld),
+            portal_cooldown: Map.get(player, :portal_cooldown, 0)
+          }),
         else: snapshot
 
     case player do
@@ -307,6 +318,19 @@ defmodule Valimc.PlayerSnapshot do
         {version, journal}
       end
 
+    # VMC-026b: the player's dimension, that of its last death and its portal
+    # cooldown; overworld players off cooldown keep the version without them.
+    dimension = Map.get(snapshot, :dimension, :overworld)
+    death_dimension = Map.get(snapshot, :death_dimension, :overworld)
+    cooldown = Map.get(snapshot, :portal_cooldown, 0)
+    check(dimension in @dimensions and death_dimension in @dimensions, :invalid_dimension)
+    check(is_integer(cooldown) and cooldown in 0..2_147_483_647, :invalid_portal_cooldown)
+
+    {version, journal} =
+      if dimension == :overworld and death_dimension == :overworld and cooldown == 0,
+        do: {version, journal},
+        else: {22, [<<version, index(dimension), index(death_dimension), cooldown::32>>, journal]}
+
     payload =
       IO.iodata_to_binary([
         <<"VMCPOSE", version, uuid::binary-size(16), pose.x::float-64, pose.y::float-64,
@@ -330,6 +354,23 @@ defmodule Valimc.PlayerSnapshot do
     payload_bytes = byte_size(bytes) - 32
     <<payload::binary-size(^payload_bytes), checksum::binary-size(32)>> = bytes
     check(:crypto.hash(:sha256, payload) == checksum, :invalid_player_file)
+
+    {payload, dimensions} =
+      case payload do
+        <<"VMCPOSE", 22, header::binary-size(52), base, dimension, death, cooldown::32,
+          body::binary>>
+        when base in 2..21 and dimension in 0..2 and death in 0..2 and
+               cooldown <= 2_147_483_647 ->
+          {<<"VMCPOSE", base, header::binary, body::binary>>,
+           %{
+             dimension: Enum.at(@dimensions, dimension),
+             death_dimension: Enum.at(@dimensions, death),
+             portal_cooldown: cooldown
+           }}
+
+        _ ->
+          {payload, %{}}
+      end
 
     {payload, progression} =
       case payload do
@@ -395,7 +436,8 @@ defmodule Valimc.PlayerSnapshot do
          |> Map.merge(burning)
          |> Map.merge(effects)
          |> Map.merge(absorption)
-         |> Map.merge(progression)}
+         |> Map.merge(progression)
+         |> Map.merge(dimensions)}
 
       error ->
         error
@@ -747,4 +789,6 @@ defmodule Valimc.PlayerSnapshot do
 
   defp check(true, _), do: :ok
   defp check(false, reason), do: throw({:snapshot_error, reason})
+
+  defp index(dimension), do: Enum.find_index(@dimensions, &(&1 == dimension))
 end

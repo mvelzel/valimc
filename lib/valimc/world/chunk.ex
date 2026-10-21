@@ -7,11 +7,20 @@ defmodule Valimc.World.Chunk do
   @air_states [0, 18_649, 18_650]
   def min_y, do: @min_y
   def max_y, do: @max_y
-  def valid_y?(y), do: y >= @min_y and y <= @max_y
+  @doc "Whether `y` is inside the caller's dimension's build height (VMC-026b)."
+  def valid_y?(y) do
+    y >= @min_y and y <= @max_y and
+      (Valimc.Dimension.current() == :overworld or Valimc.Dimension.in_height?(y))
+  end
 
+  @doc """
+  The flat profile's block at `y`. Outside the overworld (VMC-026b) every
+  chunk is generated, and a stored block nothing generated is air.
+  """
   def base(y) do
     cond do
       not valid_y?(y) -> Data.block("air")
+      Valimc.Dimension.current() != :overworld -> Data.block("air")
       y == -64 -> Data.block("bedrock")
       y < 60 -> Data.block("stone")
       y < 63 -> Data.block("dirt")
@@ -26,7 +35,7 @@ defmodule Valimc.World.Chunk do
   def load! do
     {_id, payload} = encode_full({0, 0}, %{})
     <<_coordinates::binary-size(8), tail::binary>> = IO.iodata_to_binary(payload)
-    light = IO.iodata_length(Valimc.Anvil.Light.packet(nil))
+    light = IO.iodata_length(Valimc.Anvil.Light.packet(nil, :overworld))
     # The flat chunk's heightmaps, sections and (no) block entities; light follows.
     :persistent_term.put({__MODULE__, :flat_body}, binary_part(tail, 0, byte_size(tail) - light))
   end

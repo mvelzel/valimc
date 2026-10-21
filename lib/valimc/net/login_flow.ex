@@ -131,6 +131,9 @@ defmodule Valimc.Net.LoginFlow do
       equipment: %{},
       health: %PlayerHealth{},
       last_death: nil,
+      dimension: :overworld,
+      death_dimension: :overworld,
+      portal_cooldown: 0,
       pose: :standing,
       ready: false
     }
@@ -189,6 +192,9 @@ defmodule Valimc.Net.LoginFlow do
               abilities: abilities,
               health: health,
               last_death: Map.get(snapshot, :last_death),
+              dimension: Map.get(snapshot, :dimension, :overworld),
+              death_dimension: Map.get(snapshot, :death_dimension, :overworld),
+              portal_cooldown: Map.get(snapshot, :portal_cooldown, 0),
               motion:
                 PlayerMotion.flight(
                   %PlayerMotion{
@@ -219,6 +225,8 @@ defmodule Valimc.Net.LoginFlow do
           reject(state, "Player save unavailable; please retry after storage is repaired")
       end
 
+    # The connection works in its player's dimension from here on (VMC-026b).
+    Valimc.Dimension.put(player.dimension)
     Players.update(self(), player)
 
     state = %{

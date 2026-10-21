@@ -211,7 +211,10 @@ defmodule Valimc.PlayerStore do
               :food,
               :velocity,
               :health,
-              :last_death
+              :last_death,
+              :dimension,
+              :death_dimension,
+              :portal_cooldown
             ])
           ),
         else: next
@@ -359,7 +362,9 @@ defmodule Valimc.PlayerStore do
         {:deliver_close, id},
         %{closing: %{id: id, job: nil, retry_timer: nil} = closing} = state
       ) do
-    case TransferDelivery.start(self(), make_ref(), state.uuid, state.snapshot) do
+    case Valimc.Dimension.within(dimension(state.snapshot), fn ->
+           TransferDelivery.start(self(), make_ref(), state.uuid, state.snapshot)
+         end) do
       {:ok, job} -> {:noreply, %{state | closing: %{closing | job: job}}}
       error -> closing_failure(state, error)
     end
@@ -576,8 +581,17 @@ defmodule Valimc.PlayerStore do
     {:noreply, state}
   end
 
+  # A pending outbox targets the snapshot's dimension (VMC-026b): a player
+  # changes dimension only with no transfer pending.
+  defp dimension(snapshot), do: Map.get(snapshot, :dimension, :overworld)
+
   # What the destination's durable receipt proves about the pending outbox.
-  defp destination_proof(%{snapshot: %{outbox: outbox} = snapshot} = state) when outbox != nil do
+  defp destination_proof(%{snapshot: %{outbox: outbox} = snapshot} = state) when outbox != nil,
+    do: Valimc.Dimension.within(dimension(snapshot), fn -> proof(snapshot, state) end)
+
+  defp destination_proof(_state), do: {:error, :no_pending_transfer}
+
+  defp proof(snapshot, state) do
     operation = Valimc.Txn.Operation.of(snapshot)
 
     with {:ok, key, request, digest} <- operation.request(state.uuid, snapshot),
@@ -600,8 +614,6 @@ defmodule Valimc.PlayerStore do
   catch
     :exit, _ -> {:error, :transfer_destination_unavailable}
   end
-
-  defp destination_proof(_state), do: {:error, :no_pending_transfer}
 
   defp resolved_snapshot(uuid, snapshot, proof),
     do: Valimc.Txn.Operation.of(snapshot).resolve(uuid, snapshot, proof)

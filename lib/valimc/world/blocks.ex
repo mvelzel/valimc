@@ -53,6 +53,8 @@ defmodule Valimc.World.Blocks do
     size = Valimc.config(:region_size)
     layers = for y <- Chunk.min_y()..319, into: <<>>, do: <<Chunk.base(y)::16>>
     {:ok, ref} = Native.region_new(rx * size, rz * size, size, layers, @budget)
+    # The owner's dimension may have no sky light (the Nether, VMC-026b).
+    unless Valimc.Dimension.facts().sky_light, do: {:ok, :ok} = Native.light_sky(ref, false)
     blocks = %__MODULE__{ref: ref, key: key}
 
     restored =
@@ -157,7 +159,8 @@ defmodule Valimc.World.Blocks do
 
   @doc """
   Section data and heightmaps for a chunk packet, or `:flat` for an untouched
-  chunk (callers use the cached flat packet). The owner hands the result to a worker.
+  overworld chunk (callers use the cached flat packet). Only the owner's
+  dimension's sections are encoded. The owner hands the result to a worker.
   """
   def encode(%__MODULE__{} = blocks, {cx, cz} = chunk) do
     biome = Data.registry_id("minecraft:worldgen/biome", "minecraft:plains")
@@ -168,7 +171,8 @@ defmodule Valimc.World.Blocks do
            cz,
            biome,
            Data.global_block_bits(),
-           Data.global_biome_bits()
+           Data.global_biome_bits(),
+           Valimc.Dimension.section_window()
          ) do
       {:ok, :flat} ->
         :flat

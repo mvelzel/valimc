@@ -15,6 +15,10 @@ pub trait LightBlocks {
     fn wx(&self) -> usize;
     fn wz(&self) -> usize;
     fn state(&self, x: usize, y: usize, z: usize) -> u16;
+    /// Whether the dimension has sky light (the Nether has none, VMC-026b).
+    fn has_sky(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -397,6 +401,9 @@ impl Increase {
 
 /// The lowest sky source of a column (`ChunkSkyLightSources`); `HEIGHT` when none.
 pub fn lowest_source(blocks: &impl LightBlocks, facts: &LightFacts, x: usize, z: usize) -> usize {
+    if !blocks.has_sky() {
+        return HEIGHT;
+    }
     let mut above = 0u16;
     for y in (0..HEIGHT).rev() {
         let state = blocks.state(x, y, z);
@@ -493,6 +500,51 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The Nether's blocks: no sky light anywhere (VMC-026b).
+    struct Skyless(Dense);
+
+    impl LightBlocks for Skyless {
+        fn wx(&self) -> usize {
+            self.0.wx
+        }
+        fn wz(&self) -> usize {
+            self.0.wz
+        }
+        fn state(&self, x: usize, y: usize, z: usize) -> u16 {
+            self.0.state(x, y, z)
+        }
+        fn has_sky(&self) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn a_dimension_without_sky_has_only_block_light() {
+        let f = facts();
+        let (wx, wz) = (16, 16);
+        let mut states = vec![0u16; wx * wz * HEIGHT];
+        // A torch in an open column and a stone floor.
+        for x in 0..wx {
+            for z in 0..wz {
+                states[(x * wz + z) * HEIGHT + 60] = 1;
+            }
+        }
+        states[(8 * wz + 8) * HEIGHT + 61] = 2;
+        let mut blocks = Skyless(Dense { wx, wz, states });
+        let mut grid = LightGrid::compute(&blocks, &f);
+        let sky_lit = |grid: &LightGrid| {
+            (0..wx)
+                .any(|x| (0..wz).any(|z| (0..HEIGHT).any(|y| grid.get(Kind::Sky, (x, y, z)) > 0)))
+        };
+        assert!(!sky_lit(&grid));
+        assert_eq!(grid.get(Kind::Block, (8, 61, 8)), 14);
+        assert_eq!(grid.get(Kind::Block, (8, 62, 10)), 11);
+        // Opening the floor brings no sky light either.
+        blocks.0.states[(3 * wz + 3) * HEIGHT + 60] = 0;
+        grid.update(&blocks, &f, &[(3, 60, 3)]);
+        assert!(!sky_lit(&grid));
     }
 
     #[test]

@@ -168,7 +168,10 @@ defmodule Valimc.Session.Replication do
   end
 
   def visible?(state, player),
-    do: player.pid != self() and sees?(state, {player.x, player.z}, @player_range)
+    do:
+      player.pid != self() and
+        Map.get(player, :dimension, :overworld) == Map.get(state.player, :dimension, :overworld) and
+        sees?(state, {player.x, player.z}, @player_range)
 
   @doc """
   Whether the player sees an entity at `{x, z}` whose type vanilla tracks `range`

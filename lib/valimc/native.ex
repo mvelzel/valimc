@@ -19,6 +19,7 @@ defmodule Valimc.Native do
   def light_columns(_images, _min_cx, _min_cz, _chunks_x, _chunks_z),
     do: :erlang.nif_error(:nif_not_loaded)
 
+  def light_sky(_region, _sky), do: :erlang.nif_error(:nif_not_loaded)
   def light_compute(_region), do: :erlang.nif_error(:nif_not_loaded)
   def light_update(_region, _positions), do: :erlang.nif_error(:nif_not_loaded)
   def light_update_dirty(_region, _positions), do: :erlang.nif_error(:nif_not_loaded)
@@ -95,7 +96,7 @@ defmodule Valimc.Native do
   def get_blocks(_region, _positions), do: :erlang.nif_error(:nif_not_loaded)
   def set_blocks(_region, _changes), do: :erlang.nif_error(:nif_not_loaded)
 
-  def encode_chunk(_region, _cx, _cz, _biome, _bits, _biome_bits),
+  def encode_chunk(_region, _cx, _cz, _biome, _bits, _biome_bits, _window),
     do: :erlang.nif_error(:nif_not_loaded)
 
   def put_column(_region, _cx, _cz, _sections), do: :erlang.nif_error(:nif_not_loaded)

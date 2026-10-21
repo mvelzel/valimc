@@ -1350,6 +1350,8 @@ impl Worldgen {
     /// 24 sections and its biomes as protocol biome ids (`protocol_biomes`,
     /// indexed by biome registry id), with each column's highest non-air block
     /// (`WORLD_SURFACE_WG - 1`, z * 16 + x order; below the world when none).
+    /// Another dimension's blocks keep their Y in the overworld's 24 sections
+    /// (VMC-026b), the rest air.
     pub fn generate_column(
         &mut self,
         chunk_x: i32,
@@ -1357,12 +1359,15 @@ impl Worldgen {
         biome_source: &str,
         protocol_biomes: &[u16],
     ) -> Result<(Column, [i32; 256]), String> {
-        if self.settings.min_y != COLUMN_MIN_Y || self.settings.height != COLUMN_HEIGHT as i32 {
-            return Err("columns hold the overworld's height only".into());
-        }
         let filled = self.build_terrain(chunk_x, chunk_z, biome_source, true)?;
         let biomes = self.cached_chunk_biomes(biome_source, chunk_x, chunk_z)?;
-        self.column_of(&filled.blocks, &biomes, protocol_biomes)
+        self.column_of(
+            &filled.blocks,
+            (self.settings.min_y, self.settings.height),
+            &biomes,
+            self.biome_bounds.0,
+            protocol_biomes,
+        )
     }
 
     /// A finished proto chunk as a ValiMC column (VMC-025d), as
@@ -1372,22 +1377,44 @@ impl Worldgen {
         chunk: &ProtoChunk,
         protocol_biomes: &[u16],
     ) -> Result<(Column, [i32; 256]), String> {
-        self.column_of(&chunk.blocks, &chunk.biomes, protocol_biomes)
+        self.column_of(
+            &chunk.blocks,
+            (chunk.min_y, chunk.height),
+            &chunk.biomes,
+            chunk.min_y,
+            protocol_biomes,
+        )
     }
 
-    /// Blocks (Y fastest from the bottom, then X, then Z) and chunk biomes as
-    /// a column, with each column's highest non-air block.
+    /// Blocks (Y fastest from `min_y`, then X, then Z, `height` of them per
+    /// column) and chunk biomes (sections from `biome_min_y`) as a column of
+    /// the overworld's 24 sections: blocks outside their bounds are air,
+    /// sections outside the biomes' take the nearest section's. With each
+    /// column's highest non-air block.
     fn column_of(
         &self,
         blocks: &[u16],
+        (min_y, height): (i32, i32),
         biomes: &[u16],
+        biome_min_y: i32,
         protocol_biomes: &[u16],
     ) -> Result<(Column, [i32; 256]), String> {
-        if self.settings.min_y != COLUMN_MIN_Y || self.settings.height != COLUMN_HEIGHT as i32 {
-            return Err("columns hold the overworld's height only".into());
+        let air = self.registry.blocks.air;
+        let rows = height as usize;
+        if blocks.len() != 256 * rows || biomes.is_empty() || biomes.len() % 64 != 0 {
+            return Err("a chunk's blocks or biomes do not fit its bounds".into());
         }
-        let height = COLUMN_HEIGHT;
-        let at = |x: usize, y: usize, z: usize| blocks[y + (x + z * 16) * height];
+        // The block at column Y index `y` (0 at the overworld's bottom).
+        let at = |x: usize, y: usize, z: usize| -> u16 {
+            let world_y = COLUMN_MIN_Y + y as i32;
+            if world_y < min_y || world_y >= min_y + height {
+                air
+            } else {
+                blocks[(world_y - min_y) as usize + (x + z * 16) * rows]
+            }
+        };
+        let biome_sections = (biomes.len() / 64) as i32;
+        let first_biome_section = (biome_min_y - COLUMN_MIN_Y).div_euclid(16);
         let mut sections = Vec::with_capacity(COLUMN_SECTIONS);
         let mut section_biomes = Vec::with_capacity(COLUMN_SECTIONS);
         for s in 0..COLUMN_SECTIONS {
@@ -1405,7 +1432,8 @@ impl Worldgen {
             }
             storage.normalize();
             sections.push(storage);
-            let cells: Vec<u16> = biomes[s * 64..s * 64 + 64]
+            let b = (s as i32 - first_biome_section).clamp(0, biome_sections - 1) as usize;
+            let cells: Vec<u16> = biomes[b * 64..b * 64 + 64]
                 .iter()
                 .map(|&b| {
                     protocol_biomes
@@ -1424,7 +1452,7 @@ impl Worldgen {
         let mut heights = [COLUMN_MIN_Y - 1; 256];
         for z in 0..16 {
             for x in 0..16 {
-                if let Some(top) = (0..height)
+                if let Some(top) = (0..COLUMN_HEIGHT)
                     .rev()
                     .find(|&y| flags[at(x, y, z) as usize] & 1 == 0)
                 {

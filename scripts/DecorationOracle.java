@@ -434,8 +434,8 @@ public class DecorationOracle {
   static final int REGION = 8;
 
   /**
-   * `OUT TYPES live` (VMC-025d2): regions finalized one after the other as ValiMC's live
-   * generation does it. For each case (seed, regions in order), the 12 × 12 chunks around each
+   * `OUT TYPES [nether|end] live` (VMC-025d2, VMC-026b): regions of the selected dimension
+   * finalized one after the other as ValiMC's live generation does it. For each case (seed, regions in order), the 12 × 12 chunks around each
    * region get terrain, then each region's undecorated chunks of the 10 × 10 around it are
    * decorated, Z outer and X inner. Output per finalized region its 64 chunks as `chunkJson`
    * writes them, plus each block entity as the full chunk saves it: a created one with what
@@ -457,6 +457,9 @@ public class DecorationOracle {
         new Case(20261020L, List.of(new ChunkPos(2, -3), new ChunkPos(3, -3)), "large_biomes", null),
         new Case(12345L, List.of(new ChunkPos(0, 0)), "amplified", null),
         new Case(20261020L, List.of(new ChunkPos(-5, 4)), "overworld", "plains"));
+    // The Nether's and the End's: the first three areas with their own noise settings (VMC-026b).
+    if (!DIMENSION.equals("overworld"))
+      cases = cases.subList(0, 3).stream().map(c -> new Case(c.seed(), c.regions(), SETTINGS.identifier().getPath(), null)).toList();
     if (LIVE_ONE) cases = cases.subList(0, 1);
     var createFluidPicker = NoiseBasedChunkGenerator.class.getDeclaredMethod("createFluidPicker", NoiseGeneratorSettings.class);
     createFluidPicker.setAccessible(true);
@@ -471,8 +474,9 @@ public class DecorationOracle {
       var state = RandomState.create(noises, c.seed(), caseSettings);
       Holder<Biome> fixed = c.fixed() == null ? null : biomeLookup.getOrThrow(net.minecraft.resources.ResourceKey.create(
           Registries.BIOME, net.minecraft.resources.Identifier.withDefaultNamespace(c.fixed())));
+      // Otherwise the selected dimension's biome source (VMC-026b: the Nether's and the End's live too).
       BiomeSource biomeSource = fixed != null ? new net.minecraft.world.level.biome.FixedBiomeSource(fixed)
-          : MultiNoiseBiomeSource.createFromList(TerrainOracle.freshList(MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD, biomeLookup));
+          : biomeSource(biomeLookup);
       // A fixed source's feature order: FeatureSorter over its one biome.
       var caseSteps = fixed == null ? steps : FeatureSorter.buildFeaturesPerStep(List.of(fixed),
           b -> b.value().getGenerationSettings().features(), true);
@@ -569,11 +573,14 @@ public class DecorationOracle {
     defaults.add("minecraft:suspicious_sand loot minecraft:archaeology/desert_well 7," + encode(sand));
     var result = new JsonObject();
     result.addProperty("region_size", REGION);
+    result.addProperty("dimension", DIMENSION);
+    result.addProperty("min_y", MIN_Y);
+    result.addProperty("height", HEIGHT);
     result.add("features", includedJson);
     result.add("defaults", defaults);
     result.add("cases", rows);
     Files.writeString(out, new Gson().toJson(result));
-    System.out.println("PASS: " + cases.size() + " live generation sequences (" + blocks + " blocks of final chunks, "
+    System.out.println("PASS: " + DIMENSION + ": " + cases.size() + " live generation sequences (" + blocks + " blocks of final chunks, "
         + entities + " block entities)");
   }
 

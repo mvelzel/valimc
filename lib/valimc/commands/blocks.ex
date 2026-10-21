@@ -9,7 +9,8 @@ defmodule Valimc.Commands.Blocks do
   alias Valimc.Registry.Blocks
   alias Valimc.World.ForcedChunks
 
-  @overworld "minecraft:overworld"
+  # The source's dimension, as forceload messages name it.
+  defp here, do: Valimc.Dimension.name(Valimc.Dimension.current())
   @limit 32_768
 
   # ---- clone ----
@@ -82,9 +83,14 @@ defmodule Valimc.Commands.Blocks do
   defp filter(%{:mask => :filtered, "filter" => filter}), do: &BlockInput.matches?(filter, &1)
   defp filter(_), do: fn _ -> true end
 
+  # Cloning within the source's dimension (VMC-026b); across dimensions is unsupported.
   defp dimension!(nil), do: :ok
-  defp dimension!(@overworld), do: :ok
-  defp dimension!(id), do: Error.fail!("argument.dimension.invalid", [id])
+
+  defp dimension!(id) do
+    if Valimc.Dimension.parse(id) == {:ok, Valimc.Dimension.current()},
+      do: :ok,
+      else: Error.fail!("argument.dimension.invalid", [id])
+  end
 
   defp loaded!(source, coordinates) do
     {x, y, z} = Source.block_pos(source, coordinates)
@@ -179,7 +185,7 @@ defmodule Valimc.Commands.Blocks do
       [chunk] ->
         Feedback.success(
           source,
-          Text.translatable("commands.forceload.#{key}.single", [chunk_text(chunk), @overworld])
+          Text.translatable("commands.forceload.#{key}.single", [chunk_text(chunk), here()])
         )
 
       many ->
@@ -187,7 +193,7 @@ defmodule Valimc.Commands.Blocks do
           source,
           Text.translatable("commands.forceload.#{key}.multiple", [
             length(many),
-            @overworld,
+            here(),
             chunk_text({cx0, cz0}),
             chunk_text({cx1, cz1})
           ])
@@ -201,7 +207,7 @@ defmodule Valimc.Commands.Blocks do
 
   def forceload_remove_all(_arguments, source) do
     ForcedChunks.remove_all()
-    Feedback.success(source, Text.translatable("commands.forceload.removed.all", [@overworld]))
+    Feedback.success(source, Text.translatable("commands.forceload.removed.all", [here()]))
     {0, source.state}
   end
 
@@ -212,13 +218,13 @@ defmodule Valimc.Commands.Blocks do
     if chunk in ForcedChunks.all() do
       Feedback.success(
         source,
-        Text.translatable("commands.forceload.query.success", [chunk_text(chunk), @overworld]),
+        Text.translatable("commands.forceload.query.success", [chunk_text(chunk), here()]),
         false
       )
 
       {1, source.state}
     else
-      Error.fail!("commands.forceload.query.failure", [chunk_text(chunk), @overworld])
+      Error.fail!("commands.forceload.query.failure", [chunk_text(chunk), here()])
     end
   end
 
@@ -229,19 +235,19 @@ defmodule Valimc.Commands.Blocks do
 
     case chunks do
       [] ->
-        Feedback.failure(source, Text.translatable("commands.forceload.added.none", [@overworld]))
+        Feedback.failure(source, Text.translatable("commands.forceload.added.none", [here()]))
 
       [_] ->
         Feedback.success(
           source,
-          Text.translatable("commands.forceload.list.single", [@overworld, list]),
+          Text.translatable("commands.forceload.list.single", [here(), list]),
           false
         )
 
       many ->
         Feedback.success(
           source,
-          Text.translatable("commands.forceload.list.multiple", [length(many), @overworld, list]),
+          Text.translatable("commands.forceload.list.multiple", [length(many), here(), list]),
           false
         )
     end

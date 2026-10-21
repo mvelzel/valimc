@@ -26,9 +26,12 @@ defmodule Valimc.Players do
     :ok
   end
 
+  @doc "Players in `regions` of the caller's dimension."
   def nearby(regions) do
     Enum.reduce(regions, MapSet.new(), fn key, players ->
-      Enum.reduce(:ets.lookup(Valimc.SpatialIndex, key), players, fn {_, pid}, acc ->
+      scoped = Valimc.Dimension.scope(key)
+
+      Enum.reduce(:ets.lookup(Valimc.SpatialIndex, scoped), players, fn {_, pid}, acc ->
         MapSet.put(acc, pid)
       end)
     end)
@@ -38,6 +41,7 @@ defmodule Valimc.Players do
   # only when that view changed; full maps are read only for newly visible peers.
   @replica_keys [
     :pid,
+    :dimension,
     :entity_id,
     :uuid,
     :name,
@@ -88,8 +92,13 @@ defmodule Valimc.Players do
     end
   end
 
+  # Region keys of the player's dimension (VMC-026b).
   defp spatial_key(player),
-    do: Valimc.World.region_key(Valimc.World.chunk_key(player.x, player.z))
+    do:
+      Valimc.Dimension.scope(
+        Map.get(player, :dimension, :overworld),
+        Valimc.World.region_key(Valimc.World.chunk_key(player.x, player.z))
+      )
 
   def broadcast(event, except \\ nil) do
     # Select only ready pids; copying every full player map would make chat O(N * state).

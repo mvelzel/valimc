@@ -6,7 +6,25 @@ defmodule Valimc.Player.Teleports do
   """
   alias Valimc.PlayerMotion
 
+  # Another dimension's pose travels there (VMC-026b): vanilla's cross-level
+  # `teleportTo` arrives at rest and starts no portal cooldown.
+  def apply(%{life_stage: :alive} = state, %{dimension: dimension} = pose)
+      when dimension != state.player.dimension do
+    Valimc.Player.Travel.request(state, %{
+      dimension: dimension,
+      x: pose.x * 1.0,
+      y: pose.y * 1.0,
+      z: pose.z * 1.0,
+      yaw: pose.yaw * 1.0,
+      pitch: pose.pitch * 1.0,
+      velocity: {0.0, 0.0, 0.0},
+      portal: false
+    })
+  end
+
   def apply(%{life_stage: :alive} = state, pose) do
+    pose = Map.delete(pose, :dimension)
+
     player =
       Map.merge(state.player, %{
         x: pose.x * 1.0,

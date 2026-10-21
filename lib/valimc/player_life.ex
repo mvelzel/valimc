@@ -22,12 +22,18 @@ defmodule Valimc.PlayerLife do
         pose: :dying
     }
 
+    # The death location names its dimension (VMC-026b).
+    player = Map.put_new(player, :death_dimension, Map.get(player, :dimension, :overworld))
+
     if Map.has_key?(player, :fire_ticks),
       do: %{player | fire_ticks: min(0, player.fire_ticks)},
       else: player
   end
 
-  @doc "The respawned player at `spawn` (`Valimc.World.PlayerSpawn.find/1`)."
+  @doc """
+  The respawned player at `spawn` (`Valimc.World.PlayerSpawn.find/1`), in the
+  overworld: respawn points elsewhere (beds, anchors) arrive with VMC-040.
+  """
   def respawn(player, spawn \\ Valimc.World.Spawn.pose()) do
     %{
       player
@@ -50,8 +56,13 @@ defmodule Valimc.PlayerLife do
     |> Map.put(:food, %Valimc.PlayerFood{})
     |> Map.put(:use_flags, 0)
     |> Map.put(:equipment, %{})
+    |> Map.put(:dimension, :overworld)
   end
 
-  def die(player),
-    do: dead(%{player | last_death: {floor(player.x), floor(player.y), floor(player.z)}})
+  def die(player) do
+    player
+    |> Map.put(:death_dimension, Map.get(player, :dimension, :overworld))
+    |> Map.put(:last_death, {floor(player.x), floor(player.y), floor(player.z)})
+    |> dead()
+  end
 end

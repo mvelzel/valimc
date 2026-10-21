@@ -25,10 +25,13 @@ defmodule Valimc.Txn.Delivery do
     token = Keyword.get_lazy(opts, :token, &make_ref/0)
     link = Keyword.get(opts, :link, false)
 
-    case Task.Supervisor.start_child(Valimc.TransferWorkers, fn ->
-           if link, do: Process.link(owner)
-           send(owner, message.(self(), token, deliver.()))
-         end) do
+    case Task.Supervisor.start_child(
+           Valimc.TransferWorkers,
+           Valimc.Dimension.bind(fn ->
+             if link, do: Process.link(owner)
+             send(owner, message.(self(), token, deliver.()))
+           end)
+         ) do
       {:ok, worker} ->
         timer =
           case Keyword.get(opts, :deadline) do

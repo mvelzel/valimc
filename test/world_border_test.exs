@@ -145,6 +145,17 @@ defmodule Valimc.WorldBorderTest do
              Clock.border_command({:set, 2.0, 0}, "minecraft:moon", clock)
 
     assert Border.size(Clock.snapshot(clock).borders["minecraft:overworld"]) == 16.0
+
+    # Each dimension has its own border (VMC-026b), the default until changed.
+    refute Map.has_key?(Clock.snapshot(clock).borders, "minecraft:the_nether")
+
+    assert {:ok, {_, 64.0, 0}} =
+             Clock.border_command({:set, 64.0, 0}, "minecraft:the_nether", clock)
+
+    borders = Clock.snapshot(clock).borders
+    assert Border.size(borders["minecraft:the_nether"]) == 64.0
+    assert Border.size(borders["minecraft:overworld"]) == 16.0
+    refute Map.has_key?(borders, "minecraft:the_end")
   end
 
   test "Java fixed-point formatting rounds the shortest digits half up" do

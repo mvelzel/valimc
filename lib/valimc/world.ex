@@ -265,18 +265,27 @@ defmodule Valimc.World do
     for {id, %{kind: ^kind} = view} <- views, into: %{}, do: {id, view}
   end
 
+  # Topics are region keys scoped by the caller's dimension (VMC-026b).
   def publish(key, event) do
-    Registry.dispatch(Valimc.VisibilityRegistry, key, fn entries ->
+    # Events of the Nether and the End name their dimension (VMC-026b), so a
+    # player that just left it drops them; the overworld's stay as they were.
+    event =
+      case Valimc.Dimension.current() do
+        :overworld -> event
+        dimension -> {:in_dimension, dimension, event}
+      end
+
+    Registry.dispatch(Valimc.VisibilityRegistry, Valimc.Dimension.scope(key), fn entries ->
       for {pid, _} <- entries, do: Valimc.Connection.deliver(pid, event)
     end)
   end
 
   def subscribe(keys, previous) do
     for key <- MapSet.difference(previous, keys),
-        do: Registry.unregister(Valimc.VisibilityRegistry, key)
+        do: Registry.unregister(Valimc.VisibilityRegistry, Valimc.Dimension.scope(key))
 
     for key <- MapSet.difference(keys, previous),
-        do: Registry.register(Valimc.VisibilityRegistry, key, nil)
+        do: Registry.register(Valimc.VisibilityRegistry, Valimc.Dimension.scope(key), nil)
 
     keys
   end

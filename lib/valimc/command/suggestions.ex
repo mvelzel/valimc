@@ -125,7 +125,7 @@ defmodule Valimc.Command.Suggestions do
   defp clock(context) do
     case context.arguments do
       %{"clock" => {clock, _}} -> clock
-      _ -> "minecraft:overworld"
+      _ -> Valimc.Dimension.facts().default_clock || "minecraft:overworld"
     end
   end
 

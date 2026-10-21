@@ -28,15 +28,22 @@ defmodule Valimc.PlayerMiningQuery do
   end
 
   def release(%{owner: owner, permit: permit}) do
-    Task.Supervisor.start_child(Valimc.TransferWorkers, fn ->
-      safely(fn -> Region.release_mining(owner, permit) end)
-    end)
+    Task.Supervisor.start_child(
+      Valimc.TransferWorkers,
+      Valimc.Dimension.bind(fn ->
+        safely(fn -> Region.release_mining(owner, permit) end)
+      end)
+    )
   catch
     :exit, _ -> :ok
   end
 
   defp start(fun) do
-    {:ok, Task.Supervisor.async_nolink(Valimc.Workers.collision(), fn -> safely(fun) end)}
+    {:ok,
+     Task.Supervisor.async_nolink(
+       Valimc.Workers.collision(),
+       Valimc.Dimension.bind(fn -> safely(fun) end)
+     )}
   rescue
     RuntimeError -> {:error, :mining_workers_busy}
   catch

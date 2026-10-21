@@ -137,19 +137,25 @@ impl Column {
 
     /// Read `to_image` output; `None` for any other bytes.
     pub fn from_image(bytes: &[u8]) -> Option<Column> {
+        Column::from_image_sections(bytes, SECTIONS)
+    }
+
+    /// Read an image of `count` sections (a proto chunk of another
+    /// dimension's height, VMC-026b).
+    pub fn from_image_sections(bytes: &[u8], count: usize) -> Option<Column> {
         let mut input = bytes;
         let [version, has_biomes] = take::<2>(&mut input)?;
-        if version != IMAGE_VERSION || has_biomes > 1 {
+        if version != IMAGE_VERSION || has_biomes > 1 || count == 0 || count > SECTIONS {
             return None;
         }
-        let mut sections = Vec::with_capacity(SECTIONS);
-        for _ in 0..SECTIONS {
+        let mut sections = Vec::with_capacity(count);
+        for _ in 0..count {
             let (palette, data, bits) = read_palette(&mut input, VOLUME)?;
             sections.push(Storage::from_palette(&palette, data, bits)?);
         }
         let biomes = if has_biomes == 1 {
-            let mut all = Vec::with_capacity(SECTIONS);
-            for _ in 0..SECTIONS {
+            let mut all = Vec::with_capacity(count);
+            for _ in 0..count {
                 let (palette, data, bits) = read_palette(&mut input, 64)?;
                 all.push(Biomes::from_palette(&palette, data, bits)?);
             }
@@ -304,6 +310,8 @@ pub struct ColumnStore {
     pub light: Option<LightGrid>,
     /// Neighbour chunks of the ring; absent ones read the base profile.
     pub halo: HashMap<(i32, i32), Column>,
+    /// Whether the region's dimension has sky light (VMC-026b).
+    pub sky: bool,
 }
 
 /// Dense block states for a full light computation.
@@ -311,6 +319,7 @@ struct Dense {
     wx: usize,
     wz: usize,
     states: Vec<u16>,
+    sky: bool,
 }
 
 impl LightBlocks for Dense {
@@ -323,6 +332,9 @@ impl LightBlocks for Dense {
     #[inline]
     fn state(&self, x: usize, y: usize, z: usize) -> u16 {
         self.states[(x * self.wz + z) * HEIGHT + y]
+    }
+    fn has_sky(&self) -> bool {
+        self.sky
     }
 }
 
@@ -354,6 +366,9 @@ impl LightBlocks for LightView<'_> {
             None => self.store.layers[y],
         }
     }
+    fn has_sky(&self) -> bool {
+        self.store.sky
+    }
 }
 
 impl ColumnStore {
@@ -375,6 +390,7 @@ impl ColumnStore {
             rng: rng.max(1),
             light: None,
             halo: HashMap::new(),
+            sky: true,
         }
     }
 
@@ -410,7 +426,16 @@ impl ColumnStore {
                 }
             }
         }
-        let grid = LightGrid::compute(&Dense { wx, wz, states }, facts);
+        let sky = self.sky;
+        let grid = LightGrid::compute(
+            &Dense {
+                wx,
+                wz,
+                states,
+                sky,
+            },
+            facts,
+        );
         self.light = Some(grid);
     }
 
@@ -625,7 +650,9 @@ impl ColumnStore {
     }
 
     /// Network data for one chunk: concatenated sections plus the two heightmaps
-    /// (WORLD_SURFACE, MOTION_BLOCKING) packed at 9 bits.
+    /// (WORLD_SURFACE, MOTION_BLOCKING) packed at 9 bits. `window` is the
+    /// dimension's `(first, count)` of the stored sections (VMC-026b): only those
+    /// are sent, with heights relative to the first one's bottom.
     pub fn encode_chunk(
         &self,
         chunk: (i32, i32),
@@ -633,7 +660,12 @@ impl ColumnStore {
         biome: u32,
         global_bits: u32,
         biome_bits: u32,
+        window: (usize, usize),
     ) -> Result<EncodedChunk, StoreError> {
+        let (first, count) = window;
+        if count == 0 || first + count > SECTIONS {
+            return Err(StoreError::InvalidY);
+        }
         self.chunk_of(chunk.0 * 16, chunk.1 * 16)?;
         let owned;
         let column = match self.columns.get(&chunk) {
@@ -643,8 +675,8 @@ impl ColumnStore {
                 &owned
             }
         };
-        let mut sections = Vec::with_capacity(SECTIONS * 16);
-        for (s, storage) in column.sections.iter().enumerate() {
+        let mut sections = Vec::with_capacity(count * 16);
+        for (s, storage) in column.sections.iter().enumerate().skip(first).take(count) {
             let biomes = match &column.biomes {
                 Some(stored) => wire::SectionBiomes::Stored(&stored[s]),
                 None => wire::SectionBiomes::Uniform(biome),
@@ -658,22 +690,18 @@ impl ColumnStore {
                 biome_bits,
             );
         }
+        let (bottom, top) = ((first * 16) as u16, (count * 16) as u16);
+        let relative = |h: &u16| h.saturating_sub(bottom).min(top) as u64;
         let mut surface = Vec::with_capacity(37 * 8);
         wire::pack_longs(
             &mut surface,
-            column
-                .heights(flags, WORLD_SURFACE)
-                .iter()
-                .map(|h| *h as u64),
+            column.heights(flags, WORLD_SURFACE).iter().map(relative),
             9,
         );
         let mut motion = Vec::with_capacity(37 * 8);
         wire::pack_longs(
             &mut motion,
-            column
-                .heights(flags, MOTION_BLOCKING)
-                .iter()
-                .map(|h| *h as u64),
+            column.heights(flags, MOTION_BLOCKING).iter().map(relative),
             9,
         );
         Ok((sections, surface, motion))
@@ -983,6 +1011,33 @@ mod tests {
         let mut bytes = vec![!AIR & !crate::flags::FLUID; 8];
         bytes[0] = AIR;
         BlockFlags::new(bytes).unwrap()
+    }
+
+    #[test]
+    fn a_window_encodes_only_the_dimension_sections() {
+        let mut store = ColumnStore::new((0, 0), 8, flat(), 1 << 30);
+        let f = flags();
+        // A block at y 100 is in stored section 10, the window's sixth (y 0 starts at 4).
+        store.set_many(&[(3, 100, 0, 5)], &f).unwrap();
+        let (whole, surface, _) = store
+            .encode_chunk((0, 0), &f, 1, 15, 6, (0, SECTIONS))
+            .unwrap();
+        let (part, part_surface, _) = store.encode_chunk((0, 0), &f, 1, 15, 6, (4, 16)).unwrap();
+        assert!(part.len() < whole.len());
+        let heights = |longs: &[u8]| -> Vec<u64> {
+            let words: Vec<u64> = longs
+                .chunks(8)
+                .map(|b| u64::from_be_bytes(b.try_into().unwrap()))
+                .collect();
+            (0..256)
+                .map(|i| (words[i / 7] >> (9 * (i % 7))) & 511)
+                .collect()
+        };
+        assert_eq!(heights(&surface)[3], (100 - MIN_Y + 1) as u64);
+        assert_eq!(heights(&part_surface)[3], 101);
+        // The flat surface (y 63) is below the window's top: relative to y 0.
+        assert_eq!(heights(&part_surface)[4], 64);
+        assert!(store.encode_chunk((0, 0), &f, 1, 15, 6, (20, 8)).is_err());
     }
 
     #[test]

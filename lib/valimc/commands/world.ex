@@ -21,7 +21,12 @@ defmodule Valimc.Commands.World do
   # ---- time ----
 
   defp clock_id(%{"clock" => clock}), do: clock
-  defp clock_id(_), do: "minecraft:overworld"
+
+  # The source dimension's default clock; the Nether has none (VMC-026b).
+  defp clock_id(_) do
+    facts = Valimc.Dimension.facts()
+    facts.default_clock || Error.fail!("commands.time.no_default_clock", [facts.type])
+  end
 
   defp clock(id), do: Map.fetch!(Clock.snapshot().clocks, id)
 

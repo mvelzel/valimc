@@ -41,6 +41,9 @@ defmodule Valimc.Commands.Players do
 
   defp name(target), do: Source.display_name(target)
 
+  defp source_dimension(%{player: %{dimension: dimension}}), do: dimension
+  defp source_dimension(_source), do: Valimc.Dimension.current()
+
   # ---- gamemode ----
 
   @doc "`/gamemode <gamemode> [<target>]` (`GameModeCommand`)."
@@ -103,12 +106,14 @@ defmodule Valimc.Commands.Players do
       %{"destination" => selector} ->
         destination = Source.single_entity(source, selector)
 
+        # Into the destination's dimension, as vanilla's `teleportTo` level (VMC-026b).
         pose = %{
           x: destination.x,
           y: destination.y,
           z: destination.z,
           yaw: wrap(destination.yaw),
-          pitch: wrap(destination.pitch)
+          pitch: wrap(destination.pitch),
+          dimension: Map.get(destination, :dimension, :overworld)
         }
 
         {tracked, state} = on_targets(source, targets, fn _ -> {:teleport, pose} end)
@@ -152,7 +157,9 @@ defmodule Valimc.Commands.Players do
               end
 
             pose = %{x: x, y: y, z: z, yaw: yaw, pitch: clamp_pitch(pitch)}
-            {:teleport, if(facing, do: look_at(pose, facing), else: pose)}
+            pose = if(facing, do: look_at(pose, facing), else: pose)
+            # A location is in the source's dimension.
+            {:teleport, Map.put(pose, :dimension, source_dimension(source))}
           end)
 
         coordinates = Enum.map([x, y, z], &format_double/1)

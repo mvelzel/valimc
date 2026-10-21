@@ -41,11 +41,14 @@ defmodule Valimc.World.ItemCrossMergeQuery do
   end
 
   def start(owner, epoch, token, key, scene, cursor) do
-    case Task.Supervisor.start_child(Valimc.TransferWorkers, fn ->
-           Process.link(owner)
-           result = run({owner, epoch}, key, scene, cursor)
-           send(owner, {:resource, epoch, {:item_cross_query, self(), token, result}})
-         end) do
+    case Task.Supervisor.start_child(
+           Valimc.TransferWorkers,
+           Valimc.Dimension.bind(fn ->
+             Process.link(owner)
+             result = run({owner, epoch}, key, scene, cursor)
+             send(owner, {:resource, epoch, {:item_cross_query, self(), token, result}})
+           end)
+         ) do
       {:ok, worker} -> {:ok, worker, Process.monitor(worker)}
       {:error, _} -> {:error, :item_cross_workers_busy}
     end

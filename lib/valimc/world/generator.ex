@@ -22,6 +22,12 @@ defmodule Valimc.World.Generator do
   `"features": true`): their regions take full chunks from their proto owner
   (`Valimc.Worldgen.Proto`) instead. Worlds generated before keep terrain
   only, so no chunk of theirs is decorated after it was sent.
+
+  The Nether and the End (VMC-026b) generate as vanilla's presets keep them in
+  every world type: noise terrain of the world's seed (ValiMC's flat profile
+  has none: the configured seed, else 0) with the dimension's noise settings
+  and biome source and the world's data packs (`spec/2`), decorated unless the
+  world is a noise world generated before decoration.
   """
   alias Valimc.{Native, Worldgen}
   alias Valimc.Protocol.Data
@@ -81,6 +87,15 @@ defmodule Valimc.World.Generator do
   (`client_info/2`).
   """
   def client_info, do: client_info(current(), current_settings())
+
+  @doc "The spawn information of the configured world's `dimension` (VMC-026b)."
+  def dimension_info(:overworld), do: client_info()
+  def dimension_info(_dimension), do: {hashed(seed(current(), current_settings())), false}
+
+  # The world's seed for the Nether and the End.
+  defp seed(_generator, %{"seed" => seed}) when is_integer(seed), do: seed
+  defp seed({:vanilla, seed}, _settings), do: seed
+  defp seed(:flat, _settings), do: Valimc.config(:seed) || 0
 
   @doc """
   What the client learns about a generator in its spawn information: the hashed
@@ -164,6 +179,28 @@ defmodule Valimc.World.Generator do
       {:vanilla, seed} ->
         with {:ok, facts} <- facts(base),
              do: spec_of(recorded(base) || GenSettings.legacy({:vanilla, seed}), facts)
+    end
+  end
+
+  @doc """
+  What generation of `dimension` needs for the world at `base`: the
+  overworld's `spec/1`; the Nether's and the End's noise generation of the
+  world's seed with the dimension's settings and biome source (VMC-026b).
+  """
+  def spec(base, :overworld), do: spec(base)
+
+  def spec(base, dimension) do
+    with {:ok, facts} <- facts(base) do
+      %{noise_settings: settings, biome_source: source} = Valimc.Dimension.facts(dimension)
+
+      {:ok,
+       %{
+         kind: :noise,
+         seed: seed(of(base), recorded(base)),
+         noise_settings: settings,
+         biome_source: source,
+         facts: facts
+       }}
     end
   end
 
@@ -305,6 +342,21 @@ defmodule Valimc.World.Generator do
     end
   end
 
+  @doc """
+  Whether `dimension` of the world at `base` decorates its generated chunks:
+  the Nether and the End do unless the world's overworld is noise terrain
+  generated before decoration (VMC-026b).
+  """
+  def decorated?(base, :overworld), do: decorated?(base)
+  def decorated?(nil, _dimension), do: false
+
+  def decorated?(base, _dimension) do
+    case spec(base) do
+      {:ok, %{kind: :noise}} -> decorated?(base)
+      _ -> true
+    end
+  end
+
   @doc "Whether the world at `base` decorates its generated chunks (VMC-025d)."
   def decorated?(nil), do: false
 
@@ -370,6 +422,13 @@ defmodule Valimc.World.Generator do
   of ValiMC's flat profile.
   """
   def settings(base), do: recorded(base) || GenSettings.legacy(:flat)
+
+  @doc """
+  Whether `dimension` of the world at `base` generates its chunks: a vanilla
+  world's every dimension; any world's Nether and End (VMC-026b).
+  """
+  def generates?(base, :overworld), do: of(base) != :flat
+  def generates?(_base, _dimension), do: true
 
   @doc "The generator of the world at `base`: `:flat` or `{:vanilla, seed}`."
   def of(nil), do: :flat

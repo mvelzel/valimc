@@ -65,7 +65,8 @@ defmodule Valimc.Player.Vitals do
   end
 
   def apply_void_damage(%{life_stage: :alive} = state) do
-    amount = Valimc.PlayerVoid.damage(state.player.y, Valimc.World.Chunk.min_y())
+    {min_y, _height} = Valimc.Dimension.bounds()
+    amount = Valimc.PlayerVoid.damage(state.player.y, min_y)
 
     if amount > 0 do
       {:ok, selected} = PlayerHealth.hurt_window(state.player.health, amount)
@@ -333,7 +334,8 @@ defmodule Valimc.Player.Vitals do
   end
 
   def continue_life(%{life_stage: :dead, respawn_requested: true} = state) do
-    player = PlayerLife.respawn(state.player, Valimc.World.PlayerSpawn.find())
+    spawn = Valimc.Dimension.within(:overworld, &Valimc.World.PlayerSpawn.find/0)
+    player = PlayerLife.respawn(state.player, spawn)
     snapshot = PlayerSnapshot.capture(player, Inventory.new(player.abilities.infinite_materials))
     checkpoint_life(%{state | life_stage: :respawning}, :respawn, snapshot, player)
   end
@@ -355,6 +357,8 @@ defmodule Valimc.Player.Vitals do
       do: send_packets(state, [Valimc.Commands.PostEffects.packet([])])
 
     player = Map.put(player, :post_effects, [])
+    # A death in another dimension respawns in the overworld (VMC-026b).
+    state = Valimc.Player.Travel.leave(state, player)
     {clock_version, clock_packet} = Valimc.World.Clock.initial()
     {difficulty, difficulty_packet} = Valimc.World.Clock.difficulty()
 

@@ -45,8 +45,10 @@ import net.minecraft.world.level.levelgen.synth.NormalNoise;
  *   the End), the placed features of each decoration step in the order
  *   vanilla's `FeatureSorter` gives them, whose index seeds each feature;
  * - dimensions.json: the dimensions of the normal world preset (VMC-026a), each
- *   with its dimension type's build bounds (bottom, height, logical height),
- *   noise settings and biome source (a multi-noise preset, or the End's);
+ *   with its dimension type (VMC-026b: its id, build bounds, sky light,
+ *   ceiling, fixed time, dragon fight, coordinate scale, ambient light,
+ *   infiniburn tag and default clock), noise settings and biome source (a
+ *   multi-noise preset, or the End's);
  * - biome_parameters.json: per multi-noise preset, its climate parameter list
  *   in order, one row per entry: the biome, then the quantized minimum and
  *   maximum of temperature, humidity, continentalness, erosion, depth and
@@ -180,9 +182,19 @@ public class WorldgenFactsOracle {
       var source = generator.getAsJsonObject("biome_source");
       var type = stem.type().value();
       var entry = new JsonObject();
+      entry.add("type", new JsonPrimitive(stem.type().unwrapKey().orElseThrow().identifier().toString()));
       entry.addProperty("min_y", type.minY());
       entry.addProperty("height", type.height());
       entry.addProperty("logical_height", type.logicalHeight());
+      entry.addProperty("has_skylight", type.hasSkyLight());
+      entry.addProperty("has_ceiling", type.hasCeiling());
+      entry.addProperty("has_fixed_time", type.hasFixedTime());
+      entry.addProperty("has_ender_dragon_fight", type.hasEnderDragonFight());
+      entry.addProperty("coordinate_scale", type.coordinateScale());
+      entry.addProperty("ambient_light", type.ambientLight());
+      entry.addProperty("infiniburn", "#" + type.infiniburn().unwrapKey().orElseThrow().location());
+      entry.add("default_clock", type.defaultClock().map(c -> (JsonElement) new JsonPrimitive(
+          c.unwrapKey().orElseThrow().identifier().toString())).orElse(JsonNull.INSTANCE));
       entry.add("noise_settings", generator.get("settings"));
       entry.add("biome_source", source.has("preset") ? source.get("preset") : source.get("type"));
       dimensions.put(key.identifier().toString(), entry);

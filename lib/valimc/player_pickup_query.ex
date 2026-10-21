@@ -39,17 +39,20 @@ defmodule Valimc.PlayerPickupQuery do
 
   def start(actor, view) do
     {:ok,
-     Task.Supervisor.async_nolink(Valimc.TransferWorkers, fn ->
-       key = World.region_key(view.chunk)
+     Task.Supervisor.async_nolink(
+       Valimc.TransferWorkers,
+       Valimc.Dimension.bind(fn ->
+         key = World.region_key(view.chunk)
 
-       with {:ok, {_, epoch} = owner} <- World.existing_owner(key),
-            true <- epoch == view.epoch,
-            {:ok, grant} <- Region.reserve_pickup(owner, actor, view.uuid) do
-         {:ok, %{key: key, owner: owner, grant: grant}}
-       else
-         _ -> {:error, :pickup_not_available}
-       end
-     end)}
+         with {:ok, {_, epoch} = owner} <- World.existing_owner(key),
+              true <- epoch == view.epoch,
+              {:ok, grant} <- Region.reserve_pickup(owner, actor, view.uuid) do
+           {:ok, %{key: key, owner: owner, grant: grant}}
+         else
+           _ -> {:error, :pickup_not_available}
+         end
+       end)
+     )}
   rescue
     RuntimeError -> {:error, :pickup_workers_busy}
   catch

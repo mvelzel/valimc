@@ -6,39 +6,34 @@
 //! so they cannot be recomputed from the blocks), post-processing marks,
 //! scheduled ticks, block entity positions and created block entities.
 //!
-//! Layout (big-endian): version, chunk x and z, the column image's length and
-//! the image (24 sections of states, then 24 sections of biome registry ids),
-//! 6 × 256 heightmap heights above the bottom, then counted lists of marks,
-//! block ticks, fluid ticks, block entity positions and created block
-//! entities. A position inside the chunk is one byte `z << 4 | x` and a
-//! two-byte Y.
+//! Layout (big-endian), version 2 (VMC-026b): version, chunk x and z, the
+//! dimension's bottom Y and height, the column image's length and the image
+//! (the dimension's sections of states, then of biome registry ids), 6 × 256
+//! heightmap heights above the bottom, then counted lists of marks, block
+//! ticks, fluid ticks, block entity positions, created block entities (with
+//! an end gateway's exit) and the entities features added. A position inside
+//! the chunk is one byte `z << 4 | x` and a two-byte Y. Version 1 (VMC-025d)
+//! held overworld chunks without bounds, exits or entities.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use super::blocks::{BlockTable, Heightmap};
-use super::region::{BlockEntityData, ProtoChunk, HEIGHT, MIN_Y};
+use super::region::{BlockEntityData, Entity, ProtoChunk, HEIGHT, MIN_Y};
 use crate::column::{image_of_cells, Column};
 use crate::section::{index as section_index, VOLUME};
 
-const VERSION: u8 = 1;
-const SECTIONS: usize = (HEIGHT / 16) as usize;
-const COLUMN: usize = HEIGHT as usize;
+const VERSION: u8 = 2;
 
-/// The binary form of `chunk`, an overworld chunk (live generation holds the
-/// overworld only; the other dimensions' bounds, entities and gateway exits
-/// wait for VMC-026b).
+/// The binary form of `chunk`.
 pub fn encode(chunk: &ProtoChunk) -> Vec<u8> {
-    assert_eq!(
-        (chunk.min_y, chunk.height),
-        (MIN_Y, HEIGHT),
-        "proto chunks hold the overworld's bounds"
-    );
+    let rows = chunk.height as usize;
+    let sections = rows / 16;
     // Sections in index order (y, z, x), from the chunk's Y-fastest columns.
-    let mut cells = vec![0u16; SECTIONS * VOLUME];
+    let mut cells = vec![0u16; sections * VOLUME];
     for z in 0..16 {
         for x in 0..16 {
-            let column = &chunk.blocks[(x + z * 16) * COLUMN..(x + z * 16 + 1) * COLUMN];
+            let column = &chunk.blocks[(x + z * 16) * rows..(x + z * 16 + 1) * rows];
             for (y, &state) in column.iter().enumerate() {
                 cells[(y / 16) * VOLUME + section_index(x, y % 16, z)] = state;
             }
@@ -51,12 +46,14 @@ pub fn encode(chunk: &ProtoChunk) -> Vec<u8> {
     out.push(VERSION);
     out.extend(chunk.x.to_be_bytes());
     out.extend(chunk.z.to_be_bytes());
+    out.extend(chunk.min_y.to_be_bytes());
+    out.extend((chunk.height as u16).to_be_bytes());
     out.extend((image.len() as u32).to_be_bytes());
     out.extend(&image);
     for kind in Heightmap::ALL {
         for column in 0..256 {
             let height = chunk.height(kind, column & 15, column >> 4);
-            out.extend(((height - MIN_Y) as u16).to_be_bytes());
+            out.extend(((height - chunk.min_y) as u16).to_be_bytes());
         }
     }
     let position = |out: &mut Vec<u8>, p: &[i32; 3]| {
@@ -92,6 +89,23 @@ pub fn encode(chunk: &ProtoChunk) -> Vec<u8> {
         for ticks in &data.bees {
             out.extend(ticks.to_be_bytes());
         }
+        match data.exit {
+            None => out.push(0),
+            Some((exit, exact)) => {
+                out.push(1 + exact as u8);
+                for c in exit {
+                    out.extend(c.to_be_bytes());
+                }
+            }
+        }
+    }
+    out.extend((chunk.entities.len() as u32).to_be_bytes());
+    for entity in &chunk.entities {
+        string(&mut out, Some(entity.kind));
+        for c in entity.pos {
+            out.extend(c.to_be_bytes());
+        }
+        out.extend(entity.yaw.to_be_bytes());
     }
     out
 }
@@ -140,6 +154,14 @@ impl<'a> Reader<'a> {
         Ok(i64::from_be_bytes(self.take(8)?.try_into().unwrap()))
     }
 
+    fn f64(&mut self) -> Result<f64, String> {
+        Ok(f64::from_be_bytes(self.take(8)?.try_into().unwrap()))
+    }
+
+    fn f32(&mut self) -> Result<f32, String> {
+        Ok(f32::from_be_bytes(self.take(4)?.try_into().unwrap()))
+    }
+
     /// A count whose entries take at least `entry` bytes each.
     fn count(&mut self, entry: usize) -> Result<usize, String> {
         let n = self.u32()? as usize;
@@ -149,10 +171,15 @@ impl<'a> Reader<'a> {
         Ok(n)
     }
 
-    fn position(&mut self, x: i32, z: i32) -> Result<[i32; 3], String> {
+    fn position(
+        &mut self,
+        x: i32,
+        z: i32,
+        (min_y, height): (i32, i32),
+    ) -> Result<[i32; 3], String> {
         let xz = self.u8()? as i32;
         let y = self.u16()? as i16 as i32;
-        if !(MIN_Y..MIN_Y + HEIGHT).contains(&y) {
+        if !(min_y..min_y + height).contains(&y) {
             return Err("a proto chunk position outside the build height".into());
         }
         Ok([x * 16 + (xz & 15), y, z * 16 + (xz >> 4)])
@@ -171,58 +198,72 @@ impl<'a> Reader<'a> {
     }
 }
 
-/// Read `encode` output; every state must be one of `table`'s.
+/// Read `encode` output (version 1 or 2); every state must be one of
+/// `table`'s.
 pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
     let mut r = Reader { input: bytes };
-    if r.u8()? != VERSION {
+    let version = r.u8()?;
+    if version != 1 && version != VERSION {
         return Err("unknown proto chunk version".into());
     }
     let (x, z) = (r.i32()?, r.i32()?);
+    let (min_y, height) = if version == 1 {
+        (MIN_Y, HEIGHT)
+    } else {
+        (r.i32()?, r.u16()? as i32)
+    };
+    if height <= 0 || height % 16 != 0 || height > HEIGHT {
+        return Err("a proto chunk's height".into());
+    }
+    let bounds = (min_y, height);
+    let rows = height as usize;
+    let sections = rows / 16;
     let length = r.u32()? as usize;
-    let column = Column::from_image(r.take(length)?).ok_or("a proto chunk's column image")?;
+    let column = Column::from_image_sections(r.take(length)?, sections)
+        .ok_or("a proto chunk's column image")?;
     let states = table.block_of.len();
-    let mut blocks = vec![0u16; COLUMN * 256];
+    let mut blocks = vec![0u16; rows * 256];
     let mut valid = true;
     for (s, section) in column.sections.iter().enumerate() {
         section.for_each(|i, state| {
             let (sx, y, sz) = (i & 15, i >> 8, (i >> 4) & 15);
             valid &= (state as usize) < states;
-            blocks[s * 16 + y + (sx + sz * 16) * COLUMN] = state;
+            blocks[s * 16 + y + (sx + sz * 16) * rows] = state;
         });
     }
-    if !valid || column.sections.len() != SECTIONS {
+    if !valid || column.sections.len() != sections {
         return Err("a proto chunk state outside the registry".into());
     }
     let section_biomes = column.biomes.ok_or("a proto chunk without biomes")?;
-    let mut biomes = Vec::with_capacity(SECTIONS * 64);
+    let mut biomes = Vec::with_capacity(sections * 64);
     for section in &section_biomes {
         biomes.extend((0..64).map(|i| section.get(i)));
     }
-    let mut non_air = [0u16; SECTIONS];
+    let mut non_air = [0u16; super::region::MAX_SECTIONS];
     for column in 0..256 {
-        for y in 0..COLUMN {
-            if !table.is_air(blocks[column * COLUMN + y]) {
+        for y in 0..rows {
+            if !table.is_air(blocks[column * rows + y]) {
                 non_air[y / 16] += 1;
             }
         }
     }
-    let mut heightmaps: [Box<[i32; 256]>; 6] = std::array::from_fn(|_| Box::new([MIN_Y; 256]));
+    let mut heightmaps: [Box<[i32; 256]>; 6] = std::array::from_fn(|_| Box::new([min_y; 256]));
     for map in heightmaps.iter_mut() {
-        for height in map.iter_mut() {
+        for first_free in map.iter_mut() {
             let h = r.u16()? as i32;
-            if h > HEIGHT {
+            if h > height {
                 return Err("a proto chunk height above the world".into());
             }
-            *height = MIN_Y + h;
+            *first_free = min_y + h;
         }
     }
     let mut marks = BTreeSet::new();
     for _ in 0..r.count(3)? {
-        marks.insert(r.position(x, z)?);
+        marks.insert(r.position(x, z, bounds)?);
     }
     let mut block_ticks = BTreeSet::new();
     for _ in 0..r.count(5)? {
-        let p = r.position(x, z)?;
+        let p = r.position(x, z, bounds)?;
         let block = r.u16()?;
         if block as usize >= table.names.len() {
             return Err("a proto chunk tick of an unknown block".into());
@@ -231,16 +272,16 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
     }
     let mut fluid_ticks = BTreeSet::new();
     for _ in 0..r.count(4)? {
-        let p = r.position(x, z)?;
+        let p = r.position(x, z, bounds)?;
         fluid_ticks.insert((p, r.u8()?));
     }
     let mut block_entities = BTreeSet::new();
     for _ in 0..r.count(3)? {
-        block_entities.insert(r.position(x, z)?);
+        block_entities.insert(r.position(x, z, bounds)?);
     }
     let mut block_entity_data = BTreeMap::new();
     for _ in 0..r.count(16)? {
-        let p = r.position(x, z)?;
+        let p = r.position(x, z, bounds)?;
         let name = r.string()?.ok_or("a block entity without a type")?;
         let kind = KINDS
             .iter()
@@ -251,6 +292,11 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
         let loot_seed = r.i64()?;
         let spawner_entity = r.string()?;
         let bees = (0..r.u8()?).map(|_| r.i32()).collect::<Result<_, _>>()?;
+        let exit = match if version == 1 { 0 } else { r.u8()? } {
+            0 => None,
+            tag @ (1 | 2) => Some(([r.i32()?, r.i32()?, r.i32()?], tag == 2)),
+            _ => return Err("a proto chunk gateway exit".into()),
+        };
         block_entity_data.insert(
             p,
             BlockEntityData {
@@ -259,9 +305,26 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
                 loot_seed,
                 spawner_entity,
                 bees,
-                exit: None,
+                exit,
             },
         );
+    }
+    let mut entities = Vec::new();
+    if version >= 2 {
+        for _ in 0..r.count(30)? {
+            let name = r.string()?.ok_or("an entity without a type")?;
+            let kind = ENTITY_KINDS
+                .iter()
+                .find(|k| **k == name)
+                .copied()
+                .ok_or("an entity type decoration does not add")?;
+            let pos = [r.f64()?, r.f64()?, r.f64()?];
+            entities.push(Entity {
+                kind,
+                pos,
+                yaw: r.f32()?,
+            });
+        }
     }
     if !r.input.is_empty() {
         return Err("a proto chunk has trailing bytes".into());
@@ -269,8 +332,8 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
     Ok(ProtoChunk {
         x,
         z,
-        min_y: MIN_Y,
-        height: HEIGHT,
+        min_y,
+        height,
         blocks,
         biomes: Arc::new(biomes),
         heightmaps,
@@ -280,18 +343,22 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
         fluid_ticks,
         block_entities,
         block_entity_data,
-        entities: Vec::new(),
+        entities,
         touched: false,
     })
 }
 
+/// The entity types decoration adds (the End spikes' crystals).
+const ENTITY_KINDS: [&str; 1] = ["minecraft:end_crystal"];
+
 /// The block entity types decoration creates.
-const KINDS: [&str; 5] = [
+const KINDS: [&str; 6] = [
     "minecraft:chest",
     "minecraft:trapped_chest",
     "minecraft:mob_spawner",
     "minecraft:beehive",
     "minecraft:brushable_block",
+    "minecraft:end_gateway",
 ];
 
 #[cfg(test)]

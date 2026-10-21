@@ -85,13 +85,17 @@ defmodule Valimc.Worldgen.Proto do
 
   ## API
 
-  def start_link(key),
-    do: GenServer.start_link(__MODULE__, key, name: {:via, Registry, {Valimc.ProtoRegistry, key}})
+  # `scoped` is the region key scoped by its dimension (`Valimc.Dimension`).
+  def start_link(scoped),
+    do:
+      GenServer.start_link(__MODULE__, scoped,
+        name: {:via, Registry, {Valimc.ProtoRegistry, scoped}}
+      )
 
-  def child_spec(key),
+  def child_spec(scoped),
     do: %{
-      id: {__MODULE__, key},
-      start: {__MODULE__, :start_link, [key]},
+      id: {__MODULE__, scoped},
+      start: {__MODULE__, :start_link, [scoped]},
       restart: :temporary,
       shutdown: 10_000
     }
@@ -102,12 +106,14 @@ defmodule Valimc.Worldgen.Proto do
   defp owner(_key, 0), do: {:error, :proto_owner_restarting}
 
   defp owner(key, attempts) do
-    case Registry.lookup(Valimc.ProtoRegistry, key) do
+    scoped = Valimc.Dimension.scope(key)
+
+    case Registry.lookup(Valimc.ProtoRegistry, scoped) do
       [{pid, _}] ->
         if Process.alive?(pid), do: {:ok, pid}, else: retry_owner(key, attempts)
 
       [] ->
-        case DynamicSupervisor.start_child(Valimc.ProtoSupervisor, {__MODULE__, key}) do
+        case DynamicSupervisor.start_child(Valimc.ProtoSupervisor, {__MODULE__, scoped}) do
           {:ok, pid} -> {:ok, pid}
           {:error, {:already_started, pid}} -> {:ok, pid}
           {:error, _} -> retry_owner(key, attempts)
@@ -173,16 +179,20 @@ defmodule Valimc.Worldgen.Proto do
   ## Owner
 
   @impl true
-  def init(key) do
+  def init(scoped) do
     Process.flag(:trap_exit, true)
+    {dimension, key} = Valimc.Dimension.unscope(scoped)
+    Valimc.Dimension.put(dimension)
     {:ok, %__MODULE__{key: key}, {:continue, :load}}
   end
 
   @impl true
   def handle_continue(:load, %__MODULE__{key: {rx, rz} = key} = empty) do
-    base = Valimc.config(:world_path, key)
+    world = Valimc.config(:world_path, key)
+    dimension = Valimc.Dimension.current()
+    base = Valimc.Dimension.storage(world, dimension)
 
-    case Generator.spec(base) do
+    case Generator.spec(world, dimension) do
       {:ok, %{kind: :noise} = spec} ->
         dir = base && Path.join([base, "gen", "r.#{rx}.#{rz}"])
         {:ok, log, durable, incarnation} = ProtoLog.open(dir)
@@ -997,7 +1007,10 @@ defmodule Valimc.Worldgen.Proto do
   # Releases are best effort: a participant that misses one asks for the
   # transaction's status and learns it was aborted.
   defp spawn_release(key, txn) do
-    Task.Supervisor.start_child(Valimc.TransferWorkers, fn -> release(key, txn) end)
+    Task.Supervisor.start_child(
+      Valimc.TransferWorkers,
+      Valimc.Dimension.bind(fn -> release(key, txn) end)
+    )
   end
 
   ## Coordinator: delivery

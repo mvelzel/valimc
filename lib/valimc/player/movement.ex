@@ -263,7 +263,10 @@ defmodule Valimc.Player.Movement do
   end
 
   @doc false
-  def relocate(state, player, reset_motion \\ true) do
+  # Move the player to `player`'s pose with a teleport the client confirms;
+  # `delta` is the movement the packet hands the client (a portal keeps the
+  # entering velocity, VMC-026b).
+  def relocate(state, player, reset_motion \\ true, delta \\ {0.0, 0.0, 0.0}) do
     state = state |> cancel_pose_job() |> Valimc.Player.Mining.cancel_mining()
 
     state =
@@ -281,7 +284,7 @@ defmodule Valimc.Player.Movement do
     state = %{state | jobs: jobs}
 
     teleport = if state.teleport == 2_147_483_647, do: 0, else: state.teleport + 1
-    send_packets(state, [Packets.teleport(player, teleport)])
+    send_packets(state, [Packets.teleport(player, teleport, delta)])
     Players.update(self(), player)
     send(self(), :drain)
 

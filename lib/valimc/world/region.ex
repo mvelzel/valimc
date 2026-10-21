@@ -9,16 +9,17 @@ defmodule Valimc.World.Region do
     TickPipeline
   }
 
-  def start_link({key, token}),
+  # `scoped` is the region key scoped by its dimension (`Valimc.Dimension`).
+  def start_link({scoped, token}),
     do:
-      GenServer.start_link(__MODULE__, {key, token},
-        name: {:via, Registry, {Valimc.RegionRegistry, key}}
+      GenServer.start_link(__MODULE__, {scoped, token},
+        name: {:via, Registry, {Valimc.RegionRegistry, scoped}}
       )
 
-  def child_spec({key, token}),
+  def child_spec({scoped, token}),
     do: %{
-      id: {__MODULE__, key},
-      start: {__MODULE__, :start_link, [{key, token}]},
+      id: {__MODULE__, scoped},
+      start: {__MODULE__, :start_link, [{scoped, token}]},
       restart: :temporary,
       shutdown: 20_000
     }
@@ -300,8 +301,11 @@ defmodule Valimc.World.Region do
     do: GenServer.call(pid, {:container_transfer, epoch, request}, 6000)
 
   @impl true
-  def init({key, token}) do
+  def init({scoped, token}) do
     Process.flag(:trap_exit, true)
+    # The owner, and everything it routes, works in its region's dimension.
+    {dimension, key} = Valimc.Dimension.unscope(scoped)
+    Valimc.Dimension.put(dimension)
     {:ok, %{key: key, admission: token, resource: nil}, {:continue, :load}}
   end
 

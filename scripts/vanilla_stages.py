@@ -195,6 +195,15 @@ STAGES = [
         ('java', 'LanguageOracle', '@en_us.json'),
         ('same', '@en_us.json', 'priv/lang/en_us.json'),
     ]),
+    # VMC-026b: the Nether's and the End's live generation, region by region.
+    ('worldgen_live_nether', [
+        ('java', 'DecorationOracle', '@live.json', '*', 'nether', 'live'),
+        ('app', 'check_live_decoration.exs', '@live.json'),
+    ]),
+    ('worldgen_live_end', [
+        ('java', 'DecorationOracle', '@live.json', '*', 'end', 'live'),
+        ('app', 'check_live_decoration.exs', '@live.json'),
+    ]),
     ('commands', [
         ('java', 'CommandTreeOracle', 'tree', '@tree.json'),
         ('same', '@tree.json', 'priv/commands/tree.json'),

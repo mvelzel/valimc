@@ -129,6 +129,9 @@ defmodule Valimc.PlayerTransfers do
         :velocity,
         :health,
         :last_death,
+        :dimension,
+        :death_dimension,
+        :portal_cooldown,
         :progression
       ])
 

@@ -111,12 +111,13 @@ defmodule Valimc.World.RegionData do
   # lets the proto owner drop them.
   defp generated_columns(key, store, lease, images) do
     base = Valimc.config(:world_path, key)
+    dimension = Valimc.Dimension.current()
 
-    case Generator.of(base) do
-      :flat ->
+    case Generator.generates?(base, dimension) do
+      false ->
         images
 
-      _generator ->
+      true ->
         {rx, rz} = key
         size = Valimc.config(:region_size)
 
@@ -130,7 +131,7 @@ defmodule Valimc.World.RegionData do
           missing == [] ->
             images
 
-          Generator.decorated?(base) ->
+          Generator.decorated?(base, dimension) ->
             started = System.monotonic_time(:microsecond)
             images = decorated_columns(key, store, lease, images, missing)
             Valimc.Metrics.add(:worldgen_chunks, length(missing))
@@ -146,7 +147,7 @@ defmodule Valimc.World.RegionData do
             started = System.monotonic_time(:microsecond)
 
             generated =
-              case Generator.spec(base) do
+              case Generator.spec(base, dimension) do
                 {:ok, spec} -> Generator.columns(spec, missing)
                 {:error, reason} -> exit({:generated_columns_failed, reason})
               end
@@ -395,10 +396,13 @@ defmodule Valimc.World.RegionData do
     selection = CookingRuntime.selection(state.cooking, containers, state.revision, items, now)
     blocked = state.cooking.blocked
 
-    case Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
-           result = CookingRuntime.plan(containers, items, key, edits, selection, blocked)
-           send(owner, {:resource, epoch, {:cooking_plan, self(), token, result}})
-         end) do
+    case Task.Supervisor.start_child(
+           Valimc.ItemWorkers,
+           Valimc.Dimension.bind(fn ->
+             result = CookingRuntime.plan(containers, items, key, edits, selection, blocked)
+             send(owner, {:resource, epoch, {:cooking_plan, self(), token, result}})
+           end)
+         ) do
       {:ok, worker} ->
         job = %{
           worker: worker,
@@ -2268,10 +2272,13 @@ defmodule Valimc.World.RegionData do
     epoch = state.items.epoch
     token = make_ref()
 
-    case Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
-           result = work.()
-           send(owner, {:resource, epoch, {:container_recovery_plan, self(), token, result}})
-         end) do
+    case Task.Supervisor.start_child(
+           Valimc.ItemWorkers,
+           Valimc.Dimension.bind(fn ->
+             result = work.()
+             send(owner, {:resource, epoch, {:container_recovery_plan, self(), token, result}})
+           end)
+         ) do
       {:ok, worker} ->
         pending = %{
           kind: :container,
@@ -2312,10 +2319,13 @@ defmodule Valimc.World.RegionData do
     receipts = state.item_receipts
     key = state.key
 
-    case Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
-           result = item_plan(kind, items, receipts, key, request)
-           send(owner, {:resource, epoch, {:item_transfer_plan, self(), token, result}})
-         end) do
+    case Task.Supervisor.start_child(
+           Valimc.ItemWorkers,
+           Valimc.Dimension.bind(fn ->
+             result = item_plan(kind, items, receipts, key, request)
+             send(owner, {:resource, epoch, {:item_transfer_plan, self(), token, result}})
+           end)
+         ) do
       {:ok, worker} ->
         pending = %{
           kind: kind,
@@ -2485,36 +2495,39 @@ defmodule Valimc.World.RegionData do
     eligible = permit_matches?(state, kind, transfer)
     module = transfer_module(kind)
 
-    case Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
-           result =
-             with {:ok, plan} <- module.plan(items, receipts, key, transfer, eligible) do
-               plan = Map.put(plan, :kind, kind)
+    case Task.Supervisor.start_child(
+           Valimc.ItemWorkers,
+           Valimc.Dimension.bind(fn ->
+             result =
+               with {:ok, plan} <- module.plan(items, receipts, key, transfer, eligible) do
+                 plan = Map.put(plan, :kind, kind)
 
-               if plan.result == :applied do
-                 changes =
-                   if kind == :placement do
-                     plan.edits
-                   else
-                     Map.new(plan.expected, fn {pos, block} ->
-                       {pos, Valimc.Block.after_removal(block)}
-                     end)
+                 if plan.result == :applied do
+                   changes =
+                     if kind == :placement do
+                       plan.edits
+                     else
+                       Map.new(plan.expected, fn {pos, block} ->
+                         {pos, Valimc.Block.after_removal(block)}
+                       end)
+                     end
+
+                   with {:ok, batch} <- BlockBatch.prepare(changes) do
+                     plan = Map.put(plan, :batch, batch)
+
+                     case block_container_metadata(plan, containers, key) do
+                       {:ok, plan} -> {:ok, plan}
+                       {:error, _} -> {:ok, module.reject(plan, items, receipts)}
+                     end
                    end
-
-                 with {:ok, batch} <- BlockBatch.prepare(changes) do
-                   plan = Map.put(plan, :batch, batch)
-
-                   case block_container_metadata(plan, containers, key) do
-                     {:ok, plan} -> {:ok, plan}
-                     {:error, _} -> {:ok, module.reject(plan, items, receipts)}
-                   end
+                 else
+                   {:ok, plan}
                  end
-               else
-                 {:ok, plan}
                end
-             end
 
-           send(owner, {:resource, epoch, {:block_transfer_plan, self(), token, result}})
-         end) do
+             send(owner, {:resource, epoch, {:block_transfer_plan, self(), token, result}})
+           end)
+         ) do
       {:ok, worker} ->
         pending = %{
           kind: kind,
@@ -2551,14 +2564,18 @@ defmodule Valimc.World.RegionData do
     items = state.items
     key = state.key
 
-    case Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
-           result =
-             with {:ok, change} <- ContainerLifecycle.plan(containers, key, expected, batch.edits),
-                  {:ok, next} <- ContainerSpills.add(items, key, change.removed),
-                  do: {:ok, Map.put(change, :items, next)}
+    case Task.Supervisor.start_child(
+           Valimc.ItemWorkers,
+           Valimc.Dimension.bind(fn ->
+             result =
+               with {:ok, change} <-
+                      ContainerLifecycle.plan(containers, key, expected, batch.edits),
+                    {:ok, next} <- ContainerSpills.add(items, key, change.removed),
+                    do: {:ok, Map.put(change, :items, next)}
 
-           send(owner, {:resource, epoch, {:container_block_plan, self(), token, result}})
-         end) do
+             send(owner, {:resource, epoch, {:container_block_plan, self(), token, result}})
+           end)
+         ) do
       {:ok, worker} ->
         pending = %{
           kind: :container_blocks,
@@ -3020,24 +3037,27 @@ defmodule Valimc.World.RegionData do
       version = Map.get(state.versions, key, 0)
       threshold = Valimc.config(:compression_threshold)
 
-      case Task.Supervisor.start_child(Valimc.ChunkWorkers, fn ->
-             started = System.monotonic_time(:microsecond)
+      case Task.Supervisor.start_child(
+             Valimc.ChunkWorkers,
+             Valimc.Dimension.bind(fn ->
+               started = System.monotonic_time(:microsecond)
 
-             packet =
-               if encoded == :flat,
-                 do: Chunk.encode(key, %{}, light),
-                 else: Chunk.packet(encoded, entities, preserved, light)
+               packet =
+                 if encoded == :flat,
+                   do: Chunk.encode(key, %{}, light),
+                   else: Chunk.packet(encoded, entities, preserved, light)
 
-             frame = Packets.frame(packet, threshold)
-             Valimc.Metrics.add(:chunks_encoded)
+               frame = Packets.frame(packet, threshold)
+               Valimc.Metrics.add(:chunks_encoded)
 
-             Valimc.Metrics.add(
-               :chunk_encode_microseconds,
-               sections_microseconds + System.monotonic_time(:microsecond) - started
-             )
+               Valimc.Metrics.add(
+                 :chunk_encode_microseconds,
+                 sections_microseconds + System.monotonic_time(:microsecond) - started
+               )
 
-             send(owner, {:resource, epoch, {:encoded, key, token, version, frame}})
-           end) do
+               send(owner, {:resource, epoch, {:encoded, key, token, version, frame}})
+             end)
+           ) do
         {:ok, pid} ->
           job = %{job | pid: pid, monitor: Process.monitor(pid), token: token}
           %{state | jobs: Map.put(state.jobs, key, job)}

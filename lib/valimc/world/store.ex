@@ -35,10 +35,14 @@ defmodule Valimc.World.Store do
     post_processing: %{}
   }
   @imported [:columns, :items, :containers, :block_entities, :chunk_extras, :entities, :light]
-  def start_link({key, owner}),
+  # A store is named by its region key scoped by the opener's dimension.
+  def start_link({key, owner}), do: start_link({key, owner, Valimc.Dimension.current()})
+
+  def start_link({key, owner, dimension}),
     do:
-      GenServer.start_link(__MODULE__, {key, owner},
-        name: {:via, Registry, {Valimc.RegionStoreRegistry, key}}
+      GenServer.start_link(__MODULE__, {key, owner, dimension},
+        name:
+          {:via, Registry, {Valimc.RegionStoreRegistry, Valimc.Dimension.scope(dimension, key)}}
       )
 
   def open(key), do: open(key, 100)
@@ -46,7 +50,10 @@ defmodule Valimc.World.Store do
 
   defp open(key, attempts) do
     result =
-      DynamicSupervisor.start_child(Valimc.RegionStoreSupervisor, {__MODULE__, {key, self()}})
+      DynamicSupervisor.start_child(
+        Valimc.RegionStoreSupervisor,
+        {__MODULE__, {key, self(), Valimc.Dimension.current()}}
+      )
 
     case result do
       {:ok, pid} -> claim(pid, key, attempts)
@@ -218,10 +225,14 @@ defmodule Valimc.World.Store do
   end
 
   @impl true
-  def init({key, owner}) do
+  def init({key, owner}), do: init({key, owner, :overworld})
+
+  def init({key, owner, dimension}) do
+    Valimc.Dimension.put(dimension)
+
     {:ok,
      %{
-       base: Valimc.config(:world_path, key),
+       base: Valimc.Dimension.storage(Valimc.config(:world_path, key), dimension),
        key: key,
        log: nil,
        values: @empty,
@@ -788,16 +799,18 @@ defmodule Valimc.World.Store do
         values = state.values
 
         {:ok, _} =
-          Task.start_link(fn ->
-            result =
-              try do
-                RegionLog.write_checkpoint(job, values)
-              rescue
-                error -> {:error, error}
-              end
+          Task.start_link(
+            Valimc.Dimension.bind(fn ->
+              result =
+                try do
+                  RegionLog.write_checkpoint(job, values)
+                rescue
+                  error -> {:error, error}
+                end
 
-            send(writer, {:checkpointed, ref, result})
-          end)
+              send(writer, {:checkpointed, ref, result})
+            end)
+          )
 
         %{state | log: log, appended: 0, checkpointing: ref}
 

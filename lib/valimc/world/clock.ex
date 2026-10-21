@@ -34,8 +34,13 @@ defmodule Valimc.World.Clock do
     {version, latest}
   end
 
+  @doc """
+  The weather the caller's dimension sees: only the overworld has weather
+  (vanilla's `Level.canHaveWeather`), the others stay clear (VMC-026b).
+  """
   def weather do
-    [{:weather, view}] = :ets.lookup(__MODULE__, :weather)
+    key = if Valimc.Dimension.current() == :overworld, do: :weather, else: :weather_clear
+    [{^key, view}] = :ets.lookup(__MODULE__, key)
     view
   end
 
@@ -49,10 +54,11 @@ defmodule Valimc.World.Clock do
     view
   end
 
-  @overworld "minecraft:overworld"
-
-  @doc "A dimension's world border (VMC-027b), for replication and commands."
-  def border(dimension \\ @overworld),
+  @doc """
+  A dimension's world border (VMC-027b), for replication and commands; the
+  caller's dimension by default (each has its own, VMC-026b).
+  """
+  def border(dimension \\ here()),
     do: :ets.lookup_element(__MODULE__, {:border, dimension}, 2)
 
   @doc """
@@ -60,21 +66,23 @@ defmodule Valimc.World.Clock do
   (`Border.physics/1`); vanilla's default border when no clock runs (offline
   checks).
   """
-  def border_physics(dimension \\ @overworld) do
+  def border_physics(dimension \\ here()) do
     :ets.lookup_element(__MODULE__, {:border, dimension}, 3)
   rescue
     ArgumentError -> Border.physics(Border.new())
   end
 
   @doc "The border collision observation (`Valimc.Physics.BorderSnapshot`)."
-  def border_snapshot(dimension \\ @overworld), do: border_physics(dimension).snapshot
+  def border_snapshot(dimension \\ here()), do: border_physics(dimension).snapshot
+
+  defp here, do: Valimc.Dimension.name(Valimc.Dimension.current())
 
   @doc """
   Apply one `/worldborder` change atomically against the current border
   (`Border.command/3` at the current game time): `{:ok, result}` or
   `{:error, reason}`.
   """
-  def border_command(operation, dimension \\ @overworld, pid \\ __MODULE__),
+  def border_command(operation, dimension \\ here(), pid \\ __MODULE__),
     do: GenServer.call(pid, {:border_command, dimension, operation})
 
   @impl true
@@ -145,7 +153,7 @@ defmodule Valimc.World.Clock do
   end
 
   def handle_call({:border_command, dimension, operation}, _, state) do
-    with %Border{} = border <- Map.get(state.data.borders, dimension, :unknown_dimension),
+    with %Border{} = border <- border_of(state.data.borders, dimension),
          {:ok, border, result} <- Border.command(border, operation, state.data.game_time) do
       data = %{state.data | borders: Map.put(state.data.borders, dimension, border)}
       next = %{state | data: data, revision: state.revision + 1, dirty: true}
@@ -305,16 +313,35 @@ defmodule Valimc.World.Clock do
     difficulty = Difficulty.cache(state.data.difficulty, previous_difficulty)
 
     borders =
-      for {dimension, border} <- state.data.borders,
+      for dimension <- ClockRecord.dimensions(),
+          border = border_of(state.data.borders, dimension),
           do: {{:border, dimension}, border, Border.physics(border)}
 
     :ets.insert(state.table, [
       {:network, version, periodic, latest},
       {:weather, view},
+      {:weather_clear, clear_weather(state.table)},
       {:difficulty, difficulty},
       {:survival, {state.data.difficulty.level, state.data.natural_regeneration}}
       | borders
     ])
+  end
+
+  # Each dimension has its own border (VMC-026b); one never changed is
+  # vanilla's default and stays out of the record.
+  defp border_of(borders, dimension) do
+    cond do
+      Map.has_key?(borders, dimension) -> borders[dimension]
+      dimension in ClockRecord.dimensions() -> Border.new()
+      true -> :unknown_dimension
+    end
+  end
+
+  defp clear_weather(table) do
+    case :ets.lookup(table, :weather_clear) do
+      [{:weather_clear, view}] -> view
+      [] -> WeatherReplication.cache(Weather.new())
+    end
   end
 
   defp interval(%{tick_interval: :rate}), do: Valimc.World.TickRate.interval()

@@ -1,22 +1,48 @@
 {
   "minecraft:overworld": {
+    "type": "minecraft:overworld",
     "min_y": -64,
     "height": 384,
     "logical_height": 384,
+    "has_skylight": true,
+    "has_ceiling": false,
+    "has_fixed_time": false,
+    "has_ender_dragon_fight": false,
+    "coordinate_scale": 1.0,
+    "ambient_light": 0.0,
+    "infiniburn": "#minecraft:infiniburn_overworld",
+    "default_clock": "minecraft:overworld",
     "noise_settings": "minecraft:overworld",
     "biome_source": "minecraft:overworld"
   },
   "minecraft:the_end": {
+    "type": "minecraft:the_end",
     "min_y": 0,
     "height": 256,
     "logical_height": 256,
+    "has_skylight": true,
+    "has_ceiling": false,
+    "has_fixed_time": true,
+    "has_ender_dragon_fight": true,
+    "coordinate_scale": 1.0,
+    "ambient_light": 0.25,
+    "infiniburn": "#minecraft:infiniburn_end",
+    "default_clock": "minecraft:the_end",
     "noise_settings": "minecraft:end",
     "biome_source": "minecraft:the_end"
   },
   "minecraft:the_nether": {
+    "type": "minecraft:the_nether",
     "min_y": 0,
     "height": 256,
     "logical_height": 128,
+    "has_skylight": false,
+    "has_ceiling": true,
+    "has_fixed_time": true,
+    "has_ender_dragon_fight": false,
+    "coordinate_scale": 8.0,
+    "ambient_light": 0.10000000149011612,
+    "infiniburn": "#minecraft:infiniburn_nether",
     "noise_settings": "minecraft:nether",
     "biome_source": "minecraft:nether"
   }

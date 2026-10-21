@@ -56,6 +56,15 @@ defmodule Valimc.Session.Messages do
   }
   @entity_range @tracking_ranges |> Map.values() |> Enum.max()
   @resistance EffectTypes.id("resistance")
+  # Events region owners publish to their visibility topics (`Valimc.World.publish/2`).
+  @region_events [
+    :block,
+    :block_batch,
+    :level_events,
+    :chest_lid,
+    :item_pickup,
+    :experience_pickup
+  ]
 
   defguardp inventory_busy(state)
             when state.recovery != nil or state.creative_input.queued > 0 or state.use_save != nil or
@@ -362,6 +371,9 @@ defmodule Valimc.Session.Messages do
 
           :respawn ->
             Vitals.finish_respawn(state, save.player)
+
+          :travel ->
+            Valimc.Player.Travel.finish(state, save.player)
         end
 
       {:noreply, state}
@@ -375,6 +387,7 @@ defmodule Valimc.Session.Messages do
          %{state | save_ref: nil, use_save: nil}
          |> CreativeInventory.drain_creative()
          |> Vitals.continue_life()
+         |> Valimc.Player.Travel.continue()
          |> Menus.continue_table_close()
          |> Menus.continue_crafting_repeat()
          |> Menus.drain_table_clicks()
@@ -729,6 +742,7 @@ defmodule Valimc.Session.Messages do
            |> Menus.continue_table_close()
            |> Menus.continue_crafting_repeat()
            |> Menus.check_table_menu()
+           |> Valimc.Player.Travel.tick()
            |> Movement.start_motion()
            |> Movement.sample_pose()}
 
@@ -881,8 +895,21 @@ defmodule Valimc.Session.Messages do
         {:noreply, Replication.stream_chunks(state)}
       end)
 
+  # Region events of a dimension the player no longer is in are stale (VMC-026b).
+  def info({:event, {:in_dimension, dimension, event}}, state) do
+    if dimension == Valimc.Dimension.current(),
+      do: info({:event, event}, state),
+      else: {:noreply, state}
+  end
+
   def info({:event, event}, state) do
-    Valimc.Connection.guard_connection(state, fn -> {:noreply, Events.event(state, event)} end)
+    if is_tuple(event) and elem(event, 0) in @region_events and
+         Valimc.Dimension.current() != :overworld,
+       do: {:noreply, state},
+       else:
+         Valimc.Connection.guard_connection(state, fn ->
+           {:noreply, Events.event(state, event)}
+         end)
   end
 
   # Overload is signalled, not killed, so terminate/2 still saves and releases jobs.

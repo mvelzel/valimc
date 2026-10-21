@@ -251,6 +251,8 @@ defmodule Valimc.Connection do
        crafting_repeat: nil,
        life_save: nil,
        life_stage: :alive,
+       # A dimension change waiting for the old dimension's work (VMC-026b).
+       travel: nil,
        respawn_requested: false,
        recovery: nil,
        experience_after: System.monotonic_time(:millisecond),

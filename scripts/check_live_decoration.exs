@@ -7,10 +7,27 @@
 # full chunk save.
 # With a world (VMC-028c), every case's world takes its data packs and their
 # extracted worldgen facts.
+#
+# VMC-026b: the oracle's facts name their dimension; the Nether's and the
+# End's run in that dimension's context, as their region owners do, in a
+# normal world of the case's seed.
 [facts_path | pack_world] = System.argv()
 facts = facts_path |> File.read!() |> JSON.decode!()
 alias Valimc.Native
 alias Valimc.Worldgen.{FullChunk, Proto}
+
+dimension =
+  case facts["dimension"] || "overworld" do
+    "overworld" -> :overworld
+    "nether" -> :the_nether
+    "end" -> :the_end
+  end
+
+Valimc.Dimension.put(dimension)
+{min_y, height} = Valimc.Dimension.bounds()
+
+if {facts["min_y"] || -64, facts["height"] || 384} != {min_y, height},
+  do: raise("dimension bounds differ from the oracle's")
 
 size = Valimc.config(:region_size)
 if facts["region_size"] != size, do: raise("region size #{size}, oracle #{facts["region_size"]}")
@@ -47,6 +64,7 @@ root = Path.join(System.tmp_dir!(), "valimc-live-#{System.unique_integer([:posit
       # The world preset of the case's noise settings and biome source (VMC-028b).
       level_type =
         case {entry["noise_settings"], entry["fixed_biome"]} do
+          _ when dimension != :overworld -> "minecraft:normal"
           {"minecraft:overworld", nil} -> "minecraft:normal"
           {"minecraft:overworld", "minecraft:plains"} -> "minecraft:single_biome_surface"
           {noise, nil} -> noise
@@ -76,7 +94,7 @@ root = Path.join(System.tmp_dir!(), "valimc-live-#{System.unique_integer([:posit
 
       # Owners of an earlier case's regions (same keys, another world) stop first.
       for key <- keys,
-          {pid, _} <- Registry.lookup(Valimc.ProtoRegistry, key),
+          {pid, _} <- Registry.lookup(Valimc.ProtoRegistry, Valimc.Dimension.scope(key)),
           do: GenServer.stop(pid, :normal, 30_000)
 
       :ets.insert(scoped, for(key <- keys, do: {{key, :world_path}, base}))
@@ -143,7 +161,8 @@ root = Path.join(System.tmp_dir!(), "valimc-live-#{System.unique_integer([:posit
                  |> Enum.find(fn {{a, b}, _} -> a != b end)
                  |> then(fn {p, i} -> {i, p} end)
 
-               {rem(i, 384) - 64, rem(div(i, 384), 16), div(i, 384 * 16), names.(a), names.(b)}
+               {rem(i, height) + min_y, rem(div(i, height), 16), div(i, height * 16), names.(a),
+                names.(b)}
              end},
             {:marks, Enum.sort(Enum.map(got.marks, position)) == Enum.sort(expected["marks"]),
              fn ->

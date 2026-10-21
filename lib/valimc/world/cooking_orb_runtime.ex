@@ -88,15 +88,18 @@ defmodule Valimc.World.CookingOrbRuntime do
     runtime = state.cooking_orbs
     key = state.key
 
-    case Task.Supervisor.start_child(Valimc.ItemWorkers, fn ->
-           result =
-             case operation do
-               :scan -> plan(containers, key, epoch, runtime)
-               {:adopt, bytes} -> plan_adoption(containers, key, epoch, runtime, bytes)
-             end
+    case Task.Supervisor.start_child(
+           Valimc.ItemWorkers,
+           Valimc.Dimension.bind(fn ->
+             result =
+               case operation do
+                 :scan -> plan(containers, key, epoch, runtime)
+                 {:adopt, bytes} -> plan_adoption(containers, key, epoch, runtime, bytes)
+               end
 
-           send(owner, {:resource, epoch, {:cooking_orb_plan, self(), token, result}})
-         end) do
+             send(owner, {:resource, epoch, {:cooking_orb_plan, self(), token, result}})
+           end)
+         ) do
       {:ok, worker} ->
         job = %{
           worker: worker,

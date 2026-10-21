@@ -11,9 +11,12 @@ defmodule Valimc.PlayerPlacementQuery do
       deadline = now() + @timeout
 
       {:ok,
-       Task.Supervisor.async_nolink(Valimc.Workers.collision(), fn ->
-         prepare(item, request, deadline)
-       end)}
+       Task.Supervisor.async_nolink(
+         Valimc.Workers.collision(),
+         Valimc.Dimension.bind(fn ->
+           prepare(item, request, deadline)
+         end)
+       )}
     end
   rescue
     RuntimeError -> {:error, :placement_workers_busy}
@@ -26,27 +29,30 @@ defmodule Valimc.PlayerPlacementQuery do
     connection = self()
 
     {:ok,
-     Task.Supervisor.async_nolink(Valimc.TransferWorkers, fn ->
-       outcome =
-         case prepare(item, request, now() + @timeout) do
-           {:ok, plan} ->
-             if admitted?(plan, grant, expires) do
-               Region.place_block(
-                 plan.owner,
-                 plan.revision,
-                 plan.batch,
-                 min(plan.deadline, expires)
-               )
-             else
-               {:refused, :player_admission}
-             end
+     Task.Supervisor.async_nolink(
+       Valimc.TransferWorkers,
+       Valimc.Dimension.bind(fn ->
+         outcome =
+           case prepare(item, request, now() + @timeout) do
+             {:ok, plan} ->
+               if admitted?(plan, grant, expires) do
+                 Region.place_block(
+                   plan.owner,
+                   plan.revision,
+                   plan.batch,
+                   min(plan.deadline, expires)
+                 )
+               else
+                 {:refused, :player_admission}
+               end
 
-           {:error, reason} ->
-             {:refused, reason}
-         end
+             {:error, reason} ->
+               {:refused, reason}
+           end
 
-       with {:ok, after_ack} <- correct(request, connection), do: {:ok, outcome, after_ack}
-     end)}
+         with {:ok, after_ack} <- correct(request, connection), do: {:ok, outcome, after_ack}
+       end)
+     )}
   rescue
     RuntimeError -> {:error, :placement_workers_busy}
   catch
@@ -58,22 +64,26 @@ defmodule Valimc.PlayerPlacementQuery do
     connection = self()
 
     {:ok,
-     Task.Supervisor.async_nolink(Valimc.TransferWorkers, fn ->
-       {x, _, z} = position
-       key = World.region_key(World.chunk_key(x, z))
+     Task.Supervisor.async_nolink(
+       Valimc.TransferWorkers,
+       Valimc.Dimension.bind(fn ->
+         {x, _, z} = position
+         key = World.region_key(World.chunk_key(x, z))
 
-       with {:ok, owner} <- World.existing_owner(key),
-            {:ok, observed} <- Region.observe_blocks(owner, [position]) do
-         outcome =
-           if now() < expires and Valimc.PlayerInteraction.within_block?(:creative, eye, position),
-             do: Region.destroy_block(owner, observed.fence, position, expires),
-             else: {:refused, :expired_destruction}
+         with {:ok, owner} <- World.existing_owner(key),
+              {:ok, observed} <- Region.observe_blocks(owner, [position]) do
+           outcome =
+             if now() < expires and
+                  Valimc.PlayerInteraction.within_block?(:creative, eye, position),
+                do: Region.destroy_block(owner, observed.fence, position, expires),
+                else: {:refused, :expired_destruction}
 
-         with :ok <- Region.correct_blocks(owner, [position], connection),
-              {:ok, update} <- Region.block_entity_update(owner, position),
-              do: {:ok, outcome, List.wrap(update)}
-       end
-     end)}
+           with :ok <- Region.correct_blocks(owner, [position], connection),
+                {:ok, update} <- Region.block_entity_update(owner, position),
+                do: {:ok, outcome, List.wrap(update)}
+         end
+       end)
+     )}
   rescue
     RuntimeError -> {:error, :placement_workers_busy}
   catch
@@ -85,34 +95,37 @@ defmodule Valimc.PlayerPlacementQuery do
     connection = self()
 
     {:ok,
-     Task.Supervisor.async_nolink(Valimc.Workers.collision(), fn ->
-       result =
-         with {:ok, plan} <- prepare(item, request, now() + @timeout),
-              true <- admitted?(plan, grant, expires),
-              {:ok, reservation} <-
-                Region.reserve_placement(plan.owner, plan.revision, plan.expected) do
-           reservation = Map.merge(reservation, %{owner: plan.owner, key: plan.region})
+     Task.Supervisor.async_nolink(
+       Valimc.Workers.collision(),
+       Valimc.Dimension.bind(fn ->
+         result =
+           with {:ok, plan} <- prepare(item, request, now() + @timeout),
+                true <- admitted?(plan, grant, expires),
+                {:ok, reservation} <-
+                  Region.reserve_placement(plan.owner, plan.revision, plan.expected) do
+             reservation = Map.merge(reservation, %{owner: plan.owner, key: plan.region})
 
-           if now() < expires,
-             do: {:reserved, Map.merge(reservation, %{candidate: plan.candidate})},
-             else:
-               (
-                 Region.release_placement(plan.owner, reservation.permit)
-                 {:refused, :expired_placement}
-               )
-         else
-           false -> {:refused, :player_admission}
-           error -> error
+             if now() < expires,
+               do: {:reserved, Map.merge(reservation, %{candidate: plan.candidate})},
+               else:
+                 (
+                   Region.release_placement(plan.owner, reservation.permit)
+                   {:refused, :expired_placement}
+                 )
+           else
+             false -> {:refused, :player_admission}
+             error -> error
+           end
+
+         case result do
+           {:reserved, _} ->
+             result
+
+           outcome ->
+             with {:ok, after_ack} <- correct(request, connection), do: {:ok, outcome, after_ack}
          end
-
-       case result do
-         {:reserved, _} ->
-           result
-
-         outcome ->
-           with {:ok, after_ack} <- correct(request, connection), do: {:ok, outcome, after_ack}
-       end
-     end)}
+       end)
+     )}
   rescue
     RuntimeError -> {:error, :placement_workers_busy}
   catch
@@ -123,17 +136,20 @@ defmodule Valimc.PlayerPlacementQuery do
     connection = self()
 
     {:ok,
-     Task.Supervisor.async_nolink(Valimc.Workers.collision(), fn ->
-       if reservation do
-         try do
-           Region.release_placement(reservation.owner, reservation.permit)
-         catch
-           :exit, _ -> :ok
+     Task.Supervisor.async_nolink(
+       Valimc.Workers.collision(),
+       Valimc.Dimension.bind(fn ->
+         if reservation do
+           try do
+             Region.release_placement(reservation.owner, reservation.permit)
+           catch
+             :exit, _ -> :ok
+           end
          end
-       end
 
-       with {:ok, after_ack} <- correct(request, connection), do: {:ok, :corrected, after_ack}
-     end)}
+         with {:ok, after_ack} <- correct(request, connection), do: {:ok, :corrected, after_ack}
+       end)
+     )}
   rescue
     RuntimeError -> {:error, :placement_workers_busy}
   catch

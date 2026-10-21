@@ -11,11 +11,14 @@ defmodule Valimc.ItemSimulation do
 
     if length(inputs) in 1..@max_inputs and Enum.all?(inputs, &valid_identity?/1) and
          length(Enum.uniq_by(inputs, &Map.get(&1, :id))) == length(inputs) do
-      case Task.Supervisor.start_child(Valimc.ItemSimulationWorkers, fn ->
-             Process.link(owner)
-             result = resolve(inputs, now() + @deadline_ms)
-             send(owner, {:resource, epoch, {:item_simulation, self(), token, result}})
-           end) do
+      case Task.Supervisor.start_child(
+             Valimc.ItemSimulationWorkers,
+             Valimc.Dimension.bind(fn ->
+               Process.link(owner)
+               result = resolve(inputs, now() + @deadline_ms)
+               send(owner, {:resource, epoch, {:item_simulation, self(), token, result}})
+             end)
+           ) do
         {:ok, worker} -> {:ok, %{worker: worker, monitor: Process.monitor(worker), token: token}}
         {:error, _} -> {:error, :item_simulation_busy}
       end

@@ -142,9 +142,12 @@ defmodule Valimc.Protocol.Packets do
   end
 
   def login(player) do
+    levels = Valimc.Dimension.ids()
+
     packet("login", [
-      <<player.entity_id::signed-32, 0, 1>>,
-      Wire.string("minecraft:overworld"),
+      <<player.entity_id::signed-32, 0>>,
+      Wire.varint(length(levels)),
+      Enum.map(levels, &Wire.string(Valimc.Dimension.name(&1))),
       Wire.varint(Valimc.config(:max_players)),
       Wire.varint(Valimc.Session.ChunkView.server_distance()),
       Wire.varint(Valimc.config(:simulation_distance)),
@@ -154,40 +157,49 @@ defmodule Valimc.Protocol.Packets do
     ])
   end
 
-  def respawn(player, last_death \\ nil),
-    do: packet("respawn", [spawn_info(player, last_death), <<0>>])
+  @doc """
+  A respawn into the player's dimension. `keep` is vanilla's data-to-keep
+  flags: 0 after death, 3 (attributes and entity data) when changing
+  dimension (VMC-026b).
+  """
+  def respawn(player, last_death \\ nil, keep \\ 0),
+    do: packet("respawn", [spawn_info(player, last_death), <<keep>>])
 
+  # Vanilla's `CommonPlayerSpawnInfo` of the player's level.
   defp spawn_info(player, last_death) do
-    {hashed_seed, flat?} = Valimc.World.Generator.client_info()
+    dimension = Map.get(player, :dimension, :overworld)
+    facts = Valimc.Dimension.facts(dimension)
+    {hashed_seed, flat?} = Valimc.World.Generator.dimension_info(dimension)
+    overworld = dimension == :overworld
 
     [
-      Wire.varint(Data.registry_id("minecraft:dimension_type", "minecraft:overworld")),
-      Wire.string("minecraft:overworld"),
+      Wire.varint(facts.type_id),
+      Wire.string(Valimc.Dimension.name(dimension)),
       <<hashed_seed::signed-64>>,
       Wire.varint(Valimc.GameMode.id(Map.get(player, :game_mode, %Valimc.GameMode{}).current)),
       previous_mode(Map.get(player, :game_mode, %Valimc.GameMode{}).previous),
       <<0, if(flat?, do: 1, else: 0)>>,
-      death_location(last_death),
-      <<0>>,
-      Wire.varint(63)
+      death_location(last_death, Map.get(player, :death_dimension, :overworld)),
+      Wire.varint(Map.get(player, :portal_cooldown, 0)),
+      Wire.varint(if(overworld, do: 63, else: facts.sea_level))
     ]
   end
 
-  defp death_location(nil), do: <<0>>
+  defp death_location(nil, _dimension), do: <<0>>
 
-  defp death_location({x, y, z} = position)
+  defp death_location({x, y, z} = position, dimension)
        when is_integer(x) and abs(x) <= 29_999_984 and is_integer(z) and abs(z) <= 29_999_984 and
               is_integer(y) and abs(y) <= 1_000_000,
-       do: [<<1>>, Wire.string("minecraft:overworld"), Wire.position(position)]
+       do: [<<1>>, Wire.string(Valimc.Dimension.name(dimension)), Wire.position(position)]
 
-  defp death_location(_), do: raise(ArgumentError, "invalid death location")
+  defp death_location(_, _), do: raise(ArgumentError, "invalid death location")
 
-  def teleport(player, teleport_id) do
+  def teleport(player, teleport_id, {dx, dy, dz} \\ {0.0, 0.0, 0.0}) do
     %{x: x, y: y, z: z, yaw: yaw, pitch: pitch} = player
 
     packet("player_position", [
       Wire.varint(teleport_id),
-      <<x::float-64, y::float-64, z::float-64, 0.0::float-64, 0.0::float-64, 0.0::float-64,
+      <<x::float-64, y::float-64, z::float-64, dx::float-64, dy::float-64, dz::float-64,
         yaw::float-32, pitch::float-32, 0::32>>
     ])
   end
