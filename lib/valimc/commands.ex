@@ -890,6 +890,7 @@ defmodule Valimc.Commands do
     ["transfer", "hostname"] => {Operators, :transfer},
     ["transfer", "hostname", "port"] => {Operators, :transfer},
     ["transfer", "hostname", "port", "players"] => {Operators, :transfer},
+    ["locate", "structure", "structure"] => {Valimc.Commands.Locate, :structure},
     ["version"] => {Admin, :version},
     ["kick", "targets"] => {Admin, :kick},
     ["kick", "targets", "reason"] => {Admin, :kick},

@@ -19,6 +19,7 @@
 
 pub mod fortress;
 pub mod jigsaw;
+pub mod locate;
 pub mod mansion;
 pub mod mineshaft;
 pub mod monument;

@@ -38,7 +38,7 @@ resumes on these foundations alongside M2.
 | [VMC-029c](tickets/VMC-029c.md) | Blocks that lose their support break (plants, torches, two-block halves), found in imported terrain | Done |
 | [VMC-023](tickets/VMC-023.md) | Seeded noise and biomes: random sources, noises, compiled density functions and chunk biomes equal vanilla's | Done |
 | [VMC-024](tickets/VMC-024.md) | Vanilla terrain: noise fill with aquifers, material rules and carvers equal to vanilla's, generated live in new worlds | Done |
-| [VMC-010](tickets/VMC-010.md) | Operator, whitelist and ban lists in vanilla's files, checked at login, with the admin commands; save control, idle timeout and the console remain | In progress |
+| [VMC-010](tickets/VMC-010.md) | Operator, whitelist and ban lists in vanilla's files, checked at login, with the admin commands, are live; save control, idle timeout and the console remain | In progress |
 | [VMC-053](tickets/VMC-053.md) | Vanilla commands: parse, permissions, suggestions, SNBT and the player, world, chat, text, effect, area, tick, operator and ban commands are live; entity, progression and data-pack commands remain | In progress |
 | [VMC-025](tickets/VMC-025.md) | Features and structures: all 171 overworld placed features equal vanilla's and decorate new worlds live across region borders; the starts of all 52 structures in three dimensions equal vanilla's; structure placement next | In progress |
 | [VMC-026](tickets/VMC-026.md) | Nether, End and portals: every Nether and End placed feature (spikes with crystals, gateways, chorus) equal vanilla's at the dimensions' heights; live dimensions and portals next | In progress |

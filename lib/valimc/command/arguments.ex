@@ -25,7 +25,7 @@ defmodule Valimc.Command.Arguments do
     minecraft:item_stack minecraft:item_predicate minecraft:block_state minecraft:block_predicate
     minecraft:resource minecraft:resource_or_tag minecraft:resource_location
     minecraft:nbt_compound_tag minecraft:nbt_tag minecraft:component minecraft:particle
-    minecraft:dialog minecraft:column_pos minecraft:dimension minecraft:game_profile)
+    minecraft:dialog minecraft:column_pos minecraft:dimension minecraft:game_profile minecraft:resource_or_tag_key)
 
   def supported, do: @supported
 
@@ -189,6 +189,17 @@ defmodule Valimc.Command.Arguments do
   end
 
   def parse("minecraft:resource_location", _props, reader, _source), do: Identifier.read(reader)
+
+  # `ResourceOrTagKeyArgument`: a key or `#tag`, checked only when the command runs.
+  def parse("minecraft:resource_or_tag_key", _props, reader, _source) do
+    if Reader.at?(reader, ?#) do
+      {id, reader} = Identifier.read(Reader.skip(reader))
+      {{:tag_key, id}, reader}
+    else
+      {id, reader} = Identifier.read(reader)
+      {{:key, id}, reader}
+    end
+  end
 
   def parse("minecraft:nbt_compound_tag", _props, reader, _source),
     do: Valimc.Command.Snbt.parse_compound(reader)

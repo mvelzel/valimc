@@ -1627,4 +1627,36 @@ fn worldgen_structure_time(
     Ok((elapsed.as_nanos() as u64, cpu, starts))
 }
 
+/// `/locate structure` (VMC-053o): the nearest start of `structures` (in
+/// holder set order) from block `pos`, as its locate position and structure,
+/// searching random spread sets up to `radius` grid rings. It can take
+/// seconds, as vanilla's search does.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_structure_locate(
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    structures: Vec<String>,
+    pos: (i32, i32, i32),
+    radius: i32,
+) -> Result<Option<(i32, i32, i32, String)>, String> {
+    let env = {
+        let mut state = state.lease()?;
+        state.structure_env(&biome_source)?
+    };
+    let registry = &env.registry;
+    let wanted = structures
+        .iter()
+        .map(|id| {
+            registry
+                .structures
+                .iter()
+                .position(|s| &s.id == id)
+                .ok_or_else(|| format!("unknown structure {id}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(env
+        .find_nearest_structure(&wanted, pos, radius)?
+        .map(|((x, y, z), s)| (x, y, z, registry.structures[s].id.clone())))
+}
+
 rustler::init!("Elixir.Valimc.Native");

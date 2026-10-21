@@ -161,6 +161,11 @@ STAGES = [
         ('check', 'export_world_settings.exs', '@exported'),
         ('java', 'WorldSettingsOracle', 'verify', '@exported', '@server'),
     ]),
+    # VMC-053o: `/locate structure` over every structure and tag for seeds and positions.
+    ('locate', [
+        ('java', 'LocateOracle', 'cases', '@locate.json'),
+        ('check', 'check_locate.exs', '@locate.json'),
+    ]),
     ('worldgen_live', [
         ('java', 'DecorationOracle', '@live.json', '*', 'live'),
         ('app', 'check_live_decoration.exs', '@live.json'),
