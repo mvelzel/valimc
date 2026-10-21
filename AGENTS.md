@@ -53,10 +53,15 @@ Evidence (counts, seeds, runs) belongs in the ticket, never in the roadmap.
   `Status:` is one of Planned, In progress, Foundation, Awaiting client, Done or
   Parked. **Done** means the behavior is live in play; unused building blocks are
   **Foundation**.
-- Per commit: format changed files and run the affected tests (`mix test --stale`
-  or named files). Use `mix test.fast` (no socket suites) for broader quick checks.
-  Run the full `mix test`, `scripts/check_vanilla.py` and a production build at a
-  milestone or parent-ticket boundary, in the background, and fix failures.
+- Checks scale with the change, never the reverse. Per commit: format changed
+  files and run the affected tests (named files or `mix test --stale`), `cargo test`
+  for a changed crate, and only the affected `check_vanilla.py --only` stages. Per
+  finished parent ticket: `mix test.fast` (no socket or slow suites) plus its
+  area's stages. Only at a milestone: the full `mix test`, every vanilla stage and
+  a production build. See [development](docs/development.md#checks).
+- Heavy commands (full suites, every stage, release builds, benchmarks) run in the
+  background through `scripts/heavy.py`, which lets at most two run on the host at
+  once. Do other work meanwhile; never re-run a heavy check to see the same result.
 - Actual-client testing happens at player-visible milestones, not per subticket,
   docs edit or unused foundation. Batch the milestone's scenarios into one handoff.
   Always delegate it to one dedicated tester (Codex: subagent with
@@ -82,6 +87,7 @@ checkpoints directly to `main`. Push validated work with normal pushes; keep
 client-pending player-visible work unpushed unless authorized. Amend only unpushed
 commits; never force-push without permission.
 
-Benchmark performance changes with matched workloads and retained raw results; see
+Benchmark only tickets whose goal is performance, with matched workloads and
+retained raw results, under `MIX_ENV=bench` (the full Rust profile); see
 [measurements](docs/performance.md). Empty-world or unequal workloads cannot
 establish fastest-server status.

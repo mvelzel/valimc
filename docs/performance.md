@@ -117,6 +117,12 @@ python3 bench/load.py --players 128 --seconds 5 --output bench/results/dense-128
 python3 bench/load.py --players 512 --seconds 5 --scatter --output bench/results/spread-512.json
 ```
 
+Benchmarks run in the `bench` Mix env, whose NIF has the full release profile
+of releases (dev and test builds skip LTO), through `scripts/heavy.py` so that no
+suite or oracle run competes with them: `MIX_ENV=bench python3 scripts/heavy.py
+mix run bench/worldgen_live.exs …`. `bench/load.py` starts its server in the test
+env for that env's fixtures.
+
 Run scenarios sequentially on an otherwise quiet machine. The driver starts an isolated server on a free port with a temporary world, reports metrics, and shuts it down. Longer runs up to 60 seconds are supported. Any disconnected clients make the benchmark fail instead of silently counting the surviving clients as a successful result.
 
 Archived sources report a null Git revision rather than borrowing a parent

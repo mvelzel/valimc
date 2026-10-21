@@ -16,19 +16,37 @@ locate details. Feature evidence belongs in `tickets/VMC-*.md`.
 
 ## Checks
 
-On a 10-core Mac `mix test.fast` takes about 30 seconds and the full suite about
-100 seconds, most of it the serial socket suites; neither is a routine check.
-Choose the smallest check that covers the change.
+Choose the smallest check that covers the change. Broad checks are rare: they
+cost minutes of every core, and several sessions share one 10-core Mac.
 
 | Change | Run |
 |---|---|
 | Docs, tickets, scripts only | `scripts/audit_public_tree.py` (includes docs lint) |
 | One module and its callers | The module's test files and the tests that name it (`rg -l ModuleName test`) |
 | Several modules, no shared owner/protocol change | `mix test --stale` |
-| Pure kernels (physics, codecs) | Their test files plus only the matching `check_vanilla.py --only <stage>` |
-| Rust in `native/` | `cargo test`, `cargo clippy --all-targets`, plus `test/blocks_test.exs` |
-| Region owner, connection, persistence or protocol core | The test files of the touched flows by name (socket suites included); `mix test.fast` once per finished parent step, not per edit |
-| Milestone boundary (at most once per milestone) | Full `mix test`, then full `check_vanilla.py` (about 15 minutes) in the background |
+| Pure kernels (physics, codecs, worldgen) | Their test files plus only the matching `check_vanilla.py --only <stage>` |
+| Rust in `native/` | `cargo test -p <crate>`, `cargo clippy --all-targets`, plus the Elixir tests of the touched NIFs |
+| Region owner, connection, persistence or protocol core | The test files of the touched flows by name (socket suites included) |
+| Finished parent ticket | `mix test.fast` and the vanilla stages of that area |
+| Milestone boundary | Full `mix test`, every vanilla stage and a production release, through `scripts/heavy.py` in the background |
+
+`mix test.fast` leaves out the socket suites (`@moduletag :tcp`) and the
+live-generation and portal suites (`@moduletag :slow`); `mix test` runs everything.
+
+Heavy commands go through `scripts/heavy.py`, which runs at most two of them on
+the host at once (across every checkout and worktree) at low priority and queues
+the rest; `--status` shows who holds the slots. Start them in the background and
+keep working; read the result instead of running them again.
+
+```sh
+python3 scripts/heavy.py mix test
+python3 scripts/heavy.py python3 scripts/check_vanilla.py
+python3 scripts/heavy.py --status
+```
+
+Dev and test builds compile the NIF without LTO, in parallel and incrementally,
+into `native/target/fast`, so a Rust change rebuilds in seconds. Releases and
+benchmarks (`MIX_ENV=bench`) keep the full release profile in `native/target`.
 
 ```sh
 mix format --check-formatted lib/valimc/physics/pose_fit.ex test/pose_fit_test.exs
@@ -39,7 +57,8 @@ mix test --stale
 `mix test --stale` runs only tests whose dependencies changed since the last stale
 run. Untrusted-input decoders get StreamData properties (`test/codec_property_test.exs`;
 `STREAM_RUNS=5000` for a deeper run). Micro-benchmarks use Benchee (`bench/*.exs`);
-scenario benchmarks of a running server stay custom. `mix test.fast` runs everything except the socket suites (`@moduletag :tcp`). Each test run uses a private temporary directory.
+scenario benchmarks of a running server stay custom. Each test run uses a private
+temporary directory.
 
 Tests that start region owners or player stores run `async: true` with unique
 region keys: `Valimc.TestScope.isolate/2` gives the owners of those keys (and
@@ -70,14 +89,13 @@ Register every new `scripts/*Oracle.java` or `scripts/check_*.exs` in
 `scripts/vanilla_stages.py`; `--audit` fails otherwise. The runner compiles into a
 private build directory, so editing code during a run cannot change its result.
 
-At a milestone or parent-ticket boundary, run the broad gate in the background and
-fix failures:
+At a milestone boundary, run the broad gate in the background and fix failures:
 
 ```sh
 mix format --check-formatted
-mix test
-python3 scripts/check_vanilla.py
-MIX_ENV=prod mix release --overwrite
+python3 scripts/heavy.py mix test
+python3 scripts/heavy.py python3 scripts/check_vanilla.py
+MIX_ENV=prod python3 scripts/heavy.py mix release --overwrite
 ```
 
 Never overwrite a release under client test; use a separate `MIX_BUILD_PATH`.

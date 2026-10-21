@@ -1,6 +1,7 @@
 defmodule Valimc.Native do
   @moduledoc """
-  Rust NIFs from `native/valimc_nif`, compiled by Rustler (release profile).
+  Rust NIFs from `native/valimc_nif`, compiled by Rustler (release profile; dev and
+  test builds skip LTO, see `config/config.exs`).
 
   Callers use `Valimc.World.Blocks`; these functions are the raw boundary. A
   region resource must only be used by the process that owns it.

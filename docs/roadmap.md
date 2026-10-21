@@ -26,7 +26,7 @@ matched against vanilla and Pumpkin, at least in Pumpkin's range.
 
 | Ticket | Open slice | Status |
 |---|---|---|
-| [VMC-076](tickets/VMC-076.md) | Fast feedback: dev Rust profile, heavy-job slots, test tiers, cached oracles | Planned |
+| [VMC-076](tickets/VMC-076.md) | Fast feedback: test pruning and tiers, check_vanilla selection, cached oracles | In progress |
 
 ## M3 onward
 

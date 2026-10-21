@@ -19,8 +19,9 @@ defmodule Valimc.MixProject do
 
   def cli, do: [preferred_envs: ["test.fast": :test]]
 
-  # Socket-driven suites carry `@moduletag :tcp`; the fast loop leaves them to broad checks.
-  defp aliases, do: ["test.fast": ["test --exclude tcp"]]
+  # Socket-driven suites carry `@moduletag :tcp` and live-generation or portal suites
+  # `@moduletag :slow`; the fast loop leaves both to broad checks.
+  defp aliases, do: ["test.fast": ["test --exclude tcp --exclude slow"]]
 
   def application do
     [extra_applications: [:logger, :crypto, :ssl], mod: {Valimc.Application, []}]
@@ -31,7 +32,7 @@ defmodule Valimc.MixProject do
       # Build-time only: compiles `native/valimc_nif` (keep the crate on the same minor).
       {:rustler, "~> 0.38.0", runtime: false},
       {:stream_data, "~> 1.1", only: :test},
-      {:benchee, "~> 1.3", only: :dev, runtime: false}
+      {:benchee, "~> 1.3", only: [:dev, :bench], runtime: false}
     ]
   end
 end
