@@ -96,6 +96,16 @@ defmodule Valimc.World.Border do
     x >= a and x < b and z >= c and z < d
   end
 
+  @doc """
+  Whether players may interact with the block at `{x, y, z}`
+  (`ServerLevel.mayInteract`: the block's corner inside the border), from the
+  published physics view.
+  """
+  def interactable?(%{snapshot: snapshot}, {x, _y, z}) do
+    {:ok, inside} = BorderSnapshot.contains?(snapshot, {x * 1.0, z * 1.0})
+    inside
+  end
+
   @doc "Distance from a point to the nearest edge, negative outside (`getDistanceToBorder`)."
   def distance(border, x, z) do
     {a, c, b, d} = bounds(border)

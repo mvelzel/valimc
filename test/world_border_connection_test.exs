@@ -97,6 +97,26 @@ defmodule Valimc.WorldBorderConnectionTest do
     assert Clock.border().damage_per_block == 1.0
   end
 
+  test "blocks outside the border cannot be broken (vanilla mayInteract)" do
+    name = "Reach#{System.unique_integer([:positive])}"
+    {_, client} = Client.login(name)
+    on_exit(fn -> Client.close(client) end)
+    client = Client.load_world(client)
+    {x, z} = {floor(client.pose.x), floor(client.pose.z)}
+    below = {x, floor(client.pose.y) - 1, z}
+
+    assert {:ok, _} = Clock.border_command({:center, x + 1000.0, z * 1.0})
+    assert {:ok, _} = Clock.border_command({:set, 10.0, 0})
+    Client.send_packet(client, :play, "player_action", [<<0>>, Wire.position(below), <<1, 7>>])
+    {<<7>>, client} = Client.await(client, :play, "block_changed_ack")
+    refute Valimc.World.get_block(below) == 0
+
+    reset_border()
+    Client.send_packet(client, :play, "player_action", [<<0>>, Wire.position(below), <<1, 8>>])
+    {_, _client} = Client.await(client, :play, "block_update")
+    assert Valimc.World.get_block(below) == 0
+  end
+
   describe "outside the border" do
     setup do
       nonce = System.unique_integer([:positive])

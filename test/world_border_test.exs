@@ -65,6 +65,13 @@ defmodule Valimc.WorldBorderTest do
              0.0
   end
 
+  test "players may interact with blocks whose corner is inside" do
+    physics = Border.physics(Border.set_size(Border.new(), 10.0))
+    assert Border.interactable?(physics, {-5, 64, 4})
+    refute Border.interactable?(physics, {5, 64, 0})
+    refute Border.interactable?(physics, {-6, 64, 0})
+  end
+
   test "commands check the current state atomically" do
     border = Border.new()
     assert {:error, :same_size} = Border.command(border, {:set, Border.max_size(), 0}, 0)

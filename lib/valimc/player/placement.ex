@@ -39,7 +39,8 @@ defmodule Valimc.Player.Placement do
     case UseItemOn.decode(payload) do
       {:ok, request} ->
         cond do
-          state.table_menu != nil or inventory_pending(state) ->
+          state.table_menu != nil or inventory_pending(state) or
+              not Mining.inside_border?(request.position) ->
             Menus.acknowledge_table_use(state, request)
 
           state.life_stage == :alive and PlayerInput.loaded?(state.player.input) and

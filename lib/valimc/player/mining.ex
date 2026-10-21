@@ -142,8 +142,13 @@ defmodule Valimc.Player.Mining do
       state.player.game_mode.current == :survival and state.player.health.value > 0 and
       PlayerInput.loaded?(state.player.input) and not state.teleport_pending and
       not inventory_pending(state) and reachable?(state, position) and
+      inside_border?(position) and
       Valimc.Physics.MiningTools.can_destroy?(Inventory.held(state.inventory, :main), false)
   end
+
+  @doc "Vanilla's `mayInteract`: blocks outside the world border cannot be broken or used."
+  def inside_border?(position),
+    do: Valimc.World.Border.interactable?(Valimc.World.Clock.border_physics(), position)
 
   def mining_changed(%{mining: nil} = state), do: state
   def mining_changed(state), do: %{state | mining: %{state.mining | needs_check: true}}
@@ -428,7 +433,7 @@ defmodule Valimc.Player.Mining do
          ItemTypes.action_id("stop_destroy_block")
        ] and
          state.player.game_mode.current == :creative and state.life_stage == :alive and
-         reachable?(state, position) and not state.teleport_pending do
+         reachable?(state, position) and inside_border?(position) and not state.teleport_pending do
       if state.placement_queued >= 16, do: reject(state, "Too many pending block interactions")
 
       command = %{
