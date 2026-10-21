@@ -1,20 +1,21 @@
-//! Vanilla's `updateShape` as decoration and structure templates call it
-//! (VMC-025b), from the generated shape update facts (`ShapeOracle`,
-//! `priv/worldgen/shapes.json`): per state and direction a rule over the
+//! Vanilla's `updateShape` (VMC-025b), from the generated shape update facts
+//! (`ShapeOracle`, `priv/worldgen/shapes.json`): per state and direction a rule over the
 //! cells the call reads (the neighbour among them), mapping class
 //! combinations to an outcome, the state it becomes and the ticks it
 //! schedules. States without a rule keep their state; states whose class
 //! overrides `updateShape` without facts fail rather than guess.
 
-use super::json::Json;
 use super::support::Partition;
+use crate::worldgen::json::Json;
 
-/// A tick an update schedules: offset, block (`false`) or fluid, its id.
+/// A tick an update schedules: offset, block (`false`) or fluid, its id and
+/// delay.
 #[derive(Clone, Copy, Debug)]
 pub struct Tick {
     pub offset: [i32; 3],
     pub fluid: bool,
     pub id: u16,
+    pub delay: i32,
 }
 
 #[derive(Debug)]
@@ -69,6 +70,7 @@ impl Shapes {
                             offset: [t[0].as_i32()?, t[1].as_i32()?, t[2].as_i32()?],
                             fluid: t[3].as_i32()? == 1,
                             id: t[4].as_i32()? as u16,
+                            delay: t[5].as_i32()?,
                         })
                     })
                     .collect::<Result<Vec<_>, String>>()?;

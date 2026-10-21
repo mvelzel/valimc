@@ -3,7 +3,7 @@
 //! structure template places wire (a woodland mansion's rooms). Wire reads
 //! up to twelve cells, too many to tabulate as the shape facts do.
 
-use super::blocks::{BlockTable, REDSTONE_CONDUCTOR, SIGNAL_SOURCE, STURDY};
+use crate::worldgen::blocks::{BlockTable, REDSTONE_CONDUCTOR, SIGNAL_SOURCE, STURDY};
 
 /// `Direction` indices (down, up, north, south, west, east) and the
 /// horizontal ones in `Plane.HORIZONTAL` order.

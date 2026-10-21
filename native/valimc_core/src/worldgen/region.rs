@@ -662,3 +662,26 @@ impl<'a> Region<'a> {
         }
     }
 }
+
+impl crate::rules::BlockAccess for Region<'_> {
+    fn get(&mut self, pos: [i32; 3]) -> u16 {
+        Region::get(self, pos)
+    }
+
+    /// Proto chunks keep a tick's block, not its delay.
+    fn schedule_block_tick(&mut self, pos: [i32; 3], block: u16, _delay: i32) {
+        Region::schedule_block_tick(self, pos, block)
+    }
+
+    fn schedule_fluid_tick(&mut self, pos: [i32; 3], fluid: u8, _delay: i32) {
+        Region::schedule_fluid_tick(self, pos, fluid)
+    }
+
+    fn has_block_tick(&mut self, pos: [i32; 3], block: u16) -> bool {
+        Region::has_block_tick(self, pos, block)
+    }
+
+    fn next_int(&mut self, bound: i32) -> i32 {
+        self.random.next_int_bounded(bound)
+    }
+}

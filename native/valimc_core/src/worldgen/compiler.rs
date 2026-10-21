@@ -31,12 +31,10 @@ use super::noise::{BlendedParameters, NormalNoise, Simplex, Stack};
 use super::random::{Positional, Random};
 use super::region::{Area, PlacedOnce, ProtoChunk, Region};
 use super::sampler::{Context, Field, GradientKind, Sampler, SplineNode};
-use super::shapes::Shapes;
 use super::structure::place::{place_in_chunk, visit_order, writable_area, Ctx, Placer};
 use super::structure::{
     ClimateBiomes, Heights, Start, StructureEnv, StructureRegistry, DECORATION_STEPS,
 };
-use super::support::Support;
 use super::surface::{
     self, Biomes, ChunkBlocks, MaterialRegistry, MaterialSystem, Rule, SurfaceEnv, SurfaceInput,
     Terracotta,
@@ -48,6 +46,9 @@ use crate::column::{
     Column, HEIGHT as COLUMN_HEIGHT, MIN_Y as COLUMN_MIN_Y, SECTIONS as COLUMN_SECTIONS,
 };
 use crate::facts::StateFacts;
+use crate::rules::shapes::Shapes;
+use crate::rules::support::Support;
+use crate::rules::Rules;
 use crate::section::{index as section_index, Biomes as SectionBiomes, Storage};
 
 /// Noise settings: vertical bounds, random algorithm and the named functions
@@ -201,6 +202,9 @@ pub struct Registry {
     pub decorations: HashMap<String, Arc<Decoration>>,
     /// Structures and structure sets (VMC-025e), when their facts were given.
     pub structures: Option<Arc<StructureRegistry>>,
+    /// The block rules decoration and live play share (VMC-077m), with the
+    /// decoration facts.
+    pub rules: Option<Arc<Rules>>,
 }
 
 /// A dimension of the normal world preset (`dimensions.json`): its dimension
@@ -418,6 +422,8 @@ impl Registry {
             )?);
             let support = Arc::new(Support::parse(json.support)?);
             let shapes = json.shapes.map(Shapes::parse).transpose()?.map(Arc::new);
+            let rules = Arc::new(Rules::new(table.clone(), support, shapes)?);
+            registry.rules = Some(rules.clone());
             let templates = json
                 .templates
                 .map(|(t, b, l)| Templates::parse(t, b, l, &table))
@@ -473,8 +479,7 @@ impl Registry {
                         block_state_providers: json.block_state_providers,
                         order,
                         biomes: facts.biomes,
-                        support: support.clone(),
-                        shapes: shapes.clone(),
+                        rules: rules.clone(),
                         templates: templates.clone(),
                         biome_ids: &|name| biomes.id(name),
                         biome_count: biomes.names.len(),

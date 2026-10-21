@@ -176,7 +176,10 @@ fn place_spike(
     });
     let crystal = [spike.x, spike.height + 1, spike.z];
     region.set(offset(crystal, [0, -1, 0]), known.bedrock, 3);
-    let fire = known.fire.state_at(table, &mut |p| region.get(p), crystal);
+    let fire = d
+        .rules
+        .fire
+        .state_at(table, &mut |p| region.get(p), crystal);
     region.set(crystal, fire, 3);
     Ok(())
 }

@@ -3,8 +3,8 @@
 //! `updateShape`, which read the six neighbours' flammability
 //! (`FireBlock.canBurn`, from the block facts).
 
-use super::blocks::{BlockSet, BlockTable, STURDY};
-use super::predicate::offset;
+use crate::worldgen::blocks::{BlockSet, BlockTable, STURDY};
+use crate::worldgen::predicate::offset;
 
 /// `Direction.values()` after down, with fire's property names.
 const SIDES: [([i32; 3], &str); 5] = [

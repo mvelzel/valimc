@@ -7,7 +7,7 @@
 use super::blocks::{BlockTable, COLLISION_FULL, REPLACEABLE, STURDY};
 use super::predicate::offset;
 use super::region::Region;
-use super::support::Support;
+use crate::rules::support::Support;
 
 const DIRECTIONS: [[i32; 3]; 6] = [
     [0, -1, 0],

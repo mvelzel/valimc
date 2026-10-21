@@ -802,7 +802,7 @@ impl Speleothem {
 /// neighbours. It reads the level, not the neighbour it is handed.
 pub fn update_shape(
     table: &BlockTable,
-    region: &mut Region,
+    access: &mut dyn crate::rules::BlockAccess,
     state: u16,
     pos: [i32; 3],
     d: usize,
@@ -810,7 +810,7 @@ pub fn update_shape(
     let speleothems = table.tag("minecraft:speleothems")?;
     let block = table.block_of(state);
     if table.value(state, "waterlogged") == Some("true") {
-        region.schedule_fluid_tick(pos, FLUID_WATER);
+        access.schedule_fluid_tick(pos, FLUID_WATER, crate::rules::WATER_DELAY);
     }
     if d != UP && d != DOWN {
         return Ok(state);
@@ -820,7 +820,7 @@ pub fn update_shape(
     } else {
         UP
     };
-    if tip == DOWN && region.has_block_tick(pos, block) {
+    if tip == DOWN && access.has_block_tick(pos, block) {
         return Ok(state);
     }
     let with_direction = |s: u16, dir: usize| {
@@ -831,16 +831,16 @@ pub fn update_shape(
         // `canSurvive`: a sturdy face behind, or a speleothem of this block
         // pointing the same way.
         let behind_pos = offset(pos, DIRECTIONS[tip ^ 1]);
-        let behind = region.get(behind_pos);
+        let behind = access.get(behind_pos);
         let survives = table.flag(behind, STURDY << tip)
             || (with_direction(behind, tip) && table.block_of(behind) == block);
         if !survives {
-            region.schedule_block_tick(pos, block);
+            access.schedule_block_tick(pos, block, if tip == DOWN { 2 } else { 1 });
             return Ok(state);
         }
     }
     let merge = table.value(state, "thickness") == Some("tip_merge");
-    let front = region.get(offset(pos, DIRECTIONS[tip]));
+    let front = access.get(offset(pos, DIRECTIONS[tip]));
     let thickness = if with_direction(front, tip ^ 1) && table.block_of(front) == block {
         if !merge && table.value(front, "thickness") != Some("tip_merge") {
             "tip"
@@ -853,7 +853,7 @@ pub fn update_shape(
         match table.value(front, "thickness") {
             Some("tip") | Some("tip_merge") => "frustum",
             _ => {
-                let behind = region.get(offset(pos, DIRECTIONS[tip ^ 1]));
+                let behind = access.get(offset(pos, DIRECTIONS[tip ^ 1]));
                 if with_direction(behind, tip) {
                     "middle"
                 } else {

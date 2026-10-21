@@ -17,8 +17,8 @@ use super::providers::{GenContext, IntProvider, Weighted};
 use super::random::Random;
 use super::region::Region;
 use super::state_provider::{self, StateProvider};
-use super::support::Support;
 use super::surface::{temperature, BiomeClimate};
+use crate::rules::Rules;
 
 const DIRECTIONS: [[i32; 3]; 6] = [
     [0, -1, 0],
@@ -130,7 +130,6 @@ pub enum Feature {
 #[derive(Debug)]
 pub(crate) struct Known {
     cave_air: u16,
-    vine_block: u16,
     water: u16,
     ice: u16,
     snow: u16,
@@ -140,7 +139,6 @@ pub(crate) struct Known {
     ice_block: u16,
     blue_ice_block: u16,
     snow_block: u16,
-    speleothems: BlockSet,
     pub(crate) bedrock_block: u16,
     pub(crate) lava_block: u16,
     pub(crate) end_stone: u16,
@@ -148,18 +146,13 @@ pub(crate) struct Known {
     pub(crate) bedrock: u16,
     pub(crate) iron_bars: u16,
     pub(crate) end_gateway: u16,
-    pub(crate) fire: super::fire::Fire,
-    pub(crate) chorus: super::end::Chorus,
-    pub(crate) redstone: super::redstone::RedstoneWire,
-    pub(crate) connections: super::connect::Connections,
 }
 
 pub struct Decoration {
     pub table: Arc<BlockTable>,
     /// The dimension's build bounds (bottom, height) its chunks have.
     pub dimension: (i32, i32),
-    support: Arc<Support>,
-    shapes: Option<Arc<super::shapes::Shapes>>,
+    pub rules: Arc<Rules>,
     templates: Option<Arc<super::template::Templates>>,
     pub features: HashMap<String, Arc<Feature>>,
     pub placed: HashMap<String, Arc<PlacedFeature>>,
@@ -615,10 +608,9 @@ pub struct DecorationFacts<'a> {
     /// Vanilla's feature order for the biome source.
     pub order: &'a Json,
     pub biomes: &'a Json,
-    /// Survival facts; shape update facts and structure templates, when given
-    /// (shared by every biome source's decoration).
-    pub support: Arc<Support>,
-    pub shapes: Option<Arc<super::shapes::Shapes>>,
+    /// The block rules, and structure templates when given (shared by every
+    /// biome source's decoration).
+    pub rules: Arc<Rules>,
     pub templates: Option<Arc<super::template::Templates>>,
     /// Biome registry ids by name, and the biome source's biomes.
     pub biome_ids: &'a dyn Fn(&str) -> Result<u16, String>,
@@ -637,8 +629,7 @@ impl Decoration {
         context: GenContext,
         dimension: (i32, i32),
     ) -> Result<Decoration, String> {
-        let support = facts.support;
-        let shapes = facts.shapes;
+        let rules = facts.rules;
         let templates = facts.templates;
         let mut parser = Parser {
             table: &table,
@@ -705,7 +696,6 @@ impl Decoration {
         }
         let known = Known {
             cave_air: table.default_state("cave_air")?,
-            vine_block: table.block("vine")?,
             water: table.default_state("water")?,
             ice: table.default_state("ice")?,
             snow: table.default_state("snow")?,
@@ -715,7 +705,6 @@ impl Decoration {
             ice_block: table.block("ice")?,
             blue_ice_block: table.block("blue_ice")?,
             snow_block: table.block("snow")?,
-            speleothems: table.tag("minecraft:speleothems")?.clone(),
             bedrock_block: table.block("bedrock")?,
             lava_block: table.block("lava")?,
             end_stone: table.default_state("end_stone")?,
@@ -723,10 +712,6 @@ impl Decoration {
             bedrock: table.default_state("bedrock")?,
             iron_bars: table.default_state("iron_bars")?,
             end_gateway: table.default_state("end_gateway")?,
-            fire: super::fire::Fire::new(&table)?,
-            chorus: super::end::Chorus::new(&table)?,
-            redstone: super::redstone::RedstoneWire::new(&table)?,
-            connections: super::connect::Connections::new(&table)?,
         };
         // Trees' pale moss decorator places this feature by name.
         if facts.features.get("minecraft:pale_moss_patch").is_some() {
@@ -738,8 +723,7 @@ impl Decoration {
         Ok(Decoration {
             table,
             dimension,
-            support,
-            shapes,
+            rules,
             templates,
             features,
             placed,
@@ -791,8 +775,7 @@ impl Decoration {
         Ok(Decoration {
             table: self.table.clone(),
             dimension: self.dimension,
-            support: self.support.clone(),
-            shapes: self.shapes.clone(),
+            rules: self.rules.clone(),
             templates: self.templates.clone(),
             features: self.features.clone(),
             placed: self.placed.clone(),
@@ -816,96 +799,12 @@ impl Decoration {
 
     /// `state.canSurvive(level, pos)` in decoration's light.
     pub fn survives(&self, region: &mut Region, state: u16, pos: [i32; 3]) -> bool {
-        self.support.survives(state, pos, &mut |p| region.get(p))
+        self.rules.survives(region, state, pos)
     }
 
     /// `state.updateShape(level, level, pos, d, …)` through the region (the
     /// cell at `replaced` reads as its given state): the new state, with the
-    /// ticks it schedules.
-    /// The corals' `updateShape` (VMC-025f): a live coral without water
-    /// beside it (or, for plants and fans, in it) schedules its death 60–99
-    /// ticks out, the delay from the level's random; waterlogged plants and
-    /// fans schedule water; plants and fans need a sturdy floor, wall fans
-    /// the face they hang on.
-    fn coral_update(
-        &self,
-        region: &mut Region,
-        replaced: Option<([i32; 3], u16)>,
-        class: &str,
-        state: u16,
-        pos: [i32; 3],
-        d: usize,
-    ) -> Option<u16> {
-        const STEP: [[i32; 3]; 6] = [
-            [0, -1, 0],
-            [0, 1, 0],
-            [0, 0, -1],
-            [0, 0, 1],
-            [-1, 0, 0],
-            [1, 0, 0],
-        ];
-        const NAMES: [&str; 6] = ["down", "up", "north", "south", "west", "east"];
-        let at = |d: usize| {
-            [
-                pos[0] + STEP[d][0],
-                pos[1] + STEP[d][1],
-                pos[2] + STEP[d][2],
-            ]
-        };
-        let neighbours: [u16; 6] = std::array::from_fn(|d| match replaced {
-            Some((p, s)) if p == at(d) => s,
-            _ => region.get(at(d)),
-        });
-        let read = |p: [i32; 3]| (0..6).find(|&d| at(d) == p).map_or(0, |d| neighbours[d]);
-        let table = &self.table;
-        let water = |s: u16| {
-            let fluid = table.fluid(s);
-            fluid == super::blocks::FLUID_WATER || fluid == super::blocks::FLUID_FLOWING_WATER
-        };
-        let waterlogged = table.value(state, "waterlogged") == Some("true");
-        let (live, wall) = match class {
-            "CoralBlock" => {
-                if !(0..6).any(|d| water(read(at(d)))) {
-                    region.random.next_int_bounded(40);
-                    region.schedule_block_tick(pos, table.block_of(state));
-                }
-                return Some(state);
-            }
-            "CoralPlantBlock" | "CoralFanBlock" => (true, false),
-            "CoralWallFanBlock" => (true, true),
-            "BaseCoralPlantBlock" | "BaseCoralFanBlock" => (false, false),
-            "BaseCoralWallFanBlock" => (false, true),
-            _ => return None,
-        };
-        // `canSurvive`: a sturdy top below, or the face behind a wall fan.
-        let facing = if wall {
-            NAMES
-                .iter()
-                .position(|n| Some(*n) == table.value(state, "facing"))
-                .unwrap_or(2)
-        } else {
-            1
-        };
-        let support = if wall { facing ^ 1 } else { 0 };
-        let breaks = d == support && !table.flag(read(at(support)), STURDY << facing);
-        // Live corals break before anything else; dead ones schedule water
-        // first.
-        if breaks && live {
-            return table.default_state("air").ok();
-        }
-        if live && !waterlogged && !(0..6).any(|d| water(read(at(d)))) {
-            region.random.next_int_bounded(40);
-            region.schedule_block_tick(pos, table.block_of(state));
-        }
-        if waterlogged {
-            region.schedule_fluid_tick(pos, super::blocks::FLUID_WATER);
-        }
-        if breaks {
-            return table.default_state("air").ok();
-        }
-        Some(state)
-    }
-
+    /// ticks it schedules (`Rules::update_shape`).
     pub fn update_shape(
         &self,
         region: &mut Region,
@@ -914,77 +813,7 @@ impl Decoration {
         d: usize,
         replaced: Option<([i32; 3], u16)>,
     ) -> Result<u16, String> {
-        let class = self.table.class_name(state);
-        if class.contains("Coral") {
-            if let Some(new_state) = self.coral_update(region, replaced, class, state, pos, d) {
-                return Ok(new_state);
-            }
-        }
-        let mut read = |p: [i32; 3]| match replaced {
-            Some((at, s)) if at == p => s,
-            _ => region.get(p),
-        };
-        if let Some(new_state) = self
-            .known
-            .fire
-            .update_shape(&self.table, &mut read, state, pos)
-        {
-            return Ok(new_state);
-        }
-        if let Some((new_state, tick)) =
-            self.known
-                .chorus
-                .update_shape(&self.table, &mut read, state, pos, d)
-        {
-            if let Some(block) = tick {
-                region.schedule_block_tick(pos, block);
-            }
-            return Ok(new_state);
-        }
-        if self.known.connections.handles(&self.table, state) {
-            let (new_state, waterlogged) =
-                self.known
-                    .connections
-                    .update_shape(&self.table, &mut read, state, pos, d);
-            if waterlogged {
-                region.schedule_fluid_tick(pos, super::blocks::FLUID_WATER);
-            }
-            return Ok(new_state);
-        }
-        if self.table.block_of(state) == self.known.redstone.wire {
-            return Ok(self
-                .known
-                .redstone
-                .update_shape(&self.table, &mut read, state, pos, d));
-        }
-        if self.table.block_of(state) == self.known.vine_block {
-            return Ok(super::multiface::vine_update(
-                &self.table,
-                &mut read,
-                state,
-                pos,
-                d,
-            ));
-        }
-        if self.table.in_tag(state, &self.known.speleothems) {
-            return super::speleothem::update_shape(&self.table, region, state, pos, d);
-        }
-        if self.table.flag(state, MOSSY_CARPET) {
-            let carpet = super::multiface::MossyCarpet::new(&self.table)?;
-            let air = self.table.default_state("air")?;
-            return Ok(carpet.update_shape(&self.support, &mut read, state, pos, air));
-        }
-        let shapes = self.shapes.as_ref().ok_or("no shape update facts")?;
-        let (new_state, ticks) = shapes.update(state, d, pos, &mut read)?;
-        for tick in ticks {
-            let at = offset(pos, tick.offset);
-            if tick.fluid {
-                region.schedule_fluid_tick(at, tick.id as u8);
-            } else {
-                region.schedule_block_tick(at, tick.id);
-            }
-        }
-        Ok(new_state)
+        self.rules.update_shape(region, state, pos, d, replaced)
     }
 
     /// Shape update parity cases (VMC-026a, `ShapeOracle code`): per case a
@@ -1409,7 +1238,7 @@ impl Feature {
                 super::end::place_platform(d, region, origin);
                 true
             }
-            Feature::ChorusPlant => d.known.chorus.place_plant(d, region, random, origin),
+            Feature::ChorusPlant => d.rules.chorus.place_plant(d, region, random, origin),
             Feature::Overlay(features) => {
                 let mut placed = false;
                 for feature in features {

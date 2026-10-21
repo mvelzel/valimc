@@ -6,7 +6,7 @@
 //! Each returns the new state and whether the block is waterlogged (vanilla
 //! schedules a water tick at the block then).
 
-use super::blocks::{
+use crate::worldgen::blocks::{
     BlockSet, BlockTable, CONNECTION_EXCEPTION, COVERS_WALL_POST, COVERS_WALL_SIDE, DOOR, FENCE,
     FENCE_GATE, IRON_BARS, STAIRS, STURDY, WALL,
 };

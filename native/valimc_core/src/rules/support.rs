@@ -5,7 +5,7 @@
 //! cells, maps each to its class in a partition of all states, and looks the
 //! class combination up in a table.
 
-use super::json::Json;
+use crate::worldgen::json::Json;
 
 /// A partition of all states into classes, from runs `[first state, class,
 /// …]` (shared with the shape update facts).
