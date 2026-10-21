@@ -25,7 +25,7 @@ defmodule Valimc.Command.Arguments do
     minecraft:item_stack minecraft:item_predicate minecraft:block_state minecraft:block_predicate
     minecraft:resource minecraft:resource_or_tag minecraft:resource_location
     minecraft:nbt_compound_tag minecraft:nbt_tag minecraft:component minecraft:particle
-    minecraft:dialog minecraft:column_pos minecraft:dimension)
+    minecraft:dialog minecraft:column_pos minecraft:dimension minecraft:game_profile)
 
   def supported, do: @supported
 
@@ -80,6 +80,21 @@ defmodule Valimc.Command.Arguments do
 
       true ->
         {selector, after_selector}
+    end
+  end
+
+  # `GameProfileArgument`: a selector of players only, or a name up to the next space.
+  def parse("minecraft:game_profile", _props, reader, source) do
+    if Reader.at?(reader, ?@) do
+      {selector, after_selector} = Selector.parse(reader, allow_selectors?(source))
+
+      if selector.includes_entities,
+        do: Error.fail_at!("argument.player.entities", [], after_selector)
+
+      {{:selector, selector}, after_selector}
+    else
+      {name, reader} = Reader.take_while(reader, &(&1 != ?\s))
+      {{:name, name}, reader}
     end
   end
 

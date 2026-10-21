@@ -24,6 +24,7 @@ defmodule Valimc.Application do
       {Valimc.World.Stopwatches, []},
       {Registry, keys: :unique, name: Valimc.RegionRegistry},
       {Registry, keys: :duplicate, name: Valimc.VisibilityRegistry},
+      {Valimc.Admin.Lists, []},
       Valimc.Players,
       Valimc.PlayerLog,
       {Registry, keys: :unique, name: Valimc.PlayerStoreRegistry},

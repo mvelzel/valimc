@@ -47,6 +47,11 @@ config :valimc,
   # Command operators (VMC-053): player names, or :all on a local test server.
   operators: [],
   operator_level: 4,
+  # VMC-010a: the whitelist switches (vanilla's `white-list`, which 26.3
+  # defaults to true, and `enforce-whitelist`) and `accepts-transfers`.
+  white_list: false,
+  enforce_whitelist: false,
+  accepts_transfers: false,
   session_service: Valimc.Auth.SessionService,
   discovery_service: Valimc.Auth.DiscoveryFetch,
   authentication_workers: 32,

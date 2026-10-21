@@ -43,11 +43,21 @@ defmodule Valimc.Net.Serverbound do
       1 ->
         %{state | phase: :status, protocol: version}
 
-      2 ->
+      intent when intent in [2, 3] ->
         state = %{state | phase: :login, protocol: version, step: :hello}
 
         if version != Valimc.protocol_version(),
           do: reject(state, "Use Minecraft Java #{Valimc.version()}")
+
+        # A transfer (`/transfer` on another server) needs `accepts-transfers`.
+        if intent == 3 and not Valimc.config(:accepts_transfers),
+          do:
+            reject(
+              state,
+              Valimc.Command.Text.encode(
+                Valimc.Command.Text.translatable("multiplayer.disconnect.transfers_disabled")
+              )
+            )
 
         state
 

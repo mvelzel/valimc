@@ -3,7 +3,10 @@ defmodule Valimc.Players do
 
   @moduledoc "Admission and lifecycle only. Spatial updates and packet traffic bypass this process."
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
-  def join(player), do: GenServer.call(__MODULE__, {:join, player})
+
+  def join(player, bypass_limit \\ false),
+    do: GenServer.call(__MODULE__, {:join, player, bypass_limit})
+
   def ready(pid), do: GenServer.call(__MODULE__, {:ready, pid})
   def count, do: :ets.info(__MODULE__, :size)
   def all, do: for({_, player} <- :ets.tab2list(__MODULE__), player.ready, do: player)
@@ -129,12 +132,12 @@ defmodule Valimc.Players do
   end
 
   @impl true
-  def handle_call({:join, player}, _from, state) do
+  def handle_call({:join, player, bypass_limit}, _from, state) do
     key = String.downcase(player.name)
 
     cond do
-      count() >= Valimc.config(:max_players) ->
-        {:reply, {:error, "Server is full"}, state}
+      count() >= Valimc.config(:max_players) and not bypass_limit ->
+        {:reply, {:error, :full}, state}
 
       Map.has_key?(state.names, key) ->
         {:reply, {:error, "That name is already connected"}, state}

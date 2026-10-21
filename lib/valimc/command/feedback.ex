@@ -31,7 +31,7 @@ defmodule Valimc.Command.Feedback do
   @doc "A message from the server console: logged and shown to operators as `[Server: ...]`."
   def console(component) do
     require Logger
-    Logger.info("[Server] " <> inspect(component))
+    Logger.info("[Server] " <> log_text(component))
 
     if Valimc.Command.GameRules.get(:send_command_feedback) do
       message =
@@ -39,12 +39,25 @@ defmodule Valimc.Command.Feedback do
         |> Text.style([{"color", "gray"}, {"italic", true}])
 
       for player <- Valimc.Players.all(),
-          Valimc.Permissions.operator?(player.name),
+          Valimc.Permissions.operator?(player),
           do: Valimc.Connection.deliver(player.pid, {:chat, Text.encode(message)})
     end
 
     :ok
   end
+
+  # A readable log line: literal text, or a translation key with its arguments.
+  defp log_text({:compound, %{"translate" => {:string, key}} = fields}) do
+    case fields["with"] do
+      nil -> key
+      args -> key <> " " <> inspect(Enum.map(Text.list_items(args), &log_arg/1))
+    end
+  end
+
+  defp log_text(component), do: Text.plain(component)
+
+  defp log_arg({:compound, _} = component), do: log_text(component)
+  defp log_arg({_type, value}), do: value
 
   defp admins(source, component) do
     if Valimc.Command.GameRules.get(:send_command_feedback) do
@@ -54,7 +67,7 @@ defmodule Valimc.Command.Feedback do
 
       for player <- Valimc.Players.all(),
           player.pid != self(),
-          Valimc.Permissions.operator?(player.name),
+          Valimc.Permissions.operator?(player),
           do: Valimc.Connection.deliver(player.pid, {:chat, Text.encode(message)})
     end
   end

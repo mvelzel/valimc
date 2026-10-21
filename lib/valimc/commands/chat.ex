@@ -168,11 +168,11 @@ defmodule Valimc.Commands.Chat do
     end
   end
 
-  # `EntitySelector.joinNames` (`ComponentUtils.formatList` with a gray ", ").
-  defp join_names([]), do: Text.empty()
-  defp join_names([one]), do: Source.display_name(one)
+  @doc "`EntitySelector.joinNames` (`ComponentUtils.formatList` with a gray \", \")."
+  def join_names([]), do: Text.empty()
+  def join_names([one]), do: Source.display_name(one)
 
-  defp join_names([first | rest]) do
+  def join_names([first | rest]) do
     separator = Text.literal(", ") |> Text.color("gray")
 
     Enum.reduce(rest, Text.empty() |> Text.append(Source.display_name(first)), fn player, acc ->

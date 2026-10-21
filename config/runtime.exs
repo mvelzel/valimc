@@ -34,6 +34,19 @@ case System.get_env("VALIMC_OPERATORS") do
     config :valimc, operators: names |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
 end
 
+for {variable, key} <- [
+      {"VALIMC_WHITE_LIST", :white_list},
+      {"VALIMC_ENFORCE_WHITELIST", :enforce_whitelist},
+      {"VALIMC_ACCEPTS_TRANSFERS", :accepts_transfers}
+    ] do
+  case System.get_env(variable) do
+    nil -> :ok
+    "true" -> config :valimc, [{key, true}]
+    "false" -> config :valimc, [{key, false}]
+    _ -> raise "#{variable} must be true or false"
+  end
+end
+
 if port = System.get_env("VALIMC_PORT") do
   config :valimc, port: String.to_integer(port)
 end

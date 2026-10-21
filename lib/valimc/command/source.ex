@@ -12,7 +12,7 @@ defmodule Valimc.Command.Source do
     player = Map.put(state.player, :pid, self())
 
     %__MODULE__{
-      level: Valimc.Permissions.level(player.name),
+      level: Valimc.Permissions.level(player),
       state: state,
       player: player,
       name: player.name,

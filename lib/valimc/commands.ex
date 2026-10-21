@@ -24,6 +24,7 @@ defmodule Valimc.Commands do
     WorldBorder
   }
 
+  alias Valimc.Commands.Operators
   alias Valimc.Commands.Text, as: TextCommands
   alias Valimc.Commands.Blocks, as: BlockCommands
 
@@ -869,6 +870,26 @@ defmodule Valimc.Commands do
     ["forceload", "remove", "all"] => {BlockCommands, :forceload_remove_all},
     ["forceload", "query"] => {BlockCommands, :forceload_query},
     ["forceload", "query", "pos"] => {BlockCommands, :forceload_query_pos},
+    ["op", "targets"] => {Operators, :op},
+    ["deop", "targets"] => {Operators, :deop},
+    ["ban", "targets"] => {Operators, :ban},
+    ["ban", "targets", "reason"] => {Operators, :ban},
+    ["ban-ip", "target"] => {Operators, :ban_ip},
+    ["ban-ip", "target", "reason"] => {Operators, :ban_ip},
+    ["banlist"] => {Operators, :banlist},
+    ["banlist", "ips"] => {Operators, :banlist_ips},
+    ["banlist", "players"] => {Operators, :banlist_players},
+    ["pardon", "targets"] => {Operators, :pardon},
+    ["pardon-ip", "target"] => {Operators, :pardon_ip},
+    ["whitelist", "on"] => {Operators, :whitelist_on},
+    ["whitelist", "off"] => {Operators, :whitelist_off},
+    ["whitelist", "list"] => {Operators, :whitelist_list},
+    ["whitelist", "add", "targets"] => {Operators, :whitelist_add},
+    ["whitelist", "remove", "targets"] => {Operators, :whitelist_remove},
+    ["whitelist", "reload"] => {Operators, :whitelist_reload},
+    ["transfer", "hostname"] => {Operators, :transfer},
+    ["transfer", "hostname", "port"] => {Operators, :transfer},
+    ["transfer", "hostname", "port", "players"] => {Operators, :transfer},
     ["version"] => {Admin, :version},
     ["kick", "targets"] => {Admin, :kick},
     ["kick", "targets", "reason"] => {Admin, :kick},

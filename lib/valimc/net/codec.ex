@@ -63,9 +63,16 @@ defmodule Valimc.Net.Codec do
     if state.phase in [:handshake, :status], do: throw({:disconnect, message, state})
 
     payload =
-      if state.phase == :login,
-        do: Wire.string(IO.iodata_to_binary(:json.encode(%{text: message}))),
-        else: Wire.text_component(message)
+      case {state.phase, message} do
+        {:login, %Valimc.Protocol.ServerText{tag: tag}} ->
+          Wire.string(IO.iodata_to_binary(:json.encode(Valimc.Command.Text.to_json(tag))))
+
+        {:login, text} ->
+          Wire.string(IO.iodata_to_binary(:json.encode(%{text: text})))
+
+        _ ->
+          Wire.text_component(message)
+      end
 
     phase = if state.phase in [:login, :configuration, :play], do: state.phase, else: :login
     name = if phase == :login, do: "login_disconnect", else: "disconnect"

@@ -120,6 +120,7 @@ defmodule Valimc.Net.LoginFlow do
       uuid: if(profile, do: profile.uuid, else: Valimc.Connection.offline_uuid(name)),
       properties: if(profile, do: profile.properties, else: []),
       entity_id: System.unique_integer([:positive]),
+      address: Valimc.Admin.Login.address(state.socket),
       x: Valimc.World.Spawn.pose().x,
       y: Valimc.World.Spawn.pose().y,
       z: Valimc.World.Spawn.pose().z,
@@ -144,9 +145,26 @@ defmodule Valimc.Net.LoginFlow do
       ready: false
     }
 
-    case Players.join(player) do
-      :ok -> :ok
-      {:error, reason} -> reject(state, reason)
+    # VMC-010a: the name cache learns every login before the list checks.
+    Valimc.Admin.Lists.remember(player.uuid, name)
+
+    if reason = Valimc.Admin.Login.refusal(player, Valimc.Admin.Login.address(state.socket)),
+      do: reject(state, Valimc.Command.Text.encode(reason))
+
+    case Players.join(player, Valimc.Admin.Login.bypasses_limit?(player)) do
+      :ok ->
+        :ok
+
+      {:error, :full} ->
+        reject(
+          state,
+          Valimc.Command.Text.encode(
+            Valimc.Command.Text.translatable("multiplayer.disconnect.server_full")
+          )
+        )
+
+      {:error, reason} ->
+        reject(state, reason)
     end
 
     {store, fence, player, inventory, pending} =
@@ -271,9 +289,9 @@ defmodule Valimc.Net.LoginFlow do
       Packets.spawn_position(),
       Packets.permission_level(
         state.player.entity_id,
-        Valimc.Permissions.level(state.player.name)
+        Valimc.Permissions.level(state.player)
       ),
-      Packets.commands(Valimc.Permissions.level(state.player.name)),
+      Packets.commands(Valimc.Permissions.level(state.player)),
       Valimc.World.TickRate.state_packet(Valimc.World.TickRate.published()),
       Valimc.World.TickRate.step_packet(Valimc.World.TickRate.join_steps()),
       Packets.inventory(state.inventory),

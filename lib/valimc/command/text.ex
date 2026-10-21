@@ -95,4 +95,41 @@ defmodule Valimc.Command.Text do
   end
 
   def encode(tag), do: %Valimc.Protocol.ServerText{tag: tag}
+
+  @doc "A component's plain text (`Component.getString`) for literal text and its siblings."
+  def plain({:compound, fields}) do
+    own =
+      case fields do
+        %{"text" => {:string, text}} -> text
+        %{"translate" => {:string, key}} -> key
+        _ -> ""
+      end
+
+    case fields["extra"] do
+      nil -> own
+      list -> own <> Enum.map_join(list_tags(list), &plain/1)
+    end
+  end
+
+  def plain({:string, text}), do: text
+  def plain(_), do: ""
+
+  @doc "The tags of an NBT list (`with`, `extra`)."
+  def list_items(list), do: list_tags(list)
+
+  @doc "The component as JSON terms, for the login phase, which sends text as JSON."
+  def to_json({:compound, fields}),
+    do: Map.new(fields, fn {key, value} -> {key, json_value(key, value)} end)
+
+  defp json_value(key, {:byte, value})
+       when key in ~w(bold italic underlined strikethrough obfuscated),
+       do: value != 0
+
+  defp json_value(_key, {:compound, _} = tag), do: to_json(tag)
+  defp json_value(_key, {:string, value}), do: value
+  defp json_value(_key, {type, value}) when type in [:byte, :short, :int, :long], do: value
+  defp json_value(_key, {:list, _} = list), do: Enum.map(list_tags(list), &json_value("", &1))
+  defp json_value(_key, {:float, <<value::float-32>>}), do: value
+  defp json_value(_key, {:double, <<value::float-64>>}), do: value
+  defp json_value(_key, {:int_array, bytes}), do: for(<<value::signed-32 <- bytes>>, do: value)
 end

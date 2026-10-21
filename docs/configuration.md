@@ -15,10 +15,15 @@
 | `VALIMC_GAME_MODE` | New/legacy player mode: survival, creative, adventure, spectator |
 | `VALIMC_ENCRYPTION` | Offline RSA/AES transport test; does not authenticate accounts |
 | `VALIMC_ONLINE_MODE` | Mojang account verification; login uses encryption |
-| `VALIMC_OPERATORS` | Command operators: comma-separated names, or `*` for every player; none by default, everyone under `mix run` in development |
+| `VALIMC_OPERATORS` | Command operators: comma-separated names added to `ops.json` at startup, or `*` for every player; none by default, everyone under `mix run` in development |
+| `VALIMC_WHITE_LIST` | Whether only operators and whitelisted players may join (`false` by default; `/whitelist on` and `off` save their choice in the world) |
+| `VALIMC_ENFORCE_WHITELIST` | Whether whitelist changes disconnect players who are no longer listed (`false`) |
+| `VALIMC_ACCEPTS_TRANSFERS` | Whether players sent here by `/transfer` on another server may join (`false`) |
 
-Operators get permission level 4 (`operator_level`) and vanilla's gamemaster
-commands; other players get level 0. Saved modes take precedence. Non-creative gameplay remains incomplete. Online and
+Operators get their `ops.json` level (4, `operator_level`, for `/op`) and the
+commands of that level; other players get level 0. The world directory holds
+vanilla's `ops.json`, `whitelist.json`, `banned-players.json`, `banned-ips.json`
+and `usercache.json`. Saved modes take precedence. Non-creative gameplay remains incomplete. Online and
 offline UUID saves are separate; mode changes do not migrate files. Signed chat,
 proxy-IP policy and duplicate-session replacement remain unfinished.
 

@@ -30,7 +30,7 @@ reference scenarios. Individual dependencies are refined in a ticket before work
 | VMC-007 | Session authentication and encryption | Official online-mode join, AES/compression interoperability, invalid sessions rejected |
 | VMC-008 | Registry/data-pack negotiation and reload | Features, tags, components, known packs and reconfiguration; no stale caches |
 | VMC-009 | Signed chat and command signatures | Vanilla validation/acknowledgments, argument suggestions, no fabricated signatures |
-| VMC-010 | Configuration, administration and permissions | Console/RCON, operators, bans/whitelist; checks precede every mutation |
+| [VMC-010](tickets/VMC-010.md) | Configuration, administration and permissions | Console/RCON, operators, bans/whitelist; checks precede every mutation |
 
 ### B — Authoritative simulation and ownership
 

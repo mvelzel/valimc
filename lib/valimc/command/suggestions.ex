@@ -68,6 +68,19 @@ defmodule Valimc.Command.Suggestions do
       else: []
   end
 
+  defp child(%{suggestions: "minecraft:ask_server", path: path}, remaining, _context)
+       when path in [
+              ["op", "targets"],
+              ["deop", "targets"],
+              ["pardon", "targets"],
+              ["pardon-ip", "target"],
+              ["whitelist", "add", "targets"],
+              ["whitelist", "remove", "targets"]
+            ] do
+    contents = String.downcase(remaining)
+    Enum.filter(admin_names(path), &matches_sub_str?(contents, String.downcase(&1)))
+  end
+
   defp child(%{suggestions: "minecraft:ask_server", path: path}, remaining, context) do
     clock = clock(context)
 
@@ -90,6 +103,24 @@ defmodule Valimc.Command.Suggestions do
   end
 
   defp child(_node, _remaining, _context), do: []
+
+  # The dedicated server's providers for the admin commands (VMC-053f2).
+  defp admin_names(["op" | _]),
+    do: for(p <- Valimc.Players.all(), not Valimc.Permissions.operator?(p), do: p.name)
+
+  defp admin_names(["deop" | _]),
+    do: for({_, op} <- Valimc.Admin.Lists.entries(:ops), do: op.name)
+
+  defp admin_names(["pardon" | _]),
+    do: for({_, entry} <- Valimc.Admin.Lists.entries(:bans), do: entry["name"])
+
+  defp admin_names(["pardon-ip" | _]), do: Map.keys(Valimc.Admin.Lists.entries(:ip_bans))
+
+  defp admin_names(["whitelist", "add" | _]),
+    do: for(p <- Valimc.Players.all(), not Valimc.Admin.Lists.whitelisted?(p.uuid), do: p.name)
+
+  defp admin_names(["whitelist", "remove" | _]),
+    do: Map.values(Valimc.Admin.Lists.entries(:whitelist))
 
   defp clock(context) do
     case context.arguments do
