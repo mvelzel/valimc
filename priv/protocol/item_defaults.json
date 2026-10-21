@@ -16045,6 +16045,7 @@
         "minecraft:max_stack_size": "01",
         "minecraft:rarity": "00",
         "minecraft:repair_cost": "00",
+        "minecraft:suspicious_stew_effects": "00",
         "minecraft:tooltip_display": "0000"
       },
       "present": [
@@ -16432,6 +16433,7 @@
     "1504": {
       "values": {
         "minecraft:enchantments": "00",
+        "minecraft:instrument": "05",
         "minecraft:item_model": "136d696e6563726166743a676f61745f686f726e",
         "minecraft:item_name": "0a0800097472616e736c61746500186974656d2e6d696e6563726166742e676f61745f686f726e00",
         "minecraft:lore": "00",
@@ -21065,6 +21067,7 @@
         "minecraft:item_name": "0a0800097472616e736c617465001d6974656d2e6d696e6563726166742e6f6d696e6f75735f626f74746c6500",
         "minecraft:lore": "00",
         "minecraft:max_stack_size": "40",
+        "minecraft:ominous_bottle_amplifier": "00",
         "minecraft:rarity": "01",
         "minecraft:repair_cost": "00",
         "minecraft:tooltip_display": "0000"

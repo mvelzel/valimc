@@ -4,6 +4,7 @@ defmodule Valimc.Protocol.ItemStack do
     Enchantments,
     FoodProperties,
     ItemTypes,
+    LootComponents,
     PotionContents,
     TextComponent,
     TooltipDisplay,
@@ -36,8 +37,16 @@ defmodule Valimc.Protocol.ItemStack do
     "minecraft:enchantment_glint_override" => :bool,
     "minecraft:item_model" => :identifier,
     "minecraft:tooltip_style" => :identifier,
-    "minecraft:minimum_attack_charge" => :fraction
+    "minecraft:minimum_attack_charge" => :fraction,
+    # Container loot (VMC-072a).
+    "minecraft:suspicious_stew_effects" => :stew_effects,
+    "minecraft:instrument" => :instrument,
+    "minecraft:ominous_bottle_amplifier" => {:varint, 0, 4},
+    "minecraft:map_id" => {:varint, 0, 2_147_483_647},
+    "minecraft:map_decorations" => :map_decorations
   }
+  # Persistent components vanilla never sends to clients.
+  @unsynced ["minecraft:map_decorations"]
 
   def new(name, count \\ 1), do: %__MODULE__{item_id: ItemTypes.id(name), count: count}
   def supported_components, do: Map.keys(@codecs)
@@ -57,6 +66,17 @@ defmodule Valimc.Protocol.ItemStack do
 
     removed = stack.removed |> Enum.filter(&MapSet.member?(defaults.present, &1)) |> Enum.sort()
     {stack.item_id, added, removed}
+  end
+
+  @doc "The stack without patch entries equal to its item's defaults, as vanilla's patch keeps them."
+  def normalize(%__MODULE__{} = stack) do
+    {_, added, removed} = identity_key(stack)
+
+    %{
+      stack
+      | components: Map.take(stack.components, Enum.map(added, &elem(&1, 0))),
+        removed: MapSet.new(removed)
+    }
   end
 
   def same_item?(%__MODULE__{item_id: id} = a, %__MODULE__{item_id: id} = b),
@@ -117,7 +137,12 @@ defmodule Valimc.Protocol.ItemStack do
 
   def encode(%__MODULE__{} = stack, mode) when mode in [:trusted, :untrusted] do
     validate!(stack)
-    added = Enum.sort_by(stack.components, fn {name, _} -> ItemTypes.component_id(name) end)
+
+    added =
+      stack.components
+      |> Enum.reject(fn {name, _} -> name in @unsynced end)
+      |> Enum.sort_by(fn {name, _} -> ItemTypes.component_id(name) end)
+
     removed = Enum.sort_by(stack.removed, &ItemTypes.component_id/1)
 
     bytes = [
@@ -265,6 +290,8 @@ defmodule Valimc.Protocol.ItemStack do
   defp read_component(:tooltip, bytes), do: TooltipDisplay.take(bytes)
   defp read_component(:food, bytes), do: FoodProperties.take(bytes)
   defp read_component(:potion_contents, bytes), do: PotionContents.take(bytes)
+  defp read_component(:stew_effects, bytes), do: LootComponents.take_stew(bytes)
+  defp read_component(:instrument, bytes), do: LootComponents.take_instrument(bytes)
 
   defp read_component(:nbt_compound, bytes) do
     case NBT.take(bytes) do
@@ -307,6 +334,9 @@ defmodule Valimc.Protocol.ItemStack do
   defp valid_component?(:tooltip, value), do: TooltipDisplay.valid?(value)
   defp valid_component?(:food, value), do: FoodProperties.valid?(value)
   defp valid_component?(:potion_contents, value), do: PotionContents.valid?(value)
+  defp valid_component?(:stew_effects, value), do: LootComponents.valid_stew?(value)
+  defp valid_component?(:instrument, value), do: LootComponents.valid_instrument?(value)
+  defp valid_component?(:map_decorations, value), do: LootComponents.valid_decorations?(value)
   defp valid_component?(:bool, value), do: is_boolean(value)
   defp valid_component?(:fraction, value), do: is_float(value) and value >= 0.0 and value <= 1.0
 
@@ -325,6 +355,8 @@ defmodule Valimc.Protocol.ItemStack do
   defp encode_component(:tooltip, value), do: TooltipDisplay.encode(value)
   defp encode_component(:food, value), do: FoodProperties.encode(value)
   defp encode_component(:potion_contents, value), do: PotionContents.encode(value)
+  defp encode_component(:stew_effects, value), do: LootComponents.encode_stew(value)
+  defp encode_component(:instrument, value), do: LootComponents.encode_instrument(value)
   defp encode_component(:bool, value), do: Wire.bool(value)
   defp encode_component(:identifier, value), do: Wire.string(value)
   defp encode_component(:fraction, value), do: <<value::float-32>>
@@ -333,6 +365,7 @@ defmodule Valimc.Protocol.ItemStack do
   defp component_key(:lore, value), do: TextComponent.lore_key(value)
   defp component_key(:tooltip, value), do: TooltipDisplay.identity_key(value)
   defp component_key(:potion_contents, value), do: PotionContents.identity_key(value)
+  defp component_key(:map_decorations, value), do: LootComponents.decorations_key(value)
   defp component_key(codec, value), do: encode_component(codec, value) |> IO.iodata_to_binary()
   defp check(true, _), do: :ok
   defp check(false, reason), do: throw({:item_error, reason})

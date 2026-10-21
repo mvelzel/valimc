@@ -4,6 +4,7 @@ defmodule Valimc.Protocol.ItemData do
     EffectTypes,
     Enchantments,
     ItemStack,
+    LootComponents,
     ItemTypes,
     TextComponent,
     Wire
@@ -125,9 +126,15 @@ defmodule Valimc.Protocol.ItemData do
        do: :unit
 
   defp from_tag(name, {type, value})
-       when name in ~w(minecraft:max_stack_size minecraft:max_damage minecraft:damage minecraft:repair_cost) and
+       when name in ~w(minecraft:max_stack_size minecraft:max_damage minecraft:damage minecraft:repair_cost minecraft:ominous_bottle_amplifier minecraft:map_id) and
               type in [:byte, :short, :int],
        do: value
+
+  defp from_tag("minecraft:suspicious_stew_effects", list), do: LootComponents.stew_from_tag(list)
+  defp from_tag("minecraft:instrument", {:string, name}), do: qualified(name)
+
+  defp from_tag("minecraft:map_decorations", decorations),
+    do: LootComponents.decorations_from_tag(decorations)
 
   defp from_tag("minecraft:rarity", {:string, value}),
     do: Enum.find_index(~w(common uncommon rare epic), &(&1 == value)) || raise(ArgumentError)
@@ -293,8 +300,16 @@ defmodule Valimc.Protocol.ItemData do
        do: {:compound, %{}}
 
   defp component(name, value)
-       when name in ~w(minecraft:max_stack_size minecraft:max_damage minecraft:damage minecraft:repair_cost),
+       when name in ~w(minecraft:max_stack_size minecraft:max_damage minecraft:damage minecraft:repair_cost minecraft:ominous_bottle_amplifier minecraft:map_id),
        do: {:int, value}
+
+  defp component("minecraft:suspicious_stew_effects", effects),
+    do: LootComponents.stew_tag(effects)
+
+  defp component("minecraft:instrument", name), do: {:string, name}
+
+  defp component("minecraft:map_decorations", decorations),
+    do: LootComponents.decorations_tag(decorations)
 
   defp component("minecraft:rarity", value),
     do: {:string, Enum.at(~w(common uncommon rare epic), value)}

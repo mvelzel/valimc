@@ -578,6 +578,13 @@ STAGES = [
         ('java', 'ChestLootOracle', '@chest-loot.json'),
         ('check', 'check_chest_loot.exs', '@chest-loot.json'),
     ]),
+    ('loot', [
+        ('java', 'LootOracle', 'facts', '@loot-tables.json', '@loot-registries.json'),
+        ('same', '@loot-tables.json', 'priv/loot/tables.json'),
+        ('same', '@loot-registries.json', 'priv/loot/registries.json'),
+        ('java', 'LootOracle', 'cases', '@loot-cases.json'),
+        ('check', 'check_loot.exs', '@loot-cases.json'),
+    ]),
     ('cooking_fuel', [
         ('java', 'CookingFuelOracle', '@cooking-fuel.json'),
         ('check', 'check_cooking_fuel.exs', '@cooking-fuel.json'),

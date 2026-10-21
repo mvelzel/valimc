@@ -27,7 +27,8 @@ public class ItemMetadata {
   private static final Set<String> SUPPORTED = Set.of("custom_data", "max_stack_size",
     "max_damage", "damage", "repair_cost", "rarity", "unbreakable", "creative_slot_lock",
     "intangible_projectile", "enchantment_glint_override", "item_model", "tooltip_style",
-    "minimum_attack_charge", "custom_name", "item_name", "lore", "enchantments", "stored_enchantments", "tooltip_display", "food", "potion_contents");
+    "minimum_attack_charge", "custom_name", "item_name", "lore", "enchantments", "stored_enchantments", "tooltip_display", "food", "potion_contents",
+    "suspicious_stew_effects", "instrument", "ominous_bottle_amplifier", "map_id");
   @SuppressWarnings("unchecked")
   private static <T> String encodeDefault(DataComponentType<T> type, Object value,
       RegistryAccess.Frozen registries) {
@@ -65,7 +66,15 @@ public class ItemMetadata {
       for (var type : item.components().keySet()) {
         var name = BuiltInRegistries.DATA_COMPONENT_TYPE.getKey(type);
         present.add(name.toString());
-        if (name.getNamespace().equals("minecraft") && SUPPORTED.contains(name.getPath()))
+        if (type == DataComponents.INSTRUMENT) {
+          // A data-driven holder: the network id is its index in the loaded
+          // registry, which a data pack lists in identifier order.
+          var key = ((net.minecraft.world.item.component.InstrumentComponent) item.components().get(type))
+            .instrument().unwrapKey().orElseThrow().identifier().toString();
+          var keys = lookup.lookupOrThrow(Registries.INSTRUMENT).listElementIds()
+            .map(k -> k.identifier().toString()).sorted().toList();
+          encoded.put(name.toString(), HexFormat.of().formatHex(new byte[] {(byte) (keys.indexOf(key) + 1)}));
+        } else if (name.getNamespace().equals("minecraft") && SUPPORTED.contains(name.getPath()))
           encoded.put(name.toString(), encodeDefault(type, item.components().get(type), registries));
       }
       var prototype = new LinkedHashMap<String,Object>();

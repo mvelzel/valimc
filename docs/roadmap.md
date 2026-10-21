@@ -43,7 +43,7 @@ resumes on these foundations alongside M2.
 | [VMC-025](tickets/VMC-025.md) | Features and structures: all 171 overworld placed features equal vanilla's and decorate new worlds live across region borders; the starts of all 52 structures in three dimensions equal vanilla's; temples, swamp huts and buried treasure placed as vanilla places them, the other structures next | In progress |
 | [VMC-026](tickets/VMC-026.md) | Nether, End and portals: every Nether and End placed feature (spikes with crystals, gateways, chorus) equal vanilla's at the dimensions' heights; live dimensions and portals next | In progress |
 | [VMC-027](tickets/VMC-027.md) | World border live (moving, damage outside, `/worldborder`) and vanilla's world and player spawn search | Done |
-| [VMC-072](tickets/VMC-072.md) | Container loot tables rolled on open, as vanilla does, for generated and imported chests | Planned |
+| [VMC-072](tickets/VMC-072.md) | Container loot tables rolled on open, as vanilla does, for generated and imported chests; every container table equals vanilla's | In progress |
 | [VMC-070](tickets/VMC-070.md) | The client's view distance (clamped to the server's, default 10) picks vanilla's chunk view, applied live; vanilla chunk send pacing and entity tracking ranges | Done |
 | [VMC-071](tickets/VMC-071.md) | New terrain reaches a moving player sooner: parallel worldgen states, nearest regions first, no light-update flood | Done |
 | [VMC-028](tickets/VMC-028.md) | Generation settings as vanilla stores them, world presets, worldgen from data packs, older worlds | In progress |
