@@ -31,15 +31,19 @@ rollback, shulker collision) is done; wave 1 runs the phase 1 slices in parallel
 
 | Ticket | Open slice | Status |
 |---|---|---|
-| VMC-077a | Runtime safety: supervision tiers, listener backoff, world spec, no blocking calls from connections, commands as jobs | In progress |
-| VMC-077b | Native scheduling policy and NIF hygiene; `lib.rs` split by domain | In progress |
-| VMC-077c | Per-chunk light at generation, incremental light, section-mask packets | In progress |
-| VMC-077d | One generated block fact table shared by Elixir and Rust | In progress |
-| VMC-077e | Chunk tickets, unload, simulation distance, `World.View` | In progress |
+| [VMC-077b](tickets/VMC-077b.md) | Native scheduling policy and NIF hygiene (live; client run pending) | Foundation |
+| [VMC-077c](tickets/VMC-077c.md) | Per-chunk light, section-mask light packets | Awaiting client |
+| [VMC-077e](tickets/VMC-077e.md) | Chunk tickets, unload, ack-paced batches, `World.View` | Awaiting client |
+| VMC-077f, 077g | One striped log with change records and per-tick commits; owner skeleton | In progress |
+| VMC-077k | Living rules for any entity | In progress |
+| VMC-077l | Rust physics kernel; synchronous movement checks | In progress |
+| VMC-077m | One Rust block-rule engine for worldgen and live updates | In progress |
+| VMC-077n | One generation scheduler per dimension; volatile proto chunks | In progress |
+| VMC-077o | Command registry, pure source, one text codec, atomic box edits | In progress |
 
-Then: VMC-077f–g storage and owner skeleton, 077h–k entity store, players in
-owners, regionizer and living rules, 077l–m Rust physics and block rules, 077n
-generation scheduler, 077o commands, layout (see [VMC-077](tickets/VMC-077.md)).
+Done in foundations II: phase 0, VMC-077a, 077d. Then: 077h–j entity store,
+players in owners and the regionizer; layout; one client run for the phase
+(see [VMC-077](tickets/VMC-077.md)).
 
 ## M3 onward
 

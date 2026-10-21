@@ -5,6 +5,8 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-077a Runtime safety](../tickets/VMC-077a.md) | `cad5375`; tiered supervisors, accept errors back off, `World.Spec` read once with an atomic settings owner, commands as jobs, fenced block writes only, dimension-correct commands, ingress caps |
+| [VMC-077d One block fact table](../tickets/VMC-077d.md) | `fa46077`; one generated per-state fact table decoded once in Elixir and installed once in Rust; physics `*Blocks` modules, duplicate JSON and generators gone; damage types and enchantment effects from data |
 | [VMC-076](../tickets/VMC-076.md) | `b54d69e`; fast dev NIF builds, two heavy-job slots, test tiers, content-keyed oracle cache with `--changed` and `--regen`; test suite 312 s → 81 s and oracle runs 39–107 min → 7 min warm |
 | [VMC-026 Nether, End and portals](../tickets/VMC-026.md) | `f9b178e`: live Nether and End (VMC-026a, b), items through portals (VMC-026c), generated stronghold portal rooms to the End; terrain and decoration per dimension in Pumpkin's range; client check of a portal room, the End, the credits and a reconnect; the dragon fight, thrown eyes and orbs and mobs through portals move to M3 |
 | [VMC-026c Items through portals](../tickets/VMC-026c.md) | `57c30ff`: items through nether portals, end portals and gateways by cross-dimension item handoffs with tagged receipts; vanilla's velocity turn on arrival for players too (`portals` stage, 400 arrival poses); Nether and End block changes reach players; client runs on e92ef68 and 57c30ff |
