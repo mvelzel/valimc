@@ -123,10 +123,10 @@ defmodule Valimc.DirectoryRecoveryTest do
     assert Process.alive?(player.pid)
     Client.close(client)
     assert :ets.info(publication) == :undefined
-    assert {:error, :region_unavailable} = Region.observe_blocks(owner, [])
+    assert {:error, {:retry, :region_unavailable}} = Region.observe_blocks(owner, [])
 
     case World.existing_owner({0, 0}) do
-      {:error, :region_unavailable} ->
+      {:error, {:retry, :region_unavailable}} ->
         :ok
 
       {:ok, {recovering, recovered_epoch}} ->

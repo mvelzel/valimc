@@ -11,11 +11,11 @@ defmodule Valimc.TransferDelivery do
            token: token
          ) do
       {:ok, job} -> {:ok, job}
-      {:error, :transfer_workers_busy} = error -> error
+      {:error, _} = error -> error
     end
   end
 
-  defdelegate retryable?(result), to: Valimc.Txn.Delivery
+  defdelegate retryable?(result), to: Valimc.Error
 
   defdelegate completed?(snapshot, result), to: Valimc.Txn.Operation
 
@@ -34,7 +34,7 @@ defmodule Valimc.TransferDelivery do
     rescue
       _ -> {:error, operation.invalid()}
     catch
-      :exit, _ -> {:error, :region_restarting}
+      :exit, _ -> Valimc.Error.retry(:region_restarting)
     end
   end
 

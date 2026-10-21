@@ -422,7 +422,11 @@ defmodule Valimc.PlayerStore do
         {:DOWN, ref, :process, worker, _},
         %{closing: %{job: %{pid: worker, monitor: ref}} = closing} = state
       ),
-      do: closing_failure(%{state | closing: %{closing | job: nil}}, {:error, :region_restarting})
+      do:
+        closing_failure(
+          %{state | closing: %{closing | job: nil}},
+          Valimc.Error.retry(:region_restarting)
+        )
 
   def handle_info(
         {:DOWN, ref, :process, owner, _},
@@ -604,20 +608,20 @@ defmodule Valimc.PlayerStore do
          {:ok, {^key, receipt}} <- operation.receipt(owner, state.uuid) do
       # A reserved slot (sequence 0) records capacity, not this transfer.
       if receipt.sequence == 0,
-        do: {:error, :transfer_not_applied},
+        do: Valimc.Error.retry(:transfer_not_applied),
         else: operation.proof(key, request, digest, receipt)
     else
       {:error, missing} when missing in [:missing_transfer_receipt, :missing_container_receipt] ->
-        {:error, :transfer_not_applied}
+        Valimc.Error.retry(:transfer_not_applied)
 
       {:error, :transfer_storage_disabled} ->
         {:error, :transfer_destination_ephemeral}
 
       _ ->
-        {:error, :transfer_destination_unavailable}
+        Valimc.Error.retry(:transfer_destination_unavailable)
     end
   catch
-    :exit, _ -> {:error, :transfer_destination_unavailable}
+    :exit, _ -> Valimc.Error.retry(:transfer_destination_unavailable)
   end
 
   defp resolved_snapshot(uuid, snapshot, proof),

@@ -61,7 +61,7 @@ defmodule Valimc.Commands.Server do
   defp flush_region(pid) do
     case Valimc.World.Region.flush(pid) do
       :ok -> :ok
-      {:error, :item_storage_busy} -> :ok
+      {:error, {:retry, :item_storage_busy}} -> :ok
       other -> other
     end
   catch

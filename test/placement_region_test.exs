@@ -160,7 +160,7 @@ defmodule Valimc.PlacementRegionTest do
 
     assert {:error, :invalid_placement_reservation} = Region.reserve_placement(ctx.owner, 0, %{})
 
-    assert {:error, :stale_owner} =
+    assert {:error, {:retry, :stale_owner}} =
              Region.release_placement({ctx.pid, make_ref()}, ctx.transfer.permit)
 
     assert Valimc.TestBlocks.get(ctx.position) == 0

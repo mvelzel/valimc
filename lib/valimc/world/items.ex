@@ -274,7 +274,7 @@ defmodule Valimc.World.Items do
 
     cond do
       epoch != state.epoch ->
-        {:error, :stale_region}
+        Valimc.Error.retry(:stale_owner)
 
       length(steps) not in 1..@max_steps or
           length(Enum.uniq_by(steps, &Map.get(&1, :id))) != length(steps) ->
@@ -389,7 +389,7 @@ defmodule Valimc.World.Items do
 
   defp current(state, epoch, id, revision) do
     cond do
-      epoch != state.epoch -> {:error, :stale_region}
+      epoch != state.epoch -> Valimc.Error.retry(:stale_owner)
       not Map.has_key?(state.entries, id) -> {:error, :missing_item}
       state.entries[id].revision != revision -> {:error, :stale_item}
       true -> {:ok, state.entries[id]}

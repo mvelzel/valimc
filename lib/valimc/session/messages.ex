@@ -615,7 +615,7 @@ defmodule Valimc.Session.Messages do
     state = %{state | recovery: %{recovery | job: nil}}
 
     Valimc.Connection.guard_connection(state, fn ->
-      {:noreply, Transfers.recovery_failure(state, {:error, :region_restarting})}
+      {:noreply, Transfers.recovery_failure(state, Valimc.Error.retry(:region_restarting))}
     end)
   end
 

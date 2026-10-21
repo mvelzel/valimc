@@ -25,7 +25,7 @@ defmodule Valimc.RegionLoadingTest do
 
       assert File.read!(path) == :erlang.term_to_binary({:valimc_region, 1, %{{0, 70, 0} => 1}})
       refute File.exists?(Checkpoint.path(base, {:region, :overworld, key}))
-      assert World.existing_owner(key) == {:error, :region_unavailable}
+      assert World.existing_owner(key) == {:error, {:retry, :region_unavailable}}
       assert World.item_snapshot(key) == %{}
       assert {:ok, owner} = World.owner(independent)
       assert {:ok, _} = Region.observe_blocks(owner, [])
@@ -62,13 +62,18 @@ defmodule Valimc.RegionLoadingTest do
             # Each failure refuses admission until its backoff passed, without
             # starting an owner.
             Valimc.TestWait.until(fn ->
-              World.region(key) != {:error, {:region_load, :backoff}}
+              World.region(key) != {:error, {:retry, {:region_load, :backoff}}}
             end)
 
             assert World.owner(key) |> elem(0) == :error
             Valimc.TestWait.until(fn -> Registry.lookup(Valimc.RegionRegistry, key) == [] end)
-            expected = if attempt < 5, do: :backoff, else: :poisoned
-            assert World.region(key) == {:error, {:region_load, expected}}
+
+            expected =
+              if attempt < 5,
+                do: {:retry, {:region_load, :backoff}},
+                else: {:reject, {:region_load, :poisoned}}
+
+            assert World.region(key) == {:error, expected}
           end
         end)
 
@@ -97,7 +102,7 @@ defmodule Valimc.RegionLoadingTest do
       pid = wait_registered(key)
       assert Task.yield(loading, 20) == nil
       assert Registry.lookup(Valimc.RegionRegistry, key) == [{pid, nil}]
-      assert World.existing_owner(key) == {:error, :region_unavailable}
+      assert World.existing_owner(key) == {:error, {:retry, :region_unavailable}}
       assert World.item_snapshot(key) == %{}
       waiters = for _ <- 1..8, do: Task.async(fn -> World.owner(key) end)
 

@@ -58,7 +58,10 @@ defmodule Valimc.WorldItemsTest do
 
     assert Enum.count(results, &match?({:ok, _}, &1)) == 1
 
-    assert Enum.count(results, &(&1 in [{:error, :stale_item}, {:error, :item_storage_busy}])) ==
+    assert Enum.count(
+             results,
+             &(&1 in [{:error, :stale_item}, {:error, {:retry, :item_storage_busy}}])
+           ) ==
              31
 
     id = elem(handle, 2)

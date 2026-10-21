@@ -931,13 +931,7 @@ defmodule Valimc.TestBlocks do
              {:ok, view} <- Region.observe_blocks(owner, [position]) do
           {owner, view}
         else
-          {:error, reason}
-          when reason in [
-                 :chunk_generating,
-                 :region_unavailable,
-                 :region_restarting,
-                 :stale_owner
-               ] ->
+          {:error, {:retry, _}} ->
             nil
         end
       end,

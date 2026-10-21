@@ -141,7 +141,7 @@ defmodule Valimc.FlightConnectionTest do
   test "late transfer completion cannot roll back flight accepted while the destination is stalled",
        ctx do
     client = login(ctx) |> toggle(2) |> barrier()
-    {:ok, {region, _}} = World.item_owner(ctx.key)
+    {:ok, _} = World.item_owner(ctx.key)
     writer = Valimc.TestDisk.stripe(Valimc.config(:world_path), ctx.key)
     :sys.suspend(writer)
 
@@ -176,7 +176,7 @@ defmodule Valimc.FlightConnectionTest do
 
   test "disconnect preserves newer flight while keeping a pending transfer fenced", ctx do
     client = login(ctx)
-    {:ok, {region, _}} = World.item_owner(ctx.key)
+    {:ok, _} = World.item_owner(ctx.key)
     writer = Valimc.TestDisk.stripe(Valimc.config(:world_path), ctx.key)
     :sys.suspend(writer)
 

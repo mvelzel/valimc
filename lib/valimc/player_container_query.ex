@@ -8,13 +8,14 @@ defmodule Valimc.PlayerContainerQuery do
          try do
            Valimc.World.Region.admit_container_transfer(owner, request, actor)
          catch
-           :exit, _ -> {:error, :region_unavailable}
+           :exit, _ -> Valimc.Error.retry(:region_unavailable)
          end
        end)
      )}
   rescue
-    RuntimeError -> {:error, :transfer_workers_busy}
+    # `async_nolink` raises when the pool is full.
+    RuntimeError -> Valimc.Error.retry(:transfer_workers_busy)
   catch
-    :exit, _ -> {:error, :transfer_workers_busy}
+    :exit, _ -> Valimc.Error.retry(:transfer_workers_busy)
   end
 end

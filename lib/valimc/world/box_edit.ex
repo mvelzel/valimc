@@ -90,7 +90,7 @@ defmodule Valimc.World.BoxEdit do
 
   defp commit_part(owner, token, entries, retries) do
     case Region.commit_box(owner, token, entries) do
-      {:error, :retry} when retries > 0 ->
+      {:error, {:retry, :box_edit_busy}} when retries > 0 ->
         Process.sleep(5)
         commit_part(owner, token, entries, retries - 1)
 
@@ -99,7 +99,7 @@ defmodule Valimc.World.BoxEdit do
     end
   end
 
-  defp unloaded({:error, :chunk_generating}), do: {:error, :unloaded}
+  defp unloaded({:error, {:retry, :chunk_generating}}), do: {:error, :unloaded}
   defp unloaded(error), do: error
 
   @doc "Group `edits` (`position => state`) by region key."

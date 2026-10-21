@@ -12,18 +12,10 @@ defmodule Valimc.Portal.Access do
 
   @deadline 30_000
 
-  # A busy owner (one still writing) is asked again until the deadline; a
-  # refused change is final.
-  @busy [
-    :chunk_generating,
-    :stale_revision,
-    :block_query_timeout,
-    :block_commit_uncertain,
-    :mining_storage_busy,
-    :region_unavailable,
-    :region_restarting,
-    :stale_owner
-  ]
+  # A transient refusal, or a change that lost a race (read again), is asked
+  # again until the deadline; any other refusal is final.
+  defguardp again?(reason)
+            when (is_tuple(reason) and elem(reason, 0) == :retry) or reason == :stale_revision
 
   @doc """
   A block reader of the caller's dimension (`fn position -> state end`) over a
@@ -144,8 +136,7 @@ defmodule Valimc.Portal.Access do
     deadline = deadline || now() + @deadline
 
     case fun.() do
-      {:error, reason}
-      when reason in @busy or reason in [:storage_backpressure, :item_storage_busy] ->
+      {:error, reason} when again?(reason) ->
         if now() > deadline do
           {:error, reason}
         else
@@ -222,7 +213,7 @@ defmodule Valimc.Portal.Access do
            do: :ok
 
     case result do
-      {:error, reason} when reason in @busy ->
+      {:error, reason} when again?(reason) ->
         if now() > deadline do
           {:error, reason}
         else

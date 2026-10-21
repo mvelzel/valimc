@@ -230,7 +230,7 @@ defmodule Valimc.Storage.Log do
     do: {:noreply, %{state | held: {commits, files ++ [{from, file}], n}}, @idle_ms}
 
   def handle_call({:frames, owner, after_seq}, _from, state) do
-    case RegionLog.read(state.log.dir) do
+    case RegionLog.read(dir(state.base, state.n)) do
       {:ok, %{frames: frames}} ->
         {:reply,
          for(
@@ -301,7 +301,7 @@ defmodule Valimc.Storage.Log do
     Valimc.Metrics.add(:storage_records, length(ops))
     frames = batches(ops)
 
-    with :ok <- ensure_dir(state),
+    with {:ok, state} <- ensure_open(state),
          first = state.log.next_lsn,
          {:ok, log, last} <- RegionLog.append(state.log, frames) do
       Valimc.Metrics.add(:storage_bytes, Enum.sum(Enum.map(ops, &op_bytes/1)))
@@ -355,11 +355,28 @@ defmodule Valimc.Storage.Log do
     end
   end
 
+  # A stripe whose segments will not open (its folder unwritable) keeps
+  # running: the next append opens them again first.
   defp reopen(state) do
     case RegionLog.open(dir(state.base, state.n)) do
-      {:ok, log, _} -> {:noreply, %{state | log: log}, @idle_ms}
-      {:error, reason} -> {:stop, {:storage_log_failed, reason}, state}
+      {:ok, log, _} ->
+        {:noreply, %{state | log: log}, @idle_ms}
+
+      {:error, reason} ->
+        Logger.error("Storage log reopen failed: #{inspect(reason)}")
+        {:noreply, %{state | log: nil}, @idle_ms}
     end
+  end
+
+  defp ensure_open(%{log: nil} = state) do
+    case RegionLog.open(dir(state.base, state.n)) do
+      {:ok, log, _} -> {:ok, %{state | log: log}}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp ensure_open(state) do
+    with :ok <- ensure_dir(state), do: {:ok, state}
   end
 
   # A world folder removed under a running stripe (tests) starts a new log.

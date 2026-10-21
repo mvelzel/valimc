@@ -143,7 +143,7 @@ defmodule Valimc.PlayerContainerStoreTest do
     assert {:ok, {key, receipt}} = Region.container_transfer_receipt(owner, ctx.uuid)
     assert key == ctx.key and receipt == decision.containers.receipts[ctx.uuid]
 
-    assert {:error, :stale_region} =
+    assert {:error, {:retry, :stale_owner}} =
              Region.container_transfer_receipt({elem(owner, 0), make_ref()}, ctx.uuid)
 
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, elem(owner, 0))

@@ -68,7 +68,7 @@ defmodule Valimc.ItemStoreTest do
     assert {:ok, current} = Region.find_item(owner, uuid)
     assert elem(current, 2) != elem(updated, 2) and elem(current, 1) != elem(updated, 1)
 
-    assert {:error, :stale_region} =
+    assert {:error, {:retry, :stale_owner}} =
              Region.remove_item(
                {elem(owner, 0), elem(updated, 1), elem(updated, 2), elem(updated, 3)}
              )

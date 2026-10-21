@@ -155,7 +155,7 @@ defmodule Valimc.Commands.Blocks do
                Valimc.World.Region.fill_biomes(owner, group, {min, max}, id.(biome), filter) do
           count + changed
         else
-          {:error, :chunk_generating} -> Error.fail!("argument.pos.unloaded")
+          {:error, {:retry, :chunk_generating}} -> Error.fail!("argument.pos.unloaded")
           _ -> Error.fail!("argument.pos.unloaded")
         end
       end)

@@ -137,8 +137,11 @@ defmodule Valimc.MiningRegionTest do
     results =
       for {result, request} <- Enum.zip(initial, [ctx.transfer, second]) do
         case result do
-          {:error, :item_storage_busy} -> Region.apply_mining_transfer(ctx.owner, request)
-          result -> result
+          {:error, {:retry, :item_storage_busy}} ->
+            Region.apply_mining_transfer(ctx.owner, request)
+
+          result ->
+            result
         end
       end
 
@@ -151,7 +154,10 @@ defmodule Valimc.MiningRegionTest do
        ctx do
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, ctx.pid)
     assert {:ok, {pid, _} = owner} = World.item_owner(ctx.key)
-    assert {:error, :stale_region} = Region.apply_mining_transfer({pid, ctx.epoch}, ctx.transfer)
+
+    assert {:error, {:retry, :stale_owner}} =
+             Region.apply_mining_transfer({pid, ctx.epoch}, ctx.transfer)
+
     assert {:ok, :rejected} = Region.apply_mining_transfer(owner, ctx.transfer)
     assert Valimc.TestBlocks.get(ctx.position) == 1
     assert World.item_snapshot(ctx.key) == %{}
@@ -182,7 +188,7 @@ defmodule Valimc.MiningRegionTest do
       end)
 
       Process.exit(stripe, :kill)
-      assert {:error, :item_commit_uncertain} = Task.await(task, 60_000)
+      assert {:error, {:retry, :item_commit_uncertain}} = Task.await(task, 60_000)
       assert_receive {:DOWN, ^ref, :process, _, _}
     end)
 

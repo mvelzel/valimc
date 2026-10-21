@@ -91,7 +91,7 @@ defmodule Valimc.GroupCommitTest do
         uuid = World.item_snapshot(ctx.key)[elem(handle, 2)].uuid
         create_until_down(owner, ctx, left - 1, [uuid | acc])
 
-      {:error, :item_storage_busy} ->
+      {:error, {:retry, :item_storage_busy}} ->
         create_until_down(owner, ctx, left, acc)
 
       {:error, _} ->

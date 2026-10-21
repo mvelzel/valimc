@@ -72,7 +72,7 @@ defmodule Valimc.BlockObservationTest do
   test "negative boundaries, stale incarnations and foreign region requests are explicit", c do
     {pid, epoch} = c.owner
     {x, y, z} = c.pos
-    assert {:error, :stale_owner} = Region.observe_blocks({pid, make_ref()}, [c.pos])
+    assert {:error, {:retry, :stale_owner}} = Region.observe_blocks({pid, make_ref()}, [c.pos])
     assert {:error, :wrong_region} = Region.observe_blocks({pid, epoch}, [{x - 1, y, z}])
 
     assert {:ok, _} =
@@ -112,7 +112,7 @@ defmodule Valimc.BlockObservationTest do
     :sys.suspend(pid)
 
     try do
-      assert {:error, :block_query_timeout} = Region.observe_blocks(c.owner, [c.pos])
+      assert {:error, {:retry, :block_query_timeout}} = Region.observe_blocks(c.owner, [c.pos])
     after
       :sys.resume(pid)
     end
@@ -120,7 +120,7 @@ defmodule Valimc.BlockObservationTest do
     assert {:ok, %{blocks: blocks}} = Region.observe_blocks(c.owner, [c.pos])
     assert blocks == %{c.pos => 0}
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
-    assert {:error, :region_unavailable} = Region.observe_blocks(c.owner, [c.pos])
+    assert {:error, {:retry, :region_unavailable}} = Region.observe_blocks(c.owner, [c.pos])
   end
 
   test "replacement preserves flushed terrain and changes the incarnation even at revision zero",
@@ -131,7 +131,7 @@ defmodule Valimc.BlockObservationTest do
     assert :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
     assert {:ok, {replacement, new_epoch} = fresh} = World.owner(c.key)
     refute replacement == pid or new_epoch == epoch
-    assert {:error, :stale_owner} = Region.observe_blocks({replacement, epoch}, [c.pos])
+    assert {:error, {:retry, :stale_owner}} = Region.observe_blocks({replacement, epoch}, [c.pos])
     assert {:ok, snapshot} = Region.observe_blocks(fresh, [c.pos], 0)
     assert snapshot.owner == fresh and snapshot.blocks == %{c.pos => 1}
   end

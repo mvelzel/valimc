@@ -200,7 +200,7 @@ defmodule Valimc.PlayerOutboxTest do
     )
 
     assert_receive {:player_transfer_saved, ^ref, {:error, :transfer_pending}}
-    assert {:error, :transfer_not_applied} = complete(ctx, prepared_fence)
+    assert {:error, {:retry, :transfer_not_applied}} = complete(ctx, prepared_fence)
     assert saved(ctx) == {:ok, snapshot}
     assert {:ok, :applied} = deliver(ctx, snapshot)
     assert {:ok, completed_fence, cleared} = complete(ctx, prepared_fence)
@@ -320,7 +320,7 @@ defmodule Valimc.PlayerOutboxTest do
     assert {:error, :transfer_receipt_conflict} = complete(ctx, fence)
     assert saved(ctx) == {:ok, pending}
 
-    assert {:error, :stale_region} =
+    assert {:error, {:retry, :stale_owner}} =
              Region.item_transfer_receipt({elem(owner, 0), make_ref()}, ctx.uuid)
 
     assert {:error, :invalid_transfer_source} = Region.item_transfer_receipt(owner, <<0>>)
@@ -496,7 +496,7 @@ defmodule Valimc.PlayerOutboxTest do
     Valimc.TestDisk.corrupt(ctx.base, ctx.key)
 
     capture_log(fn ->
-      assert {:error, :transfer_destination_unavailable} = complete(ctx, fence)
+      assert {:error, {:retry, :transfer_destination_unavailable}} = complete(ctx, fence)
     end)
 
     assert saved(ctx) == {:ok, pending}
@@ -504,7 +504,10 @@ defmodule Valimc.PlayerOutboxTest do
     assert Process.alive?(ctx.writer)
     Valimc.TestDisk.repair(ctx.base, ctx.key)
     # The failed load backs off before the region is admitted again (VMC-077e).
-    Valimc.TestWait.until(fn -> World.region(ctx.key) != {:error, {:region_load, :backoff}} end)
+    Valimc.TestWait.until(fn ->
+      World.region(ctx.key) != {:error, {:retry, {:region_load, :backoff}}}
+    end)
+
     assert {:ok, :applied} = deliver(ctx, pending)
     assert {:ok, _, cleared} = complete(ctx, fence)
     assert cleared.outbox == nil and cleared.inventory == ctx.after.inventory

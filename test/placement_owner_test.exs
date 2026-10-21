@@ -108,7 +108,7 @@ defmodule Valimc.PlacementOwnerTest do
     :sys.suspend(pid)
 
     try do
-      assert {:error, :block_query_timeout} = plan(c)
+      assert {:error, {:retry, :block_query_timeout}} = plan(c)
     after
       :sys.resume(pid)
     end
@@ -122,7 +122,7 @@ defmodule Valimc.PlacementOwnerTest do
       cursor: {0.5, 0.5, 0.5}
     }
 
-    assert {:error, :region_unavailable} = plan(c, "stone", request)
+    assert {:error, {:retry, :region_unavailable}} = plan(c, "stone", request)
     assert Registry.lookup(Valimc.RegionRegistry, foreign) == []
 
     request = %{request | position: {(rx + 1) * c.span - 1, 64, rz * c.span + 40}, face: 5}

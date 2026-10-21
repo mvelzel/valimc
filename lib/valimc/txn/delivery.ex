@@ -6,7 +6,8 @@ defmodule Valimc.Txn.Delivery do
   only carries the intent once. It runs in the bounded `Valimc.TransferWorkers`
   pool and reports `message.(worker, token, result)` to the owner. An attempt is
   identified by its token, so late or foreign reports are ignored, and an
-  optional deadline makes a stuck destination retryable.
+  optional deadline makes a stuck destination retryable. Whether a failed
+  attempt is simply made again is the error's class (`Valimc.Error`).
   """
 
   @type job :: %{
@@ -42,10 +43,11 @@ defmodule Valimc.Txn.Delivery do
         {:ok, %{pid: worker, monitor: Process.monitor(worker), token: token, timer: timer}}
 
       {:error, _} ->
-        {:error, :transfer_workers_busy}
+        Valimc.Error.retry(:transfer_workers_busy)
     end
   catch
-    :exit, _ -> {:error, :transfer_workers_busy}
+    # The pool itself is restarting.
+    :exit, _ -> Valimc.Error.retry(:transfer_workers_busy)
   end
 
   @doc "Whether a report belongs to this attempt."
@@ -65,30 +67,4 @@ defmodule Valimc.Txn.Delivery do
     Process.exit(pid, :kill)
     :ok
   end
-
-  @doc "Failures after which the unchanged intent is simply delivered again."
-  def retryable?({:error, reason}),
-    do:
-      reason in [
-        :transfer_workers_busy,
-        :item_workers_busy,
-        :item_storage_busy,
-        :storage_backpressure,
-        :mining_storage_busy,
-        :region_restarting,
-        {:region_load, :backoff},
-        :directory_unavailable,
-        :stale_region,
-        :item_commit_uncertain,
-        :container_commit_uncertain,
-        :mining_commit_uncertain,
-        :max_children,
-        :item_count_limit,
-        :item_byte_limit,
-        :transfer_source_limit,
-        :transfer_destination_unavailable,
-        :transfer_not_applied
-      ]
-
-  def retryable?(_), do: false
 end

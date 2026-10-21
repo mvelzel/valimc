@@ -16,6 +16,13 @@ three different sleep-and-retry loops.
 Scope: the region owner's process skeleton. Not here: the entity store
 (VMC-077h) and transfers (VMC-077i), which replace the item code itself.
 
+Limits: only transient errors are classified so far, the one class callers
+act on generically; the region owner's other refusals (rules, races, bad
+input) keep their atoms until their modules are rewritten (the entity store,
+transfers, commands). The planning slot and block-transfer guards are one
+function each (`write_busy/1`, `block_transfer_writing?/1`) rather than a
+general admission guard.
+
 Acceptance:
 
 - One job table (`Valimc.World.Jobs`): at most one job per kind, each a worker
@@ -36,5 +43,18 @@ Acceptance:
   (through the Directory), proto owners and log stripes use it; their three
   sleep-and-retry loops are gone. `PlayerStore.open/1` keeps its own path: it
   adopts a closing store rather than finding one and never retries.
+- One error taxonomy (`Valimc.Error`): `{:error, {:retry | :reject |
+  :conflict | :invalid, detail}}`, the class decided where the error is made.
+  Every transient error is classified `:retry` where it is made: the planning
+  slot and mining slot being busy, worker pools full, an owner restarting,
+  unloaded or replaced (one `:stale_owner` instead of `:stale_region` and
+  `:stale_owner`), a chunk still generating, a Directory backoff or region cap,
+  owner calls that time out or find the owner gone, uncertain commits, a
+  destination's item capacity, and a player transfer not yet applied or its
+  destination unavailable. A poisoned region is `:reject`. `Txn.Delivery`'s
+  hand-kept list of retryable atoms is gone (`Error.retryable?/1`), as are the
+  atoms it named that nothing produced (`:storage_backpressure`,
+  `:container_commit_uncertain`, `:mining_commit_uncertain`); the portal
+  reader retries `{:retry, _}` and lost races instead of its own list.
 
 Checks: in progress.

@@ -19,11 +19,11 @@ defmodule Valimc.World do
       end,
       fn ->
         case Directory.admit(key) do
-          {:error, :region_restarting} -> :retry
+          {:error, {:retry, :region_restarting}} -> :retry
           result -> result
         end
       end,
-      :region_restarting
+      {:retry, :region_restarting}
     )
   end
 
@@ -99,10 +99,12 @@ defmodule Valimc.World do
   def existing_owner(key) do
     case Directory.lookup(key) do
       {pid, _, %{epoch: epoch}} ->
-        if Process.alive?(pid), do: {:ok, {pid, epoch}}, else: {:error, :region_unavailable}
+        if Process.alive?(pid),
+          do: {:ok, {pid, epoch}},
+          else: Valimc.Error.retry(:region_unavailable)
 
       _ ->
-        {:error, :region_unavailable}
+        Valimc.Error.retry(:region_unavailable)
     end
   end
 
@@ -116,14 +118,14 @@ defmodule Valimc.World do
           GenServer.call(pid, :owner, 5000 * Valimc.config(:owner_call_scale, pid))
 
         _ ->
-          {:error, :region_restarting}
+          Valimc.Error.retry(:region_restarting)
       end
     else
       {:error, _} = error -> error
     end
   catch
-    :exit, {:noproc, {GenServer, :call, _}} -> {:error, :region_restarting}
-    :exit, {reason, {GenServer, :call, _}} -> {:error, reason}
+    # The owner died or overran while finishing its load.
+    :exit, {_reason, {GenServer, :call, _}} -> Valimc.Error.retry(:region_restarting)
   end
 
   # Publication reads never allocate regions, enqueue messages or confer authority.

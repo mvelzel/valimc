@@ -175,13 +175,12 @@ defmodule Valimc.World.View do
       Region.await_chunks(owner, chunks, deadline - System.monotonic_time(:millisecond))
     else
       # An owner unloading or backing off is admitted again shortly.
-      {:error, reason}
-      when reason in [:region_restarting, {:region_load, :backoff}, :region_unavailable] ->
+      {:error, {:retry, _}} = error ->
         if System.monotonic_time(:millisecond) < deadline do
           Process.sleep(20)
           await_region(key, chunks, type, deadline)
         else
-          {:error, reason}
+          error
         end
 
       error ->

@@ -39,7 +39,7 @@ defmodule Valimc.World.Directory do
       5000 * Valimc.config(:owner_call_scale)
     )
   catch
-    :exit, _ -> {:error, :directory_unavailable}
+    :exit, _ -> Valimc.Error.retry(:directory_unavailable)
   end
 
   def publish(key, token, publication),
@@ -117,14 +117,15 @@ defmodule Valimc.World.Directory do
 
     cond do
       Map.has_key?(state.retiring, key) ->
-        {:reply, {:error, :region_restarting}, state}
+        {:reply, Valimc.Error.retry(:region_restarting), state}
 
       match?(%{until: until} when until > now, state.failures[key]) ->
-        reason = if state.failures[key].count >= @poison_after, do: :poisoned, else: :backoff
-        {:reply, {:error, {:region_load, reason}}, state}
+        if state.failures[key].count >= @poison_after,
+          do: {:reply, Valimc.Error.reject({:region_load, :poisoned}), state},
+          else: {:reply, Valimc.Error.retry({:region_load, :backoff}), state}
 
       map_size(state.owners) >= Valimc.config(:max_regions) ->
-        {:reply, {:error, :max_children}, state}
+        {:reply, Valimc.Error.retry(:max_children), state}
 
       true ->
         start_owner(key, state)
@@ -142,7 +143,7 @@ defmodule Valimc.World.Directory do
 
       {:error, {:already_started, _}} ->
         # An existing name without our admission is never granted fresh authority.
-        {:reply, {:error, :region_restarting}, state}
+        {:reply, Valimc.Error.retry(:region_restarting), state}
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}

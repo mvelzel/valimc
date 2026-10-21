@@ -97,13 +97,13 @@ defmodule Valimc.World.RegionGeneration do
 
   @doc """
   Run `message` from `from` again once `chunk` is installed, wanting it now;
-  `{:reply, {:error, :chunk_generating}, state}` when too many calls wait.
+  `{:reply, {:error, {:retry, :chunk_generating}}, state}` when too many calls wait.
   """
   def defer(state, chunk, message, from) do
     gen = state.generation
 
     if gen.deferred_count >= @max_deferred do
-      {:reply, {:error, :chunk_generating}, state}
+      {:reply, Valimc.Error.retry(:chunk_generating), state}
     else
       deferred = Map.update(gen.deferred, chunk, [{message, from}], &[{message, from} | &1])
       gen = %{gen | deferred: deferred, deferred_count: gen.deferred_count + 1}

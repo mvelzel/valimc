@@ -56,7 +56,7 @@ defmodule Valimc.World.CookingOrbRuntime do
   def adopt(state, epoch, bytes, deadline, from) do
     cond do
       epoch != state.items.epoch ->
-        {:reply, {:error, :stale_region}, state}
+        {:reply, Valimc.Error.retry(:stale_owner), state}
 
       not state.item_storage_enabled ->
         {:reply, {:error, :transfer_storage_disabled}, state}
@@ -68,7 +68,7 @@ defmodule Valimc.World.CookingOrbRuntime do
         {:reply, {:error, :expired_cooking_orb_transfer}, state}
 
       RegionData.write_busy(state) != nil or Jobs.running?(state.jobs, :orb_plan) ->
-        {:reply, {:error, :item_storage_busy}, state}
+        {:reply, Valimc.Error.retry(:item_storage_busy), state}
 
       true ->
         next = start(state, now(), {:adopt, bytes}, from, deadline)

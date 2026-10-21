@@ -273,7 +273,6 @@ defmodule Valimc.ChestConnectionTest do
     seed(ctx)
     {client, pid} = login(ctx)
     client = open(client, ctx)
-    {:ok, {region, _}} = World.existing_owner(ctx.key)
     writer = Valimc.TestDisk.stripe(ctx.base, ctx.key)
     :sys.suspend(writer)
 

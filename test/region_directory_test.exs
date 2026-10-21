@@ -32,7 +32,7 @@ defmodule Valimc.RegionDirectoryTest do
       assert World.item_snapshot(ctx.key) == Valimc.World.EntityPublication.source(table, :items)
       assert Valimc.TestBlocks.get(position) == 1
       assert :ok = Valimc.TestBlocks.set(position, 0)
-      assert World.existing_owner(ctx.other) == {:error, :region_unavailable}
+      assert World.existing_owner(ctx.other) == {:error, {:retry, :region_unavailable}}
       assert World.item_snapshot(ctx.other) == %{}
       assert Registry.lookup(Valimc.RegionRegistry, ctx.other) == []
     after
@@ -80,7 +80,7 @@ defmodule Valimc.RegionDirectoryTest do
     Application.put_env(:valimc, :max_regions, map_size(:sys.get_state(Directory).owners))
 
     try do
-      assert World.region(ctx.other) == {:error, :max_children}
+      assert World.region(ctx.other) == {:error, {:retry, :max_children}}
       assert Directory.lookup(ctx.other) == nil
       assert Registry.lookup(Valimc.RegionRegistry, ctx.other) == []
       assert World.existing_owner(ctx.key) == {:ok, owner}

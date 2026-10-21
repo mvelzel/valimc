@@ -79,7 +79,7 @@ defmodule Valimc.BlockBatchTest do
     refute_receive {:event, _}, 10
 
     for {target, rev, edits, error} <- [
-          {{pid, make_ref()}, revision, changes, :stale_owner},
+          {{pid, make_ref()}, revision, changes, {:retry, :stale_owner}},
           {owner, before.revision, changes, :stale_revision},
           {owner, revision, %{{x + 128, 64, z} => 1}, :wrong_region},
           {owner, revision, Map.put(changes, {x + 2, 64, z}, -1), :invalid_block_batch}

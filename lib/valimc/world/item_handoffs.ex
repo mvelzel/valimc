@@ -16,7 +16,7 @@ defmodule Valimc.World.ItemHandoffs do
   @doc "Withdraw a freshly fenced cohort into one durable destination intent."
   def depart(items, source, epoch, destination, steps) do
     cond do
-      items.epoch != epoch -> {:error, :stale_region}
+      items.epoch != epoch -> Valimc.Error.retry(:stale_owner)
       items.ledger.outgoing != nil -> {:error, :item_handoff_busy}
       items.ledger.sequence == @max_sequence -> {:error, :item_handoff_sequence_limit}
       source == destination -> {:error, :invalid_item_handoff}

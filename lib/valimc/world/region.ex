@@ -50,8 +50,8 @@ defmodule Valimc.World.Region do
   def await_chunks({pid, _epoch}, chunks, timeout) do
     GenServer.call(pid, {:await_chunks, chunks}, max(timeout, 0))
   catch
-    :exit, {:timeout, _} -> {:error, :chunk_generating}
-    :exit, _ -> {:error, :region_unavailable}
+    :exit, {:timeout, _} -> Valimc.Error.retry(:chunk_generating)
+    :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
 
   @doc "Run `ticks` region ticks now, in order (deterministic tests; `:manual` owners)."
@@ -65,8 +65,8 @@ defmodule Valimc.World.Region do
   def block_entity({pid, epoch}, position) when is_pid(pid) and is_reference(epoch) do
     GenServer.call(pid, {:block_entity, epoch, position}, 1000)
   catch
-    :exit, {:timeout, _} -> {:error, :block_query_timeout}
-    :exit, _ -> {:error, :region_unavailable}
+    :exit, {:timeout, _} -> Valimc.Error.retry(:block_query_timeout)
+    :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
 
   @doc """
@@ -77,8 +77,8 @@ defmodule Valimc.World.Region do
       when is_pid(pid) and is_reference(epoch) and is_map(entries) do
     GenServer.call(pid, {:put_block_entities, epoch, entries}, 7000)
   catch
-    :exit, {:timeout, _} -> {:error, :block_entity_commit_uncertain}
-    :exit, _ -> {:error, :region_unavailable}
+    :exit, {:timeout, _} -> Valimc.Error.retry(:block_entity_commit_uncertain)
+    :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
 
   @doc "Read one owner-local block revision; this observation does not authorize later mutations."
@@ -96,8 +96,8 @@ defmodule Valimc.World.Region do
       {:error, :invalid_block_query}
     end
   catch
-    :exit, {:timeout, _} -> {:error, :block_query_timeout}
-    :exit, _ -> {:error, :region_unavailable}
+    :exit, {:timeout, _} -> Valimc.Error.retry(:block_query_timeout)
+    :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
 
   def observe_blocks(_, _, _), do: {:error, :invalid_block_query}
@@ -111,16 +111,16 @@ defmodule Valimc.World.Region do
       when is_pid(pid) and is_reference(epoch) do
     GenServer.call(pid, {:fill_biomes, epoch, chunks, box, biome, filter}, budget(pid, 2000))
   catch
-    :exit, {:timeout, _} -> {:error, :biome_fill_timeout}
-    :exit, _ -> {:error, :region_unavailable}
+    :exit, {:timeout, _} -> Valimc.Error.retry(:biome_fill_timeout)
+    :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
 
   @doc "Column images of this region's `chunks` for `/place` (VMC-053)."
   def column_images({pid, epoch}, chunks) when is_pid(pid) and is_reference(epoch) do
     GenServer.call(pid, {:column_images, epoch, chunks}, budget(pid, 2000))
   catch
-    :exit, {:timeout, _} -> {:error, :column_query_timeout}
-    :exit, _ -> {:error, :region_unavailable}
+    :exit, {:timeout, _} -> Valimc.Error.retry(:column_query_timeout)
+    :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
 
   @doc "Authorize one menu operation on the block owner; replies are ordered with its block events."
@@ -151,23 +151,23 @@ defmodule Valimc.World.Region do
   def read_box({pid, epoch}, min, max) when is_pid(pid) and is_reference(epoch) do
     GenServer.call(pid, {:read_box, epoch, min, max}, budget(pid, 1000))
   catch
-    :exit, {:timeout, _} -> {:error, :block_query_timeout}
-    :exit, _ -> {:error, :region_unavailable}
+    :exit, {:timeout, _} -> Valimc.Error.retry(:block_query_timeout)
+    :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
 
   @doc "Check and lock a box edit's part in this owner (`Valimc.World.BoxEdit`)."
   def prepare_box({pid, epoch}, token, edits, expected, entries) when is_pid(pid) do
     GenServer.call(pid, {:prepare_box, epoch, token, edits, expected, entries}, budget(pid, 2000))
   catch
-    :exit, _ -> {:error, :region_unavailable}
+    :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
 
   @doc "Commit a prepared box edit part (`:retry` while a write is in flight)."
   def commit_box({pid, epoch}, token, entries) when is_pid(pid) do
     GenServer.call(pid, {:commit_box, epoch, token, entries}, budget(pid, 7000))
   catch
-    :exit, {:timeout, _} -> {:error, :block_commit_uncertain}
-    :exit, _ -> {:error, :region_unavailable}
+    :exit, {:timeout, _} -> Valimc.Error.retry(:block_commit_uncertain)
+    :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
 
   @doc "Release a prepared box edit part."
@@ -187,8 +187,8 @@ defmodule Valimc.World.Region do
     with {:ok, batch} <- BlockBatch.prepare(edits),
          do: GenServer.call(pid, {:set_blocks, epoch, revision, batch}, budget(pid, 1000))
   catch
-    :exit, {:timeout, _} -> {:error, :block_commit_uncertain}
-    :exit, _ -> {:error, :region_unavailable}
+    :exit, {:timeout, _} -> Valimc.Error.retry(:block_commit_uncertain)
+    :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
 
   def set_blocks(_, _, _), do: {:error, :invalid_block_batch}
@@ -208,8 +208,8 @@ defmodule Valimc.World.Region do
              budget(pid, 1000)
            )
   catch
-    :exit, {:timeout, _} -> {:error, :block_commit_uncertain}
-    :exit, _ -> {:error, :region_unavailable}
+    :exit, {:timeout, _} -> Valimc.Error.retry(:block_commit_uncertain)
+    :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
 
   @doc "Internal creative placement commit; caller must freshly admit its player and held item."
@@ -218,8 +218,8 @@ defmodule Valimc.World.Region do
              is_integer(deadline) do
     GenServer.call(pid, {:place_block, epoch, revision, batch, deadline}, budget(pid, 1000))
   catch
-    :exit, {:timeout, _} -> {:error, :block_commit_uncertain}
-    :exit, _ -> {:error, :region_unavailable}
+    :exit, {:timeout, _} -> Valimc.Error.retry(:block_commit_uncertain)
+    :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
 
   def place_block(_, _, _, _), do: {:error, :invalid_placement}
@@ -227,8 +227,8 @@ defmodule Valimc.World.Region do
   def destroy_block({pid, epoch}, revision, position, deadline) do
     GenServer.call(pid, {:destroy_block, epoch, revision, position, deadline}, budget(pid, 1000))
   catch
-    :exit, {:timeout, _} -> {:error, :block_commit_uncertain}
-    :exit, _ -> {:error, :region_unavailable}
+    :exit, {:timeout, _} -> Valimc.Error.retry(:block_commit_uncertain)
+    :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
 
   @doc """
@@ -246,7 +246,7 @@ defmodule Valimc.World.Region do
   def correct_blocks({pid, epoch}, positions, connection) when is_pid(connection) do
     GenServer.call(pid, {:correct_blocks, epoch, positions, connection}, budget(pid, 250))
   catch
-    :exit, _ -> {:error, :region_unavailable}
+    :exit, _ -> Valimc.Error.retry(:region_unavailable)
   end
 
   @doc "Reserve currently owned blocks for a short mining commit; the token is invalid after mutation/restart."

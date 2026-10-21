@@ -177,10 +177,12 @@ defmodule Valimc.RegionGenerationTest do
     chunk = {cx + 6, cz + 6}
     position = inside(chunk, 100)
     glass = Valimc.Registry.Blocks.default_state("glass")
-    assert Region.set_blocks(owner, 0, %{position => glass}) == {:error, :chunk_generating}
+
+    assert Region.set_blocks(owner, 0, %{position => glass}) ==
+             {:error, {:retry, :chunk_generating}}
 
     # The observation wants the chunk.
-    assert Region.observe_blocks(owner, [position]) == {:error, :chunk_generating}
+    assert Region.observe_blocks(owner, [position]) == {:error, {:retry, :chunk_generating}}
     Valimc.TestWait.until(fn -> not BlockSnapshot.absent?(table(ctx.key), chunk) end)
     {:ok, observed} = Region.observe_blocks(owner, [position])
     assert observed.blocks[position] == generated_block(chunk, position)
