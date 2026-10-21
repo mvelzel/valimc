@@ -116,6 +116,7 @@ defmodule CallGraph do
 
             %{
               public: kind in [:def, :defmacro],
+              macro: kind in [:defmacro, :defmacrop],
               params: Enum.map(args, &shape/1),
               range: [start, max(start, walked.last)],
               calls: Enum.uniq(walked.calls),

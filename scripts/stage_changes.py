@@ -17,7 +17,7 @@ A changed file selects a stage when:
 Anything else (docs, tests, benchmarks, other tools) selects nothing. Each selection
 carries the first reason found.
 """
-import collections, fnmatch, hashlib, json, pathlib, re, subprocess
+import collections, fcntl, fnmatch, hashlib, json, os, pathlib, re, shutil, subprocess, tempfile, time
 
 GLOBAL = ['mix.exs', 'mix.lock', 'config/*', '.tool-versions', 'priv/version.json', 'native/Cargo.toml',
           'native/Cargo.lock', 'native/*/Cargo.toml', 'native/*/build.rs', 'scripts/check_vanilla.py',
@@ -42,17 +42,38 @@ def base_revision(root):
         return 'HEAD'
 
 
-def changes(root, rev):
-    """{path: set of changed new-side lines, or None for the whole file}, committed and uncommitted
-    changes since `rev` plus untracked files."""
+def worktree_tree(root):
+    """The working copy as it is (committed, uncommitted and untracked files) as a git tree in
+    the object store shared by every worktree, or None."""
+    try:
+        index = pathlib.Path(git(root, 'rev-parse', '--path-format=absolute', '--git-path', 'index').strip())
+        with tempfile.TemporaryDirectory(prefix='valimc-tree-') as scratch:
+            temporary = pathlib.Path(scratch) / 'index'
+            env = dict(os.environ, GIT_INDEX_FILE=str(temporary))
+            if index.exists():
+                shutil.copy(index, temporary)  # its stat cache spares rehashing unchanged files
+            else:
+                subprocess.run(['git', 'read-tree', 'HEAD'], cwd=root, env=env, check=True, capture_output=True)
+            subprocess.run(['git', 'add', '-A'], cwd=root, env=env, check=True, capture_output=True)
+            return subprocess.run(['git', 'write-tree'], cwd=root, env=env, check=True, capture_output=True,
+                                  text=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def changes(root, rev, to=None):
+    """{path: set of changed new-side lines, or None for the whole file}: from `rev` to the
+    tree-ish `to`, or to the working copy (committed and uncommitted changes, untracked files)."""
     out = {}
-    for line in git(root, 'diff', '--name-status', '--no-renames', rev).splitlines():
+    span = [rev, to] if to else [rev]
+    for line in git(root, 'diff', '--name-status', '--no-renames', *span).splitlines():
         status, path = line.split('\t', 1)
         out[path] = None if status[0] in 'AD' else set()
-    for path in git(root, 'ls-files', '--others', '--exclude-standard').splitlines():
-        out[path] = None
+    if not to:
+        for path in git(root, 'ls-files', '--others', '--exclude-standard').splitlines():
+            out[path] = None
     current = None
-    for line in git(root, 'diff', '-U0', '--no-renames', rev).splitlines():
+    for line in git(root, 'diff', '-U0', '--no-renames', *span).splitlines():
         if line.startswith('+++ '):
             current = line[6:] if line.startswith('+++ b/') else None
         elif line.startswith('@@') and current and out.get(current) is not None:
@@ -217,6 +238,9 @@ class Graph:
                       if any(c['range'][0] <= line <= c['range'][1] for c in clauses)]
             if inside:
                 out.update(inside)
+                # A macro's change shows only where it expands: its module (and compile-time users).
+                whole.update(node.rsplit('.', 1)[0] for node in inside
+                             if any(c.get('macro') for c in self.clauses[node]))
             else:
                 # Attributes, `use`, `alias`, struct and docs: the innermost module around the line.
                 around = sorted((m for m in modules if self.modules[m]['line'] <= line),
@@ -243,7 +267,7 @@ def load_graph(root, env, scripts, scratch):
     digest = hashlib.sha256()
     for beam in sorted(ebin.glob('*.beam')):
         digest.update(f'{beam.name} {beam.stat().st_mtime_ns}\n'.encode())
-    for script in sorted(scripts):
+    for script in sorted(scripts) + ['call_graph.exs']:
         digest.update(script.encode() + hashlib.sha256((root / 'scripts' / script).read_bytes()).digest())
     cached = scratch / f'call-graph-{digest.hexdigest()[:16]}.json'
     if not cached.exists():
@@ -275,6 +299,38 @@ def parse_xref(text):
         if match and current:
             dependents[match[2]][match[1]].add(current)
     return {kind: {k: sorted(v) for k, v in edges.items()} for kind, edges in dependents.items()}
+
+
+# -- Recorded coverage -------------------------------------------------------------------
+
+KEEP_RECORDS = 6
+
+
+def record_coverage(directory, stage, tree, modules):
+    """Adds a passing stage's coverage on `tree` ({module: {file, functions}}) to its records."""
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f'{stage}.json'
+    with open(directory / '.lock', 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            records = json.loads(path.read_text())['records']
+        except (OSError, ValueError, KeyError):
+            records = []
+        records = [r for r in records if r['tree'] != tree]
+        records.insert(0, {'tree': tree, 'at': int(time.time()), 'modules': modules})
+        temporary = path.with_name(f'.{stage}-{os.getpid()}.json')
+        temporary.write_text(json.dumps({'records': records[:KEEP_RECORDS]}))
+        os.replace(temporary, path)
+
+
+def load_coverage(directory):
+    out = {}
+    for path in directory.glob('*.json'):
+        try:
+            out[path.stem] = json.loads(path.read_text())['records']
+        except (OSError, ValueError, KeyError):
+            continue
+    return out
 
 
 # -- Rust --------------------------------------------------------------------------------
@@ -495,8 +551,50 @@ def stage_scripts(steps, root):
     return out
 
 
-def select(root, rev, stages, stage_names, sources, inputs, previous_stages, env, scratch, tcp, changed=None):
-    """[(stage, reason)] for the stages the changes since `rev` (or `changed`) can affect."""
+def elixir_input(path):
+    return (path.startswith('lib/') and path.endswith('.ex')) or (path.startswith('native/') and path.endswith('.rs')) \
+        or (path.startswith('priv/') and path != 'priv/version.json')
+
+
+def changed_nodes(root, graph, changed):
+    """{function: reason} for the Elixir functions changed paths change: their own lines (a whole
+    module for lines outside functions), compile-time dependents, the modules that read a changed
+    `priv/` file, and the `Valimc.Native` functions of NIFs changed native code reaches."""
+    targets, whole = {}, {}
+    for path, lines in changed.items():
+        if not (path.startswith('lib/') and path.endswith('.ex')):
+            continue
+        functions, modules = graph.changed_functions(path, lines)
+        for f in functions:
+            targets.setdefault(f, path)
+        for m in modules:
+            whole.setdefault(m, path)
+        if lines is None or modules or functions:
+            for dependent in graph.compile_dependents({path}, structs=lines is None or bool(modules)):
+                for m in graph.by_file.get(dependent, ()):
+                    whole.setdefault(m, f'{path} (needed by {dependent} at compile time)')
+    for path in changed:
+        if path.startswith('priv/') and path != 'priv/version.json':
+            base = pathlib.PurePosixPath(path).name
+            for reader in (root / 'lib').rglob('*.ex'):
+                if base in reader.read_text():
+                    rel = reader.relative_to(root).as_posix()
+                    for m in graph.by_file.get(rel, ()):
+                        whole.setdefault(m, f'{path} (read by {rel})')
+    native = {p: lines for p, lines in changed.items() if p.startswith('native/') and p.endswith('.rs')}
+    if native:
+        for nif in sorted(Native(root).changed_nifs(native)):
+            targets.setdefault(f'Valimc.Native.{nif}', f'{sorted(native)[0]} (NIF {nif})')
+    for module, reason in whole.items():
+        for node in graph.functions.get(module, ()):
+            targets.setdefault(node, reason)
+    return targets
+
+
+def select(root, rev, stages, stage_names, sources, inputs, previous_stages, env, scratch, tcp, changed=None,
+           coverage_dir=None):
+    """[(stage, reason)] for the stages the changes since `rev` (or `changed`) can affect. With
+    `coverage_dir`, a stage whose recorded coverage is current is chosen by what its checks ran."""
     changed = changes(root, rev) if changed is None else changed
     steps_of = dict(stages)
     reasons = {}
@@ -547,55 +645,95 @@ def select(root, rev, stages, stage_names, sources, inputs, previous_stages, env
                 if any(s[0] == 'app' for s in steps_of[stage]):
                     pick(stage, f'{path} (starts the application)')
     # Elixir functions, from lib/, priv/ readers and native code.
-    lib = {p: lines for p, lines in changed.items() if p.startswith('lib/') and p.endswith('.ex')}
-    priv = [p for p in changed if p.startswith('priv/') and p != 'priv/version.json']
-    native = {p: lines for p, lines in changed.items() if p.startswith('native/') and p.endswith('.rs')}
-    if not (lib or priv or native):
+    for path in changed:
+        if path.startswith('priv/') and path != 'priv/version.json':
+            base = pathlib.PurePosixPath(path).name
+            for stage in stage_names:
+                if any(base in (root / 'scripts' / s).read_text() for s in scripts_of[stage]):
+                    pick(stage, f'{path} (named by its script)')
+    if not any(elixir_input(p) for p in changed):
         return [(s, reasons[s]) for s in everything if s in reasons], changed
     all_scripts = sorted({s for scripts in scripts_of.values() for s in scripts})
     graph = load_graph(root, env, all_scripts, scratch)
-    targets, whole = {}, {}
-    for path, lines in lib.items():
-        functions, modules = graph.changed_functions(path, lines)
-        for f in functions:
-            targets.setdefault(f, path)
-        for m in modules:
-            whole.setdefault(m, path)
-        if lines is None or modules or functions:
-            for dependent in graph.compile_dependents({path}, structs=lines is None or bool(modules)):
-                for m in graph.by_file.get(dependent, ()):
-                    whole.setdefault(m, f'{path} (needed by {dependent} at compile time)')
-    for path in priv:
-        base = pathlib.PurePosixPath(path).name
-        readers = [f for f in (root / 'lib').rglob('*.ex') if base in f.read_text()]
-        for reader in readers:
-            rel = reader.relative_to(root).as_posix()
-            for m in graph.by_file.get(rel, ()):
-                whole.setdefault(m, f'{path} (read by {rel})')
-        for stage in stage_names:
-            if any(base in (root / 'scripts' / s).read_text() for s in scripts_of[stage]):
-                pick(stage, f'{path} (named by its script)')
-    if native:
-        nifs = Native(root).changed_nifs(native)
-        for nif in sorted(nifs):
-            node = f'Valimc.Native.{nif}'
-            targets.setdefault(node, f'{sorted(native)[0]} (NIF {nif})')
-    for module, reason in whole.items():
-        for node in graph.functions.get(module, ()):
-            targets.setdefault(node, reason)
-    if targets:
-        seeds_of = {stage: graph.seeds(scripts_of[stage]) for stage in stage_names}
-        seeds_of[tcp] = {f for m in TCP_SEEDS for f in graph.functions.get(m, ())}
-        for stage, seeds in seeds_of.items():
-            if stage in reasons:
-                continue
-            parent = graph.reach(seeds)
-            hit = next((node for node in sorted(parent) if node in targets), None)
-            if hit:
-                chain, node = [], hit
-                while node is not None and len(chain) < 4:
-                    chain.append(node)
-                    node = parent[node]
-                via = ' <- '.join(chain)
-                pick(stage, f'{targets[hit]}: {via}')
+    local = changed_nodes(root, graph, changed)
+    records = load_coverage(coverage_dir) if coverage_dir else {}
+    here = worktree_tree(root) if records else None
+    since, stages_at = {}, {}
+
+    def since_tree(tree):
+        """(changes from `tree` to the working copy, their changed functions), or None if gone."""
+        if tree not in since:
+            try:
+                diff = changes(root, tree, here)
+                since[tree] = (diff, changed_nodes(root, graph, diff))
+            except subprocess.CalledProcessError:
+                since[tree] = None
+        return since[tree]
+
+    def tuple_at(tree, stage):
+        if tree not in stages_at:
+            try:
+                namespace = {}
+                exec(compile(git(root, 'show', f'{tree}:scripts/vanilla_stages.py'), 'vanilla_stages.py', 'exec'),
+                     namespace)
+                stages_at[tree] = dict(namespace['STAGES'])
+            except Exception:
+                stages_at[tree] = {}
+        return stages_at[tree].get(stage)
+
+    def depends(stage, path):
+        """Whether `path` is one of the stage's scripts, oracle sources or declared inputs."""
+        if path.startswith('scripts/') and pathlib.PurePosixPath(path).name in scripts_of[stage]:
+            return True
+        for c in classes_of[stage]:
+            if c in sources.text and (path in {f'scripts/{k}.java' for k in sources.closure(c)}
+                                      or any(fnmatch.fnmatch(path, p) for p in sources.declared(c))):
+                return True
+        return False
+
+    def from_coverage(stage):
+        """('select', reason), ('skip', None), or None when no current record decides."""
+        usable = [(r, since_tree(r['tree'])) for r in records.get(stage, ())]
+        usable = [(r, found) for r, found in usable if found is not None]
+        if not usable:
+            return None
+        record, (diff, nodes) = min(usable, key=lambda pair: len(pair[1][0]))
+        if any(depends(stage, path) for path in diff) or (
+                'scripts/vanilla_stages.py' in diff and tuple_at(record['tree'], stage) != steps_of[stage]):
+            return None  # its checks or their inputs changed since it ran: the record may not apply
+        ran = {f'{module}.{fun}' for module, entry in record['modules'].items() for fun in entry['functions']}
+        files = {entry['file'] for entry in record['modules'].values()}
+        gone = [path for path, lines in diff.items() if lines is None and path in files and not (root / path).exists()]
+        if not (ran & set(nodes) or gone):
+            return 'skip', None
+        hit = next((node for node in sorted(ran) if node in local), None)
+        if hit:
+            when = time.strftime('%Y-%m-%d %H:%M', time.localtime(record['at']))
+            return 'select', f'{local[hit]}: {hit} (its checks ran it, {when})'
+        gone_here = [path for path in gone if path in changed]
+        if gone_here:
+            return 'select', f'{gone_here[0]} (deleted; its checks ran code there)'
+        return None  # only changes since its record and before REV touch what it ran
+
+    seeds_of = {}
+    for stage in [*stage_names, tcp]:
+        if stage in reasons:
+            continue
+        verdict = from_coverage(stage) if here and stage != tcp else None
+        if verdict:
+            if verdict[0] == 'select':
+                pick(stage, verdict[1])
+            continue
+        if not local:
+            continue
+        seeds = graph.seeds(scripts_of[stage]) if stage != tcp else \
+            {f for m in TCP_SEEDS for f in graph.functions.get(m, ())}
+        parent = graph.reach(seeds)
+        hit = next((node for node in sorted(parent) if node in local), None)
+        if hit:
+            chain, node = [], hit
+            while node is not None and len(chain) < 4:
+                chain.append(node)
+                node = parent[node]
+            pick(stage, f'{local[hit]}: {" <- ".join(chain)}')
     return [(s, reasons[s]) for s in everything if s in reasons], changed

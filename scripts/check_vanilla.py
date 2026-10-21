@@ -235,6 +235,17 @@ class Stage:
         self.ok, self.warm = True, True
         self.skipped, self.unverified, self.pending = [], 0, []
         self.check_seconds = self.prefix_seconds = 0.0
+        # The ValiMC functions its checks ran ({module: {file, functions}}), or None once a
+        # check ran without a record.
+        self.coverage = {}
+
+    def cover(self, row):
+        if self.coverage is None or not row or row.get('coverage') is None:
+            self.coverage = None
+            return
+        for module, entry in row['coverage'].items():
+            known = self.coverage.setdefault(module, {'file': entry['file'], 'functions': []})
+            known['functions'] = sorted(set(known['functions']) | set(entry['functions']))
 
 
 class Runner:
@@ -244,6 +255,9 @@ class Runner:
         self.input_memo = {}
         self.memo_guard = threading.Lock()
         self.unverified = []
+        # The working tree's git tree when the run compiled; passing stages record their
+        # checks' coverage against it (`stage_changes.py`).
+        self.tree = None
 
     def java_command(self, target, args):
         if target not in THREADED:
@@ -343,6 +357,8 @@ class Runner:
     def close(self, state):
         state.log.close()
         shutil.rmtree(state.work, ignore_errors=True)
+        if self.tree and state.ok and state.coverage is not None:
+            stage_changes.record_coverage(shared_dir() / 'coverage', state.name, self.tree, state.coverage)
 
     def prefix(self, state):
         """Runs a stage's steps, deferring checks (in order) until a step needs their output: a
@@ -384,19 +400,37 @@ class Runner:
                 continue
             if kind != 'app':
                 raise ValueError(kind)
-            cmd = ['mix', 'run', '--no-compile', '--no-deps-check', f'scripts/{target}', *resolved]
-            log.write(f'$ {" ".join(cmd)}\n')
-            log.flush()
             env = dict(mix_env, VALIMC_PORT='0', VALIMC_WORLD=str(state.work / 'world'))
-            if subprocess.run(cmd, cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT).returncode:
+            [row] = self.beam([(state, target, resolved, True)], env, state.log)
+            state.cover(row)
+            if not (row and row['ok']):
                 state.ok = False
                 return
 
+    def beam(self, entries, env=None, output=None):
+        """Runs [(state, script, arguments, app)] in order in one `run_checks.exs` BEAM (its own
+        output to `output`, else a `beam-*.log`); returns each entry's result row, or None for
+        one it did not finish."""
+        for state, *_ in entries:
+            state.log.flush()
+        with tempfile.TemporaryDirectory(prefix='valimc-checks-') as scratch:
+            manifest, out = pathlib.Path(scratch) / 'manifest.json', pathlib.Path(scratch) / 'results.jsonl'
+            manifest.write_text(json.dumps([{'script': f'scripts/{target}', 'args': resolved,
+                                             'log': str(state.log_path), 'app': app}
+                                            for state, target, resolved, app in entries]))
+            env = dict(env or mix_env, VALIMC_CHECK_COVERAGE='1' if self.tree else '0')
+            with contextlib.ExitStack() as stack:
+                sink = output or stack.enter_context((logs / f'beam-{entries[0][0].name}.log').open('w'))
+                subprocess.run(['mix', 'run', '--no-compile', '--no-deps-check', '--no-start',
+                                'scripts/run_checks.exs', str(manifest), str(out)],
+                               cwd=root, env=env, stdout=sink, stderr=subprocess.STDOUT)
+            rows = [json.loads(line) for line in out.read_text().splitlines()] if out.exists() else []
+        return rows + [None] * (len(entries) - len(rows))
+
     def alone(self, state, target, resolved):
-        cmd = ['mix', 'run', '--no-compile', '--no-deps-check', '--no-start', f'scripts/{target}', *resolved]
-        state.log.write(f'$ {" ".join(cmd)}\n')
-        state.log.flush()
-        return subprocess.run(cmd, cwd=root, env=mix_env, stdout=state.log, stderr=subprocess.STDOUT).returncode == 0
+        [row] = self.beam([(state, target, resolved, False)], None, state.log)
+        state.cover(row)
+        return bool(row and row['ok'])
 
     def flush(self, states):
         """Runs the deferred checks of `states`, several to a BEAM when there are several. A check
@@ -409,22 +443,15 @@ class Runner:
             batched = []
         results = {}
         if batched:
-            for s in batched:
-                s.log.flush()
-            with tempfile.TemporaryDirectory(prefix='valimc-checks-') as scratch:
-                manifest, out = pathlib.Path(scratch) / 'manifest.json', pathlib.Path(scratch) / 'results.jsonl'
-                entries = [{'script': f'scripts/{target}', 'args': resolved, 'log': str(s.log_path)}
-                           for s in batched for target, resolved, _ in s.pending]
-                manifest.write_text(json.dumps(entries))
-                with (logs / f'beam-{batched[0].name}.log').open('w') as beam:
-                    subprocess.run(['mix', 'run', '--no-compile', '--no-deps-check', '--no-start',
-                                    'scripts/run_checks.exs', str(manifest), str(out)],
-                                   cwd=root, env=mix_env, stdout=beam, stderr=subprocess.STDOUT)
-                rows = [json.loads(line) for line in out.read_text().splitlines()] if out.exists() else []
-            for s in batched:
-                mine = [row for row in rows if row['log'] == str(s.log_path)]
-                results[s.name] = len(mine) == len(s.pending) and all(row['ok'] for row in mine)
-                s.check_seconds += sum(row['seconds'] for row in mine)
+            entries = [(state, target, resolved, False) for state in batched for target, resolved, _ in state.pending]
+            rows = self.beam(entries)
+            for state in batched:
+                mine = [row for (owner, *_), row in zip(entries, rows) if owner is state]
+                results[state.name] = all(row and row['ok'] for row in mine)
+                state.check_seconds += sum(row['seconds'] for row in mine if row)
+                if results[state.name]:
+                    for row in mine:
+                        state.cover(row)
         for s in states:
             if results.get(s.name):
                 s.pending = []
@@ -530,7 +557,7 @@ def changed_stages(opts, sources, timings):
         previous = None
     stage_names = [name for name, _ in STAGES]
     chosen, changed = stage_changes.select(root, rev, STAGES, stage_names, sources, INPUTS, previous, mix_env,
-                                           logs, TCP)
+                                           logs, TCP, coverage_dir=shared_dir() / 'coverage')
     chosen = [(name, why) for name, why in chosen if not (name == TCP and opts.skip_tcp)]
     short = stage_changes.git(root, 'rev-parse', '--short', rev).strip()
     seconds = sum(timings.estimate(name, True) for name, _ in chosen)
@@ -606,6 +633,8 @@ def main():
     logs.mkdir(parents=True, exist_ok=True)
     if opts.changed is None:
         subprocess.run(['mix', 'compile'], cwd=root, env=mix_env, check=True)
+    # Passing stages record what their checks ran unless VALIMC_ORACLE_COVERAGE=0.
+    tree = stage_changes.worktree_tree(root) if os.environ.get('VALIMC_ORACLE_COVERAGE') != '0' else None
     java_home = java_tool.find_java_home()
     identity = java_tool.runtime(java_home)
     java, cp = java_tool.compile_tools(java_home, identity)
@@ -613,6 +642,7 @@ def main():
     limit = float(os.environ.get('VALIMC_ORACLE_CACHE_GB', '8')) * 2 ** 30
     cache = oracle_cache.Cache(pathlib.Path(private.name) if private else shared_dir(), limit)
     runner = Runner(opts, java, cp, identity, sources, cache)
+    runner.tree = tree
     started = time.monotonic()
     failed, unverified = [], []
     for old in logs.glob('beam-*.log'):

@@ -92,12 +92,19 @@ python3 scripts/check_vanilla.py --audit
 `--changed [REV]` runs the stages that the changes since REV (default: the merge
 base with `origin/main`), committed or not, can affect, and prints why each was
 chosen; with `--list` it only prints them. It follows each stage's scripts, oracle
-sources and declared inputs, the Elixir functions its checks reach (a clause-level
-call graph from the build's debug info, following message tags into callbacks), the
-NIFs native changes reach, the modules that read a changed `priv/` file, and the
-global inputs (build files, the runner, the pin), which select everything. Checks
-that start region owners reach most of the server, so changes to shared world code
-select them too. `--only` takes exact stage names, comma-separated or repeated;
+sources and declared inputs, the facts it compares, and the global inputs (build
+files, the runner, the pin), which select everything. For ValiMC's code it uses what
+the stage's checks ran: every passing stage records the functions (NIFs included)
+its checks executed and the git tree it ran on, in the main checkout's
+`.local/oracle-cache/coverage/`. A change selects the stage when it touches one of
+those functions, the module that holds them outside a function, a module they need
+at compile time, or a `priv/` file such a module reads. When nothing it ran changed
+since its record, it is not selected. Without a record, or when its scripts, oracles
+or inputs changed since, or when only changes older than REV touched what it ran,
+the stage falls back to a static clause-level call graph (from the build's debug
+info, following message tags into callbacks), which reaches much more: checks that
+start region owners reach most of the server. `tcp` always uses the static graph.
+`--only` takes exact stage names, comma-separated or repeated;
 only a name with `*`, `?` or `[` is a glob, a name that matches no stage is an error,
 and merged stages keep their old names as aliases. `tcp` is the official-codec
 session against plain and encrypted servers.
