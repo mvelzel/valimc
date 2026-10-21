@@ -1,5 +1,7 @@
-# Terrain generation throughput (VMC-024), matched with vanilla and Pumpkin
-# on one thread: the 64 overworld chunks of one 8 × 8 area at seed 20261020.
+# Terrain generation throughput (VMC-024, VMC-026), matched with vanilla and
+# Pumpkin on one thread: the 64 chunks of one 8 × 8 area at seed 20261020, of
+# the overworld or of the dimension the vanilla timings name (`TerrainOracle
+# bench OUT nether|end X0 Z0`; Pumpkin's `valimc_dimension_terrain`).
 #
 # - Noise fill (final density and aquifer): `worldgen_fill_terrain` against
 #   vanilla's `doFill` (`TerrainOracle bench VANILLA.json`) and Pumpkin's noise
@@ -31,7 +33,10 @@ end
 vanilla = vanilla_path |> File.read!() |> JSON.decode!()
 chunks = Enum.map(vanilla["chunks"], fn [x, z] -> {x, z} end)
 seed = 20_261_020
-{:ok, state} = Valimc.Worldgen.new(seed)
+settings = Map.get(vanilla, "noise_settings", "minecraft:overworld")
+biome_source = Map.get(vanilla, "biome_source", "minecraft:overworld")
+height = Map.get(vanilla, "height", 384)
+{:ok, state} = Valimc.Worldgen.new(seed, settings)
 
 biomes =
   Enum.map(
@@ -45,18 +50,18 @@ time = fn f ->
 end
 
 fresh = fn ->
-  {:ok, fresh} = Valimc.Worldgen.new(seed)
+  {:ok, fresh} = Valimc.Worldgen.new(seed, settings)
   fresh
 end
 
 fill = fn -> Valimc.Native.worldgen_fill_terrain(state, chunks) end
 
 terrain = fn ->
-  Valimc.Native.worldgen_build_terrain(fresh.(), "minecraft:overworld", true, chunks)
+  Valimc.Native.worldgen_build_terrain(fresh.(), biome_source, true, chunks)
 end
 
 columns = fn ->
-  Valimc.Native.worldgen_columns(fresh.(), "minecraft:overworld", biomes, chunks)
+  Valimc.Native.worldgen_columns(fresh.(), biome_source, biomes, chunks)
 end
 
 for _ <- 1..3, do: {time.(fill), time.(terrain), time.(columns)}
@@ -80,7 +85,7 @@ pumpkin =
         )
 
       {:ok, ours} =
-        Valimc.Native.worldgen_build_terrain(fresh.(), "minecraft:overworld", true, chunks)
+        Valimc.Native.worldgen_build_terrain(fresh.(), biome_source, true, chunks)
 
       ours = Enum.map_join(ours, fn {blocks, _} -> blocks end)
 
@@ -100,6 +105,7 @@ File.write!(
   JSON.encode!(
     Map.merge(pumpkin, %{
       chunks: length(chunks),
+      noise_settings: settings,
       valimc_fill_ns: fill_ns,
       valimc_terrain_ns: terrain_ns,
       valimc_columns_ns: columns_ns,
@@ -132,6 +138,6 @@ if pumpkin != %{} do
   IO.puts(
     "  Pumpkin stages: biomes #{ms.(pumpkin["pumpkin_biomes_ns"])}, " <>
       "surface #{ms.(pumpkin["pumpkin_surface_ns"])}, carvers #{ms.(pumpkin["pumpkin_carvers_ns"])}; " <>
-      "#{pumpkin["pumpkin_blocks_differing"]} of #{length(chunks) * 98_304} blocks differ from ValiMC's"
+      "#{pumpkin["pumpkin_blocks_differing"]} of #{length(chunks) * 256 * height} blocks differ from ValiMC's"
   )
 end

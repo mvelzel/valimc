@@ -52,16 +52,20 @@ import net.minecraft.world.level.levelgen.densityfunction.DensityVolume;
  * Z) as [id, count] pairs, and the positions marked for fluid
  * post-processing.
  *
- * `bench OUT` times vanilla's noise fill (`doFill` on a fresh noise chunk) on
- * one thread for the 64 overworld chunks of one 8 × 8 area at seed 20261020
- * (eight warm-up and ten timed passes), and the same chunks through
+ * `bench OUT [overworld|nether|end X0 Z0]` times vanilla's noise fill
+ * (`doFill` on a fresh noise chunk) on one thread for the 64 chunks of one
+ * 8 × 8 area at seed 20261020 (the overworld's from (0, 0) unless named;
+ * eight warm-up and ten timed passes), and the same chunks through
  * `buildTerrain`'s fill, surface and carver steps (without a world region,
  * so carver biomes are looked up per chunk), for `bench/worldgen_terrain.exs`.
  */
 public class TerrainOracle {
   public static void main(String[] args) throws Exception {
     if (args[0].equals("bench")) {
-      bench(Path.of(args[1]));
+      String dimension = args.length > 2 ? args[2] : "overworld";
+      int x0 = args.length > 4 ? Integer.parseInt(args[3]) : 0;
+      int z0 = args.length > 4 ? Integer.parseInt(args[4]) : 0;
+      bench(Path.of(args[1]), dimension, x0, z0);
       return;
     }
     var factory = ChunkOracle.factory();
@@ -217,16 +221,26 @@ public class TerrainOracle {
 
   static final Map<MultiNoiseBiomeSourceParameterList.Preset, Climate.ParameterList<ResourceKey<Biome>>> PRESETS = new HashMap<>();
 
-  static void bench(Path out) throws Exception {
+  static void bench(Path out, String dimension, int x0, int z0) throws Exception {
     var factory = ChunkOracle.factory();
     var lookup = VanillaRegistries.createWorldLookup();
     var biomeLookup = lookup.lookupOrThrow(Registries.BIOME);
-    var holder = lookup.lookupOrThrow(Registries.NOISE_SETTINGS).getOrThrow(NoiseGeneratorSettings.OVERWORLD);
+    var key = switch (dimension) {
+      case "nether" -> NoiseGeneratorSettings.NETHER;
+      case "end" -> NoiseGeneratorSettings.END;
+      default -> NoiseGeneratorSettings.OVERWORLD;
+    };
+    var holder = lookup.lookupOrThrow(Registries.NOISE_SETTINGS).getOrThrow(key);
     var settings = holder.value();
     long seed = 20261020L;
     var state = RandomState.create(lookup.lookupOrThrow(Registries.NOISE), seed, settings);
-    var generator = new NoiseBasedChunkGenerator(
-        MultiNoiseBiomeSource.createFromList(freshList(MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD, biomeLookup)), holder);
+    BiomeSource biomeSource = switch (dimension) {
+      case "end" -> TheEndBiomeSource.create(biomeLookup);
+      case "nether" -> MultiNoiseBiomeSource.createFromList(freshList(MultiNoiseBiomeSourceParameterList.Preset.NETHER, biomeLookup));
+      default -> MultiNoiseBiomeSource.createFromList(freshList(MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD, biomeLookup));
+    };
+    var generator = new NoiseBasedChunkGenerator(biomeSource, holder);
+    int minY = settings.noiseSettings().minY(), height = settings.noiseSettings().height();
     var doFill = NoiseBasedChunkGenerator.class.getDeclaredMethod("doFill", NoiseChunk.class, ChunkAccess.class);
     doFill.setAccessible(true);
     var buildSurface = NoiseBasedChunkGenerator.class.getDeclaredMethod("buildSurface", ChunkAccess.class, NoiseChunk.class,
@@ -238,13 +252,14 @@ public class TerrainOracle {
     var createFluidPicker = NoiseBasedChunkGenerator.class.getDeclaredMethod("createFluidPicker", NoiseGeneratorSettings.class);
     createFluidPicker.setAccessible(true);
     var picker = (Aquifer.FluidPicker) createFluidPicker.invoke(null, settings);
-    var heights = LevelHeightAccessor.create(-64, 384);
+    var heights = LevelHeightAccessor.create(minY, height);
     var chunks = new ArrayList<ChunkPos>();
-    for (int x = 0; x < 8; x++) for (int z = 0; z < 8; z++) chunks.add(new ChunkPos(x, z));
+    for (int x = x0; x < x0 + 8; x++) for (int z = z0; z < z0 + 8; z++) chunks.add(new ChunkPos(x, z));
     var biomes = new HashMap<ChunkPos, Holder<Biome>[]>();
     BiomeResolver resolver = (qx, qy, qz) -> {
-      var column = biomes.computeIfAbsent(new ChunkPos(qx >> 2, qz >> 2), p -> chunkBiomes(state, "overworld", biomeLookup, p, -64, 384));
-      int clamped = Math.clamp(qy, -16, -16 + 96 - 1) + 16;
+      var column = biomes.computeIfAbsent(new ChunkPos(qx >> 2, qz >> 2), p -> chunkBiomes(state, dimension, biomeLookup, p, minY, height));
+      int minQuart = minY >> 2;
+      int clamped = Math.clamp(qy, minQuart, minQuart + (height >> 2) - 1) - minQuart;
       return column[(clamped >> 2) * 64 + ((clamped & 3) * 4 + (qz & 3)) * 4 + (qx & 3)];
     };
     var biomeManager = new BiomeManager(resolver, BiomeManager.obfuscateSeed(seed));
@@ -254,7 +269,7 @@ public class TerrainOracle {
       long start = System.nanoTime();
       for (var pos : chunks) {
         var chunk = new ProtoChunk(pos, UpgradeData.EMPTY, heights, factory, null);
-        var volume = new DensityVolume(16, 384, 16, pos.getMinBlockX(), -64, pos.getMinBlockZ());
+        var volume = new DensityVolume(16, height, 16, pos.getMinBlockX(), minY, pos.getMinBlockZ());
         try (var noiseChunk = new NoiseChunk(state, null, settings, picker, Blender.empty(), volume)) {
           doFill.invoke(generator, noiseChunk, chunk);
         }
@@ -263,7 +278,7 @@ public class TerrainOracle {
       start = System.nanoTime();
       for (var pos : chunks) {
         var chunk = new ProtoChunk(pos, UpgradeData.EMPTY, heights, factory, null);
-        var volume = new DensityVolume(16, 384, 16, pos.getMinBlockX(), -64, pos.getMinBlockZ());
+        var volume = new DensityVolume(16, height, 16, pos.getMinBlockX(), minY, pos.getMinBlockZ());
         try (var noiseChunk = new NoiseChunk(state, null, settings, picker, Blender.empty(), volume)) {
           doFill.invoke(generator, noiseChunk, chunk);
           buildSurface.invoke(generator, chunk, noiseChunk, state, biomeManager, null, settings.materialRule().value());
@@ -280,11 +295,15 @@ public class TerrainOracle {
     var list = new JsonArray();
     for (var pos : chunks) { var p = new JsonArray(); p.add(pos.x()); p.add(pos.z()); list.add(p); }
     result.add("chunks", list);
+    result.addProperty("dimension", dimension);
+    result.addProperty("noise_settings", key.identifier().toString());
+    result.addProperty("biome_source", dimension.equals("end") ? "minecraft:the_end" : "minecraft:" + dimension);
+    result.addProperty("height", height);
     result.add("vanilla_fill_ns", fillPasses);
     result.add("vanilla_terrain_ns", terrainPasses);
     result.addProperty("java", System.getProperty("java.vm.name") + " " + System.getProperty("java.version"));
     Files.writeString(out, new Gson().toJson(result));
-    System.out.println("PASS: vanilla noise fill and terrain timings for 64 chunks");
+    System.out.println("PASS: vanilla noise fill and terrain timings for 64 " + dimension + " chunks");
   }
 
   /** A preset's parameter list whose every lookup starts from a fresh lookup history. */
