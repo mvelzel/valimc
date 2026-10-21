@@ -5,7 +5,8 @@ defmodule Valimc.WorldgenProtoOwnerTest do
   same order, concurrent neighbours serialize, and decorations survive
   restarts and crashes at each step of the transaction.
   """
-  use ExUnit.Case, async: true
+  # Serial: finalize transactions saturate the worldgen workers and dirty schedulers.
+  use ExUnit.Case, async: false
   alias Valimc.{Native, TestScope}
   alias Valimc.World.{Generator, Spawn}
   alias Valimc.Worldgen.Proto
@@ -16,7 +17,9 @@ defmodule Valimc.WorldgenProtoOwnerTest do
 
   setup do
     nonce = System.unique_integer([:positive])
-    key = {40 * rem(nonce, 1000) - 20_000, -7_000 - 10 * div(rem(nonce, 100_000), 1000)}
+    # One region for every test (serial): each gets a fresh world, and the
+    # expected chunks are computed once.
+    key = {-20_000, -7_000}
     base = Path.join(System.tmp_dir!(), "valimc-proto-#{nonce}")
     File.mkdir_p!(base)
 
@@ -42,7 +45,9 @@ defmodule Valimc.WorldgenProtoOwnerTest do
   end
 
   defp stop(keys) do
-    for key <- keys, {pid, _} <- Registry.lookup(Valimc.ProtoRegistry, key), do: TestScope.kill(pid)
+    for key <- keys,
+        {pid, _} <- Registry.lookup(Valimc.ProtoRegistry, key),
+        do: TestScope.kill(pid)
   end
 
   defp east({x, z}), do: {x + 1, z}
@@ -50,9 +55,20 @@ defmodule Valimc.WorldgenProtoOwnerTest do
   # What finalizing `regions` one after the other gives: their 12 × 12 areas'
   # terrain, then each region's undecorated 10 × 10 decorated Z outer, X inner.
   defp sequential(worldgen, regions) do
+    case :persistent_term.get({__MODULE__, regions}, nil) do
+      nil ->
+        result = compute_sequential(worldgen, regions)
+        :persistent_term.put({__MODULE__, regions}, result)
+        result
+
+      result ->
+        result
+    end
+  end
+
+  defp compute_sequential(worldgen, regions) do
     area = regions |> Enum.flat_map(&Proto.around(&1, 2)) |> Enum.uniq()
-    {:ok, terrain} = Native.worldgen_proto_terrain(worldgen, @source, area)
-    images = Map.new(terrain, fn {x, z, image} -> {{x, z}, image} end)
+    images = terrain(worldgen, area)
 
     {images, _} =
       Enum.reduce(regions, {images, MapSet.new()}, fn region, {images, decorated} ->
@@ -67,6 +83,17 @@ defmodule Valimc.WorldgenProtoOwnerTest do
       {:ok, full} = Native.worldgen_proto_full(worldgen, own, Generator.protocol_biomes())
       {region, full}
     end)
+  end
+
+  # Terrain of `chunks` in parallel batches.
+  defp terrain(worldgen, chunks) do
+    chunks
+    |> Enum.chunk_every(8)
+    |> Task.async_stream(&Native.worldgen_proto_terrain(worldgen, @source, &1),
+      timeout: :infinity
+    )
+    |> Enum.flat_map(fn {:ok, {:ok, list}} -> list end)
+    |> Map.new(fn {x, z, image} -> {{x, z}, image} end)
   end
 
   defp full(key) do
@@ -224,7 +251,10 @@ defmodule Valimc.WorldgenProtoOwnerTest do
 
       assert_same(Task.await(task, 120_000) |> elem(1), want[ctx.key])
       # The victim's next incarnation recovered its lock and applied the part.
-      await(fn -> map_size(:sys.get_state(pid(Enum.min(TestScope.neighborhood(ctx.key)))).grants) == 0 end)
+      await(fn ->
+        map_size(:sys.get_state(pid(Enum.min(TestScope.neighborhood(ctx.key)))).grants) == 0
+      end)
+
       assert_same(full(east(ctx.key)), want[east(ctx.key)])
     end
   end

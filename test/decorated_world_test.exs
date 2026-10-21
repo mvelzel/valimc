@@ -4,7 +4,8 @@ defmodule Valimc.DecoratedWorldTest do
   proto owner finalized, with their block entities, block ticks and pending
   post-processing, persists them once, and keeps them across restarts.
   """
-  use ExUnit.Case, async: true
+  # Serial: finalize transactions saturate the worldgen workers and dirty schedulers.
+  use ExUnit.Case, async: false
   alias Valimc.{Native, TestScope, World}
   alias Valimc.World.{Generator, ScheduledTicks, Spawn, Store}
   alias Valimc.Worldgen.{FullChunk, Proto}
@@ -50,8 +51,19 @@ defmodule Valimc.DecoratedWorldTest do
 
   # The region's full chunks when it is the first finalized.
   defp expected(worldgen, key) do
-    {:ok, terrain} = Native.worldgen_proto_terrain(worldgen, @source, Proto.around(key, 2))
-    images = Map.new(terrain, fn {x, z, image} -> {{x, z}, image} end)
+    case :persistent_term.get({__MODULE__, key}, nil) do
+      nil ->
+        full = compute_expected(worldgen, key)
+        :persistent_term.put({__MODULE__, key}, full)
+        full
+
+      full ->
+        full
+    end
+  end
+
+  defp compute_expected(worldgen, key) do
+    images = terrain(worldgen, Proto.around(key, 2))
 
     {:ok, {touched, 0}} =
       Native.worldgen_proto_decorate(worldgen, Map.values(images), Proto.around(key, 1))
@@ -72,6 +84,17 @@ defmodule Valimc.DecoratedWorldTest do
         Process.sleep(100)
         owner!(key, attempts - 1)
     end
+  end
+
+  # Terrain of `chunks` in parallel batches.
+  defp terrain(worldgen, chunks) do
+    chunks
+    |> Enum.chunk_every(8)
+    |> Task.async_stream(&Native.worldgen_proto_terrain(worldgen, @source, &1),
+      timeout: :infinity
+    )
+    |> Enum.flat_map(fn {:ok, {:ok, list}} -> list end)
+    |> Map.new(fn {x, z, image} -> {{x, z}, image} end)
   end
 
   defp restart(key) do
@@ -157,8 +180,7 @@ defmodule Valimc.DecoratedWorldTest do
 
     # As if the two regions were finalized one after the other in one area.
     area = Enum.uniq(Proto.around(@key, 2) ++ Proto.around(east, 2))
-    {:ok, terrain} = Native.worldgen_proto_terrain(ctx.worldgen, @source, area)
-    images = Map.new(terrain, fn {x, z, image} -> {{x, z}, image} end)
+    images = terrain(ctx.worldgen, area)
 
     images =
       Enum.reduce(
