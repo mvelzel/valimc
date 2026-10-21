@@ -48,15 +48,15 @@ resumes on these foundations alongside M2.
 | [VMC-071](tickets/VMC-071.md) | New terrain reaches a moving player sooner: parallel worldgen states, nearest regions first, no light-update flood | Done |
 | [VMC-028](tickets/VMC-028.md) | Generation settings as vanilla stores them, world presets (large biomes, amplified, single biome, flat) live, worldgen from a world's data packs, 26.2 worlds upgraded on import | Awaiting client |
 | [VMC-073](tickets/VMC-073.md) | The full `mix test` passes on a loaded host: condition waits, explicit expiry and manual player ticks instead of wall-clock sleeps, scaled owner budgets in tests | Done |
+| [VMC-074](tickets/VMC-074.md) | Bounded file descriptors: logs open files per operation under a budget, the open-files limit raised at start, running out survived | Done |
 
 Next: structure placement (VMC-025f); generation and tick time stay matched against vanilla and Pumpkin (Pumpkin's range).
 
 ## M3 onward
 
-Survival core on the entity model (mobs/AI, spawning, combat, projectiles),
-redstone and block updates, then commands/admin and certification; backlog
-milestones C–F hold the rest. Commands on those systems (VMC-053h, k–n) move
-with them; M2 finishes the world and administration commands.
+Survival core on the entity model (mobs/AI, spawning, combat, projectiles), redstone and block
+updates, then commands/admin and certification; backlog milestones C–F hold the rest. Commands
+on those systems (VMC-053h, k–n) move with them; M2 finishes the world and administration commands.
 
 ## Paused
 

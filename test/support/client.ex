@@ -445,15 +445,15 @@ defmodule Valimc.TestDisk do
   defp write_v1(path, bytes), do: File.write!(path, bytes)
 
   @doc """
-  Make the running store's next append fail with an I/O error (its segment file
-  descriptor is closed). The store reports the failure exactly as for a failing
-  disk and stops; nothing reaches the log.
+  Make the running store's next append fail with an I/O error (its segment is
+  moved to a directory that does not exist, so it will not open). The store
+  reports the failure exactly as for a failing disk and stops; nothing reaches
+  the log.
   """
   def break_writer(writer) do
     :sys.replace_state(writer, fn
-      %{log: %RegionLog{fd: fd}} = state ->
-        :ok = File.close(fd)
-        state
+      %{log: %RegionLog{} = log} = state ->
+        %{state | log: %{log | segment: Path.join([log.dir, "missing", "log"])}}
     end)
 
     :ok

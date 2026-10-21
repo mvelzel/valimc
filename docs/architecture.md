@@ -113,7 +113,9 @@ Anvil: vanilla worlds are imported into it and exported from it offline
 (`mix valimc.import`, `mix valimc.export`, VMC-021; 26.2 chunks upgraded as vanilla's
 data fixers upgrade them, VMC-028d), and what ValiMC does not model
 yet is preserved for export. Player snapshots are files group-committed through partitioned
-player logs (`Valimc.PlayerLog`). Acknowledged writes survive a
+player logs (`Valimc.PlayerLog`). Logs hold no file descriptor between operations; what
+they open at once is bounded by `Valimc.FileBudget`, and running out of descriptors is
+retried, never fatal (VMC-074). Acknowledged writes survive a
 crash; volatile state (item motion, cooking progress, raw creative edits) is saved
 periodically and at clean shutdown, so a hard crash can lose its recent tail. Item transfers
 journal a reduced source inventory plus one outbox before delivery; the region

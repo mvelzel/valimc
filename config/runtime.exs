@@ -87,6 +87,13 @@ case System.get_env("VALIMC_GENERATE_STRUCTURES") do
   _ -> raise "VALIMC_GENERATE_STRUCTURES must be true or false"
 end
 
+if budget = System.get_env("VALIMC_OPEN_FILES_BUDGET") do
+  case Integer.parse(budget) do
+    {value, ""} when value > 0 -> config :valimc, open_files_budget: value
+    _ -> raise "VALIMC_OPEN_FILES_BUDGET must be a positive integer"
+  end
+end
+
 if seed = System.get_env("VALIMC_SEED") do
   case Integer.parse(seed) do
     {value, ""} when value >= -9_223_372_036_854_775_808 and value <= 9_223_372_036_854_775_807 ->

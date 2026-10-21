@@ -51,6 +51,9 @@ config :valimc,
   respawn_radius: 10,
   # macOS `fsync` stops at the drive cache; flush through it (F_FULLFSYNC).
   full_fsync: match?({:unix, :darwin}, :os.type()),
+  # Files the durability logs may hold open at once (VMC-074); nil: half of
+  # the raised open-files limit after a reserve, between 8 and 1024.
+  open_files_budget: nil,
   packets_per_second: 400,
   bytes_per_second: 4_194_304,
   compression_threshold: 256,

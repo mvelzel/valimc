@@ -5,6 +5,8 @@ defmodule Valimc.Application do
     if not Valimc.GameMode.valid?(Valimc.config(:default_game_mode)),
       do: raise("Invalid default game mode")
 
+    # VMC-074: the open-files limit and the logs' share of it, before any log opens.
+    Valimc.FileBudget.init!()
     Valimc.Protocol.Data.load!()
     Valimc.World.Chunk.load!()
     Valimc.World.Blocks.init!()

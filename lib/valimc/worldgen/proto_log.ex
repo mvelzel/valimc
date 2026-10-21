@@ -22,8 +22,13 @@ defmodule Valimc.Worldgen.ProtoLog do
   one `datasync` (group commit). The writer folds frames into the same state
   the owner recovers from, and checkpoints it once frames pass
   `:proto_checkpoint_bytes`. Without a world path the state stays in memory.
+
+  An append that wrote nothing for want of file descriptors (VMC-074) is tried
+  again with backoff, so the owner only waits; any other failure stops the
+  writer (and its owner) for recovery.
   """
   use GenServer
+  require Logger
 
   @max_batch 64
   @empty %{
@@ -148,7 +153,7 @@ defmodule Valimc.Worldgen.ProtoLog do
           {:ok, s}
 
         log ->
-          case Valimc.World.RegionLog.append(log, Enum.map(batch, &elem(&1, 1))) do
+          case append_written(log, Enum.map(batch, &elem(&1, 1)), 50) do
             {:ok, log, _lsn} ->
               bytes = Enum.sum(Enum.map(batch, &:erlang.external_size(elem(&1, 1))))
               {:ok, %{s | log: log, appended: s.appended + bytes}}
@@ -169,6 +174,19 @@ defmodule Valimc.Worldgen.ProtoLog do
       # An append that failed may have left a torn frame; only recovery may continue.
       {:error, reason} -> {:stop, {:proto_log_failed, reason}, s}
       :ok -> {:noreply, maybe_checkpoint(s)}
+    end
+  end
+
+  # Out of descriptors, nothing was written: wait and append the same frames.
+  defp append_written(log, batches, delay) do
+    case Valimc.World.RegionLog.append(log, batches) do
+      {:error, {:unwritten, reason}} ->
+        if delay == 50, do: Logger.warning("Proto log append deferred: #{inspect(reason)}")
+        Process.sleep(delay)
+        append_written(log, batches, min(delay * 2, 2_000))
+
+      result ->
+        result
     end
   end
 

@@ -81,6 +81,11 @@ defmodule Valimc.Worldgen.Proto do
   # An owner with nothing in flight stops after this many quiet resolve rounds
   # (its state is durable; untouched terrain is generated again if needed).
   @idle_rounds 10
+  # Recovery that runs out of file descriptors waits this long at most.
+  @recovery_wait 30_000
+  # An owner whose chunks are all final and handed over stops this soon after,
+  # once nothing is in flight (VMC-074); neighbours start it again if needed.
+  @retire_after 5_000
   @max_attempts 40
 
   ## API
@@ -195,35 +200,47 @@ defmodule Valimc.Worldgen.Proto do
     case Generator.spec(world, dimension) do
       {:ok, %{kind: :noise} = spec} ->
         dir = base && Path.join([base, "gen", "r.#{rx}.#{rz}"])
-        {:ok, log, durable, incarnation} = ProtoLog.open(dir)
-        {:ok, worldgen} = Generator.worldgen(spec.seed, spec.noise_settings, spec.facts)
 
-        state = %{
-          empty
-          | worldgen: worldgen,
-            biome_source: spec.biome_source,
-            log: log,
-            incarnation: incarnation,
-            chunks: durable.chunks,
-            final: MapSet.union(durable.final, durable.dropped),
-            dropped: durable.dropped,
-            receipts: durable.receipts,
-            outbox: durable.outbox
-        }
-
-        state =
-          Enum.reduce(durable.locks, state, fn {txn, grant}, acc ->
-            hold(acc, txn, grant.coordinator, grant.chunks, true)
-          end)
-
-        state = Enum.reduce(Map.keys(state.outbox), state, &deliver_all(&2, &1))
-        send(self(), :resolve)
-        {:noreply, state}
+        # Out of file descriptors, recovery waits and tries again (VMC-074).
+        case Valimc.FileBudget.retry(fn -> ProtoLog.open(dir) end, @recovery_wait) do
+          {:ok, log, durable, incarnation} -> loaded(empty, spec, log, durable, incarnation)
+          {:error, reason} -> {:stop, {:shutdown, {:proto_log_recovery_failed, reason}}, empty}
+        end
 
       _ ->
         {:stop, {:shutdown, :not_generated}, empty}
     end
   end
+
+  defp loaded(empty, spec, log, durable, incarnation) do
+    {:ok, worldgen} = Generator.worldgen(spec.seed, spec.noise_settings, spec.facts)
+
+    state = %{
+      empty
+      | worldgen: worldgen,
+        biome_source: spec.biome_source,
+        log: log,
+        incarnation: incarnation,
+        chunks: durable.chunks,
+        final: MapSet.union(durable.final, durable.dropped),
+        dropped: durable.dropped,
+        receipts: durable.receipts,
+        outbox: durable.outbox
+    }
+
+    state =
+      Enum.reduce(durable.locks, state, fn {txn, grant}, acc ->
+        hold(acc, txn, grant.coordinator, grant.chunks, true)
+      end)
+
+    state = Enum.reduce(Map.keys(state.outbox), state, &deliver_all(&2, &1))
+    send(self(), :resolve)
+    if handed_over?(state), do: Process.send_after(self(), :retire, @retire_after)
+    {:noreply, state}
+  end
+
+  defp handed_over?(state),
+    do: Enum.all?(chunks_of(state.key), &MapSet.member?(state.dropped, &1))
 
   # Full chunks for the live region.
   @impl true
@@ -313,6 +330,8 @@ defmodule Valimc.Worldgen.Proto do
          not Enum.all?(own, &MapSet.member?(state.dropped, &1)) do
       {:noreply,
        write(state, [{:dropped, own}], fn state, :ok ->
+         Process.send_after(self(), :retire, @retire_after)
+
          %{
            state
            | chunks: Map.drop(state.chunks, own),
@@ -400,6 +419,20 @@ defmodule Valimc.Worldgen.Proto do
     if rounds >= @idle_rounds,
       do: {:stop, :normal, state},
       else: {:noreply, %{state | quiet: {state.calls, rounds}}}
+  end
+
+  def handle_info(:retire, state) do
+    cond do
+      not handed_over?(state) ->
+        {:noreply, state}
+
+      quiescent?(state) ->
+        {:stop, :normal, state}
+
+      true ->
+        Process.send_after(self(), :retire, @retire_after)
+        {:noreply, state}
+    end
   end
 
   def handle_info({:DOWN, monitor, :process, _, reason}, state) do

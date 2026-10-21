@@ -103,11 +103,20 @@ defmodule Valimc.PlayerLog do
         appended = state.appended + IO.iodata_length(Enum.map(ops, &elem(&1, 2)))
         {:noreply, maybe_checkpoint(%{state | log: log, dirty: dirty, appended: appended})}
 
+      {:error, {:unwritten, _} = reason} ->
+        # Nothing reached the log (out of descriptors, VMC-074): the savers keep
+        # their state and save again; this writer, which the listener is
+        # restarted with, stays.
+        Logger.warning("Player log append deferred: #{inspect(reason)}")
+        for {from, _} <- batch, do: GenServer.reply(from, {:error, reason})
+        {:noreply, state}
+
       {:error, reason} ->
         Logger.error("Player log append failed: #{inspect(reason)}")
         for {from, _} <- batch, do: GenServer.reply(from, {:error, reason})
-        # A torn frame may only be repaired by recovery: restart and reopen.
-        {:stop, {:player_log_failed, reason}, state}
+        # A torn frame may only be repaired by recovery: reopen before the next
+        # commit instead of restarting this writer.
+        {:noreply, %{state | dir: nil, log: nil}}
     end
   end
 
@@ -198,7 +207,13 @@ defmodule Valimc.PlayerLog do
   defp maybe_checkpoint(%{checkpointing: ref} = state) when ref != nil, do: state
 
   defp maybe_checkpoint(state) do
-    {:ok, log, job} = RegionLog.begin_checkpoint(state.log)
+    case RegionLog.begin_checkpoint(state.log) do
+      {:ok, log, job} -> start_checkpoint(state, log, job)
+      {:error, _} -> %{state | appended: div(@checkpoint_bytes, 2)}
+    end
+  end
+
+  defp start_checkpoint(state, log, job) do
     writer = self()
     ref = make_ref()
     written = state.dirty

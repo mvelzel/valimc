@@ -191,7 +191,13 @@ defmodule Valimc.World.RegionData do
   end
 
   def load(key) do
-    {:ok, store, store_lease} = Store.open(key)
+    # Out of file descriptors, recovery waits and tries again (VMC-074).
+    {store, store_lease} =
+      case Valimc.FileBudget.retry(fn -> Store.open(key) end, 30_000) do
+        {:ok, store, store_lease} -> {store, store_lease}
+        {:error, reason} -> exit({:shutdown, {:region_store_unavailable, reason}})
+      end
+
     store_monitor = Process.monitor(store)
     edits = Store.load(store)
     images = generated_columns(key, store, store_lease, Store.load_columns(store))

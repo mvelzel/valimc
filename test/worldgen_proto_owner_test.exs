@@ -171,7 +171,12 @@ defmodule Valimc.WorldgenProtoOwnerTest do
   test "handing over drops the images and refuses later requests", ctx do
     _ = full(ctx.key)
     :ok = Proto.handed_over(ctx.key)
-    await(fn -> map_size(:sys.get_state(pid(ctx.key)).chunks) == 0 end)
+    owner = pid(ctx.key)
+    await(fn -> map_size(:sys.get_state(owner).chunks) == 0 end)
+    assert Proto.full_chunks(ctx.key) == {:error, :handed_over}
+    # Its work done, the owner retires within seconds (VMC-074), not minutes.
+    watch = Process.monitor(owner)
+    assert_receive {:DOWN, ^watch, :process, ^owner, :normal}, 30_000
     assert Proto.full_chunks(ctx.key) == {:error, :handed_over}
     stop(ctx.keys)
     assert Proto.full_chunks(ctx.key) == {:error, :handed_over}

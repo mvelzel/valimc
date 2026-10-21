@@ -277,14 +277,14 @@ defmodule Valimc.World.Store do
 
   def handle_call({:flush, lease, cells}, _from, %{lease: lease} = state) do
     {result, state} = write(state, cells_parts(cells))
-    {:reply, result, state}
+    written_reply(result, state)
   end
 
   def handle_call({:flush, _, _}, _from, state), do: {:reply, {:error, :stale_store_lease}, state}
 
   def handle_call({:put_columns, lease, columns}, _from, %{lease: lease} = state) do
     {result, state} = write(state, [{:columns, columns}])
-    {:reply, result, state}
+    written_reply(result, state)
   end
 
   def handle_call({:put_columns, _, _}, _from, state),
@@ -299,7 +299,7 @@ defmodule Valimc.World.Store do
         {:ticks, parts.ticks}
       ])
 
-    {:reply, result, state}
+    written_reply(result, state)
   end
 
   def handle_call({:put_generated, _, _}, _from, state),
@@ -384,7 +384,12 @@ defmodule Valimc.World.Store do
     for message <- batch, do: acknowledge(message, result)
 
     # An append that failed may have left a torn frame; only recovery may continue.
+    # One that wrote nothing (out of descriptors, VMC-074) leaves the batch to the
+    # owners' next save.
     case result do
+      {:error, {:unwritten, _}} ->
+        {:noreply, state}
+
       {:error, reason} when written and state.log != nil ->
         {:stop, {:storage_failed, reason}, state}
 
@@ -738,6 +743,14 @@ defmodule Valimc.World.Store do
   defp acknowledge({tag, _, _, {owner, epoch}, token}, result)
        when tag in [:containers, :unpack, :block_entities],
        do: send(owner, {:resource, epoch, {:containers_saved, self(), token, result}})
+
+  # A call's append that failed after writing may have left a torn frame: the
+  # caller gets the error and only recovery may continue (as for commits).
+  defp written_reply({:error, reason} = result, state)
+       when state.log != nil and not (is_tuple(reason) and elem(reason, 0) == :unwritten),
+       do: {:stop, {:storage_failed, reason}, result, state}
+
+  defp written_reply(result, state), do: {:reply, result, state}
 
   # Append one frame of full values; without a world path, keep them in memory.
   defp write(state, []), do: {:ok, state}

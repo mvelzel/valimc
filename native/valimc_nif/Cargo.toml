@@ -12,3 +12,4 @@ crate-type = ["cdylib"]
 [dependencies]
 valimc_core = { path = "../valimc_core" }
 rustler = "0.38"
+libc = "0.2"

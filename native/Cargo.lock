@@ -120,6 +120,7 @@ version = "0.1.0"
 name = "valimc_nif"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "rustler",
  "valimc_core",
 ]
