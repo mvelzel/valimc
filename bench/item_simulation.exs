@@ -14,7 +14,7 @@ Application.put_env(:valimc, :port, 0)
 snapshot = fn owners ->
   for {pid, _} <- owners do
     state = :sys.get_state(pid).resource
-    %{entries: state.items.entries, sleeping: map_size(state.item_resting)}
+    %{entries: state.items.entries}
   end
 end
 
@@ -89,11 +89,6 @@ rows =
       age_hz_max: Enum.max(Enum.map(rates, & &1.age)),
       motion_hz_min: Enum.min(Enum.map(rates, & &1.motion)),
       motion_hz_max: Enum.max(Enum.map(rates, & &1.motion)),
-      sleeping: Enum.sum(Enum.map(after_snapshot, & &1.sleeping)),
-      jobs: metric.(:item_simulation_jobs),
-      timeouts: metric.(:item_simulation_timeouts),
-      refused: metric.(:item_simulation_refusals),
-      busy: metric.(:item_simulation_busy),
       log_frames: metric.(:storage_records),
       checkpoints: metric.(:region_checkpoints),
       merge_jobs: metric.(:item_merge_jobs)
@@ -110,7 +105,7 @@ rows =
 IO.puts(
   :json.encode(%{
     scope:
-      "owned automatic cadence and merge discovery with2-block item spacing, fenced geometry, counter clocks, sleep and periodic saves; no positive merge, sockets, player launch, pickup or cross-owner workload",
+      "owned automatic cadence and merge discovery with 2-block item spacing, items stepped in the tick (VMC-077l), counter clocks and periodic saves; no positive merge, sockets, player launch, pickup or cross-owner workload",
     runtime: %{
       elixir: System.version(),
       otp: System.otp_release(),

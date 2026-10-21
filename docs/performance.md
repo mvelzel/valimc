@@ -54,6 +54,12 @@ With generation in one pool of dirty CPU schedulers minus two, the probe's p90
 wait fell from 34–93 ms to 5–12 ms and its p99 from 70–164 ms to 12–63 ms;
 generation throughput stayed within the host's noise.
 
+[Physics kernel](tickets/VMC-077l.md) (`bench/physics_kernel.exs`, the same
+moves and items against the Elixir physics it replaced, back to back at load
+11). A player's move validation takes 61.5–66 µs of CPU against 156–192 µs, of
+which the kernel's calls are about 10 µs and the player's travel rules in
+Elixir the rest; an item tick takes 1.25–1.6 µs per item against 24–36 µs.
+
 [Structure starts](tickets/VMC-025.md) (`bench/worldgen_structures.exs`,
 matched with vanilla's own generator: the overworld's 40 × 40 chunks around the
 origin at seed 20261020 through `createStructures`, one thread, thread CPU time

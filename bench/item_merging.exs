@@ -111,8 +111,6 @@ results =
       merge_jobs: Map.get(idle, :item_merge_jobs, 0) - Map.get(before, :item_merge_jobs, 0),
       idle_merge_jobs:
         Map.get(after_idle, :item_merge_jobs, 0) - Map.get(idle, :item_merge_jobs, 0),
-      idle_geometry_jobs:
-        Map.get(after_idle, :item_simulation_jobs, 0) - Map.get(idle, :item_simulation_jobs, 0),
       regions: rows
     }
   end

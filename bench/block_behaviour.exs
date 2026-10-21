@@ -1,7 +1,7 @@
 # Owned block-entity check (VMC-068): the two generated lookups callers used to
 # chain versus one class-keyed behaviour dispatch.
 #   mix run --no-start bench/block_behaviour.exs
-alias Valimc.Physics.CookingBlocks
+alias Valimc.CookingBlocks
 alias Valimc.Registry.Blocks
 
 :rand.seed(:exsss, {68, 68, 68})

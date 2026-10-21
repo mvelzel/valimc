@@ -9,7 +9,7 @@ authority. The M1 foundations below are in place; later milestones on the
 
 | State/work | Owner and access |
 |---|---|
-| Socket, protocol, AES stream, session inventory/input/pose | One connection process per player |
+| Socket, protocol, AES stream, session inventory/input/pose, move validation | One connection process per player; each move packet is validated synchronously by the physics kernel |
 | Admission, names, lifecycle | Players service; never on movement or chat hot paths |
 | Nearby-player observations | Published ETS rows plus a spatial index; paced replication |
 | Blocks (Rust paletted sections), block entities, stationary items | Region owner (8×8 chunks) while chunk tickets hold it; immutable chunk snapshots and chunk packets in its ETS table for readers |
@@ -19,7 +19,7 @@ authority. The M1 foundations below are in place; later milestones on the
 | What the world generates per dimension | `World.Spec`, read once from `world.json` at start; a read failure stops the start |
 | World spawn (with dimension and pitch), default game mode, admin switches | Settings owner; writes `settings.json` crash-safely, then publishes |
 | Commands and suggestions | A job per command (`Session.Commands`), or the console's or RCON client's process, over a `Command.Source` value; blocks change through region owners, players through their own connections |
-| Encoding, collision queries, auth/crypto, transfer recovery | Bounded worker pools (collision pool partitioned per caller) |
+| Encoding, placement and mining jobs, auth/crypto, transfer recovery | Bounded worker pools (the placement and mining pool partitioned per caller) |
 | Region files and player snapshots | Leased writers; disk outside sensitive owners |
 
 Ingress is bounded by `active: :once`, packet/byte rate windows, per-phase
@@ -185,19 +185,20 @@ over a pure `valimc_core` crate) owns dense data and CPU-heavy pure work:
 | Disk NBT reading (VMC-020) | 3.5–4× the Elixir reader on vanilla chunks; values are sub-binaries of the input |
 | Anvil import and export (VMC-021) | LZ4 chunk streams; packed palette indices into sections; compact column images for region checkpoints; vanilla palette packing for export (5.7× the Elixir reference) |
 | Block updates (VMC-077m) | `updateShape`, survival, neighbour updates in vanilla's collecting order and redstone wire power over the owner's store, one call per commit; the same rule modules serve decoration. Effects that leave the owner (drops, events) return to Elixir |
+| Entity physics (VMC-077l) | One kernel (`valimc_core::physics`) for players and items: block scans over published section rows with per-section special-collider checks, shapes from the installed fact table, `Entity.collide` with step-up, body sweeps, fluids, flow and currents, the supporting block and a whole item tick. Players call it per move packet from their connection; region owners once per tick for all their items |
 
 Kept in Elixir: packet and file compression (`:zlib`), AES-CFB8
 (`:crypto`/OpenSSL), network item/text NBT, NBT writing (zlib deflate costs more
 per chunk), region file headers and palette-name mapping (VMC-021, about 80 µs
-per chunk; not yet compared with Rust), player physics. `Valimc.NBT` is the one
+per chunk; not yet compared with Rust), the player's travel rules around the kernel's geometry (jump, fluid and climbing controls, sneak edges). `Valimc.NBT` is the one
 NBT codec: network and disk framing, explicit limits, and an Elixir reader that
 is the native reader's parity reference.
 
 NIF rules ([VMC-077b](tickets/VMC-077b.md)):
 
 - The shim has one module per domain (`facts`, `region`, `rules`, `light`,
-  `climate`, `codec`, `sys`, `worldgen`, `loot`); oracle and benchmark NIFs live
-  in `parity`, built only
+  `climate`, `codec`, `sys`, `worldgen`, `loot`, `physics`); oracle and benchmark
+  NIFs live in `parity`, built only
   with the `parity` cargo feature (dev, test and bench builds, not releases).
   One arity per NIF.
 - Scheduling by bounded worst-case cost. A NIF on a normal scheduler stays under
