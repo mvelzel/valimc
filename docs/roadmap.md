@@ -46,10 +46,10 @@ resumes on these foundations alongside M2.
 | [VMC-072](tickets/VMC-072.md) | Container loot tables rolled on open, as vanilla does, for generated and imported chests; every container table equals vanilla's | In progress |
 | [VMC-070](tickets/VMC-070.md) | The client's view distance (clamped to the server's, default 10) picks vanilla's chunk view, applied live; vanilla chunk send pacing and entity tracking ranges | Done |
 | [VMC-071](tickets/VMC-071.md) | New terrain reaches a moving player sooner: parallel worldgen states, nearest regions first, no light-update flood | Done |
-| [VMC-028](tickets/VMC-028.md) | Generation settings as vanilla stores them, world presets, worldgen from data packs, older worlds | In progress |
+| [VMC-028](tickets/VMC-028.md) | Generation settings as vanilla stores them, world presets (large biomes, amplified, single biome, flat) live, worldgen from a world's data packs, 26.2 worlds upgraded on import | Awaiting client |
 
-Next: structure placement (VMC-025f), live dimensions (VMC-026b), generation configuration
-(VMC-028); generation and tick time stay matched against vanilla and Pumpkin (Pumpkin's range).
+Next: structure placement (VMC-025f), live dimensions (VMC-026b); generation and tick
+time stay matched against vanilla and Pumpkin (Pumpkin's range).
 
 ## M3 onward
 
@@ -72,6 +72,7 @@ experience exist ([VMC-034f](tickets/VMC-034f.md)).
 | Ticket | Remaining gate |
 |---|---|
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Server CLONE/type-2 fill from a creative container menu (VMC-032) |
+| [VMC-028](tickets/VMC-028.md) | An amplified world and an imported 26.2 world in the client |
 
 The M1 milestone client run passed on `127934a` (see [VMC-069](tickets/VMC-069.md)),
 with the item despawn fix checked on `6243c8c` ([VMC-067](tickets/VMC-067.md)) and

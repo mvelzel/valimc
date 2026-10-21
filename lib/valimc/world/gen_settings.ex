@@ -235,7 +235,7 @@ defmodule Valimc.World.GenSettings do
 
   @doc "Settings from `world_gen_settings.dat`'s root, or `{:error, reason}`."
   def from_nbt({:compound, %{"data" => {:compound, _} = data} = root}) do
-    with {:ok, _} <- Valimc.World.Schema.check(:data, {:compound, root}),
+    with {:ok, _} <- Valimc.World.DataFix.readable(:data, {:compound, root}),
          {:ok, settings} <- json(data),
          :ok <- supported(settings),
          do: {:ok, settings}

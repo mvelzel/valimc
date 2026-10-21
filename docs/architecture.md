@@ -110,7 +110,8 @@ pinned vanilla behavior. See [research](research.md).
 
 Region state lives in a per-region log of checksummed frames plus checkpoints, not
 Anvil: vanilla worlds are imported into it and exported from it offline
-(`mix valimc.import`, `mix valimc.export`, VMC-021), and what ValiMC does not model
+(`mix valimc.import`, `mix valimc.export`, VMC-021; 26.2 chunks upgraded as vanilla's
+data fixers upgrade them, VMC-028d), and what ValiMC does not model
 yet is preserved for export. Player snapshots are files group-committed through partitioned
 player logs (`Valimc.PlayerLog`). Acknowledged writes survive a
 crash; volatile state (item motion, cooking progress, raw creative edits) is saved

@@ -172,6 +172,14 @@ STAGES = [
          'minecraft:desert_pyramid,minecraft:jungle_pyramid,minecraft:swamp_hut,minecraft:buried_treasure'),
         ('check', 'check_decoration.exs', '@placement.json'),
     ]),
+    # VMC-028d: a 26.2 world (made from AnvilContentOracle's) and a case for each
+    # fix, upgraded by ValiMC as vanilla's fixer upgrades them; the world imports.
+    ('world_upgrade', [
+        ('java', 'AnvilContentOracle', 'generate', '@vanilla', '@content.json'),
+        ('check', 'older_world.exs', '@content.json', '@older', '@older-cases.json'),
+        ('java', 'DataFixOracle', '@older-cases.json', '@upgrade.json'),
+        ('check', 'check_data_fix.exs', '@upgrade.json', '@content.json', '@older', '@imported'),
+    ]),
     ('worldgen_datapack', [
         ('java', 'DatapackOracle', 'make', '@world/datapacks/sample'),
         ('check', 'datapack_facts.exs', '@world'),

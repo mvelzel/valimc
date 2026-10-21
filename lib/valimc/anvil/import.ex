@@ -1,6 +1,8 @@
 defmodule Valimc.Anvil.Import do
   @moduledoc """
   Import a vanilla 26.3 world into a new ValiMC world directory (VMC-021d).
+  Region and entity chunks of 26.2 and 26.3's snapshots are upgraded first, as
+  vanilla's data fixers upgrade them (`Valimc.World.DataFix`, VMC-028d).
 
   Every full overworld chunk becomes a column image in its ValiMC region's log
   (`Store.import_region/3`); chunks of other statuses are left out (ValiMC shows
@@ -37,8 +39,8 @@ defmodule Valimc.Anvil.Import do
     Blocks,
     Containers,
     CookingOrbs,
+    DataFix,
     ItemLedger,
-    Schema,
     Spawn,
     Store
   }
@@ -122,7 +124,7 @@ defmodule Valimc.Anvil.Import do
   defp read_spawn(source) do
     with {:ok, bytes} <- File.read(Path.join(source, "level.dat")),
          {:ok, level} <- NBT.read_compressed(bytes, :gzip),
-         {:ok, _} <- Schema.check(:level, level),
+         {:ok, _} <- DataFix.readable(:level, level),
          {:compound, %{"Data" => {:compound, data}}} <- level,
          {:compound, spawn} <- data["spawn"],
          {:int_array, <<x::signed-32, y::signed-32, z::signed-32>>} <- spawn["pos"] do
@@ -183,7 +185,7 @@ defmodule Valimc.Anvil.Import do
 
           {pos, {:ok, bytes}}, acc ->
             with {:ok, tag} <- NBT.read(bytes),
-                 {:ok, _} <- Schema.check(:entities, tag),
+                 {:ok, tag} <- DataFix.upgrade(:entities, tag),
                  {:compound, root} = tag,
                  {:int_array, <<x::signed-32, z::signed-32>>} <- root["Position"] do
               list =
@@ -253,15 +255,14 @@ defmodule Valimc.Anvil.Import do
 
             {pos, {:ok, bytes}}, {acc, cache} ->
               {result, cache} =
-                case NBT.read(bytes) do
-                  {:ok, tag} ->
-                    case Chunk.column(tag, cache) do
-                      {{:ok, column}, cache} -> {{:ok, column, tag}, cache}
-                      other -> other
-                    end
-
-                  error ->
-                    {error, cache}
+                with {:ok, tag} <- NBT.read(bytes),
+                     {:ok, tag} <- DataFix.upgrade(:chunk, tag) do
+                  case Chunk.column(tag, cache) do
+                    {{:ok, column}, cache} -> {{:ok, column, tag}, cache}
+                    other -> other
+                  end
+                else
+                  error -> {error, cache}
                 end
 
               {add(acc, pos, result), cache}

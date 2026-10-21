@@ -4,8 +4,9 @@ defmodule Valimc.World.Schema do
 
   Every NBT file in a 26.3 world records the `DataVersion` its schema follows:
   `level.dat` inside its `Data` compound, every other file (player, `data/*.dat`,
-  region, entity and POI chunks) at the root. ValiMC reads only the pinned version;
-  older worlds need vanilla's data fixers (VMC-028) and newer ones are unknown.
+  region, entity and POI chunks) at the root. ValiMC reads the pinned version;
+  chunks from 26.2 on are upgraded to it first (`Valimc.World.DataFix`,
+  VMC-028d), and newer versions are unknown.
   """
 
   @type kind :: :level | :player | :data | :chunk | :entities | :poi | :unknown
