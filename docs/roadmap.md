@@ -26,8 +26,9 @@ matched against vanilla and Pumpkin, at least in Pumpkin's range.
 
 The pre-M3 audit's plan, decided October 21, 2026: players and everything that
 interacts share one owner (dynamic groups of 8 × 8 sections), one atomic frame per
-owner per tick, volatile proto chunks, no world migration. Phase 0 (item
-rollback, shulker collision) is done; wave 1 runs the phase 1 slices in parallel.
+owner per tick, volatile proto chunks, no world migration. Phase 0 and wave 1
+(phase 1) have landed; wave 2 runs the storage, kernel, generation, command and
+living-rule slices in parallel.
 
 | Ticket | Open slice | Status |
 |---|---|---|
