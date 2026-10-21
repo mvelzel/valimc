@@ -13,7 +13,10 @@
 //! ticks, fluid ticks, block entity positions, created block entities (with
 //! an end gateway's exit) and the entities features added. A position inside
 //! the chunk is one byte `z << 4 | x` and a two-byte Y. Version 1 (VMC-025d)
-//! held overworld chunks without bounds, exits or entities.
+//! held overworld chunks without bounds, exits or entities. Version 3
+//! (VMC-025f5) adds each created block entity's template NBT (a
+//! four-byte-length string) and allows every block entity and entity type
+//! structures place.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -23,7 +26,7 @@ use super::region::{BlockEntityData, Entity, ProtoChunk, HEIGHT, MIN_Y};
 use crate::column::{image_of_cells, Column};
 use crate::section::{index as section_index, VOLUME};
 
-const VERSION: u8 = 2;
+const VERSION: u8 = 3;
 
 /// The binary form of `chunk`.
 pub fn encode(chunk: &ProtoChunk) -> Vec<u8> {
@@ -96,6 +99,13 @@ pub fn encode(chunk: &ProtoChunk) -> Vec<u8> {
                 for c in exit {
                     out.extend(c.to_be_bytes());
                 }
+            }
+        }
+        match &data.nbt {
+            None => out.extend(u32::MAX.to_be_bytes()),
+            Some(nbt) => {
+                out.extend((nbt.len() as u32).to_be_bytes());
+                out.extend(nbt.as_bytes());
             }
         }
     }
@@ -185,6 +195,19 @@ impl<'a> Reader<'a> {
         Ok([x * 16 + (xz & 15), y, z * 16 + (xz >> 4)])
     }
 
+    /// A string with a four-byte length (template NBT).
+    fn long_string(&mut self) -> Result<Option<String>, String> {
+        match self.u32()? {
+            u32::MAX => Ok(None),
+            n => {
+                let bytes = self.take(n as usize)?;
+                Ok(Some(
+                    String::from_utf8(bytes.to_vec()).map_err(|_| "a proto chunk string")?,
+                ))
+            }
+        }
+    }
+
     fn string(&mut self) -> Result<Option<String>, String> {
         match self.u16()? {
             u16::MAX => Ok(None),
@@ -198,12 +221,12 @@ impl<'a> Reader<'a> {
     }
 }
 
-/// Read `encode` output (version 1 or 2); every state must be one of
+/// Read `encode` output (versions 1 to 3); every state must be one of
 /// `table`'s.
 pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
     let mut r = Reader { input: bytes };
     let version = r.u8()?;
-    if version != 1 && version != VERSION {
+    if !(1..=VERSION).contains(&version) {
         return Err("unknown proto chunk version".into());
     }
     let (x, z) = (r.i32()?, r.i32()?);
@@ -283,11 +306,7 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
     for _ in 0..r.count(16)? {
         let p = r.position(x, z, bounds)?;
         let name = r.string()?.ok_or("a block entity without a type")?;
-        let kind = KINDS
-            .iter()
-            .find(|k| **k == name)
-            .copied()
-            .ok_or("a block entity type decoration does not create")?;
+        let kind = super::region::entity_kind(&name);
         let loot_table = r.string()?;
         let loot_seed = r.i64()?;
         let spawner_entity = r.string()?;
@@ -296,6 +315,11 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
             0 => None,
             tag @ (1 | 2) => Some(([r.i32()?, r.i32()?, r.i32()?], tag == 2)),
             _ => return Err("a proto chunk gateway exit".into()),
+        };
+        let nbt = if version >= 3 {
+            r.long_string()?.map(Arc::from)
+        } else {
+            None
         };
         block_entity_data.insert(
             p,
@@ -306,7 +330,7 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
                 spawner_entity,
                 bees,
                 exit,
-                nbt: None,
+                nbt,
             },
         );
     }
@@ -314,11 +338,7 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
     if version >= 2 {
         for _ in 0..r.count(30)? {
             let name = r.string()?.ok_or("an entity without a type")?;
-            let kind = ENTITY_KINDS
-                .iter()
-                .find(|k| **k == name)
-                .copied()
-                .ok_or("an entity type decoration does not add")?;
+            let kind = super::region::entity_kind(&name);
             let pos = [r.f64()?, r.f64()?, r.f64()?];
             entities.push(Entity {
                 kind,
@@ -349,36 +369,19 @@ pub fn decode(bytes: &[u8], table: &BlockTable) -> Result<ProtoChunk, String> {
     })
 }
 
-/// The entity types decoration adds (the End spikes' crystals).
-const ENTITY_KINDS: [&str; 1] = ["minecraft:end_crystal"];
-
-/// The block entity types decoration creates.
-const KINDS: [&str; 6] = [
-    "minecraft:chest",
-    "minecraft:trapped_chest",
-    "minecraft:mob_spawner",
-    "minecraft:beehive",
-    "minecraft:brushable_block",
-    "minecraft:end_gateway",
-];
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::worldgen::region::block_entity_kind;
 
     #[test]
-    fn kinds_cover_every_created_block_entity() {
-        for name in [
-            "minecraft:chest",
-            "minecraft:trapped_chest",
-            "minecraft:spawner",
-            "minecraft:bee_nest",
-            "minecraft:beehive",
-            "minecraft:suspicious_sand",
-            "minecraft:suspicious_gravel",
-        ] {
-            assert!(KINDS.contains(&block_entity_kind(name).unwrap()));
-        }
+    fn long_strings_round_trip() {
+        let mut out = Vec::new();
+        let nbt = "x".repeat(70_000);
+        out.extend((nbt.len() as u32).to_be_bytes());
+        out.extend(nbt.as_bytes());
+        out.extend(u32::MAX.to_be_bytes());
+        let mut r = Reader { input: &out };
+        assert_eq!(r.long_string().unwrap().as_deref(), Some(nbt.as_str()));
+        assert_eq!(r.long_string().unwrap(), None);
     }
 }

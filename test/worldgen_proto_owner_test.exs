@@ -82,7 +82,10 @@ defmodule Valimc.WorldgenProtoOwnerTest do
     {images, _} =
       Enum.reduce(regions, {images, MapSet.new()}, fn region, {images, decorated} ->
         order = Enum.reject(Proto.around(region, 1), &MapSet.member?(decorated, &1))
-        {:ok, {touched, 0}} = Native.worldgen_proto_decorate(worldgen, Map.values(images), order)
+
+        {:ok, {touched, 0}} =
+          Native.worldgen_proto_decorate(worldgen, @source, Map.values(images), order, true)
+
         touched = Map.new(touched, fn {x, z, image} -> {{x, z}, image} end)
         {Map.merge(images, touched), MapSet.union(decorated, MapSet.new(order))}
       end)
@@ -110,11 +113,12 @@ defmodule Valimc.WorldgenProtoOwnerTest do
     end
   end
 
-  # Terrain of `chunks` in parallel batches.
+  # Terrain of `chunks` in parallel batches, with structures as a new world
+  # generates them (VMC-025f5).
   defp terrain(worldgen, chunks) do
     chunks
     |> Enum.chunk_every(8)
-    |> Task.async_stream(&Native.worldgen_proto_terrain(worldgen, @source, &1),
+    |> Task.async_stream(&Native.worldgen_proto_terrain(worldgen, @source, &1, true),
       timeout: :infinity
     )
     |> Enum.flat_map(fn {:ok, {:ok, list}} -> list end)

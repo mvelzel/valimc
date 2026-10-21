@@ -13,7 +13,7 @@ fn sin_table() -> &'static [f32] {
     static TABLE: OnceLock<Vec<f32>> = OnceLock::new();
     TABLE.get_or_init(|| {
         (0..65536)
-            .map(|i| (i as f64 / 10430.378350470453).sin() as f32)
+            .map(|i| super::java::sin(i as f64 / 10430.378350470453) as f32)
             .collect()
     })
 }

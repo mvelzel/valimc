@@ -12,6 +12,9 @@ root = pathlib.Path(__file__).resolve().parent.parent
 bundle = root / 'research/vanilla-bundle'
 tools = root / 'research/java-tools'
 stamp = tools / '.compiled'
+# `Math.sin` and `Math.cos` as `StrictMath` gives them (fdlibm), not as this JVM's
+# intrinsics do, which differ in the last place for some inputs (VMC-025f5).
+JVM_FLAGS = ['-XX:+UnlockDiagnosticVMOptions', '-XX:DisableIntrinsic=_dsin,_dcos']
 
 
 def classpath():
@@ -37,7 +40,7 @@ def compile_tools(java_home=None):
 
 def command(name, *args):
     java, cp = compile_tools()
-    return [java, '-cp', cp, name, *args]
+    return [java, *JVM_FLAGS, '-cp', cp, name, *args]
 
 
 if __name__ == '__main__':

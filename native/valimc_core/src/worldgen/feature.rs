@@ -1814,7 +1814,7 @@ fn place_ore(
     let dir = random.next_float() * std::f64::consts::PI as f32;
     let spread = size as f32 / 8.0;
     let max_radius = ((size as f32 / 16.0 * 2.0 + 1.0) / 2.0).ceil() as i32;
-    let (sin, cos) = ((dir as f64).sin(), (dir as f64).cos());
+    let (sin, cos) = (super::java::sin(dir as f64), super::java::cos(dir as f64));
     let x0 = origin[0] as f64 + sin * spread as f64;
     let x1 = origin[0] as f64 - sin * spread as f64;
     let z0 = origin[2] as f64 + cos * spread as f64;

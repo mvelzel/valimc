@@ -68,6 +68,8 @@ defmodule Valimc.Worldgen.Proto do
     :txn,
     :retry,
     :full_job,
+    # Whether new chunks generate structures (VMC-025f5).
+    structures: false,
     incarnation: 0,
     txn_count: 0,
     writes: %{},
@@ -266,6 +268,7 @@ defmodule Valimc.Worldgen.Proto do
       empty
       | worldgen: worldgen,
         biome_source: spec.biome_source,
+        structures: Map.get(spec, :structures, false),
         log: log,
         incarnation: incarnation,
         chunks: durable.chunks,
@@ -659,12 +662,13 @@ defmodule Valimc.Worldgen.Proto do
     owner = self()
     worldgen = state.worldgen
     source = state.biome_source
+    structures = state.structures
     ref = make_ref()
 
     case Task.Supervisor.start_child(Valimc.WorldgenWorkers, fn ->
            result =
              try do
-               Native.worldgen_proto_terrain(worldgen, source, batch)
+               Native.worldgen_proto_terrain(worldgen, source, batch, structures)
              rescue
                error -> {:error, Exception.message(error)}
              end
@@ -1194,6 +1198,7 @@ defmodule Valimc.Worldgen.Proto do
     id = state.txn.id
     worldgen = state.worldgen
     source = state.biome_source
+    structures = state.structures
     list = Enum.map(images, fn {_, {_, image}} -> image end)
 
     case Task.Supervisor.start_child(Valimc.DecorationWorkers, fn ->
@@ -1201,7 +1206,7 @@ defmodule Valimc.Worldgen.Proto do
              try do
                if order == [],
                  do: {:ok, {[], 0}},
-                 else: Native.worldgen_proto_decorate(worldgen, source, list, order)
+                 else: Native.worldgen_proto_decorate(worldgen, source, list, order, structures)
              rescue
                error -> {:error, Exception.message(error)}
              end

@@ -7,7 +7,11 @@
 # generated (terrain) chunks per second, with the dirty CPU schedulers that run
 # the work. Start with `elixir --erl "+SDcpu 1" -S mix run …` for one thread.
 #
-#     VALIMC_PORT=0 mix run bench/worldgen_live.exs bench/results/live.json [N] [PASSES]
+#     VALIMC_PORT=0 mix run bench/worldgen_live.exs bench/results/live.json [N] [PASSES] [structures|nostructures]
+#
+# VMC-025f5: the world generates structures unless `nostructures`, and the
+# one-thread stages also time terrain with beards and decoration with
+# structures.
 #
 # It first times the stages on one thread over the 64 chunks of the bench area
 # of `worldgen_terrain.exs` and `worldgen_decoration.exs` (seed 20261020, the
@@ -20,6 +24,7 @@ alias Valimc.Worldgen.Proto
 [output | rest] = System.argv()
 n = rest |> Enum.at(0, "4") |> String.to_integer()
 passes = rest |> Enum.at(1, "3") |> String.to_integer()
+structures = Enum.at(rest, 2, "structures") == "structures"
 seed = 20_261_020
 
 run = fn pass ->
@@ -30,7 +35,12 @@ run = fn pass ->
     Valimc.World.Spawn.path(base),
     JSON.encode!(%{
       "spawn" => [0, 100, 0],
-      "generator" => %{"type" => "vanilla", "seed" => seed, "features" => true}
+      "generator" => %{
+        "type" => "vanilla",
+        "seed" => seed,
+        "features" => true,
+        "settings" => Valimc.World.GenSettings.create("minecraft:normal", nil, seed, structures)
+      }
     })
   )
 
@@ -125,6 +135,24 @@ parity_ns =
     end
   )
 
+structure_terrain_us =
+  stage.(fn s -> {:ok, _} = Native.worldgen_proto_terrain(s, source, area, true) end)
+
+{:ok, structure_terrain} = Native.worldgen_proto_terrain(warm, source, area, true)
+structure_images = Enum.map(structure_terrain, &elem(&1, 2))
+
+structure_decorate_us =
+  median.(
+    for _ <- 1..5 do
+      {micros, {:ok, _}} =
+        :timer.tc(fn ->
+          Native.worldgen_proto_decorate(warm, source, structure_images, inner, true)
+        end)
+
+      micros
+    end
+  )
+
 {:ok, {touched, _}} = Native.worldgen_proto_decorate(warm, images, inner)
 decorated = Map.new(touched, fn {x, z, image} -> {{x, z}, image} end)
 own = Enum.map(inner, &decorated[&1])
@@ -146,7 +174,9 @@ stages = %{
   proto_terrain_ms_per_chunk: proto_us / 100 / 1000,
   proto_decorate_ms_per_chunk: decorate_us / 64 / 1000,
   decoration_ms_per_chunk: parity_ns / 64 / 1_000_000,
-  proto_full_ms_per_chunk: full_us / 64 / 1000
+  proto_full_ms_per_chunk: full_us / 64 / 1000,
+  proto_terrain_structures_ms_per_chunk: structure_terrain_us / 100 / 1000,
+  proto_decorate_structures_ms_per_chunk: structure_decorate_us / 64 / 1000
 }
 
 IO.inspect(stages, label: "one thread")
@@ -172,6 +202,7 @@ File.write!(
   output,
   JSON.encode!(%{
     regions: n * n,
+    structures: structures,
     stages: stages,
     passes: Enum.map(measured, &Map.new(&1)),
     dirty_cpu_schedulers: :erlang.system_info(:dirty_cpu_schedulers_online),

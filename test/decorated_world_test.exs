@@ -66,7 +66,13 @@ defmodule Valimc.DecoratedWorldTest do
     images = terrain(worldgen, Proto.around(key, 2))
 
     {:ok, {touched, 0}} =
-      Native.worldgen_proto_decorate(worldgen, Map.values(images), Proto.around(key, 1))
+      Native.worldgen_proto_decorate(
+        worldgen,
+        @source,
+        Map.values(images),
+        Proto.around(key, 1),
+        true
+      )
 
     images = Map.merge(images, Map.new(touched, fn {x, z, image} -> {{x, z}, image} end))
     own = Enum.map(Proto.chunks_of(key), &images[&1])
@@ -102,11 +108,12 @@ defmodule Valimc.DecoratedWorldTest do
     )
   end
 
-  # Terrain of `chunks` in parallel batches.
+  # Terrain of `chunks` in parallel batches, with structures as a new world
+  # generates them (VMC-025f5).
   defp terrain(worldgen, chunks) do
     chunks
     |> Enum.chunk_every(8)
-    |> Task.async_stream(&Native.worldgen_proto_terrain(worldgen, @source, &1),
+    |> Task.async_stream(&Native.worldgen_proto_terrain(worldgen, @source, &1, true),
       timeout: :infinity
     )
     |> Enum.flat_map(fn {:ok, {:ok, list}} -> list end)
@@ -204,7 +211,7 @@ defmodule Valimc.DecoratedWorldTest do
         images,
         fn order, acc ->
           {:ok, {touched, 0}} =
-            Native.worldgen_proto_decorate(ctx.worldgen, Map.values(acc), order)
+            Native.worldgen_proto_decorate(ctx.worldgen, @source, Map.values(acc), order, true)
 
           Map.merge(acc, Map.new(touched, fn {x, z, image} -> {{x, z}, image} end))
         end

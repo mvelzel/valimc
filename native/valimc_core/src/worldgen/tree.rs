@@ -975,8 +975,8 @@ impl<'a> Placing<'a, '_> {
                 for _ in 0..clusters_per_y {
                     let radius = 1.0 * shape as f64 * (self.random.next_float() as f64 + 0.328);
                     let angle = (self.random.next_float() * 2.0f32) as f64 * std::f64::consts::PI;
-                    let x = radius * angle.sin() + 0.5;
-                    let z = radius * angle.cos() + 0.5;
+                    let x = radius * super::java::sin(angle) + 0.5;
+                    let z = radius * super::java::cos(angle) + 0.5;
                     let start =
                         offset(origin, [x.floor() as i32, relative_y - 1, z.floor() as i32]);
                     let end = offset(start, [0, 5, 0]);

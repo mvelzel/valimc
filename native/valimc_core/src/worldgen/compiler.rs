@@ -15,7 +15,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use super::beard::Beardifier;
-use super::blocks::BlockTable;
+use super::blocks::{BlockTable, Heightmap};
 use super::carver::{self, Carver, CarvingMask, GenContext};
 use super::climate::{quantize, ParameterList};
 use super::density::{
@@ -510,6 +510,9 @@ pub struct Worldgen {
     carver_biomes: HashMap<(String, i32, i32), u16>,
     /// Structure generation per biome source (VMC-025e).
     structure_envs: HashMap<String, Arc<StructureEnv>>,
+    /// Live generation's starts by biome source and chunk (VMC-025f5): pure,
+    /// so neighbouring chunks' terrain and decoration share them (bounded).
+    live_starts: HashMap<(String, i32, i32), Arc<Vec<Start>>>,
     /// Decorations of fixed biome sources by biome (VMC-028b), derived once.
     fixed_decorations: HashMap<u16, Arc<Decoration>>,
     /// The bounds chunk biomes cover: those of the dimension whose generator
@@ -519,6 +522,8 @@ pub struct Worldgen {
 }
 
 const BIOME_CACHE_LIMIT: usize = 4096;
+/// Chunks whose starts a worldgen state keeps for live generation.
+const LIVE_STARTS_LIMIT: usize = 16384;
 /// A fixed biome source's name: this prefix and the biome (VMC-028b).
 pub const FIXED: &str = "fixed:";
 const CARVER_BIOME_CACHE_LIMIT: usize = 65536;
@@ -595,6 +600,7 @@ impl Worldgen {
             chunk_biomes: HashMap::new(),
             carver_biomes: HashMap::new(),
             structure_envs: HashMap::new(),
+            live_starts: HashMap::new(),
             fixed_decorations: HashMap::new(),
             biome_bounds,
         })
@@ -1247,6 +1253,116 @@ impl Worldgen {
             lenient_reads += region.lenient_reads;
         }
         Ok(lenient_reads)
+    }
+
+    /// The starts `create_structures` makes in a chunk, for live generation
+    /// (VMC-025f5): pure, kept per worldgen state.
+    fn live_chunk_starts(
+        &mut self,
+        env: &StructureEnv,
+        biome_source: &str,
+        x: i32,
+        z: i32,
+    ) -> Result<Arc<Vec<Start>>, String> {
+        let key = (biome_source.to_string(), x, z);
+        if let Some(starts) = self.live_starts.get(&key) {
+            return Ok(starts.clone());
+        }
+        let (found, _) = env.create_structures(x, z)?;
+        let found = Arc::new(found);
+        if self.live_starts.len() >= LIVE_STARTS_LIMIT {
+            self.live_starts.clear();
+        }
+        self.live_starts.insert(key, found.clone());
+        Ok(found)
+    }
+
+    /// The starts of every chunk within 8 of the chunks `x0..=x1`,
+    /// `z0..=z1`: all that can reference them.
+    fn live_starts_around(
+        &mut self,
+        env: &StructureEnv,
+        biome_source: &str,
+        (x0, z0): (i32, i32),
+        (x1, z1): (i32, i32),
+    ) -> Result<HashMap<(i32, i32), Vec<Start>>, String> {
+        let mut out = HashMap::new();
+        for sx in x0 - 8..=x1 + 8 {
+            for sz in z0 - 8..=z1 + 8 {
+                let starts = self.live_chunk_starts(env, biome_source, sx, sz)?;
+                out.insert((sx, sz), starts.as_ref().clone());
+            }
+        }
+        Ok(out)
+    }
+
+    /// `proto_terrain` for live generation (VMC-025f5): with structures, the
+    /// chunk's beards from the starts that reference it in the noise fill.
+    pub fn proto_terrain_live(
+        &mut self,
+        chunk_x: i32,
+        chunk_z: i32,
+        biome_source: &str,
+        structures: bool,
+    ) -> Result<ProtoChunk, String> {
+        if !structures || self.registry.structures.is_none() {
+            return self.proto_terrain(chunk_x, chunk_z, biome_source);
+        }
+        let env = self.structure_env(biome_source)?;
+        let starts =
+            self.live_starts_around(&env, biome_source, (chunk_x, chunk_z), (chunk_x, chunk_z))?;
+        let references = env.references(chunk_x, chunk_z, &|sx, sz| {
+            starts.get(&(sx, sz)).map(|v| v.as_slice())
+        })?;
+        let beard = beardifier(&env.registry, &starts, &references, (chunk_x, chunk_z));
+        self.proto_terrain_bearded(chunk_x, chunk_z, biome_source, beard)
+    }
+
+    /// `decorate_held` for live generation (VMC-025f5): with structures,
+    /// each step places the structures whose starts reference the chunk,
+    /// from starts settled the same way in every transaction
+    /// (`scattered::settle_live`).
+    pub fn decorate_held_live(
+        &mut self,
+        biome_source: &str,
+        area: &mut Area,
+        order: &[(i32, i32)],
+        lenient: bool,
+        structures: bool,
+    ) -> Result<u32, String> {
+        if !structures || order.is_empty() || self.registry.structures.is_none() {
+            return self.decorate_held(biome_source, area, order, None, lenient);
+        }
+        let env = self.structure_env(biome_source)?;
+        let (x0, x1) = order
+            .iter()
+            .fold((i32::MAX, i32::MIN), |(a, b), c| (a.min(c.0), b.max(c.0)));
+        let (z0, z1) = order
+            .iter()
+            .fold((i32::MAX, i32::MIN), |(a, b), c| (a.min(c.1), b.max(c.1)));
+        let mut starts = self.live_starts_around(&env, biome_source, (x0, z0), (x1, z1))?;
+        // Heights of columns the area does not hold (a desert pyramid past
+        // its edge) from the same pure terrain.
+        let seed = self.seed;
+        let mut outside: HashMap<(i32, i32), ProtoChunk> = HashMap::new();
+        for list in starts.values_mut() {
+            for start in list {
+                super::structure::scattered::settle_live(start, order, seed, &mut |x, z| {
+                    if let Some(chunk) = area.chunk(x >> 4, z >> 4) {
+                        return Ok(chunk.height(Heightmap::WorldSurfaceWg, x, z));
+                    }
+                    let key = (x >> 4, z >> 4);
+                    let chunk = match outside.entry(key) {
+                        std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+                        std::collections::hash_map::Entry::Vacant(e) => {
+                            e.insert(self.proto_terrain_live(key.0, key.1, biome_source, true)?)
+                        }
+                    };
+                    Ok(chunk.height(Heightmap::WorldSurfaceWg, x, z))
+                })?;
+            }
+        }
+        self.decorate_with_starts(biome_source, &env, area, order, &mut starts, lenient)
     }
 
     /// A chunk at status `terrain` (VMC-025d): `build_terrain` with carvers,

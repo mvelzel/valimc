@@ -43,7 +43,7 @@ def run_stage(name, steps, java, cp):
                 args = [resolve(a) for a in args]
                 env = mix_env
                 if kind == 'java':
-                    cmd = [java, '-cp', cp, target, *args]
+                    cmd = [java, *java_tool.JVM_FLAGS, '-cp', cp, target, *args]
                 elif kind == 'check':
                     cmd = ['mix', 'run', '--no-compile', '--no-deps-check', '--no-start', f'scripts/{target}', *args]
                 elif kind == 'app':

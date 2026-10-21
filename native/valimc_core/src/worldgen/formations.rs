@@ -345,7 +345,7 @@ impl Iceberg {
 
     fn signed_ellipse(xo: i32, zo: i32, origin: [i32; 3], a: i32, c: i32, angle: f64) -> f64 {
         let (dx, dz) = ((xo - origin[0]) as f64, (zo - origin[2]) as f64);
-        let (cos, sin) = (angle.cos(), angle.sin());
+        let (cos, sin) = (super::java::cos(angle), super::java::sin(angle));
         square((dx * cos - dz * sin) / a as f64) + square((dx * sin + dz * cos) / c as f64) - 1.0
     }
 

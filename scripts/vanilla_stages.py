@@ -246,6 +246,23 @@ STAGES = [
         ('java', 'DecorationOracle', '@live.json', '*', 'end', 'live'),
         ('app', 'check_live_decoration.exs', '@live.json'),
     ]),
+    # VMC-025f5: live generation with structures, region by region, over regions that each
+    # family's structures cross.
+    ('worldgen_live_structures', [
+        ('java', 'StructurePlacementOracle', '@live.json', 'live'),
+        ('app', 'check_live_decoration.exs', '@live.json', '--ours', '@ours.json'),
+        ('java', 'StructurePlacementOracle', 'verify-live', '@live.json', '@ours.json'),
+    ]),
+    ('worldgen_live_structures_nether', [
+        ('java', 'StructurePlacementOracle', '@live.json', 'live', 'nether'),
+        ('app', 'check_live_decoration.exs', '@live.json', '--ours', '@ours.json'),
+        ('java', 'StructurePlacementOracle', 'verify-live', '@live.json', '@ours.json'),
+    ]),
+    ('worldgen_live_structures_end', [
+        ('java', 'StructurePlacementOracle', '@live.json', 'live', 'end'),
+        ('app', 'check_live_decoration.exs', '@live.json', '--ours', '@ours.json'),
+        ('java', 'StructurePlacementOracle', 'verify-live', '@live.json', '@ours.json'),
+    ]),
     # VMC-026b2: nether portal shapes, fire placement, rectangles, search and creation.
     ('portals', [
         ('java', 'PortalOracle', '@portals.json'),

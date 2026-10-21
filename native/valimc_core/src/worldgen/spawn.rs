@@ -56,8 +56,8 @@ impl Worldgen {
             let mut angle = 0.0f32;
             let mut radius = increment;
             while radius <= max_radius {
-                let x = origin.0 + ((angle as f64).sin() * radius as f64) as i32;
-                let z = origin.1 + ((angle as f64).cos() * radius as f64) as i32;
+                let x = origin.0 + (super::java::sin(angle as f64) * radius as f64) as i32;
+                let z = origin.1 + (super::java::cos(angle as f64) * radius as f64) as i32;
                 let candidate = fitness(x, z);
                 if candidate < best.1 {
                     best = ((x, z), candidate);

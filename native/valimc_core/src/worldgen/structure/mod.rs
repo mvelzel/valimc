@@ -735,8 +735,8 @@ impl StructureEnv {
         for i in 0..count {
             let dist = (4 * distance + distance * circle * 6) as f64
                 + (random.next_double() - 0.5) * (distance as f64 * 2.5);
-            let initial_x = java_round(angle.cos() * dist) as i32;
-            let initial_z = java_round(angle.sin() * dist) as i32;
+            let initial_x = java_round(super::java::cos(angle) * dist) as i32;
+            let initial_z = java_round(super::java::sin(angle) * dist) as i32;
             let mut search = random.fork();
             let found = self.find_biome_horizontal(
                 (initial_x << 4) + 8,

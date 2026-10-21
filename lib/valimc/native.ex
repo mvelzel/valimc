@@ -73,9 +73,15 @@ defmodule Valimc.Native do
   def worldgen_proto_terrain(_state, _biome_source, _chunks),
     do: :erlang.nif_error(:nif_not_loaded)
 
+  def worldgen_proto_terrain(_state, _biome_source, _chunks, _structures),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def worldgen_proto_decorate(_state, _chunks, _order), do: :erlang.nif_error(:nif_not_loaded)
 
   def worldgen_proto_decorate(_state, _biome_source, _chunks, _order),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def worldgen_proto_decorate(_state, _biome_source, _chunks, _order, _structures),
     do: :erlang.nif_error(:nif_not_loaded)
 
   def worldgen_proto_inspect(_state, _chunks), do: :erlang.nif_error(:nif_not_loaded)

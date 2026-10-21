@@ -691,7 +691,9 @@ impl Portal {
     /// `canBlockBeReplacedByNetherrackOrMagma`.
     fn replaceable(&self, c: &Ctx, state: u16) -> Result<bool, String> {
         let table = c.placer.table;
-        Ok(!table.is_air(state)
+        // Only plain air stays (`is(Blocks.AIR)`): cave air a mineshaft
+        // left is replaced.
+        Ok(!c.placer.is(state, "air")
             && !c.placer.is(state, "obsidian")
             && !table.in_tag(state, table.tag("minecraft:features_cannot_replace")?)
             && (self.vertical == "in_nether" || !c.placer.is(state, "lava")))

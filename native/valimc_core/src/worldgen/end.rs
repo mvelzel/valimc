@@ -56,8 +56,8 @@ pub fn spikes_for_seed(seed: i64) -> Vec<Spike> {
             let angle = 2.0 * (-std::f64::consts::PI + (std::f64::consts::PI / 10.0) * i as f64);
             let size = sizes[i as usize];
             Spike {
-                x: (42.0 * angle.cos()).floor() as i32,
-                z: (42.0 * angle.sin()).floor() as i32,
+                x: (42.0 * super::java::cos(angle)).floor() as i32,
+                z: (42.0 * super::java::sin(angle)).floor() as i32,
                 radius: 2 + size / 3,
                 height: 76 + size * 3,
                 guarded: size == 1 || size == 2,

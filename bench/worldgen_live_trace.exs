@@ -77,15 +77,16 @@ tracer = spawn(fn -> Collector.loop([]) end)
 native = Valimc.Native
 proto = Valimc.Worldgen.Proto
 
+# Owners call the arities with the structures flag (VMC-025f5).
 :erlang.trace_pattern(
-  {native, :worldgen_proto_terrain, 3},
-  [{[:_, :_, :"$1"], [], [{:message, {:length, :"$1"}}, {:return_trace}]}],
+  {native, :worldgen_proto_terrain, 4},
+  [{[:_, :_, :"$1", :_], [], [{:message, {:length, :"$1"}}, {:return_trace}]}],
   [:global]
 )
 
 :erlang.trace_pattern(
-  {native, :worldgen_proto_decorate, 4},
-  [{[:_, :_, :_, :"$1"], [], [{:message, {:length, :"$1"}}, {:return_trace}]}],
+  {native, :worldgen_proto_decorate, 5},
+  [{[:_, :_, :_, :"$1", :_], [], [{:message, {:length, :"$1"}}, {:return_trace}]}],
   [:global]
 )
 

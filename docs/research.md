@@ -49,6 +49,19 @@ The graphical client's first connection exposed an additional gap: packet decodi
 
 Elixir **1.20.4** and Erlang/OTP **29.1.1** were verified against their current release metadata and installed using asdf. The project-local `.tool-versions` selects them without changing the global tool versions. [Elixir release](https://github.com/elixir-lang/elixir/releases/tag/v1.20.4), [OTP release](https://github.com/erlang/otp/releases/tag/OTP-29.1.1)
 
+## Trigonometry reference
+
+Vanilla takes `Math.sin` and `Math.cos` in a few generation paths (ores, icebergs,
+end spikes, fancy oak branches, stronghold rings, the spawn search). `Math` may
+differ between JVMs in the last place: this aarch64 HotSpot's intrinsics differ
+from `StrictMath` on about 13% of arguments, and a platform's C library differs
+from both, which moves a block whenever a coordinate lands on a boundary. The
+oracles therefore run with HotSpot's sine and cosine intrinsics disabled
+(`scripts/java_tool.py`), so `Math` gives `StrictMath`'s fdlibm results, and
+Rust generation uses a port of the same algorithms (`worldgen::java::sin` and
+`cos`): generation is the same on every platform and equals vanilla on a JVM
+without those intrinsics.
+
 ## Provenance
 
 The references are preserved as independent checkouts with their upstream license files. Pumpkin is GPL-3.0, SteelMC is AGPL-3.0-or-later, and other checkouts document their own terms. Paper/Folia/Spigot are patch-based repositories; generated Mojang gameplay source has not been checked into this project. The committed Elixir implementation uses original code and protocol facts, while reference source, the official jar, generated reports and Java tools stay separate from the runtime/release.

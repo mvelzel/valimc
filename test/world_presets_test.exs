@@ -38,8 +38,19 @@ defmodule Valimc.WorldPresetsTest do
 
       assert Generator.spec_of(settings) ==
                {:ok,
-                %{kind: :noise, seed: 3, noise_settings: noise, biome_source: source, facts: nil}}
+                %{
+                  kind: :noise,
+                  seed: 3,
+                  noise_settings: noise,
+                  biome_source: source,
+                  facts: nil,
+                  structures: true
+                }}
     end
+
+    # VMC-025f5: the structures flag reaches the proto owners.
+    assert {:ok, %{structures: false}} =
+             Generator.spec_of(GenSettings.create("minecraft:normal", nil, 3, false))
 
     # Debug worlds and flat worlds with features or lakes are not generated yet.
     for {level_type, flat} <- [

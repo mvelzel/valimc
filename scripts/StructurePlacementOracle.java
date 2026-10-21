@@ -53,13 +53,20 @@ import net.minecraft.world.level.levelgen.structure.placement.RandomSpreadStruct
  * `DecorationOracle`'s (dimension, settings, every placed feature, per case the chunks, each also
  * with its block entities as they save), with the structures named and per case the structure it
  * targets (or none) and every start of the 21 × 21 as placement left it
- * (`StructureStart.createTag`, canonical SNBT, sorted). See `verify` for block entity NBT.
+ * (`StructureStart.createTag`, canonical SNBT, sorted). See `verify` for block entity NBT, and
+ * `live`, `verifyLive` and `bench` for live generation (VMC-025f5). For debugging,
+ * `PLACEMENT_CENTRE=X,Z` decorates only that area (first seed), `PLACEMENT_STOP=N` only the first N
+ * chunks of its order, and `LIVE_ONLY=ID,...` keeps only those structures' live cases.
  */
 public class StructurePlacementOracle {
   public static void main(String[] args) throws Exception {
     var factory = ChunkOracle.factory();
     if (args[0].equals("verify")) {
       verify(Path.of(args[1]), Path.of(args[2]));
+      return;
+    }
+    if (args[0].equals("verify-live")) {
+      verifyLive(Path.of(args[1]), Path.of(args[2]));
       return;
     }
     var dimension = args.length > 2 ? args[2] : "overworld";
@@ -89,6 +96,16 @@ public class StructurePlacementOracle {
     var picker = (Aquifer.FluidPicker) createFluidPicker.invoke(null, settings);
     var heights = LevelHeightAccessor.create(DecorationOracle.MIN_Y, DecorationOracle.HEIGHT);
 
+    if (args[1].equals("live")) {
+      live(Path.of(args[0]), source, registries, factory, settings, picker, heights, biomeLookup, doFill, buildSurface,
+          generateCarvers);
+      return;
+    }
+    if (args[1].equals("bench")) {
+      bench(Path.of(args[0]), source, registries, factory, settings, picker, heights, biomeLookup, doFill, buildSurface,
+          generateCarvers, args.length > 3 ? Integer.parseInt(args[3]) : 4, args.length > 4 ? Integer.parseInt(args[4]) : 3);
+      return;
+    }
     var gen = new Random(20261020L);
     long[] seeds = {20261020L, -8172645723L, gen.nextLong()};
     var cases = new JsonArray();
@@ -103,6 +120,7 @@ public class StructurePlacementOracle {
       centres.add(Map.entry("", new ChunkPos(gen.nextInt(4001) - 2000, gen.nextInt(4001) - 2000)));
       var search = new Random(seed);
       for (var id : structures) {
+        if (System.getenv("PLACEMENT_CENTRE") != null) break;
         var found = findStarts(world, id, seed == seeds[0] ? 2 : 1, search);
         for (int i = 0; i < found.size(); i++) {
           var box = found.get(i).getPieces().get(0).getBoundingBox();
@@ -111,6 +129,14 @@ public class StructurePlacementOracle {
               : new ChunkPos((box.minX() >> 4) - 1, (box.minZ() >> 4) - 1);
           centres.add(Map.entry(id, centre));
         }
+      }
+      // `PLACEMENT_CENTRE=X,Z` (for debugging): only that area, on the first seed.
+      var only = System.getenv("PLACEMENT_CENTRE");
+      if (only != null) {
+        if (seed != seeds[0]) continue;
+        var xz = only.split(",");
+        centres.clear();
+        centres.add(Map.entry("", new ChunkPos(Integer.parseInt(xz[0]), Integer.parseInt(xz[1]))));
       }
       for (var entry : centres) {
         var row = decorate(world, terrain, entry.getValue(), structures, registries);
@@ -260,8 +286,11 @@ public class StructurePlacementOracle {
     // Terrain with each chunk's beards, from the starts that reference it (VMC-025f3).
     var chunks = terrain.area(centre, 2, pos -> net.minecraft.world.level.levelgen.Beardifier.forStructuresInChunk(manager, pos));
     var order = new JsonArray();
+    // `PLACEMENT_STOP=N` (for debugging): only the first N chunks of the order.
+    int stop = System.getenv("PLACEMENT_STOP") == null ? 9 : Integer.parseInt(System.getenv("PLACEMENT_STOP"));
     for (int dz = -1; dz <= 1; dz++) {
       for (int dx = -1; dx <= 1; dx++) {
+        if (order.size() >= stop) break;
         var pos = new ChunkPos(centre.x() + dx, centre.z() + dz);
         var region = new PlacementRegion(chunks, pos, world.seed(), terrain.state(), world.generator().getBiomeSource(), registries,
             manager);
@@ -294,6 +323,362 @@ public class StructurePlacementOracle {
     row.add("chunks", rows);
     row.add("starts", new Gson().toJsonTree(starts));
     return row;
+  }
+
+  /** Structures whose first start gets live regions of its own, per dimension. */
+  static final Map<String, List<String>> LIVE_TARGETS = Map.of(
+      "overworld", List.of("minecraft:village_plains", "minecraft:village_desert", "minecraft:desert_pyramid",
+          "minecraft:jungle_pyramid", "minecraft:swamp_hut", "minecraft:igloo", "minecraft:mineshaft", "minecraft:ruined_portal",
+          "minecraft:shipwreck", "minecraft:ocean_ruin_warm", "minecraft:ocean_ruin_cold", "minecraft:buried_treasure",
+          "minecraft:stronghold", "minecraft:monument", "minecraft:pillager_outpost", "minecraft:trail_ruins",
+          "minecraft:trial_chambers", "minecraft:ancient_city", "minecraft:mansion"),
+      "nether", List.of("minecraft:fortress", "minecraft:bastion_remnant", "minecraft:ruined_portal_nether",
+          "minecraft:nether_fossil"),
+      "end", List.of("minecraft:end_city"));
+
+  /**
+   * `OUT live [nether|end]` (VMC-025f5): ValiMC's live generation with structures, as
+   * `DecorationOracle live` writes it for `check_live_decoration.exs` (regions finalized one after
+   * the other: terrain of the 12 × 12 chunks around each, then its undecorated chunks of the
+   * 10 × 10 decorated, Z outer and X inner), on seed 20261020 in a fresh world per case. Starts
+   * come from vanilla's `createStructures` and references from `createReferences`, each chunk's
+   * terrain has its beards, and `applyBiomeDecoration` places structures through a
+   * `StructureManager` whose level serves those chunks, as `decorate` does. Before a region's
+   * chunks are decorated, the temples and huts they place have their height settled as ValiMC's
+   * live generation settles it (`settle`).
+   *
+   * Cases: the regions at the origin, then per structure of `LIVE_TARGETS` the region holding the
+   * first piece of its first start (`findStarts`) and the region of the start's far corner (or
+   * near corner, or the next one east), so that the structure crosses the border between them.
+   * Every chunk also lists its block entities as they save (`block_entity_nbt`), for `verifyLive`.
+   */
+  static void live(Path out, String source, RegistryAccess registries, net.minecraft.world.level.chunk.PalettedContainerFactory factory,
+      NoiseGeneratorSettings settings, Aquifer.FluidPicker picker, LevelHeightAccessor heights, HolderGetter<Biome> biomeLookup,
+      Method doFill, Method buildSurface, Method generateCarvers) throws Exception {
+    final int region = DecorationOracle.REGION;
+    long seed = 20261020L;
+    var cases = new ArrayList<List<ChunkPos>>();
+    cases.add(DecorationOracle.DIMENSION.equals("end") ? List.of(new ChunkPos(0, 0))
+        : List.of(new ChunkPos(0, 0), new ChunkPos(1, 0), new ChunkPos(1, 1)));
+    var names = new ArrayList<String>();
+    names.add("");
+    // `LIVE_ONLY=ID,ID` (for debugging): only those structures' cases.
+    var only = System.getenv("LIVE_ONLY");
+    if (only != null) {
+      cases.clear();
+      names.clear();
+    }
+    var searchWorld = StructureOracle.World.create(seed, source, registries, factory);
+    var search = new Random(seed);
+    for (var id : LIVE_TARGETS.get(DecorationOracle.DIMENSION)) {
+      var start = findStarts(searchWorld, id, 1, search).get(0);
+      var first = start.getPieces().get(0).getBoundingBox().getCenter();
+      var box = start.getBoundingBox();
+      var a = new ChunkPos(Math.floorDiv(first.getX() >> 4, region), Math.floorDiv(first.getZ() >> 4, region));
+      var b = new ChunkPos(Math.floorDiv(box.maxX() >> 4, region), Math.floorDiv(box.maxZ() >> 4, region));
+      if (b.equals(a)) b = new ChunkPos(Math.floorDiv(box.minX() >> 4, region), Math.floorDiv(box.minZ() >> 4, region));
+      if (b.equals(a)) b = new ChunkPos(a.x() + 1, a.z());
+      if (only != null && !List.of(only.split(",")).contains(id)) continue;
+      cases.add(List.of(a, b));
+      names.add(id);
+    }
+    var rows = new JsonArray();
+    long blocks = 0;
+    int entities = 0, settled = 0;
+    for (int index = 0; index < cases.size(); index++) {
+      var regions = cases.get(index);
+      var world = StructureOracle.World.create(seed, source, registries, factory);
+      var state = world.state().randomState();
+      var terrain = new DecorationOracle.Terrain(factory, seed, state, settings, picker, world.generator(), heights, biomeLookup,
+          doFill, buildSurface, generateCarvers);
+      // Chunks with their starts, and those also with their references, made when first asked for.
+      var holding = new HashMap<ChunkPos, ProtoChunk>();
+      var referenced = new HashSet<ChunkPos>();
+      var startsLevel = StructureOracle.areaLevel(holding);
+      java.util.function.Function<ChunkPos, ProtoChunk> withStarts =
+          p -> holding.computeIfAbsent(p, q -> world.createStructures(q.x(), q.z()));
+      java.util.function.Function<ChunkPos, ProtoChunk> withReferences = p -> {
+        if (referenced.add(p)) {
+          for (int dz = -8; dz <= 8; dz++) {
+            for (int dx = -8; dx <= 8; dx++) withStarts.apply(new ChunkPos(p.x() + dx, p.z() + dz));
+          }
+          world.generator().createReferences(startsLevel, world.manager(), holding.get(p));
+        }
+        return holding.get(p);
+      };
+      var managerLevel = (LevelAccessor) Proxy.newProxyInstance(StructurePlacementOracle.class.getClassLoader(),
+          new Class<?>[] {LevelAccessor.class}, (proxy, method, a) -> switch (method.getName()) {
+            case "getChunk" -> {
+              var pos = new ChunkPos((Integer) a[0], (Integer) a[1]);
+              boolean startsOnly = a.length > 2 && a[2] == net.minecraft.world.level.chunk.status.ChunkStatus.STRUCTURE_STARTS;
+              yield startsOnly ? withStarts.apply(pos) : withReferences.apply(pos);
+            }
+            case "registryAccess" -> registries;
+            default -> throw new UnsupportedOperationException("LevelAccessor." + method.getName());
+          });
+      var manager = new StructureManager(managerLevel, new WorldOptions(seed, true, false), null);
+      java.util.function.Function<ChunkPos, net.minecraft.world.level.levelgen.Beardifier> beards =
+          p -> net.minecraft.world.level.levelgen.Beardifier.forStructuresInChunk(manager, p);
+      var area = new LinkedHashSet<ChunkPos>();
+      for (var r : regions) area.addAll(DecorationOracle.around(r, 2));
+      var chunks = terrain.build(area, beards);
+      // Columns past the area (a temple at its edge) from the same terrain.
+      var outside = new HashMap<ChunkPos, ProtoChunk>();
+      java.util.function.IntBinaryOperator height = (x, z) -> {
+        var p = new ChunkPos(x >> 4, z >> 4);
+        var chunk = chunks.containsKey(p) ? chunks.get(p) : outside.computeIfAbsent(p, q -> {
+          try {
+            return terrain.build(List.of(q), beards).get(q);
+          } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+          }
+        });
+        return chunk.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE_WG, x & 15, z & 15) + 1;
+      };
+      var decorated = new HashSet<ChunkPos>();
+      var order = new JsonArray();
+      for (var r : regions) {
+        var regionOrder = new ArrayList<ChunkPos>();
+        for (var pos : DecorationOracle.around(r, 1)) if (decorated.add(pos)) regionOrder.add(pos);
+        settled += settle(regionOrder, seed, withStarts, height);
+        for (var pos : regionOrder) {
+          var decoration = new PlacementRegion(chunks, pos, seed, state, world.generator().getBiomeSource(), registries, manager);
+          decoration.registries = registries;
+          decoration.generator = world.generator();
+          world.generator().applyBiomeDecoration(decoration, chunks.get(pos), manager);
+          var p = new JsonArray();
+          p.add(pos.x());
+          p.add(pos.z());
+          order.add(p);
+        }
+      }
+      var regionRows = new JsonArray();
+      for (var r : regions) {
+        var finalChunks = new JsonArray();
+        for (var pos : DecorationOracle.around(r, 0)) {
+          var chunk = chunks.get(pos);
+          var row = DecorationOracle.chunkJson(pos, chunk);
+          var nbt = new TreeMap<String, String>();
+          for (var be : chunk.getBlockEntities().values()) nbt.put(DecorationOracle.key(be.getBlockPos()), DecorationOracle.encode(be));
+          for (var bp : chunk.getBlockEntityNbts().keySet()) {
+            var blockState = chunk.getBlockState(bp);
+            if (blockState.getBlock() instanceof net.minecraft.world.level.block.EntityBlock eb) {
+              var be = eb.newBlockEntity(bp, blockState);
+              if (be != null) nbt.put(DecorationOracle.key(bp), DecorationOracle.encode(be));
+            }
+          }
+          entities += nbt.size();
+          var list = new JsonArray();
+          nbt.forEach((k, v) -> list.add(k + "," + v));
+          row.add("nbt", list);
+          finalChunks.add(row);
+          blocks += 16 * 16 * DecorationOracle.HEIGHT;
+        }
+        var json = new JsonObject();
+        json.addProperty("x", r.x());
+        json.addProperty("z", r.z());
+        json.add("chunks", finalChunks);
+        regionRows.add(json);
+      }
+      var row = new JsonObject();
+      row.addProperty("seed", Long.toString(seed));
+      row.addProperty("noise_settings", world.settingsId());
+      row.addProperty("target", names.get(index));
+      row.add("order", order);
+      row.add("regions", regionRows);
+      rows.add(row);
+    }
+    var result = new JsonObject();
+    result.addProperty("region_size", region);
+    result.addProperty("dimension", DecorationOracle.DIMENSION);
+    result.addProperty("min_y", DecorationOracle.MIN_Y);
+    result.addProperty("height", DecorationOracle.HEIGHT);
+    result.addProperty("structures", true);
+    result.add("defaults", new JsonArray());
+    result.add("cases", rows);
+    Files.writeString(out, new Gson().toJson(result));
+    System.out.println("PASS: " + DecorationOracle.DIMENSION + ": " + cases.size() + " live generation sequences with structures ("
+        + blocks + " blocks of final chunks, " + entities + " block entities, " + settled + " temple heights settled)");
+  }
+
+  /**
+   * `OUT bench overworld [N] [PASSES]` (VMC-025f5): vanilla's full generation with structures on
+   * one thread over the area of `bench/worldgen_live.exs` (seed 20261020, N × N regions, each pass
+   * on regions of its own after one warm-up pass): starts (`createStructures`) of every chunk
+   * within 8 of the terrain area, references (`createReferences`) and terrain with beards of the
+   * (8N + 4)² chunks around the regions, then `applyBiomeDecoration` with structures of the
+   * (8N + 2)², Z outer and X inner. Written: per pass each stage's nanoseconds.
+   */
+  static void bench(Path out, String source, RegistryAccess registries, net.minecraft.world.level.chunk.PalettedContainerFactory factory,
+      NoiseGeneratorSettings settings, Aquifer.FluidPicker picker, LevelHeightAccessor heights, HolderGetter<Biome> biomeLookup,
+      Method doFill, Method buildSurface, Method generateCarvers, int n, int passes) throws Exception {
+    long seed = 20261020L;
+    int side = 8 * n;
+    var rows = new JsonArray();
+    for (int pass = 0; pass <= passes; pass++) {
+      int x0 = pass * (n + 4) * 8;
+      var world = StructureOracle.World.create(seed, source, registries, factory);
+      var state = world.state().randomState();
+      var terrain = new DecorationOracle.Terrain(factory, seed, state, settings, picker, world.generator(), heights, biomeLookup,
+          doFill, buildSurface, generateCarvers);
+      long t0 = System.nanoTime();
+      var holding = new HashMap<ChunkPos, ProtoChunk>();
+      for (int z = -2 - 8; z < side + 2 + 8; z++) {
+        for (int x = x0 - 2 - 8; x < x0 + side + 2 + 8; x++) holding.put(new ChunkPos(x, z), world.createStructures(x, z));
+      }
+      long t1 = System.nanoTime();
+      var startsLevel = StructureOracle.areaLevel(holding);
+      var area = new ArrayList<ChunkPos>();
+      for (int z = -2; z < side + 2; z++) {
+        for (int x = x0 - 2; x < x0 + side + 2; x++) area.add(new ChunkPos(x, z));
+      }
+      for (var pos : area) world.generator().createReferences(startsLevel, world.manager(), holding.get(pos));
+      long t2 = System.nanoTime();
+      var managerLevel = (LevelAccessor) Proxy.newProxyInstance(StructurePlacementOracle.class.getClassLoader(),
+          new Class<?>[] {LevelAccessor.class}, (proxy, method, a) -> switch (method.getName()) {
+            case "getChunk" -> holding.get(new ChunkPos((Integer) a[0], (Integer) a[1]));
+            case "registryAccess" -> registries;
+            default -> throw new UnsupportedOperationException("LevelAccessor." + method.getName());
+          });
+      var manager = new StructureManager(managerLevel, new WorldOptions(seed, true, false), null);
+      var chunks = terrain.build(area, p -> net.minecraft.world.level.levelgen.Beardifier.forStructuresInChunk(manager, p));
+      long t3 = System.nanoTime();
+      for (int z = -1; z < side + 1; z++) {
+        for (int x = x0 - 1; x < x0 + side + 1; x++) {
+          var pos = new ChunkPos(x, z);
+          var decoration = new PlacementRegion(chunks, pos, seed, state, world.generator().getBiomeSource(), registries, manager);
+          decoration.registries = registries;
+          decoration.generator = world.generator();
+          world.generator().applyBiomeDecoration(decoration, chunks.get(pos), manager);
+        }
+      }
+      long t4 = System.nanoTime();
+      double seconds = (t4 - t0) / 1e9;
+      System.out.printf("pass %d: %.2f s, %d final chunks/s (starts %.2f s, references %.2f s, terrain %.2f s, decoration %.2f s)%n",
+          pass, seconds, Math.round(side * side / seconds), (t1 - t0) / 1e9, (t2 - t1) / 1e9, (t3 - t2) / 1e9, (t4 - t3) / 1e9);
+      if (pass == 0) continue;
+      var row = new JsonObject();
+      row.addProperty("starts_ns", t1 - t0);
+      row.addProperty("references_ns", t2 - t1);
+      row.addProperty("terrain_ns", t3 - t2);
+      row.addProperty("decoration_ns", t4 - t3);
+      row.addProperty("total_ns", t4 - t0);
+      rows.add(row);
+    }
+    var result = new JsonObject();
+    result.addProperty("regions", n * n);
+    result.addProperty("final", side * side);
+    result.addProperty("terrain", (side + 4) * (side + 4));
+    result.addProperty("decorated", (side + 2) * (side + 2));
+    result.add("passes", rows);
+    Files.writeString(out, new Gson().toJson(result));
+    System.out.println("PASS: vanilla full generation with structures for " + n + " × " + n + " regions");
+  }
+
+  /**
+   * ValiMC's live height of temples and huts (`scattered::settle_live`): every desert pyramid,
+   * jungle temple and swamp hut piece a chunk of `order` places and that has no height yet settles
+   * on the terrain's `WORLD_SURFACE_WG` heights over its whole box (`height`: the first free Y), at
+   * the lowest for a desert pyramid (lowered by `nextInt(3)` of a legacy random seeded from the
+   * world seed and the start's chunk), at the mean for the others. The count settled.
+   */
+  static int settle(List<ChunkPos> order, long seed, java.util.function.Function<ChunkPos, ProtoChunk> withStarts,
+      java.util.function.IntBinaryOperator height) throws ReflectiveOperationException {
+    var field = net.minecraft.world.level.levelgen.structure.ScatteredFeaturePiece.class.getDeclaredField("heightPosition");
+    field.setAccessible(true);
+    int x0 = Integer.MAX_VALUE, x1 = Integer.MIN_VALUE, z0 = Integer.MAX_VALUE, z1 = Integer.MIN_VALUE;
+    for (var p : order) {
+      x0 = Math.min(x0, p.x()); x1 = Math.max(x1, p.x());
+      z0 = Math.min(z0, p.z()); z1 = Math.max(z1, p.z());
+    }
+    int count = 0;
+    for (int sz = z0 - 8; sz <= z1 + 8; sz++) {
+      for (int sx = x0 - 8; sx <= x1 + 8; sx++) {
+        for (var start : withStarts.apply(new ChunkPos(sx, sz)).getAllStarts().values()) {
+          for (var piece : start.getPieces()) {
+            if (!(piece instanceof net.minecraft.world.level.levelgen.structure.ScatteredFeaturePiece scattered)) continue;
+            var box = scattered.getBoundingBox();
+            boolean placed = order.stream().anyMatch(p -> box.intersects(p.getMinBlockX(), p.getMinBlockZ(), p.getMaxBlockX(),
+                p.getMaxBlockZ()));
+            if (field.getInt(scattered) >= 0 || !placed) continue;
+            int lowest = Integer.MAX_VALUE, total = 0, columns = 0;
+            for (int z = box.minZ(); z <= box.maxZ(); z++) {
+              for (int x = box.minX(); x <= box.maxX(); x++) {
+                int h = height.applyAsInt(x, z);
+                lowest = Math.min(lowest, h);
+                total += h;
+                columns++;
+              }
+            }
+            int settledAt, offset = 0;
+            if (scattered instanceof net.minecraft.world.level.levelgen.structure.structures.DesertPyramidPiece) {
+              settledAt = lowest;
+              var chunk = start.getChunkPos();
+              offset = -new net.minecraft.world.level.levelgen.LegacyRandomSource(
+                  seed ^ (chunk.x() * 341873128712L) ^ (chunk.z() * 132897987541L)).nextInt(3);
+            } else {
+              settledAt = total / columns;
+            }
+            field.setInt(scattered, settledAt);
+            scattered.move(0, settledAt - box.minY() + offset, 0);
+            count++;
+          }
+        }
+      }
+    }
+    return count;
+  }
+
+  /**
+   * `verify-live FACTS.json OURS.json`: ValiMC's block entities that a structure template gave
+   * their NBT (`check_live_decoration.exs` writes them: per case index and position the state and
+   * the compound the region stores, as binary NBT in base64), each loaded into vanilla's block
+   * entity of that state and saved with full metadata again, which must equal vanilla's full chunk
+   * save of the block entity at that position.
+   */
+  static void verifyLive(Path factsPath, Path oursPath) throws Exception {
+    var registries = StructureOracle.serverRegistries();
+    var facts = JsonParser.parseString(Files.readString(factsPath)).getAsJsonObject();
+    var ours = JsonParser.parseString(Files.readString(oursPath)).getAsJsonArray();
+    var vanilla = new HashMap<String, String>();
+    var cases = facts.getAsJsonArray("cases");
+    for (int i = 0; i < cases.size(); i++) {
+      for (var r : cases.get(i).getAsJsonObject().getAsJsonArray("regions")) {
+        for (var chunk : r.getAsJsonObject().getAsJsonArray("chunks")) {
+          for (var entry : chunk.getAsJsonObject().getAsJsonArray("nbt")) {
+            var text = entry.getAsString();
+            int split = nthComma(text, 3);
+            vanilla.put(i + ":" + text.substring(0, split), text.substring(split + 1));
+          }
+        }
+      }
+    }
+    int checked = 0;
+    var failures = new ArrayList<String>();
+    for (var element : ours) {
+      var o = element.getAsJsonObject();
+      var key = o.get("case").getAsInt() + ":" + o.get("pos").getAsString();
+      var p = o.get("pos").getAsString().split(",");
+      var pos = new BlockPos(Integer.parseInt(p[0]), Integer.parseInt(p[1]), Integer.parseInt(p[2]));
+      var state = net.minecraft.world.level.block.Block.stateById(o.get("state").getAsInt());
+      var tag = read(o.get("nbt").getAsString());
+      var entity = net.minecraft.world.level.block.entity.BlockEntity.loadStatic(pos, state, tag, registries);
+      var saved = entity == null ? "-" : StructureOracle.snbt(entity.saveWithFullMetadata(registries));
+      var encoded = vanilla.get(key);
+      var want = encoded == null ? "none" : StructureOracle.snbt(read(encoded));
+      checked++;
+      if (!saved.equals(want)) failures.add(key + "\n  ours:    " + saved + "\n  vanilla: " + want);
+    }
+    if (!failures.isEmpty()) {
+      failures.stream().limit(8).forEach(System.out::println);
+      throw new IllegalStateException(failures.size() + " block entities differ from vanilla's");
+    }
+    System.out.println("PASS: " + checked + " template block entities save as vanilla's");
+  }
+
+  static net.minecraft.nbt.CompoundTag read(String base64) throws java.io.IOException {
+    return net.minecraft.nbt.NbtIo.read(new java.io.DataInputStream(new java.io.ByteArrayInputStream(
+        java.util.Base64.getDecoder().decode(base64))));
   }
 
   /**

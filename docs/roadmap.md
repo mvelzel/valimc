@@ -17,7 +17,7 @@ model and a generated registry; see [architecture](architecture.md).
 
 | Ticket | Open slice | Status |
 |---|---|---|
-| [VMC-025](tickets/VMC-025.md) | Structures: every family placed as vanilla places it, over terrain with beards; structures in live generation next | In progress |
+| [VMC-025](tickets/VMC-025.md) | Structures: every family placed as vanilla places it and live in new worlds, over terrain with beards; client check pending | In progress |
 | [VMC-026](tickets/VMC-026.md) | Nether, End and portals: live; items through portals (VMC-026c) next; stronghold portal rooms, the dragon fight (M3) remain | In progress |
 | [VMC-028](tickets/VMC-028.md) | Generation settings, world presets, data-pack worldgen and 26.2 world upgrades | Awaiting client |
 | [VMC-010](tickets/VMC-010.md) | Administration: lists, admin commands, save control, idle timeout and console live; RCON remains | In progress |

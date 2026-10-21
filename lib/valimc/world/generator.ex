@@ -183,6 +183,11 @@ defmodule Valimc.World.Generator do
     end
   end
 
+  # Whether a world with these recorded settings generates structures
+  # (VMC-025f5).
+  defp structures?(nil), do: false
+  defp structures?(settings), do: Map.get(settings, "generate_structures", true)
+
   @doc """
   What generation of `dimension` needs for the world at `base`: the
   overworld's `spec/1`; the Nether's and the End's noise generation of the
@@ -201,7 +206,8 @@ defmodule Valimc.World.Generator do
          seed: seed(of(base), recorded),
          noise_settings: settings,
          biome_source: source,
-         facts: facts
+         facts: facts,
+         structures: structures?(recorded)
        }}
     end
   end
@@ -272,7 +278,8 @@ defmodule Valimc.World.Generator do
                seed: seed,
                noise_settings: noise,
                biome_source: "minecraft:overworld",
-               facts: facts
+               facts: facts,
+               structures: Map.get(settings, "generate_structures", true)
              }}
 
           %{"type" => "minecraft:fixed", "biome" => biome} ->
@@ -284,7 +291,8 @@ defmodule Valimc.World.Generator do
                    seed: seed,
                    noise_settings: noise,
                    biome_source: "fixed:" <> biome,
-                   facts: facts
+                   facts: facts,
+                   structures: Map.get(settings, "generate_structures", true)
                  }},
               else: {:error, {:unknown_biome, biome}}
 
@@ -349,8 +357,10 @@ defmodule Valimc.World.Generator do
         images =
           case Process.get({__MODULE__, :first_full, spec, key}) do
             nil ->
+              structures = Map.get(spec, :structures, false)
+
               {:ok, terrain} =
-                Native.worldgen_proto_terrain(state, source, proto.around(key, 2))
+                Native.worldgen_proto_terrain(state, source, proto.around(key, 2), structures)
 
               images = Map.new(terrain, fn {x, z, image} -> {{x, z}, image} end)
 
@@ -359,7 +369,8 @@ defmodule Valimc.World.Generator do
                   state,
                   source,
                   Map.values(images),
-                  proto.around(key, 1)
+                  proto.around(key, 1),
+                  structures
                 )
 
               images =

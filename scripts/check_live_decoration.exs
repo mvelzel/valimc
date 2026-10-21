@@ -11,7 +11,19 @@
 # VMC-026b: the oracle's facts name their dimension; the Nether's and the
 # End's run in that dimension's context, as their region owners do, in a
 # normal world of the case's seed.
-[facts_path | pack_world] = System.argv()
+#
+# VMC-025f5: facts with `structures` (StructurePlacementOracle live) come from
+# a world that generates structures, and so do the case's worlds here. A block
+# entity a structure template gave its NBT is written to `--ours PATH` (case
+# index, position, state, the compound the region stores) for
+# `StructurePlacementOracle verify-live`, which loads it into vanilla's.
+{ours_path, args} =
+  case System.argv() do
+    [facts, "--ours", ours | rest] -> {ours, [facts | rest]}
+    args -> {nil, args}
+  end
+
+[facts_path | pack_world] = args
 facts = facts_path |> File.read!() |> JSON.decode!()
 alias Valimc.Native
 alias Valimc.Worldgen.{FullChunk, Proto}
@@ -76,7 +88,8 @@ root =
           {noise, nil} -> noise
         end
 
-      settings = Valimc.World.GenSettings.create(level_type, nil, seed, true)
+      settings =
+        Valimc.World.GenSettings.create(level_type, nil, seed, facts["structures"] == true)
 
       File.write!(
         Valimc.World.Spawn.path(base),
@@ -139,15 +152,38 @@ root =
               "#{position.(p)},#{f},#{d},#{pr}"
             end)
 
+          {templated, plain} = Enum.split_with(whole.block_entities, &is_binary(&1[:nbt]))
+
+          if templated != [] and ours_path == nil,
+            do: raise("template block entities without --ours")
+
+          for entity <- templated do
+            {:ok, tag} = FullChunk.block_entity_tag(entity)
+
+            Process.put(:ours, [
+              %{
+                "case" => index,
+                "pos" => position.(entity.position),
+                "state" => entity.state,
+                "nbt" => Base.encode64(IO.iodata_to_binary(Valimc.NBT.write(tag)))
+              }
+              | Process.get(:ours, [])
+            ])
+          end
+
+          templated = MapSet.new(templated, &position.(&1.position))
+
           nbt =
-            for entity <- whole.block_entities, into: %{} do
+            for entity <- plain, into: %{} do
               {:ok, tag} = FullChunk.block_entity_tag(entity)
               {position.(entity.position), tag}
             end
 
           vanilla =
-            for line <- expected["nbt"], into: %{} do
-              [x, y, z, encoded] = String.split(line, ",", parts: 4)
+            for line <- expected["nbt"],
+                [x, y, z, encoded] = String.split(line, ",", parts: 4),
+                not MapSet.member?(templated, "#{x},#{y},#{z}"),
+                into: %{} do
               {:ok, tag} = Valimc.NBT.read(Base.decode64!(encoded))
               {"#{x},#{y},#{z}", tag}
             end
@@ -203,6 +239,7 @@ root =
   end
 
 File.rm_rf(root)
+if ours_path, do: File.write!(ours_path, JSON.encode!(Enum.reverse(Process.get(:ours, []))))
 
 # New block entities (what a pending one becomes) and what decoration writes
 # into created ones, against vanilla's saved NBT.

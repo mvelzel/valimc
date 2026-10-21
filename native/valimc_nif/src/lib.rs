@@ -1592,10 +1592,33 @@ fn worldgen_proto_terrain<'a>(
     biome_source: String,
     chunks: Vec<(i32, i32)>,
 ) -> Result<Vec<ProtoBinary<'a>>, String> {
+    proto_terrain(env, state, &biome_source, chunks, false)
+}
+
+/// `worldgen_proto_terrain` with structures (VMC-025f5): each chunk's beards
+/// from the starts that reference it.
+#[rustler::nif(schedule = "DirtyCpu", name = "worldgen_proto_terrain")]
+fn worldgen_proto_terrain_structures<'a>(
+    env: rustler::Env<'a>,
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    chunks: Vec<(i32, i32)>,
+    structures: bool,
+) -> Result<Vec<ProtoBinary<'a>>, String> {
+    proto_terrain(env, state, &biome_source, chunks, structures)
+}
+
+fn proto_terrain<'a>(
+    env: rustler::Env<'a>,
+    state: ResourceArc<WorldgenState>,
+    biome_source: &str,
+    chunks: Vec<(i32, i32)>,
+    structures: bool,
+) -> Result<Vec<ProtoBinary<'a>>, String> {
     let mut state = state.lease()?;
     let mut out = Vec::with_capacity(chunks.len());
     for (x, z) in chunks {
-        let chunk = state.proto_terrain(x, z, &biome_source)?;
+        let chunk = state.proto_terrain_live(x, z, biome_source, structures)?;
         out.push(proto_binary(env, &chunk));
     }
     Ok(out)
@@ -1612,7 +1635,7 @@ fn worldgen_proto_decorate<'a>(
     chunks: Vec<Binary>,
     order: Vec<(i32, i32)>,
 ) -> Result<(Vec<ProtoBinary<'a>>, u32), String> {
-    decorate_protos(env, state, "minecraft:overworld", chunks, order)
+    decorate_protos(env, state, "minecraft:overworld", chunks, order, false)
 }
 
 /// `worldgen_proto_decorate` with a biome source's decoration: a multi-noise
@@ -1625,7 +1648,21 @@ fn worldgen_proto_decorate_in<'a>(
     chunks: Vec<Binary>,
     order: Vec<(i32, i32)>,
 ) -> Result<(Vec<ProtoBinary<'a>>, u32), String> {
-    decorate_protos(env, state, &biome_source, chunks, order)
+    decorate_protos(env, state, &biome_source, chunks, order, false)
+}
+
+/// `worldgen_proto_decorate` with structures (VMC-025f5): each step places
+/// the structures whose starts reference the chunk before its features.
+#[rustler::nif(schedule = "DirtyCpu", name = "worldgen_proto_decorate")]
+fn worldgen_proto_decorate_structures<'a>(
+    env: rustler::Env<'a>,
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    chunks: Vec<Binary>,
+    order: Vec<(i32, i32)>,
+    structures: bool,
+) -> Result<(Vec<ProtoBinary<'a>>, u32), String> {
+    decorate_protos(env, state, &biome_source, chunks, order, structures)
 }
 
 fn decorate_protos<'a>(
@@ -1634,6 +1671,7 @@ fn decorate_protos<'a>(
     biome_source: &str,
     chunks: Vec<Binary>,
     order: Vec<(i32, i32)>,
+    structures: bool,
 ) -> Result<(Vec<ProtoBinary<'a>>, u32), String> {
     let mut state = state.lease()?;
     let mut decoded = Vec::with_capacity(chunks.len());
@@ -1644,7 +1682,8 @@ fn decorate_protos<'a>(
         )?);
     }
     let mut area = valimc_core::worldgen::region::Area::of(decoded)?;
-    let lenient_reads = state.decorate_held(biome_source, &mut area, &order, None, true)?;
+    let lenient_reads =
+        state.decorate_held_live(biome_source, &mut area, &order, true, structures)?;
     Ok((
         area.held()
             .filter(|c| c.touched)
@@ -1683,6 +1722,8 @@ struct FullBlockEntity {
     bees: Vec<i32>,
     /// An end gateway's exit and exact teleport (VMC-026b).
     exit: Option<((i32, i32, i32), bool)>,
+    /// A structure template's NBT for it, as SNBT (VMC-025f5).
+    nbt: Option<String>,
 }
 
 /// A decorated chunk made full (VMC-025d): its column image (protocol biome
@@ -1736,6 +1777,7 @@ fn worldgen_proto_full<'a>(
                     spawner_entity: data.and_then(|d| d.spawner_entity.clone()),
                     bees: data.map_or_else(Vec::new, |d| d.bees.clone()),
                     exit: data.and_then(|d| d.exit.map(|(e, exact)| ((e[0], e[1], e[2]), exact))),
+                    nbt: data.and_then(|d| d.nbt.as_deref().map(str::to_string)),
                 }
             })
             .collect();

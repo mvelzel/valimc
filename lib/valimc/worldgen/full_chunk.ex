@@ -48,8 +48,8 @@ defmodule Valimc.Worldgen.FullChunk do
     end)
   end
 
-  # A pending block entity of a type not modelled here is left out (the client
-  # makes its own); everything else must convert.
+  # A block entity of a type not modelled here is left out (the client makes
+  # its own); everything else must convert.
   defp block_entities(list, entities) do
     Enum.reduce_while(list, {:ok, entities}, fn entity, {:ok, acc} ->
       with {:ok, tag} <- block_entity_tag(entity),
@@ -57,7 +57,7 @@ defmodule Valimc.Worldgen.FullChunk do
            {:ok, nbt} <- BlockEntities.encode_nbt(tag) do
         {:cont, {:ok, Map.put(acc, position, {type, nbt})}}
       else
-        {:error, {:unsupported_block_entity, id}} when entity.kind == nil ->
+        {:error, {:unsupported_block_entity, id}} ->
           Logger.warning("Generated block entity #{id} at #{inspect(entity.position)} left out")
           {:cont, {:ok, acc}}
 
@@ -87,16 +87,28 @@ defmodule Valimc.Worldgen.FullChunk do
   @doc "A full chunk's block entity as vanilla's full chunk saves it."
   def block_entity_tag(%{position: {x, y, z}} = entity) do
     with {:ok, id, fields} <- fields(entity) do
+      # Components a template gave stay.
       {:ok,
        {:compound,
-        Map.merge(fields, %{
-          "components" => {:compound, %{}},
+        %{"components" => {:compound, %{}}}
+        |> Map.merge(fields)
+        |> Map.merge(%{
           "id" => {:string, id},
           "x" => {:int, x},
           "y" => {:int, y},
           "z" => {:int, z}
         })}}
     end
+  end
+
+  # A structure template's block entity (VMC-025f5): its NBT, with the loot
+  # table and seed that placement wrote.
+  defp fields(%{kind: kind, nbt: nbt} = entity) when is_binary(kind) and is_binary(nbt) do
+    {tag, _} = Valimc.Command.Snbt.parse_compound(Valimc.Command.Reader.new(nbt))
+    {:compound, fields} = tag
+    {:ok, kind, fields |> Map.drop(~w(id x y z)) |> Map.merge(loot(entity))}
+  rescue
+    error -> {:error, {:template_nbt, Exception.message(error)}}
   end
 
   # What decoration created, by its type.
@@ -123,6 +135,12 @@ defmodule Valimc.Worldgen.FullChunk do
       type -> default(Valimc.Physics.BlockEntities.type_name(type))
     end
   end
+
+  # A container a structure piece filled (a jungle temple's dispensers):
+  # its loot table.
+  defp fields(%{kind: "minecraft:" <> _ = kind, loot_table: table} = entity)
+       when is_binary(table),
+       do: {:ok, kind, loot(entity)}
 
   defp fields(entity), do: {:error, {:unsupported_block_entity, entity.kind}}
 
