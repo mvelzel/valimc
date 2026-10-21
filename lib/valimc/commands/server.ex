@@ -11,7 +11,8 @@ defmodule Valimc.Commands.Server do
   region's writes are durable), checkpoints every online player and writes the
   world clock. It starts no region, whatever the source's dimension.
   """
-  alias Valimc.Command.{Error, Feedback, Text}
+  alias Valimc.Command.{Error, Feedback}
+  alias Valimc.Text
   alias Valimc.World.Saving
 
   @doc "`/save-all [flush]`."

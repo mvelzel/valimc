@@ -1,6 +1,7 @@
 defmodule Valimc.Commands.Preview do
   @moduledoc "ValiMC's own commands beside vanilla's: `/stats` and `/spawn` (VMC-002)."
-  alias Valimc.Command.{Feedback, Source, Text}
+  alias Valimc.Command.{Feedback, Source}
+  alias Valimc.Text
   alias Valimc.Commands.Remote
 
   def stats(_arguments, source) do

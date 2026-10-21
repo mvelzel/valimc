@@ -11,10 +11,6 @@ defmodule Valimc.Command.Suggestions do
   alias Valimc.Command.{Dispatcher, Reader}
 
   @max 1000
-  @facts :json.decode(File.read!(Path.expand("../../../priv/commands/facts.json", __DIR__)))
-  @external_resource Path.expand("../../../priv/commands/facts.json", __DIR__)
-  @markers @facts["time_markers"]
-  @timelines @facts["timelines"]
 
   @doc "`{start, length, [text]}` for the request text (with or without its `/`)."
   def suggest(text, source) do
@@ -95,10 +91,12 @@ defmodule Valimc.Command.Suggestions do
     ids =
       case List.last(path) do
         "timemarker" ->
-          for {id, %{"clock" => ^clock, "suggested" => true}} <- @markers, do: id
+          for {id, %{"clock" => ^clock, "suggested" => true}} <-
+                Valimc.Command.Facts.time_markers(),
+              do: id
 
         "timeline" ->
-          for {id, %{"clock" => ^clock}} <- @timelines, do: id
+          for {id, %{"clock" => ^clock}} <- Valimc.Command.Facts.timelines(), do: id
 
         "id" ->
           if hd(path) == "stopwatch", do: Valimc.World.Stopwatches.ids(), else: []

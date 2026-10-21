@@ -15,7 +15,8 @@ defmodule Valimc.Commands do
   `command.failed`, and the source's session lives on.
   """
   require Logger
-  alias Valimc.Command.{Arguments, Dispatcher, Error, Feedback, Source, Text, Tree}
+  alias Valimc.Command.{Arguments, Dispatcher, Error, Feedback, Source, Tree}
+  alias Valimc.Text
 
   @doc """
   The catalog (VMC-077o): one registration per top-level command, its handler

@@ -1,4 +1,4 @@
-defmodule Valimc.Command.Render do
+defmodule Valimc.Text.Render do
   @moduledoc """
   A text component's plain English text (VMC-010f), vanilla's
   `Component.getString()` on the server: literal text, translations from the
@@ -34,7 +34,7 @@ defmodule Valimc.Command.Render do
 
     case fields["extra"] do
       nil -> own
-      list -> own <> Enum.map_join(Valimc.Command.Text.list_items(list), &string/1)
+      list -> own <> Enum.map_join(Valimc.NBT.items(list), &string/1)
     end
   end
 
@@ -52,7 +52,7 @@ defmodule Valimc.Command.Render do
     args =
       case fields["with"] do
         nil -> []
-        list -> Valimc.Command.Text.list_items(list)
+        list -> Valimc.NBT.items(list)
       end
 
     case decompose(format, args) do
@@ -114,8 +114,8 @@ defmodule Valimc.Command.Render do
   defp argument({type, value}) when type in [:byte, :short, :int, :long],
     do: Integer.to_string(value)
 
-  defp argument({:float, <<value::float-32>>}), do: java_float(value, 32)
-  defp argument({:double, <<value::float-64>>}), do: java_float(value, 64)
+  defp argument({:float, <<value::float-32>>}), do: Valimc.Text.Number.java(value, 32)
+  defp argument({:double, <<value::float-64>>}), do: Valimc.Text.Number.java(value, 64)
   defp argument({:float, bytes}), do: special(bytes)
   defp argument({:double, bytes}), do: special(bytes)
   defp argument(_), do: ""
@@ -125,74 +125,4 @@ defmodule Valimc.Command.Render do
   defp special(<<0x7FF0000000000000::64>>), do: "Infinity"
   defp special(<<0xFFF0000000000000::64>>), do: "-Infinity"
   defp special(_), do: "NaN"
-
-  @doc "Java's `Float.toString` / `Double.toString` (shortest digits that read back)."
-  def java_float(value, bits) do
-    {digits, exponent} = shortest(value, bits)
-    sign = if value < 0 or (value == 0 and <<value::float>> == <<-0.0::float>>), do: "-", else: ""
-    magnitude = abs(value)
-
-    if magnitude != 0 and (magnitude < 1.0e-3 or magnitude >= 1.0e7) do
-      [first | rest] = String.graphemes(digits)
-      fraction = if rest == [], do: "0", else: Enum.join(rest)
-      "#{sign}#{first}.#{fraction}E#{exponent - 1}"
-    else
-      sign <> plain(digits, exponent)
-    end
-  end
-
-  # Digits and decimal exponent (value = 0.digits × 10^exponent).
-  defp shortest(value, _bits) when value == 0, do: {"0", 1}
-
-  defp shortest(value, 64) do
-    [mantissa, exponent] =
-      :erlang.float_to_binary(abs(value), [:short]) |> String.downcase() |> scientific()
-
-    {mantissa, exponent}
-  end
-
-  defp shortest(value, 32) do
-    magnitude = abs(value)
-
-    Enum.find_value(0..8, fn decimals ->
-      text = :erlang.float_to_binary(magnitude, scientific: decimals)
-      {parsed, _} = Float.parse(text)
-      <<rounded::float-32>> = <<parsed::float-32>>
-      if rounded == magnitude, do: scientific(text)
-    end)
-    |> then(fn [digits, exponent] -> {digits, exponent} end)
-  end
-
-  defp scientific(text) do
-    {mantissa, exponent} =
-      case String.split(text, "e") do
-        [mantissa, exponent] -> {mantissa, String.to_integer(exponent)}
-        [mantissa] -> {mantissa, 0}
-      end
-
-    {int, frac} =
-      case String.split(mantissa, ".") do
-        [int, frac] -> {int, frac}
-        [int] -> {int, ""}
-      end
-
-    digits = String.trim_leading(int <> frac, "0")
-
-    exponent =
-      exponent + String.length(int) - (String.length(int <> frac) - String.length(digits))
-
-    digits = String.trim_trailing(digits, "0")
-    [if(digits == "", do: "0", else: digits), exponent]
-  end
-
-  defp plain(digits, exponent) when exponent <= 0,
-    do: "0." <> String.duplicate("0", -exponent) <> digits
-
-  defp plain(digits, exponent) do
-    length = String.length(digits)
-
-    if exponent >= length,
-      do: digits <> String.duplicate("0", exponent - length) <> ".0",
-      else: String.slice(digits, 0, exponent) <> "." <> String.slice(digits, exponent..-1//1)
-  end
 end

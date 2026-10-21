@@ -4,36 +4,39 @@ defmodule Valimc.Commands.Admin do
   `version`, `kick` and `stop`. Operator, ban and whitelist commands wait for
   VMC-010.
   """
-  alias Valimc.Command.{Error, Feedback, Source, Text}
-
-  @facts :json.decode(File.read!(Path.expand("../../../priv/commands/facts.json", __DIR__)))
-  @external_resource Path.expand("../../../priv/commands/facts.json", __DIR__)
-  @version @facts["server_version"]
+  alias Valimc.Command.{Error, Feedback, Source}
+  alias Valimc.Text
 
   @doc "`/version`: ten system lines, as vanilla's `VersionCommand`."
   def version(_arguments, source) do
     built =
-      @version["build_time_ms"]
+      Valimc.Command.Facts.server_version()["build_time_ms"]
       |> DateTime.from_unix!(:millisecond)
       |> Calendar.strftime("%a %b %d %H:%M:%S UTC %Y")
 
-    protocol = @version["protocol"]
+    protocol = Valimc.Command.Facts.server_version()["protocol"]
 
     lines = [
       Text.translatable("commands.version.header"),
-      Text.translatable("commands.version.id", [@version["id"]]),
-      Text.translatable("commands.version.name", [@version["name"]]),
-      Text.translatable("commands.version.data", [@version["data"]]),
-      Text.translatable("commands.version.series", [@version["series"]]),
+      Text.translatable("commands.version.id", [Valimc.Command.Facts.server_version()["id"]]),
+      Text.translatable("commands.version.name", [Valimc.Command.Facts.server_version()["name"]]),
+      Text.translatable("commands.version.data", [Valimc.Command.Facts.server_version()["data"]]),
+      Text.translatable("commands.version.series", [
+        Valimc.Command.Facts.server_version()["series"]
+      ]),
       Text.translatable("commands.version.protocol", [
         protocol,
         "0x" <> String.downcase(Integer.to_string(protocol, 16))
       ]),
       Text.translatable("commands.version.build_time", [Text.literal(built)]),
-      Text.translatable("commands.version.pack.resource", [@version["resource_pack"]]),
-      Text.translatable("commands.version.pack.data", [@version["data_pack"]]),
+      Text.translatable("commands.version.pack.resource", [
+        Valimc.Command.Facts.server_version()["resource_pack"]
+      ]),
+      Text.translatable("commands.version.pack.data", [
+        Valimc.Command.Facts.server_version()["data_pack"]
+      ]),
       Text.translatable(
-        if(@version["stable"],
+        if(Valimc.Command.Facts.server_version()["stable"],
           do: "commands.version.stable.yes",
           else: "commands.version.stable.no"
         )

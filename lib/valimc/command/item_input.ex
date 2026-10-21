@@ -2,9 +2,10 @@ defmodule Valimc.Command.ItemInput do
   @moduledoc """
   The `item_stack` argument (VMC-053): vanilla `ItemParser`, `id` and
   `id[component=value,!component]`; `item_predicate` is `Valimc.Command.ItemPredicate`.
-  Component values are SNBT (`Valimc.Command.Snbt`) decoded by
-  `Valimc.Command.ItemComponents`; components ValiMC cannot represent are
-  refused with a ValiMC message instead of being approximated.
+  Component values are SNBT (`Valimc.Command.Snbt`) decoded as the data format
+  reads them (`Valimc.Protocol.ItemData.decode_component/2`); components
+  ValiMC cannot represent are refused with a ValiMC message instead of being
+  approximated.
   """
   alias Valimc.Command.{Error, Identifier, Reader, Registries}
 
@@ -21,10 +22,6 @@ defmodule Valimc.Command.ItemInput do
     input = %__MODULE__{item: id, item_id: item_id}
     if Reader.at?(reader, ?[), do: components(reader, input), else: {input, reader}
   end
-
-  @facts :json.decode(File.read!(Path.expand("../../../priv/commands/facts.json", __DIR__)))
-  @external_resource Path.expand("../../../priv/commands/facts.json", __DIR__)
-  @components MapSet.new(@facts["item_components"])
 
   # Vanilla `ItemParser.readComponents`.
   defp components(reader, input) do
@@ -84,7 +81,7 @@ defmodule Valimc.Command.ItemInput do
     start = reader.cursor
     {id, reader} = Identifier.read(reader)
 
-    if MapSet.member?(@components, id),
+    if Valimc.Command.Facts.item_component?(id),
       do: {id, reader},
       else:
         Error.fail_at!("arguments.item.component.unknown", [id], Reader.set_cursor(reader, start))
@@ -95,7 +92,7 @@ defmodule Valimc.Command.ItemInput do
     start = reader.cursor
     {tag, after_value} = Valimc.Command.Snbt.parse(reader)
 
-    case Valimc.Command.ItemComponents.decode(id, tag) do
+    case Valimc.Protocol.ItemData.decode_component(id, tag) do
       {:ok, value} ->
         {value, after_value}
 

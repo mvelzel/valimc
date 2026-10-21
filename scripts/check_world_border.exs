@@ -3,7 +3,8 @@
 #
 #   mix run --no-start scripts/check_world_border.exs kernel KERNEL.json
 #   mix run --no-start scripts/check_world_border.exs commands COMMANDS.json
-alias Valimc.Command.{Error, Source, Text}
+alias Valimc.Command.{Error, Source}
+alias Valimc.Text
 alias Valimc.Commands.WorldBorder, as: Command
 alias Valimc.Protocol.{Packets, Wire}
 alias Valimc.World.{Border, BorderReplication}

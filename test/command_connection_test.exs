@@ -82,6 +82,34 @@ defmodule Valimc.CommandConnectionTest do
       )
 
     assert count(pid, "diamond_sword") == 0
+
+    # Components the data format reads (VMC-077o): names, lore, enchantments, rarity.
+    client =
+      command(
+        client,
+        ~s(give @s iron_sword[custom_name="Blade",lore=["one",{text:"two",color:"red"}],) <>
+          ~s(enchantments={"minecraft:sharpness":2},rarity="epic"]),
+        "commands.give.success.single"
+      )
+
+    [blade] =
+      for %Valimc.Protocol.ItemStack{} = stack <-
+            Valimc.Inventory.contents(:sys.get_state(pid).inventory),
+          stack.item_id == Valimc.Protocol.ItemTypes.id("iron_sword"),
+          do: stack.components
+
+    assert blade["minecraft:custom_name"] == {:compound, %{"text" => {:string, "Blade"}}}
+    assert length(blade["minecraft:lore"]) == 2
+    assert blade["minecraft:enchantments"] == %{"minecraft:sharpness" => 2}
+    assert blade["minecraft:rarity"] == 3
+
+    # Item text cannot hold click events.
+    _client =
+      command(
+        client,
+        ~s(give @s stone[custom_name={text:"x",click_event:{action:"run_command",command:"/kill"}}]),
+        "not supported yet"
+      )
   end
 
   test "an operator's own experience, effects, teleport and death" do

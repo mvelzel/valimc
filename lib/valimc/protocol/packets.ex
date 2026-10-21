@@ -311,7 +311,7 @@ defmodule Valimc.Protocol.Packets do
 
     unless (is_binary(message) and byte_size(message) <= 1024 and String.valid?(message)) or
              is_struct(message, Valimc.Protocol.ServerText) or
-             Valimc.Protocol.TextComponent.valid?(message),
+             Valimc.Text.Codec.valid?(message),
            do: raise(ArgumentError, "invalid death message")
 
     encoded = Wire.text_component(message)

@@ -13,7 +13,8 @@ defmodule Valimc.Commands.Place do
   """
   require Logger
   import Bitwise, only: [<<<: 2]
-  alias Valimc.Command.{Error, Feedback, Source, Text}
+  alias Valimc.Command.{Error, Feedback, Source}
+  alias Valimc.Text
   alias Valimc.Native
 
   @templates Path.expand("../../../priv/worldgen/structure_templates.json", __DIR__)

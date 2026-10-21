@@ -7,7 +7,9 @@ defmodule Valimc.Commands.WorldBorder do
   (`Valimc.World.Clock.border_command/2`); feedback and return values follow
   vanilla, numbers formatted as `String.format(Locale.ROOT, ...)` does.
   """
-  alias Valimc.Command.{Error, Feedback, Text}
+  alias Valimc.Command.{Error, Feedback}
+  alias Valimc.Text
+  alias Valimc.Text.Number
   alias Valimc.World.{Border, Clock}
 
   @doc "`/worldborder …`, its form named by the parsed literals (`kind/1`)."
@@ -70,13 +72,13 @@ defmodule Valimc.Commands.WorldBorder do
   def query(border) do
     size = Border.size(border)
 
-    {Text.translatable("commands.worldborder.get", [fixed(size, 0)]),
+    {Text.translatable("commands.worldborder.get", [Number.fixed(size, 0)]),
      java_int(Float.floor(size + 0.5))}
   end
 
   @doc "Feedback and return value of a successful change."
   def success({kind, _, _}, {current, distance, ticks}) when kind in [:add, :set] do
-    formatted = fixed(distance, 1)
+    formatted = Number.fixed(distance, 1)
 
     component =
       cond do
@@ -94,16 +96,20 @@ defmodule Valimc.Commands.WorldBorder do
   end
 
   def success({:center, x, z}, _),
-    do: {Text.translatable("commands.worldborder.center.success", [fixed(x, 2), fixed(z, 2)]), 0}
+    do:
+      {Text.translatable("commands.worldborder.center.success", [
+         Number.fixed(x, 2),
+         Number.fixed(z, 2)
+       ]), 0}
 
   def success({:damage_amount, value}, _),
     do:
-      {Text.translatable("commands.worldborder.damage.amount.success", [fixed(value, 2)]),
+      {Text.translatable("commands.worldborder.damage.amount.success", [Number.fixed(value, 2)]),
        java_int(value)}
 
   def success({:damage_buffer, value}, _),
     do:
-      {Text.translatable("commands.worldborder.damage.buffer.success", [fixed(value, 2)]),
+      {Text.translatable("commands.worldborder.damage.buffer.success", [Number.fixed(value, 2)]),
        java_int(value)}
 
   def success({:warning_time, ticks}, _),
@@ -135,44 +141,7 @@ defmodule Valimc.Commands.WorldBorder do
   def failure(:same_damage_amount),
     do: Text.translatable("commands.worldborder.damage.amount.failed")
 
-  defp seconds(ticks), do: fixed(ticks / 20.0, 2)
-
-  @doc """
-  `String.format(Locale.ROOT, "%.<decimals>f", value)`: the shortest decimal
-  digits of the double rounded half up, keeping the sign of negative values.
-  """
-  def fixed(value, decimals) when is_float(value) do
-    {digits, exponent} = decimal(abs(value))
-    shift = exponent + decimals
-
-    scaled =
-      if shift >= 0 do
-        digits * Integer.pow(10, shift)
-      else
-        divisor = Integer.pow(10, -shift)
-        quotient = div(digits, divisor)
-        if rem(digits, divisor) * 2 >= divisor, do: quotient + 1, else: quotient
-      end
-
-    text = Integer.to_string(scaled) |> String.pad_leading(decimals + 1, "0")
-    {whole, fraction} = String.split_at(text, byte_size(text) - decimals)
-    sign = if value < 0 or <<value::float>> == <<-0.0::float>>, do: "-", else: ""
-    if decimals == 0, do: sign <> whole, else: sign <> whole <> "." <> fraction
-  end
-
-  # Shortest round-trip digits as `{integer, exponent}` (value = integer × 10^exponent).
-  defp decimal(value) do
-    [mantissa | exponent] = String.split(:erlang.float_to_binary(value, [:short]), ["e", "E"])
-    exponent = if exponent == [], do: 0, else: String.to_integer(hd(exponent))
-
-    case String.split(mantissa, ".") do
-      [whole, fraction] ->
-        {String.to_integer(whole <> fraction), exponent - byte_size(fraction)}
-
-      [whole] ->
-        {String.to_integer(whole), exponent}
-    end
-  end
+  defp seconds(ticks), do: Number.fixed(ticks / 20.0, 2)
 
   defp float32(value) do
     <<rounded::float-32>> = <<value::float-32>>

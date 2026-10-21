@@ -5,13 +5,8 @@ defmodule Valimc.Commands.Locate do
   with `LocateCommand`'s messages. Structure ids and tags are generated facts.
   """
   require Logger
-  alias Valimc.Command.{Error, Feedback, Text}
-
-  @path Path.expand("../../../priv/commands/facts.json", __DIR__)
-  @external_resource @path
-  @facts :json.decode(File.read!(@path))
-  @structures MapSet.new(@facts["structures"])
-  @tags @facts["structure_tags"]
+  alias Valimc.Command.{Error, Feedback}
+  alias Valimc.Text
 
   @doc "`/locate structure <structure>` and `/locate biome <biome>`."
   def locate(%{literals: ["structure"]} = arguments, source), do: structure(arguments, source)
@@ -21,8 +16,8 @@ defmodule Valimc.Commands.Locate do
   defp structure(%{"structure" => target}, source) do
     {printable, members} =
       case target do
-        {:key, id} -> {id, if(id in @structures, do: [id])}
-        {:tag_key, id} -> {"#" <> id, @tags[id]}
+        {:key, id} -> {id, if(MapSet.member?(Valimc.Command.Facts.structures(), id), do: [id])}
+        {:tag_key, id} -> {"#" <> id, Valimc.Command.Facts.structure_tags()[id]}
       end
 
     unless members, do: Error.fail!("commands.locate.structure.invalid", [printable])

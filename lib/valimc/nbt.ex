@@ -260,6 +260,19 @@ defmodule Valimc.NBT do
     end
   end
 
+  @doc """
+  The tags of a list (`list/1`'s inverse): a mixed-type list's entries are
+  compounds, primitives wrapped under `""` (vanilla's `ListTag` network form).
+  """
+  def items({:list, {:compound, values}}),
+    do:
+      Enum.map(values, fn
+        %{"" => tag} = fields when map_size(fields) == 1 -> tag
+        fields -> {:compound, fields}
+      end)
+
+  def items({:list, {type, values}}), do: Enum.map(values, &{type, &1})
+
   @doc "Typed NBT comparison bytes: Mojang NaN equality, cached numeric zero and empty-list equality."
   def identity_key({type, value} = tag) do
     # Enforce the byte/node/depth budget before recursively visiting an input tree.

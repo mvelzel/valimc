@@ -66,7 +66,7 @@ defmodule Valimc.Net.Codec do
     payload =
       case {state.phase, message} do
         {:login, %Valimc.Protocol.ServerText{tag: tag}} ->
-          Wire.string(IO.iodata_to_binary(:json.encode(Valimc.Command.Text.to_json(tag))))
+          Wire.string(IO.iodata_to_binary(:json.encode(Valimc.Text.to_json(tag))))
 
         {:login, text} ->
           Wire.string(IO.iodata_to_binary(:json.encode(%{text: text})))

@@ -6,16 +6,10 @@ defmodule Valimc.Commands.World do
   and difficulty changes go through the environment owner (`World.Clock`);
   blocks go through region owners with fenced batches.
   """
-  alias Valimc.Command.{Error, Feedback, Names, Source, Text, BlockInput}
+  alias Valimc.Command.{Error, Feedback, Names, Source, BlockInput}
+  alias Valimc.Text
   alias Valimc.World.Clock
 
-  @facts :json.decode(File.read!(Path.expand("../../../priv/commands/facts.json", __DIR__)))
-  @external_resource Path.expand("../../../priv/commands/facts.json", __DIR__)
-  unless Valimc.Version.stamped?(@facts),
-    do: raise("Command facts are not from the pinned release")
-
-  @markers @facts["time_markers"]
-  @timelines @facts["timelines"]
   @int_max 2_147_483_647
 
   # ---- time ----
@@ -76,7 +70,7 @@ defmodule Valimc.Commands.World do
   defp time_set_marker(%{"timemarker" => marker} = arguments, source) do
     id = clock_id(arguments)
 
-    case @markers[marker] do
+    case Valimc.Command.Facts.time_markers()[marker] do
       %{"clock" => ^id, "ticks" => ticks} = facts ->
         total = clock(id).total_ticks
         period = facts["period"]
@@ -169,7 +163,7 @@ defmodule Valimc.Commands.World do
   # `/time query <timeline> [repetition]`.
   defp time_query_timeline(%{"timeline" => timeline} = arguments, source, repetition) do
     id = clock_id(arguments)
-    facts = @timelines[timeline]
+    facts = Valimc.Command.Facts.timelines()[timeline]
 
     if facts["clock"] != id,
       do: Error.fail!("commands.time.wrong_timeline_for_clock", [timeline, id])

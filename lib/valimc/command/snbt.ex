@@ -487,7 +487,7 @@ defmodule Valimc.Command.Snbt do
   end
 
   defp operation("uuid", [{:string, text}], state) do
-    case Valimc.Command.Selector.uuid(text) do
+    case Valimc.UUID.parse(text) do
       {:ok, uuid} -> {{:int_array, uuid}, state}
       :error -> {nil, store(state, mark(state), delayed("expected_string_uuid"))}
     end
@@ -642,12 +642,12 @@ defmodule Valimc.Command.Snbt do
   def to_string({:short, v}), do: "#{v}s"
   def to_string({:int, v}), do: "#{v}"
   def to_string({:long, v}), do: "#{v}L"
-  def to_string({:float, <<v::float-32>>}), do: "#{java_float(v)}f"
-  def to_string({:double, <<v::float-64>>}), do: "#{java_float(v)}d"
+  def to_string({:float, <<v::float-32>>}), do: "#{Valimc.Text.Number.java(v, 32)}f"
+  def to_string({:double, <<v::float-64>>}), do: "#{Valimc.Text.Number.java(v, 64)}d"
   def to_string({:string, text}), do: quote_string(text)
 
   def to_string({:list, _} = list),
-    do: "[" <> Enum.map_join(list_tags(list), ",", &__MODULE__.to_string/1) <> "]"
+    do: "[" <> Enum.map_join(Valimc.NBT.items(list), ",", &__MODULE__.to_string/1) <> "]"
 
   def to_string({:compound, map}),
     do:
@@ -665,15 +665,6 @@ defmodule Valimc.Command.Snbt do
   def to_string({:long_array, bin}),
     do: "[L;" <> Enum.map_join(for(<<v::signed-64 <- bin>>, do: v), ",", &"#{&1}L") <> "]"
 
-  defp list_tags({:list, {:compound, values}}),
-    do:
-      Enum.map(values, fn
-        %{"" => tag} = f when map_size(f) == 1 -> tag
-        f -> {:compound, f}
-      end)
-
-  defp list_tags({:list, {type, values}}), do: Enum.map(values, &{type, &1})
-
   defp key(k),
     do:
       if(Regex.match?(~r/\A[A-Za-z._]+[A-Za-z0-9._+-]*\z/, k) and k not in ["true", "false"],
@@ -688,7 +679,4 @@ defmodule Valimc.Command.Snbt do
     escaped = text |> String.replace("\\", "\\\\") |> String.replace(quote, "\\" <> quote)
     quote <> escaped <> quote
   end
-
-  defp java_float(v) when v == trunc(v) and abs(v) < 1.0e7, do: "#{trunc(v)}.0"
-  defp java_float(v), do: Float.to_string(v)
 end

@@ -676,9 +676,7 @@ defmodule Valimc.Session.Messages do
           _ when idle > 0 and now - state.last_action > idle * 60_000 ->
             reject(
               state,
-              Valimc.Command.Text.encode(
-                Valimc.Command.Text.translatable("multiplayer.disconnect.idling")
-              )
+              Valimc.Text.encode(Valimc.Text.translatable("multiplayer.disconnect.idling"))
             )
 
           nil ->

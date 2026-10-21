@@ -1,14 +1,7 @@
 defmodule Valimc.Protocol.ItemData do
   @moduledoc "Data-format component patches for server-authored item hovers."
-  alias Valimc.Protocol.{
-    EffectTypes,
-    Enchantments,
-    ItemStack,
-    LootComponents,
-    ItemTypes,
-    TextComponent,
-    Wire
-  }
+  alias Valimc.Text.Codec
+  alias Valimc.Protocol.{EffectTypes, Enchantments, ItemStack, LootComponents, ItemTypes, Wire}
 
   alias Valimc.NBT
 
@@ -90,6 +83,114 @@ defmodule Valimc.Protocol.ItemData do
   end
 
   def stack(_), do: {:error, :invalid_item_tag}
+
+  @int_max 2_147_483_647
+
+  @doc """
+  A component value as a command writes it (SNBT in `/give`, item predicates;
+  vanilla's `ItemParser.readComponent`), decoded as the data format reads it
+  (VMC-077o): `{:ok, value}`, `{:error, message}` with the codec's message, or
+  `:unsupported` for a component ValiMC's stacks cannot hold.
+  """
+  def decode_component(name, tag) do
+    case ItemStack.codec(name) do
+      nil -> :unsupported
+      {:varint, min, max} when name != "minecraft:rarity" -> int(tag, min, max)
+      kind when kind in [:unit, :nbt_unit] -> {:ok, :unit}
+      :bool -> bool(tag)
+      :nbt_compound -> if match?({:compound, _}, tag), do: {:ok, tag}, else: :unsupported
+      :text -> text(tag)
+      :lore -> lore(tag)
+      _ -> structured(name, tag)
+    end
+  end
+
+  # `Codec.INT` over `NbtOps` (any number, as Java's `intValue()`) within the
+  # codec's range, with `ExtraCodecs`' messages.
+  defp int(tag, min, max) do
+    case int_value(tag) do
+      nil ->
+        {:error, "Not a number"}
+
+      value when value >= min and value <= max ->
+        {:ok, value}
+
+      value ->
+        {:error,
+         case {min, max} do
+           {0, @int_max} -> "Value must be non-negative: #{value}"
+           {1, @int_max} -> "Value must be positive: #{value}"
+           _ -> "Value must be within range [#{min};#{max}]: #{value}"
+         end}
+    end
+  end
+
+  defp int_value({type, value}) when type in [:byte, :short, :int], do: value
+
+  defp int_value({:long, value}) do
+    <<int::signed-32>> = <<value::32>>
+    int
+  end
+
+  defp int_value({:float, <<value::float-32>>}), do: saturate(value)
+  defp int_value({:double, <<value::float-64>>}), do: saturate(value)
+  defp int_value(_), do: nil
+
+  defp saturate(value), do: value |> trunc() |> max(-2_147_483_648) |> min(@int_max)
+
+  defp bool(tag) do
+    case int_value(tag) do
+      nil -> {:error, "Not a number"}
+      value -> {:ok, Bitwise.band(value, 0xFF) != 0}
+    end
+  end
+
+  # Text components through the one text codec; item text cannot hold events.
+  defp text(tag) do
+    with {:ok, component} <- Codec.decode(tag) do
+      case Codec.check(component) do
+        {:ok, _} -> {:ok, component}
+        :unsupported -> :unsupported
+        {:error, reason} -> {:error, "Invalid text: #{inspect(reason)}"}
+      end
+    end
+  end
+
+  defp lore({:list, _} = list) do
+    Enum.reduce_while(NBT.items(list), {:ok, []}, fn line, {:ok, lines} ->
+      case text(line) do
+        {:ok, component} -> {:cont, {:ok, [component | lines]}}
+        other -> {:halt, other}
+      end
+    end)
+    |> case do
+      {:ok, lines} ->
+        lines = Enum.reverse(lines)
+        if Codec.valid_lore?(lines), do: {:ok, lines}, else: {:error, "Too many lore lines"}
+
+      other ->
+        other
+    end
+  end
+
+  defp lore(_tag), do: {:error, "Not a list"}
+
+  # The data format's reader, kept only when the stack it makes encodes.
+  defp structured(name, tag) do
+    value = from_tag(name, tag)
+
+    ItemStack.encode(%ItemStack{
+      item_id: ItemTypes.id("stone"),
+      count: 1,
+      components: %{name => value}
+    })
+
+    {:ok, value}
+  rescue
+    _ -> {:error, "Invalid #{name} value"}
+  catch
+    _, _ -> {:error, "Invalid #{name} value"}
+  end
 
   defp item_id(name) do
     {:ok, ItemTypes.id(name)}
@@ -234,17 +335,12 @@ defmodule Valimc.Protocol.ItemData do
   defp flag({:byte, value}, _) when value in [0, 1], do: value == 1
 
   # List elements as tags; vanilla unwraps `{"": tag}` compound elements on load.
-  defp elements({:list, {type, values}}) do
-    Enum.map(values, fn
-      %{"" => tag} = wrapper when type == :compound and map_size(wrapper) == 1 -> tag
-      value -> {type, value}
-    end)
-  end
+  defp elements(list), do: NBT.items(list)
 
   def named_display(nil), do: nil
 
   def named_display(%ItemStack{} = stack) do
-    case effective(stack, "minecraft:custom_name", nil, &TextComponent.take/1) do
+    case effective(stack, "minecraft:custom_name", nil, &Codec.take/1) do
       nil ->
         nil
 

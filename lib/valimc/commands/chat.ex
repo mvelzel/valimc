@@ -5,7 +5,8 @@ defmodule Valimc.Commands.Chat do
   bound to the command's chat type and the sender's display name.
   """
   require Logger
-  alias Valimc.Command.{Dispatcher, Error, Feedback, Reader, Source, Text}
+  alias Valimc.Command.{Dispatcher, Error, Feedback, Reader, Source}
+  alias Valimc.Text
   alias Valimc.Protocol.{Data, Packets, Wire}
 
   @doc """
@@ -116,7 +117,7 @@ defmodule Valimc.Commands.Chat do
         do: "chat.type.emote",
         else: "chat.type.announcement"
 
-    Logger.info(Valimc.Command.Render.string(Text.translatable(decoration, [name, content])))
+    Logger.info(Valimc.Text.Render.string(Text.translatable(decoration, [name, content])))
     1
   end
 
@@ -134,7 +135,7 @@ defmodule Valimc.Commands.Chat do
         do: Valimc.Connection.deliver(source.player.pid, {:packet, outgoing}),
         else:
           Logger.info(
-            Valimc.Command.Render.string(
+            Valimc.Text.Render.string(
               Text.translatable("commands.message.display.outgoing", [
                 Source.display_name(target),
                 content
@@ -209,7 +210,7 @@ defmodule Valimc.Commands.Chat do
     list_players(source, fn player ->
       Text.translatable("commands.list.nameAndId", [
         Text.literal(player.name),
-        Text.literal(uuid(player.uuid))
+        Text.literal(Valimc.UUID.to_string(player.uuid))
       ])
     end)
   end
@@ -243,7 +244,4 @@ defmodule Valimc.Commands.Chat do
     Feedback.success(source, message, false)
     length(players)
   end
-
-  defp uuid(<<a::binary-4, b::binary-2, c::binary-2, d::binary-2, e::binary-6>>),
-    do: Enum.map_join([a, b, c, d, e], "-", &Base.encode16(&1, case: :lower))
 end

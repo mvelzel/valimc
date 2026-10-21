@@ -197,8 +197,7 @@ defmodule Valimc.Player.CommandOps do
     if Transfers.inventory_pending?(state),
       do:
         Error.throw!(%Error{
-          message:
-            Valimc.Command.Text.literal("An inventory transaction is in progress; try again")
+          message: Valimc.Text.literal("An inventory transaction is in progress; try again")
         })
   end
 

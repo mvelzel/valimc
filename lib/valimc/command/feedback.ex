@@ -7,7 +7,8 @@ defmodule Valimc.Command.Feedback do
   command sent them (commands run beside the connection, VMC-077a).
   """
   require Logger
-  alias Valimc.Command.{Error, Source, Text}
+  alias Valimc.Command.{Error, Source}
+  alias Valimc.Text
 
   def success(%Source{} = source, component, broadcast \\ true) do
     show(source, component)
@@ -22,14 +23,14 @@ defmodule Valimc.Command.Feedback do
 
   # The console prints the English text (`sendSystemMessage` logs `getString`).
   defp show(%Source{kind: :console}, component),
-    do: Logger.info(Valimc.Command.Render.string(component))
+    do: Logger.info(Valimc.Text.Render.string(component))
 
   # RCON collects the text for its reply (`RconConsoleSource` appends each
   # message's string, without separators).
   defp show(%Source{kind: :rcon}, component) do
     Process.put(:valimc_rcon_output, [
       Process.get(:valimc_rcon_output, []),
-      Valimc.Command.Render.string(component)
+      Valimc.Text.Render.string(component)
     ])
   end
 
@@ -43,7 +44,7 @@ defmodule Valimc.Command.Feedback do
 
   @doc "A message from the server console: logged and shown to operators as `[Server: ...]`."
   def console(component) do
-    Logger.info("[Server] " <> Valimc.Command.Render.string(component))
+    Logger.info("[Server] " <> Valimc.Text.Render.string(component))
 
     if Valimc.Command.GameRules.get(:send_command_feedback) do
       message =
@@ -69,7 +70,7 @@ defmodule Valimc.Command.Feedback do
       Text.translatable("chat.type.admin", [Source.display_name(source), component])
       |> Text.style([{"color", "gray"}, {"italic", true}])
 
-    unless Source.console?(source), do: Logger.info(Valimc.Command.Render.string(message))
+    unless Source.console?(source), do: Logger.info(Valimc.Text.Render.string(message))
 
     if inform_admins?(source) do
       for player <- Valimc.Players.all(),

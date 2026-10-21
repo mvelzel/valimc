@@ -5,7 +5,8 @@ defmodule Valimc.Commands.Blocks do
   `Valimc.World.ForcedChunks`. Block writes are fenced per region owner, as
   `/fill` does.
   """
-  alias Valimc.Command.{BlockInput, Error, Feedback, Source, Text}
+  alias Valimc.Command.{BlockInput, Error, Feedback, Source}
+  alias Valimc.Text
   alias Valimc.Registry.Blocks
   alias Valimc.World.ForcedChunks
 

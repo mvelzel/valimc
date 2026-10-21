@@ -298,7 +298,7 @@ defmodule Valimc.Command.Arguments do
     start = reader.cursor
     {tag, after_tag} = Valimc.Command.Snbt.parse(reader)
 
-    case Valimc.Command.ComponentCodec.decode(tag) do
+    case Valimc.Text.Codec.decode(tag) do
       {:ok, component} ->
         {component, after_tag}
 

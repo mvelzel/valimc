@@ -5,7 +5,8 @@ defmodule Valimc.Commands.Players do
   classes. Each target applies its change in its own connection, all at once
   (`Valimc.Commands.Remote`); messages follow `CommandResponseTracker`.
   """
-  alias Valimc.Command.{Coordinates, Error, Feedback, GameRules, Names, Source, Text}
+  alias Valimc.Command.{Coordinates, Error, Feedback, GameRules, Names, Source}
+  alias Valimc.Text
   alias Valimc.Commands.Remote
   alias Valimc.Player.CommandOps
   alias Valimc.Protocol.{EffectTypes, ItemStack}
@@ -156,7 +157,7 @@ defmodule Valimc.Commands.Players do
             {:teleport, Map.put(pose, :dimension, source.dimension)}
           end)
 
-        coordinates = Enum.map([x, y, z], &format_double/1)
+        coordinates = Enum.map([x, y, z], &Valimc.Text.Number.fixed(&1 * 1.0, 6))
 
         total =
           respond(source, Enum.map(tracked, &{elem(&1, 0), 1}), true,
@@ -214,9 +215,6 @@ defmodule Valimc.Commands.Players do
     by >= -20_000_000 and by < 20_000_000 and bx >= -30_000_000 and bx < 30_000_000 and
       bz >= -30_000_000 and bz < 30_000_000
   end
-
-  @doc "Java `String.format(Locale.ROOT, \"%f\", value)`."
-  def format_double(value), do: :erlang.float_to_binary(value * 1.0, decimals: 6)
 
   # ---- give ----
 

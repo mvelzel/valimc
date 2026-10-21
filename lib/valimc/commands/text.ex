@@ -3,7 +3,8 @@ defmodule Valimc.Commands.Text do
   Text and presentation commands (VMC-053i): `tellraw` and `title`, with text
   resolved per recipient (`Valimc.Command.ComponentResolver`).
   """
-  alias Valimc.Command.{ComponentResolver, Feedback, Source, Text}
+  alias Valimc.Command.{ComponentResolver, Feedback, Source}
+  alias Valimc.Text
   alias Valimc.Protocol.{Packets, Wire}
 
   defp deliver(%{pid: pid}, packets),

@@ -1,6 +1,9 @@
-defmodule Valimc.Command.Text do
+defmodule Valimc.Text do
   @moduledoc """
-  Server-authored text components for command feedback (VMC-053), as network NBT.
+  Server-authored text components (VMC-053, VMC-077o), as network NBT: command
+  feedback, disconnect reasons, join and death messages. One text model:
+  `Valimc.Text.Codec` reads and validates components, `Valimc.Text.Render`
+  prints them in English.
 
   Builders mirror vanilla's `Component` constructors so the client decodes the
   same component structure vanilla sends: `literal/1`, `translatable/2`
@@ -45,20 +48,11 @@ defmodule Valimc.Command.Text do
     extra =
       case fields["extra"] do
         nil -> [child]
-        {:list, {_, _}} = list -> list_tags(list) ++ [child]
+        {:list, {_, _}} = list -> NBT.items(list) ++ [child]
       end
 
     {:compound, Map.put(fields, "extra", NBT.list(extra))}
   end
-
-  defp list_tags({:list, {:compound, values}}),
-    do:
-      Enum.map(values, fn
-        %{"" => tag} = fields when map_size(fields) == 1 -> tag
-        fields -> {:compound, fields}
-      end)
-
-  defp list_tags({:list, {type, values}}), do: Enum.map(values, &{type, &1})
 
   @doc "Merges style fields (`color`, `bold`, `click_event`, ...) where unset, like `withStyle`."
   def style({:compound, fields}, styles) do
@@ -107,15 +101,12 @@ defmodule Valimc.Command.Text do
 
     case fields["extra"] do
       nil -> own
-      list -> own <> Enum.map_join(list_tags(list), &plain/1)
+      list -> own <> Enum.map_join(NBT.items(list), &plain/1)
     end
   end
 
   def plain({:string, text}), do: text
   def plain(_), do: ""
-
-  @doc "The tags of an NBT list (`with`, `extra`)."
-  def list_items(list), do: list_tags(list)
 
   @doc "The component as JSON terms, for the login phase, which sends text as JSON."
   def to_json({:compound, fields}),
@@ -128,7 +119,7 @@ defmodule Valimc.Command.Text do
   defp json_value(_key, {:compound, _} = tag), do: to_json(tag)
   defp json_value(_key, {:string, value}), do: value
   defp json_value(_key, {type, value}) when type in [:byte, :short, :int, :long], do: value
-  defp json_value(_key, {:list, _} = list), do: Enum.map(list_tags(list), &json_value("", &1))
+  defp json_value(_key, {:list, _} = list), do: Enum.map(NBT.items(list), &json_value("", &1))
   defp json_value(_key, {:float, <<value::float-32>>}), do: value
   defp json_value(_key, {:double, <<value::float-64>>}), do: value
   defp json_value(_key, {:int_array, bytes}), do: for(<<value::signed-32 <- bytes>>, do: value)

@@ -31,12 +31,12 @@ defmodule Valimc.Protocol.ItemTypes do
                   key =
                     case name do
                       name when name in ["minecraft:custom_name", "minecraft:item_name"] ->
-                        {tag, <<>>} = Valimc.Protocol.TextComponent.take(bytes)
-                        Valimc.Protocol.TextComponent.identity_key(tag)
+                        {tag, <<>>} = Valimc.Text.Codec.take(bytes)
+                        Valimc.Text.Codec.identity_key(tag)
 
                       "minecraft:lore" ->
-                        {lines, <<>>} = Valimc.Protocol.TextComponent.take_lore(bytes)
-                        Valimc.Protocol.TextComponent.lore_key(lines)
+                        {lines, <<>>} = Valimc.Text.Codec.take_lore(bytes)
+                        Valimc.Text.Codec.lore_key(lines)
 
                       "minecraft:custom_data" ->
                         {:ok, tag} = Valimc.NBT.decode(bytes)

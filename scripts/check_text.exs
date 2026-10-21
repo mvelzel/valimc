@@ -1,4 +1,5 @@
-alias Valimc.Protocol.{ItemStack, TextComponent}
+alias Valimc.Text.Codec
+alias Valimc.Protocol.ItemStack
 alias Valimc.NBT
 [path, output] = System.argv()
 facts = :json.decode(File.read!(path))
@@ -8,7 +9,7 @@ for fixture <- facts["lore"] do
 
   result =
     try do
-      {lines, <<>>} = TextComponent.take_lore(bytes)
+      {lines, <<>>} = Codec.take_lore(bytes)
       length(lines) == fixture["count"]
     catch
       {:text_error, _} -> false
@@ -21,7 +22,7 @@ end
 keys =
   for fixture <- facts["fixtures"] do
     {:ok, tag} = fixture["input"] |> Base.decode16!(case: :lower) |> NBT.decode()
-    actual = TextComponent.check(tag)
+    actual = Codec.check(tag)
 
     cond do
       not fixture["supported"] ->
@@ -32,7 +33,7 @@ keys =
         {:ok, key} = actual
         {:ok, canonical} = fixture["canonical"] |> Base.decode16!(case: :lower) |> NBT.decode()
 
-        if TextComponent.identity_key(canonical) != key,
+        if Codec.identity_key(canonical) != key,
           do: raise("Canonical text identity differs: #{fixture["name"]}")
 
         key
@@ -76,7 +77,7 @@ encoded =
       [
         %{
           index: index,
-          text: hex.(TextComponent.encode(tag)),
+          text: hex.(Codec.encode(tag)),
           stack: hex.(ItemStack.encode(stack)),
           untrusted: hex.(ItemStack.encode(stack, :untrusted))
         }

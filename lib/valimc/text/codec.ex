@@ -1,21 +1,56 @@
-defmodule Valimc.Command.ComponentCodec do
+defmodule Valimc.Text.Codec do
   @moduledoc """
-  Vanilla's text component codec over SNBT tags (VMC-053i), for the `component`
-  argument: `ComponentSerialization.CODEC` with DFU's error messages.
+  Vanilla's text component codec (`ComponentSerialization.CODEC`) over NBT
+  tags, one module for every reader of text (VMC-077o).
 
-  A component is a string, a non-empty list (first element plus siblings) or a
-  compound whose contents are chosen by `type` or, without it, by the first of
-  text, translatable, keybind, score, selector, nbt and object that decodes,
-  with optional `extra` and the style fields. Decoding yields a normalised
-  compound (`text`/`translate`/... plus `extra` and style) ready to resolve and
-  send. Errors follow DFU: `either` reports a partial branch's error alone, else
-  `Failed to parse either. First: ...; Second: ...`; records and lists list
-  failures last first.
+  - `decode/1` reads a component as the command `component` argument does
+    (VMC-053i), with DFU's error messages, into a normalised compound ready to
+    resolve and send. A component is a string, a non-empty list (first element
+    plus siblings) or a compound whose contents are chosen by `type` or,
+    without it, by the first of text, translatable, keybind, score, selector,
+    nbt and object that decodes, with optional `extra` and the style fields.
+    Errors follow DFU: `either` reports a partial branch's error alone, else
+    `Failed to parse either. First: ...; Second: ...`; records and lists list
+    failures last first.
+  - `check/1`, `identity_key/1` and the lore variants bound and validate item
+    text (custom names, item names, lore) and give its semantic identity:
+    contents, resolved style and siblings, so stacks whose text means the
+    same compare equal. Click and hover events, scores, selectors, NBT and
+    object contents are `:unsupported` on items. `take/1` and `encode/1` read
+    and write it on the wire.
   """
+  import Bitwise
   alias Valimc.Command.Snbt
+  alias Valimc.NBT
+  alias Valimc.Protocol.Wire
 
-  @colors ~w(black dark_blue dark_green dark_aqua dark_red dark_purple gold gray dark_gray blue green aqua red light_purple yellow white)
   @booleans ~w(bold italic underlined strikethrough obfuscated)
+  @colors Map.new(
+            Enum.zip(
+              ~w(black dark_blue dark_green dark_aqua dark_red dark_purple gold gray dark_gray blue green aqua red light_purple yellow white),
+              [
+                0x000000,
+                0x0000AA,
+                0x00AA00,
+                0x00AAAA,
+                0xAA0000,
+                0xAA00AA,
+                0xFFAA00,
+                0xAAAAAA,
+                0x555555,
+                0x5555FF,
+                0x55FF55,
+                0x55FFFF,
+                0xFF5555,
+                0xFF55FF,
+                0xFFFF55,
+                0xFFFFFF
+              ]
+            )
+          )
+  @numbers [:byte, :short, :int, :long, :float, :double]
+
+  # ---- decode (command arguments) ----
 
   @doc "`{:ok, component}` or `{:error, message}`."
   def decode(tag) do
@@ -56,7 +91,7 @@ defmodule Valimc.Command.ComponentCodec do
   defp string(_), do: {:error, "Not a string", false}
 
   defp list({:list, _} = list) do
-    elements = list_tags(list)
+    elements = NBT.items(list)
     results = Enum.map(elements, &component/1)
     errors = for {:error, message, _} <- Enum.reverse(results), do: message
     # `nonEmptyList` validates the decoded (successful) elements.
@@ -78,10 +113,10 @@ defmodule Valimc.Command.ComponentCodec do
     extra =
       case fields["extra"] do
         nil -> [child]
-        list -> list_tags(list) ++ [child]
+        list -> NBT.items(list) ++ [child]
       end
 
-    {:compound, Map.put(fields, "extra", Valimc.NBT.list(extra))}
+    {:compound, Map.put(fields, "extra", NBT.list(extra))}
   end
 
   # FULL := record{contents, extra, style}; partial once the contents decode.
@@ -111,7 +146,7 @@ defmodule Valimc.Command.ComponentCodec do
 
   defp keys(fields), do: Map.keys(fields)
 
-  # ---- contents ----
+  # ---- decode: contents ----
 
   @types ~w(text translatable keybind score selector nbt object)
 
@@ -239,7 +274,7 @@ defmodule Valimc.Command.ComponentCodec do
 
   defp with_args({:list, _} = list) do
     list
-    |> list_tags()
+    |> NBT.items()
     |> Enum.reduce_while({:ok, []}, fn
       {type, _} = primitive, {:ok, acc}
       when type in [:string, :byte, :short, :int, :long, :float, :double] ->
@@ -252,14 +287,14 @@ defmodule Valimc.Command.ComponentCodec do
         end
     end)
     |> case do
-      {:ok, args} -> {:ok, Valimc.NBT.list(Enum.reverse(args))}
+      {:ok, args} -> {:ok, NBT.list(Enum.reverse(args))}
       error -> error
     end
   end
 
   defp with_args(tag), do: {:error, "Not a list: #{Snbt.to_string(tag)}"}
 
-  # ---- extra and style ----
+  # ---- decode: extra and style ----
 
   defp extra_errors(fields) do
     case fields["extra"] do
@@ -284,8 +319,7 @@ defmodule Valimc.Command.ComponentCodec do
 
       list ->
         %{
-          "extra" =>
-            Valimc.NBT.list(Enum.map(list_tags(list), fn tag -> elem(component(tag), 1) end))
+          "extra" => NBT.list(Enum.map(NBT.items(list), fn tag -> elem(component(tag), 1) end))
         }
     end
   end
@@ -314,7 +348,7 @@ defmodule Valimc.Command.ComponentCodec do
   end
 
   defp style_error("color", {:string, color}),
-    do: if(color in @colors, do: nil, else: "Invalid color name: #{color}")
+    do: if(Map.has_key?(@colors, color), do: nil, else: "Invalid color name: #{color}")
 
   defp style_error("color", _), do: "Not a string"
 
@@ -468,12 +502,324 @@ defmodule Valimc.Command.ComponentCodec do
     end)
   end
 
-  defp list_tags({:list, {:compound, values}}),
+  # ---- items: bounds, validity and identity ----
+
+  def check(tag),
     do:
-      Enum.map(values, fn
-        %{"" => tag} = f when map_size(f) == 1 -> tag
-        f -> {:compound, f}
+      protect(fn ->
+        bounded([tag])
+        semantic(tag)
       end)
 
-  defp list_tags({:list, {type, values}}), do: Enum.map(values, &{type, &1})
+  def check_lore(lines),
+    do:
+      protect(fn ->
+        bounded_lore(lines)
+        Enum.map(lines, &semantic/1)
+      end)
+
+  def identity_key(tag), do: key!(check(tag))
+  def lore_key(lines), do: key!(check_lore(lines))
+  def valid?(tag), do: match?({:ok, _}, check(tag))
+  def valid_lore?(lines), do: match?({:ok, _}, check_lore(lines))
+
+  def take(bytes) do
+    with {:ok, tag, rest} <- NBT.take(bytes) do
+      {checked_value(check(tag), tag), rest}
+    else
+      {:error, reason} -> fail({:nbt, reason})
+    end
+  end
+
+  def take_lore(bytes) do
+    {count, rest} = Wire.take_varint(bytes)
+    require!(count in 0..256, :lore_line_limit)
+    {lines, rest, _} = read_lines(rest, count, [], byte_size(bytes), 1024)
+    {checked_value(check_lore(lines), lines), rest}
+  end
+
+  def encode(tag) do
+    identity_key(tag)
+    NBT.encode(tag)
+  end
+
+  def encode_lore(lines) do
+    lore_key(lines)
+    [Wire.varint(length(lines)), Enum.map(lines, &NBT.encode/1)]
+  end
+
+  defp key!({:ok, key}), do: key
+  defp key!(:unsupported), do: fail(:unsupported_text)
+  defp key!({:error, reason}), do: fail(reason)
+  defp checked_value({:ok, _}, value), do: value
+  defp checked_value(:unsupported, _), do: :unsupported
+  defp checked_value({:error, reason}, _), do: fail(reason)
+
+  defp protect(fun) do
+    {:ok, fun.()}
+  rescue
+    _ in [ArgumentError, MatchError, FunctionClauseError] -> {:error, :invalid_text}
+  catch
+    {:text_error, :unsupported_text} -> :unsupported
+    {:text_error, reason} -> {:error, reason}
+    {:nbt_error, reason} -> {:error, {:nbt, reason}}
+  end
+
+  defp bounded_lore(lines) do
+    require!(is_list(lines) and length(lines) <= 256, :lore_line_limit)
+    bounded(lines)
+  end
+
+  defp bounded(tags) do
+    Enum.reduce(tags, {65_536, 1024}, fn tag, {bytes, nodes} ->
+      size = IO.iodata_length(NBT.encode(tag))
+      require!(size <= bytes, :text_byte_limit)
+      {bytes - size, count_nodes(tag, nodes)}
+    end)
+  end
+
+  defp count_nodes(tag, nodes) do
+    require!(nodes > 0, :text_node_limit)
+    nodes = nodes - 1
+
+    case tag do
+      {:compound, values} ->
+        Enum.reduce(values, nodes, fn {_, child}, n -> count_nodes(child, n) end)
+
+      {:list, {type, values}} ->
+        Enum.reduce(values, nodes, &count_nodes({type, &1}, &2))
+
+      {type, bytes} when type in [:byte_array, :int_array, :long_array] ->
+        width = %{byte_array: 1, int_array: 4, long_array: 8}[type]
+        remaining = nodes - div(byte_size(bytes), width)
+        require!(remaining >= 0, :text_node_limit)
+        remaining
+
+      _ ->
+        nodes
+    end
+  end
+
+  defp read_lines(bytes, 0, lines, _, _), do: {Enum.reverse(lines), bytes, :ok}
+
+  defp read_lines(bytes, count, lines, size, nodes) do
+    require!(size - byte_size(bytes) <= 65_536, :text_byte_limit)
+
+    case NBT.take(bytes) do
+      {:ok, tag, rest} ->
+        require!(size - byte_size(rest) <= 65_536, :text_byte_limit)
+        read_lines(rest, count - 1, [tag | lines], size, count_nodes(tag, nodes))
+
+      {:error, reason} ->
+        fail({:nbt, reason})
+    end
+  end
+
+  # ---- identity: vanilla's component semantics as a comparable key ----
+
+  defp semantic({:string, text}), do: {{:text, text}, %{}, []}
+
+  defp semantic({:compound, fields}) do
+    contents = semantic_contents(fields)
+    style = semantic_style(fields)
+
+    extra =
+      case Map.fetch(fields, "extra") do
+        :error -> []
+        {:ok, tag} -> tag |> sequence() |> nonempty!() |> Enum.map(&semantic/1)
+      end
+
+    {contents, style, extra}
+  end
+
+  defp semantic(tag) do
+    [first | others] = tag |> sequence() |> nonempty!() |> Enum.map(&semantic/1)
+    {contents, style, siblings} = first
+    {contents, style, siblings ++ others}
+  end
+
+  defp semantic_contents(fields) do
+    case Map.fetch(fields, "type") do
+      {:ok, {:string, type}} -> semantic_contents(type, fields)
+      {:ok, _} -> fail(:invalid_text)
+      :error -> semantic_legacy(fields)
+    end
+  end
+
+  defp semantic_legacy(fields) do
+    # Vanilla tries complete content codecs in order, not just matching field names.
+    key =
+      Enum.reduce_while(~w(text translatable keybind), :none, fn type, _ ->
+        case protect(fn -> semantic_contents(type, fields) end) do
+          {:ok, key} -> {:halt, key}
+          :unsupported -> fail(:unsupported_text)
+          {:error, _} -> {:cont, :none}
+        end
+      end)
+
+    if key == :none do
+      if Enum.any?(~w(score selector nbt object), &Map.has_key?(fields, &1)),
+        do: fail(:unsupported_text),
+        else: fail(:invalid_text)
+    else
+      key
+    end
+  end
+
+  defp semantic_contents(type, fields) do
+    case type do
+      "text" ->
+        {:text, string!(fields["text"])}
+
+      "translatable" ->
+        key = string!(fields["translate"])
+
+        fallback =
+          case fields["fallback"] do
+            {:string, value} -> value
+            _ -> nil
+          end
+
+        args =
+          case Map.fetch(fields, "with") do
+            :error -> []
+            {:ok, value} -> Enum.map(sequence(value), &semantic_argument/1)
+          end
+
+        {:translate, key, fallback, args}
+
+      "keybind" ->
+        {:keybind, string!(fields["keybind"])}
+
+      type when type in ~w(score selector nbt object) ->
+        fail(:unsupported_text)
+
+      _ ->
+        fail(:invalid_text)
+    end
+  end
+
+  defp semantic_argument({:string, value}), do: {:string, value}
+
+  defp semantic_argument({type, _} = tag) when type in @numbers,
+    do: {:number, type, NBT.identity_key(tag)}
+
+  defp semantic_argument(tag) do
+    case semantic(tag) do
+      {{:text, value}, style, []} when map_size(style) == 0 -> {:string, value}
+      key -> {:component, key}
+    end
+  end
+
+  defp semantic_style(fields) do
+    require!(
+      not Enum.any?(~w(click_event hover_event), &Map.has_key?(fields, &1)),
+      :unsupported_text
+    )
+
+    for field <- @booleans ++ ~w(color shadow_color insertion font),
+        Map.has_key?(fields, field),
+        into: %{} do
+      tag = fields[field]
+
+      value =
+        cond do
+          field in @booleans -> number!(tag) != 0
+          field == "color" -> color_value(string!(tag))
+          field == "shadow_color" -> shadow(tag)
+          field == "insertion" -> string!(tag)
+          field == "font" -> font(string!(tag))
+        end
+
+      {field, value}
+    end
+  end
+
+  defp color_value("#" <> hex) do
+    case Integer.parse(hex, 16) do
+      {value, ""} when value in 0..0xFFFFFF -> value
+      _ -> fail(:invalid_text_color)
+    end
+  end
+
+  defp color_value(name), do: Map.get(@colors, name) || fail(:invalid_text_color)
+
+  defp font(value) do
+    {namespace, path} =
+      case String.split(value, ":", parts: 2) do
+        [path] -> {"minecraft", path}
+        ["", path] -> {"minecraft", path}
+        [ns, path] -> {ns, path}
+      end
+
+    require!(
+      Regex.match?(~r/\A[a-z0-9_.-]+\z/, namespace) and
+        Regex.match?(~r/\A[a-z0-9_\/.\-]*\z/, path),
+      :invalid_text_font
+    )
+
+    namespace <> ":" <> path
+  end
+
+  defp shadow({type, _} = tag) when type in @numbers, do: int32(number!(tag), type)
+
+  defp shadow(tag) do
+    [r, g, b, a] = Enum.map(sequence(tag), &channel/1)
+    signed32(a <<< 24 ||| r <<< 16 ||| g <<< 8 ||| b)
+  end
+
+  defp channel(tag) do
+    value = float32(number!(tag))
+    product = if is_number(value), do: float32(value * 255.0), else: value
+    integer = int32(product, :float)
+    # Mth.floor subtracts one from the Java float-to-int cast for negative fractions.
+    integer =
+      if product == :negative_infinity or (is_number(product) and product < integer),
+        do: signed32(integer - 1),
+        else: integer
+
+    integer &&& 255
+  end
+
+  defp float32(value) when is_number(value) do
+    {:float, raw} = NBT.float(value)
+    number!({:float, raw})
+  end
+
+  defp float32(value), do: value
+
+  defp int32(value, type) when type in [:byte, :short, :int, :long], do: signed32(value)
+  defp int32(:nan, _), do: 0
+  defp int32(:positive_infinity, _), do: 2_147_483_647
+  defp int32(:negative_infinity, _), do: -2_147_483_648
+  defp int32(value, _), do: min(2_147_483_647, max(-2_147_483_648, trunc(value)))
+
+  defp signed32(value) do
+    <<number::signed-32>> = <<value &&& 0xFFFFFFFF::32>>
+    number
+  end
+
+  defp number!({type, value}) when type in [:byte, :short, :int, :long], do: value
+  defp number!({:float, <<sign::1, 255::8, mantissa::23>>}), do: special(sign, mantissa)
+  defp number!({:double, <<sign::1, 2047::11, mantissa::52>>}), do: special(sign, mantissa)
+  defp number!({:float, <<value::float-32>>}), do: value
+  defp number!({:double, <<value::float-64>>}), do: value
+  defp number!(_), do: fail(:invalid_text_number)
+  defp special(_, mantissa) when mantissa != 0, do: :nan
+  defp special(0, 0), do: :positive_infinity
+  defp special(1, 0), do: :negative_infinity
+  defp string!({:string, value}), do: value
+  defp string!(_), do: fail(:invalid_text)
+
+  # ListTag's mixed-type network representation wraps primitive entries in "".
+  defp sequence({:list, _} = list), do: NBT.items(list)
+  defp sequence({:byte_array, bytes}), do: for(<<value::signed-8 <- bytes>>, do: {:byte, value})
+  defp sequence({:int_array, bytes}), do: for(<<value::signed-32 <- bytes>>, do: {:int, value})
+  defp sequence({:long_array, bytes}), do: for(<<value::signed-64 <- bytes>>, do: {:long, value})
+  defp sequence(_), do: fail(:invalid_text_list)
+  defp nonempty!([]), do: fail(:empty_text_list)
+  defp nonempty!(values), do: values
+  defp require!(true, _), do: :ok
+  defp require!(false, reason), do: fail(reason)
+  defp fail(reason), do: throw({:text_error, reason})
 end

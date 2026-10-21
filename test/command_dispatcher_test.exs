@@ -1,7 +1,8 @@
 defmodule Valimc.CommandDispatcherTest do
   use ExUnit.Case, async: true
   # Parsing is pure; the commands oracle stage compares it with vanilla's dispatcher.
-  alias Valimc.Command.{Error, Reader, Source, Text}
+  alias Valimc.Command.{Error, Reader, Source}
+  alias Valimc.Text
 
   defp parse(input, level \\ 4), do: Valimc.Commands.parse(input, Source.parse_only(level))
 

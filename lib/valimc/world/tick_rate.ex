@@ -13,7 +13,7 @@ defmodule Valimc.World.TickRate do
   100-sample ring for `/tick query`.
   """
   use GenServer
-  alias Valimc.Command.Text
+  alias Valimc.Text
   alias Valimc.Protocol.{Packets, Wire}
 
   @key {__MODULE__, :published}
@@ -216,7 +216,7 @@ defmodule Valimc.World.TickRate do
     report =
       Text.translatable("commands.tick.sprint.report", [
         tps,
-        :erlang.float_to_binary(mspt, decimals: 2)
+        Valimc.Text.Number.fixed(mspt, 2)
       ])
 
     Valimc.Command.Feedback.console(report)

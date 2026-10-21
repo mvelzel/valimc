@@ -108,8 +108,8 @@ defmodule Valimc.Net.LoginFlow do
     case Players.join(player, Valimc.Admin.Login.bypasses_limit?(player)) do
       {:error, {:duplicate, old}} when attempts > 0 ->
         ref = Process.monitor(old)
-        reason = Valimc.Command.Text.translatable("multiplayer.disconnect.duplicate_login")
-        Valimc.Connection.deliver(old, {:kick, Valimc.Command.Text.encode(reason)})
+        reason = Valimc.Text.translatable("multiplayer.disconnect.duplicate_login")
+        Valimc.Connection.deliver(old, {:kick, Valimc.Text.encode(reason)})
 
         receive do
           {:DOWN, ^ref, :process, ^old, _} -> :ok
@@ -171,7 +171,7 @@ defmodule Valimc.Net.LoginFlow do
     Valimc.Admin.Lists.remember(player.uuid, name)
 
     if reason = Valimc.Admin.Login.refusal(player, Valimc.Admin.Login.address(state.socket)),
-      do: reject(state, Valimc.Command.Text.encode(reason))
+      do: reject(state, Valimc.Text.encode(reason))
 
     case join(player, 3) do
       :ok ->
@@ -180,9 +180,7 @@ defmodule Valimc.Net.LoginFlow do
       {:error, :full} ->
         reject(
           state,
-          Valimc.Command.Text.encode(
-            Valimc.Command.Text.translatable("multiplayer.disconnect.server_full")
-          )
+          Valimc.Text.encode(Valimc.Text.translatable("multiplayer.disconnect.server_full"))
         )
 
       {:error, reason} ->

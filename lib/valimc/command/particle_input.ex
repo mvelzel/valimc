@@ -9,13 +9,9 @@ defmodule Valimc.Command.ParticleInput do
   alias Valimc.Command.{Error, Identifier, Reader, Snbt}
   alias Valimc.Protocol.Wire
 
-  @facts :json.decode(File.read!(Path.expand("../../../priv/commands/facts.json", __DIR__)))
-  @external_resource Path.expand("../../../priv/commands/facts.json", __DIR__)
-  @particles Map.new(@facts["particles"], &{&1["id"], &1})
-
   def parse(reader) do
     {id, reader} = Identifier.read(reader)
-    row = @particles[id] || Error.fail_at!("particle.notFound", [id], reader)
+    row = Valimc.Command.Facts.particle(id) || Error.fail_at!("particle.notFound", [id], reader)
 
     {options, reader} =
       if Reader.at?(reader, ?{), do: Snbt.parse_compound(reader), else: {{:compound, %{}}, reader}

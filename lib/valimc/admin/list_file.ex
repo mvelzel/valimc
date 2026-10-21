@@ -8,7 +8,6 @@ defmodule Valimc.Admin.ListFile do
   vanilla's `yyyy-MM-dd HH:mm:ss Z` in the server's local time zone. Entry
   order is ValiMC's own; vanilla keeps hash order, which carries no meaning.
   """
-  import Bitwise, only: [<<<: 2]
 
   @doc "Reads a JSON array of objects; a missing or unreadable file is `:missing`."
   def read(path) do
@@ -93,41 +92,8 @@ defmodule Valimc.Admin.ListFile do
 
   # ---- UUIDs ----
 
-  def uuid_string(<<a::32, b::16, c::16, d::16, e::48>>) do
-    [hex(a, 8), hex(b, 4), hex(c, 4), hex(d, 4), hex(e, 12)] |> Enum.join("-")
-  end
-
-  defp hex(value, digits),
-    do: value |> Integer.to_string(16) |> String.downcase() |> String.pad_leading(digits, "0")
-
-  @doc "Parses a dashed UUID as Java's `UUID.fromString` accepts it for these files."
-  def parse_uuid(text) when is_binary(text) do
-    case String.split(text, "-") do
-      [_, _, _, _, _] = parts ->
-        with [a, b, c, d, e] <- Enum.map(parts, &parse_hex/1),
-             true <- Enum.all?([a, b, c, d, e], &is_integer/1),
-             true <-
-               a < 1 <<< 32 and b < 1 <<< 16 and c < 1 <<< 16 and d < 1 <<< 16 and e < 1 <<< 48 do
-          {:ok, <<a::32, b::16, c::16, d::16, e::48>>}
-        else
-          _ -> :error
-        end
-
-      _ ->
-        :error
-    end
-  end
-
-  def parse_uuid(_), do: :error
-
-  defp parse_hex(part) when byte_size(part) in 1..16 do
-    case Integer.parse(part, 16) do
-      {value, ""} when value >= 0 -> value
-      _ -> nil
-    end
-  end
-
-  defp parse_hex(_), do: nil
+  defdelegate uuid_string(uuid), to: Valimc.UUID, as: :to_string
+  defdelegate parse_uuid(text), to: Valimc.UUID, as: :parse
 
   # ---- dates ----
 

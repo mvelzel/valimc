@@ -6,7 +6,7 @@ defmodule Valimc.Admin.Login do
   only operators with `bypassesPlayerLimit` may still join.
   """
   alias Valimc.Admin.Lists
-  alias Valimc.Command.Text
+  alias Valimc.Text
 
   @doc "The disconnect reason for a profile joining from `ip`, or nil."
   def refusal(%{uuid: uuid} = player, ip) do

@@ -6,16 +6,11 @@ defmodule Valimc.Command.ItemPredicate do
   `component`, `component=value` and `predicate~value`.
 
   Matching supports item, tag, `count`, component presence and the component
-  values `Valimc.Command.ItemComponents` decodes; other value tests are refused
+  values `Valimc.Protocol.ItemData.decode_component/2` decodes; other value tests are refused
   with a ValiMC message.
   """
-  alias Valimc.Command.{Error, ItemComponents, Packrat, Reader, Registries, Snbt}
+  alias Valimc.Command.{Error, Packrat, Reader, Registries, Snbt}
   import Packrat, only: [get: 2, get_any: 2, mark: 1, store: 3]
-
-  @facts :json.decode(File.read!(Path.expand("../../../priv/commands/facts.json", __DIR__)))
-  @external_resource Path.expand("../../../priv/commands/facts.json", __DIR__)
-  @components MapSet.new(@facts["item_components"])
-  @predicates MapSet.new(@facts["item_predicates"])
 
   def parse(reader) do
     {:ok, predicates, reader} = Packrat.parse(rules(), :top, reader)
@@ -138,7 +133,7 @@ defmodule Valimc.Command.ItemPredicate do
   defp component("minecraft:count", _reader), do: {:ok, {:component, "minecraft:count"}}
 
   defp component(id, reader) do
-    if MapSet.member?(@components, id),
+    if Valimc.Command.Facts.item_component?(id),
       do: {:ok, {:component, id}},
       else: {:error, Error.with_context("arguments.item.component.unknown", [id], reader)}
   end
@@ -147,7 +142,7 @@ defmodule Valimc.Command.ItemPredicate do
 
   defp predicate(id, reader) do
     cond do
-      MapSet.member?(@predicates, id) -> {:ok, {:predicate, id}}
+      Valimc.Command.Facts.item_predicate?(id) -> {:ok, {:predicate, id}}
       Registries.component?(id) -> {:ok, {:exists, id}}
       true -> {:error, Error.with_context("arguments.item.predicate.unknown", [id], reader)}
     end
@@ -186,7 +181,7 @@ defmodule Valimc.Command.ItemPredicate do
     do: count(value, reader, "arguments.item.component.malformed")
 
   defp component_test({:component, id}, value, reader) do
-    case ItemComponents.decode(id, value) do
+    case Valimc.Protocol.ItemData.decode_component(id, value) do
       {:ok, decoded} ->
         {:ok, {:equals, id, decoded}}
 

@@ -1,12 +1,13 @@
 defmodule Valimc.Protocol.ItemStack do
   @moduledoc "Pure bounded 26.3 stacks. Unsupported structured patches never become accepted data."
+  alias Valimc.Text.Codec
+
   alias Valimc.Protocol.{
     Enchantments,
     FoodProperties,
     ItemTypes,
     LootComponents,
     PotionContents,
-    TextComponent,
     TooltipDisplay,
     Wire
   }
@@ -50,6 +51,9 @@ defmodule Valimc.Protocol.ItemStack do
 
   def new(name, count \\ 1), do: %__MODULE__{item_id: ItemTypes.id(name), count: count}
   def supported_components, do: Map.keys(@codecs)
+
+  @doc "The wire codec kind of a supported component, or nil."
+  def codec(name), do: Map.get(@codecs, name)
 
   @doc "Count-independent effective identity; raw codec/journal patches remain unchanged."
   def identity_key(%__MODULE__{} = stack) do
@@ -284,8 +288,8 @@ defmodule Valimc.Protocol.ItemStack do
 
   defp read_component(:unit, rest), do: {:unit, rest}
   defp read_component(:nbt_unit, <<10, 0, rest::binary>>), do: {:unit, rest}
-  defp read_component(:text, bytes), do: TextComponent.take(bytes)
-  defp read_component(:lore, bytes), do: TextComponent.take_lore(bytes)
+  defp read_component(:text, bytes), do: Codec.take(bytes)
+  defp read_component(:lore, bytes), do: Codec.take_lore(bytes)
   defp read_component(:enchantments, bytes), do: Enchantments.take(bytes)
   defp read_component(:tooltip, bytes), do: TooltipDisplay.take(bytes)
   defp read_component(:food, bytes), do: FoodProperties.take(bytes)
@@ -328,8 +332,8 @@ defmodule Valimc.Protocol.ItemStack do
   defp valid_component?(:nbt_unit, value), do: value == :unit
   defp valid_component?(:nbt_compound, {:compound, _} = value), do: NBT.valid?(value)
   defp valid_component?(:nbt_compound, _), do: false
-  defp valid_component?(:text, value), do: TextComponent.valid?(value)
-  defp valid_component?(:lore, value), do: TextComponent.valid_lore?(value)
+  defp valid_component?(:text, value), do: Codec.valid?(value)
+  defp valid_component?(:lore, value), do: Codec.valid_lore?(value)
   defp valid_component?(:enchantments, value), do: Enchantments.valid?(value)
   defp valid_component?(:tooltip, value), do: TooltipDisplay.valid?(value)
   defp valid_component?(:food, value), do: FoodProperties.valid?(value)
@@ -349,8 +353,8 @@ defmodule Valimc.Protocol.ItemStack do
   defp encode_component(:unit, :unit), do: <<>>
   defp encode_component(:nbt_unit, :unit), do: <<10, 0>>
   defp encode_component(:nbt_compound, value), do: NBT.encode(value)
-  defp encode_component(:text, value), do: TextComponent.encode(value)
-  defp encode_component(:lore, value), do: TextComponent.encode_lore(value)
+  defp encode_component(:text, value), do: Codec.encode(value)
+  defp encode_component(:lore, value), do: Codec.encode_lore(value)
   defp encode_component(:enchantments, value), do: Enchantments.encode(value)
   defp encode_component(:tooltip, value), do: TooltipDisplay.encode(value)
   defp encode_component(:food, value), do: FoodProperties.encode(value)
@@ -361,8 +365,8 @@ defmodule Valimc.Protocol.ItemStack do
   defp encode_component(:identifier, value), do: Wire.string(value)
   defp encode_component(:fraction, value), do: <<value::float-32>>
   defp component_key(:nbt_compound, value), do: NBT.identity_key(value)
-  defp component_key(:text, value), do: TextComponent.identity_key(value)
-  defp component_key(:lore, value), do: TextComponent.lore_key(value)
+  defp component_key(:text, value), do: Codec.identity_key(value)
+  defp component_key(:lore, value), do: Codec.lore_key(value)
   defp component_key(:tooltip, value), do: TooltipDisplay.identity_key(value)
   defp component_key(:potion_contents, value), do: PotionContents.identity_key(value)
   defp component_key(:map_decorations, value), do: LootComponents.decorations_key(value)

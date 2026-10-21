@@ -1,7 +1,8 @@
 defmodule Valimc.Protocol.ItemDataTest do
   use ExUnit.Case, async: true
   alias Valimc.PlayerDeathMessage
-  alias Valimc.Protocol.{ItemStack, Packets, ServerText, TextComponent}
+  alias Valimc.Text.Codec
+  alias Valimc.Protocol.{ItemStack, Packets, ServerText}
   alias Valimc.NBT
 
   test "composed hover exceeds input budgets without widening client text admission" do
@@ -21,7 +22,7 @@ defmodule Valimc.Protocol.ItemDataTest do
 
     assert IO.iodata_length(ServerText.encode(message)) > 65_536
     assert {_, _} = Packets.death(1, message)
-    refute TextComponent.valid?(tag)
+    refute Codec.valid?(tag)
     assert catch_throw(NBT.encode(tag)) == {:nbt_error, :nbt_byte_limit}
 
     oversized = %ServerText{

@@ -6,7 +6,8 @@ defmodule Valimc.Commands.Operators do
   """
   alias Valimc.Admin.{Lists, Login}
   alias Valimc.World.Settings
-  alias Valimc.Command.{Error, Feedback, Source, Text}
+  alias Valimc.Command.{Error, Feedback, Source}
+  alias Valimc.Text
   alias Valimc.Protocol.{Packets, Wire}
 
   # ---- profiles ----

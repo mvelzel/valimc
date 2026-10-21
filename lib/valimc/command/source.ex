@@ -5,7 +5,8 @@ defmodule Valimc.Command.Source do
   its connection's `pid`) for a player's command. A source is a plain value:
   a command runs in its own process (VMC-077a), never in a connection.
   """
-  alias Valimc.Command.{Text, Coordinates, Selector, Error}
+  alias Valimc.Command.{Coordinates, Selector, Error}
+  alias Valimc.Text
 
   defstruct [:level, :player, :name, :position, :rotation, :dimension, kind: :player]
 

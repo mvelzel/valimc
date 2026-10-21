@@ -3,7 +3,8 @@ defmodule Valimc.Command.Error do
   Brigadier's `CommandSyntaxException` (VMC-053): a message component plus,
   for parse errors, the input and cursor that vanilla shows as `...text<--[HERE]`.
   """
-  alias Valimc.Command.{Reader, Text}
+  alias Valimc.Command.Reader
+  alias Valimc.Text
 
   defstruct [:message, input: nil, cursor: -1]
 

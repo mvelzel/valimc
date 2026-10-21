@@ -11,14 +11,15 @@ defmodule Valimc.Session.Presence do
   vanilla's "End of stream".
   """
   require Logger
-  alias Valimc.Command.{Render, Text}
+  alias Valimc.Text
+  alias Valimc.Text.Render
   alias Valimc.Protocol.Packets
 
   @reason {__MODULE__, :reason}
 
   def joined(state) do
     player = state.player
-    [x, y, z] = Enum.map([player.x, player.y, player.z], &Render.java_float(&1 * 1.0, 64))
+    [x, y, z] = Enum.map([player.x, player.y, player.z], &Valimc.Text.Number.java(&1 * 1.0, 64))
 
     Logger.info(
       "#{player.name}[#{address(state.socket)}] logged in with entity id #{player.entity_id} at (#{x}, #{y}, #{z})"

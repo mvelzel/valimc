@@ -2,7 +2,8 @@
 # commands packets per permission level for Mojang's decoder (VMC-053).
 #
 #   mix run --no-start scripts/check_commands.exs CASES.json OUT_DIR RESULTS.json
-alias Valimc.Command.{Dispatcher, Error, Reader, Source, Text}
+alias Valimc.Command.{Dispatcher, Error, Reader, Source}
+alias Valimc.Text
 alias Valimc.Protocol.Wire
 
 [cases_path, out_dir, results_path] = System.argv()

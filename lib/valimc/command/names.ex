@@ -1,6 +1,6 @@
 defmodule Valimc.Command.Names do
   @moduledoc "Display names that vanilla command feedback embeds (VMC-053): items, effects, modes."
-  alias Valimc.Command.Text
+  alias Valimc.Text
   alias Valimc.Protocol.ItemTypes
 
   @rarities {"white", "yellow", "aqua", "light_purple"}

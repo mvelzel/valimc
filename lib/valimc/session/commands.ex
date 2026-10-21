@@ -18,7 +18,8 @@ defmodule Valimc.Session.Commands do
 
   import Valimc.Net.Codec, only: [reject: 2]
   alias Valimc.ChatThrottle
-  alias Valimc.Command.{Feedback, Source, Text}
+  alias Valimc.Command.{Feedback, Source}
+  alias Valimc.Text
   alias Valimc.Session.Jobs
 
   @queue 8

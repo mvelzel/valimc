@@ -94,7 +94,7 @@ defmodule Valimc.Command.Selector do
     {name, reader} = Reader.read_string(reader)
 
     s =
-      case uuid(name) do
+      case Valimc.UUID.parse(name) do
         {:ok, uuid} ->
           %__MODULE__{uuid: uuid, includes_entities: true}
 
@@ -110,46 +110,6 @@ defmodule Valimc.Command.Selector do
 
   defp utf16_length(text),
     do: div(byte_size(:unicode.characters_to_binary(text, :utf8, :utf16)), 2)
-
-  @doc "Java `UUID.fromString`: five hex groups split by four dashes, each at most 16 digits."
-  def uuid(text) do
-    with parts when length(parts) == 5 <- String.split(text, "-"),
-         true <- String.length(text) <= 36,
-         [a, b, c, d, e] <- Enum.map(parts, &hex/1),
-         true <- Enum.all?([a, b, c, d, e], &is_integer/1) do
-      most =
-        Bitwise.bor(
-          Bitwise.bsl(Bitwise.band(a, 0xFFFFFFFF), 32),
-          Bitwise.bor(Bitwise.bsl(Bitwise.band(b, 0xFFFF), 16), Bitwise.band(c, 0xFFFF))
-        )
-
-      least =
-        Bitwise.bor(Bitwise.bsl(Bitwise.band(d, 0xFFFF), 48), Bitwise.band(e, 0xFFFFFFFFFFFF))
-
-      {:ok, <<most::64, least::64>>}
-    else
-      _ -> :error
-    end
-  end
-
-  defp hex(""), do: nil
-
-  defp hex(text) do
-    {sign, digits} =
-      case text do
-        "-" <> rest -> {-1, rest}
-        "+" <> rest -> {1, rest}
-        _ -> {1, text}
-      end
-
-    with true <- digits != "" and Regex.match?(~r/\A[0-9a-fA-F]+\z/, digits),
-         value = sign * String.to_integer(digits, 16),
-         true <- value in -0x8000000000000000..0x7FFFFFFFFFFFFFFF do
-      value
-    else
-      _ -> nil
-    end
-  end
 
   # ---- options ----
 

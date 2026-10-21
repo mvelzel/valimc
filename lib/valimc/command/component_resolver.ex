@@ -7,7 +7,8 @@ defmodule Valimc.Command.ComponentResolver do
   over the resolved contents' style. NBT text needs entity and block data and is
   refused.
   """
-  alias Valimc.Command.{Error, Source, Text}
+  alias Valimc.Command.{Error, Source}
+  alias Valimc.Text
 
   @style ~w(color shadow_color bold italic underlined strikethrough obfuscated click_event hover_event insertion font)
   @depth 100
@@ -22,7 +23,7 @@ defmodule Valimc.Command.ComponentResolver do
     siblings =
       case fields["extra"] do
         nil -> []
-        list -> Enum.map(tags(list), &resolve(&1, source, depth + 1))
+        list -> Enum.map(Valimc.NBT.items(list), &resolve(&1, source, depth + 1))
       end
 
     style =
@@ -45,7 +46,7 @@ defmodule Valimc.Command.ComponentResolver do
     own_extra =
       case contents["extra"] do
         nil -> []
-        list -> tags(list)
+        list -> Valimc.NBT.items(list)
       end
 
     merged = Map.merge(Map.delete(contents, "extra"), style)
@@ -99,7 +100,7 @@ defmodule Valimc.Command.ComponentResolver do
 
       args ->
         resolved =
-          Enum.map(tags(args), fn
+          Enum.map(Valimc.NBT.items(args), fn
             {:compound, _} = component -> resolve(component, source, depth)
             primitive -> primitive
           end)
@@ -110,13 +111,4 @@ defmodule Valimc.Command.ComponentResolver do
 
   defp contents({:compound, fields}, _source, _depth),
     do: {:compound, Map.drop(fields, ["extra" | @style])}
-
-  defp tags({:list, {:compound, values}}),
-    do:
-      Enum.map(values, fn
-        %{"" => tag} = f when map_size(f) == 1 -> tag
-        f -> {:compound, f}
-      end)
-
-  defp tags({:list, {type, values}}), do: Enum.map(values, &{type, &1})
 end

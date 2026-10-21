@@ -3,7 +3,8 @@ defmodule Valimc.Protocol.ItemComponentsTest do
   # Their semantics (identity, round trips) are the `text`, `tooltip`,
   # `enchantment` and `stack_identity` oracle stages.
   use ExUnit.Case, async: true
-  alias Valimc.Protocol.{Enchantments, ItemStack, ItemTypes, TextComponent, TooltipDisplay, Wire}
+  alias Valimc.Text.Codec
+  alias Valimc.Protocol.{Enchantments, ItemStack, ItemTypes, TooltipDisplay, Wire}
   alias Valimc.NBT
 
   defp literal(value), do: {:compound, %{"text" => {:string, value}}}
@@ -35,29 +36,29 @@ defmodule Valimc.Protocol.ItemComponentsTest do
   test "literal/root sequences, styles and mixed list wrappers compare semantically" do
     a = {:compound, %{"text" => {:string, "A"}, "extra" => {:list, {:string, ["B"]}}}}
     b = {:list, {:string, ["A", "B"]}}
-    assert TextComponent.identity_key(a) == TextComponent.identity_key(b)
-    assert TextComponent.identity_key(literal("A")) == TextComponent.identity_key({:string, "A"})
+    assert Codec.identity_key(a) == Codec.identity_key(b)
+    assert Codec.identity_key(literal("A")) == Codec.identity_key({:string, "A"})
     assert ItemStack.same_item?(named(styled("gold")), named(styled("#FFAA00"), 2))
     false_style = {:compound, %{"text" => {:string, "A"}, "italic" => {:byte, 0}}}
     refute ItemStack.same_item?(named(literal("A")), named(false_style))
     font = fn name -> {:compound, %{"text" => {:string, "A"}, "font" => {:string, name}}} end
 
-    assert TextComponent.identity_key(font.("default")) ==
-             TextComponent.identity_key(font.("minecraft:default"))
+    assert Codec.identity_key(font.("default")) ==
+             Codec.identity_key(font.("minecraft:default"))
 
     refute ItemStack.same_item?(named(literal("A")), named(font.("default")))
     nested = {:list, {:compound, [%{"" => {:string, "A"}}, %{"text" => {:string, "B"}}]}}
-    assert TextComponent.identity_key(nested) == TextComponent.identity_key(a)
+    assert Codec.identity_key(nested) == Codec.identity_key(a)
 
-    refute TextComponent.identity_key(a) ==
-             TextComponent.identity_key({:list, {:string, ["B", "A"]}})
+    refute Codec.identity_key(a) ==
+             Codec.identity_key({:list, {:string, ["B", "A"]}})
   end
 
   test "lore line, aggregate node/byte and nesting limits bound accepted work" do
-    assert TextComponent.valid_lore?(List.duplicate({:string, "line"}, 256))
+    assert Codec.valid_lore?(List.duplicate({:string, "line"}, 256))
 
     assert {:error, :lore_line_limit} =
-             TextComponent.check_lore(List.duplicate({:string, "line"}, 257))
+             Codec.check_lore(List.duplicate({:string, "line"}, 257))
 
     rich =
       {:compound,
@@ -68,10 +69,10 @@ defmodule Valimc.Protocol.ItemComponentsTest do
          "italic" => {:byte, 0}
        }}
 
-    assert {:error, :text_node_limit} = TextComponent.check_lore(List.duplicate(rich, 256))
+    assert {:error, :text_node_limit} = Codec.check_lore(List.duplicate(rich, 256))
 
     assert {:error, :text_byte_limit} =
-             TextComponent.check_lore(List.duplicate({:string, String.duplicate("a", 1000)}, 66))
+             Codec.check_lore(List.duplicate({:string, String.duplicate("a", 1000)}, 66))
 
     deep =
       Enum.reduce(1..33, literal("A"), fn _, child ->
@@ -79,9 +80,9 @@ defmodule Valimc.Protocol.ItemComponentsTest do
          %{"text" => {:string, "A"}, "extra" => {:list, {:compound, [elem(child, 1)]}}}}
       end)
 
-    refute TextComponent.valid?(deep)
+    refute Codec.valid?(deep)
 
-    assert catch_throw(TextComponent.take_lore(Wire.varint(257))) ==
+    assert catch_throw(Codec.take_lore(Wire.varint(257))) ==
              {:text_error, :lore_line_limit}
 
     assert {:error, {:text, :lore_line_limit}} =
@@ -108,7 +109,7 @@ defmodule Valimc.Protocol.ItemComponentsTest do
     ]
 
     for tag <- unsupported do
-      assert TextComponent.check(tag) == :unsupported
+      assert Codec.check(tag) == :unsupported
 
       for mode <- [:trusted, :untrusted] do
         payload = NBT.encode(tag) |> IO.iodata_to_binary()
@@ -137,7 +138,7 @@ defmodule Valimc.Protocol.ItemComponentsTest do
           {:compound, %{"text" => {:string, "A"}, "extra" => {:list, {:end, []}}}},
           {:compound, %{"text" => {:string, "A"}, "bold" => {:string, "true"}}}
         ] do
-      assert {:error, _} = TextComponent.check(tag)
+      assert {:error, _} = Codec.check(tag)
     end
   end
 

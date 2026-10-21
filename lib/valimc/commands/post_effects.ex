@@ -5,7 +5,8 @@ defmodule Valimc.Commands.PostEffects do
   player and is cleared on respawn, as in vanilla; it is not yet saved with the
   player across reconnects.
   """
-  alias Valimc.Command.{Error, Feedback, Source, Text}
+  alias Valimc.Command.{Error, Feedback, Source}
+  alias Valimc.Text
   alias Valimc.Commands.Remote
   alias Valimc.Protocol.{Packets, Wire}
 

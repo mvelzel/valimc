@@ -54,8 +54,8 @@ defmodule Valimc.Net.Serverbound do
           do:
             reject(
               state,
-              Valimc.Command.Text.encode(
-                Valimc.Command.Text.translatable("multiplayer.disconnect.transfers_disabled")
+              Valimc.Text.encode(
+                Valimc.Text.translatable("multiplayer.disconnect.transfers_disabled")
               )
             )
 
