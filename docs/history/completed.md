@@ -197,4 +197,5 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 | [VMC-069](../tickets/VMC-069.md) | `127934a`; slim peers, frame-once broadcasts, counters; connection split into Net/Session/Player modules |
 | [VMC-066](../tickets/VMC-066.md) | `fdca2df`; game-tick pipeline, scheduled/random ticks, shape updates; coral and budding amethyst live |
 | [VMC-067](../tickets/VMC-067.md) | `6243c8c`; shared entity view, per-chunk publication, one replication tracker, orb lifetime, despawn under contention |
+| [VMC-072 Container loot tables](../tickets/VMC-072.md) | `0279115`: every container loot table equals vanilla's (loot oracle); generated and imported chests unpack on open and break, once, and keep their loot across restarts; client rerun passed |
 | [VMC-074](../tickets/VMC-074.md) | `5f58bba`; logs open files per operation under a descriptor budget, the open-files limit raised at start, EMFILE retried instead of crash loops |
