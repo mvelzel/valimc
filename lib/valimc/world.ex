@@ -37,8 +37,7 @@ defmodule Valimc.World do
   end
 
   def chunk(key) do
-    {:ok, pid} = region(region_key(key))
-    GenServer.call(pid, {:chunk, key}, 15_000)
+    with {:ok, pid} <- region(region_key(key)), do: GenServer.call(pid, {:chunk, key}, 15_000)
   end
 
   @doc """
@@ -108,20 +107,18 @@ defmodule Valimc.World do
     end)
   end
 
-  def get_block({x, _, z} = position) do
-    {:ok, pid} = region(region_key(chunk_key(x, z)))
-    GenServer.call(pid, {:get_block, position})
-  end
+  @doc "The block at `position` (a state id) or `{:error, reason}`."
+  def get_block(position), do: block_call(position, {:get_block, position})
 
-  def set_block({x, _, z} = position, block) do
-    {:ok, pid} = region(region_key(chunk_key(x, z)))
-    GenServer.call(pid, {:set_block, position, block})
-  end
+  def set_block(position, block), do: block_call(position, {:set_block, position, block})
 
   @doc "Base removal reads and replaces the current block inside its owner, retaining contained fluid."
-  def remove_block({x, _, z} = position) do
-    {:ok, pid} = region(region_key(chunk_key(x, z)))
-    GenServer.call(pid, {:remove_block, position})
+  def remove_block(position), do: block_call(position, {:remove_block, position})
+
+  defp block_call({x, _, z}, message) do
+    with {:ok, pid} <- region(region_key(chunk_key(x, z))), do: GenServer.call(pid, message)
+  catch
+    :exit, _ -> {:error, :region_unavailable}
   end
 
   def item_owner(key), do: owner(key)

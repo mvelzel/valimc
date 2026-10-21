@@ -41,6 +41,44 @@ defmodule Valimc.RegionLoadingTest do
     end
   end
 
+  test "a region that keeps failing to load backs off, then is poisoned with one error line" do
+    nonce = rem(System.unique_integer([:positive]), 10_000) + 1
+    base = Path.join(System.tmp_dir!(), "valimc-poison-#{nonce}")
+    key = {-754, -nonce}
+    {rx, rz} = key
+    File.mkdir_p!(base)
+
+    File.write!(
+      Path.join(base, "r.#{rx}.#{rz}.etf"),
+      :erlang.term_to_binary({:valimc_region, 1, %{}})
+    )
+
+    TestScope.isolate([key], world_path: base)
+
+    try do
+      log =
+        capture_log(fn ->
+          for attempt <- 1..5 do
+            # Each failure refuses admission until its backoff passed, without
+            # starting an owner.
+            Valimc.TestWait.until(fn ->
+              World.region(key) != {:error, {:region_load, :backoff}}
+            end)
+
+            assert World.owner(key) |> elem(0) == :error
+            Valimc.TestWait.until(fn -> Registry.lookup(Valimc.RegionRegistry, key) == [] end)
+            expected = if attempt < 5, do: :backoff, else: :poisoned
+            assert World.region(key) == {:error, {:region_load, expected}}
+          end
+        end)
+
+      assert length(String.split(log, "refusing it")) == 2
+      assert Registry.lookup(Valimc.RegionRegistry, key) == []
+    after
+      File.rm_rf!(base)
+    end
+  end
+
   test "a cold file read cannot hold the supervisor or publish an incomplete owner" do
     nonce = rem(System.unique_integer([:positive]), 10_000) + 1
     base = Path.join(System.tmp_dir!(), "valimc-cold-#{nonce}")

@@ -312,7 +312,12 @@ defmodule Valimc.Commands.World do
   def setblock(%{"pos" => pos, "block" => %BlockInput{state: state} = block} = arguments, source) do
     position = loaded_block!(source, pos)
     no_block_data!(block)
-    current = Valimc.World.get_block(position)
+
+    current =
+      case Valimc.World.get_block(position) do
+        {:error, _} -> Error.fail!("argument.pos.unloaded")
+        current -> current
+      end
 
     if arguments[:mode] == :keep and not air?(current),
       do: Error.fail!("commands.setblock.failed")

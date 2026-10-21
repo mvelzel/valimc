@@ -304,10 +304,13 @@ defmodule Valimc.Player.Placement do
 
     updates =
       if allowed and World.Chunk.valid_y?(elem(target, 1)),
-        do: [
-          Packets.block(position, World.get_block(position)),
-          Packets.block(target, World.get_block(target))
-        ],
+        do:
+          for(
+            at <- [position, target],
+            block = World.get_block(at),
+            is_integer(block),
+            do: Packets.block(at, block)
+          ),
         else: []
 
     send_packets(state, [Packets.ack(sequence) | updates])
