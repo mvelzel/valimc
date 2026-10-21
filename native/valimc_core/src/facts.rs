@@ -1,7 +1,7 @@
 //! The per-state block facts the core reads (VMC-077d), from the one generated
 //! table (`priv/registry/block_facts.json`, decoded by
 //! `Valimc.Registry.BlockFacts`) and installed once per VM: the flag bits,
-//! the heightmap predicates and the contained fluid. The storage flags and
+//! the heightmap predicates, the contained fluid and the redstone signals. The storage flags and
 //! worldgen's block table are built from them; the light facts come from the
 //! same table's light columns.
 
@@ -11,6 +11,9 @@ use crate::flags::{self, BlockFlags};
 pub const AIR: u64 = 1;
 /// `FireBlock.canBurn` (flag bit 49).
 pub const FLAMMABLE: u64 = 1 << 49;
+/// A signal that reads the level (`signal` column's `context`): powered
+/// wire, comparators, trapped chests.
+pub const SIGNAL_CONTEXT: u64 = 1 << 48;
 
 #[derive(Debug)]
 pub struct StateFacts {
@@ -25,6 +28,9 @@ pub struct StateFacts {
     pub fluid_level: Vec<u8>,
     /// What base block removal leaves: the state's fluid as a block.
     pub remains: Vec<u16>,
+    /// `getSignal` toward direction `d` at bits `4d..4d+4`, `getDirectSignal`
+    /// at `24+4d`, and `SIGNAL_CONTEXT` for a signal that reads the level.
+    pub signal: Vec<u64>,
 }
 
 impl StateFacts {
@@ -34,6 +40,7 @@ impl StateFacts {
         fluid: Vec<u8>,
         fluid_level: Vec<u8>,
         remains: Vec<u16>,
+        signal: Vec<u64>,
     ) -> Option<Self> {
         let count = flags.len();
         let valid = count > 0
@@ -43,19 +50,22 @@ impl StateFacts {
                 fluid.len(),
                 fluid_level.len(),
                 remains.len(),
+                signal.len(),
             ]
             .iter()
             .all(|&n| n == count)
             && remains.iter().all(|&r| (r as usize) < count)
             && heightmaps.iter().all(|&h| h < 64)
             && fluid.iter().all(|&f| f <= 4)
-            && fluid_level.iter().all(|&l| l & 15 <= 8 && l < 32);
+            && fluid_level.iter().all(|&l| l & 15 <= 8 && l < 32)
+            && signal.iter().all(|&s| s >> 49 == 0);
         valid.then_some(Self {
             flags,
             heightmaps,
             fluid,
             fluid_level,
             remains,
+            signal,
         })
     }
 
@@ -93,13 +103,15 @@ mod tests {
             vec![0, 0, 2],
             vec![0, 0, 8],
             vec![0, 0, 0],
+            vec![0, 0, 0],
         )
         .unwrap();
         let storage = facts.storage_flags();
         assert_eq!(storage.get(0), flags::AIR);
         assert_eq!(storage.get(1), 0b11_1111);
         assert_eq!(storage.get(2), flags::FLUID);
-        assert!(StateFacts::new(vec![0], vec![64], vec![0], vec![0], vec![0]).is_none());
-        assert!(StateFacts::new(vec![0, 0], vec![0], vec![0], vec![0], vec![0, 0]).is_none());
+        assert!(StateFacts::new(vec![0], vec![64], vec![0], vec![0], vec![0], vec![0]).is_none());
+        let (one, two) = (vec![0], vec![0, 0]);
+        assert!(StateFacts::new(two.clone(), one.clone(), one, vec![0], vec![0, 0], two).is_none());
     }
 }

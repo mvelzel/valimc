@@ -12,8 +12,8 @@ pub(crate) static FLAGS: OnceLock<BlockFlags> = OnceLock::new();
 pub(crate) static LIGHT: OnceLock<LightFacts> = OnceLock::new();
 pub(crate) static STATES: OnceLock<StateFacts> = OnceLock::new();
 
-/// The table's columns: `flags` is eight big-endian bytes per state,
-/// `fluid_remains` two, the others one byte per state; the light faces and sky carry their class counts
+/// The table's columns: `flags` and `signal` are eight big-endian bytes per
+/// state, `fluid_remains` two, the others one byte per state; the light faces and sky carry their class counts
 /// and pair tables.
 #[derive(NifMap)]
 struct Columns<'a> {
@@ -22,6 +22,7 @@ struct Columns<'a> {
     fluid: Binary<'a>,
     fluid_level: Binary<'a>,
     fluid_remains: Binary<'a>,
+    signal: Binary<'a>,
     light: Binary<'a>,
     light_faces: Vec<Binary<'a>>,
     light_classes: Vec<usize>,
@@ -48,20 +49,23 @@ fn install(columns: &Columns) -> Result<(), Atom> {
     let faces = &columns.light_faces;
     let (classes, occludes) = (&columns.light_classes, &columns.light_occludes);
     if !columns.flags.len().is_multiple_of(8)
+        || !columns.signal.len().is_multiple_of(8)
         || faces.len() != 6
         || classes.len() != 6
         || occludes.len() != 6
     {
         return Err(atoms::invalid_state());
     }
-    let flags = columns
-        .flags
-        .as_slice()
-        .as_chunks::<8>()
-        .0
-        .iter()
-        .map(|&word| u64::from_be_bytes(word))
-        .collect();
+    let words = |column: &Binary| {
+        column
+            .as_slice()
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|&word| u64::from_be_bytes(word))
+            .collect()
+    };
+    let flags = words(&columns.flags);
     let states = StateFacts::new(
         flags,
         columns.heightmaps.as_slice().to_vec(),
@@ -75,6 +79,7 @@ fn install(columns: &Columns) -> Result<(), Atom> {
             .iter()
             .map(|&pair| u16::from_be_bytes(pair))
             .collect(),
+        words(&columns.signal),
     )
     .ok_or(atoms::invalid_state())?;
     let light = LightFacts::new(

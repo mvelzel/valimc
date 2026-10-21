@@ -1,7 +1,8 @@
 //! Redstone wire's shape update (VMC-025f): its connections to its
 //! neighbours, as `RedstoneWireBlock.updateShape` makes them when a
-//! structure template places wire (a woodland mansion's rooms). Wire reads
-//! up to twelve cells, too many to tabulate as the shape facts do.
+//! structure template places wire (a woodland mansion's rooms) or live play
+//! changes a block beside it. Wire reads up to twelve cells, too many to
+//! tabulate as the shape facts do. Its power is `wire.rs`.
 
 use crate::worldgen::blocks::{BlockTable, REDSTONE_CONDUCTOR, SIGNAL_SOURCE, STURDY};
 
@@ -56,7 +57,7 @@ impl RedstoneWire {
         table.value(state, NAMES[d]).unwrap_or("none")
     }
 
-    fn connected(table: &BlockTable, state: u16, d: usize) -> bool {
+    pub(crate) fn connected(table: &BlockTable, state: u16, d: usize) -> bool {
         Self::side(table, state, d) != "none"
     }
 
@@ -65,7 +66,7 @@ impl RedstoneWire {
     }
 
     /// `canSurviveOn`: a sturdy top, or a hopper.
-    fn can_survive_on(&self, table: &BlockTable, state: u16) -> bool {
+    pub(crate) fn can_survive_on(&self, table: &BlockTable, state: u16) -> bool {
         Self::sturdy(table, state, UP) || table.block_of(state) == self.hopper
     }
 

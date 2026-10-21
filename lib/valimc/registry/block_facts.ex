@@ -7,7 +7,8 @@ defmodule Valimc.Registry.BlockFacts do
   predicates, flammable, large collision), the collision shape or the context
   it needs, motion, fluid, fluid boundary, climbing, inside behaviour, hazard,
   landing, mining, placement replaceability, heightmap predicates, sky-source
-  edge classes and light (emission, dampening and face occlusion classes). The
+  edge classes, light (emission, dampening and face occlusion classes) and
+  redstone signals (the Rust core's alone). The
   oracle's comment describes each. State ids are trusted: they come from the
   world or the registry, and an id outside the table raises. `install!/0`
   gives the Rust core the columns it reads.
@@ -189,6 +190,21 @@ defmodule Valimc.Registry.BlockFacts do
                      {states.("light_" <> d), column["classes"],
                       Base.decode16!(column["occludes"], case: :lower)}
 
+  # Signals as the Rust core packs them: `getSignal` toward direction d at bits
+  # 4d, `getDirectSignal` at 24 + 4d, bit 48 for a signal that reads the level.
+  # The oracle keeps the palette under 256, so the column has a byte per state.
+  @signal_states states.("signal")
+  @signals palette.("signal", fn
+             %{"context" => _} ->
+               1 <<< 48
+
+             %{"signal" => signal, "direct" => direct} ->
+               (signal ++ direct)
+               |> Enum.with_index()
+               |> Enum.reduce(0, fn {value, i}, acc -> acc ||| value <<< (4 * i) end)
+           end)
+  unless byte_size(@signal_states) == @count, do: raise("Signal palette past one byte")
+
   @block_entity_types @facts["block_entity_types"]
 
   def count, do: @count
@@ -324,6 +340,7 @@ defmodule Valimc.Registry.BlockFacts do
       fluid: for({kind, _} <- fluids, into: <<>>, do: <<kind>>),
       fluid_level: for({_, level} <- fluids, into: <<>>, do: <<level>>),
       fluid_remains: for(id <- states, into: <<>>, do: <<fluid_remains(id)::16>>),
+      signal: for(<<index <- @signal_states>>, into: <<>>, do: <<elem(@signals, index)::64>>),
       light: @light,
       light_faces: faces,
       light_classes: classes,

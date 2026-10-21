@@ -658,6 +658,11 @@ STAGES = [
         ('same', '@support.json', 'priv/physics/support.json'),
         ('check', 'check_support.exs', '@support-cases.json'),
     ]),
+    # VMC-077m: vanilla's updater, wire evaluator and source hooks on random scenes.
+    ('redstone_wire', [
+        ('java', 'RedstoneWireOracle', '@redstone-wire.json'),
+        ('check', 'check_wire.exs', '@redstone-wire.json'),
+    ]),
     ('chest_opening', [
         ('java', 'ChestOpeningOracle', '@chest-opening.json'),
         ('check', 'check_chest_opening.exs', '@chest-opening.json'),

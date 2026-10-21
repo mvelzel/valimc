@@ -12,6 +12,7 @@ pub mod redstone;
 pub mod shapes;
 pub mod support;
 pub mod updater;
+mod wire;
 
 use std::sync::Arc;
 
@@ -136,15 +137,18 @@ impl Rules {
         d: usize,
         replaced: Option<([i32; 3], u16)>,
     ) -> Result<u16, String> {
-        if let Some(result) = self.code_update(access, state, pos, d, replaced) {
+        if let Some(result) = self.code_update(access, state, pos, d, replaced, false) {
             return result;
         }
         self.table_update(access, state, pos, d, replaced)
     }
 
-    /// `updateShape` in live play: the rules in code, then live play's
-    /// survival facts (they hold under any light), then the shape facts; a
-    /// state none of them models keeps its state, as before VMC-077m.
+    /// `updateShape` in live play, `replaced` being the update's neighbour
+    /// (`neighbourState`, which may since have changed again): the rules in
+    /// code, then live play's survival facts (they hold under any light), then
+    /// the shape facts; a state none of them models keeps its state. Wire
+    /// reads the level and only its floor from the update, as vanilla's does;
+    /// the other rules read the neighbour's cell as the update gives it.
     pub fn live_update_shape(
         &self,
         access: &mut dyn BlockAccess,
@@ -153,7 +157,7 @@ impl Rules {
         d: usize,
         replaced: Option<([i32; 3], u16)>,
     ) -> Result<u16, String> {
-        if let Some(result) = self.code_update(access, state, pos, d, replaced) {
+        if let Some(result) = self.code_update(access, state, pos, d, replaced, true) {
             return result;
         }
         let mut read = |p: [i32; 3]| match replaced {
@@ -210,6 +214,7 @@ impl Rules {
         pos: [i32; 3],
         d: usize,
         replaced: Option<([i32; 3], u16)>,
+        live: bool,
     ) -> Option<Result<u16, String>> {
         let table = self.table.as_ref();
         let class = table.class_name(state);
@@ -241,6 +246,15 @@ impl Rules {
             return Some(Ok(new_state));
         }
         if table.block_of(state) == self.redstone.wire {
+            if live {
+                let floor = replaced.filter(|&(p, _)| d == 0 && p == at(pos, 0));
+                let mut level = |p: [i32; 3]| match floor {
+                    Some((at, s)) if at == p => s,
+                    _ => access.get(p),
+                };
+                let new_state = self.redstone.update_shape(table, &mut level, state, pos, d);
+                return Some(Ok(new_state));
+            }
             return Some(Ok(self
                 .redstone
                 .update_shape(table, &mut read, state, pos, d)));

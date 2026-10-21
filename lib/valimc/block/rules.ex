@@ -58,24 +58,30 @@ defmodule Valimc.Block.Rules do
   The updates after the cells of `previous` (`position => old state`) changed
   in a region's storage, and at dependent blocks' due `ticks` (`[{position,
   state}]`); `absent` lists the region's chunks not generated yet. Returns
-  `%{changes: [{position, state}], destroyed: [{position, state, drops?}],
-  ticks: [{position, block, delay}], stopped: n, skipped: n}`; storage is not
+  `%{changes: [{position, state}], destroyed: [{position, state, drops?,
+  effects?}], ticks: [{position, block, delay}], stopped: n, skipped: n,
+  updates: n}` (`effects?`: it breaks with particles and sound; the counts:
+  updates dropped at the border, past the chain limit and run); storage is not
   changed.
   """
   def run(%Valimc.World.Blocks{ref: ref}, previous, ticks, absent) do
     units = map_size(previous) + length(ticks)
     args = [ref, native(), pack(previous), pack(ticks), absent, :rand.uniform(1 <<< 62)]
 
-    {:ok, {changes, destroyed, scheduled, stopped, skipped}} =
-      Native.dispatch(:block_updates, units, args)
+    {:ok, {changes, destroyed, scheduled, stopped, skipped, updates}} =
+      case Native.dispatch(:block_updates, units, args) do
+        # A cascade past the normal scheduler's budget runs again, dirty.
+        {:error, :too_large} -> apply(Native, :block_updates_dirty, args)
+        result -> result
+      end
 
     %{
       changes:
         for(<<x::32-signed, y::32-signed, z::32-signed, s::16 <- changes>>, do: {{x, y, z}, s}),
       destroyed:
         for(
-          <<x::32-signed, y::32-signed, z::32-signed, s::16, drops::8 <- destroyed>>,
-          do: {{x, y, z}, s, drops == 1}
+          <<x::32-signed, y::32-signed, z::32-signed, s::16, flags::8 <- destroyed>>,
+          do: {{x, y, z}, s, (flags &&& 1) == 1, (flags &&& 2) == 2}
         ),
       ticks:
         for(
@@ -83,7 +89,8 @@ defmodule Valimc.Block.Rules do
           do: {{x, y, z}, block, delay}
         ),
       stopped: stopped,
-      skipped: skipped
+      skipped: skipped,
+      updates: updates
     }
   end
 

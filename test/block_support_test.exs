@@ -13,6 +13,8 @@ defmodule Valimc.BlockSupportTest do
   @dirt Blocks.default_state("dirt")
   @poppy Blocks.default_state("poppy")
   @torch Blocks.default_state("torch")
+  @wire Blocks.default_state("redstone_wire")
+  @redstone_block Blocks.default_state("redstone_block")
 
   describe "in a region owner" do
     setup do
@@ -84,6 +86,45 @@ defmodule Valimc.BlockSupportTest do
 
       assert Enum.sort(items(owner)) ==
                Enum.sort([{ItemTypes.id("poppy"), 1}, {ItemTypes.id("torch"), 1}])
+    end
+
+    # Wire power is compared by the redstone wire oracle stage; this covers the
+    # owner committing it.
+    test "wire carries a redstone block's power and pops off without its floor",
+         %{owner: owner, origin: {x, y, z}} do
+      [near, far] = wires = [{x + 1, y, z}, {x + 2, y, z}]
+      power = fn -> for s <- blocks(owner, wires), do: Map.new(Blocks.properties(s))["power"] end
+      set(owner, Map.new(-1..3, &{{x + &1, y - 1, z}, @stone}))
+      set(owner, %{{x, y, z} => @redstone_block})
+      set(owner, %{near => @wire})
+      set(owner, %{far => @wire})
+      settle(owner)
+      assert power.() == ["15", "14"]
+
+      set(owner, %{{x, y, z} => @air})
+      settle(owner)
+      assert power.() == ["0", "0"]
+
+      set(owner, %{{x + 2, y - 1, z} => @air})
+      settle(owner)
+      assert blocks(owner, [far]) == [@air]
+      assert items(owner) == [{ItemTypes.id("redstone"), 1}]
+    end
+
+    # 64 wires in one commit run past the normal scheduler's update budget; the
+    # run is redone dirty.
+    test "a long wire line placed at once carries power 15 down to 0",
+         %{owner: owner, origin: {x, y, z}} do
+      wires = for i <- 1..64, do: {x + i, y, z}
+      set(owner, Map.new(0..64, &{{x + &1, y - 1, z}, @stone}))
+      set(owner, Map.new(wires, &{&1, @wire}) |> Map.put({x, y, z}, @redstone_block))
+      settle(owner)
+
+      powers =
+        for s <- blocks(owner, wires),
+            do: String.to_integer(Map.new(Blocks.properties(s))["power"])
+
+      assert powers == Enum.map(1..64, &max(16 - &1, 0))
     end
 
     test "breaks and their drops persist across an owner restart",

@@ -26,11 +26,11 @@ defmodule Valimc.Native do
   # NIFs with a dirty twin: worst-case nanoseconds per unit (VMC-077b) and the
   # twin. Disk NBT per input byte (terms included); LZ4 per output byte; block
   # changes per change; random ticks per draw; block updates (VMC-077m) per
-  # change or due tick, whose cascades are bounded by vanilla's chain limit,
-  # not by their input. A light update's cost is not
-  # bounded by its positions: past 64 it runs dirty, and on a normal scheduler
-  # Rust stops it at a budget of work and undoes it (`{:error, :too_large}`)
-  # for the caller to run dirty (VMC-077c).
+  # change or due tick. Neither a light update's cost nor a block update
+  # cascade's is bounded by its input: past 64 positions a light update runs
+  # dirty, past 500 changes block updates do, and on a normal scheduler Rust
+  # stops either at a budget of work and drops it (`{:error, :too_large}`) for
+  # the caller to run dirty (VMC-077c).
   @twins %{
     nbt_read: {8, :nbt_read_dirty},
     lz4_decode_stream: {0.5, :lz4_decode_stream_dirty},
@@ -101,6 +101,7 @@ defmodule Valimc.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   def rules_support_cases(_rules, _updates, _states), do: :erlang.nif_error(:nif_not_loaded)
+  def rules_scene(_rules, _floor, _sets), do: :erlang.nif_error(:nif_not_loaded)
 
   def light_sky(_region, _sky), do: :erlang.nif_error(:nif_not_loaded)
   def light_init(_region, _absent), do: :erlang.nif_error(:nif_not_loaded)

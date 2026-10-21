@@ -89,6 +89,9 @@ import net.minecraft.world.phys.shapes.*;
  * - light: emission << 4 | dampening. light_down..light_east: per face the class of its light
  *   occlusion shape; bit (a, b) of a face's table says light leaving a block of class a through
  *   the face is stopped by a neighbour whose opposite face has class b (`faceShapeOccludes`).
+ * - signal: `getSignal` and `getDirectSignal` toward down, up, north, south, west and east, or
+ *   the block whose signal reads the level (`context`: powered wire, comparators, trapped chests,
+ *   test blocks).
  *
  * `block_entity_types` maps each block with a block entity to the type it creates. Every class
  * table is checked state by state against its representatives.
@@ -299,6 +302,7 @@ public class BlockFactsOracle {
     }
     columns.add("light",light.json());
     lightFaces(columns);
+    columns.add("signal",signal().json());
 
     var out=new JsonObject();var version=SharedConstants.getCurrentVersion();
     out.addProperty("version",version.id());out.addProperty("data_version",version.dataVersion().version());
@@ -317,16 +321,19 @@ public class BlockFactsOracle {
   static Object wallField(String name)throws Exception{return field(WallBlock.class,name).get(null);}
   static boolean covers(VoxelShape face,VoxelShape test){return !Shapes.joinIsNotEmpty(test,face,BooleanOp.ONLY_FIRST);}
 
+  /** A level that fails on any read, so a fact read through it depends on the state alone. */
+  static final BlockGetter PROBE=(BlockGetter)Proxy.newProxyInstance(BlockFactsOracle.class.getClassLoader(),new Class<?>[]{BlockGetter.class},(proxy,method,a)->switch(method.getName()){
+    case "getMinY"->-64;
+    case "getHeight"->a==null?384:null;
+    case "hashCode"->System.identityHashCode(proxy);
+    case "equals"->proxy==a[0];
+    case "toString"->"BlockFactsProbe";
+    default->throw new IllegalStateException("level read: "+method.getName());
+  });
+
   @SuppressWarnings("unchecked")
   static Column flags(Set<String> levelDependent)throws Exception{
-    var level=(BlockGetter)Proxy.newProxyInstance(BlockFactsOracle.class.getClassLoader(),new Class<?>[]{BlockGetter.class},(proxy,method,a)->switch(method.getName()){
-      case "getMinY"->-64;
-      case "getHeight"->a==null?384:null;
-      case "hashCode"->System.identityHashCode(proxy);
-      case "equals"->proxy==a[0];
-      case "toString"->"BlockFactsProbe";
-      default->throw new IllegalStateException("level read: "+method.getName());
-    });
+    var level=PROBE;
     var canBurn=FireBlock.class.getDeclaredMethod("canBurn",BlockState.class);canBurn.setAccessible(true);
     var post=(VoxelShape)wallField("TEST_SHAPE_POST");var sides=(Map<Direction,VoxelShape>)wallField("TEST_SHAPES_WALL");
     var directions=Direction.values();var column=new Column(COUNT,true);
@@ -387,6 +394,34 @@ public class BlockFactsOracle {
       column.set(id,new JsonPrimitive(flags));
     }
     if(FLAG_BITS.size()!=51)throw new AssertionError("flag names");
+    return column;
+  }
+
+  /**
+   * `getSignal` and `getDirectSignal` toward each direction, read through the failing level: a
+   * state whose signal reads its neighbourhood (powered wire, comparators, trapped chests, test
+   * blocks) names its block as `context` instead.
+   */
+  static Column signal(){
+    var column=new Column(COUNT,true);var directions=Direction.values();int sources=0;
+    for(int id=0;id<COUNT;id++){
+      var state=STATES[id];var value=new JsonObject();
+      try{
+        var signal=new JsonArray();var direct=new JsonArray();boolean any=false;
+        for(var d:directions){
+          int s=state.getSignal(PROBE,ORIGIN,d),t=state.getDirectSignal(PROBE,ORIGIN,d);
+          if(s<0||s>15||t<0||t>15)throw new AssertionError("signal range "+state);
+          signal.add(s);direct.add(t);any|=s>0||t>0;
+        }
+        if(any&&!state.isSignalSource())throw new AssertionError("A signal from a state that is no source "+state);
+        if(any)sources++;
+        value.add("signal",signal);value.add("direct",direct);
+      }catch(IllegalStateException e){
+        value.addProperty("context",BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
+      }
+      column.set(id,value);
+    }
+    if(sources==0||column.palette.size()>255)throw new AssertionError("signal palette "+column.palette.size());
     return column;
   }
 

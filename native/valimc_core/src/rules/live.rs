@@ -114,7 +114,8 @@ impl World for Live<'_> {
 }
 
 /// Run the updates the owner's `changes` start (as `Level.setBlock` with
-/// `UPDATE_ALL` does), then the dependent blocks' due `ticks`.
+/// `UPDATE_ALL` does), then the dependent blocks' due `ticks`, within
+/// `budget` updates if given (`None` past it, nothing to commit).
 pub fn run(
     rules: &Rules,
     store: &ColumnStore,
@@ -122,7 +123,8 @@ pub fn run(
     changes: &[Change],
     ticks: &[([i32; 3], u16)],
     seed: u64,
-) -> Result<Outcome, String> {
+    budget: Option<u64>,
+) -> Result<Option<Outcome>, String> {
     let world = Live {
         store,
         absent,
@@ -134,12 +136,15 @@ pub fn run(
         crossed: false,
         rng: seed.max(1),
     };
-    let mut engine = Engine::new(rules, world);
+    let mut engine = Engine::new(rules, world).with_budget(budget.unwrap_or(u64::MAX));
     for &(pos, old) in changes {
         engine.changed(pos, old, ALL, UPDATE_LIMIT);
     }
     for &(pos, state) in ticks {
         engine.tick(pos, state);
+    }
+    if engine.report.over_budget {
+        return Ok(None);
     }
     let Engine { world, report, .. } = engine;
     let changes = world
@@ -148,12 +153,12 @@ pub fn run(
         .map(|&pos| (pos, world.overlay[&pos]))
         .filter(|&(pos, state)| state != world.base(pos))
         .collect();
-    Ok(Outcome {
+    Ok(Some(Outcome {
         changes,
         block_ticks: world.block_ticks,
         fluid_ticks: world.fluid_ticks,
         report,
-    })
+    }))
 }
 
 #[cfg(test)]

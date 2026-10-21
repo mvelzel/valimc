@@ -1,14 +1,20 @@
 //! Block updates inside one owner (VMC-077m): what `Level.setBlock` starts
 //! after a block changes, run as vanilla's `CollectingNeighborUpdater` runs
-//! it. A change notifies its neighbours (`updateNeighborsAt`, in
-//! `NeighborUpdater.UPDATE_ORDER`) and updates their shapes
-//! (`updateNeighbourShapes`, in `UPDATE_SHAPE_ORDER`); a shape that becomes
-//! air destroys its block (`destroyBlock`, which leaves the block's fluid and
-//! drops its loot), any other change is set and updates its own neighbours.
+//! it. A change first runs the blocks' own hooks (`affectNeighborsAfterRemoval`,
+//! `onPlace`: redstone wire's and the signal sources', `wire.rs`), then
+//! notifies its neighbours
+//! (`updateNeighborsAt`, in `NeighborUpdater.UPDATE_ORDER`) and updates their
+//! shapes (`updateNeighbourShapes`, in `UPDATE_SHAPE_ORDER`, and wire's
+//! `updateIndirectNeighbourShapes`); a shape that becomes air destroys its
+//! block (`destroyBlock`, which leaves the block's fluid and drops its loot),
+//! any other change is set and updates its own neighbours.
 //! Updates produced while one runs are collected and run before it continues
 //! (depth first, siblings in order); after `MAX_CHAINED` updates the rest are
 //! skipped, as vanilla's `max-chained-neighbor-updates` does, and shape updates
 //! recurse at most 512 deep.
+//!
+//! A run may have a budget of updates (a normal scheduler's); past it the
+//! engine stops and reports `over_budget`, and its writes are to be dropped.
 //!
 //! The engine reads and writes a `World`: the owner's cells (`World::owns`).
 //! An update at a cell the owner does not own, or whose rule reads one, is
@@ -50,7 +56,7 @@ pub trait World: BlockAccess {
     fn crossed(&mut self, mark: usize) -> bool;
 }
 
-enum Update {
+pub(super) enum Update {
     /// `ShapeUpdate`: `pos` learns that its neighbour at `neighbor_pos`
     /// (toward `direction`) became `neighbor_state`.
     Shape {
@@ -70,24 +76,41 @@ enum Update {
     },
 }
 
+/// A block a run destroyed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Destroyed {
+    pub pos: [i32; 3],
+    pub state: u16,
+    /// Whether its loot drops.
+    pub drops: bool,
+    /// Whether it breaks with particles and sound (`destroyBlock`), not
+    /// silently (`removeBlock`).
+    pub effects: bool,
+}
+
 /// What a run did besides its writes.
 #[derive(Debug, Default)]
 pub struct Report {
-    /// Blocks destroyed (position, state, whether loot drops), in order.
-    pub destroyed: Vec<([i32; 3], u16, bool)>,
+    /// Blocks destroyed, in order.
+    pub destroyed: Vec<Destroyed>,
     /// Updates dropped at the owner's border.
     pub stopped: u64,
     /// Updates past the chain limit.
     pub skipped: u64,
+    /// Updates run: neighbour and shape updates, each once.
+    pub updates: u64,
+    /// Whether the run stopped at its budget, incomplete.
+    pub over_budget: bool,
 }
 
 pub struct Engine<'r, W: World> {
-    rules: &'r Rules,
+    pub(super) rules: &'r Rules,
     pub world: W,
     stack: Vec<Update>,
     added: Vec<Update>,
     count: u64,
     max_chained: u64,
+    budget: u64,
     pub report: Report,
 }
 
@@ -100,8 +123,15 @@ impl<'r, W: World> Engine<'r, W> {
             added: Vec::new(),
             count: 0,
             max_chained: MAX_CHAINED,
+            budget: u64::MAX,
             report: Report::default(),
         }
+    }
+
+    /// Stop after `updates` updates (`Report::over_budget`).
+    pub fn with_budget(mut self, updates: u64) -> Self {
+        self.budget = updates;
+        self
     }
 
     /// What `Level.setBlock` does after the block at `pos` changed from `old`
@@ -116,7 +146,9 @@ impl<'r, W: World> Engine<'r, W> {
         if self.world.crossed(mark) {
             self.report.stopped += 1;
         }
-        self.after_set(pos, old, new, flags, limit);
+        if self.hooks(pos, old, new, flags) && self.world.get(pos) == new {
+            self.after_set(pos, old, new, flags, limit);
+        }
     }
 
     /// A dependent block's scheduled tick: it breaks if it cannot survive.
@@ -144,7 +176,30 @@ impl<'r, W: World> Engine<'r, W> {
             return false;
         }
         self.world.set(pos, state);
-        self.after_set(pos, old, state, flags, limit);
+        if !self.hooks(pos, old, state, flags) {
+            return false;
+        }
+        // A hook that changed the cell again ends this change.
+        if self.world.get(pos) == state {
+            self.after_set(pos, old, state, flags, limit);
+        }
+        true
+    }
+
+    /// `LevelChunk.setBlockState`'s hooks: when the block changed, the old
+    /// block's `affectNeighborsAfterRemoval`; then, unless that replaced the
+    /// new block, the new state's `onPlace`. Only redstone wire and the signal
+    /// sources have them yet (`wire.rs`).
+    fn hooks(&mut self, pos: [i32; 3], old: u16, new: u16, flags: i32) -> bool {
+        let table = self.rules.table.as_ref();
+        let block = table.block_of(new);
+        if table.block_of(old) != block && flags & NEIGHBORS != 0 {
+            self.removed(pos, old);
+        }
+        if self.rules.table.block_of(self.world.get(pos)) != block {
+            return false;
+        }
+        self.placed(pos, old, new);
         true
     }
 
@@ -155,9 +210,9 @@ impl<'r, W: World> Engine<'r, W> {
         }
         if flags & KNOWN_SHAPE == 0 && limit > 0 {
             let flags = flags & !(NEIGHBORS | SUPPRESS_DROPS);
-            // Indirect shape updates (`updateIndirectNeighbourShapes`) are
-            // redstone wire's; it reaches its diagonal wires (VMC-077m).
+            self.indirect_shapes(old, pos, flags, limit - 1);
             self.update_neighbour_shapes(new, pos, flags, limit - 1);
+            self.indirect_shapes(new, pos, flags, limit - 1);
         }
     }
 
@@ -168,7 +223,12 @@ impl<'r, W: World> Engine<'r, W> {
         if table.is_air(state) {
             return false;
         }
-        self.report.destroyed.push((pos, state, drop));
+        self.report.destroyed.push(Destroyed {
+            pos,
+            state,
+            drops: drop,
+            effects: true,
+        });
         self.set_block(pos, table.remains[state as usize], ALL, limit)
     }
 
@@ -198,7 +258,10 @@ impl<'r, W: World> Engine<'r, W> {
     }
 
     /// `CollectingNeighborUpdater.addAndRun`.
-    fn add(&mut self, update: Update) {
+    pub(super) fn add(&mut self, update: Update) {
+        if self.report.over_budget {
+            return;
+        }
         let running = self.count > 0;
         let too_many = self.count >= self.max_chained;
         self.count += 1;
@@ -222,6 +285,11 @@ impl<'r, W: World> Engine<'r, W> {
                 // runs first.
                 self.stack.push(update);
             }
+            if self.report.updates >= self.budget {
+                self.report.over_budget = true;
+                self.stack.clear();
+                self.added.clear();
+            }
             let Some(mut next) = self.stack.pop() else {
                 break;
             };
@@ -241,6 +309,7 @@ impl<'r, W: World> Engine<'r, W> {
 
     /// One step of an update; whether it has more.
     fn run_next(&mut self, update: &mut Update) -> bool {
+        self.report.updates += 1;
         match *update {
             Update::Shape {
                 direction,
@@ -322,11 +391,15 @@ impl<'r, W: World> Engine<'r, W> {
     }
 
     /// `NeighborUpdater.executeUpdate`: the block at `pos` hears that a
-    /// neighbour of kind `block` changed. No live block reacts yet; redstone
-    /// wire is next (VMC-077m).
+    /// neighbour of kind `block` changed. Only redstone wire reacts yet.
     fn neighbor_changed(&mut self, pos: [i32; 3], _block: u16) {
         if !self.world.owns(pos) {
             self.report.stopped += 1;
+            return;
+        }
+        let state = self.world.get(pos);
+        if self.is_wire(state) {
+            self.wire_neighbor_changed(pos, state);
         }
     }
 }

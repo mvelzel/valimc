@@ -1828,7 +1828,8 @@ defmodule Valimc.World.RegionData do
   defp rule_updates(state, previous, ticks) do
     absent = MapSet.to_list(state.generation.absent)
     outcome = Rules.run(state.blocks, previous, ticks, absent)
-    drops = for {position, block, true} <- outcome.destroyed, do: {position, block}
+    drops = for {position, block, true, _} <- outcome.destroyed, do: {position, block}
+    breaks = for {position, block, _, true} <- outcome.destroyed, do: {position, block}
 
     cond do
       drops != [] and write_busy(state) != nil ->
@@ -1839,7 +1840,7 @@ defmodule Valimc.World.RegionData do
 
         state
         |> schedule_ticks(rule_ticks(state, changes, outcome.ticks))
-        |> commit_rule_changes(changes, drops)
+        |> commit_rule_changes(changes, drops, breaks)
     end
   end
 
@@ -1874,9 +1875,9 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  defp commit_rule_changes(state, edits, _drops) when map_size(edits) == 0, do: state
+  defp commit_rule_changes(state, edits, _drops, _breaks) when map_size(edits) == 0, do: state
 
-  defp commit_rule_changes(state, edits, []) do
+  defp commit_rule_changes(state, edits, [], _breaks) do
     with {:ok, batch} <- BlockBatch.prepare(edits),
          {:ok, proposal} <- block_proposal(state, batch) do
       publish_blocks(state, batch, proposal, false, false)
@@ -1885,9 +1886,10 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # Destroyed blocks break like vanilla `destroyBlock`: they leave their fluid
-  # and drop their tool-less loot, in the frame that writes the rules' changes.
-  defp commit_rule_changes(state, edits, drops) do
+  # Destroyed blocks break like vanilla `destroyBlock` (or, with no particles
+  # and sound, `removeBlock` after `dropResources`): they leave their fluid and
+  # drop their tool-less loot, in the frame that writes the rules' changes.
+  defp commit_rule_changes(state, edits, drops, breaks) do
     items = Enum.reduce(drops, state.items, &add_support_drops(&2, state.key, &1))
 
     with {:ok, batch} <- BlockBatch.prepare(edits),
@@ -1898,7 +1900,7 @@ defmodule Valimc.World.RegionData do
 
       state
       |> release_blocks(effects)
-      |> release_effect({:level_events, for({p, b} <- drops, do: {p, 2001, b})})
+      |> release_effect({:level_events, for({p, b} <- breaks, do: {p, 2001, b})})
     else
       _ -> state
     end

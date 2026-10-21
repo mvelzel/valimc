@@ -2,14 +2,18 @@
 //! them once; `block_updates` runs the updates a batch of block changes starts
 //! and the due ticks of dependent blocks, reading the owner's store without
 //! changing it (a normal NIF and its dirty twin, `Valimc.Native.dispatch/3`).
+//! A cascade's cost is not bounded by its input: on a normal scheduler the run
+//! stops after `NORMAL_BUDGET` updates and answers `{:error, :too_large}` for
+//! the caller to run it dirty.
 //!
 //! `changes` and `ticks` are packed `<<x::32, y::32, z::32, state::16>>`
 //! records (signed coordinates): a changed cell with its old state, a due tick
 //! with its state. The reply is `{:ok, {changes, destroyed, ticks, stopped,
-//! skipped}}`: `changes` packs `<<x, y, z, state::16>>` (final states, in the
-//! order they first changed), `destroyed` `<<x, y, z, state::16, drops::8>>`,
+//! skipped, updates}}`: `changes` packs `<<x, y, z, state::16>>` (final states, in the
+//! order they first changed), `destroyed` `<<x, y, z, state::16, flags::8>>`
+//! (bit 0: its loot drops; bit 1: it breaks with particles and sound),
 //! `ticks` `<<x, y, z, block::16, delay::32>>`; the counts are updates dropped
-//! at the region's border and past the chain limit.
+//! at the region's border, past the chain limit and run.
 
 use crate::region::{with_store, Region};
 use crate::{atoms, binary, reply};
@@ -60,7 +64,12 @@ fn put_position(out: &mut Vec<u8>, pos: [i32; 3]) {
     }
 }
 
-type Updated<'a> = (Binary<'a>, Binary<'a>, Binary<'a>, u64, u64);
+type Updated<'a> = (Binary<'a>, Binary<'a>, Binary<'a>, u64, u64, u64);
+
+/// Updates a normal-scheduler run may take: about 0.4 ms at the engine's
+/// slowest rate (redstone cascades, about 5 million a second), under 1 ms
+/// while a loaded host halves it.
+const NORMAL_BUDGET: u64 = 2_048;
 
 #[rustler::nif]
 fn block_updates<'a>(
@@ -72,7 +81,17 @@ fn block_updates<'a>(
     absent: Vec<(i32, i32)>,
     seed: u64,
 ) -> Result<Updated<'a>, Atom> {
-    updates(env, &region, &rules.rules, changes, ticks, absent, seed)
+    let budget = Some(NORMAL_BUDGET);
+    updates(
+        env,
+        &region,
+        &rules.rules,
+        changes,
+        ticks,
+        absent,
+        seed,
+        budget,
+    )
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -85,9 +104,19 @@ fn block_updates_dirty<'a>(
     absent: Vec<(i32, i32)>,
     seed: u64,
 ) -> Result<Updated<'a>, Atom> {
-    updates(env, &region, &rules.rules, changes, ticks, absent, seed)
+    updates(
+        env,
+        &region,
+        &rules.rules,
+        changes,
+        ticks,
+        absent,
+        seed,
+        None,
+    )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn updates<'a>(
     env: Env<'a>,
     region: &Region,
@@ -96,24 +125,26 @@ fn updates<'a>(
     ticks: Binary,
     absent: Vec<(i32, i32)>,
     seed: u64,
+    budget: Option<u64>,
 ) -> Result<Updated<'a>, Atom> {
     let changes = records(changes.as_slice())?;
     let ticks = records(ticks.as_slice())?;
     let absent: HashSet<(i32, i32)> = absent.into_iter().collect();
     let outcome = with_store(region, |store| {
-        valimc_core::rules::live::run(rules, store, &absent, &changes, &ticks, seed)
+        valimc_core::rules::live::run(rules, store, &absent, &changes, &ticks, seed, budget)
             .map_err(|_| atoms::invalid_state())
-    })?;
+    })?
+    .ok_or(atoms::too_large())?;
     let mut changed = Vec::with_capacity(outcome.changes.len() * 14);
     for (pos, state) in &outcome.changes {
         put_position(&mut changed, *pos);
         changed.extend_from_slice(&state.to_be_bytes());
     }
     let mut destroyed = Vec::with_capacity(outcome.report.destroyed.len() * 15);
-    for (pos, state, drops) in &outcome.report.destroyed {
-        put_position(&mut destroyed, *pos);
-        destroyed.extend_from_slice(&state.to_be_bytes());
-        destroyed.push(u8::from(*drops));
+    for block in &outcome.report.destroyed {
+        put_position(&mut destroyed, block.pos);
+        destroyed.extend_from_slice(&block.state.to_be_bytes());
+        destroyed.push(u8::from(block.drops) | u8::from(block.effects) << 1);
     }
     let mut scheduled = Vec::with_capacity(outcome.block_ticks.len() * 18);
     for (pos, block, delay) in &outcome.block_ticks {
@@ -127,5 +158,6 @@ fn updates<'a>(
         binary(env, &scheduled),
         outcome.report.stopped,
         outcome.report.skipped,
+        outcome.report.updates,
     ))
 }

@@ -163,6 +163,8 @@ pub struct BlockTable {
     pub fluid_level: Vec<u8>,
     /// What base block removal leaves (the state's fluid as a block).
     pub remains: Vec<u16>,
+    /// The redstone signals (`StateFacts::signal`).
+    signal: Vec<u64>,
     pub heightmaps: Vec<u8>,
     /// States fire can burn (`FireBlock.canBurn`), a bit per state.
     flammable: Vec<u64>,
@@ -224,6 +226,7 @@ impl BlockTable {
             fluid: states.fluid.clone(),
             fluid_level: states.fluid_level.clone(),
             remains: states.remains.clone(),
+            signal: states.signal.clone(),
             heightmaps: states.heightmaps.clone(),
             flammable: vec![0; count.div_ceil(64)],
             tags: HashMap::new(),
@@ -352,6 +355,17 @@ impl BlockTable {
 
     pub fn fluid(&self, state: u16) -> u8 {
         self.fluid[state as usize]
+    }
+
+    /// `getSignal` toward direction `d`; a signal that reads the level (powered
+    /// wire, comparators, trapped chests) is 0 here.
+    pub fn signal(&self, state: u16, d: usize) -> i32 {
+        (self.signal[state as usize] >> (4 * d) & 15) as i32
+    }
+
+    /// `getDirectSignal` toward direction `d`, as `signal`.
+    pub fn direct_signal(&self, state: u16, d: usize) -> i32 {
+        (self.signal[state as usize] >> (24 + 4 * d) & 15) as i32
     }
 
     /// The state's heightmap predicate for `kind`.

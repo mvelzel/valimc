@@ -74,8 +74,11 @@ on accept errors (VMC-077a).
   game tick: scheduled block ticks, random ticks (a native per-section sampler),
   items, cooking, orb lifetime, orbs. Block ticks and item motion run only in
   chunks a simulation ticket covers; cooking and orb ageing while any chunk of
-  the region does (VMC-077e). Block reactions are `Valimc.Block.Behaviour`
-  callbacks; `Region.step/2` drives ticks deterministically in tests (VMC-066).
+  the region does (VMC-077e). What a commit starts (neighbour and shape updates,
+  survival, redstone wire power) and dependent blocks' due ticks run in the Rust
+  block-update engine in one call per commit (VMC-077m); blocks with effects of
+  their own (portals, containers, cooking) keep `Valimc.Block.Behaviour`
+  callbacks. `Region.step/2` drives ticks deterministically in tests (VMC-066).
 - **Entities.** Items and orbs share one view (`EntityView`), one per-chunk
   publication with revision stamps (`EntityPublication`; observers copy only
   changed chunks) and one replication tracker per connection (VMC-067).
@@ -86,10 +89,11 @@ on accept errors (VMC-077a).
   runs, defaults, properties, vanilla classes) and `Valimc.Registry.BlockFacts`
   every per-state fact, as one columnar table from one oracle (VMC-077d): flags,
   collision shape, motion, fluid, climbing, inside behaviour, hazard, landing,
-  mining, replaceability, heightmaps, sky and light. Survival keeps its two
-  tables until one rule engine serves decoration and live updates. Block
-  behaviours are `Valimc.Block.Behaviour` callbacks chosen by the generated
-  class (VMC-068).
+  mining, replaceability, heightmaps, sky, light and redstone signals. Survival
+  keeps two tables, read by one Rust module: decoration checks survival before
+  placement under unlit light, live updates after it with their reactions.
+  Block behaviours are `Valimc.Block.Behaviour` callbacks chosen by the
+  generated class (VMC-068).
 - **Connection.** `Valimc.Connection` is a thin GenServer shell; `Net.*` holds
   the codec, login flow and serverbound dispatch, `Session.*` message routing,
   jobs, events, replication and commands, and `Player.*` each gameplay domain.
@@ -180,18 +184,20 @@ over a pure `valimc_core` crate) owns dense data and CPU-heavy pure work:
 | Lighting (M2) | Per chunk (VMC-077c): each chunk lit alone where it is generated and stored in its column image; a region adopts that light, propagates only across chunk faces and then updates incrementally within a work budget, over nibble arrays on the section resource |
 | Disk NBT reading (VMC-020) | 3.5–4× the Elixir reader on vanilla chunks; values are sub-binaries of the input |
 | Anvil import and export (VMC-021) | LZ4 chunk streams; packed palette indices into sections; compact column images for region checkpoints; vanilla palette packing for export (5.7× the Elixir reference) |
+| Block updates (VMC-077m) | `updateShape`, survival, neighbour updates in vanilla's collecting order and redstone wire power over the owner's store, one call per commit; the same rule modules serve decoration. Effects that leave the owner (drops, events) return to Elixir |
 
 Kept in Elixir: packet and file compression (`:zlib`), AES-CFB8
 (`:crypto`/OpenSSL), network item/text NBT, NBT writing (zlib deflate costs more
 per chunk), region file headers and palette-name mapping (VMC-021, about 80 µs
-per chunk; not yet compared with Rust), player physics, redstone (until profiled). `Valimc.NBT` is the one
+per chunk; not yet compared with Rust), player physics. `Valimc.NBT` is the one
 NBT codec: network and disk framing, explicit limits, and an Elixir reader that
 is the native reader's parity reference.
 
 NIF rules ([VMC-077b](tickets/VMC-077b.md)):
 
-- The shim has one module per domain (`region`, `light`, `codec`, `sys`,
-  `worldgen`, `loot`); oracle and benchmark NIFs live in `parity`, built only
+- The shim has one module per domain (`facts`, `region`, `rules`, `light`,
+  `climate`, `codec`, `sys`, `worldgen`, `loot`); oracle and benchmark NIFs live
+  in `parity`, built only
   with the `parity` cargo feature (dev, test and bench builds, not releases).
   One arity per NIF.
 - Scheduling by bounded worst-case cost. A NIF on a normal scheduler stays under

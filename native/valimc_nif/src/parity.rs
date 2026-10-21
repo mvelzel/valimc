@@ -779,3 +779,94 @@ fn rules_support_cases(
     let dependent = states.iter().map(|&s| live.dependent(s)).collect();
     Ok((results, dependent))
 }
+
+/// One `Level.setBlock` of a redstone scene: the writes in order, the
+/// blocks destroyed (state and whether with particles) and the ticks
+/// scheduled (block, delay).
+type SceneStep = (
+    Vec<(i32, i32, i32, u16)>,
+    Vec<(i32, i32, i32, u16, bool)>,
+    Vec<(i32, i32, i32, u16, i32)>,
+);
+
+/// A scene's cells: air but for what it holds, every cell its own.
+struct Scene {
+    cells: std::collections::HashMap<[i32; 3], u16>,
+    air: u16,
+    writes: Vec<(i32, i32, i32, u16)>,
+    ticks: Vec<(i32, i32, i32, u16, i32)>,
+}
+
+impl valimc_core::rules::BlockAccess for Scene {
+    fn get(&mut self, pos: [i32; 3]) -> u16 {
+        self.cells.get(&pos).copied().unwrap_or(self.air)
+    }
+    fn schedule_block_tick(&mut self, pos: [i32; 3], block: u16, delay: i32) {
+        self.ticks.push((pos[0], pos[1], pos[2], block, delay));
+    }
+    fn schedule_fluid_tick(&mut self, _pos: [i32; 3], _fluid: u8, _delay: i32) {}
+    fn has_block_tick(&mut self, pos: [i32; 3], block: u16) -> bool {
+        self.ticks
+            .iter()
+            .any(|&(x, y, z, b, _)| [x, y, z] == pos && b == block)
+    }
+    fn next_int(&mut self, _bound: i32) -> i32 {
+        0
+    }
+}
+
+impl valimc_core::rules::updater::World for Scene {
+    fn owns(&self, pos: [i32; 3]) -> bool {
+        (-64..320).contains(&pos[1])
+    }
+    fn set(&mut self, pos: [i32; 3], state: u16) {
+        self.cells.insert(pos, state);
+        self.writes.push((pos[0], pos[1], pos[2], state));
+    }
+    fn begin(&mut self) -> usize {
+        0
+    }
+    fn crossed(&mut self, _mark: usize) -> bool {
+        false
+    }
+}
+
+/// `RedstoneWireOracle`'s scenes on the block-update engine (VMC-077m): from
+/// the `floor` cells, each of `sets` is `Level.setBlock(pos, state,
+/// UPDATE_ALL)`; per set what it wrote, destroyed and scheduled.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn rules_scene(
+    rules: ResourceArc<crate::rules::BlockRules>,
+    floor: Vec<(i32, i32, i32, u16)>,
+    sets: Vec<(i32, i32, i32, u16)>,
+) -> Result<Vec<SceneStep>, Atom> {
+    use valimc_core::rules::updater::{Engine, ALL, UPDATE_LIMIT};
+    let rules = &rules.rules;
+    let air = rules
+        .table
+        .default_state("air")
+        .map_err(|_| atoms::invalid_state())?;
+    let scene = Scene {
+        cells: floor.iter().map(|&(x, y, z, s)| ([x, y, z], s)).collect(),
+        air,
+        writes: Vec::new(),
+        ticks: Vec::new(),
+    };
+    let mut engine = Engine::new(rules, scene);
+    let mut steps = Vec::with_capacity(sets.len());
+    for &(x, y, z, state) in &sets {
+        engine.set_block([x, y, z], state, ALL, UPDATE_LIMIT);
+        let destroyed = engine
+            .report
+            .destroyed
+            .drain(..)
+            .map(|d| (d.pos[0], d.pos[1], d.pos[2], d.state, d.effects))
+            .collect();
+        steps.push((
+            std::mem::take(&mut engine.world.writes),
+            destroyed,
+            std::mem::take(&mut engine.world.ticks),
+        ));
+    }
+    Ok(steps)
+}
