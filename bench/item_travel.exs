@@ -1,3 +1,4 @@
+Code.require_file("blocks.exs", __DIR__)
 alias Valimc.{ItemMotionState, ItemPhysicsQuery, World}
 
 Application.put_env(:valimc, :port, 0)
@@ -21,7 +22,7 @@ rows =
     if scene == :water do
       for x <- 3..16,
           z <- 3..11,
-          do: :ok = World.set_block({n + x, 64, n + z}, if(rem(x, 3) == 0, do: 96, else: 89))
+          do: :ok = Bench.Blocks.set({n + x, 64, n + z}, if(rem(x, 3) == 0, do: 96, else: 89))
     end
 
     selected = Enum.take(inputs, count)

@@ -1,3 +1,4 @@
+Code.require_file("blocks.exs", __DIR__)
 alias Valimc.{GameMode, PlayerInput, PlayerPoseQuery, World}
 [output] = System.argv()
 concurrency = min(System.schedulers_online(), 16)
@@ -29,7 +30,7 @@ workloads =
             _ -> 0
           end
 
-        :ok = World.set_block({floor(x), 65, floor(z)}, roof)
+        :ok = Bench.Blocks.set({floor(x), 65, floor(z)}, roof)
 
         %{
           x: x,

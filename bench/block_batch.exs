@@ -1,4 +1,5 @@
-alias Valimc.Protocol.{Data, Packets}
+Code.require_file("blocks.exs", __DIR__)
+alias Valimc.Protocol.Data
 alias Valimc.World
 alias Valimc.World.Region
 [output] = System.argv()
@@ -22,12 +23,11 @@ measure = fn edits, mode ->
   frames =
     case mode do
       :single ->
-        Enum.map(edits, fn {pos, block} ->
-          :ok = World.set_block(pos, block)
+        Enum.flat_map(edits, fn {pos, block} ->
+          :ok = Bench.Blocks.set(pos, block)
 
           receive do
-            {:event, {:block, ^pos, ^block}} ->
-              Packets.frame(Packets.block(pos, block), 256)
+            {:event, {:block_batch, frames}} -> Enum.map(frames, &elem(&1, 1))
           after
             1000 -> raise "Missing single-block publication"
           end
@@ -44,7 +44,7 @@ measure = fn edits, mode ->
     end
 
   elapsed = System.monotonic_time(:microsecond) - start
-  for {pos, block} <- edits, do: true = World.get_block(pos) == block
+  for {pos, block} <- edits, do: true = Bench.Blocks.get(pos) == block
 
   %{
     mode: mode,

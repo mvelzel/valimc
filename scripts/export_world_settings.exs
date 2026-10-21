@@ -4,7 +4,7 @@
 # oracle then runs the pinned server on each export and checks that vanilla
 # keeps the generation settings and the spawn ValiMC wrote.
 [out] = System.argv()
-alias Valimc.World.{Generator, Spawn}
+alias Valimc.World.Generator
 
 Valimc.Protocol.Data.load!()
 Valimc.World.Blocks.init!()
@@ -25,7 +25,7 @@ cases = [
   {"normal", &Generator.create(&1, 20_261_020, features: false)},
   {"no_structures", &Generator.create(&1, -3, features: false, structures: false)},
   {"decorated", &Generator.create(&1, 12_345)},
-  {"flat_profile", &Spawn.write(&1, {0, 64, 0}, 0.0)}
+  {"flat_profile", &Valimc.World.Spec.write(&1, %{"type" => "flat"})}
 ]
 
 for {name, make} <- cases do
@@ -40,11 +40,13 @@ for {name, make} <- cases do
   {:ok, _} = Valimc.Anvil.Export.run(base, Path.join(out, name))
 
   # ValiMC's chunk (0, 0) for the oracle: each Y's state id and the biome.
-  with {:ok, %{kind: :flat} = spec} <- Generator.spec(base) do
+  world = Valimc.World.Spec.fetch(base)
+
+  with {:ok, %{kind: :flat} = spec} <- Valimc.World.Spec.generation(world, :overworld) do
     %{{0, 0} => image} = Generator.columns(spec, [{0, 0}])
     {:ok, blocks} = Valimc.World.Blocks.new({0, 0}, %{}, %{{0, 0} => image})
     states = for y <- -64..319, do: Valimc.World.Blocks.get(blocks, {5, y, 9})
-    settings = Generator.recorded(base)
+    settings = world.settings
     biome = Valimc.World.GenSettings.overworld(settings)["settings"]["biome"]
 
     File.write!(

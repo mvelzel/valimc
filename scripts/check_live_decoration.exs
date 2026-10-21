@@ -91,18 +91,13 @@ root =
       settings =
         Valimc.World.GenSettings.create(level_type, nil, seed, facts["structures"] == true)
 
-      File.write!(
-        Valimc.World.Spawn.path(base),
-        JSON.encode!(%{
-          "spawn" => [0, 100, 0],
-          "generator" => %{
-            "type" => "vanilla",
-            "seed" => seed,
-            "features" => true,
-            "settings" => settings
-          }
+      :ok =
+        Valimc.World.Spec.write(base, %{
+          "type" => "vanilla",
+          "seed" => seed,
+          "features" => true,
+          "settings" => settings
         })
-      )
 
       keys =
         for %{"x" => rx, "z" => rz} <- regions,

@@ -46,8 +46,11 @@ defmodule Valimc.World.Spec do
     end
   end
 
-  @doc "The configured world's spec (`load!/0`)."
-  def current, do: :persistent_term.get(@key)
+  @doc """
+  The configured world's spec (`load!/0`); tools that run without the
+  application get ValiMC's flat profile without a world directory.
+  """
+  def current, do: :persistent_term.get(@key, nil) || build(nil, nil, {:ok, nil})
 
   @doc "The spec of the world at `base`: the loaded one, else read now (tools, tests)."
   def fetch(base) do

@@ -5,7 +5,7 @@
 #
 # `worlds` creates each world as a new world is created (`Generator.create/3`):
 # SCOPE `features` decorated (VMC-025d), `terrain` terrain only.
-alias Valimc.World.{Generator, Spawn}
+alias Valimc.World.Generator
 
 Valimc.Protocol.Data.load!()
 Valimc.World.Chunk.load!()
@@ -31,8 +31,8 @@ created = fn seed ->
 
   try do
     :ok = Generator.create(base, seed, features: features)
-    %{"spawn" => [x, y, z]} = Spawn.path(base) |> File.read!() |> JSON.decode!()
-    {x, y, z}
+    {:ok, %{spawn: %{position: position}}} = Valimc.World.Settings.read(base)
+    position
   after
     File.rm_rf!(base)
   end

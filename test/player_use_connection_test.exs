@@ -173,8 +173,11 @@ defmodule Valimc.PlayerUseConnectionTest do
     seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => drink}})
     {client, pid} = login(ctx, 20.0, food)
     client = block_then_drink(client, ctx)
-    {<<1>>, client} = Client.await(client, :play, "block_changed_ack")
-    {<<2>>, _client} = Client.await(client, :play, "block_changed_ack")
+    # The block use's correction runs as a job (VMC-077a), so the drink's
+    # acknowledgement may come first; the client takes either order.
+    {first, client} = Client.await(client, :play, "block_changed_ack")
+    {second, _client} = Client.await(client, :play, "block_changed_ack")
+    assert Enum.sort([first, second]) == [<<1>>, <<2>>]
     wait(fn -> state(pid).active_use != nil end)
     assert state(pid).active_use.remaining == 32
     ticks(pid, 32)

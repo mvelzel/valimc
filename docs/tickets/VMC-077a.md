@@ -97,7 +97,7 @@ acknowledgement, as vanilla's `ServerGamePacketListenerImpl` does.
 |---|---|---|
 | An owner timeout kills the session | No command, suggestion or block write calls an owner from the connection; a command's exit or deadline ends its job as `command.failed` | `command_connection_test` "a command whose owner does not answer fails and the session lives on"; `rcon_test` "a command whose owner exits answers command.failed" |
 | Mutual commands stall or report wrong targets | Fan-out is `send_request` with one deadline from a job; neither connection waits; unanswered targets are not counted | `command_connection_test` "two operators giving to each other at once both get their items" |
-| The listener stops the application | Accept errors back off; a crash loop is absorbed by its domain supervisor | `supervision_test` (scripted `emfile`, `enfile`, `system_limit`, `econnaborted`; four listener and four clock kills leave connections and regions untouched); `directory_recovery_test` (a directory loss fences owners and writers, the session and listener live on) |
+| The listener stops the application | Accept errors back off; a crash loop is absorbed by its domain supervisor | `supervision_test` (scripted `emfile`, `enfile`, `system_limit`, `econnaborted`; four listener and four stopwatch-owner kills leave connections and regions untouched); `directory_recovery_test` (a directory loss fences owners and writers, the session and listener live on) |
 | `world.json` falls back to flat | Read once at start, failure fatal; written once, crash-safely; runtime settings live elsewhere | `world_settings_test` "world.json is read once; a broken one is an error, never flat" |
 | Settings lost or torn by a crash | One owner, durable write before publish | `world_settings_test` (owner, failed write, unreadable and old formats) |
 | Wrong-dimension commands | `Source.dimension`; `/save-all` per scoped key, no admission; generation by dimension | `world_settings_test` Serial: setworldspawn in the Nether, save-all from the Nether, locate a fortress from the Nether |
@@ -114,7 +114,24 @@ pos, yaw, pitch)`), `MinecraftServer.findRespawnDimension/setRespawnData`,
 `DefaultGameModeCommands`. Vanilla has no RCON idle timeout and no frame caps
 below 2 MiB; both are ValiMC bounds.
 
-Checks: see the end of this ticket.
+Checks (October 21, 2026): the touched flows' test files by name while
+working; the full `mix test` through `scripts/heavy.py` at the end, 713 of 713
+(108.8 s; a first run exposed a test that killed the clock and so re-enabled
+natural regeneration for later suites, now killing the stopwatch owner
+instead); vanilla stages `commands`, `placement`, `place`, `locate`,
+`anvil_content`, `world_settings`, `spawn`, `game_mode`, `player_life`,
+`world_border` and `tcp` pass (their oracle and bench scripts moved to
+`World.Spec`, `World.Settings` and `bench/blocks.exs`). `--changed` selects
+every stage here (`config/config.exs` is a global input), so the stages were
+chosen by area. No client run: the milestone handoff covers `/setworldspawn`
+in the Nether, creative placement of an unmodelled block item and a command
+whose owner is slow.
+
+Size: lib and config +1,546 / −1,154 lines over three commits (new: `World.Spec`,
+`World.Settings`, `DurableFile`, the command job; gone: the world.json
+re-readers, the raw block API, the preview placement path, the
+connection-state threading through every command handler and its self-target
+special cases).
 
 Next / deferred:
 

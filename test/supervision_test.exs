@@ -1,5 +1,6 @@
 defmodule Valimc.SupervisionTest do
-  # Kills the global listener and clock: not concurrent with socket suites.
+  # Kills the global listener and stopwatch owner: not concurrent with socket suites.
+  # (Not the clock: a restarted clock forgets the suite's natural-regeneration switch.)
   use ExUnit.Case, async: false
 
   test "accept errors back off and the acceptor keeps accepting" do
@@ -27,7 +28,7 @@ defmodule Valimc.SupervisionTest do
     others = Enum.map([Valimc.ConnectionSupervisor, Valimc.RegionSupervisor], &Process.whereis/1)
 
     # Four crashes within seconds stopped the application under the old flat root (3 in 5 s).
-    for name <- [Valimc.Listener, Valimc.World.Clock], _ <- 1..4 do
+    for name <- [Valimc.Listener, Valimc.World.Stopwatches], _ <- 1..4 do
       pid = Process.whereis(name)
       ref = Process.monitor(pid)
       Process.exit(pid, :kill)

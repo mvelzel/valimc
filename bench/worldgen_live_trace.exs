@@ -23,13 +23,7 @@ run = fn pass ->
   base = Path.join(System.tmp_dir!(), "valimc-prof-live-#{System.unique_integer([:positive])}")
   File.mkdir_p!(base)
 
-  File.write!(
-    Valimc.World.Spawn.path(base),
-    JSON.encode!(%{
-      "spawn" => [0, 100, 0],
-      "generator" => %{"type" => "vanilla", "seed" => seed, "features" => true}
-    })
-  )
+  :ok = Valimc.World.Spec.write(base, %{"type" => "vanilla", "seed" => seed, "features" => true})
 
   offset = pass * (n + 4)
   regions = for rz <- 0..(n - 1), rx <- 0..(n - 1), do: {rx + offset, rz}

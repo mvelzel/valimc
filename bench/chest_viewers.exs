@@ -1,3 +1,4 @@
+Code.require_file("blocks.exs", __DIR__)
 alias Valimc.{ChestOpening, World}
 alias Valimc.World.{Containers, Region, Store}
 [output] = System.argv()
@@ -19,7 +20,7 @@ results =
     {:ok, bytes} = Containers.encode(key, containers)
     :ok = Store.import_region(dataset, key, %{containers: bytes})
     {:ok, owner} = World.owner(key)
-    :ok = World.set_block(position, block)
+    :ok = Bench.Blocks.set(position, block)
     parent = self()
 
     clients =

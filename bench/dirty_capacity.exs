@@ -132,18 +132,13 @@ run = fn pass ->
   base = Path.join(System.tmp_dir!(), "valimc-bench-dirty-#{System.unique_integer([:positive])}")
   File.mkdir_p!(base)
 
-  File.write!(
-    Valimc.World.Spawn.path(base),
-    JSON.encode!(%{
-      "spawn" => [0, 100, 0],
-      "generator" => %{
-        "type" => "vanilla",
-        "seed" => seed,
-        "features" => true,
-        "settings" => Valimc.World.GenSettings.create("minecraft:normal", nil, seed, true)
-      }
+  :ok =
+    Valimc.World.Spec.write(base, %{
+      "type" => "vanilla",
+      "seed" => seed,
+      "features" => true,
+      "settings" => Valimc.World.GenSettings.create("minecraft:normal", nil, seed, true)
     })
-  )
 
   # Each pass uses regions of its own, so no owner of an earlier pass answers.
   offset = pass * (n + 4)

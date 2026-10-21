@@ -14,7 +14,7 @@ alias Valimc.Session.ChunkView
 hops = String.to_integer(Enum.at(rest, 0, "6"))
 hop_blocks = String.to_integer(Enum.at(rest, 1, "512"))
 distance = 10
-{:vanilla, seed} = Valimc.World.Generator.current()
+%{generator: :vanilla, seed: seed} = Valimc.World.Spec.current()
 now = fn -> System.monotonic_time(:microsecond) end
 
 defmodule Bench.Client do
