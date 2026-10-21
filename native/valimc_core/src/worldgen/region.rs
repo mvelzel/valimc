@@ -106,16 +106,22 @@ impl ProtoChunk {
             block_entity_data: BTreeMap::new(),
             touched: false,
         };
-        for kind in Heightmap::ALL {
-            for column in 0..256 {
-                let base = column * HEIGHT as usize;
-                let top = (0..HEIGHT as usize)
-                    .rev()
-                    .find(|&y| table.heightmap(chunk.blocks[base + y], kind));
-                chunk.heightmaps[kind as usize][column] = match top {
-                    Some(y) => MIN_Y + y as i32 + 1,
-                    None => MIN_Y,
-                };
+        // Every heightmap in one scan down each column.
+        for column in 0..256 {
+            let base = column * HEIGHT as usize;
+            let mut missing = Heightmap::ALL.len();
+            for y in (0..HEIGHT as usize).rev() {
+                let state = chunk.blocks[base + y];
+                for kind in Heightmap::ALL {
+                    let height = &mut chunk.heightmaps[kind as usize][column];
+                    if *height == MIN_Y && table.heightmap(state, kind) {
+                        *height = MIN_Y + y as i32 + 1;
+                        missing -= 1;
+                    }
+                }
+                if missing == 0 {
+                    break;
+                }
             }
         }
         chunk

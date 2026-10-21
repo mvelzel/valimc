@@ -155,7 +155,9 @@ defmodule Valimc.Worldgen.FullChunk do
   defp default("minecraft:mob_spawner" = id), do: {:ok, id, spawner(nil)}
   defp default("minecraft:creaking_heart" = id), do: {:ok, id, %{}}
   defp default("minecraft:potent_sulfur" = id), do: {:ok, id, %{"countdown" => {:int, -1}}}
-  defp default("minecraft:sculk_catalyst" = id), do: {:ok, id, %{"cursors" => Valimc.NBT.list([])}}
+
+  defp default("minecraft:sculk_catalyst" = id),
+    do: {:ok, id, %{"cursors" => Valimc.NBT.list([])}}
 
   defp default("minecraft:sculk_sensor" = id),
     do: {:ok, id, %{"last_vibration_frequency" => {:int, 0}, "listener" => listener()}}

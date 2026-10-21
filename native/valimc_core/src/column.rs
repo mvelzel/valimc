@@ -172,16 +172,72 @@ impl Column {
 
 const IMAGE_VERSION: u8 = 1;
 
+/// A column image built from raw cells (VMC-025d proto chunks), byte for
+/// byte as `to_image` writes a column with these states: per section its
+/// 4,096 states in index order, then optionally per section its 64 biomes.
+pub fn image_of_cells<'a>(
+    sections: impl Iterator<Item = &'a [u16]>,
+    biomes: Option<&mut dyn Iterator<Item = &'a [u16]>>,
+) -> Vec<u8> {
+    let mut out = vec![IMAGE_VERSION, biomes.is_some() as u8];
+    for cells in sections {
+        image_cells(&mut out, cells);
+    }
+    if let Some(biomes) = biomes {
+        for cells in biomes {
+            image_cells(&mut out, cells);
+        }
+    }
+    out
+}
+
+/// One section (or a section's biomes): a single value, or a palette.
+fn image_cells(out: &mut Vec<u8>, cells: &[u16]) {
+    let first = cells[0];
+    if cells.iter().all(|&c| c == first) {
+        out.push(0);
+        out.extend(first.to_be_bytes());
+    } else {
+        image_palette(out, cells);
+    }
+}
+
+/// First-appearance palette and packed indices. Generated sections hold few
+/// states and long runs, so a small palette is searched linearly with the
+/// last cell's slot remembered; larger ones switch to a map.
 fn image_palette(out: &mut Vec<u8>, cells: &[u16]) {
     let mut palette: Vec<u16> = Vec::new();
     let mut slot_of: HashMap<u16, u64> = HashMap::new();
+    let mut last: Option<(u16, u64)> = None;
     let slots: Vec<u64> = cells
         .iter()
-        .map(|state| {
-            *slot_of.entry(*state).or_insert_with(|| {
-                palette.push(*state);
-                (palette.len() - 1) as u64
-            })
+        .map(|&state| match last {
+            Some((value, slot)) if value == state => slot,
+            _ => {
+                let slot = if palette.len() <= 32 {
+                    match palette.iter().position(|&p| p == state) {
+                        Some(i) => i as u64,
+                        None => {
+                            palette.push(state);
+                            if palette.len() > 32 {
+                                slot_of = palette
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(i, &p)| (p, i as u64))
+                                    .collect();
+                            }
+                            (palette.len() - 1) as u64
+                        }
+                    }
+                } else {
+                    *slot_of.entry(state).or_insert_with(|| {
+                        palette.push(state);
+                        (palette.len() - 1) as u64
+                    })
+                };
+                last = Some((state, slot));
+                slot
+            }
         })
         .collect();
     out.push(1);

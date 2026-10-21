@@ -18,8 +18,8 @@ use std::sync::Arc;
 
 use super::blocks::{BlockTable, Heightmap};
 use super::region::{BlockEntityData, ProtoChunk, HEIGHT, MIN_Y};
-use crate::column::Column;
-use crate::section::{index as section_index, Biomes, Storage};
+use crate::column::{image_of_cells, Column};
+use crate::section::{index as section_index, VOLUME};
 
 const VERSION: u8 = 1;
 const SECTIONS: usize = (HEIGHT / 16) as usize;
@@ -27,36 +27,18 @@ const COLUMN: usize = HEIGHT as usize;
 
 /// The binary form of `chunk`.
 pub fn encode(chunk: &ProtoChunk) -> Vec<u8> {
-    let at = |x: usize, y: usize, z: usize| chunk.blocks[y + (x + z * 16) * COLUMN];
-    let mut sections = Vec::with_capacity(SECTIONS);
-    let mut biomes = Vec::with_capacity(SECTIONS);
-    for s in 0..SECTIONS {
-        let first = at(0, s * 16, 0);
-        let mut storage = Storage::Single(first);
-        for y in 0..16 {
-            for z in 0..16 {
-                for x in 0..16 {
-                    let state = at(x, s * 16 + y, z);
-                    if state != first {
-                        storage.set(section_index(x, y, z), state);
-                    }
-                }
+    // Sections in index order (y, z, x), from the chunk's Y-fastest columns.
+    let mut cells = vec![0u16; SECTIONS * VOLUME];
+    for z in 0..16 {
+        for x in 0..16 {
+            let column = &chunk.blocks[(x + z * 16) * COLUMN..(x + z * 16 + 1) * COLUMN];
+            for (y, &state) in column.iter().enumerate() {
+                cells[(y / 16) * VOLUME + section_index(x, y % 16, z)] = state;
             }
         }
-        storage.normalize();
-        sections.push(storage);
-        let cells = &chunk.biomes[s * 64..s * 64 + 64];
-        biomes.push(if cells.iter().all(|&b| b == cells[0]) {
-            Biomes::Single(cells[0])
-        } else {
-            Biomes::Cells(Box::new(cells.try_into().expect("64 biomes")))
-        });
     }
-    let image = Column {
-        sections,
-        biomes: Some(biomes),
-    }
-    .to_image();
+    let mut biomes = chunk.biomes.chunks(64);
+    let image = image_of_cells(cells.chunks(VOLUME), Some(&mut biomes));
 
     let mut out = Vec::with_capacity(image.len() + 4096);
     out.push(VERSION);

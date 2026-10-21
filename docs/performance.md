@@ -27,6 +27,19 @@ chunk against 2.4–2.7 ms in vanilla. Pumpkin's features stage on the same
 chunks takes 0.83 ms; it also places structure pieces, so the comparison is
 matched apart from structures.
 
+[Live decoration](tickets/VMC-025.md) (`bench/worldgen_live.exs`, seed
+20261020, a fresh decorated world finalizing 2 × 2 regions at once through its
+proto owners: 400 terrain chunks, 324 decorated, 256 final, every proto log
+write durable; 10 dirty schedulers). Measured only on a host at load average
+42–47 from other work, where plain terrain alone took 34–57 ms per chunk on
+one thread instead of the matched 5.7–5.9 ms, so absolute numbers are not
+comparable with the entries above or with Pumpkin; a matched run on a quiet
+host is pending. Ratios from the same runs: encoding a chunk as a proto chunk
+adds 18% to its terrain, and decoration over encoded chunks (decode, decorate,
+encode the touched ones) takes 1.8 × the decoration alone; full chunks add
+about 7% of the terrain's cost. Throughput was 18–58 final chunks per second
+across those runs.
+
 [Fresh terrain](tickets/VMC-071.md) (`bench/fresh_terrain.exs`, one loopback
 client at view distance 10 teleported three times into terrain no region has
 generated, alternating runs on the same 10-core host under other load): with one
