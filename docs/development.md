@@ -71,6 +71,8 @@ or drive sockets; the comment under `use ExUnit.Case` says which. When only a fe
 tests touch global state, they move into a `Module.Serial` module at the end of the
 same file, which imports the async module's public helpers and reuses its setup
 through `setup {Module, :scope}`, so the rest of the file stays concurrent.
+Socket suites whose player ticks only the test drives use `Valimc.TestPlayer`
+(`test/support/client.ex`) for the private world, login, clock parking and ticks.
 
 Rust code lives in `native/` (`valimc_core` pure crate, `valimc_nif` Rustler shim,
 built by `use Rustler` in `Valimc.Native`). Run `cargo fmt --check` there too.
