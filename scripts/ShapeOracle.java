@@ -29,7 +29,7 @@ import net.minecraft.world.level.material.Fluid;
  * Analyzed: the states of blocks whose class overrides `updateShape` and that the generated
  * worldgen facts (features, placed features, state providers, material rules, noise settings,
  * with block tags expanded), the structure templates and processor lists features place, or
- * ValiMC's worldgen code name, except fire, chorus plants, pale moss carpets, vines and
+ * ValiMC's worldgen code (structure pieces' palettes included) name, except fire, chorus plants, pale moss carpets, vines and
  * speleothems (their updates are code). Blocks that do not override it keep their state and
  * schedule nothing, as vanilla's default does; the other overriding blocks are listed as
  * unmodelled.
@@ -301,6 +301,17 @@ public class ShapeOracle {
         }
       }
     }
+    // And the blocks structure pieces place (VMC-025f): every string that names a block, with or
+    // without properties (their palettes).
+    var literal = java.util.regex.Pattern.compile("\"([a-z0-9_]+)(?:\\[[a-z0-9_=,]*\\])?\"");
+    try (var files = Files.list(Path.of("native/valimc_core/src/worldgen/structure"))) {
+      for (var file : files.filter(f -> f.toString().endsWith(".rs")).sorted().toList()) {
+        var matcher = literal.matcher(Files.readString(file));
+        while (matcher.find()) {
+          BuiltInRegistries.BLOCK.getOptional(net.minecraft.resources.Identifier.withDefaultNamespace(matcher.group(1))).ifPresent(out::add);
+        }
+      }
+    }
     // Fire reads all six neighbours' flammability (too many contexts to enumerate) and chorus plants
     // read up to ten cells; ValiMC implements their updates in code, checked by `code` (VMC-026a).
     out.remove(Blocks.FIRE);
@@ -314,6 +325,12 @@ public class ShapeOracle {
     // Speleothems read scheduled ticks; ValiMC implements their updates in code (VMC-025c).
     out.remove(Blocks.POINTED_DRIPSTONE);
     out.remove(Blocks.SULFUR_SPIKE);
+    // A jungle temple's traps (VMC-025f) lie underground where no tree updates them, and redstone
+    // wire and repeaters read too many cells to tabulate; they stay unmodelled.
+    for (var block : List.of(Blocks.REDSTONE_WIRE, Blocks.REPEATER, Blocks.TRIPWIRE, Blocks.TRIPWIRE_HOOK, Blocks.LEVER,
+        Blocks.STICKY_PISTON)) {
+      out.remove(block);
+    }
     return out;
   }
 
