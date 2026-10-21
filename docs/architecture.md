@@ -13,6 +13,7 @@ authority. The M1 foundations below are in place; later milestones on the
 | Admission, names, lifecycle | Players service; never on movement or chat hot paths |
 | Nearby-player observations | Published ETS rows plus a spatial index; paced replication |
 | Blocks (Rust paletted sections), block entities, stationary items | Region owner (8×8 chunks); immutable chunk snapshots in its ETS table for readers |
+| Generated chunks before they are full (decorated worlds) | Proto owner per region (`Worldgen.Proto`): encoded proto chunks, statuses, finalize transactions; terrain and decoration on dirty schedulers |
 | Item and orb observations | Region-owned protected ETS; cached immutable packet binaries |
 | World clock, weather, difficulty | Environment owner; immutable publications |
 | Encoding, collision queries, auth/crypto, transfer recovery | Bounded worker pools (collision pool partitioned per caller) |
@@ -60,6 +61,19 @@ vanilla spam throttle. Runtime caps live in `config/config.exs`.
   the codec, login flow and serverbound dispatch, `Session.*` message routing,
   jobs, events, replication and commands, and `Player.*` each gameplay domain.
   Broadcast packets are framed once and shared as binaries (VMC-069).
+
+## Generation (M2)
+
+A decorated world's region becomes full through its proto owner (VMC-025d). A
+chunk is decorated once its 3 × 3 has terrain and is full once its 3 × 3 is
+decorated; decoration reads and writes only that 3 × 3, so a full chunk is
+never touched again. Finalizing a region is one transaction over the nine
+proto owners around it: locks in region key order (durable on foreign owners,
+`Txn.Permits`), one decoration call, one commit frame with an outbox, then
+idempotent parts (`Txn.Receipts`, `Txn.Delivery`); a participant left with a
+lock asks the coordinator, and anything not committed is aborted. The live
+region persists the full chunks with their block entities and ticks in one
+frame and the proto owner drops them.
 
 ## Elixir and Rust
 

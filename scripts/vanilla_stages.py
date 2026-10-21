@@ -141,6 +141,10 @@ STAGES = [
         ('java', 'StructureOracle', 'starts', '@starts.json'),
         ('check', 'check_structures.exs', '@starts.json'),
     ]),
+    ('worldgen_live', [
+        ('java', 'DecorationOracle', '@live.json', '*', 'live'),
+        ('app', 'check_live_decoration.exs', '@live.json'),
+    ]),
     ('commands', [
         ('java', 'CommandTreeOracle', 'tree', '@tree.json'),
         ('same', '@tree.json', 'priv/commands/tree.json'),

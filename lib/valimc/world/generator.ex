@@ -11,7 +11,10 @@ defmodule Valimc.World.Generator do
 
   Regions of a vanilla world generate the chunks their log has no column image
   for when they load (`columns/2`), and persist them before serving them, so a
-  chunk is generated once.
+  chunk is generated once. New vanilla worlds are decorated (VMC-025d,
+  `"features": true`): their regions take full chunks from their proto owner
+  (`Valimc.Worldgen.Proto`) instead. Worlds generated before keep terrain
+  only, so no chunk of theirs is decorated after it was sent.
   """
   alias Valimc.{Native, Worldgen}
   alias Valimc.Protocol.Data
@@ -56,19 +59,78 @@ defmodule Valimc.World.Generator do
     {hashed, false}
   end
 
-  @doc "Write `world.json` for a new vanilla world at `base` with `seed` and vanilla's world spawn."
-  def create(base, seed) when is_integer(seed) do
-    {x, y, z} = Valimc.World.SpawnSearch.world_spawn({:vanilla, seed})
+  @doc """
+  Write `world.json` for a new vanilla world at `base` with `seed` and vanilla's
+  world spawn (VMC-027d). Decorated unless `features: false` (terrain only, as
+  worlds generated before VMC-025d); a decorated world's spawn search reads the
+  full chunks its regions' first transactions make.
+  """
+  def create(base, seed, opts \\ []) when is_integer(seed) do
+    features = Keyword.get(opts, :features, true)
+    columns = if features, do: first_full_columns(seed), else: &columns/2
+    {x, y, z} = Valimc.World.SpawnSearch.world_spawn({:vanilla, seed}, columns)
     File.mkdir_p!(base)
+    generator = %{"type" => "vanilla", "seed" => seed}
 
     File.write(
       Spawn.path(base),
       JSON.encode!(%{
         "spawn" => [x, y, z],
         "yaw" => 0.0,
-        "generator" => %{"type" => "vanilla", "seed" => seed}
+        "generator" => if(features, do: Map.put(generator, "features", true), else: generator)
       })
     )
+  end
+
+  # Full chunk images as region `key`'s transaction makes them when it is the
+  # first one finalized: the 10 × 10 around it decorated Z outer, X inner over
+  # terrain, memoized per region for one search. A player whose view starts
+  # other regions first may race it.
+  defp first_full_columns(seed) do
+    {:ok, state} = worldgen(seed)
+    proto = Valimc.Worldgen.Proto
+
+    fn {:vanilla, ^seed}, chunks ->
+      Map.new(chunks, fn chunk ->
+        key = Valimc.World.region_key(chunk)
+
+        images =
+          case Process.get({__MODULE__, :first_full, seed, key}) do
+            nil ->
+              {:ok, terrain} =
+                Native.worldgen_proto_terrain(state, @biome_source, proto.around(key, 2))
+
+              images = Map.new(terrain, fn {x, z, image} -> {{x, z}, image} end)
+
+              {:ok, {touched, _}} =
+                Native.worldgen_proto_decorate(state, Map.values(images), proto.around(key, 1))
+
+              images =
+                Map.merge(images, Map.new(touched, fn {x, z, image} -> {{x, z}, image} end))
+
+              own = Enum.map(proto.chunks_of(key), &images[&1])
+              {:ok, full} = Native.worldgen_proto_full(state, own, protocol_biomes())
+              images = Map.new(full, &{{&1.x, &1.z}, &1.image})
+              Process.put({__MODULE__, :first_full, seed, key}, images)
+              images
+
+            images ->
+              images
+          end
+
+        {chunk, Map.fetch!(images, chunk)}
+      end)
+    end
+  end
+
+  @doc "Whether the world at `base` decorates its generated chunks (VMC-025d)."
+  def decorated?(nil), do: false
+
+  def decorated?(base) do
+    with {:ok, text} <- File.read(Spawn.path(base)),
+         {:ok, %{"generator" => %{"type" => "vanilla", "features" => true}}} <- JSON.decode(text),
+         do: true,
+         else: (_ -> false)
   end
 
   @doc "The generator of the world at `base`: `:flat` or `{:vanilla, seed}`."
@@ -105,75 +167,45 @@ defmodule Valimc.World.Generator do
 
   @doc "The spawn target's origin column `{x, z}` of `seed`, or nil (VMC-027d)."
   def spawn_origin(seed) do
-    checked_out(seed, fn state ->
-      {:ok, origin} = Native.worldgen_spawn_origin(state)
-      origin
-    end)
+    {:ok, state} = worldgen(seed)
+    {:ok, origin} = Native.worldgen_spawn_origin(state)
+    origin
   end
 
   defp generate(seed, chunks) do
-    checked_out(seed, fn state ->
-      {:ok, generated} =
-        Native.worldgen_columns(state, @biome_source, protocol_biomes(), chunks)
-
-      generated
-    end)
+    {:ok, state} = worldgen(seed)
+    {:ok, generated} = Native.worldgen_columns(state, @biome_source, protocol_biomes(), chunks)
+    generated
   end
 
-  # A worldgen state compiles its samplers once and keeps bounded pure caches
-  # behind its own lock, so one state serialises every caller. Each seed has one
-  # state per dirty CPU scheduler; a call checks a free one out and waits briefly
-  # while all are busy. Any state gives the same chunks.
-  defp checked_out(seed, fun) do
-    {states, busy} = pool(seed)
-    slot = take(busy, tuple_size(states), :erlang.phash2(self(), tuple_size(states)), 0)
-
-    try do
-      fun.(elem(states, slot))
-    after
-      :atomics.put(busy, slot + 1, 0)
-    end
-  end
-
-  defp take(busy, size, start, tried) do
-    slot = rem(start + tried, size)
-
-    cond do
-      :atomics.compare_exchange(busy, slot + 1, 0, 1) == :ok ->
-        slot
-
-      tried + 1 < size ->
-        take(busy, size, start, tried + 1)
-
-      true ->
-        Process.sleep(2)
-        take(busy, size, start, 0)
-    end
-  end
-
-  defp pool(seed) do
+  @doc """
+  The worldgen state of `seed`, one per VM: noises and compiled functions are
+  built once. The native state keeps a pool of per-call states (VMC-025d1), so
+  concurrent generations of the seed run in parallel and any of them gives the
+  same chunks.
+  """
+  def worldgen(seed) do
     case :persistent_term.get({__MODULE__, seed}, nil) do
       nil ->
-        size = :erlang.system_info(:dirty_cpu_schedulers_online)
-
-        states =
-          List.to_tuple(
-            for _ <- 1..size do
+        :global.trans({{__MODULE__, seed}, self()}, fn ->
+          case :persistent_term.get({__MODULE__, seed}, nil) do
+            nil ->
               {:ok, state} = Worldgen.new(seed, @settings)
-              state
-            end
-          )
+              :persistent_term.put({__MODULE__, seed}, state)
+              {:ok, state}
 
-        pool = {states, :atomics.new(size, signed: false)}
-        :persistent_term.put({__MODULE__, seed}, pool)
-        pool
+            state ->
+              {:ok, state}
+          end
+        end)
 
-      pool ->
-        pool
+      state ->
+        {:ok, state}
     end
   end
 
-  defp protocol_biomes do
+  @doc "Protocol biome ids in the native registry's biome order."
+  def protocol_biomes do
     case :persistent_term.get({__MODULE__, :biomes}, nil) do
       nil ->
         ids =

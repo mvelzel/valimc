@@ -1663,13 +1663,13 @@ impl<'a> Placing<'a, '_> {
                             .ok_or("bee nest facing")?;
                         self.set_decoration(p, nest);
                         // The hive's block entity, there only if the nest
-                        // was written, takes 2 or 3 bees (their data is not
-                        // modelled).
+                        // was written, takes 2 or 3 bees, each with its
+                        // ticks in the hive.
                         let hive = self.region.block_entity(p)?;
-                        if hive.is_some_and(|be| be.kind == "minecraft:beehive") {
+                        if let Some(hive) = hive.filter(|be| be.kind == "minecraft:beehive") {
                             let bees = 2 + self.random.next_int_bounded(2);
                             for _ in 0..bees {
-                                self.random.next_int_bounded(599);
+                                hive.bees.push(self.random.next_int_bounded(599));
                             }
                         }
                     }

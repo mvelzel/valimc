@@ -81,7 +81,7 @@ import net.minecraft.world.ticks.WorldGenTickAccess;
  * from the bottom, then X, then Z) as [id, count] pairs, its post-processing
  * marks, scheduled block and fluid ticks (position, type, delay, priority),
  * block entity positions and, for the block entities features created, their type,
- * loot table and seed and spawned entity.
+ * loot table and seed, spawned entity and a beehive's bees (ticks in the hive).
  */
 public class DecorationOracle {
   static final int MIN_Y = -64, HEIGHT = 384;
@@ -177,6 +177,11 @@ public class DecorationOracle {
       includedJson.add(ids);
     }
 
+    if (args.length > 2 && args[2].equals("live")) {
+      live(Path.of(args[0]), factory, registries, lookup, noises, biomeLookup, holder, settings, doFill, buildSurface,
+          generateCarvers, picker, heights, steps, included, includedJson);
+      return;
+    }
     if (args.length > 2 && args[2].equals("bench")) {
       bench(Path.of(args[0]), factory, registries, lookup, noises, biomeLookup, holder, settings, doFill, buildSurface, generateCarvers,
           picker, heights, steps, included, includedJson);
@@ -335,6 +340,145 @@ public class DecorationOracle {
     System.out.println("PASS: vanilla decoration timings for 64 chunks");
   }
 
+  /** ValiMC's region size in chunks (`:region_size`), which live generation finalizes at once. */
+  static final int REGION = 8;
+
+  /**
+   * `OUT TYPES live` (VMC-025d2): regions finalized one after the other as ValiMC's live
+   * generation does it. For each case (seed, regions in order), the 12 × 12 chunks around each
+   * region get terrain, then each region's undecorated chunks of the 10 × 10 around it are
+   * decorated, Z outer and X inner. Output per finalized region its 64 chunks as `chunkJson`
+   * writes them, plus each block entity as the full chunk saves it: a created one with what
+   * features wrote, a pending one as its block's new block entity (`LevelChunk` promotes them
+   * so), each `saveWithFullMetadata` written as unnamed binary NBT in base64; and the new block
+   * entity of each block decoration places with one.
+   */
+  static void live(Path out, net.minecraft.world.level.chunk.PalettedContainerFactory factory, net.minecraft.core.RegistryAccess registries,
+      HolderGetter.Provider lookup, HolderGetter<net.minecraft.world.level.levelgen.synth.NormalNoise> noises, HolderGetter<Biome> biomeLookup,
+      Holder<NoiseGeneratorSettings> holder, NoiseGeneratorSettings settings, Method doFill, Method buildSurface, Method generateCarvers,
+      Aquifer.FluidPicker picker, LevelHeightAccessor heights, List<FeatureSorter.StepFeatureData> steps,
+      List<Map<Integer, PlacedFeature>> included, JsonArray includedJson) throws Exception {
+    record Case(long seed, List<ChunkPos> regions) {}
+    var cases = List.of(
+        new Case(20261020L, List.of(new ChunkPos(0, 0), new ChunkPos(1, 0), new ChunkPos(1, 1))),
+        new Case(-8172645723L, List.of(new ChunkPos(-3, 7), new ChunkPos(-4, 7))),
+        new Case(20261020L, List.of(new ChunkPos(25000, -18000))));
+    var rows = new JsonArray();
+    long blocks = 0;
+    int entities = 0;
+    for (var c : cases) {
+      var state = RandomState.create(noises, c.seed(), settings);
+      BiomeSource biomeSource = MultiNoiseBiomeSource.createFromList(
+          TerrainOracle.freshList(MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD, biomeLookup));
+      var generator = new NoiseBasedChunkGenerator(biomeSource, holder);
+      var terrain = new Terrain(factory, c.seed(), state, settings, picker, generator, heights, biomeLookup,
+          doFill, buildSurface, generateCarvers);
+      var area = new LinkedHashSet<ChunkPos>();
+      for (var r : c.regions()) area.addAll(around(r, 2));
+      var chunks = terrain.build(area);
+      var decorated = new HashSet<ChunkPos>();
+      var order = new JsonArray();
+      for (var r : c.regions()) {
+        for (var pos : around(r, 1)) {
+          if (!decorated.add(pos)) continue;
+          var region = new Region(chunks, pos, c.seed(), state, biomeSource, lookup);
+          region.registries = registries;
+          region.generator = generator;
+          decorate(region, generator, chunks.get(pos), steps, included);
+          var p = new JsonArray();
+          p.add(pos.x());
+          p.add(pos.z());
+          order.add(p);
+        }
+      }
+      var regions = new JsonArray();
+      for (var r : c.regions()) {
+        var finalChunks = new JsonArray();
+        for (var pos : around(r, 0)) {
+          var chunk = chunks.get(pos);
+          var row = chunkJson(pos, chunk);
+          var nbt = new TreeMap<String, String>();
+          for (var be : chunk.getBlockEntities().values()) nbt.put(key(be.getBlockPos()), encode(be));
+          for (var bp : chunk.getBlockEntityNbts().keySet()) {
+            var blockState = chunk.getBlockState(bp);
+            if (blockState.getBlock() instanceof net.minecraft.world.level.block.EntityBlock eb) {
+              var be = eb.newBlockEntity(bp, blockState);
+              if (be != null) nbt.put(key(bp), encode(be));
+            }
+          }
+          entities += nbt.size();
+          var list = new JsonArray();
+          nbt.forEach((k, v) -> list.add(k + "," + v));
+          row.add("nbt", list);
+          finalChunks.add(row);
+          blocks += 16 * 16 * HEIGHT;
+        }
+        var region = new JsonObject();
+        region.addProperty("x", r.x());
+        region.addProperty("z", r.z());
+        region.add("chunks", finalChunks);
+        regions.add(region);
+      }
+      var row = new JsonObject();
+      row.addProperty("seed", Long.toString(c.seed()));
+      row.add("order", order);
+      row.add("regions", regions);
+      rows.add(row);
+    }
+    // The new block entity of each block decoration places with one, at (1, 2, 3): what a pending
+    // block entity becomes in the full chunk.
+    var defaults = new JsonArray();
+    for (var name : List.of("chest", "trapped_chest", "spawner", "bee_nest", "suspicious_sand", "suspicious_gravel",
+        "sculk_sensor", "sculk_shrieker", "sculk_catalyst", "creaking_heart", "potent_sulfur")) {
+      var block = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getValue(
+          net.minecraft.resources.Identifier.withDefaultNamespace(name));
+      var be = ((net.minecraft.world.level.block.EntityBlock) block).newBlockEntity(
+          new net.minecraft.core.BlockPos(1, 2, 3), block.defaultBlockState());
+      defaults.add("minecraft:" + name + "," + encode(be));
+    }
+    // What decoration writes into the block entities it creates: a beehive's bees (as
+    // BeehiveDecorator stores them) and a brushable block's loot (as the desert well's template).
+    var nest = (net.minecraft.world.level.block.entity.BeehiveBlockEntity) ((net.minecraft.world.level.block.EntityBlock)
+        net.minecraft.world.level.block.Blocks.BEE_NEST).newBlockEntity(new net.minecraft.core.BlockPos(1, 2, 3),
+        net.minecraft.world.level.block.Blocks.BEE_NEST.defaultBlockState());
+    nest.storeBee(net.minecraft.world.level.block.entity.BeehiveBlockEntity.Occupant.create(123));
+    nest.storeBee(net.minecraft.world.level.block.entity.BeehiveBlockEntity.Occupant.create(456));
+    defaults.add("minecraft:bee_nest bees 123/456," + encode(nest));
+    var sand = (net.minecraft.world.level.block.entity.BrushableBlockEntity) ((net.minecraft.world.level.block.EntityBlock)
+        net.minecraft.world.level.block.Blocks.SUSPICIOUS_SAND).newBlockEntity(new net.minecraft.core.BlockPos(1, 2, 3),
+        net.minecraft.world.level.block.Blocks.SUSPICIOUS_SAND.defaultBlockState());
+    sand.setLootTable(net.minecraft.resources.ResourceKey.create(Registries.LOOT_TABLE,
+        net.minecraft.resources.Identifier.parse("minecraft:archaeology/desert_well")), 7L);
+    defaults.add("minecraft:suspicious_sand loot minecraft:archaeology/desert_well 7," + encode(sand));
+    var result = new JsonObject();
+    result.addProperty("region_size", REGION);
+    result.add("features", includedJson);
+    result.add("defaults", defaults);
+    result.add("cases", rows);
+    Files.writeString(out, new Gson().toJson(result));
+    System.out.println("PASS: " + cases.size() + " live generation sequences (" + blocks + " blocks of final chunks, "
+        + entities + " block entities)");
+  }
+
+  /** The chunks within `r` of region `region`, Z outer and X inner. */
+  static List<ChunkPos> around(ChunkPos region, int r) {
+    var list = new ArrayList<ChunkPos>();
+    for (int z = region.z() * REGION - r; z < region.z() * REGION + REGION + r; z++) {
+      for (int x = region.x() * REGION - r; x < region.x() * REGION + REGION + r; x++) list.add(new ChunkPos(x, z));
+    }
+    return list;
+  }
+
+  static String key(net.minecraft.core.BlockPos p) {
+    return p.getX() + "," + p.getY() + "," + p.getZ();
+  }
+
+  static String encode(net.minecraft.world.level.block.entity.BlockEntity be) throws java.io.IOException {
+    var bytes = new java.io.ByteArrayOutputStream();
+    net.minecraft.nbt.NbtIo.writeUnnamedTag(be.saveWithFullMetadata(REGISTRIES), new java.io.DataOutputStream(bytes));
+    return java.util.Base64.getEncoder().encodeToString(bytes.toByteArray());
+  }
+
   static String typeOf(Feature feature) {
     var key = net.minecraft.core.registries.BuiltInRegistries.FEATURE_TYPE.getKey(feature.codec());
     return Objects.requireNonNull(key, "feature type").toString();
@@ -383,28 +527,34 @@ public class DecorationOracle {
       HolderGetter<Biome> biomeLookup, Method doFill, Method buildSurface, Method generateCarvers) {
     /** The (2r + 1)² chunks around `centre` at status `terrain`, Z outer and X inner. */
     LinkedHashMap<ChunkPos, ProtoChunk> area(ChunkPos centre, int r) throws ReflectiveOperationException {
+      var positions = new ArrayList<ChunkPos>();
+      for (int dz = -r; dz <= r; dz++) {
+        for (int dx = -r; dx <= r; dx++) positions.add(new ChunkPos(centre.x() + dx, centre.z() + dz));
+      }
+      return build(positions);
+    }
+
+    /** Chunks at status `terrain`, in the given order. */
+    LinkedHashMap<ChunkPos, ProtoChunk> build(Collection<ChunkPos> positions) throws ReflectiveOperationException {
       var biomeCache = new HashMap<ChunkPos, Holder<Biome>[]>();
       Function<ChunkPos, Holder<Biome>[]> biomesOf = p -> biomeCache.computeIfAbsent(p,
           q -> TerrainOracle.chunkBiomes(state, "overworld", biomeLookup, q, MIN_Y, HEIGHT));
       var biomeManager = new BiomeManager((qx, qy, qz) -> biomeAt(biomesOf, qx, qy, qz), BiomeManager.obfuscateSeed(seed));
       var chunks = new LinkedHashMap<ChunkPos, ProtoChunk>();
-      for (int dz = -r; dz <= r; dz++) {
-        for (int dx = -r; dx <= r; dx++) {
-          var pos = new ChunkPos(centre.x() + dx, centre.z() + dz);
-          var chunk = new ProtoChunk(pos, UpgradeData.EMPTY, heights, factory, null);
-          var volume = new DensityVolume(16, HEIGHT, 16, pos.getMinBlockX(), MIN_Y, pos.getMinBlockZ());
-          try (var noiseChunk = new NoiseChunk(state, null, settings, picker, Blender.empty(), volume)) {
-            doFill.invoke(generator, noiseChunk, chunk);
-            buildSurface.invoke(generator, chunk, noiseChunk, state, biomeManager, null, settings.materialRule().value());
-            generateCarvers.invoke(generator, chunk, Blender.empty(), noiseChunk, state, biomeManager, null,
-                settings.materialRule().value());
-          }
-          chunk.fillBiomesFromNoise((qx, qy, qz) -> biomeAt(biomesOf, qx, qy, qz));
-          Heightmap.primeHeightmaps(chunk, EnumSet.of(Heightmap.Types.MOTION_BLOCKING,
-              Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, Heightmap.Types.OCEAN_FLOOR, Heightmap.Types.WORLD_SURFACE));
-          chunk.setPersistedStatus(ChunkStatus.TERRAIN);
-          chunks.put(pos, chunk);
+      for (var pos : positions) {
+        var chunk = new ProtoChunk(pos, UpgradeData.EMPTY, heights, factory, null);
+        var volume = new DensityVolume(16, HEIGHT, 16, pos.getMinBlockX(), MIN_Y, pos.getMinBlockZ());
+        try (var noiseChunk = new NoiseChunk(state, null, settings, picker, Blender.empty(), volume)) {
+          doFill.invoke(generator, noiseChunk, chunk);
+          buildSurface.invoke(generator, chunk, noiseChunk, state, biomeManager, null, settings.materialRule().value());
+          generateCarvers.invoke(generator, chunk, Blender.empty(), noiseChunk, state, biomeManager, null,
+              settings.materialRule().value());
         }
+        chunk.fillBiomesFromNoise((qx, qy, qz) -> biomeAt(biomesOf, qx, qy, qz));
+        Heightmap.primeHeightmaps(chunk, EnumSet.of(Heightmap.Types.MOTION_BLOCKING,
+            Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, Heightmap.Types.OCEAN_FLOOR, Heightmap.Types.WORLD_SURFACE));
+        chunk.setPersistedStatus(ChunkStatus.TERRAIN);
+        chunks.put(pos, chunk);
       }
       return chunks;
     }
@@ -580,8 +730,13 @@ public class DecorationOracle {
       String loot = tag.getString("LootTable").orElse("-");
       long lootSeed = tag.getLongOr("LootTableSeed", 0L);
       String mob = tag.getCompound("SpawnData").flatMap(d -> d.getCompound("entity")).flatMap(e -> e.getString("id")).orElse("-");
+      // A beehive's bees: each one's ticks in the hive.
+      var bees = new ArrayList<String>();
+      tag.getList("bees").ifPresent(list -> list.forEach(bee ->
+          bees.add(String.valueOf(((net.minecraft.nbt.CompoundTag) bee).getIntOr("ticks_in_hive", -1)))));
       entityData.add(p.getX() + "," + p.getY() + "," + p.getZ() + ","
-          + net.minecraft.core.registries.BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(be.getType()) + "," + loot + "," + lootSeed + "," + mob);
+          + net.minecraft.core.registries.BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(be.getType()) + "," + loot + "," + lootSeed + "," + mob
+          + "," + (bees.isEmpty() ? "-" : String.join("/", bees)));
     });
     var row = new JsonObject();
     row.addProperty("x", pos.x());

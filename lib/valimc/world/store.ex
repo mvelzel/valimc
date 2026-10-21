@@ -18,6 +18,9 @@ defmodule Valimc.World.Store do
   # owner-loaded); `chunk_extras` (`chunk => nbt`, vanilla chunk data ValiMC does
   # not model) and `entities` (`chunk => nbt`, preserved vanilla entities) are kept
   # for export only; `light` (`chunk => image`, VMC-021e5) is owner-loaded.
+  # `post_processing` (`chunk => {marks, fluid_ticks}`, VMC-025d) holds what a
+  # generated chunk leaves for fluids (VMC-031): its post-processing marks and
+  # fluid ticks.
   @empty %{
     blocks: %{},
     columns: %{},
@@ -27,7 +30,8 @@ defmodule Valimc.World.Store do
     block_entities: %{},
     chunk_extras: %{},
     entities: %{},
-    light: %{}
+    light: %{},
+    post_processing: %{}
   }
   @imported [:columns, :items, :containers, :block_entities, :chunk_extras, :entities, :light]
   def start_link({key, owner}),
@@ -84,6 +88,18 @@ defmodule Valimc.World.Store do
   """
   def put_columns(pid, lease, columns) when is_map(columns),
     do: GenServer.call(pid, {:put_columns, lease, columns}, 60_000)
+
+  @doc """
+  Persist generated full chunks (VMC-025d) in one frame before the region serves
+  them: `columns` and `post_processing` (`chunk => …`, merged), and the region's
+  whole `block_entities` and `ticks` with the generated ones added; durable when
+  this returns.
+  """
+  def put_generated(pid, lease, %{columns: columns} = parts) when is_map(columns),
+    do: GenServer.call(pid, {:put_generated, lease, parts}, 60_000)
+
+  @doc "Generated chunks' pending post-processing (`chunk => {marks, fluid_ticks}`)."
+  def load_post_processing(pid), do: GenServer.call(pid, :load_post_processing)
 
   @doc """
   Write a new region's log with imported column images (`chunk => image`), offline:
@@ -171,7 +187,8 @@ defmodule Valimc.World.Store do
              :block_entities,
              :chunk_extras,
              :entities,
-             :light
+             :light,
+             :post_processing
            ] do
     dir = log_dir(base, key)
 
@@ -240,6 +257,24 @@ defmodule Valimc.World.Store do
 
   def handle_call({:put_columns, _, _}, _from, state),
     do: {:reply, {:error, :stale_store_lease}, state}
+
+  def handle_call({:put_generated, lease, parts}, _from, %{lease: lease} = state) do
+    {result, state} =
+      write(state, [
+        {:columns, parts.columns},
+        {:post_processing, parts.post_processing},
+        {:block_entities, parts.block_entities},
+        {:ticks, parts.ticks}
+      ])
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:put_generated, _, _}, _from, state),
+    do: {:reply, {:error, :stale_store_lease}, state}
+
+  def handle_call(:load_post_processing, _from, state),
+    do: {:reply, state.values.post_processing, state}
 
   def handle_call({:close, lease}, _from, %{lease: lease} = state) do
     RegionLog.close(state.log)
@@ -439,6 +474,9 @@ defmodule Valimc.World.Store do
 
         {:columns, columns}, acc ->
           %{acc | columns: Map.merge(acc.columns, columns)}
+
+        {:post_processing, chunks}, acc ->
+          %{acc | post_processing: Map.merge(acc.post_processing, chunks)}
 
         {part, value}, acc
         when part in [
@@ -649,7 +687,7 @@ defmodule Valimc.World.Store do
       {:ok, log, _lsn} ->
         bytes = :erlang.external_size(parts)
 
-        for {part, _} <- parts, part != :columns do
+        for {part, _} <- parts, part not in [:columns, :post_processing] do
           Valimc.Metrics.add(if part == :blocks, do: :region_saves, else: :item_snapshot_saves)
         end
 
@@ -664,9 +702,17 @@ defmodule Valimc.World.Store do
   defp apply_parts(state, parts) do
     values =
       Enum.reduce(parts, state.values, fn
-        {:cells, cells}, acc -> %{acc | blocks: apply_cells(acc.blocks, cells, acc.columns)}
-        {:columns, columns}, acc -> %{acc | columns: Map.merge(acc.columns, columns)}
-        {k, v}, acc -> %{acc | k => v}
+        {:cells, cells}, acc ->
+          %{acc | blocks: apply_cells(acc.blocks, cells, acc.columns)}
+
+        {:columns, columns}, acc ->
+          %{acc | columns: Map.merge(acc.columns, columns)}
+
+        {:post_processing, chunks}, acc ->
+          %{acc | post_processing: Map.merge(acc.post_processing, chunks)}
+
+        {k, v}, acc ->
+          %{acc | k => v}
       end)
 
     %{state | values: values}

@@ -31,7 +31,11 @@ defmodule Valimc.Txn.Permits do
       full: :item_merge_permits_full
     },
     mining: %{limit: 128, lifetime: 10_000, per_source: nil, full: :mining_permit_limit},
-    placement: %{limit: 128, lifetime: 10_000, per_source: nil, full: :placement_permit_limit}
+    placement: %{limit: 128, lifetime: 10_000, per_source: nil, full: :placement_permit_limit},
+    # A proto owner's chunk locks for finalize transactions (VMC-025d2). They
+    # end by the transaction's part or abort; the owner renews them while it
+    # asks the coordinator, so the lifetime only bounds a forgotten lock.
+    generation: %{limit: 64, lifetime: 3_600_000, per_source: nil, full: :generation_lock_limit}
   }
 
   def new, do: %__MODULE__{}

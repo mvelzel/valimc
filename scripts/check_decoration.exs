@@ -2,7 +2,7 @@
 # case, ValiMC builds the same 5 × 5 chunks of terrain, decorates the same 3 × 3
 # chunks in the same order with the same placed features, and every block,
 # post-processing mark, scheduled tick and block entity of the 25 chunks
-# (position, and for created ones their loot table and seed or spawned entity)
+# (position, and for created ones their loot table and seed, spawned entity or bees)
 # must equal vanilla's.
 [facts_path] = System.argv()
 facts = facts_path |> File.read!() |> JSON.decode!()

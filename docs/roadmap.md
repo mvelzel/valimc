@@ -39,13 +39,12 @@ resumes on these foundations alongside M2.
 | [VMC-023](tickets/VMC-023.md) | Seeded noise and biomes: random sources, noises, compiled density functions and chunk biomes equal vanilla's | Done |
 | [VMC-024](tickets/VMC-024.md) | Vanilla terrain: noise fill with aquifers, material rules and carvers equal to vanilla's, generated live in new worlds | Done |
 | [VMC-053](tickets/VMC-053.md) | Vanilla commands: parse, permissions, suggestions, SNBT and the player, world, chat and basic admin commands are live; operator, entity and data-pack commands remain | In progress |
-| [VMC-025](tickets/VMC-025.md) | Features and structures: all 171 overworld placed features (with structure templates and block entities) and structure placement with the first structure starts equal vanilla's; live decoration and the other structures next | In progress |
+| [VMC-025](tickets/VMC-025.md) | Features and structures: all 171 overworld placed features equal vanilla's and decorate new worlds live across region borders (client check pending); structure placement with the first structure starts equals vanilla's; the other structures next | In progress |
 | [VMC-027](tickets/VMC-027.md) | World border live (moving, damage outside, `/worldborder`) and vanilla's world and player spawn search | In progress |
 | [VMC-070](tickets/VMC-070.md) | The client's view distance (clamped to the server's, default 10) picks vanilla's chunk view, applied live; vanilla chunk send pacing and entity tracking ranges | Done |
 | [VMC-071](tickets/VMC-071.md) | New terrain reaches a moving player sooner: parallel worldgen states, nearest regions first, no light-update flood | Done |
 
-Next: features live (VMC-025d) and structures (VMC-025e/f), then dimensions
-and portals (VMC-026..028).
+Next: structures (VMC-025e/f), then dimensions and portals (VMC-026..028).
 Performance target: generation throughput and tick time benchmarked against
 the same seed on vanilla and on Pumpkin, staying at least in Pumpkin's range.
 
@@ -69,6 +68,7 @@ experience exist ([VMC-034f](tickets/VMC-034f.md)).
 | Ticket | Remaining gate |
 |---|---|
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Server CLONE/type-2 fill from a creative container menu (VMC-032) |
+| [VMC-025](tickets/VMC-025.md) | VMC-025d: a decorated world across region borders, features and a reconnect after a restart |
 
 The M1 milestone client run passed on `127934a` (see [VMC-069](tickets/VMC-069.md)),
 with the item despawn fix checked on `6243c8c` ([VMC-067](tickets/VMC-067.md)) and

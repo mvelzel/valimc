@@ -811,14 +811,76 @@ pub struct WorldgenRegistry {
 #[rustler::resource_impl]
 impl rustler::Resource for WorldgenRegistry {}
 
-/// Noises and compiled samplers for one seed and noise settings; compiling is
-/// lazy, so it sits behind a lock.
+/// Noises and compiled samplers for one seed and noise settings. Compiling is
+/// lazy and each state keeps caches, so a call leases a state of its own from
+/// a pool (VMC-025d): generations of one seed run in parallel, one state per
+/// concurrent call.
 pub struct WorldgenState {
-    state: Mutex<valimc_core::worldgen::compiler::Worldgen>,
+    registry: std::sync::Arc<valimc_core::worldgen::compiler::Registry>,
+    seed: i64,
+    settings: String,
+    pool: Mutex<Vec<valimc_core::worldgen::compiler::Worldgen>>,
 }
 
 #[rustler::resource_impl]
 impl rustler::Resource for WorldgenState {}
+
+/// States kept for reuse; more concurrent calls build more and drop the rest.
+const WORLDGEN_POOL: usize = 64;
+
+/// A state leased from a pool, returned when dropped (not after a panic).
+struct WorldgenLease<'a> {
+    owner: &'a WorldgenState,
+    state: Option<valimc_core::worldgen::compiler::Worldgen>,
+}
+
+impl WorldgenState {
+    fn lease(&self) -> Result<WorldgenLease<'_>, String> {
+        let pooled = self
+            .pool
+            .lock()
+            .map_err(|_| "worldgen state poisoned")?
+            .pop();
+        let state = match pooled {
+            Some(state) => state,
+            None => valimc_core::worldgen::compiler::Worldgen::new(
+                self.registry.clone(),
+                self.seed,
+                &self.settings,
+            )?,
+        };
+        Ok(WorldgenLease {
+            owner: self,
+            state: Some(state),
+        })
+    }
+}
+
+impl std::ops::Deref for WorldgenLease<'_> {
+    type Target = valimc_core::worldgen::compiler::Worldgen;
+    fn deref(&self) -> &Self::Target {
+        self.state.as_ref().expect("leased")
+    }
+}
+
+impl std::ops::DerefMut for WorldgenLease<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.state.as_mut().expect("leased")
+    }
+}
+
+impl Drop for WorldgenLease<'_> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            return;
+        }
+        if let (Some(state), Ok(mut pool)) = (self.state.take(), self.owner.pool.lock()) {
+            if pool.len() < WORLDGEN_POOL {
+                pool.push(state);
+            }
+        }
+    }
+}
 
 fn json_of(term: Term) -> Result<valimc_core::worldgen::json::Json, String> {
     use rustler::TermType;
@@ -884,7 +946,10 @@ fn worldgen_new(
     let state =
         valimc_core::worldgen::compiler::Worldgen::new(registry.registry.clone(), seed, &settings)?;
     Ok(ResourceArc::new(WorldgenState {
-        state: Mutex::new(state),
+        registry: registry.registry.clone(),
+        seed,
+        settings,
+        pool: Mutex::new(vec![state]),
     }))
 }
 
@@ -897,7 +962,7 @@ fn worldgen_density_samples(
     cached: bool,
     ops: Vec<Vec<i32>>,
 ) -> Result<Vec<Vec<u32>>, String> {
-    let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+    let mut state = state.lease()?;
     valimc_core::worldgen::trace::density(&mut state, &function, cached, &ops)
 }
 
@@ -916,7 +981,7 @@ fn worldgen_chunk_biomes<'a>(
     preset: String,
     chunks: Vec<(i32, i32)>,
 ) -> Result<ChunkBiomeBinaries<'a>, String> {
-    let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+    let mut state = state.lease()?;
     let list = state.biome_parameters(&preset)?;
     let mut last = None;
     let mut out = Vec::with_capacity(chunks.len());
@@ -945,7 +1010,7 @@ fn worldgen_closest_biomes(
     preset: String,
     target: Vec<i64>,
 ) -> Result<Vec<String>, String> {
-    let state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+    let state = state.lease()?;
     let list = state.biome_parameters(&preset)?;
     let target: [i64; 6] = target.try_into().map_err(|_| "a target has six values")?;
     Ok(list
@@ -967,7 +1032,7 @@ fn worldgen_fill_terrain<'a>(
     state: ResourceArc<WorldgenState>,
     chunks: Vec<(i32, i32)>,
 ) -> Result<Vec<FilledBinary<'a>>, String> {
-    let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+    let mut state = state.lease()?;
     let mut out = Vec::with_capacity(chunks.len());
     for (x, z) in chunks {
         let filled = state.fill_terrain(x, z)?;
@@ -991,7 +1056,7 @@ fn worldgen_build_terrain<'a>(
     carve: bool,
     chunks: Vec<(i32, i32)>,
 ) -> Result<Vec<FilledBinary<'a>>, String> {
-    let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+    let mut state = state.lease()?;
     let mut out = Vec::with_capacity(chunks.len());
     for (x, z) in chunks {
         let filled = state.build_terrain(x, z, &biome_source, carve)?;
@@ -1012,7 +1077,7 @@ type GeneratedColumn<'a> = (i32, i32, Binary<'a>, Vec<i32>);
 /// nil without a spawn target.
 #[rustler::nif(schedule = "DirtyCpu")]
 fn worldgen_spawn_origin(state: ResourceArc<WorldgenState>) -> Result<Option<(i32, i32)>, String> {
-    let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+    let mut state = state.lease()?;
     state.spawn_origin()
 }
 
@@ -1026,7 +1091,7 @@ fn worldgen_columns<'a>(
     protocol_biomes: Vec<u16>,
     chunks: Vec<(i32, i32)>,
 ) -> Result<Vec<GeneratedColumn<'a>>, String> {
-    let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+    let mut state = state.lease()?;
     let mut out = Vec::with_capacity(chunks.len());
     for (x, z) in chunks {
         let (column, heights) = state.generate_column(x, z, &biome_source, &protocol_biomes)?;
@@ -1069,8 +1134,7 @@ fn worldgen_decorate<'a>(
     order: Vec<(i32, i32)>,
     features: Vec<(usize, usize)>,
 ) -> Result<Vec<DecoratedChunk<'a>>, String> {
-    use valimc_core::worldgen::blocks::FLUID_NAMES;
-    let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+    let mut state = state.lease()?;
     let included: std::collections::HashSet<(usize, usize)> = features.into_iter().collect();
     let area = state.decorate_area(
         &biome_source,
@@ -1079,48 +1143,63 @@ fn worldgen_decorate<'a>(
         &order,
         Some(&included),
     )?;
-    let mut out = Vec::with_capacity(area.chunks.len());
-    for chunk in &area.chunks {
-        let mut blocks = NewBinary::new(env, chunk.blocks.len() * 2);
-        for (bytes, id) in blocks.as_mut_slice().chunks_mut(2).zip(&chunk.blocks) {
-            bytes.copy_from_slice(&id.to_be_bytes());
-        }
-        let p = |p: &[i32; 3]| (p[0], p[1], p[2]);
-        out.push(DecoratedChunk {
-            x: chunk.x,
-            z: chunk.z,
-            blocks: blocks.into(),
-            marks: chunk.marks.iter().map(p).collect(),
-            block_ticks: chunk
-                .block_ticks
-                .iter()
-                .map(|(pos, b)| (p(pos), *b, 0, 0))
-                .collect(),
-            fluid_ticks: chunk
-                .fluid_ticks
-                .iter()
-                .map(|(pos, f)| (p(pos), FLUID_NAMES[*f as usize].to_string(), 0, 0))
-                .collect(),
-            block_entities: chunk.block_entities.iter().map(p).collect(),
-            block_entity_data: chunk
-                .block_entity_data
-                .iter()
-                .map(|(pos, data)| {
-                    format!(
-                        "{},{},{},{},{},{},{}",
-                        pos[0],
-                        pos[1],
-                        pos[2],
-                        data.kind,
-                        data.loot_table.as_deref().unwrap_or("-"),
-                        data.loot_seed,
-                        data.spawner_entity.as_deref().unwrap_or("-")
-                    )
-                })
-                .collect(),
-        });
+    Ok(area
+        .held()
+        .map(|chunk| decorated_chunk(env, chunk))
+        .collect())
+}
+
+/// A chunk's blocks (big endian), post-processing marks, scheduled ticks and
+/// block entities, as `check_decoration.exs` compares them.
+fn decorated_chunk<'a>(
+    env: rustler::Env<'a>,
+    chunk: &valimc_core::worldgen::region::ProtoChunk,
+) -> DecoratedChunk<'a> {
+    use valimc_core::worldgen::blocks::FLUID_NAMES;
+    let mut blocks = NewBinary::new(env, chunk.blocks.len() * 2);
+    for (bytes, id) in blocks.as_mut_slice().chunks_mut(2).zip(&chunk.blocks) {
+        bytes.copy_from_slice(&id.to_be_bytes());
     }
-    Ok(out)
+    let p = |p: &[i32; 3]| (p[0], p[1], p[2]);
+    DecoratedChunk {
+        x: chunk.x,
+        z: chunk.z,
+        blocks: blocks.into(),
+        marks: chunk.marks.iter().map(p).collect(),
+        block_ticks: chunk
+            .block_ticks
+            .iter()
+            .map(|(pos, b)| (p(pos), *b, 0, 0))
+            .collect(),
+        fluid_ticks: chunk
+            .fluid_ticks
+            .iter()
+            .map(|(pos, f)| (p(pos), FLUID_NAMES[*f as usize].to_string(), 0, 0))
+            .collect(),
+        block_entities: chunk.block_entities.iter().map(p).collect(),
+        block_entity_data: chunk
+            .block_entity_data
+            .iter()
+            .map(|(pos, data)| {
+                let bees: Vec<String> = data.bees.iter().map(|t| t.to_string()).collect();
+                format!(
+                    "{},{},{},{},{},{},{},{}",
+                    pos[0],
+                    pos[1],
+                    pos[2],
+                    data.kind,
+                    data.loot_table.as_deref().unwrap_or("-"),
+                    data.loot_seed,
+                    data.spawner_entity.as_deref().unwrap_or("-"),
+                    if bees.is_empty() {
+                        "-".to_string()
+                    } else {
+                        bees.join("/")
+                    }
+                )
+            })
+            .collect(),
+    }
 }
 
 /// Decoration benchmark (VMC-025): the `size` × `size` area from `origin`,
@@ -1135,7 +1214,7 @@ fn worldgen_decoration_time(
     order: Vec<(i32, i32)>,
     features: Vec<(usize, usize)>,
 ) -> Result<u64, String> {
-    let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+    let mut state = state.lease()?;
     let included: std::collections::HashSet<(usize, usize)> = features.into_iter().collect();
     let (_, elapsed) =
         state.decorate_area_timed(&biome_source, origin, size, &order, Some(&included))?;
@@ -1153,7 +1232,7 @@ fn worldgen_structure_state(
     biome_source: String,
 ) -> Result<(Vec<String>, RingPositions), String> {
     let env = {
-        let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+        let mut state = state.lease()?;
         state.structure_env(&biome_source)?
     };
     let sets = &env.registry.sets;
@@ -1181,7 +1260,7 @@ fn worldgen_structure_starts(
     chunks: Vec<(i32, i32)>,
 ) -> Result<(Vec<StartRow>, Vec<String>), String> {
     let env = {
-        let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+        let mut state = state.lease()?;
         state.structure_env(&biome_source)?
     };
     let registry = &env.registry;
@@ -1219,7 +1298,7 @@ fn worldgen_structure_window(
     size: i32,
 ) -> Result<(WindowPlacements, Vec<ReferenceRow>), String> {
     let env = {
-        let mut state = state.state.lock().map_err(|_| "worldgen state poisoned")?;
+        let mut state = state.lease()?;
         state.structure_env(&biome_source)?
     };
     let registry = &env.registry;
@@ -1261,6 +1340,174 @@ fn worldgen_structure_window(
         }
     }
     Ok((placements, references))
+}
+
+/// An encoded proto chunk with its position (VMC-025d).
+type ProtoBinary<'a> = (i32, i32, Binary<'a>);
+
+fn proto_binary<'a>(
+    env: rustler::Env<'a>,
+    chunk: &valimc_core::worldgen::region::ProtoChunk,
+) -> ProtoBinary<'a> {
+    let bytes = valimc_core::worldgen::proto::encode(chunk);
+    let mut out = NewBinary::new(env, bytes.len());
+    out.as_mut_slice().copy_from_slice(&bytes);
+    (chunk.x, chunk.z, out.into())
+}
+
+/// Chunks at status `terrain` as encoded proto chunks (VMC-025d), biomes
+/// from `biome_source`.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_proto_terrain<'a>(
+    env: rustler::Env<'a>,
+    state: ResourceArc<WorldgenState>,
+    biome_source: String,
+    chunks: Vec<(i32, i32)>,
+) -> Result<Vec<ProtoBinary<'a>>, String> {
+    let mut state = state.lease()?;
+    let mut out = Vec::with_capacity(chunks.len());
+    for (x, z) in chunks {
+        let chunk = state.proto_terrain(x, z, &biome_source)?;
+        out.push(proto_binary(env, &chunk));
+    }
+    Ok(out)
+}
+
+/// Decorate the chunks in `order` (VMC-025d) over the encoded proto chunks
+/// `chunks` (each decorated chunk's 3 × 3 among them) with every placed
+/// feature; the chunks decoration wrote into, re-encoded, and the count of
+/// reads of chunks outside `chunks` (which see empty chunks).
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_proto_decorate<'a>(
+    env: rustler::Env<'a>,
+    state: ResourceArc<WorldgenState>,
+    chunks: Vec<Binary>,
+    order: Vec<(i32, i32)>,
+) -> Result<(Vec<ProtoBinary<'a>>, u32), String> {
+    let mut state = state.lease()?;
+    let mut decoded = Vec::with_capacity(chunks.len());
+    for bytes in &chunks {
+        decoded.push(valimc_core::worldgen::proto::decode(
+            bytes.as_slice(),
+            state.block_table()?,
+        )?);
+    }
+    let mut area = valimc_core::worldgen::region::Area::of(decoded)?;
+    let lenient_reads = state.decorate_held(&mut area, &order, None, true)?;
+    Ok((
+        area.held()
+            .filter(|c| c.touched)
+            .map(|c| proto_binary(env, c))
+            .collect(),
+        lenient_reads,
+    ))
+}
+
+/// Encoded proto chunks as `worldgen_decorate` reports chunks (parity).
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_proto_inspect<'a>(
+    env: rustler::Env<'a>,
+    state: ResourceArc<WorldgenState>,
+    chunks: Vec<Binary>,
+) -> Result<Vec<DecoratedChunk<'a>>, String> {
+    let state = state.lease()?;
+    let mut out = Vec::with_capacity(chunks.len());
+    for bytes in &chunks {
+        let chunk = valimc_core::worldgen::proto::decode(bytes.as_slice(), state.block_table()?)?;
+        out.push(decorated_chunk(env, &chunk));
+    }
+    Ok(out)
+}
+
+/// A block entity of a full chunk: created (with what decoration wrote into
+/// it) or pending (`kind` nil: the block's default block entity).
+#[derive(rustler::NifMap)]
+struct FullBlockEntity {
+    position: (i32, i32, i32),
+    state: u16,
+    kind: Option<String>,
+    loot_table: Option<String>,
+    loot_seed: i64,
+    spawner_entity: Option<String>,
+    bees: Vec<i32>,
+}
+
+/// A decorated chunk made full (VMC-025d): its column image (protocol biome
+/// ids), first free Y above the highest motion-blocking non-leaf block per
+/// column (z * 16 + x), block entities, block ticks (position and the state
+/// there, kept only where the block still matches), fluid ticks and
+/// post-processing marks.
+#[derive(rustler::NifMap)]
+struct FullChunk<'a> {
+    x: i32,
+    z: i32,
+    image: Binary<'a>,
+    heights: Vec<i32>,
+    block_entities: Vec<FullBlockEntity>,
+    block_ticks: Vec<((i32, i32, i32), u16)>,
+    fluid_ticks: Vec<((i32, i32, i32), String)>,
+    marks: Vec<(i32, i32, i32)>,
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn worldgen_proto_full<'a>(
+    env: rustler::Env<'a>,
+    state: ResourceArc<WorldgenState>,
+    chunks: Vec<Binary>,
+    protocol_biomes: Vec<u16>,
+) -> Result<Vec<FullChunk<'a>>, String> {
+    use valimc_core::worldgen::blocks::{Heightmap, BLOCK_ENTITY, FLUID_NAMES};
+    let state = state.lease()?;
+    let table = state.block_table()?;
+    let mut out = Vec::with_capacity(chunks.len());
+    for bytes in &chunks {
+        let chunk = valimc_core::worldgen::proto::decode(bytes.as_slice(), table)?;
+        let (column, _) = state.final_column(&chunk, &protocol_biomes)?;
+        let image = column.to_image();
+        let mut binary = NewBinary::new(env, image.len());
+        binary.as_mut_slice().copy_from_slice(&image);
+        let at = |p: &[i32; 3]| chunk.get(p[0], p[1], p[2]).unwrap_or(0);
+        let t = |p: &[i32; 3]| (p[0], p[1], p[2]);
+        let block_entities = chunk
+            .block_entities
+            .iter()
+            .filter(|p| table.flag(at(p), BLOCK_ENTITY))
+            .map(|p| {
+                let data = chunk.block_entity_data.get(p);
+                FullBlockEntity {
+                    position: t(p),
+                    state: at(p),
+                    kind: data.map(|d| d.kind.to_string()),
+                    loot_table: data.and_then(|d| d.loot_table.clone()),
+                    loot_seed: data.map_or(0, |d| d.loot_seed),
+                    spawner_entity: data.and_then(|d| d.spawner_entity.clone()),
+                    bees: data.map_or_else(Vec::new, |d| d.bees.clone()),
+                }
+            })
+            .collect();
+        out.push(FullChunk {
+            x: chunk.x,
+            z: chunk.z,
+            image: binary.into(),
+            heights: (0..256)
+                .map(|c| chunk.height(Heightmap::MotionBlockingNoLeaves, c & 15, c >> 4))
+                .collect(),
+            block_entities,
+            block_ticks: chunk
+                .block_ticks
+                .iter()
+                .filter(|(p, block)| table.block_of(at(p)) == *block)
+                .map(|(p, _)| (t(p), at(p)))
+                .collect(),
+            fluid_ticks: chunk
+                .fluid_ticks
+                .iter()
+                .map(|(p, f)| (t(p), FLUID_NAMES[*f as usize].to_string()))
+                .collect(),
+            marks: chunk.marks.iter().map(t).collect(),
+        });
+    }
+    Ok(out)
 }
 
 rustler::init!("Elixir.Valimc.Native");

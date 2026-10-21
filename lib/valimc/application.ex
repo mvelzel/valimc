@@ -45,6 +45,16 @@ defmodule Valimc.Application do
        max_children: Valimc.config(:max_regions)},
       {Task.Supervisor,
        name: Valimc.TransferWorkers, max_children: max(System.schedulers_online() * 4, 1)},
+      # Generation (VMC-025d): proto owners, and their terrain, decoration and
+      # full-chunk jobs on dirty schedulers.
+      {Task.Supervisor,
+       name: Valimc.WorldgenWorkers,
+       max_children: max(:erlang.system_info(:dirty_cpu_schedulers_online), 1)},
+      {Registry, keys: :unique, name: Valimc.ProtoRegistry},
+      {DynamicSupervisor,
+       strategy: :one_for_one,
+       name: Valimc.ProtoSupervisor,
+       max_children: Valimc.config(:max_regions) * 2},
       Valimc.Workers.partitioned(
         Valimc.CollisionWorkers,
         Valimc.Physics.CollisionQuery.worker_limit()

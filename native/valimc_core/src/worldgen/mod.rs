@@ -17,6 +17,7 @@ pub mod noise;
 pub mod placement;
 pub mod plants;
 pub mod predicate;
+pub mod proto;
 pub mod providers;
 pub mod random;
 pub mod region;

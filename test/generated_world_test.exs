@@ -1,5 +1,5 @@
 defmodule Valimc.GeneratedWorldTest do
-  @moduledoc "Vanilla worlds generate their regions' terrain once and keep it (VMC-024d)."
+  @moduledoc "Vanilla worlds generate their regions' terrain once and keep it (VMC-024d; terrain-only worlds)."
   use ExUnit.Case, async: true
   import Bitwise
   alias Valimc.TestScope
@@ -12,7 +12,8 @@ defmodule Valimc.GeneratedWorldTest do
     nonce = System.unique_integer([:positive])
     key = {70_000 + rem(nonce, 3_333) * 3, -1300}
     base = Path.join(System.tmp_dir!(), "valimc-generated-#{nonce}")
-    :ok = Generator.create(base, @seed)
+    # Terrain only, as worlds generated before VMC-025d.
+    :ok = Generator.create(base, @seed, features: false)
     TestScope.isolate(key, world_path: base, region_ticks: :manual)
 
     on_exit(fn ->
@@ -43,13 +44,26 @@ defmodule Valimc.GeneratedWorldTest do
 
   defp at(states, {x, y, z}), do: Enum.at(states, y + 64 + ((x &&& 15) + (z &&& 15) * 16) * 384)
 
+  # A region's load generates its chunks first; under load that can take longer
+  # than a call's default timeout.
+  defp owner!(key, attempts \\ 600) do
+    case World.owner(key) do
+      {:ok, owner} ->
+        {:ok, owner}
+
+      {:error, _} when attempts > 0 ->
+        Process.sleep(100)
+        owner!(key, attempts - 1)
+    end
+  end
+
   defp restart(key) do
-    {:ok, {pid, _}} = World.owner(key)
+    {:ok, {pid, _}} = owner!(key)
     [{store, _}] = Registry.lookup(Valimc.RegionStoreRegistry, key)
     watch = Process.monitor(store)
     :ok = DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, pid)
     assert_receive {:DOWN, ^watch, :process, _, :normal}
-    {:ok, _} = World.owner(key)
+    {:ok, _} = owner!(key)
   end
 
   test "clients learn vanilla's hashed seed and that the world is not flat" do
@@ -70,7 +84,7 @@ defmodule Valimc.GeneratedWorldTest do
   end
 
   test "a region loads generated terrain, persists it, and keeps edits over it", ctx do
-    {:ok, _owner} = World.owner(ctx.key)
+    {:ok, _owner} = owner!(ctx.key)
     {cx, cz} = ctx.chunk
     states = generated(ctx.chunk)
 

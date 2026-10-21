@@ -1001,41 +1001,86 @@ impl Worldgen {
         order: &[(i32, i32)],
         included: Option<&HashSet<(usize, usize)>>,
     ) -> Result<(Area, std::time::Duration), String> {
+        let mut chunks = Vec::with_capacity((size * size) as usize);
+        for dz in 0..size {
+            for dx in 0..size {
+                chunks.push(self.proto_terrain(x + dx, z + dz, biome_source)?);
+            }
+        }
+        let mut area = Area::of(chunks)?;
+        let start = std::time::Instant::now();
+        self.decorate_held(&mut area, order, included, false)?;
+        Ok((area, start.elapsed()))
+    }
+
+    /// A chunk at status `terrain` (VMC-025d): `build_terrain` with carvers,
+    /// its fluid post-processing marks, its chunk biomes and primed
+    /// heightmaps.
+    pub fn proto_terrain(
+        &mut self,
+        chunk_x: i32,
+        chunk_z: i32,
+        biome_source: &str,
+    ) -> Result<ProtoChunk, String> {
         let decoration = self
             .registry
             .decoration
             .clone()
             .ok_or("no decoration facts")?;
-        let mut chunks = Vec::with_capacity((size * size) as usize);
-        for dz in 0..size {
-            for dx in 0..size {
-                let (cx, cz) = (x + dx, z + dz);
-                let filled = self.build_terrain(cx, cz, biome_source, true)?;
-                let biomes = self.cached_chunk_biomes(biome_source, cx, cz)?;
-                let mut chunk = ProtoChunk::new(cx, cz, filled.blocks, biomes, &decoration.table);
-                for (fx, fy, fz) in filled.fluid_updates {
-                    chunk.mark([fx, fy, fz]);
-                }
-                chunks.push(chunk);
-            }
+        let filled = self.build_terrain(chunk_x, chunk_z, biome_source, true)?;
+        let biomes = self.cached_chunk_biomes(biome_source, chunk_x, chunk_z)?;
+        let mut chunk = ProtoChunk::new(chunk_x, chunk_z, filled.blocks, biomes, &decoration.table);
+        for (fx, fy, fz) in filled.fluid_updates {
+            chunk.mark([fx, fy, fz]);
         }
-        let mut area = Area { x, z, size, chunks };
+        chunk.touched = false;
+        Ok(chunk)
+    }
+
+    /// Decorate the chunks in `order` through regions over `area`, every
+    /// placed feature (or those in `included`). `lenient` (live generation)
+    /// lets reads of chunks the area does not hold see empty chunks; the
+    /// count of such reads is returned.
+    pub fn decorate_held(
+        &mut self,
+        area: &mut Area,
+        order: &[(i32, i32)],
+        included: Option<&HashSet<(usize, usize)>>,
+        lenient: bool,
+    ) -> Result<u32, String> {
+        let decoration = self
+            .registry
+            .decoration
+            .clone()
+            .ok_or("no decoration facts")?;
         let zoom_seed = surface::biome_zoom_seed(self.seed);
-        let start = std::time::Instant::now();
+        let mut lenient_reads = 0;
         for &(cx, cz) in order {
             let mut region = Region::new(
-                &mut area,
+                area,
                 &decoration.table,
                 (cx, cz),
                 self.seed,
                 zoom_seed,
                 self.settings.sea_level,
             )?;
+            region.lenient = lenient;
             decoration
                 .decorate(&mut region, included)
                 .map_err(|e| format!("decorating {cx}, {cz}: {e}"))?;
+            lenient_reads += region.lenient_reads;
         }
-        Ok((area, start.elapsed()))
+        Ok(lenient_reads)
+    }
+
+    /// The block table decoration uses (proto chunk encoding).
+    pub fn block_table(&self) -> Result<&BlockTable, String> {
+        Ok(&self
+            .registry
+            .decoration
+            .as_ref()
+            .ok_or("no decoration facts")?
+            .table)
     }
 
     /// A generated chunk as a ValiMC column (VMC-024d): the carved terrain in
@@ -1054,8 +1099,32 @@ impl Worldgen {
         }
         let filled = self.build_terrain(chunk_x, chunk_z, biome_source, true)?;
         let biomes = self.cached_chunk_biomes(biome_source, chunk_x, chunk_z)?;
+        self.column_of(&filled.blocks, &biomes, protocol_biomes)
+    }
+
+    /// A finished proto chunk as a ValiMC column (VMC-025d), as
+    /// `generate_column` makes one from terrain.
+    pub fn final_column(
+        &self,
+        chunk: &ProtoChunk,
+        protocol_biomes: &[u16],
+    ) -> Result<(Column, [i32; 256]), String> {
+        self.column_of(&chunk.blocks, &chunk.biomes, protocol_biomes)
+    }
+
+    /// Blocks (Y fastest from the bottom, then X, then Z) and chunk biomes as
+    /// a column, with each column's highest non-air block.
+    fn column_of(
+        &self,
+        blocks: &[u16],
+        biomes: &[u16],
+        protocol_biomes: &[u16],
+    ) -> Result<(Column, [i32; 256]), String> {
+        if self.settings.min_y != COLUMN_MIN_Y || self.settings.height != COLUMN_HEIGHT as i32 {
+            return Err("columns hold the overworld's height only".into());
+        }
         let height = COLUMN_HEIGHT;
-        let at = |x: usize, y: usize, z: usize| filled.blocks[y + (x + z * 16) * height];
+        let at = |x: usize, y: usize, z: usize| blocks[y + (x + z * 16) * height];
         let mut sections = Vec::with_capacity(COLUMN_SECTIONS);
         let mut section_biomes = Vec::with_capacity(COLUMN_SECTIONS);
         for s in 0..COLUMN_SECTIONS {

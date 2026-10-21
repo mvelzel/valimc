@@ -104,9 +104,14 @@ defmodule Valimc.World.RegionData do
   ]
 
   # A vanilla world's region generates the chunks its log has no column for and
-  # persists them before serving them (VMC-024d).
+  # persists them before serving them (VMC-024d). A decorated world's region
+  # takes its full chunks from its proto owner (VMC-025d) with their block
+  # entities, block ticks and pending post-processing, all in one frame, then
+  # lets the proto owner drop them.
   defp generated_columns(key, store, lease, images) do
-    case Generator.of(Valimc.config(:world_path, key)) do
+    base = Valimc.config(:world_path, key)
+
+    case Generator.of(base) do
       :flat ->
         images
 
@@ -120,28 +125,59 @@ defmodule Valimc.World.RegionData do
               not Map.has_key?(images, {cx, cz}),
               do: {cx, cz}
 
-        if missing == [] do
-          images
-        else
-          started = System.monotonic_time(:microsecond)
-          generated = Generator.columns(generator, missing)
-          generated_at = System.monotonic_time(:microsecond)
-          Valimc.Metrics.add(:worldgen_chunks, length(missing))
-          Valimc.Metrics.add(:worldgen_microseconds, generated_at - started)
+        cond do
+          missing == [] ->
+            images
 
-          case Store.put_columns(store, lease, generated) do
-            :ok ->
-              Valimc.Metrics.add(
-                :column_persist_microseconds,
-                System.monotonic_time(:microsecond) - generated_at
-              )
+          Generator.decorated?(base) ->
+            started = System.monotonic_time(:microsecond)
+            images = decorated_columns(key, store, lease, images, missing)
+            Valimc.Metrics.add(:worldgen_chunks, length(missing))
 
-              Map.merge(images, generated)
+            Valimc.Metrics.add(
+              :worldgen_microseconds,
+              System.monotonic_time(:microsecond) - started
+            )
 
-            {:error, reason} ->
-              exit({:generated_columns_failed, reason})
-          end
+            images
+
+          true ->
+            started = System.monotonic_time(:microsecond)
+            generated = Generator.columns(generator, missing)
+            generated_at = System.monotonic_time(:microsecond)
+            Valimc.Metrics.add(:worldgen_chunks, length(missing))
+            Valimc.Metrics.add(:worldgen_microseconds, generated_at - started)
+
+            case Store.put_columns(store, lease, generated) do
+              :ok ->
+                Valimc.Metrics.add(
+                  :column_persist_microseconds,
+                  System.monotonic_time(:microsecond) - generated_at
+                )
+
+                Map.merge(images, generated)
+
+              {:error, reason} ->
+                exit({:generated_columns_failed, reason})
+            end
         end
+    end
+  end
+
+  defp decorated_columns(key, store, lease, images, missing) do
+    with {:ok, full} <- Valimc.Worldgen.Proto.full_chunks(key),
+         full = Enum.filter(full, &({&1.x, &1.z} in missing)),
+         {:ok, parts} <-
+           Valimc.Worldgen.FullChunk.parts(
+             full,
+             Store.load_block_entities(store),
+             Store.load_ticks(store)
+           ),
+         :ok <- Store.put_generated(store, lease, parts) do
+      Valimc.Worldgen.Proto.handed_over(key)
+      Map.merge(images, parts.columns)
+    else
+      {:error, reason} -> exit({:generated_columns_failed, reason})
     end
   end
 

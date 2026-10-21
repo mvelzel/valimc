@@ -26,9 +26,9 @@ pub struct ProtoChunk {
     /// Biome registry ids: per section from the bottom, 64 in (y, z, x) order.
     pub biomes: Arc<Vec<u16>>,
     /// Per heightmap type, per column (z * 16 + x): the first free Y.
-    heightmaps: [Box<[i32; 256]>; 6],
+    pub(crate) heightmaps: [Box<[i32; 256]>; 6],
     /// Per section, its non-air blocks (`LevelChunkSection.hasOnlyAir`).
-    non_air: [u16; SECTIONS],
+    pub(crate) non_air: [u16; SECTIONS],
     pub marks: BTreeSet<[i32; 3]>,
     /// Scheduled ticks, unique per position and type: block ids and fluid ids.
     pub block_ticks: BTreeSet<([i32; 3], u16)>,
@@ -39,6 +39,9 @@ pub struct ProtoChunk {
     /// The block entities a feature asked for (`getBlockEntity` creates them
     /// from the pending entries), with what features write into them.
     pub block_entity_data: BTreeMap<[i32; 3], BlockEntityData>,
+    /// Whether a decoration wrote anything into the chunk since it was made
+    /// or decoded (live generation re-encodes only those, VMC-025d).
+    pub touched: bool,
 }
 
 /// A created block entity (VMC-025c): its type and what decoration writes
@@ -49,10 +52,13 @@ pub struct BlockEntityData {
     pub loot_table: Option<String>,
     pub loot_seed: i64,
     pub spawner_entity: Option<String>,
+    /// A beehive's occupants: each bee's ticks in the hive
+    /// (`BeehiveBlockEntity.Occupant.create`).
+    pub bees: Vec<i32>,
 }
 
 /// The block entity type a block creates, for the blocks decoration fills.
-fn block_entity_kind(name: &str) -> Option<&'static str> {
+pub fn block_entity_kind(name: &str) -> Option<&'static str> {
     Some(match name {
         "minecraft:chest" => "minecraft:chest",
         "minecraft:trapped_chest" => "minecraft:trapped_chest",
@@ -98,6 +104,7 @@ impl ProtoChunk {
             fluid_ticks: BTreeSet::new(),
             block_entities: BTreeSet::new(),
             block_entity_data: BTreeMap::new(),
+            touched: false,
         };
         for kind in Heightmap::ALL {
             for column in 0..256 {
@@ -160,6 +167,7 @@ impl ProtoChunk {
     pub fn set_raw(&mut self, table: &BlockTable, x: i32, y: i32, z: i32, state: u16) -> u16 {
         let i = index(x, y, z);
         let old = self.blocks[i];
+        self.touched = true;
         let section = ((y - MIN_Y) / 16) as usize;
         match (table.is_air(old), table.is_air(state)) {
             (true, false) => self.non_air[section] += 1,
@@ -204,20 +212,48 @@ impl ProtoChunk {
 
     pub fn mark(&mut self, pos: [i32; 3]) {
         if (MIN_Y..MIN_Y + HEIGHT).contains(&pos[1]) {
-            self.marks.insert(pos);
+            self.touched |= self.marks.insert(pos);
         }
     }
 }
 
-/// The chunks of a decoration area, `size` × `size` from (`x`, `z`).
+/// The chunks of a decoration area, `size` × `size` from (`x`, `z`), Z
+/// outer and X inner; live generation leaves out chunks it does not hold
+/// (VMC-025d).
 pub struct Area {
     pub x: i32,
     pub z: i32,
     pub size: i32,
-    pub chunks: Vec<ProtoChunk>,
+    pub chunks: Vec<Option<ProtoChunk>>,
 }
 
 impl Area {
+    /// The smallest square area holding `chunks` (at most 64 × 64 chunks).
+    pub fn of(chunks: Vec<ProtoChunk>) -> Result<Area, String> {
+        let first = chunks.first().ok_or("an area needs a chunk")?;
+        let (mut x0, mut z0, mut x1, mut z1) = (first.x, first.z, first.x, first.z);
+        for c in &chunks {
+            (x0, z0, x1, z1) = (x0.min(c.x), z0.min(c.z), x1.max(c.x), z1.max(c.z));
+        }
+        let size = (x1 - x0).max(z1 - z0) + 1;
+        if size > 64 {
+            return Err("an area spans at most 64 chunks".into());
+        }
+        let mut area = Area {
+            x: x0,
+            z: z0,
+            size,
+            chunks: (0..size * size).map(|_| None).collect(),
+        };
+        for c in chunks {
+            let slot = area.slot(c.x, c.z).expect("inside its bounds");
+            if area.chunks[slot].replace(c).is_some() {
+                return Err("a chunk appears twice in an area".into());
+            }
+        }
+        Ok(area)
+    }
+
     fn slot(&self, chunk_x: i32, chunk_z: i32) -> Option<usize> {
         let (dx, dz) = (chunk_x - self.x, chunk_z - self.z);
         if dx < 0 || dz < 0 || dx >= self.size || dz >= self.size {
@@ -227,12 +263,18 @@ impl Area {
     }
 
     pub fn chunk(&self, chunk_x: i32, chunk_z: i32) -> Option<&ProtoChunk> {
-        self.slot(chunk_x, chunk_z).map(|i| &self.chunks[i])
+        self.slot(chunk_x, chunk_z)
+            .and_then(|i| self.chunks[i].as_ref())
     }
 
     pub fn chunk_mut(&mut self, chunk_x: i32, chunk_z: i32) -> Option<&mut ProtoChunk> {
         self.slot(chunk_x, chunk_z)
-            .map(move |i| &mut self.chunks[i])
+            .and_then(move |i| self.chunks[i].as_mut())
+    }
+
+    /// The chunks it holds, Z outer and X inner.
+    pub fn held(&self) -> impl Iterator<Item = &ProtoChunk> {
+        self.chunks.iter().flatten()
     }
 }
 
@@ -253,6 +295,12 @@ pub struct Region<'a> {
     /// The first read or request vanilla would refuse (a chunk outside the
     /// area or a biome outside the 3 × 3); decoration fails with it.
     pub fault: Option<String>,
+    /// Live generation (VMC-025d): a block or heightmap read of a chunk the
+    /// area does not hold sees an empty chunk, as vanilla's region sees a
+    /// neighbour that has not reached the noise step, and is counted instead
+    /// of failing. Decorations have not been seen to read outside their 3 × 3.
+    pub lenient: bool,
+    pub lenient_reads: u32,
 }
 
 impl<'a> Region<'a> {
@@ -279,6 +327,8 @@ impl<'a> Region<'a> {
                 .fork_positional()
                 .at(centre.0 * 16, 0, centre.1 * 16),
             fault: None,
+            lenient: false,
+            lenient_reads: 0,
         })
     }
 
@@ -313,6 +363,14 @@ impl<'a> Region<'a> {
             Some(chunk) if self.distance(cx, cz) <= 8 => {
                 chunk.get(pos[0], pos[1], pos[2]).unwrap_or(self.void_air)
             }
+            None if self.lenient && self.distance(cx, cz) <= 8 => {
+                self.lenient_reads += 1;
+                if self.is_outside_build_height(pos[1]) {
+                    self.void_air
+                } else {
+                    self.air
+                }
+            }
             _ => {
                 self.fail(format!("read of chunk {cx}, {cz} outside the area"));
                 self.void_air
@@ -343,7 +401,7 @@ impl<'a> Region<'a> {
         // A created block entity stays when a block with one replaces it
         // (`setBlockEntityNbt` keeps it).
         if table.flag(state, BLOCK_ENTITY) {
-            chunk.block_entities.insert(pos);
+            chunk.touched |= chunk.block_entities.insert(pos);
         } else if old.is_some_and(|old| table.flag(old, BLOCK_ENTITY)) {
             chunk.block_entities.remove(&pos);
             chunk.block_entity_data.remove(&pos);
@@ -379,9 +437,11 @@ impl<'a> Region<'a> {
                     loot_table: None,
                     loot_seed: 0,
                     spawner_entity: None,
+                    bees: Vec::new(),
                 },
             );
         }
+        chunk.touched = true;
         Ok(chunk.block_entity_data.get_mut(&pos))
     }
 
@@ -416,6 +476,10 @@ impl<'a> Region<'a> {
         let (cx, cz) = (x >> 4, z >> 4);
         match self.area.chunk(cx, cz) {
             Some(chunk) if self.distance(cx, cz) <= 8 => chunk.height(kind, x, z),
+            None if self.lenient && self.distance(cx, cz) <= 8 => {
+                self.lenient_reads += 1;
+                MIN_Y
+            }
             _ => {
                 self.fail(format!("heightmap of chunk {cx}, {cz} outside the area"));
                 MIN_Y
@@ -444,13 +508,13 @@ impl<'a> Region<'a> {
     /// block.
     pub fn schedule_block_tick(&mut self, pos: [i32; 3], block: u16) {
         if let Some(chunk) = self.area.chunk_mut(pos[0] >> 4, pos[2] >> 4) {
-            chunk.block_ticks.insert((pos, block));
+            chunk.touched |= chunk.block_ticks.insert((pos, block));
         }
     }
 
     pub fn schedule_fluid_tick(&mut self, pos: [i32; 3], fluid: u8) {
         if let Some(chunk) = self.area.chunk_mut(pos[0] >> 4, pos[2] >> 4) {
-            chunk.fluid_ticks.insert((pos, fluid));
+            chunk.touched |= chunk.fluid_ticks.insert((pos, fluid));
         }
     }
 }
