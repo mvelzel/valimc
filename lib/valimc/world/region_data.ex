@@ -21,6 +21,7 @@ defmodule Valimc.World.RegionData do
     ContainerLifecycle,
     ContainerSpills,
     Items,
+    Jobs,
     ItemHandoffs,
     ItemHandoffDelivery,
     ItemPortals,
@@ -58,13 +59,11 @@ defmodule Valimc.World.RegionData do
     :item_receipts,
     :item_storage_enabled,
     :item_publication,
-    :item_pending,
     :item_handoff,
     :item_simulation_enabled,
     :item_portal,
     :item_merge_stamp,
     :item_merge_next,
-    :item_cross_job,
     :item_cross_next,
     :item_cross_stamp,
     :item_cross_scan_stamp,
@@ -73,6 +72,9 @@ defmodule Valimc.World.RegionData do
     :permits,
     :blocks,
     :cache,
+    # Chunk packet encodes in flight, by chunk.
+    :encodes,
+    # Background work: one job per kind (`Valimc.World.Jobs`, VMC-077g).
     :jobs,
     :versions,
     # Chunks a client has asked for since load: only their light changes are
@@ -173,13 +175,11 @@ defmodule Valimc.World.RegionData do
       cooking_orbs: %CookingOrbRuntime{},
       item_storage_enabled: loaded.persistent,
       item_publication: publication,
-      item_pending: nil,
       item_handoff: nil,
       item_portal: nil,
       item_simulation_enabled: Valimc.config(:item_simulation, key),
       item_merge_stamp: nil,
       item_merge_next: nil,
-      item_cross_job: nil,
       item_cross_next: nil,
       item_cross_stamp: nil,
       item_cross_scan_stamp: nil,
@@ -188,7 +188,8 @@ defmodule Valimc.World.RegionData do
       permits: Valimc.Txn.Permits.new(),
       blocks: blocks,
       cache: %{},
-      jobs: %{},
+      encodes: %{},
+      jobs: %Jobs{},
       versions: %{},
       served: MapSet.new(),
       generation: generation,
@@ -238,7 +239,7 @@ defmodule Valimc.World.RegionData do
     ticks = state.item_age_debt + 1
 
     {items, expired} =
-      if state.item_simulation_enabled and state.item_pending == nil,
+      if state.item_simulation_enabled and not planning?(state),
         do: Items.age(state.items, ticks),
         else: {nil, []}
 
@@ -266,8 +267,8 @@ defmodule Valimc.World.RegionData do
 
   def cooking_tick(%{cooking: runtime} = state, now) do
     cond do
-      not runtime.enabled or not state.item_storage_enabled or runtime.job != nil or
-          write_busy(state) != nil ->
+      not runtime.enabled or not state.item_storage_enabled or
+        Jobs.running?(state.jobs, :cooking) or write_busy(state) != nil ->
         state
 
       is_integer(runtime.retry_at) and now < runtime.retry_at and runtime.seen == nil ->
@@ -282,9 +283,6 @@ defmodule Valimc.World.RegionData do
   end
 
   defp start_cooking_plan(state, now) do
-    owner = self()
-    epoch = state.items.epoch
-    token = make_ref()
     containers = state.containers
     items = state.items
     # Workers get values: the blocks under every cooking container, not the storage handle.
@@ -293,25 +291,17 @@ defmodule Valimc.World.RegionData do
     selection = CookingRuntime.selection(state.cooking, containers, state.revision, items, now)
     blocked = state.cooking.blocked
 
-    case Task.Supervisor.start_child(
-           Valimc.ItemWorkers,
-           Valimc.Dimension.bind(fn ->
-             result = CookingRuntime.plan(containers, items, key, edits, selection, blocked)
-             send(owner, {:resource, epoch, {:cooking_plan, self(), token, result}})
-           end)
+    case start_job(
+           state,
+           :cooking,
+           fn -> CookingRuntime.plan(containers, items, key, edits, selection, blocked) end,
+           supervisor: Valimc.ItemWorkers,
+           deadline: 500,
+           data: %{containers: containers, items: items}
          ) do
-      {:ok, worker} ->
-        job = %{
-          worker: worker,
-          token: token,
-          monitor: Process.monitor(worker),
-          timer: send_after(state, {:cooking_deadline, token}, 500),
-          containers: containers,
-          items: items
-        }
-
+      {:ok, state} ->
         Valimc.Metrics.add(:cooking_batches)
-        %{state | cooking: %{state.cooking | job: job}}
+        state
 
       {:error, _} ->
         Valimc.Metrics.add(:cooking_busy)
@@ -319,9 +309,20 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  @doc false
+  # Start background work `kind` on the job table; its reports carry the epoch.
+  def start_job(state, kind, work, opts) do
+    epoch = state.items.epoch
+
+    case Jobs.start(state.jobs, kind, work, [wrap: &{:resource, epoch, &1}] ++ opts) do
+      {:ok, jobs, _job} -> {:ok, %{state | jobs: jobs}}
+      {:error, _} = error -> error
+    end
+  end
+
   defp accept_cooking_plan(state, job, plan) do
     current =
-      state.item_pending == nil and state.containers == job.containers and
+      not planning?(state) and state.containers == job.containers and
         Enum.all?(plan.expected, fn {position, block} ->
           Blocks.get(state.blocks, position) == block
         end)
@@ -433,7 +434,7 @@ defmodule Valimc.World.RegionData do
   end
 
   defp start_item_cross_merging(state, now) do
-    if state.item_cross_job == nil and state.item_storage_enabled and
+    if not Jobs.running?(state.jobs, :cross_merge) and state.item_storage_enabled and
          state.items.ledger.outgoing == nil and
          (state.item_cross_next == nil or now >= state.item_cross_next) do
       state = %{state | item_cross_next: now + 200}
@@ -468,36 +469,21 @@ defmodule Valimc.World.RegionData do
               cursor = state.item_cross_cursor
               scan_stamp = state.item_cross_scan_stamp || stamp
               retry = state.item_cross_retry
-              token = make_ref()
+              owner = {self(), state.items.epoch}
 
-              case ItemCrossMergeQuery.start(
-                     self(),
-                     state.items.epoch,
-                     token,
-                     state.key,
-                     scene,
-                     cursor
+              case start_job(
+                     state,
+                     :cross_merge,
+                     ItemCrossMergeQuery.work(owner, state.key, scene, cursor),
+                     supervisor: Valimc.TransferWorkers,
+                     link: true,
+                     # Bounds the worker's owner round trips (scaled in tests, VMC-073).
+                     deadline: Valimc.Txn.Permits.window(750),
+                     data: %{stamp: stamp, scan_stamp: scan_stamp, retry: retry}
                    ) do
-                {:ok, worker, monitor} ->
+                {:ok, state} ->
                   Valimc.Metrics.add(:item_cross_jobs)
-
-                  job = %{
-                    worker: worker,
-                    monitor: monitor,
-                    token: token,
-                    stamp: stamp,
-                    scan_stamp: scan_stamp,
-                    retry: retry,
-                    # Bounds the worker's owner round trips (scaled in tests, VMC-073).
-                    timer:
-                      send_after(
-                        state,
-                        {:item_cross_deadline, token},
-                        Valimc.Txn.Permits.window(750)
-                      )
-                  }
-
-                  %{state | item_cross_job: job}
+                  state
 
                 {:error, _} ->
                   Valimc.Metrics.add(:item_cross_busy)
@@ -1559,14 +1545,12 @@ defmodule Valimc.World.RegionData do
         Valimc.Metrics.add(:chunk_cache_hits)
         {:reply, state.cache[key], state}
 
-      Map.has_key?(state.jobs, key) ->
+      Map.has_key?(state.encodes, key) ->
         Valimc.Metrics.add(:chunk_requests_coalesced)
-        jobs = Map.update!(state.jobs, key, &%{&1 | waiters: [from | &1.waiters]})
-        {:noreply, %{state | jobs: jobs}}
+        {:noreply, %{state | encodes: Map.update!(state.encodes, key, &[from | &1])}}
 
       true ->
-        jobs = Map.put(state.jobs, key, %{waiters: [from], pid: nil, monitor: nil, token: nil})
-        {:noreply, start_job(%{state | jobs: jobs}, key)}
+        {:noreply, start_encode(%{state | encodes: Map.put(state.encodes, key, [from])}, key)}
     end
   end
 
@@ -2011,7 +1995,7 @@ defmodule Valimc.World.RegionData do
   Why a new durable mutation cannot start now: the planning slot is taken
   (`:item_storage_busy`, retryable). `nil` when it may start.
   """
-  def write_busy(state), do: if(state.item_pending != nil, do: :item_storage_busy)
+  def write_busy(state), do: if(planning?(state), do: :item_storage_busy)
 
   defp release_effect(state, {:blocks, effects}), do: release_blocks(state, effects)
   # Only the resume registered with the current outgoing record acts: a newer
@@ -2220,40 +2204,28 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  defp start_container_work(state, from, operation, position, work) do
-    owner = self()
-    epoch = state.items.epoch
-    token = make_ref()
+  defp start_container_work(state, from, operation, position, work),
+    do:
+      start_plan(state, %{kind: :container, operation: operation, position: position}, from, work)
 
-    case Task.Supervisor.start_child(
-           Valimc.ItemWorkers,
-           Valimc.Dimension.bind(fn ->
-             result = work.()
-             send(owner, {:resource, epoch, {:container_recovery_plan, self(), token, result}})
-           end)
+  # The planning slot (`:plan` job): a worker plans a durable mutation from
+  # values while the owner keeps answering; `pending` (with the caller) is
+  # what adopting the result needs.
+  defp start_plan(state, pending, from, work) do
+    case start_job(state, :plan, work,
+           supervisor: Valimc.ItemWorkers,
+           deadline: 5000,
+           data: Map.put(pending, :from, from)
          ) do
-      {:ok, worker} ->
-        pending = %{
-          kind: :container,
-          operation: operation,
-          position: position,
-          phase: :planning,
-          token: token,
-          from: from,
-          worker: worker,
-          monitor: Process.monitor(worker),
-          timer: send_after(state, {:item_commit_deadline, token}, 5000)
-        }
-
-        {:noreply, %{state | item_pending: pending}}
-
-      {:error, :max_children} ->
-        {:reply, {:error, :item_workers_busy}, state}
-
-      {:error, reason} ->
-        {:reply, {:error, {:item_worker_failed, reason}}, state}
+      {:ok, state} -> {:noreply, state}
+      {:error, _} -> {:reply, {:error, :item_workers_busy}, state}
     end
   end
+
+  @doc false
+  def planning?(state), do: Jobs.running?(state.jobs, :plan)
+
+  defp planning(state), do: with(%{data: pending} <- Jobs.get(state.jobs, :plan), do: pending)
 
   defp cross_merge_ready(state, epoch) do
     cond do
@@ -2265,48 +2237,26 @@ defmodule Valimc.World.RegionData do
   end
 
   defp plan_item_change(kind, request, from, state) do
-    owner = self()
-    epoch = state.items.epoch
-    token = make_ref()
     items = state.items
     receipts = state.item_receipts
     key = state.key
 
-    case Task.Supervisor.start_child(
-           Valimc.ItemWorkers,
-           Valimc.Dimension.bind(fn ->
-             result = item_plan(kind, items, receipts, key, request)
-             send(owner, {:resource, epoch, {:item_transfer_plan, self(), token, result}})
-           end)
-         ) do
-      {:ok, worker} ->
-        pending = %{
-          kind: kind,
-          phase: :planning,
-          token: token,
-          from: from,
-          worker: worker,
-          monitor: Process.monitor(worker),
-          timer: send_after(state, {:item_commit_deadline, token}, 5000),
-          acceptance_deadline:
-            case kind do
-              :item_handoff_out -> elem(request, 2)
-              :pickup_admission -> elem(request, 2)
-              :cross_merge_admission -> elem(request, 1)
-              :item_merge -> elem(request, 1)
-              :item_merge_auto -> elem(request, 1)
-              _ -> nil
-            end
-        }
+    acceptance_deadline =
+      case kind do
+        :item_handoff_out -> elem(request, 2)
+        :pickup_admission -> elem(request, 2)
+        :cross_merge_admission -> elem(request, 1)
+        :item_merge -> elem(request, 1)
+        :item_merge_auto -> elem(request, 1)
+        _ -> nil
+      end
 
-        {:noreply, %{state | item_pending: pending}}
-
-      {:error, :max_children} ->
-        {:reply, {:error, :item_workers_busy}, state}
-
-      {:error, reason} ->
-        {:reply, {:error, {:item_worker_failed, reason}}, state}
-    end
+    start_plan(
+      state,
+      %{kind: kind, acceptance_deadline: acceptance_deadline},
+      from,
+      fn -> item_plan(kind, items, receipts, key, request) end
+    )
   end
 
   defp item_plan(:item_transfer, items, receipts, key, transfer) do
@@ -2424,7 +2374,7 @@ defmodule Valimc.World.RegionData do
   end
 
   defp block_transfer_writing?(state),
-    do: match?(%{kind: kind} when kind in [:container, :container_blocks], state.item_pending)
+    do: match?(%{kind: kind} when kind in [:container, :container_blocks], planning(state))
 
   defp permit_matches?(state, kind, %{permit: token, expected: expected}) do
     {module, permits} = permit_store(state, kind)
@@ -2438,9 +2388,6 @@ defmodule Valimc.World.RegionData do
   defp transfer_module(:placement), do: PlacementTransfers
 
   defp plan_block_transfer(kind, transfer, from, state) do
-    owner = self()
-    epoch = state.items.epoch
-    token = make_ref()
     items = state.items
     receipts = state.item_receipts
     containers = state.containers
@@ -2448,58 +2395,33 @@ defmodule Valimc.World.RegionData do
     eligible = permit_matches?(state, kind, transfer)
     module = transfer_module(kind)
 
-    case Task.Supervisor.start_child(
-           Valimc.ItemWorkers,
-           Valimc.Dimension.bind(fn ->
-             result =
-               with {:ok, plan} <- module.plan(items, receipts, key, transfer, eligible) do
-                 plan = Map.put(plan, :kind, kind)
+    start_plan(state, %{kind: kind}, from, fn ->
+      with {:ok, plan} <- module.plan(items, receipts, key, transfer, eligible) do
+        plan = Map.put(plan, :kind, kind)
 
-                 if plan.result == :applied do
-                   changes =
-                     if kind == :placement do
-                       plan.edits
-                     else
-                       Map.new(plan.expected, fn {pos, block} ->
-                         {pos, Valimc.Block.after_removal(block)}
-                       end)
-                     end
+        if plan.result == :applied do
+          changes =
+            if kind == :placement do
+              plan.edits
+            else
+              Map.new(plan.expected, fn {pos, block} ->
+                {pos, Valimc.Block.after_removal(block)}
+              end)
+            end
 
-                   with {:ok, batch} <- BlockBatch.prepare(changes) do
-                     plan = Map.put(plan, :batch, batch)
+          with {:ok, batch} <- BlockBatch.prepare(changes) do
+            plan = Map.put(plan, :batch, batch)
 
-                     case block_container_metadata(plan, containers, key) do
-                       {:ok, plan} -> {:ok, plan}
-                       {:error, _} -> {:ok, module.reject(plan, items, receipts)}
-                     end
-                   end
-                 else
-                   {:ok, plan}
-                 end
-               end
-
-             send(owner, {:resource, epoch, {:block_transfer_plan, self(), token, result}})
-           end)
-         ) do
-      {:ok, worker} ->
-        pending = %{
-          kind: kind,
-          phase: :planning,
-          token: token,
-          from: from,
-          worker: worker,
-          monitor: Process.monitor(worker),
-          timer: send_after(state, {:item_commit_deadline, token}, 5000)
-        }
-
-        {:noreply, %{state | item_pending: pending}}
-
-      {:error, :max_children} ->
-        {:reply, {:error, :item_workers_busy}, state}
-
-      {:error, reason} ->
-        {:reply, {:error, {:item_worker_failed, reason}}, state}
-    end
+            case block_container_metadata(plan, containers, key) do
+              {:ok, plan} -> {:ok, plan}
+              {:error, _} -> {:ok, module.reject(plan, items, receipts)}
+            end
+          end
+        else
+          {:ok, plan}
+        end
+      end
+    end)
   end
 
   defp container_metadata_affected?(containers, expected, edits) do
@@ -2510,48 +2432,22 @@ defmodule Valimc.World.RegionData do
   end
 
   defp start_container_blocks(state, from, batch, expected, reply \\ :revision) do
-    owner = self()
-    epoch = state.items.epoch
-    token = make_ref()
     containers = state.containers
     items = state.items
     key = state.key
 
-    case Task.Supervisor.start_child(
-           Valimc.ItemWorkers,
-           Valimc.Dimension.bind(fn ->
-             result =
-               with {:ok, change} <-
-                      ContainerLifecycle.plan(containers, key, expected, batch.edits),
-                    {:ok, next} <- ContainerSpills.add(items, key, change.removed),
-                    do: {:ok, Map.put(change, :items, next)}
+    pending = %{
+      kind: :container_blocks,
+      reply: reply,
+      batch: batch,
+      receipts: state.item_receipts
+    }
 
-             send(owner, {:resource, epoch, {:container_block_plan, self(), token, result}})
-           end)
-         ) do
-      {:ok, worker} ->
-        pending = %{
-          kind: :container_blocks,
-          reply: reply,
-          phase: :planning,
-          token: token,
-          from: from,
-          worker: worker,
-          monitor: Process.monitor(worker),
-          timer: send_after(state, {:item_commit_deadline, token}, 5000),
-          batch: batch,
-          items: state.items,
-          receipts: state.item_receipts
-        }
-
-        {:noreply, %{state | item_pending: pending}}
-
-      {:error, :max_children} ->
-        {:reply, {:error, :item_workers_busy}, state}
-
-      {:error, reason} ->
-        {:reply, {:error, {:item_worker_failed, reason}}, state}
-    end
+    start_plan(state, pending, from, fn ->
+      with {:ok, change} <- ContainerLifecycle.plan(containers, key, expected, batch.edits),
+           {:ok, next} <- ContainerSpills.add(items, key, change.removed),
+           do: {:ok, Map.put(change, :items, next)}
+    end)
   end
 
   defp block_container_metadata(plan, containers, key) do
@@ -2874,10 +2770,7 @@ defmodule Valimc.World.RegionData do
   defp commit_block_transfer(plan, pending, state) do
     cond do
       plan.result in [:already_applied, :already_rejected] ->
-        Process.cancel_timer(pending.timer)
-
-        {:noreply,
-         reply_when_durable(%{state | item_pending: nil}, pending.from, {:ok, plan.result})}
+        {:noreply, reply_when_durable(state, pending.from, {:ok, plan.result})}
 
       plan.result == :rejected ->
         commit_rejected_block_transfer(plan, pending.from, state)
@@ -2895,14 +2788,8 @@ defmodule Valimc.World.RegionData do
           {:ok, proposal} ->
             # Blocks, items and receipts are adopted and shown now; the reply
             # (the other owner's proof) waits for their frame.
-            if state.item_pending, do: Process.cancel_timer(state.item_pending.timer)
             state = publish_blocks(state, plan.batch, proposal)
-
-            state = %{
-              state
-              | item_pending: nil,
-                containers: Map.get(plan, :containers, state.containers)
-            }
+            state = %{state | containers: Map.get(plan, :containers, state.containers)}
 
             commit_transfer(plan.items, {:ok, :applied}, pending.from, state, plan.receipts)
 
@@ -2919,28 +2806,16 @@ defmodule Valimc.World.RegionData do
   defp commit_rejected_block_transfer(plan, from, state) do
     state = %{state | permits: Valimc.Txn.Permits.release(state.permits, plan.permit)}
 
-    # The rejection receipt is the other owner's proof too. The planning slot
-    # of the block operation is released first.
-    if state.item_pending, do: Process.cancel_timer(state.item_pending.timer)
-
-    commit_transfer(
-      state.items,
-      {:ok, :rejected},
-      from,
-      %{state | item_pending: nil},
-      plan.receipts
-    )
+    # The rejection receipt is the other owner's proof too.
+    commit_transfer(state.items, {:ok, :rejected}, from, state, plan.receipts)
   end
 
-  defp start_job(state, key) do
-    job = state.jobs[key]
-
-    if job.pid do
+  # A chunk's packet is encoded as job `{:encode, chunk}`; `encodes` holds the
+  # callers waiting for it.
+  defp start_encode(state, key) do
+    if Jobs.running?(state.jobs, {:encode, key}) do
       state
     else
-      owner = self()
-      epoch = state.items.epoch
-      token = make_ref()
       # Section encoding is a short NIF call on the owner; packet assembly and
       # compression run in the worker from these immutable binaries.
       started = System.monotonic_time(:microsecond)
@@ -2952,245 +2827,63 @@ defmodule Valimc.World.RegionData do
       version = Map.get(state.versions, key, 0)
       threshold = Valimc.config(:compression_threshold)
 
-      case Task.Supervisor.start_child(
-             Valimc.ChunkWorkers,
-             Valimc.Dimension.bind(fn ->
-               started = System.monotonic_time(:microsecond)
+      work = fn ->
+        started = System.monotonic_time(:microsecond)
 
-               packet =
-                 if encoded == :flat,
-                   do: Chunk.encode(key, %{}, light),
-                   else: Chunk.packet(encoded, entities, preserved, light)
+        packet =
+          if encoded == :flat,
+            do: Chunk.encode(key, %{}, light),
+            else: Chunk.packet(encoded, entities, preserved, light)
 
-               frame = Packets.frame(packet, threshold)
-               Valimc.Metrics.add(:chunks_encoded)
+        frame = Packets.frame(packet, threshold)
+        Valimc.Metrics.add(:chunks_encoded)
 
-               Valimc.Metrics.add(
-                 :chunk_encode_microseconds,
-                 sections_microseconds + System.monotonic_time(:microsecond) - started
-               )
+        Valimc.Metrics.add(
+          :chunk_encode_microseconds,
+          sections_microseconds + System.monotonic_time(:microsecond) - started
+        )
 
-               send(owner, {:resource, epoch, {:encoded, key, token, version, frame}})
-             end)
+        frame
+      end
+
+      case start_job(state, {:encode, key}, work,
+             supervisor: Valimc.ChunkWorkers,
+             data: %{version: version}
            ) do
-        {:ok, pid} ->
-          job = Map.merge(job, %{pid: pid, monitor: Process.monitor(pid), token: token})
-          %{state | jobs: Map.put(state.jobs, key, job)}
-
-        {:error, :max_children} ->
-          send_after(state, {:retry_encode, key}, 10)
+        {:ok, state} ->
           state
 
-        {:error, reason} ->
-          for from <- job.waiters, do: GenServer.reply(from, {:error, reason})
-          %{state | jobs: Map.delete(state.jobs, key)}
+        {:error, _} ->
+          send_after(state, {:retry_encode, key}, 10)
+          state
       end
     end
   end
 
-  def handle_info(
-        {:container_recovery_plan, worker, token, result},
-        %{
-          item_pending:
-            %{kind: :container, phase: :planning, worker: worker, token: token} = pending
-        } = state
-      ) do
-    Process.demonitor(pending.monitor, [:flush])
+  ## Jobs (VMC-077g): one report, deadline and failure path for every kind.
 
-    case result do
-      {:ok, %{containers: containers} = decision} ->
-        pending = Map.put(pending, :decision, decision)
-        Process.cancel_timer(pending.timer)
-        state = %{state | item_pending: nil, containers: containers}
-        {reply, state} = adopt_container_result(state, pending)
-
-        # A replayed step may read a receipt whose frame is still in flight.
-        waits =
-          Enum.map(container_effects(pending), &{:effect, &1}) ++
-            [{:reply, pending.from, reply}, resume_handoff(state)]
-
-        {:noreply, wait_durable(state, waits)}
-
-      {:error, _} = error ->
-        Process.cancel_timer(pending.timer)
-        GenServer.reply(pending.from, error)
-        {:noreply, item_plan_failed(state, pending)}
+  def handle_info({:job, kind, token, result}, state) do
+    case Jobs.finish(state.jobs, kind, token) do
+      {:ok, job, jobs} -> job_done(kind, job.data, result, %{state | jobs: jobs})
+      :stale -> {:noreply, state}
     end
   end
 
-  def handle_info({:container_recovery_plan, _, _, _}, state), do: {:noreply, state}
-
-  def handle_info({:cooking_orb_plan, worker, token, result}, state),
-    do: CookingOrbRuntime.result(state, worker, token, result)
-
-  def handle_info({:cooking_orb_deadline, token}, state),
-    do: CookingOrbRuntime.expired(state, token)
-
-  def handle_info({:cooking_orb_delivered, worker, token, result}, state),
-    do: CookingOrbDelivery.returned(state, worker, token, result)
-
-  def handle_info({:cooking_orb_delivery_deadline, token}, state),
-    do: CookingOrbDelivery.expired(state, token)
-
-  def handle_info(
-        {:cooking_plan, worker, token, result},
-        %{cooking: %{job: %{worker: worker, token: token} = job}} = state
-      ) do
-    Process.cancel_timer(job.timer)
-    Process.demonitor(job.monitor, [:flush])
-    state = %{state | cooking: %{state.cooking | job: nil}}
-
-    case result do
-      {:ok, plan} ->
-        {:noreply, accept_cooking_plan(state, job, plan)}
-
-      {:error, _} ->
-        Valimc.Metrics.add(:cooking_plan_failures)
-
-        {:noreply,
-         %{
-           state
-           | cooking: %{
-               state.cooking
-               | seen: nil,
-                 retry_at: System.monotonic_time(:millisecond) + 1000
-             }
-         }}
+  def handle_info({:job_deadline, kind, token}, state) do
+    case Jobs.expire(state.jobs, kind, token) do
+      {:ok, job, jobs} -> job_failed(kind, job.data, :timeout, %{state | jobs: jobs})
+      :stale -> {:noreply, state}
     end
   end
 
-  def handle_info({:cooking_plan, _, _, _}, state), do: {:noreply, state}
-
-  def handle_info({:cooking_deadline, token}, %{cooking: %{job: %{token: token} = job}} = state) do
-    Process.demonitor(job.monitor, [:flush])
-    Process.exit(job.worker, :kill)
-    Valimc.Metrics.add(:cooking_timeouts)
-
-    {:noreply,
-     %{
-       state
-       | cooking: %{
-           state.cooking
-           | job: nil,
-             seen: nil,
-             retry_at: System.monotonic_time(:millisecond) + 100
-         }
-     }}
+  def handle_info({:DOWN, ref, :process, _, reason}, %{jobs: %{monitors: monitors}} = state)
+      when is_map_key(monitors, ref) do
+    {:ok, job, jobs} = Jobs.down(state.jobs, ref)
+    job_failed(job.kind, job.data, {:down, reason}, %{state | jobs: jobs})
   end
-
-  def handle_info({:cooking_deadline, _}, state), do: {:noreply, state}
-
-  def handle_info(
-        {:item_transfer_plan, worker, token, result},
-        %{
-          item_pending: %{kind: kind, phase: :planning, worker: worker, token: token} = pending
-        } = state
-      )
-      when kind in [
-             :item_transfer,
-             :item_handoff_in,
-             :item_handoff_out,
-             :item_handoff_clear,
-             :item_merge,
-             :item_merge_auto,
-             :pickup_admission,
-             :item_pickup,
-             :cross_merge_admission,
-             :cross_merge_out,
-             :cross_merge_in,
-             :cross_merge_counters
-           ] do
-    Process.demonitor(pending.monitor, [:flush])
-
-    result =
-      if pending.acceptance_deadline != nil and
-           System.monotonic_time(:millisecond) >= pending.acceptance_deadline,
-         do: {:error, :expired_item_step},
-         else: result
-
-    case result do
-      {:write, items, receipts, reply} ->
-        Process.cancel_timer(pending.timer)
-        state = %{state | item_pending: nil, items: items, item_receipts: receipts}
-        # A cleared handoff is over once adopted; the next one starts from its resume.
-        state = if kind == :item_handoff_clear, do: %{state | item_handoff: nil}, else: state
-        publish_item_views(state)
-        {:noreply, wait_durable(state, [{:reply, pending.from, reply}, resume_handoff(state)])}
-
-      {:reply, reply} ->
-        Process.cancel_timer(pending.timer)
-        state = %{state | item_pending: nil}
-        {:noreply, wait_durable(state, [{:reply, pending.from, reply}, resume_handoff(state)])}
-
-      {:error, _} = error ->
-        Process.cancel_timer(pending.timer)
-        reply_item(pending.from, error)
-        {:noreply, item_plan_failed(state, pending)}
-    end
-  end
-
-  def handle_info({:item_transfer_plan, _, _, _}, state), do: {:noreply, state}
-
-  def handle_info(
-        {:item_cross_query, worker, token, result},
-        %{item_cross_job: %{worker: worker, token: token} = job} = state
-      ) do
-    Process.cancel_timer(job.timer)
-    Process.demonitor(job.monitor, [:flush])
-    retry = job.retry or result.retry
-
-    complete =
-      result.cursor == nil and not retry and not result.progress and
-        job.scan_stamp == job.stamp
-
-    next =
-      System.monotonic_time(:millisecond) +
-        if(result.progress or result.cursor != nil, do: 0, else: 200)
-
-    {:noreply,
-     %{
-       state
-       | item_cross_job: nil,
-         item_cross_next: next,
-         item_cross_stamp: if(complete, do: job.stamp),
-         item_cross_scan_stamp: if(result.cursor != nil, do: job.scan_stamp),
-         item_cross_cursor: result.cursor,
-         item_cross_retry: result.cursor != nil and retry
-     }}
-  end
-
-  def handle_info({:item_cross_query, _, _, _}, state), do: {:noreply, state}
-
-  def handle_info(
-        {:item_cross_deadline, token},
-        %{item_cross_job: %{token: token} = job} = state
-      ) do
-    Process.demonitor(job.monitor, [:flush])
-    Process.exit(job.worker, :kill)
-    Valimc.Metrics.add(:item_cross_timeouts)
-    {:noreply, %{state | item_cross_job: nil}}
-  end
-
-  def handle_info({:item_cross_deadline, _}, state), do: {:noreply, state}
 
   def handle_info({:release_pickup, token, source}, state),
     do: {:noreply, %{state | permits: Valimc.Txn.Permits.release(state.permits, token, source)}}
-
-  def handle_info({:item_portal, token, result}, %{item_portal: %{token: token} = job} = state) do
-    Process.demonitor(job.monitor, [:flush])
-
-    case result do
-      {:ok, target} ->
-        {:noreply, travel_item(%{state | item_portal: %{job | target: target}})}
-
-      other ->
-        require Logger
-        Logger.warning("Item portal destination unavailable: #{inspect(other, limit: 12)}")
-        {:noreply, %{state | item_portal: nil}}
-    end
-  end
-
-  def handle_info({:item_portal, _, _}, state), do: {:noreply, state}
 
   def handle_info({:release_item_merge, token, source}, state),
     do:
@@ -3204,28 +2897,13 @@ defmodule Valimc.World.RegionData do
         {:item_handoff_wake, token},
         %{item_handoff: %{phase: :retry, token: token}} = state
       ) do
-    token = make_ref()
-
-    case ItemHandoffDelivery.start(
-           self(),
-           state.items.epoch,
-           token,
-           state.key,
-           state.items.ledger
+    case start_job(state, :handoff, ItemHandoffDelivery.work(state.key, state.items.ledger),
+           supervisor: Valimc.TransferWorkers,
+           link: true,
+           deadline: 8000
          ) do
-      {:ok, worker, monitor} ->
-        job = %{
-          phase: :delivering,
-          token: token,
-          worker: worker,
-          monitor: monitor,
-          timer: send_after(state, {:item_handoff_deadline, token}, 8000)
-        }
-
-        {:noreply, %{state | item_handoff: job}}
-
-      {:error, _} ->
-        {:noreply, schedule_handoff_retry(state, 250)}
+      {:ok, state} -> {:noreply, %{state | item_handoff: %{phase: :delivering}}}
+      {:error, _} -> {:noreply, schedule_handoff_retry(state, 250)}
     end
   end
 
@@ -3251,159 +2929,10 @@ defmodule Valimc.World.RegionData do
 
   def handle_info({:item_handoff_wake, _}, state), do: {:noreply, state}
 
-  def handle_info(
-        {:item_handoff_delivered, worker, token, result},
-        %{item_handoff: %{phase: :delivering, worker: worker, token: token} = job} = state
-      ) do
-    Process.cancel_timer(job.timer)
-    Process.demonitor(job.monitor, [:flush])
-
-    case result do
-      {:ok, sequence, digest} ->
-        {:noreply, schedule_handoff_clear(state, sequence, digest, 0)}
-
-      {:error, _} ->
-        Valimc.Metrics.add(:item_handoff_retries)
-        {:noreply, schedule_handoff_retry(state, 250)}
-    end
-  end
-
-  def handle_info({:item_handoff_delivered, _, _, _}, state), do: {:noreply, state}
-
-  def handle_info(
-        {:item_handoff_deadline, token},
-        %{item_handoff: %{phase: :delivering, token: token} = job} = state
-      ) do
-    Process.demonitor(job.monitor, [:flush])
-    Process.exit(job.worker, :kill)
-    Valimc.Metrics.add(:item_handoff_retries)
-    {:noreply, schedule_handoff_retry(state, 250)}
-  end
-
-  def handle_info({:item_handoff_deadline, _}, state), do: {:noreply, state}
-
-  def handle_info(
-        {:container_block_plan, worker, token, result},
-        %{
-          item_pending:
-            %{kind: :container_blocks, phase: :planning, token: token, worker: worker} = pending
-        } = state
-      ) do
-    Process.demonitor(pending.monitor, [:flush])
-
-    case result do
-      {:ok, %{containers: containers, removed: removed, items: items}} ->
-        case block_proposal(state, pending.batch, removed) do
-          {:ok, proposal} ->
-            # The contents drop in this region: nothing another owner acts on.
-            Process.cancel_timer(pending.timer)
-            state = publish_blocks(%{state | item_pending: nil}, pending.batch, proposal)
-            state = %{state | containers: containers}
-            reply = if pending.reply == :ok, do: :ok, else: {:ok, state.revision}
-            commit_items(items, reply, pending.from, state, pending.receipts)
-
-          {:error, _} = error ->
-            Process.cancel_timer(pending.timer)
-            GenServer.reply(pending.from, error)
-            {:noreply, item_plan_failed(state, pending)}
-        end
-
-      {:error, _} = error ->
-        Process.cancel_timer(pending.timer)
-        GenServer.reply(pending.from, error)
-        {:noreply, item_plan_failed(state, pending)}
-    end
-  end
-
-  def handle_info({:container_block_plan, _, _, _}, state), do: {:noreply, state}
-
-  def handle_info(
-        {:block_transfer_plan, worker, token, result},
-        %{
-          item_pending: %{kind: kind, phase: :planning, worker: worker, token: token} = pending
-        } = state
-      )
-      when kind in [:mining, :placement] do
-    Process.demonitor(pending.monitor, [:flush])
-    Process.cancel_timer(pending.timer)
-
-    case result do
-      {:ok, %{kind: ^kind} = plan} ->
-        commit_block_transfer(plan, pending, state)
-
-      {:error, _} = error ->
-        GenServer.reply(pending.from, error)
-        {:noreply, %{state | item_pending: nil}}
-    end
-  end
-
-  def handle_info({:block_transfer_plan, _, _, _}, state), do: {:noreply, state}
-
-  def handle_info({:item_commit_deadline, token}, %{item_pending: %{token: token}} = state),
-    do: {:stop, :item_storage_timeout, state}
-
-  def handle_info({:item_commit_deadline, _}, state), do: {:noreply, state}
-
-  def handle_info({:encoded, key, token, version, frame}, state) do
-    case state.jobs[key] do
-      %{token: ^token} = job ->
-        Process.demonitor(job.monitor, [:flush])
-
-        if version == Map.get(state.versions, key, 0) do
-          for from <- job.waiters, do: GenServer.reply(from, frame)
-          # Connections read a published frame without asking (VMC-077e).
-          :ets.insert(state.item_publication, {{:frame, key}, frame})
-
-          {:noreply,
-           %{state | jobs: Map.delete(state.jobs, key), cache: Map.put(state.cache, key, frame)}}
-        else
-          Valimc.Metrics.add(:stale_chunk_results_discarded)
-          job = %{job | pid: nil, monitor: nil, token: nil}
-          {:noreply, start_job(%{state | jobs: Map.put(state.jobs, key, job)}, key)}
-        end
-
-      _ ->
-        {:noreply, state}
-    end
-  end
-
   def handle_info({:retry_encode, key}, state) do
-    if Map.has_key?(state.jobs, key),
-      do: {:noreply, start_job(state, key)},
+    if Map.has_key?(state.encodes, key),
+      do: {:noreply, start_encode(state, key)},
       else: {:noreply, state}
-  end
-
-  def handle_info(
-        {:DOWN, ref, :process, worker, _},
-        %{item_pending: %{phase: :planning, monitor: ref, worker: worker} = pending} = state
-      ) do
-    Process.cancel_timer(pending.timer)
-    reply_item(pending.from, {:error, :item_plan_failed})
-    {:noreply, item_plan_failed(state, pending)}
-  end
-
-  def handle_info(
-        {:DOWN, ref, :process, worker, _},
-        %{item_cross_job: %{monitor: ref, worker: worker} = job} = state
-      ) do
-    Process.cancel_timer(job.timer)
-    Valimc.Metrics.add(:item_cross_failures)
-    {:noreply, %{state | item_cross_job: nil}}
-  end
-
-  def handle_info(
-        {:DOWN, ref, :process, worker, _},
-        %{item_portal: %{monitor: ref, worker: worker, target: nil}} = state
-      ),
-      do: {:noreply, %{state | item_portal: nil}}
-
-  def handle_info(
-        {:DOWN, ref, :process, worker, _},
-        %{item_handoff: %{phase: :delivering, monitor: ref, worker: worker} = job} = state
-      ) do
-    Process.cancel_timer(job.timer)
-    Valimc.Metrics.add(:item_handoff_retries)
-    {:noreply, schedule_handoff_retry(state, 250)}
   end
 
   # The log stripe went down: frames in flight may or may not be durable.
@@ -3413,37 +2942,6 @@ defmodule Valimc.World.RegionData do
       {:ok, storage} -> {:noreply, %{state | storage: storage}}
     end
   end
-
-  def handle_info(
-        {:DOWN, ref, :process, worker, _},
-        %{cooking: %{job: %{worker: worker, monitor: ref} = job}} = state
-      ) do
-    Process.cancel_timer(job.timer)
-    Valimc.Metrics.add(:cooking_plan_failures)
-
-    {:noreply,
-     %{
-       state
-       | cooking: %{
-           state.cooking
-           | job: nil,
-             seen: nil,
-             retry_at: System.monotonic_time(:millisecond) + 100
-         }
-     }}
-  end
-
-  def handle_info(
-        {:DOWN, ref, :process, worker, _},
-        %{cooking_orbs: %{delivery: %{pid: worker, monitor: ref}}} = state
-      ),
-      do: CookingOrbDelivery.down(state)
-
-  def handle_info(
-        {:DOWN, ref, :process, worker, _},
-        %{cooking_orbs: %{job: %{worker: worker, monitor: ref}}} = state
-      ),
-      do: CookingOrbRuntime.down(state)
 
   # Generation (VMC-075): job results, durable batches, retries and wants.
   def handle_info({:generated, ref, result}, state),
@@ -3457,11 +2955,11 @@ defmodule Valimc.World.RegionData do
     {:noreply, RegionGeneration.pump(%{state | tickets: tickets})}
   end
 
-  def handle_info({:DOWN, ref, :process, pid, reason} = message, state) do
+  def handle_info({:DOWN, ref, :process, pid, _} = message, state) do
     with :error <- Tickets.down(state.tickets, ref),
          :no_reply <- RegionGeneration.proto_response(state, message),
          :error <- RegionGeneration.down(state, ref) do
-      down(state, ref, pid, reason)
+      viewer_down(state, ref, pid)
     else
       {:ok, %Tickets{} = tickets} -> {:noreply, %{state | tickets: tickets}}
       {:ok, state} -> {:noreply, state}
@@ -3574,20 +3072,11 @@ defmodule Valimc.World.RegionData do
 
   def handle_info(_, state), do: {:noreply, state}
 
-  # A monitored worker or viewer went down.
-  defp down(state, ref, pid, reason) do
-    state =
-      apply_container_viewers(state, ContainerViewers.down(state.container_viewers, pid, ref))
-
-    case Enum.find(state.jobs, fn {_, job} -> job.monitor == ref end) do
-      {key, job} ->
-        for from <- job.waiters, do: GenServer.reply(from, {:error, {:encoder_failed, reason}})
-        {:noreply, %{state | jobs: Map.delete(state.jobs, key)}}
-
-      nil ->
-        {:noreply, state}
-    end
-  end
+  # A container viewer went down.
+  defp viewer_down(state, ref, pid),
+    do:
+      {:noreply,
+       apply_container_viewers(state, ContainerViewers.down(state.container_viewers, pid, ref))}
 
   defp container_view_decision(state, connection, position, grant, decision) do
     generation = Map.get(state.cooking_progress, position, 0)
@@ -3981,15 +3470,21 @@ defmodule Valimc.World.RegionData do
       Blocks.get_many(state.blocks, Enum.filter(cells, &in_region?(state, &1)))
     end
 
-    case ItemPortals.contacts(local, state.items.entries, read, state.item_portal == nil) do
+    free = state.item_portal == nil and not Jobs.running?(state.jobs, :portal)
+
+    case ItemPortals.contacts(local, state.items.entries, read, free) do
       {local, nil} ->
         {local, state}
 
-      {local, {step, _, _} = travel} ->
-        case ItemPortals.start(self(), state.items.epoch, travel) do
-          {:ok, job} ->
+      {local, {step, entry, _} = travel} ->
+        case start_job(state, :portal, ItemPortals.work(travel),
+               supervisor: Valimc.TransferWorkers,
+               deadline: ItemPortals.deadline(),
+               data: %{uuid: entry.entity.uuid}
+             ) do
+          {:ok, state} ->
             local = Enum.map(local, &if(&1.id == step.id, do: ItemPortals.renew(&1), else: &1))
-            {local, %{state | item_portal: job}}
+            {local, state}
 
           {:error, _} ->
             {local, state}
@@ -3997,19 +3492,12 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # A travelled item moves once this owner's item plans and outgoing intent are free.
-  defp travel_item(%{item_portal: %{target: nil} = job} = state) do
-    if ItemPortals.expired?(job) do
-      Process.demonitor(job.monitor, [:flush])
-      Process.exit(job.worker, :kill)
-      %{state | item_portal: nil}
-    else
-      state
-    end
-  end
-
-  defp travel_item(%{item_portal: %{target: target, uuid: uuid}} = state)
-       when state.item_pending == nil and state.items.ledger.outgoing == nil and
+  # A travelled item (its destination found) moves once this owner's item
+  # plans and outgoing intent are free.
+  defp travel_item(
+         %{item_portal: %{target: target, uuid: uuid}, jobs: %{entries: entries}} = state
+       )
+       when not is_map_key(entries, :plan) and state.items.ledger.outgoing == nil and
               state.item_storage_enabled do
     state = %{state | item_portal: nil}
     deadline = System.monotonic_time(:millisecond) + 250
@@ -4067,8 +3555,6 @@ defmodule Valimc.World.RegionData do
   end
 
   defp item_plan_failed(state, pending) do
-    state = %{state | item_pending: nil}
-
     state =
       if Map.get(pending, :kind) == :item_merge_auto,
         do: %{state | item_merge_stamp: nil},
@@ -4111,51 +3597,206 @@ defmodule Valimc.World.RegionData do
   # Work that an unload would cut short: queued or planned writes, jobs, an
   # outbox still being delivered, generation, waiting calls, open containers and
   # granted permits.
+  # A job's result (`Valimc.World.Jobs`), by kind.
+  defp job_done(:cooking, job, {:ok, plan}, state),
+    do: {:noreply, accept_cooking_plan(state, job, plan)}
+
+  defp job_done(:cooking, _job, {:error, _}, state) do
+    Valimc.Metrics.add(:cooking_plan_failures)
+    {:noreply, retry_cooking(state, 1000)}
+  end
+
+  defp job_done(:cross_merge, job, result, state) do
+    retry = job.retry or result.retry
+
+    complete =
+      result.cursor == nil and not retry and not result.progress and
+        job.scan_stamp == job.stamp
+
+    next =
+      System.monotonic_time(:millisecond) +
+        if(result.progress or result.cursor != nil, do: 0, else: 200)
+
+    {:noreply,
+     %{
+       state
+       | item_cross_next: next,
+         item_cross_stamp: if(complete, do: job.stamp),
+         item_cross_scan_stamp: if(result.cursor != nil, do: job.scan_stamp),
+         item_cross_cursor: result.cursor,
+         item_cross_retry: result.cursor != nil and retry
+     }}
+  end
+
+  defp job_done(:portal, job, {:ok, target}, state),
+    do: {:noreply, travel_item(%{state | item_portal: %{target: target, uuid: job.uuid}})}
+
+  defp job_done(:portal, _job, other, state) do
+    require Logger
+    Logger.warning("Item portal destination unavailable: #{inspect(other, limit: 12)}")
+    {:noreply, state}
+  end
+
+  # A planned durable mutation, by what it plans.
+  defp job_done(:plan, %{kind: :container} = pending, result, state) do
+    case result do
+      {:ok, %{containers: containers} = decision} ->
+        pending = Map.put(pending, :decision, decision)
+        state = %{state | containers: containers}
+        {reply, state} = adopt_container_result(state, pending)
+
+        # A replayed step may read a receipt whose frame is still in flight.
+        waits =
+          Enum.map(container_effects(pending), &{:effect, &1}) ++
+            [{:reply, pending.from, reply}, resume_handoff(state)]
+
+        {:noreply, wait_durable(state, waits)}
+
+      {:error, _} = error ->
+        GenServer.reply(pending.from, error)
+        {:noreply, item_plan_failed(state, pending)}
+    end
+  end
+
+  defp job_done(:plan, %{kind: :container_blocks} = pending, result, state) do
+    with {:ok, %{containers: containers, removed: removed, items: items}} <- result,
+         {:ok, proposal} <- block_proposal(state, pending.batch, removed) do
+      # The contents drop in this region: nothing another owner acts on.
+      state = publish_blocks(state, pending.batch, proposal)
+      state = %{state | containers: containers}
+      reply = if pending.reply == :ok, do: :ok, else: {:ok, state.revision}
+      commit_items(items, reply, pending.from, state, pending.receipts)
+    else
+      {:error, _} = error ->
+        GenServer.reply(pending.from, error)
+        {:noreply, item_plan_failed(state, pending)}
+    end
+  end
+
+  defp job_done(:plan, %{kind: kind} = pending, result, state)
+       when kind in [:mining, :placement] do
+    case result do
+      {:ok, %{kind: ^kind} = plan} ->
+        commit_block_transfer(plan, pending, state)
+
+      {:error, _} = error ->
+        GenServer.reply(pending.from, error)
+        {:noreply, state}
+    end
+  end
+
+  defp job_done(:plan, pending, result, state) do
+    result =
+      if pending.acceptance_deadline != nil and
+           System.monotonic_time(:millisecond) >= pending.acceptance_deadline,
+         do: {:error, :expired_item_step},
+         else: result
+
+    case result do
+      {:write, items, receipts, reply} ->
+        state = %{state | items: items, item_receipts: receipts}
+        # A cleared handoff is over once adopted; the next one starts from its resume.
+        state =
+          if pending.kind == :item_handoff_clear, do: %{state | item_handoff: nil}, else: state
+
+        publish_item_views(state)
+        {:noreply, wait_durable(state, [{:reply, pending.from, reply}, resume_handoff(state)])}
+
+      {:reply, reply} ->
+        {:noreply, wait_durable(state, [{:reply, pending.from, reply}, resume_handoff(state)])}
+
+      {:error, _} = error ->
+        reply_item(pending.from, error)
+        {:noreply, item_plan_failed(state, pending)}
+    end
+  end
+
+  defp job_done({:encode, key}, job, frame, state) do
+    if job.version == Map.get(state.versions, key, 0) do
+      {waiters, encodes} = Map.pop(state.encodes, key, [])
+      for from <- waiters, do: GenServer.reply(from, frame)
+      # Connections read a published frame without asking (VMC-077e).
+      :ets.insert(state.item_publication, {{:frame, key}, frame})
+      {:noreply, %{state | encodes: encodes, cache: Map.put(state.cache, key, frame)}}
+    else
+      Valimc.Metrics.add(:stale_chunk_results_discarded)
+      {:noreply, start_encode(state, key)}
+    end
+  end
+
+  defp job_done(:handoff, _job, {:ok, sequence, digest}, state),
+    do: {:noreply, schedule_handoff_clear(state, sequence, digest, 0)}
+
+  defp job_done(:handoff, _job, {:error, _}, state) do
+    Valimc.Metrics.add(:item_handoff_retries)
+    {:noreply, schedule_handoff_retry(state, 250)}
+  end
+
+  defp job_done(:orb_plan, job, result, state), do: CookingOrbRuntime.done(state, job, result)
+
+  defp job_done(:orb_delivery, job, result, state),
+    do: CookingOrbDelivery.done(state, job, result)
+
+  # A job that overran its deadline (`:timeout`, killed) or died (`{:down, reason}`).
+  defp job_failed({:encode, key}, _job, reason, state) do
+    {waiters, encodes} = Map.pop(state.encodes, key, [])
+    for from <- waiters, do: GenServer.reply(from, {:error, {:encoder_failed, reason}})
+    {:noreply, %{state | encodes: encodes}}
+  end
+
+  defp job_failed(:handoff, _job, _reason, state) do
+    Valimc.Metrics.add(:item_handoff_retries)
+    {:noreply, schedule_handoff_retry(state, 250)}
+  end
+
+  defp job_failed(:orb_plan, job, reason, state), do: CookingOrbRuntime.failed(state, job, reason)
+  defp job_failed(:orb_delivery, job, _reason, state), do: CookingOrbDelivery.failed(state, job)
+
+  # A plan has adopted nothing yet: its caller may retry.
+  defp job_failed(:plan, pending, _reason, state) do
+    reply_item(pending.from, {:error, :item_plan_failed})
+    {:noreply, item_plan_failed(state, pending)}
+  end
+
+  defp job_failed(:portal, _job, reason, state) do
+    require Logger
+    Logger.warning("Item portal destination failed: #{inspect(reason, limit: 12)}")
+    {:noreply, state}
+  end
+
+  defp job_failed(:cross_merge, _job, reason, state) do
+    Valimc.Metrics.add(
+      if reason == :timeout, do: :item_cross_timeouts, else: :item_cross_failures
+    )
+
+    {:noreply, state}
+  end
+
+  defp job_failed(:cooking, _job, reason, state) do
+    Valimc.Metrics.add(if reason == :timeout, do: :cooking_timeouts, else: :cooking_plan_failures)
+    {:noreply, retry_cooking(state, 100)}
+  end
+
+  defp retry_cooking(state, ms) do
+    retry_at = System.monotonic_time(:millisecond) + ms
+    %{state | cooking: %{state.cooking | seen: nil, retry_at: retry_at}}
+  end
+
   defp busy?(state) do
     gen = state.generation
 
-    RegionStorage.busy?(state.storage) or state.item_pending != nil or
+    RegionStorage.busy?(state.storage) or Jobs.busy?(state.jobs) or
       state.item_handoff != nil or state.item_portal != nil or
-      state.item_cross_job != nil or state.cooking.job != nil or
-      state.cooking_orbs.job != nil or state.cooking_orbs.delivery != nil or
-      state.cooking_orbs.receipt != nil or map_size(state.jobs) > 0 or
+      state.cooking_orbs.receipt != nil or map_size(state.encodes) > 0 or
       map_size(gen.jobs) > 0 or gen.deferred_count > 0 or
       map_size(state.container_viewers.views) > 0 or map_size(state.permits.entries) > 0
   end
 
   def terminate(reason, state) do
-    CookingOrbRuntime.terminate(state.cooking_orbs)
-    CookingOrbDelivery.terminate(state.cooking_orbs)
+    CookingOrbRuntime.terminate(state)
 
-    if state.cooking.job do
-      Process.cancel_timer(state.cooking.job.timer)
-      Process.exit(state.cooking.job.worker, :kill)
-    end
-
-    if state.item_cross_job do
-      Process.cancel_timer(state.item_cross_job.timer)
-      Process.exit(state.item_cross_job.worker, :kill)
-    end
-
-    if state.item_handoff do
-      if Map.has_key?(state.item_handoff, :timer),
-        do: Process.cancel_timer(state.item_handoff.timer)
-
-      if Map.has_key?(state.item_handoff, :worker),
-        do: Process.exit(state.item_handoff.worker, :kill)
-    end
-
-    if state.item_pending do
-      Process.cancel_timer(state.item_pending.timer)
-      reply_item(state.item_pending.from, {:error, :item_commit_uncertain})
-
-      if state.item_pending.phase == :planning and Process.whereis(Valimc.ItemWorkers) != nil,
-        do: Task.Supervisor.terminate_child(Valimc.ItemWorkers, state.item_pending.worker)
-    end
-
-    for {_, job} <- state.jobs,
-        job.pid != nil and Process.whereis(Valimc.ChunkWorkers) != nil,
-        do: Task.Supervisor.terminate_child(Valimc.ChunkWorkers, job.pid)
+    if pending = planning(state), do: reply_item(pending.from, {:error, :item_plan_failed})
+    Jobs.stop_all(state.jobs)
 
     # A clean stop (unload, shutdown) cuts the last frame, waits for it and
     # leaves a checkpoint, so nothing of the region stays in the log. Replies

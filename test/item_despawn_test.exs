@@ -40,10 +40,15 @@ defmodule Valimc.ItemDespawnTest do
 
     # A busy planning slot (e.g. a nearby player's repeated pickup queries)
     # must not stall the despawn clock.
-    busy = %{kind: :busy, phase: :planning, token: make_ref(), timer: make_ref(), from: nil}
-    :sys.replace_state(pid, &put_in(&1.resource.item_pending, busy))
+    busy = %{kind: :plan, token: make_ref(), pid: self(), monitor: make_ref(), data: %{}}
+    :sys.replace_state(pid, &put_in(&1.resource.jobs.entries[:plan], busy))
     for _ <- 1..5, do: {:ok, _} = Region.step(owner, 1200)
-    :sys.replace_state(pid, &put_in(&1.resource.item_pending, nil))
+
+    :sys.replace_state(
+      pid,
+      &update_in(&1.resource.jobs.entries, fn e -> Map.delete(e, :plan) end)
+    )
+
     {:ok, _} = Region.step(owner, 1)
     wait(fn -> World.item_snapshot(ctx.key) == %{} end)
   end

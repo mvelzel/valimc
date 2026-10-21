@@ -3,6 +3,7 @@ defmodule Valimc.World.CookingOrbRuntime do
   alias Valimc.Protocol.EntityPackets
 
   alias Valimc.World.{
+    Jobs,
     CookingOrbs,
     CookingOrbTransfers,
     CookingOrbBodies,
@@ -10,8 +11,7 @@ defmodule Valimc.World.CookingOrbRuntime do
     RegionData
   }
 
-  defstruct job: nil,
-            seen: nil,
+  defstruct seen: nil,
             retry_at: nil,
             cursor: nil,
             ledger: %{},
@@ -20,7 +20,6 @@ defmodule Valimc.World.CookingOrbRuntime do
             consumption_revision: 0,
             body_revision: 0,
             receipt: nil,
-            delivery: nil,
             delivery_cursor: nil,
             delivery_seen: nil,
             delivery_retry_at: nil
@@ -32,7 +31,8 @@ defmodule Valimc.World.CookingOrbRuntime do
     cs = state.containers
 
     cond do
-      not state.item_storage_enabled or runtime.job != nil or RegionData.write_busy(state) != nil ->
+      not state.item_storage_enabled or Jobs.running?(state.jobs, :orb_plan) or
+          RegionData.write_busy(state) != nil ->
         state
 
       is_integer(runtime.retry_at) and now < runtime.retry_at ->
@@ -67,57 +67,49 @@ defmodule Valimc.World.CookingOrbRuntime do
       not is_integer(deadline) or now() >= deadline ->
         {:reply, {:error, :expired_cooking_orb_transfer}, state}
 
-      RegionData.write_busy(state) != nil or state.cooking_orbs.job != nil ->
+      RegionData.write_busy(state) != nil or Jobs.running?(state.jobs, :orb_plan) ->
         {:reply, {:error, :item_storage_busy}, state}
 
       true ->
         next = start(state, now(), {:adopt, bytes}, from, deadline)
 
-        if next.cooking_orbs.job,
+        if Jobs.running?(next.jobs, :orb_plan),
           do: {:noreply, next},
           else: {:reply, {:error, :cooking_orb_workers_busy}, next}
     end
   end
 
+  # The plan runs as the owner's `:orb_plan` job; a crash is a failed plan.
   defp start(state, now, operation, from, deadline) do
-    owner = self()
     epoch = state.items.epoch
-    token = make_ref()
     containers = state.containers
     runtime = state.cooking_orbs
     key = state.key
 
-    case Task.Supervisor.start_child(
-           Valimc.ItemWorkers,
-           Valimc.Dimension.bind(fn ->
-             result =
-               case operation do
-                 :scan -> plan(containers, key, epoch, runtime)
-                 {:adopt, bytes} -> plan_adoption(containers, key, epoch, runtime, bytes)
-               end
+    work = fn ->
+      case operation do
+        :scan -> plan(containers, key, epoch, runtime)
+        {:adopt, bytes} -> plan_adoption(containers, key, epoch, runtime, bytes)
+      end
+    end
 
-             send(owner, {:resource, epoch, {:cooking_orb_plan, self(), token, result}})
-           end)
+    data = %{
+      ledger: containers.cooking_orbs,
+      transfers: containers.orb_transfers,
+      consumption: containers.orb_consumption,
+      bodies: containers.orb_bodies,
+      stamp: stamp(containers),
+      from: from,
+      deadline: deadline
+    }
+
+    case RegionData.start_job(state, :orb_plan, work,
+           supervisor: Valimc.ItemWorkers,
+           deadline: 2000,
+           data: data
          ) do
-      {:ok, worker} ->
-        job = %{
-          worker: worker,
-          token: token,
-          monitor: Process.monitor(worker),
-          timer: timer(state, {:cooking_orb_deadline, token}, 2000),
-          ledger: containers.cooking_orbs,
-          transfers: containers.orb_transfers,
-          consumption: containers.orb_consumption,
-          bodies: containers.orb_bodies,
-          stamp: stamp(containers),
-          from: from,
-          deadline: deadline
-        }
-
-        %{state | cooking_orbs: %{runtime | job: job, retry_at: nil}}
-
-      {:error, _} ->
-        retry(state, now + 100)
+      {:ok, state} -> put_in(state.cooking_orbs.retry_at, nil)
+      {:error, _} -> retry(state, now + 100)
     end
   end
 
@@ -146,8 +138,6 @@ defmodule Valimc.World.CookingOrbRuntime do
       true ->
         plan_award(containers, key, epoch, runtime)
     end
-  rescue
-    _ -> {:error, :orb_plan_failed}
   end
 
   defp plan_award(containers, key, epoch, runtime) do
@@ -194,28 +184,18 @@ defmodule Valimc.World.CookingOrbRuntime do
         else:
           {:adopt, request, proposed.orb_transfers, publication(proposed, runtime.views, epoch)}
     end
-  rescue
-    _ -> {:error, :orb_plan_failed}
   end
 
-  def result(state, worker, token, result) do
-    case state.cooking_orbs.job do
-      %{worker: ^worker, token: ^token} = job ->
-        clear_job(job)
-        state = put_in(state.cooking_orbs.job, nil)
-
-        if current?(state, job),
-          do: accept(state, job, result),
-          else: reject(state, job, :stale_cooking_orb_plan)
-
-      _ ->
-        {:noreply, state}
-    end
+  @doc "The `:orb_plan` job reported (`job` is its data)."
+  def done(state, job, result) do
+    if current?(state, job),
+      do: accept(state, job, result),
+      else: reject(state, job, :stale_cooking_orb_plan)
   end
 
   defp current?(state, job),
     do:
-      state.item_pending == nil and state.containers.cooking_orbs === job.ledger and
+      not RegionData.planning?(state) and state.containers.cooking_orbs === job.ledger and
         state.containers.orb_transfers === job.transfers and
         state.containers.orb_consumption === job.consumption and
         state.containers.orb_bodies === job.bodies and
@@ -321,32 +301,21 @@ defmodule Valimc.World.CookingOrbRuntime do
   @doc false
   def durable(state, views), do: publish(state, views)
 
-  def expired(state, token) do
-    case state.cooking_orbs.job do
-      %{token: ^token} = job ->
-        clear_job(job)
-        Process.exit(job.worker, :kill)
-        reply(job.from, {:error, :cooking_orb_plan_timeout})
-        {:noreply, retry(put_in(state.cooking_orbs.job, nil), now() + 1000)}
-
-      _ ->
-        {:noreply, state}
-    end
+  @doc "The `:orb_plan` job overran (`:timeout`) or died."
+  def failed(state, job, :timeout) do
+    reply(job.from, {:error, :cooking_orb_plan_timeout})
+    {:noreply, retry(state, now() + 1000)}
   end
 
-  def down(state) do
-    job = state.cooking_orbs.job
-    clear_job(job)
+  def failed(state, job, _reason) do
     reply(job.from, {:error, :cooking_orb_plan_failed})
-    {:noreply, retry(put_in(state.cooking_orbs.job, nil), now() + 100)}
+    {:noreply, retry(state, now() + 100)}
   end
 
-  def terminate(runtime) do
-    if runtime.job do
-      clear_job(runtime.job)
-      reply(runtime.job.from, {:error, :cooking_orb_owner_stopped})
-      Process.exit(runtime.job.worker, :kill)
-    end
+  @doc "The owner stops: a waiting adoption hears so."
+  def terminate(state) do
+    with %{data: job} <- Jobs.get(state.jobs, :orb_plan),
+         do: reply(job.from, {:error, :cooking_orb_owner_stopped})
   end
 
   defp publish(state, %{
@@ -459,12 +428,4 @@ defmodule Valimc.World.CookingOrbRuntime do
   defp reply(nil, _), do: :ok
   defp reply(from, result), do: GenServer.reply(from, result)
   defp now, do: System.monotonic_time(:millisecond)
-
-  defp timer(state, message, delay),
-    do: Process.send_after(self(), {:resource, state.items.epoch, message}, delay)
-
-  defp clear_job(job) do
-    Process.cancel_timer(job.timer)
-    Process.demonitor(job.monitor, [:flush])
-  end
 end

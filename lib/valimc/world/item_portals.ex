@@ -52,10 +52,11 @@ defmodule Valimc.World.ItemPortals do
   @doc "A step with the portal cooldown started (`setPortalCooldown`)."
   def renew(step), do: %{step | motion: %{step.motion | portal_cooldown: @cooldown}}
 
-  @doc "Start the destination job of a travelling item; the owner hears `{:item_portal, token, result}`."
-  def start(owner, epoch, {step, entry, {kind, cell}}) do
-    token = make_ref()
-
+  @doc """
+  The owner job finding a travelling item's destination (`{:ok, target}` or an
+  error); it may take up to `deadline/0`.
+  """
+  def work({step, _entry, {kind, cell}}) do
     travel = %{
       kind: kind,
       entry: cell,
@@ -69,43 +70,14 @@ defmodule Valimc.World.ItemPortals do
       spectator: false
     }
 
-    work =
-      Dimension.bind(fn ->
-        result =
-          try do
-            destination(travel)
-          rescue
-            error -> {:error, Exception.message(error)}
-          catch
-            :exit, reason -> {:error, {:exit, reason}}
-          end
-
-        send(owner, {:resource, epoch, {:item_portal, token, result}})
-      end)
-
-    case Task.Supervisor.start_child(Valimc.TransferWorkers, work) do
-      {:ok, worker} ->
-        {:ok,
-         %{
-           token: token,
-           worker: worker,
-           monitor: Process.monitor(worker),
-           uuid: entry.entity.uuid,
-           started: now(),
-           target: nil
-         }}
-
-      {:error, _} ->
-        {:error, :portal_workers_busy}
-    end
+    fn -> destination(travel) end
   end
+
+  def deadline, do: @deadline
 
   defp destination(%{kind: :nether_portal} = travel), do: Destination.nether(travel)
   defp destination(%{kind: :end_portal} = travel), do: EndPortal.destination(travel)
   defp destination(%{kind: :end_gateway} = travel), do: GatewayDestination.destination(travel)
-
-  @doc "Whether a job still finding its destination has outlived its deadline."
-  def expired?(job), do: job.target == nil and now() - job.started > @deadline
 
   @doc """
   The travelled item's step at its target: `{:handoff, destination, step}`
@@ -137,6 +109,4 @@ defmodule Valimc.World.ItemPortals do
         :gone
     end
   end
-
-  defp now, do: System.monotonic_time(:millisecond)
 end

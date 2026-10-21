@@ -73,7 +73,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
         s = state(owner)
 
         s.items.ledger.outgoing == nil and not Valimc.TestRegion.writing?(s) and
-          s.item_cross_job == nil
+          not Valimc.World.Jobs.running?(s.jobs, :cross_merge)
       end)
 
   defp total(c),

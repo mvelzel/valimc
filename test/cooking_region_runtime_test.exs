@@ -58,9 +58,9 @@ defmodule Valimc.CookingRegionRuntimeTest do
   defp start(state), do: RegionData.cooking_tick(state, System.monotonic_time(:millisecond))
 
   defp result(state) do
-    %{worker: worker, token: token} = state.cooking.job
+    %{token: token} = Valimc.World.Jobs.get(state.jobs, :cooking)
     epoch = state.items.epoch
-    assert_receive {:resource, ^epoch, {:cooking_plan, ^worker, ^token, _} = message}
+    assert_receive {:resource, ^epoch, {:job, :cooking, ^token, _} = message}
     {:noreply, next} = RegionData.handle_info(message, state)
     next
   end

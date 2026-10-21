@@ -4,7 +4,6 @@ defmodule Valimc.World.CookingRuntime do
   alias Valimc.World.{BlockBatch, Chunk, CookingBatch}
 
   defstruct enabled: false,
-            job: nil,
             seen: nil,
             active: MapSet.new(),
             blocked: MapSet.new(),

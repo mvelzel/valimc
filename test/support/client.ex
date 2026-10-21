@@ -497,7 +497,9 @@ defmodule Valimc.TestRegion do
   @moduledoc "Region owner probes that do not depend on how durable writes are queued."
   @doc "Whether a durable mutation is being planned or a frame (or a reply on one) is in flight."
   def writing?(resource),
-    do: resource.item_pending != nil or Valimc.World.RegionStorage.busy?(resource.storage)
+    do:
+      Valimc.World.Jobs.running?(resource.jobs, :plan) or
+        Valimc.World.RegionStorage.busy?(resource.storage)
 
   @doc "Whether a frame of the owner is on its way to the log."
   def in_flight?(resource), do: map_size(resource.storage.in_flight) > 0

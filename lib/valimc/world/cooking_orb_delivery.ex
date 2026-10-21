@@ -1,14 +1,14 @@
 defmodule Valimc.World.CookingOrbDelivery do
   @moduledoc "One bounded remote spawn delivery per owner; durable intent survives any uncertain attempt."
-  alias Valimc.Txn.Delivery
   alias Valimc.World
-  alias Valimc.World.{CookingOrbTransfers, Region}
+  alias Valimc.World.{CookingOrbTransfers, Jobs, Region, RegionData}
 
   def tick(state, now) do
     runtime = state.cooking_orbs
 
     cond do
-      not state.item_storage_enabled or runtime.delivery != nil or runtime.receipt != nil ->
+      not state.item_storage_enabled or Jobs.running?(state.jobs, :orb_delivery) or
+          runtime.receipt != nil ->
         state
 
       is_integer(runtime.delivery_retry_at) and now < runtime.delivery_retry_at ->
@@ -33,29 +33,19 @@ defmodule Valimc.World.CookingOrbDelivery do
     end
   end
 
+  # The delivery runs as the owner's `:orb_delivery` job.
   defp start(state, id, now) do
-    epoch = state.items.epoch
     cs = state.containers
     key = state.key
 
-    case Delivery.start(
-           self(),
-           fn worker, token, result ->
-             {:resource, epoch, {:cooking_orb_delivered, worker, token, result}}
-           end,
-           fn -> deliver(cs, key, id) end,
+    case RegionData.start_job(state, :orb_delivery, fn -> deliver(cs, key, id) end,
+           supervisor: Valimc.TransferWorkers,
            link: true,
            deadline: 8000,
-           deadline_message: &{:resource, epoch, {:cooking_orb_delivery_deadline, &1}}
+           data: %{id: id, award: cs.pending_awards[id]}
          ) do
-      {:ok, job} ->
-        put_in(
-          state.cooking_orbs.delivery,
-          Map.merge(job, %{id: id, award: cs.pending_awards[id]})
-        )
-
-      {:error, _} ->
-        retry(state, id, now + 100)
+      {:ok, state} -> state
+      {:error, _} -> retry(state, id, now + 100)
     end
   end
 
@@ -71,53 +61,24 @@ defmodule Valimc.World.CookingOrbDelivery do
     :exit, _ -> {:error, :cooking_orb_delivery_uncertain}
   end
 
-  def returned(state, worker, token, result) do
-    case state.cooking_orbs.delivery do
-      %{pid: ^worker, token: ^token} = job ->
-        Delivery.finish(job)
-        state = put_in(state.cooking_orbs.delivery, nil)
-
-        case result do
-          {:ok, id, <<_::256>> = digest} when id == job.id ->
-            if state.containers.pending_awards[id] === job.award and
-                 state.containers.orb_transfers.outgoing[id] == :pending do
-              {:noreply, put_in(state.cooking_orbs.receipt, {id, digest})}
-            else
-              {:noreply, retry(state, id, now() + 100)}
-            end
-
-          _ ->
-            {:noreply, retry(state, job.id, now() + 1000)}
+  @doc "The `:orb_delivery` job reported (`job` is its data)."
+  def done(state, job, result) do
+    case result do
+      {:ok, id, <<_::256>> = digest} when id == job.id ->
+        if state.containers.pending_awards[id] === job.award and
+             state.containers.orb_transfers.outgoing[id] == :pending do
+          {:noreply, put_in(state.cooking_orbs.receipt, {id, digest})}
+        else
+          {:noreply, retry(state, id, now() + 100)}
         end
 
       _ ->
-        {:noreply, state}
-    end
-  end
-
-  def expired(state, token) do
-    case state.cooking_orbs.delivery do
-      %{token: ^token} = job ->
-        Delivery.abort(job)
-
-        state = put_in(state.cooking_orbs.delivery, nil)
         {:noreply, retry(state, job.id, now() + 1000)}
-
-      _ ->
-        {:noreply, state}
     end
   end
 
-  def down(state) do
-    job = state.cooking_orbs.delivery
-    Delivery.finish(job)
-    state = put_in(state.cooking_orbs.delivery, nil)
-    {:noreply, retry(state, job.id, now() + 1000)}
-  end
-
-  def terminate(runtime) do
-    if runtime.delivery, do: Delivery.abort(runtime.delivery)
-  end
+  @doc "The `:orb_delivery` job overran or died: the durable intent is delivered again."
+  def failed(state, job), do: {:noreply, retry(state, job.id, now() + 1000)}
 
   defp retry(state, id, at),
     do: %{

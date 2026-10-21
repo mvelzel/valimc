@@ -40,21 +40,8 @@ defmodule Valimc.World.ItemCrossMergeQuery do
     end
   end
 
-  def start(owner, epoch, token, key, scene, cursor) do
-    case Task.Supervisor.start_child(
-           Valimc.TransferWorkers,
-           Valimc.Dimension.bind(fn ->
-             Process.link(owner)
-             result = run({owner, epoch}, key, scene, cursor)
-             send(owner, {:resource, epoch, {:item_cross_query, self(), token, result}})
-           end)
-         ) do
-      {:ok, worker} -> {:ok, worker, Process.monitor(worker)}
-      {:error, _} -> {:error, :item_cross_workers_busy}
-    end
-  catch
-    :exit, _ -> {:error, :item_cross_workers_busy}
-  end
+  @doc "The owner job that tries the scene's pairs from `cursor` (`owner` is `{pid, epoch}`)."
+  def work(owner, key, scene, cursor), do: fn -> run(owner, key, scene, cursor) end
 
   defp run(owner, key, scene, cursor) do
     targets = Enum.group_by(scene.targets, & &1.merge_key)
