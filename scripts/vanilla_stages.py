@@ -84,9 +84,12 @@ STAGES = [
         ('java', 'StructureTemplateOracle', '@templates.json', '@processor_lists.json'),
         ('same', '@templates.json', 'priv/worldgen/templates.json'),
         ('same', '@processor_lists.json', 'priv/worldgen/processor_lists.json'),
-        ('java', 'StructureOracle', 'facts', '@structures.json', '@structure_sets.json'),
+        ('java', 'StructureOracle', 'facts', '@structures.json', '@structure_sets.json', '@template_pools.json',
+         '@structure_templates.json'),
         ('same', '@structures.json', 'priv/worldgen/structures.json'),
         ('same', '@structure_sets.json', 'priv/worldgen/structure_sets.json'),
+        ('same', '@template_pools.json', 'priv/worldgen/template_pools.json'),
+        ('same', '@structure_templates.json', 'priv/worldgen/structure_templates.json'),
     ]),
     ('worldgen_noise', [
         ('java', 'NoiseOracle', '@noise.json'),

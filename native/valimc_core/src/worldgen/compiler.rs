@@ -83,8 +83,9 @@ pub struct Facts<'a> {
     /// providers, the feature order, survival facts, the block registry and
     /// per-state block facts.
     pub decoration: Option<DecorationJson<'a>>,
-    /// Structures and structure sets (VMC-025e), when present.
-    pub structures: Option<(&'a Json, &'a Json)>,
+    /// Structures, structure sets and structure templates (VMC-025e), when
+    /// present.
+    pub structures: Option<StructureJson<'a>>,
 }
 
 pub struct DecorationJson<'a> {
@@ -127,9 +128,32 @@ impl<'a> Facts<'a> {
                     block_facts: json.field("block_facts")?,
                 }),
             },
-            structures: json.get("structures").zip(json.get("structure_sets")),
+            structures: match (
+                json.get("structures"),
+                json.get("structure_sets"),
+                json.get("template_pools"),
+                json.get("structure_templates"),
+            ) {
+                (Some(structures), Some(sets), Some(pools), Some(templates)) => {
+                    Some(StructureJson {
+                        structures,
+                        sets,
+                        pools,
+                        templates,
+                    })
+                }
+                _ => None,
+            },
         })
     }
+}
+
+/// Structures, structure sets, template pools and structure templates.
+pub struct StructureJson<'a> {
+    pub structures: &'a Json,
+    pub sets: &'a Json,
+    pub pools: &'a Json,
+    pub templates: &'a Json,
 }
 
 /// The worldgen registries ValiMC reads from generated facts.
@@ -289,9 +313,15 @@ impl Registry {
             .map_err(|e| format!("decoration: {e}"))?;
             registry.decoration = Some(Arc::new(decoration));
         }
-        if let Some((structures, sets)) = facts.structures {
+        if let Some(json) = &facts.structures {
             let biomes = &registry.biomes;
-            let parsed = StructureRegistry::parse(structures, sets, &|name| biomes.id(name))?;
+            let parsed = StructureRegistry::parse(
+                json.structures,
+                json.sets,
+                json.pools,
+                json.templates,
+                &|name| biomes.id(name),
+            )?;
             registry.structures = Some(Arc::new(parsed));
         }
         let (noises, functions, settings) =
@@ -734,8 +764,10 @@ impl Worldgen {
         Ok(filled)
     }
 
-    /// Structure generation for a multi-noise `biome_source` (VMC-025e):
-    /// placement, ring positions and starts, built once per source.
+    /// Structure generation for `biome_source` (VMC-025e): placement, ring
+    /// positions and starts, built once per source. The Nether's and the
+    /// End's levels are 256 blocks high from y 0, the overworld's those of
+    /// its noise settings.
     pub fn structure_env(&mut self, biome_source: &str) -> Result<Arc<StructureEnv>, String> {
         if let Some(env) = self.structure_envs.get(biome_source) {
             return Ok(env.clone());
@@ -745,17 +777,45 @@ impl Worldgen {
             .structures
             .clone()
             .ok_or("no structure facts")?;
-        let (list, ids) = self
-            .registry
-            .biome_parameters
-            .get(biome_source)
-            .cloned()
-            .ok_or_else(|| format!("unknown biome source {biome_source}"))?;
-        let mut samplers = Vec::with_capacity(6);
-        for field in CLIMATE {
-            let function = self.named(&format!("router:{field}"))?;
-            samplers.push(self.sampler(&function)?);
-        }
+        let biomes = if biome_source == "minecraft:the_end" {
+            let erosion = self.named("router:erosion")?;
+            let b = &self.registry.biomes;
+            let mut ids = [0u16; 5];
+            for (id, name) in ids.iter_mut().zip([
+                "minecraft:the_end",
+                "minecraft:end_highlands",
+                "minecraft:end_midlands",
+                "minecraft:small_end_islands",
+                "minecraft:end_barrens",
+            ]) {
+                *id = b.id(name)?;
+            }
+            ClimateBiomes::End {
+                erosion: self.sampler(&erosion)?,
+                ids,
+            }
+        } else {
+            let (list, ids) = self
+                .registry
+                .biome_parameters
+                .get(biome_source)
+                .cloned()
+                .ok_or_else(|| format!("unknown biome source {biome_source}"))?;
+            let mut samplers = Vec::with_capacity(6);
+            for field in CLIMATE {
+                let function = self.named(&format!("router:{field}"))?;
+                samplers.push(self.sampler(&function)?);
+            }
+            ClimateBiomes::MultiNoise {
+                samplers,
+                list,
+                ids,
+            }
+        };
+        let (level_min_y, level_height) = match biome_source {
+            "minecraft:nether" | "minecraft:the_end" => (0, 256),
+            _ => (self.settings.min_y, self.settings.height),
+        };
         let final_density = self.named("router:final_density")?;
         let b = &self.registry.blocks;
         let blocks = TerrainBlocks {
@@ -769,20 +829,20 @@ impl Worldgen {
             final_density: self.sampler(&final_density)?,
             aquifer: self.aquifer_samplers()?,
             blocks,
-            min_y: self.settings.min_y,
-            height: self.settings.height,
+            min_y: self.settings.min_y.max(level_min_y),
+            height: (self.settings.min_y + self.settings.height).min(level_min_y + level_height)
+                - self.settings.min_y.max(level_min_y),
+            level_min_y,
+            level_height,
             sea_level: self.settings.sea_level,
             flags: Arc::new(self.registry.blocks.flags.clone()),
         };
         let env = Arc::new(StructureEnv::new(
             registry,
             self.seed,
-            ClimateBiomes {
-                samplers,
-                list,
-                ids,
-            },
+            biomes,
             heights,
+            Arc::new(self.registry.biomes.climate.clone()),
         ));
         self.structure_envs
             .insert(biome_source.to_string(), env.clone());

@@ -3,6 +3,7 @@
 //! vanilla's `StructurePiece.createTag` writes them.
 
 use super::super::random::Random;
+use super::super::template::{Mirror, Rotation};
 
 /// Vanilla's `BoundingBox` (inclusive on both ends).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -241,7 +242,10 @@ pub enum Nbt {
     Short(i16),
     Int(i32),
     Long(i64),
+    Float(f32),
     String(String),
+    /// Canonical SNBT from the facts (a pool element as vanilla saves it).
+    Raw(String),
     List(Vec<Nbt>),
     Compound(Vec<(String, Nbt)>),
     IntArray(Vec<i32>),
@@ -277,7 +281,12 @@ impl Nbt {
             Nbt::Long(v) => {
                 let _ = write!(out, "{v}L");
             }
+            Nbt::Float(v) => {
+                out.push_str(&java_float(*v));
+                out.push('f');
+            }
             Nbt::String(s) => quote(s, out),
+            Nbt::Raw(s) => out.push_str(s),
             Nbt::List(items) => {
                 out.push('[');
                 for (i, item) in items.iter().enumerate() {
@@ -314,6 +323,39 @@ impl Nbt {
             }
         }
     }
+}
+
+/// `Float.toString`: the shortest decimal that reads back as the float, in
+/// plain notation from 10^-3 to 10^7 (always with a fraction digit) and in
+/// computerized scientific notation otherwise.
+pub fn java_float(v: f32) -> String {
+    if v.is_nan() {
+        return "NaN".into();
+    }
+    if v.is_infinite() {
+        return if v > 0.0 { "Infinity" } else { "-Infinity" }.into();
+    }
+    if v == 0.0 {
+        return if v.is_sign_negative() { "-0.0" } else { "0.0" }.into();
+    }
+    let magnitude = v.abs();
+    if (1e-3..1e7).contains(&magnitude) {
+        let plain = format!("{v}");
+        return if plain.contains('.') {
+            plain
+        } else {
+            plain + ".0"
+        };
+    }
+    // Rust's `{:e}` gives the same shortest digits: "1.5e-4" or "1e7".
+    let scientific = format!("{v:e}");
+    let (mantissa, exponent) = scientific.split_once('e').expect("exponent");
+    let mantissa = if mantissa.contains('.') {
+        mantissa.to_string()
+    } else {
+        format!("{mantissa}.0")
+    };
+    format!("{mantissa}E{exponent}")
 }
 
 /// A string as Gson quotes it (HTML-safe escapes included).
@@ -362,6 +404,78 @@ pub enum PieceKind {
         height_position: i32,
     },
     BuriedTreasure,
+    /// `TemplateStructurePiece`s.
+    Template(TemplatePiece),
+    /// `PoolElementStructurePiece`s.
+    Jigsaw(super::jigsaw::JigsawPiece),
+    Mineshaft(super::mineshaft::MineshaftPiece),
+}
+
+/// A template piece: the template's saved name, its position and placement
+/// (the pivot only shapes the box), and its type's fields.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TemplatePiece {
+    pub kind: TemplateKind,
+    pub name: String,
+    pub position: [i32; 3],
+    pub rotation: Rotation,
+    pub mirror: Mirror,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum TemplateKind {
+    Igloo,
+    Shipwreck {
+        beached: bool,
+        height_adjusted: bool,
+    },
+    OceanRuin {
+        integrity: f32,
+        warm: bool,
+        large: bool,
+    },
+    RuinedPortal {
+        vertical_placement: &'static str,
+        cold: bool,
+        mossiness: f32,
+        air_pocket: bool,
+        overgrown: bool,
+        vines: bool,
+        replace_with_blackstone: bool,
+    },
+    NetherFossil,
+    EndCity {
+        overwrite: bool,
+    },
+}
+
+/// `Rotation.LEGACY_CODEC`: the enum constant's name.
+pub fn rotation_name(rotation: Rotation) -> &'static str {
+    match rotation {
+        Rotation::None => "NONE",
+        Rotation::Clockwise90 => "CLOCKWISE_90",
+        Rotation::Clockwise180 => "CLOCKWISE_180",
+        Rotation::Counterclockwise90 => "COUNTERCLOCKWISE_90",
+    }
+}
+
+pub fn mirror_name(mirror: Mirror) -> &'static str {
+    match mirror {
+        Mirror::None => "NONE",
+        Mirror::LeftRight => "LEFT_RIGHT",
+        Mirror::FrontBack => "FRONT_BACK",
+    }
+}
+
+/// `Rotation.getRotated`.
+pub fn rotated(base: Rotation, by: Rotation) -> Rotation {
+    let index = |r: Rotation| match r {
+        Rotation::None => 0,
+        Rotation::Clockwise90 => 1,
+        Rotation::Clockwise180 => 2,
+        Rotation::Counterclockwise90 => 3,
+    };
+    super::super::template::ROTATIONS[(index(base) + index(by)) % 4]
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -381,6 +495,35 @@ impl Piece {
                 ScatteredKind::SwampHut => "minecraft:tesh",
             },
             PieceKind::BuriedTreasure => "minecraft:btp",
+            PieceKind::Template(t) => match t.kind {
+                TemplateKind::Igloo => "minecraft:iglu",
+                TemplateKind::Shipwreck { .. } => "minecraft:shipwreck",
+                TemplateKind::OceanRuin { .. } => "minecraft:orp",
+                TemplateKind::RuinedPortal { .. } => "minecraft:rupo",
+                TemplateKind::NetherFossil => "minecraft:nefos",
+                TemplateKind::EndCity { .. } => "minecraft:ecp",
+            },
+            PieceKind::Jigsaw(_) => "minecraft:jigsaw",
+            PieceKind::Mineshaft(m) => m.id(),
+        }
+    }
+
+    /// `StructurePiece.move`; template pieces move their template too.
+    pub fn moved_by(&mut self, dx: i32, dy: i32, dz: i32) {
+        self.bbox = self.bbox.moved(dx, dy, dz);
+        match &mut self.kind {
+            PieceKind::Template(t) => {
+                t.position = [t.position[0] + dx, t.position[1] + dy, t.position[2] + dz];
+            }
+            PieceKind::Jigsaw(j) => {
+                j.position = [j.position[0] + dx, j.position[1] + dy, j.position[2] + dz];
+            }
+            PieceKind::Mineshaft(super::mineshaft::MineshaftPiece::Room { entrances, .. }) => {
+                for entrance in entrances {
+                    *entrance = entrance.moved(dx, dy, dz);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -428,6 +571,70 @@ impl Piece {
                 }
             }
             PieceKind::BuriedTreasure => {}
+            PieceKind::Jigsaw(j) => j.save(&mut put),
+            PieceKind::Mineshaft(m) => m.save(&mut put),
+            PieceKind::Template(t) => {
+                put("TPX", Nbt::Int(t.position[0]));
+                put("TPY", Nbt::Int(t.position[1]));
+                put("TPZ", Nbt::Int(t.position[2]));
+                put("Template", Nbt::string(&t.name));
+                let rot = Nbt::string(rotation_name(t.rotation));
+                match &t.kind {
+                    TemplateKind::Igloo | TemplateKind::NetherFossil => put("Rot", rot),
+                    TemplateKind::Shipwreck {
+                        beached,
+                        height_adjusted,
+                    } => {
+                        put("isBeached", Nbt::bool(*beached));
+                        put("Rot", rot);
+                        put("height_adjusted", Nbt::bool(*height_adjusted));
+                    }
+                    TemplateKind::OceanRuin {
+                        integrity,
+                        warm,
+                        large,
+                    } => {
+                        put("Rot", rot);
+                        put("Integrity", Nbt::Float(*integrity));
+                        put(
+                            "BiomeType",
+                            Nbt::string(if *warm { "WARM" } else { "COLD" }),
+                        );
+                        put("IsLarge", Nbt::bool(*large));
+                    }
+                    TemplateKind::RuinedPortal {
+                        vertical_placement,
+                        cold,
+                        mossiness,
+                        air_pocket,
+                        overgrown,
+                        vines,
+                        replace_with_blackstone,
+                    } => {
+                        put("Rotation", rot);
+                        put("Mirror", Nbt::string(mirror_name(t.mirror)));
+                        put("VerticalPlacement", Nbt::string(vertical_placement));
+                        put(
+                            "Properties",
+                            Nbt::Compound(vec![
+                                ("cold".into(), Nbt::bool(*cold)),
+                                ("mossiness".into(), Nbt::Float(*mossiness)),
+                                ("air_pocket".into(), Nbt::bool(*air_pocket)),
+                                ("overgrown".into(), Nbt::bool(*overgrown)),
+                                ("vines".into(), Nbt::bool(*vines)),
+                                (
+                                    "replace_with_blackstone".into(),
+                                    Nbt::bool(*replace_with_blackstone),
+                                ),
+                            ]),
+                        );
+                    }
+                    TemplateKind::EndCity { overwrite } => {
+                        put("Rot", rot);
+                        put("OW", Nbt::bool(*overwrite));
+                    }
+                }
+            }
         }
         Nbt::Compound(fields)
     }

@@ -41,6 +41,25 @@ defmodule Valimc.WorldgenStructuresTest do
                ~s(ChunkX:-873,ChunkZ:-15820,id:"minecraft:buried_treasure",references:0})
   end
 
+  test "villages and igloos start as vanilla's", %{state: state} do
+    {:ok, {starts, _skipped}} =
+      Native.worldgen_structure_starts(state, @source, [{14725, -12407}, {5450, 26826}])
+
+    assert [
+             {14725, -12407, "minecraft:village_plains", village},
+             {5450, 26826, "minecraft:igloo", igloo}
+           ] =
+             starts
+
+    assert length(String.split(village, ~s(id:"minecraft:jigsaw"))) == 118
+
+    assert village =~
+             ~s({Children:[{BB:[I;235586,63,-198512,235600,67,-198505],GD:0,O:-1,PosX:235600,PosY:63,PosZ:-198512,)
+
+    assert igloo =~
+             ~s({Children:[{BB:[I;87202,63,429218,87210,68,429224],GD:0,O:2,Rot:"CLOCKWISE_90",TPX:87200,TPY:63,TPZ:429214,)
+  end
+
   test "placement chunks follow the sets' grids", %{state: state} do
     {:ok, {placements, _references}} =
       Native.worldgen_structure_window(state, @source, {-5, -15}, 17)

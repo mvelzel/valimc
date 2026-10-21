@@ -11,8 +11,6 @@ facts = facts_path |> File.read!() |> JSON.decode!()
 {:ok, _} = Application.ensure_all_started(:crypto)
 alias Valimc.Native
 
-source = "minecraft:overworld"
-
 set_structures =
   Application.app_dir(:valimc, "priv/worldgen/structure_sets.json")
   |> File.read!()
@@ -35,7 +33,8 @@ end
                                                                                              {failures,
                                                                                               totals} ->
     seed = String.to_integer(c["seed"])
-    {:ok, state} = Valimc.Worldgen.new(seed)
+    source = c["source"]
+    {:ok, state} = Valimc.Worldgen.new(seed, c["settings"])
     {:ok, {possible, rings}} = Native.worldgen_structure_state(state, source)
 
     ring_failures =
@@ -43,7 +42,7 @@ end
           ours = Enum.find_value(rings, [], fn {s, p} -> if s == set, do: p end),
           ours != pairs.(positions),
           do:
-            {seed, :rings, set,
+            {seed, source, :rings, set,
              first_difference:
                Enum.find(Enum.zip(ours, pairs.(positions)), fn {a, b} -> a != b end)}
 
@@ -60,7 +59,7 @@ end
       end
 
     start_failures =
-      compare.({seed, :starts}, starts, want_starts)
+      compare.({seed, source, :starts}, starts, want_starts)
       |> Enum.map(fn {label, diff} -> {label, diff} end)
 
     windows = c["placements"] |> Enum.group_by(& &1["window"])
@@ -74,7 +73,7 @@ end
           for %{"set" => set, "chunks" => chunks} <- entries,
               ours = Enum.find_value(placements, [], fn {s, p} -> if s == set, do: p end),
               Enum.sort(ours) != Enum.sort(pairs.(chunks)),
-              do: {seed, :placements, window, set}
+              do: {seed, source, :placements, window, set}
 
         want_refs =
           for r <- c["references"],
@@ -85,7 +84,9 @@ end
 
         ours_refs = for {x, z, s, sources} <- references, do: {x, z, s, Enum.sort(sources)}
 
-        {acc ++ placement_failures ++ compare.({seed, :references, window}, ours_refs, want_refs),
+        {acc ++
+           placement_failures ++
+           compare.({seed, source, :references, window}, ours_refs, want_refs),
          pc + Enum.sum_by(entries, &div(length(&1["chunks"]), 2)),
          rc + Enum.sum_by(want_refs, fn {_, _, _, sources} -> length(sources) end)}
       end)
@@ -93,7 +94,7 @@ end
     possible_failures =
       if possible == c["possible_sets"],
         do: [],
-        else: [{seed, :possible_sets, possible, c["possible_sets"]}]
+        else: [{seed, source, :possible_sets, possible, c["possible_sets"]}]
 
     {failures ++ possible_failures ++ ring_failures ++ start_failures ++ window_failures,
      %{
@@ -115,7 +116,7 @@ end
 skipped = totals |> Map.get(:skipped, MapSet.new()) |> Enum.sort()
 
 IO.puts(
-  "PASS: #{length(facts["cases"])} seeds: #{totals.rings} ring positions, #{totals.placements} placement chunks, " <>
+  "PASS: #{length(facts["cases"])} seeds and dimensions: #{totals.rings} ring positions, #{totals.placements} placement chunks, " <>
     "#{totals.starts} structure starts and #{totals.references} references equal vanilla's" <>
     if(skipped == [], do: "", else: " (sets not generated yet: #{Enum.join(skipped, ", ")})")
 )

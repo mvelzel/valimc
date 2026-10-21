@@ -17,9 +17,12 @@
 //! Biome lookups go through one cached climate context per chunk, as
 //! vanilla's do, each from a fresh lookup history.
 
+pub mod jigsaw;
+pub mod mineshaft;
 pub mod piece;
 pub mod placement;
 pub mod scattered;
+pub mod templated;
 
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
@@ -27,8 +30,10 @@ use std::sync::{Arc, OnceLock};
 use super::blocks::Heightmap;
 use super::climate::{quantize, ParameterList};
 use super::json::Json;
+use super::providers::HeightProvider;
 use super::random::{Positional, Random};
 use super::sampler::{Context, Sampler};
+use super::surface::BiomeClimate;
 use super::terrain::{Aquifer, AquiferSamplers, TerrainBlocks};
 use super::volume::Volume;
 use piece::{encapsulating, BoundingBox, Nbt, Piece};
@@ -51,6 +56,26 @@ pub enum StructureKind {
     JungleTemple,
     SwampHut,
     BuriedTreasure,
+    Igloo,
+    Shipwreck {
+        beached: bool,
+    },
+    OceanRuin {
+        warm: bool,
+        large_probability: f32,
+        cluster_probability: f32,
+    },
+    RuinedPortal {
+        setups: Vec<templated::PortalSetup>,
+    },
+    NetherFossil {
+        height: HeightProvider,
+    },
+    EndCity,
+    Jigsaw(Box<jigsaw::JigsawConfig>),
+    Mineshaft {
+        mesa: bool,
+    },
     /// A type this slice does not generate yet.
     Unsupported(String),
 }
@@ -96,12 +121,38 @@ impl BiomeSet {
     }
 }
 
-/// The `worldgen/structure` and `worldgen/structure_set` registries.
-#[derive(Clone, Debug, Default)]
+/// A jigsaw block of a template: position, orientation (`front_top`),
+/// joint, name, pool, target and priorities.
+#[derive(Clone, Debug)]
+pub struct JigsawInfo {
+    pub pos: [i32; 3],
+    pub orientation: String,
+    pub rollable: bool,
+    pub name: String,
+    pub pool: String,
+    pub target: String,
+    pub placement_priority: i32,
+    pub selection_priority: i32,
+}
+
+/// What structure starts read of a template: its size, palette count and
+/// each palette's jigsaw blocks.
+#[derive(Clone, Debug)]
+pub struct TemplateOutline {
+    pub size: [i32; 3],
+    pub palettes: usize,
+    pub jigsaws: Vec<Vec<JigsawInfo>>,
+}
+
+/// The `worldgen/structure`, `worldgen/structure_set` and
+/// `worldgen/template_pool` registries, and the structure templates' outlines.
+#[derive(Debug, Default)]
 pub struct StructureRegistry {
     pub structures: Vec<StructureDef>,
     /// In identifier order, as a server lists them.
     pub sets: Vec<StructureSetDef>,
+    pub pools: HashMap<String, jigsaw::Pool>,
+    pub templates: HashMap<String, TemplateOutline>,
 }
 
 impl StructureRegistry {
@@ -110,9 +161,19 @@ impl StructureRegistry {
     pub fn parse(
         structures: &Json,
         sets: &Json,
+        pools: &Json,
+        templates: &Json,
         biome: &dyn Fn(&str) -> Result<u16, String>,
     ) -> Result<StructureRegistry, String> {
         let mut registry = StructureRegistry::default();
+        for (id, json) in pools.entries()? {
+            let pool = jigsaw::Pool::parse(json).map_err(|e| format!("template pool {id}: {e}"))?;
+            registry.pools.insert(id.clone(), pool);
+        }
+        for (id, json) in templates.entries()? {
+            let outline = parse_template(json).map_err(|e| format!("template {id}: {e}"))?;
+            registry.templates.insert(id.clone(), outline);
+        }
         let mut structure_index = HashMap::new();
         for (id, json) in structures.entries()? {
             let def =
@@ -155,6 +216,64 @@ impl StructureRegistry {
     pub fn set_index(&self, id: &str) -> Option<usize> {
         self.sets.iter().position(|s| s.id == id)
     }
+
+    pub fn pool(&self, id: &str) -> Result<&jigsaw::Pool, String> {
+        self.pools
+            .get(id)
+            .ok_or_else(|| format!("unknown template pool {id}"))
+    }
+
+    /// A template's outline; a template the pack lacks is empty (size 0,
+    /// no palettes), as `StructureTemplateManager.getOrCreate` makes it.
+    pub fn template(&self, id: &str) -> Result<&TemplateOutline, String> {
+        static EMPTY: TemplateOutline = TemplateOutline {
+            size: [0, 0, 0],
+            palettes: 0,
+            jigsaws: Vec::new(),
+        };
+        Ok(self.templates.get(id).unwrap_or(&EMPTY))
+    }
+}
+
+fn parse_template(json: &Json) -> Result<TemplateOutline, String> {
+    let size = json.field("size")?.as_array()?;
+    if size.len() != 3 {
+        return Err("a size has three values".into());
+    }
+    let jigsaws = match json.get("jigsaws") {
+        None => Vec::new(),
+        Some(palettes) => palettes
+            .as_array()?
+            .iter()
+            .map(|palette| {
+                palette
+                    .as_array()?
+                    .iter()
+                    .map(|row| {
+                        let v = row.as_array()?;
+                        if v.len() != 10 {
+                            return Err("a jigsaw block has ten values".to_string());
+                        }
+                        Ok(JigsawInfo {
+                            pos: [v[0].as_i32()?, v[1].as_i32()?, v[2].as_i32()?],
+                            orientation: v[3].as_str()?.to_string(),
+                            rollable: v[4].as_str()? == "rollable",
+                            name: v[5].as_str()?.to_string(),
+                            pool: v[6].as_str()?.to_string(),
+                            target: v[7].as_str()?.to_string(),
+                            placement_priority: v[8].as_i32()?,
+                            selection_priority: v[9].as_i32()?,
+                        })
+                    })
+                    .collect()
+            })
+            .collect::<Result<_, String>>()?,
+    };
+    Ok(TemplateOutline {
+        size: [size[0].as_i32()?, size[1].as_i32()?, size[2].as_i32()?],
+        palettes: json.field("palettes")?.as_i32()? as usize,
+        jigsaws,
+    })
 }
 
 fn parse_structure(
@@ -184,6 +303,39 @@ fn parse_structure(
         "minecraft:jungle_temple" => StructureKind::JungleTemple,
         "minecraft:swamp_hut" => StructureKind::SwampHut,
         "minecraft:buried_treasure" => StructureKind::BuriedTreasure,
+        "minecraft:igloo" => StructureKind::Igloo,
+        "minecraft:shipwreck" => StructureKind::Shipwreck {
+            beached: json.field("is_beached")?.as_bool()?,
+        },
+        "minecraft:ocean_ruin" => StructureKind::OceanRuin {
+            warm: match json.field("biome_temp")?.as_str()? {
+                "warm" => true,
+                "cold" => false,
+                other => return Err(format!("unknown ocean ruin type {other}")),
+            },
+            large_probability: json.field("large_probability")?.as_f64()? as f32,
+            cluster_probability: json.field("cluster_probability")?.as_f64()? as f32,
+        },
+        "minecraft:ruined_portal" => StructureKind::RuinedPortal {
+            setups: json
+                .field("setups")?
+                .as_array()?
+                .iter()
+                .map(templated::PortalSetup::parse)
+                .collect::<Result<_, _>>()?,
+        },
+        "minecraft:nether_fossil" => StructureKind::NetherFossil {
+            height: HeightProvider::parse(json.field("height")?)?,
+        },
+        "minecraft:end_city" => StructureKind::EndCity,
+        "minecraft:jigsaw" => StructureKind::Jigsaw(Box::new(jigsaw::JigsawConfig::parse(json)?)),
+        "minecraft:mineshaft" => StructureKind::Mineshaft {
+            mesa: match json.field("mineshaft_type")?.as_str()? {
+                "normal" => false,
+                "mesa" => true,
+                other => return Err(format!("unknown mineshaft type {other}")),
+            },
+        },
         other => StructureKind::Unsupported(other.to_string()),
     };
     Ok(StructureDef {
@@ -229,28 +381,70 @@ impl Start {
     }
 }
 
-/// Climate biome lookups for a multi-noise biome source.
+/// A biome source's lookups through a climate sampler: a multi-noise
+/// preset, or the End's (`TheEndBiomeSource`, by erosion around the main
+/// island).
 #[derive(Clone, Debug)]
-pub struct ClimateBiomes {
-    pub samplers: Vec<Arc<Sampler>>,
-    pub list: Arc<ParameterList>,
-    /// Registry ids of the list's biomes.
-    pub ids: Vec<u16>,
+pub enum ClimateBiomes {
+    MultiNoise {
+        samplers: Vec<Arc<Sampler>>,
+        list: Arc<ParameterList>,
+        /// Registry ids of the list's biomes.
+        ids: Vec<u16>,
+    },
+    End {
+        erosion: Arc<Sampler>,
+        /// The end, highlands, midlands, small islands and barrens.
+        ids: [u16; 5],
+    },
 }
 
 impl ClimateBiomes {
+    /// Registry ids of the biomes the source can give.
+    pub fn possible(&self) -> Vec<u16> {
+        match self {
+            ClimateBiomes::MultiNoise { ids, .. } => ids.clone(),
+            ClimateBiomes::End { ids, .. } => ids.to_vec(),
+        }
+    }
+
     /// The biome at a quart through `ctx` (`createResolver`), from a fresh
     /// lookup history.
     pub fn point(&self, ctx: &mut Context, qx: i32, qy: i32, qz: i32) -> u16 {
         let (bx, by, bz) = (qx << 2, qy << 2, qz << 2);
-        let target: [i64; 6] =
-            std::array::from_fn(|i| quantize(self.samplers[i].value(ctx, bx, by, bz)));
-        self.ids[self.list.find(&target, &mut None) as usize]
+        match self {
+            ClimateBiomes::MultiNoise {
+                samplers,
+                list,
+                ids,
+            } => {
+                let target: [i64; 6] =
+                    std::array::from_fn(|i| quantize(samplers[i].value(ctx, bx, by, bz)));
+                ids[list.find(&target, &mut None) as usize]
+            }
+            ClimateBiomes::End { erosion, ids } => {
+                let (cx, cz) = (bx >> 4, bz >> 4);
+                if (cx as i64) * (cx as i64) + (cz as i64) * (cz as i64) <= 4096 {
+                    return ids[0];
+                }
+                let height = erosion.value(ctx, (cx * 2 + 1) * 8, by, (cz * 2 + 1) * 8) as f64;
+                if height > 0.25 {
+                    ids[1]
+                } else if height >= -0.0625 {
+                    ids[2]
+                } else if height < -0.21875 {
+                    ids[3]
+                } else {
+                    ids[4]
+                }
+            }
+        }
     }
 
     /// The biomes of a quart column from `min_qy` (`createResolverForChunk`
-    /// over a 1 × `count` × 1 quart volume): climate sampled over the volume
-    /// through `ctx`, then one lookup per quart.
+    /// over a 1 × `count` × 1 quart volume): for a multi-noise source,
+    /// climate sampled over the volume through `ctx`, then one lookup per
+    /// quart; the End's resolver looks each quart up alone.
     pub fn column(
         &self,
         ctx: &mut Context,
@@ -259,9 +453,19 @@ impl ClimateBiomes {
         min_qy: i32,
         count: i32,
     ) -> Result<Vec<u16>, String> {
+        let ClimateBiomes::MultiNoise {
+            samplers,
+            list,
+            ids,
+        } = self
+        else {
+            return Ok((0..count)
+                .map(|dy| self.point(ctx, qx, min_qy + dy, qz))
+                .collect());
+        };
         let volume = Volume::new([1, count, 1], [qx << 2, min_qy << 2, qz << 2], [4, 4, 4])?;
         let mut climate = Vec::with_capacity(6);
-        for sampler in &self.samplers {
+        for sampler in samplers {
             let mut values = vec![0.0f32; volume.len()];
             sampler.fill(ctx, &mut values, &volume);
             climate.push(values);
@@ -269,7 +473,7 @@ impl ClimateBiomes {
         Ok((0..volume.len())
             .map(|i| {
                 let target: [i64; 6] = std::array::from_fn(|c| quantize(climate[c][i]));
-                self.ids[self.list.find(&target, &mut None) as usize]
+                ids[list.find(&target, &mut None) as usize]
             })
             .collect())
     }
@@ -283,8 +487,12 @@ pub struct Heights {
     pub final_density: Arc<Sampler>,
     pub aquifer: Option<(AquiferSamplers, Positional)>,
     pub blocks: TerrainBlocks,
+    /// The noise settings' bounds (within the level's).
     pub min_y: i32,
     pub height: i32,
+    /// The level's bounds (the dimension type's).
+    pub level_min_y: i32,
+    pub level_height: i32,
     pub sea_level: i32,
     /// Per state: bit 0 air, bit 1 contains a fluid.
     pub flags: Arc<Vec<u8>>,
@@ -338,12 +546,37 @@ impl Heights {
             | Heightmap::MotionBlocking
             | Heightmap::MotionBlockingNoLeaves => &|s: u16| flags[s as usize] & 3 == 0,
         };
-        Ok(self.iterate(x, z, Some(test))?.1.unwrap_or(self.min_y))
+        Ok(self
+            .iterate(x, z, Some(test))?
+            .1
+            .unwrap_or(self.level_min_y))
     }
 
     /// `getBaseColumn`: the column's states from the bottom.
-    pub fn base_column(&self, x: i32, z: i32) -> Result<Vec<u16>, String> {
-        Ok(self.iterate(x, z, None)?.0)
+    pub fn base_column(&self, x: i32, z: i32) -> Result<NoiseColumn, String> {
+        Ok(NoiseColumn {
+            min_y: self.min_y,
+            states: self.iterate(x, z, None)?.0,
+            air: self.blocks.air,
+        })
+    }
+}
+
+/// `NoiseColumn`: a column's states, air outside it.
+pub struct NoiseColumn {
+    pub min_y: i32,
+    pub states: Vec<u16>,
+    pub air: u16,
+}
+
+impl NoiseColumn {
+    pub fn block(&self, y: i32) -> u16 {
+        let index = y - self.min_y;
+        if index >= 0 && (index as usize) < self.states.len() {
+            self.states[index as usize]
+        } else {
+            self.air
+        }
     }
 }
 
@@ -354,6 +587,8 @@ pub struct StructureEnv {
     pub seed: i64,
     pub biomes: ClimateBiomes,
     pub heights: Heights,
+    /// Per biome registry id, its temperature settings.
+    pub climates: Arc<Vec<BiomeClimate>>,
     /// Structure sets whose structures can occur, in identifier order.
     pub possible: Vec<usize>,
     rings: Vec<OnceLock<Vec<(i32, i32)>>>,
@@ -365,12 +600,13 @@ impl StructureEnv {
         seed: i64,
         biomes: ClimateBiomes,
         heights: Heights,
+        climates: Arc<Vec<BiomeClimate>>,
     ) -> StructureEnv {
+        let possible_biomes = biomes.possible();
         let possible = (0..registry.sets.len())
             .filter(|&s| {
                 registry.sets[s].structures.iter().any(|&(structure, _)| {
-                    biomes
-                        .ids
+                    possible_biomes
                         .iter()
                         .any(|&b| registry.structures[structure].biomes.contains(b))
                 })
@@ -382,6 +618,7 @@ impl StructureEnv {
             seed,
             biomes,
             heights,
+            climates,
             possible,
             rings,
         }
@@ -588,6 +825,18 @@ impl StructureEnv {
             StructureKind::JungleTemple => scattered::single_piece(&mut gc, def, 12, 15)?,
             StructureKind::SwampHut => scattered::swamp_hut(&mut gc)?,
             StructureKind::BuriedTreasure => scattered::buried_treasure(&mut gc)?,
+            StructureKind::Igloo => templated::igloo(&mut gc)?,
+            StructureKind::Shipwreck { beached } => templated::shipwreck(&mut gc, *beached)?,
+            StructureKind::OceanRuin {
+                warm,
+                large_probability,
+                cluster_probability,
+            } => templated::ocean_ruin(&mut gc, *warm, *large_probability, *cluster_probability)?,
+            StructureKind::RuinedPortal { setups } => templated::ruined_portal(&mut gc, setups)?,
+            StructureKind::NetherFossil { height } => templated::nether_fossil(&mut gc, height)?,
+            StructureKind::EndCity => templated::end_city(&mut gc)?,
+            StructureKind::Jigsaw(config) => jigsaw::generate(&mut gc, config)?,
+            StructureKind::Mineshaft { mesa } => mineshaft::generate(&mut gc, *mesa)?,
             StructureKind::Unsupported(kind) => {
                 return Err(format!("structure type {kind} is not generated yet"))
             }
@@ -734,7 +983,7 @@ impl GenContext<'_> {
     /// `couldValidBiomeExistInTerrainColumn`, over the chunk's height.
     pub fn could_exist_in_terrain_column(&mut self, x: i32, z: i32) -> Result<bool, String> {
         let h = &self.env.heights;
-        let (min_y, max_y) = (h.min_y - 1, h.min_y + h.height - 1);
+        let (min_y, max_y) = (h.level_min_y - 1, h.level_min_y + h.level_height - 1);
         self.could_exist_in_column(x, z, min_y, max_y)
     }
 

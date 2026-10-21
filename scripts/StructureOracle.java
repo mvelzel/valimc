@@ -35,20 +35,26 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
  * Structure placement and starts (VMC-025e), from the vanilla data pack as a server loads it
  * (static registries' tags first, as `WorldLoader` does).
  *
- * `facts STRUCTURES.json STRUCTURE_SETS.json`: the `worldgen/structure` and
- * `worldgen/structure_set` registries as vanilla's codecs encode them, keyed by identifier, with
- * each biome holder set (a structure's biomes, a concentric ring placement's preferred biomes)
+ * `facts STRUCTURES.json STRUCTURE_SETS.json POOLS.json TEMPLATES.json`: the `worldgen/structure`,
+ * `worldgen/structure_set` and `worldgen/template_pool` registries as vanilla's codecs encode
+ * them, keyed by identifier, each pool element also as the NBT a jigsaw piece saves, and each
+ * biome holder set (a structure's biomes, a concentric ring placement's preferred biomes)
  * resolved to its sorted biome identifiers. The registries list their entries in identifier
- * order, which is the order in which chunk generation tries structure sets.
+ * order, which is the order in which chunk generation tries structure sets. Templates: see
+ * `templates`.
  *
- * `starts OUT.json`: per seed (as the decoration oracle picks them) vanilla's overworld generator
- * over the overworld preset (every climate lookup from a fresh history) and its structure state
- * (`ChunkGenerator.createState`). Recorded: the structure sets whose structures can occur, the
- * concentric ring positions, and for three windows (40 × 40 chunks around the origin, 40 × 40
- * within 2,000 chunks, 24 × 24 far out) every chunk's placement result per set, every start
+ * `starts OUT.json`: per seed (as the decoration oracle picks them) and dimension vanilla's generator
+ * (the overworld and nether presets with every climate lookup from a fresh history, the End's biome
+ * source; levels 384 blocks high from y -64 in the overworld, 256 from y 0 elsewhere) and its
+ * structure state (`ChunkGenerator.createState`). Recorded: the structure sets whose structures can
+ * occur, the concentric ring positions, and for windows (overworld: 40 × 40 chunks around the
+ * origin, 40 × 40 within 2,000 chunks, 24 × 24 far out; the Nether: 32 × 32 around the origin and
+ * 24 × 24 far out; the End: 32 × 32 just outside the main island and 24 × 24 far out) every chunk's
+ * placement result per set, every start
  * vanilla's `createStructures` makes in a fresh proto chunk (as its `createTag` NBT, printed
  * canonically) and, for the chunks at least 8 from a window's edge, the references
- * `createReferences` adds. Then, per random spread set, placement chunks drawn at random within
+ * `createReferences` adds. Then every concentric ring position, and per random spread set, placement
+ * chunks drawn at random within
  * 30,000 chunks of the origin get `createStructures` too until every structure of the set has
  * eight starts or the set has had its share of attempts (150 per structure, at least 1,000).
  *
@@ -60,7 +66,7 @@ public class StructureOracle {
 
   public static void main(String[] args) throws Exception {
     switch (args[0]) {
-      case "facts" -> facts(Path.of(args[1]), Path.of(args[2]));
+      case "facts" -> facts(Path.of(args[1]), Path.of(args[2]), Path.of(args[3]), Path.of(args[4]));
       case "starts" -> starts(Path.of(args[1]));
       default -> throw new IllegalArgumentException("usage: StructureOracle facts|starts ...");
     }
@@ -90,7 +96,7 @@ public class StructureOracle {
     return ids;
   }
 
-  static void facts(Path structuresOut, Path setsOut) throws Exception {
+  static void facts(Path structuresOut, Path setsOut, Path poolsOut, Path templatesOut) throws Exception {
     var registries = serverRegistries();
     var ops = registries.createSerializationContext(JsonOps.INSTANCE);
     var structures = new TreeMap<String, JsonElement>();
@@ -112,34 +118,132 @@ public class StructureOracle {
     if (!order.equals(new ArrayList<>(sets.keySet()))) {
       throw new IllegalStateException("structure sets are not listed in identifier order: " + order);
     }
+    // Template pools: fallback and elements with weights; each element also as the NBT a jigsaw
+    // piece saves it as (`pool_element`), printed canonically.
+    var nbtOps = registries.createSerializationContext(net.minecraft.nbt.NbtOps.INSTANCE);
+    var pools = new TreeMap<String, JsonElement>();
+    registries.lookupOrThrow(Registries.TEMPLATE_POOL).listElements().forEach(holder -> {
+      var json = net.minecraft.world.level.levelgen.structure.pools.StructureTemplatePool.DIRECT_CODEC
+          .encodeStart(ops, holder.value()).getOrThrow().getAsJsonObject();
+      var elements = json.getAsJsonArray("elements");
+      var raw = holder.value().getTemplates();
+      for (int i = 0; i < raw.size(); i++) {
+        var nbt = net.minecraft.world.level.levelgen.structure.pools.StructurePoolElement.CODEC
+            .encodeStart(nbtOps, raw.get(i).getFirst()).getOrThrow();
+        elements.get(i).getAsJsonObject().addProperty("nbt", snbt(nbt));
+      }
+      pools.put(holder.key().identifier().toString(), json);
+    });
     WorldgenFactsOracle.write(structuresOut.toString(), structures);
     WorldgenFactsOracle.write(setsOut.toString(), sets);
-    System.out.println("PASS: " + structures.size() + " structures, " + sets.size() + " structure sets");
+    WorldgenFactsOracle.write(poolsOut.toString(), pools);
+    int jigsaws = templates(templatesOut);
+    System.out.println("PASS: " + structures.size() + " structures, " + sets.size() + " structure sets, " + pools.size()
+        + " template pools, " + jigsaws + " jigsaw blocks in the structure templates");
+  }
+
+  /**
+   * Every structure template of the vanilla data pack, loaded through vanilla's template source
+   * (data fixed): its size, palette count and, per palette, its jigsaw blocks in the order the
+   * template lists them (position, orientation, joint, name, pool, target, placement and
+   * selection priority). Returns the number of jigsaw blocks.
+   */
+  static int templates(Path out) throws Exception {
+    int count = 0;
+    var json = new TreeMap<String, JsonElement>();
+    try (var resources = new net.minecraft.server.packs.resources.MultiPackResourceManager(net.minecraft.server.packs.PackType.SERVER_DATA,
+        List.of(net.minecraft.server.packs.repository.ServerPacksSource.createVanillaPackSource().fullResources()))) {
+      var converter = new net.minecraft.resources.FileToIdConverter("structure", ".nbt");
+      var source = new net.minecraft.world.level.levelgen.structure.templatesystem.loader.ResourceManagerTemplateSource(
+          net.minecraft.util.datafix.DataFixers.getDataFixer(), net.minecraft.core.registries.BuiltInRegistries.BLOCK, resources, converter);
+      var palettesField = net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate.class.getDeclaredField("palettes");
+      palettesField.setAccessible(true);
+      for (var location : new TreeSet<>(converter.listMatchingResources(resources).keySet())) {
+        var id = converter.fileToId(location);
+        var template = source.load(id).orElseThrow(() -> new IllegalStateException("no template " + id));
+        var entry = new JsonObject();
+        entry.add("size", intArray(new int[] {template.getSize().getX(), template.getSize().getY(), template.getSize().getZ()}));
+        @SuppressWarnings("unchecked")
+        var palettes = (List<net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate.Palette>) palettesField.get(template);
+        entry.addProperty("palettes", palettes.size());
+        var perPalette = new JsonArray();
+        boolean any = false;
+        for (var palette : palettes) {
+          var list = new JsonArray();
+          for (var jigsaw : palette.jigsaws()) {
+            var row = new JsonArray();
+            row.add(jigsaw.pos().getX());
+            row.add(jigsaw.pos().getY());
+            row.add(jigsaw.pos().getZ());
+            row.add(jigsaw.state().getValue(net.minecraft.world.level.block.JigsawBlock.ORIENTATION).getSerializedName());
+            row.add(jigsaw.jointType().getSerializedName());
+            row.add(String.valueOf(jigsaw.name()));
+            row.add(jigsaw.pool().identifier().toString());
+            row.add(jigsaw.target().toString());
+            row.add(jigsaw.placementPriority());
+            row.add(jigsaw.selectionPriority());
+            list.add(row);
+            count++;
+            any = true;
+          }
+          perPalette.add(list);
+        }
+        if (any) entry.add("jigsaws", perPalette);
+        json.put(id.toString(), entry);
+      }
+    }
+    var text = new StringBuilder("{\n");
+    var ids = new ArrayList<>(json.keySet());
+    for (int i = 0; i < ids.size(); i++) {
+      text.append("  ").append(new Gson().toJson(ids.get(i))).append(": ").append(new Gson().toJson(json.get(ids.get(i))))
+          .append(i + 1 < ids.size() ? ",\n" : "\n");
+    }
+    Files.writeString(out, text.append("}\n").toString());
+    return count;
   }
 
   /** One seed's vanilla overworld generator and structure state. */
-  record World(long seed, RegistryAccess registries, NoiseBasedChunkGenerator generator, ChunkGeneratorStructureState state,
-      StructureManager manager, StructureTemplateManager templates, PalettedContainerFactory factory, LevelHeightAccessor heights,
-      StructurePieceSerializationContext context, Map<Structure, String> ids) {
-    static World overworld(long seed, RegistryAccess registries, PalettedContainerFactory factory) throws Exception {
-      var settings = registries.lookupOrThrow(Registries.NOISE_SETTINGS).getOrThrow(NoiseGeneratorSettings.OVERWORLD);
+  record World(long seed, String source, String settingsId, RegistryAccess registries, NoiseBasedChunkGenerator generator,
+      ChunkGeneratorStructureState state, StructureManager manager, StructureTemplateManager templates, PalettedContainerFactory factory,
+      LevelHeightAccessor heights, StructurePieceSerializationContext context, Map<Structure, String> ids,
+      net.minecraft.resources.ResourceKey<Level> level) {
+    /** A dimension's generator: its biome source (ValiMC's name), noise settings and level height. */
+    static World create(long seed, String source, RegistryAccess registries, PalettedContainerFactory factory) throws Exception {
+      var biomes = registries.lookupOrThrow(Registries.BIOME);
+      var settingsKey = switch (source) {
+        case "minecraft:nether" -> NoiseGeneratorSettings.NETHER;
+        case "minecraft:the_end" -> NoiseGeneratorSettings.END;
+        default -> NoiseGeneratorSettings.OVERWORLD;
+      };
+      var level = switch (source) {
+        case "minecraft:nether" -> Level.NETHER;
+        case "minecraft:the_end" -> Level.END;
+        default -> Level.OVERWORLD;
+      };
+      net.minecraft.world.level.biome.BiomeSource biomeSource = switch (source) {
+        case "minecraft:nether" -> MultiNoiseBiomeSource.createFromList(
+            TerrainOracle.freshList(MultiNoiseBiomeSourceParameterList.Preset.NETHER, biomes));
+        case "minecraft:the_end" -> net.minecraft.world.level.biome.TheEndBiomeSource.create(biomes);
+        default -> MultiNoiseBiomeSource.createFromList(
+            TerrainOracle.freshList(MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD, biomes));
+      };
+      var heights = source.equals("minecraft:overworld") ? LevelHeightAccessor.create(MIN_Y, HEIGHT) : LevelHeightAccessor.create(0, 256);
+      var settings = registries.lookupOrThrow(Registries.NOISE_SETTINGS).getOrThrow(settingsKey);
       var randomState = RandomState.create(registries.lookupOrThrow(Registries.NOISE), seed, settings.value());
-      var biomeSource = MultiNoiseBiomeSource.createFromList(
-          TerrainOracle.freshList(MultiNoiseBiomeSourceParameterList.Preset.OVERWORLD, registries.lookupOrThrow(Registries.BIOME)));
       var generator = new NoiseBasedChunkGenerator(biomeSource, settings);
       var state = generator.createState(registries.lookupOrThrow(Registries.STRUCTURE_SET), randomState, seed);
       var templates = DecorationOracle.Region.templateServer().getStructureTemplateManager();
       var ids = new IdentityHashMap<Structure, String>();
       registries.lookupOrThrow(Registries.STRUCTURE).listElements()
           .forEach(h -> ids.put(h.value(), h.key().identifier().toString()));
-      return new World(seed, registries, generator, state, new StructureManager(null, new WorldOptions(seed, true, false), null),
-          templates, factory, LevelHeightAccessor.create(MIN_Y, HEIGHT),
-          new StructurePieceSerializationContext(null, registries, templates), ids);
+      return new World(seed, source, settingsKey.identifier().toString(), registries, generator, state,
+          new StructureManager(null, new WorldOptions(seed, true, false), null), templates, factory, heights,
+          new StructurePieceSerializationContext(null, registries, templates), ids, level);
     }
 
     ProtoChunk createStructures(int x, int z) {
       var chunk = new ProtoChunk(new ChunkPos(x, z), UpgradeData.EMPTY, heights, factory, null);
-      generator.createStructures(registries, state, manager, chunk, templates, Level.OVERWORLD);
+      generator.createStructures(registries, state, manager, chunk, templates, level);
       return chunk;
     }
   }
@@ -152,9 +256,12 @@ public class StructureOracle {
     var cases = new JsonArray();
     int startCount = 0, referenceCount = 0, chunkCount = 0;
     for (long seed : seeds) {
-      var world = World.overworld(seed, registries, factory);
+     for (String source : List.of("minecraft:overworld", "minecraft:nether", "minecraft:the_end")) {
+      var world = World.create(seed, source, registries, factory);
       var row = new JsonObject();
       row.addProperty("seed", Long.toString(seed));
+      row.addProperty("source", source);
+      row.addProperty("settings", world.settingsId);
       var possible = new JsonArray();
       var rings = new JsonObject();
       for (var set : world.state.possibleStructureSets()) {
@@ -176,10 +283,21 @@ public class StructureOracle {
       var starts = new JsonArray();
       var placements = new JsonArray();
       var references = new JsonArray();
-      int[][] windows = {
-        {-20, -20, 40},
-        {gen.nextInt(4001) - 2000, gen.nextInt(4001) - 2000, 40},
-        {gen.nextInt(3_750_001) - 1_875_000, gen.nextInt(3_750_001) - 1_875_000, 24},
+      int[][] windows = switch (source) {
+        case "minecraft:overworld" -> new int[][] {
+          {-20, -20, 40},
+          {gen.nextInt(4001) - 2000, gen.nextInt(4001) - 2000, 40},
+          {gen.nextInt(3_750_001) - 1_875_000, gen.nextInt(3_750_001) - 1_875_000, 24},
+        };
+        // Outside the End's main island (64 chunks), where its other biomes are.
+        case "minecraft:the_end" -> new int[][] {
+          {70 + gen.nextInt(200), gen.nextInt(400) - 200, 32},
+          {gen.nextInt(3_750_001) - 1_875_000, gen.nextInt(3_750_001) - 1_875_000, 24},
+        };
+        default -> new int[][] {
+          {-16, -16, 32},
+          {gen.nextInt(3_750_001) - 1_875_000, gen.nextInt(3_750_001) - 1_875_000, 24},
+        };
       };
       for (int[] window : windows) {
         var area = new HashMap<ChunkPos, ProtoChunk>();
@@ -217,9 +335,9 @@ public class StructureOracle {
             for (var entry : chunk.getAllReferences().entrySet()) {
               var sources = new JsonArray();
               entry.getValue().longStream().sorted().forEach(key -> {
-                var source = ChunkPos.unpack(key);
-                sources.add(source.x());
-                sources.add(source.z());
+                var origin = ChunkPos.unpack(key);
+                sources.add(origin.x());
+                sources.add(origin.z());
               });
               var ref = new JsonObject();
               ref.add("chunk", intArray(new int[] {chunk.getPos().x(), chunk.getPos().z()}));
@@ -232,6 +350,17 @@ public class StructureOracle {
         }
       }
 
+      // Every concentric ring position (strongholds start only there).
+      for (var set : world.state.possibleStructureSets()) {
+        if (set.value().placement() instanceof ConcentricRingsStructurePlacement placement) {
+          for (var pos : world.state.getRingPositionsFor(placement)) {
+            var chunk = world.createStructures(pos.x(), pos.z());
+            chunks.add(pos.x());
+            chunks.add(pos.z());
+            startCount += addStarts(world, chunk, starts);
+          }
+        }
+      }
       // Targeted placement chunks, so that every structure gets starts.
       var search = new Random(seed);
       for (var set : world.state.possibleStructureSets()) {
@@ -261,6 +390,7 @@ public class StructureOracle {
       row.add("placements", placements);
       row.add("references", references);
       cases.add(row);
+     }
     }
     var result = new JsonObject();
     result.add("cases", cases);

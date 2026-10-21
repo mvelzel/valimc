@@ -66,7 +66,10 @@ pub fn single_piece(
 
 /// `Structure.onTopOfChunkCenter`: an allowed biome somewhere in the centre
 /// column, then the start on top of the chunk's centre.
-fn on_top_of_chunk_center(gc: &mut GenContext, heightmap: Heightmap) -> Result<bool, String> {
+pub(super) fn on_top_of_chunk_center(
+    gc: &mut GenContext,
+    heightmap: Heightmap,
+) -> Result<bool, String> {
     if !gc.could_exist_on_top_of_chunk_center()? {
         return Ok(false);
     }
