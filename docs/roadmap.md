@@ -18,10 +18,9 @@ model and a generated registry; see [architecture](architecture.md).
 | Ticket | Open slice | Status |
 |---|---|---|
 | [VMC-026](tickets/VMC-026.md) | Nether, End and portals: live, with items through portals and stronghold portal rooms; client check of a generated portal room pending | Awaiting client |
-| [VMC-010](tickets/VMC-010.md) | Administration: lists, admin commands, save control, idle timeout and console live; RCON remains | In progress |
 | [VMC-053](tickets/VMC-053.md) | Commands: world and administration commands live; `place` waits for structures | In progress |
 
-Done in M2: VMC-020..025, 026a..c, 027, 028, 029c, 070..075 (see [completed](history/completed.md)).
+Done in M2: VMC-010, 020..025, 026a..c, 027, 028, 029c, 070..075 (see [completed](history/completed.md)).
 Commands on M3 systems (VMC-053h, k–n) move with those systems. Generation and tick
 time stay matched against vanilla and Pumpkin, at least in Pumpkin's range.
 
