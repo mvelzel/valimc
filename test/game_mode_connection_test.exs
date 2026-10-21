@@ -13,7 +13,7 @@ defmodule Valimc.GameModeConnectionTest do
     Application.put_env(:valimc, :world_path, base)
     name = "Mode" <> Integer.to_string(nonce)
     uuid = Valimc.Connection.offline_uuid(name)
-    key = {90_000 + rem(nonce, 10_000), 500}
+    key = {90_000 + rem(nonce, 3_333) * 3, 500}
     {rx, rz} = key
     pose = %{x: rx * 128 + 64.5, y: 64.0, z: rz * 128 + 64.5, yaw: 0.0, pitch: 0.0}
 

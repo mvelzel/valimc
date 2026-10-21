@@ -16,7 +16,7 @@ defmodule Valimc.MiningStoreTest do
   setup do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-mining-store-#{nonce}")
-    key = {10_000 + rem(nonce, 10_000), 300}
+    key = {10_000 + rem(nonce, 3_333) * 3, 300}
     TestScope.isolate(key, world_path: base)
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16

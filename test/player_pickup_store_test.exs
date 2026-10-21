@@ -18,7 +18,7 @@ defmodule Valimc.PlayerPickupStoreTest do
 
   setup do
     n = System.unique_integer([:positive])
-    key = {51000 + rem(n, 10000), 1100}
+    key = {51000 + rem(n, 3333) * 3, 1100}
     base = Path.join(System.tmp_dir!(), "valimc-pickup-source-#{n}")
     File.mkdir_p!(base)
     uuid = <<n::128>>

@@ -12,7 +12,7 @@ defmodule Valimc.ImportedRegionTest do
 
   setup do
     nonce = System.unique_integer([:positive])
-    key = {78_000 + rem(nonce, 10_000), 1840}
+    key = {78_000 + rem(nonce, 3_333) * 3, 1840}
     base = Path.join(System.tmp_dir!(), "valimc-imported-#{nonce}")
     TestScope.isolate(key, world_path: base, region_ticks: :manual)
 

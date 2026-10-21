@@ -23,7 +23,7 @@ defmodule Valimc.CookingOrbConnectionTest do
          %{remote: remote} do
       nonce = System.unique_integer([:positive])
       base = Path.join(System.tmp_dir!(), "valimc-orb-wire-#{nonce}")
-      key = {98_000 + rem(nonce, 1000), 2191}
+      key = {98_000 + rem(nonce, 333) * 3, 2191}
       {rx, rz} = key
       source_key = if remote, do: {rx - 1, rz}, else: key
       pose = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
@@ -157,8 +157,10 @@ defmodule Valimc.CookingOrbConnectionTest do
         assert map_size(installed.cooking_orbs[id]) == 2
       end
 
-      # One tracker for every kind: the two orbs and the dropped stone item.
-      assert map_size(:sys.get_state(player).entity_replication.tracked) == 3
+      # One tracker for every kind: the two orbs, and the picked-up stone until the
+      # next 50 ms tick reconciles its removal.
+      tracked = :sys.get_state(player).entity_replication.tracked
+      assert Map.has_key?(tracked, orb_id) and map_size(Map.delete(tracked, item_id)) == 2
 
       {_, late} = Client.login(List.last(names))
       on_exit(fn -> Client.close(late) end)

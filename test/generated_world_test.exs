@@ -10,7 +10,7 @@ defmodule Valimc.GeneratedWorldTest do
 
   setup do
     nonce = System.unique_integer([:positive])
-    key = {70_000 + rem(nonce, 10_000), -1300}
+    key = {70_000 + rem(nonce, 3_333) * 3, -1300}
     base = Path.join(System.tmp_dir!(), "valimc-generated-#{nonce}")
     :ok = Generator.create(base, @seed)
     TestScope.isolate(key, world_path: base, region_ticks: :manual)

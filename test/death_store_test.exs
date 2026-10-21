@@ -8,7 +8,7 @@ defmodule Valimc.DeathStoreTest do
   setup do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-death-#{nonce}")
-    key = {50_000 + rem(nonce, 10_000), 850}
+    key = {50_000 + rem(nonce, 3_333) * 3, 850}
     uuid = :crypto.strong_rand_bytes(16)
     TestScope.isolate([key, uuid], world_path: base)
     {:ok, writer, nil, fence} = PlayerStore.open(uuid)

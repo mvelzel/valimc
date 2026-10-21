@@ -9,7 +9,7 @@ defmodule Valimc.ItemCrossMergeAutoTest do
 
   def scope(tags) do
     n = System.unique_integer([:positive])
-    key = {72000 + rem(n, 10000), 2300}
+    key = {72000 + rem(n, 3333) * 3, 2300}
     target_key = {elem(key, 0) + 1, elem(key, 1)}
     base = Path.join(System.tmp_dir!(), "valimc-cross-auto-#{n}")
     File.mkdir_p!(base)

@@ -23,7 +23,7 @@ defmodule Valimc.PlayerPlacementStoreTest do
     base = Path.join(System.tmp_dir!(), "valimc-placement-source-#{nonce}")
     previous = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)
-    key = {30_000 + rem(nonce, 10_000), 800}
+    key = {30_000 + rem(nonce, 3_333) * 3, 800}
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16
     position = {rx * span, 64, rz * span}

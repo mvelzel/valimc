@@ -8,7 +8,7 @@ defmodule Valimc.PlayerCraftingStoreTest do
   setup do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-crafting-store-#{nonce}")
-    key = {90_000 + rem(nonce, 10_000), 991}
+    key = {90_000 + rem(nonce, 3_333) * 3, 991}
     uuid = :crypto.strong_rand_bytes(16)
     TestScope.isolate([key, uuid], world_path: base)
     {:ok, writer, nil, fence} = PlayerStore.open(uuid)

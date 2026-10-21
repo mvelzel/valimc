@@ -86,7 +86,7 @@ defmodule Valimc.BlockSupportTest do
   describe "in a region owner" do
     setup do
       nonce = System.unique_integer([:positive])
-      key = {76_000 + rem(nonce, 10_000), 1830}
+      key = {76_000 + rem(nonce, 3_333) * 3, 1830}
       base = Path.join(System.tmp_dir!(), "valimc-support-#{nonce}")
       TestScope.isolate(key, world_path: base, region_ticks: :manual, random_tick_speed: 0)
 

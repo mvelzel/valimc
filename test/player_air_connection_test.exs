@@ -23,7 +23,7 @@ defmodule Valimc.PlayerAirConnectionTest do
     base = Path.join(System.tmp_dir!(), "valimc-air-#{nonce}")
     old = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)
-    key = {94_000 + rem(nonce, 10_000), 984}
+    key = {94_000 + rem(nonce, 3_333) * 3, 984}
     {rx, rz} = key
     pose = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
 

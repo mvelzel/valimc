@@ -26,7 +26,7 @@ defmodule Valimc.ExperienceTransfersTest do
 
   setup do
     nonce = System.unique_integer([:positive])
-    key = {112_000 + rem(nonce, 1000), 2340}
+    key = {112_000 + rem(nonce, 333) * 3, 2340}
     {x, z} = key
     at = {x * 128 + 8.5, 64.0, z * 128 + 8.5}
     base = Path.join(System.tmp_dir!(), "valimc-xp-pickup-#{nonce}")

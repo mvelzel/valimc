@@ -9,7 +9,7 @@ defmodule Valimc.ChestSpillRegionTest do
   setup context do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-chest-spill-#{nonce}")
-    key = {82_000 + rem(nonce, 10_000), 1990}
+    key = {82_000 + rem(nonce, 3_333) * 3, 1990}
     TestScope.isolate(key, world_path: base)
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16

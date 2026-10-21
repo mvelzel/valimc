@@ -12,7 +12,7 @@ defmodule Valimc.LoginRecoveryTest do
     base = Path.join(System.tmp_dir!(), "valimc-login-recovery-#{nonce}")
     old = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)
-    key = {400 + rem(nonce, 10_000), 400}
+    key = {400 + rem(nonce, 3_333) * 3, 400}
 
     on_exit(fn ->
       for {pid, _} <- Registry.lookup(Valimc.RegionRegistry, key),

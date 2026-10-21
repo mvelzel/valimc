@@ -9,7 +9,7 @@ defmodule Valimc.CookingRegionRuntimeTest do
 
   setup do
     nonce = System.unique_integer([:positive])
-    key = {86_000 + rem(nonce, 10_000), 1992}
+    key = {86_000 + rem(nonce, 3_333) * 3, 1992}
     {rx, rz} = key
     position = {rx * 128 + 40, 64, rz * 128 + 40}
     base = Path.join(System.tmp_dir!(), "valimc-cooking-owned-#{nonce}")

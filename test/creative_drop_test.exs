@@ -12,7 +12,7 @@ defmodule Valimc.CreativeDropTest do
     base = Path.join(System.tmp_dir!(), "valimc-creative-drop-#{nonce}")
     old = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)
-    key = {40_000 + rem(nonce, 10_000), 500}
+    key = {40_000 + rem(nonce, 3_333) * 3, 500}
     name = "Creative" <> Integer.to_string(nonce)
     uuid = Valimc.Connection.offline_uuid(name)
     {rx, rz} = key

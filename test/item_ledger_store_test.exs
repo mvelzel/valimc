@@ -8,7 +8,7 @@ defmodule Valimc.ItemLedgerStoreTest do
 
   setup tags do
     nonce = System.unique_integer([:positive])
-    key = {20_000 + rem(nonce, 10_000), 600}
+    key = {20_000 + rem(nonce, 3_333) * 3, 600}
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16
     base = Path.join(System.tmp_dir!(), "valimc-item-ledger-#{nonce}")

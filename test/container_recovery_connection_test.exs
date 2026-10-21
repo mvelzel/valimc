@@ -19,7 +19,7 @@ defmodule Valimc.ContainerRecoveryConnectionTest do
 
   setup do
     nonce = System.unique_integer([:positive])
-    key = {80000 + rem(nonce, 10000), 2900}
+    key = {80000 + rem(nonce, 3333) * 3, 2900}
     base = Path.join(System.tmp_dir!(), "valimc-container-login-#{nonce}")
     previous = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)

@@ -10,7 +10,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
     base = Path.join(System.tmp_dir!(), "valimc-motion-#{nonce}")
     old = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)
-    key = {42_000 + rem(nonce, 10_000), 750}
+    key = {42_000 + rem(nonce, 3_333) * 3, 750}
     names = for suffix <- ["A", "B"], do: "Move#{nonce}#{suffix}"
     {rx, rz} = key
     pos = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}

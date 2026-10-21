@@ -8,7 +8,7 @@ defmodule Valimc.PlacementOwnerTest do
   setup do
     nonce = System.unique_integer([:positive])
     path = Path.join(System.tmp_dir!(), "valimc-place-owner-#{nonce}")
-    key = {60_000 + rem(nonce, 10_000), 1700}
+    key = {60_000 + rem(nonce, 3_333) * 3, 1700}
     TestScope.isolate(TestScope.neighborhood(key), world_path: path)
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16

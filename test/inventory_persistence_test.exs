@@ -81,7 +81,7 @@ defmodule Valimc.InventoryPersistenceTest do
        %{base: base} do
     username = name()
     uuid = Valimc.Connection.offline_uuid(username)
-    key = {60_000 + rem(System.unique_integer([:positive]), 10_000), 400}
+    key = {60_000 + rem(System.unique_integer([:positive]), 3_333) * 3, 400}
     {rx, rz} = key
     pose = %{x: rx * 128 + 64.5, y: 64.0, z: rz * 128 + 64.5, yaw: 0.0, pitch: 0.0}
     {:ok, bytes} = PlayerSnapshot.encode(uuid, PlayerSnapshot.capture(pose, Inventory.new()))

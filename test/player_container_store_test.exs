@@ -19,7 +19,7 @@ defmodule Valimc.PlayerContainerStoreTest do
   setup do
     nonce = System.unique_integer([:positive])
     uuid = <<nonce::128>>
-    key = {20000 + rem(nonce, 10000), 3300}
+    key = {20000 + rem(nonce, 3333) * 3, 3300}
     span = Valimc.config(:region_size) * 16
     position = {elem(key, 0) * span + 1, 64, elem(key, 1) * span + 1}
     base = Path.join(System.tmp_dir!(), "valimc-container-player-#{nonce}")

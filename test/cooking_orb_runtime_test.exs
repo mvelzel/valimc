@@ -23,7 +23,7 @@ defmodule Valimc.CookingOrbRuntimeTest do
 
   def scope(_context) do
     nonce = System.unique_integer([:positive])
-    key = {91_000 + rem(nonce, 5000), 2091}
+    key = {91_000 + rem(nonce, 1666) * 3, 2091}
     {rx, rz} = key
     position = {rx * 128 + 2.5, 64.5, rz * 128 + 2.5}
     base = Path.join(System.tmp_dir!(), "valimc-orbs-#{nonce}")

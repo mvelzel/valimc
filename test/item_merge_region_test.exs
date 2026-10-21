@@ -9,7 +9,7 @@ defmodule Valimc.ItemMergeRegionTest do
 
   def scope(tags) do
     n = System.unique_integer([:positive])
-    key = {41000 + rem(n, 10000), 900}
+    key = {41000 + rem(n, 3333) * 3, 900}
     base = Path.join(System.tmp_dir!(), "valimc-item-merge-#{n}")
     File.mkdir_p!(base)
 

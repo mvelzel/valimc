@@ -15,7 +15,7 @@ defmodule Valimc.PlayerPeriodicConnectionTest do
     :ok = World.Clock.configure({:difficulty, 1, true})
     :ok = World.Clock.configure({:natural_regeneration, false})
     Application.put_env(:valimc, :world_path, base)
-    key = {200_000 + rem(nonce, 10_000), 981}
+    key = {200_000 + rem(nonce, 3_333) * 3, 981}
     {rx, rz} = key
     pose = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
 

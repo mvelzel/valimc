@@ -14,7 +14,7 @@ defmodule Valimc.KeyboardDropTest do
     old_simulation = Valimc.config(:item_simulation)
     Application.put_env(:valimc, :world_path, base)
     if Map.get(tags, :simulation, false), do: Application.put_env(:valimc, :item_simulation, true)
-    key = {20_000 + rem(nonce, 10_000), 400}
+    key = {20_000 + rem(nonce, 3_333) * 3, 400}
     name = "Drop" <> Integer.to_string(nonce)
     uuid = Valimc.Connection.offline_uuid(name)
     {rx, rz} = key

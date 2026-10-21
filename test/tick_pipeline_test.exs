@@ -20,7 +20,7 @@ defmodule Valimc.TickPipelineTest do
 
   setup do
     nonce = System.unique_integer([:positive])
-    key = {70_000 + rem(nonce, 10_000), 1800}
+    key = {70_000 + rem(nonce, 3_333) * 3, 1800}
     base = Path.join(System.tmp_dir!(), "valimc-ticks-#{nonce}")
     TestScope.isolate(key, world_path: base, region_ticks: :manual, tick_behaviours: [Spread])
 

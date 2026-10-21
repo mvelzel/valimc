@@ -9,7 +9,7 @@ defmodule Valimc.ItemHandoffRegionTest do
 
   setup tags do
     nonce = System.unique_integer([:positive])
-    key = {31_000 + rem(nonce, 10_000), 700}
+    key = {31_000 + rem(nonce, 3_333) * 3, 700}
     destination = {elem(key, 0) + 1, elem(key, 1)}
     base = Path.join(System.tmp_dir!(), "valimc-handoff-#{nonce}")
     TestScope.isolate(TestScope.neighborhood(key), world_path: base)

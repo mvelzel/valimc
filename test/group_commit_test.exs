@@ -11,7 +11,7 @@ defmodule Valimc.GroupCommitTest do
     base = Path.join(System.tmp_dir!(), "valimc-group-commit-#{nonce}")
     previous = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)
-    key = {50_000 + rem(nonce, 10_000), 777}
+    key = {50_000 + rem(nonce, 3_333) * 3, 777}
     {rx, rz} = key
 
     on_exit(fn ->

@@ -24,7 +24,7 @@ defmodule Valimc.PlayerMiningStoreTest do
     base = Path.join(System.tmp_dir!(), "valimc-mining-source-#{nonce}")
     previous = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)
-    key = {30_000 + rem(nonce, 10_000), 600}
+    key = {30_000 + rem(nonce, 3_333) * 3, 600}
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16
     position = {rx * span, 63, rz * span}

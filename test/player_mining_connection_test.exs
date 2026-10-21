@@ -10,7 +10,7 @@ defmodule Valimc.PlayerMiningConnectionTest do
     base = Path.join(System.tmp_dir!(), "valimc-live-mining-#{nonce}")
     previous = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)
-    key = {50_000 + rem(nonce, 10_000), 700}
+    key = {50_000 + rem(nonce, 3_333) * 3, 700}
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16
     pose = %{x: rx * span + 40.5, y: 64.0, z: rz * span + 40.5, yaw: 0.0, pitch: 0.0}

@@ -12,7 +12,7 @@ defmodule Valimc.PlayerFireConnectionTest do
     base = Path.join(System.tmp_dir!(), "valimc-fire-#{nonce}")
     old = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)
-    key = {170_000 + rem(nonce, 10_000), 983}
+    key = {170_000 + rem(nonce, 3_333) * 3, 983}
     {rx, rz} = key
     pose = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
 

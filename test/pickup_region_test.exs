@@ -9,7 +9,7 @@ defmodule Valimc.PickupRegionTest do
 
   setup do
     n = System.unique_integer([:positive])
-    key = {51000 + rem(n, 10000), 1200}
+    key = {51000 + rem(n, 3333) * 3, 1200}
     base = Path.join(System.tmp_dir!(), "valimc-pickup-region-#{n}")
     File.mkdir_p!(base)
     uuid = <<n::64, 1::64>>

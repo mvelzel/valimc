@@ -9,7 +9,7 @@ defmodule Valimc.ItemCheckpointsTest do
   setup do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-item-checkpoints-#{nonce}")
-    key = {20_000 + rem(nonce, 10_000), 320}
+    key = {20_000 + rem(nonce, 3_333) * 3, 320}
     TestScope.isolate(key, world_path: base)
     {:ok, {pid, _} = owner} = World.item_owner(key)
     {rx, rz} = key

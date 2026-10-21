@@ -10,7 +10,7 @@ defmodule Valimc.PlayerPoseConnectionTest do
     base = Path.join(System.tmp_dir!(), "valimc-pose-#{nonce}")
     old = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)
-    key = {40_000 + rem(nonce, 10_000), 650}
+    key = {40_000 + rem(nonce, 3_333) * 3, 650}
     names = for suffix <- ["A", "B"], do: "Pose#{nonce}#{suffix}"
     {rx, rz} = key
     pos = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}

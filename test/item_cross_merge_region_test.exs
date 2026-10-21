@@ -7,7 +7,7 @@ defmodule Valimc.ItemCrossMergeRegionTest do
 
   setup do
     n = System.unique_integer([:positive])
-    key = {51000 + rem(n, 10000), 1300}
+    key = {51000 + rem(n, 3333) * 3, 1300}
     destination = {elem(key, 0) + 1, elem(key, 1)}
     base = Path.join(System.tmp_dir!(), "valimc-cross-merge-#{n}")
     File.mkdir_p!(base)

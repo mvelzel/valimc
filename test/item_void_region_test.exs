@@ -8,7 +8,7 @@ defmodule Valimc.ItemVoidRegionTest do
 
   setup do
     n = System.unique_integer([:positive])
-    key = {81000 + rem(n, 10000), 2400}
+    key = {81000 + rem(n, 3333) * 3, 2400}
     base = Path.join(System.tmp_dir!(), "valimc-item-void-#{n}")
     File.mkdir_p!(base)
     TestScope.isolate(TestScope.neighborhood(key), world_path: base)

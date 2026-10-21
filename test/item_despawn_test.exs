@@ -7,7 +7,7 @@ defmodule Valimc.ItemDespawnTest do
 
   setup do
     nonce = System.unique_integer([:positive])
-    key = {71_000 + rem(nonce, 5_000), 1900}
+    key = {71_000 + rem(nonce, 1_666) * 3, 1900}
     base = Path.join(System.tmp_dir!(), "valimc-despawn-#{nonce}")
 
     TestScope.isolate(TestScope.neighborhood(key),

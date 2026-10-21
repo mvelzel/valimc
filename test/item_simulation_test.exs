@@ -5,7 +5,7 @@ defmodule Valimc.ItemSimulationTest do
   alias Valimc.{ItemMotionState, ItemSimulation, World}
 
   setup do
-    key = {51000 + rem(System.unique_integer([:positive]), 1000), 1000}
+    key = {51000 + rem(System.unique_integer([:positive]), 333) * 3, 1000}
     {:ok, owner} = World.item_owner(key)
 
     on_exit(fn ->

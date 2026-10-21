@@ -17,7 +17,7 @@ defmodule Valimc.PlacementRegionTest do
   setup do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-placement-region-#{nonce}")
-    key = {20_000 + rem(nonce, 10_000), 700}
+    key = {20_000 + rem(nonce, 3_333) * 3, 700}
     TestScope.isolate(key, world_path: base)
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16

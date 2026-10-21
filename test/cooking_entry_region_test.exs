@@ -7,7 +7,7 @@ defmodule Valimc.CookingEntryRegionTest do
 
   test "cold owners retain mixed cooking entries and refuse raw removal until lifecycle admission exists" do
     nonce = System.unique_integer([:positive])
-    key = {84_000 + rem(nonce, 10_000), 1991}
+    key = {84_000 + rem(nonce, 3_333) * 3, 1991}
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16
     pos = {rx * span + 40, 64, rz * span + 40}

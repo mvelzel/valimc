@@ -23,7 +23,7 @@ defmodule Valimc.PlayerFreezeDamageConnectionTest do
     base = Path.join(System.tmp_dir!(), "valimc-freeze-damage-#{nonce}")
     old = Valimc.config(:world_path)
     Application.put_env(:valimc, :world_path, base)
-    key = {82_000 + rem(nonce, 10_000), 982}
+    key = {82_000 + rem(nonce, 3_333) * 3, 982}
     {rx, rz} = key
     pose = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
 

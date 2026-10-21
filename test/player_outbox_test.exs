@@ -14,7 +14,7 @@ defmodule Valimc.PlayerOutboxTest do
     Application.put_env(:valimc, :world_path, base)
     uuid = :crypto.strong_rand_bytes(16)
     {:ok, writer, nil, fence} = PlayerStore.open(uuid)
-    key = {300 + rem(nonce, 10_000), 300}
+    key = {300 + rem(nonce, 3_333) * 3, 300}
     pose = %{x: 0.5, y: 64.0, z: 0.5, yaw: 0.0, pitch: 0.0}
     before = PlayerSnapshot.capture(pose, %Inventory{slots: %{36 => ItemStack.new("stone", 7)}})
 

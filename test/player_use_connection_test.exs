@@ -34,7 +34,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     name = "Use#{nonce}"
     uuid = Connection.offline_uuid(name)
     base = Path.join(System.tmp_dir!(), "valimc-use-#{nonce}")
-    key = {137_000 + rem(nonce, 10_000), 987}
+    key = {137_000 + rem(nonce, 3_333) * 3, 987}
     {rx, rz} = key
     pose = %{x: rx * 128 + 40.5, y: 64.0, z: rz * 128 + 40.5, yaw: 0.0, pitch: 0.0}
     old = Valimc.config(:world_path)

@@ -10,7 +10,7 @@ defmodule Valimc.ItemSimulationRegionTest do
 
   def scope(tags) do
     nonce = System.unique_integer([:positive])
-    key = {60_000 + rem(nonce, 1000), 2000}
+    key = {60_000 + rem(nonce, 333) * 3, 2000}
     base = Path.join(System.tmp_dir!(), "valimc-item-simulation-#{nonce}")
 
     TestScope.isolate(TestScope.neighborhood(key),

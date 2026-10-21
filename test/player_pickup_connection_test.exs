@@ -13,7 +13,7 @@ defmodule Valimc.PlayerPickupConnectionTest do
     simulation = Valimc.config(:item_simulation)
     Application.put_env(:valimc, :world_path, base)
     Application.put_env(:valimc, :item_simulation, true)
-    key = {70000 + rem(nonce, 10000), 1900}
+    key = {70000 + rem(nonce, 3333) * 3, 1900}
     {rx, rz} = key
     span = Valimc.config(:region_size) * 16
     pose = %{x: rx * span + 40.5, y: 64.0, z: rz * span + 40.5, yaw: 0.0, pitch: 0.0}

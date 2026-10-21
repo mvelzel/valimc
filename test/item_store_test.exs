@@ -11,7 +11,7 @@ defmodule Valimc.ItemStoreTest do
   def scope(_context) do
     nonce = System.unique_integer([:positive])
     base = Path.join(System.tmp_dir!(), "valimc-items-#{nonce}")
-    key = {230 + rem(nonce, 10_000), 230}
+    key = {230 + rem(nonce, 3_333) * 3, 230}
     TestScope.isolate(key, world_path: base)
     {:ok, {pid, _} = owner} = World.item_owner(key)
 

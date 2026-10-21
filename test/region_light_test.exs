@@ -10,7 +10,7 @@ defmodule Valimc.RegionLightTest do
 
   setup do
     nonce = System.unique_integer([:positive])
-    key = {80_000 + rem(nonce, 10_000), 1850}
+    key = {80_000 + rem(nonce, 3_333) * 3, 1850}
     base = Path.join(System.tmp_dir!(), "valimc-light-#{nonce}")
     TestScope.isolate(key, world_path: base, region_ticks: :manual)
 

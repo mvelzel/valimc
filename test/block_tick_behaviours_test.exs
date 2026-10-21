@@ -81,7 +81,7 @@ defmodule Valimc.BlockTickBehavioursTest do
   describe "in a region owner" do
     setup do
       nonce = System.unique_integer([:positive])
-      key = {72_000 + rem(nonce, 10_000), 1810}
+      key = {72_000 + rem(nonce, 3_333) * 3, 1810}
       base = Path.join(System.tmp_dir!(), "valimc-block-ticks-#{nonce}")
       TestScope.isolate(key, world_path: base, region_ticks: :manual, random_tick_speed: 0)
 
@@ -129,7 +129,7 @@ defmodule Valimc.BlockTickBehavioursTest do
 
   test "budding amethyst grows buds on its faces in play" do
     nonce = System.unique_integer([:positive])
-    key = {74_000 + rem(nonce, 10_000), 1820}
+    key = {74_000 + rem(nonce, 3_333) * 3, 1820}
     base = Path.join(System.tmp_dir!(), "valimc-amethyst-#{nonce}")
     TestScope.isolate(key, world_path: base, region_ticks: :manual, random_tick_speed: 4096)
 
