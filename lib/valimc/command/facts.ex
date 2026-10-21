@@ -5,12 +5,7 @@ defmodule Valimc.Command.Facts do
   markers and timelines, structures and their tags, particle types and the
   item component and predicate ids.
   """
-  @path Path.expand("../../../priv/commands/facts.json", __DIR__)
-  @external_resource @path
-  @facts :json.decode(File.read!(@path))
-  unless Valimc.Version.stamped?(@facts),
-    do: raise("Command facts are not from the pinned release")
-
+  use Valimc.Facts, "commands/facts.json"
   @particles Map.new(@facts["particles"], &{&1["id"], &1})
   @structures MapSet.new(@facts["structures"])
   @item_components MapSet.new(@facts["item_components"])

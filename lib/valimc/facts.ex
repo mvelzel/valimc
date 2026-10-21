@@ -4,28 +4,48 @@ defmodule Valimc.Facts do
 
   `use Valimc.Facts, "dir/file.json"` marks the file as an external resource,
   decodes it once and sets `@facts`; the module then builds its own terms from
-  it. Each file has one decoding module, and every other reader asks that
-  module. A file stamped with a release (`version`, `data_version`,
-  `server_sha1`) must carry the pinned one (`Valimc.Version`).
+  it. A module that reads a second file names its attribute:
+  `use Valimc.Facts, file: "dir/other.json", as: :other_facts`. Each file has
+  one decoding module, and every other reader asks that module.
+
+  Files too large to keep as terms (loot tables, translations, the command
+  tree) or that go to Rust as they are (worldgen) are read at run time from
+  the installed application with `read!/1`.
+
+  A file stamped with a release (`version`, `data_version`, `protocol`,
+  `server_sha1`) must carry the pinned value of every stamp it has
+  (`Valimc.Version`). JSON `null` decodes to `nil`.
   """
   @priv Path.expand("../../priv", __DIR__)
+  @stamps ~w(version data_version protocol server_sha1)
 
-  defmacro __using__(file) do
-    quote bind_quoted: [file: file] do
+  defmacro __using__(file) when is_binary(file), do: using(file, :facts)
+
+  defmacro __using__(opts) when is_list(opts),
+    do: using(Keyword.fetch!(opts, :file), Keyword.get(opts, :as, :facts))
+
+  defp using(file, name) do
+    quote bind_quoted: [file: file, name: name] do
       @external_resource Valimc.Facts.path(file)
-      @facts Valimc.Facts.load!(file)
+      Module.put_attribute(__MODULE__, name, Valimc.Facts.load!(file))
     end
   end
 
-  @doc "The absolute path of a `priv` file."
+  @doc "The absolute path of a `priv` file in the source tree."
   def path(file), do: Path.join(@priv, file)
 
-  @doc "Decode a `priv` JSON file, checking its release stamps when it has them."
-  def load!(file) do
-    facts = file |> path() |> File.read!() |> JSON.decode!()
+  @doc "Decode a `priv` file of the source tree (at compile time), checking its stamps."
+  def load!(file), do: file |> path() |> decode!(file)
 
-    if is_map(facts) and Map.has_key?(facts, "version") and not Valimc.Version.stamped?(facts),
-      do: raise("priv/#{file} was generated for another Minecraft release")
+  @doc "Decode a `priv` file of the installed application (at run time), checking its stamps."
+  def read!(file), do: Application.app_dir(:valimc, Path.join("priv", file)) |> decode!(file)
+
+  defp decode!(path, file) do
+    facts = path |> File.read!() |> JSON.decode!()
+
+    if is_map(facts) and
+         not Valimc.Version.stamped?(facts, Enum.filter(@stamps, &is_map_key(facts, &1))),
+       do: raise("priv/#{file} was generated for another Minecraft release")
 
     facts
   end

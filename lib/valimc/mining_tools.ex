@@ -1,24 +1,19 @@
 defmodule Valimc.MiningTools do
   @moduledoc "Pinned stock tool rules; player attributes, effects and loot belong to their owners."
   alias Valimc.Protocol.{ItemStack, ItemTypes}
-  @tags Path.expand("../../priv/protocol/tags.json", __DIR__)
-  @external_resource @tags
-  @fire :json.decode(File.read!(@tags))["minecraft:block"]["minecraft:fire"] |> MapSet.new()
+  use Valimc.Facts, "physics/mining_tools.json"
+  @fire Valimc.Protocol.Data.tags()["minecraft:block"]["minecraft:fire"] |> MapSet.new()
   @shears ItemTypes.id("shears")
-  @path Path.expand("../../priv/physics/mining_tools.json", __DIR__)
-  @external_resource @path
-  @facts :json.decode(File.read!(@path))
   @count @facts["state_count"]
   @blocks Valimc.Registry.Blocks.block_count()
   @items @facts["item_count"]
   @float_max 3.4028234663852886e38
-  unless Valimc.Version.stamped?(@facts) and
-           @count == Valimc.Registry.Blocks.state_count() and @facts["block_count"] == @blocks and
+  unless @count == Valimc.Registry.Blocks.state_count() and @facts["block_count"] == @blocks and
            Enum.all?(0..(@items - 1), &(ItemTypes.item(&1) != nil)),
          do: raise("Wrong mining tool catalog version")
 
   @profiles Enum.map(@facts["profiles"], fn
-              :null ->
+              nil ->
                 nil
 
               p ->

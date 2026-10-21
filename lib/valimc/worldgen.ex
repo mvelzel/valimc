@@ -53,13 +53,13 @@ defmodule Valimc.Worldgen do
     end
   end
 
-  defp fact(dir, name) do
-    path =
-      if dir && name in @pack_facts,
-        do: Path.join(dir, "#{name}.json"),
-        else: Application.app_dir(:valimc, "priv/worldgen/#{name}.json")
+  @doc "Vanilla's `priv/worldgen/NAME.json`, as the native registry reads it (at run time)."
+  def fact(name), do: Valimc.Facts.read!("worldgen/#{name}.json")
 
-    read_json!(path)
+  defp fact(dir, name) do
+    if dir && name in @pack_facts,
+      do: read_json!(Path.join(dir, "#{name}.json")),
+      else: fact(name)
   end
 
   defp parse(dir) do
@@ -83,13 +83,13 @@ defmodule Valimc.Worldgen do
       end)
       |> Map.update!("material_rules", &Map.new(&1, fn {id, rule} -> {id, states(rule)} end))
       |> Map.put("blocks", blocks(tags))
-      |> Map.put("support", fact(nil, "survival"))
+      |> Map.put("support", fact("survival"))
       |> Map.put(
         "block_registry",
-        read_json!(Application.app_dir(:valimc, "priv/registry/blocks.json"))
+        Blocks.native_facts()
       )
       |> Map.put("block_facts", block_facts(tags))
-      |> Map.put("shapes", fact(nil, "shapes"))
+      |> Map.put("shapes", fact("shapes"))
       |> Map.merge(
         Map.new(
           ~w(block_transforms processor_lists structures structure_sets template_pools
@@ -125,13 +125,7 @@ defmodule Valimc.Worldgen do
   end
 
   @doc "Biome names in the native registry's order (registry ids index this list)."
-  def biome_names do
-    Application.app_dir(:valimc, "priv/worldgen/biomes.json")
-    |> File.read!()
-    |> JSON.decode!()
-    |> Map.keys()
-    |> Enum.sort()
-  end
+  defdelegate biome_names, to: Valimc.Worldgen.Facts
 
   @doc """
   The generation context of `seed` and a noise settings entry (VMC-077n), over

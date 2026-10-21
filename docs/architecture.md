@@ -83,9 +83,14 @@ on accept errors (VMC-077a).
   publication with revision stamps (`EntityPublication`; observers copy only
   changed chunks) and one replication tracker per connection (VMC-067).
 - **Data.** One generated fact source per concept and a single version module
-  (`Valimc.Version`). A module reads a `priv` file with `use Valimc.Facts`,
-  which loads it once at compile time and checks its release stamps; every other
-  reader asks that module. `Valimc.Registry.Blocks` owns block identity (state
+  (`Valimc.Version`). Each `priv` file has one decoding module: it reads the
+  file with `use Valimc.Facts`, which loads it once at compile time and checks
+  every release stamp it carries, and every other reader asks that module.
+  Files too large to keep as terms (loot tables, translations, the command
+  tree) and the files Rust parses itself (worldgen, survival, shapes) are read
+  at run time by their owner through `Valimc.Facts.read!/1`;
+  `Valimc.Worldgen.Facts` keeps the few worldgen terms Elixir needs (biome
+  names and climates, the ids commands name). `Valimc.Registry.Blocks` owns block identity (state
   runs, defaults, properties, vanilla classes) and `Valimc.Registry.BlockFacts`
   every per-state fact, as one columnar table from one oracle (VMC-077d): flags,
   collision shape, motion, fluid, climbing, inside behaviour, hazard, landing,

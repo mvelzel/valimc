@@ -2,9 +2,7 @@ defmodule Valimc.CookingBlocks do
   @moduledoc "Pinned furnace-family kinds, facing-preserving light states and empty placement."
   alias Valimc.ChestPlacement
   alias Valimc.Protocol.Data
-  @path Path.expand("../../priv/physics/cooking_blocks.json", __DIR__)
-  @external_resource @path
-  @facts JSON.decode!(File.read!(@path))
+  use Valimc.Facts, "physics/cooking_blocks.json"
   @kinds {:furnace, :smoker, :blast_furnace}
   @states Map.new(@facts["states"], fn row -> {row["state"], elem(@kinds, row["kind"])} end)
   @lit Map.new(@facts["states"], fn row ->
@@ -24,8 +22,7 @@ defmodule Valimc.CookingBlocks do
               end)
               |> List.to_tuple()
   @items Map.new(Tuple.to_list(@kinds), fn kind -> {Data.item(Atom.to_string(kind)), kind} end)
-  unless Valimc.Version.stamped?(@facts) and
-           map_size(@states) == 24 and tuple_size(@placements) == 3 and
+  unless map_size(@states) == 24 and tuple_size(@placements) == 3 and
            Enum.all?(Tuple.to_list(@placements), fn table ->
              Enum.sort(Map.keys(table)) == [2, 3, 4, 5] and
                Enum.all?(table, fn {_, state} -> Map.has_key?(@states, state) end)

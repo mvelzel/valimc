@@ -1,20 +1,22 @@
 defmodule Valimc.ChestAccess do
   @moduledoc "Single ordinary chest identity and action access; opening obstruction is a separate check."
   alias Valimc.PlayerInteraction
-  @path Path.expand("../../priv/protocol/chest_states.json", __DIR__)
-  @external_resource @path
-  @facts JSON.decode!(File.read!(@path))
-  unless Valimc.Version.stamped?(@facts, ~w(version protocol server_sha1)),
-    do: raise("Wrong chest state facts")
-
+  use Valimc.Facts, "protocol/chest_states.json"
   @single MapSet.new(@facts["single_states"])
   @ordinary MapSet.new(@facts["states"], & &1["state"])
+  @double for state <- @facts["states"],
+              state["part"] != "single",
+              into: MapSet.new(),
+              do: state["state"]
   @modes [:survival, :creative, :adventure, :spectator]
 
   def ordinary?(block), do: MapSet.member?(@ordinary, block)
 
   def single?(block), do: MapSet.member?(@single, block)
   def single_states, do: @single
+
+  @doc "The ordinary chest states that are half of a double chest."
+  def double_states, do: @double
 
   def valid_view?(block, mode, {x, y, z} = eye, position)
       when mode in @modes and is_number(x) and is_number(y) and is_number(z),

@@ -1,14 +1,9 @@
 defmodule Valimc.Protocol.Data do
   @moduledoc "Pinned official protocol facts; immutable across connections."
   alias Valimc.Registry.Blocks
-  @path Path.expand("../../../priv/protocol", __DIR__)
-  for file <- ~w(packets registries tags) do
-    @external_resource Path.join(@path, file <> ".json")
-  end
-
-  @packets :json.decode(File.read!(Path.join(@path, "packets.json")))
-  @registries :json.decode(File.read!(Path.join(@path, "registries.json")))
-  @tags :json.decode(File.read!(Path.join(@path, "tags.json")))
+  use Valimc.Facts, file: "protocol/packets.json", as: :packets
+  use Valimc.Facts, file: "protocol/registries.json", as: :registries
+  use Valimc.Facts, file: "protocol/tags.json", as: :tags
 
   # Packet ids and names compile to function clauses (binary/integer pattern
   # dispatch). A runtime lookup through the nested JSON maps cost ~5 µs per packet.

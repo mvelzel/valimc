@@ -152,7 +152,9 @@ defmodule Valimc.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   def physics_items(_view, _items, _border, _refresh), do: :erlang.nif_error(:nif_not_loaded)
-  def physics_items_dirty(_view, _items, _border, _refresh), do: :erlang.nif_error(:nif_not_loaded)
+
+  def physics_items_dirty(_view, _items, _border, _refresh),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   ## Codec
 

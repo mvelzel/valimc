@@ -37,15 +37,7 @@ defmodule Valimc.Command.Tree do
   end
 
   # Read at runtime: as a compiled literal the tree made a 108 MB module (a038f96).
-  defp facts do
-    facts =
-      Application.app_dir(:valimc, "priv/commands/tree.json") |> File.read!() |> :json.decode()
-
-    unless Valimc.Version.stamped?(facts),
-      do: raise("Command tree is not from the pinned release")
-
-    facts
-  end
+  defp facts, do: Valimc.Facts.read!("commands/tree.json")
 
   @doc "The full vanilla tree as nested JSON maps (for coverage reports)."
   def vanilla, do: facts()["children"]

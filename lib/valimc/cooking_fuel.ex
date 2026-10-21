@@ -1,9 +1,8 @@
 defmodule Valimc.CookingFuel do
   @moduledoc "Pinned stock CookingFuel resolution in native furnace contexts; no fuel consumption or cooking authority."
   alias Valimc.Protocol.{ItemStack, ItemTypes}
-  @path Path.expand("../../priv/physics/cooking_fuel.json", __DIR__)
-  @external_resource @path
-  @facts JSON.decode!(File.read!(@path))
+  use Valimc.Facts, "physics/cooking_fuel.json"
+
   @contexts @facts["contexts"]
             |> Enum.with_index()
             |> Enum.flat_map(fn {states, kind} -> Enum.map(states, &{&1, kind}) end)
@@ -16,8 +15,7 @@ defmodule Valimc.CookingFuel do
             end)
             |> List.to_tuple()
   @items List.to_tuple(@facts["items"])
-  unless Valimc.Version.stamped?(@facts) and
-           @facts["item_count"] == 1658 and tuple_size(@items) == 1658 and
+  unless @facts["item_count"] == 1658 and tuple_size(@items) == 1658 and
            @facts["fuel_items"] == 347 and map_size(@contexts) == 24 and
            Enum.all?(@contexts, fn {state, kind} ->
              is_integer(state) and state in 0..35_722 and kind in 0..2
@@ -36,6 +34,9 @@ defmodule Valimc.CookingFuel do
            Enum.count(Tuple.to_list(@items), &(elem(elem(@profiles, &1), 0).burn_ticks > 0)) ==
              347,
          do: raise("Wrong native cooking-fuel facts")
+
+  @doc "The cooking blocks' states by fuel context: 0 furnace, 1 smoker, 2 blast furnace."
+  def contexts, do: @contexts
 
   def resolve(stack, state) do
     case Map.fetch(@contexts, state) do

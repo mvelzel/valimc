@@ -8,8 +8,7 @@ defmodule Valimc.Living.DamageSource do
   """
   use Valimc.Facts, "protocol/damage_messages.json"
   alias Valimc.Registry.DamageTypes
-  @exhaustion Valimc.Facts.load!("protocol/item_armor_wear.json")["exhaustion"]
-  @external_resource Valimc.Facts.path("protocol/item_armor_wear.json")
+  @exhaustion Valimc.Living.Armor.exhaustion()
   @messages @facts["keys"]
   unless map_size(@messages) == 18, do: raise("Wrong native death message keys")
 

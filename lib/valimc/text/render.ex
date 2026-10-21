@@ -12,8 +12,7 @@ defmodule Valimc.Text.Render do
   defp strings do
     case :persistent_term.get(@key, nil) do
       nil ->
-        strings =
-          Application.app_dir(:valimc, "priv/lang/en_us.json") |> File.read!() |> JSON.decode!()
+        strings = Valimc.Facts.read!("lang/en_us.json")
 
         :persistent_term.put(@key, strings)
         strings

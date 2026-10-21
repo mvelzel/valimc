@@ -911,9 +911,10 @@ STAGES = [
         ('java', 'EquipmentOracle', 'verify', '@equipment-encoded.json'),
     ]),
     ('item_metadata', [
-        ('regen', 'ItemMetadata', '@items.json', '@defaults.json'),
+        ('regen', 'ItemMetadata', '@items.json', '@defaults.json', '@component-types.json'),
         ('same', '@items.json', 'priv/protocol/items.json'),
         ('same', '@defaults.json', 'priv/protocol/item_defaults.json'),
+        ('same', '@component-types.json', 'priv/protocol/component_types.json'),
     ]),
     ('stack_identity', [
         ('java', 'StackIdentityOracle', '@identity.json'),

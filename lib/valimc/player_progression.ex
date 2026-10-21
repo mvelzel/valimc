@@ -2,10 +2,8 @@ defmodule Valimc.PlayerProgression do
   @moduledoc "Durable player XP and learned cooking recipes; immutable award proofs stay with regions."
   alias Valimc.PlayerExperience
   import Bitwise
-  @path Path.expand("../../priv/crafting/cooking.json", __DIR__)
-  @external_resource @path
-  @recipes JSON.decode!(File.read!(@path))["recipes"] |> Enum.map(& &1["recipe"])
-  @ids @recipes |> Enum.with_index() |> Map.new()
+  @recipes Valimc.CookingRecipes.names()
+  @ids Valimc.CookingRecipes.ids()
   defstruct experience: %PlayerExperience{}, recipes: MapSet.new()
   def recipe_ids, do: @ids
   def recipe_names, do: @recipes

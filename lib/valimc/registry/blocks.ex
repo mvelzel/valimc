@@ -43,6 +43,10 @@ defmodule Valimc.Registry.Blocks do
          do: raise("Wrong or non-contiguous block registry")
 
   def state_count, do: @count
+
+  @doc "The registry file as the Rust core reads it (`priv/registry/blocks.json`, at run time)."
+  def native_facts, do: Valimc.Facts.read!("registry/blocks.json")
+
   def block_count, do: tuple_size(@blocks)
 
   @doc "Registry id of the block that owns `state`."

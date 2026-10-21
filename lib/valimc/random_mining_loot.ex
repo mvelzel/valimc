@@ -2,11 +2,7 @@ defmodule Valimc.RandomMiningLoot do
   @moduledoc "Bounded stock-cube loot; sample once before persisting exact mining records."
   alias Valimc.Mining
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes}
-  @path Path.expand("../../priv/physics/random_mining_loot.json", __DIR__)
-  @external_resource @path
-  @facts :json.decode(File.read!(@path))
-  unless Valimc.Version.stamped?(@facts),
-    do: raise("Wrong random mining loot catalog version")
+  use Valimc.Facts, "physics/random_mining_loot.json"
 
   @blocks Map.new(@facts["blocks"], fn profile ->
             %{"state" => state, "silk" => silk, "item" => item, "min" => low, "max" => high} =

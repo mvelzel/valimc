@@ -21,15 +21,9 @@ defmodule Valimc.World.GenSettings do
   """
   alias Valimc.Registry.Blocks
 
-  @path Path.expand("../../../priv/worldgen/world_presets.json", __DIR__)
-  @external_resource @path
-  @facts :json.decode(File.read!(@path))
-  unless Valimc.Version.stamped?(@facts), do: raise("Wrong world preset facts")
+  use Valimc.Facts, "worldgen/world_presets.json"
   @presets @facts["presets"]
-
-  @sets_path Path.expand("../../../priv/worldgen/structure_sets.json", __DIR__)
-  @external_resource @sets_path
-  @structure_sets @sets_path |> File.read!() |> :json.decode() |> Map.keys() |> MapSet.new()
+  @structure_sets Valimc.Worldgen.Facts.structure_sets()
 
   @normal "minecraft:normal"
   @flat "minecraft:flat"

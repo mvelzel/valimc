@@ -1,10 +1,7 @@
 defmodule Valimc.PlayerInteraction do
   @moduledoc "Default mode-derived ranges and pure geometry using the selected player pose."
-  @path Path.expand("../../priv/protocol/attributes.json", __DIR__)
-  @external_resource @path
-  @facts JSON.decode!(File.read!(@path))
-  @block @facts["minecraft:block_interaction_range"]
-  @entity @facts["minecraft:entity_interaction_range"]
+  @block Valimc.Living.Attributes.fetch("block_interaction_range")
+  @entity Valimc.Living.Attributes.fetch("entity_interaction_range")
   @modes [:survival, :creative, :adventure, :spectator]
 
   def opens_block_menu?(mode, hand, secondary, main, off)

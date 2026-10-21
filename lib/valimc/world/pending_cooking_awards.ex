@@ -2,12 +2,8 @@ defmodule Valimc.World.PendingCookingAwards do
   @moduledoc "Bounded immutable cooking decisions, persisted with containers before any XP/recipe effect."
   alias Valimc.CookingAwards
   alias Valimc.World.ContainerTransfers
-  @path Path.expand("../../../priv/crafting/cooking.json", __DIR__)
-  @external_resource @path
-  @recipes JSON.decode!(File.read!(@path))["recipes"]
-           |> Enum.map(& &1["recipe"])
-           |> List.to_tuple()
-  @ids @recipes |> Tuple.to_list() |> Enum.with_index() |> Map.new()
+  @recipes List.to_tuple(Valimc.CookingRecipes.names())
+  @ids Valimc.CookingRecipes.ids()
   @max_awards 256
   @max_bytes 524_288
   @max_record 85 + 107 * 14

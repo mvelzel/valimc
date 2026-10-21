@@ -12,9 +12,7 @@ defmodule Valimc.Protocol.LootComponents do
   alias Valimc.NBT
   alias Valimc.Protocol.{EffectTypes, Wire}
 
-  @path Path.expand("../../../priv/protocol/registries.json", __DIR__)
-  @external_resource @path
-  @instruments :json.decode(File.read!(@path))["minecraft:instrument"]
+  @instruments Valimc.Protocol.Data.registries()["minecraft:instrument"]
   @instrument_ids @instruments |> Enum.with_index() |> Map.new()
   @max_entries 256
   # `SuspiciousStewEffects.Entry`'s default duration, left out when written.

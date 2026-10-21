@@ -22,7 +22,10 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.core.registries.Registries;
 
-/** Extract versioned registry/default facts, never Minecraft implementation source. */
+/**
+ * Extract versioned registry/default facts, never Minecraft implementation source.
+ * Usage: ItemMetadata ITEMS.json ITEM_DEFAULTS.json COMPONENT_TYPES.json
+ */
 public class ItemMetadata {
   private static final Set<String> SUPPORTED = Set.of("custom_data", "max_stack_size",
     "max_damage", "damage", "repair_cost", "rarity", "unbreakable", "creative_slot_lock",
@@ -90,17 +93,20 @@ public class ItemMetadata {
       actions.put(action.name().toLowerCase(Locale.ROOT), action.ordinal());
     Map<String, Object> facts = new TreeMap<>();
     facts.put("version", "26.3"); facts.put("protocol", 777);
-    facts.put("items", items); facts.put("components", components);
+    facts.put("items", items);
     facts.put("player_actions", actions);
     Map<String, Integer> inputs = new TreeMap<>();
     for (var input : ContainerInput.values()) inputs.put(input.name().toLowerCase(Locale.ROOT), input.id());
     facts.put("container_inputs", inputs);
     Files.writeString(Path.of(args[0]), new GsonBuilder().setPrettyPrinting().create().toJson(facts) + "\n");
-    if (args.length > 1) {
-      var extracted = new LinkedHashMap<String,Object>();
-      extracted.put("version","26.3");extracted.put("data_version",5023);extracted.put("items",defaults);
-      extracted.put("protocol",777);extracted.put("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
-      Files.writeString(Path.of(args[1]),new GsonBuilder().setPrettyPrinting().create().toJson(extracted)+"\n");
-    }
+    // Component type ids are their own facts (`Valimc.Protocol.ComponentTypes`), which the item
+    // defaults' codecs need before the items exist.
+    var componentFacts = new TreeMap<String,Object>();
+    componentFacts.put("version", "26.3"); componentFacts.put("protocol", 777); componentFacts.put("components", components);
+    Files.writeString(Path.of(args[2]), new GsonBuilder().setPrettyPrinting().create().toJson(componentFacts) + "\n");
+    var extracted = new LinkedHashMap<String,Object>();
+    extracted.put("version","26.3");extracted.put("data_version",5023);extracted.put("items",defaults);
+    extracted.put("protocol",777);extracted.put("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
+    Files.writeString(Path.of(args[1]),new GsonBuilder().setPrettyPrinting().create().toJson(extracted)+"\n");
   }
 }

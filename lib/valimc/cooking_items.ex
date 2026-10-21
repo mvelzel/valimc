@@ -2,16 +2,14 @@ defmodule Valimc.CookingItems do
   @moduledoc "Bounded immutable furnace slot proposals; callers must durably admit changes and remainder drops."
   alias Valimc.CookingFuel
   alias Valimc.Protocol.{ItemStack, ItemTypes}
-  @path Path.expand("../../priv/physics/cooking_remainders.json", __DIR__)
-  @external_resource @path
-  @facts JSON.decode!(File.read!(@path))
+  use Valimc.Facts, "physics/cooking_remainders.json"
+
   @remainders Map.new(@facts["remainders"], fn {id, result} ->
                 {String.to_integer(id), %ItemStack{item_id: result}}
               end)
-  unless Valimc.Version.stamped?(@facts) and
-           Enum.all?(@remainders, fn {id, result} ->
-             ItemTypes.item(id) != nil and ItemTypes.item(result.item_id) != nil
-           end),
+  unless Enum.all?(@remainders, fn {id, result} ->
+           ItemTypes.item(id) != nil and ItemTypes.item(result.item_id) != nil
+         end),
          do: raise("Wrong native cooking remainders")
 
   @doc "Complete one already selected recipe without mutating the supplied three-slot state."

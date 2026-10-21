@@ -23,9 +23,8 @@ defmodule Valimc.Physics.PlayerPose do
     :spectator,
     :passenger
   ]
-  @path Path.expand("../../../priv/physics/player_poses.json", __DIR__)
-  @external_resource @path
-  @facts JSON.decode!(File.read!(@path))
+  use Valimc.Facts, "physics/player_poses.json"
+
   unless Enum.map(@facts, & &1["name"]) == Enum.map(@poses, &Atom.to_string/1),
     do: raise("Invalid native player pose catalog")
 

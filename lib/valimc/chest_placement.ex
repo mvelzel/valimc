@@ -2,14 +2,12 @@ defmodule Valimc.ChestPlacement do
   @moduledoc "Pinned isolated single-chest orientation/water state; callers must separately admit placement and neighbors."
   import Bitwise
   alias Valimc.Registry.BlockFacts
-  @path Path.expand("../../priv/physics/chest_placement.json", __DIR__)
-  @external_resource @path
-  @facts JSON.decode!(File.read!(@path))
+  use Valimc.Facts, "physics/chest_placement.json"
+
   @states Map.new(@facts["by_heading"], fn {heading, states} ->
             {String.to_integer(heading), states}
           end)
-  unless Valimc.Version.stamped?(@facts) and
-           Enum.sort(Map.keys(@states)) == [2, 3, 4, 5] and
+  unless Enum.sort(Map.keys(@states)) == [2, 3, 4, 5] and
            Enum.all?(@states, fn {_, states} ->
              Enum.sort(Map.keys(states)) == ["dry", "wet"] and
                Enum.all?(Map.values(states), &Valimc.ChestAccess.single?/1)

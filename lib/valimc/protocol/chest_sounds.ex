@@ -1,15 +1,12 @@
 defmodule Valimc.Protocol.ChestSounds do
   @moduledoc "Pinned ordinary chest sound bodies and native float32 pitch; delivery belongs to viewer ownership."
   alias Valimc.Protocol.{Packets, Wire}
-  @path Path.expand("../../../priv/protocol/chest_sounds.json", __DIR__)
-  @external_resource @path
-  @facts JSON.decode!(File.read!(@path))
+  use Valimc.Facts, "protocol/chest_sounds.json"
   @source @facts["blocks_source"]
   @open @facts["sounds"]["minecraft:block.chest.open"]
   @close @facts["sounds"]["minecraft:block.chest.close"]
-  unless Valimc.Version.stamped?(@facts) and
-           @source == 4 and @open == 349 and @close == 347,
-         do: raise("Wrong ordinary chest sound facts")
+  unless @source == 4 and @open == 349 and @close == 347,
+    do: raise("Wrong ordinary chest sound facts")
 
   def pitch(draw) when is_number(draw) and draw >= 0 and draw < 1,
     do: {:ok, f32(f32(0.9) + f32(f32(draw) * f32(0.1)))}

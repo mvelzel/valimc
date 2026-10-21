@@ -142,10 +142,7 @@ defmodule Valimc.Dimension do
   end
 
   defp load_facts do
-    json =
-      Application.app_dir(:valimc, "priv/worldgen/dimensions.json")
-      |> File.read!()
-      |> JSON.decode!()
+    json = Valimc.Worldgen.fact("dimensions")
 
     Map.new(@ids, fn dimension ->
       entry = Map.fetch!(json, name(dimension))
@@ -171,9 +168,7 @@ defmodule Valimc.Dimension do
   end
 
   defp sea_level(settings) do
-    Application.app_dir(:valimc, "priv/worldgen/noise_settings.json")
-    |> File.read!()
-    |> JSON.decode!()
+    Valimc.Worldgen.fact("noise_settings")
     |> Map.fetch!(settings)
     |> Map.fetch!("sea_level")
   end

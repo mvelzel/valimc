@@ -1,8 +1,6 @@
 defmodule Valimc.Protocol.PotionTypes do
   @moduledoc "Pinned potion holders and delivery facts; catalog entries do not imply gameplay support."
-  @path Path.expand("../../../priv/protocol/potions.json", __DIR__)
-  @external_resource @path
-  @facts :json.decode(File.read!(@path))
+  use Valimc.Facts, "protocol/potions.json"
   @potions @facts["potions"] |> Enum.sort_by(& &1["id"]) |> List.to_tuple()
   @ids Map.new(@facts["potions"], &{&1["name"], &1["id"]})
   @effects Map.new(@facts["potions"], fn row ->
@@ -11,8 +9,7 @@ defmodule Valimc.Protocol.PotionTypes do
                 {effect["id"], Enum.map(effect["rungs"], &List.to_tuple/1)}
               end)}
            end)
-  unless Valimc.Version.stamped?(@facts) and
-           Enum.map(Tuple.to_list(@potions), & &1["id"]) == Enum.to_list(0..45) and
+  unless Enum.map(Tuple.to_list(@potions), & &1["id"]) == Enum.to_list(0..45) and
            map_size(@ids) == 46,
          do: raise("Wrong native potion facts")
 

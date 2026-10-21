@@ -28,13 +28,7 @@ defmodule Valimc.Command.Arguments do
     minecraft:dialog minecraft:column_pos minecraft:dimension minecraft:game_profile minecraft:resource_or_tag_key
     minecraft:feature minecraft:resource_key minecraft:template_rotation minecraft:template_mirror)
 
-  @features_path Path.expand("../../../priv/worldgen/features.json", __DIR__)
-  @external_resource @features_path
-  @configured_features @features_path
-                       |> File.read!()
-                       |> JSON.decode!()
-                       |> Map.keys()
-                       |> MapSet.new()
+  @configured_features Valimc.Worldgen.Facts.features()
 
   def supported, do: @supported
 

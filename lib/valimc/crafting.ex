@@ -1,18 +1,10 @@
 defmodule Valimc.Crafting do
   @moduledoc "Indexed ordinary 2×2/3×3 recipes; results are derived, never owned inventory."
   alias Valimc.Protocol.{ItemStack, ItemTypes}
-  @path Path.expand("../../priv/crafting/recipes.json", __DIR__)
-  @external_resource @path
-  @facts JSON.decode!(File.read!(@path))
-  @remainder_path Path.expand("../../priv/crafting/remainders.json", __DIR__)
-  @external_resource @remainder_path
-  @remainder_facts JSON.decode!(File.read!(@remainder_path))
-  unless Valimc.Version.stamped?(@facts),
-    do: raise("Wrong player crafting catalog version")
+  use Valimc.Facts, "crafting/recipes.json"
+  use Valimc.Facts, file: "crafting/remainders.json", as: :remainder_facts
 
-  unless Map.take(@remainder_facts, ["version", "data_version", "server_sha1"]) ==
-           Map.take(@facts, ["version", "data_version", "server_sha1"]) and
-           length(@remainder_facts["recipes"]) == 3 and
+  unless length(@remainder_facts["recipes"]) == 3 and
            @remainder_facts["remainders"] == %{"1134" => 1128, "1533" => 1270},
          do: raise("Wrong crafting remainder catalog")
 

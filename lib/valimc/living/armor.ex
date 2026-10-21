@@ -14,8 +14,8 @@ defmodule Valimc.Living.Armor do
   alias Valimc.Living.{Attributes, DamageSource}
   alias Valimc.Protocol.ItemStack
 
-  @armor_facts Valimc.Facts.load!("protocol/item_armor.json")
-  @external_resource Valimc.Facts.path("protocol/item_armor.json")
+  use Valimc.Facts, file: "protocol/item_armor.json", as: :armor_facts
+
   @defaults Map.new(@armor_facts["defaults"], fn {id, slots} ->
               {String.to_integer(id),
                Map.new(slots, fn {slot, values} ->
@@ -38,6 +38,9 @@ defmodule Valimc.Living.Armor do
   # Inventory slots of the equipment, and the slots of the default attribute facts.
   @armor_slots [head: 5, chest: 6, legs: 7, feet: 8]
   @fact_slots [head: 5, chest: 6, legs: 7, feet: 8, mainhand: 36, offhand: 45]
+
+  @doc "Food exhaustion by damage type name (`DamageType.exhaustion`), from the wear facts."
+  def exhaustion, do: @facts["exhaustion"]
 
   @doc "A player's equipment: its worn armor, selected hotbar slot and offhand."
   def equipment(%Inventory{slots: slots, selected: selected}) do

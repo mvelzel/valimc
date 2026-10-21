@@ -1,9 +1,7 @@
 defmodule Valimc.Protocol.Enchantments do
   @moduledoc "Bounded 26.3 enchantment maps using the negotiated core-pack holder IDs."
   alias Valimc.Protocol.Wire
-  @path Path.expand("../../../priv/protocol/registries.json", __DIR__)
-  @external_resource @path
-  @names :json.decode(File.read!(@path))["minecraft:enchantment"]
+  @names Valimc.Protocol.Data.registries()["minecraft:enchantment"]
   @by_id @names |> Enum.with_index() |> Map.new(fn {name, id} -> {id, name} end)
   @by_name @names |> Enum.with_index() |> Map.new()
   @max_entries 1024

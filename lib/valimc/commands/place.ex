@@ -18,15 +18,9 @@ defmodule Valimc.Commands.Place do
   alias Valimc.Text
   alias Valimc.Native
 
-  @templates Path.expand("../../../priv/worldgen/structure_templates.json", __DIR__)
-  @external_resource @templates
-  @template_ids @templates |> File.read!() |> JSON.decode!() |> Map.keys() |> Enum.sort()
-  @pools Path.expand("../../../priv/worldgen/template_pools.json", __DIR__)
-  @external_resource @pools
-  @pool_ids @pools |> File.read!() |> JSON.decode!() |> Map.keys() |> MapSet.new()
-  @structures Path.expand("../../../priv/worldgen/structures.json", __DIR__)
-  @external_resource @structures
-  @structure_ids @structures |> File.read!() |> JSON.decode!() |> Map.keys() |> MapSet.new()
+  @template_ids Valimc.Worldgen.Facts.templates()
+  @pool_ids Valimc.Worldgen.Facts.template_pools()
+  @structure_ids Valimc.Worldgen.Facts.structures()
 
   @doc "`PlaceCommand.SUGGEST_TEMPLATES`: every template id."
   def suggest(["place", "template", "template"], _arguments, _source),

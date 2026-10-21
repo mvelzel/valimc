@@ -1,11 +1,7 @@
 defmodule Valimc.CookingRecipeBook do
   @moduledoc "Bounded native cooking display data, shared as immutable binaries; placement/autofill is separate."
   alias Valimc.Protocol.{Packets, Wire}
-  @path Path.expand("../../priv/crafting/cooking_book.json", __DIR__)
-  @external_resource @path
-  @facts JSON.decode!(File.read!(@path))
-  unless Valimc.Version.stamped?(@facts, ~w(version server_sha1)),
-    do: raise("Wrong cooking recipe book facts")
+  use Valimc.Facts, "crafting/cooking_book.json"
 
   @rows @facts["entries"]
         |> Enum.with_index()

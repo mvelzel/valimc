@@ -2,13 +2,10 @@ defmodule Valimc.ChestOpening do
   @moduledoc "Pinned single-chest providers and fresh view admission; locks/loot are separate."
   import Bitwise
   alias Valimc.{ChestAccess, PlayerInteraction}
-  @path Path.expand("../../priv/protocol/chest_opening.json", __DIR__)
-  @external_resource @path
-  @facts JSON.decode!(File.read!(@path))
+  use Valimc.Facts, "protocol/chest_opening.json"
   @count @facts["state_count"]
   @mask Base.decode64!(@facts["blocked_above_bits"])
-  unless Valimc.Version.stamped?(@facts, ~w(version server_sha1)) and
-           @count == Valimc.Protocol.Data.block_state_count() and
+  unless @count == Valimc.Protocol.Data.block_state_count() and
            byte_size(@mask) == div(@count + 7, 8),
          do: raise("Wrong chest opening facts")
 

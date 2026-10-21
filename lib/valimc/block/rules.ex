@@ -43,14 +43,12 @@ defmodule Valimc.Block.Rules do
   end
 
   defp facts do
-    read = &(Application.app_dir(:valimc, &1) |> File.read!() |> JSON.decode!())
-
     %{
-      "block_registry" => read.("priv/registry/blocks.json"),
+      "block_registry" => Valimc.Registry.Blocks.native_facts(),
       "block_facts" => Worldgen.block_facts(Valimc.Protocol.Data.tags()),
-      "support" => read.("priv/worldgen/survival.json"),
-      "shapes" => read.("priv/worldgen/shapes.json"),
-      "live_support" => read.("priv/physics/support.json")
+      "support" => Worldgen.fact("survival"),
+      "shapes" => Worldgen.fact("shapes"),
+      "live_support" => Valimc.Facts.read!("physics/support.json")
     }
   end
 

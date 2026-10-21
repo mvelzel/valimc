@@ -1,10 +1,6 @@
 defmodule Valimc.Protocol.ItemTypes do
   @moduledoc "Indexed item and component facts from the pinned Mojang 26.3 runtime."
-  @path Path.expand("../../../priv/protocol/items.json", __DIR__)
-  @external_resource @path
-  @facts :json.decode(File.read!(@path))
-  unless Valimc.Version.stamped?(@facts, ~w(version protocol)),
-    do: raise("Wrong item facts")
+  use Valimc.Facts, "protocol/items.json"
 
   @items @facts["items"]
   @by_id Map.new(@items, fn {name, facts} -> {facts["id"], Map.put(facts, "name", name)} end)
@@ -13,11 +9,7 @@ defmodule Valimc.Protocol.ItemTypes do
   @input_names Map.new(~w(pickup quick_move swap clone throw quick_craft pickup_all), fn name ->
                  {Map.fetch!(@inputs, name), String.to_atom(name)}
                end)
-  @defaults_path Path.expand("../../../priv/protocol/item_defaults.json", __DIR__)
-  @external_resource @defaults_path
-  @default_facts :json.decode(File.read!(@defaults_path))
-  unless Valimc.Version.stamped?(@default_facts, ~w(version data_version protocol server_sha1)),
-    do: raise("Wrong item default facts")
+  use Valimc.Facts, file: "protocol/item_defaults.json", as: :default_facts
 
   @defaults @default_facts["items"]
             |> Map.new(fn {id, facts} ->

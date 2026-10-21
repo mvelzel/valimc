@@ -10,15 +10,10 @@ defmodule Valimc.World.Climate do
   alias Valimc.Native
   alias Valimc.Protocol.Data
 
-  @path Path.expand("../../../priv/worldgen/biomes.json", __DIR__)
-  @external_resource @path
-  @facts @path
-         |> File.read!()
-         |> :json.decode()
-         |> Enum.map(fn {name, biome} ->
+  @facts Valimc.Worldgen.Facts.biome_climates()
+         |> Enum.map(fn {name, temperature, frozen, precipitation} ->
            {Data.registry_id("minecraft:worldgen/biome", name),
-            {biome["temperature"] * 1.0, biome["temperature_modifier"] == "frozen",
-             biome["has_precipitation"]}}
+            {temperature, frozen, precipitation}}
          end)
          |> Enum.sort()
   unless Enum.map(@facts, &elem(&1, 0)) == Enum.to_list(0..(length(@facts) - 1)),

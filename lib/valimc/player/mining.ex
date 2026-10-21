@@ -27,9 +27,7 @@ defmodule Valimc.Player.Mining do
   }
 
   @basic_mining Enum.map(~w(stone dirt grass_block cobblestone oak_planks glass), &Data.block/1)
-  @slab_tags Path.expand("../../../priv/protocol/tags.json", __DIR__)
-  @slab_blocks :json.decode(File.read!(@slab_tags))["minecraft:block"]["minecraft:slabs"]
-               |> MapSet.new()
+  @slab_blocks Data.tags()["minecraft:block"]["minecraft:slabs"] |> MapSet.new()
 
   defguardp inventory_busy(state)
             when state.recovery != nil or state.creative_input.queued > 0 or state.use_save != nil or

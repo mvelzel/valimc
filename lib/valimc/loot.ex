@@ -20,9 +20,7 @@ defmodule Valimc.Loot do
   def registry do
     case :persistent_term.get({__MODULE__, :registry}, nil) do
       nil ->
-        read = fn name ->
-          Application.app_dir(:valimc, "priv/loot/#{name}.json") |> File.read!() |> JSON.decode!()
-        end
+        read = &Valimc.Facts.read!("loot/#{&1}.json")
 
         tables = read.("tables")
         {:ok, registry} = Native.loot_registry(tables, read.("registries"))

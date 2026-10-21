@@ -118,8 +118,19 @@ fmt --check`; on the final base (after VMC-077a's and VMC-077b's runtime and NIF
 changes) `mix test.fast` 502 passed and `check_vanilla.py --changed` passed all
 133 selected stages, live generation, spawn, world settings and tcp among them.
 
-Next: move the other ~70 modules that decode `priv` JSON onto `Valimc.Facts`
-with one decoding module per file (tags, attributes, cooking and items are each
-decoded more than once); one survival rule set for decoration and live updates
-(VMC-077m); terrain's derived per-state byte could read the installed flags
-once the worldgen registry has the pack's tags in Rust.
+Then every other `priv` reader moved onto the loader: about forty modules lost
+their copied path, resource and stamp stanzas, the loader checks each stamp a
+file carries and reads run-time files through `read!/1`, and each file has one
+decoding module (tags, registries and packets in `Protocol.Data`, attributes in
+`Living.Attributes`, cooking recipes in `CookingRecipes`, fuel contexts in
+`CookingFuel`, chest states in `ChestAccess`, armor wear in `Living.Armor`;
+`Worldgen.Facts` for the worldgen ids and biome climates, which also stops
+`Worldgen.biome_names/0` decoding `biomes.json` on every call). Component type
+ids moved out of `items.json` into `protocol/component_types.json`
+(`ItemMetadata`'s third output): the item defaults' codecs need them before the
+items exist, so one file could not serve both without a compile-time cycle.
+Checks: `item_metadata` with `--regen` (the three outputs equal the files),
+`mix test.fast` 471 passed, `check_vanilla.py --changed` 178 of 178 stages.
+
+Next: terrain's derived per-state byte could read the installed flags once the
+worldgen registry has the pack's tags in Rust.

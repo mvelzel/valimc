@@ -1,13 +1,9 @@
 defmodule Valimc.FoodItems do
   @moduledoc "Pinned consumable facts and pure eligibility/remainder rules; the player owns item use."
   alias Valimc.Protocol.ItemStack
-  @path Path.expand("../../priv/protocol/food_items.json", __DIR__)
-  @external_resource @path
   @empty %{food: nil, consumable: nil, remainder: nil, other_listeners: []}
   @float_max 3.4028234663852886e38
-  @facts :json.decode(File.read!(@path))
-  unless Valimc.Version.stamped?(@facts, ~w(version protocol server_sha1)),
-    do: raise("Wrong food item facts")
+  use Valimc.Facts, "protocol/food_items.json"
 
   @defaults @facts["items"]
             |> Map.new(fn {_name, facts} ->

@@ -3,11 +3,7 @@ defmodule Valimc.World.ContainerLifecycle do
   alias Valimc.World
   alias Valimc.Protocol.Data
   alias Valimc.World.{Chunk, Containers, CookingEntry}
-  @path Path.expand("../../../priv/protocol/chest_states.json", __DIR__)
-  @external_resource @path
-  @double JSON.decode!(File.read!(@path))["states"]
-          |> Enum.reject(&(&1["part"] == "single"))
-          |> MapSet.new(& &1["state"])
+  @double Valimc.ChestAccess.double_states()
 
   def plan(%Containers{} = containers, key, expected, edits)
       when is_map(expected) and is_map(edits) and map_size(edits) in 1..4096 and

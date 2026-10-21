@@ -3,12 +3,8 @@ defmodule Valimc.World.CookingEntry do
   alias Valimc.Cooking
   alias Valimc.Protocol.ItemStack
   @kinds [:furnace, :smoker, :blast_furnace]
-  @path Path.expand("../../../priv/crafting/cooking.json", __DIR__)
-  @external_resource @path
-  @recipes JSON.decode!(File.read!(@path))["recipes"]
-           |> Enum.map(& &1["recipe"])
-           |> List.to_tuple()
-  @recipe_ids @recipes |> Tuple.to_list() |> Enum.with_index() |> Map.new()
+  @recipes List.to_tuple(Valimc.CookingRecipes.names())
+  @recipe_ids Valimc.CookingRecipes.ids()
   @max_bytes 524_288
 
   def new(kind) when kind in @kinds, do: {:ok, %{kind: kind, cooking: %Cooking{}, recipes: %{}}}

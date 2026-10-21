@@ -4,9 +4,7 @@ defmodule Valimc.Physics.BlockEntities do
   ids in registry order) and the blocks whose use vanilla may consume. Writes
   refuse kinds that have no owned ValiMC record yet.
   """
-  @path Path.expand("../../../priv/physics/block_entities.json", __DIR__)
-  @external_resource @path
-  @facts JSON.decode!(File.read!(@path))
+  use Valimc.Facts, "physics/block_entities.json"
   @types List.to_tuple(@facts["types"])
   @type_ids @facts["types"] |> Enum.with_index() |> Map.new()
   @by_state @facts["runs"]
@@ -19,8 +17,7 @@ defmodule Valimc.Physics.BlockEntities do
                |> Enum.filter(fn [block | _] -> MapSet.member?(@interactive_blocks, block) end)
                |> Enum.flat_map(fn [_, first, last, _] -> Enum.to_list(first..last) end)
                |> MapSet.new()
-  unless Valimc.Version.stamped?(@facts) and
-           @facts["state_count"] == Valimc.Registry.Blocks.state_count() and
+  unless @facts["state_count"] == Valimc.Registry.Blocks.state_count() and
            @facts["block_entity_states"] == 4_743 and
            map_size(@by_state) == 4_743,
          do: raise("Wrong native block-entity facts")

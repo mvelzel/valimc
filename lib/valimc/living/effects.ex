@@ -11,11 +11,7 @@ defmodule Valimc.Living.Effects do
   suppressed levels. Each rung is `{remaining ticks, amplifier, ambient,
   particles, icon}`; -1 ticks is infinite.
   """
-  @path Valimc.Facts.path("protocol/consume_status.json")
-  @external_resource @path
-  @facts @path |> File.read!() |> JSON.decode!()
-  unless Valimc.Version.stamped?(@facts, ~w(version protocol server_sha1)),
-    do: raise("stock food effects do not match the supported protocol")
+  use Valimc.Facts, "protocol/consume_status.json"
 
   import Bitwise
   alias Valimc.FoodItems

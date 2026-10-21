@@ -1,8 +1,7 @@
 defmodule Valimc.Protocol.ComponentTypes do
   @moduledoc "Pure compiled index of every pinned 26.3 component type, independent of value codecs."
-  @path Path.expand("../../../priv/protocol/items.json", __DIR__)
-  @external_resource @path
-  @by_name :json.decode(File.read!(@path))["components"]
+  use Valimc.Facts, "protocol/component_types.json"
+  @by_name @facts["components"]
   @by_id Map.new(@by_name, fn {name, id} -> {id, name} end)
 
   def name(id), do: @by_id[id]

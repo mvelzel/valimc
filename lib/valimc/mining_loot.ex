@@ -4,16 +4,13 @@ defmodule Valimc.MiningLoot do
   alias Valimc.MiningTools
   alias Valimc.RandomMiningLoot
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes}
-  @path Path.expand("../../priv/physics/mining_loot.json", __DIR__)
-  @external_resource @path
-  @facts :json.decode(File.read!(@path))
+  use Valimc.Facts, "physics/mining_loot.json"
   @count Data.block_state_count()
-  unless Valimc.Version.stamped?(@facts) and
-           @facts["state_count"] == @count and @facts["block_count"] == MiningTools.block_count(),
-         do: raise("Wrong mining loot catalog version")
+  unless @facts["state_count"] == @count and @facts["block_count"] == MiningTools.block_count(),
+    do: raise("Wrong mining loot catalog version")
 
   @profiles Enum.map(@facts["profiles"], fn
-              :null ->
+              nil ->
                 nil
 
               [ordinary, silk] ->
