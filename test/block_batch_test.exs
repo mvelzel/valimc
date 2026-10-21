@@ -24,7 +24,10 @@ defmodule Valimc.BlockBatchTest do
           %{{0, -65, 0} => 1},
           %{{30_000_000, 64, 0} => 1},
           %{{0, 64, 0} => 1, {1, 64, 0} => :stone},
-          Map.new(0..4096, &{{rem(&1, 128), 64 + div(&1, 128), 0}, 1})
+          Map.new(
+            0..32_768,
+            &{{rem(&1, 128), 64 + div(&1, 16_384), div(rem(&1, 16_384), 128)}, 1}
+          )
         ] do
       assert {:error, :invalid_block_batch} = BlockBatch.prepare(bad)
     end

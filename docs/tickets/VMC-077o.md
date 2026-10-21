@@ -110,12 +110,14 @@ modifier), `CommandSourceStack` (`sendSuccess`, `sendFailure`,
 `RconConsoleSource`, `String.format("%f")`, `Float.toString` and
 `Double.toString`.
 
-Checks (October 22, 2026): the touched test files by name while working,
-then the full `mix test` and `check_vanilla.py --changed` through
-`scripts/heavy.py` (results below). Stages run per step while working:
-`commands`, `world_border`, `text`, `stack_identity`, `place`, `locate`,
-`player_life`, `enchantment`, `tooltip`, `item_hover`, `block_batch` and
-`placement`. No client run: the milestone handoff covers `/clone … move`
+Checks (October 22, 2026): the touched test files by name while working
+(stages `commands`, `world_border`, `text`, `stack_identity`, `place`,
+`locate`, `player_life`, `enchantment`, `tooltip`, `item_hover`,
+`block_batch` and `placement` per step), then through `scripts/heavy.py` the
+full `mix test`, 709 of 710 (104.5 s; the one failure was the block batch
+test still expecting the old 4,096-edit limit, since fixed and passing), and
+`check_vanilla.py --changed` from before the first commit: 131 of 131 stages
+(`NBT`, `ItemStack` and the text modules reach nearly every stage). No client run: the milestone handoff covers `/clone … move`
 across regions, `/fill` in a region with activity and `/give` with
 components.
 
