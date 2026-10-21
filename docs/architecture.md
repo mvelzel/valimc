@@ -68,10 +68,14 @@ A decorated world's region becomes full through its proto owner (VMC-025d). A
 chunk is decorated once its 3 × 3 has terrain and is full once its 3 × 3 is
 decorated; decoration reads and writes only that 3 × 3, so a full chunk is
 never touched again. Finalizing a region is one transaction over the nine
-proto owners around it: locks in region key order (durable on foreign owners,
-`Txn.Permits`), one decoration call, one commit frame with an outbox, then
-idempotent parts (`Txn.Receipts`, `Txn.Delivery`); a participant left with a
-lock asks the coordinator, and anything not committed is aborted. The live
+proto owners around it: their terrain first, then all nine locks at once
+(`Txn.Permits`), each granted at once or refused as busy, so a transaction
+never waits while it holds locks and transactions with disjoint areas run
+together (a refused one gives its locks back and retries); foreign locks are
+made durable while one decoration call runs, then one commit frame with an
+outbox, then idempotent parts (`Txn.Receipts`, `Txn.Delivery`). A participant
+left with a durable lock asks the coordinator, a lock not yet durable dies
+with its coordinator, and anything not committed is aborted. The live
 region persists the full chunks with their block entities and ticks in one
 frame and the proto owner drops them.
 

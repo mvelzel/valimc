@@ -44,10 +44,20 @@ defmodule Valimc.WorldgenProtoOwnerTest do
     %{key: key, keys: keys, base: base, worldgen: worldgen}
   end
 
+  # Until none is left: an owner still running a transaction starts the
+  # owners it asks, so one killed earlier in a pass may be back (with this
+  # test's world, into the next test).
   defp stop(keys) do
-    for key <- keys,
-        {pid, _} <- Registry.lookup(Valimc.ProtoRegistry, key),
-        do: TestScope.kill(pid)
+    pids =
+      for key <- keys,
+          {pid, _} <- Registry.lookup(Valimc.ProtoRegistry, key),
+          Process.alive?(pid),
+          do: pid
+
+    if pids != [] do
+      Enum.each(pids, &TestScope.kill/1)
+      stop(keys)
+    end
   end
 
   defp east({x, z}), do: {x + 1, z}

@@ -52,10 +52,15 @@ defmodule Valimc.Application do
       {Valimc.World.ForcedChunks, []},
       {Task.Supervisor,
        name: Valimc.TransferWorkers, max_children: max(System.schedulers_online() * 4, 1)},
-      # Generation (VMC-025d): proto owners, and their terrain, decoration and
-      # full-chunk jobs on dirty schedulers.
+      # Generation (VMC-025d): proto owners, their terrain jobs, and their
+      # decoration and full-chunk jobs in a pool of their own (so a region
+      # whose terrain is ready never waits behind other terrain), all on
+      # dirty schedulers.
       {Task.Supervisor,
        name: Valimc.WorldgenWorkers,
+       max_children: max(:erlang.system_info(:dirty_cpu_schedulers_online), 1)},
+      {Task.Supervisor,
+       name: Valimc.DecorationWorkers,
        max_children: max(:erlang.system_info(:dirty_cpu_schedulers_online), 1)},
       {Registry, keys: :unique, name: Valimc.ProtoRegistry},
       {DynamicSupervisor,

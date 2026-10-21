@@ -3,8 +3,11 @@ defmodule Valimc.Worldgen.Proto do
   One region's proto chunks in a decorated vanilla world (VMC-025d2): the
   owner of its chunks before they are final, of their statuses (`:terrain`,
   `:decorated`) and of the finalize transaction that makes the region final.
-  Its durable state is a `Valimc.Worldgen.ProtoLog`; terrain, decoration and
-  full chunks run on `Valimc.WorldgenWorkers` (dirty NIFs), never in here.
+  Its durable state is a `Valimc.Worldgen.ProtoLog`; terrain runs on
+  `Valimc.WorldgenWorkers`, decoration and full chunks on
+  `Valimc.DecorationWorkers` (dirty NIFs), never in here. Each owner
+  generates the terrain of the earliest-started transaction first, so areas
+  complete one after another and decorate while other terrain is generated.
 
   A chunk is final once every chunk of its 3 × 3 is decorated. A decoration
   reads and writes only its 3 × 3 (VMC-025 measured it), so a final chunk is
@@ -14,8 +17,9 @@ defmodule Valimc.Worldgen.Proto do
   durable prepare):
 
   1. Terrain: each of the nine owners around `R` generates the terrain it
-     lacks among its chunks of the 12 × 12 around `R` and answers once they
-     exist. Nothing is locked yet.
+     lacks among its chunks of the 12 × 12 around `R` (ordered by when `R`
+     first tried to finalize) and answers once they exist. Nothing is locked
+     yet.
   2. Lock, all nine at once and never waiting: an owner locks its non-final
      chunks for the transaction (`Txn.Permits` kind `:generation`) and
      answers with their images and which are final, or answers busy if any
@@ -26,7 +30,7 @@ defmodule Valimc.Worldgen.Proto do
   3. Prepare and decorate together: each foreign owner that locked chunks
      makes its lock durable, while every undecorated chunk of the 10 × 10
      around `R` is decorated, Z outer and X inner, in one native call over the
-     locked images (queued while the worker pool is full).
+     locked images (waiting while its worker pool is full).
   4. Commit, once decorated and prepared, one frame: `R`'s changed chunks, its
      64 chunks final, and an outbox entry per foreign participant
      (`Txn.Receipts` sequence from the log incarnation and transaction count,
@@ -79,6 +83,8 @@ defmodule Valimc.Worldgen.Proto do
     monitors: %{},
     attempts: 0,
     busy: 0,
+    # When this owner first tried to finalize: its terrain requests' priority.
+    since: nil,
     waiters: [],
     calls: 0,
     quiet: {0, 0},
@@ -274,11 +280,12 @@ defmodule Valimc.Worldgen.Proto do
   end
 
   # Participant: answer once a transaction's chunks have terrain.
-  def handle_call({:terrain, %{txn: txn, chunks: chunks}}, from, state) do
+  def handle_call({:terrain, %{txn: txn, chunks: chunks, since: since}}, from, state) do
     state = %{state | calls: state.calls + 1}
+    entry = %{txn: txn, chunks: chunks, since: since, reply: {:call, from}}
 
     if Enum.all?(chunks, &(region_of(&1) == state.key)),
-      do: {:noreply, wait_terrain(state, %{txn: txn, chunks: chunks, reply: {:call, from}})},
+      do: {:noreply, wait_terrain(state, entry)},
       else: {:reply, {:error, :invalid_generation_lock}, state}
   end
 
@@ -556,22 +563,31 @@ defmodule Valimc.Worldgen.Proto do
 
   ## Terrain
 
-  defp ensure_terrain(state, chunks) do
-    missing =
-      Enum.reject(chunks, fn c ->
-        Map.has_key?(state.chunks, c) or MapSet.member?(state.terrain.pending, c)
-      end)
+  # Queue the terrain of `chunks` this owner lacks, earliest `since` first (a
+  # chunk asked for again keeps the earliest); the queue holds `{since, {z,
+  # x}}`, so equal priorities go Z outer, X inner.
+  defp ensure_terrain(state, chunks, since) do
+    missing = Enum.reject(chunks, &Map.has_key?(state.chunks, &1))
 
     if missing == [] do
       state
     else
-      terrain = %{
-        state.terrain
-        | queue: state.terrain.queue ++ missing,
-          pending: MapSet.union(state.terrain.pending, MapSet.new(missing))
-      }
+      %{queue: queue, pending: pending} = terrain = state.terrain
+      queued = Map.new(queue, fn {s, {z, x}} -> {{x, z}, s} end)
 
-      pump_terrain(%{state | terrain: terrain})
+      queued =
+        Enum.reduce(missing, queued, fn chunk, acc ->
+          cond do
+            Map.has_key?(acc, chunk) -> Map.update!(acc, chunk, &min(&1, since))
+            # In flight.
+            MapSet.member?(pending, chunk) -> acc
+            true -> Map.put(acc, chunk, since)
+          end
+        end)
+
+      queue = queued |> Enum.map(fn {{x, z}, s} -> {s, {z, x}} end) |> Enum.sort()
+      pending = MapSet.union(pending, MapSet.new(missing))
+      pump_terrain(%{state | terrain: %{terrain | queue: queue, pending: pending}})
     end
   end
 
@@ -579,6 +595,7 @@ defmodule Valimc.Worldgen.Proto do
 
   defp pump_terrain(%{terrain: terrain} = state) do
     {batch, rest} = Enum.split(terrain.queue, @terrain_batch)
+    batch = Enum.map(batch, fn {_, {z, x}} -> {x, z} end)
     owner = self()
     worldgen = state.worldgen
     source = state.biome_source
@@ -627,7 +644,7 @@ defmodule Valimc.Worldgen.Proto do
       state = %{state | requests: state.requests ++ [entry]}
 
       state
-      |> ensure_terrain(Enum.reject(entry.chunks, &MapSet.member?(state.final, &1)))
+      |> ensure_terrain(Enum.reject(entry.chunks, &MapSet.member?(state.final, &1)), entry.since)
       |> answer_ready()
     end
   end
@@ -655,7 +672,7 @@ defmodule Valimc.Worldgen.Proto do
         {{:ok, grant_reply(state, [], chunks)}, state}
 
       not Enum.all?(needed, &Map.has_key?(state.chunks, &1)) ->
-        {{:error, :generation_not_ready}, ensure_terrain(state, needed)}
+        {{:error, :generation_not_ready}, ensure_terrain(state, needed, request.since)}
 
       Enum.any?(needed, &Map.has_key?(state.locks, &1)) ->
         {{:error, :generation_busy}, %{state | wake: MapSet.put(state.wake, request.pid)}}
@@ -902,6 +919,7 @@ defmodule Valimc.Worldgen.Proto do
   defp start_finalize(state) do
     n = state.txn_count + 1
     id = {state.key, state.incarnation, n}
+    since = state.since || System.monotonic_time(:microsecond)
     participants = state.key |> around(2) |> Enum.group_by(&region_of/1) |> Enum.sort()
 
     txn = %{
@@ -918,10 +936,10 @@ defmodule Valimc.Worldgen.Proto do
       timer: Process.send_after(self(), {:txn_timeout, id}, @lock_timeout)
     }
 
-    state = %{state | txn_count: n, txn: txn}
+    state = %{state | txn_count: n, txn: txn, since: since}
 
     Enum.reduce(participants, state, fn {key, chunks}, acc ->
-      ask(acc, key, {:terrain, %{txn: id, chunks: chunks}})
+      ask(acc, key, {:terrain, %{txn: id, chunks: chunks, since: since}})
     end)
   end
 
@@ -932,8 +950,8 @@ defmodule Valimc.Worldgen.Proto do
 
     if key == state.key do
       case message do
-        {:terrain, %{txn: txn, chunks: chunks}} ->
-          wait_terrain(state, %{txn: txn, chunks: chunks, reply: {:self, label}})
+        {:terrain, request} ->
+          wait_terrain(state, Map.put(request, :reply, {:self, label}))
 
         {:lock, request} ->
           {reply, state} = try_lock(state, request)
@@ -1014,7 +1032,15 @@ defmodule Valimc.Worldgen.Proto do
     txn = %{state.txn | phase: :locking, waiting: MapSet.new(participants, &elem(&1, 0))}
 
     Enum.reduce(participants, %{state | txn: txn}, fn {key, chunks}, acc ->
-      ask(acc, key, {:lock, %{txn: id, coordinator: state.key, pid: self(), chunks: chunks}})
+      request = %{
+        txn: id,
+        coordinator: state.key,
+        pid: self(),
+        chunks: chunks,
+        since: state.since
+      }
+
+      ask(acc, key, {:lock, request})
     end)
   end
 
@@ -1083,7 +1109,7 @@ defmodule Valimc.Worldgen.Proto do
     source = state.biome_source
     list = Enum.map(images, fn {_, {_, image}} -> image end)
 
-    case Task.Supervisor.start_child(Valimc.WorldgenWorkers, fn ->
+    case Task.Supervisor.start_child(Valimc.DecorationWorkers, fn ->
            result =
              try do
                if order == [],
@@ -1168,7 +1194,8 @@ defmodule Valimc.Worldgen.Proto do
           outbox: if(parts == %{}, do: state.outbox, else: Map.put(state.outbox, id, parts)),
           txn: nil,
           attempts: 0,
-          busy: 0
+          busy: 0,
+          since: nil
       }
 
       state = unhold(state, id)
@@ -1277,7 +1304,7 @@ defmodule Valimc.Worldgen.Proto do
     worldgen = state.worldgen
     ref = make_ref()
 
-    case Task.Supervisor.start_child(Valimc.WorldgenWorkers, fn ->
+    case Task.Supervisor.start_child(Valimc.DecorationWorkers, fn ->
            result =
              try do
                Native.worldgen_proto_full(worldgen, images, Generator.protocol_biomes())
