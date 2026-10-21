@@ -25,7 +25,9 @@ defmodule Valimc.Native do
 
   # NIFs with a dirty twin: worst-case nanoseconds per unit (VMC-077b) and the
   # twin. Disk NBT per input byte (terms included); LZ4 per output byte; block
-  # changes per change; random ticks per draw. A light update's cost is not
+  # changes per change; random ticks per draw; block updates (VMC-077m) per
+  # change or due tick, whose cascades are bounded by vanilla's chain limit,
+  # not by their input. A light update's cost is not
   # bounded by its positions: past 64 it runs dirty, and on a normal scheduler
   # Rust stops it at a budget of work and undoes it (`{:error, :too_large}`)
   # for the caller to run dirty (VMC-077c).
@@ -33,6 +35,7 @@ defmodule Valimc.Native do
     nbt_read: {8, :nbt_read_dirty},
     lz4_decode_stream: {0.5, :lz4_decode_stream_dirty},
     set_blocks: {40, :set_blocks_dirty},
+    block_updates: {2_000, :block_updates_dirty},
     random_ticks: {5, :random_ticks_dirty},
     light_update: {15_625, :light_update_dirty}
   }
@@ -86,6 +89,18 @@ defmodule Valimc.Native do
   ## Light
 
   def block_facts_init(_columns), do: :erlang.nif_error(:nif_not_loaded)
+
+  ## Block rules (VMC-077m)
+
+  def rules_new(_facts), do: :erlang.nif_error(:nif_not_loaded)
+
+  def block_updates(_region, _rules, _changes, _ticks, _absent, _seed),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def block_updates_dirty(_region, _rules, _changes, _ticks, _absent, _seed),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def rules_support_cases(_rules, _updates, _states), do: :erlang.nif_error(:nif_not_loaded)
 
   def light_sky(_region, _sky), do: :erlang.nif_error(:nif_not_loaded)
   def light_init(_region, _absent), do: :erlang.nif_error(:nif_not_loaded)

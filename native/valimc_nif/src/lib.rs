@@ -1,6 +1,7 @@
 //! Rustler shim over valimc_core, one module per domain: `facts` (the block
 //! fact table, installed once), `region` (the Region resource each region
-//! owner holds), `light`, `climate` (biome zoom and temperature at a block),
+//! owner holds), `rules` (block updates over it, VMC-077m), `light`, `climate`
+//! (biome zoom and temperature at a block),
 //! `codec` (disk NBT, LZ4 and column images), `sys`,
 //! `worldgen`, `loot` and, in dev, test and bench
 //! builds, `parity` (oracle and benchmark entry points). Inputs are validated
@@ -25,6 +26,7 @@ mod loot;
 #[cfg(feature = "parity")]
 mod parity;
 mod region;
+mod rules;
 mod sys;
 mod worldgen;
 

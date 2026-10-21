@@ -111,6 +111,8 @@ pub struct DecorationJson<'a> {
     pub feature_order: &'a Json,
     pub support: &'a Json,
     pub shapes: Option<&'a Json>,
+    /// Live play's survival facts (VMC-077m), when given.
+    pub live_support: Option<&'a Json>,
     /// Every structure template, the block transforms and the processor
     /// lists (VMC-025c, VMC-025f), when given.
     pub templates: Option<(&'a Json, &'a Json, &'a Json)>,
@@ -141,6 +143,7 @@ impl<'a> Facts<'a> {
                     feature_order: json.field("feature_order")?,
                     support: json.field("support")?,
                     shapes: json.get("shapes"),
+                    live_support: json.get("live_support"),
                     templates: match (
                         json.get("structure_templates"),
                         json.get("block_transforms"),
@@ -422,7 +425,8 @@ impl Registry {
             )?);
             let support = Arc::new(Support::parse(json.support)?);
             let shapes = json.shapes.map(Shapes::parse).transpose()?.map(Arc::new);
-            let rules = Arc::new(Rules::new(table.clone(), support, shapes)?);
+            let live = json.live_support.map(Support::parse).transpose()?;
+            let rules = Arc::new(Rules::new(table.clone(), support, shapes, live)?);
             registry.rules = Some(rules.clone());
             let templates = json
                 .templates

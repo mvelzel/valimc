@@ -1,26 +1,20 @@
-# Differential check of the generated survival facts (VMC-029c) against SupportOracle's
-# random neighbourhoods: vanilla canSurvive and updateShape against Valimc.Block.Support.
+# Differential check of live play's survival facts (VMC-029c) against SupportOracle's
+# random neighbourhoods: vanilla canSurvive and updateShape against the block rules
+# (VMC-077m, `valimc_core::rules::support`).
 [filename] = System.argv()
 cases = JSON.decode!(File.read!(filename))
-alias Valimc.Block.Support
-origin = {0, 64, 0}
-air = Valimc.Registry.Blocks.default_state("air")
+rules = Valimc.Block.Rules.native()
 
-outcome = fn
-  -1 -> :break
-  0 -> :keep
-  delay -> {:tick, delay}
-end
+updates =
+  for [state, direction, _alive, _vanilla, cells] <- cases["updates"],
+      do: {state, direction, for([dx, dy, dz, block] <- cells, do: {dx, dy, dz, block})}
+
+states = for [state, _] <- cases["remains"], do: state
+{:ok, {results, dependent}} = Valimc.Native.rules_support_cases(rules, updates, states)
 
 mismatches =
-  for [state, direction, alive, vanilla, cells] = row <- cases["updates"],
-      cells = Map.new(cells, fn [dx, dy, dz, block] -> {{dx, 64 + dy, dz}, block} end),
-      read = fn
-        ^origin -> state
-        position -> Map.get(cells, position, air)
-      end,
-      Support.survives?(origin, state, read) != alive or
-        Support.update(origin, state, [direction], read) != outcome.(vanilla),
+  for {[_, _, alive, vanilla, _] = row, {ours_alive, ours}} <- Enum.zip(cases["updates"], results),
+      ours_alive != alive or ours != vanilla,
       do: row
 
 unless mismatches == [] do
@@ -28,12 +22,13 @@ unless mismatches == [] do
   System.halt(1)
 end
 
-for [state, remains] <- cases["remains"] do
-  unless Support.dependent?(state) and Valimc.Block.after_removal(state) == remains,
+for {[state, remains], true} <- Enum.zip(cases["remains"], dependent),
+    Valimc.Block.after_removal(state) != remains,
     do: raise("support remains mismatch: #{state}")
-end
+
+unless Enum.all?(dependent), do: raise("a state with remains has no survival facts")
 
 IO.puts(
   "PASS: #{length(cases["updates"])} vanilla survival/update neighbourhoods and the remains of " <>
-    "#{length(cases["remains"])} dependent states match the generated support facts."
+    "#{length(cases["remains"])} dependent states match the block rules."
 )

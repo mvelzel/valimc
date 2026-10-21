@@ -7,7 +7,6 @@ defmodule Valimc.TickPipelineTest do
 
   defmodule Spread do
     @moduledoc false
-    @behaviour Valimc.World.TickBehaviours
     def states, do: [Data.block("grass_block"), Data.block("dirt")]
 
     # A sampled grass block turns to dirt and schedules itself to become stone.

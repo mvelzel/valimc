@@ -161,6 +161,8 @@ pub struct BlockTable {
     pub fluid: Vec<u8>,
     /// Fluid amount (0..8) and the falling flag (bit 4).
     pub fluid_level: Vec<u8>,
+    /// What base block removal leaves (the state's fluid as a block).
+    pub remains: Vec<u16>,
     pub heightmaps: Vec<u8>,
     /// States fire can burn (`FireBlock.canBurn`), a bit per state.
     flammable: Vec<u64>,
@@ -221,6 +223,7 @@ impl BlockTable {
             block_entity_types: Vec::new(),
             fluid: states.fluid.clone(),
             fluid_level: states.fluid_level.clone(),
+            remains: states.remains.clone(),
             heightmaps: states.heightmaps.clone(),
             flammable: vec![0; count.div_ceil(64)],
             tags: HashMap::new(),

@@ -732,3 +732,50 @@ fn put_column(
 fn heap_bytes(region: ResourceArc<Region>) -> Result<usize, Atom> {
     with_store(&region, |store| Ok(store.heap_bytes()))
 }
+
+/// Live play's survival facts on `SupportOracle`'s cases (VMC-077m): per
+/// update case (a state at the origin, an update direction, its neighbours
+/// as offset and state, air elsewhere) whether it survives and the update's
+/// reaction (-1 break, 0 keep, n a tick n ticks out); and per state whether
+/// it has facts.
+type SupportCase = (u16, usize, Vec<(i32, i32, i32, u16)>);
+/// Per case (survives, reaction), and per state whether it has facts.
+type SupportResults = (Vec<(bool, i32)>, Vec<bool>);
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn rules_support_cases(
+    rules: ResourceArc<crate::rules::BlockRules>,
+    updates: Vec<SupportCase>,
+    states: Vec<u16>,
+) -> Result<SupportResults, Atom> {
+    use valimc_core::rules::support::Reaction;
+    let rules = &rules.rules;
+    let live = rules.live.as_ref().ok_or(atoms::invalid_state())?;
+    let air = rules
+        .table
+        .default_state("air")
+        .map_err(|_| atoms::invalid_state())?;
+    let results = updates
+        .iter()
+        .map(|(state, direction, cells)| {
+            let mut read = |p: [i32; 3]| {
+                if p == [0, 0, 0] {
+                    return *state;
+                }
+                cells
+                    .iter()
+                    .find(|&&(x, y, z, _)| [x, y, z] == p)
+                    .map_or(air, |&(_, _, _, s)| s)
+            };
+            let alive = live.survives(*state, [0, 0, 0], &mut read);
+            let reaction = match live.update(*state, [0, 0, 0], *direction, &mut read) {
+                Reaction::Keep => 0,
+                Reaction::Break => -1,
+                Reaction::Tick(delay) => delay,
+            };
+            (alive, reaction)
+        })
+        .collect();
+    let dependent = states.iter().map(|&s| live.dependent(s)).collect();
+    Ok((results, dependent))
+}

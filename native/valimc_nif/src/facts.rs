@@ -12,8 +12,8 @@ pub(crate) static FLAGS: OnceLock<BlockFlags> = OnceLock::new();
 pub(crate) static LIGHT: OnceLock<LightFacts> = OnceLock::new();
 pub(crate) static STATES: OnceLock<StateFacts> = OnceLock::new();
 
-/// The table's columns: `flags` is eight big-endian bytes per state, the
-/// others one byte per state; the light faces and sky carry their class counts
+/// The table's columns: `flags` is eight big-endian bytes per state,
+/// `fluid_remains` two, the others one byte per state; the light faces and sky carry their class counts
 /// and pair tables.
 #[derive(NifMap)]
 struct Columns<'a> {
@@ -21,6 +21,7 @@ struct Columns<'a> {
     heightmaps: Binary<'a>,
     fluid: Binary<'a>,
     fluid_level: Binary<'a>,
+    fluid_remains: Binary<'a>,
     light: Binary<'a>,
     light_faces: Vec<Binary<'a>>,
     light_classes: Vec<usize>,
@@ -66,6 +67,14 @@ fn install(columns: &Columns) -> Result<(), Atom> {
         columns.heightmaps.as_slice().to_vec(),
         columns.fluid.as_slice().to_vec(),
         columns.fluid_level.as_slice().to_vec(),
+        columns
+            .fluid_remains
+            .as_slice()
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&pair| u16::from_be_bytes(pair))
+            .collect(),
     )
     .ok_or(atoms::invalid_state())?;
     let light = LightFacts::new(

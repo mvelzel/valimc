@@ -7,16 +7,20 @@
 
 pub mod connect;
 pub mod fire;
+pub mod live;
 pub mod redstone;
 pub mod shapes;
 pub mod support;
+pub mod updater;
 
 use std::sync::Arc;
 
+use crate::facts::StateFacts;
 use crate::worldgen::blocks::{
     BlockSet, BlockTable, FLUID_FLOWING_WATER, FLUID_WATER, MOSSY_CARPET, STURDY,
 };
 use crate::worldgen::end::Chorus;
+use crate::worldgen::json::Json;
 use connect::Connections;
 use fire::Fire;
 use redstone::RedstoneWire;
@@ -59,6 +63,8 @@ pub struct Rules {
     pub table: Arc<BlockTable>,
     pub support: Arc<Support>,
     pub shapes: Option<Arc<Shapes>>,
+    /// Live play's survival facts, when given (`priv/physics/support.json`).
+    pub live: Option<Support>,
     pub fire: Fire,
     pub chorus: Chorus,
     pub redstone: RedstoneWire,
@@ -78,6 +84,7 @@ impl Rules {
         table: Arc<BlockTable>,
         support: Arc<Support>,
         shapes: Option<Arc<Shapes>>,
+        live: Option<Support>,
     ) -> Result<Rules, String> {
         Ok(Rules {
             fire: Fire::new(&table)?,
@@ -89,7 +96,28 @@ impl Rules {
             table,
             support,
             shapes,
+            live,
         })
+    }
+
+    /// The rules from their facts alone (live play, VMC-077m): the block
+    /// registry with its tags (`block_registry`, `block_facts`), decoration's
+    /// survival and shape facts (`support`, `shapes`) and live play's survival
+    /// facts (`live_support`).
+    pub fn parse(json: &Json, states: &StateFacts) -> Result<Rules, String> {
+        let table = Arc::new(BlockTable::parse(
+            json.field("block_registry")?,
+            json.field("block_facts")?,
+            states,
+        )?);
+        let support = Arc::new(Support::parse(json.field("support")?)?);
+        let shapes = json
+            .get("shapes")
+            .map(Shapes::parse)
+            .transpose()?
+            .map(Arc::new);
+        let live = json.get("live_support").map(Support::parse).transpose()?;
+        Rules::new(table, support, shapes, live)
     }
 
     /// `state.canSurvive(level, pos)`, as decoration checks it.
@@ -97,8 +125,9 @@ impl Rules {
         self.support.survives(state, pos, &mut |p| access.get(p))
     }
 
-    /// `state.updateShape(level, level, pos, d, …)` (the cell at `replaced`
-    /// reads as its given state): the new state; ticks go to `access`.
+    /// `state.updateShape(level, level, pos, d, …)` as decoration calls it
+    /// (the cell at `replaced` reads as its given state): the new state;
+    /// ticks go to `access`. A state whose update has no facts fails.
     pub fn update_shape(
         &self,
         access: &mut dyn BlockAccess,
@@ -107,11 +136,86 @@ impl Rules {
         d: usize,
         replaced: Option<([i32; 3], u16)>,
     ) -> Result<u16, String> {
+        if let Some(result) = self.code_update(access, state, pos, d, replaced) {
+            return result;
+        }
+        self.table_update(access, state, pos, d, replaced)
+    }
+
+    /// `updateShape` in live play: the rules in code, then live play's
+    /// survival facts (they hold under any light), then the shape facts; a
+    /// state none of them models keeps its state, as before VMC-077m.
+    pub fn live_update_shape(
+        &self,
+        access: &mut dyn BlockAccess,
+        state: u16,
+        pos: [i32; 3],
+        d: usize,
+        replaced: Option<([i32; 3], u16)>,
+    ) -> Result<u16, String> {
+        if let Some(result) = self.code_update(access, state, pos, d, replaced) {
+            return result;
+        }
+        let mut read = |p: [i32; 3]| match replaced {
+            Some((at, s)) if at == p => s,
+            _ => access.get(p),
+        };
+        if let Some(live) = self.live.as_ref().filter(|l| l.dependent(state)) {
+            return Ok(match live.update(state, pos, d, &mut read) {
+                support::Reaction::Keep => state,
+                support::Reaction::Break => self.table.default_state("air")?,
+                support::Reaction::Tick(delay) => {
+                    access.schedule_block_tick(pos, self.table.block_of(state), delay);
+                    state
+                }
+            });
+        }
+        match &self.shapes {
+            Some(shapes) if shapes.models(state, d) => {
+                self.table_update(access, state, pos, d, replaced)
+            }
+            _ => Ok(state),
+        }
+    }
+
+    /// What placing `state` at `pos` schedules: a coral block away from water
+    /// its death (`CoralBlock.getStateForPlacement`).
+    pub fn placed(&self, access: &mut dyn BlockAccess, state: u16, pos: [i32; 3]) {
+        let table = self.table.as_ref();
+        if table.class_name(state) != "CoralBlock" {
+            return;
+        }
+        let water = (0..6).any(|d| {
+            let fluid = table.fluid(access.get(at(pos, d)));
+            fluid == FLUID_WATER || fluid == FLUID_FLOWING_WATER
+        });
+        if !water {
+            let delay = 60 + access.next_int(40);
+            access.schedule_block_tick(pos, table.block_of(state), delay);
+        }
+    }
+
+    /// At a dependent state's scheduled tick in live play: whether it breaks.
+    pub fn live_breaks(&self, access: &mut dyn BlockAccess, state: u16, pos: [i32; 3]) -> bool {
+        self.live
+            .as_ref()
+            .is_some_and(|live| live.breaks(state, pos, &mut |p| access.get(p)))
+    }
+
+    /// The updates whose rules are code; `None` for the rest.
+    fn code_update(
+        &self,
+        access: &mut dyn BlockAccess,
+        state: u16,
+        pos: [i32; 3],
+        d: usize,
+        replaced: Option<([i32; 3], u16)>,
+    ) -> Option<Result<u16, String>> {
         let table = self.table.as_ref();
         let class = table.class_name(state);
         if class.contains("Coral") {
             if let Some(new_state) = self.coral_update(access, replaced, class, state, pos, d) {
-                return Ok(new_state);
+                return Some(Ok(new_state));
             }
         }
         let mut read = |p: [i32; 3]| match replaced {
@@ -119,13 +223,13 @@ impl Rules {
             _ => access.get(p),
         };
         if let Some(new_state) = self.fire.update_shape(table, &mut read, state, pos) {
-            return Ok(new_state);
+            return Some(Ok(new_state));
         }
         if let Some((new_state, tick)) = self.chorus.update_shape(table, &mut read, state, pos, d) {
             if let Some(block) = tick {
                 access.schedule_block_tick(pos, block, 1);
             }
-            return Ok(new_state);
+            return Some(Ok(new_state));
         }
         if self.connections.handles(table, state) {
             let (new_state, waterlogged) = self
@@ -134,24 +238,53 @@ impl Rules {
             if waterlogged {
                 access.schedule_fluid_tick(pos, FLUID_WATER, WATER_DELAY);
             }
-            return Ok(new_state);
+            return Some(Ok(new_state));
         }
         if table.block_of(state) == self.redstone.wire {
-            return Ok(self.redstone.update_shape(table, &mut read, state, pos, d));
+            return Some(Ok(self
+                .redstone
+                .update_shape(table, &mut read, state, pos, d)));
         }
         if table.block_of(state) == self.vine_block {
-            return Ok(crate::worldgen::multiface::vine_update(
+            return Some(Ok(crate::worldgen::multiface::vine_update(
                 table, &mut read, state, pos, d,
-            ));
+            )));
         }
         if table.in_tag(state, &self.speleothems) {
-            return crate::worldgen::speleothem::update_shape(table, access, state, pos, d);
+            return Some(crate::worldgen::speleothem::update_shape(
+                table, access, state, pos, d,
+            ));
         }
         if table.flag(state, MOSSY_CARPET) {
-            let carpet = crate::worldgen::multiface::MossyCarpet::new(table)?;
-            let air = table.default_state("air")?;
-            return Ok(carpet.update_shape(&self.support, &mut read, state, pos, air));
+            let carpet = match crate::worldgen::multiface::MossyCarpet::new(table) {
+                Ok(carpet) => carpet,
+                Err(e) => return Some(Err(e)),
+            };
+            let air = table.default_state("air").ok()?;
+            return Some(Ok(carpet.update_shape(
+                &self.support,
+                &mut read,
+                state,
+                pos,
+                air,
+            )));
         }
+        None
+    }
+
+    /// The generated shape update facts' rule for `state` toward `d`.
+    fn table_update(
+        &self,
+        access: &mut dyn BlockAccess,
+        state: u16,
+        pos: [i32; 3],
+        d: usize,
+        replaced: Option<([i32; 3], u16)>,
+    ) -> Result<u16, String> {
+        let mut read = |p: [i32; 3]| match replaced {
+            Some((at, s)) if at == p => s,
+            _ => access.get(p),
+        };
         let shapes = self.shapes.as_ref().ok_or("no shape update facts")?;
         let (new_state, ticks) = shapes.update(state, d, pos, &mut read)?;
         for tick in ticks {

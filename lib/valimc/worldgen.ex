@@ -111,10 +111,12 @@ defmodule Valimc.Worldgen do
 
   defp read_json!(path), do: path |> File.read!() |> JSON.decode!()
 
-  # What decoration reads besides the installed per-state facts
-  # (`BlockFacts.install!/0`): each block's block entity type and the block and
-  # fluid tags.
-  defp block_facts(tags) do
+  @doc """
+  What the native block table reads besides the installed per-state facts
+  (`BlockFacts.install!/0`): each block's block entity type and the block and
+  fluid tags.
+  """
+  def block_facts(tags) do
     %{
       "block_entity_types" => BlockFacts.block_entity_types(),
       "block_tags" => tags["minecraft:block"],

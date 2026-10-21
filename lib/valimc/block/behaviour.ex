@@ -38,9 +38,12 @@ defmodule Valimc.Block.Behaviour do
 
   @doc """
   Region tick reactions (VMC-066), optional: effects for a random or scheduled
-  tick of this state at `position`. `read` returns the block at a position in the
-  same region (nil elsewhere) and `random.(n)` draws an integer in `0..n-1`. See
-  `Valimc.World.TickBehaviours` for the effects.
+  tick of this state at `position`, which the owner applies as one batch:
+  `{:set, position, block}` replaces a block in the same region and
+  `{:schedule, position, block, delay, priority}` schedules a tick. `read`
+  returns the block at a position in the same region (nil elsewhere) and
+  `random.(n)` draws an integer in `0..n-1`. Behaviours never touch storage or
+  other owners.
   """
   @callback random_tick(position :: tuple(), state, read :: function(), random :: function()) ::
               [tuple()]
@@ -48,8 +51,9 @@ defmodule Valimc.Block.Behaviour do
               [tuple()]
 
   @doc """
-  Vanilla `updateShape`, scheduling half (optional): called after the block at
-  `position` or one of its six neighbours changed. It may only schedule ticks.
+  Vanilla `updateShape` for a block with effects of its own (optional; the
+  block rules do the rest, VMC-077m): called after the block at `position` or
+  one of its six neighbours changed. It may only schedule ticks.
   """
   @callback shape_update(position :: tuple(), state, read :: function(), random :: function()) ::
               [tuple()]

@@ -134,6 +134,11 @@ impl Shapes {
         })
     }
 
+    /// Whether the facts model `state`'s update toward `d`.
+    pub fn models(&self, state: u16, d: usize) -> bool {
+        !matches!(self.entries[state as usize][d], Entry::Unmodelled)
+    }
+
     /// `state.updateShape` at `pos` toward direction `d`: the new state and
     /// the ticks to schedule (offsets from `pos`), reading cells through
     /// `read`.

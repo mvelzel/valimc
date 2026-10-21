@@ -279,8 +279,8 @@ defmodule Valimc.Registry.BlockFacts do
 
   @doc """
   Install the table in the Rust core once per VM (later calls do nothing): the
-  flags, heightmap predicates, the fluid as vanilla's fluid registry id and its
-  level, and the light and sky columns. The storage flags, the light engine and
+  flags, heightmap predicates, the fluid as vanilla's fluid registry id, its
+  level and what removal leaves, and the light and sky columns. The storage flags, the light engine and
   worldgen's block table read only this install.
   """
   def install! do
@@ -323,6 +323,7 @@ defmodule Valimc.Registry.BlockFacts do
       heightmaps: @heightmap_states,
       fluid: for({kind, _} <- fluids, into: <<>>, do: <<kind>>),
       fluid_level: for({_, level} <- fluids, into: <<>>, do: <<level>>),
+      fluid_remains: for(id <- states, into: <<>>, do: <<fluid_remains(id)::16>>),
       light: @light,
       light_faces: faces,
       light_classes: classes,

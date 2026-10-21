@@ -44,8 +44,7 @@ defmodule Valimc.World.RegionData do
 
   alias Valimc.Protocol.Packets
   alias Valimc.Txn.Permits
-  alias Valimc.Block.Support
-  import Bitwise, only: [bxor: 2]
+  alias Valimc.Block.Rules
 
   defstruct [
     :block_entities,
@@ -102,6 +101,7 @@ defmodule Valimc.World.RegionData do
     :scheduled_ticks,
     :ticks_dirty,
     :tick_index,
+    :rule_backlog,
     :random_tick_speed,
     :dirty,
     :unsaved,
@@ -235,6 +235,7 @@ defmodule Valimc.World.RegionData do
       scheduled_ticks: scheduled,
       ticks_dirty: false,
       tick_index: tick_index,
+      rule_backlog: [],
       random_tick_speed: Valimc.config(:random_tick_speed, key),
       item_checkpoint_ms: Valimc.config(:item_checkpoint_ms, key),
       dirty: false,
@@ -1677,7 +1678,7 @@ defmodule Valimc.World.RegionData do
                 versions: Map.update(state.versions, key, 1, &(&1 + 1))
             }
             |> uncache([key])
-            |> shape_updates(%{position => block})
+            |> shape_updates(previous_blocks)
 
           {:reply, :ok, publish_block_snapshots(next, [key])}
         else
@@ -1819,27 +1820,29 @@ defmodule Valimc.World.RegionData do
       end)
 
     state = %{state | scheduled_ticks: scheduled, ticks_dirty: state.ticks_dirty or due != []}
+    state = retry_rule_backlog(state)
     read = &read_block(state, &1)
 
-    # A dependent block whose tick finds it unsupported breaks (VMC-029c) instead
-    # of running its behaviour.
-    {breaks, due} =
+    # A tick a behaviour handles runs it; the others are dependent blocks'
+    # (VMC-029c), which the block rules break if they can no longer survive.
+    {behaviour_due, rule_due} =
       due
       |> Enum.filter(fn {position, block} -> Blocks.get(state.blocks, position) == block end)
-      |> Enum.split_with(fn {position, block} -> Support.breaks?(position, block, read) end)
+      |> Enum.split_with(fn {_, block} ->
+        module = state.tick_index[block]
+        module != nil and function_exported?(module, :scheduled_tick, 4)
+      end)
 
     scheduled_effects =
-      for {position, block} <- due,
-          module = state.tick_index[block],
-          module != nil and function_exported?(module, :scheduled_tick, 4),
-          effect <- module.scheduled_tick(position, block, read, &random/1),
+      for {position, block} <- behaviour_due,
+          effect <- state.tick_index[block].scheduled_tick(position, block, read, &random/1),
           do: effect
 
     {random_effects, state} = random_ticks(state, read)
 
     state
+    |> rule_updates(%{}, rule_due)
     |> apply_tick_effects(scheduled_effects ++ random_effects)
-    |> support_breaks(breaks)
   end
 
   @orb_save_ticks 600
@@ -1905,21 +1908,24 @@ defmodule Valimc.World.RegionData do
 
   defp random(bound), do: :rand.uniform(bound) - 1
 
-  # Vanilla `updateShape` after a block commit: behaviours of the edited positions
-  # and their neighbours may schedule ticks, and dependent neighbours that can no
-  # longer survive schedule the tick that breaks them (VMC-029c).
-  defp shape_updates(state, changes) do
-    read = &read_block(state, &1)
-    state |> behaviour_shape_updates(changes, read) |> support_updates(changes, read)
+  # Vanilla's updates after a block commit (VMC-077m): behaviours with effects
+  # of their own (portals) schedule from here; everything else is the block
+  # rules'. `previous` holds the changed cells' old states.
+  defp shape_updates(state, previous) do
+    state
+    |> behaviour_shape_updates(Map.keys(previous))
+    |> rule_updates(previous, [])
   end
 
-  defp behaviour_shape_updates(%{tick_index: index} = state, _changes, _read)
+  defp behaviour_shape_updates(%{tick_index: index} = state, _positions)
        when map_size(index) == 0,
        do: state
 
-  defp behaviour_shape_updates(state, changes, read) do
+  defp behaviour_shape_updates(state, changed) do
+    read = &read_block(state, &1)
+
     positions =
-      for {x, y, z} <- Map.keys(changes),
+      for {x, y, z} <- changed,
           position <- [
             {x, y, z},
             {x, y - 1, z},
@@ -1944,86 +1950,99 @@ defmodule Valimc.World.RegionData do
     schedule_ticks(state, effects)
   end
 
-  # Each neighbour of an edited position sees the update from the opposite side.
-  # Vanilla breaks at once where this waits for the next tick: the break is one
-  # durable commit with its drops, and a cascade advances one block per tick.
-  defp support_updates(state, changes, read) do
-    directions =
-      for {x, y, z} <- Map.keys(changes), d <- 0..5, reduce: %{} do
-        acc ->
-          {dx, dy, dz} = Support.direction(d)
-          Map.update(acc, {x + dx, y + dy, z + dz}, [bxor(d, 1)], &[bxor(d, 1) | &1])
-      end
+  # The block rules after `previous` (cell => old state) changed and at
+  # dependent blocks' due `ticks`. Their writes commit as one batch: with the
+  # loot of the blocks they destroyed in one durable frame (the mining
+  # commit) when any drops, else raw; that batch starts no updates of its own.
+  # Behind a planning transfer or a full write queue a run with drops waits
+  # for the next tick, whole.
+  defp rule_updates(state, previous, []) when map_size(previous) == 0, do: state
 
-    positions = for position <- Map.keys(directions), in_region?(state, position), do: position
+  defp rule_updates(state, previous, ticks) do
+    absent = MapSet.to_list(state.generation.absent)
+    outcome = Rules.run(state.blocks, previous, ticks, absent)
+    drops = for {position, block, true} <- outcome.destroyed, do: {position, block}
 
-    effects =
-      for {position, block} <- Blocks.get_many(state.blocks, positions),
-          Support.dependent?(block),
-          delay = support_delay(Support.update(position, block, directions[position], read)),
-          delay != nil,
-          do: {:schedule, position, block, delay, 0}
+    cond do
+      drops != [] and write_busy(state) != nil ->
+        %{state | rule_backlog: [{previous, ticks} | state.rule_backlog]}
 
-    schedule_ticks(state, effects)
-  end
-
-  defp support_delay(:keep), do: nil
-  defp support_delay(:break), do: 1
-  defp support_delay({:tick, delay}), do: delay
-
-  @max_support_breaks 4096
-
-  # Blocks that lost their support break like vanilla `destroyBlock`: they leave
-  # their fluid and drop their tool-less loot. One durable frame holds the removal
-  # and the items (the mining commit); its shape updates schedule the next level
-  # of a cascade. Behind a planning transfer, a full write queue or more than one
-  # batch of breaks, the rest wait a tick.
-  defp support_breaks(state, []), do: state
-
-  defp support_breaks(state, breaks) do
-    breaks =
-      for {position, block} = due <- breaks, Blocks.get(state.blocks, position) == block, do: due
-
-    {now, later} = Enum.split(breaks, @max_support_breaks)
-
-    if now == [] or write_busy(state) != nil do
-      schedule_ticks(state, for({p, b} <- breaks, do: {:schedule, p, b, 1, 0}))
-    else
-      state = schedule_ticks(state, for({p, b} <- later, do: {:schedule, p, b, 1, 0}))
-
-      # A block whose contents or preserved data cannot go stays (a sign, a bed).
-      edits =
-        for {position, block} <- now,
-            edit = %{position => Valimc.Block.after_removal(block)},
-            not protected_container_change?(state, edit) and not preserved_change?(state, edit),
-            into: %{},
-            do: {position, edit[position]}
-
-      now = Enum.filter(now, fn {position, _} -> Map.has_key?(edits, position) end)
-
-      items = Enum.reduce(now, state.items, &add_support_drops(&2, state.key, &1))
-
-      with {:ok, batch} <- BlockBatch.prepare(edits),
-           {:ok, proposal} <- block_proposal(state, batch) do
-        token = make_ref()
-
-        Store.commit_mining(
-          state.store,
-          state.store_lease,
-          %{changes: batch.edits, items: items, receipts: state.item_receipts},
-          {self(), state.items.epoch},
-          token
-        )
-
-        {state, effects} = apply_blocks(state, batch, proposal, false, false)
-        timer = send_after(state, {:item_commit_deadline, token}, 5000)
+      true ->
+        changes = Map.new(outcome.changes)
 
         state
-        |> queue_item_write(token, timer, items, state.item_receipts, nil, nil, effects)
-        |> release_when_durable([{:level_events, for({p, b} <- now, do: {p, 2001, b})}])
-      else
-        _ -> state
-      end
+        |> schedule_ticks(rule_ticks(state, changes, outcome.ticks))
+        |> commit_rule_changes(changes, drops)
+    end
+  end
+
+  # The rules schedule a block's tick, as vanilla does; the owner's ticks name
+  # the state, so each takes the cell's state after the run when it is that
+  # block's (else vanilla's tick would not run either).
+  defp rule_ticks(_state, _changes, []), do: []
+
+  defp rule_ticks(state, changes, ticks) do
+    ticks = Enum.filter(ticks, fn {position, _, _} -> in_region?(state, position) end)
+
+    stored =
+      Blocks.get_many(state.blocks, for({p, _, _} <- ticks, not is_map_key(changes, p), do: p))
+
+    for {position, block, delay} <- ticks,
+        cell = Map.get(changes, position) || Map.fetch!(stored, position),
+        Valimc.Registry.Blocks.block_id(cell) == block,
+        do: {:schedule, position, cell, delay, 0}
+  end
+
+  defp retry_rule_backlog(%{rule_backlog: []} = state), do: state
+
+  defp retry_rule_backlog(state) do
+    if write_busy(state) != nil do
+      state
+    else
+      backlog = Enum.reverse(state.rule_backlog)
+
+      Enum.reduce(backlog, %{state | rule_backlog: []}, fn {previous, ticks}, acc ->
+        rule_updates(acc, previous, ticks)
+      end)
+    end
+  end
+
+  defp commit_rule_changes(state, edits, _drops) when map_size(edits) == 0, do: state
+
+  defp commit_rule_changes(state, edits, []) do
+    with {:ok, batch} <- BlockBatch.prepare(edits),
+         {:ok, proposal} <- block_proposal(state, batch) do
+      publish_blocks(state, batch, proposal, true, false, false)
+    else
+      _ -> state
+    end
+  end
+
+  # Destroyed blocks break like vanilla `destroyBlock`: they leave their fluid
+  # and drop their tool-less loot, in the frame that writes the rules' changes.
+  defp commit_rule_changes(state, edits, drops) do
+    items = Enum.reduce(drops, state.items, &add_support_drops(&2, state.key, &1))
+
+    with {:ok, batch} <- BlockBatch.prepare(edits),
+         {:ok, proposal} <- block_proposal(state, batch) do
+      token = make_ref()
+
+      Store.commit_mining(
+        state.store,
+        state.store_lease,
+        %{changes: batch.edits, items: items, receipts: state.item_receipts},
+        {self(), state.items.epoch},
+        token
+      )
+
+      {state, effects} = apply_blocks(state, batch, proposal, false, false, false)
+      timer = send_after(state, {:item_commit_deadline, token}, 5000)
+
+      state
+      |> queue_item_write(token, timer, items, state.item_receipts, nil, nil, effects)
+      |> release_when_durable([{:level_events, for({p, b} <- drops, do: {p, 2001, b})}])
+    else
+      _ -> state
     end
   end
 
@@ -3034,14 +3053,14 @@ defmodule Valimc.World.RegionData do
   end
 
   # Client block updates keep owner order: behind queued world writes they wait.
-  defp publish_blocks(state, batch, proposal, dirty, cooking \\ false) do
-    {state, effects} = apply_blocks(state, batch, proposal, dirty, cooking)
+  defp publish_blocks(state, batch, proposal, dirty, cooking \\ false, updates \\ true) do
+    {state, effects} = apply_blocks(state, batch, proposal, dirty, cooking, updates)
     release_when_durable(state, [{:blocks, effects}])
   end
 
   # Memory side of a block commit: storage, fences, permits and caches. External
   # effects are returned for `release_blocks/2` (immediately, or once durable).
-  defp apply_blocks(state, batch, proposal, dirty, cooking) do
+  defp apply_blocks(state, batch, proposal, dirty, cooking, updates \\ true) do
     previous = Blocks.get_many(state.blocks, Map.keys(proposal.changes))
     :ok = Blocks.put(state.blocks, proposal.changes)
 
@@ -3078,7 +3097,7 @@ defmodule Valimc.World.RegionData do
           )
       })
 
-    state = if cooking, do: state, else: shape_updates(state, proposal.changes)
+    state = if cooking or not updates, do: state, else: shape_updates(state, previous)
     # Light follows every change, cooking too (a lit furnace emits light).
     lit = Blocks.light_update(state.blocks, Map.keys(proposal.changes))
     # Edited chunks were invalidated with their blocks above; others only lit.

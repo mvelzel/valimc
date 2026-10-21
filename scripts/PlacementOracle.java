@@ -55,7 +55,7 @@ public class PlacementOracle {
     level.clickedPos=BlockPos.ZERO;level.adjacent=Blocks.AIR.defaultBlockState();
     var plain=new JsonObject();
     // Tick-reacting full blocks whose placement is still their default state: ValiMC's
-    // block behaviour supplies CoralBlock's placement-time tick scheduling (shape_update).
+    // block rules supply CoralBlock's placement-time tick scheduling (VMC-077m).
     var ticking=Set.<Class<?>>of(net.minecraft.world.level.block.CoralBlock.class,net.minecraft.world.level.block.BuddingAmethystBlock.class);
     for(var block:BuiltInRegistries.BLOCK){
       boolean ordinary=(block.getClass()==Block.class||ticking.contains(block.getClass()))&&block.getStateDefinition().getPossibleStates().size()==1&&block.asItem().getClass()==BlockItem.class&&!block.defaultBlockState().canBeReplaced()&&block.defaultBlockState().isCollisionShapeFullBlock(net.minecraft.world.level.EmptyBlockGetter.INSTANCE,BlockPos.ZERO);

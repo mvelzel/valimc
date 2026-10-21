@@ -23,6 +23,8 @@ pub struct StateFacts {
     pub fluid: Vec<u8>,
     /// The fluid amount (0..8) with the falling flag at bit 4.
     pub fluid_level: Vec<u8>,
+    /// What base block removal leaves: the state's fluid as a block.
+    pub remains: Vec<u16>,
 }
 
 impl StateFacts {
@@ -31,13 +33,20 @@ impl StateFacts {
         heightmaps: Vec<u8>,
         fluid: Vec<u8>,
         fluid_level: Vec<u8>,
+        remains: Vec<u16>,
     ) -> Option<Self> {
         let count = flags.len();
         let valid = count > 0
             && count <= u16::MAX as usize + 1
-            && [heightmaps.len(), fluid.len(), fluid_level.len()]
-                .iter()
-                .all(|&n| n == count)
+            && [
+                heightmaps.len(),
+                fluid.len(),
+                fluid_level.len(),
+                remains.len(),
+            ]
+            .iter()
+            .all(|&n| n == count)
+            && remains.iter().all(|&r| (r as usize) < count)
             && heightmaps.iter().all(|&h| h < 64)
             && fluid.iter().all(|&f| f <= 4)
             && fluid_level.iter().all(|&l| l & 15 <= 8 && l < 32);
@@ -46,6 +55,7 @@ impl StateFacts {
             heightmaps,
             fluid,
             fluid_level,
+            remains,
         })
     }
 
@@ -82,13 +92,14 @@ mod tests {
             vec![0, 0b11_1111, 0],
             vec![0, 0, 2],
             vec![0, 0, 8],
+            vec![0, 0, 0],
         )
         .unwrap();
         let storage = facts.storage_flags();
         assert_eq!(storage.get(0), flags::AIR);
         assert_eq!(storage.get(1), 0b11_1111);
         assert_eq!(storage.get(2), flags::FLUID);
-        assert!(StateFacts::new(vec![0], vec![64], vec![0], vec![0]).is_none());
-        assert!(StateFacts::new(vec![0, 0], vec![0], vec![0], vec![0]).is_none());
+        assert!(StateFacts::new(vec![0], vec![64], vec![0], vec![0], vec![0]).is_none());
+        assert!(StateFacts::new(vec![0, 0], vec![0], vec![0], vec![0], vec![0, 0]).is_none());
     }
 }
