@@ -29,8 +29,11 @@ defmodule Valimc.WorldgenProtoTest do
   # The 5 × 5 around `centre` through encoded chunks, its 3 × 3 decorated in
   # `order`: every chunk as `worldgen_decorate` reports it.
   defp through_protos(state, centre, order) do
-    {:ok, terrain} = Native.worldgen_proto_terrain(state, @source, around(centre, 2))
-    {:ok, {touched, 0}} = Native.worldgen_proto_decorate(state, images(terrain), order)
+    {:ok, terrain} = Native.worldgen_proto_terrain(state, @source, around(centre, 2), false)
+
+    {:ok, {touched, 0}} =
+      Native.worldgen_proto_decorate(state, @source, images(terrain), order, false)
+
     decorated = Map.merge(by_chunk(terrain), by_chunk(touched))
 
     {:ok, chunks} =
@@ -64,10 +67,10 @@ defmodule Valimc.WorldgenProtoTest do
   test "only the chunks decoration writes into come back, and reads stay in the 3 × 3",
        %{state: state} do
     # The 3 × 3 alone: decoration reads no chunk outside it.
-    {:ok, terrain} = Native.worldgen_proto_terrain(state, @source, around({-200, 40}, 1))
+    {:ok, terrain} = Native.worldgen_proto_terrain(state, @source, around({-200, 40}, 1), false)
 
     {:ok, {touched, lenient}} =
-      Native.worldgen_proto_decorate(state, images(terrain), [{-200, 40}])
+      Native.worldgen_proto_decorate(state, @source, images(terrain), [{-200, 40}], false)
 
     assert lenient == 0
     assert {-200, 40} in Enum.map(touched, fn {x, z, _} -> {x, z} end)
@@ -77,8 +80,11 @@ defmodule Valimc.WorldgenProtoTest do
   test "a decorated chunk becomes a full column with its extras", %{state: state} do
     centre = {0, 0}
     order = around(centre, 1)
-    {:ok, terrain} = Native.worldgen_proto_terrain(state, @source, around(centre, 2))
-    {:ok, {touched, 0}} = Native.worldgen_proto_decorate(state, images(terrain), order)
+    {:ok, terrain} = Native.worldgen_proto_terrain(state, @source, around(centre, 2), false)
+
+    {:ok, {touched, 0}} =
+      Native.worldgen_proto_decorate(state, @source, images(terrain), order, false)
+
     image = by_chunk(touched)[centre]
     {:ok, [inspected]} = Native.worldgen_proto_inspect(state, [image])
 
@@ -114,13 +120,13 @@ defmodule Valimc.WorldgenProtoTest do
 
   test "generations of one seed run in parallel and agree", %{state: state} do
     chunks = for x <- 0..7, do: {x, 3}
-    {:ok, serial} = Native.worldgen_proto_terrain(state, @source, chunks)
+    {:ok, serial} = Native.worldgen_proto_terrain(state, @source, chunks, false)
 
     parallel =
       chunks
       |> Task.async_stream(
         fn c ->
-          {:ok, [one]} = Native.worldgen_proto_terrain(state, @source, [c])
+          {:ok, [one]} = Native.worldgen_proto_terrain(state, @source, [c], false)
           one
         end,
         timeout: 60_000

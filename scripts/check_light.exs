@@ -27,7 +27,7 @@ images =
 {min_x, min_z} = {Enum.min(xs), Enum.min(zs)}
 
 {:ok, lit} =
-  Light.columns(images, {min_x, min_z}, Enum.max(xs) - min_x + 1, Enum.max(zs) - min_z + 1)
+  Native.light_columns(images, min_x, min_z, Enum.max(xs) - min_x + 1, Enum.max(zs) - min_z + 1)
 
 ours = Map.new(lit, fn {x, z, light} -> {{x, z}, light} end)
 vanilla = File.read!(light_bin)

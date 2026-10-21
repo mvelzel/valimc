@@ -62,7 +62,7 @@ defmodule Valimc.AnvilChunkTest do
     assert map_size(cache) == 2
 
     {:ok, blocks} = Storage.new(Valimc.World.region_key({-3, 7}))
-    assert :ok = Storage.put_column(blocks, {-3, 7}, specs)
+    assert :ok = Valimc.Native.put_column(blocks.ref, -3, 7, specs)
     assert Storage.get(blocks, {-48, 0, 112}) == log
     assert Storage.get(blocks, {-48, -64, 112}) == 0
     assert {:ok, states, biomes} = Storage.dump_column(blocks, {-3, 7})
@@ -109,7 +109,10 @@ defmodule Valimc.AnvilChunkTest do
     {:ok, blocks} = Storage.new(Valimc.World.region_key({-3, 7}))
     air = {[0], <<>>, 0, [@plains], <<>>, 0}
     short = {[1, 2], :binary.copy(<<0>>, 8), 4, [@plains], <<>>, 0}
-    assert {:error, _} = Storage.put_column(blocks, {-3, 7}, [short | List.duplicate(air, 23)])
-    assert {:error, _} = Storage.put_column(blocks, {-3, 7}, List.duplicate(air, 23))
+
+    assert {:error, _} =
+             Valimc.Native.put_column(blocks.ref, -3, 7, [short | List.duplicate(air, 23)])
+
+    assert {:error, _} = Valimc.Native.put_column(blocks.ref, -3, 7, List.duplicate(air, 23))
   end
 end

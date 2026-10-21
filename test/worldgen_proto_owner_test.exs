@@ -200,7 +200,7 @@ defmodule Valimc.WorldgenProtoOwnerTest do
 
     decorate = fn images, order ->
       {:ok, {touched, 0}} =
-        Native.worldgen_proto_decorate(ctx.worldgen, Map.values(images), order)
+        Native.worldgen_proto_decorate(ctx.worldgen, @source, Map.values(images), order, false)
 
       Map.merge(images, Map.new(touched, fn {x, z, image} -> {{x, z}, image} end))
     end

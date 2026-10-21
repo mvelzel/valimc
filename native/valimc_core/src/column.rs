@@ -863,47 +863,6 @@ impl ColumnStore {
         self.columns.contains_key(&chunk)
     }
 
-    /// Every block that differs from the base profile, for sparse persistence.
-    pub fn diff(&self) -> Vec<(i32, i32, i32, u16)> {
-        let mut out = Vec::new();
-        for chunk in self.columns.keys() {
-            self.diff_into(*chunk, &mut out);
-        }
-        out
-    }
-
-    /// Blocks of one chunk that differ from the base profile.
-    pub fn chunk_diff(&self, chunk: (i32, i32)) -> Vec<(i32, i32, i32, u16)> {
-        let mut out = Vec::new();
-        self.diff_into(chunk, &mut out);
-        out
-    }
-
-    fn diff_into(&self, (cx, cz): (i32, i32), out: &mut Vec<(i32, i32, i32, u16)>) {
-        if let Some(column) = self.columns.get(&(cx, cz)) {
-            for (s, storage) in column.sections.iter().enumerate() {
-                if let Storage::Single(state) = storage {
-                    if self.layers[s * 16..s * 16 + 16].iter().all(|b| b == state) {
-                        continue;
-                    }
-                }
-                storage.for_each(|i, state| {
-                    let (x, z, y) = (i & 15, (i >> 4) & 15, i >> 8);
-                    let wy = s * 16 + y;
-                    if self.layers[wy] != state {
-                        out.push((
-                            cx * 16 + x as i32,
-                            wy as i32 + MIN_Y,
-                            cz * 16 + z as i32,
-                            state,
-                        ));
-                    }
-                });
-            }
-        }
-    }
-
-    /// Drop columns that equal the base profile and collapse uniform sections.
     fn next_random(&mut self) -> u64 {
         let mut x = self.rng;
         x ^= x << 13;
@@ -965,19 +924,6 @@ impl ColumnStore {
         }
         self.ticking = ticking;
         hits
-    }
-
-    pub fn compact(&mut self) {
-        let layers = &self.layers;
-        self.columns.retain(|_, column| {
-            column.sections.iter_mut().for_each(Storage::normalize);
-            column.biomes.is_some()
-                || !column.sections.iter().enumerate().all(|(s, storage)| {
-                    let mut same = true;
-                    storage.for_each(|i, state| same &= layers[s * 16 + (i >> 8)] == state);
-                    same
-                })
-        });
     }
 
     pub fn heap_bytes(&self) -> usize {
@@ -1281,7 +1227,7 @@ mod tests {
     }
 
     #[test]
-    fn set_many_is_all_or_nothing_and_diff_round_trips() {
+    fn set_many_is_all_or_nothing() {
         let mut store = ColumnStore::new((0, 0), 8, flat(), 1 << 30);
         let f = flags();
         assert_eq!(
@@ -1293,13 +1239,8 @@ mod tests {
             store.set_many(&[(1, 64, 1, 5), (2, 63, 2, 0)], &f),
             Ok(vec![0, 4])
         );
-        let mut diff = store.diff();
-        diff.sort();
-        assert_eq!(diff, vec![(1, 64, 1, 5), (2, 63, 2, 0)]);
-        store.set_many(&[(1, 64, 1, 0), (2, 63, 2, 4)], &f).unwrap();
-        store.compact();
-        assert!(store.columns.is_empty());
-        assert!(store.diff().is_empty());
+        assert_eq!(store.get(1, 64, 1), Ok(5));
+        assert_eq!(store.get(2, 63, 2), Ok(0));
     }
 
     /// The light facts of `light_grid`'s tests: 0 air, 1 stone, 2 torch

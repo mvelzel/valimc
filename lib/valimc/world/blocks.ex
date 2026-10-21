@@ -29,7 +29,7 @@ defmodule Valimc.World.Blocks do
   def init! do
     :ok =
       case Native.flags_init(flags()) do
-        {:ok, :ok} -> :ok
+        :ok -> :ok
         other -> raise "block flag initialization failed: #{inspect(other)}"
       end
   end
@@ -54,13 +54,13 @@ defmodule Valimc.World.Blocks do
     layers = for y <- Chunk.min_y()..319, into: <<>>, do: <<Chunk.base(y)::16>>
     {:ok, ref} = Native.region_new(rx * size, rz * size, size, layers, @budget)
     # The owner's dimension may have no sky light (the Nether, VMC-026b).
-    unless Valimc.Dimension.facts().sky_light, do: {:ok, :ok} = Native.light_sky(ref, false)
+    unless Valimc.Dimension.facts().sky_light, do: :ok = Native.light_sky(ref, false)
     blocks = %__MODULE__{ref: ref, key: key}
 
     restored =
       Enum.reduce_while(images, :ok, fn {{cx, cz}, image}, :ok ->
         case Native.put_column_image(ref, cx, cz, image) do
-          {:ok, :ok} -> {:cont, :ok}
+          :ok -> {:cont, :ok}
           {:error, reason} -> {:halt, {:error, {:invalid_column_image, {cx, cz}, reason}}}
         end
       end)
@@ -70,8 +70,7 @@ defmodule Valimc.World.Blocks do
 
   @doc "Light the region and its one-chunk ring from scratch (VMC-022c)."
   def light_compute(%__MODULE__{} = blocks) do
-    {:ok, :ok} = Native.light_compute(blocks.ref)
-    :ok
+    :ok = Native.light_compute(blocks.ref)
   end
 
   @doc """
@@ -148,9 +147,9 @@ defmodule Valimc.World.Blocks do
     end
   end
 
-  def get(%__MODULE__{} = blocks, {_, y, _} = position) do
-    case Native.get_blocks(blocks.ref, [position]) do
-      {:ok, [block]} -> block
+  def get(%__MODULE__{} = blocks, {x, y, z}) do
+    case Native.get_blocks(blocks.ref, <<x::32-signed, y::32-signed, z::32-signed>>) do
+      {:ok, <<block::16>>} -> block
       {:error, _} -> Chunk.base(y)
     end
   end
@@ -159,9 +158,12 @@ defmodule Valimc.World.Blocks do
   def get_many(%__MODULE__{} = blocks, positions) do
     positions = Enum.uniq(positions)
 
-    case Native.get_blocks(blocks.ref, positions) do
+    packed =
+      for {x, y, z} <- positions, into: <<>>, do: <<x::32-signed, y::32-signed, z::32-signed>>
+
+    case Native.get_blocks(blocks.ref, packed) do
       {:ok, states} ->
-        Map.new(Enum.zip(positions, states))
+        Map.new(Enum.zip(positions, for(<<state::16 <- states>>, do: state)))
 
       {:error, _} ->
         Map.new(positions, &{&1, get(blocks, &1)})
@@ -172,27 +174,12 @@ defmodule Valimc.World.Blocks do
   def put(%__MODULE__{}, changes) when map_size(changes) == 0, do: :ok
 
   def put(%__MODULE__{} = blocks, changes) when is_map(changes) do
-    changes = for {{x, y, z}, block} <- changes, do: {x, y, z, block}
+    packed =
+      for {{x, y, z}, block} <- changes,
+          into: <<>>,
+          do: <<x::32-signed, y::32-signed, z::32-signed, block::32>>
 
-    case Native.set_blocks(blocks.ref, changes) do
-      {:ok, _previous} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  @doc "The sparse difference from flat terrain (the current persistence image)."
-  def image(%__MODULE__{} = blocks) do
-    {:ok, entries} = Native.diff(blocks.ref)
-    Map.new(entries, fn {x, y, z, block} -> {{x, y, z}, block} end)
-  end
-
-  @doc "The persistence image after applying `changes`, without mutating storage."
-  def image(%__MODULE__{} = blocks, changes) do
-    Enum.reduce(changes, image(blocks), fn {{_, y, _} = position, block}, acc ->
-      if block == Chunk.base(y),
-        do: Map.delete(acc, position),
-        else: Map.put(acc, position, block)
-    end)
+    Native.dispatch(:set_blocks, div(byte_size(packed), 16), [blocks.ref, packed])
   end
 
   @doc """
@@ -217,17 +204,6 @@ defmodule Valimc.World.Blocks do
 
       {:ok, {sections, surface, motion}} ->
         %{chunk: chunk, sections: sections, surface: surface, motion: motion}
-    end
-  end
-
-  @doc """
-  Replace a chunk's column with imported sections (VMC-021b): 24 specs from
-  `Valimc.Anvil.Chunk`, bottom to top.
-  """
-  def put_column(%__MODULE__{} = blocks, {cx, cz}, sections) do
-    case Native.put_column(blocks.ref, cx, cz, sections) do
-      {:ok, :ok} -> :ok
-      {:error, _} = error -> error
     end
   end
 
@@ -265,8 +241,11 @@ defmodule Valimc.World.Blocks do
   """
   def chunk_entities(%__MODULE__{} = blocks, {cx, cz}) do
     states = owned_states() ++ Valimc.Physics.BlockEntities.plain_states()
-    {:ok, entries} = Native.chunk_find(blocks.ref, cx, cz, states)
-    Map.new(entries, fn {x, y, z, block} -> {{x, y, z}, block} end)
+    {:ok, found} = Native.chunk_find(blocks.ref, cx, cz, states)
+
+    for <<x::32-signed, y::32-signed, z::32-signed, block::16 <- found>>,
+      into: %{},
+      do: {{x, y, z}, block}
   end
 
   defp owned_states do
@@ -319,24 +298,16 @@ defmodule Valimc.World.Blocks do
         bits
       end
 
-    {:ok, :ok} = Native.set_random_ticking(blocks.ref, bitmap)
-    :ok
+    :ok = Native.set_random_ticking(blocks.ref, bitmap)
   end
 
   @doc "Sampled random tick hits `{position, state}` for this tick (vanilla positions per section)."
   def random_ticks(%__MODULE__{} = blocks, per_section) do
-    {:ok, hits} = Native.random_ticks(blocks.ref, per_section)
-    for {x, y, z, state} <- hits, do: {{x, y, z}, state}
-  end
+    sections = Valimc.config(:region_size) ** 2 * 24
 
-  def heap_bytes(%__MODULE__{} = blocks) do
-    {:ok, bytes} = Native.heap_bytes(blocks.ref)
-    bytes
-  end
+    {:ok, hits} =
+      Native.dispatch(:random_ticks, per_section * sections, [blocks.ref, per_section])
 
-  @doc "Release columns that returned to flat terrain."
-  def compact(%__MODULE__{} = blocks) do
-    {:ok, :ok} = Native.compact(blocks.ref)
-    :ok
+    for <<x::32-signed, y::32-signed, z::32-signed, state::16 <- hits>>, do: {{x, y, z}, state}
   end
 end

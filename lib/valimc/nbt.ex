@@ -121,9 +121,6 @@ defmodule Valimc.NBT do
 
   ## Disk framing: named compound root
 
-  # Up to this size the native reader stays well under 1 ms on a normal scheduler.
-  @dirty_bytes 131_072
-
   @doc """
   Read an uncompressed world-file root: a compound with a (skipped) name and no
   trailing bytes. With vanilla's duplicate rule the native reader
@@ -132,12 +129,14 @@ defmodule Valimc.NBT do
   """
   def read(bytes, limits \\ @disk)
 
-  def read(bytes, %{duplicates: :replace} = limits) when is_binary(bytes) do
-    read =
-      if byte_size(bytes) > @dirty_bytes, do: &Native.nbt_read_dirty/4, else: &Native.nbt_read/4
-
-    read.(bytes, limits.bytes, limits.nodes, limits.depth)
-  end
+  def read(bytes, %{duplicates: :replace} = limits) when is_binary(bytes),
+    do:
+      Native.dispatch(:nbt_read, byte_size(bytes), [
+        bytes,
+        limits.bytes,
+        limits.nodes,
+        limits.depth
+      ])
 
   def read(bytes, limits) when is_binary(bytes), do: read_reference(bytes, limits)
 
@@ -193,13 +192,10 @@ defmodule Valimc.NBT do
   def decompress(bytes, :none, max) when is_binary(bytes),
     do: if(byte_size(bytes) <= max, do: {:ok, bytes}, else: {:error, :nbt_byte_limit})
 
-  # LZ4 block streams (region chunks, VMC-021) decode natively; up to this size a
-  # call stays on a normal scheduler well under 1 ms.
-  def decompress(bytes, :lz4, max) when is_binary(bytes) do
-    if byte_size(bytes) > 262_144,
-      do: Native.lz4_decode_stream_dirty(bytes, max),
-      else: Native.lz4_decode_stream(bytes, max)
-  end
+  # LZ4 block streams (region chunks, VMC-021) decode natively, priced by the
+  # most they can produce: an LZ4 sequence expands at most 255 times.
+  def decompress(bytes, :lz4, max) when is_binary(bytes),
+    do: Native.dispatch(:lz4_decode_stream, min(max, 255 * byte_size(bytes)), [bytes, max])
 
   def decompress(bytes, compression, max)
       when compression in [:gzip, :zlib] and is_binary(bytes) do

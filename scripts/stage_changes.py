@@ -28,7 +28,7 @@ APP = ['lib/valimc/application.ex']
 # The TCP stage drives a whole server: these modules and everything they reach.
 TCP_SEEDS = ['Valimc.Application', 'Valimc.Listener', 'Valimc.Connection']
 NATIVE_CORE = 'native/valimc_core/src'
-NATIVE_NIF = 'native/valimc_nif/src/lib.rs'
+NATIVE_NIF = 'native/valimc_nif/src'
 
 
 def git(root, *args):
@@ -389,8 +389,12 @@ class Native:
         for rel, targets in self.uses.items():
             for target in targets:
                 self.users[target].add(rel)
-        self.nif_text = strip_rust((root / NATIVE_NIF).read_text())
-        self.items = self.parse_items(self.nif_text)
+        # The NIF crate's top-level items in all its modules, keyed `file#name`.
+        self.items = {}
+        for path in sorted((root / NATIVE_NIF).rglob('*.rs')):
+            rel = path.relative_to(root).as_posix()
+            for name, item in self.parse_items(strip_rust(path.read_text())).items():
+                self.items[f'{rel}#{name}'] = (rel, *item)
 
     def resolve(self, base, path):
         """The core file a path (segments relative to `base`) names: its longest module prefix."""
@@ -432,7 +436,7 @@ class Native:
         return out
 
     def parse_items(self, text):
-        """Top-level items of the NIF crate: name -> (first line, last line, nif name or None, text)."""
+        """Top-level items of a NIF crate file: name -> (first line, last line, nif name or None, text)."""
         items, depth, start, lines = {}, 0, None, text.splitlines(keepends=True)
         offset_line, pending_attr = 1, None
         position = 0
@@ -464,7 +468,7 @@ class Native:
     def imported(self):
         """Names the NIF crate's top-level `use valimc_core::...` brings in: name -> core file."""
         out = {}
-        top = '\n'.join(block for _, (_, _, _, block) in self.items.items() if block.lstrip().startswith('use '))
+        top = '\n'.join(block for (_, _, _, _, block) in self.items.values() if block.lstrip().startswith('use '))
         for path in self.paths(top, ('valimc_core',)):
             target = self.resolve((), path[1:])
             if target:
@@ -482,34 +486,47 @@ class Native:
                     stack.append(user)
         imported = self.imported()
         affected = set()
-        if any(p.startswith('native/valimc_nif/') and p != NATIVE_NIF for p in changed):
+        sources = {item[0] for item in self.items.values()}
+        if any(p.startswith('native/valimc_nif/') and p not in sources for p in changed):
             affected.update(self.items)  # another file of the NIF crate: every NIF
-        if NATIVE_NIF in changed:
-            lines = changed[NATIVE_NIF]
+        for rel in sources & set(changed):
+            mine = [key for key, item in self.items.items() if item[0] == rel]
+            lines = changed[rel]
             if lines is None:
-                affected.update(self.items)
+                affected.update(mine)
             else:
                 for line in lines:
-                    hits = [name for name, (a, b, _, _) in self.items.items() if a <= line <= b]
-                    affected.update(hits or self.items)
+                    hits = [key for key in mine if self.items[key][1] <= line <= self.items[key][2]]
+                    affected.update(hits or mine)
         names = set(self.items)
-        for name, (_, _, _, block) in self.items.items():
+        for name, (_, _, _, _, block) in self.items.items():
             used = {self.resolve((), p[1:]) for p in self.paths(block, ('valimc_core',))}
             used |= {imported[w] for w in re.findall(r'\b[A-Za-z_][A-Za-z0-9_]*\b', block) if w in imported}
             if used & affected_core:
                 affected.add(name)
-        words = {name: set(re.findall(r'\b[A-Za-z_][A-Za-z0-9_]*\b', block)) for name, (_, _, _, block) in
+        words = {name: set(re.findall(r'\b[A-Za-z_][A-Za-z0-9_]*\b', block)) for name, (_, _, _, _, block) in
                  self.items.items()}
+        # Another module sees a module's items through `crate::module` paths; the
+        # crate root's through `crate::`.
+        texts = {rel: '\n'.join(item[4] for item in self.items.values() if item[0] == rel) for rel in sources}
+        root_file = f'{NATIVE_NIF}/lib.rs'
+
+        def sees(user, owner):
+            module = pathlib.PurePosixPath(owner).stem
+            return user == owner or owner == root_file or f'crate::{module}' in texts[user]
+
         grown = True
         while grown:
             grown = False
-            # An item changes when it names a changed item (an `impl` by its type's name).
-            bare = {n.split('@')[0] for n in affected} - {''}
+            # An item changes when it names a changed item it can see (an `impl` by
+            # its type's name).
+            bare = {(self.items[n][0], n.split('#')[1].split('@')[0]) for n in affected}
             for name in names - affected:
-                if words[name] & bare:
+                user = self.items[name][0]
+                if any(word and word in words[name] and sees(user, owner) for owner, word in bare):
                     affected.add(name)
                     grown = True
-        return {self.items[name][2] for name in affected if self.items[name][2]}
+        return {self.items[name][3] for name in affected if self.items[name][3]}
 
 
 def expand_use(tree):

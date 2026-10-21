@@ -9,6 +9,11 @@ description = "Rustler NIF shim exposing valimc_core to the ValiMC server."
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+# Oracle and benchmark NIFs (src/parity.rs): on in dev, test and bench builds,
+# off in releases (`config/config.exs`).
+parity = []
+
 [dependencies]
 valimc_core = { path = "../valimc_core" }
 rustler = "0.38"

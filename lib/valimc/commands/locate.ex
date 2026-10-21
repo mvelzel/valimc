@@ -50,7 +50,6 @@ defmodule Valimc.Commands.Locate do
     found =
       case Valimc.Worldgen.Pool.run(search, 50_000) do
         {:ok, {:ok, found}} -> found
-        {:ok, {:error, reason}} -> Error.refuse!("Locating structures failed (#{reason})")
         {:error, reason} -> Error.refuse!("Locating structures failed (#{inspect(reason)})")
       end
 

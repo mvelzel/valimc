@@ -29,7 +29,7 @@ inputs =
 
     IO.puts(
       "#{name}: Elixir map #{:erts_debug.flat_size(edits) * 8} B, " <>
-        "Rust sections #{Blocks.heap_bytes(blocks)} B"
+        "Rust sections #{elem(Valimc.Native.heap_bytes(blocks.ref), 1)} B"
     )
 
     {name, {edits, blocks}}

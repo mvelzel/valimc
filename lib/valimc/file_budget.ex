@@ -191,7 +191,7 @@ defmodule Valimc.FileBudget do
 
   @doc """
   Whether `reason` is the process or system running out of file descriptors:
-  `:emfile`/`:enfile`, an OS error 23 or 24 in a native error, or a file
+  `:emfile`/`:enfile` (as `:file` and the native syncs name them), or a file
   error's message saying so, also nested in error tuples.
   """
   def transient?(reason) when reason in [:emfile, :enfile], do: true

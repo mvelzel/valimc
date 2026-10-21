@@ -1,8 +1,8 @@
 //! Disk formats: NBT, LZ4 region chunks and column images.
 
 use crate::region::FLAGS;
-use crate::{atoms, binary};
-use rustler::{Atom, Binary, Encoder, Env, Term};
+use crate::{atoms, binary, bytes};
+use rustler::{Atom, Binary, Encoder, Env, NewBinary, Term};
 use valimc_core::column::HEIGHT;
 use valimc_core::{nbt, Storage};
 
@@ -74,7 +74,7 @@ impl<'a> nbt::Visitor for Terms<'a> {
     fn string(&mut self, text: nbt::Text) -> Term<'a> {
         match text {
             nbt::Text::Slice(start, len) => self.raw(start, len),
-            nbt::Text::Owned(s) => binary(self.env, s.as_bytes()),
+            nbt::Text::Owned(s) => binary(self.env, s.as_bytes()).encode(self.env),
         }
     }
     fn list(&mut self, element: u8, items: Vec<Term<'a>>) -> Term<'a> {
@@ -115,7 +115,7 @@ fn read_nbt<'a>(
         .map_err(nbt_error)
 }
 
-/// Read a disk NBT root (inputs up to `Valimc.NBT`'s scheduler threshold).
+/// Read a disk NBT root (`Valimc.Native.dispatch/3` picks this or the dirty twin).
 #[rustler::nif]
 fn nbt_read<'a>(
     env: Env<'a>,
@@ -127,7 +127,7 @@ fn nbt_read<'a>(
     read_nbt(env, input, bytes, nodes, depth)
 }
 
-/// Larger inputs on a dirty CPU scheduler.
+/// `nbt_read` on a dirty CPU scheduler.
 #[rustler::nif(schedule = "DirtyCpu")]
 fn nbt_read_dirty<'a>(
     env: Env<'a>,
@@ -145,28 +145,29 @@ mod lz4_atoms {
     rustler::atoms! { truncated_compression, invalid_compression, nbt_byte_limit }
 }
 
-fn lz4_decode<'a>(env: Env<'a>, input: Binary<'a>, max: usize) -> Result<Term<'a>, Atom> {
+fn lz4_decode<'a>(env: Env<'a>, input: Binary<'a>, max: usize) -> Result<Binary<'a>, Atom> {
     match valimc_core::lz4::decode_stream(input.as_slice(), max) {
-        Ok(bytes) => Ok(binary(env, &bytes)),
+        Ok(decoded) => Ok(bytes(env, decoded)),
         Err(valimc_core::lz4::Lz4Error::Truncated) => Err(lz4_atoms::truncated_compression()),
         Err(valimc_core::lz4::Lz4Error::Corrupt) => Err(lz4_atoms::invalid_compression()),
         Err(valimc_core::lz4::Lz4Error::Limit) => Err(lz4_atoms::nbt_byte_limit()),
     }
 }
 
-/// Decode an LZ4 block stream (small inputs).
+/// Decode an LZ4 block stream (`Valimc.Native.dispatch/3` picks this or the
+/// dirty twin).
 #[rustler::nif]
-fn lz4_decode_stream<'a>(env: Env<'a>, input: Binary<'a>, max: usize) -> Result<Term<'a>, Atom> {
+fn lz4_decode_stream<'a>(env: Env<'a>, input: Binary<'a>, max: usize) -> Result<Binary<'a>, Atom> {
     lz4_decode(env, input, max)
 }
 
-/// Larger inputs on a dirty CPU scheduler.
+/// `lz4_decode_stream` on a dirty CPU scheduler.
 #[rustler::nif(schedule = "DirtyCpu")]
 fn lz4_decode_stream_dirty<'a>(
     env: Env<'a>,
     input: Binary<'a>,
     max: usize,
-) -> Result<Term<'a>, Atom> {
+) -> Result<Binary<'a>, Atom> {
     lz4_decode(env, input, max)
 }
 
@@ -202,7 +203,7 @@ pub(crate) fn imported_column(
 
 /// The column image of 24 imported sections, without a region (imports).
 #[rustler::nif]
-fn column_image_of<'a>(env: Env<'a>, sections: Vec<SectionSpec>) -> Result<Term<'a>, Atom> {
+fn column_image_of<'a>(env: Env<'a>, sections: Vec<SectionSpec>) -> Result<Binary<'a>, Atom> {
     let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
     let column = imported_column(&sections)?;
     let mut valid = true;
@@ -212,13 +213,17 @@ fn column_image_of<'a>(env: Env<'a>, sections: Vec<SectionSpec>) -> Result<Term<
     if !valid {
         return Err(atoms::invalid_state());
     }
-    Ok(binary(env, &column.to_image()))
+    Ok(bytes(env, column.to_image()))
 }
 
 /// The column image of a flat world's chunk (VMC-028b): every column holds
 /// `layers` (384 big-endian states from the bottom), its biome `biome`.
 #[rustler::nif]
-fn column_layers_image<'a>(env: Env<'a>, layers: Binary<'a>, biome: u16) -> Result<Term<'a>, Atom> {
+fn column_layers_image<'a>(
+    env: Env<'a>,
+    layers: Binary<'a>,
+    biome: u16,
+) -> Result<Binary<'a>, Atom> {
     let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
     if layers.len() != HEIGHT * 2 {
         return Err(atoms::invalid_layers());
@@ -235,7 +240,7 @@ fn column_layers_image<'a>(env: Env<'a>, layers: Binary<'a>, biome: u16) -> Resu
         valimc_core::section::Biomes::Single(biome);
         valimc_core::column::SECTIONS
     ]);
-    Ok(binary(env, &column.to_image()))
+    Ok(bytes(env, column.to_image()))
 }
 
 /// Vanilla paletted storage of big-endian u16 `values` (export, VMC-021e3): the
@@ -254,6 +259,15 @@ fn pack_paletted<'a>(env: Env<'a>, values: Binary<'a>, min_bits: u32) -> Result<
         .collect();
     let (palette, longs) =
         valimc_core::section::pack_vanilla(&values, min_bits).ok_or(atoms::invalid_layers())?;
-    let data: Vec<u8> = longs.iter().flat_map(|l| l.to_be_bytes()).collect();
-    Ok((palette, binary(env, &data)).encode(env))
+    let mut data = NewBinary::new(env, longs.len() * 8);
+    for (bytes, long) in data
+        .as_mut_slice()
+        .as_chunks_mut::<8>()
+        .0
+        .iter_mut()
+        .zip(&longs)
+    {
+        *bytes = long.to_be_bytes();
+    }
+    Ok((palette, Binary::from(data)).encode(env))
 }

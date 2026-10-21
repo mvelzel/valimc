@@ -112,16 +112,16 @@ stage = fn f ->
 end
 
 terrain_us = stage.(fn s -> {:ok, _} = Native.worldgen_build_terrain(s, source, true, area) end)
-proto_us = stage.(fn s -> {:ok, _} = Native.worldgen_proto_terrain(s, source, area) end)
+proto_us = stage.(fn s -> {:ok, _} = Native.worldgen_proto_terrain(s, source, area, false) end)
 {:ok, warm} = Valimc.Worldgen.new(seed)
-{:ok, terrain} = Native.worldgen_proto_terrain(warm, source, area)
+{:ok, terrain} = Native.worldgen_proto_terrain(warm, source, area, false)
 images = Enum.map(terrain, &elem(&1, 2))
 
 decorate_us =
   median.(
     for _ <- 1..5 do
       {micros, {:ok, _}} =
-        :timer.tc(fn -> Native.worldgen_proto_decorate(warm, images, inner) end)
+        :timer.tc(fn -> Native.worldgen_proto_decorate(warm, source, images, inner, false) end)
 
       micros
     end
@@ -153,7 +153,7 @@ structure_decorate_us =
     end
   )
 
-{:ok, {touched, _}} = Native.worldgen_proto_decorate(warm, images, inner)
+{:ok, {touched, _}} = Native.worldgen_proto_decorate(warm, source, images, inner, false)
 decorated = Map.new(touched, fn {x, z, image} -> {{x, z}, image} end)
 own = Enum.map(inner, &decorated[&1])
 

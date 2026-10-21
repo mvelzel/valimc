@@ -16,7 +16,7 @@ defmodule Valimc.DurableFile do
          {:ok, file} <- :file.open(temporary, [:write, :raw, :binary]),
          :ok <- write_sync_close(file, data),
          :ok <- File.rename(temporary, path),
-         {:ok, :ok} <- Valimc.Native.fsync_dir(dir) do
+         :ok <- Valimc.Native.fsync_dir(dir) do
       :ok
     else
       {:error, reason} -> {:error, {:write_failed, path, reason}}

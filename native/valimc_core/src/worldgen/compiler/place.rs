@@ -51,6 +51,8 @@ pub enum Plan {
     /// A structure whose start is not valid here, or a jigsaw that builds
     /// nothing (`commands.place.structure.failed`, `…jigsaw.failed`).
     Failed,
+    /// A placement spanning more chunks than ValiMC places at once.
+    TooLarge,
 }
 
 /// What a placement changed: blocks, the block entities of changed or
@@ -186,7 +188,7 @@ impl Worldgen {
         };
         if let Plan::Chunks { area, .. } = plan {
             if area.1 .0 - area.0 .0 >= MAX_SPAN || area.1 .1 - area.0 .1 >= MAX_SPAN {
-                return Err("the placement spans too many chunks".into());
+                return Ok(Plan::TooLarge);
             }
         }
         Ok(plan)

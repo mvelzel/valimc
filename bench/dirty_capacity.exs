@@ -2,12 +2,12 @@
 # world (seed 20261020, structures) finalizes N × N regions at once through its
 # proto owners, as `worldgen_live.exs` does, while a probe stands in for play:
 # every 10 ms an owner-like process makes one short dirty CPU call (the disk
-# NBT reader on a chest-heavy chunk of about 200 KB) and one short normal call
+# NBT reader on 20 filled chests, about 64 KB) and one short normal call
 # (the same reader on a 100-byte root), and records how long each took. A
 # probe alone, before generation starts, gives the idle cost.
 #
 # Reported per pass: wall time and final chunks per second; dirty CPU and
-# normal scheduler utilization (`:scheduler.utilization/2`); the probes'
+# normal scheduler utilization (`:scheduler_wall_time_all`); the probes'
 # latency percentiles in microseconds.
 #
 #     VALIMC_PORT=0 MIX_ENV=bench mix run bench/dirty_capacity.exs OUT.json [N] [PASSES]
@@ -19,7 +19,7 @@ n = rest |> Enum.at(0, "3") |> String.to_integer()
 passes = rest |> Enum.at(1, "2") |> String.to_integer()
 seed = 20_261_020
 
-# About 200 KB of block entities: the dirty reader's work, not a queue's.
+# About 64 KB of block entities: a fraction of a millisecond of reading.
 item = fn slot ->
   {:compound,
    %{
@@ -32,7 +32,7 @@ item = fn slot ->
 end
 
 chests =
-  for i <- 0..199 do
+  for i <- 0..19 do
     {:compound,
      %{
        "id" => {:string, "minecraft:chest"},
@@ -102,15 +102,27 @@ summarize = fn samples ->
   }
 end
 
-utilization = fn s1, s2 ->
-  rows = :scheduler.utilization(s1, s2)
+# Scheduler ids 1..N are the normal schedulers, then the dirty CPU ones.
+:erlang.system_flag(:scheduler_wall_time, true)
+sample = fn -> :erlang.statistics(:scheduler_wall_time_all) end
 
-  mean = fn kind ->
-    list = for {^kind, _id, util, _pct} <- rows, do: util
+utilization = fn s1, s2 ->
+  normal = :erlang.system_info(:schedulers)
+  dirty = :erlang.system_info(:dirty_cpu_schedulers)
+  before = Map.new(s1, fn {id, active, total} -> {id, {active, total}} end)
+
+  rows =
+    for {id, active, total} <- s2 do
+      {a0, t0} = before[id]
+      {id, (active - a0) / max(total - t0, 1)}
+    end
+
+  mean = fn range ->
+    list = for {id, util} <- rows, id in range, do: util
     Float.round(Enum.sum(list) / max(length(list), 1), 3)
   end
 
-  %{normal: mean.(:normal), dirty_cpu: mean.(:cpu)}
+  %{normal: mean.(1..normal), dirty_cpu: mean.((normal + 1)..(normal + dirty))}
 end
 
 if :ets.whereis(Valimc.ScopedConfig) == :undefined,
@@ -147,7 +159,7 @@ run = fn pass ->
   )
 
   pid = probe.(self())
-  s1 = :scheduler.sample_all()
+  s1 = sample.()
 
   {micros, results} =
     :timer.tc(fn ->
@@ -159,7 +171,7 @@ run = fn pass ->
       |> Enum.map(fn {:ok, {:ok, full}} -> length(full) end)
     end)
 
-  s2 = :scheduler.sample_all()
+  s2 = sample.()
   samples = stop_probe.(pid)
   File.rm_rf(base)
   final = Enum.sum(results)

@@ -47,7 +47,7 @@ end
         key = Valimc.World.region_key(chunk)
         regions = Map.put_new_lazy(regions, key, fn -> elem(Blocks.new(key), 1) end)
         blocks = regions[key]
-        :ok = Blocks.put_column(blocks, chunk, specs)
+        :ok = Valimc.Native.put_column(blocks.ref, elem(chunk, 0), elem(chunk, 1), specs)
         {:ok, states, biomes} = Blocks.dump_column(blocks, chunk)
 
         for {expected, s} <- Enum.with_index(digests),

@@ -392,14 +392,14 @@ defmodule Valimc.World.RegionLog do
 
   defp drive_flush(%{segment: segment}) do
     case with_retry(fn -> Valimc.Native.full_sync(segment) end) do
-      {:ok, :ok} -> :ok
+      :ok -> :ok
       {:error, reason} -> {:error, {:full_sync, reason}}
     end
   end
 
   defp fsync_dir(dir) do
     case with_retry(fn -> Valimc.Native.fsync_dir(dir) end) do
-      {:ok, :ok} -> :ok
+      :ok -> :ok
       {:error, reason} -> {:error, {:fsync_dir, reason}}
     end
   end

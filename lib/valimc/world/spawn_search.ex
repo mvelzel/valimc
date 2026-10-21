@@ -92,13 +92,17 @@ defmodule Valimc.World.SpawnSearch do
   def spawn_in_chunk({cx, cz}, image) do
     layers = for y <- Chunk.min_y()..319, into: <<>>, do: <<Chunk.base(y)::16>>
     {:ok, ref} = Native.region_new(cx, cz, 1, layers, 4 * 1024 * 1024)
-    {:ok, :ok} = Native.put_column_image(ref, cx, cz, image)
+    :ok = Native.put_column_image(ref, cx, cz, image)
 
     Enum.find_value(for(x <- 0..15, z <- 0..15, do: {cx * 16 + x, cz * 16 + z}), fn {x, z} ->
-      positions = for y <- Chunk.min_y()..319, do: {x, y, z}
+      positions =
+        for y <- Chunk.min_y()..319,
+            into: <<>>,
+            do: <<x::32-signed, y::32-signed, z::32-signed>>
+
       {:ok, states} = Native.get_blocks(ref, positions)
 
-      case respawn_y(List.to_tuple(states)) do
+      case respawn_y(List.to_tuple(for <<state::16 <- states>>, do: state)) do
         nil -> nil
         y -> {x, y, z}
       end

@@ -37,8 +37,7 @@ defmodule Valimc.World.BlocksTest do
       {:ok, blocks} = Blocks.new(@key, edits)
       assert rust_packet(blocks, {0, 0}) == bytes(Chunk.encode({0, 0}, edits)), "seed #{seed}"
 
-      assert Blocks.image(blocks) ==
-               Map.reject(edits, fn {{_, y, _}, b} -> b == Chunk.base(y) end)
+      assert Blocks.get_many(blocks, Map.keys(edits)) == edits
     end
   end
 
@@ -67,16 +66,23 @@ defmodule Valimc.World.BlocksTest do
              {1, 63, 1} => 0
            }
 
-    assert Blocks.image(blocks, %{{1, 63, 1} => Data.block("grass_block")}) == %{
-             {1, 70, 1} => stone
-           }
-
-    assert Blocks.heap_bytes(blocks) > 0
-
     :ok = Blocks.put(blocks, %{{1, 70, 1} => 0, {1, 63, 1} => Data.block("grass_block")})
-    :ok = Blocks.compact(blocks)
-    assert Blocks.image(blocks) == %{}
-    assert Blocks.heap_bytes(blocks) == 0
+
+    assert Blocks.get_many(blocks, [{1, 70, 1}, {1, 63, 1}]) == %{
+             {1, 70, 1} => 0,
+             {1, 63, 1} => Data.block("grass_block")
+           }
+  end
+
+  test "only the owner changes a region" do
+    {:ok, blocks} = Blocks.new(@key)
+    stone = Data.block("stone")
+
+    assert Task.async(fn -> Blocks.put(blocks, %{{1, 70, 1} => stone}) end) |> Task.await() ==
+             {:error, :not_owner}
+
+    assert Task.async(fn -> Blocks.get(blocks, {1, 63, 1}) end) |> Task.await() ==
+             Data.block("grass_block")
   end
 
   test "outside the region or world height reads the flat profile and rejects writes" do

@@ -1,9 +1,14 @@
-//! Loot tables.
+//! Loot tables. Evaluating one takes microseconds, so it runs on a normal
+//! scheduler in the region owner.
 
-use crate::binary;
 use crate::codec::nbt_atoms;
 use crate::worldgen::json_of;
-use rustler::{Atom, Encoder, Env, ResourceArc, Term};
+use crate::{binary, reply};
+use rustler::{Atom, Encoder, Env, NifResult, ResourceArc, Term};
+
+mod atoms {
+    rustler::atoms! { unknown_loot_table }
+}
 
 // ---- Container loot tables (VMC-072a) ----
 
@@ -14,13 +19,26 @@ pub struct LootRegistry {
 #[rustler::resource_impl]
 impl rustler::Resource for LootRegistry {}
 
-/// Parse the loot facts (`priv/loot/tables.json`, `registries.json`).
+/// Parse the loot facts (`priv/loot/tables.json`, `registries.json`); facts it
+/// cannot evaluate raise.
 #[rustler::nif(schedule = "DirtyCpu")]
-fn loot_registry(tables: Term, registries: Term) -> Result<ResourceArc<LootRegistry>, String> {
-    let loot = valimc_core::loot::Loot::parse(&json_of(tables)?, &json_of(registries)?)?;
-    Ok(ResourceArc::new(LootRegistry {
-        loot: std::sync::Arc::new(loot),
-    }))
+fn loot_registry(tables: Term, registries: Term) -> NifResult<(Atom, ResourceArc<LootRegistry>)> {
+    reply((|| {
+        let loot = valimc_core::loot::Loot::parse(&json_of(tables)?, &json_of(registries)?)?;
+        Ok(ResourceArc::new(LootRegistry {
+            loot: std::sync::Arc::new(loot),
+        }))
+    })())
+}
+
+/// `{:error, :unknown_loot_table}` unless the facts hold `table` (a world's
+/// block entity may name any).
+fn known(registry: &LootRegistry, table: &str) -> NifResult<()> {
+    if registry.loot.has_table(table) {
+        Ok(())
+    } else {
+        Err(rustler::Error::Term(Box::new(atoms::unknown_loot_table())))
+    }
 }
 
 /// What a table may ask the world, answered up front: the biome at the loot
@@ -60,13 +78,18 @@ fn nbt_term<'a>(env: Env<'a>, kind: Atom, value: Term<'a>) -> Term<'a> {
 
 fn nbt_compound<'a>(env: Env<'a>, fields: Vec<(&str, Term<'a>)>) -> Term<'a> {
     let map = fields.into_iter().fold(Term::map_new(env), |map, (k, v)| {
-        map.map_put(binary(env, k.as_bytes()), v).expect("map")
+        map.map_put(binary(env, k.as_bytes()).encode(env), v)
+            .expect("map")
     });
     nbt_term(env, nbt_atoms::compound(), map)
 }
 
 fn nbt_string<'a>(env: Env<'a>, s: &str) -> Term<'a> {
-    nbt_term(env, nbt_atoms::string(), binary(env, s.as_bytes()))
+    nbt_term(
+        env,
+        nbt_atoms::string(),
+        binary(env, s.as_bytes()).encode(env),
+    )
 }
 
 fn nbt_int<'a>(env: Env<'a>, n: i32) -> Term<'a> {
@@ -88,7 +111,11 @@ fn json_nbt<'a>(env: Env<'a>, json: &valimc_core::worldgen::json::Json) -> Term<
         Json::String(s) => nbt_string(env, s),
         Json::Bool(b) => nbt_term(env, nbt_atoms::byte(), (*b as i32).encode(env)),
         Json::Number(n) if n.fract() == 0.0 && n.abs() < 2_147_483_648.0 => nbt_int(env, *n as i32),
-        Json::Number(n) => nbt_term(env, nbt_atoms::double(), binary(env, &n.to_be_bytes())),
+        Json::Number(n) => nbt_term(
+            env,
+            nbt_atoms::double(),
+            binary(env, &n.to_be_bytes()).encode(env),
+        ),
         Json::Array(items) => {
             let tags: Vec<Term<'a>> = items.iter().map(|i| json_nbt(env, i)).collect();
             list_term(env, tags)
@@ -192,18 +219,26 @@ fn loot_stack<'a>(env: Env<'a>, stack: &valimc_core::loot::Stack) -> Term<'a> {
                             ("type", nbt_string(env, kind)),
                             (
                                 "x",
-                                nbt_term(env, nbt_atoms::double(), binary(env, &x.to_be_bytes())),
+                                nbt_term(
+                                    env,
+                                    nbt_atoms::double(),
+                                    binary(env, &x.to_be_bytes()).encode(env),
+                                ),
                             ),
                             (
                                 "z",
-                                nbt_term(env, nbt_atoms::double(), binary(env, &z.to_be_bytes())),
+                                nbt_term(
+                                    env,
+                                    nbt_atoms::double(),
+                                    binary(env, &z.to_be_bytes()).encode(env),
+                                ),
                             ),
                             (
                                 "rotation",
                                 nbt_term(
                                     env,
                                     nbt_atoms::float(),
-                                    binary(env, &rotation.to_be_bytes()),
+                                    binary(env, &rotation.to_be_bytes()).encode(env),
                                 ),
                             ),
                         ],
@@ -229,7 +264,7 @@ fn loot_random(seed: i64) -> valimc_core::worldgen::random::Random {
 
 /// `LootTable.fill` of an empty container with `size` slots and a stored
 /// seed: the slots (item tags or nil) and the next free map id.
-#[rustler::nif(schedule = "DirtyCpu")]
+#[rustler::nif]
 #[allow(clippy::too_many_arguments)]
 fn loot_fill<'a>(
     env: Env<'a>,
@@ -242,20 +277,24 @@ fn loot_fill<'a>(
     biome: Option<String>,
     structure: Option<(i32, i32, i32)>,
     next_map: i32,
-) -> Result<(Vec<Term<'a>>, i32), String> {
+) -> NifResult<(Atom, (Vec<Term<'a>>, i32))> {
+    known(&registry, &table)?;
     let mut world = LootAnswers {
         biome,
         structure: structure.map(|(x, y, z)| [x, y, z]),
         next_map,
     };
-    let slots = registry.loot.fill(
+    let slots = match registry.loot.fill(
         &table,
         loot_random(seed),
         luck as f32,
         [origin.0, origin.1, origin.2],
         size,
         &mut world,
-    )?;
+    ) {
+        Ok(slots) => slots,
+        Err(message) => return reply(Err(message)),
+    };
     let terms = slots
         .iter()
         .map(|slot| match slot {
@@ -263,12 +302,12 @@ fn loot_fill<'a>(
             None => rustler::types::atom::nil().encode(env),
         })
         .collect();
-    Ok((terms, world.next_map))
+    reply(Ok((terms, world.next_map)))
 }
 
 /// `LootTable.getRandomItems` with a stored seed (brushable blocks): the item
 /// tags and the next free map id.
-#[rustler::nif(schedule = "DirtyCpu")]
+#[rustler::nif]
 #[allow(clippy::too_many_arguments)]
 fn loot_items<'a>(
     env: Env<'a>,
@@ -280,21 +319,28 @@ fn loot_items<'a>(
     biome: Option<String>,
     structure: Option<(i32, i32, i32)>,
     next_map: i32,
-) -> Result<(Vec<Term<'a>>, i32), String> {
+) -> NifResult<(Atom, (Vec<Term<'a>>, i32))> {
+    known(&registry, &table)?;
     let mut world = LootAnswers {
         biome,
         structure: structure.map(|(x, y, z)| [x, y, z]),
         next_map,
     };
-    let items = registry.loot.items(
-        &table,
-        loot_random(seed),
-        luck as f32,
-        [origin.0, origin.1, origin.2],
-        &mut world,
-    )?;
-    Ok((
-        items.iter().map(|s| loot_stack(env, s)).collect(),
-        world.next_map,
-    ))
+    reply(
+        registry
+            .loot
+            .items(
+                &table,
+                loot_random(seed),
+                luck as f32,
+                [origin.0, origin.1, origin.2],
+                &mut world,
+            )
+            .map(|items| {
+                (
+                    items.iter().map(|s| loot_stack(env, s)).collect(),
+                    world.next_map,
+                )
+            }),
+    )
 }

@@ -1,13 +1,24 @@
 //! Rustler shim over valimc_core, one module per domain: `region` (the Region
 //! resource each region owner holds), `light`, `codec` (disk NBT, LZ4 and
-//! column images), `sys`, `worldgen`, `loot` and `parity` (oracle and bench
-//! entry points). Inputs are validated by valimc_core.
+//! column images), `sys`, `worldgen`, `loot` and, in dev, test and bench
+//! builds, `parity` (oracle and benchmark entry points). Inputs are validated
+//! by valimc_core.
+//!
+//! Scheduling: a NIF on a normal scheduler stays under about 1 ms for any input
+//! its caller may pass. Work that can take longer is a `DirtyCpu` NIF called
+//! from a bounded pool (`Valimc.Worldgen.Pool`), or a normal/dirty pair that
+//! `Valimc.Native.dispatch/3` picks by estimated cost.
+//!
+//! Results: a value as `{:ok, value}`, none as `:ok`; an expected failure as
+//! `{:error, atom}` from its domain's closed set. A broken invariant (a
+//! generator or loot table that cannot run what the facts say) raises.
 
-use rustler::{Binary, Encoder, Env, NewBinary, Term};
+use rustler::{Atom, Binary, Env, NewBinary, NifResult, ResourceArc};
 
 mod codec;
 mod light;
 mod loot;
+#[cfg(feature = "parity")]
 mod parity;
 mod region;
 mod sys;
@@ -19,20 +30,55 @@ mod atoms {
         out_of_region,
         invalid_y,
         invalid_state,
+        invalid_positions,
         memory_budget,
         flags_missing,
         flags_mismatch,
+        light_facts_missing,
         invalid_layers,
         poisoned,
+        not_owner,
         flat,
         dense,
     }
 }
 
-fn binary<'a>(env: Env<'a>, bytes: &[u8]) -> Term<'a> {
+/// A copy of `bytes` as a new binary.
+fn binary<'a>(env: Env<'a>, bytes: &[u8]) -> Binary<'a> {
     let mut out = NewBinary::new(env, bytes.len());
     out.as_mut_slice().copy_from_slice(bytes);
-    Binary::from(out).encode(env)
+    out.into()
+}
+
+/// Bytes a binary points into, freed with the binary's last reference.
+struct Bytes(Vec<u8>);
+
+#[rustler::resource_impl]
+impl rustler::Resource for Bytes {}
+
+/// `bytes` as a binary without copying them (small ones are copied onto the
+/// process heap, as the VM keeps them).
+fn bytes<'a>(env: Env<'a>, bytes: Vec<u8>) -> Binary<'a> {
+    if bytes.len() <= 64 {
+        return binary(env, &bytes);
+    }
+    ResourceArc::new(Bytes(bytes)).make_binary(env, |b| &b.0)
+}
+
+/// `:ok`, or `{:error, reason}`.
+fn done(result: Result<(), Atom>) -> NifResult<Atom> {
+    result
+        .map(|()| atoms::ok())
+        .map_err(|reason| rustler::Error::Term(Box::new(reason)))
+}
+
+/// `{:ok, value}`; valimc_core's message for a broken invariant raises.
+fn reply<T>(result: Result<T, String>) -> NifResult<(Atom, T)> {
+    result.map(|value| (atoms::ok(), value)).map_err(raise)
+}
+
+fn raise(message: String) -> rustler::Error {
+    rustler::Error::RaiseTerm(Box::new(message))
 }
 
 rustler::init!("Elixir.Valimc.Native");

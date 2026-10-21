@@ -36,7 +36,7 @@ defmodule Valimc.ImportedRegionTest do
     sandstone = {[BlockRegistry.default_state("sandstone")], <<>>, 0, [@desert], <<>>, 0}
     specs = List.duplicate(air, 4) ++ [sandstone] ++ List.duplicate(air, 19)
     {:ok, blocks} = Blocks.new(key)
-    :ok = Blocks.put_column(blocks, chunk, specs)
+    :ok = Valimc.Native.put_column(blocks.ref, elem(chunk, 0), elem(chunk, 1), specs)
     {:ok, image} = Blocks.column_image(blocks, chunk)
     image
   end

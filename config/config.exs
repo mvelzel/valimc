@@ -111,4 +111,9 @@ if config_env() in [:dev, :test] do
     ]
 end
 
+# Oracle and benchmark NIFs (the crate's `parity` feature) are left out of releases.
+if config_env() != :prod do
+  config :valimc, Valimc.Native, features: ["parity"]
+end
+
 import_config "#{config_env()}.exs"

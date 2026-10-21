@@ -128,7 +128,10 @@ defmodule Valimc.BlockBatchTest do
     do:
       state
       |> Map.take([:cache, :versions, :revision, :dirty])
-      |> Map.put(:image, Blocks.image(state.blocks))
+      |> Map.put(
+        :image,
+        Map.new(Blocks.touched_chunks(state.blocks), &{&1, Blocks.column_image(state.blocks, &1)})
+      )
 
   defp frame_name(frame) do
     {:ok, id, _, <<>>} =

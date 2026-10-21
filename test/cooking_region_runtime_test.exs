@@ -115,7 +115,7 @@ defmodule Valimc.CookingRegionRuntimeTest.Serial do
           {1, :smoker, "cod"},
           {2, :blast_furnace, "raw_iron"}
         ],
-        {state.containers, Blocks.image(state.blocks)},
+        {state.containers, %{ctx.position => Blocks.get(state.blocks, ctx.position)}},
         fn {offset, kind, input}, {containers, edits} ->
           position = {x + offset, y, z}
 

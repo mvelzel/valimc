@@ -60,7 +60,7 @@ defmodule Valimc.AnvilExportTest do
     {:ok, read} = tag |> NBT.write() |> IO.iodata_to_binary() |> NBT.read()
     {{:ok, %{chunk: {0, 0}, sections: specs}}, _} = Chunk.column(read)
     {:ok, other} = Blocks.new(key)
-    :ok = Blocks.put_column(other, {0, 0}, specs)
+    :ok = Valimc.Native.put_column(other.ref, 0, 0, specs)
     assert Blocks.dump_column(other, {0, 0}) == {:ok, states, biomes}
   end
 

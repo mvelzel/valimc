@@ -26,7 +26,7 @@ defmodule Valimc.World.Light do
     {sky, sky_size, sky_pairs} = SkyBlocks.facts()
 
     case Native.light_facts_init(@properties, @faces, @sizes, @occludes, sky, sky_size, sky_pairs) do
-      {:ok, :ok} -> :ok
+      :ok -> :ok
       other -> raise "light fact initialization failed: #{inspect(other)}"
     end
   end
@@ -36,17 +36,4 @@ defmodule Valimc.World.Light do
 
   @doc "A state's light dampening (0..15)."
   def dampening(state), do: Bitwise.band(:binary.at(@properties, state), 15)
-
-  @doc """
-  Light of chunks given as `{cx, cz, column image}` within the chunk rectangle
-  from `{min_cx, min_cz}` of `chunks_x` × `chunks_z` (absent chunks are air):
-  `{cx, cz, binary}` per chunk with, for each of 24 sections, the sky then the
-  block light as vanilla nibble arrays.
-  """
-  def columns(images, {min_cx, min_cz}, chunks_x, chunks_z) do
-    case Native.light_columns(images, min_cx, min_cz, chunks_x, chunks_z) do
-      {:ok, lit} -> {:ok, lit}
-      {:error, _} = error -> error
-    end
-  end
 end

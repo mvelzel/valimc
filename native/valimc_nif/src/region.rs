@@ -1,8 +1,13 @@
-//! The Region resource: one per region owner, holding its column store.
+//! The Region resource: one per region owner, holding its column store. Only
+//! the process that created it may change it (`with_owned`).
+//!
+//! Positions travel as packed big-endian binaries: a position is
+//! `<<x::32-signed, y::32-signed, z::32-signed>>`, a block read at a position
+//! adds `<<state::16>>`, a change to write `<<state::32>>` (so an out-of-range
+//! state is refused, not wrapped).
 
-use crate::codec::{imported_column, SectionSpec};
-use crate::{atoms, binary};
-use rustler::{Atom, Binary, Encoder, Env, ResourceArc, Term};
+use crate::{atoms, binary, bytes, done};
+use rustler::{Atom, Binary, Encoder, Env, LocalPid, NewBinary, NifResult, ResourceArc, Term};
 use std::sync::{Mutex, OnceLock};
 use valimc_core::column::HEIGHT;
 use valimc_core::{BlockFlags, ColumnStore, Storage, StoreError};
@@ -10,6 +15,7 @@ use valimc_core::{BlockFlags, ColumnStore, Storage, StoreError};
 pub(crate) static FLAGS: OnceLock<BlockFlags> = OnceLock::new();
 
 pub struct Region {
+    owner: LocalPid,
     store: Mutex<ColumnStore>,
 }
 
@@ -27,21 +33,25 @@ pub(crate) fn error(e: StoreError) -> Atom {
 
 /// Install the per-state flag bytes once per VM (idempotent for identical bytes).
 #[rustler::nif]
-fn flags_init(bytes: Binary) -> Result<Atom, Atom> {
-    let flags = BlockFlags::new(bytes.as_slice().to_vec()).ok_or(atoms::invalid_state())?;
-    let installed = FLAGS.get_or_init(|| flags.clone());
-    if installed.state_count() == flags.state_count()
-        && (0..flags.state_count()).all(|s| installed.get(s as u16) == flags.get(s as u16))
-    {
-        Ok(atoms::ok())
-    } else {
-        Err(atoms::flags_mismatch())
-    }
+fn flags_init(bytes: Binary) -> NifResult<Atom> {
+    done((|| {
+        let flags = BlockFlags::new(bytes.as_slice().to_vec()).ok_or(atoms::invalid_state())?;
+        let installed = FLAGS.get_or_init(|| flags.clone());
+        if installed.state_count() == flags.state_count()
+            && (0..flags.state_count()).all(|s| installed.get(s as u16) == flags.get(s as u16))
+        {
+            Ok(())
+        } else {
+            Err(atoms::flags_mismatch())
+        }
+    })())
 }
 
-/// `layers` is 384 big-endian u16 states, bottom (y = -64) first.
+/// A region owned by the calling process. `layers` is 384 big-endian u16
+/// states, bottom (y = -64) first.
 #[rustler::nif]
 fn region_new(
+    env: Env,
     cx: i32,
     cz: i32,
     size: i32,
@@ -63,10 +73,12 @@ fn region_new(
     }
     let store = ColumnStore::new((cx, cz), size, base, budget);
     Ok(ResourceArc::new(Region {
+        owner: env.pid(),
         store: Mutex::new(store),
     }))
 }
 
+/// Read the store (any process: reads change nothing).
 pub(crate) fn with_store<T>(
     region: &Region,
     f: impl FnOnce(&mut ColumnStore) -> Result<T, Atom>,
@@ -75,29 +87,103 @@ pub(crate) fn with_store<T>(
     f(&mut guard)
 }
 
-#[rustler::nif]
-fn get_blocks(
-    region: ResourceArc<Region>,
-    positions: Vec<(i32, i32, i32)>,
-) -> Result<Vec<u16>, Atom> {
-    with_store(&region, |store| {
-        positions
-            .iter()
-            .map(|(x, y, z)| store.get(*x, *y, *z).map_err(error))
-            .collect()
-    })
+/// Change the store: only its owner may.
+pub(crate) fn with_owned<T>(
+    env: Env,
+    region: &Region,
+    f: impl FnOnce(&mut ColumnStore) -> Result<T, Atom>,
+) -> Result<T, Atom> {
+    if env.pid() != region.owner {
+        return Err(atoms::not_owner());
+    }
+    with_store(region, f)
 }
 
-/// Apply all changes or none; returns the previous states in input order.
+/// Packed positions (see the module doc).
+fn positions(packed: &[u8]) -> Result<impl Iterator<Item = (i32, i32, i32)> + '_, Atom> {
+    let (records, rest) = packed.as_chunks::<12>();
+    if !rest.is_empty() {
+        return Err(atoms::invalid_positions());
+    }
+    Ok(records.iter().map(|r| {
+        let at = |i: usize| i32::from_be_bytes([r[i], r[i + 1], r[i + 2], r[i + 3]]);
+        (at(0), at(4), at(8))
+    }))
+}
+
+/// Blocks at positions as packed `{x, y, z, state}` records.
+fn packed_blocks<'a>(env: Env<'a>, blocks: &[(i32, i32, i32, u16)]) -> Binary<'a> {
+    let mut out = NewBinary::new(env, blocks.len() * 14);
+    for (record, (x, y, z, state)) in out
+        .as_mut_slice()
+        .as_chunks_mut::<14>()
+        .0
+        .iter_mut()
+        .zip(blocks)
+    {
+        record[0..4].copy_from_slice(&x.to_be_bytes());
+        record[4..8].copy_from_slice(&y.to_be_bytes());
+        record[8..12].copy_from_slice(&z.to_be_bytes());
+        record[12..14].copy_from_slice(&state.to_be_bytes());
+    }
+    out.into()
+}
+
+/// The states at packed positions, as big-endian u16 in input order.
 #[rustler::nif]
-fn set_blocks(
+fn get_blocks<'a>(
+    env: Env<'a>,
     region: ResourceArc<Region>,
-    changes: Vec<(i32, i32, i32, u32)>,
-) -> Result<Vec<u16>, Atom> {
-    let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
+    positions_bin: Binary,
+) -> Result<Binary<'a>, Atom> {
+    let positions = positions(positions_bin.as_slice())?;
+    let mut out = NewBinary::new(env, positions_bin.len() / 6);
     with_store(&region, |store| {
-        store.set_many(&changes, flags).map_err(error)
-    })
+        for (bytes, (x, y, z)) in out
+            .as_mut_slice()
+            .as_chunks_mut::<2>()
+            .0
+            .iter_mut()
+            .zip(positions)
+        {
+            *bytes = store.get(x, y, z).map_err(error)?.to_be_bytes();
+        }
+        Ok(())
+    })?;
+    Ok(out.into())
+}
+
+/// Apply packed `{x, y, z, state::32}` changes, all or none
+/// (`Valimc.Native.dispatch/3` picks this or the dirty twin).
+#[rustler::nif]
+fn set_blocks(env: Env, region: ResourceArc<Region>, changes: Binary) -> NifResult<Atom> {
+    done(set_many(env, &region, changes))
+}
+
+/// `set_blocks` on a dirty CPU scheduler.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn set_blocks_dirty(env: Env, region: ResourceArc<Region>, changes: Binary) -> NifResult<Atom> {
+    done(set_many(env, &region, changes))
+}
+
+fn set_many(env: Env, region: &Region, changes: Binary) -> Result<(), Atom> {
+    {
+        let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
+        let (records, rest) = changes.as_slice().as_chunks::<16>();
+        if !rest.is_empty() {
+            return Err(atoms::invalid_positions());
+        }
+        let changes: Vec<(i32, i32, i32, u32)> = records
+            .iter()
+            .map(|r| {
+                let at = |i: usize| i32::from_be_bytes([r[i], r[i + 1], r[i + 2], r[i + 3]]);
+                (at(0), at(4), at(8), at(12) as u32)
+            })
+            .collect();
+        with_owned(env, region, |store| {
+            store.set_many(&changes, flags).map_err(error).map(drop)
+        })
+    }
 }
 
 /// `{sections, world_surface_longs, motion_blocking_longs}` for one chunk's
@@ -133,30 +219,28 @@ fn encode_chunk<'a>(
     Ok(match encoded {
         None => atoms::flat().encode(env),
         Some((sections, surface, motion)) => (
-            binary(env, &sections),
-            binary(env, &surface),
-            binary(env, &motion),
+            bytes(env, sections),
+            bytes(env, surface),
+            bytes(env, motion),
         )
             .encode(env),
     })
 }
 
+/// Packed `{x, y, z, state}` records of the positions in one chunk holding any
+/// of `states` (block-entity carriers).
 #[rustler::nif]
-fn diff(region: ResourceArc<Region>) -> Result<Vec<(i32, i32, i32, u16)>, Atom> {
-    with_store(&region, |store| Ok(store.diff()))
-}
-
-/// Positions in one chunk holding any of `states` (block-entity carriers).
-#[rustler::nif]
-fn chunk_find(
+fn chunk_find<'a>(
+    env: Env<'a>,
     region: ResourceArc<Region>,
     cx: i32,
     cz: i32,
     states: Vec<u16>,
-) -> Result<Vec<(i32, i32, i32, u16)>, Atom> {
-    with_store(&region, |store| {
+) -> Result<Binary<'a>, Atom> {
+    let found = with_store(&region, |store| {
         store.find((cx, cz), &states).map_err(error)
-    })
+    })?;
+    Ok(packed_blocks(env, &found))
 }
 
 /// Chunks whose columns differ from (or once differed from) the base profile.
@@ -195,8 +279,17 @@ fn snapshot_chunk<'a>(
                         .encode(env)
                 }
                 Storage::Dense(cells) => {
-                    let bytes: Vec<u8> = cells.iter().flat_map(|c| c.to_be_bytes()).collect();
-                    (atoms::dense(), binary(env, &bytes)).encode(env)
+                    let mut out = NewBinary::new(env, cells.len() * 2);
+                    for (bytes, cell) in out
+                        .as_mut_slice()
+                        .as_chunks_mut::<2>()
+                        .0
+                        .iter_mut()
+                        .zip(cells.iter())
+                    {
+                        *bytes = cell.to_be_bytes();
+                    }
+                    (atoms::dense(), Binary::from(out)).encode(env)
                 }
             })
             .collect();
@@ -206,55 +299,44 @@ fn snapshot_chunk<'a>(
 
 /// Install the region's randomly ticking states: one bit per state id (LSB first).
 #[rustler::nif]
-fn set_random_ticking(region: ResourceArc<Region>, bitmap: Binary) -> Result<Atom, Atom> {
+fn set_random_ticking(env: Env, region: ResourceArc<Region>, bitmap: Binary) -> NifResult<Atom> {
     let bytes = bitmap.as_slice();
-    with_store(&region, |store| {
+    done(with_owned(env, &region, |store| {
         store.ticking = (0..bytes.len() * 8)
             .map(|i| bytes[i / 8] & (1 << (i % 8)) != 0)
             .collect();
-        Ok(atoms::ok())
-    })
+        Ok(())
+    }))
 }
 
-/// One tick's random tick hits: `{x, y, z, state}` for sampled ticking states.
+/// One tick's random tick hits, packed `{x, y, z, state}` records of sampled
+/// ticking states (the draws advance the region's random;
+/// `Valimc.Native.dispatch/3` picks this or the dirty twin).
 #[rustler::nif]
-fn random_ticks(
+fn random_ticks<'a>(
+    env: Env<'a>,
     region: ResourceArc<Region>,
     per_section: u32,
-) -> Result<Vec<(i32, i32, i32, u16)>, Atom> {
+) -> Result<Binary<'a>, Atom> {
+    sample_ticks(env, &region, per_section)
+}
+
+/// `random_ticks` on a dirty CPU scheduler.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn random_ticks_dirty<'a>(
+    env: Env<'a>,
+    region: ResourceArc<Region>,
+    per_section: u32,
+) -> Result<Binary<'a>, Atom> {
+    sample_ticks(env, &region, per_section)
+}
+
+fn sample_ticks<'a>(env: Env<'a>, region: &Region, per_section: u32) -> Result<Binary<'a>, Atom> {
     if per_section > 4096 {
         return Err(atoms::invalid_state());
     }
-    with_store(&region, |store| Ok(store.random_ticks(per_section)))
-}
-
-#[rustler::nif]
-fn compact(region: ResourceArc<Region>) -> Result<Atom, Atom> {
-    with_store(&region, |store| {
-        store.compact();
-        Ok(atoms::ok())
-    })
-}
-
-#[rustler::nif]
-fn heap_bytes(region: ResourceArc<Region>) -> Result<usize, Atom> {
-    with_store(&region, |store| Ok(store.heap_bytes()))
-}
-
-/// Replace a chunk's column with 24 imported sections (bottom to top).
-#[rustler::nif]
-fn put_column(
-    region: ResourceArc<Region>,
-    cx: i32,
-    cz: i32,
-    sections: Vec<SectionSpec>,
-) -> Result<Atom, Atom> {
-    let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
-    let column = imported_column(&sections)?;
-    with_store(&region, |store| {
-        store.put_column((cx, cz), column, flags).map_err(error)
-    })?;
-    Ok(atoms::ok())
+    let hits = with_owned(env, region, |store| Ok(store.random_ticks(per_section)))?;
+    Ok(packed_blocks(env, &hits))
 }
 
 /// A chunk's states and biomes as big-endian u16 binaries (section index order).
@@ -270,12 +352,19 @@ fn dump_column<'a>(
         store.dump_column((cx, cz), default_biome).map_err(error)
     })?;
     let be = |values: &[u16]| {
-        values
-            .iter()
-            .flat_map(|v| v.to_be_bytes())
-            .collect::<Vec<u8>>()
+        let mut out = NewBinary::new(env, values.len() * 2);
+        for (bytes, value) in out
+            .as_mut_slice()
+            .as_chunks_mut::<2>()
+            .0
+            .iter_mut()
+            .zip(values)
+        {
+            *bytes = value.to_be_bytes();
+        }
+        Binary::from(out)
     };
-    Ok((binary(env, &be(&states)), binary(env, &be(&biomes))).encode(env))
+    Ok((be(&states), be(&biomes)).encode(env))
 }
 
 /// The biome registry id at a block as `Level.getBiome` reads it (vanilla's
@@ -292,8 +381,8 @@ fn region_biome(
     with_store(&region, |store| Ok(store.noise_biome(quart, default_biome)))
 }
 
-/// Column images by chunk as terms.
-type ImageTerms<'a> = Vec<(i32, i32, Term<'a>)>;
+/// Column images by chunk.
+type Images<'a> = Vec<(i32, i32, Binary<'a>)>;
 
 /// `/fillbiome` (VMC-053j4): the changed cell count and the new column
 /// images of `chunks`, without changing the region.
@@ -308,7 +397,7 @@ fn fill_biomes<'a>(
     biome: u16,
     filter: Option<Vec<u16>>,
     default_biome: u16,
-) -> Result<(u32, ImageTerms<'a>), Atom> {
+) -> Result<(u32, Images<'a>), Atom> {
     let (count, images) = with_store(&region, |store| {
         store
             .fill_biomes(
@@ -325,7 +414,7 @@ fn fill_biomes<'a>(
         count,
         images
             .into_iter()
-            .map(|((x, z), image)| (x, z, binary(env, &image)))
+            .map(|((x, z), image)| (x, z, bytes(env, image)))
             .collect(),
     ))
 }
@@ -340,13 +429,13 @@ fn encode_biomes<'a>(
     default_biome: u32,
     biome_bits: u32,
     window: (usize, usize),
-) -> Result<Term<'a>, Atom> {
-    let bytes = with_store(&region, |store| {
+) -> Result<Binary<'a>, Atom> {
+    let encoded = with_store(&region, |store| {
         store
             .encode_biomes((cx, cz), default_biome, biome_bits, window)
             .map_err(error)
     })?;
-    Ok(binary(env, &bytes))
+    Ok(bytes(env, encoded))
 }
 
 /// The region-log image of a chunk's column (VMC-021c), or `flat` for the base profile.
@@ -359,7 +448,7 @@ fn column_image<'a>(
 ) -> Result<Term<'a>, Atom> {
     let image = with_store(&region, |store| store.column_image((cx, cz)).map_err(error))?;
     Ok(match image {
-        Some(bytes) => binary(env, &bytes),
+        Some(image) => bytes(env, image).encode(env),
         None => atoms::flat().encode(env),
     })
 }
@@ -367,16 +456,18 @@ fn column_image<'a>(
 /// Restore a chunk's column from its image.
 #[rustler::nif]
 fn put_column_image(
+    env: Env,
     region: ResourceArc<Region>,
     cx: i32,
     cz: i32,
     image: Binary,
-) -> Result<Atom, Atom> {
-    let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
-    let column =
-        valimc_core::column::Column::from_image(image.as_slice()).ok_or(atoms::invalid_layers())?;
-    with_store(&region, |store| {
-        store.put_column((cx, cz), column, flags).map_err(error)
-    })?;
-    Ok(atoms::ok())
+) -> NifResult<Atom> {
+    done((|| {
+        let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
+        let column = valimc_core::column::Column::from_image(image.as_slice())
+            .ok_or(atoms::invalid_layers())?;
+        with_owned(env, &region, |store| {
+            store.put_column((cx, cz), column, flags).map_err(error)
+        })
+    })())
 }

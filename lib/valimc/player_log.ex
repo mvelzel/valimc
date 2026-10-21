@@ -190,13 +190,13 @@ defmodule Valimc.PlayerLog do
 
   defp sync_files(paths, dir) do
     with :ok <- Enum.reduce_while(paths, :ok, fn path, :ok -> sync_file(path) end),
-         {:ok, :ok} <- Valimc.Native.fsync_dir(dir),
+         :ok <- Valimc.Native.fsync_dir(dir),
          do: :ok
   end
 
   defp sync_file(path) do
     case Valimc.Native.full_sync(path) do
-      {:ok, :ok} -> {:cont, :ok}
+      :ok -> {:cont, :ok}
       {:error, reason} -> {:halt, {:error, reason}}
     end
   end

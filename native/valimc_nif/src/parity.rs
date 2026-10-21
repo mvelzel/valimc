@@ -1,9 +1,12 @@
-//! Oracle parity and benchmark entry points (scripts/check_*.exs, bench/).
+//! Oracle parity and benchmark entry points (scripts/check_*.exs, bench/),
+//! built only with the `parity` feature (dev, test and bench builds).
 
+use crate::codec::{imported_column, SectionSpec};
 use crate::light::LIGHT;
+use crate::region::{error, with_owned, with_store, Region, FLAGS};
 use crate::worldgen::{WorldgenRegistry, WorldgenState};
-use crate::{atoms, binary};
-use rustler::{Atom, Binary, Env, NewBinary, ResourceArc, Term};
+use crate::{atoms, bytes, done, reply};
+use rustler::{Atom, Binary, Env, NewBinary, NifResult, ResourceArc};
 
 /// Light of chunks given as column images over the chunk rectangle starting at
 /// (`min_cx`, `min_cz`); absent chunks are air. Returns, per given chunk,
@@ -16,10 +19,10 @@ fn light_columns<'a>(
     min_cz: i32,
     chunks_x: usize,
     chunks_z: usize,
-) -> Result<Vec<(i32, i32, Term<'a>)>, Atom> {
+) -> Result<Vec<(i32, i32, Binary<'a>)>, Atom> {
     use valimc_core::column::{Column, SECTIONS};
     use valimc_core::light::{block_light, nibbles, sky_light, Area, HEIGHT};
-    let facts = LIGHT.get().ok_or(atoms::flags_missing())?;
+    let facts = LIGHT.get().ok_or(atoms::light_facts_missing())?;
     let (wx, wz) = (chunks_x * 16, chunks_z * 16);
     let mut states = vec![0u16; wx * wz * HEIGHT];
     let mut chunks = Vec::new();
@@ -56,15 +59,19 @@ fn light_columns<'a>(
                     }));
                 }
             }
-            (cx, cz, binary(env, &out))
+            (cx, cz, bytes(env, out))
         })
         .collect())
 }
 
 /// Run a random-source operation trace (`valimc_core::worldgen::trace`).
 #[rustler::nif]
-fn worldgen_random_trace(kind: String, seed: i64, ops: Vec<String>) -> Result<Vec<String>, String> {
-    valimc_core::worldgen::trace::run(&kind, seed, &ops)
+fn worldgen_random_trace(
+    kind: String,
+    seed: i64,
+    ops: Vec<String>,
+) -> NifResult<(Atom, Vec<String>)> {
+    reply(valimc_core::worldgen::trace::run(&kind, seed, &ops))
 }
 
 type NoiseSamples = (Vec<u32>, Vec<u32>, Vec<Vec<u32>>);
@@ -78,26 +85,28 @@ fn worldgen_noise_samples(
     params: Vec<f64>,
     points: Vec<(f64, f64, f64)>,
     volumes: Vec<(Vec<i32>, f64, f64)>,
-) -> Result<NoiseSamples, String> {
-    let volumes = volumes
-        .into_iter()
-        .map(|(v, xz, y)| {
-            Ok((
-                <[i32; 9]>::try_from(v).map_err(|_| "volume needs 9 integers")?,
-                xz,
-                y,
-            ))
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    let (kind, seed, source) = random;
-    let samples = valimc_core::worldgen::trace::noise(
-        (&kind, seed, &source),
-        &noise,
-        &params,
-        &points,
-        &volumes,
-    )?;
-    Ok((samples.points, samples.points_2d, samples.volumes))
+) -> NifResult<(Atom, NoiseSamples)> {
+    reply((|| {
+        let volumes = volumes
+            .into_iter()
+            .map(|(v, xz, y)| {
+                Ok((
+                    <[i32; 9]>::try_from(v).map_err(|_| "volume needs 9 integers")?,
+                    xz,
+                    y,
+                ))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let (kind, seed, source) = random;
+        let samples = valimc_core::worldgen::trace::noise(
+            (&kind, seed, &source),
+            &noise,
+            &params,
+            &points,
+            &volumes,
+        )?;
+        Ok((samples.points, samples.points_2d, samples.volumes))
+    })())
 }
 
 /// Sample a density function for parity checks
@@ -108,9 +117,11 @@ fn worldgen_density_samples(
     function: String,
     cached: bool,
     ops: Vec<Vec<i32>>,
-) -> Result<Vec<Vec<u32>>, String> {
-    let mut state = state.lease()?;
-    valimc_core::worldgen::trace::density(&mut state, &function, cached, &ops)
+) -> NifResult<(Atom, Vec<Vec<u32>>)> {
+    reply((|| {
+        let mut state = state.lease()?;
+        valimc_core::worldgen::trace::density(&mut state, &function, cached, &ops)
+    })())
 }
 
 /// Biome names, then per chunk its biome and climate target binaries.
@@ -127,26 +138,28 @@ fn worldgen_chunk_biomes<'a>(
     state: ResourceArc<WorldgenState>,
     preset: String,
     chunks: Vec<(i32, i32)>,
-) -> Result<ChunkBiomeBinaries<'a>, String> {
-    let mut state = state.lease()?;
-    let list = state.biome_parameters(&preset)?;
-    let mut last = None;
-    let mut out = Vec::with_capacity(chunks.len());
-    for (x, z) in chunks {
-        let filled = state.fill_biomes(&list, x, z, &mut last)?;
-        let mut biomes = NewBinary::new(env, filled.biomes.len());
-        for (b, &v) in biomes.as_mut_slice().iter_mut().zip(&filled.biomes) {
-            *b = u8::try_from(v).map_err(|_| "more than 256 biomes")?;
-        }
-        let mut targets = NewBinary::new(env, filled.targets.len() * 48);
-        for (chunk, target) in targets.as_mut_slice().chunks_mut(48).zip(&filled.targets) {
-            for (bytes, value) in chunk.chunks_mut(8).zip(target) {
-                bytes.copy_from_slice(&value.to_be_bytes());
+) -> NifResult<(Atom, ChunkBiomeBinaries<'a>)> {
+    reply((|| {
+        let mut state = state.lease()?;
+        let list = state.biome_parameters(&preset)?;
+        let mut last = None;
+        let mut out = Vec::with_capacity(chunks.len());
+        for (x, z) in chunks {
+            let filled = state.fill_biomes(&list, x, z, &mut last)?;
+            let mut biomes = NewBinary::new(env, filled.biomes.len());
+            for (b, &v) in biomes.as_mut_slice().iter_mut().zip(&filled.biomes) {
+                *b = u8::try_from(v).map_err(|_| "more than 256 biomes")?;
             }
+            let mut targets = NewBinary::new(env, filled.targets.len() * 48);
+            for (chunk, target) in targets.as_mut_slice().chunks_mut(48).zip(&filled.targets) {
+                for (bytes, value) in chunk.chunks_mut(8).zip(target) {
+                    bytes.copy_from_slice(&value.to_be_bytes());
+                }
+            }
+            out.push((biomes.into(), targets.into()));
         }
-        out.push((biomes.into(), targets.into()));
-    }
-    Ok((list.biomes.clone(), out))
+        Ok((list.biomes.clone(), out))
+    })())
 }
 
 /// The biomes at the minimal climate distance from a target: the answers a
@@ -156,15 +169,17 @@ fn worldgen_closest_biomes(
     state: ResourceArc<WorldgenState>,
     preset: String,
     target: Vec<i64>,
-) -> Result<Vec<String>, String> {
-    let state = state.lease()?;
-    let list = state.biome_parameters(&preset)?;
-    let target: [i64; 6] = target.try_into().map_err(|_| "a target has six values")?;
-    Ok(list
-        .closest_biomes(&target)
-        .into_iter()
-        .map(|b| list.biomes[b as usize].clone())
-        .collect())
+) -> NifResult<(Atom, Vec<String>)> {
+    reply((|| {
+        let state = state.lease()?;
+        let list = state.biome_parameters(&preset)?;
+        let target: [i64; 6] = target.try_into().map_err(|_| "a target has six values")?;
+        Ok(list
+            .closest_biomes(&target)
+            .into_iter()
+            .map(|b| list.biomes[b as usize].clone())
+            .collect())
+    })())
 }
 
 /// A chunk's state ids and fluid update positions.
@@ -178,18 +193,20 @@ fn worldgen_fill_terrain<'a>(
     env: rustler::Env<'a>,
     state: ResourceArc<WorldgenState>,
     chunks: Vec<(i32, i32)>,
-) -> Result<Vec<FilledBinary<'a>>, String> {
-    let mut state = state.lease()?;
-    let mut out = Vec::with_capacity(chunks.len());
-    for (x, z) in chunks {
-        let filled = state.fill_terrain(x, z)?;
-        let mut blocks = NewBinary::new(env, filled.blocks.len() * 2);
-        for (bytes, id) in blocks.as_mut_slice().chunks_mut(2).zip(&filled.blocks) {
-            bytes.copy_from_slice(&id.to_be_bytes());
+) -> NifResult<(Atom, Vec<FilledBinary<'a>>)> {
+    reply((|| {
+        let mut state = state.lease()?;
+        let mut out = Vec::with_capacity(chunks.len());
+        for (x, z) in chunks {
+            let filled = state.fill_terrain(x, z)?;
+            let mut blocks = NewBinary::new(env, filled.blocks.len() * 2);
+            for (bytes, id) in blocks.as_mut_slice().chunks_mut(2).zip(&filled.blocks) {
+                bytes.copy_from_slice(&id.to_be_bytes());
+            }
+            out.push((blocks.into(), filled.fluid_updates));
         }
-        out.push((blocks.into(), filled.fluid_updates));
-    }
-    Ok(out)
+        Ok(out)
+    })())
 }
 
 /// Terrain of chunks with their material rule applied and, with `carve`,
@@ -202,18 +219,20 @@ fn worldgen_build_terrain<'a>(
     biome_source: String,
     carve: bool,
     chunks: Vec<(i32, i32)>,
-) -> Result<Vec<FilledBinary<'a>>, String> {
-    let mut state = state.lease()?;
-    let mut out = Vec::with_capacity(chunks.len());
-    for (x, z) in chunks {
-        let filled = state.build_terrain(x, z, &biome_source, carve)?;
-        let mut blocks = NewBinary::new(env, filled.blocks.len() * 2);
-        for (bytes, id) in blocks.as_mut_slice().chunks_mut(2).zip(&filled.blocks) {
-            bytes.copy_from_slice(&id.to_be_bytes());
+) -> NifResult<(Atom, Vec<FilledBinary<'a>>)> {
+    reply((|| {
+        let mut state = state.lease()?;
+        let mut out = Vec::with_capacity(chunks.len());
+        for (x, z) in chunks {
+            let filled = state.build_terrain(x, z, &biome_source, carve)?;
+            let mut blocks = NewBinary::new(env, filled.blocks.len() * 2);
+            for (bytes, id) in blocks.as_mut_slice().chunks_mut(2).zip(&filled.blocks) {
+                bytes.copy_from_slice(&id.to_be_bytes());
+            }
+            out.push((blocks.into(), filled.fluid_updates));
         }
-        out.push((blocks.into(), filled.fluid_updates));
-    }
-    Ok(out)
+        Ok(out)
+    })())
 }
 
 /// A scheduled tick: position, block id or fluid name, delay and priority.
@@ -256,25 +275,30 @@ fn worldgen_decorate<'a>(
     centre: (i32, i32),
     order: Vec<(i32, i32)>,
     features: Vec<(usize, usize)>,
-) -> Result<Vec<DecoratedChunk<'a>>, String> {
-    let mut state = state.lease()?;
-    let included: std::collections::HashSet<(usize, usize)> = features.into_iter().collect();
-    let area = state.decorate_area(
-        &biome_source,
-        (centre.0 - 2, centre.1 - 2),
-        5,
-        &order,
-        Some(&included),
-    )?;
-    Ok(area
-        .held()
-        .map(|chunk| decorated_chunk(env, chunk))
-        .collect())
+) -> NifResult<(Atom, Vec<DecoratedChunk<'a>>)> {
+    reply((|| {
+        let mut state = state.lease()?;
+        let included: std::collections::HashSet<(usize, usize)> = features.into_iter().collect();
+        let area = state.decorate_area(
+            &biome_source,
+            (centre.0 - 2, centre.1 - 2),
+            5,
+            &order,
+            Some(&included),
+        )?;
+        Ok(area
+            .held()
+            .map(|chunk| decorated_chunk(env, chunk))
+            .collect())
+    })())
 }
 
 /// Structure placement parity (VMC-025f): the 5 × 5 chunks around `centre`
 /// with their terrain, the chunks in `order` decorated with every placed
 /// feature and the starts of `structures` (identifiers) placed in their
+/// Decorated chunks and each start as placement left it.
+type DecoratedStarts<'a> = (Vec<DecoratedChunk<'a>>, Vec<String>);
+
 /// steps; also each start as placement left it (canonical SNBT).
 #[rustler::nif(schedule = "DirtyCpu")]
 fn worldgen_decorate_structures<'a>(
@@ -284,32 +308,34 @@ fn worldgen_decorate_structures<'a>(
     centre: (i32, i32),
     order: Vec<(i32, i32)>,
     structures: Vec<String>,
-) -> Result<(Vec<DecoratedChunk<'a>>, Vec<String>), String> {
-    let mut state = state.lease()?;
-    let registry = state.structure_env(&biome_source)?.registry.clone();
-    let included = structures
-        .iter()
-        .map(|id| {
-            registry
-                .structures
-                .iter()
-                .position(|s| &s.id == id)
-                .ok_or_else(|| format!("unknown structure {id}"))
-        })
-        .collect::<Result<std::collections::HashSet<_>, _>>()?;
-    let (area, starts) = state.decorate_area_structures(
-        &biome_source,
-        (centre.0 - 2, centre.1 - 2),
-        5,
-        &order,
-        Some(&included),
-    )?;
-    Ok((
-        area.held()
-            .map(|chunk| decorated_chunk(env, chunk))
-            .collect(),
-        starts.iter().map(|s| s.save(&registry).snbt()).collect(),
-    ))
+) -> NifResult<(Atom, DecoratedStarts<'a>)> {
+    reply((|| {
+        let mut state = state.lease()?;
+        let registry = state.structure_env(&biome_source)?.registry.clone();
+        let included = structures
+            .iter()
+            .map(|id| {
+                registry
+                    .structures
+                    .iter()
+                    .position(|s| &s.id == id)
+                    .ok_or_else(|| format!("unknown structure {id}"))
+            })
+            .collect::<Result<std::collections::HashSet<_>, _>>()?;
+        let (area, starts) = state.decorate_area_structures(
+            &biome_source,
+            (centre.0 - 2, centre.1 - 2),
+            5,
+            &order,
+            Some(&included),
+        )?;
+        Ok((
+            area.held()
+                .map(|chunk| decorated_chunk(env, chunk))
+                .collect(),
+            starts.iter().map(|s| s.save(&registry).snbt()).collect(),
+        ))
+    })())
 }
 
 /// A chunk's blocks (big endian), post-processing marks, scheduled ticks and
@@ -408,33 +434,35 @@ type ShapeOutcome = (u16, Vec<(i32, i32, i32, bool, u16)>);
 fn worldgen_shape_cases(
     registry: ResourceArc<WorldgenRegistry>,
     cases: Vec<ShapeCase>,
-) -> Result<Vec<ShapeOutcome>, String> {
-    let decoration = registry
-        .registry
-        .decorations
-        .get("minecraft:overworld")
-        .ok_or("no decoration facts")?;
-    let cases: Vec<_> = cases
-        .into_iter()
-        .map(|(state, d, cells)| {
-            let cells = cells
-                .into_iter()
-                .map(|(x, y, z, s)| ([x, y, z], s))
-                .collect();
-            (state, d, cells)
-        })
-        .collect();
-    Ok(decoration
-        .shape_cases(&cases)?
-        .into_iter()
-        .map(|(state, ticks)| {
-            let ticks = ticks
-                .into_iter()
-                .map(|(o, fluid, id)| (o[0], o[1], o[2], fluid, id))
-                .collect();
-            (state, ticks)
-        })
-        .collect())
+) -> NifResult<(Atom, Vec<ShapeOutcome>)> {
+    reply((|| {
+        let decoration = registry
+            .registry
+            .decorations
+            .get("minecraft:overworld")
+            .ok_or("no decoration facts")?;
+        let cases: Vec<_> = cases
+            .into_iter()
+            .map(|(state, d, cells)| {
+                let cells = cells
+                    .into_iter()
+                    .map(|(x, y, z, s)| ([x, y, z], s))
+                    .collect();
+                (state, d, cells)
+            })
+            .collect();
+        Ok(decoration
+            .shape_cases(&cases)?
+            .into_iter()
+            .map(|(state, ticks)| {
+                let ticks = ticks
+                    .into_iter()
+                    .map(|(o, fluid, id)| (o[0], o[1], o[2], fluid, id))
+                    .collect();
+                (state, ticks)
+            })
+            .collect())
+    })())
 }
 
 /// Decoration benchmark (VMC-025): the `size` × `size` area from `origin`,
@@ -448,12 +476,14 @@ fn worldgen_decoration_time(
     size: i32,
     order: Vec<(i32, i32)>,
     features: Vec<(usize, usize)>,
-) -> Result<u64, String> {
-    let mut state = state.lease()?;
-    let included: std::collections::HashSet<(usize, usize)> = features.into_iter().collect();
-    let (_, elapsed) =
-        state.decorate_area_timed(&biome_source, origin, size, &order, Some(&included))?;
-    Ok(elapsed.as_nanos() as u64)
+) -> NifResult<(Atom, u64)> {
+    reply((|| {
+        let mut state = state.lease()?;
+        let included: std::collections::HashSet<(usize, usize)> = features.into_iter().collect();
+        let (_, elapsed) =
+            state.decorate_area_timed(&biome_source, origin, size, &order, Some(&included))?;
+        Ok(elapsed.as_nanos() as u64)
+    })())
 }
 
 /// Structure generation for parity checks (VMC-025e): the structure sets
@@ -465,26 +495,30 @@ type RingPositions = Vec<(String, Vec<(i32, i32)>)>;
 fn worldgen_structure_state(
     state: ResourceArc<WorldgenState>,
     biome_source: String,
-) -> Result<(Vec<String>, RingPositions), String> {
-    let env = {
-        let mut state = state.lease()?;
-        state.structure_env(&biome_source)?
-    };
-    let sets = &env.registry.sets;
-    let possible = env.possible.iter().map(|&s| sets[s].id.clone()).collect();
-    let rings = env
-        .possible
-        .iter()
-        .filter_map(|&s| {
-            env.ring_positions(s)
-                .map(|positions| (sets[s].id.clone(), positions.to_vec()))
-        })
-        .collect();
-    Ok((possible, rings))
+) -> NifResult<(Atom, (Vec<String>, RingPositions))> {
+    reply((|| {
+        let env = {
+            let mut state = state.lease()?;
+            state.structure_env(&biome_source)?
+        };
+        let sets = &env.registry.sets;
+        let possible = env.possible.iter().map(|&s| sets[s].id.clone()).collect();
+        let rings = env
+            .possible
+            .iter()
+            .filter_map(|&s| {
+                env.ring_positions(s)
+                    .map(|positions| (sets[s].id.clone(), positions.to_vec()))
+            })
+            .collect();
+        Ok((possible, rings))
+    })())
 }
 
 /// A structure start: its chunk, structure and canonical SNBT.
 type StartRow = (i32, i32, String, String);
+/// Starts, and the sets skipped.
+type StartRows = (Vec<StartRow>, Vec<String>);
 
 /// `createStructures` in fresh chunks (VMC-025e): every start, and the sets
 /// skipped because ValiMC does not generate one of their structure types yet.
@@ -493,27 +527,29 @@ fn worldgen_structure_starts(
     state: ResourceArc<WorldgenState>,
     biome_source: String,
     chunks: Vec<(i32, i32)>,
-) -> Result<(Vec<StartRow>, Vec<String>), String> {
-    let env = {
-        let mut state = state.lease()?;
-        state.structure_env(&biome_source)?
-    };
-    let registry = &env.registry;
-    let mut rows = Vec::new();
-    let mut skipped = std::collections::BTreeSet::new();
-    for (x, z) in chunks {
-        let (starts, skips) = env.create_structures(x, z)?;
-        skipped.extend(skips.into_iter().map(|s| registry.sets[s].id.clone()));
-        for start in starts {
-            rows.push((
-                x,
-                z,
-                registry.structures[start.structure].id.clone(),
-                start.save(registry).snbt(),
-            ));
+) -> NifResult<(Atom, StartRows)> {
+    reply((|| {
+        let env = {
+            let mut state = state.lease()?;
+            state.structure_env(&biome_source)?
+        };
+        let registry = &env.registry;
+        let mut rows = Vec::new();
+        let mut skipped = std::collections::BTreeSet::new();
+        for (x, z) in chunks {
+            let (starts, skips) = env.create_structures(x, z)?;
+            skipped.extend(skips.into_iter().map(|s| registry.sets[s].id.clone()));
+            for start in starts {
+                rows.push((
+                    x,
+                    z,
+                    registry.structures[start.structure].id.clone(),
+                    start.save(registry).snbt(),
+                ));
+            }
         }
-    }
-    Ok((rows, skipped.into_iter().collect()))
+        Ok((rows, skipped.into_iter().collect()))
+    })())
 }
 
 /// Per structure set, its placement chunks in a window.
@@ -531,50 +567,52 @@ fn worldgen_structure_window(
     biome_source: String,
     origin: (i32, i32),
     size: i32,
-) -> Result<(WindowPlacements, Vec<ReferenceRow>), String> {
-    let env = {
-        let mut state = state.lease()?;
-        state.structure_env(&biome_source)?
-    };
-    let registry = &env.registry;
-    let mut placements = Vec::new();
-    for &set in &env.possible {
-        let mut hits = Vec::new();
+) -> NifResult<(Atom, (WindowPlacements, Vec<ReferenceRow>))> {
+    reply((|| {
+        let env = {
+            let mut state = state.lease()?;
+            state.structure_env(&biome_source)?
+        };
+        let registry = &env.registry;
+        let mut placements = Vec::new();
+        for &set in &env.possible {
+            let mut hits = Vec::new();
+            for dz in 0..size {
+                for dx in 0..size {
+                    let (x, z) = (origin.0 + dx, origin.1 + dz);
+                    if env.is_structure_chunk(set, x, z) {
+                        hits.push((x, z));
+                    }
+                }
+            }
+            placements.push((registry.sets[set].id.clone(), hits));
+        }
+        let mut starts = std::collections::HashMap::new();
         for dz in 0..size {
             for dx in 0..size {
                 let (x, z) = (origin.0 + dx, origin.1 + dz);
-                if env.is_structure_chunk(set, x, z) {
-                    hits.push((x, z));
+                starts.insert((x, z), env.create_structures(x, z)?.0);
+            }
+        }
+        let starts_at = |x: i32, z: i32| starts.get(&(x, z)).map(Vec::as_slice);
+        let mut references = Vec::new();
+        for dz in 8..size - 8 {
+            for dx in 8..size - 8 {
+                let (x, z) = (origin.0 + dx, origin.1 + dz);
+                let mut by_structure: std::collections::BTreeMap<usize, Vec<(i32, i32)>> =
+                    std::collections::BTreeMap::new();
+                for (structure, source) in env.references(x, z, &starts_at)? {
+                    by_structure.entry(structure).or_default().push(source);
+                }
+                for (structure, mut sources) in by_structure {
+                    sources.sort_unstable();
+                    sources.dedup();
+                    references.push((x, z, registry.structures[structure].id.clone(), sources));
                 }
             }
         }
-        placements.push((registry.sets[set].id.clone(), hits));
-    }
-    let mut starts = std::collections::HashMap::new();
-    for dz in 0..size {
-        for dx in 0..size {
-            let (x, z) = (origin.0 + dx, origin.1 + dz);
-            starts.insert((x, z), env.create_structures(x, z)?.0);
-        }
-    }
-    let starts_at = |x: i32, z: i32| starts.get(&(x, z)).map(Vec::as_slice);
-    let mut references = Vec::new();
-    for dz in 8..size - 8 {
-        for dx in 8..size - 8 {
-            let (x, z) = (origin.0 + dx, origin.1 + dz);
-            let mut by_structure: std::collections::BTreeMap<usize, Vec<(i32, i32)>> =
-                std::collections::BTreeMap::new();
-            for (structure, source) in env.references(x, z, &starts_at)? {
-                by_structure.entry(structure).or_default().push(source);
-            }
-            for (structure, mut sources) in by_structure {
-                sources.sort_unstable();
-                sources.dedup();
-                references.push((x, z, registry.structures[structure].id.clone(), sources));
-            }
-        }
-    }
-    Ok((placements, references))
+        Ok((placements, references))
+    })())
 }
 
 /// Encoded proto chunks as `worldgen_decorate` reports chunks (parity).
@@ -583,14 +621,17 @@ fn worldgen_proto_inspect<'a>(
     env: rustler::Env<'a>,
     state: ResourceArc<WorldgenState>,
     chunks: Vec<Binary>,
-) -> Result<Vec<DecoratedChunk<'a>>, String> {
-    let state = state.lease()?;
-    let mut out = Vec::with_capacity(chunks.len());
-    for bytes in &chunks {
-        let chunk = valimc_core::worldgen::proto::decode(bytes.as_slice(), state.block_table()?)?;
-        out.push(decorated_chunk(env, &chunk));
-    }
-    Ok(out)
+) -> NifResult<(Atom, Vec<DecoratedChunk<'a>>)> {
+    reply((|| {
+        let state = state.lease()?;
+        let mut out = Vec::with_capacity(chunks.len());
+        for bytes in &chunks {
+            let chunk =
+                valimc_core::worldgen::proto::decode(bytes.as_slice(), state.block_table()?)?;
+            out.push(decorated_chunk(env, &chunk));
+        }
+        Ok(out)
+    })())
 }
 
 /// This thread's CPU time in nanoseconds (`clock_gettime` with the thread
@@ -629,22 +670,49 @@ fn worldgen_structure_time(
     biome_source: String,
     origin: (i32, i32),
     size: i32,
-) -> Result<(u64, u64, usize), String> {
-    let env = {
-        let mut state = state.lease()?;
-        state.structure_env(&biome_source)?
-    };
-    let mut elapsed = std::time::Duration::ZERO;
-    let mut cpu = 0;
-    let mut starts = 0;
-    for dz in 0..size {
-        for dx in 0..size {
-            let (begin, begin_cpu) = (std::time::Instant::now(), thread_cpu_ns());
-            let (made, _) = env.create_structures(origin.0 + dx, origin.1 + dz)?;
-            cpu += thread_cpu_ns() - begin_cpu;
-            elapsed += begin.elapsed();
-            starts += made.len();
+) -> NifResult<(Atom, (u64, u64, usize))> {
+    reply((|| {
+        let env = {
+            let mut state = state.lease()?;
+            state.structure_env(&biome_source)?
+        };
+        let mut elapsed = std::time::Duration::ZERO;
+        let mut cpu = 0;
+        let mut starts = 0;
+        for dz in 0..size {
+            for dx in 0..size {
+                let (begin, begin_cpu) = (std::time::Instant::now(), thread_cpu_ns());
+                let (made, _) = env.create_structures(origin.0 + dx, origin.1 + dz)?;
+                cpu += thread_cpu_ns() - begin_cpu;
+                elapsed += begin.elapsed();
+                starts += made.len();
+            }
         }
-    }
-    Ok((elapsed.as_nanos() as u64, cpu, starts))
+        Ok((elapsed.as_nanos() as u64, cpu, starts))
+    })())
+}
+
+/// Replace a chunk's column with 24 imported sections, bottom to top
+/// (`check_chunk_sections.exs`).
+#[rustler::nif]
+fn put_column(
+    env: Env,
+    region: ResourceArc<Region>,
+    cx: i32,
+    cz: i32,
+    sections: Vec<SectionSpec>,
+) -> NifResult<Atom> {
+    done((|| {
+        let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
+        let column = imported_column(&sections)?;
+        with_owned(env, &region, |store| {
+            store.put_column((cx, cz), column, flags).map_err(error)
+        })
+    })())
+}
+
+/// The region's section memory (`bench/section_storage.exs`).
+#[rustler::nif]
+fn heap_bytes(region: ResourceArc<Region>) -> Result<usize, Atom> {
+    with_store(&region, |store| Ok(store.heap_bytes()))
 }

@@ -21,7 +21,7 @@ column = fn chunk ->
       image
 
     [] ->
-      {:ok, [{_, _, proto}]} = Native.worldgen_proto_terrain(state, source, [chunk])
+      {:ok, [{_, _, proto}]} = Native.worldgen_proto_terrain(state, source, [chunk], false)
       {:ok, [full]} = Native.worldgen_proto_full(state, [proto], protocol_biomes)
       :ets.insert(columns, {chunk, full.image})
       full.image
@@ -38,15 +38,17 @@ end
     seed = String.to_integer(c["seed"])
 
     {ours, changed} =
-      case Native.worldgen_place(state, source, spec, {px, py, pz}, input, base, seed) do
-        {:ok, nil} ->
-          {false, []}
+      try do
+        case Native.worldgen_place(state, source, spec, {px, py, pz}, input, base, seed) do
+          {:ok, nil} ->
+            {false, []}
 
-        {:ok, {blocks, _entities, _mobs}} ->
-          {true, for({{x, y, z}, s} <- blocks, do: "#{x} #{y} #{z} #{s}")}
-
-        {:error, reason} ->
-          {{:error, reason}, []}
+          {:ok, {blocks, _entities, _mobs}} ->
+            {true, for({{x, y, z}, s} <- blocks, do: "#{x} #{y} #{z} #{s}")}
+        end
+      rescue
+        # A placement the generator cannot run raises with the reason.
+        error in ErlangError -> {{:error, error.original}, []}
       end
 
     want = MapSet.new(c["changed"])

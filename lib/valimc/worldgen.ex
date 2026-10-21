@@ -103,6 +103,10 @@ defmodule Valimc.Worldgen do
   rescue
     error in [File.Error, JSON.DecodeError, KeyError, MatchError, ArgumentError] ->
       {:error, Exception.message(error)}
+
+    # Facts the native registry cannot generate raise with the reason.
+    error in ErlangError ->
+      {:error, error.original}
   end
 
   defp read_json!(path), do: path |> File.read!() |> JSON.decode!()
@@ -162,7 +166,8 @@ defmodule Valimc.Worldgen do
   a facts directory's (`registry/1`).
   """
   def new(seed, settings \\ "minecraft:overworld", dir \\ nil) do
-    with {:ok, registry} <- registry(dir), do: Native.worldgen_new(registry, seed, settings)
+    with {:ok, registry} <- registry(dir),
+         do: Native.worldgen_new(registry, seed, settings, Valimc.Worldgen.Pool.size())
   end
 
   # Block states inside material rules become state ids.

@@ -123,15 +123,18 @@ defmodule Valimc.Commands.Place do
     {state, biome_source} = generator!(source.dimension, elem(spec, 0))
 
     case generate!(fn -> Native.worldgen_place_plan(state, biome_source, spec, pos) end) do
-      {:ok, {"invalid", _, _}} ->
+      {:ok, :invalid} ->
         Error.fail!(invalid, [id])
 
-      {:ok, {"failed", _, _}} ->
+      {:ok, :failed} ->
         Error.fail!(failed)
+
+      {:ok, :too_large} ->
+        Error.refuse!("Placing failed (the placement spans too many chunks)")
 
       # The area holds the chunks vanilla checks; any of them not loaded
       # refuses the placement.
-      {:ok, {"chunks", _checked, area}} ->
+      {:ok, {:chunks, _checked, area}} ->
         chunks = chunks(area)
         {images, revisions} = images!(chunks)
         input = for {cx, cz} = c <- chunks, do: {cx, cz, Map.fetch!(images, c)}
@@ -147,13 +150,7 @@ defmodule Valimc.Commands.Place do
             write!(blocks, entities, revisions)
             if mobs > 0, do: Logger.info("/place left out #{mobs} entities (no mobs yet)")
             source
-
-          {:error, reason} ->
-            Error.refuse!("Placing failed (#{reason})")
         end
-
-      {:error, reason} ->
-        Error.refuse!("Placing failed (#{reason})")
     end
   end
 
