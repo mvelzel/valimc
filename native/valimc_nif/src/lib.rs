@@ -926,6 +926,8 @@ pub struct WorldgenState {
     seed: i64,
     settings: String,
     pool: Mutex<Vec<valimc_core::worldgen::compiler::Worldgen>>,
+    /// Chunk biomes every state of the pool shares (VMC-025d4).
+    biomes: valimc_core::worldgen::compiler::SharedBiomes,
 }
 
 #[rustler::resource_impl]
@@ -949,11 +951,15 @@ impl WorldgenState {
             .pop();
         let state = match pooled {
             Some(state) => state,
-            None => valimc_core::worldgen::compiler::Worldgen::new(
-                self.registry.clone(),
-                self.seed,
-                &self.settings,
-            )?,
+            None => {
+                let mut state = valimc_core::worldgen::compiler::Worldgen::new(
+                    self.registry.clone(),
+                    self.seed,
+                    &self.settings,
+                )?;
+                state.share_chunk_biomes(self.biomes.clone());
+                state
+            }
         };
         Ok(WorldgenLease {
             owner: self,
@@ -1049,13 +1055,16 @@ fn worldgen_new(
     seed: i64,
     settings: String,
 ) -> Result<ResourceArc<WorldgenState>, String> {
-    let state =
+    let mut state =
         valimc_core::worldgen::compiler::Worldgen::new(registry.registry.clone(), seed, &settings)?;
+    let biomes = valimc_core::worldgen::compiler::SharedBiomes::default();
+    state.share_chunk_biomes(biomes.clone());
     Ok(ResourceArc::new(WorldgenState {
         registry: registry.registry.clone(),
         seed,
         settings,
         pool: Mutex::new(vec![state]),
+        biomes,
     }))
 }
 

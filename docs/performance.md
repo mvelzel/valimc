@@ -27,25 +27,24 @@ chunk against 2.4–2.7 ms in vanilla. Pumpkin's features stage on the same
 chunks takes 0.83 ms; it also places structure pieces, so the comparison is
 matched apart from structures.
 
-[Live decoration](tickets/VMC-025.md) (`bench/worldgen_live.exs`, seed
-20261020, a fresh decorated world finalizing 4 × 4 regions at once through its
-proto owners: 1,296 terrain chunks, 1,156 decorated, 1,024 final, every proto
-log write durable; against Pumpkin generating the same area through its chunk
-stages with all threads, nothing written to disk). No quiet host was
-available, so ValiMC and Pumpkin ran back to back at load averages 22–70 on
-10 cores and only those pairs compare. With finalize transactions that never
-wait while holding locks and terrain ordered by transaction start across
-owners, ValiMC finalized a median 61 final chunks per second against
-Pumpkin's 82 at load 50–70 (0.74 × Pumpkin); before, with each transaction
-taking its owners' locks one at a time and holding them, they committed one
-after another and ValiMC managed 0.43–0.58 ×. The stages themselves stay
-level on one thread under the same load (terrain through carvers 54.6 ms per
-chunk against Pumpkin's 51.2, decoration 6.4 against 6.4). A traced run
-(`bench/worldgen_live_trace.exs`) shows the first region decorating after
-2.2 s of a 19 s pass and decorations beside terrain from then on, dirty
-schedulers 85% busy (58% before) and normal ones under 1%. What remains is
-CPU: encoding proto chunks makes terrain about 1.2 × and decoration about
-1.8 × Pumpkin's stages, and full chunks add about 5%.
+[Live generation](tickets/VMC-025.md) (`bench/worldgen_live.exs`, seed
+20261020, a fresh world with features and structures finalizing 4 × 4 regions
+at once through its proto owners: 1,296 terrain chunks, 1,156 decorated, 1,024
+final, every proto log write durable; against Pumpkin generating the same area
+through its chunk stages with all threads, nothing written to disk). The host
+is shared, so ValiMC and Pumpkin ran back to back in five pairs of three
+passes at load averages 11–38 on 10 cores. ValiMC finalized a median 179 final
+chunks per second (104–260, standard deviation 42) against Pumpkin's 250
+(154–320, deviation 55); the median pair ratio is 0.77 × Pumpkin (pairs 0.43–
+1.12 as the load moved). On one thread the two are level (70–90 against
+68–90 final chunks per second at load 11–19), and so are the stages (terrain
+through carvers 54.6 ms per chunk against Pumpkin's 51.2, decoration 6.4
+against 6.4, under the same load). Finalize transactions never wait while
+holding locks and terrain goes to the earliest transactions first, so
+decorations run beside terrain; dirty schedulers are about 87% busy and
+normal ones under 2%. A sampled live pass spends 7% of its native time in
+biome climate search (14% before a seed's pooled worldgen states shared
+their chunk biomes) and about 5% encoding and decoding proto chunks.
 
 [Structure starts](tickets/VMC-025.md) (`bench/worldgen_structures.exs`,
 matched with vanilla's own generator: the overworld's 40 × 40 chunks around the

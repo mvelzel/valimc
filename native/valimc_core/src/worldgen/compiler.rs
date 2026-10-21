@@ -15,7 +15,7 @@ mod place;
 pub use place::{Placed, Placement, Plan};
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use super::beard::Beardifier;
 use super::blocks::{BlockTable, Heightmap};
@@ -510,6 +510,9 @@ pub struct Worldgen {
     /// Chunk biomes and carver biomes by biome source and chunk: both pure, so
     /// neighbouring chunks share them (bounded).
     chunk_biomes: HashMap<(String, i32, i32), Arc<Vec<u16>>>,
+    /// Chunk biomes shared with the other states of a pool instead
+    /// (`share_chunk_biomes`).
+    shared_biomes: Option<SharedBiomes>,
     carver_biomes: HashMap<(String, i32, i32), u16>,
     /// Structure generation per biome source (VMC-025e).
     structure_envs: HashMap<String, Arc<StructureEnv>>,
@@ -525,6 +528,15 @@ pub struct Worldgen {
 }
 
 const BIOME_CACHE_LIMIT: usize = 4096;
+
+/// Chunk biomes several worldgen states of one seed share (VMC-025d4): live
+/// generation spreads neighbouring chunks over a pool of states, and each
+/// chunk's surface needs its 3 × 3 chunks' biomes, which a state of its own
+/// would make again and again. Pure, so sharing changes nothing but cost.
+pub type SharedBiomes = Arc<Mutex<HashMap<(String, i32, i32), Arc<Vec<u16>>>>>;
+
+/// Chunks a shared biome cache keeps (about 3 KB each).
+const SHARED_BIOME_CACHE_LIMIT: usize = 8192;
 /// Chunks whose starts a worldgen state keeps for live generation.
 const LIVE_STARTS_LIMIT: usize = 16384;
 /// A fixed biome source's name: this prefix and the biome (VMC-028b).
@@ -601,6 +613,7 @@ impl Worldgen {
             samplers: HashMap::new(),
             material_system: None,
             chunk_biomes: HashMap::new(),
+            shared_biomes: None,
             carver_biomes: HashMap::new(),
             structure_envs: HashMap::new(),
             live_starts: HashMap::new(),
@@ -611,6 +624,13 @@ impl Worldgen {
 
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    /// Keep chunk biomes in `cache`, shared with the other states of a pool,
+    /// instead of in this state.
+    pub fn share_chunk_biomes(&mut self, cache: SharedBiomes) {
+        self.chunk_biomes.clear();
+        self.shared_biomes = Some(cache);
     }
 
     fn normal_noise(&self, id: &str) -> Result<&NormalNoise, String> {
@@ -1091,6 +1111,20 @@ impl Worldgen {
         chunk_z: i32,
     ) -> Result<Arc<Vec<u16>>, String> {
         let key = (biome_source.to_string(), chunk_x, chunk_z);
+        if let Some(shared) = self.shared_biomes.clone() {
+            if let Some(biomes) = shared.lock().map_err(|_| "biome cache poisoned")?.get(&key) {
+                return Ok(biomes.clone());
+            }
+            // Made outside the lock: another state may make the same chunk
+            // meanwhile, with the same result.
+            let biomes = Arc::new(self.chunk_biome_ids(biome_source, chunk_x, chunk_z)?);
+            let mut cache = shared.lock().map_err(|_| "biome cache poisoned")?;
+            if cache.len() >= SHARED_BIOME_CACHE_LIMIT {
+                cache.clear();
+            }
+            cache.insert(key, biomes.clone());
+            return Ok(biomes);
+        }
         if let Some(biomes) = self.chunk_biomes.get(&key) {
             return Ok(biomes.clone());
         }
