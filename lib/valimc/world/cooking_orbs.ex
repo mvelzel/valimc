@@ -5,7 +5,6 @@ defmodule Valimc.World.CookingOrbs do
   @max_awards 256
   @max_bytes 2 + @max_awards * (33 + 11 * 46)
   @max_experience 2_147_483_647
-  def max_bytes, do: @max_bytes
   def max_records, do: @max_awards * length(@values)
 
   @doc "Owned immutable birth sets, including canonical remote adoptions."

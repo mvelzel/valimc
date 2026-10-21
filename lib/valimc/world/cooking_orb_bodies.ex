@@ -5,7 +5,6 @@ defmodule Valimc.World.CookingOrbBodies do
   @max 18_446_744_073_709_551_615
   @max_bytes 10 + 256 * 33 + 2816 * 81
   def new, do: %{revision: 0, awards: %{}}
-  def max_bytes, do: @max_bytes
   def fence(cs), do: {cs.orb_bodies.revision, cs.orb_consumption.revision}
 
   @doc "Pure launch proposal. Supply draws only for uncollected units; replay never resamples them."
@@ -52,56 +51,6 @@ defmodule Valimc.World.CookingOrbBodies do
   end
 
   def initialize(_, _, _, _), do: invalid()
-
-  @doc "Pure batch checkpoint. Age advances monotonically; age 6000 retires exactly the remaining units."
-  def checkpoint(cs, key, updates) when is_map(updates) and map_size(updates) in 1..2816 do
-    with {:ok, _} <- Containers.encode(key, cs) do
-      revision = cs.orb_bodies.revision + 1
-
-      index =
-        for {id, rows} <- cs.orb_bodies.awards,
-            {uuid, row} <- rows,
-            into: %{},
-            do: {uuid, {id, row}}
-
-      births = CookingOrbs.owned_records(cs)
-
-      awards =
-        Enum.reduce(updates, cs.orb_bodies.awards, fn {uuid, update}, awards ->
-          %{
-            expected_revision: expected,
-            position: position,
-            velocity: velocity,
-            age: age,
-            on_ground: ground
-          } = update
-
-          true = map_size(update) == 5
-          {id, old} = Map.fetch!(index, uuid)
-          true = expected == old.revision and age > old.age and age <= 6000
-          left = births[id][uuid].count - consumed(cs, uuid) - old.expired
-          true = left > 0 and old.expired == 0
-
-          row = %{
-            old
-            | revision: revision,
-              position: doubles(position),
-              velocity: doubles(velocity),
-              age: age,
-              on_ground: ground,
-              expired: if(age == 6000, do: left, else: 0)
-          }
-
-          Map.update!(awards, id, &Map.put(&1, uuid, row))
-        end)
-
-      propose(cs, key, %{revision: revision, awards: awards})
-    end
-  rescue
-    _ -> invalid()
-  end
-
-  def checkpoint(_, _, _), do: invalid()
 
   @doc """
   Lifetime without motion (VMC-067): awards without bodies first rest at their

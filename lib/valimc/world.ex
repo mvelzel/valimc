@@ -297,12 +297,6 @@ defmodule Valimc.World do
 
   def visible_items(regions, chunks), do: visible_kind(regions, chunks, :item)
 
-  @doc "Chunk-local XP presentation only; it cannot authorize pickup or a transfer."
-  def orb_snapshot(chunk) do
-    {views, _} = visible_entities([region_key(chunk)], [chunk])
-    for {id, %{kind: :orb} = view} <- views, into: %{}, do: {id, view}
-  end
-
   def visible_orbs(regions, chunks), do: visible_kind(regions, chunks, :orb)
 
   defp visible_kind(regions, chunks, kind) do

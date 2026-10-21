@@ -10,7 +10,6 @@ defmodule Valimc.Protocol.EntityTypes do
   def id(name) when is_binary(name), do: id("minecraft:" <> name)
   def names, do: unquote(Macro.escape(MapSet.new(Map.keys(@facts["types"]))))
   def field(name) when is_atom(name), do: @facts["fields"][Atom.to_string(name)]
-  def serializer(name) when is_binary(name), do: Map.fetch!(@facts["serializers"], name)
 
   @doc "Vanilla's `clientTrackingRange` of a type, in chunks (VMC-070)."
   def tracking_range("minecraft:" <> _ = name), do: Map.fetch!(@facts["tracking_ranges"], name)

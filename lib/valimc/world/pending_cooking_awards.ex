@@ -14,8 +14,6 @@ defmodule Valimc.World.PendingCookingAwards do
   @max_record_bytes 34 + @max_record
   @no_draw 16_777_216
   @max_sequence 18_446_744_073_709_551_615
-  def max_awards, do: @max_awards
-  def max_bytes, do: @max_bytes
   def max_record_bytes, do: @max_record_bytes
 
   # Imported vanilla XP orbs (VMC-021e4) are births of their own: one record per

@@ -26,7 +26,6 @@ defmodule Valimc.World.Containers do
   @max_sources Valimc.Txn.Receipts.max_sources()
   @contents_bytes 524_288
   @max_bytes 8_388_608
-  def max_entries, do: @max_entries
   def max_bytes, do: @max_bytes
 
   def observe(%__MODULE__{entries: entries}, position),

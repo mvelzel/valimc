@@ -6,7 +6,6 @@ defmodule Valimc.World.CookingOrbTransfers do
   @max_request 16 + PendingCookingAwards.max_record_bytes()
   @max_bytes 12 + @max_awards * (33 + 2 + @max_request)
   def new, do: %{revision: 0, outgoing: %{}, incoming: %{}}
-  def max_bytes, do: @max_bytes
   def max_request_bytes, do: @max_request
 
   @doc "Reserve routing in source storage before sending the returned request."
