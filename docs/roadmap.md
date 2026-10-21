@@ -40,9 +40,10 @@ resumes on these foundations alongside M2.
 | [VMC-024](tickets/VMC-024.md) | Vanilla terrain: noise fill with aquifers, material rules and carvers equal to vanilla's, generated live in new worlds | Done |
 | [VMC-010](tickets/VMC-010.md) | Operator, whitelist and ban lists in vanilla's files, checked at login, with the admin commands; save control, idle timeout and the console remain | In progress |
 | [VMC-053](tickets/VMC-053.md) | Vanilla commands: parse, permissions, suggestions, SNBT and the player, world, chat, text, effect, area, tick, operator and ban commands are live; entity, progression and data-pack commands remain | In progress |
-| [VMC-025](tickets/VMC-025.md) | Features and structures: all 171 overworld placed features equal vanilla's and decorate new worlds live across region borders (client check pending); the starts of all 52 structures in three dimensions equal vanilla's; structure placement next | In progress |
+| [VMC-025](tickets/VMC-025.md) | Features and structures: all 171 overworld placed features equal vanilla's and decorate new worlds live across region borders; the starts of all 52 structures in three dimensions equal vanilla's; structure placement next | In progress |
 | [VMC-026](tickets/VMC-026.md) | Nether, End and portals: every Nether and End placed feature (spikes with crystals, gateways, chorus) equal vanilla's at the dimensions' heights; live dimensions and portals next | In progress |
-| [VMC-027](tickets/VMC-027.md) | World border live (moving, damage outside, `/worldborder`) and vanilla's world and player spawn search | Awaiting client |
+| [VMC-027](tickets/VMC-027.md) | World border live (moving, damage outside, `/worldborder`) and vanilla's world and player spawn search | Done |
+| [VMC-072](tickets/VMC-072.md) | Container loot tables rolled on open, as vanilla does, for generated and imported chests | Planned |
 | [VMC-070](tickets/VMC-070.md) | The client's view distance (clamped to the server's, default 10) picks vanilla's chunk view, applied live; vanilla chunk send pacing and entity tracking ranges | Done |
 | [VMC-071](tickets/VMC-071.md) | New terrain reaches a moving player sooner: parallel worldgen states, nearest regions first, no light-update flood | Done |
 
@@ -71,8 +72,6 @@ experience exist ([VMC-034f](tickets/VMC-034f.md)).
 | Ticket | Remaining gate |
 |---|---|
 | [VMC-005b2c](tickets/VMC-005b2c.md) | Server CLONE/type-2 fill from a creative container menu (VMC-032) |
-| [VMC-025](tickets/VMC-025.md) | VMC-025d: a decorated world across region borders, features and a reconnect after a restart |
-| [VMC-027](tickets/VMC-027.md) | Visual: the border wall and its movement, warning tint, hurt effect and death screen, spawn footing (server-checked scenarios passed) |
 
 The M1 milestone client run passed on `127934a` (see [VMC-069](tickets/VMC-069.md)),
 with the item despawn fix checked on `6243c8c` ([VMC-067](tickets/VMC-067.md)) and
