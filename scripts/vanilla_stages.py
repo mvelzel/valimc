@@ -669,13 +669,13 @@ STAGES = [
         ('java', 'BorderCollisionOracle', '@border-collisions.json'),
         ('check', 'check_border_collisions.exs', '@border-collisions.json'),
     ]),
-    # The worlds scope is the generation ValiMC runs live: terrain until features
-    # (VMC-025d) and structures (VMC-025f) generate in new worlds.
+    # Worlds over terrain: vanilla decorates in whatever order its chunk threads
+    # reach, so a decorated spawn column can differ between vanilla runs.
     ('spawn', [
         ('java', 'SpawnOracle', 'origins', '@origins.json'),
         ('check', 'check_spawn.exs', 'origins', '@origins.json'),
         ('java', 'SpawnOracle', 'worlds', '@worlds.json', 'terrain'),
-        ('check', 'check_spawn.exs', 'worlds', '@worlds.json'),
+        ('check', 'check_spawn.exs', 'worlds', '@worlds.json', 'terrain'),
     ]),
     ('world_border', [
         ('java', 'WorldBorderOracle', 'kernel', '@border-kernel.json'),
