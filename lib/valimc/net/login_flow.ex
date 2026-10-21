@@ -101,6 +101,34 @@ defmodule Valimc.Net.LoginFlow do
     end
   end
 
+  # `PlayerList.placeNewPlayer`'s duplicate check (VMC-010e): a session of the
+  # same profile is kicked ("You logged in from another location") and the
+  # login continues once it has left, as vanilla waits for it.
+  defp join(player, attempts) do
+    case Players.join(player, Valimc.Admin.Login.bypasses_limit?(player)) do
+      {:error, {:duplicate, old}} when attempts > 0 ->
+        ref = Process.monitor(old)
+        reason = Valimc.Command.Text.translatable("multiplayer.disconnect.duplicate_login")
+        Valimc.Connection.deliver(old, {:kick, Valimc.Command.Text.encode(reason)})
+
+        receive do
+          {:DOWN, ^ref, :process, ^old, _} -> :ok
+        after
+          10_000 -> Process.demonitor(ref, [:flush])
+        end
+
+        # The registry learns of the exit through its own monitor.
+        Process.sleep(20)
+        join(player, attempts - 1)
+
+      {:error, {:duplicate, _}} ->
+        {:error, "That name is already connected"}
+
+      other ->
+        other
+    end
+  end
+
   def start_player_login(state, name, profile \\ nil) do
     mode = GameMode.new(Valimc.config(:default_game_mode))
 
@@ -145,7 +173,7 @@ defmodule Valimc.Net.LoginFlow do
     if reason = Valimc.Admin.Login.refusal(player, Valimc.Admin.Login.address(state.socket)),
       do: reject(state, Valimc.Command.Text.encode(reason))
 
-    case Players.join(player, Valimc.Admin.Login.bypasses_limit?(player)) do
+    case join(player, 3) do
       :ok ->
         :ok
 

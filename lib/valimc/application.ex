@@ -84,6 +84,8 @@ defmodule Valimc.Application do
 
     # VMC-010f: the console reads standard input once the server listens.
     children = children ++ if(Valimc.config(:console), do: [Valimc.Console], else: [])
+    # VMC-010g: RCON, when enabled.
+    children = children ++ if(Valimc.config(:rcon), do: [Valimc.Rcon], else: [])
 
     # Restart dependent owners after infrastructure loss; listener failures stay local.
     Supervisor.start_link(children, strategy: :rest_for_one, name: Valimc.Supervisor)

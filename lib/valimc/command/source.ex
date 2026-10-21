@@ -6,7 +6,7 @@ defmodule Valimc.Command.Source do
   """
   alias Valimc.Command.{Text, Coordinates, Selector, Error}
 
-  defstruct [:level, :state, :player, :name, :position, :rotation]
+  defstruct [:level, :state, :player, :name, :position, :rotation, kind: :player]
 
   def player(state) do
     player = Map.put(state.player, :pid, self())
@@ -25,20 +25,25 @@ defmodule Valimc.Command.Source do
   The server console (VMC-010f), vanilla's `MinecraftServer.createCommandSourceStack`:
   permission level 4, named Server, at the world spawn, with no player.
   """
-  def console do
+  def console, do: server_source("Server", :console)
+
+  @doc "RCON (VMC-010g), vanilla's `RconConsoleSource`: as the console, named Rcon."
+  def rcon, do: server_source("Rcon", :rcon)
+
+  defp server_source(name, kind) do
     pose = Valimc.World.Spawn.pose()
     {x, y, z} = {pose.x, pose.y, pose.z}
 
     %__MODULE__{
       level: 4,
-      name: "Server",
+      name: name,
+      kind: kind,
       position: {floor(x) * 1.0, floor(y) * 1.0, floor(z) * 1.0},
       rotation: {0.0, 0.0}
     }
   end
 
-  def console?(%__MODULE__{player: nil, state: nil}), do: true
-  def console?(_), do: false
+  def console?(%__MODULE__{kind: kind}), do: kind == :console
 
   @doc "The executing player, or `permissions.requires.player` (`getPlayerOrException`)."
   def player!(%__MODULE__{player: nil}), do: Error.fail!("permissions.requires.player")

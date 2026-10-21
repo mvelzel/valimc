@@ -141,16 +141,29 @@ defmodule Valimc.Players do
     {:ok, %{names: %{}, monitors: %{}}}
   end
 
+  defp same_profile?(pid, uuid) do
+    case :ets.lookup(__MODULE__, pid) do
+      [{^pid, %{uuid: ^uuid}}] -> true
+      _ -> false
+    end
+  end
+
   @impl true
   def handle_call({:join, player, bypass_limit}, _from, state) do
     key = String.downcase(player.name)
 
+    existing = state.names[key]
+
     cond do
+      # The same profile again (VMC-010e): the caller replaces that session.
+      existing != nil and same_profile?(existing, player.uuid) ->
+        {:reply, {:error, {:duplicate, existing}}, state}
+
+      existing != nil ->
+        {:reply, {:error, "That name is already connected"}, state}
+
       count() >= Valimc.config(:max_players) and not bypass_limit ->
         {:reply, {:error, :full}, state}
-
-      Map.has_key?(state.names, key) ->
-        {:reply, {:error, "That name is already connected"}, state}
 
       true ->
         ref = Process.monitor(player.pid)

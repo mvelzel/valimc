@@ -68,6 +68,12 @@ config :valimc,
   white_list: false,
   enforce_whitelist: false,
   accepts_transfers: false,
+  # VMC-010g: RCON, off unless enabled and given a password.
+  rcon: false,
+  rcon_port: 25_575,
+  rcon_password: nil,
+  rcon_clients: 16,
+  broadcast_rcon_to_ops: true,
   # VMC-010f: commands from standard input; off in tests.
   console: config_env() != :test,
   # VMC-010c: minutes without a player action before the idle kick; 0 is off.

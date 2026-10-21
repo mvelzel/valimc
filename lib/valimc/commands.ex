@@ -1108,10 +1108,18 @@ defmodule Valimc.Commands do
     end
   end
 
+  @doc "Runs an RCON command (VMC-010g) and returns its output text."
+  def execute_rcon(line) do
+    Process.put(:valimc_rcon_output, [])
+    run_server(line, Source.rcon())
+    IO.iodata_to_binary(Process.delete(:valimc_rcon_output) || [])
+  end
+
   @doc "Runs a console line as the server (VMC-010f); a leading `/` is optional."
-  def execute_console(line) do
+  def execute_console(line), do: run_server(line, Source.console())
+
+  defp run_server(line, source) do
     input = String.replace_prefix(line, "/", "")
-    source = Source.console()
 
     case parse(input, source) do
       {:ok, {module, function}, arguments, _context} ->

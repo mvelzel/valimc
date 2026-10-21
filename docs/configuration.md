@@ -25,6 +25,10 @@
 | `VALIMC_ACCEPTS_TRANSFERS` | Whether players sent here by `/transfer` on another server may join (`false`) |
 | `VALIMC_PLAYER_IDLE_TIMEOUT` | Minutes without a player action before the player is disconnected; `0` (default) is off; `/setidletimeout` saves its own value in the world |
 | `VALIMC_CONSOLE` | Whether commands are read from standard input (`true` outside tests) |
+| `VALIMC_RCON` | Whether RCON listens (`false`); it needs `VALIMC_RCON_PASSWORD` |
+| `VALIMC_RCON_PORT` | RCON's port (25575) |
+| `VALIMC_RCON_PASSWORD` | RCON's password; empty keeps RCON off |
+| `VALIMC_BROADCAST_RCON_TO_OPS` | Whether operators see RCON commands' feedback as `[Rcon: …]` (`true`) |
 
 A new vanilla world records its generation settings in `world.json` as vanilla
 writes `world_gen_settings.dat`, and exports write that file. Data packs in the
@@ -37,8 +41,8 @@ Operators get their `ops.json` level (4, `operator_level`, for `/op`) and the
 commands of that level; other players get level 0. The world directory holds
 vanilla's `ops.json`, `whitelist.json`, `banned-players.json`, `banned-ips.json`
 and `usercache.json`. Saved modes take precedence. Non-creative gameplay remains incomplete. Online and
-offline UUID saves are separate; mode changes do not migrate files. Signed chat,
-proxy-IP policy and duplicate-session replacement remain unfinished.
+offline UUID saves are separate; mode changes do not migrate files. Signed chat and
+proxy-IP policy remain unfinished.
 
 ```sh
 VALIMC_PORT=25566 VALIMC_WORLD=/tmp/valimc-world mix run --no-halt

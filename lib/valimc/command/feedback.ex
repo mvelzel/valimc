@@ -21,8 +21,17 @@ defmodule Valimc.Command.Feedback do
   end
 
   # The console prints the English text (`sendSystemMessage` logs `getString`).
-  defp show(%Source{state: nil, player: nil}, component),
+  defp show(%Source{kind: :console}, component),
     do: Logger.info(Valimc.Command.Render.string(component))
+
+  # RCON collects the text for its reply (`RconConsoleSource` appends each
+  # message's string, without separators).
+  defp show(%Source{kind: :rcon}, component) do
+    Process.put(:valimc_rcon_output, [
+      Process.get(:valimc_rcon_output, []),
+      Valimc.Command.Render.string(component)
+    ])
+  end
 
   defp show(source, component),
     do: send_packets(source.state, [Packets.chat(Text.encode(component))])
@@ -55,6 +64,10 @@ defmodule Valimc.Command.Feedback do
 
   # `broadcastToAdmins`: other operators see `[Name: message]`, and a player's
   # broadcast is also logged to the console (`logAdminCommands`).
+  # `shouldInformAdmins`: RCON's `broadcast-rcon-to-ops`, else the game rule.
+  defp inform_admins?(%Source{kind: :rcon}), do: Valimc.config(:broadcast_rcon_to_ops) != false
+  defp inform_admins?(_source), do: Valimc.Command.GameRules.get(:send_command_feedback)
+
   defp admins(source, component) do
     message =
       Text.translatable("chat.type.admin", [Source.display_name(source), component])
@@ -62,7 +75,7 @@ defmodule Valimc.Command.Feedback do
 
     unless Source.console?(source), do: Logger.info(Valimc.Command.Render.string(message))
 
-    if Valimc.Command.GameRules.get(:send_command_feedback) do
+    if inform_admins?(source) do
       for player <- Valimc.Players.all(),
           player.pid != self(),
           Valimc.Permissions.operator?(player),

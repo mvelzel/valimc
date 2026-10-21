@@ -106,4 +106,15 @@ defmodule Valimc.AdminConnectionTest do
     admin = command(admin, "whitelist remove #{outsider}", "commands.whitelist.remove.success")
     _ = command(admin, "whitelist off", "commands.whitelist.disabled")
   end
+
+  test "a second login of the same profile replaces the first" do
+    player = name("twice")
+    {_, first} = Client.login(player)
+    first = Client.load_world(first)
+    {_, second} = Client.login(player)
+    on_exit(fn -> Client.close(second) end)
+    {body, _} = Client.await(first, :play, "disconnect")
+    assert :binary.match(body, "multiplayer.disconnect.duplicate_login") != :nomatch
+    _ = command(Client.load_world(second), "list", "commands.list.players")
+  end
 end
