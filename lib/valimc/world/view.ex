@@ -6,7 +6,7 @@ defmodule Valimc.World.View do
   `load/2` copies the rows of the chunks a box covers out of their owners'
   tables (one ETS lookup per chunk; sections share their binaries), and a read
   of a chunk not loaded looks its row up directly, so no reader has to plan an
-  envelope. Each row is one owner commit of durable blocks; a view is not one
+  envelope. Each row is one owner commit of adopted blocks; a view is not one
   revision of the world and fences nothing, since physics observations are not
   transactions (commits stay fenced on section revisions). A chunk not generated
   yet, or of a region not running, cannot be read: `fetch/2` is `:error` there,

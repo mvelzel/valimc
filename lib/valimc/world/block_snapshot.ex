@@ -2,10 +2,11 @@ defmodule Valimc.World.BlockSnapshot do
   @moduledoc """
   A region owner's published chunk snapshots: `{{:chunk, cx, cz}, revision,
   sections, heights, biomes}` rows in its protected table, written for each
-  chunk once its changes are durable, with the heightmaps and biomes Rust
-  computes beside the sections (VMC-077e). An untouched chunk of a flat world
-  has nil sections and reads the base profile; a chunk not generated yet
-  (VMC-075) has an `:absent` row.
+  chunk in the step that adopts its change and before any client is told of
+  it (VMC-077f), with the heightmaps and biomes Rust computes beside the
+  sections (VMC-077e). An untouched chunk of a flat world has nil sections and
+  reads the base profile; a chunk not generated yet (VMC-075) has an `:absent`
+  row.
   Readers go through `Valimc.World.View`; observations never grant authority.
   """
   alias Valimc.World.Blocks

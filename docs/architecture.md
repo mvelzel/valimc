@@ -44,9 +44,10 @@ on accept errors (VMC-077a).
   sections in a Rust resource (VMC-062): single-value or packed palette storage
   with block entities and heightmaps beside it. Chunk packets are encoded from the
   sections. The Elixir encoder remains as the parity oracle.
-- **Published reads.** After each block change the owner publishes immutable
-  chunk snapshots (VMC-065) with the MOTION_BLOCKING heightmap, lowest sky
-  sources and biomes Rust computes beside them. Every physics, rain, portal and
+- **Published reads.** After each block change, and before any client hears of
+  it, the owner publishes immutable chunk snapshots (VMC-065) with the
+  MOTION_BLOCKING heightmap, lowest sky sources and biomes Rust computes beside
+  them, so a client's next move is checked against what it was shown. Every physics, rain, portal and
   spawn reader reads them through `World.View`, one lazy per-chunk view: no
   owner call, no envelope to plan and no fence, since observations are not
   transactions; a chunk not loaded or generated fails closed (VMC-077e). Only commits are fenced: block

@@ -318,8 +318,9 @@ public class VanillaOracle implements AutoCloseable {
   private void await(java.util.function.Predicate<Object> predicate) throws Exception {
     // A loaded host (several sessions' checks at once) can take far longer than an idle one.
     long deadline = System.nanoTime() + 60_000_000_000L;
-    for (int i = 0; i < 3000 && System.nanoTime() < deadline; i++) if (predicate.test(readGame())) return;
-    throw new AssertionError("Expected packet not received");
+    int read = 0;
+    for (; read < 3000 && System.nanoTime() < deadline; read++) if (predicate.test(readGame())) return;
+    throw new AssertionError("Expected packet not received in " + read + " packets");
   }
   private int itemCount(ItemStack expected) {
     return observedItems.values().stream().filter(s -> ItemStack.isSameItemSameComponents(s,expected))

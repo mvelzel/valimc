@@ -1492,11 +1492,7 @@ defmodule Valimc.World.RegionData do
              block < Valimc.Protocol.Data.block_state_count() and
              Blocks.put(state.blocks, %{position => block}) == :ok do
           lit = Blocks.light_update(state.blocks, [position])
-
-          state =
-            state
-            |> light_changed(Blocks.changed_chunks(lit) -- [key])
-            |> release_effect({:raw_block, position, block, previous_blocks, lit})
+          state = light_changed(state, Blocks.changed_chunks(lit) -- [key])
 
           next =
             %{
@@ -1508,9 +1504,11 @@ defmodule Valimc.World.RegionData do
                 versions: Map.update(state.versions, key, 1, &(&1 + 1))
             }
             |> uncache([key])
+            |> publish_block_snapshots([key])
+            |> release_effect({:raw_block, position, block, previous_blocks, lit})
             |> shape_updates(previous_blocks)
 
-          {:reply, :ok, publish_block_snapshots(next, [key])}
+          {:reply, :ok, next}
         else
           {:reply, {:error, :invalid_block}, state}
         end
@@ -2735,16 +2733,19 @@ defmodule Valimc.World.RegionData do
         else: retire_container_changes(state, effects.batch.edits, effects.previous)
 
     light = Valimc.World.LightHalo.frames(state, Map.get(effects, :light, []), :border)
+    state = publish_block_snapshots(state, effects.chunks)
 
     # Clients relight from the light packets after the block updates; neighbours
     # relight their ring from the changed blocks.
     Valimc.World.publish(state.key, {:block_batch, effects.batch.frames ++ light})
     Valimc.World.LightHalo.forward(state, effects.batch.edits)
     Valimc.Metrics.add(:block_edits, map_size(effects.batch.edits))
-    publish_block_snapshots(state, effects.chunks)
+    state
   end
 
-  # Readers see changed chunks as soon as the owner adopts them (D2).
+  # Readers see changed chunks as soon as the owner adopts them (D2), before
+  # any client hears of the change: a client may act on an update at once, and
+  # its moves are checked against these snapshots, not the owner's blocks.
   defp publish_block_snapshots(state, chunks) do
     :ok =
       BlockSnapshot.publish_chunks(state.item_publication, state.blocks, chunks, state.revision)

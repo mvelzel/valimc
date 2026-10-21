@@ -140,10 +140,19 @@ The wire commit, on VMC-077f's write-ahead log: `mix test.fast` 487 passed and
 `check_vanilla.py --changed --regen` passed all 81 selected stages
 (`block_facts`, `support`, `redstone_wire` and `tcp` among them); the
 `redstone_wire` oracle also on 1,500 scenes of 64 changes (seed 991). Under
-host load the `tcp` sessions sometimes miss the creative stone placement's
-block update (`VanillaOracle.java:706`); with this ticket's hook switched off
-they miss it the same way (1 of 5 loaded runs), so it predates VMC-077m: the
-placement's publication waits behind the preceding destroy's durable write.
+host load the `tcp` sessions sometimes failed at `VanillaOracle.java:706`:
+after the creative stone placement the client steps into the stone and the
+wall-entry correction never comes. With this ticket's hook switched off they
+failed the same way (1 of 5 loaded runs), so it predates VMC-077m. Cause:
+before VMC-077f an owner held a commit's release (client updates and the chunk
+snapshots movement reads) behind earlier durable writes (`release_when_durable`,
+about 590 ms here), while the placement's correction read the owner's blocks
+and showed the stone at once; the move was checked against the old snapshot
+(air) and accepted. VMC-077f releases at once, and an owner now writes a
+change's snapshots before any client hears of it (`release_blocks` and the
+creative destroy's single-block set). On c3cdcbaa `tcp` passed 10 of 10 runs
+beside 12 `yes` processes (load 25–56), and 10 of 10 with the ordering change
+(load 34–50).
 
 Next: M3's components react through the same hooks (`placed`, `removed`,
 `neighbor_changed`) and read signals through `signal`; an owner that holds a
