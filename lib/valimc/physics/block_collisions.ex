@@ -160,7 +160,7 @@ defmodule Valimc.Physics.BlockCollisions do
     with {:ok, id} <- state(states, pos),
          {:ok, eligible} <- BlockScan.eligible(id, type) do
       if eligible do
-        entity = Map.get(entities, pos, BlockEntityContext.unavailable())
+        entity = Map.get(entities, pos, BlockEntityContext.absent())
 
         case BlockShapes.fetch(id, pos, context, entity) do
           {:ok, shape} ->

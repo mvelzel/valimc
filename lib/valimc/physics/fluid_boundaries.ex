@@ -63,10 +63,7 @@ defmodule Valimc.Physics.FluidBoundaries do
     do: {:ok, (mask &&& 1 <<< direction) != 0}
 
   defp sturdy(%Frame{entities: entities}, pos, id, %{context: kind} = facts, direction) do
-    case Map.get(entities, pos, BlockEntityContext.unavailable()) do
-      %{kind: :unavailable} ->
-        {:error, :incomplete_fluid_block_entity}
-
+    case Map.get(entities, pos, BlockEntityContext.absent()) do
       %{kind: entity} when entity != kind ->
         {:ok, kind == :shulker}
 

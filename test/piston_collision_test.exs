@@ -3,16 +3,8 @@ defmodule Valimc.PistonCollisionTest do
   alias Valimc.Physics.{BlockEntityContext, BlockShapes, CollisionContext, PistonSnapshot, Shape}
   @moving 3809
   @pos {0, 64, 0}
-  test "a moving piston distinguishes unavailable, absent and incompatible block entities" do
+  test "a moving piston without its block entity has no collision, as in vanilla" do
     for id <- [@moving] do
-      assert {:context_required, "minecraft:moving_piston"} =
-               BlockShapes.fetch(
-                 id,
-                 @pos,
-                 CollisionContext.empty(),
-                 BlockEntityContext.unavailable()
-               )
-
       for c <- [
             BlockEntityContext.absent(),
             BlockEntityContext.other(),

@@ -18,8 +18,7 @@ defmodule Valimc.Physics.FluidFlowTest do
     f = frame(%{{0, 64, 0} => shulker})
     assert {:ok, true} == FluidBoundaries.sturdy?(f, {0, 64, 0}, 0)
 
-    assert {:error, :incomplete_fluid_block_entity} ==
-             FluidBoundaries.sturdy?(%{f | entities: %{}}, {0, 64, 0}, 0)
+    assert {:ok, true} == FluidBoundaries.sturdy?(%{f | entities: %{}}, {0, 64, 0}, 0)
 
     assert {:error, :unresolved_fluid_support} ==
              FluidBoundaries.sturdy?(

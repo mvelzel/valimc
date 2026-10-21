@@ -160,7 +160,7 @@ defmodule Valimc.CollisionQueryTest do
     assert {:error, {:region, {-401, -401}, :region_unavailable}} = await(dead)
   end
 
-  test "an observed contextual block requires region block-entity facts", %{origin: n} do
+  test "a shulker box without observed block-entity facts collides as a full block", %{origin: n} do
     :ok = World.set_block({n + 5, 64, n + 5}, 16849)
 
     {:ok, task} =
@@ -169,7 +169,7 @@ defmodule Valimc.CollisionQueryTest do
         CollisionContext.empty()
       )
 
-    assert {:error, {:context_required, _, "minecraft:shulker_box"}} = await(task)
+    assert {:ok, %{colliders: [_ | _]}} = await(task)
   end
 
   test "sampled geometry rechecks every source after computation", %{origin: n} do

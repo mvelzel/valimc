@@ -1,9 +1,11 @@
 defmodule Valimc.Physics.BlockEntityContext do
-  @moduledoc "Pure block-entity observations; owners must fence these with the block state."
-  defstruct kind: :unavailable, progress_old: 0.0, progress: 0.0, piston: nil, closed: nil
+  @moduledoc """
+  Pure block-entity observations; owners must fence these with the block state. A
+  position without an observed block entity reads as vanilla's absent one.
+  """
+  defstruct kind: :absent, progress_old: 0.0, progress: 0.0, piston: nil, closed: nil
 
-  def unavailable, do: %__MODULE__{}
-  def absent, do: %__MODULE__{kind: :absent}
+  def absent, do: %__MODULE__{}
   def other, do: %__MODULE__{kind: :other}
 
   def piston(%Valimc.Physics.PistonSnapshot{} = snapshot) do
@@ -55,7 +57,7 @@ defmodule Valimc.Physics.BlockEntityContext do
         piston: nil,
         closed: nil
       })
-      when kind in [:unavailable, :absent, :other],
+      when kind in [:absent, :other],
       do: is_float(old) and old == 0.0 and is_float(current) and current == 0.0
 
   def valid?(_), do: false

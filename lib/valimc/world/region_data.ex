@@ -2565,8 +2565,8 @@ defmodule Valimc.World.RegionData do
   end
 
   defp item_plan(:cross_merge_counters, items, _, key, {request, permitted}) do
-    with {:ok, next} <- ItemMergeInbox.counter_plan(items, key, request, permitted),
-         do: {:reply, {:item_merge_counters, next}}
+    with {:ok, _} <- ItemMergeInbox.counter_plan(items, key, request, permitted),
+         do: {:reply, {:item_merge_counters, request, permitted}}
   end
 
   defp item_plan(:item_merge, items, receipts, _key, {pairs, _deadline}) do
@@ -4340,7 +4340,15 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  defp finish_item_reply(state, from, {:item_merge_counters, items}) do
+  # The counters apply to the items as they are when the reply is released: a reply
+  # held behind an earlier write must not restore the items its plan saw.
+  defp finish_item_reply(state, from, {:item_merge_counters, request, permitted}) do
+    items =
+      case ItemMergeInbox.counter_plan(state.items, state.key, request, permitted) do
+        {:ok, items} -> items
+        {:error, _} -> state.items
+      end
+
     reply_item(from, {:ok, if(items == state.items, do: :unchanged, else: :applied)})
 
     if items == state.items do
