@@ -88,15 +88,18 @@ defmodule Valimc.Command.Dispatcher do
 
   def usable?(node, source), do: node.level <= source.level
 
+  # Brigadier's `getRelevantNodes`: the literal named by the next word, else the arguments.
   defp relevant_nodes(node, reader) do
-    if node.literals == %{} do
-      node.arguments
+    {literals, arguments} = Enum.split_with(node.children, &(&1.type == :literal))
+
+    if literals == [] do
+      arguments
     else
       {text, _} = Reader.take_while(reader, &(&1 != ?\s))
 
-      case Map.fetch(node.literals, text) do
-        {:ok, literal} -> [literal]
-        :error -> node.arguments
+      case Enum.find(literals, &(&1.name == text)) do
+        nil -> arguments
+        literal -> [literal]
       end
     end
   end

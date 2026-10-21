@@ -1026,21 +1026,21 @@ defmodule Valimc.Commands do
 
   @extras [{"stats", {Preview, :stats}}, {"spawn", {Preview, :spawn}}]
 
-  @root Tree.build(@handlers, @extras)
-  @nodes Tree.by_path(@root)
-  @graphs Map.new(0..4, &{&1, Tree.graph(@root, &1)})
+  root = Tree.build(@handlers, @extras)
+  nodes = Tree.by_path(root)
 
-  for {path, node} <- @nodes, node.type == :argument, node.parser not in Arguments.supported() do
+  for {path, node} <- nodes, node.type == :argument, node.parser not in Arguments.supported() do
     raise "Command node #{Enum.join(path, " ")} needs unsupported parser #{node.parser}"
   end
 
-  for {path, _} <- @handlers, not match?(%{command: {_, _}}, @nodes[path]) do
+  for {path, _} <- @handlers, not match?(%{command: {_, _}}, nodes[path]) do
     raise "Command handler for #{Enum.join(path, " ")} names no executable vanilla node"
   end
 
-  # The tree, its node index and the graphs are kept as one external-term
-  # literal: as code they are slow to compile. They are decoded once.
-  @tables :erlang.term_to_binary({@root, @nodes, @graphs})
+  # The tree and the graphs are kept as one external-term literal: as code they
+  # are slow to compile. They are decoded once. External terms do not share
+  # subterms, so no per-path index goes in: `node!/1` walks the tree instead.
+  @tables :erlang.term_to_binary({root, Map.new(0..4, &{&1, Tree.graph(root, &1)})})
   @tables_key {__MODULE__, :erlang.md5(@tables)}
 
   defp tables do
@@ -1056,11 +1056,11 @@ defmodule Valimc.Commands do
   end
 
   def root, do: elem(tables(), 0)
-  def node!(path), do: Map.fetch!(elem(tables(), 1), path)
+  def node!(path), do: Tree.node!(root(), path)
   def handlers, do: @handlers
 
   @doc "The commands packet payload for a player at permission `level`."
-  def graph_payload(level), do: Map.fetch!(elem(tables(), 2), level)
+  def graph_payload(level), do: Map.fetch!(elem(tables(), 1), level)
 
   @doc "Parses `input` for `source`: `{:ok, handler, arguments, context}` or `{:error, error}`."
   def parse(input, source) do

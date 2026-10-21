@@ -32,9 +32,7 @@ defmodule Valimc.Command.Tree do
       :redirect,
       :command,
       path: [],
-      children: [],
-      literals: %{},
-      arguments: []
+      children: []
     ]
   end
 
@@ -74,7 +72,7 @@ defmodule Valimc.Command.Tree do
             path: [name]
           }
 
-    index(%Node{name: "", type: :root, level: 0, restricted: false, children: children ++ extras})
+    %Node{name: "", type: :root, level: 0, restricted: false, children: children ++ extras}
   end
 
   defp prune(json, parent, handlers) do
@@ -109,20 +107,20 @@ defmodule Valimc.Command.Tree do
 
   defp paths(nodes), do: Enum.flat_map(nodes, &[&1.path | paths(&1.children)])
 
-  # Brigadier keeps literal and argument children apart for `getRelevantNodes`.
-  defp index(%Node{} = node) do
-    children = Enum.map(node.children, &index/1)
-
-    %{
-      node
-      | children: children,
-        literals: for(%Node{type: :literal} = c <- children, into: %{}, do: {c.name, c}),
-        arguments: for(%Node{type: :argument} = c <- children, do: c)
-    }
-  end
-
   @doc "Every node of the tree by path."
   def by_path(root), do: Map.new(walk(root), &{&1.path, &1})
+
+  @doc """
+  The node at `path` below `root`. Each node holds its children once: copying a
+  tree (a literal, `:persistent_term`) does not keep shared subterms, so a second
+  view of them per node grows with every level.
+  """
+  def node!(root, path) do
+    Enum.reduce(path, root, fn name, node ->
+      Enum.find(node.children, &(&1.name == name)) ||
+        raise KeyError, key: path
+    end)
+  end
 
   defp walk(node), do: [node | Enum.flat_map(node.children, &walk/1)]
 

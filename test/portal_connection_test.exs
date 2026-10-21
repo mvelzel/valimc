@@ -18,13 +18,6 @@ defmodule Valimc.PortalConnectionTest do
   alias Valimc.TestClient, as: Client
   alias Valimc.World.Region
 
-  # The command tree is large; building it inside the first login would outlast
-  # the test client's read timeout on a busy machine.
-  setup_all do
-    for level <- 0..4, do: Valimc.Commands.graph_payload(level)
-    :ok
-  end
-
   setup do
     nonce = System.unique_integer([:positive])
     name = "Portal#{nonce}"
