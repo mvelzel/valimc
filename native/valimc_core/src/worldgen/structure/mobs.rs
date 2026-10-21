@@ -6,22 +6,144 @@
 //! `WorldGenRegion.getCurrentDifficultyAt` gives then).
 
 use super::super::random::Random;
+use super::super::region::Region;
 use super::place::Ctx;
 use super::BiomeSet;
 
 /// `Mob.finalizeSpawn`: the follow range bonus (a triangle of two doubles)
 /// and left-handedness.
 fn mob(random: &mut Random) {
-    random.next_double();
-    random.next_double();
+    mob_with(random, false);
+}
+
+/// `Mob.finalizeSpawn` for a mob that may already have its follow range
+/// bonus (a template mob saved with one draws only left-handedness).
+fn mob_with(random: &mut Random, bonus: bool) {
+    if !bonus {
+        random.next_double();
+        random.next_double();
+    }
     random.next_float();
+}
+
+/// `finalizeSpawn` of a template's entity (`StructureTemplate.placeEntities`
+/// with finalized entities, VMC-025f3) from its type and SNBT; entities that
+/// are not mobs draw nothing.
+pub fn finalize_template(region: &mut Region, kind: &str, snbt: &str) -> Result<(), String> {
+    let bonus = snbt.contains("\"minecraft:random_spawn_bonus\"");
+    let random = &mut region.random;
+    match kind {
+        // A camel's memories and attributes draw nothing.
+        "minecraft:villager"
+        | "minecraft:iron_golem"
+        | "minecraft:allay"
+        | "minecraft:witch"
+        | "minecraft:evoker"
+        | "minecraft:piglin_brute"
+        | "minecraft:camel" => mob_with(random, bonus),
+        // After `Mob`: the variant (any of eleven at a full moon, the
+        // attributes' default), then the sound variant.
+        "minecraft:cat" => {
+            mob_with(random, bonus);
+            random.next_int_bounded(11);
+            random.next_int_bounded(2);
+        }
+        // The variant (one per climate) and the sound variant, then `Mob`.
+        "minecraft:cow" => {
+            random.next_int_bounded(1);
+            random.next_int_bounded(2);
+            mob_with(random, bonus);
+        }
+        "minecraft:pig" => {
+            random.next_int_bounded(1);
+            random.next_int_bounded(3);
+            mob_with(random, bonus);
+        }
+        // `SheepColorSpawnRules`: a colour of weight 100, where every
+        // climate's first four (18) are single colours and the common one
+        // draws again between white (499) and pink (1).
+        "minecraft:sheep" => {
+            if random.next_int_bounded(100) >= 18 {
+                random.next_int_bounded(500);
+            }
+            mob_with(random, bonus);
+        }
+        // Variant and markings, then `randomizeAttributes`: health (two
+        // ints), speed and jump strength (three doubles each).
+        "minecraft:horse" => {
+            random.next_int_bounded(7);
+            random.next_int_bounded(5);
+            random.next_int_bounded(8);
+            random.next_int_bounded(9);
+            for _ in 0..6 {
+                random.next_double();
+            }
+            mob_with(random, bonus);
+        }
+        // A baby one time in five.
+        "minecraft:hoglin" => {
+            random.next_float();
+            mob_with(random, bonus);
+        }
+        // A bastion's piglin: its hunting cooldown (30–120 s), golden armour
+        // pieces a tenth of the time each (adults), the enchantment chance of
+        // its weapon and of each armour piece, then `Mob`.
+        "minecraft:piglin" => {
+            random.next_int_bounded(1801);
+            let mut armour = 0;
+            if !snbt.contains("IsBaby:1b") {
+                for _ in 0..4 {
+                    if random.next_float() < 0.1 {
+                        armour += 1;
+                    }
+                }
+            }
+            if snbt.contains("mainhand:{") {
+                random.next_float();
+            }
+            for _ in 0..armour {
+                random.next_float();
+            }
+            mob_with(random, bonus);
+        }
+        "minecraft:zombie_villager" => zombie(random, bonus)?,
+        "minecraft:armor_stand" | "minecraft:cushion" => {}
+        other => return Err(format!("finalizing a template's {other} is not modelled")),
+    }
+    Ok(())
+}
+
+/// `Zombie.finalizeSpawn` (a template's zombie villager): `Mob`, loot
+/// pickup, a baby (and a jockey's chances), door breaking, armour and weapon
+/// chances, the weapon's enchantment chance, Halloween heads.
+fn zombie(random: &mut Random, bonus: bool) -> Result<(), String> {
+    mob_with(random, bonus);
+    random.next_float();
+    let baby = random.next_float() < 0.05;
+    if baby && random.next_float() >= 0.05 && random.next_float() < 0.05 {
+        return Err("a zombie chicken jockey is not modelled".into());
+    }
+    random.next_float();
+    // `Mob.populateDefaultEquipmentSlots` (no armour at the world's start),
+    // then a sword, spear or shovel a hundredth of the time.
+    random.next_float();
+    if random.next_float() < 0.01 {
+        random.next_int_bounded(6);
+        random.next_float();
+    }
+    if is_halloween() && random.next_float() < 0.25 {
+        random.next_float();
+    }
+    Ok(())
 }
 
 /// `finalizeSpawn` of a mob a structure spawns, by entity type.
 pub fn finalize(c: &mut Ctx, kind: &str) -> Result<(), String> {
     let random = &mut c.region.random;
     match kind {
-        "minecraft:witch" | "minecraft:evoker" | "minecraft:allay" => mob(random),
+        "minecraft:witch" | "minecraft:evoker" | "minecraft:allay" | "minecraft:elder_guardian" => {
+            mob(random)
+        }
         // The cat's variant (one of the variants that pass, the black ones
         // in a swamp hut) and its sound variant (classic or royal).
         "minecraft:cat" => {

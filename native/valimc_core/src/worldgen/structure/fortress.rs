@@ -4,27 +4,38 @@
 //! order, end fillers where nothing fits), then moved to between y 48 and 70.
 //! Vanilla's start piece is a bridge crossing and saves as one.
 
+use super::super::blocks::FLUID_LAVA;
 use super::super::random::Random;
 use super::piece::{
     encapsulating, make_bounding_box, BoundingBox, Direction, Nbt, Piece, PieceKind,
 };
+use super::place::{Ctx, Frame};
 use super::GenContext;
 
 /// A fortress piece's type and own fields.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FortressPiece {
     BridgeCrossing,
-    BridgeEndFiller { seed: i32 },
+    BridgeEndFiller {
+        seed: i32,
+    },
     BridgeStraight,
     CorridorStairs,
     CorridorTBalcony,
     Entrance,
     SmallCorridorCrossing,
-    SmallCorridorLeftTurn { chest: bool },
+    SmallCorridorLeftTurn {
+        chest: bool,
+    },
     SmallCorridor,
-    SmallCorridorRightTurn { chest: bool },
+    SmallCorridorRightTurn {
+        chest: bool,
+    },
     StalkRoom,
-    MonsterThrone,
+    /// Whether placement has put the blaze spawner (`Mob`).
+    MonsterThrone {
+        spawner: bool,
+    },
     RoomCrossing,
     StairsRoom,
 }
@@ -43,7 +54,7 @@ impl FortressPiece {
             FortressPiece::SmallCorridor => "minecraft:nesc",
             FortressPiece::SmallCorridorRightTurn { .. } => "minecraft:nescrt",
             FortressPiece::StalkRoom => "minecraft:necsr",
-            FortressPiece::MonsterThrone => "minecraft:nemt",
+            FortressPiece::MonsterThrone { .. } => "minecraft:nemt",
             FortressPiece::RoomCrossing => "minecraft:nerc",
             FortressPiece::StairsRoom => "minecraft:nesr",
         }
@@ -54,7 +65,7 @@ impl FortressPiece {
             FortressPiece::BridgeEndFiller { seed } => put("Seed", Nbt::Int(*seed)),
             FortressPiece::SmallCorridorLeftTurn { chest }
             | FortressPiece::SmallCorridorRightTurn { chest } => put("Chest", Nbt::bool(*chest)),
-            FortressPiece::MonsterThrone => put("Mob", Nbt::bool(false)),
+            FortressPiece::MonsterThrone { spawner } => put("Mob", Nbt::bool(*spawner)),
             _ => {}
         }
     }
@@ -155,7 +166,7 @@ impl Layout<'_> {
             Factory::BridgeCrossing => (F::BridgeCrossing, (-8, -3, 0), (19, 10, 19)),
             Factory::RoomCrossing => (F::RoomCrossing, (-2, 0, 0), (7, 9, 7)),
             Factory::StairsRoom => (F::StairsRoom, (-2, 0, 0), (7, 11, 7)),
-            Factory::MonsterThrone => (F::MonsterThrone, (-2, 0, 0), (7, 8, 9)),
+            Factory::MonsterThrone => (F::MonsterThrone { spawner: false }, (-2, 0, 0), (7, 8, 9)),
             Factory::Entrance => (F::Entrance, (-5, -3, 0), (13, 14, 13)),
             Factory::SmallCorridor => (F::SmallCorridor, (-1, 0, 0), (5, 7, 5)),
             Factory::SmallCorridorCrossing => (F::SmallCorridorCrossing, (-1, 0, 0), (5, 7, 5)),
@@ -372,7 +383,7 @@ impl Layout<'_> {
                 self.right(index, 0, 2, false);
             }
             FortressPiece::StairsRoom => self.right(index, 6, 2, false),
-            FortressPiece::BridgeEndFiller { .. } | FortressPiece::MonsterThrone => {}
+            FortressPiece::BridgeEndFiller { .. } | FortressPiece::MonsterThrone { .. } => {}
         }
     }
 }
@@ -423,4 +434,1552 @@ pub fn generate(gc: &mut GenContext) -> Result<Option<Vec<Piece>>, String> {
         p.moved_by(0, dy, 0);
     }
     Ok(Some(pieces))
+}
+
+// Placement (VMC-025f4): each piece's `postProcess`.
+
+const FORTRESS_LOOT: &str = "minecraft:chests/nether_bridge";
+
+/// A fortress piece's `postProcess`.
+pub fn post_process(piece: &mut Piece, c: &mut Ctx) -> Result<(), String> {
+    let PieceKind::Fortress(kind) = &mut piece.kind else {
+        return Err("not a fortress piece".into());
+    };
+    let frame = Frame::new(piece.bbox, piece.orientation);
+    let fr = &frame;
+    let nether_bricks = c.state("nether_bricks")?;
+    let air = c.state("air")?;
+    let nether_brick_fence_north_true_south_true =
+        c.state("nether_brick_fence[north=true,south=true]")?;
+    let nether_brick_stairs_facing_south = c.state("nether_brick_stairs[facing=south]")?;
+    let nether_brick_fence_west_true_east_true =
+        c.state("nether_brick_fence[west=true,east=true]")?;
+    let nether_brick_fence_east_true_south_true =
+        c.state("nether_brick_fence[east=true,south=true]")?;
+    let nether_brick_fence_west_true_south_true =
+        c.state("nether_brick_fence[west=true,south=true]")?;
+    let nether_brick_fence = c.state("nether_brick_fence")?;
+    let nether_brick_fence_north_true_east_true =
+        c.state("nether_brick_fence[north=true,east=true]")?;
+    let nether_brick_fence_south_true_east_true =
+        c.state("nether_brick_fence[south=true,east=true]")?;
+    let nether_brick_fence_south_true_west_true =
+        c.state("nether_brick_fence[south=true,west=true]")?;
+    let nether_brick_fence_north_true_west_true =
+        c.state("nether_brick_fence[north=true,west=true]")?;
+    let lava = c.state("lava")?;
+    let nether_brick_stairs_facing_north = c.state("nether_brick_stairs[facing=north]")?;
+    let soul_sand = c.state("soul_sand")?;
+    let nether_wart = c.state("nether_wart")?;
+    let nether_brick_fence_west_true = c.state("nether_brick_fence[west=true]")?;
+    let nether_brick_fence_east_true = c.state("nether_brick_fence[east=true]")?;
+    let nether_brick_fence_east_true_north_true =
+        c.state("nether_brick_fence[east=true,north=true]")?;
+    let nether_brick_fence_west_true_north_true =
+        c.state("nether_brick_fence[west=true,north=true]")?;
+    match kind {
+        FortressPiece::BridgeCrossing => {
+            c.generate_box(
+                fr,
+                (7, 3, 0),
+                (11, 4, 18),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 3, 7),
+                (18, 4, 11),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (8, 5, 0), (10, 7, 18), air, air, false);
+            c.generate_box(fr, (0, 5, 8), (18, 7, 10), air, air, false);
+            c.generate_box(
+                fr,
+                (7, 5, 0),
+                (7, 5, 7),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (7, 5, 11),
+                (7, 5, 18),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (11, 5, 0),
+                (11, 5, 7),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (11, 5, 11),
+                (11, 5, 18),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 5, 7),
+                (7, 5, 7),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (11, 5, 7),
+                (18, 5, 7),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 5, 11),
+                (7, 5, 11),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (11, 5, 11),
+                (18, 5, 11),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (7, 2, 0),
+                (11, 2, 5),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (7, 2, 13),
+                (11, 2, 18),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (7, 0, 0),
+                (11, 1, 3),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (7, 0, 15),
+                (11, 1, 18),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            for x in 7..=11 {
+                for z in 0..=2 {
+                    c.fill_column_down(fr, nether_bricks, x, -1, z);
+                    c.fill_column_down(fr, nether_bricks, x, -1, 18 - z);
+                }
+            }
+            c.generate_box(
+                fr,
+                (0, 2, 7),
+                (5, 2, 11),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (13, 2, 7),
+                (18, 2, 11),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 0, 7),
+                (3, 1, 11),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (15, 0, 7),
+                (18, 1, 11),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            for x in 0..=2 {
+                for z in 7..=11 {
+                    c.fill_column_down(fr, nether_bricks, x, -1, z);
+                    c.fill_column_down(fr, nether_bricks, 18 - x, -1, z);
+                }
+            }
+        }
+        FortressPiece::BridgeEndFiller { seed } => {
+            let mut own = Random::legacy(*seed as i64);
+            for x in 0..=4 {
+                for y in 3..=4 {
+                    let z = own.next_int_bounded(8);
+                    c.generate_box(
+                        fr,
+                        (x, y, 0),
+                        (x, y, z),
+                        nether_bricks,
+                        nether_bricks,
+                        false,
+                    );
+                }
+            }
+            let z = own.next_int_bounded(8);
+            c.generate_box(
+                fr,
+                (0, 5, 0),
+                (0, 5, z),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            let z = own.next_int_bounded(8);
+            c.generate_box(
+                fr,
+                (4, 5, 0),
+                (4, 5, z),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            for x in 0..=4 {
+                let z = own.next_int_bounded(5);
+                c.generate_box(
+                    fr,
+                    (x, 2, 0),
+                    (x, 2, z),
+                    nether_bricks,
+                    nether_bricks,
+                    false,
+                );
+            }
+            for x in 0..=4 {
+                for y in 0..=1 {
+                    let z = own.next_int_bounded(3);
+                    c.generate_box(
+                        fr,
+                        (x, y, 0),
+                        (x, y, z),
+                        nether_bricks,
+                        nether_bricks,
+                        false,
+                    );
+                }
+            }
+        }
+        FortressPiece::BridgeStraight => {
+            c.generate_box(
+                fr,
+                (0, 3, 0),
+                (4, 4, 18),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (1, 5, 0), (3, 7, 18), air, air, false);
+            c.generate_box(
+                fr,
+                (0, 5, 0),
+                (0, 5, 18),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (4, 5, 0),
+                (4, 5, 18),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 2, 0),
+                (4, 2, 5),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 2, 13),
+                (4, 2, 18),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 0, 0),
+                (4, 1, 3),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 0, 15),
+                (4, 1, 18),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            for x in 0..=4 {
+                for z in 0..=2 {
+                    c.fill_column_down(fr, nether_bricks, x, -1, z);
+                    c.fill_column_down(fr, nether_bricks, x, -1, 18 - z);
+                }
+            }
+            let ns_fence = nether_brick_fence_north_true_south_true;
+            let nse_fence = c.placer.with(ns_fence, "east", "true");
+            let nsw_fence = c.placer.with(ns_fence, "west", "true");
+            c.generate_box(fr, (0, 1, 1), (0, 4, 1), nse_fence, nse_fence, false);
+            c.generate_box(fr, (0, 3, 4), (0, 4, 4), nse_fence, nse_fence, false);
+            c.generate_box(fr, (0, 3, 14), (0, 4, 14), nse_fence, nse_fence, false);
+            c.generate_box(fr, (0, 1, 17), (0, 4, 17), nse_fence, nse_fence, false);
+            c.generate_box(fr, (4, 1, 1), (4, 4, 1), nsw_fence, nsw_fence, false);
+            c.generate_box(fr, (4, 3, 4), (4, 4, 4), nsw_fence, nsw_fence, false);
+            c.generate_box(fr, (4, 3, 14), (4, 4, 14), nsw_fence, nsw_fence, false);
+            c.generate_box(fr, (4, 1, 17), (4, 4, 17), nsw_fence, nsw_fence, false);
+        }
+        FortressPiece::CorridorStairs => {
+            let stairs = nether_brick_stairs_facing_south;
+            let ns_fence = nether_brick_fence_north_true_south_true;
+            for step in 0..=9 {
+                let floor = (1).max(7 - step);
+                let roof = (floor + 5).max(14 - step).min(13);
+                let z = step;
+                c.generate_box(
+                    fr,
+                    (0, 0, z),
+                    (4, floor, z),
+                    nether_bricks,
+                    nether_bricks,
+                    false,
+                );
+                c.generate_box(fr, (1, floor + 1, z), (3, roof - 1, z), air, air, false);
+                if step <= 6 {
+                    c.place(fr, stairs, 1, floor + 1, z);
+                    c.place(fr, stairs, 2, floor + 1, z);
+                    c.place(fr, stairs, 3, floor + 1, z);
+                }
+                c.generate_box(
+                    fr,
+                    (0, roof, z),
+                    (4, roof, z),
+                    nether_bricks,
+                    nether_bricks,
+                    false,
+                );
+                c.generate_box(
+                    fr,
+                    (0, floor + 1, z),
+                    (0, roof - 1, z),
+                    nether_bricks,
+                    nether_bricks,
+                    false,
+                );
+                c.generate_box(
+                    fr,
+                    (4, floor + 1, z),
+                    (4, roof - 1, z),
+                    nether_bricks,
+                    nether_bricks,
+                    false,
+                );
+                if (step & 1) == 0 {
+                    c.generate_box(
+                        fr,
+                        (0, floor + 2, z),
+                        (0, floor + 3, z),
+                        ns_fence,
+                        ns_fence,
+                        false,
+                    );
+                    c.generate_box(
+                        fr,
+                        (4, floor + 2, z),
+                        (4, floor + 3, z),
+                        ns_fence,
+                        ns_fence,
+                        false,
+                    );
+                }
+                for x in 0..=4 {
+                    c.fill_column_down(fr, nether_bricks, x, -1, z);
+                }
+            }
+        }
+        FortressPiece::CorridorTBalcony => {
+            let ns_fence = nether_brick_fence_north_true_south_true;
+            let we_fence = nether_brick_fence_west_true_east_true;
+            c.generate_box(
+                fr,
+                (0, 0, 0),
+                (8, 1, 8),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (0, 2, 0), (8, 5, 8), air, air, false);
+            c.generate_box(
+                fr,
+                (0, 6, 0),
+                (8, 6, 5),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 2, 0),
+                (2, 5, 0),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (6, 2, 0),
+                (8, 5, 0),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (1, 3, 0), (1, 4, 0), we_fence, we_fence, false);
+            c.generate_box(fr, (7, 3, 0), (7, 4, 0), we_fence, we_fence, false);
+            c.generate_box(
+                fr,
+                (0, 2, 4),
+                (8, 2, 8),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (1, 1, 4), (2, 2, 4), air, air, false);
+            c.generate_box(fr, (6, 1, 4), (7, 2, 4), air, air, false);
+            c.generate_box(fr, (1, 3, 8), (7, 3, 8), we_fence, we_fence, false);
+            c.place(fr, nether_brick_fence_east_true_south_true, 0, 3, 8);
+            c.place(fr, nether_brick_fence_west_true_south_true, 8, 3, 8);
+            c.generate_box(fr, (0, 3, 6), (0, 3, 7), ns_fence, ns_fence, false);
+            c.generate_box(fr, (8, 3, 6), (8, 3, 7), ns_fence, ns_fence, false);
+            c.generate_box(
+                fr,
+                (0, 3, 4),
+                (0, 5, 5),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (8, 3, 4),
+                (8, 5, 5),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (1, 3, 5),
+                (2, 5, 5),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (6, 3, 5),
+                (7, 5, 5),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (1, 4, 5), (1, 5, 5), we_fence, we_fence, false);
+            c.generate_box(fr, (7, 4, 5), (7, 5, 5), we_fence, we_fence, false);
+            for z in 0..=5 {
+                for x in 0..=8 {
+                    c.fill_column_down(fr, nether_bricks, x, -1, z);
+                }
+            }
+        }
+        FortressPiece::Entrance => {
+            c.generate_box(
+                fr,
+                (0, 3, 0),
+                (12, 4, 12),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (0, 5, 0), (12, 13, 12), air, air, false);
+            c.generate_box(
+                fr,
+                (0, 5, 0),
+                (1, 12, 12),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (11, 5, 0),
+                (12, 12, 12),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (2, 5, 11),
+                (4, 12, 12),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (8, 5, 11),
+                (10, 12, 12),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (5, 9, 11),
+                (7, 12, 12),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (2, 5, 0),
+                (4, 12, 1),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (8, 5, 0),
+                (10, 12, 1),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (5, 9, 0),
+                (7, 12, 1),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (2, 11, 2),
+                (10, 12, 10),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (5, 8, 0),
+                (7, 8, 0),
+                nether_brick_fence,
+                nether_brick_fence,
+                false,
+            );
+            let we_fence = nether_brick_fence_west_true_east_true;
+            let ns_fence = nether_brick_fence_north_true_south_true;
+            for i in (1..=11).step_by(2) {
+                c.generate_box(fr, (i, 10, 0), (i, 11, 0), we_fence, we_fence, false);
+                c.generate_box(fr, (i, 10, 12), (i, 11, 12), we_fence, we_fence, false);
+                c.generate_box(fr, (0, 10, i), (0, 11, i), ns_fence, ns_fence, false);
+                c.generate_box(fr, (12, 10, i), (12, 11, i), ns_fence, ns_fence, false);
+                c.place(fr, nether_bricks, i, 13, 0);
+                c.place(fr, nether_bricks, i, 13, 12);
+                c.place(fr, nether_bricks, 0, 13, i);
+                c.place(fr, nether_bricks, 12, 13, i);
+                if i != 11 {
+                    c.place(fr, we_fence, i + 1, 13, 0);
+                    c.place(fr, we_fence, i + 1, 13, 12);
+                    c.place(fr, ns_fence, 0, 13, i + 1);
+                    c.place(fr, ns_fence, 12, 13, i + 1);
+                }
+            }
+            c.place(fr, nether_brick_fence_north_true_east_true, 0, 13, 0);
+            c.place(fr, nether_brick_fence_south_true_east_true, 0, 13, 12);
+            c.place(fr, nether_brick_fence_south_true_west_true, 12, 13, 12);
+            c.place(fr, nether_brick_fence_north_true_west_true, 12, 13, 0);
+            for z in (3..=9).step_by(2) {
+                c.generate_box(
+                    fr,
+                    (1, 7, z),
+                    (1, 8, z),
+                    c.placer.with(ns_fence, "west", "true"),
+                    c.placer.with(ns_fence, "west", "true"),
+                    false,
+                );
+                c.generate_box(
+                    fr,
+                    (11, 7, z),
+                    (11, 8, z),
+                    c.placer.with(ns_fence, "east", "true"),
+                    c.placer.with(ns_fence, "east", "true"),
+                    false,
+                );
+            }
+            c.generate_box(
+                fr,
+                (4, 2, 0),
+                (8, 2, 12),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 2, 4),
+                (12, 2, 8),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (4, 0, 0),
+                (8, 1, 3),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (4, 0, 9),
+                (8, 1, 12),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 0, 4),
+                (3, 1, 8),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (9, 0, 4),
+                (12, 1, 8),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            for x in 4..=8 {
+                for z in 0..=2 {
+                    c.fill_column_down(fr, nether_bricks, x, -1, z);
+                    c.fill_column_down(fr, nether_bricks, x, -1, 12 - z);
+                }
+            }
+            for x in 0..=2 {
+                for z in 4..=8 {
+                    c.fill_column_down(fr, nether_bricks, x, -1, z);
+                    c.fill_column_down(fr, nether_bricks, 12 - x, -1, z);
+                }
+            }
+            c.generate_box(
+                fr,
+                (5, 5, 5),
+                (7, 5, 7),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (6, 1, 6), (6, 4, 6), air, air, false);
+            c.place(fr, nether_bricks, 6, 0, 6);
+            c.place(fr, lava, 6, 5, 6);
+            let pos = fr.world(6, 5, 6);
+            if c.chunk_box.is_inside(pos[0], pos[1], pos[2]) {
+                c.region.schedule_fluid_tick(pos, FLUID_LAVA);
+            }
+        }
+        FortressPiece::SmallCorridorCrossing => {
+            c.generate_box(
+                fr,
+                (0, 0, 0),
+                (4, 1, 4),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (0, 2, 0), (4, 5, 4), air, air, false);
+            c.generate_box(
+                fr,
+                (0, 2, 0),
+                (0, 5, 0),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (4, 2, 0),
+                (4, 5, 0),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 2, 4),
+                (0, 5, 4),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (4, 2, 4),
+                (4, 5, 4),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 6, 0),
+                (4, 6, 4),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            for x in 0..=4 {
+                for z in 0..=4 {
+                    c.fill_column_down(fr, nether_bricks, x, -1, z);
+                }
+            }
+        }
+        FortressPiece::SmallCorridorLeftTurn { chest } => {
+            c.generate_box(
+                fr,
+                (0, 0, 0),
+                (4, 1, 4),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (0, 2, 0), (4, 5, 4), air, air, false);
+            let we_fence = nether_brick_fence_west_true_east_true;
+            let ns_fence = nether_brick_fence_north_true_south_true;
+            c.generate_box(
+                fr,
+                (4, 2, 0),
+                (4, 5, 4),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (4, 3, 1), (4, 4, 1), ns_fence, ns_fence, false);
+            c.generate_box(fr, (4, 3, 3), (4, 4, 3), ns_fence, ns_fence, false);
+            c.generate_box(
+                fr,
+                (0, 2, 0),
+                (0, 5, 0),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 2, 4),
+                (3, 5, 4),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (1, 3, 4), (1, 4, 4), we_fence, we_fence, false);
+            c.generate_box(fr, (3, 3, 4), (3, 4, 4), we_fence, we_fence, false);
+            let at = fr.world(3, 2, 3);
+            if *chest && c.chunk_box.is_inside(at[0], at[1], at[2]) {
+                *chest = false;
+                c.create_chest_at(fr, 3, 2, 3, FORTRESS_LOOT)?;
+            }
+            c.generate_box(
+                fr,
+                (0, 6, 0),
+                (4, 6, 4),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            for x in 0..=4 {
+                for z in 0..=4 {
+                    c.fill_column_down(fr, nether_bricks, x, -1, z);
+                }
+            }
+        }
+        FortressPiece::SmallCorridor => {
+            c.generate_box(
+                fr,
+                (0, 0, 0),
+                (4, 1, 4),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (0, 2, 0), (4, 5, 4), air, air, false);
+            let ns_fence = nether_brick_fence_north_true_south_true;
+            c.generate_box(
+                fr,
+                (0, 2, 0),
+                (0, 5, 4),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (4, 2, 0),
+                (4, 5, 4),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (0, 3, 1), (0, 4, 1), ns_fence, ns_fence, false);
+            c.generate_box(fr, (0, 3, 3), (0, 4, 3), ns_fence, ns_fence, false);
+            c.generate_box(fr, (4, 3, 1), (4, 4, 1), ns_fence, ns_fence, false);
+            c.generate_box(fr, (4, 3, 3), (4, 4, 3), ns_fence, ns_fence, false);
+            c.generate_box(
+                fr,
+                (0, 6, 0),
+                (4, 6, 4),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            for x in 0..=4 {
+                for z in 0..=4 {
+                    c.fill_column_down(fr, nether_bricks, x, -1, z);
+                }
+            }
+        }
+        FortressPiece::SmallCorridorRightTurn { chest } => {
+            c.generate_box(
+                fr,
+                (0, 0, 0),
+                (4, 1, 4),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (0, 2, 0), (4, 5, 4), air, air, false);
+            let we_fence = nether_brick_fence_west_true_east_true;
+            let ns_fence = nether_brick_fence_north_true_south_true;
+            c.generate_box(
+                fr,
+                (0, 2, 0),
+                (0, 5, 4),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (0, 3, 1), (0, 4, 1), ns_fence, ns_fence, false);
+            c.generate_box(fr, (0, 3, 3), (0, 4, 3), ns_fence, ns_fence, false);
+            c.generate_box(
+                fr,
+                (4, 2, 0),
+                (4, 5, 0),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (1, 2, 4),
+                (4, 5, 4),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (1, 3, 4), (1, 4, 4), we_fence, we_fence, false);
+            c.generate_box(fr, (3, 3, 4), (3, 4, 4), we_fence, we_fence, false);
+            let at = fr.world(1, 2, 3);
+            if *chest && c.chunk_box.is_inside(at[0], at[1], at[2]) {
+                *chest = false;
+                c.create_chest_at(fr, 1, 2, 3, FORTRESS_LOOT)?;
+            }
+            c.generate_box(
+                fr,
+                (0, 6, 0),
+                (4, 6, 4),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            for x in 0..=4 {
+                for z in 0..=4 {
+                    c.fill_column_down(fr, nether_bricks, x, -1, z);
+                }
+            }
+        }
+        FortressPiece::StalkRoom => {
+            c.generate_box(
+                fr,
+                (0, 3, 0),
+                (12, 4, 12),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (0, 5, 0), (12, 13, 12), air, air, false);
+            c.generate_box(
+                fr,
+                (0, 5, 0),
+                (1, 12, 12),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (11, 5, 0),
+                (12, 12, 12),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (2, 5, 11),
+                (4, 12, 12),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (8, 5, 11),
+                (10, 12, 12),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (5, 9, 11),
+                (7, 12, 12),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (2, 5, 0),
+                (4, 12, 1),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (8, 5, 0),
+                (10, 12, 1),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (5, 9, 0),
+                (7, 12, 1),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (2, 11, 2),
+                (10, 12, 10),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            let we_fence = nether_brick_fence_west_true_east_true;
+            let ns_fence = nether_brick_fence_north_true_south_true;
+            let nsw_fence = c.placer.with(ns_fence, "west", "true");
+            let nse_fence = c.placer.with(ns_fence, "east", "true");
+            for i in (1..=11).step_by(2) {
+                c.generate_box(fr, (i, 10, 0), (i, 11, 0), we_fence, we_fence, false);
+                c.generate_box(fr, (i, 10, 12), (i, 11, 12), we_fence, we_fence, false);
+                c.generate_box(fr, (0, 10, i), (0, 11, i), ns_fence, ns_fence, false);
+                c.generate_box(fr, (12, 10, i), (12, 11, i), ns_fence, ns_fence, false);
+                c.place(fr, nether_bricks, i, 13, 0);
+                c.place(fr, nether_bricks, i, 13, 12);
+                c.place(fr, nether_bricks, 0, 13, i);
+                c.place(fr, nether_bricks, 12, 13, i);
+                if i != 11 {
+                    c.place(fr, we_fence, i + 1, 13, 0);
+                    c.place(fr, we_fence, i + 1, 13, 12);
+                    c.place(fr, ns_fence, 0, 13, i + 1);
+                    c.place(fr, ns_fence, 12, 13, i + 1);
+                }
+            }
+            c.place(fr, nether_brick_fence_north_true_east_true, 0, 13, 0);
+            c.place(fr, nether_brick_fence_south_true_east_true, 0, 13, 12);
+            c.place(fr, nether_brick_fence_south_true_west_true, 12, 13, 12);
+            c.place(fr, nether_brick_fence_north_true_west_true, 12, 13, 0);
+            for z in (3..=9).step_by(2) {
+                c.generate_box(fr, (1, 7, z), (1, 8, z), nsw_fence, nsw_fence, false);
+                c.generate_box(fr, (11, 7, z), (11, 8, z), nse_fence, nse_fence, false);
+            }
+            let stairs = nether_brick_stairs_facing_north;
+            for i in 0..=6 {
+                let z = i + 4;
+                for x in 5..=7 {
+                    c.place(fr, stairs, x, 5 + i, z);
+                }
+                if (5..=8).contains(&z) {
+                    c.generate_box(
+                        fr,
+                        (5, 5, z),
+                        (7, i + 4, z),
+                        nether_bricks,
+                        nether_bricks,
+                        false,
+                    );
+                } else if (9..=10).contains(&z) {
+                    c.generate_box(
+                        fr,
+                        (5, 8, z),
+                        (7, i + 4, z),
+                        nether_bricks,
+                        nether_bricks,
+                        false,
+                    );
+                }
+                if i >= 1 {
+                    c.generate_box(fr, (5, 6 + i, z), (7, 9 + i, z), air, air, false);
+                }
+            }
+            for x in 5..=7 {
+                c.place(fr, stairs, x, 12, 11);
+            }
+            c.generate_box(fr, (5, 6, 7), (5, 7, 7), nse_fence, nse_fence, false);
+            c.generate_box(fr, (7, 6, 7), (7, 7, 7), nsw_fence, nsw_fence, false);
+            c.generate_box(fr, (5, 13, 12), (7, 13, 12), air, air, false);
+            c.generate_box(
+                fr,
+                (2, 5, 2),
+                (3, 5, 3),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (2, 5, 9),
+                (3, 5, 10),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (2, 5, 4),
+                (2, 5, 8),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (9, 5, 2),
+                (10, 5, 3),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (9, 5, 9),
+                (10, 5, 10),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (10, 5, 4),
+                (10, 5, 8),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            let east_stairs = c.placer.with(stairs, "facing", "east");
+            let west_stairs = c.placer.with(stairs, "facing", "west");
+            c.place(fr, west_stairs, 4, 5, 2);
+            c.place(fr, west_stairs, 4, 5, 3);
+            c.place(fr, west_stairs, 4, 5, 9);
+            c.place(fr, west_stairs, 4, 5, 10);
+            c.place(fr, east_stairs, 8, 5, 2);
+            c.place(fr, east_stairs, 8, 5, 3);
+            c.place(fr, east_stairs, 8, 5, 9);
+            c.place(fr, east_stairs, 8, 5, 10);
+            c.generate_box(fr, (3, 4, 4), (4, 4, 8), soul_sand, soul_sand, false);
+            c.generate_box(fr, (8, 4, 4), (9, 4, 8), soul_sand, soul_sand, false);
+            c.generate_box(fr, (3, 5, 4), (4, 5, 8), nether_wart, nether_wart, false);
+            c.generate_box(fr, (8, 5, 4), (9, 5, 8), nether_wart, nether_wart, false);
+            c.generate_box(
+                fr,
+                (4, 2, 0),
+                (8, 2, 12),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 2, 4),
+                (12, 2, 8),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (4, 0, 0),
+                (8, 1, 3),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (4, 0, 9),
+                (8, 1, 12),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 0, 4),
+                (3, 1, 8),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (9, 0, 4),
+                (12, 1, 8),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            for x in 4..=8 {
+                for z in 0..=2 {
+                    c.fill_column_down(fr, nether_bricks, x, -1, z);
+                    c.fill_column_down(fr, nether_bricks, x, -1, 12 - z);
+                }
+            }
+            for x in 0..=2 {
+                for z in 4..=8 {
+                    c.fill_column_down(fr, nether_bricks, x, -1, z);
+                    c.fill_column_down(fr, nether_bricks, 12 - x, -1, z);
+                }
+            }
+        }
+        FortressPiece::MonsterThrone { spawner } => {
+            c.generate_box(fr, (0, 2, 0), (6, 7, 7), air, air, false);
+            c.generate_box(
+                fr,
+                (1, 0, 0),
+                (5, 1, 7),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (1, 2, 1),
+                (5, 2, 7),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (1, 3, 2),
+                (5, 3, 7),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (1, 4, 3),
+                (5, 4, 7),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (1, 2, 0),
+                (1, 4, 2),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (5, 2, 0),
+                (5, 4, 2),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (1, 5, 2),
+                (1, 5, 3),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (5, 5, 2),
+                (5, 5, 3),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 5, 3),
+                (0, 5, 8),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (6, 5, 3),
+                (6, 5, 8),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (1, 5, 8),
+                (5, 5, 8),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            let we_fence = nether_brick_fence_west_true_east_true;
+            let ns_fence = nether_brick_fence_north_true_south_true;
+            c.place(fr, nether_brick_fence_west_true, 1, 6, 3);
+            c.place(fr, nether_brick_fence_east_true, 5, 6, 3);
+            c.place(fr, nether_brick_fence_east_true_north_true, 0, 6, 3);
+            c.place(fr, nether_brick_fence_west_true_north_true, 6, 6, 3);
+            c.generate_box(fr, (0, 6, 4), (0, 6, 7), ns_fence, ns_fence, false);
+            c.generate_box(fr, (6, 6, 4), (6, 6, 7), ns_fence, ns_fence, false);
+            c.place(fr, nether_brick_fence_east_true_south_true, 0, 6, 8);
+            c.place(fr, nether_brick_fence_west_true_south_true, 6, 6, 8);
+            c.generate_box(fr, (1, 6, 8), (5, 6, 8), we_fence, we_fence, false);
+            c.place(fr, nether_brick_fence_east_true, 1, 7, 8);
+            c.generate_box(fr, (2, 7, 8), (4, 7, 8), we_fence, we_fence, false);
+            c.place(fr, nether_brick_fence_west_true, 5, 7, 8);
+            c.place(fr, nether_brick_fence_east_true, 2, 8, 8);
+            c.place(fr, we_fence, 3, 8, 8);
+            c.place(fr, nether_brick_fence_west_true, 4, 8, 8);
+            let pos = fr.world(3, 5, 5);
+            if !*spawner && c.chunk_box.is_inside(pos[0], pos[1], pos[2]) {
+                *spawner = true;
+                let state = c.state("spawner")?;
+                c.set(pos, state, 2);
+                if let Some(entity) = c.region.block_entity(pos)? {
+                    if entity.kind == "minecraft:mob_spawner" {
+                        entity.spawner_entity = Some("minecraft:blaze".into());
+                    }
+                }
+            }
+            for x in 0..=6 {
+                for z in 0..=6 {
+                    c.fill_column_down(fr, nether_bricks, x, -1, z);
+                }
+            }
+        }
+        FortressPiece::RoomCrossing => {
+            c.generate_box(
+                fr,
+                (0, 0, 0),
+                (6, 1, 6),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (0, 2, 0), (6, 7, 6), air, air, false);
+            c.generate_box(
+                fr,
+                (0, 2, 0),
+                (1, 6, 0),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 2, 6),
+                (1, 6, 6),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (5, 2, 0),
+                (6, 6, 0),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (5, 2, 6),
+                (6, 6, 6),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 2, 0),
+                (0, 6, 1),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 2, 5),
+                (0, 6, 6),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (6, 2, 0),
+                (6, 6, 1),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (6, 2, 5),
+                (6, 6, 6),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            let we_fence = nether_brick_fence_west_true_east_true;
+            let ns_fence = nether_brick_fence_north_true_south_true;
+            c.generate_box(
+                fr,
+                (2, 6, 0),
+                (4, 6, 0),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (2, 5, 0), (4, 5, 0), we_fence, we_fence, false);
+            c.generate_box(
+                fr,
+                (2, 6, 6),
+                (4, 6, 6),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (2, 5, 6), (4, 5, 6), we_fence, we_fence, false);
+            c.generate_box(
+                fr,
+                (0, 6, 2),
+                (0, 6, 4),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (0, 5, 2), (0, 5, 4), ns_fence, ns_fence, false);
+            c.generate_box(
+                fr,
+                (6, 6, 2),
+                (6, 6, 4),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (6, 5, 2), (6, 5, 4), ns_fence, ns_fence, false);
+            for x in 0..=6 {
+                for z in 0..=6 {
+                    c.fill_column_down(fr, nether_bricks, x, -1, z);
+                }
+            }
+        }
+        FortressPiece::StairsRoom => {
+            c.generate_box(
+                fr,
+                (0, 0, 0),
+                (6, 1, 6),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (0, 2, 0), (6, 10, 6), air, air, false);
+            c.generate_box(
+                fr,
+                (0, 2, 0),
+                (1, 8, 0),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (5, 2, 0),
+                (6, 8, 0),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (0, 2, 1),
+                (0, 8, 6),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (6, 2, 1),
+                (6, 8, 6),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (1, 2, 6),
+                (5, 8, 6),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            let we_fence = nether_brick_fence_west_true_east_true;
+            let ns_fence = nether_brick_fence_north_true_south_true;
+            c.generate_box(fr, (0, 3, 2), (0, 5, 4), ns_fence, ns_fence, false);
+            c.generate_box(fr, (6, 3, 2), (6, 5, 2), ns_fence, ns_fence, false);
+            c.generate_box(fr, (6, 3, 4), (6, 5, 4), ns_fence, ns_fence, false);
+            c.place(fr, nether_bricks, 5, 2, 5);
+            c.generate_box(
+                fr,
+                (4, 2, 5),
+                (4, 3, 5),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (3, 2, 5),
+                (3, 4, 5),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (2, 2, 5),
+                (2, 5, 5),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (1, 2, 5),
+                (1, 6, 5),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(
+                fr,
+                (1, 7, 1),
+                (5, 7, 4),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (6, 8, 2), (6, 8, 4), air, air, false);
+            c.generate_box(
+                fr,
+                (2, 6, 0),
+                (4, 8, 0),
+                nether_bricks,
+                nether_bricks,
+                false,
+            );
+            c.generate_box(fr, (2, 5, 0), (4, 5, 0), we_fence, we_fence, false);
+            for x in 0..=6 {
+                for z in 0..=6 {
+                    c.fill_column_down(fr, nether_bricks, x, -1, z);
+                }
+            }
+        }
+    }
+    Ok(())
 }

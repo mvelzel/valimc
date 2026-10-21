@@ -184,6 +184,30 @@ impl ProtoChunk {
         Some(self.blocks[self.index(x, y, z)])
     }
 
+    /// Whether the section holding `y` has only air-like states
+    /// (`LevelChunkSection.hasOnlyAir`): vanilla reads it as plain air
+    /// throughout (cave air a structure left in the open sky included).
+    pub fn only_air(&self, y: i32) -> bool {
+        self.contains_y(y) && self.non_air[((y - self.min_y) / 16) as usize] == 0
+    }
+
+    /// The blocks as `ProtoChunk.getBlockState` reads them: sections with
+    /// only air-like states as `air`.
+    pub fn observed_blocks(&self, air: u16) -> Vec<u16> {
+        let rows = self.height as usize;
+        let mut out = self.blocks.clone();
+        for (section, &count) in self.non_air.iter().enumerate().take(rows / 16) {
+            if count != 0 {
+                continue;
+            }
+            for column in 0..256 {
+                let start = column * rows + section * 16;
+                out[start..start + 16].fill(air);
+            }
+        }
+        out
+    }
+
     /// The first free Y of a column (`getHeight + 1`).
     pub fn height(&self, kind: Heightmap, x: i32, z: i32) -> i32 {
         self.heightmaps[kind as usize][((x & 15) + (z & 15) * 16) as usize]
@@ -432,9 +456,11 @@ impl<'a> Region<'a> {
     pub fn get(&mut self, pos: [i32; 3]) -> u16 {
         let (cx, cz) = (pos[0] >> 4, pos[2] >> 4);
         match self.area.chunk(cx, cz) {
-            Some(chunk) if self.distance(cx, cz) <= 8 => {
-                chunk.get(pos[0], pos[1], pos[2]).unwrap_or(self.void_air)
-            }
+            Some(chunk) if self.distance(cx, cz) <= 8 => match chunk.get(pos[0], pos[1], pos[2]) {
+                Some(_) if chunk.only_air(pos[1]) => self.air,
+                Some(state) => state,
+                None => self.void_air,
+            },
             None if self.lenient && self.distance(cx, cz) <= 8 => {
                 self.lenient_reads += 1;
                 if self.is_outside_build_height(pos[1]) {

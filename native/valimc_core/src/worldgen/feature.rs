@@ -31,6 +31,11 @@ const DIRECTIONS: [[i32; 3]; 6] = [
 
 #[derive(Debug)]
 pub enum Feature {
+    /// `BlockPileFeature` (VMC-025f: villages' hay, melon, pumpkin, snow and
+    /// ice piles).
+    BlockPile {
+        provider: Arc<StateProvider>,
+    },
     Ore {
         targets: Vec<(RuleTest, u16)>,
         size: i32,
@@ -324,6 +329,9 @@ impl<'a> Parser<'a> {
                     valid: table.block_set(json.field("valid_blocks")?)?,
                 }
             }
+            "minecraft:block_pile" => Feature::BlockPile {
+                provider: self.provider(json.field("state_provider")?)?,
+            },
             "minecraft:simple_block" => Feature::SimpleBlock {
                 provider: self.provider(json.field("to_place")?)?,
                 schedule_tick: json.get("schedule_tick").map_or(Ok(false), Json::as_bool)?,
@@ -617,6 +625,9 @@ pub struct DecorationFacts<'a> {
     pub biome_count: usize,
     pub source_biomes: &'a [u16],
     pub climates: Vec<BiomeClimate>,
+    /// Placed features to parse besides the order's: those jigsaw pools
+    /// place (VMC-025f).
+    pub extra_placed: &'a [String],
 }
 
 impl Decoration {
@@ -650,6 +661,9 @@ impl Decoration {
                 index_of.insert(id.to_string(), (step, index));
             }
             order.push(list);
+        }
+        for id in facts.extra_placed {
+            parser.placed(&Json::String(id.clone()))?;
         }
         let mut biome_steps = vec![Vec::new(); facts.biome_count];
         let mut biome_features = vec![Vec::new(); facts.biome_count];
@@ -1485,6 +1499,44 @@ impl Feature {
                 } else {
                     false
                 }
+            }
+            Feature::BlockPile { provider } => {
+                if origin[1] < region.min_y() + 5 {
+                    return Ok(false);
+                }
+                let xr = 2 + random.next_int_bounded(2);
+                let zr = 2 + random.next_int_bounded(2);
+                let dirt_path = table.block("dirt_path")?;
+                // `BlockPos.betweenClosed`: x fastest, then y, then z.
+                for z in origin[2] - zr..=origin[2] + zr {
+                    for y in origin[1]..=origin[1] + 1 {
+                        for x in origin[0] - xr..=origin[0] + xr {
+                            let (xd, zd) = (origin[0] - x, origin[2] - z);
+                            let near = ((xd * xd + zd * zd) as f32)
+                                <= random.next_float() * 10.0 - random.next_float() * 6.0;
+                            if !near && (random.next_float() as f64) >= 0.031 {
+                                continue;
+                            }
+                            // `tryPlaceBlock`: into air, on a sturdy top (or
+                            // on a path half of the time).
+                            let pos = [x, y, z];
+                            if !table.is_air(region.get(pos)) {
+                                continue;
+                            }
+                            let below = region.get([x, y - 1, z]);
+                            let on = if table.block_of(below) == dirt_path {
+                                random.next_bool()
+                            } else {
+                                table.flag(below, STURDY << 1)
+                            };
+                            if on {
+                                let state = provider.state(d, region, random, pos);
+                                region.set(pos, state, 260);
+                            }
+                        }
+                    }
+                }
+                true
             }
             Feature::SimpleBlock {
                 provider,

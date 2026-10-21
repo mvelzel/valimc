@@ -1286,8 +1286,10 @@ fn decorated_chunk<'a>(
     chunk: &valimc_core::worldgen::region::ProtoChunk,
 ) -> DecoratedChunk<'a> {
     use valimc_core::worldgen::blocks::FLUID_NAMES;
-    let mut blocks = NewBinary::new(env, chunk.blocks.len() * 2);
-    for (bytes, id) in blocks.as_mut_slice().chunks_mut(2).zip(&chunk.blocks) {
+    // As vanilla reads them (air-only sections as air; air is state 0).
+    let observed = chunk.observed_blocks(0);
+    let mut blocks = NewBinary::new(env, observed.len() * 2);
+    for (bytes, id) in blocks.as_mut_slice().chunks_mut(2).zip(&observed) {
         bytes.copy_from_slice(&id.to_be_bytes());
     }
     let p = |p: &[i32; 3]| (p[0], p[1], p[2]);

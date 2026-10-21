@@ -177,6 +177,27 @@ STAGES = [
         ('check', 'check_decoration.exs', '@placement.json', '@ours.json'),
         ('java', 'StructurePlacementOracle', 'verify', '@placement.json', '@ours.json'),
     ]),
+    ('worldgen_structure_placement_jigsaw', [
+        ('java', 'StructurePlacementOracle', '@placement.json',
+         'minecraft:village_plains,minecraft:village_desert,minecraft:village_savanna,minecraft:village_snowy,'
+         'minecraft:village_taiga,minecraft:pillager_outpost,minecraft:abandoned_camp_forest,'
+         'minecraft:abandoned_camp_savanna,minecraft:abandoned_camp_snowy_taiga,minecraft:ancient_city,'
+         'minecraft:trail_ruins,minecraft:trial_chambers'),
+        ('check', 'check_decoration.exs', '@placement.json', '@ours.json'),
+        ('java', 'StructurePlacementOracle', 'verify', '@placement.json', '@ours.json'),
+    ]),
+    ('worldgen_structure_placement_pieces', [
+        ('java', 'StructurePlacementOracle', '@placement.json',
+         'minecraft:mineshaft,minecraft:mineshaft_mesa,minecraft:stronghold,minecraft:monument'),
+        ('check', 'check_decoration.exs', '@placement.json', '@ours.json'),
+        ('java', 'StructurePlacementOracle', 'verify', '@placement.json', '@ours.json'),
+    ]),
+    ('worldgen_structure_placement_nether_pieces', [
+        ('java', 'StructurePlacementOracle', '@placement.json', 'minecraft:bastion_remnant,minecraft:fortress',
+         'nether'),
+        ('check', 'check_decoration.exs', '@placement.json', '@ours.json'),
+        ('java', 'StructurePlacementOracle', 'verify', '@placement.json', '@ours.json'),
+    ]),
     ('worldgen_structure_placement_mansion', [
         ('java', 'StructurePlacementOracle', '@placement.json', 'minecraft:mansion'),
         ('check', 'check_decoration.exs', '@placement.json', '@ours.json'),

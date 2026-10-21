@@ -444,8 +444,8 @@ pub enum PieceKind {
     Mineshaft(super::mineshaft::MineshaftPiece),
     Stronghold(super::stronghold::StrongholdPiece),
     Fortress(super::fortress::FortressPiece),
-    /// An ocean monument's building (its rooms are not saved).
-    Monument,
+    /// An ocean monument's building with its rooms (which are not saved).
+    Monument(Box<super::monument::Building>),
 }
 
 /// A template piece: the template's saved name, its position and placement
@@ -547,7 +547,7 @@ impl Piece {
             PieceKind::Mineshaft(m) => m.id(),
             PieceKind::Stronghold(s) => s.id(),
             PieceKind::Fortress(f) => f.id(),
-            PieceKind::Monument => "minecraft:omb",
+            PieceKind::Monument(_) => "minecraft:omb",
         }
     }
 
@@ -619,7 +619,7 @@ impl Piece {
             PieceKind::Mineshaft(m) => m.save(&mut put),
             PieceKind::Stronghold(s) => s.save(&mut put),
             PieceKind::Fortress(f) => f.save(&mut put),
-            PieceKind::Monument => {}
+            PieceKind::Monument(_) => {}
             PieceKind::Template(t) => {
                 put("TPX", Nbt::Int(t.position[0]));
                 put("TPY", Nbt::Int(t.position[1]));

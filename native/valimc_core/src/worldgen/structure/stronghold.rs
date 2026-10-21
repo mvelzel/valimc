@@ -9,6 +9,7 @@ use super::super::random::Random;
 use super::piece::{
     encapsulating, make_bounding_box, BoundingBox, Direction, Nbt, Piece, PieceKind,
 };
+use super::place::{Ctx, Frame};
 use super::GenContext;
 
 /// `SmallDoorType`.
@@ -77,6 +78,9 @@ pub enum StrongholdKind {
 pub struct StrongholdPiece {
     pub kind: StrongholdKind,
     pub entry_door: Door,
+    /// What placement has done once: a chest corridor's chest (`Chest`), the
+    /// portal room's spawner (`Mob`).
+    pub placed: bool,
 }
 
 impl StrongholdPiece {
@@ -119,9 +123,9 @@ impl StrongholdPiece {
                 put("rightLow", Nbt::bool(right_low));
                 put("rightHigh", Nbt::bool(right_high));
             }
-            StrongholdKind::ChestCorridor => put("Chest", Nbt::bool(false)),
+            StrongholdKind::ChestCorridor => put("Chest", Nbt::bool(self.placed)),
             StrongholdKind::Library { tall } => put("Tall", Nbt::bool(tall)),
-            StrongholdKind::PortalRoom => put("Mob", Nbt::bool(false)),
+            StrongholdKind::PortalRoom => put("Mob", Nbt::bool(self.placed)),
             StrongholdKind::FillerCorridor { steps } => put("Steps", Nbt::Int(steps)),
             StrongholdKind::PrisonHall
             | StrongholdKind::LeftTurn
@@ -187,6 +191,7 @@ fn sh(
         kind: PieceKind::Stronghold(StrongholdPiece {
             kind,
             entry_door: door,
+            placed: false,
         }),
         bbox,
         orientation: Some(direction),
@@ -593,6 +598,7 @@ pub fn generate(gc: &mut GenContext) -> Result<Option<Vec<Piece>>, String> {
             kind: PieceKind::Stronghold(StrongholdPiece {
                 kind: StrongholdKind::Start,
                 entry_door: Door::Opening,
+                placed: false,
             }),
             bbox: make_bounding_box(min_x + 2, 64, min_z + 2, direction, 5, 11, 5),
             orientation: Some(direction),
@@ -634,4 +640,605 @@ pub fn generate(gc: &mut GenContext) -> Result<Option<Vec<Piece>>, String> {
             return Ok(Some(pieces));
         }
     }
+}
+
+// Placement (VMC-025f4): each piece's `postProcess`.
+
+const CORRIDOR_LOOT: &str = "minecraft:chests/stronghold_corridor";
+const LIBRARY_LOOT: &str = "minecraft:chests/stronghold_library";
+const CROSSING_LOOT: &str = "minecraft:chests/stronghold_crossing";
+
+/// A stronghold piece's `postProcess`.
+pub fn post_process(piece: &mut Piece, c: &mut Ctx) -> Result<(), String> {
+    let PieceKind::Stronghold(s) = &mut piece.kind else {
+        return Err("not a stronghold piece".into());
+    };
+    let f = Frame::new(piece.bbox, piece.orientation);
+    let air = c.state("cave_air")?;
+    let bricks = c.state("stone_bricks")?;
+    let slab = c.state("smooth_stone_slab")?;
+    let door = s.entry_door;
+    // `SmoothStoneSelector`: the edges cracked, mossy, infested or plain
+    // stone bricks, the inside cave air.
+    let stones = [
+        c.state("cracked_stone_bricks")?,
+        c.state("mossy_stone_bricks")?,
+        c.state("infested_stone_bricks")?,
+        bricks,
+    ];
+    let mut smooth = move |random: &mut Random, _: [i32; 3], edge: bool| {
+        if !edge {
+            return air;
+        }
+        let selection = random.next_float();
+        if selection < 0.2 {
+            stones[0]
+        } else if selection < 0.5 {
+            stones[1]
+        } else if selection < 0.55 {
+            stones[2]
+        } else {
+            stones[3]
+        }
+    };
+    let torch = |c: &Ctx, facing: &'static str| -> Result<u16, String> {
+        Ok(c.placer.with(c.state("wall_torch")?, "facing", facing))
+    };
+    match s.kind.clone() {
+        StrongholdKind::Start | StrongholdKind::StairsDown => {
+            c.generate_box_with(&f, (0, 0, 0), (4, 10, 4), true, &mut smooth);
+            small_door(c, &f, door, 1, 7, 0)?;
+            small_door(c, &f, Door::Opening, 1, 1, 4)?;
+            for (state, x, y, z) in [
+                (bricks, 2, 6, 1),
+                (bricks, 1, 5, 1),
+                (slab, 1, 6, 1),
+                (bricks, 1, 5, 2),
+                (bricks, 1, 4, 3),
+                (slab, 1, 5, 3),
+                (bricks, 2, 4, 3),
+                (bricks, 3, 3, 3),
+                (slab, 3, 4, 3),
+                (bricks, 3, 3, 2),
+                (bricks, 3, 2, 1),
+                (slab, 3, 3, 1),
+                (bricks, 2, 2, 1),
+                (bricks, 1, 1, 1),
+                (slab, 1, 2, 1),
+                (bricks, 1, 1, 2),
+                (slab, 1, 1, 3),
+            ] {
+                c.place(&f, state, x, y, z);
+            }
+        }
+        StrongholdKind::Straight { left, right } => {
+            c.generate_box_with(&f, (0, 0, 0), (4, 4, 6), true, &mut smooth);
+            small_door(c, &f, door, 1, 1, 0)?;
+            small_door(c, &f, Door::Opening, 1, 1, 6)?;
+            let (east, west) = (torch(c, "east")?, torch(c, "west")?);
+            c.maybe_block(&f, 0.1, 1, 2, 1, east);
+            c.maybe_block(&f, 0.1, 3, 2, 1, west);
+            c.maybe_block(&f, 0.1, 1, 2, 5, east);
+            c.maybe_block(&f, 0.1, 3, 2, 5, west);
+            if left {
+                c.generate_box(&f, (0, 1, 2), (0, 3, 4), air, air, false);
+            }
+            if right {
+                c.generate_box(&f, (4, 1, 2), (4, 3, 4), air, air, false);
+            }
+        }
+        StrongholdKind::ChestCorridor => {
+            c.generate_box_with(&f, (0, 0, 0), (4, 4, 6), true, &mut smooth);
+            small_door(c, &f, door, 1, 1, 0)?;
+            small_door(c, &f, Door::Opening, 1, 1, 6)?;
+            c.generate_box(&f, (3, 1, 2), (3, 1, 4), bricks, bricks, false);
+            let brick_slab = c.state("stone_brick_slab")?;
+            for (x, y, z) in [
+                (3, 1, 1),
+                (3, 1, 5),
+                (3, 2, 2),
+                (3, 2, 4),
+                (2, 1, 2),
+                (2, 1, 3),
+                (2, 1, 4),
+            ] {
+                c.place(&f, brick_slab, x, y, z);
+            }
+            let chest = f.world(3, 2, 3);
+            if !s.placed && c.chunk_box.is_inside(chest[0], chest[1], chest[2]) {
+                s.placed = true;
+                c.create_chest_at(&f, 3, 2, 3, CORRIDOR_LOOT)?;
+            }
+        }
+        StrongholdKind::FillerCorridor { steps } => {
+            for i in 0..steps {
+                for x in 0..=4 {
+                    c.place(&f, bricks, x, 0, i);
+                }
+                for y in 1..=3 {
+                    c.place(&f, bricks, 0, y, i);
+                    for x in 1..=3 {
+                        c.place(&f, air, x, y, i);
+                    }
+                    c.place(&f, bricks, 4, y, i);
+                }
+                for x in 0..=4 {
+                    c.place(&f, bricks, x, 4, i);
+                }
+            }
+        }
+        StrongholdKind::FiveCrossing {
+            left_low,
+            left_high,
+            right_low,
+            right_high,
+        } => {
+            c.generate_box_with(&f, (0, 0, 0), (9, 8, 10), true, &mut smooth);
+            small_door(c, &f, door, 4, 3, 0)?;
+            if left_low {
+                c.generate_box(&f, (0, 3, 1), (0, 5, 3), air, air, false);
+            }
+            if right_low {
+                c.generate_box(&f, (9, 3, 1), (9, 5, 3), air, air, false);
+            }
+            if left_high {
+                c.generate_box(&f, (0, 5, 7), (0, 7, 9), air, air, false);
+            }
+            if right_high {
+                c.generate_box(&f, (9, 5, 7), (9, 7, 9), air, air, false);
+            }
+            c.generate_box(&f, (5, 1, 10), (7, 3, 10), air, air, false);
+            c.generate_box_with(&f, (1, 2, 1), (8, 2, 6), false, &mut smooth);
+            c.generate_box_with(&f, (4, 1, 5), (4, 4, 9), false, &mut smooth);
+            c.generate_box_with(&f, (8, 1, 5), (8, 4, 9), false, &mut smooth);
+            c.generate_box_with(&f, (1, 4, 7), (3, 4, 9), false, &mut smooth);
+            c.generate_box_with(&f, (1, 3, 5), (3, 3, 6), false, &mut smooth);
+            c.generate_box(&f, (1, 3, 4), (3, 3, 4), slab, slab, false);
+            c.generate_box(&f, (1, 4, 6), (3, 4, 6), slab, slab, false);
+            c.generate_box_with(&f, (5, 1, 7), (7, 1, 8), false, &mut smooth);
+            c.generate_box(&f, (5, 1, 9), (7, 1, 9), slab, slab, false);
+            c.generate_box(&f, (5, 2, 7), (7, 2, 7), slab, slab, false);
+            c.generate_box(&f, (4, 5, 7), (4, 5, 9), slab, slab, false);
+            c.generate_box(&f, (8, 5, 7), (8, 5, 9), slab, slab, false);
+            let double = c.placer.with(slab, "type", "double");
+            c.generate_box(&f, (5, 5, 7), (7, 5, 9), double, double, false);
+            let south = torch(c, "south")?;
+            c.place(&f, south, 6, 5, 6);
+        }
+        StrongholdKind::LeftTurn | StrongholdKind::RightTurn => {
+            c.generate_box_with(&f, (0, 0, 0), (4, 4, 4), true, &mut smooth);
+            small_door(c, &f, door, 1, 1, 0)?;
+            let north_or_east =
+                matches!(piece.orientation, Some(Direction::North | Direction::East));
+            let left = matches!(s.kind, StrongholdKind::LeftTurn);
+            // A left turn opens west of its frame facing north or east,
+            // east otherwise; a right turn the other way.
+            if north_or_east == left {
+                c.generate_box(&f, (0, 1, 1), (0, 3, 3), air, air, false);
+            } else {
+                c.generate_box(&f, (4, 1, 1), (4, 3, 3), air, air, false);
+            }
+        }
+        StrongholdKind::Library { tall } => library(c, &f, door, tall, &mut smooth)?,
+        StrongholdKind::PortalRoom => {
+            let placed = portal_room(c, &f, s.placed, &mut smooth)?;
+            s.placed = placed;
+        }
+        StrongholdKind::PrisonHall => {
+            c.generate_box_with(&f, (0, 0, 0), (8, 4, 10), true, &mut smooth);
+            small_door(c, &f, door, 1, 1, 0)?;
+            c.generate_box(&f, (1, 1, 10), (3, 3, 10), air, air, false);
+            c.generate_box_with(&f, (4, 1, 1), (4, 3, 1), false, &mut smooth);
+            c.generate_box_with(&f, (4, 1, 3), (4, 3, 3), false, &mut smooth);
+            c.generate_box_with(&f, (4, 1, 7), (4, 3, 7), false, &mut smooth);
+            c.generate_box_with(&f, (4, 1, 9), (4, 3, 9), false, &mut smooth);
+            let ns = c.state("iron_bars[north=true,south=true]")?;
+            let nse = c.state("iron_bars[north=true,south=true,east=true]")?;
+            let we = c.state("iron_bars[west=true,east=true]")?;
+            for y in 1..=3 {
+                c.place(&f, ns, 4, y, 4);
+                c.place(&f, nse, 4, y, 5);
+                c.place(&f, ns, 4, y, 6);
+                c.place(&f, we, 5, y, 5);
+                c.place(&f, we, 6, y, 5);
+                c.place(&f, we, 7, y, 5);
+            }
+            c.place(&f, ns, 4, 3, 2);
+            c.place(&f, ns, 4, 3, 8);
+            let bottom = c.state("iron_door[facing=west]")?;
+            let top = c.state("iron_door[facing=west,half=upper]")?;
+            c.place(&f, bottom, 4, 1, 2);
+            c.place(&f, top, 4, 2, 2);
+            c.place(&f, bottom, 4, 1, 8);
+            c.place(&f, top, 4, 2, 8);
+        }
+        StrongholdKind::RoomCrossing { kind } => room_crossing(c, &f, door, kind, &mut smooth)?,
+        StrongholdKind::StraightStairsDown => {
+            c.generate_box_with(&f, (0, 0, 0), (4, 10, 7), true, &mut smooth);
+            small_door(c, &f, door, 1, 7, 0)?;
+            small_door(c, &f, Door::Opening, 1, 1, 7)?;
+            let stairs = c.state("cobblestone_stairs[facing=south]")?;
+            for i in 0..6 {
+                for x in 1..=3 {
+                    c.place(&f, stairs, x, 6 - i, 1 + i);
+                }
+                if i < 5 {
+                    for x in 1..=3 {
+                        c.place(&f, bricks, x, 5 - i, 1 + i);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `generateSmallDoor`.
+fn small_door(c: &mut Ctx, f: &Frame, door: Door, x: i32, y: i32, z: i32) -> Result<(), String> {
+    let bricks = c.state("stone_bricks")?;
+    let frame = |c: &mut Ctx| {
+        for (dx, dy) in [(0, 0), (0, 1), (0, 2), (1, 2), (2, 2), (2, 1), (2, 0)] {
+            c.place(f, bricks, x + dx, y + dy, z);
+        }
+    };
+    match door {
+        Door::Opening => {
+            let air = c.state("cave_air")?;
+            c.generate_box(f, (x, y, z), (x + 2, y + 2, z), air, air, false);
+        }
+        Door::WoodDoor => {
+            frame(c);
+            let lower = c.state("oak_door")?;
+            let upper = c.state("oak_door[half=upper]")?;
+            c.place(f, lower, x + 1, y, z);
+            c.place(f, upper, x + 1, y + 1, z);
+        }
+        Door::Grates => {
+            let air = c.state("cave_air")?;
+            let west = c.state("iron_bars[west=true]")?;
+            let both = c.state("iron_bars[east=true,west=true]")?;
+            let east = c.state("iron_bars[east=true]")?;
+            c.place(f, air, x + 1, y, z);
+            c.place(f, air, x + 1, y + 1, z);
+            c.place(f, west, x, y, z);
+            c.place(f, west, x, y + 1, z);
+            c.place(f, both, x, y + 2, z);
+            c.place(f, both, x + 1, y + 2, z);
+            c.place(f, both, x + 2, y + 2, z);
+            c.place(f, east, x + 2, y + 1, z);
+            c.place(f, east, x + 2, y, z);
+        }
+        Door::IronDoor => {
+            frame(c);
+            let lower = c.state("iron_door")?;
+            let upper = c.state("iron_door[half=upper]")?;
+            let north = c.state("stone_button[facing=north]")?;
+            let south = c.state("stone_button[facing=south]")?;
+            c.place(f, lower, x + 1, y, z);
+            c.place(f, upper, x + 1, y + 1, z);
+            c.place(f, north, x + 2, y + 1, z + 1);
+            c.place(f, south, x + 2, y + 1, z - 1);
+        }
+    }
+    Ok(())
+}
+
+/// `Library.postProcess`: bookshelf walls and rows, cobwebs, in a tall
+/// library a gallery with a chandelier and a second chest.
+fn library(
+    c: &mut Ctx,
+    f: &Frame,
+    door: Door,
+    tall: bool,
+    smooth: &mut super::place::Selector,
+) -> Result<(), String> {
+    let height = if tall { 11 } else { 6 };
+    c.generate_box_with(f, (0, 0, 0), (13, height - 1, 14), true, smooth);
+    small_door(c, f, door, 4, 1, 0)?;
+    let cobweb = c.state("cobweb")?;
+    c.maybe_box(
+        f,
+        0.07,
+        (2, 1, 1),
+        (11, 4, 13),
+        cobweb,
+        cobweb,
+        false,
+        false,
+    );
+    let planks = c.state("oak_planks")?;
+    let shelf = c.state("bookshelf")?;
+    let east = c.placer.with(c.state("wall_torch")?, "facing", "east");
+    let west = c.placer.with(c.state("wall_torch")?, "facing", "west");
+    for d in 1..=13 {
+        let state = if (d - 1) % 4 == 0 { planks } else { shelf };
+        c.generate_box(f, (1, 1, d), (1, 4, d), state, state, false);
+        c.generate_box(f, (12, 1, d), (12, 4, d), state, state, false);
+        if state == planks {
+            c.place(f, east, 2, 3, d);
+            c.place(f, west, 11, 3, d);
+        }
+        if tall {
+            c.generate_box(f, (1, 6, d), (1, 9, d), state, state, false);
+            c.generate_box(f, (12, 6, d), (12, 9, d), state, state, false);
+        }
+    }
+    for d in (3..12).step_by(2) {
+        c.generate_box(f, (3, 1, d), (4, 3, d), shelf, shelf, false);
+        c.generate_box(f, (6, 1, d), (7, 3, d), shelf, shelf, false);
+        c.generate_box(f, (9, 1, d), (10, 3, d), shelf, shelf, false);
+    }
+    if tall {
+        c.generate_box(f, (1, 5, 1), (3, 5, 13), planks, planks, false);
+        c.generate_box(f, (10, 5, 1), (12, 5, 13), planks, planks, false);
+        c.generate_box(f, (4, 5, 1), (9, 5, 2), planks, planks, false);
+        c.generate_box(f, (4, 5, 12), (9, 5, 13), planks, planks, false);
+        c.place(f, planks, 9, 5, 11);
+        c.place(f, planks, 8, 5, 11);
+        c.place(f, planks, 9, 5, 10);
+        let fence = |c: &Ctx, spec: &'static str| c.state(spec);
+        let we = fence(c, "oak_fence[west=true,east=true]")?;
+        let ns = fence(c, "oak_fence[north=true,south=true]")?;
+        c.generate_box(f, (3, 6, 3), (3, 6, 11), ns, ns, false);
+        c.generate_box(f, (10, 6, 3), (10, 6, 9), ns, ns, false);
+        c.generate_box(f, (4, 6, 2), (9, 6, 2), we, we, false);
+        c.generate_box(f, (4, 6, 12), (7, 6, 12), we, we, false);
+        let ne = fence(c, "oak_fence[north=true,east=true]")?;
+        let se = fence(c, "oak_fence[south=true,east=true]")?;
+        let nw = fence(c, "oak_fence[north=true,west=true]")?;
+        let sw = fence(c, "oak_fence[south=true,west=true]")?;
+        c.place(f, ne, 3, 6, 2);
+        c.place(f, se, 3, 6, 12);
+        c.place(f, nw, 10, 6, 2);
+        for i in 0..=2 {
+            c.place(f, sw, 8 + i, 6, 12 - i);
+            if i != 2 {
+                c.place(f, ne, 8 + i, 6, 11 - i);
+            }
+        }
+        let ladder = c.state("ladder[facing=south]")?;
+        for y in 1..=7 {
+            c.place(f, ladder, 10, y, 13);
+        }
+        let e = fence(c, "oak_fence[east=true]")?;
+        let w = fence(c, "oak_fence[west=true]")?;
+        c.place(f, e, 6, 9, 7);
+        c.place(f, w, 7, 9, 7);
+        c.place(f, e, 6, 8, 7);
+        c.place(f, w, 7, 8, 7);
+        let nswe = fence(c, "oak_fence[north=true,south=true,west=true,east=true]")?;
+        c.place(f, nswe, 6, 7, 7);
+        c.place(f, nswe, 7, 7, 7);
+        c.place(f, e, 5, 7, 7);
+        c.place(f, w, 8, 7, 7);
+        let en = fence(c, "oak_fence[east=true,north=true]")?;
+        let es = fence(c, "oak_fence[east=true,south=true]")?;
+        let wn = fence(c, "oak_fence[west=true,north=true]")?;
+        let ws = fence(c, "oak_fence[west=true,south=true]")?;
+        c.place(f, en, 6, 7, 6);
+        c.place(f, es, 6, 7, 8);
+        c.place(f, wn, 7, 7, 6);
+        c.place(f, ws, 7, 7, 8);
+        let torch = c.state("torch")?;
+        for (x, z) in [(5, 7), (8, 7), (6, 6), (6, 8), (7, 6), (7, 8)] {
+            c.place(f, torch, x, 8, z);
+        }
+    }
+    c.create_chest_at(f, 3, 3, 5, LIBRARY_LOOT)?;
+    if tall {
+        let air = c.state("cave_air")?;
+        c.place(f, air, 12, 9, 1);
+        c.create_chest_at(f, 12, 8, 1, LIBRARY_LOOT)?;
+    }
+    Ok(())
+}
+
+/// `PortalRoom.postProcess`: lava pools, the stairs up, the end portal
+/// frame with eyes a tenth of the time each (the portal itself when all
+/// twelve have them) and the silverfish spawner; whether the spawner is
+/// placed now.
+fn portal_room(
+    c: &mut Ctx,
+    f: &Frame,
+    placed: bool,
+    smooth: &mut super::place::Selector,
+) -> Result<bool, String> {
+    c.generate_box_with(f, (0, 0, 0), (10, 7, 15), false, smooth);
+    small_door(c, f, Door::Grates, 4, 1, 0)?;
+    for (from, to) in [
+        ((1, 6, 1), (1, 6, 14)),
+        ((9, 6, 1), (9, 6, 14)),
+        ((2, 6, 1), (8, 6, 2)),
+        ((2, 6, 14), (8, 6, 14)),
+        ((1, 1, 1), (2, 1, 4)),
+        ((8, 1, 1), (9, 1, 4)),
+    ] {
+        c.generate_box_with(f, from, to, false, smooth);
+    }
+    let lava = c.state("lava")?;
+    c.generate_box(f, (1, 1, 1), (1, 1, 3), lava, lava, false);
+    c.generate_box(f, (9, 1, 1), (9, 1, 3), lava, lava, false);
+    c.generate_box_with(f, (3, 1, 8), (7, 1, 12), false, smooth);
+    c.generate_box(f, (4, 1, 9), (6, 1, 11), lava, lava, false);
+    let ns = c.state("iron_bars[north=true,south=true]")?;
+    let we = c.state("iron_bars[west=true,east=true]")?;
+    for z in (3..14).step_by(2) {
+        c.generate_box(f, (0, 3, z), (0, 4, z), ns, ns, false);
+        c.generate_box(f, (10, 3, z), (10, 4, z), ns, ns, false);
+    }
+    for x in (2..9).step_by(2) {
+        c.generate_box(f, (x, 3, 15), (x, 4, 15), we, we, false);
+    }
+    let stairs = c.state("stone_brick_stairs[facing=north]")?;
+    c.generate_box_with(f, (4, 1, 5), (6, 1, 7), false, smooth);
+    c.generate_box_with(f, (4, 2, 6), (6, 2, 7), false, smooth);
+    c.generate_box_with(f, (4, 3, 7), (6, 3, 7), false, smooth);
+    for x in 4..=6 {
+        c.place(f, stairs, x, 1, 4);
+        c.place(f, stairs, x, 2, 5);
+        c.place(f, stairs, x, 3, 6);
+    }
+    let mut eyes = [false; 12];
+    for eye in eyes.iter_mut() {
+        *eye = c.random.next_float() > 0.9;
+    }
+    let all = eyes.iter().all(|&e| e);
+    let frame = c.state("end_portal_frame")?;
+    let frames = [
+        ("north", 4, 8),
+        ("north", 5, 8),
+        ("north", 6, 8),
+        ("south", 4, 12),
+        ("south", 5, 12),
+        ("south", 6, 12),
+        ("east", 3, 9),
+        ("east", 3, 10),
+        ("east", 3, 11),
+        ("west", 7, 9),
+        ("west", 7, 10),
+        ("west", 7, 11),
+    ];
+    for (i, (facing, x, z)) in frames.into_iter().enumerate() {
+        let state = c.placer.with(frame, "facing", facing);
+        let state = c
+            .placer
+            .with(state, "eye", if eyes[i] { "true" } else { "false" });
+        c.place(f, state, x, 3, z);
+    }
+    if all {
+        let portal = c.state("end_portal")?;
+        for z in 9..=11 {
+            for x in 4..=6 {
+                c.place(f, portal, x, 3, z);
+            }
+        }
+    }
+    if placed {
+        return Ok(true);
+    }
+    let pos = f.world(5, 3, 6);
+    if !c.chunk_box.is_inside(pos[0], pos[1], pos[2]) {
+        return Ok(false);
+    }
+    let spawner = c.state("spawner")?;
+    c.set(pos, spawner, 2);
+    if let Some(entity) = c.region.block_entity(pos)? {
+        if entity.kind == "minecraft:mob_spawner" {
+            entity.spawner_entity = Some("minecraft:silverfish".into());
+        }
+    }
+    Ok(true)
+}
+
+/// `RoomCrossing.postProcess`: a pillar with torches, a fountain, or a
+/// gallery with a chest.
+fn room_crossing(
+    c: &mut Ctx,
+    f: &Frame,
+    door: Door,
+    kind: i32,
+    smooth: &mut super::place::Selector,
+) -> Result<(), String> {
+    c.generate_box_with(f, (0, 0, 0), (10, 6, 10), true, smooth);
+    small_door(c, f, door, 4, 1, 0)?;
+    let air = c.state("cave_air")?;
+    c.generate_box(f, (4, 1, 10), (6, 3, 10), air, air, false);
+    c.generate_box(f, (0, 1, 4), (0, 3, 6), air, air, false);
+    c.generate_box(f, (10, 1, 4), (10, 3, 6), air, air, false);
+    let bricks = c.state("stone_bricks")?;
+    let torch = |c: &Ctx, facing: &'static str| -> Result<u16, String> {
+        Ok(c.placer.with(c.state("wall_torch")?, "facing", facing))
+    };
+    match kind {
+        0 => {
+            for y in 1..=3 {
+                c.place(f, bricks, 5, y, 5);
+            }
+            for (facing, x, z) in [
+                ("west", 4, 5),
+                ("east", 6, 5),
+                ("south", 5, 4),
+                ("north", 5, 6),
+            ] {
+                let state = torch(c, facing)?;
+                c.place(f, state, x, 3, z);
+            }
+            let slab = c.state("smooth_stone_slab")?;
+            for (x, z) in [
+                (4, 4),
+                (4, 5),
+                (4, 6),
+                (6, 4),
+                (6, 5),
+                (6, 6),
+                (5, 4),
+                (5, 6),
+            ] {
+                c.place(f, slab, x, 1, z);
+            }
+        }
+        1 => {
+            for i in 0..5 {
+                c.place(f, bricks, 3, 1, 3 + i);
+                c.place(f, bricks, 7, 1, 3 + i);
+                c.place(f, bricks, 3 + i, 1, 3);
+                c.place(f, bricks, 3 + i, 1, 7);
+            }
+            for y in 1..=3 {
+                c.place(f, bricks, 5, y, 5);
+            }
+            let water = c.state("water")?;
+            c.place(f, water, 5, 4, 5);
+        }
+        2 => {
+            let cobble = c.state("cobblestone")?;
+            for z in 1..=9 {
+                c.place(f, cobble, 1, 3, z);
+                c.place(f, cobble, 9, 3, z);
+            }
+            for x in 1..=9 {
+                c.place(f, cobble, x, 3, 1);
+                c.place(f, cobble, x, 3, 9);
+            }
+            for (x, y, z) in [
+                (5, 1, 4),
+                (5, 1, 6),
+                (5, 3, 4),
+                (5, 3, 6),
+                (4, 1, 5),
+                (6, 1, 5),
+                (4, 3, 5),
+                (6, 3, 5),
+            ] {
+                c.place(f, cobble, x, y, z);
+            }
+            for y in 1..=3 {
+                c.place(f, cobble, 4, y, 4);
+                c.place(f, cobble, 6, y, 4);
+                c.place(f, cobble, 4, y, 6);
+                c.place(f, cobble, 6, y, 6);
+            }
+            let wall_torch = c.state("wall_torch")?;
+            c.place(f, wall_torch, 5, 3, 5);
+            let planks = c.state("oak_planks")?;
+            for z in 2..=8 {
+                c.place(f, planks, 2, 3, z);
+                c.place(f, planks, 3, 3, z);
+                if z <= 3 || z >= 7 {
+                    c.place(f, planks, 4, 3, z);
+                    c.place(f, planks, 5, 3, z);
+                    c.place(f, planks, 6, 3, z);
+                }
+                c.place(f, planks, 7, 3, z);
+                c.place(f, planks, 8, 3, z);
+            }
+            let ladder = c.state("ladder[facing=west]")?;
+            for y in 1..=3 {
+                c.place(f, ladder, 9, y, 3);
+            }
+            c.create_chest_at(f, 3, 4, 8, CROSSING_LOOT)?;
+        }
+        _ => {}
+    }
+    Ok(())
 }

@@ -45,7 +45,7 @@ import net.minecraft.world.level.levelgen.structure.placement.RandomSpreadStruct
  *
  * Cases: per seed (`DecorationOracle`'s seeds) an area at the origin and one within 2,000 chunks,
  * and per structure named, areas whose centre holds that structure's first piece (a start found
- * through its set's placement from a seeded search), on the first seed two of them (the second
+ * through its set's placement from a seeded search, or its ring positions in order), on the first seed two of them (the second
  * with the centre one chunk short of the piece's lowest corner, so that the structure reaches past
  * the decorated chunks), on the others one.
  *
@@ -201,6 +201,15 @@ public class StructurePlacementOracle {
     var found = new ArrayList<StructureStart>();
     for (var set : world.state().possibleStructureSets()) {
       if (set.value().structures().stream().noneMatch(e -> e.structure().value() == structure)) continue;
+      // Concentric rings (strongholds): the ring positions in their order.
+      if (set.value().placement() instanceof net.minecraft.world.level.levelgen.structure.placement.ConcentricRingsStructurePlacement rings) {
+        for (var candidate : world.state().getRingPositionsFor(rings)) {
+          if (found.size() >= wanted) break;
+          var start = world.createStructures(candidate.x(), candidate.z()).getStartForStructure(structure);
+          if (start != null && start.isValid()) found.add(start);
+        }
+        continue;
+      }
       if (!(set.value().placement() instanceof RandomSpreadStructurePlacement placement)) continue;
       for (int draw = 0; draw < 200_000 && found.size() < wanted; draw++) {
         int x = search.nextInt(60_001) - 30_000, z = search.nextInt(60_001) - 30_000;

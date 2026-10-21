@@ -89,6 +89,8 @@ pub enum StructureKind {
     Jigsaw(Box<jigsaw::JigsawConfig>),
     Mineshaft {
         mesa: bool,
+        /// Biomes whose pieces stay unplaced (`mineshaft_blocking`).
+        blocking: BiomeSet,
     },
     Stronghold,
     Fortress,
@@ -392,6 +394,13 @@ fn parse_structure(
                 "mesa" => true,
                 other => return Err(format!("unknown mineshaft type {other}")),
             },
+            blocking: BiomeSet::from_ids(
+                json.field("blocking_biomes")?
+                    .as_array()?
+                    .iter()
+                    .map(|b| biome(b.as_str()?))
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
         },
         other => StructureKind::Unsupported(other.to_string()),
     };
@@ -903,7 +912,7 @@ impl StructureEnv {
             StructureKind::NetherFossil { height } => templated::nether_fossil(&mut gc, height)?,
             StructureKind::EndCity => templated::end_city(&mut gc)?,
             StructureKind::Jigsaw(config) => jigsaw::generate(&mut gc, config)?,
-            StructureKind::Mineshaft { mesa } => mineshaft::generate(&mut gc, *mesa)?,
+            StructureKind::Mineshaft { mesa, .. } => mineshaft::generate(&mut gc, *mesa)?,
             StructureKind::Stronghold => stronghold::generate(&mut gc)?,
             StructureKind::Fortress => fortress::generate(&mut gc)?,
             StructureKind::OceanMonument { surrounding } => {

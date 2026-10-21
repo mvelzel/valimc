@@ -107,6 +107,23 @@ impl<'d> Placer<'d> {
             || self.replaceable.contains(self.table.block_of(state))
     }
 
+    /// `isFaceSturdy` toward a direction (down, up, north, south, west,
+    /// east).
+    pub fn sturdy(&self, state: u16, d: usize) -> bool {
+        self.table.flag(state, super::super::blocks::STURDY << d)
+    }
+
+    /// A sturdy centre on the bottom face (where chains hang).
+    pub fn center_support_down(&self, state: u16) -> bool {
+        self.table
+            .flag2(state, super::super::blocks::CENTER_SUPPORT_DOWN)
+    }
+
+    /// A `FallingBlock`.
+    pub fn falling(&self, state: u16) -> bool {
+        self.table.flag2(state, super::super::blocks::FALLING)
+    }
+
     pub fn is(&self, state: u16, name: &'static str) -> bool {
         self.state(name)
             .is_ok_and(|s| self.table.block_of(s) == self.table.block_of(state))
@@ -121,6 +138,8 @@ pub struct Frame {
     pub orientation: Option<Direction>,
     pub mirror: Mirror,
     pub rotation: Rotation,
+    /// Blocks `canBeReplaced` keeps (a mineshaft's own wood and chains).
+    pub guard: Option<[u16; 4]>,
 }
 
 impl Frame {
@@ -136,6 +155,7 @@ impl Frame {
             orientation,
             mirror,
             rotation,
+            guard: None,
         }
     }
 
@@ -267,6 +287,11 @@ impl Ctx<'_, '_> {
         let pos = f.world(x, y, z);
         if !self.inside(pos) {
             return;
+        }
+        if let Some(guard) = f.guard {
+            if guard.contains(&self.placer.table.block_of(self.region.get(pos))) {
+                return;
+            }
         }
         let state = self.placer.transform(state, f.mirror, f.rotation);
         self.set(pos, state, 2);
@@ -606,7 +631,15 @@ fn post_process(piece: &mut Piece, c: &mut Ctx, kind: &StructureKind) -> Result<
         }
         PieceKind::Template(_) => template_place::post_process(piece, c, kind),
         PieceKind::Jigsaw(_) => jigsaw_place::post_process(piece, c),
-        _ => Err(format!("placing {} pieces is not implemented", piece.id())),
+        PieceKind::Stronghold(_) => super::stronghold::post_process(piece, c),
+        PieceKind::Fortress(_) => super::fortress::post_process(piece, c),
+        PieceKind::Monument(_) => super::monument::post_process(piece, c),
+        PieceKind::Mineshaft(_) => {
+            let StructureKind::Mineshaft { blocking, .. } = kind else {
+                return Err("a mineshaft piece outside a mineshaft".into());
+            };
+            super::mineshaft::post_process(piece, c, blocking)
+        }
     }
 }
 

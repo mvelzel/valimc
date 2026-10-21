@@ -587,6 +587,9 @@ public class StructureOracle {
   }
 
   /** Canonical SNBT (see the class comment). */
+  /** Quoted strings as SNBT writes them: only quotes and backslashes escaped (no HTML escapes). */
+  static final Gson SNBT_STRINGS = new GsonBuilder().disableHtmlEscaping().create();
+
   static String snbt(Tag tag) {
     var out = new StringBuilder();
     snbt(tag, out, false);
@@ -611,7 +614,7 @@ public class StructureOracle {
         for (var key : new TreeSet<>(compound.keySet())) {
           if (!first) out.append(',');
           first = false;
-          out.append(quoteKeys && !key.matches("[A-Za-z0-9._+-]+") ? new Gson().toJson(key) : key).append(':');
+          out.append(quoteKeys && !key.matches("[A-Za-z0-9._+-]+") ? SNBT_STRINGS.toJson(key) : key).append(':');
           snbt(compound.get(key), out, quoteKeys);
         }
         out.append('}');
@@ -657,7 +660,7 @@ public class StructureOracle {
       case LongTag l -> out.append(l.value()).append('L');
       case FloatTag f -> out.append(f.value()).append('f');
       case DoubleTag d -> out.append(d.value()).append('d');
-      case StringTag s -> out.append(new Gson().toJson(s.value()));
+      case StringTag s -> out.append(SNBT_STRINGS.toJson(s.value()));
       default -> throw new IllegalArgumentException("unexpected tag " + tag);
     }
   }

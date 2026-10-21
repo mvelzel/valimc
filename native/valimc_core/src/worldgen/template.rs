@@ -574,9 +574,10 @@ impl Processor {
                 rottable,
                 integrity,
             } => {
+                // The processed state (a jigsaw block's final state rots).
                 let fixed = rottable
                     .as_ref()
-                    .is_some_and(|set| !table.in_tag(original.state, set));
+                    .is_some_and(|set| !table.in_tag(info.state, set));
                 (fixed || settings_random.next_float() <= *integrity).then_some(info)
             }
             Processor::Protected(set) => {
@@ -599,7 +600,9 @@ impl Processor {
                     return Ok(Some(info));
                 };
                 let final_state = snbt_string(&nbt, "final_state").unwrap_or("minecraft:air");
+                // A final state of structure void leaves the position alone.
                 match parse_state(table, final_state) {
+                    Some(state) if table.block_of(state) == table.block("structure_void")? => None,
                     Some(state) => Some(BlockInfo {
                         pos: p,
                         state,
@@ -1251,6 +1254,12 @@ impl Templates {
         let settings = ctx.settings;
         let mut original: Vec<&TemplateBlock> = Vec::with_capacity(palette.len());
         let mut processed = Vec::with_capacity(palette.len());
+        // Only the blocks in the settings' box, unless a processor weighs
+        // the whole piece (a capped processor).
+        let whole = settings
+            .processors
+            .iter()
+            .any(|p| matches!(p, Processor::Capped { .. }));
         for block in palette {
             let pos = offset(
                 transform(
@@ -1261,6 +1270,9 @@ impl Templates {
                 ),
                 ctx.position,
             );
+            if !whole && settings.bounding_box.is_some_and(|b| !b.inside(pos)) {
+                continue;
+            }
             let mut info = Some(BlockInfo {
                 pos,
                 state: block.state,
@@ -1436,9 +1448,6 @@ impl Templates {
         position: [i32; 3],
         settings: &PlaceSettings,
     ) -> Result<(), String> {
-        if settings.finalize_entities {
-            return Err("finalizing template entities is not implemented".into());
-        }
         for entity in &template.entities {
             let block = offset(
                 transform(
@@ -1485,6 +1494,9 @@ impl Templates {
                 pos,
                 yaw: turned,
             });
+            if settings.finalize_entities {
+                super::structure::mobs::finalize_template(region, kind, &entity.nbt)?;
+            }
         }
         Ok(())
     }

@@ -415,6 +415,12 @@ impl Registry {
                 .transpose()?
                 .map(Arc::new);
             let biomes = registry.biomes.clone();
+            // The placed features jigsaw pools place (VMC-025f): trees, piles
+            // and patches no biome orders.
+            let pool_features = match &facts.structures {
+                Some(s) => pool_features(s.pools)?,
+                None => Vec::new(),
+            };
             let mut dimensions: Vec<_> = registry.dimensions.values().cloned().collect();
             dimensions.sort_by(|a, b| a.biome_source.cmp(&b.biome_source));
             for dimension in dimensions {
@@ -465,6 +471,7 @@ impl Registry {
                         biome_count: biomes.names.len(),
                         source_biomes: &source_biomes,
                         climates: biomes.climate.clone(),
+                        extra_placed: &pool_features,
                     },
                     context,
                     (dimension.min_y, dimension.height),
@@ -1166,19 +1173,35 @@ impl Worldgen {
             }
         }
         let mut area = Area::of(chunks)?;
+        self.decorate_with_starts(biome_source, &env, &mut area, order, &mut starts, false)?;
+        let mut placed: Vec<Start> = starts.into_values().flatten().collect();
+        placed.sort_by_key(|s| (s.chunk, s.structure));
+        Ok((area, placed))
+    }
+
+    /// Decorates the chunks of `order` over `area`, each step placing the
+    /// starts' structures (`starts` by start chunk; placement changes them)
+    /// before its features, as `applyBiomeDecoration` does with structures
+    /// on; the reads of chunks the area lacks when `lenient`.
+    fn decorate_with_starts(
+        &mut self,
+        biome_source: &str,
+        env: &StructureEnv,
+        area: &mut Area,
+        order: &[(i32, i32)],
+        starts: &mut HashMap<(i32, i32), Vec<Start>>,
+        lenient: bool,
+    ) -> Result<u32, String> {
+        let registry = env.registry.clone();
         let mut by_step: Vec<Vec<usize>> = vec![Vec::new(); DECORATION_STEPS.len()];
         for (index, def) in registry.structures.iter().enumerate() {
             by_step[def.step].push(index);
         }
-        let decoration = self
-            .registry
-            .decorations
-            .get(biome_source)
-            .cloned()
-            .ok_or_else(|| format!("no decoration facts for {biome_source}"))?;
+        let decoration = self.decoration(biome_source)?;
         let placer = Placer::new(&decoration, self.seed)?;
         let zoom_seed = surface::biome_zoom_seed(self.seed);
         let (min_y, height) = (area.min_y, area.height);
+        let mut lenient_reads = 0;
         for &(cx, cz) in order {
             let references = env.references(cx, cz, &|sx, sz| {
                 starts.get(&(sx, sz)).map(|v| v.as_slice())
@@ -1186,13 +1209,14 @@ impl Worldgen {
             let visits = visit_order(&references);
             let chunk_box = writable_area((cx, cz), min_y, height);
             let mut region = Region::new(
-                &mut area,
+                area,
                 &decoration.table,
                 (cx, cz),
                 self.seed,
                 zoom_seed,
                 self.settings.sea_level,
             )?;
+            region.lenient = lenient;
             let mut place = |step: usize, region: &mut Region, random: &mut Random, seed: i64| {
                 for (index, structure) in by_step.get(step).into_iter().flatten().enumerate() {
                     random.set_feature_seed(seed, index as i32, step as i32);
@@ -1220,10 +1244,9 @@ impl Worldgen {
             decoration
                 .decorate_with(&mut region, None, Some(&mut place))
                 .map_err(|e| format!("decorating {cx}, {cz}: {e}"))?;
+            lenient_reads += region.lenient_reads;
         }
-        let mut placed: Vec<Start> = starts.into_values().flatten().collect();
-        placed.sort_by_key(|s| (s.chunk, s.structure));
-        Ok((area, placed))
+        Ok(lenient_reads)
     }
 
     /// A chunk at status `terrain` (VMC-025d): `build_terrain` with carvers,
@@ -2143,4 +2166,31 @@ pub fn beardifier(
     });
     let beard = Beardifier::for_chunk(registry, chunk_starts, chunk);
     (!beard.is_empty()).then(|| Arc::new(beard))
+}
+
+/// The placed features that template pools' feature elements name, sorted.
+fn pool_features(pools: &Json) -> Result<Vec<String>, String> {
+    fn walk(element: &Json, out: &mut Vec<String>) -> Result<(), String> {
+        match element.field("element_type")?.as_str()? {
+            "minecraft:feature_pool_element" => {
+                out.push(element.field("feature")?.as_str()?.to_string())
+            }
+            "minecraft:list_pool_element" => {
+                for e in element.field("elements")?.as_array()? {
+                    walk(e, out)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    let mut out = Vec::new();
+    for (_, pool) in pools.entries()? {
+        for entry in pool.field("elements")?.as_array()? {
+            walk(entry.field("element")?, &mut out)?;
+        }
+    }
+    out.sort();
+    out.dedup();
+    Ok(out)
 }

@@ -3,10 +3,12 @@
 //! and 80 blocks away, then moved below sea level (or, in badlands, to a
 //! height up to the surface).
 
-use super::super::blocks::Heightmap;
+use super::super::blocks::{Heightmap, LIQUID, SOLID_RENDER};
 use super::super::random::Random;
+use super::super::region::Entity;
 use super::piece::{encapsulating, BoundingBox, Direction, Piece, PieceKind};
-use super::GenContext;
+use super::place::{Ctx, Frame};
+use super::{BiomeSet, GenContext};
 
 /// A mineshaft piece's own fields; `mesa` is the type (`MST`).
 #[derive(Clone, Debug, PartialEq)]
@@ -20,6 +22,8 @@ pub enum MineshaftPiece {
         has_rails: bool,
         spider_corridor: bool,
         sections: i32,
+        /// Whether placement has put the cave spider spawner (`hps`).
+        placed_spider: bool,
     },
     Crossing {
         mesa: bool,
@@ -41,14 +45,19 @@ impl MineshaftPiece {
         }
     }
 
-    pub fn save(&self, put: &mut dyn FnMut(&str, super::piece::Nbt)) {
-        use super::piece::Nbt;
-        let mesa = match self {
+    /// Whether the mineshaft is a badlands one (`MST`).
+    pub fn mesa(&self) -> bool {
+        match self {
             MineshaftPiece::Room { mesa, .. }
             | MineshaftPiece::Corridor { mesa, .. }
             | MineshaftPiece::Crossing { mesa, .. }
             | MineshaftPiece::Stairs { mesa } => *mesa,
-        };
+        }
+    }
+
+    pub fn save(&self, put: &mut dyn FnMut(&str, super::piece::Nbt)) {
+        use super::piece::Nbt;
+        let mesa = self.mesa();
         put("MST", Nbt::Int(mesa as i32));
         match self {
             MineshaftPiece::Room { entrances, .. } => {
@@ -61,11 +70,12 @@ impl MineshaftPiece {
                 has_rails,
                 spider_corridor,
                 sections,
+                placed_spider,
                 ..
             } => {
                 put("hr", Nbt::bool(*has_rails));
                 put("sc", Nbt::bool(*spider_corridor));
-                put("hps", Nbt::bool(false));
+                put("hps", Nbt::bool(*placed_spider));
                 put("Num", Nbt::Int(*sections));
             }
             MineshaftPiece::Crossing {
@@ -206,6 +216,7 @@ impl Builder<'_> {
                             has_rails,
                             spider_corridor,
                             sections,
+                            placed_spider: false,
                         },
                         b,
                         Some(direction),
@@ -485,4 +496,540 @@ pub fn generate(gc: &mut GenContext, mesa: bool) -> Result<Option<Vec<Piece>>, S
         return Ok(None);
     }
     Ok(Some(pieces))
+}
+
+// Placement (VMC-025f4): each piece's `postProcess`.
+
+const UP: usize = 1;
+/// `Direction.values()` as steps.
+const DIRECTIONS: [(i32, i32, i32); 6] = [
+    (0, -1, 0),
+    (0, 1, 0),
+    (0, 0, -1),
+    (0, 0, 1),
+    (-1, 0, 0),
+    (1, 0, 0),
+];
+
+fn opposite(d: usize) -> usize {
+    d ^ 1
+}
+
+const MINESHAFT_LOOT: &str = "minecraft:chests/abandoned_mineshaft";
+
+/// A mineshaft type's wood, planks and fence.
+struct Wood {
+    log: u16,
+    planks: u16,
+    fence: u16,
+}
+
+impl Wood {
+    fn of(c: &Ctx, mesa: bool) -> Result<Wood, String> {
+        let (log, planks, fence) = if mesa {
+            ("dark_oak_log", "dark_oak_planks", "dark_oak_fence")
+        } else {
+            ("oak_log", "oak_planks", "oak_fence")
+        };
+        Ok(Wood {
+            log: c.state(log)?,
+            planks: c.state(planks)?,
+            fence: c.state(fence)?,
+        })
+    }
+}
+
+pub fn post_process(piece: &mut Piece, c: &mut Ctx, blocking: &BiomeSet) -> Result<(), String> {
+    let PieceKind::Mineshaft(kind) = &mut piece.kind else {
+        return Err("not a mineshaft piece".into());
+    };
+    let mesa = kind.mesa();
+    let wood = Wood::of(c, mesa)?;
+    let table = c.placer.table;
+    // `MineShaftPiece.canBeReplaced`: never over its own wood or chains.
+    let guard = [
+        table.block_of(wood.planks),
+        table.block_of(wood.log),
+        table.block_of(wood.fence),
+        table.block("iron_chain")?,
+    ];
+    let mut f = Frame::new(piece.bbox, piece.orientation);
+    f.guard = Some(guard);
+    if invalid_location(&piece.bbox, c, blocking)? {
+        return Ok(());
+    }
+    let cave_air = c.state("cave_air")?;
+    match kind {
+        MineshaftPiece::Corridor {
+            has_rails,
+            spider_corridor,
+            sections,
+            placed_spider,
+            ..
+        } => corridor(
+            c,
+            &f,
+            &wood,
+            cave_air,
+            *has_rails,
+            *spider_corridor,
+            *sections,
+            placed_spider,
+        ),
+        MineshaftPiece::Crossing { two_floored, .. } => {
+            crossing(c, &f, &wood, cave_air, *two_floored, piece.bbox);
+            Ok(())
+        }
+        MineshaftPiece::Room { entrances, .. } => {
+            let b = piece.bbox;
+            c.generate_box(
+                &f,
+                (b.min_x, b.min_y + 1, b.min_z),
+                (b.max_x, (b.min_y + 3).min(b.max_y), b.max_z),
+                cave_air,
+                cave_air,
+                false,
+            );
+            for e in entrances.iter() {
+                c.generate_box(
+                    &f,
+                    (e.min_x, e.max_y - 2, e.min_z),
+                    (e.max_x, e.max_y, e.max_z),
+                    cave_air,
+                    cave_air,
+                    false,
+                );
+            }
+            c.upper_half_sphere(
+                &f,
+                (b.min_x, b.min_y + 4, b.min_z),
+                (b.max_x, b.max_y, b.max_z),
+                cave_air,
+                false,
+            );
+            Ok(())
+        }
+        MineshaftPiece::Stairs { .. } => {
+            c.generate_box(&f, (0, 5, 0), (2, 7, 1), cave_air, cave_air, false);
+            c.generate_box(&f, (0, 0, 7), (2, 2, 8), cave_air, cave_air, false);
+            for i in 0..5 {
+                let step = if i < 4 { 1 } else { 0 };
+                c.generate_box(
+                    &f,
+                    (0, 5 - i - step, 2 + i),
+                    (2, 7 - i, 2 + i),
+                    cave_air,
+                    cave_air,
+                    false,
+                );
+            }
+            Ok(())
+        }
+    }
+}
+
+/// `isInInvalidLocation`: in a biome mineshafts avoid (at the middle of the
+/// piece's part of the chunk, grown by one), or touching liquid on that
+/// part's faces.
+fn invalid_location(b: &BoundingBox, c: &mut Ctx, blocking: &BiomeSet) -> Result<bool, String> {
+    let k = c.chunk_box;
+    let (x0, y0, z0) = (
+        (b.min_x - 1).max(k.min_x),
+        (b.min_y - 1).max(k.min_y),
+        (b.min_z - 1).max(k.min_z),
+    );
+    let (x1, y1, z1) = (
+        (b.max_x + 1).min(k.max_x),
+        (b.max_y + 1).min(k.max_y),
+        (b.max_z + 1).min(k.max_z),
+    );
+    let biome = c
+        .region
+        .biome([(x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2]);
+    if blocking.contains(biome) {
+        return Ok(true);
+    }
+    let table = c.placer.table;
+    let mut liquid = |p: [i32; 3]| table.flag(c.region.get(p), LIQUID);
+    for x in x0..=x1 {
+        for z in z0..=z1 {
+            if liquid([x, y0, z]) || liquid([x, y1, z]) {
+                return Ok(true);
+            }
+        }
+    }
+    for x in x0..=x1 {
+        for y in y0..=y1 {
+            if liquid([x, y, z0]) || liquid([x, y, z1]) {
+                return Ok(true);
+            }
+        }
+    }
+    for z in z0..=z1 {
+        for y in y0..=y1 {
+            if liquid([x0, y, z]) || liquid([x1, y, z]) {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn corridor(
+    c: &mut Ctx,
+    f: &Frame,
+    wood: &Wood,
+    cave_air: u16,
+    has_rails: bool,
+    spider_corridor: bool,
+    sections: i32,
+    placed_spider: &mut bool,
+) -> Result<(), String> {
+    let length = sections * 5 - 1;
+    c.generate_box(f, (0, 0, 0), (2, 1, length), cave_air, cave_air, false);
+    c.maybe_box(
+        f,
+        0.8,
+        (0, 2, 0),
+        (2, 2, length),
+        cave_air,
+        cave_air,
+        false,
+        false,
+    );
+    if spider_corridor {
+        let cobweb = c.state("cobweb")?;
+        c.maybe_box(
+            f,
+            0.6,
+            (0, 0, 0),
+            (2, 1, length),
+            cobweb,
+            cave_air,
+            false,
+            true,
+        );
+    }
+    for section in 0..sections {
+        let z = 2 + section * 5;
+        support(c, f, wood, cave_air, 0, 0, z, 2, 2)?;
+        for (probability, x, dz) in [
+            (0.1, 0, -1),
+            (0.1, 2, -1),
+            (0.1, 0, 1),
+            (0.1, 2, 1),
+            (0.05, 0, -2),
+            (0.05, 2, -2),
+            (0.05, 0, 2),
+            (0.05, 2, 2),
+        ] {
+            maybe_cobweb(c, f, probability, x, 2, z + dz)?;
+        }
+        if c.random.next_int_bounded(100) == 0 {
+            minecart_chest(c, f, 2, 0, z - 1)?;
+        }
+        if c.random.next_int_bounded(100) == 0 {
+            minecart_chest(c, f, 0, 0, z + 1)?;
+        }
+        if spider_corridor && !*placed_spider {
+            let spider_z = z - 1 + c.random.next_int_bounded(3);
+            let pos = f.world(1, 0, spider_z);
+            if c.chunk_box.is_inside(pos[0], pos[1], pos[2]) && c.is_interior(f, 1, 0, spider_z) {
+                *placed_spider = true;
+                let spawner = c.state("spawner")?;
+                c.set(pos, spawner, 2);
+                if let Some(entity) = c.region.block_entity(pos)? {
+                    if entity.kind == "minecraft:mob_spawner" {
+                        entity.spawner_entity = Some("minecraft:cave_spider".into());
+                    }
+                }
+            }
+        }
+    }
+    for x in 0..=2 {
+        for z in 0..=length {
+            planks_block(c, f, wood.planks, x, -1, z);
+        }
+    }
+    double_support(c, f, wood, 0, -1, 2)?;
+    if sections > 1 {
+        double_support(c, f, wood, 0, -1, length - 2)?;
+    }
+    if has_rails {
+        let rail = c.state("rail[shape=north_south]")?;
+        for z in 0..=length {
+            let floor = c.get_block(f, 1, -1, z);
+            if !c.placer.table.is_air(floor) && c.placer.table.flag(floor, SOLID_RENDER) {
+                let probability = if c.is_interior(f, 1, 0, z) { 0.7 } else { 0.9 };
+                c.maybe_block(f, probability, 1, 0, z, rail);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `MineShaftCorridor.createChest`: a minecart with a chest on a rail, over
+/// ground, in air.
+fn minecart_chest(c: &mut Ctx, f: &Frame, x: i32, y: i32, z: i32) -> Result<bool, String> {
+    let pos = f.world(x, y, z);
+    if !c.chunk_box.is_inside(pos[0], pos[1], pos[2])
+        || !c.placer.table.is_air(c.region.get(pos))
+        || c.placer
+            .table
+            .is_air(c.region.get([pos[0], pos[1] - 1, pos[2]]))
+    {
+        return Ok(false);
+    }
+    let shape = if c.random.next_bool() {
+        "north_south"
+    } else {
+        "east_west"
+    };
+    let rail = c.placer.with(c.state("rail")?, "shape", shape);
+    c.place(f, rail, x, y, z);
+    let seed = c.random.next_long();
+    c.region.add_entity(Entity {
+        kind: "minecraft:chest_minecart",
+        pos: [
+            pos[0] as f64 + 0.5,
+            pos[1] as f64 + 0.5,
+            pos[2] as f64 + 0.5,
+        ],
+        yaw: 0.0,
+    });
+    let _ = (seed, MINESHAFT_LOOT);
+    Ok(true)
+}
+
+/// `placeSupport`: fences and a planks beam (or two planks) across the
+/// corridor where the ceiling above is solid, sometimes with torches.
+#[allow(clippy::too_many_arguments)]
+fn support(
+    c: &mut Ctx,
+    f: &Frame,
+    wood: &Wood,
+    cave_air: u16,
+    x0: i32,
+    y0: i32,
+    z: i32,
+    y1: i32,
+    x1: i32,
+) -> Result<(), String> {
+    if !(x0..=x1).all(|x| !c.placer.table.is_air(c.get_block(f, x, y1 + 1, z))) {
+        return Ok(());
+    }
+    let west = c.placer.with(wood.fence, "west", "true");
+    let east = c.placer.with(wood.fence, "east", "true");
+    c.generate_box(f, (x0, y0, z), (x0, y1 - 1, z), west, cave_air, false);
+    c.generate_box(f, (x1, y0, z), (x1, y1 - 1, z), east, cave_air, false);
+    if c.random.next_int_bounded(4) == 0 {
+        c.generate_box(f, (x0, y1, z), (x0, y1, z), wood.planks, cave_air, false);
+        c.generate_box(f, (x1, y1, z), (x1, y1, z), wood.planks, cave_air, false);
+    } else {
+        c.generate_box(f, (x0, y1, z), (x1, y1, z), wood.planks, cave_air, false);
+        let south = c.state("wall_torch[facing=south]")?;
+        let north = c.state("wall_torch[facing=north]")?;
+        c.maybe_block(f, 0.05, x0 + 1, y1, z - 1, south);
+        c.maybe_block(f, 0.05, x0 + 1, y1, z + 1, north);
+    }
+    Ok(())
+}
+
+/// `maybePlaceCobWeb`: inside, by chance, with two sturdy neighbours.
+fn maybe_cobweb(
+    c: &mut Ctx,
+    f: &Frame,
+    probability: f32,
+    x: i32,
+    y: i32,
+    z: i32,
+) -> Result<(), String> {
+    if !c.is_interior(f, x, y, z) || c.random.next_float() >= probability {
+        return Ok(());
+    }
+    let pos = f.world(x, y, z);
+    let mut sturdy = 0;
+    // `Direction.values()`, each neighbour's face toward the position.
+    for (d, (dx, dy, dz)) in DIRECTIONS.iter().enumerate() {
+        let at = [pos[0] + dx, pos[1] + dy, pos[2] + dz];
+        if c.chunk_box.is_inside(at[0], at[1], at[2])
+            && c.placer.sturdy(c.region.get(at), opposite(d))
+        {
+            sturdy += 1;
+            if sturdy >= 2 {
+                let cobweb = c.state("cobweb")?;
+                c.place(f, cobweb, x, y, z);
+                return Ok(());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `setPlanksBlock`: planks under the corridor where the floor is not
+/// sturdy, inside only.
+fn planks_block(c: &mut Ctx, f: &Frame, planks: u16, x: i32, y: i32, z: i32) {
+    if c.is_interior(f, x, y, z) {
+        let pos = f.world(x, y, z);
+        if !c.placer.sturdy(c.region.get(pos), UP) {
+            c.set(pos, planks, 2);
+        }
+    }
+}
+
+/// `placeDoubleLowerOrUpperSupport`: log pillars down (or chains up) under
+/// a support's planks.
+fn double_support(
+    c: &mut Ctx,
+    f: &Frame,
+    wood: &Wood,
+    x: i32,
+    y: i32,
+    z: i32,
+) -> Result<(), String> {
+    let planks = c.placer.table.block_of(wood.planks);
+    if c.placer.table.block_of(c.get_block(f, x, y, z)) == planks {
+        pillar_or_chain(c, f, wood, x, y, z)?;
+    }
+    if c.placer.table.block_of(c.get_block(f, x + 2, y, z)) == planks {
+        pillar_or_chain(c, f, wood, x + 2, y, z)?;
+    }
+    Ok(())
+}
+
+/// `fillPillarDownOrChainUp`.
+fn pillar_or_chain(
+    c: &mut Ctx,
+    f: &Frame,
+    wood: &Wood,
+    x: i32,
+    y: i32,
+    z: i32,
+) -> Result<(), String> {
+    let pos = f.world(x, y, z);
+    if !c.chunk_box.is_inside(pos[0], pos[1], pos[2]) {
+        return Ok(());
+    }
+    let (min_y, max_y) = (c.region.min_y(), c.region.min_y() + c.region.height() - 1);
+    let table = c.placer.table;
+    let lava = table.block("lava")?;
+    let world_y = pos[1];
+    let (mut below, mut above) = (true, true);
+    let mut distance = 1;
+    while below || above {
+        if below {
+            let at = [pos[0], world_y - distance, pos[2]];
+            let state = c.region.get(at);
+            let empty = c.placer.replaceable_by_structures(state) && table.block_of(state) != lava;
+            if !empty && c.placer.sturdy(state, UP) {
+                for py in world_y - distance + 1..world_y {
+                    c.set([pos[0], py, pos[2]], wood.log, 2);
+                }
+                return Ok(());
+            }
+            below = distance <= 20 && empty && at[1] > min_y + 1;
+        }
+        if above {
+            let at = [pos[0], world_y + distance, pos[2]];
+            let state = c.region.get(at);
+            let empty = c.placer.replaceable_by_structures(state);
+            if !empty && c.placer.center_support_down(state) && !c.placer.falling(state) {
+                c.set([pos[0], world_y + 1, pos[2]], wood.fence, 2);
+                let chain = c.state("iron_chain")?;
+                for py in world_y + 2..world_y + distance {
+                    c.set([pos[0], py, pos[2]], chain, 2);
+                }
+                return Ok(());
+            }
+            above = distance <= 50 && empty && at[1] < max_y;
+        }
+        distance += 1;
+    }
+    Ok(())
+}
+
+fn crossing(c: &mut Ctx, f: &Frame, wood: &Wood, cave_air: u16, two_floored: bool, b: BoundingBox) {
+    if two_floored {
+        c.generate_box(
+            f,
+            (b.min_x + 1, b.min_y, b.min_z),
+            (b.max_x - 1, b.min_y + 2, b.max_z),
+            cave_air,
+            cave_air,
+            false,
+        );
+        c.generate_box(
+            f,
+            (b.min_x, b.min_y, b.min_z + 1),
+            (b.max_x, b.min_y + 2, b.max_z - 1),
+            cave_air,
+            cave_air,
+            false,
+        );
+        c.generate_box(
+            f,
+            (b.min_x + 1, b.max_y - 2, b.min_z),
+            (b.max_x - 1, b.max_y, b.max_z),
+            cave_air,
+            cave_air,
+            false,
+        );
+        c.generate_box(
+            f,
+            (b.min_x, b.max_y - 2, b.min_z + 1),
+            (b.max_x, b.max_y, b.max_z - 1),
+            cave_air,
+            cave_air,
+            false,
+        );
+        c.generate_box(
+            f,
+            (b.min_x + 1, b.min_y + 3, b.min_z + 1),
+            (b.max_x - 1, b.min_y + 3, b.max_z - 1),
+            cave_air,
+            cave_air,
+            false,
+        );
+    } else {
+        c.generate_box(
+            f,
+            (b.min_x + 1, b.min_y, b.min_z),
+            (b.max_x - 1, b.max_y, b.max_z),
+            cave_air,
+            cave_air,
+            false,
+        );
+        c.generate_box(
+            f,
+            (b.min_x, b.min_y, b.min_z + 1),
+            (b.max_x, b.max_y, b.max_z - 1),
+            cave_air,
+            cave_air,
+            false,
+        );
+    }
+    for (x, z) in [
+        (b.min_x + 1, b.min_z + 1),
+        (b.min_x + 1, b.max_z - 1),
+        (b.max_x - 1, b.min_z + 1),
+        (b.max_x - 1, b.max_z - 1),
+    ] {
+        // `placeSupportPillar`: under a solid ceiling.
+        if !c.placer.table.is_air(c.get_block(f, x, b.max_y + 1, z)) {
+            c.generate_box(
+                f,
+                (x, b.min_y, z),
+                (x, b.max_y, z),
+                wood.planks,
+                cave_air,
+                false,
+            );
+        }
+    }
+    for x in b.min_x..=b.max_x {
+        for z in b.min_z..=b.max_z {
+            planks_block(c, f, wood.planks, x, b.min_y - 1, z);
+        }
+    }
 }
