@@ -126,12 +126,32 @@ per chunk; not yet compared with Rust), player physics, redstone (until profiled
 NBT codec: network and disk framing, explicit limits, and an Elixir reader that
 is the native reader's parity reference.
 
-NIF rules: a regular NIF call stays under about 1 ms (batch operations); longer
-work runs on dirty schedulers behind a bounded Elixir pool. Mutable state is a
-`ResourceArc` held by exactly one owner process; readers get immutable binaries.
-Wire and disk input is validated with bounded lengths and no panicking unwraps;
-panics surface as Elixir errors. Every NIF has ExUnit parity tests against the
-Elixir reference or vanilla dumps, plus `cargo test` in the core crate.
+NIF rules ([VMC-077b](tickets/VMC-077b.md)):
+
+- The shim has one module per domain (`region`, `light`, `codec`, `sys`,
+  `worldgen`, `loot`); oracle and benchmark NIFs live in `parity`, built only
+  with the `parity` cargo feature (dev, test and bench builds, not releases).
+  One arity per NIF.
+- Scheduling by bounded worst-case cost. A NIF on a normal scheduler stays under
+  about 1 ms for any input its callers can pass (batch, never one call per
+  position). A NIF whose cost grows with its input has a dirty twin, and
+  `Valimc.Native.dispatch/3` picks one of the two from measured nanoseconds per
+  unit. Long pure work (generation, `/locate`, `/place`) runs only as a job in
+  `Valimc.Worldgen.Pool`, which runs two jobs fewer than the VM has dirty CPU
+  schedulers, so an owner's own dirty call never waits behind generation.
+- Results: `{:ok, value}`, `:ok` without one, or `{:error, atom}` from the
+  domain's closed set for an expected failure; a broken invariant raises. No
+  string errors for machine use.
+- Mutable state is a `ResourceArc` owned by the process that created it: the
+  Region resource refuses changes from any other (`{:error, :not_owner}`).
+  Shared Rust state is only a pure memoization cache (the worldgen state pool,
+  as many states as the generation pool runs jobs); readers get immutable
+  binaries.
+- Positions cross as packed big-endian binaries; outputs are written straight
+  into binaries, and large ones point into the Rust buffer without a copy.
+- Wire and disk input is validated with bounded lengths and no panicking
+  unwraps. Every NIF has ExUnit parity tests against the Elixir reference or
+  vanilla dumps, plus `cargo test` in the core crate.
 
 Pumpkin (GPL-3.0) is a design inspiration only; ValiMC's Rust is clean-room from
 pinned vanilla behavior. See [research](research.md).

@@ -57,11 +57,13 @@ struct Bytes(Vec<u8>);
 impl rustler::Resource for Bytes {}
 
 /// `bytes` as a binary without copying them (small ones are copied onto the
-/// process heap, as the VM keeps them).
-fn bytes<'a>(env: Env<'a>, bytes: Vec<u8>) -> Binary<'a> {
+/// process heap, as the VM keeps them). The binary holds the buffer, so spare
+/// capacity is given back first.
+fn bytes<'a>(env: Env<'a>, mut bytes: Vec<u8>) -> Binary<'a> {
     if bytes.len() <= 64 {
         return binary(env, &bytes);
     }
+    bytes.shrink_to_fit();
     ResourceArc::new(Bytes(bytes)).make_binary(env, |b| &b.0)
 }
 

@@ -47,6 +47,13 @@ normal ones under 2%. A sampled live pass spends 7% of its native time in
 biome climate search (14% before a seed's pooled worldgen states shared
 their chunk biomes) and about 5% encoding and decoding proto chunks.
 
+[Dirty capacity](tickets/VMC-077b.md) (`bench/dirty_capacity.exs`: 3 × 3
+regions of a fresh decorated world finalizing while a probe makes a short dirty
+call every 10 ms, alternating runs on the shared 10-core host at load 28–36).
+With generation in one pool of dirty CPU schedulers minus two, the probe's p90
+wait fell from 34–93 ms to 5–12 ms and its p99 from 70–164 ms to 12–63 ms;
+generation throughput stayed within the host's noise.
+
 [Structure starts](tickets/VMC-025.md) (`bench/worldgen_structures.exs`,
 matched with vanilla's own generator: the overworld's 40 × 40 chunks around the
 origin at seed 20261020 through `createStructures`, one thread, thread CPU time

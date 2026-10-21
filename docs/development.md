@@ -47,6 +47,8 @@ python3 scripts/heavy.py --status
 Dev and test builds compile the NIF without LTO, in parallel and incrementally,
 into `native/target/fast`, so a Rust change rebuilds in seconds. Releases and
 benchmarks (`MIX_ENV=bench`) keep the full release profile in `native/target`.
+Every build but a release has the crate's `parity` feature: the oracle and
+benchmark NIFs that `scripts/check_*.exs` and `bench/` call.
 
 ```sh
 mix format --check-formatted lib/valimc/physics/pose_fit.ex test/pose_fit_test.exs
