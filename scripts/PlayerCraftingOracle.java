@@ -331,7 +331,13 @@ public class PlayerCraftingOracle {
     }
     return cases;
   }
-  public static void main(String[]args)throws Exception {
+  /**
+   * Usage: PlayerCraftingOracle FACTS CASES, `menu OUT`, `gestures OUT`, `drops OUT`, or
+   * `all FACTS CASES MENU DROPS` for the facts, cases, menu and drop observations at once (VMC-076d).
+   */
+  public static void main(String[]arguments)throws Exception {
+    boolean all=arguments[0].equals("all");
+    var args=all?Arrays.copyOfRange(arguments,1,arguments.length):arguments;
     var initial=MiningToolOracle.initialize();
     var facts=new JsonArray();
     int ordinary=0,small=0,remainder=0,patch=0;
@@ -418,6 +424,10 @@ public class PlayerCraftingOracle {
       if(observed.size()!=149128)throw new AssertionError("Changed native crafting contexts");
       Files.writeString(Path.of(args[1]),new Gson().toJson(observed));
       System.out.println("MATCH CASES "+observed.size());
+      if(all) {
+        menus(manager,args[2]);
+        drops(manager,args[3]);
+      }
     }
     var enabledProfiles=new JsonArray();
     for(var row:facts)if(!row.getAsJsonObject().get("name").getAsString().equals("minecraft:firework_rocket_simple"))enabledProfiles.add(row);

@@ -5,6 +5,9 @@ parallel. Steps run in order inside a stage. `@name` is a file in the stage's
 scratch directory. Step kinds:
 
 - ("java", Class, *args): run a compiled `scripts/*.java` oracle on the pinned jar
+  (restored from the oracle cache when its key is known, unless it reads ValiMC output)
+- ("regen", Class, *args): fact extraction whose outputs only feed `same` steps; runs
+  with `--regen`, otherwise only from the cache (else reported as not verified)
 - ("check", "check_x.exs", *args): `mix run --no-start scripts/check_x.exs`
 - ("app", "check_x.exs", *args): `mix run` with a started app on port 0 and a fresh world
 - ("same", "@generated.json", "priv/..."): generated JSON must equal the committed facts
@@ -20,6 +23,36 @@ HELPERS = {
     "VanillaOracle": "official-codec TCP client used by the `tcp` stage",
 }
 
+# Repo files (globs relative to the checkout) each oracle reads; a class's closure's
+# inputs are part of its cache key. An oracle runs in a directory holding only these,
+# so an undeclared read fails, and `--audit` fails on a repo path a source names that
+# no declaration covers.
+INPUTS = {
+    'ArmorWearOracle': ['priv/protocol/tags.json', 'priv/protocol/registries.json'],
+    'BlockMotionMetadata': ['priv/protocol/tags.json'],
+    'CookingExperienceOracle': ['priv/crafting/cooking.json'],
+    'CookingRecipeBookOracle': ['priv/crafting/cooking.json'],
+    'CraftingBulkOracle': ['priv/crafting/recipes.json'],
+    'DamageProtectionOracle': ['priv/protocol/tags.json', 'priv/protocol/registries.json'],
+    'FreezingEligibilityOracle': ['priv/protocol/tags.json'],
+    'LandingOracle': ['priv/protocol/tags.json'],
+    'PlayerCraftingOracle': ['priv/crafting/player_recipes.json'],
+    'PlayerVoidOracle': ['priv/protocol/tags.json', 'priv/protocol/registries.json'],
+    'ShapeOracle': ['priv/worldgen/features.json', 'priv/worldgen/placed_features.json',
+                    'priv/worldgen/block_state_providers.json', 'priv/worldgen/material_rules.json',
+                    'priv/worldgen/noise_settings.json', 'priv/worldgen/processor_lists.json',
+                    'priv/worldgen/structure_templates.json', 'scripts/shape_blocks.txt'],
+    'TableMenuClickOracle': ['priv/crafting/recipes.json'],
+    'VersionMetadata': ['research/server-*.jar'],
+}
+
+# Former stage names (merged in VMC-076d) that `--only` still accepts.
+ALIASES = {
+    **{f'damage_protection_{n}': 'damage_protection' for n in range(1, 10)},
+    **{f'player_crafting_{n}': 'player_crafting' for n in range(1, 4)},
+    'worldgen_surface': 'worldgen_terrain', 'worldgen_carvers': 'worldgen_terrain',
+}
+
 # Oracles that fill every core with their own thread pool. One runs at a time, with
 # `-XX:ActiveProcessorCount` set to the cores the run's other jobs leave free.
 THREADED = {'SupportOracle', 'ShapeOracle'}
@@ -33,14 +66,14 @@ ESTIMATES = {
     'collision_metadata': 182, 'anvil_content': 143, 'worldgen_structure_placement_pieces': 92,
     'chunk_sections': 90, 'worldgen_live': 88, 'light': 87, 'worldgen_datapack': 82, 'worldgen_biomes': 79,
     'region_files': 72, 'worldgen_decoration_nether': 67, 'player_motion_persistence': 66, 'interaction_range': 64,
-    'block_collision': 60, 'table_crafting': 60, 'worldgen_carvers': 59, 'worldgen_live_structures_nether': 57,
-    'worldgen_structure_placement_mansion': 57, 'worldgen_surface': 56, 'table_menu_click': 56,
+    'block_collision': 60, 'table_crafting': 60, 'worldgen_terrain': 90, 'worldgen_live_structures_nether': 57,
+    'worldgen_structure_placement_mansion': 57, 'damage_protection': 40, 'table_menu_click': 56,
     'worldgen_facts': 54, 'world_upgrade': 53, 'item_food': 48, 'potion': 48, 'voxel_intersection': 46,
 }
 
 STAGES = [
     ('version', [
-        ('java', 'VersionMetadata', '@version.json'),
+        ('regen', 'VersionMetadata', '@version.json'),
         ('same', '@version.json', 'priv/version.json'),
     ]),
     ('world_nbt', [
@@ -68,7 +101,7 @@ STAGES = [
         ('java', 'AnvilContentOracle', 'export', '@content.json', '@imported/exported-world', '@server'),
     ]),
     ('light_facts', [
-        ('java', 'LightFactsOracle', '@light-blocks.json'),
+        ('regen', 'LightFactsOracle', '@light-blocks.json'),
         ('same', '@light-blocks.json', 'priv/physics/light_blocks.json'),
     ]),
     ('light', [
@@ -81,7 +114,7 @@ STAGES = [
         ('check', 'check_random.exs', '@random.json'),
     ]),
     ('worldgen_facts', [
-        ('java', 'WorldgenFactsOracle', '@noises.json', '@density_functions.json', '@noise_settings.json',
+        ('regen', 'WorldgenFactsOracle', '@noises.json', '@density_functions.json', '@noise_settings.json',
          '@biome_parameters.json', '@material_rules.json', '@material_conditions.json', '@biomes.json',
          '@carvers.json', '@features.json', '@placed_features.json', '@block_state_providers.json',
          '@feature_order.json', '@dimensions.json'),
@@ -98,12 +131,12 @@ STAGES = [
         ('same', '@block_state_providers.json', 'priv/worldgen/block_state_providers.json'),
         ('same', '@feature_order.json', 'priv/worldgen/feature_order.json'),
         ('same', '@dimensions.json', 'priv/worldgen/dimensions.json'),
-        ('java', 'WorldgenBlocksOracle', '@blocks.json'),
+        ('regen', 'WorldgenBlocksOracle', '@blocks.json'),
         ('same', '@blocks.json', 'priv/worldgen/blocks.json'),
-        ('java', 'StructureTemplateOracle', '@block_transforms.json', '@processor_lists.json'),
+        ('regen', 'StructureTemplateOracle', '@block_transforms.json', '@processor_lists.json'),
         ('same', '@block_transforms.json', 'priv/worldgen/block_transforms.json'),
         ('same', '@processor_lists.json', 'priv/worldgen/processor_lists.json'),
-        ('java', 'StructureOracle', 'facts', '@structures.json', '@structure_sets.json', '@template_pools.json',
+        ('regen', 'StructureOracle', 'facts', '@structures.json', '@structure_sets.json', '@template_pools.json',
          '@structure_templates.json'),
         ('same', '@structures.json', 'priv/worldgen/structures.json'),
         ('same', '@structure_sets.json', 'priv/worldgen/structure_sets.json'),
@@ -122,24 +155,17 @@ STAGES = [
         ('java', 'BiomeOracle', 'generate', '@world', '@biomes.json'),
         ('check', 'check_biomes.exs', '@biomes.json'),
     ]),
+    # VMC-076d: each chunk filled once and recorded after fill, surface and carvers.
     ('worldgen_terrain', [
-        ('java', 'TerrainOracle', 'fill', '@terrain.json'),
-        ('check', 'check_terrain.exs', 'fill', '@terrain.json'),
-    ]),
-    ('worldgen_surface', [
-        ('java', 'TerrainOracle', 'surface', '@surface.json'),
-        ('check', 'check_terrain.exs', 'surface', '@surface.json'),
-    ]),
-    ('worldgen_carvers', [
-        ('java', 'TerrainOracle', 'carve', '@carve.json'),
-        ('check', 'check_terrain.exs', 'carve', '@carve.json'),
+        ('java', 'TerrainOracle', 'all', '@terrain.json', '@surface.json', '@carve.json'),
+        ('check', 'check_terrain.exs', 'fill', '@terrain.json', 'surface', '@surface.json', 'carve', '@carve.json'),
     ]),
     ('worldgen_survival', [
-        ('java', 'SupportOracle', 'worldgen', '@survival.json'),
+        ('regen', 'SupportOracle', 'worldgen', '@survival.json'),
         ('same', '@survival.json', 'priv/worldgen/survival.json'),
     ]),
     ('worldgen_shapes', [
-        ('java', 'ShapeOracle', '@shapes.json'),
+        ('regen', 'ShapeOracle', '@shapes.json'),
         ('same', '@shapes.json', 'priv/worldgen/shapes.json'),
         ('java', 'ShapeOracle', 'code', '@shape-code.json'),
         ('check', 'check_shape_code.exs', '@shape-code.json'),
@@ -172,7 +198,7 @@ STAGES = [
         ('check', 'check_structures.exs', '@starts.json'),
     ]),
     ('world_settings', [
-        ('java', 'WorldSettingsOracle', 'facts', '@world_presets.json'),
+        ('regen', 'WorldSettingsOracle', 'facts', '@world_presets.json'),
         ('same', '@world_presets.json', 'priv/worldgen/world_presets.json'),
         ('java', 'WorldSettingsOracle', 'cases', '@world_settings.json'),
         ('check', 'check_world_settings.exs', '@world_settings.json'),
@@ -247,8 +273,8 @@ STAGES = [
     ]),
     ('worldgen_datapack', [
         ('java', 'DatapackOracle', 'make', '@world/datapacks/sample'),
-        ('check', 'datapack_facts.exs', '@world'),
         ('java', 'DecorationOracle', '@live.json', '*', 'live', 'pack', '--packs', '@world/datapacks/sample'),
+        ('check', 'datapack_facts.exs', '@world'),
         ('app', 'check_live_decoration.exs', '@live.json', '@world'),
     ]),
     ('worldgen_live', [
@@ -257,7 +283,7 @@ STAGES = [
     ]),
     # VMC-010f: the English strings the console prints feedback with.
     ('language', [
-        ('java', 'LanguageOracle', '@en_us.json'),
+        ('regen', 'LanguageOracle', '@en_us.json'),
         ('same', '@en_us.json', 'priv/lang/en_us.json'),
     ]),
     # VMC-026b: the Nether's and the End's live generation, region by region.
@@ -292,16 +318,16 @@ STAGES = [
         ('check', 'check_portals.exs', '@portals.json'),
     ]),
     ('commands', [
-        ('java', 'CommandTreeOracle', 'tree', '@tree.json'),
+        ('regen', 'CommandTreeOracle', 'tree', '@tree.json'),
         ('same', '@tree.json', 'priv/commands/tree.json'),
-        ('java', 'CommandTreeOracle', 'facts', '@facts.json'),
+        ('regen', 'CommandTreeOracle', 'facts', '@facts.json'),
         ('same', '@facts.json', 'priv/commands/facts.json'),
         ('java', 'CommandTreeOracle', 'cases', '@cases.json'),
         ('check', 'check_commands.exs', '@cases.json', '@graphs', '@results.json'),
         ('java', 'CommandTreeOracle', 'verify', '@graphs', '@results.json'),
     ]),
     ('block_registry', [
-        ('java', 'BlockRegistryMetadata', '@block-registry.json'),
+        ('regen', 'BlockRegistryMetadata', '@block-registry.json'),
         ('same', '@block-registry.json', 'priv/registry/blocks.json'),
     ]),
     ('client_tick', [
@@ -355,25 +381,10 @@ STAGES = [
         ('java', 'PlacementConsumptionOracle', '@placement.json', '@placement-consumption.json'),
         ('check', 'check_placement_consumption.exs', '@placement-consumption.json'),
     ]),
-    ('damage_protection_1', [
-        ('java', 'DamageProtectionOracle', '@damage-protection.json'),
+    # VMC-076d: every source matrix, without and with Resistance 1, in one oracle run.
+    ('damage_protection', [
+        ('java', 'DamageProtectionOracle', 'all', '@damage-protection.json'),
         ('check', 'check_damage_protection.exs', '@damage-protection.json'),
-    ]),
-    ('damage_protection_2', [
-        ('java', 'DamageProtectionOracle', '@fire-damage.json', 'fire'),
-        ('check', 'check_damage_protection.exs', '@fire-damage.json'),
-    ]),
-    ('damage_protection_3', [
-        ('java', 'DamageProtectionOracle', '@hazard-damage.json', 'hazards'),
-        ('check', 'check_damage_protection.exs', '@hazard-damage.json'),
-    ]),
-    ('damage_protection_4', [
-        ('java', 'DamageProtectionOracle', '@periodic-damage.json', 'effects'),
-        ('check', 'check_damage_protection.exs', '@periodic-damage.json'),
-    ]),
-    ('damage_protection_5', [
-        ('java', 'DamageProtectionOracle', '@instant-damage.json', 'instant'),
-        ('check', 'check_damage_protection.exs', '@instant-damage.json'),
     ]),
     ('damage_immunity', [
         ('java', 'DamageImmunityOracle', '@damage-immunity.json'),
@@ -652,11 +663,11 @@ STAGES = [
         ('java', 'ChestBlockEntityOracle', '@chest-entities.json', '@chest-chunks.json'),
     ]),
     ('block_entities', [
-        ('java', 'BlockEntityOracle', '@block-entities.json'),
+        ('regen', 'BlockEntityOracle', '@block-entities.json'),
         ('same', '@block-entities.json', 'priv/physics/block_entities.json'),
     ]),
     ('random_ticking', [
-        ('java', 'RandomTickOracle', '@random-ticking.json'),
+        ('regen', 'RandomTickOracle', '@random-ticking.json'),
         ('same', '@random-ticking.json', 'priv/physics/random_ticking.json'),
     ]),
     ('support', [
@@ -689,7 +700,7 @@ STAGES = [
         ('check', 'check_chest_loot.exs', '@chest-loot.json'),
     ]),
     ('loot', [
-        ('java', 'LootOracle', 'facts', '@loot-tables.json', '@loot-registries.json'),
+        ('regen', 'LootOracle', 'facts', '@loot-tables.json', '@loot-registries.json'),
         ('same', '@loot-tables.json', 'priv/loot/tables.json'),
         ('same', '@loot-registries.json', 'priv/loot/registries.json'),
         ('java', 'LootOracle', 'cases', '@loot-cases.json'),
@@ -786,22 +797,6 @@ STAGES = [
         ('check', 'check_item_hover.exs', '@item-hover.json', '@item-hover-elixir.json'),
         ('java', 'ItemHoverOracle', 'verify', '@item-hover-elixir.json'),
     ]),
-    ('damage_protection_6', [
-        ('java', 'DamageProtectionOracle', '@resisted-environment.json', 'environment', '1'),
-        ('check', 'check_damage_protection.exs', '@resisted-environment.json'),
-    ]),
-    ('damage_protection_7', [
-        ('java', 'DamageProtectionOracle', '@resisted-hazards.json', 'hazards', '1'),
-        ('check', 'check_damage_protection.exs', '@resisted-hazards.json'),
-    ]),
-    ('damage_protection_8', [
-        ('java', 'DamageProtectionOracle', '@resisted-effects.json', 'effects', '1'),
-        ('check', 'check_damage_protection.exs', '@resisted-effects.json'),
-    ]),
-    ('damage_protection_9', [
-        ('java', 'DamageProtectionOracle', '@resisted-instant.json', 'instant', '1'),
-        ('check', 'check_damage_protection.exs', '@resisted-instant.json'),
-    ]),
     ('block_batch', [
         ('check', 'check_block_batch.exs', '@block-batches.json'),
         ('java', 'BlockBatchOracle', '@block-batches.json'),
@@ -891,7 +886,7 @@ STAGES = [
         ('check', 'check_chunk_heights.exs', '@chunk-heights.json'),
     ]),
     ('attribute_metadata', [
-        ('java', 'AttributeMetadata', '@attributes.json'),
+        ('regen', 'AttributeMetadata', '@attributes.json'),
         ('same', '@attributes.json', 'priv/protocol/attributes.json'),
     ]),
     ('interaction_range', [
@@ -938,7 +933,7 @@ STAGES = [
         ('java', 'EquipmentOracle', 'verify', '@equipment-encoded.json'),
     ]),
     ('item_metadata', [
-        ('java', 'ItemMetadata', '@items.json', '@defaults.json'),
+        ('regen', 'ItemMetadata', '@items.json', '@defaults.json'),
         ('same', '@items.json', 'priv/protocol/items.json'),
         ('same', '@defaults.json', 'priv/protocol/item_defaults.json'),
     ]),
@@ -980,7 +975,7 @@ STAGES = [
         ('check', 'check_encryption.exs', 'verify', '@encryption.json'),
     ]),
     ('inventory_behavior', [
-        ('java', 'InventoryBehaviorOracle'),
+        ('regen', 'InventoryBehaviorOracle'),
     ]),
     ('crafting_table_access', [
         ('java', 'CraftingTableAccessOracle', '@table-access.json'),
@@ -990,9 +985,13 @@ STAGES = [
         ('java', 'TableMenuOracle', '@table-menu.json'),
         ('check', 'check_table_menu.exs', '@table-menu.json'),
     ]),
-    ('player_crafting_1', [
-        ('java', 'PlayerCraftingOracle', '@player-recipes.json', '@player-crafting-cases.json'),
+    # VMC-076d: facts, cases, menus and drops from one oracle run.
+    ('player_crafting', [
+        ('java', 'PlayerCraftingOracle', 'all', '@player-recipes.json', '@player-crafting-cases.json',
+         '@player-crafting-menu.json', '@player-crafting-drops.json'),
         ('check', 'check_crafting.exs', 'player', '@player-recipes.json', '@player-crafting-cases.json'),
+        ('check', 'check_player_crafting_menu.exs', '@player-crafting-menu.json'),
+        ('check', 'check_player_crafting_gestures.exs', '@player-crafting-drops.json'),
     ]),
     ('table_crafting', [
         ('java', 'TableCraftingOracle', '@table-recipes.json', '@table-crafting-cases.json'),
@@ -1010,14 +1009,6 @@ STAGES = [
     ('remainder_crafting', [
         ('java', 'RemainderCraftingOracle', '@crafting-remainders.json', '@remainder-catalog.json'),
         ('check', 'check_crafting_remainders.exs', '@crafting-remainders.json', '@remainder-catalog.json'),
-    ]),
-    ('player_crafting_2', [
-        ('java', 'PlayerCraftingOracle', 'menu', '@player-crafting-menu.json'),
-        ('check', 'check_player_crafting_menu.exs', '@player-crafting-menu.json'),
-    ]),
-    ('player_crafting_3', [
-        ('java', 'PlayerCraftingOracle', 'drops', '@player-crafting-drops.json'),
-        ('check', 'check_player_crafting_gestures.exs', '@player-crafting-drops.json'),
     ]),
     ('item', [
         ('java', 'ItemOracle', 'generate', '@item-fixtures.json'),
@@ -1082,8 +1073,5 @@ STAGES = [
     ('player_experience', [
         ('java', 'PlayerExperienceOracle', '@player-experience.json'),
         ('check', 'check_player_experience.exs', '@player-experience.json'),
-    ]),
-    ('directory_recovery', [
-        ('app', 'check_directory_recovery.exs'),
     ]),
 ]

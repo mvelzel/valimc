@@ -99,6 +99,10 @@ public class DamageProtectionOracle {
       cases.add(c);
     }
   }
+  /**
+   * Usage: DamageProtectionOracle OUT [MODE [RESISTANCE]] for one source matrix (environment by
+   * default), or `all OUT` for every matrix the stage checks, in one case list (VMC-076d).
+   */
   public static void main(String[] args)throws Exception{
     SharedConstants.tryDetectVersion();Bootstrap.bootStrap();var lookup=VanillaRegistries.createWorldLookup();
     BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(lookup).forEach(p->p.apply());
@@ -109,10 +113,24 @@ public class DamageProtectionOracle {
     var unsafe=(sun.misc.Unsafe)field(sun.misc.Unsafe.class,"theUnsafe").get(null);
     var server=(ProbeServer)unsafe.allocateInstance(ProbeServer.class);server.registries=new ReloadableServerRegistries.Holder(lookup);
     var world=(ProbeLevel)unsafe.allocateInstance(ProbeLevel.class);world.server=server;
-    String mode=args.length>1?args[1]:"environment";
+    if(args[0].equals("all")){
+      var cases=new JsonArray();
+      for(var run:new String[][]{{"environment",null},{"fire",null},{"hazards",null},{"effects",null},{"instant",null},
+          {"environment","1"},{"hazards","1"},{"effects","1"},{"instant","1"}})
+        cases.addAll(matrix(lookup,registry,access,unsafe,world,run[0],run[1]));
+      Files.writeString(Path.of(args[1]),new Gson().toJson(cases));
+      System.out.println("PASS: "+cases.size()+" cases over every source matrix, without and with Resistance 1.");
+      return;
+    }
+    var cases=matrix(lookup,registry,access,unsafe,world,args.length>1?args[1]:"environment",args.length>2?args[2]:null);
+    Files.writeString(Path.of(args[0]),new Gson().toJson(cases));
+  }
+
+  private static JsonArray matrix(HolderLookup.Provider lookup,MappedRegistry<Enchantment> registry,RegistryAccess.Frozen access,
+      sun.misc.Unsafe unsafe,ProbeLevel world,String mode,String resistance)throws Exception{
     var p=(Probe)unsafe.allocateInstance(Probe.class);p.world=world;p.gear=new EnumMap<>(EquipmentSlot.class);p.armorValue=30;p.fire=Set.of("fire","hazards").contains(mode);field(Entity.class,"position").set(p,new Vec3(.5,64,.5));
     var statuses=new HashMap<Holder<MobEffect>,MobEffectInstance>();field(LivingEntity.class,"activeEffects").set(p,statuses);
-    if(args.length>2)statuses.put(MobEffects.RESISTANCE,new MobEffectInstance(MobEffects.RESISTANCE,-1,Integer.parseInt(args[2])));
+    if(resistance!=null)statuses.put(MobEffects.RESISTANCE,new MobEffectInstance(MobEffects.RESISTANCE,-1,Integer.parseInt(resistance)));
     var tags=JsonParser.parseString(Files.readString(Path.of("priv/protocol/tags.json"))).getAsJsonObject().getAsJsonObject("minecraft:damage_type");
     var names=JsonParser.parseString(Files.readString(Path.of("priv/protocol/registries.json"))).getAsJsonObject().getAsJsonArray("minecraft:damage_type");
     var bindTags=Holder.Reference.class.getDeclaredMethod("bindTags",Collection.class);bindTags.setAccessible(true);
@@ -150,7 +168,7 @@ public class DamageProtectionOracle {
         }
       }
     }
-    Files.writeString(Path.of(args[0]),new Gson().toJson(cases));
-    System.out.println("PASS: "+cases.size()+" native equipment/protection/armor/magic damage cases; sources="+types+", all "+registry.size()+" enchantments, levels0/1/4/255, stored and hand negatives, stacked caps, Resistance="+(args.length>2?args[2]:"absent")+". Health/world mutation/statistics excluded; armor-wear callback recorded but stack wear excluded; native lethal infinity labeled.");
+    System.out.println("PASS: "+cases.size()+" native equipment/protection/armor/magic damage cases; sources="+types+", all "+registry.size()+" enchantments, levels0/1/4/255, stored and hand negatives, stacked caps, Resistance="+(resistance!=null?resistance:"absent")+". Health/world mutation/statistics excluded; armor-wear callback recorded but stack wear excluded; native lethal infinity labeled.");
+    return cases;
   }
 }

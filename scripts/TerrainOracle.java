@@ -50,7 +50,8 @@ import net.minecraft.world.level.levelgen.densityfunction.DensityVolume;
  * starts every lookup from a fresh lookup history. Per chunk: the state ids
  * run-length encoded in volume order (Y fastest from the bottom, then X, then
  * Z) as [id, count] pairs, and the positions marked for fluid
- * post-processing.
+ * post-processing. `all FILL SURFACE CARVE` writes the three at once, each
+ * chunk filled once and recorded after every step (VMC-076d).
  *
  * `bench OUT [overworld|nether|end X0 Z0]` times vanilla's noise fill
  * (`doFill` on a fresh noise chunk) on one thread for the 64 chunks of one
@@ -74,7 +75,8 @@ public class TerrainOracle {
     var plains = lookup.lookupOrThrow(Registries.BIOME).getOrThrow(Biomes.PLAINS);
     var settingsList = lookup.lookupOrThrow(Registries.NOISE_SETTINGS).listElements()
         .sorted(Comparator.comparing(h -> h.key().identifier().toString())).toList();
-    boolean carve = args[0].equals("carve");
+    boolean all = args[0].equals("all");
+    boolean carve = all || args[0].equals("carve");
     boolean surface = carve || args[0].equals("surface");
     var doFill = NoiseBasedChunkGenerator.class.getDeclaredMethod("doFill", NoiseChunk.class, ChunkAccess.class);
     doFill.setAccessible(true);
@@ -90,7 +92,9 @@ public class TerrainOracle {
     var gen = new Random(20261020L);
     long[] seeds = {20261020L, -8172645723L, gen.nextLong()};
     var cases = new JsonArray();
-    long blocks = 0;
+    var surfaced = new JsonArray();
+    var carved = new JsonArray();
+    long[] blocks = {0};
 
     for (long seed : seeds) {
       for (var holder : settingsList) {
@@ -113,6 +117,7 @@ public class TerrainOracle {
           var volume = new DensityVolume(16, height, 16, pos.getMinBlockX(), minY, pos.getMinBlockZ());
           try (var noiseChunk = new NoiseChunk(state, null, settings, picker, Blender.empty(), volume)) {
             doFill.invoke(generator, noiseChunk, chunk);
+            if (all) cases.add(row(chunk, seed, holder.key().identifier().toString(), pos, minY, height, blocks));
             if (surface) {
               var id = holder.key().identifier().toString();
               var source = id.equals("minecraft:end") ? "end" : id.equals("minecraft:nether") ? "nether" : "overworld";
@@ -126,55 +131,65 @@ public class TerrainOracle {
               };
               var biomeManager = new BiomeManager(resolver, BiomeManager.obfuscateSeed(seed));
               buildSurface.invoke(generator, chunk, noiseChunk, state, biomeManager, null, settings.materialRule().value());
+              if (all) surfaced.add(row(chunk, seed, holder.key().identifier().toString(), pos, minY, height, blocks));
               if (carve) {
                 generateCarvers.invoke(generator, chunk, Blender.empty(), noiseChunk, state, biomeManager, null,
                     settings.materialRule().value());
+                if (all) carved.add(row(chunk, seed, holder.key().identifier().toString(), pos, minY, height, blocks));
               }
             }
           }
-          var runs = new JsonArray();
-          int last = -1, count = 0;
-          var cursor = new BlockPos.MutableBlockPos();
-          for (int z = 0; z < 16; z++)
-            for (int x = 0; x < 16; x++)
-              for (int y = 0; y < height; y++) {
-                int id = Block.getId(chunk.getBlockState(cursor.set(pos.getMinBlockX() + x, minY + y, pos.getMinBlockZ() + z)));
-                if (id != last && count > 0) {
-                  runs.add(last);
-                  runs.add(count);
-                  count = 0;
-                }
-                last = id;
-                count++;
-                blocks++;
-              }
-          runs.add(last);
-          runs.add(count);
-          var updates = new TreeSet<String>();
-          var lists = chunk.getPostProcessing();
-          for (int i = 0; i < lists.length; i++) {
-            if (lists[i] == null) continue;
-            for (short packed : lists[i]) {
-              var p = ProtoChunk.unpackOffsetCoordinates(packed, chunk.getSectionYFromSectionIndex(i), pos);
-              updates.add(p.getX() + "," + p.getY() + "," + p.getZ());
-            }
-          }
-          var row = new JsonObject();
-          row.addProperty("seed", Long.toString(seed));
-          row.addProperty("settings", holder.key().identifier().toString());
-          row.addProperty("x", pos.x());
-          row.addProperty("z", pos.z());
-          row.add("runs", runs);
-          row.add("fluid_updates", new Gson().toJsonTree(updates));
-          cases.add(row);
+          if (!all) cases.add(row(chunk, seed, holder.key().identifier().toString(), pos, minY, height, blocks));
         }
       }
     }
-    var out = new JsonObject();
-    out.add("cases", cases);
-    Files.writeString(Path.of(args[1]), new Gson().toJson(out));
-    System.out.println("PASS: " + cases.size() + " vanilla " + (carve ? "carved" : surface ? "surfaced" : "noise-filled") + " chunks over "
-        + seeds.length + " seeds and " + settingsList.size() + " noise settings (" + blocks + " blocks)");
+    var outputs = all ? List.of(cases, surfaced, carved) : List.of(cases);
+    for (int i = 0; i < outputs.size(); i++) {
+      var out = new JsonObject();
+      out.add("cases", outputs.get(i));
+      Files.writeString(Path.of(args[i + 1]), new Gson().toJson(out));
+    }
+    System.out.println("PASS: " + cases.size() + " vanilla " + (all ? "filled, surfaced and carved" : carve ? "carved" : surface ? "surfaced" : "noise-filled")
+        + " chunks over " + seeds.length + " seeds and " + settingsList.size() + " noise settings (" + blocks[0] + " blocks)");
+  }
+
+  /** A chunk's state ids, run-length encoded in volume order, and its fluid post-processing marks. */
+  static JsonObject row(ProtoChunk chunk, long seed, String settings, ChunkPos pos, int minY, int height, long[] blocks) {
+    var runs = new JsonArray();
+    int last = -1, count = 0;
+    var cursor = new BlockPos.MutableBlockPos();
+    for (int z = 0; z < 16; z++)
+      for (int x = 0; x < 16; x++)
+        for (int y = 0; y < height; y++) {
+          int id = Block.getId(chunk.getBlockState(cursor.set(pos.getMinBlockX() + x, minY + y, pos.getMinBlockZ() + z)));
+          if (id != last && count > 0) {
+            runs.add(last);
+            runs.add(count);
+            count = 0;
+          }
+          last = id;
+          count++;
+          blocks[0]++;
+        }
+    runs.add(last);
+    runs.add(count);
+    var updates = new TreeSet<String>();
+    var lists = chunk.getPostProcessing();
+    for (int i = 0; i < lists.length; i++) {
+      if (lists[i] == null) continue;
+      for (short packed : lists[i]) {
+        var p = ProtoChunk.unpackOffsetCoordinates(packed, chunk.getSectionYFromSectionIndex(i), pos);
+        updates.add(p.getX() + "," + p.getY() + "," + p.getZ());
+      }
+    }
+    var row = new JsonObject();
+    row.addProperty("seed", Long.toString(seed));
+    row.addProperty("settings", settings);
+    row.addProperty("x", pos.x());
+    row.addProperty("z", pos.z());
+    row.add("runs", runs);
+    row.add("fluid_updates", new Gson().toJsonTree(updates));
+    return row;
   }
 
   /**

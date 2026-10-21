@@ -24,10 +24,10 @@ cost minutes of every core, and several sessions share one 10-core Mac.
 | Docs, tickets, scripts only | `scripts/audit_public_tree.py` (includes docs lint) |
 | One module and its callers | The module's test files and the tests that name it (`rg -l ModuleName test`) |
 | Several modules, no shared owner/protocol change | `mix test --stale` |
-| Pure kernels (physics, codecs, worldgen) | Their test files plus only the matching `check_vanilla.py --only <stage>` |
+| Pure kernels (physics, codecs, worldgen) | Their test files plus `check_vanilla.py --changed` (or `--only <stage>`) |
 | Rust in `native/` | `cargo test -p <crate>`, `cargo clippy --all-targets`, plus the Elixir tests of the touched NIFs |
 | Region owner, connection, persistence or protocol core | The test files of the touched flows by name (socket suites included) |
-| Finished parent ticket | `mix test.fast` and the vanilla stages of that area |
+| Finished parent ticket | `mix test.fast` and `check_vanilla.py --changed` |
 | Milestone boundary | Full `mix test`, every vanilla stage and a production release, through `scripts/heavy.py` in the background |
 
 `mix test.fast` leaves out the socket suites (`@moduletag :tcp`) and the
@@ -77,37 +77,65 @@ Socket suites whose player ticks only the test drives use `Valimc.TestPlayer`
 Rust code lives in `native/` (`valimc_core` pure crate, `valimc_nif` Rustler shim,
 built by `use Rustler` in `Valimc.Native`). Run `cargo fmt --check` there too.
 
-Vanilla oracles compare Elixir output with the pinned Mojang jar. Run named
-stages, or every stage in parallel (compiles all oracles once, collects every
-failure, logs under `.local/vanilla-checks/`):
+Vanilla oracles compare Elixir output with the pinned Mojang jar. Run the stages
+a change affects, named stages, or every stage in parallel (logs under
+`.local/vanilla-checks/`):
 
 ```sh
+python3 scripts/check_vanilla.py --changed
+python3 scripts/check_vanilla.py --changed --list
 python3 scripts/check_vanilla.py --only player_fit,player_pose
 python3 scripts/check_vanilla.py --only 'worldgen_structure_placement*' --only tcp
-python3 scripts/check_vanilla.py --list
 python3 scripts/check_vanilla.py --audit
 ```
 
-`--only` takes exact stage names, comma-separated or repeated; only a name with
-`*`, `?` or `[` is a glob, and a name that matches no stage is an error. `tcp` is the
-official-codec session against plain and encrypted servers; a full run includes it
-unless `--skip-tcp`. Stages start longest first, ordered by the durations of earlier
-runs (`.local/oracle-cache/timings.json` in the main checkout, shared by worktrees;
-`--list` shows them). The all-core oracles run one at a time, sized to the cores the
-other jobs leave. A run of more than six stages takes a heavy-job slot itself, so
-`heavy.py` is optional for it; smaller `--only` runs take none.
+`--changed [REV]` runs the stages that the changes since REV (default: the merge
+base with `origin/main`), committed or not, can affect, and prints why each was
+chosen; with `--list` it only prints them. It follows each stage's scripts, oracle
+sources and declared inputs, the Elixir functions its checks reach (a clause-level
+call graph from the build's debug info, following message tags into callbacks), the
+NIFs native changes reach, the modules that read a changed `priv/` file, and the
+global inputs (build files, the runner, the pin), which select everything. Checks
+that start region owners reach most of the server, so changes to shared world code
+select them too. `--only` takes exact stage names, comma-separated or repeated;
+only a name with `*`, `?` or `[` is a glob, a name that matches no stage is an error,
+and merged stages keep their old names as aliases. `tcp` is the official-codec
+session against plain and encrypted servers.
+
+Vanilla's side of a stage is cached by content in the main checkout's
+`.local/oracle-cache/`, shared by every worktree: an oracle run's key covers the
+pinned jar and libraries, the JDK and its flags, the oracle's source and every
+source it names, its arguments and environment variables, the repo files it
+declares (`INPUTS` in `vanilla_stages.py`) and the earlier oracle outputs it reads.
+Oracles run in a directory holding only their declared inputs, so an undeclared
+read fails, and `--audit` fails on a repo path an oracle names but does not
+declare. Steps that read ValiMC's output, and every check, always run. Identical
+oracle runs within one run happen once. `--no-cache` reruns every oracle;
+`VALIMC_ORACLE_CACHE_GB` (default 8) bounds the cache. Classes compile once per
+source tree into `.local/oracle-cache/classes/`.
+
+Fact extraction that only feeds comparisons with committed facts (`regen` steps:
+the pin, registries, worldgen facts, survival and shape tables, command trees) runs
+from the cache; when its key is not cached (a version bump, an extractor change),
+the run reports it as not verified, and `--regen` runs it. Small warm stages run in
+groups whose checks share one BEAM; a check that fails there reruns alone, and that
+result counts (`--no-batch` gives every check its own BEAM). Stages start longest
+first from earlier runs' durations (`.local/oracle-cache/timings.json`); the
+all-core oracles run one at a time, sized to the cores the other jobs leave. A run
+of more than six stages takes a heavy-job slot itself; smaller runs take none.
 
 Register every new `scripts/*Oracle.java` or `scripts/check_*.exs` in
-`scripts/vanilla_stages.py`; `--audit` fails otherwise. The runner compiles into a
-private build directory, so editing code during a run cannot change its result. A
-worktree without its own `research/vanilla-bundle` or JDK uses the main checkout's.
+`scripts/vanilla_stages.py` and declare the repo files an oracle reads; `--audit`
+fails otherwise. The runner compiles into a private build directory, so editing
+code during a run cannot change its result. A worktree without its own
+`research/vanilla-bundle`, server jar or JDK uses the main checkout's.
 
 At a milestone boundary, run the broad gate in the background and fix failures:
 
 ```sh
 mix format --check-formatted
 python3 scripts/heavy.py mix test
-python3 scripts/heavy.py python3 scripts/check_vanilla.py
+python3 scripts/check_vanilla.py
 MIX_ENV=prod python3 scripts/heavy.py mix release --overwrite
 ```
 

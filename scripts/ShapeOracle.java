@@ -29,7 +29,8 @@ import net.minecraft.world.level.material.Fluid;
  * Analyzed: the states of blocks whose class overrides `updateShape` and that the generated
  * worldgen facts (features, placed features, state providers, material rules, noise settings,
  * with block tags expanded), every structure template's blocks and the processor lists, or
- * ValiMC's worldgen code (structure pieces' palettes included) name, except fire, chorus plants, pale moss carpets, vines and
+ * `scripts/shape_blocks.txt` (the blocks ValiMC's worldgen code places by name, structure pieces'
+ * palettes included) name, except fire, chorus plants, pale moss carpets, vines and
  * speleothems (their updates are code). Blocks that do not override it keep their state and
  * schedule nothing, as vanilla's default does; the other overriding blocks are listed as
  * unmodelled.
@@ -294,26 +295,13 @@ public class ShapeOracle {
         }
       }
     }
-    // And the blocks ValiMC's worldgen code places by name (tree decorators, bamboo, huge mushrooms).
-    var named = java.util.regex.Pattern.compile("(?:default_state|block)\\(\"([a-z0-9_]+)\"\\)");
-    try (var files = Files.list(Path.of("native/valimc_core/src/worldgen"))) {
-      for (var file : files.filter(f -> f.toString().endsWith(".rs")).sorted().toList()) {
-        var matcher = named.matcher(Files.readString(file));
-        while (matcher.find()) {
-          BuiltInRegistries.BLOCK.getOptional(net.minecraft.resources.Identifier.withDefaultNamespace(matcher.group(1))).ifPresent(out::add);
-        }
-      }
-    }
-    // And the blocks structure pieces place (VMC-025f): every string that names a block, with or
-    // without properties (their palettes).
-    var literal = java.util.regex.Pattern.compile("\"([a-z0-9_]+)(?:\\[[a-z0-9_=,]*\\])?\"");
-    try (var files = Files.list(Path.of("native/valimc_core/src/worldgen/structure"))) {
-      for (var file : files.filter(f -> f.toString().endsWith(".rs")).sorted().toList()) {
-        var matcher = literal.matcher(Files.readString(file));
-        while (matcher.find()) {
-          BuiltInRegistries.BLOCK.getOptional(net.minecraft.resources.Identifier.withDefaultNamespace(matcher.group(1))).ifPresent(out::add);
-        }
-      }
+    // And the blocks ValiMC's worldgen code places by name (tree decorators, bamboo, huge mushrooms,
+    // structure pieces' palettes, VMC-025f), listed in scripts/shape_blocks.txt (VMC-076d).
+    for (var line : Files.readAllLines(Path.of("scripts/shape_blocks.txt"))) {
+      var name = line.strip();
+      if (name.isEmpty() || name.startsWith("#")) continue;
+      out.add(BuiltInRegistries.BLOCK.getOptional(net.minecraft.resources.Identifier.withDefaultNamespace(name))
+          .orElseThrow(() -> new IllegalStateException("scripts/shape_blocks.txt: unknown block " + name)));
     }
     // And what structure processors turn template blocks into (VMC-025f): the blackstone
     // replacements of nether ruined portals and every state block ageing picks from.

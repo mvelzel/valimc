@@ -55,10 +55,11 @@ Evidence (counts, seeds, runs) belongs in the ticket, never in the roadmap.
   **Foundation**.
 - Checks scale with the change, never the reverse. Per commit: format changed
   files and run the affected tests (named files or `mix test --stale`), `cargo test`
-  for a changed crate, and only the affected `check_vanilla.py --only` stages. Per
-  finished parent ticket: `mix test.fast` (no socket or slow suites) plus its
-  area's stages. Only at a milestone: the full `mix test`, every vanilla stage and
-  a production build. See [development](docs/development.md#checks).
+  for a changed crate, and only the vanilla stages the change affects
+  (`check_vanilla.py --changed`). Per finished parent ticket: `mix test.fast` (no
+  socket or slow suites) plus its area's stages. Only at a milestone: the full
+  `mix test`, every vanilla stage and a production build. See
+  [development](docs/development.md#checks).
 - Heavy commands (full suites, every stage, release builds, benchmarks) run in the
   background through `scripts/heavy.py`, which lets at most two run on the host at
   once. Do other work meanwhile; never re-run a heavy check to see the same result.
