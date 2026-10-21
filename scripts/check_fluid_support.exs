@@ -1,5 +1,6 @@
+alias Valimc.World.View
+
 alias Valimc.Physics.{
-  BlockCollisions.Frame,
   BlockEntityContext,
   FluidBoundaries,
   PistonSnapshot,
@@ -33,7 +34,7 @@ for c <- data["contexts"] do
     end
 
   p = {0, 64, 0}
-  frame = %Frame{states: %{p => c["state"]}, entities: %{p => entity}, fences: %{}}
+  frame = View.of(%{p => c["state"]}, %{p => entity})
 
   for {expected, direction} <- Enum.with_index(c["faces"]) do
     {:ok, actual} = FluidBoundaries.sturdy?(frame, p, direction)

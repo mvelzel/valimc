@@ -1,5 +1,5 @@
 alias Valimc.{PlayerKinetics, Physics.AirMotion}
-alias Valimc.Physics.{BlockCollisions, BlockScan, Box, CollisionContext}
+alias Valimc.Physics.{BlockScan, Box, CollisionContext}
 [path] = System.argv()
 data = path |> File.read!() |> :json.decode()
 bits = fn t -> for n <- Tuple.to_list(t), do: <<n::float-64>> end
@@ -71,7 +71,7 @@ Enum.each(data["support"], fn c ->
       end)
     end)
 
-  {:ok, frame} = BlockCollisions.prepare(observations)
+  frame = Valimc.World.View.of(Map.new(Enum.flat_map(observations, &Map.to_list(&1.blocks))))
 
   {:ok, result} =
     PlayerKinetics.material(

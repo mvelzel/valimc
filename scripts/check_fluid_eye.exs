@@ -1,4 +1,5 @@
-alias Valimc.Physics.{BlockCollisions.Frame, BlockScan, FluidContact}
+alias Valimc.World.View
+alias Valimc.Physics.{BlockScan, FluidContact}
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 
@@ -13,7 +14,7 @@ for c <- cases do
       &{&1["position"] |> Enum.map(fn n -> trunc(n) end) |> List.to_tuple(), &1["state"]}
     )
 
-  frame = %Frame{states: Map.merge(states, supplied), fences: %{}, entities: %{}}
+  frame = View.of(Map.merge(states, supplied))
   {:ok, actual} = FluidContact.eyes(frame, box, List.to_tuple(c["eye"]))
 
   for key <- [:water, :lava] do

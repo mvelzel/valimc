@@ -37,7 +37,7 @@ defmodule Valimc.Physics.ItemTravel do
 
   def sample(
         %{position: position, motion: motion} = input,
-        %BlockCollisions.Frame{} = frame,
+        %Valimc.World.View{} = frame,
         refresh
       )
       when is_boolean(refresh) do
@@ -117,7 +117,7 @@ defmodule Valimc.Physics.ItemTravel do
   end
 
   defp shapes(box, frame, {x, y, z}) do
-    with {:ok, found} <- BlockCollisions.collect_frame(box, frame, context(y)),
+    with {:ok, found} <- BlockCollisions.collect(box, frame, context(y)),
          {:ok, border} <-
            BorderSnapshot.colliders(Valimc.World.Clock.border_snapshot(), {x, z}, box),
          true <- length(found.colliders) + length(border) <= 128 do
@@ -160,10 +160,10 @@ defmodule Valimc.Physics.ItemTravel do
   defp support(_, _, false, _), do: {:ok, %{colliders: []}}
 
   defp support(frame, thin, true, {dx, _, dz}) do
-    with {:ok, found} <- BlockCollisions.collect_frame(thin, frame, context(elem(thin, 4))) do
+    with {:ok, found} <- BlockCollisions.collect(thin, frame, context(elem(thin, 4))) do
       if found.colliders == [],
         do:
-          BlockCollisions.collect_frame(
+          BlockCollisions.collect(
             Box.move(thin, {-dx, 0, -dz}),
             frame,
             context(elem(thin, 4))
@@ -185,8 +185,8 @@ defmodule Valimc.Physics.ItemTravel do
            )
   end
 
-  defp state(%{states: states}, pos) do
-    case Map.fetch(states, pos) do
+  defp state(view, pos) do
+    case Valimc.World.View.fetch(view, pos) do
       {:ok, id} -> {:ok, id}
       :error -> {:error, :incomplete_item_frame}
     end

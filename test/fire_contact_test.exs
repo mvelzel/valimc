@@ -1,10 +1,11 @@
 defmodule Valimc.Physics.BlockContactsTest do
   use ExUnit.Case, async: true
-  alias Valimc.Physics.{BlockCollisions.Frame, CollisionContext, BlockContacts}
+  alias Valimc.World.View
+  alias Valimc.Physics.{CollisionContext, BlockContacts}
 
   defp frame(changes) do
     air = for x <- -3..5, y <- 62..68, z <- -1..1, into: %{}, do: {{x, y, z}, 0}
-    %Frame{states: Map.merge(air, changes), fences: %{}, entities: %{}}
+    View.of(Map.merge(air, changes))
   end
 
   defp sample(f, from, to, flags \\ %{}) do
@@ -33,7 +34,7 @@ defmodule Valimc.Physics.BlockContactsTest do
   test "missing or invalid observations and path limits refuse without a partial plan" do
     point = {0.5, 64.0, 0.5}
     f = frame(%{})
-    assert {:error, :incomplete_fire_frame} = sample(%{f | states: %{}}, point, point)
+    assert {:error, :incomplete_fire_frame} = sample(%{f | supplied: %{}}, point, point)
 
     facts = %{
       pose: :standing,

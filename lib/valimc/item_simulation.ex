@@ -1,5 +1,5 @@
 defmodule Valimc.ItemSimulation do
-  @moduledoc "One owner-local motion job with bounded geometry fanout; results retain commit fences."
+  @moduledoc "One owner-local motion job with bounded geometry fanout over published snapshots."
   alias Valimc.ItemPhysicsQuery
   @max_inputs 256
   @fanout 8
@@ -32,7 +32,7 @@ defmodule Valimc.ItemSimulation do
   def start(_, _, _, _), do: {:error, :invalid_item_simulation}
 
   defp resolve(inputs, deadline) do
-    loop(Enum.chunk_every(inputs, 32), %{steps: [], refused: [], fences: %{}}, deadline)
+    loop(Enum.chunk_every(inputs, 32), %{steps: [], refused: []}, deadline)
   end
 
   defp loop([], result, _), do: {:ok, result}
@@ -50,22 +50,12 @@ defmodule Valimc.ItemSimulation do
         |> Enum.map(&elem(&1, 0))
         |> Task.yield_many(max(deadline - now(), 0))
 
-      {result, conflict} =
+      result =
         Enum.zip(tasks, results)
-        |> Enum.reduce({result, false}, fn {{task, group}, {_, reply}}, {acc, conflict} ->
+        |> Enum.reduce(result, fn {{task, group}, {_, reply}}, acc ->
           case reply do
             {:ok, {:ok, batch}} ->
-              clash =
-                Enum.any?(batch.fences, fn {key, fence} ->
-                  Map.has_key?(acc.fences, key) and acc.fences[key] != fence
-                end)
-
-              {%{
-                 acc
-                 | steps: acc.steps ++ batch.steps,
-                   refused: acc.refused ++ batch.refused,
-                   fences: Map.merge(acc.fences, batch.fences)
-               }, conflict or clash}
+              %{acc | steps: acc.steps ++ batch.steps, refused: acc.refused ++ batch.refused}
 
             _ ->
               if reply == nil, do: Task.shutdown(task, :brutal_kill)
@@ -76,13 +66,11 @@ defmodule Valimc.ItemSimulation do
                   _ -> :item_simulation_query_failed
                 end
 
-              {%{acc | refused: acc.refused ++ Enum.map(group, &{&1.id, reason})}, conflict}
+              %{acc | refused: acc.refused ++ Enum.map(group, &{&1.id, reason})}
           end
         end)
 
-      if conflict,
-        do: {:error, :conflicting_item_frame},
-        else: loop(queue, result, deadline)
+      loop(queue, result, deadline)
     end
   end
 

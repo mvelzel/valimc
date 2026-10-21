@@ -1,6 +1,6 @@
 defmodule Valimc.PlayerEnvironment do
   @moduledoc "Player-owned freeze state; contact comes from complete fenced body samples."
-  alias Valimc.Physics.{BlockCollisions, BlockShapes, Box}
+  alias Valimc.Physics.{BlockShapes, Box}
   @tags Path.expand("../../priv/protocol/tags.json", __DIR__)
   @external_resource @tags
   @immune :json.decode(File.read!(@tags))["minecraft:item"]["minecraft:freeze_immune_wearables"]
@@ -53,7 +53,7 @@ defmodule Valimc.PlayerEnvironment do
     %{env | powder_snow: powder, frozen_ticks: next}
   end
 
-  def sample(%BlockCollisions.Frame{states: states}, box) do
+  def sample(%Valimc.World.View{} = view, box) do
     if Box.valid?(box) do
       {a, b, c, d, e, f} = box
       {x0, y0, z0} = {floor(a + @epsilon), floor(b + @epsilon), floor(c + @epsilon)}
@@ -64,11 +64,12 @@ defmodule Valimc.PlayerEnvironment do
            c + @epsilon < f - @epsilon and count in 1..512 do
         positions = for x <- x0..x1, y <- y0..y1, z <- z0..z1, do: {x, y, z}
 
-        if Enum.all?(positions, &Map.has_key?(states, &1)) do
+        states = Enum.map(positions, &Valimc.World.View.fetch(view, &1))
+
+        if Enum.all?(states, &match?({:ok, _}, &1)) do
           {:ok,
-           Enum.any?(positions, fn pos ->
-             BlockShapes.fetch(Map.fetch!(states, pos)) ==
-               {:context_required, "minecraft:powder_snow"}
+           Enum.any?(states, fn {:ok, state} ->
+             BlockShapes.fetch(state) == {:context_required, "minecraft:powder_snow"}
            end)}
         else
           {:error, :incomplete_environment_frame}

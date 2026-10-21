@@ -26,12 +26,7 @@ defmodule Valimc.PlayerMotionQuery do
 
   def prepare(player, target, flags \\ 0) do
     with {:ok, query} <- query_box(player, target, flags),
-         do:
-           CollisionQuery.prepare_movement_frame(
-             query,
-             context(player, player.y),
-             &resolve(player, target, flags, &1)
-           )
+         do: CollisionQuery.prepare_frame(query, &resolve_frame(player, target, flags, &1))
   end
 
   @doc false
@@ -69,11 +64,6 @@ defmodule Valimc.PlayerMotionQuery do
     end
   end
 
-  defp resolve(player, target, flags, blocks) do
-    with {:ok, frame} <- BlockCollisions.prepare(blocks),
-         do: resolve_frame(player, target, flags, frame)
-  end
-
   defp resolve_frame(player, target, flags, blocks) do
     position = point(player)
     destination = point(target)
@@ -88,7 +78,6 @@ defmodule Valimc.PlayerMotionQuery do
 
     observations = %{
       blocks: blocks,
-      block_entities: %{},
       entities: [],
       border: Valimc.World.Clock.border_snapshot(),
       subject: player.entity_id
@@ -184,7 +173,7 @@ defmodule Valimc.PlayerMotionQuery do
          exhaustion: exhaustion,
          kinetics: %{packet: packet, tick: Map.put(tick, :rain, rain)},
          landing: landing,
-         fences: blocks.fences
+         sources: Valimc.World.View.owners(blocks)
        }}
     end
   end
@@ -257,7 +246,7 @@ defmodule Valimc.PlayerMotionQuery do
   end
 
   defp shapes(box, blocks, context, {x, _, z}) do
-    with {:ok, result} <- BlockCollisions.collect_frame(box, blocks, context),
+    with {:ok, result} <- BlockCollisions.collect(box, blocks, context),
          {:ok, border} <-
            BorderSnapshot.colliders(Valimc.World.Clock.border_snapshot(), {x, z}, box) do
       {:ok, Enum.map(result.colliders, & &1.shape) ++ border}

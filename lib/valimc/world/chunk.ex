@@ -68,22 +68,24 @@ defmodule Valimc.World.Chunk do
         section(cx, cz, sy, relevant)
       end
 
-    index = Valimc.World.ColumnIndex.restore(edits, &block_at(edits, &1))
-
-    columns =
-      for z <- 0..15, x <- 0..15 do
-        Valimc.World.ColumnIndex.heights(index, {cx * 16 + x, cz * 16 + z})
-      end
+    columns = for z <- 0..15, x <- 0..15, do: {cx * 16 + x, cz * 16 + z}
 
     packet(
       %{
         chunk: key,
         sections: IO.iodata_to_binary(sections),
-        surface: longs(Enum.map(columns, &(&1.world_surface - @min_y)), 9),
-        motion: longs(Enum.map(columns, &(&1.motion_blocking - @min_y)), 9)
+        surface: longs(Enum.map(columns, &(height(edits, &1, :world_surface) - @min_y)), 9),
+        motion: longs(Enum.map(columns, &(height(edits, &1, :motion_blocking) - @min_y)), 9)
       },
       edits
     )
+  end
+
+  # One above the column's top state the heightmap counts, else the bottom.
+  defp height(edits, {x, z}, type) do
+    Enum.find_value(@max_y..@min_y//-1, @min_y, fn y ->
+      if Valimc.Registry.BlockFacts.heightmap?(block_at(edits, {x, y, z}), type), do: y + 1
+    end)
   end
 
   @doc """

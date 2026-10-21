@@ -1,7 +1,7 @@
 defmodule Valimc.PlayerKineticsTest do
   use ExUnit.Case, async: true
   alias Valimc.{GameMode, PlayerAbilities, PlayerInput, PlayerKinetics, PlayerMotion}
-  alias Valimc.Physics.{BlockCollisions, PlayerPose}
+  alias Valimc.Physics.PlayerPose
 
   defp player do
     %{
@@ -26,16 +26,7 @@ defmodule Valimc.PlayerKineticsTest do
           into: %{},
           do: {{x, y, z}, if(y < 64, do: 1, else: 0)}
 
-    owner = {self(), make_ref()}
-
-    observations =
-      blocks
-      |> Map.merge(changes)
-      |> Enum.chunk_every(128)
-      |> Enum.map(&%{owner: owner, region: {0, 0}, revision: 1, blocks: Map.new(&1)})
-
-    {:ok, f} = BlockCollisions.prepare(observations)
-    f
+    Valimc.World.View.of(Map.merge(blocks, changes))
   end
 
   test "Jump Boost changes packet power, bounds the jump query and fences only amplifier changes" do
@@ -74,7 +65,7 @@ defmodule Valimc.PlayerKineticsTest do
 
     {:ok, query} = PlayerKinetics.query_box(body.box, candidate)
     assert elem(query, 0) <= 2.2 and elem(query, 3) >= 5.8
-    incomplete = %{f | states: Map.delete(f.states, {3, 64, 4})}
+    incomplete = %{f | supplied: Map.delete(f.supplied, {3, 64, 4})}
 
     assert {:error, :incomplete_fire_frame} =
              PlayerKinetics.tick(candidate, :standing, incomplete)
@@ -98,7 +89,7 @@ defmodule Valimc.PlayerKineticsTest do
       PlayerKinetics.prepare_collision(stuck, {1.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, body.box, f, true)
 
     assert slowed.requested == {0.25, 0.0, 0.0} and slowed.velocity == {0.0, 0.0, 0.0}
-    missing = %{f | states: Map.delete(f.states, {4, 63, 4})}
+    missing = %{f | supplied: Map.delete(f.supplied, {4, 63, 4})}
 
     assert {:error, {:missing_block, _}} =
              PlayerKinetics.prepare_collision(

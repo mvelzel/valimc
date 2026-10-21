@@ -1,7 +1,8 @@
 defmodule Valimc.Physics.BlockContacts do
   @moduledoc "Ordered support, immediate damage and deferred fire/fluid plans from fenced accepted paths."
+  alias Valimc.World.View
+
   alias Valimc.Physics.{
-    BlockCollisions.Frame,
     BlockHazards,
     BlockShapes,
     BodyPaths,
@@ -16,7 +17,7 @@ defmodule Valimc.Physics.BlockContacts do
   alias Valimc.Registry.BlockFacts
 
   def sample_paths(
-        %Frame{states: states} = frame,
+        %View{} = frame,
         paths,
         context,
         %{
@@ -31,7 +32,7 @@ defmodule Valimc.Physics.BlockContacts do
           support_state: _
         } = facts
       )
-      when is_map(states) and map_size(states) <= 2048 and is_list(paths) and length(paths) <= 101 do
+      when is_list(paths) and length(paths) <= 101 do
     if CollisionContext.valid?(context) and context.entity_present and
          Enum.all?(
            [facts.flying, facts.spectator, facts.weaving, facts.grounded, facts.careful],
@@ -173,8 +174,8 @@ defmodule Valimc.Physics.BlockContacts do
   defp finish(acc), do: Enum.reverse([Enum.reverse(acc.current) | acc.steps])
   defp floor_point({x, y, z}), do: {floor(x), floor(y), floor(z)}
 
-  defp at(%Frame{states: states}, pos) do
-    case Map.fetch(states, pos) do
+  defp at(%View{} = view, pos) do
+    case View.fetch(view, pos) do
       {:ok, id} -> {:ok, id}
       :error -> {:error, :incomplete_fire_frame}
     end

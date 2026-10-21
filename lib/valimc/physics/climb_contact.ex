@@ -1,10 +1,10 @@
 defmodule Valimc.Physics.ClimbContact do
   @moduledoc "Native climbing selection from fenced feet/below states; observations are not authority."
-  alias Valimc.Physics.BlockCollisions.Frame
+  alias Valimc.World.View
   alias Valimc.Registry.BlockFacts
 
-  def sample(%Frame{states: states} = frame, {x, y, z} = pos, flying, spectator, gliding)
-      when is_map(states) and map_size(states) <= 2048 and is_integer(x) and is_integer(y) and
+  def sample(%View{} = frame, {x, y, z} = pos, flying, spectator, gliding)
+      when is_integer(x) and is_integer(y) and
              is_integer(z) and is_boolean(flying) and is_boolean(spectator) and
              is_boolean(gliding) do
     if flying or spectator do
@@ -28,8 +28,8 @@ defmodule Valimc.Physics.ClimbContact do
 
   defp climbing?(_, _, _, _), do: {:ok, false}
 
-  defp at(%Frame{states: states}, pos) do
-    case Map.fetch(states, pos) do
+  defp at(%View{} = view, pos) do
+    case View.fetch(view, pos) do
       {:ok, id} -> {:ok, BlockFacts.climb(id)}
       :error -> {:error, :incomplete_climb_frame}
     end

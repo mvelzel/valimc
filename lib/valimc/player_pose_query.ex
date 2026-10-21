@@ -3,7 +3,6 @@ defmodule Valimc.PlayerPoseQuery do
   import Bitwise
 
   alias Valimc.Physics.{
-    BlockCollisions,
     CollisionContext,
     CollisionQuery,
     PlayerPose,
@@ -37,35 +36,33 @@ defmodule Valimc.PlayerPoseQuery do
     # Missing block-entity facts remain errors; they never become empty space.
     with {:ok, geometry} <- PlayerPose.geometry(:standing, position),
          {:ok, query} <- Valimc.PlayerKinetics.query_box(geometry.box, player) do
-      CollisionQuery.start_frame(query, context, fn blocks ->
-        with {:ok, frame} <- BlockCollisions.prepare(blocks) do
-          with {:ok, swimming} <- Valimc.PlayerSwimming.sample(player, current, position, frame),
-               {:ok, result} <-
-                 PoseFit.select(current, %{intent | swimming: swimming}, position, context, %{
-                   blocks: frame,
-                   block_entities: %{},
-                   entities: [],
-                   border: Valimc.World.Clock.border_snapshot(),
-                   subject: subject
-                 }),
-               {:ok, powder} <- Valimc.PlayerEnvironment.sample(frame, result.geometry.box),
-               {:ok, air} <- Valimc.PlayerAir.contact(frame, result.geometry),
-               candidate =
-                 Map.put(player, :motion, %{
-                   Map.get(player, :motion, %Valimc.PlayerMotion{})
-                   | swimming: swimming
-                 }),
-               {:ok, kinetics} <- Valimc.PlayerKinetics.tick(candidate, result.pose, frame),
-               {:ok, rain} <- Valimc.PlayerRainQuery.sample(position, result.geometry, frame),
-               do:
-                 {:ok,
-                  result
-                  |> Map.put(:powder_snow, powder)
-                  |> Map.put(:submerged, air.submerged)
-                  |> Map.put(:eye_water, air.water)
-                  |> Map.put(:kinetics, Map.put(kinetics, :rain, rain))
-                  |> Map.put(:swimming, swimming)}
-        end
+      CollisionQuery.start_frame(query, fn frame ->
+        with {:ok, swimming} <- Valimc.PlayerSwimming.sample(player, current, position, frame),
+             {:ok, result} <-
+               PoseFit.select(current, %{intent | swimming: swimming}, position, context, %{
+                 blocks: frame,
+                 entities: [],
+                 border: Valimc.World.Clock.border_snapshot(),
+                 subject: subject
+               }),
+             {:ok, powder} <- Valimc.PlayerEnvironment.sample(frame, result.geometry.box),
+             {:ok, air} <- Valimc.PlayerAir.contact(frame, result.geometry),
+             candidate =
+               Map.put(player, :motion, %{
+                 Map.get(player, :motion, %Valimc.PlayerMotion{})
+                 | swimming: swimming
+               }),
+             {:ok, kinetics} <- Valimc.PlayerKinetics.tick(candidate, result.pose, frame),
+             {:ok, rain} <- Valimc.PlayerRainQuery.sample(position, result.geometry, frame),
+             do:
+               {:ok,
+                result
+                |> Map.put(:powder_snow, powder)
+                |> Map.put(:submerged, air.submerged)
+                |> Map.put(:eye_water, air.water)
+                |> Map.put(:kinetics, Map.put(kinetics, :rain, rain))
+                |> Map.put(:swimming, swimming)
+                |> Map.put(:sources, Valimc.World.View.owners(frame))}
       end)
     end
   end

@@ -1,14 +1,10 @@
 defmodule Valimc.PlayerEnvironmentTest do
   use ExUnit.Case, async: true
+  alias Valimc.World.View
   alias Valimc.PlayerEnvironment
-  alias Valimc.Physics.BlockCollisions.Frame
 
   test "body samples use deflated contact, complete cells and bounded work" do
-    frame = %Frame{
-      states: %{{0, 64, 0} => 30519, {0, 65, 0} => 0, {0, 66, 0} => 0},
-      fences: %{},
-      entities: %{}
-    }
+    frame = View.of(%{{0, 64, 0} => 30519, {0, 65, 0} => 0, {0, 66, 0} => 0})
 
     assert {:ok, true} = PlayerEnvironment.sample(frame, {0.2, 64.0, 0.2, 0.8, 65.8, 0.8})
     assert {:ok, false} = PlayerEnvironment.sample(frame, {0.2, 65.0, 0.2, 0.8, 66.8, 0.8})

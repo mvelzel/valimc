@@ -1,8 +1,8 @@
 defmodule Valimc.Physics.FluidFlowTest do
   use ExUnit.Case, async: true
+  alias Valimc.World.View
 
   alias Valimc.Physics.{
-    BlockCollisions.Frame,
     BlockEntityContext,
     BlockScan,
     FluidBoundaries,
@@ -27,7 +27,7 @@ defmodule Valimc.Physics.FluidFlowTest do
                0
              )
 
-    assert {:error, :incomplete_fluid_frame} == FluidFlow.sample(%{f | states: %{}}, {0, 64, 0})
+    assert {:error, :incomplete_fluid_frame} == FluidFlow.sample(%{f | supplied: %{}}, {0, 64, 0})
 
     assert {:error, :invalid_fluid_position} == FluidFlow.sample(f, {0.0, 64, 0})
     assert {:error, :invalid_fluid_current} == FluidCurrents.sample(f, @box, {65, 0, 0})
@@ -37,10 +37,6 @@ defmodule Valimc.Physics.FluidFlowTest do
     {:ok, plan} = BlockScan.plan(@box)
     states = Map.merge(Map.new(plan, fn {p, _} -> {p, 0} end), edits)
 
-    %Frame{
-      states: states,
-      entities: Map.new(states, fn {p, _} -> {p, BlockEntityContext.absent()} end),
-      fences: %{}
-    }
+    View.of(states, Map.new(states, fn {p, _} -> {p, BlockEntityContext.absent()} end))
   end
 end

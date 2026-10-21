@@ -1,9 +1,9 @@
 defmodule Valimc.PlayerRainQueryTest do
   use ExUnit.Case, async: false
   alias Valimc.PlayerRainQuery
-  alias Valimc.Physics.{BlockCollisions, PlayerPose}
+  alias Valimc.Physics.PlayerPose
   alias Valimc.World
-  alias Valimc.World.{Clock, Region}
+  alias Valimc.World.{Clock, View}
 
   setup do
     key = {982, 800}
@@ -22,40 +22,51 @@ defmodule Valimc.PlayerRainQueryTest do
     %{owner: owner, x: 982 * 128 + 4, z: 800 * 128 + 4}
   end
 
-  test "rain observes roof additions/removals at the exact block fence, including transparent shelter",
-       ctx do
+  defp view(x, z), do: View.load_chunks(View.new(), [World.chunk_key(x, z)])
+
+  test "rain sees roofs, including transparent shelter, from the published column", ctx do
     position = {ctx.x + 0.5, 64.0, ctx.z + 0.5}
     {:ok, geometry} = PlayerPose.geometry(:standing, position)
-    before = frame(ctx.owner)
-    assert PlayerRainQuery.sample(position, geometry, before) == {:ok, true}
+    assert PlayerRainQuery.sample(position, geometry, view(ctx.x, ctx.z)) == {:ok, true}
     roof = {ctx.x, 66, ctx.z}
     assert :ok = Valimc.TestBlocks.set(roof, 1)
-    assert PlayerRainQuery.sample(position, geometry, before) == {:error, :stale_revision}
-    assert PlayerRainQuery.sample(position, geometry, frame(ctx.owner)) == {:ok, false}
+    assert PlayerRainQuery.sample(position, geometry, view(ctx.x, ctx.z)) == {:ok, false}
     assert :ok = Valimc.TestBlocks.remove(roof)
-    assert PlayerRainQuery.sample(position, geometry, frame(ctx.owner)) == {:ok, true}
+    assert PlayerRainQuery.sample(position, geometry, view(ctx.x, ctx.z)) == {:ok, true}
     assert :ok = Valimc.TestBlocks.set(roof, Valimc.Protocol.Data.block("glass"))
-    assert PlayerRainQuery.sample(position, geometry, frame(ctx.owner)) == {:ok, false}
+    assert PlayerRainQuery.sample(position, geometry, view(ctx.x, ctx.z)) == {:ok, false}
     assert :ok = Valimc.TestBlocks.remove(roof)
     high = {ctx.x + 0.5, 1024.0, ctx.z + 0.5}
     {:ok, geometry} = PlayerPose.geometry(:standing, high)
-    assert PlayerRainQuery.sample(high, geometry, frame(ctx.owner)) == {:ok, false}
+    assert PlayerRainQuery.sample(high, geometry, view(ctx.x, ctx.z)) == {:ok, false}
   end
 
-  test "wet observations need the current body's owner; dry weather performs no column read",
-       ctx do
+  test "unrelated block changes and a busy owner never stale or delay a rain answer", ctx do
+    position = {ctx.x + 0.5, 64.0, ctx.z + 0.5}
+    {:ok, geometry} = PlayerPose.geometry(:standing, position)
+    before = view(ctx.x, ctx.z)
+    elsewhere = {ctx.x + 60, 70, ctx.z + 60}
+    assert :ok = Valimc.TestBlocks.set(elsewhere, 1)
+    assert PlayerRainQuery.sample(position, geometry, before) == {:ok, true}
+
+    # An owner busy saving (here: stopped) is never asked.
+    {pid, _} = ctx.owner
+    :sys.suspend(pid)
+
+    try do
+      assert PlayerRainQuery.sample(position, geometry, view(ctx.x, ctx.z)) == {:ok, true}
+    after
+      :sys.resume(pid)
+    end
+  end
+
+  test "an unreadable column fails closed; dry weather reads nothing", ctx do
     position = {ctx.x + 0.5, 64.0, ctx.z + 0.5}
     {:ok, geometry} = PlayerPose.geometry(:swimming, position)
-    empty = %BlockCollisions.Frame{states: %{}, fences: %{}, entities: %{}}
-    assert PlayerRainQuery.sample(position, geometry, empty) == {:error, :rain_source_unavailable}
+    empty = View.of(%{})
+    assert PlayerRainQuery.sample(position, geometry, empty) == {:error, :rain_column_unavailable}
     weather(:clear)
     assert PlayerRainQuery.sample(position, geometry, empty) == {:ok, false}
-  end
-
-  defp frame(owner) do
-    {:ok, observation} = Region.observe_blocks(owner, [])
-    {:ok, frame} = BlockCollisions.prepare([observation])
-    frame
   end
 
   # Rain at its final intensity at once, instead of the 20-tick native ramp.

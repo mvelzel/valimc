@@ -1,7 +1,8 @@
 defmodule Valimc.Physics.ItemTravelTest do
   use ExUnit.Case, async: true
+  alias Valimc.World.View
   alias Valimc.ItemMotionState
-  alias Valimc.Physics.{BlockCollisions.Frame, ItemTravel}
+  alias Valimc.Physics.{ItemTravel}
 
   defp frame(floor_state \\ 1, extra \\ %{}) do
     states =
@@ -11,7 +12,7 @@ defmodule Valimc.Physics.ItemTravelTest do
           into: %{},
           do: {{x, y, z}, if(y == 63, do: floor_state, else: 0)}
 
-    %Frame{states: Map.merge(states, extra), fences: %{}, entities: %{}}
+    View.of(Map.merge(states, extra))
   end
 
   defp item(position \\ {0.5, 65.5, 0.5}, motion \\ %ItemMotionState{}),
@@ -19,7 +20,7 @@ defmodule Valimc.Physics.ItemTravelTest do
 
   test "missing/embedded geometry and invalid observations refuse rather than inventing air" do
     assert {:error, {:missing_block, _}} =
-             ItemTravel.sample(item(), %Frame{states: %{}, fences: %{}, entities: %{}})
+             ItemTravel.sample(item(), View.of(%{}))
 
     assert {:error, :item_inside_block} = ItemTravel.sample(item({0.5, 63.5, 0.5}), frame())
     assert {:error, :invalid_item_travel} = ItemTravel.query_box(item({0, 1_000_001, 0}))

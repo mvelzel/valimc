@@ -7,7 +7,7 @@ defmodule Valimc.RegionGenerationTest do
   alias Valimc.Protocol.{Data, Wire}
   alias Valimc.{Native, TestScope}
   alias Valimc.World
-  alias Valimc.World.{BlockSnapshot, Directory, Generator, Region, RegionGeneration, Store}
+  alias Valimc.World.{BlockSnapshot, Directory, Generator, Region, RegionGeneration, Store, View}
 
   @seed 20_261_020
 
@@ -100,13 +100,13 @@ defmodule Valimc.RegionGenerationTest do
   end
 
   test "a region loads without generating and generates the chunk a call needs", ctx do
-    {:ok, {_, epoch}} = World.owner(ctx.key)
+    {:ok, _} = World.owner(ctx.key)
     {cx, cz} = ctx.origin
     chunk = {cx + 3, cz + 5}
     position = inside(chunk)
     assert Store.durable(ctx.base, ctx.key, :columns) == %{}
     assert BlockSnapshot.absent?(table(ctx.key), chunk)
-    assert BlockSnapshot.read(table(ctx.key), epoch, [position]) == {:error, :chunk_generating}
+    assert View.fetch(View.new(), position) == :error
 
     # A raw read waits for its chunk; only that chunk is generated, equal to
     # the generator's column byte for byte.
@@ -115,9 +115,7 @@ defmodule Valimc.RegionGenerationTest do
     refute BlockSnapshot.absent?(table(ctx.key), chunk)
     assert BlockSnapshot.absent?(table(ctx.key), {cx + 4, cz + 5})
 
-    assert {:ok, _, %{^position => block}} =
-             BlockSnapshot.read(table(ctx.key), epoch, [position])
-
+    assert {:ok, block} = View.fetch(View.new(), position)
     assert block == generated_block(chunk, position)
 
     # A chunk packet waits for its chunk as well.
@@ -133,9 +131,6 @@ defmodule Valimc.RegionGenerationTest do
     position = inside(chunk, 100)
     glass = Valimc.Registry.Blocks.default_state("glass")
     assert Region.set_blocks(owner, 0, %{position => glass}) == {:error, :chunk_generating}
-
-    assert Region.observe_columns(owner, [{elem(position, 0), elem(position, 2)}]) ==
-             {:error, :chunk_generating}
 
     # The observation wants the chunk.
     assert Region.observe_blocks(owner, [position]) == {:error, :chunk_generating}

@@ -136,23 +136,6 @@ defmodule Valimc.World do
   end
 
   # Publication reads never allocate regions, enqueue messages or confer authority.
-  @doc "Invalidate a previously owner-verified frame when any published revision/incarnation changes."
-  def item_frame_current?(fences) when is_map(fences) and map_size(fences) in 1..16 do
-    Enum.all?(fences, fn {key, %{owner: {pid, epoch}, revision: revision}} ->
-      case Directory.lookup(key) do
-        {^pid, _, %{epoch: ^epoch, items: table}} ->
-          :ets.lookup(table, :block_fence) == [{:block_fence, epoch, revision}]
-
-        _ ->
-          false
-      end
-    end)
-  rescue
-    ArgumentError -> false
-  end
-
-  def item_frame_current?(_), do: false
-
   @doc "Invalidate a previously source-owner-authorized item snapshot; observations grant no authority."
   def item_observation_current?(%{
         key: key,

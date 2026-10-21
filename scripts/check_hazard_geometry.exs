@@ -1,5 +1,6 @@
+alias Valimc.World.View
 alias Valimc.PlayerBurning
-alias Valimc.Physics.{BlockCollisions.Frame, BlockContacts, CollisionContext}
+alias Valimc.Physics.{BlockContacts, CollisionContext}
 [path] = System.argv()
 rows = :json.decode(File.read!(path))
 
@@ -31,7 +32,7 @@ for row <- rows do
 
   {:ok, plan} =
     BlockContacts.sample_paths(
-      %Frame{states: states, fences: %{}, entities: %{}},
+      View.of(states),
       [%{from: from, to: to}],
       context,
       facts

@@ -40,10 +40,9 @@ defmodule Valimc.ItemSimulationTest do
 
   test "all256 active items receive one simulation step rather than one cohort per tick", ctx do
     inputs = inputs(ctx.key, 256, 0.1)
-    assert {:ok, %{steps: steps, refused: [], fences: fences}} = result(inputs)
+    assert {:ok, %{steps: steps, refused: []}} = result(inputs)
     assert Enum.sort(Enum.map(steps, & &1.id)) == Enum.to_list(1..256)
     assert Enum.all?(steps, &(&1.motion.age == 1 and elem(&1.position, 1) < 66.0))
-    assert Map.keys(fences) == [ctx.key]
   end
 
   test "saturated item geometry cannot consume player query slots", ctx do
@@ -67,7 +66,7 @@ defmodule Valimc.ItemSimulationTest do
 
       {rx, rz} = ctx.key
       box = {rx * 128 + 3.0, 65.0, rz * 128 + 3.0, rx * 128 + 4.0, 66.0, rz * 128 + 4.0}
-      assert {:ok, task} = Valimc.Physics.CollisionQuery.start(box)
+      assert {:ok, task} = Valimc.Physics.CollisionQuery.start_frame(box, &{:ok, &1})
       assert {:ok, _} = Task.await(task, 60_000)
     after
       for pid <- holders, do: Task.Supervisor.terminate_child(Valimc.ItemGeometryWorkers, pid)

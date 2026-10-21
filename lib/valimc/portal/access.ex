@@ -7,14 +7,13 @@ defmodule Valimc.Portal.Access do
   There is no cross-owner atomicity, as vanilla's chunks save independently.
   """
   alias Valimc.World
-  alias Valimc.World.{BlockSnapshot, Directory, Region, Store}
+  alias Valimc.World.{Directory, Region, Store, View}
   alias Valimc.Registry.BlockFacts
 
   @deadline 30_000
 
-  # A busy owner (one still generating or writing) is asked again until the
-  # deadline; a refused change is final. An observation of a chunk not
-  # generated yet asks for it (VMC-075).
+  # A busy owner (one still writing) is asked again until the deadline; a
+  # refused change is final.
   @busy [
     :chunk_generating,
     :stale_revision,
@@ -27,16 +26,17 @@ defmodule Valimc.Portal.Access do
   ]
 
   @doc """
-  A block reader of the caller's dimension (`fn position -> state end`). It
-  starts the owners it reads (generating the chunks if needed) and caches
-  chunk sections for the calling process's lifetime.
+  A block reader of the caller's dimension (`fn position -> state end`) over a
+  `Valimc.World.View` kept for the calling process's lifetime: a chunk is read
+  once, its region admitted and its generation awaited if needed, holding a
+  `:portal` ticket.
   """
   def reader do
     cache = make_ref()
     deadline = now() + @deadline
 
     fn {x, _y, z} = position ->
-      BlockSnapshot.state_at(sections(cache, World.chunk_key(x, z), deadline), position)
+      View.block(view(cache, World.chunk_key(x, z), deadline), position)
     end
   end
 
@@ -50,58 +50,35 @@ defmodule Valimc.Portal.Access do
     {min_y, height} = Valimc.Dimension.bounds()
 
     fn x, z ->
-      sections = sections(cache, World.chunk_key(x, z), deadline)
-      top(sections, x, z, min_y + height - 1, min_y, type)
+      view = view(cache, World.chunk_key(x, z), deadline)
+      top(view, x, z, min_y + height - 1, min_y, type)
     end
   end
 
-  defp top(_sections, _x, _z, y, min_y, _type) when y < min_y, do: min_y
+  defp top(_view, _x, _z, y, min_y, _type) when y < min_y, do: min_y
 
-  defp top(sections, x, z, y, min_y, type) do
-    if BlockFacts.heightmap?(BlockSnapshot.state_at(sections, {x, y, z}), type),
+  defp top(view, x, z, y, min_y, type) do
+    state = View.block(view, {x, y, z})
+
+    if state != nil and BlockFacts.heightmap?(state, type),
       do: y + 1,
-      else: top(sections, x, z, y - 1, min_y, type)
+      else: top(view, x, z, y - 1, min_y, type)
   end
 
-  defp sections(cache, chunk, deadline) do
-    case Process.get({cache, chunk}, :missing) do
-      :missing ->
-        sections = fetch(chunk, deadline)
-        Process.put({cache, chunk}, sections)
-        sections
+  defp view(cache, chunk, deadline) do
+    view = Process.get(cache, View.new())
 
-      sections ->
-        sections
-    end
-  end
-
-  # A chunk not generated yet is awaited (VMC-075) and read again; with
-  # `generate: false` it reads as holding nothing.
-  defp fetch(chunk, deadline, generate \\ true) do
-    if now() > deadline, do: exit(:portal_read_deadline)
-    key = World.region_key(chunk)
-
-    with {:ok, {pid, epoch}} <- World.owner(key),
-         {^pid, _, %{epoch: ^epoch, items: table}} <- Directory.lookup(key) do
-      case BlockSnapshot.chunk(table, epoch, chunk) do
-        {:ok, sections} ->
-          sections
-
-        {:error, :chunk_generating} when not generate ->
-          nil
-
-        {:error, :chunk_generating} ->
-          Region.await_chunks({pid, epoch}, [chunk], deadline - now())
-          fetch(chunk, deadline, generate)
-
-        _ ->
-          Process.sleep(5)
-          fetch(chunk, deadline, generate)
-      end
+    if View.loaded?(view, chunk) do
+      view
     else
-      _ ->
-        Process.sleep(5)
-        fetch(chunk, deadline, generate)
+      case View.await(view, [chunk], :portal, deadline) do
+        {:ok, view} ->
+          Process.put(cache, view)
+          view
+
+        {:error, reason} ->
+          exit({:portal_read_failed, reason})
+      end
     end
   end
 
@@ -110,7 +87,8 @@ defmodule Valimc.Portal.Access do
   (`getHighestSectionPosition() + 15`), or nil for a chunk of air only.
   """
   def chunk_top(chunk) do
-    sections = fetch(chunk, now() + @deadline)
+    {:ok, view} = View.await([chunk], :portal, now() + @deadline)
+    sections = View.row(view, chunk)
     {min_y, height} = Valimc.Dimension.bounds()
     first = div(min_y + 64, 16)
     count = div(height, 16)
@@ -187,13 +165,18 @@ defmodule Valimc.Portal.Access do
   saved chunks; that includes a stored region's chunks not generated yet.
   """
   def portal_blocks(chunks, states) do
-    deadline = now() + @deadline
-
     chunks
     |> Enum.group_by(&World.region_key/1)
     |> Enum.filter(fn {key, _} -> stored?(key) end)
-    |> Enum.flat_map(fn {_key, chunks} ->
-      Enum.flat_map(chunks, &BlockSnapshot.find(fetch(&1, deadline, false), &1, states))
+    |> Enum.flat_map(fn {key, chunks} ->
+      case World.owner(key) do
+        {:ok, _} ->
+          view = View.load_chunks(View.new(), chunks)
+          Enum.flat_map(chunks, &View.find(View.row(view, &1), &1, states))
+
+        {:error, reason} ->
+          exit({:portal_read_failed, reason})
+      end
     end)
   end
 

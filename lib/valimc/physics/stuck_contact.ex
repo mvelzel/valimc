@@ -1,7 +1,8 @@
 defmodule Valimc.Physics.StuckContact do
   @moduledoc "Ordered slowing contacts from fenced states; player owners apply effects on their tick."
+  alias Valimc.World.View
+
   alias Valimc.Physics.{
-    BlockCollisions.Frame,
     BlockShapes,
     Box,
     CollisionContext,
@@ -22,8 +23,8 @@ defmodule Valimc.Physics.StuckContact do
     do: sample_paths(frame, [%{from: from, to: to, axis: nil}], context, facts)
 
   @doc "One logical tick's bounded recorded movements; hit positions are shared across the batch."
-  def sample_paths(%Frame{states: states} = frame, paths, context, %__MODULE__{} = facts)
-      when is_map(states) and map_size(states) <= 2048 and is_list(paths) and length(paths) <= 101 do
+  def sample_paths(%View{} = frame, paths, context, %__MODULE__{} = facts)
+      when is_list(paths) and length(paths) <= 101 do
     if CollisionContext.valid?(context) and context.entity_present and
          Enum.all?([facts.flying, facts.spectator, facts.weaving], &is_boolean/1) do
       if facts.flying or facts.spectator or paths == [] do
@@ -103,8 +104,8 @@ defmodule Valimc.Physics.StuckContact do
     end
   end
 
-  defp at(%Frame{states: states}, pos) do
-    case Map.fetch(states, pos) do
+  defp at(%View{} = view, pos) do
+    case View.fetch(view, pos) do
       {:ok, state} -> {:ok, state, BlockFacts.stuck(state)}
       :error -> {:error, :incomplete_stuck_frame}
     end

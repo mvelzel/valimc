@@ -1,12 +1,13 @@
 defmodule Valimc.Physics.FluidContact do
   @moduledoc "Bounded fluid depths from the same immutable, fenced frame as player geometry."
-  alias Valimc.Physics.{BlockCollisions.Frame, Box, FluidBoundaries}
+  alias Valimc.World.View
+  alias Valimc.Physics.{Box, FluidBoundaries}
   alias Valimc.Registry.BlockFacts
   @inset 0.001
   @max_cells 512
 
-  def fluid_at(%Frame{states: states}, pos) when is_map(states) and map_size(states) <= 2048,
-    do: at(states, pos)
+  def fluid_at(%View{} = view, pos),
+    do: at(view, pos)
 
   def fluid_at(_, _), do: {:error, :invalid_fluid_frame}
 
@@ -46,11 +47,11 @@ defmodule Valimc.Physics.FluidContact do
   def eyes(_, _, _), do: {:error, :invalid_fluid_eye}
 
   @doc "Ordered nonempty contacts for current accumulation; all dependencies retain frame fences."
-  def contacts(%Frame{states: states}, box) when is_map(states) and map_size(states) <= 2048 do
+  def contacts(%View{} = view, box) do
     with {:ok, positions} <- positions(box) do
       Enum.reduce_while(positions, {:ok, []}, fn {_, y, _} = p, {:ok, contacts} ->
-        with {:ok, fluid} <- at(states, p),
-             {:ok, surface} <- surface(states, p, fluid) do
+        with {:ok, fluid} <- at(view, p),
+             {:ok, surface} <- surface(view, p, fluid) do
           next =
             if fluid.kind != :empty and y + surface >= elem(box, 1) + @inset,
               do: [%{position: p, fluid: fluid, depth: y + surface - elem(box, 1)} | contacts],
@@ -71,10 +72,10 @@ defmodule Valimc.Physics.FluidContact do
   def contacts(_, _), do: {:error, :invalid_fluid_frame}
 
   @doc "Native escape test: any nonempty fluid cell, regardless of its surface height."
-  def any_liquid?(%Frame{states: states}, box) when is_map(states) and map_size(states) <= 2048 do
+  def any_liquid?(%View{} = view, box) do
     with {:ok, positions} <- positions(box, 0.0) do
       Enum.reduce_while(positions, {:ok, false}, fn p, _ ->
-        case at(states, p) do
+        case at(view, p) do
           {:ok, %{kind: :empty}} -> {:cont, {:ok, false}}
           {:ok, _} -> {:halt, {:ok, true}}
           error -> {:halt, error}
@@ -109,20 +110,20 @@ defmodule Valimc.Physics.FluidContact do
 
   defp surface(_, _, %{kind: :empty}), do: {:ok, 0.0}
 
-  defp surface(states, {x, y, z}, fluid) do
-    with {:ok, above} <- at(states, {x, y + 1, z}),
+  defp surface(view, {x, y, z}, fluid) do
+    with {:ok, above} <- at(view, {x, y + 1, z}),
          do: {:ok, if(above.kind == fluid.kind, do: 1.0, else: fluid.height)}
   end
 
   defp camera_height(frame, {x, y, z} = pos, %{source: true} = fluid) do
     with {:ok, sturdy} <- FluidBoundaries.sturdy?(frame, {x, y + 1, z}, 0),
-         do: if(sturdy, do: {:ok, 1.0}, else: surface(frame.states, pos, fluid))
+         do: if(sturdy, do: {:ok, 1.0}, else: surface(frame, pos, fluid))
   end
 
-  defp camera_height(frame, pos, fluid), do: surface(frame.states, pos, fluid)
+  defp camera_height(frame, pos, fluid), do: surface(frame, pos, fluid)
 
-  defp at(states, p) do
-    case Map.fetch(states, p) do
+  defp at(view, p) do
+    case View.fetch(view, p) do
       {:ok, id} -> {:ok, BlockFacts.fluid(id)}
       :error -> {:error, :incomplete_fluid_frame}
     end

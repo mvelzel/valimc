@@ -1,4 +1,5 @@
-alias Valimc.Physics.{BlockCollisions.Frame, BlockScan, FluidContact}
+alias Valimc.World.View
+alias Valimc.Physics.{BlockScan, FluidContact}
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 bits = fn n -> <<n::float-64>> end
@@ -8,7 +9,7 @@ Enum.each(cases, fn c ->
   {:ok, plan} = BlockScan.plan(box)
   states = Map.new(plan, fn {p, _} -> {p, 0} end)
   supplied = Map.new(c["states"], &{List.to_tuple(&1["position"]), &1["state"]})
-  frame = %Frame{states: Map.merge(states, supplied), fences: %{}, entities: %{}}
+  frame = View.of(Map.merge(states, supplied))
   {:ok, actual} = FluidContact.sample(frame, box)
 
   for key <- [:water, :lava] do

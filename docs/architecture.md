@@ -12,7 +12,7 @@ authority. The M1 foundations below are in place; later milestones on the
 | Socket, protocol, AES stream, session inventory/input/pose | One connection process per player |
 | Admission, names, lifecycle | Players service; never on movement or chat hot paths |
 | Nearby-player observations | Published ETS rows plus a spatial index; paced replication |
-| Blocks (Rust paletted sections), block entities, stationary items | Region owner (8×8 chunks); immutable chunk snapshots in its ETS table for readers |
+| Blocks (Rust paletted sections), block entities, stationary items | Region owner (8×8 chunks) while chunk tickets hold it; immutable chunk snapshots and chunk packets in its ETS table for readers |
 | Generated chunks before they are full (decorated worlds) | Proto owner per region (`Worldgen.Proto`): encoded proto chunks, statuses, finalize transactions; terrain and decoration on dirty schedulers |
 | Item and orb observations | Region-owned protected ETS; cached immutable packet binaries |
 | World clock, weather, difficulty | Environment owner; immutable publications |
@@ -44,10 +44,13 @@ on accept errors (VMC-077a).
   sections in a Rust resource (VMC-062): single-value or packed palette storage
   with block entities and heightmaps beside it. Chunk packets are encoded from the
   sections. The Elixir encoder remains as the parity oracle.
-- **Published reads.** After each committed batch the owner publishes immutable
-  chunk snapshots with revisions (VMC-065). Collision workers and other readers
-  read them directly. Block observations carry section fences, so placement and
-  destruction stale only when the sections they read change (VMC-064).
+- **Published reads.** After each durable batch the owner publishes immutable
+  chunk snapshots (VMC-065). Every physics, rain, portal and spawn reader reads
+  them through `World.View`, one lazy per-chunk view: no owner call, no envelope
+  to plan and no fence, since observations are not transactions; a chunk not
+  loaded or generated fails closed (VMC-077e). Only commits are fenced: block
+  observations for placement, mining and commands carry section revisions, so
+  they stale only when the sections they read change (VMC-064).
 - **Group commit.** Owners adopt every durable change in memory at once and queue
   its frame (at most 64); replies, publications and client updates wait until the
   frame is durable. The region writer drains all queued frames into one log append
@@ -61,7 +64,9 @@ on accept errors (VMC-077a).
   source half: request, apply, receipt, proof, resolve) (VMC-064).
 - **Tick pipeline.** Each region tick runs `TickPipeline` phases on the owner's
   game tick: scheduled block ticks, random ticks (a native per-section sampler),
-  items, cooking, orb lifetime, orbs. Block reactions are `Valimc.Block.Behaviour`
+  items, cooking, orb lifetime, orbs. Block ticks and item motion run only in
+  chunks a simulation ticket covers; cooking and orb ageing while any chunk of
+  the region does (VMC-077e). Block reactions are `Valimc.Block.Behaviour`
   callbacks; `Region.step/2` drives ticks deterministically in tests (VMC-066).
 - **Entities.** Items and orbs share one view (`EntityView`), one per-chunk
   publication with revision stamps (`EntityPublication`; observers copy only
@@ -82,11 +87,35 @@ on accept errors (VMC-077a).
   jobs, events, replication and commands, and `Player.*` each gameplay domain.
   Broadcast packets are framed once and shared as binaries (VMC-069).
 
+## Chunk lifecycle
+
+Chunk tickets drive load, simulation and unload, as vanilla's `TicketType`s do
+(VMC-077e). A region owner holds the tickets of its chunks
+(`World.Tickets`): a connection's view (`player_loading`) and simulation
+(`player_simulation`, the chunks within `min(simulation distance, view
+distance)` of the player), `forced` from `/forceload`, timed `portal`,
+`post_teleport`, `player_spawn` and `spawn_search` tickets of readers that need
+chunks loaded, and a fresh owner's one-tick `unknown` ticket of its own
+admission. Untimed tickets end with their holder process. An owner without
+tickets and work in flight (writes, jobs, outboxes, deferred calls, open
+containers, permits) for `region_unload_delay_ms` retires its route, saves its
+volatile state and stops; a world without a path and `/save-off` keep their
+regions. The Directory admits regions; one whose owner dies while loading backs
+off per key and is poisoned, with one error line, after five failures in a row.
+Admission errors are values.
+
+Chunks stream as vanilla's acknowledged batches (VMC-070). The connection never
+waits for a chunk: an owner publishes each chunk's packet beside its snapshot
+once encoded from durable blocks and withdraws it in the step that adopts a
+change; the connection reads published packets directly, asks for the others
+with `send_request` and sends replies when they arrive. A dimension change
+withdraws the old dimension's tickets and abandons pending requests.
+
 ## Generation (M2)
 
 A region of a generated world loads without generating: the chunks its log has
-no column for are absent (VMC-075). Views and forced chunks tell each region
-which of its chunks they want and how far from the player; the owner generates
+no column for are absent (VMC-075). Loading tickets say which of its chunks are
+wanted and how far from their center; the owner generates
 the wanted absent chunks nearest first, in bounded batches and never on itself
 (terrain worlds on the worldgen workers, decorated worlds through their proto
 owner), persists each batch as one frame and installs it once durable, relit

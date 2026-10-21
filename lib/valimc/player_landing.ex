@@ -2,7 +2,7 @@ defmodule Valimc.PlayerLanding do
   @moduledoc "Landing observations from the accepted movement frame; only the player owner applies damage."
   import Bitwise
   alias Valimc.{PlayerKinetics, PlayerMotion}
-  alias Valimc.Physics.{BlockCollisions, Box, CollisionContext, FluidContact}
+  alias Valimc.Physics.{Box, CollisionContext, FluidContact}
   alias Valimc.Registry.BlockFacts
   @legacy_offset 0.20000000298023224
 
@@ -54,7 +54,7 @@ defmodule Valimc.PlayerLanding do
     do: BlockFacts.motion(state).support_holds_y or BlockFacts.flag?(state, :fence)
 
   @doc false
-  def material(%BlockCollisions.Frame{} = frame, box, position, context) do
+  def material(%Valimc.World.View{} = frame, box, position, context) do
     with {:ok, material} <- PlayerKinetics.material(frame, box, position, context) do
       from_material(frame, material, position)
     end
@@ -73,7 +73,7 @@ defmodule Valimc.PlayerLanding do
             else: {sx, floor(y - @legacy_offset), sz}
       end
 
-    case Map.fetch(frame.states, below) do
+    case Valimc.World.View.fetch(frame, below) do
       {:ok, state} -> {:ok, %{position: below, state: state}}
       :error -> {:error, :incomplete_landing_frame}
     end

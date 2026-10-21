@@ -17,14 +17,14 @@ defmodule Valimc.World.PlayerSpawn do
   mode only that last step runs.
 
   Columns are read from the regions' published snapshots in the calling
-  process; regions that are not loaded yet are admitted and awaited, as
-  vanilla blocks on its chunk loads. The search is bounded by a deadline, after
-  which the suggestion's block centre is used.
+  process (`Valimc.World.View`); chunks that are not loaded or generated yet
+  are awaited, as vanilla blocks on its chunk loads. The search is bounded by a
+  deadline, after which the suggestion's block centre is used.
   """
   alias Valimc.Physics.{BlockShapes, CollisionContext, Shape, VoxelOps}
   alias Valimc.Registry.BlockFacts
   alias Valimc.World
-  alias Valimc.World.{Border, BlockSnapshot, Chunk, Clock, Directory, Spawn, SpawnSearch}
+  alias Valimc.World.{Border, Chunk, Clock, Spawn, SpawnSearch, View}
 
   # The standing player's box: 0.6F wide, 1.8F high, both widened to doubles.
   @half_width 0.30000001192092896
@@ -155,37 +155,18 @@ defmodule Valimc.World.PlayerSpawn do
     end)
   end
 
-  @doc "A column's states from the bottom up, read from its region's published snapshot."
+  @doc """
+  A column's states from the bottom up, read from its region's published
+  snapshot; a chunk not loaded or generated yet is awaited, holding a
+  `:spawn_search` ticket, as vanilla blocks on its chunk loads.
+  """
   def column(x, z, deadline) do
-    key = World.region_key(World.chunk_key(x, z))
-    positions = for y <- Chunk.min_y()..319, do: {x, y, z}
-    read(key, positions, deadline)
-  end
+    case View.await([World.chunk_key(x, z)], :spawn_search, deadline) do
+      {:ok, view} ->
+        for(y <- Chunk.min_y()..319, do: View.block(view, {x, y, z})) |> List.to_tuple()
 
-  defp read(key, positions, deadline) do
-    if System.monotonic_time(:millisecond) > deadline, do: throw(:deadline)
-
-    with {:ok, {pid, epoch}} <- World.owner(key),
-         {^pid, _, %{epoch: ^epoch, items: table}} <- Directory.lookup(key) do
-      case BlockSnapshot.read(table, epoch, positions) do
-        {:ok, _revision, blocks} ->
-          positions |> Enum.map(&Map.fetch!(blocks, &1)) |> List.to_tuple()
-
-        # Not generated yet (VMC-075): await the chunks, then read again.
-        {:error, :chunk_generating} ->
-          chunks = positions |> Enum.map(fn {x, _, z} -> World.chunk_key(x, z) end) |> Enum.uniq()
-          wait = deadline - System.monotonic_time(:millisecond)
-          Valimc.World.Region.await_chunks({pid, epoch}, chunks, wait)
-          read(key, positions, deadline)
-
-        _ ->
-          Process.sleep(5)
-          read(key, positions, deadline)
-      end
-    else
-      _ ->
-        Process.sleep(5)
-        read(key, positions, deadline)
+      {:error, _} ->
+        throw(:deadline)
     end
   end
 end

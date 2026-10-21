@@ -125,27 +125,22 @@ try do
         }
       )
 
-    expected_fences = Map.new(observations, &{&1.region, Map.take(&1, [:owner, :revision])})
+    view =
+      Valimc.World.View.of(
+        Map.new(Enum.flat_map(observations, &Map.to_list(&1.blocks))),
+        supplied_entities
+      )
 
-    {:ok, frame} = BlockCollisions.prepare(observations, supplied_entities)
+    case BlockCollisions.collect(box, view, context) do
+      {:ok, %{colliders: ^expected}} ->
+        :ok
 
-    for actual <- [
-          BlockCollisions.collect(box, observations, context, supplied_entities),
-          BlockCollisions.collect_frame(box, frame, context)
-        ] do
-      case actual do
-        {:ok, %{colliders: ^expected, fences: ^expected_fences}} ->
-          :ok
-
-        actual ->
-          raise "Native block collection differs at #{index}: #{inspect(c)} actual #{inspect(actual)}"
-      end
+      actual ->
+        raise "Native block collection differs at #{index}: #{inspect(c)} actual #{inspect(actual)}"
     end
   end
 after
   for {_, {pid, _}} <- owners, do: send(pid, :stop)
 end
 
-IO.puts(
-  "PASS: #{length(cases)} native ordered collider cases through raw/prepared samples, retaining fences."
-)
+IO.puts("PASS: #{length(cases)} native ordered collider cases read through a block view.")

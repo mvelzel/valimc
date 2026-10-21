@@ -14,7 +14,7 @@ defmodule Valimc.PlayerAir do
 
   def contact(frame, %{box: box, eye: {x, y, z} = eye}) do
     with {:ok, eyes} <- FluidContact.eyes(frame, box, eye),
-         {:ok, state} <- Map.fetch(frame.states, {floor(x), floor(y), floor(z)}) do
+         {:ok, state} <- Valimc.World.View.fetch(frame, {floor(x), floor(y), floor(z)}) do
       submerged = eyes.water and Blocks.block_id(state) != @bubble_column
       {:ok, %{water: eyes.water, submerged: submerged}}
     else

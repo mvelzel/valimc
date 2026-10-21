@@ -1,3 +1,4 @@
+alias Valimc.World.View
 alias Valimc.{PlayerBurning, PlayerFireContacts}
 [path] = System.argv()
 
@@ -21,7 +22,7 @@ for row <- rows do
       {:ok, operations} = PlayerFireContacts.plan(steps)
       operations
     else
-      alias Valimc.Physics.{BlockCollisions.Frame, CollisionContext, BlockContacts}
+      alias Valimc.Physics.{CollisionContext, BlockContacts}
       states = Map.new(row["blocks"], fn [x, y, z, id] -> {{x, y, z}, id} end)
 
       paths =
@@ -56,7 +57,7 @@ for row <- rows do
       }
 
       case BlockContacts.sample_paths(
-             %Frame{states: states, fences: %{}, entities: %{}},
+             View.of(states),
              paths,
              context,
              facts

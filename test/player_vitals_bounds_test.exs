@@ -2,10 +2,11 @@ defmodule Valimc.PlayerVitalsBoundsTest do
   # Bounds and fail-closed checks of health, food, armor, air, fire and consumable
   # rules. Their vanilla numbers are the vitals and effect oracle stages.
   use ExUnit.Case, async: true
+  alias Valimc.World.View
   alias Valimc.{ConsumableRemoval, FoodItems, PlayerAir}
   alias Valimc.{PlayerFireContacts, PlayerFood, PlayerHealth}
   alias Valimc.StockFoodEffects
-  alias Valimc.Physics.{BlockCollisions.Frame, PlayerPose}
+  alias Valimc.Physics.{PlayerPose}
   alias Valimc.Protocol.{FoodProperties, ItemStack, ItemTypes, PotionContents, Wire}
 
   @fire 11
@@ -62,30 +63,26 @@ defmodule Valimc.PlayerVitalsBoundsTest do
   end
 
   test "only selected-pose water eyes drain air; both bubble-column states replenish it" do
-    frame = %Frame{
-      states: %{{0, 64, 0} => 89, {0, 65, 0} => 0, {0, 66, 0} => 0},
-      fences: %{},
-      entities: %{}
-    }
+    frame = View.of(%{{0, 64, 0} => 89, {0, 65, 0} => 0, {0, 66, 0} => 0})
 
     {:ok, standing} = PlayerPose.geometry(:standing, {0.5, 64.0, 0.5})
     {:ok, swimming} = PlayerPose.geometry(:swimming, {0.5, 64.0, 0.5})
     assert {:ok, %{water: false, submerged: false}} = PlayerAir.contact(frame, standing)
     assert {:ok, %{water: true, submerged: true}} = PlayerAir.contact(frame, swimming)
-    full = %{frame | states: Map.put(frame.states, {0, 65, 0}, 89)}
+    full = %{frame | supplied: Map.put(frame.supplied, {0, 65, 0}, 89)}
     assert {:ok, %{water: true, submerged: true}} = PlayerAir.contact(full, standing)
 
     for id <- PlayerAir.bubble_states() do
       assert {:ok, %{water: true, submerged: false}} =
                PlayerAir.contact(
-                 %{full | states: Map.put(full.states, {0, 65, 0}, id)},
+                 %{full | supplied: Map.put(full.supplied, {0, 65, 0}, id)},
                  standing
                )
     end
 
     assert {:error, _} =
              PlayerAir.contact(
-               %{frame | states: Map.delete(frame.states, {0, 65, 0})},
+               %{frame | supplied: Map.delete(frame.supplied, {0, 65, 0})},
                standing
              )
   end

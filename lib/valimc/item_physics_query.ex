@@ -1,15 +1,13 @@
 defmodule Valimc.ItemPhysicsQuery do
-  @moduledoc "One bounded fenced geometry job per item cohort, with owner-supplied state and ordering."
-  alias Valimc.Physics.{BlockCollisions, CollisionQuery, ItemTravel}
+  @moduledoc "One bounded geometry job per item cohort, with owner-supplied state and ordering."
+  alias Valimc.Physics.{CollisionQuery, ItemTravel}
 
   def start(inputs) when is_list(inputs) do
     inputs = Enum.take(inputs, 33)
 
     with true <- length(inputs) in 1..32 and valid_inputs?(inputs),
          {:ok, boxes} <- boxes(inputs) do
-      CollisionQuery.start_batch_frame(boxes, fn observations ->
-        with {:ok, frame} <- BlockCollisions.prepare(observations), do: resolve(inputs, frame)
-      end)
+      CollisionQuery.start_batch_frame(boxes, &resolve(inputs, &1))
     else
       false -> {:error, :invalid_item_physics_batch}
       error -> error
@@ -47,6 +45,6 @@ defmodule Valimc.ItemPhysicsQuery do
         end
       end)
 
-    {:ok, %{steps: Enum.reverse(steps), refused: Enum.reverse(refused), fences: frame.fences}}
+    {:ok, %{steps: Enum.reverse(steps), refused: Enum.reverse(refused)}}
   end
 end

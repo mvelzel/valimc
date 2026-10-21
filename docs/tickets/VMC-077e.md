@@ -47,6 +47,25 @@ Acceptance:
   a change of its chunk arrives, or on a dimension change.
 - Portal and spawn readers await generation through the region's defer
   mechanism instead of polling for absent chunks.
+- `World.View` is the one block read path for collision, pose, fluid,
+  climbing, landing, rain, portal and spawn code: rows of published snapshots,
+  loaded per chunk (a box's chunks up front, any other chunk on first read),
+  with no fence and no owner call; an unreadable chunk fails closed. `await/4`
+  holds a timed ticket and awaits generation through the owner's defer queue.
+  Deleted: the observation frames (`BlockCollisions.Frame`, `prepare`, the
+  128-block observation split and per-cell re-validation, fence verification
+  after the computation), `BlockSnapshot.read/chunk/current?` and the
+  region-wide `:block_fence` row, `World.item_frame_current?`, the
+  `Portal.Access` and `PlayerSpawn` polling loops, `Region.observe_columns`
+  and `ColumnIndex`/`ColumnHeight`. Movement and pose results carry the owners
+  they read (to recheck a pose when one dies), not revisions; item simulation
+  commits without a region fence, and a resting item is simulated again when a
+  section around it changes.
+- Movement, pose, item motion and rain stop correcting on unrelated block
+  changes: a collision job whose region changes elsewhere while it computes
+  still answers (`collision_query_test.exs`), and a rain answer is neither
+  staled by an unrelated change nor delayed by a busy owner
+  (`player_rain_query_test.exs`).
 - A region whose owner dies while loading is refused for a doubling backoff
   (50 ms first); after five failures in a row it is poisoned with one error log
   line and probed every five minutes. Admission errors are values; no caller
@@ -58,4 +77,13 @@ test/item_store_test.exs test/world_test.exs` (18 passed). Ticket slice: the
 generation, tick, block-tick, support, item, cooking, spawn, view-distance,
 console, weather, portal, lifecycle, loading and directory files (43 passed),
 then the dimension-travel, portal, connection, lid, entity-replication, command
-presentation, decorated-world and pickup socket files (23 passed).
+presentation, decorated-world and pickup socket files (23 passed). Chunk slice:
+world, view-distance, light, block-batch, group-commit and imported block
+entity files (21 passed), then the socket files above. View slice:
+`check_vanilla.py --changed` (49 stages: collision, motion, fluid, climb, stuck,
+pose, kinetics, item travel, sky column, heightmap, chunk sections, live
+generation and the TCP sessions) all pass; `mix test.fast` and the player,
+portal, dimension-travel and flight socket files.
+`portal_connection_test.exs` sometimes fails its cleanup (`File.rm_rf!` while
+a late write lands); it does the same on the commit before this slice (2 of 5
+runs), so it is not caused here.

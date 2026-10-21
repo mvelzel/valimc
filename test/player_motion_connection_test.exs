@@ -123,7 +123,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
           %{
             pose: :standing,
             powder_snow: false,
-            fences: %{},
+            sources: [],
             kinetics: %{
               velocity: {63.0, 63.0, 63.0},
               physical_ground: false,
@@ -300,7 +300,7 @@ defmodule Valimc.PlayerMotionConnectionTest do
       destination = %{ctx.pos | x: ctx.pos.x + 0.3}
       :ok = Connection.teleport(pid, destination)
       refute Process.alive?(job.task.pid)
-      send(pid, {job.task.ref, {:ok, %{accepted: true, pose: :standing, fences: %{}}}})
+      send(pid, {job.task.ref, {:ok, %{accepted: true, pose: :standing, sources: []}}})
       move(client, %{ctx.pos | x: ctx.pos.x + 1})
       Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
       client = correction(client, pid, destination)

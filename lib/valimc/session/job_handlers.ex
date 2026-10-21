@@ -21,8 +21,7 @@ defmodule Valimc.Session.JobHandlers do
     PlayerMotion,
     PlayerMiningQuery,
     PlayerSnapshot,
-    PlayerStore,
-    World
+    PlayerStore
   }
 
   def job_result(:pose, job, result, state) do
@@ -32,17 +31,14 @@ defmodule Valimc.Session.JobHandlers do
          %{
            pose: pose,
            swimming: swimming,
-           fences: fences,
+           sources: sources,
            powder_snow: powder,
            submerged: submerged,
            eye_water: eye_water,
            kinetics: kinetics
          }} ->
           if System.monotonic_time(:millisecond) < job.deadline and
-               Movement.pose_signature(state) == job.signature and
-               Enum.all?(fences, fn {key, %{owner: owner}} ->
-                 World.existing_owner(key) == {:ok, owner}
-               end) do
+               Movement.pose_signature(state) == job.signature do
             player = %{
               state.player
               | pose: pose,
@@ -57,7 +53,7 @@ defmodule Valimc.Session.JobHandlers do
               %{state | player: player}
               |> Movement.apply_kinetic_tick(kinetics, false)
               |> Vitals.observe_environment(powder, submerged, eye_water, kinetics)
-              |> Movement.monitor_pose_sources(fences)
+              |> Movement.monitor_pose_sources(sources)
 
             state =
               if state.life_stage == :alive,
@@ -140,7 +136,7 @@ defmodule Valimc.Session.JobHandlers do
                accepted: true,
                pose: pose,
                swimming: swimming,
-               fences: fences,
+               sources: sources,
                powder_snow: powder,
                submerged: submerged,
                eye_water: eye_water,
@@ -148,57 +144,50 @@ defmodule Valimc.Session.JobHandlers do
                kinetics: kinetics,
                landing: landing
              }} ->
-              if Enum.all?(fences, fn {key, %{owner: owner}} ->
-                   World.existing_owner(key) == {:ok, owner}
-                 end) do
-                player = state.player |> Map.merge(job.input.position) |> Map.put(:pose, pose)
+              player = state.player |> Map.merge(job.input.position) |> Map.put(:pose, pose)
 
-                movement =
-                  {player.x - state.player.x, player.y - state.player.y,
-                   player.z - state.player.z}
+              movement =
+                {player.x - state.player.x, player.y - state.player.y, player.z - state.player.z}
 
-                motion =
-                  PlayerMotion.accept(
-                    state.player.motion,
-                    movement,
-                    job.input.flags,
-                    player.abilities.flying
-                  )
+              motion =
+                PlayerMotion.accept(
+                  state.player.motion,
+                  movement,
+                  job.input.flags,
+                  player.abilities.flying
+                )
 
-                motion =
-                  PlayerKinetics.apply_result(%{motion | swimming: swimming}, kinetics.packet)
+              motion =
+                PlayerKinetics.apply_result(%{motion | swimming: swimming}, kinetics.packet)
 
-                player = %{player | motion: motion}
+              player = %{player | motion: motion}
 
-                if pose != state.player.pose,
-                  do: send_packets(state, [Packets.player_pose(player)])
+              if pose != state.player.pose,
+                do: send_packets(state, [Packets.player_pose(player)])
 
-                next = %{
-                  state
-                  | player: player,
-                    motion_pending: nil,
-                    pose_checked: nil
-                }
+              next = %{
+                state
+                | player: player,
+                  motion_pending: nil,
+                  pose_checked: nil
+              }
 
-                send(self(), :drain)
+              send(self(), :drain)
 
-                next =
-                  next
-                  |> Vitals.apply_movement_exhaustion(exhaustion)
-                  |> Movement.apply_kinetic_tick(kinetics.tick, kinetics.packet.bounced)
-                  |> Vitals.observe_environment(powder, submerged, eye_water, kinetics.tick)
-                  |> Movement.monitor_pose_sources(fences)
-                  |> Replication.update_view()
-                  |> Vitals.apply_landing(landing)
+              next =
+                next
+                |> Vitals.apply_movement_exhaustion(exhaustion)
+                |> Movement.apply_kinetic_tick(kinetics.tick, kinetics.packet.bounced)
+                |> Vitals.observe_environment(powder, submerged, eye_water, kinetics.tick)
+                |> Movement.monitor_pose_sources(sources)
+                |> Replication.update_view()
+                |> Vitals.apply_landing(landing)
 
-                {:noreply,
-                 if(next.life_stage == :alive,
-                   do: %{next | pose_checked: Movement.pose_signature(next)},
-                   else: next
-                 )}
-              else
-                {:noreply, Movement.correct_motion(state, :movement_source_corrections)}
-              end
+              {:noreply,
+               if(next.life_stage == :alive,
+                 do: %{next | pose_checked: Movement.pose_signature(next)},
+                 else: next
+               )}
 
             {:ok, %{accepted: false}} ->
               {:noreply, Movement.correct_motion(state, :movement_collision_corrections)}

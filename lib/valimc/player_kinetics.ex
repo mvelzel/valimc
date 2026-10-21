@@ -589,7 +589,7 @@ defmodule Valimc.PlayerKinetics do
   def material(frame, {a, b, c, d, _, f}, {x, y, z} = position, ctx) do
     thin = Box.new({a, b - 1.0e-6, c, d, b, f})
 
-    with {:ok, colliders} <- BlockCollisions.collect_frame(thin, frame, ctx) do
+    with {:ok, colliders} <- BlockCollisions.collect(thin, frame, ctx) do
       support =
         colliders.colliders
         |> Enum.min_by(
@@ -618,8 +618,8 @@ defmodule Valimc.PlayerKinetics do
     with {:ok, f} <- fact(frame, pos), do: {:ok, if(f.support_holds_y, do: pos, else: {x, y, z})}
   end
 
-  defp fact(%BlockCollisions.Frame{states: states}, pos) do
-    case Map.fetch(states, pos) do
+  defp fact(%Valimc.World.View{} = view, pos) do
+    case Valimc.World.View.fetch(view, pos) do
       {:ok, id} -> {:ok, BlockFacts.motion(id)}
       :error -> {:error, :incomplete_kinetic_frame}
     end

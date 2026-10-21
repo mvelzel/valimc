@@ -1,5 +1,4 @@
 alias Valimc.Physics.{
-  BlockCollisions,
   BlockScan,
   BorderSnapshot,
   CollisionContext,
@@ -70,8 +69,7 @@ try do
     {:ok, border} = BorderSnapshot.new(0, 0, c["diameter"])
 
     observations = %{
-      blocks: blocks,
-      block_entities: %{},
+      blocks: Valimc.World.View.of(Map.new(Enum.flat_map(blocks, &Map.to_list(&1.blocks)))),
       entities: entities,
       border: border,
       subject: 1
@@ -89,34 +87,17 @@ try do
     expected_fits =
       Map.new(c["fits"], fn {name, fits} -> {String.to_existing_atom(name), fits} end)
 
-    expected_fences = Map.new(blocks, &{&1.region, Map.take(&1, [:owner, :revision])})
-
     if Atom.to_string(result.pose) != c["selected"] or result.fits != expected_fits or
-         result.fences != expected_fences or
          Enum.map(result.queries, &Atom.to_string/1) != c["queries"],
        do:
          raise(
            "Native composed pose mismatch at #{index}: #{inspect(c)} actual #{inspect(result)}"
          )
-
-    {:ok, frame} = BlockCollisions.prepare(blocks)
-
-    {:ok, prepared} =
-      PoseFit.select(
-        String.to_existing_atom(c["current"]),
-        struct!(PlayerPose, intent),
-        position,
-        CollisionContext.empty(),
-        %{observations | blocks: frame}
-      )
-
-    if prepared != result,
-      do: raise("Native prepared pose mismatch at #{index}: #{inspect(prepared)}")
   end
 after
   for {_, {pid, _}} <- owners, do: send(pid, :stop)
 end
 
 IO.puts(
-  "PASS: #{length(cases)} native raw/prepared occupancy, ordered pose fits and retained fences."
+  "PASS: #{length(cases)} native occupancy and ordered pose fits read through a block view."
 )

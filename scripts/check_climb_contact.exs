@@ -1,4 +1,5 @@
-alias Valimc.Physics.{BlockCollisions.Frame, BlockScan, ClimbContact, PlayerPose}
+alias Valimc.World.View
+alias Valimc.Physics.{BlockScan, ClimbContact, PlayerPose}
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 {:ok, geometry} = PlayerPose.geometry(:standing, {0.5, 64.0, 0.5})
@@ -6,11 +7,7 @@ cases = path |> File.read!() |> :json.decode()
 states = Map.new(plan, fn {p, _} -> {p, 0} end)
 
 for c <- cases do
-  frame = %Frame{
-    states: Map.merge(states, %{{0, 64, 0} => c["state"], {0, 63, 0} => c["below"]}),
-    entities: %{},
-    fences: %{}
-  }
+  frame = View.of(Map.merge(states, %{{0, 64, 0} => c["state"], {0, 63, 0} => c["below"]}))
 
   {:ok, result} =
     ClimbContact.sample(frame, {0, 64, 0}, c["flying"], c["spectator"], c["gliding"])

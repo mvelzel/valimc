@@ -1,12 +1,12 @@
 defmodule Valimc.Physics.FluidFlow do
   @moduledoc "A single native fluid current from bounded neighboring observations, without propagation."
-  alias Valimc.Physics.{BlockCollisions.Frame, BlockOffset, FluidBoundaries}
+  alias Valimc.World.View
+  alias Valimc.Physics.{BlockOffset, FluidBoundaries}
   alias Valimc.Registry.BlockFacts
   # Native horizontal iteration order: north, east, south, west.
   @directions [{0, -1, 2}, {1, 0, 5}, {0, 1, 3}, {-1, 0, 4}]
 
-  def sample(%Frame{states: states} = frame, pos)
-      when is_map(states) and map_size(states) <= 2048 do
+  def sample(%View{} = frame, pos) do
     if BlockOffset.valid_position?(pos) do
       with {:ok, fluid} <- at(frame, pos) do
         if fluid.kind == :empty do
@@ -88,8 +88,8 @@ defmodule Valimc.Physics.FluidFlow do
     with {:ok, id} <- state(frame, p), do: {:ok, BlockFacts.fluid(id)}
   end
 
-  defp state(%Frame{states: states}, p) do
-    case Map.fetch(states, p) do
+  defp state(%View{} = view, p) do
+    case View.fetch(view, p) do
       {:ok, id} -> {:ok, id}
       :error -> {:error, :incomplete_fluid_frame}
     end

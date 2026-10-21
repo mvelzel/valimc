@@ -2,8 +2,9 @@ defmodule Valimc.Physics.FluidBoundaries do
   @moduledoc "Pinned flow barriers and support faces; block-entity-dependent faces remain explicit."
   import Bitwise
 
+  alias Valimc.World.View
+
   alias Valimc.Physics.{
-    BlockCollisions.Frame,
     BlockEntityContext,
     BlockShapes,
     CollisionContext,
@@ -12,7 +13,7 @@ defmodule Valimc.Physics.FluidBoundaries do
 
   alias Valimc.Registry.{BlockFacts, Blocks}
 
-  def sturdy?(%Frame{} = frame, pos, direction) when direction in 0..5 do
+  def sturdy?(%View{} = frame, pos, direction) when direction in 0..5 do
     with {:ok, id} <- at(frame, pos),
          do: sturdy(frame, pos, id, BlockFacts.boundary(id).context, direction)
   end
@@ -22,7 +23,7 @@ defmodule Valimc.Physics.FluidBoundaries do
   defp sturdy(_, _, id, :none, direction),
     do: {:ok, (BlockFacts.sturdy_faces(id) &&& 1 <<< direction) != 0}
 
-  defp sturdy(%Frame{entities: entities}, pos, id, kind, direction) do
+  defp sturdy(%View{entities: entities}, pos, id, kind, direction) do
     case Map.get(entities, pos, BlockEntityContext.absent()) do
       %{kind: entity} when entity != kind ->
         {:ok, kind == :shulker}
@@ -39,8 +40,8 @@ defmodule Valimc.Physics.FluidBoundaries do
     end
   end
 
-  defp at(%Frame{states: states}, pos) do
-    case Map.fetch(states, pos) do
+  defp at(%View{} = view, pos) do
+    case View.fetch(view, pos) do
       {:ok, id} -> {:ok, id}
       :error -> {:error, :incomplete_fluid_frame}
     end

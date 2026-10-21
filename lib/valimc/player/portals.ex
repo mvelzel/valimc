@@ -22,7 +22,7 @@ defmodule Valimc.Player.Portals do
   alias Valimc.Player.Travel
   alias Valimc.Session.Jobs
   alias Valimc.World
-  alias Valimc.World.{BlockSnapshot, Directory}
+  alias Valimc.World.View
 
   @cooldown Travel.cooldown()
   # Ticks before a failed destination is tried again.
@@ -285,16 +285,16 @@ defmodule Valimc.Player.Portals do
 
   # States at `positions` from the loaded owners' published snapshots.
   defp read(positions) do
-    positions
-    |> Enum.group_by(fn {x, _, z} -> World.region_key(World.chunk_key(x, z)) end)
-    |> Enum.reduce(%{}, fn {key, positions}, acc ->
-      with {pid, _, %{epoch: epoch, items: table}} <- Directory.lookup(key),
-           true <- is_pid(pid),
-           {:ok, _revision, blocks} <- BlockSnapshot.read(table, epoch, positions) do
-        Map.merge(acc, blocks)
-      else
-        _ -> acc
-      end
-    end)
+    view =
+      View.load_chunks(
+        View.new(),
+        positions |> Enum.map(fn {x, _, z} -> World.chunk_key(x, z) end) |> Enum.uniq()
+      )
+
+    for position <- positions,
+        state = View.block(view, position),
+        state != nil,
+        into: %{},
+        do: {position, state}
   end
 end

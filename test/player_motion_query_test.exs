@@ -58,7 +58,9 @@ defmodule Valimc.PlayerMotionQueryTest do
     DynamicSupervisor.terminate_child(Valimc.RegionSupervisor, old)
     result = query(p, %{x: p.x + 0.2})
 
-    assert match?({:error, {:region, ^key, _}}, result) or
+    # Space of a region not running cannot be read (unless its replacement
+    # already published it).
+    assert match?({:error, {:missing_block, _}}, result) or
              match?({:ok, %{accepted: true}}, result)
 
     assert {:ok, {replacement, _}} = World.owner(key)

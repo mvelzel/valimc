@@ -521,12 +521,8 @@ defmodule Valimc.TestRegion do
   end
 
   @doc "The block at `position` as collision readers see it (the published snapshot)."
-  def published_block({pid, epoch}, {x, _, z} = position) do
-    key = Valimc.World.region_key(Valimc.World.chunk_key(x, z))
-    {^pid, _, %{items: table}} = Valimc.World.Directory.lookup(key)
-    {:ok, _revision, blocks} = Valimc.World.BlockSnapshot.read(table, epoch, [position])
-    blocks[position]
-  end
+  def published_block({_pid, _epoch}, position),
+    do: Valimc.World.View.block(Valimc.World.View.new(), position)
 
   @doc """
   Expire, now, the deadlines of the grants an owner answers once its in-flight

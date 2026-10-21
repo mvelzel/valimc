@@ -1,16 +1,17 @@
 defmodule Valimc.Physics.FluidContactTest do
   use ExUnit.Case, async: true
-  alias Valimc.Physics.{BlockCollisions.Frame, BlockScan, FluidContact}
+  alias Valimc.World.View
+  alias Valimc.Physics.{BlockScan, FluidContact}
   @box {0.2, 64.0, 0.2, 0.8, 65.8, 0.8}
 
   test "missing body or above observation cannot silently become dry" do
     f = frame(%{{0, 64, 0} => 89})
 
     assert {:error, :incomplete_fluid_frame} ==
-             FluidContact.sample(%{f | states: Map.delete(f.states, {0, 65, 0})}, @box)
+             FluidContact.sample(%{f | supplied: Map.delete(f.supplied, {0, 65, 0})}, @box)
 
     assert {:error, :incomplete_fluid_frame} ==
-             FluidContact.sample(%{f | states: Map.delete(f.states, {0, 64, 0})}, @box)
+             FluidContact.sample(%{f | supplied: Map.delete(f.supplied, {0, 64, 0})}, @box)
   end
 
   test "invalid or excessive body scans fail before enumerating or consulting a frame" do
@@ -24,10 +25,6 @@ defmodule Valimc.Physics.FluidContactTest do
   defp frame(edits, box \\ @box) do
     {:ok, plan} = BlockScan.plan(box)
 
-    %Frame{
-      states: Map.merge(Map.new(plan, fn {p, _} -> {p, 0} end), edits),
-      fences: %{},
-      entities: %{}
-    }
+    View.of(Map.merge(Map.new(plan, fn {p, _} -> {p, 0} end), edits))
   end
 end

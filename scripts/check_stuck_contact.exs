@@ -1,4 +1,5 @@
-alias Valimc.Physics.{BlockCollisions.Frame, CollisionContext, StuckContact}
+alias Valimc.World.View
+alias Valimc.Physics.{CollisionContext, StuckContact}
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 poses = %{"standing" => :standing, "crouching" => :crouching, "swimming" => :swimming}
@@ -20,7 +21,7 @@ for c <- cases do
     CollisionContext.entity(Enum.at(feet, 1))
     |> CollisionContext.with_entity(c["fall"], false, false)
 
-  frame = %Frame{states: states, fences: %{}, entities: %{}}
+  frame = View.of(states)
 
   result =
     if Map.has_key?(c, "paths") do

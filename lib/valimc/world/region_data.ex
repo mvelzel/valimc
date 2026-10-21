@@ -20,7 +20,6 @@ defmodule Valimc.World.RegionData do
     ContainerViewers,
     ContainerLifecycle,
     ContainerSpills,
-    ColumnIndex,
     Items,
     ItemHandoffs,
     ItemHandoffDelivery,
@@ -83,7 +82,6 @@ defmodule Valimc.World.RegionData do
     :store_lease,
     :store_monitor,
     :blocks,
-    :column_index,
     :cache,
     :jobs,
     :versions,
@@ -176,7 +174,6 @@ defmodule Valimc.World.RegionData do
     publication = :ets.new(:region_items, [:set, :protected, read_concurrency: true])
     :ok = BlockSnapshot.publish_chunks(publication, blocks, Blocks.touched_chunks(blocks), 0)
     :ok = BlockSnapshot.publish_absent(publication, MapSet.to_list(generation.absent))
-    :ets.insert(publication, {:block_fence, items.epoch, 0})
     EntityPublication.publish(publication, items.epoch, :items, items.views)
 
     save_timer = Process.send_after(self(), {:resource, items.epoch, :save}, 30_000)
@@ -216,7 +213,6 @@ defmodule Valimc.World.RegionData do
       store_lease: store_lease,
       store_monitor: store_monitor,
       blocks: blocks,
-      column_index: ColumnIndex.restore(edits, &Blocks.get(blocks, &1)),
       cache: %{},
       jobs: %{},
       versions: %{},
@@ -658,11 +654,21 @@ defmodule Valimc.World.RegionData do
 
   defp start_item_simulation(state, _), do: state
 
+  # A resting item is simulated again once a section around it changes.
+  defp resting_fence(state, {x, y, z}) do
+    {x, y, z} = {floor(x), floor(y), floor(z)}
+
+    fence(
+      state,
+      for(dx <- [-1, 1], dy <- [-1, 1], dz <- [-1, 1], do: {x + dx, y + dy, z + dz})
+      |> Enum.filter(&in_region?(state, &1))
+    )
+  end
+
   defp resting_current?(state, id) do
     case state.item_resting[id] do
-      {version, fences} ->
-        version == state.items.entries[id].physical_revision and
-          Valimc.World.item_frame_current?(fences)
+      {version, fence} ->
+        version == state.items.entries[id].physical_revision and fence_current?(state, fence)
 
       nil ->
         false
@@ -1362,39 +1368,6 @@ defmodule Valimc.World.RegionData do
   def handle_call({:light_image, epoch, chunk}, _from, %{items: %{epoch: epoch}} = state),
     do: {:reply, Blocks.light_image(state.blocks, chunk), state}
 
-  def handle_call({:observe_columns, epoch, columns, expected_revision}, _from, state) do
-    result =
-      cond do
-        not valid_column_query?(columns, expected_revision) ->
-          {:error, :invalid_column_query}
-
-        epoch != state.items.epoch ->
-          {:error, :stale_owner}
-
-        expected_revision != :any and expected_revision != state.revision ->
-          {:error, :stale_revision}
-
-        Enum.any?(columns, fn {x, z} ->
-          Valimc.World.region_key(Valimc.World.chunk_key(x, z)) != state.key
-        end) ->
-          {:error, :wrong_region}
-
-        absent_positions?(state, for({x, z} <- columns, do: {x, 0, z})) ->
-          {:error, :chunk_generating}
-
-        true ->
-          {:ok,
-           %{
-             owner: {self(), state.items.epoch},
-             region: state.key,
-             revision: state.revision,
-             columns: Map.new(columns, &{&1, ColumnIndex.heights(state.column_index, &1)})
-           }}
-      end
-
-    {:reply, result, state}
-  end
-
   def handle_call({:destroy_block, epoch, revision, position, deadline}, from, state) do
     now = System.monotonic_time(:millisecond)
 
@@ -1598,12 +1571,6 @@ defmodule Valimc.World.RegionData do
               state
               | unsaved: Map.put(state.unsaved, position, block),
                 permits: Valimc.Txn.Permits.invalidate(state.permits, %{position => block}),
-                column_index:
-                  ColumnIndex.update(
-                    state.column_index,
-                    &Blocks.get(state.blocks, &1),
-                    %{position => block}
-                  ),
                 dirty: true,
                 revision: state.revision + 1,
                 section_revisions: touch_sections(state, [position], state.revision + 1),
@@ -2927,14 +2894,9 @@ defmodule Valimc.World.RegionData do
     versions =
       Enum.reduce(batch.chunks, state.versions, &Map.update(&2, &1, 1, fn n -> n + 1 end))
 
-    lookup = fn position ->
-      Map.get_lazy(batch.edits, position, fn -> Blocks.get(state.blocks, position) end)
-    end
-
     {:ok,
      %{
        changes: batch.edits,
-       column_index: ColumnIndex.update(state.column_index, lookup, batch.edits),
        versions: versions,
        revision: state.revision + 1
      }}
@@ -2987,7 +2949,7 @@ defmodule Valimc.World.RegionData do
 
     state =
       state
-      |> struct!(Map.take(proposal, [:column_index, :versions, :revision]))
+      |> struct!(Map.take(proposal, [:versions, :revision]))
       |> then(
         &%{
           &1
@@ -3076,7 +3038,6 @@ defmodule Valimc.World.RegionData do
           state.revision
         )
 
-      BlockSnapshot.publish_fence(state.item_publication, state.items.epoch, state.revision)
       %{state | unpublished_chunks: MapSet.new()}
     else
       %{state | unpublished_chunks: unpublished}
@@ -3469,13 +3430,14 @@ defmodule Valimc.World.RegionData do
     state = %{state | item_simulation: nil}
 
     case result do
-      {:ok, %{steps: steps, refused: refused, fences: fences}} ->
+      {:ok, %{steps: steps, refused: refused}} ->
         Valimc.Metrics.add(:item_simulation_refusals, length(refused))
 
-        if state.item_pending == nil and System.monotonic_time(:millisecond) < job.deadline and
-             Valimc.World.item_frame_current?(fences),
-           do: commit_simulated_items(state, steps, fences),
-           else: {:noreply, state}
+        # Steps of items that changed meanwhile are dropped; block changes are
+        # not fenced (VMC-077e): the next tick moves the item from what it sees.
+        if state.item_pending == nil and System.monotonic_time(:millisecond) < job.deadline,
+          do: commit_simulated_items(state, steps),
+          else: {:noreply, state}
 
       {:error, _} ->
         Valimc.Metrics.add(:item_simulation_failures)
@@ -4231,19 +4193,6 @@ defmodule Valimc.World.RegionData do
   defp touch_sections(state, positions, revision),
     do: Enum.reduce(positions, state.section_revisions, &Map.put(&2, section(&1), revision))
 
-  def valid_column_query?(columns, revision),
-    do:
-      (revision == :any or (is_integer(revision) and revision >= 0)) and
-        valid_columns?(columns, 0)
-
-  defp valid_columns?([], _), do: true
-
-  defp valid_columns?([{x, z} | rest], count)
-       when count < 128 and is_integer(x) and is_integer(z),
-       do: abs(x) < 30_000_000 and abs(z) < 30_000_000 and valid_columns?(rest, count + 1)
-
-  defp valid_columns?(_, _), do: false
-
   defp valid_block_positions?([], _), do: true
 
   defp valid_block_positions?([{x, y, z} | rest], count)
@@ -4418,7 +4367,7 @@ defmodule Valimc.World.RegionData do
     state
   end
 
-  defp commit_simulated_items(state, steps, fences) do
+  defp commit_simulated_items(state, steps) do
     steps =
       Enum.flat_map(steps, fn step ->
         case state.items.entries[step.id] do
@@ -4465,7 +4414,12 @@ defmodule Valimc.World.RegionData do
     resting =
       Enum.reduce(local, state.item_resting, fn step, cache ->
         if rests?(step.motion),
-          do: Map.put(cache, step.id, {state.items.entries[step.id].physical_revision, fences}),
+          do:
+            Map.put(
+              cache,
+              step.id,
+              {state.items.entries[step.id].physical_revision, resting_fence(state, step.position)}
+            ),
           else: Map.delete(cache, step.id)
       end)
 

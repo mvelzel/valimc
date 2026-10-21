@@ -1,5 +1,6 @@
+alias Valimc.World.View
 alias Valimc.{ItemMotionState}
-alias Valimc.Physics.{ItemTravel, BlockScan, BlockCollisions.Frame}
+alias Valimc.Physics.{ItemTravel, BlockScan}
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 unless length(cases) == 12960, do: raise("Incomplete native travel traces")
@@ -38,7 +39,7 @@ for {row, index} <- Enum.with_index(cases) do
       )
     )
 
-  frame = %Frame{states: states, fences: %{}, entities: %{}}
+  frame = View.of(states)
   result = ItemTravel.sample(before, frame)
   expected = input.(row["after"])
   bits = fn v -> for n <- Tuple.to_list(v), do: <<n::float-64>> end

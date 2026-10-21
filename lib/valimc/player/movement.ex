@@ -388,8 +388,8 @@ defmodule Valimc.Player.Movement do
     state
   end
 
-  def monitor_pose_sources(state, fences) do
-    owners = MapSet.new(fences, fn {_, %{owner: owner}} -> owner end)
+  def monitor_pose_sources(state, sources) do
+    owners = MapSet.new(sources)
 
     retained =
       Map.filter(state.pose_sources, fn {ref, owner} ->

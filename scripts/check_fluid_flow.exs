@@ -1,4 +1,5 @@
-alias Valimc.Physics.{BlockCollisions.Frame, BlockEntityContext, BlockScan, FluidFlow}
+alias Valimc.World.View
+alias Valimc.Physics.{BlockEntityContext, BlockScan, FluidFlow}
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 bits = fn v -> for n <- Tuple.to_list(v), do: <<n::float-64>> end
@@ -8,7 +9,7 @@ entities = Map.new(base, fn {p, _} -> {p, BlockEntityContext.absent()} end)
 
 for c <- cases do
   supplied = Map.new(c["states"], &{List.to_tuple(&1["position"]), &1["state"]})
-  frame = %Frame{states: Map.merge(base, supplied), fences: %{}, entities: entities}
+  frame = View.of(Map.merge(base, supplied), entities)
   {:ok, actual} = FluidFlow.sample(frame, {0, 0, 0})
 
   unless bits.(actual) == bits.(List.to_tuple(c["flow"])),
