@@ -1,6 +1,6 @@
 # VMC-077e — Chunk tickets, region unload and World.View
 
-Status: In progress
+Status: Awaiting client
 Milestone: foundations II (between M2 and M3)
 Depends on: [VMC-077](VMC-077.md) (the audit and plan), [VMC-070](VMC-070.md)
 (view distance and chunk batches), [VMC-075](VMC-075.md) (per-chunk generation).
@@ -16,7 +16,16 @@ Scope: tickets drive load, simulation and unload as in vanilla; the Directory
 backs off and poisons failing keys; chunk frames are published and requested
 asynchronously; one lazy read view over published snapshots serves every
 physics, rain, portal and spawn reader. Not here: light (VMC-077c), the block
-fact table (VMC-077d), supervision and commands (VMC-077a).
+fact table (VMC-077d), supervision and commands (VMC-077a), synchronous
+movement validation (physics kernel, VMC-077l).
+
+Limits: ticket types carry flags (loads, simulates) rather than vanilla's
+numeric levels, so the ring of loaded but non-ticking border chunks is not
+modelled: a chunk ticks exactly when a simulation ticket names it. Item motion
+is gated per chunk; item ageing, cooking and orb ageing per region (any chunk
+simulated) until the entity store (VMC-077h). Nothing places `post_teleport`
+or `player_spawn` tickets yet: a teleport sends the player's view and
+simulation tickets in the same step.
 
 Acceptance:
 
@@ -101,3 +110,17 @@ runs), so it is not caused here. Rain slice: `cargo test -p valimc_core column`,
 `cargo clippy --all-targets`, `mix test.fast` (490 passed) and
 `check_vanilla.py --changed` (63 stages, including sky column, flat climate,
 heightmap, rain contact, light and TCP) pass.
+
+Size over the five commits (b06e324, 032e275, 2bb6221, d8d4a36, c1594f0):
+lib and native +1,680 / −1,390 lines (the read-path commit alone +585 /
+−965), tests +380 / −550, scripts +100 / −140; deleted `ColumnIndex`,
+`ColumnHeight`, `FlatClimate` and its facts file, `BlockCollisions.Frame` and
+the observation pipeline. The lifecycle (tickets, unload, backoff, published
+packets) is new code.
+
+Client: the milestone handoff covers a long walk and flight (no missing chunks,
+regions unload behind), rain by biome (none in deserts, snow in cold biomes)
+and movement beside lit furnaces and other block changes without corrections.
+Next: the client run; vanilla's level rings and per-chunk entity ticking with
+the entity store; the remaining owner calls (`Portal.Access` commit retries,
+`World.chunk/1` for tests) with VMC-077g's error taxonomy.
