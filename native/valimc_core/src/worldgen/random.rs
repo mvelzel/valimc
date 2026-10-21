@@ -473,10 +473,12 @@ pub fn md5(input: &[u8]) -> [u8; 16] {
         0x98BA_DCFEu32,
         0x1032_5476u32,
     );
-    for chunk in message.chunks_exact(64) {
+    for chunk in message.as_chunks::<64>().0 {
         let m: Vec<u32> = chunk
-            .chunks_exact(4)
-            .map(|w| u32::from_le_bytes(w.try_into().unwrap()))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|w| u32::from_le_bytes(*w))
             .collect();
         let (mut a, mut b, mut c, mut d) = (a0, b0, c0, d0);
         for i in 0..64 {

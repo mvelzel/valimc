@@ -42,7 +42,8 @@ Evidence (counts, seeds, runs) belongs in the ticket, never in the roadmap.
 - Rust NIFs: pure or resource-owned work only, each call under ~1 ms or on a dirty
   scheduler; state lives in a `ResourceArc` owned by one Elixir process; every NIF
   has Elixir-side parity tests. See [architecture](docs/architecture.md).
-- Use pinned asdf Elixir/Erlang and Rust. Follow the user's pnpm-only policy for
+- Use the pinned asdf Elixir/Erlang (`.tool-versions`) and rustup's stable Rust (at
+  least `rust-version` in `native/Cargo.toml`). Follow the user's pnpm-only policy for
   JavaScript tools.
 
 ## Work and verification

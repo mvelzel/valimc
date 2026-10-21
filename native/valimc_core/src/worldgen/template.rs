@@ -399,13 +399,6 @@ pub struct ProcessContext<'s> {
 
 impl Processor {
     fn parse(json: &Json, table: &BlockTable) -> Result<Processor, String> {
-        let blocks = |names: &[&str]| {
-            names
-                .iter()
-                .map(|n| table.block(n))
-                .collect::<Result<Vec<_>, _>>()
-                .map(BlockSet::from_blocks)
-        };
         Ok(match json.field("processor_type")?.as_str()? {
             "minecraft:block_rot" => Processor::BlockRot {
                 rottable: json
@@ -485,10 +478,6 @@ impl Processor {
                     .collect::<Result<_, String>>()?,
             ),
             other => return Err(format!("structure processor {other} is not implemented")),
-        })
-        .map(|p| {
-            let _ = &blocks;
-            p
         })
     }
 }

@@ -75,8 +75,8 @@ fn region_new(
     }
     let flags = FLAGS.get().ok_or(atoms::flags_missing())?;
     let mut base = Box::new([0u16; HEIGHT]);
-    for (i, pair) in bytes.chunks_exact(2).enumerate() {
-        let state = u16::from_be_bytes([pair[0], pair[1]]);
+    for (i, pair) in bytes.as_chunks::<2>().0.iter().enumerate() {
+        let state = u16::from_be_bytes(*pair);
         if !flags.valid(state as u32) {
             return Err(atoms::invalid_layers());
         }
@@ -275,7 +275,7 @@ fn set_open_files_limit(target: u64) -> Result<(u64, u64), String> {
             return Err(std::io::Error::last_os_error().to_string());
         }
     }
-    Ok((limit.rlim_cur as u64, limit.rlim_max as u64))
+    Ok((limit.rlim_cur, limit.rlim_max))
 }
 
 /// Install the region's randomly ticking states: one bit per state id (LSB first).
@@ -547,8 +547,8 @@ fn column_layers_image<'a>(env: Env<'a>, layers: Binary<'a>, biome: u16) -> Resu
         return Err(atoms::invalid_layers());
     }
     let mut states = [0u16; HEIGHT];
-    for (state, bytes) in states.iter_mut().zip(layers.as_slice().chunks_exact(2)) {
-        *state = u16::from_be_bytes([bytes[0], bytes[1]]);
+    for (state, bytes) in states.iter_mut().zip(layers.as_slice().as_chunks::<2>().0) {
+        *state = u16::from_be_bytes(*bytes);
         if !flags.valid(*state as u32) {
             return Err(atoms::invalid_state());
         }
@@ -570,8 +570,10 @@ fn pack_paletted<'a>(env: Env<'a>, values: Binary<'a>, min_bits: u32) -> Result<
     }
     let values: Vec<u16> = values
         .as_slice()
-        .chunks_exact(2)
-        .map(|b| u16::from_be_bytes([b[0], b[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|b| u16::from_be_bytes(*b))
         .collect();
     let (palette, longs) =
         valimc_core::section::pack_vanilla(&values, min_bits).ok_or(atoms::invalid_layers())?;
@@ -1212,6 +1214,10 @@ type BlockTick = ((i32, i32, i32), u16, i32, i32);
 type FluidTick = ((i32, i32, i32), String, i32, i32);
 
 /// One decorated chunk for `check_decoration.exs`.
+/// A created block entity for NBT parity: position, state, type, the NBT a
+/// template gave (or ""), loot table (or "") and seed.
+type BlockEntityNbt = ((i32, i32, i32), u16, String, String, String, i64);
+
 #[derive(rustler::NifMap)]
 struct DecoratedChunk<'a> {
     x: i32,
@@ -1228,7 +1234,7 @@ struct DecoratedChunk<'a> {
     entities: Vec<String>,
     /// Created block entities for NBT parity (VMC-025f): position, state,
     /// type, the NBT a template gave (or ""), loot table (or "") and seed.
-    block_entity_nbt: Vec<((i32, i32, i32), u16, String, String, String, i64)>,
+    block_entity_nbt: Vec<BlockEntityNbt>,
 }
 
 /// Decoration parity (VMC-025): the 5 × 5 chunks around `centre` with their

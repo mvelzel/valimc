@@ -538,8 +538,7 @@ impl JavaHashSet {
             }
         }
         let (pl, pr) = (self.n(p).left, self.n(p).right);
-        let replacement;
-        if pl != NONE && pr != NONE {
+        let replacement = if pl != NONE && pr != NONE {
             let mut s = pr;
             while self.n(s).left != NONE {
                 s = self.n(s).left;
@@ -585,14 +584,18 @@ impl JavaHashSet {
             } else {
                 self.m(pp).right = s;
             }
-            replacement = if sr != NONE { sr } else { p };
+            if sr != NONE {
+                sr
+            } else {
+                p
+            }
         } else if pl != NONE {
-            replacement = pl;
+            pl
         } else if pr != NONE {
-            replacement = pr;
+            pr
         } else {
-            replacement = p;
-        }
+            p
+        };
         if replacement != p {
             let pp = self.n(p).parent;
             self.m(replacement).parent = pp;

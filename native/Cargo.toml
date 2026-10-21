@@ -4,7 +4,7 @@ members = ["valimc_core", "valimc_nif"]
 
 [workspace.package]
 edition = "2021"
-rust-version = "1.91"
+rust-version = "1.99"
 publish = false
 
 [profile.release]

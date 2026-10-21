@@ -1446,7 +1446,7 @@ impl Worldgen {
     ) -> Result<(Column, [i32; 256]), String> {
         let air = self.registry.blocks.air;
         let rows = height as usize;
-        if blocks.len() != 256 * rows || biomes.is_empty() || biomes.len() % 64 != 0 {
+        if blocks.len() != 256 * rows || biomes.is_empty() || !biomes.len().is_multiple_of(64) {
             return Err("a chunk's blocks or biomes do not fit its bounds".into());
         }
         // The block at column Y index `y` (0 at the overworld's bottom).

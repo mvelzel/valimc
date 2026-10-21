@@ -188,8 +188,8 @@ pub fn unpack(data: &[u8], bits: u32, count: usize) -> Option<Vec<u32>> {
     }
     let mask = (1u64 << bits) - 1;
     let mut out = Vec::with_capacity(count);
-    for word in data.chunks_exact(8) {
-        let word = u64::from_be_bytes(word.try_into().unwrap());
+    for word in data.as_chunks::<8>().0 {
+        let word = u64::from_be_bytes(*word);
         for k in 0..per_long {
             if out.len() == count {
                 break;

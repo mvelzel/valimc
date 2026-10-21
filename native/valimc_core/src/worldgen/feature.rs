@@ -891,7 +891,7 @@ impl Decoration {
         // Live corals break before anything else; dead ones schedule water
         // first.
         if breaks && live {
-            return Some(table.default_state("air").ok()?);
+            return table.default_state("air").ok();
         }
         if live && !waterlogged && !(0..6).any(|d| water(read(at(d)))) {
             region.random.next_int_bounded(40);
@@ -901,7 +901,7 @@ impl Decoration {
             region.schedule_fluid_tick(pos, super::blocks::FLUID_WATER);
         }
         if breaks {
-            return Some(table.default_state("air").ok()?);
+            return table.default_state("air").ok();
         }
         Some(state)
     }

@@ -87,6 +87,10 @@ fn settings_box(b: BoundingBox) -> TemplateBox {
     }
 }
 
+/// What a template's data markers do: called with the marker's metadata and
+/// position.
+type MarkerFn<'f> = dyn FnMut(&mut Ctx, &str, [i32; 3]) -> Result<(), String> + 'f;
+
 /// `TemplateStructurePiece.postProcess`: the piece's box from the template,
 /// the template placed inside the chunk's box, then each data marker
 /// (`markers`, with its metadata and position) and each jigsaw block (its
@@ -97,7 +101,7 @@ fn place_template(
     location: &str,
     position: [i32; 3],
     mut settings: PlaceSettings,
-    markers: &mut dyn FnMut(&mut Ctx, &str, [i32; 3]) -> Result<(), String>,
+    markers: &mut MarkerFn,
 ) -> Result<(), String> {
     let templates = c.placer.templates.ok_or("no structure templates")?;
     let template = templates.template(location)?;

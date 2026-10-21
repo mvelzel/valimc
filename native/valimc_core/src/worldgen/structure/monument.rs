@@ -611,15 +611,8 @@ fn spawn_elder(c: &mut Ctx, f: &Frame, x: i32, y: i32, z: i32) -> Result<(), Str
 
 fn wing(c: &mut Ctx, f: &Frame, p: &Palette, flipped: bool, xoff: i32) {
     if intersects(c, f, xoff, 0, xoff + 23, 20) {
-        c.generate_box(
-            f,
-            (xoff + 0, 0, 0),
-            (xoff + 24, 0, 20),
-            p.gray,
-            p.gray,
-            false,
-        );
-        water_box(c, f, p, (xoff + 0, 1, 0), (xoff + 24, 10, 20));
+        c.generate_box(f, (xoff, 0, 0), (xoff + 24, 0, 20), p.gray, p.gray, false);
+        water_box(c, f, p, (xoff, 1, 0), (xoff + 24, 10, 20));
         for i in 0..4 {
             c.generate_box(
                 f,
