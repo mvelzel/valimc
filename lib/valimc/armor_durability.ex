@@ -2,6 +2,7 @@ defmodule Valimc.ArmorDurability do
   @moduledoc "Bounded player-owned armor wear for admitted environmental hits (at most four raw damage)."
   alias Valimc.{Inventory, PlayerDamageProtection}
   alias Valimc.Protocol.{ItemStack, ItemTypes}
+  alias Valimc.Registry.DamageTypes
   @path Path.expand("../../priv/protocol/item_armor_wear.json", __DIR__)
   @external_resource @path
   @facts :json.decode(File.read!(@path))
@@ -10,15 +11,14 @@ defmodule Valimc.ArmorDurability do
   @armor MapSet.new(@facts["armor_tag"])
   @armor_chance List.to_tuple(@facts["unbreaking"]["armor"])
   @other_chance List.to_tuple(@facts["unbreaking"]["other"])
-  @fire [:in_fire, :on_fire, :lava, :hot_floor, :campfire]
 
   def break_event(slot) when slot in 5..8, do: @facts["break_events"][Integer.to_string(slot)]
 
   def damage(inventory, source, amount, infinite, random \\ &next_float/0)
 
   def damage(%Inventory{} = inventory, source, amount, infinite, random)
-      when (source in @fire or source in [:cactus, :sweet_berry_bush]) and is_number(amount) and
-             amount >= 0 and amount <= 4 and is_boolean(infinite) and is_function(random, 0) do
+      when is_atom(source) and is_number(amount) and amount >= 0 and amount <= 4 and
+             is_boolean(infinite) and is_function(random, 0) do
     <<amount::float-32>> = <<amount::float-32>>
 
     if infinite or amount == 0 or not PlayerDamageProtection.wears_armor?(source) do
@@ -63,7 +63,7 @@ defmodule Valimc.ArmorDurability do
     allowed =
       MapSet.member?(@hurt, stack.item_id) and
         not MapSet.member?(stack.removed, "minecraft:equippable") and
-        not (source in @fire and MapSet.member?(@resistant, stack.item_id) and
+        not (DamageTypes.tag?(source, :is_fire) and MapSet.member?(@resistant, stack.item_id) and
                not MapSet.member?(stack.removed, "minecraft:damage_resistant"))
 
     if not allowed or maximum == nil or damage == nil or

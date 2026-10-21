@@ -1,6 +1,7 @@
 defmodule Valimc.Protocol.Packets do
   @moduledoc "Minecraft 26.3 clientbound packet payloads. All integers are network endian."
   alias Valimc.Protocol.{Data, EntityPackets, ItemStack, Wire}
+  alias Valimc.Registry.DamageTypes
   import Bitwise
 
   def time(data) do
@@ -286,7 +287,7 @@ defmodule Valimc.Protocol.Packets do
 
     packet("damage_event", [
       Wire.varint(entity_id),
-      Wire.varint(Data.registry_id("minecraft:damage_type", "minecraft:indirect_magic")),
+      Wire.varint(DamageTypes.id(:indirect_magic)),
       Wire.varint(entity_id + 1),
       Wire.varint(entity_id + 1),
       <<0>>
@@ -296,32 +297,11 @@ defmodule Valimc.Protocol.Packets do
   def damage_event(entity_id, source \\ :fall) do
     life_entity_id!(entity_id)
 
-    unless source in [
-             :generic_kill,
-             :fall,
-             :stalagmite,
-             :freeze,
-             :drown,
-             :out_of_world,
-             :outside_border,
-             :starve,
-             :on_fire,
-             :in_fire,
-             :lava,
-             :hot_floor,
-             :campfire,
-             :cactus,
-             :sweet_berry_bush,
-             :magic,
-             :wither
-           ],
-           do: raise(ArgumentError, "invalid damage source")
+    unless DamageTypes.known?(source), do: raise(ArgumentError, "invalid damage source")
 
     packet("damage_event", [
       Wire.varint(entity_id),
-      Wire.varint(
-        Data.registry_id("minecraft:damage_type", "minecraft:" <> Atom.to_string(source))
-      ),
+      Wire.varint(DamageTypes.id(source)),
       <<0, 0, 0>>
     ])
   end

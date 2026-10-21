@@ -11,6 +11,8 @@ defmodule Valimc.PlayerDamage do
     PlayerStatusImmunity
   }
 
+  alias Valimc.Registry.DamageTypes
+
   # `/kill` (vanilla `genericKill`): bypasses invulnerability, armour, effects
   # and absorption with Float.MAX_VALUE damage; exhaustion is zero.
   def resolve(player, inventory, selected, :generic_kill, _effects, _inventory_pending) do
@@ -34,7 +36,8 @@ defmodule Valimc.PlayerDamage do
         :ignored
 
       (source in [:fall, :stalagmite] and player.abilities.may_fly) or
-        (source != :out_of_world and player.abilities.invulnerable) or
+        (player.abilities.invulnerable and
+           not DamageTypes.tag?(source, :bypasses_invulnerability)) or
           not PlayerInput.loaded?(player.input) ->
         :immune
 

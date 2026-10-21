@@ -332,6 +332,10 @@ STAGES = [
         ('regen', 'BlockFactsOracle', '@block-facts.json'),
         ('same', '@block-facts.json', 'priv/registry/block_facts.json'),
     ]),
+    ('enchantments', [
+        ('regen', 'EnchantmentMetadata', '@enchantments.json'),
+        ('same', '@enchantments.json', 'priv/registry/enchantments.json'),
+    ]),
     ('client_tick', [
         ('java', 'ClientTickOracle', '@client-ticks.json'),
         ('check', 'check_client_tick.exs', '@client-ticks.json'),
